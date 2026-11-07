@@ -1,0 +1,20 @@
+### caravan-probe HEAD 6cd6dd14ef9289dcf0559fbf64e17a48750f6fc1 tree fdad2bcbd0b1a4fa003862dbb43fc615923815da
+?? frontier-node/crates/findex/tests/v16_history_coverage.rs
+?? frontier-node/crates/findex/tests/v16_history_gaps.rs
+?? frontier-node/crates/verify/tests/v16_cpi_keyfree.rs
+?? frontier-node/crates/verify/tests/v16_v27_gate.rs
+?? workstreams/04-execution/tests/v16_chain_caravan_faults.rs
+    Blocking waiting for file lock on package cache
+   Compiling wylls-runexec v0.1.0 (/tmp/claude-0/-home-user-wylls/47a54b0f-427a-5cca-bc82-feb7c5056956/scratchpad/v21-gh/workstreams/04-execution)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.97s
+     Running tests/v16_chain_caravan_faults.rs (target/debug/deps/v16_chain_caravan_faults-5bca00b28a641638)
+
+running 4 tests
+test v16_b1_duplicate_and_conflicting_acceptance ... ok
+test v16_b2_lost_answer_timeout_and_late_landing_send_once ... ok
+test v16_b3_crash_before_the_send_then_restart ... ok
+test v16_b4_a_feed_that_repeats_every_record_counts_once ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 14.20s
+
+exit=0

@@ -1,0 +1,12 @@
+M1-a-tag+1 a-join.json
+M2-b-other-citizen b-caravan.json
+M3-c-fact-tag c-memory.json
+M4-d-ship-tag d-outcome.json
+M5-e-other-citizen e-prize-run.json
+M6-a-no-transfer a-join.json
+M7-e-claim-paid e-prize-run.json
+M8-e-summary-citizen e-prize.json
+M9-e-summary-claim e-prize.json
+M10-e-both-vault-paid e-prize-run.json+e-prize.json
+M11-e-both-other-citizen e-prize-run.json+e-prize.json
+M12-e-both-claim-ok e-prize-run.json+e-prize.json

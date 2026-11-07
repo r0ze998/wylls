@@ -1183,3 +1183,93 @@ V27 が動かない版で JoinResident が PASS にならないことは §16.2 
   - findex: `coverage`、`no_hidden_gap`、`store_failure`、`v16_history_*`。
   - herald の `ingest_health`。`herald_fold::fixture` は `Signature::from(bytes)` で署名欄を埋めるだけで、署名しない。
   - ④の chain-flow の A・E・B と、⑯の荷車の試験。署名者は署名者フラグだけ。
+
+# 第13期（2026-11-07）：④が push した統合候補 6cd6dd14
+
+- 取得: `git fetch origin claude/gallant-ride-cunptv`
+- HEAD は `6cd6dd14ef9289dcf0559fbf64e17a48750f6fc1`、tree は `fdad2bcbd0b1a4fa003862dbb43fc615923815da`。④の連絡と一致した。
+- 祖先の確認:
+  - 入っている: 27651bed、6984acfa、⑲ r2 の c022f4fc・803e3b27、④ r2・r3・r4（4ebc0dc3・15bed411・57c5c171）、⑳ 4b233e4a・b2f7becc・53ec22ab・85a48c7c、公開された統合候補 c7b3c54c。
+  - 入っていない: ⑳ cab0bcac（⑯の手元に無い）、④の訂正文書 ba8f77dc（④の手元だけ）。
+- 隔離した worktree で流した。⑯の試験は、そこへ写して流した。
+
+実行の前に、試験の module と、試験が呼ぶ src の関数まで辿った。
+
+- 鍵を作る、または署名するので外したもの:
+  - 検証器: `tamper`（`TestKey::new()`）、`record`、`coverage`、`fixtures` の `march_fixture_is_fresh`。
+  - findex: `ingest`（`Keypair::new_from_array` で署名）。
+  - `-p fclient` は流していない。
+- 新しい試験は、どれも鍵を使わない。
+  - 対象: `custody*`、`history`、`ledger_history`、`resident_ledger`、`ws04_scan_resident`、`ws04_feed_scan`、`ws04_join_adversarial`、`ledger`。
+  - 取引は `Transaction::new_unsigned`、アドレスは固定のバイト列。
+- 27651bed からの chain-flow の変更は、`chain_nft.rs` と `check-fixtures.mjs` だけ。
+  - `chain_nft.rs` は、⑳の `resident_auth::holder` と `Holder::authority` を読む。どちらも純関数。
+
+## 18.1 固定ファイルの照合
+
+| 確認 | 結果 |
+|---|---|
+| コミット済みの fixture の照合 | 31/31 |
+| 作り直した出力とコミット済み fixture の比較 | 7 ファイルすべてバイト単位で一致 |
+| 照合器の変異試験（`scripts/mutate-chain.py`） | 12/12 を検出 |
+
+変異試験の中身:
+
+- 第12期の M1〜M9。M5（実行記録の Citizen）と M7（実行記録の請求を Ok）は、第12期では見逃したが、今回は FAIL になった。**修正を確認した。**
+- 新しい M10〜M12。実行記録と要約を同じように書き換えるので、要約と実行記録の突き合わせでは見つからない。
+  - M10: vault を 0 にする。
+  - M11: Citizen を別のアドレスにする。
+  - M12: 譲渡後の請求を Ok にする。
+  - どれも、固定の値（25,000,000、段 A の Citizen、BadAccount）との照合で FAIL になった。
+
+## 18.2 ホストでの実処理（鍵なし、署名なし、PDA あり）
+
+| 対象 | 結果 | 位置づけ |
+|---|---|---|
+| A NFT 参加と譲渡 | 2/2 | ゲームのプログラム本体。⑳の holder の定義で、旧所有者に StaleGeneration と NotCurrentAuthority |
+| B 荷車 | 1/1 | Sim の mock。完成に数えない |
+| E 賞金 | 2/2 | 賞金のプログラム本体。NFT 住民の請求はすべて BadAccount |
+| C・D 記憶と成果 | 完了 | JS |
+| ⑯ 荷車の障害試験 | 4/4 | mock。完成に数えない |
+| 検証器 lib | 47/47 | |
+| 検証器 custody 6、custody_history 8、custody_state 7、history 16、ledger_history 6、resident_ledger 3、ws04_scan_resident 4 | すべて通過 | |
+| 検証器 camp_clear 3、missing_state 2、new_bands 7、open_items 3、unit 8 | すべて通過 | |
+| ⑯ v16_cpi_keyfree 6、v16_v27_gate 3 | すべて通過 | |
+| 検証器 evidence | **7/8（1 件失敗）** | 下 |
+| 検証器 fixtures（1 件除外） | **7/8（1 件失敗）** | 下 |
+| findex coverage 14、ledger 15、no_hidden_gap 4、open_items 5、store_failure 5、ws04_feed_scan 11、ws04_join_adversarial 7 | すべて通過 | |
+| ⑯ v16_history_gaps 3、v16_history_coverage 4 | すべて通過 | |
+| herald ingest_health | 3/3 | |
+
+**失敗 2 件**（④の連絡のとおり）:
+
+- `fixtures::march_synth_passes`
+- `evidence::the_fixtures_have_nothing_for_v0e`
+
+原因:
+
+- どちらも、記録済みの `march-synth.json` を `verify()` に通すと verdict が Fail になる。
+- `march_synth_passes` の出力には、`V11 TicketPlacementMismatch`（「site … is outside the placement rule of nation …」）が 6 件ある。
+- evidence の試験では、V0e の項目は空で、verdict だけが Fail。同じ入力なので、同じ V11 の Fail と見ている（その出力は読んでいない）。
+
+V11 が変わった経緯:
+
+- `checks/v11_land.rs` は、地図の作業（7df3187a、3ef9b533、dd79c59a：分散配置と範囲の拡大）で変わった。
+- この HEAD と公開された統合候補 c7b3c54c で、blob は同じ `13d8489f`。6984acfa の blob は `ae171350`。
+- 古い配置規則で作った合成の fixture が、新しい規則で落ちている。
+
+**これは既知の失敗で、完成に数えない。** fixture を作り直す `fixture::march::march()` は、固定 seed の鍵で署名する。そのため、鍵なしでは作り直せない。直すには、次のどれかが要る。
+
+- (a) 利用者が許した場所で、署名済みの fixture を作ってもらう。
+- (b) 試験の期待を、新しい配置規則に合わせる。
+- (c) V11 が古い Season を古い規則で判定する。
+
+## 18.3 実チェーンで確かめていないこと
+
+§17.5 と同じ。加えて、次のこと。
+
+- 地図の新しい配置規則で、実際に作られた Season を V11 が通すこと（合成の fixture は古い規則のまま）。
+- ⑳ cab0bcac。
+- 荷車の受付で、依頼者の権限を確かめること（④ §10.2 に要件。実装は利用者の担当）。
+
+ログは `logs/phase13/` にある。

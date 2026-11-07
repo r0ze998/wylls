@@ -1,0 +1,12 @@
+05:19:58 fetch exit=0
+05:20:56 run.sh exit=0
+05:20:57 committed exit=0
+05:20:57 cmp 7 same 0 diff
+05:20:58 mutations done
+05:21:13 probe exit=0
+05:21:13 ALL DONE
+05:33:12 verify exit=101
+05:33:16 verify-fixtures exit=101
+05:33:20 findex exit=0
+05:33:28 herald exit=0
+05:33:28 NODE ALL DONE

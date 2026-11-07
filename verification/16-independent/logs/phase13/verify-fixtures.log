@@ -1,0 +1,60 @@
+### verify-fixtures HEAD 6cd6dd14ef9289dcf0559fbf64e17a48750f6fc1 tree fdad2bcbd0b1a4fa003862dbb43fc615923815da
+?? frontier-node/crates/findex/tests/v16_history_coverage.rs
+?? frontier-node/crates/findex/tests/v16_history_gaps.rs
+?? frontier-node/crates/verify/tests/v16_cpi_keyfree.rs
+?? frontier-node/crates/verify/tests/v16_v27_gate.rs
+?? workstreams/04-execution/tests/v16_chain_caravan_faults.rs
+   Compiling verify v0.1.0 (/tmp/claude-0/-home-user-wylls/47a54b0f-427a-5cca-bc82-feb7c5056956/scratchpad/v21-gh/frontier-node/crates/verify)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.82s
+     Running tests/fixtures.rs (target/debug/deps/fixtures-494625ed8ad57b2f)
+
+running 8 tests
+test failed_attempts_counted_per_march ... ok
+test land_program_passes ... ok
+test arrival_after_end_is_fail ... ok
+test cli_exit_codes ... ok
+test shielded_refused_march_is_unrevealed_by_rule ... ok
+test unshielded_rout_stays_a_liveness_warning ... ok
+test march_synth_passes ... FAILED
+test march_program_passes ... ok
+
+failures:
+
+---- march_synth_passes stdout ----
+
+thread 'march_synth_passes' (13134) panicked at crates/verify/tests/fixtures.rs:107:5:
+assertion `left == right` failed: Fail V11 TicketPlacementMismatch bell 0 ticket of citizen a8259254ebc7bf211341d2eae698a2 at bell 0: site 0 (0, -2, 0) is outside the placement rule of nation 1 (own wedge 0 of 0 occupied, 4 rings)
+Fail V11 TicketPlacementMismatch bell 0 ticket of citizen 5a19edba6a52b283c587439bb8690a at bell 0: site 0 (0, -2, 1) is outside the placement rule of nation 1 (own wedge 0 of 0 occupied, 4 rings)
+Fail V11 TicketPlacementMismatch bell 0 ticket of citizen 50e045a0350674116d20d37fbff417 at bell 0: site 0 (1, -3, 0) is outside the placement rule of nation 2 (own wedge 0 of 0 occupied, 4 rings)
+Fail V11 TicketPlacementMismatch bell 0 ticket of citizen 3fb4dfe7f2a42b0a83024bb7e7035c at bell 0: site 0 (1, -3, 1) is outside the placement rule of nation 2 (own wedge 0 of 0 occupied, 4 rings)
+Fail V11 TicketPlacementMismatch bell 0 ticket of citizen b2db9ea36c93ef97680cd4c1dc2565 at bell 0: site 0 (3, -3, 0) is outside the placement rule of nation 2 (own wedge 0 of 0 occupied, 4 rings)
+Fail V11 TicketPlacementMismatch bell 0 ticket of citizen ec039605b421fbb3ca497fe6162e85 at bell 0: site 0 (3, -3, 1) is outside the placement rule of nation 2 (own wedge 0 of 0 occupied, 4 rings)
+  left: Fail
+ right: Pass
+stack backtrace:
+   0: __rustc::rust_begin_unwind
+             at /rustc/59807616e1fa2540724bfbac14d7976d7e4a3860/library/std/src/panicking.rs:689:5
+   1: core::panicking::panic_fmt
+             at /rustc/59807616e1fa2540724bfbac14d7976d7e4a3860/library/core/src/panicking.rs:80:14
+   2: core::panicking::assert_failed_inner
+             at /rustc/59807616e1fa2540724bfbac14d7976d7e4a3860/library/core/src/panicking.rs:434:23
+   3: core::panicking::assert_failed
+             at /rustc/59807616e1fa2540724bfbac14d7976d7e4a3860/library/core/src/panicking.rs:394:5
+   4: fixtures::march_synth_passes
+             at ./tests/fixtures.rs:107:5
+   5: fixtures::march_synth_passes::{{closure}}
+             at ./tests/fixtures.rs:104:24
+   6: core::ops::function::FnOnce::call_once
+             at /rustc/59807616e1fa2540724bfbac14d7976d7e4a3860/library/core/src/ops/function.rs:250:5
+   7: <fn() -> core::result::Result<(), alloc::string::String> as core::ops::function::FnOnce<()>>::call_once
+             at /rustc/59807616e1fa2540724bfbac14d7976d7e4a3860/library/core/src/ops/function.rs:250:5
+note: Some details are omitted, run with `RUST_BACKTRACE=full` for a verbose backtrace.
+
+
+failures:
+    march_synth_passes
+
+test result: FAILED. 7 passed; 1 failed; 0 ignored; 0 measured; 1 filtered out; finished in 2.13s
+
+error: test failed, to rerun pass `-p verify --test fixtures`
+exit=101
