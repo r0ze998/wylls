@@ -266,9 +266,15 @@ fn emit_loss(
 /// 0xC2 OpenLot(resource, quota): P (the vault's owner) + `[vault w]
 /// [owner_citizen r] [lot w] [system]`.
 pub fn open_lot(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
+    open_lot_as(p, a, d, &super::Auth::Wallet)
+}
+
+// Shared authentication plumbing only. ResidentAct does not expose custody
+// until its version, permission list and transfer safety are integrated.
+pub(crate) fn open_lot_as(p: &Pubkey, a: &[AccountInfo], d: &[u8], auth: &super::Auth) -> R<()> {
     check_accounts_v2(Ix2::OpenLot, a, None)?;
     let x = ix2::OpenLot::decode(d)?;
-    let pl: Player = hold::player_as(p, a, &super::Auth::Wallet)?;
+    let pl: Player = hold::player_as(p, a, auth)?;
     let [_, payer, season_ai, citizen, vault, owner_citizen, lot, _system] = a else {
         return Err(FrontierError::TooManyAccounts.into());
     };
@@ -342,9 +348,15 @@ pub fn open_lot(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
 
 /// 0xC3 SetLotQuota(quota): P (the vault's owner) + `[vault w] [lot w]`.
 pub fn set_lot_quota(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
+    set_lot_quota_as(p, a, d, &super::Auth::Wallet)
+}
+
+// Shared authentication plumbing only. ResidentAct does not expose custody
+// until its version, permission list and transfer safety are integrated.
+pub(crate) fn set_lot_quota_as(p: &Pubkey, a: &[AccountInfo], d: &[u8], auth: &super::Auth) -> R<()> {
     check_accounts_v2(Ix2::SetLotQuota, a, None)?;
     let x = ix2::SetLotQuota::decode(d)?;
-    let pl: Player = hold::player_as(p, a, &super::Auth::Wallet)?;
+    let pl: Player = hold::player_as(p, a, auth)?;
     let [_, _payer, _season, citizen, vault, lot] = a else {
         return Err(FrontierError::TooManyAccounts.into());
     };
@@ -521,13 +533,19 @@ fn send<'a>(
 /// wallet) + `[src w] [vault r] [lot w] [caravan w] [system]
 /// [path_province w ×1..4]`.
 pub fn deposit_lot(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
+    deposit_lot_as(p, a, d, &super::Auth::Wallet)
+}
+
+// Shared authentication plumbing only. ResidentAct does not expose custody
+// until its version, permission list and transfer safety are integrated.
+pub(crate) fn deposit_lot_as(p: &Pubkey, a: &[AccountInfo], d: &[u8], auth: &super::Auth) -> R<()> {
     let n_prov = a
         .len()
         .checked_sub(9)
         .ok_or(FrontierError::TooManyAccounts)?;
     check_accounts_v2(Ix2::DepositLot, a, Some(&[1, 1, n_prov as u8]))?;
     let x = ix2::DepositLot::decode(d)?;
-    let pl: Player = hold::player_as(p, a, &super::Auth::Wallet)?;
+    let pl: Player = hold::player_as(p, a, auth)?;
     let [_, payer, season_ai, citizen, src, vault, lot, caravan, _system, provinces @ ..] = a
     else {
         return Err(FrontierError::TooManyAccounts.into());
@@ -624,9 +642,15 @@ pub fn deposit_lot(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
 /// w] [grantee_citizen r] [dst_vault r]` (a use order names any vault
 /// there; it is not read).
 pub fn set_lot_order(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
+    set_lot_order_as(p, a, d, &super::Auth::Wallet)
+}
+
+// Shared authentication plumbing only. ResidentAct does not expose custody
+// until its version, permission list and transfer safety are integrated.
+pub(crate) fn set_lot_order_as(p: &Pubkey, a: &[AccountInfo], d: &[u8], auth: &super::Auth) -> R<()> {
     check_accounts_v2(Ix2::SetLotOrder, a, None)?;
     let x = ix2::SetLotOrder::decode(d)?;
-    let pl: Player = hold::player_as(p, a, &super::Auth::Wallet)?;
+    let pl: Player = hold::player_as(p, a, auth)?;
     let [_, _payer, _season, citizen, vault, lot, grantee, dst_vault] = a else {
         return Err(FrontierError::TooManyAccounts.into());
     };
@@ -684,9 +708,15 @@ pub fn set_lot_order(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
 /// 0xC6 RevokeLotOrder(slot, id): P (the lot's owner; the session key
 /// may revoke) + `[lot w]`.
 pub fn revoke_lot_order(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
+    revoke_lot_order_as(p, a, d, &super::Auth::Wallet)
+}
+
+// Shared authentication plumbing only. ResidentAct does not expose custody
+// until its version, permission list and transfer safety are integrated.
+pub(crate) fn revoke_lot_order_as(p: &Pubkey, a: &[AccountInfo], d: &[u8], auth: &super::Auth) -> R<()> {
     check_accounts_v2(Ix2::RevokeLotOrder, a, None)?;
     let x = ix2::RevokeLotOrder::decode(d)?;
-    let pl: Player = hold::player_as(p, a, &super::Auth::Wallet)?;
+    let pl: Player = hold::player_as(p, a, auth)?;
     let [_, _payer, _season, citizen, lot] = a else {
         return Err(FrontierError::TooManyAccounts.into());
     };
@@ -747,13 +777,19 @@ fn emit_shipped(
 /// [path_province w ×1..4]`: a custody caravan of the signer from the
 /// lot's vault to the owner's lot in another vault.
 pub fn ship_lot(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
+    ship_lot_as(p, a, d, &super::Auth::Wallet)
+}
+
+// Shared authentication plumbing only. ResidentAct does not expose custody
+// until its version, permission list and transfer safety are integrated.
+pub(crate) fn ship_lot_as(p: &Pubkey, a: &[AccountInfo], d: &[u8], auth: &super::Auth) -> R<()> {
     let n_prov = a
         .len()
         .checked_sub(10)
         .ok_or(FrontierError::TooManyAccounts)?;
     check_accounts_v2(Ix2::ShipLot, a, Some(&[1, 1, n_prov as u8]))?;
     let x = ix2::ShipLot::decode(d)?;
-    let pl: Player = hold::player_as(p, a, &super::Auth::Wallet)?;
+    let pl: Player = hold::player_as(p, a, auth)?;
     let [_, payer, season_ai, citizen, vault, lot, dst_vault, dst_lot, caravan, _system, provinces @ ..] =
         a
     else {
@@ -834,13 +870,19 @@ pub fn ship_lot(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
 /// ordinary caravan of the owner from the lot's vault to its own place;
 /// SettleCaravan credits its general stock there.
 pub fn withdraw_lot(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
+    withdraw_lot_as(p, a, d, &super::Auth::Wallet)
+}
+
+// Shared authentication plumbing only. ResidentAct does not expose custody
+// until its version, permission list and transfer safety are integrated.
+pub(crate) fn withdraw_lot_as(p: &Pubkey, a: &[AccountInfo], d: &[u8], auth: &super::Auth) -> R<()> {
     let n_prov = a
         .len()
         .checked_sub(9)
         .ok_or(FrontierError::TooManyAccounts)?;
     check_accounts_v2(Ix2::WithdrawLot, a, Some(&[1, 1, n_prov as u8]))?;
     let x = ix2::WithdrawLot::decode(d)?;
-    let pl: Player = hold::player_as(p, a, &super::Auth::Wallet)?;
+    let pl: Player = hold::player_as(p, a, auth)?;
     let [_, payer, season_ai, citizen, vault, lot, dst, caravan, _system, provinces @ ..] = a
     else {
         return Err(FrontierError::TooManyAccounts.into());
@@ -1049,9 +1091,15 @@ pub fn settle_custody(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
 /// the wallet) + `[vault r] [lot w]`. Workstream 9's processing calls
 /// `custody::consume` in its own instruction instead.
 pub fn consume_lot(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
+    consume_lot_as(p, a, d, &super::Auth::Wallet)
+}
+
+// Shared authentication plumbing only. ResidentAct does not expose custody
+// until its version, permission list and transfer safety are integrated.
+pub(crate) fn consume_lot_as(p: &Pubkey, a: &[AccountInfo], d: &[u8], auth: &super::Auth) -> R<()> {
     check_accounts_v2(Ix2::ConsumeLot, a, None)?;
     let x = ix2::ConsumeLot::decode(d)?;
-    let pl: Player = hold::player_as(p, a, &super::Auth::Wallet)?;
+    let pl: Player = hold::player_as(p, a, auth)?;
     let [_, _payer, _season, citizen, vault, lot] = a else {
         return Err(FrontierError::TooManyAccounts.into());
     };
@@ -1169,9 +1217,15 @@ pub fn reconcile_lot(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
 /// closes to its `RENT_TO`. Open: by its owner or the vault's owner (the
 /// vault's quota and count are released). Forfeited: by anyone.
 pub fn close_lot(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
+    close_lot_as(p, a, d, &super::Auth::Wallet)
+}
+
+// Shared authentication plumbing only. ResidentAct does not expose custody
+// until its version, permission list and transfer safety are integrated.
+pub(crate) fn close_lot_as(p: &Pubkey, a: &[AccountInfo], d: &[u8], auth: &super::Auth) -> R<()> {
     check_accounts_v2(Ix2::CloseLot, a, None)?;
     let _ = ix2::CloseLot::decode(d)?;
-    let pl: Player = hold::player_as(p, a, &super::Auth::Wallet)?;
+    let pl: Player = hold::player_as(p, a, auth)?;
     let [_, _payer, _season, citizen, vault, lot, rent_to] = a else {
         return Err(FrontierError::TooManyAccounts.into());
     };
