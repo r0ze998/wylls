@@ -12,7 +12,7 @@ Explicit --follow-wide (requiring --observe-wide) now continues read-only wide o
 
 The archive/index interoperability test now drives real WideFindex, SQLite rebuild, archive transaction reads, keeper observer/proofs, and a snapshot-backed unsigned candidate. Raw program-filtered feed sequences (10/20/30), archive sequences (1/2/3), and event-page IDs are distinct. Observer verifies local per-identity head continuity after its first observed unverified anchor; dedicated index validates from genesis. Neither proves source authenticity. Raw sequence holes remain unknown, not automatically corrupted.
 
-The eighth slice adds the unsigned WideGather candidate (`wideduty::plan_gather`, hinted from revealed open marches, planned over a snapshot with the Rent, reviewed and counted in the tick): the handler's latch, end bell, anchor-or-archive window, ClashInputs and ArrivalDay rules replayed from the accounts at their canonical addresses; the cursor bounded to at most eight positions before any slot is read (one packet even when every position is present) and cut before a later unsettled transit; present slots judged from their transit records; absent slots' transit positions the slot's own address; the present count the handler's scan of every position; a clear day bit over a partial record planned as the completing gather; the fee review netting a prefunded ClashInputs as the handler's top-up does. The ArrivalDay account is the only arrival evidence; missing feed events are never read as no arrivals. The ninth slice adds the unsigned WideResolve candidate (`wideduty::plan_resolve`): each observed province at its current `resolved_next` read from the chain, the window against THE anchor or its archive, the bell seed as the handler's `bell_seed` takes it (a SeedCache whose stored nonce recomputes its address and which names THE anchor and the seed round, found by a bounded 256-nonce probe; or the archive entry in both positions), the ArrivalDay bit against a complete unresolved ClashInputs, the conquest block, the roster or its absence, and the ABI's own `resolve_bell` replayed on scratch bytes for the outcome, the roster creation (full-minimum payer guard, exact) and the digests (the output digest at the observed clock). Resolve hints need a configured public resolver; a `NotGathered` bell schedules its gather so intermediate bells are not skipped. **Arrival processing is still not complete**: WideSettleTransit is not planned, so a resolved bell has no planned settlement. Not compiled or run by its author.
+The eighth slice adds the unsigned WideGather candidate (`wideduty::plan_gather`, hinted from revealed open marches, planned over a snapshot with the Rent, reviewed and counted in the tick): the handler's latch, end bell, anchor-or-archive window, ClashInputs and ArrivalDay rules replayed from the accounts at their canonical addresses; the cursor bounded to at most eight positions before any slot is read (one packet even when every position is present) and cut before a later unsettled transit; present slots judged from their transit records; absent slots' transit positions the slot's own address; the present count the handler's scan of every position; a clear day bit over a partial record planned as the completing gather; the fee review netting a prefunded ClashInputs as the handler's top-up does. The ArrivalDay account is the only arrival evidence; missing feed events are never read as no arrivals. The ninth slice adds the unsigned WideResolve candidate (`wideduty::plan_resolve`): each observed province at its current `resolved_next` read from the chain, the window against THE anchor or its archive, the bell seed as the handler's `bell_seed` takes it (a SeedCache whose stored nonce recomputes its address and which names THE anchor and the seed round, found by a bounded 256-nonce probe; or the archive entry in both positions), the ArrivalDay bit against a complete unresolved ClashInputs, the conquest block, the roster or its absence, and the ABI's own `resolve_bell` replayed on scratch bytes for the outcome, the roster creation (full-minimum payer guard, exact) and the digests (the output digest at the observed clock). Resolve hints need a configured public resolver; a `NotGathered` bell schedules its gather so intermediate bells are not skipped. The tenth slice moves the program's pure settlement (quota, outcome, payment plan) into `frontier_abi::world_index::settle`, re-exported unchanged by the program, and adds `widesettle::plan_settle_transit`: the first WideSettleTransit candidate, for a seal that opens under THE anchor's own public round signature and a host present in the resolved final set with a fate that does not come home; payees read from the accounts, the plan from the shared functions; bad seals, absent destinations, bounces, routs, returns home and camp loot are refused, not planned; no tick wiring yet. **Arrival processing is still not complete.** Not compiled or run by its author.
 
 Every candidate is still denied by Engine review: history authenticity/completeness, live fee quotation and future balance remain unproven. No enqueue, simulation, signing, transaction sending, production gate change, main merge or deployment is introduced. Existing PSW1 feed guards can prevent further discovery; this slice does not make the game playable. The actual Keeper constructor/full tick was not executed because it uses keys; its wiring and CLI are compile-checked, while independent review-step tests use literal accounts and public vectors. UI is unchanged.
 
@@ -1767,8 +1767,156 @@ is one assertion of one test, stated as such. Not compiled or run by its
 author. **WideSettleTransit is the next slice; nothing here settles an
 arrival, pays a resolver or closes a record.**
 
+## Tenth slice (2026-11-08, on `04c7f937`): the pure settlement shared, the first WideSettleTransit candidate
+
+**Feasibility and extraction, as audited.** `proc/wide.rs::settle_transit`
+is the deployed SettleTransit over the wide records: seventeen fixed
+accounts and an optional Citizen, a 333-byte datum (`SettleTransit`:
+slot, commit, 264-byte seal, beneficiary). Its pure part — the quota over
+full identities (`wide_admit`), the outcome against the resolved final set
+(`wide_valid_outcome`) and the post-judgement payment plan
+(`plan_settlement`, with `WideOutcome`, `PayTo`, `SettlementPlan`) —
+depended only on ABI and rules types (`WideTransit`, `WideArrival`,
+`wide_slot_key`, `SlotRefusal`, `rout_survivors`, `DESTROYED_BELOW`, the
+`transit_outcome` codes). It is now **one module**,
+`frontier_abi::world_index::settle`, moved **unchanged**; the program
+re-exports every name under its old path (`pub(crate) use`) and keeps
+`plan_settlement`'s `R` signature through a one-line wrapper mapping the
+ABI's `None` to its `Overflow`, so every program test path and the
+handler itself are untouched in behaviour; two now-unused imports were
+dropped. No duplicated economic table exists: the keeper calls the same
+functions. The parts **not** extracted, deliberately: the claim rule
+(`wide_claim_eligible` → `proc::defence::refund`, a program module also
+serving legacy claims), the home re-entry (`stage_return_home`), the
+payment effects (`pay_wide` / `init::pay_or_divert`): moving them would
+be a wider program change than this slice warrants, and the first
+candidate does not need them.
+
+**The first slice: `widesettle::plan_settle_transit`.** An unsigned
+candidate (`Duty::SettleTransit`, reviewed like the others) for a march
+whose **seal opens publicly** and whose host is **in the resolved final
+set** with a fate that does not come home. In the handler's order: the
+holding canonical and present; its transit record of the proof's slot
+present, the host's holding's, at the holding's generation
+(`HistoricalGeneration`, the handler's `NotImplemented`), `Settled`,
+`DestroyedAtOrigin` or `Gathered` (`OriginUnsettled` for `Departed`); the
+proof rebound to the record field by field; the capture lock when the
+home province is present (home and its roster are listed either way);
+**the proof**: the reveal's publication gate (the supplied round signature
+verified for `T(arrive)` under the Season's pinned key) **and the
+account's own stored signature equal to it** (`AnchorSignatureMismatch`:
+the handler opens under the chain's signature, and the keeper never
+substitutes one), the IBE block opened under it and the body validated
+against the record's host and bell (`Crypto::IbeOpened`) — a seal that
+does not open or validate is the handler's **bad seal** (confiscation),
+**refused** here (`BadSealUnsupported`), never planned; the committed
+root; the destination the seal names **present** and canonical
+(`DestinationAbsent` otherwise: the routed settlement of a never-opened
+province is not planned), a `Gathered` record only against it; THE anchor
+or archive entry of `(arrive, stored region)`; `now ≥ close + 600` and
+`resolved_next > arrive` (`TooEarlyToSettle`); the ClashInputs of
+`(dest, arrive)` present and **resolved** (`InputsUnresolved`: bounces and
+routs are not planned); the host **present in its faction's final set**
+(`NotInFinalSet`), its **own slot** at that position (`SlotNotOwn`); the
+fate `Stays`, `Withdrew` or `Destroyed` (`FateUnsupported` for Bounced /
+Retreated: the home re-entry is not planned); no camp loot
+(`CampLootUnsupported`). Then the shared `wide_valid_outcome` and
+`plan_settlement`: the tip to the slot's beneficiary, the march fee (when
+the record says it was escrowed) to the resolver the record names, the
+bond (when escrowed) to the holding's rent payer — **every payee read from
+the accounts, none chosen**; the payments listed and **summed per
+recipient** (the same wallet in two roles); the escrow covering the total
+and the open-transit count (`EscrowShort`, `NoOpenTransit`); the event
+chains' headroom (destination and holding); the slot's and the transit
+record's rent recipients named, the slot's position among the six listed
+wallets when it is one. The instruction: the seventeen fixed accounts in
+the table's roles, the ABI's data, sized with `packet_len` against the
+packet (`Overflow("packet")` when it does not fit — nothing is dropped to
+make it fit; the literal fixture fits with the placeholder payer too).
+
+**Said, not verified (wording fixed after independent review).** The
+payments are the plan's **nominal allocations** over the records as read
+(`nominal_payments`, `nominal_cumulative`), not verified transfers: the
+payees' account shapes are not read; the handler pays a wallet, diverts an
+undeliverable recipient to `pool_owed`, and **aborts** the transaction on
+an arithmetic overflow, a `pool_owed` overflow or a holding balance that
+cannot back a payment; the two closes (the transit record, the slot when
+not kept) run under `Sink::Never` and abort when their prerequisites fail;
+neither was simulated. The fee payer's lower bound covers the **fee only**
+(`widefees::FUNDING_SCOPE_SETTLE_TRANSIT`): every settled lamport is the
+holding's, so `MetLowerBound` is not settlement funding. The slot's claim
+eligibility is **not** predicted (the defence refund rule is the
+program's) — the slot is closed to its listed rent recipient, kept for a
+claim or flagged, all with the same instruction; the march's history
+before the applied records is unknown; the proof's source is unverified;
+coherence is a context slot. Nothing signs, simulates, sends or queues;
+the gates are untouched.
+
+**Payer roles (fixed after independent review).** The fee review's alias
+rule refused a payer that was also any other account of the instruction.
+A settlement names five **wallet** roles — the slot's beneficiary, the
+resolver, the holding's rent payer, the settle beneficiary, the transit's
+rent recipient — any of which the payer may legitimately be (the legacy
+keeper settles to its own beneficiary). `widefees` is now role-aware:
+`needs_of` takes the duty's wallet positions
+(`SETTLE_TRANSIT_WALLET_ROLES = [8, 9, 10, 11, 16]`; empty for every other
+duty), excludes only a payer in a **state** position (`PAYER_ALIASES`,
+judged from the instruction alone), and reports `payer_wallet_roles` and
+`funding_scope` on the needs.
+
+**Proof retention.** `ProofStore::settle_hints(model)` lists the stored
+proofs whose march the model shows **revealed and open** in the proof's
+slot; the store already kept proofs past their reveal (only a later
+departure of the slot or the bound evicts), so the settlement has its
+seal. **No tick wiring in this slice**: the hint, the publication lookup
+and the plan in `widetick` are the next stage.
+
+**Tests** (`wide_reveal.rs`, the recorded public seal vector sealed to
+`away()`, the shipped quicknet signature in THE anchor, literal wallets
+read back as payees):
+`settle_transit_plans_a_staying_host_from_the_shared_settlement_functions`
+(the seventeen roles, the 333-byte data, the plan equal to the shared
+function recomputed by the test, escrow and open count, the packet with
+both payers; fee and bond escrowed to the resolver and the rent payer;
+the same wallet in two roles summed; the slot's rent recipient found among
+the listed wallets; a gathered record against its own destination only;
+Withdrew and Destroyed),
+`settle_transit_refuses_everything_outside_the_slice` (origin unsettled,
+another generation, destination absent, anchor without the signature, too
+early by a second, destination unresolved, no clock, no publication,
+record absent or unresolved, host not in the set, another host's slot or
+none, a fate that comes home, camp loot, a seal that does not open,
+escrow short, no open transit, a proof not this record's),
+`settle_transit_candidate_is_bound_to_its_snapshot_and_content` (coherent
+over one snapshot, every hard denial, five mutations — a fate, a payee, a
+flag, a data byte, the caveat lines — lose everything),
+`settle_transit_payer_may_hold_wallet_roles_but_never_state_roles` (the
+payer as settle beneficiary and rent payer: funded as a wallet for the
+fee alone, `MetLowerBound` at 5,000 and `Unmet` at 4,999 with the
+settlement's lamports untouched; the payer in the holding's or the
+transit's position: `Ineligible(PAYER_ALIASES)`; another payer's plan
+aliases nothing); the staying-host test also pins the caveat lines and
+the `nominal_*` / `funding_scope` description keys;
+`wide_duties.rs`: `the_proof_store_lists_revealed_open_marches_for_settlement`.
+
+**Exact limits.** The candidate is unsigned and unsent; only the branches
+above are planned, and every other branch of the handler is a named
+refusal, not a prediction; the claim eligibility and the payee shapes are
+not predicted; the program applies its own code — the same functions for
+the plan, its own for the effects. Not compiled or run by its author.
+**Arrival processing is not complete**: no tick plans a settlement yet,
+and the bad-seal, bounce, rout, return-home and camp-loot settlements are
+not planned.
+
 ## Touched files
 
+`frontier-abi/src/world_index/settle.rs` (new, tenth slice: the pure
+settlement moved from the program), `frontier-abi/src/world_index/mod.rs`
+(the module and its re-exports), `permutation-frontier/src/proc/wide.rs`
+(tenth slice: the moved definitions replaced by `pub(crate) use` of the
+ABI's and a one-line `plan_settlement` wrapper; two unused imports
+dropped; no handler line changed),
+`frontier-node/crates/keeper/src/widesettle.rs` (new, tenth slice),
 `frontier-node/crates/keeper/src/wideproof.rs` (new),
 `frontier-node/crates/keeper/src/wideduty.rs` (new; later slices: new
 `Block` variants, `pub(crate)` helpers, `Reads.snapshot`/`rent`,
@@ -1871,3 +2019,19 @@ expiry/retry of transiently rejected nonce hints. No keypair generation,
 signing, simulation, queue admission, actual Keeper startup or chain sending
 was run. Resolve now produces a snapshot-bound unsigned instruction using
 the shared combat kernel; SettleTransit keeper integration remains absent.
+
+### Tenth-slice verification checkpoint
+
+Final keeper suites passed 124 tests (14 discovery, 70 duties, 12 feed guard,
+22 reveal/settlement, 6 snapshot RPC). Feature-on keeper libraries/binaries and
+selected tests, and default libraries/binaries, passed clippy. The changed ABI
+and program libraries passed Rust 1.89 clippy with the wide feature. Three
+individually audited, exact-name host tests passed: staged march up to the crypto
+gate; native public-vector valid/bad-seal settlement; native departure/beacon/
+settlement flow. The native cases only verify published public cryptographic
+vectors; no keypairs or signatures were generated. The stub-only test build
+reported nine dead-code warnings in native-vector helpers unused in that mode.
+Independent static review found no preservation blocker for this narrow unsigned
+planner. Settlement runtime scheduling, actual payee execution/backing checks,
+slot-claim eligibility and return-home/camp branches remain outside this slice.
+No real-chain transaction, Keeper startup, main merge or deployment was performed.

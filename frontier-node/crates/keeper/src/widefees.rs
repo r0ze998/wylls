@@ -93,11 +93,23 @@ pub enum Funding {
     Ineligible(&'static str),
 }
 
-/// The payer names another account of the instruction (the Season, a
-/// record): one address in two roles, one of them writable, is an invalid
-/// transaction, not a funding question.
+/// The payer names a **state** account of the instruction (the Season, a
+/// record, a program, the system): one address in two roles, one of them
+/// a program account, is an invalid transaction, not a funding question.
+/// A **wallet** role of the instruction (a beneficiary, a rent payer, a
+/// rent recipient, a resolver) may be the payer: the legacy keeper's
+/// settle names its own beneficiary; the handler pays a wallet whoever
+/// signed.
 pub const PAYER_ALIASES: &str =
-    "the payer is also another account of the instruction (role alias); not a fee payer";
+    "the payer is also a state account of the instruction (role alias); not a fee payer";
+/// The fee payer's lower bound is the transaction's: the fee and the rent
+/// of accounts the handler creates from the payer. Nothing more.
+pub const FUNDING_SCOPE_FEE_AND_CREATIONS: &str =
+    "the payer's lower bound covers the transaction fee and the rent of accounts created from the payer; nothing else moves from the payer";
+/// A settlement moves lamports out of the **holding's** balance, not the
+/// payer's: a met lower bound says nothing about the settlement.
+pub const FUNDING_SCOPE_SETTLE_TRANSIT: &str =
+    "the payer's lower bound covers the transaction fee only; the settlement's lamports move from the holding's own balance and the closed accounts' rent, none of which is the payer's — MetLowerBound is not settlement funding";
 /// An executable account.
 pub const PAYER_EXECUTABLE: &str = "the payer account is executable: a program, not a wallet";
 /// A program-owned account.
@@ -135,6 +147,11 @@ pub struct ExecutionNeeds {
     pub prefunded_lamports: u64,
     /// Which rule the requirement follows (per handler).
     pub rent_rule: &'static str,
+    /// What the lower bound covers and what it does not (per duty).
+    pub funding_scope: &'static str,
+    /// Instruction positions a wallet may hold alongside the payer role
+    /// without being an alias (per duty's table).
+    pub payer_wallet_roles: Vec<usize>,
     /// `LAMPORTS_PER_SIGNATURE × signatures_assumed`: a modelled lower
     /// bound; the network's fee at send time is not read.
     pub signatures_assumed: u8,
@@ -166,6 +183,8 @@ impl ExecutionNeeds {
             "rent_lamports": known(&self.rent_lamports),
             "prefunded_lamports": self.prefunded_lamports,
             "rent_rule": self.rent_rule,
+            "funding_scope": self.funding_scope,
+            "payer_wallet_roles": self.payer_wallet_roles,
             "signatures_assumed": self.signatures_assumed,
             "base_fee_lamports": known(&self.base_fee_lamports),
             "priority_fee_lamports": known(&self.priority_fee_lamports),
@@ -218,10 +237,19 @@ fn bound<'a>(
     (m.digest() == c.digest()).then_some(m)
 }
 
+/// The wallet roles of WideSettleTransit (`wide_ix::SETTLE_TRANSIT`): the
+/// slot beneficiary, the resolver, the holding's rent payer, the settle
+/// beneficiary and the transit record's rent recipient. The payer may be
+/// any of them.
+pub const SETTLE_TRANSIT_WALLET_ROLES: [usize; 5] = [8, 9, 10, 11, 16];
+
+#[allow(clippy::too_many_arguments)]
 fn needs_of(
     creates: Vec<(&'static str, usize)>,
     prefunded_lamports: u64,
     rent_rule: &'static str,
+    funding_scope: &'static str,
+    wallet_roles: &[usize],
     payer: &solana_address::Address,
     instruction: &Instruction,
     reads: &Reads,
@@ -255,14 +283,15 @@ fn needs_of(
         ),
         Known::Unchecked(why) => Known::Unchecked(why),
     };
-    // The payer in another role of the same instruction (position 0 is the
-    // payer itself): an invalid transaction, judged from the candidate
-    // alone.
+    // The payer in a **state** role of the same instruction (position 0 is
+    // the payer itself; the duty's wallet roles are allowed): an invalid
+    // transaction, judged from the candidate alone.
     let aliases = instruction
         .accounts
         .iter()
+        .enumerate()
         .skip(1)
-        .any(|m| m.pubkey == *payer);
+        .any(|(i, m)| m.pubkey == *payer && !wallet_roles.contains(&i));
     let payer_account = reads.accounts.get(payer);
     // A present payer that cannot pay, by its shape (owner, data,
     // executable) — only from the bound snapshot's bytes.
@@ -316,6 +345,8 @@ fn needs_of(
         rent_lamports,
         prefunded_lamports,
         rent_rule,
+        funding_scope,
+        payer_wallet_roles: wallet_roles.to_vec(),
         signatures_assumed,
         base_fee_lamports: Known::Known(base_fee),
         priority_fee_lamports: Known::Unchecked(PRIORITY_NOTE),
@@ -343,6 +374,8 @@ pub fn reveal_needs(c: &RevealCandidate, reads: &Reads) -> Result<ExecutionNeeds
         creates,
         0,
         RENT_RULE_FULL,
+        FUNDING_SCOPE_FEE_AND_CREATIONS,
+        &[],
         &c.fee_payer,
         &c.instruction,
         reads,
@@ -371,10 +404,18 @@ pub fn duty_needs(c: &Candidate, reads: &Reads) -> Result<ExecutionNeeds, Block>
         }
         _ => (Vec::new(), 0, RENT_RULE_NONE),
     };
+    // The settlement's wallet roles may be the payer; its lamports are the
+    // holding's, so the payer's bound is the fee alone.
+    let (scope, roles): (&'static str, &[usize]) = match &c.duty {
+        Duty::SettleTransit(_) => (FUNDING_SCOPE_SETTLE_TRANSIT, &SETTLE_TRANSIT_WALLET_ROLES),
+        _ => (FUNDING_SCOPE_FEE_AND_CREATIONS, &[]),
+    };
     needs_of(
         creates,
         prefunded,
         rule,
+        scope,
+        roles,
         &c.payer,
         &c.instruction,
         reads,

@@ -595,7 +595,7 @@ fn admit(dest: ProvinceKey, bell: u32, slots: &[Option<SlotEntry>; 4], x: SlotEn
 
 /// The publication gate over the Season: the supplied beacon is for
 /// exactly `T(arrive)`, under the pinned key, and verifies.
-fn publication_gate(
+pub(crate) fn publication_gate(
     clock: &SeasonClock,
     pinned_pk_hash: [u8; 32],
     arrive: u32,
@@ -628,7 +628,7 @@ fn publication_gate(
 /// The plaintext and salt of `opening` against the proof's seal, and the
 /// label. The commitment is recomputed with the ABI's functions and must
 /// reproduce the proof's commitment and root.
-fn open(
+pub(crate) fn open(
     proof: &DepartProof,
     opening: &Opening,
     publication: &Publication,

@@ -46,6 +46,7 @@ pub const KIND_RETURN: &str = "wide-return";
 pub const KIND_REVEAL: &str = "wide-reveal";
 pub const KIND_GATHER: &str = "wide-gather";
 pub const KIND_RESOLVE: &str = "wide-resolve";
+pub const KIND_SETTLE_TRANSIT: &str = "wide-settle-transit";
 
 /// What is reviewed: a stable key by full identity, the engine's filing
 /// facts, and the instruction's shape. No account bytes, no key material.
@@ -104,6 +105,16 @@ impl Subject {
                     f.bell
                 ),
                 KIND_RESOLVE,
+            ),
+            Duty::SettleTransit(f) => (
+                format!(
+                    "{KIND_SETTLE_TRANSIT}:{}:{}:{}:{}",
+                    hex::encode(f.host.key().world().as_bytes()),
+                    hex::encode(f.host.to_bytes()),
+                    f.transit_slot,
+                    f.arrive_bell
+                ),
+                KIND_SETTLE_TRANSIT,
             ),
         };
         Subject {

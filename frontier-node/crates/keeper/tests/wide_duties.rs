@@ -3607,6 +3607,80 @@ fn a_present_transit_record_in_any_state_holds_the_return_back_as_the_handler_do
     assert_eq!(return_facts(&c).picks[0].host, host());
 }
 
+/// The proof store keeps a proof **past its reveal** for the transit
+/// settlement: `settle_hints` lists a revealed open march (the reveal
+/// hints no longer do), not an unrevealed one, and not one whose record
+/// was closed.
+#[test]
+fn the_proof_store_lists_revealed_open_marches_for_settlement() {
+    let mut store = ProofStore::default();
+    let rec = record(wire_of(&[depart_ix(home())]), frame(&[departed_ok(home())]));
+    assert_eq!(store.observe_page(&[rec], &scope(), 1), 1);
+    let mut model = WideDiscovery::new(
+        IndexScope {
+            program: program(),
+            season: season_pda().0,
+            world: world(),
+            source: "test: literal bodies".into(),
+        },
+        Limits::default(),
+    );
+    model
+        .apply(&WideBatch {
+            seq: 1,
+            slot: 1_001,
+            signature: "sig-1".into(),
+            bodies: vec![departed_ok(home())],
+        })
+        .unwrap();
+    assert!(
+        store.settle_hints(&model).is_empty(),
+        "not revealed: a reveal hint, not a settle one"
+    );
+    assert_eq!(store.hints(&model), vec![(host(), SLOT)]);
+    model
+        .apply(&WideBatch {
+            seq: 2,
+            slot: 1_002,
+            signature: "sig-2".into(),
+            bodies: vec![encode(
+                WideKind::Revealed,
+                ARRIVE_BELL,
+                &wev::host_key(&host(), away()),
+                &wev::revealed_payload(SLOT, 0, 0, 33, 0, 0, TROOPS, false),
+                &[],
+            )
+            .unwrap()],
+        })
+        .unwrap();
+    assert_eq!(
+        store.settle_hints(&model),
+        vec![(host(), SLOT)],
+        "revealed: kept for the settlement"
+    );
+    assert!(store.hints(&model).is_empty());
+    assert_eq!(store.len(), 1, "the proof is retained after the reveal");
+    model
+        .apply(&WideBatch {
+            seq: 3,
+            slot: 1_003,
+            signature: "sig-3".into(),
+            bodies: vec![encode(
+                WideKind::TransitClosed,
+                ARRIVE_BELL + 5,
+                &wev::host_key(&host(), away()),
+                &wev::transit_closed_payload(SLOT, &[0xd4; 32], 1),
+                &[],
+            )
+            .unwrap()],
+        })
+        .unwrap();
+    assert!(
+        store.settle_hints(&model).is_empty(),
+        "closed: nothing to settle"
+    );
+}
+
 /// `proofs_for` keeps a proof while its march is open and unrevealed,
 /// **including after the departure settled at the origin** (the handler's
 /// Reveal accepts every in-transit state); it drops it once the march is
@@ -9157,25 +9231,33 @@ fn a_mutated_settle_candidate_loses_its_snapshot_fee_bound_and_review() {
     let mut m = c.clone();
     match &mut m.duty {
         Duty::SettleDeparture(f) => f.predicted_destroyed = !f.predicted_destroyed,
-        Duty::Return(_) | Duty::Gather(_) | Duty::Resolve(_) => unreachable!(),
+        Duty::Return(_) | Duty::Gather(_) | Duty::Resolve(_) | Duty::SettleTransit(_) => {
+            unreachable!()
+        }
     }
     lost_everything("predicted_destroyed", &m, &reads, &open);
     let mut m = c.clone();
     match &mut m.duty {
         Duty::SettleDeparture(f) => f.troops_after_milli += 1,
-        Duty::Return(_) | Duty::Gather(_) | Duty::Resolve(_) => unreachable!(),
+        Duty::Return(_) | Duty::Gather(_) | Duty::Resolve(_) | Duty::SettleTransit(_) => {
+            unreachable!()
+        }
     }
     lost_everything("troops_after_milli", &m, &reads, &open);
     let mut m = c.clone();
     match &mut m.duty {
         Duty::SettleDeparture(f) => f.origin_is_home = !f.origin_is_home,
-        Duty::Return(_) | Duty::Gather(_) | Duty::Resolve(_) => unreachable!(),
+        Duty::Return(_) | Duty::Gather(_) | Duty::Resolve(_) | Duty::SettleTransit(_) => {
+            unreachable!()
+        }
     }
     lost_everything("origin_is_home", &m, &reads, &open);
     let mut m = c.clone();
     match &mut m.duty {
         Duty::SettleDeparture(f) => f.entry_index += 1,
-        Duty::Return(_) | Duty::Gather(_) | Duty::Resolve(_) => unreachable!(),
+        Duty::Return(_) | Duty::Gather(_) | Duty::Resolve(_) | Duty::SettleTransit(_) => {
+            unreachable!()
+        }
     }
     lost_everything("entry_index", &m, &reads, &open);
     // The duty's kind.
@@ -9382,7 +9464,9 @@ fn world_bytes_past_the_debug_prefix_are_candidate_content() {
         let mut m = c.clone();
         match &mut m.duty {
             Duty::SettleDeparture(f) => f.host = rehost(f.host, i),
-            Duty::Return(_) | Duty::Gather(_) | Duty::Resolve(_) => unreachable!(),
+            Duty::Return(_) | Duty::Gather(_) | Duty::Resolve(_) | Duty::SettleTransit(_) => {
+                unreachable!()
+            }
         }
         assert_eq!(m.instruction, c.instruction);
         assert_eq!(
@@ -9396,7 +9480,9 @@ fn world_bytes_past_the_debug_prefix_are_candidate_content() {
         let mut m = c.clone();
         match &mut m.duty {
             Duty::SettleDeparture(f) => f.origin = rekey(f.origin, i),
-            Duty::Return(_) | Duty::Gather(_) | Duty::Resolve(_) => unreachable!(),
+            Duty::Return(_) | Duty::Gather(_) | Duty::Resolve(_) | Duty::SettleTransit(_) => {
+                unreachable!()
+            }
         }
         assert_eq!(m.instruction, c.instruction);
         assert_eq!(
@@ -9435,7 +9521,12 @@ fn world_bytes_past_the_debug_prefix_are_candidate_content() {
         let mut m = r.clone();
         match &mut m.duty {
             Duty::Return(f) => f.standing = rekey(f.standing, i),
-            Duty::SettleDeparture(_) | Duty::Gather(_) | Duty::Resolve(_) => unreachable!(),
+            Duty::SettleDeparture(_)
+            | Duty::Gather(_)
+            | Duty::Resolve(_)
+            | Duty::SettleTransit(_) => {
+                unreachable!()
+            }
         }
         assert_eq!(m.instruction, r.instruction);
         assert_eq!(
@@ -9447,7 +9538,12 @@ fn world_bytes_past_the_debug_prefix_are_candidate_content() {
         let mut m = r.clone();
         match &mut m.duty {
             Duty::Return(f) => f.holding = rehost(f.holding, i),
-            Duty::SettleDeparture(_) | Duty::Gather(_) | Duty::Resolve(_) => unreachable!(),
+            Duty::SettleDeparture(_)
+            | Duty::Gather(_)
+            | Duty::Resolve(_)
+            | Duty::SettleTransit(_) => {
+                unreachable!()
+            }
         }
         assert_eq!(m.instruction, r.instruction);
         assert_eq!(
@@ -9459,7 +9555,12 @@ fn world_bytes_past_the_debug_prefix_are_candidate_content() {
         let mut m = r.clone();
         match &mut m.duty {
             Duty::Return(f) => f.picks[0].host = rehost(f.picks[0].host, i),
-            Duty::SettleDeparture(_) | Duty::Gather(_) | Duty::Resolve(_) => unreachable!(),
+            Duty::SettleDeparture(_)
+            | Duty::Gather(_)
+            | Duty::Resolve(_)
+            | Duty::SettleTransit(_) => {
+                unreachable!()
+            }
         }
         assert_eq!(m.instruction, r.instruction);
         assert_eq!(
@@ -9473,25 +9574,33 @@ fn world_bytes_past_the_debug_prefix_are_candidate_content() {
     let mut m = r.clone();
     match &mut m.duty {
         Duty::Return(f) => f.live_gen = None,
-        Duty::SettleDeparture(_) | Duty::Gather(_) | Duty::Resolve(_) => unreachable!(),
+        Duty::SettleDeparture(_) | Duty::Gather(_) | Duty::Resolve(_) | Duty::SettleTransit(_) => {
+            unreachable!()
+        }
     }
     lost_everything("return live_gen", &m, &reads_r, &open);
     let mut m = r.clone();
     match &mut m.duty {
         Duty::Return(f) => f.picks[0].credited = !f.picks[0].credited,
-        Duty::SettleDeparture(_) | Duty::Gather(_) | Duty::Resolve(_) => unreachable!(),
+        Duty::SettleDeparture(_) | Duty::Gather(_) | Duty::Resolve(_) | Duty::SettleTransit(_) => {
+            unreachable!()
+        }
     }
     lost_everything("return pick credited", &m, &reads_r, &open);
     let mut m = r.clone();
     match &mut m.duty {
         Duty::Return(f) => f.picks.clear(),
-        Duty::SettleDeparture(_) | Duty::Gather(_) | Duty::Resolve(_) => unreachable!(),
+        Duty::SettleDeparture(_) | Duty::Gather(_) | Duty::Resolve(_) | Duty::SettleTransit(_) => {
+            unreachable!()
+        }
     }
     lost_everything("return picks cleared", &m, &reads_r, &open);
     let mut m = r.clone();
     match &mut m.duty {
         Duty::Return(f) => f.skipped_in_transit += 1,
-        Duty::SettleDeparture(_) | Duty::Gather(_) | Duty::Resolve(_) => unreachable!(),
+        Duty::SettleDeparture(_) | Duty::Gather(_) | Duty::Resolve(_) | Duty::SettleTransit(_) => {
+            unreachable!()
+        }
     }
     lost_everything("return skipped_in_transit", &m, &reads_r, &open);
     let mut m = r.clone();
@@ -9505,7 +9614,9 @@ fn world_bytes_past_the_debug_prefix_are_candidate_content() {
     let mut m = c.clone();
     match &mut m.duty {
         Duty::SettleDeparture(f) => f.host = rehost(rehost(f.host, 9), 9),
-        Duty::Return(_) | Duty::Gather(_) | Duty::Resolve(_) => unreachable!(),
+        Duty::Return(_) | Duty::Gather(_) | Duty::Resolve(_) | Duty::SettleTransit(_) => {
+            unreachable!()
+        }
     }
     assert!(m.coherent());
     assert!(c.coherent() && r.coherent());

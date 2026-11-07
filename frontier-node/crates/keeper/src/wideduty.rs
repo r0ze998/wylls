@@ -444,6 +444,50 @@ pub enum Block {
     /// Resolve: the bell model (`world_index::resolve::resolve_bell`)
     /// refused, its reason by name.
     ResolveModel(String),
+    // ---- the transit settlement planner (`crate::widesettle`) ----
+    /// Settle: the transit record's host is of another generation than the
+    /// holding (the handler's `NotImplemented`: no wide capture exists).
+    HistoricalGeneration { host_gen: u8, holding_gen: u8 },
+    /// Settle: the march is still `Departed` at the origin
+    /// (`DepartureUnsettled`).
+    OriginUnsettled,
+    /// Settle: the sealed destination is not a present province; the
+    /// routed settlement under the region's anchor is not planned here.
+    DestinationAbsent,
+    /// Settle: THE anchor's (or the archive entry's) stored round signature
+    /// is not the verified public one supplied: the chain would open the
+    /// seal under a signature this planner did not verify.
+    AnchorSignatureMismatch,
+    /// Settle: `now < close + 600` or the destination has not resolved past
+    /// the arrival (`TooEarly`), with the times.
+    TooEarlyToSettle {
+        settle_at: i64,
+        now: i64,
+        resolved_next: u32,
+    },
+    /// Settle: the ClashInputs of the arrival is absent or not resolved;
+    /// the routed/unresolved settlement is not planned here.
+    InputsUnresolved,
+    /// Settle: the host is not present in the resolved final set; the
+    /// bounce/rout settlement is not planned here.
+    NotInFinalSet,
+    /// Settle: the slot at the host's final-set position is absent or
+    /// another host's; the tip then goes to `pool_owed`, not planned here.
+    SlotNotOwn,
+    /// Settle: the host's fate is one that comes home (Bounced, Retreated)
+    /// or not a fate code; the home re-entry is not planned here.
+    FateUnsupported(u8),
+    /// Settle: the host earns the camp's loot (the owner Citizen is a
+    /// further account); not planned here.
+    CampLootUnsupported,
+    /// Settle: the seal did not open and validate under the verified public
+    /// round signature; the handler would confiscate it as a bad seal,
+    /// which is not planned here (named step).
+    BadSealUnsupported(&'static str),
+    /// Settle: the holding's escrow is below the plan's total (`BadAccount`).
+    EscrowShort { escrow: u64, total: u64 },
+    /// Settle: the holding counts no open transit (`BadAccount`).
+    NoOpenTransit,
     /// The same-response snapshot could not be taken (the port's reason).
     Snapshot(String),
     /// Planned over one response, the plan asked for keys the response
@@ -642,6 +686,9 @@ pub enum Duty {
     Return(ReturnFacts),
     Gather(GatherFacts),
     Resolve(ResolveFacts),
+    /// WideSettleTransit, planned by `crate::widesettle` (its facts live
+    /// there).
+    SettleTransit(Box<crate::widesettle::SettleTransitFacts>),
 }
 
 /// A validated, **unsigned** instruction and the facts it rests on.
@@ -923,6 +970,10 @@ impl Duty {
                 c.u8(4);
                 f.canon(c);
             }
+            Duty::SettleTransit(f) => {
+                c.u8(5);
+                f.canon(c);
+            }
         }
     }
 }
@@ -1079,6 +1130,7 @@ impl Candidate {
                     "roster_rent_rule": "handler precondition when created: the fee payer holds the roster's full minimum balance (Insufficient otherwise); the creation then tops the address up",
                 }),
             ),
+            Duty::SettleTransit(f) => ("WideSettleTransit", f.describe()),
         };
         json!({
             "kind": kind,
@@ -1211,7 +1263,7 @@ pub(crate) fn season_of(scope: &Scope, reads: &Reads) -> Result<(Season, bool), 
 
 /// The event-chain headroom of a chained account: `seq + n` must not
 /// overflow (`event::advance` → the handler's `Overflow`).
-fn chain_headroom(d: &[u8], n: u64, what: &'static str) -> Result<(), Block> {
+pub(crate) fn chain_headroom(d: &[u8], n: u64, what: &'static str) -> Result<(), Block> {
     let seq = rd_u64(d, header::EVENT_SEQ).ok_or(Block::Unreadable(what))?;
     seq.checked_add(n)
         .map(|_| ())
@@ -1269,7 +1321,7 @@ pub(crate) fn holding_at<'a>(
     Ok(Some((h, acc.data.as_slice())))
 }
 
-fn roster_at<'a>(
+pub(crate) fn roster_at<'a>(
     reads: &'a Reads,
     scope: &Scope,
     a: &Address,
@@ -1302,7 +1354,7 @@ pub(crate) fn transit_at(
 /// The handler's `capture_lock_of`: a live holding (provisional or final)
 /// whose site mirror in `pd` shows a completed, unsettled capture is
 /// locked.
-fn capture_lock_of(pd: &[u8], hd: &[u8]) -> Result<(), Block> {
+pub(crate) fn capture_lock_of(pd: &[u8], hd: &[u8]) -> Result<(), Block> {
     let state = rd_u8(hd, H::STATE).ok_or(Block::Unreadable("holding"))?;
     if matches!(state, H::STATE_PROVISIONAL | H::STATE_FINAL) {
         let site = rd_u8(hd, H::SITE).ok_or(Block::Unreadable("holding"))?;
@@ -1354,7 +1406,7 @@ fn candidate(
 
 /// [`candidate`] over account metas the planner built itself (a repeated
 /// group the table's flat zip cannot express).
-fn candidate_with(
+pub(crate) fn candidate_with(
     scope: &Scope,
     reads: &Reads,
     payer: Address,
@@ -1801,12 +1853,19 @@ pub struct AnchorRead {
     pub a_ts: i64,
     /// The archive entry's seed when the source is the archive.
     pub archive_seed: Option<[u8; 32]>,
+    /// The round-`T(bell)` signature the account stores (THE anchor's
+    /// `sig48`, or the archive entry's `sig`): the chain's, which the
+    /// settle handler decompresses and opens the seal under.
+    pub sig48: [u8; 48],
+    /// THE anchor's landing slot; `None` once archived (the archive does
+    /// not keep it).
+    pub anchor_slot: Option<u64>,
 }
 
 /// Reads THE anchor or its archive entry from `reads` (both addresses
 /// already requested by the caller). `NoAnchor` when neither holds the
 /// bell; `NotCanonical` when the account at the address is another's.
-fn anchor_read(
+pub(crate) fn anchor_read(
     reads: &Reads,
     scope: &Scope,
     ctx: &AddrCtx,
@@ -1829,6 +1888,8 @@ fn anchor_read(
                 source: "anchor",
                 a_ts: a.a,
                 archive_seed: None,
+                sig48: a.sig48,
+                anchor_slot: Some(a.slot),
             })
         }
         None => match presence(reads, &archive_addr, &scope.program, "archive")? {
@@ -1854,6 +1915,8 @@ fn anchor_read(
                     source: "archive",
                     a_ts: a,
                     archive_seed: Some(e.seed),
+                    sig48: e.sig,
+                    anchor_slot: None,
                 })
             }
         },

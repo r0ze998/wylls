@@ -26,6 +26,7 @@
 //! | `wideproof` (feature `wide-world-experimental`) | **read-only**: the Depart commitment and 264-byte seal of a committed WideDepart, taken from a feed record's wire and bound to the `Departed` record inside the same instruction's log frame; unavailable on any CPI, rollback or mismatch; no signature verified, no key |
 //! | `wideduty` (feature `wide-world-experimental`) | **read-only, unsigned**: WideSettleDeparture, WideReturn, WideGather and WideResolve instructions planned from current account reads with the dispatcher's tables and refusals (the gather's arrival evidence is the wide ArrivalDay account, never the absence of feed events; the resolve replays the ABI's `resolve_bell` on scratch bytes; WideSettleTransit is not planned); explicit block reasons; never signed, simulated, sent or queued |
 //! | `widereveal` (feature `wide-world-experimental`) | **read-only, unsigned**: a WideReveal candidate planned from a `wideproof::DepartProof`, a caller-supplied seal opening and current account reads; the handler's timing, latch, path, shield, quota and ArrivalDay rules replayed; a matching commitment is never called a cryptographic verification |
+//! | `widesettle` (feature `wide-world-experimental`) | **read-only, unsigned**: the WideSettleTransit candidate of a march whose seal opens under the anchor's own public round signature and whose host is in the resolved final set with a fate that does not come home; the outcome and payments from the shared `frontier_abi::world_index::settle` functions the program calls; bad seals, absent destinations, bounces, routs, returns home and camp loot refused, not planned; no tick wiring yet |
 //! | `widereview` (feature `wide-world-experimental`) | **read-only** admission review of a wide candidate against the engine's public state: a typed full-identity key, kind, tag, class and concrete denials; never a `WriteSpec`, never `ensure`/`poll`/`send` |
 //! | `widesnapshot` (feature `wide-world-experimental`) | the additive same-response account snapshot (`SnapshotPort`, default `Unsupported`; the JSON-RPC port implements it): all keys + Clock (+ Rent) in one `getMultipleAccounts` response with its context slot; coherence, never currency or permission |
 //! | `widefees` (feature `wide-world-experimental`) | what executing a wide candidate requires of its fee payer, calculated only from a same-response Rent sysvar and payer account (ABI sizes), every assumption named, unmet or unknown declared |
@@ -82,6 +83,8 @@ pub mod wideproof;
 pub mod widereconcile;
 #[cfg(feature = "wide-world-experimental")]
 pub mod widereveal;
+#[cfg(feature = "wide-world-experimental")]
+pub mod widesettle;
 #[cfg(feature = "wide-world-experimental")]
 pub mod widereview;
 #[cfg(feature = "wide-world-experimental")]

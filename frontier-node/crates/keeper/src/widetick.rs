@@ -295,6 +295,29 @@ impl ProofStore {
             .collect()
     }
 
+    /// The `(host, transit slot)` pairs worth planning a **transit
+    /// settlement** for: a stored proof whose march the model shows
+    /// **revealed** (the settlement needs the proof's seal after the
+    /// reveal, which [`ProofStore::hints`] no longer lists) and still open
+    /// — not settled, not closed — in the proof's slot. The store keeps a
+    /// proof past its reveal for this; only a later departure of the same
+    /// slot or the bound evicts it. A hint only: the chain decides.
+    pub fn settle_hints(&self, model: &WideDiscovery) -> Vec<(WideHostRef, u8)> {
+        self.entries
+            .values()
+            .filter(|e| {
+                model
+                    .hosts
+                    .get(&e.proof.host)
+                    .and_then(|st| st.transit.as_ref())
+                    .is_some_and(|t| {
+                        t.slot == e.proof.transit_slot && t.open() && t.reveal.is_some()
+                    })
+            })
+            .map(|e| (e.proof.host, e.proof.transit_slot))
+            .collect()
+    }
+
     pub fn status(&self) -> Value {
         json!({
             "held": self.entries.len(),
@@ -1263,6 +1286,9 @@ impl WideReview {
                         v
                     }
                     Duty::Resolve(f) => vec![WideTarget::Province(f.province)],
+                    Duty::SettleTransit(f) => {
+                        vec![WideTarget::Province(f.dest), WideTarget::Holding(f.host)]
+                    }
                 };
                 let reconcile = self.reconcile_targets(scope, observer, &targets, &reads);
                 json!({
