@@ -49,6 +49,9 @@ import { html, setHtml } from '../util.mjs';
 import { ACTIONS, FORMS, bind, startPlay, wantProvince, wantKeepHistory, wantKeepReach, wantHostReach, refreshConquest, refreshPrize, ackHomeGrant, tolled, syncProto, wantPreview, wantPlaces, composeTick } from './controller.mjs';
 import { mountProtoBoard } from './proto/board-mount.mjs';
 import { mountKeepBoard, keepReachOf } from './map/keepmount.mjs';
+// the recorded wide world, read-only (map/widemode.mjs): a button beside the map tools and a sheet over the map;
+// the ordinary map is not changed by it
+import { mountWideMode } from './map/widemode.mjs';
 import { provinceName as placeProvinceName } from './hud/place.mjs';
 // the prototype rule "banners" (a design tried in the sample world: hud/proto.mjs, proto/hand-model.mjs)
 import * as protoHud from './hud/proto.mjs';
@@ -3697,6 +3700,10 @@ export async function boot() {
       art: ART_ON,
     });
     mapRef = map;
+    // the recorded wide world (read-only, experimental): refused on a sample world, explicit when the herald has
+    // none; it reads the season record's pins (season, Season address, program) so a manifest of another season or
+    // namespace is never shown
+    try { mountWideMode({ herald, canvas, isSample: () => !!FS.sample, recordOf: () => FS.record ?? null }); } catch (e) { console.error('frontier wide world:', e); }
     // >>> proto-board: the banner rule's PROTOTYPE (a design, not in the program; the sample world serves its records only when
     // it was started with claims=1). The page's one reading of its records (FS.proto) reaches the map here and nowhere
     // else: proto/board-mount.mjs builds the board's model from it each time the page has drawn itself (renderProto)

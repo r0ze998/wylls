@@ -74,6 +74,33 @@ As a pure library for a **reader** (herald, web client, a keeper's planning step
 - **World identity and asset identity**: whether `WorldId` is implied as "the legacy season" for every existing Holding/Citizen (additive) or every key changes (cut-over), and whether one NFT resident may be a resident of two worlds, are the questions of §3.4 of the identifiers note; `derive_legacy_season` only gives the additive reading a name.
 - **Terrain and seeds**: `ring_seed(d)` is `u16`-keyed; terrain at ring 70,000 has no seed account today.
 
+## 4.4 A first read-only consumer (2026-11-07, worktree `preserve/sparse-world-foundation-20261107` on `f898d8da`)
+
+One narrow path, end to end, that shows **real captured land** through the adapter and invents nothing:
+
+| piece | where | what |
+|---|---|---|
+| herald feature `wide-world-experimental` | `frontier-node/crates/herald/Cargo.toml` | enables `frontier-abi/world-index-experimental` for the herald only; default off |
+| `herald::wide` | `frontier-node/crates/herald/src/wide.rs` | `WideIndex`: one `OpenedProvinceIndex` of `WorldId::derive_legacy_season(season PDA, program)`, fed from `Fold::index_account` (first capture of a Province → `Open` at its opened bell) and `unindex_account` (a closed account → `Closed`); a re-capture of the same Province is a no-op, so the snapshot does not move every bell. A per-mutation stamp (`sha256` chain) is the snapshot identity beside the epoch: no page hashes or scans the index |
+| `GET /h/world/wide` | `server.rs` | the manifest: `world` (hex), `worldDomain`, `season`, `program`, `seasonAddress`, `snapshot {epoch, stamp, foldedThrough, lastSlot}`, `recorded`, `refused`, `legacy {rMax, rMaxHard, ringsOpened, provinces}`, `page {path, max 256, default 64}`, `experimental: true`, `readOnly: true`, `completeness: "captured"` |
+| `GET /h/world/wide/page?limit=&after=` | `server.rs` | ≤ `limit` entries in ring order, each `{p, q, ring, pos}` as **decimal strings**, `wedge`, `state` (`open`/`closed`), `revision`, `observedAt`, `legacy {p, q, index, ring, region, openedBell, slot, address}` or `null`; `next` = the cursor's hex or `null`. Refusals by name: `400 BadLimit`, `400 BadCursor`, `409 WorldMismatch`, `409 StaleSnapshot`, `503 NoSeasonYet`; without the feature both routes answer `503 WideWorldUnavailable` |
+| `map/wide.mjs` | `permutation-server/web/frontier/map/wide.mjs` | pure: strict BigInt decoding (canonical decimal only; `Number` never touches a global coordinate), `ringPosition` recomputed as `WideCoord::ring_position`, `worldIdOf` recomputed from the public addresses, `parseWideManifest` / `parseWidePage` (sample/proto marks, another world, another snapshot, a wrong `after`, repeats, disorder, a lying ring, a cursor after a short page: each refused by code), `WideWalk` (page state with a token; a reset or an abort drops a late page), `loadWide` (bounded: 64 pages × 256), a BigInt camera origin with `relativeTo` / `layoutWide` / `nearestTo` |
+| `herald.mjs` `wideWorld`, `wideWorldPage` | the client | a 404 or the herald's `503 WideWorldUnavailable` comes back as `WideWorldUnavailable`; the caller's `AbortSignal` reaches `fetch` |
+| `map/widemode.mjs` + a `記録` button in `.map-tools` | the `/frontier` page (`app.mjs` mounts it after the map) | a read-only sheet over the ordinary map: status (world, snapshot, recorded/shown/open/closed counts, truncation), the facts line ("captured records only; an unlisted place is unknown, not open; nothing is sent or signed"), exact coordinate readouts (origin, pointer, selection), a list of recorded provinces that recentres on click, drag/wheel/keyboard pan and zoom, "recentre here" / "Concord as origin", a manifest poll every 30 s that reloads on a new snapshot; refused on a sample world before any request; the ordinary map is untouched |
+
+Tests (fixed data, no keys, no network beyond loopback): `herald/src/wide.rs` unit tests (namespace, no-op re-capture, close as revision 2, ring-ordered pages, cursor death, 2⁶² as a decimal string); `herald/tests/wide.rs` (the fixture archive's four Provinces recorded exactly with their capture slot and address, snapshot unmoved by every later transaction, the Concord unknown, pages of 3 + 1, world/stale/malformed cursors, a close → `closed` with `legacy: null`, the HTTP codes, and the `503 WideWorldUnavailable` of a default build); `permutation-gateway/test/web-frontier-wide-world.test.mjs` (precision past 2⁵³, legacy positions, namespace, manifest and page refusals, the walk's joins/cut/abort/reset/switch, the relative camera, the client codes).
+
+Commands for the supervisor (nothing was run here):
+
+```sh
+cd frontier-node && cargo test --locked -p herald --features wide-world-experimental wide
+cd frontier-node && cargo test --locked -p herald --test wide          # the 503 of a default build
+cd frontier-node && cargo clippy --locked -p herald --features wide-world-experimental --all-targets -- -D warnings
+cd permutation-gateway && node --test test/web-frontier-wide-world.test.mjs
+```
+
+Limits that stay: the herald's wide index is rebuilt from the checkpoint on restart (another stamp: a reader starts over); only the legacy season's one world exists (no second world is served or invented); every entry is within ring 128 because that is all the fold can capture; a walk is cut at 16,384 entries and says so; the mode's texts are Japanese (no English entries were added to the dictionary); the sheet is a presentation of captured records, not a game surface (no actions).
+
 ## 5. What this foundation is, in one sentence
 
 A tested, lossless, world-scoped, sparse identifier and index layer that a reader could adopt now and that any future wide ABI could key on, with an exact adapter to every identifier the deployed program issues; it is not an unbounded game, it opens no land, and it decides none of the economy.
@@ -89,3 +116,11 @@ A tested, lossless, world-scoped, sparse identifier and index layer that a reade
 - This experimental layout is not a finalized product protocol. No land-opening, cross-world travel, nation ownership or prize eligibility rule has been changed.
 
 Default `cargo check` passed. `abi-vectors --check` reports stale `v2/layouts.json` and `v2/logs.json`; they were not regenerated. The generator, existing ABI layout/log modules, rules source and checked-in vectors have no diff from parent `30d60d27`. A separate baseline execution was not performed; this check is not reported as passed.
+
+### Read-path supervisor validation (2026-11-07)
+
+- Feature-enabled herald pure tests 5/5 and Fold/HTTP fixture integration tests 3/3 passed. Default-feature route test 1/1 passed (explicit 503). Feature-enabled library and new integration-test clippy passed. Public PDA calculation only; no keypair generation or signing.
+- New JS tests 14/14 passed under the key-operation guard, including two minimal-DOM tests calling the actual screen mount. They are not browser/visual acceptance tests. Existing client/map/word tests 24/24 and language tests 24/24 passed after punctuation fixes.
+- Review corrected a precision-test expectation, missing error code, manifest-in-flight reset race, stale screen-source/poll races, unpinned reads before the season loaded, and inaccessible rows past the first 48. Each loaded row is now reachable through list paging. Localnet/other cluster names are visible as source claims, not proofs. Sample/prototype sources are refused.
+- No browser was opened or restarted, no production service was enabled, and no real-chain generation was tested. The screen is a read-only overlay in the actual game page; the ordinary action map is unchanged. A server must be explicitly built with `wide-world-experimental` and ingest a real archive/feed for real records to appear. A default/older server answers unavailable.
+- Current Fold input is still legacy i16/ring-128. The wide-coordinate screen is ready for exact large coordinates, but no wider on-chain producer exists here. Land generation, gameplay traversal, ownership, prize eligibility, wide account layouts and migration remain separate work.

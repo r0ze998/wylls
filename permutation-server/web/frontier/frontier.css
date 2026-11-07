@@ -353,6 +353,30 @@ body[data-urgency="crit"] main::after { box-shadow: inset 0 0 0 4px #c8412f; }
 .lens[aria-pressed="true"] { padding: 0 11px 0 8px; background: linear-gradient(180deg, #e6c56e, #c9a24a); border-color: var(--brass-hi); color: #1d1608; }
 .lens[aria-pressed="true"] .lens-text { display: inline; }
 .map-tools { position: absolute; right: calc(var(--edge) + var(--mini) + 16px); bottom: var(--edge); z-index: 20; display: flex; flex-direction: column; gap: 6px; transition: right .22s cubic-bezier(.2,.8,.2,1); }
+/* the recorded wide world (map/widemode.mjs): a sheet over the map, opaque bell metal, nothing of the map reads through */
+.wide-world { position: absolute; inset: calc(var(--strip, 48px) + 8px) var(--edge) var(--edge) var(--edge); z-index: 30; display: flex; flex-direction: column; gap: 6px; padding: 10px 12px; border-radius: 12px; border: 1px solid var(--brass-lo); background: var(--card); color: var(--ivory); box-shadow: var(--shadow); }
+.wide-world[hidden] { display: none; }
+.wide-head { display: flex; align-items: center; gap: 10px; }
+.wide-head h2 { margin: 0; font-size: var(--t3); }
+.wide-flag { padding: 2px 8px; border-radius: 6px; border: 1px solid var(--brass-lo); color: var(--brass-hi); font-size: var(--t1); font-weight: 600; }
+.wide-close { margin-left: auto; }
+.wide-status { margin: 0; font-size: var(--t1); color: var(--brass-hi); font-variant-numeric: tabular-nums; }
+.wide-facts { margin: 0; font-size: var(--t1); color: var(--hud-ink-2); }
+.wide-body { display: grid; grid-template-columns: 1fr minmax(220px, 320px); gap: 10px; flex: 1; min-height: 0; }
+.wide-stage { position: relative; min-height: 240px; border-radius: 10px; overflow: hidden; border: 1px solid var(--brass-lo); }
+.wide-stage canvas { width: 100%; height: 100%; display: block; cursor: grab; touch-action: none; }
+.wide-tools { position: absolute; right: 8px; top: 8px; display: flex; flex-direction: column; gap: 6px; }
+.wide-side { overflow: auto; min-height: 0; font-size: var(--t1); }
+.wide-coords { display: grid; grid-template-columns: auto 1fr; gap: 2px 8px; margin: 0 0 8px; font-variant-numeric: tabular-nums; }
+.wide-coords dt { color: var(--hud-ink-2); }
+.wide-coords dd { margin: 0; overflow-wrap: anywhere; }
+.wide-side h3 { margin: 6px 0 4px; font-size: var(--t1); }
+.wide-list { margin: 0; padding: 0 0 0 1.4em; }
+.wide-row { display: block; width: 100%; text-align: left; padding: 3px 6px; border: 1px solid transparent; border-radius: 6px; background: none; color: inherit; font: inherit; cursor: pointer; overflow-wrap: anywhere; }
+.wide-row:hover, .wide-row[aria-pressed="true"] { border-color: var(--brass-hi); color: var(--brass-hi); }
+.wide-more { margin: 4px 0 0; color: var(--hud-ink-2); }
+.wide-btn { width: auto; min-width: 38px; padding: 0 8px; border-radius: 19px; }
+@media (max-width: 720px) { .wide-body { grid-template-columns: 1fr; } .wide-side { max-height: 40%; } }
 .map-btn { width: 38px; height: 38px; border-radius: 50%; }
 /* before joining there is no home to go to and nothing to tell apart: those controls wait */
 body[data-stage="none"] :is(.lenses, .map-btn[data-map="home"]) { display: none; }

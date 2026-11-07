@@ -155,6 +155,8 @@ pub fn world_json(f: &Fold) -> Option<Value> {
             "province": "/h/province/{P},{Q}/latest",
             "overview": "/h/overview2/{d}/latest.bin",
             "roster": "/h/roster/{d}/latest.bin",
+            // the recorded wide world (experimental, read-only; 503 WideWorldUnavailable unless the herald opted in)
+            "wide": "/h/world/wide",
         },
     }))
 }

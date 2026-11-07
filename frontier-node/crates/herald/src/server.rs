@@ -125,6 +125,9 @@ pub fn router(app: Shared) -> Router {
         .route("/h/status", get(status))
         .route("/h/world", get(world))
         .route("/h/world/ring/{d}", get(world_ring))
+        // the recorded wide world (`wide.rs`; feature `wide-world-experimental`, else 503 WideWorldUnavailable)
+        .route("/h/world/wide", get(world_wide))
+        .route("/h/world/wide/page", get(world_wide_page))
         .route("/h/overview/{ring}/{file}", get(overview))
         .route("/h/roster/{ring}/latest.bin", get(roster))
         .route("/h/province/{pq}/{bell}", get(province))
@@ -335,6 +338,52 @@ async fn world_ring(State(app): State<Shared>, Path(d): Path<String>) -> Respons
         Some(v) => json_answer(&v, "public, max-age=5"),
         None => err(StatusCode::NOT_FOUND, "NoSuchRing"),
     }
+}
+
+/// `/h/world/wide` (`wide.rs`): the recorded wide world's manifest.
+#[cfg(feature = "wide-world-experimental")]
+async fn world_wide(State(app): State<Shared>) -> Response {
+    let f = read_fold(&app);
+    match crate::wide::manifest_json(&f) {
+        Ok(v) => json_answer(&v, "public, max-age=5"),
+        Err(e) => err(wide_status(e), e.code()),
+    }
+}
+
+/// `/h/world/wide/page?limit=&after=` (`wide.rs`): one bounded page.
+#[cfg(feature = "wide-world-experimental")]
+async fn world_wide_page(
+    State(app): State<Shared>,
+    Query(q): Query<std::collections::HashMap<String, String>>,
+) -> Response {
+    let limit = match q.get("limit").map(|s| s.parse::<usize>()) {
+        None => None,
+        Some(Ok(n)) => Some(n),
+        Some(Err(_)) => return err(StatusCode::BAD_REQUEST, "BadLimit"),
+    };
+    let after = q.get("after").map(String::as_str).filter(|s| !s.is_empty());
+    let f = read_fold(&app);
+    match crate::wide::page_json(&f, after, limit) {
+        Ok(v) => json_answer(&v, "public, max-age=5"),
+        Err(e) => err(wide_status(e), e.code()),
+    }
+}
+
+#[cfg(feature = "wide-world-experimental")]
+fn wide_status(e: crate::wide::WideFault) -> StatusCode {
+    StatusCode::from_u16(e.status()).unwrap_or(StatusCode::BAD_REQUEST)
+}
+
+/// Without the feature the recorded wide world is explicitly unavailable
+/// (never a dense fallback dressed as one).
+#[cfg(not(feature = "wide-world-experimental"))]
+async fn world_wide(State(_app): State<Shared>) -> Response {
+    err(StatusCode::SERVICE_UNAVAILABLE, "WideWorldUnavailable")
+}
+
+#[cfg(not(feature = "wide-world-experimental"))]
+async fn world_wide_page(State(_app): State<Shared>) -> Response {
+    err(StatusCode::SERVICE_UNAVAILABLE, "WideWorldUnavailable")
 }
 
 /// `/h/roster/{ring}/latest.bin` (`roster.rs`): one answer per fold

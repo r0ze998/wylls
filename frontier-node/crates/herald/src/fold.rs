@@ -241,6 +241,12 @@ pub struct Fold {
     /// Resting S1 Provinces projected past `resolved_next` (`crate::rest`;
     /// not checkpointed).
     pub rest: crate::rest::Rests,
+    /// The recorded wide world (`crate::wide`, feature
+    /// `wide-world-experimental`): derived from the captured Provinces like
+    /// `provinces`, moved only when one is first captured or closed; not
+    /// checkpointed (rebuilt by `with_state`).
+    #[cfg(feature = "wide-world-experimental")]
+    pub wide: Option<crate::wide::WideIndex>,
 }
 
 fn kind_of(d: &[u8]) -> Option<AccountKind> {
@@ -264,9 +270,13 @@ impl Fold {
     /// A fold resuming from a saved state (derived indexes rebuilt).
     pub fn with_state(cfg: FoldCfg, out: Out, st: State) -> Fold {
         let ctx = findex::addr_ctx(&cfg.program, cfg.season_id);
+        #[cfg(feature = "wide-world-experimental")]
+        let wide = crate::wide::WideIndex::for_ctx(&ctx);
         let mut f = Fold {
             cfg,
             ctx,
+            #[cfg(feature = "wide-world-experimental")]
+            wide,
             st,
             out,
             season: None,
@@ -323,6 +333,11 @@ impl Fold {
                         .entry(pv.region)
                         .or_default()
                         .insert((pv.p, pv.q));
+                    // the recorded wide world: a no-op for a Province already recorded open from this bell
+                    #[cfg(feature = "wide-world-experimental")]
+                    if let Some(w) = self.wide.as_mut() {
+                        w.observe_open(pv.p, pv.q, first);
+                    }
                 }
             }
             Some(AccountKind::Citizen) => {
@@ -351,6 +366,14 @@ impl Fold {
                     }
                     if let Some(s) = self.regions.get_mut(&m.region) {
                         s.remove(&pq);
+                    }
+                }
+                // the recorded wide world: a closed account is a known closed record, not an unknown one
+                #[cfg(feature = "wide-world-experimental")]
+                {
+                    let at = self.st.last_slot;
+                    if let Some(w) = self.wide.as_mut() {
+                        w.observe_closed(pq.0, pq.1, at);
                     }
                 }
             }
