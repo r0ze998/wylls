@@ -109,6 +109,14 @@ use crate::FrontierError as E;
 /// One test at a time: the syscall stubs and the log capture are global.
 static SERIAL: Mutex<()> = Mutex::new(());
 
+// The experimental wide land write path (`wide-world-experimental`) shares
+// this harness: its accounts, stubs, clock and serial lock, as a child
+// module (`map_growth_runtime_tests::wide_land::`). It adds no account
+// kind the deployed program knows and changes nothing above.
+#[cfg(feature = "wide-world-experimental")]
+#[path = "wide_land_runtime_tests.rs"]
+mod wide_land;
+
 /// Backing memory of every account created by a test: key → (data pointer,
 /// capacity, owner pointer). The stub resizes and reassigns through it.
 type Memory = HashMap<[u8; 32], (usize, usize, usize)>;

@@ -43,6 +43,16 @@ nft-experimental = ["program"]
 # PSF_CUSTODY_PREVIEW_BUILD; never deployable until LiteSVM tests, measured
 # budgets and the verifier's V26 exist.
 custody-preview = []
+# Local development only (2026-11-07): the draft wide land write path on the
+# provisional band 0xD6–0xDA (`proc::wide`), the wide terrain kernel and the
+# `world_index` identity models; the build carries the `0x4000` program
+# version bit so its Seasons never mix with production ones. Not deployable;
+# no stable ABI, no allocated numbers.
+wide-world-experimental = [
+    "program",
+    "frontier-abi/world-index-experimental",
+    "permutation-rules/wide-terrain-experimental",
+]
 
 # Dependency sections: owned by the integrator (M1 contract §3.4, I-55); the
 # set below is the one listed in docs/frontier/m1/W2-A-NOTES.md.
