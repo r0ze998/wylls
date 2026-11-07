@@ -223,17 +223,32 @@ fn a_divert_outside_a_transit_settlement_is_unverifiable() {
 /// records `UnverifiedRecord`.
 #[test]
 fn every_conquest_kind_the_abi_knows_is_modelled() {
-    use verify_core::checks::v0_evidence::{CONDITIONAL_CQ_KINDS, MODELLED_CQ_KINDS};
+    use verify_core::checks::v0_evidence::{
+        CONDITIONAL_CQ_KINDS, GUARDED_CQ_KINDS, MODELLED_CQ_KINDS,
+    };
     for k in 0..=255u8 {
         if frontier_abi::v2::log::CqKind::from_u8(k).is_some() {
             assert!(
-                MODELLED_CQ_KINDS.contains(&k) || CONDITIONAL_CQ_KINDS.contains(&k),
+                MODELLED_CQ_KINDS.contains(&k)
+                    || CONDITIONAL_CQ_KINDS.contains(&k)
+                    || GUARDED_CQ_KINDS.contains(&k),
                 "conquest kind {k} is not modelled"
             );
         }
     }
-    for &k in MODELLED_CQ_KINDS.iter().chain(CONDITIONAL_CQ_KINDS) {
+    for &k in MODELLED_CQ_KINDS
+        .iter()
+        .chain(CONDITIONAL_CQ_KINDS)
+        .chain(GUARDED_CQ_KINDS)
+    {
         assert!(frontier_abi::v2::log::CqKind::from_u8(k).is_some(), "{k}");
+    }
+    // A guarded kind is never also modelled: V0E keeps reporting its records.
+    for k in GUARDED_CQ_KINDS {
+        assert!(
+            !MODELLED_CQ_KINDS.contains(k) && !CONDITIONAL_CQ_KINDS.contains(k),
+            "{k}"
+        );
     }
 }
 

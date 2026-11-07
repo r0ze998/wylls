@@ -68,6 +68,15 @@ pub const MODELLED_CQ_KINDS: &[u8] = &[
 /// [`explained`]): ⑳'s RESIDENT_JOINED (130), emitted by JoinResident only.
 pub const CONDITIONAL_CQ_KINDS: &[u8] = &[130];
 
+/// Conquest kinds the ABI knows that no check of this verifier models, and
+/// whose every record a guard keeps from a PASS: workstream 10's custody
+/// records (LOT_OPENED 105 … LOT_LOSS 113), which `V26:custody-guard` makes a
+/// FAIL in a program without custody and UNVERIFIABLE in a custody season,
+/// until V26 replays custody. Listing them here changes nothing V0E reports:
+/// each such record is still `UnverifiedRecord`. The list only answers the
+/// tripwire test that every conquest kind has been decided on (⑪, 2026-11-07).
+pub const GUARDED_CQ_KINDS: &[u8] = &[105, 106, 107, 108, 109, 110, 111, 112, 113];
+
 /// Whether `c` (a kind of [`CONDITIONAL_CQ_KINDS`]) stands beside the
 /// instruction that emits it: a top-level JoinResident of the same
 /// transaction (`tag ‖ generation u32 ‖ faction u8`) with the record's
