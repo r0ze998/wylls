@@ -206,3 +206,20 @@ v0.17 の持ち主の定義への置き換え（`authorize` = `holder` + `author
 - **走査した範囲**：保存物のカーソルは自分のプログラムの最後の番号で、台帳をどこまで走査したかではない。最後の住民の取引より後の操作は、保存物からは UNVERIFIABLE のまま。走査した範囲を残すには、`frontier_feed` が台帳の末尾を返すか、取得時に `frontier_status.transactions` を記録する必要がある（④ の判断）。
 - **完全性の根拠**：`findex::ledger` の問題が無いことは、そのノードの台帳を信じたうえでの「保存物に穴が無い」の主張で、台帳そのものの欠けや runId の衝突は見えない（⑲ の注記）。
 - 住民プログラムの命令そのもの、内側の命令の効果は、引き続き UNVERIFIABLE。
+
+## 10. 公開済みの統合候補 c7b3c54c の上で（2026-11-07）
+
+⑳ の枝を c7b3c54c（⑳ 7d077fc6・⑲ 3c664a61 を含む公開済みの統合候補）へ fast-forward した。この候補では、ノードとの末尾の照合が通っても、保存物の履歴は完全と断定せず Unknown のまま（同じ runId の中での巻き戻りは見分けられないため）。そのため `ResidentFeed::from_archive` から読んだ feed は whole にならず、保存物からは V28 の持ち主の判定は UNVERIFIABLE。持ち主を判定できるのは、同じローカルノードからの生の読み取りだけ。候補での補強（feed のプログラムが policy の住民プログラムと違えば UNVERIFIABLE、記録上の権限が一致しても feed に抜けがあれば UNVERIFIABLE）はそのまま。
+
+この木で実行（鍵ペアの生成・導出・署名なし、すべて合格）：`verify --test history` 16、`--test ledger_history` 6、`--test resident_ledger` 3、lib の `resident_feed`・V28 9、`findex --test ledger` 15。
+
+### ④ の scan（未受領）
+
+④ の統合版 73f12e74 は、`frontier_feed` の `{"scan": true}` で、記録と同じ応答の中に `scannedThrough`（ノードが走査した台帳の末尾）と `ledgerLen` を返すと報告している。⑳ はまだ取得できていない。受け取ったら次を照合する：
+
+1. 保存物の `feed_scanned` が、それが覆う記録と同じ manifest の書き込みで記録され、記録より先に進まない（落ちて記録が残らなかったときに、範囲を過大に主張しない）。
+2. `feed_scanned < feed_after`、または同じ読み取りの `ledgerLen` を超えるときは拒否するか `feed_after` に戻す。
+3. 再開のとき、`feed_scanned` は runId と `feed_last` が一致するときだけ引き継ぐ。違えば `feed_after` に戻す。
+4. 試験：記録を超えた `feed_scanned` を持つ保存物（落ちた場合の再現）で、最後の記録より後が whole にならない。
+
+⑳ 側の変更（受領後）：生の読み取りの `fetch` で、`through` を住民プログラムの読み取り応答の `scannedThrough`、`tip` を同じ応答の `ledgerLen` にし、別の `frontier_status` の呼び出しをやめる。保存物は c7b3c54c の方針どおり Unknown のまま。
