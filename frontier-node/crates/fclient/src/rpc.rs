@@ -13,8 +13,8 @@ use solana_address::Address;
 use solana_hash::Hash;
 
 use crate::ports::{
-    Account, ChainPort, ClockSysvar, Cursor, PortError, PortResult, Signature, SimResult, Status,
-    TxRecord,
+    Account, ChainPort, ClockSysvar, Cursor, FeedScan, PortError, PortResult, Signature, SimResult,
+    Status, TxRecord,
 };
 
 const B64: base64::engine::GeneralPurpose = base64::engine::general_purpose::STANDARD;
@@ -564,6 +564,49 @@ impl ChainPort for RpcPort {
             .iter()
             .map(parse_feed_record)
             .collect()
+    }
+
+    async fn feed_scan(&self, after: Cursor) -> PortResult<(Vec<TxRecord>, Option<FeedScan>)> {
+        if !self.localnet {
+            return Err(PortError::Unsupported(
+                "feed over a public RPC is findex's RpcPoll (W2-F)",
+            ));
+        }
+        let v = self
+            .rpc
+            .call(
+                "frontier_feed",
+                json!([after.0, 1_000, self.program.to_string(), {"scan": true}]),
+            )
+            .await?;
+        // A node from before the scan answers with the array: no extent.
+        if let Some(a) = v.as_array() {
+            return Ok((
+                a.iter().map(parse_feed_record).collect::<PortResult<_>>()?,
+                None,
+            ));
+        }
+        let d = |m: &str| PortError::Decode(format!("feed scan {m}"));
+        let txs = v
+            .get("txs")
+            .and_then(Value::as_array)
+            .ok_or_else(|| d("txs"))?
+            .iter()
+            .map(parse_feed_record)
+            .collect::<PortResult<Vec<_>>>()?;
+        let u = |k: &str| v.get(k).and_then(Value::as_u64);
+        let scan = FeedScan {
+            scanned_through: u("scannedThrough").ok_or_else(|| d("scannedThrough"))?,
+            ledger_len: u("ledgerLen").ok_or_else(|| d("ledgerLen"))?,
+            at_after: match v.get("atAfter") {
+                None | Some(Value::Null) => None,
+                Some(s) => Some(parse_sig(s)?),
+            },
+            run_id: v.get("runId").and_then(Value::as_str).map(String::from),
+            ledger_bytes: u("ledgerBytes"),
+            durable: v.get("durable").and_then(Value::as_bool),
+        };
+        Ok((txs, Some(scan)))
     }
 
     async fn blockhash(&self) -> PortResult<(Hash, u64)> {
