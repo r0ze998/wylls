@@ -285,6 +285,7 @@ async fn the_live_resident_feed_names_the_ledger_and_reads_through_the_game_feed
         vec![2, 3, 5]
     );
     let w = World::parse(&prog(), &txs, BTreeMap::new(), 0);
-    assert!(rf.gaps_before(&w, &h, 7).is_empty());
+    assert_eq!(h.source, Source::Unknown);
+    assert!(!rf.gaps_before(&w, &h, 7).is_empty());
     assert!(!rf.gaps_before(&w, &h, 8).is_empty());
 }

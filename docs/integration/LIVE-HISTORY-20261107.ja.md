@@ -1,0 +1,9 @@
+# Live履歴も完全性未確認として扱う
+
+c7b3c54cを基準に、fetch_txsのlocalnet経路をUnknownへ統一した。前後のrunId一致、ledgerBytes非縮小だけでは、その間の全feed取得と同じsnapshotを保証しない。保存archiveとliveを同じ安全基準にした。
+
+取得した取引、個別のFAIL所見は保存する。既存のself_contained規則は変更せず、その規則で確定するFAILは全体でもFAILのまま。それ以外はUNVERIFIABLEで、PASSにはしない。ResidentFeedもUnknownを受け取り、所有者履歴を完全として扱わない。
+
+4のscan実装は未取得・未統合。この変更はatomic snapshot実装ではなく安全制限。実ノード、実チェーン、署名、鍵生成を使う試験は行わない。固定バイトとunsigned取引を返すHTTP模擬ノードで検査する。
+
+検証結果：ledger_history 7件、resident_ledger 3件を関数名指定で実行し全件通過。verifyのtests対象clippyも通過。V0・V27の自己完結FAILを維持し、前後サイズ一致と増加の両方でUnknownになることを確認した。

@@ -288,8 +288,8 @@ pub async fn fetch(
         .and_then(Value::as_u64);
     Ok(ResidentFeed {
         program: *resident_program,
-        // The local node's ledger feed (`fetch_txs` with `localnet`), empty
-        // or not: an empty one is the ledger showing no resident transaction.
+        // Separate live reads remain Unknown without an atomic snapshot.
+        // Even an empty observation does not prove no resident transaction.
         history,
         after: 0,
         through,

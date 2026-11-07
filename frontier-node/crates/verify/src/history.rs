@@ -12,7 +12,7 @@
 //! | source | basis | verdict |
 //! |---|---|---|
 //! | a fixture file without a `history` field | `as_given`: the file's claim (recorded runs, vouched for by the fixture tests) | unchanged |
-//! | the local node's live `frontier_feed` | `ledger_feed`: the node's own ledger, in order (detail `ledger <runId>`) | unchanged |
+//! | the local node's live `frontier_feed` | separate status and feed reads are not an atomic snapshot | never PASS |
 //! | per-program local-feed archives | numbers restored when consistent, but same-run rollback freshness remains unproven | never PASS |
 //! | public RPC (findex `RpcPoll`, live or as a findex archive), in **any** coverage state, `cross_checked` included | `unproven` | never PASS: `UNVERIFIABLE` with [`HISTORY_UNPROVEN`], or FAIL only on a [self-contained](self_contained) FAIL |
 //! | an archive or fixture whose source is not recorded or not readable | `unproven` | the same |
