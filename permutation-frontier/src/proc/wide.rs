@@ -3702,12 +3702,28 @@ pub fn close_roster(p: &Pubkey, a: &[AccountInfo]) -> R<()> {
 /// **The debit gate.** WideDepart runs every check and then, while this is
 /// `false`, refuses `NotImplemented` before its first effect (no escrow,
 /// no transit record, no entry change, no record). The stages that settle
-/// a departure exist in full below and are exercised on the host over
-/// transit records the tests stage exactly as the departure would write
-/// them; the gate opens when the closed flow passes native review
-/// (`WIDE-LAND-WRITER.md` §−2.4f lists the conditions). Not a product
-/// switch: a build constant.
-pub const DEPART_DEBIT_ENABLED: bool = false;
+/// a departure exist in full below; the gate opens for production when the
+/// closed flow passes native review (`WIDE-LAND-WRITER.md` §−2.4f lists
+/// the conditions). Not a product switch: a build constant.
+///
+/// **Test-only opening.** The constant is `true` in exactly one build: the
+/// crate's own unit tests compiled with the `native-crypto-tests` feature
+/// on a non-SBF host (`cfg(test)` is never set for a library or a program
+/// anyone links or deploys, and the feature is dev-only). There the
+/// opt-in host experiment drives WideDepart's effects for real — the
+/// escrow, the transit record from the payer, the entry's `Spend`, the
+/// record — and settles them against a beacon posted through the real
+/// PostAnchor and PostSeed with public round signatures (nothing mocked,
+/// no verdict substituted). Every other build — the experimental host
+/// library, its ordinary unit tests, SBF — keeps the gate closed and the
+/// `NotImplemented` refusal. No policy gate of the departure (the player
+/// prologue, the identity gate, the boundary, the funds) is bypassed by
+/// this: only the final refusal-before-effects is lifted, in that build.
+pub const DEPART_DEBIT_ENABLED: bool = cfg!(all(
+    test,
+    feature = "native-crypto-tests",
+    not(target_os = "solana")
+));
 
 /// 0xDA WideDepart(host ref, transit_slot, arrive_bell, tip, commit,
 /// seal): the deployed player prologue + `[holding w] [province w]
@@ -3981,6 +3997,17 @@ pub(crate) fn depart_as(p: &Pubkey, a: &[AccountInfo], d: &[u8], auth: &Auth) ->
         r.u8(wh::wide_holding::OPEN_TRANSITS)?
             .checked_add(1)
             .ok_or(OVERFLOW)?;
+    }
+    // The Citizen's arrival count (the deployed `arrivals + 1` below),
+    // preflighted here so that its overflow is found before the escrow
+    // moves and the record is created, as the holding's counters are. (The
+    // event chain's advance cannot be preflighted the same way: `emit_wide`
+    // computes every link before it writes a header, but after the
+    // transfers; a chain at its maximum refuses `Overflow` then, and the
+    // transaction reverts — the host test shows that rollback.)
+    {
+        let cd = citizen.try_borrow_data()?;
+        Ro(&cd).u32(C::ARRIVALS)?.checked_add(1).ok_or(OVERFLOW)?;
     }
     // The debit gate (module doc): every check above passed and nothing is
     // written yet. The departure's effects stay refused here until the
