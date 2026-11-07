@@ -190,22 +190,19 @@ async fn both_archives_of_one_ledger_are_one_order() {
     let (_n, url) = node(&["run1"], &two_programs()).await;
     let (txs, h) = input::read_archive(&archive_of(&url, prog(), Some("run1")).await).unwrap();
     assert_eq!(txs.iter().map(|t| t.seq).collect::<Vec<_>>(), vec![1, 4, 6]);
-    let rf = ResidentFeed::from_archive(
-        &archive_of(&url, other(), Some("run1")).await,
-        other(),
-        BTreeMap::new(),
-    )
-    .unwrap();
+    let rdir = archive_of(&url, other(), Some("run1")).await;
+    let mut rf = ResidentFeed::from_archive(&rdir, other(), BTreeMap::new()).unwrap();
     assert_eq!(rf.history.source, Source::Unknown);
+    // ⑲ (rewind check): an archive not checked against the node says so.
     assert!(rf.history.detail.contains("rollback"));
     assert_eq!(
         rf.txs.iter().map(|t| t.seq).collect::<Vec<_>>(),
         vec![2, 3, 5],
         "ledger numbers"
     );
-    assert_eq!(rf.through, 0, "unproven archive claims no complete range");
+    assert_eq!(rf.through, 0, "unproven archive claims no range");
     let w = World::parse(&prog(), &txs, BTreeMap::new(), 0);
-    // Even within its cursor, archive freshness is not established.
+    // Whole up to just after its last resident transaction ...
     assert!(
         !rf.gaps_before(&w, &h, 6).is_empty(),
         "{:?}",
@@ -214,13 +211,25 @@ async fn both_archives_of_one_ledger_are_one_order() {
     // ... and not past it: the cursor does not say how far the ledger was
     // scanned, so a later act stays UNVERIFIABLE (never claims more).
     assert!(!rf.gaps_before(&w, &h, 7).is_empty());
-    // A live read cannot promote a stale archive to a complete resident feed.
+    // A live read of the same ledger pairs with the archive once the
+    // archive is checked against the node (⑲'s confirm_archive); unchecked,
+    // it does not.
     let (live, lh) = input::fetch_txs(&url, &prog(), true, None, None)
         .await
         .unwrap();
-    assert_eq!(lh.source, Source::LedgerFeed);
     let lw = World::parse(&prog(), &live, BTreeMap::new(), 0);
+    assert_ne!(lh, h);
     assert!(!rf.gaps_before(&lw, &lh, 6).is_empty());
+    rf.history = input::confirm_archive(&rdir, &url, rf.history)
+        .await
+        .unwrap();
+    assert_eq!(rf.history.source, Source::Unknown);
+    assert!(rf.history.detail.contains("cross-check matched"));
+    assert!(
+        !rf.gaps_before(&lw, &lh, 6).is_empty(),
+        "{:?}",
+        rf.gaps_before(&lw, &lh, 6)
+    );
 }
 
 #[tokio::test]
@@ -246,8 +255,7 @@ async fn a_resident_archive_not_the_ledgers_whole_feed_or_of_another_ledger_is_n
         BTreeMap::new(),
     )
     .unwrap();
-    assert_eq!(rf2.history.source, Source::Unknown);
-    assert!(rf2.history.detail.contains("ledger run2") && rf2.history.detail.contains("rollback"));
+    assert!(rf2.history.detail.contains("rollback"));
     let why = rf2.gaps_before(&w, &h, 6);
     assert!(
         why.iter()

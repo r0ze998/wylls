@@ -119,7 +119,8 @@ async fn rpc(State(n): State<Node>, Json(req): Json<Value>) -> Json<Value> {
                     "units": 0, "fee": 0, "post": []}))
                 .collect::<Vec<_>>())
         }
-        "frontier_status" => json!({"runId": *n.run_id.lock().unwrap(), "transactions": led.len()}),
+        "frontier_status" => json!({"runId": *n.run_id.lock().unwrap(), "transactions": led.len(),
+            "ledgerBytes": 100 * led.len() as u64}),
         _ => Value::Null,
     };
     Json(json!({"jsonrpc": "2.0", "id": id, "result": result}))
@@ -160,6 +161,13 @@ async fn archive(
 ) -> Result<Findex, String> {
     let mut f = Findex::open(dir, prog, None, 1 << 20).map_err(|e| e.to_string())?;
     let mut src = feed(url, prog, run);
+    if let Some(b) = findex::ledger::node_status(url)
+        .await
+        .ok()
+        .and_then(|s| s.ledger_bytes)
+    {
+        src = src.with_ledger_bytes(b);
+    }
     f.resume(&mut src);
     while !f
         .ingest(&mut src)
@@ -561,6 +569,116 @@ async fn an_unfiltered_feed_is_refused() {
     assert!(e.contains("does not mention the program"), "{e}");
     let f = Findex::open(&d, a(), None, 1 << 20).unwrap();
     assert_eq!(f.archive.last_seq(), 0);
+}
+
+// ------------------------------------------------------------ against the node
+
+fn c() -> Address {
+    Address::new_from_array([0xC3; 32])
+}
+
+fn says(why: &[String], what: &str) -> bool {
+    why.iter().any(|w| w.contains(what))
+}
+
+/// Both archives match the node: nothing to report.
+#[tokio::test]
+async fn archives_that_match_the_node_are_confirmed() {
+    let n = Node::new("run1", &ledger());
+    let url = start(n).await;
+    let fa = archive(&tmp("ca"), &url, a(), Some("run1")).await.unwrap();
+    let fb = archive(&tmp("cb"), &url, b(), Some("run1")).await.unwrap();
+    let why = findex::ledger::check_node(&url, &[part("A", &fa), part("B", &fb)]).await;
+    assert!(why.is_empty(), "{why:?}");
+}
+
+/// The ledger rewound under the same runId after both archives were
+/// written, the seqs then taken by another program's transactions (so its
+/// size is back where it was): `join` alone cannot see it (the archives are
+/// consistent with each other), the node check does, for both.
+#[tokio::test]
+async fn a_rewind_under_the_same_run_id_is_seen_against_the_node() {
+    let n = Node::new("run1", &ledger());
+    let url = start(n.clone()).await;
+    let fa = archive(&tmp("rwa"), &url, a(), Some("run1")).await.unwrap();
+    let fb = archive(&tmp("rwb"), &url, b(), Some("run1")).await.unwrap();
+    n.lose_tail(2); // A's 5, B's 6
+    n.push(31, &[c()]);
+    n.push(32, &[c()]);
+    let parts = [part("A", &fa), part("B", &fb)];
+    let j = join(&parts);
+    assert!(
+        j.whole(),
+        "the limit: the archives alone agree ({:?})",
+        j.problems
+    );
+    let why = findex::ledger::check_node(&url, &parts).await;
+    assert!(says(&why, "A: the archive's last transaction"), "{why:?}");
+    assert!(says(&why, "B: the archive's last transaction"), "{why:?}");
+    assert!(says(&why, "rewound"), "{why:?}");
+}
+
+/// A rewind that left the ledger shorter: its size and its transaction
+/// count are below what the archive saw, and nothing is at the last seq.
+#[tokio::test]
+async fn a_shrunk_ledger_is_seen_against_the_node() {
+    let n = Node::new("run1", &ledger());
+    let url = start(n.clone()).await;
+    let fa = archive(&tmp("sha"), &url, a(), Some("run1")).await.unwrap();
+    n.lose_tail(2);
+    let why = findex::ledger::check_node(&url, &[part("A", &fa)]).await;
+    assert!(says(&why, "it shrank"), "{why:?}");
+    assert!(says(&why, "holds 4 transactions"), "{why:?}");
+    assert!(
+        says(&why, "nothing at the archive's last ledger seq 5"),
+        "{why:?}"
+    );
+}
+
+/// One archive older than the other: A was written before the ledger grew,
+/// B after. Only the newest entry (B's last) is rewound: A still matches, B
+/// does not, and the report names B only.
+#[tokio::test]
+async fn only_the_archive_whose_tail_was_rewound_is_named() {
+    let n = Node::new("run1", &ledger());
+    let url = start(n.clone()).await;
+    let fa = archive(&tmp("oa"), &url, a(), Some("run1")).await.unwrap();
+    n.push(17, &[b()]);
+    let fb = archive(&tmp("ob"), &url, b(), Some("run1")).await.unwrap();
+    // Older A and newer B, the node as it is: both confirmed.
+    let parts = [part("A", &fa), part("B", &fb)];
+    assert!(findex::ledger::check_node(&url, &parts).await.is_empty());
+    n.lose_tail(1);
+    n.push(41, &[c()]);
+    let why = findex::ledger::check_node(&url, &parts).await;
+    assert!(says(&why, "B: the archive's last transaction"), "{why:?}");
+    assert!(!says(&why, "A:"), "A's tail is still there: {why:?}");
+}
+
+/// A node that cannot be read confirms nothing; a node of another ledger
+/// is named as such.
+#[tokio::test]
+async fn an_unreadable_or_other_node_confirms_nothing() {
+    let n = Node::new("run1", &ledger());
+    let url = start(n.clone()).await;
+    let fa = archive(&tmp("ua"), &url, a(), Some("run1")).await.unwrap();
+    let dead = {
+        let l = std::net::TcpListener::bind(("127.0.0.1", 0)).unwrap();
+        let addr = l.local_addr().unwrap();
+        drop(l);
+        format!("http://{addr}")
+    };
+    let why = findex::ledger::check_node(&dead, &[part("A", &fa)]).await;
+    assert!(says(&why, "could not be read"), "{why:?}");
+    n.reset("run2", &ledger());
+    let why = findex::ledger::check_node(&url, &[part("A", &fa)]).await;
+    assert!(
+        says(
+            &why,
+            "archived from ledger run1, the node serves ledger run2"
+        ),
+        "{why:?}"
+    );
 }
 
 /// Known limitation: A's seq 5 can be stale while B sees a replaced ledger

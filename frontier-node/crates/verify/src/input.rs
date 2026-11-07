@@ -315,6 +315,40 @@ pub fn read_archive(dir: &Path) -> Result<(Vec<TxRecord>, History), String> {
     Ok((txs, h))
 }
 
+/// The detail suffix of an archive's `ledger_feed` not checked against the
+/// node (see [`confirm_archive`]).
+pub const ARCHIVE_ONLY: &str =
+    " (archive only: not checked against the node; a later rewind of its ledger is not seen)";
+
+/// Observational cross-check against the node: discrepancies are Unknown.
+/// Even a matching tail is not an atomic whole-ledger snapshot, so the
+/// returned history remains Unknown until that freshness contract exists.
+pub async fn confirm_archive(dir: &Path, url: &str, h: History) -> Result<History, String> {
+    let a = findex::archive::Archive::open(dir, findex::archive::SEGMENT_BYTES)
+        .map_err(|e| format!("{}: {e}", dir.display()))?;
+    let part = findex::ledger::Part::of_archive(dir.display().to_string(), &a)
+        .map_err(|e| e.to_string())?;
+    let joined = findex::ledger::join(std::slice::from_ref(&part));
+    if !joined.whole() {
+        return Ok(History::unknown(format!(
+            "archive structure unproven: {}",
+            joined.problems.join("; ")
+        )));
+    }
+    let why = findex::ledger::check_node(url, std::slice::from_ref(&part)).await;
+    if !why.is_empty() {
+        return Ok(History::unknown(format!(
+            "archive {}: not confirmed against the node {url}: {}",
+            dir.display(),
+            why.join("; ")
+        )));
+    }
+    Ok(History::unknown(format!(
+        "archive {}: node tail cross-check matched; not an atomic ledger snapshot, completeness remains unproven ({})",
+        dir.display(), h.detail
+    )))
+}
+
 /// The ledger a local node serves (`frontier_status.runId`), if it says.
 pub async fn ledger_id(url: &str) -> Option<String> {
     let v = fclient::rpc::RpcClient::new(url)
@@ -474,7 +508,7 @@ pub async fn fetch_txs(
     if localnet {
         // The ledger is read before and after the feed: a node that started
         // a new ledger in between numbers its feed afresh.
-        let before = ledger_id(url).await;
+        let before = findex::ledger::node_status(url).await.ok();
         let mut s =
             findex::ingest::LocalnetFeed::new(fclient::rpc::RpcPort::localnet(url, *program))
                 .with_program(*program);
@@ -485,17 +519,35 @@ pub async fn fetch_txs(
             }
             out.extend(b);
         }
-        let after = ledger_id(url).await;
+        let after = findex::ledger::node_status(url).await.ok();
+        let id = |s: &Option<findex::ledger::NodeStatus>| s.as_ref().and_then(|s| s.run_id.clone());
+        let bytes =
+            |s: &Option<findex::ledger::NodeStatus>| s.as_ref().and_then(|s| s.ledger_bytes);
+        let shrank = bytes(&before).zip(bytes(&after)).filter(|(b, a)| a < b);
         let history = if out.is_empty() {
             History::unknown(format!(
                 "local node feed {url}: empty observation, not proof of an empty season"
             ))
-        } else if before != after {
+        } else if before.is_none()
+            || after.is_none()
+            || id(&before).is_none()
+            || id(&after).is_none()
+        {
             History::unknown(format!(
-                "local node feed {url}: the ledger changed while it was read ({before:?} to {after:?})"
+                "local node feed {url}: ledger status unavailable; nothing confirmed"
+            ))
+        } else if id(&before) != id(&after) {
+            History::unknown(format!(
+                "local node feed {url}: the ledger changed while it was read ({:?} to {:?})",
+                id(&before),
+                id(&after)
+            ))
+        } else if let Some((b, a)) = shrank {
+            History::unknown(format!(
+                "local node feed {url}: the ledger shrank while it was read ({b} to {a} bytes): rewound"
             ))
         } else {
-            match after {
+            match id(&after) {
                 Some(id) => History::ledger_feed(format!("ledger {id}")),
                 None => {
                     History::ledger_feed(format!("local node feed {url} (ledger not reported)"))
