@@ -1722,7 +1722,7 @@ impl WideReview {
                 "hints": "every observed province not seen closed (the observer's province bound, never cut here), rotated by the tick cursor; at its current resolved_next read from the chain (resident-only bells included; no intermediate bell skipped)",
                 "seed_rule": "one plan per hint per tick under the shared cap; at most one 256-address probe (four reads) per tick, its nonces tried one per later slot over their own snapshots; a refused nonce cools down and is tried again after; nothing is substituted inside a sealed snapshot",
                 "model": "world_index::resolve::resolve_bell replayed on scratch bytes; the output digest is at the observed clock; the program applies its own",
-                "not_planned": "a resolved bell's settlements beyond the settle_transit slice (bad seals, bounces, routs, returns home, camp loot); arrival processing is not complete",
+                "not_planned": "a resolved bell's settlements beyond the settle_transit slice (bad seals, absent destinations, unresolved records, camp loot); arrival processing is not complete",
             },
             "settle_transit": {
                 "inputs_at_last_step": self.reveal_inputs_at_last_step,
@@ -1731,9 +1731,9 @@ impl WideReview {
                 "hints": "stored proofs whose march the observer shows revealed and open in the proof's slot; listed only with the reveal inputs (the public round, the beneficiary); read hints only",
                 "min_slot": "max(tick slot, proof slot)",
                 "snapshot": "one response with the Rent sysvar (the payees' divert rule); without a snapshot source the live driver reads the Rent separately and the candidate is non-coherent",
-                "scope": "a seal that opens under THE anchor's own stored round signature, a host present in the resolved final set with fate Stays, Withdrew or Destroyed, no camp loot; the payees' shapes read and the handler's payments and closes replayed over them in its order; any replay that would abort is a refusal",
+                "scope": "a seal that opens under THE anchor's own stored round signature; the destination's record resolved; the host in the final set with its own slot (every fate; Bounced and Retreated come home with the record's values) or outside it as the record's outranked bounce or rout; the home re-entry replayed from stage_return_home (a paired roster's entry under the caps, else the reserve); no camp loot; the payees' shapes read and the handler's payments and closes replayed in its order; any replay that would abort is a refusal",
                 "payments": "nominal allocations with predicted routes over the shapes as read; never observed or successful transfers",
-                "not_planned": "bad seals, absent destinations, bounces, routs, returns home, camp loot; arrival processing is not complete",
+                "not_planned": "bad seals, absent destinations, unresolved records (the resolver position would be unlisted), a final-set host without its own slot, camp loot, a return without the home province or with an unpaired roster or a refused claim; arrival processing is not complete",
                 "shared_counters": "publications_missing, transient_retries and proofs_renewed under `reveal` count reveal and settle-transit plans together",
             },
             "reconcile": {

@@ -468,14 +468,15 @@ pub enum Block {
     /// Settle: the ClashInputs of the arrival is absent or not resolved;
     /// the routed/unresolved settlement is not planned here.
     InputsUnresolved,
-    /// Settle: the host is not present in the resolved final set; the
-    /// bounce/rout settlement is not planned here.
+    /// Settle: the host is not present in the resolved final set. Kept for
+    /// callers; since the twelfth slice the planner plans the record's
+    /// bounce and rout instead of refusing with it.
     NotInFinalSet,
-    /// Settle: the slot at the host's final-set position is absent or
+    /// Settle: a final-set host's slot at its position is absent or
     /// another host's; the tip then goes to `pool_owed`, not planned here.
     SlotNotOwn,
-    /// Settle: the host's fate is one that comes home (Bounced, Retreated)
-    /// or not a fate code; the home re-entry is not planned here.
+    /// Settle: the final-set fate is not a fate code (the handler's
+    /// `BadAccount`).
     FateUnsupported(u8),
     /// Settle: the host earns the camp's loot (the owner Citizen is a
     /// further account); not planned here.
@@ -517,6 +518,18 @@ pub enum Block {
     /// the review payer is the all-zero placeholder: that close cannot be
     /// judged against a wallet; named.
     PayerPlaceholder(&'static str),
+    /// Settle: the host comes home and the home province is absent (the
+    /// handler's `BadAccount`: the re-entry needs it).
+    ReturnNeedsHome,
+    /// Settle: the transit record's unit is not a reserve unit
+    /// (`BadAccount`).
+    BadUnit(u8),
+    /// Settle: the transit record's faction has no doctrine (`BadAccount`).
+    BadFaction(u8),
+    /// Settle: the home roster refuses to claim the returning host's
+    /// reference at the free index (its table already holds the host, or
+    /// the alias collides): the handler's `BadAccount`.
+    RosterClaimRefused,
     /// The same-response snapshot could not be taken (the port's reason).
     Snapshot(String),
     /// Planned over one response, the plan asked for keys the response

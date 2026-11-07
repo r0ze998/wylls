@@ -26,8 +26,10 @@ use fclient::rpc::account_json;
 use fclient::Hash;
 use frontier_abi::addr::{archive_part_of, AddrCtx};
 use frontier_abi::bytes::{wr_arr, wr_u16, wr_u32, wr_u64, wr_u8};
+use frontier_abi::entry::{write_entry, Entry, EntryOp};
 use frontier_abi::layout::beacon::{anchor_archive as AA, bell_anchor as BA};
 use frontier_abi::layout::player::transit as TL;
+use frontier_abi::layout::province::entry as E;
 use frontier_abi::layout::province::province as PV;
 use frontier_abi::layout::province::site as SM;
 use frontier_abi::layout::world::{beacon_log as BL, season as SL};
@@ -51,7 +53,9 @@ use keeper_core::widereveal::{
     UNVERIFIED_COHERENCE, UNVERIFIED_CURRENCY,
 };
 use keeper_core::widereview::{self, Deny, EngineView, Subject, HARD_DENIALS};
-use keeper_core::widesettle::{self, ClaimRule, PayRoute, SettleTransitFacts, SlotDisposition};
+use keeper_core::widesettle::{
+    self, ClaimRule, PayRoute, ReturnHome, SettleTransitFacts, SlotDisposition,
+};
 use keeper_core::widesnapshot::{
     parse_snapshot_response, rent_sysvar, sysvar_owner, RentSysvar, Snapshot, SnapshotError,
     SnapshotPort, SnapshotSource, MAX_SNAPSHOT_KEYS,
@@ -61,9 +65,12 @@ use keeper_core::widetick::{
     REFRESH_SLOTS,
 };
 use permutation_rules::frontier::beacon::{bell_start, first_round_from};
+use permutation_rules::frontier::doctrine::of_faction_v3;
 use permutation_rules::frontier::fees;
+use permutation_rules::frontier::host::{effective_bell, rout_survivors, DESTROYED_BELOW};
 use permutation_rules::frontier::seal::encode_path;
 use permutation_rules::frontier::seal::salt_of;
+use permutation_rules::frontier::stance::{Posture, Stance};
 use serde_json::{json, Value};
 use solana_address::Address;
 use solana_instruction::AccountMeta;
@@ -858,6 +865,9 @@ struct SettleFx {
     archive: Option<Vec<u8>>,
     inputs: Option<Vec<u8>>,
     slot: Option<Vec<u8>>,
+    /// The home province's roster (`None`: absent, the reserve fallback
+    /// of a returning host).
+    home_roster: Option<Vec<u8>>,
     clock: Option<ClockSysvar>,
     /// The lamports of the holding, the transit record and the slot as
     /// read (the holding backs the payments; the two records close whole).
@@ -943,6 +953,7 @@ impl SettleFx {
                 0,
             )),
             slot: Some(slot_bytes_at(away(), 1, host())),
+            home_roster: None,
             clock: Some(clock_at(Self::settle_at())),
             holding_lamports: HOLDING_LAMPORTS,
             transit_lamports: FUNDED_WALLET,
@@ -974,7 +985,7 @@ impl SettleFx {
                 .and_then(|d| acct_with(d, self.transit_lamports)),
         );
         m.insert(province_addr(home()), self.home.clone().and_then(acct));
-        m.insert(roster_addr(home()), None);
+        m.insert(roster_addr(home()), self.home_roster.clone().and_then(acct));
         m.insert(province_addr(away()), self.dest.clone().and_then(acct));
         m.insert(anchor_addr(), self.anchor.clone().and_then(acct));
         m.insert(archive_addr(), self.archive.clone().and_then(acct));
@@ -1400,35 +1411,18 @@ fn settle_transit_refuses_everything_outside_the_slice() {
     h.write(&mut d).unwrap();
     fx.inputs = Some(d);
     assert_eq!(blocked(fx), Block::InputsUnresolved);
-    // The host not in the final set; another host's slot; no slot.
-    let mut fx = SettleFx::new();
-    fx.inputs = Some(resolved_inputs_bytes(
-        away(),
-        1,
-        host_b(),
-        wa::wide_arrival::FATE_STAYS,
-        0,
-    ));
-    assert_eq!(blocked(fx), Block::NotInFinalSet);
+    // A host in the final set settles against its own slot: another host's
+    // slot at its position, or none, is not planned (the tip would go to
+    // `pool_owed`).
     let mut fx = SettleFx::new();
     fx.slot = Some(slot_bytes_at(away(), 1, host_b()));
     assert_eq!(blocked(fx), Block::SlotNotOwn);
     let mut fx = SettleFx::new();
     fx.slot = None;
     assert_eq!(blocked(fx), Block::SlotNotOwn);
-    // A fate that comes home; the camp's loot.
-    let mut fx = SettleFx::new();
-    fx.inputs = Some(resolved_inputs_bytes(
-        away(),
-        1,
-        host(),
-        wa::wide_arrival::FATE_BOUNCED,
-        0,
-    ));
-    assert_eq!(
-        blocked(fx),
-        Block::FateUnsupported(wa::wide_arrival::FATE_BOUNCED)
-    );
+    // A host not in the final set is the record's bounce or rout (the
+    // twelfth slice's test pins each); a fate that comes home is planned
+    // there too. The camp's loot:
     let mut fx = SettleFx::new();
     fx.inputs = Some(resolved_inputs_bytes(
         away(),
@@ -5453,6 +5447,654 @@ fn the_tick_plans_a_transit_settlement_from_a_revealed_open_march_under_the_shar
     assert_eq!(review5.settle_candidates, 0);
     for p in [&*shared, &port_no_rent, &*no_rent, &*shared_h] {
         assert_eq!(p.forbidden.load(Ordering::SeqCst), 0);
+    }
+    assert_eq!(engine.pending_len(), 0);
+}
+
+// ------------------------------------------------------------ the returning host
+
+/// A **resolved** record of `(dest, ARRIVE_BELL)` holding `arrivals` at
+/// their faction-0 positions.
+fn resolved_inputs_with(dest: ProvinceKey, arrivals: &[(u8, wa::WideArrival)]) -> Vec<u8> {
+    let mut hdr = wa::WideClashInputsHdr::new(SEASON_ID, dest, ARRIVE_BELL, [0xB5; 32]);
+    hdr.arrivals_mask = wa::wide_clash_inputs::ALL_GATHERED;
+    hdr.flags = wa::wide_clash_inputs::FLAG_RESOLVED;
+    hdr.n_present = arrivals.len() as u8;
+    hdr.resolver = RESOLVER;
+    let mut d = vec![0u8; wa::wide_clash_inputs::SIZE];
+    hdr.write(&mut d).unwrap();
+    for (i, a) in arrivals {
+        a.write_at(&mut d, wa::wide_clash_inputs::position(0, *i))
+            .unwrap();
+    }
+    d
+}
+/// A present faction-0 arrival of `h` (Citizen `citizen`, departure mass
+/// `dep_mass`) with `fate` and `troops_after`.
+fn arrival_of(
+    h: WideHostRef,
+    citizen: [u8; 32],
+    dep_mass: u32,
+    fate: u8,
+    troops_after: u32,
+) -> wa::WideArrival {
+    wa::WideArrival {
+        host: h,
+        citizen,
+        dep_mass,
+        troops: dep_mass,
+        stamina: 61,
+        retreat_bps: 0,
+        dealt_bps: 10_000,
+        faction: 0,
+        unit: 2,
+        tile: 1,
+        stance: 0,
+        present: true,
+        fate,
+        troops_after,
+    }
+}
+/// The fixture host bounced from the record with `troops_after`.
+fn bounced_inputs(troops_after: u32) -> Vec<u8> {
+    resolved_inputs_with(
+        away(),
+        &[(
+            1,
+            arrival_of(
+                host(),
+                citizen(),
+                TROOPS,
+                wa::wide_arrival::FATE_BOUNCED,
+                troops_after,
+            ),
+        )],
+    )
+}
+/// The home province with live entries `(index, host, state, faction)`,
+/// each paired with the roster's reference claimed at the same index
+/// (the alias the roster gives); returns `(province, roster)`.
+fn home_with_entries(entries: &[(usize, WideHostRef, u8, u8)]) -> (Vec<u8>, Vec<u8>) {
+    use frontier_abi::world_index::roster::{wide_roster, WideRoster};
+    let mut pd = province_bytes(home(), DEPART_BELL + 1);
+    let r = WideRoster::new(SEASON_ID, home(), [0xaa; 32]);
+    let mut rd = vec![0u8; wide_roster::SIZE];
+    r.write_header(&mut rd).unwrap();
+    for (i, h, state, faction) in entries {
+        let alias = r.claim(&mut rd, *i, h).unwrap();
+        write_entry(
+            &mut pd,
+            *i,
+            &Entry {
+                id: alias,
+                faction: *faction,
+                unit: 2,
+                tile: 5,
+                state: *state,
+                troops: 1_000,
+                stamina_value: 61,
+                dealt_bps: 10_000,
+                stamina_bell: 1,
+                ready_bell: 1,
+                from_bell: 1,
+                pend_bell: 0,
+                op: EntryOp::None,
+            },
+        )
+        .unwrap();
+        pd[PV::N_ENTRIES] += 1;
+    }
+    (pd, rd)
+}
+/// The handler's `now_bell` at the fixture's clock.
+fn now_bell_of(fx: &SettleFx) -> u32 {
+    let season = Season::decode(&fx.season).unwrap();
+    fclient::clock::SeasonClock::from_season(&season)
+        .bell_at(fx.clock.unwrap().unix_timestamp)
+        .unwrap()
+}
+/// The doctrine's Hold `dealt` of faction 0, as the handler stores it.
+fn hold_dealt() -> u16 {
+    u16::try_from(
+        of_faction_v3(0)
+            .unwrap()
+            .dealt_bps(Posture::Stance(Stance::Hold), false),
+    )
+    .unwrap()
+}
+fn return_of(c: &Candidate) -> ReturnHome {
+    settle_facts(c).return_home.expect("a returning host")
+}
+
+/// A host in the final set with a fate that comes home (Bounced,
+/// Retreated) is staged as `stage_return_home` stages it: without a home
+/// roster, the reserve in whole units (rounding down, a held reserve
+/// added to); with a paired roster, a muster-pending entry at the first
+/// free index with the exact troops, `from = now_bell + 1`, `ready =
+/// max(depart + off, from)`, the doctrine's Hold `dealt`, `n_entries` and
+/// the epoch up by one; the caps (48 total, 8 per faction) fall back to
+/// the reserve; departed entries count toward neither; below
+/// `DESTROYED_BELOW` nothing comes home. The tip still goes to the host's
+/// own slot's beneficiary.
+#[test]
+fn settle_transit_stages_the_returning_fates_as_stage_return_home_does() {
+    // The reserve fallback: 150,999 milli come home as 150 whole units.
+    let mut fx = SettleFx::new();
+    fx.inputs = Some(bounced_inputs(150_999));
+    let c = fx.plan().unwrap_or_else(|b| panic!("blocked: {b:?}"));
+    let f = settle_facts(&c);
+    assert_eq!(
+        (
+            f.in_final_set,
+            f.own_slot,
+            f.position,
+            f.fate,
+            f.outcome_code,
+            f.stays,
+            f.destroyed_on_return
+        ),
+        (
+            true,
+            true,
+            1,
+            wa::wide_arrival::FATE_BOUNCED,
+            wa::wide_arrival::FATE_BOUNCED,
+            false,
+            false
+        )
+    );
+    assert_eq!(
+        (f.troops_after_milli, f.troops_logged_milli),
+        (150_999, 150_999)
+    );
+    let nb = now_bell_of(&fx);
+    assert_eq!(
+        f.return_home.unwrap(),
+        ReturnHome {
+            troops_milli: 150_999,
+            stamina: 61,
+            routed: false,
+            stamina_bell: ARRIVE_BELL,
+            now_bell: nb,
+            from_bell: nb + 1,
+            ready_bell: nb + 1,
+            dealt_bps: hold_dealt(),
+            home_roster_present: false,
+            live_total: 0,
+            live_own: 0,
+            entry: None,
+            reserve_unit: 2,
+            reserve_before: 0,
+            reserve_after: 150,
+            credited_milli: 150_000,
+            n_entries_after: 0,
+            roster_epoch_after: 0,
+        }
+    );
+    assert_eq!(
+        (f.nominal_payments[0].to, f.nominal_payments[0].address),
+        ("slot_beneficiary", addr(SLOT_BENEFICIARY))
+    );
+    assert_eq!(f.slot_disposition, SlotDisposition::FlaggedSettled);
+    let d = c.describe();
+    assert!(d["facts"]["return_home"]["entry"].is_null());
+    assert_eq!(d["facts"]["return_home"]["reserve_after"], 150);
+    assert_eq!(d["facts"]["return_home"]["credited_milli"], 150_000);
+    assert!(d["facts"]["return_home"]["meaning"]
+        .as_str()
+        .unwrap()
+        .contains("predicted, not executed"));
+    assert_eq!(d["facts"]["destroyed_on_return"], false);
+    // A reserve already holding units is added to.
+    let mut held = fx.clone();
+    let mut hd = settle_holding_bytes(GEN, TIP, 1);
+    assert!(wr_u32(&mut hd, H::reserve(2), 7));
+    held.holding = hd;
+    let r = return_of(&held.plan().unwrap_or_else(|b| panic!("blocked: {b:?}")));
+    assert_eq!((r.reserve_before, r.reserve_after), (7, 157));
+    // Retreated: the same path with the record's values.
+    let mut retreated = fx.clone();
+    retreated.inputs = Some(resolved_inputs_with(
+        away(),
+        &[(
+            1,
+            arrival_of(
+                host(),
+                citizen(),
+                TROOPS,
+                wa::wide_arrival::FATE_RETREATED,
+                TROOPS / 2,
+            ),
+        )],
+    ));
+    let c = retreated
+        .plan()
+        .unwrap_or_else(|b| panic!("blocked: {b:?}"));
+    assert_eq!(settle_facts(&c).fate, wa::wide_arrival::FATE_RETREATED);
+    assert_eq!(return_of(&c).troops_milli, TROOPS / 2);
+    // The home roster present and paired, the province empty: the entry at
+    // index 0 with the exact troops; the counts up by one.
+    let mut with_roster = fx.clone();
+    let (pd, rd) = home_with_entries(&[]);
+    with_roster.home = Some(pd);
+    with_roster.home_roster = Some(rd);
+    let c = with_roster
+        .plan()
+        .unwrap_or_else(|b| panic!("blocked: {b:?}"));
+    let r = return_of(&c);
+    assert_eq!(
+        (
+            r.home_roster_present,
+            r.entry,
+            r.credited_milli,
+            r.reserve_after,
+            r.n_entries_after,
+            r.roster_epoch_after,
+            r.live_total,
+            r.live_own
+        ),
+        (true, Some(0), 150_999, 0, 1, 1, 0, 0)
+    );
+    assert_eq!(
+        (r.from_bell, r.ready_bell, r.dealt_bps),
+        (nb + 1, nb + 1, hold_dealt())
+    );
+    assert_eq!(settle_facts(&c).troops_logged_milli, 150_999);
+    assert_eq!(c.describe()["facts"]["return_home"]["entry"], 0);
+    // The first free index after two live entries of another faction.
+    let mut two = fx.clone();
+    let (pd, rd) = home_with_entries(&[
+        (0, host_c(100), E::STATE_ROSTER, 1),
+        (1, host_c(101), E::STATE_MUSTER_PENDING, 1),
+    ]);
+    two.home = Some(pd);
+    two.home_roster = Some(rd);
+    let r = return_of(&two.plan().unwrap_or_else(|b| panic!("blocked: {b:?}")));
+    assert_eq!(
+        (r.entry, r.live_total, r.live_own, r.n_entries_after),
+        (Some(2), 2, 0, 3)
+    );
+    // The total cap: 48 live entries of other factions, the reserve.
+    let mut full = fx.clone();
+    let many: Vec<(usize, WideHostRef, u8, u8)> = (0..PV::ROSTER_CAP)
+        .map(|i| (i, host_c(200 + i as u32), E::STATE_ROSTER, 1u8))
+        .collect();
+    let (pd, rd) = home_with_entries(&many);
+    full.home = Some(pd);
+    full.home_roster = Some(rd);
+    let r = return_of(&full.plan().unwrap_or_else(|b| panic!("blocked: {b:?}")));
+    assert_eq!(
+        (
+            r.entry,
+            r.live_total,
+            r.reserve_after,
+            r.credited_milli,
+            r.home_roster_present
+        ),
+        (None, 48, 150, 150_000, true)
+    );
+    // The faction cap: eight own-faction entries, the reserve.
+    let mut own = fx.clone();
+    let eight: Vec<(usize, WideHostRef, u8, u8)> = (0..PV::FACTION_CAP)
+        .map(|i| (i, host_c(300 + i as u32), E::STATE_ROSTER, 0u8))
+        .collect();
+    let (pd, rd) = home_with_entries(&eight);
+    own.home = Some(pd);
+    own.home_roster = Some(rd);
+    let r = return_of(&own.plan().unwrap_or_else(|b| panic!("blocked: {b:?}")));
+    assert_eq!((r.entry, r.live_own, r.reserve_after), (None, 8, 150));
+    // Departed entries count toward neither cap: the first free index
+    // follows them.
+    let mut departed = fx.clone();
+    let three: Vec<(usize, WideHostRef, u8, u8)> = (0..3)
+        .map(|i| (i, host_c(400 + i as u32), E::STATE_DEPARTED, 0u8))
+        .collect();
+    let (pd, rd) = home_with_entries(&three);
+    departed.home = Some(pd);
+    departed.home_roster = Some(rd);
+    let r = return_of(&departed.plan().unwrap_or_else(|b| panic!("blocked: {b:?}")));
+    assert_eq!((r.entry, r.live_total, r.live_own), (Some(3), 0, 0));
+    // Below the destroyed line nothing comes home; exactly at it, it does
+    // (zero whole units to the reserve).
+    let mut gone = fx.clone();
+    gone.inputs = Some(bounced_inputs(DESTROYED_BELOW - 1));
+    let c = gone.plan().unwrap_or_else(|b| panic!("blocked: {b:?}"));
+    let f = settle_facts(&c);
+    assert!(f.return_home.is_none());
+    assert!(f.destroyed_on_return);
+    assert_eq!(f.troops_logged_milli, 0);
+    assert_eq!(c.describe()["facts"]["destroyed_on_return"], true);
+    let mut edge = fx.clone();
+    edge.inputs = Some(bounced_inputs(DESTROYED_BELOW));
+    let r = return_of(&edge.plan().unwrap_or_else(|b| panic!("blocked: {b:?}")));
+    assert_eq!(
+        (r.troops_milli, r.reserve_after, r.credited_milli),
+        (DESTROYED_BELOW, 0, 0)
+    );
+    // A Destroyed fate is not "destroyed on return": nothing returned.
+    let mut destroyed = fx.clone();
+    destroyed.inputs = Some(resolved_inputs_bytes(
+        away(),
+        1,
+        host(),
+        wa::wide_arrival::FATE_DESTROYED,
+        0,
+    ));
+    let f = settle_facts(&destroyed.plan().unwrap()).clone();
+    assert!(!f.destroyed_on_return && f.return_home.is_none() && !f.stays);
+}
+
+/// A host **not** in the resolved final set settles from the record as
+/// the shared functions say: outranked by a larger host of its own
+/// Citizen it bounces without loss — the tip to the holding's rent payer,
+/// the transit's post-origin troops and stamina home, the stamina dated
+/// `effective_bell(depart)`; admissible but never revealed it is routed —
+/// the tip owed to `pool_owed`, `rout_survivors` home with stamina 0 dated
+/// `now_bell`; below the destroyed line after the rout nothing comes home.
+/// No slot of the host exists: nothing of a slot is read, kept or closed,
+/// and the unpaid slot-beneficiary position carries the caller's
+/// beneficiary.
+#[test]
+fn settle_transit_plans_the_outranked_bounce_and_the_rout_from_the_record() {
+    let mut fx = SettleFx::new();
+    fx.escrow_fee_and_bond();
+    fx.slot = None;
+    fx.inputs = Some(resolved_inputs_with(
+        away(),
+        &[(
+            0,
+            arrival_of(
+                host_b(),
+                citizen(),
+                TROOPS + 1,
+                wa::wide_arrival::FATE_STAYS,
+                TROOPS,
+            ),
+        )],
+    ));
+    let c = fx.plan().unwrap_or_else(|b| panic!("blocked: {b:?}"));
+    let f = settle_facts(&c);
+    assert_eq!(
+        (
+            f.in_final_set,
+            f.own_slot,
+            f.position,
+            f.fate,
+            f.outcome_code,
+            f.stays
+        ),
+        (
+            false,
+            false,
+            0,
+            0,
+            WideOutcome::BounceUnranked.code(),
+            false
+        )
+    );
+    let pays: Vec<(&str, &str, u64, PayRoute)> = f
+        .nominal_payments
+        .iter()
+        .map(|p| (p.what, p.to, p.lamports, p.route))
+        .collect();
+    assert_eq!(
+        pays,
+        vec![
+            ("tip", "holding_rent_payer", TIP, PayRoute::Wallet),
+            ("march_fee", "resolver", MARCH_FEE, PayRoute::Wallet),
+            ("bond", "holding_rent_payer", SEAL_BOND, PayRoute::Wallet),
+        ]
+    );
+    assert_eq!(
+        f.nominal_cumulative,
+        vec![
+            (addr(RENT_PAYER), TIP + SEAL_BOND),
+            (addr(RESOLVER), MARCH_FEE)
+        ]
+    );
+    assert_eq!(f.troops_after_milli, TROOPS);
+    let nb = now_bell_of(&fx);
+    assert_eq!(
+        f.return_home.unwrap(),
+        ReturnHome {
+            troops_milli: TROOPS,
+            stamina: 61,
+            routed: false,
+            stamina_bell: effective_bell(DEPART_BELL),
+            now_bell: nb,
+            from_bell: nb + 1,
+            ready_bell: nb + 1,
+            dealt_bps: hold_dealt(),
+            home_roster_present: false,
+            live_total: 0,
+            live_own: 0,
+            entry: None,
+            reserve_unit: 2,
+            reserve_before: 0,
+            reserve_after: 300,
+            credited_milli: 300_000,
+            n_entries_after: 0,
+            roster_epoch_after: 0,
+        }
+    );
+    assert_eq!(f.slot_disposition, SlotDisposition::NotOwn);
+    assert_eq!(
+        (f.slot_rent_to, f.slot_rent_to_position),
+        (Address::default(), None)
+    );
+    assert!(!f.claim.eligible && f.claim.refund == 0);
+    assert_eq!(c.instruction.accounts[5].pubkey, dest_slot_addr(away(), 0));
+    assert_eq!(
+        c.instruction.accounts[8].pubkey,
+        beneficiary(),
+        "the unpaid slot-beneficiary position carries the caller's beneficiary"
+    );
+    assert_eq!(f.slot_beneficiary, beneficiary());
+    let d = c.describe();
+    assert_eq!(d["facts"]["slot_disposition"]["not_own"], true);
+    assert_eq!(d["facts"]["in_final_set"], false);
+    // The rout: another Citizen's host present and a free position.
+    let mut routed = fx.clone();
+    routed.inputs = Some(resolved_inputs_with(
+        away(),
+        &[(
+            0,
+            arrival_of(
+                host_c(9),
+                other_citizen(),
+                TROOPS,
+                wa::wide_arrival::FATE_STAYS,
+                TROOPS,
+            ),
+        )],
+    ));
+    let c = routed.plan().unwrap_or_else(|b| panic!("blocked: {b:?}"));
+    let f = settle_facts(&c);
+    assert_eq!(
+        (f.in_final_set, f.own_slot, f.outcome_code),
+        (false, false, WideOutcome::Routed { resolved: true }.code())
+    );
+    let pays: Vec<(&str, &str, Address, PayRoute)> = f
+        .nominal_payments
+        .iter()
+        .map(|p| (p.what, p.to, p.address, p.route))
+        .collect();
+    assert_eq!(
+        pays,
+        vec![
+            ("tip", "pool_owed", holding_addr(), PayRoute::OwedPool),
+            ("march_fee", "resolver", addr(RESOLVER), PayRoute::Wallet),
+            (
+                "bond",
+                "holding_rent_payer",
+                addr(RENT_PAYER),
+                PayRoute::Wallet
+            ),
+        ]
+    );
+    assert_eq!(f.pool_owed_after, TIP);
+    assert_eq!(
+        f.holding_lamports_after,
+        HOLDING_LAMPORTS - MARCH_FEE - SEAL_BOND
+    );
+    let r = f.return_home.unwrap();
+    assert_eq!(rout_survivors(TROOPS), TROOPS / 2);
+    assert_eq!(
+        (
+            r.troops_milli,
+            r.stamina,
+            r.routed,
+            r.stamina_bell,
+            r.reserve_after,
+            r.credited_milli
+        ),
+        (TROOPS / 2, 0, true, nb, 150, 150_000)
+    );
+    assert_eq!(f.troops_logged_milli, TROOPS / 2);
+    // Routed into a paired home roster: the entry, stamina 0 at now_bell.
+    let mut housed = routed.clone();
+    let (pd, rd) = home_with_entries(&[]);
+    housed.home = Some(pd);
+    housed.home_roster = Some(rd);
+    let r = return_of(&housed.plan().unwrap_or_else(|b| panic!("blocked: {b:?}")));
+    assert_eq!(
+        (r.entry, r.credited_milli, r.stamina, r.stamina_bell),
+        (Some(0), TROOPS / 2, 0, nb)
+    );
+    // Below the destroyed line after the rout: nothing comes home.
+    let mut thin = routed.clone();
+    let mut t = transit_with(host(), ARRIVE_BELL, thin.proof.seal_root, depart_ts())
+        .step(
+            MarchEvent::SettleDeparture { destroyed: false },
+            Some((998, 61, 0)),
+        )
+        .unwrap();
+    t.flags |= TL::FLAG_FEE_ESCROWED | TL::FLAG_BOND_ESCROWED;
+    t.rent_to = TRANSIT_RENT_TO;
+    thin.transit = Some(t.to_bytes().to_vec());
+    let f = settle_facts(&thin.plan().unwrap_or_else(|b| panic!("blocked: {b:?}"))).clone();
+    assert_eq!(rout_survivors(998), DESTROYED_BELOW - 1);
+    assert!(f.return_home.is_none() && f.destroyed_on_return);
+    assert_eq!((f.troops_after_milli, f.troops_logged_milli), (998, 0));
+}
+
+/// What a return the handler would refuse is refused here, from literal
+/// bytes: the home province absent; the home roster unpaired; another
+/// province's roster at the home's address; a roster already holding the
+/// host's reference (the claim refuses); a historical generation before
+/// anything is staged. A returning candidate over one snapshot is
+/// coherent and sealed to its staging; the review denies it; nothing is
+/// enqueued.
+#[test]
+fn settle_transit_refuses_a_return_the_handler_would_refuse() {
+    use frontier_abi::world_index::roster::{wide_roster, WideRoster};
+    let blocked = |f: SettleFx| f.plan().unwrap_err();
+    // The home province absent: a staying host plans (nothing is written
+    // there), a returning one does not.
+    let mut fx = SettleFx::new();
+    fx.home = None;
+    assert!(!settle_facts(&fx.plan().unwrap()).home_present);
+    fx.inputs = Some(bounced_inputs(TROOPS / 2));
+    assert_eq!(blocked(fx), Block::ReturnNeedsHome);
+    // The roster unpaired: a reference claimed at 3 with no entry there.
+    let mut fx = SettleFx::new();
+    fx.inputs = Some(bounced_inputs(TROOPS / 2));
+    let (pd, mut rd) = home_with_entries(&[]);
+    WideRoster::new(SEASON_ID, home(), [0xaa; 32])
+        .claim(&mut rd, 3, &host_c(5))
+        .unwrap();
+    fx.home = Some(pd);
+    fx.home_roster = Some(rd);
+    assert_eq!(blocked(fx), Block::RosterUnpaired);
+    // Another province's roster at the home's address.
+    let mut fx = SettleFx::new();
+    fx.inputs = Some(bounced_inputs(TROOPS / 2));
+    let mut rd = vec![0u8; wide_roster::SIZE];
+    WideRoster::new(SEASON_ID, away(), [0xaa; 32])
+        .write_header(&mut rd)
+        .unwrap();
+    fx.home_roster = Some(rd);
+    assert_eq!(blocked(fx), Block::NotCanonical("roster"));
+    // The roster already vouching for the host (paired at 5): the claim
+    // at the free index refuses (`AlreadyPresent`).
+    let mut fx = SettleFx::new();
+    fx.inputs = Some(bounced_inputs(TROOPS / 2));
+    let (pd, rd) = home_with_entries(&[(5, host(), E::STATE_ROSTER, 0)]);
+    fx.home = Some(pd);
+    fx.home_roster = Some(rd);
+    assert_eq!(blocked(fx), Block::RosterClaimRefused);
+    // A re-founded holding (generation 2) refuses the record's
+    // generation-1 host before any return is staged.
+    let mut fx = SettleFx::new();
+    fx.inputs = Some(bounced_inputs(TROOPS / 2));
+    fx.holding = settle_holding_bytes(GEN + 1, TIP, 1);
+    assert_eq!(
+        blocked(fx),
+        Block::HistoricalGeneration {
+            host_gen: GEN,
+            holding_gen: GEN + 1
+        }
+    );
+    // The record unresolved: the routed settlement of an unresolved record
+    // is not planned (no resolver position is chosen).
+    let mut fx = SettleFx::new();
+    let mut d = bounced_inputs(TROOPS / 2);
+    let mut h = wa::WideClashInputsHdr::read(&d).unwrap();
+    h.flags = 0;
+    h.write(&mut d).unwrap();
+    fx.inputs = Some(d);
+    assert_eq!(blocked(fx), Block::InputsUnresolved);
+    // A returning candidate over one snapshot: coherent, its staging
+    // content; denied; nothing enqueued.
+    let mut fx = SettleFx::new();
+    fx.inputs = Some(bounced_inputs(TROOPS / 2));
+    let (pd, rd) = home_with_entries(&[]);
+    fx.home = Some(pd);
+    fx.home_roster = Some(rd);
+    let snap = fx.snapshot(2_000, 7);
+    let reads = snap.reads();
+    let c = match widesettle::plan_settle_transit(
+        &scope(),
+        payer(),
+        beneficiary(),
+        &fx.proof,
+        fx.publication.as_ref(),
+        &reads,
+    ) {
+        Step::Done(r) => r.unwrap_or_else(|b| panic!("blocked: {b:?}")),
+        Step::Need(a) => panic!("unexpected read request: {a:?}"),
+    };
+    assert!(c.coherent());
+    assert_eq!(return_of(&c).entry, Some(0));
+    let mut m = c.clone();
+    if let Duty::SettleTransit(f) = &mut m.duty {
+        f.return_home.as_mut().unwrap().entry = Some(1);
+    }
+    assert!(!m.coherent(), "the staged entry is content");
+    let mut m = c.clone();
+    if let Duty::SettleTransit(f) = &mut m.duty {
+        f.return_home.as_mut().unwrap().reserve_after += 1;
+    }
+    assert!(!m.coherent(), "the reserve is content");
+    let mut m = c.clone();
+    if let Duty::SettleTransit(f) = &mut m.duty {
+        f.in_final_set = false;
+    }
+    assert!(!m.coherent(), "the set membership is content");
+    let mut m = c.clone();
+    if let Duty::SettleTransit(f) = &mut m.duty {
+        f.destroyed_on_return = true;
+    }
+    assert!(!m.coherent(), "the destroyed line is content");
+    let engine = Engine::new(Budgets::default(), EngineParams::default());
+    let open = EngineView::of(&engine, &Subject::of_duty(&c));
+    let a = widereview::review_candidate(&c, &reads, &open);
+    assert!(!a.review.admitted);
+    for d in HARD_DENIALS
+        .iter()
+        .filter(|d| **d != Deny::NoCoherentSnapshot)
+    {
+        assert!(a.review.denials.contains(d), "{d:?}");
     }
     assert_eq!(engine.pending_len(), 0);
 }

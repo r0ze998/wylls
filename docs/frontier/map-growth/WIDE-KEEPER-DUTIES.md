@@ -12,7 +12,7 @@ Explicit --follow-wide (requiring --observe-wide) now continues read-only wide o
 
 The archive/index interoperability test now drives real WideFindex, SQLite rebuild, archive transaction reads, keeper observer/proofs, and a snapshot-backed unsigned candidate. Raw program-filtered feed sequences (10/20/30), archive sequences (1/2/3), and event-page IDs are distinct. Observer verifies local per-identity head continuity after its first observed unverified anchor; dedicated index validates from genesis. Neither proves source authenticity. Raw sequence holes remain unknown, not automatically corrupted.
 
-The eighth slice adds the unsigned WideGather candidate (`wideduty::plan_gather`, hinted from revealed open marches, planned over a snapshot with the Rent, reviewed and counted in the tick): the handler's latch, end bell, anchor-or-archive window, ClashInputs and ArrivalDay rules replayed from the accounts at their canonical addresses; the cursor bounded to at most eight positions before any slot is read (one packet even when every position is present) and cut before a later unsettled transit; present slots judged from their transit records; absent slots' transit positions the slot's own address; the present count the handler's scan of every position; a clear day bit over a partial record planned as the completing gather; the fee review netting a prefunded ClashInputs as the handler's top-up does. The ArrivalDay account is the only arrival evidence; missing feed events are never read as no arrivals. The ninth slice adds the unsigned WideResolve candidate (`wideduty::plan_resolve`): each observed province at its current `resolved_next` read from the chain, the window against THE anchor or its archive, the bell seed as the handler's `bell_seed` takes it (a SeedCache whose stored nonce recomputes its address and which names THE anchor and the seed round, found by a bounded 256-nonce probe; or the archive entry in both positions), the ArrivalDay bit against a complete unresolved ClashInputs, the conquest block, the roster or its absence, and the ABI's own `resolve_bell` replayed on scratch bytes for the outcome, the roster creation (full-minimum payer guard, exact) and the digests (the output digest at the observed clock). Resolve hints need a configured public resolver; a `NotGathered` bell schedules its gather so intermediate bells are not skipped. The tenth slice moves the program's pure settlement (quota, outcome, payment plan) into `frontier_abi::world_index::settle`, re-exported unchanged by the program, and adds `widesettle::plan_settle_transit`: the first WideSettleTransit candidate, for a seal that opens under THE anchor's own public round signature and a host present in the resolved final set with a fate that does not come home; payees read from the accounts, the plan from the shared functions; bad seals, absent destinations, bounces, routs, returns home and camp loot are refused, not planned. The eleventh slice wires that candidate into the tick (settle-transit hints from stored proofs of revealed open marches, listed only with the reveal inputs, planned under the same shared two-plan cap over one snapshot with the Rent sysvar, reviewed and denied like every other) and extends the planner to read the payees' shapes and replay the handler's payments and closes in its order over the running balances — program-owned recipients owed, wallets below the Rent minimum diverted to `pool_owed`, the holding's backing, overflows, the two `Sink::Never` closes, the mirrored `wide_claim_eligible` with the rules crate's `defence_refund` — refusing whatever would abort; every payment stays a nominal allocation with a predicted route, never a transfer. **Arrival processing is still not complete.** Not compiled or run by its author.
+The eighth slice adds the unsigned WideGather candidate (`wideduty::plan_gather`, hinted from revealed open marches, planned over a snapshot with the Rent, reviewed and counted in the tick): the handler's latch, end bell, anchor-or-archive window, ClashInputs and ArrivalDay rules replayed from the accounts at their canonical addresses; the cursor bounded to at most eight positions before any slot is read (one packet even when every position is present) and cut before a later unsettled transit; present slots judged from their transit records; absent slots' transit positions the slot's own address; the present count the handler's scan of every position; a clear day bit over a partial record planned as the completing gather; the fee review netting a prefunded ClashInputs as the handler's top-up does. The ArrivalDay account is the only arrival evidence; missing feed events are never read as no arrivals. The ninth slice adds the unsigned WideResolve candidate (`wideduty::plan_resolve`): each observed province at its current `resolved_next` read from the chain, the window against THE anchor or its archive, the bell seed as the handler's `bell_seed` takes it (a SeedCache whose stored nonce recomputes its address and which names THE anchor and the seed round, found by a bounded 256-nonce probe; or the archive entry in both positions), the ArrivalDay bit against a complete unresolved ClashInputs, the conquest block, the roster or its absence, and the ABI's own `resolve_bell` replayed on scratch bytes for the outcome, the roster creation (full-minimum payer guard, exact) and the digests (the output digest at the observed clock). Resolve hints need a configured public resolver; a `NotGathered` bell schedules its gather so intermediate bells are not skipped. The tenth slice moves the program's pure settlement (quota, outcome, payment plan) into `frontier_abi::world_index::settle`, re-exported unchanged by the program, and adds `widesettle::plan_settle_transit`: the first WideSettleTransit candidate, for a seal that opens under THE anchor's own public round signature and a host present in the resolved final set with a fate that does not come home; payees read from the accounts, the plan from the shared functions; bad seals, absent destinations, bounces, routs, returns home and camp loot are refused, not planned. The eleventh slice wires that candidate into the tick (settle-transit hints from stored proofs of revealed open marches, listed only with the reveal inputs, planned under the same shared two-plan cap over one snapshot with the Rent sysvar, reviewed and denied like every other) and extends the planner to read the payees' shapes and replay the handler's payments and closes in its order over the running balances — program-owned recipients owed, wallets below the Rent minimum diverted to `pool_owed`, the holding's backing, overflows, the two `Sink::Never` closes, the mirrored `wide_claim_eligible` with the rules crate's `defence_refund` — refusing whatever would abort; every payment stays a nominal allocation with a predicted route, never a transfer. The twelfth slice plans the host that comes home: every final-set fate (Bounced and Retreated with the record's values), the record's outranked bounce and rout from the shared functions, and the home re-entry replayed line for line from the handler's `stage_return_home` (a paired roster's muster-pending entry under the caps, else the reserve in whole units), refusing a return without the home province, an unpaired roster, a refused claim, an unresolved record and a historical generation. **Arrival processing is still not complete.** Not compiled or run by its author.
 
 Every candidate is still denied by Engine review: history authenticity/completeness, live fee quotation and future balance remain unproven. No enqueue, simulation, signing, transaction sending, production gate change, main merge or deployment is introduced. Existing PSW1 feed guards can prevent further discovery; this slice does not make the game playable. The actual Keeper constructor/full tick was not executed because it uses keys; its wiring and CLI are compile-checked, while independent review-step tests use literal accounts and public vectors. UI is unchanged.
 
@@ -2102,7 +2102,9 @@ or run by its author.
 
 **Exact limits.** Only the slice's branches are planned; bad seals,
 absent destinations, bounces, routs, returns home and camp loot are named
-refusals. The replay is over the reads at a context slot: a payee's shape,
+refusals (the twelfth slice below plans the record's bounces, routs and
+returning fates; bad seals, absent destinations, unresolved records and
+camp loot stay refused). The replay is over the reads at a context slot: a payee's shape,
 the holding's lamports, `pool_owed` and THE anchor can all move before any
 execution, so every prediction is of the reads, not of a transaction. The
 runtime's rent-exemption invariant is checked for the holding only
@@ -2110,6 +2112,140 @@ runtime's rent-exemption invariant is checked for the holding only
 transitions downward). Without reveal inputs or a stored proof no
 settlement is planned. **Arrival processing is still not complete**, the
 game is not playable from this, and nothing is sent.
+
+## Twelfth slice (2026-11-08, on `20c79f62`): the host that comes home — bounces, routs and the returning fates
+
+**What the handler does, read in full.** `proc/wide.rs::settle_transit`
+takes the outcome from the shared `wide_valid_outcome` (a host **in** its
+faction's resolved final set has its fate; **outside** it, `wide_admit`
+over the present records refusing it is the record's **outranked bounce**,
+and anything it would have filled or displaced is a **rout**; no resolved
+record is a rout nobody resolved) and the plan from the shared
+`plan_settlement` (the table in the tenth slice; the returning values:
+Bounced/Retreated from the record's `troops_after` and arrival stamina, an
+outranked bounce the transit's post-origin `troops_after` /
+`stamina_after`, a rout `rout_survivors(troops_after)` with stamina 0;
+below `DESTROYED_BELOW` nothing returns). A host that comes home is staged
+by `stage_return_home` over the home province and its roster: the unit and
+the doctrine (`BadAccount` otherwise), the doctrine's Hold `dealt` as
+`u16`, `from = now_bell + 1`, `ready = max(depart + ready_bell_off,
+from)`; with a roster present (`roster_at`: absent is the reserve
+fallback; present must be paired with the province's live entries,
+`BadAccount` otherwise) the entries are scanned — states 1–2 counted in
+total and for the host's faction, the first free index kept — and the
+caps decide (`ROSTER_CAP` 48 total, `FACTION_CAP` 8 per faction → the
+reserve); a kept index has the roster **claim** the full reference
+(`claim_alias` over the regenerated table: already present or a collision
+is `BadAccount`) and the muster-pending entry written (`Entry::from_host`,
+`write_entry`), `n_entries` saturating up and the epoch wrapping; else
+`reserve[unit] += troops / 1,000` (`Overflow` on wrap). The home province
+must be present for a return (`BadAccount`); `credited` for the Return
+record is the troops when an entry was staged, else the whole units ×
+1,000. The stamina is dated `now_bell` when routed, the arrival when the
+record holds the host, else `effective_bell(depart)`. The TransitSettled
+record chains the destination and the holding; a return adds the Return
+record on the home and the holding.
+
+**What the planner now plans, exactly that.** `widesettle::
+plan_settle_transit` reads the record's four positions and takes the
+host's position **or 0** (the handler's `slot_i`); the slot at that index
+is the host's **own** when present and its (absent or another host's is
+no slot: nothing of it is read, kept or closed, `SlotDisposition::NotOwn`,
+`own_slot: false`); a host **in** the set still needs its own slot
+(`SlotNotOwn`: the tip to `pool_owed` for a final-set fate is not
+planned). Every fate 1–5 is planned: Stays/Withdrew as before; Destroyed;
+**Bounced and Retreated come home with the record's values**. Outside the
+set, the **outranked bounce** (the tip to the holding's rent payer, the
+transit's post-origin values home, stamina dated `effective_bell(depart)`)
+and the **rout** (the tip owed to `pool_owed`, `rout_survivors`, stamina 0
+dated `now_bell`) are planned from the shared functions over the record;
+`Routed { resolved: false }` (an absent or unresolved record) stays
+`InputsUnresolved`: the handler settles it with the tip and the fee owed
+and the resolver position **unlisted**, and this planner chooses no
+account for a position. The home re-entry is `stage_return_home`
+**replayed line for line** over scratch copies of the home province and
+its roster as read (the keeper's `stage_return_home`, documented against
+the handler's): `ReturnHome` carries the troops and stamina, `routed`,
+`stamina_bell`, `now_bell`, `from_bell`, `ready_bell`, `dealt_bps`, the
+roster's presence, the live and own counts, the staged `entry` or `None`,
+the reserve unit and its before/after, `credited_milli`,
+`n_entries_after` and `roster_epoch_after`; `destroyed_on_return` says a
+returning host fell below `DESTROYED_BELOW` (nothing staged, nothing
+logged); `troops_logged_milli` is what the TransitSettled record logs.
+Refusals where the handler fails: `ReturnNeedsHome` (the home province
+absent), `RosterUnpaired` (a present roster not paired with the live
+entries), `NotCanonical("roster")` (another province's or season's
+roster), `RosterClaimRefused` (the roster already vouches for the host or
+the alias collides), `BadUnit` / `BadFaction` (no reserve unit / no
+doctrine), `ReserveOverflow`, `BadEntry`, `SeasonNotStarted` (the
+handler's `now_bell` before genesis, `WrongStatus`). The chains: the
+holding takes two records for a return, the home one (the destination
+twice when it is the home). The budget is untouched: the home roster is
+already in the first read round, the record and the four slots in the
+third; still one plan per hint under the shared two-plan cap, the same
+coherent snapshot with the Rent. **Position 8** (the slot's beneficiary)
+is read by the handler only when the host's own slot exists; without one
+the caller's beneficiary — already listed at position 11 — fills the
+position and nothing is paid there (the plan's tip goes to the rent payer
+or `pool_owed`). The old-generation refusal, the capture-provenance
+absence, the payee replay, the closes and the claim rule are as in the
+eleventh slice; no payout, owner or destination is chosen by the keeper.
+
+**No shared extraction.** `stage_return_home` reads and writes account
+bytes through the program's `Ro`/`Rw` and its `R` error type and touches
+`Entry`, `WideRoster::claim` and the kernel `Host`; moving it would be a
+program refactor beyond this slice, and its behaviour is small enough to
+mirror line for line (the keeper's copy is documented against the
+handler's lines and pinned by the tests below). The outcome and the
+payment plan stay the **shared** ABI functions; nothing economic is
+duplicated.
+
+**Tests** (`wide_reveal.rs`, literal bytes, the recorded public seal
+vector and the shipped quicknet signature; no key):
+`settle_transit_stages_the_returning_fates_as_stage_return_home_does`
+(Bounced with 150,999 milli to the reserve as 150 whole units credited
+150,000; a held reserve added to; Retreated the same path; a paired empty
+roster → the entry at index 0 with the exact troops, `from`/`ready`/
+`dealt`, the counts up by one; the first free index after two live
+entries; the 48 total cap and the 8 per-faction cap → the reserve with
+the roster present; departed entries counting toward neither; below
+`DESTROYED_BELOW` nothing comes home, exactly at it zero whole units; a
+Destroyed fate not "destroyed on return"),
+`settle_transit_plans_the_outranked_bounce_and_the_rout_from_the_record`
+(a larger same-Citizen host present → the bounce: tip to the rent payer,
+the transit's values home dated `effective_bell(depart)`, `NotOwn`, the
+unpaid position 8 carrying the caller's beneficiary; another Citizen's
+host and a free position → the rout: tip owed, `rout_survivors`, stamina
+0 at `now_bell`, into the reserve or a paired roster's entry; 998 troops
+routed to 499 → nothing comes home),
+`settle_transit_refuses_a_return_the_handler_would_refuse` (home absent —
+a staying host still plans; an unpaired roster; another province's
+roster; a roster already vouching for the host; a generation-2 holding;
+an unresolved record; a returning candidate over one snapshot coherent
+and sealed to its staging — the entry, the reserve, the set membership,
+the destroyed line — denied by the review with nothing enqueued). The
+existing refusal test's two cases that this slice now plans (not in the
+set; a Bounced fate) were replaced by the pins above; its `SlotNotOwn`
+cases stand.
+
+**Handler tests to run by exact name (unchanged program):**
+`wide_land_native_settles_a_real_wide_seal_and_confiscates_a_bad_one`,
+`wide_land_march_stages_settle_a_staged_departure_up_to_the_crypto_gate`,
+`wide_land_host_musters_resolves_dissolves_and_returns_through_the_envelope`
+(the WideReturn path, not the settle's). **No program test exercises the
+settle's return-home, bounce or rout branch**; parity here rests on the
+line-for-line reading and the keeper pins. Not compiled or run by its
+author.
+
+**Exact limits.** Bad seals, absent destinations (the routed settlement
+under the region's anchor), unresolved records and the camp's loot are
+still refused, not planned; a final-set host without its own slot is
+refused. The staging is a prediction over the reads at a context slot: the
+home province's entries, its roster, the holding's reserve and the clock
+can all move before any execution. Nothing signs, simulates, sends or
+queues; every candidate is denied; every gate stays closed; **arrival
+processing is still not complete** and the game is not playable from
+this.
 
 ## Touched files
 
@@ -2123,7 +2259,10 @@ dropped; no handler line changed),
 eleventh: the payees' shapes, the replayed payments and closes, the
 mirrored claim rule, `PayRoute`, `PayeeShape`, `SlotDisposition`,
 `ClaimRule`, the four slots read with the record, the Rent in
-`settle_transit_snapshot` / read separately in `settle_transit_via`),
+`settle_transit_snapshot` / read separately in `settle_transit_via`;
+twelfth: positions outside the set, the own-slot option,
+`SlotDisposition::NotOwn`, `ReturnHome`, the keeper's `stage_return_home`
+mirror, the return facts, the home's chain headroom),
 `frontier-node/crates/keeper/src/wideproof.rs` (new),
 `frontier-node/crates/keeper/src/wideduty.rs` (new; later slices: new
 `Block` variants, `pub(crate)` helpers, `Reads.snapshot`/`rent`,
@@ -2137,7 +2276,8 @@ the crate-private `Candidate.bound` (`Bound`, the `Canon` encoder and the
 `anchor_read` shared with the gather, seven `Block` variants; eleventh:
 six settle `Block` variants — `RentSysvarMissing`, `HoldingBackingShort`,
 `HoldingBelowRentExemption`, `CloseWouldDivert`, `CloseRecipientAlias`,
-`PayerPlaceholder`),
+`PayerPlaceholder`; twelfth: `ReturnNeedsHome`, `BadUnit`, `BadFaction`,
+`RosterClaimRefused`),
 `frontier-node/crates/keeper/src/widefees.rs` (eighth: the ClashInputs in
 `duty_needs`), `frontier-node/crates/keeper/src/widereview.rs` (eighth:
 `KIND_GATHER`, the `Subject` arm), `frontier-node/crates/keeper/src/widetick.rs`
@@ -2278,3 +2418,29 @@ Return-home, bounce, rout, bad-seal and camp-loot settlements remain
 unplanned; arrival processing and playable live integration are incomplete.
 Every candidate remains denied for unproven source/history and absent
 execution/signing authorization; production gates remain closed.
+
+### Twelfth-slice verification checkpoint
+
+The final tree passed 131 focused keeper tests: discovery 14, duties 70,
+feed guard 12, reveal/settlement 29, snapshot RPC 6. Feature-on libraries,
+binaries and these selected tests passed clippy; default libraries/binaries
+also passed clippy. The new return tests cover final-set Bounced/Retreated,
+resolved unranked bounce and rout, roster/reserve fallback, milli rounding,
+capacity/identity refusals and candidate-content binding. An initial test
+expected cumulative recipients in the wrong order; it now pins the actual
+first-payment order without changing amounts or production code. A clippy
+match-guard cleanup preserved the first-free-entry behavior and all tests
+were rerun afterward.
+
+Independent static review found no blocker in this declared slice: same
+existing outcome/payment table, roster full-identity checks, 500-milli
+return threshold and 1000-milli reserve rounding, readiness/stamina and
+same-province event headroom. The program is unchanged. No test currently
+executes the settle handler's return-home, bounce or rout branch itself;
+parity rests on source comparison plus keeper tests, not demonstrated
+handler execution. This is an important remaining verification boundary.
+Bad seals, absent destinations, unresolved records, camp loot and unknown
+historical generations remain refused. Predictions are over read account
+shapes, not executed transfers. All source/history/send gates remain closed.
+No keypair generation/derivation, signing, Keeper startup, real transaction,
+simulation, main merge or deployment was performed.
