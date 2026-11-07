@@ -12,3 +12,4 @@ f89d509ac15dfa7e3f24cc3efeec7422caddcc05b407578e662c971cf8bab961  0009-Custody-k
 a16d0f963ca7b1ee000816de1882012a260b47ea4fb550996b82ea4cc192bc47  0012-Custody-kernel-return_unused-verifier-V26-history-of.patch
 e04cea11a06ece8f5a2a7ed5a7c9e5a68cb0c4739deb96305afa59a8258c0f6e  0013-Verifier-V26-replay-the-lot-s-order-bookkeeping-from.patch
 081dd001fc98199677e106bb0754ece8fef87e4372f2fa2501fe74cb2740c7e8  0014-Custody-comments-name-allocation-rev-4-s-numbers.patch
+4c03bda3a25fbcae95fea90e0a90f2f2e0d972aed8cba658fb41598676b137fd  0015-Verifier-custody-tests-judge-V26-s-own-findings-not-.patch
