@@ -87,7 +87,9 @@ fn a_rewind_under_the_same_run_id_seen_by_the_other_archive_is_not_whole() {
     let j = join(&[a, b_after_rewind]);
     assert!(!j.whole());
     assert!(
-        j.problems.iter().any(|p| p.contains("two transactions, one ledger number")),
+        j.problems
+            .iter()
+            .any(|p| p.contains("two transactions, one ledger number")),
         "{:?}",
         j.problems
     );
@@ -102,7 +104,9 @@ fn a_shared_transaction_at_two_numbers_is_not_whole() {
     let j = join(&[a, b]);
     assert!(!j.whole());
     assert!(
-        j.problems.iter().any(|p| p.contains("one transaction, two ledger numbers")),
+        j.problems
+            .iter()
+            .any(|p| p.contains("one transaction, two ledger numbers")),
         "{:?}",
         j.problems
     );
