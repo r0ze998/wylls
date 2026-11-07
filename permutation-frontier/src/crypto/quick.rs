@@ -389,4 +389,37 @@ mod tests {
         let want = xmd::sha256(&[b"PSF-SEED-v1", &[2], &7u64.to_be_bytes(), &s]);
         assert_eq!(seed_of(7, &s), want);
     }
+    #[cfg(all(
+        feature = "native-crypto-tests",
+        not(feature = "test-beacon"),
+        not(target_os = "solana")
+    ))]
+    #[test]
+    fn native_public_quicknet_signature_verifies() {
+        // permutation-gateway/test/frontier-vectors.json: beacon.fixture_round.
+        fn decode<const N: usize>(s: &str) -> [u8; N] {
+            core::array::from_fn(|i| u8::from_str_radix(&s[2 * i..2 * i + 2], 16).unwrap())
+        }
+        let sig = decode("b07de38f2242ea4ae09960f14c44b826764b4f00a7b5dbb64f0adaeb8084fd91231934b3f7e1e2ae86cadd2d27a5272f");
+        let hints = decode("0114dcf59722b7585538cfa4b87b8ccc137ebdd8cf87bb88bd356225cf9c3bfe410f598a3a77d9c98705940acabc64152a0f49a8bbef0170eb29830542bdaaba4b4db4a32552ad7c7b893c8fa14c6971df7b981861241d37d2f31e4280df170ea9054863442c3efabd7433799ee791712f4bb89ba38f9030e80f364d9b5326a6878f03e37151b12b067f63187e38ee13860119884e4047d15ef143718dc611f431217d4903b856b79f8b729dc667fc238e9767544e5be6f98d221111b737346a10351485200a5afca2d5ef7fcb55cffe8dfe00db77b7848763ba034401c71b6911ed4a4198ae7d804aebebcc20185b06e319054ecac0c6af8df4065f6c6962d1e17e399ec20f3526707d8bea2cc0929fb2928274b9b1d6a4acdafbeaaef90ce915e7");
+        let expected = decode("107de38f2242ea4ae09960f14c44b826764b4f00a7b5dbb64f0adaeb8084fd91231934b3f7e1e2ae86cadd2d27a5272f1264b6394ff15ba7aa73c26540095070dd2350980219f2dc4706a148dd4fc6f9e1a2660c0c33d29c4279ca80ead4a30c");
+        assert_eq!(verify(32551361, &sig, &hints), Ok(expected));
+        assert_eq!(
+            seed_of(32551361, &expected),
+            decode("ae4d57785cf6d0e4ae776ed82ec7999f5216f063669b96e851117d3b2d21d778")
+        );
+        assert!(verify(32551362, &sig, &hints).is_err());
+        // A different valid public G1 signature reaches the real pairing check.
+        let other_sig = decode("878cd56168e11268d95ad61604f87af5d1d0fb8d9015c81a4484a679250bea3514d9899def7041bcdbfdc02be5da17d5");
+        assert_eq!(
+            verify(32551361, &other_sig, &hints),
+            Err(VerifyError::PairingFailed)
+        );
+        let mut bad_hints = hints;
+        bad_hints[0] = 0;
+        assert_eq!(
+            verify(32551361, &sig, &bad_hints),
+            Err(VerifyError::BadHint)
+        );
+    }
 }
