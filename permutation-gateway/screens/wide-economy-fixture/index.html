@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="robots" content="noindex">
+<title>Wide economy fixture · HOST RECORDINGS · VIEW ONLY</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Crect width='16' height='16' rx='3' fill='%23123a33'/%3E%3C/svg%3E">
+<link rel="stylesheet" href="/permutation-server/web/frontier/frontier.css">
+<link rel="stylesheet" href="/permutation-server/web/frontier/people/leaders.css">
+<link rel="stylesheet" href="/permutation-server/web/frontier/proto-hand.css">
+<link rel="stylesheet" href="/permutation-server/web/frontier/proto-board.css">
+<link rel="stylesheet" href="/permutation-server/web/frontier/conquest-hand.css">
+<link rel="stylesheet" href="/permutation-server/web/frontier/uplift.css">
+<link rel="stylesheet" href="/permutation-gateway/screens/wide-economy-fixture/fixture.css">
+</head>
+<body data-mode="play" data-stage="final" data-drawer="closed" data-doc="" data-sheet="full" data-fixture="wide-economy">
+<!-- Fixture chrome. Always visible; not game UI. -->
+<header class="fx-banner" id="fx-banner" role="region" aria-label="Fixture notice (not game UI)">
+  <p class="fx-banner-text"><strong id="fx-banner-text">HOST FIXTURE · RECORDED DATA · NO WALLET · NO CHAIN · NO SUBMIT</strong></p>
+  <button type="button" class="fx-btn" id="fx-card-toggle" data-fx="card">Close card</button>
+</header>
+<main id="frontier">
+  <div class="fx-inspector" id="fx-inspector" aria-label="Fixture inspector (not game UI)">
+    <details class="fx-controls" id="fx-controls" open>
+      <summary>Fixture controls</summary>
+      <div class="fx-control-grid">
+        <label class="fx-field">Case (recorded host dispatch) <select id="fx-case"></select></label>
+        <div class="fx-field" role="group" aria-label="Snapshot">Snapshot (recorded, not run)
+          <span class="fx-seg">
+            <button type="button" class="fx-btn" data-fx="phase" data-phase="before" aria-pressed="true">Before</button>
+            <button type="button" class="fx-btn" data-fx="phase" data-phase="after" aria-pressed="false">After</button>
+          </span></div>
+        <div class="fx-field" role="group" aria-label="Language">Language
+          <span class="fx-seg">
+            <button type="button" class="fx-btn" data-fx="lang" data-lang="ja" aria-pressed="true">JA</button>
+            <button type="button" class="fx-btn" data-fx="lang" data-lang="en" aria-pressed="false">EN</button>
+          </span></div>
+        <div class="fx-field" role="group" aria-label="Phone sheet">Sheet (phone QA)
+          <span class="fx-seg">
+            <button type="button" class="fx-btn" data-fx="sheet" data-sheet="half" aria-pressed="false">half</button>
+            <button type="button" class="fx-btn" data-fx="sheet" data-sheet="full" aria-pressed="true">full</button>
+          </span></div>
+        <div class="fx-field"><button type="button" class="fx-btn" id="fx-retry" data-fx="retry" disabled>Retry this case</button></div>
+      </div>
+      <output class="fx-state" id="fx-state" aria-live="polite">loading…</output>
+      <output class="fx-status" id="fx-status" aria-live="assertive"></output>
+    </details>
+    <div id="fx-notes"></div>
+  </div>
+</main>
+<section class="panel" id="panel" data-drawer="closed" data-kind="rest" data-doc="" data-sheet="full" aria-label="Panel">
+  <button type="button" class="sheet-handle" aria-label="Fixture: sheet handle (inert)"></button>
+  <div class="panel-head"><h2 id="panel-title"></h2>
+    <button type="button" class="btn panel-close" data-act="home" aria-label="close"><svg class="ic" aria-hidden="true" focusable="false"><use href="/permutation-server/web/frontier/art/ui/icons.svg#close"/></svg></button></div>
+  <div id="panel-body"></div>
+</section>
+<script type="module" src="/permutation-gateway/screens/wide-economy-fixture/fixture.mjs"></script>
+</body>
+</html>
