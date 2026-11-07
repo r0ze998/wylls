@@ -205,8 +205,10 @@ pub fn seal_root_of(commit: &[u8; 32], seal: &[u8; SEAL_LEN]) -> [u8; 32] {
     kseal::seal_root(commit, &kseal::ct_hash(seal))
 }
 
+/// The unit tests, and the public seal-vector readers (`cases`, `get`,
+/// `hex`) the opt-in native dispatcher test of the wide march reuses.
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
 
     #[test]
@@ -236,7 +238,7 @@ mod tests {
         assert_eq!(seal_root_of(&c, &seal), sha256(&[&c, &sha256(&[&seal])]));
     }
 
-    fn hex(s: &str) -> alloc::vec::Vec<u8> {
+    pub(crate) fn hex(s: &str) -> alloc::vec::Vec<u8> {
         (0..s.len())
             .step_by(2)
             .map(|i| u8::from_str_radix(&s[i..i + 2], 16).unwrap())
@@ -245,7 +247,8 @@ mod tests {
 
     /// The cases of `permutation-rules/vectors/seal-vectors-v1.json` as
     /// (key, value) lists (the file is pretty-printed one field per line).
-    fn cases() -> alloc::vec::Vec<alloc::vec::Vec<(alloc::string::String, alloc::string::String)>> {
+    pub(crate) fn cases(
+    ) -> alloc::vec::Vec<alloc::vec::Vec<(alloc::string::String, alloc::string::String)>> {
         let text = include_str!("../../../permutation-rules/vectors/seal-vectors-v1.json");
         let mut out = alloc::vec::Vec::new();
         let mut cur: Option<alloc::vec::Vec<_>> = None;
@@ -272,7 +275,10 @@ mod tests {
         out
     }
 
-    fn get<'a>(c: &'a [(alloc::string::String, alloc::string::String)], k: &str) -> &'a str {
+    pub(crate) fn get<'a>(
+        c: &'a [(alloc::string::String, alloc::string::String)],
+        k: &str,
+    ) -> &'a str {
         c.iter()
             .find(|(kk, _)| kk == k)
             .map(|(_, v)| v.as_str())
