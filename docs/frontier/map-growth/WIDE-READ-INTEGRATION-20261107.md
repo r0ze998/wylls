@@ -104,3 +104,17 @@ nine capture tests), feature-off 1/1, fclient 2/2, findex 7/7, keeper 12/12
 clippy with warnings denied, edited Rust formatting and `git diff --check`
 passed. No signing, key generation, live writes, deployment or browser
 visual acceptance was performed. PSW1 indexing remains deliberately disabled.
+
+## Final test-only checkpoint
+
+Writer test checkpoint `6e15d6bb` was merged normally as `5df7cffb`, with
+no conflicts. Its changes are documentation, wide runtime tests, and
+helpers inside the `cfg(test)` quicknet/seal test modules. A static diff
+against read checkpoint `1b02dfad` confirms that frontier-abi, frontier-node,
+the browser reader/fixtures, and production handlers are byte-for-byte
+unchanged. Accordingly, the 34 Rust and 28 JavaScript read results above
+are inherited evidence from `1b02dfad`, not a new execution after this merge.
+The writer reported 18 native-host tests, 16 native-crypto tests and 17
+ordinary tests passing for `6e15d6bb`; those suites were not rerun by this
+reader integration task. PostSeed/Sseed/depart fixture limitations remain,
+as do the disabled debit gate and unsupported PSW1 indexing boundary.
