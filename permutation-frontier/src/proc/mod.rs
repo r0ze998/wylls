@@ -57,6 +57,8 @@ pub mod caravan;
 pub mod citizen;
 pub mod clash;
 pub mod conquest;
+#[cfg(feature = "custody-preview")]
+pub mod custody;
 pub mod defence;
 pub mod holding;
 pub mod host;

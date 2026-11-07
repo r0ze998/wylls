@@ -19,10 +19,17 @@ pub mod vault {
         SENT @ 192 : "u32" = 4;
         SEIZED_BELL @ 196 : "u32" = 4;
         RENT_TO @ 200 : "[u8;32]" = 32;
-        RSV @ 232 : "rsv" = 280;
+        CUSTODY_QUOTA @ 232 : "[i64;8]" = 64;
+        CUSTODY_LOTS @ 296 : "u16" = 2;
+        RSV @ 298 : "rsv" = 214;
     );
     pub const STATE_NONE: u8 = 0;
     pub const STATE_LIVE: u8 = 1;
+    /// Offset of `custody_quota[r]` (workstream 10: room committed to lots;
+    /// `STORES[r] + CUSTODY_QUOTA[r] ≤ CAP`).
+    pub const fn custody_quota(r: usize) -> usize {
+        CUSTODY_QUOTA + 8 * r
+    }
     /// Offset of `stores[r]`.
     pub const fn store(r: usize) -> usize {
         STORES + 8 * r
@@ -145,10 +152,21 @@ pub mod caravan {
         CARGO @ 192 : "[i64;8]" = 64;
         FEE @ 256 : "u64" = 8;
         RENT_TO @ 264 : "[u8;32]" = 32;
-        RSV @ 296 : "rsv" = 24;
+        CUSTODY @ 296 : "u8" = 1;
+        CUSTODY_RESOURCE @ 297 : "u8" = 1;
+        RSV_298 @ 298 : "rsv" = 6;
+        CUSTODY_OWNER_TAG @ 304 : "u64" = 8;
+        TAKEN_BY_TAG @ 312 : "u64" = 8;
     );
     pub const STATE_NONE: u8 = 0;
     pub const STATE_MOVING: u8 = 1;
+    /// `CUSTODY` (workstream 10): an ordinary caravan.
+    pub const CUSTODY_NONE: u8 = 0;
+    /// The cargo is `CUSTODY_OWNER_TAG`'s, bound for its lot at `DST`.
+    pub const CUSTODY_LOT: u8 = 1;
+    /// A custody caravan taken by a raider (J2): the raider's, its lot's
+    /// inbound ref a `Raided` loss at ReconcileLot.
+    pub const CUSTODY_TAKEN: u8 = 2;
     pub const STATE_DELIVERED: u8 = 2;
     pub const STATE_LOST: u8 = 3;
     /// Offset of `cargo[r]`.
@@ -158,5 +176,129 @@ pub mod caravan {
     /// Offset of province `i`'s (P, Q).
     pub const fn province(i: usize) -> usize {
         PROVINCES + 4 * i
+    }
+}
+
+/// Lot (576 B): `cl‖P,Q,tile,gen,owner_tag,resource` (workstream 10:
+/// custody; `workstreams/10-custody/02-contract.ja.md` §2.1). The goods of
+/// one owner, of one resource, kept in another's vault of one generation;
+/// never part of the vault's `STORES`. The offsets are the custody
+/// kernel's (`permutation_rules::frontier::custody::layout::lot`).
+pub mod lot {
+    crate::layout::chained!(b"PSF1CLOT", 576;
+        P @ 64 : "i16" = 2;
+        Q @ 66 : "i16" = 2;
+        TILE @ 68 : "u8" = 1;
+        VAULT_GEN @ 69 : "u8" = 1;
+        RESOURCE @ 70 : "u8" = 1;
+        STATE @ 71 : "u8" = 1;
+        OWNER_CITIZEN @ 72 : "[u8;32]" = 32;
+        OWNER_TAG @ 104 : "u64" = 8;
+        CUSTODIAN_TAG @ 112 : "u64" = 8;
+        QUOTA @ 120 : "i64" = 8;
+        HELD @ 128 : "i64" = 8;
+        IN_TOTAL @ 136 : "i64" = 8;
+        OUT_TOTAL @ 144 : "i64" = 8;
+        CONSUMED @ 152 : "i64" = 8;
+        FORFEITED @ 160 : "i64" = 8;
+        NONCE @ 168 : "u32" = 4;
+        OPENED_BELL @ 172 : "u32" = 4;
+        ORDERS @ 176 : "rec:LotOrder x4" = 256;
+        INBOUND @ 432 : "rec:LotInbound x4" = 96;
+        RENT_TO @ 528 : "[u8;32]" = 32;
+        RSV @ 560 : "rsv" = 16;
+    );
+    pub use permutation_rules::frontier::custody::{LOT_FORFEITED, LOT_NONE, LOT_OPEN};
+}
+
+/// A lot's order slot (64 B).
+pub mod lot_order {
+    crate::layout::fields!(size = 64;
+        KIND @ 0 : "u8" = 1;
+        RSV_1 @ 1 : "rsv" = 1;
+        PURPOSE @ 2 : "u16" = 2;
+        ID @ 4 : "u32" = 4;
+        EXPIRES_BELL @ 8 : "u32" = 4;
+        DST @ 12 : "[u8;8]" = 8;
+        GRANTEE @ 20 : "[u8;32]" = 32;
+        RSV_52 @ 52 : "rsv" = 4;
+        QTY_LEFT @ 56 : "i64" = 8;
+    );
+}
+
+/// A lot's inbound caravan ref (24 B).
+pub mod lot_inbound {
+    crate::layout::fields!(size = 24;
+        CARAVAN_TAG @ 0 : "u64" = 8;
+        SEQ @ 8 : "u32" = 4;
+        LIVE @ 12 : "u8" = 1;
+        RSV_13 @ 13 : "rsv" = 3;
+        QTY @ 16 : "i64" = 8;
+    );
+}
+
+#[cfg(test)]
+mod custody_tests {
+    use permutation_rules::frontier::custody::layout as k;
+
+    /// The ABI's offsets are the kernel's.
+    #[test]
+    fn custody_offsets_are_the_kernels() {
+        use super::{caravan as cv, lot, lot_inbound as li, lot_order as lo, vault as va};
+        assert_eq!(lot::MAGIC, k::lot::MAGIC);
+        assert_eq!(lot::SIZE, k::lot::SIZE);
+        let pairs = [
+            (lot::P, k::lot::P),
+            (lot::Q, k::lot::Q),
+            (lot::TILE, k::lot::TILE),
+            (lot::VAULT_GEN, k::lot::VAULT_GEN),
+            (lot::RESOURCE, k::lot::RESOURCE),
+            (lot::STATE, k::lot::STATE),
+            (lot::OWNER_CITIZEN, k::lot::OWNER_CITIZEN),
+            (lot::OWNER_TAG, k::lot::OWNER_TAG),
+            (lot::CUSTODIAN_TAG, k::lot::CUSTODIAN_TAG),
+            (lot::QUOTA, k::lot::QUOTA),
+            (lot::HELD, k::lot::HELD),
+            (lot::IN_TOTAL, k::lot::IN_TOTAL),
+            (lot::OUT_TOTAL, k::lot::OUT_TOTAL),
+            (lot::CONSUMED, k::lot::CONSUMED),
+            (lot::FORFEITED, k::lot::FORFEITED),
+            (lot::NONCE, k::lot::NONCE),
+            (lot::OPENED_BELL, k::lot::OPENED_BELL),
+            (lot::ORDERS, k::lot::ORDERS),
+            (lot::INBOUND, k::lot::INBOUND),
+            (lot::RENT_TO, k::lot::RENT_TO),
+            (lot::RSV, k::lot::RSV),
+            (lo::SIZE, k::lot::ORDER_SIZE),
+            (lo::KIND, k::lot::order::KIND),
+            (lo::PURPOSE, k::lot::order::PURPOSE),
+            (lo::ID, k::lot::order::ID),
+            (lo::EXPIRES_BELL, k::lot::order::EXPIRES_BELL),
+            (lo::DST, k::lot::order::DST),
+            (lo::GRANTEE, k::lot::order::GRANTEE),
+            (lo::QTY_LEFT, k::lot::order::QTY_LEFT),
+            (li::SIZE, k::lot::INBOUND_SIZE),
+            (li::CARAVAN_TAG, k::lot::inbound::CARAVAN_TAG),
+            (li::SEQ, k::lot::inbound::SEQ),
+            (li::LIVE, k::lot::inbound::LIVE),
+            (li::QTY, k::lot::inbound::QTY),
+            (va::CUSTODY_QUOTA, k::vault_custody::CUSTODY_QUOTA),
+            (va::CUSTODY_LOTS, k::vault_custody::CUSTODY_LOTS),
+            (cv::CUSTODY, k::caravan_custody::CUSTODY),
+            (cv::CUSTODY_RESOURCE, k::caravan_custody::CUSTODY_RESOURCE),
+            (cv::CUSTODY_OWNER_TAG, k::caravan_custody::CUSTODY_OWNER_TAG),
+            (cv::TAKEN_BY_TAG, k::caravan_custody::TAKEN_BY_TAG),
+            (
+                cv::CUSTODY_LOT as usize,
+                k::caravan_custody::CUSTODY_LOT as usize,
+            ),
+            (
+                cv::CUSTODY_TAKEN as usize,
+                k::caravan_custody::CUSTODY_TAKEN as usize,
+            ),
+        ];
+        for (i, (a, b)) in pairs.iter().enumerate() {
+            assert_eq!(a, b, "pair {i}");
+        }
     }
 }

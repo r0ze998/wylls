@@ -26,9 +26,9 @@ use crate::layout::{world as v1w, Field};
 /// `layout_version` of every v2 chained header.
 pub const LAYOUT_VERSION_V2: u16 = 2;
 
-/// The 22 program account kinds of ABI v2: M1's 17 (same codes),
-/// MarchState (18), and S1's Vault (19), Caravan (20), Structure (21) and
-/// Nation (22).
+/// The 23 program account kinds of ABI v2: M1's 17 (same codes),
+/// MarchState (18), S1's Vault (19), Caravan (20), Structure (21) and
+/// Nation (22), and custody's Lot (23, workstream 10).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
 #[repr(u8)]
 pub enum AccountKind {
@@ -54,10 +54,11 @@ pub enum AccountKind {
     Caravan = 20,
     Structure = 21,
     Nation = 22,
+    Lot = 23,
 }
 
 impl AccountKind {
-    pub const ALL: [AccountKind; 22] = {
+    pub const ALL: [AccountKind; 23] = {
         use AccountKind::*;
         [
             Season,
@@ -82,6 +83,7 @@ impl AccountKind {
             Caravan,
             Structure,
             Nation,
+            Lot,
         ]
     };
 
@@ -109,6 +111,7 @@ impl AccountKind {
             Caravan => s1::caravan::SIZE,
             Structure => s1::structure::SIZE,
             Nation => s1::nation::SIZE,
+            Lot => s1::lot::SIZE,
             Citizen => player::citizen::SIZE,
             Holding => player::holding::SIZE,
             JoinShard => world::join_shard::SIZE,
@@ -135,6 +138,7 @@ impl AccountKind {
             AccountKind::Caravan => s1::caravan::MAGIC,
             AccountKind::Structure => s1::structure::MAGIC,
             AccountKind::Nation => s1::nation::MAGIC,
+            AccountKind::Lot => s1::lot::MAGIC,
             // Same code, same magic as M1 (`tests::magics_are_m1s`).
             k => v1_kind(k).magic(),
         }
@@ -156,6 +160,7 @@ impl AccountKind {
                 | Caravan
                 | Structure
                 | Nation
+                | Lot
         )
     }
 
@@ -168,6 +173,7 @@ impl AccountKind {
             Caravan => s1::caravan::FIELDS,
             Structure => s1::structure::FIELDS,
             Nation => s1::nation::FIELDS,
+            Lot => s1::lot::FIELDS,
             Citizen => player::citizen::FIELDS,
             Holding => player::holding::FIELDS,
             JoinShard => world::join_shard::FIELDS,
@@ -187,6 +193,7 @@ impl AccountKind {
             AccountKind::Caravan => "Caravan",
             AccountKind::Structure => "Structure",
             AccountKind::Nation => "Nation",
+            AccountKind::Lot => "Lot",
             k => v1_kind(k).name(),
         }
     }
@@ -206,6 +213,7 @@ impl AccountKind {
                 | Caravan
                 | Structure
                 | Nation
+                | Lot
         )
     }
 
@@ -253,6 +261,8 @@ pub const RECORDS: &[(&str, usize, &[Field])] = &[
     ),
     ("Place", s1::place::SIZE, s1::place::FIELDS),
     ("Proposal", s1::proposal::SIZE, s1::proposal::FIELDS),
+    ("LotOrder", s1::lot_order::SIZE, s1::lot_order::FIELDS),
+    ("LotInbound", s1::lot_inbound::SIZE, s1::lot_inbound::FIELDS),
     (
         "ConquestParams",
         crate::v2::presets::cq_layout::SIZE,
