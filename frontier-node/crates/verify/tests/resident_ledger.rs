@@ -61,6 +61,9 @@ struct Node {
     runs: Arc<Mutex<Vec<String>>>,
     status_calls: Arc<AtomicU64>,
     ledger: Arc<Mutex<Vec<(u8, Address)>>>,
+    /// Answers `frontier_feed` with `{"scan": true}` as workstream 4's node
+    /// does (records and the extent from one read); else the plain array.
+    scan: bool,
 }
 
 impl Node {
@@ -83,14 +86,21 @@ fn answer(n: &Node, req: &Value) -> Value {
                 .and_then(|x| x.as_str())
                 .and_then(|s| s.parse().ok());
             let led = n.ledger.lock().unwrap().clone();
-            json!(led
+            let txs = json!(led
                 .iter()
                 .enumerate()
                 .map(|(i, e)| (i as u64 + 1, e))
                 .filter(|(seq, (_, pr))| *seq > after && want.is_none_or(|w| w == *pr))
                 .map(|(seq, (s, pr))| json!({"seq": seq, "slot": seq, "signature": sig(*s).to_string(), "blockTime": 0,
                     "tx": base64_wire(pr, *s), "logs": [], "err": null, "units": 0, "fee": 0, "post": []}))
-                .collect::<Vec<_>>())
+                .collect::<Vec<_>>());
+            if n.scan && p.get(3).and_then(|o| o.get("scan")) == Some(&json!(true)) {
+                json!({"txs": txs, "scannedThrough": led.len(), "ledgerLen": led.len(),
+                    "atAfter": (after > 0).then(|| led.get(after as usize - 1)).flatten().map(|(s, _)| sig(*s).to_string()),
+                    "runId": n.runs.lock().unwrap().last().cloned(), "ledgerBytes": 100 * led.len(), "durable": true})
+            } else {
+                txs
+            }
         }
         "frontier_status" => json!({"runId": n.run_id()}),
         _ => Value::Null,
@@ -133,9 +143,14 @@ async fn serve_one(n: Node, mut s: tokio::net::TcpStream) {
 }
 
 async fn node(runs: &[&str], ledger: &[(u8, Address)]) -> (Node, String) {
+    node_with(runs, ledger, false).await
+}
+
+async fn node_with(runs: &[&str], ledger: &[(u8, Address)], scan: bool) -> (Node, String) {
     let n = Node {
         runs: Arc::new(Mutex::new(runs.iter().map(|s| s.to_string()).collect())),
         ledger: Arc::new(Mutex::new(ledger.to_vec())),
+        scan,
         ..Node::default()
     };
     let l = tokio::net::TcpListener::bind(("127.0.0.1", 0))
@@ -264,22 +279,23 @@ async fn a_resident_archive_not_the_ledgers_whole_feed_or_of_another_ledger_is_n
     );
 }
 
+/// The live read on a scanning node (workstream 4): `through` and `tip` are
+/// the extent the node's own answers give (the ledger's length, 6), not the
+/// game feed's last seq; a ledger that grows between the two reads is read
+/// through its new end, with the resident transaction that landed.
 #[tokio::test]
-async fn the_live_resident_feed_names_the_ledger_and_reads_through_the_game_feed() {
-    let (_n, url) = node(&["run1"], &two_programs()).await;
+async fn the_live_resident_feed_takes_its_extent_from_the_same_answers() {
+    let (n, url) = node_with(&["run1"], &two_programs(), true).await;
     let (txs, h) = input::fetch_txs(&url, &prog(), true, None, None)
         .await
         .unwrap();
-    let rf = verify_core::resident_feed::fetch(
-        &url,
-        &other(),
-        &Address::new_from_array([0x76; 32]),
-        &txs,
-    )
-    .await
-    .unwrap();
-    assert_eq!(rf.history, h, "the same ledger");
-    assert_eq!(rf.through, 6, "the last game seq read before it");
+    assert_eq!(h.detail, "ledger run1");
+    let policy = Address::new_from_array([0x76; 32]);
+    let rf = verify_core::resident_feed::fetch(&url, &other(), &policy, &txs)
+        .await
+        .unwrap();
+    assert_eq!(rf.history, h, "the same ledger, from the scan's runId");
+    assert_eq!((rf.through, rf.tip), (6, Some(6)));
     assert_eq!(
         rf.txs.iter().map(|t| t.seq).collect::<Vec<_>>(),
         vec![2, 3, 5]
@@ -287,4 +303,44 @@ async fn the_live_resident_feed_names_the_ledger_and_reads_through_the_game_feed
     let w = World::parse(&prog(), &txs, BTreeMap::new(), 0);
     assert!(rf.gaps_before(&w, &h, 7).is_empty());
     assert!(!rf.gaps_before(&w, &h, 8).is_empty());
+    // The ledger grows after the game read: a resident transaction lands at 7.
+    n.ledger.lock().unwrap().push((17, other()));
+    let rf = verify_core::resident_feed::fetch(&url, &other(), &policy, &txs)
+        .await
+        .unwrap();
+    assert_eq!((rf.through, rf.tip), (7, Some(7)));
+    assert_eq!(
+        rf.txs.iter().map(|t| t.seq).collect::<Vec<_>>(),
+        vec![2, 3, 5, 7]
+    );
+    assert!(rf.gaps_before(&w, &h, 8).is_empty());
+}
+
+/// A node that does not scan (the plain array) or a read with no resident
+/// transaction: no extent from the reads themselves, so never whole.
+#[tokio::test]
+async fn without_the_scan_or_with_no_resident_record_the_live_feed_is_never_whole() {
+    let (_n, url) = node(&["run1"], &two_programs()).await;
+    let (txs, h) = input::fetch_txs(&url, &prog(), true, None, None)
+        .await
+        .unwrap();
+    let policy = Address::new_from_array([0x76; 32]);
+    let rf = verify_core::resident_feed::fetch(&url, &other(), &policy, &txs)
+        .await
+        .unwrap();
+    assert_eq!(rf.history.source, Source::Unknown, "{:?}", rf.history);
+    let w = World::parse(&prog(), &txs, BTreeMap::new(), 0);
+    assert!(!rf.gaps_before(&w, &h, 2).is_empty());
+    // A scanning node with no transaction of the resident program.
+    let only_game = vec![(11, prog()), (14, prog())];
+    let (_m, url2) = node_with(&["run1"], &only_game, true).await;
+    let (txs2, h2) = input::fetch_txs(&url2, &prog(), true, None, None)
+        .await
+        .unwrap();
+    let rf2 = verify_core::resident_feed::fetch(&url2, &other(), &policy, &txs2)
+        .await
+        .unwrap();
+    assert_eq!(rf2.history.source, Source::Unknown);
+    let w2 = World::parse(&prog(), &txs2, BTreeMap::new(), 0);
+    assert!(!rf2.gaps_before(&w2, &h2, 2).is_empty());
 }

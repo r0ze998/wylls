@@ -258,18 +258,64 @@ impl ResidentFeed {
 }
 
 /// The resident program's feed from the local node at `url`, read **after**
-/// the Frontier transactions `frontier` (so `through` = their last seq), and
-/// the policy account at `policy`. Only a local node's ordered feed gives one
-/// order for both programs; anything else is refused (V28 stays
-/// UNVERIFIABLE without the feed).
+/// the Frontier transactions `frontier`, and the policy account at `policy`.
+///
+/// It is read through findex's `LocalnetFeed` over the node's scanning feed
+/// (`frontier_feed` with `{"scan": true}`, workstream 04, 2026-11-07), which
+/// checks every read (one ledger, the extent within the ledger's length, the
+/// entry at the cursor unchanged, records of this program only) and keeps,
+/// from the reads' own answers, how far the node's ledger was scanned. That
+/// extent is `through` and `tip`: every resident transaction up to it is in
+/// the feed, and nothing past it was read. No separate status call: the
+/// values come from the same answers as the records.
+///
+/// `unknown` (never whole) when the node does not scan or name its ledger,
+/// when the feed is empty (no proof of an empty history, as `fetch_txs`), or
+/// when the scan ends before the game feed's last seq (the two reads are then
+/// not in the order this needs).
 pub async fn fetch(
     url: &str,
     resident_program: &Address,
     policy: &Address,
     frontier: &[TxRecord],
 ) -> Result<ResidentFeed, String> {
-    let (txs, history) = crate::input::fetch_txs(url, resident_program, true, None, None).await?;
-    let through = frontier.iter().map(|t| t.seq).max().unwrap_or(0);
+    use findex::ingest::Source;
+    let mut s =
+        findex::ingest::LocalnetFeed::new(fclient::rpc::RpcPort::localnet(url, *resident_program))
+            .with_program(*resident_program);
+    let mut txs: Vec<TxRecord> = vec![];
+    loop {
+        let b = s.pull().await.map_err(|e| e.to_string())?;
+        if b.is_empty() {
+            break;
+        }
+        txs.extend(b);
+    }
+    let c = s.cursor();
+    let scanned = c.get("feed_scanned").and_then(Value::as_u64);
+    let ledger = c.get("ledger").and_then(Value::as_str).map(String::from);
+    let last_game = frontier.iter().map(|t| t.seq).max().unwrap_or(0);
+    let (history, through) = match (scanned, ledger) {
+        _ if txs.is_empty() => (
+            History::unknown(format!(
+                "resident feed {url}: empty observation, not proof of no resident transaction"
+            )),
+            0,
+        ),
+        (Some(sc), Some(id)) if sc >= last_game => (History::ledger_feed(format!("ledger {id}")), sc),
+        (Some(sc), Some(_)) => (
+            History::unknown(format!(
+                "resident feed {url}: scanned through seq {sc}, before the game feed's last seq {last_game}"
+            )),
+            0,
+        ),
+        _ => (
+            History::unknown(format!(
+                "resident feed {url}: the node did not say how far it scanned its ledger, or which ledger it is"
+            )),
+            0,
+        ),
+    };
     // The policy account is one source of the policy (the archive's
     // CreateResidentPolicy is the other): not reading it is not an error.
     let pol = match crate::input::fetch_finals(url, &[*policy]).await {
@@ -279,21 +325,14 @@ pub async fn fetch(
             BTreeMap::new()
         }
     };
-    // The ledger length, read after the feed (freshness only, see `tip`).
-    let tip = fclient::rpc::RpcClient::new(url)
-        .call("frontier_status", json!([]))
-        .await
-        .map_err(|e| e.to_string())?
-        .get("transactions")
-        .and_then(Value::as_u64);
     Ok(ResidentFeed {
         program: *resident_program,
-        // The local node's ledger feed (`fetch_txs` with `localnet`), empty
-        // or not: an empty one is the ledger showing no resident transaction.
         history,
         after: 0,
         through,
-        tip,
+        // The ledger's extent from the same answers (freshness: a seq read
+        // past it means the reads disagree).
+        tip: scanned,
         txs: txs
             .iter()
             .filter(|t| t.seq <= through)
