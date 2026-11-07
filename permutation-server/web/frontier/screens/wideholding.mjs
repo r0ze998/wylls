@@ -114,10 +114,11 @@ export function render(FS) {
   const stores = html`<section class="vcard wide-village" aria-labelledby="wide-v-stores">
     ${cardHead({ id: 'wide-v-stores', ic: 'crate', title: L`資源（捕捉時の記録値）` })}
     <p class="muted">${L`蔵の記録そのままです。生産の加算や決済の見積もりはしていません。毎時の値は記録上の率です。`}</p>
-    <table class="ledger"><caption class="visually-hidden">${L`資源`}</caption>
+    <p class="muted wide-ledger-hint">${L`表は横にスクロールできます`}</p>
+    <div class="wide-ledger-scroll" tabindex="0" role="region" aria-label="${L`資源（捕捉時の記録値）`}"><table class="ledger"><caption class="visually-hidden">${L`資源`}</caption>
       <thead><tr><th scope="col">${L`品目`}</th><th scope="col">${L`記録値`}</th><th scope="col">${L`上限`}</th><th scope="col">${L`記録上の毎時`}</th><th scope="col">${L`決済時刻（UTC）`}</th></tr></thead>
       <tbody>${m.stores.map(s => html`<tr class="ledger-row"><th scope="row">${icon(RESOURCE_ICON[s.resource] ?? 'crate', 'ledger-ic')}<span class="ledger-name">${RESOURCES[s.resource]}</span></th>
-        <td class="ledger-val">${s.value}</td><td class="ledger-cap">${s.cap}</td><td class="ledger-rate">${s.rate}</td><td class="ledger-t0">${s.settledAt}</td></tr>`)}</tbody></table>
+        <td class="ledger-val">${s.value}</td><td class="ledger-cap">${s.cap}</td><td class="ledger-rate">${s.rate}</td><td class="ledger-t0">${s.settledAt}</td></tr>`)}</tbody></table></div>
     ${x.foodShortfall !== '0' ? html`<p class="muted">${L`食料の不足（記録）：${formatMilli(x.foodShortfall)}`}</p>` : ''}</section>`;
 
   const build = html`<section class="vcard wide-village" aria-labelledby="wide-v-build">

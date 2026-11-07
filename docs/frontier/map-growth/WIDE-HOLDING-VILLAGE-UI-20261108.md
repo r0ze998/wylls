@@ -71,8 +71,8 @@ Citizen-level operations are not converted into village orders.
 
 ## Validation performed
 
-- Key-prohibited Node guard plus six scoped files: **89/89 passed**, including
-  **17** new wide-village tests and existing wide-map, cards, HUD, holding
+- Key-prohibited Node guard plus six scoped files: **91/91 passed**, including
+  **19** wide-village tests and existing wide-map, cards, HUD, holding
   projection and language tests.
 - Herald `wide_capture` integration file: **10/10 passed**, including the new
   context identity/inventory/latest-slot test. Fixtures use fixed public data.
@@ -120,9 +120,10 @@ transport. The relay is unset, test sessions do not sign, and no first-time NFT
 join or march is staged. Function-valued accounts and late mutation are covered
 by pure guards and source assertions rather than a real sealed march.
 
-Tests cover markup and state, not a browser DOM or visual acceptance. Phone CSS,
-a live herald, real wallet interactions, chain execution and deployment remain
-unverified. This work does not make wide villages playable or prove live
+The Node tests cover markup and state. Subsequent real-browser fixture QA and
+its production CSS fixes are recorded in `WIDE-HOLDING-BROWSER-QA-20261108.md`.
+Full app boot, a live herald, real wallet interactions, chain execution and
+deployment remain unverified. This work does not make wide villages playable or prove live
 ownership. The latest slot is the fold's last folded slot, which may lag a live
 source. Recorded economy values are deliberately not projected to the present.
 

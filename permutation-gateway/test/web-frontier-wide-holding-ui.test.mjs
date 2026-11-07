@@ -819,3 +819,28 @@ test('failed and unavailable wide inventory remain visibly unknown in the deskto
   assert.equal(FS.wideStatus, 'ready');
   assert.doesNotMatch(flat(hud.renderRest(FS)), /wide-inventory-status|data-act="wide-select"/);
 });
+
+test('the desktop rail passes the pointer through, so the wide pips and the wide inventory status (Retry) must opt back in by name (regression: W2/W3 clicks did nothing in Chrome)', () => {
+  const css = readFileSync(new URL('../../permutation-server/web/frontier/frontier.css', import.meta.url), 'utf8');
+  assert.match(css, /^\.rail\s*\{[^}]*pointer-events:\s*none/m, 'the rail itself stays pointer-transparent');
+  const optIn = /^\.rail \.wide-pips,\s*\.rail \.wide-inventory-status\s*\{\s*pointer-events:\s*auto;?\s*\}/m;
+  assert.match(css, optIn, '.rail .wide-pips and .rail .wide-inventory-status restore pointer-events: auto');
+});
+
+test('the wide stores table lives in a named, focusable scroll region that scrolls inside its card; wide t0 and the blocked status use paper contrast tokens (regression: clipped ledger at 390px, unreadable last column)', () => {
+  const FS = { mode: 'play', tab: 'holding', holdings: [], wideSelect: null };
+  adoptWide(FS, record(), PINS); selectWide(FS, 2);
+  const out = flat(renderWide(FS));
+  assert.match(out, /<p class="muted wide-ledger-hint">表は横にスクロールできます<\/p>/, 'a visible hint says the table scrolls sideways');
+  assert.match(out, /<div class="wide-ledger-scroll" tabindex="0" role="region" aria-label="資源（捕捉時の記録値）"><table class="ledger">[\s\S]*?<\/table><\/div>/, 'the table is wrapped in a focusable named region');
+  assert.equal((out.match(/wide-ledger-scroll/g) ?? []).length, 1, 'only the stores table is wrapped');
+  assert.match(out, /ledger-t0/, 'the t0 column is kept');
+  const css = readFileSync(new URL('../../permutation-server/web/frontier/frontier.css', import.meta.url), 'utf8');
+  assert.match(css, /^\.wide-village \.wide-ledger-scroll\s*\{[^}]*max-width:\s*100%;[^}]*overflow-x:\s*auto;[^}]*overscroll-behavior-x:\s*contain;?[^}]*\}/m, 'the wrapper scrolls horizontally within the card');
+  assert.match(css, /^\.wide-village \.ledger-t0\s*\{[^}]*color:\s*var\(--ink-2\)/m, 'wide t0 uses paper ink, not HUD ink');
+  assert.doesNotMatch(css, /^\.wide-village \.ledger-t0\s*\{[^}]*--hud-ink/m);
+  assert.match(css, /^\.wide-inventory-status\.blocked\s*\{[^}]*background:\s*var\(--paper-sheet\)/m, 'the blocked status gets an opaque paper sheet behind its --err-ink text');
+  assert.match(css, /^\.ledger \{ width: 100%;/m, 'the legacy ledger rule is untouched');
+  const en = readFileSync(new URL('../../permutation-server/web/lang/en-frontier.mjs', import.meta.url), 'utf8');
+  assert.match(en, /"表は横にスクロールできます":\s*"This table scrolls sideways"/, 'the hint is translated');
+});
