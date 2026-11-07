@@ -249,7 +249,28 @@ mod tests {
             .filter(|ix| !supported(**ix, true, true))
             .map(|ix| ix.name())
             .collect();
-        assert_eq!(unmodelled, ["CloseMarch", "FastForward"]);
+        // Workstream 10's custody instructions (0xC2–0xCC) are deliberately
+        // unmodelled: V0 reports them UnverifiedInstruction, and V26's
+        // custody guard makes any custody trace a FAIL or UNVERIFIABLE, until
+        // V26 replays custody (⑪, 2026-11-07).
+        assert_eq!(
+            unmodelled,
+            [
+                "CloseMarch",
+                "FastForward",
+                "OpenLot",
+                "SetLotQuota",
+                "DepositLot",
+                "SetLotOrder",
+                "RevokeLotOrder",
+                "ShipLot",
+                "SettleCustody",
+                "ConsumeLot",
+                "ReconcileLot",
+                "CloseLot",
+                "WithdrawLot",
+            ]
+        );
         // M1 seasons: only M1's instructions are modelled.
         assert!(supported(Ix::Depart, false, false));
         assert!(!supported(Ix::DeclareSiege, false, false));
