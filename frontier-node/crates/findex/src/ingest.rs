@@ -105,6 +105,17 @@ pub struct LocalnetFeed<P: ChainPort> {
     /// The ledger the archived records came from (`None`: not known).
     cursor_ledger: Option<String>,
     refused: Option<String>,
+    /// How far the node's ledger was scanned for this archive
+    /// (`frontier_feed`'s `scannedThrough`, workstream 04): every ledger entry
+    /// up to it was examined, so the archive is this program's whole feed
+    /// through it. `None`: not known (a node without the scan, or a pull that
+    /// was not scanned throughout); then only `after` is.
+    scanned: Option<u64>,
+    /// The ledger's size in bytes at the last scan: it never shrinks unless
+    /// the ledger was rewound.
+    ledger_bytes: Option<u64>,
+    /// Whether the node said its ledger is synced before it serves it.
+    durable: Option<bool>,
 }
 
 impl<P: ChainPort> LocalnetFeed<P> {
@@ -119,6 +130,9 @@ impl<P: ChainPort> LocalnetFeed<P> {
             start: Some(0),
             cursor_ledger: None,
             refused: None,
+            scanned: None,
+            ledger_bytes: None,
+            durable: None,
         }
     }
 
@@ -126,6 +140,64 @@ impl<P: ChainPort> LocalnetFeed<P> {
     pub fn with_program(mut self, program: solana_address::Address) -> Self {
         self.program = Some(program);
         self
+    }
+
+    /// One read's scan against what the archive already holds (workstream
+    /// 04, 2026-11-07). Refused (a history gap, never resumed over):
+    /// another ledger than the archive's; a ledger shorter than the cursor; a
+    /// different transaction (or none) at the cursor's seq than the one
+    /// archived there; a ledger that shrank in bytes. A scan that does not
+    /// say a value checks nothing about it.
+    fn check_scan(
+        &mut self,
+        sc: &fclient::ports::FeedScan,
+        known: Option<(u64, Signature)>,
+    ) -> Result<(), String> {
+        let after = self.after.0;
+        if let Some(id) = &sc.run_id {
+            let ours = self.cursor_ledger.as_ref().or(self.ledger.as_ref());
+            match ours {
+                Some(o) if o != id => {
+                    return Err(format!(
+                        "history gap: the node now serves ledger {id}, the archive is of ledger {o}"
+                    ))
+                }
+                Some(_) => {}
+                None if after == 0 && self.start == Some(0) => {
+                    self.cursor_ledger = Some(id.clone());
+                }
+                None => {}
+            }
+            self.ledger.get_or_insert_with(|| id.clone());
+        }
+        if sc.ledger_len < after || sc.scanned_through < after {
+            return Err(format!(
+                "history gap: the ledger has {} entries, fewer than the archive's cursor {after}: rewound or rebuilt",
+                sc.ledger_len
+            ));
+        }
+        if let Some((seq, s)) = known.filter(|(q, _)| *q == after && after > 0) {
+            if sc.at_after != Some(s) {
+                return Err(format!(
+                    "history gap: ledger seq {seq} is {} now, the archive holds {s} there: rewound or rebuilt",
+                    sc.at_after.map_or("nothing".into(), |x| x.to_string())
+                ));
+            }
+        }
+        if let (Some(prev), Some(now)) = (self.ledger_bytes, sc.ledger_bytes) {
+            if now < prev {
+                return Err(format!(
+                    "history gap: the ledger shrank from {prev} to {now} bytes: rewound"
+                ));
+            }
+        }
+        if sc.ledger_bytes.is_some() {
+            self.ledger_bytes = sc.ledger_bytes;
+        }
+        if sc.durable.is_some() {
+            self.durable = sc.durable;
+        }
+        Ok(())
     }
 
     /// The ledger the node serves (`frontier_status.runId`).
@@ -163,8 +235,24 @@ impl<P: ChainPort> Source for LocalnetFeed<P> {
             self.check_last = false;
         }
         let mut out: Vec<TxRecord> = vec![];
+        // The extent of this pull: known only when every read said it.
+        let mut scanned: Option<Option<u64>> = None;
         loop {
-            let got = self.port.feed(self.after).await?;
+            let (got, scan) = self.port.feed_scan(self.after).await?;
+            match &scan {
+                Some(sc) => {
+                    let known = out.last().map(|r| (r.seq, r.signature)).or(self.last);
+                    if let Err(e) = self.check_scan(sc, known) {
+                        self.refused = Some(e.clone());
+                        return Err(PortError::Unavailable(e));
+                    }
+                    scanned = Some(match scanned {
+                        Some(None) => None,
+                        _ => Some(sc.scanned_through),
+                    });
+                }
+                None => scanned = Some(None),
+            }
             let Some(last) = got.last() else { break };
             for r in &got {
                 if out.last().map_or(self.after.0, |p| p.seq) >= r.seq {
@@ -191,6 +279,7 @@ impl<P: ChainPort> Source for LocalnetFeed<P> {
         if let Some(r) = out.last() {
             self.last = Some((r.seq, r.signature));
         }
+        self.scanned = scanned.flatten().map(|x| x.max(self.after.0));
         Ok(out)
     }
     fn cursor(&self) -> Value {
@@ -202,6 +291,9 @@ impl<P: ChainPort> Source for LocalnetFeed<P> {
             "feed_start": self.start,
             "ledger": self.cursor_ledger,
             "feed_last": self.last.map(|(q, s)| json!({"seq": q, "signature": s.to_string()})),
+            "feed_scanned": self.scanned,
+            "ledger_bytes": self.ledger_bytes,
+            "ledger_durable": self.durable,
         })
     }
     fn restore(&mut self, v: &Value) {
@@ -213,6 +305,9 @@ impl<P: ChainPort> Source for LocalnetFeed<P> {
             self.cursor_ledger = self.ledger.clone();
             self.last = None;
             self.check_last = false;
+            self.scanned = None;
+            self.ledger_bytes = None;
+            self.durable = None;
             return;
         }
         if let Some(r) = v.get("feed_refused").and_then(|x| x.as_str()) {
@@ -245,6 +340,9 @@ impl<P: ChainPort> Source for LocalnetFeed<P> {
             ))
         });
         self.check_last = self.last.is_some();
+        self.scanned = v.get("feed_scanned").and_then(|x| x.as_u64());
+        self.ledger_bytes = v.get("ledger_bytes").and_then(|x| x.as_u64());
+        self.durable = v.get("ledger_durable").and_then(|x| x.as_bool());
     }
     fn coverage(&self) -> Option<Value> {
         Some(json!({

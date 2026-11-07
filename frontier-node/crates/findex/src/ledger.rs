@@ -21,11 +21,20 @@
 //!   into one entry).
 //!
 //! Parts can be read up to different points (a restart or a crash between
-//! their commits): the joined history is cut at the lowest cursor, and
-//! entries past it are left out and counted ([`Joined::beyond`]). A cursor
-//! is its own program's last ledger number (`feed_after`), not how far the
-//! node's ledger was scanned, so the cut can fall short of what both parts
-//! did read: it never claims more.
+//! their commits): the joined history is cut at the lowest extent, and
+//! entries past it are left out and counted ([`Joined::beyond`]). A part's
+//! extent is how far the node's ledger was scanned for it (`feed_scanned`,
+//! the node's `scannedThrough`, workstream 04, 2026-11-07) when its cursor
+//! keeps it, else its own program's last ledger number (`feed_after`),
+//! which can fall short of what was read: it never claims more. An extent
+//! below the part's own `feed_after` is a contradiction.
+//!
+//! Two parts of one ledger read at different times must agree that the
+//! ledger only grew: the part scanned further cannot have seen fewer ledger
+//! bytes (`ledger_bytes`); if it did, the ledger was rewound between the
+//! reads and is not whole. (A rewind that grew back past the earlier size
+//! is not seen this way; each part's own next read checks the transaction
+//! at its cursor, `ingest::LocalnetFeed`.)
 //!
 //! **An empty [`Joined::problems`] is not proof of completeness** beyond the
 //! node's own ledger: it says the archives are one ledger's feed from its
@@ -110,7 +119,20 @@ pub fn join(parts: &[Part]) -> Joined {
             j.problems.push(format!("{}: refused: {r}", p.name));
         }
         match c.get("feed_after").and_then(|x| x.as_u64()) {
-            Some(a) => through = Some(through.map_or(a, |t| t.min(a))),
+            Some(a) => {
+                let e = match c.get("feed_scanned").and_then(|x| x.as_u64()) {
+                    Some(sc) if sc < a => {
+                        j.problems.push(format!(
+                            "{}: scanned through {sc}, before its own cursor {a}",
+                            p.name
+                        ));
+                        a
+                    }
+                    Some(sc) => sc,
+                    None => a,
+                };
+                through = Some(through.map_or(e, |t| t.min(e)));
+            }
             None => j.problems.push(format!(
                 "{}: the cursor is not a local feed's ({})",
                 p.name,
@@ -148,6 +170,28 @@ pub fn join(parts: &[Part]) -> Joined {
         j.ledger = named.first().map(|s| s.to_string());
     }
     j.through = through.unwrap_or(0);
+    // The ledger only grows: a part scanned further saw at least as many bytes.
+    let sized: Vec<(&str, u64, u64)> = parts
+        .iter()
+        .filter_map(|p| {
+            let c = &p.cursor;
+            Some((
+                p.name.as_str(),
+                c.get("feed_scanned")?.as_u64()?,
+                c.get("ledger_bytes")?.as_u64().filter(|b| *b > 0)?,
+            ))
+        })
+        .collect();
+    for x in &sized {
+        for y in &sized {
+            if x.1 < y.1 && x.2 > y.2 {
+                j.problems.push(format!(
+                    "{} was scanned through {} with {} ledger bytes, {} through {} with only {}: the ledger was rewound between the reads",
+                    x.0, x.1, x.2, y.0, y.1, y.2
+                ));
+            }
+        }
+    }
 
     let mut by_seq: BTreeMap<u64, Entry> = BTreeMap::new();
     let mut by_sig: BTreeMap<Signature, u64> = BTreeMap::new();
