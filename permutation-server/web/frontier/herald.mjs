@@ -15,6 +15,7 @@ import { encode as toB58 } from '../sdk/base58.mjs';
 import { decode } from './fcodec.mjs';
 import { parseTerritory } from './territory.mjs';
 import { provincesWithin, provinceFromIndex, provinceIndex, cellOf, provinceCentre, ringOf } from './fgeo.mjs';
+import { parseWideIndexStatus, parseWideIndexPage } from './map/widehistory.mjs';
 import { parseWideManifest, parseWidePage, PAGE_DEFAULT as WIDE_PAGE_DEFAULT } from './map/wide.mjs';
 
 // ------------------------------------------------------------------ HTTP
@@ -382,6 +383,18 @@ export function createHerald({ base = '', fetch: f = (...a) => globalThis.fetch(
       const r = await getCoded(f, `${root}/h/world/wide/page?${q}`, { signal });
       if (!r.ok) return r.code === 'NotFound' ? fail('WideWorldUnavailable', 'this herald serves no recorded wide world', r.httpStatus) : r;
       return { ok: true, json: r.json };
+    },
+    /** Separate read-only index observations. Never a map/capture verification. */
+    async wideIndexStatus({ signal = null, pins = {} } = {}) {
+      const r = await getCoded(f, `${root}/h/wide-index/status`, { signal });
+      if (!r.ok) return r.code === 'NotFound' ? fail('WideIndexUnavailable') : r;
+      return guard(() => ({ status: parseWideIndexStatus(r.json, pins) }));
+    },
+    async wideIndexEvents({ signal = null, pins = {}, through, snapshot, after = 0n, limit = 20 } = {}) {
+      const q = `through=${encodeURIComponent(String(through))}&snapshot=${encodeURIComponent(String(snapshot))}&after=${encodeURIComponent(String(after))}&limit=${encodeURIComponent(String(limit))}`;
+      const r = await getCoded(f, `${root}/h/wide-index/events?${q}`, { signal });
+      if (!r.ok) return r.code === 'NotFound' ? fail('WideIndexUnavailable') : r;
+      return guard(() => ({ page: parseWideIndexPage(r.json, { pins, through, snapshot, after, limit }) }));
     },
     /** A page decoded on its own (tests, tools): parseWidePage with the walk's expectations. */
     parseWidePage,

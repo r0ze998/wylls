@@ -3,6 +3,7 @@
 //! Chain continuity is checked from zero; source coverage, signatures,
 //! gameplay validity and capture/account agreement remain unverified.
 
+use sha2::{Digest, Sha256};
 use std::path::Path;
 
 use fclient::{
@@ -16,7 +17,7 @@ use frontier_abi::world_index::{
 use rusqlite::{params, Connection, OptionalExtension};
 use solana_address::Address;
 
-const SCHEMA: i64 = 1;
+const SCHEMA: i64 = 2;
 pub const MAX_PAGE: usize = 256;
 
 fn sql<T>(r: rusqlite::Result<T>) -> Result<T, String> {
@@ -34,6 +35,8 @@ fn u64_blob(bytes: Vec<u8>) -> Result<u64, String> {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct IndexStatus {
     pub last_seq: u64,
+    /// Content stamp of the observed archive prefix, not source verification.
+    pub snapshot: [u8; 32],
     /// Only caught up to the local archive, never proof of source coverage.
     pub caught_up: bool,
     pub blocked: Option<String>,
@@ -67,6 +70,7 @@ pub struct EventPage {
     pub next: u64,
     pub more: bool,
     pub indexed_through: u64,
+    pub snapshot: [u8; 32],
     pub source_coverage: &'static str,
 }
 
@@ -87,7 +91,7 @@ impl WideIndex {
           CREATE TABLE IF NOT EXISTS wide_meta (
             id INTEGER PRIMARY KEY CHECK(id=1), schema INTEGER NOT NULL,
             program BLOB NOT NULL, world BLOB NOT NULL,
-            last_seq INTEGER NOT NULL, caught_up INTEGER NOT NULL, block TEXT);
+            last_seq INTEGER NOT NULL, caught_up INTEGER NOT NULL, block TEXT, snapshot BLOB NOT NULL);
           CREATE TABLE IF NOT EXISTS wide_tx (
             seq INTEGER PRIMARY KEY, slot BLOB NOT NULL, signature BLOB UNIQUE NOT NULL,
             rolled_back INTEGER NOT NULL);
@@ -123,7 +127,7 @@ impl WideIndex {
                     return Err("missing wide index identity".into());
                 }
                 sql(conn.execute(
-                    "INSERT INTO wide_meta VALUES(1,?1,?2,?3,0,0,NULL)",
+                    "INSERT INTO wide_meta VALUES(1,?1,?2,?3,0,0,NULL,zeroblob(32))",
                     params![
                         SCHEMA,
                         program.to_bytes().as_slice(),
@@ -139,16 +143,18 @@ impl WideIndex {
         })
     }
     pub fn status(&self) -> Result<IndexStatus, String> {
-        let (seq, caught_up, block): (i64, i64, Option<String>) = sql(self.conn.query_row(
-            "SELECT last_seq,caught_up,block FROM wide_meta WHERE id=1",
-            [],
-            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
-        ))?;
+        let (seq, caught_up, block, snapshot): (i64, i64, Option<String>, Vec<u8>) =
+            sql(self.conn.query_row(
+                "SELECT last_seq,caught_up,block,snapshot FROM wide_meta WHERE id=1",
+                [],
+                |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)),
+            ))?;
         if seq < 0 || !(0..=1).contains(&caught_up) {
             return Err("invalid wide index metadata".into());
         }
         Ok(IndexStatus {
             last_seq: seq as u64,
+            snapshot: snapshot.try_into().map_err(|_| "invalid wide snapshot")?,
             caught_up: caught_up == 1,
             blocked: block,
             source_coverage: "unknown",
@@ -325,9 +331,16 @@ impl WideIndex {
                 }
             }
         }
+        let mut digest = Sha256::new();
+        digest.update(b"PSF-WIDE-OBSERVED-ARCHIVE-v1");
+        digest.update(self.status()?.snapshot);
+        digest.update(
+            serde_json::to_vec(&crate::archive::record_to_json(tx)).map_err(|e| e.to_string())?,
+        );
+        let stamp: [u8; 32] = digest.finalize().into();
         sql(self.conn.execute(
-            "UPDATE wide_meta SET last_seq=?1 WHERE id=1",
-            [seq_i64(tx.seq)?],
+            "UPDATE wide_meta SET last_seq=?1,snapshot=?2 WHERE id=1",
+            params![seq_i64(tx.seq)?, stamp.as_slice()],
         ))?;
         Ok(())
     }
@@ -395,7 +408,75 @@ impl WideIndex {
             next,
             more,
             indexed_through: status.last_seq,
+            snapshot: status.snapshot,
             source_coverage: "unknown",
         })
+    }
+}
+
+/// HTTP/UI consumers open the existing dedicated cache read-only. This never
+/// creates a database, repairs metadata, clears a block or advances a cursor.
+/// Each event page pins status and rows in one SQLite read transaction.
+pub struct WideReader {
+    index: WideIndex,
+}
+impl WideReader {
+    pub fn open(path: &Path, program: Address, world: WorldId) -> Result<Self, String> {
+        let conn = sql(Connection::open_with_flags(
+            path,
+            rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY,
+        ))?;
+        let (schema, p, w): (i64, Vec<u8>, Vec<u8>) = sql(conn.query_row(
+            "SELECT schema,program,world FROM wide_meta WHERE id=1",
+            [],
+            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+        ))?;
+        if schema != SCHEMA || p != program.to_bytes() || w != world.as_bytes() {
+            return Err("wide index schema/program/world mismatch".into());
+        }
+        Ok(Self {
+            index: WideIndex {
+                conn,
+                program,
+                world,
+            },
+        })
+    }
+    pub fn status(&self) -> Result<IndexStatus, String> {
+        self.index.status()
+    }
+    pub fn events(
+        &self,
+        after: u64,
+        limit: usize,
+        through: u64,
+        snapshot: [u8; 32],
+    ) -> Result<EventPage, String> {
+        sql(self.index.conn.execute_batch("BEGIN"))?;
+        let result = (|| {
+            let page = self.index.events(after, limit)?;
+            if page.indexed_through != through || page.snapshot != snapshot {
+                return Err("WideIndexChanged".into());
+            }
+            let max: i64 = sql(self.index.conn.query_row(
+                "SELECT COALESCE(MAX(ev),0) FROM wide_event",
+                [],
+                |r| r.get(0),
+            ))?;
+            if after > max as u64 {
+                return Err("BadWideCursor".into());
+            }
+            Ok(page)
+        })();
+        match result {
+            Ok(page) => {
+                sql(self.index.conn.execute_batch("COMMIT"))?;
+                Ok(page)
+            }
+            Err(e) => {
+                sql(self.index.conn.execute_batch("ROLLBACK"))?;
+                Err(e)
+            }
+        }
     }
 }

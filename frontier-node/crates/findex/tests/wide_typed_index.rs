@@ -28,8 +28,10 @@ fn host() -> WideHostRef {
     WideHostRef::new(key(129), 2, 3, 17).unwrap()
 }
 fn tmp() -> PathBuf {
+    static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+    let serial = NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
     std::env::temp_dir().join(format!(
-        "wide-index-{}-{}",
+        "wide-index-{}-{serial}-{}",
         std::process::id(),
         std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
@@ -494,4 +496,44 @@ async fn sqlite_write_failure_preserves_raw_data_and_commits_no_partial_index() 
     drop(store);
     assert!(WideFindex::open(&dir, program(), world(), 1 << 20).is_err());
     std::fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
+fn readonly_pages_pin_content_not_just_cursor_and_never_upgrade_old_schema() {
+    use findex::wide_index::WideReader;
+    let first = tmp();
+    let second = tmp();
+    let mut old_stamp = [0; 32];
+    for (n, path) in [&first, &second].into_iter().enumerate() {
+        let mut i = index(path);
+        let mut body = ps2();
+        body[6] = n as u8;
+        i.add(&[tx(1, vec![line(b"PS2", &body)])]).unwrap();
+        i.mark_caught_up(1).unwrap();
+        if n == 0 {
+            old_stamp = i.status().unwrap().snapshot;
+        }
+    }
+    let before = std::fs::read(&second).unwrap();
+    let r = WideReader::open(&second, program(), world()).unwrap();
+    assert_eq!(r.status().unwrap().last_seq, 1);
+    assert_ne!(r.status().unwrap().snapshot, old_stamp);
+    assert!(r.events(0, 20, 1, old_stamp).is_err());
+    assert_eq!(
+        r.events(0, 20, 1, r.status().unwrap().snapshot)
+            .unwrap()
+            .events
+            .len(),
+        1
+    );
+    drop(r);
+    assert_eq!(std::fs::read(&second).unwrap(), before);
+    let db = rusqlite::Connection::open(&second).unwrap();
+    db.execute("UPDATE wide_meta SET schema=1", []).unwrap();
+    drop(db);
+    let before = std::fs::read(&second).unwrap();
+    assert!(WideReader::open(&second, program(), world()).is_err());
+    assert_eq!(std::fs::read(&second).unwrap(), before);
+    std::fs::remove_file(first).unwrap();
+    std::fs::remove_file(second).unwrap();
 }

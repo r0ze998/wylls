@@ -98,3 +98,11 @@ remain stopped until supported. There is no capture/account-head anchoring,
 source signature verification, proof of absence, complete history proof or
 wide replay verdict here. Matching a chain computed from supplied logs must
 not promote raw captures to verified state.
+
+## Later read-only serving checkpoint
+
+The follow-on `WIDE-INDEX-READ-VIEW-20261107.md` connects an explicit
+read-only herald path and separate UI history section. It also requires
+schema 2 with an observed-content snapshot stamp; schema 1 is refused and
+retained for an explicit separate replay, never silently migrated. The
+source/capture verification limits above remain unchanged.
