@@ -93,11 +93,13 @@ fn apply(f: &mut Fold, key: [u8; 32], data: Option<Vec<u8>>, owner: Address) {
     });
 }
 fn entry(f: &Fold, c: WideCoord) -> Value {
+    let p = c.p().to_string();
+    let q = c.q().to_string();
     wide::page_json(f, None, Some(256)).unwrap()["entries"]
         .as_array()
         .unwrap()
         .iter()
-        .find(|e| e["p"] == c.p().to_string() && e["q"] == c.q().to_string())
+        .find(|e| e["p"].as_str() == Some(p.as_str()) && e["q"].as_str() == Some(q.as_str()))
         .unwrap()
         .clone()
 }
@@ -201,6 +203,97 @@ fn me_reports_wide_slot_as_unknown_until_the_matching_capture_arrives() {
     assert_eq!(view["wideHoldings"][0]["status"], "captured-unverified");
     assert_eq!(view["wideHoldings"][0]["holding"]["p"], "129");
     assert_eq!(view["wideHoldings"][0]["holding"]["site"], 2);
+}
+
+/// `/h/me` carries the identity envelope a village screen checks every wide
+/// entry against: world, season, Citizen, the latest folded slot and the
+/// three inventory bindings; each captured holding repeats its own identity
+/// (owner, season, inventory slot, ring, host identity version) as decimal
+/// strings and base58, never as a legacy Holding. Synthetic bytes only.
+#[test]
+fn me_wide_context_binds_identity_inventory_and_latest_slot() {
+    use frontier_abi::v2::layout::player::{citizen as C, holding as H};
+    let mut f = fold();
+    let ca = f.ctx.citizen(&fixture::wallet().to_bytes());
+    let world_hex = hex::encode(f.wide.as_ref().unwrap().world().as_bytes());
+    // Before the Citizen binds a wide slot: an envelope with legacy/empty bindings and no wide entries.
+    let view = herald_fold::views::me_json(&f, &fixture::wallet(), Value::Null);
+    let ctx = &view["wideContext"];
+    assert_eq!(ctx["v"], 1);
+    assert_eq!(ctx["readOnly"], true);
+    assert_eq!(ctx["executable"], false);
+    assert_eq!(ctx["verification"], "captured-unverified");
+    assert_eq!(ctx["world"], Value::String(world_hex.clone()));
+    assert_eq!(ctx["worldDomain"], wide::WORLD_DOMAIN);
+    assert_eq!(ctx["season"], fixture::SEASON_ID.to_string());
+    assert_eq!(ctx["citizen"], Address::new_from_array(ca).to_string());
+    assert_eq!(ctx["latestSlot"], f.st.last_slot.to_string());
+    assert_eq!(ctx["postState"], "transaction");
+    assert_eq!(ctx["inventory"].as_array().unwrap().len(), 3);
+    assert_eq!(ctx["inventory"][0]["inventorySlot"], 1);
+    assert!(ctx["inventory"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .all(|b| b["binding"] != "wide"));
+    assert_eq!(view["wideHoldings"], serde_json::json!([]));
+    // Slot 3 bound wide, with a far coordinate past 2^53: the entry repeats the identity as strings.
+    let mut cd = f.account(&ca).unwrap().data.clone();
+    cd[C::holding_of_slot(3)..C::holding_of_slot(3) + 6].copy_from_slice(&[0, 0, 0, 0, 12, 0]);
+    apply(&mut f, ca, Some(cd), fixture::program());
+    let c = WideCoord::checked(9_007_199_254_740_993, -130).unwrap();
+    let (hk, mut hd) = holding(&f, c, 7);
+    hd[H::OWNER_CITIZEN..H::OWNER_CITIZEN + 32].copy_from_slice(&ca);
+    hd[holding::wide_holding::SLOT] = 3;
+    apply(&mut f, hk, Some(hd), fixture::program());
+    let view = herald_fold::views::me_json(&f, &fixture::wallet(), Value::Null);
+    let ctx = &view["wideContext"];
+    assert_eq!(ctx["inventory"][2]["binding"], "wide");
+    let entries = view["wideHoldings"].as_array().unwrap();
+    assert_eq!(entries.len(), 1);
+    assert_eq!(entries[0]["inventorySlot"], 3);
+    assert_eq!(entries[0]["status"], "captured-unverified");
+    let h = &entries[0]["holding"];
+    assert_eq!(h["world"], Value::String(world_hex));
+    assert_eq!(h["p"], "9007199254740993");
+    assert_eq!(h["q"], "-130");
+    assert_eq!(h["ring"], c.ring().to_string());
+    assert_eq!(h["site"], 7);
+    assert_eq!(h["generation"], 1);
+    assert_eq!(h["inventorySlot"], 3);
+    assert_eq!(h["season"], fixture::SEASON_ID.to_string());
+    assert_eq!(h["ownerCitizen"], Address::new_from_array(ca).to_string());
+    assert_eq!(h["hostIdentity"], 0);
+    assert_eq!(h["openTransits"], 0);
+    assert_eq!(
+        h["capture"]["address"],
+        Address::new_from_array(hk).to_string()
+    );
+    assert_eq!(h["capture"]["verification"], "captured-unverified");
+    let captured: u64 = h["capture"]["slot"].as_str().unwrap().parse().unwrap();
+    let latest: u64 = ctx["latestSlot"].as_str().unwrap().parse().unwrap();
+    assert!(captured <= latest, "a capture is never ahead of the fold");
+    // The legacy arrays are untouched by the wide inventory.
+    assert!(view["holdings"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .all(|x| x.is_null() || x["address"] != h["capture"]["address"]));
+    // No wide index: the envelope is absent, not an empty inventory.
+    let mut cfg = f.cfg.clone();
+    cfg.exact_post = false;
+    let checkpoint =
+        herald_fold::checkpoint::encode(&f.cfg.program.to_bytes(), f.cfg.season_id, &f.st);
+    let st =
+        herald_fold::checkpoint::decode(&f.cfg.program.to_bytes(), f.cfg.season_id, &checkpoint)
+            .unwrap();
+    let restored = Fold::with_state(cfg, Out::new(common::tmp("wide-ctx-restored")), st);
+    let view = herald_fold::views::me_json(&restored, &fixture::wallet(), Value::Null);
+    assert_eq!(view["wideContext"]["postState"], "at-or-after-transaction");
+    assert_eq!(
+        view["wideHoldings"][0]["holding"]["capture"]["postState"],
+        "at-or-after-transaction"
+    );
 }
 
 #[test]

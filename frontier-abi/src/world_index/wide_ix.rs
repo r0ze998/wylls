@@ -49,7 +49,10 @@
 //! the op's exact length) or it is `BadData`. No datum is ambiguous: a
 //! Depart is 366 bytes and its second byte is a host reference version
 //! (1), a SettleTicket is 2 bytes, a Close is 2 bytes; every envelope is
-//! at least 4 bytes with 0xFF second. [`WideCommand::decode`] is the one
+//! at least 4 bytes with 0xFF second. Two envelopes of one tag may share
+//! a length (a WideMuster and a WideEconomy are both 10 bytes): the op
+//! byte, not the length, names the sub-operation, so neither is ever
+//! taken for the other. [`WideCommand::decode`] is the one
 //! parser; the dispatcher routes, checks the class, the top-level rule,
 //! the account table and the NFT whitelist by the **decoded command**,
 //! never by the tag alone.
@@ -58,6 +61,7 @@
 //! |---|---|---|---|---|---|
 //! | 0xDA | P | 1 | WideMuster | `unit u8, troops u32, tile u8` | [`MUSTER`] |
 //! | 0xDA | P | 2 | WideDissolve | `host ref 56` | [`DISSOLVE`] (12: the four transit records) |
+//! | 0xDA | P | 3 | WideEconomy | `action 6` (`economy::Action`: Harvest / Build item / Train unit, n; canonical, exact) | [`ECONOMY`] (6), or [`ECONOMY_MIRROR`] for walls and the tier-up (the province writable): selected by the **decoded action** |
 //! | 0xDC | D, top-level | 1 | WideResolve | `bell u32, beneficiary 32` | [`RESOLVE`] (9: the arrival evidence and System) |
 //! | 0xDC | D | 2 | WideReturn | (none) | [`RETURN`] (9: the four transit records; the holding's own province optional) |
 //! | 0xDC | D | 3 | WideSettleDeparture | `host ref 56, transit_slot u8` | [`SETTLE_DEPARTURE`] |
@@ -76,6 +80,16 @@
 //! present position. WideSettleTransit takes an optional `[citizen w]`
 //! after the fixed positions, mandatory exactly when the host earns the
 //! camp's loot (the deployed rule).
+//!
+//! **The economy op** (0xDA op 3, 2026-11-08, phase A of the host-only
+//! wide economy) carries the S1 owner action over a wide holding in the
+//! six canonical bytes of `world_index::economy::Action`; it is a player
+//! command of the Depart tag's class P, the band's act admits it exactly
+//! as it admits WideMuster, and its table is the deployed player prologue
+//! then the wide holding and its own wide province — writable for the two
+//! actions that write the site mirror, the caller's choice otherwise. The
+//! wire and the tables are this phase; **no handler routes the op yet**,
+//! and the program's preview (`proc::wide_economy`) is not reached by it.
 //!
 //! ## The class-W carrier: 0xEE WideReveal (2026-11-07)
 //!
@@ -100,6 +114,7 @@ use crate::error::FrontierError;
 use crate::ix::HINTS_LEN;
 use crate::layout::AccountKind as K;
 use crate::prologue::{Acc, Group, Spec, Wr};
+use crate::world_index::economy::{Action, ACTION_LEN};
 use crate::world_index::key::HOST_REF_LEN;
 use crate::world_index::seal::{WIDE_PLAIN_LEN, WIDE_SEAL_LEN};
 
@@ -543,6 +558,9 @@ pub const ENVELOPE_HEAD: usize = 4;
 
 pub const OP_MUSTER: u8 = 1;
 pub const OP_DISSOLVE: u8 = 2;
+/// 0xDA op 3: the S1 owner action over a wide holding (module doc, "the
+/// economy op"; `world_index::economy`).
+pub const OP_ECONOMY: u8 = 3;
 pub const OP_RESOLVE: u8 = 1;
 pub const OP_RETURN: u8 = 2;
 /// 0xDC op 3: the origin side of a march after its departure bell (the
@@ -677,6 +695,16 @@ pub struct Dissolve {
     pub host: [u8; HOST_REF_LEN],
 }
 
+/// 0xDA op 3: the canonical six-byte owner action
+/// (`world_index::economy::Action`: Harvest, Build item 0–8, Train unit
+/// 0–6 × `n ≥ 1`; zero padding exact, every other byte string `BadData`).
+/// The holding and its province are the accounts ([`ECONOMY`],
+/// [`ECONOMY_MIRROR`] by [`Action::mirror_write`]).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Economy {
+    pub action: Action,
+}
+
 /// 0xDC op 1: the deployed ResolveFromInputs' data (`bell u32,
 /// beneficiary 32`).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -762,6 +790,31 @@ impl Dissolve {
     }
 }
 
+impl Economy {
+    pub const IX: WideIx = WideIx::Depart;
+    pub const OP: u8 = OP_ECONOMY;
+    pub const LEN: usize = ENVELOPE_HEAD + ACTION_LEN;
+
+    /// `None` for an action outside the canonical ranges (it has no wire
+    /// form; `Action::decode` never yields one).
+    pub fn to_bytes(&self) -> Option<[u8; Self::LEN]> {
+        let mut b = [0u8; Self::LEN];
+        head(&mut b, Self::IX.tag(), Self::OP);
+        b[ENVELOPE_HEAD..].copy_from_slice(&self.action.to_bytes()?);
+        Some(b)
+    }
+
+    /// The envelope head and exactly six canonical action bytes
+    /// (`BadData` for any refusal of `Action::decode`: a wrong length,
+    /// an unknown tag, non-zero padding, an item or unit out of range,
+    /// `n = 0`).
+    pub fn decode(d: &[u8]) -> Result<Self, FrontierError> {
+        let c = envelope(d, Self::IX.tag(), Self::OP, Self::LEN)?;
+        let action = Action::decode(c.rest()).map_err(|_| FrontierError::BadData)?;
+        Ok(Economy { action })
+    }
+}
+
 impl Resolve {
     pub const IX: WideIx = WideIx::SettleTicket;
     pub const OP: u8 = OP_RESOLVE;
@@ -838,6 +891,7 @@ pub enum WideCommand<'a> {
     Finalize(Finalize),
     Muster(Muster),
     Dissolve(Dissolve),
+    Economy(Economy),
     Resolve(Resolve),
     Return(Return),
     CloseRoster(CloseRoster),
@@ -883,6 +937,7 @@ impl<'a> WideCommand<'a> {
         match (ix, d[3]) {
             (WideIx::Depart, OP_MUSTER) => Muster::decode(d).map(WideCommand::Muster),
             (WideIx::Depart, OP_DISSOLVE) => Dissolve::decode(d).map(WideCommand::Dissolve),
+            (WideIx::Depart, OP_ECONOMY) => Economy::decode(d).map(WideCommand::Economy),
             (WideIx::SettleTicket, OP_RESOLVE) => Resolve::decode(d).map(WideCommand::Resolve),
             (WideIx::SettleTicket, OP_RETURN) => Return::decode(d).map(WideCommand::Return),
             (WideIx::SettleTicket, OP_SETTLE_DEPARTURE) => {
@@ -906,9 +961,10 @@ impl<'a> WideCommand<'a> {
             WideCommand::ConsumeRingSeed(_) => WideIx::ConsumeRingSeed,
             WideCommand::OpenProvince(_) => WideIx::OpenProvince,
             WideCommand::ClaimSite(_) => WideIx::ClaimSite,
-            WideCommand::Depart(_) | WideCommand::Muster(_) | WideCommand::Dissolve(_) => {
-                WideIx::Depart
-            }
+            WideCommand::Depart(_)
+            | WideCommand::Muster(_)
+            | WideCommand::Dissolve(_)
+            | WideCommand::Economy(_) => WideIx::Depart,
             WideCommand::SetRules(_) => WideIx::SetRules,
             WideCommand::SettleTicket(_)
             | WideCommand::Resolve(_)
@@ -927,6 +983,7 @@ impl<'a> WideCommand<'a> {
         match self {
             WideCommand::Muster(_) => "WideMuster",
             WideCommand::Dissolve(_) => "WideDissolve",
+            WideCommand::Economy(_) => "WideEconomy",
             WideCommand::Resolve(_) => "WideResolve",
             WideCommand::Return(_) => "WideReturn",
             WideCommand::CloseRoster(_) => "WideCloseRoster",
@@ -971,15 +1028,25 @@ impl<'a> WideCommand<'a> {
                 | WideCommand::Depart(_)
                 | WideCommand::Muster(_)
                 | WideCommand::Dissolve(_)
+                | WideCommand::Economy(_)
         )
     }
 
     /// The account table of the command (WideClose's ticket shape for
-    /// `what = 0`; the handler checks [`CLOSE_HOLDING`] for `what = 1`).
+    /// `what = 0`; the handler checks [`CLOSE_HOLDING`] for `what = 1`;
+    /// WideEconomy's by its decoded action: the province writable exactly
+    /// for walls and the tier-up).
     pub const fn accounts(&self) -> &'static [Group] {
         match self {
             WideCommand::Muster(_) => MUSTER,
             WideCommand::Dissolve(_) => DISSOLVE,
+            WideCommand::Economy(e) => {
+                if e.action.mirror_write() {
+                    ECONOMY_MIRROR
+                } else {
+                    ECONOMY
+                }
+            }
             WideCommand::Resolve(_) => RESOLVE,
             WideCommand::Return(_) => RETURN,
             WideCommand::CloseRoster(_) => CLOSE_ROSTER,
@@ -1000,8 +1067,10 @@ impl<'a> WideCommand<'a> {
 
 /// 0xDD: `generation u32 ‖ inner`, the inner a whole player command of
 /// this band ([`WideCommand::is_player`]: WideClaimSite, WideDepart,
-/// WideMuster, WideDissolve; the shape of the deployed `ResidentAct`,
-/// `resident_wire::Command::Act`).
+/// WideMuster, WideDissolve, WideEconomy; the shape of the deployed
+/// `ResidentAct`, `resident_wire::Command::Act`). The act's four proof
+/// accounts and its holder-generation check are the same for every inner
+/// command; admitting WideEconomy adds no authorisation path.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct ResidentAct<'a> {
     pub generation: u32,
@@ -1450,6 +1519,40 @@ pub const DISSOLVE: &[Group] = &[one(&[
 /// The position of the holding's first wide transit record in
 /// [`DISSOLVE`] (the four follow in slot order).
 pub const DISSOLVE_TRANSIT0: usize = 8;
+
+/// WideEconomy, an ordinary action (Harvest, a building, the workshop,
+/// Train): the deployed player prologue `[actor s] [payer s,w] [season r]
+/// [citizen w]`, then `[holding w]` (the wide holding the action runs
+/// over) and `[province r|w]` (the holding's **own** wide province, read
+/// for the capture lock and the site mirror as the deployed Harvest, Build
+/// and Train read theirs; the caller may list it writable, nothing of it
+/// is written). Both wide positions are the handler's to authenticate.
+pub const ECONOMY: &[Group] = &[one(&[
+    s("actor", Acc::Wallet, true, Wr::R),
+    s("payer", Acc::Wallet, true, Wr::W),
+    s("season", Acc::Kind(K::Season), false, Wr::R),
+    s("citizen", Acc::Kind(K::Citizen), false, Wr::W),
+    s("holding", WIDE, false, Wr::W),
+    s("province", WIDE, false, Wr::Either),
+])];
+
+/// WideEconomy, walls or the tier-up (`Action::mirror_write`): the same
+/// list with `[province w]`, as the deployed Build names its province
+/// writable for the two items that write the site mirror.
+pub const ECONOMY_MIRROR: &[Group] = &[one(&[
+    s("actor", Acc::Wallet, true, Wr::R),
+    s("payer", Acc::Wallet, true, Wr::W),
+    s("season", Acc::Kind(K::Season), false, Wr::R),
+    s("citizen", Acc::Kind(K::Citizen), false, Wr::W),
+    s("holding", WIDE, false, Wr::W),
+    s("province", WIDE, false, Wr::W),
+])];
+
+/// The position of the wide holding in [`ECONOMY`] and [`ECONOMY_MIRROR`].
+pub const ECONOMY_HOLDING: usize = 4;
+/// The position of the holding's own province in [`ECONOMY`] and
+/// [`ECONOMY_MIRROR`].
+pub const ECONOMY_PROVINCE: usize = 5;
 
 /// WideResolve: the deployed keeper prologue `[fee_payer s,w] [season r]`,
 /// `[province w] [roster w]`, the deployed `[seedcache|archive r]
@@ -2333,14 +2436,26 @@ mod tests {
             Ok(WideCommand::CloseRoster(CloseRoster))
         );
         // nothing malformed decodes: a wrong length, escape, version, op, or
-        // an op under another tag
+        // an op under another tag (op 3 of 0xDA is WideEconomy since
+        // 2026-11-08: the pinned unknown op moves to 4; a zero action under
+        // op 3 is a canonical Harvest, checked below)
+        assert_eq!(
+            WideCommand::decode(&[0xDA, 0xFF, 1, 3, 0, 0, 0, 0, 0, 0]),
+            Ok(WideCommand::Economy(Economy {
+                action: Action::Harvest
+            }))
+        );
         for bad in [
             &[0xDA, 0xFF, 1, 1, 0, 0, 0, 0, 0][..],
             &[0xDA, 0xFF, 1, 1, 0, 0, 0, 0, 0, 0, 0],
             &[0xDA, 0xFE, 1, 1, 0, 0, 0, 0, 0, 0],
             &[0xDA, 0xFF, 2, 1, 0, 0, 0, 0, 0, 0],
-            &[0xDA, 0xFF, 1, 3, 0, 0, 0, 0, 0, 0],
+            &[0xDA, 0xFF, 1, 4, 0, 0, 0, 0, 0, 0],
             &[0xDA, 0xFF, 1, 0, 0, 0, 0, 0, 0, 0],
+            &[0xDA, 0xFF, 1, 3, 0, 0, 0, 0, 0],
+            &[0xDA, 0xFF, 1, 3, 0, 0, 0, 0, 0, 0, 0],
+            &[0xDA, 0xFF, 1, 3, 0, 1, 0, 0, 0, 0],
+            &[0xDA, 0xFF, 1, 3, 3, 0, 0, 0, 0, 0],
             &[0xDC, 0xFF, 1, 3],
             &[0xDC, 0xFF, 1, 2, 0],
             &[0xDC, 0xFF, 1],

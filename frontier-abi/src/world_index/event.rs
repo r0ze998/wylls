@@ -7,8 +7,9 @@
 //! [`WIDE_EVENT_VERSION`] (0x82, which the deployed decoders refuse as an
 //! unknown version), its kinds are this module's ([`WideKind`], no code of
 //! the deployed or any other team's kind space is taken), every key is a
-//! **full identity** (the 56-byte host reference or the 50-byte province
-//! key, never a `u64` host id or a dense pair), and its chain rule is
+//! **full identity** (the 106-byte host key, the 50-byte province key or
+//! the 56-byte holding reference, never a `u64` host id or a dense pair),
+//! and its chain rule is
 //! domain-separated ([`next_head`]). A reader that knows only the deployed
 //! format sees nothing it can parse — the wide world stays **unknown /
 //! unverifiable** to it, never misread — and a reader of this format can
@@ -39,6 +40,28 @@
 //! | 12 `RecordClosed` | province key (the destination) | `what u8 (2 slot, 3 day, 4 inputs), bell u32, faction u8, i u8, rent_to [32], lamports u64` | none |
 //! | 13 `TransitClosed` | host ref ‖ home | `transit_slot u8, rent_to [32], lamports u64` | none |
 //! | 14 `ProvinceClosed` | province key | `fund [32], lamports u64` | Province |
+//! | 15 `Economy` | holding ref (56, sequence 0) | `economy::EconomyReceipt` (80: version 1, action 6, now_ts i64, became_final u8, input [32], output [32]) | Holding |
+//! | 16 `EconomyMirror` | holding ref (56, sequence 0) | the same receipt, its action a walls or tier-up Build | Province, Holding |
+//!
+//! **The economy receipts** (kinds 15 and 16, `super::economy`, phase A
+//! of the host-only wide economy) are keyed by the **holding reference**
+//! alone: the 56-byte `WideHostRef` with sequence 0, which names a
+//! holding and no host. They are neither host-keyed nor province-keyed
+//! ([`WideKind::holding_keyed`]): [`WideRecord::host`] is `None` (no
+//! phantom host is ever derived from the key), [`WideRecord::holding_of`]
+//! is the reference, and [`WideRecord::province_of`] and
+//! [`WideRecord::home_of`] are both the reference's **own full province
+//! key** — an owner action happens at home by construction. A reference
+//! with a sequence is refused at decode (`Key`), as is a payload that is
+//! not a canonical receipt or whose action belongs under the other
+//! economic kind (`Payload`: the kind is a function of the action,
+//! `economy::Action::mirror_write`). An `Economy` chains the holding
+//! alone; an `EconomyMirror` (walls or the tier-up, which write the
+//! province's site mirror) chains the province and the holding. Neither
+//! chains the Citizen, which is no wide entity: its bytes enter the
+//! receipt's digests by content only. A receipt proves no authorisation
+//! and no provenance (the `economy` module doc); nothing here replays a
+//! Season.
 //!
 //! `RecordClosed` and `TransitClosed` chain nothing: the account closed had
 //! no chain and is gone (as `RosterClosed`); a transit close may count one
@@ -78,10 +101,17 @@
 //! record's holding is the host's issuing holding
 //! (`WideHostRef::holding_ref`: site and generation, sequence 0), wherever
 //! the event happened; a province-keyed record's province is its key and
-//! it has no holding. [`verify_chain`] consumes a record only when its
-//! attribution is the target: a record of another province or holding,
-//! even with a plausible link, is skipped, and a record attributed to the
-//! target must carry the target's link.
+//! it has no holding; a holding-keyed record's holding is its key and its
+//! province is that holding's own. [`verify_chain`] consumes a record only
+//! when its attribution is the target **and its kind chains the target's
+//! entity** ([`WideKind::links`]): a record of another province or
+//! holding, even with a plausible link, is skipped; a record attributed to
+//! the target whose kind does not chain the target's entity (an `Economy`
+//! receipt against its own province's chain, a `Resolve` against a
+//! holding's) is skipped too and leaves that chain exactly as it was; and
+//! a record attributed to the target whose kind chains the entity must
+//! carry the target's link, recomputed exactly. Attribution alone never
+//! demands a link.
 //!
 //! Kinds 7 and 8 are the shape of the march's origin and destination
 //! records (the departure's escrow and seal root; the settlement's
@@ -114,6 +144,7 @@
 //! read, normalized, and the bytes the model left plus the resolve
 //! summary, normalized, before any record of its own.
 
+use super::economy::{self, EconomyReceipt};
 use super::key::{ProvinceKey, WideHostRef, HOST_REF_LEN, PROVINCE_KEY_LEN};
 use crate::bytes::{Cursor, Writer};
 use crate::layout::header;
@@ -145,6 +176,11 @@ pub const MAX_LINKS: usize = 2;
 /// The key of a host-keyed record: the host reference, then the key of
 /// the province the event happened in.
 pub const HOST_KEY_LEN: usize = HOST_REF_LEN + PROVINCE_KEY_LEN;
+/// The key of a holding-keyed record (the economy receipts): the holding
+/// reference alone, sequence 0 (`economy::economy_key`).
+pub const HOLDING_KEY_LEN: usize = HOST_REF_LEN;
+/// The economy receipt payload width (`economy::RECEIPT_LEN`).
+pub const ECONOMY_PAYLOAD_LEN: usize = economy::RECEIPT_LEN;
 /// The Departed payload width (`WideKind::payload_len`, the builder
 /// [`departed_payload`]).
 pub const DEPARTED_PAYLOAD_LEN: usize = 1 + 4 + 4 + 4 + 2 + 8 + 8 + 8 + 32;
@@ -158,6 +194,10 @@ pub const TRANSIT_SETTLED_PAYLOAD_LEN: usize = 1 + 1 + 1 + 4 + 8 + 8 + 8 + 1 + P
 pub const MAX_BODY: usize =
     HEAD_LEN + HOST_KEY_LEN + TRANSIT_SETTLED_PAYLOAD_LEN + 1 + MAX_LINKS * LINK_LEN;
 const _: () = assert!(TRANSIT_SETTLED_PAYLOAD_LEN > DEPARTED_PAYLOAD_LEN);
+// The economy receipts fit under the existing maximum: no record grows.
+const _: () = assert!(
+    HEAD_LEN + HOLDING_KEY_LEN + ECONOMY_PAYLOAD_LEN + 1 + MAX_LINKS * LINK_LEN <= MAX_BODY
+);
 
 /// The key of a host-keyed record: `host ref ‖ standing province key`
 /// (module doc, attribution).
@@ -221,10 +261,16 @@ pub enum WideKind {
     RecordClosed = 12,
     TransitClosed = 13,
     ProvinceClosed = 14,
+    /// An owner action that writes the holding alone (module doc, the
+    /// economy receipts).
+    Economy = 15,
+    /// An owner action that also writes the province's site mirror
+    /// (walls, the tier-up).
+    EconomyMirror = 16,
 }
 
 /// Every kind, in code order.
-pub const ALL_KINDS: [WideKind; 14] = [
+pub const ALL_KINDS: [WideKind; 16] = [
     WideKind::Muster,
     WideKind::Dissolve,
     WideKind::Resolve,
@@ -239,6 +285,8 @@ pub const ALL_KINDS: [WideKind; 14] = [
     WideKind::RecordClosed,
     WideKind::TransitClosed,
     WideKind::ProvinceClosed,
+    WideKind::Economy,
+    WideKind::EconomyMirror,
 ];
 
 /// The `Return.entry` of a host whose troops went into the holding's
@@ -248,6 +296,7 @@ pub const RETURN_TO_RESERVE: u8 = 0xFF;
 
 const PROVINCE_AND_HOLDING: &[WideEntity] = &[WideEntity::Province, WideEntity::Holding];
 const PROVINCE_ONLY: &[WideEntity] = &[WideEntity::Province];
+const HOLDING_ONLY: &[WideEntity] = &[WideEntity::Holding];
 const NO_LINKS: &[WideEntity] = &[];
 
 impl WideKind {
@@ -267,15 +316,19 @@ impl WideKind {
             12 => Some(WideKind::RecordClosed),
             13 => Some(WideKind::TransitClosed),
             14 => Some(WideKind::ProvinceClosed),
+            15 => Some(WideKind::Economy),
+            16 => Some(WideKind::EconomyMirror),
             _ => None,
         }
     }
 
-    /// The key: a host key (reference and standing province) or a province
-    /// key.
+    /// The key: a host key (reference and standing province), a holding
+    /// reference (the economy receipts) or a province key.
     pub const fn key_len(self) -> usize {
         if self.host_keyed() {
             HOST_KEY_LEN
+        } else if self.holding_keyed() {
+            HOLDING_KEY_LEN
         } else {
             PROVINCE_KEY_LEN
         }
@@ -297,6 +350,7 @@ impl WideKind {
             WideKind::RecordClosed => 1 + 4 + 1 + 1 + 32 + 8,
             WideKind::TransitClosed => 1 + 32 + 8,
             WideKind::ProvinceClosed => 32 + 8,
+            WideKind::Economy | WideKind::EconomyMirror => ECONOMY_PAYLOAD_LEN,
         }
     }
 
@@ -308,8 +362,10 @@ impl WideKind {
             | WideKind::Return
             | WideKind::Departed
             | WideKind::TransitSettled
-            | WideKind::DepartureSettled => PROVINCE_AND_HOLDING,
+            | WideKind::DepartureSettled
+            | WideKind::EconomyMirror => PROVINCE_AND_HOLDING,
             WideKind::Resolve | WideKind::Stranded | WideKind::ProvinceClosed => PROVINCE_ONLY,
+            WideKind::Economy => HOLDING_ONLY,
             WideKind::RosterClosed
             | WideKind::Revealed
             | WideKind::Gathered
@@ -328,7 +384,15 @@ impl WideKind {
                 | WideKind::Gathered
                 | WideKind::RecordClosed
                 | WideKind::ProvinceClosed
+                | WideKind::Economy
+                | WideKind::EconomyMirror
         )
+    }
+
+    /// A holding-keyed kind (the key is the 56-byte holding reference,
+    /// sequence 0): the economy receipts. Never host-keyed.
+    pub const fn holding_keyed(self) -> bool {
+        matches!(self, WideKind::Economy | WideKind::EconomyMirror)
     }
 
     pub const fn name(self) -> &'static str {
@@ -347,6 +411,8 @@ impl WideKind {
             WideKind::RecordClosed => "WIDE_RECORD_CLOSED",
             WideKind::TransitClosed => "WIDE_TRANSIT_CLOSED",
             WideKind::ProvinceClosed => "WIDE_PROVINCE_CLOSED",
+            WideKind::Economy => "WIDE_ECONOMY",
+            WideKind::EconomyMirror => "WIDE_ECONOMY_MIRROR",
         }
     }
 }
@@ -376,8 +442,13 @@ pub enum EventError {
     Links,
     /// Bytes after the tail.
     Trailing,
-    /// A key that is not a canonical reference or key.
+    /// A key that is not a canonical reference or key (for a holding-keyed
+    /// kind: a reference with a sequence, which names a host).
     Key,
+    /// A holding-keyed record whose payload is not a canonical economy
+    /// receipt, or whose receipt's action belongs under the other
+    /// economic kind (module doc, the economy receipts).
+    Payload,
     /// A chain that does not recompute at this record (`seq` the chain's
     /// sequence before it).
     Chain {
@@ -420,7 +491,9 @@ pub fn advance(
 }
 
 /// `version ‖ kind ‖ bell ‖ key ‖ payload` into `out`; `None` when a width
-/// is wrong or `out` is short. Returns the length.
+/// is wrong, `out` is short, or (a holding-keyed kind) the key is not a
+/// canonical holding reference or the payload is not a receipt of exactly
+/// this kind. Returns the length.
 pub fn write_body(
     kind: WideKind,
     bell: u32,
@@ -430,6 +503,12 @@ pub fn write_body(
 ) -> Option<usize> {
     if key.len() != kind.key_len() || payload.len() != kind.payload_len() {
         return None;
+    }
+    if kind.holding_keyed() {
+        economy::decode_key(key).ok()?;
+        if EconomyReceipt::decode(payload).ok()?.kind() != kind {
+            return None;
+        }
     }
     let mut w = Writer::new(out);
     w.u8(WIDE_EVENT_VERSION)
@@ -469,8 +548,9 @@ pub struct WideRecord<'a> {
 
 impl<'a> WideRecord<'a> {
     /// Decodes exactly one body: the version, a known kind, the kind's
-    /// widths, a canonical key, a tail that is exactly the kind's link set
-    /// in order, nothing after it.
+    /// widths, a canonical key (for a holding-keyed kind a reference with
+    /// sequence 0 and a receipt payload of exactly that kind), a tail that
+    /// is exactly the kind's link set in order, nothing after it.
     pub fn decode(body: &'a [u8]) -> Result<WideRecord<'a>, EventError> {
         let mut c = Cursor::new(body);
         let ver = c.u8().ok_or(EventError::Short)?;
@@ -506,6 +586,15 @@ impl<'a> WideRecord<'a> {
                 if dest.world() != host.key().world() {
                     return Err(EventError::Key);
                 }
+            }
+        } else if kind.holding_keyed() {
+            // The holding reference, sequence 0: a host reference in this
+            // position is no economy key. The payload is a receipt whose
+            // action places it under exactly this kind.
+            economy::decode_key(key).map_err(|_| EventError::Key)?;
+            let receipt = EconomyReceipt::decode(payload).map_err(|_| EventError::Payload)?;
+            if receipt.kind() != kind {
+                return Err(EventError::Payload);
             }
         } else {
             ProvinceKey::from_bytes(key).map_err(|_| EventError::Key)?;
@@ -580,15 +669,41 @@ impl<'a> WideRecord<'a> {
         }
     }
 
-    /// The host's **home** province of a host-keyed record (the issuing
-    /// holding's). A fact about the host, not the record's attribution.
+    /// The holding reference of a holding-keyed record (the economy
+    /// receipts): the key itself, sequence 0. `None` for any other kind.
+    pub fn holding(&self) -> Option<WideHostRef> {
+        if self.kind.holding_keyed() {
+            economy::decode_key(self.key).ok()
+        } else {
+            None
+        }
+    }
+
+    /// The receipt of a holding-keyed record (canonical and of this kind
+    /// by [`WideRecord::decode`]); `None` for any other kind.
+    pub fn receipt(&self) -> Option<EconomyReceipt> {
+        if self.kind.holding_keyed() {
+            EconomyReceipt::decode(self.payload).ok()
+        } else {
+            None
+        }
+    }
+
+    /// The **home** province of the record's holding: the issuing
+    /// holding's of a host-keyed record, the holding's own of a
+    /// holding-keyed one. A fact about the holding, not (for a host-keyed
+    /// record) the record's attribution.
     pub fn home_of(&self) -> Option<ProvinceKey> {
-        self.host().map(|h| h.key())
+        if self.kind.holding_keyed() {
+            self.holding().map(|h| h.key())
+        } else {
+            self.host().map(|h| h.key())
+        }
     }
 
     /// The province key of a province-keyed record.
     pub fn province(&self) -> Option<ProvinceKey> {
-        if self.kind.host_keyed() {
+        if self.kind.host_keyed() || self.kind.holding_keyed() {
             None
         } else {
             ProvinceKey::from_bytes(self.key).ok()
@@ -597,19 +712,28 @@ impl<'a> WideRecord<'a> {
 
     /// The province the record concerns (module doc, attribution): the key
     /// of a province-keyed record, the **standing** province of a
-    /// host-keyed one — never the home province, never the alias.
+    /// host-keyed one — never the home province, never the alias — and
+    /// the holding's **own** province of a holding-keyed one (an owner
+    /// action happens at home).
     pub fn province_of(&self) -> Option<ProvinceKey> {
         if self.kind.host_keyed() {
             self.standing()
+        } else if self.kind.holding_keyed() {
+            self.holding().map(|h| h.key())
         } else {
             self.province()
         }
     }
 
     /// The holding the record concerns: the host's issuing holding
-    /// (`holding_ref`) of a host-keyed record; none otherwise.
+    /// (`holding_ref`) of a host-keyed record, the key of a holding-keyed
+    /// one; none otherwise.
     pub fn holding_of(&self) -> Option<WideHostRef> {
-        self.host().map(|h| h.holding_ref())
+        if self.kind.holding_keyed() {
+            self.holding()
+        } else {
+            self.host().map(|h| h.holding_ref())
+        }
     }
 
     /// Whether the record is attributed to `target`.
@@ -961,6 +1085,14 @@ pub fn transit_settled_payload(
     b
 }
 
+/// The Economy / EconomyMirror payload (module doc, the economy
+/// receipts): the receipt's canonical bytes (`None` for a receipt whose
+/// action is invalid). Which of the two kinds it belongs under is
+/// [`EconomyReceipt::kind`]; `write_body` and `encode` refuse the other.
+pub fn economy_payload(receipt: &EconomyReceipt) -> Option<[u8; ECONOMY_PAYLOAD_LEN]> {
+    receipt.to_bytes()
+}
+
 /// Offset of `sealed_dest` in a TransitSettled payload.
 pub const TRANSIT_SETTLED_DEST_AT: usize = 1 + 1 + 1 + 4 + 8 + 8 + 8 + 1;
 
@@ -1145,8 +1277,8 @@ mod tests {
             "out of the deployed versions"
         );
         let mut x = body.clone();
-        x[1] = 15;
-        assert_eq!(WideRecord::decode(&x), Err(EventError::UnknownKind(15)));
+        x[1] = 17;
+        assert_eq!(WideRecord::decode(&x), Err(EventError::UnknownKind(17)));
         let mut x = body.clone();
         x[HEAD_LEN] = 9;
         assert_eq!(WideRecord::decode(&x), Err(EventError::Key));
@@ -1180,8 +1312,12 @@ mod tests {
                 HEAD_LEN + k.key_len() + k.payload_len() + 1 + MAX_LINKS * LINK_LEN <= MAX_BODY
             );
             assert_eq!(k.host_keyed(), k.key_len() == HOST_KEY_LEN);
+            assert_eq!(k.holding_keyed(), k.key_len() == HOLDING_KEY_LEN);
+            assert!(!(k.host_keyed() && k.holding_keyed()));
         }
-        assert_eq!(WideKind::from_u8(15), None);
+        assert_eq!(WideKind::from_u8(15), Some(WideKind::Economy));
+        assert_eq!(WideKind::from_u8(16), Some(WideKind::EconomyMirror));
+        assert_eq!(WideKind::from_u8(17), None);
         assert_eq!(WideKind::from_u8(0), None);
         // the close kinds: one province-keyed, one host-keyed, neither
         // chained; the province close chained on the province alone
@@ -1401,7 +1537,17 @@ mod tests {
     /// builder that was 65 bytes against a 71-byte kind).
     #[test]
     fn every_payload_builder_matches_its_kind_width() {
-        let widths: [(WideKind, usize); 14] = [
+        use crate::world_index::economy::{Action, EconomyReceipt};
+        let receipt = |action: Action| EconomyReceipt {
+            action,
+            now_ts: 1,
+            became_final: false,
+            input_digest: [1; 32],
+            output_digest: [2; 32],
+        };
+        let plain = economy_payload(&receipt(Action::Harvest)).unwrap();
+        let mirror = economy_payload(&receipt(Action::Build { item: 6 })).unwrap();
+        let widths: [(WideKind, usize); 16] = [
             (WideKind::Muster, muster_payload(0, 1, 1, 0, 0).len()),
             (WideKind::Dissolve, dissolve_payload(1, 1, 0).len()),
             (
@@ -1446,6 +1592,8 @@ mod tests {
                 WideKind::ProvinceClosed,
                 province_closed_payload(&[0; 32], 1).len(),
             ),
+            (WideKind::Economy, plain.len()),
+            (WideKind::EconomyMirror, mirror.len()),
         ];
         assert_eq!(widths.len(), ALL_KINDS.len(), "every kind has a builder");
         for (k, built) in widths {
@@ -1453,12 +1601,23 @@ mod tests {
             let mut buf = [0u8; MAX_BODY];
             let key: Vec<u8> = if k.host_keyed() {
                 hk().to_vec()
+            } else if k.holding_keyed() {
+                host().holding_ref().to_bytes().to_vec()
             } else {
                 key().to_bytes().to_vec()
             };
-            let at = write_body(k, 1, &key, &vec![0u8; built], &mut buf).unwrap();
+            // a holding-keyed body carries a real receipt of its kind: the
+            // codec refuses anything else
+            let payload: Vec<u8> = match k {
+                WideKind::Economy => plain.to_vec(),
+                WideKind::EconomyMirror => mirror.to_vec(),
+                _ => vec![0u8; built],
+            };
+            let at = write_body(k, 1, &key, &payload, &mut buf).unwrap();
             assert!(at + 1 + k.links().len() * LINK_LEN <= MAX_BODY);
         }
+        assert_eq!(ECONOMY_PAYLOAD_LEN, 80);
+        assert_eq!(HOLDING_KEY_LEN, 56);
         assert_eq!(DEPARTED_PAYLOAD_LEN, 71);
         assert_eq!(TRANSIT_SETTLED_PAYLOAD_LEN, 82);
         assert_eq!(TRANSIT_SETTLED_DEST_AT, 32);

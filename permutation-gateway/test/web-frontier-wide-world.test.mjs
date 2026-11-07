@@ -560,3 +560,63 @@ test('invalid scope and reader errors clear old history, reject pending response
     delay=false;record=valid;await restart();assert.equal(mode.state().history.phase,'ready');assert.equal(rows(),1);
   } finally {mode.unmount();}
 });
+
+import { wideActionReview, wideDepartData } from '../../permutation-server/web/frontier/map/wideactions.mjs';
+// Deliberately synthetic public wire bytes. Not a live/captured-world claim.
+function hostHistoryPage() {
+  const province = historyRow().province;
+  const host = {...province,site:2,generation:3,hostSequence:0x12345678,keyHex:`${province.keyHex}020378563412`};
+  const holding = {...host,hostSequence:0,keyHex:`${province.keyHex}020300000000`};
+  const body = Buffer.alloc(160); body[0]=0x82; body[1]=7;
+  Buffer.from(host.keyHex,'hex').copy(body,6); Buffer.from(province.keyHex,'hex').copy(body,62);
+  const row={event:'1',archiveSequence:'1',ordinal:'0',format:'PSW1',kind:7,name:'WIDE_DEPARTED',province,host,holding,body_b64:body.toString('base64')};
+  return parseWideIndexPage(historyPage({events:[row]}),{pins:HISTORY_PINS,through:1n,snapshot:STAMP});
+}
+test('unsigned wide operation review keeps full identity and never grants executable authority', () => {
+  const page=hostHistoryPage();
+  const review=wideActionReview({pins:HISTORY_PINS,page,event:1n});
+  assert.equal(review.host.length,112);assert.equal(review.host.slice(-12),'020378563412');
+  assert.equal(review.province,page.rows[0].province.keyHex);assert.equal(review.snapshot,STAMP);
+  assert.equal(review.executable,false);assert.equal(review.return.scope,'holding-roster');
+  assert.equal(review.return.instructionDataHex,'dcff0102');assert.equal(review.return.enabled,false);
+  assert.equal(review.depart.code,'WideDepartProductionDisabled');
+  assert.equal(review.captureVerification,'unverified');
+  refused(()=>wideActionReview({pins:HISTORY_PINS,page,event:1n,destination:{legacy:{}}}),'MixedLegacyWideUnsupported');
+  refused(()=>wideActionReview({pins:HISTORY_PINS,page:{...page,world:OTHER_WORLD},event:1n}),'WorldMismatch');
+  refused(()=>wideActionReview({pins:HISTORY_PINS,page,event:2n}),'WideHostObservationRequired');
+  const nohost=parseWideIndexPage(historyPage(),{pins:HISTORY_PINS,through:1n,snapshot:STAMP});
+  refused(()=>wideActionReview({pins:HISTORY_PINS,page:nohost,event:1n}),'WideHostObservationRequired');
+  const bad=hostHistoryPage(); bad.rows[0].host.generation=4;
+  refused(()=>wideActionReview({pins:HISTORY_PINS,page:bad,event:1n}),'BadWideHistory');
+});
+test('WideDepart public bytes match the provisional ABI without sealing, signing or sending', () => {
+  const review=wideActionReview({pins:HISTORY_PINS,page:hostHistoryPage(),event:1n});
+  const params={transitSlot:3,arriveBell:0x12345678,tip:9007199254740993n,commit:new Uint8Array(32).fill(7),seal:new Uint8Array(264).fill(9)};
+  const data=wideDepartData(review,params), view=new DataView(data.buffer);
+  assert.equal(data.length,366);assert.equal(data[0],0xda);assert.equal(toHex(data.slice(1,57)),review.host);
+  assert.equal(data[57],3);assert.equal(view.getUint32(58,true),params.arriveBell);assert.equal(view.getBigUint64(62,true),params.tip);
+  assert.deepEqual(data.slice(70,102),params.commit);assert.deepEqual(data.slice(102),params.seal);
+  refused(()=>wideDepartData({...review},params),'WideReviewRequired');
+  for(const transitSlot of [-1,4,1.5]) refused(()=>wideDepartData(review,{...params,transitSlot}),'BadTransitSlot');
+  for(const arriveBell of [-1,2**32,1.5]) refused(()=>wideDepartData(review,{...params,arriveBell}),'BadArrivalBell');
+  for(const tip of [1,-1n,1n<<64n]) refused(()=>wideDepartData(review,{...params,tip}),'BadTip');
+  refused(()=>wideDepartData(review,{...params,seal:new Uint8Array(165)}),'BadWideSeal');
+});
+test('wide history review UI disables execution, repeats safely, and invalidates on reload and close', async () => {
+  const client={wideWorld:async()=>({ok:true,manifest:parseWideManifest(manifest())}),wideWorldPage:async()=>({ok:true,json:page(E)}),
+    wideIndexStatus:async()=>({ok:true,status:parseWideIndexStatus(historyStatus(),HISTORY_PINS)}),
+    wideIndexEvents:async()=>({ok:true,page:hostHistoryPage()})};
+  const mode=modeHarness(client,()=>({season:'5',seasonAddress:SEASON_ADDR,programId:PROGRAM,cluster:'localnet'}));
+  try {
+    mode.open();await flush();const sheet=mode.elements().sheet, box=sheet.querySelector('#wide-action-review');
+    const select=sheet.querySelector('#wide-history-list').children[0].children[0];
+    select.fire('click');assert.equal(box.children.length,5);
+    assert.equal(box.children[2].disabled,true);assert.equal(box.children[3].disabled,true);
+    assert.match(box.children[2].textContent,/WideDepartProductionDisabled/);
+    assert.match(box.children[3].textContent,/WideLiveAccountsUnverified/);
+    assert.match(box.children[4].textContent,/dcff0102/);
+    select.fire('click');assert.equal(box.children.length,5);
+    mode.close();select.fire('click');assert.equal(box.children.length,0);
+    mode.open();await flush();select.fire('click');assert.equal(box.children.length,0);
+  } finally {mode.unmount();}
+});
