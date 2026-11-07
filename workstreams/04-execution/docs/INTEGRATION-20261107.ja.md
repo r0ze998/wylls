@@ -161,3 +161,36 @@
 
 **⑲ の提案 (b)〜(d)**（PASS にしてよい条件と、ライブとアーカイブの扱いの一貫性）
 - 利用者の判断を待っています。
+
+## 9. 訂正：鍵の規則に反する試験を実行していた（④、2026-11-07）
+
+**何をしたか**
+- §7.4 と §8 で「鍵ペアの生成・導出なし、署名なし」として挙げた試験のうち、`cargo test -p fclient --lib`（94 件）は、規則に反していました。
+  - `fclient/src/beacon.rs` と `seal.rs` の試験は、試験用の beacon の鍵（`TestKey::new()`）を作り、署名します。
+  - `fclient/src/tx.rs` の試験は、固定 seed の鍵ペア（`Keypair::new_from_array([3; 32])`）で取引に署名します。
+  - ④は、2026-11-07 の回帰試験で、これを 5 回ほど実行しました。
+- `cargo test -p verify --test fixtures` の `march_fixture_is_fresh` も、規則に反していました。
+  - この試験は `verify_core::fixture::march::march()` を呼び、固定 seed の鍵ペアと試験用の beacon の鍵で署名します。
+  - ④は、これを 1 回実行しました。
+
+**原因**
+- ④の事前の確認は、試験のファイルそのものしか探していませんでした。fclient の lib の試験の module や、試験が呼ぶ src の関数（`fixture::march`）は、見ていませんでした。
+
+**影響**
+- この container の中の試験の process だけです。外への送信、公開、CI はありません。
+- 作られた鍵と署名は、試験の後に残っていません。
+
+**今後**
+- fclient の lib と、`verify --test fixtures` の `march_fixture_is_fresh` は実行しません（`record`、`tamper`、`coverage` も、これまでどおり実行しません）。
+- 事前の確認は、試験の module と、試験が呼ぶ src の関数まで辿ります。
+
+**確かめ直した結果**（鍵を使わないと分かったもの）
+- verify・findex・localnet・herald の lib の試験の module
+- findex の tests（ledger、ws04_*、coverage、no_hidden_gap、open_items、store_failure、ingest の鍵を使わない 4 件）
+- herald の ingest_health
+- verify の history、ledger_history、resident_ledger、ws04_scan_resident、new_bands、custody*、evidence
+- どれも、直接にも、呼び出し先の fixture の生成や tamper の注入を通しても、鍵の生成と署名がありません。
+
+**fixtures と evidence の失敗**（0012 の後）
+- `evidence` の `the_fixtures_have_nothing_for_v0e`、`fixtures` の `march_synth_passes` と `march_fixture_is_fresh` が FAIL しました。
+- ⑪ の報告では、85a48c7c でも同じで、地図の配置の変更（V11 の TicketPlacementMismatch）が原因です。④の差分の外です。
