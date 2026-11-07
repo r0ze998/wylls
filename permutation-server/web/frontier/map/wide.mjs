@@ -374,6 +374,7 @@ export function sourcePins(record) {
   const seasonId = parseU64(record.season, 'NoSeasonYet').toString();
   const seasonAddress = record.seasonAddress, programId = record.programId;
   const world = worldIdOf(seasonAddress, programId);
-  const cluster = typeof record.cluster === 'string' ? record.cluster : 'unknown';
+  const cluster = typeof record.cluster === 'string' ? record.cluster.trim() : 'unknown';
+  check(!['fixture', 'sample', 'prototype', 'unknown', ''].includes(cluster.toLowerCase()), 'SampleWorld', 'fixture or unlabelled source is not a recorded game world');
   return Object.freeze({ seasonId, seasonAddress, programId, cluster, key: `${world}:${seasonId}:${cluster}` });
 }
