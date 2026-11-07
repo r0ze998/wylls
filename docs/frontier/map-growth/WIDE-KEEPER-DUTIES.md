@@ -12,6 +12,8 @@ Explicit --follow-wide (requiring --observe-wide) now continues read-only wide o
 
 The archive/index interoperability test now drives real WideFindex, SQLite rebuild, archive transaction reads, keeper observer/proofs, and a snapshot-backed unsigned candidate. Raw program-filtered feed sequences (10/20/30), archive sequences (1/2/3), and event-page IDs are distinct. Observer verifies local per-identity head continuity after its first observed unverified anchor; dedicated index validates from genesis. Neither proves source authenticity. Raw sequence holes remain unknown, not automatically corrupted.
 
+The eighth slice adds the unsigned WideGather candidate (`wideduty::plan_gather`, hinted from revealed open marches, planned over a snapshot with the Rent, reviewed and counted in the tick): the handler's latch, end bell, anchor-or-archive window, ClashInputs and ArrivalDay rules replayed from the accounts at their canonical addresses; the cursor bounded to at most eight positions before any slot is read (one packet even when every position is present) and cut before a later unsettled transit; present slots judged from their transit records; absent slots' transit positions the slot's own address; the present count the handler's scan of every position; a clear day bit over a partial record planned as the completing gather; the fee review netting a prefunded ClashInputs as the handler's top-up does. The ArrivalDay account is the only arrival evidence; missing feed events are never read as no arrivals. **Arrival processing is not complete**: WideResolve is not planned (its seed authentication and model replay — roster creation, digests — are not claimed), so a gathered bell still has no planned resolve. Not compiled or run by its author.
+
 Every candidate is still denied by Engine review: history authenticity/completeness, live fee quotation and future balance remain unproven. No enqueue, simulation, signing, transaction sending, production gate change, main merge or deployment is introduced. Existing PSW1 feed guards can prevent further discovery; this slice does not make the game playable. The actual Keeper constructor/full tick was not executed because it uses keys; its wiring and CLI are compile-checked, while independent review-step tests use literal accounts and public vectors. UI is unchanged.
 
 Earlier sections are historical checkpoints. Their statement that Reveal/snapshot are not tick-connected is superseded by this checkpoint and the runtime slice below; they are not a claim of live-chain verification.
@@ -1392,13 +1394,218 @@ are literal account bytes and chained records built with the public ABI.
 Nothing here changes a gate, a cursor, a payer or a payout; the
 generation-mismatch settlement question is untouched.
 
+## Eighth slice (2026-11-08, on `d9fb62d8`): the unsigned WideGather candidate
+
+**Scope.** `wideduty::plan_gather(scope, payer, dest, bell, reads)` plans
+the destination's gather of revealed arrivals into the wide ClashInputs —
+WideGather (0xDC op 4), the deployed GatherClash over the wide records
+(`proc/wide.rs::gather`, `wide_ix::GATHER`) — as an **unsigned**
+`Candidate` with `Duty::Gather(GatherFacts)`, reviewed in the tick like the
+settles. **WideResolve is not planned** (below). Nothing signs, simulates,
+sends or queues; every Engine denial stands; `DEPART_DEBIT_ENABLED` is
+untouched; no game rule, fee, custody, payout or legacy/wide boundary
+changes; no fclient, ABI or program file is edited.
+
+**The handler's rules, in its order.** The keeper prologue (the Season
+Running or Ended, the pinned deployment: `season_of`); the destination a
+wide province of this world at its canonical address (`province_at`);
+`bell ≥ resolved_next` else `LatchClosed("destination resolved past the
+bell")`; `bell < end_bell` else `SeasonEnded` (the handler's
+`WrongStatus`); the reveal window of the bell **closed** for the
+province's stored region: THE BellAnchor of `(bell, region)` at its
+canonical address (`BellAnchor::decode`; season, bell, region checked) or,
+when absent, its AnchorArchive at `(region, part_of(bell))` with the
+bell's archived bit set and `A = bell_end + a_off` (the handler's
+`anchor_time`), else `NoAnchor("absent" | "archive without the bell")`;
+`now ≥ SeasonClock::reveal_close(bell, A)` by the **observed clock** (the
+snapshot's Clock when coherent) else `WindowOpen { reveal_close, now }`;
+no clock → `TimingNeedsClock`. The ClashInputs at its canonical address:
+absent (the handler creates it from the fee payer: 3,008 bytes, in the
+fee review's `creates`; the lamports already at the address, a prefunded
+System account or nothing, are recorded as `inputs_prefunded_lamports`)
+or this season's, destination's and bell's, not `FLAG_RESOLVED`
+(`AlreadyResolved`), not fully gathered (`AlreadyGathered`). **The
+arrival evidence is the wide ArrivalDay at its canonical address.** Its
+bit set: the cursor's slots are read and written. Its bit clear (or the
+day absent), the handler completes the mask **without reading a slot**
+(`proc/wide.rs::gather`, `has_arrivals` false): with **no record** that
+is a complete empty record the resolve does not need (it takes the
+residents alone when both are absent) — not planned, `NoArrivals`, stated
+as a planner policy, not a handler refusal; with a **partial record** it
+is the completing gather the resolve requires (`NotGathered` otherwise)
+— planned, one position, its slot unread, nothing written to the
+positions (`day_bit_set: false` on the facts). The absence of feed events
+is **never** read as "no arrivals"; the model's hints only say what to
+read.
+
+**The cursor, bounded before any slot is read.** `start` is the first
+ungathered position of the 24; `n` is the contiguous ungathered run after
+it, **at most `GATHER_MAX_POSITIONS` (8)**, fixed before the slots are
+asked for, so no position outside the cursor is ever read or judged. The
+bound is sized so that a cursor with every position present fits one
+packet under the **widest** ComputeBudget prefix: a legacy message with
+one signature is `479 + 66·n` bytes (10 fixed keys plus a slot and a
+transit key per position, two account indices per position, the four
+prefix instructions at full width, the 10-byte data), plus 32 when the
+payer is also an instruction key (the all-zero review placeholder is the
+System Program); `n = 8` is at most 1,039 of the 1,232 (`n = 11` would
+not fit). `wideduty::packet_len` guards the built instruction regardless
+(`Overflow("packet")`, never a trim). Positions gathered before are not
+read again (the handler's `continue`; their slots are not in the cursor
+at all). Each position's slot at its canonical address is absent or this
+season's, destination's, bell's, faction's and index's
+(`NotCanonical("slot")`; owner by `presence`); a present slot's host
+transit record at the slot's bound address
+(`transit_address(holding_address(host coord, site), transit_slot)`) must
+be present (`Absent("transit")`), this host's and this bell's
+(`NotCanonical("transit")`). The present slots are judged **in position
+order**: `Departed` at the first position → `DepartureUnsettled {
+position }` (the origin settles first); `Departed` later in the cursor
+**cuts the cursor before it** (`cut_at_unsettled: Some(position)`): the
+ready prefix is a valid gather and the handler never sees the unsettled
+position; `Free` → `TransitState`; `Gathered` at this destination → taken
+as is, not stamped, read-only; at another → `NotCanonical("transit")`;
+`Settled` / `DestroyedAtOrigin` → stamped (`WideTransit::step(Gather)`
+must accept it), writable. **An absent (or unread) slot's transit
+position is the slot's own address, read-only** ("any account" in the
+handler; nothing is invented). The data is the ABI's `Gather { bell,
+start, n }`.
+
+**Predictions (`GatherFacts`).** Per present slot: state, stamps,
+`predicted_present` (troops after the origin's settle ≥
+`DESTROYED_BELOW`), `predicted_destroyed`, troops, `arrival_stamina`. Over
+the record, **as the handler scans it** (`proc/wide.rs::gather` reads
+every one of the 24 positions of the written scratch and counts
+`present`): the cursor's positions as this gather writes them (zeroed,
+then the present slots' arrivals; untouched when the day bit is clear),
+every other position as the record holds it, masked or not — a position
+that does not decode fails the handler (`Unreadable("inputs position")`
+here), a present arrival anywhere counts. `predicted_mask_after` (the
+whole mask when the day bit is clear), `predicted_n_present`,
+`predicted_complete`, `predicted_no_arrivals`, `remaining_after` (a
+resolve needs every position gathered), `stamps`, the anchor source, `A`,
+the reveal close and the clock the window was judged by. All of it is in
+the content digest (`Duty::canon` tag 3); a candidate changed afterwards
+loses its snapshot, fee bound and snapshot denial change like the others.
+
+**The fee review nets a prefunded record (gather only).** The gather
+handler has **no** guard requiring the payer to hold the full minimum
+(the reveal has one): `init_with_seed` takes `init::rent(size)` as the
+total and `init::top_up` transfers `total − lamports already at the
+address`, refusing `Insufficient` only when the payer holds less than
+that shortfall (`init.rs`). `widefees::duty_needs` therefore requires
+`rent − inputs_prefunded_lamports + base fee` for a gather
+(`RENT_RULE_TOP_UP`, `prefunded_lamports` on the needs); a fully prefunded
+address leaves the payer the fee alone. The reveal keeps the full minimum
+(`RENT_RULE_FULL`); the settles and the return create nothing
+(`RENT_RULE_NONE`). Each candidate's needs name the rule.
+
+**The live-read driver.** `drive` allows `MAX_READ_ROUNDS` (6)
+evaluations: the gather asks in four waves (Season, destination, inputs
+and day; anchor and archive; the cursor's slots; the present slots'
+transits) and decides at the fifth; the previous bound of four made
+`gather_via` fail `ReadLoop` for any present slot.
+
+**Wiring.** `wideduty::gather_candidates(model)`: `(destination, arrival
+bell)` of open marches whose `Revealed` carries an arrival bell in the
+applied history, with no `Resolve` of that bell at the destination and no
+closed or fully gathered ClashInputs as the records say — read hints
+only. `widetick::Hint::Gather`, planned over the snapshot **with the Rent**
+(the record may be created) or `gather_via`; `gather_plans` /
+`gather_candidates` counters and a `gather` status entry; the duty's
+reconciliation targets are the destination and every present slot's
+host. `widereview::KIND_GATHER` (`wide-gather:<world>:<dest>:<bell>:<start>`,
+class D, tag 0xDC). `widefees::duty_needs` adds the ClashInputs creation
+when the plan found none.
+
+**Tests** (`wide_duties.rs`, literal bytes and public addresses; a
+`GatherFx` of THE anchor, the ArrivalDay bit, one present slot with a
+settled transit, every other slot absent, the clock at the Season's own
+reveal close):
+`a_gather_candidate_carries_the_handlers_accounts_cursor_and_predictions`
+(the eight fixed roles, the pairs, the writable stamped transit, the
+placeholder for absent slots, the data, the predictions, the fee
+`creates`, the cursor at the packet bound with one more pair over it, the
+archive entry path and its window),
+`a_gather_resumes_after_the_gathered_positions_and_refuses_a_finished_or_resolved_record`
+(duplicates: the cursor after gathered positions, a stored present arrival
+counted; a split run; the completing last part with `FLAG_NO_ARRIVALS`;
+`AlreadyGathered`, `AlreadyResolved`, another bell's record),
+`a_gather_blocks_on_the_handlers_refusals` (no day / clear bit / another
+destination's day, the latch, the end bell, the window by one second, no
+clock, no anchor, an archive without the bell, another bell's anchor,
+`DepartureUnsettled`, transit absent / another host's / gathered
+elsewhere / gathered here unstamped, a slot of another destination, a
+foreign-owned slot, the destination absent / legacy / another world),
+`a_gather_candidate_is_bound_to_its_snapshot_and_content` (coherent over
+one snapshot, every hard denial, four mutations lose everything),
+`gather_hints_come_from_revealed_open_marches_only`,
+`the_tick_plans_a_gather_candidate_reviews_it_and_enqueues_nothing` (one
+hint, one snapshot request with the planner's keys, a coherent candidate,
+`creates` the ClashInputs, every hard denial, nothing pending, nothing
+sent; the window open at the tick's clock → planned and blocked
+`WindowOpen`). After the independent review of the first version:
+`gather_via_reads_in_four_waves_through_the_port` (the real read adapter:
+four waves at the requested bound with a present slot, three without, the
+same instruction as the direct plan),
+`a_later_unsettled_position_never_blocks_the_first_ready_packet` (a
+`Departed` transit beyond the cursor is unread; inside it cuts the cursor
+before it; at the first position blocks),
+`the_present_count_mirrors_the_handlers_scan_of_every_position` (an
+unmasked present arrival outside the cursor counts; garbage outside the
+cursor fails; garbage inside is overwritten),
+`a_clear_day_bit_with_a_partial_record_plans_the_completing_gather` (one
+position, slot unread — an unsettled transit behind it cannot block —
+mask completed, the count from the record; the day absent the same; no
+record → `NoArrivals`),
+`a_prefunded_clash_inputs_leaves_the_payer_the_fee_alone` (fully
+prefunded: `required = 5,000`, met; a lamport short: unmet; half: the
+other half plus the fee; unfunded: the minimum plus the fee); the happy
+path now pins `n = GATHER_MAX_POSITIONS` and a cursor with every position
+present fitting the packet with the placeholder payer. Fixture additions:
+`LiteralSnapshots.clock_ts` / `rent` (the Rent served exactly when
+requested), `snapshot_json_rent`, `snapshot_of_rent`, `ClockedPort` (a
+fake port whose Clock is settable and whose read bounds are recorded).
+
+**Why Resolve is not planned (blocker, stated).** WideResolve
+(`proc/wide.rs::resolve`) needs (a) the bell seed from the SeedCache or
+the archive entry under `hold::bell_seed`'s authentication, (b) the
+Season's conquest step parameters and the program's ruleset, and (c) the
+exact model replay `world_index::resolve::resolve_bell` over the province,
+the roster and the gathered inputs to know whether the bell **creates a
+roster from the fee payer** (an arrival that stays claims an entry) and
+what the input/output digests are. A candidate that skipped (c) would
+mis-state what the handler creates and pays for; one that replayed it
+would need an independent parity audit of the model against the program.
+This slice does neither and claims nothing about Resolve beyond
+`remaining_after == 0` being its gathered precondition.
+
+**Exact limits.** The candidate is unsigned and unsent; the history
+before the applied records is unknown; the snapshot is coherence at a
+context slot, not currency; the fee evidence the handler reads from the
+instructions sysvar is the engine's prefix at send time, not checked here;
+the packet bound is computed for a legacy message with one signature under
+the widest prefix, not for a versioned transaction. The ArrivalDay bit is
+the handler's own evidence rule, replayed from the account at its
+canonical address; whether a reveal the feed never showed exists is
+learned only from that account. No live game was read; nothing here makes
+the game playable.
+
 ## Touched files
 
 `frontier-node/crates/keeper/src/wideproof.rs` (new),
 `frontier-node/crates/keeper/src/wideduty.rs` (new; later slices: new
 `Block` variants, `pub(crate)` helpers, `Reads.snapshot`/`rent`,
 the crate-private `Candidate.bound` (`Bound`, the `Canon` encoder and the
-`canon` methods), snapshot drivers),
+`canon` methods), snapshot drivers; eighth: `plan_gather`, `gather_via`,
+`gather_snapshot`, `gather_candidates`, `Duty::Gather`, `GatherFacts`,
+`GatherPosition`, `GatherSlot`, `packet_len`, `GATHER_PACKET_BYTES`,
+`GATHER_POSITIONS`, six `Block` variants, `candidate_with`),
+`frontier-node/crates/keeper/src/widefees.rs` (eighth: the ClashInputs in
+`duty_needs`), `frontier-node/crates/keeper/src/widereview.rs` (eighth:
+`KIND_GATHER`, the `Subject` arm), `frontier-node/crates/keeper/src/widetick.rs`
+(eighth: `Hint::Gather`, the gather arm, counters, the `gather` status
+entry, reconciliation targets),
 `frontier-node/crates/keeper/src/widereveal.rs` (new; third slice:
 the crate-private `RevealCandidate.bound`, `reveal_snapshot`, the
 unverified lines),
@@ -1456,3 +1663,17 @@ also passed clippy (compilation only). Independent static review found no
 remaining blocker after the executable-empty-System-account negative case.
 Actual Keeper startup/tick, a real chain, browser play and production sending
 were not run. Compilation of the runtime connection is not execution evidence.
+
+### Eighth-slice verification checkpoint
+
+The final Gather tree passed 110 focused keeper tests: wide_discovery 14,
+wide_duties 60, wide_feed_guard 12, wide_reveal 18, wide_snapshot_rpc 6.
+Feature-on lib/binaries and selected tests passed clippy; default lib/binaries
+passed clippy (compilation only). Tests construct literal fixtures and unsigned
+messages; no keypairs or signatures were generated. Independent handler-contract
+review found no remaining preservation blocker after bounded cursor selection,
+six read-plan evaluations, prefunded-rent netting and full 24-entry scratch scan.
+A malformed later slot inside the bounded cursor may conservatively block a ready
+prefix; no unsafe candidate is produced. Resolve and SettleTransit keeper duties
+remain unimplemented, and the arrival-to-battle flow is not complete. Actual Keeper
+startup/tick and real-chain submission were not executed; all send gates stay closed.

@@ -13,11 +13,17 @@
 //! ArrivalDay (`wide_arrival_day::SIZE`) when none exists, each created by
 //! `init_with_seed` from the fee payer (`proc/wide.rs::reveal`, the
 //! effects) with `init::rent(size)` — the Rent sysvar's **full** minimum
-//! balance for the size — as the handler's **precondition**. The system
-//! transfer the creation makes tops up only the shortfall when the address
-//! already holds lamports; this review does **not** model that netting: it
-//! requires the full minimum as the safe bound and labels the two
-//! separately (`rent_rule`). WideSettleDeparture and WideReturn create
+//! balance for the size — as the handler's **precondition** (the reveal
+//! guards the payer's balance against the full minimum before creating).
+//! The system transfer the creation makes (`init::top_up`) moves only
+//! `total − lamports already at the address` and refuses `Insufficient`
+//! when the payer holds less than that. For the reveal this review keeps
+//! the full minimum (the handler's guard, `RENT_RULE_FULL`); for the
+//! **gather**, whose handler has no such guard, it nets the lamports the
+//! plan's snapshot showed at the ClashInputs address (`RENT_RULE_TOP_UP`):
+//! a fully prefunded address leaves the payer the fee alone. Each candidate
+//! names its rule (`rent_rule`) and the netted amount
+//! (`prefunded_lamports`). WideSettleDeparture and WideReturn create
 //! nothing.
 //!
 //! **Bound to one candidate and one verified snapshot.** The rent and the
@@ -37,11 +43,11 @@
 use fclient::abi::CU_MAX;
 use fclient::budgets::Budget;
 use fclient::fees::{DEFAULT_LOADED_LIMIT, LAMPORTS_PER_SIGNATURE};
-use frontier_abi::world_index::arrival::{wide_arrival_day, wide_arrival_slot};
+use frontier_abi::world_index::arrival::{wide_arrival_day, wide_arrival_slot, wide_clash_inputs};
 use serde_json::{json, Value};
 use solana_instruction::Instruction;
 
-use crate::wideduty::{Block, Candidate, Reads};
+use crate::wideduty::{Block, Candidate, Duty, Reads};
 use crate::widereveal::RevealCandidate;
 use crate::widesnapshot::SnapshotMeta;
 
@@ -118,8 +124,16 @@ fn ineligible(a: &fclient::ports::Account) -> Option<&'static str> {
 pub struct ExecutionNeeds {
     /// The accounts the handler would create: `(name, ABI size)`.
     pub creates: Vec<(&'static str, usize)>,
-    /// Σ **full** minimum balances of `creates`, from the snapshot's Rent.
+    /// Σ **full** minimum balances of `creates`, from the snapshot's Rent:
+    /// the `total` the handler passes to the creation.
     pub rent_lamports: Known<u64>,
+    /// Lamports already at the created address in the candidate's
+    /// snapshot that the creation's top-up nets (`init::top_up`: the payer
+    /// covers `total − held`), when the handler has no guard requiring the
+    /// full minimum of the payer. 0 when nothing is netted.
+    pub prefunded_lamports: u64,
+    /// Which rule the requirement follows (per handler).
+    pub rent_rule: &'static str,
     /// `LAMPORTS_PER_SIGNATURE × signatures_assumed`: a modelled lower
     /// bound; the network's fee at send time is not read.
     pub signatures_assumed: u8,
@@ -149,7 +163,8 @@ impl ExecutionNeeds {
         json!({
             "creates": self.creates.iter().map(|(n, s)| json!({"account": n, "size": s})).collect::<Vec<_>>(),
             "rent_lamports": known(&self.rent_lamports),
-            "rent_rule": "handler precondition: the full minimum balance per created account (init::rent(size)); the creation's transfer tops up only a prefunded address's shortfall, which this review does not net",
+            "prefunded_lamports": self.prefunded_lamports,
+            "rent_rule": self.rent_rule,
             "signatures_assumed": self.signatures_assumed,
             "base_fee_lamports": known(&self.base_fee_lamports),
             "priority_fee_lamports": known(&self.priority_fee_lamports),
@@ -172,6 +187,14 @@ const NOT_BOUND: &str = "the reads are not the verified snapshot this candidate 
 /// The funding reason when the candidate names the all-zero placeholder.
 pub const NO_PAYER: &str = "no fee payer set: the candidate names the System Program address as a placeholder, which is not a wallet";
 const FEE_EVIDENCE_NOTE: &str = "the handler stores whatever ComputeBudget prefix the sent transaction carries; absent, the parser's defaults (zero) are accepted; the prefix is keeper policy, not a handler mandate";
+/// The reveal: the handler guards the payer's balance against the full
+/// minimum before creating; a prefunded address is not netted.
+pub const RENT_RULE_FULL: &str = "handler precondition: the full minimum balance per created account (init::rent(size)) of the payer; the creation's top-up would net a prefunded address but the handler's guard does not";
+/// The gather: no such guard; `init_with_seed` tops the address up to the
+/// full minimum from the payer, so the payer needs only the shortfall.
+pub const RENT_RULE_TOP_UP: &str = "handler creation: init_with_seed with init::rent(size) as the total; init::top_up transfers total − lamports already at the address (Insufficient when the payer holds less); the requirement is that shortfall";
+/// Nothing is created.
+pub const RENT_RULE_NONE: &str = "no account is created";
 
 /// What the engine would request for a wide tag: no measured row exists
 /// for the draft band, so `Budgets::get` falls back to `CU_MAX` and the
@@ -196,6 +219,8 @@ fn bound<'a>(
 
 fn needs_of(
     creates: Vec<(&'static str, usize)>,
+    prefunded_lamports: u64,
+    rent_rule: &'static str,
     payer: &solana_address::Address,
     instruction: &Instruction,
     reads: &Reads,
@@ -219,9 +244,12 @@ fn needs_of(
     let base_fee = LAMPORTS_PER_SIGNATURE
         .checked_mul(u64::from(signatures_assumed))
         .ok_or(Block::Overflow("base fee"))?;
+    // The payer's part of the rent: the full minimum less what the created
+    // address already holds (0 unless the handler nets it), then the fee.
     let required = match rent_lamports {
         Known::Known(r) => Known::Known(
-            r.checked_add(base_fee)
+            r.saturating_sub(prefunded_lamports)
+                .checked_add(base_fee)
                 .ok_or(Block::Overflow("required lamports"))?,
         ),
         Known::Unchecked(why) => Known::Unchecked(why),
@@ -285,6 +313,8 @@ fn needs_of(
     Ok(ExecutionNeeds {
         creates,
         rent_lamports,
+        prefunded_lamports,
+        rent_rule,
         signatures_assumed,
         base_fee_lamports: Known::Known(base_fee),
         priority_fee_lamports: Known::Unchecked(PRIORITY_NOTE),
@@ -308,13 +338,41 @@ pub fn reveal_needs(c: &RevealCandidate, reads: &Reads) -> Result<ExecutionNeeds
     if !c.facts.day_present {
         creates.push(("wide ArrivalDay", wide_arrival_day::SIZE));
     }
-    needs_of(creates, &c.fee_payer, &c.instruction, reads, c.snapshot())
+    needs_of(
+        creates,
+        0,
+        RENT_RULE_FULL,
+        &c.fee_payer,
+        &c.instruction,
+        reads,
+        c.snapshot(),
+    )
 }
 
-/// The needs of a WideSettleDeparture or WideReturn candidate: no account
-/// is created.
+/// The needs of a WideSettleDeparture or WideReturn candidate (no account
+/// is created) or of a WideGather: the ClashInputs when the plan found
+/// none, created with the full minimum as the total but **topped up** from
+/// the payer only by the shortfall over what the address already held in
+/// the plan's snapshot (`init::top_up`; the gather handler has no guard
+/// requiring the payer to hold the full minimum, unlike the reveal).
 pub fn duty_needs(c: &Candidate, reads: &Reads) -> Result<ExecutionNeeds, Block> {
-    needs_of(Vec::new(), &c.payer, &c.instruction, reads, c.snapshot())
+    let (creates, prefunded, rule) = match &c.duty {
+        Duty::Gather(f) if !f.inputs_present => (
+            vec![("wide ClashInputs", wide_clash_inputs::SIZE)],
+            f.inputs_prefunded_lamports,
+            RENT_RULE_TOP_UP,
+        ),
+        _ => (Vec::new(), 0, RENT_RULE_NONE),
+    };
+    needs_of(
+        creates,
+        prefunded,
+        rule,
+        &c.payer,
+        &c.instruction,
+        reads,
+        c.snapshot(),
+    )
 }
 
 /// A one-line summary of the assumptions, for status output.

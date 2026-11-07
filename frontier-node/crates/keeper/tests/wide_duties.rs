@@ -15,6 +15,7 @@ use std::sync::Mutex;
 
 use base64::Engine as _;
 use fclient::budgets::Budgets;
+use fclient::clock::SeasonClock;
 use fclient::decode::{is_absent, Season};
 use fclient::ports::{
     Account, ChainPort, ClockSysvar, Cursor, PortError, PortResult, Signature, SimResult, Status,
@@ -26,9 +27,10 @@ use fclient::{Hash, Transaction};
 use findex::wide_index::WideIndex;
 use findex::wide_store::WideFindex;
 use findex::Source;
-use frontier_abi::addr::AddrCtx;
+use frontier_abi::addr::{archive_part_of, AddrCtx};
 use frontier_abi::bytes::{wr_arr, wr_u16, wr_u32, wr_u64, wr_u8};
 use frontier_abi::entry::{write_entry, Entry, EntryOp};
+use frontier_abi::layout::beacon::{anchor_archive as AA, archive_entry as AE, bell_anchor as BA};
 use frontier_abi::layout::header;
 use frontier_abi::layout::province::entry as E;
 use frontier_abi::layout::province::province as PV;
@@ -38,12 +40,12 @@ use frontier_abi::v2::layout::province::{province as PV2, site as SM};
 use frontier_abi::world_index::event::WideTarget;
 use frontier_abi::world_index::event::{self as wev, encode, WideEntity, WideKind, WideLink};
 use frontier_abi::world_index::wide_ix::{
-    self as wix, Depart, ResidentAct, Return, SettleDeparture,
+    self as wix, Depart, Gather, ResidentAct, Return, SettleDeparture,
 };
 use frontier_abi::world_index::{
-    holding as wh, land as wl, march as wm, roster as wro, seal as wseal, MarchEvent, MarchState,
-    ProvinceKey, TileAddress, WideCoord, WideHolding, WideHostRef, WideProvince, WideRoster,
-    WideTransit, WorldId, HOST_IDENTITY_FULL_REF_V1, WIDE_SEAL_LEN,
+    arrival as wa, holding as wh, land as wl, march as wm, roster as wro, seal as wseal,
+    MarchEvent, MarchState, ProvinceKey, TileAddress, WideCoord, WideHolding, WideHostRef,
+    WideProvince, WideRoster, WideTransit, WorldId, HOST_IDENTITY_FULL_REF_V1, WIDE_SEAL_LEN,
 };
 use keeper_core::engine::{Engine, EngineParams};
 use keeper_core::wideduty::{self, Block, Candidate, Deployment, Duty, Reads, Step, RETURN_MAX};
@@ -62,13 +64,14 @@ use keeper_core::wideproof::{METHOD_FEED, METHOD_SUPPLIED};
 use keeper_core::widereconcile::{reconcile, Verdict};
 use keeper_core::widereveal::{proofs_for, Publication};
 use keeper_core::widereview::{self, Deny, EngineView};
-use keeper_core::widesnapshot::{parse_snapshot_response, sysvar_owner, Snapshot};
+use keeper_core::widesnapshot::{parse_snapshot_response, sysvar_owner, RentSysvar, Snapshot};
 use keeper_core::widesnapshot::{snapshot_via, PortSnapshot, SnapshotError, SnapshotPort};
 use keeper_core::widetick::{
     block_code, ProofStore, PublicationSource, RevealInputs, WideReview, CANDIDATES_PER_TICK,
     MAX_EXTRACT_PER_PAGE, MAX_PROOFS, MAX_TRANSIENT_RETRIES, ORIGIN_FEED, ORIGIN_SUPPLIED,
     PAYER_UNSET, REFRESH_SLOTS, REVEAL_REFRESH_SLOTS,
 };
+use permutation_rules::frontier::beacon::bell_end;
 use serde_json::Value as JsonValue;
 use serde_json::{json, Value};
 use solana_address::Address;
@@ -2686,14 +2689,26 @@ fn the_proof_store_feeds_reveal_hints_only_with_inputs_and_blocks_without_a_publ
     );
 }
 
+/// The Rent sysvar a literal snapshot serves when one is requested (the
+/// runtime's defaults, as literal numbers).
+const RENT_FIXTURE: RentSysvar = RentSysvar {
+    lamports_per_byte_year: 3_480,
+    exemption_threshold: 2.0,
+    burn_percent: 50,
+};
+
 /// A literal-JSON `SnapshotPort` over an account map (records the keys of
-/// every request). A `SnapshotSource` through the blanket impl.
+/// every request). A `SnapshotSource` through the blanket impl. The
+/// response's Clock is at `clock_ts` (the genesis timestamp unless set);
+/// the Rent rides along exactly when the request asks for it.
 struct LiteralSnapshots {
     accounts: BTreeMap<Address, Option<Account>>,
     calls: AtomicUsize,
     keys: Mutex<Vec<Vec<Address>>>,
     /// Served instead of a response when set.
     error: Option<SnapshotError>,
+    clock_ts: i64,
+    rent: Option<RentSysvar>,
 }
 impl LiteralSnapshots {
     fn new(accounts: BTreeMap<Address, Option<Account>>) -> LiteralSnapshots {
@@ -2702,6 +2717,8 @@ impl LiteralSnapshots {
             calls: AtomicUsize::new(0),
             keys: Mutex::new(vec![]),
             error: None,
+            clock_ts: GENESIS_TS,
+            rent: Some(RENT_FIXTURE),
         }
     }
 }
@@ -2718,13 +2735,79 @@ impl SnapshotPort for LiteralSnapshots {
         let r = match &self.error {
             Some(e) => Err(e.clone()),
             None => parse_snapshot_response(
-                &snapshot_json(&self.accounts, keys, clock_at(1_790_444_847)),
+                &snapshot_json_rent(
+                    &self.accounts,
+                    keys,
+                    clock_at(self.clock_ts),
+                    if with_rent { self.rent } else { None },
+                ),
                 keys,
                 with_rent,
                 min_slot,
             ),
         };
         async move { r }
+    }
+}
+
+/// A fake `ChainPort` over an account map whose Clock reads `ts` (the
+/// gather's window test needs a clock past the reveal close). Counts and
+/// refuses any `simulate` or `send`.
+struct ClockedPort {
+    accounts: BTreeMap<Address, Option<Account>>,
+    ts: i64,
+    forbidden: AtomicUsize,
+    /// The lower bound of every `accounts` read (one entry per wave).
+    min_slots: Mutex<Vec<u64>>,
+}
+
+impl ClockedPort {
+    fn new(accounts: BTreeMap<Address, Option<Account>>, ts: i64) -> ClockedPort {
+        ClockedPort {
+            accounts,
+            ts,
+            forbidden: AtomicUsize::new(0),
+            min_slots: Mutex::new(vec![]),
+        }
+    }
+}
+
+impl ChainPort for ClockedPort {
+    async fn clock(&self) -> PortResult<ClockSysvar> {
+        Ok(ClockSysvar {
+            slot: 900,
+            unix_timestamp: self.ts,
+            ..ClockSysvar::default()
+        })
+    }
+    fn accounts(
+        &self,
+        keys: &[Address],
+        min_slot: u64,
+    ) -> impl Future<Output = PortResult<Vec<Option<Account>>>> + Send {
+        self.min_slots.lock().unwrap().push(min_slot);
+        let out: Vec<Option<Account>> = keys
+            .iter()
+            .map(|k| self.accounts.get(k).cloned().flatten())
+            .collect();
+        async move { Ok(out) }
+    }
+    fn simulate(&self, _tx: &[u8]) -> impl Future<Output = PortResult<SimResult>> + Send {
+        self.forbidden.fetch_add(1, Ordering::SeqCst);
+        async { Err(PortError::Unsupported("simulate is forbidden here")) }
+    }
+    fn send(&self, _tx: &[u8]) -> impl Future<Output = PortResult<Signature>> + Send {
+        self.forbidden.fetch_add(1, Ordering::SeqCst);
+        async { Err(PortError::Unsupported("send is forbidden here")) }
+    }
+    async fn statuses(&self, _sigs: &[Signature]) -> PortResult<Vec<Option<Status>>> {
+        Ok(vec![])
+    }
+    async fn feed(&self, _after: Cursor) -> PortResult<Vec<TxRecord>> {
+        Ok(vec![])
+    }
+    async fn blockhash(&self) -> PortResult<(Hash, u64)> {
+        Ok((Hash::default(), 0))
     }
 }
 
@@ -6106,6 +6189,1276 @@ fn candidates_come_from_the_discovery_model_as_hints_only() {
     );
 }
 
+// ------------------------------------------------------------ gather fixture
+
+/// `A` of THE anchor of `(ARRIVE_BELL, region 0)`: seven seconds into the
+/// bell (a literal; the handler reads `a` and checks nothing about it).
+const A_TS: i64 = GENESIS_TS + 600 * ARRIVE_BELL as i64 + 7;
+/// The fixture provinces' stored region (`province_bytes` writes 0).
+const REGION: u8 = 0;
+
+/// The reveal close of `ARRIVE_BELL` under the fixture Season for an
+/// anchor at `a`: the Season's own clock rule, nothing assumed about it.
+fn close_for(a: i64) -> i64 {
+    SeasonClock::from_season(&Season::decode(&season_ok()).unwrap()).reveal_close(ARRIVE_BELL, a)
+}
+fn gather_close() -> i64 {
+    close_for(A_TS)
+}
+fn clock_ts(slot: u64, ts: i64) -> ClockSysvar {
+    ClockSysvar {
+        slot,
+        unix_timestamp: ts,
+        ..ClockSysvar::default()
+    }
+}
+fn anchor_addr(bell: u32, region: u8) -> Address {
+    addr(ctx().bell_anchor(bell, region))
+}
+fn archive_addr(bell: u32, region: u8) -> Address {
+    addr(ctx().anchor_archive(region, archive_part_of(bell)))
+}
+fn inputs_addr(dest: ProvinceKey, bell: u32) -> Address {
+    addr(wa::clash_inputs_address(&ctx(), dest, bell))
+}
+fn day_addr(dest: ProvinceKey, bell: u32) -> Address {
+    addr(wa::arrival_day_address(&ctx(), dest, wa::day_of(bell)))
+}
+fn slot_addr(dest: ProvinceKey, bell: u32, k: u8) -> Address {
+    addr(wa::arrival_slot_address(&ctx(), dest, bell, k / 4, k % 4))
+}
+fn host_transit_addr(slot: u8) -> Address {
+    transit_addr(holding_addr(home().coord(), SITE), slot)
+}
+
+fn anchor_bytes(bell: u32, region: u8, a: i64, round: u64) -> Vec<u8> {
+    let mut d = vec![0u8; BA::SIZE];
+    assert!(wr_arr(&mut d, BA::HDR_MAGIC, &BA::MAGIC));
+    assert!(wr_u64(&mut d, BA::SEASON_ID, SEASON_ID));
+    assert!(wr_u32(&mut d, BA::BELL, bell));
+    assert!(wr_u8(&mut d, BA::REGION, region));
+    assert!(wr_u64(&mut d, BA::ROUND, round));
+    assert!(wr_arr(&mut d, BA::A, &a.to_le_bytes()));
+    d
+}
+/// The archive of `(region, part of bell)`; with `a_off`, holding `bell`
+/// (its archived bit set, its entry's offset past the bell's end).
+fn archive_bytes(bell: u32, region: u8, a_off: Option<u32>) -> Vec<u8> {
+    let mut d = vec![0u8; AA::SIZE];
+    assert!(wr_arr(&mut d, AA::HDR_MAGIC, &AA::MAGIC));
+    assert!(wr_u64(&mut d, AA::SEASON_ID, SEASON_ID));
+    assert!(wr_u8(&mut d, AA::REGION, region));
+    assert!(wr_u32(&mut d, AA::PART, archive_part_of(bell)));
+    if let Some(off) = a_off {
+        let (at, mask) = AA::bit(AA::ARCHIVED, bell);
+        d[at] |= mask;
+        assert!(wr_u32(&mut d, AA::entry(bell) + AE::A_OFF, off));
+    }
+    d
+}
+fn gather_slot_bytes(
+    dest: ProvinceKey,
+    bell: u32,
+    k: u8,
+    h: WideHostRef,
+    transit_slot: u8,
+) -> Vec<u8> {
+    let s = wa::WideArrivalSlot {
+        season_id: SEASON_ID,
+        dest,
+        bell,
+        faction: k / 4,
+        i: k % 4,
+        transit_slot,
+        host: h,
+        citizen: citizen(),
+        unit: 2,
+        stance: 0,
+        tile: 1,
+        retreat_bps: 0,
+        dealt_bps: 0,
+        dep_mass: TROOPS,
+        flags: 0,
+        beneficiary: [0xB2; 32],
+        rent_to: [0xB3; 32],
+        ev_slot: 0,
+        ev_price: 0,
+        ev_limit: 0,
+        ev_loaded: 0,
+        claimed: false,
+    };
+    let mut d = vec![0u8; wa::wide_arrival_slot::SIZE];
+    s.write(&mut d).unwrap();
+    d
+}
+fn gather_day_bytes(dest: ProvinceKey, bell: u32, bit_set: bool) -> Vec<u8> {
+    let mut rec = wa::WideArrivalDay::new(SEASON_ID, dest, wa::day_of(bell), [0xB4; 32]);
+    if bit_set {
+        assert!(rec.set(bell));
+    }
+    let mut d = vec![0u8; wa::wide_arrival_day::SIZE];
+    rec.write(&mut d).unwrap();
+    d
+}
+/// A ClashInputs of `(dest, bell)` with `mask` gathered, `flags`, and a
+/// present arrival stored at each of `present` (position, host).
+fn inputs_bytes(
+    dest: ProvinceKey,
+    bell: u32,
+    mask: u32,
+    flags: u8,
+    present: &[(u8, WideHostRef)],
+) -> Vec<u8> {
+    let mut h = wa::WideClashInputsHdr::new(SEASON_ID, dest, bell, [0xB5; 32]);
+    h.arrivals_mask = mask;
+    h.flags = flags;
+    h.n_present = present.len() as u8;
+    let mut d = vec![0u8; wa::wide_clash_inputs::SIZE];
+    h.write(&mut d).unwrap();
+    for (k, host) in present {
+        let a = wa::WideArrival {
+            host: *host,
+            citizen: citizen(),
+            dep_mass: TROOPS,
+            troops: TROOPS,
+            stamina: 61,
+            retreat_bps: 0,
+            dealt_bps: 0,
+            faction: k / 4,
+            unit: 2,
+            tile: 1,
+            stance: 0,
+            present: true,
+            fate: wa::wide_arrival::FATE_NONE,
+            troops_after: 0,
+        };
+        a.write_at(&mut d, *k as usize).unwrap();
+    }
+    d
+}
+
+/// Every account a WideGather of `(away(), ARRIVE_BELL)` reads, as it would
+/// be when the bell is gatherable: THE anchor present at `A_TS`, the window
+/// closed by the clock, no ClashInputs yet, the ArrivalDay's bit set, the
+/// slot of position 0 held by `host()` whose transit (slot `SLOT`) is
+/// settled at the origin, every other slot absent.
+struct GatherFx {
+    season: Vec<u8>,
+    province: Option<Vec<u8>>,
+    anchor: Option<Vec<u8>>,
+    archive: Option<Vec<u8>>,
+    inputs: Option<Vec<u8>>,
+    day: Option<Vec<u8>>,
+    /// Present slots by position.
+    slots: BTreeMap<u8, Option<Account>>,
+    /// Transit records by address (every present slot's host's).
+    transits: BTreeMap<Address, Option<Account>>,
+    clock: Option<ClockSysvar>,
+}
+impl GatherFx {
+    fn new() -> GatherFx {
+        let mut slots = BTreeMap::new();
+        slots.insert(
+            0,
+            acct(gather_slot_bytes(away(), ARRIVE_BELL, 0, host(), SLOT)),
+        );
+        let mut transits = BTreeMap::new();
+        transits.insert(
+            host_transit_addr(SLOT),
+            acct(transit_bytes(host(), home(), true, root())),
+        );
+        GatherFx {
+            season: season_ok(),
+            province: Some(province_bytes(away(), ARRIVE_BELL)),
+            anchor: Some(anchor_bytes(ARRIVE_BELL, REGION, A_TS, 1)),
+            archive: None,
+            inputs: None,
+            day: Some(gather_day_bytes(away(), ARRIVE_BELL, true)),
+            slots,
+            transits,
+            clock: Some(clock_ts(900, gather_close())),
+        }
+    }
+    fn accounts(&self) -> BTreeMap<Address, Option<Account>> {
+        let mut m = BTreeMap::new();
+        m.insert(season_pda().0, acct(self.season.clone()));
+        m.insert(province_addr(away()), self.province.clone().and_then(acct));
+        m.insert(
+            anchor_addr(ARRIVE_BELL, REGION),
+            self.anchor.clone().and_then(acct),
+        );
+        m.insert(
+            archive_addr(ARRIVE_BELL, REGION),
+            self.archive.clone().and_then(acct),
+        );
+        m.insert(
+            inputs_addr(away(), ARRIVE_BELL),
+            self.inputs.clone().and_then(acct),
+        );
+        m.insert(
+            day_addr(away(), ARRIVE_BELL),
+            self.day.clone().and_then(acct),
+        );
+        for k in 0..wideduty::GATHER_POSITIONS {
+            m.insert(
+                slot_addr(away(), ARRIVE_BELL, k),
+                self.slots.get(&k).cloned().flatten(),
+            );
+        }
+        for (a, t) in &self.transits {
+            m.insert(*a, t.clone());
+        }
+        m
+    }
+    fn reads(&self) -> Reads {
+        let mut r = Reads::new(0);
+        r.accounts = self.accounts();
+        r.clock = self.clock;
+        r
+    }
+    fn plan(&self) -> Result<Candidate, Block> {
+        done(wideduty::plan_gather(
+            &dscope(),
+            payer(),
+            away(),
+            ARRIVE_BELL,
+            &self.reads(),
+        ))
+    }
+}
+
+fn gather_facts(c: &Candidate) -> &wideduty::GatherFacts {
+    match &c.duty {
+        Duty::Gather(f) => f,
+        other => panic!("not a gather: {other:?}"),
+    }
+}
+
+/// The happy path: the handler's eight fixed accounts in its roles, one
+/// `[slot r] [transit r|w]` pair per position of the cursor, the cursor as
+/// long as one packet carries (one more pair would not fit), the data the
+/// ABI's `Gather`, the present slot's transit stamped (writable), every
+/// absent slot's transit position the slot's own read-only address, the
+/// predictions from the transit record, the fee review naming the record
+/// the handler creates; the same from the archive entry when THE anchor is
+/// gone.
+#[test]
+fn a_gather_candidate_carries_the_handlers_accounts_cursor_and_predictions() {
+    let fx = GatherFx::new();
+    let c = fx.plan().unwrap();
+    let f = gather_facts(&c);
+    assert_eq!(
+        (f.dest, f.bell, f.region, f.resolved_next, f.start),
+        (away(), ARRIVE_BELL, REGION, ARRIVE_BELL, 0)
+    );
+    assert!(!f.inputs_present && f.arrivals_mask_before == 0);
+    assert!(f.day_bit_set && f.cut_at_unsettled.is_none());
+    assert_eq!(f.inputs_prefunded_lamports, 0);
+    // The cursor is bounded before any slot is read: the fixed maximum,
+    // never the whole run of 24.
+    let n = f.n as usize;
+    assert_eq!(n, wideduty::GATHER_MAX_POSITIONS);
+    assert!(wideduty::packet_len(&c.instruction, &payer()) <= wideduty::GATHER_PACKET_BYTES);
+    // The test's own unsigned wire under the fixture budget fits too.
+    assert!(wire_of(std::slice::from_ref(&c.instruction)).len() <= MAX_RECORD_WIRE_BYTES);
+    // Every position of a full cursor present (eight hosts of eight
+    // holdings, each with its own transit record): still one packet, even
+    // with the all-zero placeholder payer that the message cannot dedup
+    // for a real wallet.
+    let mut full = GatherFx::new();
+    for k in 0..wideduty::GATHER_MAX_POSITIONS as u8 {
+        let h = WideHostRef::new(home(), k, GEN, 20 + k as u32).unwrap();
+        full.slots
+            .insert(k, acct(gather_slot_bytes(away(), ARRIVE_BELL, k, h, 0)));
+        full.transits.insert(
+            transit_addr(holding_addr(home().coord(), k), 0),
+            acct(transit_bytes(h, home(), true, root())),
+        );
+    }
+    let cf = full.plan().unwrap();
+    let ff = gather_facts(&cf);
+    assert_eq!((ff.n as usize, ff.stamps as usize), (n, n));
+    assert_eq!(cf.instruction.accounts.len(), 8 + 2 * n);
+    assert!(
+        wideduty::packet_len(&cf.instruction, &Address::default()) <= wideduty::GATHER_PACKET_BYTES
+    );
+    assert!(wideduty::packet_len(&cf.instruction, &payer()) <= wideduty::GATHER_PACKET_BYTES);
+    assert!(wire_of(std::slice::from_ref(&cf.instruction)).len() <= MAX_RECORD_WIRE_BYTES);
+    assert_eq!(ff.predicted_n_present as usize, n);
+    // The fixed eight, the handler's roles.
+    let a = &c.instruction.accounts;
+    assert_eq!(a.len(), 8 + 2 * n);
+    let fixed: Vec<(Address, bool, bool)> = a[..8]
+        .iter()
+        .map(|m| (m.pubkey, m.is_signer, m.is_writable))
+        .collect();
+    assert_eq!(
+        fixed,
+        vec![
+            (payer(), true, true),
+            (season_pda().0, false, false),
+            (province_addr(away()), false, false),
+            (anchor_addr(ARRIVE_BELL, REGION), false, false),
+            (inputs_addr(away(), ARRIVE_BELL), false, true),
+            (day_addr(away(), ARRIVE_BELL), false, false),
+            (fclient::addr::instructions_sysvar(), false, false),
+            (fclient::addr::system_program(), false, false),
+        ]
+    );
+    // Pair 0: the present slot, then its host's transit, writable (stamped).
+    assert_eq!(
+        (a[8].pubkey, a[8].is_writable),
+        (slot_addr(away(), ARRIVE_BELL, 0), false)
+    );
+    assert_eq!(
+        (a[9].pubkey, a[9].is_signer, a[9].is_writable),
+        (host_transit_addr(SLOT), false, true)
+    );
+    // Every other pair: the absent slot, then the slot's own address.
+    for k in 1..n {
+        let s = slot_addr(away(), ARRIVE_BELL, k as u8);
+        assert_eq!((a[8 + 2 * k].pubkey, a[8 + 2 * k].is_writable), (s, false));
+        assert_eq!((a[9 + 2 * k].pubkey, a[9 + 2 * k].is_writable), (s, false));
+    }
+    assert_eq!(
+        c.instruction.data,
+        Gather {
+            bell: ARRIVE_BELL,
+            start: 0,
+            n: n as u8,
+        }
+        .to_bytes()
+        .to_vec()
+    );
+    // The predictions, from the transit record.
+    assert_eq!(f.positions.len(), n);
+    let s0 = f.positions[0].slot.as_ref().unwrap();
+    assert_eq!(
+        (s0.host, s0.transit_slot, s0.transit_state, s0.stamps),
+        (host(), SLOT, MarchState::Settled, true)
+    );
+    assert!(s0.predicted_present && !s0.predicted_destroyed);
+    assert_eq!(s0.troops_milli, TROOPS);
+    assert_eq!(
+        s0.stamina,
+        frontier_abi::clash_model::arrival_stamina(61, DEPART_BELL, ARRIVE_BELL)
+    );
+    assert!(f.positions[1..].iter().all(|p| p.slot.is_none()));
+    assert_eq!(f.predicted_mask_after, (1u32 << n) - 1);
+    assert_eq!(
+        (
+            f.predicted_n_present,
+            f.stamps,
+            f.predicted_complete,
+            f.predicted_no_arrivals
+        ),
+        (1, 1, n == 24, false)
+    );
+    assert_eq!(f.remaining_after as usize, 24 - n);
+    assert_eq!(
+        (f.anchor_source, f.a_ts, f.reveal_close, f.judged_at),
+        ("anchor", A_TS, gather_close(), gather_close())
+    );
+    assert!(!c.signed && !c.automatic_send && !c.coherent());
+    let d = c.describe();
+    assert_eq!(d["kind"], "WideGather");
+    assert_eq!(d["facts"]["n"], n);
+    assert_eq!(d["facts"]["start"], 0);
+    // The fee review names the record the handler creates.
+    let needs = widefees::duty_needs(&c, &fx.reads()).unwrap();
+    assert_eq!(
+        needs.creates,
+        vec![("wide ClashInputs", wa::wide_clash_inputs::SIZE)]
+    );
+    // The archive entry in place of THE anchor: `A = bell end + a_off`.
+    let mut arch = GatherFx::new();
+    arch.anchor = None;
+    arch.archive = Some(archive_bytes(ARRIVE_BELL, REGION, Some(5)));
+    let a_arch = bell_end(GENESIS_TS, ARRIVE_BELL) + 5;
+    arch.clock = Some(clock_ts(900, close_for(a_arch)));
+    let c2 = arch.plan().unwrap();
+    let f2 = gather_facts(&c2);
+    assert_eq!(
+        (f2.anchor_source, f2.a_ts, f2.reveal_close),
+        ("archive", a_arch, close_for(a_arch))
+    );
+    assert_eq!(
+        c2.instruction.accounts[3].pubkey,
+        archive_addr(ARRIVE_BELL, REGION)
+    );
+    // One second before that close: open.
+    arch.clock = Some(clock_ts(900, close_for(a_arch) - 1));
+    assert_eq!(
+        arch.plan().unwrap_err(),
+        Block::WindowOpen {
+            reveal_close: close_for(a_arch),
+            now: close_for(a_arch) - 1
+        }
+    );
+}
+
+/// The live-read driver through a real read adapter: the gather asks in
+/// four waves at the requested bound and decides at the fifth evaluation
+/// — the same instruction the fixture's direct plan gives; nothing
+/// simulated or sent.
+#[test]
+fn gather_via_reads_in_four_waves_through_the_port() {
+    let fx = GatherFx::new();
+    let port = ClockedPort::new(fx.accounts(), gather_close());
+    let c = block_on(wideduty::gather_via(
+        &port,
+        &dscope(),
+        payer(),
+        away(),
+        ARRIVE_BELL,
+        777,
+    ))
+    .unwrap();
+    assert_eq!(c.instruction, fx.plan().unwrap().instruction);
+    assert_eq!(c.min_slot, 777);
+    assert!(!c.coherent());
+    assert_eq!(*port.min_slots.lock().unwrap(), vec![777, 777, 777, 777]);
+    assert_eq!(port.forbidden.load(Ordering::SeqCst), 0);
+    // No present slot: three waves.
+    let mut empty = GatherFx::new();
+    empty.slots.clear();
+    let port = ClockedPort::new(empty.accounts(), gather_close());
+    let c = block_on(wideduty::gather_via(
+        &port,
+        &dscope(),
+        payer(),
+        away(),
+        ARRIVE_BELL,
+        5,
+    ))
+    .unwrap();
+    assert_eq!(gather_facts(&c).stamps, 0);
+    assert_eq!(*port.min_slots.lock().unwrap(), vec![5, 5, 5]);
+}
+
+/// The cursor is bounded before any slot is judged: a present slot whose
+/// transit is still `Departed` **beyond** the cursor does not touch the
+/// first packet; one **inside** the cursor, after the first position, cuts
+/// the cursor before it (the ready prefix is the gather); one **at** the
+/// first position blocks.
+#[test]
+fn a_later_unsettled_position_never_blocks_the_first_ready_packet() {
+    let max = wideduty::GATHER_MAX_POSITIONS as u8;
+    // Beyond the cursor (position `max`): unread, irrelevant.
+    let mut fx = GatherFx::new();
+    let beyond = WideHostRef::new(home(), SITE, GEN, 9).unwrap();
+    fx.slots.insert(
+        max,
+        acct(gather_slot_bytes(away(), ARRIVE_BELL, max, beyond, 2)),
+    );
+    fx.transits.insert(
+        host_transit_addr(2),
+        acct(transit_bytes(beyond, home(), false, root())),
+    );
+    let c = fx.plan().unwrap();
+    let f = gather_facts(&c);
+    assert_eq!((f.start, f.n, f.cut_at_unsettled), (0, max, None));
+    assert!(!c
+        .instruction
+        .accounts
+        .iter()
+        .any(|m| m.pubkey == host_transit_addr(2)));
+    // Inside the cursor at position 3: the cursor is positions 0..3.
+    let mut fx = GatherFx::new();
+    let inside = WideHostRef::new(home(), SITE, GEN, 10).unwrap();
+    fx.slots.insert(
+        3,
+        acct(gather_slot_bytes(away(), ARRIVE_BELL, 3, inside, 3)),
+    );
+    fx.transits.insert(
+        host_transit_addr(3),
+        acct(transit_bytes(inside, home(), false, root())),
+    );
+    let c = fx.plan().unwrap();
+    let f = gather_facts(&c);
+    assert_eq!((f.start, f.n, f.cut_at_unsettled), (0, 3, Some(3)));
+    assert_eq!(c.instruction.accounts.len(), 8 + 2 * 3);
+    assert_eq!(f.predicted_mask_after, 0b111);
+    assert_eq!(f.remaining_after, 21);
+    assert_eq!(
+        c.instruction.data,
+        Gather {
+            bell: ARRIVE_BELL,
+            start: 0,
+            n: 3,
+        }
+        .to_bytes()
+        .to_vec()
+    );
+    assert!(!c
+        .instruction
+        .accounts
+        .iter()
+        .any(|m| m.pubkey == host_transit_addr(3)));
+    // At the first position: blocked (nothing ready before it).
+    let mut fx = GatherFx::new();
+    fx.transits.insert(
+        host_transit_addr(SLOT),
+        acct(transit_bytes(host(), home(), false, root())),
+    );
+    assert_eq!(
+        fx.plan().unwrap_err(),
+        Block::DepartureUnsettled { position: 0 }
+    );
+}
+
+/// The present count is the handler's scan of **every** position of the
+/// written record: a present arrival stored at an unmasked position
+/// outside the cursor counts; a position outside the cursor that does not
+/// decode fails (`BadAccount`); one inside the cursor is overwritten and
+/// does not.
+#[test]
+fn the_present_count_mirrors_the_handlers_scan_of_every_position() {
+    // Positions 0 and 3 gathered → the cursor is 1..3; a present arrival
+    // stored at 5 (unmasked, outside the cursor).
+    let mut fx = GatherFx::new();
+    fx.slots.clear();
+    fx.inputs = Some(inputs_bytes(
+        away(),
+        ARRIVE_BELL,
+        0b1001,
+        0,
+        &[(0, host()), (5, host_b())],
+    ));
+    let c = fx.plan().unwrap();
+    let f = gather_facts(&c);
+    assert_eq!((f.start, f.n), (1, 2));
+    assert_eq!(
+        f.predicted_n_present, 2,
+        "the masked one and the unmasked one"
+    );
+    // Garbage at position 7 (outside the cursor): the handler's scan fails.
+    let mut bad = fx.inputs.clone().unwrap();
+    let o = wa::wide_clash_inputs::arrival(7);
+    bad[o..o + 8].copy_from_slice(&[0xFF; 8]);
+    fx.inputs = Some(bad);
+    assert_eq!(fx.plan().unwrap_err(), Block::Unreadable("inputs position"));
+    // Garbage at position 1 (inside the cursor): zeroed and rewritten by
+    // the handler; the plan stands.
+    let mut fx = GatherFx::new();
+    fx.slots.clear();
+    let mut d = inputs_bytes(away(), ARRIVE_BELL, 0b1001, 0, &[]);
+    let o = wa::wide_clash_inputs::arrival(1);
+    d[o..o + 8].copy_from_slice(&[0xFF; 8]);
+    fx.inputs = Some(d);
+    let f = gather_facts(&fx.plan().unwrap()).clone();
+    assert_eq!((f.start, f.n, f.predicted_n_present), (1, 2, 0));
+}
+
+/// The ArrivalDay's bit clear with a **partial** record: the handler
+/// completes the mask without reading a slot (the resolve requires the
+/// complete record), so the plan is the completing gather of one position
+/// with its slot unread — a `Departed` transit behind that slot cannot
+/// block it — nothing written to the positions, the present count from
+/// the record as it is. With no record at all the plan is `NoArrivals`.
+#[test]
+fn a_clear_day_bit_with_a_partial_record_plans_the_completing_gather() {
+    let mut fx = GatherFx::new();
+    fx.day = Some(gather_day_bytes(away(), ARRIVE_BELL, false));
+    fx.inputs = Some(inputs_bytes(away(), ARRIVE_BELL, 0b111, 0, &[(2, host())]));
+    // A slot at the first ungathered position whose transit is unsettled:
+    // never read.
+    fx.slots.insert(
+        3,
+        acct(gather_slot_bytes(away(), ARRIVE_BELL, 3, host(), SLOT)),
+    );
+    fx.transits.insert(
+        host_transit_addr(SLOT),
+        acct(transit_bytes(host(), home(), false, root())),
+    );
+    let c = fx.plan().unwrap();
+    let f = gather_facts(&c);
+    assert!(!f.day_bit_set);
+    assert_eq!((f.start, f.n, f.stamps), (3, 1, 0));
+    assert!(f.positions[0].slot.is_none(), "the slot is not read");
+    assert_eq!(f.predicted_mask_after, wa::wide_clash_inputs::ALL_GATHERED);
+    assert_eq!(
+        (
+            f.predicted_complete,
+            f.predicted_n_present,
+            f.predicted_no_arrivals,
+            f.remaining_after
+        ),
+        (true, 1, false, 0)
+    );
+    let a = &c.instruction.accounts;
+    assert_eq!(a.len(), 10);
+    assert_eq!(a[8].pubkey, slot_addr(away(), ARRIVE_BELL, 3));
+    assert_eq!(
+        (a[9].pubkey, a[9].is_writable),
+        (slot_addr(away(), ARRIVE_BELL, 3), false)
+    );
+    assert_eq!(
+        c.instruction.data,
+        Gather {
+            bell: ARRIVE_BELL,
+            start: 3,
+            n: 1,
+        }
+        .to_bytes()
+        .to_vec()
+    );
+    assert_eq!(c.describe()["facts"]["day_bit_set"], false);
+    // The day absent with the same partial record: the same completing gather.
+    fx.day = None;
+    assert_eq!(gather_facts(&fx.plan().unwrap()).n, 1);
+    // No record: not planned.
+    fx.inputs = None;
+    assert_eq!(fx.plan().unwrap_err(), Block::NoArrivals);
+}
+
+/// The gather handler has no full-minimum guard: `init_with_seed` tops the
+/// ClashInputs address up from the payer by the shortfall over what it
+/// already holds. The fee review nets a prefunded address: fully prefunded,
+/// the payer needs the fee alone; a lamport short is unmet; an unfunded
+/// address needs the full minimum plus the fee.
+#[test]
+fn a_prefunded_clash_inputs_leaves_the_payer_the_fee_alone() {
+    let minimum = RENT_FIXTURE
+        .minimum_balance(wa::wide_clash_inputs::SIZE)
+        .unwrap();
+    let wallet = |lamports: u64| {
+        Some(Account {
+            lamports,
+            data: vec![],
+            owner: fclient::addr::system_program(),
+            executable: false,
+        })
+    };
+    let fx = GatherFx::new();
+    let needs_with = |inputs_lamports: Option<u64>, payer_lamports: u64| {
+        let mut accounts = fx.accounts();
+        accounts.insert(
+            inputs_addr(away(), ARRIVE_BELL),
+            inputs_lamports.and_then(wallet),
+        );
+        accounts.insert(payer(), wallet(payer_lamports));
+        let keys: Vec<Address> = accounts.keys().copied().collect();
+        let snap = snapshot_of_rent(&accounts, &keys, clock_ts(2_000, gather_close()), 7);
+        let reads = snap.reads();
+        let c = done(wideduty::plan_gather(
+            &dscope(),
+            payer(),
+            away(),
+            ARRIVE_BELL,
+            &reads,
+        ))
+        .unwrap();
+        assert!(c.coherent());
+        let f = gather_facts(&c);
+        assert!(!f.inputs_present);
+        assert_eq!(f.inputs_prefunded_lamports, inputs_lamports.unwrap_or(0));
+        widefees::duty_needs(&c, &reads).unwrap()
+    };
+    // Fully prefunded: the fee alone.
+    let n = needs_with(Some(minimum), 5_000);
+    assert_eq!(
+        n.creates,
+        vec![("wide ClashInputs", wa::wide_clash_inputs::SIZE)]
+    );
+    assert_eq!(n.rent_lamports, Known::Known(minimum));
+    assert_eq!(n.prefunded_lamports, minimum);
+    assert_eq!(n.rent_rule, widefees::RENT_RULE_TOP_UP);
+    assert_eq!(n.required_lower_bound, Known::Known(5_000));
+    assert_eq!(
+        n.funding,
+        Funding::MetLowerBound {
+            payer_lamports: 5_000,
+            required: 5_000
+        }
+    );
+    assert_eq!(n.describe()["prefunded_lamports"], minimum);
+    // A lamport short of the fee.
+    let n = needs_with(Some(minimum), 4_999);
+    assert_eq!(
+        n.funding,
+        Funding::Unmet {
+            payer_lamports: 4_999,
+            required: 5_000,
+            short: 1
+        }
+    );
+    // Half prefunded: the other half plus the fee.
+    let n = needs_with(Some(minimum / 2), 5_000);
+    assert_eq!(
+        n.required_lower_bound,
+        Known::Known(minimum - minimum / 2 + 5_000)
+    );
+    assert!(matches!(n.funding, Funding::Unmet { .. }));
+    // Nothing at the address: the full minimum plus the fee.
+    let n = needs_with(None, 5_000);
+    assert_eq!(n.prefunded_lamports, 0);
+    assert_eq!(n.required_lower_bound, Known::Known(minimum + 5_000));
+    assert!(matches!(n.funding, Funding::Unmet { .. }));
+}
+
+/// Positions gathered before are not read again (duplicates): the cursor
+/// starts after them, a stored present arrival counts in the prediction;
+/// a gathered position inside the run cuts it; the last part completes
+/// the record (`FLAG_NO_ARRIVALS` when nothing is present); a finished
+/// record, a resolved record and another bell's record are refused.
+#[test]
+fn a_gather_resumes_after_the_gathered_positions_and_refuses_a_finished_or_resolved_record() {
+    let mut fx = GatherFx::new();
+    fx.inputs = Some(inputs_bytes(away(), ARRIVE_BELL, 1, 0, &[(0, host())]));
+    // Position 2: another host of the same holding, its transit slot 0,
+    // settled at the origin.
+    fx.slots.insert(
+        2,
+        acct(gather_slot_bytes(away(), ARRIVE_BELL, 2, host_b(), 0)),
+    );
+    fx.transits.insert(
+        host_transit_addr(0),
+        acct(transit_bytes(host_b(), home(), true, root())),
+    );
+    let c = fx.plan().unwrap();
+    let f = gather_facts(&c);
+    assert_eq!(
+        (f.start, f.inputs_present, f.arrivals_mask_before),
+        (1, true, 1)
+    );
+    assert!(
+        f.positions.iter().all(|p| p.position >= 1),
+        "position 0 is not read again"
+    );
+    assert!(f.positions[0].slot.is_none());
+    let s2 = f.positions[1].slot.as_ref().unwrap();
+    assert_eq!(
+        (f.positions[1].position, s2.host, s2.transit_slot),
+        (2, host_b(), 0)
+    );
+    assert_eq!(c.instruction.accounts[11].pubkey, host_transit_addr(0));
+    assert!(c.instruction.accounts[11].is_writable);
+    assert_eq!(
+        f.predicted_n_present, 2,
+        "the stored present arrival and the new one"
+    );
+    assert_eq!(f.stamps, 1);
+    assert_eq!(f.predicted_mask_after & 1, 1);
+    assert_eq!(
+        c.instruction.data,
+        Gather {
+            bell: ARRIVE_BELL,
+            start: 1,
+            n: f.n,
+        }
+        .to_bytes()
+        .to_vec()
+    );
+    assert!(
+        widefees::duty_needs(&c, &fx.reads())
+            .unwrap()
+            .creates
+            .is_empty(),
+        "the record exists: nothing is created"
+    );
+    // A gathered position inside the run cuts the cursor: 0, 1, 2 and 4
+    // gathered → position 3 alone.
+    let mut split = GatherFx::new();
+    split.slots.clear();
+    split.inputs = Some(inputs_bytes(away(), ARRIVE_BELL, 0b1_0111, 0, &[]));
+    let f = gather_facts(&split.plan().unwrap()).clone();
+    assert_eq!((f.start, f.n, f.predicted_complete), (3, 1, false));
+    // The last part: positions 0..21 gathered, nothing present anywhere.
+    let mut last = GatherFx::new();
+    last.slots.clear();
+    last.inputs = Some(inputs_bytes(away(), ARRIVE_BELL, (1u32 << 21) - 1, 0, &[]));
+    let c = last.plan().unwrap();
+    let f = gather_facts(&c);
+    assert_eq!(
+        (
+            f.start,
+            f.n,
+            f.predicted_mask_after,
+            f.predicted_n_present,
+            f.predicted_complete,
+            f.predicted_no_arrivals,
+            f.remaining_after
+        ),
+        (21, 3, wa::wide_clash_inputs::ALL_GATHERED, 0, true, true, 0)
+    );
+    assert_eq!(c.instruction.accounts.len(), 8 + 2 * 3);
+    // Every position gathered: nothing to gather.
+    let mut finished = GatherFx::new();
+    finished.inputs = Some(inputs_bytes(
+        away(),
+        ARRIVE_BELL,
+        wa::wide_clash_inputs::ALL_GATHERED,
+        0,
+        &[],
+    ));
+    assert_eq!(finished.plan().unwrap_err(), Block::AlreadyGathered);
+    // Resolved: `AlreadyDone`.
+    let mut resolved = GatherFx::new();
+    resolved.inputs = Some(inputs_bytes(
+        away(),
+        ARRIVE_BELL,
+        wa::wide_clash_inputs::ALL_GATHERED,
+        wa::wide_clash_inputs::FLAG_RESOLVED,
+        &[],
+    ));
+    assert_eq!(resolved.plan().unwrap_err(), Block::AlreadyResolved);
+    // Another bell's record at the address.
+    let mut other_bell = GatherFx::new();
+    other_bell.inputs = Some(inputs_bytes(away(), ARRIVE_BELL + 1, 0, 0, &[]));
+    assert_eq!(
+        other_bell.plan().unwrap_err(),
+        Block::NotCanonical("inputs")
+    );
+}
+
+/// The handler's refusals, each from literal bytes: no arrival evidence
+/// (the ArrivalDay absent or its bit clear — never "no arrivals" from the
+/// feed), the latch, the end bell, the window by a second, no clock, no
+/// anchor or an archive without the bell, another bell's anchor, a
+/// departure not settled at the origin, a transit absent, another host's,
+/// gathered elsewhere (and gathered here: taken as is, not stamped), a
+/// slot of another destination, a slot owned by another program, the
+/// destination absent, a legacy Province at the address, another world's
+/// key.
+#[test]
+fn a_gather_blocks_on_the_handlers_refusals() {
+    let blocked = |f: GatherFx| f.plan().unwrap_err();
+    let mut fx = GatherFx::new();
+    fx.day = None;
+    assert_eq!(blocked(fx), Block::NoArrivals);
+    let mut fx = GatherFx::new();
+    fx.day = Some(gather_day_bytes(away(), ARRIVE_BELL, false));
+    assert_eq!(blocked(fx), Block::NoArrivals);
+    let mut fx = GatherFx::new();
+    fx.day = Some(gather_day_bytes(home(), ARRIVE_BELL, true));
+    assert_eq!(blocked(fx), Block::NotCanonical("arrivalday"));
+    let mut fx = GatherFx::new();
+    fx.province = Some(province_bytes(away(), ARRIVE_BELL + 1));
+    assert_eq!(
+        blocked(fx),
+        Block::LatchClosed("destination resolved past the bell")
+    );
+    let mut fx = GatherFx::new();
+    let mut ended = season_ok();
+    assert!(wr_u32(&mut ended, SL::END_BELL, ARRIVE_BELL));
+    fx.season = ended;
+    assert_eq!(blocked(fx), Block::SeasonEnded);
+    let mut fx = GatherFx::new();
+    fx.clock = Some(clock_ts(900, gather_close() - 1));
+    assert_eq!(
+        blocked(fx),
+        Block::WindowOpen {
+            reveal_close: gather_close(),
+            now: gather_close() - 1
+        }
+    );
+    let mut fx = GatherFx::new();
+    fx.clock = None;
+    assert_eq!(blocked(fx), Block::TimingNeedsClock);
+    let mut fx = GatherFx::new();
+    fx.anchor = None;
+    assert_eq!(blocked(fx), Block::NoAnchor("absent"));
+    let mut fx = GatherFx::new();
+    fx.anchor = None;
+    fx.archive = Some(archive_bytes(ARRIVE_BELL, REGION, None));
+    assert_eq!(blocked(fx), Block::NoAnchor("archive without the bell"));
+    let mut fx = GatherFx::new();
+    fx.anchor = Some(anchor_bytes(ARRIVE_BELL + 1, REGION, A_TS, 1));
+    assert_eq!(blocked(fx), Block::NotCanonical("anchor"));
+    // The transit record of the present slot.
+    let mut fx = GatherFx::new();
+    fx.transits.insert(
+        host_transit_addr(SLOT),
+        acct(transit_bytes(host(), home(), false, root())),
+    );
+    assert_eq!(blocked(fx), Block::DepartureUnsettled { position: 0 });
+    let mut fx = GatherFx::new();
+    fx.transits.insert(host_transit_addr(SLOT), None);
+    assert_eq!(blocked(fx), Block::Absent("transit"));
+    let mut fx = GatherFx::new();
+    fx.transits.insert(
+        host_transit_addr(SLOT),
+        acct(transit_bytes(host_b(), home(), true, root())),
+    );
+    assert_eq!(blocked(fx), Block::NotCanonical("transit"));
+    let settled = WideTransit::from_bytes(&transit_bytes(host(), home(), true, root())).unwrap();
+    let mut fx = GatherFx::new();
+    let elsewhere = settled
+        .step(MarchEvent::Gather { dest: home() }, None)
+        .unwrap();
+    fx.transits
+        .insert(host_transit_addr(SLOT), acct(elsewhere.to_bytes().to_vec()));
+    assert_eq!(blocked(fx), Block::NotCanonical("transit"));
+    let mut fx = GatherFx::new();
+    let here = settled
+        .step(MarchEvent::Gather { dest: away() }, None)
+        .unwrap();
+    fx.transits
+        .insert(host_transit_addr(SLOT), acct(here.to_bytes().to_vec()));
+    let c = fx.plan().unwrap();
+    let f = gather_facts(&c);
+    let s0 = f.positions[0].slot.as_ref().unwrap();
+    assert_eq!(
+        (s0.transit_state, s0.stamps, s0.predicted_present),
+        (MarchState::Gathered, false, true)
+    );
+    assert_eq!(f.stamps, 0);
+    assert!(
+        !c.instruction.accounts[9].is_writable,
+        "not stamped: read-only"
+    );
+    // The slot at the position's address.
+    let mut fx = GatherFx::new();
+    fx.slots.insert(
+        0,
+        acct(gather_slot_bytes(home(), ARRIVE_BELL, 0, host(), SLOT)),
+    );
+    assert_eq!(blocked(fx), Block::NotCanonical("slot"));
+    let mut fx = GatherFx::new();
+    let mut foreign = acct(gather_slot_bytes(away(), ARRIVE_BELL, 0, host(), SLOT)).unwrap();
+    foreign.owner = actor();
+    fx.slots.insert(0, Some(foreign));
+    assert_eq!(blocked(fx), Block::ForeignOwner("slot"));
+    // The destination.
+    let mut fx = GatherFx::new();
+    fx.province = None;
+    assert_eq!(blocked(fx), Block::Absent("dest_province"));
+    let mut fx = GatherFx::new();
+    fx.province = Some(legacy_province_bytes());
+    assert_eq!(blocked(fx), Block::Unreadable("dest_province"));
+    let fx = GatherFx::new();
+    assert_eq!(
+        done(wideduty::plan_gather(
+            &dscope(),
+            payer(),
+            ProvinceKey::new(other_world(), away().coord()),
+            ARRIVE_BELL,
+            &fx.reads()
+        ))
+        .unwrap_err(),
+        Block::World
+    );
+}
+
+/// A gather candidate planned over one snapshot is coherent and bound to
+/// its content: another cursor claimed, a transit flag changed or a
+/// prediction edited loses the snapshot, the fee bound and the review's
+/// snapshot denial changes; every hard denial stands either way.
+#[test]
+fn a_gather_candidate_is_bound_to_its_snapshot_and_content() {
+    let fx = GatherFx::new();
+    let accounts = fx.accounts();
+    let keys: Vec<Address> = accounts.keys().copied().collect();
+    let snap = snapshot_of(&accounts, &keys, clock_ts(2_000, gather_close()), 7);
+    let reads = snap.reads();
+    let c = done(wideduty::plan_gather(
+        &dscope(),
+        payer(),
+        away(),
+        ARRIVE_BELL,
+        &reads,
+    ))
+    .unwrap();
+    assert!(c.coherent());
+    assert_eq!(c.snapshot().map(|m| m.context_slot()), Some(2_000));
+    let engine = Engine::new(Budgets::default(), EngineParams::default());
+    let open = EngineView::of(&engine, &widereview::Subject::of_duty(&c));
+    let a = widereview::review_candidate(&c, &reads, &open);
+    assert!(!a.review.admitted);
+    assert!(a.snapshot.is_some());
+    for d in [
+        Deny::SourceUnproven,
+        Deny::HistoryUnknown,
+        Deny::SignerAbsent,
+        Deny::SliceDoesNotEnqueue,
+    ] {
+        assert!(a.review.denials.contains(&d), "{d:?}");
+    }
+    assert!(a.review.subject.key.starts_with("wide-gather:"));
+    assert!(a.review.subject.key.ends_with(&format!(":{ARRIVE_BELL}:0")));
+    let mut m = c.clone();
+    if let Duty::Gather(f) = &mut m.duty {
+        f.start = 1;
+    }
+    lost_everything("start", &m, &reads, &open);
+    let mut m = c.clone();
+    m.instruction.accounts[9].is_writable = false;
+    lost_everything("transit flag", &m, &reads, &open);
+    let mut m = c.clone();
+    if let Duty::Gather(f) = &mut m.duty {
+        f.predicted_no_arrivals = true;
+    }
+    lost_everything("no_arrivals", &m, &reads, &open);
+    let mut m = c.clone();
+    if let Duty::Gather(f) = &mut m.duty {
+        f.positions[0].slot.as_mut().unwrap().stamps = false;
+    }
+    lost_everything("stamps", &m, &reads, &open);
+}
+
+/// Gather hints come from the model's revealed open marches, as read
+/// hints only: a departure alone is none; a reveal with its arrival bell
+/// in the applied history is one; a partial gather keeps it, a full gather
+/// or a resolve of the bell drops it.
+#[test]
+fn gather_hints_come_from_revealed_open_marches_only() {
+    let mut d = WideDiscovery::new(
+        IndexScope {
+            program: program(),
+            season: season_pda().0,
+            world: world(),
+            source: "test: literal bodies".into(),
+        },
+        Limits::default(),
+    );
+    assert!(wideduty::gather_candidates(&d).is_empty());
+    d.apply(&WideBatch {
+        seq: 1,
+        slot: 1_001,
+        signature: "sig-1".into(),
+        bodies: vec![departed_ok(home())],
+    })
+    .unwrap();
+    assert!(
+        wideduty::gather_candidates(&d).is_empty(),
+        "departed, not revealed"
+    );
+    d.apply(&WideBatch {
+        seq: 2,
+        slot: 1_002,
+        signature: "sig-2".into(),
+        bodies: vec![encode(
+            WideKind::Revealed,
+            ARRIVE_BELL,
+            &wev::host_key(&host(), away()),
+            &wev::revealed_payload(SLOT, 0, 0, 33, 0, 0, TROOPS, false),
+            &[],
+        )
+        .unwrap()],
+    })
+    .unwrap();
+    assert_eq!(wideduty::gather_candidates(&d), vec![(away(), ARRIVE_BELL)]);
+    let gathered = |mask: u32| {
+        encode(
+            WideKind::Gathered,
+            ARRIVE_BELL + 1,
+            &away().to_bytes(),
+            &wev::gathered_payload(ARRIVE_BELL, 0, 8, mask, 1, false),
+            &[],
+        )
+        .unwrap()
+    };
+    let mut partial = d.clone();
+    partial
+        .apply(&WideBatch {
+            seq: 3,
+            slot: 1_003,
+            signature: "sig-3".into(),
+            bodies: vec![gathered(0xFF)],
+        })
+        .unwrap();
+    assert_eq!(
+        wideduty::gather_candidates(&partial),
+        vec![(away(), ARRIVE_BELL)],
+        "a partial gather keeps the hint"
+    );
+    let mut full = d.clone();
+    full.apply(&WideBatch {
+        seq: 3,
+        slot: 1_003,
+        signature: "sig-3".into(),
+        bodies: vec![gathered(wa::wide_clash_inputs::ALL_GATHERED)],
+    })
+    .unwrap();
+    assert!(
+        wideduty::gather_candidates(&full).is_empty(),
+        "fully gathered"
+    );
+    let mut resolved = d.clone();
+    resolved
+        .apply(&WideBatch {
+            seq: 3,
+            slot: 1_003,
+            signature: "sig-3".into(),
+            bodies: vec![encode(
+                WideKind::Resolve,
+                ARRIVE_BELL,
+                &away().to_bytes(),
+                &wev::resolve_payload(&[1; 32], &[2; 32], 0, 0, 0, false),
+                &[link(WideEntity::Province, 1)],
+            )
+            .unwrap()],
+        })
+        .unwrap();
+    assert!(
+        wideduty::gather_candidates(&resolved).is_empty(),
+        "resolved"
+    );
+}
+
+/// The tick: a model with one revealed, origin-settled march lists one
+/// gather hint and nothing else; the plan runs over one snapshot (with the
+/// Rent: the record may be created), makes a coherent candidate, reviews
+/// it with every hard denial, counts it, and enqueues nothing; with the
+/// window still open at the tick's clock the hint is planned and blocked.
+#[test]
+fn the_tick_plans_a_gather_candidate_reviews_it_and_enqueues_nothing() {
+    let mut model = WideDiscovery::new(
+        IndexScope {
+            program: program(),
+            season: season_pda().0,
+            world: world(),
+            source: "test: literal bodies".into(),
+        },
+        Limits::default(),
+    );
+    model
+        .apply(&WideBatch {
+            seq: 1,
+            slot: 1_001,
+            signature: "sig-1".into(),
+            bodies: vec![departed_ok(home())],
+        })
+        .unwrap();
+    model
+        .apply(&WideBatch {
+            seq: 2,
+            slot: 1_002,
+            signature: "sig-2".into(),
+            bodies: vec![both(
+                WideKind::DepartureSettled,
+                DEPART_BELL + 1,
+                &wev::host_key(&host(), home()),
+                &wev::departure_settled_payload(SLOT, false, TROOPS, 61, 0, 4),
+            )],
+        })
+        .unwrap();
+    model
+        .apply(&WideBatch {
+            seq: 3,
+            slot: 1_003,
+            signature: "sig-3".into(),
+            bodies: vec![encode(
+                WideKind::Revealed,
+                ARRIVE_BELL,
+                &wev::host_key(&host(), away()),
+                &wev::revealed_payload(SLOT, 0, 0, 33, 0, 0, TROOPS, false),
+                &[],
+            )
+            .unwrap()],
+        })
+        .unwrap();
+    assert!(wideduty::settle_candidates(&model).is_empty());
+    assert!(wideduty::return_candidates(&model).is_empty());
+    assert_eq!(
+        wideduty::gather_candidates(&model),
+        vec![(away(), ARRIVE_BELL)]
+    );
+    let fx = GatherFx::new();
+    let port = ClockedPort::new(fx.accounts(), gather_close());
+    let mut lit = LiteralSnapshots::new(fx.accounts());
+    lit.clock_ts = gather_close();
+    let engine = Engine::new(Budgets::default(), EngineParams::default());
+    let mut review = WideReview::new(Deployment {
+        program_version: WIDE_VERSION,
+        ruleset_hash: RULESET,
+    });
+    let made = block_on(review.step(
+        &port,
+        &engine,
+        &model,
+        program(),
+        season_pda().0,
+        900,
+        Some(&lit),
+        None,
+    ));
+    assert_eq!(made, 1);
+    assert_eq!(
+        (
+            review.plans,
+            review.gather_plans,
+            review.candidates,
+            review.gather_candidates,
+            review.coherent,
+            review.blocked
+        ),
+        (1, 1, 1, 1, 1, 0)
+    );
+    // One snapshot request, holding the planner's keys.
+    let keys = lit.keys.lock().unwrap().clone();
+    assert_eq!(keys.len(), 1);
+    assert!(keys[0].contains(&inputs_addr(away(), ARRIVE_BELL)));
+    assert!(keys[0].contains(&day_addr(away(), ARRIVE_BELL)));
+    assert!(keys[0].contains(&slot_addr(away(), ARRIVE_BELL, 0)));
+    assert!(keys[0].contains(&host_transit_addr(SLOT)));
+    let st = review.status();
+    let r = &st["recent"][0];
+    assert_eq!(
+        r["hint"],
+        format!("gather:{}:{}", hex::encode(away().to_bytes()), ARRIVE_BELL)
+    );
+    assert_eq!(r["outcome"], "candidate");
+    assert_eq!(r["candidate"]["kind"], "WideGather");
+    assert_eq!(r["candidate"]["coherent"], true);
+    assert_eq!(r["candidate"]["facts"]["start"], 0);
+    assert_eq!(r["candidate"]["signed"], false);
+    assert_eq!(r["candidate"]["automatic_send"], false);
+    assert_eq!(
+        r["assessment"]["needs"]["creates"][0]["account"],
+        "wide ClashInputs"
+    );
+    let denials = r["assessment"]["review"]["denials"].as_array().unwrap();
+    for d in [
+        "SourceUnproven",
+        "HistoryUnknown",
+        "SignerAbsent",
+        "SliceDoesNotEnqueue",
+    ] {
+        assert!(denials.iter().any(|x| x == d), "{d}");
+    }
+    assert_eq!(r["assessment"]["review"]["admitted"], false);
+    assert_eq!(engine.pending_len(), 0);
+    assert_eq!(port.forbidden.load(Ordering::SeqCst), 0);
+    assert_eq!(st["gather"]["plans"], 1);
+    assert_eq!(st["gather"]["candidates"], 1);
+    assert_eq!(st["enqueued"], 0);
+    assert_eq!(st["automatic_writes"], false);
+    // The window still open at the tick's clock: planned, blocked, nothing made.
+    let cold = ClockedPort::new(fx.accounts(), gather_close() - 1);
+    let mut review2 = WideReview::new(Deployment {
+        program_version: WIDE_VERSION,
+        ruleset_hash: RULESET,
+    });
+    assert_eq!(
+        block_on(review2.step(
+            &cold,
+            &engine,
+            &model,
+            program(),
+            season_pda().0,
+            900,
+            Some(&lit),
+            None,
+        )),
+        1
+    );
+    assert_eq!(
+        (
+            review2.gather_plans,
+            review2.gather_candidates,
+            review2.blocked
+        ),
+        (1, 0, 1)
+    );
+    let r2 = &review2.status()["recent"][0];
+    assert_eq!(r2["outcome"], "blocked");
+    assert!(r2["block"].as_str().unwrap().starts_with("WindowOpen"));
+    assert_eq!(engine.pending_len(), 0);
+    assert_eq!(cold.forbidden.load(Ordering::SeqCst), 0);
+}
+
 // ------------------------------------------------------------ content sealing
 
 /// One `getMultipleAccounts` response for `keys ‖ Clock` written as literal
@@ -6115,6 +7468,16 @@ fn snapshot_json(
     accounts: &BTreeMap<Address, Option<Account>>,
     keys: &[Address],
     clock: ClockSysvar,
+) -> Value {
+    snapshot_json_rent(accounts, keys, clock, None)
+}
+/// [`snapshot_json`] with the Rent sysvar appended after the Clock when
+/// `rent` is given (the shape a `with_rent` request is answered in).
+fn snapshot_json_rent(
+    accounts: &BTreeMap<Address, Option<Account>>,
+    keys: &[Address],
+    clock: ClockSysvar,
+    rent: Option<RentSysvar>,
 ) -> Value {
     let mut value: Vec<Value> = keys
         .iter()
@@ -6129,6 +7492,14 @@ fn snapshot_json(
         owner: sysvar_owner(),
         executable: false,
     }));
+    if let Some(r) = rent {
+        value.push(account_json(&Account {
+            lamports: 1,
+            data: r.encode().to_vec(),
+            owner: sysvar_owner(),
+            executable: false,
+        }));
+    }
     json!({"context": {"slot": clock.slot}, "value": value})
 }
 fn snapshot_of(
@@ -6138,6 +7509,21 @@ fn snapshot_of(
     min_slot: u64,
 ) -> Snapshot {
     parse_snapshot_response(&snapshot_json(accounts, keys, clock), keys, false, min_slot).unwrap()
+}
+/// [`snapshot_of`] with the Rent sysvar (`RENT_FIXTURE`) in the response.
+fn snapshot_of_rent(
+    accounts: &BTreeMap<Address, Option<Account>>,
+    keys: &[Address],
+    clock: ClockSysvar,
+    min_slot: u64,
+) -> Snapshot {
+    parse_snapshot_response(
+        &snapshot_json_rent(accounts, keys, clock, Some(RENT_FIXTURE)),
+        keys,
+        true,
+        min_slot,
+    )
+    .unwrap()
 }
 
 /// What a coherent settle candidate loses when any public field differs
@@ -6244,25 +7630,25 @@ fn a_mutated_settle_candidate_loses_its_snapshot_fee_bound_and_review() {
     let mut m = c.clone();
     match &mut m.duty {
         Duty::SettleDeparture(f) => f.predicted_destroyed = !f.predicted_destroyed,
-        Duty::Return(_) => unreachable!(),
+        Duty::Return(_) | Duty::Gather(_) => unreachable!(),
     }
     lost_everything("predicted_destroyed", &m, &reads, &open);
     let mut m = c.clone();
     match &mut m.duty {
         Duty::SettleDeparture(f) => f.troops_after_milli += 1,
-        Duty::Return(_) => unreachable!(),
+        Duty::Return(_) | Duty::Gather(_) => unreachable!(),
     }
     lost_everything("troops_after_milli", &m, &reads, &open);
     let mut m = c.clone();
     match &mut m.duty {
         Duty::SettleDeparture(f) => f.origin_is_home = !f.origin_is_home,
-        Duty::Return(_) => unreachable!(),
+        Duty::Return(_) | Duty::Gather(_) => unreachable!(),
     }
     lost_everything("origin_is_home", &m, &reads, &open);
     let mut m = c.clone();
     match &mut m.duty {
         Duty::SettleDeparture(f) => f.entry_index += 1,
-        Duty::Return(_) => unreachable!(),
+        Duty::Return(_) | Duty::Gather(_) => unreachable!(),
     }
     lost_everything("entry_index", &m, &reads, &open);
     // The duty's kind.
@@ -6469,7 +7855,7 @@ fn world_bytes_past_the_debug_prefix_are_candidate_content() {
         let mut m = c.clone();
         match &mut m.duty {
             Duty::SettleDeparture(f) => f.host = rehost(f.host, i),
-            Duty::Return(_) => unreachable!(),
+            Duty::Return(_) | Duty::Gather(_) => unreachable!(),
         }
         assert_eq!(m.instruction, c.instruction);
         assert_eq!(
@@ -6483,7 +7869,7 @@ fn world_bytes_past_the_debug_prefix_are_candidate_content() {
         let mut m = c.clone();
         match &mut m.duty {
             Duty::SettleDeparture(f) => f.origin = rekey(f.origin, i),
-            Duty::Return(_) => unreachable!(),
+            Duty::Return(_) | Duty::Gather(_) => unreachable!(),
         }
         assert_eq!(m.instruction, c.instruction);
         assert_eq!(
@@ -6522,7 +7908,7 @@ fn world_bytes_past_the_debug_prefix_are_candidate_content() {
         let mut m = r.clone();
         match &mut m.duty {
             Duty::Return(f) => f.standing = rekey(f.standing, i),
-            Duty::SettleDeparture(_) => unreachable!(),
+            Duty::SettleDeparture(_) | Duty::Gather(_) => unreachable!(),
         }
         assert_eq!(m.instruction, r.instruction);
         assert_eq!(
@@ -6534,7 +7920,7 @@ fn world_bytes_past_the_debug_prefix_are_candidate_content() {
         let mut m = r.clone();
         match &mut m.duty {
             Duty::Return(f) => f.holding = rehost(f.holding, i),
-            Duty::SettleDeparture(_) => unreachable!(),
+            Duty::SettleDeparture(_) | Duty::Gather(_) => unreachable!(),
         }
         assert_eq!(m.instruction, r.instruction);
         assert_eq!(
@@ -6546,7 +7932,7 @@ fn world_bytes_past_the_debug_prefix_are_candidate_content() {
         let mut m = r.clone();
         match &mut m.duty {
             Duty::Return(f) => f.picks[0].host = rehost(f.picks[0].host, i),
-            Duty::SettleDeparture(_) => unreachable!(),
+            Duty::SettleDeparture(_) | Duty::Gather(_) => unreachable!(),
         }
         assert_eq!(m.instruction, r.instruction);
         assert_eq!(
@@ -6560,25 +7946,25 @@ fn world_bytes_past_the_debug_prefix_are_candidate_content() {
     let mut m = r.clone();
     match &mut m.duty {
         Duty::Return(f) => f.live_gen = None,
-        Duty::SettleDeparture(_) => unreachable!(),
+        Duty::SettleDeparture(_) | Duty::Gather(_) => unreachable!(),
     }
     lost_everything("return live_gen", &m, &reads_r, &open);
     let mut m = r.clone();
     match &mut m.duty {
         Duty::Return(f) => f.picks[0].credited = !f.picks[0].credited,
-        Duty::SettleDeparture(_) => unreachable!(),
+        Duty::SettleDeparture(_) | Duty::Gather(_) => unreachable!(),
     }
     lost_everything("return pick credited", &m, &reads_r, &open);
     let mut m = r.clone();
     match &mut m.duty {
         Duty::Return(f) => f.picks.clear(),
-        Duty::SettleDeparture(_) => unreachable!(),
+        Duty::SettleDeparture(_) | Duty::Gather(_) => unreachable!(),
     }
     lost_everything("return picks cleared", &m, &reads_r, &open);
     let mut m = r.clone();
     match &mut m.duty {
         Duty::Return(f) => f.skipped_in_transit += 1,
-        Duty::SettleDeparture(_) => unreachable!(),
+        Duty::SettleDeparture(_) | Duty::Gather(_) => unreachable!(),
     }
     lost_everything("return skipped_in_transit", &m, &reads_r, &open);
     let mut m = r.clone();
@@ -6592,7 +7978,7 @@ fn world_bytes_past_the_debug_prefix_are_candidate_content() {
     let mut m = c.clone();
     match &mut m.duty {
         Duty::SettleDeparture(f) => f.host = rehost(rehost(f.host, 9), 9),
-        Duty::Return(_) => unreachable!(),
+        Duty::Return(_) | Duty::Gather(_) => unreachable!(),
     }
     assert!(m.coherent());
     assert!(c.coherent() && r.coherent());

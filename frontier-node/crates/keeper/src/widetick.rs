@@ -543,6 +543,9 @@ pub struct WideReview {
     pub snapshot_blocked: u64,
     pub reveal_plans: u64,
     pub reveal_candidates: u64,
+    /// Gather plans (`wideduty::plan_gather`) and the candidates they made.
+    pub gather_plans: u64,
+    pub gather_candidates: u64,
     /// Reveal plans whose publication the source did not serve.
     pub publications_missing: u64,
     /// Reveal plans retried at the next slot after a transient outcome.
@@ -579,6 +582,8 @@ impl WideReview {
             snapshot_blocked: 0,
             reveal_plans: 0,
             reveal_candidates: 0,
+            gather_plans: 0,
+            gather_candidates: 0,
             publications_missing: 0,
             transient_retries: 0,
             proofs_renewed: 0,
@@ -642,8 +647,8 @@ impl WideReview {
         self.review_payer
     }
 
-    /// The hints the model offers, as `(id, Hint)`: settles, returns, then
-    /// (with reveal inputs) the stored proofs' marches.
+    /// The hints the model offers, as `(id, Hint)`: settles, returns,
+    /// gathers, then (with reveal inputs) the stored proofs' marches.
     fn hints(&self, model: &WideDiscovery, with_reveal: bool) -> Vec<(String, Hint)> {
         let mut v: Vec<(String, Hint)> = wideduty::settle_candidates(model)
             .into_iter()
@@ -665,6 +670,16 @@ impl WideReview {
                             hex::encode(h.to_bytes())
                         ),
                         Hint::Return(p, h),
+                    )
+                }),
+        );
+        v.extend(
+            wideduty::gather_candidates(model)
+                .into_iter()
+                .map(|(p, b)| {
+                    (
+                        format!("gather:{}:{b}", hex::encode(p.to_bytes())),
+                        Hint::Gather(p, b),
                     )
                 }),
         );
@@ -789,6 +804,22 @@ impl WideReview {
                         .await
                         .map(|(c, snap)| (c, Some(snap))),
                         None => wideduty::return_via(port, &scope, payer, *p, *h, slot)
+                            .await
+                            .map(|c| (c, None)),
+                    };
+                    self.duty_entry(id, slot, engine, planned, &scope, observer)
+                }
+                Hint::Gather(p, b) => {
+                    self.gather_plans += 1;
+                    // With the Rent sysvar: the gather may create the
+                    // ClashInputs from the fee payer.
+                    let planned = match snapshot {
+                        Some(src) => snapshot_plan_with(port, src, slot, true, &extra, |r| {
+                            wideduty::plan_gather(&scope, payer, *p, *b, r)
+                        })
+                        .await
+                        .map(|(c, snap)| (c, Some(snap))),
+                        None => wideduty::gather_via(port, &scope, payer, *p, *b, slot)
                             .await
                             .map(|c| (c, None)),
                     };
@@ -925,6 +956,9 @@ impl WideReview {
         let summary = match planned {
             Ok((c, snap)) => {
                 self.candidates += 1;
+                if matches!(c.duty, Duty::Gather(_)) {
+                    self.gather_candidates += 1;
+                }
                 if c.coherent() {
                     self.coherent += 1;
                 }
@@ -951,6 +985,16 @@ impl WideReview {
                         if f.foreign {
                             v.push(WideTarget::Province(f.holding.key()));
                         }
+                        v
+                    }
+                    Duty::Gather(f) => {
+                        let mut v = vec![WideTarget::Province(f.dest)];
+                        v.extend(
+                            f.positions
+                                .iter()
+                                .filter_map(|p| p.slot.as_ref())
+                                .map(|s| WideTarget::Holding(s.host)),
+                        );
                         v
                     }
                 };
@@ -1156,6 +1200,14 @@ impl WideReview {
                 "opening": "FromBeacon: the public round signature opens the seal; no plaintext, salt or key is held or shown",
                 "history": "unknown before the applied records; the proof's signatures are unverified",
             },
+            "gather": {
+                "plans": self.gather_plans,
+                "candidates": self.gather_candidates,
+                "hints": "open marches with a Revealed record in the applied history whose destination bell is not resolved or fully gathered as the records say; read hints only",
+                "arrival_evidence": "the wide ArrivalDay at its canonical address; the absence of feed events is never read as no arrivals",
+                "cursor": "the first ungathered position and the contiguous run after it, at most GATHER_MAX_POSITIONS, bounded before any slot is read and cut before a later unsettled transit; a resolve needs every position gathered",
+                "resolve": "not planned: the seed and the model replay are not claimed by this slice; arrival processing is not complete",
+            },
             "reconcile": {
                 "agree": self.reconcile_agree,
                 "lag": self.reconcile_lag,
@@ -1183,6 +1235,8 @@ struct RevealMeta {
 enum Hint {
     Settle(WideHostRef, u8),
     Return(ProvinceKey, WideHostRef),
+    /// A destination and arrival bell with a revealed open march.
+    Gather(ProvinceKey, u32),
     /// A stored proof's march, by `(host, transit slot)`.
     Reveal(WideHostRef, u8),
 }
