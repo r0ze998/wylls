@@ -367,6 +367,10 @@ impl Fold {
     }
 
     fn index_account(&mut self, k: &[u8; 32], d: &[u8]) {
+        #[cfg(feature = "wide-world-experimental")]
+        if crate::wide::index_capture(self, k, d) {
+            return;
+        }
         match kind_of(d) {
             Some(AccountKind::Province) => {
                 if let Ok(pv) = Province::decode(d) {
@@ -507,6 +511,10 @@ impl Fold {
         let mut rings_touched: BTreeSet<u16> = BTreeSet::new();
         for (k, a) in &tx.post {
             let key = k.to_bytes();
+            #[cfg(feature = "wide-world-experimental")]
+            if crate::wide::capture_post(self, &key, a.as_ref(), tx) {
+                continue;
+            }
             let new = a.as_ref().and_then(|a| {
                 (a.owner == self.cfg.program
                     && a.data.len() >= 16

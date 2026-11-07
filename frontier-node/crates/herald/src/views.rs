@@ -235,6 +235,10 @@ pub fn me_json(f: &Fold, wallet: &Address, quota: Value) -> Value {
         "quota": quota,
         "latestSlot": f.st.last_slot,
     });
+    #[cfg(feature = "wide-world-experimental")]
+    {
+        v["wideHoldings"] = crate::wide::holdings_for_citizen(f, &ca);
+    }
     // MC (CQ2-E, §8.4): `alerts[]`, `sieges[]` and the caller's players
     // row; an M1 season's answer is unchanged.
     if let (Some((alerts, sieges, player)), Some(o)) = (
