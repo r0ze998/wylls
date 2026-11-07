@@ -60,6 +60,9 @@ fn wire(progs: &[Address], s: u8) -> Vec<u8> {
     fclient::tx::wire(&fclient::Transaction::new_unsigned(m))
 }
 
+/// Ledger entries: a signature byte and the programs (none: an airdrop).
+type Entries = Vec<(u8, Vec<Address>)>;
+
 /// What the stand-in does after its n-th `frontier_feed` answer.
 #[derive(Clone)]
 enum After {
@@ -72,7 +75,7 @@ enum After {
 struct Node {
     run_id: Arc<Mutex<String>>,
     /// (signature byte, programs); no program: an airdrop.
-    ledger: Arc<Mutex<Vec<(u8, Vec<Address>)>>>,
+    ledger: Arc<Mutex<Entries>>,
     /// The ledger's size in bytes (100 per entry).
     bytes: Arc<Mutex<u64>>,
     /// At most this many records per answer (0: no cap).
