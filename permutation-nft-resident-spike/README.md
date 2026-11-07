@@ -1,6 +1,8 @@
 # permutation-nft-resident-spike：NFT で譲渡できる住民アカウント（隔離試作）
 
-**状態（2026-11-06、v0.18）**：ローカルのみ（模擬チェーン、LiteSVM、ループバック validator）。公開発行・devnet／mainnet・実資金・新しい鍵は無し。価格・無料／有料・供給数・公開発行・ロイヤリティは未決（`docs/UNDECIDED.ja.md`）。Metaplex Core は**試作の選定方式**で、本線採用は未決。継続世界は決定済み。依存パッケージ無し（Node 20+ の標準モジュールだけ。`test-gateway/` だけは `permutation-gateway` の依存を使う）。v0.8 で担当ブランチへ通常 push（根拠は `docs/PUSH-AUDIT.ja.md`）。merge・deploy はしていない。
+**状態（2026-11-07、v0.19）**：ローカルのみ（模擬チェーン、LiteSVM、ループバック validator）。公開発行・devnet／mainnet・実資金・新しい鍵は無し。価格・無料／有料・供給数・公開発行・ロイヤリティは未決（`docs/UNDECIDED.ja.md`）。Metaplex Core は**試作の選定方式**で、本線採用は未決。継続世界は決定済み。依存パッケージ無し（Node 20+ の標準モジュールだけ。`test-gateway/` だけは `permutation-gateway` の依存を使う）。v0.8 で担当ブランチへ通常 push（根拠は `docs/PUSH-AUDIT.ja.md`）。merge・deploy はしていない。
+
+**v0.19 の変更**：統合候補 3ad0bcdb の上で、住民プログラムの記録（`ResidentFeed`）を検証器の入力に入れた。同じローカルノードの台帳の `seq` で Frontier と住民プログラムの取引を一つの順序に並べ、読んだ範囲（`through`）で古い控えを見分ける。V28 の持ち主の判定は、その feed が操作まで揃っているときだけ FAIL にできる。実ノードでの取得は未検証（`docs/HOLDER-CONTRACT.ja.md` §8）。
 
 **v0.18 の変更**：PDA・with_seed の計算が許可されたので（鍵ペアと署名は引き続き禁止）、V28 が policy・link・Citizen・住民アカウント・guard authority の正規の住所を照合するようにした。その住所の計算を fclient に置き、web の SDK と同じ値になることを確かめた。v0.17 で止めていた実行時の試験を、持ち主の定義への置き換えの後で再実行し、10 件とも通った。接続済み・未接続・UNVERIFIABLE の区別は `docs/HOLDER-CONTRACT.ja.md` §6。
 

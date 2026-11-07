@@ -33,8 +33,6 @@
 //! `ResidentActMismatch`, `ResidentOldAuthority`, `ResidentActUnproven`,
 //! `ResidentInnerUnmodelled`, `NonCanonicalAddress`, `MissingPostState`.
 
-use std::collections::{BTreeMap, BTreeSet};
-
 use fclient::ports::Account;
 use frontier_abi::layout::player::citizen as C;
 use frontier_abi::resident_auth::{self as ra, Refusal};
@@ -62,50 +60,15 @@ const CITIZEN: usize = 3;
 /// One finding: severity, code, transaction, detail.
 pub type Found = (Severity, &'static str, usize, String);
 
-/// One transaction of the resident program in the **same feed** as the
-/// Frontier archive (its `seq` is that feed's), failed ones included, with
-/// the post-states of the accounts it wrote.
-#[derive(Clone, Debug, Default)]
-pub struct ResidentTx {
-    pub seq: u64,
-    pub ok: bool,
-    pub post: BTreeMap<Key, Account>,
-}
-
-/// The resident program's side of the record, which V28 needs and a
-/// Frontier archive does not hold: its transactions in the combined feed and
-/// the policy accounts (written once; any read of one is its value).
-#[derive(Clone, Debug, Default)]
-pub struct ResidentFeed {
-    pub txs: Vec<ResidentTx>,
-    pub policies: BTreeMap<Key, Account>,
-}
-
-impl ResidentFeed {
-    /// The account's state after the last successful resident transaction
-    /// before `seq`.
-    fn state_before(&self, k: &Key, seq: u64) -> Option<&Account> {
-        self.txs
-            .iter()
-            .filter(|t| t.ok && t.seq < seq)
-            .filter_map(|t| t.post.get(k).map(|a| (t.seq, a)))
-            .max_by_key(|x| x.0)
-            .map(|x| x.1)
-    }
-    /// Every state of `k` before `seq`, oldest first.
-    fn states_before<'a>(&'a self, k: &'a Key, seq: u64) -> impl Iterator<Item = &'a Account> {
-        self.txs
-            .iter()
-            .filter(move |t| t.ok && t.seq < seq)
-            .filter_map(move |t| t.post.get(k))
-    }
-}
+pub use crate::resident_feed::{ResidentFeed, ResidentTx};
 
 /// What V28 reads besides the archive.
 pub struct ActCtx<'a> {
     /// This Season's address context (its Season and program).
     pub addr: frontier_abi::addr::AddrCtx,
     pub feed: Option<&'a ResidentFeed>,
+    /// Where the Frontier transactions came from (⑲'s `history`).
+    pub history: &'a crate::history::History,
 }
 
 /// The policy at `key`: from a successful CreateResidentPolicy in the
@@ -167,27 +130,6 @@ fn non_canonical(
     bad
 }
 
-/// Whether the two feeds are one feed (no `seq` in both) and whether that
-/// feed has every `seq` from 1 to `before - 1`.
-struct Order {
-    combined: bool,
-    seqs: BTreeSet<u64>,
-}
-
-impl Order {
-    fn new(w: &World, feed: &ResidentFeed) -> Order {
-        let mine: BTreeSet<u64> = w.txs.iter().map(|t| t.seq).collect();
-        let theirs: BTreeSet<u64> = feed.txs.iter().map(|t| t.seq).collect();
-        Order {
-            combined: mine.is_disjoint(&theirs) && theirs.len() == feed.txs.len(),
-            seqs: mine.union(&theirs).copied().collect(),
-        }
-    }
-    fn whole_before(&self, before: u64) -> bool {
-        self.combined && (1..before).all(|s| self.seqs.contains(&s))
-    }
-}
-
 fn view<'a>(key: Key, a: &'a Account) -> ra::Account<'a> {
     ra::Account {
         key,
@@ -233,10 +175,6 @@ fn judge_holder(
             "no record of the resident program (owner, generation, session) was given",
         );
     };
-    let order = Order::new(w, feed);
-    if !order.combined {
-        return unproven("the resident program's record is not in the archive's feed order");
-    }
     let Some(policy) = policy_of(w, ac, policy_key) else {
         return unproven(
             "the policy account the act names is in neither the archive nor the record",
@@ -248,15 +186,15 @@ fn judge_holder(
     ) else {
         return unproven("the record has no state of the asset and resident before the act");
     };
-    let whole = order.whole_before(t.seq);
+    let gaps = feed.gaps_before(w, ac.history, t.seq);
     let firm = |d: String| {
-        if whole {
+        if gaps.is_empty() {
             Some((Severity::Fail, RESIDENT_OLD_AUTHORITY, d))
         } else {
             Some((
                 Severity::Unverifiable,
                 RESIDENT_ACT_UNPROVEN,
-                format!("{d} (the record has a gap before the act)"),
+                format!("{d}; not decided: {}", gaps.join("; ")),
             ))
         }
     };
@@ -467,12 +405,12 @@ pub fn judge_tx(w: &World, ac: &ActCtx, i: usize, t: &Tx) -> Vec<Found> {
     out
 }
 
-/// The resident program's record for this run, when one is given (none yet:
-/// the input format for it is workstream 4's to fix).
+/// V28 over the archive, with the resident program's feed when one is given.
 pub fn run_with(cx: &mut Ctx, feed: Option<&ResidentFeed>) {
     let ac = ActCtx {
         addr: cx.f.ctx,
         feed,
+        history: &cx.input.history,
     };
     let w = cx.w;
     let mut found = vec![];
@@ -490,8 +428,10 @@ pub fn run_with(cx: &mut Ctx, feed: Option<&ResidentFeed>) {
     }
 }
 
+/// V28 with the input's `resident_feed` (absent: the holder is UNVERIFIABLE).
 pub fn run(cx: &mut Ctx) {
-    run_with(cx, None)
+    let input = cx.input;
+    run_with(cx, input.resident_feed.as_ref())
 }
 
 #[cfg(test)]
@@ -502,6 +442,7 @@ mod tests {
     //! program, Season and asset addresses (PDAs and the Citizen's seeded
     //! address: sha256 and the curve check, allowed by the owner 2026-11-06).
     use super::*;
+    use crate::history::History;
     use solana_address::Address;
 
     const PROGRAM: Key = [0x11; 32];
@@ -619,7 +560,7 @@ mod tests {
             seq,
             slot: seq,
             time: T + seq as i64,
-            sig: String::new(),
+            sig: format!("f{seq}"),
             ok: true,
             code: None,
             fee_payer: None,
@@ -675,8 +616,8 @@ mod tests {
         }
     }
 
-    /// A Season: the join at seq 1, then the acts at the given seqs; the
-    /// feed's transactions fill the other seqs (a whole combined feed).
+    /// A Season: the join at seq 1, then the acts at the given seqs (one
+    /// ledger order with the feed's seqs).
     fn season(acts: Vec<(u64, Ix)>) -> World {
         let mut txs = vec![tx(1, vec![join()], vec![(CIT(), citizen_after(T + 1))])];
         for (seq, ix) in acts {
@@ -694,22 +635,42 @@ mod tests {
     fn rtx(seq: u64, post: Vec<(Key, Account)>) -> ResidentTx {
         ResidentTx {
             seq,
+            signature: format!("r{seq}"),
             ok: true,
             post: post.into_iter().collect(),
         }
     }
 
+    /// The resident feed read through seq 11 (after the whole Season) from
+    /// the same recorded order as the archive (two fixtures: as given).
     fn feed(txs: Vec<ResidentTx>) -> ResidentFeed {
+        feed_through(txs, 11)
+    }
+
+    fn feed_through(txs: Vec<ResidentTx>, through: u64) -> ResidentFeed {
         ResidentFeed {
-            txs,
+            program: adr(RPROG),
+            history: History::default(),
+            after: 0,
+            through,
+            txs: txs.into_iter().filter(|t| t.seq <= through).collect(),
             policies: [(POLICY(), policy_account())].into_iter().collect(),
         }
     }
 
     fn judge(w: &World, f: Option<&ResidentFeed>) -> Vec<(usize, Severity, &'static str)> {
+        judge_from(w, f, &History::default())
+    }
+
+    fn judge_from(
+        w: &World,
+        f: Option<&ResidentFeed>,
+        history: &History,
+    ) -> Vec<(usize, Severity, &'static str)> {
         let ac = ActCtx {
             addr: addr_ctx(),
             feed: f,
+            history,
         };
         let mut out = vec![];
         for (i, t) in w.txs.iter().enumerate() {
@@ -805,44 +766,45 @@ mod tests {
         let v = judge(&w, None);
         assert_eq!(fails(&v), vec![]);
         assert!(v.contains(&(1, Severity::Unverifiable, RESIDENT_ACT_UNPROVEN)));
-        // A gap in the feed (seq 7, B's SetSession, missing): an actor that is
-        // not the owner may be a session the record lacks.
-        let mut h = history();
-        h.retain(|t| t.seq != 7);
-        let f = feed(h.clone());
+        // A stale copy read through seq 6 (before B's SetSession at 7): an
+        // actor that is not the owner may be a session the copy lacks.
+        let f = feed_through(history(), 6);
         let (w, at) = honest_with(9, None);
         let v = judge(&w, Some(&f));
         assert_eq!(fails(&v), vec![]);
         assert!(v.contains(&(at, Severity::Unverifiable, RESIDENT_ACT_UNPROVEN)));
-        // With the record whole, the same act by A (no longer the holder) is a FAIL.
+        // Read through the Season, the same act by A (no longer the holder) is a FAIL.
         let (w, at) = honest_with(9, Some(act(A, 1)));
         assert_eq!(
             fails(&judge(&w, Some(&feed(history())))),
             vec![(at, RESIDENT_OLD_AUTHORITY)]
         );
-        // A signed generation below one the record shows is a FAIL even
-        // with the gap: the generation never goes back.
+        // A signed generation below one the copy shows is a FAIL even from
+        // the stale copy: the generation never goes back.
         let (w, at) = honest_with(8, Some(act(A, 0)));
         assert_eq!(
             fails(&judge(&w, Some(&f))),
             vec![(at, RESIDENT_OLD_AUTHORITY)]
         );
-        // A signed generation above the record's: a transfer is missing.
-        let mut h2 = history();
-        h2.retain(|t| t.seq != 6 && t.seq != 7);
-        let f2 = feed(h2);
-        let w = season(vec![(8, act(B, 1))]);
-        let v = judge(&w, Some(&f2));
+        // A signed generation above the copy's (read through 5, before the
+        // transfer at 6): the transfer is missing.
+        let (w, at) = honest_with(8, None);
+        let v = judge(&w, Some(&feed_through(history(), 5)));
         assert_eq!(fails(&v), vec![]);
-        assert!(v.contains(&(1, Severity::Unverifiable, RESIDENT_ACT_UNPROVEN)));
-        // A feed whose seqs are the archive's own (two separate feeds): no order.
+        assert!(v.contains(&(at, Severity::Unverifiable, RESIDENT_ACT_UNPROVEN)));
+        // A feed whose seq 1 is another transaction than the archive's
+        // (two separate numberings): not one order.
         let mut h3 = history();
         h3[0].seq = 1;
-        let f3 = feed(h3);
-        let w = season(vec![(8, act(A, 1))]);
-        let v = judge(&w, Some(&f3));
+        let (w, at) = honest_with(8, Some(act(A, 1)));
+        let v = judge(&w, Some(&feed(h3)));
         assert_eq!(fails(&v), vec![]);
-        assert!(v.contains(&(1, Severity::Unverifiable, RESIDENT_ACT_UNPROVEN)));
+        assert!(v.contains(&(at, Severity::Unverifiable, RESIDENT_ACT_UNPROVEN)));
+        // The game history over public RPC (⑲: unproven): not decided either.
+        let rpc = History::rpc(serde_json::json!({"state": "cross_checked"}), "rpc x");
+        let v = judge_from(&w, Some(&feed(history())), &rpc);
+        assert_eq!(fails(&v), vec![]);
+        assert!(v.contains(&(at, Severity::Unverifiable, RESIDENT_ACT_UNPROVEN)));
     }
 
     #[test]

@@ -44,6 +44,7 @@ pub mod history;
 pub mod holding;
 pub mod input;
 pub mod report;
+pub mod resident_feed;
 pub mod skip;
 pub mod tamper;
 pub mod world;
