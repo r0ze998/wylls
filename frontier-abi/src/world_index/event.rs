@@ -36,6 +36,20 @@
 //! | 9 `DepartureSettled` | host ref ‖ origin | `transit_slot u8, destroyed u8, troops_after u32 (milli), stamina_after u16, ready_bell_off u16, entry u8` | Province, Holding |
 //! | 10 `Revealed` | host ref ‖ destination | `transit_slot u8, faction u8, i u8, tile u8, stance u8, retreat_bps u16, dep_mass u32 (milli), displaced u8` | none |
 //! | 11 `Gathered` | province key (destination) | `bell u32, start u8, n u8, arrivals_mask u32, n_present u8, no_arrivals u8` | none |
+//! | 12 `RecordClosed` | province key (the destination) | `what u8 (2 slot, 3 day, 4 inputs), bell u32, faction u8, i u8, rent_to [32], lamports u64` | none |
+//! | 13 `TransitClosed` | host ref ‖ home | `transit_slot u8, rent_to [32], lamports u64` | none |
+//! | 14 `ProvinceClosed` | province key | `fund [32], lamports u64` | Province |
+//!
+//! `RecordClosed` and `TransitClosed` chain nothing: the account closed had
+//! no chain and is gone (as `RosterClosed`); a transit close may count one
+//! open march fewer on its holding, a counter the holding's chain does not
+//! cover. A `ProvinceClosed` is the **terminal record of the province's
+//! chain**: the province has a chain (every Muster, Dissolve, Resolve,
+//! Return, Stranded, Departed, settle of it advanced the header), and the
+//! close writes this record on that header — its link is the final
+//! `(seq, head)` — **before** the account is erased, as the deployed
+//! `CLOSE` record carries the final chain. A verifier replays the
+//! province's chain to this record and no further.
 //!
 //! A `Revealed` and a `Gathered` chain nothing: the reveal writes an
 //! ArrivalSlot and the gather a ClashInputs, records without an event chain
@@ -204,10 +218,13 @@ pub enum WideKind {
     DepartureSettled = 9,
     Revealed = 10,
     Gathered = 11,
+    RecordClosed = 12,
+    TransitClosed = 13,
+    ProvinceClosed = 14,
 }
 
 /// Every kind, in code order.
-pub const ALL_KINDS: [WideKind; 11] = [
+pub const ALL_KINDS: [WideKind; 14] = [
     WideKind::Muster,
     WideKind::Dissolve,
     WideKind::Resolve,
@@ -219,6 +236,9 @@ pub const ALL_KINDS: [WideKind; 11] = [
     WideKind::DepartureSettled,
     WideKind::Revealed,
     WideKind::Gathered,
+    WideKind::RecordClosed,
+    WideKind::TransitClosed,
+    WideKind::ProvinceClosed,
 ];
 
 /// The `Return.entry` of a host whose troops went into the holding's
@@ -244,6 +264,9 @@ impl WideKind {
             9 => Some(WideKind::DepartureSettled),
             10 => Some(WideKind::Revealed),
             11 => Some(WideKind::Gathered),
+            12 => Some(WideKind::RecordClosed),
+            13 => Some(WideKind::TransitClosed),
+            14 => Some(WideKind::ProvinceClosed),
             _ => None,
         }
     }
@@ -271,6 +294,9 @@ impl WideKind {
             WideKind::DepartureSettled => 1 + 1 + 4 + 2 + 2 + 1,
             WideKind::Revealed => 1 + 1 + 1 + 1 + 1 + 2 + 4 + 1,
             WideKind::Gathered => 4 + 1 + 1 + 4 + 1 + 1,
+            WideKind::RecordClosed => 1 + 4 + 1 + 1 + 32 + 8,
+            WideKind::TransitClosed => 1 + 32 + 8,
+            WideKind::ProvinceClosed => 32 + 8,
         }
     }
 
@@ -283,8 +309,12 @@ impl WideKind {
             | WideKind::Departed
             | WideKind::TransitSettled
             | WideKind::DepartureSettled => PROVINCE_AND_HOLDING,
-            WideKind::Resolve | WideKind::Stranded => PROVINCE_ONLY,
-            WideKind::RosterClosed | WideKind::Revealed | WideKind::Gathered => NO_LINKS,
+            WideKind::Resolve | WideKind::Stranded | WideKind::ProvinceClosed => PROVINCE_ONLY,
+            WideKind::RosterClosed
+            | WideKind::Revealed
+            | WideKind::Gathered
+            | WideKind::RecordClosed
+            | WideKind::TransitClosed => NO_LINKS,
         }
     }
 
@@ -293,7 +323,11 @@ impl WideKind {
     pub const fn host_keyed(self) -> bool {
         !matches!(
             self,
-            WideKind::Resolve | WideKind::RosterClosed | WideKind::Gathered
+            WideKind::Resolve
+                | WideKind::RosterClosed
+                | WideKind::Gathered
+                | WideKind::RecordClosed
+                | WideKind::ProvinceClosed
         )
     }
 
@@ -310,6 +344,9 @@ impl WideKind {
             WideKind::DepartureSettled => "WIDE_DEPARTURE_SETTLED",
             WideKind::Revealed => "WIDE_REVEALED",
             WideKind::Gathered => "WIDE_GATHERED",
+            WideKind::RecordClosed => "WIDE_RECORD_CLOSED",
+            WideKind::TransitClosed => "WIDE_TRANSIT_CLOSED",
+            WideKind::ProvinceClosed => "WIDE_PROVINCE_CLOSED",
         }
     }
 }
@@ -753,6 +790,16 @@ pub fn roster_closed_payload(rent_to: &[u8; 32], lamports: u64) -> [u8; 40] {
     b
 }
 
+/// The ProvinceClosed payload (module doc): the fund the province closed
+/// into and the lamports. The record carries the province's **final**
+/// chain in its link: it is written on the province's header before the
+/// account is erased, as the deployed `CLOSE` record is.
+pub fn province_closed_payload(fund: &[u8; 32], lamports: u64) -> [u8; 40] {
+    let mut b = [0u8; 40];
+    Writer::new(&mut b).bytes(fund).u64(lamports);
+    b
+}
+
 /// The Departed payload (module doc): the escrow and the seal root a
 /// settlement is judged against.
 #[allow(clippy::too_many_arguments)]
@@ -847,6 +894,40 @@ pub fn gathered_payload(
         .u32(arrivals_mask)
         .u8(n_present)
         .u8(no_arrivals as u8);
+    b
+}
+
+/// The RecordClosed payload (module doc): which march record closed
+/// (`what` of the WideClose), its bell (a day's first bell for a day
+/// record), its faction and slot index (zero for a day or an inputs
+/// record), the rent recipient and the lamports returned.
+pub fn record_closed_payload(
+    what: u8,
+    bell: u32,
+    faction: u8,
+    i: u8,
+    rent_to: &[u8; 32],
+    lamports: u64,
+) -> [u8; 47] {
+    let mut b = [0u8; 47];
+    Writer::new(&mut b)
+        .u8(what)
+        .u32(bell)
+        .u8(faction)
+        .u8(i)
+        .bytes(rent_to)
+        .u64(lamports);
+    b
+}
+
+/// The TransitClosed payload (module doc): the slot, the rent recipient
+/// and the lamports returned.
+pub fn transit_closed_payload(transit_slot: u8, rent_to: &[u8; 32], lamports: u64) -> [u8; 41] {
+    let mut b = [0u8; 41];
+    Writer::new(&mut b)
+        .u8(transit_slot)
+        .bytes(rent_to)
+        .u64(lamports);
     b
 }
 
@@ -1064,8 +1145,8 @@ mod tests {
             "out of the deployed versions"
         );
         let mut x = body.clone();
-        x[1] = 12;
-        assert_eq!(WideRecord::decode(&x), Err(EventError::UnknownKind(12)));
+        x[1] = 15;
+        assert_eq!(WideRecord::decode(&x), Err(EventError::UnknownKind(15)));
         let mut x = body.clone();
         x[HEAD_LEN] = 9;
         assert_eq!(WideRecord::decode(&x), Err(EventError::Key));
@@ -1100,8 +1181,44 @@ mod tests {
             );
             assert_eq!(k.host_keyed(), k.key_len() == HOST_KEY_LEN);
         }
-        assert_eq!(WideKind::from_u8(12), None);
+        assert_eq!(WideKind::from_u8(15), None);
         assert_eq!(WideKind::from_u8(0), None);
+        // the close kinds: one province-keyed, one host-keyed, neither
+        // chained; the province close chained on the province alone
+        assert!(!WideKind::RecordClosed.host_keyed());
+        assert!(WideKind::TransitClosed.host_keyed());
+        assert_eq!(WideKind::RecordClosed.links(), NO_LINKS);
+        assert_eq!(WideKind::TransitClosed.links(), NO_LINKS);
+        assert!(!WideKind::ProvinceClosed.host_keyed());
+        assert_eq!(WideKind::ProvinceClosed.links(), PROVINCE_ONLY);
+        assert_eq!(WideKind::ProvinceClosed.payload_len(), 40);
+        assert_eq!(WideKind::ProvinceClosed as u8, 14);
+        let closed = encode(
+            WideKind::RecordClosed,
+            9,
+            &key().to_bytes(),
+            &record_closed_payload(2, 20, 1, 0, &[0xd4; 32], 1_000),
+            &[],
+        )
+        .unwrap();
+        let r = WideRecord::decode(&closed).unwrap();
+        assert_eq!((r.payload[0], r.payload[5], r.payload[6]), (2, 1, 0));
+        assert_eq!(&r.payload[1..5], &20u32.to_le_bytes());
+        assert_eq!(&r.payload[7..39], &[0xd4; 32]);
+        assert_eq!(&r.payload[39..47], &1_000u64.to_le_bytes());
+        assert_eq!(r.province_of(), Some(key()));
+        let closed = encode(
+            WideKind::TransitClosed,
+            9,
+            &hk,
+            &transit_closed_payload(3, &[0xd4; 32], 1_000),
+            &[],
+        )
+        .unwrap();
+        let r = WideRecord::decode(&closed).unwrap();
+        assert_eq!(r.payload[0], 3);
+        assert_eq!(r.host(), Some(host()));
+        assert_eq!(r.links, [None, None]);
         let close = encode(
             WideKind::RosterClosed,
             9,
@@ -1284,7 +1401,7 @@ mod tests {
     /// builder that was 65 bytes against a 71-byte kind).
     #[test]
     fn every_payload_builder_matches_its_kind_width() {
-        let widths: [(WideKind, usize); 11] = [
+        let widths: [(WideKind, usize); 14] = [
             (WideKind::Muster, muster_payload(0, 1, 1, 0, 0).len()),
             (WideKind::Dissolve, dissolve_payload(1, 1, 0).len()),
             (
@@ -1316,6 +1433,18 @@ mod tests {
             (
                 WideKind::Gathered,
                 gathered_payload(1, 0, 24, 0, 0, true).len(),
+            ),
+            (
+                WideKind::RecordClosed,
+                record_closed_payload(2, 20, 1, 0, &[0; 32], 1).len(),
+            ),
+            (
+                WideKind::TransitClosed,
+                transit_closed_payload(0, &[0; 32], 1).len(),
+            ),
+            (
+                WideKind::ProvinceClosed,
+                province_closed_payload(&[0; 32], 1).len(),
             ),
         ];
         assert_eq!(widths.len(), ALL_KINDS.len(), "every kind has a builder");
@@ -1369,6 +1498,7 @@ mod tests {
         let retp = return_payload(1, 0, 0);
         let sp = stranded_payload(1, 0);
         let cp = roster_closed_payload(&[0; 32], 0);
+        let pcp = province_closed_payload(&[0xf1; 32], 7);
         // the accepted sets
         assert!(encode(WideKind::Muster, 1, &hk, &mp, &[p, h]).is_some());
         assert!(encode(WideKind::Dissolve, 1, &hk, &dp, &[p, h]).is_some());
@@ -1376,6 +1506,19 @@ mod tests {
         assert!(encode(WideKind::Resolve, 1, &pk, &rp, &[p]).is_some());
         assert!(encode(WideKind::Stranded, 1, &hk, &sp, &[p]).is_some());
         assert!(encode(WideKind::RosterClosed, 1, &pk, &cp, &[]).is_some());
+        // the province close: the province link exactly, round-tripped
+        // strictly (the terminal link of the province's chain)
+        let closed = encode(WideKind::ProvinceClosed, 9, &pk, &pcp, &[p]).unwrap();
+        let r = WideRecord::decode(&closed).unwrap();
+        assert_eq!((r.kind, r.bell), (WideKind::ProvinceClosed, 9));
+        assert_eq!(r.province_of(), Some(key()));
+        assert_eq!(&r.payload[..32], &[0xf1; 32]);
+        assert_eq!(&r.payload[32..40], &7u64.to_le_bytes());
+        assert_eq!(r.links, [Some(p), None]);
+        assert_eq!(r.link(WideEntity::Province), Some(p));
+        assert!(encode(WideKind::ProvinceClosed, 1, &pk, &pcp, &[]).is_none());
+        assert!(encode(WideKind::ProvinceClosed, 1, &pk, &pcp, &[h]).is_none());
+        assert!(encode(WideKind::ProvinceClosed, 1, &pk, &pcp, &[p, h]).is_none());
         // every other set refused at encoding
         assert!(encode(WideKind::Muster, 1, &hk, &mp, &[p]).is_none());
         assert!(encode(WideKind::Muster, 1, &hk, &mp, &[h]).is_none());
@@ -1540,6 +1683,43 @@ mod tests {
             verify_chain(other, (0, [0; 32]), all.iter().copied()),
             Ok((0, [0; 32]))
         );
+        // the province's terminal record: the close chains on the province
+        // alone, the replay ends at its link (seq 4), the holding's chain is
+        // untouched; a close whose link skips the province's last record
+        // is refused; a close replayed twice is refused (nothing chains
+        // after the terminal record)
+        let closed = c.record(
+            WideKind::ProvinceClosed,
+            9,
+            &key().to_bytes(),
+            &province_closed_payload(&[0xf1; 32], 5_000),
+        );
+        let p4 = WideRecord::decode(&closed)
+            .unwrap()
+            .link(WideEntity::Province)
+            .unwrap();
+        assert_eq!((p4.seq, c.province), (4, (4, p4.head)));
+        let ended: Vec<&[u8]> = vec![&muster, &resolve, &dissolve, &closed];
+        assert_eq!(
+            verify_chain(prov, (0, [0; 32]), ended.iter().copied()),
+            Ok((4, p4.head))
+        );
+        assert_eq!(
+            verify_chain(hold, (0, [0; 32]), ended.iter().copied()),
+            Ok((2, h2.head)),
+            "the province close chains no holding"
+        );
+        let early: Vec<&[u8]> = vec![&muster, &resolve, &closed];
+        assert_eq!(
+            verify_chain(prov, (0, [0; 32]), early.iter().copied()),
+            Err(EventError::Chain {
+                entity: WideEntity::Province,
+                seq: 2
+            }),
+            "the close's link binds the dissolve before it"
+        );
+        let twice: Vec<&[u8]> = vec![&muster, &resolve, &dissolve, &closed, &closed];
+        assert!(verify_chain(prov, (0, [0; 32]), twice.iter().copied()).is_err());
     }
 
     /// Two provinces and two holdings interleaved in one log: each target

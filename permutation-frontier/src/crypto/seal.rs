@@ -423,4 +423,131 @@ mod tests {
         }
         assert_eq!(checked, 19);
     }
+    /// Reuse only public IBE/signature bytes; rebuild wide plaintext and commitment.
+    #[cfg(all(
+        feature = "native-crypto-tests",
+        feature = "wide-world-experimental",
+        not(target_os = "solana")
+    ))]
+    #[test]
+    fn native_wide_seals_verify_real_pairing_fo_and_body() {
+        use frontier_abi::world_index::{ProvinceKey, WideCoord, WideHostRef, WorldId};
+        let world = WorldId::new([0x77; 32]).unwrap();
+        let key = |p, q| ProvinceKey::new(world, WideCoord::checked(p, q).unwrap());
+        let host = WideHostRef::new(key(129, 0), 3, 1, 7).unwrap();
+        let (path_len, path) = kseal::encode_path(&[0, 1, 2, 3, 4, 5, 0, 5]).unwrap();
+        let fixtures = cases();
+        for name in ["valid_q3", "valid_q4_min"] {
+            let c = fixtures.iter().find(|c| get(c, "name") == name).unwrap();
+            let legacy: [u8; SEAL_LEN] = hex(get(c, "seal")).try_into().unwrap();
+            let ibe = legacy[..IBE_LEN].try_into().unwrap();
+            let sig = sys::bls_g1_decompress(&hex(get(c, "open_sig")).try_into().unwrap()).unwrap();
+            let k: [u8; N] = hex(get(c, "k")).try_into().unwrap();
+            assert_eq!(
+                recover_key(&sig, &ibe),
+                Ok(k),
+                "{name}: real pairing and FO"
+            );
+            let arrive = get(c, "arrive_bell").parse().unwrap();
+            let plain = wseal::WidePlain {
+                version: wseal::WIDE_PLAIN_VERSION,
+                host,
+                arrive_bell: arrive,
+                dest: key(130, -1),
+                dest_tile: 60,
+                stance: 2,
+                retreat_bps: 0,
+                path_len,
+                path,
+                reserved: [0; wseal::WIDE_RESERVED_BYTES],
+            };
+            let pt = wseal::pack(&plain);
+            let seal = wseal::assemble(&ibe, &wseal::body_xor(&k, &pt));
+            let commit = wseal::commit(&pt, &kseal::salt_of(&k));
+            let root = wide_seal_root_of(&commit, &seal);
+            assert_eq!(
+                judge_wide(&sig, &seal, &commit, &host, arrive),
+                (seal_code::VALID, Some(plain))
+            );
+            assert_ne!(root.to_vec(), hex(get(c, "seal_root")));
+            let legacy_commit = hex(get(c, "commit")).try_into().unwrap();
+            assert_eq!(
+                open_wide(&sig, &seal, &legacy_commit),
+                Err(seal_code::COMMIT_MISMATCH)
+            );
+            let mut bad = seal;
+            bad[..96].fill(0);
+            assert_eq!(open_wide(&sig, &bad, &commit), Err(seal_code::BAD_POINT));
+            for offset in [V, W] {
+                let mut bad = seal;
+                bad[offset] ^= 1;
+                assert_eq!(open_wide(&sig, &bad, &commit), Err(seal_code::FO_FAILED));
+            }
+            let mut bad = seal;
+            bad[IBE_LEN] ^= 1;
+            assert_eq!(
+                open_wide(&sig, &bad, &commit),
+                Err(seal_code::COMMIT_MISMATCH)
+            );
+            assert_ne!(wide_seal_root_of(&commit, &bad), root);
+            assert_eq!(
+                open_wide(&[0; 96], &seal, &commit),
+                Err(seal_code::BAD_POINT)
+            );
+            let other = fixtures
+                .iter()
+                .find(|v| {
+                    get(v, "name")
+                        == if name == "valid_q3" {
+                            "valid_q4_min"
+                        } else {
+                            "valid_q3"
+                        }
+                })
+                .unwrap();
+            let wrong_sig =
+                sys::bls_g1_decompress(&hex(get(other, "open_sig")).try_into().unwrap()).unwrap();
+            assert_eq!(
+                open_wide(&wrong_sig, &seal, &commit),
+                Err(seal_code::FO_FAILED)
+            );
+            assert_eq!(
+                judge_wide(&sig, &seal, &commit, &host, arrive + 1),
+                (seal_code::BAD_PLAINTEXT, None)
+            );
+            let wrong_host = WideHostRef::new(key(129, 0), 3, 1, 8).unwrap();
+            assert_eq!(
+                judge_wide(&sig, &seal, &commit, &wrong_host, arrive),
+                (seal_code::BAD_PLAINTEXT, None)
+            );
+            let mut wrong_world = plain;
+            wrong_world.dest = ProvinceKey::new(
+                WorldId::new([0x78; 32]).unwrap(),
+                WideCoord::checked(130, -1).unwrap(),
+            );
+            let invalid_pt = wseal::pack(&wrong_world);
+            let invalid_seal = wseal::assemble(&ibe, &wseal::body_xor(&k, &invalid_pt));
+            let invalid_commit = wseal::commit(&invalid_pt, &kseal::salt_of(&k));
+            assert_eq!(
+                judge_wide(&sig, &invalid_seal, &invalid_commit, &host, arrive),
+                (seal_code::BAD_PLAINTEXT, None)
+            );
+        }
+    }
+
+    #[cfg(not(feature = "native-crypto-tests"))]
+    #[test]
+    fn ordinary_host_refuses_even_public_valid_ibe() {
+        for c in cases() {
+            if get(&c, "name") != "valid_q3" && get(&c, "name") != "valid_q4_min" {
+                continue;
+            }
+            let legacy: [u8; SEAL_LEN] = hex(get(&c, "seal")).try_into().unwrap();
+            assert_eq!(
+                recover_key(&[0; 96], &legacy[..IBE_LEN].try_into().unwrap()),
+                Err(seal_code::BAD_POINT)
+            );
+            assert!(sys::bls_g1_decompress(&hex(get(&c, "open_sig")).try_into().unwrap()).is_err());
+        }
+    }
 }
