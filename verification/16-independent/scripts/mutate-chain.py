@@ -12,6 +12,14 @@ muts = {
   'M5-e-other-citizen':('e-prize-run.json', lambda j: j.__setitem__('nft_citizen', '6TUvpsqCubL6tRZoVuVW1sB9xUJgc8ypQDnU52uDhbgj')),
   'M6-a-no-transfer':  ('a-join.json',    lambda j: j.__setitem__('generation', 0)),
   'M7-e-claim-paid':   ('e-prize-run.json', lambda j: j.__setitem__('claim_A_with_pass_citizen', 'Ok')),
+  'M8-e-summary-citizen': ('e-prize.json', lambda j: j['run'].__setitem__('nft_citizen', '6TUvpsqCubL6tRZoVuVW1sB9xUJgc8ypQDnU52uDhbgj')),
+  'M9-e-summary-claim':   ('e-prize.json', lambda j: j['run'].__setitem__('claim_A_with_pass_citizen', 'Ok')),
+}
+# Changes made to the run record and the summary alike (the summary-vs-run comparison cannot see these).
+both = {
+  'M10-e-both-vault-paid':  lambda j: j.__setitem__('vault_after', 0),
+  'M11-e-both-other-citizen': lambda j: j.__setitem__('nft_citizen', '6TUvpsqCubL6tRZoVuVW1sB9xUJgc8ypQDnU52uDhbgj'),
+  'M12-e-both-claim-ok':    lambda j: j.__setitem__('claim_B_after_transfer', 'Ok'),
 }
 for name, (f, fn) in muts.items():
     d = os.path.join(dst, name)
@@ -19,3 +27,10 @@ for name, (f, fn) in muts.items():
     shutil.copytree(src, d, ignore=shutil.ignore_patterns('*.sqlite*'))
     j = load(d, f); fn(j); save(d, f, j)
     print(name, f)
+for name, fn in both.items():
+    d = os.path.join(dst, name)
+    shutil.rmtree(d, ignore_errors=True)
+    shutil.copytree(src, d, ignore=shutil.ignore_patterns('*.sqlite*'))
+    r = load(d, 'e-prize-run.json'); fn(r); save(d, 'e-prize-run.json', r)
+    e = load(d, 'e-prize.json'); fn(e['run']); save(d, 'e-prize.json', e)
+    print(name, 'e-prize-run.json+e-prize.json')
