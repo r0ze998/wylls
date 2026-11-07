@@ -115,6 +115,24 @@ export function decode(kind, bytes, { seasonId, profile } = {}) {
   return out;
 }
 
+/**
+ * The fields of a layout read off the head of a longer record, with no magic, size or season check of its own
+ * (`bytes` must at least cover the layout). For records that keep a deployed layout as their prefix under a magic
+ * of their own, e.g. the experimental wide holding (fwide.mjs: the whole Holding v2 layout plus a trailer): the
+ * caller checks that record's magic, exact size and identity itself. Never a substitute for `decode`.
+ */
+export function decodePrefix(kind, bytes, { profile = 2 } = {}) {
+  const b = bytes instanceof Uint8Array ? bytes : Uint8Array.from(bytes);
+  const layout = profile >= 2 ? ACCOUNTS_V2[kind] ?? ACCOUNTS[kind] : ACCOUNTS[kind];
+  const records = profile >= 2 ? RECORDS_V2 : RECORDS;
+  if (!layout) throw new CodecError('WrongKind', `unknown account kind ${kind}`);
+  if (b.length < layout.size) throw new CodecError('WrongSize', `${kind} prefix: ${b.length} B, at least ${layout.size} needed`);
+  const dv = new DataView(b.buffer, b.byteOffset, b.byteLength);
+  const out = { kind };
+  for (const f of layout.fields) if (f[3] !== 'rsv') out[camel(f[0])] = readField(b, dv, 0, f, records);
+  return out;
+}
+
 /** The byte range of a field: [offset, length] (for checks that compare raw bytes). */
 export function fieldRange(kind, name) {
   const f = ACCOUNTS[kind]?.fields.find(x => x[0] === name);

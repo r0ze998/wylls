@@ -526,9 +526,79 @@ fn capture_json(f: &Fold, key: &[u8; 32]) -> Value {
     };
     json!({ "address": Address::new_from_array(*key).to_string(),
         "slot": c.slot.to_string(), "archiveSequence": c.tx.to_string(),
-        "postState": if f.cfg.exact_post { "transaction" } else { "at-or-after-transaction" },
+        "postState": post_state_text(f),
         "verification": "captured-unverified",
         "bytes_b64": base64::engine::general_purpose::STANDARD.encode(&c.data) })
+}
+
+fn post_state_text(f: &Fold) -> &'static str {
+    if f.cfg.exact_post {
+        "transaction"
+    } else {
+        "at-or-after-transaction"
+    }
+}
+
+/// One captured wide holding as `/h/me` lists it: the full identity the
+/// record's own bytes carry (world, exact coordinate, ring, site,
+/// generation, inventory slot, season, owner Citizen, host identity version,
+/// open transits) beside its capture. A reader recomputes every field from
+/// `capture.bytes_b64` and refuses a disagreement; nothing here is a
+/// projection of the economy or a claim that the record is current.
+fn wide_holding_json(f: &Fold, key: &[u8; 32], h: &holding::WideHolding) -> Value {
+    json!({
+        "world": hex::encode(h.world.as_bytes()),
+        "p": h.coord.p().to_string(),
+        "q": h.coord.q().to_string(),
+        "ring": h.coord.ring().to_string(),
+        "site": h.site,
+        "generation": h.gen,
+        "inventorySlot": h.slot,
+        "season": h.season_id.to_string(),
+        "ownerCitizen": Address::new_from_array(h.owner_citizen).to_string(),
+        "hostIdentity": h.host_identity,
+        "openTransits": h.open_transits,
+        "capture": capture_json(f, key),
+    })
+}
+
+/// The identity envelope of a viewer's wide inventory (`/h/me`
+/// `wideContext`): what every `wideHoldings` entry is checked against by a
+/// reader (world, season, Citizen, the fold's latest folded slot) and the
+/// binding of each of the three inventory slots as the captured Citizen
+/// bytes say it (`empty`, `legacy`, `wide`, or `malformed` for a ref no
+/// writer may act on). `Null` while no wide index exists or the Citizen is
+/// not captured: an absent envelope is "unavailable", never an empty
+/// inventory and never a slot shown as free.
+pub fn context_for_citizen(f: &Fold, citizen: &[u8; 32]) -> Value {
+    let (Some(c), Some(w)) = (f.account(citizen), f.wide.as_ref()) else {
+        return Value::Null;
+    };
+    let inventory: Vec<Value> = (1..=3u8)
+        .map(|slot| {
+            let binding = match holding::binding_of(&c.data, slot) {
+                Ok(holding::SlotBinding::Empty) => "empty",
+                Ok(holding::SlotBinding::Legacy(_)) => "legacy",
+                Ok(holding::SlotBinding::Wide) => "wide",
+                Err(_) => "malformed",
+            };
+            json!({ "inventorySlot": slot, "binding": binding })
+        })
+        .collect();
+    json!({
+        "v": 1,
+        "readOnly": true,
+        "executable": false,
+        "verification": "captured-unverified",
+        "world": hex::encode(w.world().as_bytes()),
+        "worldDomain": WORLD_DOMAIN,
+        "season": f.cfg.season_id.to_string(),
+        "citizen": Address::new_from_array(*citizen).to_string(),
+        "latestSlot": f.st.last_slot.to_string(),
+        "foldedThrough": f.st.folded_through.to_string(),
+        "postState": post_state_text(f),
+        "inventory": inventory,
+    })
 }
 
 /// Wide slots stay distinct from legacy holdings. A missing capture is explicit,
@@ -550,12 +620,8 @@ pub fn holdings_for_citizen(f: &Fold, citizen: &[u8; 32]) -> Value {
             .values()
             .filter_map(|key| {
                 let h = holding::WideHolding::read(&f.account(key)?.data).ok()?;
-                (h.owner_citizen == *citizen && h.slot == slot).then(|| {
-                    json!({
-                "world": hex::encode(h.world.as_bytes()), "p": h.coord.p().to_string(),
-                "q": h.coord.q().to_string(), "site": h.site, "generation": h.gen,
-                "capture": capture_json(f, key) })
-                })
+                (h.owner_citizen == *citizen && h.slot == slot)
+                    .then(|| wide_holding_json(f, key, &h))
             })
             .collect();
         out.push(json!({ "inventorySlot": slot,

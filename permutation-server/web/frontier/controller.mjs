@@ -8,6 +8,7 @@
 // through fmarch.sendMarch. Nothing here decides a rule; the program does.
 import { conquestEnabled, kernelFile, territoryStandings, keepFromProvince, applyControl, outpostOffer, mergeKeepEvents } from './fconquest.mjs';
 import { holdingByRef } from './fland.mjs';
+import * as fwide from './fwide.mjs';
 import { FS, invalidate, activeHolding } from './fstate.mjs';
 import { ownTag } from './people/ui.mjs';
 import { updateLife } from './people/life.mjs';
@@ -119,6 +120,28 @@ function ctx(extra = {}) {
 /** The address `/h/me` and the quota are read for: the NFT played (⑳), else the wallet. */
 const viewerKey = () => FS.resident?.asset ?? FS.wallet?.address;
 const viewerCitizen = () => FS.resident?.citizen ?? io.pinned().addresses.of('Citizen', { wallet: FS.wallet.address });
+/**
+ * The Citizen the viewer's wide inventory must be about (fwide.mjs `parseWideInventory` pins): the NFT's Citizen
+ * when one is played, else the connected wallet's canonical Citizen under the pinned program and season; null when
+ * neither is known, which refuses the wide inventory rather than showing one. Derived here, never read from `/h/me`.
+ */
+function viewerCitizenPin() {
+  if (FS.resident?.citizen) return FS.resident.citizen;
+  const pin = io.pinned();
+  return pin && FS.wallet?.address ? pin.addresses.of('Citizen', { wallet: FS.wallet.address }) : null;
+}
+/**
+ * ⑳: the resident (NFT) played changes, or none is played any more: the viewer changes now, so the former viewer's
+ * wide inventory and the wide village on the village screen leave now (fwide.mjs) — not when the next `/h/me` answers
+ * — and any `/h/me` read still in flight is the former viewer's (`viewerRefresh`, as `adoptConnectedWallet` does).
+ * The legacy fields follow the refresh the caller runs next, as before.
+ */
+export function adoptResident(next) {
+  FS.resident = next;
+  ++viewerRefresh;
+  fwide.clearWide(FS);
+  invalidate('panel', 'tabs', 'rail');
+}
 
 /** ⑳: the wallet's resident NFTs (GET /f/residents); none when the relay has no resident policy. */
 async function loadNfts() {
@@ -268,6 +291,9 @@ async function act(name, { v = {}, fields = {}, signer, requester = null, label,
 }
 
 async function actOnce(name, { v, fields, signer, requester, label, after, onSent, onLost, order, say }, early) {
+  // a wide holding among the subjects, or a village order while the village screen shows a wide village: refused
+  // before anything is built or sent (fwide.mjs: the one guard every path meets)
+  { const wr = fwide.wideRefusal(name, typeof v === 'object' ? v : null, FS); if (wr) return early(wr); }
   if (!io.pinned()) return early({ code: 'NoPin' });
   if (!FS.wallet) return early({ code: 'NoWallet' });
   let sign = null;
@@ -297,8 +323,16 @@ async function actOnce(name, { v, fields, signer, requester, label, after, onSen
   fxEmit('action:busy', fxa);
   FS.inFlight = (FS.inFlight ?? 0) + 1;
   try {
-    const accounts = typeof v === 'function' ? fp => accountsFor(name, v(fp)) : accountsFor(name, ctx(v));
-    const send = () => tx.submit({ name, accounts, fields, signer: sign, requester, citizen: requester ? viewerCitizen() : undefined, invite: v.invite, resident });
+    // (a wide holding among the subjects is refused as late as the send — and, for accounts that are a function of
+    // the fee payer, inside that function, so none are built —; the screen's state was judged above, when the order
+    // was authorized: an order of a legacy village that continues after the viewer moved to a wide village is not
+    // refused here, an order naming a wide village is, however it got this far. fwide.mjs assertLegacySubjects)
+    const accounts = typeof v === 'function' ? fp => accountsFor(name, fwide.assertLegacySubjects(name, v(fp))) : accountsFor(name, ctx(v));
+    const send = () => {
+      const late = typeof v === 'object' ? fwide.wideRefusal(name, v, null) : null;
+      if (late) return { ok: false, code: late.code, error: late.text, text: late.text };
+      return tx.submit({ name, accounts, fields, signer: sign, requester, citizen: requester ? viewerCitizen() : undefined, invite: v.invite, resident });
+    };
     let r = await send();
     // the transaction left this browser (a refusal before sending never reaches here)
     if (r.ok) { sent = true; onSent?.(r); fxEmit('action:sent', fxa); }
@@ -499,6 +533,8 @@ export function adoptConnectedWallet(next = wallet.connected()) {
   // ⑳: a resident NFT chosen under the previous wallet is not this wallet's.
   FS.resident = null;
   FS.nfts = null;
+  // the wide inventory and the wide village on the village screen were the previous viewer's (fwide.mjs)
+  fwide.clearWide(FS);
   FS.notice = null;
   FS.meStatus = next ? 'loading' : 'ready';
   FS.meError = null;
@@ -833,7 +869,7 @@ async function refreshChronicle() {
 }
 
 /** The herald client this controller reads (startPlay sets it; tests pass a fake). */
-export function useHerald(h) { herald = h; cursor = 0; mySlots = []; conquestRefresh += 1; homesRefresh += 1; viewerRefresh += 1; }
+export function useHerald(h) { herald = h; cursor = 0; mySlots = []; conquestRefresh += 1; homesRefresh += 1; viewerRefresh += 1; fwide.clearWide(FS); }
 
 /**
  * Load the latest envelope of a province the map draws at tile detail, the
@@ -865,6 +901,12 @@ export function applyMeResult(me) {
     FS.citizen = me.citizen;
     FS.holdings = me.holdings;
     mySlots = me.slots ?? [];
+    // the wide inventory (`wideContext`, `wideHoldings`) beside — never inside — the legacy holdings, checked against
+    // this season's world and addresses, the Citizen the viewer *is* (derived from the wallet or the NFT played, never
+    // read from the answer) and the viewer's own Citizen bytes (the slot bindings); a refused inventory is a wide
+    // error, never a change to the legacy view (fwide.mjs)
+    fwide.adoptWide(FS, me.record, { seasonAddress: FS.record?.seasonAddress, programId: FS.record?.programId,
+      seasonId: io.pinned()?.seasonId ?? FS.record?.season ?? null, citizen: viewerCitizenPin(), citizenRecord: me.citizen ?? null, viewerKey: viewerKey() ?? null });
     FS.land = landState(me.citizen);
     // why the last holding or ticket ended, kept with its bell for the next cards (review finding 7)
     const after = FS.land.stage, gone = after === 'joined' || after === 'refugee';
@@ -890,9 +932,12 @@ export function applyMeResult(me) {
     FS.meStatus = 'ready'; FS.meError = null;
     FS.citizen = null; FS.holdings = []; FS.land = landState(null);
     mySlots = [];
+    fwide.clearWide(FS); FS.wideStatus = 'unavailable';
     return 'missing';
   }
   FS.meStatus = 'error'; FS.meError = { code: me.code ?? 'Unavailable', text: L`自分の情報を読み込めませんでした。接続を確認して再試行してください。` };
+  // (a failed read leaves no wide data and no wide selection behind: a wide card would stand on nothing)
+  fwide.failWide(FS, me.code ?? 'Unavailable');
   invalidate('panel', 'chips');
   return 'error';
 }
@@ -1790,6 +1835,9 @@ export const ACTIONS = {
   'home-scout-train': () => homeAction(() => trainOrder(6, 100)),
   'home-scout-muster': () => homeAction(() => musterOrder(6, 100)),
   'me-retry': () => refresh(),
+  // the wide village of an inventory slot on the village screen (read-only; screens/wideholding.mjs), and back
+  'wide-select': d => { if (!fwide.selectWide(FS, num(d.slot))) return; FS.notice = FS.notice?.busy ? FS.notice : null; invalidate('panel', 'tabs', 'rail'); },
+  'wide-close': () => { fwide.clearWideSelect(FS); invalidate('panel', 'tabs', 'rail'); },
   tab: d => { FS.tab = d.tab; FS.notice = FS.notice?.busy ? FS.notice : null; saveUiPatch({ tab: d.tab }); invalidate('panel', 'tabs'); },
   connect: async d => {
     const entry = (FS.walletList ?? [])[num(d.i)];
@@ -1818,11 +1866,11 @@ export const ACTIONS = {
       });
       if (!r?.ok) return r;
     }
-    FS.resident = { ...id, joined: true };
-    invalidate('panel');
+    // (the viewer changes here, before the read: the former viewer's wide inventory and selection leave at once)
+    adoptResident({ ...id, joined: true });
     await refresh();
   },
-  'nft-logout': async () => { FS.resident = null; invalidate('panel'); await refresh(); },
+  'nft-logout': async () => { adoptResident(null); await refresh(); },
   'pick-faction': d => { FS.joinDraft = { ...(FS.joinDraft ?? {}), faction: num(d.f) }; invalidate('panel'); if (needsHomeChoice()) return refreshHomes({ force: true }); },
   join: async () => {
     const pin = io.pinned();
@@ -1946,6 +1994,10 @@ export const ACTIONS = {
   forget: () => { if (FS.session) fsession.forget(FS.session); FS.session = null; invalidate('panel'); },
 };
 
+// The guard on the village orders (fwide.mjs): while a wide village stands on the village screen, none of these runs
+// from there, however it is reached (a stale control, a forged dataset, a shortcut, a repeated press, a call).
+fwide.guardLegacy(ACTIONS, fwide.GUARDED_ACTS, { FS, refuse: failed });
+
 /** Where an order of the prototype is about: the host's tile, else the banner's pole. */
 function protoAt(d) {
   const r = d.host ? hostRow(d.host) : null;
@@ -1990,6 +2042,7 @@ export const FORMS = {
   vigil: f => act('SetVigil', { fields: { start_min: Math.max(0, Math.min(23, Math.trunc(formNum(f, 'hour')))) * 60 } }),
   dest: f => setDestination({ p: Math.trunc(formNum(f, 'p')), q: Math.trunc(formNum(f, 'q')), tile: Math.trunc(formNum(f, 'tile')) }),
 };
+fwide.guardLegacy(FORMS, fwide.GUARDED_FORMS, { FS, refuse: failed });
 
 /** Bound inputs (data-bind) of the composer and the join draft. */
 export function bind(name, value) {

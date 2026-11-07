@@ -18,6 +18,7 @@ import { conquestEnabled, kernelFile, outpostOffer } from './fconquest.mjs';
 // and onboarding.mjs, the actions below only move state and call them.
 import { config } from './config.mjs';
 import { FS, invalidate, registerRenderers } from './fstate.mjs';
+import { clearWideSelect } from './fwide.mjs';
 import { createHerald, nextPoll, staleness } from './herald.mjs';
 import { setPin, setRelay } from './fchainio.mjs';
 import { checkBeacon } from './seal.mjs';
@@ -335,8 +336,9 @@ function moreFolds(FS) {
  * closed drawer is empty.
  */
 export function restMarkup(FS) {
-  // (without a village the plate carries its own one button: no second prompt beside it)
-  return [hud.renderPlate(FS), holdsLand(FS) ? hud.renderNextRow(nextNow()) : '', hud.renderTodo(FS, { max: 8, open: true })];
+  // (without a village the plate carries its own one button: no second prompt beside it; the wide pips stand with the
+  // plate here as they do in the desktop rail — hud/hud.mjs renderRest is the one composition for both widths)
+  return hud.renderRest(FS, { next: holdsLand(FS) ? hud.renderNextRow(nextNow()) : '', todoMax: 8 });
 }
 
 /**
@@ -1311,6 +1313,7 @@ function selectVillage(i, pop = null) {
   const h = (FS.holdings ?? [])[i >= 0 ? i : FS.activeHolding ?? 0];
   if (!h || !Number.isInteger(h.tile)) return false;
   endPick();
+  clearWideSelect(FS);   // (a legacy village chosen: the wide card leaves the village screen)
   FS.activeHolding = FS.holdings.indexOf(h);
   FS.selected = { kind: 'tile', p: h.p, q: h.q, idx: h.tile };
   FS.hand = { host: null, pop: null };
@@ -2865,6 +2868,7 @@ function cycleHolding(dir) {
   const hs = FS.holdings ?? [];
   if (!hs.length) return;
   const i = (((FS.activeHolding ?? 0) + dir) % hs.length + hs.length) % hs.length;
+  clearWideSelect(FS);
   FS.activeHolding = i;
   goToItem({ p: hs[i].p, q: hs[i].q, tile: hs[i].tile, tab: 'holding', holding: hs[i] });
 }
@@ -3012,6 +3016,7 @@ export const HUD_ACTIONS = {
   // the village plate: one press home (pressed again while there: the next village)
   home: () => {
     camKeep.touch();
+    clearWideSelect(FS);
     mapRef?.home();
     const hs = FS.holdings ?? [], v = mapRef?.view;
     if (v && hs.length > 1) {
@@ -3023,6 +3028,7 @@ export const HUD_ACTIONS = {
   'holding-go': d => {
     const i = num(d.i), h = FS.holdings?.[i];
     if (!h) return;
+    clearWideSelect(FS);
     FS.activeHolding = i;
     const c = (x => project(x.q, x.r))(tileHex(h.p, h.q, h.tile));
     camKeep.touch();
@@ -3147,6 +3153,7 @@ export const HUD_ACTIONS = {
   'holding-pick': d => {
     const i = num(d.i), h = FS.holdings?.[i];
     if (!h) return;
+    clearWideSelect(FS);
     FS.activeHolding = i;
     goToItem({ p: h.p, q: h.q, tab: 'holding' });
   },

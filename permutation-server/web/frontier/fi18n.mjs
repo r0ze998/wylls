@@ -214,6 +214,8 @@ export const ERROR_NAMES = Object.freeze(Object.keys(ERROR_TEXT));
 /** Texts for this page's own refusal codes (herald, seal, pins, wasm). */
 const CLIENT_TEXT = {
   network: () => L`通信できませんでした`,
+  // the wide village on the village screen is a captured record shown read-only (fwide.mjs): no order reaches it
+  WideReadOnly: () => L`遠方の村は捕捉記録の読み取り専用表示です。この村には命令を送れません。`,
   NotFound: () => L`まだ記録がありません`,
   WrongSeason: () => L`別のシーズンの記録です`,
   WrongKey: () => L`頼んだものと違う記録が届きました`,

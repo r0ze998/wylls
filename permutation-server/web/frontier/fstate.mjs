@@ -25,6 +25,11 @@ export const FS = {
   meError: null,
   homeChoice: null,      // decoded land candidates and current selected site
   homeGrant: null,       // confirmed first holding, until the player starts building
+  // ---- the viewer's wide (captured, unverified) inventory: never inside `holdings` (fwide.mjs)
+  wideHoldings: null,    // parseWideInventory's result, or null while unknown
+  wideStatus: 'loading', // loading | ready | unavailable | error: an unread inventory is never "no wide villages"
+  wideError: null,
+  wideSelect: null,      // {inventorySlot, key} of the wide village the village screen shows, or null (the legacy one)
   conquest: null,        // v3 territory controls and authoritative nation score
   homeFocus: null,       // one-shot camera request; no ownership is inferred from it
   book: [],              // marchbook entries
