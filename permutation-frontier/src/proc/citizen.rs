@@ -576,7 +576,7 @@ pub(crate) fn set_vigil_as(p: &Pubkey, a: &[AccountInfo], d: &[u8], auth: &super
 // ------------------------------------------------------------ FileTicket
 
 /// A holding tier byte as the holding kernel's `Tier`.
-fn holding_tier(v: u8) -> R<Tier> {
+pub(crate) fn holding_tier(v: u8) -> R<Tier> {
     Ok(match v {
         0 => Tier::Hamlet,
         1 => Tier::Town,
@@ -589,7 +589,7 @@ fn holding_tier(v: u8) -> R<Tier> {
 /// A kernel outpost refusal as a program code (MC §5.3): `HoldingsFull`
 /// (69); the land gate `Capacity` (10, the free-site rule's M1 code);
 /// everything else `OutpostRule` (75).
-fn outpost_err(e: OutpostRefusal) -> crate::Error {
+pub(crate) fn outpost_err(e: OutpostRefusal) -> crate::Error {
     match e {
         OutpostRefusal::HoldingsFull => crate::CqError::HoldingsFull.into(),
         OutpostRefusal::LandGate => FrontierError::Capacity.into(),
@@ -1606,7 +1606,7 @@ pub(crate) fn clear_holding_ref(citizen: &mut [u8], slot: u8) -> R<()> {
 }
 
 /// The generation byte of the Citizen's entry of `slot` (`0xFF` empty).
-fn slot_gen(citizen: &[u8], slot: u8) -> R<u8> {
+pub(crate) fn slot_gen(citizen: &[u8], slot: u8) -> R<u8> {
     use crate::layout::player::holding_ref as HR;
     Ro(citizen).u8(C2::holding_of_slot(slot) + HR::GEN)
 }
@@ -1665,7 +1665,7 @@ fn escrow_need(slots: u8, rent_h: u64) -> R<u64> {
 }
 
 /// The site's conquest record is all zero (S1), else `SiegeBusy`.
-fn record_is_zero(province: &[u8], site: u8) -> R<()> {
+pub(crate) fn record_is_zero(province: &[u8], site: u8) -> R<()> {
     if CqRecord::is_zero(province, site as usize)? {
         Ok(())
     } else {

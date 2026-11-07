@@ -1,6 +1,65 @@
-# Wide land writer: versioned identity, one inventory, and three closed gates
+# Wide land writer: experimental opening, one inventory, and closed ownership/march gates
 
-Status: experimental code, 2026-11-07, on `455f03af` (worktree `wylls-wide-game-integration-20261107`). Nothing here was compiled or run by its author; the native worker runs the commands in §6. No keypair, signature, network, browser, CI or deployment was used. This is a host-only preparatory implementation in the game program, not playable wide land. Most remaining work is engineering: connect existing game rules, readers and the complete asset lifecycle. Only changes to product rules require an owner decision.
+Status: host-only experimental code. The current second slice is based on `c94a5df7`; native validation is recorded below. Sections 1–6 describe the earlier `455f03af` slice and are superseded where §0 says so. No keypair, signature, network, browser, CI or deployment was used. This is a host-only preparatory implementation in the game program, not playable wide land. Most remaining work is engineering: connect existing game rules, readers and the complete asset lifecycle. Only changes to product rules require an owner decision.
+
+## 0. Second slice (2026-11-07, on `c94a5df7`, worktree `wylls-wide-playable-port-20261107`): a real opening under an explicit configuration
+
+Written with source tools only; not compiled or run by its author (the native worker runs §0.5). Everything below is host-only (`wide-world-experimental`; the SBF target still refuses the feature at compile time). It supersedes the rows for 0xD8 and 0xD9 in §1 and §3.
+
+### 0.1 What the program now does (through the real `dispatch`)
+
+| tag | instruction | behaviour |
+|---|---|---|
+| 0xDB (new) | WideSetRules(config_version u16, keep_holder, free_city, camp, region: u8) | **writes once** the Season's experimental rules configuration (`world_index::rules::WideRulesConfig`, 96 B, magic `PSFXWRC1`, seed `wc00`), from the signer's lamports. Refused: a signer that is not the Season's stored `AUTHORITY` (`Auth`), a byte 0 (unset) or outside the candidate table or another `config_version` (`BadData`), a second write (`AlreadyDone`), a production-version Season (`RulesetMismatch`). Top-level only |
+| 0xD8 | WideOpenProvince(P, Q) | the deployed OpenProvince checks over wide identities as before, plus the configuration at its canonical address (read-only). **Absent configuration: `NotImplemented` before any write, as before.** Present: the **whole province** is created from the geometric wedge's fund (`init_funded`), with the Province v2 prefix fully initialised: the wide terrain kernel's bytes (`terrain::wide::generate_province_wide` over the ring seed, `encode_terrain`), `P`/`Q`/`RING` zero, `WEDGE`, `REGION`, `RESOLVED_NEXT = OPENED_BELL = SCORE_NEXT_BELL = now_bell`, twelve free neutral sites with empty pending slots, the keep on the deployed symmetric tile (`kernel::keep::keep_tile`) held by the configured candidate nation with the season's `keep_home_guard` (never heartland-safe; `wide_keep_open` is pinned equal to `keep::try_open` outside the heartland), the configured Free City (the season's garrison, only when the season has Free Cities) and initial camp (`next_check_day = day + 1`), the identity trailer last; the fund's `open_sites += site_count`, `provinces_opened += 1`, `provinces_funded += 1`, `spent_total += spent`; the wide seed's `provinces_created += 1`. No Frontier write, no PS2 record |
+| 0xD9 | WideClaimSite | **still refuses `NotImplemented`**, after the deployed FileOutpost prerequisites run **read-only**: the wallet prologue steps 1–2, the one-inventory slot model and the deployed lowest-free-slot rule, the slot-1 legacy first home as anchor (canonical, the citizen's, at the ref's generation, final, order 1, its province unlocked), the slot-2 holding for a slot-3 claim (legacy or wide), `holding::may_found_outpost` with the folded land gate and the wide province's strength weights, the site free with a zero conquest record, the settler cost affordable from the anchor's touched stores (a copy). No byte is written (the bucket included), no lamport moves. A first draft of this slice founded the holding at once; that was removed on review: it skipped FileOutpost's ticket and escrow, SettleTicket's beacon draw and the provisional/final lifecycle, which is a different operation, not an existing rule |
+| 0xDA | WideDepart | unchanged gate (`NotImplemented` at the unallocated host identity), now after the deployed Depart checks run read-only: holding final (`NotFinal`), province resident (`NotResident`), seal syntax, the arrival window and end bell (`ArrivalBell`), the tip floor (`TipTooLow`), the transit slot (`BadData`/`TransitState`), the payer's funds (`Insufficient`) |
+
+Who may act: the player handlers have `_as` forms taking the program's `Auth` (wallet, or `Auth::Resident` through the real `resident::start` holder/generation check). The plain dispatch uses `Auth::Wallet`, which refuses an NFT Citizen by address (zero wallet; pinned by a test), and `ResidentAct` routes only the ABI v2 tags of `ACT_RUNS`, which no draft tag is. **No NFT Citizen can reach a wide entry point today**; the plumbing exists, the routing is the integrator's allocation.
+
+### 0.2 Pure models (frontier-abi, `world_index::rules`), not game behaviour by themselves
+
+| item | what it is | status |
+|---|---|---|
+| `WideRulesConfig` | the record and its codec; `new` refuses a partial configuration; `read` refuses unset, unknown, wrong-version, reserved, zero-world bytes | the only input an opening reads its rules from |
+| `KeepHolderRule` 1 = `placement::mixed_home_nation`, 2 = `placement::orbit_balanced_outer_nation` | candidates for the nation holding a wide keep | **not approved**; the owner confirmed mixing, not which |
+| `FreeCityRule` 1 = none, 2 = `wide_free_city_site` (`sha256(PSF-FREE-CITY-WIDE-v1 ‖ seed ‖ LE64(ring) ‖ LE64(pos))` over the canonical copy, `mod site_count`) | candidates for the wide Free City | **not approved**; the deployed rule hashes `LE32(P) ‖ LE32(Q)` |
+| `CampRule` 1 = none, 2 = `wide_initial_camp` (the deployed camp kernel's candidate list and troop range, drawn over the 17-byte sort key) | candidates for the wide initial camp | **not approved** |
+| `RegionRule` 1 = `wide_region` (`sha256(frontier/region/wide-v1 ‖ sort key)[0] mod 16`) | candidate for the beacon region | **not approved** |
+| `wide_keep_open` | `keep::try_open` without the `ProvinceCoord` | pinned equal to the kernel |
+
+A configured candidate is an experiment a host-only Season runs; it is not a Season parameter, not a ruleset-hash input, and a changed table is a new `config_version`.
+
+### 0.3 Fixtures in the host tests (what the program cannot create)
+
+- a wide **holding** (`fixture_holding`): written under a decided claim rule the program does not have, so the depart gate can be reached;
+- a **final Town first home at ring 128** (`fixture_rim_home`): a PlaceHome-written Holding relocated by the test to `(128, 0)` with its tier raised and stores set, standing in for a FileTicket won at the rim and a Town tier-up, which the tests do not run; it lets the claim prerequisites pass up to the gate.
+
+The wide **province** is no longer a fixture: the tests open it through the program.
+
+### 0.4 Decided here (engineering) versus left open (product)
+
+Engineering, reused as deployed: the wedge fund as the funding source and its counters (so wide sites count in `open_sites`, the fold, θ and Join capacity, as every opened province's do), the keep tile, the keep home guard, the Free City garrison, the site mirror and bells, the outpost entitlement, settler cost and slot rule for a claim. Open: the four candidate rules (above), wide prize eligibility (untouched), the implementation of the existing ticket lottery and finality lifecycle (not a new owner decision), the wider host identity, the record kinds for wide events (an opening still logs nothing), the ResidentAct routing of the draft tags.
+
+### 0.5 Tests and commands for the native worker
+
+frontier-abi (`world_index::rules`, six tests): layout and tag pins; unset/unknown bytes refused and no default; record round trip and refusals; a full configuration decides every rule from its candidate and the record model accepts it; the Free City candidate canonical, in range and seed-bound; region and camp candidates in range and deterministic; `wide_keep_open` equal to `try_open`. `world_index::wide_ix`: the band `0xD6..=0xDB`, the SetRules encoding, the 7/13/4-account lists.
+
+permutation-frontier (`map_growth_runtime_tests::wide_land::`, five tests): the seed provenance (as before); the configuration authority-bound, explicit and write-once; the opening (gate without configuration, nothing written; a whole province with every field compared against the kernels and candidates; `AlreadyDone`; a short fund `Insufficient` with nothing created and no counter moved; two wedge-0 neighbours held by different nations); the claim and depart gates over the opened province (every deployed refusal in order, an NFT Citizen refused by address, nothing written at the gates); the marker slot against PlaceHome (as before).
+
+```sh
+cargo test --locked -p frontier-abi --features world-index-experimental world_index::rules
+cargo test --locked -p frontier-abi --features world-index-experimental world_index::wide_ix
+cargo test --locked -p frontier-abi --features world-index-experimental world_index
+cargo test --locked -p permutation-frontier --features wide-world-experimental --lib map_growth_runtime_tests:: -- --test-threads=1
+cargo test --locked -p permutation-frontier --lib map_growth_runtime_tests:: -- --test-threads=1
+cargo check --locked --offline -p permutation-frontier
+cargo clippy --locked -p frontier-abi --features world-index-experimental --all-targets -- -D warnings
+cargo clippy --locked -p permutation-frontier --features wide-world-experimental --all-targets -- -D warnings
+rustfmt --edition 2021 --check frontier-abi/src/world_index/rules.rs frontier-abi/src/world_index/wide_ix.rs frontier-abi/src/world_index/mod.rs permutation-frontier/src/proc/wide.rs permutation-frontier/src/proc/citizen.rs permutation-frontier/src/wide_land_runtime_tests.rs
+```
+
+Files: `frontier-abi/src/world_index/rules.rs` (new), `frontier-abi/src/world_index/{mod,wide_ix}.rs`, `permutation-frontier/src/proc/wide.rs`, `permutation-frontier/src/proc/citizen.rs` (four helpers made `pub(crate)`: `holding_tier`, `outpost_err`, `slot_gen`, `record_is_zero`), `permutation-frontier/src/wide_land_runtime_tests.rs`, this note, `INTEGRATION-20261107.md`. No verifier, keeper, herald, web, vector, preset, deployed layout or kernel file changed; `lib.rs` is unchanged (the band check already covers 0xDB).
 
 ## 1. What now works (through the real `dispatch`)
 
@@ -113,3 +172,14 @@ Initial runs found two ABI test setup defects (a patterned HOST_SEQ violated the
 After native review: the broad world_index suite passed 79/79, including the inventory-count consistency regression; the experimental map-growth dispatcher suite passed 9/9 (six legacy tests plus three new tests); both libraries passed clippy. Tests do not authenticate a real owner signature or verify a real beacon consume. Full SBF, deployment and browser checks were not run.
 
 The default dispatcher regression also passed 6/6. The combined NFT plus wide feature passed a library compile check, not an NFT-wide authorization test. Final checks used offline locked dependencies and existing caches. The quoted clippy checks covered libraries, not all targets. No CI, main merge or deployment was performed.
+
+## Second-slice native validation
+
+- world_index library: 86 passed, 0 failed.
+- experimental real-dispatch map-growth harness: 11 passed, 0 failed (six legacy and five wide tests).
+- default-feature legacy map-growth: 6 passed, 0 failed.
+- frontier-abi and permutation-frontier library clippy: passed with the repository toolchain and locked offline dependencies.
+- Fixed a malformed-config test that expected an unset-rule error before the earlier reserved-world check. No production check was weakened.
+- Preflighted every fund-counter increment, including spent_total, before allocation/rent movement. New overflow cases assert the target stays absent and fund/seed records and lamports stay unchanged.
+
+The successful opening tests create full wide Province accounts at radius 129 through the actual dispatcher, from a manually seeded WideRingSeed in a manually initialized experimental Season. They do not verify a live beacon, owner signature, transaction submission, chain persistence, reader ingestion or screen rendering. The adjacent keeps mix nations under one explicit experimental configuration; no candidate was made a production rule. Claim and Depart remain fail-closed, including for NFT residents through currently unallocated routing. No keypairs or signatures were created. No CI, main merge, deployment or browser was run.

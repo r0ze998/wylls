@@ -1,11 +1,11 @@
 //! **Experimental, opt-in** (`--features world-index-experimental`): the
-//! **draft** wire envelope of the wide land write path: five instruction
+//! **draft** wire envelope of the wide land write path: six instruction
 //! encodings in a provisional tag band, their account lists, and the
 //! program-version bit an experimental wide build carries.
 //!
 //! **Provisional, unallocated, unreachable by default.** The integrator
 //! (workstream 4, `ABI-ALLOCATION-20261106.ja.md`) allocates instruction
-//! tags; the band below, `0xD6..=0xDA`, is taken from the free range
+//! tags; the band below, `0xD6..=0xDB`, is taken from the free range
 //! `0xD6–0xDF` of that note's revision 3 and is **not** an allocation. It
 //! is deliberately outside every v2 tag, every reserved tag, workstream 2's
 //! `0xD0–0xD5`, workstream 20's `0xE0–0xE7`, workstream 11's `0xE8–0xED`
@@ -20,9 +20,10 @@
 //! |---|---|---|---|---|
 //! | 0xD6 | WideRequestRingSeed | `ring u64` | D | writes (payer rent) |
 //! | 0xD7 | WideConsumeRingSeed | `ring u64, round u64, sig48, hints` | D, top-level | writes (verified seed) |
-//! | 0xD8 | WideOpenProvince | `p i64, q i64` | D, top-level | validates, refuses `NotImplemented` (rules undecided) |
-//! | 0xD9 | WideClaimSite | `p i64, q i64, site u8, slot u8` | P | validates, refuses `NotImplemented` (claim rule undecided) |
-//! | 0xDA | WideDepart | `host ref 56, transit_slot u8, arrive_bell u32, tip u64, commit 32, seal 165` | P | validates, refuses `NotImplemented` (host identity unallocated) |
+//! | 0xD8 | WideOpenProvince | `p i64, q i64` | D, top-level | writes the full province under an explicit rules configuration; refuses `NotImplemented` without one |
+//! | 0xD9 | WideClaimSite | `p i64, q i64, site u8, slot u8` | P | validates (the deployed FileOutpost's prerequisites, read-only), refuses `NotImplemented` (the outpost ticket, draw, escrow and finality lifecycle is not ported) |
+//! | 0xDA | WideDepart | `host ref 56, transit_slot u8, arrive_bell u32, tip u64, commit 32, seal 165` | P | validates (the deployed Depart's checks), refuses `NotImplemented` (host identity unallocated) |
+//! | 0xDB | WideSetRules | `config_version u16, keep_holder u8, free_city u8, camp u8, region u8` | O, top-level | writes the Season's experimental rules configuration once (`world_index::rules`), by the Season's authority |
 //!
 //! Coordinates are the full `i64` pair of a `WideCoord` (never an `i16`
 //! or a dense index); rings are `u64`; a host is the 56-byte
@@ -43,20 +44,21 @@ pub const WIDE_EXPERIMENTAL_VERSION_BIT: u16 = 0x4000;
 
 /// The draft band, inclusive.
 pub const DRAFT_TAG_FIRST: u8 = 0xD6;
-pub const DRAFT_TAG_LAST: u8 = 0xDA;
+pub const DRAFT_TAG_LAST: u8 = 0xDB;
 
 pub const TAG_REQUEST_RING_SEED: u8 = 0xD6;
 pub const TAG_CONSUME_RING_SEED: u8 = 0xD7;
 pub const TAG_OPEN_PROVINCE: u8 = 0xD8;
 pub const TAG_CLAIM_SITE: u8 = 0xD9;
 pub const TAG_DEPART: u8 = 0xDA;
+pub const TAG_SET_RULES: u8 = 0xDB;
 
 /// Whether `t` is in the draft band.
 pub const fn is_draft_tag(t: u8) -> bool {
     t >= DRAFT_TAG_FIRST && t <= DRAFT_TAG_LAST
 }
 
-/// The five draft instructions.
+/// The six draft instructions.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 #[repr(u8)]
 pub enum WideIx {
@@ -65,15 +67,17 @@ pub enum WideIx {
     OpenProvince = TAG_OPEN_PROVINCE,
     ClaimSite = TAG_CLAIM_SITE,
     Depart = TAG_DEPART,
+    SetRules = TAG_SET_RULES,
 }
 
 impl WideIx {
-    pub const ALL: [WideIx; 5] = [
+    pub const ALL: [WideIx; 6] = [
         WideIx::RequestRingSeed,
         WideIx::ConsumeRingSeed,
         WideIx::OpenProvince,
         WideIx::ClaimSite,
         WideIx::Depart,
+        WideIx::SetRules,
     ];
 
     pub const fn tag(self) -> u8 {
@@ -87,6 +91,7 @@ impl WideIx {
             TAG_OPEN_PROVINCE => Some(WideIx::OpenProvince),
             TAG_CLAIM_SITE => Some(WideIx::ClaimSite),
             TAG_DEPART => Some(WideIx::Depart),
+            TAG_SET_RULES => Some(WideIx::SetRules),
             _ => None,
         }
     }
@@ -98,28 +103,38 @@ impl WideIx {
             WideIx::OpenProvince => "WideOpenProvince",
             WideIx::ClaimSite => "WideClaimSite",
             WideIx::Depart => "WideDepart",
+            WideIx::SetRules => "WideSetRules",
         }
     }
 
-    /// Refuses CPI, as the deployed ConsumeRingSeed and OpenProvince do.
+    /// Refuses CPI, as the deployed ConsumeRingSeed and OpenProvince do
+    /// (and the authority's configuration write).
     pub const fn top_level_only(self) -> bool {
-        matches!(self, WideIx::ConsumeRingSeed | WideIx::OpenProvince)
+        matches!(
+            self,
+            WideIx::ConsumeRingSeed | WideIx::OpenProvince | WideIx::SetRules
+        )
     }
 
-    /// The keeper class the deployed counterpart has.
+    /// The keeper class the deployed counterpart has (the configuration
+    /// write is the operator's).
     pub const fn class(self) -> crate::tags::Class {
         match self {
             WideIx::RequestRingSeed | WideIx::ConsumeRingSeed | WideIx::OpenProvince => {
                 crate::tags::Class::D
             }
             WideIx::ClaimSite | WideIx::Depart => crate::tags::Class::P,
+            WideIx::SetRules => crate::tags::Class::O,
         }
     }
 
-    /// Whether the handler of this instruction writes anything today, or
-    /// validates and refuses `NotImplemented` at its readiness gate.
+    /// Whether the handler of this instruction can write today
+    /// (WideOpenProvince only under an explicit rules configuration), or
+    /// validates and refuses `NotImplemented` at its readiness gate
+    /// (WideClaimSite: the outpost lifecycle is not ported; WideDepart: no
+    /// wider host identity).
     pub const fn writes_today(self) -> bool {
-        matches!(self, WideIx::RequestRingSeed | WideIx::ConsumeRingSeed)
+        !matches!(self, WideIx::ClaimSite | WideIx::Depart)
     }
 }
 
@@ -174,6 +189,18 @@ pub struct Depart {
     pub tip: u64,
     pub commit: [u8; 32],
     pub seal: [u8; SEAL_LEN],
+}
+
+/// 0xDB: `config_version u16` (must be `rules::WIDE_RULES_CONFIG_VERSION`)
+/// and the four candidate bytes of `rules::RuleBytes` (0 is unset and
+/// refused).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct SetRules {
+    pub config_version: u16,
+    pub keep_holder: u8,
+    pub free_city: u8,
+    pub camp: u8,
+    pub region: u8,
 }
 
 fn exact<'a>(d: &'a [u8], tag: u8, len: usize) -> Result<Cursor<'a>, FrontierError> {
@@ -309,6 +336,35 @@ impl Depart {
     }
 }
 
+impl SetRules {
+    pub const IX: WideIx = WideIx::SetRules;
+    pub const LEN: usize = 1 + 2 + 4;
+
+    pub fn to_bytes(&self) -> [u8; Self::LEN] {
+        let mut b = [0u8; Self::LEN];
+        Writer::new(&mut b)
+            .u8(Self::IX.tag())
+            .u16(self.config_version)
+            .u8(self.keep_holder)
+            .u8(self.free_city)
+            .u8(self.camp)
+            .u8(self.region);
+        b
+    }
+
+    pub fn decode(d: &[u8]) -> Result<Self, FrontierError> {
+        let bad = FrontierError::BadData;
+        let mut c = exact(d, Self::IX.tag(), Self::LEN)?;
+        Ok(SetRules {
+            config_version: c.u16().ok_or(bad)?,
+            keep_holder: c.u8().ok_or(bad)?,
+            free_city: c.u8().ok_or(bad)?,
+            camp: c.u8().ok_or(bad)?,
+            region: c.u8().ok_or(bad)?,
+        })
+    }
+}
+
 /// Data length with the tag of each draft instruction.
 pub const fn data_len(ix: WideIx) -> usize {
     match ix {
@@ -317,6 +373,7 @@ pub const fn data_len(ix: WideIx) -> usize {
         WideIx::OpenProvince => OpenProvince::LEN,
         WideIx::ClaimSite => ClaimSite::LEN,
         WideIx::Depart => Depart::LEN,
+        WideIx::SetRules => SetRules::LEN,
     }
 }
 
@@ -378,26 +435,51 @@ pub const CONSUME_RING_SEED: &[Group] = &[one(&[
 ])];
 
 /// `[payer s,w] [season r] [wide_ringseed w] [pfund w] [province w]
-/// [system]`: the deployed OpenProvince list with wide positions.
+/// [rules_config r] [system]`: the deployed OpenProvince list with wide
+/// positions and the Season's experimental rules configuration (absent:
+/// the opening refuses `NotImplemented`).
 pub const OPEN_PROVINCE: &[Group] = &[one(&[
     s("payer", Acc::Wallet, true, Wr::W),
     s("season", Acc::Kind(K::Season), false, Wr::R),
     s("wide_ringseed", WIDE, false, Wr::W),
     s("pfund", Acc::Kind(K::ProvinceFund), false, Wr::W),
     s("province", WIDE, false, Wr::W),
+    s("rules_config", WIDE, false, Wr::R),
     s("system", Acc::System, false, Wr::R),
 ])];
 
 /// The deployed player prologue `[actor s] [payer s,w] [season r]
-/// [citizen w]` then `[province w] [holding w] [system]`: the wide province
-/// (its site mirror takes the claim) and the wide holding to create.
+/// [citizen w]`, then the deployed FileOutpost's positions over wide land:
+/// `[frontier r]` (the folded land gate), `[province w]` (the wide
+/// province whose site mirror takes the claim), `[holding w]` (the wide
+/// holding to create), `[joinshard w]` (the citizen's outpost counters),
+/// `[anchor_holding w] [anchor_province r]` (the final first home that
+/// pays the settler cost and bounds the range, with its canonical
+/// province), `[previous_holding r] [previous_province r]` (the slot-2
+/// holding and its province for a slot-3 claim, legacy or wide; the anchor
+/// pair again for a slot-2 claim), `[system]`.
 pub const CLAIM_SITE: &[Group] = &[one(&[
     s("actor", Acc::Wallet, true, Wr::R),
     s("payer", Acc::Wallet, true, Wr::W),
     s("season", Acc::Kind(K::Season), false, Wr::R),
     s("citizen", Acc::Kind(K::Citizen), false, Wr::W),
+    s("frontier", Acc::Kind(K::Frontier), false, Wr::R),
     s("province", WIDE, false, Wr::W),
     s("holding", WIDE, false, Wr::W),
+    s("joinshard", Acc::Kind(K::JoinShard), false, Wr::W),
+    s("anchor_holding", Acc::Kind(K::Holding), false, Wr::W),
+    s("anchor_province", Acc::Kind(K::Province), false, Wr::R),
+    s("previous_holding", WIDE, false, Wr::R),
+    s("previous_province", WIDE, false, Wr::R),
+    s("system", Acc::System, false, Wr::R),
+])];
+
+/// `[authority s,w] [season r] [rules_config w] [system]`: the Season's
+/// authority writes the configuration once.
+pub const SET_RULES: &[Group] = &[one(&[
+    s("authority", Acc::Wallet, true, Wr::W),
+    s("season", Acc::Kind(K::Season), false, Wr::R),
+    s("rules_config", WIDE, false, Wr::W),
     s("system", Acc::System, false, Wr::R),
 ])];
 
@@ -421,6 +503,7 @@ pub const fn accounts_of(ix: WideIx) -> &'static [Group] {
         WideIx::OpenProvince => OPEN_PROVINCE,
         WideIx::ClaimSite => CLAIM_SITE,
         WideIx::Depart => DEPART,
+        WideIx::SetRules => SET_RULES,
     }
 }
 
@@ -458,11 +541,11 @@ mod tests {
             );
             assert_eq!(crate::v2::ix::tag_of(&[t]), Err(FrontierError::BadData));
         }
-        for t in [0xD5u8, 0xDB, 0xC1, 0xE0, 0xFE, 0xFF, 0x00] {
+        for t in [0xD5u8, 0xDC, 0xC1, 0xE0, 0xFE, 0xFF, 0x00] {
             assert!(!is_draft_tag(t));
             assert_eq!(tag_of(&[t]), Err(FrontierError::BadData));
         }
-        assert_eq!(WideIx::ALL.len(), 5);
+        assert_eq!(WideIx::ALL.len(), 6);
         for (i, a) in WideIx::ALL.iter().enumerate() {
             assert_eq!(WideIx::from_tag(a.tag()), Some(*a));
             assert!(is_draft_tag(a.tag()));
@@ -473,17 +556,22 @@ mod tests {
         }
         assert!(WideIx::ConsumeRingSeed.top_level_only());
         assert!(WideIx::OpenProvince.top_level_only());
+        assert!(WideIx::SetRules.top_level_only());
         assert!(!WideIx::RequestRingSeed.top_level_only());
         assert!(!WideIx::ClaimSite.top_level_only());
         assert!(!WideIx::Depart.top_level_only());
-        // only the seed provenance writes today; the land, claim and march
-        // handlers refuse at their readiness gates
-        let writers: Vec<WideIx> = WideIx::ALL
+        // the claim and march handlers refuse at their readiness gates
+        // (the outpost lifecycle, the wider host identity); the opening
+        // writes only under an explicit configuration
+        let gated: Vec<WideIx> = WideIx::ALL
             .iter()
             .copied()
-            .filter(|i| i.writes_today())
+            .filter(|i| !i.writes_today())
             .collect();
-        assert_eq!(writers, [WideIx::RequestRingSeed, WideIx::ConsumeRingSeed]);
+        assert_eq!(gated, [WideIx::ClaimSite, WideIx::Depart]);
+        assert_eq!(WideIx::SetRules.class(), crate::tags::Class::O);
+        assert_eq!(WideIx::ClaimSite.class(), crate::tags::Class::P);
+        assert_eq!(WideIx::OpenProvince.class(), crate::tags::Class::D);
         assert_eq!(WIDE_EXPERIMENTAL_VERSION_BIT, 0x4000);
         assert_eq!(
             WIDE_EXPERIMENTAL_VERSION_BIT & 0x8000,
@@ -584,6 +672,19 @@ mod tests {
         assert_eq!(b[0], 0xDA);
         assert_eq!(Depart::decode(&b), Ok(d));
         assert_eq!(Depart::decode(&b[..266]), Err(FrontierError::BadData));
+        let r = SetRules {
+            config_version: 1,
+            keep_holder: 1,
+            free_city: 2,
+            camp: 2,
+            region: 1,
+        };
+        let b = r.to_bytes();
+        assert_eq!(b.len(), 7);
+        assert_eq!(b, [0xDB, 1, 0, 1, 2, 2, 1]);
+        assert_eq!(SetRules::decode(&b), Ok(r));
+        assert_eq!(SetRules::decode(&b[..6]), Err(FrontierError::BadData));
+        assert_eq!(tag_of(&b), Ok(WideIx::SetRules));
         for ix in WideIx::ALL {
             assert!(data_len(ix) >= 1);
         }
@@ -612,9 +713,17 @@ mod tests {
         }
         assert_eq!(bounds_in(REQUEST_RING_SEED), (12, 12));
         assert_eq!(bounds_in(CONSUME_RING_SEED), (3, 3));
-        assert_eq!(bounds_in(OPEN_PROVINCE), (6, 6));
-        assert_eq!(bounds_in(CLAIM_SITE), (7, 7));
+        assert_eq!(bounds_in(OPEN_PROVINCE), (7, 7));
+        assert_eq!(bounds_in(CLAIM_SITE), (13, 13));
         assert_eq!(bounds_in(DEPART), (7, 7));
+        assert_eq!(bounds_in(SET_RULES), (4, 4));
+        // the claim keeps FileOutpost's shape beyond the prologue: the
+        // Frontier, the anchor pair and the previous pair
+        assert_eq!(
+            crate::prologue::count_bounds(crate::tags::Ix::OpenProvince).0 + 1,
+            bounds_in(OPEN_PROVINCE).0,
+            "one position wider: the rules configuration"
+        );
         // the deployed shapes, one wider where the previous ring is named
         assert_eq!(
             crate::prologue::count_bounds(crate::tags::Ix::OpenRing),
@@ -651,24 +760,45 @@ mod tests {
         );
         assert_eq!(position_in(REQUEST_RING_SEED, 12, "pfund", 5), Some(10));
         assert_eq!(position_in(REQUEST_RING_SEED, 12, "system", 0), Some(11));
-        assert_eq!(position_in(OPEN_PROVINCE, 6, "province", 0), Some(4));
-        assert_eq!(position_in(CLAIM_SITE, 7, "holding", 0), Some(5));
+        assert_eq!(position_in(OPEN_PROVINCE, 7, "province", 0), Some(4));
+        assert_eq!(position_in(OPEN_PROVINCE, 7, "rules_config", 0), Some(5));
+        assert_eq!(position_in(CLAIM_SITE, 13, "frontier", 0), Some(4));
+        assert_eq!(position_in(CLAIM_SITE, 13, "holding", 0), Some(6));
+        assert_eq!(position_in(CLAIM_SITE, 13, "joinshard", 0), Some(7));
+        assert_eq!(position_in(CLAIM_SITE, 13, "anchor_holding", 0), Some(8));
+        assert_eq!(
+            position_in(CLAIM_SITE, 13, "previous_province", 0),
+            Some(11)
+        );
         assert_eq!(position_in(DEPART, 7, "province", 0), Some(5));
-        // wide positions are the handler's to authenticate
+        assert_eq!(position_in(SET_RULES, 4, "rules_config", 0), Some(2));
+        // wide positions are the handler's to authenticate; the legacy
+        // positions of the claim keep their deployed kinds
         for g in REQUEST_RING_SEED
             .iter()
             .chain(OPEN_PROVINCE)
             .chain(CLAIM_SITE)
             .chain(DEPART)
+            .chain(SET_RULES)
         {
             for sp in g.specs {
                 if matches!(
                     sp.name,
-                    "previous" | "wide_ringseed" | "province" | "holding"
+                    "previous"
+                        | "wide_ringseed"
+                        | "province"
+                        | "holding"
+                        | "rules_config"
+                        | "previous_holding"
+                        | "previous_province"
                 ) {
                     assert_eq!(sp.acc, Acc::Any, "{}", sp.name);
                 }
             }
         }
+        assert_eq!(CLAIM_SITE[0].specs[8].acc, Acc::Kind(K::Holding));
+        assert_eq!(CLAIM_SITE[0].specs[9].acc, Acc::Kind(K::Province));
+        assert_eq!(CLAIM_SITE[0].specs[7].acc, Acc::Kind(K::JoinShard));
+        assert!(SET_RULES[0].specs[0].signer && SET_RULES[0].specs[0].wr == Wr::W);
     }
 }

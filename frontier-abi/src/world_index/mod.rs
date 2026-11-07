@@ -31,7 +31,8 @@
 //! | [`land::WideRingSeed`], [`land::WideProvince`] | **draft write-path records** (2026-11-07): a world-scoped `u64`-ring seed whose round is the kernel's `ring_seed_round` and whose seed is only ever a verified quicknet round's (no genesis path); and a wide province that is the **whole Province v2 layout** plus a world/coordinate/provenance trailer, openable only under decided keep-holder, Free City, camp and region rules ([`land::WideRules`], undecided today: `NotReady`); provisional magics and seed tags, reachable only by a program built with `wide-world-experimental` |
 //! | [`holding`] | ownership of a wide site under the **one inventory** rule: a wide holding takes one of the Citizen's three deployed slots (2 or 3) through an impossible marker ref every deployed writer reads as taken, and its record is the whole Holding v2 layout plus a trailer that refuses any host, transit or explore debit under the unallocated host identity |
 //! | [`march`] | the wide march record over `WideHostRef` with the legacy lifecycle's state table, whose departure is refused while no wider host identity is allocated |
-//! | [`wide_ix`] | the draft wire envelope: five fixed-width instructions in the unallocated band `0xD6..=0xDA`, their account lists, and the `0x4000` program-version bit of an experimental wide build |
+//! | [`rules`] | the explicit, versioned **experimental rules configuration** of a wide world (one record per Season, written by the Season's authority) and the **candidate** keep-holder, Free City, camp and region functions it selects; an unset byte refuses, so without the record an opening stays `NotReady`; nothing in it is an approved rule |
+//! | [`wide_ix`] | the draft wire envelope: six fixed-width instructions in the unallocated band `0xD6..=0xDB`, their account lists, and the `0x4000` program-version bit of an experimental wide build |
 //!
 //! **What it is not.** The index records what a caller *reports*. It does
 //! not authorise opening land, decide who may open it, prove that an
@@ -42,11 +43,15 @@
 //! `ProvinceCoord::index`, `host_id`, `travel::path_cost`, the control
 //! file or the prize bitmap, all of which keep their current meaning for
 //! the current ABI. The `land`, `holding` and `march` records are the
-//! versioned identity and transition models of the wide write path; the
-//! only writes a program makes through them today are the ring seed's
-//! request and verified consumption, and every land, claim and march
-//! entry point refuses at a named readiness gate until the owner's rule
-//! and the integrator's allocation exist. An unbounded live game needs,
+//! versioned identity and transition models of the wide write path. The
+//! experimental program writes through them the ring seed's request and
+//! verified consumption, a wide province (only under an explicit
+//! [`rules`] configuration, from the wedge fund, with the deployed
+//! terrain, keep, camp, Free City and fund bookkeeping); the claim entry
+//! point runs the deployed outpost prerequisites read-only and refuses
+//! (the ticket, draw, escrow and finality lifecycle is not ported), and
+//! the march entry point refuses at the host-identity gate. An unbounded
+//! live game needs,
 //! beyond this module, the decisions listed in
 //! `docs/frontier/map-growth/WIDE-WORLD-INDEX.md` and
 //! `docs/frontier/map-growth/WIDE-LAND-WRITER.md`.
@@ -60,6 +65,7 @@ pub mod legacy;
 pub mod march;
 pub mod movement;
 pub mod placement;
+pub mod rules;
 pub mod tiles;
 pub mod wide_ix;
 
@@ -79,6 +85,10 @@ pub use march::{MarchError, MarchEvent, MarchState, WideTransit};
 pub use placement::{
     mixed_home_nation, ring_offset, ring_offset_domain, RingOffsetDomain, LEGACY_OFFSET_MAX_RING,
     MIXED_PLACEMENT_DOMAIN_WIDE, MIXED_PLACEMENT_VERSION,
+};
+pub use rules::{
+    CampRule, FreeCityRule, KeepHolderRule, RegionRule, RuleBytes, RulesError, WideRulesConfig,
+    WIDE_RULES_CONFIG_VERSION,
 };
 pub use tiles::{
     verify_route, ProvinceSource, RouteBounds, RouteError, TileAddress, TileError, VerifiedRoute,
