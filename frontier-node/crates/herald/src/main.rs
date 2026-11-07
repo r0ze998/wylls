@@ -187,7 +187,18 @@ async fn main_inner() -> Result<(), String> {
     });
     let res = match a.get("source").map(String::as_str).unwrap_or("localnet") {
         "localnet" => {
-            let feed = LocalnetFeed::new(RpcPort::localnet(rpc.clone(), program));
+            // The ledger's id (`frontier_status.runId`): an archive of another
+            // ledger is refused instead of resumed (findex `LocalnetFeed`).
+            let mut feed =
+                LocalnetFeed::new(RpcPort::localnet(rpc.clone(), program)).with_program(program);
+            if let Ok(v) = fclient::rpc::RpcClient::new(rpc.clone())
+                .call("frontier_status", serde_json::json!([]))
+                .await
+            {
+                if let Some(id) = v.get("runId").and_then(|x| x.as_str()) {
+                    feed = feed.with_ledger(id);
+                }
+            }
             let clock = RpcPort::localnet(rpc.clone(), program);
             runner::run(ing, feed, Some(clock), poll, stop).await
         }

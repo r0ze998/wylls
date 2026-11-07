@@ -331,11 +331,33 @@ impl Archive {
     /// the frames of one segment are written through one handle and synced
     /// once, before the segment is sealed or a manifest names them.
     pub fn append(&mut self, recs: &[TxRecord], cursor: Value) -> io::Result<Vec<TxRecord>> {
+        self.append_inner(recs, cursor, false)
+    }
+
+    /// [`Archive::append`] for an ordered feed whose `seq` is the node's
+    /// ledger number (`LocalnetFeed`): each frame also keeps that number as
+    /// `feed_seq` ([`Archive::for_each_after_feed`]), since the archive
+    /// renumbers `seq` with its own sequence.
+    pub fn append_feed(&mut self, recs: &[TxRecord], cursor: Value) -> io::Result<Vec<TxRecord>> {
+        self.append_inner(recs, cursor, true)
+    }
+
+    fn append_inner(
+        &mut self,
+        recs: &[TxRecord],
+        cursor: Value,
+        keep_feed_seq: bool,
+    ) -> io::Result<Vec<TxRecord>> {
         let mut out = Vec::with_capacity(recs.len());
         for r in recs {
             let mut r = r.clone();
+            let feed_seq = r.seq;
             r.seq = self.manifest.next_seq;
-            let payload = serde_json::to_vec(&record_to_json(&r)).map_err(io_err)?;
+            let mut v = record_to_json(&r);
+            if keep_feed_seq {
+                v["feed_seq"] = json!(feed_seq);
+            }
+            let payload = serde_json::to_vec(&v).map_err(io_err)?;
             let fr = frame(&payload);
             let roll = match self.manifest.segments.last() {
                 None => true,
@@ -417,6 +439,16 @@ impl Archive {
         Ok(())
     }
 
+    /// Every record with `seq > after` and its `feed_seq`, in order.
+    pub fn read_after_feed(&self, after: u64) -> io::Result<Vec<(TxRecord, Option<u64>)>> {
+        let mut out = vec![];
+        self.for_each_after_feed(after, |r, f| {
+            out.push((r, f));
+            Ok(())
+        })?;
+        Ok(out)
+    }
+
     /// Every record with `seq > after`, in order.
     pub fn read_after(&self, after: u64) -> io::Result<Vec<TxRecord>> {
         let mut out = vec![];
@@ -449,6 +481,17 @@ impl Archive {
         after: u64,
         mut f: impl FnMut(TxRecord) -> io::Result<()>,
     ) -> io::Result<u64> {
+        self.for_each_after_feed(after, |r, _| f(r))
+    }
+
+    /// [`Archive::for_each_after`] with each record's `feed_seq` (the
+    /// node's ledger number, kept by [`Archive::append_feed`]; `None` for a
+    /// record appended without it, e.g. archived before it was kept).
+    pub fn for_each_after_feed(
+        &self,
+        after: u64,
+        mut f: impl FnMut(TxRecord, Option<u64>) -> io::Result<()>,
+    ) -> io::Result<u64> {
         let mut n = 0;
         for s in &self.manifest.segments {
             if s.records == 0 || s.last_seq <= after {
@@ -474,7 +517,7 @@ impl Archive {
                     )));
                 }
                 if r.seq > after {
-                    f(r)?;
+                    f(r, v.get("feed_seq").and_then(|x| x.as_u64()))?;
                     n += 1;
                 }
             }
