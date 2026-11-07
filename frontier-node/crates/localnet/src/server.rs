@@ -579,13 +579,29 @@ fn handle(state: &Shared, method: &str, p: &Value) -> Result<Value, RpcErr> {
                 .and_then(|x| x.as_u64())
                 .unwrap_or(1_000)
                 .min(10_000) as usize;
-            let prog = p
-                .get(2)
-                .and_then(|x| x.as_str())
-                .and_then(|s| s.parse::<Address>().ok());
+            // A program argument that is given but not an address is an
+            // error: read as "no filter" it would hand back every program's
+            // transactions as this one's (workstream 04, 2026-11-07).
+            let prog = match p.get(2) {
+                None | Some(Value::Null) => None,
+                Some(x) => Some(
+                    x.as_str()
+                        .and_then(|s| s.parse::<Address>().ok())
+                        .ok_or_else(|| invalid("frontier_feed: the program is not an address"))?,
+                ),
+            };
+            // `{"scan": true}`: the records and, from the same read under the
+            // node's lock, how far the ledger was scanned, the ledger's length,
+            // the signature at `after`, the ledger's id and its bytes
+            // (chain::FeedScan). Without it, the array as before.
+            let scan = p
+                .get(3)
+                .and_then(|o| o.get("scan"))
+                .and_then(|x| x.as_bool())
+                .unwrap_or(false);
             let c = lock(state);
-            let v: Vec<Value> = c
-                .feed(after, limit, prog.as_ref())
+            let (records, extent) = c.feed_scan(after, limit, prog.as_ref());
+            let v: Vec<Value> = records
                 .into_iter()
                 .map(|l| json!({
                     "seq": l.seq, "slot": l.slot, "signature": l.signature.to_string(), "blockTime": l.block_time,
@@ -593,7 +609,19 @@ fn handle(state: &Shared, method: &str, p: &Value) -> Result<Value, RpcErr> {
                     "post": l.post.iter().map(|(k, a)| json!({"key": k.to_string(), "account": a.as_ref().map(account_json)})).collect::<Vec<_>>(),
                 }))
                 .collect();
-            Ok(json!(v))
+            if scan {
+                Ok(json!({
+                    "txs": v,
+                    "scannedThrough": extent.scanned_through,
+                    "ledgerLen": extent.ledger_len,
+                    "atAfter": extent.at_after.map(|s| s.to_string()),
+                    "runId": hex::encode(c.run_id()),
+                    "ledgerBytes": c.wal_offset(),
+                    "durable": c.config().data_dir.is_some() && c.config().fsync,
+                }))
+            } else {
+                Ok(json!(v))
+            }
         }
         "frontier_pause" => {
             lock(state).set_paused(true);

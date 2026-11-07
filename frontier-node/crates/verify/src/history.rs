@@ -168,6 +168,12 @@ impl History {
     pub fn basis(&self) -> &'static str {
         match self.source {
             Source::Fixture => "as_given",
+            // An archive of the node's feed not checked against the node
+            // (`input::ARCHIVE_ONLY`): a rewind of the ledger after it was
+            // written is not seen, so it is not shown whole (owner's rule
+            // 2026-11-07: an archive the node could not confirm is never
+            // whole; workstream 04 at integration, for 19's review).
+            Source::LedgerFeed if self.detail.ends_with(crate::input::ARCHIVE_ONLY) => "unproven",
             Source::LedgerFeed => "ledger_feed",
             Source::Rpc | Source::Unknown => "unproven",
         }

@@ -316,11 +316,15 @@ impl ResidentFeed {
         let (txs, history) = crate::input::read_archive(dir)?;
         let a = findex::archive::Archive::open(dir, findex::archive::SEGMENT_BYTES)
             .map_err(|e| format!("{}: {e}", dir.display()))?;
+        // How far the node's ledger was scanned for the archive
+        // (`feed_scanned`, workstream 04), else the program's last seq: the
+        // archive was found whole through it (`findex::ledger`).
+        let c = a.cursor();
         let through = match history.source {
-            Source::LedgerFeed => a
-                .cursor()
-                .get("feed_after")
+            Source::LedgerFeed => c
+                .get("feed_scanned")
                 .and_then(Value::as_u64)
+                .or_else(|| c.get("feed_after").and_then(Value::as_u64))
                 .unwrap_or(0),
             _ => 0,
         };

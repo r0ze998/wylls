@@ -21,11 +21,20 @@
 //!   into one entry).
 //!
 //! Parts can be read up to different points (a restart or a crash between
-//! their commits): the joined history is cut at the lowest cursor, and
-//! entries past it are left out and counted ([`Joined::beyond`]). A cursor
-//! is its own program's last ledger number (`feed_after`), not how far the
-//! node's ledger was scanned, so the cut can fall short of what both parts
-//! did read: it never claims more.
+//! their commits): the joined history is cut at the lowest extent, and
+//! entries past it are left out and counted ([`Joined::beyond`]). A part's
+//! extent is how far the node's ledger was scanned for it (`feed_scanned`,
+//! the node's `scannedThrough`, workstream 04, 2026-11-07) when its cursor
+//! keeps it, else its own program's last ledger number (`feed_after`),
+//! which can fall short of what was read: it never claims more. An extent
+//! below the part's own `feed_after` is a contradiction.
+//!
+//! Two parts of one ledger read at different times must agree that the
+//! ledger only grew: the part scanned further cannot have seen fewer ledger
+//! bytes (`ledger_bytes`); if it did, the ledger was rewound between the
+//! reads and is not whole. (A rewind that grew back past the earlier size
+//! is not seen this way; each part's own next read checks the transaction
+//! at its cursor, `ingest::LocalnetFeed`.)
 //!
 //! **An empty [`Joined::problems`] is not proof of completeness** beyond the
 //! node's own ledger: it says the archives are one ledger's feed from its
@@ -114,7 +123,20 @@ pub fn join(parts: &[Part]) -> Joined {
             j.problems.push(format!("{}: refused: {r}", p.name));
         }
         match c.get("feed_after").and_then(|x| x.as_u64()) {
-            Some(a) => through = Some(through.map_or(a, |t| t.min(a))),
+            Some(a) => {
+                let e = match c.get("feed_scanned").and_then(|x| x.as_u64()) {
+                    Some(sc) if sc < a => {
+                        j.problems.push(format!(
+                            "{}: scanned through {sc}, before its own cursor {a}",
+                            p.name
+                        ));
+                        a
+                    }
+                    Some(sc) => sc,
+                    None => a,
+                };
+                through = Some(through.map_or(e, |t| t.min(e)));
+            }
             None => j.problems.push(format!(
                 "{}: the cursor is not a local feed's ({})",
                 p.name,
@@ -152,6 +174,28 @@ pub fn join(parts: &[Part]) -> Joined {
         j.ledger = named.first().map(|s| s.to_string());
     }
     j.through = through.unwrap_or(0);
+    // The ledger only grows: a part scanned further saw at least as many bytes.
+    let sized: Vec<(&str, u64, u64)> = parts
+        .iter()
+        .filter_map(|p| {
+            let c = &p.cursor;
+            Some((
+                p.name.as_str(),
+                c.get("feed_scanned")?.as_u64()?,
+                c.get("ledger_bytes")?.as_u64().filter(|b| *b > 0)?,
+            ))
+        })
+        .collect();
+    for x in &sized {
+        for y in &sized {
+            if x.1 < y.1 && x.2 > y.2 {
+                j.problems.push(format!(
+                    "{} was scanned through {} with {} ledger bytes, {} through {} with only {}: the ledger was rewound between the reads",
+                    x.0, x.1, x.2, y.0, y.1, y.2
+                ));
+            }
+        }
+    }
 
     let mut by_seq: BTreeMap<u64, Entry> = BTreeMap::new();
     let mut by_sig: BTreeMap<Signature, u64> = BTreeMap::new();
@@ -277,8 +321,41 @@ pub async fn check_node(url: &str, parts: &[Part]) -> Vec<String> {
         }
     };
     for p in parts {
+        // One read per part (04 and 19, 2026-11-07): `frontier_feed` with
+        // the scan at the part's last ledger number answers, under the node's
+        // lock, the transaction there (`atAfter`), the ledger's length, its id
+        // and its size together, so nothing lands between them. A node
+        // without the scan: the status above and an unfiltered read of that
+        // one entry, as before.
+        let last = p
+            .records
+            .last()
+            .and_then(|(r, f)| f.map(|fs| (r.signature, fs)));
+        let at = last.map_or(0, |(_, fs)| fs);
+        let scan = fclient::rpc::RpcClient::new(url)
+            .call("frontier_feed", json!([at, 0, null, {"scan": true}]))
+            .await;
+        let scan = match scan {
+            Ok(v) if v.is_object() => Some(v),
+            Ok(_) => None,
+            Err(e) => {
+                why.push(format!(
+                    "{}: the node could not be read ({e}): not confirmed",
+                    p.name
+                ));
+                continue;
+            }
+        };
+        let (run_id, bytes, len) = match &scan {
+            Some(v) => (
+                v.get("runId").and_then(|x| x.as_str()).map(String::from),
+                v.get("ledgerBytes").and_then(|x| x.as_u64()),
+                v.get("ledgerLen").and_then(|x| x.as_u64()),
+            ),
+            None => (st.run_id.clone(), st.ledger_bytes, st.transactions),
+        };
         let theirs = p.cursor.get("ledger").and_then(|x| x.as_str());
-        match (theirs, st.run_id.as_deref()) {
+        match (theirs, run_id.as_deref()) {
             (Some(t), Some(n)) if t == n => {}
             (Some(t), Some(n)) => why.push(format!(
                 "{}: archived from ledger {t}, the node serves ledger {n}",
@@ -291,7 +368,7 @@ pub async fn check_node(url: &str, parts: &[Part]) -> Vec<String> {
             (None, _) => why.push(format!("{}: which ledger it is is not recorded", p.name)),
         }
         if let Some(rec) = p.cursor.get("ledger_bytes").and_then(|x| x.as_u64()) {
-            match st.ledger_bytes {
+            match bytes {
                 Some(now) if now < rec => why.push(format!(
                     "{}: the node's ledger is {now} bytes, {rec} when archived: it shrank (rewound)",
                     p.name
@@ -300,29 +377,92 @@ pub async fn check_node(url: &str, parts: &[Part]) -> Vec<String> {
                 None => why.push(format!("{}: the node does not report its ledger size", p.name)),
             }
         }
-        let Some((last, Some(fs))) = p.records.last().map(|(r, f)| (r, *f)) else {
-            continue;
-        };
-        if st.transactions.is_some_and(|t| t < fs) {
+        // The archive's extent must still be on the ledger.
+        let extent = p
+            .cursor
+            .get("feed_scanned")
+            .and_then(|x| x.as_u64())
+            .unwrap_or(at)
+            .max(at);
+        if len.is_some_and(|t| t < extent) {
             why.push(format!(
-                "{}: the node holds {} transactions, the archive's last is ledger seq {fs}: rewound",
+                "{}: the node holds {} transactions, the archive was read through ledger seq {extent}: rewound",
                 p.name,
-                st.transactions.unwrap_or(0)
+                len.unwrap_or(0)
             ));
         }
-        // The ledger's entry at `fs`, whatever program (an unfiltered feed).
-        let got = fclient::rpc::RpcClient::new(url)
-            .call("frontier_feed", json!([fs.saturating_sub(1), 1]))
-            .await;
-        let found = got
-            .ok()
-            .and_then(|v| v.as_array().and_then(|a| a.first().cloned()))
-            .and_then(|r| fclient::rpc::parse_feed_record(&r).ok());
+        // The extent past the last record (workstream 04, after 20's review):
+        // the node must hold no transaction of the archive's program in
+        // (last, feed_scanned], else the archive missed it (a cursor written
+        // ahead of its records) and claims more than it holds.
+        if let Some(sc) = p.cursor.get("feed_scanned").and_then(|x| x.as_u64()) {
+            if sc > at {
+                match p
+                    .cursor
+                    .get("feed_program")
+                    .and_then(|x| x.as_str())
+                {
+                    None => why.push(format!(
+                        "{}: scanned through {sc} past its last record {at}, but its program is not recorded: the extent cannot be checked",
+                        p.name
+                    )),
+                    Some(prog) => {
+                        let got = fclient::rpc::RpcClient::new(url)
+                            .call("frontier_feed", json!([at, 1, prog]))
+                            .await;
+                        let next = got
+                            .ok()
+                            .and_then(|v| {
+                                v.as_array()
+                                    .or_else(|| v.get("txs").and_then(|t| t.as_array()))
+                                    .map(|a| a.first().cloned())
+                            });
+                        match next {
+                            None => why.push(format!(
+                                "{}: the node could not be read past its last record: the extent is not confirmed",
+                                p.name
+                            )),
+                            Some(Some(r)) => {
+                                let q = r.get("seq").and_then(|x| x.as_u64()).unwrap_or(0);
+                                if q <= sc {
+                                    why.push(format!(
+                                        "{}: the node holds the program's transaction at ledger seq {q}, inside the archive's extent {sc} but not in the archive: it claims more than it holds",
+                                        p.name
+                                    ));
+                                }
+                            }
+                            Some(None) => {}
+                        }
+                    }
+                }
+            }
+        }
+        let Some((sig, fs)) = last else {
+            continue;
+        };
+        let found: Option<(u64, Signature)> = match &scan {
+            Some(v) => v
+                .get("atAfter")
+                .filter(|x| !x.is_null())
+                .and_then(|x| x.as_str())
+                .and_then(|x| x.parse().ok())
+                .map(|g| (fs, g)),
+            None => {
+                // The ledger's entry at `fs`, whatever program (an unfiltered feed).
+                let got = fclient::rpc::RpcClient::new(url)
+                    .call("frontier_feed", json!([fs.saturating_sub(1), 1]))
+                    .await;
+                got.ok()
+                    .and_then(|v| v.as_array().and_then(|a| a.first().cloned()))
+                    .and_then(|r| fclient::rpc::parse_feed_record(&r).ok())
+                    .map(|r| (r.seq, r.signature))
+            }
+        };
         match found {
-            Some(r) if r.seq == fs && r.signature == last.signature => {}
-            Some(r) => why.push(format!(
-                "{}: the archive's last transaction {} is at ledger seq {fs}, the node has {} at seq {} there: rewound or rebuilt",
-                p.name, last.signature, r.signature, r.seq
+            Some((q, g)) if q == fs && g == sig => {}
+            Some((q, g)) => why.push(format!(
+                "{}: the archive's last transaction {sig} is at ledger seq {fs}, the node has {g} at seq {q} there: rewound or rebuilt",
+                p.name
             )),
             None => why.push(format!(
                 "{}: the node has nothing at the archive's last ledger seq {fs} (or could not be read): rewound or not confirmed",

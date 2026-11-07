@@ -1612,6 +1612,29 @@ impl Chain {
             .collect()
     }
 
+    /// [`Chain::feed`] and, read in the same call (under the node's lock, so
+    /// nothing lands in between), how far the ledger was scanned for it
+    /// (workstream 04, 2026-11-07): see [`FeedScan`].
+    pub fn feed_scan(
+        &self,
+        after: u64,
+        limit: usize,
+        program: Option<&Address>,
+    ) -> (Vec<&Landed>, FeedScan) {
+        let (idx, scan) = scan_ledger(self.landed.len(), after, limit, |i| {
+            let l = &self.landed[i];
+            !l.airdrop && program.is_none_or(|p| l.keys.contains(p))
+        });
+        let at_after = (after > 0)
+            .then(|| self.landed.get(after as usize - 1))
+            .flatten()
+            .map(|l| l.signature);
+        (
+            idx.into_iter().map(|i| &self.landed[i]).collect(),
+            FeedScan { at_after, ..scan },
+        )
+    }
+
     /// Newest first, as `getSignaturesForAddress`: strictly older than
     /// `before`, stopping at (excluding) `until`.
     pub fn signatures_for(
@@ -1653,5 +1676,107 @@ impl Chain {
 
     pub fn is_dropped(&self, sig: &Signature) -> bool {
         self.dropped.contains(sig)
+    }
+}
+
+/// How far one feed read scanned the ledger (workstream 04, 2026-11-07),
+/// read with its records in one call.
+///
+/// - `scanned_through`: every ledger entry with `after < seq <= scanned_through`
+///   was examined; the records returned are all of those that matched. It is
+///   the last returned record's seq when the read stopped at `limit`, else
+///   the ledger's length (the whole tail was examined).
+/// - `ledger_len`: the ledger's length at the read. Less than `after`: the
+///   ledger is shorter than the reader's cursor (rewound or rebuilt).
+/// - `at_after`: the signature of ledger entry `after` (`None` for 0 or when
+///   the ledger has no such entry). A reader that archived that entry checks
+///   it is still the same transaction there (not rewound).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct FeedScan {
+    pub scanned_through: u64,
+    pub ledger_len: u64,
+    pub at_after: Option<Signature>,
+}
+
+/// The scan of a ledger of `len` entries (seq = index + 1) after `after`,
+/// keeping up to `limit` indexes for which `keep` holds: the kept indexes and
+/// the extent examined ([`FeedScan`], `at_after` not set).
+pub fn scan_ledger(
+    len: usize,
+    after: u64,
+    limit: usize,
+    keep: impl Fn(usize) -> bool,
+) -> (Vec<usize>, FeedScan) {
+    let mut out = vec![];
+    let mut scanned = len as u64;
+    for i in (after as usize).min(len)..len {
+        if out.len() == limit {
+            break;
+        }
+        if keep(i) {
+            out.push(i);
+            if out.len() == limit {
+                scanned = i as u64 + 1;
+                break;
+            }
+        }
+    }
+    if limit == 0 {
+        scanned = after.min(len as u64);
+    }
+    (
+        out,
+        FeedScan {
+            scanned_through: scanned,
+            ledger_len: len as u64,
+            at_after: None,
+        },
+    )
+}
+
+#[cfg(test)]
+mod feed_scan_tests {
+    use super::scan_ledger;
+
+    /// The ledger 1..=8; entries 2, 4, 5 and 8 are the program's.
+    fn mine(i: usize) -> bool {
+        [1, 3, 4, 7].contains(&i)
+    }
+
+    #[test]
+    fn the_whole_tail_is_scanned_when_the_limit_is_not_reached() {
+        let (idx, s) = scan_ledger(8, 0, 100, mine);
+        assert_eq!(idx, vec![1, 3, 4, 7]);
+        assert_eq!((s.scanned_through, s.ledger_len), (8, 8));
+        // After the program's last entry: still scanned to the end.
+        let (idx, s) = scan_ledger(8, 5, 100, mine);
+        assert_eq!(idx, vec![7]);
+        assert_eq!(s.scanned_through, 8);
+        // Nothing of the program left: the tail was still examined.
+        let (idx, s) = scan_ledger(9, 8, 100, mine);
+        assert!(idx.is_empty());
+        assert_eq!(s.scanned_through, 9);
+    }
+
+    #[test]
+    fn a_read_cut_by_its_limit_scanned_only_to_its_last_record() {
+        let (idx, s) = scan_ledger(8, 0, 2, mine);
+        assert_eq!(idx, vec![1, 3]);
+        assert_eq!(s.scanned_through, 4, "seq of index 3");
+        let (idx, s) = scan_ledger(8, 4, 2, mine);
+        assert_eq!(idx, vec![4, 7]);
+        assert_eq!(s.scanned_through, 8);
+        assert_eq!(scan_ledger(8, 3, 0, mine).1.scanned_through, 3);
+    }
+
+    #[test]
+    fn a_cursor_past_the_ledger_shows_a_shorter_ledger() {
+        let (idx, s) = scan_ledger(5, 7, 100, mine);
+        assert!(idx.is_empty());
+        assert_eq!((s.scanned_through, s.ledger_len), (5, 5));
+        assert!(
+            s.scanned_through < 7,
+            "the reader sees its cursor is past the ledger"
+        );
     }
 }
