@@ -1,0 +1,326 @@
+Code tree: 03a98b1edcb4aa9caa20f19c8c00e978d18e786e
+Absolute worktree and target paths normalized; test verdicts unchanged.
+
+=== Final merged tree verifier run; exit 101 ===
+   Compiling findex v0.1.0 (<worktree>/frontier-node/crates/findex)
+   Compiling verify v0.1.0 (<worktree>/frontier-node/crates/verify)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 4.30s
+     Running unittests src/lib.rs (<target>/debug/deps/verify_core-1b45301c33be78cc)
+
+running 47 tests
+test checks::v11_land::tests::legacy_wedge_rule_is_the_programs ... ok
+test checks::v11_land::tests::home_rule_follows_the_program_and_fails_closed_without_evidence ... ok
+test checks::v0_coverage::tests::every_abi_tag_has_a_coverage_answer ... ok
+test checks::v25_nations::tests::a_stance_is_written_only_when_passed ... ok
+test checks::v23_caravans::tests::settle_to_vault_credits_the_cargo_once ... ok
+test checks::v11_land::tests::ticket_site_rule_follows_the_program_and_fails_closed_without_evidence ... ok
+test checks::v25_nations::tests::a_vote_counts_once ... ok
+test checks::v23_caravans::tests::close_vault_rules ... ok
+test checks::v25_nations::tests::an_expulsion_flags_the_target ... ok
+test checks::v26_growth::tests::incomplete_evidence_is_unverifiable_never_a_pass ... ok
+test checks::v26_growth::tests::a_valid_extension_passes_and_the_next_ones_stop_at_the_ceiling ... ok
+test checks::v26_growth::tests::an_extension_the_program_would_refuse_fails ... ok
+test checks::v24_structures::tests::gather_wears_once ... ok
+test checks::v26_growth::tests::the_guard_judges_only_an_isolated_extension_and_never_calls_a_bundle_invalid ... ok
+test checks::v11_land::tests::tickets_are_attributed_by_instruction_evidence_and_mixed_transactions_never_pass ... ok
+test checks::v11_land::tests::dispersed_ticket_judgement_follows_the_program_and_fails_closed ... ok
+test checks::v26_growth::tests::a_post_state_or_record_other_than_the_programs_fails ... ok
+test checks::v27_residents::tests::an_honest_join_resident_has_no_finding ... ok
+test checks::v27_residents::tests::duplicates_fail ... ok
+test checks::v9_addresses::resident_joined_tests::a_record_that_stands_for_its_join_passes ... ok
+test checks::v9_addresses::resident_joined_tests::a_record_without_its_join_or_with_a_forged_key_fails ... ok
+test checks::v27_residents::tests::a_policy_the_archive_does_not_show_leaves_the_resident_unverifiable ... ok
+test checks::v9_addresses::resident_tests::a_flagged_citizen_with_a_wallet_derives_nothing ... ok
+test checks::v9_addresses::resident_tests::nft_citizen_address_comes_from_the_resident_id ... ok
+test checks::v9_addresses::resident_joined_tests::one_record_per_join_and_per_resident_id ... ok
+test checks::v9_addresses::resident_tests::wallet_citizen_address_is_unchanged ... ok
+test conquest::tests::captured_turn_still_credits_previous_owner ... ok
+test conquest::tests::neutral_and_season_boundary_never_mint_extra_time ... ok
+test facts::resident_tests::a_resident_joined_without_its_join_resident_creates_no_citizen ... ok
+test checks::v27_residents::tests::missing_evidence_is_never_a_pass ... ok
+test holding::intro_tests::conquest_founding_shield_follows_the_season_timers ... ok
+test checks::v27_residents::tests::forged_joins_fail ... ok
+test facts::resident_tests::resident_joined_makes_the_nft_citizen_known_by_its_tag ... ok
+test checks::v28_resident_acts::tests::a_wrong_program_feed_cannot_judge_a_holder ... ok
+test resident_feed::tests::one_ledger_order_read_far_enough_is_whole_and_nothing_else_is ... ok
+test checks::v27_residents::tests::the_resident_proof_accounts_are_canonical ... ok
+test holding::intro_tests::conquest_train_pays_the_v2_cost ... ok
+test holding::intro_tests::intro_build_replay_consumes_exactly_one_persisted_entitlement ... ok
+test checks::v28_resident_acts::tests::matching_authority_in_a_partial_feed_is_still_unproven ... ok
+test holding::intro_tests::s1_founding_workshop_and_arms_training ... ok
+test checks::v28_resident_acts::tests::canonical_addresses_are_judged_with_or_without_the_join ... ok
+test resident_feed::tests::the_fixture_form_round_trips ... ok
+test checks::v28_resident_acts::tests::the_holder_and_its_live_session_act_through_a_to_b_to_a ... ok
+test checks::v28_resident_acts::tests::inner_accounts_and_result_are_judged_against_the_join ... ok
+test checks::v27_residents::tests::mismatches_fail ... ok
+test checks::v28_resident_acts::tests::without_a_whole_record_only_a_stale_generation_is_a_fail ... ok
+test checks::v28_resident_acts::tests::old_owners_old_sessions_and_old_generations_accepted_are_fails ... ok
+
+test result: ok. 47 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+     Running tests/camp_clear.rs (<target>/debug/deps/camp_clear-fd52d36bd810be77)
+
+running 3 tests
+test w6s7_slice_holds_a_spawn_and_clear_in_one_resolve ... ok
+test v11_a_camp_spawned_and_cleared_in_one_resolve_is_no_mismatch ... ok
+test v11_a_clear_with_no_camp_and_no_spawn_still_fails ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/custody.rs (<target>/debug/deps/custody-165d8623da3cbada)
+
+running 6 tests
+test a_failed_custody_instruction_is_not_flagged ... ok
+test a_custody_season_is_never_a_pass ... ok
+test a_lot_account_in_a_season_without_custody_fails ... ok
+test custody_fields_in_a_vault_or_caravan_fail ... ok
+test baselines_are_not_flagged ... ok
+test a_landed_custody_instruction_in_a_season_without_custody_fails ... ok
+
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.72s
+
+     Running tests/custody_history.rs (<target>/debug/deps/custody_history-df052b744724a329)
+
+running 8 tests
+test a_closed_lot_opened_again_is_a_new_lot ... ok
+test an_expected_caravan_keeps_its_quantity ... ok
+composed windows 9000, unexplained (begun and settled inside one) 184
+test composed_kernel_steps_never_fail ... ok
+test random_kernel_histories_never_fail ... ok
+test the_kernels_own_history_passes_and_the_season_is_still_not_a_pass ... ok
+test goods_in_without_a_caravan_to_explain_them_are_unverifiable_not_fail ... ok
+test order_bookkeeping_that_no_step_makes_fails ... ok
+test a_change_no_custody_step_makes_fails_at_its_transaction ... ok
+
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.55s
+
+     Running tests/custody_state.rs (<target>/debug/deps/custody_state-dec8a3d9bf714b7f)
+
+running 7 tests
+test random_kernel_runs_never_fail_the_audit ... ok
+test what_the_kernel_writes_passes_the_audit_and_the_season_is_still_unverifiable ... ok
+test a_vault_over_its_cap_fails ... ok
+test a_broken_lot_in_a_post_state_fails_at_its_transaction ... ok
+test undecided_rules_are_unverifiable_not_fail ... ok
+test vault_counts_fail_only_when_the_visible_lots_exceed_them ... ok
+test a_lot_the_kernel_cannot_write_fails ... ok
+
+test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.98s
+
+     Running tests/evidence.rs (<target>/debug/deps/evidence-1c958474ba0f0334)
+
+running 8 tests
+
+thread 'the_fixtures_have_nothing_for_v0e' (23231627) panicked at crates/verify/tests/evidence.rs:106:9:
+assertion `left == right` failed
+  left: Fail
+ right: Pass
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+test the_fixtures_have_nothing_for_v0e ... FAILED
+test a_mention_whose_logs_show_no_run_is_not_reported ... ok
+cpi-only, no logs: 140 cases, 0 PASS [], 0 without the code
+test a_cpi_only_transaction_without_logs_is_not_a_pass ... ok
+cpi: 140 cases, 0 PASS [], 0 without the code
+test the_program_run_by_another_program_is_not_a_pass ... ok
+dropped post-states: 72 cases, 0 PASS [], 0 without the code
+test a_written_account_without_its_post_state_is_not_a_pass ... ok
+tail lost, no marker: 338 cases, 0 PASS [], 0 without the code
+test logs_that_lose_their_tail_are_not_a_pass ... ok
+no logs: 345 cases, 0 PASS [], 0 without the code
+test a_call_without_logs_is_not_a_pass ... ok
+truncated logs: 345 cases, 0 PASS [], 0 without the code
+test logs_the_runtime_cut_are_not_a_pass ... ok
+
+failures:
+
+failures:
+    the_fixtures_have_nothing_for_v0e
+
+test result: FAILED. 7 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 52.53s
+
+error: test failed, to rerun pass `-p verify --test evidence`
+     Running tests/fixtures.rs (<target>/debug/deps/fixtures-5040670c8db55cb8)
+
+running 8 tests
+test unshielded_rout_stays_a_liveness_warning ... ok
+test failed_attempts_counted_per_march ... ok
+test shielded_refused_march_is_unrevealed_by_rule ... ok
+
+thread 'march_synth_passes' (23235982) panicked at crates/verify/tests/fixtures.rs:107:5:
+assertion `left == right` failed: Fail V11 TicketPlacementMismatch bell 0 ticket of citizen a8259254ebc7bf211341d2eae698a2 at bell 0: site 0 (0, -2, 0) is outside the placement rule of nation 1 (own wedge 0 of 0 occupied, 4 rings)
+Fail V11 TicketPlacementMismatch bell 0 ticket of citizen 5a19edba6a52b283c587439bb8690a at bell 0: site 0 (0, -2, 1) is outside the placement rule of nation 1 (own wedge 0 of 0 occupied, 4 rings)
+Fail V11 TicketPlacementMismatch bell 0 ticket of citizen 50e045a0350674116d20d37fbff417 at bell 0: site 0 (1, -3, 0) is outside the placement rule of nation 2 (own wedge 0 of 0 occupied, 4 rings)
+Fail V11 TicketPlacementMismatch bell 0 ticket of citizen 3fb4dfe7f2a42b0a83024bb7e7035c at bell 0: site 0 (1, -3, 1) is outside the placement rule of nation 2 (own wedge 0 of 0 occupied, 4 rings)
+Fail V11 TicketPlacementMismatch bell 0 ticket of citizen b2db9ea36c93ef97680cd4c1dc2565 at bell 0: site 0 (3, -3, 0) is outside the placement rule of nation 2 (own wedge 0 of 0 occupied, 4 rings)
+Fail V11 TicketPlacementMismatch bell 0 ticket of citizen ec039605b421fbb3ca497fe6162e85 at bell 0: site 0 (3, -3, 1) is outside the placement rule of nation 2 (own wedge 0 of 0 occupied, 4 rings)
+  left: Fail
+ right: Pass
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+test march_synth_passes ... FAILED
+test land_program_passes ... ok
+test arrival_after_end_is_fail ... ok
+test cli_exit_codes ... ok
+test march_program_passes ... ok
+
+failures:
+
+failures:
+    march_synth_passes
+
+test result: FAILED. 7 passed; 1 failed; 0 ignored; 0 measured; 1 filtered out; finished in 1.63s
+
+error: test failed, to rerun pass `-p verify --test fixtures`
+     Running tests/history.rs (<target>/debug/deps/history-b5b7925a1dea7cf7)
+
+running 16 tests
+test a_ledger_feed_or_a_fixture_keeps_the_verdict_without_claiming_completeness ... ok
+test a_saved_fixture_cannot_launder_an_rpc_history ... ok
+test a_detected_gap_is_not_verified_over ... ok
+test empty_local_feed_is_an_observation_not_a_complete_season ... ok
+test dataset_scope_is_explicit_and_conflicting_feed_coverage_is_unproven ... ok
+test a_witness_down_leaves_the_history_unproven ... ok
+test malformed_feed_cursors_and_empty_archives_never_gain_dataset_trust ... ok
+test every_rpc_coverage_state_is_unproven ... ok
+test default_settings_fetch_an_unproven_history ... ok
+test cross_checked_is_still_not_a_complete_history ... ok
+test an_rpc_archive_keeps_its_coverage ... ok
+test archives_report_where_their_records_came_from ... ok
+test a_witness_behind_does_not_end_the_history_early ... ok
+test a_self_contained_fail_still_fails_over_an_unproven_history ... ok
+test the_verifier_never_passes_an_unproven_history ... ok
+test a_missing_range_is_not_reported_as_a_forgery_of_an_unproven_history ... ok
+
+test result: ok. 16 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 14.30s
+
+     Running tests/ledger_history.rs (<target>/debug/deps/ledger_history-bdcf1acb51a58fab)
+
+running 7 tests
+test a_ledger_that_shrank_during_a_live_read_is_unproven ... ok
+test a_ledger_that_changed_during_the_read_is_unproven ... ok
+test matching_live_status_never_proves_completeness_or_hides_local_failures ... ok
+test successful_feed_with_unreadable_status_is_unproven ... ok
+test a_whole_feed_archive_is_the_ledgers_and_pairs_with_a_live_read ... ok
+test an_archive_without_its_ledger_or_numbers_is_unproven ... ok
+test an_archive_the_node_no_longer_matches_is_unproven ... ok
+
+test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.17s
+
+     Running tests/missing_state.rs (<target>/debug/deps/missing_state-e7358deed8e32596)
+
+running 2 tests
+test an_archive_without_post_states_says_continuity_is_unjudged ... ok
+8 dropped Holding post-states: none is a PASS
+test a_holding_write_with_no_earlier_post_state_is_not_a_pass ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.78s
+
+     Running tests/new_bands.rs (<target>/debug/deps/new_bands-9aa27c7028dec4ce)
+
+running 7 tests
+test every_conquest_kind_the_abi_knows_is_modelled ... ok
+test tags_outside_abi_v2_are_told_apart ... ok
+test a_resident_joined_without_its_join_is_unverifiable ... ok
+test a_divert_outside_a_transit_settlement_is_unverifiable ... ok
+test a_record_no_instruction_left_is_not_a_pass has been running for over 60 seconds
+test a_record_of_a_new_kind_is_not_a_pass has been running for over 60 seconds
+test an_instruction_of_a_new_band_is_not_a_pass has been running for over 60 seconds
+new tags: 192 cases, 0 PASS []
+test an_instruction_of_a_new_band_is_not_a_pass ... ok
+new kinds: 204 cases, 0 PASS []
+test a_record_of_a_new_kind_is_not_a_pass ... ok
+known kinds, injected: 456 cases, 0 PASS []
+test a_record_no_instruction_left_is_not_a_pass ... ok
+
+test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 331.78s
+
+     Running tests/open_items.rs (<target>/debug/deps/open_items-386531fd463f760e)
+
+running 3 tests
+test a_prefix_of_a_continuing_world_fails_today ... ok
+test the_recorded_season_passes_with_its_quiet_end ... ok
+test a_final_account_held_by_the_delegation_program_fails_today ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.13s
+
+     Running tests/resident_ledger.rs (<target>/debug/deps/resident_ledger-f7d73dc24be9263d)
+
+running 3 tests
+frontier-verify: the resident policy account: Decode("no clock")
+test the_live_resident_feed_names_the_ledger_and_reads_through_the_game_feed ... ok
+test both_archives_of_one_ledger_are_one_order ... ok
+test a_resident_archive_not_the_ledgers_whole_feed_or_of_another_ledger_is_never_whole ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.23s
+
+     Running tests/unit.rs (<target>/debug/deps/unit-8dbfd6ee90491a6e)
+
+running 8 tests
+test no_post_states_is_unverifiable ... ok
+test fixture_round_trip ... ok
+test undecodable_record_fails ... ok
+test report_schema_and_codes ... ok
+test skip_replay_checks_every_bell ... ok
+test rechain_is_the_identity_on_honest_archives ... ok
+test reveal_in_the_archive_grace_is_a_warning ... ok
+test unopenable_seal_is_missing_data ... ok
+
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.98s
+
+error: 2 targets failed:
+    `-p verify --test evidence`
+    `-p verify --test fixtures`
+
+=== Findex ledger run; exit 0 ===
+   Compiling findex v0.1.0 (<worktree>/frontier-node/crates/findex)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 1.05s
+     Running tests/ledger.rs (<target>/debug/deps/ledger-cde3ca7451e2aa5a)
+
+running 15 tests
+test stale_part_can_look_consistent_but_never_claims_whole_in_json ... ok
+test a_cursor_that_is_not_a_feeds_is_refused ... ok
+test duplicates_and_mismatched_numbers_are_never_whole ... ok
+test start_and_ledger_must_be_known_and_shared ... ok
+test a_shrunk_ledger_is_seen_against_the_node ... ok
+test an_unreadable_or_other_node_confirms_nothing ... ok
+test an_unfiltered_feed_is_refused ... ok
+test archives_from_before_resume_but_are_never_whole ... ok
+test archives_that_match_the_node_are_confirmed ... ok
+test only_the_archive_whose_tail_was_rewound_is_named ... ok
+test a_rewind_under_the_same_run_id_is_seen_against_the_node ... ok
+test two_archives_join_in_ledger_order_with_the_shared_transaction_once ... ok
+test a_new_ledger_is_refused_not_resumed ... ok
+test a_rewound_ledger_under_the_same_run_id_is_refused ... ok
+test a_restart_between_the_archives_cuts_the_join_at_the_lower_cursor ... ok
+
+test result: ok. 15 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.52s
+
+
+=== Verifier clippy -D warnings; exit 0; last 12 lines ===
+    Checking solana-syscalls v4.2.2
+    Checking tlock v0.0.10
+    Checking frontier-abi v0.1.0 (<worktree>/frontier-abi)
+    Checking solana-bpf-loader-program v4.2.2
+    Checking solana-builtins v4.2.2
+    Checking litesvm v0.16.0
+    Checking fclient v0.1.0 (<worktree>/frontier-node/crates/fclient)
+    Checking findex v0.1.0 (<worktree>/frontier-node/crates/findex)
+    Checking keeper v0.1.0 (<worktree>/frontier-node/crates/keeper)
+    Checking localnet v0.1.0 (<worktree>/frontier-node/crates/localnet)
+    Checking verify v0.1.0 (<worktree>/frontier-node/crates/verify)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 12.75s
+
+=== Workspace all-targets compile; exit 0; last 12 lines ===
+    Checking fclient v0.1.0 (<worktree>/frontier-node/crates/fclient)
+   Compiling agents v0.1.0 (<worktree>/frontier-node/crates/agents)
+    Checking localnet v0.1.0 (<worktree>/frontier-node/crates/localnet)
+    Checking findex v0.1.0 (<worktree>/frontier-node/crates/findex)
+    Checking keeper v0.1.0 (<worktree>/frontier-node/crates/keeper)
+    Checking drand-replay v0.1.0 (<worktree>/frontier-node/crates/drand-replay)
+    Checking verify v0.1.0 (<worktree>/frontier-node/crates/verify)
+    Checking herald v0.1.0 (<worktree>/frontier-node/crates/herald)
+    Checking bots v0.1.0 (<worktree>/frontier-node/crates/bots)
+    Checking itest v0.1.0 (<worktree>/frontier-node/crates/itest)
+    Checking stack v0.1.0 (<worktree>/frontier-node/crates/stack)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 5.23s
+
+Verifier rustfmt: exit 0. git diff --check: exit 0.
