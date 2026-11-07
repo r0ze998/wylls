@@ -49,20 +49,21 @@
 //!   are experimental versioning for the wide path only; the legacy path
 //!   keeps its formulas byte for byte, and no production rule is decided
 //!   by their existence;
-//! * the **transit record** of a wide march is this module's 256-byte
+//! * the **transit record** of a wide march is this module's 288-byte
 //!   [`WideTransit`] at [`transit_address`] (`with_seed(season, wm ‖
 //!   hash(holding ‖ slot))`), not the 96-byte slot inside the Holding
-//!   layout, which cannot carry the identity; the slot keeps only the
-//!   alias and the legacy `in_transit` state so `prologue::host_in_transit`
-//!   keeps refusing a second departure.
+//!   layout, which cannot carry the identity. The Holding's own transit
+//!   slots stay free for a wide holding (`WideHolding::read` refuses a used
+//!   one); the wide Depart checks the record's address absent instead. The
+//!   record carries its own immutable `rent_to` (the Depart's payer), to
+//!   whom the transit settlement closes it.
 //!
-//! **What is not here.** No wide holding carries
-//! [`HOST_IDENTITY_FULL_REF_V1`]: `WideHolding::read` still refuses any
-//! version but the unallocated one, so no wide host can be mustered, no
-//! march can be debited and [`WideTransit::depart`] keeps refusing the
-//! program's version 0. Allocating the version to a holding is the step
-//! that would need a wide Muster, Reveal, Gather, Resolve, SettleDeparture
-//! and SettleTransit to exist first (`WIDE-LAND-WRITER.md` §−2).
+//! **Identity.** A wide holding is founded under
+//! `holding::HOST_IDENTITY_UNALLOCATED` and receives
+//! [`HOST_IDENTITY_FULL_REF_V1`] at its first wide Muster
+//! (`WideHolding::allocate_identity`); [`WideTransit::depart`] refuses the
+//! unallocated version, so a holding that never mustered cannot open a
+//! march.
 
 use super::key::{KeyError, ProvinceKey, WideHostRef, HOST_REF_LEN, PROVINCE_KEY_LEN};
 use super::tiles::{TileAddress, TileError};
@@ -84,7 +85,7 @@ use permutation_rules::rng::{rand, Seed};
 /// Layout version of the wide transit bytes.
 pub const WIDE_TRANSIT_VERSION: u8 = 1;
 /// Bytes of a wide transit record.
-pub const WIDE_TRANSIT_LEN: usize = 256;
+pub const WIDE_TRANSIT_LEN: usize = 288;
 
 /// The one allocated wide host identity version (module doc): the
 /// canonical identity is the full [`WideHostRef`]; the roster alias is
@@ -707,6 +708,9 @@ pub struct WideTransit {
     pub seal_root: [u8; 32],
     pub tip: u64,
     pub flags: u8,
+    /// The immutable rent recipient of the record (the Depart's payer):
+    /// the transit settlement closes the record to it.
+    pub rent_to: [u8; 32],
 }
 
 /// Offsets of the record.
@@ -735,12 +739,14 @@ mod off {
     pub const READY_BELL_OFF: usize = 198;
     pub const SEAL_ROOT: usize = 200; // 32
     pub const TIP: usize = 232;
-    pub const RSV: usize = 240;
+    pub const RENT_TO: usize = 240; // 32
+    pub const RSV: usize = 272;
     pub const RSV_LEN: usize = 16;
     const _: () = {
         assert!(HOST + super::HOST_REF_LEN == ORIGIN_KEY);
         assert!(ORIGIN_KEY + super::PROVINCE_KEY_LEN == ORIGIN_TILE);
         assert!(DEST_KEY + super::PROVINCE_KEY_LEN == RSV_166);
+        assert!(TIP + 8 == RENT_TO && RENT_TO + 32 == RSV);
         assert!(RSV + RSV_LEN == super::WIDE_TRANSIT_LEN);
     };
 }
@@ -751,7 +757,8 @@ impl WideTransit {
     /// program knows), so the record can never be written and no debit
     /// can be taken; otherwise the legacy arrival-bell bounds. The seal
     /// root, tip, mass and doctrine values are the caller's (the legacy
-    /// Depart computes them; nothing is priced here).
+    /// Depart computes them; nothing is priced here); `rent_to` is the
+    /// record's immutable rent recipient (the Depart's payer).
     #[allow(clippy::too_many_arguments)]
     pub fn depart(
         host_identity: u16,
@@ -768,6 +775,7 @@ impl WideTransit {
         seal_root: [u8; 32],
         tip: u64,
         flags: u8,
+        rent_to: [u8; 32],
     ) -> Result<WideTransit, MarchError> {
         if host_identity == super::holding::HOST_IDENTITY_UNALLOCATED {
             return Err(MarchError::HostIdentityUnallocated);
@@ -816,6 +824,7 @@ impl WideTransit {
             seal_root,
             tip,
             flags,
+            rent_to,
         })
     }
 
@@ -882,7 +891,7 @@ impl WideTransit {
 
     /// `WIDE_TRANSIT_VERSION ‖ state ‖ unit ‖ faction ‖ identity ‖ flags ‖
     /// has_dest ‖ host ref ‖ origin key ‖ origin tile ‖ dest key ‖ bells,
-    /// times, values ‖ seal root ‖ tip`, 256 bytes.
+    /// times, values ‖ seal root ‖ tip ‖ rent_to`, 288 bytes.
     pub fn to_bytes(&self) -> [u8; WIDE_TRANSIT_LEN] {
         let mut b = [0u8; WIDE_TRANSIT_LEN];
         let _ = wr_u8(&mut b, off::VERSION, WIDE_TRANSIT_VERSION)
@@ -910,7 +919,8 @@ impl WideTransit {
             & wr_u16(&mut b, off::STAMINA_AFTER, self.stamina_after)
             & wr_u16(&mut b, off::READY_BELL_OFF, self.ready_bell_off)
             & wr_arr(&mut b, off::SEAL_ROOT, &self.seal_root)
-            & wr_u64(&mut b, off::TIP, self.tip);
+            & wr_u64(&mut b, off::TIP, self.tip)
+            & wr_arr(&mut b, off::RENT_TO, &self.rent_to);
         b
     }
 
@@ -1001,6 +1011,7 @@ impl WideTransit {
             seal_root: rd_arr(d, off::SEAL_ROOT).ok_or(t)?,
             tip: rd_u64(d, off::TIP).ok_or(t)?,
             flags: rd_u8(d, off::FLAGS).ok_or(t)?,
+            rent_to: rd_arr(d, off::RENT_TO).ok_or(t)?,
         })
     }
 }
@@ -1043,6 +1054,7 @@ mod tests {
             [0xab; 32],
             14_441,
             T::FLAG_FEE_ESCROWED | T::FLAG_BOND_ESCROWED,
+            [0xd4; 32],
         )
         .unwrap()
     }
@@ -1067,6 +1079,7 @@ mod tests {
                 [0; 32],
                 0,
                 0,
+                [0; 32],
             ),
             Err(MarchError::HostIdentityUnallocated)
         );
@@ -1087,6 +1100,7 @@ mod tests {
                 [0; 32],
                 0,
                 0,
+                [0; 32],
             ),
             Err(MarchError::HostIdentityUnallocated)
         );
@@ -1116,7 +1130,8 @@ mod tests {
                     1,
                     [0; 32],
                     0,
-                    0
+                    0,
+                    [0; 32],
                 ),
                 Err(MarchError::ArrivalBell {
                     depart_bell: 100,
@@ -1139,7 +1154,8 @@ mod tests {
                 1,
                 [0; 32],
                 0,
-                0
+                0,
+                [0; 32],
             )
             .is_ok());
         }
@@ -1158,7 +1174,8 @@ mod tests {
                 1,
                 [0; 32],
                 0,
-                0
+                0,
+                [0; 32],
             ),
             Err(MarchError::WorldMismatch)
         );
@@ -1266,10 +1283,15 @@ mod tests {
         let f = g.step(MarchEvent::SettleTransit, None).unwrap();
         for r in [d, s, g, f] {
             let b = r.to_bytes();
-            assert_eq!(b.len(), 256);
+            assert_eq!(b.len(), 288);
             assert_eq!(b[0], WIDE_TRANSIT_VERSION);
             assert_eq!(WideTransit::from_bytes(&b), Ok(r), "{:?}", r.state);
             assert_eq!(b[off::HAS_DEST], r.dest.is_some() as u8);
+            assert_eq!(&b[off::RENT_TO..off::RENT_TO + 32], &[0xd4; 32]);
+            assert_eq!(
+                r.rent_to, [0xd4; 32],
+                "the rent recipient survives every stage"
+            );
         }
         // the state bytes of the first four stages are the legacy transit's
         assert_eq!(MarchState::Free.to_byte(), T::STATE_FREE);
@@ -1285,10 +1307,10 @@ mod tests {
         }
         let b = g.to_bytes();
         assert_eq!(
-            WideTransit::from_bytes(&b[..255]),
+            WideTransit::from_bytes(&b[..287]),
             Err(MarchError::Length {
-                expected: 256,
-                got: 255
+                expected: 288,
+                got: 287
             })
         );
         let mut x = b;
@@ -1448,7 +1470,8 @@ mod tests {
                 0,
                 [0; 32],
                 0,
-                0
+                0,
+                [0; 32],
             ),
             Err(MarchError::ArrivalBell { .. })
         ));

@@ -322,7 +322,12 @@ pub mod wide_holding {
     pub const STATUS: usize = TRAILER + 2;
     pub const SLOT: usize = TRAILER + 3;
     pub const HOST_IDENTITY: usize = TRAILER + 4;
-    pub const RSV_6: usize = TRAILER + 6;
+    /// The wide transit records of this holding that are open (written by
+    /// a departure, closed by a transit settlement): a season-end close
+    /// refuses while any is, so an escrow is never paid out under an
+    /// unsettled march.
+    pub const OPEN_TRANSITS: usize = TRAILER + 6;
+    pub const RSV_7: usize = TRAILER + 7;
     pub const WORLD: usize = TRAILER + 8;
     pub const SORT_KEY: usize = TRAILER + 40;
     pub const RSV: usize = TRAILER + 57;
@@ -331,7 +336,7 @@ pub mod wide_holding {
     const _: () = {
         assert!(TRAILER == 1_280);
         assert!(SIZE == 1_344);
-        assert!(RSV_6 + 2 == WORLD);
+        assert!(OPEN_TRANSITS + 1 == RSV_7 && RSV_7 + 1 == WORLD);
         assert!(WORLD + 32 == SORT_KEY);
         assert!(SORT_KEY + 17 == RSV);
         assert!(RSV + RSV_LEN == SIZE);
@@ -365,6 +370,8 @@ pub struct WideHolding {
     pub owner_citizen: [u8; 32],
     /// The host identity version it was founded under.
     pub host_identity: u16,
+    /// Open wide transit records (`wide_holding::OPEN_TRANSITS`).
+    pub open_transits: u8,
 }
 
 impl WideHolding {
@@ -411,6 +418,7 @@ impl WideHolding {
             slot,
             owner_citizen,
             host_identity: HOST_IDENTITY_UNALLOCATED,
+            open_transits: 0,
         })
     }
 
@@ -478,8 +486,9 @@ impl WideHolding {
         if sb != L::STATUS_FOUNDED {
             return Err(HoldingError::Status(sb));
         }
-        land::zero(d, L::RSV_6, 2).map_err(|_| HoldingError::Reserved)?;
+        land::zero(d, L::RSV_7, 1).map_err(|_| HoldingError::Reserved)?;
         land::zero(d, L::RSV, L::RSV_LEN).map_err(|_| HoldingError::Reserved)?;
+        let open_transits = rd_u8(d, L::OPEN_TRANSITS).ok_or(t)?;
         if rd_i16(d, H2::P).ok_or(t)? != 0 || rd_i16(d, H2::Q).ok_or(t)? != 0 {
             return Err(HoldingError::LegacyIdentityInPrefix);
         }
@@ -520,7 +529,7 @@ impl WideHolding {
             let any_transit = (0..H2::TRANSIT_N)
                 .any(|i| rd_u8(d, H2::transit(i) + T::STATE).unwrap_or(1) != T::STATE_FREE);
             let explore = rd_u8(d, H2::EXPLORE + X::STATE).ok_or(t)?;
-            if (host_identity == HOST_IDENTITY_UNALLOCATED && seq != 0)
+            if (host_identity == HOST_IDENTITY_UNALLOCATED && (seq != 0 || open_transits != 0))
                 || any_transit
                 || explore != X::STATE_FREE
             {
@@ -536,6 +545,7 @@ impl WideHolding {
             slot,
             owner_citizen: rd_arr(d, H2::OWNER_CITIZEN).ok_or(t)?,
             host_identity,
+            open_transits,
         })
     }
 
@@ -567,7 +577,8 @@ impl WideHolding {
             & wr_u8(d, L::STATUS, L::STATUS_FOUNDED)
             & wr_u8(d, L::SLOT, self.slot)
             & wr_u16(d, L::HOST_IDENTITY, self.host_identity)
-            & wr_arr(d, L::RSV_6, &[0u8; 2])
+            & wr_u8(d, L::OPEN_TRANSITS, self.open_transits)
+            & wr_u8(d, L::RSV_7, 0)
             & wr_arr(d, L::WORLD, self.world.as_bytes())
             & wr_arr(d, L::SORT_KEY, &self.coord.sort_key())
             & wr_arr(d, L::RSV, &[0u8; L::RSV_LEN]);

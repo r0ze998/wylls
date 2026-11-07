@@ -4,7 +4,7 @@
 //! advance. It is a format of its own, not an extension of the deployed
 //! PS2 log: a wide record is logged under the prefix [`WIDE_LOG_PREFIX`]
 //! (`PSW1`, never `PS2`), its body starts with the version byte
-//! [`WIDE_EVENT_VERSION`] (0x81, which the deployed decoders refuse as an
+//! [`WIDE_EVENT_VERSION`] (0x82, which the deployed decoders refuse as an
 //! unknown version), its kinds are this module's ([`WideKind`], no code of
 //! the deployed or any other team's kind space is taken), every key is a
 //! **full identity** (the 56-byte host reference or the 50-byte province
@@ -25,31 +25,74 @@
 //!
 //! | kind | key | payload | links |
 //! |---|---|---|---|
-//! | 1 `Muster` | host ref | `unit u8, troops u32 (whole), tile u8, entry u8, alias u64` | Province, Holding |
-//! | 2 `Dissolve` | host ref | `pend_bell u32, troops u32 (milli), entry u8` | Province, Holding |
+//! | 1 `Muster` | host ref ‖ standing province key | `unit u8, troops u32 (whole), tile u8, entry u8, alias u64` | Province, Holding |
+//! | 2 `Dissolve` | host ref ‖ standing | `pend_bell u32, troops u32 (milli), entry u8` | Province, Holding |
 //! | 3 `Resolve` | province key | `input_digest [32], output_digest [32], engagements u32, destroyed u8, bounced u8, settled u8` | Province |
-//! | 4 `Return` | host ref | `credited u32 (milli, once), unit u8, entry u8` | Province, Holding |
-//! | 5 `Stranded` | host ref | `troops_lost u32 (milli), entry u8` | Province |
+//! | 4 `Return` | host ref ‖ standing | `credited u32 (milli, once), unit u8, entry u8` | Province, Holding |
+//! | 5 `Stranded` | host ref ‖ standing | `troops_lost u32 (milli), entry u8` | Province |
 //! | 6 `RosterClosed` | province key | `rent_to [32], lamports u64` | none |
+//! | 7 `Departed` | host ref ‖ origin (standing) | `transit_slot u8, depart_bell u32, arrive_bell u32, dep_mass u32 (milli), march_stamina u16, tip u64, fee u64, bond u64, seal_root [32]` | Province, Holding |
+//! | 8 `TransitSettled` | host ref ‖ destination (the home when the destination is absent) | `transit_slot u8, outcome u8, seal_code u8, troops u32 (milli), tip u64, fee u64, bond u64, home_credited u8, sealed_dest [50]` | Province, Holding |
+//! | 9 `DepartureSettled` | host ref ‖ origin | `transit_slot u8, destroyed u8, troops_after u32 (milli), stamina_after u16, ready_bell_off u16, entry u8` | Province, Holding |
+//! | 10 `Revealed` | host ref ‖ destination | `transit_slot u8, faction u8, i u8, tile u8, stance u8, retreat_bps u16, dep_mass u32 (milli), displaced u8` | none |
+//! | 11 `Gathered` | province key (destination) | `bell u32, start u8, n u8, arrivals_mask u32, n_present u8, no_arrivals u8` | none |
+//!
+//! A `Revealed` and a `Gathered` chain nothing: the reveal writes an
+//! ArrivalSlot and the gather a ClashInputs, records without an event chain
+//! (as deployed), and neither writes a province or a holding. A
+//! `TransitSettled` is attributed to the destination it was judged
+//! against; when a valid seal names a province that was never opened
+//! (nothing could be revealed or gathered there), the settlement is
+//! attributed to the host's **home** province, where its only effect (the
+//! return) lands — and the payload keeps the **sealed destination key**
+//! in every case, so the fact of where the march was sealed to is never
+//! replaced by the chain target ([`WideRecord::sealed_dest`]). A host that comes
+//! home after a settlement is logged by a `Return` keyed by the home
+//! province (entry `0xFF` when the troops went into the reserve instead of
+//! a muster-pending entry).
 //!
 //! **Attribution.** A record concerns exactly one province and at most one
-//! holding, derived from its full key and never from the packed alias: a
-//! host-keyed record's province is the host's **home** province
-//! (`WideHostRef::key`; the closed path is local, a host stands in its
-//! home province) and its holding is the host's issuing holding
-//! (`WideHostRef::holding_ref`: site and generation, sequence 0); a
-//! province-keyed record's province is its key. [`verify_chain`] consumes
-//! a record only when its attribution is the target: a record of another
-//! province or holding, even with a plausible link, is skipped, and a
-//! record attributed to the target must carry the target's link.
+//! holding, derived from its full key and never from the packed alias.
+//! Every host-keyed record names, beside the 56-byte host reference, the
+//! **50-byte key of the province it happened in** (the standing province;
+//! for a departure the origin, for a transit settlement the destination):
+//! that key, and only that key, is the record's province
+//! ([`WideRecord::province_of`]). The host's home province
+//! ([`WideRecord::home_of`], `WideHostRef::key`) is a separate fact and is
+//! **never** substituted for the standing province: a host event in a
+//! province other than its home is attributed where it happened. The
+//! record's holding is the host's issuing holding
+//! (`WideHostRef::holding_ref`: site and generation, sequence 0), wherever
+//! the event happened; a province-keyed record's province is its key and
+//! it has no holding. [`verify_chain`] consumes a record only when its
+//! attribution is the target: a record of another province or holding,
+//! even with a plausible link, is skipped, and a record attributed to the
+//! target must carry the target's link.
+//!
+//! Kinds 7 and 8 are the shape of the march's origin and destination
+//! records (the departure's escrow and seal root; the settlement's
+//! outcome, seal verdict and payments). The Departed record is the only
+//! one a wide Depart logs; the wide march's debit stays refused until its
+//! whole settlement path exists (`WIDE-LAND-WRITER.md` §−2.4e).
+//!
+//! **Versions.** Version 0x82 is the format above: every host-keyed record
+//! carries the 106-byte `host ref ‖ standing province key`. Version 0x81
+//! was the format of the local-only lifecycle, whose host records carried
+//! the 56-byte host reference alone and were attributed to the host's
+//! home; its widths differ, so [`WideRecord::decode`] refuses it
+//! **explicitly** ([`EventError::RetiredVersion`]), never reinterprets it.
+//! A trace saved under 0x81 (the experimental host tests before this
+//! change) needs the 0x81 decoder of that revision; no 0x81 record exists
+//! on any chain.
 //!
 //! **The resolve's digests.** [`resolve_input_digest`] commits to the
 //! province key, the bell, the bell seed, the **authenticated Season bytes
 //! whole** (the status, the ruleset hash, the program version with the
 //! wide bit, the clock the seed round comes from, the conquest block the
-//! step parameters come from) and the province and roster bytes as read;
+//! step parameters come from), the province and roster bytes as read and
+//! the gathered ClashInputs bytes as read (empty when the bell had none);
 //! [`resolve_output_digest`] to the kernel outcome's own digest and the
-//! province and roster bytes the bell left. Both province digests are over
+//! province, roster and ClashInputs bytes the bell left. Both province digests are over
 //! the bytes **normalized** by [`normalize_chained`]: the header's
 //! `event_seq` and `event_head` zeroed, so the comparison is independent
 //! of the record's own link (the chain is committed by the link, not the
@@ -67,22 +110,49 @@ use permutation_rules::hash::sha256;
 /// `PS2`.
 pub const WIDE_LOG_PREFIX: &[u8; 4] = b"PSW1";
 /// The body's version byte. The high bit keeps it out of every deployed
-/// version (the deployed decoders refuse it as `Version(0x81)`).
-pub const WIDE_EVENT_VERSION: u8 = 0x81;
+/// version (the deployed decoders refuse it as `Version(0x82)`).
+pub const WIDE_EVENT_VERSION: u8 = 0x82;
+/// The retired version of the local-only lifecycle (56-byte host keys,
+/// home attribution). Refused explicitly by [`WideRecord::decode`]
+/// (module doc, versions); never written again.
+pub const WIDE_EVENT_VERSION_RETIRED: u8 = 0x81;
 /// Domain of [`next_head`].
 pub const WIDE_CHAIN_DOMAIN: &[u8] = b"PSF-WIDE-CHAIN-v1";
 /// Domain of [`resolve_input_digest`].
-pub const RESOLVE_INPUT_DOMAIN: &[u8] = b"PSF-WIDE-RESOLVE-INPUT-v2";
+pub const RESOLVE_INPUT_DOMAIN: &[u8] = b"PSF-WIDE-RESOLVE-INPUT-v3";
 /// Domain of [`resolve_output_digest`].
-pub const RESOLVE_OUTPUT_DOMAIN: &[u8] = b"PSF-WIDE-RESOLVE-OUTPUT-v2";
+pub const RESOLVE_OUTPUT_DOMAIN: &[u8] = b"PSF-WIDE-RESOLVE-OUTPUT-v3";
 /// `version ‖ kind ‖ bell`.
 pub const HEAD_LEN: usize = 6;
 /// `entity ‖ seq ‖ head`.
 pub const LINK_LEN: usize = 1 + 8 + 32;
 /// Entities one record may chain.
 pub const MAX_LINKS: usize = 2;
-/// The longest body (a Resolve chaining the province).
-pub const MAX_BODY: usize = HEAD_LEN + PROVINCE_KEY_LEN + 71 + 1 + MAX_LINKS * LINK_LEN;
+/// The key of a host-keyed record: the host reference, then the key of
+/// the province the event happened in.
+pub const HOST_KEY_LEN: usize = HOST_REF_LEN + PROVINCE_KEY_LEN;
+/// The Departed payload width (`WideKind::payload_len`, the builder
+/// [`departed_payload`]).
+pub const DEPARTED_PAYLOAD_LEN: usize = 1 + 4 + 4 + 4 + 2 + 8 + 8 + 8 + 32;
+/// The TransitSettled payload width ([`transit_settled_payload`]): the
+/// settlement facts and the **sealed destination key** (the province the
+/// seal named, whether or not it exists; the record's key names the
+/// chained province, which is the home when the destination is absent).
+pub const TRANSIT_SETTLED_PAYLOAD_LEN: usize = 1 + 1 + 1 + 4 + 8 + 8 + 8 + 1 + PROVINCE_KEY_LEN;
+/// The longest body (a TransitSettled: a host key and its 82 payload
+/// bytes, two links).
+pub const MAX_BODY: usize =
+    HEAD_LEN + HOST_KEY_LEN + TRANSIT_SETTLED_PAYLOAD_LEN + 1 + MAX_LINKS * LINK_LEN;
+const _: () = assert!(TRANSIT_SETTLED_PAYLOAD_LEN > DEPARTED_PAYLOAD_LEN);
+
+/// The key of a host-keyed record: `host ref ‖ standing province key`
+/// (module doc, attribution).
+pub fn host_key(host: &WideHostRef, standing: ProvinceKey) -> [u8; HOST_KEY_LEN] {
+    let mut k = [0u8; HOST_KEY_LEN];
+    k[..HOST_REF_LEN].copy_from_slice(&host.to_bytes());
+    k[HOST_REF_LEN..].copy_from_slice(&standing.to_bytes());
+    k
+}
 
 /// The chained wide accounts.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
@@ -129,7 +199,32 @@ pub enum WideKind {
     Return = 4,
     Stranded = 5,
     RosterClosed = 6,
+    Departed = 7,
+    TransitSettled = 8,
+    DepartureSettled = 9,
+    Revealed = 10,
+    Gathered = 11,
 }
+
+/// Every kind, in code order.
+pub const ALL_KINDS: [WideKind; 11] = [
+    WideKind::Muster,
+    WideKind::Dissolve,
+    WideKind::Resolve,
+    WideKind::Return,
+    WideKind::Stranded,
+    WideKind::RosterClosed,
+    WideKind::Departed,
+    WideKind::TransitSettled,
+    WideKind::DepartureSettled,
+    WideKind::Revealed,
+    WideKind::Gathered,
+];
+
+/// The `Return.entry` of a host whose troops went into the holding's
+/// reserve rather than a muster-pending entry (a settlement's home re-entry
+/// when the home province has no room or no roster).
+pub const RETURN_TO_RESERVE: u8 = 0xFF;
 
 const PROVINCE_AND_HOLDING: &[WideEntity] = &[WideEntity::Province, WideEntity::Holding];
 const PROVINCE_ONLY: &[WideEntity] = &[WideEntity::Province];
@@ -144,17 +239,22 @@ impl WideKind {
             4 => Some(WideKind::Return),
             5 => Some(WideKind::Stranded),
             6 => Some(WideKind::RosterClosed),
+            7 => Some(WideKind::Departed),
+            8 => Some(WideKind::TransitSettled),
+            9 => Some(WideKind::DepartureSettled),
+            10 => Some(WideKind::Revealed),
+            11 => Some(WideKind::Gathered),
             _ => None,
         }
     }
 
-    /// The key: a host reference or a province key.
+    /// The key: a host key (reference and standing province) or a province
+    /// key.
     pub const fn key_len(self) -> usize {
-        match self {
-            WideKind::Muster | WideKind::Dissolve | WideKind::Return | WideKind::Stranded => {
-                HOST_REF_LEN
-            }
-            WideKind::Resolve | WideKind::RosterClosed => PROVINCE_KEY_LEN,
+        if self.host_keyed() {
+            HOST_KEY_LEN
+        } else {
+            PROVINCE_KEY_LEN
         }
     }
 
@@ -166,21 +266,35 @@ impl WideKind {
             WideKind::Return => 4 + 1 + 1,
             WideKind::Stranded => 4 + 1,
             WideKind::RosterClosed => 32 + 8,
+            WideKind::Departed => DEPARTED_PAYLOAD_LEN,
+            WideKind::TransitSettled => TRANSIT_SETTLED_PAYLOAD_LEN,
+            WideKind::DepartureSettled => 1 + 1 + 4 + 2 + 2 + 1,
+            WideKind::Revealed => 1 + 1 + 1 + 1 + 1 + 2 + 4 + 1,
+            WideKind::Gathered => 4 + 1 + 1 + 4 + 1 + 1,
         }
     }
 
     /// The exact link set of the kind, in tail order (module doc).
     pub const fn links(self) -> &'static [WideEntity] {
         match self {
-            WideKind::Muster | WideKind::Dissolve | WideKind::Return => PROVINCE_AND_HOLDING,
+            WideKind::Muster
+            | WideKind::Dissolve
+            | WideKind::Return
+            | WideKind::Departed
+            | WideKind::TransitSettled
+            | WideKind::DepartureSettled => PROVINCE_AND_HOLDING,
             WideKind::Resolve | WideKind::Stranded => PROVINCE_ONLY,
-            WideKind::RosterClosed => NO_LINKS,
+            WideKind::RosterClosed | WideKind::Revealed | WideKind::Gathered => NO_LINKS,
         }
     }
 
-    /// A host-keyed kind (the key is a host reference).
+    /// A host-keyed kind (the key is a host reference and a standing
+    /// province key).
     pub const fn host_keyed(self) -> bool {
-        self.key_len() == HOST_REF_LEN
+        !matches!(
+            self,
+            WideKind::Resolve | WideKind::RosterClosed | WideKind::Gathered
+        )
     }
 
     pub const fn name(self) -> &'static str {
@@ -191,6 +305,11 @@ impl WideKind {
             WideKind::Return => "WIDE_RETURN",
             WideKind::Stranded => "WIDE_STRANDED",
             WideKind::RosterClosed => "WIDE_ROSTER_CLOSED",
+            WideKind::Departed => "WIDE_DEPARTED",
+            WideKind::TransitSettled => "WIDE_TRANSIT_SETTLED",
+            WideKind::DepartureSettled => "WIDE_DEPARTURE_SETTLED",
+            WideKind::Revealed => "WIDE_REVEALED",
+            WideKind::Gathered => "WIDE_GATHERED",
         }
     }
 }
@@ -208,6 +327,9 @@ pub struct WideLink {
 pub enum EventError {
     Short,
     Version(u8),
+    /// The retired 0x81 body (module doc, versions): a different key
+    /// layout, refused by name rather than reinterpreted.
+    RetiredVersion(u8),
     UnknownKind(u8),
     UnknownEntity(u8),
     /// More than [`MAX_LINKS`] links, a repeated entity or a descending
@@ -315,6 +437,9 @@ impl<'a> WideRecord<'a> {
     pub fn decode(body: &'a [u8]) -> Result<WideRecord<'a>, EventError> {
         let mut c = Cursor::new(body);
         let ver = c.u8().ok_or(EventError::Short)?;
+        if ver == WIDE_EVENT_VERSION_RETIRED {
+            return Err(EventError::RetiredVersion(ver));
+        }
         if ver != WIDE_EVENT_VERSION {
             return Err(EventError::Version(ver));
         }
@@ -325,7 +450,26 @@ impl<'a> WideRecord<'a> {
         let payload = c.take(kind.payload_len()).ok_or(EventError::Short)?;
         let body_without_tail = &body[..c.pos()];
         if kind.host_keyed() {
-            WideHostRef::from_bytes(key).map_err(|_| EventError::Key)?;
+            let host =
+                WideHostRef::from_bytes(&key[..HOST_REF_LEN]).map_err(|_| EventError::Key)?;
+            let standing =
+                ProvinceKey::from_bytes(&key[HOST_REF_LEN..]).map_err(|_| EventError::Key)?;
+            // One world per record: a host of one world standing in a
+            // province of another is no record of either.
+            if host.key().world() != standing.world() {
+                return Err(EventError::Key);
+            }
+            // A settlement's sealed destination is a key of the payload:
+            // canonical and of the same world, or the record is refused.
+            if kind == WideKind::TransitSettled {
+                let d = payload
+                    .get(TRANSIT_SETTLED_DEST_AT..)
+                    .ok_or(EventError::Short)?;
+                let dest = ProvinceKey::from_bytes(d).map_err(|_| EventError::Key)?;
+                if dest.world() != host.key().world() {
+                    return Err(EventError::Key);
+                }
+            }
         } else {
             ProvinceKey::from_bytes(key).map_err(|_| EventError::Key)?;
         }
@@ -382,10 +526,27 @@ impl<'a> WideRecord<'a> {
     /// The host of a host-keyed record.
     pub fn host(&self) -> Option<WideHostRef> {
         if self.kind.host_keyed() {
-            WideHostRef::from_bytes(self.key).ok()
+            WideHostRef::from_bytes(self.key.get(..HOST_REF_LEN)?).ok()
         } else {
             None
         }
+    }
+
+    /// The standing province of a host-keyed record: where the event
+    /// happened (the origin of a departure, the destination of a transit
+    /// settlement).
+    pub fn standing(&self) -> Option<ProvinceKey> {
+        if self.kind.host_keyed() {
+            ProvinceKey::from_bytes(self.key.get(HOST_REF_LEN..)?).ok()
+        } else {
+            None
+        }
+    }
+
+    /// The host's **home** province of a host-keyed record (the issuing
+    /// holding's). A fact about the host, not the record's attribution.
+    pub fn home_of(&self) -> Option<ProvinceKey> {
+        self.host().map(|h| h.key())
     }
 
     /// The province key of a province-keyed record.
@@ -398,12 +559,13 @@ impl<'a> WideRecord<'a> {
     }
 
     /// The province the record concerns (module doc, attribution): the key
-    /// of a province-keyed record, the **home** province of a host-keyed
-    /// one. Never derived from the alias.
+    /// of a province-keyed record, the **standing** province of a
+    /// host-keyed one — never the home province, never the alias.
     pub fn province_of(&self) -> Option<ProvinceKey> {
-        match self.host() {
-            Some(h) => Some(h.key()),
-            None => self.province(),
+        if self.kind.host_keyed() {
+            self.standing()
+        } else {
+            self.province()
         }
     }
 
@@ -486,8 +648,9 @@ pub fn normalize_chained(d: &[u8]) -> Vec<u8> {
 
 /// `sha256(domain ‖ province key ‖ LE32(bell) ‖ seed ‖ sha256(season
 /// bytes) ‖ sha256(normalized province bytes before) ‖ sha256(roster bytes
-/// before))`: everything the bell model read, under the Season that
-/// authenticated it (module doc).
+/// before) ‖ sha256(ClashInputs bytes before, empty when none))`:
+/// everything the bell model read, under the Season that authenticated it
+/// (module doc).
 pub fn resolve_input_digest(
     province: ProvinceKey,
     bell: u32,
@@ -495,6 +658,7 @@ pub fn resolve_input_digest(
     season: &[u8],
     province_before: &[u8],
     roster_before: &[u8],
+    inputs_before: &[u8],
 ) -> [u8; 32] {
     sha256(&[
         RESOLVE_INPUT_DOMAIN,
@@ -504,22 +668,26 @@ pub fn resolve_input_digest(
         &sha256(&[season]),
         &sha256(&[&normalize_chained(province_before)]),
         &sha256(&[roster_before]),
+        &sha256(&[inputs_before]),
     ])
 }
 
 /// `sha256(domain ‖ clash digest ‖ sha256(normalized province bytes after)
-/// ‖ sha256(roster bytes after))`: the kernel's outcome and the bytes it
-/// left, before the record's own link (module doc).
+/// ‖ sha256(roster bytes after) ‖ sha256(ClashInputs bytes after, empty
+/// when none))`: the kernel's outcome and the bytes it left, before the
+/// record's own link (module doc).
 pub fn resolve_output_digest(
     clash_digest: &[u8; 32],
     province_after: &[u8],
     roster_after: &[u8],
+    inputs_after: &[u8],
 ) -> [u8; 32] {
     sha256(&[
         RESOLVE_OUTPUT_DOMAIN,
         clash_digest,
         &sha256(&[&normalize_chained(province_after)]),
         &sha256(&[roster_after]),
+        &sha256(&[inputs_after]),
     ])
 }
 
@@ -585,6 +753,149 @@ pub fn roster_closed_payload(rent_to: &[u8; 32], lamports: u64) -> [u8; 40] {
     b
 }
 
+/// The Departed payload (module doc): the escrow and the seal root a
+/// settlement is judged against.
+#[allow(clippy::too_many_arguments)]
+pub fn departed_payload(
+    transit_slot: u8,
+    depart_bell: u32,
+    arrive_bell: u32,
+    dep_mass: u32,
+    march_stamina: u16,
+    tip: u64,
+    fee: u64,
+    bond: u64,
+    seal_root: &[u8; 32],
+) -> [u8; DEPARTED_PAYLOAD_LEN] {
+    let mut b = [0u8; DEPARTED_PAYLOAD_LEN];
+    Writer::new(&mut b)
+        .u8(transit_slot)
+        .u32(depart_bell)
+        .u32(arrive_bell)
+        .u32(dep_mass)
+        .u16(march_stamina)
+        .u64(tip)
+        .u64(fee)
+        .u64(bond)
+        .bytes(seal_root);
+    b
+}
+
+/// The DepartureSettled payload (module doc): the origin's post-clash
+/// values moved into the transit record and the entry freed.
+pub fn departure_settled_payload(
+    transit_slot: u8,
+    destroyed: bool,
+    troops_after: u32,
+    stamina_after: u16,
+    ready_bell_off: u16,
+    entry: u8,
+) -> [u8; 11] {
+    let mut b = [0u8; 11];
+    Writer::new(&mut b)
+        .u8(transit_slot)
+        .u8(destroyed as u8)
+        .u32(troops_after)
+        .u16(stamina_after)
+        .u16(ready_bell_off)
+        .u8(entry);
+    b
+}
+
+/// The Revealed payload (module doc): the slot the arrival took and the
+/// committed facts the slot carries; `displaced` is whether a lower-ranked
+/// arrival was written over.
+#[allow(clippy::too_many_arguments)]
+pub fn revealed_payload(
+    transit_slot: u8,
+    faction: u8,
+    i: u8,
+    tile: u8,
+    stance: u8,
+    retreat_bps: u16,
+    dep_mass: u32,
+    displaced: bool,
+) -> [u8; 12] {
+    let mut b = [0u8; 12];
+    Writer::new(&mut b)
+        .u8(transit_slot)
+        .u8(faction)
+        .u8(i)
+        .u8(tile)
+        .u8(stance)
+        .u16(retreat_bps)
+        .u32(dep_mass)
+        .u8(displaced as u8);
+    b
+}
+
+/// The Gathered payload (module doc): the gather's cursor and the
+/// ClashInputs' state after it.
+pub fn gathered_payload(
+    bell: u32,
+    start: u8,
+    n: u8,
+    arrivals_mask: u32,
+    n_present: u8,
+    no_arrivals: bool,
+) -> [u8; 12] {
+    let mut b = [0u8; 12];
+    Writer::new(&mut b)
+        .u32(bell)
+        .u8(start)
+        .u8(n)
+        .u32(arrivals_mask)
+        .u8(n_present)
+        .u8(no_arrivals as u8);
+    b
+}
+
+/// The TransitSettled payload (module doc): the outcome, the seal
+/// verdict, the host's troops after, the three payments as paid and the
+/// sealed destination key (`sealed_dest`: the province the settlement was
+/// judged against, present or not).
+#[allow(clippy::too_many_arguments)]
+pub fn transit_settled_payload(
+    transit_slot: u8,
+    outcome: u8,
+    seal_code: u8,
+    troops: u32,
+    tip: u64,
+    fee: u64,
+    bond: u64,
+    home_credited: bool,
+    sealed_dest: ProvinceKey,
+) -> [u8; TRANSIT_SETTLED_PAYLOAD_LEN] {
+    let mut b = [0u8; TRANSIT_SETTLED_PAYLOAD_LEN];
+    Writer::new(&mut b)
+        .u8(transit_slot)
+        .u8(outcome)
+        .u8(seal_code)
+        .u32(troops)
+        .u64(tip)
+        .u64(fee)
+        .u64(bond)
+        .u8(home_credited as u8)
+        .bytes(&sealed_dest.to_bytes());
+    b
+}
+
+/// Offset of `sealed_dest` in a TransitSettled payload.
+pub const TRANSIT_SETTLED_DEST_AT: usize = 1 + 1 + 1 + 4 + 8 + 8 + 8 + 1;
+
+impl WideRecord<'_> {
+    /// The sealed destination of a `TransitSettled` (`None` for any other
+    /// kind): the fact of where the march was sealed to, independent of
+    /// the province the record chains. Canonical and of the host's world
+    /// by [`WideRecord::decode`], which refuses the record otherwise.
+    pub fn sealed_dest(&self) -> Option<ProvinceKey> {
+        if self.kind != WideKind::TransitSettled {
+            return None;
+        }
+        ProvinceKey::from_bytes(self.payload.get(TRANSIT_SETTLED_DEST_AT..)?).ok()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -605,6 +916,11 @@ mod tests {
 
     fn host() -> WideHostRef {
         WideHostRef::new(key(), 3, 1, 7).unwrap()
+    }
+
+    /// The host's key standing in its home province.
+    fn hk() -> [u8; HOST_KEY_LEN] {
+        host_key(&host(), key())
     }
 
     /// A chain state per entity for building records in tests.
@@ -649,15 +965,10 @@ mod tests {
         let m = c.record(
             WideKind::Muster,
             1,
-            &host().to_bytes(),
+            &hk(),
             &muster_payload(0, 300, 17, 0, 0x8000_0000_0000_0001),
         );
-        let s = c.record(
-            WideKind::Stranded,
-            2,
-            &host().to_bytes(),
-            &stranded_payload(300_000, 0),
-        );
+        let s = c.record(WideKind::Stranded, 2, &hk(), &stranded_payload(300_000, 0));
         let close = c.record(
             WideKind::RosterClosed,
             3,
@@ -678,7 +989,7 @@ mod tests {
     fn muster_record() -> (Vec<u8>, WideLink, WideLink) {
         let mut c = Chains::new();
         let payload = muster_payload(0, 300, 17, 0, 0x8000_0000_0000_0001);
-        let body = c.record(WideKind::Muster, 4, &host().to_bytes(), &payload);
+        let body = c.record(WideKind::Muster, 4, &hk(), &payload);
         let r = WideRecord::decode(&body).unwrap();
         (
             body.clone(),
@@ -690,17 +1001,20 @@ mod tests {
     #[test]
     fn records_round_trip_strictly_under_their_own_version() {
         let (body, p, h) = muster_record();
-        assert_eq!(body[0], 0x81);
+        assert_eq!(body[0], 0x82);
+        assert_eq!(body[0], WIDE_EVENT_VERSION);
         assert_eq!(body[1], 1);
-        assert_eq!(body.len(), HEAD_LEN + HOST_REF_LEN + 15 + 1 + 2 * LINK_LEN);
+        assert_eq!(body.len(), HEAD_LEN + HOST_KEY_LEN + 15 + 1 + 2 * LINK_LEN);
         let r = WideRecord::decode(&body).unwrap();
         assert_eq!((r.kind, r.bell), (WideKind::Muster, 4));
         assert_eq!(r.host(), Some(host()));
         assert_eq!(r.province(), None, "a host key is no province key");
+        assert_eq!(r.standing(), Some(key()));
+        assert_eq!(r.home_of(), Some(key()));
         assert_eq!(
             r.province_of(),
             Some(key()),
-            "attributed to the home province"
+            "attributed to the standing province (here the home)"
         );
         assert_eq!(r.holding_of(), Some(host().holding_ref()));
         assert!(r.concerns(WideTarget::Province(key())));
@@ -722,22 +1036,36 @@ mod tests {
         assert_eq!(p.seq, 1);
         assert_ne!(p.head, h.head, "the entity is in the hash");
         // the deployed decoders refuse the version byte
+        assert_eq!(body[0], 0x82);
         assert_eq!(
             crate::log::decode(&body).err(),
-            Some(crate::log::LogError::Version(0x81))
+            Some(crate::log::LogError::Version(0x82))
         );
         assert_eq!(
             crate::v2::log::decode(&body).err(),
-            Some(crate::log::LogError::Version(0x81))
+            Some(crate::log::LogError::Version(0x82))
         );
         assert_ne!(&WIDE_LOG_PREFIX[..], &crate::log::PREFIX[..]);
         // strictness: a wrong version, kind, key, width, tail or trailing byte
         let mut x = body.clone();
         x[0] = 1;
         assert_eq!(WideRecord::decode(&x), Err(EventError::Version(1)));
+        // the retired 0x81 layout is refused by name, never reinterpreted
+        // (its host key was 56 bytes: this body would otherwise misparse)
         let mut x = body.clone();
-        x[1] = 7;
-        assert_eq!(WideRecord::decode(&x), Err(EventError::UnknownKind(7)));
+        x[0] = WIDE_EVENT_VERSION_RETIRED;
+        assert_eq!(
+            WideRecord::decode(&x),
+            Err(EventError::RetiredVersion(0x81))
+        );
+        assert_ne!(WIDE_EVENT_VERSION, WIDE_EVENT_VERSION_RETIRED);
+        assert!(
+            WIDE_EVENT_VERSION & 0x80 != 0,
+            "out of the deployed versions"
+        );
+        let mut x = body.clone();
+        x[1] = 12;
+        assert_eq!(WideRecord::decode(&x), Err(EventError::UnknownKind(12)));
         let mut x = body.clone();
         x[HEAD_LEN] = 9;
         assert_eq!(WideRecord::decode(&x), Err(EventError::Key));
@@ -748,7 +1076,7 @@ mod tests {
         let mut x = body.clone();
         x.push(0);
         assert_eq!(WideRecord::decode(&x), Err(EventError::Trailing));
-        let tail = HEAD_LEN + HOST_REF_LEN + 15;
+        let tail = HEAD_LEN + HOST_KEY_LEN + 15;
         let mut x = body.clone();
         x[tail] = 3;
         assert_eq!(WideRecord::decode(&x), Err(EventError::Tail));
@@ -760,24 +1088,20 @@ mod tests {
         x[tail + 1] = 5;
         assert_eq!(WideRecord::decode(&x), Err(EventError::UnknownEntity(5)));
         // widths are the kind's
-        let hk = host().to_bytes();
+        let hk = hk();
         let mut buf = [0u8; 128];
         assert!(write_body(WideKind::Muster, 1, &hk, &[0; 14], &mut buf).is_none());
         assert!(write_body(WideKind::Resolve, 1, &hk, &[0; 71], &mut buf).is_none());
-        for k in [
-            WideKind::Muster,
-            WideKind::Dissolve,
-            WideKind::Resolve,
-            WideKind::Return,
-            WideKind::Stranded,
-            WideKind::RosterClosed,
-        ] {
+        for k in ALL_KINDS {
             assert_eq!(WideKind::from_u8(k as u8), Some(k));
             assert!(k.name().starts_with("WIDE_"));
             assert!(
                 HEAD_LEN + k.key_len() + k.payload_len() + 1 + MAX_LINKS * LINK_LEN <= MAX_BODY
             );
+            assert_eq!(k.host_keyed(), k.key_len() == HOST_KEY_LEN);
         }
+        assert_eq!(WideKind::from_u8(12), None);
+        assert_eq!(WideKind::from_u8(0), None);
         let close = encode(
             WideKind::RosterClosed,
             9,
@@ -795,11 +1119,239 @@ mod tests {
         assert!(!r.concerns(WideTarget::Holding(host())));
     }
 
+    /// A host event names the province it happened in; that province, not
+    /// the host's home, is the record's attribution. The march kinds carry
+    /// the origin (a departure) and the destination (a settlement) the same
+    /// way, and both chain the host's holding.
+    #[test]
+    fn standing_province_attributes_a_host_event_never_the_home() {
+        let (home, standing) = (key_at(129), key_at(130));
+        let h = WideHostRef::new(home, 3, 1, 7).unwrap();
+        let k = host_key(&h, standing);
+        assert_eq!(k.len(), HOST_KEY_LEN);
+        assert_eq!(&k[..HOST_REF_LEN], &h.to_bytes());
+        assert_eq!(&k[HOST_REF_LEN..], &standing.to_bytes());
+        let mut c = Chains::new();
+        let body = c.record(WideKind::Dissolve, 9, &k, &dissolve_payload(9, 1_000, 2));
+        let r = WideRecord::decode(&body).unwrap();
+        assert_eq!(r.host(), Some(h));
+        assert_eq!(r.standing(), Some(standing));
+        assert_eq!(r.home_of(), Some(home));
+        assert_eq!(r.province_of(), Some(standing), "where it happened");
+        assert!(r.concerns(WideTarget::Province(standing)));
+        assert!(
+            !r.concerns(WideTarget::Province(home)),
+            "never silently attributed to the home province"
+        );
+        assert!(r.concerns(WideTarget::Holding(h.holding_ref())));
+        let one = [body.as_slice()];
+        assert_eq!(
+            verify_chain(WideTarget::Province(home), (0, [0; 32]), one),
+            Ok((0, [0; 32])),
+            "the home's chain ignores a foreign-standing event"
+        );
+        assert_eq!(
+            verify_chain(WideTarget::Province(standing), (0, [0; 32]), one),
+            Ok(c.province)
+        );
+        assert_eq!(
+            verify_chain(WideTarget::Holding(h), (0, [0; 32]), one),
+            Ok(c.holding)
+        );
+        // a standing part that is no canonical province key is refused
+        let mut bad = body.clone();
+        bad[HEAD_LEN + HOST_REF_LEN] = 9;
+        assert_eq!(WideRecord::decode(&bad), Err(EventError::Key));
+        // the march kinds: the departure in the origin, the settlement in
+        // the destination, both over the host's holding
+        let mut m = Chains::new();
+        let dp = departed_payload(1, 10, 40, 300_000, 32, 14_441, 5_000, 7_000, &[3; 32]);
+        let origin = m.record(WideKind::Departed, 10, &host_key(&h, home), &dp);
+        let r = WideRecord::decode(&origin).unwrap();
+        assert_eq!(r.kind, WideKind::Departed);
+        assert_eq!((r.standing(), r.home_of()), (Some(home), Some(home)));
+        assert_eq!(r.payload.len(), 71);
+        assert_eq!(r.payload[0], 1);
+        assert_eq!(&r.payload[1..5], &10u32.to_le_bytes());
+        assert_eq!(&r.payload[5..9], &40u32.to_le_bytes());
+        assert_eq!(&r.payload[9..13], &300_000u32.to_le_bytes());
+        assert_eq!(&r.payload[13..15], &32u16.to_le_bytes());
+        assert_eq!(&r.payload[15..23], &14_441u64.to_le_bytes());
+        assert_eq!(&r.payload[23..31], &5_000u64.to_le_bytes());
+        assert_eq!(&r.payload[31..39], &7_000u64.to_le_bytes());
+        assert_eq!(&r.payload[39..71], &[3; 32]);
+        assert_eq!(r.sealed_dest(), None, "not a settlement");
+        let mut d = Chains::new();
+        d.holding = m.holding;
+        let tp = transit_settled_payload(1, 7, 0, 150_000, 0, 5_000, 7_000, true, standing);
+        let dest = d.record(WideKind::TransitSettled, 40, &host_key(&h, standing), &tp);
+        let r = WideRecord::decode(&dest).unwrap();
+        assert_eq!(r.kind, WideKind::TransitSettled);
+        assert_eq!((r.standing(), r.home_of()), (Some(standing), Some(home)));
+        assert_eq!(r.payload.len(), 82);
+        assert_eq!((r.payload[1], r.payload[2], r.payload[31]), (7, 0, 1));
+        assert_eq!(&r.payload[3..7], &150_000u32.to_le_bytes());
+        assert_eq!(&r.payload[32..82], &standing.to_bytes());
+        assert_eq!(r.sealed_dest(), Some(standing));
+        assert_eq!(dest.len(), MAX_BODY, "the longest body is a TransitSettled");
+        // a settlement of a march sealed to a province never opened: the
+        // record chains the home (its key), the payload keeps the sealed
+        // destination (the fact)
+        let never = key_at(131);
+        let tp = transit_settled_payload(1, 7, 0, 150_000, 0, 5_000, 7_000, true, never);
+        let mut e = Chains::new();
+        let away = e.record(WideKind::TransitSettled, 40, &host_key(&h, home), &tp);
+        let r = WideRecord::decode(&away).unwrap();
+        assert_eq!(r.province_of(), Some(home), "chained at home");
+        assert_eq!(r.sealed_dest(), Some(never), "sealed elsewhere: kept");
+        assert_ne!(r.sealed_dest(), r.province_of());
+        // the sealed destination is a key: a non-canonical byte or a key of
+        // another world refuses the whole record at decode
+        let at = HEAD_LEN + HOST_KEY_LEN + TRANSIT_SETTLED_DEST_AT;
+        let mut bad = away.clone();
+        bad[at] = 9;
+        assert_eq!(
+            WideRecord::decode(&bad),
+            Err(EventError::Key),
+            "a key version byte"
+        );
+        let mut bad = away.clone();
+        bad[at + 1..at + 1 + 32].fill(0);
+        assert_eq!(
+            WideRecord::decode(&bad),
+            Err(EventError::Key),
+            "the reserved world"
+        );
+        let mut bad = away.clone();
+        bad[at..at + PROVINCE_KEY_LEN].copy_from_slice(
+            &ProvinceKey::new(
+                WorldId::new([0x78; 32]).unwrap(),
+                WideCoord::checked(131, 0).unwrap(),
+            )
+            .to_bytes(),
+        );
+        assert_eq!(
+            WideRecord::decode(&bad),
+            Err(EventError::Key),
+            "another world"
+        );
+        let mut bad = away.clone();
+        bad[at + 1..at + 1 + 32].copy_from_slice(&[0x78; 32]);
+        assert_eq!(
+            WideRecord::decode(&bad),
+            Err(EventError::Key),
+            "the host's coordinate under another world"
+        );
+        // a host of one world standing in a province of another: refused
+        // at decode (one world per record)
+        let other_world = ProvinceKey::new(
+            WorldId::new([0x78; 32]).unwrap(),
+            WideCoord::checked(130, 0).unwrap(),
+        );
+        let mut mixed = Chains::new();
+        let bad = mixed.record(
+            WideKind::Dissolve,
+            9,
+            &host_key(&h, other_world),
+            &dissolve_payload(9, 1_000, 2),
+        );
+        assert_eq!(WideRecord::decode(&bad), Err(EventError::Key));
+        assert_eq!(WideKind::Departed.links(), PROVINCE_AND_HOLDING);
+        assert_eq!(WideKind::TransitSettled.links(), PROVINCE_AND_HOLDING);
+        assert_eq!(WideKind::Departed.name(), "WIDE_DEPARTED");
+        assert_eq!(WideKind::TransitSettled.name(), "WIDE_TRANSIT_SETTLED");
+        let march = [origin.as_slice(), dest.as_slice()];
+        assert_eq!(
+            verify_chain(WideTarget::Province(home), (0, [0; 32]), march),
+            Ok(m.province),
+            "the origin's chain: the departure only"
+        );
+        assert_eq!(
+            verify_chain(WideTarget::Province(standing), (0, [0; 32]), march),
+            Ok(d.province),
+            "the destination's chain: the settlement only"
+        );
+        assert_eq!(
+            verify_chain(WideTarget::Holding(h), (0, [0; 32]), march),
+            Ok(d.holding),
+            "the holding's chain: both"
+        );
+        assert_eq!(d.holding.0, 2);
+    }
+
+    /// Every kind's builder produces exactly `payload_len` bytes, and the
+    /// longest of them bounds `MAX_BODY` (the regression of the Departed
+    /// builder that was 65 bytes against a 71-byte kind).
+    #[test]
+    fn every_payload_builder_matches_its_kind_width() {
+        let widths: [(WideKind, usize); 11] = [
+            (WideKind::Muster, muster_payload(0, 1, 1, 0, 0).len()),
+            (WideKind::Dissolve, dissolve_payload(1, 1, 0).len()),
+            (
+                WideKind::Resolve,
+                resolve_payload(&[0; 32], &[0; 32], 0, 0, 0, false).len(),
+            ),
+            (WideKind::Return, return_payload(1, 0, 0).len()),
+            (WideKind::Stranded, stranded_payload(1, 0).len()),
+            (
+                WideKind::RosterClosed,
+                roster_closed_payload(&[0; 32], 0).len(),
+            ),
+            (
+                WideKind::Departed,
+                departed_payload(0, 1, 2, 3, 4, 5, 6, 7, &[0; 32]).len(),
+            ),
+            (
+                WideKind::TransitSettled,
+                transit_settled_payload(0, 1, 2, 3, 4, 5, 6, false, key()).len(),
+            ),
+            (
+                WideKind::DepartureSettled,
+                departure_settled_payload(0, false, 1, 2, 3, 4).len(),
+            ),
+            (
+                WideKind::Revealed,
+                revealed_payload(0, 1, 2, 3, 4, 5, 6, false).len(),
+            ),
+            (
+                WideKind::Gathered,
+                gathered_payload(1, 0, 24, 0, 0, true).len(),
+            ),
+        ];
+        assert_eq!(widths.len(), ALL_KINDS.len(), "every kind has a builder");
+        for (k, built) in widths {
+            assert_eq!(built, k.payload_len(), "{}", k.name());
+            let mut buf = [0u8; MAX_BODY];
+            let key: Vec<u8> = if k.host_keyed() {
+                hk().to_vec()
+            } else {
+                key().to_bytes().to_vec()
+            };
+            let at = write_body(k, 1, &key, &vec![0u8; built], &mut buf).unwrap();
+            assert!(at + 1 + k.links().len() * LINK_LEN <= MAX_BODY);
+        }
+        assert_eq!(DEPARTED_PAYLOAD_LEN, 71);
+        assert_eq!(TRANSIT_SETTLED_PAYLOAD_LEN, 82);
+        assert_eq!(TRANSIT_SETTLED_DEST_AT, 32);
+        assert_eq!(
+            MAX_BODY,
+            HEAD_LEN + HOST_KEY_LEN + 82 + 1 + MAX_LINKS * LINK_LEN
+        );
+        assert_eq!(
+            ALL_KINDS
+                .iter()
+                .map(|k| HEAD_LEN + k.key_len() + k.payload_len() + 1 + k.links().len() * LINK_LEN)
+                .max(),
+            Some(MAX_BODY),
+            "MAX_BODY is reached by the widest kind, no slack and no shortfall"
+        );
+    }
+
     /// The tail is exactly the kind's link set: a missing, an extra or a
     /// wrong link refuses, at encoding and at decoding.
     #[test]
     fn link_sets_are_exact_per_kind() {
-        let hk = host().to_bytes();
+        let hk = hk();
         let pk = key().to_bytes();
         let p = WideLink {
             entity: WideEntity::Province,
@@ -876,42 +1428,52 @@ mod tests {
         let muster = c.record(
             WideKind::Muster,
             4,
-            &host().to_bytes(),
+            &hk(),
             &muster_payload(0, 300, 17, 0, 1),
         );
         let seed = [0x5a; 32];
         let season = [0x11u8; 64];
-        let input = resolve_input_digest(key(), 4, &seed, &season, &[1, 2, 3], &[4, 5]);
-        let output = resolve_output_digest(&[9; 32], &[1, 2, 4], &[4, 5]);
+        let input = resolve_input_digest(key(), 4, &seed, &season, &[1, 2, 3], &[4, 5], &[]);
+        let output = resolve_output_digest(&[9; 32], &[1, 2, 4], &[4, 5], &[]);
         assert_ne!(input, output);
         assert_ne!(
             input,
-            resolve_input_digest(key(), 5, &seed, &season, &[1, 2, 3], &[4, 5]),
+            resolve_input_digest(key(), 5, &seed, &season, &[1, 2, 3], &[4, 5], &[]),
             "the bell is in the input"
         );
         assert_ne!(
             input,
-            resolve_input_digest(key(), 4, &seed, &[0x12; 64], &[1, 2, 3], &[4, 5]),
+            resolve_input_digest(key(), 4, &seed, &[0x12; 64], &[1, 2, 3], &[4, 5], &[]),
             "the Season bytes are in the input"
         );
         assert_ne!(
+            input,
+            resolve_input_digest(key(), 4, &seed, &season, &[1, 2, 3], &[4, 5], &[6]),
+            "the gathered arrivals are in the input"
+        );
+        assert_ne!(
             output,
-            resolve_output_digest(&[9; 32], &[1, 2, 3], &[4, 5]),
+            resolve_output_digest(&[9; 32], &[1, 2, 3], &[4, 5], &[]),
             "the bytes after are in the output"
+        );
+        assert_ne!(
+            output,
+            resolve_output_digest(&[9; 32], &[1, 2, 4], &[4, 5], &[6]),
+            "the arrivals' fates are in the output"
         );
         // the normalization: the header's chain fields do not enter either
         let mut pd = alloc::vec![7u8; header::EVENT_HEAD + 40];
-        let base = resolve_output_digest(&[9; 32], &pd, &[]);
+        let base = resolve_output_digest(&[9; 32], &pd, &[], &[]);
         pd[header::EVENT_SEQ] = 1;
         pd[header::EVENT_HEAD + 3] = 1;
-        assert_eq!(resolve_output_digest(&[9; 32], &pd, &[]), base);
+        assert_eq!(resolve_output_digest(&[9; 32], &pd, &[], &[]), base);
         assert_eq!(
-            resolve_input_digest(key(), 4, &seed, &season, &pd, &[]),
-            resolve_input_digest(key(), 4, &seed, &season, &normalize_chained(&pd), &[])
+            resolve_input_digest(key(), 4, &seed, &season, &pd, &[], &[]),
+            resolve_input_digest(key(), 4, &seed, &season, &normalize_chained(&pd), &[], &[])
         );
         pd[header::EVENT_HEAD + 40 - 1] = 1;
         assert_ne!(
-            resolve_output_digest(&[9; 32], &pd, &[]),
+            resolve_output_digest(&[9; 32], &pd, &[], &[]),
             base,
             "a body byte"
         );
@@ -920,7 +1482,7 @@ mod tests {
         let dissolve = c.record(
             WideKind::Dissolve,
             5,
-            &host().to_bytes(),
+            &hk(),
             &dissolve_payload(5, 300_000, 0),
         );
         let p3 = WideRecord::decode(&dissolve)
@@ -997,22 +1559,22 @@ mod tests {
         let rp = resolve_payload(&[1; 32], &[2; 32], 0, 0, 0, true);
         let r_a1 = ca.record(WideKind::Resolve, 1, &ka.to_bytes(), &rp);
         let r_b1 = cb.record(WideKind::Resolve, 1, &kb.to_bytes(), &rp);
-        let m_a = ca.record(WideKind::Muster, 2, &ha.to_bytes(), &mp);
-        let m_b = cb.record(WideKind::Muster, 2, &hb.to_bytes(), &mp);
+        let m_a = ca.record(WideKind::Muster, 2, &host_key(&ha, ka), &mp);
+        let m_b = cb.record(WideKind::Muster, 2, &host_key(&hb, kb), &mp);
         // a second holding of province A: it shares A's province chain
         ca2.province = ca.province;
-        let m_a2 = ca2.record(WideKind::Muster, 2, &ha2.to_bytes(), &mp);
+        let m_a2 = ca2.record(WideKind::Muster, 2, &host_key(&ha2, ka), &mp);
         ca.province = ca2.province;
         let d_a = ca.record(
             WideKind::Dissolve,
             3,
-            &ha.to_bytes(),
+            &host_key(&ha, ka),
             &dissolve_payload(3, 300_000, 0),
         );
         let d_b = cb.record(
             WideKind::Dissolve,
             3,
-            &hb.to_bytes(),
+            &host_key(&hb, kb),
             &dissolve_payload(3, 300_000, 0),
         );
         let log: Vec<&[u8]> = vec![&r_a1, &r_b1, &m_a, &m_b, &m_a2, &d_a, &d_b];

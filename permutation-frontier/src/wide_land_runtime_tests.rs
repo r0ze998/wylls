@@ -82,8 +82,8 @@
 use super::*;
 use frontier_abi::clash_model::Camp;
 use frontier_abi::conquest_model::read_keep;
-use frontier_abi::entry::{read_entry, EntryOp};
-use frontier_abi::ix::{HINTS_LEN, SEAL_LEN};
+use frontier_abi::entry::{read_entry, write_entry, EntryOp};
+use frontier_abi::ix::HINTS_LEN;
 use frontier_abi::resident_auth::Policy;
 use frontier_abi::v2::kernel::keep as kkeep;
 use frontier_abi::world_index::arrival as wa;
@@ -253,6 +253,20 @@ struct Wide {
     beacons: HashMap<(u32, u8), (AccountInfo<'static>, AccountInfo<'static>)>,
     config: Option<AccountInfo<'static>>,
     rosters: HashMap<(i64, i64), AccountInfo<'static>>,
+    /// The wide transit records `(coord, site, slot)` of a holding.
+    transits: HashMap<(i64, i64, u8, u8), AccountInfo<'static>>,
+    /// The wide ArrivalSlots `(dest, bell, faction, i)`.
+    slots: HashMap<(i64, i64, u32, u8, u8), AccountInfo<'static>>,
+    /// The wide ClashInputs `(dest, bell)`.
+    inputs: HashMap<(i64, i64, u32), AccountInfo<'static>>,
+    /// The wide ArrivalDays `(dest, day)`.
+    days: HashMap<(i64, i64, u32), AccountInfo<'static>>,
+    /// The beacon logs per region (a fixture: nothing posted).
+    logs: HashMap<u8, AccountInfo<'static>>,
+    /// The absent anchor archives `(region, part)`.
+    archives: HashMap<(u8, u32), AccountInfo<'static>>,
+    /// The instructions sysvar fixture.
+    sysvar: Option<AccountInfo<'static>>,
 }
 
 /// An NFT resident's Citizen and its proof accounts.
@@ -380,6 +394,13 @@ impl Wide {
             beacons: HashMap::new(),
             config: None,
             rosters: HashMap::new(),
+            transits: HashMap::new(),
+            slots: HashMap::new(),
+            inputs: HashMap::new(),
+            days: HashMap::new(),
+            logs: HashMap::new(),
+            archives: HashMap::new(),
+            sysvar: None,
         }
     }
 
@@ -1096,30 +1117,205 @@ impl Wide {
         arrive_bell: u32,
     ) -> Result<(), u32> {
         let coord = host.key().coord();
-        let a = [
+        let roster = self.roster(coord);
+        let mut seal = [0u8; frontier_abi::world_index::seal::WIDE_SEAL_LEN];
+        seal[0] = 0x80;
+        code(self.depart_with(m, host, standing, roster, 0, arrive_bell, [7u8; 32], seal))
+    }
+
+    /// WideDepart with every input named: the standing province and its
+    /// roster, the transit slot (exactly that one of the four records
+    /// writable), the commitment and the wide seal. The tip is the
+    /// Season's floor.
+    #[allow(clippy::too_many_arguments)]
+    fn depart_with(
+        &mut self,
+        m: &Member,
+        host: WideHostRef,
+        standing: AccountInfo<'static>,
+        roster: AccountInfo<'static>,
+        transit_slot: u8,
+        arrive_bell: u32,
+        commit: [u8; 32],
+        seal: [u8; frontier_abi::world_index::seal::WIDE_SEAL_LEN],
+    ) -> Result<(), Refused> {
+        let coord = host.key().coord();
+        let site = host.site();
+        let mut a = vec![
             wallet(m.wallet, true, false, 0),
             self.w.payer.clone(),
             self.w.season.clone(),
             m.citizen.clone(),
-            self.holding(coord, host.site()),
+            self.holding(coord, site),
             standing,
             self.w.system.clone(),
             with_writable(&self.province(coord), false),
         ];
-        let mut seal = [0u8; SEAL_LEN];
-        seal[0] = 0x80;
-        code(run_tx(
+        for s in 0..4u8 {
+            let t = self.transit(coord, site, s);
+            a.push(with_writable(&t, s == transit_slot));
+        }
+        a.push(with_writable(&roster, false));
+        run_tx(
             &a,
             &wix::Depart {
                 host: host.to_bytes(),
-                transit_slot: 0,
+                transit_slot,
                 arrive_bell,
-                tip: 14_441,
-                commit: [7u8; 32],
+                tip: self.min_tip(),
+                commit,
                 seal,
             }
             .to_bytes(),
-        ))
+        )
+    }
+
+    /// The Season's tip floor (`fees::min_tip_lamports` over its fields).
+    fn min_tip(&self) -> u64 {
+        let sd = self.w.season.try_borrow_data().unwrap();
+        let r = Ro(&sd);
+        permutation_rules::frontier::fees::min_tip_lamports(
+            r.u32(S::MIN_REVEAL_PRIORITY_MILLI).unwrap(),
+            r.u32(S::REVEAL_CU_LIMIT).unwrap(),
+            r.u32(S::REVEAL_LOADED_LIMIT).unwrap(),
+        )
+    }
+
+    /// The wide transit record of slot `slot` of the holding at `(coord,
+    /// site)`: absent at its canonical address until written (`cap` for
+    /// the record).
+    fn transit(&mut self, coord: WideCoord, site: u8, slot: u8) -> AccountInfo<'static> {
+        let hk = wh::holding_address(&self.w.ctx, coord, site);
+        let key = frontier_abi::world_index::march::transit_address(&self.w.ctx, &hk, slot);
+        self.transits
+            .entry((coord.p(), coord.q(), site, slot))
+            .or_insert_with(|| {
+                info(
+                    leak(
+                        key,
+                        SYSTEM,
+                        vec![],
+                        frontier_abi::world_index::march::WIDE_TRANSIT_LEN,
+                        0,
+                    ),
+                    false,
+                    true,
+                )
+            })
+            .clone()
+    }
+
+    /// The wide ArrivalSlot `(dest, bell, faction, i)`: absent until a
+    /// reveal creates it.
+    fn slot(&mut self, dest: WideCoord, bell: u32, faction: u8, i: u8) -> AccountInfo<'static> {
+        let key = wa::arrival_slot_address(
+            &self.w.ctx,
+            ProvinceKey::new(self.world_id(), dest),
+            bell,
+            faction,
+            i,
+        );
+        self.slots
+            .entry((dest.p(), dest.q(), bell, faction, i))
+            .or_insert_with(|| {
+                info(
+                    leak(key, SYSTEM, vec![], wa::wide_arrival_slot::SIZE, 0),
+                    false,
+                    true,
+                )
+            })
+            .clone()
+    }
+
+    /// The wide ClashInputs `(dest, bell)`: absent until a gather creates
+    /// it (writable, with room).
+    fn inputs(&mut self, dest: WideCoord, bell: u32) -> AccountInfo<'static> {
+        let key =
+            wa::clash_inputs_address(&self.w.ctx, ProvinceKey::new(self.world_id(), dest), bell);
+        self.inputs
+            .entry((dest.p(), dest.q(), bell))
+            .or_insert_with(|| {
+                info(
+                    leak(key, SYSTEM, vec![], wa::wide_clash_inputs::SIZE, 0),
+                    false,
+                    true,
+                )
+            })
+            .clone()
+    }
+
+    /// The wide ArrivalDay of `(dest, day_of(bell))`: absent until a reveal
+    /// creates it.
+    fn day(&mut self, dest: WideCoord, bell: u32) -> AccountInfo<'static> {
+        let day = wa::day_of(bell);
+        let key =
+            wa::arrival_day_address(&self.w.ctx, ProvinceKey::new(self.world_id(), dest), day);
+        self.days
+            .entry((dest.p(), dest.q(), day))
+            .or_insert_with(|| {
+                info(
+                    leak(key, SYSTEM, vec![], wa::wide_arrival_day::SIZE, 0),
+                    false,
+                    true,
+                )
+            })
+            .clone()
+    }
+
+    /// **Fixture**: the beacon log of `region` as InitBeaconLogs leaves it
+    /// with nothing posted (`latest_round` 0): the reveal's seed-round
+    /// check reads it.
+    fn beacon_log(&mut self, region: u8) -> AccountInfo<'static> {
+        let key = self.w.ctx.beacon_log(region);
+        self.logs
+            .entry(region)
+            .or_insert_with(|| {
+                let mut d = vec![0u8; K2::BeaconLog.size()];
+                assert!(frontier_abi::v2::layout::write_header(
+                    &mut d,
+                    K2::BeaconLog,
+                    SEASON_ID
+                ));
+                d[crate::layout::beacon_log::REGION] = region;
+                info(leak(key, PROGRAM, d, 0, BIG), false, false)
+            })
+            .clone()
+    }
+
+    /// The absent AnchorArchive of `(region, part(bell))` (one account per
+    /// key, see [`Wide::no_inputs`]).
+    fn no_archive(&mut self, region: u8, bell: u32) -> AccountInfo<'static> {
+        let part = frontier_abi::addr::archive_part_of(bell);
+        let key = self.w.ctx.anchor_archive(region, part);
+        self.archives
+            .entry((region, part))
+            .or_insert_with(|| info(leak(key, SYSTEM, vec![], 0, 0), false, false))
+            .clone()
+    }
+
+    /// **Fixture**: the instructions sysvar of a transaction with one
+    /// instruction (this one) and no ComputeBudget instruction, in the
+    /// runtime's serialized form (`evidence::parse`): the evidence is then
+    /// the landing slot alone. One account per key.
+    fn ix_sysvar(&mut self) -> AccountInfo<'static> {
+        self.sysvar
+            .get_or_insert_with(|| {
+                let mut d = vec![1u8, 0, 4, 0, 0, 0];
+                d.extend_from_slice(&PROGRAM);
+                d.extend_from_slice(&[0, 0, 0, 0]);
+                info(
+                    leak(
+                        frontier_abi::prologue::ids::INSTRUCTIONS_SYSVAR,
+                        SYSTEM,
+                        d,
+                        0,
+                        0,
+                    ),
+                    false,
+                    false,
+                )
+            })
+            .clone()
     }
 
     /// The roster side table of `coord`: absent at its canonical draft
@@ -1138,12 +1334,14 @@ impl Wide {
             .clone()
     }
 
-    /// The absent wide ClashInputs position of `(coord, bell)` (no reveal
-    /// or gather exists to create one).
+    /// The wide ClashInputs position of `(coord, bell)` as it stands
+    /// (absent until a gather creates it), read-only. **One account per
+    /// key**: `leak` registers a key's buffer in the harness's memory
+    /// table and a second leak of the same key would replace it, so the
+    /// stub's later allocation of the real record would find the wrong
+    /// capacity after the rent had moved.
     fn no_inputs(&mut self, coord: WideCoord, bell: u32) -> AccountInfo<'static> {
-        let key =
-            wa::clash_inputs_address(&self.w.ctx, ProvinceKey::new(self.world_id(), coord), bell);
-        info(leak(key, SYSTEM, vec![], 0, 0), false, false)
+        with_writable(&self.inputs(coord, bell), false)
     }
 
     /// The account list of a WideMuster for the member's wide holding at
@@ -1196,16 +1394,37 @@ impl Wide {
         standing: AccountInfo<'static>,
     ) -> Result<(), Refused> {
         let coord = host.key().coord();
-        let a = [
+        let roster = self.roster(coord);
+        self.dissolve_at(m, actor, host, standing, roster)
+    }
+
+    /// WideDissolve of `host` standing in `standing` whose roster is
+    /// `roster` (a foreign province when they are not the holding's own);
+    /// the holding's own province and its four transit records follow.
+    fn dissolve_at(
+        &mut self,
+        m: &Member,
+        actor: [u8; 32],
+        host: WideHostRef,
+        standing: AccountInfo<'static>,
+        roster: AccountInfo<'static>,
+    ) -> Result<(), Refused> {
+        let coord = host.key().coord();
+        let site = host.site();
+        let mut a = vec![
             wallet(actor, true, false, 0),
             self.w.payer.clone(),
             self.w.season.clone(),
             m.citizen.clone(),
-            self.holding(coord, host.site()),
+            self.holding(coord, site),
             standing,
-            with_writable(&self.roster(coord), false),
+            with_writable(&roster, false),
             with_writable(&self.province(coord), false),
         ];
+        for s in 0..4u8 {
+            let t = self.transit(coord, site, s);
+            a.push(with_writable(&t, false));
+        }
         run_tx(
             &a,
             &wix::Dissolve {
@@ -1213,6 +1432,17 @@ impl Wide {
             }
             .to_bytes(),
         )
+    }
+
+    /// The wide transit record of slot `slot` of the holding at `hkey`
+    /// (the test's account of it when one exists, else an absent account
+    /// at the canonical address).
+    fn transit_by_key(&mut self, hkey: &[u8; 32], slot: u8) -> AccountInfo<'static> {
+        let key = frontier_abi::world_index::march::transit_address(&self.w.ctx, hkey, slot);
+        match self.transits.values().find(|a| a.key.as_array() == &key) {
+            Some(a) => a.clone(),
+            None => info(leak(key, SYSTEM, vec![], 0, 0), false, false),
+        }
     }
 
     /// WideResolve (0xDC op 1) of `bell` of `coord` by the payer, the
@@ -1236,7 +1466,9 @@ impl Wide {
         self.resolve_full(coord, bell, beacon, inputs)
     }
 
-    /// [`Wide::resolve_with`] with the ClashInputs position given.
+    /// [`Wide::resolve_with`] with the ClashInputs position given; the
+    /// arrival evidence is the wide ArrivalDay of `(coord, bell)` as it
+    /// stands (absent until a reveal).
     fn resolve_full(
         &mut self,
         coord: WideCoord,
@@ -1244,6 +1476,7 @@ impl Wide {
         (cache, anchor): (AccountInfo<'static>, AccountInfo<'static>),
         inputs: AccountInfo<'static>,
     ) -> Result<(), Refused> {
+        let day = with_writable(&self.day(coord, bell), false);
         let a = [
             self.w.payer.clone(),
             self.w.season.clone(),
@@ -1252,6 +1485,8 @@ impl Wide {
             cache,
             anchor,
             inputs,
+            day,
+            self.w.system.clone(),
         ];
         run_tx(
             &a,
@@ -1263,20 +1498,227 @@ impl Wide {
         )
     }
 
+    /// [`Wide::resolve`] over the gathered record of `(coord, bell)` (the
+    /// arrival path).
+    fn resolve_gathered(&mut self, coord: WideCoord, bell: u32) -> Result<(), Refused> {
+        let region = WideProvince::read(&self.province_data(coord))
+            .map(|p| p.region)
+            .unwrap_or(0);
+        let beacon = self.stage_seed(bell, region, &BELL_SEED);
+        let inputs = self.inputs(coord, bell);
+        self.resolve_full(coord, bell, beacon, inputs)
+    }
+
     /// WideReturn (0xDC op 2) of `coord`'s departed hosts of `holding`.
     fn settle_return(
         &mut self,
         coord: WideCoord,
         holding: AccountInfo<'static>,
     ) -> Result<(), Refused> {
-        let a = [
+        self.settle_return_from(coord, holding, None)
+    }
+
+    /// [`Wide::settle_return`] with the holding's own province named (a
+    /// return from a province other than it).
+    fn settle_return_from(
+        &mut self,
+        coord: WideCoord,
+        holding: AccountInfo<'static>,
+        own: Option<AccountInfo<'static>>,
+    ) -> Result<(), Refused> {
+        let hkey = *holding.key.as_array();
+        let mut a = vec![
             self.w.payer.clone(),
             self.w.season.clone(),
             self.province(coord),
             self.roster(coord),
             holding,
         ];
+        for s in 0..4u8 {
+            let t = self.transit_by_key(&hkey, s);
+            a.push(with_writable(&t, false));
+        }
+        if let Some(o) = own {
+            a.push(with_writable(&o, false));
+        }
         run_tx(&a, &wix::Return.to_bytes())
+    }
+
+    /// WideSettleDeparture (0xDC op 3) of `host`'s `slot` from `origin`.
+    fn settle_departure(
+        &mut self,
+        host: WideHostRef,
+        origin: WideCoord,
+        slot: u8,
+    ) -> Result<(), Refused> {
+        let coord = host.key().coord();
+        let a = [
+            self.w.payer.clone(),
+            self.w.season.clone(),
+            self.province(origin),
+            self.holding(coord, host.site()),
+            self.roster(origin),
+            self.transit(coord, host.site(), slot),
+        ];
+        run_tx(
+            &a,
+            &wix::SettleDeparture {
+                host: host.to_bytes(),
+                transit_slot: slot,
+            }
+            .to_bytes(),
+        )
+    }
+
+    /// WideReveal (0xEE) of `host`'s `slot` at `dest` for `arrive`, the
+    /// path provinces given in first-entered order.
+    #[allow(clippy::too_many_arguments)]
+    fn reveal(
+        &mut self,
+        host: WideHostRef,
+        slot: u8,
+        dest: WideCoord,
+        arrive: u32,
+        target_i: u8,
+        plain: [u8; frontier_abi::world_index::seal::WIDE_PLAIN_LEN],
+        salt: [u8; 32],
+        ct_hash: [u8; 32],
+        path: &[WideCoord],
+    ) -> Result<(), Refused> {
+        let coord = host.key().coord();
+        let region = WideProvince::read(&self.province_data(dest))
+            .map(|p| p.region)
+            .unwrap_or(0);
+        let (_, anchor) = self.stage_seed(arrive, region, &BELL_SEED);
+        let faction = {
+            let d = self.transit(coord, host.site(), slot);
+            let t = d.try_borrow_data().unwrap();
+            frontier_abi::world_index::march::WideTransit::from_bytes(&t)
+                .map(|t| t.faction)
+                .unwrap_or(0)
+        };
+        let mut a = vec![
+            self.w.payer.clone(),
+            self.w.season.clone(),
+            with_writable(&self.holding(coord, host.site()), false),
+            with_writable(&self.transit(coord, host.site(), slot), false),
+            anchor,
+            self.no_archive(region, arrive),
+            self.beacon_log(region),
+            with_writable(&self.inputs(dest, arrive), false),
+            with_writable(&self.province(dest), false),
+            self.day(dest, arrive),
+        ];
+        for i in 0..4u8 {
+            let s = self.slot(dest, arrive, faction, i);
+            a.push(with_writable(&s, i == target_i));
+        }
+        a.push(self.ix_sysvar());
+        a.push(self.w.system.clone());
+        for p in path {
+            a.push(with_writable(&self.province(*p), false));
+        }
+        run_tx(
+            &a,
+            &wix::Reveal {
+                transit_slot: slot,
+                target_i,
+                plain,
+                salt,
+                ct_hash,
+                beneficiary: PAYER,
+            }
+            .to_bytes(),
+        )
+    }
+
+    /// WideGather (0xDC op 4) of `(dest, bell)` over the cursor, the
+    /// transit record of each position given (any account for an absent
+    /// slot).
+    fn gather(
+        &mut self,
+        dest: WideCoord,
+        bell: u32,
+        start: u8,
+        n: u8,
+        transits: &[AccountInfo<'static>],
+    ) -> Result<(), Refused> {
+        let region = WideProvince::read(&self.province_data(dest))
+            .map(|p| p.region)
+            .unwrap_or(0);
+        let (_, anchor) = self.stage_seed(bell, region, &BELL_SEED);
+        let mut a = vec![
+            self.w.payer.clone(),
+            self.w.season.clone(),
+            with_writable(&self.province(dest), false),
+            anchor,
+            self.inputs(dest, bell),
+            with_writable(&self.day(dest, bell), false),
+            self.ix_sysvar(),
+            self.w.system.clone(),
+        ];
+        for j in 0..n as usize {
+            let k = start as usize + j;
+            let s = self.slot(dest, bell, (k / 4) as u8, (k % 4) as u8);
+            a.push(with_writable(&s, false));
+            let t = transits
+                .get(j)
+                .cloned()
+                .unwrap_or_else(|| self.w.system.clone());
+            a.push(t);
+        }
+        run_tx(&a, &wix::Gather { bell, start, n }.to_bytes())
+    }
+
+    /// WideSettleTransit (0xDC op 5) of `host`'s `slot`, sealed to `dest`.
+    #[allow(clippy::too_many_arguments)]
+    fn settle_transit(
+        &mut self,
+        host: WideHostRef,
+        slot: u8,
+        dest: WideCoord,
+        arrive: u32,
+        faction: u8,
+        slot_i: u8,
+        commit: [u8; 32],
+        seal: [u8; frontier_abi::world_index::seal::WIDE_SEAL_LEN],
+        rent_to: AccountInfo<'static>,
+    ) -> Result<(), Refused> {
+        let coord = host.key().coord();
+        let region = WideProvince::read(&self.province_data(dest))
+            .map(|p| p.region)
+            .unwrap_or(0);
+        let (_, anchor) = self.stage_seed(arrive, region, &BELL_SEED);
+        let payer = self.w.payer.clone();
+        let a = [
+            payer.clone(),
+            self.w.season.clone(),
+            self.holding(coord, host.site()),
+            self.province(dest),
+            self.inputs(dest, arrive),
+            self.slot(dest, arrive, faction, slot_i),
+            self.province(coord),
+            anchor,
+            unsigned(&payer),
+            unsigned(&payer),
+            unsigned(&payer),
+            unsigned(&payer),
+            self.transit(coord, host.site(), slot),
+            self.roster(coord),
+            self.w.system.clone(),
+            self.roster(dest),
+            unsigned(&rent_to),
+        ];
+        run_tx(
+            &a,
+            &wix::SettleTransit {
+                transit_slot: slot,
+                commit,
+                seal,
+                beneficiary: PAYER,
+            }
+            .to_bytes(),
+        )
     }
 
     /// WideCloseRoster (0xDE op 1) of `coord`'s roster to `rent_to`.
@@ -1290,6 +1732,7 @@ impl Wide {
             with_writable(&self.w.season, false),
             self.roster(coord),
             unsigned(&rent_to),
+            with_writable(&self.province(coord), false),
         ];
         run_tx(&a, &wix::CloseRoster.to_bytes())
     }
@@ -2378,13 +2821,14 @@ fn wide_land_host_musters_resolves_dissolves_and_returns_through_the_envelope() 
         "the window closed, the seed not posted"
     );
     {
-        // a present record at the wide ClashInputs position: arrivals have
-        // no path, so the bell is not resolved without them
+        // a present record at the wide ClashInputs position that is no
+        // readable, writable, fully gathered wide ClashInputs is refused,
+        // never read as "no arrivals"
         let ik = wa::clash_inputs_address(&w.w.ctx, key, 1);
         let present = info(leak(ik, PROGRAM, vec![7u8; 16], 0, BIG), false, false);
         assert_eq!(
             code(w.resolve_full(coord, 1, (cache.clone(), anchor.clone()), present)),
-            Err(E::NotImplemented as u32)
+            Err(E::BadAccount as u32)
         );
     }
     assert!(wide_records().is_empty(), "a refusal logs nothing");
@@ -2543,6 +2987,13 @@ fn wide_land_host_musters_resolves_dissolves_and_returns_through_the_envelope() 
         let r = WideRecord::decode(&wr[0]).unwrap();
         assert_eq!((r.kind, r.bell), (WideKind::Muster, 3));
         assert_eq!(r.host(), Some(host), "keyed by the full reference");
+        assert_eq!(r.standing(), Some(key), "and the province it happened in");
+        assert_eq!(
+            r.home_of(),
+            Some(key),
+            "which is the home here: the path is local"
+        );
+        assert_eq!(r.province_of(), Some(key));
         assert_eq!(r.payload[0], 0);
         assert_eq!(&r.payload[1..5], &300u32.to_le_bytes());
         assert_eq!((r.payload[5], r.payload[6]), (tile, 0));
@@ -2884,6 +3335,58 @@ fn wide_land_host_musters_resolves_dissolves_and_returns_through_the_envelope() 
         Err(E::AlreadyDone as u32)
     );
 
+    // --- The march stages (0xDC ops 3–5) with no march: each authenticates
+    // its records and refuses on the absent transit record (or the empty
+    // cursor) with nothing written. The march itself is the next test.
+    {
+        let pre = (
+            w.province_data(coord),
+            w.holding_data(coord, site),
+            w.roster(coord).try_borrow_data().unwrap().to_vec(),
+            payer.lamports(),
+        );
+        assert_eq!(
+            code(w.settle_departure(host, coord, 0)),
+            Err(E::TransitState as u32),
+            "no march of this slot"
+        );
+        assert_eq!(
+            code(w.gather(coord, 8, 0, 0, &[])),
+            Err(E::BadData as u32),
+            "an empty cursor"
+        );
+        let seal = [0x80; frontier_abi::world_index::seal::WIDE_SEAL_LEN];
+        assert_eq!(
+            code(w.settle_transit(
+                host,
+                0,
+                coord,
+                8,
+                a.faction,
+                0,
+                [7; 32],
+                seal,
+                payer.clone()
+            )),
+            Err(E::TransitState as u32)
+        );
+        let post = (
+            w.province_data(coord),
+            w.holding_data(coord, site),
+            w.roster(coord).try_borrow_data().unwrap().to_vec(),
+            payer.lamports(),
+        );
+        assert_eq!(post, pre);
+        assert!(wide_records().is_empty() && records().is_empty());
+        // a wrong season status is refused before the records
+        w.set_status(S::STATUS_ABORTED);
+        assert_eq!(
+            code(w.settle_departure(host, coord, 0)),
+            Err(E::WrongStatus as u32)
+        );
+        w.set_status(S::STATUS_RUNNING);
+    }
+
     // --- Season end: a pending muster is the season's; the roster closes
     // whole to the payer that created it.
     assert_eq!(m(&mut w, WALLET_A, 0, 100, tile), Ok(()));
@@ -2980,6 +3483,22 @@ fn wide_land_host_musters_resolves_dissolves_and_returns_through_the_envelope() 
         "the immutable rent recipient"
     );
     assert!(wide_records().is_empty(), "refusals log nothing");
+    // A live entry while the province has bells left to resolve: every
+    // resolve of them needs the table, so the close waits (no destructive
+    // close under an unresolved dependency).
+    assert_eq!(
+        code(w.close_roster(coord, payer.clone())),
+        Err(E::HostInTransit as u32),
+        "a pending muster and an unresolved season"
+    );
+    // **Fixture**: the province as a fully resolved season leaves it
+    // (`resolved_next = end_bell`; 200,000 resolves are not run here). The
+    // pending muster is then the season's and goes with the table.
+    {
+        let pa = w.province(coord);
+        let mut pd = pa.try_borrow_mut_data().unwrap();
+        put(&mut pd, PV::RESOLVED_NEXT, &200_000u32.to_le_bytes());
+    }
     let payer_before = payer.lamports();
     assert_eq!(code(w.close_roster(coord, payer.clone())), Ok(()));
     assert!(absent(&w.roster(coord)));
@@ -3004,6 +3523,798 @@ fn wide_land_host_musters_resolves_dissolves_and_returns_through_the_envelope() 
         "no PS2 record of the wide lifecycle at all"
     );
     assert!(wide_records().is_empty());
+}
+
+/// The shortest passable route from `origin_tile` of `from` into `to`
+/// over the two provinces' passable masks (a breadth-first search over
+/// `WideTile::neighbors`, the wide walk's own adjacency): the destination
+/// tile reached, the step directions, and the provinces other than `to`
+/// a step enters, in first-entered order (what the reveal must list).
+fn march_route(
+    w: &mut Wide,
+    from: WideCoord,
+    to: WideCoord,
+    origin_tile: u8,
+) -> (u8, Vec<u8>, Vec<WideCoord>) {
+    use frontier_abi::world_index::tiles::{TileAddress, WideTile};
+    use std::collections::{HashSet, VecDeque};
+    let world = w.world_id();
+    let pa = Ro(&w.province_data(from)).u64(PV::PASSABLE_MASK).unwrap();
+    let pdb = w.province_data(to);
+    let pb = Ro(&pdb).u64(PV::PASSABLE_MASK).unwrap();
+    // The walk may cross the destination's keep, camp and site tiles but
+    // must not **end** on one: the arrival would engage a garrison and the
+    // test's fates would depend on the clash.
+    let mut avoid = 0u64;
+    if let Some(k) = read_keep(&pdb).unwrap() {
+        avoid |= 1u64 << k.tile;
+    }
+    let camp = Camp::read(&pdb).unwrap();
+    if camp.present() {
+        avoid |= 1u64 << camp.tile;
+    }
+    let n_sites = pdb[PV::SITE_COUNT] as usize;
+    for &s in &pdb[PV::SITES..PV::SITES + n_sites] {
+        avoid |= 1u64 << s;
+    }
+    let start = WideTile::of(TileAddress::new(ProvinceKey::new(world, from), origin_tile).unwrap());
+    let mut queue = VecDeque::new();
+    let mut prev: HashMap<(i128, i128), (WideTile, u8)> = HashMap::new();
+    let mut seen = HashSet::new();
+    seen.insert((start.q(), start.r()));
+    queue.push_back(start);
+    let mut found: Option<WideTile> = None;
+    while let Some(t) = queue.pop_front() {
+        if t.province_coord() == to && avoid & (1u64 << t.local()) == 0 {
+            found = Some(t);
+            break;
+        }
+        for (d, n) in t.neighbors().iter().enumerate() {
+            let Some(n) = n else { continue };
+            let k = n.province_coord();
+            let mask = if k == from {
+                pa
+            } else if k == to {
+                pb
+            } else {
+                continue;
+            };
+            if mask & (1u64 << n.local()) == 0 {
+                continue;
+            }
+            if seen.insert((n.q(), n.r())) {
+                prev.insert((n.q(), n.r()), (t, d as u8));
+                queue.push_back(*n);
+            }
+        }
+    }
+    let end = found.expect("a passable route between the neighbours");
+    let mut dirs = Vec::new();
+    let mut cur = end;
+    while (cur.q(), cur.r()) != (start.q(), start.r()) {
+        let (p, d) = prev[&(cur.q(), cur.r())];
+        dirs.push(d);
+        cur = p;
+    }
+    dirs.reverse();
+    // the provinces a step enters, other than the destination
+    let mut entered: Vec<WideCoord> = Vec::new();
+    let mut t = start;
+    for &d in &dirs {
+        t = t.neighbors()[d as usize].unwrap();
+        let k = t.province_coord();
+        if k != to && !entered.contains(&k) {
+            entered.push(k);
+        }
+    }
+    (end.local(), dirs, entered)
+}
+
+/// The march between two wide provinces through the real dispatcher, over
+/// a departure the test stages **exactly as WideDepart would write it**
+/// (the debit gate keeps WideDepart's effects refused until the closed
+/// flow passes native review; every WideDepart check up to that gate is
+/// shown passing first, and the full-slot proof in front of it). Then the
+/// stages as written: the origin's SettleDeparture (its refusals, the
+/// entry freed, the record stepped); the Reveal at the destination (the
+/// commitment, the slot moved, the slot with its bound transit slot, the
+/// ArrivalDay created with the bell's bit, the record); the arrival
+/// evidence refusing a resolve of the bell without the gathered record;
+/// the Gather refusing a sibling transit address and then recording the
+/// arrival, stamping the record; the Resolve over the gathered record
+/// (the arrival stays, the destination's roster **created** from the fee
+/// payer); the SettleTransit's pre-judgement refusals and its closed
+/// failure at the chain's BLS syscall on the host (an instruction error,
+/// nothing written); the foreign dissolve and return of the host that
+/// stayed (the capture lock read in the holding's own province); and the
+/// season-end close refusing a holding with an unsettled march. Every
+/// record decodes and both provinces' and the holding's chains recompute.
+#[test]
+fn wide_land_march_stages_settle_a_staged_departure_up_to_the_crypto_gate() {
+    use frontier_abi::world_index::march::{MarchState, WideTransit, WIDE_TRANSIT_LEN};
+    use frontier_abi::world_index::seal as wseal;
+    use frontier_abi::world_index::tiles::TileAddress;
+    use permutation_rules::frontier::doctrine::of_faction_v3;
+    use permutation_rules::frontier::seal as ks;
+    use permutation_rules::frontier::stance::{Posture, Stance};
+    let _g = begin();
+    at_bell(1);
+    let mut w = Wide::rim();
+    let (coord, site, a, template) = w.land();
+    let payer = w.w.payer.clone();
+    let dest = c(129, -1);
+    assert_eq!(
+        w.open_province(129, -1),
+        Ok(()),
+        "the neighbour on the same ring"
+    );
+    w.fixture_rim_home(&a, &template, 0, 1_500 * MILLI);
+    assert_eq!(
+        code(w.file(&a, WALLET_A, coord, site, 2, 0, payer.clone(), None)),
+        Ok(())
+    );
+    assert_eq!(code(w.settle(&a, 0, coord, site, 1, None)), Ok(()));
+    at_bell(3);
+    assert_eq!(code(w.finalize(coord, site)), Ok(()));
+    records();
+    let key = ProvinceKey::new(w.world_id(), coord);
+    let dkey = ProvinceKey::new(w.world_id(), dest);
+    {
+        let hai = w.holding(coord, site);
+        let mut hd = hai.try_borrow_mut_data().unwrap();
+        put(&mut hd, H::reserve(0), &500u32.to_le_bytes());
+    }
+    let tile = {
+        let pd = w.province_data(coord);
+        let passable = Ro(&pd).u64(PV::PASSABLE_MASK).unwrap();
+        let keep_tile = read_keep(&pd).unwrap().map(|k| k.tile);
+        let camp = Camp::read(&pd).unwrap();
+        let camp_tile = camp.present().then_some(camp.tile);
+        let n_sites = pd[PV::SITE_COUNT] as usize;
+        let sites = pd[PV::SITES..PV::SITES + n_sites].to_vec();
+        (1..61u8)
+            .find(|t| {
+                passable & (1 << t) != 0
+                    && Some(*t) != keep_tile
+                    && Some(*t) != camp_tile
+                    && !sites.contains(t)
+            })
+            .expect("a passable tile")
+    };
+    let mut trace: Vec<Vec<u8>> = Vec::new();
+    for b in 1..=2 {
+        assert_eq!(code(w.resolve(coord, b)), Ok(()));
+        assert_eq!(code(w.resolve(dest, b)), Ok(()));
+    }
+    trace.extend(wide_records());
+    assert_eq!(
+        code(w.muster(&a, WALLET_A, coord, site, 0, 300, tile)),
+        Ok(())
+    );
+    trace.extend(wide_records());
+    let host = WideHostRef::new(key, site, 1, 0).unwrap();
+    at_bell(4);
+    assert_eq!(code(w.resolve(coord, 3)), Ok(()));
+    assert_eq!(code(w.resolve(dest, 3)), Ok(()));
+    trace.extend(wide_records());
+    let pd = w.province_data(coord);
+    assert_eq!(read_entry(&pd, 0).unwrap().state, EN::STATE_ROSTER);
+
+    // --- The sealed march: a route the wide walk accepts, the wide
+    // plaintext, its commitment and a syntactically valid seal (the host
+    // never opens one: nothing here claims a proof).
+    let arrive = 20u32;
+    let (dest_tile, dirs, via) = march_route(&mut w, coord, dest, tile);
+    assert!(!dirs.is_empty() && dirs.len() <= 32);
+    let (path_len, path) = ks::encode_path(&dirs).unwrap();
+    let plain = wseal::WidePlain {
+        version: wseal::WIDE_PLAIN_VERSION,
+        host,
+        arrive_bell: arrive,
+        dest: dkey,
+        dest_tile,
+        stance: 0,
+        retreat_bps: 0,
+        path_len,
+        path,
+        reserved: [0; wseal::WIDE_RESERVED_BYTES],
+    };
+    assert_eq!(wseal::validate(&plain, &host, arrive), Ok(()));
+    let plain_bytes = wseal::pack(&plain);
+    let salt = [0x5a; 32];
+    let mut seal = [0x11u8; wseal::WIDE_SEAL_LEN];
+    seal[0] = 0x80;
+    let commit = wseal::commit(&plain_bytes, &salt);
+    let ct_hash = wseal::ct_hash(&seal);
+    let seal_root = wseal::seal_root(&commit, &ct_hash);
+    let tip = w.min_tip();
+    let home = w.province(coord);
+    let roster_a = w.roster(coord);
+
+    // --- WideDepart: every check passes and the debit gate refuses before
+    // any effect (nothing written, nothing debited, no record).
+    let pre = (
+        w.province_data(coord),
+        w.holding_data(coord, site),
+        payer.lamports(),
+        w.w.citizen_data(&a),
+    );
+    assert_eq!(
+        code(w.depart_with(
+            &a,
+            host,
+            home.clone(),
+            roster_a.clone(),
+            0,
+            arrive,
+            commit,
+            seal
+        )),
+        Err(E::NotImplemented as u32),
+        "the debit gate, after every check"
+    );
+    assert_eq!(
+        code(w.depart_with(
+            &a,
+            host,
+            home.clone(),
+            roster_a.clone(),
+            0,
+            100,
+            commit,
+            seal
+        )),
+        Err(E::ArrivalBell as u32),
+        "the window is checked before the gate"
+    );
+    assert!(absent(&w.transit(coord, site, 0)));
+    assert_eq!(
+        (
+            w.province_data(coord),
+            w.holding_data(coord, site),
+            payer.lamports(),
+            w.w.citizen_data(&a)
+        ),
+        pre
+    );
+    assert!(wide_records().is_empty() && records().is_empty());
+
+    // --- The departure as WideDepart would write it (**fixture**): the
+    // transit record of slot 0 from the payer, the entry's Spend, the escrow
+    // and the open count in the holding.
+    let dealt = of_faction_v3(a.faction)
+        .unwrap()
+        .dealt_bps(Posture::Stance(Stance::Hold), true) as u16;
+    let staged = WideTransit::depart(
+        HOST_IDENTITY_FULL_REF_V1,
+        host,
+        0,
+        a.faction,
+        TileAddress::new(key, tile).unwrap(),
+        4,
+        arrive,
+        GENESIS + 600 * 4,
+        300_000,
+        crate::proc::host::DEPART_STAMINA,
+        dealt,
+        seal_root,
+        tip,
+        crate::layout::transit::FLAG_FEE_ESCROWED | crate::layout::transit::FLAG_BOND_ESCROWED,
+        PAYER,
+    )
+    .unwrap();
+    let rent_t = crate::init::rent(WIDE_TRANSIT_LEN).unwrap();
+    let transit0 = w.transit(coord, site, 0);
+    restore(
+        &transit0,
+        rent_t,
+        &staged.to_bytes(),
+        Pubkey::new_from_array(PROGRAM),
+    );
+    // The full-slot proof: with slot 0 open for this host, a departure
+    // under slot 1 is refused before the gate, and slot 0 is in use.
+    assert_eq!(
+        code(w.depart_with(
+            &a,
+            host,
+            home.clone(),
+            roster_a.clone(),
+            1,
+            arrive,
+            commit,
+            seal
+        )),
+        Err(E::HostInTransit as u32)
+    );
+    assert_eq!(
+        code(w.depart_with(
+            &a,
+            host,
+            home.clone(),
+            roster_a.clone(),
+            0,
+            arrive,
+            commit,
+            seal
+        )),
+        Err(E::TransitState as u32)
+    );
+    {
+        let pa = w.province(coord);
+        let mut pd = pa.try_borrow_mut_data().unwrap();
+        let mut e = read_entry(&pd, 0).unwrap();
+        let mut kh = e.to_host().unwrap();
+        kh.depart(4, crate::proc::host::DEPART_STAMINA, 4).unwrap();
+        e.set_host(&kh);
+        write_entry(&mut pd, 0, &e).unwrap();
+        assert!(matches!(e.op, EntryOp::Spend { .. }));
+    }
+    {
+        let hai = w.holding(coord, site);
+        **hai.try_borrow_mut_lamports().unwrap() += tip;
+        let mut hd = hai.try_borrow_mut_data().unwrap();
+        put(&mut hd, H::ESCROW, &tip.to_le_bytes());
+        hd[wh::wide_holding::OPEN_TRANSITS] = 1;
+    }
+    assert_eq!(
+        WideHolding::read(&w.holding_data(coord, site))
+            .unwrap()
+            .open_transits,
+        1
+    );
+    // Regression: the season ends before the departure bell resolves. The
+    // origin's roster cannot close over the pending `Spend` (the resolve
+    // of bell 4 and the SettleDeparture after it need the table); the
+    // holding cannot close under the escrow.
+    {
+        w.set_status(S::STATUS_ENDED);
+        let end = GENESIS + 200_000i64 * 600 + crate::proc::map::END_GRACE_SECS;
+        crate::prologue::set_test_clock(end, 8_000);
+        assert_eq!(
+            code(w.close_roster(coord, payer.clone())),
+            Err(E::HostInTransit as u32),
+            "a departure whose bell is unresolved"
+        );
+        assert_eq!(
+            code(w.close_holding(coord, site, payer.clone())),
+            Err(E::HostInTransit as u32)
+        );
+        assert!(!absent(&w.roster(coord)) && !absent(&w.holding(coord, site)));
+        w.set_status(S::STATUS_RUNNING);
+    }
+
+    // --- Bell 5: the origin settles the departure after resolving bell 4.
+    at_bell(5);
+    assert_eq!(
+        code(w.settle_departure(host, coord, 0)),
+        Err(E::TooEarly as u32),
+        "the departure bell is not resolved"
+    );
+    assert_eq!(code(w.resolve(coord, 4)), Ok(()));
+    trace.extend(wide_records());
+    let pd = w.province_data(coord);
+    assert_eq!(read_entry(&pd, 0).unwrap().state, EN::STATE_DEPARTED);
+    let other = WideHostRef::new(key, site, 1, 9).unwrap();
+    assert_eq!(
+        code(w.settle_departure(other, coord, 0)),
+        Err(E::BadAccount as u32),
+        "not the record's host"
+    );
+    assert_eq!(code(w.settle_departure(host, coord, 0)), Ok(()));
+    let pd = w.province_data(coord);
+    assert_eq!(
+        read_entry(&pd, 0).unwrap(),
+        frontier_abi::entry::Entry::FREE
+    );
+    assert_eq!(pd[PV::N_ENTRIES], 0);
+    assert_eq!(
+        w.roster_record(coord)
+            .ref_at(&roster_a.try_borrow_data().unwrap(), 0)
+            .unwrap(),
+        None,
+        "the reference released"
+    );
+    let t = WideTransit::from_bytes(&transit0.try_borrow_data().unwrap()).unwrap();
+    assert_eq!(t.state, MarchState::Settled);
+    assert_eq!((t.troops_after, t.stamina_after), (300_000, 46));
+    let wr = wide_records();
+    assert_eq!(wr.len(), 1);
+    {
+        let r = WideRecord::decode(&wr[0]).unwrap();
+        assert_eq!((r.kind, r.bell), (WideKind::DepartureSettled, 5));
+        assert_eq!((r.host(), r.standing()), (Some(host), Some(key)));
+        assert_eq!(&r.payload[..2], &[0, 0], "slot 0, not destroyed");
+        assert_eq!(&r.payload[2..6], &300_000u32.to_le_bytes());
+        assert_eq!(&r.payload[6..8], &46u16.to_le_bytes());
+        assert_eq!(r.payload[10], 0, "entry 0");
+        assert!(r.link(WideEntity::Province).is_some() && r.link(WideEntity::Holding).is_some());
+    }
+    trace.extend(wr);
+    assert_eq!(
+        code(w.settle_departure(host, coord, 0)),
+        Err(E::AlreadyDone as u32)
+    );
+
+    // --- The reveal at the destination (the window of bell 20 is open):
+    // the commitment, the slot moved, then the slot and the day.
+    assert_eq!(
+        code(w.reveal(
+            host,
+            0,
+            dest,
+            arrive,
+            0,
+            plain_bytes,
+            [0x5b; 32],
+            ct_hash,
+            &via
+        )),
+        Err(E::CommitMismatch as u32)
+    );
+    assert_eq!(
+        code(w.reveal(host, 0, dest, arrive, 1, plain_bytes, salt, ct_hash, &via)),
+        Err(E::SlotMoved as u32)
+    );
+    assert!(absent(&w.day(dest, arrive)) && absent(&w.slot(dest, arrive, a.faction, 0)));
+    let payer_before = payer.lamports();
+    assert_eq!(
+        code(w.reveal(host, 0, dest, arrive, 0, plain_bytes, salt, ct_hash, &via)),
+        Ok(())
+    );
+    let rent_s = crate::init::rent(wa::wide_arrival_slot::SIZE).unwrap();
+    let rent_d = crate::init::rent(wa::wide_arrival_day::SIZE).unwrap();
+    assert_eq!(payer.lamports(), payer_before - rent_s - rent_d);
+    let slot0 = w.slot(dest, arrive, a.faction, 0);
+    let s = wa::WideArrivalSlot::read(&slot0.try_borrow_data().unwrap()).unwrap();
+    assert_eq!(
+        (s.host, s.transit_slot, s.dest, s.bell, s.faction, s.i),
+        (host, 0, dkey, arrive, a.faction, 0)
+    );
+    assert_eq!(
+        (s.rent_to, s.citizen, s.dep_mass, s.tile),
+        (PAYER, a.key, 300_000, dest_tile)
+    );
+    assert_eq!(s.flags, wa::wide_arrival_slot::FLAG_CREATED_DAY);
+    assert_eq!(s.ev_slot, 1_000 + 5, "the landing slot of the clock");
+    let day = w.day(dest, arrive);
+    let d = wa::WideArrivalDay::read(&day.try_borrow_data().unwrap()).unwrap();
+    assert!(d.has(arrive) && !d.has(arrive - 1));
+    assert_eq!((d.rent_to, d.dest, d.day), (PAYER, dkey, 0));
+    let wr = wide_records();
+    assert_eq!(wr.len(), 1);
+    {
+        let r = WideRecord::decode(&wr[0]).unwrap();
+        assert_eq!((r.kind, r.bell), (WideKind::Revealed, 5));
+        assert_eq!(
+            (r.host(), r.standing(), r.home_of()),
+            (Some(host), Some(dkey), Some(key))
+        );
+        assert_eq!(r.province_of(), Some(dkey), "attributed where it happened");
+        assert_eq!(&r.payload[..5], &[0, a.faction, 0, dest_tile, 0]);
+        assert_eq!(&r.payload[7..11], &300_000u32.to_le_bytes());
+        assert_eq!(r.payload[11], 0, "nothing displaced");
+        assert_eq!(r.links, [None, None], "nothing chained is written");
+    }
+    trace.extend(wr);
+    assert_eq!(
+        code(w.reveal(host, 0, dest, arrive, 0, plain_bytes, salt, ct_hash, &via)),
+        Err(E::AlreadyDone as u32),
+        "already in the quota"
+    );
+
+    // --- Bell 21: the destination resolves through bell 19; bell 20 has
+    // arrivals (the day's bit), so without the gathered record it refuses.
+    at_bell(21);
+    for b in 4..arrive {
+        assert_eq!(code(w.resolve(dest, b)), Ok(()), "bell {b}");
+    }
+    trace.extend(wide_records());
+    assert_eq!(
+        code(w.resolve(dest, arrive)),
+        Err(E::NotGathered as u32),
+        "the arrival evidence: a reveal exists, the gather does not"
+    );
+    // The gather binds the slot to its transit slot: the sibling record's
+    // address is refused; then the arrival is recorded and the record
+    // stamped.
+    let k = wa::wide_clash_inputs::position(a.faction, 0);
+    let mut ts = vec![w.w.system.clone(); 24];
+    ts[k] = w.transit(coord, site, 1);
+    assert_eq!(
+        code(w.gather(dest, arrive, 0, 24, &ts)),
+        Err(E::BadAddress as u32),
+        "slot 1 is not the slot the arrival is bound to"
+    );
+    ts[k] = w.transit(coord, site, 0);
+    assert_eq!(code(w.gather(dest, arrive, 0, 24, &ts)), Ok(()));
+    let inputs = w.inputs(dest, arrive);
+    let cd = inputs.try_borrow_data().unwrap().to_vec();
+    let ih = wa::WideClashInputsHdr::read(&cd).unwrap();
+    assert_eq!(
+        (ih.arrivals_mask, ih.n_present, ih.flags, ih.rent_to),
+        (wa::wide_clash_inputs::ALL_GATHERED, 1, 0, PAYER)
+    );
+    let arr = wa::WideArrival::read_at(&cd, k).unwrap().unwrap();
+    assert_eq!(
+        (arr.host, arr.present, arr.troops, arr.stamina),
+        (host, true, 300_000, 61)
+    );
+    let t = WideTransit::from_bytes(&transit0.try_borrow_data().unwrap()).unwrap();
+    assert_eq!((t.state, t.dest), (MarchState::Gathered, Some(dkey)));
+    let wr = wide_records();
+    assert_eq!(wr.len(), 1);
+    {
+        let r = WideRecord::decode(&wr[0]).unwrap();
+        assert_eq!((r.kind, r.province()), (WideKind::Gathered, Some(dkey)));
+        assert_eq!(&r.payload[..4], &arrive.to_le_bytes());
+        assert_eq!((r.payload[4], r.payload[5]), (0, 24));
+        assert_eq!(
+            &r.payload[6..10],
+            &wa::wide_clash_inputs::ALL_GATHERED.to_le_bytes()
+        );
+        assert_eq!((r.payload[10], r.payload[11]), (1, 0));
+    }
+    trace.extend(wr);
+    // The resolve over the gathered record: the arrival stays, the
+    // destination's roster is created from the fee payer.
+    assert!(absent(&w.roster(dest)), "no host ever stood here");
+    let payer_before = payer.lamports();
+    assert_eq!(code(w.resolve_gathered(dest, arrive)), Ok(()));
+    let rent_r = crate::init::rent(wro::wide_roster::SIZE).unwrap();
+    assert_eq!(payer.lamports(), payer_before - rent_r, "the roster's rent");
+    let rb = w.roster_record(dest);
+    assert_eq!((rb.rent_to, rb.province), (PAYER, dkey));
+    let pdb = w.province_data(dest);
+    let i_b = (0..PV::ENTRIES_N)
+        .find(|&i| read_entry(&pdb, i).unwrap().id == wide_host_alias(&host))
+        .expect("the arrival's entry");
+    let eb = read_entry(&pdb, i_b).unwrap();
+    assert_eq!(
+        (eb.state, eb.troops, eb.from_bell),
+        (EN::STATE_ROSTER, 300_000, arrive + 1)
+    );
+    assert_eq!(
+        rb.ref_at(&w.roster(dest).try_borrow_data().unwrap(), i_b)
+            .unwrap(),
+        Some(host),
+        "paired by full reference"
+    );
+    assert_eq!(pdb[PV::RESOLVE_SUMMARY + SU::ARRIVALS], 1);
+    let cd = inputs.try_borrow_data().unwrap().to_vec();
+    let ih = wa::WideClashInputsHdr::read(&cd).unwrap();
+    assert_eq!(
+        ih.flags & wa::wide_clash_inputs::FLAG_RESOLVED,
+        wa::wide_clash_inputs::FLAG_RESOLVED
+    );
+    assert_eq!(ih.resolver, PAYER);
+    assert_eq!(
+        wa::WideArrival::read_at(&cd, k).unwrap().unwrap().fate,
+        wa::wide_arrival::FATE_STAYS
+    );
+    trace.extend(wide_records());
+
+    // --- The settlement: its pre-judgement refusals, then the proof. Its
+    // first step decompresses THE anchor's round signature (the chain's,
+    // not the seal's): that syscall is a fail-closed stub on the host, so
+    // the settlement is refused as an instruction error here and nothing
+    // is written; the opener after it, where a bad seal's own points earn
+    // a verdict, is never reached on the host.
+    assert_eq!(
+        code(w.settle_transit(
+            host,
+            0,
+            dest,
+            arrive,
+            a.faction,
+            0,
+            commit,
+            seal,
+            payer.clone()
+        )),
+        Err(E::TooEarly as u32),
+        "600 s after the close"
+    );
+    at_bell(22);
+    assert_eq!(
+        code(w.settle_transit(
+            host,
+            0,
+            dest,
+            arrive,
+            a.faction,
+            0,
+            [8; 32],
+            seal,
+            payer.clone()
+        )),
+        Err(E::CommitMismatch as u32)
+    );
+    assert_eq!(
+        code(w.settle_transit(
+            host,
+            0,
+            dest,
+            arrive,
+            a.faction,
+            0,
+            commit,
+            seal,
+            payer.clone()
+        )),
+        Err(E::Crypto as u32),
+        "the host cannot decompress the round signature: refused, no verdict"
+    );
+    assert_eq!(
+        WideHolding::read(&w.holding_data(coord, site))
+            .unwrap()
+            .open_transits,
+        1
+    );
+    assert_eq!(
+        Ro(&w.holding_data(coord, site)).u64(H::ESCROW).unwrap(),
+        tip
+    );
+    assert!(wide_records().is_empty() && records().is_empty());
+
+    // --- While the march is open, the host that stayed cannot leave the
+    // destination (the deployed `host_in_transit` over the wide records:
+    // its entry there is what a bad seal's settlement forfeits), and the
+    // season-end close of its holding refuses under the escrow.
+    let standing = w.province(dest);
+    let roster_b = w.roster(dest);
+    let pre = (
+        w.province_data(dest),
+        w.holding_data(coord, site),
+        roster_b.try_borrow_data().unwrap().to_vec(),
+        w.w.citizen_data(&a),
+    );
+    assert_eq!(
+        code(w.dissolve_at(&a, WALLET_A, host, standing.clone(), roster_b.clone())),
+        Err(E::HostInTransit as u32),
+        "an open march: no Leave that would escape the forfeit"
+    );
+    assert_eq!(
+        (
+            w.province_data(dest),
+            w.holding_data(coord, site),
+            roster_b.try_borrow_data().unwrap().to_vec(),
+            w.w.citizen_data(&a)
+        ),
+        pre
+    );
+    w.set_status(S::STATUS_ENDED);
+    let end = GENESIS + 200_000i64 * 600 + crate::proc::map::END_GRACE_SECS;
+    crate::prologue::set_test_clock(end, 9_000);
+    assert_eq!(
+        code(w.close_holding(coord, site, payer.clone())),
+        Err(E::HostInTransit as u32),
+        "the escrow belongs to the settlement"
+    );
+    w.set_status(S::STATUS_RUNNING);
+    at_bell(22);
+    assert!(wide_records().is_empty() && records().is_empty());
+
+    // --- The march settled (**fixture**: the bytes a Stays settlement
+    // leaves — the record closed to its rent recipient, the escrow paid
+    // out, the open count down; the host cannot produce them, the proof
+    // being the chain's). Now the host that stayed dissolves in the foreign
+    // province (the capture lock read in its holding's own province) and
+    // returns to its holding from there.
+    restore(&transit0, 0, &[], Pubkey::new_from_array(SYSTEM));
+    {
+        let hai = w.holding(coord, site);
+        **hai.try_borrow_mut_lamports().unwrap() -= tip;
+        let mut hd = hai.try_borrow_mut_data().unwrap();
+        put(&mut hd, H::ESCROW, &0u64.to_le_bytes());
+        hd[wh::wide_holding::OPEN_TRANSITS] = 0;
+    }
+    assert!(absent(&w.transit(coord, site, 0)));
+    assert_eq!(
+        code(w.dissolve_at(&a, WALLET_A, host, standing.clone(), roster_b.clone())),
+        Ok(())
+    );
+    let eb = read_entry(&w.province_data(dest), i_b).unwrap();
+    assert_eq!((eb.op, eb.pend_bell), (EntryOp::Leave, 22));
+    trace.extend(wide_records());
+    at_bell(23);
+    assert_eq!(code(w.resolve(dest, 21)), Ok(()));
+    assert_eq!(code(w.resolve(dest, 22)), Ok(()));
+    trace.extend(wide_records());
+    assert_eq!(
+        read_entry(&w.province_data(dest), i_b).unwrap().state,
+        EN::STATE_DEPARTED
+    );
+    // A departed entry still depends on its roster: the season-end close
+    // of the table waits for the return.
+    w.set_status(S::STATUS_ENDED);
+    crate::prologue::set_test_clock(end, 9_001);
+    assert_eq!(
+        code(w.close_roster(dest, payer.clone())),
+        Err(E::HostInTransit as u32),
+        "a departed entry's reference: a return depends on the table"
+    );
+    w.set_status(S::STATUS_RUNNING);
+    at_bell(23);
+    let own = w.holding(coord, site);
+    let own_province = w.province(coord);
+    assert_eq!(
+        code(w.settle_return_from(dest, own.clone(), None)),
+        Err(E::BadAccount as u32),
+        "a foreign return names the holding's own province"
+    );
+    assert_eq!(
+        code(w.settle_return_from(dest, own.clone(), Some(own_province.clone()))),
+        Ok(())
+    );
+    assert_eq!(
+        rd_u32(&w.holding_data(coord, site), H::reserve(0)),
+        500,
+        "200 + 300 back"
+    );
+    let wr = wide_records();
+    assert_eq!(wr.len(), 1);
+    {
+        let r = WideRecord::decode(&wr[0]).unwrap();
+        assert_eq!(r.kind, WideKind::Return);
+        assert_eq!((r.standing(), r.home_of()), (Some(dkey), Some(key)));
+        assert_eq!(&r.payload[..4], &300_000u32.to_le_bytes());
+    }
+    trace.extend(wr);
+    assert_eq!(
+        code(w.settle_return_from(dest, own.clone(), Some(own_province.clone()))),
+        Err(E::AlreadyDone as u32)
+    );
+
+    // --- Every record attributed by full key; both provinces' and the
+    // holding's chains recompute from the trace.
+    let bodies: Vec<&[u8]> = trace.iter().map(|b| b.as_slice()).collect();
+    for b in &bodies {
+        let r = WideRecord::decode(b).unwrap();
+        assert!(r.province_of() == Some(key) || r.province_of() == Some(dkey));
+    }
+    assert_eq!(
+        wev::verify_chain(
+            wev::WideTarget::Province(key),
+            (0, [0; 32]),
+            bodies.iter().copied()
+        ),
+        Ok(chain(&w.province(coord)))
+    );
+    assert_eq!(
+        wev::verify_chain(
+            wev::WideTarget::Province(dkey),
+            (0, [0; 32]),
+            bodies.iter().copied()
+        ),
+        Ok(chain(&w.province(dest)))
+    );
+    assert_eq!(
+        wev::verify_chain(
+            wev::WideTarget::Holding(host.holding_ref()),
+            (0, [0; 32]),
+            bodies.iter().copied()
+        ),
+        Ok(chain(&w.holding(coord, site)))
+    );
+
+    // --- Season end: with nothing departed, the destination's roster
+    // closes whole to the payer that created it at the arrival's resolve.
+    w.set_status(S::STATUS_ENDED);
+    crate::prologue::set_test_clock(end, 9_002);
+    let payer_before = payer.lamports();
+    assert_eq!(code(w.close_roster(dest, payer.clone())), Ok(()));
+    assert!(absent(&w.roster(dest)));
+    assert_eq!(
+        payer.lamports(),
+        payer_before + crate::init::rent(wro::wide_roster::SIZE).unwrap()
+    );
+    let wr = wide_records();
+    assert_eq!(wr.len(), 1);
+    assert_eq!(
+        WideRecord::decode(&wr[0]).unwrap().kind,
+        WideKind::RosterClosed
+    );
+    assert!(records().is_empty());
 }
 
 /// Two tickets of one cohort on one site: the lower score settles fresh,

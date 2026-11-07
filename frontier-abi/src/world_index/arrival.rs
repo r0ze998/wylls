@@ -69,7 +69,8 @@ pub mod wide_arrival_slot {
         TILE @ 23 : "u8" = 1;
         RETREAT_BPS @ 24 : "u16" = 2;
         DEALT_BPS @ 26 : "u16" = 2;
-        RSV_28 @ 28 : "rsv" = 4;
+        TRANSIT_SLOT @ 28 : "u8" = 1;
+        RSV_29 @ 29 : "rsv" = 3;
         BELL @ 32 : "u32" = 4;
         RSV_36 @ 36 : "rsv" = 4;
         WORLD @ 40 : "[u8;32]" = 32;
@@ -96,6 +97,181 @@ pub mod wide_arrival_slot {
     /// Every flag a slot may carry.
     pub const FLAGS_MASK: u8 = FLAG_SETTLED | FLAG_CREATED_DAY;
     pub const RETREAT_NEVER: u16 = 0;
+    /// Transit slots a holding has (the deployed `TRANSIT_N`); a slot's
+    /// `transit_slot` is below it.
+    pub const TRANSIT_SLOTS: u8 = 4;
+}
+
+/// The wide ArrivalDay (144 B): one bit per bell of a game day of a wide
+/// destination, set by the reveal that wrote the day's first slot of that
+/// bell. **The arrival evidence a resolve and a gather authenticate**: at
+/// its canonical address ([`arrival_day_address`]) the record is absent
+/// exactly when no reveal of that day reached the province, as the
+/// deployed `ArrivalDay`; a set bit means arrivals exist for the bell and
+/// a resolve of that bell must take the fully gathered ClashInputs. The
+/// absence of a *ClashInputs* alone is never read as "no arrivals".
+/// **Provisional magic.** No event chain.
+pub mod wide_arrival_day {
+    crate::layout::fields!(size = 144;
+        HDR_MAGIC @ 0 : "[u8;8]" = 8;
+        SEASON_ID @ 8 : "u64" = 8;
+        FAMILY_VERSION @ 16 : "u16" = 2;
+        RSV_18 @ 18 : "rsv" = 6;
+        DAY @ 24 : "u32" = 4;
+        RSV_28 @ 28 : "rsv" = 4;
+        WORLD @ 32 : "[u8;32]" = 32;
+        SORT_KEY @ 64 : "[u8;17]" = 17;
+        RSV_81 @ 81 : "rsv" = 7;
+        BITS @ 88 : "[u8;18]" = 18;
+        RSV_106 @ 106 : "rsv" = 6;
+        RENT_TO @ 112 : "[u8;32]" = 32;
+    );
+    pub const MAGIC: [u8; 8] = *b"PSFXWADY";
+    /// Bells per game day (the deployed `BELLS_PER_DAY`).
+    pub const BELLS: u32 = crate::layout::clash::BELLS_PER_DAY;
+
+    /// `(byte offset, mask)` of bell `b`'s bit.
+    pub const fn bit(b: u32) -> (usize, u8) {
+        let i = (b % BELLS) as usize;
+        (BITS + i / 8, 1u8 << (i % 8))
+    }
+}
+
+/// Seed tag of a wide ArrivalDay (**provisional**).
+pub const ARRIVAL_DAY_TAG: [u8; 2] = *b"wd";
+pub const ARRIVAL_DAY_SEED_DOMAIN: &[u8] = b"PSF-WIDE-ARRIVAL-DAY-SEED-v1";
+
+/// The day of a bell (the deployed `addr::day_of`).
+pub const fn day_of(bell: u32) -> u32 {
+    bell / wide_arrival_day::BELLS
+}
+
+/// `wd ‖ hex(sha256(domain ‖ dest key ‖ LE32(day))[..15])`.
+pub fn arrival_day_seed(dest: ProvinceKey, day: u32) -> Seed {
+    let h = sha256(&[
+        ARRIVAL_DAY_SEED_DOMAIN,
+        &dest.to_bytes(),
+        &day.to_le_bytes(),
+    ]);
+    Seed::new(ARRIVAL_DAY_TAG, &h[..15])
+}
+
+/// `with_seed(season, wd ‖ hash(dest, day), program)`.
+pub fn arrival_day_address(ctx: &AddrCtx, dest: ProvinceKey, day: u32) -> [u8; 32] {
+    ctx.of(&arrival_day_seed(dest, day))
+}
+
+/// A wide ArrivalDay, decoded.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct WideArrivalDay {
+    pub season_id: u64,
+    pub dest: ProvinceKey,
+    pub day: u32,
+    pub bits: [u8; 18],
+    /// The fee payer of the reveal that created it (immutable).
+    pub rent_to: [u8; 32],
+}
+
+impl WideArrivalDay {
+    /// A fresh day record with no bell set.
+    pub const fn new(season_id: u64, dest: ProvinceKey, day: u32, rent_to: [u8; 32]) -> Self {
+        WideArrivalDay {
+            season_id,
+            dest,
+            day,
+            bits: [0; 18],
+            rent_to,
+        }
+    }
+
+    /// Whether `bell` (of this day) has arrivals.
+    pub fn has(&self, bell: u32) -> bool {
+        let (at, mask) = wide_arrival_day::bit(bell);
+        day_of(bell) == self.day && self.bits[at - wide_arrival_day::BITS] & mask != 0
+    }
+
+    /// Sets `bell`'s bit; `false` when `bell` is not of this day.
+    pub fn set(&mut self, bell: u32) -> bool {
+        if day_of(bell) != self.day {
+            return false;
+        }
+        let (at, mask) = wide_arrival_day::bit(bell);
+        self.bits[at - wide_arrival_day::BITS] |= mask;
+        true
+    }
+
+    /// Decodes exactly `wide_arrival_day::SIZE` bytes.
+    pub fn read(d: &[u8]) -> Result<WideArrivalDay, ArrivalError> {
+        use wide_arrival_day as L;
+        if d.len() != L::SIZE {
+            return Err(ArrivalError::Length {
+                expected: L::SIZE,
+                got: d.len(),
+            });
+        }
+        let t = ArrivalError::Length {
+            expected: L::SIZE,
+            got: 0,
+        };
+        if rd_arr::<8>(d, L::HDR_MAGIC).ok_or(t)? != L::MAGIC {
+            return Err(ArrivalError::Magic);
+        }
+        let fv = rd_u16(d, L::FAMILY_VERSION).ok_or(t)?;
+        if fv != WIDE_LAND_FAMILY_VERSION {
+            return Err(ArrivalError::Version {
+                expected: WIDE_LAND_FAMILY_VERSION,
+                got: fv,
+            });
+        }
+        for (o, n) in [
+            (L::RSV_18, 6usize),
+            (L::RSV_28, 4),
+            (L::RSV_81, 7),
+            (L::RSV_106, 6),
+        ] {
+            if d.get(o..o + n).is_none_or(|s| s.iter().any(|b| *b != 0)) {
+                return Err(ArrivalError::Reserved);
+            }
+        }
+        Ok(WideArrivalDay {
+            season_id: rd_u64(d, L::SEASON_ID).ok_or(t)?,
+            dest: province_key_at(d, L::WORLD, L::SORT_KEY)?,
+            day: rd_u32(d, L::DAY).ok_or(t)?,
+            bits: rd_arr(d, L::BITS).ok_or(t)?,
+            rent_to: rd_arr(d, L::RENT_TO).ok_or(t)?,
+        })
+    }
+
+    /// Writes every byte of the record (reserved ranges zeroed).
+    pub fn write(&self, d: &mut [u8]) -> Result<(), ArrivalError> {
+        use wide_arrival_day as L;
+        if d.len() != L::SIZE {
+            return Err(ArrivalError::Length {
+                expected: L::SIZE,
+                got: d.len(),
+            });
+        }
+        let ok = wr_arr(d, L::HDR_MAGIC, &L::MAGIC)
+            & wr_u64(d, L::SEASON_ID, self.season_id)
+            & wr_u16(d, L::FAMILY_VERSION, WIDE_LAND_FAMILY_VERSION)
+            & wr_arr(d, L::RSV_18, &[0u8; 6])
+            & wr_u32(d, L::DAY, self.day)
+            & wr_arr(d, L::RSV_28, &[0u8; 4])
+            & wr_arr(d, L::WORLD, self.dest.world().as_bytes())
+            & wr_arr(d, L::SORT_KEY, &self.dest.coord().sort_key())
+            & wr_arr(d, L::RSV_81, &[0u8; 7])
+            & wr_arr(d, L::BITS, &self.bits)
+            & wr_arr(d, L::RSV_106, &[0u8; 6])
+            & wr_arr(d, L::RENT_TO, &self.rent_to);
+        if ok {
+            Ok(())
+        } else {
+            Err(ArrivalError::Length {
+                expected: L::SIZE,
+                got: 0,
+            })
+        }
+    }
 }
 
 /// The wide ClashInputs (3,008 B): the deployed header facts, then 24
@@ -214,6 +390,8 @@ pub enum ArrivalError {
     Position(usize),
     /// The ClashInputs' `n_present` above 24.
     Present(u8),
+    /// A slot's `transit_slot` at or above 4.
+    TransitSlot(u8),
 }
 
 impl From<KeyError> for ArrivalError {
@@ -348,6 +526,10 @@ pub struct WideArrivalSlot {
     pub bell: u32,
     pub faction: u8,
     pub i: u8,
+    /// The transit slot of the host's holding whose wide transit record
+    /// this arrival is (`march::transit_address(holding, transit_slot)`):
+    /// the gather and the settle read **that** record and no other.
+    pub transit_slot: u8,
     /// The arriving host, of the destination's world (its reference keeps
     /// its home province).
     pub host: WideHostRef,
@@ -383,6 +565,9 @@ impl WideArrivalSlot {
         if self.flags & !wide_arrival_slot::FLAGS_MASK != 0 {
             return Err(ArrivalError::Flags(self.flags));
         }
+        if self.transit_slot >= wide_arrival_slot::TRANSIT_SLOTS {
+            return Err(ArrivalError::TransitSlot(self.transit_slot));
+        }
         check_facts(self.unit, self.stance, self.tile, self.retreat_bps)
     }
 
@@ -410,7 +595,7 @@ impl WideArrivalSlot {
             });
         }
         for (o, n) in [
-            (L::RSV_28, 4usize),
+            (L::RSV_29, 3usize),
             (L::RSV_36, 4),
             (L::RSV_89, 7),
             (L::RSV_188, 4),
@@ -428,6 +613,7 @@ impl WideArrivalSlot {
             bell: rd_u32(d, L::BELL).ok_or(t)?,
             faction: rd_u8(d, L::FACTION).ok_or(t)?,
             i: rd_u8(d, L::I).ok_or(t)?,
+            transit_slot: rd_u8(d, L::TRANSIT_SLOT).ok_or(t)?,
             host,
             citizen: rd_arr(d, L::CITIZEN).ok_or(t)?,
             unit: rd_u8(d, L::UNIT).ok_or(t)?,
@@ -471,7 +657,8 @@ impl WideArrivalSlot {
             & wr_u8(d, L::TILE, self.tile)
             & wr_u16(d, L::RETREAT_BPS, self.retreat_bps)
             & wr_u16(d, L::DEALT_BPS, self.dealt_bps)
-            & wr_arr(d, L::RSV_28, &[0u8; 4])
+            & wr_u8(d, L::TRANSIT_SLOT, self.transit_slot)
+            & wr_arr(d, L::RSV_29, &[0u8; 3])
             & wr_u32(d, L::BELL, self.bell)
             & wr_arr(d, L::RSV_36, &[0u8; 4])
             & wr_arr(d, L::WORLD, self.dest.world().as_bytes())
@@ -852,6 +1039,7 @@ mod tests {
             bell: 40,
             faction: 2,
             i: 1,
+            transit_slot: 2,
             host: host(),
             citizen: [0xc1; 32],
             unit: UnitType::Knight as u8,
@@ -906,9 +1094,30 @@ mod tests {
         tiles(wide_arrival_slot::SIZE, wide_arrival_slot::FIELDS);
         tiles(wide_clash_inputs::SIZE, wide_clash_inputs::FIELDS);
         tiles(wide_arrival::SIZE, wide_arrival::FIELDS);
+        tiles(wide_arrival_day::SIZE, wide_arrival_day::FIELDS);
         assert_eq!(wide_arrival_slot::SIZE, 288);
         assert_eq!(wide_clash_inputs::SIZE, 3_008);
         assert_eq!(wide_arrival::SIZE, 112);
+        assert_eq!(wide_arrival_day::SIZE, 144);
+        assert_eq!(wide_arrival_slot::TRANSIT_SLOT, 28);
+        assert_eq!(wide_arrival_day::BELLS, 144);
+        assert_eq!(wide_arrival_day::bit(0), (wide_arrival_day::BITS, 1));
+        assert_eq!(
+            wide_arrival_day::bit(143),
+            (wide_arrival_day::BITS + 17, 0x80)
+        );
+        assert_eq!(wide_arrival_day::bit(144), (wide_arrival_day::BITS, 1));
+        assert_eq!(day_of(143), 0);
+        assert_eq!(day_of(144), 1);
+        assert_eq!(&wide_arrival_day::MAGIC[..4], b"PSFX");
+        assert_eq!(
+            crate::layout::AccountKind::from_magic(&wide_arrival_day::MAGIC),
+            None
+        );
+        assert_eq!(
+            permutation_rules::frontier::addr::SeedKind::from_tag(&ARRIVAL_DAY_TAG),
+            None
+        );
         assert_eq!(
             wide_clash_inputs::arrival(23) + wide_arrival::SIZE,
             wide_clash_inputs::SIZE
@@ -989,8 +1198,21 @@ mod tests {
             WideArrivalSlot::read(&x),
             Err(ArrivalError::Version { got: 9, .. })
         ));
+        // the transit slot is bound to the record: a slot at or above 4 is
+        // refused on read and on write
+        let mut x = d;
+        x[wide_arrival_slot::TRANSIT_SLOT] = 4;
+        assert_eq!(WideArrivalSlot::read(&x), Err(ArrivalError::TransitSlot(4)));
+        assert_eq!(
+            WideArrivalSlot {
+                transit_slot: 4,
+                ..s
+            }
+            .write(&mut [0u8; wide_arrival_slot::SIZE]),
+            Err(ArrivalError::TransitSlot(4))
+        );
         for off in [
-            wide_arrival_slot::RSV_28,
+            wide_arrival_slot::RSV_29,
             wide_arrival_slot::RSV_36 + 3,
             wide_arrival_slot::RSV_89,
             wide_arrival_slot::RSV_188,
@@ -1070,6 +1292,72 @@ mod tests {
         let mut y = [0u8; wide_arrival_slot::SIZE];
         flagged.write(&mut y).unwrap();
         assert_eq!(WideArrivalSlot::read(&y), Ok(flagged));
+    }
+
+    /// The day record round-trips, sets and reads bells of its day only,
+    /// refuses its faults, and is one per destination and day.
+    #[test]
+    fn arrival_day_round_trips_and_binds_its_day() {
+        let mut day = WideArrivalDay::new(11, key(130, -1), 0, [0xd4; 32]);
+        assert!(!day.has(40));
+        assert!(day.set(40));
+        assert!(day.has(40));
+        assert!(!day.has(41));
+        assert!(!day.set(144), "another day");
+        assert!(!day.has(144));
+        assert!(day.set(143));
+        assert_eq!(day.bits[5], 1, "bell 40: byte 5, bit 0");
+        assert_eq!(day.bits[17], 0x80, "bell 143: byte 17, bit 7");
+        let mut d = [0u8; wide_arrival_day::SIZE];
+        day.write(&mut d).unwrap();
+        assert_eq!(WideArrivalDay::read(&d), Ok(day));
+        assert_eq!(
+            WideArrivalDay::read(&d[..100]),
+            Err(ArrivalError::Length {
+                expected: 144,
+                got: 100
+            })
+        );
+        let mut x = d;
+        x[0] ^= 1;
+        assert_eq!(WideArrivalDay::read(&x), Err(ArrivalError::Magic));
+        let mut x = d;
+        x[wide_arrival_day::FAMILY_VERSION] = 9;
+        assert!(matches!(
+            WideArrivalDay::read(&x),
+            Err(ArrivalError::Version { got: 9, .. })
+        ));
+        for off in [
+            wide_arrival_day::RSV_18,
+            wide_arrival_day::RSV_28 + 3,
+            wide_arrival_day::RSV_81,
+            wide_arrival_day::RSV_106 + 5,
+        ] {
+            let mut x = d;
+            x[off] = 1;
+            assert_eq!(
+                WideArrivalDay::read(&x),
+                Err(ArrivalError::Reserved),
+                "{off}"
+            );
+        }
+        let mut x = d;
+        x[wide_arrival_day::WORLD..wide_arrival_day::WORLD + 32].fill(0);
+        assert_eq!(
+            WideArrivalDay::read(&x),
+            Err(ArrivalError::Key(KeyError::ReservedWorld))
+        );
+        let ctx = AddrCtx {
+            season: [3; 32],
+            program: [4; 32],
+        };
+        let a = arrival_day_address(&ctx, key(130, -1), 0);
+        assert_eq!(a, arrival_day_address(&ctx, key(130, -1), 0));
+        assert_ne!(a, arrival_day_address(&ctx, key(130, -1), 1));
+        assert_ne!(a, arrival_day_address(&ctx, key(130, 0), 0));
+        assert_ne!(a, ctx.arrival_day(130, -1, 0), "not a deployed address");
+        assert_ne!(a, arrival_slot_address(&ctx, key(130, -1), 0, 0, 0));
+        assert_ne!(a, clash_inputs_address(&ctx, key(130, -1), 0));
     }
 
     /// The inputs header round-trips and refuses its faults; a record
