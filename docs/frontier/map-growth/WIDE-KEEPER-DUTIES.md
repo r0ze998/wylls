@@ -12,7 +12,7 @@ Explicit --follow-wide (requiring --observe-wide) now continues read-only wide o
 
 The archive/index interoperability test now drives real WideFindex, SQLite rebuild, archive transaction reads, keeper observer/proofs, and a snapshot-backed unsigned candidate. Raw program-filtered feed sequences (10/20/30), archive sequences (1/2/3), and event-page IDs are distinct. Observer verifies local per-identity head continuity after its first observed unverified anchor; dedicated index validates from genesis. Neither proves source authenticity. Raw sequence holes remain unknown, not automatically corrupted.
 
-The eighth slice adds the unsigned WideGather candidate (`wideduty::plan_gather`, hinted from revealed open marches, planned over a snapshot with the Rent, reviewed and counted in the tick): the handler's latch, end bell, anchor-or-archive window, ClashInputs and ArrivalDay rules replayed from the accounts at their canonical addresses; the cursor bounded to at most eight positions before any slot is read (one packet even when every position is present) and cut before a later unsettled transit; present slots judged from their transit records; absent slots' transit positions the slot's own address; the present count the handler's scan of every position; a clear day bit over a partial record planned as the completing gather; the fee review netting a prefunded ClashInputs as the handler's top-up does. The ArrivalDay account is the only arrival evidence; missing feed events are never read as no arrivals. The ninth slice adds the unsigned WideResolve candidate (`wideduty::plan_resolve`): each observed province at its current `resolved_next` read from the chain, the window against THE anchor or its archive, the bell seed as the handler's `bell_seed` takes it (a SeedCache whose stored nonce recomputes its address and which names THE anchor and the seed round, found by a bounded 256-nonce probe; or the archive entry in both positions), the ArrivalDay bit against a complete unresolved ClashInputs, the conquest block, the roster or its absence, and the ABI's own `resolve_bell` replayed on scratch bytes for the outcome, the roster creation (full-minimum payer guard, exact) and the digests (the output digest at the observed clock). Resolve hints need a configured public resolver; a `NotGathered` bell schedules its gather so intermediate bells are not skipped. The tenth slice moves the program's pure settlement (quota, outcome, payment plan) into `frontier_abi::world_index::settle`, re-exported unchanged by the program, and adds `widesettle::plan_settle_transit`: the first WideSettleTransit candidate, for a seal that opens under THE anchor's own public round signature and a host present in the resolved final set with a fate that does not come home; payees read from the accounts, the plan from the shared functions; bad seals, absent destinations, bounces, routs, returns home and camp loot are refused, not planned; no tick wiring yet. **Arrival processing is still not complete.** Not compiled or run by its author.
+The eighth slice adds the unsigned WideGather candidate (`wideduty::plan_gather`, hinted from revealed open marches, planned over a snapshot with the Rent, reviewed and counted in the tick): the handler's latch, end bell, anchor-or-archive window, ClashInputs and ArrivalDay rules replayed from the accounts at their canonical addresses; the cursor bounded to at most eight positions before any slot is read (one packet even when every position is present) and cut before a later unsettled transit; present slots judged from their transit records; absent slots' transit positions the slot's own address; the present count the handler's scan of every position; a clear day bit over a partial record planned as the completing gather; the fee review netting a prefunded ClashInputs as the handler's top-up does. The ArrivalDay account is the only arrival evidence; missing feed events are never read as no arrivals. The ninth slice adds the unsigned WideResolve candidate (`wideduty::plan_resolve`): each observed province at its current `resolved_next` read from the chain, the window against THE anchor or its archive, the bell seed as the handler's `bell_seed` takes it (a SeedCache whose stored nonce recomputes its address and which names THE anchor and the seed round, found by a bounded 256-nonce probe; or the archive entry in both positions), the ArrivalDay bit against a complete unresolved ClashInputs, the conquest block, the roster or its absence, and the ABI's own `resolve_bell` replayed on scratch bytes for the outcome, the roster creation (full-minimum payer guard, exact) and the digests (the output digest at the observed clock). Resolve hints need a configured public resolver; a `NotGathered` bell schedules its gather so intermediate bells are not skipped. The tenth slice moves the program's pure settlement (quota, outcome, payment plan) into `frontier_abi::world_index::settle`, re-exported unchanged by the program, and adds `widesettle::plan_settle_transit`: the first WideSettleTransit candidate, for a seal that opens under THE anchor's own public round signature and a host present in the resolved final set with a fate that does not come home; payees read from the accounts, the plan from the shared functions; bad seals, absent destinations, bounces, routs, returns home and camp loot are refused, not planned. The eleventh slice wires that candidate into the tick (settle-transit hints from stored proofs of revealed open marches, listed only with the reveal inputs, planned under the same shared two-plan cap over one snapshot with the Rent sysvar, reviewed and denied like every other) and extends the planner to read the payees' shapes and replay the handler's payments and closes in its order over the running balances — program-owned recipients owed, wallets below the Rent minimum diverted to `pool_owed`, the holding's backing, overflows, the two `Sink::Never` closes, the mirrored `wide_claim_eligible` with the rules crate's `defence_refund` — refusing whatever would abort; every payment stays a nominal allocation with a predicted route, never a transfer. **Arrival processing is still not complete.** Not compiled or run by its author.
 
 Every candidate is still denied by Engine review: history authenticity/completeness, live fee quotation and future balance remain unproven. No enqueue, simulation, signing, transaction sending, production gate change, main merge or deployment is introduced. Existing PSW1 feed guards can prevent further discovery; this slice does not make the game playable. The actual Keeper constructor/full tick was not executed because it uses keys; its wiring and CLI are compile-checked, while independent review-step tests use literal accounts and public vectors. UI is unchanged.
 
@@ -1906,7 +1906,210 @@ not predicted; the program applies its own code — the same functions for
 the plan, its own for the effects. Not compiled or run by its author.
 **Arrival processing is not complete**: no tick plans a settlement yet,
 and the bad-seal, bounce, rout, return-home and camp-loot settlements are
-not planned.
+not planned. (The tick wiring, the payee shapes and the claim rule are the
+eleventh slice below; the other branches stay unplanned.)
+
+## Eleventh slice (2026-11-08, on `01c2d245`): the settlement in the tick; payees, closes and the claim rule replayed
+
+**The tick.** `widetick` lists `Hint::SettleTransit(host, slot)` from
+`ProofStore::settle_hints(model)` — a stored proof whose march the
+observer shows **revealed and open** in the proof's slot — **only with the
+`RevealInputs`** (the publication source and the public beneficiary: the
+settlement opens the seal under the same `tlock_round(arrive)` the reveal
+did, and names the same beneficiary as the settler's; without the inputs
+the hint is not listed, and the status says so). Each hint is planned by
+`widesettle::plan_settle_transit` under the **same shared cap** of two
+plans per tick (one plan per hint per tick; the settle-departure, return,
+gather and resolve hints of the same tick share it — in the runtime test
+the two hints listed before it spend the first tick's cap and the
+settlement is planned on the next), with `min_slot = max(tick slot, proof
+slot)`, over one snapshot **with the Rent sysvar** (the payees' divert
+rule needs it); without a snapshot source the live driver
+(`settle_transit_via`) reads the Rent sysvar once, separately, and its
+candidate is non-coherent. The ledger entry (`settle_entry`) follows the
+reveal's rules: a transient block (`is_transient`: the publication not
+served, no clock, a read or snapshot failure) is retried at the next slot
+at most `MAX_TRANSIENT_RETRIES` times; a candidate and every other block
+wait `REFRESH_SLOTS` (a settlement has no closing window, so no shorter
+refresh); a **newer proof** of the same march invalidates the entry at
+once (`waits` checks the proof sequence for reveal and settle-transit
+hints alike). The candidate is reviewed as a duty (`review_candidate`,
+`Subject::of_duty`) and reconciled against the destination's and the
+holding's observed heads. Counters `settle_plans` / `settle_candidates`
+and a `settle_transit` status entry; the reveal's `publications_missing`,
+`transient_retries` and `proofs_renewed` count both kinds (said in the
+status). Nothing is enqueued, signed, simulated or sent; no gate changes.
+
+**The payees' shapes and the handler's effects, replayed exactly.** The
+planner now reads the five wallet roles — the slot's beneficiary, the
+resolver the record names, the holding's rent payer, the settle
+beneficiary, the transit record's rent recipient — and the fee payer only
+when the slot would close to it (its `rent_to` at position 0; under the
+review's placeholder payer that case is refused, `PayerPlaceholder`,
+rather than judged against the System Program's account). An address the
+chain does not hold is a zero-lamport System address, as the runtime
+presents it. The handler's effects are replayed **in its order over the
+running balances**, from `proc/wide.rs::settle_transit`, `pay_wide`,
+`owe_wide` and `init::{pay_or_divert, move_lamports, diverts, close_to}`
+read in full: the payments tip, march fee, bond, reward — the plan's own
+`PayTo::PoolOwed` and a **program-owned** recipient are owed in
+`pool_owed` with no lamport moved (`pay_wide`: `to.owner == program`);
+otherwise `diverts(to.lamports, amount, rent(to.data_len))`, `None` being
+the handler's `Overflow` (`Overflow("payee balance")`), a wallet the
+payment would leave **below the Rent sysvar's minimum** for its data
+length is **diverted** (the lamports stay in the holding — the sink's
+`move_lamports(holding, holding)` is a no-op — and `pool_owed += amount`,
+`Overflow("pool_owed")` on wrap), a wallet at or above it is paid from the
+holding's lamports (`move_lamports`: `Insufficient` → `HoldingBackingShort`
+with the payment, the holding's lamports and the amount); then the slot:
+**kept** when claim-eligible, else **closed whole** to its immutable
+`rent_to` when that is one of the six listed accounts (`close_to` under
+`Sink::Never`: a recipient the whole balance would leave below its minimum
+is the handler's `BadAccount` → `CloseWouldDivert("slot")`; a program-owned
+recipient is paid directly, as `pay_or_divert` does for a close), else
+**flagged** settled; then the transit record closed whole to its
+`rent_to` the same way (`CloseWouldDivert("transit")`). The same wallet in
+two roles sees each effect on the balance the previous one left; the
+facts carry `payee_shapes`, the holding's lamports before and after, its
+Rent minimum, `pool_owed` before and after, `predicted_balances` for every
+listed wallet, `slot_disposition` (`KeptForClaim` / `ClosedTo{position,
+lamports}` / `FlaggedSettled`), `transit_close_lamports`, and each
+payment's `route` (`Wallet`, `OwedProgramOwned`, `DivertedBelowRent`,
+`OwedPool`) — all **candidate content** (a changed route, disposition or
+balance loses the snapshot). The Rent sysvar must be among the reads
+(`RentSysvarMissing` otherwise: the divert rule is the sysvar's minimum,
+`Rent::minimum_balance`, not a constant). One rule here is **not the
+handler's**: the runtime's invariant that a program account whose lamports
+changed must stay rent-exempt is checked for the holding and refused
+conservatively (`HoldingBelowRentExemption{after, floor}`); it is named as
+such in the facts and the code. No recipient, payout or amount is chosen
+by the keeper; nothing economic is new.
+
+**The claim rule, mirrored.** `wide_claim_eligible` is reproduced line by
+line from the program: THE anchor's landing slot present (`None` once
+archived → not eligible), the slot unclaimed, `now < close +
+CLAIM_GRACE_BELLS × 600` (the ABI's constant, 6), `ev_slot − anchor_slot ≥
+lateness_slots` (saturating), and `defence_refund(Evidence{ev_price,
+ev_limit, ev_loaded, created_day: false}, DefenceParams{defence_cap_milli,
+tip_min}) > 0` with `tip_min = min_tip_lamports(min_reveal_priority_milli,
+reveal_cu_limit, reveal_loaded_limit)` — the rules crate's functions the
+program itself imports (`permutation_rules::frontier::fees`; the program's
+`defence::refund` is its u64 fast path of the same integers). The facts
+carry the inputs and the verdict (`claim: ClaimRule`). An eligible slot is
+kept untouched even when its rent recipient is listed, as deployed.
+
+**Read rounds and the Rent in discovery (fixed after independent
+review).** The home province and its roster are the host reference's
+(the holding at the canonical address has that coordinate, checked), so
+they are asked in the first round with the Season, the holding and the
+transit; the destination second; the anchor, the archive, the record, the
+destination's roster and the faction's four slot addresses third (the
+host's position is known only once the record is read; the handler reads
+one slot — the extra three reads are the keeper's, a bounded cost, not a
+rule); the payees fourth. `snapshot_plan_with`'s key discovery runs over
+ordinary reads whose `Reads.rent` is empty, so the planner's Rent
+requirement would have refused every snapshot run: now, when a planner
+says `RentSysvarMissing` during discovery and the snapshot was requested
+with the Rent, the discovery reads the Rent sysvar **once** (an ordinary
+read, like the clock) and evaluates again — the fifth evaluation asks, the
+sixth decides, within the shared bound of six (`MAX_READ_ROUNDS`). Other
+planners never say it, so their read counts are unchanged. **The final
+judgement is over the one response alone**: its accounts, its Clock, its
+own Rent; nothing of the discovery reads is kept, and no candidate is
+blessed from mixed reads. A port that holds no Rent sysvar refuses in
+discovery (`RentSysvarMissing("discovery read")`) before any snapshot is
+taken.
+
+**Close recipients that are not ordinary wallets (fixed after independent
+review).** The first version credited a close's recipient without
+modelling the source side: a slot whose `rent_to` is the transit record
+(listed through the transit's own `rent_to`) would enlarge the record the
+next close empties; a record closing to the holding would need the
+holding's post-payment balance; a self-close's transfer is a no-op. None
+of that is modelled in this narrow slice: a close whose recipient is a
+**state account of the instruction** (every position but the six wallet
+roles: the Season, the holding, the destination, the record, the slot,
+the home, the anchor, the transit, the rosters, the System Program) or
+**any program-owned account** is **refused** (`CloseRecipientAlias("slot"
+| "transit")`), a conservative refusal that is not a handler rule and is
+named as such. Ordinary **wallet** aliases stay exact in the handler's
+order: a payment then a close on the same wallet, the slot's close then
+the transit's (an unfunded wallet that the slot's whole balance funds
+takes the transit's ten lamports next; the same wallet given the
+ten-lamport slot first diverts, whatever the transit would bring).
+Payments to program-owned recipients remain exact (owed, no lamport
+moves).
+
+**The fee payer among the payees (said, not guaranteed).** The fixture's
+payer is also the transit record's rent recipient; in general the settler
+may be any of the five wallet roles. Its shape in the reads is **before**
+the transaction fee it pays, so the routes and the predicted balance for
+it are conditional on that pre-fee shape (`payer_is_payee`, `payer_note`
+in the description, the `UNVERIFIED` line). The prediction stays
+conditional; no execution outcome is guaranteed; every gate stays closed.
+
+**Said, not verified.** Every payment line is a **nominal** allocation
+whose route is **predicted over the shapes as read at the context slot**
+— never an observed or successful transfer; the program applies its own
+code later against the shapes of that moment, and a payer that is also a
+payee pays the transaction fee first, which the replay does not see
+(`UNVERIFIED`, reworded). The fee payer's bound is the fee only. The
+history before the applied records is unknown; the proof's source is
+unverified; coherence is a context slot. Every candidate is still denied
+by the engine review.
+
+**Tests** (`wide_reveal.rs`; literal wallets and shapes; the recorded
+public seal vector; the shipped quicknet signature; no key):
+`settle_transit_predicts_payment_routes_over_the_payees_shapes_in_the_handlers_order`
+(funded payees delivered and the holding down by the total; the same
+wallet in two roles one lamport under the floor after the fee — the fee
+diverted, the bond delivered over the balance the diverted fee left — and
+one lamport more both delivered; an address not held by the chain
+diverted; a program-owned recipient owed with no floor; `pool_owed` as
+read the base; the description's `predicted_route`; routes, disposition
+and balances as content),
+`settle_transit_refuses_what_the_handlers_payments_and_closes_would_abort`
+(no Rent; the holding unable to back the tip; the holding one lamport
+below its minimum after and exactly at it; a diverted payment leaving a
+holding at its floor untouched; a payee's balance overflow; `pool_owed`
+overflow; the transit record's close diverting and taken one lamport
+under; the slot's close diverting and taken whole to position 9; the
+slot's recipient the payer's position — judged for a named payer, refused
+under the placeholder; the transit closing to the holding or to itself,
+the slot closing to the transit record, a program-owned account at the
+transit's recipient position — each `CloseRecipientAlias`; the same
+wallet in both close roles exact in the handler's order),
+`settle_transit_mirrors_the_programs_claim_rule_for_the_slot` (the
+fclient claim test's literals: kept when late by the lateness, rich,
+unclaimed, within the grace — also with a listed recipient; one second
+before the grace end kept, at it not; claimed, one slot short, a zero bid:
+not; the default Season's `tip_min`),
+`the_tick_plans_a_transit_settlement_from_a_revealed_open_march_under_the_shared_budget`
+(an observer model with the march departed and revealed; without the
+inputs no settle-transit hint; with them the first tick's cap spent on the
+two hints before it and the settlement planned on the second tick as a
+coherent denied candidate with the Rent in its snapshot, the seal and
+commitment absent from the status; `payer_is_payee` false under the
+placeholder; the third tick nothing; a newer proof renews; the live
+driver's non-coherent denied candidate; a port without the Rent refused on
+the live path and in snapshot discovery with no snapshot taken; a
+generation-2 holding refused; a publication not served retried at the
+next slot). The four existing settle tests keep passing
+under the funded-wallet fixture (`SettleFx` gained the lamports, wallets
+and Rent; its snapshot helper includes the Rent). Preserve the existing
+124 keeper tests; the four new ones are the only additions. Not compiled
+or run by its author.
+
+**Exact limits.** Only the slice's branches are planned; bad seals,
+absent destinations, bounces, routs, returns home and camp loot are named
+refusals. The replay is over the reads at a context slot: a payee's shape,
+the holding's lamports, `pool_owed` and THE anchor can all move before any
+execution, so every prediction is of the reads, not of a transaction. The
+runtime's rent-exemption invariant is checked for the holding only
+(the closed accounts end at zero; a wallet receiving lamports never
+transitions downward). Without reveal inputs or a stored proof no
+settlement is planned. **Arrival processing is still not complete**, the
+game is not playable from this, and nothing is sent.
 
 ## Touched files
 
@@ -1916,7 +2119,11 @@ settlement moved from the program), `frontier-abi/src/world_index/mod.rs`
 (tenth slice: the moved definitions replaced by `pub(crate) use` of the
 ABI's and a one-line `plan_settlement` wrapper; two unused imports
 dropped; no handler line changed),
-`frontier-node/crates/keeper/src/widesettle.rs` (new, tenth slice),
+`frontier-node/crates/keeper/src/widesettle.rs` (new, tenth slice;
+eleventh: the payees' shapes, the replayed payments and closes, the
+mirrored claim rule, `PayRoute`, `PayeeShape`, `SlotDisposition`,
+`ClaimRule`, the four slots read with the record, the Rent in
+`settle_transit_snapshot` / read separately in `settle_transit_via`),
 `frontier-node/crates/keeper/src/wideproof.rs` (new),
 `frontier-node/crates/keeper/src/wideduty.rs` (new; later slices: new
 `Block` variants, `pub(crate)` helpers, `Reads.snapshot`/`rent`,
@@ -1927,12 +2134,18 @@ the crate-private `Candidate.bound` (`Bound`, the `Canon` encoder and the
 `GATHER_POSITIONS`, six `Block` variants, `candidate_with`; ninth:
 `plan_resolve`, `resolve_via`, `resolve_snapshot`, `find_seed_nonce`,
 `resolve_candidates`, `Duty::Resolve`, `ResolveFacts`, `AnchorRead` /
-`anchor_read` shared with the gather, seven `Block` variants),
+`anchor_read` shared with the gather, seven `Block` variants; eleventh:
+six settle `Block` variants — `RentSysvarMissing`, `HoldingBackingShort`,
+`HoldingBelowRentExemption`, `CloseWouldDivert`, `CloseRecipientAlias`,
+`PayerPlaceholder`),
 `frontier-node/crates/keeper/src/widefees.rs` (eighth: the ClashInputs in
 `duty_needs`), `frontier-node/crates/keeper/src/widereview.rs` (eighth:
 `KIND_GATHER`, the `Subject` arm), `frontier-node/crates/keeper/src/widetick.rs`
 (eighth: `Hint::Gather`, the gather arm, counters, the `gather` status
-entry, reconciliation targets),
+entry, reconciliation targets; eleventh: `Hint::SettleTransit`, the
+settle-transit arm under the shared cap, `settle_entry`, `waits` for both
+proof-bound hints, `settle_plans` / `settle_candidates`, the
+`settle_transit` status entry, the module doc),
 `frontier-node/crates/keeper/src/widereveal.rs` (new; third slice:
 the crate-private `RevealCandidate.bound`, `reveal_snapshot`, the
 unverified lines),
@@ -1940,7 +2153,9 @@ unverified lines),
 `Evidence`, `review_with_evidence`, three denials),
 `frontier-node/crates/keeper/src/widesnapshot.rs` (new, third slice;
 fourth: `SnapshotSource`, `snapshot_plan_with`, `SnapshotError::code`,
-`SnapshotFn`/`snapshot_via`/`PortSnapshot`/`SnapshotMode`),
+`SnapshotFn`/`snapshot_via`/`PortSnapshot`/`SnapshotMode`; eleventh: the
+one discovery Rent read when a planner says `RentSysvarMissing` under
+`with_rent`),
 `frontier-node/crates/keeper/src/widefees.rs` (new, third slice; fourth:
 the placeholder-payer rule `NO_PAYER`),
 `frontier-node/crates/keeper/src/wideproof.rs` (fourth: `METHOD_FEED`,
@@ -2035,3 +2250,31 @@ Independent static review found no preservation blocker for this narrow unsigned
 planner. Settlement runtime scheduling, actual payee execution/backing checks,
 slot-claim eligibility and return-home/camp branches remain outside this slice.
 No real-chain transaction, Keeper startup, main merge or deployment was performed.
+
+### Eleventh-slice verification checkpoint
+
+The final tree passed 128 focused keeper tests: discovery 14, duties 70,
+feed guard 12, reveal/settlement 26, snapshot RPC 6. Feature-on libraries,
+binaries and these selected tests passed clippy; default libraries/binaries
+also passed clippy (compilation only). Independent static review found no
+remaining blocker for the declared narrow slice after fixing close-source
+aliases, the discovery Rent read and the read-wave budget. Initial runs
+also caught status wording compatibility and two incorrect new test
+expectations (snapshot count before discovery refusal and the existing
+Candidate payer field); these were corrected without weakening checks.
+
+The runtime helper test obtains a coherent settlement candidate from an
+observed revealed march and a published public vector, within the shared
+two-plan budget. It checks refusal without Rent, non-coherence without a
+snapshot, proof refresh and cooldown, and zero enqueue. All tests use
+literal accounts/public verification vectors and unsigned instructions;
+no keypair generation/derivation, signing, actual Keeper startup, chain
+submission, simulation or deployment ran. The program handler code is
+unchanged in this slice, and the previous exact host-handler test results
+were not rerun. Predictions are conditional on the read account shapes,
+not execution guarantees: payer fee debit remains outside this replay.
+State-account/program-owned close recipients are conservatively refused.
+Return-home, bounce, rout, bad-seal and camp-loot settlements remain
+unplanned; arrival processing and playable live integration are incomplete.
+Every candidate remains denied for unproven source/history and absent
+execution/signing authorization; production gates remain closed.

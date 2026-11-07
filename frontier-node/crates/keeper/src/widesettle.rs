@@ -3,7 +3,10 @@
 //! seal **opens publicly** and whose host is in the **resolved final set**
 //! with a fate that does not come home — the smallest correct slice of the
 //! destination-side settlement, planned from a stored departure proof, a
-//! verified public round signature and current account reads.
+//! verified public round signature and current account reads. The tick
+//! ([`crate::widetick`], eleventh slice) plans it from
+//! [`crate::widetick::ProofStore::settle_hints`] with the reveal inputs,
+//! under the shared per-tick cap, over one snapshot with the Rent sysvar.
 //!
 //! **Source of truth.** `permutation-frontier/src/proc/wide.rs::
 //! settle_transit`: `[payer s,w] [season r] [holding w] [dest_province w]
@@ -50,24 +53,71 @@
 //! and seventeen accounts (`Overflow("packet")` when it does not fit;
 //! nothing is dropped to make it fit).
 //!
-//! **Said on the candidate, not verified.** The payments are the plan's
-//! **nominal** allocations over the records as read; the payees' account
-//! shapes are not read (the handler pays a wallet, diverts an undeliverable
-//! recipient to `pool_owed`, and **aborts** on an arithmetic overflow, a
-//! `pool_owed` overflow or a holding balance that cannot back a payment);
-//! the two closes run under `Sink::Never` and abort when their
-//! prerequisites fail; the fee payer's lower bound (`widefees`) covers the
-//! **fee only** — every settled lamport is the holding's, so
-//! `MetLowerBound` is not settlement funding; the slot's claim eligibility
-//! (`wide_claim_eligible`: the defence refund rule lives in the program)
-//! is **not** predicted — the slot is closed to its listed rent recipient,
-//! kept for a claim, or flagged, all with the same instruction; the march's
-//! history before the applied records is unknown; the proof's source is a
-//! feed record bound by wire and frame, its signatures unverified; the
-//! reads are coherent at a context slot only when they are one verified
-//! snapshot. Nothing signs, simulates, sends or queues.
+//! **The payees' shapes and the handler's effects, replayed (eleventh
+//! slice).** The five wallet roles (the slot's beneficiary, the resolver,
+//! the holding's rent payer, the settle beneficiary, the transit record's
+//! rent recipient) are **read** from the same reads — lamports, owner,
+//! data length; an account the chain does not hold is a zero-lamport
+//! System address — and the handler's effects are replayed **in its
+//! order** over the balances as they would run: the payments tip, march
+//! fee, bond, reward (`pay_wide`: a program-owned recipient is owed in
+//! `pool_owed` and no lamport moves; otherwise `init::pay_or_divert` with
+//! the Rent sysvar's minimum for the recipient's data length — a wallet the
+//! payment would leave below it is **diverted** to `pool_owed`, the
+//! lamports staying in the holding; a wallet at or above it is paid from
+//! the holding's lamports, `Insufficient` when they cannot back it
+//! (`HoldingBackingShort`); `to + amount` and `pool_owed + amount`
+//! overflows abort (`Overflow`)); then the slot: **kept** when
+//! `wide_claim_eligible` (mirrored here line by line with the rules
+//! crate's `defence_refund` and `min_tip_lamports`, the Season's
+//! `lateness_slots`, `defence_cap_milli` and reveal limits, THE anchor's
+//! landing slot, `CLAIM_GRACE_BELLS`), else **closed whole** to its
+//! immutable `rent_to` when that is one of the six listed accounts
+//! (`close_to` under `Sink::Never`: a recipient the whole balance would
+//! leave below its minimum is the handler's `BadAccount`,
+//! `CloseWouldDivert("slot")`), else **flagged** settled; then the transit
+//! record closed whole to its `rent_to` the same way
+//! (`CloseWouldDivert("transit")`). The same **wallet** in several roles
+//! sees each effect on the balance the previous one left
+//! (`predicted_balances`): a payment then a close, the slot's close then
+//! the transit's. **Not modelled, refused** (`CloseRecipientAlias`, a
+//! conservative refusal, not a handler rule): a close whose recipient is a
+//! state account of the instruction or any program-owned account — the
+//! slot closing to the transit record (which then closes enlarged), either
+//! record closing to the holding (whose lamports the payments moved), a
+//! self-close (whose transfer is a no-op), the System Program's account;
+//! the handler pays such recipients directly, and their source/recipient
+//! balance transitions are not replayed here. Payments to program-owned
+//! recipients **are** exact (owed, no lamport moves). The runtime's own
+//! invariant that a program account whose lamports changed must stay
+//! rent-exempt is checked for the holding (`HoldingBelowRentExemption`):
+//! a conservative refusal, not a handler line. The Rent sysvar must be
+//! among the reads: the snapshot's (`snapshot_plan_with` reads it once
+//! during key discovery when a planner says `RentSysvarMissing`, and the
+//! final judgement is over the response's own Rent), or the live driver's
+//! separate read; without it the divert rule cannot be reproduced and the
+//! plan refuses (`RentSysvarMissing`). A fee payer among the payees is
+//! read **before** the fee it pays (`payer_is_payee`): its routes are
+//! conditional on the pre-fee shape; nothing here is an execution
+//! guarantee, and every gate stays closed.
+//!
+//! **Said on the candidate, not verified.** Every payment line is the
+//! plan's **nominal** allocation with its route **predicted over the
+//! shapes as read at the context slot** — never an observed or successful
+//! transfer: the program applies its own code later against the shapes of
+//! that moment, and a payer that is also a payee pays the transaction fee
+//! first. The fee payer's lower bound (`widefees`) covers the **fee only**
+//! — every settled lamport is the holding's, so `MetLowerBound` is not
+//! settlement funding. The march's history before the applied records is
+//! unknown; the proof's source is a feed record bound by wire and frame,
+//! its signatures unverified; the reads are coherent at a context slot
+//! only when they are one verified snapshot. Nothing signs, simulates,
+//! sends or queues.
+
+use std::collections::{BTreeMap, BTreeSet};
 
 use frontier_abi::bytes::{rd_arr, rd_u32, rd_u64, rd_u8};
+use frontier_abi::layout::beacon::defence_claim::CLAIM_GRACE_BELLS;
 use frontier_abi::layout::player::transit as T;
 use frontier_abi::layout::province::province as PV;
 use frontier_abi::v2::layout::player::holding as H;
@@ -80,6 +130,9 @@ use frontier_abi::world_index::wide_ix::{self as wix, SettleTransit};
 use frontier_abi::world_index::{
     holding as wh, land as wl, march as wm, roster as wro, MarchState, ProvinceKey, WideHostRef,
     WorldId,
+};
+use permutation_rules::frontier::fees::{
+    defence_refund, min_tip_lamports, DefenceParams, Evidence,
 };
 use serde_json::{json, Value};
 use solana_address::Address;
@@ -114,10 +167,10 @@ macro_rules! tri {
 
 /// Lines every settle candidate carries as unverified.
 pub const UNVERIFIED: [&str; 7] = [
-    "the payments are the plan's NOMINAL allocations (the shared plan_settlement over the records as read); the execution's recipients, backing and outcome were not verified",
-    "a payee's account shape was not read: the handler pays a wallet, diverts an undeliverable recipient to the holding's pool_owed, and ABORTS the transaction on an arithmetic overflow, a pool_owed overflow, or a holding balance that cannot back a payment",
-    "the closes (the transit record whole to its rent recipient; the slot when not kept) run under Sink::Never: a close whose prerequisites fail aborts the transaction; neither close was simulated",
-    "the slot's claim eligibility was not predicted (the defence refund rule is the program's); the slot is closed to its listed rent recipient, kept for a claim, or flagged — the same instruction",
+    "the payments are the plan's NOMINAL allocations (the shared plan_settlement over the records as read); their routes are PREDICTED over the payees' shapes as read at the context slot, never observed or successful transfers; the program applies its own code against the shapes of its moment",
+    "the handler pays a wallet, owes or diverts to the holding's pool_owed, and ABORTS the transaction on an arithmetic overflow, a pool_owed overflow, or a holding balance that cannot back a payment: each was replayed over the reads and none was executed; a payer that is also a payee pays the transaction fee first, which the replay does not see",
+    "the closes (the transit record whole to its rent recipient; the slot when not kept) run under Sink::Never: a close whose recipient would stay below its rent minimum aborts the transaction; both were replayed over the reads for ordinary wallet recipients only (a state-account or program-owned recipient is refused, not modelled); neither was simulated by the runtime; a fee payer among the payees is read before the fee it pays",
+    "the slot's claim eligibility is the program's rule mirrored (wide_claim_eligible with the rules crate's defence_refund); kept, closed or flagged is predicted at the observed clock and THE anchor as read, with the same instruction either way",
     "the march's history before the applied records is unknown",
     "the proof's source is a feed record bound by wire and frame; its signatures were not verified",
     "the coherence of the reads is a context slot, never currency",
@@ -129,8 +182,46 @@ pub const UNVERIFIED: [&str; 7] = [
 /// `MetLowerBound` is **not** settlement funding.
 pub const FUNDING_SCOPE: &str = crate::widefees::FUNDING_SCOPE_SETTLE_TRANSIT;
 
+/// Where the handler's payment code would route one allocation, predicted
+/// over the recipient's shape as read (module doc) — never an observed
+/// transfer.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum PayRoute {
+    /// `pay_or_divert` moves the lamports from the holding to the wallet
+    /// (the wallet at or above its rent minimum after the payment).
+    Wallet,
+    /// `pay_wide`: the recipient is owned by the program, so the amount is
+    /// owed in `pool_owed` and no lamport moves.
+    OwedProgramOwned,
+    /// `pay_or_divert`: the wallet would stay below its rent minimum, so
+    /// the amount stays in the holding and is owed in `pool_owed`.
+    DivertedBelowRent,
+    /// The plan's own `PayTo::PoolOwed`: owed in `pool_owed`.
+    OwedPool,
+}
+
+impl PayRoute {
+    pub fn code(self) -> &'static str {
+        match self {
+            PayRoute::Wallet => "wallet (predicted)",
+            PayRoute::OwedProgramOwned => "pool_owed: program-owned recipient",
+            PayRoute::DivertedBelowRent => "pool_owed: recipient below rent minimum",
+            PayRoute::OwedPool => "pool_owed: the plan's",
+        }
+    }
+    fn tag(self) -> u8 {
+        match self {
+            PayRoute::Wallet => 1,
+            PayRoute::OwedProgramOwned => 2,
+            PayRoute::DivertedBelowRent => 3,
+            PayRoute::OwedPool => 4,
+        }
+    }
+}
+
 /// One **nominal** allocation of the plan, with the recipient the
-/// accounts name — what the shared plan says the handler would pay, not a
+/// accounts name — what the shared plan says the handler would pay, with
+/// the route its payment code would take over the shape as read; not a
 /// verified transfer.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Payment {
@@ -139,6 +230,44 @@ pub struct Payment {
     pub to: &'static str,
     /// The recipient's address (the holding's for `pool_owed`).
     pub address: Address,
+    pub route: PayRoute,
+}
+
+/// A payee's account as read: what `pay_or_divert` and `close_to` judge.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct PayeeShape {
+    pub address: Address,
+    pub lamports: u64,
+    pub program_owned: bool,
+    pub data_len: usize,
+    /// The Rent sysvar's minimum for `data_len` (the divert floor); not
+    /// computed for a program-owned recipient (owed, never diverted).
+    pub rent_floor: Option<u64>,
+}
+
+/// What the handler would do with the host's own slot.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SlotDisposition {
+    /// `wide_claim_eligible`: untouched, kept for a defence claim.
+    KeptForClaim,
+    /// Closed whole to its `rent_to`, found at `position` among the six
+    /// listed accounts; `lamports` the slot's whole balance as read.
+    ClosedTo { position: u8, lamports: u64 },
+    /// Not claim-eligible and its `rent_to` not listed: `FLAG_SETTLED`.
+    FlaggedSettled,
+}
+
+/// The claim rule's inputs and verdict, mirrored from the program
+/// (`wide_claim_eligible`; the refund from the rules crate).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ClaimRule {
+    pub anchor_slot: Option<u64>,
+    pub lateness_slots: u8,
+    pub tip_min: u64,
+    pub defence_cap_milli: u32,
+    pub grace_end: i64,
+    pub refund: u64,
+    pub eligible: bool,
 }
 
 /// What a WideSettleTransit plan established from the reads and the
@@ -181,6 +310,29 @@ pub struct SettleTransitFacts {
     /// slot would close to it unless kept for a claim).
     pub slot_rent_to: Address,
     pub slot_rent_to_position: Option<u8>,
+    /// The payees as read (module doc): the shapes the routes were
+    /// predicted over.
+    pub payee_shapes: Vec<PayeeShape>,
+    /// The holding's lamports as read and after the replayed payments
+    /// (the closes move the closed accounts' lamports, not the holding's).
+    pub holding_lamports_before: u64,
+    pub holding_lamports_after: u64,
+    /// The Rent sysvar's minimum for the holding's data length.
+    pub holding_rent_floor: u64,
+    pub pool_owed_before: u64,
+    pub pool_owed_after: u64,
+    /// Every listed wallet's lamports after the replayed payments and
+    /// closes, in address order (a wallet in two roles once).
+    pub predicted_balances: Vec<(Address, u64)>,
+    /// The fee payer is one of the payees: its shape as read precedes the
+    /// transaction fee it pays, so its predicted routes and balance are
+    /// conditional on that (module doc).
+    pub payer_is_payee: bool,
+    pub slot_disposition: SlotDisposition,
+    pub claim: ClaimRule,
+    /// The transit record's whole balance as read, closed to
+    /// `transit_rent_to`.
+    pub transit_close_lamports: u64,
     pub camp_mask: u32,
     pub anchor_source: &'static str,
     pub a_ts: i64,
@@ -218,6 +370,7 @@ impl SettleTransitFacts {
             c.u64(p.lamports);
             c.str(p.to);
             c.address(&p.address);
+            c.u8(p.route.tag());
         }
         c.len(self.nominal_cumulative.len());
         for (a, l) in &self.nominal_cumulative {
@@ -234,6 +387,42 @@ impl SettleTransitFacts {
         c.address(&self.transit_rent_to);
         c.address(&self.slot_rent_to);
         c.option(self.slot_rent_to_position, Canon::u8);
+        c.len(self.payee_shapes.len());
+        for s in &self.payee_shapes {
+            c.address(&s.address);
+            c.u64(s.lamports);
+            c.bool(s.program_owned);
+            c.usize(s.data_len);
+            c.option(s.rent_floor, Canon::u64);
+        }
+        c.u64(self.holding_lamports_before);
+        c.u64(self.holding_lamports_after);
+        c.u64(self.holding_rent_floor);
+        c.u64(self.pool_owed_before);
+        c.u64(self.pool_owed_after);
+        c.len(self.predicted_balances.len());
+        for (a, l) in &self.predicted_balances {
+            c.address(a);
+            c.u64(*l);
+        }
+        c.bool(self.payer_is_payee);
+        match self.slot_disposition {
+            SlotDisposition::KeptForClaim => c.u8(1),
+            SlotDisposition::ClosedTo { position, lamports } => {
+                c.u8(2);
+                c.u8(position);
+                c.u64(lamports);
+            }
+            SlotDisposition::FlaggedSettled => c.u8(3),
+        }
+        c.option(self.claim.anchor_slot, Canon::u64);
+        c.u8(self.claim.lateness_slots);
+        c.u64(self.claim.tip_min);
+        c.u32(self.claim.defence_cap_milli);
+        c.i64(self.claim.grace_end);
+        c.u64(self.claim.refund);
+        c.bool(self.claim.eligible);
+        c.u64(self.transit_close_lamports);
         c.u32(self.camp_mask);
         c.str(self.anchor_source);
         c.i64(self.a_ts);
@@ -275,12 +464,42 @@ impl SettleTransitFacts {
             "total": self.total,
             "nominal_payments": self.nominal_payments.iter().map(|p| json!({
                 "what": p.what, "lamports": p.lamports, "to": p.to, "address": p.address.to_string(),
+                "predicted_route": p.route.code(),
             })).collect::<Vec<_>>(),
             "nominal_cumulative": self.nominal_cumulative.iter().map(|(a, l)| json!({"address": a.to_string(), "lamports": l})).collect::<Vec<_>>(),
-            "payments_meaning": "nominal allocations of the shared plan over the records as read; execution recipients, backing and close prerequisites unverified; an overflow, an unbacked payment or a failed close aborts the transaction",
+            "payments_meaning": "nominal allocations of the shared plan over the records as read, each with the route the handler's payment code would take over the payee's shape as read at the context slot (predicted, never an observed or successful transfer); the replay found no abort cause in the reads; the program applies its own code against the shapes of its moment",
             "funding_scope": FUNDING_SCOPE,
         });
         let rest = json!({
+            "payee_shapes": self.payee_shapes.iter().map(|s| json!({
+                "address": s.address.to_string(), "lamports": s.lamports, "program_owned": s.program_owned,
+                "data_len": s.data_len, "rent_floor": s.rent_floor,
+            })).collect::<Vec<_>>(),
+            "holding_lamports_before": self.holding_lamports_before,
+            "holding_lamports_after": self.holding_lamports_after,
+            "holding_rent_floor": self.holding_rent_floor,
+            "pool_owed_before": self.pool_owed_before,
+            "pool_owed_after": self.pool_owed_after,
+            "predicted_balances": self.predicted_balances.iter().map(|(a, l)| json!({"address": a.to_string(), "lamports": l})).collect::<Vec<_>>(),
+            "payer_is_payee": self.payer_is_payee,
+            "payer_note": "a fee payer among the payees is read BEFORE the transaction fee it pays; its routes and balance are conditional on the pre-fee shape; no execution outcome is guaranteed",
+            "slot_disposition": match self.slot_disposition {
+                SlotDisposition::KeptForClaim => json!({"kept_for_claim": true}),
+                SlotDisposition::ClosedTo { position, lamports } => json!({"closed_to_position": position, "lamports": lamports}),
+                SlotDisposition::FlaggedSettled => json!({"flagged_settled": true}),
+            },
+            "claim_rule": {
+                "anchor_slot": self.claim.anchor_slot,
+                "lateness_slots": self.claim.lateness_slots,
+                "tip_min": self.claim.tip_min,
+                "defence_cap_milli": self.claim.defence_cap_milli,
+                "grace_end": self.claim.grace_end,
+                "refund": self.claim.refund,
+                "eligible": self.claim.eligible,
+                "source": "wide_claim_eligible mirrored; permutation_rules::frontier::fees::defence_refund",
+            },
+            "transit_close_lamports": self.transit_close_lamports,
+            "effects_meaning": "the handler's payments and closes replayed in its order over the reads; predicted, not executed",
             "escrow_before": self.escrow_before,
             "escrow_after": self.escrow_after,
             "open_transits_before": self.open_transits_before,
@@ -301,7 +520,7 @@ impl SettleTransitFacts {
             "publication_round": self.publication.round,
             "crypto": format!("{:?}", self.crypto),
             "unverified": self.unverified,
-            "scope": "valid seal opened under the account's own round signature; destination present and resolved; host present in the resolved final set with its own slot; fate Stays, Withdrew or Destroyed; no camp loot. Bad seals, absent destinations, bounces, routs, returns home and the camp's loot are refused, not planned.",
+            "scope": "valid seal opened under the account's own round signature; destination present and resolved; host present in the resolved final set with its own slot; fate Stays, Withdrew or Destroyed; no camp loot; payees' shapes read and the handler's payments and closes replayed without an abort cause. Bad seals, absent destinations, bounces, routs, returns home, the camp's loot and any replay that would abort are refused, not planned.",
             "plan_source": "frontier_abi::world_index::settle (the program's own functions)",
         });
         out.as_object_mut()
@@ -322,10 +541,13 @@ const PAYEE_POSITIONS: [(usize, &str); 6] = [
 
 /// Plans WideSettleTransit of the march `proof` describes with
 /// `beneficiary` as the settler's beneficiary (the data's; the caller's
-/// public address). Reads in rounds: the Season, the holding and the
-/// transit; the home province and its roster; the destination; the
-/// anchor, the archive, the inputs and the destination's roster; the slot.
-/// Module doc: the rules and what is refused.
+/// public address). Reads in four rounds: the Season, the holding, the
+/// transit, the home province and its roster; the destination; the
+/// anchor, the archive, the inputs, the destination's roster and the
+/// faction's four slots; the payees' wallets — then the Rent sysvar must
+/// be in the reads (`RentSysvarMissing` tells a discovery driver to read
+/// it), and the sixth evaluation at most decides. Module doc: the rules
+/// and what is refused.
 pub fn plan_settle_transit(
     scope: &Scope,
     payer: Address,
@@ -350,7 +572,22 @@ pub fn plan_settle_transit(
     if proof.holding != holding_addr || proof.transit != transit_addr {
         return Step::Done(Err(Block::ProofMismatch("holding or transit address")));
     }
-    need!(reads, [scope.season, holding_addr, transit_addr]);
+    // The home province and its roster are the host reference's (the
+    // holding at the canonical address has that coordinate, checked below):
+    // asked in the first round so the plan decides within the shared bound.
+    let home = host.key();
+    let home_addr = addr(wl::province_address(&ctx, home.coord()));
+    let home_roster_addr = addr(wro::roster_address(&ctx, home));
+    need!(
+        reads,
+        [
+            scope.season,
+            holding_addr,
+            transit_addr,
+            home_addr,
+            home_roster_addr
+        ]
+    );
     let (season, promoted) = tri!(season_of(scope, reads));
     let sid = season.h.season_id;
     let clock = fclient::clock::SeasonClock::from_season(&season);
@@ -360,7 +597,9 @@ pub fn plan_settle_transit(
             .ok_or(Block::Absent("holding"))
     );
     let t = tri!(tri!(transit_at(reads, scope, &transit_addr)).ok_or(Block::NoMarch));
-    let home = ProvinceKey::new(world, h.coord);
+    if ProvinceKey::new(world, h.coord) != home {
+        return Step::Done(Err(Block::NotCanonical("holding")));
+    }
     if t.host.key() != home || t.host.site() != h.site {
         return Step::Done(Err(Block::TransitOtherHost));
     }
@@ -405,9 +644,6 @@ pub fn plan_settle_transit(
     ));
     // The home province (the capture lock when present) and its roster:
     // both listed; nothing of them is written for the fates planned here.
-    let home_addr = addr(wl::province_address(&ctx, h.coord));
-    let home_roster_addr = addr(wro::roster_address(&ctx, home));
-    need!(reads, [home_addr, home_roster_addr]);
     let home_present = match tri!(province_at(
         reads,
         scope,
@@ -490,10 +726,16 @@ pub fn plan_settle_transit(
         addr(ctx.anchor_archive(region, frontier_abi::addr::archive_part_of(arrive)));
     let inputs_addr = addr(wa::clash_inputs_address(&ctx, dest, arrive));
     let dest_roster_addr = addr(wro::roster_address(&ctx, dest));
-    need!(
-        reads,
-        [anchor_addr, archive_addr, inputs_addr, dest_roster_addr]
-    );
+    // The faction's four slot addresses are asked in this round (the
+    // host's position is known only once the record is read; one round
+    // fewer than reading the one slot afterwards keeps the plan within
+    // the shared read bound). The handler reads the one at the position.
+    let slot_addrs: Vec<Address> = (0..4u8)
+        .map(|i| addr(wa::arrival_slot_address(&ctx, dest, arrive, t.faction, i)))
+        .collect();
+    let mut wanted = vec![anchor_addr, archive_addr, inputs_addr, dest_roster_addr];
+    wanted.extend(slot_addrs.iter().copied());
+    need!(reads, wanted);
     let an = tri!(anchor_read(
         reads,
         scope,
@@ -544,15 +786,8 @@ pub fn plan_settle_transit(
         return Step::Done(Err(Block::NotInFinalSet));
     };
     let rec = set[position].expect("found above");
-    // 7. the host's own slot at that position.
-    let slot_addr = addr(wa::arrival_slot_address(
-        &ctx,
-        dest,
-        arrive,
-        t.faction,
-        position as u8,
-    ));
-    need!(reads, [slot_addr]);
+    // 7. the host's own slot at that position (read above).
+    let slot_addr = slot_addrs[position];
     let Some(slot_acc) = tri!(presence(reads, &slot_addr, &scope.program, "slot")) else {
         return Step::Done(Err(Block::SlotNotOwn));
     };
@@ -654,6 +889,8 @@ pub fn plan_settle_transit(
             lamports,
             to: name,
             address,
+            // Set by the replay below.
+            route: PayRoute::OwedPool,
         });
     }
     let mut cumulative: Vec<(Address, u64)> = Vec::new();
@@ -667,8 +904,8 @@ pub fn plan_settle_transit(
             None => cumulative.push((p.address, p.lamports)),
         }
     }
-    // 10. the instruction: the seventeen fixed accounts (no camp loot, so
-    //     no Citizen), the ABI's data, sized against the packet.
+    // 10. the seventeen fixed accounts (no camp loot, so no Citizen) and
+    //     the slot's rent recipient among the six listed wallets.
     let keys = [
         payer,
         scope.season,
@@ -689,6 +926,236 @@ pub fn plan_settle_transit(
         transit_rent_to,
     ];
     debug_assert_eq!(keys.len(), wix::SETTLE_TRANSIT_FIXED);
+    let slot_rent_to = addr(s.rent_to);
+    let slot_rent_to_position = PAYEE_POSITIONS
+        .iter()
+        .find(|(i, _)| keys[*i] == slot_rent_to)
+        .map(|(i, _)| *i as u8);
+    // 11. the payees' shapes (module doc): the five wallet roles, and the
+    //     fee payer only when the slot would close to it. The placeholder
+    //     payer of the review is not a wallet whose close can be judged.
+    let mut payee_set: BTreeSet<Address> = [
+        slot_beneficiary,
+        resolver,
+        holding_rent_payer,
+        beneficiary,
+        transit_rent_to,
+    ]
+    .into_iter()
+    .collect();
+    if slot_rent_to_position == Some(0) {
+        if payer == Address::default() {
+            return Step::Done(Err(Block::PayerPlaceholder("slot rent recipient")));
+        }
+        payee_set.insert(payer);
+    }
+    let payee_addrs: Vec<Address> = payee_set.into_iter().collect();
+    need!(reads, payee_addrs);
+    let Some(rent) = reads.rent else {
+        return Step::Done(Err(Block::RentSysvarMissing("payee divert rule")));
+    };
+    let floor = |space: usize| -> Result<u64, Block> {
+        rent.minimum_balance(space)
+            .ok_or(Block::Overflow("rent floor"))
+    };
+    let mut shapes: BTreeMap<Address, PayeeShape> = BTreeMap::new();
+    for a in &payee_addrs {
+        let (lamports, owner, data_len) = match reads.accounts.get(a) {
+            None => return Step::Done(Err(Block::Read("payee not read".into()))),
+            // Not held by the chain: a zero-lamport System address.
+            Some(None) => (0, fclient::addr::system_program(), 0),
+            Some(Some(acc)) => (acc.lamports, acc.owner, acc.data.len()),
+        };
+        let program_owned = owner == scope.program;
+        let rent_floor = if program_owned {
+            None
+        } else {
+            Some(tri!(floor(data_len)))
+        };
+        shapes.insert(
+            *a,
+            PayeeShape {
+                address: *a,
+                lamports,
+                program_owned,
+                data_len,
+                rent_floor,
+            },
+        );
+    }
+    let payee_shapes: Vec<PayeeShape> = shapes.values().cloned().collect();
+    // 12. the handler's effects replayed in its order over the running
+    //     balances (module doc): the payments, the slot, the transit.
+    let holding_acc = tri!(
+        tri!(presence(reads, &holding_addr, &scope.program, "holding"))
+            .ok_or(Block::Absent("holding"))
+    );
+    let holding_lamports_before = holding_acc.lamports;
+    let holding_rent_floor = tri!(floor(hd.len()));
+    let mut holding_lamports = holding_lamports_before;
+    let pool_owed_before = tri!(rd_u64(hd, H::POOL_OWED).ok_or(Block::Unreadable("holding")));
+    let mut pool_owed = pool_owed_before;
+    for p in payments.iter_mut() {
+        if p.to == "pool_owed" {
+            // `owe_wide`: `Rw::add_u64(POOL_OWED)`.
+            pool_owed = tri!(pool_owed
+                .checked_add(p.lamports)
+                .ok_or(Block::Overflow("pool_owed")));
+            p.route = PayRoute::OwedPool;
+            continue;
+        }
+        let sh = shapes.get_mut(&p.address).expect("read above");
+        if sh.program_owned {
+            // `pay_wide`: a program-owned recipient is owed, never paid.
+            pool_owed = tri!(pool_owed
+                .checked_add(p.lamports)
+                .ok_or(Block::Overflow("pool_owed")));
+            p.route = PayRoute::OwedProgramOwned;
+            continue;
+        }
+        // `pay_or_divert`: `diverts(to.lamports, amount, rent(to.data_len))`,
+        // `None` (the sum overflows) is the handler's `Overflow`.
+        let after = tri!(sh
+            .lamports
+            .checked_add(p.lamports)
+            .ok_or(Block::Overflow("payee balance")));
+        let below = after < sh.rent_floor.expect("a wallet has a floor");
+        if !below {
+            // `move_lamports(holding, to, amount)`: `Insufficient` first.
+            holding_lamports =
+                tri!(holding_lamports
+                    .checked_sub(p.lamports)
+                    .ok_or(Block::HoldingBackingShort {
+                        payment: p.what,
+                        holding_lamports,
+                        amount: p.lamports,
+                    }));
+            sh.lamports = after;
+            p.route = PayRoute::Wallet;
+        } else {
+            // `Sink::PoolOwed(holding)`: `move_lamports(holding, holding)`
+            // is a no-op; `pool_owed += amount`.
+            pool_owed = tri!(pool_owed
+                .checked_add(p.lamports)
+                .ok_or(Block::Overflow("pool_owed")));
+            p.route = PayRoute::DivertedBelowRent;
+        }
+    }
+    // The runtime's invariant, not the handler's: a program account whose
+    // lamports changed must still be rent-exempt (conservative refusal).
+    if holding_lamports != holding_lamports_before && holding_lamports < holding_rent_floor {
+        return Step::Done(Err(Block::HoldingBelowRentExemption {
+            after: holding_lamports,
+            floor: holding_rent_floor,
+        }));
+    }
+    // `close_to(target, recipient, Sink::Never)`: the whole balance through
+    // `pay_or_divert`; a recipient the whole would leave below its minimum
+    // is `BadAccount`. Modelled for an ordinary **wallet** recipient only
+    // (a wallet in several roles sees each close on the balance the
+    // previous effect left). A recipient that is a state account of the
+    // instruction (a close source, the holding whose lamports the payments
+    // moved, a record, the System Program) or any program-owned account is
+    // **refused** (`CloseRecipientAlias`): the handler pays such a
+    // recipient directly and the balance transitions (an enlarged source
+    // closed next, a self-close whose transfer is a no-op) are not
+    // replayed here. A conservative refusal, not a handler rule.
+    let state_keys: Vec<Address> = keys
+        .iter()
+        .enumerate()
+        .filter(|(i, _)| !PAYEE_POSITIONS.iter().any(|(p, _)| p == i))
+        .map(|(_, k)| *k)
+        .collect();
+    let close_whole = |shapes: &mut BTreeMap<Address, PayeeShape>,
+                       lamports: u64,
+                       to: &Address,
+                       what: &'static str|
+     -> Result<(), Block> {
+        let sh = shapes.get_mut(to).expect("read above");
+        if sh.program_owned || state_keys.contains(to) {
+            return Err(Block::CloseRecipientAlias(what));
+        }
+        if lamports == 0 {
+            return Ok(());
+        }
+        let after = lamports
+            .checked_add(sh.lamports)
+            .ok_or(Block::Overflow("close recipient balance"))?;
+        if after < sh.rent_floor.expect("a wallet has a floor") {
+            return Err(Block::CloseWouldDivert(what));
+        }
+        sh.lamports = after;
+        Ok(())
+    };
+    // The slot: `wide_claim_eligible`, mirrored.
+    let tip_min = min_tip_lamports(
+        season.min_reveal_priority_milli,
+        season.reveal_cu_limit,
+        season.reveal_loaded_limit,
+    );
+    let params = DefenceParams {
+        defence_cap_milli: season.defence_cap_milli,
+        tip_min,
+    };
+    let grace_end = tri!(close
+        .checked_add(CLAIM_GRACE_BELLS as i64 * 600)
+        .ok_or(Block::Overflow("claim grace")));
+    let refund = defence_refund(
+        &Evidence {
+            price_micro: s.ev_price,
+            limit: s.ev_limit,
+            loaded: s.ev_loaded,
+            created_day: false,
+        },
+        &params,
+    );
+    let eligible = match an.anchor_slot {
+        None => false,
+        Some(anchor_slot) => {
+            !s.claimed
+                && now.unix_timestamp < grace_end
+                && s.ev_slot.saturating_sub(anchor_slot) >= season.lateness_slots as u64
+                && refund > 0
+        }
+    };
+    let claim = ClaimRule {
+        anchor_slot: an.anchor_slot,
+        lateness_slots: season.lateness_slots,
+        tip_min,
+        defence_cap_milli: season.defence_cap_milli,
+        grace_end,
+        refund,
+        eligible,
+    };
+    let slot_disposition = if eligible {
+        SlotDisposition::KeptForClaim
+    } else {
+        match slot_rent_to_position {
+            Some(position) => {
+                let lamports = slot_acc.lamports;
+                tri!(close_whole(&mut shapes, lamports, &slot_rent_to, "slot"));
+                SlotDisposition::ClosedTo { position, lamports }
+            }
+            None => SlotDisposition::FlaggedSettled,
+        }
+    };
+    // The transit record, whole to its immutable recipient.
+    let transit_acc =
+        tri!(tri!(presence(reads, &transit_addr, &scope.program, "transit")).ok_or(Block::NoMarch));
+    let transit_close_lamports = transit_acc.lamports;
+    tri!(close_whole(
+        &mut shapes,
+        transit_close_lamports,
+        &transit_rent_to,
+        "transit"
+    ));
+    let predicted_balances: Vec<(Address, u64)> =
+        shapes.values().map(|s| (s.address, s.lamports)).collect();
+    // The fee payer among the payees: its shape as read is **before** the
+    // transaction fee it pays; the routes predicted for it are conditional
+    // on that (module doc).
+    let payer_is_payee = payee_addrs.contains(&payer);
+    // 13. the instruction: the ABI's data, sized against the packet.
     let accounts = metas(wix::SETTLE_TRANSIT, &keys);
     let data = SettleTransit {
         transit_slot: proof.transit_slot,
@@ -706,11 +1173,6 @@ pub fn plan_settle_transit(
     if packet_len(&ix, &payer) > GATHER_PACKET_BYTES {
         return Step::Done(Err(Block::Overflow("packet")));
     }
-    let slot_rent_to = addr(s.rent_to);
-    let slot_rent_to_position = PAYEE_POSITIONS
-        .iter()
-        .find(|(i, _)| keys[*i] == slot_rent_to)
-        .map(|(i, _)| *i as u8);
     let facts = SettleTransitFacts {
         host,
         transit_slot: proof.transit_slot,
@@ -741,6 +1203,17 @@ pub fn plan_settle_transit(
         transit_rent_to,
         slot_rent_to,
         slot_rent_to_position,
+        payee_shapes,
+        holding_lamports_before,
+        holding_lamports_after: holding_lamports,
+        holding_rent_floor,
+        pool_owed_before,
+        pool_owed_after: pool_owed,
+        predicted_balances,
+        payer_is_payee,
+        slot_disposition,
+        claim,
+        transit_close_lamports,
         camp_mask: ih.camp_mask,
         anchor_source: an.source,
         a_ts: an.a_ts,
@@ -765,7 +1238,8 @@ pub fn plan_settle_transit(
 }
 
 /// [`plan_settle_transit`] over one snapshot response (the fee payer's
-/// account in it; nothing is created, so no Rent).
+/// account in it; nothing is created, but the **Rent sysvar is requested**:
+/// the payees' divert rule needs it).
 pub async fn settle_transit_snapshot<
     P: fclient::ports::ChainPort + crate::widesnapshot::SnapshotPort,
 >(
@@ -777,14 +1251,16 @@ pub async fn settle_transit_snapshot<
     publication: Option<&Publication>,
     min_slot: u64,
 ) -> Result<(Candidate, crate::widesnapshot::Snapshot), Block> {
-    crate::widesnapshot::snapshot_plan(port, min_slot, false, &[payer], |r| {
+    crate::widesnapshot::snapshot_plan(port, min_slot, true, &[payer], |r| {
         plan_settle_transit(scope, payer, beneficiary, proof, publication, r)
     })
     .await
 }
 
 /// [`plan_settle_transit`] over live reads (at most
-/// `wideduty::MAX_READ_ROUNDS` evaluations; the clock observed once).
+/// `wideduty::MAX_READ_ROUNDS` evaluations; the clock observed once; the
+/// Rent sysvar read once, separately — these reads are never a coherent
+/// snapshot).
 pub async fn settle_transit_via<P: fclient::ports::ChainPort>(
     port: &P,
     scope: &Scope,
@@ -796,6 +1272,15 @@ pub async fn settle_transit_via<P: fclient::ports::ChainPort>(
 ) -> Result<Candidate, Block> {
     let mut reads = Reads::new(min_slot);
     reads.clock = port.clock().await.ok();
+    let rent_addr = crate::widesnapshot::rent_sysvar();
+    let got = port
+        .accounts(&[rent_addr], min_slot)
+        .await
+        .map_err(|e| Block::Read(e.to_string()))?;
+    reads.rent = match got.as_slice() {
+        [Some(acc)] => crate::widesnapshot::RentSysvar::decode(&acc.data),
+        _ => None,
+    };
     for _ in 0..crate::wideduty::MAX_READ_ROUNDS {
         match plan_settle_transit(scope, payer, beneficiary, proof, publication, &reads) {
             Step::Done(r) => return r,

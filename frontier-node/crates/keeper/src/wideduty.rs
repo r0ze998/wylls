@@ -488,6 +488,35 @@ pub enum Block {
     EscrowShort { escrow: u64, total: u64 },
     /// Settle: the holding counts no open transit (`BadAccount`).
     NoOpenTransit,
+    /// Settle: the Rent sysvar is not among the reads: the handler's divert
+    /// rule (`pay_or_divert`: a wallet the payment would leave below its
+    /// rent-exempt minimum is diverted) cannot be reproduced; named.
+    RentSysvarMissing(&'static str),
+    /// Settle: the holding's lamports cannot back a payment the replay
+    /// delivers to a wallet (`move_lamports`: `Insufficient`).
+    HoldingBackingShort {
+        payment: &'static str,
+        holding_lamports: u64,
+        amount: u64,
+    },
+    /// Settle: the runtime's invariant, not a handler line — the holding's
+    /// lamports changed and would end below its rent-exempt minimum
+    /// (conservative refusal).
+    HoldingBelowRentExemption { after: u64, floor: u64 },
+    /// Settle: a whole-account close under `Sink::Never` would divert (the
+    /// recipient wallet would stay below its rent-exempt minimum): the
+    /// handler's `BadAccount`; the target named (`"slot"`, `"transit"`).
+    CloseWouldDivert(&'static str),
+    /// Settle: a close's recipient is a state account of the instruction
+    /// (a close source, the holding, a record, the System Program) or any
+    /// program-owned account: the handler pays it directly, but the
+    /// source/recipient balance transitions are not replayed here —
+    /// a conservative refusal, not a handler rule; the target named.
+    CloseRecipientAlias(&'static str),
+    /// Settle: the slot's rent recipient is the fee payer's position and
+    /// the review payer is the all-zero placeholder: that close cannot be
+    /// judged against a wallet; named.
+    PayerPlaceholder(&'static str),
     /// The same-response snapshot could not be taken (the port's reason).
     Snapshot(String),
     /// Planned over one response, the plan asked for keys the response

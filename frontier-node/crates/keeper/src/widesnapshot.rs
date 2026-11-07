@@ -614,7 +614,11 @@ impl<P> SnapshotMode<P> {
 /// the fee review bounds) is taken at or past `min_slot`; then the plan
 /// runs again over that response alone. A plan that asks for a key the
 /// snapshot does not hold (the state moved between the two) is
-/// `Block::SnapshotIncomplete`, never patched from another read.
+/// `Block::SnapshotIncomplete`, never patched from another read. A plan
+/// that says `Block::RentSysvarMissing` while the keys are learned (a
+/// Rent-dependent rule) has the Rent sysvar read once for the discovery
+/// when `with_rent`; the final judgement still uses the response's own
+/// Rent and nothing of the discovery reads.
 pub async fn snapshot_plan<P, T, F>(
     port: &P,
     min_slot: u64,
@@ -650,12 +654,35 @@ where
     let mut reads = Reads::new(min_slot);
     reads.clock = port.clock().await.ok();
     let mut rounds = 0;
+    // A planner that judges a Rent-dependent rule (the settlement's divert
+    // rule) says `RentSysvarMissing` once every account is in hand; with
+    // `with_rent`, the Rent sysvar is then read **once** here (an ordinary
+    // read, like the clock) so the key set can be learned. Other planners
+    // never say it, so their read counts are unchanged. The judgement in
+    // step 3 is over the response's own Rent alone.
+    let mut rent_tried = false;
     loop {
         rounds += 1;
         if rounds > 6 {
             return Err(Block::ReadLoop);
         }
         match plan(&reads) {
+            Step::Done(Err(Block::RentSysvarMissing(_)))
+                if with_rent && !rent_tried && reads.rent.is_none() =>
+            {
+                rent_tried = true;
+                let got = port
+                    .accounts(&[rent_sysvar()], min_slot)
+                    .await
+                    .map_err(|e| Block::Read(e.to_string()))?;
+                reads.rent = match got.as_slice() {
+                    [Some(acc)] => RentSysvar::decode(&acc.data),
+                    _ => None,
+                };
+                if reads.rent.is_none() {
+                    return Err(Block::RentSysvarMissing("discovery read"));
+                }
+            }
             Step::Done(Err(b)) => return Err(b),
             Step::Done(Ok(_)) => break,
             Step::Need(addrs) => {

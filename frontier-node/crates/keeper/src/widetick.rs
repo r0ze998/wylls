@@ -16,16 +16,29 @@
 //! as before (this step runs whether or not it has fired, before the keeper
 //! publishes its status, and only reads).
 //!
-//! **Cooldowns.** A settle or return hint is not re-planned within
-//! [`REFRESH_SLOTS`]. A reveal hint has its own rules: a transient outcome
-//! ([`is_transient`]: the publication not served yet, THE anchor not
-//! landed, no clock observed, the Season not yet started, a read or
-//! snapshot failure) is retried at the **next slot**, at most
+//! **Cooldowns.** A settle, return, gather or resolve hint is not
+//! re-planned within [`REFRESH_SLOTS`]. A reveal hint has its own rules: a
+//! transient outcome ([`is_transient`]: the publication not served yet,
+//! THE anchor not landed, no clock observed, the Season not yet started, a
+//! read or snapshot failure) is retried at the **next slot**, at most
 //! [`MAX_TRANSIENT_RETRIES`] times in a row
 //! before it waits [`REVEAL_REFRESH_SLOTS`]; a candidate waits
 //! [`REVEAL_REFRESH_SLOTS`]; any other block waits [`REFRESH_SLOTS`]; and a
 //! **new proof** for the same march (a later feed sequence) invalidates the
-//! ledger entry at once.
+//! ledger entry at once. A **settle-transit** hint (eleventh slice: a
+//! stored proof whose march the observer shows **revealed** and open,
+//! [`ProofStore::settle_hints`]) follows the reveal's transient and
+//! proof-renewal rules, and otherwise waits [`REFRESH_SLOTS`] (a candidate
+//! too: the settlement has no closing window). It is listed only with the
+//! [`RevealInputs`] (the same public round opens the seal; the same
+//! beneficiary is the settler's), planned by
+//! [`crate::widesettle::plan_settle_transit`] under the **same shared
+//! cap** — one plan per hint per tick, never a third planner — over one
+//! snapshot **with the Rent sysvar** (the payees' divert rule needs it; the
+//! live driver reads the Rent separately and its candidate is
+//! non-coherent). Its candidate is reviewed and denied like every other;
+//! its payments are nominal allocations with routes predicted over the
+//! shapes as read, never transfers.
 //!
 //! **The snapshot, additive.** The keeper is generic over `ChainPort`; the
 //! same-response snapshot is passed to the step as an optional
@@ -90,7 +103,8 @@
 //!
 //! **Bounds.** ≤ `CANDIDATES_PER_TICK` plans per tick, each ≤ 6 account
 //! read rounds plus one clock read, plus at most one snapshot request and
-//! (reveal) one beacon ask. Resolve discovery additionally allows one shared
+//! (reveal, settle-transit) one beacon ask (and, settle-transit without a
+//! snapshot, one Rent sysvar read). Resolve discovery additionally allows one shared
 //! nonce probe per tick (four reads of at most 64 addresses); it saves a hint
 //! for a later tick rather than invoking another planner. ≤ [`MAX_EXTRACT_PER_PAGE`] proof extractions per
 //! feed page; the proof store keeps ≤ [`MAX_PROOFS`] proofs, the beacon
@@ -117,6 +131,7 @@ use crate::wideproof::{depart_proof, DepartProof, ProofScope, METHOD_SUPPLIED};
 use crate::widereconcile::{reconcile, Verdict};
 use crate::widereveal::{self, Opening, Publication, RevealCandidate};
 use crate::widereview::{review_candidate, review_reveal, EngineView, Subject};
+use crate::widesettle;
 use crate::widesnapshot::{snapshot_plan_with, Snapshot, SnapshotSource};
 use frontier_abi::world_index::event::WideTarget;
 
@@ -583,6 +598,10 @@ pub struct WideReview {
     /// Resolve hints that needed a probe in a tick whose one probe was
     /// already spent: deferred to the next slot, nothing read for them.
     pub seed_probes_deferred: u64,
+    /// Transit settlement plans (`widesettle::plan_settle_transit`) and the
+    /// candidates they made.
+    pub settle_plans: u64,
+    pub settle_candidates: u64,
     /// The resolver the resolve candidates name; without it no resolve
     /// hint is planned (no recipient is invented).
     resolve_beneficiary: Option<Address>,
@@ -647,6 +666,8 @@ impl WideReview {
             seed_probes: 0,
             seed_nonces_forgotten: 0,
             seed_probes_deferred: 0,
+            settle_plans: 0,
+            settle_candidates: 0,
             resolve_beneficiary: None,
             resolve_keys: BTreeMap::new(),
             seed_nonces: BTreeMap::new(),
@@ -861,17 +882,26 @@ impl WideReview {
                     Hint::Reveal(h, s),
                 )
             }));
+            // The settlement needs the same inputs (the proof's seal, the
+            // public round signature, a beneficiary): listed only with them.
+            v.extend(self.proofs.settle_hints(model).into_iter().map(|(h, s)| {
+                (
+                    format!("settle-transit:{}:{s}", hex::encode(h.to_bytes())),
+                    Hint::SettleTransit(h, s),
+                )
+            }));
         }
         v
     }
 
     /// Whether `hint` waits: its ledger entry's `next` is past `slot` and,
-    /// for a reveal, the stored proof is the one it was planned from.
+    /// for a reveal or a transit settlement, the stored proof is the one it
+    /// was planned from.
     fn waits(&self, id: &str, hint: &Hint, slot: u64) -> bool {
         let Some(e) = self.ledger.get(id) else {
             return false;
         };
-        if let Hint::Reveal(h, s) = hint {
+        if let Hint::Reveal(h, s) | Hint::SettleTransit(h, s) = hint {
             let current = self.proofs.get(*h, *s).map(|p| p.seq);
             if current != e.proof_seq {
                 return false;
@@ -1197,6 +1227,94 @@ impl WideReview {
                         observer,
                     )
                 }
+                Hint::SettleTransit(h, s) => {
+                    self.settle_plans += 1;
+                    let (proof, origin, proof_seq) = match self.proofs.get(*h, *s) {
+                        Some(e) => (e.proof.clone(), e.origin, e.seq),
+                        None => {
+                            self.blocked += 1;
+                            self.ledger.insert(
+                                id.clone(),
+                                Entry {
+                                    slot,
+                                    next: slot.saturating_add(REFRESH_SLOTS),
+                                    transient: 0,
+                                    proof_seq: None,
+                                    summary: json!({"hint": id, "slot": slot, "outcome": "blocked", "block": "NoProof"}),
+                                },
+                            );
+                            continue;
+                        }
+                    };
+                    let prior = self.ledger.get(id.as_str());
+                    let renewed = prior.is_some_and(|e| e.proof_seq != Some(proof_seq));
+                    if renewed {
+                        self.proofs_renewed += 1;
+                    }
+                    let prior_transient = prior.filter(|_| !renewed).map_or(0, |e| e.transient);
+                    if prior_transient > 0 {
+                        self.transient_retries += 1;
+                    }
+                    let inputs = reveal
+                        .as_mut()
+                        .expect("settle-transit hints are listed only with reveal inputs");
+                    // The same public round the reveal opened under: THE
+                    // anchor's stored signature must be it (the planner's
+                    // `AnchorSignatureMismatch` otherwise).
+                    let round =
+                        SeasonClock::from_season(inputs.season).tlock_round(proof.arrive_bell);
+                    let publication = inputs.beacon.publication(round, slot).await;
+                    if publication.is_none() {
+                        self.publications_missing += 1;
+                    }
+                    // The settler's beneficiary: the configured public
+                    // address, the same one the reveal names.
+                    let beneficiary = inputs.beneficiary;
+                    let min_slot = slot.max(proof.provenance.slot);
+                    // With the Rent sysvar: the payees' divert rule needs it.
+                    let planned = match snapshot {
+                        Some(src) => snapshot_plan_with(port, src, min_slot, true, &extra, |r| {
+                            widesettle::plan_settle_transit(
+                                &scope,
+                                payer,
+                                beneficiary,
+                                &proof,
+                                publication.as_ref(),
+                                r,
+                            )
+                        })
+                        .await
+                        .map(|(c, snap)| (c, Some(snap))),
+                        None => widesettle::settle_transit_via(
+                            port,
+                            &scope,
+                            payer,
+                            beneficiary,
+                            &proof,
+                            publication.as_ref(),
+                            min_slot,
+                        )
+                        .await
+                        .map(|c| (c, None)),
+                    };
+                    self.settle_entry(
+                        id,
+                        slot,
+                        min_slot,
+                        engine,
+                        planned,
+                        RevealMeta {
+                            round,
+                            publication_served: publication.is_some(),
+                            origin,
+                            proof_seq,
+                            prior_transient,
+                            renewed,
+                        },
+                        &scope,
+                        observer,
+                    )
+                }
             };
             self.ledger.insert(id.clone(), entry);
         }
@@ -1402,6 +1520,93 @@ impl WideReview {
         }
     }
 
+    /// The ledger entry of a transit settlement planned from a stored
+    /// proof: the same shape and retry rules as [`WideReview::reveal_entry`]
+    /// (a transient outcome retried at the next slot, bounded; a candidate
+    /// and every other block wait [`REFRESH_SLOTS`]; a newer proof
+    /// invalidates the entry), reviewed as a duty candidate.
+    #[allow(clippy::too_many_arguments)]
+    fn settle_entry(
+        &mut self,
+        id: &str,
+        slot: u64,
+        min_slot: u64,
+        engine: &Engine,
+        planned: Result<(Candidate, Option<Snapshot>), Block>,
+        meta: RevealMeta,
+        scope: &Scope,
+        observer: Option<&WideObserver>,
+    ) -> Entry {
+        let common = json!({
+            "hint": id,
+            "slot": slot,
+            "min_slot": min_slot,
+            "proof_origin": meta.origin,
+            "proof_seq": meta.proof_seq,
+            "proof_renewed": meta.renewed,
+            "publication_round": meta.round,
+            "publication_served": meta.publication_served,
+            "opening": "FromBeacon",
+            "retry": meta.prior_transient,
+        });
+        let (summary, next, transient) = match planned {
+            Ok((c, snap)) => {
+                self.candidates += 1;
+                self.settle_candidates += 1;
+                if c.coherent() {
+                    self.coherent += 1;
+                }
+                let reads = snap
+                    .as_ref()
+                    .map(Snapshot::reads)
+                    .unwrap_or_else(|| Reads::new(min_slot));
+                let view = EngineView::of(engine, &Subject::of_duty(&c));
+                let a = review_candidate(&c, &reads, &view);
+                let targets: Vec<WideTarget> = match &c.duty {
+                    Duty::SettleTransit(f) => {
+                        vec![WideTarget::Province(f.dest), WideTarget::Holding(f.host)]
+                    }
+                    _ => Vec::new(),
+                };
+                let reconcile = self.reconcile_targets(scope, observer, &targets, &reads);
+                // `describe` carries identities, counts, routes and labels:
+                // not the instruction data (the seal and commitment bytes).
+                let mut s = common;
+                s["outcome"] = json!("candidate");
+                s["candidate"] = c.describe();
+                s["snapshot"] = json!(snap.as_ref().map(|s| s.meta().describe()));
+                s["assessment"] = a.describe();
+                s["reconcile"] = reconcile;
+                (s, slot.saturating_add(REFRESH_SLOTS), 0)
+            }
+            Err(b) => {
+                self.note_block(&b);
+                let mut s = common;
+                s["outcome"] = json!("blocked");
+                s["block"] = json!(block_code(&b));
+                if is_transient(&b) {
+                    let count = meta.prior_transient + 1;
+                    if count <= MAX_TRANSIENT_RETRIES {
+                        s["next"] = json!("next slot");
+                        (s, slot.saturating_add(1), count)
+                    } else {
+                        s["next"] = json!("retries used; refresh");
+                        (s, slot.saturating_add(REFRESH_SLOTS), 0)
+                    }
+                } else {
+                    (s, slot.saturating_add(REFRESH_SLOTS), 0)
+                }
+            }
+        };
+        Entry {
+            slot,
+            next,
+            transient,
+            proof_seq: Some(meta.proof_seq),
+            summary,
+        }
+    }
+
     /// What the review covers as configured, in one line.
     fn covers(&self) -> String {
         let reads = match self.snapshot_at_last_step {
@@ -1411,11 +1616,11 @@ impl WideReview {
             None => "ordinary reads (no snapshot source: coherent false)",
         };
         let reveal = match self.reveal_inputs_at_last_step {
-            Some(true) => "reveal hints from stored proofs with the runtime's reveal inputs",
-            Some(false) => "no reveal hints (no reveal inputs at the last step)",
-            None => "no reveal hints yet (no step)",
+            Some(true) => "reveal and settle-transit hints from stored proofs with the runtime's reveal inputs",
+            Some(false) => "no reveal hints or settle-transit hints (no reveal inputs at the last step)",
+            None => "no reveal hints or settle-transit hints yet (no step)",
         };
-        format!("settle and return hints over {reads}; {reveal}")
+        format!("settle, return, gather and resolve hints over {reads}; {reveal}")
     }
 
     /// Exactly what the review lacks, if anything.
@@ -1428,7 +1633,7 @@ impl WideReview {
             m.push("reveal inputs: the runtime passes them only once the Season is read and a publication source exists (season clock for the beacon round, drand port, public beneficiary)");
         }
         if self.proofs.is_empty() {
-            m.push("departure proofs: none extracted from a feed page or supplied; no reveal can be planned");
+            m.push("departure proofs: none extracted from a feed page or supplied; no reveal or transit settlement can be planned");
         }
         if self.review_payer.is_none() {
             m.push("payer: none set; funding is not reviewed (the candidates name the System Program placeholder)");
@@ -1517,7 +1722,19 @@ impl WideReview {
                 "hints": "every observed province not seen closed (the observer's province bound, never cut here), rotated by the tick cursor; at its current resolved_next read from the chain (resident-only bells included; no intermediate bell skipped)",
                 "seed_rule": "one plan per hint per tick under the shared cap; at most one 256-address probe (four reads) per tick, its nonces tried one per later slot over their own snapshots; a refused nonce cools down and is tried again after; nothing is substituted inside a sealed snapshot",
                 "model": "world_index::resolve::resolve_bell replayed on scratch bytes; the output digest is at the observed clock; the program applies its own",
-                "not_planned": "WideSettleTransit: a resolved bell has no planned settlement; arrival processing is not complete",
+                "not_planned": "a resolved bell's settlements beyond the settle_transit slice (bad seals, bounces, routs, returns home, camp loot); arrival processing is not complete",
+            },
+            "settle_transit": {
+                "inputs_at_last_step": self.reveal_inputs_at_last_step,
+                "plans": self.settle_plans,
+                "candidates": self.settle_candidates,
+                "hints": "stored proofs whose march the observer shows revealed and open in the proof's slot; listed only with the reveal inputs (the public round, the beneficiary); read hints only",
+                "min_slot": "max(tick slot, proof slot)",
+                "snapshot": "one response with the Rent sysvar (the payees' divert rule); without a snapshot source the live driver reads the Rent separately and the candidate is non-coherent",
+                "scope": "a seal that opens under THE anchor's own stored round signature, a host present in the resolved final set with fate Stays, Withdrew or Destroyed, no camp loot; the payees' shapes read and the handler's payments and closes replayed over them in its order; any replay that would abort is a refusal",
+                "payments": "nominal allocations with predicted routes over the shapes as read; never observed or successful transfers",
+                "not_planned": "bad seals, absent destinations, bounces, routs, returns home, camp loot; arrival processing is not complete",
+                "shared_counters": "publications_missing, transient_retries and proofs_renewed under `reveal` count reveal and settle-transit plans together",
             },
             "reconcile": {
                 "agree": self.reconcile_agree,
@@ -1552,6 +1769,9 @@ enum Hint {
     Resolve(ProvinceKey),
     /// A stored proof's march, by `(host, transit slot)`.
     Reveal(WideHostRef, u8),
+    /// A stored proof's march the model shows **revealed** and open, by
+    /// `(host, transit slot)`: the destination-side settlement.
+    SettleTransit(WideHostRef, u8),
 }
 
 /// SeedCache nonces remembered (and `(bell, region)` keys of refused

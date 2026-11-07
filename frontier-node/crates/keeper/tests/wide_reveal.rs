@@ -32,6 +32,7 @@ use frontier_abi::layout::province::province as PV;
 use frontier_abi::layout::province::site as SM;
 use frontier_abi::layout::world::{beacon_log as BL, season as SL};
 use frontier_abi::v2::layout::player::holding as H;
+use frontier_abi::world_index::event::{self as wev, encode, WideEntity, WideKind, WideLink};
 use frontier_abi::world_index::settle::{plan_settlement, WideOutcome};
 use frontier_abi::world_index::wide_ix::SettleTransit;
 use frontier_abi::world_index::wide_ix::{self as wix, Reveal};
@@ -43,23 +44,24 @@ use frontier_abi::world_index::{
 use keeper_core::engine::{Engine, EngineParams};
 use keeper_core::wideduty::{self, Block, Candidate, Deployment, Duty, Reads, Step};
 use keeper_core::widefees::{self, Funding, Known};
-use keeper_core::wideindex::{Limits, Scope as IndexScope, WideDiscovery};
+use keeper_core::wideindex::{Limits, Scope as IndexScope, WideBatch, WideDiscovery};
 use keeper_core::wideproof::{DepartProof, Provenance};
 use keeper_core::widereveal::{
     self, Crypto, Opening, Publication, RevealCandidate, DOWNSTREAM_GENERATION, UNVERIFIED,
     UNVERIFIED_COHERENCE, UNVERIFIED_CURRENCY,
 };
 use keeper_core::widereview::{self, Deny, EngineView, Subject, HARD_DENIALS};
-use keeper_core::widesettle::{self, SettleTransitFacts};
+use keeper_core::widesettle::{self, ClaimRule, PayRoute, SettleTransitFacts, SlotDisposition};
 use keeper_core::widesnapshot::{
     parse_snapshot_response, rent_sysvar, sysvar_owner, RentSysvar, Snapshot, SnapshotError,
-    SnapshotPort, MAX_SNAPSHOT_KEYS,
+    SnapshotPort, SnapshotSource, MAX_SNAPSHOT_KEYS,
 };
 use keeper_core::widetick::{
     is_transient, BeaconCache, DrandPublications, RevealInputs, WideReview, ORIGIN_SUPPLIED,
     REFRESH_SLOTS,
 };
 use permutation_rules::frontier::beacon::{bell_start, first_round_from};
+use permutation_rules::frontier::fees;
 use permutation_rules::frontier::seal::encode_path;
 use permutation_rules::frontier::seal::salt_of;
 use serde_json::{json, Value};
@@ -841,7 +843,9 @@ fn resolved_inputs_bytes(
 /// generation with the tip in escrow and one open transit, the
 /// destination resolved past the arrival, THE anchor with the vector's
 /// signature, the resolved record with the host present at position 1
-/// with fate Stays, its own slot there, the clock at `close + 600`.
+/// with fate Stays, its own slot there, the clock at `close + 600`; the
+/// five payee wallets funded, the Rent sysvar of the reads.
+#[derive(Clone)]
 struct SettleFx {
     proof: DepartProof,
     publication: Option<Publication>,
@@ -855,7 +859,40 @@ struct SettleFx {
     inputs: Option<Vec<u8>>,
     slot: Option<Vec<u8>>,
     clock: Option<ClockSysvar>,
+    /// The lamports of the holding, the transit record and the slot as
+    /// read (the holding backs the payments; the two records close whole).
+    holding_lamports: u64,
+    transit_lamports: u64,
+    slot_lamports: u64,
+    /// The payee wallets as read (`None`: not held by the chain).
+    wallets: BTreeMap<Address, Option<Account>>,
+    /// The Rent sysvar of the reads (the payees' divert rule needs it).
+    rent: Option<RentSysvar>,
 }
+/// A program account with `lamports`.
+fn acct_with(data: Vec<u8>, lamports: u64) -> Option<Account> {
+    Some(Account {
+        lamports,
+        data,
+        owner: program(),
+        executable: false,
+    })
+}
+/// A System wallet with `lamports` and no data.
+fn wallet(lamports: u64) -> Option<Account> {
+    Some(Account {
+        lamports,
+        data: vec![],
+        owner: fclient::addr::system_program(),
+        executable: false,
+    })
+}
+/// The holding's lamports in the fixture: well above the Rent sysvar's
+/// minimum for its size, so the replayed payments leave it rent-exempt.
+const HOLDING_LAMPORTS: u64 = 100_000_000;
+/// A wallet funded at or above `rent(0)` under the fixture Rent
+/// (890,880): a payment to it is delivered, never diverted.
+const FUNDED_WALLET: u64 = 1_000_000;
 impl SettleFx {
     /// The recorded vector sealed to `away()`.
     fn material() -> (WidePlain, [u8; 32], [u8; WIDE_SEAL_LEN]) {
@@ -907,13 +944,35 @@ impl SettleFx {
             )),
             slot: Some(slot_bytes_at(away(), 1, host())),
             clock: Some(clock_at(Self::settle_at())),
+            holding_lamports: HOLDING_LAMPORTS,
+            transit_lamports: FUNDED_WALLET,
+            slot_lamports: FUNDED_WALLET,
+            wallets: [
+                addr(SLOT_BENEFICIARY),
+                addr(RESOLVER),
+                addr(RENT_PAYER),
+                beneficiary(),
+                addr(TRANSIT_RENT_TO),
+            ]
+            .into_iter()
+            .map(|a| (a, wallet(FUNDED_WALLET)))
+            .collect(),
+            rent: Some(RENT),
         }
     }
     fn accounts(&self) -> BTreeMap<Address, Option<Account>> {
         let mut m = BTreeMap::new();
         m.insert(season_pda().0, acct(self.season.clone()));
-        m.insert(holding_addr(), acct(self.holding.clone()));
-        m.insert(transit_addr(), self.transit.clone().and_then(acct));
+        m.insert(
+            holding_addr(),
+            acct_with(self.holding.clone(), self.holding_lamports),
+        );
+        m.insert(
+            transit_addr(),
+            self.transit
+                .clone()
+                .and_then(|d| acct_with(d, self.transit_lamports)),
+        );
         m.insert(province_addr(home()), self.home.clone().and_then(acct));
         m.insert(roster_addr(home()), None);
         m.insert(province_addr(away()), self.dest.clone().and_then(acct));
@@ -925,11 +984,16 @@ impl SettleFx {
             m.insert(
                 dest_slot_addr(away(), i),
                 if i == 1 {
-                    self.slot.clone().and_then(acct)
+                    self.slot
+                        .clone()
+                        .and_then(|d| acct_with(d, self.slot_lamports))
                 } else {
                     None
                 },
             );
+        }
+        for (a, w) in &self.wallets {
+            m.insert(*a, w.clone());
         }
         m
     }
@@ -937,7 +1001,49 @@ impl SettleFx {
         let mut r = Reads::new(0);
         r.clock = self.clock;
         r.accounts = self.accounts();
+        r.rent = self.rent;
         r
+    }
+    /// The season bytes with the march fee and the bond set, and a transit
+    /// record flagged as having escrowed both: the three payments.
+    fn escrow_fee_and_bond(&mut self) {
+        let mut s = season_bytes(SL::STATUS_RUNNING, 10_000);
+        assert!(wr_u64(&mut s, SL::MARCH_FEE, MARCH_FEE));
+        assert!(wr_u64(&mut s, SL::SEAL_BOND, SEAL_BOND));
+        self.season = s;
+        let mut t = SettleFx::settled_transit(self.proof.seal_root);
+        t.flags |= TL::FLAG_FEE_ESCROWED | TL::FLAG_BOND_ESCROWED;
+        self.transit = Some(t.to_bytes().to_vec());
+        self.holding = settle_holding_bytes(GEN, TIP + MARCH_FEE + SEAL_BOND, 1);
+    }
+    /// One snapshot response over every account of the fixture (the Rent
+    /// included), coherent at `context_slot`.
+    fn snapshot(&self, context_slot: u64, min_slot: u64) -> Snapshot {
+        let accounts = self.accounts();
+        let keys: Vec<Address> = accounts.keys().copied().collect();
+        let mut value: Vec<Value> = keys
+            .iter()
+            .map(|k| match accounts.get(k).cloned().flatten() {
+                Some(a) => account_json(&a),
+                None => Value::Null,
+            })
+            .collect();
+        let clock = ClockSysvar {
+            slot: context_slot,
+            unix_timestamp: self
+                .clock
+                .map_or(SettleFx::settle_at(), |c| c.unix_timestamp),
+            ..ClockSysvar::default()
+        };
+        value.push(account_json(&sysvar_account(clock.encode().to_vec())));
+        value.push(account_json(&sysvar_account(rent_bytes(&RENT))));
+        parse_snapshot_response(
+            &json!({"context": {"slot": context_slot}, "value": value}),
+            &keys,
+            true,
+            min_slot,
+        )
+        .unwrap()
     }
     fn plan(&self) -> Result<Candidate, Block> {
         match widesettle::plan_settle_transit(
@@ -1373,33 +1479,7 @@ fn settle_transit_refuses_everything_outside_the_slice() {
 #[test]
 fn settle_transit_candidate_is_bound_to_its_snapshot_and_content() {
     let fx = SettleFx::new();
-    let accounts = fx.accounts();
-    let keys: Vec<Address> = accounts.keys().copied().collect();
-    let mut value: Vec<Value> = keys
-        .iter()
-        .map(|k| match accounts.get(k).cloned().flatten() {
-            Some(a) => account_json(&a),
-            None => Value::Null,
-        })
-        .collect();
-    let clock = ClockSysvar {
-        slot: 2_000,
-        unix_timestamp: SettleFx::settle_at(),
-        ..ClockSysvar::default()
-    };
-    value.push(account_json(&Account {
-        lamports: 1,
-        data: clock.encode().to_vec(),
-        owner: sysvar_owner(),
-        executable: false,
-    }));
-    let snap = parse_snapshot_response(
-        &json!({"context": {"slot": 2_000}, "value": value}),
-        &keys,
-        false,
-        7,
-    )
-    .unwrap();
+    let snap = fx.snapshot(2_000, 7);
     let reads = snap.reads();
     let c = match widesettle::plan_settle_transit(
         &scope(),
@@ -1474,42 +1554,11 @@ fn settle_transit_payer_may_hold_wallet_roles_but_never_state_roles() {
     assert!(wr_arr(&mut hd, H::RENT_PAYER, &payer().to_bytes()));
     fx.holding = hd;
     let plan_with_payer_roles = |fx: &SettleFx, payer_lamports: u64| {
-        let mut accounts = fx.accounts();
-        accounts.insert(
-            payer(),
-            Some(Account {
-                lamports: payer_lamports,
-                data: vec![],
-                owner: fclient::addr::system_program(),
-                executable: false,
-            }),
-        );
-        let keys: Vec<Address> = accounts.keys().copied().collect();
-        let mut value: Vec<Value> = keys
-            .iter()
-            .map(|k| match accounts.get(k).cloned().flatten() {
-                Some(a) => account_json(&a),
-                None => Value::Null,
-            })
-            .collect();
-        let clock = ClockSysvar {
-            slot: 2_000,
-            unix_timestamp: SettleFx::settle_at(),
-            ..ClockSysvar::default()
-        };
-        value.push(account_json(&Account {
-            lamports: 1,
-            data: clock.encode().to_vec(),
-            owner: sysvar_owner(),
-            executable: false,
-        }));
-        let snap = parse_snapshot_response(
-            &json!({"context": {"slot": 2_000}, "value": value}),
-            &keys,
-            false,
-            7,
-        )
-        .unwrap();
+        // The payer's wallet (also the transit record's rent recipient in
+        // the fixture: `TRANSIT_RENT_TO` is `payer()`), at `payer_lamports`.
+        let mut fx2 = fx.clone();
+        fx2.wallets.insert(payer(), wallet(payer_lamports));
+        let snap = fx2.snapshot(2_000, 7);
         let reads = snap.reads();
         let c = match widesettle::plan_settle_transit(
             &scope(),
@@ -4344,4 +4393,1066 @@ fn reveal_readiness_blocks_retry_next_slot_while_closed_windows_wait() {
     assert_eq!(engine.pending_len(), 0);
     // The beacon was fetched once for all of it.
     assert_eq!(drand.asks.load(Ordering::SeqCst), 1);
+}
+
+// ------------------------------------------------------------ the settlement's payees and the tick
+
+/// The predicted balance of `a` after the replayed effects.
+fn bal_of(f: &SettleTransitFacts, a: Address) -> u64 {
+    f.predicted_balances
+        .iter()
+        .find(|(x, _)| *x == a)
+        .map(|(_, l)| *l)
+        .unwrap_or_else(|| panic!("{a} is not a listed wallet"))
+}
+
+/// The fixture Season with the claim rule's parameters (the fclient
+/// claim test's literals): lateness 10 slots, a 2.0 cap, priority 433 at
+/// 26,500 CU and the 1 MiB loaded limit.
+fn season_with_claim_params() -> Vec<u8> {
+    let mut s = season_bytes(SL::STATUS_RUNNING, 10_000);
+    assert!(wr_u32(&mut s, SL::MIN_REVEAL_PRIORITY_MILLI, 433));
+    assert!(wr_u32(&mut s, SL::REVEAL_CU_LIMIT, 26_500));
+    assert!(wr_u32(&mut s, SL::REVEAL_LOADED_LIMIT, 1_146_880));
+    assert!(wr_u32(&mut s, SL::DEFENCE_CAP_MILLI, 2_000));
+    assert!(wr_u8(&mut s, SL::LATENESS_SLOTS, 10));
+    s
+}
+
+/// The host's slot at `away()` position 1 with reveal evidence: landed at
+/// `ev_slot`, bid `ev_price` µlamports per CU at the Season's limits.
+fn slot_with_evidence(ev_slot: u64, ev_price: u64, claimed: bool) -> Vec<u8> {
+    let mut s = wa::WideArrivalSlot::read(&slot_bytes_at(away(), 1, host())).unwrap();
+    s.ev_slot = ev_slot;
+    s.ev_price = ev_price;
+    s.ev_limit = 26_500;
+    s.ev_loaded = 1_146_880;
+    s.claimed = claimed;
+    let mut d = vec![0u8; wa::wide_arrival_slot::SIZE];
+    s.write(&mut d).unwrap();
+    d
+}
+
+/// The payees' shapes are read and the handler's payment code replayed
+/// over them in its order: a funded wallet is paid from the holding; the
+/// same wallet in two roles sees the second payment over the balance the
+/// first left (a diverted fee moves nothing, the bond after it is
+/// delivered); a wallet the chain does not hold and a wallet left below
+/// its rent minimum are diverted to `pool_owed`; a program-owned
+/// recipient is owed; `pool_owed` as read is the base. Routes are
+/// predicted, never transfers.
+#[test]
+fn settle_transit_predicts_payment_routes_over_the_payees_shapes_in_the_handlers_order() {
+    let floor0 = RENT.minimum_balance(0).unwrap();
+    assert_eq!(floor0, 890_880);
+    // Every payee funded: three deliveries, the holding down by the total,
+    // nothing owed; the slot flagged (its rent recipient is not listed and
+    // its evidence earns no refund); the transit record whole to its
+    // recipient.
+    let mut fx = SettleFx::new();
+    fx.escrow_fee_and_bond();
+    let c = fx.plan().unwrap_or_else(|b| panic!("blocked: {b:?}"));
+    let f = settle_facts(&c);
+    let routes: Vec<(&str, PayRoute)> = f
+        .nominal_payments
+        .iter()
+        .map(|p| (p.what, p.route))
+        .collect();
+    assert_eq!(
+        routes,
+        vec![
+            ("tip", PayRoute::Wallet),
+            ("march_fee", PayRoute::Wallet),
+            ("bond", PayRoute::Wallet)
+        ]
+    );
+    assert_eq!(
+        (f.holding_lamports_before, f.holding_lamports_after),
+        (
+            HOLDING_LAMPORTS,
+            HOLDING_LAMPORTS - TIP - MARCH_FEE - SEAL_BOND
+        )
+    );
+    assert_eq!((f.pool_owed_before, f.pool_owed_after), (0, 0));
+    assert_eq!(
+        f.holding_rent_floor,
+        RENT.minimum_balance(wh::wide_holding::SIZE).unwrap()
+    );
+    assert_eq!(f.slot_disposition, SlotDisposition::FlaggedSettled);
+    assert!(!f.claim.eligible);
+    assert_eq!(f.transit_close_lamports, FUNDED_WALLET);
+    assert_eq!(bal_of(f, addr(SLOT_BENEFICIARY)), FUNDED_WALLET + TIP);
+    assert_eq!(bal_of(f, addr(RESOLVER)), FUNDED_WALLET + MARCH_FEE);
+    assert_eq!(bal_of(f, addr(RENT_PAYER)), FUNDED_WALLET + SEAL_BOND);
+    assert_eq!(
+        bal_of(f, addr(TRANSIT_RENT_TO)),
+        FUNDED_WALLET + FUNDED_WALLET,
+        "the transit record's whole balance"
+    );
+    assert_eq!(bal_of(f, beneficiary()), FUNDED_WALLET);
+    assert_eq!(f.payee_shapes.len(), 5);
+    assert!(f
+        .payee_shapes
+        .iter()
+        .all(|s| !s.program_owned && s.data_len == 0 && s.rent_floor == Some(floor0)));
+    let d = c.describe();
+    assert_eq!(
+        d["facts"]["nominal_payments"][0]["predicted_route"],
+        "wallet (predicted)"
+    );
+    assert!(d["facts"]["payments_meaning"]
+        .as_str()
+        .unwrap()
+        .contains("never an observed or successful transfer"));
+    assert_eq!(d["facts"]["slot_disposition"]["flagged_settled"], true);
+    assert_eq!(d["facts"]["pool_owed_after"], 0);
+    assert_eq!(d["facts"]["payee_shapes"].as_array().unwrap().len(), 5);
+    assert!(f.unverified.iter().any(|u| u.contains("PREDICTED")));
+    // The fixture's payer is the transit record's rent recipient: a payee
+    // read before the fee it pays, said as such.
+    assert!(f.payer_is_payee);
+    assert_eq!(d["facts"]["payer_is_payee"], true);
+    assert!(d["facts"]["payer_note"]
+        .as_str()
+        .unwrap()
+        .contains("BEFORE the transaction fee"));
+    // The same wallet as resolver and rent payer, one lamport short of the
+    // floor after the fee: the fee is diverted (nothing moves), the bond is
+    // judged over the balance the diverted fee left and delivered.
+    let mut alias = SettleFx::new();
+    alias.escrow_fee_and_bond();
+    let mut hd = settle_holding_bytes(GEN, TIP + MARCH_FEE + SEAL_BOND, 1);
+    assert!(wr_arr(&mut hd, H::RENT_PAYER, &RESOLVER));
+    alias.holding = hd;
+    alias
+        .wallets
+        .insert(addr(RESOLVER), wallet(floor0 - MARCH_FEE - 1));
+    let fa = settle_facts(&alias.plan().unwrap_or_else(|b| panic!("blocked: {b:?}"))).clone();
+    let routes: Vec<(&str, PayRoute)> = fa
+        .nominal_payments
+        .iter()
+        .map(|p| (p.what, p.route))
+        .collect();
+    assert_eq!(
+        routes,
+        vec![
+            ("tip", PayRoute::Wallet),
+            ("march_fee", PayRoute::DivertedBelowRent),
+            ("bond", PayRoute::Wallet)
+        ]
+    );
+    assert_eq!(fa.pool_owed_after, MARCH_FEE);
+    assert_eq!(
+        fa.holding_lamports_after,
+        HOLDING_LAMPORTS - TIP - SEAL_BOND,
+        "the diverted fee stays in the holding"
+    );
+    assert_eq!(
+        bal_of(&fa, addr(RESOLVER)),
+        floor0 - MARCH_FEE - 1 + SEAL_BOND
+    );
+    assert_eq!(
+        fa.nominal_cumulative,
+        vec![
+            (addr(SLOT_BENEFICIARY), TIP),
+            (addr(RESOLVER), MARCH_FEE + SEAL_BOND)
+        ],
+        "the nominal sums are the plan's whatever the route"
+    );
+    // One lamport more and the fee reaches the floor: both delivered.
+    alias
+        .wallets
+        .insert(addr(RESOLVER), wallet(floor0 - MARCH_FEE));
+    let fb = settle_facts(&alias.plan().unwrap_or_else(|b| panic!("blocked: {b:?}"))).clone();
+    assert!(fb
+        .nominal_payments
+        .iter()
+        .all(|p| p.route == PayRoute::Wallet));
+    assert_eq!(fb.pool_owed_after, 0);
+    assert_eq!(bal_of(&fb, addr(RESOLVER)), floor0 + SEAL_BOND);
+    // A recipient the chain does not hold: a zero-lamport System address,
+    // diverted; the holding's lamports untouched.
+    let mut absent = SettleFx::new();
+    absent.wallets.insert(addr(SLOT_BENEFICIARY), None);
+    let fc = settle_facts(&absent.plan().unwrap_or_else(|b| panic!("blocked: {b:?}"))).clone();
+    assert_eq!(fc.nominal_payments[0].route, PayRoute::DivertedBelowRent);
+    assert_eq!(fc.pool_owed_after, TIP);
+    assert_eq!(fc.holding_lamports_after, HOLDING_LAMPORTS);
+    let shape = fc
+        .payee_shapes
+        .iter()
+        .find(|s| s.address == addr(SLOT_BENEFICIARY))
+        .unwrap();
+    assert_eq!(
+        (
+            shape.lamports,
+            shape.program_owned,
+            shape.data_len,
+            shape.rent_floor
+        ),
+        (0, false, 0, Some(floor0))
+    );
+    assert_eq!(bal_of(&fc, addr(SLOT_BENEFICIARY)), 0);
+    // A program-owned recipient: owed in pool_owed, no lamport moves, no
+    // floor computed.
+    let mut owned = SettleFx::new();
+    owned
+        .wallets
+        .insert(addr(SLOT_BENEFICIARY), acct_with(vec![0; 8], FUNDED_WALLET));
+    let fd = settle_facts(&owned.plan().unwrap_or_else(|b| panic!("blocked: {b:?}"))).clone();
+    assert_eq!(fd.nominal_payments[0].route, PayRoute::OwedProgramOwned);
+    assert_eq!(fd.pool_owed_after, TIP);
+    assert_eq!(fd.holding_lamports_after, HOLDING_LAMPORTS);
+    let shape = fd
+        .payee_shapes
+        .iter()
+        .find(|s| s.address == addr(SLOT_BENEFICIARY))
+        .unwrap();
+    assert_eq!(
+        (shape.program_owned, shape.data_len, shape.rent_floor),
+        (true, 8, None)
+    );
+    assert_eq!(bal_of(&fd, addr(SLOT_BENEFICIARY)), FUNDED_WALLET);
+    assert_eq!(
+        owned.plan().unwrap().describe()["facts"]["nominal_payments"][0]["predicted_route"],
+        "pool_owed: program-owned recipient"
+    );
+    // pool_owed as read is the base of what is owed.
+    let mut pooled = SettleFx::new();
+    let mut hd = settle_holding_bytes(GEN, TIP, 1);
+    assert!(wr_u64(&mut hd, H::POOL_OWED, 40));
+    pooled.holding = hd;
+    pooled.wallets.insert(addr(SLOT_BENEFICIARY), None);
+    let fe = settle_facts(&pooled.plan().unwrap_or_else(|b| panic!("blocked: {b:?}"))).clone();
+    assert_eq!((fe.pool_owed_before, fe.pool_owed_after), (40, 40 + TIP));
+    // The routes are candidate content: another route loses the snapshot.
+    let snap = fx.snapshot(2_000, 7);
+    let reads = snap.reads();
+    let bound = match widesettle::plan_settle_transit(
+        &scope(),
+        payer(),
+        beneficiary(),
+        &fx.proof,
+        fx.publication.as_ref(),
+        &reads,
+    ) {
+        Step::Done(r) => r.unwrap_or_else(|b| panic!("blocked: {b:?}")),
+        Step::Need(a) => panic!("unexpected read request: {a:?}"),
+    };
+    assert!(bound.coherent());
+    let mut m = bound.clone();
+    if let Duty::SettleTransit(f) = &mut m.duty {
+        f.nominal_payments[0].route = PayRoute::DivertedBelowRent;
+    }
+    assert!(!m.coherent(), "the route is content");
+    let mut m = bound.clone();
+    if let Duty::SettleTransit(f) = &mut m.duty {
+        f.slot_disposition = SlotDisposition::KeptForClaim;
+    }
+    assert!(!m.coherent(), "the slot's disposition is content");
+    let mut m = bound.clone();
+    if let Duty::SettleTransit(f) = &mut m.duty {
+        f.predicted_balances[0].1 += 1;
+    }
+    assert!(!m.coherent(), "a predicted balance is content");
+}
+
+/// What the handler's payment and close code would abort on — and the
+/// runtime's rent invariant on the holding — is a refusal, each from
+/// literal shapes: no Rent sysvar among the reads; a holding that cannot
+/// back a delivered payment; a holding left below its rent minimum; a
+/// payee's balance or `pool_owed` overflowing; a whole-account close whose
+/// recipient would stay below the floor (the transit record's, the
+/// slot's); the slot's rent recipient the payer position under the
+/// placeholder payer. The boundaries plan.
+#[test]
+fn settle_transit_refuses_what_the_handlers_payments_and_closes_would_abort() {
+    let blocked = |f: SettleFx| f.plan().unwrap_err();
+    let floor0 = RENT.minimum_balance(0).unwrap();
+    let floor_h = RENT.minimum_balance(wh::wide_holding::SIZE).unwrap();
+    // No Rent sysvar: the divert rule cannot be reproduced.
+    let mut fx = SettleFx::new();
+    fx.rent = None;
+    assert_eq!(blocked(fx), Block::RentSysvarMissing("payee divert rule"));
+    // The holding's lamports cannot back the tip (`Insufficient`).
+    let mut fx = SettleFx::new();
+    fx.holding_lamports = TIP - 1;
+    assert_eq!(
+        blocked(fx),
+        Block::HoldingBackingShort {
+            payment: "tip",
+            holding_lamports: TIP - 1,
+            amount: TIP
+        }
+    );
+    // The holding would end one lamport below its rent minimum (the
+    // runtime's invariant); exactly at it plans.
+    let mut fx = SettleFx::new();
+    fx.holding_lamports = floor_h + TIP - 1;
+    assert_eq!(
+        blocked(fx),
+        Block::HoldingBelowRentExemption {
+            after: floor_h - 1,
+            floor: floor_h
+        }
+    );
+    let mut fx = SettleFx::new();
+    fx.holding_lamports = floor_h + TIP;
+    assert_eq!(
+        settle_facts(&fx.plan().unwrap()).holding_lamports_after,
+        floor_h
+    );
+    // A diverted payment moves nothing: a holding at its floor with an
+    // absent payee plans, its lamports unchanged.
+    let mut fx = SettleFx::new();
+    fx.holding_lamports = floor_h;
+    fx.wallets.insert(addr(SLOT_BENEFICIARY), None);
+    assert_eq!(
+        settle_facts(&fx.plan().unwrap()).holding_lamports_after,
+        floor_h
+    );
+    // The payee's balance would overflow (`diverts` → `None` → Overflow).
+    let mut fx = SettleFx::new();
+    fx.wallets.insert(addr(SLOT_BENEFICIARY), wallet(u64::MAX));
+    assert_eq!(blocked(fx), Block::Overflow("payee balance"));
+    // pool_owed would overflow on a diverted payment.
+    let mut fx = SettleFx::new();
+    let mut hd = settle_holding_bytes(GEN, TIP, 1);
+    assert!(wr_u64(&mut hd, H::POOL_OWED, u64::MAX));
+    fx.holding = hd;
+    fx.wallets.insert(addr(SLOT_BENEFICIARY), None);
+    assert_eq!(blocked(fx), Block::Overflow("pool_owed"));
+    // The transit record's whole balance would leave its recipient below
+    // the floor: `Sink::Never` aborts. A recipient one lamport under the
+    // floor less the whole takes it.
+    let mut fx = SettleFx::new();
+    fx.transit_lamports = 10;
+    fx.wallets.insert(addr(TRANSIT_RENT_TO), None);
+    assert_eq!(blocked(fx), Block::CloseWouldDivert("transit"));
+    let mut fx = SettleFx::new();
+    fx.transit_lamports = 10;
+    fx.wallets
+        .insert(addr(TRANSIT_RENT_TO), wallet(floor0 - 10));
+    let f = settle_facts(&fx.plan().unwrap_or_else(|b| panic!("blocked: {b:?}"))).clone();
+    assert_eq!(bal_of(&f, addr(TRANSIT_RENT_TO)), floor0);
+    assert_eq!(f.transit_close_lamports, 10);
+    // The slot's close to a listed recipient that would stay below the
+    // floor; funded whole, it closes to position 9 and the resolver's
+    // predicted balance carries it.
+    let mut fx = SettleFx::new();
+    let mut sd = slot_bytes_at(away(), 1, host());
+    assert!(wr_arr(&mut sd, wa::wide_arrival_slot::RENT_TO, &RESOLVER));
+    fx.slot = Some(sd.clone());
+    fx.slot_lamports = 10;
+    fx.wallets.insert(addr(RESOLVER), None);
+    assert_eq!(blocked(fx), Block::CloseWouldDivert("slot"));
+    let mut fx = SettleFx::new();
+    fx.slot = Some(sd);
+    let f = settle_facts(&fx.plan().unwrap_or_else(|b| panic!("blocked: {b:?}"))).clone();
+    assert_eq!(
+        f.slot_disposition,
+        SlotDisposition::ClosedTo {
+            position: 9,
+            lamports: FUNDED_WALLET
+        }
+    );
+    assert_eq!(bal_of(&f, addr(RESOLVER)), FUNDED_WALLET + FUNDED_WALLET);
+    assert_eq!(
+        fx.plan().unwrap().describe()["facts"]["slot_disposition"]["closed_to_position"],
+        9
+    );
+    // The slot's rent recipient the fee payer's position: judged against
+    // the payer's wallet when one is named (the fixture's payer is also the
+    // transit's rent recipient: both closes land on it), refused under the
+    // review's placeholder payer.
+    let mut fx = SettleFx::new();
+    let mut sd = slot_bytes_at(away(), 1, host());
+    assert!(wr_arr(
+        &mut sd,
+        wa::wide_arrival_slot::RENT_TO,
+        &payer().to_bytes()
+    ));
+    fx.slot = Some(sd);
+    let f = settle_facts(&fx.plan().unwrap_or_else(|b| panic!("blocked: {b:?}"))).clone();
+    assert_eq!(
+        f.slot_disposition,
+        SlotDisposition::ClosedTo {
+            position: 0,
+            lamports: FUNDED_WALLET
+        }
+    );
+    assert_eq!(bal_of(&f, payer()), FUNDED_WALLET * 3);
+    let mut fx = SettleFx::new();
+    let mut sd = slot_bytes_at(away(), 1, host());
+    assert!(wr_arr(&mut sd, wa::wide_arrival_slot::RENT_TO, &[0u8; 32]));
+    fx.slot = Some(sd);
+    let r = match widesettle::plan_settle_transit(
+        &scope(),
+        Address::default(),
+        beneficiary(),
+        &fx.proof,
+        fx.publication.as_ref(),
+        &fx.reads(),
+    ) {
+        Step::Done(r) => r,
+        Step::Need(a) => panic!("unexpected read request: {a:?}"),
+    };
+    assert_eq!(
+        r.unwrap_err(),
+        Block::PayerPlaceholder("slot rent recipient")
+    );
+    // A close whose recipient is a state account of the instruction or a
+    // program-owned account is refused, not modelled (the handler would
+    // pay it directly; the source/recipient balance transitions are not
+    // replayed): the transit record closing to the holding; to itself; the
+    // slot closing to the transit record (listed through the transit's own
+    // `rent_to`), refused at the slot first; a program-owned account at the
+    // transit's rent recipient position.
+    let transit_to = |fx: &mut SettleFx, rent_to: [u8; 32]| {
+        let mut t = SettleFx::settled_transit(fx.proof.seal_root);
+        t.rent_to = rent_to;
+        fx.transit = Some(t.to_bytes().to_vec());
+    };
+    let mut fx = SettleFx::new();
+    transit_to(&mut fx, holding_addr().to_bytes());
+    assert_eq!(blocked(fx), Block::CloseRecipientAlias("transit"));
+    let mut fx = SettleFx::new();
+    transit_to(&mut fx, transit_addr().to_bytes());
+    assert_eq!(blocked(fx), Block::CloseRecipientAlias("transit"));
+    let mut fx = SettleFx::new();
+    transit_to(&mut fx, transit_addr().to_bytes());
+    let mut sd = slot_bytes_at(away(), 1, host());
+    assert!(wr_arr(
+        &mut sd,
+        wa::wide_arrival_slot::RENT_TO,
+        &transit_addr().to_bytes()
+    ));
+    fx.slot = Some(sd);
+    assert_eq!(blocked(fx), Block::CloseRecipientAlias("slot"));
+    let mut fx = SettleFx::new();
+    fx.wallets
+        .insert(addr(TRANSIT_RENT_TO), acct_with(vec![0; 8], FUNDED_WALLET));
+    assert_eq!(blocked(fx), Block::CloseRecipientAlias("transit"));
+    // An ordinary wallet in both close roles stays exact, in the handler's
+    // order: the slot's whole balance first, then the transit record's
+    // over the balance the slot left. The wallet unfunded: a funded slot
+    // then a 10-lamport transit passes (the slot's close funds it); a
+    // 10-lamport slot first diverts, whatever the transit would bring.
+    let mut fx = SettleFx::new();
+    let mut sd = slot_bytes_at(away(), 1, host());
+    assert!(wr_arr(
+        &mut sd,
+        wa::wide_arrival_slot::RENT_TO,
+        &TRANSIT_RENT_TO
+    ));
+    fx.slot = Some(sd.clone());
+    fx.wallets.insert(addr(TRANSIT_RENT_TO), None);
+    fx.transit_lamports = 10;
+    let f = settle_facts(&fx.plan().unwrap_or_else(|b| panic!("blocked: {b:?}"))).clone();
+    assert_eq!(bal_of(&f, addr(TRANSIT_RENT_TO)), FUNDED_WALLET + 10);
+    assert!(f.payer_is_payee, "the fixture's payer is that wallet");
+    let mut fx = SettleFx::new();
+    fx.slot = Some(sd);
+    fx.wallets.insert(addr(TRANSIT_RENT_TO), None);
+    fx.slot_lamports = 10;
+    assert_eq!(blocked(fx), Block::CloseWouldDivert("slot"));
+}
+
+/// The slot's claim eligibility is the program's `wide_claim_eligible`
+/// mirrored: THE anchor's landing slot, the slot unclaimed, the clock
+/// before `close + 6 bells`, the reveal late by the Season's
+/// `lateness_slots`, and the rules crate's `defence_refund` above zero
+/// with `tip_min` from the Season's reveal limits. Eligible: kept, not
+/// closed even to a listed recipient. Each condition failing: closed or
+/// flagged.
+#[test]
+fn settle_transit_mirrors_the_programs_claim_rule_for_the_slot() {
+    let tip_min = fees::min_tip_lamports(433, 26_500, 1_146_880);
+    let params = fees::DefenceParams {
+        defence_cap_milli: 2_000,
+        tip_min,
+    };
+    let rich = 200_000_000;
+    let refund_of = |price: u64| {
+        fees::defence_refund(
+            &fees::Evidence {
+                price_micro: price,
+                limit: 26_500,
+                loaded: 1_146_880,
+                created_day: false,
+            },
+            &params,
+        )
+    };
+    assert!(refund_of(rich) > 0);
+    assert_eq!(refund_of(0), 0);
+    let grace_end = SettleFx::close() + 6 * 600;
+    assert!(SettleFx::settle_at() < grace_end);
+    let with = |slot: Vec<u8>, clock: i64| {
+        let mut fx = SettleFx::new();
+        fx.season = season_with_claim_params();
+        fx.slot = Some(slot);
+        fx.clock = Some(clock_at(clock));
+        fx
+    };
+    // Late by exactly the lateness, rich, unclaimed, within the grace: kept.
+    let fx = with(
+        slot_with_evidence(ANCHOR_SLOT + 10, rich, false),
+        SettleFx::settle_at(),
+    );
+    let f = settle_facts(&fx.plan().unwrap_or_else(|b| panic!("blocked: {b:?}"))).clone();
+    assert_eq!(f.slot_disposition, SlotDisposition::KeptForClaim);
+    assert_eq!(
+        f.claim,
+        ClaimRule {
+            anchor_slot: Some(ANCHOR_SLOT),
+            lateness_slots: 10,
+            tip_min,
+            defence_cap_milli: 2_000,
+            grace_end,
+            refund: refund_of(rich),
+            eligible: true,
+        }
+    );
+    let d = fx.plan().unwrap().describe();
+    assert_eq!(d["facts"]["slot_disposition"]["kept_for_claim"], true);
+    assert_eq!(d["facts"]["claim_rule"]["eligible"], true);
+    // Kept even when its rent recipient is listed: the resolver's balance
+    // carries only the transit... nothing of the slot.
+    let mut sd = slot_with_evidence(ANCHOR_SLOT + 10, rich, false);
+    assert!(wr_arr(&mut sd, wa::wide_arrival_slot::RENT_TO, &RESOLVER));
+    let fx = with(sd, SettleFx::settle_at());
+    let f = settle_facts(&fx.plan().unwrap_or_else(|b| panic!("blocked: {b:?}"))).clone();
+    assert_eq!(f.slot_disposition, SlotDisposition::KeptForClaim);
+    assert_eq!(f.slot_rent_to_position, Some(9));
+    assert_eq!(bal_of(&f, addr(RESOLVER)), FUNDED_WALLET);
+    // One second before the grace end: kept; at it: not.
+    let fx = with(
+        slot_with_evidence(ANCHOR_SLOT + 10, rich, false),
+        grace_end - 1,
+    );
+    assert_eq!(
+        settle_facts(&fx.plan().unwrap()).slot_disposition,
+        SlotDisposition::KeptForClaim
+    );
+    let fx = with(slot_with_evidence(ANCHOR_SLOT + 10, rich, false), grace_end);
+    let f = settle_facts(&fx.plan().unwrap()).clone();
+    assert_eq!(f.slot_disposition, SlotDisposition::FlaggedSettled);
+    assert!(!f.claim.eligible);
+    // Claimed already: not kept.
+    let fx = with(
+        slot_with_evidence(ANCHOR_SLOT + 10, rich, true),
+        SettleFx::settle_at(),
+    );
+    assert_eq!(
+        settle_facts(&fx.plan().unwrap()).slot_disposition,
+        SlotDisposition::FlaggedSettled
+    );
+    // One slot short of the lateness: not kept.
+    let fx = with(
+        slot_with_evidence(ANCHOR_SLOT + 9, rich, false),
+        SettleFx::settle_at(),
+    );
+    assert_eq!(
+        settle_facts(&fx.plan().unwrap()).slot_disposition,
+        SlotDisposition::FlaggedSettled
+    );
+    // No refund (a zero bid): not kept, the refund said.
+    let fx = with(
+        slot_with_evidence(ANCHOR_SLOT + 10, 0, false),
+        SettleFx::settle_at(),
+    );
+    let f = settle_facts(&fx.plan().unwrap()).clone();
+    assert_eq!(f.slot_disposition, SlotDisposition::FlaggedSettled);
+    assert_eq!((f.claim.refund, f.claim.eligible), (0, false));
+    // Without the claim parameters in the Season (the fixture default) the
+    // mirrored rule says `tip_min` 2,500 and no refund for zero evidence.
+    let plain = SettleFx::new();
+    let f = settle_facts(&plain.plan().unwrap()).clone();
+    assert_eq!(f.claim.tip_min, fees::min_tip_lamports(0, 0, 0));
+    assert!(!f.claim.eligible);
+}
+
+/// The tick plans a transit settlement only from a stored proof whose
+/// march the observer shows revealed and open, only with the reveal
+/// inputs (the verified public round, the beneficiary), under the shared
+/// cap of two plans per tick, over one snapshot response with the Rent;
+/// the candidate is coherent and still denied; without a snapshot the
+/// live driver reads the Rent separately and the candidate is
+/// non-coherent and denied; without a Rent the plan refuses; a historical
+/// generation refuses; a newer proof renews the entry; a publication not
+/// served retries at the next slot. Nothing is enqueued.
+#[test]
+fn the_tick_plans_a_transit_settlement_from_a_revealed_open_march_under_the_shared_budget() {
+    let fx = SettleFx::new();
+    let season = Season::decode(&fx.season).unwrap();
+    let (round, sig) = vector();
+    // The observer's model: the march departed (its record) and revealed at
+    // `away()`, nothing settled or closed — a settle-departure hint, a
+    // gather hint of the arrival bell and a settle-transit hint.
+    let mut model = WideDiscovery::new(
+        IndexScope {
+            program: program(),
+            season: season_pda().0,
+            world: world(),
+            source: "test: literal bodies".into(),
+        },
+        Limits::default(),
+    );
+    let link = |entity: WideEntity, seq: u64| WideLink {
+        entity,
+        seq,
+        head: [seq as u8; 32],
+    };
+    let departed = encode(
+        WideKind::Departed,
+        DEPART_BELL,
+        &wev::host_key(&host(), home()),
+        &wev::departed_payload(
+            SLOT,
+            DEPART_BELL,
+            ARRIVE_BELL,
+            TROOPS,
+            61,
+            TIP,
+            7_000,
+            11_000,
+            &fx.proof.seal_root,
+        ),
+        &[link(WideEntity::Province, 1), link(WideEntity::Holding, 1)],
+    )
+    .unwrap();
+    model
+        .apply(&WideBatch {
+            seq: 1,
+            slot: 1_001,
+            signature: "sig-1".into(),
+            bodies: vec![departed],
+        })
+        .unwrap();
+    let revealed = encode(
+        WideKind::Revealed,
+        ARRIVE_BELL,
+        &wev::host_key(&host(), away()),
+        &wev::revealed_payload(SLOT, 0, 1, 1, 0, 0, TROOPS, false),
+        &[],
+    )
+    .unwrap();
+    model
+        .apply(&WideBatch {
+            seq: 2,
+            slot: 1_002,
+            signature: "sig-2".into(),
+            bodies: vec![revealed],
+        })
+        .unwrap();
+    let engine = Engine::new(Budgets::default(), EngineParams::default());
+    let deployment = Deployment {
+        program_version: WIDE_VERSION,
+        ruleset_hash: RULESET,
+    };
+    // The chain at the settle time, its context past every tick below and
+    // past the proof's slot; the Rent sysvar served to the live driver too.
+    let mut clock = clock_at(SettleFx::settle_at());
+    clock.slot = 2_010;
+    let mut accounts = fx.accounts();
+    accounts.insert(rent_sysvar(), Some(sysvar_account(rent_bytes(&RENT))));
+    let shared = std::sync::Arc::new(FakePort::new(accounts.clone(), clock));
+    let shared_src = SharedPort(shared.clone());
+    let drand = FakeDrand {
+        rounds: BTreeMap::from([(round, sig)]),
+        asks: AtomicUsize::new(0),
+    };
+    let step = |review: &mut WideReview,
+                port: &FakePort,
+                cache: &mut BeaconCache,
+                drand: &FakeDrand,
+                slot: u64,
+                snap: Option<&dyn SnapshotSource>,
+                inputs: bool| {
+        block_on(async {
+            let mut pubs = DrandPublications { drand, cache };
+            let inputs = inputs.then_some(RevealInputs {
+                season: &season,
+                beacon: &mut pubs,
+                beneficiary: beneficiary(),
+            });
+            review
+                .step(
+                    port,
+                    &engine,
+                    &model,
+                    program(),
+                    season_pda().0,
+                    slot,
+                    snap,
+                    inputs,
+                )
+                .await
+        })
+    };
+    let settle_hints_in = |review: &WideReview| {
+        review.status()["recent"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter(|e| e["hint"].as_str().unwrap().starts_with("settle-transit:"))
+            .count()
+    };
+    // Without the reveal inputs: no settle-transit hint, inputs or proof
+    // notwithstanding; the other hints are planned.
+    let mut cache0 = BeaconCache::new(pk96());
+    let mut review0 = WideReview::new(deployment);
+    assert!(review0.proofs.supply(fx.proof.clone()));
+    let made = step(
+        &mut review0,
+        &shared,
+        &mut cache0,
+        &drand,
+        2_000,
+        Some(&shared_src),
+        false,
+    );
+    assert_eq!(made, 2);
+    assert_eq!(review0.settle_plans, 0);
+    assert_eq!(settle_hints_in(&review0), 0);
+    assert_eq!(drand.asks.load(Ordering::SeqCst), 0);
+    // With the inputs and the snapshot: the first tick spends the shared
+    // cap on the two hints before it (both blocked here); the second tick
+    // plans the settlement — one plan, one snapshot with the Rent, one
+    // beacon ask — a coherent candidate, denied; the third tick nothing.
+    let mut cache = BeaconCache::new(pk96());
+    let mut review = WideReview::new(deployment);
+    assert!(review.proofs.supply(fx.proof.clone()));
+    let before = shared.snapshot_calls.load(Ordering::SeqCst);
+    assert_eq!(
+        step(
+            &mut review,
+            &shared,
+            &mut cache,
+            &drand,
+            2_000,
+            Some(&shared_src),
+            true
+        ),
+        2
+    );
+    assert_eq!((review.plans, review.settle_plans), (2, 0));
+    assert_eq!(
+        step(
+            &mut review,
+            &shared,
+            &mut cache,
+            &drand,
+            2_001,
+            Some(&shared_src),
+            true
+        ),
+        1
+    );
+    assert_eq!(
+        (
+            review.plans,
+            review.settle_plans,
+            review.settle_candidates,
+            review.coherent
+        ),
+        (3, 1, 1, 1)
+    );
+    // The first two hints refuse during discovery, before any snapshot.
+    assert_eq!(shared.snapshot_calls.load(Ordering::SeqCst), before + 1);
+    assert_eq!(drand.asks.load(Ordering::SeqCst), 1);
+    let st = review.status();
+    assert_eq!(st["settle_transit"]["plans"], 1);
+    assert_eq!(st["settle_transit"]["candidates"], 1);
+    assert_eq!(st["enqueued"], 0);
+    let r = &st["recent"][0];
+    assert!(r["hint"].as_str().unwrap().starts_with("settle-transit:"));
+    assert_eq!(r["outcome"], "candidate");
+    assert_eq!(r["min_slot"], 2_001);
+    assert_eq!(r["publication_round"], round);
+    assert_eq!(r["publication_served"], true);
+    assert_eq!(r["proof_origin"], ORIGIN_SUPPLIED);
+    assert_eq!(r["candidate"]["kind"], "WideSettleTransit");
+    assert_eq!(r["candidate"]["coherent"], true);
+    assert_eq!(r["candidate"]["signed"], false);
+    assert_eq!(r["candidate"]["automatic_send"], false);
+    assert_eq!(r["candidate"]["payer"], Address::default().to_string());
+    assert_eq!(
+        r["candidate"]["facts"]["nominal_payments"][0]["predicted_route"],
+        "wallet (predicted)"
+    );
+    assert_eq!(
+        r["candidate"]["facts"]["payer_is_payee"], false,
+        "the placeholder payer is no payee"
+    );
+    assert_eq!(r["snapshot"]["rent_included"], true);
+    assert_eq!(r["snapshot"]["context_slot"], 2_010);
+    let rv = &r["assessment"]["review"];
+    assert_eq!(rv["admitted"], false);
+    assert_eq!(rv["enqueued"], false);
+    let denials = rv["denials"].as_array().unwrap();
+    for d in [
+        "SourceUnproven",
+        "HistoryUnknown",
+        "ExecutionEvidenceUnverified",
+        "SignerAbsent",
+        "SliceDoesNotEnqueue",
+        "FundingUnknown",
+    ] {
+        assert!(denials.iter().any(|x| x == d), "{d}");
+    }
+    assert!(!denials.iter().any(|d| d == "NoCoherentSnapshot"));
+    // The seal and the commitment are instruction data, not status.
+    let text = st.to_string();
+    assert!(!text.contains(&hex::encode(fx.proof.seal)));
+    assert!(!text.contains(&hex::encode(fx.proof.commit)));
+    assert_eq!(
+        step(
+            &mut review,
+            &shared,
+            &mut cache,
+            &drand,
+            2_002,
+            Some(&shared_src),
+            true
+        ),
+        0
+    );
+    // A newer proof of the same march (a later sequence, the same content)
+    // invalidates the entry: planned again at once, counted as renewed.
+    let mut newer = fx.proof.clone();
+    newer.provenance.seq = 12;
+    assert!(review.proofs.supply(newer));
+    assert_eq!(
+        step(
+            &mut review,
+            &shared,
+            &mut cache,
+            &drand,
+            2_003,
+            Some(&shared_src),
+            true
+        ),
+        1
+    );
+    assert_eq!((review.proofs_renewed, review.settle_candidates), (1, 2));
+    assert_eq!(review.status()["recent"][0]["proof_renewed"], true);
+    assert_eq!(engine.pending_len(), 0);
+    assert_eq!(shared.forbidden.load(Ordering::SeqCst), 0);
+    // Without a snapshot source: the live driver, the Rent read separately,
+    // the candidate non-coherent and denied with `NoCoherentSnapshot`.
+    let mut cache2 = BeaconCache::new(pk96());
+    let mut review2 = WideReview::new(deployment);
+    assert!(review2.proofs.supply(fx.proof.clone()));
+    assert_eq!(
+        step(
+            &mut review2,
+            &shared,
+            &mut cache2,
+            &drand,
+            2_000,
+            None,
+            true
+        ),
+        2
+    );
+    assert_eq!(
+        step(
+            &mut review2,
+            &shared,
+            &mut cache2,
+            &drand,
+            2_001,
+            None,
+            true
+        ),
+        1
+    );
+    assert_eq!((review2.settle_candidates, review2.coherent), (1, 0));
+    let r2 = &review2.status()["recent"][0];
+    assert_eq!(r2["outcome"], "candidate");
+    assert_eq!(r2["candidate"]["coherent"], false);
+    assert!(r2["assessment"]["review"]["denials"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|d| d == "NoCoherentSnapshot"));
+    assert_eq!(r2["assessment"]["review"]["admitted"], false);
+    // A port that does not hold the Rent sysvar: the live plan refuses.
+    let port_no_rent = FakePort::new(fx.accounts(), clock);
+    let mut cache3 = BeaconCache::new(pk96());
+    let mut review3 = WideReview::new(deployment);
+    assert!(review3.proofs.supply(fx.proof.clone()));
+    assert_eq!(
+        step(
+            &mut review3,
+            &port_no_rent,
+            &mut cache3,
+            &drand,
+            2_000,
+            None,
+            true
+        ),
+        2
+    );
+    assert_eq!(
+        step(
+            &mut review3,
+            &port_no_rent,
+            &mut cache3,
+            &drand,
+            2_001,
+            None,
+            true
+        ),
+        1
+    );
+    assert_eq!(review3.settle_candidates, 0);
+    assert_eq!(
+        review3.status()["recent"][0]["block"],
+        "RentSysvarMissing(\"payee divert rule\")"
+    );
+    // The same port as a snapshot source: the key discovery reads the Rent
+    // once when the planner asks and finds none; refused before any
+    // snapshot is taken.
+    let no_rent = std::sync::Arc::new(FakePort::new(fx.accounts(), clock));
+    let no_rent_src = SharedPort(no_rent.clone());
+    let mut cache3b = BeaconCache::new(pk96());
+    let mut review3b = WideReview::new(deployment);
+    assert!(review3b.proofs.supply(fx.proof.clone()));
+    assert_eq!(
+        step(
+            &mut review3b,
+            &no_rent,
+            &mut cache3b,
+            &drand,
+            2_000,
+            Some(&no_rent_src),
+            true
+        ),
+        2
+    );
+    let calls = no_rent.snapshot_calls.load(Ordering::SeqCst);
+    assert_eq!(
+        step(
+            &mut review3b,
+            &no_rent,
+            &mut cache3b,
+            &drand,
+            2_001,
+            Some(&no_rent_src),
+            true
+        ),
+        1
+    );
+    assert_eq!(review3b.settle_candidates, 0);
+    assert_eq!(
+        review3b.status()["recent"][0]["block"],
+        "RentSysvarMissing(\"discovery read\")"
+    );
+    assert_eq!(
+        no_rent.snapshot_calls.load(Ordering::SeqCst),
+        calls,
+        "no snapshot for a plan refused in discovery"
+    );
+    // The current generation only: a holding re-founded at generation 2
+    // refuses the record's generation-1 host, as the handler does.
+    let mut historical = fx.clone();
+    historical.holding = settle_holding_bytes(GEN + 1, TIP, 1);
+    let mut accounts_h = historical.accounts();
+    accounts_h.insert(rent_sysvar(), Some(sysvar_account(rent_bytes(&RENT))));
+    let shared_h = std::sync::Arc::new(FakePort::new(accounts_h, clock));
+    let src_h = SharedPort(shared_h.clone());
+    let mut cache4 = BeaconCache::new(pk96());
+    let mut review4 = WideReview::new(deployment);
+    assert!(review4.proofs.supply(fx.proof.clone()));
+    assert_eq!(
+        step(
+            &mut review4,
+            &shared_h,
+            &mut cache4,
+            &drand,
+            2_000,
+            Some(&src_h),
+            true
+        ),
+        2
+    );
+    assert_eq!(
+        step(
+            &mut review4,
+            &shared_h,
+            &mut cache4,
+            &drand,
+            2_001,
+            Some(&src_h),
+            true
+        ),
+        1
+    );
+    assert_eq!(review4.settle_candidates, 0);
+    assert_eq!(
+        review4.status()["recent"][0]["block"],
+        "HistoricalGeneration { host_gen: 1, holding_gen: 2 }"
+    );
+    // A publication not served: blocked at the gate before anything is
+    // read of the destination, retried at the next slot (bounded).
+    let empty = FakeDrand {
+        rounds: BTreeMap::new(),
+        asks: AtomicUsize::new(0),
+    };
+    let mut cache5 = BeaconCache::new(pk96());
+    let mut review5 = WideReview::new(deployment);
+    assert!(review5.proofs.supply(fx.proof.clone()));
+    assert_eq!(
+        step(
+            &mut review5,
+            &shared,
+            &mut cache5,
+            &empty,
+            2_000,
+            Some(&shared_src),
+            true
+        ),
+        2
+    );
+    assert_eq!(
+        step(
+            &mut review5,
+            &shared,
+            &mut cache5,
+            &empty,
+            2_001,
+            Some(&shared_src),
+            true
+        ),
+        1
+    );
+    let r5 = &review5.status()["recent"][0];
+    assert_eq!(r5["block"], "PublicationMissing");
+    assert_eq!(r5["next"], "next slot");
+    assert_eq!(r5["publication_served"], false);
+    assert_eq!(
+        step(
+            &mut review5,
+            &shared,
+            &mut cache5,
+            &empty,
+            2_002,
+            Some(&shared_src),
+            true
+        ),
+        1,
+        "the transient retry"
+    );
+    assert_eq!(
+        (review5.transient_retries, review5.publications_missing),
+        (1, 2)
+    );
+    assert_eq!(review5.settle_candidates, 0);
+    for p in [&*shared, &port_no_rent, &*no_rent, &*shared_h] {
+        assert_eq!(p.forbidden.load(Ordering::SeqCst), 0);
+    }
+    assert_eq!(engine.pending_len(), 0);
 }
