@@ -31,7 +31,7 @@ import { fxNow } from './map/chart.mjs';   // (milliseconds on the effects clock
 import { reducedMotion } from './map/camera.mjs';
 import { renderSurveyHelp } from './map/legend.mjs';
 import { NOTE_TEXT, createActions, actorsAt } from './map/actions.mjs';
-import { PLACE, PLACE_NOTE, partialRings, placeNow, worldOf } from './map/world.mjs';
+import { PLACE, PLACE_NOTE, applySeasonRecord, overviewRings, overviewTaken, placeNow } from './map/world.mjs';
 import * as hand from './hud/hand.mjs';
 import * as turnlist from './hud/turnlist.mjs';
 import { createCamKeep } from './hud/camkeep.mjs';
@@ -49,6 +49,9 @@ import { html, setHtml } from '../util.mjs';
 import { ACTIONS, FORMS, bind, startPlay, wantProvince, wantKeepHistory, wantKeepReach, wantHostReach, refreshConquest, refreshPrize, ackHomeGrant, tolled, syncProto, wantPreview, wantPlaces, composeTick } from './controller.mjs';
 import { mountProtoBoard } from './proto/board-mount.mjs';
 import { mountKeepBoard, keepReachOf } from './map/keepmount.mjs';
+// the recorded wide world, read-only (map/widemode.mjs): a button beside the map tools and a sheet over the map;
+// the ordinary map is not changed by it
+import { mountWideMode } from './map/widemode.mjs';
 import { provinceName as placeProvinceName } from './hud/place.mjs';
 // the prototype rule "banners" (a design tried in the sample world: hud/proto.mjs, proto/hand-model.mjs)
 import * as protoHud from './hud/proto.mjs';
@@ -3481,14 +3484,15 @@ async function loadSeason(herald) {
   herald.pin(record.season, FS.pin.addresses);
   FS.beacon = checkBeacon({ drand: record.drand, seasonPkHash: season.quicknetPkHash, cluster: record.cluster, seasonNetwork: season.network });
   if (!FS.beacon.ok) FS.error = { code: FS.beacon.code, text: clientText(FS.beacon.code) };
-  FS.record = record;
   FS.season = season;
   // the world's extent (map/world.mjs): which rings are open, pending or beyond the season's map; a ring only partly on
-  // chain is asked for its list (again with each season record, until it is whole)
-  FS.world = worldOf(record);
-  const partial = partialRings(FS.world);
-  for (const d of [...(FS.worldRings?.keys() ?? [])]) if (!partial.includes(d)) FS.worldRings.delete(d);
-  for (const d of partial) herald.worldRing(d).then(a => { if (a.ok) { (FS.worldRings ??= new Map()).set(d, a.present); invalidate('map', 'panel'); } }).catch(() => {});
+  // chain is asked for its list (again with each season record, until it is whole). The record, the world and the
+  // ring lists move together (applySeasonRecord), on every poll: a map that grew on chain is on the page by the next
+  // poll, no reload
+  applySeasonRecord(FS, record, { herald, onRings: () => invalidate('map', 'panel') });
+  // a ring opened since the overviews were taken, or one whose Provinces are still being created, wants its overview
+  // (after the boot's own load: boot awaits loadOverviews itself, so the opening view has them)
+  if (FS.overviewsBooted) loadOverviews(herald).catch(() => {});
   setS1(season);
   FS.clock = seasonClock(season);
   // Only a localnet Clock runs accelerated (§8.7); every other cluster's rate is 1.
@@ -3506,13 +3510,21 @@ async function loadSeason(herald) {
   return true;
 }
 
-async function loadOverviews(herald) {
-  const rings = Math.max(1, FS.record?.rings?.length ?? 1);
-  for (let d = 0; d < rings; d++) {
+/**
+ * The overviews of the rings that want one (map/world.mjs overviewRings): every open ring the page has none of, and
+ * every ring whose Province count changed since its overview was taken. Before map growth this ran once at boot over
+ * the rings open then, so a ring opened later had land (its seed was in the record) but no records on it until the
+ * page was reloaded; now the season poll calls it after each record.
+ */
+async function loadOverviews(herald, rings = overviewRings(FS.world, FS.overviewTaken)) {
+  let changed = false;
+  const requestedWorld = FS.world;
+  for (const d of rings) {
+    if (FS.world !== requestedWorld) break;
     const r = await herald.overview(d);
-    if (r.ok) FS.overviews.set(d, r);
+    if (r.ok && overviewTaken(FS, d, requestedWorld)) { FS.overviews.set(d, r); changed = true; }
   }
-  invalidate('map');
+  if (changed || !FS.overviewsBooted) invalidate('map');
 }
 
 /** Start the page. */
@@ -3688,6 +3700,10 @@ export async function boot() {
       art: ART_ON,
     });
     mapRef = map;
+    // the recorded wide world (read-only, experimental): refused on a sample world, explicit when the herald has
+    // none; it reads the season record's pins (season, Season address, program) so a manifest of another season or
+    // namespace is never shown
+    try { mountWideMode({ herald, canvas, isSample: () => !!FS.sample, recordOf: () => FS.record ?? null }); } catch (e) { console.error('frontier wide world:', e); }
     // >>> proto-board: the banner rule's PROTOTYPE (a design, not in the program; the sample world serves its records only when
     // it was started with claims=1). The page's one reading of its records (FS.proto) reaches the map here and nowhere
     // else: proto/board-mount.mjs builds the board's model from it each time the page has drawn itself (renderProto)
@@ -3783,6 +3799,9 @@ export async function boot() {
       FS.tab = 'map';
     }
   }
+  // from here the season poll loads the overviews of rings that newly want one (a season that failed to load at boot
+  // has no rings yet: its first good poll then loads them all)
+  FS.overviewsBooted = true;
   // without a season nobody's record will come: the map opens on what there is
   if (FS.mode !== 'play' || !FS.record) { viewerKnown = true; map?.invalidate(); }
   // The chip ticks every second (never announced: aria-live is off on it).

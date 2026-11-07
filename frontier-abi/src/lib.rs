@@ -22,6 +22,7 @@
 //! | [`clash_model`] | §5.11 | the clash of one province-bell over account bytes (the program's model; W4-A D8); MC adds `_v2` functions beside v1's |
 //! | [`conquest_model`] | MC §5.7 | the conquest step, control weights, snapshots and the March fold over Province v2 bytes |
 //! | [`v2`] | MC §5–§7 | ABI v2 under new names beside v1 (R-16) |
+//! | `world_index` | none (experimental) | feature `world-index-experimental` only: wide `i64` province coordinates, world-scoped keys, versioned host references and a sparse paginated opened-province index and exact tile geometry; opt-in herald reader, no deployed ABI or hash input |
 //!
 //! The vector writer (`src/bin/abi-vectors.rs`) turns these tables into
 //! `frontier-abi/vectors/*.json`; `--check` fails when a checked-in vector
@@ -56,6 +57,11 @@ pub mod resident_wire;
 pub mod rest_model;
 pub mod tags;
 pub mod v2;
+/// Experimental and opt-in (`--features world-index-experimental`); absent
+/// from every default build. See its module doc and
+/// `docs/frontier/map-growth/WIDE-WORLD-INDEX.md`.
+#[cfg(feature = "world-index-experimental")]
+pub mod world_index;
 
 pub use error::FrontierError;
 

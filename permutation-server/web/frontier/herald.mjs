@@ -15,6 +15,7 @@ import { encode as toB58 } from '../sdk/base58.mjs';
 import { decode } from './fcodec.mjs';
 import { parseTerritory } from './territory.mjs';
 import { provincesWithin, provinceFromIndex, provinceIndex, cellOf, provinceCentre, ringOf } from './fgeo.mjs';
+import { parseWideManifest, parseWidePage, PAGE_DEFAULT as WIDE_PAGE_DEFAULT } from './map/wide.mjs';
 
 // ------------------------------------------------------------------ HTTP
 /** A failed read (never thrown). */
@@ -33,6 +34,28 @@ async function get(f, url, { binary = false, timeoutMs = 12_000 } = {}) {
   } catch {
     return fail('BadBody', 'the herald answered something unreadable', r.status);
   }
+}
+
+/**
+ * A read whose refusal names its case: the herald's `{ok: false, code}` body comes back as `code` (a 503
+ * `WideWorldUnavailable` is that, never `HTTP503`), a missing route is `NotFound`, an abort is `Aborted`. The
+ * caller's `signal` wins over the timeout. Used by the recorded wide world only (`get` above is unchanged).
+ */
+async function getCoded(f, url, { signal = null, timeoutMs = 12_000 } = {}) {
+  let r;
+  try {
+    r = await f(url, { cache: 'no-store', signal: signal ?? AbortSignal.timeout?.(timeoutMs) });
+  } catch (e) {
+    return fail(signal?.aborted || e?.name === 'AbortError' ? 'Aborted' : 'network');
+  }
+  let json = null;
+  try { json = await r.json(); } catch { json = null; }
+  if (!r.ok) {
+    const code = typeof json?.code === 'string' && /^[A-Za-z0-9]{1,40}$/.test(json.code) ? json.code : r.status === 404 ? 'NotFound' : `HTTP${r.status}`;
+    return fail(code, `HTTP ${r.status}`, r.status);
+  }
+  if (json === null || typeof json !== 'object') return fail('BadBody', 'the herald answered something unreadable', r.status);
+  return { ok: true, json };
 }
 
 // ------------------------------------------------------------------ small LRU
@@ -340,6 +363,28 @@ export function createHerald({ base = '', fetch: f = (...a) => globalThis.fetch(
       const r = await get(f, `${root}/h/keep/${p},${q}.json`);
       return r.ok ? { ok: true, keep: r.json } : r;
     },
+    /**
+     * GET /h/world/wide (the recorded wide world, read-only, experimental; map/wide.mjs): the manifest, checked
+     * against the pinned season and the extra `pins` (`seasonAddress`, `programId`). A herald without it answers
+     * `WideWorldUnavailable` (its own 503 code, or a 404 of an older herald): explicit, never a dense fallback.
+     */
+    async wideWorld({ signal = null, pins = {} } = {}) {
+      const r = await getCoded(f, `${root}/h/world/wide`, { signal });
+      if (!r.ok) return r.code === 'NotFound' ? fail('WideWorldUnavailable', 'this herald serves no recorded wide world', r.httpStatus) : r;
+      return guard(() => ({ manifest: parseWideManifest(r.json, { ...pins, seasonId: pins.seasonId ?? pinned ?? undefined }) }));
+    },
+    /**
+     * GET /h/world/wide/page?limit=&after=: one page as the herald sent it (`json`), for a WideWalk to check
+     * against its world, snapshot and cursor (map/wide.mjs). Never cached: a page is bound to a snapshot.
+     */
+    async wideWorldPage({ limit = WIDE_PAGE_DEFAULT, after = null, signal = null } = {}) {
+      const q = `limit=${encodeURIComponent(String(limit))}${after ? `&after=${encodeURIComponent(String(after))}` : ''}`;
+      const r = await getCoded(f, `${root}/h/world/wide/page?${q}`, { signal });
+      if (!r.ok) return r.code === 'NotFound' ? fail('WideWorldUnavailable', 'this herald serves no recorded wide world', r.httpStatus) : r;
+      return { ok: true, json: r.json };
+    },
+    /** A page decoded on its own (tests, tools): parseWidePage with the walk's expectations. */
+    parseWidePage,
     async conquestDay(day) {
       const r = await get(f, `${root}/h/conquest/${day}.json`);
       return r.ok ? guard(() => ({ day: parseConquestDay(r.json) })) : r;

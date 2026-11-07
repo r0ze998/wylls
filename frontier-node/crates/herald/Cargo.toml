@@ -34,6 +34,14 @@ hyper.workspace = true
 hyper-util.workspace = true
 flate2.workspace = true
 
+[features]
+default = []
+# Experimental, opt-in: the read-only recorded wide world (`src/wide.rs`,
+# `/h/world/wide`) over frontier-abi's `world_index`. Off by default: the
+# default build compiles none of it and answers `503 WideWorldUnavailable`
+# on that path. No new dependency.
+wide-world-experimental = ["frontier-abi/world-index-experimental"]
+
 [dev-dependencies]
 # W3-D (request R4): `tests/real_chain.rs` drives the keeper over the
 # in-process chain with the keeper tests' harness (included by path).
