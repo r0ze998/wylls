@@ -382,7 +382,7 @@ pub async fn check_node(url: &str, parts: &[Part]) -> Vec<String> {
             .max(at);
         if len.is_some_and(|t| t < extent) {
             why.push(format!(
-                "{}: the node holds {} ledger entries, the archive was read through ledger seq {extent}: rewound",
+                "{}: the node holds {} transactions, the archive was read through ledger seq {extent}: rewound",
                 p.name,
                 len.unwrap_or(0)
             ));

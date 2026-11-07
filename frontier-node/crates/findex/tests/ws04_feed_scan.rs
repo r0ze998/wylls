@@ -322,8 +322,9 @@ async fn a_rewind_during_the_read_is_refused() {
 /// - A's own next read is refused: the transaction at its cursor is gone
 ///   (`atAfter`, in the same answer as the read).
 /// - The join of the stale A with B alone does not see it when the ledger
-///   grew back past A's size (limit, kept in the note): B holds nothing at 5.
-///   This test pins that limit, so a fix shows up here.
+///   grew back past A's size: B holds nothing at 5. Checking the archives
+///   against the node (`findex::ledger::check_node`) does, without
+///   re-reading A; a node that cannot be read confirms nothing.
 #[tokio::test]
 async fn a_rewind_between_the_reads_is_refused_on_the_next_read() {
     let n = node();
@@ -348,15 +349,29 @@ async fn a_rewind_between_the_reads_is_refused_on_the_next_read() {
         "nothing written over the stale archive"
     );
     assert_eq!(after.records.len(), before.records.len());
-    // Limit (kept in the note): the stale A on disk, joined offline with B,
-    // shows nothing wrong (B holds nothing at 5 and the ledger grew back past
-    // A's size). Only a successful catch-up of every part makes a join whole
-    // for the ledger as it is now.
-    let j = join(&[after, part("B", &fb)]);
+    // The stale A on disk, joined offline with B, shows nothing wrong (B holds
+    // nothing at 5 and the ledger grew back past A's size): the join alone
+    // cannot see it ...
+    let pb = part("B", &fb);
+    let j = join(&[after.clone(), pb.clone()]);
+    assert!(j.whole() && j.through == 8, "join alone: {:?}", j.problems);
+    // ... and the node check does, without re-reading A (19's check_node with
+    // the scan): A's last transaction is no longer at its ledger number.
+    let why = findex::ledger::check_node(&url, &[after.clone(), pb.clone()]).await;
     assert!(
-        j.whole() && j.through == 8,
-        "the documented limit: {:?}",
-        j.problems
+        why.iter()
+            .any(|w| w.starts_with("A:") && w.contains("rewound or rebuilt")),
+        "{why:?}"
+    );
+    assert!(
+        !why.iter().any(|w| w.starts_with("B:")),
+        "B is current: {why:?}"
+    );
+    // A node that cannot be read confirms nothing.
+    let why = findex::ledger::check_node("http://127.0.0.1:9", &[after, pb]).await;
+    assert!(
+        why.iter().any(|w| w.contains("nothing confirmed")),
+        "{why:?}"
     );
 }
 

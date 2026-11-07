@@ -205,15 +205,31 @@ async fn both_archives_of_one_ledger_are_one_order() {
     );
     assert_eq!(rf.through, 5, "the resident archive's own cursor");
     let w = World::parse(&prog(), &txs, BTreeMap::new(), 0);
-    // Whole up to just after its last resident transaction ...
+    // Both archives unchecked against the node (archive only): not whole
+    // (04 at integration, the owner's rule 2026-11-07: an archive the node
+    // could not confirm is never whole; for 20's review).
+    assert!(h.unproven() && rf.history.unproven());
+    assert!(!rf.gaps_before(&w, &h, 6).is_empty());
+    // Both confirmed against the node: whole up to just after the last
+    // resident transaction ...
+    let fdir_h = h.clone();
+    let mut rc = rf.clone();
+    let hc = {
+        let d = archive_of(&url, prog(), Some("run1")).await;
+        input::confirm_archive(&d, &url, fdir_h).await.unwrap()
+    };
+    rc.history = input::confirm_archive(&rdir, &url, rc.history.clone())
+        .await
+        .unwrap();
     assert!(
-        rf.gaps_before(&w, &h, 6).is_empty(),
+        rc.gaps_before(&w, &hc, 6).is_empty(),
         "{:?}",
-        rf.gaps_before(&w, &h, 6)
+        rc.gaps_before(&w, &hc, 6)
     );
-    // ... and not past it: the cursor does not say how far the ledger was
-    // scanned, so a later act stays UNVERIFIABLE (never claims more).
-    assert!(!rf.gaps_before(&w, &h, 7).is_empty());
+    // ... and not past it: this stand-in answers without the scan (04), so
+    // how far the ledger was scanned is not known and a later act stays
+    // UNVERIFIABLE (never claims more).
+    assert!(!rc.gaps_before(&w, &hc, 7).is_empty());
     // A live read of the same ledger pairs with the archive once the
     // archive is checked against the node (⑲'s confirm_archive); unchecked,
     // it does not.

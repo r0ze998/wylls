@@ -201,18 +201,21 @@ fn two_programs() -> Vec<(u8, Address)> {
 #[tokio::test]
 async fn the_resident_feed_is_whole_through_the_scanned_extent_and_no_further() {
     let (_n, url) = node(&["run1"], &two_programs()).await;
-    let (txs, h) = input::read_archive(&archive_of(&url, prog(), Some("run1")).await).unwrap();
+    let fd = archive_of(&url, prog(), Some("run1")).await;
+    let (txs, h) = input::read_archive(&fd).unwrap();
     assert_eq!(h.source, Source::LedgerFeed, "{h:?}");
+    // Checked against the node (19's confirm_archive): archive-only is never whole.
+    let h = input::confirm_archive(&fd, &url, h).await.unwrap();
+    assert_eq!(h.detail, "ledger run1");
     assert_eq!(
         txs.iter().map(|t| t.seq).collect::<Vec<_>>(),
         vec![1, 4, 6, 8]
     );
-    let rf = ResidentFeed::from_archive(
-        &archive_of(&url, other(), Some("run1")).await,
-        other(),
-        BTreeMap::new(),
-    )
-    .unwrap();
+    let rd = archive_of(&url, other(), Some("run1")).await;
+    let mut rf = ResidentFeed::from_archive(&rd, other(), BTreeMap::new()).unwrap();
+    rf.history = input::confirm_archive(&rd, &url, rf.history.clone())
+        .await
+        .unwrap();
     assert_eq!(rf.history.source, Source::LedgerFeed);
     assert_eq!(
         rf.txs.iter().map(|t| t.seq).collect::<Vec<_>>(),
@@ -250,4 +253,53 @@ async fn a_scanned_resident_archive_of_another_ledger_is_never_whole() {
     .unwrap();
     let w = World::parse(&prog(), &txs, BTreeMap::new(), 0);
     assert!(!rf.gaps_before(&w, &h, 6).is_empty());
+}
+
+/// An archive used without being read again: alone (no node) it is never
+/// whole; checked against the node after a rewind under the same runId (its
+/// last transaction gone), it is unknown; against the unchanged node it is
+/// confirmed and pairs with the resident feed again.
+#[tokio::test]
+async fn a_stale_archive_is_never_whole_until_the_node_confirms_it() {
+    let (n, url) = node(&["run1"], &two_programs()).await;
+    let fd = archive_of(&url, prog(), Some("run1")).await;
+    let rd = archive_of(&url, other(), Some("run1")).await;
+    // Alone: archive only, unproven (never PASS).
+    let (txs, h) = input::read_archive(&fd).unwrap();
+    assert!(h.unproven(), "{h:?}");
+    let w = World::parse(&prog(), &txs, BTreeMap::new(), 0);
+    let rf = ResidentFeed::from_archive(&rd, other(), BTreeMap::new()).unwrap();
+    assert!(
+        !rf.gaps_before(&w, &h, 6).is_empty(),
+        "archive-only: not whole"
+    );
+    // Confirmed against the unchanged node: whole again, pairs with the
+    // resident archive once that is confirmed too.
+    let hc = input::confirm_archive(&fd, &url, h.clone()).await.unwrap();
+    assert_eq!(hc.source, Source::LedgerFeed, "{hc:?}");
+    assert_eq!(hc.detail, "ledger run1");
+    let mut rfc = rf.clone();
+    rfc.history = input::confirm_archive(&rd, &url, rf.history.clone())
+        .await
+        .unwrap();
+    assert!(
+        rfc.gaps_before(&w, &hc, 6).is_empty(),
+        "{:?}",
+        rfc.gaps_before(&w, &hc, 6)
+    );
+    // The ledger rewound under the same runId: 6..8 lost, 6 is now another
+    // program's. The game archive's last transaction (8) is gone.
+    {
+        let mut l = n.ledger.lock().unwrap();
+        l.truncate(5);
+        l.push((61, Address::new_from_array([0xC3; 32])));
+    }
+    let hr = input::confirm_archive(&fd, &url, h).await.unwrap();
+    assert!(hr.unproven(), "{hr:?}");
+    assert!(
+        hr.detail.contains("not confirmed against the node"),
+        "{}",
+        hr.detail
+    );
+    assert!(!rfc.gaps_before(&w, &hr, 6).is_empty());
 }
