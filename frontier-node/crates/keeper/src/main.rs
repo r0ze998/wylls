@@ -1,4 +1,4 @@
-//! `frontier-keeper --config keeper.toml [--dev] [--peace-start f] [--init-seed] [--require-existing-journal]`
+//! `frontier-keeper --config keeper.toml [--dev] [--peace-start f] [--init-seed] [--require-existing-journal] [--observe-wide]`
 //!
 //! Loads `keeper.toml` (M1 contract §8.2), takes the process lock of its
 //! journal, reconciles in-flight attempts, then ticks once per slot against
@@ -23,7 +23,7 @@ use keeper_core::{api, Keeper};
 
 fn usage() -> ! {
     eprintln!(
-        "usage: frontier-keeper --config <keeper.toml> [--dev] [--peace-start <fraction>] [--init-seed] [--require-existing-journal]"
+        "usage: frontier-keeper --config <keeper.toml> [--dev] [--peace-start <fraction>] [--init-seed] [--require-existing-journal] [--observe-wide]"
     );
     std::process::exit(2);
 }
@@ -64,6 +64,8 @@ async fn main() {
     let args: Vec<String> = std::env::args().collect();
     let mut cfg_path = None;
     let (mut dev, mut init, mut require_existing_journal) = (false, false, false);
+    #[cfg(feature = "wide-world-experimental")]
+    let mut observe_wide = false;
     let mut peace: Option<f64> = None;
     let mut i = 1;
     while i < args.len() {
@@ -73,6 +75,8 @@ async fn main() {
                 i += 1;
             }
             "--dev" => dev = true,
+            #[cfg(feature = "wide-world-experimental")]
+            "--observe-wide" => observe_wide = true,
             "--peace-start" => {
                 let f: f64 = args
                     .get(i + 1)
@@ -203,6 +207,15 @@ async fn main() {
         eprintln!("{e}");
         std::process::exit(2)
     });
+    // Explicit read-only observation; this never relaxes the feed/write guards.
+    #[cfg(feature = "wide-world-experimental")]
+    if observe_wide {
+        k.enable_wide_observation(keeper_core::wideindex::Limits::default())
+            .unwrap_or_else(|e| {
+                eprintln!("wide observation: {e}");
+                std::process::exit(2)
+            });
+    }
     if let Some(seed) = claim_seed {
         let kp = fclient::Keypair::new_from_array(seed);
         if let Err(e) = k.set_claim_key(kp) {

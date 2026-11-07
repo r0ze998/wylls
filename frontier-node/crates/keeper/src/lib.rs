@@ -22,6 +22,7 @@
 //! | [`play`] | decrypt, the reveal pipeline, SettleDeparture and returns, the gather/resolve/skip scheduler, SettleTransit, closes, claims (W4-C) |
 //! | [`conquest`] | MC (CQ2-D): contested bells, fold-driven skips, SettleCapture, SettleSiege, FoldMarch, the horn watcher, the season-end flush, CloseMarch |
 //! | [`api`] | the loopback API (`/v1/*`, `/metrics`) |
+//! | `wideindex` (feature `wide-world-experimental`) | **read-only** discovery of the wide world from explicitly supplied, authenticated PSW1 bodies: provinces, full holding and host references, transit slots, reveals, settlements, closes; read-account plans only, no duty, no write |
 //!
 //! [`Keeper::tick`] runs once per slot: it reads the Clock, plans every
 //! duty from chain reads (the chain is the state), then lets the engine
@@ -58,6 +59,8 @@ pub mod seeds;
 #[cfg(test)]
 pub(crate) mod testkit;
 pub mod tickets;
+#[cfg(feature = "wide-world-experimental")]
+pub mod wideindex;
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::{Arc, Mutex};
@@ -281,6 +284,12 @@ pub struct Keeper<P: ChainPort, D: DrandPort> {
     /// takes `frontier-abi/vectors/v2/budgets.json` unless `budgets_file`
     /// overrides it).
     budgets_version: u16,
+    /// The read-only wide observer (feature `wide-world-experimental`),
+    /// enabled by [`Keeper::enable_wide_observation`]: shown the same feed
+    /// pages the legacy discovery pulls, before the legacy guard ingests
+    /// them. It never plans, sends, signs or unblocks anything.
+    #[cfg(feature = "wide-world-experimental")]
+    pub wide_observer: Option<wideindex::WideObserver>,
 }
 
 /// Slots between two cares while a pool is below its minimum (the top-up
@@ -415,10 +424,38 @@ impl<P: ChainPort, D: DrandPort> Keeper<P, D> {
             care_last: None,
             care_legacy_unknown: false,
             budgets_version: abi::PROGRAM_VERSION_V1,
+            #[cfg(feature = "wide-world-experimental")]
+            wide_observer: None,
             cfg,
             port,
             drand,
         })
+    }
+
+    /// Enables the read-only wide observer over this Season's one legacy
+    /// world (`WorldId::derive_legacy_season` of the public Season PDA and
+    /// program id). Observation only: the legacy feed guard, the legacy
+    /// cursors and every write gate are untouched; the observer's status
+    /// always reports `automatic_writes: false` and `source_complete:
+    /// false`. Starts empty on every process start (no journal).
+    #[cfg(feature = "wide-world-experimental")]
+    pub fn enable_wide_observation(&mut self, limits: wideindex::Limits) -> Result<(), String> {
+        let world = frontier_abi::world_index::WorldId::derive_legacy_season(
+            &self.addrs.season.to_bytes(),
+            &self.addrs.program.to_bytes(),
+        )
+        .map_err(|e| format!("{e:?}"))?;
+        self.wide_observer = Some(wideindex::WideObserver::new(
+            wideindex::Scope {
+                program: self.addrs.program,
+                season: self.addrs.season,
+                world,
+                source: "keeper feed pages shared with the legacy discovery; program invocation frames decoded by fclient::typed_log; source completeness not established"
+                    .into(),
+            },
+            limits,
+        ));
+        Ok(())
     }
 
     /// Sets the ClaimDefence signer: the beneficiary's key (§5.12: the
@@ -575,6 +612,12 @@ impl<P: ChainPort, D: DrandPort> Keeper<P, D> {
                         break;
                     }
                 };
+                // The read-only wide observer sees the same page before
+                // the legacy guard ingests it; it changes nothing below.
+                #[cfg(feature = "wide-world-experimental")]
+                if let Some(o) = self.wide_observer.as_mut() {
+                    o.observe_page(&page, &self.addrs.program);
+                }
                 if page.is_empty() {
                     self.index.feed.caught_up();
                     self.play.index.feed.caught_up();
@@ -1261,7 +1304,7 @@ impl<P: ChainPort, D: DrandPort> Keeper<P, D> {
             })
             .collect();
         let pool_sum = |ks: Vec<Address>| ks.iter().map(|k| self.payers.balance(k)).sum::<u64>();
-        json!({
+        let mut status = json!({
             "slot": slot, "now": now, "bell": bell,
             "season": self.season.as_ref().map(|s| json!({
                 "id": s.h.season_id, "status": s.effective_status(now), "genesis_ts": s.genesis_ts,
@@ -1316,7 +1359,28 @@ impl<P: ChainPort, D: DrandPort> Keeper<P, D> {
             "conquest": self.play.conquest.status(bell),
             "spend_by_day": self.spend_by_day,
             "alerts": self.alerts.len(),
+        });
+        // The read-only wide observation (feature `wide-world-experimental`):
+        // counts and the blocker; never a readiness or completeness claim.
+        if let Some(wide) = self.wide_status() {
+            status["wide"] = wide;
+        }
+        status
+    }
+
+    /// The `wide` status entry: the observer's status, or the explicit
+    /// "disabled" shape; `None` in a build without the feature.
+    #[cfg(feature = "wide-world-experimental")]
+    fn wide_status(&self) -> Option<Value> {
+        Some(match &self.wide_observer {
+            Some(o) => o.status(),
+            None => json!({"mode": "disabled", "automatic_writes": false, "source_complete": false}),
         })
+    }
+
+    #[cfg(not(feature = "wide-world-experimental"))]
+    fn wide_status(&self) -> Option<Value> {
+        None
     }
 
     /// Prometheus text (`GET /metrics`).
