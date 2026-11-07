@@ -28,3 +28,13 @@ These are suites coexisting on one tree, not yet a single scenario that performs
 Host departures and other fixture boundaries remain as documented by each suite. In particular dispatcher and planner share settlement expectations, not identical full Reveal worlds. Unknown histories and unresolved-generation payment destinations remain conservative refusals. No full-game playability, signature authentication or live-chain correctness is established.
 
 Earlier component documents describe their own branch snapshots (including statements that return/economy were not merged); this integration note supersedes those statements only for this local merge. No push, main update, fee or payment policy change occurred.
+
+## Follow-up: Train interleaved with an active transit
+
+Added `map_growth_runtime_tests::wide_land::wide_economy::wide_economy_train_during_transit_preserves_escrow_and_returns_into_changed_reserve`. It passed individually and in the 13-test economy runtime module after formatting. This is a new test on top of the 224-test merge result, not a rerun of all 224.
+
+The same holding retains an active settled transit carrying 401,000 milli troops. Real Train adds 10 reserve troops; real routed return then adds 200 whole survivors to that updated reserve. Exact balances and lamport conservation, escrow/pool/open-transit counters, host sequence and identity are asserted. The combined Economy/TransitSettled/Return trace is retained and every affected prev-head is independently advanced with the ABI, then checked against stored final heads.
+
+Wrong-actor Train, unaffordable Train and repeated settlement call direct dispatch, with all involved account bytes, owners, balances and full log contents unchanged. These refusal assertions do not rely on harness rollback. Successful settlement uses the existing helper (which can roll back failures but succeeded here).
+
+An independent static review found no blocker or auth/bucket/finality bypass. Fixtures remain explicit: staged departures, stock and a saturated home roster force the reserve fallback. This establishes Train interleaving, not Harvest/Build interleaving or actual Depart-to-return/live-chain play. No production code, policy, send gate, signing, deployment or publication changed.
