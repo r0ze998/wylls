@@ -179,3 +179,30 @@ v0.17 の持ち主の定義への置き換え（`authorize` = `holder` + `author
 保存物は**プログラムごとに一本**（④ の案）。各記録のフレームの JSON に、台帳の seq を任意の欄 `feed_seq` として残す（順序付きの feed から来たときだけ。`TxRecord` は変えず、記録の seq と `feed_seq` の対応を返す読み出しを別に用意する）。二本にまとめない理由：`frontier_feed` に二つのプログラムの絞り込みが要り、herald の fold・index が住民プログラムの取引も受け取ることになる。公開 RPC からの住民の feed は、どちらの形でも unproven のまま。
 
 ⑳ 側で要ること（未実装、⑲ の実装を待つ）：保存物から読むときは、Frontier の取引と住民の取引の両方で `feed_seq`（台帳の seq）を `seq` として使い、署名で突き合わせる。`feed_seq` か署名の欠けた記録があれば whole にしない。実装されるまでは、保存物と実ノードの組合せは whole にならない（今の安全側の挙動）。⑲ は利用者の指示を待ってから実装する。
+
+## 9. 保存物からの住民の feed（2026-11-07、v0.20）
+
+⑲ の実装（bundle `ws19-ledger-on-72d84173.bundle`、SHA-256 `23dffcb5c2a5249922b88b3a592d36a7e604ab052dabcf67817b847cb1f8b0e9` を確認、commit `7ab2b0b2`）を ⑳ の枝に fast-forward で取り込み、その上に作った。
+
+### 実装済み・試験で確認
+
+| 項目 | 内容 |
+|---|---|
+| `ResidentFeed::from_archive(dir, program, policies)` | 住民プログラムの findex 保存物を ⑲ の `input::read_archive` で読む。保存物が台帳の始めから欠けなく `feed_seq` を持つときだけ、記録の seq が台帳の番号になり、出所が `ledger <runId>` になる。それ以外は `unknown`（whole にならない）。`through` は保存物のカーソル（住民プログラムの最後の台帳番号）で、走査した範囲より短くなりうる（控えめで、主張しすぎない） |
+| `frontier-verify --resident-program ID --resident-archive DIR` | 保存物から読む。`--rpc` があれば policy アカウントもそこから読む。`--rpc URL --localnet` だけなら今までどおりノードから読む |
+| `fetch` の policy | policy アカウントが読めなくても止めない（policy は保存物の CreateResidentPolicy からも読める） |
+| 照合 | 出所の一致は `ledger <runId>` どうし（⑲ の変更で、ノードからの読み取りと保存物が同じ表記になる） |
+
+試験（`verify/tests/resident_ledger.rs`、⑲ の鍵なしの代替ノードを写したもの：普通のソケット、固定の署名の並び、署名していない取引）：
+- 同じ台帳の二つの保存物は一つの順序になる。住民の記録の seq は台帳の番号（2・3・5）。最後の住民の取引の直後までは whole、その先は UNVERIFIABLE。同じノードの生の読み取りとも組める。
+- 台帳の名が無い住民の保存物は `unknown` で whole にならない。作り直したノード（別の runId）の保存物は「出所が違う」で whole にならない。
+- 生の読み取りの `fetch` は、ゲームの履歴と同じ出所になり、`through` はゲームの最後の seq。
+
+合わせて実行（すべて合格）：`verify --test resident_ledger` 3、`verify --test ledger_history`（⑲）3、`findex --test ledger`（⑲）9、`verify --test history`（⑲）16、`verify` lib の `resident_feed`・V28 7。clippy 合格。鍵ペアの生成・導出・署名は無い。
+
+### 未検証・残り
+
+- **実ノードでは試していない**：代替ノードでの試験だけ。住民プログラムを載せた本物の `frontier-localnet` での保存・取得・照合は未実施。
+- **走査した範囲**：保存物のカーソルは自分のプログラムの最後の番号で、台帳をどこまで走査したかではない。最後の住民の取引より後の操作は、保存物からは UNVERIFIABLE のまま。走査した範囲を残すには、`frontier_feed` が台帳の末尾を返すか、取得時に `frontier_status.transactions` を記録する必要がある（④ の判断）。
+- **完全性の根拠**：`findex::ledger` の問題が無いことは、そのノードの台帳を信じたうえでの「保存物に穴が無い」の主張で、台帳そのものの欠けや runId の衝突は見えない（⑲ の注記）。
+- 住民プログラムの命令そのもの、内側の命令の効果は、引き続き UNVERIFIABLE。

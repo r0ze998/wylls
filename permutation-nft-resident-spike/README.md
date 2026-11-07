@@ -1,6 +1,8 @@
 # permutation-nft-resident-spike：NFT で譲渡できる住民アカウント（隔離試作）
 
-**状態（2026-11-07、v0.19）**：ローカルのみ（模擬チェーン、LiteSVM、ループバック validator）。公開発行・devnet／mainnet・実資金・新しい鍵は無し。価格・無料／有料・供給数・公開発行・ロイヤリティは未決（`docs/UNDECIDED.ja.md`）。Metaplex Core は**試作の選定方式**で、本線採用は未決。継続世界は決定済み。依存パッケージ無し（Node 20+ の標準モジュールだけ。`test-gateway/` だけは `permutation-gateway` の依存を使う）。v0.8 で担当ブランチへ通常 push（根拠は `docs/PUSH-AUDIT.ja.md`）。merge・deploy はしていない。
+**状態（2026-11-07、v0.20）**：ローカルのみ（模擬チェーン、LiteSVM、ループバック validator）。公開発行・devnet／mainnet・実資金・新しい鍵は無し。価格・無料／有料・供給数・公開発行・ロイヤリティは未決（`docs/UNDECIDED.ja.md`）。Metaplex Core は**試作の選定方式**で、本線採用は未決。継続世界は決定済み。依存パッケージ無し（Node 20+ の標準モジュールだけ。`test-gateway/` だけは `permutation-gateway` の依存を使う）。v0.8 で担当ブランチへ通常 push（根拠は `docs/PUSH-AUDIT.ja.md`）。merge・deploy はしていない。
+
+**v0.20 の変更**：⑲ の保存物の台帳番号（`feed_seq`・`ledger <runId>`・`findex::ledger`）を取り込み、住民プログラムの feed を findex の保存物からも読めるようにした（`--resident-archive`）。同じ台帳の保存物どうし、保存物と生の読み取りが一つの順序として照合できることを、⑲ の鍵なしの代替ノードで確かめた。実ノードでは未検証（`docs/HOLDER-CONTRACT.ja.md` §9）。
 
 **v0.19 の変更**：統合候補 3ad0bcdb の上で、住民プログラムの記録（`ResidentFeed`）を検証器の入力に入れた。同じローカルノードの台帳の `seq` で Frontier と住民プログラムの取引を一つの順序に並べ、読んだ範囲（`through`）で古い控えを見分ける。V28 の持ち主の判定は、その feed が操作まで揃っているときだけ FAIL にできる。実ノードでの取得は未検証（`docs/HOLDER-CONTRACT.ja.md` §8）。
 
