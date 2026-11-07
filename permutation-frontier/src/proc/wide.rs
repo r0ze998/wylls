@@ -1,6 +1,6 @@
 //! **Experimental** (`wide-world-experimental`): the handlers of the wide
 //! land write path, dispatched on the provisional band
-//! `frontier_abi::world_index::wide_ix` (0xD6–0xDB). Not in any default
+//! `frontier_abi::world_index::wide_ix` (0xD6–0xDE). Not in any default
 //! build, never an SBF binary (`lib.rs` refuses the feature on the Solana
 //! target); a build with this feature carries the `0x4000` program-version
 //! bit, so its Seasons never mix with production Seasons, and every
@@ -12,30 +12,73 @@
 //! | 0xD7 | [`consume_ring_seed`] | **writes**: the seed, after the same `quick::verify` and `quick::seed_of` as the deployed ConsumeRingSeed |
 //! | 0xDB | [`set_rules`] | **writes** (once, by the Season's authority): the Season's experimental rules configuration (`world_index::rules`), naming a *candidate* for each rule a wide opening needs; a byte 0 refuses |
 //! | 0xD8 | [`open_province`] | **writes the whole province** when the configuration is present: the wide terrain kernel over the ring seed, the keep (tile by the deployed kernel, holder by the configured candidate), the configured Free City and camp, the deployed site mirror, funded from the geometric wedge's fund with the deployed fund and ring-seed bookkeeping. Without the configuration it validates and refuses `NotImplemented` before any write, exactly as before |
-//! | 0xD9 | [`claim_site`] | runs the deployed FileOutpost's prerequisites **read-only** over wide land (the player prologue, the one-inventory slot model, the final Town first home as anchor with its unlocked province, the slot-2 holding for a slot-3 claim, `holding::may_found_outpost` on the folded Frontier and the wide province's strength weights, the site free with a zero record, the settler cost affordable from the anchor's touched stores), then refuses `NotImplemented`: the outpost **lifecycle** (FileOutpost's cohort and escrow, the beacon draw of SettleTicket, the provisional holding and its finality) is not ported to wide land, and nothing of it is substituted |
+//! | 0xD9 | [`claim_site`] | **files the wide outpost ticket**: the deployed FileOutpost's checks over wide land (the player prologue, the one ticket and one inventory, the final Town first home as anchor with its unlocked province, the slot-2 holding for a slot-3 claim with the lazy finality flip, `holding::may_found_outpost` on the folded Frontier and the wide province's strength weights, the site's zero record, the settler cost) and its writes: the settler cost from the anchor (`HARVEST` of the anchor), the province's cohort, the Citizen's marker, the record holding the wide Holding's rent |
+//! | 0xDC | [`settle_ticket`] | **the deployed SettleTicket over the wide ticket**: expired, or the beacon seed of the ticket's bell and the province's region, the full-width score, fresh (a **provisional** wide holding from the record's escrow), displace (the record's escrow pays the loser's funder, the loser's slot is unbound, the holding is rewritten at `gen + 1`) or taken; the ticket ends, the cohort settles, the record stays **Settled** holding the escrow a win did not consume (the deployed retention: nothing is refunded) |
+//! | 0xDF | [`finalize`] | the deployed lazy provisional → final flip of a wide holding, callable by anyone: `now ≥ final_ts` **and** the ticket's cohort closed, else `TooEarly` |
+//! | 0xDE | [`close`] | season end (Ended + 72 h, Aborted, the tombstone): a wide ticket record closes as CloseCitizen closes a Citizen: the escrow to its funder (listed exactly when non-zero), the rest whole to its immutable rent payer; pending, the Citizen's marker clears (before CloseCitizen, which refuses the marker); Settled, before or after CloseCitizen (the Citizen position then the absent account at its address); a wide holding closes to its rent payer after its `pool_owed` is swept to the DefencePool |
+//! | 0xDD | [`resident_act`] | WideClaimSite or WideDepart for an NFT resident's Citizen under the deployed resident check (current Core owner or session, the signed holder generation) |
 //! | 0xDA | [`depart`] | runs the deployed Depart's checks over the wide holding and province (final, resident, seal syntax, arrival window and end bell, tip floor, transit slot, funds), then refuses `NotImplemented`: no wider host identity is allocated, so no host can stand in a wide province and no march can be debited |
 //!
-//! **Fail closed, write nothing.** WideClaimSite and WideDepart write no
-//! byte (the player prologue's bucket debit included) and move no lamport:
-//! every check runs on borrowed or scratch data before the gate, and the
-//! host tests compare the Citizen, the anchor, the province, the payer and
-//! the absent target before and after.
+//! **The wide ticket and the deployed paths.** While a wide ticket is
+//! pending the Citizen carries the marker of `world_index::ticket`
+//! (`TICKET_BELL` set, zero sites, the ticket bits), so FileTicket,
+//! FileOutpost and PlaceHome refuse as they refuse any open ticket, the
+//! deployed lowest-free-slot rule skips the slot, and SettleTicket,
+//! CloseCitizen and DeclareSiege (a reservation) refuse it **explicitly**
+//! through [`refuse_wide_ticket`] before they parse, refund or count
+//! anything. The wide Holding's rent is **never** in the Citizen's shared
+//! `TICKET_ESCROW` (sized at the deployed rent and shared with capture
+//! reservations): the record holds it as its own `escrow` with its own
+//! `funder` (the deployed `TICKET_FUNDER`) beside its **immutable**
+//! `rent_payer` (the deployed Citizen `RENT_PAYER`: who created the
+//! record), and follows the deployed escrow's life exactly
+//! (`world_index::ticket`): a filing tops the escrow up to one wide rent
+//! and the payer becomes the funder only when it tops up (FileOutpost's
+//! rule, so a refile reuses the retained rent without re-attributing it);
+//! a win moves exactly one wide rent into the holding or to a displaced
+//! funder; an expired or taken ticket keeps it; after any settle the
+//! record stays, **Settled**, with no marker on the Citizen, and nothing
+//! is refunded while the Season runs. At season end the record closes
+//! through [`close_ticket`] as CloseCitizen closes a Citizen: the escrow
+//! to the funder, then everything else (the record's rent and any excess)
+//! whole to the rent payer, pending or Settled, before or after the
+//! Citizen's own close, and neither recipient is ever redirected by a
+//! Citizen close, an NFT transfer or a later payer. The settler cost is burned at the filing
+//! and never refunded, as deployed. There is no cancellation, as deployed:
+//! a ticket ends by settle (expired, taken, won) or, at season end, by
+//! [`close_ticket`].
+//!
+//! **Refusals precede writes.** A refused instruction reverts on chain
+//! whatever it wrote; the host harness has no such rollback, so these
+//! handlers are written to refuse **before** their first write: every
+//! deterministic transition (the bucket, the marker, the cohort, the
+//! slot's clear-and-bind, the displaced slot's unbind, the counters) runs
+//! first on a scratch copy, and the one lamport-moving step (a CPI or a
+//! program-owned move) runs before every byte write. WideDepart writes
+//! nothing at all. The host tests execute each wide instruction through a
+//! snapshot-and-restore executor (every account's lamports, bytes, length
+//! and owner) and compare the restored state with the pre-state, which is
+//! evidence of all-or-nothing under the emulation, not of the chain.
 //!
 //! **No PS2 record of a wide event.** The wide records carry no event
-//! chain and no record kind is allocated for a wide opening (the "record
-//! kinds" allocation gap of `WIDE-LAND-WRITER.md` §3); an opening logs
-//! nothing, so readers see the fund's counters move and nothing else.
+//! chain and no record kind is allocated for a wide opening, filing or
+//! settlement (the "record kinds" allocation gap of `WIDE-LAND-WRITER.md`
+//! §3). The records a wide handler emits are deployed ones on deployed
+//! accounts: the anchor's `HARVEST` for the settler cost, and a
+//! displacement's `DIVERT` when the refund would leave its recipient
+//! below rent exemption. Readers see the anchor's stores, the fund's and
+//! the JoinShard's counters move and nothing of the wide land itself.
 //!
 //! **Who may act.** The player handlers take the program's [`super::Auth`]:
 //! the wallet prologue, or an NFT resident's Citizen through the real
 //! resident check (`super::resident::start`: the asset's current Core
 //! owner or its session, at the signed holder generation). The plain
 //! dispatch runs them as [`super::Auth::Wallet`], which refuses an NFT
-//! Citizen by address (zero `WALLET`); `ResidentAct` routes only the ABI
-//! v2 tags of `resident_wire::ACT_RUNS`, which no draft tag is, so **no
-//! NFT Citizen can reach a wide entry point today**: the `_as` forms are
-//! the plumbing for the day the integrator allocates the tags, and the
-//! holder-generation invariant is never bypassed by them.
+//! Citizen by address (zero `WALLET`); [`resident_act`] (0xDD, this band)
+//! runs them as [`super::Auth::Resident`] with the four proof accounts.
+//! The deployed `ResidentAct` (0xE2) routes only the ABI v2 tags of
+//! `resident_wire::ACT_RUNS`, which no draft tag is, and this band's act
+//! routes only this band: neither list is extended.
 //!
 //! **Engineering versus product.** Everything written here reuses a
 //! deployed kernel or a deployed handler's rule; the only choices that are
@@ -51,6 +94,7 @@ use solana_program::{account_info::AccountInfo, pubkey::Pubkey};
 
 use frontier_abi::conquest_model::{write_keep, write_no_keep};
 use frontier_abi::layout::AccountKind;
+use frontier_abi::log::{divert_reason, settle_outcome, Kind};
 use frontier_abi::prologue as ap;
 use frontier_abi::v2::kernel::keep as kkeep;
 use frontier_abi::world_index::holding::{self as wh, HoldingError, SlotBinding, WideHolding};
@@ -60,6 +104,9 @@ use frontier_abi::world_index::land::{
 };
 use frontier_abi::world_index::march::{MarchError, WideTransit};
 use frontier_abi::world_index::rules::{self as wr, OpeningInput, RulesError, WideRulesConfig};
+use frontier_abi::world_index::ticket::{
+    self as wt, CitizenTicket, TicketError, TicketStatus, WideTicket,
+};
 use frontier_abi::world_index::tiles::TileAddress;
 use frontier_abi::world_index::wide_ix::{self as wix, WideIx};
 use frontier_abi::world_index::{WideCoord, WideHostRef, WorldId};
@@ -69,20 +116,21 @@ use permutation_rules::frontier::fees;
 use permutation_rules::frontier::geometry::{R_MAX_HARD, SITES_PER_PROVINCE};
 use permutation_rules::frontier::holding::{may_found_outpost, OutpostCheck, Tier};
 use permutation_rules::frontier::seal as ks;
+use permutation_rules::frontier::siege;
 use permutation_rules::frontier::terrain::wide::generate_province_wide;
 
 use crate::addr::{self, AddrCtx};
 use crate::clock::SeasonClock;
 use crate::crypto::quick;
 use crate::error::{kernel, BAD_ACCOUNT, OVERFLOW};
-use crate::init::{self, SeasonSigner};
-use crate::layout::conquest::season_cq;
+use crate::init::{self, SeasonSigner, Sink};
+use crate::layout::conquest::{lifecycle, season_cq};
 use crate::layout::{
-    camp as CP, citizen as C, citizen2 as C2, frontier as FR, holding as H, province as PV,
-    province2 as PV2, province_fund as PF, season as S, site as SM, site2 as SM2, transit as T, Ro,
-    Rw,
+    camp as CP, citizen as C, citizen2 as C2, frontier as FR, holding as H, join_shard2 as JS2,
+    province as PV, province2 as PV2, province_fund as PF, season as S, site as SM, site2 as SM2,
+    transit as T, Ro, Rw,
 };
-use crate::proc::citizen as cz;
+use crate::proc::citizen::{self as cz, write_holding as write_founding, Founding};
 use crate::proc::conquest::{capture_lock_of, check_source_province};
 use crate::proc::holding as hold;
 use crate::proc::map::{encode_terrain, present_at, ring_occupancy_met, LAND_STATUS, SUB_KEEP_CAP};
@@ -108,6 +156,10 @@ pub fn dispatch(p: &Pubkey, a: &[AccountInfo], data: &[u8]) -> R<()> {
         WideIx::ClaimSite => claim_site(p, a, data),
         WideIx::Depart => depart(p, a, data),
         WideIx::SetRules => set_rules(p, a, data),
+        WideIx::SettleTicket => settle_ticket(p, a, data),
+        WideIx::ResidentAct => resident_act(p, a, data),
+        WideIx::Close => close(p, a, data),
+        WideIx::Finalize => finalize(p, a, data),
     }
 }
 
@@ -775,14 +827,152 @@ fn player_start_as(p: &Pubkey, a: &[AccountInfo], now: i64, auth: &Auth) -> R<ap
     Ok(start)
 }
 
-// ------------------------------------------------------------ 0xD9
+// ------------------------------------------------------------ wide tickets
+
+/// The explicit refusal of a pending wide ticket in a deployed path: the
+/// marker (`ticket::pending`) is `TicketState`; a marker no program writes
+/// is `BadAccount`; no ticket or a deployed ticket passes. Called, under
+/// this feature only, by the deployed SettleTicket (before its sites are
+/// parsed and before its expiry branch), CloseCitizen (before the escrow
+/// refund and the close) and DeclareSiege (before a capture reservation
+/// counts the ticket at the deployed rent).
+pub(crate) fn refuse_wide_ticket(citizen: &[u8]) -> R<()> {
+    match wt::pending(citizen) {
+        Ok(CitizenTicket::Wide { .. }) => Err(FrontierError::TicketState.into()),
+        Ok(_) => Ok(()),
+        Err(_) => Err(BAD_ACCOUNT),
+    }
+}
+
+/// A ticket-model refusal as a program code (the deployed counterparts').
+fn ticket_err(e: TicketError) -> crate::Error {
+    match e {
+        TicketError::TicketOpen
+        | TicketError::NoWideTicket
+        | TicketError::SlotTaken(_)
+        | TicketError::SlotReserved(_) => FrontierError::TicketState.into(),
+        TicketError::NotWide { .. } | TicketError::SiteOrSlot { .. } => {
+            FrontierError::BadData.into()
+        }
+        TicketError::Escrow => FrontierError::Insufficient.into(),
+        _ => BAD_ACCOUNT,
+    }
+}
+
+/// The wide ticket record at an address the caller checked: `None` if
+/// absent; the record if present, program-owned, well formed and of this
+/// season and world; `BadAccount` otherwise.
+fn ticket_at(
+    ai: &AccountInfo,
+    p: &Pubkey,
+    season_id: u64,
+    world: WorldId,
+) -> R<Option<WideTicket>> {
+    if init::is_absent(ai) {
+        return Ok(None);
+    }
+    if ai.owner != p {
+        return Err(BAD_ACCOUNT);
+    }
+    let d = ai.try_borrow_data()?;
+    let rec = WideTicket::read(&d).map_err(|_| BAD_ACCOUNT)?;
+    if rec.season_id != season_id || rec.world != world {
+        return Err(BAD_ACCOUNT);
+    }
+    Ok(Some(rec))
+}
+
+/// The pending wide ticket of `citizen`: the Citizen's marker and the
+/// **Open** record at the Citizen's canonical ticket address, agreeing on
+/// the bell and the slot and naming this Citizen (`NoTicket` without a
+/// marker, `TicketState` for a deployed ticket, `BadAccount` for any
+/// disagreement, a Settled record included: the marker and the record's
+/// status are written together).
+fn pending_ticket(
+    p: &Pubkey,
+    ctx: &AddrCtx,
+    season_id: u64,
+    world: WorldId,
+    citizen: &AccountInfo,
+    record: &AccountInfo,
+) -> R<WideTicket> {
+    let marker = {
+        let cd = citizen.try_borrow_data()?;
+        wt::pending(&cd).map_err(|_| BAD_ACCOUNT)?
+    };
+    let (bell, slot) = match marker {
+        CitizenTicket::None => return Err(FrontierError::NoTicket.into()),
+        CitizenTicket::Legacy => return Err(FrontierError::TicketState.into()),
+        CitizenTicket::Wide { bell, slot } => (bell, slot),
+    };
+    expect_key(record, &wt::ticket_address(ctx, &key(citizen)))?;
+    let rec = ticket_at(record, p, season_id, world)?.ok_or(BAD_ACCOUNT)?;
+    if rec.status != TicketStatus::Open
+        || rec.citizen != key(citizen)
+        || rec.bell != bell
+        || rec.slot != slot
+    {
+        return Err(BAD_ACCOUNT);
+    }
+    Ok(rec)
+}
+
+/// The record's lamports cover its own rent and its escrow (an invariant
+/// every write of the record keeps; `BadAccount` otherwise).
+fn escrow_covered(record: &AccountInfo, rec: &WideTicket, rent_record: u64) -> R<()> {
+    let need = rent_record.checked_add(rec.escrow).ok_or(OVERFLOW)?;
+    if record.lamports() < need {
+        return Err(BAD_ACCOUNT);
+    }
+    Ok(())
+}
+
+/// The deployed lazy provisional → final condition (`prologue::finality_due`:
+/// state 1, `now ≥ final_ts`, the ticket's cohort closed on the holding's
+/// own province) read over a **wide** holding: `(state as stored, due)`.
+/// Nothing is written.
+fn wide_finality_due(
+    holding: &AccountInfo,
+    province: &AccountInfo,
+    now: i64,
+    now_bell: u32,
+) -> R<(u8, bool)> {
+    let hh = {
+        let hd = holding.try_borrow_data()?;
+        let r = Ro(&hd);
+        ap::HoldingHdr {
+            p: 0,
+            q: 0,
+            site: r.u8(H::SITE)?,
+            gen: r.u8(H::GEN)?,
+            state: r.u8(H::STATE)?,
+            ticket_bell: r.u32(H::TICKET_BELL)?,
+            final_ts: r.i64(H::FINAL_TS)?,
+        }
+    };
+    let pd = province.try_borrow_data()?;
+    Ok((hh.state, ap::finality_due(&hh, &pd, now, now_bell)))
+}
+
+/// The flip itself: an outpost's, so the Holding's state alone changes and
+/// the Citizen's first-home flags are untouched (as
+/// `proc::holding::finality` does for `order > 1`). No `HOLDING_FINAL`
+/// record: the wide holding carries no event chain. The caller checked
+/// [`wide_finality_due`].
+fn apply_wide_finality(holding: &AccountInfo) -> R<()> {
+    let mut hd = holding.try_borrow_mut_data()?;
+    Rw(&mut hd).set_u8(H::STATE, H::STATE_FINAL)
+}
 
 /// The slot-2 holding of a slot-3 claim is final (the deployed
 /// FileOutpost's `slot2_final`): a legacy holding at the slot's ref
 /// (canonical, the citizen's, at the ref's generation, order 2, its
-/// canonical province unlocked), or a wide holding record naming slot 2
-/// and the citizen (at its own canonical address, its wide province
-/// present and unlocked). An empty slot 2 is never final.
+/// canonical province unlocked; its state as stored, as FileOutpost reads
+/// it), or a wide holding record naming slot 2 and the citizen (at its
+/// own canonical address, its wide province present and unlocked), final
+/// as stored or **due** to flip ([`wide_finality_due`]). Returns `(final,
+/// flip)`: `flip` asks the caller to apply the due flip among its effects
+/// (nothing is written here). An empty slot 2 is never final.
 #[allow(clippy::too_many_arguments)]
 fn previous_final(
     p: &Pubkey,
@@ -793,7 +983,9 @@ fn previous_final(
     binding: SlotBinding,
     prev: &AccountInfo,
     prev_province: &AccountInfo,
-) -> R<bool> {
+    now: i64,
+    now_bell: u32,
+) -> R<(bool, bool)> {
     match binding {
         SlotBinding::Legacy(r) => {
             expect_key(prev, &ctx.holding(r.p as i32, r.q as i32, r.site))?;
@@ -808,7 +1000,7 @@ fn previous_final(
                 return Err(FrontierError::NotOwner.into());
             }
             check_source_province(p, ctx, season_id, prev, prev_province)?;
-            Ok(ph.state == H::STATE_FINAL)
+            Ok((ph.state == H::STATE_FINAL, false))
         }
         SlotBinding::Wide => {
             let rec = holding_at(prev, p, season_id)?.ok_or(BAD_ACCOUNT)?;
@@ -821,32 +1013,46 @@ fn previous_final(
             if prov.world != world || prov.coord != rec.coord {
                 return Err(BAD_ACCOUNT);
             }
-            let hd = prev.try_borrow_data()?;
-            let pd = prev_province.try_borrow_data()?;
-            capture_lock_of(&pd, &hd)?;
-            Ok(Ro(&hd).u8(H::STATE)? == H::STATE_FINAL)
+            {
+                let hd = prev.try_borrow_data()?;
+                let pd = prev_province.try_borrow_data()?;
+                capture_lock_of(&pd, &hd)?;
+            }
+            let (state, due) = wide_finality_due(prev, prev_province, now, now_bell)?;
+            Ok((
+                state == H::STATE_FINAL || due,
+                due && state != H::STATE_FINAL,
+            ))
         }
-        SlotBinding::Empty => Ok(false),
+        SlotBinding::Empty => Ok((false, false)),
     }
 }
 
+// ------------------------------------------------------------ 0xD9
+
 /// 0xD9 WideClaimSite(P, Q, site, slot): the deployed player prologue +
-/// `[frontier r] [province w] [holding w] [joinshard w] [anchor_holding w]
-/// [anchor_province r] [previous_holding r] [previous_province r]
+/// `[frontier r] [province w] [wide_ticket w] [anchor_holding w]
+/// [anchor_province r] [previous_holding w] [previous_province r]
 /// [system]` (`wide_ix::CLAIM_SITE`, the deployed FileOutpost's shape).
-/// The deployed FileOutpost's prerequisites over wide land, **all
-/// read-only**, in its order:
+/// **Files the wide outpost ticket**: the deployed FileOutpost's checks
+/// over wide land, then FileOutpost's writes with the ticket's identity in
+/// a record instead of the Citizen's `i16` sites.
+///
+/// Checks, in FileOutpost's order:
 ///
 /// 1. the player prologue steps 1–2 (`Auth`, `BadAddress`, …), this
 ///    build's Season (`RulesetMismatch`), the end bell (`WrongStatus`);
 /// 2. the coordinate wide (`BadData`); the wide province present at its
 ///    canonical address, of this world (`BadAccount`); `site < 12`
-///    (`BadData`); the holding absent at its canonical wide address
-///    (`AlreadyDone`);
-/// 3. no open ticket (`TicketState`); the one-inventory slot model on a
-///    scratch copy of the Citizen (slot 2 or 3 else `BadData`; taken,
-///    ticketed, reserved or a full count: `TicketState`); `slot` the
-///    deployed **lowest free slot** (`TicketState` otherwise);
+///    (`BadData`); the record at the Citizen's canonical ticket address
+///    **absent** (a first filing) or **Settled** and this Citizen's, its
+///    lamports covering its escrow (a refile; `BadAccount` otherwise); an
+///    Open record is a pending ticket (`TicketState`), and a marker that
+///    disagrees with the record's status is `BadAccount`;
+/// 3. no ticket open, deployed or wide (`TicketState`); the slot empty,
+///    unreserved, 2 or 3 (`ticket::mark` on a scratch copy: `BadData`,
+///    `TicketState`); `slot` the deployed **lowest free slot**
+///    (`TicketState` otherwise);
 /// 4. the anchor: the Citizen's slot-1 legacy ref (none: `OutpostRule`),
 ///    the Holding there canonical and the citizen's (`NotOwner`), at the
 ///    ref's generation (`BadData`), final (`NotFinal`), order 1
@@ -854,40 +1060,42 @@ fn previous_final(
 ///    capture-locked (`CapturePending`); the slot-2 holding for a slot-3
 ///    claim ([`previous_final`]), the anchor pair again otherwise
 ///    (`BadAddress`);
-/// 5. the Frontier canonical; the JoinShard canonical;
-///    `holding::may_found_outpost` with the deployed inputs (count and
-///    prerequisite `HoldingsFull`/`OutpostRule`; the heartland, the
-///    **range from the anchor** in provinces, the share of the province's
-///    strength weight, the close: `OutpostRule`; the folded land gate:
-///    `Capacity`);
-/// 6. the site free or released-free (`TicketState`), below the
-///    province's `site_count` (`BadData`), its conquest record zero
-///    (`SiegeBusy`); the settler cost (`settler_cost(holdings_n)`)
-///    affordable from the anchor's touched stores (`Insufficient`, on a
-///    copy: nothing is paid).
+/// 5. the Frontier canonical; `holding::may_found_outpost` with the
+///    deployed inputs (count and prerequisite `HoldingsFull`/`OutpostRule`;
+///    the heartland, the **range from the anchor** in provinces, the share
+///    of the province's strength weight, the close: `OutpostRule`; the
+///    folded land gate: `Capacity`);
+/// 6. the site below the province's `site_count` (`BadData`), its conquest
+///    record zero (`SiegeBusy`), its terrain readable; the settler cost
+///    (`settler_cost(holdings_n)`) in the anchor's touched stores
+///    (`Insufficient`); the payer covering its top-up (`Insufficient`):
+///    the record's rent plus the wide Holding's rent for a first filing,
+///    `rent(wide Holding) − escrow` for a refile (FileOutpost's
+///    `need − escrow`, 0 when the retained rent covers it).
 ///
-/// Then the readiness gate (`WideHolding::found` under an undecided claim
-/// rule): **`NotImplemented`**. What is missing is the deployed outpost
-/// *lifecycle*, not a rule: FileOutpost writes a ticket into the Citizen
-/// and a cohort into each Province, takes the Holding-rent escrow and the
-/// settler cost; SettleTicket draws the beacon seed of the ticket's bell
-/// and region, scores, founds a **provisional** holding from the escrow or
-/// displaces, and the resident prologue flips it final once the cohort
-/// closes. The wide province has the cohort table (the prefix is the
-/// Province v2 layout) but the Citizen's ticket sites are `i16` and the
-/// bell seed is drawn by region: porting the flow is engineering that is
-/// not done, and founding at once would be a different operation. No
-/// byte is written and no lamport moves.
+/// Effects, FileOutpost's: the bucket debit (step 3 of the prologue); the
+/// anchor pays the settler cost and is written back (`HARVEST` of the
+/// anchor, Citizen and Holding chained: the deployed record of that
+/// debit; the cost is **not refunded**, as deployed); the province's
+/// cohort of `now_bell` takes the ticket (`cohort_file`); the record:
+/// created from the payer holding `rent(record) + rent(wide Holding)`
+/// with the payer as funder and as immutable rent payer (a first filing), or topped up by the payer
+/// and rewritten Open with the payer as funder **only when it topped up**
+/// (`WideTicket::refile`: FileOutpost's funder rule; the retained rent
+/// keeps its funder); the **isolated escrow** (the Citizen's shared
+/// `TICKET_ESCROW` and funder are untouched); the Citizen's marker
+/// (`ticket::mark`: `TICKET_BELL = now_bell`, zero sites, the ticket
+/// bits). No record of the wide ticket itself (module doc).
 pub fn claim_site(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
     claim_site_as(p, a, d, &Auth::Wallet)
 }
 
 /// [`claim_site`] for the Citizen's wallet or an NFT resident's Citizen
-/// ([`Auth`]; module doc on reachability).
+/// ([`Auth`]; [`resident_act`]).
 pub(crate) fn claim_site_as(p: &Pubkey, a: &[AccountInfo], d: &[u8], auth: &Auth) -> R<()> {
     check_accounts(WideIx::ClaimSite, a, None)?;
     let x = wix::ClaimSite::decode(d)?;
-    let [_actor, _payer, season_ai, citizen, frontier, province, holding, shard, anchor_ai, anchor_province, prev_ai, prev_province, _system] =
+    let [_actor, payer, season_ai, citizen, frontier, province, record, anchor_ai, anchor_province, prev_ai, prev_province, _system] =
         a
     else {
         return Err(FrontierError::TooManyAccounts.into());
@@ -914,34 +1122,52 @@ pub(crate) fn claim_site_as(p: &Pubkey, a: &[AccountInfo], d: &[u8], auth: &Auth
     if x.site as usize >= SITES_PER_PROVINCE {
         return Err(FrontierError::BadData.into());
     }
-    expect_key(holding, &wh::holding_address(&ctx, coord, x.site))?;
-    if holding_at(holding, p, hdr.id)?.is_some() {
-        return Err(FrontierError::AlreadyDone.into());
-    }
-    // 3. the Citizen and its one inventory
-    let (faction, shard_i, holdings_n, slots, flags, open_ticket, bindings, gen2, gen3) = {
+    expect_key(record, &wt::ticket_address(&ctx, &key(citizen)))?;
+    let rent_record = init::rent(wt::wide_ticket::SIZE)?;
+    let rent_w = init::rent(wh::wide_holding::SIZE)?;
+    // The record: absent (a first filing) or Settled (a refile over the
+    // retained escrow); Open is a pending ticket. The marker must agree
+    // with the record's status (they are written together).
+    let retained = match ticket_at(record, p, hdr.id, world)? {
+        None => None,
+        Some(rec) if rec.status == TicketStatus::Open => {
+            return Err(FrontierError::TicketState.into());
+        }
+        Some(rec) => {
+            if rec.citizen != key(citizen) {
+                return Err(BAD_ACCOUNT);
+            }
+            escrow_covered(record, &rec, rent_record)?;
+            Some(rec)
+        }
+    };
+    // 3. the Citizen and its one ticket and inventory
+    let (faction, holdings_n, slots, flags, bindings, gen2, gen3) = {
         let cd = citizen.try_borrow_data()?;
         let r = Ro(&cd);
+        if matches!(
+            wt::pending(&cd).map_err(|_| BAD_ACCOUNT)?,
+            CitizenTicket::Wide { .. }
+        ) {
+            // a wide marker over an absent or Settled record
+            return Err(BAD_ACCOUNT);
+        }
         (
             r.u8(C::FACTION)?,
-            r.u8(C::JOIN_SHARD)?,
             r.u8(C::HOLDINGS_N)?,
             r.u8(C2::SLOTS)?,
             r.u8(C::FLAGS)?,
-            r.u32(C::TICKET_BELL)?,
             wh::bindings_of(&cd).map_err(holding_err)?,
             cz::slot_gen(&cd, 2)?,
             cz::slot_gen(&cd, 3)?,
         )
     };
-    if open_ticket != C::NO_TICKET {
-        return Err(FrontierError::TicketState.into());
-    }
     {
-        // Every refusal of the real binding, on a scratch copy.
+        // Every refusal of the real marker (a ticket open, the slot taken
+        // or reserved), on a scratch copy.
         let cd = citizen.try_borrow_data()?;
         let mut scratch = cd.to_vec();
-        wh::bind(&mut scratch, x.slot).map_err(holding_err)?;
+        wt::mark(&mut scratch, now_bell, x.slot).map_err(ticket_err)?;
     }
     let lowest = C2::lowest_free_slot(slots, gen2, gen3);
     if lowest != Some(x.slot) {
@@ -978,7 +1204,7 @@ pub(crate) fn claim_site_as(p: &Pubkey, a: &[AccountInfo], d: &[u8], auth: &Auth
         season_cq(&sd)?
     };
     let tier_min = cz::holding_tier(cq.outpost_tier_min)?;
-    let slot2_final = if x.slot == 3 {
+    let (slot2_final, flip_prev) = if x.slot == 3 {
         previous_final(
             p,
             &ctx,
@@ -988,21 +1214,16 @@ pub(crate) fn claim_site_as(p: &Pubkey, a: &[AccountInfo], d: &[u8], auth: &Auth
             bindings[1],
             prev_ai,
             prev_province,
+            now.ts,
+            now_bell,
         )?
     } else {
         expect_key(prev_ai, anchor_ai.key.as_array())?;
         expect_key(prev_province, anchor_province.key.as_array())?;
-        false
+        (false, false)
     };
     // 5. the deployed outpost entitlement
     present_at(frontier, &ctx.frontier(), p, AccountKind::Frontier, hdr.id)?;
-    present_at(
-        shard,
-        &ctx.join_shard(faction, shard_i),
-        p,
-        AccountKind::JoinShard,
-        hdr.id,
-    )?;
     let (open_sites, occupied) = {
         let fd = frontier.try_borrow_data()?;
         let r = Ro(&fd);
@@ -1041,45 +1262,822 @@ pub(crate) fn claim_site_as(p: &Pubkey, a: &[AccountInfo], d: &[u8], auth: &Auth
         outpost_close_bells: cq.outpost_close_bells,
     })
     .map_err(cz::outpost_err)?;
-    // 6. the site (free, below the count, a zero record, a readable tile)
-    // and the settler cost
-    let gen = {
+    // 6. the site (below the count, a zero conquest record, a readable
+    // tile: FileOutpost's; whether it is free is the settle's question),
+    // the settler cost, the payer's rents
+    {
         let pd = province.try_borrow_data()?;
         let r = Ro(&pd);
         if x.site >= r.u8(PV::SITE_COUNT)? {
             return Err(FrontierError::BadData.into());
         }
-        let o = PV::site(x.site as usize);
-        if !matches!(
-            r.u8(o + SM::STATE)?,
-            SM::STATE_FREE | SM::STATE_RELEASED_FREE
-        ) {
-            return Err(FrontierError::TicketState.into());
-        }
         cz::record_is_zero(&pd, x.site)?;
         let tile = r.u8(PV::SITES + x.site as usize)?;
         hold::site_terrain_ore(&pd, tile)?;
-        r.u8(o + SM::GEN)?.checked_add(1).ok_or(OVERFLOW)?
-    };
-    // The settler cost, affordable from the anchor's touched stores: `h` is
-    // a copy; the anchor account is not written.
+    }
     let cost = cz::settler_cost(holdings_n)?;
     h.pay(now.ts, &cost).map_err(hold::holding_err)?;
-    // The readiness gate: the outpost lifecycle is not ported (doc above).
-    // `found` refuses `NotReady` under an undecided claim rule, mapped to
-    // `NotImplemented`; nothing below it exists.
-    let _founded = WideHolding::found(
-        world,
-        hdr.id,
-        coord,
-        x.site,
-        gen,
-        x.slot,
-        key(citizen),
-        &Decision::Undecided,
+    // The escrow (FileOutpost's K-25 rule over the record): one wide rent;
+    // the payer covers the shortfall and becomes the funder only then.
+    let total = rent_record.checked_add(rent_w).ok_or(OVERFLOW)?;
+    let (rec, top) = match retained {
+        None => (
+            WideTicket::file(
+                world,
+                hdr.id,
+                key(citizen),
+                coord,
+                x.site,
+                x.slot,
+                now_bell,
+                key(payer),
+                rent_w,
+            )
+            .map_err(ticket_err)?,
+            total.saturating_sub(record.lamports()),
+        ),
+        Some(kept) => kept
+            .refile(coord, x.site, x.slot, now_bell, key(payer), rent_w)
+            .map_err(ticket_err)?,
+    };
+    if payer.lamports() < top {
+        return Err(FrontierError::Insufficient.into());
+    }
+    // Preflight of every remaining deterministic transition on scratch
+    // copies: the bucket (`Bucket`), the marker, the cohort (`CohortFull`).
+    // After this point only the one CPI can refuse, and it runs first.
+    {
+        let cd = citizen.try_borrow_data()?;
+        let mut scratch = cd.to_vec();
+        start.finish(&mut scratch, now.ts)?;
+        wt::mark(&mut scratch, now_bell, x.slot).map_err(ticket_err)?;
+    }
+    {
+        let pd = province.try_borrow_data()?;
+        let mut scratch = pd.to_vec();
+        cz::cohort_file(&mut scratch, now_bell)?;
+    }
+    // ---- effects: FileOutpost's; the CPI first, then byte writes ----
+    if retained.is_none() {
+        init::init_with_seed(
+            payer,
+            record,
+            season_ai,
+            &SeasonSigner::new(hdr.id, hdr.bump),
+            &wt::ticket_seed(&key(citizen)),
+            wt::wide_ticket::SIZE,
+            total,
+            p,
+        )?;
+    } else {
+        // FileOutpost's `transfer(payer, citizen, top)` over the record.
+        init::transfer(payer, record, top)?;
+    }
+    {
+        let mut td = record.try_borrow_mut_data()?;
+        rec.write(&mut td).map_err(|_| BAD_ACCOUNT)?;
+    }
+    {
+        let mut cd = citizen.try_borrow_mut_data()?;
+        start.finish(&mut cd, now.ts)?;
+        Rw(&mut cd).set_i64(C::LAST_ACTION_TS, now.ts)?;
+        wt::mark(&mut cd, now_bell, x.slot).map_err(ticket_err)?;
+    }
+    let digest = {
+        let mut hd = anchor_ai.try_borrow_mut_data()?;
+        hold::write_holding(&mut hd, &h, now.ts)?;
+        hold::stores_digest(&hd)?
+    };
+    {
+        let mut pd = province.try_borrow_mut_data()?;
+        cz::cohort_file(&mut pd, now_bell)?;
+    }
+    if flip_prev {
+        apply_wide_finality(prev_ai)?;
+    }
+    let hkey = hold::pqs_key(ah.p, ah.q, ah.site)?;
+    hold::emit3(
+        Kind::HARVEST,
+        now_bell,
+        &hkey,
+        &digest,
+        citizen,
+        anchor_ai,
+        None,
     )
-    .map_err(holding_err)?;
-    Err(FrontierError::NotImplemented.into())
+}
+
+// ------------------------------------------------------------ 0xDC
+
+/// 0xDC WideSettleTicket(k): `[payer s,w] [season r] [citizen w]
+/// [wide_ticket w] [holding w] [province w] [joinshard w] [seedcache|archive
+/// r] [anchor|archive r] [displaced_rent_payer w, displaced_citizen w,
+/// displaced_joinshard w]? [system]`. Class D. The deployed SettleTicket
+/// over the wide ticket:
+///
+/// Running and this build's Season; the Citizen present at its record
+/// address (wallet or NFT resident); the pending wide ticket
+/// ([`pending_ticket`]: `NoTicket`, `TicketState`, `BadAccount`), its
+/// lamports covering its escrow (`BadAccount`); `k` (`AlreadyDone` below
+/// the cursor, `TicketState` otherwise: one site); the holding and
+/// province at the ticket's canonical wide addresses, the province
+/// present; the JoinShard canonical. **Expired** (`now_bell ≥ bell + 24`)
+/// ends the ticket.
+/// Otherwise the seed `S(bell, region)` of the wide province's region
+/// (`seed_of_bell`: THE anchor's SeedCache or the archive entry;
+/// `SeedNotReady`, `NoAnchor`), the full-width score
+/// (`ticket::wide_ticket_score`); the site free or released-free →
+/// **fresh** unless an earlier cohort of the province is open
+/// (`TicketState`, K9); a provisional wide holding of the same bell with a
+/// lower score (tie: lower tag) → **displace**; else **taken**, which
+/// exhausts the one-site ticket. A win needs the site's conquest record
+/// zero (`SiegeBusy`) and the record's escrow to hold the wide Holding's
+/// rent (`Insufficient`).
+///
+/// Effects: fresh: the holding is created **from the record's escrow**
+/// (`init_funded`, exactly the wide rent), header and identity by the
+/// wide record model, `founded_outpost` (Hamlet, the site's ore, no
+/// starter kit), `order = slot`, the season's **outpost shield**,
+/// **provisional** with the ticket's bell, score and `final_ts =
+/// round_time(S) + 600`, `rent_payer = funder`; displace: the record's
+/// escrow pays the wide rent to the displaced holding's rent payer
+/// (`pay_or_divert`, sink `pool_owed`), the displaced Citizen's slot is
+/// unbound and its JoinShard's outposts decremented, the holding is
+/// rewritten in place at `gen + 1`; either win: the mirror (holding, the
+/// faction, `order = slot`, Hamlet, the generation, the shield bell,
+/// `held_since_hour`), `n_sites_used` when the site was free,
+/// `roster_epoch + 1`, the JoinShard's outposts, the Citizen's ticket bits
+/// cleared **then** the slot bound to the marker (one inventory). Whenever
+/// the ticket ends (it always does: one site): the Citizen's marker
+/// cleared, the province's cohort `settled + 1`, and the record rewritten
+/// **Settled** (`WideTicket::settle`): its escrow less the one wide rent a
+/// win moved, unchanged when expired or taken (the deployed
+/// `TICKET_ESCROW` retention; nothing goes back to the funder before the
+/// season-end close, as deployed). No `SETTLE` record (no kind is
+/// allocated for the wide site key; a displacement's `pay_or_divert` may
+/// log the deployed `DIVERT`).
+pub fn settle_ticket(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
+    let x = wix::SettleTicket::decode(d)?;
+    let n_disp = match a.len() {
+        10 => 0u8,
+        13 => 1,
+        _ => return Err(FrontierError::TooManyAccounts.into()),
+    };
+    check_accounts(WideIx::SettleTicket, a, Some(&[1, n_disp, 1]))?;
+    let [_payer, season_ai, citizen, record, holding, province, shard, seed_ai, anchor_ai, rest @ ..] =
+        a
+    else {
+        return Err(FrontierError::TooManyAccounts.into());
+    };
+    let disp = match rest {
+        [dp, dc, ds, _system] => Some((dp, dc, ds)),
+        [_system] => None,
+        _ => return Err(FrontierError::TooManyAccounts.into()),
+    };
+    let now = prologue::now()?;
+    let hdr = prologue::season(
+        season_ai,
+        p,
+        Some(&RULESET_HASH),
+        &[S::STATUS_RUNNING],
+        now.ts,
+    )?;
+    require_wide_season(season_ai)?;
+    let now_bell = hdr.bell(now.ts).ok_or(FrontierError::WrongStatus)?;
+    let ctx = addr::ctx(&key(season_ai), &p.to_bytes());
+    let world = world_of(&ctx)?;
+    // The citizen and its wide ticket.
+    prologue::present(citizen, p, AccountKind::Citizen, hdr.id)?;
+    {
+        let cd = citizen.try_borrow_data()?;
+        super::resident::expect_citizen_address(&ctx, citizen, &cd)?;
+    }
+    let rec = pending_ticket(p, &ctx, hdr.id, world, citizen, record)?;
+    let (faction, shard_i, my_tag) = {
+        let cd = citizen.try_borrow_data()?;
+        let r = Ro(&cd);
+        (
+            r.u8(C::FACTION)?,
+            r.u8(C::JOIN_SHARD)?,
+            r.u64(C::CITIZEN_TAG)?,
+        )
+    };
+    if x.k < rec.next {
+        return Err(FrontierError::AlreadyDone.into());
+    }
+    if x.k != rec.next || x.k != 0 {
+        return Err(FrontierError::TicketState.into());
+    }
+    let rent_w = init::rent(wh::wide_holding::SIZE)?;
+    let rent_record = init::rent(wt::wide_ticket::SIZE)?;
+    escrow_covered(record, &rec, rent_record)?;
+    let (coord, site, slot, ticket_bell) = (rec.coord, rec.site, rec.slot, rec.bell);
+    expect_key(province, &wl::province_address(&ctx, coord))?;
+    let prov = province_at(province, p, hdr.id)?.ok_or(BAD_ACCOUNT)?;
+    if prov.world != world || prov.coord != coord {
+        return Err(BAD_ACCOUNT);
+    }
+    expect_key(holding, &wh::holding_address(&ctx, coord, site))?;
+    present_at(
+        shard,
+        &ctx.join_shard(faction, shard_i),
+        p,
+        AccountKind::JoinShard,
+        hdr.id,
+    )?;
+    let cq = {
+        let sd = season_ai.try_borrow_data()?;
+        season_cq(&sd)?
+    };
+    let expired = now_bell >= ticket_bell.saturating_add(PV::COHORT_BELLS);
+    let (outcome, score, final_ts) = if expired {
+        (settle_outcome::EXPIRED, 0u64, 0i64)
+    } else {
+        let c = {
+            let sd = season_ai.try_borrow_data()?;
+            SeasonClock::read(&sd)?
+        };
+        let (seed, s_round) = cz::seed_of_bell(
+            p,
+            &ctx,
+            hdr.id,
+            &c,
+            hdr.genesis_ts,
+            seed_ai,
+            anchor_ai,
+            ticket_bell,
+            prov.region,
+        )?;
+        let score = wt::wide_ticket_score(&seed, coord, site, my_tag);
+        let final_ts = c.round_time(s_round).checked_add(600).ok_or(OVERFLOW)?;
+        let state = {
+            let pd = province.try_borrow_data()?;
+            let r = Ro(&pd);
+            if site >= r.u8(PV::SITE_COUNT)? {
+                return Err(BAD_ACCOUNT);
+            }
+            let state = r.u8(PV::site(site as usize) + SM::STATE)?;
+            if matches!(state, SM::STATE_FREE | SM::STATE_RELEASED_FREE)
+                && cz::earlier_cohort_open(&pd, ticket_bell, now_bell)?
+            {
+                return Err(FrontierError::TicketState.into());
+            }
+            state
+        };
+        let outcome = match state {
+            SM::STATE_FREE | SM::STATE_RELEASED_FREE => {
+                if !init::is_absent(holding) {
+                    return Err(BAD_ACCOUNT);
+                }
+                settle_outcome::FRESH
+            }
+            SM::STATE_HOLDING => {
+                let held = holding_at(holding, p, hdr.id)?.ok_or(BAD_ACCOUNT)?;
+                if held.world != world || held.coord != coord || held.site != site {
+                    return Err(BAD_ACCOUNT);
+                }
+                let hd = holding.try_borrow_data()?;
+                let r = Ro(&hd);
+                if r.u8(H::STATE)? == H::STATE_PROVISIONAL
+                    && r.u32(H::TICKET_BELL)? == ticket_bell
+                    && cz::displaces(
+                        score,
+                        my_tag,
+                        r.u64(H::TICKET_SCORE)?,
+                        addr::citizen_tag(&held.owner_citizen),
+                    )
+                {
+                    settle_outcome::DISPLACE
+                } else {
+                    settle_outcome::TAKEN
+                }
+            }
+            _ => settle_outcome::TAKEN,
+        };
+        (outcome, score, final_ts)
+    };
+    if (outcome == settle_outcome::DISPLACE) != disp.is_some() {
+        return Err(FrontierError::TooManyAccounts.into());
+    }
+    let won = matches!(outcome, settle_outcome::FRESH | settle_outcome::DISPLACE);
+    let bell_log = now_bell;
+    // ---- preflight: every deterministic transition on scratch copies ----
+    // The record: the ticket ends; a win consumes exactly one wide rent of
+    // the escrow (`Insufficient` when the escrow does not hold it), expired
+    // or taken consumes nothing (the deployed retention).
+    if won && rec.escrow < rent_w {
+        return Err(FrontierError::Insufficient.into());
+    }
+    let settled = rec
+        .settle(if won { rent_w } else { 0 })
+        .map_err(ticket_err)?;
+    // The Citizen: the ticket bits cleared, then (on a win) the slot bound,
+    // with no reservation on it (the deployed settle founds into the slot
+    // its ticket named; a reservation there is a state no program writes).
+    {
+        let cd = citizen.try_borrow_data()?;
+        let mut scratch = cd.to_vec();
+        wt::clear(&mut scratch).map_err(ticket_err)?;
+        if won {
+            if Ro(&scratch).u8(C2::SLOTS)? & C2::reserved_bit(slot) != 0 {
+                return Err(BAD_ACCOUNT);
+            }
+            wh::bind(&mut scratch, slot).map_err(holding_err)?;
+        }
+    }
+    // The win: the site, the rents, the counters, the displaced accounts.
+    let win = if won {
+        let (tile, old_gen, ore, was_free) = {
+            let pd = province.try_borrow_data()?;
+            let r = Ro(&pd);
+            cz::record_is_zero(&pd, site)?;
+            let o = PV::site(site as usize);
+            let tile = r.u8(PV::SITES + site as usize)?;
+            let was_free = r.u8(o + SM::STATE)? != SM::STATE_HOLDING;
+            if was_free {
+                r.u8(PV::N_SITES_USED)?.checked_add(1).ok_or(OVERFLOW)?;
+            }
+            (
+                tile,
+                r.u8(o + SM::GEN)?,
+                hold::site_terrain_ore(&pd, tile)?,
+                was_free,
+            )
+        };
+        let gen = old_gen.checked_add(1).ok_or(OVERFLOW)?;
+        {
+            let jd = shard.try_borrow_data()?;
+            let r = Ro(&jd);
+            // Same-shard displacement decrements before incrementing:
+            // its net change is zero, including at the maximum count.
+            if disp
+                .map(|(_, _, old_shard)| old_shard.key != shard.key)
+                .unwrap_or(true)
+            {
+                for off in [JS2::EXTRA_HOLDINGS, JS2::OUTPOSTS] {
+                    r.u32(off)?.checked_add(1).ok_or(OVERFLOW)?;
+                }
+            }
+        }
+        let displaced = if let Some((d_payer, d_citizen, d_shard)) = disp {
+            let old = holding_at(holding, p, hdr.id)?.ok_or(BAD_ACCOUNT)?;
+            let old_payer: [u8; 32] = {
+                let hd = holding.try_borrow_data()?;
+                Ro(&hd).arr(H::RENT_PAYER)?
+            };
+            expect_key(d_payer, &old_payer)?;
+            expect_key(d_citizen, &old.owner_citizen)?;
+            prologue::present(d_citizen, p, AccountKind::Citizen, hdr.id)?;
+            let (d_faction, d_shard_i) = {
+                let dd = d_citizen.try_borrow_data()?;
+                let r = Ro(&dd);
+                (r.u8(C::FACTION)?, r.u8(C::JOIN_SHARD)?)
+            };
+            present_at(
+                d_shard,
+                &ctx.join_shard(d_faction, d_shard_i),
+                p,
+                AccountKind::JoinShard,
+                hdr.id,
+            )?;
+            {
+                let dd = d_citizen.try_borrow_data()?;
+                let mut scratch = dd.to_vec();
+                wh::unbind(&mut scratch, old.slot).map_err(holding_err)?;
+            }
+            d_payer.lamports().checked_add(rent_w).ok_or(OVERFLOW)?;
+            Some((d_payer, d_citizen, d_shard, old.slot))
+        } else {
+            None
+        };
+        let day = addr::day_of(now_bell);
+        let kh = cz::founded_outpost(now.ts, day, slot, ore)?;
+        let shield_until = now
+            .ts
+            .checked_add(lifecycle(&cq).shield_secs_for(slot, now.ts, hdr.genesis_ts))
+            .ok_or(OVERFLOW)?;
+        let founded = WideHolding::found(
+            world,
+            hdr.id,
+            coord,
+            site,
+            gen,
+            slot,
+            key(citizen),
+            // The claim rule is the deployed outpost lottery, settled here.
+            &Decision::Decided(()),
+        )
+        .map_err(holding_err)?;
+        Some((
+            tile,
+            gen,
+            ore,
+            was_free,
+            displaced,
+            kh,
+            shield_until,
+            founded,
+        ))
+    } else {
+        None
+    };
+    // ---- effects: the lamport move first (the one CPI on a fresh win),
+    // then byte writes that cannot fail ----
+    if let Some((tile, gen, ore, was_free, displaced, kh, shield_until, founded)) = win {
+        let mut pool_owed = 0u64;
+        match displaced {
+            None => {
+                let moved = init::init_funded(
+                    record,
+                    holding,
+                    season_ai,
+                    &SeasonSigner::new(hdr.id, hdr.bump),
+                    &wh::holding_seed(coord, site),
+                    wh::wide_holding::SIZE,
+                    p,
+                    rent_w,
+                )?;
+                if moved != rent_w {
+                    return Err(FrontierError::Insufficient.into());
+                }
+            }
+            Some((d_payer, d_citizen, d_shard, old_slot)) => {
+                // The record's wide rent pays the displaced holding's funder.
+                init::pay_or_divert(
+                    p,
+                    record,
+                    d_payer,
+                    rent_w,
+                    &Sink::PoolOwed(holding),
+                    divert_reason::ESCROW_REFUND,
+                    bell_log,
+                )?;
+                pool_owed = {
+                    let hd = holding.try_borrow_data()?;
+                    Ro(&hd).u64(H::POOL_OWED)?
+                };
+                {
+                    let mut dd = d_citizen.try_borrow_mut_data()?;
+                    wh::unbind(&mut dd, old_slot).map_err(holding_err)?;
+                }
+                if d_shard.key == shard.key {
+                    let mut jd = shard.try_borrow_mut_data()?;
+                    cz::shard_outposts(&mut jd, -1)?;
+                } else {
+                    let mut jd = d_shard.try_borrow_mut_data()?;
+                    cz::shard_outposts(&mut jd, -1)?;
+                }
+            }
+        }
+        let f = Founding {
+            p: 0,
+            q: 0,
+            site,
+            gen,
+            tile,
+            owner: key(citizen),
+            score,
+            faction,
+            ticket_bell,
+            rent_payer: rec.funder,
+            final_ts,
+            pool_owed,
+            shield_until,
+            terrain_ore: ore,
+        };
+        {
+            let mut hd = holding.try_borrow_mut_data()?;
+            write_founding(&mut hd, &f, &kh)?;
+            // S1 1e: an expelled village's holdings carry the flag.
+            super::nation::mark_holding(&mut hd, &citizen.try_borrow_data()?)?;
+            founded.write_identity(&mut hd).map_err(|_| BAD_ACCOUNT)?;
+        }
+        let shield_bell = cz::bell_from(hdr.genesis_ts, shield_until);
+        {
+            let mut pd = province.try_borrow_mut_data()?;
+            let mut w = Rw(&mut pd);
+            let o = PV::site(site as usize);
+            w.set_arr(o, &[0u8; SM::SIZE])?;
+            w.set_u8(o + SM::STATE, SM::STATE_HOLDING)?;
+            w.set_u8(o + SM::FACTION, faction)?;
+            w.set_u8(o + SM::ORDER, slot)?;
+            w.set_u8(o + SM::TIER, Tier::Hamlet as u8)?;
+            w.set_u8(o + SM::GEN, gen)?;
+            w.set_u32(o + SM::PEND0_BELL, SM::NO_BELL)?;
+            w.set_u32(o + SM::PEND1_BELL, SM::NO_BELL)?;
+            w.set_u32(o + SM::SHIELD_UNTIL_BELL, shield_bell)?;
+            w.set_u16(
+                o + SM2::HELD_SINCE_HOUR,
+                siege::held_since_hour_from(now_bell),
+            )?;
+            if was_free {
+                let u = w.u8(PV::N_SITES_USED)?.checked_add(1).ok_or(OVERFLOW)?;
+                w.set_u8(PV::N_SITES_USED, u)?;
+            }
+            let e = w.u32(PV::ROSTER_EPOCH)?;
+            w.set_u32(PV::ROSTER_EPOCH, e.wrapping_add(1))?;
+        }
+        {
+            let mut jd = shard.try_borrow_mut_data()?;
+            cz::shard_outposts(&mut jd, 1)?;
+        }
+    }
+    // The citizen's side: the ticket ends (one site), the slot is bound on
+    // a win (the preflight above proved both).
+    {
+        let mut cd = citizen.try_borrow_mut_data()?;
+        wt::clear(&mut cd).map_err(ticket_err)?;
+        if won {
+            wh::bind(&mut cd, slot).map_err(holding_err)?;
+        }
+    }
+    {
+        let mut pd = province.try_borrow_mut_data()?;
+        cz::cohort_settle(&mut pd, ticket_bell)?;
+    }
+    // The record stays, Settled, with the escrow it retained (the deployed
+    // `TICKET_ESCROW` after a settle): nothing is returned to the funder
+    // before the season-end close.
+    {
+        let mut td = record.try_borrow_mut_data()?;
+        settled.write(&mut td).map_err(|_| BAD_ACCOUNT)?;
+    }
+    Ok(())
+}
+
+// ------------------------------------------------------------ 0xDE
+
+/// A fixed account list that is not an instruction's own (WideClose has
+/// two shapes).
+#[derive(Clone, Copy)]
+struct Shape(&'static [ap::Group]);
+
+impl IxTable for Shape {
+    fn groups(self) -> &'static [ap::Group] {
+        self.0
+    }
+    fn top_level_only(self) -> bool {
+        false
+    }
+}
+
+/// The Season of a season-end close, as CloseHolding and CloseCitizen take
+/// it: `(season id, bell for logs, the tombstone's authority)`: the Closed
+/// tombstone, or Ended with `now ≥ end + 72 h` (`TooEarly` before) or
+/// Aborted, this build's.
+fn season_end(season_ai: &AccountInfo, p: &Pubkey, now: i64) -> R<(u64, u32, Option<[u8; 32]>)> {
+    match cz::end_or_tombstone(season_ai, p)? {
+        Some((id, authority)) => Ok((id, frontier_abi::log::NO_BELL, Some(authority))),
+        None => {
+            let hdr = super::map::season_end_close(season_ai, p, now)?;
+            require_wide_season(season_ai)?;
+            Ok((
+                hdr.id,
+                hdr.bell(now).unwrap_or(frontier_abi::log::NO_BELL),
+                None,
+            ))
+        }
+    }
+}
+
+/// 0xDE WideClose(what). Class N. The season-end closes of the wide
+/// records, in the states CloseHolding and CloseCitizen close in: Ended
+/// with `now ≥ end + 72 h` (`TooEarly` before), Aborted, or the Closed
+/// tombstone.
+///
+/// `what = 0`, `[any s] [season r] [citizen w] [wide_ticket w]
+/// [rent_payer w] [funder w]?`: a wide ticket record, the deployed
+/// CloseCitizen over it ([`close_ticket`]). The record at the canonical
+/// ticket address of the Citizen position's key, of this season and world
+/// (`NoTicket` when absent); the rent payer the record's immutable one
+/// (`BadAddress`); the funder listed **exactly when the escrow is
+/// non-zero** (`TooManyAccounts` otherwise) and the record's
+/// (`BadAddress`). **Pending** (the
+/// record Open): the Citizen present at its record address, its marker
+/// agreeing ([`pending_ticket`]); the marker is cleared. It must run
+/// before CloseCitizen, which refuses a pending wide ticket
+/// (`TicketState`) so an Open record is never orphaned. **Settled** (the
+/// ticket ended, the escrow retained): the Citizen position is either the
+/// Citizen present at its record address with no wide marker, or the
+/// **absent** account at the Citizen's address once CloseCitizen has
+/// closed it; nothing on the Citizen changes. Any other pairing of marker
+/// and status is `BadAccount`. Effects, CloseCitizen's: the **escrow to
+/// the funder** (a direct program-owned move, as the deployed escrow
+/// refund), then the record closes **whole to the rent payer** (its rent
+/// and any excess lamports it was given; a whole-account refund never
+/// diverts, §4.2). A later funder never receives the creator's rent, and
+/// the creator never receives another payer's escrow. The province may be
+/// gone, so no cohort is settled.
+///
+/// `what = 1`, `[any s] [season r] [holding w] [rent_payer w] [dpool w]`:
+/// a wide holding (the deployed CloseHolding cannot close a 1,344-byte
+/// record). The holding at its canonical wide address, of this world; the
+/// rent payer the holding's; `pool_owed` to the DefencePool (on the
+/// tombstone position 4 is the Season's authority, which received the
+/// pool, as deployed); the holding closes whole to its rent payer. No
+/// `POOL_SWEEP` or `CLOSE` record (no event chain). The owner Citizen's
+/// slot marker is left as CloseHolding leaves a Holding's ref: the
+/// Citizen closes separately.
+pub fn close(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
+    let x = wix::Close::decode(d)?;
+    match x.what {
+        wix::CLOSE_WHAT_TICKET => {
+            check_accounts(Shape(wix::CLOSE_TICKET), a, None)?;
+            close_ticket(p, a)
+        }
+        wix::CLOSE_WHAT_HOLDING => {
+            check_accounts(Shape(wix::CLOSE_HOLDING), a, None)?;
+            close_holding(p, a)
+        }
+        _ => Err(FrontierError::BadData.into()),
+    }
+}
+
+fn close_ticket(p: &Pubkey, a: &[AccountInfo]) -> R<()> {
+    let (season_ai, citizen, record, rent_payer, funder) = match a {
+        [_any, s, c, r, rp] => (s, c, r, rp, None),
+        [_any, s, c, r, rp, f] => (s, c, r, rp, Some(f)),
+        _ => return Err(FrontierError::TooManyAccounts.into()),
+    };
+    let now = prologue::now()?;
+    let (sid, bell, _) = season_end(season_ai, p, now.ts)?;
+    let ctx = addr::ctx(&key(season_ai), &p.to_bytes());
+    let world = world_of(&ctx)?;
+    // The record is the one of the Citizen position's key, whether that
+    // Citizen is still present or already closed.
+    expect_key(record, &wt::ticket_address(&ctx, &key(citizen)))?;
+    let rec = ticket_at(record, p, sid, world)?.ok_or(FrontierError::NoTicket)?;
+    if rec.citizen != key(citizen) {
+        return Err(BAD_ACCOUNT);
+    }
+    escrow_covered(record, &rec, init::rent(wt::wide_ticket::SIZE)?)?;
+    // CloseCitizen's two recipients: the immutable rent payer, and the
+    // funder exactly when there is an escrow to return.
+    expect_key(rent_payer, &rec.rent_payer)?;
+    let funder = match (rec.escrow > 0, funder) {
+        (true, Some(f)) => {
+            expect_key(f, &rec.funder)?;
+            f.lamports().checked_add(rec.escrow).ok_or(OVERFLOW)?;
+            Some(f)
+        }
+        (false, None) => None,
+        _ => return Err(FrontierError::TooManyAccounts.into()),
+    };
+    let pending = if init::is_absent(citizen) {
+        // CloseCitizen closed it: it refused a pending wide ticket, so only
+        // a Settled record can remain here.
+        if rec.status != TicketStatus::Settled {
+            return Err(BAD_ACCOUNT);
+        }
+        false
+    } else {
+        prologue::present(citizen, p, AccountKind::Citizen, sid)?;
+        let cd = citizen.try_borrow_data()?;
+        super::resident::expect_citizen_address(&ctx, citizen, &cd)?;
+        match (wt::pending(&cd).map_err(|_| BAD_ACCOUNT)?, rec.status) {
+            (CitizenTicket::Wide { bell: b, slot }, TicketStatus::Open) => {
+                if rec.bell != b || rec.slot != slot {
+                    return Err(BAD_ACCOUNT);
+                }
+                let mut scratch = cd.to_vec();
+                wt::clear(&mut scratch).map_err(ticket_err)?;
+                true
+            }
+            // A Settled record beside no wide marker: a deployed ticket may
+            // be open on the Citizen (its escrow is CloseCitizen's).
+            (CitizenTicket::None | CitizenTicket::Legacy, TicketStatus::Settled) => false,
+            _ => return Err(BAD_ACCOUNT),
+        }
+    };
+    if pending {
+        let mut cd = citizen.try_borrow_mut_data()?;
+        wt::clear(&mut cd).map_err(ticket_err)?;
+    }
+    // CloseCitizen's order: the escrow to the funder, then the rest whole
+    // to the rent payer (a whole-account refund never diverts, §4.2).
+    if let Some(f) = funder {
+        init::move_lamports(record, f, rec.escrow)?;
+    }
+    init::close_to(p, record, rent_payer, &Sink::Never, bell)?;
+    Ok(())
+}
+
+fn close_holding(p: &Pubkey, a: &[AccountInfo]) -> R<()> {
+    let [_any, season_ai, holding, rent_payer, dpool] = a else {
+        return Err(FrontierError::TooManyAccounts.into());
+    };
+    let now = prologue::now()?;
+    let (sid, bell, tomb) = season_end(season_ai, p, now.ts)?;
+    let ctx = addr::ctx(&key(season_ai), &p.to_bytes());
+    let world = world_of(&ctx)?;
+    let h = holding_at(holding, p, sid)?.ok_or(BAD_ACCOUNT)?;
+    if h.world != world {
+        return Err(BAD_ACCOUNT);
+    }
+    expect_key(holding, &wh::holding_address(&ctx, h.coord, h.site))?;
+    let (h_payer, owed) = {
+        let hd = holding.try_borrow_data()?;
+        let r = Ro(&hd);
+        (r.arr::<32>(H::RENT_PAYER)?, r.u64(H::POOL_OWED)?)
+    };
+    expect_key(rent_payer, &h_payer)?;
+    match tomb {
+        None => present_at(dpool, &ctx.defence_pool(), p, AccountKind::DefencePool, sid)?,
+        Some(authority) => expect_key(dpool, &authority)?,
+    }
+    dpool.lamports().checked_add(owed).ok_or(OVERFLOW)?;
+    if owed > 0 {
+        init::move_lamports(holding, dpool, owed)?;
+        let mut hd = holding.try_borrow_mut_data()?;
+        Rw(&mut hd).set_u64(H::POOL_OWED, 0)?;
+    }
+    let sink = match tomb {
+        None => Sink::DefencePool(dpool),
+        Some(_) => Sink::Never,
+    };
+    init::close_to(p, holding, rent_payer, &sink, bell)?;
+    Ok(())
+}
+
+// ------------------------------------------------------------ 0xDF
+
+/// 0xDF WideFinalize: `[any s] [season r] [holding w] [province r]`. Class
+/// N. The deployed lazy provisional → final flip of a wide holding,
+/// callable by anyone (no wide resident action exists to carry it): the
+/// Season Running and this build's; the holding at its canonical wide
+/// address, of this world, its province present; the holding provisional
+/// (`AlreadyDone` once final); `now ≥ final_ts` **and** the ticket's
+/// cohort closed on the province (`prologue::finality_due`), else
+/// `TooEarly`. Effects: the Holding's state alone ([`apply_wide_finality`]).
+pub fn finalize(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
+    check_accounts(WideIx::Finalize, a, None)?;
+    wix::Finalize::decode(d)?;
+    let [_any, season_ai, holding, province] = a else {
+        return Err(FrontierError::TooManyAccounts.into());
+    };
+    let now = prologue::now()?;
+    let hdr = prologue::season(
+        season_ai,
+        p,
+        Some(&RULESET_HASH),
+        &[S::STATUS_RUNNING],
+        now.ts,
+    )?;
+    require_wide_season(season_ai)?;
+    let now_bell = hdr.bell(now.ts).ok_or(FrontierError::WrongStatus)?;
+    let ctx = addr::ctx(&key(season_ai), &p.to_bytes());
+    let world = world_of(&ctx)?;
+    let h = holding_at(holding, p, hdr.id)?.ok_or(BAD_ACCOUNT)?;
+    if h.world != world {
+        return Err(BAD_ACCOUNT);
+    }
+    expect_key(holding, &wh::holding_address(&ctx, h.coord, h.site))?;
+    expect_key(province, &wl::province_address(&ctx, h.coord))?;
+    let prov = province_at(province, p, hdr.id)?.ok_or(BAD_ACCOUNT)?;
+    if prov.world != world || prov.coord != h.coord {
+        return Err(BAD_ACCOUNT);
+    }
+    let (state, due) = wide_finality_due(holding, province, now.ts, now_bell)?;
+    if state != H::STATE_PROVISIONAL {
+        return Err(FrontierError::AlreadyDone.into());
+    }
+    if !due {
+        return Err(FrontierError::TooEarly.into());
+    }
+    apply_wide_finality(holding)
+}
+
+// ------------------------------------------------------------ 0xDD
+
+/// 0xDD WideResidentAct(generation, inner): the band's own `ResidentAct`
+/// for an NFT resident's Citizen. `accounts` is the inner instruction's
+/// list followed by the four read-only proof accounts `[policy, link,
+/// asset, resident]`; `inner` is a whole draft instruction whose tag is in
+/// `WideIx::ACT_RUNS` (WideClaimSite, WideDepart; `BadData` otherwise:
+/// never a v2 tag, never a non-player draft tag, never itself). The inner
+/// handler runs under [`Auth::Resident`]: the deployed `resident::start`
+/// checks the policy, the link, the asset's current Core owner (or its
+/// session) and the **signed holder generation** against the resident
+/// record, so a previous holder, its session and anything signed before a
+/// transfer are refused. The deployed `ResidentAct` (0xE2) routes only
+/// ABI v2 tags and never reaches this band; this act routes only this
+/// band and never a v2 tag.
+pub fn resident_act(p: &Pubkey, accounts: &[AccountInfo], d: &[u8]) -> R<()> {
+    let x = wix::ResidentAct::decode(d)?;
+    let n = accounts.len();
+    if n < 4 + 4 {
+        return Err(FrontierError::TooManyAccounts.into());
+    }
+    let (a, proof) = accounts.split_at(n - 4);
+    let auth = Auth::Resident {
+        proof,
+        generation: x.generation,
+    };
+    match wix::tag_of(x.inner)? {
+        WideIx::ClaimSite => claim_site_as(p, a, x.inner, &auth),
+        WideIx::Depart => depart_as(p, a, x.inner, &auth),
+        _ => Err(FrontierError::BadData.into()),
+    }
 }
 
 // ------------------------------------------------------------ 0xDA

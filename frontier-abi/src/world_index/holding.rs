@@ -162,7 +162,8 @@ pub enum HoldingError {
     /// An issued host, a transit or an explore record under an
     /// unallocated host identity: a debit nothing could settle.
     DebitWithoutIdentity,
-    /// The claim rule (placement texture) is undecided.
+    /// The claim rule is undecided (the program decides it by the deployed
+    /// outpost lottery at a wide settle; a test may pass `Undecided`).
     NotReady,
 }
 
@@ -369,7 +370,8 @@ pub struct WideHolding {
 impl WideHolding {
     /// The founding of `site` of `coord` for `owner` in `slot`, under the
     /// claim rule: refused [`HoldingError::NotReady`] while the rule is
-    /// undecided (what the program knows today); otherwise generation
+    /// undecided (the program passes `Decided` only from the wide settle,
+    /// after the deployed outpost lottery); otherwise generation
     /// `gen` (the site mirror's next generation, the deployed rule) under
     /// the unallocated host identity.
     #[allow(clippy::too_many_arguments)]

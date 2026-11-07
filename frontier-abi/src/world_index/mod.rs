@@ -32,7 +32,8 @@
 //! | [`holding`] | ownership of a wide site under the **one inventory** rule: a wide holding takes one of the Citizen's three deployed slots (2 or 3) through an impossible marker ref every deployed writer reads as taken, and its record is the whole Holding v2 layout plus a trailer that refuses any host, transit or explore debit under the unallocated host identity |
 //! | [`march`] | the wide march record over `WideHostRef` with the legacy lifecycle's state table, whose departure is refused while no wider host identity is allocated |
 //! | [`rules`] | the explicit, versioned **experimental rules configuration** of a wide world (one record per Season, written by the Season's authority) and the **candidate** keep-holder, Free City, camp and region functions it selects; an unset byte refuses, so without the record an opening stays `NotReady`; nothing in it is an approved rule |
-//! | [`wide_ix`] | the draft wire envelope: six fixed-width instructions in the unallocated band `0xD6..=0xDB`, their account lists, and the `0x4000` program-version bit of an experimental wide build |
+//! | [`ticket`] | the **wide outpost ticket**: a world/coordinate-bound record (one per Citizen) that carries a wide claim through the deployed outpost lifecycle, the Citizen marker that reserves the one deployed ticket and the slot while it is pending (every deployed ticket path refuses), the isolated holding-rent escrow the record holds and retains between tickets under the deployed FileOutpost / SettleTicket / CloseCitizen escrow rules (`TicketStatus`, `WideTicket::{settle, refile}`), and the full-width versioned ticket score |
+//! | [`wide_ix`] | the draft wire envelope: nine instructions in the unallocated band `0xD6..=0xDE`, their account lists, and the `0x4000` program-version bit of an experimental wide build |
 //!
 //! **What it is not.** The index records what a caller *reports*. It does
 //! not authorise opening land, decide who may open it, prove that an
@@ -47,11 +48,12 @@
 //! experimental program writes through them the ring seed's request and
 //! verified consumption, a wide province (only under an explicit
 //! [`rules`] configuration, from the wedge fund, with the deployed
-//! terrain, keep, camp, Free City and fund bookkeeping); the claim entry
-//! point runs the deployed outpost prerequisites read-only and refuses
-//! (the ticket, draw, escrow and finality lifecycle is not ported), and
-//! the march entry point refuses at the host-identity gate. An unbounded
-//! live game needs,
+//! terrain, keep, camp, Free City and fund bookkeeping), a wide outpost
+//! ticket under the deployed FileOutpost prerequisites and its settlement
+//! under the deployed SettleTicket lottery (the beacon draw, fresh,
+//! displace, taken, expired; a provisional wide holding and its lazy
+//! finality); the march entry point refuses at the host-identity gate. An
+//! unbounded live game needs,
 //! beyond this module, the decisions listed in
 //! `docs/frontier/map-growth/WIDE-WORLD-INDEX.md` and
 //! `docs/frontier/map-growth/WIDE-LAND-WRITER.md`.
@@ -66,6 +68,7 @@ pub mod march;
 pub mod movement;
 pub mod placement;
 pub mod rules;
+pub mod ticket;
 pub mod tiles;
 pub mod wide_ix;
 
@@ -90,6 +93,7 @@ pub use rules::{
     CampRule, FreeCityRule, KeepHolderRule, RegionRule, RuleBytes, RulesError, WideRulesConfig,
     WIDE_RULES_CONFIG_VERSION,
 };
+pub use ticket::{wide_ticket_score, CitizenTicket, TicketError, TicketStatus, WideTicket};
 pub use tiles::{
     verify_route, ProvinceSource, RouteBounds, RouteError, TileAddress, TileError, VerifiedRoute,
     WideTile, TILE_COORD_BOUND,

@@ -1490,7 +1490,7 @@ pub(crate) fn seed_of_bell(
 }
 
 /// The first bell starting at or after `t` (0 before genesis).
-fn bell_from(genesis_ts: i64, t: i64) -> u32 {
+pub(crate) fn bell_from(genesis_ts: i64, t: i64) -> u32 {
     let dt = t.saturating_sub(genesis_ts).max(0);
     u32::try_from((dt + 599) / 600).unwrap_or(u32::MAX)
 }
@@ -1525,27 +1525,30 @@ pub fn founded_outpost(now: i64, day: u32, slot: u8, terrain_ore: i64) -> R<Hold
     Ok(h)
 }
 
-/// The fields SettleTicket writes into a founded Holding.
-struct Founding {
-    p: i16,
-    q: i16,
-    site: u8,
-    gen: u8,
-    tile: u8,
-    owner: [u8; 32],
-    score: u64,
-    faction: u8,
-    ticket_bell: u32,
-    rent_payer: [u8; 32],
-    final_ts: i64,
-    pool_owed: u64,
+/// The fields SettleTicket writes into a founded Holding (shared with
+/// PlaceHome and, under `wide-world-experimental`, the wide settle, whose
+/// record keeps every Holding v2 offset and writes its own identity
+/// afterwards).
+pub(crate) struct Founding {
+    pub(crate) p: i16,
+    pub(crate) q: i16,
+    pub(crate) site: u8,
+    pub(crate) gen: u8,
+    pub(crate) tile: u8,
+    pub(crate) owner: [u8; 32],
+    pub(crate) score: u64,
+    pub(crate) faction: u8,
+    pub(crate) ticket_bell: u32,
+    pub(crate) rent_payer: [u8; 32],
+    pub(crate) final_ts: i64,
+    pub(crate) pool_owed: u64,
     /// MC §3.9: the season's shield for this order (not M1's constant).
-    shield_until: i64,
+    pub(crate) shield_until: i64,
     /// S1: the site's terrain ore, milli per hour (`holding2::TERRAIN_ORE`).
-    terrain_ore: i64,
+    pub(crate) terrain_ore: i64,
 }
 
-fn write_holding(d: &mut [u8], f: &Founding, h: &Holding) -> R<()> {
+pub(crate) fn write_holding(d: &mut [u8], f: &Founding, h: &Holding) -> R<()> {
     // Everything after the header is rewritten (a displacement keeps only
     // the chain and the `pool_owed` the payment may have diverted).
     d.get_mut(64..H::SIZE).ok_or(BAD_ACCOUNT)?.fill(0);
@@ -1625,7 +1628,7 @@ fn bump_holdings_n(citizen: &mut [u8], delta: i8) -> R<()> {
 
 /// A JoinShard's outpost counters (`extra_holdings`, `outposts`; MC
 /// §5.2.4) `+= delta`.
-fn shard_outposts(js: &mut [u8], delta: i32) -> R<()> {
+pub(crate) fn shard_outposts(js: &mut [u8], delta: i32) -> R<()> {
     let mut w = Rw(js);
     for off in [JS2::EXTRA_HOLDINGS, JS2::OUTPOSTS] {
         let v = w.u32(off)?;
@@ -1748,6 +1751,16 @@ pub fn settle_ticket(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
     let ctx = addr::ctx(&key(season_ai), &p.to_bytes());
     // The citizen and its ticket.
     prologue::present(citizen, p, AccountKind::Citizen, hdr.id)?;
+    // Experimental wide land: a pending wide ticket (a world/coordinate-
+    // bound record, `proc::wide`) is refused here explicitly, before the
+    // sites are parsed and before the expiry branch, so the deployed
+    // settle can neither found nor clear it. Absent from every default
+    // build (no default build can write the marker).
+    #[cfg(feature = "wide-world-experimental")]
+    {
+        let cd = citizen.try_borrow_data()?;
+        super::wide::refuse_wide_ticket(&cd)?;
+    }
     let (_tag15, faction, shard_i, ticket_bell, ticket_next, my_tag, escrow, funder, sites, n) = {
         let cd = citizen.try_borrow_data()?;
         let r = Ro(&cd);
@@ -2489,7 +2502,7 @@ fn close_holding_sink<'a>(
 /// Closed tombstone (v1.7, W4-B F3: a Holding or Citizen left open when
 /// CloseSeason's final part ran still closes), else `Ok(None)` after
 /// [`season_end_close`] passed (Ended ≥ 72 h, or Aborted).
-fn end_or_tombstone(season_ai: &AccountInfo, p: &Pubkey) -> R<Option<(u64, [u8; 32])>> {
+pub(crate) fn end_or_tombstone(season_ai: &AccountInfo, p: &Pubkey) -> R<Option<(u64, [u8; 32])>> {
     if season_ai.owner == p && season_ai.data_len() == S::TOMBSTONE_SIZE {
         return Ok(Some(super::season::tombstone(season_ai, p)?));
     }
@@ -2561,6 +2574,14 @@ pub fn close_citizen(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
     };
     let ctx = addr::ctx(&key(season_ai), &p.to_bytes());
     prologue::present(citizen, p, AccountKind::Citizen, sid)?;
+    // Experimental wide land: a pending wide ticket holds its own record
+    // and rent; WideCloseTicket must return them first (`proc::wide`), or
+    // this close would orphan them. Absent from every default build.
+    #[cfg(feature = "wide-world-experimental")]
+    {
+        let cd = citizen.try_borrow_data()?;
+        super::wide::refuse_wide_ticket(&cd)?;
+    }
     let (tag15, c_payer, escrow, c_funder) = {
         let cd = citizen.try_borrow_data()?;
         let r = Ro(&cd);
