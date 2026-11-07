@@ -20,7 +20,7 @@ export function parseWideIndexStatus(v, pins) {
   fail(v.caughtUp === (v.state === 'observed'));
   return { ...s, state: v.state, sourceCoverage: 'unknown', captureVerification: 'unverified' };
 }
-function identity(v, world, host = false) {
+export function wideHistoryIdentity(v, world, host = false) {
   fail(v && v.world === world && typeof v.keyHex === 'string' && new RegExp(`^[0-9a-f]{${host ? 112 : 100}}$`).test(v.keyHex));
   fail(v.keyHex.slice(0, 2) === '01' && v.keyHex.slice(2, 66) === world);
   const p = parseWideInt(v.p), q = parseWideInt(v.q);
@@ -51,9 +51,9 @@ export function parseWideIndexPage(v, { pins, through, snapshot, after = 0n, lim
     let province = null, holding = null, host = null;
     if (r.format === 'PSW1') {
       fail(body[0] === 0x82 && r.kind >= 1 && r.kind <= 14 && r.name === NAMES[r.kind]);
-      province = identity(r.province, s.world);
-      if (r.holding !== null) { holding = identity(r.holding, s.world, true); fail(holding.hostSequence === 0); }
-      if (r.host !== null) host = identity(r.host, s.world, true);
+      province = wideHistoryIdentity(r.province, s.world);
+      if (r.holding !== null) { holding = wideHistoryIdentity(r.holding, s.world, true); fail(holding.hostSequence === 0); }
+      if (r.host !== null) host = wideHistoryIdentity(r.host, s.world, true);
       const hostKeyed = ![3,6,11,12,14].includes(r.kind);
       fail(Boolean(host) === Boolean(holding) && Boolean(host) === hostKeyed);
       fail(body.length > 6 + (hostKeyed ? 106 : 50));
