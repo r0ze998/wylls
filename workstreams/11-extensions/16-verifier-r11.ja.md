@@ -97,3 +97,39 @@ JoinResident の口座 `[owner] [payer] [season] [frontier] [citizen] [system] [
   - `b2f7becc` には⑳の V28 も入っている。V28 の FAIL は self_contained に入っていない。V28 を self_contained にするかは⑳と④が決める。
 
 §3 の「未確認」のうち、⑲の `history.rs` と同じ木での試験は、⑲が確かめた（上）。④の統合の木での確認は、まだ残っている。
+
+## 7. r12: ⑩の custody の命令・記録への答え（2026-11-07、パッチ 0012）
+
+**きっかけ（④から）。** 公開された統合候補 `c7b3c54c`（⑳ `85a48c7c` 経由）で、鍵を使わない試験が 2 件 FAIL した。⑩の custody が ABI に入ったため。
+
+- 命令 0xC2–0xCC（OpenLot … WithdrawLot）が `v2::Ix` に入った。
+- 記録 105–113（LOT_OPENED … LOT_LOSS）も入った。
+
+**コードの事実。**
+- V0 の `supported()` は custody の命令を扱わない。なので UNVERIFIABLE `UnverifiedInstruction` になる。
+- ⑩の `V26:custody-guard` は、custody の痕跡を次のように判定する。
+  - custody の無いプログラムでは FAIL `CustodyInProgramWithoutIt`。
+  - custody の Season では UNVERIFIABLE `CustodyUnverified`。
+- V0E は 105–113 を `MODELLED` に入れていないので、どの記録も `UnverifiedRecord` にする。
+- **つまり判定は既に PASS にならない。** 落ちていたのは、「すべてに答えがある」ことを確かめる 2 つの試験だけだった。
+
+**0012 の直し方。判定は変えない。**
+- `v0_evidence.rs` に `GUARDED_CQ_KINDS = [105..=113]` を足した。中身は「どの検査も扱わないが、ガードが PASS にさせない種別」。V0E は引き続きこれらを `UnverifiedRecord` と報告する。一覧に載せても、扱ったことにはならない。
+- `new_bands::every_conquest_kind_the_abi_knows_is_modelled` は、`MODELLED`、`CONDITIONAL`、`GUARDED` のどれかにあればよい形にした。あわせて、`GUARDED` が `MODELLED` や `CONDITIONAL` と重ならないことも確かめる。
+- `v0_coverage::tests::every_abi_tag_has_a_coverage_answer` の期待値に、⑩の 11 命令を「わざと扱わない（V26 が custody を再生するまで）」として足した。
+- custody の記録を、それを出していない取引に書き足す試験も、`a_record_no_instruction_left_is_not_a_pass` がすべての既知の種別で回すので、105–113 も入っている。その結果は PASS 0。
+
+| パッチ | 当て先 | SHA-256 | 当てた後の tree |
+|---|---|---|---|
+| `patches/0012-verify-custody-tags-and-kinds-decided-on-85a48c7c.patch` | `85a48c7c` | `0c37e68071f6c3f4a9a1621bc84b1a42b3015312952fc6300c2dbd9437122785` | `45d1be2c43244507d38bc98204dc7bd5a449dde8` |
+
+**試験**（`results/verify-after-r12.log`）。
+- **通過:** lib 47、camp_clear 3、missing_state 2、new_bands 7、open_items 3、unit 8。
+- **evidence 7/8、fixtures 7/8:** 1 件ずつ落ちる。
+  - 落ちるのは `evidence::the_fixtures_have_nothing_for_v0e` と `fixtures::march_synth_passes`。
+  - 0012 を当てない `85a48c7c` でも同じように落ちる。
+  - 原因は V11 の `TicketPlacementMismatch`（「placement rule of nation」、`7df3187a`／`3ef9b533`／`dd79c59a` の dispersed placement）。合成の march fixture が FAIL になる。⑪の領域ではない。V0E の所見は 0 件。
+- fmt と clippy `-D warnings` は通った。
+- **事前の監査:** 候補の lib の試験と、走らせた結合試験に、鍵ペアと署名は無い。使うのは `main.rs` の `--test-key` だけで、試験からは呼ばれない。
+
+**未確認:** ⑩の V26 が custody を再生するようになったら、その種別を `GUARDED` から `MODELLED` に移すこと（⑩・④）。
