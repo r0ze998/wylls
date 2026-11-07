@@ -73,6 +73,11 @@ pub mod transit;
 /// on the provisional band 0xD6–0xDA; absent from every default build.
 #[cfg(feature = "wide-world-experimental")]
 pub mod wide;
+/// Experimental (`wide-world-experimental`): the pure, non-executable
+/// S1 economy preview over detached wide holding and province snapshots
+/// (no accounts, routes or events); absent from every default build.
+#[cfg(feature = "wide-world-experimental")]
+pub mod wide_economy;
 
 /// Who must sign for the Citizen of a player instruction (every handler that
 /// runs the player prologue has an `_as` form taking this; the plain handler
