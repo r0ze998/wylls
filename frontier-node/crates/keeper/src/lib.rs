@@ -23,6 +23,8 @@
 //! | [`conquest`] | MC (CQ2-D): contested bells, fold-driven skips, SettleCapture, SettleSiege, FoldMarch, the horn watcher, the season-end flush, CloseMarch |
 //! | [`api`] | the loopback API (`/v1/*`, `/metrics`) |
 //! | `wideindex` (feature `wide-world-experimental`) | **read-only** discovery of the wide world from explicitly supplied, authenticated PSW1 bodies: provinces, full holding and host references, transit slots, reveals, settlements, closes; read-account plans only, no duty, no write |
+//! | `wideproof` (feature `wide-world-experimental`) | **read-only**: the Depart commitment and 264-byte seal of a committed WideDepart, taken from a feed record's wire and bound to the `Departed` record inside the same instruction's log frame; unavailable on any CPI, rollback or mismatch; no signature verified, no key |
+//! | `wideduty` (feature `wide-world-experimental`) | **read-only, unsigned**: WideSettleDeparture and WideReturn instructions planned from current account reads with the dispatcher's tables and refusals; explicit block reasons; never signed, simulated, sent or queued |
 //!
 //! [`Keeper::tick`] runs once per slot: it reads the Clock, plans every
 //! duty from chain reads (the chain is the state), then lets the engine
@@ -61,6 +63,10 @@ pub(crate) mod testkit;
 pub mod tickets;
 #[cfg(feature = "wide-world-experimental")]
 pub mod wideindex;
+#[cfg(feature = "wide-world-experimental")]
+pub mod wideproof;
+#[cfg(feature = "wide-world-experimental")]
+pub mod wideduty;
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::{Arc, Mutex};
