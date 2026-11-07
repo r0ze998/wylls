@@ -194,3 +194,51 @@
 **fixtures と evidence の失敗**（0012 の後）
 - `evidence` の `the_fixtures_have_nothing_for_v0e`、`fixtures` の `march_synth_passes` と `march_fixture_is_fresh` が FAIL しました。
 - ⑪ の報告では、85a48c7c でも同じで、地図の配置の変更（V11 の TicketPlacementMismatch）が原因です。④の差分の外です。
+
+## 10. 荷車の受付で、依頼者の権限を確かめる（④、2026-11-07）
+
+**以前の状態**
+- runexec の `accept(spec)` には、依頼者を表す欄がありませんでした。
+- 利用者の CC の受付 CLI（`preserve/cargo-cli-reviewed-20261107`、7d2fbe0d）にも、この確認はありませんでした。
+- そのため、譲渡後の元の所有者からの依頼を拒否できませんでした（CHAIN-FLOW §10.2）。
+
+**実装**（`src/intake.rs`、`Executor::accept_as`）
+- `accept_as(spec, requester, passes)` は、次の順で確かめてから受け付けます。
+  1. **run の Citizen のパスを読む**（`Passes`、chain の読取りの port）。無ければ拒否します（全プレイヤーにパスが必須）。
+  2. **link と policy**：link と policy は game program のものでなければなりません。link が指す Citizen の `citizen_tag` が、run の `owner` と一致しなければなりません。
+  3. **⑳ の `holder`**：asset が、束ねた collection の Core の asset であること、移転ガード（guard）があること、resident の記録が束ねたものであること。
+  4. **⑳ の `Holder::authority`**：
+     - 署名した世代が、今の世代であること（違えば StaleGeneration）。
+     - 依頼者が、今の所有者か、今の所有者がこの世代で設定した、期限内の session であること（違えば NotCurrentAuthority）。
+     - session を認めるのは、game の ResidentAct の SendCaravan（`player_as`、session_ok=true）と同じです。
+- 確かめるのは、store に書く前です。同じ `run_id` でも先に確かめるので、元の所有者は、run を足すことも、その run があるかを知ることもできません。
+- 受け付けた run には、確かめた結果を `Detail.authority` として残します（依頼者、asset、所有者、世代、owner か session か、時刻）。
+- 既存の `accept(spec)` はそのまま残しました（プロセス内の経路と、既存の試験）。外からの受付は `accept_as` を使う必要があります。
+
+**試験**（`tests/intake.rs`、6 件、鍵なし。key は固定の 32 byte で、asset と resident は ⑳ の配置の byte）
+
+| 場合 | 結果 |
+|---|---|
+| 所有者 | 受け付ける。確認の結果が run に残る |
+| 譲渡前の、所有者の session | 受け付ける（session として） |
+| 譲渡後の元の所有者（古い世代 0 で署名） | 拒否（StaleGeneration） |
+| 譲渡後の元の所有者（新しい世代 1 で署名） | 拒否（NotCurrentAuthority） |
+| 元の所有者の session（世代 0 と 1） | どちらも拒否 |
+| 新しい所有者が古い世代で署名 | 拒否 |
+| 新しい所有者 | すぐに受け付ける |
+| 譲渡後も残っている、元の所有者の session の記録 | 拒否 |
+| 新しい所有者の session | 受け付ける。期限が切れたら拒否 |
+| 元の所有者が同じ `run_id` を送り直す | 拒否。新しい所有者なら既存の run を返す |
+| パスが無い、link が別の Citizen を指す、link・policy が game program のものでない、guard が無い、asset が Core のものでない、resident の記録が違う | どれも拒否。何も書かない |
+
+- 変異で確かめました。authority の確認を外すと、譲渡に関わる 3 件が FAIL になります。
+- runexec の全試験も通りました（signing の bridge を使う gateway の 9 件は、もともと ignore）。
+
+**未決**（利用者の判断が要るもの）
+- **実行中の run と譲渡**：受け付けた後でパスが動いたとき、止めるか、続けるか、確かめ直すか。今は続けます。確認の結果が残るので、決まれば適用できます。
+- **session に荷車の依頼を任せてよいか**：game の SendCaravan と同じく、今は認めています。賞金の受取の session（U49）とは別の判断です。
+
+**この版でしていないこと**
+- 依頼の署名そのものの検証。依頼者の鍵は、呼び出し側（gateway の資格情報の層、③⑤）で認証済みとして受け取ります。
+- `Passes` の本物の chain の実装（link・policy の PDA を計算し、asset・resident を読む）。試験は、stand-in の chain で行いました。
+- 受付 CLI（7d2fbe0d）への接続。CLI は preserve の branch にあり、統合されていません。

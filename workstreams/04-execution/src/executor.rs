@@ -266,6 +266,38 @@ impl<C: Chain, R: Rights> Executor<C, R> {
     /// Accepts a run (validated first: no step outside the allow-list can
     /// be expressed, and an empty cargo is refused).
     pub fn accept(&self, spec: &RunSpec) -> Result<crate::store::Accept, String> {
+        self.validate(spec)?;
+        let now = self.chain.slot().map_err(|e| format!("{e:?}"))?;
+        self.store.accept(spec, now)
+    }
+
+    /// A run asked for by `req` (workstream 04, 2026-11-07): admitted only
+    /// when `req` is the current holder of the pass behind the run's
+    /// citizen, or its live session, at the generation it signed for
+    /// ([`crate::intake::check_requester`], workstream 20's definition).
+    /// Checked before anything is stored, also for a repeated `run_id`: a
+    /// previous owner or a previous owner's session cannot add a run, nor
+    /// learn whether one exists. The check is kept on a new run.
+    pub fn accept_as(
+        &self,
+        spec: &RunSpec,
+        req: &crate::intake::Requester,
+        passes: &impl crate::intake::Passes,
+    ) -> Result<crate::store::Accept, String> {
+        let pass = passes
+            .pass_of(spec.owner)?
+            .ok_or("no NFT pass for the run's citizen: every player needs a pass")?;
+        let authority = crate::intake::check_requester(spec.owner, &pass, req)?;
+        self.validate(spec)?;
+        let now = self.chain.slot().map_err(|e| format!("{e:?}"))?;
+        let first = Detail {
+            authority: Some(authority),
+            ..Detail::default()
+        };
+        self.store.accept_with(spec, now, &first)
+    }
+
+    fn validate(&self, spec: &RunSpec) -> Result<(), String> {
         if res_is_zero(&spec.ship.cargo) {
             return Err("empty cargo".into());
         }
@@ -280,8 +312,7 @@ impl<C: Chain, R: Rights> Executor<C, R> {
         if spec.budget.max_attempts == 0 || spec.budget.max_attempts > 16 {
             return Err("max_attempts must be 1..=16".into());
         }
-        let now = self.chain.slot().map_err(|e| format!("{e:?}"))?;
-        self.store.accept(spec, now)
+        Ok(())
     }
 
     /// One pass: the feed, the due runs, then fee reconciliation.

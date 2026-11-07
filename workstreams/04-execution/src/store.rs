@@ -267,6 +267,12 @@ impl Store {
 
     /// Accepts a run, idempotently by `run_id`.
     pub fn accept(&self, spec: &RunSpec, now: u64) -> Result<Accept, String> {
+        self.accept_with(spec, now, &Detail::default())
+    }
+
+    /// [`Store::accept`] with the run's first detail (the intake's
+    /// authority). An existing run keeps its own.
+    pub fn accept_with(&self, spec: &RunSpec, now: u64, first: &Detail) -> Result<Accept, String> {
         let digest = spec.digest();
         let got: Option<(String, String)> = sql(self
             .conn
@@ -292,7 +298,7 @@ impl Store {
                 serde_json::to_string(spec).map_err(|e| e.to_string())?,
                 digest,
                 RunState::Accepted.name(),
-                serde_json::to_string(&Detail::default()).map_err(|e| e.to_string())?,
+                serde_json::to_string(first).map_err(|e| e.to_string())?,
                 now as i64,
                 spec.inbound.map(|k| k.text()),
                 spec.facility_key(),
@@ -301,7 +307,7 @@ impl Store {
         ))?;
         if n == 0 {
             // Lost a race with an identical insert.
-            return self.accept(spec, now);
+            return self.accept_with(spec, now, first);
         }
         Ok(Accept::Created)
     }

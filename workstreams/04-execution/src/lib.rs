@@ -14,6 +14,7 @@
 pub mod acts;
 pub mod executor;
 pub mod gateway;
+pub mod intake;
 pub mod model;
 pub mod policy;
 pub mod ports;
