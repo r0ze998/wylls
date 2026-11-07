@@ -133,6 +133,8 @@ const BASE_FEE_NOTE: &str = "5,000 lamports × one signature assumed: a modelled
 const PRIORITY_NOTE: &str = "no ComputeBudget price is chosen by the planners";
 const RENT_NO_SYSVAR: &str = "the Rent sysvar was not in the candidate's snapshot";
 const NOT_BOUND: &str = "the reads are not the verified snapshot this candidate was planned over";
+/// The funding reason when the candidate names the all-zero placeholder.
+pub const NO_PAYER: &str = "no fee payer set: the candidate names the System Program address as a placeholder, which is not a wallet";
 const FEE_EVIDENCE_NOTE: &str = "the handler stores whatever ComputeBudget prefix the sent transaction carries; absent, the parser's defaults (zero) are accepted; the prefix is keeper policy, not a handler mandate";
 
 /// What the engine would request for a wide tag: no measured row exists
@@ -188,6 +190,10 @@ fn needs_of(
         Known::Unchecked(why) => Known::Unchecked(why),
     };
     let funding = match (required, snap, reads.accounts.get(payer)) {
+        // The all-zero address is the System Program: a placeholder an
+        // unsigned candidate names when no payer is set, never a wallet
+        // whose balance could fund anything.
+        _ if *payer == solana_address::Address::default() => Funding::Unknown(NO_PAYER),
         (Known::Unchecked(why), _, _) => Funding::Unknown(why),
         (Known::Known(_), None, _) => Funding::Unknown(NOT_BOUND),
         (Known::Known(_), Some(_), None) => {

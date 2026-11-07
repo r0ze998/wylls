@@ -1872,6 +1872,14 @@ pub struct WideObserver {
     pub last_seq_seen: Option<u64>,
     /// Pages whose sequences did not continue the previous one.
     pub gaps: u64,
+    /// The number of leading records of the **last** page shown that the
+    /// observer processed: `0` when it was already blocked, when the page
+    /// came from another program, or when the page failed validation
+    /// before any record was applied; `k` when record `k` blocked it
+    /// (records `0..k` processed, exact replays included); the page's
+    /// length otherwise. What a consumer of the same page may take as
+    /// observer-accepted; a numeric sequence threshold is not that.
+    pub accepted_prefix: usize,
     /// Exact whole-transaction fingerprints, including legacy and rollbacks.
     observations: BTreeMap<u64, [u8; 32]>,
 }
@@ -1887,6 +1895,7 @@ impl WideObserver {
             decode_failures: 0,
             last_seq_seen: None,
             gaps: 0,
+            accepted_prefix: 0,
             observations: BTreeMap::new(),
         }
     }
@@ -1895,6 +1904,7 @@ impl WideObserver {
     /// no-op; conflicting or forgotten overlap, zero sequences and invalid
     /// page order block permanently. Gaps are recorded, never completeness.
     pub fn observe_page(&mut self, page: &[fclient::ports::TxRecord], program: &Address) -> usize {
+        self.accepted_prefix = 0;
         if self.model.blocked().is_some() {
             return 0;
         }
@@ -1925,14 +1935,17 @@ impl WideObserver {
             previous = Some(tx.seq);
         }
         let mut applied = 0;
-        for tx in page {
+        for (i, tx) in page.iter().enumerate() {
             // Debug for this concrete, fully owned TxRecord is deterministic
             // and escaped/field-delimited, covering every field (not merely
             // decoded bodies). It is an in-memory window, never persisted.
             let fp: [u8; 32] = Sha256::digest(format!("{tx:?}").as_bytes()).into();
             if self.last_seq_seen.is_some_and(|l| tx.seq <= l) {
                 if self.observations.get(&tx.seq) == Some(&fp) {
-                    continue; // An exact replay mutates no state or counters.
+                    // An exact replay mutates no state or counters; it was
+                    // accepted when first seen.
+                    self.accepted_prefix = i + 1;
+                    continue;
                 }
                 let reason = if self.observations.contains_key(&tx.seq) {
                     "conflicting transaction replay"
@@ -1982,6 +1995,7 @@ impl WideObserver {
             while self.observations.len() > self.model.limits.max_fingerprints {
                 self.observations.pop_first();
             }
+            self.accepted_prefix = i + 1;
         }
         applied
     }

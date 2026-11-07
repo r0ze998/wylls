@@ -1,12 +1,14 @@
 # Wide keeper duties, first slice: proof extraction and unsigned planning (2026-11-07, revised 2026-11-08 after independent review, on `d132baec`)
 
-## Current checkpoint: snapshot and runtime review
+## Current checkpoint: snapshot-backed runtime review (2026-11-08)
 
-The latest local source passes 70 audited tests: discovery 14, duties 23, legacy guard 12, Reveal 15 and real RpcPort loopback snapshot 6. Feature-enabled library/binary/all new tests and default library/binary pass clippy with warnings denied. Public FromBeacon opening now succeeds with the pre-existing recorded IBE material and shipped quicknet signature; no keypair or signature was generated.
+The current source passes 79 audited tests: discovery 14, duties 30, legacy guard 12, Reveal 17 and real RpcPort loopback snapshot 6. Feature-enabled library/binary and the three snapshot/duty/Reveal test targets, plus default library/binary, pass clippy with warnings denied. Public FromBeacon opening uses pre-existing recorded IBE material and shipped quicknet signatures; no keypair or signature was generated.
 
-Runtime tick integration is opt-in and read-only for Settle/Return only. Reveal and same-response snapshot planners remain explicit orchestrator calls, not tick-connected. The Engine review still denies every candidate; no ensure, send, simulation, signer or production gate change is introduced. Main, deployment and UI are unchanged. Actual chain freshness/history, live fee quotation and future payer balance remain unproven.
+The opt-in runtime now uses its actual port through an additive snapshot callback. Settle/Return and bounded Reveal diagnostic review use a single response for their final account/Clock/Rent judgement. Reveal proofs are extracted only from the observer-accepted portion of shared feed pages; supplied provenance remains unverified. Public beacon reads use a separate bounded cache, and transient readiness failures have bounded next-slot retries. Unset payer funding remains unknown. Status excludes raw RPC error strings and opened material.
 
-Earlier sections record previous checkpoints; their untested opening and always-incoherent limitations are superseded only to the extent described in the third slice below.
+Every candidate is still denied by Engine review: history authenticity/completeness, live fee quotation and future balance remain unproven. No enqueue, simulation, signing, transaction sending, production gate change, main merge or deployment is introduced. Existing PSW1 feed guards can prevent further discovery; this slice does not make the game playable. The actual Keeper constructor/full tick was not executed because it uses keys; its wiring and CLI are compile-checked, while independent review-step tests use literal accounts and public vectors. UI is unchanged.
+
+Earlier sections are historical checkpoints. Their statement that Reveal/snapshot are not tick-connected is superseded by this checkpoint and the runtime slice below; they are not a claim of live-chain verification.
 
 Two **read-only, opt-in** keeper modules behind the existing feature
 `wide-world-experimental`: `frontier-node/crates/keeper/src/wideproof.rs` and
@@ -699,6 +701,233 @@ Final validation: all 70 tests above passed on the same final source after canon
   signature is the shipped quicknet round; a live chain's anchor and
   records were not read.
 
+## Fourth slice (2026-11-08, on `37d07ad0`): the snapshot and the reveal in the actual tick
+
+Read only, opt in, bounded; nothing enqueued, signed, simulated or sent;
+every gate as before. Written without compiling or running anything; the
+parent compiles and runs it.
+
+### The snapshot as an additive adapter
+
+The keeper is `Keeper<P: ChainPort, D: DrandPort>`; requiring `P:
+SnapshotPort` would change the bound for every port implementation.
+`widesnapshot::SnapshotSource` is the **object-safe** form of `SnapshotPort`
+(`snapshot_boxed` returning a pinned boxed future, a `label`), with a
+blanket impl for every `SnapshotPort + Send + Sync` — the JSON-RPC port, a
+fake port in a test, anything with the default `Unsupported`.
+`snapshot_plan_with(port, source, …)` is `snapshot_plan` with the ordinary
+reads from the `ChainPort` and the one response from the source;
+`snapshot_plan` now delegates to it with `source = port`. The same planner
+closures (`plan_settle_departure`, `plan_return`, `plan_reveal`), the same
+three steps, the same refusals (`Snapshot(..)`, `SnapshotIncomplete(..)`),
+the same sealed meta and content binding.
+
+`Keeper::enable_wide_snapshot(Box<dyn SnapshotSource>)` attaches the
+adapter to the review (needs the review); `main.rs` does so under
+`--review-wide` with a second `RpcPort::localnet` to the same node. With a
+source, every tick plan is judged over one `getMultipleAccounts` at the
+tick's slot as `minContextSlot`; the candidate is coherent at the
+response's context slot (never current; `SnapshotCurrencyUnknown` stays).
+Without one, the ordinary-read planners run as before and every candidate
+is non-coherent. A snapshot failure is a recorded block
+(`snapshot_blocked`), never patched from other reads.
+
+### The reveal, only from inputs that exist
+
+The tick takes `Option<RevealInputs>` — the Season as the runtime last read
+it (its clock names `tlock_round(arrive)`), a `&mut dyn PublicationSource`,
+and the configured public beneficiary. `Keeper::tick` passes them only when
+`self.season` is read and the review's beacon cache exists; otherwise no
+reveal hint is listed and the status `missing` names exactly that.
+
+- **Proofs**: `widetick::ProofStore` keeps ≤ `MAX_PROOFS` (64)
+  `DepartProof`s, one per `(host, transit slot)`, a later sequence
+  superseding, oldest evicted. `Keeper::refresh_discovery` offers every
+  feed page it pulls to `ProofStore::observe_page`, which runs the existing
+  `wideproof::depart_proof` (wire- and frame-bound, signatures
+  **unverified**, labelled `ORIGIN_FEED`). `ProofStore::supply` stores a
+  proof an orchestrator holds, labelled `ORIGIN_SUPPLIED`. The ledger
+  records the origin of every reveal plan. Hints are the stored proofs
+  whose march the observer's model does not show revealed, settled or
+  closed (a model that knows nothing still yields the hint; the chain
+  decides); a host whose latest march is in another slot yields none.
+- **Publication**: `widetick::BeaconCache` (≤ `MAX_BEACON_CACHE` rounds),
+  **separate** from the beacon duty's `Rounds` so a review ask never changes
+  what the beacon duty asks or sends: one ask per round per slot, the served
+  signature verified under the review's pinned key (the drand port's
+  published key, taken at `enable_wide_review`) before use, a bad one
+  counted and dropped. `DrandPublications { drand, cache }` is the
+  `PublicationSource` the keeper passes. The planner's own gate still
+  re-verifies the publication against the **chain's** Season pin and
+  computed round; a round not served is `Block::PublicationMissing`,
+  recorded with `publication_served: false`.
+- **Opening**: always `Opening::FromBeacon` — the public round signature
+  opens the IBE block through the stock opener. No plaintext, salt or key
+  is held, derived outside the planner, or shown: the ledger stores
+  `RevealCandidate::describe` (identities, counts, labels), not the
+  instruction data. A test asserts the status text contains neither the
+  plaintext, the salt nor the recorded `k`.
+
+Nothing infers history or source authenticity: `HistoryUnknown`,
+`SourceUnproven`, `ExecutionEvidenceUnverified`, `SignerAbsent` and
+`SliceDoesNotEnqueue` stay on every reveal review; the Engine's write
+gates, the legacy feed guard and the mixed legacy/wide refusal are
+untouched; `DEPART_DEBIT_ENABLED` stays false.
+
+### Bounds and status
+
+≤ `CANDIDATES_PER_TICK` plans per tick over settles, returns and (with
+inputs) reveals, in that order, same refresh window and cursor; each plan
+≤ 6 read rounds + 1 clock read + ≤ 1 snapshot request + (reveal) ≤ 1 beacon
+ask. `WideReview.review_payer` is the public address the unsigned
+candidates name (zero unless set; the funding review bounds that account;
+no CLI flag yet). The status gains `payer`, `snapshot` (source label or
+`absent`, coherent count, blocked count), `reveal` (inputs at the last
+step, proof store counts, plans, candidates, publications missing, the
+opening and history statements) and `missing` (the exact gaps); `covers`
+is composed from the configuration.
+
+### Tests added
+
+- `the_proof_store_feeds_reveal_hints_only_with_inputs_and_blocks_without_a_publication`
+  (`wide_duties.rs`): a feed page through `observe_page` (one committed
+  WideDepart stored with `ORIGIN_FEED`, a wireless record counted);
+  replay a no-op; a later sequence supersedes, an earlier does not;
+  eviction at `MAX_PROOFS`; hints against an empty model, an open march, a
+  revealed march, a later march in another slot; the tick listing the
+  reveal hint only with inputs, blocked `PublicationMissing` from a source
+  that serves nothing (asked once, at the computed round); a boxed
+  literal-JSON `SnapshotPort` as the review's source making the settle
+  coherent at the response's context slot with the tick's slot as
+  `min_slot`; a stale response recorded as a snapshot block.
+- `the_tick_reviews_a_reveal_only_from_a_stored_proof_a_verified_beacon_and_the_public_opening`
+  (`wide_reveal.rs`): the recorded public vector's seal and the shipped
+  round signature; no proof → nothing listed, beacon not asked; a supplied
+  proof over ordinary reads → an `IbeOpened`, non-coherent candidate with
+  every hard denial, the publication fetched once and verified, no
+  plaintext/salt/`k` in the status; the refresh window; the shared-port
+  snapshot source → coherent, Rent included, one snapshot call, the
+  assessment bound to the response's digest, rent calculated, zero payer
+  unmet; a source serving nothing → `PublicationMissing`, one ask per slot;
+  a corrupted or swapped signature counted bad and never used; the real
+  one cached; no inputs → no hint and the gap named.
+- `the_tick_review_plans_reviews_and_enqueues_nothing` (updated): the
+  step's new `reveal` argument, the `snapshot.source: "absent"` and
+  `missing` assertions.
+
+```sh
+cargo test --locked --offline -p keeper --features wide-world-experimental --test wide_duties
+cargo test --locked --offline -p keeper --features wide-world-experimental --test wide_reveal
+cargo clippy --locked --offline -p keeper --features wide-world-experimental --lib --bins --test wide_reveal --test wide_duties -- -D warnings
+cargo build --locked --offline -p keeper --features wide-world-experimental
+cargo test --locked --offline -p keeper --test wide_feed_guard
+```
+
+### Preliminary review fixes (before the parent's run)
+
+1. **Supplied proofs never keep the caller's provenance.**
+   `ProofStore::supply` sets `signatures_verified = false` and the method
+   to `wideproof::METHOD_SUPPLIED` whatever came in; the feed path keeps
+   the extractor's `METHOD_FEED`. The status never carries caller text.
+2. **Reveal cooldown and invalidation.** The ledger entry carries `next`,
+   a transient count and the proof sequence. A reveal whose outcome is
+   transient (`widetick::is_transient`: `PublicationMissing`,
+   `AnchorRequired` — THE anchor not landed or archive-only so far —,
+   `TimingNeedsClock`, `SeasonNotStarted`, `SeasonDependsOnClock`, `Read`,
+   `ReadLoop`, `Snapshot`, `SnapshotIncomplete`; a closed window, an
+   existing reveal, key/commitment mismatches and every other refusal are
+   not) is retried at the **next slot**, at most
+   `MAX_TRANSIENT_RETRIES` (8) in a row, then waits
+   `REVEAL_REFRESH_SLOTS` (8); a reveal candidate waits
+   `REVEAL_REFRESH_SLOTS`; another block waits `REFRESH_SLOTS` (64), as
+   the duties do. A **newer proof** for the same march (later sequence)
+   invalidates the entry at once (`proofs_renewed`, `proof_renewed` on the
+   summary).
+3. **Minimum slot.** A reveal's reads and snapshot use
+   `max(tick slot, proof slot)`; the summary records `min_slot`.
+4. **Observer-accepted prefix, bounded extraction.** The observer now
+   records `WideObserver::accepted_prefix` for the last page it was shown:
+   `0` when it was already blocked, when the page came from another
+   program, or when the page failed its order validation (the observer
+   validates the whole page before applying any record, so `[8, 10, 9]`
+   applies nothing); `k` when record `k` blocked it mid-page (records
+   `0..k` processed, exact replays included); the page's length otherwise.
+   `refresh_discovery` passes that number to `ProofStore::observe_page`,
+   which offers exactly those records (a numeric sequence threshold is
+   **not** used: a blocked observer at 100 shown a later page of 50s
+   yields nothing). Records past the prefix are `dropped_unaccepted`,
+   records past `MAX_EXTRACT_PER_PAGE` (64) on a page are
+   `dropped_over_bound`; the status shows `records_seen`,
+   `records_offered` and both drops. The observer's cursor, fingerprints
+   and replay behaviour are unchanged.
+5. **No raw error text in status.** `SnapshotError::code()` is a typed
+   code (variant plus numbers or static strings; `Rpc` carries nothing);
+   `snapshot_plan_with` puts that code in `Block::Snapshot`;
+   `widetick::block_code` reduces `Read`, `Snapshot` (unknown or
+   non-alphanumeric codes become `Snapshot(Other)`), `SealOpen`,
+   `BadPlaintext` and `MarchValues` to their names and prints every other
+   variant (static strings and numbers only) as is. Tests assert a
+   credential-bearing URL in a port or RPC error never reaches the status.
+6. **The placeholder payer.** `WideReview::review_payer` is
+   `Option<Address>`; `set_review_payer` refuses the all-zero address (the
+   System Program). Unset, the candidates name the placeholder, it is not
+   requested in the snapshot, and `widefees` reports
+   `Funding::Unknown(NO_PAYER)` whatever that account holds; the status
+   says `payer: unset…` and lists it under `missing`.
+   The `PortSnapshot` adapter's future captures the port borrow and an
+   owned copy of the keys (never the unnameable intersection of two
+   independent borrows, which failed to compile as E0700).
+7. **The keeper's own port as the source.** `widesnapshot::SnapshotMode<P>`
+   (`Off` | `ViaPort(SnapshotFn<P>)` | `Separate(Box<dyn SnapshotSource>)`)
+   lives on the `Keeper`. `enable_wide_snapshot_via_port` (bound
+   `P: SnapshotPort`, used by `main.rs`) stores a function pointer to the
+   port's own `snapshot`; the tick wraps the port in `PortSnapshot` and
+   passes it to the step. `enable_wide_snapshot(Box<..>)` remains the
+   explicit separate-source form, labelled as a relation the keeper does
+   **not** verify. The step takes `Option<&dyn SnapshotSource>`; the
+   review stores no source. The status shows `snapshot_mode`.
+
+Tests added: `a_supplied_proof_never_keeps_the_callers_provenance_claims`,
+`proof_extraction_follows_the_observers_accepted_prefix_not_a_sequence_threshold`
+(a real `WideObserver`: the out-of-order page `[8, 10, 9]` yields nothing,
+an observer blocked at 100 yields nothing from `[50, 51]`, a mid-page
+block keeps the records before it, an exact replay is accepted again with
+no state change, a foreign program's page is refused, the per-page bound),
+`reveal_hints_retry_next_slot_bounded_and_a_new_proof_invalidates_the_entry`,
+`status_never_serialises_raw_error_text`,
+`the_placeholder_payer_is_never_funding_and_cannot_be_set`,
+`the_keepers_own_port_serves_the_snapshot_through_the_function_pointer`
+(all `wide_duties.rs`);
+`reveal_readiness_blocks_retry_next_slot_while_closed_windows_wait`
+(`wide_reveal.rs`: the classification of every readiness and refusal
+block; THE anchor absent at slot 7 → `AnchorRequired`, next slot; landed
+by slot 8 → an `IbeOpened` candidate on the first retry; a candidate then
+waits the reveal refresh; a closed window and `AlreadyRevealed` are not
+retried before the full refresh; one beacon fetch throughout); the
+`Revealed` fixture in `wide_duties.rs` uses the ABI's link-less record
+shape; the reveal tick test supplies a forged provenance
+and asserts the normalised one, and asserts the placeholder is not
+requested and funding is unknown; the existing tick tests take the new
+`snapshot` argument and the four-entry `missing` list.
+
+### Remaining blockers and limits (stated)
+
+- No end-to-end keeper process was built or run by the author; a `Keeper`
+  is not constructed in these tests (its constructor derives keys).
+- Setting a public review payer is an API (`set_review_payer`), not yet a
+  CLI flag; unset, funding is simply not reviewed.
+- The proof store's feed origin depends on the legacy discovery pulling
+  pages (`refresh_discovery` returns early without land/play/rings/archive
+  roles, and pulls nothing while the legacy indexes are blocked); then no
+  proof is extracted and the status says so. Records past the per-page
+  bound are dropped, not deferred to a later tick.
+- The publication source verifies the served signature under the drand
+  port's published key; a season pinned to another key gets `BeaconKey`
+  from the planner's gate, as before.
+- Reveal hints from the store are not pruned when the chain reveals the
+  march; the planner answers `AlreadyRevealed` (a non-transient block,
+  64-slot wait) until the model sees the record.
+
 ## Touched files
 
 `frontier-node/crates/keeper/src/wideproof.rs` (new),
@@ -711,13 +940,26 @@ the crate-private `RevealCandidate.bound`, `reveal_snapshot`, the
 unverified lines),
 `frontier-node/crates/keeper/src/widereview.rs` (new; third slice:
 `Evidence`, `review_with_evidence`, three denials),
-`frontier-node/crates/keeper/src/widesnapshot.rs` (new, third slice),
-`frontier-node/crates/keeper/src/widefees.rs` (new, third slice),
-`frontier-node/crates/keeper/src/widetick.rs` (new, third slice),
+`frontier-node/crates/keeper/src/widesnapshot.rs` (new, third slice;
+fourth: `SnapshotSource`, `snapshot_plan_with`, `SnapshotError::code`,
+`SnapshotFn`/`snapshot_via`/`PortSnapshot`/`SnapshotMode`),
+`frontier-node/crates/keeper/src/widefees.rs` (new, third slice; fourth:
+the placeholder-payer rule `NO_PAYER`),
+`frontier-node/crates/keeper/src/wideproof.rs` (fourth: `METHOD_FEED`,
+`METHOD_SUPPLIED`),
+`frontier-node/crates/keeper/src/widetick.rs` (new, third slice; fourth:
+`ProofStore`, `BeaconCache`, `PublicationSource`, `DrandPublications`,
+`RevealInputs`, `block_code`, the snapshot argument, reveal hints and
+retries, the composed status),
 `frontier-node/crates/keeper/src/lib.rs` (gated `pub mod` lines and
 module-table rows; third slice: the `wide_review` field,
-`enable_wide_review`, the tick step, the `review` status entry),
-`frontier-node/crates/keeper/src/main.rs` (third slice: `--review-wide`),
+`enable_wide_review`, the tick step, the `review` status entry; fourth:
+`wide_beacon`, `wide_snapshot`, `enable_wide_snapshot_via_port`,
+`enable_wide_snapshot`, the proof store fed from `refresh_discovery` with
+the observer's block sequence, reveal inputs and the snapshot passed to the
+step, `snapshot_mode` in the status),
+`frontier-node/crates/keeper/src/main.rs` (third slice: `--review-wide`;
+fourth: `enable_wide_snapshot_via_port` under the same flag),
 `frontier-node/crates/keeper/tests/wide_duties.rs` (new),
 `frontier-node/crates/keeper/tests/wide_reveal.rs` (new), this document.
 No `Cargo.toml`, fclient, ABI, program, engine, herald, web or UI file.

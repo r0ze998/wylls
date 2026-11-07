@@ -244,6 +244,13 @@ async fn main() {
             eprintln!("wide review: {e}");
             std::process::exit(2)
         });
+        // The same-response snapshot through the keeper's own read port
+        // (the JSON-RPC port implements `SnapshotPort`): one
+        // getMultipleAccounts per reviewed plan, no second client.
+        k.enable_wide_snapshot_via_port().unwrap_or_else(|e| {
+            eprintln!("wide snapshot: {e}");
+            std::process::exit(2)
+        });
     }
     if let Some(seed) = claim_seed {
         let kp = fclient::Keypair::new_from_array(seed);

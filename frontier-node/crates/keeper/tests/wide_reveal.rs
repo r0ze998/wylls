@@ -17,9 +17,10 @@ use std::sync::Mutex;
 
 use fclient::beacon::{self, FixtureDrand};
 use fclient::budgets::Budgets;
+use fclient::decode::Season;
 use fclient::ports::{
-    Account, ChainPort, ClockSysvar, Cursor, PortError, PortResult, Signature, SimResult, Status,
-    TxRecord,
+    Account, Beacon, ChainInfo, ChainPort, ClockSysvar, Cursor, DrandPort, PortError, PortResult,
+    Signature, SimResult, Status, TxRecord,
 };
 use fclient::rpc::account_json;
 use fclient::Hash;
@@ -39,6 +40,7 @@ use frontier_abi::world_index::{
 use keeper_core::engine::{Engine, EngineParams};
 use keeper_core::wideduty::{self, Block, Deployment, Reads, Step};
 use keeper_core::widefees::{self, Funding, Known};
+use keeper_core::wideindex::{Limits, Scope as IndexScope, WideDiscovery};
 use keeper_core::wideproof::{DepartProof, Provenance};
 use keeper_core::widereveal::{
     self, Crypto, Opening, Publication, RevealCandidate, UNVERIFIED, UNVERIFIED_COHERENCE,
@@ -48,6 +50,10 @@ use keeper_core::widereview::{self, Deny, EngineView, Subject, HARD_DENIALS};
 use keeper_core::widesnapshot::{
     parse_snapshot_response, rent_sysvar, sysvar_owner, RentSysvar, Snapshot, SnapshotError,
     SnapshotPort, MAX_SNAPSHOT_KEYS,
+};
+use keeper_core::widetick::{
+    is_transient, BeaconCache, DrandPublications, RevealInputs, WideReview, ORIGIN_SUPPLIED,
+    REFRESH_SLOTS,
 };
 use permutation_rules::frontier::beacon::{bell_start, first_round_from};
 use permutation_rules::frontier::seal::encode_path;
@@ -1301,6 +1307,8 @@ struct FakePort {
     /// The context slot the fake's snapshot responses carry.
     context_slot: u64,
     snapshot_calls: AtomicUsize,
+    /// The keys of every snapshot request made through `SharedPort`.
+    snapshot_keys: Mutex<Vec<Vec<Address>>>,
 }
 
 impl FakePort {
@@ -1314,6 +1322,7 @@ impl FakePort {
             // A coherent response: the Clock's slot is the context slot.
             context_slot: clock.slot,
             snapshot_calls: AtomicUsize::new(0),
+            snapshot_keys: Mutex::new(vec![]),
         }
     }
     /// The `getMultipleAccounts` JSON the fake would return for one
@@ -2764,4 +2773,607 @@ fn world_bytes_past_the_debug_prefix_are_reveal_candidate_content() {
     assert!(m.coherent());
     assert!(c.coherent());
     assert_eq!(widefees::reveal_needs(&c, &reads).unwrap(), pristine);
+}
+
+// ------------------------------------------------------------ the tick's reveal
+
+/// A drand port serving literal shipped rounds (counting the asks).
+struct FakeDrand {
+    rounds: BTreeMap<u64, [u8; 48]>,
+    asks: AtomicUsize,
+}
+impl DrandPort for FakeDrand {
+    async fn round(&self, r: u64) -> PortResult<Option<Beacon>> {
+        self.asks.fetch_add(1, Ordering::SeqCst);
+        Ok(self.rounds.get(&r).map(|s| Beacon {
+            round: r,
+            sig48: *s,
+        }))
+    }
+    fn info(&self) -> ChainInfo {
+        beacon::quicknet_info()
+    }
+}
+
+/// The fake port behind an `Arc`, as a snapshot source the test can still
+/// inspect (a `SnapshotSource` through the blanket impl); records the
+/// keys of every request.
+struct SharedPort(std::sync::Arc<FakePort>);
+impl FakePort {
+    fn snapshot_keys_contain(&self, k: &Address) -> bool {
+        self.snapshot_keys
+            .lock()
+            .unwrap()
+            .iter()
+            .any(|ks| ks.contains(k))
+    }
+}
+impl SnapshotPort for SharedPort {
+    fn snapshot(
+        &self,
+        keys: &[Address],
+        with_rent: bool,
+        min_slot: u64,
+    ) -> impl Future<Output = Result<Snapshot, SnapshotError>> + Send {
+        self.0.snapshot_calls.fetch_add(1, Ordering::SeqCst);
+        self.0.snapshot_keys.lock().unwrap().push(keys.to_vec());
+        let r = parse_snapshot_response(
+            &self.0.snapshot_json(keys, with_rent),
+            keys,
+            with_rent,
+            min_slot,
+        );
+        async move { r }
+    }
+}
+
+/// The tick plans a reveal only from a stored proof, a publication the
+/// review's own cache verified under the pinned key, and the public
+/// `FromBeacon` opening; over one snapshot response when a source is
+/// attached; it holds and shows no plaintext, salt or key; it enqueues
+/// nothing.
+#[test]
+fn the_tick_reviews_a_reveal_only_from_a_stored_proof_a_verified_beacon_and_the_public_opening() {
+    let (ibe, k) = recorded_vector();
+    let pt = plain_for(host(), ARRIVE_BELL);
+    let plain = wseal::pack(&pt);
+    let seal = wseal::assemble(&ibe, &wseal::body_xor(&k, &plain));
+    let salt = salt_of(&k);
+    let fx = Fx::with_material(pt, ARRIVE_BELL, salt, seal);
+    let season = Season::decode(&fx.season).unwrap();
+    let (round, sig) = vector();
+    assert_eq!(
+        fclient::clock::SeasonClock::from_season(&season).tlock_round(ARRIVE_BELL),
+        round,
+        "the runtime's season names the vector's round"
+    );
+    let model = WideDiscovery::new(
+        IndexScope {
+            program: program(),
+            season: season_pda().0,
+            world: world(),
+            source: "test: nothing observed".into(),
+        },
+        Limits::default(),
+    );
+    let engine = Engine::new(Budgets::default(), EngineParams::default());
+    let mut clock = clock_at(a_ts() + 10);
+    // Same-response state must be at least as new as the departure proof.
+    clock.slot = fx.proof.provenance.slot;
+    let port = FakePort::new(fx.reads().accounts, clock);
+    let drand = FakeDrand {
+        rounds: BTreeMap::from([(round, sig)]),
+        asks: AtomicUsize::new(0),
+    };
+    let mut cache = BeaconCache::new(pk96());
+    assert_eq!(cache.pk_hash(), season.quicknet_pk_hash);
+    let deployment = Deployment {
+        program_version: WIDE_VERSION,
+        ruleset_hash: RULESET,
+    };
+    // Without a stored proof nothing is listed, inputs or not; the status
+    // names the gap; the beacon is not asked.
+    let mut review = WideReview::new(deployment);
+    let made = block_on(async {
+        let mut pubs = DrandPublications {
+            drand: &drand,
+            cache: &mut cache,
+        };
+        review
+            .step(
+                &port,
+                &engine,
+                &model,
+                program(),
+                season_pda().0,
+                7,
+                None,
+                Some(RevealInputs {
+                    season: &season,
+                    beacon: &mut pubs,
+                    beneficiary: beneficiary(),
+                }),
+            )
+            .await
+    });
+    assert_eq!(made, 0);
+    assert_eq!(drand.asks.load(Ordering::SeqCst), 0);
+    let st = review.status();
+    assert_eq!(st["reveal"]["inputs_at_last_step"], true);
+    assert!(st["missing"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|m| m.as_str().unwrap().starts_with("departure proofs")));
+    // The fixture proof supplied (labelled so; a forged provenance claim
+    // is normalised away), no snapshot source: one reveal plan over
+    // ordinary reads, the publication fetched once and verified, the seal
+    // opened from it, the candidate non-coherent.
+    let mut forged = fx.proof.clone();
+    forged.provenance.signatures_verified = true;
+    forged.provenance.method = "attacker: verified by nobody";
+    assert!(review.proofs.supply(forged));
+    assert!(
+        !review
+            .proofs
+            .get(host(), SLOT)
+            .unwrap()
+            .proof
+            .provenance
+            .signatures_verified
+    );
+    let made = block_on(async {
+        let mut pubs = DrandPublications {
+            drand: &drand,
+            cache: &mut cache,
+        };
+        review
+            .step(
+                &port,
+                &engine,
+                &model,
+                program(),
+                season_pda().0,
+                7,
+                None,
+                Some(RevealInputs {
+                    season: &season,
+                    beacon: &mut pubs,
+                    beneficiary: beneficiary(),
+                }),
+            )
+            .await
+    });
+    assert_eq!(made, 1);
+    assert_eq!(
+        (
+            review.reveal_plans,
+            review.reveal_candidates,
+            review.coherent
+        ),
+        (1, 1, 0)
+    );
+    assert_eq!(drand.asks.load(Ordering::SeqCst), 1);
+    assert_eq!((cache.fetched, cache.bad, cache.len()), (1, 0, 1));
+    let st = review.status();
+    let r = &st["recent"][0];
+    assert_eq!(r["outcome"], "candidate");
+    assert_eq!(r["proof_origin"], ORIGIN_SUPPLIED);
+    assert_eq!(r["publication_round"], round);
+    assert_eq!(r["publication_served"], true);
+    assert_eq!(r["opening"], "FromBeacon");
+    assert_eq!(r["candidate"]["crypto"], "IbeOpened");
+    assert_eq!(r["candidate"]["publication_signature_verified"], true);
+    assert_eq!(r["candidate"]["source_signatures_verified"], false);
+    assert_eq!(r["candidate"]["coherent"], false);
+    assert_eq!(r["candidate"]["fee_payer"], Address::default().to_string());
+    assert_eq!(r["candidate"]["signed"], false);
+    assert_eq!(r["candidate"]["automatic_send"], false);
+    let rv = &r["assessment"]["review"];
+    assert_eq!(rv["admitted"], false);
+    assert_eq!(rv["enqueued"], false);
+    let denials = rv["denials"].as_array().unwrap();
+    for d in [
+        "SourceUnproven",
+        "NoCoherentSnapshot",
+        "HistoryUnknown",
+        "ExecutionEvidenceUnverified",
+        "SignerAbsent",
+        "SliceDoesNotEnqueue",
+        "FundingUnknown",
+    ] {
+        assert!(denials.iter().any(|x| x == d), "{d}");
+    }
+    // Nothing secret or opened is in the status: not the plaintext, not
+    // the salt, not the recorded `k`.
+    let text = st.to_string();
+    assert!(!text.contains(&hex::encode(plain)));
+    assert!(!text.contains(&hex::encode(salt)));
+    assert!(!text.contains(&hex::encode(k)));
+    assert_eq!(port.forbidden.load(Ordering::SeqCst), 0);
+    assert_eq!(engine.pending_len(), 0);
+    assert_eq!(st["enqueued"], 0);
+    // Within the refresh window the same hint is not planned again and the
+    // beacon is served from the cache if it were.
+    let made = block_on(async {
+        let mut pubs = DrandPublications {
+            drand: &drand,
+            cache: &mut cache,
+        };
+        review
+            .step(
+                &port,
+                &engine,
+                &model,
+                program(),
+                season_pda().0,
+                8,
+                None,
+                Some(RevealInputs {
+                    season: &season,
+                    beacon: &mut pubs,
+                    beneficiary: beneficiary(),
+                }),
+            )
+            .await
+    });
+    assert_eq!(made, 0);
+    assert_eq!(drand.asks.load(Ordering::SeqCst), 1);
+    // With a snapshot source: the same plan over one response, coherent
+    // at its context slot, the Rent in the response (a reveal creates),
+    // no payer set so funding unknown; one snapshot request.
+    let shared = std::sync::Arc::new(FakePort::new(fx.reads().accounts, clock));
+    let shared_src = SharedPort(shared.clone());
+    let mut review2 = WideReview::new(deployment);
+    assert!(review2.proofs.supply(fx.proof.clone()));
+    let made = block_on(async {
+        let mut pubs = DrandPublications {
+            drand: &drand,
+            cache: &mut cache,
+        };
+        review2
+            .step(
+                &port,
+                &engine,
+                &model,
+                program(),
+                season_pda().0,
+                7,
+                Some(&shared_src),
+                Some(RevealInputs {
+                    season: &season,
+                    beacon: &mut pubs,
+                    beneficiary: beneficiary(),
+                }),
+            )
+            .await
+    });
+    assert_eq!(made, 1);
+    assert_eq!(
+        (
+            review2.reveal_candidates,
+            review2.coherent,
+            review2.snapshot_blocked
+        ),
+        (1, 1, 0)
+    );
+    assert_eq!(shared.snapshot_calls.load(Ordering::SeqCst), 1);
+    assert_eq!(
+        drand.asks.load(Ordering::SeqCst),
+        1,
+        "served from the review's cache"
+    );
+    let st2 = review2.status();
+    assert!(st2["snapshot"]["source"]
+        .as_str()
+        .unwrap()
+        .starts_with("SnapshotPort"));
+    assert_eq!(st2["snapshot"]["coherent_candidates"], 1);
+    let r2 = &st2["recent"][0];
+    assert_eq!(r2["candidate"]["coherent"], true);
+    assert_eq!(r2["candidate"]["crypto"], "IbeOpened");
+    assert_eq!(r2["snapshot"]["context_slot"], fx.proof.provenance.slot);
+    assert_eq!(r2["snapshot"]["min_slot"], fx.proof.provenance.slot);
+    assert_eq!(r2["snapshot"]["rent_included"], true);
+    assert_eq!(
+        r2["assessment"]["snapshot"]["digest"], r2["snapshot"]["digest"],
+        "the assessment is bound to the very response"
+    );
+    let denials2 = r2["assessment"]["review"]["denials"].as_array().unwrap();
+    assert!(!denials2.iter().any(|d| d == "NoCoherentSnapshot"));
+    assert!(denials2.iter().any(|d| d == "SnapshotCurrencyUnknown"));
+    assert!(
+        denials2.iter().any(|d| d == "FundingUnknown")
+            && !denials2.iter().any(|d| d == "FundingUnmet"),
+        "no payer set: the placeholder is not a wallet"
+    );
+    assert!(
+        !shared.snapshot_keys_contain(&Address::default()),
+        "the placeholder is not requested"
+    );
+    assert!(denials2.iter().any(|d| d == "SourceUnproven"));
+    assert!(denials2.iter().any(|d| d == "HistoryUnknown"));
+    assert_eq!(r2["assessment"]["review"]["admitted"], false);
+    let rent = (128 + 288) * 3_480 * 2 + (128 + 144) * 3_480 * 2;
+    assert_eq!(r2["assessment"]["needs"]["rent_lamports"], rent);
+    assert!(!st2.to_string().contains(&hex::encode(plain)));
+    assert_eq!(engine.pending_len(), 0);
+    assert_eq!(port.forbidden.load(Ordering::SeqCst), 0);
+    assert_eq!(shared.forbidden.load(Ordering::SeqCst), 0);
+    // A beacon not served: the publication is missing, the plan is
+    // blocked at the gate before anything destination-bearing is read, and
+    // the round is asked once per slot.
+    let empty = FakeDrand {
+        rounds: BTreeMap::new(),
+        asks: AtomicUsize::new(0),
+    };
+    let mut cache3 = BeaconCache::new(pk96());
+    let mut review3 = WideReview::new(deployment);
+    assert!(review3.proofs.supply(fx.proof.clone()));
+    let made = block_on(async {
+        let mut pubs = DrandPublications {
+            drand: &empty,
+            cache: &mut cache3,
+        };
+        review3
+            .step(
+                &port,
+                &engine,
+                &model,
+                program(),
+                season_pda().0,
+                7,
+                None,
+                Some(RevealInputs {
+                    season: &season,
+                    beacon: &mut pubs,
+                    beneficiary: beneficiary(),
+                }),
+            )
+            .await
+    });
+    assert_eq!(made, 1);
+    assert_eq!(
+        (
+            review3.reveal_candidates,
+            review3.blocked,
+            review3.publications_missing
+        ),
+        (0, 1, 1)
+    );
+    let r3 = &review3.status()["recent"][0];
+    assert_eq!(r3["outcome"], "blocked");
+    assert_eq!(r3["block"], "PublicationMissing");
+    assert_eq!(r3["publication_served"], false);
+    assert_eq!(empty.asks.load(Ordering::SeqCst), 1);
+    assert!(block_on(cache3.publication(&empty, round, 7)).is_none());
+    assert_eq!(empty.asks.load(Ordering::SeqCst), 1, "once per slot");
+    assert!(block_on(cache3.publication(&empty, round, 8)).is_none());
+    assert_eq!(
+        empty.asks.load(Ordering::SeqCst),
+        2,
+        "a new slot asks again"
+    );
+    assert_eq!((cache3.asks, cache3.fetched, cache3.bad), (2, 0, 0));
+    // A served round whose signature does not verify under the pinned
+    // key is counted and never used; another real round's signature under
+    // the vector's number is likewise refused.
+    let mut corrupt = sig;
+    corrupt[0] ^= 1;
+    let bad = FakeDrand {
+        rounds: BTreeMap::from([(round, corrupt)]),
+        asks: AtomicUsize::new(0),
+    };
+    let mut cache4 = BeaconCache::new(pk96());
+    assert!(block_on(cache4.publication(&bad, round, 1)).is_none());
+    assert_eq!((cache4.bad, cache4.fetched, cache4.len()), (1, 0, 0));
+    let other_sig = {
+        let f = FixtureDrand::load(&beacon::fixture_dir(), beacon::quicknet_info()).unwrap();
+        f.rounds
+            .iter()
+            .nth(1)
+            .expect("a second shipped round")
+            .1
+            .sig48
+    };
+    let swapped = FakeDrand {
+        rounds: BTreeMap::from([(round, other_sig)]),
+        asks: AtomicUsize::new(0),
+    };
+    assert!(block_on(cache4.publication(&swapped, round, 2)).is_none());
+    assert_eq!(cache4.bad, 2);
+    // The real one verifies and is cached: the second call does not ask.
+    let p = block_on(cache4.publication(&drand, round, 3)).expect("verified");
+    assert_eq!((p.round, p.sig48, p.pk96), (round, sig, pk96()));
+    let asks = drand.asks.load(Ordering::SeqCst);
+    assert_eq!(block_on(cache4.publication(&drand, round, 4)), Some(p));
+    assert_eq!(drand.asks.load(Ordering::SeqCst), asks);
+    // Without reveal inputs the stored proof yields no hint at all.
+    let mut review5 = WideReview::new(deployment);
+    assert!(review5.proofs.supply(fx.proof.clone()));
+    let made = block_on(review5.step(
+        &port,
+        &engine,
+        &model,
+        program(),
+        season_pda().0,
+        7,
+        None,
+        None,
+    ));
+    assert_eq!(made, 0);
+    let st5 = review5.status();
+    assert_eq!(st5["reveal"]["inputs_at_last_step"], false);
+    assert_eq!(st5["reveal"]["proofs"]["held"], 1);
+    assert!(st5["missing"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|m| m.as_str().unwrap().starts_with("reveal inputs")));
+    assert_eq!(engine.pending_len(), 0);
+}
+
+/// A reveal blocked on a readiness the next slot may bring (THE anchor not
+/// landed, no clock, the Season not started, the publication not served)
+/// is retried at the next slot and becomes a candidate as soon as the
+/// chain is ready; a closed window or an existing reveal is not retried
+/// before the full refresh. The retry is bounded elsewhere
+/// (`MAX_TRANSIENT_RETRIES`); nothing here spins.
+#[test]
+fn reveal_readiness_blocks_retry_next_slot_while_closed_windows_wait() {
+    // The classification itself.
+    for b in [
+        Block::PublicationMissing,
+        Block::AnchorRequired("absent"),
+        Block::AnchorRequired("archive-only"),
+        Block::TimingNeedsClock,
+        Block::SeasonNotStarted {
+            genesis_ts: 2,
+            observed: 1,
+        },
+        Block::SeasonDependsOnClock,
+        Block::Read("x".into()),
+        Block::ReadLoop,
+        Block::Snapshot("Stale(1,2)".into()),
+        Block::SnapshotIncomplete(1),
+    ] {
+        assert!(is_transient(&b), "{b:?}");
+    }
+    for b in [
+        Block::WindowClosed("clock"),
+        Block::AlreadyRevealed,
+        Block::BeaconKey,
+        Block::BeaconSignatureInvalid,
+        Block::CommitMismatch,
+        Block::SealOpen("x".into()),
+        Block::LatchClosed("x"),
+        Block::QuotaRefused("full"),
+        Block::SeasonEnded,
+        Block::NoOpening,
+        Block::Shielded,
+    ] {
+        assert!(!is_transient(&b), "{b:?}");
+    }
+    // The recorded vector's march, the publication served and verified.
+    let (ibe, k) = recorded_vector();
+    let pt = plain_for(host(), ARRIVE_BELL);
+    let plain = wseal::pack(&pt);
+    let seal = wseal::assemble(&ibe, &wseal::body_xor(&k, &plain));
+    let salt = salt_of(&k);
+    let fx = Fx::with_material(pt, ARRIVE_BELL, salt, seal);
+    let season = Season::decode(&fx.season).unwrap();
+    let (round, sig) = vector();
+    let model = WideDiscovery::new(
+        IndexScope {
+            program: program(),
+            season: season_pda().0,
+            world: world(),
+            source: "test: nothing observed".into(),
+        },
+        Limits::default(),
+    );
+    let engine = Engine::new(Budgets::default(), EngineParams::default());
+    let drand = FakeDrand {
+        rounds: BTreeMap::from([(round, sig)]),
+        asks: AtomicUsize::new(0),
+    };
+    let mut cache = BeaconCache::new(pk96());
+    let deployment = Deployment {
+        program_version: WIDE_VERSION,
+        ruleset_hash: RULESET,
+    };
+    let clock = clock_at(a_ts() + 10);
+    let step = |review: &mut WideReview, port: &FakePort, cache: &mut BeaconCache, slot: u64| {
+        block_on(async {
+            let mut pubs = DrandPublications {
+                drand: &drand,
+                cache,
+            };
+            review
+                .step(
+                    port,
+                    &engine,
+                    &model,
+                    program(),
+                    season_pda().0,
+                    slot,
+                    None,
+                    Some(RevealInputs {
+                        season: &season,
+                        beacon: &mut pubs,
+                        beneficiary: beneficiary(),
+                    }),
+                )
+                .await
+        })
+    };
+    // THE anchor not landed at slot 7: blocked `AnchorRequired`, next slot.
+    let mut without_anchor = fx.reads().accounts;
+    without_anchor.insert(anchor_addr(), None);
+    let port_a = FakePort::new(without_anchor, clock);
+    let port_b = FakePort::new(fx.reads().accounts, clock);
+    let mut review = WideReview::new(deployment);
+    assert!(review.proofs.supply(fx.proof.clone()));
+    assert_eq!(step(&mut review, &port_a, &mut cache, 7), 1);
+    let r = &review.status()["recent"][0];
+    assert_eq!(r["outcome"], "blocked");
+    assert_eq!(r["block"], "AnchorRequired(\"absent\")");
+    assert_eq!(r["next"], "next slot");
+    assert_eq!(
+        r["publication_served"], true,
+        "the gate passed; the anchor is what is missing"
+    );
+    // The same slot again: nothing. The anchor landed by slot 8: planned
+    // again at once and a candidate — one retry, not a 64-slot wait.
+    assert_eq!(step(&mut review, &port_a, &mut cache, 7), 0);
+    assert_eq!(step(&mut review, &port_b, &mut cache, 8), 1);
+    assert_eq!((review.reveal_candidates, review.transient_retries), (1, 1));
+    let r = &review.status()["recent"][0];
+    assert_eq!(r["outcome"], "candidate");
+    assert_eq!(r["retry"], 1);
+    assert_eq!(r["candidate"]["crypto"], "IbeOpened");
+    assert_eq!(r["assessment"]["review"]["admitted"], false);
+    assert_eq!(engine.pending_len(), 0);
+    // A candidate waits the reveal refresh, not the next slot.
+    assert_eq!(step(&mut review, &port_b, &mut cache, 9), 0);
+    // A closed window (the observed clock at the close) is not retried at
+    // the next slot; it is planned again only after the full refresh, and
+    // is still closed then.
+    let port_c = FakePort::new(fx.reads().accounts, clock_at(a_ts() + REVEAL_WINDOW as i64));
+    let mut review2 = WideReview::new(deployment);
+    assert!(review2.proofs.supply(fx.proof.clone()));
+    assert_eq!(step(&mut review2, &port_c, &mut cache, 7), 1);
+    let r = &review2.status()["recent"][0];
+    assert_eq!(r["outcome"], "blocked");
+    assert!(r["block"].as_str().unwrap().starts_with("WindowClosed"));
+    assert!(r["next"].is_null(), "no next-slot retry");
+    assert_eq!(step(&mut review2, &port_c, &mut cache, 8), 0);
+    assert_eq!(
+        step(&mut review2, &port_c, &mut cache, 7 + REFRESH_SLOTS - 1),
+        0
+    );
+    assert_eq!(
+        step(&mut review2, &port_c, &mut cache, 7 + REFRESH_SLOTS),
+        1
+    );
+    assert_eq!(review2.transient_retries, 0);
+    assert_eq!(review2.reveal_candidates, 0);
+    // This host already holding a slot at the destination: `AlreadyRevealed`,
+    // not retried at the next slot either.
+    let mut fx_d = Fx::with_material(pt, ARRIVE_BELL, salt, seal);
+    fx_d.slots[0] = Some(slot_bytes(0, host(), citizen(), TROOPS));
+    let port_d = FakePort::new(fx_d.reads().accounts, clock);
+    let mut review3 = WideReview::new(deployment);
+    assert!(review3.proofs.supply(fx.proof.clone()));
+    assert_eq!(step(&mut review3, &port_d, &mut cache, 7), 1);
+    assert_eq!(review3.status()["recent"][0]["block"], "AlreadyRevealed");
+    assert_eq!(step(&mut review3, &port_d, &mut cache, 8), 0);
+    assert_eq!(review3.transient_retries, 0);
+    // Every port refused simulate/send; nothing pending anywhere.
+    for p in [&port_a, &port_b, &port_c, &port_d] {
+        assert_eq!(p.forbidden.load(Ordering::SeqCst), 0);
+    }
+    assert_eq!(engine.pending_len(), 0);
+    // The beacon was fetched once for all of it.
+    assert_eq!(drand.asks.load(Ordering::SeqCst), 1);
 }

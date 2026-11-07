@@ -15,6 +15,7 @@ use std::sync::Mutex;
 
 use base64::Engine as _;
 use fclient::budgets::Budgets;
+use fclient::decode::Season;
 use fclient::ports::{
     Account, ChainPort, ClockSysvar, Cursor, PortError, PortResult, Signature, SimResult, Status,
     TxRecord,
@@ -43,11 +44,18 @@ use frontier_abi::world_index::{
 use keeper_core::engine::{Engine, EngineParams};
 use keeper_core::wideduty::{self, Block, Candidate, Deployment, Duty, Reads, Step, RETURN_MAX};
 use keeper_core::widefees::{self, Funding, Known};
-use keeper_core::wideindex::{Limits, Scope as IndexScope, WideBatch, WideDiscovery};
+use keeper_core::wideindex::{Limits, Scope as IndexScope, WideBatch, WideDiscovery, WideObserver};
 use keeper_core::wideproof::{depart_proof, ProofScope, Unavailable};
+use keeper_core::wideproof::{METHOD_FEED, METHOD_SUPPLIED};
+use keeper_core::widereveal::Publication;
 use keeper_core::widereview::{self, Deny, EngineView};
 use keeper_core::widesnapshot::{parse_snapshot_response, sysvar_owner, Snapshot};
-use keeper_core::widetick::{WideReview, CANDIDATES_PER_TICK, REFRESH_SLOTS};
+use keeper_core::widesnapshot::{snapshot_via, PortSnapshot, SnapshotError, SnapshotPort};
+use keeper_core::widetick::{
+    block_code, ProofStore, PublicationSource, RevealInputs, WideReview, CANDIDATES_PER_TICK,
+    MAX_EXTRACT_PER_PAGE, MAX_PROOFS, MAX_TRANSIENT_RETRIES, ORIGIN_FEED, ORIGIN_SUPPLIED,
+    PAYER_UNSET, REFRESH_SLOTS, REVEAL_REFRESH_SLOTS,
+};
 use serde_json::{json, Value};
 use solana_address::Address;
 use solana_instruction::{AccountMeta, Instruction};
@@ -2086,7 +2094,16 @@ fn the_tick_review_plans_reviews_and_enqueues_nothing() {
         ruleset_hash: RULESET,
     });
     assert_eq!(review.candidates_per_tick, CANDIDATES_PER_TICK);
-    let made = block_on(review.step(&port, &engine, &model, program(), season_pda().0, 5_000));
+    let made = block_on(review.step(
+        &port,
+        &engine,
+        &model,
+        program(),
+        season_pda().0,
+        5_000,
+        None,
+        None,
+    ));
     assert_eq!(made, 1, "one hint, one plan");
     assert_eq!((review.plans, review.candidates, review.blocked), (1, 1, 0));
     assert_eq!(
@@ -2128,17 +2145,49 @@ fn the_tick_review_plans_reviews_and_enqueues_nothing() {
     assert_eq!(
         recent[0]["candidate"]["payer"],
         Address::default().to_string(),
-        "no payer drawn"
+        "no payer drawn: the System Program placeholder in the unsigned instruction"
+    );
+    assert!(
+        recent[0]["assessment"]["needs"]["funding"]
+            .as_str()
+            .unwrap()
+            .contains("Unknown"),
+        "the placeholder's balance is never funding"
     );
     assert_eq!(recent[0]["assessment"]["snapshot"], serde_json::Value::Null);
     let denials = rv["denials"].as_array().unwrap();
     assert!(denials.iter().any(|d| d == "NoCoherentSnapshot"));
     assert!(denials.iter().any(|d| d == "FundingUnknown"));
     assert!(denials.iter().any(|d| d == "SliceDoesNotEnqueue"));
-    assert!(st.to_string().contains("unsupported on the tick path"));
-    assert!(st["covers"].as_str().unwrap().contains("not reveal"));
+    // No snapshot source and no reveal inputs: said so, with the exact
+    // gaps named.
+    assert_eq!(st["snapshot"]["source"], "absent");
+    assert_eq!(st["snapshot"]["coherent_candidates"], 0);
+    assert!(st["covers"]
+        .as_str()
+        .unwrap()
+        .contains("no snapshot source"));
+    assert!(st["covers"].as_str().unwrap().contains("no reveal hints"));
+    assert_eq!(st["reveal"]["inputs_at_last_step"], false);
+    assert_eq!(st["reveal"]["proofs"]["held"], 0);
+    assert_eq!(st["payer"], PAYER_UNSET);
+    let missing = st["missing"].as_array().unwrap();
+    assert_eq!(missing.len(), 4);
+    assert!(missing[0].as_str().unwrap().starts_with("snapshot source"));
+    assert!(missing[1].as_str().unwrap().starts_with("reveal inputs"));
+    assert!(missing[2].as_str().unwrap().starts_with("departure proofs"));
+    assert!(missing[3].as_str().unwrap().starts_with("payer"));
     // Within the refresh window the same hint is not planned again.
-    let made = block_on(review.step(&port, &engine, &model, program(), season_pda().0, 5_000 + 1));
+    let made = block_on(review.step(
+        &port,
+        &engine,
+        &model,
+        program(),
+        season_pda().0,
+        5_000 + 1,
+        None,
+        None,
+    ));
     assert_eq!(made, 0);
     assert_eq!(*port.min_slots.lock().unwrap(), vec![5_000, 5_000]);
     // Past it, it is.
@@ -2149,6 +2198,8 @@ fn the_tick_review_plans_reviews_and_enqueues_nothing() {
         program(),
         season_pda().0,
         5_000 + REFRESH_SLOTS,
+        None,
+        None,
     ));
     assert_eq!(made, 1);
     assert_eq!(review.plans, 2);
@@ -2166,7 +2217,16 @@ fn the_tick_review_plans_reviews_and_enqueues_nothing() {
         ruleset_hash: RULESET,
     });
     assert_eq!(
-        block_on(review2.step(&port2, &engine, &model, program(), season_pda().0, 1)),
+        block_on(review2.step(
+            &port2,
+            &engine,
+            &model,
+            program(),
+            season_pda().0,
+            1,
+            None,
+            None
+        )),
         1
     );
     assert_eq!((review2.candidates, review2.blocked), (0, 1));
@@ -2184,8 +2244,21 @@ fn the_tick_review_plans_reviews_and_enqueues_nothing() {
         ruleset_hash: RULESET,
     });
     assert_eq!(
-        block_on(review3.step(&failing, &engine, &model, program(), season_pda().0, 9)),
+        block_on(review3.step(
+            &failing,
+            &engine,
+            &model,
+            program(),
+            season_pda().0,
+            9,
+            None,
+            None
+        )),
         1
+    );
+    assert!(
+        !review3.status().to_string().contains("fixture RPC is down"),
+        "the port's own error text never reaches the status"
     );
     assert_eq!(
         (review3.candidates, review3.blocked, review3.read_errors),
@@ -2250,10 +2323,28 @@ fn the_tick_review_plans_reviews_and_enqueues_nothing() {
         CANDIDATES_PER_TICK,
         "the public knob cannot raise the cap"
     );
-    let made = block_on(review4.step(&port2, &engine, &three, program(), season_pda().0, 10));
+    let made = block_on(review4.step(
+        &port2,
+        &engine,
+        &three,
+        program(),
+        season_pda().0,
+        10,
+        None,
+        None,
+    ));
     assert_eq!(made as usize, CANDIDATES_PER_TICK);
     assert_eq!(review4.status()["cursor"], CANDIDATES_PER_TICK);
-    let made = block_on(review4.step(&port2, &engine, &three, program(), season_pda().0, 11));
+    let made = block_on(review4.step(
+        &port2,
+        &engine,
+        &three,
+        program(),
+        season_pda().0,
+        11,
+        None,
+        None,
+    ));
     assert_eq!(made, 1, "the third hint, not the first two again");
     assert_eq!(review4.status()["ledger"], 3);
     assert_eq!(engine.pending_len(), 0);
@@ -2268,6 +2359,933 @@ fn the_tick_review_plans_reviews_and_enqueues_nothing() {
     assert!(matches!(needs.rent_lamports, Known::Unchecked(_)));
     assert!(matches!(needs.funding, Funding::Unknown(_)));
     assert_eq!(needs.snapshot_digest, None);
+}
+
+/// A publication source that serves nothing (and counts the asks).
+struct NoPublications {
+    asks: Vec<(u64, u64)>,
+}
+impl PublicationSource for NoPublications {
+    fn publication<'a>(
+        &'a mut self,
+        round: u64,
+        slot: u64,
+    ) -> std::pin::Pin<Box<dyn Future<Output = Option<Publication>> + Send + 'a>> {
+        self.asks.push((round, slot));
+        Box::pin(async { None })
+    }
+    fn label(&self) -> &'static str {
+        "test: serves nothing"
+    }
+}
+
+/// The proof store keeps what `wideproof` extracts from feed pages (and
+/// what an orchestrator supplies), bounded, superseding by sequence; its
+/// hints follow the model; the tick lists reveal hints only with reveal
+/// inputs and records a reveal the beacon source cannot serve as
+/// `PublicationMissing`, enqueuing nothing.
+#[test]
+fn the_proof_store_feeds_reveal_hints_only_with_inputs_and_blocks_without_a_publication() {
+    let mut store = ProofStore::default();
+    // A feed page: one committed WideDepart, one record without a wire.
+    let page = vec![
+        record(wire_of(&[depart_ix(home())]), frame(&[departed_ok(home())])),
+        record(vec![], vec![]),
+    ];
+    assert_eq!(store.observe_page(&page, &scope(), page.len()), 1);
+    assert_eq!(
+        (store.len(), store.from_feed, store.records_seen),
+        (1, 1, 2)
+    );
+    let e = store.get(host(), SLOT).expect("stored");
+    assert_eq!(e.origin, ORIGIN_FEED);
+    assert_eq!(e.seq, 11);
+    assert!(!e.proof.provenance.signatures_verified);
+    // The same page again: an exact replay changes nothing.
+    assert_eq!(store.observe_page(&page, &scope(), page.len()), 0);
+    assert_eq!((store.len(), store.superseded), (1, 0));
+    // A later record of the same (host, slot) supersedes; an earlier one
+    // does not.
+    let mut later = store.get(host(), SLOT).unwrap().proof.clone();
+    later.provenance.seq = 12;
+    assert!(store.supply(later));
+    assert_eq!((store.superseded, store.supplied), (1, 1));
+    assert_eq!(store.get(host(), SLOT).unwrap().origin, ORIGIN_SUPPLIED);
+    let mut earlier = store.get(host(), SLOT).unwrap().proof.clone();
+    earlier.provenance.seq = 5;
+    assert!(!store.supply(earlier));
+    assert_eq!(store.get(host(), SLOT).unwrap().seq, 12);
+    // Bounded: the oldest sequence leaves first.
+    let base = store.get(host(), SLOT).unwrap().proof.clone();
+    for i in 0..MAX_PROOFS as u32 {
+        let mut p = base.clone();
+        p.host = WideHostRef::new(home(), SITE, GEN, 100 + i).unwrap();
+        p.provenance.seq = 100 + i as u64;
+        assert!(store.supply(p));
+    }
+    assert_eq!(store.len(), MAX_PROOFS);
+    assert_eq!(store.evicted, 1);
+    assert!(store.get(host(), SLOT).is_none(), "seq 12 was the oldest");
+    assert_eq!(store.status()["held"], MAX_PROOFS);
+    assert_eq!(store.status()["max"], MAX_PROOFS);
+    // Hints follow the model: unknown host → hint; the march open and
+    // unrevealed → hint; revealed → none; a later march in another slot →
+    // none; settled → none.
+    let mut store = ProofStore::default();
+    assert_eq!(store.observe_page(&page, &scope(), page.len()), 1);
+    let empty = WideDiscovery::new(
+        IndexScope {
+            program: program(),
+            season: season_pda().0,
+            world: world(),
+            source: "test".into(),
+        },
+        Limits::default(),
+    );
+    assert_eq!(store.hints(&empty), vec![(host(), SLOT)]);
+    let mut model = WideDiscovery::new(
+        IndexScope {
+            program: program(),
+            season: season_pda().0,
+            world: world(),
+            source: "test".into(),
+        },
+        Limits::default(),
+    );
+    model
+        .apply(&WideBatch {
+            seq: 1,
+            slot: 1_001,
+            signature: "sig-1".into(),
+            bodies: vec![departed_ok(home())],
+        })
+        .unwrap();
+    assert_eq!(store.hints(&model), vec![(host(), SLOT)]);
+    let mut revealed = model.clone();
+    revealed
+        .apply(&WideBatch {
+            seq: 2,
+            slot: 1_002,
+            signature: "sig-2".into(),
+            // A `Revealed` record carries no links (the ABI's shape).
+            bodies: vec![encode(
+                WideKind::Revealed,
+                ARRIVE_BELL,
+                &wev::host_key(&host(), home()),
+                &wev::revealed_payload(SLOT, 0, 0, 33, 0, 0, TROOPS, false),
+                &[],
+            )
+            .unwrap()],
+        })
+        .unwrap();
+    assert!(store.hints(&revealed).is_empty(), "revealed: no hint");
+    let mut other_slot = model.clone();
+    other_slot
+        .apply(&WideBatch {
+            seq: 2,
+            slot: 1_002,
+            signature: "sig-2".into(),
+            bodies: vec![departed_body(
+                host(),
+                home(),
+                DEPART_BELL + 1,
+                SLOT + 1,
+                DEPART_BELL + 1,
+                ARRIVE_BELL + 1,
+                TIP,
+                root(),
+            )],
+        })
+        .unwrap();
+    assert!(
+        store.hints(&other_slot).is_empty(),
+        "the host's latest march is another slot: superseded"
+    );
+    // The tick: without reveal inputs only the settle hint is listed;
+    // with them (a season and a source that serves nothing) the reveal
+    // hint is planned too and blocked at the publication gate, before
+    // anything destination-bearing is read.
+    let fx = SettleFx::new(home());
+    let port = FakePort {
+        accounts: fx.reads().accounts,
+        min_slots: Mutex::new(vec![]),
+        forbidden: AtomicUsize::new(0),
+    };
+    let engine = Engine::new(Budgets::default(), EngineParams::default());
+    let mut review = WideReview::new(Deployment {
+        program_version: WIDE_VERSION,
+        ruleset_hash: RULESET,
+    });
+    assert_eq!(review.proofs.observe_page(&page, &scope(), page.len()), 1);
+    let made = block_on(review.step(
+        &port,
+        &engine,
+        &model,
+        program(),
+        season_pda().0,
+        50,
+        None,
+        None,
+    ));
+    assert_eq!(made, 1, "no reveal inputs: the settle hint only");
+    assert_eq!((review.reveal_plans, review.plans), (0, 1));
+    let st = review.status();
+    assert_eq!(st["reveal"]["inputs_at_last_step"], false);
+    assert_eq!(st["reveal"]["proofs"]["held"], 1);
+    assert_eq!(
+        st["missing"].as_array().unwrap().len(),
+        3,
+        "proofs are held; snapshot, inputs and payer missing"
+    );
+    let season = Season::decode(&season_ok()).unwrap();
+    let mut none = NoPublications { asks: vec![] };
+    let made = block_on(review.step(
+        &port,
+        &engine,
+        &model,
+        program(),
+        season_pda().0,
+        50 + REFRESH_SLOTS,
+        None,
+        Some(RevealInputs {
+            season: &season,
+            beacon: &mut none,
+            beneficiary: actor(),
+        }),
+    ));
+    assert_eq!(made, 2, "the settle hint again and the reveal hint");
+    assert_eq!(
+        (
+            review.reveal_plans,
+            review.reveal_candidates,
+            review.publications_missing
+        ),
+        (1, 0, 1)
+    );
+    let round = fclient::clock::SeasonClock::from_season(&season).tlock_round(ARRIVE_BELL);
+    assert_eq!(none.asks, vec![(round, 50 + REFRESH_SLOTS)]);
+    let st = review.status();
+    assert_eq!(st["reveal"]["inputs_at_last_step"], true);
+    let recent = st["recent"].as_array().unwrap();
+    let reveal = recent
+        .iter()
+        .find(|r| r["hint"].as_str().unwrap().starts_with("reveal:"))
+        .expect("the reveal entry");
+    assert_eq!(reveal["outcome"], "blocked");
+    assert_eq!(reveal["block"], "PublicationMissing");
+    assert_eq!(reveal["publication_served"], false);
+    assert_eq!(reveal["publication_round"], round);
+    assert_eq!(reveal["proof_origin"], ORIGIN_FEED);
+    assert_eq!(
+        reveal["min_slot"], 1_011,
+        "max(tick slot, proof slot): the proof's record landed at 1,011"
+    );
+    assert_eq!(port.forbidden.load(Ordering::SeqCst), 0);
+    assert_eq!(engine.pending_len(), 0);
+    assert_eq!(st["enqueued"], 0);
+    // A snapshot source passed to the step (the test's literal-JSON
+    // `SnapshotPort`, a `SnapshotSource` through the blanket impl): the
+    // duty is coherent at the response's context slot; the unset payer is
+    // not in the request and its funding stays unknown.
+    let lit = LiteralSnapshots::new(fx.reads().accounts);
+    let mut review5 = WideReview::new(Deployment {
+        program_version: WIDE_VERSION,
+        ruleset_hash: RULESET,
+    });
+    let made = block_on(review5.step(
+        &port,
+        &engine,
+        &model,
+        program(),
+        season_pda().0,
+        900,
+        Some(&lit),
+        None,
+    ));
+    assert_eq!(made, 1);
+    assert_eq!(
+        (
+            review5.candidates,
+            review5.coherent,
+            review5.snapshot_blocked
+        ),
+        (1, 1, 0)
+    );
+    assert_eq!(lit.calls.load(Ordering::SeqCst), 1);
+    assert!(
+        !lit.keys.lock().unwrap()[0].contains(&Address::default()),
+        "the placeholder payer is not requested"
+    );
+    let st = review5.status();
+    assert!(st["snapshot"]["source"]
+        .as_str()
+        .unwrap()
+        .starts_with("SnapshotPort"));
+    assert_eq!(st["snapshot"]["coherent_candidates"], 1);
+    let r = &st["recent"][0];
+    assert_eq!(r["candidate"]["coherent"], true);
+    assert_eq!(r["snapshot"]["context_slot"], 900);
+    assert_eq!(
+        r["snapshot"]["min_slot"], 900,
+        "the tick's slot is the snapshot's minContextSlot"
+    );
+    let denials = r["assessment"]["review"]["denials"].as_array().unwrap();
+    assert!(!denials.iter().any(|d| d == "NoCoherentSnapshot"));
+    assert!(denials.iter().any(|d| d == "SnapshotCurrencyUnknown"));
+    assert!(
+        denials.iter().any(|d| d == "FundingUnknown")
+            && !denials.iter().any(|d| d == "FundingUnmet"),
+        "no payer set: the placeholder's balance is never funding"
+    );
+    assert_eq!(r["assessment"]["review"]["admitted"], false);
+    assert_eq!(engine.pending_len(), 0);
+    // A stale response (the fake's context below the tick's slot) is a
+    // recorded snapshot block, not a candidate from other reads; its
+    // code is typed.
+    let mut review6 = WideReview::new(Deployment {
+        program_version: WIDE_VERSION,
+        ruleset_hash: RULESET,
+    });
+    let made = block_on(review6.step(
+        &port,
+        &engine,
+        &model,
+        program(),
+        season_pda().0,
+        901,
+        Some(&lit),
+        None,
+    ));
+    assert_eq!(made, 1);
+    assert_eq!(
+        (
+            review6.candidates,
+            review6.blocked,
+            review6.snapshot_blocked
+        ),
+        (0, 1, 1)
+    );
+    assert_eq!(
+        review6.status()["recent"][0]["block"],
+        "Snapshot(Stale(900,901))"
+    );
+}
+
+/// A literal-JSON `SnapshotPort` over an account map (records the keys of
+/// every request). A `SnapshotSource` through the blanket impl.
+struct LiteralSnapshots {
+    accounts: BTreeMap<Address, Option<Account>>,
+    calls: AtomicUsize,
+    keys: Mutex<Vec<Vec<Address>>>,
+    /// Served instead of a response when set.
+    error: Option<SnapshotError>,
+}
+impl LiteralSnapshots {
+    fn new(accounts: BTreeMap<Address, Option<Account>>) -> LiteralSnapshots {
+        LiteralSnapshots {
+            accounts,
+            calls: AtomicUsize::new(0),
+            keys: Mutex::new(vec![]),
+            error: None,
+        }
+    }
+}
+impl SnapshotPort for LiteralSnapshots {
+    fn snapshot(
+        &self,
+        keys: &[Address],
+        with_rent: bool,
+        min_slot: u64,
+    ) -> impl Future<Output = Result<keeper_core::widesnapshot::Snapshot, SnapshotError>> + Send
+    {
+        self.calls.fetch_add(1, Ordering::SeqCst);
+        self.keys.lock().unwrap().push(keys.to_vec());
+        let r = match &self.error {
+            Some(e) => Err(e.clone()),
+            None => parse_snapshot_response(
+                &snapshot_json(&self.accounts, keys, clock_at(1_790_444_847)),
+                keys,
+                with_rent,
+                min_slot,
+            ),
+        };
+        async move { r }
+    }
+}
+
+/// A supplied proof's provenance claims are replaced, whatever the caller
+/// said: `signatures_verified` false, the method the store's own.
+#[test]
+fn a_supplied_proof_never_keeps_the_callers_provenance_claims() {
+    let rec = record(wire_of(&[depart_ix(home())]), frame(&[departed_ok(home())]));
+    let honest = depart_proof(&rec, &scope()).unwrap();
+    assert_eq!(honest.provenance.method, METHOD_FEED);
+    let mut forged = honest.clone();
+    forged.provenance.signatures_verified = true;
+    forged.provenance.method = "attacker: verified by nobody";
+    let mut store = ProofStore::default();
+    assert!(store.supply(forged));
+    let e = store.get(host(), SLOT).unwrap();
+    assert!(!e.proof.provenance.signatures_verified);
+    assert_eq!(e.proof.provenance.method, METHOD_SUPPLIED);
+    assert_eq!(e.origin, ORIGIN_SUPPLIED);
+    // The feed path keeps the extractor's own provenance.
+    let mut store = ProofStore::default();
+    assert_eq!(store.observe_page(&[rec], &scope(), 1), 1);
+    let e = store.get(host(), SLOT).unwrap();
+    assert_eq!(e.proof.provenance.method, METHOD_FEED);
+    assert!(!e.proof.provenance.signatures_verified);
+    // The store's status never carries the caller's text.
+    assert!(!store.status().to_string().contains("attacker"));
+}
+
+/// Extraction follows the observer's **actual** acceptance of each page
+/// (`WideObserver::accepted_prefix`), never a sequence threshold: a page
+/// the observer refuses before applying anything (out of order) yields no
+/// proof even when a valid departure precedes the offending record; an
+/// observer already blocked yields none from any later page, whatever the
+/// sequences; a record that blocks the observer mid-page keeps the records
+/// before it only; an exact replay is accepted again (a no-op in the
+/// store); extraction is bounded per page; drops are counted; the
+/// observer's cursor and replay behaviour are untouched.
+#[test]
+fn proof_extraction_follows_the_observers_accepted_prefix_not_a_sequence_threshold() {
+    let at = |seq: u64| {
+        let mut r = record(wire_of(&[depart_ix(home())]), frame(&[departed_ok(home())]));
+        r.seq = seq;
+        r.slot = 1_000 + seq;
+        r
+    };
+    let observer = || {
+        WideObserver::new(
+            IndexScope {
+                program: program(),
+                season: season_pda().0,
+                world: world(),
+                source: "test".into(),
+            },
+            Limits::default(),
+        )
+    };
+    // (a) A page out of order: [8, 10, 9]. The observer validates the
+    // whole page first and applies nothing; a numeric `seq < 9` would
+    // have taken 8. The accepted prefix is 0 and so is the store.
+    let mut o = observer();
+    let page = vec![at(8), at(10), at(9)];
+    assert_eq!(o.observe_page(&page, &program()), 0);
+    assert_eq!(o.accepted_prefix, 0);
+    assert_eq!(o.model.blocked().map(|b| b.seq), Some(9));
+    assert_eq!(o.model.cursor(), None, "no cursor moved");
+    let mut store = ProofStore::default();
+    assert_eq!(store.observe_page(&page, &scope(), o.accepted_prefix), 0);
+    assert_eq!(
+        (
+            store.records_seen,
+            store.records_offered,
+            store.dropped_unaccepted,
+            store.len()
+        ),
+        (3, 0, 3, 0)
+    );
+    // (b) An observer blocked at 100 shown a later page of lower
+    // sequences [50, 51]: nothing, whatever `50 < 100` would say.
+    let mut o = observer();
+    let mut truncated = at(100);
+    truncated.logs.push("Log truncated".into());
+    assert_eq!(o.observe_page(&[truncated], &program()), 0);
+    assert_eq!((o.accepted_prefix, o.decode_failures), (0, 1));
+    assert_eq!(o.model.blocked().map(|b| b.seq), Some(100));
+    let later = vec![at(50), at(51)];
+    assert_eq!(o.observe_page(&later, &program()), 0);
+    assert_eq!(o.accepted_prefix, 0);
+    let mut store = ProofStore::default();
+    assert_eq!(store.observe_page(&later, &scope(), o.accepted_prefix), 0);
+    assert_eq!((store.records_offered, store.dropped_unaccepted), (0, 2));
+    // (c) A valid page [11, 12]: both processed, the later superseding.
+    let mut o = observer();
+    let page = vec![at(11), at(12)];
+    assert_eq!(o.observe_page(&page, &program()), 2);
+    assert_eq!(o.accepted_prefix, 2);
+    assert_eq!(o.model.cursor(), Some(12));
+    let mut store = ProofStore::default();
+    assert_eq!(store.observe_page(&page, &scope(), o.accepted_prefix), 2);
+    assert_eq!(
+        (store.superseded, store.get(host(), SLOT).unwrap().seq),
+        (1, 12)
+    );
+    // (d) The same page again: an exact replay, no state change, the
+    // whole page accepted again; the store offers both and stores
+    // nothing new.
+    assert_eq!(o.observe_page(&page, &program()), 0);
+    assert_eq!((o.accepted_prefix, o.replayed_txs, o.wide_txs), (2, 0, 2));
+    assert_eq!(o.model.cursor(), Some(12), "the cursor did not move");
+    assert_eq!(store.observe_page(&page, &scope(), o.accepted_prefix), 0);
+    assert_eq!((store.records_offered, store.superseded), (4, 1));
+    // (e) A record that blocks the observer in the middle of a page
+    // [13, 14(truncated), 15]: 13 processed, 14 blocks, 15 never reached.
+    let mut bad = at(14);
+    bad.logs.push("Log truncated".into());
+    let page = vec![at(13), bad, at(15)];
+    assert_eq!(o.observe_page(&page, &program()), 1);
+    assert_eq!(o.accepted_prefix, 1);
+    assert_eq!(o.model.blocked().map(|b| b.seq), Some(14));
+    assert_eq!(o.model.cursor(), Some(13));
+    assert_eq!(store.observe_page(&page, &scope(), o.accepted_prefix), 1);
+    assert_eq!(
+        store.get(host(), SLOT).unwrap().seq,
+        13,
+        "15 was never offered"
+    );
+    assert_eq!(store.dropped_unaccepted, 2);
+    // Blocked now: a further page yields nothing.
+    assert_eq!(o.observe_page(&[at(16)], &program()), 0);
+    assert_eq!(o.accepted_prefix, 0);
+    assert_eq!(
+        store.observe_page(&[at(16)], &scope(), o.accepted_prefix),
+        0
+    );
+    assert_eq!(store.get(host(), SLOT).unwrap().seq, 13);
+    // (f) A page from another program: refused whole, nothing accepted.
+    let mut o = observer();
+    assert_eq!(o.observe_page(&[at(20)], &actor()), 0);
+    assert_eq!(o.accepted_prefix, 0);
+    // (g) Bounded per page: records past the bound are counted, not
+    // offered, even when the observer accepted them all.
+    let mut store = ProofStore::default();
+    let long: Vec<TxRecord> = (0..MAX_EXTRACT_PER_PAGE as u64 + 2)
+        .map(|i| {
+            let mut r = record(vec![], vec![]);
+            r.seq = 100 + i;
+            r
+        })
+        .collect();
+    assert_eq!(store.observe_page(&long, &scope(), long.len()), 0);
+    assert_eq!(
+        (
+            store.records_seen as usize,
+            store.records_offered as usize,
+            store.dropped_over_bound
+        ),
+        (MAX_EXTRACT_PER_PAGE + 2, MAX_EXTRACT_PER_PAGE, 2)
+    );
+    let st = store.status();
+    assert_eq!(st["dropped_over_bound"], 2);
+    assert_eq!(st["dropped_unaccepted"], 0);
+    assert_eq!(st["extract_per_page"], MAX_EXTRACT_PER_PAGE);
+    // An `accepted` beyond the page is just the page.
+    let mut store = ProofStore::default();
+    assert_eq!(store.observe_page(&[at(30)], &scope(), 99), 1);
+}
+
+/// A reveal whose publication is not served is retried at the next slot,
+/// at most `MAX_TRANSIENT_RETRIES` times in a row, then waits the reveal
+/// refresh; it never inherits the duties' 64-slot cooldown; a newer proof
+/// for the same march invalidates the entry at once; the reads' minimum
+/// slot is `max(tick slot, proof slot)`.
+#[test]
+fn reveal_hints_retry_next_slot_bounded_and_a_new_proof_invalidates_the_entry() {
+    let model = WideDiscovery::new(
+        IndexScope {
+            program: program(),
+            season: season_pda().0,
+            world: world(),
+            source: "test".into(),
+        },
+        Limits::default(),
+    );
+    let fx = SettleFx::new(home());
+    let port = FakePort {
+        accounts: fx.reads().accounts,
+        min_slots: Mutex::new(vec![]),
+        forbidden: AtomicUsize::new(0),
+    };
+    let engine = Engine::new(Budgets::default(), EngineParams::default());
+    let season = Season::decode(&season_ok()).unwrap();
+    let mut review = WideReview::new(Deployment {
+        program_version: WIDE_VERSION,
+        ruleset_hash: RULESET,
+    });
+    let rec = record(wire_of(&[depart_ix(home())]), frame(&[departed_ok(home())]));
+    assert_eq!(review.proofs.observe_page(&[rec], &scope(), 1), 1);
+    let mut none = NoPublications { asks: vec![] };
+    let step = |review: &mut WideReview, none: &mut NoPublications, slot: u64| {
+        block_on(review.step(
+            &port,
+            &engine,
+            &model,
+            program(),
+            season_pda().0,
+            slot,
+            None,
+            Some(RevealInputs {
+                season: &season,
+                beacon: none,
+                beneficiary: actor(),
+            }),
+        ))
+    };
+    // The proof's record landed at slot 1,011: a tick at 50 reads at 1,011.
+    assert_eq!(step(&mut review, &mut none, 50), 1);
+    assert_eq!(review.publications_missing, 1);
+    assert!(port.min_slots.lock().unwrap().iter().all(|s| *s == 1_011));
+    assert_eq!(review.status()["recent"][0]["min_slot"], 1_011);
+    assert_eq!(review.status()["recent"][0]["next"], "next slot");
+    // Not within the same slot; at the next slot, yes — and so on, each a
+    // transient retry, MAX_TRANSIENT_RETRIES times.
+    assert_eq!(step(&mut review, &mut none, 50), 0);
+    for i in 1..=MAX_TRANSIENT_RETRIES as u64 {
+        assert_eq!(step(&mut review, &mut none, 50 + i), 1, "retry {i}");
+    }
+    assert_eq!(review.transient_retries, MAX_TRANSIENT_RETRIES as u64);
+    assert_eq!(
+        review.publications_missing,
+        MAX_TRANSIENT_RETRIES as u64 + 1
+    );
+    // The retries are used: the next slot is not planned; the status says
+    // it waits the reveal refresh; it is planned again after it (well
+    // before the duties' 64 slots).
+    let last = 50 + MAX_TRANSIENT_RETRIES as u64;
+    assert_eq!(
+        review.status()["recent"][0]["next"],
+        "retries used; reveal refresh"
+    );
+    assert_eq!(step(&mut review, &mut none, last + 1), 0);
+    const { assert!(REVEAL_REFRESH_SLOTS < REFRESH_SLOTS) };
+    assert_eq!(
+        step(&mut review, &mut none, last + REVEAL_REFRESH_SLOTS - 1),
+        0
+    );
+    assert_eq!(step(&mut review, &mut none, last + REVEAL_REFRESH_SLOTS), 1);
+    assert_eq!(
+        review.status()["recent"][0]["retry"],
+        0,
+        "the count restarted"
+    );
+    // A tick past the proof's slot reads at the tick's slot.
+    port.min_slots.lock().unwrap().clear();
+    let far = 5_000u64;
+    assert_eq!(step(&mut review, &mut none, far), 1);
+    assert!(port.min_slots.lock().unwrap().iter().all(|s| *s == far));
+    // A newer proof for the same march (a later record) invalidates the
+    // entry: planned at once, inside any window, and said so.
+    let mut later = record(wire_of(&[depart_ix(home())]), frame(&[departed_ok(home())]));
+    later.seq = 12;
+    later.slot = 1_012;
+    assert_eq!(review.proofs.observe_page(&[later], &scope(), 1), 1);
+    assert_eq!(review.proofs.superseded, 1);
+    assert_eq!(
+        step(&mut review, &mut none, far),
+        1,
+        "the new proof is planned at once"
+    );
+    assert_eq!(review.proofs_renewed, 1);
+    let r = &review.status()["recent"][0];
+    assert_eq!(r["proof_renewed"], true);
+    assert_eq!(r["proof_seq"], 12);
+    assert_eq!(r["retry"], 0);
+    assert_eq!(engine.pending_len(), 0);
+    assert_eq!(port.forbidden.load(Ordering::SeqCst), 0);
+    // Every ask was for the computed round at the tick's slot.
+    let round = fclient::clock::SeasonClock::from_season(&season).tlock_round(ARRIVE_BELL);
+    assert!(none.asks.iter().all(|(r, _)| *r == round));
+}
+
+/// Status carries typed codes only: a port's, an RPC's or a library's
+/// error text (which may hold a URL with credentials or arbitrary server
+/// output) never reaches it.
+#[test]
+fn status_never_serialises_raw_error_text() {
+    let secret = "http://user:hunter2@rpc.example/?token=abc";
+    assert_eq!(block_code(&Block::Read(secret.into())), "Read");
+    assert_eq!(block_code(&Block::Snapshot("Rpc".into())), "Snapshot(Rpc)");
+    assert_eq!(
+        block_code(&Block::Snapshot("Stale(900,901)".into())),
+        "Snapshot(Stale(900,901))"
+    );
+    assert_eq!(
+        block_code(&Block::Snapshot(format!("Rpc {secret}"))),
+        "Snapshot(Other)",
+        "a snapshot code with foreign text is not passed through"
+    );
+    assert_eq!(block_code(&Block::SealOpen(secret.into())), "SealOpen");
+    assert_eq!(
+        block_code(&Block::BadPlaintext(secret.into())),
+        "BadPlaintext"
+    );
+    assert_eq!(
+        block_code(&Block::MarchValues(secret.into())),
+        "MarchValues"
+    );
+    assert_eq!(block_code(&Block::NoMarch), "NoMarch");
+    assert_eq!(block_code(&Block::Absent("season")), "Absent(\"season\")");
+    assert_eq!(
+        SnapshotError::Rpc(secret.into()).code(),
+        "Rpc",
+        "the snapshot error's own code drops the RPC text"
+    );
+    // Through the tick: a snapshot source whose RPC fails with that text.
+    let model = {
+        let mut m = WideDiscovery::new(
+            IndexScope {
+                program: program(),
+                season: season_pda().0,
+                world: world(),
+                source: "test".into(),
+            },
+            Limits::default(),
+        );
+        m.apply(&WideBatch {
+            seq: 1,
+            slot: 1_001,
+            signature: "sig-1".into(),
+            bodies: vec![departed_ok(home())],
+        })
+        .unwrap();
+        m
+    };
+    let fx = SettleFx::new(home());
+    let port = FakePort {
+        accounts: fx.reads().accounts,
+        min_slots: Mutex::new(vec![]),
+        forbidden: AtomicUsize::new(0),
+    };
+    let engine = Engine::new(Budgets::default(), EngineParams::default());
+    let mut failing = LiteralSnapshots::new(fx.reads().accounts);
+    failing.error = Some(SnapshotError::Rpc(secret.into()));
+    let mut review = WideReview::new(Deployment {
+        program_version: WIDE_VERSION,
+        ruleset_hash: RULESET,
+    });
+    let made = block_on(review.step(
+        &port,
+        &engine,
+        &model,
+        program(),
+        season_pda().0,
+        900,
+        Some(&failing),
+        None,
+    ));
+    assert_eq!(made, 1);
+    assert_eq!((review.blocked, review.snapshot_blocked), (1, 1));
+    let st = review.status();
+    assert_eq!(st["recent"][0]["block"], "Snapshot(Rpc)");
+    let text = st.to_string();
+    assert!(!text.contains("hunter2") && !text.contains("rpc.example") && !text.contains("token="));
+    // A failing read port likewise.
+    let mut review2 = WideReview::new(Deployment {
+        program_version: WIDE_VERSION,
+        ruleset_hash: RULESET,
+    });
+    assert_eq!(
+        block_on(review2.step(
+            &FailingPort,
+            &engine,
+            &model,
+            program(),
+            season_pda().0,
+            9,
+            None,
+            None
+        )),
+        1
+    );
+    let st2 = review2.status();
+    assert_eq!(st2["recent"][0]["block"], "Read");
+    assert!(!st2.to_string().contains("fixture RPC"));
+    assert_eq!(engine.pending_len(), 0);
+}
+
+/// The all-zero address is the System Program: never a payer whose balance
+/// is funding. Unset, the candidates name it as a placeholder and funding
+/// is unknown; it cannot be set as the payer; a set public payer is
+/// requested in the snapshot and bounded.
+#[test]
+fn the_placeholder_payer_is_never_funding_and_cannot_be_set() {
+    let model = {
+        let mut m = WideDiscovery::new(
+            IndexScope {
+                program: program(),
+                season: season_pda().0,
+                world: world(),
+                source: "test".into(),
+            },
+            Limits::default(),
+        );
+        m.apply(&WideBatch {
+            seq: 1,
+            slot: 1_001,
+            signature: "sig-1".into(),
+            bodies: vec![departed_ok(home())],
+        })
+        .unwrap();
+        m
+    };
+    let fx = SettleFx::new(home());
+    let mut accounts = fx.reads().accounts;
+    // The System Program account, as a node would serve it: executable,
+    // with lamports. Its balance must never count.
+    accounts.insert(
+        Address::default(),
+        Some(Account {
+            lamports: 1_000_000_000,
+            data: vec![],
+            owner: fclient::addr::system_program(),
+            executable: true,
+        }),
+    );
+    let port = FakePort {
+        accounts: accounts.clone(),
+        min_slots: Mutex::new(vec![]),
+        forbidden: AtomicUsize::new(0),
+    };
+    let engine = Engine::new(Budgets::default(), EngineParams::default());
+    let lit = LiteralSnapshots::new(accounts);
+    let mut review = WideReview::new(Deployment {
+        program_version: WIDE_VERSION,
+        ruleset_hash: RULESET,
+    });
+    assert_eq!(review.review_payer(), None);
+    assert!(review.set_review_payer(Address::default()).is_err());
+    assert_eq!(review.review_payer(), None);
+    let made = block_on(review.step(
+        &port,
+        &engine,
+        &model,
+        program(),
+        season_pda().0,
+        900,
+        Some(&lit),
+        None,
+    ));
+    assert_eq!(made, 1);
+    let st = review.status();
+    assert_eq!(st["payer"], PAYER_UNSET);
+    let r = &st["recent"][0];
+    assert_eq!(r["candidate"]["coherent"], true);
+    let denials = r["assessment"]["review"]["denials"].as_array().unwrap();
+    assert!(denials.iter().any(|d| d == "FundingUnknown"));
+    assert!(!denials.iter().any(|d| d == "FundingUnmet"));
+    assert!(r["assessment"]["needs"]["funding"]
+        .as_str()
+        .unwrap()
+        .contains("not a wallet"));
+    // Directly: the fee review over the candidate's own reads says so,
+    // whatever the placeholder's account holds.
+    let c = fx.plan().unwrap();
+    assert_eq!(c.payer, payer());
+    let keys: Vec<Address> = fx.reads().accounts.keys().copied().collect();
+    let snap = snapshot_of(&fx.reads().accounts, &keys, clock_at(1_790_444_847), 7);
+    let c0 = done(wideduty::plan_settle_departure(
+        &dscope(),
+        Address::default(),
+        host(),
+        SLOT,
+        &snap.reads(),
+    ))
+    .unwrap();
+    assert!(c0.coherent());
+    let n = widefees::duty_needs(&c0, &snap.reads()).unwrap();
+    assert_eq!(n.funding, Funding::Unknown(keeper_core::widefees::NO_PAYER));
+    assert_eq!(
+        n.rent_lamports,
+        Known::Known(0),
+        "the rent is still calculated"
+    );
+    // A set public payer is requested and bounded.
+    let mut review2 = WideReview::new(Deployment {
+        program_version: WIDE_VERSION,
+        ruleset_hash: RULESET,
+    });
+    assert!(review2.set_review_payer(actor()).is_ok());
+    assert_eq!(review2.review_payer(), Some(actor()));
+    let made = block_on(review2.step(
+        &port,
+        &engine,
+        &model,
+        program(),
+        season_pda().0,
+        900,
+        Some(&lit),
+        None,
+    ));
+    assert_eq!(made, 1);
+    assert!(lit.keys.lock().unwrap().last().unwrap().contains(&actor()));
+    let st2 = review2.status();
+    assert_eq!(st2["payer"], actor().to_string());
+    let d2 = st2["recent"][0]["assessment"]["review"]["denials"]
+        .as_array()
+        .unwrap()
+        .clone();
+    assert!(
+        d2.iter().any(|d| d == "FundingUnmet"),
+        "the set payer's account is absent in the response: unmet, not unknown"
+    );
+    assert!(!st2["missing"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|m| m.as_str().unwrap().starts_with("payer")));
+    assert_eq!(engine.pending_len(), 0);
+}
+
+/// The keeper's own read port as the snapshot source: the function pointer
+/// taken where `P: SnapshotPort` is known, called where only `ChainPort`
+/// is; one request, the response bound as any other.
+#[test]
+fn the_keepers_own_port_serves_the_snapshot_through_the_function_pointer() {
+    let model = {
+        let mut m = WideDiscovery::new(
+            IndexScope {
+                program: program(),
+                season: season_pda().0,
+                world: world(),
+                source: "test".into(),
+            },
+            Limits::default(),
+        );
+        m.apply(&WideBatch {
+            seq: 1,
+            slot: 1_001,
+            signature: "sig-1".into(),
+            bodies: vec![departed_ok(home())],
+        })
+        .unwrap();
+        m
+    };
+    let fx = SettleFx::new(home());
+    let port = FakePort {
+        accounts: fx.reads().accounts,
+        min_slots: Mutex::new(vec![]),
+        forbidden: AtomicUsize::new(0),
+    };
+    let engine = Engine::new(Budgets::default(), EngineParams::default());
+    let lit = LiteralSnapshots::new(fx.reads().accounts);
+    let via = PortSnapshot {
+        port: &lit,
+        f: snapshot_via::<LiteralSnapshots>,
+    };
+    let mut review = WideReview::new(Deployment {
+        program_version: WIDE_VERSION,
+        ruleset_hash: RULESET,
+    });
+    let made = block_on(review.step(
+        &port,
+        &engine,
+        &model,
+        program(),
+        season_pda().0,
+        900,
+        Some(&via),
+        None,
+    ));
+    assert_eq!(made, 1);
+    assert_eq!(lit.calls.load(Ordering::SeqCst), 1);
+    assert_eq!((review.coherent, review.snapshot_blocked), (1, 0));
+    let st = review.status();
+    assert_eq!(st["recent"][0]["candidate"]["coherent"], true);
+    assert_eq!(st["recent"][0]["snapshot"]["context_slot"], 900);
+    assert_eq!(engine.pending_len(), 0);
 }
 
 /// A port whose account reads fail (the clock is served).
@@ -2365,12 +3383,11 @@ fn candidates_come_from_the_discovery_model_as_hints_only() {
 /// One `getMultipleAccounts` response for `keys ‖ Clock` written as literal
 /// JSON from `accounts` (the Clock's slot is the context slot), parsed by
 /// the snapshot parser itself. No rent (settle creates nothing).
-fn snapshot_of(
+fn snapshot_json(
     accounts: &BTreeMap<Address, Option<Account>>,
     keys: &[Address],
     clock: ClockSysvar,
-    min_slot: u64,
-) -> Snapshot {
+) -> Value {
     let mut value: Vec<Value> = keys
         .iter()
         .map(|k| match accounts.get(k).cloned().flatten() {
@@ -2384,13 +3401,15 @@ fn snapshot_of(
         owner: sysvar_owner(),
         executable: false,
     }));
-    parse_snapshot_response(
-        &json!({"context": {"slot": clock.slot}, "value": value}),
-        keys,
-        false,
-        min_slot,
-    )
-    .unwrap()
+    json!({"context": {"slot": clock.slot}, "value": value})
+}
+fn snapshot_of(
+    accounts: &BTreeMap<Address, Option<Account>>,
+    keys: &[Address],
+    clock: ClockSysvar,
+    min_slot: u64,
+) -> Snapshot {
+    parse_snapshot_response(&snapshot_json(accounts, keys, clock), keys, false, min_slot).unwrap()
 }
 
 /// What a coherent settle candidate loses when any public field differs
