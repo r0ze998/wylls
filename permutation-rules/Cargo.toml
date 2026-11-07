@@ -21,6 +21,11 @@ default = []
 std = ["borsh/std", "sha2/std"]
 # Compute-unit probes on Solana (measurement builds only; see `probe`).
 cu-trace = []
+# Experimental, opt-in wide terrain kernel (`frontier::terrain::wide`): the
+# legacy shaping rules over i64 province coordinates, byte-identical inside
+# ring 128, a versioned candidate noise path past it. Off by default: no
+# default-build code, vector, hash input or budget changes; no new dependency.
+wide-terrain-experimental = []
 
 # On Solana, hash with the runtime's sol_sha256 syscall (bit-identical, far
 # cheaper in compute units than hashing in SBF code).

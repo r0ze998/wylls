@@ -27,6 +27,7 @@
 //! | [`index::OpenedProvinceIndex`] | one `BTreeMap` per world, no radius-sized allocation; insert once at revision 1, update at exactly the next revision; replay, conflict, stale and gap each a named error; cross-world keys, entries and cursors refused; pages ≤ 256 entries served by a bounded `range` walk; a cursor dies at the first mutation; canonical snapshot and strict restore |
 //! | [`tiles::WideTile`], [`tiles::TileAddress`] | the legacy radius-4, 61-tile province lattice (centre `(9P + 4Q, −4P + 5Q)`, legacy `tile_offset` / `tile_index` for the local index) over wide provinces, every tile coordinate an `i128` computed in `i128`; tile ↔ (province key, local index) round-trips for every tile of every province of ring ≤ 128 identically to the legacy `locate`, and at ring 129, past 2⁵³ and at the far corners; a tile whose province lies past the bound is refused, never wrapped |
 //! | [`tiles::verify_route`] | adjacent steps only, caller-stated bounds capped at the legacy 32 steps and 4 provinces, every province stood on reported open by a caller-supplied source; unknown, closed and other-world land refuse; no cost, time, stamina or dispatch |
+//! | [`placement::mixed_home_nation`] | candidate mixed-nation rule (owner decision: outer lands mix nations, not six wedges): Concord neutral, ring-1 seats keep their wedges, every ring ≥ 2 a balanced cyclic six-nation order with a seed-derived per-ring offset; the legacy `home_nation` offset bit for bit for rings ≤ 65,535, a versioned domain past it; `u128` ring arithmetic; not a Season parameter, not wired into any legacy rule |
 //!
 //! **What it is not.** The index records what a caller *reports*. It does
 //! not authorise opening land, decide who may open it, prove that an
@@ -45,6 +46,7 @@ pub mod index;
 pub mod key;
 pub mod legacy;
 pub mod movement;
+pub mod placement;
 pub mod tiles;
 
 pub use coord::{CoordError, RingPosition, WideCoord, SORT_KEY_LEN, WIDE_BOUND};
@@ -54,6 +56,10 @@ pub use index::{
 };
 pub use key::{KeyError, ProvinceKey, WideHostRef, WorldId, HOST_REF_LEN, PROVINCE_KEY_LEN};
 pub use legacy::{legacy_of, wide_of, LegacyAdapter, LegacyError};
+pub use placement::{
+    mixed_home_nation, ring_offset, ring_offset_domain, RingOffsetDomain, LEGACY_OFFSET_MAX_RING,
+    MIXED_PLACEMENT_DOMAIN_WIDE, MIXED_PLACEMENT_VERSION,
+};
 pub use tiles::{
     verify_route, ProvinceSource, RouteBounds, RouteError, TileAddress, TileError, VerifiedRoute,
     WideTile, TILE_COORD_BOUND,

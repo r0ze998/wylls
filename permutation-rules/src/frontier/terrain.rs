@@ -45,6 +45,14 @@ use crate::mapgen::noise;
 use crate::rng::{rand, rand_id, Seed};
 use borsh::{BorshDeserialize, BorshSerialize};
 
+/// **Experimental, opt-in** (`--features wide-terrain-experimental`): the
+/// same shaping rules over wide `i64` province coordinates, byte-identical
+/// to [`generate_province`] inside the legacy disk (ring ≤ 128) and a
+/// versioned candidate noise path past it. Not reachable from a default
+/// build, not bound by any ruleset hash, not called by the program.
+#[cfg(feature = "wide-terrain-experimental")]
+pub mod wide;
+
 /// The middle 3 tiles of each border side, by neighbour direction
 /// (`hex::DIRECTIONS` order in the province grid). Derived from the tiling
 /// in the tests; `GATES[j]` turned by 60° is `GATES[j − 1]` (`Hex::rotate`
@@ -212,19 +220,34 @@ fn carve(out: &mut ProvinceTerrain, mark: &[bool; PROVINCE_TILES], concord: bool
 /// The canonical copy (wedge 0, or the Concord) of a province's land.
 fn canonical(seed: &Seed, pc: ProvinceCoord) -> ProvinceTerrain {
     let concord = pc.is_concord();
+    let base = rand(seed, b"frontier/terrain", &[]);
+    shape_province(concord, |i| {
+        let mut g = pc.tile(i).unwrap_or(Hex::ORIGIN);
+        if concord {
+            g = g.turned(g.sextant()); // six-fold symmetric by itself
+        }
+        tile_at_base(seed, base, g)
+    })
+}
+
+/// The land of a canonical copy from the raw terrain and resource of its
+/// 61 tiles (`sample(i)` for tile index `i`, in index order): the gates
+/// forced passable, every gate carved to the centre, then (outside the
+/// Concord) the sites chosen and carved. The legacy kernel ([`canonical`])
+/// and the opt-in wide kernel (`wide`) share this; they differ only in how
+/// a tile is sampled.
+fn shape_province<F: FnMut(u8) -> (Terrain, Option<TileResource>)>(
+    concord: bool,
+    mut sample: F,
+) -> ProvinceTerrain {
     let mut out = ProvinceTerrain {
         terrain: [Terrain::Plains; PROVINCE_TILES],
         resource: [None; PROVINCE_TILES],
         sites: [0; SITES_PER_PROVINCE],
         site_count: 0,
     };
-    let base = rand(seed, b"frontier/terrain", &[]);
     for i in 0..PROVINCE_TILES as u8 {
-        let mut g = pc.tile(i).unwrap_or(Hex::ORIGIN);
-        if concord {
-            g = g.turned(g.sextant()); // six-fold symmetric by itself
-        }
-        let (t, r) = tile_at_base(seed, base, g);
+        let (t, r) = sample(i);
         out.terrain[i as usize] = t;
         out.resource[i as usize] = r;
     }
@@ -279,7 +302,14 @@ fn canonical(seed: &Seed, pc: ProvinceCoord) -> ProvinceTerrain {
 /// the program runs it once in `OpenProvince`, every verifier re-runs it.
 pub fn generate_province(ring_seed: &Seed, p: ProvinceCoord) -> ProvinceTerrain {
     let k = p.wedge().unwrap_or(0);
-    let canon = canonical(ring_seed, p.turned(k));
+    turn_canonical(canonical(ring_seed, p.turned(k)), k)
+}
+
+/// The land of a province in wedge `k` from its canonical copy: each tile
+/// takes the tile whose canonical copy it is, and each site the tile whose
+/// canonical copy is the canonical site (so the site order is the
+/// canonical order in every wedge). `k == 0` is the identity.
+fn turn_canonical(canon: ProvinceTerrain, k: u8) -> ProvinceTerrain {
     if k == 0 {
         return canon;
     }
@@ -324,7 +354,134 @@ pub fn free_city_site(ring_seed: &Seed, p: ProvinceCoord, site_count: u8) -> u8 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::frontier::geometry::province_of;
+    use crate::frontier::geometry::{province_of, ring_provinces};
+
+    /// The pre-factoring text of `canonical` and `generate_province`
+    /// (HEAD 647dfadf), kept verbatim as the oracle for
+    /// [`factoring_into_shape_and_turn_changes_no_byte`]. Test-only; the
+    /// kernel itself has one implementation.
+    mod before {
+        use super::super::*;
+
+        pub fn canonical(seed: &Seed, pc: ProvinceCoord) -> ProvinceTerrain {
+            let concord = pc.is_concord();
+            let mut out = ProvinceTerrain {
+                terrain: [Terrain::Plains; PROVINCE_TILES],
+                resource: [None; PROVINCE_TILES],
+                sites: [0; SITES_PER_PROVINCE],
+                site_count: 0,
+            };
+            let base = rand(seed, b"frontier/terrain", &[]);
+            for i in 0..PROVINCE_TILES as u8 {
+                let mut g = pc.tile(i).unwrap_or(Hex::ORIGIN);
+                if concord {
+                    g = g.turned(g.sextant()); // six-fold symmetric by itself
+                }
+                let (t, r) = tile_at_base(seed, base, g);
+                out.terrain[i as usize] = t;
+                out.resource[i as usize] = r;
+            }
+            for side in GATES {
+                for i in side {
+                    let t = &mut out.terrain[i as usize];
+                    *t = pass(*t);
+                }
+            }
+            // Every gate reaches the centre.
+            let mut mark = [false; PROVINCE_TILES];
+            for side in GATES {
+                for i in side {
+                    carve_path(&out.terrain, i, &mut mark);
+                }
+            }
+            carve(&mut out, &mark, concord);
+            if concord {
+                return out;
+            }
+            // Greedy sites: best score first, ties to the lower index, ≥ 2 apart.
+            let mut score: [u32; PROVINCE_TILES] =
+                core::array::from_fn(|i| site_score(out.terrain[i], out.resource[i]));
+            while (out.site_count as usize) < SITES_PER_PROVINCE {
+                let mut best: Option<usize> = None;
+                for i in 0..PROVINCE_TILES {
+                    if score[i] > 0 && best.is_none_or(|b| score[i] > score[b]) {
+                        best = Some(i);
+                    }
+                }
+                let Some(b) = best else { break };
+                out.sites[out.site_count as usize] = b as u8;
+                out.site_count += 1;
+                let ob = tile_offset(b as u8).unwrap_or(Hex::ORIGIN);
+                for (i, s) in score.iter_mut().enumerate() {
+                    let oi = tile_offset(i as u8).unwrap_or(Hex::ORIGIN);
+                    if oi.distance(ob) < 2 {
+                        *s = 0;
+                    }
+                }
+            }
+            // Every site reaches the centre.
+            let mut mark = [false; PROVINCE_TILES];
+            for s in 0..out.site_count as usize {
+                carve_path(&out.terrain, out.sites[s], &mut mark);
+            }
+            carve(&mut out, &mark, false);
+            out
+        }
+
+        pub fn generate_province(ring_seed: &Seed, p: ProvinceCoord) -> ProvinceTerrain {
+            let k = p.wedge().unwrap_or(0);
+            let canon = canonical(ring_seed, p.turned(k));
+            if k == 0 {
+                return canon;
+            }
+            let mut out = canon.clone();
+            for i in 0..PROVINCE_TILES as u8 {
+                let c = tile_turned(i, k) as usize;
+                out.terrain[i as usize] = canon.terrain[c];
+                out.resource[i as usize] = canon.resource[c];
+            }
+            for s in 0..canon.site_count as usize {
+                // the tile whose canonical copy is the canonical site
+                let o = tile_offset(canon.sites[s]).unwrap_or(Hex::ORIGIN);
+                out.sites[s] = tile_index(o.rotate_by(k)).unwrap_or(0);
+            }
+            out
+        }
+    }
+
+    /// Factoring `canonical` into `shape_province` and `generate_province`
+    /// into `turn_canonical` changed no byte: the Concord, every province of
+    /// rings 1–8, the rim of the legacy disk and a spread of far `i32`
+    /// coordinates agree with the pre-factoring text for several seeds.
+    #[test]
+    fn factoring_into_shape_and_turn_changes_no_byte() {
+        let mut coords: alloc::vec::Vec<ProvinceCoord> = alloc::vec::Vec::new();
+        for d in 0..=8 {
+            coords.extend(ring_provinces(d));
+        }
+        coords.extend(ring_provinces(128).into_iter().step_by(7));
+        coords.extend([
+            ProvinceCoord::new(128, 0),
+            ProvinceCoord::new(-128, 128),
+            ProvinceCoord::new(0, -128),
+            ProvinceCoord::new(64, -128),
+            ProvinceCoord::new(-100, 37),
+            ProvinceCoord::new(129, 0),
+            ProvinceCoord::new(-3000, 1234),
+        ]);
+        for s in [0u8, 1, 7, 0x5A, 0xFF] {
+            let seed = [s; 32];
+            for p in &coords {
+                assert_eq!(
+                    generate_province(&seed, *p),
+                    before::generate_province(&seed, *p),
+                    "seed {s} {p:?}"
+                );
+                let c = p.turned(p.wedge().unwrap_or(0));
+                assert_eq!(canonical(&seed, c), before::canonical(&seed, c), "{p:?}");
+            }
+        }
+    }
 
     /// `GATES[j]` are the middle 3 of the 5 tiles facing neighbour j,
     /// ordered along the border, and turn with the map.
