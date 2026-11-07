@@ -142,7 +142,19 @@ fn main() {
             .build()
             .expect("runtime");
         let (txs, history) = match (&archive, &rpc) {
-            (Some(d), _) => input::read_archive(d).unwrap_or_else(|e| usage(&e)),
+            (Some(d), u) => {
+                let (txs, h) = input::read_archive(d).unwrap_or_else(|e| usage(&e));
+                // With a node, the archive is checked against its ledger now
+                // (a rewind under the same runId); alone, its history says
+                // that cannot be seen (`input::ARCHIVE_ONLY`).
+                let h = match u {
+                    Some(u) => rt
+                        .block_on(input::confirm_archive(d, u, h))
+                        .unwrap_or_else(|e| usage(&e)),
+                    None => h,
+                };
+                (txs, h)
+            }
             (None, Some(u)) => rt
                 .block_on(input::fetch_txs(
                     u,
@@ -218,10 +230,15 @@ fn main() {
                         .unwrap_or_default(),
                     None => Default::default(),
                 };
-                Some(
-                    verify_core::resident_feed::ResidentFeed::from_archive(d, rp, policies)
-                        .unwrap_or_else(|e| usage(&e)),
-                )
+                let mut f = verify_core::resident_feed::ResidentFeed::from_archive(d, rp, policies)
+                    .unwrap_or_else(|e| usage(&e));
+                // ⑲: checked against the node's ledger when one is given.
+                if let Some(u) = &rpc {
+                    f.history = rt
+                        .block_on(input::confirm_archive(d, u, f.history))
+                        .unwrap_or_else(|e| usage(&e));
+                }
+                Some(f)
             }
             (Some(r), None, Some(u), true) => {
                 let rp = r

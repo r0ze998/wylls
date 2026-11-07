@@ -198,6 +198,10 @@ async fn main_inner() -> Result<(), String> {
                 if let Some(id) = v.get("runId").and_then(|x| x.as_str()) {
                     feed = feed.with_ledger(id);
                 }
+                // The ledger size now: a later check sees a ledger that shrank.
+                if let Some(b) = v.get("ledgerBytes").and_then(|x| x.as_u64()) {
+                    feed = feed.with_ledger_bytes(b);
+                }
             }
             let clock = RpcPort::localnet(rpc.clone(), program);
             runner::run(ing, feed, Some(clock), poll, stop).await

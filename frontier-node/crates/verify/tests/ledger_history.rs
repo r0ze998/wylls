@@ -59,16 +59,26 @@ fn base64_wire(p: &Address, s: u8) -> String {
 #[derive(Clone, Default)]
 struct Node {
     runs: Arc<Mutex<Vec<String>>>,
+    /// `ledgerBytes` per `frontier_status` call (the last one after); empty:
+    /// 100 per ledger entry.
+    bytes: Arc<Mutex<Vec<u64>>>,
     status_calls: Arc<AtomicU64>,
     ledger: Arc<Mutex<Vec<(u8, Address)>>>,
 }
 
 impl Node {
-    /// `runs[k]` answers the k-th `frontier_status` (the last one after).
-    fn run_id(&self) -> String {
+    /// `runs[k]` and `bytes[k]` answer the k-th `frontier_status` (the last
+    /// ones after).
+    fn status(&self) -> Value {
         let k = self.status_calls.fetch_add(1, Ordering::SeqCst) as usize;
         let r = self.runs.lock().unwrap();
-        r[k.min(r.len() - 1)].clone()
+        let b = self.bytes.lock().unwrap();
+        let len = self.ledger.lock().unwrap().len() as u64;
+        json!({
+            "runId": r[k.min(r.len() - 1)],
+            "ledgerBytes": if b.is_empty() { 100 * len } else { b[k.min(b.len() - 1)] },
+            "transactions": len,
+        })
     }
 }
 
@@ -92,7 +102,7 @@ fn answer(n: &Node, req: &Value) -> Value {
                     "tx": base64_wire(pr, *s), "logs": [], "err": null, "units": 0, "fee": 0, "post": []}))
                 .collect::<Vec<_>>())
         }
-        "frontier_status" => json!({"runId": n.run_id()}),
+        "frontier_status" => n.status(),
         _ => Value::Null,
     };
     json!({"jsonrpc": "2.0", "id": id, "result": result})
@@ -194,6 +204,13 @@ async fn archive(url: &str, run: Option<&str>) -> std::path::PathBuf {
     if let Some(r) = run {
         s = s.with_ledger(r);
     }
+    if let Some(b) = findex::ledger::node_status(url)
+        .await
+        .ok()
+        .and_then(|x| x.ledger_bytes)
+    {
+        s = s.with_ledger_bytes(b);
+    }
     f.resume(&mut s);
     while !f.ingest(&mut s).await.unwrap().is_empty() {}
     f.commit().unwrap();
@@ -206,7 +223,8 @@ async fn archive(url: &str, run: Option<&str>) -> std::path::PathBuf {
 #[tokio::test]
 async fn a_whole_feed_archive_is_the_ledgers_and_pairs_with_a_live_read() {
     let (_n, url) = node(&["run1"], &ledger()).await;
-    let (txs, h) = input::read_archive(&archive(&url, Some("run1")).await).unwrap();
+    let archive_dir = archive(&url, Some("run1")).await;
+    let (txs, h) = input::read_archive(&archive_dir).unwrap();
     assert_eq!(
         txs.iter().map(|t| t.seq).collect::<Vec<_>>(),
         vec![1, 4, 5],
@@ -217,7 +235,11 @@ async fn a_whole_feed_archive_is_the_ledgers_and_pairs_with_a_live_read() {
         vec![sig(11), sig(14), sig(15)]
     );
     assert_eq!(h.source, Source::LedgerFeed);
-    assert_eq!(h.detail, "ledger run1");
+    assert_eq!(
+        h.detail,
+        format!("ledger run1{}", input::ARCHIVE_ONLY),
+        "the archive-only limit stated"
+    );
     let (live, lh) = input::fetch_txs(&url, &prog(), true, None, None)
         .await
         .unwrap();
@@ -225,8 +247,67 @@ async fn a_whole_feed_archive_is_the_ledgers_and_pairs_with_a_live_read() {
         live.iter().map(|t| t.seq).collect::<Vec<_>>(),
         vec![1, 4, 5]
     );
-    assert_eq!(lh, h, "one ledger, one detail");
-    assert_eq!(apply(&h, report()).verdict, Verdict::Pass);
+    assert_eq!(lh.detail, "ledger run1");
+    assert_ne!(
+        lh, h,
+        "an archive not checked against the node does not pair with a live read"
+    );
+    // Checked against the node: the same ledger, one detail.
+    let dir = archive_dir.clone();
+    let ch = input::confirm_archive(&dir, &url, h).await.unwrap();
+    assert_eq!(ch, lh, "one ledger, one detail");
+    assert_eq!(apply(&ch, report()).verdict, Verdict::Pass);
+}
+
+/// The node's ledger rewound under the same runId after the archive was
+/// written (its last transaction's seq now holds another): the archive is
+/// not confirmed, the history is unproven (UNVERIFIABLE). A ledger that
+/// shrank, or a node that cannot be read, likewise.
+#[tokio::test]
+async fn an_archive_the_node_no_longer_matches_is_unproven() {
+    let (n, url) = node(&["run1"], &ledger()).await;
+    let dir = archive(&url, Some("run1")).await;
+    let (_, h) = input::read_archive(&dir).unwrap();
+    // Same runId, last entry (A's 15 at seq 5) replaced by another program's.
+    {
+        let mut l = n.ledger.lock().unwrap();
+        l.pop();
+        l.push((99, other()));
+    }
+    let ch = input::confirm_archive(&dir, &url, h.clone()).await.unwrap();
+    assert_eq!(ch.source, Source::Unknown, "{ch:?}");
+    assert!(ch.detail.contains("rewound"), "{}", ch.detail);
+    assert_eq!(apply(&ch, report()).verdict, Verdict::Unverifiable);
+    // The ledger shorter than when archived.
+    n.ledger.lock().unwrap().truncate(3);
+    let ch = input::confirm_archive(&dir, &url, h.clone()).await.unwrap();
+    assert!(ch.detail.contains("shrank"), "{}", ch.detail);
+    assert_eq!(apply(&ch, report()).verdict, Verdict::Unverifiable);
+    // A node that cannot be read.
+    let dead = {
+        let l = std::net::TcpListener::bind(("127.0.0.1", 0)).unwrap();
+        let a = l.local_addr().unwrap();
+        drop(l);
+        format!("http://{a}")
+    };
+    let ch = input::confirm_archive(&dir, &dead, h).await.unwrap();
+    assert_eq!(ch.source, Source::Unknown);
+    assert!(ch.detail.contains("could not be read"), "{}", ch.detail);
+    assert_eq!(apply(&ch, report()).verdict, Verdict::Unverifiable);
+}
+
+/// A ledger that shrank while it was read live (a rewind between the two
+/// `frontier_status` reads, the runId the same) is unproven.
+#[tokio::test]
+async fn a_ledger_that_shrank_during_a_live_read_is_unproven() {
+    let (n, url) = node(&["run1"], &ledger()).await;
+    *n.bytes.lock().unwrap() = vec![900, 400];
+    let (_, h) = input::fetch_txs(&url, &prog(), true, None, None)
+        .await
+        .unwrap();
+    assert_eq!(h.source, Source::Unknown, "{h:?}");
+    assert!(h.detail.contains("shrank"), "{}", h.detail);
+    assert_eq!(apply(&h, report()).verdict, Verdict::Unverifiable);
 }
 
 /// An archive without the ledger named (the herald started without
