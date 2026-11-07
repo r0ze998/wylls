@@ -35,7 +35,8 @@
 //! | [`ticket`] | the **wide outpost ticket**: a world/coordinate-bound record (one per Citizen) that carries a wide claim through the deployed outpost lifecycle, the Citizen marker that reserves the one deployed ticket and the slot while it is pending (every deployed ticket path refuses), the isolated holding-rent escrow the record holds and retains between tickets under the deployed FileOutpost / SettleTicket / CloseCitizen escrow rules (`TicketStatus`, `WideTicket::{settle, refile}`), and the full-width versioned ticket score |
 //! | [`seal`] | the **wide march seal**: a 136-byte versioned plaintext committing to the full host reference and the full destination key (and the deployed path, bell, tile, stance, retreat), sealed in the deployed 128-byte tlock IBE block with the deployed keystream and opened by the deployed opener; a distinct length and commitment domain from the 37-byte legacy plaintext, which is untouched |
 //! | [`arrival`] | the wide per-bell clash records: an ArrivalSlot (288 B) and ClashInputs (3,008 B, 24 positions of 112 B) keyed by the full destination key and naming arrivals by full host reference and Citizen key, with the deployed quota, flags, fate codes and a kernel-fighter conversion; with-seed addresses under provisional tags |
-//! | [`roster`] | the wide roster side table (3,216 B): the full reference behind each of a wide province's 56 entry-table aliases, written only through the authenticated `claim` (every stored alias checked against its reference) and read only through `entry_matches`; synthetic garrison identities refused |
+//! | [`roster`] | the wide roster side table (3,248 B): the full reference behind each of a wide province's 56 entry-table aliases, written only through the authenticated `claim` (every stored alias checked against its reference) and read only through `entry_matches` / `validate_paired`; synthetic garrison identities refused |
+//! | [`resolve`] | the **one-bell wide resolve** over account bytes: the deployed build / apply / step / settle / finish with the three identity-bound rules replaced (the camp's daily check over the canonical coordinate, the clash under `WideCombatant` with the roster side table paired and kept in step, the keep donor's tiebreak over the full identity); no SkipQuiet; forts, caravans and conquest records refused; no handler calls it yet |
 //! | [`wide_ix`] | the draft wire envelope: nine instructions in the unallocated band `0xD6..=0xDE`, their account lists, and the `0x4000` program-version bit of an experimental wide build |
 //!
 //! **What it is not.** The index records what a caller *reports*. It does
@@ -71,6 +72,7 @@ pub mod legacy;
 pub mod march;
 pub mod movement;
 pub mod placement;
+pub mod resolve;
 pub mod roster;
 pub mod rules;
 pub mod seal;
@@ -100,6 +102,10 @@ pub use march::{
 pub use placement::{
     mixed_home_nation, ring_offset, ring_offset_domain, RingOffsetDomain, LEGACY_OFFSET_MAX_RING,
     MIXED_PLACEMENT_DOMAIN_WIDE, MIXED_PLACEMENT_VERSION,
+};
+pub use resolve::{
+    ResolveError, Unported, WideApplied, WideBellOutcome, WideBuilt, WideKeepEvent, WideKeepTaken,
+    WideStepOut, KEEP_SITE,
 };
 pub use roster::{RosterError, WideRoster};
 pub use rules::{

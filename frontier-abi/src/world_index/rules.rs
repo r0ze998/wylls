@@ -37,7 +37,10 @@
 //! **Reuse.** [`wide_initial_camp`] is the deployed camp kernel's draw
 //! (`camp::camp_tile_ok`, `camp::below`, the same troop range, the keep
 //! tile excluded as `camp::place_v2`) over the canonical 17-byte sort key
-//! instead of `LE32(P) ‖ LE32(Q)`; [`wide_free_city_site`] is the deployed
+//! instead of `LE32(P) ‖ LE32(Q)`, and [`wide_daily_camp`] is the same
+//! kernel's daily check (`initial = false`: no camp without a holding, a ½
+//! spawn gate) over the same id, for a wide resolve that must not read the
+//! deployed `coord_of` (zero in a wide record); [`wide_free_city_site`] is the deployed
 //! `terrain::free_city_site` shape (a hash over the **canonical wedge-0
 //! copy**, so the six wedges of a ring agree, `mod site_count`) over the
 //! copy's `(ring, position)`; [`wide_keep_open`] is `keep::try_open`
@@ -70,10 +73,12 @@ pub const RULES_CONFIG_TAG: [u8; 2] = *b"wc";
 pub const FREE_CITY_DOMAIN_WIDE: &[u8] = b"PSF-FREE-CITY-WIDE-v1";
 /// Domain of [`wide_region`]. Distinct from the deployed `frontier/region`.
 pub const REGION_DOMAIN_WIDE: &[u8] = b"frontier/region/wide-v1";
-/// `rng::rand` domains of [`wide_initial_camp`]. Distinct from the deployed
-/// `frontier/camp/tile` and `frontier/camp/troops`.
+/// `rng::rand` domains of [`wide_initial_camp`] and [`wide_daily_camp`].
+/// Distinct from the deployed `frontier/camp/tile`, `frontier/camp/troops`
+/// and `frontier/camp/spawn`.
 pub const CAMP_TILE_DOMAIN_WIDE: &[u8] = b"frontier/camp/tile/wide-v1";
 pub const CAMP_TROOPS_DOMAIN_WIDE: &[u8] = b"frontier/camp/troops/wide-v1";
+pub const CAMP_SPAWN_DOMAIN_WIDE: &[u8] = b"frontier/camp/spawn/wide-v1";
 
 /// The configuration record (96 B, short header). **Provisional magic.**
 pub mod rules_config {
@@ -249,6 +254,56 @@ pub fn wide_initial_camp(
     day: u32,
     keep_tile: Option<u8>,
 ) -> Option<Camp> {
+    wide_camp_draw(ring_seed, coord, terrain, day, keep_tile, true)
+}
+
+/// The day's camp check of a wide province (the deployed
+/// `camp::place_v2(.., has_holding, initial = false, keep_tile)`, condition
+/// for condition): no camp without a holding; one spawns with probability
+/// ½ (`below(draw, 2) == 0` under [`CAMP_SPAWN_DOMAIN_WIDE`]); the tile and
+/// the troops are the same draws as [`wide_initial_camp`] with the id's
+/// last byte 0 (`initial = false`), so a day's spawn and a day's initial
+/// camp are distinct draws as deployed. The caller runs it once per day
+/// (`Camp::next_check_day`) and never on the deployed `coord_of` `(P, Q)`,
+/// which is zero in a wide record.
+pub fn wide_daily_camp(
+    ring_seed: &[u8; 32],
+    coord: WideCoord,
+    terrain: &ProvinceTerrain,
+    day: u32,
+    has_holding: bool,
+    keep_tile: Option<u8>,
+) -> Option<Camp> {
+    if !has_holding {
+        return None;
+    }
+    let id = wide_camp_id(coord, day, false);
+    if below(rand(ring_seed, CAMP_SPAWN_DOMAIN_WIDE, &id), 2) != 0 {
+        return None;
+    }
+    wide_camp_draw(ring_seed, coord, terrain, day, keep_tile, false)
+}
+
+/// `sort key ‖ LE32(day) ‖ initial`: the wide copy of the deployed camp
+/// draw id `LE32(P) ‖ LE32(Q) ‖ LE32(day) ‖ initial`.
+fn wide_camp_id(coord: WideCoord, day: u32, initial: bool) -> [u8; 22] {
+    let mut id = [0u8; 22];
+    id[..17].copy_from_slice(&coord.sort_key());
+    id[17..21].copy_from_slice(&day.to_le_bytes());
+    id[21] = initial as u8;
+    id
+}
+
+/// The candidate list and the two draws shared by the initial and the
+/// daily camp (the deployed `place_inner` after its spawn gate).
+fn wide_camp_draw(
+    ring_seed: &[u8; 32],
+    coord: WideCoord,
+    terrain: &ProvinceTerrain,
+    day: u32,
+    keep_tile: Option<u8>,
+    initial: bool,
+) -> Option<Camp> {
     let mut cands = [0u8; PROVINCE_TILES];
     let mut n = 0usize;
     for t in 1..PROVINCE_TILES as u8 {
@@ -260,10 +315,7 @@ pub fn wide_initial_camp(
     if n == 0 {
         return None;
     }
-    let mut id = [0u8; 22];
-    id[..17].copy_from_slice(&coord.sort_key());
-    id[17..21].copy_from_slice(&day.to_le_bytes());
-    id[21] = 1;
+    let id = wide_camp_id(coord, day, initial);
     let k = below(rand(ring_seed, CAMP_TILE_DOMAIN_WIDE, &id), n as u64) as usize;
     let troops = CAMP_TROOPS_MIN
         + below(
@@ -910,6 +962,82 @@ mod tests {
             water.terrain[i] = permutation_rules::map::Terrain::Water;
         }
         assert_eq!(wide_initial_camp(&SEED, c(129, 0), &water, 0, None), None);
+    }
+
+    /// The daily check keeps the deployed `place_v2(.., initial = false)`
+    /// conditions: nothing without a holding, a ½ spawn gate, the keep tile
+    /// excluded, the deployed troop range, and a draw distinct from the
+    /// day's initial camp.
+    #[test]
+    fn wide_daily_camp_keeps_the_deployed_spawn_conditions() {
+        let t = generate_province(&SEED, ProvinceCoord::new(129, 0));
+        let coord = c(129, 0);
+        // without a holding there is never a camp, whatever the draw
+        for day in 0..64u32 {
+            assert_eq!(wide_daily_camp(&SEED, coord, &t, day, false, None), None);
+        }
+        // with one, some days spawn and some do not; a spawn is a valid camp
+        let mut spawned = 0u32;
+        for day in 0..64u32 {
+            let keep = Some(5u8);
+            let r = wide_daily_camp(&SEED, coord, &t, day, true, keep);
+            // deterministic
+            assert_eq!(wide_daily_camp(&SEED, coord, &t, day, true, keep), r);
+            if let Some(camp) = r {
+                spawned += 1;
+                assert!(camp_tile_ok(&t, camp.tile), "{day}");
+                assert_ne!(Some(camp.tile), keep);
+                assert!(
+                    (CAMP_TROOPS_MIN..=CAMP_TROOPS_MIN + CAMP_TROOPS_SPREAD).contains(&camp.troops)
+                );
+                // the spawn draw's gate is the deployed one over the wide id
+                let id = wide_camp_id(coord, day, false);
+                assert_eq!(below(rand(&SEED, CAMP_SPAWN_DOMAIN_WIDE, &id), 2), 0);
+            } else {
+                let id = wide_camp_id(coord, day, false);
+                assert_eq!(below(rand(&SEED, CAMP_SPAWN_DOMAIN_WIDE, &id), 2), 1);
+            }
+        }
+        assert!(spawned > 0 && spawned < 64, "{spawned}");
+        // the day's spawn is not the day's initial camp (the id's last byte
+        // differs); over 64 days the two draws disagree somewhere
+        assert!((0..64u32).any(|d| {
+            matches!(
+                (
+                    wide_daily_camp(&SEED, coord, &t, d, true, None),
+                    wide_initial_camp(&SEED, coord, &t, d, None),
+                ),
+                (Some(a), Some(b)) if a != b
+            )
+        }));
+        // the initial draw is unchanged by the shared body
+        assert_eq!(wide_initial_camp(&SEED, coord, &t, 3, Some(5)), {
+            let id = wide_camp_id(coord, 3, true);
+            assert_eq!(id[21], 1);
+            let mut cands = Vec::new();
+            for tile in 1..PROVINCE_TILES as u8 {
+                if camp_tile_ok(&t, tile) && tile != 5 {
+                    cands.push(tile);
+                }
+            }
+            let k = below(rand(&SEED, CAMP_TILE_DOMAIN_WIDE, &id), cands.len() as u64) as usize;
+            Some(Camp {
+                tile: cands[k],
+                troops: CAMP_TROOPS_MIN
+                    + below(
+                        rand(&SEED, CAMP_TROOPS_DOMAIN_WIDE, &id),
+                        CAMP_TROOPS_SPREAD as u64 + 1,
+                    ) as u32,
+            })
+        });
+        // no allowed tile: no spawn even when the gate opens
+        let mut water = t.clone();
+        for i in 1..PROVINCE_TILES {
+            water.terrain[i] = permutation_rules::map::Terrain::Water;
+        }
+        for day in 0..64u32 {
+            assert_eq!(wide_daily_camp(&SEED, coord, &water, day, true, None), None);
+        }
     }
 
     /// The wide keep opening is the kernel's `try_open` wherever both
