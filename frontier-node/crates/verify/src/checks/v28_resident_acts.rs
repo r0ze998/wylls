@@ -653,6 +653,7 @@ mod tests {
             history: History::default(),
             after: 0,
             through,
+            tip: None,
             txs: txs.into_iter().filter(|t| t.seq <= through).collect(),
             policies: [(POLICY(), policy_account())].into_iter().collect(),
         }

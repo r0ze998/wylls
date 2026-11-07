@@ -54,6 +54,12 @@ pub struct ResidentFeed {
     pub after: u64,
     /// Every resident-program transaction with `after < seq <= through` is in `txs`.
     pub through: u64,
+    /// The node's ledger length (`frontier_status.transactions`) read
+    /// **after** the feed: a freshness check only (⑲, 2026-11-07). The node
+    /// counts its own ledger, so a node missing a range misses it in the
+    /// count too; agreeing adds nothing to wholeness, disagreeing (the
+    /// range or a seq beyond the tip) means the read is inconsistent.
+    pub tip: Option<u64>,
     pub txs: Vec<ResidentTx>,
     /// The policy accounts (written once: any read of one is its value).
     pub policies: BTreeMap<Key, Account>,
@@ -139,6 +145,21 @@ impl ResidentFeed {
                 why.push(format!("the resident feed holds seq {} twice", t.seq));
             }
         }
+        if let Some(tip) = self.tip {
+            let last = self
+                .txs
+                .iter()
+                .map(|t| t.seq)
+                .chain(w.txs.iter().map(|t| t.seq))
+                .chain([self.through])
+                .max()
+                .unwrap_or(0);
+            if last > tip {
+                why.push(format!(
+                    "the ledger read after the feed ends at seq {tip}, before seq {last} the reads hold (an inconsistent read)"
+                ));
+            }
+        }
         // A transaction of both programs is one ledger entry: one seq, one signature.
         let mine: BTreeMap<u64, &str> = w.txs.iter().map(|t| (t.seq, t.sig.as_str())).collect();
         for t in &self.txs {
@@ -161,6 +182,7 @@ impl ResidentFeed {
             "history": self.history.to_json().unwrap_or(json!({"source": "fixture"})),
             "after": self.after,
             "through": self.through,
+            "tip": self.tip,
             "txs": self.txs.iter().map(|t| json!({
                 "seq": t.seq, "signature": t.signature, "ok": t.ok,
                 "post": t.post.iter().map(|(k, a)| json!([Address::new_from_array(*k).to_string(), acc(a)])).collect::<Vec<_>>(),
@@ -205,6 +227,7 @@ impl ResidentFeed {
             history,
             after: u("after")?,
             through: u("through")?,
+            tip: v.get("tip").and_then(Value::as_u64),
             txs: v
                 .get("txs")
                 .and_then(Value::as_array)
@@ -248,13 +271,21 @@ pub async fn fetch(
     let (txs, history) = crate::input::fetch_txs(url, resident_program, true, None, None).await?;
     let through = frontier.iter().map(|t| t.seq).max().unwrap_or(0);
     let (pol, _) = crate::input::fetch_finals(url, &[*policy]).await?;
+    // The ledger length, read after the feed (freshness only, see `tip`).
+    let tip = fclient::rpc::RpcClient::new(url)
+        .call("frontier_status", json!([]))
+        .await
+        .map_err(|e| e.to_string())?
+        .get("transactions")
+        .and_then(Value::as_u64);
     Ok(ResidentFeed {
         program: *resident_program,
-        // An empty feed is `unknown` in fetch_txs (no proof of emptiness);
-        // a feed with transactions is the node's ledger feed.
+        // The local node's ledger feed (`fetch_txs` with `localnet`), empty
+        // or not: an empty one is the ledger showing no resident transaction.
         history,
         after: 0,
         through,
+        tip,
         txs: txs
             .iter()
             .filter(|t| t.seq <= through)
@@ -295,6 +326,7 @@ mod tests {
             history,
             after: 0,
             through,
+            tip: None,
             txs: seqs
                 .iter()
                 .map(|(s, g)| ResidentTx {
@@ -356,11 +388,21 @@ mod tests {
         let mut late = good.clone();
         late.after = 4;
         assert!(!late.gaps_before(&w, &node, 12).is_empty());
+        // The ledger length read after the feed: at or past every seq read
+        // (freshness only), else the reads are inconsistent.
+        let mut fresh = good.clone();
+        fresh.tip = Some(12);
+        assert!(fresh.gaps_before(&w, &node, 12).is_empty());
+        fresh.tip = Some(40);
+        assert!(fresh.gaps_before(&w, &node, 12).is_empty());
+        fresh.tip = Some(11);
+        assert!(fresh.gaps_before(&w, &node, 12)[0].contains("inconsistent read"));
     }
 
     #[test]
     fn the_fixture_form_round_trips() {
         let mut f = feed(History::ledger_feed("local node feed u"), 7, &[(2, "s2")]);
+        f.tip = Some(9);
         f.txs[0].post.insert(
             [0x79; 32],
             Account {
