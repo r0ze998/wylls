@@ -1,0 +1,23 @@
+### verify-fixtures HEAD 8234b8dd2ce5546d1898ecaf95f24fab0b09853b tree 5aaf49522675fadbcca37087481759c02026cadd
+?? frontier-node/crates/findex/tests/v16_history_coverage.rs
+?? frontier-node/crates/findex/tests/v16_history_gaps.rs
+?? frontier-node/crates/verify/tests/v16_cpi_keyfree.rs
+?? frontier-node/crates/verify/tests/v16_v27_gate.rs
+?? workstreams/04-execution/tests/v16_chain_caravan_faults.rs
+   Compiling verify v0.1.0 (/tmp/claude-0/-home-user-wylls/47a54b0f-427a-5cca-bc82-feb7c5056956/scratchpad/v22-gh/frontier-node/crates/verify)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.93s
+     Running tests/fixtures.rs (target/debug/deps/fixtures-295946109999dfc6)
+
+running 8 tests
+test failed_attempts_counted_per_march ... ok
+test land_program_passes ... ok
+test march_synth_passes_but_for_its_six_impossible_tickets ... ok
+test shielded_refused_march_is_unrevealed_by_rule ... ok
+test unshielded_rout_stays_a_liveness_warning ... ok
+test arrival_after_end_is_fail ... ok
+test cli_exit_codes ... ok
+test march_program_passes ... ok
+
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 1 filtered out; finished in 2.18s
+
+exit=0

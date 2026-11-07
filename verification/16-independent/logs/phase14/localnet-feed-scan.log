@@ -1,0 +1,26 @@
+### localnet-feed-scan HEAD 8234b8dd2ce5546d1898ecaf95f24fab0b09853b tree 5aaf49522675fadbcca37087481759c02026cadd
+?? frontier-node/crates/findex/tests/v16_history_coverage.rs
+?? frontier-node/crates/findex/tests/v16_history_gaps.rs
+?? frontier-node/crates/verify/tests/v16_cpi_keyfree.rs
+?? frontier-node/crates/verify/tests/v16_v27_gate.rs
+?? workstreams/04-execution/tests/v16_chain_caravan_faults.rs
+   Compiling hashbrown v0.17.1
+   Compiling ark-poly v0.6.0
+   Compiling indexmap v2.14.2
+   Compiling litesvm v0.16.0
+   Compiling ark-ec v0.6.0
+   Compiling ark-bls12-381 v0.6.0
+   Compiling tlock v0.0.10
+   Compiling fclient v0.1.0 (/tmp/claude-0/-home-user-wylls/47a54b0f-427a-5cca-bc82-feb7c5056956/scratchpad/v22-gh/frontier-node/crates/fclient)
+   Compiling localnet v0.1.0 (/tmp/claude-0/-home-user-wylls/47a54b0f-427a-5cca-bc82-feb7c5056956/scratchpad/v22-gh/frontier-node/crates/localnet)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 9.61s
+     Running unittests src/lib.rs (target/debug/deps/localnet-4cddc8917f2845ec)
+
+running 3 tests
+test chain::feed_scan_tests::a_cursor_past_the_ledger_shows_a_shorter_ledger ... ok
+test chain::feed_scan_tests::a_read_cut_by_its_limit_scanned_only_to_its_last_record ... ok
+test chain::feed_scan_tests::the_whole_tail_is_scanned_when_the_limit_is_not_reached ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 6 filtered out; finished in 0.00s
+
+exit=0

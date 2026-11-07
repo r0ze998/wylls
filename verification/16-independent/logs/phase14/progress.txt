@@ -1,0 +1,14 @@
+06:10:00 fetch exit=0
+06:10:33 run.sh exit=0
+06:10:33 committed exit=0
+06:10:33 cmp 7 same 0 diff
+06:10:34 mutations done
+06:10:35 probe exit=0
+06:10:35 ALL DONE
+06:22:40 verify exit=0
+06:22:43 verify-fixtures exit=0
+06:22:44 findex-ingest-keyfree exit=0
+06:22:49 findex exit=0
+06:22:59 localnet-feed-scan exit=0
+06:23:07 herald exit=0
+06:23:07 NODE ALL DONE

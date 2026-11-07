@@ -1,0 +1,147 @@
+### findex HEAD 8234b8dd2ce5546d1898ecaf95f24fab0b09853b tree 5aaf49522675fadbcca37087481759c02026cadd
+?? frontier-node/crates/findex/tests/v16_history_coverage.rs
+?? frontier-node/crates/findex/tests/v16_history_gaps.rs
+?? frontier-node/crates/verify/tests/v16_cpi_keyfree.rs
+?? frontier-node/crates/verify/tests/v16_v27_gate.rs
+?? workstreams/04-execution/tests/v16_chain_caravan_faults.rs
+   Compiling findex v0.1.0 (/tmp/claude-0/-home-user-wylls/47a54b0f-427a-5cca-bc82-feb7c5056956/scratchpad/v22-gh/frontier-node/crates/findex)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 4.32s
+     Running unittests src/lib.rs (target/debug/deps/findex-0ffe24a307a08075)
+
+running 10 tests
+test archive::tests::a_crash_across_a_segment_roll_reopens_clean ... ok
+test archive::tests::a_torn_tail_is_truncated_and_tampering_is_caught ... ok
+test archive::tests::appends_rolls_seals_and_verifies ... ok
+test archive::tests::group_commit_is_durable_only_at_commits ... ok
+test index::strict_guard_tests::strict_index_decoder_preserves_join_and_rejects_unknown ... ok
+test index::strict_guard_tests::unknown_or_blocked_coverage_refuses_readers ... ok
+test index::tests::garbage_stops_index_and_foreign_records_are_skipped ... ok
+test index::tests::records_links_heads_and_snapshots ... ok
+test provenance::tests::only_a_header_the_records_made_is_the_post_state ... ok
+test tests::splits_ps2_records_out_of_logs_with_the_abi_lengths ... ok
+
+test result: ok. 10 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.05s
+
+     Running tests/coverage.rs (target/debug/deps/coverage-8d8075bcde8c65d6)
+
+running 14 tests
+test a_witness_behind_holds_the_batch_then_marks_it ... ok
+test an_unreadable_witness_leaves_the_range_unverifiable ... ok
+test coverage_survives_a_restart ... ok
+test enriched_reports_the_inner_coverage ... ok
+test g1_a_pruned_start_without_anchor_is_archived_as_unverifiable ... ok
+test g1_a_witness_with_the_start_stops_the_first_pull ... ok
+test g1_an_origin_with_older_history_before_it_stops ... ok
+test g1_the_origin_anchor_stops_a_first_pull_that_misses_the_start ... ok
+test g2_an_older_cursor_resumes_as_unverifiable ... ok
+test g2_an_unreadable_cursor_is_refused_not_restarted ... ok
+test g2_losing_the_last_archived_signature_shows_a_gap ... ok
+test g3_a_middle_gap_without_witness_is_reported_unverifiable ... ok
+test g3_a_witness_stops_a_middle_gap_and_the_range_fills_later ... ok
+test nothing_fetched_is_not_an_empty_history ... ok
+
+test result: ok. 14 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.13s
+
+     Running tests/ledger.rs (target/debug/deps/ledger-b3b408e31a89fb12)
+
+running 15 tests
+test a_cursor_that_is_not_a_feeds_is_refused ... ok
+test a_new_ledger_is_refused_not_resumed ... ok
+test a_restart_between_the_archives_cuts_the_join_at_the_lower_cursor ... ok
+test a_rewind_under_the_same_run_id_is_seen_against_the_node ... ok
+test a_rewound_ledger_under_the_same_run_id_is_refused ... ok
+test a_shrunk_ledger_is_seen_against_the_node ... ok
+test an_unfiltered_feed_is_refused ... ok
+test an_unreadable_or_other_node_confirms_nothing ... ok
+test archives_from_before_resume_but_are_never_whole ... ok
+test archives_that_match_the_node_are_confirmed ... ok
+test duplicates_and_mismatched_numbers_are_never_whole ... ok
+test only_the_archive_whose_tail_was_rewound_is_named ... ok
+test stale_part_can_look_consistent_but_never_claims_whole_in_json ... ok
+test start_and_ledger_must_be_known_and_shared ... ok
+test two_archives_join_in_ledger_order_with_the_shared_transaction_once ... ok
+
+test result: ok. 15 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.14s
+
+     Running tests/no_hidden_gap.rs (target/debug/deps/no_hidden_gap-31676cf5e8f47f00)
+
+running 4 tests
+test a_damaged_frame_in_a_sealed_segment_is_an_error_not_a_shorter_archive ... ok
+test a_missing_sealed_segment_is_an_error ... ok
+test a_segment_missing_a_record_but_well_formed_is_an_error ... ok
+test the_index_rebuild_refuses_a_damaged_archive ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.03s
+
+     Running tests/open_items.rs (target/debug/deps/open_items-205e366ae8cc13bd)
+
+running 5 tests
+test a_failure_mid_batch_loses_nothing ... ok
+test a_version_1_transaction_stops_every_pull ... ok
+test archive_bytes_per_transaction ... ok
+test dropped_confirmed_fork_is_not_archived ... ok
+test finalized_archive_reads_do_not_change_confirmed_client_reads ... ok
+
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.09s
+
+     Running tests/store_failure.rs (target/debug/deps/store_failure-51cb3533708c31f7)
+
+running 5 tests
+test checkpoint_failure_cannot_publish_an_uncommitted_index ... ok
+test failed_roll_after_uncommitted_batch_truncates_the_ahead_index ... ok
+test index_failure_requires_reopen_and_catches_up_from_the_archive ... ok
+test manifest_write_failure_requires_reopen_and_replays_the_batch ... ok
+test mid_batch_roll_failure_discards_unnamed_frames_before_replay ... ok
+
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.04s
+
+     Running tests/v16_history_coverage.rs (target/debug/deps/v16_history_coverage-55b401ac84de9e92)
+
+running 4 tests
+test v16_c1_g1_default_is_never_reported_complete ... ok
+test v16_c2_g1_with_the_origin_anchor_stops ... ok
+test v16_c3_g3_default_is_unverifiable_and_with_a_witness_stops ... ok
+test v16_c4_control_full_history_with_origin_and_witness_is_cross_checked ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.03s
+
+     Running tests/v16_history_gaps.rs (target/debug/deps/v16_history_gaps-b54e204d9f857f4e)
+
+running 3 tests
+test v16_g1_first_pull_on_a_pruned_node_archives_without_any_gap_signal ... ok
+test v16_g2_losing_the_last_archived_signature_stops_the_pull ... ok
+test v16_g3_a_gap_in_the_middle_behind_a_kept_last_signature_is_not_seen ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.02s
+
+     Running tests/ws04_feed_scan.rs (target/debug/deps/ws04_feed_scan-38cc871c3079c999)
+
+running 11 tests
+test a_ledger_growing_during_the_read_is_read_through_and_nothing_is_skipped ... ok
+test a_ledger_shorter_than_the_cursor_is_refused ... ok
+test a_part_scanned_further_with_fewer_bytes_shows_a_rewind ... ok
+test a_rewind_between_the_reads_is_refused_on_the_next_read ... ok
+test a_rewind_during_the_read_is_refused ... ok
+test a_scan_past_the_ledger_length_is_refused ... ok
+test a_scanned_extent_below_the_own_cursor_is_not_whole ... ok
+test a_short_history_cuts_the_join_at_its_scanned_extent ... ok
+test both_programs_are_whole_through_the_scanned_end_of_the_ledger ... ok
+test the_extent_carries_over_only_with_its_last_record ... ok
+test without_the_scan_only_the_own_last_seq_counts ... ok
+
+test result: ok. 11 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.09s
+
+     Running tests/ws04_join_adversarial.rs (target/debug/deps/ws04_join_adversarial-8b37abfbe9bd9fbe)
+
+running 7 tests
+test a_rewind_under_the_same_run_id_seen_by_the_other_archive_is_not_whole ... ok
+test a_shared_transaction_at_two_numbers_is_not_whole ... ok
+test a_shorter_archive_cuts_the_join_and_nothing_past_it_is_joined ... ok
+test an_archive_that_read_nothing_joins_nothing ... ok
+test archives_of_two_ledgers_never_join_as_whole ... ok
+test every_one_sided_change_of_the_shared_entry_is_not_whole ... ok
+test the_baseline_is_whole ... ok
+
+test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+exit=0

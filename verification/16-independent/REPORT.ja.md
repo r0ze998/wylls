@@ -1273,3 +1273,94 @@ V11 が変わった経緯:
 - 荷車の受付で、依頼者の権限を確かめること（④ §10.2 に要件。実装は利用者の担当）。
 
 ログは `logs/phase13/` にある。
+
+# 第14期（2026-11-07）：④の統合候補 8234b8dd
+
+- 取得は `git fetch origin claude/gallant-ride-cunptv`。
+- HEAD `8234b8dd2ce5546d1898ecaf95f24fab0b09853b`、tree `5aaf49522675fadbcca37087481759c02026cadd`。④の連絡と一致した。
+- 6cd6dd14 の上に 3 コミットを足した版で、中身は次のとおり。
+  - ba8f77dc：文書
+  - 52c0bd45：V11 の 2 件
+  - 8234b8dd：⑳ cab0bcac（`cab0bcacbd2dc2a6fb4a20e4d52d6562e40e1be6`）の merge
+- ⑳ cab0bcac はこの版で初めて入った。
+
+## 19.1 V11 の 2 件（52c0bd45）の独立確認
+
+④の判断は「合成の march の fixture に、プログラムが受け付けえない ticket が 6 件ある。V11 の FAIL は正しい」。⑯はこれを次の 3 点で確かめた。
+
+- **wedge の計算**
+  - ゲームのプログラムと同じ `permutation-rules` の `ProvinceCoord` で、3 つの province の ring と wedge を計算した（`probes/v16_wedge_probe_main.rs`）。
+  - 結果は (0,−2) が ring 2・wedge 4、(1,−3) が ring 3・wedge 4、(3,−3) が ring 3・wedge 5。
+- **プログラムの規則**
+  - `proc/citizen.rs::wedge_allowed` が許すのは次の 2 通りだけ。
+    - 自分の wedge（faction と同じ番号）。
+    - 自分の wedge が満員のとき、隣の wedge（faction±1）の最も外側の ring。
+  - V11 の文言の「nation N」は faction の値そのもの（`v11_land.rs` の format）。
+  - したがって、国 1 が使えるのは wedge 0〜2、国 2 が使えるのは wedge 1〜3。wedge 4・5 は、どちらの国にも許されない。
+  - `ticket_nation_allowed` が規則を変えるのは、分散配置（`PLACEMENT_DISPERSED`）のときだけ。それ以外は `wedge_allowed` の結果そのまま。
+- **M1 の時点の規則**
+  - M1 の exit commit `629d007b5908932aae2ee992d7b219292c27aa12` の `wedge_allowed` の本体は、今と同じ（読み比べた）。
+
+試験の書き換えも確かめた。
+
+- 新しい `assert_only_the_impossible_tickets` は、次をすべて要求する。
+  - Warn 以外の所見がちょうど 6 件。
+  - 6 件それぞれが、決まった文言に 1 件だけ当たる。
+  - どれも V11・TicketPlacementMismatch・bell 0・Fail。
+  - verdict は Fail。
+- 6cd6dd14 で⑯が見た失敗の出力（§18.2）は、まさにこの 6 件だった。
+- 本物のプログラムの記録（`land`、`march_program`）は、これまでどおり PASS を要求している。
+
+**判定**: V11 の FAIL は正しい。この 2 件は、既知の失敗を隠すものではない。fixture の欠陥を固定の期待として明示したもので、試験の弱め方として妥当である。
+
+ただし、合成の march の Season はもう PASS の基準ではない。fixture を作り直すと鍵で署名することになり、⑯は実行できない。また ④の注意どおり、tamper の試験（鍵を使うので未実行）は march の基準が PASS であることを前提にしている。承認を得てそれを流すときは、この 6 件を考えに入れる必要がある。
+
+## 19.2 固定ファイルの照合
+
+| 確認 | 結果 |
+|---|---|
+| コミット済みの fixture の照合 | 31/31 |
+| 作り直した出力とコミット済み fixture の比較 | 7 ファイルすべてバイト単位で一致 |
+| 照合器の変異試験 M1〜M12 | 12/12 を検出 |
+
+## 19.3 ホストでの実処理（鍵なし、署名なし、PDA あり）
+
+| 対象 | 結果 |
+|---|---|
+| A NFT 参加と譲渡 | 2/2 |
+| E 賞金 | 2/2 |
+| B 荷車 | 1/1（mock、完成に数えない） |
+| C・D 記憶と成果 | 完了 |
+| ⑯の荷車の障害試験 | 4/4（mock、完成に数えない） |
+| 検証器 lib | 47 |
+| 検証器 camp_clear 3、custody 6・8・7、evidence 8、history 16、ledger_history 6、missing_state 2、new_bands 7、open_items 3、resident_ledger 4、unit 8、ws04_scan_resident 4 | すべて通過 |
+| ⑯の v16_cpi_keyfree 6、v16_v27_gate 3 | すべて通過 |
+| 検証器 fixtures（`march_fixture_is_fresh` を除外） | 8/8 |
+| findex lib 10、coverage 14、ledger 15、no_hidden_gap 4、open_items 5、store_failure 5、ws04_feed_scan 11、ws04_join_adversarial 7 | すべて通過 |
+| ⑯の v16_history_gaps 3、v16_history_coverage 4 | すべて通過 |
+| findex `ingest` のうち鍵を使わない 4 件（`--exact` で名指し、5 件は除外） | 4/4 |
+| localnet `feed_scan_tests`（`scan_ledger` の純関数、6 件は除外） | 3/3 |
+| herald ingest_health | 3 |
+
+このうち fixtures の `march_synth_passes_but_for_its_six_impossible_tickets` と、evidence の `the_fixtures_have_nothing_for_v0e` は、19.1 の固定の期待で通っている。
+
+鍵の確認の追加:
+
+- `ingest` で鍵を使うのは次の 4 件で、どれも `Keypair::new_from_array` で署名する。
+  - `feed_and_rpc_poll_archive_the_same_transactions_and_resume`
+  - `rpc_poll_pages_the_local_node`
+  - `enriched_poll_archives_post_state`
+  - `enriched_poll_retries_the_entire_batch_after_account_read_failure`
+- `ingest` の `rpc_poll_against_a_live_node` は、環境変数が無いと何もせずに終わる。そのため数えない。
+- localnet の `tests/*.rs` と、`chain.rs` のほかの試験の module は、鍵を使う。
+- 変わった `resident_feed.rs`・`resident_ledger.rs` には、鍵の経路はない。
+
+## 19.4 確かめていないこと
+
+§17.5 と §18.3 の項目が残る（⑳ cab0bcac は、今回ホストで確かめた）。それに加えて次がある。
+
+- 合成の march の Season を、正しい配置で記録し直すこと（鍵で署名するため）。
+- tamper の試験（鍵を使う）が、新しい基準の march で成り立つこと。
+- 実際の localnet のプロセスで、⑳の住民の feed を読むこと。
+
+ログ: `logs/phase14/`
