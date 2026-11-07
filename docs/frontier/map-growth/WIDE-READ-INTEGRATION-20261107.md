@@ -118,3 +118,26 @@ The writer reported 18 native-host tests, 16 native-crypto tests and 17
 ordinary tests passing for `6e15d6bb`; those suites were not rerun by this
 reader integration task. PostSeed/Sseed/depart fixture limitations remain,
 as do the disabled debit gate and unsupported PSW1 indexing boundary.
+
+## Native departure dispatcher checkpoint
+
+Writer `85cf47f0` was merged normally as `800ad5a5`, without conflicts.
+Static comparison confirms that frontier-abi, frontier-node and all browser
+read code/fixtures are still identical to the preceding integration. The
+34 Rust and 28 JavaScript read-test results remain inherited evidence from
+`1b02dfad`; no read suites were rerun for this merge.
+
+Unlike the prior test-only checkpoint, this writer changes `depart_as`:
+Citizen ARRIVALS overflow is now checked before escrow movement and account
+creation. `DEPART_DEBIT_ENABLED` is true only under the conjunction of
+`cfg(test)`, `native-crypto-tests` and a non-Solana target. It remains false
+in production, ordinary unit tests, linked libraries and SBF. No reader or
+PSW1 indexing gate has been opened.
+
+The writer reports 18 native-host, 17 ordinary and 6 default tests passing,
+plus library lint. Its native-host experiment now executes actual Depart,
+T/S beacon posting, arrival, settlement and return through the dispatcher
+using public signature vectors rather than the earlier staged-departure
+shortcut. This is still host-test evidence, not a deployed game or live
+world run. These writer suites were not run by this reader integration
+pass; no keys, signatures, live writes or deployment were performed here.
