@@ -18,6 +18,10 @@ base64.workspace = true
 serde_json.workspace = true
 tokio.workspace = true
 
+[features]
+default = []
+wide-records-experimental = ["fclient/wide-records-experimental", "frontier-abi/world-index-experimental"]
+
 [dev-dependencies]
 localnet.workspace = true
 axum.workspace = true
