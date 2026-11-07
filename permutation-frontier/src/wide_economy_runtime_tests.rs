@@ -506,6 +506,94 @@ impl Econ {
     }
 }
 
+/// Interleave a real Train after the parent's real WideDepart calls.
+/// Stock is the sole added fixture. Both active transit records, the
+/// paired roster, all economic accounts and their lamports are observed;
+/// refusals use direct dispatch, never the rollback-capable executor.
+#[cfg(all(
+    feature = "native-crypto-tests",
+    not(feature = "test-beacon"),
+    not(target_os = "solana")
+))]
+pub(super) fn train_after_real_depart(
+    w: &mut Wide,
+    member: &Member,
+    coord: WideCoord,
+    site: u8,
+) -> Vec<u8> {
+    use frontier_abi::world_index::march::{MarchState, WideTransit};
+    stock(w, coord, site, STOCK);
+    let t = target(w, coord, site);
+    let a = accounts(w, member, WALLET_A, coord, site, false);
+    let transits = [w.transit(coord, site, 0), w.transit(coord, site, 1)];
+    for transit in &transits {
+        let march = WideTransit::from_bytes(&transit.try_borrow_data().unwrap()).unwrap();
+        assert_eq!(march.state, MarchState::Departed);
+        assert_eq!(march.host.holding_ref(), t.href);
+    }
+    let mut watched = a.clone();
+    watched.extend(transits.iter().cloned());
+    watched.push(w.roster(coord));
+    let before = snapshot(&watched);
+    let logs = (
+        LOGS.lock().unwrap().clone(),
+        WIDE_LOGS.lock().unwrap().clone(),
+    );
+    let train = Action::Train { unit: 0, n: 10 };
+    let mut stranger = a.clone();
+    stranger[0] = wallet(WALLET_B, true, false, 0);
+    assert_eq!(refused(&stranger, &bytes(train)), E::Auth as u32);
+    assert_eq!(snapshot(&watched), before);
+    assert_eq!(
+        refused(
+            &a,
+            &bytes(Action::Train {
+                unit: 0,
+                n: 1_000_000
+            })
+        ),
+        E::Insufficient as u32
+    );
+    assert_eq!(snapshot(&watched), before);
+    assert_eq!(
+        (
+            LOGS.lock().unwrap().clone(),
+            WIDE_LOGS.lock().unwrap().clone()
+        ),
+        logs
+    );
+
+    let d = succeeded(&a, &bytes(train));
+    check_receipt(&t, &d, train, false, &mut Vec::new());
+    assert_eq!(
+        WideHolding::read(&d.post.holding).unwrap(),
+        WideHolding::read(&d.pre.holding).unwrap(),
+        "same identity, generation and open-transit count"
+    );
+    assert_eq!(
+        rd_u32(&d.post.holding, H::HOST_SEQ),
+        rd_u32(&d.pre.holding, H::HOST_SEQ)
+    );
+    assert_eq!(
+        rd_u32(&d.post.holding, H::reserve(0)),
+        rd_u32(&d.pre.holding, H::reserve(0)) + 10
+    );
+    let after = snapshot(&watched);
+    for (pre, post) in before.iter().zip(&after) {
+        assert_eq!(
+            (pre.0, pre.2),
+            (post.0, post.2),
+            "no lamport or owner change"
+        );
+    }
+    assert_eq!(
+        after[6..],
+        before[6..],
+        "active transits and paired roster untouched"
+    );
+    d.record
+}
+
 // ------------------------------------------------------------------ tests
 
 /// Harvest under the wallet on the program's provisional holding: before

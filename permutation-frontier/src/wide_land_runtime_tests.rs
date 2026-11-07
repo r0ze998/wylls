@@ -5951,6 +5951,31 @@ fn wide_land_native_settles_a_real_wide_seal_and_confiscates_a_bad_one() {
 ))]
 #[test]
 fn wide_land_native_departs_posts_the_beacon_and_settles_for_real() {
+    native_real_depart_round_trip(false);
+}
+
+/// Real departures, an economic action while both of A's transits are
+/// Departed, real origin/destination Resolve, and an explicit dissolve
+/// and reserve return. This exercises the combat processing path, but
+/// A and B are allies: hostile combat is not covered by this scenario.
+/// The initial reserve and the Train's stock are explicit fixtures;
+/// departure escrow, records, spends and transit counts are not fixtures.
+#[cfg(all(
+    feature = "native-crypto-tests",
+    not(feature = "test-beacon"),
+    not(target_os = "solana")
+))]
+#[test]
+fn wide_land_native_real_depart_train_resolve_and_return_share_one_holding() {
+    native_real_depart_round_trip(true);
+}
+
+#[cfg(all(
+    feature = "native-crypto-tests",
+    not(feature = "test-beacon"),
+    not(target_os = "solana")
+))]
+fn native_real_depart_round_trip(train_during_transit: bool) {
     use crate::crypto::quick;
     use crate::crypto::seal::tests::{cases, get, hex};
     use crate::crypto::sys;
@@ -6417,6 +6442,22 @@ fn wide_land_native_departs_posts_the_beacon_and_settles_for_real() {
         );
     }
     assert_eq!(unchanged(&mut w), pre, "every refusal committed nothing");
+    // Capture all PSW1 records from the first real departure onward.
+    // Existing assertions still drain at their original boundaries; the
+    // retained copy provides an unbroken trace despite those drains.
+    let trace = std::cell::RefCell::new(Vec::<Vec<u8>>::new());
+    let take_wide = || {
+        let batch = wide_records();
+        if train_during_transit {
+            trace.borrow_mut().extend(batch.iter().cloned());
+        }
+        batch
+    };
+    let holding_chain_start = chain(&w.holding(coord, site));
+    let home_chain_start = chain(&home);
+    let dest_chain_start = chain(&w.province(dest));
+    let holding_before_depart = w.holding_data(coord, site);
+    let reserve_before_train = rd_u32(&holding_before_depart, H::reserve(0));
     // A departs for real.
     let holding_before = w.holding(coord, site).lamports();
     let payer_before = payer.lamports();
@@ -6484,7 +6525,7 @@ fn wide_land_native_departs_posts_the_beacon_and_settles_for_real() {
         assert_eq!(rd_u32(&cd, C::ARRIVALS), arrivals_before + 1);
         assert_eq!(Ro(&cd).i64(C::LAST_ACTION_TS).unwrap(), depart_ts);
     }
-    let wr = wide_records();
+    let wr = take_wide();
     assert_eq!(wr.len(), 1);
     {
         let r = WideRecord::decode(&wr[0]).unwrap();
@@ -6574,7 +6615,13 @@ fn wide_land_native_departs_posts_the_beacon_and_settles_for_real() {
             ));
         }
     }
-    assert_eq!(wide_records().len(), 2);
+    assert_eq!(take_wide().len(), 2);
+    if train_during_transit {
+        // Bell 6, after actual departure effects and before the origin's
+        // Resolve consumes Spend. No movement state is reconstructed.
+        let receipt = wide_economy::train_after_real_depart(&mut w, &a, coord, site);
+        trace.borrow_mut().push(receipt);
+    }
 
     // --- Bell 8 + 60 s: bells 5 and 6 resolved, the departures settled.
     w.at(8, 60);
@@ -6593,7 +6640,7 @@ fn wide_land_native_departs_posts_the_beacon_and_settles_for_real() {
             .unwrap();
         assert_eq!((t.state, t.troops_after), (MarchState::Settled, mass));
     }
-    wide_records();
+    take_wide();
 
     // --- Bell 21: THE anchor of bell 20 through PostAnchor at `A`, 213 s
     // after the time of T: a seed before the anchor is `NoAnchor`; the
@@ -6650,7 +6697,7 @@ fn wide_land_native_departs_posts_the_beacon_and_settles_for_real() {
             assert_eq!(code(w.resolve(prov, bell)), Ok(()), "bell {bell}");
         }
     }
-    wide_records();
+    take_wide();
 
     // --- Bell 22 + 300 s: past the close and the time of S; the seed
     // through PostSeed from the public round-S signature (the wrong round
@@ -6693,7 +6740,7 @@ fn wide_land_native_departs_posts_the_beacon_and_settles_for_real() {
     assert_eq!(code(w.gather(dest, arrive, 0, 24, &ts)), Ok(()));
     assert_eq!(code(w.resolve_gathered_as(dest, arrive, PAYER3)), Ok(()));
     assert_eq!(code(w.resolve(other_dest, arrive)), Ok(()));
-    wide_records();
+    take_wide();
     let (i_a, i_b) = {
         let pd = w.province_data(dest);
         let (ia, ib) = (entry_of(&pd, &host_a), entry_of(&pd, &host_b));
@@ -6793,7 +6840,7 @@ fn wide_land_native_departs_posts_the_beacon_and_settles_for_real() {
         Err(E::BadAddress as u32)
     );
     assert_eq!(balances(&mut w), before);
-    assert!(wide_records().is_empty() && records().is_empty());
+    assert!(take_wide().is_empty() && records().is_empty());
     let rent_s = crate::init::rent(wa::wide_arrival_slot::SIZE).unwrap();
     assert_eq!(
         code(w.settle_transit_full(
@@ -6822,7 +6869,7 @@ fn wide_land_native_departs_posts_the_beacon_and_settles_for_real() {
     assert_eq!(before.4 - after.4, total);
     assert!(absent(&w.transit(coord, site, 0)) && absent(&w.slot(dest, arrive, a.faction, 0)));
     {
-        let wr = wide_records();
+        let wr = take_wide();
         assert_eq!(wr.len(), 1);
         let r = WideRecord::decode(&wr[0]).unwrap();
         assert_eq!((r.kind, r.bell), (WideKind::TransitSettled, 23));
@@ -6860,7 +6907,7 @@ fn wide_land_native_departs_posts_the_beacon_and_settles_for_real() {
     {
         let e = read_entry(&w.province_data(dest), i_b).unwrap();
         assert_eq!((e.op, e.pend_bell), (EntryOp::Forfeit, 23));
-        let wr = wide_records();
+        let wr = take_wide();
         assert_eq!(wr.len(), 1);
         let r = WideRecord::decode(&wr[0]).unwrap();
         assert_eq!(&r.payload[..3], &[0, TO::BAD_SEAL, seal_code::FO_FAILED]);
@@ -6892,7 +6939,7 @@ fn wide_land_native_departs_posts_the_beacon_and_settles_for_real() {
         let hd = w.holding_data(coord, site);
         assert_eq!(Ro(&hd).u64(H::ESCROW).unwrap(), 0);
         assert_eq!(WideHolding::read(&hd).unwrap().open_transits, 0);
-        let wr = wide_records();
+        let wr = take_wide();
         assert_eq!(wr.len(), 1);
         let r = WideRecord::decode(&wr[0]).unwrap();
         assert_eq!(
@@ -6927,7 +6974,7 @@ fn wide_land_native_departs_posts_the_beacon_and_settles_for_real() {
         );
     }
     assert_eq!(balances(&mut w), before, "replays move nothing");
-    assert!(wide_records().is_empty() && records().is_empty());
+    assert!(take_wide().is_empty() && records().is_empty());
 
     // --- The return: A, which stayed, dissolves at the destination (the
     // capture lock read in its holding's own province) and comes home
@@ -6952,10 +6999,22 @@ fn wide_land_native_departs_posts_the_beacon_and_settles_for_real() {
         read_entry(&w.province_data(dest), i_a).unwrap().state,
         EN::STATE_DEPARTED
     );
-    wide_records();
+    take_wide();
     let own = w.holding(coord, site);
     let own_province = w.province(coord);
     let reserve_before = rd_u32(&w.holding_data(coord, site), H::reserve(0));
+    assert_eq!(
+        reserve_before,
+        reserve_before_train + if train_during_transit { 10 } else { 0 },
+        "the same reserve survives all resolves, settlements and dissolve"
+    );
+    let return_lamports = (
+        own.lamports(),
+        payer.lamports(),
+        payer2.lamports(),
+        payer3.lamports(),
+        payer4.lamports(),
+    );
     assert_eq!(
         code(w.settle_return_from(dest, own.clone(), Some(own_province.clone()))),
         Ok(())
@@ -6965,19 +7024,123 @@ fn wide_land_native_departs_posts_the_beacon_and_settles_for_real() {
         reserve_before + 300,
         "A's whole troops back into the reserve"
     );
+    assert_eq!(
+        (
+            own.lamports(),
+            payer.lamports(),
+            payer2.lamports(),
+            payer3.lamports(),
+            payer4.lamports()
+        ),
+        return_lamports,
+        "reserve return transfers no lamports"
+    );
     {
-        let wr = wide_records();
+        let wr = take_wide();
         assert_eq!(wr.len(), 1);
         let r = WideRecord::decode(&wr[0]).unwrap();
         assert_eq!(r.kind, WideKind::Return);
         assert_eq!((r.standing(), r.home_of()), (Some(dkey), Some(key)));
         assert_eq!(&r.payload[..4], &300_000u32.to_le_bytes());
     }
+    let mut replay_accounts = vec![
+        payer.clone(),
+        w.w.season.clone(),
+        standing.clone(),
+        roster_d.clone(),
+        own.clone(),
+    ];
+    for slot in 0..4u8 {
+        replay_accounts.push(w.transit_by_key(own.key.as_array(), slot));
+    }
+    replay_accounts.push(own_province.clone());
+    let replay_snapshot = || {
+        replay_accounts
+            .iter()
+            .map(|a| {
+                (
+                    a.lamports(),
+                    a.try_borrow_data().unwrap().to_vec(),
+                    *a.owner,
+                )
+            })
+            .collect::<Vec<_>>()
+    };
+    let replay_before = replay_snapshot();
+    let replay_logs = (
+        LOGS.lock().unwrap().clone(),
+        WIDE_LOGS.lock().unwrap().clone(),
+    );
     assert_eq!(
         code(w.settle_return_from(dest, own.clone(), Some(own_province))),
         Err(E::AlreadyDone as u32)
     );
-    assert!(wide_records().is_empty() && records().is_empty());
+    // code() also requires !Refused.wrote: the executor found no writes
+    // to undo, independently of the restored-state comparison.
+    assert_eq!(replay_snapshot(), replay_before);
+    assert_eq!(
+        (
+            LOGS.lock().unwrap().clone(),
+            WIDE_LOGS.lock().unwrap().clone()
+        ),
+        replay_logs
+    );
+    assert!(take_wide().is_empty() && records().is_empty());
+    if train_during_transit {
+        use frontier_abi::world_index::event::WideTarget;
+        let final_holding = w.holding_data(coord, site);
+        assert_eq!(
+            WideHolding::read(&final_holding).unwrap(),
+            WideHolding::read(&holding_before_depart).unwrap()
+        );
+        assert_eq!(
+            rd_u32(&final_holding, H::HOST_SEQ),
+            rd_u32(&holding_before_depart, H::HOST_SEQ)
+        );
+        assert_eq!(Ro(&final_holding).u64(H::ESCROW).unwrap(), 0);
+        assert_eq!(Ro(&final_holding).u64(H::POOL_OWED).unwrap(), 0);
+        let trace = trace.borrow();
+        let kinds: Vec<_> = trace
+            .iter()
+            .map(|body| WideRecord::decode(body).unwrap().kind)
+            .collect();
+        assert_eq!(
+            kinds.iter().filter(|&&k| k == WideKind::Departed).count(),
+            3
+        );
+        assert_eq!(kinds.iter().filter(|&&k| k == WideKind::Economy).count(), 1);
+        assert_eq!(kinds.iter().filter(|&&k| k == WideKind::Return).count(), 1);
+        for (target, start, end) in [
+            (
+                WideTarget::Holding(host_a.holding_ref()),
+                holding_chain_start,
+                chain(&own),
+            ),
+            (WideTarget::Province(key), home_chain_start, chain(&home)),
+            (
+                WideTarget::Province(dkey),
+                dest_chain_start,
+                chain(&standing),
+            ),
+        ] {
+            let entity = target.entity();
+            let mut previous = start;
+            for body in trace.iter() {
+                let r = WideRecord::decode(body).unwrap();
+                if r.concerns(target) && r.kind.links().contains(&entity) {
+                    let next =
+                        wev::advance(entity, previous.0, &previous.1, r.body_without_tail).unwrap();
+                    assert_eq!(r.link(entity), Some(next));
+                    previous = (next.seq, next.head);
+                }
+            }
+            assert_eq!(previous, end, "continuous real-depart through return chain");
+            assert_eq!(
+                wev::verify_chain(target, start, trace.iter().map(Vec::as_slice)),
+                Ok(end)
+            );
+        }
+    }
 }
 
 // ------------------------------------------------------------ the host that comes home
