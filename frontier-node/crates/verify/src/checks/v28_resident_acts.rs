@@ -180,6 +180,9 @@ fn judge_holder(
             "the policy account the act names is in neither the archive nor the record",
         );
     };
+    if feed.program.to_bytes() != policy.resident_program {
+        return unproven("the feed was filtered by another resident program");
+    }
     let (Some(asset), Some(resident)) = (
         feed.state_before(&binding.asset, t.seq),
         feed.state_before(&binding.resident, t.seq),
@@ -229,7 +232,11 @@ fn judge_holder(
         ));
     }
     match h.authority(actor, generation, t.time, true) {
-        Ok(_) => None,
+        Ok(_) if gaps.is_empty() => None,
+        Ok(_) => unproven(&format!(
+            "the recorded authority matches, but its current state is unproven: {}",
+            gaps.join("; ")
+        )),
         Err(Refusal::NotCurrentAuthority) => {
             // Name what the actor was, for the report.
             let was_owner = feed
@@ -923,5 +930,36 @@ mod tests {
         let mut w = season(vec![(4, act(A, 0))]);
         w.txs[0].ixs = vec![create_policy([0x67; 32]), join()];
         assert_eq!(fails(&judge(&w, None)), vec![(1, NON_CANONICAL_ADDRESS)]);
+    }
+    #[test]
+    fn a_wrong_program_feed_cannot_judge_a_holder() {
+        let (w, _) = honest_with(0, None);
+        let mut f = feed(history());
+        f.program = solana_address::Address::new_from_array([0x91; 32]);
+        let v = judge(&w, Some(&f));
+        assert!(fails(&v).is_empty());
+        assert_eq!(
+            v.iter()
+                .filter(|(_, severity, code)| *severity == Severity::Unverifiable
+                    && *code == RESIDENT_ACT_UNPROVEN)
+                .count(),
+            5
+        );
+    }
+
+    #[test]
+    fn matching_authority_in_a_partial_feed_is_still_unproven() {
+        let (w, _) = honest_with(0, None);
+        let mut f = feed(history());
+        f.after = 1;
+        let v = judge(&w, Some(&f));
+        assert!(fails(&v).is_empty());
+        assert_eq!(
+            v.iter()
+                .filter(|(_, severity, code)| *severity == Severity::Unverifiable
+                    && *code == RESIDENT_ACT_UNPROVEN)
+                .count(),
+            5
+        );
     }
 }

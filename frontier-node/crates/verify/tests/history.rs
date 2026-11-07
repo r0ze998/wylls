@@ -212,6 +212,7 @@ fn unproven_verdicts(h: &History) {
     for own in [
         fail_in("V0", "tx#3", "UnknownInstruction"),
         fail_in("V27", "resident 4", "ResidentJoinMismatch"),
+        fail_in("V28", "resident act", "ResidentActMismatch"),
         fail_in("V9", "RESIDENT_JOINED", "NonCanonicalAddress"),
     ] {
         let r = apply(
@@ -230,6 +231,10 @@ fn unproven_verdicts(h: &History) {
             vec![fail_in("V9", "season", "NonCanonicalAddress")],
         ),
         (Verdict::Fail, vec![fail_in("V0", "tx#3", "Undecodable")]),
+        (
+            Verdict::Fail,
+            vec![fail_in("V28", "resident act", "ResidentOldAuthority")],
+        ),
     ] {
         let r = apply(h, report(v, f.clone()));
         assert_eq!(r.verdict, Verdict::Unverifiable, "{h:?} from {v:?} {f:?}");
