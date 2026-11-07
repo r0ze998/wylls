@@ -108,12 +108,15 @@ use serde_json::{json, Value};
 use solana_address::Address;
 
 use crate::engine::Engine;
+use crate::wideduty::Duty;
 use crate::wideduty::{self, Block, Candidate, Deployment, Reads, Scope};
-use crate::wideindex::WideDiscovery;
+use crate::wideindex::{WideDiscovery, WideObserver};
 use crate::wideproof::{depart_proof, DepartProof, ProofScope, METHOD_SUPPLIED};
+use crate::widereconcile::{reconcile, Verdict};
 use crate::widereveal::{self, Opening, Publication, RevealCandidate};
 use crate::widereview::{review_candidate, review_reveal, EngineView, Subject};
 use crate::widesnapshot::{snapshot_plan_with, Snapshot, SnapshotSource};
+use frontier_abi::world_index::event::WideTarget;
 
 /// Plans per tick: a hard cap.
 pub const CANDIDATES_PER_TICK: usize = 2;
@@ -546,6 +549,14 @@ pub struct WideReview {
     pub transient_retries: u64,
     /// Reveal ledger entries invalidated by a newer proof.
     pub proofs_renewed: u64,
+    /// Reconciliations (observed chain head vs the snapshot's account
+    /// chain fields; `crate::widereconcile`): agreements, lag (the account
+    /// ahead of the observer), disagreements, and comparisons that
+    /// concluded nothing. Diagnostics; no verdict is read by any denial.
+    pub reconcile_agree: u64,
+    pub reconcile_lag: u64,
+    pub reconcile_disagree: u64,
+    pub reconcile_unknown: u64,
     reveal_inputs_at_last_step: Option<bool>,
     snapshot_at_last_step: Option<&'static str>,
 }
@@ -571,9 +582,44 @@ impl WideReview {
             publications_missing: 0,
             transient_retries: 0,
             proofs_renewed: 0,
+            reconcile_agree: 0,
+            reconcile_lag: 0,
+            reconcile_disagree: 0,
+            reconcile_unknown: 0,
             reveal_inputs_at_last_step: None,
             snapshot_at_last_step: None,
         }
+    }
+
+    /// The reconciliation diagnostics of a candidate's accounts against
+    /// the reads it was planned over, when an observer is lent: each
+    /// target's verdict, counted; the summaries carry them. Never read by
+    /// a denial.
+    fn reconcile_targets(
+        &mut self,
+        scope: &Scope,
+        observer: Option<&WideObserver>,
+        targets: &[WideTarget],
+        reads: &Reads,
+    ) -> Value {
+        let Some(o) = observer else {
+            return Value::Null;
+        };
+        let mut out = Vec::with_capacity(targets.len());
+        for t in targets {
+            let r = reconcile(scope, o, *t, reads);
+            if r.verdict == Verdict::Agree {
+                self.reconcile_agree += 1;
+            } else if r.verdict.is_lag() {
+                self.reconcile_lag += 1;
+            } else if r.verdict.is_disagreement() {
+                self.reconcile_disagree += 1;
+            } else {
+                self.reconcile_unknown += 1;
+            }
+            out.push(r.describe());
+        }
+        Value::Array(out)
     }
 
     /// The effective cap: never above the hard constant.
@@ -663,7 +709,31 @@ impl WideReview {
         season: Address,
         slot: u64,
         snapshot: Option<&dyn SnapshotSource>,
+        reveal: Option<RevealInputs<'_>>,
+    ) -> u64 {
+        self.step_observing(
+            port, engine, model, program, season, slot, snapshot, reveal, None,
+        )
+        .await
+    }
+
+    /// [`WideReview::step`] with the observer lent **read-only** for the
+    /// reconciliation diagnostics (`crate::widereconcile`): every
+    /// candidate's province and holding chain heads, as observed, against
+    /// the account chain fields in the reads the candidate was planned
+    /// over. Nothing of the observer is moved; no verdict reaches a denial.
+    #[allow(clippy::too_many_arguments)]
+    pub async fn step_observing<P: ChainPort>(
+        &mut self,
+        port: &P,
+        engine: &Engine,
+        model: &WideDiscovery,
+        program: Address,
+        season: Address,
+        slot: u64,
+        snapshot: Option<&dyn SnapshotSource>,
         mut reveal: Option<RevealInputs<'_>>,
+        observer: Option<&WideObserver>,
     ) -> u64 {
         self.ticks += 1;
         self.reveal_inputs_at_last_step = Some(reveal.is_some());
@@ -709,7 +779,7 @@ impl WideReview {
                             .await
                             .map(|c| (c, None)),
                     };
-                    self.duty_entry(id, slot, engine, planned)
+                    self.duty_entry(id, slot, engine, planned, &scope, observer)
                 }
                 Hint::Return(p, h) => {
                     let planned = match snapshot {
@@ -722,7 +792,7 @@ impl WideReview {
                             .await
                             .map(|c| (c, None)),
                     };
-                    self.duty_entry(id, slot, engine, planned)
+                    self.duty_entry(id, slot, engine, planned, &scope, observer)
                 }
                 Hint::Reveal(h, s) => {
                     self.reveal_plans += 1;
@@ -807,6 +877,8 @@ impl WideReview {
                             prior_transient,
                             renewed,
                         },
+                        &scope,
+                        observer,
                     )
                 }
             };
@@ -847,6 +919,8 @@ impl WideReview {
         slot: u64,
         engine: &Engine,
         planned: Result<(Candidate, Option<Snapshot>), Block>,
+        scope: &Scope,
+        observer: Option<&WideObserver>,
     ) -> Entry {
         let summary = match planned {
             Ok((c, snap)) => {
@@ -864,6 +938,23 @@ impl WideReview {
                     .unwrap_or_else(|| Reads::new(slot));
                 let view = EngineView::of(engine, &Subject::of_duty(&c));
                 let a = review_candidate(&c, &reads, &view);
+                // The accounts the duty names, reconciled (diagnostics).
+                let targets: Vec<WideTarget> = match &c.duty {
+                    Duty::SettleDeparture(f) => {
+                        vec![WideTarget::Province(f.origin), WideTarget::Holding(f.host)]
+                    }
+                    Duty::Return(f) => {
+                        let mut v = vec![
+                            WideTarget::Province(f.standing),
+                            WideTarget::Holding(f.holding),
+                        ];
+                        if f.foreign {
+                            v.push(WideTarget::Province(f.holding.key()));
+                        }
+                        v
+                    }
+                };
+                let reconcile = self.reconcile_targets(scope, observer, &targets, &reads);
                 json!({
                     "hint": id,
                     "slot": slot,
@@ -872,6 +963,7 @@ impl WideReview {
                     "candidate": c.describe(),
                     "snapshot": snap.as_ref().map(|s| s.meta().describe()),
                     "assessment": a.describe(),
+                    "reconcile": reconcile,
                 })
             }
             Err(b) => {
@@ -894,6 +986,7 @@ impl WideReview {
         }
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn reveal_entry(
         &mut self,
         id: &str,
@@ -902,6 +995,8 @@ impl WideReview {
         engine: &Engine,
         planned: Result<(RevealCandidate, Option<Snapshot>), Block>,
         meta: RevealMeta,
+        scope: &Scope,
+        observer: Option<&WideObserver>,
     ) -> Entry {
         let common = json!({
             "hint": id,
@@ -928,6 +1023,11 @@ impl WideReview {
                     .unwrap_or_else(|| Reads::new(min_slot));
                 let view = EngineView::of(engine, &Subject::of_reveal(&c));
                 let a = review_reveal(&c, &reads, &view);
+                let targets = [
+                    WideTarget::Holding(c.facts.host),
+                    WideTarget::Province(c.facts.dest),
+                ];
+                let reconcile = self.reconcile_targets(scope, observer, &targets, &reads);
                 // `describe` carries identities, counts and labels: not the
                 // instruction data (the opened plaintext and salt).
                 let mut s = common;
@@ -935,6 +1035,7 @@ impl WideReview {
                 s["candidate"] = c.describe();
                 s["snapshot"] = json!(snap.as_ref().map(|s| s.meta().describe()));
                 s["assessment"] = a.describe();
+                s["reconcile"] = reconcile;
                 (s, slot.saturating_add(REVEAL_REFRESH_SLOTS), 0)
             }
             Err(b) => {
@@ -1054,6 +1155,13 @@ impl WideReview {
                 "min_slot": "max(tick slot, proof slot)",
                 "opening": "FromBeacon: the public round signature opens the seal; no plaintext, salt or key is held or shown",
                 "history": "unknown before the applied records; the proof's signatures are unverified",
+            },
+            "reconcile": {
+                "agree": self.reconcile_agree,
+                "lag": self.reconcile_lag,
+                "disagree": self.reconcile_disagree,
+                "unknown": self.reconcile_unknown,
+                "meaning": "cross-input consistency of the observed chain head with the account's chain fields in the candidate's snapshot; the two inputs' source relationship is unverified; never history authenticity or completeness; read by no denial",
             },
             "missing": self.missing(),
             "recent": recent.into_iter().take(8).map(|e| e.summary.clone()).collect::<Vec<_>>(),

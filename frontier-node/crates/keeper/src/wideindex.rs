@@ -1920,6 +1920,12 @@ pub const MAX_CHAIN_KEYS: usize = 4_096;
 pub struct ChainHead {
     pub seq: u64,
     pub head: [u8; 32],
+    /// The slot the feed record that carried this link **asserted** — the
+    /// source's claim, not proof the record landed there (nothing here
+    /// verified the record against the chain). A response's context slot
+    /// before it cannot be compared with the link; one at or past it can,
+    /// under that same unverified assertion.
+    pub slot: u64,
     /// `ProvinceClosed` was seen: no record may continue the chain.
     pub terminal: bool,
     /// The first link seen was sequence 1 and `advance` from the zero head
@@ -2002,11 +2008,13 @@ impl WideObserver {
     /// the entity's full identity from the record, the expected next link
     /// `advance(entity, seq, head, body_without_tail)`, equality with the
     /// carried link, and no continuation after `ProvinceClosed`. An entity
-    /// seen for the first time is **anchored** at its carried link: verified
-    /// from genesis when that link is sequence 1 and `advance` from the
-    /// zero head reproduces it (the index's own first step), otherwise
-    /// taken on trust and marked so (the observer may start mid-history;
-    /// the index starts from zero). Returns the staged heads to commit once
+    /// seen for the first time: a link with sequence 0 is refused; sequence
+    /// 1 must be exactly `advance` from the zero head (the index's own first
+    /// step) and is then verified from genesis, else refused; a sequence
+    /// past 1 is a mid-history **anchor** taken on trust and marked so (the
+    /// observer may start mid-history; the index starts from zero). A
+    /// refusal applies to the whole transaction: no head of it is kept.
+    /// Returns the staged heads to commit once
     /// the model accepts the batch, with the counts
     /// `(anchored from genesis, anchored unverified, verified)`; nothing
     /// is written here.
@@ -2041,12 +2049,28 @@ impl WideObserver {
                     .or_else(|| self.chains.get(&k).copied());
                 let genesis = match prior {
                     None => {
-                        // The index's first step from the zero head: when the
-                        // carried link is exactly that, the chain is verified
-                        // from genesis; anything else is an anchor on trust.
+                        // The first link seen for this entity. Sequence 0 is
+                        // impossible (`advance` starts at 1): refused.
+                        // Sequence 1 must be exactly the index's first step
+                        // from the zero head, else refused (a wrong head at
+                        // the very start is a wrong chain, not an anchor).
+                        // Only a sequence past 1 can be a mid-history
+                        // anchor, taken on trust and marked so.
+                        if link.seq == 0 {
+                            return Err(format!(
+                                "wide {:?} chain link with sequence 0 at transaction {}",
+                                link.entity, batch.seq
+                            ));
+                        }
                         let from_zero = advance(link.entity, 0, &[0; 32], r.body_without_tail)
                             .ok_or("wide chain overflow")?;
-                        if *link == from_zero {
+                        if link.seq == 1 {
+                            if *link != from_zero {
+                                return Err(format!(
+                                    "wide {:?} chain head at sequence 1 does not follow the zero head at transaction {}",
+                                    link.entity, batch.seq
+                                ));
+                            }
                             from_genesis += 1;
                             true
                         } else {
@@ -2080,6 +2104,7 @@ impl WideObserver {
                     ChainHead {
                         seq: link.seq,
                         head: link.head,
+                        slot: batch.slot,
                         terminal,
                         from_genesis: genesis,
                     },

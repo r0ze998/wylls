@@ -1292,6 +1292,106 @@ from the index's from-zero rule; the typed index remains source-coverage
 `SourceUnproven` on every candidate; nothing in this slice signs, sends,
 reopens a gate, or infers a generation-mismatch payout.
 
+## Seventh slice (2026-11-08, on `500ad67a`): observed chain heads against the snapshot
+
+**Inspected.** `proc/wide.rs::emit_wide` reads each chained account's
+header chain (`layout::header::EVENT_SEQ` at 24, `EVENT_HEAD` at 32,
+`layout::chain_of`), computes the next link with `event::advance` over the
+record's body, writes that link into the record's tail **and** back into
+the header (`set_chain`). So the last link the observer verified for a
+province or holding and the account's header after that record are the
+same `(seq, head)` whenever the observer's records and the chain are one
+history. The observer's `ChainHead` now carries the record's `slot`, so a
+response can be judged against the record's time.
+
+**`widereconcile`, read-only.** `reconcile(scope, &observer, target,
+&reads)` first requires the observer's scope (program, season, world) to
+be the requested one and the target to be of that world
+(`ScopeMismatch` otherwise: a foreign observer's heads are never used),
+resolves the target's canonical address (province by coordinate; holding
+by coordinate and site), requires the reads to be one coherent snapshot
+(`Reads::coherent_snapshot`) and a usable Season, and then — **before**
+any conclusion about presence — compares the response's context slot
+with the slot the observed record **asserted**: an older response is
+`SnapshotBehindRecord` and concludes nothing, neither a head nor an
+absence nor a close (an old absence cannot confirm a later close). Then
+the account: absent → `AccountClosed` (the observer saw the close) or
+`AccountMissing` (no close seen: unknown which); present → not
+executable, program-owned, the right shape and full identity (season,
+world, coordinate; for a holding also site and **generation**, the
+reference's) else `Identity(executable|owner|shape|season|world|coordinate|site|generation)`;
+a present account of a province the observer saw closed →
+`ClosedButPresent` (the close erases the account in its own transaction);
+then the header's `(EVENT_SEQ, EVENT_HEAD)` against the observed link:
+`Agree`, `ObserverBehind` (the account ahead: ordinary feed **lag**,
+classified and counted apart from disagreement), `AccountBehind` (the
+observed chain ahead of the account at or past the record's slot: not one
+history), `HeadMismatch`; `NotObserved`, `NoCoherentSnapshot`, `NotRead`,
+`Season(..)` otherwise. The description carries `meaning: cross-input
+consistency…`, `source_relationship: unverified — the records and the
+snapshot may come from independent sources`, `history_authenticated:
+false`, `source_complete: false`, `permits: "nothing"`, the observed
+anchor's status (`from_genesis`, or "taken on trust mid-history:
+unverified prefix") and `record_slot_asserted`. The observer is borrowed
+immutably; no account is read by the module itself; no payment or refund
+recipient is inferred.
+
+**Chain anchors, tightened.** The observer's first link seen for an
+entity: sequence 0 is impossible and refused; sequence 1 must equal the
+ABI's step from the zero head, a wrong head there is refused; only a
+sequence past 1 is a mid-history anchor taken on trust. A refusal takes
+the whole transaction — no head of it is kept, for either entity. The
+discovery suite's observer-fed fixtures now carry first-step links
+(`departed_from_zero`); the literal `both` links remain for the model's
+own `apply` tests, which verify no chain. `ChainHead.slot` is the slot the
+record **asserted** — a source claim, not proof the record landed there.
+
+**Wiring, diagnostics only.** `WideReview::step_observing` is `step` with
+the observer lent; `Keeper::tick` uses it. Each candidate summary gains a
+`reconcile` array for the accounts the duty names (settle: origin province
+and host's holding; return: standing province, holding reference and, when
+foreign, the holding's own province; reveal: the host's holding and the
+destination), judged against the reads the candidate was planned over;
+the status counts `agree` / `lag` / `disagree` / `unknown` with the meaning
+spelled out. **No verdict is read by any denial**: `HistoryUnknown`,
+`SourceUnproven`, `SignerAbsent`, `SliceDoesNotEnqueue` and the rest stand
+on every candidate, and `admitted` stays `false`. `step` itself is
+unchanged (it lends no observer; the entry says `null`).
+
+**Tests** (`wide_duties.rs`, literal bytes and public addresses):
+`chain_anchors_refuse_sequence_zero_and_a_wrong_first_head_for_the_whole_transaction`
+— sequence 0 on both entities; sequence 1 with the literal wrong head; the
+province link right and the holding link wrong refusing the whole
+transaction with no head kept; a right first step anchored from genesis;
+only a sequence past 1 anchored on trust.
+`reconciliation_compares_observed_heads_with_a_coherent_snapshot_as_cross_input_consistency`
+— agree from genesis; nothing moved on the observer or the reads; response
+older than the record; modified head; account ahead classified as lag;
+account behind; wrong owner; executable; wrong generation; another
+province's record at the address; absent without and with an observed
+close; an old absence against a closed or an open observation judged
+stale, not closed or missing; a closed province still present as
+`ClosedButPresent`; a foreign-program observer and a target of another
+world refused by scope; nothing observed; no coherent snapshot; address
+not read; an anchor taken on trust agreeing and saying so.
+`the_tick_reconciles_a_candidates_accounts_as_diagnostics_only` — two
+agreements on a coherent settle candidate with every hard denial intact, a
+tampered head counted as a disagreement, the account ahead counted as lag,
+nothing admitted in any case, and `step` without the observer carrying
+`null`.
+
+**Exact limits.** Agreement means only that the records this observer
+received and the account bytes this snapshot returned agree on where the
+chain ends at that context slot; the two inputs may come from independent
+sources and their relationship is not verified here. It is not evidence
+that the records are authentic (no signature verified), that the history
+is complete (source coverage unknown), that a record landed at the slot it
+asserted, or that an anchor taken on trust is right. `SnapshotBehindRecord`
+concludes nothing, presence included. No live game was read; the fixtures
+are literal account bytes and chained records built with the public ABI.
+Nothing here changes a gate, a cursor, a payer or a payout; the
+generation-mismatch settlement question is untouched.
+
 ## Touched files
 
 `frontier-node/crates/keeper/src/wideproof.rs` (new),
@@ -1327,7 +1427,9 @@ step, `snapshot_mode` in the status),
 fourth: `enable_wide_snapshot_via_port` under the same flag; fifth:
 `--follow-wide`, requiring `--observe-wide`),
 `frontier-node/crates/keeper/src/wideindex.rs` (sixth slice: the
-observer's chain heads, `ChainHead`, `chain()`, `MAX_CHAIN_KEYS`),
+observer's chain heads, `ChainHead`, `chain()`, `MAX_CHAIN_KEYS`; seventh:
+`ChainHead.slot`),
+`frontier-node/crates/keeper/src/widereconcile.rs` (new, seventh slice),
 `frontier-node/crates/keeper/Cargo.toml` (sixth slice: the `findex`
 **dev**-dependency gains `features = ["wide-records-experimental"]`; no
 runtime dependency change),
@@ -1342,3 +1444,15 @@ System-owned data accounts are not categorically invalid fee payers: initialized
 ### Generation mismatch: why the refusal remains
 
 Legacy capture authenticates PREV_OWNER_TAG/PREV_GEN/PREV_HOME, refunds old bonds and clears flags before owner change (CONQUEST-CONTRACT.md 293–318; proc/conquest.rs 1402–1492), and sends surviving troops only to the recorded previous home (proc/transit.rs 552–598,949–998). Wide capture and equivalent historical full-reference provenance do not yet exist. Re-founded-site mismatch is not proof of capture. Removing wide.rs generation refusal would invent ownership and escrow recipients; no such rule change was made. Terminal CloseTransit returns its whole account balance to immutable rent_to, while CloseHolding expiry can refund remaining holding escrow after pool obligations to its stored rent payer. These are distinct from normal settlement and must not be described as reimbursement of the historical departure payer.
+
+### Seventh-slice verification checkpoint
+
+The final modified tree passed 99 focused keeper tests: wide_discovery 14,
+wide_duties 49, wide_feed_guard 12, wide_reveal 18, wide_snapshot_rpc 6.
+These use literal fixtures, unsigned transactions and public address/hash
+calculations; no keypair generation/derivation or signing was run. Feature-on
+keeper lib/binaries and these selected tests passed clippy; default lib/binaries
+also passed clippy (compilation only). Independent static review found no
+remaining blocker after the executable-empty-System-account negative case.
+Actual Keeper startup/tick, a real chain, browser play and production sending
+were not run. Compilation of the runtime connection is not execution evidence.

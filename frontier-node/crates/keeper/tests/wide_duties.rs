@@ -59,6 +59,7 @@ use keeper_core::widefollow::{
 use keeper_core::wideindex::{Limits, Scope as IndexScope, WideBatch, WideDiscovery, WideObserver};
 use keeper_core::wideproof::{depart_proof, ProofScope, Unavailable};
 use keeper_core::wideproof::{METHOD_FEED, METHOD_SUPPLIED};
+use keeper_core::widereconcile::{reconcile, Verdict};
 use keeper_core::widereveal::{proofs_for, Publication};
 use keeper_core::widereview::{self, Deny, EngineView};
 use keeper_core::widesnapshot::{parse_snapshot_response, sysvar_owner, Snapshot};
@@ -4297,10 +4298,11 @@ fn an_oversized_page_is_refused_unread_before_the_observer_or_the_store_sees_it(
     // Exactly the bound: processed (one wide record then legacy-shaped
     // ones with wires that decode as committed program transactions
     // without bodies).
+    let mut chains = Chains::default();
     let exact: Vec<TxRecord> = (0..MAX_PAGE_RECORDS as u64)
         .map(|i| {
             let mut r = if i == 0 {
-                record(wire_of(&[depart_ix(home())]), frame(&[departed_ok(home())]))
+                chains.depart_at(200)
             } else {
                 record(wire_of(&[depart_ix(home())]), frame(&[]))
             };
@@ -4668,6 +4670,644 @@ fn a_multi_event_transaction_separates_event_ordinals_from_archive_and_feed_curs
     );
     assert_eq!(o.chain(WideTarget::Province(home())).unwrap().seq, 3);
     assert_eq!(o.model.blocked().map(|b| b.seq), Some(2));
+}
+
+/// The first link seen for an entity: sequence 0 is impossible and refused;
+/// sequence 1 must be the ABI's step from the zero head and a wrong head
+/// there is refused; the refusal takes the whole transaction (no head of
+/// it is kept, for either entity); only a sequence past 1 is a mid-history
+/// anchor taken on trust.
+#[test]
+fn chain_anchors_refuse_sequence_zero_and_a_wrong_first_head_for_the_whole_transaction() {
+    let key = wev::host_key(&host(), home());
+    let payload = wev::departed_payload(
+        SLOT,
+        DEPART_BELL,
+        ARRIVE_BELL,
+        TROOPS,
+        61,
+        TIP,
+        7_000,
+        11_000,
+        &root(),
+    );
+    let zero_links: Vec<WideLink> = WideKind::Departed
+        .links()
+        .iter()
+        .map(|e| WideLink {
+            entity: *e,
+            seq: 0,
+            head: [0; 32],
+        })
+        .collect();
+    let seq_zero = encode(WideKind::Departed, DEPART_BELL, &key, &payload, &zero_links).unwrap();
+    let mut c = Chains::default();
+    // (a) Sequence 0 on both entities: refused, nothing anchored.
+    let mut o = follow_observer();
+    let r = c.depart_record_with(1, seq_zero);
+    assert_eq!(o.observe_page(&[r], &program()), 0);
+    let b = o.model.blocked().expect("blocked");
+    assert!(b.reason.contains("sequence 0"), "{}", b.reason);
+    assert!(o.chain(WideTarget::Province(home())).is_none());
+    assert!(o.chain(WideTarget::Holding(host())).is_none());
+    assert!(o.model.hosts.is_empty());
+    assert_eq!(
+        (o.chain_anchored_from_genesis, o.chain_anchored_unverified),
+        (0, 0)
+    );
+    // (b) Sequence 1 with a head that is not the step from the zero head
+    //     (the literal `both` links): refused, nothing anchored.
+    let mut o = follow_observer();
+    let r = record(wire_of(&[depart_ix(home())]), frame(&[departed_ok(home())]));
+    assert_eq!(o.observe_page(&[r], &program()), 0);
+    let b = o.model.blocked().expect("blocked");
+    assert!(
+        b.reason.contains("does not follow the zero head"),
+        "{}",
+        b.reason
+    );
+    assert!(o.chain(WideTarget::Province(home())).is_none());
+    assert!(o.model.hosts.is_empty());
+    // (c) The province link right from zero, the holding link's head wrong:
+    //     the whole transaction refused — the province head is not kept
+    //     either (atomic per transaction, both entities).
+    let mut c2 = Chains::default();
+    let mut body = c2.departed();
+    *body.last_mut().unwrap() ^= 1; // the last head byte: the holding link's
+    let mut o = follow_observer();
+    assert_eq!(
+        o.observe_page(&[c2.depart_record_with(1, body)], &program()),
+        0
+    );
+    let b = o.model.blocked().expect("blocked");
+    assert!(
+        b.reason.contains("Holding") && b.reason.contains("zero head"),
+        "{}",
+        b.reason
+    );
+    assert!(
+        o.chain(WideTarget::Province(home())).is_none(),
+        "no head of the refused transaction"
+    );
+    assert!(o.chain(WideTarget::Holding(host())).is_none());
+    assert!(o.model.hosts.is_empty());
+    // (d) A right first step from zero: anchored from genesis, both entities.
+    let mut c3 = Chains::default();
+    let mut o = follow_observer();
+    assert_eq!(o.observe_page(&[c3.depart_at(1)], &program()), 1);
+    assert_eq!(
+        (o.chain_anchored_from_genesis, o.chain_anchored_unverified),
+        (2, 0)
+    );
+    assert!(o.chain(WideTarget::Province(home())).unwrap().from_genesis);
+    assert!(o.chain(WideTarget::Holding(host())).unwrap().from_genesis);
+    // (e) Only a sequence past 1 is a mid-history anchor taken on trust.
+    let mut c4 = Chains::default();
+    let _first = c4.depart_at(1);
+    let second = c4.depart_at(2);
+    let mut o = follow_observer();
+    assert_eq!(o.observe_page(&[second], &program()), 1);
+    assert_eq!(
+        (o.chain_anchored_from_genesis, o.chain_anchored_unverified),
+        (0, 2)
+    );
+    assert!(!o.chain(WideTarget::Province(home())).unwrap().from_genesis);
+}
+
+/// Sets an account's chain header fields (`EVENT_SEQ`, `EVENT_HEAD`) in a
+/// literal account map — the bytes `emit_wide` would have left.
+fn set_chain(
+    accounts: &mut BTreeMap<Address, Option<Account>>,
+    a: Address,
+    seq: u64,
+    head: [u8; 32],
+) {
+    let acc = accounts.get_mut(&a).unwrap().as_mut().unwrap();
+    assert!(wr_u64(&mut acc.data, header::EVENT_SEQ, seq));
+    assert!(wr_arr(&mut acc.data, header::EVENT_HEAD, &head));
+}
+
+fn clock_slot(slot: u64) -> ClockSysvar {
+    ClockSysvar {
+        slot,
+        unix_timestamp: GENESIS_TS,
+        ..ClockSysvar::default()
+    }
+}
+
+/// The observed chain head of a province or holding against the account's
+/// own chain fields in one coherent snapshot: every verdict on literal
+/// bytes — agree (from genesis, and from an anchor taken on trust, said
+/// so), the account ahead, the account behind, a modified head, a response
+/// older than the record, wrong owner / generation / coordinate, an absent
+/// account with and without an observed close, nothing observed, no
+/// coherent snapshot, the address not read — and nothing moved on the
+/// observer or the reads. Agreement is cross-input consistency only: the
+/// records' and the snapshot's source relationship is unverified.
+#[test]
+fn reconciliation_compares_observed_heads_with_a_coherent_snapshot_as_cross_input_consistency() {
+    let mut c = Chains::default();
+    let r1 = c.depart_at(1);
+    let r2 = c.depart_at(2);
+    let mut o = follow_observer();
+    assert_eq!(o.observe_page(&[r1.clone(), r2.clone()], &program()), 2);
+    let hp = o.chain(WideTarget::Province(home())).unwrap();
+    let hh = o.chain(WideTarget::Holding(host())).unwrap();
+    assert_eq!((hp.seq, hp.slot, hp.from_genesis), (2, 1_002, true));
+    assert_eq!((hh.seq, hh.slot), (2, 1_002));
+    let before = (o.last_seq_seen, o.model.cursor(), o.status());
+    let fx = SettleFx::new(home());
+    let base = fx.reads().accounts;
+    let keys: Vec<Address> = base.keys().copied().collect();
+    let province = province_addr(home());
+    let holding = fx.holding_addr();
+    // The accounts as `emit_wide` left them after record 2, in a response
+    // at slot 2,000 (past the record's 1,002).
+    let mut agree = base.clone();
+    set_chain(&mut agree, province, hp.seq, hp.head);
+    set_chain(&mut agree, holding, hh.seq, hh.head);
+    let snap = snapshot_of(&agree, &keys, clock_slot(2_000), 7);
+    let reads = snap.reads();
+    let reads_before = reads.clone();
+    let rp = reconcile(&dscope(), &o, WideTarget::Province(home()), &reads);
+    assert_eq!(rp.verdict, Verdict::Agree);
+    assert_eq!(rp.address, province);
+    assert_eq!(rp.account, Some((hp.seq, hp.head)));
+    assert_eq!(rp.context_slot, Some(2_000));
+    let d = rp.describe();
+    assert_eq!(d["verdict"], "Agree");
+    assert_eq!(d["disagreement"], false);
+    assert_eq!(d["lag"], false);
+    assert!(d["meaning"]
+        .as_str()
+        .unwrap()
+        .contains("cross-input consistency"));
+    assert!(d["source_relationship"]
+        .as_str()
+        .unwrap()
+        .contains("unverified"));
+    assert_eq!(d["history_authenticated"], false);
+    assert_eq!(d["source_complete"], false);
+    assert_eq!(d["permits"], "nothing");
+    assert_eq!(d["observed"]["from_genesis"], true);
+    assert_eq!(d["observed"]["record_slot_asserted"], 1_002);
+    let rh = reconcile(&dscope(), &o, WideTarget::Holding(host()), &reads);
+    assert_eq!(rh.verdict, Verdict::Agree);
+    assert_eq!(rh.address, holding);
+    // Nothing moved: the observer and the reads are as they were.
+    assert_eq!((o.last_seq_seen, o.model.cursor(), o.status()), before);
+    assert_eq!(reads, reads_before);
+    // The response older than the record: nothing concluded, said so.
+    let snap_old = snapshot_of(&agree, &keys, clock_slot(900), 7);
+    let r = reconcile(
+        &dscope(),
+        &o,
+        WideTarget::Province(home()),
+        &snap_old.reads(),
+    );
+    assert_eq!(
+        r.verdict,
+        Verdict::SnapshotBehindRecord {
+            context_slot: 900,
+            record_slot: 1_002
+        }
+    );
+    assert!(!r.verdict.is_disagreement());
+    // A modified head at the same sequence.
+    let mut flipped = hp.head;
+    flipped[31] ^= 1;
+    let mut m = base.clone();
+    set_chain(&mut m, province, hp.seq, flipped);
+    let r = reconcile(
+        &dscope(),
+        &o,
+        WideTarget::Province(home()),
+        &snapshot_of(&m, &keys, clock_slot(2_000), 7).reads(),
+    );
+    assert_eq!(r.verdict, Verdict::HeadMismatch);
+    assert!(r.verdict.is_disagreement());
+    // The account's chain past the observed link: the observer is behind.
+    let mut ahead = base.clone();
+    set_chain(&mut ahead, province, 3, [0x33; 32]);
+    let r = reconcile(
+        &dscope(),
+        &o,
+        WideTarget::Province(home()),
+        &snapshot_of(&ahead, &keys, clock_slot(2_000), 7).reads(),
+    );
+    assert_eq!(r.verdict, Verdict::ObserverBehind { account_seq: 3 });
+    assert!(
+        r.verdict.is_lag() && !r.verdict.is_disagreement(),
+        "lag is not a conflict"
+    );
+    assert_eq!(r.describe()["lag"], true);
+    // The account's chain behind the observed link at a slot past the
+    // record: not one history.
+    let mut behind = base.clone();
+    set_chain(&mut behind, province, 1, [0x11; 32]);
+    let r = reconcile(
+        &dscope(),
+        &o,
+        WideTarget::Province(home()),
+        &snapshot_of(&behind, &keys, clock_slot(2_000), 7).reads(),
+    );
+    assert_eq!(r.verdict, Verdict::AccountBehind { account_seq: 1 });
+    assert!(r.verdict.is_disagreement());
+    // Wrong owner at the canonical address.
+    let mut foreign = agree.clone();
+    foreign.get_mut(&province).unwrap().as_mut().unwrap().owner = actor();
+    let r = reconcile(
+        &dscope(),
+        &o,
+        WideTarget::Province(home()),
+        &snapshot_of(&foreign, &keys, clock_slot(2_000), 7).reads(),
+    );
+    assert_eq!(r.verdict, Verdict::Identity("owner"));
+    // An executable account at the canonical address, even program-owned.
+    let mut exec = agree.clone();
+    exec.get_mut(&province)
+        .unwrap()
+        .as_mut()
+        .unwrap()
+        .executable = true;
+    let r = reconcile(
+        &dscope(),
+        &o,
+        WideTarget::Province(home()),
+        &snapshot_of(&exec, &keys, clock_slot(2_000), 7).reads(),
+    );
+    assert_eq!(r.verdict, Verdict::Identity("executable"));
+    assert!(r.verdict.is_disagreement());
+    // Executable System-owned empty data must not normalize to absence.
+    let a = exec.get_mut(&province).unwrap().as_mut().unwrap();
+    a.owner = Address::from([0; 32]);
+    a.data.clear();
+    let r = reconcile(
+        &dscope(),
+        &o,
+        WideTarget::Province(home()),
+        &snapshot_of(&exec, &keys, clock_slot(2_000), 7).reads(),
+    );
+    assert_eq!(r.verdict, Verdict::Identity("executable"));
+    // Another generation of the holding at the address.
+    let mut gen = agree.clone();
+    gen.insert(
+        holding,
+        acct(holding_bytes(
+            home().coord(),
+            GEN + 1,
+            H::STATE_FINAL,
+            citizen(),
+        )),
+    );
+    set_chain(&mut gen, holding, hh.seq, hh.head);
+    let r = reconcile(
+        &dscope(),
+        &o,
+        WideTarget::Holding(host()),
+        &snapshot_of(&gen, &keys, clock_slot(2_000), 7).reads(),
+    );
+    assert_eq!(r.verdict, Verdict::Identity("generation"));
+    // Another province's record at the address.
+    let mut other = agree.clone();
+    other.insert(province, acct(province_bytes(away(), DEPART_BELL + 1)));
+    let r = reconcile(
+        &dscope(),
+        &o,
+        WideTarget::Province(home()),
+        &snapshot_of(&other, &keys, clock_slot(2_000), 7).reads(),
+    );
+    assert_eq!(r.verdict, Verdict::Identity("coordinate"));
+    // Absent, no close observed: missing (unknown which way).
+    let mut absent = agree.clone();
+    absent.insert(province, None);
+    let r = reconcile(
+        &dscope(),
+        &o,
+        WideTarget::Province(home()),
+        &snapshot_of(&absent, &keys, clock_slot(2_000), 7).reads(),
+    );
+    assert_eq!(r.verdict, Verdict::AccountMissing);
+    assert!(!r.verdict.is_disagreement());
+    // Absent after an observed `ProvinceClosed`: closed.
+    let mut c2 = Chains::default();
+    let d1 = c2.departed();
+    let closed = c2.body(
+        WideKind::ProvinceClosed,
+        DEPART_BELL + 1,
+        &home().to_bytes(),
+        &wev::province_closed_payload(&[0xd5; 32], 5),
+    );
+    let mut o2 = follow_observer();
+    assert_eq!(
+        o2.observe_page(
+            &[
+                c2.depart_record_with(1, d1),
+                c2.depart_record_with(2, closed)
+            ],
+            &program()
+        ),
+        2
+    );
+    assert!(o2.chain(WideTarget::Province(home())).unwrap().terminal);
+    let r = reconcile(
+        &dscope(),
+        &o2,
+        WideTarget::Province(home()),
+        &snapshot_of(&absent, &keys, clock_slot(2_000), 7).reads(),
+    );
+    assert_eq!(r.verdict, Verdict::AccountClosed);
+    // The same absence in a response older than the close record: an old
+    // absence cannot confirm a later close — stale, not closed.
+    let r = reconcile(
+        &dscope(),
+        &o2,
+        WideTarget::Province(home()),
+        &snapshot_of(&absent, &keys, clock_slot(900), 7).reads(),
+    );
+    assert_eq!(
+        r.verdict,
+        Verdict::SnapshotBehindRecord {
+            context_slot: 900,
+            record_slot: 1_002
+        }
+    );
+    // Likewise an old absence against a non-terminal observation is not
+    // "missing": stale.
+    let r = reconcile(
+        &dscope(),
+        &o,
+        WideTarget::Province(home()),
+        &snapshot_of(&absent, &keys, clock_slot(900), 7).reads(),
+    );
+    assert!(matches!(r.verdict, Verdict::SnapshotBehindRecord { .. }));
+    // The province closed in the observation yet present in the response
+    // at or past the close: the close erases the account in its own
+    // transaction, so the two inputs disagree.
+    let r = reconcile(
+        &dscope(),
+        &o2,
+        WideTarget::Province(home()),
+        &snapshot_of(&agree, &keys, clock_slot(2_000), 7).reads(),
+    );
+    assert_eq!(r.verdict, Verdict::ClosedButPresent);
+    assert!(r.verdict.is_disagreement());
+    // An observer of another scope (another program): its heads do not
+    // apply, whatever they say.
+    let foreign_observer = WideObserver::new(
+        IndexScope {
+            program: actor(),
+            season: season_pda().0,
+            world: world(),
+            source: "test: another program".into(),
+        },
+        Limits::default(),
+    );
+    let r = reconcile(
+        &dscope(),
+        &foreign_observer,
+        WideTarget::Province(home()),
+        &reads,
+    );
+    assert_eq!(r.verdict, Verdict::ScopeMismatch("program"));
+    assert!(
+        r.observed.is_none(),
+        "no head of a foreign observer is used"
+    );
+    let other_world = ProvinceKey::new(other_world(), home().coord());
+    let r = reconcile(&dscope(), &o, WideTarget::Province(other_world), &reads);
+    assert_eq!(r.verdict, Verdict::ScopeMismatch("target world"));
+    // Nothing observed for the entity.
+    let o3 = follow_observer();
+    let r = reconcile(&dscope(), &o3, WideTarget::Province(home()), &reads);
+    assert_eq!(r.verdict, Verdict::NotObserved);
+    assert_eq!(
+        r.account,
+        Some((hp.seq, hp.head)),
+        "the account was still read"
+    );
+    // Reads that are not one coherent snapshot: no comparison.
+    let r = reconcile(&dscope(), &o, WideTarget::Province(home()), &fx.reads());
+    assert_eq!(r.verdict, Verdict::NoCoherentSnapshot);
+    assert_eq!(r.observed, Some(hp));
+    // The address not in the reads.
+    let mut fewer = agree.clone();
+    fewer.remove(&province);
+    let keys_fewer: Vec<Address> = fewer.keys().copied().collect();
+    let r = reconcile(
+        &dscope(),
+        &o,
+        WideTarget::Province(home()),
+        &snapshot_of(&fewer, &keys_fewer, clock_slot(2_000), 7).reads(),
+    );
+    assert_eq!(r.verdict, Verdict::NotRead);
+    // An anchor taken on trust: an observer that saw record 2 alone agrees
+    // with the same account bytes — and says its anchor is unverified.
+    let mut o4 = follow_observer();
+    assert_eq!(o4.observe_page(&[r2], &program()), 1);
+    let h4 = o4.chain(WideTarget::Province(home())).unwrap();
+    assert!(!h4.from_genesis);
+    assert_eq!((h4.seq, h4.head), (hp.seq, hp.head));
+    let r = reconcile(&dscope(), &o4, WideTarget::Province(home()), &reads);
+    assert_eq!(r.verdict, Verdict::Agree);
+    let d = r.describe();
+    assert_eq!(d["observed"]["from_genesis"], false);
+    assert!(d["observed"]["anchor"]
+        .as_str()
+        .unwrap()
+        .contains("unverified"));
+    assert_eq!(d["history_authenticated"], false);
+}
+
+/// The tick carries the reconciliation of each candidate's accounts when
+/// the observer is lent, counts the verdicts, and admits nothing more for
+/// an agreement; without the observer the entry says `null`.
+#[test]
+fn the_tick_reconciles_a_candidates_accounts_as_diagnostics_only() {
+    let mut c = Chains::default();
+    let mut r1 = c.depart_at(1);
+    r1.slot = 5; // a record before the fixture response's slot (900)
+    let mut o = follow_observer();
+    assert_eq!(o.observe_page(&[r1], &program()), 1);
+    let hp = o.chain(WideTarget::Province(home())).unwrap();
+    let hh = o.chain(WideTarget::Holding(host())).unwrap();
+    assert_eq!(hp.slot, 5);
+    let fx = SettleFx::new(home());
+    let mut accounts = fx.reads().accounts;
+    set_chain(&mut accounts, province_addr(home()), hp.seq, hp.head);
+    set_chain(&mut accounts, fx.holding_addr(), hh.seq, hh.head);
+    let port = FakePort {
+        accounts: accounts.clone(),
+        min_slots: Mutex::new(vec![]),
+        forbidden: AtomicUsize::new(0),
+    };
+    let lit = LiteralSnapshots::new(accounts);
+    let engine = Engine::new(Budgets::default(), EngineParams::default());
+    let mut review = WideReview::new(Deployment {
+        program_version: WIDE_VERSION,
+        ruleset_hash: RULESET,
+    });
+    let made = block_on(review.step_observing(
+        &port,
+        &engine,
+        &o.model,
+        program(),
+        season_pda().0,
+        900,
+        Some(&lit),
+        None,
+        Some(&o),
+    ));
+    assert_eq!(made, 1);
+    assert_eq!(
+        (
+            review.reconcile_agree,
+            review.reconcile_disagree,
+            review.reconcile_unknown
+        ),
+        (2, 0, 0)
+    );
+    let st = review.status();
+    let r = &st["recent"][0];
+    assert_eq!(r["candidate"]["coherent"], true);
+    let rec = r["reconcile"].as_array().unwrap();
+    assert_eq!(rec.len(), 2);
+    assert!(rec.iter().all(|x| x["verdict"] == "Agree"));
+    assert!(rec.iter().all(|x| x["source_relationship"]
+        .as_str()
+        .unwrap()
+        .contains("unverified")));
+    assert!(rec.iter().all(|x| x["history_authenticated"] == false));
+    assert_eq!(rec[0]["target"]["province"], hex::encode(home().to_bytes()));
+    assert_eq!(
+        rec[1]["target"]["holding"],
+        hex::encode(host().holding_ref().to_bytes())
+    );
+    // Agreement admits nothing: every hard denial stands.
+    let denials = r["assessment"]["review"]["denials"].as_array().unwrap();
+    for d in [
+        "SourceUnproven",
+        "HistoryUnknown",
+        "SignerAbsent",
+        "SliceDoesNotEnqueue",
+    ] {
+        assert!(denials.iter().any(|x| x == d), "{d}");
+    }
+    assert_eq!(r["assessment"]["review"]["admitted"], false);
+    assert_eq!(engine.pending_len(), 0);
+    assert_eq!(st["reconcile"]["agree"], 2);
+    assert_eq!(st["reconcile"]["lag"], 0);
+    assert!(st["reconcile"]["meaning"]
+        .as_str()
+        .unwrap()
+        .contains("never history authenticity"));
+    assert!(st["reconcile"]["meaning"]
+        .as_str()
+        .unwrap()
+        .contains("source relationship is unverified"));
+    // The observer was only lent: nothing of it moved.
+    assert_eq!(o.last_seq_seen, Some(1));
+    assert_eq!(o.model.cursor(), Some(1));
+    // A head modified on the chain side: a disagreement, counted, still
+    // nothing admitted.
+    let mut tampered = fx.reads().accounts;
+    let mut flipped = hp.head;
+    flipped[0] ^= 1;
+    set_chain(&mut tampered, province_addr(home()), hp.seq, flipped);
+    set_chain(&mut tampered, fx.holding_addr(), hh.seq, hh.head);
+    let lit2 = LiteralSnapshots::new(tampered);
+    let mut review2 = WideReview::new(Deployment {
+        program_version: WIDE_VERSION,
+        ruleset_hash: RULESET,
+    });
+    let made = block_on(review2.step_observing(
+        &port,
+        &engine,
+        &o.model,
+        program(),
+        season_pda().0,
+        900,
+        Some(&lit2),
+        None,
+        Some(&o),
+    ));
+    assert_eq!(made, 1);
+    assert_eq!(
+        (review2.reconcile_agree, review2.reconcile_disagree),
+        (1, 1)
+    );
+    let r2 = &review2.status()["recent"][0];
+    assert_eq!(r2["reconcile"][0]["verdict"], "HeadMismatch");
+    assert_eq!(r2["reconcile"][0]["disagreement"], true);
+    assert_eq!(r2["assessment"]["review"]["admitted"], false);
+    // The account's chain ahead of the observer: lag, counted apart from
+    // disagreement, nothing admitted.
+    let mut ahead = fx.reads().accounts;
+    set_chain(&mut ahead, province_addr(home()), hp.seq + 1, [0x42; 32]);
+    set_chain(&mut ahead, fx.holding_addr(), hh.seq, hh.head);
+    let lit3 = LiteralSnapshots::new(ahead);
+    let mut review_lag = WideReview::new(Deployment {
+        program_version: WIDE_VERSION,
+        ruleset_hash: RULESET,
+    });
+    assert_eq!(
+        block_on(review_lag.step_observing(
+            &port,
+            &engine,
+            &o.model,
+            program(),
+            season_pda().0,
+            900,
+            Some(&lit3),
+            None,
+            Some(&o),
+        )),
+        1
+    );
+    assert_eq!(
+        (
+            review_lag.reconcile_agree,
+            review_lag.reconcile_lag,
+            review_lag.reconcile_disagree
+        ),
+        (1, 1, 0)
+    );
+    let rl = &review_lag.status()["recent"][0];
+    assert_eq!(
+        rl["reconcile"][0]["verdict"],
+        format!("ObserverBehind {{ account_seq: {} }}", hp.seq + 1)
+    );
+    assert_eq!(rl["reconcile"][0]["lag"], true);
+    assert_eq!(rl["reconcile"][0]["disagreement"], false);
+    assert_eq!(rl["assessment"]["review"]["admitted"], false);
+    assert_eq!(review_lag.status()["reconcile"]["lag"], 1);
+    // Without the observer: no reconciliation, nothing counted.
+    let mut review3 = WideReview::new(Deployment {
+        program_version: WIDE_VERSION,
+        ruleset_hash: RULESET,
+    });
+    let made = block_on(review3.step(
+        &port,
+        &engine,
+        &o.model,
+        program(),
+        season_pda().0,
+        900,
+        Some(&lit),
+        None,
+    ));
+    assert_eq!(made, 1);
+    assert!(review3.status()["recent"][0]["reconcile"].is_null());
+    assert_eq!(
+        (
+            review3.reconcile_agree,
+            review3.reconcile_lag,
+            review3.reconcile_disagree,
+            review3.reconcile_unknown
+        ),
+        (0, 0, 0, 0)
+    );
+    assert_eq!(port.forbidden.load(Ordering::SeqCst), 0);
 }
 
 /// A wide transaction past the model's input caps is refused by the

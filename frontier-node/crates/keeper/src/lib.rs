@@ -31,6 +31,7 @@
 //! | `widefees` (feature `wide-world-experimental`) | what executing a wide candidate requires of its fee payer, calculated only from a same-response Rent sysvar and payer account (ABI sizes), every assumption named, unmet or unknown declared |
 //! | `widetick` (feature `wide-world-experimental`) | the bounded per-tick **read-only** review of the observer's candidates for `/v1/status` (`Keeper::enable_wide_review`): plans and reviews, enqueues nothing; over one snapshot response through the keeper's own port when `Keeper::enable_wide_snapshot_via_port` was called; reveal hints only from proofs extracted from the observer-accepted feed prefix, a verified public beacon and the public opening, when the runtime has them |
 //! | `widefollow` (feature `wide-world-experimental`) | **read-only, opt-in** (`Keeper::enable_wide_follow`): after the legacy feed gate blocks, bounded pulls from the follower's own cursor shown to the same observer and proof store; never a legacy cursor, gate, signature or completeness claim |
+//! | `widereconcile` (feature `wide-world-experimental`) | **read-only** diagnostics: the observer's PSW1 chain head of a province or holding against the account's own `EVENT_SEQ`/`EVENT_HEAD` in one coherent snapshot — agree / lag / behind / mismatch / stale / missing / closed / closed-but-present / identity / scope / unknown; cross-input consistency only (the records' and the snapshot's source relationship unverified), never authenticity, completeness or permission |
 //!
 //! [`Keeper::tick`] runs once per slot: it reads the Clock, plans every
 //! duty from chain reads (the chain is the state), then lets the engine
@@ -77,6 +78,8 @@ pub mod widefollow;
 pub mod wideindex;
 #[cfg(feature = "wide-world-experimental")]
 pub mod wideproof;
+#[cfg(feature = "wide-world-experimental")]
+pub mod widereconcile;
 #[cfg(feature = "wide-world-experimental")]
 pub mod widereveal;
 #[cfg(feature = "wide-world-experimental")]
@@ -1192,8 +1195,11 @@ impl<P: ChainPort, D: DrandPort> Keeper<P, D> {
                     }
                     widesnapshot::SnapshotMode::Separate(b) => Some(b.as_ref()),
                 };
+                // The observer is lent read-only for the reconciliation
+                // diagnostics (observed chain heads against the snapshot's
+                // account chain fields): nothing it holds is moved.
                 let plans = r
-                    .step(
+                    .step_observing(
                         &self.port,
                         &self.engine,
                         &o.model,
@@ -1202,6 +1208,7 @@ impl<P: ChainPort, D: DrandPort> Keeper<P, D> {
                         slot,
                         snapshot,
                         inputs,
+                        Some(o),
                     )
                     .await;
                 phase(&mut rep, "wide-review", plans);
