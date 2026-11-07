@@ -1160,3 +1160,26 @@ V27 が動かない版で JoinResident が PASS にならないことは §16.2 
 この試験は⑪の試験を⑯が同じ木で再現したもので、⑯の独自の試験ではない。V27・V28 を、NFT 版の Season をまるごと `verify()` に通して確かめることは、まだしていない（⑪ も未確認としている）。
 
 ④ の r3（`15bed411bbfec103fafba7a1525ec650e82c1671`、tree `475f2ae92bd72d3731891a042bf7213c5b98b7e3`、sha256 `8937a364…`）と r4（`57c5c1714df8ffb4d5e145b32118b9590dc5459e`、tree `9c5c480c657b0895f63c270999abf7fb9e039889`、sha256 `094341c619b51b408d9f83e5b827920d00dddf4e294db6b1215d23aa3cdf8846`）は届いていない。どちらも照合も実行もしていない。④ が直したという照合器（`e-prize-run.json` を読む 31 項目）も未確認。
+
+## 17.8 ④の訂正（2026-11-07）を受けて、⑯の実行を見直した
+
+④の連絡: ④は `cargo test -p fclient --lib`（94 件）と `--test fixtures` の `march_fixture_is_fresh` を、鍵を使わない試験として流していた。実際は次のとおり鍵を使う。
+
+- `beacon.rs`・`seal.rs` の試験は、`TestKey::new()` で鍵を作る。
+- `tx.rs` の試験は、`Keypair::new_from_array([3;32])` で署名する。
+- `march_fixture_is_fresh` は、`fixture::march::march()` を通して固定 seed の鍵で署名する。
+
+④の「fclient 94」は、⑯の記録でも鍵なしの試験として扱わない。
+
+⑯がこのセッションで流した試験の命令とログを、すべて調べた。
+
+- **`-p fclient` の試験は、一度も実行していない。**
+- **`march_fixture_is_fresh` を流したのは第1期（2026-10-31）だけ。** `cargo test -p verify` の全件で、`logs/patched-verify-suite.log`・`-p1b.log` に残る。
+  - 同じ全件の実行に、`tests/tamper.rs` の 58 件も入っている。`TestKey::new()` で鍵を作るものを含む。
+  - 第1期の `permutation-gateway` の `npm test` 全件（2,536 件）にも、`Keypair.generate`・署名を使う試験が入っている（agent-wallet、citizens など）。
+  - どちらも鍵の制約より前の実行である。今の基準では数えず、再実行もしない。§1 の「`cargo test -p verify` 全件通過（tamper 58 件を含む）」と「npm test 2,533 通過」は、この扱いとする。
+- 第12期の実行には、鍵の経路を通る試験はなかった。命令は `scripts/run-v17.sh`・`run-v19.sh` と §17.7。下の試験はどれも、`Keypair`／`TestKey`／`from_seed`／`sign` を、試験の module と、試験が呼ぶ src の関数まで辿って確かめた。
+  - 検証器: `--lib`、`v16_v27_gate`、`v16_cpi_keyfree`、`evidence`、`new_bands`、`history`、`unit`、`camp_clear`、`missing_state`、`open_items`。`fixtures` は `march_fixture_is_fresh` を除いて流した。
+  - findex: `coverage`、`no_hidden_gap`、`store_failure`、`v16_history_*`。
+  - herald の `ingest_health`。`herald_fold::fixture` は `Signature::from(bytes)` で署名欄を埋めるだけで、署名しない。
+  - ④の chain-flow の A・E・B と、⑯の荷車の試験。署名者は署名者フラグだけ。
