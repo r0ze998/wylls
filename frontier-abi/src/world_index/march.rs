@@ -88,10 +88,13 @@ pub const WIDE_TRANSIT_LEN: usize = 256;
 
 /// The one allocated wide host identity version (module doc): the
 /// canonical identity is the full [`WideHostRef`]; the roster alias is
-/// [`wide_host_alias`]; the formulas are the `wide_*` ones. **Defined, not
-/// carried**: no wide holding is founded under it (the program founds
-/// under `holding::HOST_IDENTITY_UNALLOCATED` and refuses any other), so
-/// the definition commits no asset. Not a production protocol number.
+/// [`wide_host_alias`]; the formulas are the `wide_*` ones. Every wide
+/// holding is founded under `holding::HOST_IDENTITY_UNALLOCATED`; the
+/// experimental program writes this version at the holding's **first wide
+/// Muster** (`WideHolding::allocate_identity`), once the closed muster /
+/// resolve / dissolve / return path exists for the hosts it debits. A
+/// departure stays refused under it (no wide transit exists). Not a
+/// production protocol number.
 pub const HOST_IDENTITY_FULL_REF_V1: u16 = 1;
 
 /// Domain of [`wide_host_alias`].

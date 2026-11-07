@@ -60,10 +60,15 @@
 //! and owner) and compare the restored state with the pre-state, which is
 //! evidence of all-or-nothing under the emulation, not of the chain.
 //!
-//! **No PS2 record of a wide event.** The wide records carry no event
-//! chain and no record kind is allocated for a wide opening, filing or
-//! settlement (the "record kinds" allocation gap of `WIDE-LAND-WRITER.md`
-//! §3). The records a wide handler emits are deployed ones on deployed
+//! **No PS2 record of a wide event.** No deployed record kind is allocated
+//! for a wide opening, filing or settlement (the "record kinds" allocation
+//! gap of `WIDE-LAND-WRITER.md` §3), and none is borrowed: the host
+//! lifecycle (Muster, Resolve, Dissolve, Return, the roster close) logs
+//! the **wide format** of `world_index::event` (`PSW1`, version 0x81, its
+//! own kinds, full-identity keys, a domain-separated chain over the wide
+//! accounts' headers), which a deployed reader refuses as an unknown
+//! version and never misreads. The deployed records a wide handler emits
+//! are deployed ones on deployed
 //! accounts: the anchor's `HARVEST` for the settler cost, and a
 //! displacement's `DIVERT` when the refund would leave its recipient
 //! below rent exemption. Readers see the anchor's stores, the fund's and
@@ -92,32 +97,40 @@
 
 use solana_program::{account_info::AccountInfo, pubkey::Pubkey};
 
-use frontier_abi::conquest_model::{write_keep, write_no_keep};
-use frontier_abi::entry::find_entry;
+use frontier_abi::conquest_model::{write_keep, write_no_keep, StepParams};
+use frontier_abi::entry::{find_entry, read_entry, write_entry, Entry, EntryOp};
 use frontier_abi::layout::AccountKind;
 use frontier_abi::log::{divert_reason, settle_outcome, Kind};
 use frontier_abi::prologue as ap;
 use frontier_abi::v2::kernel::keep as kkeep;
+use frontier_abi::world_index::arrival as wa;
+use frontier_abi::world_index::event::{self as wev, WideEntity, WideKind, WideLink};
 use frontier_abi::world_index::holding::{self as wh, HoldingError, SlotBinding, WideHolding};
 use frontier_abi::world_index::land::{
     self as wl, Decision, LandError, PreviousRing, WideProvince, WideRingSeed, WideRules,
     FIRST_WIDE_RING,
 };
 use frontier_abi::world_index::march::{wide_host_alias, MarchError, WideTransit};
+use frontier_abi::world_index::resolve::{self as wres, ResolveError};
+use frontier_abi::world_index::roster::{self as wro, WideRoster};
 use frontier_abi::world_index::rules::{self as wr, OpeningInput, RulesError, WideRulesConfig};
 use frontier_abi::world_index::ticket::{
     self as wt, CitizenTicket, TicketError, TicketStatus, WideTicket,
 };
 use frontier_abi::world_index::tiles::TileAddress;
 use frontier_abi::world_index::wide_ix::{self as wix, WideIx};
-use frontier_abi::world_index::{WideCoord, WideHostRef, WorldId};
-use permutation_rules::fixed::MILLI;
-use permutation_rules::frontier::clash::NEUTRAL;
+use frontier_abi::world_index::{ProvinceKey, WideCoord, WideHostRef, WorldId};
+use permutation_rules::fixed::{MilliTroops, MILLI};
+use permutation_rules::frontier::catalog;
+use permutation_rules::frontier::clash::{frontier_ruleset, NEUTRAL};
+use permutation_rules::frontier::doctrine::of_faction_v3;
 use permutation_rules::frontier::fees;
 use permutation_rules::frontier::geometry::{R_MAX_HARD, SITES_PER_PROVINCE};
 use permutation_rules::frontier::holding::{may_found_outpost, OutpostCheck, Tier};
+use permutation_rules::frontier::host::Host;
 use permutation_rules::frontier::seal as ks;
 use permutation_rules::frontier::siege;
+use permutation_rules::frontier::stance::{Posture, Stance};
 use permutation_rules::frontier::terrain::wide::generate_province_wide;
 
 use crate::addr::{self, AddrCtx};
@@ -127,9 +140,9 @@ use crate::error::{kernel, BAD_ACCOUNT, OVERFLOW};
 use crate::init::{self, SeasonSigner, Sink};
 use crate::layout::conquest::{lifecycle, season_cq};
 use crate::layout::{
-    camp as CP, citizen as C, citizen2 as C2, frontier as FR, holding as H, join_shard2 as JS2,
-    province as PV, province2 as PV2, province_fund as PF, season as S, site as SM, site2 as SM2,
-    transit as T, Ro, Rw,
+    camp as CP, citizen as C, citizen2 as C2, entry as E, frontier as FR, holding as H,
+    join_shard2 as JS2, province as PV, province2 as PV2, province_fund as PF, season as S,
+    site as SM, site2 as SM2, summary as SU, transit as T, Ro, Rw,
 };
 use crate::proc::citizen::{self as cz, write_holding as write_founding, Founding};
 use crate::proc::conquest::{capture_lock_of, check_source_province};
@@ -148,19 +161,29 @@ impl IxTable for WideIx {
     }
 }
 
-/// Routes a draft-band instruction (the caller checked `is_draft_tag`).
+/// Routes a draft-band instruction (the caller checked `is_draft_tag`) by
+/// its **fully decoded command** (`wide_ix::WideCommand::decode`: the
+/// tag's legacy encoding at its exact length, or a whole envelope
+/// sub-operation; `BadData` otherwise). The legacy handlers decode their
+/// own data again; the envelope handlers take the decoded command.
 pub fn dispatch(p: &Pubkey, a: &[AccountInfo], data: &[u8]) -> R<()> {
-    match wix::tag_of(data)? {
-        WideIx::RequestRingSeed => request_ring_seed(p, a, data),
-        WideIx::ConsumeRingSeed => consume_ring_seed(p, a, data),
-        WideIx::OpenProvince => open_province(p, a, data),
-        WideIx::ClaimSite => claim_site(p, a, data),
-        WideIx::Depart => depart(p, a, data),
-        WideIx::SetRules => set_rules(p, a, data),
-        WideIx::SettleTicket => settle_ticket(p, a, data),
-        WideIx::ResidentAct => resident_act(p, a, data),
-        WideIx::Close => close(p, a, data),
-        WideIx::Finalize => finalize(p, a, data),
+    use wix::WideCommand as C;
+    match C::decode(data)? {
+        C::RequestRingSeed(_) => request_ring_seed(p, a, data),
+        C::ConsumeRingSeed(_) => consume_ring_seed(p, a, data),
+        C::OpenProvince(_) => open_province(p, a, data),
+        C::ClaimSite(_) => claim_site(p, a, data),
+        C::Depart(_) => depart(p, a, data),
+        C::SetRules(_) => set_rules(p, a, data),
+        C::SettleTicket(_) => settle_ticket(p, a, data),
+        C::ResidentAct(_) => resident_act(p, a, data),
+        C::Close(_) => close(p, a, data),
+        C::Finalize(_) => finalize(p, a, data),
+        C::Muster(x) => muster_as(p, a, &x, &Auth::Wallet),
+        C::Dissolve(x) => dissolve_as(p, a, &x, &Auth::Wallet),
+        C::Resolve(x) => resolve(p, a, &x),
+        C::Return(_) => settle_return(p, a),
+        C::CloseRoster(_) => close_roster(p, a),
     }
 }
 
@@ -2074,11 +2097,902 @@ pub fn resident_act(p: &Pubkey, accounts: &[AccountInfo], d: &[u8]) -> R<()> {
         proof,
         generation: x.generation,
     };
-    match wix::tag_of(x.inner)? {
-        WideIx::ClaimSite => claim_site_as(p, a, x.inner, &auth),
-        WideIx::Depart => depart_as(p, a, x.inner, &auth),
+    // The whitelist is the decoded command's class (`is_player`), never
+    // the inner tag alone: 0xDA carries the player Muster and Dissolve and
+    // nothing of class D or N.
+    use wix::WideCommand as C;
+    match x.command()? {
+        C::ClaimSite(_) => claim_site_as(p, a, x.inner, &auth),
+        C::Depart(_) => depart_as(p, a, x.inner, &auth),
+        C::Muster(m) => muster_as(p, a, &m, &auth),
+        C::Dissolve(d) => dissolve_as(p, a, &d, &auth),
         _ => Err(FrontierError::BadData.into()),
     }
+}
+
+// ------------------------------------------------------------ the host lifecycle
+
+/// The one wide instruction class whose table carries a top-level rule:
+/// WideResolve (the deployed resolves are top-level).
+#[derive(Clone, Copy)]
+struct TopLevelShape(&'static [ap::Group]);
+
+/// Logs a **wide** record (`world_index::event`: the `PSW1` prefix, the
+/// wide version byte, a full-identity key) and advances the event chains
+/// of the wide accounts it names (`chained`, exactly the kind's link set
+/// in ascending entity order: the province before the holding), under the
+/// wide chain rule. Every link and the whole tail are computed and
+/// validated **before** any header is written, so a refused record (a
+/// sequence overflow, a wrong link set) changes no chain. Nothing of the
+/// deployed `PS2` format is written: no deployed reader parses these, and
+/// the wide accounts' chains are advanced by wide records only. One
+/// transaction may log several records (a return of several hosts); a
+/// refusal after one of them reverts account writes. Raw failed-transaction
+/// logs can remain, so consumers must filter transaction status before
+/// treating them as successful receipts (as the host collector does).
+fn emit_wide(
+    kind: WideKind,
+    bell: u32,
+    key: &[u8],
+    payload: &[u8],
+    chained: &mut [(WideEntity, &mut [u8])],
+) -> R<()> {
+    if chained.len() > wev::MAX_LINKS || chained.len() != kind.links().len() {
+        return Err(BAD_ACCOUNT);
+    }
+    let mut out = [0u8; wev::MAX_BODY];
+    let n = wev::write_body(kind, bell, key, payload, &mut out).ok_or(BAD_ACCOUNT)?;
+    // 1. every link, from the headers as they are (no write yet)
+    let mut links = [WideLink {
+        entity: WideEntity::Province,
+        seq: 0,
+        head: [0; 32],
+    }; wev::MAX_LINKS];
+    for (i, (entity, data)) in chained.iter().enumerate() {
+        let (seq, head) = crate::layout::chain_of(data)?;
+        links[i] = wev::advance(*entity, seq, &head, &out[..n]).ok_or(OVERFLOW)?;
+    }
+    // 2. the tail (the kind's exact link set, in order), still no write
+    let m = wev::write_tail(kind, &links[..chained.len()], &mut out, n).ok_or(BAD_ACCOUNT)?;
+    // 3. the headers, then the log
+    for (link, (_, data)) in links[..chained.len()].iter().zip(chained.iter_mut()) {
+        crate::layout::set_chain(data, link.seq, &link.head)?;
+    }
+    solana_program::log::sol_log_data(&[wev::WIDE_LOG_PREFIX, &out[..m]]);
+    Ok(())
+}
+
+impl IxTable for TopLevelShape {
+    fn groups(self) -> &'static [ap::Group] {
+        self.0
+    }
+    fn top_level_only(self) -> bool {
+        true
+    }
+}
+
+/// A resolve-model refusal as a program code: the deployed model's codes
+/// where the refusal is the deployed model's (`From<ModelError>`), the
+/// clash's `Kernel` sub-code, `OutOfOrder` for a bell that is not due,
+/// `BadAccount` for an unpaired or legacy entry and for unported state.
+fn resolve_err(e: ResolveError) -> crate::Error {
+    match e {
+        ResolveError::Model(m) => m.into(),
+        ResolveError::NotDue { .. } => FrontierError::OutOfOrder.into(),
+        ResolveError::Clash(_) => kernel(super::clash::sub::CLASH_INPUT),
+        ResolveError::Keep(_) => kernel(frontier_abi::conquest_model::sub::KEEP),
+        ResolveError::Overflow => OVERFLOW,
+        _ => BAD_ACCOUNT,
+    }
+}
+
+/// The roster side table of `province` at an address the caller checked:
+/// `None` if absent; the record if present, program-owned, well formed,
+/// of this season and of this province; `BadAccount` otherwise.
+fn roster_at(
+    ai: &AccountInfo,
+    p: &Pubkey,
+    season_id: u64,
+    province: ProvinceKey,
+) -> R<Option<WideRoster>> {
+    if init::is_absent(ai) {
+        return Ok(None);
+    }
+    if ai.owner != p {
+        return Err(BAD_ACCOUNT);
+    }
+    let d = ai.try_borrow_data()?;
+    let rec = WideRoster::read(&d).map_err(|_| BAD_ACCOUNT)?;
+    if rec.season_id != season_id || rec.province != province {
+        return Err(BAD_ACCOUNT);
+    }
+    Ok(Some(rec))
+}
+
+/// A wide province of this world at its canonical address, present.
+fn canonical_province(
+    ai: &AccountInfo,
+    p: &Pubkey,
+    ctx: &AddrCtx,
+    season_id: u64,
+    world: WorldId,
+) -> R<WideProvince> {
+    let prov = province_at(ai, p, season_id)?.ok_or(BAD_ACCOUNT)?;
+    if prov.world != world {
+        return Err(BAD_ACCOUNT);
+    }
+    expect_key(ai, &wl::province_address(ctx, prov.coord))?;
+    Ok(prov)
+}
+
+/// The Season of a settlement (Running or Ended, as the deployed
+/// SettleDeparture and the resolves take it), this build's.
+fn settle_season(season_ai: &AccountInfo, p: &Pubkey, now: i64) -> R<ap::SeasonHdr> {
+    let hdr = prologue::season(
+        season_ai,
+        p,
+        Some(&RULESET_HASH),
+        &[S::STATUS_RUNNING, S::STATUS_ENDED],
+        now,
+    )?;
+    require_wide_season(season_ai)?;
+    Ok(hdr)
+}
+
+/// WideMuster (0xDA, op 1): the deployed player prologue + `[holding w]
+/// [province w] [roster w] [system]` (`wide_ix::MUSTER`). The deployed
+/// Muster over a wide holding, with the host named by its full reference
+/// and its entry's `u64` the roster alias the authenticated side table
+/// returns:
+///
+/// 1. the player prologue (wallet or NFT resident; `Auth`, `BadAddress`,
+///    the signed holder generation), this build's Season; the holding at
+///    its canonical wide address, of this world, the Citizen's
+///    (`NotOwner`); its own province at its canonical address, present, not
+///    capture-locking the holding (`CapturePending`);
+/// 2. the deployed Muster: the holding final (`NotFinal`); the province
+///    resolved through `b − 2` (`NotResident`); the unit (`BadData`); the
+///    reserve (`Insufficient`); the kernel's host bounds (`Kernel`:
+///    100–30,000 troops, a host unit); a passable tile (`BadData`); the caps
+///    (48 over states 1–2, 8 per faction) and a free entry
+///    (`ProvinceFull`);
+/// 3. the roster side table at its canonical address: present and this
+///    province's, or **absent** — then it is created here from the payer
+///    (its rent recipient the payer, `Insufficient` when the payer cannot
+///    cover it); the entry table and the table paired
+///    (`validate_paired`, `BadAccount`); the alias claimed
+///    (`claim_alias` over the whole table, `BadAccount` on a collision);
+///    the Citizen's bucket and the end bell on a scratch copy
+///    (`PlayerStart::finish`: `Bucket`, `WrongStatus`).
+///
+/// Effects: the roster created when absent (the one CPI, first), the
+/// reference written at the entry's index; the muster-pending entry
+/// (state 2, `from_bell = b + 1`, the alias as id, the doctrine's `dealt`
+/// at Hold), `roster_epoch + 1`, `n_entries + 1`; the holding written back
+/// touched, `reserve[unit] − troops`, `host_seq + 1`, and — at the
+/// holding's first muster — the full-reference host identity allocated
+/// (`WideHolding::allocate_identity`; a holding founded under the
+/// unallocated identity carries it from then on); the Citizen's bucket.
+/// The **wide** `WIDE_MUSTER` record (`world_index::event`, `PSW1`),
+/// keyed by the full host reference, carrying the alias the entry holds,
+/// chained to the wide province and the wide holding under the wide chain
+/// rule; no deployed `PS2` record (the deployed kinds key a dense host id,
+/// which no wide host has).
+pub(crate) fn muster_as(p: &Pubkey, a: &[AccountInfo], x: &wix::Muster, auth: &Auth) -> R<()> {
+    check_accounts(Shape(wix::MUSTER), a, None)?;
+    let [_actor, payer, season_ai, citizen, holding, province, roster_ai, _system] = a else {
+        return Err(FrontierError::TooManyAccounts.into());
+    };
+    let now = prologue::now()?;
+    let start = player_start_as(p, a, now.ts, auth)?;
+    let hdr = start.season;
+    let now_bell = hdr.bell(now.ts).ok_or(FrontierError::WrongStatus)?;
+    let ctx = addr::ctx(&key(season_ai), &p.to_bytes());
+    let world = world_of(&ctx)?;
+    // 1. the holding and its own province.
+    let h = holding_at(holding, p, hdr.id)?.ok_or(BAD_ACCOUNT)?;
+    if h.world != world {
+        return Err(BAD_ACCOUNT);
+    }
+    expect_key(holding, &wh::holding_address(&ctx, h.coord, h.site))?;
+    if h.owner_citizen != key(citizen) {
+        return Err(FrontierError::NotOwner.into());
+    }
+    expect_key(province, &wl::province_address(&ctx, h.coord))?;
+    let prov = province_at(province, p, hdr.id)?.ok_or(BAD_ACCOUNT)?;
+    if prov.world != world || prov.coord != h.coord {
+        return Err(BAD_ACCOUNT);
+    }
+    {
+        let pd = province.try_borrow_data()?;
+        let hd = holding.try_borrow_data()?;
+        capture_lock_of(&pd, &hd)?;
+    }
+    let pkey = ProvinceKey::new(world, h.coord);
+    // 2. the deployed Muster's checks, in its order.
+    let (state, faction, seq, have) = {
+        let hd = holding.try_borrow_data()?;
+        let r = Ro(&hd);
+        let unit_ok = (x.unit as usize) < H::RESERVE_N;
+        (
+            r.u8(H::STATE)?,
+            r.u8(H::FACTION)?,
+            r.u32(H::HOST_SEQ)?,
+            if unit_ok {
+                r.u32(H::reserve(x.unit as usize))?
+            } else {
+                0
+            },
+        )
+    };
+    if state != H::STATE_FINAL {
+        return Err(FrontierError::NotFinal.into());
+    }
+    let (rn, passable) = {
+        let pd = province.try_borrow_data()?;
+        let r = Ro(&pd);
+        (r.u32(PV::RESOLVED_NEXT)?, r.u64(PV::PASSABLE_MASK)?)
+    };
+    if !ap::resident_ok(rn, now_bell) {
+        return Err(FrontierError::NotResident.into());
+    }
+    let unit = catalog::unit_of(x.unit).ok_or(FrontierError::BadData)?;
+    if (x.unit as usize) >= H::RESERVE_N {
+        return Err(FrontierError::BadData.into());
+    }
+    if have < x.troops {
+        return Err(FrontierError::Insufficient.into());
+    }
+    let milli: MilliTroops = x
+        .troops
+        .checked_mul(MILLI as u32)
+        .ok_or_else(|| kernel(hold::sub::HOST_TOO_LARGE))?;
+    let host = WideHostRef::new(pkey, h.site, h.gen, seq).map_err(|_| BAD_ACCOUNT)?;
+    let alias = wide_host_alias(&host);
+    let kh = Host::muster(alias, alias, faction, unit, milli, now_bell)
+        .map_err(|e| super::host::host_err(e, FrontierError::NotResident))?;
+    if x.tile as usize >= PV::TILES || passable & (1u64 << x.tile) == 0 {
+        return Err(FrontierError::BadData.into());
+    }
+    let dealt = hold::bps16(
+        of_faction_v3(faction)
+            .ok_or(BAD_ACCOUNT)?
+            .dealt_bps(Posture::Stance(Stance::Hold), false),
+    )?;
+    let slot = {
+        let pd = province.try_borrow_data()?;
+        let (mut total, mut own, mut free) = (0usize, 0usize, None);
+        for i in 0..PV::ENTRIES_N {
+            let o = PV::entry(i);
+            let st = Ro(&pd).u8(o + E::STATE)?;
+            match st {
+                E::STATE_FREE => {
+                    if free.is_none() {
+                        free = Some(i);
+                    }
+                }
+                E::STATE_ROSTER | E::STATE_MUSTER_PENDING => {
+                    total += 1;
+                    if Ro(&pd).u8(o + E::FACTION)? == faction {
+                        own += 1;
+                    }
+                }
+                _ => {}
+            }
+        }
+        if total >= PV::ROSTER_CAP || own >= PV::FACTION_CAP {
+            return Err(FrontierError::ProvinceFull.into());
+        }
+        free.ok_or(FrontierError::ProvinceFull)?
+    };
+    // 3. the roster side table: this province's, or created from the payer.
+    expect_key(roster_ai, &wro::roster_address(&ctx, pkey))?;
+    let rent_r = init::rent(wro::wide_roster::SIZE)?;
+    let (roster, mut rd, create) = match roster_at(roster_ai, p, hdr.id, pkey)? {
+        Some(r) => (r, roster_ai.try_borrow_data()?.to_vec(), false),
+        None => {
+            if payer.lamports() < rent_r {
+                return Err(FrontierError::Insufficient.into());
+            }
+            let r = WideRoster::new(hdr.id, pkey, key(payer));
+            let mut d = alloc::vec![0u8; wro::wide_roster::SIZE];
+            r.write_header(&mut d).map_err(|_| BAD_ACCOUNT)?;
+            (r, d, true)
+        }
+    };
+    {
+        let pd = province.try_borrow_data()?;
+        roster
+            .validate_paired(&rd, &wres::live_ids(&pd).map_err(resolve_err)?)
+            .map_err(|_| BAD_ACCOUNT)?;
+    }
+    let claimed = roster
+        .claim(&mut rd, slot, &host)
+        .map_err(|_| BAD_ACCOUNT)?;
+    if claimed != alias {
+        return Err(BAD_ACCOUNT);
+    }
+    let e = Entry::from_host(&kh, x.tile, E::STATE_MUSTER_PENDING, dealt, now_bell + 1);
+    {
+        let cd = citizen.try_borrow_data()?;
+        let mut scratch = cd.to_vec();
+        start.finish(&mut scratch, now.ts)?;
+    }
+    let touched = hold::load_touched(holding, now.ts)?;
+    let seq_next = seq.checked_add(1).ok_or(OVERFLOW)?;
+    {
+        let pd = province.try_borrow_data()?;
+        Ro(&pd).u8(PV::N_ENTRIES)?.checked_add(1).ok_or(OVERFLOW)?;
+    }
+    // ---- effects: the CPI first, then byte writes ----
+    if create {
+        init::init_with_seed(
+            payer,
+            roster_ai,
+            season_ai,
+            &SeasonSigner::new(hdr.id, hdr.bump),
+            &wro::roster_seed(pkey),
+            wro::wide_roster::SIZE,
+            rent_r,
+            p,
+        )?;
+    }
+    {
+        let mut d = roster_ai.try_borrow_mut_data()?;
+        if d.len() != rd.len() {
+            return Err(BAD_ACCOUNT);
+        }
+        d.copy_from_slice(&rd);
+    }
+    {
+        let mut pd = province.try_borrow_mut_data()?;
+        write_entry(&mut pd, slot, &e).map_err(|_| BAD_ACCOUNT)?;
+        let mut w = Rw(&mut pd);
+        let epoch = w.u32(PV::ROSTER_EPOCH)?.wrapping_add(1);
+        w.set_u32(PV::ROSTER_EPOCH, epoch)?;
+        let n = w.u8(PV::N_ENTRIES)?.saturating_add(1);
+        w.set_u8(PV::N_ENTRIES, n)?;
+    }
+    {
+        let mut hd = holding.try_borrow_mut_data()?;
+        hold::write_holding(&mut hd, &touched, now.ts)?;
+        let mut w = Rw(&mut hd);
+        w.set_u32(H::reserve(x.unit as usize), have - x.troops)?;
+        w.set_u32(H::HOST_SEQ, seq_next)?;
+        if h.host_identity == wh::HOST_IDENTITY_UNALLOCATED {
+            WideHolding::allocate_identity(&mut hd).map_err(|_| BAD_ACCOUNT)?;
+        }
+    }
+    {
+        let mut cd = citizen.try_borrow_mut_data()?;
+        start.finish(&mut cd, now.ts)?;
+        Rw(&mut cd).set_i64(C::LAST_ACTION_TS, now.ts)?;
+    }
+    let mut pd = province.try_borrow_mut_data()?;
+    let mut hd = holding.try_borrow_mut_data()?;
+    emit_wide(
+        WideKind::Muster,
+        now_bell,
+        &host.to_bytes(),
+        &wev::muster_payload(x.unit, x.troops, x.tile, slot as u8, alias),
+        &mut [
+            (WideEntity::Province, &mut pd[..]),
+            (WideEntity::Holding, &mut hd[..]),
+        ],
+    )
+}
+
+/// WideDissolve (0xDA, op 2): the deployed player prologue + `[holding w]
+/// [province w] [roster r] [holding_province r]` (`wide_ix::DISSOLVE`).
+/// The deployed Dissolve over a wide host: the host reference canonical,
+/// of this world, past the disk (`BadData`, `BadAddress`); the issuing
+/// holding at the reference's canonical address, the Citizen's at the
+/// reference's generation (`NotOwner`); its own province present and
+/// canonical; the standing province a wide province of this world (a
+/// deployed Province is the boundary: `NotImplemented`), the capture lock
+/// when it is the holding's own; the holding final (`NotFinal`); the
+/// standing province resolved through `b − 2` (`NotResident`); the
+/// roster side table present and the standing province's; the entry at
+/// the alias, **paired** with the reference at its index
+/// (`entry_matches`; `NotResident` without one, `BadAccount` on a
+/// mismatch), in state 1 (`NotResident`), no pending change (`HostBusy`);
+/// the Citizen's bucket and the end bell on a scratch copy. Effects: the
+/// pending `Leave` of `b` (the troops return at the return settle after
+/// the bell's clash, as deployed), the holding written back touched, the
+/// Citizen's bucket; the wide `WIDE_DISSOLVE` record keyed by the full
+/// reference, chained to the province and the holding. The closed path is
+/// **local**: a standing province other than the holding's own is refused
+/// `NotImplemented` until a source-capture proof for it exists.
+pub(crate) fn dissolve_as(p: &Pubkey, a: &[AccountInfo], x: &wix::Dissolve, auth: &Auth) -> R<()> {
+    check_accounts(Shape(wix::DISSOLVE), a, None)?;
+    let [_actor, _payer, season_ai, citizen, holding, standing, roster_ai, own_province] = a else {
+        return Err(FrontierError::TooManyAccounts.into());
+    };
+    let now = prologue::now()?;
+    let start = player_start_as(p, a, now.ts, auth)?;
+    let hdr = start.season;
+    let now_bell = hdr.bell(now.ts).ok_or(FrontierError::WrongStatus)?;
+    let ctx = addr::ctx(&key(season_ai), &p.to_bytes());
+    let world = world_of(&ctx)?;
+    let host = WideHostRef::from_bytes(&x.host).map_err(|_| FrontierError::BadData)?;
+    if host.key().world() != world {
+        return Err(FrontierError::BadAddress.into());
+    }
+    let coord = host.key().coord();
+    if coord.ring() < FIRST_WIDE_RING {
+        return Err(FrontierError::BadData.into());
+    }
+    expect_key(holding, &wh::holding_address(&ctx, coord, host.site()))?;
+    let h = holding_at(holding, p, hdr.id)?.ok_or(BAD_ACCOUNT)?;
+    if h.owner_citizen != key(citizen) || h.gen != host.gen() {
+        return Err(FrontierError::NotOwner.into());
+    }
+    if h.world != world || h.coord != coord || h.site != host.site() {
+        return Err(BAD_ACCOUNT);
+    }
+    expect_key(own_province, &wl::province_address(&ctx, coord))?;
+    let own = province_at(own_province, p, hdr.id)?.ok_or(BAD_ACCOUNT)?;
+    if own.world != world || own.coord != coord {
+        return Err(BAD_ACCOUNT);
+    }
+    let stand = match province_at(standing, p, hdr.id) {
+        Ok(Some(sp)) => sp,
+        Ok(None) => return Err(BAD_ACCOUNT),
+        Err(e) => {
+            if prologue::presence(standing, p, AccountKind::Province, hdr.id).unwrap_or(false) {
+                return Err(FrontierError::NotImplemented.into());
+            }
+            return Err(e);
+        }
+    };
+    if stand.world != world {
+        return Err(BAD_ACCOUNT);
+    }
+    expect_key(standing, &wl::province_address(&ctx, stand.coord))?;
+    // The closed path is local: a wide host never leaves its holding's
+    // province (no march exists), so a foreign standing province is refused
+    // until a source-capture proof for it exists.
+    if stand.coord != coord {
+        return Err(FrontierError::NotImplemented.into());
+    }
+    {
+        let pd = standing.try_borrow_data()?;
+        let hd = holding.try_borrow_data()?;
+        capture_lock_of(&pd, &hd)?;
+    }
+    let state = {
+        let hd = holding.try_borrow_data()?;
+        Ro(&hd).u8(H::STATE)?
+    };
+    if state != H::STATE_FINAL {
+        return Err(FrontierError::NotFinal.into());
+    }
+    let rn = {
+        let pd = standing.try_borrow_data()?;
+        Ro(&pd).u32(PV::RESOLVED_NEXT)?
+    };
+    if !ap::resident_ok(rn, now_bell) {
+        return Err(FrontierError::NotResident.into());
+    }
+    let skey = ProvinceKey::new(world, stand.coord);
+    expect_key(roster_ai, &wro::roster_address(&ctx, skey))?;
+    let roster = roster_at(roster_ai, p, hdr.id, skey)?.ok_or(FrontierError::NotResident)?;
+    let alias = wide_host_alias(&host);
+    let (index, mut entry) = {
+        let pd = standing.try_borrow_data()?;
+        let i = find_entry(&pd, alias).ok_or(FrontierError::NotResident)?;
+        let rd = roster_ai.try_borrow_data()?;
+        if !roster.entry_matches(&rd, i, alias, &host) {
+            return Err(BAD_ACCOUNT);
+        }
+        (i, read_entry(&pd, i).map_err(|_| BAD_ACCOUNT)?)
+    };
+    if entry.state != E::STATE_ROSTER {
+        return Err(FrontierError::NotResident.into());
+    }
+    if entry.busy() {
+        return Err(FrontierError::HostBusy.into());
+    }
+    {
+        let cd = citizen.try_borrow_data()?;
+        let mut scratch = cd.to_vec();
+        start.finish(&mut scratch, now.ts)?;
+    }
+    let touched = hold::load_touched(holding, now.ts)?;
+    // ---- effects ----
+    entry.op = EntryOp::Leave;
+    entry.pend_bell = now_bell;
+    {
+        let mut pd = standing.try_borrow_mut_data()?;
+        write_entry(&mut pd, index, &entry).map_err(|_| BAD_ACCOUNT)?;
+    }
+    {
+        let mut hd = holding.try_borrow_mut_data()?;
+        hold::write_holding(&mut hd, &touched, now.ts)?;
+    }
+    {
+        let mut cd = citizen.try_borrow_mut_data()?;
+        start.finish(&mut cd, now.ts)?;
+        Rw(&mut cd).set_i64(C::LAST_ACTION_TS, now.ts)?;
+    }
+    let mut pd = standing.try_borrow_mut_data()?;
+    let mut hd = holding.try_borrow_mut_data()?;
+    emit_wide(
+        WideKind::Dissolve,
+        now_bell,
+        &host.to_bytes(),
+        &wev::dissolve_payload(now_bell, entry.troops, index as u8),
+        &mut [
+            (WideEntity::Province, &mut pd[..]),
+            (WideEntity::Holding, &mut hd[..]),
+        ],
+    )
+}
+
+/// WideResolve (0xDC, op 1): `[fee_payer s,w] [season r] [province w]
+/// [roster w] [seedcache|archive r] [anchor|archive r] [clash_inputs r]`
+/// (`wide_ix::RESOLVE`). Class D, **top-level**. The one-bell wide
+/// resolve (`world_index::resolve::resolve_bell`) under the deployed
+/// resolve's authentication, with no arrival path:
+///
+/// the keeper prologue (the Season Running or Ended, this build's); the
+/// province at its canonical wide address, of this world; `bell =
+/// resolved_next` (`OutOfOrder`), below the end bell (`WrongStatus`);
+/// **the reveal window of `bell` closed** for the province's **stored
+/// region** against THE anchor of `(bell, region)` or its archive entry
+/// (`proc::clash::window_closed`, as the deployed ResolveClash: `NoAnchor`,
+/// `BadAddress`, `TooEarly`); the bell seed `S(bell, region)` from the
+/// SeedCache or the archive (`holding::bell_seed`, as the deployed
+/// resolves: `SeedNotReady`); the wide ClashInputs position of this
+/// province and bell **absent** (`NotImplemented` otherwise: no reveal or
+/// gather exists, so a present record would be arrivals this resolve
+/// cannot take); the roster at its canonical address, present and this
+/// province's, or absent while the province has **no live entry** (an
+/// empty province resolves before its first muster; `BadAccount` when
+/// entries exist without their table). Then the model on scratch copies:
+/// build (the tables paired, every identity by full reference), the
+/// kernel, apply, settle, step (the keep contest with the full-identity
+/// donor, the territory score, the hour snapshot), `finish_bell`; the
+/// resolve summary (bell, engagements, 0 arrivals, destroyed, bounced,
+/// the beneficiary's first 8 bytes). The province and the roster are
+/// written only when everything succeeded; then the wide `WIDE_RESOLVE`
+/// record keyed by the full province key, chained to the province: the
+/// **input digest** (province key, bell, seed, the province and roster
+/// bytes as read) and the **output digest** (the kernel outcome's digest,
+/// the bytes the bell left), engagements, destroyed, bounced, settled. A
+/// reader of the wide format replays the model over the logged inputs and
+/// checks the logged outputs; a deployed reader sees an unknown version.
+pub fn resolve(p: &Pubkey, a: &[AccountInfo], x: &wix::Resolve) -> R<()> {
+    check_accounts(TopLevelShape(wix::RESOLVE), a, None)?;
+    prologue::top_level(TopLevelShape(wix::RESOLVE))?;
+    let [_fee_payer, season_ai, province, roster_ai, seed_ai, anchor_ai, inputs_ai] = a else {
+        return Err(FrontierError::TooManyAccounts.into());
+    };
+    let now = prologue::now()?;
+    let hdr = prologue::keeper(a, p, &[S::STATUS_RUNNING, S::STATUS_ENDED], now.ts)?;
+    require_wide_season(season_ai)?;
+    let ctx = addr::ctx(&key(season_ai), &p.to_bytes());
+    let world = world_of(&ctx)?;
+    let prov = canonical_province(province, p, &ctx, hdr.id, world)?;
+    let pkey = ProvinceKey::new(world, prov.coord);
+    let rn = {
+        let pd = province.try_borrow_data()?;
+        Ro(&pd).u32(PV::RESOLVED_NEXT)?
+    };
+    if x.bell != rn {
+        return Err(FrontierError::OutOfOrder.into());
+    }
+    if x.bell >= hdr.end_bell {
+        return Err(FrontierError::WrongStatus.into());
+    }
+    let clock = {
+        let sd = season_ai.try_borrow_data()?;
+        SeasonClock::read(&sd)?
+    };
+    let region = prov.region;
+    super::clash::window_closed(p, &ctx, hdr.id, &clock, now.ts, x.bell, region, anchor_ai)?;
+    let seed = hold::bell_seed(p, &ctx, hdr.id, &clock, x.bell, region, seed_ai, anchor_ai)?;
+    expect_key(inputs_ai, &wa::clash_inputs_address(&ctx, pkey, x.bell))?;
+    if !init::is_absent(inputs_ai) {
+        return Err(FrontierError::NotImplemented.into());
+    }
+    let prm = {
+        let sd = season_ai.try_borrow_data()?;
+        let prm = StepParams::of_season(&sd).ok_or(BAD_ACCOUNT)?;
+        if prm.cq.conquest_version != frontier_abi::v2::presets::CONQUEST_VERSION {
+            return Err(BAD_ACCOUNT);
+        }
+        prm
+    };
+    expect_key(roster_ai, &wro::roster_address(&ctx, pkey))?;
+    let mut pd_s = province.try_borrow_data()?.to_vec();
+    let (roster, mut rd_s, present) = match roster_at(roster_ai, p, hdr.id, pkey)? {
+        Some(r) => (r, roster_ai.try_borrow_data()?.to_vec(), true),
+        None => {
+            if wres::live_ids(&pd_s)
+                .map_err(resolve_err)?
+                .iter()
+                .any(|e| e.is_some())
+            {
+                return Err(BAD_ACCOUNT);
+            }
+            let r = WideRoster::new(hdr.id, pkey, [0u8; 32]);
+            let mut d = alloc::vec![0u8; wro::wide_roster::SIZE];
+            r.write_header(&mut d).map_err(|_| BAD_ACCOUNT)?;
+            (r, d, false)
+        }
+    };
+    // The input commitment: the province and the roster as read (an absent
+    // roster is the empty table under its would-be header), the seed, the
+    // bell, and the **authenticated Season bytes whole** (the ruleset
+    // hash, the program version with the wide bit, the clock the seed
+    // round comes from, the conquest block the step parameters come from:
+    // what `prologue::keeper`, `require_wide_season` and `StepParams` read).
+    let input = {
+        let sd = season_ai.try_borrow_data()?;
+        wev::resolve_input_digest(pkey, x.bell, &seed, &sd, &pd_s, &rd_s)
+    };
+    let out = wres::resolve_bell(
+        &mut pd_s,
+        &roster,
+        &mut rd_s,
+        None,
+        x.bell,
+        &seed,
+        &frontier_ruleset(),
+        &prm,
+    )
+    .map_err(resolve_err)?;
+    {
+        let o = PV::RESOLVE_SUMMARY;
+        let mut w = Rw(&mut pd_s);
+        w.set_u32(o + SU::BELL, x.bell)?;
+        w.set_u32(o + SU::ENGAGEMENTS, out.clash.engagements)?;
+        w.set_u8(o + SU::ARRIVALS, 0)?;
+        w.set_u8(o + SU::DESTROYED, out.applied.destroyed)?;
+        w.set_u8(o + SU::BOUNCED, out.applied.bounced)?;
+        w.set_arr(o + SU::RESOLVER, &x.beneficiary[..8])?;
+    }
+    // The output commitment: the kernel's outcome digest and the bytes the
+    // bell left (the summary included; the header's chain fields are
+    // normalized out by the digest, so this record's own link does not
+    // enter it).
+    let output = wev::resolve_output_digest(&out.clash.digest(), &pd_s, &rd_s);
+    // ---- effects: the staged bytes, whole; then the record ----
+    {
+        let mut pd = province.try_borrow_mut_data()?;
+        if pd.len() != pd_s.len() {
+            return Err(BAD_ACCOUNT);
+        }
+        pd.copy_from_slice(&pd_s);
+    }
+    if present {
+        let mut rd = roster_ai.try_borrow_mut_data()?;
+        if rd.len() != rd_s.len() {
+            return Err(BAD_ACCOUNT);
+        }
+        rd.copy_from_slice(&rd_s);
+    }
+    let mut pd = province.try_borrow_mut_data()?;
+    emit_wide(
+        WideKind::Resolve,
+        x.bell,
+        &pkey.to_bytes(),
+        &wev::resolve_payload(
+            &input,
+            &output,
+            out.clash.engagements,
+            out.applied.destroyed,
+            out.applied.bounced,
+            out.settled,
+        ),
+        &mut [(WideEntity::Province, &mut pd[..])],
+    )
+}
+
+/// WideReturn (0xDC, op 2): `[payer s,w] [season r] [province w] [roster
+/// w] [holding w]` (`wide_ix::RETURN`). Class D, permissionless. The
+/// deployed return settle (SettleDeparture's `transit_slot = 0xFF` form)
+/// over a wide province: the Season Running or Ended; the province at its
+/// canonical wide address, of this world; the roster present and this
+/// province's, the tables paired (`BadAccount`); the holding position
+/// either the wide holding at its canonical address (of this world, its
+/// live generation read; the capture lock when the province is its own)
+/// or **absent** (`None`: its hosts strand, as deployed). Every state-3
+/// `Leave` entry whose **full reference** (through the roster, never a
+/// packed id) names that holding — the same world, coordinate and site —
+/// is freed, at most `clash::RETURN_MAX` per transaction in entry order:
+/// whole troops (`troops / 1,000`, once) into `reserve[unit]` when the
+/// holding is live at the reference's generation (the wide `WIDE_RETURN`
+/// record, keyed by the full reference, chained to the province and the
+/// holding), lost otherwise (`WIDE_STRANDED`, chained to the province);
+/// `n_entries − 1`, the reference released. `AlreadyDone` when nothing is
+/// returned. Survives a transfer of the Citizen: the credit goes to the
+/// holding record, whoever holds it; the Citizen is not an input. The
+/// closed path is **local**: a holding, or a departed host's reference, of
+/// another province than the one the hosts stand in is refused
+/// `NotImplemented` until a source-capture proof exists.
+pub fn settle_return(p: &Pubkey, a: &[AccountInfo]) -> R<()> {
+    check_accounts(Shape(wix::RETURN), a, None)?;
+    let [_payer, season_ai, province, roster_ai, holding] = a else {
+        return Err(FrontierError::TooManyAccounts.into());
+    };
+    let now = prologue::now()?;
+    let hdr = settle_season(season_ai, p, now.ts)?;
+    let ctx = addr::ctx(&key(season_ai), &p.to_bytes());
+    let world = world_of(&ctx)?;
+    let prov = canonical_province(province, p, &ctx, hdr.id, world)?;
+    let pkey = ProvinceKey::new(world, prov.coord);
+    expect_key(roster_ai, &wro::roster_address(&ctx, pkey))?;
+    let roster = roster_at(roster_ai, p, hdr.id, pkey)?.ok_or(FrontierError::AlreadyDone)?;
+    let mut pd_s = province.try_borrow_data()?.to_vec();
+    let mut rd_s = roster_ai.try_borrow_data()?.to_vec();
+    roster
+        .validate_paired(&rd_s, &wres::live_ids(&pd_s).map_err(resolve_err)?)
+        .map_err(|_| BAD_ACCOUNT)?;
+    // The holding: present (its live generation) or absent. The closed
+    // path is local: a holding of another province than the one the hosts
+    // stand in is refused until a source-capture proof exists.
+    let live = match holding_at(holding, p, hdr.id)? {
+        Some(h) => {
+            if h.world != world {
+                return Err(BAD_ACCOUNT);
+            }
+            expect_key(holding, &wh::holding_address(&ctx, h.coord, h.site))?;
+            if h.coord != prov.coord {
+                return Err(FrontierError::NotImplemented.into());
+            }
+            let hd = holding.try_borrow_data()?;
+            capture_lock_of(&pd_s, &hd)?;
+            let state = Ro(&hd).u8(H::STATE)?;
+            matches!(state, H::STATE_PROVISIONAL | H::STATE_FINAL).then_some(h.gen)
+        }
+        None => None,
+    };
+    let hkey = key(holding);
+    let bell_log = hdr.bell(now.ts).unwrap_or(frontier_abi::log::NO_BELL);
+    // Selection: the departed Leave entries whose reference names this
+    // holding, by full identity (world, coordinate, site).
+    let mut picked: [(usize, bool, Entry, Option<WideHostRef>); super::clash::RETURN_MAX] =
+        [(0, false, Entry::FREE, None); super::clash::RETURN_MAX];
+    let mut n_picked = 0usize;
+    for i in 0..PV::ENTRIES_N {
+        let e = read_entry(&pd_s, i).map_err(|_| BAD_ACCOUNT)?;
+        if e.state != E::STATE_DEPARTED || !matches!(e.op, EntryOp::Leave) {
+            continue;
+        }
+        let r = roster
+            .ref_at(&rd_s, i)
+            .map_err(|_| BAD_ACCOUNT)?
+            .ok_or(BAD_ACCOUNT)?;
+        if wide_host_alias(&r) != e.id {
+            return Err(BAD_ACCOUNT);
+        }
+        let mine = r.key().world() == world
+            && wh::holding_address(&ctx, r.key().coord(), r.site()) == hkey;
+        if !mine {
+            continue;
+        }
+        if r.key().coord() != prov.coord {
+            return Err(FrontierError::NotImplemented.into());
+        }
+        let credit = live == Some(r.gen());
+        picked[n_picked] = (i, credit, e, Some(r));
+        n_picked += 1;
+        if n_picked == super::clash::RETURN_MAX {
+            break;
+        }
+    }
+    if n_picked == 0 {
+        return Err(FrontierError::AlreadyDone.into());
+    }
+    // Staged: the entries freed, the references released, the reserve.
+    let mut reserve = [0u32; H::RESERVE_N];
+    if live.is_some() {
+        let hd = holding.try_borrow_data()?;
+        let r = Ro(&hd);
+        for (u, v) in reserve.iter_mut().enumerate() {
+            *v = r.u32(H::reserve(u))?;
+        }
+    }
+    let mut credited = [0u32; super::clash::RETURN_MAX];
+    for (k, &(i, credit, e, _)) in picked[..n_picked].iter().enumerate() {
+        write_entry(&mut pd_s, i, &Entry::FREE).map_err(|_| BAD_ACCOUNT)?;
+        let mut w = Rw(&mut pd_s);
+        let n = w.u8(PV::N_ENTRIES)?.saturating_sub(1);
+        w.set_u8(PV::N_ENTRIES, n)?;
+        roster.release(&mut rd_s, i).map_err(|_| BAD_ACCOUNT)?;
+        if credit {
+            let whole = e.troops / MILLI as u32;
+            let slot = reserve.get_mut(e.unit as usize).ok_or(BAD_ACCOUNT)?;
+            *slot = slot.checked_add(whole).ok_or(OVERFLOW)?;
+            credited[k] = whole;
+        }
+    }
+    // ---- effects ----
+    {
+        let mut pd = province.try_borrow_mut_data()?;
+        pd.copy_from_slice(&pd_s);
+    }
+    {
+        let mut rd = roster_ai.try_borrow_mut_data()?;
+        rd.copy_from_slice(&rd_s);
+    }
+    if live.is_some() {
+        let mut hd = holding.try_borrow_mut_data()?;
+        let mut w = Rw(&mut hd);
+        for (u, v) in reserve.iter().enumerate() {
+            w.set_u32(H::reserve(u), *v)?;
+        }
+    }
+    // The records: one per entry, each the credited milli-troops (whole
+    // troops × 1,000, the amount the reserve took, once) or the loss.
+    for (k, &(i, credit, e, r)) in picked[..n_picked].iter().enumerate() {
+        let r = r.ok_or(BAD_ACCOUNT)?;
+        let mut pd = province.try_borrow_mut_data()?;
+        if credit {
+            let mut hd = holding.try_borrow_mut_data()?;
+            emit_wide(
+                WideKind::Return,
+                bell_log,
+                &r.to_bytes(),
+                &wev::return_payload(credited[k].saturating_mul(MILLI as u32), e.unit, i as u8),
+                &mut [
+                    (WideEntity::Province, &mut pd[..]),
+                    (WideEntity::Holding, &mut hd[..]),
+                ],
+            )?;
+        } else {
+            emit_wide(
+                WideKind::Stranded,
+                bell_log,
+                &r.to_bytes(),
+                &wev::stranded_payload(e.troops, i as u8),
+                &mut [(WideEntity::Province, &mut pd[..])],
+            )?;
+        }
+    }
+    Ok(())
+}
+
+/// WideCloseRoster (0xDE, op 1): `[any s] [season r] [roster w] [rent_to
+/// w]` (`wide_ix::CLOSE_ROSTER`). Class N. Season end (Ended + 72 h,
+/// Aborted, the Closed tombstone): the roster side table, program-owned and
+/// of this season and world at the canonical address of the province its
+/// header names, closes **whole to its immutable rent recipient** (the
+/// payer of the first muster that created it; `BadAddress` for any other
+/// account). The hosts it names are the season's; nothing is credited.
+pub fn close_roster(p: &Pubkey, a: &[AccountInfo]) -> R<()> {
+    check_accounts(Shape(wix::CLOSE_ROSTER), a, None)?;
+    let [_any, season_ai, roster_ai, rent_to] = a else {
+        return Err(FrontierError::TooManyAccounts.into());
+    };
+    let now = prologue::now()?;
+    let (sid, bell, _) = season_end(season_ai, p, now.ts)?;
+    let ctx = addr::ctx(&key(season_ai), &p.to_bytes());
+    let world = world_of(&ctx)?;
+    if roster_ai.owner != p {
+        return Err(BAD_ACCOUNT);
+    }
+    let r = {
+        let d = roster_ai.try_borrow_data()?;
+        WideRoster::read(&d).map_err(|_| BAD_ACCOUNT)?
+    };
+    if r.season_id != sid || r.province.world() != world {
+        return Err(BAD_ACCOUNT);
+    }
+    expect_key(roster_ai, &wro::roster_address(&ctx, r.province))?;
+    expect_key(rent_to, &r.rent_to)?;
+    let lamports = roster_ai.lamports();
+    init::close_to(p, roster_ai, rent_to, &Sink::Never, bell)?;
+    // The immutable close record (no chain: the account is gone).
+    emit_wide(
+        WideKind::RosterClosed,
+        bell,
+        &r.province.to_bytes(),
+        &wev::roster_closed_payload(&r.rent_to, lamports),
+        &mut [],
+    )
 }
 
 // ------------------------------------------------------------ 0xDA

@@ -36,6 +36,7 @@
 //! | [`seal`] | the **wide march seal**: a 136-byte versioned plaintext committing to the full host reference and the full destination key (and the deployed path, bell, tile, stance, retreat), sealed in the deployed 128-byte tlock IBE block with the deployed keystream and opened by the deployed opener; a distinct length and commitment domain from the 37-byte legacy plaintext, which is untouched |
 //! | [`arrival`] | the wide per-bell clash records: an ArrivalSlot (288 B) and ClashInputs (3,008 B, 24 positions of 112 B) keyed by the full destination key and naming arrivals by full host reference and Citizen key, with the deployed quota, flags, fate codes and a kernel-fighter conversion; with-seed addresses under provisional tags |
 //! | [`roster`] | the wide roster side table (3,248 B): the full reference behind each of a wide province's 56 entry-table aliases, written only through the authenticated `claim` (every stored alias checked against its reference) and read only through `entry_matches` / `validate_paired`; synthetic garrison identities refused |
+//! | [`event`] | the **versioned wide event record** (`PSW1`, version 0x81, its own kinds, full-identity keys, a domain-separated chain rule, the resolve's input/output digests): what the experimental handlers log and how the wide accounts' chains advance; nothing of the deployed `PS2` format is reused, and a deployed reader refuses the version byte and sees the wide world as unknown |
 //! | [`resolve`] | the **one-bell wide resolve** over account bytes: the deployed build / apply / step / settle / finish with the three identity-bound rules replaced (the camp's daily check over the canonical coordinate, the clash under `WideCombatant` with the roster side table paired and kept in step, the keep donor's tiebreak over the full identity); no SkipQuiet; forts, caravans and conquest records refused; no handler calls it yet |
 //! | [`wide_ix`] | the draft wire envelope: nine instructions in the unallocated band `0xD6..=0xDE`, their account lists, and the `0x4000` program-version bit of an experimental wide build |
 //!
@@ -64,6 +65,7 @@
 
 pub mod arrival;
 pub mod coord;
+pub mod event;
 pub mod holding;
 pub mod index;
 pub mod key;
@@ -82,6 +84,9 @@ pub mod wide_ix;
 
 pub use arrival::{ArrivalError, WideArrival, WideArrivalSlot, WideClashInputsHdr};
 pub use coord::{CoordError, RingPosition, WideCoord, SORT_KEY_LEN, WIDE_BOUND};
+pub use event::{
+    EventError, WideEntity, WideKind, WideLink, WideRecord, WideTarget, WIDE_LOG_PREFIX,
+};
 pub use holding::{HoldingError, SlotBinding, WideHolding, HOST_IDENTITY_UNALLOCATED};
 pub use index::{
     Cursor, CursorFault, IndexEntry, IndexError, Lookup, OpenedProvinceIndex, Page, ReportedState,

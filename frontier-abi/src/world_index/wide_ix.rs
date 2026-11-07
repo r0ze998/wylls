@@ -33,6 +33,35 @@
 //! or a dense index); rings are `u64`; a host is the 56-byte
 //! `WideHostRef`. Every encoding is fixed width, little-endian, exact
 //! length.
+//!
+//! ## The versioned sub-operation envelope (2026-11-07)
+//!
+//! The band is full, and the bytes around it belong to other workstreams,
+//! so the closed host lifecycle (Muster → Resolve → Dissolve → Return, the
+//! roster close) is carried **inside three tags of this band whose class
+//! it shares**, under an explicit escape, a version and a sub-operation
+//! byte: `tag ‖ 0xFF ‖ 0x01 ‖ op ‖ payload`, exact length per op
+//! ([`ENVELOPE_ESCAPE`], [`ENVELOPE_VERSION`]). The tags' existing
+//! encodings are untouched and still exact: a datum of the tag's legacy
+//! length decodes as before and nothing else does; any other length must
+//! be a whole envelope of that tag (the escape, the version, a known op,
+//! the op's exact length) or it is `BadData`. No datum is ambiguous: a
+//! Depart is 267 bytes and its second byte is a host reference version
+//! (1), a SettleTicket is 2 bytes, a Close is 2 bytes; every envelope is
+//! at least 4 bytes with 0xFF second. [`WideCommand::decode`] is the one
+//! parser; the dispatcher routes, checks the class, the top-level rule,
+//! the account table and the NFT whitelist by the **decoded command**,
+//! never by the tag alone.
+//!
+//! | tag | class | op | command | data after the head | account table |
+//! |---|---|---|---|---|---|
+//! | 0xDA | P | 1 | WideMuster | `unit u8, troops u32, tile u8` | [`MUSTER`] |
+//! | 0xDA | P | 2 | WideDissolve | `host ref 56` | [`DISSOLVE`] |
+//! | 0xDC | D, top-level | 1 | WideResolve | `bell u32, beneficiary 32` | [`RESOLVE`] |
+//! | 0xDC | D | 2 | WideReturn | (none) | [`RETURN`] |
+//! | 0xDE | N | 1 | WideCloseRoster | (none) | [`CLOSE_ROSTER`] |
+//!
+//! Not an allocation: the envelope is as provisional as the band.
 
 use crate::bytes::{Cursor, Writer};
 use crate::error::FrontierError;
@@ -442,9 +471,320 @@ impl Finalize {
     }
 }
 
-/// 0xDD: `generation u32 ‖ inner`, the inner a whole draft instruction
-/// whose tag is in [`WideIx::ACT_RUNS`] (the shape of the deployed
-/// `ResidentAct`, `resident_wire::Command::Act`).
+// ------------------------------------------------------------ the envelope
+
+/// The second byte of an envelope datum (module doc).
+pub const ENVELOPE_ESCAPE: u8 = 0xFF;
+/// The third byte: the envelope's version. A later layout is a new version.
+pub const ENVELOPE_VERSION: u8 = 1;
+/// `tag ‖ escape ‖ version ‖ op`.
+pub const ENVELOPE_HEAD: usize = 4;
+
+pub const OP_MUSTER: u8 = 1;
+pub const OP_DISSOLVE: u8 = 2;
+pub const OP_RESOLVE: u8 = 1;
+pub const OP_RETURN: u8 = 2;
+pub const OP_CLOSE_ROSTER: u8 = 1;
+
+/// 0xDA op 1: the deployed Muster's data (`unit u8, troops u32, tile
+/// u8`); the holding is the account.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Muster {
+    pub unit: u8,
+    pub troops: u32,
+    pub tile: u8,
+}
+
+/// 0xDA op 2: the deployed Dissolve's data with the `u64` host id replaced
+/// by the 56-byte wide host reference.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Dissolve {
+    pub host: [u8; HOST_REF_LEN],
+}
+
+/// 0xDC op 1: the deployed ResolveFromInputs' data (`bell u32,
+/// beneficiary 32`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Resolve {
+    pub bell: u32,
+    pub beneficiary: [u8; 32],
+}
+
+/// 0xDC op 2: no data (the deployed SettleDeparture's return form names
+/// the holding by account).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Return;
+
+/// 0xDE op 1: no data.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct CloseRoster;
+
+/// An envelope datum of `tag` and `op` with exactly `len` bytes:
+/// the cursor over its payload.
+fn envelope<'a>(d: &'a [u8], tag: u8, op: u8, len: usize) -> Result<Cursor<'a>, FrontierError> {
+    if d.len() != len
+        || d.len() < ENVELOPE_HEAD
+        || d[0] != tag
+        || d[1] != ENVELOPE_ESCAPE
+        || d[2] != ENVELOPE_VERSION
+        || d[3] != op
+    {
+        return Err(FrontierError::BadData);
+    }
+    Ok(Cursor::new(&d[ENVELOPE_HEAD..]))
+}
+
+fn head(b: &mut [u8], tag: u8, op: u8) {
+    b[0] = tag;
+    b[1] = ENVELOPE_ESCAPE;
+    b[2] = ENVELOPE_VERSION;
+    b[3] = op;
+}
+
+impl Muster {
+    pub const IX: WideIx = WideIx::Depart;
+    pub const OP: u8 = OP_MUSTER;
+    pub const LEN: usize = ENVELOPE_HEAD + 1 + 4 + 1;
+
+    pub fn to_bytes(&self) -> [u8; Self::LEN] {
+        let mut b = [0u8; Self::LEN];
+        head(&mut b, Self::IX.tag(), Self::OP);
+        Writer::new(&mut b[ENVELOPE_HEAD..])
+            .u8(self.unit)
+            .u32(self.troops)
+            .u8(self.tile);
+        b
+    }
+
+    pub fn decode(d: &[u8]) -> Result<Self, FrontierError> {
+        let bad = FrontierError::BadData;
+        let mut c = envelope(d, Self::IX.tag(), Self::OP, Self::LEN)?;
+        Ok(Muster {
+            unit: c.u8().ok_or(bad)?,
+            troops: c.u32().ok_or(bad)?,
+            tile: c.u8().ok_or(bad)?,
+        })
+    }
+}
+
+impl Dissolve {
+    pub const IX: WideIx = WideIx::Depart;
+    pub const OP: u8 = OP_DISSOLVE;
+    pub const LEN: usize = ENVELOPE_HEAD + HOST_REF_LEN;
+
+    pub fn to_bytes(&self) -> [u8; Self::LEN] {
+        let mut b = [0u8; Self::LEN];
+        head(&mut b, Self::IX.tag(), Self::OP);
+        b[ENVELOPE_HEAD..].copy_from_slice(&self.host);
+        b
+    }
+
+    pub fn decode(d: &[u8]) -> Result<Self, FrontierError> {
+        let mut c = envelope(d, Self::IX.tag(), Self::OP, Self::LEN)?;
+        Ok(Dissolve {
+            host: c.arr().ok_or(FrontierError::BadData)?,
+        })
+    }
+}
+
+impl Resolve {
+    pub const IX: WideIx = WideIx::SettleTicket;
+    pub const OP: u8 = OP_RESOLVE;
+    pub const LEN: usize = ENVELOPE_HEAD + 4 + 32;
+
+    pub fn to_bytes(&self) -> [u8; Self::LEN] {
+        let mut b = [0u8; Self::LEN];
+        head(&mut b, Self::IX.tag(), Self::OP);
+        Writer::new(&mut b[ENVELOPE_HEAD..])
+            .u32(self.bell)
+            .bytes(&self.beneficiary);
+        b
+    }
+
+    pub fn decode(d: &[u8]) -> Result<Self, FrontierError> {
+        let bad = FrontierError::BadData;
+        let mut c = envelope(d, Self::IX.tag(), Self::OP, Self::LEN)?;
+        Ok(Resolve {
+            bell: c.u32().ok_or(bad)?,
+            beneficiary: c.arr().ok_or(bad)?,
+        })
+    }
+}
+
+impl Return {
+    pub const IX: WideIx = WideIx::SettleTicket;
+    pub const OP: u8 = OP_RETURN;
+    pub const LEN: usize = ENVELOPE_HEAD;
+
+    pub fn to_bytes(&self) -> [u8; Self::LEN] {
+        let mut b = [0u8; Self::LEN];
+        head(&mut b, Self::IX.tag(), Self::OP);
+        b
+    }
+
+    pub fn decode(d: &[u8]) -> Result<Self, FrontierError> {
+        envelope(d, Self::IX.tag(), Self::OP, Self::LEN)?;
+        Ok(Return)
+    }
+}
+
+impl CloseRoster {
+    pub const IX: WideIx = WideIx::Close;
+    pub const OP: u8 = OP_CLOSE_ROSTER;
+    pub const LEN: usize = ENVELOPE_HEAD;
+
+    pub fn to_bytes(&self) -> [u8; Self::LEN] {
+        let mut b = [0u8; Self::LEN];
+        head(&mut b, Self::IX.tag(), Self::OP);
+        b
+    }
+
+    pub fn decode(d: &[u8]) -> Result<Self, FrontierError> {
+        envelope(d, Self::IX.tag(), Self::OP, Self::LEN)?;
+        Ok(CloseRoster)
+    }
+}
+
+/// Every command of the band, fully decoded: the ten legacy-shaped
+/// instructions and the five envelope sub-operations. The one parser the
+/// dispatcher runs ([`WideCommand::decode`]); class, top-level rule,
+/// account table and the act's whitelist are read off the command.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum WideCommand<'a> {
+    RequestRingSeed(RequestRingSeed),
+    ConsumeRingSeed(ConsumeRingSeed),
+    OpenProvince(OpenProvince),
+    ClaimSite(ClaimSite),
+    Depart(Depart),
+    SetRules(SetRules),
+    SettleTicket(SettleTicket),
+    ResidentAct(ResidentAct<'a>),
+    Close(Close),
+    Finalize(Finalize),
+    Muster(Muster),
+    Dissolve(Dissolve),
+    Resolve(Resolve),
+    Return(Return),
+    CloseRoster(CloseRoster),
+}
+
+impl<'a> WideCommand<'a> {
+    /// The command of `data`: the tag's legacy encoding when `data` has
+    /// its exact length, else a whole envelope of that tag (`BadData` for
+    /// anything else: an unknown tag, a wrong length, a wrong escape,
+    /// version or op).
+    pub fn decode(d: &'a [u8]) -> Result<WideCommand<'a>, FrontierError> {
+        let bad = FrontierError::BadData;
+        let ix = tag_of(d)?;
+        if ix == WideIx::ResidentAct {
+            return ResidentAct::decode(d).map(WideCommand::ResidentAct);
+        }
+        if Some(d.len()) == data_len(ix) {
+            return Ok(match ix {
+                WideIx::RequestRingSeed => {
+                    WideCommand::RequestRingSeed(RequestRingSeed::decode(d)?)
+                }
+                WideIx::ConsumeRingSeed => {
+                    WideCommand::ConsumeRingSeed(ConsumeRingSeed::decode(d)?)
+                }
+                WideIx::OpenProvince => WideCommand::OpenProvince(OpenProvince::decode(d)?),
+                WideIx::ClaimSite => WideCommand::ClaimSite(ClaimSite::decode(d)?),
+                WideIx::Depart => WideCommand::Depart(Depart::decode(d)?),
+                WideIx::SetRules => WideCommand::SetRules(SetRules::decode(d)?),
+                WideIx::SettleTicket => WideCommand::SettleTicket(SettleTicket::decode(d)?),
+                WideIx::Close => WideCommand::Close(Close::decode(d)?),
+                WideIx::Finalize => WideCommand::Finalize(Finalize::decode(d)?),
+                WideIx::ResidentAct => return Err(bad),
+            });
+        }
+        if d.len() < ENVELOPE_HEAD || d[1] != ENVELOPE_ESCAPE || d[2] != ENVELOPE_VERSION {
+            return Err(bad);
+        }
+        match (ix, d[3]) {
+            (WideIx::Depart, OP_MUSTER) => Muster::decode(d).map(WideCommand::Muster),
+            (WideIx::Depart, OP_DISSOLVE) => Dissolve::decode(d).map(WideCommand::Dissolve),
+            (WideIx::SettleTicket, OP_RESOLVE) => Resolve::decode(d).map(WideCommand::Resolve),
+            (WideIx::SettleTicket, OP_RETURN) => Return::decode(d).map(WideCommand::Return),
+            (WideIx::Close, OP_CLOSE_ROSTER) => {
+                CloseRoster::decode(d).map(WideCommand::CloseRoster)
+            }
+            _ => Err(bad),
+        }
+    }
+
+    /// The tag the command is carried under.
+    pub const fn ix(&self) -> WideIx {
+        match self {
+            WideCommand::RequestRingSeed(_) => WideIx::RequestRingSeed,
+            WideCommand::ConsumeRingSeed(_) => WideIx::ConsumeRingSeed,
+            WideCommand::OpenProvince(_) => WideIx::OpenProvince,
+            WideCommand::ClaimSite(_) => WideIx::ClaimSite,
+            WideCommand::Depart(_) | WideCommand::Muster(_) | WideCommand::Dissolve(_) => {
+                WideIx::Depart
+            }
+            WideCommand::SetRules(_) => WideIx::SetRules,
+            WideCommand::SettleTicket(_) | WideCommand::Resolve(_) | WideCommand::Return(_) => {
+                WideIx::SettleTicket
+            }
+            WideCommand::ResidentAct(_) => WideIx::ResidentAct,
+            WideCommand::Close(_) | WideCommand::CloseRoster(_) => WideIx::Close,
+            WideCommand::Finalize(_) => WideIx::Finalize,
+        }
+    }
+
+    pub const fn name(&self) -> &'static str {
+        match self {
+            WideCommand::Muster(_) => "WideMuster",
+            WideCommand::Dissolve(_) => "WideDissolve",
+            WideCommand::Resolve(_) => "WideResolve",
+            WideCommand::Return(_) => "WideReturn",
+            WideCommand::CloseRoster(_) => "WideCloseRoster",
+            _ => self.ix().name(),
+        }
+    }
+
+    /// The class of the command: every sub-operation shares its tag's.
+    pub const fn class(&self) -> crate::tags::Class {
+        self.ix().class()
+    }
+
+    /// Refuses CPI: the tag's rule, and WideResolve (the deployed resolves
+    /// are top-level, `ResolveFromInputs`).
+    pub const fn top_level_only(&self) -> bool {
+        matches!(self, WideCommand::Resolve(_)) || self.ix().top_level_only()
+    }
+
+    /// A player command (class P, the player prologue): what the band's act
+    /// may run for an NFT resident's Citizen. The act itself is not one.
+    pub const fn is_player(&self) -> bool {
+        matches!(
+            self,
+            WideCommand::ClaimSite(_)
+                | WideCommand::Depart(_)
+                | WideCommand::Muster(_)
+                | WideCommand::Dissolve(_)
+        )
+    }
+
+    /// The account table of the command (WideClose's ticket shape for
+    /// `what = 0`; the handler checks [`CLOSE_HOLDING`] for `what = 1`).
+    pub const fn accounts(&self) -> &'static [Group] {
+        match self {
+            WideCommand::Muster(_) => MUSTER,
+            WideCommand::Dissolve(_) => DISSOLVE,
+            WideCommand::Resolve(_) => RESOLVE,
+            WideCommand::Return(_) => RETURN,
+            WideCommand::CloseRoster(_) => CLOSE_ROSTER,
+            WideCommand::Close(c) if c.what == CLOSE_WHAT_HOLDING => CLOSE_HOLDING,
+            _ => accounts_of(self.ix()),
+        }
+    }
+}
+
+/// 0xDD: `generation u32 ‖ inner`, the inner a whole player command of
+/// this band ([`WideCommand::is_player`]: WideClaimSite, WideDepart,
+/// WideMuster, WideDissolve; the shape of the deployed `ResidentAct`,
+/// `resident_wire::Command::Act`).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct ResidentAct<'a> {
     pub generation: u32,
@@ -468,21 +808,27 @@ impl<'a> ResidentAct<'a> {
         Some(n)
     }
 
-    /// Decodes the head and checks the inner tag is one the act runs
-    /// (`BadData` otherwise; the inner instruction decodes itself).
+    /// Decodes the head and checks the inner is a whole player command of
+    /// the band (`BadData` otherwise: a v2 tag, a non-player tag, a
+    /// non-player sub-operation, a malformed inner, the act itself).
     pub fn decode(d: &'a [u8]) -> Result<Self, FrontierError> {
         let bad = FrontierError::BadData;
         if d.len() <= Self::HEAD || d[0] != Self::IX.tag() {
             return Err(bad);
         }
         let inner = &d[Self::HEAD..];
-        if !tag_of(inner)?.act_runs() {
+        if !tag_of(inner)?.act_runs() || !WideCommand::decode(inner)?.is_player() {
             return Err(bad);
         }
         Ok(ResidentAct {
             generation: u32::from_le_bytes([d[1], d[2], d[3], d[4]]),
             inner,
         })
+    }
+
+    /// The decoded inner command (a player one, by construction).
+    pub fn command(&self) -> Result<WideCommand<'a>, FrontierError> {
+        WideCommand::decode(self.inner)
     }
 }
 
@@ -736,8 +1082,75 @@ pub const DEPART: &[Group] = &[one(&[
     s("holding_province", WIDE, false, Wr::R),
 ])];
 
+/// WideMuster: the deployed player prologue, then the deployed Muster's
+/// `[holding w] [province w]` (the holding's own wide province), then
+/// `[roster w]` (the province's roster side table, created from the payer
+/// at the first muster, its rent recipient the payer) and `[system]`.
+pub const MUSTER: &[Group] = &[one(&[
+    s("actor", Acc::Wallet, true, Wr::R),
+    s("payer", Acc::Wallet, true, Wr::W),
+    s("season", Acc::Kind(K::Season), false, Wr::R),
+    s("citizen", Acc::Kind(K::Citizen), false, Wr::W),
+    s("holding", WIDE, false, Wr::W),
+    s("province", WIDE, false, Wr::W),
+    s("roster", WIDE, false, Wr::W),
+    s("system", Acc::System, false, Wr::R),
+])];
+
+/// WideDissolve: the deployed player prologue, then the deployed
+/// Dissolve's `[holding w] [province w] [holding_province r]` with the
+/// standing province's `[roster r]` before the issuing holding's province.
+pub const DISSOLVE: &[Group] = &[one(&[
+    s("actor", Acc::Wallet, true, Wr::R),
+    s("payer", Acc::Wallet, true, Wr::W),
+    s("season", Acc::Kind(K::Season), false, Wr::R),
+    s("citizen", Acc::Kind(K::Citizen), false, Wr::W),
+    s("holding", WIDE, false, Wr::W),
+    s("province", WIDE, false, Wr::W),
+    s("roster", WIDE, false, Wr::R),
+    s("holding_province", WIDE, false, Wr::R),
+])];
+
+/// WideResolve: the deployed keeper prologue `[fee_payer s,w] [season r]`,
+/// `[province w] [roster w]`, the deployed `[seedcache|archive r]
+/// [anchor|archive r]` of the province's stored region, and
+/// `[clash_inputs r]`: the wide ClashInputs position of this province and
+/// bell, which must be **absent** (no arrival path exists; a present
+/// record is refused rather than resolved without its arrivals).
+pub const RESOLVE: &[Group] = &[one(&[
+    s("fee_payer", Acc::Wallet, true, Wr::W),
+    s("season", Acc::Kind(K::Season), false, Wr::R),
+    s("province", WIDE, false, Wr::W),
+    s("roster", WIDE, false, Wr::W),
+    s("seed", Acc::Any, false, Wr::R),
+    s("anchor", Acc::Any, false, Wr::R),
+    s("clash_inputs", Acc::Any, false, Wr::R),
+])];
+
+/// WideReturn: the deployed return settle's `[payer s] [season] [province
+/// w] [holding w]` with the province's `[roster w]` between them; the
+/// holding may be absent (its hosts are then stranded, as deployed).
+pub const RETURN: &[Group] = &[one(&[
+    s("payer", Acc::Wallet, true, Wr::W),
+    s("season", Acc::Kind(K::Season), false, Wr::R),
+    s("province", WIDE, false, Wr::W),
+    s("roster", WIDE, false, Wr::W),
+    s("holding", WIDE, false, Wr::W),
+])];
+
+/// WideCloseRoster: `[any s] [season r] [roster w] [rent_to w]`: the
+/// season-end close of a roster side table, whole to its immutable rent
+/// recipient.
+pub const CLOSE_ROSTER: &[Group] = &[one(&[
+    s("any", Acc::Wallet, true, Wr::R),
+    s("season", Acc::Any, false, Wr::R),
+    s("roster", WIDE, false, Wr::W),
+    s("rent_to", Acc::Wallet, false, Wr::W),
+])];
+
 /// The account list of a draft instruction (WideClose's is its ticket
-/// shape; the handler checks [`CLOSE_HOLDING`] for `what = 1`).
+/// shape; the handler checks [`CLOSE_HOLDING`] for `what = 1`). The
+/// envelope's commands have their own ([`WideCommand::accounts`]).
 pub const fn accounts_of(ix: WideIx) -> &'static [Group] {
     match ix {
         WideIx::RequestRingSeed => REQUEST_RING_SEED,
@@ -1187,5 +1600,235 @@ mod tests {
         assert_eq!(SETTLE_TICKET[0].specs[6].acc, Acc::Kind(K::JoinShard));
         assert_eq!(SETTLE_TICKET[1].specs[1].acc, Acc::Kind(K::Citizen));
         assert!(SET_RULES[0].specs[0].signer && SET_RULES[0].specs[0].wr == Wr::W);
+    }
+
+    /// The envelope: every legacy encoding still decodes at its exact
+    /// length and nothing else does; every sub-operation decodes at its
+    /// exact length under its tag, escape, version and op, and nothing
+    /// else; the class is the tag's; the act's whitelist is by decoded
+    /// command; the tables resolve.
+    #[test]
+    fn envelope_extensions_are_exact_and_class_preserving() {
+        use crate::tags::Class;
+        // the legacy forms, through the one parser
+        let depart = Depart {
+            host: [0x11; HOST_REF_LEN],
+            transit_slot: 2,
+            arrive_bell: 777,
+            tip: 14_441,
+            commit: [7; 32],
+            seal: [9; SEAL_LEN],
+        };
+        assert_eq!(
+            WideCommand::decode(&depart.to_bytes()),
+            Ok(WideCommand::Depart(depart))
+        );
+        assert_eq!(depart.to_bytes()[1], 0x11, "a host reference version byte");
+        assert_eq!(
+            WideCommand::decode(&[0xDC, 0]),
+            Ok(WideCommand::SettleTicket(SettleTicket { k: 0 }))
+        );
+        assert_eq!(
+            WideCommand::decode(&[0xDC, 0xFF]),
+            Ok(WideCommand::SettleTicket(SettleTicket { k: 0xFF })),
+            "the legacy length is the legacy form, whatever the byte"
+        );
+        assert_eq!(
+            WideCommand::decode(&[0xDE, 1]),
+            Ok(WideCommand::Close(Close { what: 1 }))
+        );
+        assert_eq!(WideCommand::decode(&[0xDE, 2]), Err(FrontierError::BadData));
+        assert_eq!(
+            WideCommand::decode(&[0xDE, 0xFF]),
+            Err(FrontierError::BadData)
+        );
+        assert_eq!(
+            WideCommand::decode(&[0xDF]),
+            Ok(WideCommand::Finalize(Finalize))
+        );
+        assert_eq!(
+            WideCommand::decode(&[0xDF, 0xFF, 1, 1]),
+            Err(FrontierError::BadData)
+        );
+        assert_eq!(
+            WideCommand::decode(&[0xC1, 0xFF, 1, 1]),
+            Err(FrontierError::BadData)
+        );
+        // the sub-operations
+        let m = Muster {
+            unit: 3,
+            troops: 1_200,
+            tile: 17,
+        };
+        let b = m.to_bytes();
+        assert_eq!(b.len(), 10);
+        assert_eq!(&b[..4], &[0xDA, 0xFF, 1, 1]);
+        assert_eq!(Muster::decode(&b), Ok(m));
+        assert_eq!(WideCommand::decode(&b), Ok(WideCommand::Muster(m)));
+        assert_eq!(Depart::decode(&b), Err(FrontierError::BadData));
+        let d = Dissolve {
+            host: [0x22; HOST_REF_LEN],
+        };
+        let b = d.to_bytes();
+        assert_eq!(b.len(), 60);
+        assert_eq!(&b[..4], &[0xDA, 0xFF, 1, 2]);
+        assert_eq!(WideCommand::decode(&b), Ok(WideCommand::Dissolve(d)));
+        let r = Resolve {
+            bell: 9,
+            beneficiary: [0x33; 32],
+        };
+        let b = r.to_bytes();
+        assert_eq!(b.len(), 40);
+        assert_eq!(&b[..4], &[0xDC, 0xFF, 1, 1]);
+        assert_eq!(WideCommand::decode(&b), Ok(WideCommand::Resolve(r)));
+        assert_eq!(Return.to_bytes(), [0xDC, 0xFF, 1, 2]);
+        assert_eq!(
+            WideCommand::decode(&[0xDC, 0xFF, 1, 2]),
+            Ok(WideCommand::Return(Return))
+        );
+        assert_eq!(CloseRoster.to_bytes(), [0xDE, 0xFF, 1, 1]);
+        assert_eq!(
+            WideCommand::decode(&[0xDE, 0xFF, 1, 1]),
+            Ok(WideCommand::CloseRoster(CloseRoster))
+        );
+        // nothing malformed decodes: a wrong length, escape, version, op, or
+        // an op under another tag
+        for bad in [
+            &[0xDA, 0xFF, 1, 1, 0, 0, 0, 0, 0][..],
+            &[0xDA, 0xFF, 1, 1, 0, 0, 0, 0, 0, 0, 0],
+            &[0xDA, 0xFE, 1, 1, 0, 0, 0, 0, 0, 0],
+            &[0xDA, 0xFF, 2, 1, 0, 0, 0, 0, 0, 0],
+            &[0xDA, 0xFF, 1, 3, 0, 0, 0, 0, 0, 0],
+            &[0xDA, 0xFF, 1, 0, 0, 0, 0, 0, 0, 0],
+            &[0xDC, 0xFF, 1, 3],
+            &[0xDC, 0xFF, 1, 2, 0],
+            &[0xDC, 0xFF, 1],
+            &[0xDE, 0xFF, 1, 2],
+            &[0xDE, 0xFF, 1, 1, 0],
+            &[0xDE, 0xFF, 0, 1],
+            &[0xD9, 0xFF, 1, 1],
+            &[0xDB, 0xFF, 1, 1],
+        ] {
+            assert_eq!(
+                WideCommand::decode(bad),
+                Err(FrontierError::BadData),
+                "{bad:?}"
+            );
+        }
+        // class, top level, names, tables (the decoded commands borrow their
+        // bytes: bound first)
+        let (mb, db, rb, retb, crb) = (
+            m.to_bytes(),
+            d.to_bytes(),
+            r.to_bytes(),
+            Return.to_bytes(),
+            CloseRoster.to_bytes(),
+        );
+        let m = WideCommand::decode(&mb).unwrap();
+        let d = WideCommand::decode(&db).unwrap();
+        let r = WideCommand::decode(&rb).unwrap();
+        let ret = WideCommand::decode(&retb).unwrap();
+        let cr = WideCommand::decode(&crb).unwrap();
+        assert_eq!((m.class(), d.class()), (Class::P, Class::P));
+        assert_eq!((r.class(), ret.class()), (Class::D, Class::D));
+        assert_eq!(cr.class(), Class::N);
+        assert!(r.top_level_only(), "the resolve is top-level, as deployed");
+        assert!(!ret.top_level_only() && !m.top_level_only() && !cr.top_level_only());
+        assert!(m.is_player() && d.is_player());
+        assert!(!r.is_player() && !ret.is_player() && !cr.is_player());
+        let dep = depart.to_bytes();
+        assert!(WideCommand::decode(&dep).unwrap().is_player());
+        assert_eq!(m.name(), "WideMuster");
+        assert_eq!(cr.name(), "WideCloseRoster");
+        assert_eq!(WideCommand::decode(&[0xDF]).unwrap().name(), "WideFinalize");
+        assert_eq!(bounds_in(m.accounts()), (8, 8));
+        assert_eq!(bounds_in(d.accounts()), (8, 8));
+        assert_eq!(bounds_in(r.accounts()), (7, 7));
+        assert_eq!(bounds_in(ret.accounts()), (5, 5));
+        assert_eq!(bounds_in(cr.accounts()), (4, 4));
+        assert_eq!(
+            crate::v2::prologue::count_bounds(crate::v2::Ix::Muster),
+            (6, 6),
+            "the wide Muster is the deployed shape plus the roster and System"
+        );
+        assert_eq!(
+            crate::v2::prologue::count_bounds(crate::v2::Ix::Dissolve),
+            (7, 7),
+            "the wide Dissolve is the deployed shape plus the roster"
+        );
+        assert_eq!(position_in(MUSTER, 8, "roster", 0), Some(6));
+        assert_eq!(position_in(DISSOLVE, 8, "holding_province", 0), Some(7));
+        assert_eq!(position_in(RESOLVE, 7, "clash_inputs", 0), Some(6));
+        assert_eq!(position_in(RETURN, 5, "holding", 0), Some(4));
+        assert_eq!(position_in(CLOSE_ROSTER, 4, "rent_to", 0), Some(3));
+        for g in [MUSTER, DISSOLVE] {
+            for (sp, want) in g[0].specs.iter().zip(PLAYER_PROLOGUE) {
+                assert_eq!(
+                    (sp.name, sp.signer, sp.wr),
+                    (want.name, want.signer, want.wr)
+                );
+            }
+        }
+        assert!(RESOLVE[0].specs[0].signer && RESOLVE[0].specs[0].wr == Wr::W);
+        assert_eq!(
+            WideCommand::decode(&[0xDE, 1]).unwrap().accounts().len(),
+            CLOSE_HOLDING.len()
+        );
+        // the act runs the decoded player commands only
+        let inner = Muster {
+            unit: 0,
+            troops: 300,
+            tile: 5,
+        }
+        .to_bytes();
+        let mut buf = [0u8; 80];
+        let n = ResidentAct {
+            generation: 2,
+            inner: &inner,
+        }
+        .encode_into(&mut buf)
+        .unwrap();
+        let act = ResidentAct::decode(&buf[..n]).unwrap();
+        let want = Muster::decode(&inner).unwrap();
+        assert_eq!(act.command(), Ok(WideCommand::Muster(want)));
+        assert!(matches!(
+            WideCommand::decode(&buf[..n]),
+            Ok(WideCommand::ResidentAct(_))
+        ));
+        for not_player in [Resolve::LEN, Return::LEN] {
+            let inner: Vec<u8> = if not_player == Resolve::LEN {
+                Resolve {
+                    bell: 1,
+                    beneficiary: [0; 32],
+                }
+                .to_bytes()
+                .to_vec()
+            } else {
+                Return.to_bytes().to_vec()
+            };
+            let n = ResidentAct {
+                generation: 2,
+                inner: &inner,
+            }
+            .encode_into(&mut buf)
+            .unwrap();
+            assert_eq!(ResidentAct::decode(&buf[..n]), Err(FrontierError::BadData));
+        }
+        let inner = CloseRoster.to_bytes();
+        let n = ResidentAct {
+            generation: 2,
+            inner: &inner,
+        }
+        .encode_into(&mut buf)
+        .unwrap();
+        assert_eq!(ResidentAct::decode(&buf[..n]), Err(FrontierError::BadData));
+        // a malformed inner of a player tag is refused too
+        let n = ResidentAct {
+            generation: 2,
+            inner: &[0xDA, 0xFF, 1, 1, 0],
+        }
+        .encode_into(&mut buf)
+        .unwrap();
+        assert_eq!(ResidentAct::decode(&buf[..n]), Err(FrontierError::BadData));
     }
 }

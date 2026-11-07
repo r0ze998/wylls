@@ -80,15 +80,21 @@
 //! it reports whether the restore found anything to undo.
 
 use super::*;
+use frontier_abi::clash_model::Camp;
 use frontier_abi::conquest_model::read_keep;
+use frontier_abi::entry::{read_entry, EntryOp};
 use frontier_abi::ix::{HINTS_LEN, SEAL_LEN};
 use frontier_abi::resident_auth::Policy;
 use frontier_abi::v2::kernel::keep as kkeep;
+use frontier_abi::world_index::arrival as wa;
+use frontier_abi::world_index::event::{self as wev, WideEntity, WideKind, WideRecord};
 use frontier_abi::world_index::holding::{self as wh, WideHolding, HOST_IDENTITY_UNALLOCATED};
 use frontier_abi::world_index::land::{
     self as wl, readiness, SeedStatus, WideProvince, WideRingSeed, WideRules, FIRST_WIDE_RING,
 };
+use frontier_abi::world_index::march::{wide_host_alias, HOST_IDENTITY_FULL_REF_V1};
 use frontier_abi::world_index::placement::mixed_home_nation;
+use frontier_abi::world_index::roster::{self as wro, WideRoster};
 use frontier_abi::world_index::rules::{
     self as wr, CampRule, FreeCityRule, KeepHolderRule, RegionRule, WideRulesConfig,
 };
@@ -102,7 +108,8 @@ use permutation_rules::frontier::terrain::wide::generate_province_wide;
 use crate::clock::SeasonClock;
 use crate::layout::player::accrual as AC;
 use crate::layout::{
-    bell_anchor as BA, camp as CP, cohort as CO, join_shard2 as JS2, seed_cache as SC,
+    bell_anchor as BA, camp as CP, cohort as CO, entry as EN, join_shard2 as JS2, seed_cache as SC,
+    summary as SU,
 };
 use crate::CqError as CE;
 
@@ -153,6 +160,15 @@ struct Refused {
 /// the runtime reverts a failed transaction. `Err` carries the program code
 /// (`u32::MAX` for a non-program error: a refused CPI) and whether the
 /// handler had written before refusing.
+///
+/// **Transaction-status filtering of the log collectors.** Raw logs may
+/// remain on a failed transaction, but are not successful game receipts.
+/// Consumers must check transaction status. The collectors (`LOGS` for PS2, `WIDE_LOGS`
+/// for `PSW1`) emulate that: their lengths are noted before the dispatch
+/// and truncated back on a refusal, so [`records`] and [`wide_records`]
+/// return the receipts of **successful** transactions only, and a record a
+/// handler logged before a later step refused is never mistaken for an
+/// event.
 fn run_tx(accounts: &[AccountInfo<'static>], data: &[u8]) -> Result<(), Refused> {
     let snap: Vec<(AccountInfo<'static>, u64, Vec<u8>, Pubkey)> = accounts
         .iter()
@@ -165,9 +181,12 @@ fn run_tx(accounts: &[AccountInfo<'static>], data: &[u8]) -> Result<(), Refused>
             )
         })
         .collect();
+    let (n_logs, n_wide) = (LOGS.lock().unwrap().len(), WIDE_LOGS.lock().unwrap().len());
     match crate::dispatch(&Pubkey::new_from_array(PROGRAM), accounts, data) {
         Ok(()) => Ok(()),
         Err(e) => {
+            LOGS.lock().unwrap().truncate(n_logs);
+            WIDE_LOGS.lock().unwrap().truncate(n_wide);
             let mut wrote = false;
             for (a, lamports, bytes, owner) in &snap {
                 let same = a.lamports() == *lamports
@@ -233,6 +252,7 @@ struct Wide {
     wallets: HashMap<[u8; 32], AccountInfo<'static>>,
     beacons: HashMap<(u32, u8), (AccountInfo<'static>, AccountInfo<'static>)>,
     config: Option<AccountInfo<'static>>,
+    rosters: HashMap<(i64, i64), AccountInfo<'static>>,
 }
 
 /// An NFT resident's Citizen and its proof accounts.
@@ -359,6 +379,7 @@ impl Wide {
             wallets: HashMap::new(),
             beacons: HashMap::new(),
             config: None,
+            rosters: HashMap::new(),
         }
     }
 
@@ -1101,6 +1122,185 @@ impl Wide {
         ))
     }
 
+    /// The roster side table of `coord`: absent at its canonical draft
+    /// address until the first WideMuster creates it.
+    fn roster(&mut self, coord: WideCoord) -> AccountInfo<'static> {
+        let key = wro::roster_address(&self.w.ctx, ProvinceKey::new(self.world_id(), coord));
+        self.rosters
+            .entry((coord.p(), coord.q()))
+            .or_insert_with(|| {
+                info(
+                    leak(key, SYSTEM, vec![], wro::wide_roster::SIZE, 0),
+                    false,
+                    true,
+                )
+            })
+            .clone()
+    }
+
+    /// The absent wide ClashInputs position of `(coord, bell)` (no reveal
+    /// or gather exists to create one).
+    fn no_inputs(&mut self, coord: WideCoord, bell: u32) -> AccountInfo<'static> {
+        let key =
+            wa::clash_inputs_address(&self.w.ctx, ProvinceKey::new(self.world_id(), coord), bell);
+        info(leak(key, SYSTEM, vec![], 0, 0), false, false)
+    }
+
+    /// The account list of a WideMuster for the member's wide holding at
+    /// `(coord, site)`.
+    fn muster_accounts(
+        &mut self,
+        m: &Member,
+        actor: [u8; 32],
+        coord: WideCoord,
+        site: u8,
+        province: AccountInfo<'static>,
+    ) -> Vec<AccountInfo<'static>> {
+        vec![
+            wallet(actor, true, false, 0),
+            self.w.payer.clone(),
+            self.w.season.clone(),
+            m.citizen.clone(),
+            self.holding(coord, site),
+            province,
+            self.roster(coord),
+            self.w.system.clone(),
+        ]
+    }
+
+    /// WideMuster (0xDA op 1) of `troops` of `unit` onto `tile` from the
+    /// member's wide holding at `(coord, site)`, by `actor`.
+    #[allow(clippy::too_many_arguments)]
+    fn muster(
+        &mut self,
+        m: &Member,
+        actor: [u8; 32],
+        coord: WideCoord,
+        site: u8,
+        unit: u8,
+        troops: u32,
+        tile: u8,
+    ) -> Result<(), Refused> {
+        let province = self.province(coord);
+        let a = self.muster_accounts(m, actor, coord, site, province);
+        run_tx(&a, &wix::Muster { unit, troops, tile }.to_bytes())
+    }
+
+    /// WideDissolve (0xDA op 2) of `host` by the member's wallet, the host
+    /// standing in `standing`.
+    fn dissolve(
+        &mut self,
+        m: &Member,
+        actor: [u8; 32],
+        host: WideHostRef,
+        standing: AccountInfo<'static>,
+    ) -> Result<(), Refused> {
+        let coord = host.key().coord();
+        let a = [
+            wallet(actor, true, false, 0),
+            self.w.payer.clone(),
+            self.w.season.clone(),
+            m.citizen.clone(),
+            self.holding(coord, host.site()),
+            standing,
+            with_writable(&self.roster(coord), false),
+            with_writable(&self.province(coord), false),
+        ];
+        run_tx(
+            &a,
+            &wix::Dissolve {
+                host: host.to_bytes(),
+            }
+            .to_bytes(),
+        )
+    }
+
+    /// WideResolve (0xDC op 1) of `bell` of `coord` by the payer, the
+    /// beacon of `(bell, region)` staged.
+    fn resolve(&mut self, coord: WideCoord, bell: u32) -> Result<(), Refused> {
+        let region = WideProvince::read(&self.province_data(coord))
+            .map(|p| p.region)
+            .unwrap_or(0);
+        let beacon = self.stage_seed(bell, region, &BELL_SEED);
+        self.resolve_with(coord, bell, beacon)
+    }
+
+    /// [`Wide::resolve`] with the `(seed cache, anchor)` pair given.
+    fn resolve_with(
+        &mut self,
+        coord: WideCoord,
+        bell: u32,
+        beacon: (AccountInfo<'static>, AccountInfo<'static>),
+    ) -> Result<(), Refused> {
+        let inputs = self.no_inputs(coord, bell);
+        self.resolve_full(coord, bell, beacon, inputs)
+    }
+
+    /// [`Wide::resolve_with`] with the ClashInputs position given.
+    fn resolve_full(
+        &mut self,
+        coord: WideCoord,
+        bell: u32,
+        (cache, anchor): (AccountInfo<'static>, AccountInfo<'static>),
+        inputs: AccountInfo<'static>,
+    ) -> Result<(), Refused> {
+        let a = [
+            self.w.payer.clone(),
+            self.w.season.clone(),
+            self.province(coord),
+            self.roster(coord),
+            cache,
+            anchor,
+            inputs,
+        ];
+        run_tx(
+            &a,
+            &wix::Resolve {
+                bell,
+                beneficiary: PAYER,
+            }
+            .to_bytes(),
+        )
+    }
+
+    /// WideReturn (0xDC op 2) of `coord`'s departed hosts of `holding`.
+    fn settle_return(
+        &mut self,
+        coord: WideCoord,
+        holding: AccountInfo<'static>,
+    ) -> Result<(), Refused> {
+        let a = [
+            self.w.payer.clone(),
+            self.w.season.clone(),
+            self.province(coord),
+            self.roster(coord),
+            holding,
+        ];
+        run_tx(&a, &wix::Return.to_bytes())
+    }
+
+    /// WideCloseRoster (0xDE op 1) of `coord`'s roster to `rent_to`.
+    fn close_roster(
+        &mut self,
+        coord: WideCoord,
+        rent_to: AccountInfo<'static>,
+    ) -> Result<(), Refused> {
+        let a = [
+            wallet(ANYONE, true, false, 0),
+            with_writable(&self.w.season, false),
+            self.roster(coord),
+            unsigned(&rent_to),
+        ];
+        run_tx(&a, &wix::CloseRoster.to_bytes())
+    }
+
+    /// The roster side table of `coord`, decoded.
+    fn roster_record(&mut self, coord: WideCoord) -> WideRoster {
+        let ai = self.roster(coord);
+        let d = ai.try_borrow_data().unwrap().to_vec();
+        WideRoster::read(&d).unwrap()
+    }
+
     fn fund_lamports(&mut self) -> [u64; 6] {
         let mut v = [0u64; 6];
         for (w, x) in v.iter_mut().enumerate() {
@@ -1166,6 +1366,18 @@ impl Nft {
             .unwrap()
             .copy_from_slice(&resident_bytes(self.generation));
     }
+}
+
+/// The wide records (`PSW1`) of the **successful** transactions since the
+/// last call, in order ([`run_tx`] drops a failed transaction's logs).
+fn wide_records() -> Vec<Vec<u8>> {
+    std::mem::take(&mut *WIDE_LOGS.lock().unwrap())
+}
+
+/// The event chain `(seq, head)` of a wide account's header.
+fn chain(ai: &AccountInfo<'static>) -> (u64, [u8; 32]) {
+    let d = ai.try_borrow_data().unwrap();
+    crate::layout::chain_of(&d).unwrap()
 }
 
 /// An absent account: System-owned, no data.
@@ -2080,6 +2292,718 @@ fn wide_land_ticket_is_filed_drawn_settled_and_finalized_as_the_deployed_outpost
     assert_eq!(w.holding_data(coord, site), holding_before);
     assert_eq!(w.w.payer.lamports(), payer_before, "nothing debited");
     assert!(records().is_empty());
+}
+
+/// The closed host lifecycle through the envelope, on a final wide
+/// holding: an empty province resolved before its first muster (no roster
+/// needed), every resolve authenticated against THE anchor of the
+/// province's stored region (the bell due, the window closed, the seed
+/// posted, no arrival record), the muster's deployed refusals before any
+/// write and then the muster (the entry under the alias, the roster side
+/// table created from the payer, the reserve debited, the host sequence
+/// and the identity allocated), the next bell's resolve settling the
+/// pending muster, the dissolve's refusals and the Leave, the next resolve
+/// settling it, the return crediting whole troops once (and stranding a
+/// host whose holding is not at its generation), Depart still refused
+/// under the allocated identity, the NFT act's whitelist and authority,
+/// and the season-end close of the roster to its immutable rent recipient.
+#[test]
+fn wide_land_host_musters_resolves_dissolves_and_returns_through_the_envelope() {
+    let _g = begin();
+    at_bell(1);
+    let mut w = Wide::rim();
+    let (coord, site, a, template) = w.land();
+    let payer = w.w.payer.clone();
+    w.fixture_rim_home(&a, &template, 0, 1_500 * MILLI);
+    assert_eq!(
+        code(w.file(&a, WALLET_A, coord, site, 2, 0, payer.clone(), None)),
+        Ok(())
+    );
+    assert_eq!(code(w.settle(&a, 0, coord, site, 1, None)), Ok(()));
+    at_bell(3);
+    assert_eq!(code(w.finalize(coord, site)), Ok(()));
+    records();
+    let key = ProvinceKey::new(w.world_id(), coord);
+    let region = WideProvince::read(&w.province_data(coord)).unwrap().region;
+    let rent_r = crate::init::rent(wro::wide_roster::SIZE).unwrap();
+    // **Fixture**: a reserve of 500 Spearmen and 500 Settlers (the
+    // deployed Train is not run here; the Settlers show the kernel's
+    // host-unit refusal behind a sufficient reserve).
+    {
+        let hai = w.holding(coord, site);
+        let mut hd = hai.try_borrow_mut_data().unwrap();
+        put(&mut hd, H::reserve(0), &500u32.to_le_bytes());
+        put(&mut hd, H::reserve(7), &500u32.to_le_bytes());
+    }
+    // A passable tile that is no site, not the keep's and not the camp's:
+    // the hosts stand alone (the bells' clashes have no engagement).
+    let pd = w.province_data(coord);
+    let passable = Ro(&pd).u64(PV::PASSABLE_MASK).unwrap();
+    let keep_tile = read_keep(&pd).unwrap().map(|k| k.tile);
+    let camp = Camp::read(&pd).unwrap();
+    let camp_tile = camp.present().then_some(camp.tile);
+    let n_sites = pd[PV::SITE_COUNT] as usize;
+    let sites = &pd[PV::SITES..PV::SITES + n_sites];
+    let tile = (1..61u8)
+        .find(|t| {
+            passable & (1 << t) != 0
+                && Some(*t) != keep_tile
+                && Some(*t) != camp_tile
+                && !sites.contains(t)
+        })
+        .expect("a passable tile");
+    let other = (0..12u8).find(|s| *s != site).unwrap();
+    let home = w.province(coord);
+    let none = w.w.system.clone();
+
+    // --- Bootstrap: the province was opened at bell 1 and never resolved,
+    // so no resident action is possible; the empty province resolves
+    // through the real bell model with no roster at all.
+    assert_eq!(rd_u32(&pd, PV::RESOLVED_NEXT), 1);
+    assert_eq!(
+        code(w.muster(&a, WALLET_A, coord, site, 0, 300, tile)),
+        Err(E::NotResident as u32),
+        "resolved through bell 0 only"
+    );
+    assert_eq!(code(w.resolve(coord, 2)), Err(E::OutOfOrder as u32));
+    assert_eq!(
+        code(w.resolve_with(coord, 1, (none.clone(), none.clone()))),
+        Err(E::BadAddress as u32),
+        "THE anchor of (bell, region) must be named"
+    );
+    let (cache, anchor) = w.stage_seed(1, region, &BELL_SEED);
+    assert_eq!(
+        code(w.resolve_with(coord, 1, (none.clone(), anchor.clone()))),
+        Err(E::SeedNotReady as u32),
+        "the window closed, the seed not posted"
+    );
+    {
+        // a present record at the wide ClashInputs position: arrivals have
+        // no path, so the bell is not resolved without them
+        let ik = wa::clash_inputs_address(&w.w.ctx, key, 1);
+        let present = info(leak(ik, PROGRAM, vec![7u8; 16], 0, BIG), false, false);
+        assert_eq!(
+            code(w.resolve_full(coord, 1, (cache.clone(), anchor.clone()), present)),
+            Err(E::NotImplemented as u32)
+        );
+    }
+    assert!(wide_records().is_empty(), "a refusal logs nothing");
+    assert_eq!(code(w.resolve(coord, 1)), Ok(()));
+    let pd = w.province_data(coord);
+    assert_eq!(rd_u32(&pd, PV::RESOLVED_NEXT), 2);
+    assert_eq!(rd_u32(&pd, PV::RESOLVE_SUMMARY + SU::BELL), 1);
+    assert_eq!(rd_u32(&pd, PV::RESOLVE_SUMMARY + SU::ENGAGEMENTS), 0);
+    assert_eq!(&pd[PV::RESOLVE_SUMMARY + SU::RESOLVER..][..8], &PAYER[..8]);
+    assert!(
+        absent(&w.roster(coord)),
+        "an empty province needs no roster"
+    );
+    // The wide record of the bell: its own format, keyed by the full
+    // province key, the input and output commitments, chained to the
+    // province alone (`PSW1`, never a PS2 record).
+    let mut trace: Vec<Vec<u8>> = Vec::new();
+    let wr = wide_records();
+    assert_eq!(wr.len(), 1);
+    {
+        let r = WideRecord::decode(&wr[0]).unwrap();
+        assert_eq!((r.kind, r.bell), (WideKind::Resolve, 1));
+        assert_eq!(r.province(), Some(key));
+        assert_ne!(&r.payload[..32], &r.payload[32..64], "input ≠ output");
+        assert_eq!(&r.payload[64..68], &0u32.to_le_bytes(), "no engagement");
+        assert_eq!(r.payload[70], 0, "nothing to settle");
+        let link = r.link(WideEntity::Province).unwrap();
+        assert_eq!(link.seq, 1);
+        assert_eq!(chain(&w.province(coord)), (1, link.head));
+        assert_eq!(r.link(WideEntity::Holding), None);
+        assert_eq!(
+            frontier_abi::log::decode(&wr[0]).err(),
+            Some(frontier_abi::log::LogError::Version(
+                wev::WIDE_EVENT_VERSION
+            )),
+            "a deployed reader refuses the version: unknown, never misread"
+        );
+    }
+    trace.extend(wr);
+    assert!(records().is_empty(), "no PS2 record of the wide world");
+    assert_eq!(
+        code(w.resolve(coord, 1)),
+        Err(E::OutOfOrder as u32),
+        "replay"
+    );
+    assert_eq!(code(w.resolve(coord, 2)), Ok(()));
+    assert_eq!(
+        code(w.resolve(coord, 3)),
+        Err(E::TooEarly as u32),
+        "bell 3's window is open at bell 3"
+    );
+    assert_eq!(rd_u32(&w.province_data(coord), PV::RESOLVED_NEXT), 3);
+    let wr = wide_records();
+    assert_eq!(
+        wr.len(),
+        1,
+        "one record per resolved bell, none for a refusal"
+    );
+    assert_eq!(WideRecord::decode(&wr[0]).unwrap().bell, 2);
+    trace.extend(wr);
+    assert!(records().is_empty());
+
+    // --- The muster: the deployed refusals, each before any write.
+    let holding_before = w.holding_data(coord, site);
+    let payer_before = payer.lamports();
+    let m = |w: &mut Wide, actor, unit, troops, tile| {
+        code(w.muster(&a, actor, coord, site, unit, troops, tile))
+    };
+    assert_eq!(m(&mut w, WALLET_B, 0, 300, tile), Err(E::Auth as u32));
+    assert_eq!(
+        m(&mut w, WALLET_A, 7, 300, tile),
+        Err(E::BadData as u32),
+        "Settler is outside the muster reserve-unit domain"
+    );
+    assert_eq!(m(&mut w, WALLET_A, 9, 300, tile), Err(E::BadData as u32));
+    assert_eq!(
+        m(&mut w, WALLET_A, 0, 600, tile),
+        Err(E::Insufficient as u32),
+        "the reserve"
+    );
+    assert_eq!(
+        m(&mut w, WALLET_A, 3, 100, tile),
+        Err(E::Insufficient as u32),
+        "an empty reserve of another unit"
+    );
+    assert_eq!(
+        m(&mut w, WALLET_A, 0, 50, tile),
+        Err(E::Kernel as u32),
+        "below the kernel's minimum"
+    );
+    assert_eq!(m(&mut w, WALLET_A, 0, 300, 0xFF), Err(E::BadData as u32));
+    {
+        let rim = w.w.province(RIM);
+        let acc = w.muster_accounts(&a, WALLET_A, coord, site, rim);
+        let x = wix::Muster {
+            unit: 0,
+            troops: 300,
+            tile,
+        };
+        assert_eq!(
+            code(run_tx(&acc, &x.to_bytes())),
+            Err(E::BadAddress as u32),
+            "the holding's own wide province, not a deployed one"
+        );
+    }
+    assert_eq!(w.holding_data(coord, site), holding_before);
+    assert_eq!(payer.lamports(), payer_before);
+    assert!(absent(&w.roster(coord)));
+    assert!(records().is_empty());
+    assert!(wide_records().is_empty(), "a refusal logs nothing");
+
+    // The muster: the entry under the alias, the roster created from the
+    // payer, the reserve, the sequence, the identity, the wide record.
+    assert_eq!(m(&mut w, WALLET_A, 0, 300, tile), Ok(()));
+    let host = WideHostRef::new(key, site, 1, 0).unwrap();
+    let alias = wide_host_alias(&host);
+    let pd = w.province_data(coord);
+    let e0 = read_entry(&pd, 0).unwrap();
+    assert_eq!(
+        (
+            e0.id,
+            e0.state,
+            e0.troops,
+            e0.tile,
+            e0.from_bell,
+            e0.faction
+        ),
+        (alias, EN::STATE_MUSTER_PENDING, 300_000, tile, 4, a.faction)
+    );
+    assert_eq!(pd[PV::N_ENTRIES], 1);
+    let hd = w.holding_data(coord, site);
+    assert_eq!(rd_u32(&hd, H::reserve(0)), 200);
+    assert_eq!(rd_u32(&hd, H::HOST_SEQ), 1);
+    assert_eq!(
+        WideHolding::read(&hd).unwrap().host_identity,
+        HOST_IDENTITY_FULL_REF_V1,
+        "allocated at the first muster"
+    );
+    let rai = w.roster(coord);
+    assert_eq!(*rai.owner, Pubkey::new_from_array(PROGRAM));
+    assert_eq!(rai.lamports(), rent_r);
+    assert_eq!(payer.lamports(), payer_before - rent_r, "the roster's rent");
+    let roster = w.roster_record(coord);
+    assert_eq!((roster.rent_to, roster.province), (PAYER, key));
+    assert_eq!(
+        roster.ref_at(&rai.try_borrow_data().unwrap(), 0).unwrap(),
+        Some(host)
+    );
+    assert!(
+        records().is_empty(),
+        "no PS2 record: the alias is no host id"
+    );
+    let wr = wide_records();
+    assert_eq!(wr.len(), 1);
+    {
+        let r = WideRecord::decode(&wr[0]).unwrap();
+        assert_eq!((r.kind, r.bell), (WideKind::Muster, 3));
+        assert_eq!(r.host(), Some(host), "keyed by the full reference");
+        assert_eq!(r.payload[0], 0);
+        assert_eq!(&r.payload[1..5], &300u32.to_le_bytes());
+        assert_eq!((r.payload[5], r.payload[6]), (tile, 0));
+        assert_eq!(&r.payload[7..15], &alias.to_le_bytes());
+        let lp = r.link(WideEntity::Province).unwrap();
+        let lh = r.link(WideEntity::Holding).unwrap();
+        assert_eq!(
+            (lp.seq, lh.seq),
+            (3, 1),
+            "after two resolves; the first of the holding"
+        );
+        assert_eq!(chain(&w.province(coord)), (3, lp.head));
+        assert_eq!(chain(&w.holding(coord, site)), (1, lh.head));
+    }
+    trace.extend(wr);
+    // A second host of the holding is the next sequence number; the roster
+    // is reused.
+    assert_eq!(m(&mut w, WALLET_A, 0, 100, tile), Ok(()));
+    let host1 = WideHostRef::new(key, site, 1, 1).unwrap();
+    let pd = w.province_data(coord);
+    assert_eq!(read_entry(&pd, 1).unwrap().id, wide_host_alias(&host1));
+    assert_eq!(rd_u32(&w.holding_data(coord, site), H::HOST_SEQ), 2);
+    assert_eq!(rd_u32(&w.holding_data(coord, site), H::reserve(0)), 100);
+    assert_eq!(payer.lamports(), payer_before - rent_r, "no second rent");
+    let wr = wide_records();
+    assert_eq!(wr.len(), 1);
+    assert_eq!(WideRecord::decode(&wr[0]).unwrap().host(), Some(host1));
+    trace.extend(wr);
+    // Depart stays refused under the allocated identity: nothing written.
+    let hd_after = w.holding_data(coord, site);
+    let payer_after = payer.lamports();
+    assert!(w.depart(&a, host, home.clone(), 40).is_err());
+    assert_eq!(w.holding_data(coord, site), hd_after);
+    assert_eq!(payer.lamports(), payer_after);
+    assert_eq!(w.province_data(coord), pd);
+    assert!(wide_records().is_empty() && records().is_empty());
+
+    // --- Bell 4: the bell's resolve settles the pending musters.
+    at_bell(4);
+    assert_eq!(code(w.resolve(coord, 3)), Ok(()));
+    let pd = w.province_data(coord);
+    assert_eq!(read_entry(&pd, 0).unwrap().state, EN::STATE_ROSTER);
+    assert_eq!(read_entry(&pd, 1).unwrap().state, EN::STATE_ROSTER);
+    assert_eq!(rd_u32(&pd, PV::RESOLVED_NEXT), 4);
+    assert_eq!(rd_u32(&pd, PV::RESOLVE_SUMMARY + SU::BELL), 3);
+    assert_eq!(pd[PV::N_ENTRIES], 2);
+    let wr = wide_records();
+    assert_eq!(wr.len(), 1);
+    {
+        let r = WideRecord::decode(&wr[0]).unwrap();
+        assert_eq!((r.kind, r.bell), (WideKind::Resolve, 3));
+        assert_eq!(r.payload[70], 1, "the pending musters settled");
+        assert_eq!(r.link(WideEntity::Province).unwrap().seq, 5);
+    }
+    trace.extend(wr);
+    // The dissolve: its refusals, then the Leave.
+    let gen2 = WideHostRef::new(key, site, 2, 0).unwrap();
+    assert_eq!(
+        code(w.dissolve(&a, WALLET_A, gen2, home.clone())),
+        Err(E::NotOwner as u32)
+    );
+    assert_eq!(
+        code(w.dissolve(&a, WALLET_B, host, home.clone())),
+        Err(E::Auth as u32)
+    );
+    let seq9 = WideHostRef::new(key, site, 1, 9).unwrap();
+    assert_eq!(
+        code(w.dissolve(&a, WALLET_A, seq9, home.clone())),
+        Err(E::NotResident as u32)
+    );
+    let rim = w.w.province(RIM);
+    assert_eq!(
+        code(w.dissolve(&a, WALLET_A, host, rim)),
+        Err(E::NotImplemented as u32),
+        "the legacy/wide boundary"
+    );
+    let own = w.holding(coord, site);
+    assert_eq!(
+        code(w.settle_return(coord, own.clone())),
+        Err(E::AlreadyDone as u32),
+        "nothing departed"
+    );
+    assert_eq!(code(w.dissolve(&a, WALLET_A, host, home.clone())), Ok(()));
+    let pd = w.province_data(coord);
+    let e0 = read_entry(&pd, 0).unwrap();
+    assert_eq!(
+        (e0.op, e0.pend_bell, e0.state),
+        (EntryOp::Leave, 4, EN::STATE_ROSTER)
+    );
+    assert!(records().is_empty());
+    let wr = wide_records();
+    assert_eq!(wr.len(), 1);
+    {
+        let r = WideRecord::decode(&wr[0]).unwrap();
+        assert_eq!((r.kind, r.bell), (WideKind::Dissolve, 4));
+        assert_eq!(r.host(), Some(host));
+        assert_eq!(&r.payload[..4], &4u32.to_le_bytes());
+        assert_eq!(&r.payload[4..8], &300_000u32.to_le_bytes());
+        assert_eq!(r.payload[8], 0);
+        assert_eq!(r.link(WideEntity::Province).unwrap().seq, 6);
+        assert_eq!(r.link(WideEntity::Holding).unwrap().seq, 3);
+    }
+    trace.extend(wr);
+    assert_eq!(
+        code(w.dissolve(&a, WALLET_A, host, home.clone())),
+        Err(E::HostBusy as u32)
+    );
+    assert!(wide_records().is_empty());
+
+    // --- Bell 5: the clash settles the Leave; the return credits the
+    // reserve once, by whole troops.
+    at_bell(5);
+    assert_eq!(code(w.resolve(coord, 4)), Ok(()));
+    let pd = w.province_data(coord);
+    assert_eq!(read_entry(&pd, 0).unwrap().state, EN::STATE_DEPARTED);
+    let wr = wide_records();
+    assert_eq!(wr.len(), 1);
+    assert_eq!(
+        WideRecord::decode(&wr[0]).unwrap().payload[70],
+        1,
+        "the Leave settled"
+    );
+    trace.extend(wr);
+    let foreign = w.holding(coord, other);
+    assert_eq!(
+        code(w.settle_return(coord, foreign)),
+        Err(E::AlreadyDone as u32),
+        "no host of that holding departed"
+    );
+    assert_eq!(code(w.settle_return(coord, own.clone())), Ok(()));
+    let pd = w.province_data(coord);
+    assert_eq!(
+        read_entry(&pd, 0).unwrap(),
+        frontier_abi::entry::Entry::FREE
+    );
+    assert_eq!(pd[PV::N_ENTRIES], 1);
+    let rai = w.roster(coord);
+    let rd = rai.try_borrow_data().unwrap().to_vec();
+    assert_eq!(roster.ref_at(&rd, 0).unwrap(), None);
+    assert_eq!(roster.ref_at(&rd, 1).unwrap(), Some(host1));
+    assert_eq!(
+        rd_u32(&w.holding_data(coord, site), H::reserve(0)),
+        400,
+        "300 whole troops back, once"
+    );
+    assert!(records().is_empty());
+    let wr = wide_records();
+    assert_eq!(wr.len(), 1);
+    {
+        let r = WideRecord::decode(&wr[0]).unwrap();
+        assert_eq!((r.kind, r.bell), (WideKind::Return, 5));
+        assert_eq!(r.host(), Some(host));
+        assert_eq!(&r.payload[..4], &300_000u32.to_le_bytes(), "credited once");
+        assert_eq!((r.payload[4], r.payload[5]), (0, 0));
+        assert_eq!(r.link(WideEntity::Province).unwrap().seq, 8);
+        assert_eq!(r.link(WideEntity::Holding).unwrap().seq, 4);
+    }
+    trace.extend(wr);
+    assert_eq!(
+        code(w.settle_return(coord, own.clone())),
+        Err(E::AlreadyDone as u32),
+        "no second credit"
+    );
+    assert!(wide_records().is_empty());
+    assert_eq!(rd_u32(&w.holding_data(coord, site), H::reserve(0)), 400);
+
+    // --- A departed host whose holding is not at its generation strands.
+    assert_eq!(code(w.dissolve(&a, WALLET_A, host1, home.clone())), Ok(()));
+    trace.extend(wide_records());
+    at_bell(6);
+    assert_eq!(code(w.resolve(coord, 5)), Ok(()));
+    trace.extend(wide_records());
+    {
+        let hai = w.holding(coord, site);
+        hai.try_borrow_mut_data().unwrap()[H::GEN] = 2;
+    }
+    assert_eq!(code(w.settle_return(coord, own.clone())), Ok(()));
+    {
+        let hai = w.holding(coord, site);
+        hai.try_borrow_mut_data().unwrap()[H::GEN] = 1;
+    }
+    let pd = w.province_data(coord);
+    assert_eq!(
+        read_entry(&pd, 1).unwrap(),
+        frontier_abi::entry::Entry::FREE
+    );
+    assert_eq!(pd[PV::N_ENTRIES], 0);
+    assert_eq!(
+        rd_u32(&w.holding_data(coord, site), H::reserve(0)),
+        400,
+        "stranded: nothing credited"
+    );
+    assert!(records().is_empty());
+    let wr = wide_records();
+    assert_eq!(wr.len(), 1);
+    {
+        let r = WideRecord::decode(&wr[0]).unwrap();
+        assert_eq!((r.kind, r.bell), (WideKind::Stranded, 6));
+        assert_eq!(r.host(), Some(host1));
+        assert_eq!(&r.payload[..4], &100_000u32.to_le_bytes());
+        assert_eq!(r.payload[4], 1);
+        assert_eq!(r.link(WideEntity::Province).unwrap().seq, 11);
+        assert_eq!(
+            r.link(WideEntity::Holding),
+            None,
+            "no credit: no holding link"
+        );
+    }
+    trace.extend(wr);
+
+    // --- The NFT act: a player sub-operation runs under the real resident
+    // check; the proof of another Citizen is refused before any write; a
+    // class D sub-operation never decodes as an inner.
+    let n = w.nft(a.faction, OWNER_A);
+    {
+        let mut acc = w.muster_accounts(&a, OWNER_A, coord, site, home.clone());
+        acc.extend([
+            n.policy.clone(),
+            n.link.clone(),
+            n.asset.clone(),
+            n.resident.clone(),
+        ]);
+        let inner = wix::Muster {
+            unit: 0,
+            troops: 100,
+            tile,
+        }
+        .to_bytes();
+        let mut d = [0u8; 64];
+        let len = wix::ResidentAct {
+            generation: 0,
+            inner: &inner,
+        }
+        .encode_into(&mut d)
+        .unwrap();
+        assert!(code(run_tx(&acc, &d[..len])).is_err());
+        assert_eq!(rd_u32(&w.holding_data(coord, site), H::HOST_SEQ), 2);
+        let inner = wix::Resolve {
+            bell: 6,
+            beneficiary: PAYER,
+        }
+        .to_bytes();
+        let len = wix::ResidentAct {
+            generation: 0,
+            inner: &inner,
+        }
+        .encode_into(&mut d)
+        .unwrap();
+        assert_eq!(code(run_tx(&acc, &d[..len])), Err(E::BadData as u32));
+        assert!(wide_records().is_empty() && records().is_empty());
+    }
+
+    // --- Two hosts returning in one transaction, and the transaction that
+    // fails between its two records: the holding's chain is set one step
+    // below its ceiling, so the first return record advances it and the
+    // second cannot; the whole transaction reverts (the runtime's rule, the
+    // executor's emulation) and the collector keeps **no** receipt of it.
+    assert_eq!(m(&mut w, WALLET_A, 0, 100, tile), Ok(()));
+    assert_eq!(m(&mut w, WALLET_A, 0, 100, tile), Ok(()));
+    let host2 = WideHostRef::new(key, site, 1, 2).unwrap();
+    let host3 = WideHostRef::new(key, site, 1, 3).unwrap();
+    assert_eq!(rd_u32(&w.holding_data(coord, site), H::reserve(0)), 200);
+    trace.extend(wide_records());
+    at_bell(7);
+    assert_eq!(code(w.resolve(coord, 6)), Ok(()));
+    trace.extend(wide_records());
+    assert_eq!(code(w.dissolve(&a, WALLET_A, host2, home.clone())), Ok(()));
+    assert_eq!(code(w.dissolve(&a, WALLET_A, host3, home.clone())), Ok(()));
+    trace.extend(wide_records());
+    at_bell(8);
+    assert_eq!(code(w.resolve(coord, 7)), Ok(()));
+    trace.extend(wide_records());
+    let pd = w.province_data(coord);
+    assert_eq!(read_entry(&pd, 0).unwrap().state, EN::STATE_DEPARTED);
+    assert_eq!(read_entry(&pd, 1).unwrap().state, EN::STATE_DEPARTED);
+    {
+        let hai = w.holding(coord, site);
+        let hc = chain(&hai);
+        {
+            let mut hd = hai.try_borrow_mut_data().unwrap();
+            put(
+                &mut hd,
+                frontier_abi::layout::header::EVENT_SEQ,
+                &(u64::MAX - 1).to_le_bytes(),
+            );
+        }
+        let before = (
+            w.province_data(coord),
+            w.holding_data(coord, site),
+            w.roster(coord).try_borrow_data().unwrap().to_vec(),
+            own.lamports(),
+        );
+        let e = w.settle_return(coord, own.clone()).err().expect("refused");
+        assert_eq!(e.code, E::Overflow as u32, "the second record cannot chain");
+        assert!(
+            e.wrote,
+            "the first record and the credits were written before the refusal"
+        );
+        assert!(
+            wide_records().is_empty(),
+            "no receipt of a failed transaction, the first record included"
+        );
+        assert!(records().is_empty());
+        let after = (
+            w.province_data(coord),
+            w.holding_data(coord, site),
+            w.roster(coord).try_borrow_data().unwrap().to_vec(),
+            own.lamports(),
+        );
+        assert_eq!(after, before, "every account as before the transaction");
+        assert_eq!(
+            rd_u32(&w.holding_data(coord, site), H::reserve(0)),
+            200,
+            "no credit survives a reverted transaction"
+        );
+        let mut hd = hai.try_borrow_mut_data().unwrap();
+        put(
+            &mut hd,
+            frontier_abi::layout::header::EVENT_SEQ,
+            &hc.0.to_le_bytes(),
+        );
+    }
+    // The same return, chained normally: both hosts credited, one record
+    // each, in entry order.
+    assert_eq!(code(w.settle_return(coord, own.clone())), Ok(()));
+    assert_eq!(rd_u32(&w.holding_data(coord, site), H::reserve(0)), 400);
+    assert_eq!(w.province_data(coord)[PV::N_ENTRIES], 0);
+    let wr = wide_records();
+    assert_eq!(wr.len(), 2);
+    for (b, h) in wr.iter().zip([host2, host3]) {
+        let r = WideRecord::decode(b).unwrap();
+        assert_eq!(r.kind, WideKind::Return);
+        assert_eq!(r.host(), Some(h));
+        assert_eq!(&r.payload[..4], &100_000u32.to_le_bytes());
+    }
+    trace.extend(wr);
+    assert_eq!(
+        code(w.settle_return(coord, own.clone())),
+        Err(E::AlreadyDone as u32)
+    );
+
+    // --- Season end: a pending muster is the season's; the roster closes
+    // whole to the payer that created it.
+    assert_eq!(m(&mut w, WALLET_A, 0, 100, tile), Ok(()));
+    trace.extend(wide_records());
+    // The whole trace recomputes both chains to the accounts' headers, each
+    // by its full identity: the province's over every record of this
+    // province, the holding's over the host records of this holding.
+    let bodies: Vec<&[u8]> = trace.iter().map(|b| b.as_slice()).collect();
+    assert_eq!(bodies.len(), 20);
+    let kinds: Vec<WideKind> = bodies
+        .iter()
+        .map(|b| WideRecord::decode(b).unwrap().kind)
+        .collect();
+    assert_eq!(
+        kinds,
+        [
+            WideKind::Resolve,
+            WideKind::Resolve,
+            WideKind::Muster,
+            WideKind::Muster,
+            WideKind::Resolve,
+            WideKind::Dissolve,
+            WideKind::Resolve,
+            WideKind::Return,
+            WideKind::Dissolve,
+            WideKind::Resolve,
+            WideKind::Stranded,
+            WideKind::Muster,
+            WideKind::Muster,
+            WideKind::Resolve,
+            WideKind::Dissolve,
+            WideKind::Dissolve,
+            WideKind::Resolve,
+            WideKind::Return,
+            WideKind::Return,
+            WideKind::Muster,
+        ]
+    );
+    let prov_t = wev::WideTarget::Province(key);
+    let hold_t = wev::WideTarget::Holding(host.holding_ref());
+    assert_eq!(
+        wev::verify_chain(prov_t, (0, [0; 32]), bodies.iter().copied()),
+        Ok(chain(&w.province(coord)))
+    );
+    assert_eq!(chain(&w.province(coord)).0, 20);
+    assert_eq!(
+        wev::verify_chain(hold_t, (0, [0; 32]), bodies.iter().copied()),
+        Ok(chain(&w.holding(coord, site)))
+    );
+    assert_eq!(chain(&w.holding(coord, site)).0, 12);
+    // every record is attributed to this province by its full key, and
+    // every host record to this holding; another holding or province of
+    // this world consumes nothing of the trace
+    for b in &bodies {
+        let r = WideRecord::decode(b).unwrap();
+        assert_eq!(r.province_of(), Some(key));
+        assert_eq!(r.holding_of().is_some(), r.kind.host_keyed());
+    }
+    let other_h = wev::WideTarget::Holding(WideHostRef::new(key, other, 1, 0).unwrap());
+    assert_eq!(
+        wev::verify_chain(other_h, (0, [0; 32]), bodies.iter().copied()),
+        Ok((0, [0; 32]))
+    );
+    let other_p = wev::WideTarget::Province(ProvinceKey::new(w.world_id(), c(130, 0)));
+    assert_eq!(
+        wev::verify_chain(other_p, (0, [0; 32]), bodies.iter().copied()),
+        Ok((0, [0; 32]))
+    );
+    // one credit record per returned host, each the amount the reserve took
+    let credits: Vec<u32> = bodies
+        .iter()
+        .map(|b| WideRecord::decode(b).unwrap())
+        .filter(|r| r.kind == WideKind::Return)
+        .map(|r| u32::from_le_bytes(r.payload[..4].try_into().unwrap()))
+        .collect();
+    assert_eq!(credits, [300_000, 100_000, 100_000]);
+    let payer2 = w.wallet_of(PAYER2);
+    w.set_status(S::STATUS_ENDED);
+    let end = GENESIS + 200_000i64 * 600 + crate::proc::map::END_GRACE_SECS;
+    crate::prologue::set_test_clock(end - 1, 5_000);
+    assert_eq!(
+        code(w.close_roster(coord, payer.clone())),
+        Err(E::TooEarly as u32)
+    );
+    assert_eq!(
+        m(&mut w, WALLET_A, 0, 100, tile),
+        Err(E::WrongStatus as u32),
+        "no muster after the season"
+    );
+    crate::prologue::set_test_clock(end, 5_001);
+    assert_eq!(
+        code(w.close_roster(coord, payer2.clone())),
+        Err(E::BadAddress as u32),
+        "the immutable rent recipient"
+    );
+    assert!(wide_records().is_empty(), "refusals log nothing");
+    let payer_before = payer.lamports();
+    assert_eq!(code(w.close_roster(coord, payer.clone())), Ok(()));
+    assert!(absent(&w.roster(coord)));
+    assert_eq!(payer.lamports(), payer_before + rent_r);
+    let wr = wide_records();
+    assert_eq!(wr.len(), 1);
+    {
+        let r = WideRecord::decode(&wr[0]).unwrap();
+        assert_eq!(r.kind, WideKind::RosterClosed);
+        assert_eq!(r.province(), Some(key));
+        assert_eq!(&r.payload[..32], &PAYER);
+        assert_eq!(&r.payload[32..40], &rent_r.to_le_bytes());
+        assert_eq!(r.links, [None, None], "the account is gone: no chain");
+    }
+    assert_eq!(
+        code(w.close_roster(coord, payer.clone())),
+        Err(E::BadAccount as u32),
+        "closed"
+    );
+    assert!(
+        records().is_empty(),
+        "no PS2 record of the wide lifecycle at all"
+    );
+    assert!(wide_records().is_empty());
 }
 
 /// Two tickets of one cohort on one site: the lower score settles fresh,
