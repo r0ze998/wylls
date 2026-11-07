@@ -270,7 +270,15 @@ pub async fn fetch(
 ) -> Result<ResidentFeed, String> {
     let (txs, history) = crate::input::fetch_txs(url, resident_program, true, None, None).await?;
     let through = frontier.iter().map(|t| t.seq).max().unwrap_or(0);
-    let (pol, _) = crate::input::fetch_finals(url, &[*policy]).await?;
+    // The policy account is one source of the policy (the archive's
+    // CreateResidentPolicy is the other): not reading it is not an error.
+    let pol = match crate::input::fetch_finals(url, &[*policy]).await {
+        Ok((m, _)) => m,
+        Err(e) => {
+            eprintln!("frontier-verify: the resident policy account: {e}");
+            BTreeMap::new()
+        }
+    };
     // The ledger length, read after the feed (freshness only, see `tip`).
     let tip = fclient::rpc::RpcClient::new(url)
         .call("frontier_status", json!([]))
@@ -293,6 +301,44 @@ pub async fn fetch(
             .collect(),
         policies: pol.into_iter().filter_map(|(k, a)| Some((k, a?))).collect(),
     })
+}
+
+impl ResidentFeed {
+    /// The resident program's feed from its findex archive at `dir` (⑲'s
+    /// per-program archive of the local node's feed). [`crate::input::read_archive`]
+    /// gives the records their ledger numbers (`feed_seq`) and the history
+    /// `ledger <runId>` only when `findex::ledger` finds the archive whole from
+    /// the ledger's start; otherwise its history is `unknown` and this feed is
+    /// never whole ([`ResidentFeed::gaps_before`]). `through` is the
+    /// archive's cursor (`feed_after`): the resident program's last ledger
+    /// number read, which can fall short of how far the ledger was scanned
+    /// (an act after it stays UNVERIFIABLE; it never claims more).
+    pub fn from_archive(
+        dir: &std::path::Path,
+        program: Address,
+        policies: BTreeMap<Key, Account>,
+    ) -> Result<ResidentFeed, String> {
+        let (txs, history) = crate::input::read_archive(dir)?;
+        let a = findex::archive::Archive::open(dir, findex::archive::SEGMENT_BYTES)
+            .map_err(|e| format!("{}: {e}", dir.display()))?;
+        let through = match history.source {
+            Source::LedgerFeed => a
+                .cursor()
+                .get("feed_after")
+                .and_then(Value::as_u64)
+                .unwrap_or(0),
+            _ => 0,
+        };
+        Ok(ResidentFeed {
+            program,
+            history,
+            after: 0,
+            through,
+            tip: None,
+            txs: txs.iter().map(ResidentTx::of).collect(),
+            policies,
+        })
+    }
 }
 
 #[cfg(test)]
