@@ -17,7 +17,7 @@
 //! | 0xDF | [`finalize`] | the deployed lazy provisional → final flip of a wide holding, callable by anyone: `now ≥ final_ts` **and** the ticket's cohort closed, else `TooEarly` |
 //! | 0xDE | [`close`] | season end (Ended + 72 h, Aborted, the tombstone): a wide ticket record closes as CloseCitizen closes a Citizen: the escrow to its funder (listed exactly when non-zero), the rest whole to its immutable rent payer; pending, the Citizen's marker clears (before CloseCitizen, which refuses the marker); Settled, before or after CloseCitizen (the Citizen position then the absent account at its address); a wide holding closes to its rent payer after its `pool_owed` is swept to the DefencePool |
 //! | 0xDD | [`resident_act`] | WideClaimSite or WideDepart for an NFT resident's Citizen under the deployed resident check (current Core owner or session, the signed holder generation) |
-//! | 0xDA | [`depart`] | runs the deployed Depart's checks over the wide holding and province (final, resident, seal syntax, arrival window and end bell, tip floor, transit slot, funds), then refuses `NotImplemented`: no wider host identity is allocated, so no host can stand in a wide province and no march can be debited |
+//! | 0xDA | [`depart`] | runs the deployed Depart's checks in the deployed shape (the issuing holding's own province and the **standing** province the host's roster is in, as distinct accounts): the holding canonical and the caller's at the reference's generation, its province's capture lock, the standing province a wide province of this world (a deployed Province there is the legacy/wide boundary: `NotImplemented` before any debit), final, resident, the seal's syntax; then the **identity gate** (`NotImplemented`: no wide holding carries an allocated host identity, so no host of it can stand in any roster) and the roster lookup by the alias; nothing is debited and no transit record is written. The stages after Depart (SettleDeparture, Reveal, Gather, Resolve, SettleTransit, the return) have no wide form: see `WIDE-LAND-WRITER.md` §−2 |
 //!
 //! **The wide ticket and the deployed paths.** While a wide ticket is
 //! pending the Citizen carries the marker of `world_index::ticket`
@@ -93,6 +93,7 @@
 use solana_program::{account_info::AccountInfo, pubkey::Pubkey};
 
 use frontier_abi::conquest_model::{write_keep, write_no_keep};
+use frontier_abi::entry::find_entry;
 use frontier_abi::layout::AccountKind;
 use frontier_abi::log::{divert_reason, settle_outcome, Kind};
 use frontier_abi::prologue as ap;
@@ -102,7 +103,7 @@ use frontier_abi::world_index::land::{
     self as wl, Decision, LandError, PreviousRing, WideProvince, WideRingSeed, WideRules,
     FIRST_WIDE_RING,
 };
-use frontier_abi::world_index::march::{MarchError, WideTransit};
+use frontier_abi::world_index::march::{wide_host_alias, MarchError, WideTransit};
 use frontier_abi::world_index::rules::{self as wr, OpeningInput, RulesError, WideRulesConfig};
 use frontier_abi::world_index::ticket::{
     self as wt, CitizenTicket, TicketError, TicketStatus, WideTicket,
@@ -2083,22 +2084,46 @@ pub fn resident_act(p: &Pubkey, accounts: &[AccountInfo], d: &[u8]) -> R<()> {
 // ------------------------------------------------------------ 0xDA
 
 /// 0xDA WideDepart(host ref, transit_slot, arrive_bell, tip, commit,
-/// seal): the deployed player prologue (read-only here) + `[holding w]
-/// [province w] [system]`. The host reference canonical, of this world
-/// and past the disk (`BadData`/`BadAddress`); the wide holding present
-/// at the reference's canonical address (`BadAccount`), owned by the
-/// Citizen at the reference's generation (`NotOwner`); its province
-/// present. Then the deployed Depart's checks in its order: the holding
-/// final (`NotFinal`) and the province resolved through `b − 2`
-/// (`NotResident`); the seal's syntax (`BadData`); the arrival window
-/// `b + 2 ..= b + 72` and below the end bell (`ArrivalBell`); the tip
-/// floor (`TipTooLow`); `transit_slot < 4` (`BadData`) and free
-/// (`TransitState`); the payer covering tip, fee and bond
-/// (`Insufficient`). Then the readiness gate: the holding's host identity
-/// version is the unallocated one, and no host can stand in a wide
-/// province (Muster needs a `u64` host id no wide holding has), so the
-/// march is refused `NotImplemented` before any debit, transit record or
-/// escrow.
+/// seal): the deployed player prologue + `[holding w] [province w]
+/// [system] [holding_province r]`, the deployed Depart's shape: `province`
+/// is the province the host **stands in** (the roster its entry is in,
+/// which a march may have left home for), `holding_province` the issuing
+/// holding's own province. Nothing is debited and nothing is written: the
+/// stages after Depart have no wide form yet (module doc).
+///
+/// Checks, in the deployed Depart's order where it has one:
+///
+/// * the host reference canonical, of this world and past the disk
+///   (`BadData`/`BadAddress`); the wide holding present at the reference's
+///   canonical address (`BadAccount`), the Citizen's at the reference's
+///   generation (`NotOwner`); its own province present and canonical, the
+///   holding not capture-locked there (`check_source_province`'s role);
+/// * the standing province a **wide** province of this world at its
+///   canonical address (`BadAccount`). A deployed Province in that position
+///   is the legacy/wide **boundary**: the arrival quota, the roster caps
+///   and the resolution of a destination bell are one per province, and a
+///   host of the wide world standing in or marching across the disk would
+///   need the legacy and the wide path to share them; they do not, so the
+///   departure is refused `NotImplemented` before any debit (the reviewer's
+///   finding: separate quotas or rosters for one bell would skip combat or
+///   double garrison damage). The destination is sealed at Depart and can
+///   only be judged at a reveal, so the boundary is judged where the host
+///   stands;
+/// * The holding final (`NotFinal`) and the **standing** province
+///   resolved through `b − 2` (`NotResident`); 2. the seal's syntax
+///   (`BadData`); 3. the host: the **identity gate** first, as
+///   `caller_host` names the issuing holding first: the holding's host
+///   identity version must be an allocated one, and every wide holding is
+///   founded under the unallocated version, so the departure is refused
+///   `NotImplemented` here (`WideTransit::depart`); then the roster of the
+///   standing province must hold the host's alias (`NotResident`);
+///   Then the arrival window `b + 2 ..= b + 72` and below the end bell
+///   (`ArrivalBell`); 5. the tip floor (`TipTooLow`), `transit_slot < 4`
+///   (`BadData`) and free (`TransitState`), the payer covering tip, fee
+///   and bond (`Insufficient`); and then, were every check passed, the
+///   departure is still refused `NotImplemented`: a transit record with no
+///   settle, reveal, resolve or return to follow would be a debit into an
+///   unfinished destination.
 pub fn depart(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
     depart_as(p, a, d, &Auth::Wallet)
 }
@@ -2108,7 +2133,7 @@ pub fn depart(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
 pub(crate) fn depart_as(p: &Pubkey, a: &[AccountInfo], d: &[u8], auth: &Auth) -> R<()> {
     check_accounts(WideIx::Depart, a, None)?;
     let x = wix::Depart::decode(d)?;
-    let [_actor, payer, season_ai, citizen, holding, province, _system] = a else {
+    let [_actor, payer, season_ai, citizen, holding, standing, _system, own_province] = a else {
         return Err(FrontierError::TooManyAccounts.into());
     };
     let now = prologue::now()?;
@@ -2124,6 +2149,8 @@ pub(crate) fn depart_as(p: &Pubkey, a: &[AccountInfo], d: &[u8], auth: &Auth) ->
     if coord.ring() < FIRST_WIDE_RING {
         return Err(FrontierError::BadData.into());
     }
+    // The issuing holding and its own province (the deployed
+    // `holding`/`holding_province` pair).
     expect_key(holding, &wh::holding_address(&ctx, coord, host.site()))?;
     let h = holding_at(holding, p, hdr.id)?.ok_or(BAD_ACCOUNT)?;
     if h.owner_citizen != key(citizen) || h.gen != host.gen() {
@@ -2132,16 +2159,38 @@ pub(crate) fn depart_as(p: &Pubkey, a: &[AccountInfo], d: &[u8], auth: &Auth) ->
     if h.world != world || h.coord != coord || h.site != host.site() {
         return Err(BAD_ACCOUNT);
     }
-    expect_key(province, &wl::province_address(&ctx, coord))?;
-    let prov = province_at(province, p, hdr.id)?.ok_or(BAD_ACCOUNT)?;
-    if prov.world != world || prov.coord != coord {
+    expect_key(own_province, &wl::province_address(&ctx, coord))?;
+    let own = province_at(own_province, p, hdr.id)?.ok_or(BAD_ACCOUNT)?;
+    if own.world != world || own.coord != coord {
         return Err(BAD_ACCOUNT);
     }
+    {
+        let pd = own_province.try_borrow_data()?;
+        let hd = holding.try_borrow_data()?;
+        capture_lock_of(&pd, &hd)?;
+    }
+    // The standing province (the deployed `province`): a wide province of
+    // this world. A deployed Province here is the legacy/wide boundary.
+    let stand = match province_at(standing, p, hdr.id) {
+        Ok(Some(sp)) => sp,
+        Ok(None) => return Err(BAD_ACCOUNT),
+        Err(e) => {
+            if prologue::presence(standing, p, AccountKind::Province, hdr.id).unwrap_or(false) {
+                return Err(FrontierError::NotImplemented.into());
+            }
+            return Err(e);
+        }
+    };
+    if stand.world != world {
+        return Err(BAD_ACCOUNT);
+    }
+    expect_key(standing, &wl::province_address(&ctx, stand.coord))?;
     let now_bell = hdr.bell(now.ts).ok_or(FrontierError::WrongStatus)?;
     if now_bell >= hdr.end_bell {
         return Err(FrontierError::WrongStatus.into());
     }
-    // 1. the deployed Depart: the holding final, the province resident.
+    // 1. the deployed Depart: the holding final, the standing province
+    // resident.
     let (state, tile) = {
         let hd = holding.try_borrow_data()?;
         let r = Ro(&hd);
@@ -2151,7 +2200,7 @@ pub(crate) fn depart_as(p: &Pubkey, a: &[AccountInfo], d: &[u8], auth: &Auth) ->
         return Err(FrontierError::NotFinal.into());
     }
     let rn = {
-        let pd = province.try_borrow_data()?;
+        let pd = standing.try_borrow_data()?;
         Ro(&pd).u32(PV::RESOLVED_NEXT)?
     };
     if !ap::resident_ok(rn, now_bell) {
@@ -2161,10 +2210,36 @@ pub(crate) fn depart_as(p: &Pubkey, a: &[AccountInfo], d: &[u8], auth: &Auth) ->
     if !super::host::seal_flag_ok(x.seal[0]) {
         return Err(FrontierError::BadData.into());
     }
-    // 4. the arrival window, and a bell of the season.
-    let lo = now_bell.checked_add(2).ok_or(OVERFLOW)?;
-    let hi = now_bell.checked_add(72).ok_or(OVERFLOW)?;
-    if x.arrive_bell < lo || x.arrive_bell > hi || x.arrive_bell >= hdr.end_bell {
+    // 3. the host. The identity gate: the holding's host identity version
+    // (`HOST_IDENTITY_UNALLOCATED` for every wide holding today) refuses
+    // the departure before any transit record or escrow could be written;
+    // under an allocated version the same call also bounds the arrival
+    // bell (step 4). Then the host's alias in the standing roster.
+    let origin = TileAddress::new(host.key(), tile).map_err(|_| BAD_ACCOUNT)?;
+    let seal_root = ks::seal_root(&x.commit, &ks::ct_hash(&x.seal));
+    let _transit = WideTransit::depart(
+        h.host_identity,
+        host,
+        0,
+        0,
+        origin,
+        now_bell,
+        x.arrive_bell,
+        now.ts,
+        0,
+        super::host::DEPART_STAMINA,
+        0,
+        seal_root,
+        x.tip,
+        0,
+    )
+    .map_err(march_err)?;
+    {
+        let pd = standing.try_borrow_data()?;
+        find_entry(&pd, wide_host_alias(&host)).ok_or(FrontierError::NotResident)?;
+    }
+    // 4. a bell of the season (the window is step 3's).
+    if x.arrive_bell >= hdr.end_bell {
         return Err(FrontierError::ArrivalBell.into());
     }
     // 5. the tip floor, the transit slot, the funds.
@@ -2199,27 +2274,8 @@ pub(crate) fn depart_as(p: &Pubkey, a: &[AccountInfo], d: &[u8], auth: &Auth) ->
     if payer.lamports() < total {
         return Err(FrontierError::Insufficient.into());
     }
-    let origin = TileAddress::new(host.key(), tile).map_err(|_| BAD_ACCOUNT)?;
-    let seal_root = ks::seal_root(&x.commit, &ks::ct_hash(&x.seal));
-    // 3. the host: the readiness gate. The holding's host identity version
-    // (`HOST_IDENTITY_UNALLOCATED` for every wide holding today) refuses
-    // the departure before any transit record or escrow could be written.
-    let _transit = WideTransit::depart(
-        h.host_identity,
-        host,
-        0,
-        0,
-        origin,
-        now_bell,
-        x.arrive_bell,
-        now.ts,
-        0,
-        super::host::DEPART_STAMINA,
-        0,
-        seal_root,
-        x.tip,
-        0,
-    )
-    .map_err(march_err)?;
+    // No wide SettleDeparture, Reveal, Gather, Resolve, SettleTransit or
+    // return exists: a transit record and an escrow here would be a debit
+    // into an unfinished destination. Refused before either.
     Err(FrontierError::NotImplemented.into())
 }

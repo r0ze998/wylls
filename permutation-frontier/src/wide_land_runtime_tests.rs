@@ -1063,8 +1063,17 @@ impl Wide {
         code(run_tx(&a, &aix::CloseHolding {}.to_bytes()))
     }
 
-    /// 0xDA WideDepart of `host` from its holding by the member's wallet.
-    fn depart(&mut self, m: &Member, host: WideHostRef, arrive_bell: u32) -> Result<(), u32> {
+    /// 0xDA WideDepart of `host` from its holding by the member's wallet,
+    /// the host standing in `standing` (the deployed Depart's `province`
+    /// position: the holding's own wide province when it never left home,
+    /// or a deployed Province to show the boundary refusal).
+    fn depart(
+        &mut self,
+        m: &Member,
+        host: WideHostRef,
+        standing: AccountInfo<'static>,
+        arrive_bell: u32,
+    ) -> Result<(), u32> {
         let coord = host.key().coord();
         let a = [
             wallet(m.wallet, true, false, 0),
@@ -1072,8 +1081,9 @@ impl Wide {
             self.w.season.clone(),
             m.citizen.clone(),
             self.holding(coord, host.site()),
-            self.province(coord),
+            standing,
             self.w.system.clone(),
+            with_writable(&self.province(coord), false),
         ];
         let mut seal = [0u8; SEAL_LEN];
         seal[0] = 0x80;
@@ -1995,17 +2005,40 @@ fn wide_land_ticket_is_filed_drawn_settled_and_finalized_as_the_deployed_outpost
     assert_eq!(w.holding_data(coord, site3)[H::STATE], H::STATE_FINAL);
     assert_eq!(w.w.citizen_data(&a)[C::HOLDINGS_N], 3);
 
-    // The march gate over the final wide holding: the deployed checks, then
-    // the identity gate, nothing written.
+    // The march gate over the final wide holding, in the deployed Depart's
+    // shape (the standing province and the issuing holding's province as
+    // distinct positions): the deployed checks, the legacy/wide boundary,
+    // then the identity gate; nothing written, nothing debited.
     at_bell(3 + PV::COHORT_BELLS);
     let key = ProvinceKey::new(w.world_id(), coord);
     let host = WideHostRef::new(key, site, 1, 0).unwrap();
     let holding_before = w.holding_data(coord, site);
-    assert_eq!(w.depart(&b, host, 40), Err(E::NotOwner as u32));
+    let payer_before = w.w.payer.lamports();
+    let home = w.province(coord);
     assert_eq!(
-        w.depart(&a, host, 40),
+        w.depart(&b, host, home.clone(), 40),
+        Err(E::NotOwner as u32)
+    );
+    assert_eq!(
+        w.depart(&a, host, home.clone(), 40),
         Err(E::NotResident as u32),
-        "the province was never resolved past its opening"
+        "the standing province was never resolved past its opening"
+    );
+    // The boundary: the same host named as standing in a deployed Province
+    // of the rim is refused before the resident check that refused above,
+    // before the identity gate and before any debit. One quota, one roster
+    // and one resolution per destination bell do not span ring 128/129.
+    let rim = w.w.province(RIM);
+    assert_eq!(
+        w.depart(&a, host, rim.clone(), 40),
+        Err(E::NotImplemented as u32),
+        "a wide host cannot stand in the legacy disk"
+    );
+    let none = w.w.system.clone();
+    assert_eq!(
+        w.depart(&a, host, none, 40),
+        Err(E::BadAccount as u32),
+        "an absent standing province"
     );
     {
         let province = w.province(coord);
@@ -2016,14 +2049,36 @@ fn wide_land_ticket_is_filed_drawn_settled_and_finalized_as_the_deployed_outpost
             &(3 + PV::COHORT_BELLS).to_le_bytes(),
         );
     }
-    assert_eq!(w.depart(&a, host, 1), Err(E::ArrivalBell as u32));
-    assert_eq!(w.depart(&a, host, 40), Err(E::NotImplemented as u32));
+    // The identity gate comes before the arrival window (the deployed
+    // step 3 before step 4): every wide holding is founded under the
+    // unallocated identity, so no host of it is in any roster.
+    assert_eq!(
+        w.depart(&a, host, home.clone(), 1),
+        Err(E::NotImplemented as u32)
+    );
+    assert_eq!(
+        w.depart(&a, host, home.clone(), 40),
+        Err(E::NotImplemented as u32)
+    );
+    assert_eq!(
+        WideHolding::read(&w.holding_data(coord, site))
+            .unwrap()
+            .host_identity,
+        HOST_IDENTITY_UNALLOCATED
+    );
+    let alias = frontier_abi::world_index::march::wide_host_alias(&host);
+    assert!(
+        frontier_abi::world_index::march::is_wide_alias(alias),
+        "the roster alias no legacy reader parses"
+    );
+    assert_eq!(frontier_abi::addr::split_host_id(alias), None);
     {
         let province = w.province(coord);
         let mut pd = province.try_borrow_mut_data().unwrap();
         put(&mut pd, PV::RESOLVED_NEXT, &1u32.to_le_bytes());
     }
     assert_eq!(w.holding_data(coord, site), holding_before);
+    assert_eq!(w.w.payer.lamports(), payer_before, "nothing debited");
     assert!(records().is_empty());
 }
 

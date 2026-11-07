@@ -30,7 +30,7 @@
 //! | [`placement::mixed_home_nation`] | candidate mixed-nation rule (owner decision: outer lands mix nations, not six wedges): Concord neutral, ring-1 seats keep their wedges, every ring ≥ 2 a balanced cyclic six-nation order with a seed-derived per-ring offset; the legacy `home_nation` offset bit for bit for rings ≤ 65,535, a versioned domain past it; `u128` ring arithmetic; not a Season parameter, not wired into any legacy rule |
 //! | [`land::WideRingSeed`], [`land::WideProvince`] | **draft write-path records** (2026-11-07): a world-scoped `u64`-ring seed whose round is the kernel's `ring_seed_round` and whose seed is only ever a verified quicknet round's (no genesis path); and a wide province that is the **whole Province v2 layout** plus a world/coordinate/provenance trailer, openable only under decided keep-holder, Free City, camp and region rules ([`land::WideRules`], undecided today: `NotReady`); provisional magics and seed tags, reachable only by a program built with `wide-world-experimental` |
 //! | [`holding`] | ownership of a wide site under the **one inventory** rule: a wide holding takes one of the Citizen's three deployed slots (2 or 3) through an impossible marker ref every deployed writer reads as taken, and its record is the whole Holding v2 layout plus a trailer that refuses any host, transit or explore debit under the unallocated host identity |
-//! | [`march`] | the wide march record over `WideHostRef` with the legacy lifecycle's state table, whose departure is refused while no wider host identity is allocated |
+//! | [`march`] | the wide march record over `WideHostRef` with the legacy lifecycle's state table; the decided host identity version (the full reference as identity, a top-bit roster alias for lookup only, domain-separated wide formulas for slot, tie and clash seed, a with-seed transit record address), which no wide holding carries yet, so every departure is still refused |
 //! | [`rules`] | the explicit, versioned **experimental rules configuration** of a wide world (one record per Season, written by the Season's authority) and the **candidate** keep-holder, Free City, camp and region functions it selects; an unset byte refuses, so without the record an opening stays `NotReady`; nothing in it is an approved rule |
 //! | [`ticket`] | the **wide outpost ticket**: a world/coordinate-bound record (one per Citizen) that carries a wide claim through the deployed outpost lifecycle, the Citizen marker that reserves the one deployed ticket and the slot while it is pending (every deployed ticket path refuses), the isolated holding-rent escrow the record holds and retains between tickets under the deployed FileOutpost / SettleTicket / CloseCitizen escrow rules (`TicketStatus`, `WideTicket::{settle, refile}`), and the full-width versioned ticket score |
 //! | [`wide_ix`] | the draft wire envelope: nine instructions in the unallocated band `0xD6..=0xDE`, their account lists, and the `0x4000` program-version bit of an experimental wide build |
@@ -84,7 +84,12 @@ pub use land::{
     FIRST_WIDE_RING, WIDE_LAND_FAMILY_VERSION, WIDE_LAYOUT_VERSION,
 };
 pub use legacy::{legacy_of, wide_of, LegacyAdapter, LegacyError};
-pub use march::{MarchError, MarchEvent, MarchState, WideTransit};
+pub use march::{
+    claim_alias, resolve_wide_clash, transit_address, wide_clash_seed, wide_host_alias,
+    wide_plain_commit, wide_slot_key, wide_tie_key, AliasError, MarchError, MarchEvent, MarchState,
+    WideClashError, WideClashInput, WideClashOutcome, WideFighter, WideGarrison, WideTransit,
+    HOST_IDENTITY_FULL_REF_V1,
+};
 pub use placement::{
     mixed_home_nation, ring_offset, ring_offset_domain, RingOffsetDomain, LEGACY_OFFSET_MAX_RING,
     MIXED_PLACEMENT_DOMAIN_WIDE, MIXED_PLACEMENT_VERSION,

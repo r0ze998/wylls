@@ -22,7 +22,7 @@
 //! | 0xD7 | WideConsumeRingSeed | `ring u64, round u64, sig48, hints` | D, top-level | writes (verified seed) |
 //! | 0xD8 | WideOpenProvince | `p i64, q i64` | D, top-level | writes the full province under an explicit rules configuration; refuses `NotImplemented` without one |
 //! | 0xD9 | WideClaimSite | `p i64, q i64, site u8, slot u8` | P | **files the wide outpost ticket** under the deployed FileOutpost's prerequisites: the settler cost from the anchor, the cohort on the wide province, the Citizen marker, the record holding the wide holding's rent (`world_index::ticket`) |
-//! | 0xDA | WideDepart | `host ref 56, transit_slot u8, arrive_bell u32, tip u64, commit 32, seal 165` | P | validates (the deployed Depart's checks), refuses `NotImplemented` (host identity unallocated) |
+//! | 0xDA | WideDepart | `host ref 56, transit_slot u8, arrive_bell u32, tip u64, commit 32, seal 165` | P | validates (the deployed Depart's checks over the standing province and the issuing holding's province, the deployed shape), refuses a standing province of the legacy disk (`NotImplemented`: no shared quota, roster or resolution across the boundary) and refuses every wide host at the identity gate (`NotImplemented`: no wide holding carries an allocated host identity); nothing is debited |
 //! | 0xDB | WideSetRules | `config_version u16, keep_holder u8, free_city u8, camp u8, region u8` | O, top-level | writes the Season's experimental rules configuration once (`world_index::rules`), by the Season's authority |
 //! | 0xDC | WideSettleTicket | `k u8` | D | the deployed SettleTicket over the wide ticket: expired, or the beacon seed of the ticket's bell and the province's region, the full-width score, fresh / displace / taken; the provisional wide holding from the record's escrow; the ticket ends and the record stays Settled, retaining the escrow a win did not consume (the deployed escrow retention) |
 //! | 0xDD | WideResidentAct | `generation u32, inner (a P instruction of this band)` | P | the band's own `ResidentAct`: runs WideClaimSite or WideDepart for an NFT resident's Citizen with the four proof accounts appended and the signed holder generation; never routes a v2 tag, and `ResidentAct` never routes a draft tag |
@@ -719,7 +719,12 @@ pub const SET_RULES: &[Group] = &[one(&[
 ])];
 
 /// The deployed Depart list with wide positions: the player prologue then
-/// `[holding w] [province w] [system]`.
+/// `[holding w] [province w] [system] [holding_province r]`, the deployed
+/// shape: `province` is the province the host **stands in** (its roster),
+/// `holding_province` the issuing holding's own province (the same account
+/// when the host never left home). Both wide positions are the handler's
+/// to authenticate; a deployed Province in the standing position is the
+/// legacy/wide boundary and is refused before any debit.
 pub const DEPART: &[Group] = &[one(&[
     s("actor", Acc::Wallet, true, Wr::R),
     s("payer", Acc::Wallet, true, Wr::W),
@@ -728,6 +733,7 @@ pub const DEPART: &[Group] = &[one(&[
     s("holding", WIDE, false, Wr::W),
     s("province", WIDE, false, Wr::W),
     s("system", Acc::System, false, Wr::R),
+    s("holding_province", WIDE, false, Wr::R),
 ])];
 
 /// The account list of a draft instruction (WideClose's is its ticket
@@ -1039,7 +1045,12 @@ mod tests {
         assert_eq!(bounds_in(CONSUME_RING_SEED), (3, 3));
         assert_eq!(bounds_in(OPEN_PROVINCE), (7, 7));
         assert_eq!(bounds_in(CLAIM_SITE), (12, 12));
-        assert_eq!(bounds_in(DEPART), (7, 7));
+        assert_eq!(bounds_in(DEPART), (8, 8));
+        assert_eq!(
+            crate::v2::prologue::count_bounds(crate::v2::Ix::Depart),
+            (8, 8),
+            "the wide Depart keeps the deployed Depart's shape"
+        );
         assert_eq!(bounds_in(SET_RULES), (4, 4));
         assert_eq!(bounds_in(SETTLE_TICKET), (10, 13));
         assert_eq!(bounds_in(CLOSE_TICKET), (5, 6));
@@ -1133,7 +1144,8 @@ mod tests {
         );
         assert_eq!(position_in(CLOSE_HOLDING, 5, "dpool", 0), Some(4));
         assert_eq!(position_in(FINALIZE, 4, "province", 0), Some(3));
-        assert_eq!(position_in(DEPART, 7, "province", 0), Some(5));
+        assert_eq!(position_in(DEPART, 8, "province", 0), Some(5));
+        assert_eq!(position_in(DEPART, 8, "holding_province", 0), Some(7));
         assert_eq!(position_in(SET_RULES, 4, "rules_config", 0), Some(2));
         // wide positions are the handler's to authenticate; the legacy
         // positions of the claim keep their deployed kinds
@@ -1159,6 +1171,7 @@ mod tests {
                         | "previous_holding"
                         | "previous_province"
                         | "wide_ticket"
+                        | "holding_province"
                 ) {
                     assert_eq!(sp.acc, Acc::Any, "{}", sp.name);
                 }

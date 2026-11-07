@@ -24,24 +24,390 @@
 //! could settle it exists**, and [`step`] refuses every transition the
 //! legacy lifecycle does not have.
 //!
-//! The one decision this leaves open is the shape of the wider host
-//! identity (`UNBOUNDED-IDENTIFIERS.md` §3.2: a per-world alias slot inside
-//! the `u64`, a 128-bit `world ‖ id`, or a hash) and the ABI version that
-//! carries it; the record stores the version it was opened under so a
-//! later allocation never reinterprets an earlier record.
+//! **The experimental identity proposal (fourth slice, 2026-11-07).** The host identity
+//! version [`HOST_IDENTITY_FULL_REF_V1`] names the shape every wide march
+//! stage must share, so that the stages can be written one by one against
+//! one definition and never against a shortened id:
+//!
+//! * the **canonical identity** of a wide host is the 56-byte
+//!   [`WideHostRef`] (`world ‖ 17-byte sort key ‖ site ‖ gen ‖ seq`), never
+//!   a `u64`: it is what a transit record, an arrival, a gather and a
+//!   settle key the host by, and what every ownership check compares
+//!   (`holding_ref` for the issuing holding, as `holding_key_of_host`);
+//! * the **roster alias** [`wide_host_alias`] is the `u64` a wide
+//!   province's entry table and a Holding-layout transit slot can carry
+//!   for *lookup only*: its top bit is set, so `addr::split_host_id` and
+//!   every legacy reader refuse it, and it is **not** an input of any
+//!   kernel formula (the reviewer's finding: `tie_key(cs, id)`,
+//!   `slot_key(P, Q, bell, id)`, `clash_seed(seed, P, Q, bell)` and the
+//!   retreat's `wedge` are legacy byte formulas over the dense id and the
+//!   `i32` pair, and a sorted local index or a hash fed into them would
+//!   re-roll unrelated outcomes whenever another host is inserted);
+//! * the **wide formulas** [`wide_slot_key`], [`wide_tie_key`] and
+//!   [`wide_clash_seed`] are the explicit, domain-separated full-identity
+//!   counterparts a wide reveal, gather and resolve must use instead. They
+//!   are experimental versioning for the wide path only; the legacy path
+//!   keeps its formulas byte for byte, and no production rule is decided
+//!   by their existence;
+//! * the **transit record** of a wide march is this module's 256-byte
+//!   [`WideTransit`] at [`transit_address`] (`with_seed(season, wm ‖
+//!   hash(holding ‖ slot))`), not the 96-byte slot inside the Holding
+//!   layout, which cannot carry the identity; the slot keeps only the
+//!   alias and the legacy `in_transit` state so `prologue::host_in_transit`
+//!   keeps refusing a second departure.
+//!
+//! **What is not here.** No wide holding carries
+//! [`HOST_IDENTITY_FULL_REF_V1`]: `WideHolding::read` still refuses any
+//! version but the unallocated one, so no wide host can be mustered, no
+//! march can be debited and [`WideTransit::depart`] keeps refusing the
+//! program's version 0. Allocating the version to a holding is the step
+//! that would need a wide Muster, Reveal, Gather, Resolve, SettleDeparture
+//! and SettleTransit to exist first (`WIDE-LAND-WRITER.md` §−2).
 
 use super::key::{KeyError, ProvinceKey, WideHostRef, HOST_REF_LEN, PROVINCE_KEY_LEN};
 use super::tiles::{TileAddress, TileError};
+use crate::addr::{AddrCtx, Seed as AddrSeed};
 use crate::bytes::{
     rd_arr, rd_i64, rd_u16, rd_u32, rd_u64, rd_u8, wr_arr, wr_i64, wr_u16, wr_u32, wr_u64, wr_u8,
 };
 use crate::layout::player::transit as T;
+use alloc::vec::Vec;
+use permutation_rules::frontier::clash::{
+    resolve_clash_core, ClashErrorOf, ClashIdentity, ClashInputOf, Fate, FighterOf,
+    FighterResultOf, GarrisonOf, GarrisonResultOf,
+};
 use permutation_rules::frontier::geometry::PROVINCE_TILES;
+use permutation_rules::hash::sha256;
+use permutation_rules::params::Ruleset;
+use permutation_rules::rng::{rand, Seed};
 
 /// Layout version of the wide transit bytes.
 pub const WIDE_TRANSIT_VERSION: u8 = 1;
 /// Bytes of a wide transit record.
 pub const WIDE_TRANSIT_LEN: usize = 256;
+
+/// The one allocated wide host identity version (module doc): the
+/// canonical identity is the full [`WideHostRef`]; the roster alias is
+/// [`wide_host_alias`]; the formulas are the `wide_*` ones. **Defined, not
+/// carried**: no wide holding is founded under it (the program founds
+/// under `holding::HOST_IDENTITY_UNALLOCATED` and refuses any other), so
+/// the definition commits no asset. Not a production protocol number.
+pub const HOST_IDENTITY_FULL_REF_V1: u16 = 1;
+
+/// Domain of [`wide_host_alias`].
+pub const HOST_ALIAS_DOMAIN: &[u8] = b"PSF-WIDE-HOST-ALIAS-v1";
+/// The bit every alias carries and no legacy host id can (a legacy id's
+/// province index is below `2^20`, so bits 63..=64 are clear).
+pub const HOST_ALIAS_BIT: u64 = 1 << 63;
+/// Seed tag of a wide transit record (**provisional**; not a kernel
+/// `SeedKind`).
+pub const TRANSIT_TAG: [u8; 2] = *b"wm";
+/// Domain of the hashed raw key of a wide transit record.
+pub const TRANSIT_SEED_DOMAIN: &[u8] = b"PSF-WIDE-TRANSIT-SEED-v1";
+/// `rng::rand` domains of the wide formulas (distinct from the legacy
+/// `frontier/slot`, `tie` and `frontier/clash`).
+pub const SLOT_DOMAIN_WIDE: &[u8] = b"frontier/slot/wide-v1";
+pub const TIE_DOMAIN_WIDE: &[u8] = b"tie/wide-v1";
+pub const CLASH_DOMAIN_WIDE: &[u8] = b"frontier/clash/wide-v1";
+
+/// The `u64` a wide province's entry table may carry for a wide host, for
+/// lookup only: `HOST_ALIAS_BIT | sha256(HOST_ALIAS_DOMAIN ‖ host
+/// ref)[..8] >> 1`. Refused by `addr::split_host_id` (its province index
+/// field is at least `2^19`), so no legacy reader can mistake it for a
+/// dense id, and never an input of a kernel formula (module doc).
+pub fn wide_host_alias(host: &WideHostRef) -> u64 {
+    let h = sha256(&[HOST_ALIAS_DOMAIN, &host.to_bytes()]);
+    let mut b = [0u8; 8];
+    b.copy_from_slice(&h[..8]);
+    HOST_ALIAS_BIT | (u64::from_le_bytes(b) >> 1)
+}
+
+/// Whether a `u64` in an entry table is a wide alias (the top bit).
+pub const fn is_wide_alias(id: u64) -> bool {
+    id & HOST_ALIAS_BIT != 0
+}
+
+/// `wm ‖ hex(sha256(TRANSIT_SEED_DOMAIN ‖ holding ‖ slot)[..15])`: the seed
+/// of the wide transit record of transit slot `slot` of the wide holding
+/// at `holding`.
+pub fn transit_seed(holding: &[u8; 32], slot: u8) -> AddrSeed {
+    let h = sha256(&[TRANSIT_SEED_DOMAIN, holding, &[slot]]);
+    AddrSeed::new(TRANSIT_TAG, &h[..15])
+}
+
+/// `with_seed(season, wm ‖ hash(holding ‖ slot), program)`.
+pub fn transit_address(ctx: &AddrCtx, holding: &[u8; 32], slot: u8) -> [u8; 32] {
+    ctx.of(&transit_seed(holding, slot))
+}
+
+/// The province-and-bell seed the wide formulas hash under: `sha256(domain
+/// ‖ world ‖ sort key ‖ LE32(bell))`, the full coordinate where the legacy
+/// formulas take the `i32` pair.
+fn province_bell_seed(domain: &[u8], key: ProvinceKey, bell: u32) -> Seed {
+    sha256(&[
+        domain,
+        key.world().as_bytes(),
+        &key.coord().sort_key(),
+        &bell.to_le_bytes(),
+    ])
+}
+
+/// The wide counterpart of the kernel's `slot_key(P, Q, bell, host_id)`
+/// (the arrival quota's ranking key): the full province key and the full
+/// host reference under [`SLOT_DOMAIN_WIDE`]. Experimental; used by no
+/// handler yet (module doc).
+pub fn wide_slot_key(key: ProvinceKey, bell: u32, host: &WideHostRef) -> u64 {
+    let seed = province_bell_seed(SLOT_DOMAIN_WIDE, key, bell);
+    rand(&seed, SLOT_DOMAIN_WIDE, &host.to_bytes())
+}
+
+/// The wide counterpart of `rng::tie_key(seed, id)` (the clash's unit
+/// tie-break) over the full host reference under [`TIE_DOMAIN_WIDE`].
+pub fn wide_tie_key(seed: &Seed, host: &WideHostRef) -> u64 {
+    rand(seed, TIE_DOMAIN_WIDE, &host.to_bytes())
+}
+
+/// The wide counterpart of the kernel's `clash_seed(seed, P, Q, bell)`:
+/// `sha256(CLASH_DOMAIN_WIDE ‖ seed ‖ world ‖ sort key ‖ LE32(bell))`.
+pub fn wide_clash_seed(seed: &Seed, key: ProvinceKey, bell: u32) -> Seed {
+    sha256(&[
+        CLASH_DOMAIN_WIDE,
+        seed,
+        key.world().as_bytes(),
+        &key.coord().sort_key(),
+        &bell.to_le_bytes(),
+    ])
+}
+
+// ------------------------------------------------------------ the wide clash
+
+/// The full host reference as the clash kernel's identity scheme
+/// (`clash::ClashIdentity`; experimental, decides no production rule). The
+/// province is the world-scoped [`ProvinceKey`]; the clash seed is
+/// [`wide_clash_seed`]; the tie key is [`wide_tie_key`]; the engagement key
+/// is `city ‖ the 56-byte reference`; the withdraw search turns by the
+/// coordinate's **exact geometric wedge** (`WideCoord::wedge`, the rule the
+/// legacy `ProvinceCoord::wedge` states, 0 for the Concord: no new retreat
+/// rule); the sorts are the stable `sort_by_key` over the reference's own
+/// order (`world ‖ sort key ‖ site ‖ gen ‖ seq`). The roster alias
+/// ([`wide_host_alias`]) is never read by the kernel.
+impl ClashIdentity for WideHostRef {
+    type Province = ProvinceKey;
+    type Key = [u8; 1 + HOST_REF_LEN];
+    fn clash_seed(seed: &Seed, province: &ProvinceKey, bell: u32) -> Seed {
+        wide_clash_seed(seed, *province, bell)
+    }
+    fn wedge(province: &ProvinceKey) -> u8 {
+        province.coord().wedge().unwrap_or(0)
+    }
+    fn tie(cs: &Seed, id: &WideHostRef) -> u64 {
+        wide_tie_key(cs, id)
+    }
+    fn key(&self, city: bool) -> [u8; 1 + HOST_REF_LEN] {
+        let mut k = [0u8; 1 + HOST_REF_LEN];
+        k[0] = city as u8;
+        k[1..].copy_from_slice(&self.to_bytes());
+        k
+    }
+    fn sort_by_order<T: Copy>(v: &mut [T], key: impl Fn(&T) -> (u64, u64, WideHostRef)) {
+        v.sort_by_key(key)
+    }
+    fn sort_by_id<T: Copy>(v: &mut [T], key: impl Fn(&T) -> WideHostRef) {
+        v.sort_by_key(key)
+    }
+}
+
+/// A host of a wide clash (the kernel's fighter under the full reference).
+pub type WideFighter = FighterOf<WideHostRef>;
+/// A garrison of a wide clash: its id is the holding's reference
+/// (`WideHostRef::holding_ref`, `seq` 0), as the legacy garrison id is
+/// `host_id(P, Q, site, gen, 0)`.
+pub type WideGarrison = GarrisonOf<WideHostRef>;
+/// Everything one wide clash reads.
+pub type WideClashInput<'a> = ClashInputOf<'a, WideHostRef>;
+/// A wide clash's refusal, naming the host by its full reference.
+pub type WideClashError = ClashErrorOf<WideHostRef>;
+
+/// Domain of [`WideClashOutcome::digest`].
+pub const CLASH_OUTCOME_DOMAIN_WIDE: &[u8] = b"PSF-WIDE-CLASH-OUTCOME-v1";
+
+/// The outcome of a wide clash: the kernel's results under the full
+/// reference, with the province key. No event record kind carries it yet
+/// (nothing logs a wide clash); [`WideClashOutcome::digest`] hashes its
+/// canonical bytes under [`CLASH_OUTCOME_DOMAIN_WIDE`].
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct WideClashOutcome {
+    pub province: ProvinceKey,
+    pub bell: u32,
+    /// Sorted by reference.
+    pub fighters: Vec<FighterResultOf<WideHostRef>>,
+    /// Sorted by reference.
+    pub garrisons: Vec<GarrisonResultOf<WideHostRef>>,
+    pub engagements: u32,
+}
+
+/// `(code, tile)` of a fate: Stays 0, Withdrew 1, Bounced 2, Retreated 3,
+/// Destroyed 4; the tile where the fate has one, else 0xff.
+pub const fn fate_code(f: Fate) -> (u8, u8) {
+    match f {
+        Fate::Stays { tile } => (0, tile),
+        Fate::Withdrew { tile } => (1, tile),
+        Fate::Bounced => (2, 0xff),
+        Fate::Retreated => (3, 0xff),
+        Fate::Destroyed => (4, 0xff),
+    }
+}
+
+impl WideClashOutcome {
+    pub fn fighter(&self, id: &WideHostRef) -> Option<&FighterResultOf<WideHostRef>> {
+        self.fighters.iter().find(|f| f.id == *id)
+    }
+
+    /// `sha256(domain ‖ province key ‖ LE32(bell) ‖ LE32(n) ‖ fighters ‖
+    /// LE32(m) ‖ garrisons ‖ LE32(engagements))`, each fighter `ref ‖ arrival
+    /// ‖ LE32(troops) ‖ LE16(stamina) ‖ fate code ‖ fate tile ‖ engaged`,
+    /// each garrison `ref ‖ LE32(troops) ‖ attackers_hold ‖ holders ‖
+    /// defender_present`.
+    pub fn digest(&self) -> [u8; 32] {
+        let mut b: Vec<u8> = Vec::with_capacity(
+            PROVINCE_KEY_LEN + 12 + self.fighters.len() * 66 + self.garrisons.len() * 63,
+        );
+        b.extend_from_slice(&self.province.to_bytes());
+        b.extend_from_slice(&self.bell.to_le_bytes());
+        b.extend_from_slice(&(self.fighters.len() as u32).to_le_bytes());
+        for f in &self.fighters {
+            let (code, tile) = fate_code(f.fate);
+            b.extend_from_slice(&f.id.to_bytes());
+            b.push(f.arrival as u8);
+            b.extend_from_slice(&f.troops.to_le_bytes());
+            b.extend_from_slice(&f.stamina.to_le_bytes());
+            b.push(code);
+            b.push(tile);
+            b.push(f.engaged as u8);
+        }
+        b.extend_from_slice(&(self.garrisons.len() as u32).to_le_bytes());
+        for g in &self.garrisons {
+            b.extend_from_slice(&g.id.to_bytes());
+            b.extend_from_slice(&g.troops.to_le_bytes());
+            b.push(g.attackers_hold as u8);
+            b.push(g.holders);
+            b.push(g.defender_present as u8);
+        }
+        b.extend_from_slice(&self.engagements.to_le_bytes());
+        sha256(&[CLASH_OUTCOME_DOMAIN_WIDE, &b])
+    }
+}
+
+/// The clash kernel's production body (`clash::resolve_clash_core`, the
+/// one the chain runs for the legacy scheme) over the full reference. Pure:
+/// it reads what it is given and writes nothing; no handler calls it yet
+/// (no wide roster, arrival or ClashInputs exists), so it is the
+/// **executable combat core** of the wide world and not a movement.
+pub fn resolve_wide_clash(
+    rules: &Ruleset,
+    inp: &WideClashInput,
+) -> Result<WideClashOutcome, WideClashError> {
+    let c = resolve_clash_core(rules, inp)?;
+    Ok(WideClashOutcome {
+        province: inp.province,
+        bell: c.bell,
+        fighters: c.fighters,
+        garrisons: c.garrisons,
+        engagements: c.engagements,
+    })
+}
+
+/// The kernel's step-by-step reference over the full reference (host
+/// only), the oracle [`resolve_wide_clash`] is held to.
+#[cfg(not(any(target_os = "solana", target_arch = "wasm32")))]
+pub fn resolve_wide_clash_ref(
+    rules: &Ruleset,
+    inp: &WideClashInput,
+) -> Result<WideClashOutcome, WideClashError> {
+    let c = permutation_rules::frontier::clash::resolve_clash_ref_core(rules, inp)?;
+    Ok(WideClashOutcome {
+        province: inp.province,
+        bell: c.bell,
+        fighters: c.fighters,
+        garrisons: c.garrisons,
+        engagements: c.engagements,
+    })
+}
+
+// ------------------------------------------------------------ the alias, authenticated
+
+/// Why a roster write may not use an alias.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum AliasError {
+    /// The alias is already in the table under **another** full reference:
+    /// a hash collision, or a forged entry. Refused: an alias stands for one
+    /// host or for none.
+    Collision { alias: u64 },
+    /// The same full reference is already in the table.
+    AlreadyPresent { alias: u64 },
+    /// A table entry's alias is not the alias of its own reference: the
+    /// table is not what this program writes.
+    Unauthenticated { alias: u64 },
+}
+
+/// The alias a roster write may use for `host`, checked against the whole
+/// table of `(alias, full reference)` pairs it would join: every entry's
+/// alias must be its own reference's ([`wide_host_alias`]), no entry may
+/// carry `host`'s alias under another reference, and `host` must not be
+/// present. The full reference is the authenticated identity of every
+/// comparison; the alias alone proves nothing. A roster or transit writer
+/// must call this before writing an alias, and store the reference beside
+/// it.
+pub fn claim_alias(table: &[(u64, WideHostRef)], host: &WideHostRef) -> Result<u64, AliasError> {
+    let alias = wide_host_alias(host);
+    for (a, h) in table {
+        if wide_host_alias(h) != *a {
+            return Err(AliasError::Unauthenticated { alias: *a });
+        }
+        if h == host {
+            return Err(AliasError::AlreadyPresent { alias });
+        }
+        if *a == alias {
+            return Err(AliasError::Collision { alias });
+        }
+    }
+    Ok(alias)
+}
+
+// ------------------------------------------------------------ what a wide seal must commit to
+
+/// Domain of [`wide_plain_commit`].
+pub const WIDE_PLAIN_DOMAIN: &[u8] = b"PSF-WIDE-PLAIN-v1";
+
+/// The commitment a wide seal must open to (a model of the preimage, not a
+/// seal format: no ciphertext, no beacon binding and no bond exist for it).
+/// The legacy `Plain37` authenticates only its narrow fields (an `i16`
+/// destination, a tile, a bell, the retreat ratio, the stance); a wide
+/// seal must bind the **full host reference and the full destination key**
+/// inside the commitment, so that no settle or forfeit can be steered by an
+/// unauthenticated side input: `sha256(domain ‖ host ref ‖ destination key
+/// ‖ dest tile ‖ LE32(arrive bell) ‖ LE16(retreat bps) ‖ stance ‖ salt)`.
+#[allow(clippy::too_many_arguments)]
+pub fn wide_plain_commit(
+    host: &WideHostRef,
+    dest: ProvinceKey,
+    dest_tile: u8,
+    arrive_bell: u32,
+    retreat_bps: u16,
+    stance: u8,
+    salt: &[u8; 32],
+) -> [u8; 32] {
+    sha256(&[
+        WIDE_PLAIN_DOMAIN,
+        &host.to_bytes(),
+        &dest.to_bytes(),
+        &[dest_tile],
+        &arrive_bell.to_le_bytes(),
+        &retreat_bps.to_le_bytes(),
+        &[stance],
+        salt,
+    ])
+}
 
 /// The stages of a march, in the legacy order. The legacy record keeps
 /// the first four as its `state` byte and the fifth as `FLAG_GATHERED`;
@@ -244,7 +610,7 @@ impl WideTransit {
         if host_identity == super::holding::HOST_IDENTITY_UNALLOCATED {
             return Err(MarchError::HostIdentityUnallocated);
         }
-        if host_identity != 1 {
+        if host_identity != HOST_IDENTITY_FULL_REF_V1 {
             return Err(MarchError::UnknownHostIdentity(host_identity));
         }
         if unit >= 8 {
@@ -435,10 +801,10 @@ impl WideTransit {
             _ => return Err(MarchError::Destination),
         };
         let host_identity = rd_u16(d, off::HOST_IDENTITY).ok_or(t)?;
-        if host_identity == 0 {
+        if host_identity == super::holding::HOST_IDENTITY_UNALLOCATED {
             return Err(MarchError::HostIdentityUnallocated);
         }
-        if host_identity != 1 {
+        if host_identity != HOST_IDENTITY_FULL_REF_V1 {
             return Err(MarchError::UnknownHostIdentity(host_identity));
         }
         if host.key().world() != origin.world() || dest.is_some_and(|d| d.world() != origin.world())
@@ -804,6 +1170,84 @@ mod tests {
             Err(MarchError::Key(KeyError::ReservedWorld))
         );
     }
+    /// The identity decision: the alias is a lookup key no legacy reader
+    /// accepts and no formula takes; the wide formulas read the whole
+    /// coordinate and the whole reference under their own domains, so an
+    /// unrelated host's insertion, a coordinate that agrees in its low 32
+    /// bits or a legacy id with the same numbers never share an outcome
+    /// with them; the transit record has its own canonical address.
+    #[test]
+    fn identity_is_the_full_reference_the_alias_is_lookup_only_and_formulas_are_wide() {
+        use crate::addr::split_host_id;
+        assert_eq!(HOST_IDENTITY_FULL_REF_V1, 1);
+        assert_ne!(HOST_IDENTITY_FULL_REF_V1, HOST_IDENTITY_UNALLOCATED);
+        let w = world(1);
+        let h = host(w);
+        let a = wide_host_alias(&h);
+        assert!(is_wide_alias(a));
+        assert_eq!(split_host_id(a), None, "no legacy reader parses it");
+        assert_ne!(a, wide_host_alias(&h.holding_ref()));
+        let other_seq = WideHostRef::new(h.key(), h.site(), h.gen(), 8).unwrap();
+        assert_ne!(a, wide_host_alias(&other_seq));
+        let far = WideHostRef::new(
+            ProvinceKey::new(
+                w,
+                WideCoord::checked((1i64 << 32) + 129, -(1i64 << 32)).unwrap(),
+            ),
+            3,
+            1,
+            7,
+        )
+        .unwrap();
+        assert_ne!(a, wide_host_alias(&far), "full width, not the low 32 bits");
+        assert_eq!(a, wide_host_alias(&h), "deterministic");
+        // every legacy id is refused as an alias, every alias as a legacy id
+        let legacy = crate::addr::host_id(3, -1, 2, 1, 9).unwrap();
+        assert!(!is_wide_alias(legacy));
+        assert!(split_host_id(legacy).is_some());
+        // the formulas
+        let seed = [0x5a; 32];
+        let k = h.key();
+        let kf = far.key();
+        assert_ne!(wide_slot_key(k, 7, &h), wide_slot_key(kf, 7, &far));
+        assert_ne!(wide_slot_key(k, 7, &h), wide_slot_key(k, 8, &h));
+        assert_ne!(wide_slot_key(k, 7, &h), wide_slot_key(k, 7, &other_seq));
+        assert_ne!(wide_tie_key(&seed, &h), wide_tie_key(&seed, &other_seq));
+        assert_ne!(
+            wide_tie_key(&seed, &h),
+            permutation_rules::rng::tie_key(&seed, a),
+            "the alias is not the tie-break input"
+        );
+        assert_ne!(wide_clash_seed(&seed, k, 7), wide_clash_seed(&seed, kf, 7));
+        assert_ne!(wide_clash_seed(&seed, k, 7), wide_clash_seed(&seed, k, 8));
+        assert_ne!(
+            wide_clash_seed(&seed, k, 7),
+            permutation_rules::frontier::clash::clash_seed(
+                &seed,
+                permutation_rules::frontier::geometry::ProvinceCoord::new(129, 0),
+                7
+            ),
+            "not the legacy formula over the same numbers"
+        );
+        // the transit record's address: one per (holding, slot), a with-seed
+        // address distinct from the holding's and the ticket's tags
+        let ctx = AddrCtx {
+            season: [3; 32],
+            program: [4; 32],
+        };
+        let hk = [0x66; 32];
+        let t0 = transit_address(&ctx, &hk, 0);
+        assert_eq!(t0, transit_address(&ctx, &hk, 0));
+        assert_ne!(t0, transit_address(&ctx, &hk, 1));
+        assert_ne!(t0, transit_address(&ctx, &[0x67; 32], 0));
+        assert_eq!(
+            permutation_rules::frontier::addr::SeedKind::from_tag(&TRANSIT_TAG),
+            None
+        );
+        assert_ne!(TRANSIT_TAG, super::super::ticket::TICKET_TAG);
+        assert_ne!(TRANSIT_TAG, super::super::holding::HOLDING_TAG);
+    }
+
     #[test]
     fn native_review_refuses_unknown_identity_cross_world_and_clock_overflow() {
         let d = departed();
@@ -846,5 +1290,316 @@ mod tests {
             ),
             Err(MarchError::ArrivalBell { .. })
         ));
+    }
+
+    /// The clash kernel over the full reference: the production body and
+    /// the reference body agree on fixed data that fights; results are
+    /// named by full references (the garrison by its holding's), sorted by
+    /// reference; input order and an unrelated host's insertion change
+    /// nothing; the wedge is the coordinate's exact geometric one.
+    mod wide_clash {
+        use super::*;
+        use permutation_rules::fixed::BPS_ONE;
+        use permutation_rules::frontier::clash::{frontier_ruleset, Occupancy, Relations};
+        use permutation_rules::frontier::geometry::{ProvinceCoord, PROVINCE_TILES};
+        use permutation_rules::frontier::host::STAMINA_CAP;
+        use permutation_rules::frontier::stance::{Posture, Stance};
+        use permutation_rules::frontier::terrain::{generate_province, ProvinceTerrain};
+        use permutation_rules::map::Terrain;
+        use permutation_rules::units::UnitType;
+        use std::vec::Vec;
+
+        const FIELD: u8 = 30;
+        const FAR: u8 = 0;
+
+        fn key() -> ProvinceKey {
+            ProvinceKey::new(world(1), WideCoord::checked(129, 0).unwrap())
+        }
+
+        fn r(site: u8, gen: u8, seq: u32) -> WideHostRef {
+            WideHostRef::new(key(), site, gen, seq).unwrap()
+        }
+
+        /// A fixture terrain: the legacy generator's tiles, all plains (the
+        /// wide terrain kernel is not what this test is about).
+        fn plains() -> ProvinceTerrain {
+            let mut t = generate_province(&[7u8; 32], ProvinceCoord::new(3, -1));
+            t.terrain = [Terrain::Plains; PROVINCE_TILES];
+            t
+        }
+
+        fn fighter(
+            id: WideHostRef,
+            faction: u8,
+            unit: UnitType,
+            troops: u32,
+            tile: u8,
+        ) -> WideFighter {
+            WideFighter {
+                id,
+                faction,
+                unit,
+                troops: troops * 1000,
+                stamina: STAMINA_CAP,
+                tile,
+                posture: Posture::default(),
+                retreat_bps: None,
+                dealt_bps: BPS_ONE,
+            }
+        }
+
+        fn arrival(
+            id: WideHostRef,
+            faction: u8,
+            unit: UnitType,
+            troops: u32,
+            tile: u8,
+        ) -> WideFighter {
+            WideFighter {
+                posture: Posture::Stance(Stance::Assault),
+                ..fighter(id, faction, unit, troops, tile)
+            }
+        }
+
+        struct Fixture {
+            terrain: ProvinceTerrain,
+            residents: Vec<WideFighter>,
+            garrisons: Vec<WideGarrison>,
+            arrivals: Vec<WideFighter>,
+        }
+
+        fn fixture() -> Fixture {
+            Fixture {
+                terrain: plains(),
+                residents: std::vec![
+                    fighter(r(2, 1, 1), 0, UnitType::Spearman, 9_000, FIELD),
+                    fighter(r(2, 1, 2), 0, UnitType::Archer, 6_000, FIELD),
+                    fighter(r(5, 1, 1), 2, UnitType::Pikeman, 7_000, 44),
+                ],
+                garrisons: std::vec![WideGarrison {
+                    id: r(2, 1, 1).holding_ref(),
+                    faction: 0,
+                    tile: FIELD,
+                    troops: 4_000 * 1000,
+                    walls: true,
+                    posture: Posture::default(),
+                }],
+                arrivals: std::vec![
+                    arrival(r(7, 2, 1), 1, UnitType::Knight, 12_000, FIELD),
+                    arrival(r(7, 2, 2), 1, UnitType::Horseman, 8_000, FIELD),
+                ],
+            }
+        }
+
+        fn input<'a>(f: &'a Fixture) -> WideClashInput<'a> {
+            WideClashInput {
+                province: key(),
+                bell: 11,
+                seed: sha256(&[b"wide-identity"]),
+                terrain: &f.terrain,
+                residents: &f.residents,
+                garrisons: &f.garrisons,
+                arrivals: &f.arrivals,
+                relations: Relations::ALL_HOSTILE,
+                occupancy: Occupancy::EMPTY,
+            }
+        }
+
+        #[test]
+        fn production_body_matches_the_reference_under_the_full_reference() {
+            let f = fixture();
+            let a = resolve_wide_clash(&frontier_ruleset(), &input(&f)).unwrap();
+            let b = resolve_wide_clash_ref(&frontier_ruleset(), &input(&f)).unwrap();
+            assert_eq!(a, b);
+            assert_eq!(a.digest(), b.digest());
+            assert_eq!(a.province, key());
+            assert!(a.engagements > 0, "{a:?}");
+            assert_eq!(a.garrisons.len(), 1);
+            assert_eq!(a.garrisons[0].id, r(2, 1, 1).holding_ref());
+            assert!(a.garrisons[0].troops < 4_000 * 1000);
+            assert!(a
+                .fighters
+                .iter()
+                .any(|x| x.engaged && x.troops < 6_000 * 1000));
+            let outsider = a.fighter(&r(5, 1, 1)).unwrap();
+            assert_eq!(
+                (outsider.fate, outsider.engaged, outsider.troops),
+                (Fate::Stays { tile: 44 }, false, 7_000 * 1000)
+            );
+            assert!(a.fighters.windows(2).all(|w| w[0].id < w[1].id));
+            // the scheme's inputs: the exact geometric wedge, the full
+            // reference as the engagement key
+            assert_eq!(
+                <WideHostRef as ClashIdentity>::wedge(&key()),
+                key().coord().wedge().unwrap()
+            );
+            let k = <WideHostRef as ClashIdentity>::key(&r(7, 2, 1), true);
+            assert_eq!(k[0], 1);
+            assert_eq!(&k[1..], &r(7, 2, 1).to_bytes());
+            assert_eq!(
+                <WideHostRef as ClashIdentity>::clash_seed(&[9; 32], &key(), 11),
+                wide_clash_seed(&[9; 32], key(), 11)
+            );
+            // the digest is a function of the results
+            let mut other = a.clone();
+            other.engagements += 1;
+            assert_ne!(other.digest(), a.digest());
+        }
+
+        #[test]
+        fn far_coordinates_all_wedges_equal_mass_and_garrison_permutations() {
+            for radius in [129i64, (1i64 << 53) + 17] {
+                let mut coord = WideCoord::checked(radius, 0).unwrap();
+                for _ in 0..6 {
+                    let province = ProvinceKey::new(world(9), coord);
+                    let remap = |id: WideHostRef| {
+                        WideHostRef::new(province, id.site(), id.gen(), id.seq()).unwrap()
+                    };
+                    let mut f = fixture();
+                    f.garrisons.push(WideGarrison {
+                        id: r(5, 1, 0),
+                        faction: 2,
+                        tile: 44,
+                        troops: 4_000_000,
+                        walls: true,
+                        posture: Posture::default(),
+                    });
+                    for host in f.residents.iter_mut().chain(f.arrivals.iter_mut()) {
+                        host.id = remap(host.id);
+                        host.troops = 6_000_000;
+                    }
+                    for garrison in &mut f.garrisons {
+                        garrison.id = remap(garrison.id);
+                    }
+                    let expected = {
+                        let mut i = input(&f);
+                        i.province = province;
+                        i.occupancy.storage_free = 1;
+                        let a = resolve_wide_clash(&frontier_ruleset(), &i).unwrap();
+                        assert_eq!(a, resolve_wide_clash_ref(&frontier_ruleset(), &i).unwrap());
+                        assert!(a.engagements > 0);
+                        assert_eq!(a.garrisons.len(), 2);
+                        a
+                    };
+                    f.residents.reverse();
+                    f.arrivals.reverse();
+                    f.garrisons.reverse();
+                    let mut i = input(&f);
+                    i.province = province;
+                    i.occupancy.storage_free = 1;
+                    assert_eq!(
+                        resolve_wide_clash(&frontier_ruleset(), &i).unwrap(),
+                        expected
+                    );
+                    assert_eq!(
+                        resolve_wide_clash_ref(&frontier_ruleset(), &i).unwrap(),
+                        expected
+                    );
+                    assert_eq!(
+                        <WideHostRef as ClashIdentity>::wedge(&province),
+                        coord.wedge().unwrap()
+                    );
+                    coord = coord.rotate().unwrap();
+                }
+            }
+        }
+
+        #[test]
+        fn order_and_an_unrelated_insertion_change_nothing() {
+            let f = fixture();
+            let base = resolve_wide_clash(&frontier_ruleset(), &input(&f)).unwrap();
+            let mut g = fixture();
+            g.residents.reverse();
+            g.arrivals.reverse();
+            assert_eq!(
+                resolve_wide_clash(&frontier_ruleset(), &input(&g)).unwrap(),
+                base
+            );
+            // a newcomer whose reference sorts before every other (site 0):
+            // every unit index shifts; no result does
+            let mut h = fixture();
+            let newcomer = r(0, 0, 1);
+            assert!(h.residents.iter().all(|x| newcomer < x.id));
+            h.residents
+                .push(fighter(newcomer, 3, UnitType::Crossbowman, 5_000, FAR));
+            for out in [
+                resolve_wide_clash(&frontier_ruleset(), &input(&h)).unwrap(),
+                resolve_wide_clash_ref(&frontier_ruleset(), &input(&h)).unwrap(),
+            ] {
+                assert_eq!(out.engagements, base.engagements);
+                assert_eq!(out.garrisons, base.garrisons);
+                assert_eq!(out.fighters.len(), base.fighters.len() + 1);
+                for x in &base.fighters {
+                    assert_eq!(out.fighter(&x.id), Some(x), "{x:?}");
+                }
+                let n = out.fighter(&newcomer).unwrap();
+                assert_eq!(
+                    (n.fate, n.engaged, n.troops),
+                    (Fate::Stays { tile: FAR }, false, 5_000 * 1000)
+                );
+            }
+        }
+
+        #[test]
+        fn a_duplicate_reference_is_refused_by_reference() {
+            let mut f = fixture();
+            let dup = f.residents[0];
+            f.arrivals.push(WideFighter {
+                posture: Posture::Stance(Stance::Hold),
+                ..dup
+            });
+            assert_eq!(
+                resolve_wide_clash(&frontier_ruleset(), &input(&f)),
+                Err(ClashErrorOf::DuplicateId(dup.id))
+            );
+        }
+
+        #[test]
+        fn claim_alias_authenticates_the_full_reference_before_a_write() {
+            let (h1, h2, h3) = (r(2, 1, 1), r(2, 1, 2), r(7, 2, 1));
+            let (a1, a2) = (wide_host_alias(&h1), wide_host_alias(&h2));
+            assert_eq!(claim_alias(&[], &h1), Ok(a1));
+            assert_eq!(claim_alias(&[(a1, h1)], &h2), Ok(a2));
+            assert_eq!(
+                claim_alias(&[(a1, h1), (a2, h2)], &h3),
+                Ok(wide_host_alias(&h3))
+            );
+            assert_eq!(
+                claim_alias(&[(a1, h1), (a2, h2)], &h1),
+                Err(AliasError::AlreadyPresent { alias: a1 })
+            );
+            // an entry whose alias is not its own reference's: the table is
+            // not this program's writing, whatever host asks
+            assert_eq!(
+                claim_alias(&[(a1, h2)], &h3),
+                Err(AliasError::Unauthenticated { alias: a1 })
+            );
+            assert_eq!(
+                claim_alias(&[(a2, h2), (a1, h2)], &h3),
+                Err(AliasError::Unauthenticated { alias: a1 })
+            );
+            assert!(is_wide_alias(a1) && is_wide_alias(a2));
+        }
+
+        #[test]
+        fn a_wide_commitment_binds_the_host_and_the_destination() {
+            let dest = ProvinceKey::new(world(1), WideCoord::checked(130, -1).unwrap());
+            let salt = [0x51u8; 32];
+            let c = wide_plain_commit(&r(2, 1, 1), dest, 17, 40, 0, 1, &salt);
+            assert_eq!(c, wide_plain_commit(&r(2, 1, 1), dest, 17, 40, 0, 1, &salt));
+            assert_ne!(c, wide_plain_commit(&r(2, 1, 2), dest, 17, 40, 0, 1, &salt));
+            assert_ne!(
+                c,
+                wide_plain_commit(&r(2, 1, 1), key(), 17, 40, 0, 1, &salt)
+            );
+            assert_ne!(c, wide_plain_commit(&r(2, 1, 1), dest, 18, 40, 0, 1, &salt));
+            assert_ne!(c, wide_plain_commit(&r(2, 1, 1), dest, 17, 41, 0, 1, &salt));
+            assert_ne!(c, wide_plain_commit(&r(2, 1, 1), dest, 17, 40, 1, 1, &salt));
+            assert_ne!(c, wide_plain_commit(&r(2, 1, 1), dest, 17, 40, 0, 2, &salt));
+            assert_ne!(
+                c,
+                wide_plain_commit(&r(2, 1, 1), dest, 17, 40, 0, 1, &[0x52u8; 32])
+            );
+        }
     }
 }
