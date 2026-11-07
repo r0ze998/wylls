@@ -20,3 +20,9 @@ These are selected tests, not the entire repository. Fixed recorded inputs and l
 The wide surface is read-only and only displays captured land. The writer still cannot create playable land outside ring 128. Exact coordinates, reported routes and travel quotations are prerequisites, not land ownership or an executed march. No existing asset layout, prize eligibility or default keeper activation changed.
 
 The user confirmed that outer nations should mix instead of forming wedges. The exact distribution texture remains a versioned candidate; generation work is separate from this merge.
+
+## Generation candidate follow-up
+
+`364e7f7b` adds the reviewed wide terrain and nation-placement candidates. On this integrated tree, terrain 9/9, world_index 57/57 and the real legacy map-growth dispatcher 6/6 passed. The legacy dispatcher still refuses growth beyond 128: this result is regression protection, not a successful wide writer. An orbit-balanced outer-placement comparison avoids assigning different repeated terrain classes to nations at rings divisible by six; it is not activated as a Season rule. See WIDE-GENERATION.md for the exact limitations.
+
+Herald library clippy and the default-build disabled-route test (1/1) also passed on the integration baseline. Browser/visual acceptance remains unperformed. No keypair generation, derivation or signing occurred.
