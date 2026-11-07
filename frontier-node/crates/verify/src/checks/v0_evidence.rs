@@ -55,11 +55,13 @@ const V: &str = "V0E";
 /// The line the runtime appends when a transaction's logs exceed the limit.
 pub const LOG_TRUNCATED: &str = "Log truncated";
 
-/// The conquest record kinds (ABI v2, 80–103) the checks of this verifier
+/// The conquest record kinds (ABI v2, 80–104) the checks of this verifier
 /// read. Deliberately a literal list: a kind the ABI adds later is not
-/// judged by any check here until one models it.
+/// judged by any check here until one models it. 104 (FRONTIER_EXTENDED,
+/// map growth) is V26's.
 pub const MODELLED_CQ_KINDS: &[u8] = &[
     80, 81, 82, 83, 84, 85, 86, 87, 88, 90, 91, 92, 93, 94, 95, 96, 97, 98, 99, 100, 101, 102, 103,
+    104,
 ];
 
 /// Conquest kinds judged only beside the instruction that emits them (see

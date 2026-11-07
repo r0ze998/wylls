@@ -200,11 +200,13 @@ pub(crate) fn act(p: &Pubkey, accounts: &[AccountInfo], generation: u32, inner: 
 /// a zero `WALLET`, no Frontier session, and its resident fields
 /// (`frontier_abi::resident_citizen::mark`).
 ///
-/// Not yet: the `RESIDENT_JOINED` record (kind 90, allocated; it needs the
-/// readers in the same change) and the JoinShard count (counting without the
-/// record would break the shard's record chain for wallet players). The
-/// shard index is derived from the asset as the wallet Join derives it from
-/// the wallet.
+/// Logs `RESIDENT_JOINED` (kind 130, `frontier_abi::v2::log::CqKind`; 90 is
+/// S1's VAULT_BUILT), keyed by the resident id with no links: the NFT
+/// Citizen's start for the keeper, herald, verifier (V27) and fclient. Not
+/// yet: the JoinShard count (`members += 1`; counting here would put a record
+/// the wallet players' shard chain does not expect). The shard index is
+/// derived from the asset as the wallet Join derives it from the wallet, and
+/// PlaceHome reads it back from the Citizen.
 #[cfg(feature = "nft-experimental")]
 pub(crate) fn join(p: &Pubkey, accounts: &[AccountInfo], generation: u32, faction: u8) -> R<()> {
     use crate::layout::{citizen as C, frontier as FR, init_header, join_shard as JS};
@@ -249,7 +251,10 @@ pub(crate) fn join(p: &Pubkey, accounts: &[AccountInfo], generation: u32, factio
         (
             r.arr::<32>(S::JOIN_GATE)?,
             r.u16(S::RESERVE_BPS)?,
-            r.u16(S::R_MAX)?,
+            r.u16(S::R_MAX)?.max(
+                frontier_abi::v2::presets::ConquestParams::of_season(&sd)
+                    .map_or(0, |c| c.r_max_ceiling),
+            ),
         )
     };
     match gate {
@@ -271,8 +276,8 @@ pub(crate) fn join(p: &Pubkey, accounts: &[AccountInfo], generation: u32, factio
         let open = r.u32(FR::OPEN_SITES)? as u64;
         let occupied = r.u32(FR::OCCUPIED_SITES)? as u64;
         let rings = r.u16(FR::RINGS_OPENED)?;
-        let free_ok = open.saturating_sub(occupied) * 10_000 >= reserve_bps as u64 * open;
-        if !free_ok && rings > r_max {
+        let r_max = r_max.max(r.u16(FR::R_MAX_EXT)?);
+        if !super::map::join_capacity_available(open, occupied, reserve_bps, rings, r_max) {
             return Err(FrontierError::Capacity.into());
         }
     }

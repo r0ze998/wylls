@@ -133,9 +133,18 @@ impl Findex {
         })
     }
 
-    /// Resumes `src` from the archived cursor.
+    /// Resumes `src` from the archived cursor. An archive that holds
+    /// records without a cursor hands the source a marker it cannot read
+    /// (`RpcPoll` then refuses to pull rather than start over, G2).
     pub fn resume<S: Source>(&self, src: &mut S) {
-        src.restore(self.archive.cursor());
+        let c = self.archive.cursor();
+        if c.is_null() && self.archive.last_seq() > 0 {
+            src.restore(
+                &serde_json::json!({ "cursor_missing_after_seq": self.archive.last_seq() }),
+            );
+        } else {
+            src.restore(c);
+        }
     }
 
     /// One pull: archive, then index. Returns the archived records.

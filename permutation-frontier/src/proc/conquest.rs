@@ -60,7 +60,7 @@ use frontier_abi::v2::tags::Ix as Ix2;
 use permutation_rules::fixed::MILLI;
 use permutation_rules::frontier::clash::NEUTRAL;
 use permutation_rules::frontier::doctrine::of_faction_v3 as of_faction;
-use permutation_rules::frontier::geometry::ProvinceCoord;
+use permutation_rules::frontier::geometry::{self, ProvinceCoord};
 use permutation_rules::frontier::holding::{capture_effects, Holding as KHolding, Resource, Tier};
 use permutation_rules::frontier::siege::{self, HoldingKind, Relation, SiegeCheckV3, SiegeRefusal};
 
@@ -378,7 +378,7 @@ pub mod cqlog {
     use crate::layout::{chain_of, set_chain};
 
     /// Highest kind code a v2 record carries: the program's
-    /// `events::MAX_KIND_V2` (134, for ⑳'s RESIDENT_JOINED = 130; 104–129
+    /// `events::MAX_KIND_V2` (134, for ⑳'s RESIDENT_JOINED = 130; 105–129
     /// and 131–134 undefined).
     pub const MAX_KIND: usize = crate::events::MAX_KIND_V2;
 
@@ -789,7 +789,35 @@ pub(crate) fn declare_siege_as(
             frontier_protect_after_secs: fp_after as i64,
             genesis_ts: pl.pc.season.genesis_ts,
         };
-        siege::may_besiege_v3(&check).map_err(refusal)?;
+        // Placement (frontier-abi `cq_layout::PLACEMENT`): under the
+        // dispersed placement the heartland is `home_nation`'s, not the
+        // wedge's, so the kernel's wedge test is switched off (an empty ring
+        // range) and the same refusal, still the last step, is made here.
+        let (placement, genesis_seed) = {
+            let sd = season_ai.try_borrow_data()?;
+            (
+                cq_u8(&sd, CQ::PLACEMENT)?,
+                Ro(&sd).arr::<32>(crate::layout::season::GENESIS_SEED)?,
+            )
+        };
+        if placement == geometry::PLACEMENT_WEDGE {
+            siege::may_besiege_v3(&check).map_err(refusal)?;
+        } else {
+            siege::may_besiege_v3(&SiegeCheckV3 {
+                heartland_max_ring: 1,
+                ..check
+            })
+            .map_err(refusal)?;
+            if geometry::is_home_heartland(
+                check.province,
+                check.owner_faction,
+                placement,
+                heartland_max_ring,
+                &genesis_seed,
+            ) {
+                return Err(refusal(SiegeRefusal::Heartland));
+            }
+        }
     } else {
         // A Free City skips step 8 except the Seat and Concord test.
         let c = ProvinceCoord::new(tp as i32, tq as i32);

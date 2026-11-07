@@ -431,6 +431,19 @@ impl Archive {
     /// memory at a time (a season's archive does not fit in memory as
     /// records; the herald's catch-up reads it this way). Returns the
     /// number of records given to `f`; an error of `f` stops the walk.
+    ///
+    /// A segment that does not read back as its manifest entry says (bytes,
+    /// record count, contiguous sequence from `first_seq`) is an error
+    /// naming it: a damaged or rewritten part of the archive must never read
+    /// as a shorter one (the herald's fold and the index would be short
+    /// with no sign of it). Sealing, compaction or checkpoints added later
+    /// keep this: a reader gets every record of its range or an error.
+    ///
+    /// This checks what the archive holds against its own manifest, nothing
+    /// more. Passing it does not make the history complete: transactions the
+    /// archive never received (a first pull, a missing or older cursor, a
+    /// range a node lacks in the middle) leave no damaged segment, so the
+    /// walk succeeds without them.
     pub fn for_each_after(
         &self,
         after: u64,
@@ -441,10 +454,25 @@ impl Archive {
             if s.records == 0 || s.last_seq <= after {
                 continue;
             }
-            let (frames, _) = read_frames(&self.dir.join(&s.name), s.bytes)?;
-            for p in frames {
+            let (frames, good) = read_frames(&self.dir.join(&s.name), s.bytes)?;
+            if good != s.bytes || frames.len() as u64 != s.records {
+                return Err(io_err(format!(
+                    "{}: {good} of {} B and {} of {} records readable: the archive is damaged",
+                    s.name,
+                    s.bytes,
+                    frames.len(),
+                    s.records
+                )));
+            }
+            for (expect, p) in (s.first_seq..).zip(frames) {
                 let v: Value = serde_json::from_slice(&p).map_err(io_err)?;
                 let r = record_from_json(&v).map_err(io_err)?;
+                if r.seq != expect {
+                    return Err(io_err(format!(
+                        "{}: seq {}, expected {expect}: the archive is damaged",
+                        s.name, r.seq
+                    )));
+                }
                 if r.seq > after {
                     f(r)?;
                     n += 1;

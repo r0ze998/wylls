@@ -317,6 +317,12 @@ async fn h_routes_caching_and_headers() {
     let wj = w.json();
     assert_eq!(wj["rMax"], 16);
     assert_eq!(wj["rMaxHard"], 128);
+    // an M1 season: no extension ceiling, the wedge placement; the prize
+    // tally's last ring is stated, never changed
+    assert_eq!(wj["rMaxSeason"], 16);
+    assert_eq!(wj["rMaxCeiling"], 0);
+    assert_eq!(wj["prizeMaxRing"], 17);
+    assert_eq!(wj["placement"], 0);
     assert_eq!(wj["ringsOpened"], 4);
     assert_eq!(wj["provinces"], 4);
     let rings = wj["rings"].as_array().unwrap();
@@ -349,6 +355,10 @@ async fn h_routes_caching_and_headers() {
     let sj = get(a, "/h/season").await.json();
     assert_eq!(sj["ringsOpened"], 4);
     assert_eq!(sj["ringProvinces"], json!([0, 0, 3, 1]));
+    assert_eq!(sj["rMaxCeiling"], 0);
+    assert_eq!(sj["placement"], 0);
+    assert_eq!(sj["rMaxHard"], 128);
+    assert_eq!(sj["genesisSeed"].as_str().map(str::len), Some(64));
     // Unknown paths.
     assert_eq!(get(a, "/h/nothing").await.status, 404);
     let _ = std::fs::remove_dir_all(&st.dir);

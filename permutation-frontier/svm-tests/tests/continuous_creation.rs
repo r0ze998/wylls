@@ -33,7 +33,7 @@ fn continuous_world_is_created_and_accepts_later_join() {
     assert_eq!(u32_at(&created, S::JOIN_CLOSE_BELL), NO_END_BELL);
     assert_eq!(created[SEASON_CQ_OFFSET + cq_layout::CONTINUOUS], 1);
     assert_eq!(
-        &created[SEASON_CQ_OFFSET + cq_layout::RSV_PRE_CONTINUOUS
+        &created[SEASON_CQ_OFFSET + cq_layout::PLACEMENT
             ..SEASON_CQ_OFFSET + cq_layout::CONTINUOUS],
         &[0; 3],
         "the map extension bytes remain reserved"

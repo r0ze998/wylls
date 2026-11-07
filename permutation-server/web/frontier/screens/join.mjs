@@ -11,7 +11,8 @@ import { territoryEnabled } from '../territory.mjs';
 import { html, raw } from '../../util.mjs';
 import { L, Lh, fmtNum, lang } from '../../lang.mjs';
 import { factionName, DOCTRINE_NAMES, HOLDING_STATES, failureText } from '../fi18n.mjs';
-import { freeByWedge, ticketTimes, homeWedge } from '../fland.mjs';
+import { freeByNation, ticketTimes } from '../fland.mjs';
+import { homeRingsOpen, seasonPlace } from '../home.mjs';
 import { dueHtml } from './shell.mjs';
 import { leaderFigure, leaderHex, leaderSvg, DOCTRINE_PITCH } from '../people/leaders.mjs';
 import { placeName } from '../people/identity.mjs';
@@ -46,10 +47,18 @@ function renderWallets(FS) {
     ${walletButtons(FS)}</section>`;
 }
 
-/** The faction cards: name, colour, doctrine, free land of the home wedge (an upper bound from the overviews). */
+/**
+ * The faction cards: name, colour, doctrine, free land of the nation's home region (an upper bound from the
+ * overviews, under the season's first-home placement: fland.mjs freeByNation). `free` is null when the placement
+ * cannot be read (the dispersed placement without its seed): the count is unavailable, and the confirm line says so
+ * rather than a number of the wedge. The count stops at the rings a first village may be placed in (home.mjs
+ * homeRingsOpen: the open rings, no further than the heartland on a v2 Season), so land a grown map opened past the
+ * heartland is not counted as a place for a village; with no season record yet the overviews alone bound it.
+ */
 export function factionCards(FS) {
-  const free = freeByWedge(FS.overviews ?? new Map());
-  return FACTIONS.map(f => ({ faction: f, name: factionName(f), doctrine: DOCTRINE_NAMES[f], free: free[homeWedge(f)], chosen: FS.joinDraft?.faction === f }));
+  const open = FS.record?.rings?.length;
+  const free = freeByNation(FS.overviews ?? new Map(), seasonPlace(FS.season), { ringsOpen: Number.isInteger(open) ? homeRingsOpen(FS.season, open) : Infinity });
+  return FACTIONS.map(f => ({ faction: f, name: factionName(f), doctrine: DOCTRINE_NAMES[f], free: free ? free[f] : null, chosen: FS.joinDraft?.faction === f }));
 }
 
 /**
@@ -94,7 +103,7 @@ export function renderNations(FS) {
         : html`<div class="nc-wallet"><span class="nc-wallet-k">${L`始めるには、先にウォレットをつなぎます。`}</span>${walletButtons(FS)}</div>`}
     </div>
     ${instant && FS.homeChoice?.error ? html`<p class="notice error" role="alert">${FS.homeChoice.error.text ?? failureText(FS.homeChoice.error)}</p>` : ''}
-    <p class="nc-note">${territoryEnabled(FS) ? L`国を選ぶだけで始められます。この開発版の進行は、サーバーを再起動すると最初からになります。` : FS.wallet ? L`ウォレットが2回、確認を求めます。ゲーム内の鍵を作るための署名と、参加のための署名です。` : L`ウォレットを使うのは、参加の署名のときだけです。そのあとの操作はこの端末のゲーム内の鍵が署名し、手数料はゲーム側が立て替えます（テスト用の SOL で、価値はありません）。`}${pick ? html` ${L`この国の土地には、村を置ける場所があと約 ${fmtNum(pick.free)} あります。`}` : ''}</p>
+    <p class="nc-note">${territoryEnabled(FS) ? L`国を選ぶだけで始められます。この開発版の進行は、サーバーを再起動すると最初からになります。` : FS.wallet ? L`ウォレットが2回、確認を求めます。ゲーム内の鍵を作るための署名と、参加のための署名です。` : L`ウォレットを使うのは、参加の署名のときだけです。そのあとの操作はこの端末のゲーム内の鍵が署名し、手数料はゲーム側が立て替えます（テスト用の SOL で、価値はありません）。`}${pick ? html` ${pick.free === null ? L`この国の土地に村を置ける場所の数は、いまは分かりません。` : L`この国の土地には、村を置ける場所があと約 ${fmtNum(pick.free)} あります。`}` : ''}</p>
     ${FS.prize && !FS.citizen ? renderJoinTerms(FS) : ''}
   </div>`;
   return html`<section class="nations" aria-labelledby="join-faction">

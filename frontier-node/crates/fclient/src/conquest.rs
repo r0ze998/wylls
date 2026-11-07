@@ -247,6 +247,9 @@ pub enum CqEvent {
         spawns: u8,
         digest: [u8; 32],
     },
+    /// ExtendFrontier (map growth, kind 104): the season's outermost ring
+    /// raised from `from` to `d` (at most `ceiling`).
+    FrontierExtended { d: u16, from: u16, ceiling: u16 },
     /// A raid RaidDomestic opened (RaidCaravan or DefaultRaid settles it).
     RaidOpened {
         owner_tag: u64,
@@ -395,7 +398,8 @@ impl CqEvent {
             | Retire { .. }
             | NationProposed { .. }
             | NationVoted { .. }
-            | NationDecided { .. } => None,
+            | NationDecided { .. }
+            | FrontierExtended { .. } => None,
             CaravanSent { src, .. } => Some((src.p as i32, src.q as i32)),
             CaravanSettled { dst, .. } => Some((dst.p as i32, dst.q as i32)),
         }
@@ -626,6 +630,11 @@ pub fn parse(body: &[u8]) -> Option<CqLog> {
             territory: u("territory")? as u32,
             spawns: b8("spawns")?,
             digest: f("digest")?.try_into().ok()?,
+        },
+        CqKind::FRONTIER_EXTENDED => CqEvent::FrontierExtended {
+            d: u("d")? as u16,
+            from: u("from")? as u16,
+            ceiling: u("ceiling")? as u16,
         },
         CqKind::RAID_OPENED => CqEvent::RaidOpened {
             owner_tag: u("owner_tag")?,

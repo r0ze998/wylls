@@ -8,7 +8,7 @@
 // decoded accounts; the program decides every action.
 import { TRAIN_ARMS_PER_100, WORKSHOP, s1On } from './fs1.mjs';
 import { rent } from '../sdk/frontier/fees.mjs';
-import { ringOf, wedgeOf, provinceIndex, TILE_OFFSETS, DIRECTIONS } from './fgeo.mjs';
+import { ringOf, wedgeOf, homeNation, provinceIndex, TILE_OFFSETS, DIRECTIONS } from './fgeo.mjs';
 import { ACCOUNTS } from './abi.mjs';
 import { hostParts } from './faddr.mjs';
 import { bellStart, bellEnd } from './clock.mjs';
@@ -134,13 +134,40 @@ export function freeByWedge(overviews) {
   return out;
 }
 
+/**
+ * Free sites per nation from the ring overviews, under the season's first-home placement (home.mjs seasonPlace;
+ * fgeo homeNation, the rule the home planner reads): what the nation choice shows a player. Without a placement, or
+ * under placement 0, the same six numbers as `freeByWedge` (the wedge is the nation's land). Under the dispersed
+ * placement a province counts for the nation whose first homes it takes, so a nation's number is its scattered
+ * provinces', not its wedge's. A placement the page cannot read (placement 1 without its 32-byte seed, or one the
+ * page does not know) gives null: the count is unavailable, never zero and never the wedge's. The same upper bound
+ * as `freeByWedge`; `freeByWedge` itself stays the program's per-wedge accounting (the §5.9 overflow rule).
+ * `ringsOpen`: the rings a first village may be placed in (home.mjs homeRingsOpen: the open rings, no further than
+ * the heartland on a v2 Season); rings from it on are left out of the count, under either rule. Unbounded by default.
+ */
+export function freeByNation(overviews, place = undefined, { ringsOpen = Infinity } = {}) {
+  const within = ov => ov?.provinces && ov.ring >= FIRST_TICKET_RING && ov.ring < ringsOpen;
+  if (place == null || Number(place.placement) === 0) return freeByWedge(new Map([...overviews].filter(([, ov]) => within(ov))));
+  if (Number(place.placement) !== 1 || !place.genesisSeed || typeof place.genesisSeed === 'string' || place.genesisSeed.length !== 32) return null;
+  const out = [0, 0, 0, 0, 0, 0];
+  for (const ov of overviews.values()) {
+    if (!within(ov)) continue;
+    for (const pr of ov.provinces) {
+      const f = homeNation(pr.p, pr.q, place);
+      if (f === null) continue;
+      out[f] += pr.sites.filter((s, i) => (s === 0 || s === 3) && pr.owners[i] === 7).length;
+    }
+  }
+  return out;
+}
+
 /** Provinces of the home wedge worth opening in the site picker (open rings ≥ 2, some free site), nearest ring first. */
-export function candidateProvinces(overviews, faction) {
+export function candidateProvinces(overviews, faction, place = undefined) {
   const w = homeWedge(faction), out = [];
   for (const ov of overviews.values()) {
     if (!ov?.provinces || ov.ring < FIRST_TICKET_RING) continue;
     for (const pr of ov.provinces) {
-      if (wedgeOf(pr.p, pr.q) !== w) continue;
+      if ((place ? homeNation(pr.p, pr.q, place) : wedgeOf(pr.p, pr.q)) !== w) continue;
       const free = pr.sites.filter((s, i) => (s === 0 || s === 3) && pr.owners[i] === 7).length;
       if (free > 0) out.push({ p: pr.p, q: pr.q, ring: ringOf(pr.p, pr.q), free });
     }

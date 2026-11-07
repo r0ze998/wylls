@@ -4,6 +4,7 @@
 //! ```text
 //! frontier-herald --data DIR --program B58 --season ID --rpc http://127.0.0.1:41010
 //!     [--listen 127.0.0.1:41040] [--source localnet|rpc] [--cluster localnet]
+//!     [--origin SIG] [--witness URL]   (rpc source: history coverage checks)
 //!     [--web DIR] [--relay 127.0.0.1:41033] [--test-key | --drand-info FILE]
 //!     [--checkpoint-slots 150] [--poll-ms 200] [--quotas JSON]
 //! frontier-herald --fixture conquest --data DIR --listen 127.0.0.1:PORT [--web DIR]
@@ -191,7 +192,19 @@ async fn main_inner() -> Result<(), String> {
             runner::run(ing, feed, Some(clock), poll, stop).await
         }
         "rpc" => {
-            let src = Enriched::new(RpcPoll::new(rpc.clone(), program), rpc.clone(), program);
+            // G1/G3 checks (findex `RpcPoll::coverage`): without them the
+            // archived range is reported unverifiable, not complete.
+            let mut rpc_poll = RpcPoll::new(rpc.clone(), program);
+            if let Some(o) = a.get("origin") {
+                rpc_poll = rpc_poll.with_origin(
+                    o.parse()
+                        .map_err(|_| format!("--origin {o}: a signature"))?,
+                );
+            }
+            if let Some(w) = a.get("witness") {
+                rpc_poll = rpc_poll.with_witness(w.clone());
+            }
+            let src = Enriched::new(rpc_poll, rpc.clone(), program);
             runner::run(ing, src, Some(RpcPort::new(rpc, program)), poll, stop).await
         }
         s => Err(format!("--source {s}: localnet or rpc")),

@@ -157,11 +157,11 @@ import * as pins from './hud/pins.mjs';
 import { battleScene, startBattle, battleLive, BATTLE_SPEEDS, PHASE } from './people/battle.mjs';
 import { decode as decodeAccount } from './fcodec.mjs';
 import { fromBase64 } from '../sdk/bytes.mjs';
-import { tileHex, ringProvinces, wedgeOf } from './fgeo.mjs';
+import { tileHex, ringProvinces, homeNation } from './fgeo.mjs';
 import { project, RADIUS } from '../map.mjs';
 import { identityOf, displayName, withProfile, tagKey } from './people/identity.mjs';
 import { lifeAt, lordLine } from './people/life.mjs';
-import { instantHomeEnabled, homeSites, sameHome } from './home.mjs';
+import { instantHomeEnabled, homeSites, homeRingsOpen, seasonPlace, sameHome } from './home.mjs';
 
 const $ = id => globalThis.document?.getElementById(id);
 const setText = (id, text) => { const el = $(id); if (el && el.textContent !== text) el.textContent = text; };
@@ -1713,10 +1713,11 @@ async function composeTo(row, to) {
     if (!pm.ownArrivalAt(FS, to, b, row.id)) { c.protoShift = { from: c.arriveBell, to: b }; c.arriveBell = b; invalidate('panel', 'map'); }
   }
 }
-/** The province the guide's march goes to: the other province of the viewer's own wedge in ring 2 (the one whose land record is on the page, when one is), or null. */
+/** The province the guide's march goes to: the other province of the viewer's own nation in ring 2 (fgeo homeNation under the season's placement; the one whose land record is on the page, when one is), or null. */
 function marchProvince(row) {
   if (!Number.isInteger(FS.citizen?.faction)) return null;
-  const near = ringProvinces(2).filter(pq => wedgeOf(pq.p, pq.q) === FS.citizen.faction && !(pq.p === row.p && pq.q === row.q));
+  const place = seasonPlace(FS.season);
+  const near = ringProvinces(2).filter(pq => homeNation(pq.p, pq.q, place) === FS.citizen.faction && !(pq.p === row.p && pq.q === row.q));
   return near.find(pq => FS.proto?.lands?.has(`${pq.p},${pq.q}`)) ?? near[0] ?? null;
 }
 /**
@@ -3569,14 +3570,21 @@ export async function boot() {
         return { overviews: FS.overviews, ringsOpen: FS.record?.rings?.length ?? 1, own, selected: FS.selected, terrainOf,
           // where the season's map ends (map/world.mjs: its border is drawn once it is near the open land)
           rMax: FS.world?.rMax ?? null,
+          rMaxCeiling: FS.world?.rMaxCeiling ?? null,
+          // the rings a first village may be placed in (home.mjs homeRingsOpen: the open rings, no further than the
+          // heartland): the wait view's site marks, 「村を置ける場所」, stop there (map/waitview.mjs wedgeSites)
+          homeRings: homeRingsOpen(FS.season, FS.record?.rings?.length ?? 1),
           // what this viewer has surveyed (map/survey.mjs): the one rule for the map, the minimap, tips, the inspector and search
           survey: surveyNow(),
           // art mode: the decoded Province (holdings' tiers, hosts on tiles, camp), loaded on demand
           viewerFaction: FS.citizen?.faction ?? null,
           // who is looking, for the opening view (map/opening.mjs)
           open: openHint(FS, { ready: viewerKnown, title: titleUp(), frame: stageFrame() }),
-          // the nation that is looked at in the nation choice: its home wedge is lit on the chart (map/chart.mjs paintWedge)
+          // the nation that is looked at in the nation choice: its home region is lit on the chart (map/chart.mjs paintWedge)
           focusNation: stageFrame()?.nation ?? null,
+          // the season's first-home placement (home.mjs seasonPlace: the rule the home planner reads): the map lights,
+          // frames and marks a nation's home region from it (map/homeland.mjs); without a readable one it shows none
+          place: seasonPlace(FS.season),
           demoRoads: ART_ROADS,
           engineStage: ART_ENGINE,
           demoSpecials: ART_RELICS,
@@ -3655,7 +3663,8 @@ export async function boot() {
         // The inspector reads the province envelope (loaded once, on demand).
         const chooseHome = () => {
           if (FS.selected !== hit || !instantHomeEnabled(FS.season) || FS.holdings?.length || FS.homeChoice?.busy || !Number.isInteger(hit.idx)) return;
-          const candidate = homeSites(FS.provinces.get(`${hit.p},${hit.q}`)?.province, { faction: FS.citizen?.faction ?? null, nowBell: FS.nowBell, ringsOpen: FS.record?.rings?.length ?? 0 }).find(s => s.tile === hit.idx);
+          // (a tile past the heartland is no home candidate, however open its ring: PlaceHome refuses it, home.mjs homeRingsOpen)
+          const candidate = homeSites(FS.provinces.get(`${hit.p},${hit.q}`)?.province, { faction: FS.citizen?.faction ?? null, nowBell: FS.nowBell, ringsOpen: homeRingsOpen(FS.season, FS.record?.rings?.length ?? 0), place: seasonPlace(FS.season) }).find(s => s.tile === hit.idx);
           if (!candidate) return;
           const choice = FS.homeChoice;
           if (!choice) return;

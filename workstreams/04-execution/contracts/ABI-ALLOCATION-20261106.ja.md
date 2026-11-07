@@ -158,3 +158,12 @@ prize の program（`PrizeError`、0x100 から）：基準は 0x100–0x110 と
 | nft-experimental の S1 build のプログラムの版 | `0x8000 \| PROGRAM_VERSION_S1`（= 0x8004、⑳ の `permutation-frontier` の値のまま）。検証器は、この版を「S1 の規則＋住民の命令 0xE0–0xE2」として扱う（`verify::checks::v0_coverage::PROGRAM_VERSION_RESIDENT_S1`） |
 | 住民の命令 0xE0–0xE2 | rev 3 のまま（0xE3–0xE7 は予備）。この版の Season の外で成功すれば、検証器は FAIL |
 | 記録 kind 130 | ⑪ の 0008 で CONDITIONAL（同じ取引の JoinResident と一致するときだけ判定）。⑳ の 45d95e31 と ④ の V9 で、偽造・欠落・不一致・重複を拒否 |
+
+## rev 6（2026-11-06 夜、⑳ b2f7becc と ⑪ 0010 を統合した後）
+
+| 項目 | 割当（仮、統合で確定） |
+|---|---|
+| 検証器の V28 | ⑳ の ResidentAct の判定（`checks/v28_resident_acts.rs`）。V27 の後、s1 の区画で動く。番号の重なりはない（使用中は V0–V17、V19、V20、V22–V25、V27。V26 は ⑩ に割り当て済み） |
+| 判定の code | `ResidentActMismatch`、`ResidentOldAuthority`、`ResidentActUnproven`、`ResidentInnerUnmodelled`（⑳ が codes.rs に追加） |
+| 住民の所有者の定義 | `frontier_abi::resident_auth::holder` と `Holder::authority` の一つだけ（⑳）。④ の通しの場面（chain_nft）も、これで読む |
+| `ResidentFeed` の Input の欄（U47 の残り） | **未決**。resident program の取引を同じ feed seq で並べる feed、または archiver が要る。決まるまで、所有者の判定は UNVERIFIABLE |

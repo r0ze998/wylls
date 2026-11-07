@@ -76,7 +76,11 @@ pub fn record_json(body: &[u8]) -> Option<Value> {
     if body.get(1).is_some_and(|k| (80..=89).contains(k)) {
         return crate::conquest::record_json(body);
     }
-    let r = plog::decode(body).ok()?;
+    // Other v2 kinds the M1/S1 decoder does not know (map growth's
+    // FRONTIER_EXTENDED, 104): the v2 decoder too.
+    let Ok(r) = plog::decode(body) else {
+        return crate::conquest::record_json(body);
+    };
     let spec = r.kind.spec();
     let links: Vec<Value> = r
         .links
@@ -187,6 +191,22 @@ pub fn bell_region_of_account(kind: AccountKind, d: &[u8]) -> Option<(u32, u8)> 
 mod tests {
     use super::*;
     use frontier_abi::log::{write_body, write_tail};
+
+    /// The events feed decodes map growth's record (kind 104, outside the
+    /// M1/S1 decoder and MC's 80–89): the body a local world logged for
+    /// ExtendFrontier(6) from r_max 5 under ceiling 8.
+    #[test]
+    fn decodes_a_frontier_extension() {
+        use base64::Engine;
+        let body = base64::engine::general_purpose::STANDARD
+            .decode("AWgDAAAABgAFAAgAAQITAAAAAAAAAIY5I3lZl64YQf+5mEzsYTDQTSoEcE/CD/007LR2fBEr")
+            .unwrap();
+        let v = record_json(&body).expect("decoded");
+        assert_eq!(v["name"], "FRONTIER_EXTENDED");
+        assert_eq!(v["key"]["d"], 6);
+        assert_eq!(v["payload"]["from"], 5);
+        assert_eq!(v["payload"]["ceiling"], 8);
+    }
 
     #[test]
     fn decodes_records_and_names_their_province() {

@@ -359,10 +359,12 @@ fn tags_outside_abi_v2_are_told_apart() {
             assert_eq!((r.0, r.1), (Fail, "UnknownInstruction"));
             assert!(r.2.contains("workstream 2 "), "{}", r.2);
         }
-        assert_eq!(
-            j(tag, &[tag], unknown),
-            Some((Unverifiable, "UnverifiedInstruction"))
-        );
+        for pv in [unknown, None] {
+            assert_eq!(
+                j(tag, &[tag], pv),
+                Some((Unverifiable, "UnverifiedInstruction"))
+            );
+        }
     }
     // Unallocated tags fail under every version.
     for tag in [0xD6, 0xEE, 0xFE] {

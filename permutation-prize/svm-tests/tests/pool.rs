@@ -1156,6 +1156,30 @@ fn finalize_needs_the_end() {
     finalize(&mut w).unwrap();
 }
 
+/// Map growth: a season whose `r_max_ceiling` lets ExtendFrontier grow the
+/// map past ring 17 gets no pool (`CeilingPastTally`); a ceiling of 17 does.
+#[test]
+fn no_pool_for_a_season_whose_ceiling_passes_ring_17() {
+    let mut w = world();
+    let op = w.operator.insecure_clone();
+    let at = frontier_abi::v2::presets::SEASON_CQ_OFFSET
+        + frontier_abi::v2::presets::cq_layout::R_MAX_CEILING;
+    let with_ceiling = |w: &mut World, ceiling: u16| {
+        set_season_with(w, S::STATUS_RUNNING, 16);
+        let k = w.season.to_bytes();
+        let mut d = w.svm.get_account(&w.season).unwrap().data;
+        d[at..at + 2].copy_from_slice(&ceiling.to_le_bytes());
+        game_account(w, k, d);
+    };
+    for ceiling in [18u16, 128] {
+        with_ceiling(&mut w, ceiling);
+        let ix = init_ix(&w, &op.pubkey(), FEE, 2_000, 0);
+        fails(send(&mut w.svm, &[ix], &[&op]), E::CeilingPastTally);
+    }
+    with_ceiling(&mut w, 17);
+    init_with(&mut w, 0);
+}
+
 /// The tally bitmap covers rings 0–17: a season whose map may grow past it
 /// gets no pool.
 #[test]

@@ -33,6 +33,10 @@ use std::path::PathBuf;
 
 use solana_address::Address;
 
+/// The default ExtendFrontier cap of the keeper: `permutation_prize::MAX_RING`
+/// (17), restated here: the keeper does not link the prize program.
+pub const EXTEND_MAX_RING_DEFAULT: u16 = 17;
+
 /// Duties (§8.2 `roles`). W2-F runs `beacon` (genesis seed, anchors, seed
 /// caches, beacon logs) and `archive`; W3-C runs `rings` (every ring, its
 /// seed and provinces), `fold`, `tickets`, `explore`, `dormancy` (releases
@@ -256,6 +260,17 @@ pub struct KeeperConfig {
     /// fast-forwarded (FastForward) when something wakes it and at the
     /// season's end. Off (every Province every turn, as before) by default.
     pub rest: bool,
+    /// Map growth, a local candidate (off by default): the `rings` duty
+    /// also sends ExtendFrontier when the season has an `r_max_ceiling`
+    /// and the program would accept it, after the same waits as a
+    /// crowding ring ([`crate::rings::extend_due`]). Never past
+    /// [`KeeperConfig::extend_max_ring`].
+    pub extend: bool,
+    /// The outermost ring this keeper extends to (default 17: the prize
+    /// program's `MAX_RING`, its tally covers rings 0–17; the keeper cannot
+    /// see whether the season has a prize pool, so it keeps the cap unless
+    /// told otherwise). At most 128 (`R_MAX_HARD`).
+    pub extend_max_ring: u16,
 }
 
 impl KeeperConfig {
@@ -302,6 +317,8 @@ impl KeeperConfig {
             race_jitter_slots: 0,
             backup_delay_slots: 0,
             rest: false,
+            extend: false,
+            extend_max_ring: EXTEND_MAX_RING_DEFAULT,
         }
     }
 
@@ -421,6 +438,16 @@ impl KeeperConfig {
         if let Some(v) = take("rest") {
             c.rest = matches!(v, Value::Bool(true));
         }
+        if let Some(v) = take("extend") {
+            c.extend = matches!(v, Value::Bool(true));
+        }
+        if let Some(v) = take("extend_max_ring") {
+            let r = int(v, "extend_max_ring")?;
+            if r > u64::from(permutation_rules::frontier::geometry::R_MAX_HARD) {
+                return Err("`extend_max_ring` must be at most 128".into());
+            }
+            c.extend_max_ring = r as u16;
+        }
         if let Some(v) = take("api") {
             let a: SocketAddr = s(v, "api")?
                 .parse()
@@ -506,6 +533,14 @@ mod tests {
         assert!(!c.rest && !KeeperConfig::new(p, 1, b).rest);
         let rest = KeeperConfig::from_toml(&format!("{text}\nrest = true\n")).unwrap();
         assert!(rest.rest);
+        // map growth: ExtendFrontier only when asked, capped at ring 17
+        assert!(!c.extend && !KeeperConfig::new(p, 1, b).extend);
+        assert_eq!(c.extend_max_ring, 17);
+        let ext =
+            KeeperConfig::from_toml(&format!("{text}\nextend = true\nextend_max_ring = 24\n"))
+                .unwrap();
+        assert!(ext.extend && ext.extend_max_ring == 24);
+        assert!(KeeperConfig::from_toml(&format!("{text}\nextend_max_ring = 129\n")).is_err());
     }
 
     #[test]

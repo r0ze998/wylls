@@ -1198,6 +1198,22 @@
       "loaded_limit": 1671168,
       "loaded_limit_s1": 1998848,
       "cu_limit_s1": 600000
+    },
+    {
+      "name": "ExtendFrontier",
+      "tag": 193,
+      "cu_budget": 30000,
+      "cu_per_unit": 0,
+      "cu_limit": 30000,
+      "measured": 0,
+      "tx_contract": 600,
+      "tx_ceiling": 600,
+      "tx_worst_estimate": 299,
+      "accounts": [3, 3],
+      "loaded_need_placeholder": 1477649,
+      "loaded_limit": 1507328,
+      "loaded_limit_s1": 1835008,
+      "cu_limit_s1": 30000
     }
   ]
 }

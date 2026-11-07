@@ -143,6 +143,7 @@ cq_kinds! {
     RAID_OPENED = 101; key ["owner_tag": 8, "seq": 4]; payload ["p": 4, "q": 4, "bell": 4, "raider_host": 8, "raider_tag": 8, "domestic": 1];
     FORT_GARRISONED = 102; key ["p": 4, "q": 4, "tile": 1]; payload ["owner_tag": 8, "troops": 4, "pend_bell": 4, "pend": 2, "holding_key": 8];
     REST = 103; key ["p": 4, "q": 4, "from": 4]; payload ["to": 4, "holder": 1, "territory": 4, "spawns": 1, "digest": 32];
+    FRONTIER_EXTENDED = 104; key ["d": 2]; payload ["from": 2, "ceiling": 2];
     // ⑳ (provisional; workstream 4's allocation 130–134, 131–134 spare):
     // JoinResident created an NFT-resident Citizen. Key: the resident ID
     // `sha256("PSF-RES" ‖ asset)[0..15]`; no links (64 B with the tail).
@@ -818,6 +819,10 @@ pub fn chains_of(kind: AnyKind, key: &[u8], payload: &[u8]) -> Option<Chains> {
             let (p, q) = pq()?;
             c.push(E::Province, Base(EntityRef::Province { p, q }), false);
         }
+        CqKind::FRONTIER_EXTENDED => {
+            // ExtendFrontier: the Frontier alone.
+            c.push(E::Frontier, Base(EntityRef::Frontier), false);
+        }
         // ⑳: no chain links (workstream 4's allocation: 64 B, no links).
         // The NFT Citizen's chain starts at seq 0 with this record; its
         // first chained record is the Citizen's first action.
@@ -1079,10 +1084,10 @@ mod tests {
                 k.body_len()
             );
         }
-        assert_eq!(CQ_SPECS.len(), 24, "MC's 9, S1's 14 and ⑳'s 1");
-        // ⑳: only 130 of workstream 4's 130–134; nothing between 104 and
+        assert_eq!(CQ_SPECS.len(), 25, "MC's 9, S1's 15 and ⑳'s 1");
+        // ⑳: only 130 of workstream 4's 130–134; nothing between 105 and
         // 134 is a kind here (the other teams' ranges are not yet merged).
-        for v in (104u8..=129).chain(131..=134) {
+        for v in (105u8..=129).chain(131..=134) {
             assert!(AnyKind::from_u8(v).is_none(), "{v} is not a kind");
         }
         let rj = AnyKind::Cq(CqKind::RESIDENT_JOINED);

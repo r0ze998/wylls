@@ -27,7 +27,8 @@
 //!   FAIL names the band: a known program refuses it. Under a program
 //!   version this verifier does not know, an allocated tag is
 //!   `UnverifiedInstruction` instead (that program may run it, e.g. ②'s
-//!   Grant), never a PASS and not a forgery claim.
+//!   Grant), never a PASS and not a forgery claim; likewise when the
+//!   archive does not show the program version at all.
 //!
 //! Failed transactions changed nothing and are not judged here.
 
@@ -109,19 +110,25 @@ pub fn judge_outside_v2(
             format!("tag 0x{tag:02x}, not in ABI v2, succeeded"),
         ));
     };
+    // Only a program version this verifier knows is evidence that the tag
+    // was refused. Without CreateSeason in the archive (`None`: a history
+    // that starts later) nothing says which program ran, so an allocated
+    // tag is not a forgery claim (⑪ r9, with ⑲'s history rule).
     match pv {
-        Some(v) if !known_version(v) => Some((
+        Some(v) if known_version(v) => Some((
+            Fail,
+            UNKNOWN_INSTRUCTION,
+            format!("tag 0x{tag:02x} is allocated to {band}, and program version {v} does not run it, yet it succeeded"),
+        )),
+        Some(v) => Some((
             Unverifiable,
             UNVERIFIED_INSTRUCTION,
             format!("tag 0x{tag:02x} is allocated to {band}; program version {v} may run it, and no check of this verifier models it"),
         )),
-        _ => Some((
-            Fail,
-            UNKNOWN_INSTRUCTION,
-            format!(
-                "tag 0x{tag:02x} is allocated to {band}, and program version {} does not run it, yet it succeeded",
-                pv.map_or("(unknown)".into(), |v| v.to_string())
-            ),
+        None => Some((
+            Unverifiable,
+            UNVERIFIED_INSTRUCTION,
+            format!("tag 0x{tag:02x} is allocated to {band}; the archive does not show the Season's program version, which may run it"),
         )),
     }
 }
@@ -131,10 +138,12 @@ pub fn judge_outside_v2(
 /// V1–V13 in every season; the conquest ones by V14–V22 (DeclareSiege,
 /// SettleSiege, SettleCapture, FileOutpost, FoldMarch, RetireHost through
 /// their records); S1's vault, caravan, structure and nation ones by
-/// V23–V25. Not modelled anywhere: **CloseMarch** (0xA7, MarchState rent
-/// after the Season ended) and **FastForward** (0xC0, a resting Province
-/// advanced in closed form: its CAMP/REST records are chained, the
-/// transition itself is not replayed).
+/// V23–V25; map growth's **ExtendFrontier** (0xC1) by V26 (its
+/// preconditions from the states before it, its Frontier post-state and
+/// its FRONTIER_EXTENDED record). Not modelled anywhere: **CloseMarch**
+/// (0xA7, MarchState rent after the Season ended) and **FastForward**
+/// (0xC0, a resting Province advanced in closed form: its CAMP/REST
+/// records are chained, the transition itself is not replayed).
 pub fn supported(ix: Ix, v3: bool, s1: bool) -> bool {
     use Ix::*;
     if ix.to_v1().is_some() {
@@ -144,7 +153,7 @@ pub fn supported(ix: Ix, v3: bool, s1: bool) -> bool {
         DeclareSiege | SettleSiege | SettleCapture | FileOutpost | FoldMarch | RetireHost => v3,
         BuildVault | SendCaravan | SettleCaravan | RaidCaravan | SeizeVault | CloseVault
         | DefaultRaid | BuildStructure | SeizeStructure | CloseStructure | FortGarrison
-        | Propose | Vote | SettleProposal | RaidDomestic => s1,
+        | Propose | Vote | SettleProposal | RaidDomestic | ExtendFrontier => s1,
         _ => false,
     }
 }
@@ -246,5 +255,9 @@ mod tests {
         assert!(!supported(Ix::DeclareSiege, false, false));
         assert!(!supported(Ix::SendCaravan, true, false));
         assert!(supported(Ix::SendCaravan, true, true));
+        // Map growth: ExtendFrontier is V26's, in an S1 season only.
+        assert!(supported(Ix::ExtendFrontier, true, true));
+        assert!(!supported(Ix::ExtendFrontier, true, false));
+        assert!(!supported(Ix::ExtendFrontier, false, false));
     }
 }

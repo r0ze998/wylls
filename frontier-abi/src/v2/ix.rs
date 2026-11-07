@@ -158,6 +158,10 @@ ix_data_v2! {
     /// `resolved_next`, then the region's anchors or archives in bell
     /// order; the rest goes as far as they prove.
     FastForward { to: u32, days: u8 }
+    /// 0xC1 (D, S1, map growth): raise the season's outermost ring to `d`
+    /// (= the effective `r_max` + 1, at most the season's `r_max_ceiling`)
+    /// once every ring is open and some wedge is at `θ` occupancy.
+    ExtendFrontier { d: u16 }
 }
 
 /// SendCaravan's and RaidCaravan's cargo as milli-units (whole units ×
@@ -325,6 +329,7 @@ pub fn fixed_len(ix: Ix) -> Option<usize> {
         Ix::SettleProposal => SettleProposal::LEN,
         Ix::RaidDomestic => RaidDomestic::LEN,
         Ix::FastForward => FastForward::LEN,
+        Ix::ExtendFrontier => ExtendFrontier::LEN,
         Ix::FileOutpost | Ix::CreateSeason => return None,
         other => return crate::ix::fixed_len(other.to_v1()?),
     })
@@ -355,6 +360,7 @@ pub fn wire_of(ix: Ix) -> Option<&'static [(&'static str, usize)]> {
         Ix::SettleProposal => SettleProposal::WIRE,
         Ix::RaidDomestic => RaidDomestic::WIRE,
         Ix::FastForward => FastForward::WIRE,
+        Ix::ExtendFrontier => ExtendFrontier::WIRE,
         Ix::FileOutpost | Ix::CreateSeason => return None,
         other => return crate::ix::wire_of(other.to_v1()?),
     })

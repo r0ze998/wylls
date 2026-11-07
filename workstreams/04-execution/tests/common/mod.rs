@@ -178,8 +178,9 @@ impl H {
     }
 }
 
-/// Every recorded transition is in the table and a terminal run holds no
-/// reservation (checked over a whole store).
+/// Every recorded transition is in the run's table (`allowed_for`: a
+/// cargo-only run has its own) and a terminal run holds no reservation
+/// (checked over a whole store).
 pub fn check_store(store: &Store) {
     for id in store.run_ids().unwrap() {
         let row = store.load(&id).unwrap().unwrap();
@@ -188,7 +189,7 @@ pub fn check_store(store: &Store) {
                 RunState::parse(&from).unwrap(),
                 RunState::parse(&to).unwrap(),
             );
-            assert!(allowed(f, t), "{id}: {from} → {to}");
+            assert!(allowed_for(&row.spec, f, t), "{id}: {from} → {to}");
         }
         if row.state.terminal() {
             assert_eq!(

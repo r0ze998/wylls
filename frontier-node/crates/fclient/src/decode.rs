@@ -309,6 +309,10 @@ impl Season {
 pub struct Frontier {
     pub h: Header,
     pub rings_opened: u16,
+    /// Map growth: the outermost ring ExtendFrontier raised the season to
+    /// (0 = never; the effective `r_max` is the larger of this and the
+    /// Season's).
+    pub r_max_ext: u16,
     pub last_ring_open_bell: u32,
     pub last_ring_open_ts: i64,
     pub fold_bell: u32,
@@ -333,6 +337,7 @@ impl Frontier {
         Ok(Frontier {
             h: header(b),
             rings_opened: b.u16(f::RINGS_OPENED),
+            r_max_ext: b.u16(f::R_MAX_EXT),
             last_ring_open_bell: b.u32(f::LAST_RING_OPEN_BELL),
             last_ring_open_ts: b.i64(f::LAST_RING_OPEN_TS),
             fold_bell: b.u32(f::FOLD_BELL),
@@ -1861,9 +1866,9 @@ mod tests {
         raw[flag] = 2;
         assert_eq!(Season::decode(&raw), Err(DecodeError::InvalidSeasonMode));
         raw[flag] = 1;
-        raw[SEASON_CQ_OFFSET + cq_layout::RSV_PRE_CONTINUOUS] = 1;
+        raw[SEASON_CQ_OFFSET + cq_layout::RSV] = 1;
         assert_eq!(Season::decode(&raw), Err(DecodeError::InvalidSeasonMode));
-        raw[SEASON_CQ_OFFSET + cq_layout::RSV_PRE_CONTINUOUS] = 0;
+        raw[SEASON_CQ_OFFSET + cq_layout::RSV] = 0;
         put(&mut raw, l::season::PROGRAM_VERSION, &1u16.to_le_bytes());
         put(&mut raw, l::h::LAYOUT_VERSION, &1u16.to_le_bytes());
         assert!(!Season::decode(&raw).unwrap().world_continues());
@@ -1889,7 +1894,7 @@ mod tests {
         put(&mut raw, l::season::END_BELL, &1008u32.to_le_bytes());
         assert!(Season::decode(&raw).unwrap().conquest.is_some());
 
-        for at in [cq_layout::RSV_PRE_CONTINUOUS, cq_layout::RSV] {
+        for at in [cq_layout::RSV, cq_layout::RSV] {
             raw[SEASON_CQ_OFFSET + at] = 1;
             assert_eq!(Season::decode(&raw), Err(DecodeError::InvalidSeasonMode));
             raw[SEASON_CQ_OFFSET + at] = 0;
@@ -1910,7 +1915,7 @@ mod tests {
             &crate::abi::PROGRAM_VERSION_S1.to_le_bytes(),
         );
         assert!(Season::decode(&raw).unwrap().conquest.is_some());
-        raw[SEASON_CQ_OFFSET + cq_layout::RSV_PRE_CONTINUOUS] = 1;
+        raw[SEASON_CQ_OFFSET + cq_layout::RSV] = 1;
         assert_eq!(Season::decode(&raw), Err(DecodeError::InvalidSeasonMode));
         put(&mut raw, l::season::PROGRAM_VERSION, &1u16.to_le_bytes());
         put(&mut raw, l::h::LAYOUT_VERSION, &1u16.to_le_bytes());

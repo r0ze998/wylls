@@ -108,6 +108,10 @@ pub struct LandOverrides {
     pub ring_theta_bps: Option<u16>,
     pub r_max: Option<u16>,
     pub continuous: bool,
+    /// Map growth (`--r-max-ceiling`): the conquest block's `r_max_ceiling`.
+    pub r_max_ceiling: Option<u16>,
+    /// `--placement`: the conquest block's `placement`.
+    pub placement: Option<u8>,
 }
 
 impl LandOverrides {
@@ -163,6 +167,12 @@ pub async fn run(
             p.cq.keep_bells = k;
         }
         land_overrides.apply_conquest(&mut p);
+        if let Some(c) = land_overrides.r_max_ceiling {
+            p.cq.r_max_ceiling = c;
+        }
+        if let Some(v) = land_overrides.placement {
+            p.cq.placement = v;
+        }
         if let Some(g) = join_gate {
             p.base.join_gate = g;
         }
@@ -404,6 +414,8 @@ mod short_season_tests {
             ring_theta_bps: None,
             r_max: Some(r),
             continuous: false,
+            r_max_ceiling: None,
+            placement: None,
         };
         for (r, ok) in [(6u16, true), (128, true), (4, false), (129, false)] {
             let mut p = p0;
