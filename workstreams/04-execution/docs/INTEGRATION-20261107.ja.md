@@ -60,3 +60,79 @@
   - findex の `rpc_poll_against_a_live_node`
   - 住民プログラムを載せた、本物の frontier-localnet での実行
   - CI
+
+## 7. 走査した台帳の末尾を返す変更と、⑲ の巻き戻り対策の統合（2026-11-07 追記）
+
+### 7.1 変更の内容
+
+**node（④、e473d9f8）**
+- `frontier_feed(after, limit, program, {"scan": true})` は、次の値を、node の lock の中で、記録と同じ読取りで返します。
+  - `{txs, scannedThrough, ledgerLen, atAfter, runId, ledgerBytes, durable}`
+- `scannedThrough` の意味：`after < seq <= scannedThrough` の台帳の項目は、すべて調べてあります。
+- `{"scan": true}` を付けなければ、これまでどおり配列を返します。
+- program が address として読めないときは、エラーにしました。これまでは、黙って全取引を返していました。
+
+**findex（④ の提案で、⑲ が同意。70029ee9）**
+- 応答のたびに、次のどれかに当たれば拒否します。
+  - runId が違う
+  - 台帳が cursor より短い
+  - cursor の番号にある取引が、記録したものと違う（atAfter）
+  - ledgerBytes が減った
+- cursor には、走査した範囲（`feed_scanned`）を残します。その pull の全応答が範囲を返したときだけです。
+- join は、最も小さい `feed_scanned` で切ります。無ければ、これまでどおり `feed_after` で切ります。
+
+**⑲ の 3c664a61**（bundle の SHA-256 は d5780f3130b77703f44ba2aed68570ac31587925d6aa72095ea25983521a6f69。照合済み）
+- `check_node`：アーカイブを node と照らし合わせます。
+- 確認した記録だけを、台帳の履歴（`confirm_archive`）とします。
+
+### 7.2 統合で合わせた条件（⑲ と合意）
+
+- `ledger_bytes` は一つの欄にしました。意味は「最後に読んだときの node の値」で、すでに見た値より小さい値では上書きしません（restore、`with_ledger_bytes`、scan のどれでも最大を取る）。
+- `check_node` は、アーカイブごとに 1 回、scan の付いた読取りをします。その 1 回の応答で、次のことを確かめます。
+  - 最後の記録の署名（atAfter）
+  - 台帳の長さ
+  - runId と大きさ
+  - 走査した範囲が、まだ台帳の上にあること
+- scan のない node では、⑲ の元の方法で確かめます。
+- node を読めないときは、「確認できなかった」とします。
+- **④ の追加**（⑲ のレビュー待ち）：node と照らし合わせていないアーカイブ（`ARCHIVE_ONLY`）は、`basis` を `unproven` にしました。PASS にはなりません。
+  - 理由：利用者の条件「node で確かめられないアーカイブは完全扱いしない」。
+
+### 7.3 ⑳ の担当で、レビューが済んでいないもの
+
+- `verify/src/resident_feed.rs`：`from_archive` の `through` に `feed_scanned` を使うようにしました（④ の提案）。
+- `verify/tests/resident_ledger.rs`：node と照らし合わせていない 2 本は完全ではない、と確かめるようにしました。照らし合わせた後は、元の期待値のままです。
+- ⑳ の確認を待っています。
+
+### 7.4 実行した試験（同じ統合版 d6030067 で。鍵ペアの生成・導出なし、署名なし。PDA は計算する）
+
+- **localnet**：feed_scan_tests 3
+- **fclient**：lib 94
+- **findex**：lib 10、ledger 14（⑲）、ws04_join_adversarial 7、ws04_feed_scan 9、coverage 14、no_hidden_gap 4、open_items 5、store_failure 5、ingest の鍵を使わない 4 件
+- **verify**：lib 45、history 16、ledger_history 5（⑲）、resident_ledger 3（⑳）、ws04_scan_resident 3、new_bands 7
+- **herald**：ingest_health 3
+- **clippy**（stable、localnet・fclient・findex・verify・herald、all-targets）：警告なし
+
+**④ の試験が確かめていること**（両方のプログラムと、共有の取引を含む）
+
+| 場合 | 結果 |
+|---|---|
+| 正常 | 走査した台帳の末尾まで完全。どちらのプログラムの最後の取引よりも先まで |
+| 読取り中に台帳が伸びる | 取りこぼしがない |
+| 同じ runId で、読取り中に巻き戻る | 拒否 |
+| 同じ runId で、読取りと読取りの間に巻き戻る | 次の読取りで拒否。アーカイブは書き換えない |
+| 台帳が cursor より短い | 拒否 |
+| 片方の履歴が短い | 短い方で切る |
+| scan のない node | これまでどおり、各プログラムの最後の番号で切る |
+| 範囲と大きさが食い違う | 拒否 |
+| **古いアーカイブを読み直さずに使う** | 結合だけでは完全に見える。node と照らし合わせると、そのアーカイブの名前を挙げて拒否する（最新のアーカイブは挙げない）。node を読めなければ「確認できない」。verifier では、アーカイブだけなら unproven、巻き戻った後に照らし合わせると unknown、変わっていない node と照らし合わせて初めて完全 |
+| V28 | 住民プログラムの最後の取引より後の行為も、走査した範囲までは判定する。その先は UNVERIFIABLE |
+
+### 7.5 確かめていないこと
+
+- 本物の frontier-localnet のプロセスでの実行。
+  - node 側は、純関数と stand-in の node でしか確かめていません。台帳に取引を入れるには署名が要るためです。
+  - program が読めないときのエラーも、実行していません。
+- `fsync: false` の node が電源を失った場合（`durable` を記録するだけです）。
+- 鍵を使う試験：findex の ingest の残り 4 件、verify の tests/common を使う試験、LiteSVM、SBF。
+- CI。
