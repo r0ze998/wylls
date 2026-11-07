@@ -1670,6 +1670,169 @@ impl Wide {
         run_tx(&a, &wix::Gather { bell, start, n }.to_bytes())
     }
 
+    /// WideClose(2) of the slot `(dest, bell, faction, i)` to `rent_to`,
+    /// THE anchor of `(bell, region)` listed when `anchor` is set.
+    fn close_slot(
+        &mut self,
+        dest: WideCoord,
+        bell: u32,
+        faction: u8,
+        i: u8,
+        rent_to: AccountInfo<'static>,
+        anchor: Option<AccountInfo<'static>>,
+    ) -> Result<(), Refused> {
+        let season = self.w.season.clone();
+        self.close_slot_under(dest, bell, faction, i, rent_to, anchor, season)
+    }
+
+    /// [`Wide::close_slot`] with the Season position given (the tombstone).
+    #[allow(clippy::too_many_arguments)]
+    fn close_slot_under(
+        &mut self,
+        dest: WideCoord,
+        bell: u32,
+        faction: u8,
+        i: u8,
+        rent_to: AccountInfo<'static>,
+        anchor: Option<AccountInfo<'static>>,
+        season: AccountInfo<'static>,
+    ) -> Result<(), Refused> {
+        let mut a = vec![
+            wallet(ANYONE, true, false, 0),
+            with_writable(&season, false),
+            self.slot(dest, bell, faction, i),
+            unsigned(&rent_to),
+        ];
+        if let Some(an) = anchor {
+            a.push(an);
+        }
+        run_tx(
+            &a,
+            &wix::Close {
+                what: wix::CLOSE_WHAT_SLOT,
+            }
+            .to_bytes(),
+        )
+    }
+
+    /// WideClose(3) of the day record of `(dest, day_of(bell))` to `rent_to`.
+    fn close_day(
+        &mut self,
+        dest: WideCoord,
+        bell: u32,
+        rent_to: AccountInfo<'static>,
+    ) -> Result<(), Refused> {
+        let a = [
+            wallet(ANYONE, true, false, 0),
+            with_writable(&self.w.season, false),
+            with_writable(&self.province(dest), false),
+            self.day(dest, bell),
+            unsigned(&rent_to),
+        ];
+        run_tx(
+            &a,
+            &wix::Close {
+                what: wix::CLOSE_WHAT_DAY,
+            }
+            .to_bytes(),
+        )
+    }
+
+    /// WideClose(4) of the ClashInputs of `(dest, bell)` to `rent_to`.
+    fn close_inputs(
+        &mut self,
+        dest: WideCoord,
+        bell: u32,
+        rent_to: AccountInfo<'static>,
+    ) -> Result<(), Refused> {
+        let a = [
+            wallet(ANYONE, true, false, 0),
+            with_writable(&self.w.season, false),
+            with_writable(&self.province(dest), false),
+            self.inputs(dest, bell),
+            unsigned(&rent_to),
+        ];
+        run_tx(
+            &a,
+            &wix::Close {
+                what: wix::CLOSE_WHAT_INPUTS,
+            }
+            .to_bytes(),
+        )
+    }
+
+    /// WideClose(5) of the transit record `(coord, site, slot)` to
+    /// `rent_to`, the holding at its canonical address listed (present or
+    /// closed).
+    fn close_transit(
+        &mut self,
+        coord: WideCoord,
+        site: u8,
+        slot: u8,
+        rent_to: AccountInfo<'static>,
+    ) -> Result<(), Refused> {
+        let a = [
+            wallet(ANYONE, true, false, 0),
+            with_writable(&self.w.season, false),
+            self.transit(coord, site, slot),
+            unsigned(&rent_to),
+            self.holding(coord, site),
+        ];
+        run_tx(
+            &a,
+            &wix::Close {
+                what: wix::CLOSE_WHAT_TRANSIT,
+            }
+            .to_bytes(),
+        )
+    }
+
+    /// WideClose(6) of the province `coord` into wedge `wedge`'s fund.
+    fn close_province(&mut self, coord: WideCoord, wedge: u8) -> Result<(), Refused> {
+        let season = self.w.season.clone();
+        self.close_province_under(coord, wedge, season)
+    }
+
+    /// [`Wide::close_province`] with the Season position given.
+    fn close_province_under(
+        &mut self,
+        coord: WideCoord,
+        wedge: u8,
+        season: AccountInfo<'static>,
+    ) -> Result<(), Refused> {
+        let a = [
+            wallet(ANYONE, true, false, 0),
+            with_writable(&season, false),
+            self.province(coord),
+            with_writable(&self.w.fund(wedge), true),
+        ];
+        run_tx(
+            &a,
+            &wix::Close {
+                what: wix::CLOSE_WHAT_PROVINCE,
+            }
+            .to_bytes(),
+        )
+    }
+
+    /// [`Wide::close_roster`] with the Season position given (the
+    /// tombstone).
+    fn close_roster_under(
+        &mut self,
+        coord: WideCoord,
+        rent_to: AccountInfo<'static>,
+        season: AccountInfo<'static>,
+    ) -> Result<(), Refused> {
+        let a = [
+            wallet(ANYONE, true, false, 0),
+            with_writable(&season, false),
+            self.roster(coord),
+            unsigned(&rent_to),
+            with_writable(&self.province(coord), false),
+        ];
+        run_tx(&a, &wix::CloseRoster.to_bytes())
+    }
+
     /// WideSettleTransit (0xDC op 5) of `host`'s `slot`, sealed to `dest`.
     #[allow(clippy::too_many_arguments)]
     fn settle_transit(
@@ -3483,22 +3646,11 @@ fn wide_land_host_musters_resolves_dissolves_and_returns_through_the_envelope() 
         "the immutable rent recipient"
     );
     assert!(wide_records().is_empty(), "refusals log nothing");
-    // A live entry while the province has bells left to resolve: every
-    // resolve of them needs the table, so the close waits (no destructive
-    // close under an unresolved dependency).
-    assert_eq!(
-        code(w.close_roster(coord, payer.clone())),
-        Err(E::HostInTransit as u32),
-        "a pending muster and an unresolved season"
-    );
-    // **Fixture**: the province as a fully resolved season leaves it
-    // (`resolved_next = end_bell`; 200,000 resolves are not run here). The
-    // pending muster is then the season's and goes with the table.
-    {
-        let pa = w.province(coord);
-        let mut pd = pa.try_borrow_mut_data().unwrap();
-        put(&mut pd, PV::RESOLVED_NEXT, &200_000u32.to_le_bytes());
-    }
+    // At the deadline the table closes over the pending muster and the
+    // bells of the season the province never resolved, as the deployed
+    // CloseProvince closes its entry table: the hosts' rights expired with
+    // the deadline (the deployed expiry rule); whole to the payer that
+    // created it, nothing credited.
     let payer_before = payer.lamports();
     assert_eq!(code(w.close_roster(coord, payer.clone())), Ok(()));
     assert!(absent(&w.roster(coord)));
@@ -3862,22 +4014,34 @@ fn wide_land_march_stages_settle_a_staged_departure_up_to_the_crypto_gate() {
             .open_transits,
         1
     );
-    // Regression: the season ends before the departure bell resolves. The
-    // origin's roster cannot close over the pending `Spend` (the resolve
-    // of bell 4 and the SettleDeparture after it need the table); the
-    // holding cannot close under the escrow.
+    // Regression: the season ends before the departure bell resolves.
+    // Before the deadline (Ended, `end + 72 h` not reached) no season-end
+    // close runs: not the roster over the pending `Spend`, not the holding
+    // under the escrow, not the transit record; while the Season runs the
+    // transit close is refused before anything is read. (At the deadline
+    // every one of them closes — the deployed expiry rule — which the
+    // season-end test exercises.)
+    assert_eq!(
+        code(w.close_transit(coord, site, 0, payer.clone())),
+        Err(E::WrongStatus as u32),
+        "no transit close while the Season runs"
+    );
     {
         w.set_status(S::STATUS_ENDED);
         let end = GENESIS + 200_000i64 * 600 + crate::proc::map::END_GRACE_SECS;
-        crate::prologue::set_test_clock(end, 8_000);
+        crate::prologue::set_test_clock(end - 1, 8_000);
         assert_eq!(
             code(w.close_roster(coord, payer.clone())),
-            Err(E::HostInTransit as u32),
-            "a departure whose bell is unresolved"
+            Err(E::TooEarly as u32),
+            "a departure whose bell is unresolved: nothing closes before the deadline"
         );
         assert_eq!(
             code(w.close_holding(coord, site, payer.clone())),
-            Err(E::HostInTransit as u32)
+            Err(E::TooEarly as u32)
+        );
+        assert_eq!(
+            code(w.close_transit(coord, site, 0, payer.clone())),
+            Err(E::TooEarly as u32)
         );
         assert!(!absent(&w.roster(coord)) && !absent(&w.holding(coord, site)));
         w.set_status(S::STATUS_RUNNING);
@@ -4182,15 +4346,7 @@ fn wide_land_march_stages_settle_a_staged_departure_up_to_the_crypto_gate() {
         ),
         pre
     );
-    w.set_status(S::STATUS_ENDED);
     let end = GENESIS + 200_000i64 * 600 + crate::proc::map::END_GRACE_SECS;
-    crate::prologue::set_test_clock(end, 9_000);
-    assert_eq!(
-        code(w.close_holding(coord, site, payer.clone())),
-        Err(E::HostInTransit as u32),
-        "the escrow belongs to the settlement"
-    );
-    w.set_status(S::STATUS_RUNNING);
     at_bell(22);
     assert!(wide_records().is_empty() && records().is_empty());
 
@@ -4224,14 +4380,15 @@ fn wide_land_march_stages_settle_a_staged_departure_up_to_the_crypto_gate() {
         read_entry(&w.province_data(dest), i_b).unwrap().state,
         EN::STATE_DEPARTED
     );
-    // A departed entry still depends on its roster: the season-end close
-    // of the table waits for the return.
+    // A departed entry's reference is in the table: before the deadline
+    // the table does not close (at the deadline it does, as the deployed
+    // Province closes its entries; the return below runs while it stands).
     w.set_status(S::STATUS_ENDED);
-    crate::prologue::set_test_clock(end, 9_001);
+    crate::prologue::set_test_clock(end - 1, 9_001);
     assert_eq!(
         code(w.close_roster(dest, payer.clone())),
-        Err(E::HostInTransit as u32),
-        "a departed entry's reference: a return depends on the table"
+        Err(E::TooEarly as u32),
+        "a departed entry's reference: no close before the deadline"
     );
     w.set_status(S::STATUS_RUNNING);
     at_bell(23);
@@ -4315,6 +4472,622 @@ fn wide_land_march_stages_settle_a_staged_departure_up_to_the_crypto_gate() {
         WideKind::RosterClosed
     );
     assert!(records().is_empty());
+}
+
+/// The season-end cleanup of the march records under the deployed closes'
+/// own case rules, over records staged at their canonical addresses
+/// (**fixtures**: the bytes the reveal, the gather, the resolve and the
+/// departure leave). A wide ArrivalSlot closes once settled and claimed or
+/// past its claim grace against THE anchor (case a), not before; a wide
+/// ArrivalDay once the province resolved every bell of its day; a wide
+/// ClashInputs once resolved, every present position settled and the
+/// close grace passed (`InputsOpen` before); each to its immutable rent
+/// recipient, another refused. A transit record left open has no close
+/// while the Season runs; at Ended + 72 h the holding closes to its rent
+/// payer **with the escrow of the unsettled march**, exactly as the
+/// deployed CloseHolding does, and the transit record then closes to its
+/// own rent recipient, the holding gone. No lamport is paid twice.
+#[test]
+fn wide_land_season_end_closes_the_march_records_as_the_deployed_closes_do() {
+    use frontier_abi::world_index::march::{WideTransit, WIDE_TRANSIT_LEN};
+    use frontier_abi::world_index::tiles::TileAddress;
+    let _g = begin();
+    at_bell(1);
+    let mut w = Wide::rim();
+    let (coord, site, a, template) = w.land();
+    let payer = w.w.payer.clone();
+    let payer2 = w.wallet_of(PAYER2);
+    let dest = c(129, -1);
+    assert_eq!(w.open_province(129, -1), Ok(()));
+    w.fixture_rim_home(&a, &template, 0, 1_500 * MILLI);
+    assert_eq!(
+        code(w.file(&a, WALLET_A, coord, site, 2, 0, payer.clone(), None)),
+        Ok(())
+    );
+    assert_eq!(code(w.settle(&a, 0, coord, site, 1, None)), Ok(()));
+    at_bell(3);
+    assert_eq!(code(w.finalize(coord, site)), Ok(()));
+    records();
+    wide_records();
+    let key = ProvinceKey::new(w.world_id(), coord);
+    let dkey = ProvinceKey::new(w.world_id(), dest);
+    // The host mustered for real (the identity allocated at the holding's
+    // first muster, the roster created from the payer, the entry resident
+    // after the next resolve): the state a departure leaves from, and the
+    // one a holding with an open march is in.
+    {
+        let hai = w.holding(coord, site);
+        let mut hd = hai.try_borrow_mut_data().unwrap();
+        put(&mut hd, H::reserve(0), &500u32.to_le_bytes());
+    }
+    let origin_tile = {
+        let pd = w.province_data(coord);
+        let passable = Ro(&pd).u64(PV::PASSABLE_MASK).unwrap();
+        let keep_tile = read_keep(&pd).unwrap().map(|k| k.tile);
+        let camp = Camp::read(&pd).unwrap();
+        let camp_tile = camp.present().then_some(camp.tile);
+        let n_sites = pd[PV::SITE_COUNT] as usize;
+        let sites = pd[PV::SITES..PV::SITES + n_sites].to_vec();
+        (1..61u8)
+            .find(|t| {
+                passable & (1 << t) != 0
+                    && Some(*t) != keep_tile
+                    && Some(*t) != camp_tile
+                    && !sites.contains(t)
+            })
+            .expect("a passable tile")
+    };
+    for b in 1..=2 {
+        assert_eq!(code(w.resolve(coord, b)), Ok(()));
+        assert_eq!(code(w.resolve(dest, b)), Ok(()));
+    }
+    assert_eq!(
+        code(w.muster(&a, WALLET_A, coord, site, 0, 300, origin_tile)),
+        Ok(())
+    );
+    let host = WideHostRef::new(key, site, 1, 0).unwrap();
+    at_bell(4);
+    assert_eq!(code(w.resolve(coord, 3)), Ok(()));
+    assert_eq!(code(w.resolve(dest, 3)), Ok(()));
+    assert_eq!(
+        read_entry(&w.province_data(coord), 0).unwrap().state,
+        EN::STATE_ROSTER
+    );
+    wide_records();
+    let wedge = WideProvince::read(&w.province_data(coord)).unwrap().wedge;
+    let dwedge = WideProvince::read(&w.province_data(dest)).unwrap().wedge;
+    let bell = 20u32;
+    let f = a.faction;
+    let k = wa::wide_clash_inputs::position(f, 0);
+    let tile = {
+        let pd = w.province_data(dest);
+        let passable = Ro(&pd).u64(PV::PASSABLE_MASK).unwrap();
+        (1..61u8)
+            .find(|t| passable & (1 << t) != 0)
+            .expect("a passable tile")
+    };
+    // **Fixtures** at the canonical addresses, the rent recipient a second
+    // wallet so the refunds are visible.
+    let rent_s = crate::init::rent(wa::wide_arrival_slot::SIZE).unwrap();
+    let rent_d = crate::init::rent(wa::wide_arrival_day::SIZE).unwrap();
+    let rent_i = crate::init::rent(wa::wide_clash_inputs::SIZE).unwrap();
+    let rent_t = crate::init::rent(WIDE_TRANSIT_LEN).unwrap();
+    let slot_rec = wa::WideArrivalSlot {
+        season_id: SEASON_ID,
+        dest: dkey,
+        bell,
+        faction: f,
+        i: 0,
+        transit_slot: 0,
+        host,
+        citizen: a.key,
+        unit: 0,
+        stance: 0,
+        tile,
+        retreat_bps: 0,
+        dealt_bps: 10_000,
+        dep_mass: 300_000,
+        flags: 0,
+        beneficiary: PAYER,
+        rent_to: PAYER2,
+        ev_slot: 1_005,
+        ev_price: 0,
+        ev_limit: 0,
+        ev_loaded: 0,
+        claimed: false,
+    };
+    let mut sb = vec![0u8; wa::wide_arrival_slot::SIZE];
+    slot_rec.write(&mut sb).unwrap();
+    let slot_ai = w.slot(dest, bell, f, 0);
+    restore(&slot_ai, rent_s, &sb, Pubkey::new_from_array(PROGRAM));
+    // two more slots of the cohort: index 1 unsettled and unclaimed (closed
+    // under the tombstone below), index 2 settled **and claimed** (the
+    // deployed short-circuit: no anchor is read)
+    let slot1_ai = w.slot(dest, bell, f, 1);
+    {
+        let mut s1 = slot_rec;
+        s1.i = 1;
+        let mut b = vec![0u8; wa::wide_arrival_slot::SIZE];
+        s1.write(&mut b).unwrap();
+        restore(&slot1_ai, rent_s, &b, Pubkey::new_from_array(PROGRAM));
+        let mut s2 = slot_rec;
+        s2.i = 2;
+        s2.flags = wa::wide_arrival_slot::FLAG_SETTLED;
+        s2.claimed = true;
+        let mut b = vec![0u8; wa::wide_arrival_slot::SIZE];
+        s2.write(&mut b).unwrap();
+        let slot2_ai = w.slot(dest, bell, f, 2);
+        restore(&slot2_ai, rent_s, &b, Pubkey::new_from_array(PROGRAM));
+    }
+    let mut day_rec = wa::WideArrivalDay::new(SEASON_ID, dkey, 0, PAYER2);
+    assert!(day_rec.set(bell));
+    let mut db = vec![0u8; wa::wide_arrival_day::SIZE];
+    day_rec.write(&mut db).unwrap();
+    let day_ai = w.day(dest, bell);
+    restore(&day_ai, rent_d, &db, Pubkey::new_from_array(PROGRAM));
+    let mut ih = wa::WideClashInputsHdr::new(SEASON_ID, dkey, bell, PAYER2);
+    ih.flags = wa::wide_clash_inputs::FLAG_RESOLVED;
+    ih.n_present = 1;
+    ih.arrivals_mask = wa::wide_clash_inputs::ALL_GATHERED;
+    ih.resolver = PAYER;
+    let mut cb = vec![0u8; wa::wide_clash_inputs::SIZE];
+    ih.write(&mut cb).unwrap();
+    wa::WideArrival {
+        host,
+        citizen: a.key,
+        dep_mass: 300_000,
+        troops: 300_000,
+        stamina: 61,
+        retreat_bps: 0,
+        dealt_bps: 10_000,
+        faction: f,
+        unit: 0,
+        tile,
+        stance: 0,
+        present: true,
+        fate: wa::wide_arrival::FATE_STAYS,
+        troops_after: 300_000,
+    }
+    .write_at(&mut cb, k)
+    .unwrap();
+    let inputs_ai = w.inputs(dest, bell);
+    restore(&inputs_ai, rent_i, &cb, Pubkey::new_from_array(PROGRAM));
+    let tip = w.min_tip();
+    let transit = WideTransit::depart(
+        HOST_IDENTITY_FULL_REF_V1,
+        host,
+        0,
+        f,
+        TileAddress::new(key, origin_tile).unwrap(),
+        4,
+        bell,
+        GENESIS + 2_400,
+        300_000,
+        crate::proc::host::DEPART_STAMINA,
+        10_000,
+        [1; 32],
+        tip,
+        crate::layout::transit::FLAG_FEE_ESCROWED | crate::layout::transit::FLAG_BOND_ESCROWED,
+        PAYER2,
+    )
+    .unwrap();
+    let transit_ai = w.transit(coord, site, 0);
+    restore(
+        &transit_ai,
+        rent_t,
+        &transit.to_bytes(),
+        Pubkey::new_from_array(PROGRAM),
+    );
+    {
+        // the entry's pending `Spend` of the departure (bell 4), as
+        // WideDepart writes it after the gate
+        let pa = w.province(coord);
+        let mut pd = pa.try_borrow_mut_data().unwrap();
+        let mut e = read_entry(&pd, 0).unwrap();
+        let mut kh = e.to_host().unwrap();
+        kh.depart(4, crate::proc::host::DEPART_STAMINA, 4).unwrap();
+        e.set_host(&kh);
+        write_entry(&mut pd, 0, &e).unwrap();
+        assert!(matches!(e.op, EntryOp::Spend { .. }));
+    }
+    {
+        // the holding under that march: the escrow and the open count
+        let hai = w.holding(coord, site);
+        **hai.try_borrow_mut_lamports().unwrap() += tip;
+        let mut hd = hai.try_borrow_mut_data().unwrap();
+        put(&mut hd, H::ESCROW, &tip.to_le_bytes());
+        hd[wh::wide_holding::OPEN_TRANSITS] = 1;
+    }
+    assert_eq!(
+        WideHolding::read(&w.holding_data(coord, site))
+            .unwrap()
+            .open_transits,
+        1
+    );
+    records();
+    wide_records();
+
+    // --- While the Season runs, the closes' own rules (the deployed
+    // cases) apply; nothing closes before its case.
+    at_bell(30);
+    let p2 = payer2.lamports();
+    assert_eq!(
+        code(w.close_slot(dest, bell, f, 0, payer.clone(), None)),
+        Err(E::BadAddress as u32),
+        "the immutable rent recipient"
+    );
+    assert_eq!(
+        code(w.close_slot(dest, bell, f, 0, payer2.clone(), None)),
+        Err(E::TooEarly as u32),
+        "not settled"
+    );
+    assert_eq!(
+        code(w.close_day(dest, bell, payer2.clone())),
+        Err(E::TooEarly as u32),
+        "the day's bells are not resolved"
+    );
+    assert_eq!(
+        code(w.close_inputs(dest, bell, payer2.clone())),
+        Err(E::InputsOpen as u32),
+        "a present position unsettled"
+    );
+    assert_eq!(
+        code(w.close_transit(coord, site, 0, payer2.clone())),
+        Err(E::WrongStatus as u32),
+        "a transit record closes at season end only"
+    );
+    assert_eq!(
+        code(w.close_province(coord, wedge)),
+        Err(E::WrongStatus as u32),
+        "a province closes at season end only"
+    );
+    assert_eq!(payer2.lamports(), p2);
+    // The slot: settled, unclaimed, no anchor listed → not yet; THE anchor
+    // listed with its claim grace passed → closes.
+    {
+        let mut sd = slot_ai.try_borrow_mut_data().unwrap();
+        let mut s = wa::WideArrivalSlot::read(&sd).unwrap();
+        s.flags |= wa::wide_arrival_slot::FLAG_SETTLED;
+        s.write(&mut sd).unwrap();
+    }
+    assert_eq!(
+        code(w.close_slot(dest, bell, f, 0, payer2.clone(), None)),
+        Err(E::TooEarly as u32),
+        "settled, unclaimed, no anchor: the grace is not known to have passed"
+    );
+    let region = crate::proc::wide::absent_destination_region(dest);
+    assert_eq!(
+        region,
+        WideProvince::read(&w.province_data(dest)).unwrap().region,
+        "the one region rule"
+    );
+    let (_, anchor) = w.stage_seed(bell, region, &BELL_SEED);
+    assert_eq!(
+        code(w.close_slot(dest, bell, f, 0, payer2.clone(), Some(anchor.clone()))),
+        Ok(())
+    );
+    assert!(absent(&slot_ai));
+    assert_eq!(payer2.lamports(), p2 + rent_s);
+    let wr = wide_records();
+    assert_eq!(wr.len(), 1);
+    {
+        let r = WideRecord::decode(&wr[0]).unwrap();
+        assert_eq!((r.kind, r.province()), (WideKind::RecordClosed, Some(dkey)));
+        assert_eq!(r.payload[0], wix::CLOSE_WHAT_SLOT);
+        assert_eq!(&r.payload[1..5], &bell.to_le_bytes());
+        assert_eq!((r.payload[5], r.payload[6]), (f, 0));
+        assert_eq!(&r.payload[7..39], &PAYER2);
+        assert_eq!(&r.payload[39..47], &rent_s.to_le_bytes());
+        assert_eq!(r.links, [None, None]);
+    }
+    // Settled and claimed: the deployed short-circuit, THE anchor is not
+    // read — an unrelated account in the anchor position is not even
+    // checked, and the slot closes on the claim alone.
+    assert_eq!(
+        code(w.close_slot(dest, bell, f, 2, payer2.clone(), Some(payer2.clone()))),
+        Ok(()),
+        "claimed: the anchor position is not read"
+    );
+    assert!(absent(&w.slot(dest, bell, f, 2)));
+    assert_eq!(payer2.lamports(), p2 + 2 * rent_s);
+    {
+        let wr = wide_records();
+        assert_eq!(wr.len(), 1);
+        let r = WideRecord::decode(&wr[0]).unwrap();
+        assert_eq!((r.payload[0], r.payload[6]), (wix::CLOSE_WHAT_SLOT, 2));
+    }
+    let p2 = p2 + rent_s;
+    // The day: the province resolved through its last bell (**fixture**:
+    // `resolved_next = 144`; the resolves are not run here) → closes.
+    {
+        let pa = w.province(dest);
+        let mut pd = pa.try_borrow_mut_data().unwrap();
+        put(
+            &mut pd,
+            PV::RESOLVED_NEXT,
+            &wa::wide_arrival_day::BELLS.to_le_bytes(),
+        );
+    }
+    assert_eq!(code(w.close_day(dest, bell, payer2.clone())), Ok(()));
+    assert!(absent(&day_ai));
+    assert_eq!(payer2.lamports(), p2 + rent_s + rent_d);
+    {
+        let wr = wide_records();
+        let r = WideRecord::decode(&wr[0]).unwrap();
+        assert_eq!((r.kind, r.province()), (WideKind::RecordClosed, Some(dkey)));
+        assert_eq!(r.payload[0], wix::CLOSE_WHAT_DAY);
+        assert_eq!(
+            &r.payload[1..5],
+            &0u32.to_le_bytes(),
+            "the day's first bell"
+        );
+        assert_eq!(&r.payload[39..47], &rent_d.to_le_bytes());
+    }
+    // The inputs: the present position settled and the grace passed
+    // (`resolved_ts` 0, the Season's close grace from genesis) → closes.
+    {
+        let mut cd = inputs_ai.try_borrow_mut_data().unwrap();
+        let mut h = wa::WideClashInputsHdr::read(&cd).unwrap();
+        h.settled_mask = 1 << k;
+        h.write(&mut cd).unwrap();
+    }
+    assert_eq!(code(w.close_inputs(dest, bell, payer2.clone())), Ok(()));
+    assert!(absent(&inputs_ai));
+    assert_eq!(payer2.lamports(), p2 + rent_s + rent_d + rent_i);
+    {
+        let wr = wide_records();
+        let r = WideRecord::decode(&wr[0]).unwrap();
+        assert_eq!((r.kind, r.province()), (WideKind::RecordClosed, Some(dkey)));
+        assert_eq!(r.payload[0], wix::CLOSE_WHAT_INPUTS);
+        assert_eq!(&r.payload[1..5], &bell.to_le_bytes());
+        assert_eq!(&r.payload[39..47], &rent_i.to_le_bytes());
+    }
+    assert!(records().is_empty(), "no PS2 record");
+
+    // --- The deadline. Ended, one second before `end + 72 h`: nothing
+    // closes, the march's rights stand. At the deadline the closes run in
+    // this test's order — the holding, the transit record, the roster
+    // over the pending `Spend`, the province — each whole to its own
+    // immutable recipient, none reading another's account beyond its
+    // canonical address, no lamport twice: the deployed expiry rule
+    // (CloseHolding with "the escrow of unsettled transits included";
+    // CloseProvince over the entry table whatever its hosts' states).
+    w.set_status(S::STATUS_ENDED);
+    let end = GENESIS + 200_000i64 * 600 + crate::proc::map::END_GRACE_SECS;
+    crate::prologue::set_test_clock(end - 1, 9_000);
+    assert_eq!(
+        code(w.close_holding(coord, site, payer.clone())),
+        Err(E::TooEarly as u32)
+    );
+    assert_eq!(
+        code(w.close_transit(coord, site, 0, payer2.clone())),
+        Err(E::TooEarly as u32)
+    );
+    assert_eq!(
+        code(w.close_roster(coord, payer.clone())),
+        Err(E::TooEarly as u32)
+    );
+    assert_eq!(
+        code(w.close_province(coord, wedge)),
+        Err(E::TooEarly as u32)
+    );
+    assert!(wide_records().is_empty(), "refusals log nothing");
+    crate::prologue::set_test_clock(end, 9_001);
+    // The holding: whole, the escrow included, to its rent payer.
+    let holding_before = w.holding(coord, site).lamports();
+    assert_eq!(
+        Ro(&w.holding_data(coord, site)).u64(H::ESCROW).unwrap(),
+        tip
+    );
+    let payer_before = payer.lamports();
+    assert_eq!(code(w.close_holding(coord, site, payer.clone())), Ok(()));
+    assert!(absent(&w.holding(coord, site)));
+    assert_eq!(
+        payer.lamports(),
+        payer_before + holding_before,
+        "the rent and the escrow, to the holding's rent payer"
+    );
+    // The transit record: to its own rent recipient; the holding position
+    // is the closed account at its canonical address, so nothing is
+    // counted down and nothing else is assumed about it.
+    let p2 = payer2.lamports();
+    assert_eq!(
+        code(w.close_transit(coord, site, 0, payer.clone())),
+        Err(E::BadAddress as u32),
+        "the record's own rent recipient"
+    );
+    assert_eq!(
+        code(w.close_transit(coord, site, 0, payer2.clone())),
+        Ok(())
+    );
+    assert!(absent(&transit_ai));
+    assert_eq!(payer2.lamports(), p2 + rent_t, "the record's rent, once");
+    let wr = wide_records();
+    assert_eq!(wr.len(), 1);
+    {
+        let r = WideRecord::decode(&wr[0]).unwrap();
+        assert_eq!((r.kind, r.host()), (WideKind::TransitClosed, Some(host)));
+        assert_eq!((r.standing(), r.home_of()), (Some(key), Some(key)));
+        assert_eq!(r.payload[0], 0);
+        assert_eq!(&r.payload[1..33], &PAYER2);
+        assert_eq!(&r.payload[33..41], &rent_t.to_le_bytes());
+    }
+    assert_eq!(
+        code(w.close_transit(coord, site, 0, payer2.clone())),
+        Err(E::BadAccount as u32),
+        "closed"
+    );
+    // The roster over the pending `Spend`, the province present: the
+    // entry's rights expired with the deadline; whole to the payer of the
+    // muster that created the table, nothing credited.
+    let rent_r = crate::init::rent(wro::wide_roster::SIZE).unwrap();
+    assert_eq!(w.roster(coord).lamports(), rent_r);
+    assert!(
+        matches!(
+            read_entry(&w.province_data(coord), 0).unwrap().op,
+            EntryOp::Spend { .. }
+        ),
+        "the Spend is still pending"
+    );
+    let payer_before = payer.lamports();
+    assert_eq!(
+        code(w.close_roster(coord, payer2.clone())),
+        Err(E::BadAddress as u32),
+        "the immutable rent recipient"
+    );
+    assert_eq!(code(w.close_roster(coord, payer.clone())), Ok(()));
+    assert!(absent(&w.roster(coord)));
+    assert_eq!(payer.lamports(), payer_before + rent_r);
+    let wr = wide_records();
+    assert_eq!(wr.len(), 1);
+    {
+        let r = WideRecord::decode(&wr[0]).unwrap();
+        assert_eq!((r.kind, r.province()), (WideKind::RosterClosed, Some(key)));
+        assert_eq!(&r.payload[..32], &PAYER);
+        assert_eq!(&r.payload[32..40], &rent_r.to_le_bytes());
+        assert_eq!(r.links, [None, None]);
+    }
+    assert_eq!(
+        code(w.close_roster(coord, payer.clone())),
+        Err(E::BadAccount as u32),
+        "closed"
+    );
+    // The province into the fund of the wedge that opened it, the fund's
+    // `provinces_opened` one fewer (the deployed CloseProvince); another
+    // wedge's fund is refused; the entry table goes with the account.
+    let fund = w.w.fund(wedge);
+    let fund_before = fund.lamports();
+    let opened_before = {
+        let fd = fund.try_borrow_data().unwrap().to_vec();
+        Ro(&fd).u32(PF::PROVINCES_OPENED).unwrap()
+    };
+    let prov_before = w.province(coord).lamports();
+    assert_eq!(
+        code(w.close_province(coord, (wedge + 1) % 6)),
+        Err(E::BadAddress as u32),
+        "another wedge's fund"
+    );
+    // the province's chain as it stands (the resolves and the muster
+    // advanced it): the close's record is its terminal link
+    let pchain = chain(&w.province(coord));
+    assert!(pchain.0 > 0, "the province has a chain");
+    assert_eq!(code(w.close_province(coord, wedge)), Ok(()));
+    assert!(absent(&w.province(coord)));
+    assert_eq!(fund.lamports(), fund_before + prov_before);
+    {
+        let fd = fund.try_borrow_data().unwrap().to_vec();
+        assert_eq!(
+            Ro(&fd).u32(PF::PROVINCES_OPENED).unwrap(),
+            opened_before - 1
+        );
+    }
+    let wr = wide_records();
+    assert_eq!(wr.len(), 1);
+    {
+        let r = WideRecord::decode(&wr[0]).unwrap();
+        assert_eq!(
+            (r.kind, r.province()),
+            (WideKind::ProvinceClosed, Some(key))
+        );
+        assert_eq!(&r.payload[..32], &fund.key.to_bytes());
+        assert_eq!(&r.payload[32..40], &prov_before.to_le_bytes());
+        let link = r
+            .link(wev::WideEntity::Province)
+            .expect("the terminal link");
+        assert_eq!(r.links, [Some(link), None], "the province link alone");
+        assert_eq!(link.seq, pchain.0 + 1);
+        assert_eq!(
+            wev::verify_chain(
+                wev::WideTarget::Province(key),
+                pchain,
+                std::iter::once(&wr[0][..])
+            ),
+            Ok((link.seq, link.head)),
+            "the record continues the province's chain from the header it erased"
+        );
+    }
+    assert_eq!(
+        code(w.close_province(coord, wedge)),
+        Err(E::BadAccount as u32),
+        "closed"
+    );
+    assert!(records().is_empty(), "no PS2 record");
+
+    // --- The other order the deployed closes allow: the province first,
+    // its roster after it under the Closed tombstone (CloseSeason ran),
+    // the province position the absent account at its canonical address.
+    // **Fixture**: the destination's roster as a muster there would have
+    // created it (a second wallet's rent), no reference live.
+    let mut rb = vec![0u8; wro::wide_roster::SIZE];
+    WideRoster::new(SEASON_ID, dkey, PAYER2)
+        .write_header(&mut rb)
+        .unwrap();
+    let droster = w.roster(dest);
+    restore(&droster, rent_r, &rb, Pubkey::new_from_array(PROGRAM));
+    let dfund = w.w.fund(dwedge);
+    let dfund_before = dfund.lamports();
+    let dprov_before = w.province(dest).lamports();
+    assert_eq!(code(w.close_province(dest, dwedge)), Ok(()));
+    assert!(absent(&w.province(dest)));
+    assert_eq!(dfund.lamports(), dfund_before + dprov_before);
+    assert_eq!(wide_records().len(), 1);
+    let tomb = w.tombstone();
+    assert_eq!(
+        code(w.close_province_under(dest, dwedge, tomb.clone())),
+        Err(E::BadAccount as u32),
+        "no province close under the tombstone: CloseSeason closed the funds, as deployed"
+    );
+    let p2 = payer2.lamports();
+    assert_eq!(
+        code(w.close_roster_under(dest, payer.clone(), tomb.clone())),
+        Err(E::BadAddress as u32),
+        "the immutable rent recipient, under the tombstone too"
+    );
+    assert_eq!(
+        code(w.close_roster_under(dest, payer2.clone(), tomb.clone())),
+        Ok(()),
+        "the tombstone and the absent province"
+    );
+    assert!(absent(&droster));
+    assert_eq!(payer2.lamports(), p2 + rent_r, "the table's rent, once");
+    let wr = wide_records();
+    assert_eq!(wr.len(), 1);
+    {
+        let r = WideRecord::decode(&wr[0]).unwrap();
+        assert_eq!((r.kind, r.province()), (WideKind::RosterClosed, Some(dkey)));
+        assert_eq!(r.bell, frontier_abi::log::NO_BELL);
+        assert_eq!(&r.payload[..32], &PAYER2);
+        assert_eq!(&r.payload[32..40], &rent_r.to_le_bytes());
+    }
+    assert_eq!(
+        code(w.close_roster_under(dest, payer2.clone(), tomb.clone())),
+        Err(E::BadAccount as u32),
+        "closed"
+    );
+    // Under the tombstone with THE anchor **present** and listed: the
+    // season-end fallback closes the unsettled slot without reading the
+    // anchor or the Season's clock (the tombstone has none), as the
+    // deployed close's short-circuit does.
+    let p2 = payer2.lamports();
+    assert_eq!(
+        code(w.close_slot_under(dest, bell, f, 1, payer2.clone(), Some(anchor), tomb)),
+        Ok(()),
+        "the tombstone and a present anchor"
+    );
+    assert!(absent(&slot1_ai));
+    assert_eq!(payer2.lamports(), p2 + rent_s);
+    {
+        let wr = wide_records();
+        assert_eq!(wr.len(), 1);
+        let r = WideRecord::decode(&wr[0]).unwrap();
+        assert_eq!(
+            (r.kind, r.bell),
+            (WideKind::RecordClosed, frontier_abi::log::NO_BELL)
+        );
+        assert_eq!((r.payload[0], r.payload[6]), (wix::CLOSE_WHAT_SLOT, 1));
+        assert_eq!(&r.payload[39..47], &rent_s.to_le_bytes());
+    }
+    assert!(records().is_empty() && wide_records().is_empty());
 }
 
 /// Two tickets of one cohort on one site: the lower score settles fresh,
@@ -5001,7 +5774,7 @@ fn wide_land_nft_resident_acts_at_its_generation_and_season_end_closes_the_ticke
 /// payer tops up exactly the wide rent and becomes the funder; the **same
 /// payer** again tops up nothing; another payer over its retained rent
 /// again tops up nothing and never takes the funder; at season end (Ended
-/// + 72 h) a Settled record closes in CloseCitizen's shape **before** its
+/// plus 72 h) a Settled record closes in CloseCitizen's shape **before** its
 /// Citizen (the Citizen present, nothing on it changes) or **after**
 /// CloseCitizen (the Citizen position absent): the record's rent to the
 /// payer that created it, the escrow to the payer that last topped it up

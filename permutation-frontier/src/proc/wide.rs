@@ -1944,6 +1944,24 @@ fn season_end(season_ai: &AccountInfo, p: &Pubkey, now: i64) -> R<(u64, u32, Opt
 /// `POOL_SWEEP` or `CLOSE` record (no event chain). The owner Citizen's
 /// slot marker is left as CloseHolding leaves a Holding's ref: the
 /// Citizen closes separately.
+///
+/// `what = 2..=5`: the march records ([`close_slot`], [`close_day`],
+/// [`close_inputs`], [`close_transit`]); `what = 6`: the province
+/// ([`close_province`], the deployed CloseProvince).
+///
+/// **The deadline rule, as deployed.** After the deadline (Ended + 72 h,
+/// Aborted, the tombstone) the deployed closes run in **any order** and
+/// none reads another's account: CloseProvince closes the entry table
+/// whatever its hosts' states, CloseHolding takes the escrow of unsettled
+/// transits with the account. A settle that still finds its accounts may
+/// still run (the deployed settles accept Ended with no deadline of their
+/// own); one that finds them gone cannot. The rights of the season's
+/// marches expire at the deadline. The wide closes reproduce that:
+/// WideCloseRoster closes the side table as CloseProvince closes the
+/// entries, WideClose 1 the holding, WideClose 5 the transit record,
+/// WideClose 6 the province, each whole to its own immutable recipient,
+/// each without reading the others' accounts beyond their canonical
+/// address.
 pub fn close(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
     let x = wix::Close::decode(d)?;
     match x.what {
@@ -1955,8 +1973,487 @@ pub fn close(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
             check_accounts(Shape(wix::CLOSE_HOLDING), a, None)?;
             close_holding(p, a)
         }
+        wix::CLOSE_WHAT_SLOT => {
+            check_accounts(Shape(wix::CLOSE_SLOT), a, None)?;
+            close_slot(p, a)
+        }
+        wix::CLOSE_WHAT_DAY => {
+            check_accounts(Shape(wix::CLOSE_DAY), a, None)?;
+            close_day(p, a)
+        }
+        wix::CLOSE_WHAT_INPUTS => {
+            check_accounts(Shape(wix::CLOSE_INPUTS), a, None)?;
+            close_inputs(p, a)
+        }
+        wix::CLOSE_WHAT_TRANSIT => {
+            check_accounts(Shape(wix::CLOSE_TRANSIT), a, None)?;
+            close_transit(p, a)
+        }
+        wix::CLOSE_WHAT_PROVINCE => {
+            check_accounts(Shape(wix::CLOSE_PROVINCE), a, None)?;
+            close_province(p, a)
+        }
         _ => Err(FrontierError::BadData.into()),
     }
+}
+
+// ------------------------------------------------------------ the march record closes
+
+/// The Season of a march-record close, as the deployed CloseArrivalSlot /
+/// CloseArrivalDay / CloseClashInputs take it (`clash::float_season`):
+/// the Closed tombstone (`rules_apply` false), or live — Running, Ended or
+/// Aborted — this build's, with `rules_apply` false once Ended for 72 h
+/// (the season-end fallback) and true otherwise (the close's own case
+/// rules apply). Returns `(season id, rules_apply, the record bell)`.
+fn close_season(season_ai: &AccountInfo, p: &Pubkey, now: i64) -> R<(u64, bool, u32)> {
+    use super::clash::FloatSeason;
+    let statuses = [S::STATUS_RUNNING, S::STATUS_ENDED, S::STATUS_ABORTED];
+    match super::clash::float_season_with(season_ai, p, &statuses, now)? {
+        FloatSeason::Tomb(id) => Ok((id, false, frontier_abi::log::NO_BELL)),
+        FloatSeason::Live(h) => {
+            require_wide_season(season_ai)?;
+            let ended_long_ago = h.status == S::STATUS_ENDED && {
+                let end = super::map::season_end_ts(&h);
+                now >= end.saturating_add(super::map::END_GRACE_SECS)
+            };
+            Ok((
+                h.id,
+                !ended_long_ago,
+                h.bell(now).unwrap_or(frontier_abi::log::NO_BELL),
+            ))
+        }
+    }
+}
+
+/// THE anchor of a slot's bell at a slot close, as listed.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum AnchorClose {
+    /// No anchor listed: the grace is not known to have passed.
+    NotListed,
+    /// Listed and absent: the bell is archived, the grace long passed.
+    Archived,
+    /// Listed and present: its reveal close (`A + W(b)`).
+    At(i64),
+}
+
+/// The deployed CloseArrivalSlot's case rule (pure): the slot closes when
+/// the close's rules no longer apply (the season-end fallback), or when it
+/// is settled and claimed, or settled and its claim grace
+/// (`CLAIM_GRACE_BELLS` bells after the reveal close) passed against THE
+/// anchor — an archived anchor means passed, no anchor means not yet. An
+/// unsettled slot never closes while the rules apply (the settle needs it).
+pub(crate) fn slot_close_due(
+    rules_apply: bool,
+    settled: bool,
+    claimed: bool,
+    anchor: AnchorClose,
+    now: i64,
+) -> bool {
+    if !rules_apply {
+        return true;
+    }
+    if !settled {
+        return false;
+    }
+    claimed
+        || match anchor {
+            AnchorClose::NotListed => false,
+            AnchorClose::Archived => true,
+            AnchorClose::At(close) => {
+                let grace = super::transit::CLAIM_GRACE_BELLS as i64 * 600;
+                now >= close.saturating_add(grace)
+            }
+        }
+}
+
+/// The deployed CloseArrivalDay's case rule (pure): the province resolved
+/// every bell of the day (`resolved_next ≥ (day + 1) × 144`).
+pub(crate) fn day_close_due(day: u32, resolved_next: u32) -> bool {
+    let need = (day as u64 + 1) * wa::wide_arrival_day::BELLS as u64;
+    resolved_next as u64 >= need
+}
+
+/// The deployed CloseClashInputs' case rule (pure) over a wide header:
+/// (a) resolved, every present position (`present_mask`) settled and
+/// `resolved_ts + grace` passed since genesis; or (b) a no-arrival record
+/// whose bell the province passed (`resolved_next > bell`), the grace
+/// counted from the bell's end. `Ok(false)` is `InputsOpen`; an
+/// arithmetic overflow is the error it is everywhere.
+pub(crate) fn inputs_close_due(
+    ih: &WideClashInputsHdr,
+    present_mask: u32,
+    resolved_next: u32,
+    grace_secs: i64,
+    since_genesis: i64,
+) -> R<bool> {
+    if ih.flags & wa::wide_clash_inputs::FLAG_RESOLVED != 0 {
+        if present_mask & !ih.settled_mask != 0 {
+            return Ok(false);
+        }
+        let open_until = (ih.resolved_ts as i64)
+            .checked_add(grace_secs)
+            .ok_or(OVERFLOW)?;
+        Ok(open_until <= since_genesis)
+    } else if ih.flags & wa::wide_clash_inputs::FLAG_NO_ARRIVALS != 0 && resolved_next > ih.bell {
+        let bell_end = (ih.bell as i64)
+            .checked_add(1)
+            .and_then(|b| b.checked_mul(600))
+            .ok_or(OVERFLOW)?;
+        Ok(bell_end.checked_add(grace_secs).ok_or(OVERFLOW)? <= since_genesis)
+    } else {
+        Ok(false)
+    }
+}
+
+/// WideClose(2): the deployed CloseArrivalSlot over a wide ArrivalSlot
+/// (`[any s] [season r] [slot w] [rent_to w] ([anchor r])`). The slot
+/// program-owned, this season's and world's, at the canonical address of
+/// the destination, bell, faction and index it names (`BadAddress`);
+/// `rent_to` its immutable one (`BadAccount`). Closes when (a) its
+/// `settled` flag is set and it is claimed or its claim grace passed
+/// (`close + 6 bells` from THE anchor of `(bell, region)` at its canonical
+/// address, the region the wide rule's [`absent_destination_region`]; an
+/// absent anchor means the bell is archived and the grace long passed; no
+/// anchor listed means not yet), or (b) the Season Ended at least 72 h
+/// ago, or the tombstone (`TooEarly` otherwise). Whole to `rent_to`; the
+/// `WIDE_RECORD_CLOSED` record.
+fn close_slot(p: &Pubkey, a: &[AccountInfo]) -> R<()> {
+    let (season_ai, slot, rent_to, anchor) = match a {
+        [_any, s, sl, r] => (s, sl, r, None),
+        [_any, s, sl, r, an] => (s, sl, r, Some(an)),
+        _ => return Err(FrontierError::TooManyAccounts.into()),
+    };
+    let now = prologue::now()?;
+    let (sid, rules_apply, bell_log) = close_season(season_ai, p, now.ts)?;
+    let ctx = addr::ctx(&key(season_ai), &p.to_bytes());
+    let world = world_of(&ctx)?;
+    if slot.owner != p {
+        return Err(BAD_ACCOUNT);
+    }
+    let s = {
+        let sd = slot.try_borrow_data()?;
+        WideArrivalSlot::read(&sd).map_err(|_| BAD_ACCOUNT)?
+    };
+    if s.season_id != sid || s.dest.world() != world {
+        return Err(BAD_ACCOUNT);
+    }
+    expect_key(
+        slot,
+        &wa::arrival_slot_address(&ctx, s.dest, s.bell, s.faction, s.i),
+    )?;
+    expect_key(rent_to, &s.rent_to)?;
+    let settled = s.flags & wa::wide_arrival_slot::FLAG_SETTLED != 0;
+    // THE anchor is read **only when the case needs it** — the rules
+    // apply, the slot is settled and unclaimed — as the deployed close's
+    // short-circuit evaluates it: under the season-end fallback or on a
+    // claimed slot a listed anchor is not read (the tombstone has no
+    // Season clock to read it against). When needed: its reveal close when
+    // present, archived when absent, not yet when not listed.
+    let anchor_close = match anchor {
+        Some(an) if rules_apply && settled && !s.claimed => {
+            let region = absent_destination_region(s.dest.coord());
+            expect_key(an, &ctx.bell_anchor(s.bell, region))?;
+            if prologue::presence(an, p, AccountKind::BellAnchor, sid)? {
+                let a_ts = {
+                    let ad = an.try_borrow_data()?;
+                    crate::layout::beacon::Anchor::read(&ad)?.a
+                };
+                let clock = {
+                    let sd = season_ai.try_borrow_data()?;
+                    SeasonClock::read(&sd)?
+                };
+                AnchorClose::At(clock.reveal_close(s.bell, a_ts))
+            } else {
+                AnchorClose::Archived
+            }
+        }
+        _ => AnchorClose::NotListed,
+    };
+    if !slot_close_due(rules_apply, settled, s.claimed, anchor_close, now.ts) {
+        return Err(FrontierError::TooEarly.into());
+    }
+    let lamports = slot.lamports();
+    init::close_to(p, slot, rent_to, &Sink::Never, bell_log)?;
+    emit_wide(
+        WideKind::RecordClosed,
+        bell_log,
+        &s.dest.to_bytes(),
+        &wev::record_closed_payload(
+            wix::CLOSE_WHAT_SLOT,
+            s.bell,
+            s.faction,
+            s.i,
+            &s.rent_to,
+            lamports,
+        ),
+        &mut [],
+    )
+}
+
+/// WideClose(3): the deployed CloseArrivalDay over a wide ArrivalDay
+/// (`[any s] [season r] [province r] [day w] [rent_to w]`). The day record
+/// program-owned, this season's and world's, at its canonical address;
+/// `rent_to` its own. While the close's rules apply, the province at its
+/// canonical address, present, resolved through every bell of the day
+/// (`resolved_next ≥ (day + 1) × 144`, `TooEarly`); once Ended for 72 h
+/// or on the tombstone only the province's address is checked (it may be
+/// absent). Whole to `rent_to`; the `WIDE_RECORD_CLOSED` record (its bell
+/// the day's first).
+fn close_day(p: &Pubkey, a: &[AccountInfo]) -> R<()> {
+    let [_any, season_ai, province, day_ai, rent_to] = a else {
+        return Err(FrontierError::TooManyAccounts.into());
+    };
+    let now = prologue::now()?;
+    let (sid, rules_apply, bell_log) = close_season(season_ai, p, now.ts)?;
+    let ctx = addr::ctx(&key(season_ai), &p.to_bytes());
+    let world = world_of(&ctx)?;
+    if day_ai.owner != p {
+        return Err(BAD_ACCOUNT);
+    }
+    let d = {
+        let dd = day_ai.try_borrow_data()?;
+        wa::WideArrivalDay::read(&dd).map_err(|_| BAD_ACCOUNT)?
+    };
+    if d.season_id != sid || d.dest.world() != world {
+        return Err(BAD_ACCOUNT);
+    }
+    expect_key(day_ai, &wa::arrival_day_address(&ctx, d.dest, d.day))?;
+    expect_key(rent_to, &d.rent_to)?;
+    expect_key(province, &wl::province_address(&ctx, d.dest.coord()))?;
+    if rules_apply {
+        let prov = province_at(province, p, sid)?.ok_or(BAD_ACCOUNT)?;
+        if prov.world != world || prov.coord != d.dest.coord() {
+            return Err(BAD_ACCOUNT);
+        }
+        let rn = {
+            let pd = province.try_borrow_data()?;
+            Ro(&pd).u32(PV::RESOLVED_NEXT)?
+        };
+        if !day_close_due(d.day, rn) {
+            return Err(FrontierError::TooEarly.into());
+        }
+    }
+    let lamports = day_ai.lamports();
+    init::close_to(p, day_ai, rent_to, &Sink::Never, bell_log)?;
+    emit_wide(
+        WideKind::RecordClosed,
+        bell_log,
+        &d.dest.to_bytes(),
+        &wev::record_closed_payload(
+            wix::CLOSE_WHAT_DAY,
+            d.day.saturating_mul(wa::wide_arrival_day::BELLS),
+            0,
+            0,
+            &d.rent_to,
+            lamports,
+        ),
+        &mut [],
+    )
+}
+
+/// WideClose(4): the deployed CloseClashInputs over a wide ClashInputs
+/// (`[any s] [season r] [province r] [inputs w] [rent_to w]`). The record
+/// program-owned, this season's and world's, at its canonical address;
+/// `rent_to` its own. While the close's rules apply, the province present
+/// at its canonical address and: (a) the record resolved, every present
+/// position settled (`settled_mask`), and `resolved_ts + clash_close_grace`
+/// passed; or (b) a no-arrival record whose bell the province passed
+/// (`resolved_next > bell`), the grace counted from the bell's end;
+/// `InputsOpen` otherwise. Once Ended for 72 h or on the tombstone only
+/// the province's address is checked. Whole to `rent_to`; the
+/// `WIDE_RECORD_CLOSED` record.
+fn close_inputs(p: &Pubkey, a: &[AccountInfo]) -> R<()> {
+    let [_any, season_ai, province, inputs, rent_to] = a else {
+        return Err(FrontierError::TooManyAccounts.into());
+    };
+    let now = prologue::now()?;
+    let (sid, rules_apply, bell_log) = close_season(season_ai, p, now.ts)?;
+    let ctx = addr::ctx(&key(season_ai), &p.to_bytes());
+    let world = world_of(&ctx)?;
+    if inputs.owner != p {
+        return Err(BAD_ACCOUNT);
+    }
+    let cd = inputs.try_borrow_data()?.to_vec();
+    let ih = WideClashInputsHdr::read(&cd).map_err(|_| BAD_ACCOUNT)?;
+    if ih.season_id != sid || ih.dest.world() != world {
+        return Err(BAD_ACCOUNT);
+    }
+    expect_key(inputs, &wa::clash_inputs_address(&ctx, ih.dest, ih.bell))?;
+    expect_key(rent_to, &ih.rent_to)?;
+    expect_key(province, &wl::province_address(&ctx, ih.dest.coord()))?;
+    if rules_apply {
+        let prov = province_at(province, p, sid)?.ok_or(BAD_ACCOUNT)?;
+        if prov.world != world || prov.coord != ih.dest.coord() {
+            return Err(BAD_ACCOUNT);
+        }
+        let (grace, genesis_ts) = {
+            let sd = season_ai.try_borrow_data()?;
+            let r = Ro(&sd);
+            (r.u32(S::CLASH_CLOSE_GRACE)?, r.i64(S::GENESIS_TS)?)
+        };
+        let rn = {
+            let pd = province.try_borrow_data()?;
+            Ro(&pd).u32(PV::RESOLVED_NEXT)?
+        };
+        let grace_secs = (grace as i64).checked_mul(600).ok_or(OVERFLOW)?;
+        let since_genesis = now.ts.saturating_sub(genesis_ts);
+        let mut present_mask = 0u32;
+        for k in 0..wa::wide_clash_inputs::POSITIONS {
+            if WideArrival::read_at(&cd, k)
+                .map_err(|_| BAD_ACCOUNT)?
+                .is_some_and(|arr| arr.present)
+            {
+                present_mask |= 1 << k;
+            }
+        }
+        if !inputs_close_due(&ih, present_mask, rn, grace_secs, since_genesis)? {
+            return Err(FrontierError::InputsOpen.into());
+        }
+    }
+    let lamports = inputs.lamports();
+    init::close_to(p, inputs, rent_to, &Sink::Never, bell_log)?;
+    emit_wide(
+        WideKind::RecordClosed,
+        bell_log,
+        &ih.dest.to_bytes(),
+        &wev::record_closed_payload(wix::CLOSE_WHAT_INPUTS, ih.bell, 0, 0, &ih.rent_to, lamports),
+        &mut [],
+    )
+}
+
+/// WideClose(5): a wide transit record left open at season end (`[any s]
+/// [season r] [transit w] [rent_to w] [holding w]`): Ended + 72 h,
+/// Aborted or the tombstone (`season_end`: the states in which the
+/// deployed Holding, whose transit slots die with it, closes). The record
+/// program-owned, this season's world's, at one of the four canonical
+/// transit addresses of its host's holding (`BadAddress`); `rent_to` its
+/// immutable one. The holding position is **always** the canonical
+/// address of the host's holding (`BadAddress` for any other account):
+/// present there, it is the holding and counts one open march fewer
+/// (`open_transits`, the live count of a standing holding's open wide
+/// transit records); absent there, the holding closed first (the deployed
+/// order allows it) and there is no count to keep. Nothing else proves or
+/// assumes the holding's existence. Whole to `rent_to`; the
+/// `WIDE_TRANSIT_CLOSED` record keyed by the host and its home. The
+/// march's escrow is not here: it closed with the holding to the holding's
+/// rent payer, as deployed.
+fn close_transit(p: &Pubkey, a: &[AccountInfo]) -> R<()> {
+    let [_any, season_ai, transit_ai, rent_to, holding] = a else {
+        return Err(FrontierError::TooManyAccounts.into());
+    };
+    let now = prologue::now()?;
+    let (sid, bell_log, _tomb) = season_end(season_ai, p, now.ts)?;
+    let ctx = addr::ctx(&key(season_ai), &p.to_bytes());
+    let world = world_of(&ctx)?;
+    if transit_ai.owner != p {
+        return Err(BAD_ACCOUNT);
+    }
+    let t = {
+        let td = transit_ai.try_borrow_data()?;
+        WideTransit::from_bytes(&td).map_err(|_| BAD_ACCOUNT)?
+    };
+    if t.host.key().world() != world {
+        return Err(BAD_ACCOUNT);
+    }
+    let hkey = wh::holding_address(&ctx, t.host.key().coord(), t.host.site());
+    let slot = (0..H::TRANSIT_N as u8)
+        .find(|&s| transit_ai.key.as_array() == &wm::transit_address(&ctx, &hkey, s))
+        .ok_or(FrontierError::BadAddress)?;
+    expect_key(rent_to, &t.rent_to)?;
+    expect_key(holding, &hkey)?;
+    let standing = match holding_at(holding, p, sid)? {
+        Some(rec) if rec.world == world => true,
+        Some(_) => return Err(BAD_ACCOUNT),
+        None => false,
+    };
+    let lamports = transit_ai.lamports();
+    init::close_to(p, transit_ai, rent_to, &Sink::Never, bell_log)?;
+    if standing {
+        let mut hd = holding.try_borrow_mut_data()?;
+        let mut w = Rw(&mut hd);
+        let open = w.u8(wh::wide_holding::OPEN_TRANSITS)?.saturating_sub(1);
+        w.set_u8(wh::wide_holding::OPEN_TRANSITS, open)?;
+    }
+    emit_wide(
+        WideKind::TransitClosed,
+        bell_log,
+        &wev::host_key(&t.host, t.host.key()),
+        &wev::transit_closed_payload(slot, &t.rent_to, lamports),
+        &mut [],
+    )
+}
+
+/// WideClose(6): the deployed CloseProvince over a wide province (`[any s]
+/// [season r] [province w] [pfund w]`). Ended with `now ≥ end + 72 h`
+/// (`TooEarly` before) or Aborted, this build's Season — never the
+/// tombstone: CloseSeason's final part closed the funds, so a province
+/// left open then keeps its rent, as deployed. The province program-owned,
+/// this season's and world's, at its canonical address; the fund the one
+/// of the wedge that opened it (`WideProvince::wedge`), present at its
+/// canonical address. The province closes whole into the fund and the
+/// fund's `provinces_opened` counts one fewer, as deployed (`open_sites`,
+/// `provinces_funded`, `spent_total` are the opening's lifetime counters
+/// and stay). Nothing of the province's entry table, camp, keep or
+/// holdings is read: the deployed CloseProvince closes the entry table
+/// whatever its hosts' states at the deadline, and the wide roster side
+/// table closes the same way (WideCloseRoster).
+///
+/// **The terminal record.** The province has an event chain (every
+/// muster, dissolve, resolve, return, settle of it advanced the header),
+/// and the deployed CloseProvince logs `CLOSE` with the final chain before
+/// it erases the account. So here: every refusal first (the Season, the
+/// province, the fund's address and kind, the fund's lamports after the
+/// refund, the counter read), then the `WIDE_PROVINCE_CLOSED` record is
+/// **chained on the province's own header** (its link is the chain's
+/// final `(seq, head)`; `emit_wide` computes the link before it writes
+/// anything, so an unchainable record refuses with nothing written), and
+/// only then the account closes into the fund and the counter steps. The
+/// steps after the record have no refusal of their own on the chain (the
+/// account was verified program-owned, the fund's room and offset were
+/// read).
+fn close_province(p: &Pubkey, a: &[AccountInfo]) -> R<()> {
+    let [_any, season_ai, province, fund] = a else {
+        return Err(FrontierError::TooManyAccounts.into());
+    };
+    let now = prologue::now()?;
+    let hdr = super::map::season_end_close(season_ai, p, now.ts)?;
+    require_wide_season(season_ai)?;
+    let sid = hdr.id;
+    let bell = hdr.bell(now.ts).unwrap_or(frontier_abi::log::NO_BELL);
+    let ctx = addr::ctx(&key(season_ai), &p.to_bytes());
+    let world = world_of(&ctx)?;
+    let prov = province_at(province, p, sid)?.ok_or(BAD_ACCOUNT)?;
+    if prov.world != world {
+        return Err(BAD_ACCOUNT);
+    }
+    expect_key(province, &wl::province_address(&ctx, prov.coord))?;
+    present_at(
+        fund,
+        &ctx.province_fund(prov.wedge),
+        p,
+        AccountKind::ProvinceFund,
+        sid,
+    )?;
+    let lamports = province.lamports();
+    fund.lamports().checked_add(lamports).ok_or(OVERFLOW)?;
+    let opened = {
+        let fd = fund.try_borrow_data()?;
+        Ro(&fd).u32(PF::PROVINCES_OPENED)?
+    };
+    // The terminal record on the province's chain, before the erase.
+    {
+        let mut pd = province.try_borrow_mut_data()?;
+        emit_wide(
+            WideKind::ProvinceClosed,
+            bell,
+            &ProvinceKey::new(world, prov.coord).to_bytes(),
+            &wev::province_closed_payload(&key(fund), lamports),
+            &mut [(WideEntity::Province, &mut pd[..])],
+        )?;
+    }
+    init::close_to(p, province, fund, &Sink::Never, bell)?;
+    let mut fdat = fund.try_borrow_mut_data()?;
+    Rw(&mut fdat).set_u32(PF::PROVINCES_OPENED, opened.saturating_sub(1))
 }
 
 fn close_ticket(p: &Pubkey, a: &[AccountInfo]) -> R<()> {
@@ -2041,23 +2538,20 @@ fn close_holding(p: &Pubkey, a: &[AccountInfo]) -> R<()> {
         return Err(BAD_ACCOUNT);
     }
     expect_key(holding, &wh::holding_address(&ctx, h.coord, h.site))?;
-    let (h_payer, owed, escrow) = {
+    let (h_payer, owed) = {
         let hd = holding.try_borrow_data()?;
         let r = Ro(&hd);
-        (
-            r.arr::<32>(H::RENT_PAYER)?,
-            r.u64(H::POOL_OWED)?,
-            r.u64(H::ESCROW)?,
-        )
+        (r.arr::<32>(H::RENT_PAYER)?, r.u64(H::POOL_OWED)?)
     };
-    // No payout under an unsettled march: the escrow of every open wide
-    // transit record lives in this account and belongs to its settlement
-    // (the tip, the fee, the bond; the bad-seal reward); the record itself
-    // needs this holding to settle. WideSettleTransit runs after the end
-    // (Running or Ended, before the 72-hour close) and is permissionless.
-    if escrow != 0 || h.open_transits != 0 {
-        return Err(FrontierError::HostInTransit.into());
-    }
+    // The deployed CloseHolding's expiry rule, verbatim: at Ended + 72 h,
+    // Aborted or the tombstone the Holding closes to its rent payer, "the
+    // escrow of unsettled transits included"; a transit that was not
+    // settled by then is not settled afterwards (its settlement needs this
+    // account). The wide transit records outlive the holding as their own
+    // accounts and close to their own rent recipients (WideClose 5). No
+    // guard over `open_transits` here: the deployed rule has none, and a
+    // guard would hold the rent payer's whole account behind a march that
+    // may never be able to settle.
     expect_key(rent_payer, &h_payer)?;
     match tomb {
         None => present_at(dpool, &ctx.defence_pool(), p, AccountKind::DefencePool, sid)?,
@@ -3134,19 +3628,39 @@ pub fn settle_return(p: &Pubkey, a: &[AccountInfo]) -> R<()> {
 }
 
 /// WideCloseRoster (0xDE, op 1): `[any s] [season r] [roster w] [rent_to
-/// w]` (`wide_ix::CLOSE_ROSTER`). Class N. Season end (Ended + 72 h,
-/// Aborted, the Closed tombstone): the roster side table, program-owned and
-/// of this season and world at the canonical address of the province its
-/// header names, closes **whole to its immutable rent recipient** (the
-/// payer of the first muster that created it; `BadAddress` for any other
-/// account). The hosts it names are the season's; nothing is credited.
+/// w] [province r]` (`wide_ix::CLOSE_ROSTER`). Class N. Season end (Ended
+/// plus 72 h, Aborted, the Closed tombstone; `TooEarly` / `WrongStatus`
+/// before): the roster side table, program-owned and of this season and
+/// world at the canonical address of the province its header names,
+/// closes **whole to its immutable rent recipient** (the payer of the
+/// first muster that created it; `BadAddress` for any other account). The
+/// hosts it names are the season's; nothing is credited.
+///
+/// **The deadline rule** (the deployed CloseProvince's): the deployed
+/// entry table lives in the Province and closes with it at the same
+/// deadline whatever its entries' states — a pending `Spend` or `Leave`, a
+/// departed host, bells of the season never resolved; its hosts' rights
+/// (to be resolved, to settle, to return) expire with the deadline, as the
+/// escrow of an unsettled transit goes with the Holding. The side table is
+/// the wide form of that entry table and closes the same way. No
+/// dependency guard: a guard here (refusing while an entry is departed or
+/// pending, as an earlier revision did) was not a deployed rule and, with
+/// the holding, the transit record and the province closing freely at the
+/// deadline, could only hold the table's rent behind dependencies the
+/// other closes may already have erased. The province position is the
+/// canonical address of the province the table pairs with: present, it
+/// must be that province of this season and world; **absent** (closed
+/// first, as the deployed order allows; the record's `rent_to` is kept
+/// for exactly that), nothing is read. The settles that need the table
+/// run while they still find it (the deployed settles accept Ended with
+/// no deadline of their own); after this close they cannot.
 pub fn close_roster(p: &Pubkey, a: &[AccountInfo]) -> R<()> {
     check_accounts(Shape(wix::CLOSE_ROSTER), a, None)?;
     let [_any, season_ai, roster_ai, rent_to, province] = a else {
         return Err(FrontierError::TooManyAccounts.into());
     };
     let now = prologue::now()?;
-    let (sid, bell, tomb) = season_end(season_ai, p, now.ts)?;
+    let (sid, bell, _tomb) = season_end(season_ai, p, now.ts)?;
     let ctx = addr::ctx(&key(season_ai), &p.to_bytes());
     let world = world_of(&ctx)?;
     if roster_ai.owner != p {
@@ -3161,52 +3675,15 @@ pub fn close_roster(p: &Pubkey, a: &[AccountInfo]) -> R<()> {
     }
     expect_key(roster_ai, &wro::roster_address(&ctx, r.province))?;
     expect_key(rent_to, &r.rent_to)?;
-    // The province the table pairs with, at its canonical address and
-    // present, the tables paired. **No destructive close under an
-    // unresolved dependency** (`HostInTransit`): every resolve of this
-    // province needs the table while any entry is live, and the settles
-    // need those resolves — a departure's `Spend` pending until its bell
-    // resolves, a departed entry a SettleDeparture or a Return pairs, a
-    // `Leave` pending, and any arrival bell of this province a transit
-    // settlement waits for. So while the Season stands, the close is
-    // refused when (a) any referenced entry is departed or carries a
-    // pending `Spend` or `Leave`, or (b) any entry is live and the province
-    // has not resolved every bell of the season (`resolved_next <
-    // end_bell`). Under the Closed tombstone no settle can run again, so
-    // nothing depends on the table and it closes. Recovery limitation: a
-    // province whose season cannot be fully resolved (an anchor never
-    // posted for a bell) holds its roster's rent while it has a live entry.
+    // The province position: the canonical address only (the deadline
+    // rule above). Present there, it is the province the table pairs with
+    // (this season's and world's, that coordinate); absent, it closed.
     expect_key(province, &wl::province_address(&ctx, r.province.coord()))?;
-    let prov = province_at(province, p, sid)?.ok_or(BAD_ACCOUNT)?;
-    if prov.world != world || prov.coord != r.province.coord() {
-        return Err(BAD_ACCOUNT);
-    }
-    if tomb.is_none() {
-        let pd = province.try_borrow_data()?;
-        let rd = roster_ai.try_borrow_data()?;
-        let live = wres::live_ids(&pd).map_err(resolve_err)?;
-        r.validate_paired(&rd, &live).map_err(|_| BAD_ACCOUNT)?;
-        let rn = Ro(&pd).u32(PV::RESOLVED_NEXT)?;
-        let end_bell = {
-            let sd = season_ai.try_borrow_data()?;
-            Ro(&sd).u32(S::END_BELL)?
-        };
-        let mut any_live = false;
-        for (i, host) in live.iter().enumerate() {
-            if host.is_none() {
-                continue;
-            }
-            any_live = true;
-            let e = read_entry(&pd, i).map_err(|_| BAD_ACCOUNT)?;
-            let unresolved = e.state == E::STATE_DEPARTED
-                || matches!(e.op, EntryOp::Spend { .. } | EntryOp::Leave);
-            if unresolved {
-                return Err(FrontierError::HostInTransit.into());
-            }
+    match province_at(province, p, sid)? {
+        Some(prov) if prov.world != world || prov.coord != r.province.coord() => {
+            return Err(BAD_ACCOUNT);
         }
-        if any_live && rn < end_bell {
-            return Err(FrontierError::HostInTransit.into());
-        }
+        _ => {}
     }
     let lamports = roster_ai.lamports();
     init::close_to(p, roster_ai, rent_to, &Sink::Never, bell)?;
@@ -4709,6 +5186,102 @@ mod march_pure_tests {
         assert!(
             wr::RegionRule::from_byte(2).is_err(),
             "one candidate: a second one must make the settle read the configuration"
+        );
+    }
+
+    /// The deployed CloseArrivalSlot's cases over fixed values: nothing
+    /// closes unsettled while the rules apply; settled and claimed closes;
+    /// settled and unclaimed closes only by the anchor's grace (archived =
+    /// passed, not listed = not yet, present = `close + 6 bells` exactly);
+    /// the season-end fallback closes anything.
+    #[test]
+    fn slot_close_follows_the_deployed_cases() {
+        use super::AnchorClose as A;
+        let close = 1_000_000i64;
+        let grace = super::super::transit::CLAIM_GRACE_BELLS as i64 * 600;
+        assert_eq!(grace, 3_600, "the deployed six bells");
+        for anchor in [A::NotListed, A::Archived, A::At(close)] {
+            for claimed in [false, true] {
+                assert!(!slot_close_due(true, false, claimed, anchor, i64::MAX));
+                assert!(slot_close_due(false, false, claimed, anchor, i64::MIN));
+            }
+            assert!(slot_close_due(true, true, true, anchor, i64::MIN));
+        }
+        assert!(!slot_close_due(true, true, false, A::NotListed, i64::MAX));
+        assert!(slot_close_due(true, true, false, A::Archived, i64::MIN));
+        assert!(!slot_close_due(
+            true,
+            true,
+            false,
+            A::At(close),
+            close + grace - 1
+        ));
+        assert!(slot_close_due(
+            true,
+            true,
+            false,
+            A::At(close),
+            close + grace
+        ));
+        assert!(
+            slot_close_due(true, true, false, A::At(i64::MAX), i64::MAX),
+            "saturating"
+        );
+    }
+
+    /// The deployed CloseArrivalDay's case: day `d` closes at
+    /// `resolved_next ≥ (d + 1) × 144`, one bell short does not.
+    #[test]
+    fn day_close_needs_every_bell_of_the_day_resolved() {
+        let bells = wa::wide_arrival_day::BELLS;
+        assert_eq!(bells, 144);
+        for day in [0u32, 1, 7, u32::MAX / bells - 1] {
+            let need = (day as u64 + 1) * bells as u64;
+            assert!(!day_close_due(day, 0));
+            assert!(!day_close_due(day, (need - 1) as u32));
+            assert!(day_close_due(day, need as u32));
+            assert!(day_close_due(day, u32::MAX));
+        }
+        assert!(!day_close_due(u32::MAX, u32::MAX), "no wrap");
+    }
+
+    /// The deployed CloseClashInputs' cases over a wide header: a resolved
+    /// record with a present, unsettled position is open; settled, it waits
+    /// `resolved_ts + grace` from genesis; a no-arrival record waits for the
+    /// bell to be passed by the province and its end plus the grace; a
+    /// record neither resolved nor no-arrivals is open; overflow is the
+    /// arithmetic error, not a close.
+    #[test]
+    fn inputs_close_follows_the_deployed_cases() {
+        let world = WorldId::new([7; 32]).unwrap();
+        let dest = ProvinceKey::new(world, WideCoord::checked(129, 0).unwrap());
+        let mut h = WideClashInputsHdr::new(1, dest, 20, [9; 32]);
+        assert!(
+            !inputs_close_due(&h, 0, u32::MAX, 0, i64::MAX).unwrap(),
+            "neither resolved nor no-arrivals: open"
+        );
+        h.flags = wa::wide_clash_inputs::FLAG_RESOLVED;
+        h.resolved_ts = 12_000;
+        h.settled_mask = 0b01;
+        assert!(!inputs_close_due(&h, 0b11, 0, 600, 100_000).unwrap());
+        assert!(!inputs_close_due(&h, 0b01, 0, 600, 12_599).unwrap());
+        assert!(inputs_close_due(&h, 0b01, 0, 600, 12_600).unwrap());
+        assert!(inputs_close_due(&h, 0, 0, 600, 12_600).unwrap());
+        assert!(
+            inputs_close_due(&h, 0b01, 0, i64::MAX, 0).is_err(),
+            "overflow is refused, never a close"
+        );
+        let mut n = WideClashInputsHdr::new(1, dest, 20, [9; 32]);
+        n.flags = wa::wide_clash_inputs::FLAG_NO_ARRIVALS;
+        assert!(
+            !inputs_close_due(&n, 0, 20, 600, i64::MAX).unwrap(),
+            "bell not passed"
+        );
+        assert!(!inputs_close_due(&n, 0, 21, 600, 21 * 600 + 599).unwrap());
+        assert!(inputs_close_due(&n, 0, 21, 600, 21 * 600 + 600).unwrap());
+        assert!(
+            inputs_close_due(&n, 0, 21, i64::MAX, i64::MAX).is_err(),
+            "overflow is refused, never a close"
         );
     }
 }

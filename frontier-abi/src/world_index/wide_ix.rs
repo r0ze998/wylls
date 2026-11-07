@@ -27,7 +27,7 @@
 //! | 0xDB | WideSetRules | `config_version u16, keep_holder u8, free_city u8, camp u8, region u8` | O, top-level | writes the Season's experimental rules configuration once (`world_index::rules`), by the Season's authority |
 //! | 0xDC | WideSettleTicket | `k u8` | D | the deployed SettleTicket over the wide ticket: expired, or the beacon seed of the ticket's bell and the province's region, the full-width score, fresh / displace / taken; the provisional wide holding from the record's escrow; the ticket ends and the record stays Settled, retaining the escrow a win did not consume (the deployed escrow retention) |
 //! | 0xDD | WideResidentAct | `generation u32, inner (a P instruction of this band)` | P | the band's own `ResidentAct`: runs WideClaimSite or WideDepart for an NFT resident's Citizen with the four proof accounts appended and the signed holder generation; never routes a v2 tag, and `ResidentAct` never routes a draft tag |
-//! | 0xDE | WideClose | `what u8` (0 ticket, 1 holding) | N | season end (Ended + 72 h, Aborted, the tombstone): a wide ticket record closes as CloseCitizen closes a Citizen: the escrow to its funder (listed exactly when non-zero), the rest whole to its immutable rent payer (pending: the Citizen's marker clears, before CloseCitizen; Settled: before or after CloseCitizen, the Citizen position then absent); a wide holding closes to its rent payer after its `pool_owed` is swept to the DefencePool (the deployed CloseHolding cannot close a 1,344-byte record) |
+//! | 0xDE | WideClose | `what u8` (0 ticket, 1 holding, 2 ArrivalSlot, 3 ArrivalDay, 4 ClashInputs, 5 transit, 6 province) | N | season end (Ended + 72 h, Aborted, the tombstone): a wide ticket record closes as CloseCitizen closes a Citizen: the escrow to its funder (listed exactly when non-zero), the rest whole to its immutable rent payer (pending: the Citizen's marker clears, before CloseCitizen; Settled: before or after CloseCitizen, the Citizen position then absent); a wide holding closes to its rent payer after its `pool_owed` is swept to the DefencePool, the escrow of unsettled marches included, as the deployed CloseHolding does; the march records close under the deployed closes' own case rules (CloseArrivalSlot, CloseArrivalDay, CloseClashInputs) to their immutable rent recipients, a transit record left open at season end to its own (the holding position at its canonical address, counted down when present), and a wide province into the fund of the wedge that opened it as the deployed CloseProvince does (Ended + 72 h or Aborted; never the tombstone, whose CloseSeason closed the funds). After the deadline the closes run in any order, none reading another's account: the deployed expiry rule |
 //! | 0xDF | WideFinalize | (none) | N | the deployed lazy provisional → final flip of a wide holding, callable by anyone: `now ≥ final_ts` **and** the ticket's cohort closed on its province (`prologue::finality_due`), else `TooEarly`; `AlreadyDone` once final |
 //!
 //! Coordinates are the full `i64` pair of a `WideCoord` (never an `i16`
@@ -63,7 +63,7 @@
 //! | 0xDC | D | 3 | WideSettleDeparture | `host ref 56, transit_slot u8` | [`SETTLE_DEPARTURE`] |
 //! | 0xDC | D, top-level | 4 | WideGather | `bell u32, start u8, n u8` | [`GATHER`] |
 //! | 0xDC | D | 5 | WideSettleTransit | `transit_slot u8, commit 32, seal 264, beneficiary 32` | [`SETTLE_TRANSIT`] (17 fixed, the owner Citizen optional) |
-//! | 0xDE | N | 1 | WideCloseRoster | (none) | [`CLOSE_ROSTER`] (5: the province, for the departed entries that still depend on the table) |
+//! | 0xDE | N | 1 | WideCloseRoster | (none) | [`CLOSE_ROSTER`] (5: the province position at its canonical address, present or already closed) |
 //!
 //! **The march stages** (ops 3–5 of 0xDC) are the class-D stages of the
 //! deployed march (SettleDeparture, GatherClash, SettleTransit) over the
@@ -131,6 +131,21 @@ pub const TAG_REVEAL: u8 = 0xEE;
 pub const CLOSE_WHAT_TICKET: u8 = 0;
 /// `WideClose(what)`: a wide holding.
 pub const CLOSE_WHAT_HOLDING: u8 = 1;
+/// `WideClose(what)`: a wide ArrivalSlot (the deployed CloseArrivalSlot).
+pub const CLOSE_WHAT_SLOT: u8 = 2;
+/// `WideClose(what)`: a wide ArrivalDay (the deployed CloseArrivalDay).
+pub const CLOSE_WHAT_DAY: u8 = 3;
+/// `WideClose(what)`: a wide ClashInputs (the deployed CloseClashInputs).
+pub const CLOSE_WHAT_INPUTS: u8 = 4;
+/// `WideClose(what)`: a wide transit record left open at season end (the
+/// deployed Holding's transit slots die with the Holding; the wide record
+/// is its own account and closes to its own rent recipient).
+pub const CLOSE_WHAT_TRANSIT: u8 = 5;
+/// `WideClose(what)`: a wide province (the deployed CloseProvince: whole
+/// into the fund of the wedge that opened it, `provinces_opened − 1`).
+pub const CLOSE_WHAT_PROVINCE: u8 = 6;
+/// The highest `what` a WideClose carries.
+pub const CLOSE_WHAT_MAX: u8 = CLOSE_WHAT_PROVINCE;
 
 /// Whether `t` is a tag the experimental build routes: the draft band or
 /// the class-W carrier.
@@ -488,11 +503,11 @@ impl Close {
         [Self::IX.tag(), self.what]
     }
 
-    /// `BadData` for a `what` outside the two.
+    /// `BadData` for a `what` above [`CLOSE_WHAT_MAX`].
     pub fn decode(d: &[u8]) -> Result<Self, FrontierError> {
         let mut c = exact(d, Self::IX.tag(), Self::LEN)?;
         let what = c.u8().ok_or(FrontierError::BadData)?;
-        if what != CLOSE_WHAT_TICKET && what != CLOSE_WHAT_HOLDING {
+        if what > CLOSE_WHAT_MAX {
             return Err(FrontierError::BadData);
         }
         Ok(Close { what })
@@ -973,6 +988,11 @@ impl<'a> WideCommand<'a> {
             WideCommand::SettleTransit(_) => SETTLE_TRANSIT,
             WideCommand::Reveal(_) => REVEAL,
             WideCommand::Close(c) if c.what == CLOSE_WHAT_HOLDING => CLOSE_HOLDING,
+            WideCommand::Close(c) if c.what == CLOSE_WHAT_SLOT => CLOSE_SLOT,
+            WideCommand::Close(c) if c.what == CLOSE_WHAT_DAY => CLOSE_DAY,
+            WideCommand::Close(c) if c.what == CLOSE_WHAT_INPUTS => CLOSE_INPUTS,
+            WideCommand::Close(c) if c.what == CLOSE_WHAT_TRANSIT => CLOSE_TRANSIT,
+            WideCommand::Close(c) if c.what == CLOSE_WHAT_PROVINCE => CLOSE_PROVINCE,
             _ => accounts_of(self.ix()),
         }
     }
@@ -1285,6 +1305,62 @@ pub const CLOSE_HOLDING: &[Group] = &[one(&[
     s("dpool", Acc::Any, false, Wr::W),
 ])];
 
+/// WideClose(2): the deployed CloseArrivalSlot's `[any s] [season r] [slot
+/// w] [rent_to w] ([anchor r])` over a wide ArrivalSlot. The slot names its
+/// own destination, bell, faction and index (no data beyond `what`).
+pub const CLOSE_SLOT: &[Group] = &[
+    one(&[
+        s("any", Acc::Wallet, true, Wr::R),
+        s("season", Acc::Any, false, Wr::R),
+        s("slot", WIDE, false, Wr::W),
+        s("rent_to", Acc::Wallet, false, Wr::W),
+    ]),
+    opt(&[s("anchor", Acc::Any, false, Wr::R)]),
+];
+
+/// WideClose(3): the deployed CloseArrivalDay's `[any s] [season r]
+/// [province r] [day w] [rent_to w]` over a wide ArrivalDay.
+pub const CLOSE_DAY: &[Group] = &[one(&[
+    s("any", Acc::Wallet, true, Wr::R),
+    s("season", Acc::Any, false, Wr::R),
+    s("province", WIDE, false, Wr::R),
+    s("day", WIDE, false, Wr::W),
+    s("rent_to", Acc::Wallet, false, Wr::W),
+])];
+
+/// WideClose(4): the deployed CloseClashInputs' `[any s] [season r]
+/// [province r] [inputs w] [rent_to w]` over a wide ClashInputs.
+pub const CLOSE_INPUTS: &[Group] = &[one(&[
+    s("any", Acc::Wallet, true, Wr::R),
+    s("season", Acc::Any, false, Wr::R),
+    s("province", WIDE, false, Wr::R),
+    s("inputs", WIDE, false, Wr::W),
+    s("rent_to", Acc::Wallet, false, Wr::W),
+])];
+
+/// WideClose(5): `[any s] [season r] [transit w] [rent_to w] [holding
+/// w]`: a wide transit record left open at season end closes whole to its
+/// immutable rent recipient; the holding position is always the canonical
+/// address of the host's holding — present there, it counts one open
+/// transit fewer; absent there, it closed first and nothing is counted.
+pub const CLOSE_TRANSIT: &[Group] = &[one(&[
+    s("any", Acc::Wallet, true, Wr::R),
+    s("season", Acc::Any, false, Wr::R),
+    s("transit", WIDE, false, Wr::W),
+    s("rent_to", Acc::Wallet, false, Wr::W),
+    s("holding", WIDE, false, Wr::W),
+])];
+
+/// WideClose(6): the deployed CloseProvince's `[any s] [season r]
+/// [province w] [pfund w]` over a wide province: whole into the fund of
+/// the wedge that opened it.
+pub const CLOSE_PROVINCE: &[Group] = &[one(&[
+    s("any", Acc::Wallet, true, Wr::R),
+    s("season", Acc::Any, false, Wr::R),
+    s("province", WIDE, false, Wr::W),
+    s("pfund", Acc::Kind(K::ProvinceFund), false, Wr::W),
+])];
+
 /// `[any s] [season r] [holding w] [province r]`: the permissionless
 /// finality flip of a wide holding.
 pub const FINALIZE: &[Group] = &[one(&[
@@ -1555,9 +1631,10 @@ pub const SETTLE_TRANSIT_FIXED: usize = 17;
 
 /// WideCloseRoster: `[any s] [season r] [roster w] [rent_to w] [province
 /// r]`: the season-end close of a roster side table, whole to its
-/// immutable rent recipient. The province the table pairs with is read:
-/// while any of its departed entries (state 3) still carries a reference,
-/// a settle or a return depends on the table and the close is refused.
+/// immutable rent recipient, at the deadline whatever its entries' states
+/// (the deployed CloseProvince's rule over the entry table). The province
+/// position is the canonical address of the province the table pairs
+/// with: present, it must be that province; absent, it closed first.
 pub const CLOSE_ROSTER: &[Group] = &[one(&[
     s("any", Acc::Wallet, true, Wr::R),
     s("season", Acc::Any, false, Wr::R),
@@ -1831,8 +1908,63 @@ mod tests {
         assert_eq!(Close { what: 0 }.to_bytes(), [0xDE, 0]);
         assert_eq!(Close::decode(&[0xDE, 0]), Ok(Close { what: 0 }));
         assert_eq!(Close::decode(&[0xDE, 1]), Ok(Close { what: 1 }));
-        assert_eq!(Close::decode(&[0xDE, 2]), Err(FrontierError::BadData));
+        for what in 2..=6u8 {
+            assert_eq!(Close::decode(&[0xDE, what]), Ok(Close { what }));
+        }
+        assert_eq!(CLOSE_WHAT_MAX, 6);
+        assert_eq!(Close::decode(&[0xDE, 7]), Err(FrontierError::BadData));
+        assert_eq!(Close::decode(&[0xDE, 0xFF]), Err(FrontierError::BadData));
         assert_eq!(Close::decode(&[0xDE]), Err(FrontierError::BadData));
+        // the season-end closes of the march records: the deployed shapes
+        assert_eq!(bounds_in(CLOSE_SLOT), (4, 5));
+        assert_eq!(
+            crate::prologue::count_bounds(crate::tags::Ix::CloseArrivalSlot),
+            (4, 5)
+        );
+        assert_eq!(bounds_in(CLOSE_DAY), (5, 5));
+        assert_eq!(
+            crate::prologue::count_bounds(crate::tags::Ix::CloseArrivalDay),
+            (5, 5)
+        );
+        assert_eq!(bounds_in(CLOSE_INPUTS), (5, 5));
+        assert_eq!(
+            crate::prologue::count_bounds(crate::tags::Ix::CloseClashInputs),
+            (5, 5)
+        );
+        assert_eq!(
+            bounds_in(CLOSE_TRANSIT),
+            (5, 5),
+            "the holding position is fixed: no optional existence"
+        );
+        assert_eq!(bounds_in(CLOSE_PROVINCE), (4, 4));
+        assert_eq!(
+            crate::prologue::count_bounds(crate::tags::Ix::CloseProvince),
+            (4, 4)
+        );
+        assert_eq!(position_in(CLOSE_SLOT, 5, "anchor", 0), Some(4));
+        assert_eq!(position_in(CLOSE_DAY, 5, "day", 0), Some(3));
+        assert_eq!(position_in(CLOSE_INPUTS, 5, "inputs", 0), Some(3));
+        assert_eq!(position_in(CLOSE_TRANSIT, 5, "holding", 0), Some(4));
+        assert_eq!(position_in(CLOSE_PROVINCE, 4, "pfund", 0), Some(3));
+        assert_eq!(
+            CLOSE_PROVINCE[0].specs[3].acc,
+            Acc::Kind(K::ProvinceFund),
+            "the fund is the deployed kind"
+        );
+        for (what, table) in [
+            (CLOSE_WHAT_SLOT, CLOSE_SLOT),
+            (CLOSE_WHAT_DAY, CLOSE_DAY),
+            (CLOSE_WHAT_INPUTS, CLOSE_INPUTS),
+            (CLOSE_WHAT_TRANSIT, CLOSE_TRANSIT),
+            (CLOSE_WHAT_PROVINCE, CLOSE_PROVINCE),
+        ] {
+            let bytes = [0xDE, what];
+            let c = WideCommand::decode(&bytes).unwrap();
+            assert_eq!(c, WideCommand::Close(Close { what }));
+            assert_eq!(c.accounts().len(), table.len());
+            assert_eq!(c.class(), crate::tags::Class::N);
+            assert!(!c.is_player() && !c.march_stage());
+        }
         assert_eq!(Finalize.to_bytes(), [0xDF]);
         assert_eq!(Finalize::decode(&[0xDF]), Ok(Finalize));
         assert_eq!(Finalize::decode(&[0xDF, 0]), Err(FrontierError::BadData));
@@ -2138,7 +2270,15 @@ mod tests {
             WideCommand::decode(&[0xDE, 1]),
             Ok(WideCommand::Close(Close { what: 1 }))
         );
-        assert_eq!(WideCommand::decode(&[0xDE, 2]), Err(FrontierError::BadData));
+        assert_eq!(
+            WideCommand::decode(&[0xDE, 2]),
+            Ok(WideCommand::Close(Close { what: 2 }))
+        );
+        assert_eq!(
+            WideCommand::decode(&[0xDE, 6]),
+            Ok(WideCommand::Close(Close { what: 6 }))
+        );
+        assert_eq!(WideCommand::decode(&[0xDE, 7]), Err(FrontierError::BadData));
         assert_eq!(
             WideCommand::decode(&[0xDE, 0xFF]),
             Err(FrontierError::BadData)
