@@ -261,3 +261,10 @@ v0.17 の持ち主の定義への置き換え（`authorize` = `holder` + `author
 - 本物の `frontier-localnet` に住民プログラムを載せての読み取り（代替ノードだけ）。
 - 生の読み取りを完全とみなすかは利用者が確認中（④ の連絡）。⑳ の側は、確認されていない履歴を PASS にしない。V0 は ResidentAct を引き続き UNVERIFIABLE にし、内側の命令の効果は再生しない。
 - ④ が報告した c7b3c54c 由来の 2 件の FAIL（V0 の custody 命令 11 個の答え、conquest kind 105）は、⑪ の 0012 で扱われたと ④ の版の記述にあるが、⑳ は `verify --lib` 全体と `new_bands` を実行していない。
+
+### 実行してはいけない試験（④ の指摘、2026-11-07）
+
+鍵を作って署名するので、鍵なしの一覧に入れない：
+- `cargo test -p fclient --lib`（`beacon.rs`・`seal.rs` は `TestKey::new()`、`tx.rs` は `Keypair::new_from_array([3; 32])` で署名する）。⑳ が実行したのは `--exact addr::tests::resident_pdas_match_the_web_client` の 1 件だけ（鍵なし）。
+- `verify --test fixtures` の `march_fixture_is_fresh`（`fixture::march::march()` が固定 seed の鍵で署名する）。⑳ は実行していない。
+- 以前の `verify --lib -- … history::` の絞り込みは、一覧で確かめると試験に一つも当たっていない。⑳ が verify lib で実行したのは `resident_feed::tests`（2）と `checks::v28_resident_acts::tests`（7）だけ。
