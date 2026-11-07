@@ -62,6 +62,7 @@ fn holding(f: &Fold, c: WideCoord, site: u8) -> ([u8; 32], Vec<u8>) {
         slot: 2,
         owner_citizen: [9; 32],
         host_identity: 0,
+        open_transits: 0,
     };
     let mut d = vec![0; holding::wide_holding::SIZE];
     h.write_identity(&mut d).unwrap();
@@ -200,4 +201,95 @@ fn me_reports_wide_slot_as_unknown_until_the_matching_capture_arrives() {
     assert_eq!(view["wideHoldings"][0]["status"], "captured-unverified");
     assert_eq!(view["wideHoldings"][0]["holding"]["p"], "129");
     assert_eq!(view["wideHoldings"][0]["holding"]["site"], 2);
+}
+
+#[test]
+fn current_writer_event_is_v82_with_standing_separate_and_never_legacy_success() {
+    use base64::Engine;
+    use fclient::log::{bodies_from_logs, LogError};
+    use frontier_abi::world_index::{event as e, ProvinceKey, WideHostRef};
+    let f = fold();
+    let world = f.wide.as_ref().unwrap().world();
+    let home = ProvinceKey::new(world, WideCoord::checked(129, 0).unwrap());
+    let standing = ProvinceKey::new(world, WideCoord::checked(9_007_199_254_740_993, 0).unwrap());
+    let host = WideHostRef::new(home, 2, 1, 7).unwrap();
+    let key = e::host_key(&host, standing);
+    let payload = e::muster_payload(0, 300, 17, 0, 1);
+    // Literal chain heads test the wire decoder only, not validity of a game event chain.
+    let links = [
+        e::WideLink {
+            entity: e::WideEntity::Province,
+            seq: 1,
+            head: [2; 32],
+        },
+        e::WideLink {
+            entity: e::WideEntity::Holding,
+            seq: 1,
+            head: [3; 32],
+        },
+    ];
+    let body = e::encode(e::WideKind::Muster, 42, &key, &payload, &links).unwrap();
+    assert_eq!(body[0], 0x82);
+    let decoded = e::WideRecord::decode(&body).unwrap();
+    assert_eq!(decoded.home_of(), Some(home));
+    assert_eq!(decoded.province_of(), Some(standing));
+    assert_ne!(decoded.home_of(), decoded.province_of());
+    let b64 = base64::engine::general_purpose::STANDARD;
+    let logs = vec![
+        format!("Program {} invoke [1]", f.cfg.program),
+        format!(
+            "Program data: {} {}",
+            b64.encode(b"PSW1"),
+            b64.encode(&body)
+        ),
+        format!("Program {} success", f.cfg.program),
+    ];
+    assert_eq!(
+        bodies_from_logs(&logs, &f.cfg.program),
+        Err(LogError::UnsupportedWideRecord)
+    );
+    let mut old = body.clone();
+    old[0] = 0x81;
+    assert_eq!(
+        e::WideRecord::decode(&old),
+        Err(e::EventError::RetiredVersion(0x81))
+    );
+    old[0] = 0x83;
+    assert_eq!(
+        e::WideRecord::decode(&old),
+        Err(e::EventError::Version(0x83))
+    );
+}
+
+#[test]
+fn new_holding_open_transits_field_is_captured_and_unknown_layout_is_not_empty() {
+    let mut f = fold();
+    let c = WideCoord::checked(129, 0).unwrap();
+    let (pk, pd) = province(&f, c);
+    let (hk, mut hd) = holding(&f, c, 2);
+    hd[holding::wide_holding::HOST_IDENTITY..holding::wide_holding::HOST_IDENTITY + 2]
+        .copy_from_slice(
+            &frontier_abi::world_index::march::HOST_IDENTITY_FULL_REF_V1.to_le_bytes(),
+        );
+    hd[holding::wide_holding::OPEN_TRANSITS] = 1;
+    assert_eq!(WideHolding::read(&hd).unwrap().open_transits, 1);
+    apply(&mut f, pk, Some(pd), fixture::program());
+    apply(&mut f, hk, Some(hd.clone()), fixture::program());
+    assert_eq!(
+        entry(&f, c)["wide"]["holdings"].as_array().unwrap().len(),
+        1
+    );
+    let mut unknown = hd.clone();
+    unknown[frontier_abi::layout::header::LAYOUT_VERSION
+        ..frontier_abi::layout::header::LAYOUT_VERSION + 2]
+        .copy_from_slice(&4u16.to_le_bytes());
+    apply(&mut f, hk, Some(unknown), fixture::program());
+    assert_eq!(f.account(&hk).unwrap().data, hd);
+    assert_eq!(
+        WideHolding::read(&f.account(&hk).unwrap().data)
+            .unwrap()
+            .open_transits,
+        1
+    );
+    assert_eq!(wide::manifest_json(&f).unwrap()["refused"], 1);
 }

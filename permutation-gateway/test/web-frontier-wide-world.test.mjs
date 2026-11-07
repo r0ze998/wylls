@@ -472,3 +472,19 @@ test('the screen shows captured wide land past the legacy cap without aliasing i
     assert.equal(mode.state().walk.list().length,1);
   } finally { mode.unmount(); }
 });
+
+test('an incomplete terminal page is not a successfully empty or complete recorded world', async () => {
+  const empty = new WideWalk(); empty.begin(parseWideManifest(manifest()));
+  assert.equal(empty.accept(page([])), 'IncompleteRecordedWorld');
+  assert.equal(empty.done, false); assert.equal(empty.entries.size, 0);
+  const short = new WideWalk({limit:2}); short.begin(parseWideManifest(manifest()));
+  assert.equal(short.accept(page(E.slice(0,2), {next:CURSOR,limit:2})), 'applied');
+  assert.equal(short.accept(page(E.slice(2,3), {after:CURSOR,limit:2})), 'IncompleteRecordedWorld');
+  assert.equal(short.entries.size,2, 'the refused partial terminal page is not applied');
+  const extra = new WideWalk(); extra.begin(parseWideManifest(manifest({recorded:3})));
+  assert.equal(extra.accept(page(E)), 'RecordedCountMismatch');
+  assert.equal(extra.entries.size,0);
+  const bad = await loadWide({wideWorld:async()=>({ok:true,manifest:parseWideManifest(manifest())}),
+    wideWorldPage:async()=>({ok:true,json:page([])})});
+  assert.equal(bad.ok,false); assert.equal(bad.code,'IncompleteRecordedWorld');
+});

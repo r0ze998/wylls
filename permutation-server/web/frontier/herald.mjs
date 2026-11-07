@@ -438,23 +438,40 @@ export function createHerald({ base = '', fetch: f = (...a) => globalThis.fetch(
         // A holding the Citizen names that the fold has not captured (or
         // closed) is listed as null: skipped, never a failed view (wave-3
         // review, W3-E/W3-F); the checks see the same, aligned list.
-        const j = { ...r.json, holdings: (r.json?.holdings ?? []).filter(h => h !== null && h !== undefined) };
+        check(r.json && r.json.v === 1 && Array.isArray(r.json.holdings) && Array.isArray(r.json.slots), 'BadRecord', 'incomplete me record');
+        const j = { ...r.json, holdings: r.json.holdings.filter(h => h !== null && h !== undefined) };
         const opts = { seasonId: pinned ?? undefined };
         const citizen = j.citizen?.bytes_b64 ? decode('Citizen', bytesOf(j.citizen.bytes_b64), opts) : null;
         const holdings = j.holdings.map(h => decode('Holding', bytesOf(h.bytes_b64), opts));
         if (addrs) checkMe(addrs, wallet, j, citizen, holdings);
         // The viewer's own ArrivalSlots, of any bell, decoded (the record lists them from the moment a Reveal lands;
-        // a province's `latest` envelope carries only the slots of the bell it resolves next). One that cannot be
-        // read is left out: the view itself never fails for it.
-        const slots = [];
-        for (const s of Array.isArray(j.slots) ? j.slots : []) { try { slots.push(decode('ArrivalSlot', bytesOf(s.bytes_b64), opts)); } catch { /* left out */ } }
+        // a province's `latest` envelope carries only the slots of the bell it resolves next).
+        // Unsupported or corrupt bytes are an incomplete view, never a missing arrival.
+        const slots = j.slots.map(s => decode('ArrivalSlot', bytesOf(s?.bytes_b64), opts));
         return { record: j, citizen, holdings, slots };
       });
     },
     /** GET /h/events?after={seq}: a page of PS2 records. */
     async events(after = 0) {
       const r = await get(f, `${root}/h/events?after=${encodeURIComponent(String(after))}`);
-      return r.ok ? { ok: true, events: Array.isArray(r.json?.events) ? r.json.events : [], next: r.json?.next ?? null, full: r.json?.full === true } : r;
+      if (!r.ok) return r;
+      return guard(() => {
+        const j = r.json;
+        check(j && j.v === 1 && Array.isArray(j.events) && typeof j.next === 'string', 'BadRecord', 'incomplete event page');
+        const cursor = s => {
+          check(typeof s === 'string' && /^(0|[1-9][0-9]*)$/.test(s) && s.length <= 20, 'BadRecord', 'event cursor');
+          const n = BigInt(s); check(n <= 0xffffffffffffffffn, 'BadRecord', 'event cursor overflow'); return n;
+        };
+        let last = cursor(String(after));
+        for (const row of j.events) {
+          check(row && typeof row === 'object' && !Array.isArray(row) && typeof row.body_b64 === 'string' && row.body_b64.length > 0, 'BadRecord', 'event row');
+          const seq = cursor(row.seq); check(seq > last, 'BadRecord', 'event order'); last = seq;
+        }
+        check(cursor(j.next) === last, 'BadRecord', 'event page cursor mismatch');
+        check(typeof j.full === 'boolean', 'BadRecord', 'event page fullness');
+        check(!j.full || j.events.length > 0, 'BadRecord', 'empty full page');
+        return { events: j.events, next: j.next, full: j.full === true };
+      });
     },
     /** GET /h/clash/{P},{Q}/{bell}: the clash report (immutable). */
     clash(p, q, bell) {

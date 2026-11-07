@@ -13,17 +13,19 @@ fn line(tag: &[u8], body: &[u8]) -> String {
 #[test]
 fn wide_program_record_is_unsupported_not_empty_legacy_history() {
     let p = Address::new_from_array([23; 32]);
-    let wide = line(b"PSW1", &[0x81, 1]);
-    let logs = vec![
-        format!("Program {p} invoke [1]"),
-        wide.clone(),
-        format!("Program {p} success"),
-    ];
-    assert_eq!(
-        bodies_from_logs(&logs, &p),
-        Err(LogError::UnsupportedWideRecord)
-    );
-    assert_eq!(body_of_line(&wide), Err(LogError::UnsupportedWideRecord));
+    for version in [0x81, 0x82, 0x83] {
+        let wide = line(b"PSW1", &[version, 1]);
+        let logs = vec![
+            format!("Program {p} invoke [1]"),
+            wide.clone(),
+            format!("Program {p} success"),
+        ];
+        assert_eq!(
+            bodies_from_logs(&logs, &p),
+            Err(LogError::UnsupportedWideRecord)
+        );
+        assert_eq!(body_of_line(&wide), Err(LogError::UnsupportedWideRecord));
+    }
 }
 
 #[test]

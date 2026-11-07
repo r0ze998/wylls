@@ -323,6 +323,13 @@ export class WideWalk {
       this.fault = e instanceof WideError ? e.code : 'BadPage';
       return this.fault;
     }
+    const total = this.entries.size + page.entries.length;
+    if (total > this.manifest.recorded || (page.next !== null && total >= this.manifest.recorded)) {
+      this.fault = 'RecordedCountMismatch'; return this.fault;
+    }
+    if (page.next === null && total !== this.manifest.recorded) {
+      this.fault = 'IncompleteRecordedWorld'; return this.fault;
+    }
     for (const e of page.entries) {
       // (parseWidePage already refused a repeat within the page and across the previous page's last entry)
       if (this.entries.has(e.key)) { this.fault = 'DuplicateEntry'; return this.fault; }

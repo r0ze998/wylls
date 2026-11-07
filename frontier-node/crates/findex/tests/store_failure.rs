@@ -221,27 +221,29 @@ async fn index_failure_requires_reopen_and_catches_up_from_the_archive() {
 
 #[tokio::test]
 async fn unsupported_wide_log_is_archived_but_never_advances_legacy_index() {
-    let d = tmp("unsupported-wide");
-    let mut fx = open(&d, 1 << 20);
-    let mut src = VecSource::new(1);
-    let p = Address::new_from_array([23; 32]);
-    src.records[0].logs = vec![
-        format!("Program {p} invoke [1]"),
-        "Program data: UFNXMQ== gQE=".into(),
-        format!("Program {p} success"),
-    ];
-    let err = fx.ingest(&mut src).await.unwrap_err().to_string();
-    assert!(err.contains("UnsupportedWideRecord"), "{err}");
-    assert!(fx.is_poisoned());
-    assert_eq!(fx.index.last_seq().unwrap(), 0);
-    assert_eq!(fx.archive.read_after(0).unwrap().len(), 1);
-    let pulls = src.pulls;
-    assert!(fx.ingest(&mut src).await.is_err());
-    assert_eq!(src.pulls, pulls);
-    drop(fx);
-    // Reopening must still refuse unsupported archived data, never mark it covered.
-    assert!(Findex::open(&d, p, None, 1 << 20).is_err());
-    std::fs::remove_dir_all(d).unwrap();
+    for encoded_body in ["gQE=", "ggE="] {
+        let d = tmp("unsupported-wide");
+        let mut fx = open(&d, 1 << 20);
+        let mut src = VecSource::new(1);
+        let p = Address::new_from_array([23; 32]);
+        src.records[0].logs = vec![
+            format!("Program {p} invoke [1]"),
+            format!("Program data: UFNXMQ== {encoded_body}"),
+            format!("Program {p} success"),
+        ];
+        let err = fx.ingest(&mut src).await.unwrap_err().to_string();
+        assert!(err.contains("UnsupportedWideRecord"), "{err}");
+        assert!(fx.is_poisoned());
+        assert_eq!(fx.index.last_seq().unwrap(), 0);
+        assert_eq!(fx.archive.read_after(0).unwrap().len(), 1);
+        let pulls = src.pulls;
+        assert!(fx.ingest(&mut src).await.is_err());
+        assert_eq!(src.pulls, pulls);
+        drop(fx);
+        // Reopening must still refuse unsupported archived data, never mark it covered.
+        assert!(Findex::open(&d, p, None, 1 << 20).is_err());
+        std::fs::remove_dir_all(d).unwrap();
+    }
 }
 
 #[tokio::test]
