@@ -1,5 +1,6 @@
 //! ABI v2 error codes (MC contract §5.3), **stable forever**: 62–78 (MC)
-//! and 79–93 (S1), and ⑳'s provisional 170–175 (NFT residents), beside
+//! and 79–93 (S1), ⑳'s provisional 170–175 (NFT residents) and custody's
+//! provisional 100–104 (workstream 10; allocation rev 4), beside
 //! M1's 1–61 and 99 ([`crate::error::FrontierError`], unchanged).
 //!
 //! The program returns `ProgramError::Custom(code)` for either enum;
@@ -101,10 +102,23 @@ pub enum CqError {
     /// The signer is neither the asset's current owner nor its current
     /// session.
     ResidentNotCurrentAuthority = 175,
+    /// Custody: the vault has no room for the quota, or the lot for the
+    /// caravan (room is reserved at departure).
+    CustodyCapacity = 100,
+    /// Custody: no free order or inbound slot in the lot.
+    CustodyNoSlot = 101,
+    /// Custody: the order has expired, or would run too long.
+    OrderExpired = 102,
+    /// Custody: the lot's vault was seized (another generation): only
+    /// ReconcileLot applies.
+    LotForfeited = 103,
+    /// Custody: the lot still holds goods, expects a caravan or has a live
+    /// order; or a quota below what it holds and expects.
+    LotNotEmpty = 104,
 }
 
 impl CqError {
-    pub const ALL: [CqError; 39] = {
+    pub const ALL: [CqError; 44] = {
         use CqError::*;
         [
             CapturePending,
@@ -140,6 +154,11 @@ impl CqError {
             NotVoter,
             ProposalState,
             ContinuousWorld,
+            CustodyCapacity,
+            CustodyNoSlot,
+            OrderExpired,
+            LotForfeited,
+            LotNotEmpty,
             ResidentNotSigned,
             ResidentAsset,
             ResidentAccount,
@@ -199,6 +218,11 @@ impl CqError {
             ResidentUnguarded => "ResidentUnguarded",
             ResidentStaleGeneration => "ResidentStaleGeneration",
             ResidentNotCurrentAuthority => "ResidentNotCurrentAuthority",
+            CustodyCapacity => "CustodyCapacity",
+            CustodyNoSlot => "CustodyNoSlot",
+            OrderExpired => "OrderExpired",
+            LotForfeited => "LotForfeited",
+            LotNotEmpty => "LotNotEmpty",
         }
     }
 
@@ -286,28 +310,31 @@ mod tests {
 
     #[test]
     fn codes_are_the_contract_table() {
-        // 62–94 contiguous (94 ContinuousWorld), then ⑳'s 170–175
-        // (workstream 4's allocation).
-        let want = (62u32..=94).chain(170..=175);
+        // 62–94 contiguous (94 ContinuousWorld), then custody's 100–104
+        // and ⑳'s 170–175 (workstream 4's allocation rev 4).
+        let want = (62u32..=94).chain(100..=104).chain(170..=175);
         for (e, expect) in CqError::ALL.into_iter().zip(want) {
             assert_eq!(e.code(), expect, "{}", e.name());
             assert_eq!(CqError::from_code(expect), Some(e));
             assert_eq!(FrontierError::from_code(expect), None, "no M1 collision");
         }
-        assert_eq!(CqError::ALL.len(), 33 + 6);
+        assert_eq!(CqError::ALL.len(), 33 + 5 + 6);
         assert_eq!(CqError::NotLead.code(), 78);
         let all: std::vec::Vec<u32> = all_codes().map(|c| c.code()).collect();
-        assert_eq!(all.len(), 62 + 33 + 6);
+        assert_eq!(all.len(), 62 + 33 + 6 + 5);
         assert_eq!(CqError::ContinuousWorld.code(), 94);
+        assert_eq!(CqError::CustodyCapacity.code(), 100);
+        assert_eq!(CqError::LotNotEmpty.code(), 104);
         assert_eq!(CqError::ProposalState.code(), 93);
         assert_eq!(CqError::NotOnTile.code(), 86);
         assert_eq!(CqError::StructureFull.code(), 89);
         assert!(all.windows(2).all(|w| w[0] < w[1]), "code order");
         assert_eq!(all[60], 61);
         assert_eq!(all[61], 62);
-        assert_eq!(all[all.len() - 7], 99);
+        assert_eq!(all[all.len() - 12], 99);
+        assert_eq!(all[all.len() - 7], 104);
         assert_eq!(*all.last().unwrap(), 175);
-        for c in (95..=98).chain(100..=169).chain(176..=179) {
+        for c in (95..=98).chain(105..=169).chain(176..=179) {
             assert_eq!(Code::from_code(c), None, "{c} is not allocated here");
         }
         assert_eq!(
@@ -327,6 +354,10 @@ mod tests {
             Some(Code::Cq(CqError::ContinuousWorld))
         );
         assert_eq!(Code::from_code(95), None);
+        assert_eq!(
+            Code::from_code(104),
+            Some(Code::Cq(CqError::LotNotEmpty))
+        );
         assert_eq!(
             Code::Cq(CqError::FoldTooEarly).keeper_action(),
             KeeperAction::Wait

@@ -21,6 +21,7 @@ pub mod v25_nations;
 pub mod v26_growth;
 pub mod v27_residents;
 pub mod v28_resident_acts;
+pub mod v26_custody;
 pub mod v2_program;
 pub mod v3_random;
 pub mod v4_windows;
@@ -285,6 +286,14 @@ pub fn run(input: &Input) -> Report {
         ran.push("V27:residents");
         v28_resident_acts::run(&mut cx);
         ran.push("V28:resident-acts");
+    }
+    // Workstream 10: custody has no check yet; any trace of it is never a
+    // PASS (every season: a season without custody FAILs on it).
+    v26_custody::run(&mut cx);
+    ran.push("V26:custody-guard");
+    if v26_custody::custody_season(&cx) {
+        ran.push("V26:custody-state");
+        ran.push("V26:custody-history");
     }
     ran.push("V10");
     counts(&mut cx);

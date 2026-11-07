@@ -826,6 +826,17 @@ fn fold_record(
         | CqKind::NATION_DECIDED
         | CqKind::RAID_OPENED
         | CqKind::FORT_GARRISONED => {}
+        // Custody (workstream 10): no herald feed yet (the lots feed is an
+        // integration item, `workstreams/10-custody/02-contract.ja.md` §10).
+        CqKind::LOT_OPENED
+        | CqKind::LOT_QUOTA
+        | CqKind::LOT_INBOUND
+        | CqKind::LOT_SHIPPED
+        | CqKind::LOT_SETTLED
+        | CqKind::LOT_ORDER
+        | CqKind::LOT_REVOKED
+        | CqKind::LOT_CONSUMED
+        | CqKind::LOT_LOSS => {}
         // Map growth: a FastForward's rest. Its bells reach the files
         // through the Province's bytes (`after_records`) or, earlier, the
         // herald's own projection (`crate::rest`); the record's digest is

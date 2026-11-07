@@ -162,8 +162,9 @@ pub fn emit(
 
 /// Highest record kind code of ABI v2 (S1 map growth: FRONTIER_EXTENDED = 104; 89
 /// reserved, MC §6), widened to 134 for ⑳'s RESIDENT_JOINED = 130
-/// (workstream 4's allocation 130–134). 105–129 and 131–134 stay undefined
-/// (other teams' provisional ranges), so the table accepts only 130 there.
+/// (workstream 4's allocation 130–134). Custody's LOT_* are 105–113
+/// (allocation rev 4); 114–129 and 131–134 stay undefined (other teams'
+/// provisional ranges).
 pub const MAX_KIND_V2: usize = 134;
 
 /// `(defined, key width, payload width)` per record kind code of ABI v2:
@@ -484,11 +485,14 @@ mod tests {
             assert_eq!(&a[..na], &b[..nb], "{}", kind.name());
         }
         assert_eq!(WIDTHS_V2[89], (false, 0, 0), "89 reserved");
-        // ⑳: of 104–134 only RESIDENT_JOINED (130) is a kind; the body
-        // writer refuses every other code there, and anything past 134.
+        // Of 104–134 (workstream 4's allocation rev 4) the kinds are ⑧'s
+        // FRONTIER_EXTENDED (104), custody's LOT_* (105–113) and ⑳'s
+        // RESIDENT_JOINED (130); the body writer refuses every other code
+        // there, and anything past 134.
+        let kind = |c: usize| c == 104 || (105..=113).contains(&c) || c == 130;
         for (code, w) in WIDTHS_V2.iter().enumerate().skip(104) {
-            assert_eq!(w.0, code == 130, "{code}");
-            if code != 130 {
+            assert_eq!(w.0, kind(code), "{code}");
+            if !kind(code) {
                 assert_eq!(
                     write_body_v2(code as u8, 9, &[], &[], &mut [0u8; MAX_RECORD]),
                     None,
