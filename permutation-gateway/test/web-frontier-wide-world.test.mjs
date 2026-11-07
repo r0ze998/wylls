@@ -369,6 +369,9 @@ test('screen pins require a loaded, labelled non-sample game source', () => {
   const record = { season: '5', seasonAddress: SEASON_ADDR, programId: PROGRAM, cluster: 'localnet' };
   const pins = sourcePins(record);
   assert.equal(pins.cluster, 'localnet');
+  for (const cluster of ['fixture', ' FIXTURE ', 'sample', 'prototype', 'unknown', '', undefined]) {
+    refused(() => sourcePins({ ...record, cluster }), 'SampleWorld');
+  }
   assert.notEqual(pins.key, sourcePins({ ...record, season: '6' }).key);
   assert.notEqual(pins.key, sourcePins({ ...record, cluster: 'mainnet-beta' }).key);
   refused(() => sourcePins({ ...record, sample: { world: 'sample' } }), 'SampleWorld');
