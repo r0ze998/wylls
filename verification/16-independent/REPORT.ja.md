@@ -3620,3 +3620,32 @@ workflow run が 16 のままであることは ④ が数えたもので、⑯ 
 - 4 が止める前に保存した結果は、ws07-guard 2/2 と ws07-grow-s1 2/2（どちらも一覧に載らない file）。ws07-grow-palisade は途中で止めたので、結果が無い。scan、node-keyfree、cargo の出力は保存されていないので、4 は何も主張していない。
 - 4 は `web-frontier-hud.test.mjs` を一度も走らせていない。hud の 13/13 は、4 のどの記録にも数えられていない。
 - ⑯ も、7 の情報が届くまで、新しい実行をしない。
+
+**追記（7 の当時の記録。7 は再実行していない。⑯ は 7 の scratchpad を直接は読めないので、7 の報告として扱う）。**
+
+**実行された内容（7 の transcript の抜き出し）。**
+- cwd は 7 の scratchpad の `v18/permutation-gateway`。両方の実行の時点で、HEAD は `0cdd8491` だった。
+- 古い版の実行（22:09:51Z）：commit していない変更は、hud の試験に新しい subtest を足したことだけ。
+  - command：`node --import $S/guard/nokeys.mjs --test --test-name-pattern="wantProvince" test/web-frontier-hud.test.mjs`
+  - name の pattern で、走った subtest は 2 つだけ（189 行目は合格、211 行目は不合格）。
+- 新しい版の実行（22:09:59Z）：同じ変更に、controller.mjs の 3 行を加えたもの。
+  - command：`node --import $S/guard/nokeys.mjs --test test/web-frontier-hud.test.mjs`
+  - 13 の subtest が合格した。
+- この 2 つの変更は、後で `1fc0a5aa`（22:38:48、親 0cdd8491）として commit された。⑯ は `git diff 0cdd8491 1fc0a5aa` が hud の試験 +17 行と controller.mjs +3 行だけであることを確かめた。7 の説明と合う。ただし、走らせた時点の file と commit が一字一句同じかは、確かめられていない。
+
+**guard。**
+- 使われたのは 7 の session 自身の `nokeys.mjs` で、repo の `no-keys-guard.mjs` ではない。`node-keyfree.sh` も使われていない。
+- この guard が見張るのは WebCrypto と node:crypto の鍵の API（generateKey、deriveKey、deriveBits、sign、秘密の鍵の importKey など）だけである。
+- `session.mjs` の `publicKeyOf`（0cdd8491 の 71〜78 行目）は、`subtle.digest` と BigInt の計算だけで公開鍵を導出する。だから、この guard では検出できない。
+- NODE_OPTIONS の当時の値は記録されておらず、分からない。
+
+**出力。**
+- 残っているのは、grep で絞った行だけで、完全な出力は無い。
+- 「node-blocked 0」は、存在しない log の file を数えた結果である。guard は止めたときにだけ log を作るので、0 とは矛盾しないが、積極的な証拠ではない。
+
+**判定。**
+- **確定していること：** 選び方の違反（一覧に載る file を、鍵なしの手順の外で、自前の guard で走らせた）。
+- **鍵の処理が呼ばれたか：** 呼ばれた証拠は無い。⑯ の静的な確認（上）では、この試験が呼ぶ経路にも、読み込みの時点にも、鍵の入口は無い。ただし、実行時の監視は JS だけで行う導出を覆っておらず、完全な出力も無い。だから、実行の記録からは否定できない。
+- 結論は、静的な証拠に頼る「呼ばれていない見込みが高い」であって、「呼ばれていないことが証明された」ではない。
+
+**さらに開いている点。** 7 は、同じ file を同じ自前の guard で走らせた以前の実行が他に 7 回あると開示した（transcript の 6019、6301、6770、6908、7291、9973、10293 行目。11 月 6 日と 8 日）。それぞれの command、HEAD、commit していない変更、残っている出力を、再実行せずに抜き出すよう、⑯ は 7 に頼んだ。抜き出しが届いたら、その時点の source で静的に確かめる。
