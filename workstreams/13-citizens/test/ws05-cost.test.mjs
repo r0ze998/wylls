@@ -196,7 +196,9 @@ test("a stop in the middle of a model call, without 5's own recovery: the reside
   const und = items.filter(i => i.state === 'undecided');
   assert.deepEqual(und.map(i => i.why), ['restart while calling']);
   assert.equal(w.unresolvedHolds.length, 1);
-  assert.equal(r.all.ren.state.costCalls && Object.keys(r.all.ren.state.costCalls).length, 0, 'told once, then forgotten');
+  // Undecided in 5: the record stays on file (with 5's state) until 5 decides it with evidence; the wallet keeps it unresolved.
+  const kept = Object.entries(r.all.ren.state.costCalls ?? {});
+  assert.deepEqual(kept.map(([k, c]) => [k, c.costState]), [[und[0].key, 'undecided']], 'kept on file, undecided, under the same key');
 });
 
 // ---- together with workstreams 4 and 12 (each only when its tree is given) ------------------------------------------
