@@ -109,3 +109,32 @@
   - S1 版 → FAIL
 
 **未確認。** NFT の Citizen が操作する Season を丸ごと `verify()` に通すこと（記録済みの fixture が無い。作るには署名が要る）。
+
+## 8. r15: V0E は ABI v2 のすべての口座の種類を見る（2026-11-08、パッチ 0015、②が見つけた）
+
+**穴（②が見つけ、⑪がコードで確かめた）。**
+- `v0_evidence::program_kind` は、v1 の `frontier_abi::layout::AccountKind`（M1 の 17 種類）で口座の magic を読んでいた。
+- そのため、S1 の口座（MarchState、Vault、Caravan、Structure、Nation、Lot）が次の状態でも、`MissingPostState` が出なかった。
+  - 前の取引の事後状態で、その口座が知られている。
+  - 後の成功した取引が、その口座を書込み可能で持つ。
+  - その取引の事後状態に、その口座が無い。
+- これは PASS になりうる経路だった。
+
+**0015。** `frontier_abi::v2::layout::AccountKind` に替えた。Holding は今までどおり除く（V7 が見る）。
+
+**回帰の試験**（`evidence::a_written_s1_account_without_its_post_state_is_not_a_pass`。鍵なし）。
+- `land` の記録済みの取引をその場で書き換える。前の取引の事後状態に、literal の S1 の口座を置く。後の取引では、その口座を書込み可能のまま、事後状態から外す。
+- Citizen（対照）と、S1 の 6 種類で確かめる。
+- 修正の前は落ち、修正の後は通る。
+
+| パッチ | 当て先 | SHA-256 | tree |
+|---|---|---|---|
+| `patches/0015-verify-v0e-every-abi-v2-account-kind-on-cf517b55.patch` | `cf517b55`（0013、0014 とは別のファイル。順は問わない） | `68b6a039a048f7029f0ec599220d1cd710ac174f9562ec6baf4dc9da9e3dac1d` | `cf517b55`＋0015 で `0cceeca4bf1a717cb3d0626332366d7be0a8d291` |
+
+**試験**（`results/verify-after-r15.log`）。
+- `cf517b55`＋0015 で **87 件通過**。内訳は lib 47、camp_clear 3、evidence 9、missing_state 2、new_bands 7、open_items 3、unit 8、fixtures 8。
+- fmt と clippy も通った。
+
+**②の V0 と V0E の変更**（②のブランチ `claude/modest-wozniak-xcc7d8` @ `d0da1d02`、未統合）は review した。
+- Grant の命令と記録を「判定の対象」にするのは、V27 と同じ形。条件は、版が `runs_grants` で、S1 の検査（VR）が動くこと。妥当。
+- ただし、②の v0_coverage の差分は 0013 の前の木を基にしているので、衝突する。②には 0013 の上で作り直すよう伝えた。

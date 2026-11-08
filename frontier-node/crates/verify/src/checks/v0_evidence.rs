@@ -43,8 +43,8 @@
 
 use std::collections::BTreeSet;
 
-use frontier_abi::layout::AccountKind;
 use frontier_abi::log::Kind;
+use frontier_abi::v2::layout::AccountKind;
 
 use super::Ctx;
 use crate::codes::*;
@@ -115,6 +115,10 @@ fn explained(w: &crate::world::World, c: &crate::world::CqRec) -> bool {
     })
 }
 
+/// An account's program kind by its magic: ABI v2's kinds (M1's, MarchState
+/// and S1's Vault, Caravan, Structure, Nation, Lot …), not only M1's, so a
+/// missing post-state of an S1 account is not left unjudged (r15, found by
+/// workstream 2).
 fn program_kind(data: &[u8]) -> Option<AccountKind> {
     AccountKind::from_magic(data.get(..8)?.try_into().ok()?)
 }

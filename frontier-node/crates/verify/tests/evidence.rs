@@ -318,3 +318,70 @@ fn a_mention_whose_logs_show_no_run_is_not_reported() {
     }
     assert!(checked > 0);
 }
+
+/// r15 (found by workstream 2): V0E knows every program kind of ABI v2, not
+/// only M1's. A program account of an S1 kind (MarchState, Vault, Caravan,
+/// Structure, Nation, Lot) known by an earlier post-state, held writable by
+/// a later successful transaction whose post-states leave it out, is
+/// `MissingPostState`, as a Citizen (the control) always was. The recorded
+/// `land` transactions are edited in place (literal account bytes; no key
+/// is generated, derived or signed).
+#[test]
+fn a_written_s1_account_without_its_post_state_is_not_a_pass() {
+    use frontier_abi::v2::layout::{write_header, AccountKind as K};
+    let base = land();
+    let program = base.cfg.program;
+    // A later transaction with post-states that holds a non-program account
+    // writable and leaves it out of its post-states, and an earlier one.
+    let (t1, t2, key) = (0..base.txs.len())
+        .filter(|&t| base.txs[t].err.is_none() && !base.txs[t].post.is_empty())
+        .find_map(|t2| {
+            let tx = fclient::tx::from_wire(&base.txs[t2].tx).ok()?;
+            let k = (0..tx.message.account_keys.len()).find_map(|i| {
+                let a = tx.message.account_keys[i];
+                (fclient::tx::is_writable_index(&tx.message, i)
+                    && a != program
+                    && !base.txs[t2].post.iter().any(|(x, _)| *x == a))
+                .then_some(a)
+            })?;
+            let t1 = (0..t2)
+                .rev()
+                .find(|&t| base.txs[t].err.is_none() && !base.txs[t].post.is_empty())?;
+            Some((t1, t2, k))
+        })
+        .expect("a writable account outside a later transaction's post-states");
+    let mut missed = vec![];
+    for k in [
+        K::Citizen,
+        K::MarchState,
+        K::Vault,
+        K::Caravan,
+        K::Structure,
+        K::Nation,
+        K::Lot,
+    ] {
+        let mut d = vec![0u8; k.size()];
+        assert!(write_header(&mut d, k, base.cfg.season_id), "{k:?}");
+        let mut inp = base.clone();
+        inp.txs[t1].post.push((
+            key,
+            Some(fclient::ports::Account {
+                lamports: 1,
+                data: d,
+                owner: program,
+                executable: false,
+            }),
+        ));
+        let r = verify_core::verify(&inp);
+        assert_ne!(r.verdict, Verdict::Pass, "{k:?}");
+        if !r.findings.iter().any(|f| {
+            f.check == "V0E" && f.code == "MissingPostState" && f.entity == format!("tx#{t2}")
+        }) {
+            missed.push(format!("{k:?}"));
+        }
+    }
+    assert!(
+        missed.is_empty(),
+        "V0E missed {missed:?} (tx#{t1} → tx#{t2})"
+    );
+}
