@@ -162,3 +162,40 @@
 - **feature `wide-world-experimental`:** VW の lib の試験 7 件と、new_bands の 2 件（wide の振り分けと、literal の一致）が通った。
 - fmt と、両方の feature での clippy `-D warnings` も通った。
 - `vw_chains.rs` の試験に、鍵ペアと署名が無いことを確かめた。
+
+## 10. r17: 固定された候補 16576826 の見直しと、V27 の誤った FAIL（2026-11-08、パッチ 0017）
+
+**見直した範囲**（`16576826084a8ea7bd6b12b845d50b97f3d14904`、実際の検証器）。
+- **プログラムの振り分けの順:** NFT のタグ → wide の草案の帯（`wide-world-experimental` のときだけ。SBF には build できない） → Grant → v2。
+- **版のビット:** 0x8000 は NFT、0x4000 は wide、0x2000 は rights、0x1000 は capacity。組み合わせの多くは `compile_error`。
+- **V0 の分岐:**
+  - NFT のタグは、版が `0x8004` のときだけ。
+  - Grant は `runs_grants`、wide は版のビット 0x4000、帯、帯の無いタグ。
+  - 版を知らないとき（`0xC004`、`0x4004`、`0x1004`、`0x2004` を除く組み合わせ）は、すべて UNVERIFIABLE。
+- **wide の入れ子:**
+  - `world::unwrap_resident` は 0xE2 だけを開く（act_runs の v2 命令だけ）。
+  - 0xDD の内側は開かない。0xDD は V0 で `WideUnmodelled`。⑳の V28 `run_wide` と④の VW1 は、feature のときだけ動く。
+  - **wide の Season は、どの build でも UNVERIFIABLE のまま**（版を知らない、`WideUnmodelled`）。
+
+**誤って振り分けられている既知の命令は、見つからなかった。**
+
+**見つけた穴（⑪の V27）。**
+- 時刻の照合は、`bell_at(genesis_ts, time)` を記録の bell と比べる。`genesis_ts` は SEASON_CREATED の記録からしか来ない。
+- CreateSeason の取引があり（`params` が取れる）、そのログが欠けているとする（V0E の `MissingLogs` や `TruncatedLogs`）。このとき `genesis_ts` は 0 のままになり、**正しい JoinResident がすべて FAIL** `ResidentJoinMismatch` になる。
+- これは欠けた証拠が偽造の判定になる経路で、⑲は V27 の FAIL を self_contained として扱っている。
+- 元のコードで、`genesis_ts = 0` の正しい join を判定させて確かめた。結果は `[(Fail, "ResidentJoinMismatch")]`。
+
+**0017（`v27_residents.rs` だけ）。**
+- `JoinCtx::genesis_ts` を `Option<i64>` にした。`f.created_rec` があるときだけ `Some` になる。
+- `None` のときは、bell の照合を UNVERIFIABLE `MissingData` にする。
+- 試験 `an_unknown_genesis_time_leaves_the_join_bell_unverifiable`: 正しい join で genesis が分からないとき、所見は `[(Unverifiable, MissingData)]` だけになる。
+
+| パッチ | 当て先 | SHA-256 | tree |
+|---|---|---|---|
+| `patches/0017-verify-v27-join-bell-unverifiable-without-season-created-on-16576826.patch` | `16576826084a8ea7bd6b12b845d50b97f3d14904` | `babba7ffbd7f1e4e171d5724601ab60bc56461bb8806a097ac438cebdd1c8849` | `f7af5bd501f84b3119dba7ee2a77b1eb5f484f68` |
+
+**試験**（`results/verify-after-r17.log`）。
+- **既定の build:** 94 件通過。内訳は lib 51、camp_clear 3、evidence 9（0015 の試験を含む）、missing_state 2、new_bands 10、open_items 3、unit 8、fixtures 8。
+- **feature `wide-world-experimental`:** lib 60 件が通った。
+- fmt と、両方の feature での clippy も通った。
+- 呼び出し先まで監査した（鍵ペアと署名は無い）。CI は起動していない。

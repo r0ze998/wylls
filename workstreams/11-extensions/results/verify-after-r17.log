@@ -1,0 +1,21 @@
+FMT_OK
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 4.95s
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 10.26s
+     Running unittests src/lib.rs (<target>/debug/deps/verify_core-3939ea091b153c1e)
+test result: ok. 51 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+     Running tests/camp_clear.rs (<target>/debug/deps/camp_clear-97c46af469f7de3a)
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+     Running tests/evidence.rs (<target>/debug/deps/evidence-47e7bd3ce0e0f7e7)
+test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 117.02s
+     Running tests/missing_state.rs (<target>/debug/deps/missing_state-5b5a384d3770472a)
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.26s
+     Running tests/new_bands.rs (<target>/debug/deps/new_bands-0f2c3efe6bbeab95)
+test result: ok. 10 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 589.78s
+     Running tests/open_items.rs (<target>/debug/deps/open_items-a7adaeb8e1b1bb38)
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.19s
+     Running tests/unit.rs (<target>/debug/deps/unit-ada616aa066622d3)
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 3.88s
+     Running tests/fixtures.rs (<target>/debug/deps/fixtures-eb59e49de0260c80)
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 1 filtered out; finished in 2.84s
+     Running unittests src/lib.rs (<target>/debug/deps/verify_core-d821274f487c745e)
+test result: ok. 60 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s

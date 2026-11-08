@@ -1,5 +1,7 @@
 # patches: 共有コアへの変更案
 
+> **r17（2026-11-08）。** [0017](0017-verify-v27-join-bell-unverifiable-without-season-created-on-16576826.patch) は、SEASON_CREATED が archive に無いとき、V27 の join の bell の照合を UNVERIFIABLE にする（元は正しい join を FAIL にしていた）。当て先は `16576826`。SHA-256 は `babba7ffbd7f1e4e171d5724601ab60bc56461bb8806a097ac438cebdd1c8849`、tree は `f7af5bd501f84b3119dba7ee2a77b1eb5f484f68`。
+
 > **r16（2026-11-08）。** [0016](0016-verify-v0-wide-tags-left-to-vw-on-ws04-4ecef1d9.patch) は、wide の build の Season で wide のタグを VW に任せる（UNVERIFIABLE `WideUnmodelled`）もの。当て先は `4ecef1d9`。SHA-256 は `7aaf442c911e41f5e570e09a90bfb20cf836531e6ec384c977c5b131b88a85ad`、tree は `689c264ef67f72caad0a8b8cb736561a02296e13`。0015 も重ねて当たる。
 
 > **r15（2026-11-08、②が見つけた穴）。** [0015](0015-verify-v0e-every-abi-v2-account-kind-on-cf517b55.patch) は、V0E が S1 の口座（MarchState、Vault、Caravan、Structure、Nation、Lot）の事後状態の欠落も UNVERIFIABLE にするもの。当て先は `cf517b55` で、0013 と 0014 とは別のファイルなので、順は問わない。SHA-256 は `68b6a039a048f7029f0ec599220d1cd710ac174f9562ec6baf4dc9da9e3dac1d`。`b2bd9711`＋0013＋0014＋0015 の tree は `60bd0044052fa192c86956027402b669cc6afdda`。
