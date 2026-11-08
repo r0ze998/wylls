@@ -33,6 +33,7 @@ import { tileWhat, provinceName } from './place.mjs';
 import { viewerState } from './drawer.mjs';
 import { conquestEnabled, renderStandings as renderConquestStandings } from '../screens/conquest.mjs';
 import { raidOffers } from '../screens/s1.mjs';
+import { renderWidePips, renderWideInventoryStatus } from '../screens/wideholding.mjs';
 
 /** Seconds before the bell at which the pill turns amber, then red. */
 export const URGENCY = Object.freeze({ warn: 120, crit: 30 });
@@ -424,5 +425,15 @@ export function renderPlate(FS) {
 export function renderRail(FS, { todoOpen = false } = {}) {
   if (FS.mode === 'spectate') return html`<div class="plate plate-watch"><h2 class="todo-h todo-h-plain">${icon('eye')}<span>${L`国の順位`}</span></h2>${renderStandingsList(FS)}<p class="plate-note">${L`村の数は、ターンごとにまとめられる記録から数えています。`}</p></div>`;
   if (FS.mode !== 'play') return '';
-  return html`${renderTodo(FS, { open: todoOpen })}${renderPlate(FS)}`;
+  // (the wide pips: the viewer's wide inventory slots, read-only, beside the plate and never among its legacy pips)
+  return html`${renderTodo(FS, { open: todoOpen })}${renderPlate(FS)}${renderWideInventoryStatus(FS)}${renderWidePips(FS)}`;
+}
+
+/**
+ * The phone sheet's resting content (app.mjs `restMarkup`, where `aside#rail` is hidden): the plate, then the same
+ * read-only wide pips the desktop rail carries (never among the plate's legacy pips), the one "next thing" row the
+ * caller passes, the to-do lines. One composition for both widths, so a phone has the wide selector too.
+ */
+export function renderRest(FS, { next = '', todoMax = 8 } = {}) {
+  return [renderPlate(FS), html`${renderWideInventoryStatus(FS)}${renderWidePips(FS)}`, next, renderTodo(FS, { max: todoMax, open: true })];
 }

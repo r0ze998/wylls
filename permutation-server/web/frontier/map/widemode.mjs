@@ -13,6 +13,7 @@
 // world is refused before any request.
 //
 // Nothing here signs or sends anything.
+import { wideActionReview } from './wideactions.mjs';
 import { L, fmtNum, onLangChange } from '../../lang.mjs';
 import { FACTION_COLORS, factionName } from '../fi18n.mjs';
 import { provinceCorners, provincePixel } from './layers.mjs';
@@ -113,6 +114,7 @@ export function mountWideMode({ herald, canvas, doc = canvas?.ownerDocument ?? g
         <p class="wide-more" id="wide-more"></p><div><button type="button" id="wide-prev">←</button><button type="button" id="wide-next">→</button></div>
         <h3 id="wide-history-title"></h3><p id="wide-history-status" role="status"></p>
         <ol class="wide-list" id="wide-history-list"></ol><button type="button" id="wide-history-next"></button>
+        <section id="wide-action-review" aria-live="polite"></section>
       </aside>
     </div>`;
   canvas.after(sheet);
@@ -201,6 +203,7 @@ export function mountWideMode({ herald, canvas, doc = canvas?.ownerDocument ?? g
   function renderHistory() {
     const h = S.history, list = $('wide-history-list');
     list.textContent = '';
+    $('wide-action-review').textContent = '';
     $('wide-history-next').disabled = !h?.page?.more || h.phase !== 'ready';
     $('wide-history-status').textContent = !h ? L`履歴は未取得です。` : h.phase === 'loading' ? L`履歴を読み込んでいます…` : h.phase === 'error' ? L`履歴は利用できません（${h.code}）。空の履歴という意味ではありません。` : L`このページで ${h.page.rows.length} 件取得。取得元の完全性・アカウントとの一致は未検証です。土地やプレイ可能状態は示しません。`;
     if (h?.phase !== 'ready') return;
@@ -208,6 +211,34 @@ export function mountWideMode({ herald, canvas, doc = canvas?.ownerDocument ?? g
       const li = doc.createElement('li');
       const location = r.province ? formatCoord(r.province.p, r.province.q) : L`旧形式`;
       li.textContent = `${r.event} ${r.name} / ${location} / ${L`未検証`}`;
+      if (r.host) {
+        const review = doc.createElement('button'); review.type = 'button';
+        review.textContent = L`完全な識別子で操作を確認`;
+        review.addEventListener('click', () => {
+          const box = $('wide-action-review'); box.textContent = '';
+          // A page replacement/close must invalidate an old selection.
+          if (!S.open || S.history !== h || h.phase !== 'ready') return;
+          try {
+            if (isSample() || sourcePins(recordOf()).key !== S.source?.key) throw new WideError('WorldChanged', 'WorldChanged');
+            const intent = wideActionReview({pins:S.source, page:h.page, event:r.event});
+            const info = doc.createElement('p');
+            info.textContent = `${L`ホスト（履歴上）`} ${intent.host} / ${L`所在州（履歴上）`} ${intent.province}`;
+            box.append(info);
+            const caution = doc.createElement('p');
+            caution.textContent = L`現在の所有者・兵数・所在・実行条件は未確認です。履歴は現在のアカウントの証明ではありません。署名・送信は行いません。WideDepart は native 単体テスト限定で、SBF 実行は未対応です。`;
+            box.append(caution);
+            const depart = doc.createElement('button'); depart.type = 'button'; depart.disabled = true;
+            depart.textContent = L`出発：本番では無効（WideDepartProductionDisabled）`;
+            const ret = doc.createElement('button'); ret.type = 'button'; ret.disabled = true;
+            ret.textContent = L`帰還：現在のアカウント未検証（WideLiveAccountsUnverified）`;
+            box.append(depart, ret);
+            const payload = doc.createElement('p');
+            payload.textContent = `${L`未署名の帰還命令データ`} ${intent.return.instructionDataHex} / ${L`保有地と名簿全体の帰還処理です。選択ホスト一体への命令ではありません。アカウント一覧と署名は未構築で、実行できません。`}`;
+            box.append(payload);
+          } catch (e) { box.textContent = L`操作を確認できません（${e.code ?? 'BadWideHistory'}）。`; }
+        });
+        li.append(review);
+      }
       list.append(li);
     }
   }

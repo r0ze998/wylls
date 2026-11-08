@@ -39,6 +39,7 @@
 //! | [`event`] | the **versioned wide event record** (`PSW1`, version 0x81, its own kinds, full-identity keys, a domain-separated chain rule, the resolve's input/output digests): what the experimental handlers log and how the wide accounts' chains advance; nothing of the deployed `PS2` format is reused, and a deployed reader refuses the version byte and sees the wide world as unknown |
 //! | [`resolve`] | the **one-bell wide resolve** over account bytes: the deployed build / apply / step / settle / finish with the three identity-bound rules replaced (the camp's daily check over the canonical coordinate, the clash under `WideCombatant` with the roster side table paired and kept in step, the keep donor's tiebreak over the full identity); no SkipQuiet; forts, caravans and conquest records refused; no handler calls it yet |
 //! | [`wide_ix`] | the draft wire envelope: nine instructions in the unallocated band `0xD6..=0xDE`, their account lists, and the `0x4000` program-version bit of an experimental wide build |
+//! | [`economy`] | **phase A of the host-only wide economy** (2026-11-08): the canonical six-byte S1 owner action (Harvest; Build item 0–8; Train unit 0–6 × `n ≥ 1`; zero padding exact, the argument ranges read from `permutation_rules` and pinned, no new economic rule) carried as 0xDA op 3 of the existing class-P envelope and admitted by the band's act; the 80-byte versioned `EconomyReceipt` (action, `now_ts`, the lazy flip, domain-separated input and output digests over the length-delimited Season, Citizen and the raw pre / normalized post holding and province snapshots) logged under the holding-keyed event kinds 15 `Economy` and 16 `EconomyMirror` (the 56-byte holding reference, no phantom host, attributed to the holding's own province); a receipt establishes no authorisation and no provenance, whole-Season replay is unsupported, and no handler, keeper or verifier reaches any of it yet |
 //!
 //! **What it is not.** The index records what a caller *reports*. It does
 //! not authorise opening land, decide who may open it, prove that an
@@ -65,6 +66,7 @@
 
 pub mod arrival;
 pub mod coord;
+pub mod economy;
 pub mod event;
 pub mod holding;
 pub mod index;
@@ -85,6 +87,7 @@ pub mod wide_ix;
 
 pub use arrival::{ArrivalError, WideArrival, WideArrivalSlot, WideClashInputsHdr};
 pub use coord::{CoordError, RingPosition, WideCoord, SORT_KEY_LEN, WIDE_BOUND};
+pub use economy::{Action as EconomyAction, EconomyError, EconomyReceipt};
 pub use event::{
     EventError, WideEntity, WideKind, WideLink, WideRecord, WideTarget, WIDE_LOG_PREFIX,
 };

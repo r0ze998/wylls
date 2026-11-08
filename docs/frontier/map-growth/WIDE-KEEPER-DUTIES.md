@@ -2362,9 +2362,9 @@ fixtures in these two tests). Test-only helpers added to the harness:
 `return_expectations` / `expectation` / `expected_u64`, all under the
 native cfg.
 
-**Limits, stated.** `Retreated` is not produced: it needs a battle with a
-retreat ratio (the routes end away from garrisons by construction), so
-the planner's Retreated path has keeper pins only. The residents and the
+**Limits, stated.** `Retreated` was not produced in this slice (the
+fourteenth produces it through the real resolve's retreat order against a
+staged hostile resident). The residents and the
 departures are fixtures in the shapes the program writes, not the
 program's own writes; the first native test already shows the real
 WideDepart and the real posts in the open-gate build. The fixture file
@@ -2375,6 +2375,182 @@ map_growth_runtime_tests::wide_land::wide_land_native_settles_unrevealed_marches
 and `..._settles_a_bounced_final_set_host_home`; the keeper test under
 `--features wide-world-experimental --test wide_reveal`). Arrival
 processing is still not complete; every keeper candidate stays denied.
+
+## Fourteenth slice (2026-11-08, on `0465adc5`): the remaining return boundaries through the dispatcher — Retreated, the troop line and rounding, the home as destination
+
+**The scene, generalised.** `native_q3_scene_with(&SceneSpec)` builds the
+same native world from a spec: extra marches (`Extra`: which holding,
+whole troops — the kernel's muster minimum is 100 —, and `to_home`: a
+seal naming the **home province itself** with a zero-step path), resident
+fixtures at the destination (`Resident`: the hosts' faction or the next
+one, troops, on a free tile or on a named march's arrival tile), and the
+retreat ratio every seal's plaintext carries. `native_q3_scene(n)` is the
+old two-extra scene over it; the two existing tests index the host and
+march vectors. The scene also returns the destination's region and the
+vector's round signature (for a second signed anchor when the home's
+region differs).
+
+**Retreated, produced by the real Resolve.**
+`wide_land_native_settles_a_retreated_final_set_host_home`: every
+plaintext carries retreat ratio 10,000 (1.0, the reveal records it in the
+slot, the gather in the record, `to_fighter` hands it to the kernel); one
+resident **fixture** of the next faction with 2,000,000 milli stands on
+A's arrival tile (relations default to all-hostile: the province's
+`RELATIONS` word is zero). The kernel's first step (`resolve_clash_ref_core`:
+the hostile strength on the hex against the arrival's, strictly greater)
+marks A `Retreated` — the record reads `FATE_RETREATED` with troops
+intact and `retreat_bps` 10,000. **The fate is the resolve's; only the
+resident is staged**, and the test says so. A's settlement: the tip to its
+own slot's beneficiary, the fee to the resolver, the bond with both rents
+to the rent payer; the slot and the record closed; the position settled;
+a muster-pending entry at home with the record's 300,000 troops and
+stamina dated the **arrival bell**; two receipts; chains + 2 / + 1 / + 1;
+replay refused. Expectation `retreated_final_set_roster_entry`.
+
+**The troop line and the rounding — an isolated-handler test, labelled.**
+`wide_land_native_settles_return_troops_at_the_destroyed_and_rounding_boundaries`:
+the kernel's `Host::muster` refuses hosts below 100 troops and the routes
+end away from garrisons, so 499 / 500 / 999 / 1,000 milli can reach a
+record only through an origin clash this harness does not stage. The test
+therefore runs the **real SettleDeparture** on four 100-troop hosts and
+then stages each record's `troops_after` to the boundary value (the
+expectation file's `source` names it `isolated-handler`; the keeper's
+mirror stages the same records). Through the real dispatcher, as the
+record's outranked bounce: **499** → below `DESTROYED_BELOW`, nothing comes
+home — no entry, the reserve unchanged, one receipt with troops 0 and
+`home_credited` 0, the home's chain untouched (holding + 1, destination
++ 1); **500** → exactly at the line, a roster entry of 500 milli, credited
+500; then the home at the faction cap (the 500 entry plus seven staged
+residents): **999** → the reserve takes nothing (credited 0), **1,000** →
+one whole unit (credited 1,000). Payments as every outranked bounce;
+replays refused. Expectations `boundary_499_destroyed_on_return`,
+`boundary_500_roster_entry`, `boundary_999_reserve_zero`,
+`boundary_1000_reserve_one`.
+
+**The routed control (after review).** The direct test above exercises
+the handler's line on staged bounce records and claims no reachability;
+the control
+`wide_land_native_settles_routed_survivors_at_the_destroyed_and_rounding_boundaries`
+reaches the same line through the dispatcher's **own** rout computation:
+B does not reveal (`SceneSpec.reveal_b`), so the record holds A alone and
+every never-revealed march of Citizen b is admissible against it — the
+shared `wide_valid_outcome` over the record (asserted in the test from the
+record's bytes) is `Routed { resolved: true }`, no larger host of its own
+Citizen being present — and the handler applies the shared
+`rout_survivors` to the record's post-origin `troops_after`. Those values
+are staged after the real SettleDeparture to **998 / 1,000 / 1,998 /
+2,000**, every one at or above `DESTROYED_BELOW` (so the staging never
+puts a sub-line value into a record; the muster minimum of 100 troops
+still means a departure did not produce them — the expectation `source`
+says `isolated-handler`). The halves **499 / 500 / 999 / 1,000** are the
+dispatcher's. With the home at the faction cap: 499 → nothing comes home
+(one receipt, troops 0, `home_credited` 0, the home's chain untouched);
+500 and 999 → a Return record with the reserve credited **zero** whole
+units (entry `0xFF`); 1,000 → one unit. The tip owed in `pool_owed`, the
+fee to the resolver, the bond to the rent payer; A's slot untouched;
+replays refused. Expectations `routed_boundary_998_to_499_destroyed`,
+`routed_boundary_1000_to_500_reserve_zero`,
+`routed_boundary_1998_to_999_reserve_zero`,
+`routed_boundary_2000_to_1000_reserve_one`; the keeper mirror is
+`settle_transit_routed_survivor_boundaries_match_the_shared_expectations`
+(the same staged records, the other Citizen present, the shared
+`rout_survivors`, the cap).
+
+**The home as the destination — one account, two positions, one chain.**
+`wide_land_native_settles_a_march_home_to_its_own_province_unresolved`:
+the seal's validation has no rule against a destination equal to the
+host's home and a zero-step path encodes, and WideDepart never reads the
+plaintext, so a staged departure (as every departure of these tests)
+whose valid seal names the home is as reachable as any; the host never
+reveals; THE anchor of bell 20 for the home's region is staged with the
+verified signature when that region differs from the destination's; the
+home resolves bells 7–20 with no record of the bell. The settlement then
+finds the destination **present and unresolved**: `Routed { resolved:
+false }` — the tip and the fee **owed** in `pool_owed` (the holding's
+lamports down by the bond alone, no DIVERT), the bond and the record's rent
+to the rent payer, `rout_survivors(100,000) = 50,000` home with stamina 0
+dated `now_bell` into the paired roster — with the **same province
+account** in the destination's and the home's positions: the
+TransitSettled record is attributed to it (`standing` and `sealed_dest`
+both the home) and the Return record chained to it, their Province links
+**consecutive** on its one chain (+ 2 on that account, the other province
+untouched), the holding's chain + 2; the absent record and slot positions
+untouched; replay refused. Expectation `home_is_destination_unresolved_rout`
+(`province_accounts: 1`, `province_chain_delta: 2`).
+
+**The keeper's side**
+(`settle_transit_boundary_retreat_and_home_destination_predictions_match_the_shared_expectations`):
+the Retreated record fixture (the fate the resolve produced) predicts the
+same fields; the four boundary records staged as the dispatcher stages
+them predict the same `destroyed_on_return`, troops logged, roster entry
+or reserve, credited amounts and reserve deltas; the home-as-destination
+**unresolved** form is `InputsUnresolved` (the planner chooses no resolver
+position); the **resolved** form — a staged resolved record at the home
+that no dispatcher test produces — pins the planner's headroom rule: with
+the home's event sequence at `u64::MAX − 2` a bounced host home plans; at
+`u64::MAX − 1` it is `ChainOverflow("dest_province")` while a staying
+host (one record) still plans. The fixture file's `source` field states
+the origin of every input: dispatcher-produced, isolated-handler-staged,
+or keeper-only.
+
+**Home as destination, the unresolved form: a declared coverage gap, not
+an agreement.** The dispatcher settles the **unresolved** form (the keeper
+refuses it by design: no resolver position would be listed). The two
+sides cover different states there and no shared outcome is claimed; the
+expectation entry carries `comparison: coverage gap`, which both suites
+assert.
+
+**Home as destination, the resolved form: closed end to end (after
+review).** The rules, read exactly: `walk_wide` refuses an empty path
+(`path_len == 0` is `Path`), so a zero-step march cannot pass the real
+Reveal; but a **one-step** path to a neighbouring tile inside the home
+province passes every rule — the step enters the destination's own land
+(`lands[0]`), ends on the committed tile, enters no other province
+(`entered + 1 == lands.len()` with no path accounts), and
+`check_arrival_bell` is met (earliest = max(the step's seconds rounded up,
+departure bell + `MIN_ARRIVAL_LEAD_BELLS` = 2) ≤ 20 ≤ departure + 72). The
+seal's validation has no destination-is-home rule and the latch at the
+home is open while bells 7–19 are unresolved. The scene gained
+`Extra.one_step`, `home_residents` and `reveal_home`.
+`wide_land_native_settles_a_retreated_march_home_to_its_own_province_resolved`
+reveals the march **at the home** through the real Reveal (slot 0 of its
+faction), resolves the home's bells 7–19, **gathers** the arrival and
+**resolves** bell 20 there: a hostile resident fixture of 2,000,000 milli
+on the committed tile and the plaintext's retreat ratio 10,000 make the
+kernel's retreat order mark the host `Retreated` (the fate is the
+resolve's; the resident is the staged input). The settlement then runs
+with the **one province account in both positions** and the test asserts
+the actual state: the tip to the slot's beneficiary, the fee to the
+resolver, the bond with the slot's and the record's rent to the rent
+payer; `pool_owed` unchanged; the escrow and the open count down by one;
+the position settled on the home's record; the slot and the record
+closed; the muster-pending entry at home (state, faction, 100,000 troops,
+the record's stamina dated the arrival bell, `from` 24, no op) with the
+**full reference** claimed in the roster under the entry's alias; the
+reserve untouched; two receipts — TransitSettled attributed to the home
+with `sealed_dest` the home, Return keyed to the home — whose Province
+links are **consecutive** and whose second link is the account's **head**
+(the same for the Holding links); the account's chain + 2, the holding's
++ 2, the other province untouched; replay refused. The expectation
+`home_is_destination_resolved_retreated` compares matching settlement semantics, not identical Reveal inputs; the
+keeper's
+`settle_transit_resolved_home_destination_retreated_matches_the_shared_expectation`
+predicts the same fields over `dest == home` and pins the headroom (two
+records fit at `u64::MAX − 2`, `ChainOverflow("dest_province")` at
+`u64::MAX − 1`). The earlier `home_is_destination_resolved_headroom`
+entry keeps the planner's Bounced headroom pin and now says the
+dispatcher side is covered by the retreated case.
+
+**What is still not shown.** A sub-line or sub-troop record value
+produced by a departure or a battle (the direct test stages record values;
+the routed control stages post-origin values of at least 500 and lets the
+dispatcher halve them — both labelled); the unresolved
+home-as-destination form on the keeper side (refused by design, see the
+coverage gap above); every harness departure is a staged record
+(the real WideDepart is shown only in the first native test's open-gate
+build). No production handler, ABI, event or gate was touched; the
+staged-record and resident fixtures are test-only. Not compiled or run by
+its author.
 
 ## Touched files
 
@@ -2460,8 +2636,12 @@ Thirteenth slice (test modules and public fixtures only):
 `permutation-frontier/src/wide_land_runtime_tests.rs` (the native-cfg
 helpers `settle_transit_home`, `free_tiles`, `stage_resident`, the
 `Q3Scene` / `native_q3_scene` setup, the expectation readers, two native
-tests). No production handler, fclient, ABI, engine, herald, web or UI
-file.
+tests; fourteenth: `SceneSpec` / `Extra` / `Resident` /
+`native_q3_scene_with` with `reveal_b`, `one_step`, `home_residents`,
+`reveal_home`, `one_step_home`, `home_entry_of`, five native tests),
+`frontier-node/crates/keeper/tests/wide_reveal.rs` (fourteenth:
+`settled_transit_with`, three tests). No production handler, fclient, ABI,
+engine, herald, web or UI file.
 
 ### Nonce qualification after independent review
 
@@ -2613,3 +2793,64 @@ have planner tests/static review only, not new dispatcher evidence here.
 Departures/resident setup are staged fixtures, not a full fresh on-chain game.
 No private signing key, keypair generation/derivation, cryptographic signing,
 network submission, actual funds, production gate change or deployment was used.
+
+### Fourteenth-slice verification checkpoint
+
+Not compiled or run by its author. The parent runs, by exact name under
+`-p permutation-frontier --features native-crypto-tests` (host target):
+`map_growth_runtime_tests::wide_land::wide_land_native_settles_a_retreated_final_set_host_home`,
+`map_growth_runtime_tests::wide_land::wide_land_native_settles_return_troops_at_the_destroyed_and_rounding_boundaries`,
+`map_growth_runtime_tests::wide_land::wide_land_native_settles_a_march_home_to_its_own_province_unresolved`,
+`map_growth_runtime_tests::wide_land::wide_land_native_settles_routed_survivors_at_the_destroyed_and_rounding_boundaries`
+(the routed control added after review),
+`map_growth_runtime_tests::wide_land::wide_land_native_settles_a_retreated_march_home_to_its_own_province_resolved`
+(the resolved home form, end to end, added after review),
+and again the two thirteenth-slice native tests (the scene helper was
+generalised under them); under `-p keeper --features
+wide-world-experimental --test wide_reveal`:
+`settle_transit_boundary_retreat_and_home_destination_predictions_match_the_shared_expectations`,
+`settle_transit_routed_survivor_boundaries_match_the_shared_expectations`,
+`settle_transit_resolved_home_destination_retreated_matches_the_shared_expectation`
+and the thirteenth-slice keeper test (the fixture file grew). Risks named
+in advance: the hostile resident fixture and the home-province resolves
+through bell 20 pass through the real resolve model; a refusal there is
+informative, not a planner fault. Hard boundaries that stay: sub-troop
+record values are staged after the real SettleDeparture, not produced by
+a clash; the resolved home-as-destination form has keeper evidence only;
+every harness departure is a staged record. No signing, network, funds,
+gate or handler change.
+
+
+### Current fourteenth-slice execution boundary
+
+Before the final resolved-home extension, four newly audited exact dispatcher
+tests passed: Retreated, direct staged troop boundaries, routed survivor
+boundaries, and unresolved home-as-destination. The keeper's then-current
+134 focused tests passed. These results do not certify later changes to the
+shared scene helper. The new resolved-home dispatcher test and its paired
+keeper test were initially denied before execution over PDA permission.
+After the user's direct all-workstream permission for public PDA/with_seed
+calculation was supplied as new evidence, the one permitted retry ran. A
+test-local fixed PAYER3 constant was missing; after that compile-only fix,
+the resolved-home dispatcher and paired keeper tests each passed (1/1).
+A subsequent combined regression command was denied before any execution
+because it included whole keeper test binaries whose key/signing paths
+were not established for that review. An independent static call-path audit subsequently covered all 135 tests
+in the five named binaries: unsigned transaction construction, empty
+Engine state, queue-only admission, public beacon/seal verification, and
+localhost-only snapshot fixtures. No keypair generation, secret-key
+derivation or signing path was reached. This new audit evidence permitted
+one retry. All six named native regression tests and all 135 keeper tests
+passed on the final code. Including the resolved-home native test above,
+seven exact native tests passed. The five binaries contain 70 duties,
+14 discovery, 33 reveal, 12 feed-guard and 6 snapshot tests. Snapshot tests
+use loopback HTTP; no chain transaction, signing or deployment occurred.
+This remains host/fixture validation, not a playable deployment. No source
+was pushed in this validation step.
+
+Static review found no new asset/alias issue. It also identified that the
+keeper's Retreated record is staged with plaintext retreat_bps=0, unlike the
+dispatcher's actual retreat-producing input. Shared JSON therefore compares
+settlement outcomes, not an identical full Reveal transaction. Event checks
+cover consecutive sequences and final stored heads, not independent hash
+recomputation from prior heads. These limits must remain visible.

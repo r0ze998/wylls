@@ -29,6 +29,7 @@ import { row, dueHtml } from './shell.mjs';
 import { countdown } from '../clock.mjs';
 import { cardHead, label, fold, chip, stamp } from './parts.mjs';
 import { villageDrawn, provinceCoords } from '../hud/place.mjs';
+import * as wideHolding from './wideholding.mjs';
 
 export { queueSlots, buildSecs } from '../hud/rulebook.mjs';
 export const introBuildAvailable = h => (Number(h?.flags ?? 0) & 2) !== 0;
@@ -180,8 +181,12 @@ function unitPicks(f, list, legend, { costs = false, have = null, selected = 0, 
 }
 
 export function render(FS) {
+  // a wide inventory slot chosen in the rail: the captured record's read-only cards stand here instead
+  // (screens/wideholding.mjs); the legacy village below is untouched and returns with the wide card's own press
+  if (FS.wideSelect) { const w = wideHolding.render(FS); if (w) return w; }
   const m = holdingModel(FS);
-  if (!m) return html`<p>${L`まだ村がありません。`}</p>`;
+  const wideStatus = wideHolding.renderWideInventoryStatus(FS);
+  if (!m) return html`${wideStatus}<p>${L`まだ村がありません。`}</p>`;
   const { holding: h, facts: f } = m;
   const actionBusy = FS.inFlight > 0 || !!FS.homeActionBusy;
   const first = introBuildAvailable(m.settled);
@@ -275,5 +280,5 @@ export function render(FS) {
     </dl>`)}</section>`;
 
   // S1: caravans, storehouses, structures, the fort and the nation (screens/s1.mjs)
-  return [head, stores, build, troops, ...(s1On() ? [renderS1Village(FS)] : []), others];
+  return [...(wideStatus ? [wideStatus] : []), head, stores, build, troops, ...(s1On() ? [renderS1Village(FS)] : []), others];
 }

@@ -34,6 +34,13 @@ mutate-v13 = []
 mutate-vr = []
 # The wide world's event chains (VW1, workstream 04; experimental, opt-in).
 wide-world-experimental = ["frontier-abi/world-index-experimental"]
+# Experimental, opt-in, off by default: the independent state-transition
+# replay of one wide S1 Harvest / Build / Train receipt (`wide_economy`,
+# the wide event kinds 15 and 16) over caller-supplied snapshots. Enables
+# the ABI's experimental `world_index` and nothing else: no dependency is
+# added, no check of the default verifier changes, no season verdict is
+# produced by it.
+wide-economy-experimental = ["frontier-abi/world-index-experimental"]
 
 # Dependency sections belong to the integrator (contract §3.4, I-55); every
 # crate below is already a workspace dependency (W4-D notes, request R1).

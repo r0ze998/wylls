@@ -237,6 +237,11 @@ pub fn me_json(f: &Fold, wallet: &Address, quota: Value) -> Value {
     });
     #[cfg(feature = "wide-world-experimental")]
     {
+        // The viewer's wide inventory, kept apart from `holdings` (never a
+        // legacy Holding at (0,0)): the identity envelope every entry is
+        // checked against, then the slots. Both additive; a page reads them
+        // together or not at all.
+        v["wideContext"] = crate::wide::context_for_citizen(f, &ca);
         v["wideHoldings"] = crate::wide::holdings_for_citizen(f, &ca);
     }
     // MC (CQ2-E, §8.4): `alerts[]`, `sieges[]` and the caller's players

@@ -6391,3 +6391,598 @@ fn settle_transit_return_predictions_match_the_shared_dispatcher_expectations() 
         assert_eq!(r["writes"], "none");
     }
 }
+
+/// The fixture march with `dep_mass` departed and settled at the origin
+/// with `troops_after` (a record as an origin clash could leave it; the
+/// dispatcher test stages the same values), the fee and the bond escrowed.
+fn settled_transit_with(dep_mass: u32, troops_after: u32, root: [u8; 32]) -> WideTransit {
+    let mut t = transit_full(
+        host(),
+        origin(),
+        DEPART_BELL,
+        ARRIVE_BELL,
+        root,
+        depart_ts(),
+        dep_mass,
+        61,
+        TIP,
+    )
+    .step(
+        MarchEvent::SettleDeparture { destroyed: false },
+        Some((troops_after, 61, 0)),
+    )
+    .unwrap();
+    t.flags |= TL::FLAG_FEE_ESCROWED | TL::FLAG_BOND_ESCROWED;
+    t.rent_to = TRANSIT_RENT_TO;
+    t
+}
+
+/// The planner's predictions for the remaining branches the dispatcher
+/// tests settle, against the same expectation file: the **retreated**
+/// final-set host (the record fixture carries the fate the real resolve
+/// produced there); the return's troop **boundaries** 499 / 500 / 999 /
+/// 1,000 milli (records staged as the dispatcher stages them, the source
+/// field saying so); the march **home to its own province**: the
+/// unresolved form the dispatcher settles is `InputsUnresolved` here (no
+/// resolver position is chosen), and the resolved form — a **staged**
+/// resolved record at the home, which no dispatcher test produces — pins
+/// the planner's headroom rule: the one province account must take two
+/// records, `ChainOverflow("dest_province")` when it can take only one.
+#[test]
+fn settle_transit_boundary_retreat_and_home_destination_predictions_match_the_shared_expectations(
+) {
+    let j = return_expectations();
+    let escrowed_season = {
+        let mut s = season_bytes(SL::STATUS_RUNNING, 10_000);
+        assert!(wr_u64(&mut s, SL::MARCH_FEE, MARCH_FEE));
+        assert!(wr_u64(&mut s, SL::SEAL_BOND, SEAL_BOND));
+        s
+    };
+    let roles = |f: &SettleTransitFacts| -> Vec<(&'static str, String)> {
+        f.nominal_payments
+            .iter()
+            .map(|p| (p.what, role_of(p.to).to_string()))
+            .collect()
+    };
+    // --- Retreated in the final set: the record's values home, the
+    // stamina dated the arrival, the tip to its own slot's beneficiary.
+    let c = expectation(&j, "retreated_final_set_roster_entry");
+    assert!(c["source"].as_str().unwrap().starts_with("dispatcher - real Resolve retreat"));
+    let mut fx = SettleFx::new();
+    fx.season = escrowed_season.clone();
+    fx.holding = settle_holding_bytes(GEN, TIP + MARCH_FEE + SEAL_BOND, 1);
+    fx.transit = Some(
+        settled_transit_with(TROOPS, TROOPS, fx.proof.seal_root)
+            .to_bytes()
+            .to_vec(),
+    );
+    fx.inputs = Some(resolved_inputs_with(
+        away(),
+        &[(
+            1,
+            arrival_of(
+                host(),
+                citizen(),
+                TROOPS,
+                wa::wide_arrival::FATE_RETREATED,
+                TROOPS,
+            ),
+        )],
+    ));
+    let mut sd = slot_bytes_at(away(), 1, host());
+    assert!(wr_arr(&mut sd, wa::wide_arrival_slot::RENT_TO, &payer().to_bytes()));
+    fx.slot = Some(sd);
+    let (pd, rd) = home_with_entries(&[]);
+    fx.home = Some(pd);
+    fx.home_roster = Some(rd);
+    let cand = fx.plan().unwrap_or_else(|b| panic!("blocked: {b:?}"));
+    let f = settle_facts(&cand);
+    assert_eq!(f.outcome_code as u64, expected_u64(c, "outcome_code"));
+    assert_eq!(f.fate, wa::wide_arrival::FATE_RETREATED);
+    assert!(f.in_final_set && f.own_slot);
+    let r = f.return_home.unwrap();
+    assert_eq!(r.troops_milli as u64, expected_u64(c, "troops_home_milli"));
+    assert_eq!((r.stamina, r.stamina_bell, r.routed), (61, ARRIVE_BELL, false));
+    assert_eq!(
+        roles(f),
+        vec![
+            ("tip", "slot_beneficiary".to_string()),
+            ("march_fee", "resolver".to_string()),
+            ("bond", "rent_payer".to_string()),
+        ]
+    );
+    assert!(r.entry.is_some());
+    assert_eq!(r.credited_milli as u64, expected_u64(c, "credited_milli"));
+    assert_eq!(
+        f.slot_disposition,
+        SlotDisposition::ClosedTo {
+            position: 0,
+            lamports: FUNDED_WALLET
+        }
+    );
+    // --- The boundaries: records whose troops_after is staged as the
+    // dispatcher stages them (the source field says so); the outranked
+    // bounce; the home roster free for 499 and 500, at the faction cap
+    // for 999 and 1,000.
+    let bounce_inputs = resolved_inputs_with(
+        away(),
+        &[(
+            0,
+            arrival_of(
+                host_b(),
+                citizen(),
+                TROOPS,
+                wa::wide_arrival::FATE_STAYS,
+                TROOPS,
+            ),
+        )],
+    );
+    let eight: Vec<(usize, WideHostRef, u8, u8)> = (0..PV::FACTION_CAP)
+        .map(|i| (i, host_c(300 + i as u32), E::STATE_ROSTER, 0u8))
+        .collect();
+    for name in [
+        "boundary_499_destroyed_on_return",
+        "boundary_500_roster_entry",
+        "boundary_999_reserve_zero",
+        "boundary_1000_reserve_one",
+    ] {
+        let c = expectation(&j, name);
+        assert!(c["source"].as_str().unwrap().starts_with("isolated-handler"));
+        let mass = expected_u64(c, "dep_mass_milli") as u32;
+        let staged = expected_u64(c, "troops_after_staged_milli") as u32;
+        let mut fx = SettleFx::new();
+        fx.season = escrowed_season.clone();
+        fx.holding = settle_holding_bytes(GEN, TIP + MARCH_FEE + SEAL_BOND, 1);
+        fx.transit = Some(
+            settled_transit_with(mass, staged, fx.proof.seal_root)
+                .to_bytes()
+                .to_vec(),
+        );
+        fx.proof.dep_mass_milli = mass;
+        fx.slot = None;
+        fx.inputs = Some(bounce_inputs.clone());
+        let (pd, rd) = if c["home"] == "reserve" {
+            home_with_entries(&eight)
+        } else {
+            home_with_entries(&[])
+        };
+        fx.home = Some(pd);
+        fx.home_roster = Some(rd);
+        let cand = fx.plan().unwrap_or_else(|b| panic!("{name}: blocked: {b:?}"));
+        let f = settle_facts(&cand);
+        assert_eq!(f.outcome_code as u64, expected_u64(c, "outcome_code"), "{name}");
+        assert!(!f.in_final_set && !f.own_slot);
+        assert_eq!(f.troops_after_milli, staged, "{name}: the transit's value");
+        assert_eq!(
+            f.destroyed_on_return.to_string(),
+            c["destroyed_on_return"].as_str().unwrap(),
+            "{name}"
+        );
+        assert_eq!(
+            f.troops_logged_milli as u64,
+            expected_u64(c, "troops_home_milli"),
+            "{name}: the troops logged"
+        );
+        assert_eq!(
+            roles(f),
+            vec![
+                ("tip", "rent_payer".to_string()),
+                ("march_fee", "resolver".to_string()),
+                ("bond", "rent_payer".to_string()),
+            ],
+            "{name}"
+        );
+        assert_eq!(f.slot_disposition, SlotDisposition::NotOwn);
+        match c["home"].as_str().unwrap() {
+            "none" => {
+                assert!(f.return_home.is_none(), "{name}");
+                assert_eq!(expected_u64(c, "records"), 1);
+            }
+            "roster_entry" => {
+                let r = f.return_home.unwrap();
+                assert!(r.entry.is_some(), "{name}");
+                assert_eq!(r.troops_milli, staged);
+                assert_eq!(r.credited_milli as u64, expected_u64(c, "credited_milli"));
+                assert_eq!(r.reserve_after, r.reserve_before);
+            }
+            "reserve" => {
+                let r = f.return_home.unwrap();
+                assert!(r.entry.is_none() && r.live_own == 8, "{name}");
+                assert_eq!(r.troops_milli, staged);
+                assert_eq!(r.credited_milli as u64, expected_u64(c, "credited_milli"));
+                assert_eq!(
+                    (r.reserve_after - r.reserve_before) as u64,
+                    expected_u64(c, "reserve_delta_units"),
+                    "{name}"
+                );
+            }
+            other => panic!("home {other}"),
+        }
+    }
+    // --- Home as the destination. The unresolved form the dispatcher
+    // settles: the record of (home, arrive) absent → not planned here.
+    let c = expectation(&j, "home_is_destination_unresolved_rout");
+    assert_eq!(c["keeper_block"], "InputsUnresolved");
+    let (ibe, k) = recorded_vector();
+    let pt = plain_for(host(), ARRIVE_BELL);
+    assert_eq!(pt.dest, home(), "the reveal fixture's plaintext names the home");
+    let plain = wseal::pack(&pt);
+    let seal = wseal::assemble(&ibe, &wseal::body_xor(&k, &plain));
+    let salt = salt_of(&k);
+    let home_proof = proof_for(&plain, ARRIVE_BELL, &salt, &seal);
+    let home_fx = |resolved: Option<Vec<u8>>, event_seq: Option<u64>| -> (SettleFx, Reads) {
+        let mut fx = SettleFx::new();
+        fx.proof = home_proof.clone();
+        fx.transit = Some(
+            SettleFx::settled_transit(fx.proof.seal_root)
+                .to_bytes()
+                .to_vec(),
+        );
+        let mut hp = province_bytes(home(), ARRIVE_BELL + 1);
+        if let Some(seq) = event_seq {
+            assert!(wr_u64(
+                &mut hp,
+                frontier_abi::layout::header::EVENT_SEQ,
+                seq
+            ));
+        }
+        fx.home = Some(hp);
+        let (_, rd) = home_with_entries(&[]);
+        fx.home_roster = Some(rd);
+        let mut reads = fx.reads();
+        // The record and the slots of (home, arrive): absent, or the
+        // staged resolved record with the host bounced at position 1 and
+        // its own slot there.
+        reads.accounts.insert(inputs_addr(), resolved.clone().and_then(acct));
+        for i in 0..4u8 {
+            let s = if i == 1 && resolved.is_some() {
+                acct_with(slot_bytes_at(home(), 1, host()), FUNDED_WALLET)
+            } else {
+                None
+            };
+            reads.accounts.insert(slot_addr(i), s);
+        }
+        (fx, reads)
+    };
+    let plan_home = |fx: &SettleFx, reads: &Reads| -> Result<Candidate, Block> {
+        match widesettle::plan_settle_transit(
+            &scope(),
+            payer(),
+            beneficiary(),
+            &fx.proof,
+            fx.publication.as_ref(),
+            reads,
+        ) {
+            Step::Done(r) => r,
+            Step::Need(a) => panic!("unexpected read request: {a:?}"),
+        }
+    };
+    let (fx, reads) = home_fx(None, None);
+    assert_eq!(plan_home(&fx, &reads).unwrap_err(), Block::InputsUnresolved);
+    // The resolved form (staged: no dispatcher test produces it): the
+    // bounced host home into its own province — the one account must take
+    // the TransitSettled and the Return records.
+    let c = expectation(&j, "home_is_destination_resolved_headroom");
+    assert_eq!(expected_u64(c, "keeper_headroom_dest_province"), 2);
+    let resolved = resolved_inputs_with(
+        home(),
+        &[(
+            1,
+            arrival_of(
+                host(),
+                citizen(),
+                TROOPS,
+                wa::wide_arrival::FATE_BOUNCED,
+                TROOPS / 2,
+            ),
+        )],
+    );
+    let (fx, reads) = home_fx(Some(resolved.clone()), Some(u64::MAX - 2));
+    let cand = plan_home(&fx, &reads).unwrap_or_else(|b| panic!("blocked: {b:?}"));
+    let f = settle_facts(&cand);
+    assert_eq!((f.dest, f.home), (home(), home()));
+    assert!(f.return_home.is_some());
+    assert_eq!(f.fate, wa::wide_arrival::FATE_BOUNCED);
+    let (fx, reads) = home_fx(Some(resolved.clone()), Some(u64::MAX - 1));
+    assert_eq!(
+        plan_home(&fx, &reads).unwrap_err(),
+        Block::ChainOverflow("dest_province"),
+        "{}",
+        c["keeper_block_when_one_short"].as_str().unwrap()
+    );
+    // A staying host at home needs one record there: the same account
+    // one short still fits.
+    let staying = resolved_inputs_with(
+        home(),
+        &[(
+            1,
+            arrival_of(
+                host(),
+                citizen(),
+                TROOPS,
+                wa::wide_arrival::FATE_STAYS,
+                TROOPS / 2,
+            ),
+        )],
+    );
+    let (fx, reads) = home_fx(Some(staying), Some(u64::MAX - 1));
+    let cand = plan_home(&fx, &reads).unwrap_or_else(|b| panic!("blocked: {b:?}"));
+    assert!(settle_facts(&cand).stays);
+    // The two home-as-destination forms are a declared coverage gap, not
+    // an agreement: the dispatcher settles the unresolved one the planner
+    // refuses; the resolved one has planner evidence only.
+    let c = expectation(&j, "home_is_destination_unresolved_rout");
+    assert!(c["comparison"].as_str().unwrap().starts_with("coverage gap"));
+    let c = expectation(&j, "home_is_destination_resolved_headroom");
+    assert!(c["comparison"]
+        .as_str()
+        .unwrap()
+        .starts_with("coverage gap closed on the dispatcher side"));
+}
+
+/// The **resolved** home-as-destination form the dispatcher test produces
+/// end to end (`wide_land_native_settles_a_retreated_march_home_to_its_own_province_resolved`:
+/// a real Reveal at the home over a one-step path, Gather, Resolve with
+/// the retreat order, SettleTransit over one province account), mirrored:
+/// a 100,000-milli march settled at the origin, the record of (home, 20)
+/// resolved with the host `Retreated` at position 0 and its own slot
+/// there (its rent recipient the listed payer), the home roster paired
+/// and free. The planner predicts the same fields — outcome 4, in the
+/// set, the record's troops and stamina dated the arrival, the tip to the
+/// slot's beneficiary, a roster entry, the slot closed — over `dest ==
+/// home`, and its headroom rule for that one account: two records fit at
+/// `u64::MAX − 2`, not at `u64::MAX − 1`.
+#[test]
+fn settle_transit_resolved_home_destination_retreated_matches_the_shared_expectation() {
+    let j = return_expectations();
+    let c = expectation(&j, "home_is_destination_resolved_retreated");
+    assert!(c["comparison"].as_str().unwrap().starts_with("matching settlement semantics only"));
+    let mass = expected_u64(c, "dep_mass_milli") as u32;
+    let (ibe, k) = recorded_vector();
+    let pt = plain_for(host(), ARRIVE_BELL);
+    assert_eq!(pt.dest, home());
+    let plain = wseal::pack(&pt);
+    let seal = wseal::assemble(&ibe, &wseal::body_xor(&k, &plain));
+    let salt = salt_of(&k);
+    let mut home_proof = proof_for(&plain, ARRIVE_BELL, &salt, &seal);
+    home_proof.dep_mass_milli = mass;
+    let build = |event_seq: u64| -> (SettleFx, Reads) {
+        let mut fx = SettleFx::new();
+        let mut s = season_bytes(SL::STATUS_RUNNING, 10_000);
+        assert!(wr_u64(&mut s, SL::MARCH_FEE, MARCH_FEE));
+        assert!(wr_u64(&mut s, SL::SEAL_BOND, SEAL_BOND));
+        fx.season = s;
+        fx.holding = settle_holding_bytes(GEN, TIP + MARCH_FEE + SEAL_BOND, 1);
+        fx.proof = home_proof.clone();
+        fx.transit = Some(
+            settled_transit_with(mass, mass, fx.proof.seal_root)
+                .to_bytes()
+                .to_vec(),
+        );
+        let mut hp = province_bytes(home(), ARRIVE_BELL + 1);
+        assert!(wr_u64(
+            &mut hp,
+            frontier_abi::layout::header::EVENT_SEQ,
+            event_seq
+        ));
+        fx.home = Some(hp);
+        let (_, rd) = home_with_entries(&[]);
+        fx.home_roster = Some(rd);
+        let mut reads = fx.reads();
+        reads.accounts.insert(
+            inputs_addr(),
+            acct(resolved_inputs_with(
+                home(),
+                &[(
+                    0,
+                    arrival_of(
+                        host(),
+                        citizen(),
+                        mass,
+                        wa::wide_arrival::FATE_RETREATED,
+                        mass,
+                    ),
+                )],
+            )),
+        );
+        let mut sd = slot_bytes_at(home(), 0, host());
+        assert!(wr_arr(&mut sd, wa::wide_arrival_slot::RENT_TO, &payer().to_bytes()));
+        for i in 0..4u8 {
+            let s = if i == 0 {
+                acct_with(sd.clone(), FUNDED_WALLET)
+            } else {
+                None
+            };
+            reads.accounts.insert(slot_addr(i), s);
+        }
+        (fx, reads)
+    };
+    let plan_home = |fx: &SettleFx, reads: &Reads| -> Result<Candidate, Block> {
+        match widesettle::plan_settle_transit(
+            &scope(),
+            payer(),
+            beneficiary(),
+            &fx.proof,
+            fx.publication.as_ref(),
+            reads,
+        ) {
+            Step::Done(r) => r,
+            Step::Need(a) => panic!("unexpected read request: {a:?}"),
+        }
+    };
+    let (fx, reads) = build(u64::MAX - 2);
+    let cand = plan_home(&fx, &reads).unwrap_or_else(|b| panic!("blocked: {b:?}"));
+    let f = settle_facts(&cand);
+    assert_eq!((f.dest, f.home), (home(), home()), "one province in both roles");
+    assert_eq!(f.outcome_code as u64, expected_u64(c, "outcome_code"));
+    assert_eq!(f.fate, wa::wide_arrival::FATE_RETREATED);
+    assert!(f.in_final_set && f.own_slot && !f.stays);
+    assert_eq!(f.position, 0);
+    let r = f.return_home.unwrap();
+    assert_eq!(r.troops_milli as u64, expected_u64(c, "troops_home_milli"));
+    assert_eq!((r.stamina, r.stamina_bell, r.routed), (61, ARRIVE_BELL, false));
+    assert!(r.entry.is_some() && r.home_roster_present);
+    assert_eq!(r.credited_milli as u64, expected_u64(c, "credited_milli"));
+    assert_eq!(
+        (r.reserve_after - r.reserve_before) as u64,
+        expected_u64(c, "reserve_delta_units")
+    );
+    let roles: Vec<(&str, &str)> = f
+        .nominal_payments
+        .iter()
+        .map(|p| (p.what, role_of(p.to)))
+        .collect();
+    assert_eq!(
+        roles,
+        vec![
+            ("tip", c["tip_to"].as_str().unwrap()),
+            ("march_fee", c["fee_to"].as_str().unwrap()),
+            ("bond", c["bond_to"].as_str().unwrap()),
+        ]
+    );
+    assert_eq!(
+        f.slot_disposition,
+        SlotDisposition::ClosedTo {
+            position: 0,
+            lamports: FUNDED_WALLET
+        }
+    );
+    assert_eq!(f.troops_logged_milli, mass);
+    // The headroom of the one account: two records.
+    assert_eq!(expected_u64(c, "keeper_headroom_dest_province"), 2);
+    let (fx, reads) = build(u64::MAX - 1);
+    assert_eq!(
+        plan_home(&fx, &reads).unwrap_err(),
+        Block::ChainOverflow("dest_province"),
+        "{}",
+        c["keeper_block_when_one_short"].as_str().unwrap()
+    );
+}
+
+/// The routed **control** of the return line and the rounding, mirrored:
+/// records whose post-origin `troops_after` is staged to 998 / 1,000 /
+/// 1,998 / 2,000 milli (every one at or above `DESTROYED_BELOW`, the
+/// source field saying so), the march's Citizen absent from the resolved
+/// record so the shared `wide_valid_outcome` is `Routed`, the shared
+/// `rout_survivors` halving them to 499 / 500 / 999 / 1,000; the home at
+/// the faction cap. The planner predicts what the dispatcher test
+/// observes: 499 destroyed on return (nothing staged, one record), 500 and
+/// 999 home into the reserve as zero whole units with a Return record,
+/// 1,000 as one; the tip owed, the fee to the resolver, the bond to the
+/// rent payer; no slot.
+#[test]
+fn settle_transit_routed_survivor_boundaries_match_the_shared_expectations() {
+    let j = return_expectations();
+    let escrowed_season = {
+        let mut s = season_bytes(SL::STATUS_RUNNING, 10_000);
+        assert!(wr_u64(&mut s, SL::MARCH_FEE, MARCH_FEE));
+        assert!(wr_u64(&mut s, SL::SEAL_BOND, SEAL_BOND));
+        s
+    };
+    // Another Citizen's host present at position 0 and free positions:
+    // the fixture host is admissible, so routed.
+    let other_present = resolved_inputs_with(
+        away(),
+        &[(
+            0,
+            arrival_of(
+                host_c(9),
+                other_citizen(),
+                TROOPS,
+                wa::wide_arrival::FATE_STAYS,
+                TROOPS,
+            ),
+        )],
+    );
+    let eight: Vec<(usize, WideHostRef, u8, u8)> = (0..PV::FACTION_CAP)
+        .map(|i| (i, host_c(300 + i as u32), E::STATE_ROSTER, 0u8))
+        .collect();
+    for name in [
+        "routed_boundary_998_to_499_destroyed",
+        "routed_boundary_1000_to_500_reserve_zero",
+        "routed_boundary_1998_to_999_reserve_zero",
+        "routed_boundary_2000_to_1000_reserve_one",
+    ] {
+        let c = expectation(&j, name);
+        assert!(c["source"].as_str().unwrap().starts_with("isolated-handler"));
+        let mass = expected_u64(c, "dep_mass_milli") as u32;
+        let staged = expected_u64(c, "troops_after_staged_milli") as u32;
+        assert!(staged >= DESTROYED_BELOW, "{name}: a post-origin value the line admits");
+        assert_eq!(
+            rout_survivors(staged) as u64,
+            expected_u64(c, "troops_home_milli"),
+            "{name}: the shared rout_survivors"
+        );
+        let mut fx = SettleFx::new();
+        fx.season = escrowed_season.clone();
+        fx.holding = settle_holding_bytes(GEN, TIP + MARCH_FEE + SEAL_BOND, 1);
+        fx.transit = Some(
+            settled_transit_with(mass, staged, fx.proof.seal_root)
+                .to_bytes()
+                .to_vec(),
+        );
+        fx.proof.dep_mass_milli = mass;
+        fx.slot = None;
+        fx.inputs = Some(other_present.clone());
+        let (pd, rd) = home_with_entries(&eight);
+        fx.home = Some(pd);
+        fx.home_roster = Some(rd);
+        let cand = fx.plan().unwrap_or_else(|b| panic!("{name}: blocked: {b:?}"));
+        let f = settle_facts(&cand);
+        assert_eq!(f.outcome_code as u64, expected_u64(c, "outcome_code"), "{name}");
+        assert_eq!(
+            f.outcome_code,
+            WideOutcome::Routed { resolved: true }.code(),
+            "{name}: routed by the record"
+        );
+        assert!(!f.in_final_set && !f.own_slot);
+        assert_eq!(f.troops_after_milli, staged);
+        assert_eq!(
+            f.destroyed_on_return.to_string(),
+            c["destroyed_on_return"].as_str().unwrap(),
+            "{name}"
+        );
+        let destroyed = f.destroyed_on_return;
+        assert_eq!(
+            f.troops_logged_milli as u64,
+            if destroyed { 0 } else { expected_u64(c, "troops_home_milli") },
+            "{name}: the troops logged"
+        );
+        let pays: Vec<(&str, String, PayRoute)> = f
+            .nominal_payments
+            .iter()
+            .map(|p| (p.what, role_of(p.to).to_string(), p.route))
+            .collect();
+        assert_eq!(
+            pays,
+            vec![
+                ("tip", "pool_owed".to_string(), PayRoute::OwedPool),
+                ("march_fee", "resolver".to_string(), PayRoute::Wallet),
+                ("bond", "rent_payer".to_string(), PayRoute::Wallet),
+            ],
+            "{name}"
+        );
+        assert_eq!(f.pool_owed_after, TIP);
+        assert_eq!(f.slot_disposition, SlotDisposition::NotOwn);
+        match c["home"].as_str().unwrap() {
+            "none" => {
+                assert!(f.return_home.is_none(), "{name}");
+                assert_eq!(expected_u64(c, "records"), 1);
+            }
+            "reserve" => {
+                let r = f.return_home.unwrap();
+                assert!(r.entry.is_none() && r.live_own == 8, "{name}: the cap");
+                assert_eq!(r.troops_milli as u64, expected_u64(c, "troops_home_milli"));
+                assert!(r.routed && r.stamina == 0 && r.stamina_bell == now_bell_of(&fx));
+                assert_eq!(r.credited_milli as u64, expected_u64(c, "credited_milli"), "{name}");
+                assert_eq!(
+                    (r.reserve_after - r.reserve_before) as u64,
+                    expected_u64(c, "reserve_delta_units"),
+                    "{name}: whole units"
+                );
+                assert_eq!(expected_u64(c, "records"), 2);
+            }
+            other => panic!("home {other}"),
+        }
+    }
+}
