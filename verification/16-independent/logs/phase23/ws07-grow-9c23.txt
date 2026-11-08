@@ -1,0 +1,9 @@
+### ⑦ 9c23282d6013c01e75e49b7cefd5397ee48cef3b (tree 937ed44b) ws07-grow.screen.mjs, full Chromium, repo no-keys-guard
+ok 1 - the default server is byte-identical: openRings unset, and set then removed
+ok 2 - the map grows by a ring @ desktop: unopened before, in by the page's own poll, a march order into it (not sent)
+ok 3 - the map grows by a ring @ phone: unopened before, in by the page's own poll, a march order into it (not sent)
+# tests 3
+# pass 3
+# fail 0
+
+fixture season record (world.mjs): rMax 16; rings 0-2 seeds = byte d+1 repeated (pattern true for all three); overview/roster bytes for d=3: 464/3560, d=4: 608/4736 (already produced by world.mjs; the 404 was only the server gate)

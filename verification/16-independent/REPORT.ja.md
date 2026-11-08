@@ -2849,3 +2849,25 @@ checkpoint の `95b0ab225ca9e9e626941b51981df2240198d91c`（tree `89a64830da3991
   - ruleset hash。違いは 1 つ：画面は season の record の rulesetHash を使い、試験は `PRESETS.ruleset_hash_v3` を使う。
   - kernelFile は、S1（layout 2、program_version 4）で `frontier-v3.wasm` を選ぶ（試験が assert）。
 - **⑯ の実行**：repo の guard と ⑯ の hook v2 の下で 2 回とも **4/4**。hook の記録は 0 件（`logs/phase23/ws08-growth-route.txt`）。鍵の生成・導出・署名は無い。ring の seed は、公開の label の sha256。
+
+## 29.14 ⑦ 9c23282d（`openRings` の hook と ws07-grow）の独立のレビュー
+
+- 対象：⑦ `9c23282d6013c01e75e49b7cefd5397ee48cef3b`（tree `937ed44b…`、親 caeb1b74）。product の code の変更は無い。
+- ④ の後続 `a6e261f8`（⑧ の commit そのものへの fast-forward）は、§29.13 で確かめたものと同じ。
+- **(1) 既定で byte が同じか**：成り立つ。
+  - `ringsOpen` が null のとき、`seasonNow()` は `W.seasonRecord()` をそのまま返す。
+  - `ringOpen(d)` は `d <= 2` になる（前の `d > 2 → 404` の否定）。
+  - 変わったのは /h/season、/h/overview、/h/roster の 3 つの route だけ。
+  - `openRings` は n > 3 の整数だけを受け付け、それ以外は null にする。
+  - ws07-grow の最初の試験が、未設定のとき、設定して外した後の、既定の sha256（`8e00cf59…`）を確かめる。`after()` で null に戻す。
+- **(2) seed の形は fixture の既存の ring と同じか**：同じ。
+  - world.mjs の ring 0〜2 の seed は、どれも「byte d+1 を 32 回」で、hook が足す ring 3 以降と同じ形（⑯ が 3 つとも確かめた）。
+  - 変わるのは record の `rings` だけで、ほかの growth の field を作り足してはいない（この fixture の record には rMax 16 しかなく、ringsOpened などは無い）。
+  - ring 3 と 4 の overview と roster の bytes は、world.mjs が前から作っていた。404 は server の gate だけだった。
+- **(3) 画面が見せる以上のことを assert していないか**：一部はしている。
+  - DOM を見る assert：panel の文、`#mc-title`、hand の按鈕。
+  - 内部の状態を読むもの:
+    - `state()` は `FS.compose`（dest、route の province、bell、earliest）と `FS.mapNote`、`FS.record.rings` を読む。route や arrival の turn は、画面に出る形ではなく内部の値で確かめている。
+    - 届く tile は、page の kernel の `planRoute` を試験の側から呼んで選ぶ。
+  - **`clear()`（3 回）は `FS.compose`・`selected`・`hand`・`mapNote`・`inspectOpen` を直接 null にする**。UI の操作ではなく状態を書き換えるので、取り消しや選び直しの画面の経路は、その箇所では確かめていない。取り消しの経路は、別の段（cancel、戻る・進む、reload）で UI から確かめている。
+- **⑯ の実行**：ws07-grow を full Chromium と repo の no-keys-guard の下で 1 回流し、**3/3**（`logs/phase23/ws07-grow-9c23.txt`）。範囲は封印前の order まで。
