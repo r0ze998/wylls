@@ -2046,3 +2046,58 @@ Rust の側は 23.3 に書く。
       - 失った lock 1 つにつき、古い書き込みが 1 回起きうる、ということである。journal の整合の問題であって、二重送信ではない。
       - 直し方の候補（どれにするかは ⑥ の判断）：rename の直前に lock の token を確かめ直して窓を縮める。あるいは、token ごとの journal に書き、読む側は lock の token で選ぶ（世代の fencing）。
 - ⑥ の試験（ports、dispatch、connect、connect-live、intake。③ と ④ は候補の木のものを使った）：36 件のうち、35 件通過、0 件失敗、1 件 skip（WS06_RUN4_STORE が要る）。
+
+# 第21期（2026-11-08）：④の後継 7c7fe932
+
+## 26.1 対象と差分の照合
+
+- HEAD は `7c7fe932015ad4e70c897cd7aeec90f18c669295`、tree は `1c17ecbe668e7c31a0ca8265547f191be11ee2c3`。4d44f021 からの fast-forward で、17 commit。
+- directory を重ねたもの（① `9dcb1e88`、⑫ `5370d0fe`、⑬ `a420f924`）は、それぞれ元の担当の directory の tree と一致した（`ef4cd887`、`db36041a`、`df0901fb`）。
+- merge した file は、どれも元の担当の commit と同じ blob だった。
+  - ⑳ v28_resident_acts.rs
+  - ② v0_coverage.rs、rights_replay.rs
+  - ⑲ ingest.rs、ws19_feed_pages.rs
+  - ⑨ の rules と frontier の capacity.rs
+- 例外は keeper の play.rs（⑱ `0bf02548`）で、④ が申告したとおり 1 token だけ違う（`clone()` を外した）。
+
+## 26.2 見つけた欠陥：⑫ の journal が、二度目の crash の後に開けなくなる
+
+`probes/v16-ws12-torn-marker.test.mjs`（鍵なし。note だけを使い、allocation の検証の経路は通らない。memory の module の import の閉包には、鍵の API が無いことを確かめた）:
+
+- 状況：torn の最後の行がある journal を開き直す。その後の最初の書き込みは、`\n`、`{torn:{line,sha256}}`、本体の行を、一度の append で書く。その途中で二度目の crash が起きた場合を、5 か所で切って試した。
+
+| 切った場所 | 開き直した結果 |
+|---|---|
+| 改行だけ | 開く（torn 1、n1・n2） |
+| **marker の途中** | **開けない：`journal: corrupt line 3`** |
+| marker の後で、改行の前 | 開く |
+| marker と改行の後 | 開く |
+| 本体の行の途中 | 開く（torn 2） |
+
+- 原因：最初の torn の行が、もう最後の行ではない。次の行（marker の切れ端）も parse できない。このため、marker の規則にも最後の行の規則にも当てはまらず、`corrupt line` を投げる。
+- 記録は失われていない（file の中には n1・n2 が残っている）。ただし memory は、人が直すまで開けない（可用性の欠陥）。
+- ⑫ と ④ に、再現の方法を送った。
+
+## 26.3 ④ の scan の修正（9781d04e）の確かめ
+
+- scan の対象が増えた：git で管理される全ての *.test.mjs、その test directory の中の相対 import、裸の import。`--covers` で、scan が見ていない file を拒む。
+- ⑯ の静的な監査（`scripts/v16-key-closure.py`。src/ も含めて、全ての相対 import を辿る。何も実行しない）の結果:
+  - CI で鍵なしとして流す 3 つの package のうち、gateway には、一覧に無いのに import の閉包の中で鍵の API の名前に当たる試験が 106 本ある（`logs/phase21/key-closure-audit.txt`）。
+  - ほとんどは、定義に当たっているだけである（vendor の noble、client/src/keys.mjs など）。誤検出もある（Math.sign）。
+  - これは、scan が src/ を見ないという設計どおりで、実行のときの guard だけが守りになっている範囲である。
+- その guard が見えない、web の純 JS の鍵の導出（publicKeyOf など）について、CI の鍵なしの gateway の一式（194 file）を、⑯ の web の hook を足して流した。
+  - 1877 件のうち、1839 件通過、37 件失敗、1 件 skip。**hook の記録は 0 件**だった。
+  - 37 件の失敗は、hook（Node 22 の registerHooks）と一部の module の link が合わないために起きたもの（"request for './max.js' is from a module not been linked"）で、候補の欠陥ではない。④ の hook なしの実行は 1908/0。
+  - したがって、この 37 file（`logs/phase21/hook-inconclusive-files.txt`）については、hook での確かめは結論が出ていない。
+
+## 26.4 そのほか
+
+- ⑬ の port（必須の欄が欠けた、版つきの view は unknown にする）：本物の view 157 件の読みは、4d44f021 の port と全件同じだった。④ の view.rs は 20db3313 から変わっていない。
+- ⑨ の capacity：読んで確かめただけで、流していない。
+  - 足し算を checked_add と saturating_add にし、overflow のときは CapError::Overflow を返す。
+  - flag と recipe の byte を厳しく decode する。
+  - 結果が緩む方向の変更は、見当たらない。
+- 流していないもの:
+  - ⑨、②、⑳、⑲、⑱ の Rust の試験。④ の結果だけがある。
+  - ① の試験。
+  - browser の画面（⑦ の guard が入るまで流さない）。
