@@ -2,8 +2,8 @@
  * 06's caravan connection checked against the delivered code of ③ and ④,
  * not against 06's own copies of their contracts.
  *
- *   WS03_ROOT   a checkout of ③ (claude/modest-goldberg-c180fk, c95287d5…)
- *   WS04_ROOT   a checkout of ④ (claude/gallant-ride-cunptv, cf517b55…)
+ *   WS03_ROOT   a checkout of ③ (claude/modest-goldberg-c180fk, 6ee7c4d1…; c95287d5 has the same paths)
+ *   WS04_ROOT   a checkout of ④ (claude/gallant-ride-cunptv, 20db3313…; cf517b55 has the same src and clients)
  *   RUNEXEC_BIN ④'s `runexec`, built from WS04_ROOT (cargo build --release --bin runexec)
  *   WS06_RUN4_STORE  optional: a store ④'s executor wrote on 06's specs (handoff/ws04-check)
  *
