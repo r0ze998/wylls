@@ -36,6 +36,10 @@ const isConcord = (p, q) => p === 0 && q === 0;
 const int = x => Number.isSafeInteger(x);
 const tagOrder = (a, b) => (BigInt(a.ownerTag) < BigInt(b.ownerTag) ? -1 : BigInt(a.ownerTag) > BigInt(b.ownerTag) ? 1 : (a.seq ?? a.tile ?? 0) - (b.seq ?? b.tile ?? 0));
 const sumCargo = c => (Array.isArray(c) ? c.reduce((s, x) => s + (int(x) ? x : 0), 0) : 0);
+/** The herald's cargo as it is: one slot per resource of the rules (holding.rs RESOURCES, 8), unknown slots as 0. */
+export const RESOURCE_SLOTS = 8;
+const slots = c => Array.from({ length: RESOURCE_SLOTS }, (_, i) => (Array.isArray(c) && int(c[i]) ? c[i] : 0));
+const addSlots = (a, b) => a.map((x, i) => x + b[i]);
 
 /** Problems with the feeds as text ([] when they can be read). */
 export function feedProblems({ caravans, structures }) {
@@ -76,22 +80,23 @@ export function centreFacts({ caravans, structures = null, observedAt = null, st
   }
   // Caravans on the road whose walk enters the centre.
   let cargoAll = 0, cargoInner = 0, cargoConcord = 0, inner = 0, concord = 0;
+  let allBy = slots(null), innerBy = slots(null), concordBy = slots(null);
   for (const m of [...caravans.moving].sort(tagOrder)) {
-    const cargo = sumCargo(m.cargo);
-    cargoAll += cargo;
+    const cargo = sumCargo(m.cargo), by = slots(m.cargo);
+    cargoAll += cargo; allBy = addSlots(allBy, by);
     const rings = m.provinces.map(([p, q]) => ringOf(p, q));
     const throughConcord = m.provinces.some(([p, q]) => isConcord(p, q));
     if (Math.min(...rings) > INNER_RING) continue;
-    inner++; cargoInner += cargo;
-    if (throughConcord) { concord++; cargoConcord += cargo; }
-    push('centre.transit', { ownerTag: m.ownerTag, seqOfOwner: m.seq ?? null, faction: m.faction ?? null, throughConcord, innermostRing: Math.min(...rings), provinces: m.provinces.length, cargo, raided: !!m.raided });
+    inner++; cargoInner += cargo; innerBy = addSlots(innerBy, by);
+    if (throughConcord) { concord++; cargoConcord += cargo; concordBy = addSlots(concordBy, by); }
+    push('centre.transit', { ownerTag: m.ownerTag, seqOfOwner: m.seq ?? null, faction: m.faction ?? null, throughConcord, innermostRing: Math.min(...rings), provinces: m.provinces.length, cargo, cargoByResource: by, raided: !!m.raided });
   }
   // What watchtowers standing at the centre reported (S1's own sightings).
   const towerAtCentre = new Set(facts.filter(f => f.kind === 'centre.structure' && f.structureKind === 'tower').map(f => `${f.p},${f.q},${f.tile}`));
   for (const s of structures?.sightings ?? []) {
     const t = s.tower;
     if (!t || !towerAtCentre.has(`${t.p},${t.q},${t.tile}`)) continue;
-    push('centre.sighting', { bell: s.bell ?? null, tower: { p: t.p, q: t.q, tile: t.tile }, towerFaction: s.towerFaction ?? null, what: s.what ?? null, faction: s.faction ?? null });
+    push('centre.sighting', { bell: s.bell ?? null, tower: { p: t.p, q: t.q, tile: t.tile }, towerFaction: s.towerFaction ?? null, towerOwnerTag: s.ownerTag ?? null, what: s.what ?? null, faction: s.faction ?? null, subject: s.subject ?? null });
   }
 
   const moving = caravans.moving.length;
@@ -114,8 +119,10 @@ export function centreFacts({ caravans, structures = null, observedAt = null, st
       throughConcord: concord,
       innerShare: moving ? inner / moving : null,
       concordShare: moving ? concord / moving : null,
+      // cargo* sum the resources into one number (a unit across resources); *ByResource keep them apart (slot i = resource i of the rules)
       cargoInnerShare: cargoAll ? cargoInner / cargoAll : null,
       cargoConcordShare: cargoAll ? cargoConcord / cargoAll : null,
+      cargoByResource: { all: allBy, inner: innerBy, concord: concordBy },
       vaultsAtCentre: facts.filter(f => f.kind === 'centre.vault').length,
       vaultsInConcord: facts.filter(f => f.kind === 'centre.vault' && f.concord).length,
       structuresAtCentre: facts.filter(f => f.kind === 'centre.structure').length,

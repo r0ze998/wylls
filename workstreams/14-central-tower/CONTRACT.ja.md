@@ -86,9 +86,13 @@
 
 ⑭は⑮のコードを変えていません。
 
-### 5.2 最新版 `cb87e30c` との照合（未実施）
+### 5.2 最新版との照合（2026-11-08、実施済み）
 
-照合に要るもの（⑮の `cb87e30c`、前提コミットを明記した bundle か GitHub の push）：`workstreams/15-coop-outcomes/src/adapters/ws14.mjs`、`src/contract.mjs`、⑭の出力を使う試験と fixture。受け取ったら、⑭が渡した契約 v1 の fixture（`bde8d1c1` で作った A・B・C）を⑮の受け取り側に通して、時刻・掲示と応答の意味・`actor`・`unverified` の扱いを確かめる。
+⑮ `claude/determined-maxwell-uhc6a3` @ `95f44cf34a1e52688f208f25260b8b8cd27b5178`（tree `4215146e33d12f9c1b8ed669d6608881ae376cf1`、`adapters/ws14.mjs` は `cb87e30c` から同じ）。
+- ⑮の `scenarios/fixtures/ws14-v1-bde8d1c1-case{A,B,C}.json` は、⑭が渡した fixture とバイト単位で同じ。
+- ⑮の `test/contract-ws14.test.mjs`：11件合格。呼び出し先（`evaluate`・`rulesets`・`adapters/ws14`・`canon` の sha256）まで読み、鍵の生成・導出・署名がないことを確かめてから実行した。
+- ⑭の A・B・C を⑮の `normalizeTowerFacts`・`fromTowerFacts` に通した結果：拒否0、problems 0、`bellsPerHour` 6、区切り2（168・336時間）。評価期間は作られない。B は `tower.request.posted` 631・`taken` 597・`fulfilled` 523（⑭の数と一致）。C は `tower.relay.swap` 206。全件 `verified: 'model'`（評価器は事実として数えない）。目撃への読み替えはない。
+- 5.1 の食い違いはすべて解消している。
 
 ## 6. 今のゲームの中央の事実（`wylls.ws14.centre-facts/1`、2026-11-08）
 
@@ -102,7 +106,9 @@
   provenance: { from, before, after, stable, why, slotCommitment },  // ヘラルドの畳み込みの位置（下）
   facts: [ { seq, kind, verified: 'derived', ... } ],
   summary: { moving, throughInner, throughConcord, innerShare, concordShare,
-             cargoInnerShare, cargoConcordShare, vaultsAtCentre, vaultsInConcord,
+             cargoInnerShare, cargoConcordShare,          // 資源をまたいだ合計の割合
+             cargoByResource: { all, inner, concord },     // 資源ごと（8枠）
+             vaultsAtCentre, vaultsInConcord,
              structuresAtCentre, structuresInConcord, byFaction } }
 ```
 
@@ -112,8 +118,8 @@
 |---|---|---|
 | `centre.vault` | `p, q, tile, ring, concord, faction, ownerTag, gen` | 中央に建っている倉（個人の物。今のコードでは大協約にも建てられる） |
 | `centre.structure` | `p, q, tile, ring, concord, structureKind, faction, ownerTag` | 中央に建っている S1 の建物（`tower`＝物見櫓・`palisade`・`fort`） |
-| `centre.transit` | `ownerTag, seqOfOwner, faction, throughConcord, innermostRing, provinces, cargo, raided` | 道中の隊商で、通る州（`provinces`）が中央に入るもの |
-| `centre.sighting` | `bell, tower, towerFaction, what, faction` | 中央に立つ物見櫓が報告した目撃（S1 の目撃。⑭の塔の目撃ではない） |
+| `centre.transit` | `ownerTag, seqOfOwner, faction, throughConcord, innermostRing, provinces, cargo, cargoByResource, raided` | 道中の隊商で、通る州（`provinces`）が中央に入るもの。`cargoByResource` はヘラルドの積荷そのまま（規則の資源8枠、i 番目＝資源 i）。`cargo` は資源をまたいだ合計で、単位が混ざる |
+| `centre.sighting` | `bell, tower, towerFaction, towerOwnerTag, what, faction, subject` | 中央に立つ物見櫓が報告した目撃（S1 の目撃。⑭の塔の目撃ではない）。`towerOwnerTag`＝物見櫓の持ち主、`subject`＝見られたもの（ヘラルドの欄そのまま） |
 
 - 一覧は**今の状態**だけ。着いた隊商は `moving` から消える。閉じた倉は、ヘラルドが無いと読むまで残る（ヘラルドの注記）。時間を通した量は、呼び出し側が何度か読んで並べる。
 - **出どころ（`provenance`）：** 読み取りのコマンドは、二つの一覧を読む前と後に `/h/status` を読む。`before`・`after` にヘラルドの `foldedThrough`（畳み込んだアーカイブの通し番号）・`events`（畳み込んだ記録の件数、`/h/events` の番号）・`lastSlot`・`alarms` を入れる。前後が同じなら `stable: true`（一覧はその畳み込みの時点のもの）、違えば `false`（一覧は二つの間のどこか）。`lastSlot` が確定（confirmed・finalized）した slot かどうかは、ヘラルドが示さないので `slotCommitment: 'not stated by the herald'` とだけ書く。ファイルから読んだときは `from: null`（出どころ不明）。どの記録からどの事実ができたかの一件ごとの対応は、ヘラルドの一覧が持たないので付けられない。⑮から2026-11-08 に出どころの要望があった。

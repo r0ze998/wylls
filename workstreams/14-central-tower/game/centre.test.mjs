@@ -51,7 +51,7 @@ test('the field names this reader uses are the ones the herald writes', () => {
   const car = readFileSync(`${repo}frontier-node/crates/herald/src/caravan.rs`, 'utf8');
   const str = readFileSync(`${repo}frontier-node/crates/herald/src/structure.rs`, 'utf8');
   for (const k of ['"v"', '"moving"', '"vaults"', '"ownerTag"', '"seq"', '"faction"', '"cargo"', '"raided"', '"provinces"', '"p"', '"q"', '"tile"', '"gen"']) assert.ok(car.includes(`${k}:`), `caravan.rs writes ${k}`);
-  for (const k of ['"v"', '"structures"', '"sightings"', '"kind"', '"faction"', '"ownerTag"', '"tower"', '"towerFaction"', '"what"', '"bell"']) assert.ok(str.includes(`${k}:`), `structure.rs writes ${k}`);
+  for (const k of ['"v"', '"structures"', '"sightings"', '"kind"', '"faction"', '"ownerTag"', '"tower"', '"towerFaction"', '"what"', '"bell"', '"subject"']) assert.ok(str.includes(`${k}:`), `structure.rs writes ${k}`);
   const kinds = readFileSync(`${repo}permutation-rules/src/frontier/structure.rs`, 'utf8');
   assert.match(kinds, /KIND_TOWER: u8 = 1;/); assert.match(kinds, /KIND_PALISADE: u8 = 2;/); assert.match(kinds, /KIND_FORT: u8 = 3;/);
 });
@@ -157,4 +157,22 @@ test('the command line reads a herald by public GETs and records its fold', asyn
   assert.equal(out.provenance.stable, true);
   assert.deepEqual(out.facts, centreFacts(FEEDS).facts);
   assert.deepEqual(out.summary, centreFacts(FEEDS).summary);
+});
+
+test('cargo per resource is kept apart, not only summed', () => {
+  const out = centreFacts(FEEDS);
+  const t11 = out.facts.find(f => f.kind === 'centre.transit' && f.ownerTag === '11');
+  assert.deepEqual(t11.cargoByResource, [0, 100, 0, 0, 0, 0, 0, 0]);
+  assert.equal(t11.cargo, 100);
+  assert.deepEqual(out.summary.cargoByResource.all, [0, 200, 50, 0, 0, 0, 0, 0]);
+  assert.deepEqual(out.summary.cargoByResource.inner, [0, 100, 50, 0, 0, 0, 0, 0]);
+  assert.deepEqual(out.summary.cargoByResource.concord, [0, 100, 0, 0, 0, 0, 0, 0]);
+  const mixed = centreFacts({ caravans: { v: 1, vaults: [], moving: [caravan(5, 0, 0, [[0, 0]], [0, 30, 50])] } });
+  assert.deepEqual(mixed.facts[0].cargoByResource, [0, 30, 50, 0, 0, 0, 0, 0]);
+  assert.equal(mixed.facts[0].cargo, 80);
+});
+
+test('a centre sighting says whose tower saw what', () => {
+  const s = centreFacts(FEEDS).facts.find(f => f.kind === 'centre.sighting');
+  assert.deepEqual([s.towerOwnerTag, s.subject], ['31', '11']);
 });
