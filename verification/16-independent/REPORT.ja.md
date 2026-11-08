@@ -2807,3 +2807,17 @@ checkpoint の `95b0ab225ca9e9e626941b51981df2240198d91c`（tree `89a64830da3991
   - ⑦ の画面と unit、gateway.rs・signed.rs（署名を使う）、保守的に除外したもの（via-src 209、unfollowed 23）は流していない。
   - §29.8 (b)（join と paidJoin の meStatus）は、持ち主が決めること。
   - 4d44f021 の元の run の順序は、確かめられていない。
+
+## 29.12 ④ caeb1b74：§29.11 の 2 点の修正の確認
+
+- 対象：④ `caeb1b7463e5a7e5b473a71c9c4f08a34bc17fea`（tree `5916b6461432226867036a33948a73fcbae7334d`、親 7e6ef2b6）。変わったのは `tests/concurrency.rs` だけ（+27 −10）。production の code は変わらない。
+- **hang**：canceller の thread が、drop guard（`OpenOnDrop`）で、どう終わっても（panic のときも）gate を開く。panic は `join().unwrap()` で試験の失敗になる。
+  - ⑯ が scratch で最初の assertion を一時的に必ず外れる形にすると、**1 秒で exit 101（FAILED）**になり、hang しなかった。前の版（6af321d2）は 180 秒で殺された。
+- **assertion の意味**：gate より前に cancel した run を `cancelled_at_gate` として別に数え、`cancelled` から外した。
+  - したがって `cancelled > 0 && fulfilled > 0` は、6af321d2 より前と同じく、動いている executor と競った cancel を要求する。
+  - その run を飛ばす `continue` は、`row.state.terminal()` と `shipped == 0` の assertion の**後**で、match がループの最後の文なので、飛ばされる確認は無い。
+- **⑯ の実行**（`logs/phase23/ws04-concurrency-caeb.txt`）:
+  - 通常の run を 5 回：どれも 8/8。競った cancel は 7〜11、そのうち facility の後のものは 1〜5。fulfilled は 22〜26、gate での cancel は 3（seed ごとに 1）。
+  - canceller を最初の cancel の前に 2 秒遅らせた（一時的な変更）：pass。競った cancel は 9、gate での cancel は 3。
+- ④ の言うとおり、gate が取り除くのは「canceller が遅れて、仕事がすべて終わった後に来る」原因だけ。後の cancel が実行の途中に当たるかは、まだ時間に依存する。完全に決定的になったわけではない。
+- 残る制限：これまでと同じ（§29.11）。

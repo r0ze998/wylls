@@ -1,0 +1,9 @@
+### ④ caeb1b7463e5a7e5b473a71c9c4f08a34bc17fea (tree 5916b646) tests/concurrency.rs — temporary local edits only, restored after each
+== normal:
+  1: cancelled 7 (after the facility: 1), fulfilled 26, cancelled at the gate 3 | 8 passed; 0 failed
+  2: cancelled 11 (after the facility: 4), fulfilled 22, cancelled at the gate 3 | 8 passed; 0 failed
+  3: cancelled 10 (after the facility: 4), fulfilled 23, cancelled at the gate 3 | 8 passed; 0 failed
+  4: cancelled 11 (after the facility: 5), fulfilled 22, cancelled at the gate 3 | 8 passed; 0 failed
+  5: cancelled 9 (after the facility: 1), fulfilled 24, cancelled at the gate 3 | 8 passed; 0 failed
+== forced first-cancel failure (temporary edit): exit=101 after 1 s; 1 panic line(s); test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measur
+== late canceller (temporary 2 s sleep before the first cancel): cancelled 9 (after the facility: 1), fulfilled 24, cancelled at the gate 3 test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 7 filtered out; finished in 6.97s 
