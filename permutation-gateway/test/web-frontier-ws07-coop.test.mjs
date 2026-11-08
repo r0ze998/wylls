@@ -9,7 +9,10 @@ import { renderCoopSlot, openCoop, coopEntry } from '../../permutation-server/we
 import { setLang } from '../../permutation-server/web/lang.mjs';
 
 const answer = (status, body) => async () => ({ ok: status >= 200 && status < 300, status, json: async () => body });
-const FS = (season = 7n) => ({ season: { seasonId: season }, holdings: [{ p: 2, q: -1, site: 3, gen: 4 }], activeHolding: 0 });
+const FS = (season = 7n) => ({ season: { seasonId: season }, pin: { programId: 'Frnt1111111111111111111111111111111111111111' }, holdings: [{ p: 2, q: -1, site: 3, gen: 4 }], activeHolding: 0 });
+// 01's /coop/config as coop/board.mjs config() makes it (092079bf): season {programId, seasonId}, page
+const PROGRAM = 'Frnt1111111111111111111111111111111111111111';
+const cfg = (seasonId, programId = PROGRAM, page = '/ws01/repo/workstreams/01-national-strategy/coop/') => ({ season: { programId, seasonId }, contexts: [], page, goals: [], judges: [] });
 const text = h => String(h).replace(/<[^>]+>/g, ' ');
 
 test('reading the board: absent (404), not read (5xx, network, odd body), read', async () => {
@@ -17,14 +20,15 @@ test('reading the board: absent (404), not read (5xx, network, odd body), read',
   assert.deepEqual(await CB.probeBoard({ fetch: answer(502, {}) }), { read: 'unread', code: 'HTTP502' });
   assert.deepEqual(await CB.probeBoard({ fetch: async () => { throw new TypeError('down'); } }), { read: 'unread', code: 'network' });
   assert.deepEqual(await CB.probeBoard({ fetch: answer(200, { nope: 1 }) }), { read: 'unread', code: 'BadConfig' });
-  assert.equal((await CB.probeBoard({ fetch: answer(200, { season: '7' }) })).read, 'ok');
+  assert.deepEqual(await CB.probeBoard({ fetch: answer(200, { season: '7' }) }), { read: 'unread', code: 'BadConfig' }, '01 names its context as {programId, seasonId}');
+  assert.equal((await CB.probeBoard({ fetch: answer(200, cfg('7')) })).read, 'ok');
 });
 
 test('the slot: nothing without a board; a board not read or of another Season is said, disabled; this village opens it', async () => {
   setLang('en');
   const opened = [];
   const timers = { setTimeout: () => null, clearTimeout: () => {} };
-  for (const [fetch, expect] of [[answer(404, {}), 'hidden'], [answer(503, {}), 'unread'], [answer(200, { season: '8' }), 'other'], [answer(200, { season: '7' }), 'open']]) {
+  for (const [fetch, expect] of [[answer(404, {}), 'hidden'], [answer(503, {}), 'unread'], [answer(200, cfg('8')), 'other'], [answer(200, cfg('7', 'Other1111111111111111111111111111111111111')), 'other'], [answer(200, cfg('7')), 'open']]) {
     let changed = 0;
     const off = CB.installCoopBoard({ fetch, timers, changed: () => { changed++; }, open: href => opened.push(href) });
     try {
@@ -49,7 +53,7 @@ test('the slot: nothing without a board; a board not read or of another Season i
 });
 
 test('the board may name its page on this origin; another origin is not followed', () => {
-  const b = page => ({ read: 'ok', config: { season: '7', page } });
+  const b = page => ({ read: 'ok', config: cfg('7', undefined, page) });
   assert.match(CB.boardHref(FS(), b('/coop-ui/')), /^\/coop-ui\/\?to=/);
   assert.match(CB.boardHref(FS(), b('//evil.example/x')), new RegExp(`^${CB.BOARD_PAGE.replace(/[/.]/g, '\\$&')}`));
   assert.match(CB.boardHref(FS(), b('https://evil.example/x')), new RegExp(`^${CB.BOARD_PAGE.replace(/[/.]/g, '\\$&')}`));

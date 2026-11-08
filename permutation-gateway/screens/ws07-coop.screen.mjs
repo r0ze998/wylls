@@ -1,6 +1,6 @@
 // Workstream 07: the S1 village card's way to workstream 01's cooperation board (hud/coopboard.mjs, through the card's
 // slot), in Chromium, on the card's FIXTURE data (screens/ws07/s1-card.html ?board=1). /coop/config is answered in the
-// browser as 01's board would (or not at all). Japanese and English, phone and PC. No wallet, no key: an init script
+// browser as 01's board would (coop/board.mjs config() of 01's 092079bf: season {programId, seasonId}, page), or not at all. Japanese and English, phone and PC. No wallet, no key: an init script
 // blocks and counts key operations (none expected).
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
@@ -42,7 +42,7 @@ async function open(size, lang, board) {
   const errors = [];
   page.on('pageerror', e => errors.push(String(e)));
   await page.route('**/coop/config', r => (board === 'absent' ? r.fulfill({ status: 404, body: '{}' }) : board === 'down' ? r.fulfill({ status: 503, body: '{}' })
-    : r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ season: board === 'other' ? '8' : '7', goals: [], judges: [] }) })));
+    : r.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ season: { programId: 'Frnt1111111111111111111111111111111111111111', seasonId: board === 'other' ? '8' : '7' }, contexts: [], page: '/ws01/repo/workstreams/01-national-strategy/coop/', goals: [], judges: [] }) })));
   await page.goto(`${base}?board=1&lang=${lang}`);
   await page.waitForSelector('body[data-ready="1"]');
   await page.waitForTimeout(300);

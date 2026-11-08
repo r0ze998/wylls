@@ -11,6 +11,7 @@
 import { L } from '../../lang.mjs';
 import { registerCoopEntry } from './coopentry.mjs';
 import { activeHolding } from '../fstate.mjs';
+import { pinned } from '../fchainio.mjs';
 
 /** Where 01's board serves its page (coop/board.mjs PAGE); its config may name another (`page`). */
 export const BOARD_PAGE = '/ws01/repo/workstreams/01-national-strategy/coop/';
@@ -26,9 +27,14 @@ export async function probeBoard({ fetch: f = (...a) => globalThis.fetch(...a), 
   if (!r.ok) return { read: 'unread', code: `HTTP${r.status}` };
   let j;
   try { j = await r.json(); } catch { return { read: 'unread', code: 'BadBody' }; }
-  if (!j || typeof j !== 'object' || j.season === undefined || j.season === null) return { read: 'unread', code: 'BadConfig' };
+  // (01's config: `season` is the board's present context {programId, seasonId} — coop/board.mjs —, `page` its page)
+  const s = j?.season;
+  if (!j || typeof j !== 'object' || !s || typeof s !== 'object' || typeof s.seasonId !== 'string' || !s.seasonId) return { read: 'unread', code: 'BadConfig' };
   return { read: 'ok', config: j };
 }
+
+/** The program the page is pinned to, or null (no pin yet). */
+const pinnedProgram = FS => { try { return FS?.pin?.programId ?? pinned()?.programId ?? null; } catch { return null; } };
 
 /** This village as the board's `to` (p,q,site,gen), or null. */
 export function villageTo(FS) {
@@ -40,8 +46,10 @@ export function villageTo(FS) {
 export function boardState(FS, b) {
   if (!b || b.read === 'absent') return { hidden: true };
   if (b.read !== 'ok') return { available: false, why: L`国をまたぐ依頼の板を読み込めませんでした（${b.code ?? '?'}）。もう一度読み込むと、また確かめます` };
-  const season = FS?.season?.seasonId;
-  if (season === undefined || season === null || String(b.config.season) !== String(season)) return { available: false, why: L`この依頼の板は、別の世界（シーズン）のものです` };
+  const season = FS?.season?.seasonId, program = pinnedProgram(FS);
+  const other = season === undefined || season === null || b.config.season.seasonId !== String(season)
+    || (program && typeof b.config.season.programId === 'string' && b.config.season.programId !== program);
+  if (other) return { available: false, why: L`この依頼の板は、別の世界（シーズン）のものです` };
   if (!villageTo(FS)) return { available: false, why: L`村を選ぶと、その村を届け先にして開けます` };
   return { available: true };
 }
