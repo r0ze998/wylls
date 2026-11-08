@@ -36,8 +36,25 @@
 - 封・署名・送信はしていない。進軍は出発しておらず、着いてもいない。
 - **不具合は見つからなかった**：既存の経路（30 秒の poll、applySeasonRecord、placeOf、ページの kernel の経路）だけで、一続きの流れが通った。本番のコードは変えていない。
 
+### 0o.2b ⑧ の輪4 → 広がった輪5 の契約をページ全体で（ws07-grow-r5、⑧ 6507c519 を merge）
+- ⑧ の test/fixtures/frontier/growth-route.mjs（データだけ。鍵はない）の `withGrowth(record, stage)` を、fixture のサーバーの `seasonWith`（opt-in。既定では何もしない）で /h/season に通した。
+- 段階ごとにページを読み直し、デスクトップ・スマホで確かめた：
+
+| 段階 | (5,0) | 調べる画面 | ページの kernel の経路（4,0,0 → 5,0,0） |
+|---|---|---|---|
+| before | extendable | 第5輪（広げられるが、まだ地図の外） | NoPath |
+| extended | unopened | 第5輪（まだひらいていません） | NoPath |
+| opened | pending | 第5輪（生まれるところです） | NoPath |
+| grown | open | 平原 …第5輪の州（地形はこの段階でだけ出る） | ⑧ の ROUTE と一致：dirs [0,0,0,0,1,1,0,1,1]、1320 秒、(4,0)→(5,0) |
+
+- どの段階でも、(4,0) は open、(6,0) は extendable、(7,0) は beyondCeiling。
+- ページを開いたまま opened → grown にすると、ページ自身の poll で (5,0) が open になる。再読み込みしても、そのまま。
+- **ブロック中**：(4,0) の軍勢からの注文の札。画面試験の世界の viewer には (4,0) に軍勢がない。⑲ の S1 golden（(4,0) の Holding と軍勢、layout 2 の Province）が要る。⑧ と ⑲ は同じ座標と種の決まりで作っている。
+- 輪 3〜5 の overview は、画面試験の fixture の作りものの模様のまま（持ち主は ⑲ の golden ではない）。
+- 結果：ws07-grow-r5 は 2/2。⑧ の単体 web-frontier-growth-route は 4/4。
+
 ### 0o.3 結果
-- ws07-grow 3/3（既定の一致、デスクトップ、スマホ）。
+- ws07-grow 3/3（既定の一致、デスクトップ、スマホ）。ws07-grow-r5 2/2。
 - ws07-wide 3/3（同じ hook を共有する）。
 - web-frontier-world-growth と live-map で 15/15（静的に鍵の経路なし）。
 - 19・20 の wide の読み取りの契約から、この版に取り込む成果は届いていない。
