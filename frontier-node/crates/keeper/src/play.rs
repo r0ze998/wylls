@@ -4909,7 +4909,7 @@ mod reveal_secrecy_keyfree_tests {
         let mut d = e.duty();
         e.owner_callback("t1");
         e.chain_anchor(SEASON, ARRIVE, program());
-        let mut bad = e.drand.rounds[&ROUND].clone();
+        let mut bad = e.drand.rounds[&ROUND];
         bad.sig48[5] ^= 1;
         e.drand.rounds.insert(ROUND, bad);
         e.try_plan(&mut d, 50, bell_end() + 30, None).await.unwrap();
