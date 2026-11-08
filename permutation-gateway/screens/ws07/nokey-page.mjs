@@ -11,6 +11,8 @@
 //   Chromium only, not by Playwright's default headless shell: `launchOptions` asks for channel 'chromium'. (Before
 //   2026-11-08 this helper launched the headless shell, where the page was NOT a secure context: no WebCrypto, so
 //   the kernel did not load. The tests of that time did not need the kernel; INTEGRATION §0m.)
+// - A Worker (its own realm: the init script and the route do not reach it) is refused and counted; the page makes one
+//   only to seal an order, which these tests never do.
 // - Every key operation in the page is blocked and counted: WebCrypto's generate, derive, import of a private key
 //   and sign, and the page's own Ed25519 functions in web/session.mjs (keyFromSeed, publicKeyOf, which work out a
 //   public key in JavaScript before WebCrypto is asked), replaced as the module is served (`prepare`).
@@ -38,6 +40,9 @@ export function init({ store, address, name }) {
     const imp = s.importKey.bind(s);
     Object.defineProperty(s, 'importKey', { value: async (f, d, a, e, u) => { if (f === 'pkcs8' || (f === 'jwk' && d && d.d) || (u ?? []).includes('sign')) { note(`importKey:${f}`); throw new Error('key use blocked'); } return imp(f, d, a, e, u); } });
   }
+  // (workstream 07: a Worker is its own realm, which neither this script nor the session.mjs route reaches. The page
+  // makes one only to seal an order (frontier/seal.mjs), which these tests never do: any Worker is refused and recorded)
+  for (const W of ['Worker', 'SharedWorker']) if (typeof window[W] === 'function') Object.defineProperty(window, W, { value: function () { note(`worker blocked: ${W}`); throw new Error(`worker blocked: ${W}`); }, configurable: true, writable: true });
   const refuse = async () => { note('wallet sign asked'); throw new Error('this test wallet has no key and signs nothing'); };
   const account = { address, publicKey: new Uint8Array(32), chains: ['solana:localnet'], features: ['solana:signTransaction', 'solana:signMessage'] };
   const wallet = {
@@ -53,7 +58,7 @@ export function init({ store, address, name }) {
   window.addEventListener('wallet-standard:app-ready', e => e.detail.register(wallet));
 }
 /** What is appended to web/session.mjs as it is served: its key functions refuse, counted (they are mutable bindings). */
-const SESSION_GUARD = `
+export const SESSION_GUARD = `
 ;keyFromSeed = async () => { globalThis.__ws07note?.('keyFromSeed'); throw new Error('key use blocked: keyFromSeed'); };
 publicKeyOf = async () => { globalThis.__ws07note?.('publicKeyOf'); throw new Error('key use blocked: publicKeyOf'); };
 `;
