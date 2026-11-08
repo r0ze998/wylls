@@ -181,3 +181,28 @@ D1〜D5 は未決のまま。`intake` は閉じたまま（依頼者が無けれ
 **確かめたこと：** `16576826` までに④の依存（`permutation-rules`・`frontier-abi`）が変わったが、`Resource` の順と `ARMS = Resource::Horses` は同じ。変わったファイルに鍵の生成・導出・署名の呼び出しは無い。
 
 **判断が要るので直していないもの：** なし。この回の4件は、どれも新しい権限・規則を要しない。
+
+## 8. 控えのロックの修正（⑯の指摘、2026-11-08、④ `4d44f021` 上）
+
+⑯が⑥ `7232c86b` のロックに3点を再現した。控えの上書きと、同じ実行 id・requestId の再実行の問題で、実際の二重送信まで確かめたという意味ではない。⑯の probe とログの本体は、このセッションからは受け取れていない（GitHub にまだ無い。④経由で依頼した）。⑥は同じ3点を自分で再現し、直した。
+
+| # | 不具合（⑥ `7232c86b`） | 再現（`handoff/ws16-probe/journal-lock-probe.mjs`、鍵なし、④の guard 付き） | 修正 |
+|---|---|---|---|
+| 1 | 同じ処理の中で二回 open できた（自分の pid の lock を「古い」と見て奪った） | `BAD same-process second open: opened` | lock に pid・処理の開始時刻・open ごとの token を書く。持ち主が動いていれば、自分の処理でも拒否（JournalLocked） |
+| 2 | 古い lock を二人が同時に奪えた（読む → 消す → 作る の間に割り込める） | `BAD stale-lock takeover race: A writes, B writes` | 奪う側は `<path>.lock.takeover` を排他的に作ってから、lock を読み直し、判断した時と同じときだけ置き換える。奪う途中の処理が生きていれば拒否、死んでいれば片付けてやり直す |
+| 3 | lock を失った書き手の save が通った | `BAD writer that lost the lock: saved` | save の前に、lock がこの open の token のままかを確かめる。違えば JournalFenced で何も書かない。close も自分の token のときだけ外す |
+
+**壊さないもの：**
+- 生きている持ち主の lock は奪わない。
+- 正当な再起動（持ち主の pid が無い、または同じ pid でも開始時刻が違う＝前の実行）は引き継ぐ。
+- 再利用された pid（別の処理）も、開始時刻で見分けて引き継ぐ。
+
+**限界：** 持ち主の確かめはこの機械の処理の表（`/proc`）による。別の機械や別の pid 名前空間から同じファイルを書く場合は見分けられない。
+
+**結果：**
+- probe：修正前（`7232c86b`）は BAD 3件、修正後は 0件。
+- 鍵なしの試験：`dispatch` 14件（同じ処理の二回目・close の持ち主、生きている持ち主と再起動と pid の再利用、奪い合いの決定的な割り込み・奪う途中の生死、柵（fence）と close・柵の後に外への呼び出しが無いこと、本物の8処理×5回の奪い合いで毎回1つだけ勝つ、ディレクトリの fsync）。
+- オフライン合計 28件が Node 22.22.0・20.20.0 で通過。`connect-live` は④ `16576826` の `runexec` で 6通過・1省略。
+- 変異の確認：同じ pid を古いと見る、読み直しを外す、mutex を外す、save の柵を外す、close が誰の lock でも外す、開始時刻を無視する、の6つは、どれも試験が失敗する。
+
+**静的 import の監査：** `src/connect/dispatch.mjs` が読み込むのは⑥の `src/` の13ファイル（`keys.mjs` は `plan.mjs` 経由の import だけで、`fileJournal` の経路からは呼ばれない）と `node:crypto`（`randomUUID`。token のためで、鍵ではない）・`node:fs`。外部のパッケージは無い。
