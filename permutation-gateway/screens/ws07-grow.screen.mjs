@@ -119,7 +119,14 @@ for (const vp of [{ width: 1440, height: 900, name: 'desktop' }, { width: 390, h
       await press(page.locator('#hand .hand-chip[data-host]:not(.hand-back)', { hasText: '槍兵' }).first());
       await page.locator('#hand [data-hand="march"][aria-pressed="true"]').waitFor();
     };
-    const clear = () => page.evaluate(async () => { const { FS } = await import('/frontier/fstate.mjs'); FS.compose = null; FS.selected = null; FS.hand = null; FS.mapNote = null; FS.inspectOpen = false; });
+    // dismiss through the UI, as a player does (workstream 16's review of 9c23282d): the action bar's close, else the
+    // drawer's close; then nothing is selected or in hand
+    const clear = async () => {
+      const handClose = page.locator('#hand [data-act="hand-close"]:visible').first();
+      if (await handClose.count()) await press(handClose);
+      if (await page.locator('#panel').getAttribute('data-drawer') === 'open') await press(page.locator('[data-act="drawer-close"]:visible').first());
+      await until(page, async () => { const { FS } = await import('/frontier/fstate.mjs'); return !FS.hand && !FS.compose && !FS.mapNote && document.getElementById('panel').dataset.drawer !== 'open'; });
+    };
 
     // ring-3 tiles seen in the free part of the screen with the spearmen in hand (two hexes or more from the village)
     await spearmen();
