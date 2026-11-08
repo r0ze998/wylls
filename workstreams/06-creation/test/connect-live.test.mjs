@@ -2,7 +2,7 @@
  * 06's caravan connection checked against the delivered code of ③ and ④,
  * not against 06's own copies of their contracts.
  *
- *   WS03_ROOT   a checkout of ③ (claude/modest-goldberg-c180fk, 84f710d5…)
+ *   WS03_ROOT   a checkout of ③ (claude/modest-goldberg-c180fk, c95287d5…)
  *   WS04_ROOT   a checkout of ④ (claude/gallant-ride-cunptv, cf517b55…)
  *   RUNEXEC_BIN ④'s `runexec`, built from WS04_ROOT (cargo build --release --bin runexec)
  *   WS06_RUN4_STORE  optional: a store ④'s executor wrote on 06's specs (handoff/ws04-check)
@@ -170,7 +170,7 @@ test("③'s rules in its source: requestId and runId patterns, the cargo names, 
   const longest = C.runIdOf("f".repeat(64), "n".repeat(16), "s".repeat(40));
   assert.ok(longest && re("RUN_ID").test(longest) && longest.length <= 128, "the longest 06 run id fits ③ and ④");
   assert.equal(C.runIdOf("f".repeat(64), "n".repeat(17), "s"), null);
-  for (const code of ["PlanUnknown", "PlanUsed", "PlanExpired", "PlanStale", "IdempotencyConflict", "NotResent", "RunRegistryUnavailable"]) assert.ok(server.includes(`fail('${code}'`), code);
+  for (const code of ["PlanUnknown", "PlanUsed", "PlanExpired", "PlanStale", "IdempotencyConflict", "NotResent", "RunRegistryUnavailable", "RequestIdUsedOnAnotherConnection"]) assert.ok(server.includes(`fail('${code}'`), code);
   // the requestId check comes before the plan lookup: a gone plan is answered only when nothing was sent under the requestId
   assert.ok(server.indexOf("const prior = store.operation(opId)") < server.indexOf("fail('PlanUnknown'"));
   const names = tools.match(/\[('Food'[^\]]+)\]/)[1].split(",").map((x) => x.trim().replace(/'/g, ""));
