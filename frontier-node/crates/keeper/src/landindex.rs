@@ -44,6 +44,8 @@ pub struct TicketRec {
 #[derive(Default)]
 pub struct LandIndex {
     pub cursor: Cursor,
+    /// Sticky unsupported/provenance failure; never interpreted as no work.
+    pub feed: crate::feedguard::FeedGuard,
     /// citizen address → (wallet, faction) from JOIN; for a ⑳ NFT-resident
     /// Citizen, (Core asset, faction) from RESIDENT_JOINED (kind 130).
     pub citizens: BTreeMap<Address, (Address, u8)>,
@@ -132,13 +134,17 @@ impl LandIndex {
 
     /// Reads new feed records (at most a few pages per tick).
     pub async fn pull<P: ChainPort>(&mut self, port: &P, addrs: &Addresses) -> PortResult<usize> {
+        self.feed.check()?;
+        self.feed.begin_pull();
         let mut n = 0;
         for _ in 0..PAGES_PER_TICK {
             let page = port.feed(self.cursor).await?;
             if page.is_empty() {
+                self.feed.caught_up();
                 break;
             }
             n += self.ingest_page(&page, addrs);
+            self.feed.check()?;
         }
         Ok(n)
     }
@@ -147,26 +153,40 @@ impl LandIndex {
     /// a page once for both indexes when their cursors agree, W6T-2).
     pub fn ingest_page(&mut self, page: &[fclient::ports::TxRecord], addrs: &Addresses) -> usize {
         let mut n = 0;
-        let Some(last) = page.last() else { return 0 };
-        self.cursor = Cursor(last.seq);
+        if self.feed.blocked().is_some() {
+            return 0;
+        }
+        self.feed.begin_pull();
         for tx in page {
-            if tx.err.is_some() {
+            if tx.seq <= self.cursor.0 {
                 continue;
             }
-            let Ok(bodies) = fclient::log::bodies_from_logs(&tx.logs, &addrs.program) else {
-                self.bad += 1;
+            if tx.err.is_some() {
+                self.cursor = Cursor(tx.seq);
                 continue;
+            }
+            let bodies = match crate::feedguard::bodies(tx, &addrs.program) {
+                Ok(bodies) => bodies,
+                Err(reason) => {
+                    self.bad += 1;
+                    self.feed.block(tx, reason);
+                    break;
+                }
             };
             for b in bodies {
                 self.ingest(&b, tx.slot, addrs);
                 n += 1;
             }
+            self.cursor = Cursor(tx.seq);
         }
         n
     }
 
     /// Ingests one PS2 body.
     pub fn ingest(&mut self, body: &[u8], slot: u64, addrs: &Addresses) {
+        if !self.feed.accept_version(body, self.cursor.0, slot) {
+            return;
+        }
         // ABI v2 (R-22): MC kinds (80–88) are counted, not refused. The
         // index keeps no owner per Holding (the keeper reads the Holding
         // itself before every write), so a capture's change of owner

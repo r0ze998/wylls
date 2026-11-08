@@ -7,6 +7,8 @@
 //!     [--origin SIG] [--witness URL]   (rpc source: history coverage checks)
 //!     [--web DIR] [--relay 127.0.0.1:41033] [--test-key | --drand-info FILE]
 //!     [--checkpoint-slots 150] [--poll-ms 200] [--quotas JSON]
+//!     [--wide-index PATH]  (feature wide-index-read-experimental, read-only)
+//! --source read-only requires a matching herald.ckpt and --wide-index; no RPC/ingest/write.
 //! frontier-herald --fixture conquest --data DIR --listen 127.0.0.1:PORT [--web DIR]
 //! ```
 //! `--fixture conquest` (MC contract §8.4, CQ2-E) folds the synthetic
@@ -107,6 +109,10 @@ async fn fixture_conquest(a: &HashMap<String, String>) -> Result<(), String> {
 
 async fn main_inner() -> Result<(), String> {
     let a = args()?;
+    #[cfg(not(feature = "wide-index-read-experimental"))]
+    if a.contains_key("wide-index") || a.get("source").is_some_and(|s| s == "read-only") {
+        return Err("--wide-index / read-only require feature wide-index-read-experimental".into());
+    }
     match a.get("fixture").map(String::as_str) {
         Some("conquest") => return fixture_conquest(&a).await,
         Some(x) => return Err(format!("--fixture {x}: only `conquest`")),
@@ -120,7 +126,15 @@ async fn main_inner() -> Result<(), String> {
     let season: u64 = need("season")?
         .parse()
         .map_err(|_| "--season: not a number")?;
-    let rpc = need("rpc")?;
+    let read_only = a.get("source").is_some_and(|s| s == "read-only");
+    if read_only && !a.contains_key("wide-index") {
+        return Err("--source read-only requires --wide-index PATH".into());
+    }
+    let rpc = if read_only {
+        String::new()
+    } else {
+        need("rpc")?
+    };
     let listen = a.get("listen").cloned().unwrap_or("127.0.0.1:41040".into());
     let port: u16 = listen
         .rsplit(':')
@@ -157,9 +171,26 @@ async fn main_inner() -> Result<(), String> {
             .unwrap_or(200),
     );
     let (diffs, _) = broadcast::channel(4_096);
-    let ing = Ingest::open(cfg.clone(), diffs.clone())?;
+    let ing = if read_only {
+        None
+    } else {
+        Some(Ingest::open(cfg.clone(), diffs.clone())?)
+    };
+    let fold = match &ing {
+        Some(ing) => ing.fold.clone(),
+        None => {
+            #[cfg(feature = "wide-index-read-experimental")]
+            {
+                herald_fold::wide_read::load_read_only_fold(&cfg)?
+            }
+            #[cfg(not(feature = "wide-index-read-experimental"))]
+            {
+                return Err("read-only feature unavailable".into());
+            }
+        }
+    };
     let mut app = App::new(
-        ing.fold.clone(),
+        fold,
         herald_fold::files::Out::new(cfg.files_dir()),
         SeasonStatic {
             cluster: a.get("cluster").cloned().unwrap_or("localnet".into()),
@@ -169,8 +200,13 @@ async fn main_inner() -> Result<(), String> {
         diffs,
     );
     app.web = a.get("web").map(PathBuf::from);
-    app.relay = a.get("relay").cloned();
-    app.index = Some(cfg.index_path());
+    app.relay = if read_only {
+        None
+    } else {
+        a.get("relay").cloned()
+    };
+    app.index = (!read_only).then(|| cfg.index_path());
+    app.wide_index = a.get("wide-index").map(PathBuf::from);
     let listener = tokio::net::TcpListener::bind(&listen)
         .await
         .map_err(|e| format!("{listen}: {e}"))?;
@@ -179,6 +215,13 @@ async fn main_inner() -> Result<(), String> {
         program,
         listener.local_addr().map_err(|e| e.to_string())?
     );
+    if read_only {
+        return tokio::select! {
+            r = server::serve(listener, Arc::new(app)) => r.map_err(|e| e.to_string()),
+            _ = tokio::signal::ctrl_c() => Ok(()),
+        };
+    }
+    let ing = ing.ok_or("missing ingest")?;
     let srv = tokio::spawn(server::serve(listener, Arc::new(app)));
     let (stop_tx, stop) = watch::channel(false);
     tokio::spawn(async move {

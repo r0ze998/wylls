@@ -183,6 +183,13 @@ async fn reveal(State(st): State<ApiState>, h: HeaderMap, Json(v): Json<Value>) 
         hex::encode(fclient::seal::commit(&req.plain, &req.salt))
     );
     let mut s = lock(&st.shared);
+    if s.feed_paused {
+        return err(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "DiscoveryUnavailable",
+            "keeper discovery is incomplete or unsupported; automatic game writes are paused",
+        );
+    }
     if let Some(id) = s.reveal_keys.get(&dedupe).cloned() {
         return (
             StatusCode::ACCEPTED,
@@ -251,6 +258,13 @@ async fn nudge(State(st): State<ApiState>, h: HeaderMap, Json(v): Json<Value>) -
         .and_then(|p| p.as_array())
         .map(|a| (a[0].as_i64().unwrap_or(0), a[1].as_i64().unwrap_or(0)));
     let mut s = lock(&st.shared);
+    if s.feed_paused {
+        return err(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "DiscoveryUnavailable",
+            "keeper discovery is incomplete or unsupported; automatic game writes are paused",
+        );
+    }
     let blocking = pq
         .and_then(|(p, q)| s.blocking.get(&format!("{p},{q}")).cloned())
         .unwrap_or_default();

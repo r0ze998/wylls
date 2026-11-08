@@ -1036,16 +1036,27 @@ impl PlayDuty {
         journal: Option<&Journal>,
         opened: &[(i32, i32)],
     ) -> PortResult<()> {
+        if self.index.feed.blocked().is_some() {
+            self.index.feed.gate(engine, journal)?;
+            return Ok(());
+        }
         self.observe_clock(t.slot, t.now);
-        self.load_owner_materials(journal)?;
-        self.take_shared(shared, journal);
         let eff = t.season.effective_status(t.now);
         if !(eff == status::RUNNING || eff == status::ENDED) {
             return Ok(());
         }
         if !std::mem::take(&mut self.feed_read) {
-            self.index.pull(port, t.addrs).await?;
+            let result = self.index.pull(port, t.addrs).await;
+            if !self.index.feed.gate(engine, journal)? {
+                return Ok(());
+            }
+            result?;
         }
+        if !self.index.feed.gate(engine, journal)? {
+            return Ok(());
+        }
+        self.load_owner_materials(journal)?;
+        self.take_shared(shared, journal);
         self.owner_tracks_from_chain(shared);
         for (slot, log) in std::mem::take(&mut self.index.cq_logs) {
             self.conquest.on_log(&log, slot, journal);
@@ -1084,6 +1095,9 @@ impl PlayDuty {
         engine: &mut Engine,
         beacon: &BTreeMap<(u32, u8), AnchorInfo>,
     ) -> PortResult<()> {
+        if !self.index.feed.gate(engine, None)? {
+            return Ok(());
+        }
         let eff = t.season.effective_status(t.now);
         if !(eff == status::RUNNING || eff == status::ENDED) {
             return Ok(());
@@ -2848,6 +2862,7 @@ impl PlayDuty {
     pub fn status(&self) -> Value {
         let s = &self.stats;
         json!({
+            "feed": self.index.feed.status(),
             "transits": self.index.departs.len(),
             "settled": self.index.settled.len(),
             "opened": s.opened, "bad_seals": s.bad_seals,

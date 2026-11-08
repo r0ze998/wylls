@@ -59,6 +59,8 @@ pub struct RevealRec {
 #[derive(Default)]
 pub struct PlayIndex {
     pub cursor: Cursor,
+    /// Sticky unsupported/provenance failure; never interpreted as no work.
+    pub feed: crate::feedguard::FeedGuard,
     /// `(host, depart_bell)` → the DEPART.
     pub departs: BTreeMap<(u64, u32), DepartRec>,
     /// host → the depart bell of its latest DEPART.
@@ -117,13 +119,17 @@ fn arr<const N: usize>(b: &[u8]) -> [u8; N] {
 
 impl PlayIndex {
     pub async fn pull<P: ChainPort>(&mut self, port: &P, addrs: &Addresses) -> PortResult<usize> {
+        self.feed.check()?;
+        self.feed.begin_pull();
         let mut n = 0;
         for _ in 0..PAGES_PER_TICK {
             let page = port.feed(self.cursor).await?;
             if page.is_empty() {
+                self.feed.caught_up();
                 break;
             }
             n += self.ingest_page(&page, addrs);
+            self.feed.check()?;
         }
         Ok(n)
     }
@@ -132,24 +138,35 @@ impl PlayIndex {
     /// a page once for both indexes when their cursors agree, W6T-2).
     pub fn ingest_page(&mut self, page: &[fclient::ports::TxRecord], addrs: &Addresses) -> usize {
         let mut n = 0;
-        let Some(last) = page.last() else { return 0 };
-        self.cursor = Cursor(last.seq);
+        if self.feed.blocked().is_some() {
+            return 0;
+        }
+        self.feed.begin_pull();
         for tx in page {
+            if tx.seq <= self.cursor.0 {
+                continue;
+            }
             if let Some(e) = &tx.err {
                 if e.contains("ProgramFailedToComplete") && self.failed_meta.len() < 10_000 {
                     let meter = tx.logs.iter().any(|l| l.contains("exceeded CUs meter"));
                     self.failed_meta.push((tx.signature, tx.units, meter));
                 }
+                self.cursor = Cursor(tx.seq);
                 continue;
             }
-            let Ok(bodies) = fclient::log::bodies_from_logs(&tx.logs, &addrs.program) else {
-                self.bad += 1;
-                continue;
+            let bodies = match crate::feedguard::bodies(tx, &addrs.program) {
+                Ok(bodies) => bodies,
+                Err(reason) => {
+                    self.bad += 1;
+                    self.feed.block(tx, reason);
+                    break;
+                }
             };
             for b in bodies {
                 self.ingest(&b, tx.slot);
                 n += 1;
             }
+            self.cursor = Cursor(tx.seq);
         }
         n
     }
@@ -161,6 +178,9 @@ impl PlayIndex {
     }
 
     pub fn ingest(&mut self, body: &[u8], slot: u64) {
+        if !self.feed.accept_version(body, self.cursor.0, slot) {
+            return;
+        }
         // ABI v2 (R-22): an MC kind (80–88) goes to the conquest duty; the
         // M1 kinds of either season decode as before.
         if body

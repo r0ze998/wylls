@@ -25,6 +25,8 @@ use permutation_rules::frontier::seal as kseal;
 
 use super::{sys, xmd::sha256};
 use frontier_abi::log::seal_code;
+#[cfg(feature = "wide-world-experimental")]
+use frontier_abi::world_index::seal as wseal;
 
 /// Compact-16 seal length.
 pub const SEAL_LEN: usize = kseal::SEAL_LEN;
@@ -62,14 +64,19 @@ const fn hex192(s: &[u8]) -> [u8; 192] {
     o
 }
 
-/// Opens `seal` with the round signature `s_aff` (uncompressed G1, 96 B)
-/// and checks the body against `commit`. `Ok(plain)` when the seal opens
-/// and the opened body hashes to `commit`; otherwise the seal code (1, 2
-/// or 4).
+/// The IBE block every seal shape starts with: `U ‖ V ‖ W`, 128 bytes.
+pub const IBE_LEN: usize = kseal::SEAL_BODY;
+
+/// Recovers the seal key `k` from the IBE block `ibe` (the first 128 bytes
+/// of a seal of any body length) with the round signature `s_aff`
+/// (uncompressed G1, 96 B): the pairing, `sigma`, `k`, the FO check. The
+/// steps and their order are the opener's of before, byte for byte; the
+/// body is the caller's (37 bytes: [`open`]; 136 bytes: the wide opener).
+/// `Err` is the seal code (1 or 2).
 #[inline(never)]
-pub fn open(s_aff: &[u8; 96], seal: &[u8; SEAL_LEN], commit: &[u8; 32]) -> Result<[u8; 37], u8> {
+pub fn recover_key(s_aff: &[u8; 96], ibe: &[u8; IBE_LEN]) -> Result<[u8; N], u8> {
     let mut u = [0u8; 96];
-    u.copy_from_slice(&seal[U..U + 96]);
+    u.copy_from_slice(&ibe[U..U + 96]);
     let Some(u_aff) = sys::bls_g2_decompress(&u) else {
         return Err(seal_code::BAD_POINT);
     };
@@ -82,12 +89,12 @@ pub fn open(s_aff: &[u8; 96], seal: &[u8; SEAL_LEN], commit: &[u8; 32]) -> Resul
     let h2 = sha256(&[b"IBE-H2", &gt]);
     let mut sigma = [0u8; N];
     for i in 0..N {
-        sigma[i] = seal[V + i] ^ h2[i];
+        sigma[i] = ibe[V + i] ^ h2[i];
     }
     let h4 = sha256(&[b"IBE-H4", &sigma]);
     let mut k = [0u8; N];
     for i in 0..N {
-        k[i] = seal[W + i] ^ h4[i];
+        k[i] = ibe[W + i] ^ h4[i];
     }
     // FO check: U == H3(sigma, k) · G2.
     let h3 = sha256(&[b"IBE-H3", &sigma, &k]);
@@ -111,7 +118,64 @@ pub fn open(s_aff: &[u8; 96], seal: &[u8; SEAL_LEN], commit: &[u8; 32]) -> Resul
         return Err(seal_code::FO_FAILED);
     }
     crate::heap::trace_checkpoint(33);
+    Ok(k)
+}
+
+/// Opens `seal` with the round signature `s_aff` (uncompressed G1, 96 B)
+/// and checks the body against `commit`. `Ok(plain)` when the seal opens
+/// and the opened body hashes to `commit`; otherwise the seal code (1, 2
+/// or 4).
+#[inline(never)]
+pub fn open(s_aff: &[u8; 96], seal: &[u8; SEAL_LEN], commit: &[u8; 32]) -> Result<[u8; 37], u8> {
+    let mut ibe = [0u8; IBE_LEN];
+    ibe.copy_from_slice(&seal[..IBE_LEN]);
+    let k = recover_key(s_aff, &ibe)?;
     kseal::open_body(&k, seal, commit).ok_or(seal_code::COMMIT_MISMATCH)
+}
+
+/// The wide opener (experimental, host-only build): the deployed key
+/// recovery over the seal's IBE block, then the 136-byte body under the
+/// wide commitment (`world_index::seal`). The same codes.
+#[cfg(feature = "wide-world-experimental")]
+pub fn open_wide(
+    s_aff: &[u8; 96],
+    seal: &[u8; wseal::WIDE_SEAL_LEN],
+    commit: &[u8; 32],
+) -> Result<[u8; wseal::WIDE_PLAIN_LEN], u8> {
+    let k = recover_key(s_aff, &wseal::ibe_block(seal))?;
+    wseal::open_body(&k, seal, commit).ok_or(seal_code::COMMIT_MISMATCH)
+}
+
+/// The wide verdict: the seal code and, for code 0, the wide plaintext,
+/// judged against the transit's full host reference and arrival bell
+/// (`world_index::seal::validate`: the host, the bell, the destination's
+/// world, the path, the tile, the stance and the retreat ratio are all
+/// inside the commitment; nothing is read beside it). A plaintext whose
+/// host or destination bytes do not decode is code 5, as an invalid
+/// plaintext.
+#[cfg(feature = "wide-world-experimental")]
+pub fn judge_wide(
+    s_aff: &[u8; 96],
+    seal: &[u8; wseal::WIDE_SEAL_LEN],
+    commit: &[u8; 32],
+    host: &frontier_abi::world_index::WideHostRef,
+    arrive_bell: u32,
+) -> (u8, Option<wseal::WidePlain>) {
+    match open_wide(s_aff, seal, commit) {
+        Err(code) => (code, None),
+        Ok(pt) => match wseal::unpack(&pt) {
+            Ok(plain) if wseal::validate(&plain, host, arrive_bell).is_ok() => {
+                (seal_code::VALID, Some(plain))
+            }
+            _ => (seal_code::BAD_PLAINTEXT, None),
+        },
+    }
+}
+
+/// `seal_root = sha256(commit ‖ sha256(seal))` over a wide seal.
+#[cfg(feature = "wide-world-experimental")]
+pub fn wide_seal_root_of(commit: &[u8; 32], seal: &[u8; wseal::WIDE_SEAL_LEN]) -> [u8; 32] {
+    wseal::seal_root(commit, &wseal::ct_hash(seal))
 }
 
 /// The verdict SettleTransit logs: the seal code and, for code 0, the
@@ -141,8 +205,10 @@ pub fn seal_root_of(commit: &[u8; 32], seal: &[u8; SEAL_LEN]) -> [u8; 32] {
     kseal::seal_root(commit, &kseal::ct_hash(seal))
 }
 
+/// The unit tests, and the public seal-vector readers (`cases`, `get`,
+/// `hex`) the opt-in native dispatcher test of the wide march reuses.
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
 
     #[test]
@@ -172,7 +238,7 @@ mod tests {
         assert_eq!(seal_root_of(&c, &seal), sha256(&[&c, &sha256(&[&seal])]));
     }
 
-    fn hex(s: &str) -> alloc::vec::Vec<u8> {
+    pub(crate) fn hex(s: &str) -> alloc::vec::Vec<u8> {
         (0..s.len())
             .step_by(2)
             .map(|i| u8::from_str_radix(&s[i..i + 2], 16).unwrap())
@@ -181,8 +247,19 @@ mod tests {
 
     /// The cases of `permutation-rules/vectors/seal-vectors-v1.json` as
     /// (key, value) lists (the file is pretty-printed one field per line).
-    fn cases() -> alloc::vec::Vec<alloc::vec::Vec<(alloc::string::String, alloc::string::String)>> {
-        let text = include_str!("../../../permutation-rules/vectors/seal-vectors-v1.json");
+    pub(crate) fn cases(
+    ) -> alloc::vec::Vec<alloc::vec::Vec<(alloc::string::String, alloc::string::String)>> {
+        cases_in(include_str!(
+            "../../../permutation-rules/vectors/seal-vectors-v1.json"
+        ))
+    }
+
+    /// [`cases`] over any vector file of the same shape (a `cases` array of
+    /// flat objects, one string field per line): the wide settlement
+    /// expectations the host dispatcher tests share with the keeper's.
+    pub(crate) fn cases_in(
+        text: &str,
+    ) -> alloc::vec::Vec<alloc::vec::Vec<(alloc::string::String, alloc::string::String)>> {
         let mut out = alloc::vec::Vec::new();
         let mut cur: Option<alloc::vec::Vec<_>> = None;
         for line in text.lines() {
@@ -208,7 +285,10 @@ mod tests {
         out
     }
 
-    fn get<'a>(c: &'a [(alloc::string::String, alloc::string::String)], k: &str) -> &'a str {
+    pub(crate) fn get<'a>(
+        c: &'a [(alloc::string::String, alloc::string::String)],
+        k: &str,
+    ) -> &'a str {
         c.iter()
             .find(|(kk, _)| kk == k)
             .map(|(_, v)| v.as_str())
@@ -275,5 +355,215 @@ mod tests {
             checked, 19,
             "every vector that stock tlock opens with a recorded sigma"
         );
+    }
+
+    /// The wide opener on the host: no G2 syscall, so every wide seal is
+    /// code 2 there too, never "valid"; the root is the kernel's shape.
+    #[cfg(feature = "wide-world-experimental")]
+    #[test]
+    fn host_opening_of_a_wide_seal_is_a_bad_point() {
+        use frontier_abi::world_index::{ProvinceKey, WideCoord, WideHostRef, WorldId};
+        let k = ProvinceKey::new(
+            WorldId::new([0x77; 32]).unwrap(),
+            WideCoord::checked(129, 0).unwrap(),
+        );
+        let host = WideHostRef::new(k, 3, 1, 7).unwrap();
+        assert_eq!(
+            judge_wide(&[0; 96], &[0; wseal::WIDE_SEAL_LEN], &[0; 32], &host, 2),
+            (seal_code::BAD_POINT, None)
+        );
+        let seal = [5u8; wseal::WIDE_SEAL_LEN];
+        let c = [6u8; 32];
+        assert_eq!(
+            wide_seal_root_of(&c, &seal),
+            sha256(&[&c, &sha256(&[&seal])])
+        );
+    }
+
+    /// The wide body under the recorded seal vectors' keys, **without the
+    /// pairing**: for every vector stock tlock opens, the recorded `k` is
+    /// what the IBE block recovers (pinned above by
+    /// `opener_steps_match_the_seal_vectors`); a wide plaintext sealed under
+    /// that `k` behind the vector's unchanged IBE block opens to itself
+    /// under the wide commitment and to nothing under the legacy one or a
+    /// wrong key. This pins the wide body and commitment path; the pairing
+    /// and the FO check are the legacy opener's code and are not re-tested
+    /// here (the host has no syscall and no key is generated).
+    #[cfg(feature = "wide-world-experimental")]
+    #[test]
+    fn wide_body_opens_under_the_vectors_recorded_keys() {
+        use frontier_abi::world_index::{ProvinceKey, WideCoord, WideHostRef, WorldId};
+        let w = WorldId::new([0x77; 32]).unwrap();
+        let key = |p: i64, q: i64| ProvinceKey::new(w, WideCoord::checked(p, q).unwrap());
+        let host = WideHostRef::new(key(129, 0), 3, 1, 7).unwrap();
+        let (n, path) = kseal::encode_path(&[0, 1, 2, 3, 4, 5, 0, 5]).unwrap();
+        let mut checked = 0;
+        for c in cases() {
+            if get(&c, "sigma") == "null" || get(&c, "stock_tlock_opens") != "true" {
+                continue;
+            }
+            let legacy_seal: [u8; SEAL_LEN] = hex(get(&c, "seal")).try_into().unwrap();
+            let k: [u8; N] = hex(get(&c, "k")).try_into().unwrap();
+            let arrive: u32 = get(&c, "arrive_bell").parse().unwrap();
+            let plain = wseal::WidePlain {
+                version: wseal::WIDE_PLAIN_VERSION,
+                host,
+                arrive_bell: arrive,
+                dest: key(130, -1),
+                dest_tile: 60,
+                stance: 2,
+                retreat_bps: 0,
+                path_len: n,
+                path,
+                reserved: [0; wseal::WIDE_RESERVED_BYTES],
+            };
+            let pt = wseal::pack(&plain);
+            let mut ibe = [0u8; wseal::IBE_LEN];
+            ibe.copy_from_slice(&legacy_seal[..wseal::IBE_LEN]);
+            let seal = wseal::assemble(&ibe, &wseal::body_xor(&k, &pt));
+            let commit = wseal::commit(&pt, &kseal::salt_of(&k));
+            assert_eq!(wseal::open_body(&k, &seal, &commit), Some(pt));
+            let opened = wseal::unpack(&wseal::open_body(&k, &seal, &commit).unwrap()).unwrap();
+            assert_eq!(opened, plain);
+            assert_eq!(wseal::validate(&opened, &host, arrive), Ok(()));
+            // the legacy commitment of the vector never opens the wide body
+            let legacy_commit: [u8; 32] = hex(get(&c, "commit")).try_into().unwrap();
+            assert_eq!(wseal::open_body(&k, &seal, &legacy_commit), None);
+            let mut wrong = k;
+            wrong[0] ^= 1;
+            assert_eq!(wseal::open_body(&wrong, &seal, &commit), None);
+            // the IBE block is the vector's: the same `k` the legacy steps
+            // recover (`opener_steps_match_the_seal_vectors`)
+            assert_eq!(&seal[..wseal::IBE_LEN], &legacy_seal[..wseal::IBE_LEN]);
+            checked += 1;
+        }
+        assert_eq!(checked, 19);
+    }
+    /// Reuse only public IBE/signature bytes; rebuild wide plaintext and commitment.
+    #[cfg(all(
+        feature = "native-crypto-tests",
+        feature = "wide-world-experimental",
+        not(target_os = "solana")
+    ))]
+    #[test]
+    fn native_wide_seals_verify_real_pairing_fo_and_body() {
+        use frontier_abi::world_index::{ProvinceKey, WideCoord, WideHostRef, WorldId};
+        let world = WorldId::new([0x77; 32]).unwrap();
+        let key = |p, q| ProvinceKey::new(world, WideCoord::checked(p, q).unwrap());
+        let host = WideHostRef::new(key(129, 0), 3, 1, 7).unwrap();
+        let (path_len, path) = kseal::encode_path(&[0, 1, 2, 3, 4, 5, 0, 5]).unwrap();
+        let fixtures = cases();
+        for name in ["valid_q3", "valid_q4_min"] {
+            let c = fixtures.iter().find(|c| get(c, "name") == name).unwrap();
+            let legacy: [u8; SEAL_LEN] = hex(get(c, "seal")).try_into().unwrap();
+            let ibe = legacy[..IBE_LEN].try_into().unwrap();
+            let sig = sys::bls_g1_decompress(&hex(get(c, "open_sig")).try_into().unwrap()).unwrap();
+            let k: [u8; N] = hex(get(c, "k")).try_into().unwrap();
+            assert_eq!(
+                recover_key(&sig, &ibe),
+                Ok(k),
+                "{name}: real pairing and FO"
+            );
+            let arrive = get(c, "arrive_bell").parse().unwrap();
+            let plain = wseal::WidePlain {
+                version: wseal::WIDE_PLAIN_VERSION,
+                host,
+                arrive_bell: arrive,
+                dest: key(130, -1),
+                dest_tile: 60,
+                stance: 2,
+                retreat_bps: 0,
+                path_len,
+                path,
+                reserved: [0; wseal::WIDE_RESERVED_BYTES],
+            };
+            let pt = wseal::pack(&plain);
+            let seal = wseal::assemble(&ibe, &wseal::body_xor(&k, &pt));
+            let commit = wseal::commit(&pt, &kseal::salt_of(&k));
+            let root = wide_seal_root_of(&commit, &seal);
+            assert_eq!(
+                judge_wide(&sig, &seal, &commit, &host, arrive),
+                (seal_code::VALID, Some(plain))
+            );
+            assert_ne!(root.to_vec(), hex(get(c, "seal_root")));
+            let legacy_commit = hex(get(c, "commit")).try_into().unwrap();
+            assert_eq!(
+                open_wide(&sig, &seal, &legacy_commit),
+                Err(seal_code::COMMIT_MISMATCH)
+            );
+            let mut bad = seal;
+            bad[..96].fill(0);
+            assert_eq!(open_wide(&sig, &bad, &commit), Err(seal_code::BAD_POINT));
+            for offset in [V, W] {
+                let mut bad = seal;
+                bad[offset] ^= 1;
+                assert_eq!(open_wide(&sig, &bad, &commit), Err(seal_code::FO_FAILED));
+            }
+            let mut bad = seal;
+            bad[IBE_LEN] ^= 1;
+            assert_eq!(
+                open_wide(&sig, &bad, &commit),
+                Err(seal_code::COMMIT_MISMATCH)
+            );
+            assert_ne!(wide_seal_root_of(&commit, &bad), root);
+            assert_eq!(
+                open_wide(&[0; 96], &seal, &commit),
+                Err(seal_code::BAD_POINT)
+            );
+            let other = fixtures
+                .iter()
+                .find(|v| {
+                    get(v, "name")
+                        == if name == "valid_q3" {
+                            "valid_q4_min"
+                        } else {
+                            "valid_q3"
+                        }
+                })
+                .unwrap();
+            let wrong_sig =
+                sys::bls_g1_decompress(&hex(get(other, "open_sig")).try_into().unwrap()).unwrap();
+            assert_eq!(
+                open_wide(&wrong_sig, &seal, &commit),
+                Err(seal_code::FO_FAILED)
+            );
+            assert_eq!(
+                judge_wide(&sig, &seal, &commit, &host, arrive + 1),
+                (seal_code::BAD_PLAINTEXT, None)
+            );
+            let wrong_host = WideHostRef::new(key(129, 0), 3, 1, 8).unwrap();
+            assert_eq!(
+                judge_wide(&sig, &seal, &commit, &wrong_host, arrive),
+                (seal_code::BAD_PLAINTEXT, None)
+            );
+            let mut wrong_world = plain;
+            wrong_world.dest = ProvinceKey::new(
+                WorldId::new([0x78; 32]).unwrap(),
+                WideCoord::checked(130, -1).unwrap(),
+            );
+            let invalid_pt = wseal::pack(&wrong_world);
+            let invalid_seal = wseal::assemble(&ibe, &wseal::body_xor(&k, &invalid_pt));
+            let invalid_commit = wseal::commit(&invalid_pt, &kseal::salt_of(&k));
+            assert_eq!(
+                judge_wide(&sig, &invalid_seal, &invalid_commit, &host, arrive),
+                (seal_code::BAD_PLAINTEXT, None)
+            );
+        }
+    }
+
+    #[cfg(not(feature = "native-crypto-tests"))]
+    #[test]
+    fn ordinary_host_refuses_even_public_valid_ibe() {
+        for c in cases() {
+            if get(&c, "name") != "valid_q3" && get(&c, "name") != "valid_q4_min" {
+                continue;
+            }
+            let legacy: [u8; SEAL_LEN] = hex(get(&c, "seal")).try_into().unwrap();
+            assert_eq!(
+                recover_key(&[0; 96], &legacy[..IBE_LEN].try_into().unwrap()),
+                Err(seal_code::BAD_POINT)
+            );
+            assert!(sys::bls_g1_decompress(&hex(get(&c, "open_sig")).try_into().unwrap()).is_err());
+        }
     }
 }

@@ -1,8 +1,9 @@
 //! The recorded wide world (experimental, read-only; cargo feature
 //! `wide-world-experimental`, which turns on `frontier-abi`'s
 //! `world-index-experimental`): the Provinces the fold has **captured**,
-//! presented through the lossless legacy adapter as world-scoped wide
-//! coordinates, in bounded pages.
+//! presented as world-scoped wide coordinates, in bounded pages. Legacy
+//! accounts use the lossless adapter; authenticated experimental wide
+//! Province/Holding accounts use their full trailer identity.
 //!
 //! | path | answer | cache |
 //! |---|---|---|
@@ -10,21 +11,24 @@
 //! | `/h/world/wide/page?limit=&after=` | one page of recorded Provinces in ring order | `max-age=5` |
 //!
 //! **What it is.** The same captured Province accounts `/h/world/ring/{d}`
-//! lists, keyed by `(world, P, Q)` with P and Q as decimal strings
+//! lists, plus captured experimental wide Province accounts, keyed by
+//! `(world, P, Q)` with P and Q as decimal strings
 //! (lossless in any JSON reader; a browser must not pass them through
 //! `Number`). The world is `WorldId::derive_legacy_season(season PDA,
 //! program)`: public bytes only, so a page can recompute it.
 //!
 //! **What it is not.** Not a proof of completeness (a Province the fold
 //! never captured is *unknown*: neither closed nor open), not new land
-//! (every entry is a captured legacy record within ring `R_MAX_HARD`;
-//! nothing past the season's map is invented), and not a trust root (the
-//! raw bytes stay at `/h/province/{P},{Q}/latest`).
+//! (every entry is backed by a capture, never generated terrain), and not
+//! a trust root. Wide entries include raw capture bytes and an explicit
+//! `captured-unverified` label; PSW1 event replay is not implemented here.
 //!
 //! **Cost.** The index is kept beside `Fold::provinces` and moves only when
-//! a Province is first captured or closed (`Fold::index_account` /
+//! a legacy Province is first captured or closed (`Fold::index_account` /
 //! `unindex_account`): a Province's bytes changing every bell does not
-//! touch it, so a cursor outlives ordinary polling. A page is a bounded
+//! touch it, so a cursor outlives ordinary polling. Wide account changes
+//! also revise their province entry so its holdings and displayed capture
+//! stay in the same snapshot. A page is a bounded
 //! `range` walk (at most `limit + 1` entries) plus one map lookup per
 //! entry; the snapshot stamp is folded per mutation, never recomputed over
 //! the index. A restart rebuilds the index from the checkpointed captures
@@ -33,9 +37,11 @@
 //! Without the feature the routes answer `503 WideWorldUnavailable`
 //! (`server.rs`), never a dense fallback.
 
+use base64::Engine;
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
 use solana_address::Address;
+use std::collections::BTreeMap;
 
 use frontier_abi::addr::AddrCtx;
 use frontier_abi::world_index::{
@@ -44,7 +50,9 @@ use frontier_abi::world_index::{
 };
 use permutation_rules::frontier::geometry::{ProvinceCoord, R_MAX_HARD};
 
-use crate::fold::Fold;
+use crate::fold::{Capture, Fold};
+use fclient::ports::{Account, TxRecord};
+use frontier_abi::world_index::{holding, land};
 
 /// Entries per page when the query names none.
 pub const DEFAULT_LIMIT: usize = 64;
@@ -62,6 +70,8 @@ pub struct WideIndex {
     stamp: [u8; 32],
     /// Reports the index refused (counted and shown, never patched).
     refused: u64,
+    provinces: BTreeMap<WideCoord, [u8; 32]>,
+    holdings: BTreeMap<(WideCoord, u8), [u8; 32]>,
 }
 
 impl WideIndex {
@@ -74,6 +84,8 @@ impl WideIndex {
             index: OpenedProvinceIndex::new(adapter.world()),
             stamp: [0; 32],
             refused: 0,
+            provinces: BTreeMap::new(),
+            holdings: BTreeMap::new(),
         })
     }
 
@@ -125,6 +137,16 @@ impl WideIndex {
 
     fn report(&mut self, p: i16, q: i16, state: ReportedState, observed_at: u64) {
         let key = self.key(p, q);
+        self.report_key(key, state, observed_at, false);
+    }
+
+    fn report_key(
+        &mut self,
+        key: ProvinceKey,
+        state: ReportedState,
+        observed_at: u64,
+        force: bool,
+    ) {
         let (fresh, next) = match self.index.lookup(&key) {
             Ok(Lookup::Unknown) => (
                 true,
@@ -135,7 +157,9 @@ impl WideIndex {
                     observed_at,
                 },
             ),
-            Ok(Lookup::Known(e)) if e.state == state && e.observed_at == observed_at => return,
+            Ok(Lookup::Known(e)) if !force && e.state == state && e.observed_at == observed_at => {
+                return
+            }
             Ok(Lookup::Known(e)) => (
                 false,
                 IndexEntry {
@@ -287,6 +311,7 @@ pub fn manifest_json(f: &Fold) -> Result<Value, WideFault> {
         "snapshot": snapshot_json(f, w),
         "recorded": w.len(),
         "refused": w.refused(),
+        "wide": { "provinces": w.provinces.len(), "holdings": w.holdings.len(), "verification": "captured-unverified" },
         "legacy": {
             "rMax": crate::world::r_max(f),
             "rMaxHard": R_MAX_HARD,
@@ -332,6 +357,7 @@ fn entry_json(f: &Fold, w: &WideIndex, e: &IndexEntry) -> Value {
     v["revision"] = json!(e.revision.to_string());
     v["observedAt"] = json!(e.observed_at.to_string());
     v["legacy"] = legacy_json(f, w, e);
+    v["wide"] = captured_json(f, w, e.key.coord());
     v
 }
 
@@ -364,6 +390,203 @@ pub fn page_json(f: &Fold, after: Option<&str>, limit: Option<usize>) -> Result<
         "entries": page.entries.iter().map(|e| entry_json(f, w, e)).collect::<Vec<_>>(),
         "next": page.next.as_ref().map(cursor_text),
     }))
+}
+
+// Wide records never pass through the legacy P/Q prefix (both are zero).
+// Only owner, season, world and the canonical public address authenticate a capture;
+// this is not a replay or a proof of its event chain.
+fn is_wide(d: &[u8]) -> bool {
+    d.get(..8)
+        .is_some_and(|m| m == land::province::MAGIC || m == holding::wide_holding::MAGIC)
+}
+
+#[derive(Clone, Copy)]
+enum CapturedWide {
+    Province(land::WideProvince),
+    Holding(holding::WideHolding),
+}
+fn authenticate(f: &Fold, key: &[u8; 32], d: &[u8]) -> Option<CapturedWide> {
+    let world = f.wide.as_ref()?.world();
+    if let Ok(p) = land::WideProvince::read(d) {
+        return (p.season_id == f.cfg.season_id
+            && p.world == world
+            && land::province_address(&f.ctx, p.coord) == *key)
+            .then_some(CapturedWide::Province(p));
+    }
+    let h = holding::WideHolding::read(d).ok()?;
+    (h.season_id == f.cfg.season_id
+        && h.world == world
+        && holding::holding_address(&f.ctx, h.coord, h.site) == *key)
+        .then_some(CapturedWide::Holding(h))
+}
+
+/// Rebuild the derived wide index from persisted, previously authenticated captures.
+pub(crate) fn index_capture(f: &mut Fold, key: &[u8; 32], d: &[u8]) -> bool {
+    if !is_wide(d) {
+        return false;
+    }
+    let captured = authenticate(f, key, d);
+    let at = f.st.accounts.get(key).map_or(f.st.last_slot, |c| c.slot);
+    let Some(w) = f.wide.as_mut() else {
+        return true;
+    };
+    match captured {
+        Some(CapturedWide::Province(p)) => {
+            w.provinces.insert(p.coord, *key);
+            w.report_key(
+                ProvinceKey::new(p.world, p.coord),
+                ReportedState::Open,
+                at,
+                true,
+            );
+        }
+        Some(CapturedWide::Holding(h)) => {
+            w.holdings.insert((h.coord, h.site), *key);
+            if w.provinces.contains_key(&h.coord) {
+                w.report_key(
+                    ProvinceKey::new(h.world, h.coord),
+                    ReportedState::Open,
+                    at,
+                    true,
+                );
+            }
+        }
+        None => w.refused += 1,
+    }
+    true
+}
+
+/// Intercepts actual wide post-state and explicit closes before legacy dispatch.
+/// Malformed, wrong-owner or unsupported replacements never masquerade as closes.
+pub(crate) fn capture_post(
+    f: &mut Fold,
+    key: &[u8; 32],
+    account: Option<&Account>,
+    tx: &TxRecord,
+) -> bool {
+    let old = f.st.accounts.get(key).cloned();
+    let old_wide = old.as_ref().is_some_and(|c| is_wide(&c.data));
+    if !old_wide && !account.is_some_and(|a| is_wide(&a.data)) {
+        return false;
+    }
+    if let Some(a) = account {
+        if a.owner != f.cfg.program || authenticate(f, key, &a.data).is_none() {
+            if let Some(w) = f.wide.as_mut() {
+                w.refused += 1;
+            }
+            return true;
+        }
+        if old.as_ref().is_some_and(|c| c.data == a.data) {
+            return true;
+        }
+        f.st.accounts.insert(
+            *key,
+            Capture {
+                slot: tx.slot,
+                tx: tx.seq,
+                data: a.data.clone(),
+            },
+        );
+        index_capture(f, key, &a.data);
+    } else if let Some(c) = old {
+        let captured = authenticate(f, key, &c.data);
+        if let Some(w) = f.wide.as_mut() {
+            match captured {
+                Some(CapturedWide::Province(p)) => {
+                    w.provinces.remove(&p.coord);
+                    w.report_key(
+                        ProvinceKey::new(p.world, p.coord),
+                        ReportedState::Closed,
+                        tx.slot,
+                        true,
+                    );
+                }
+                Some(CapturedWide::Holding(h)) => {
+                    w.holdings.remove(&(h.coord, h.site));
+                    if w.provinces.contains_key(&h.coord) {
+                        w.report_key(
+                            ProvinceKey::new(h.world, h.coord),
+                            ReportedState::Open,
+                            tx.slot,
+                            true,
+                        );
+                    }
+                }
+                None => w.refused += 1,
+            }
+        }
+        f.st.accounts.remove(key);
+    }
+    true
+}
+
+fn capture_json(f: &Fold, key: &[u8; 32]) -> Value {
+    let Some(c) = f.account(key) else {
+        return Value::Null;
+    };
+    json!({ "address": Address::new_from_array(*key).to_string(),
+        "slot": c.slot.to_string(), "archiveSequence": c.tx.to_string(),
+        "postState": if f.cfg.exact_post { "transaction" } else { "at-or-after-transaction" },
+        "verification": "captured-unverified",
+        "bytes_b64": base64::engine::general_purpose::STANDARD.encode(&c.data) })
+}
+
+/// Wide slots stay distinct from legacy holdings. A missing capture is explicit,
+/// never a synthetic holding at (0,0) or a silently empty inventory slot.
+pub fn holdings_for_citizen(f: &Fold, citizen: &[u8; 32]) -> Value {
+    let Some(c) = f.account(citizen) else {
+        return json!([]);
+    };
+    let Some(w) = f.wide.as_ref() else {
+        return json!([]);
+    };
+    let mut out = vec![];
+    for slot in 2..=3 {
+        if holding::binding_of(&c.data, slot) != Ok(holding::SlotBinding::Wide) {
+            continue;
+        }
+        let matches: Vec<Value> = w
+            .holdings
+            .values()
+            .filter_map(|key| {
+                let h = holding::WideHolding::read(&f.account(key)?.data).ok()?;
+                (h.owner_citizen == *citizen && h.slot == slot).then(|| {
+                    json!({
+                "world": hex::encode(h.world.as_bytes()), "p": h.coord.p().to_string(),
+                "q": h.coord.q().to_string(), "site": h.site, "generation": h.gen,
+                "capture": capture_json(f, key) })
+                })
+            })
+            .collect();
+        out.push(json!({ "inventorySlot": slot,
+            "status": if matches.len() == 1 { "captured-unverified" } else if matches.is_empty() { "not-captured" } else { "ambiguous" },
+            "holding": if matches.len() == 1 { matches[0].clone() } else { Value::Null } }));
+    }
+    json!(out)
+}
+
+fn captured_json(f: &Fold, w: &WideIndex, coord: WideCoord) -> Value {
+    let Some(key) = w.provinces.get(&coord) else {
+        return Value::Null;
+    };
+    let Some(c) = f.account(key) else {
+        return Value::Null;
+    };
+    let Ok(p) = land::WideProvince::read(&c.data) else {
+        return Value::Null;
+    };
+    use frontier_abi::v2::layout::province::{keep as K, province as P};
+    let holdings: Vec<Value> = w.holdings.range((coord, 0)..=(coord, 11)).filter_map(|(_, addr)| {
+        let h = holding::WideHolding::read(&f.account(addr)?.data).ok()?;
+        Some(json!({ "world": hex::encode(h.world.as_bytes()), "p": h.coord.p().to_string(),
+            "q": h.coord.q().to_string(), "site": h.site, "generation": h.gen,
+            "inventorySlot": h.slot, "ownerCitizen": Address::new_from_array(h.owner_citizen).to_string(),
+            "capture": capture_json(f, addr) }))
+    }).collect();
+    json!({ "world": hex::encode(p.world.as_bytes()), "p": p.coord.p().to_string(),
+        "q": p.coord.q().to_string(), "openedBell": p.opened_bell,
+        "region": p.region, "keepHolder": c.data[P::KEEP + K::HOLDER],
+        "capture": capture_json(f, key), "holdings": holdings })
 }
 
 #[cfg(test)]

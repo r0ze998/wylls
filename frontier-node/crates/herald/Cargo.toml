@@ -41,6 +41,8 @@ default = []
 # default build compiles none of it and answers `503 WideWorldUnavailable`
 # on that path. No new dependency.
 wide-world-experimental = ["frontier-abi/world-index-experimental"]
+# Explicit read-only external index, independent of the legacy ingest path.
+wide-index-read-experimental = ["wide-world-experimental", "findex/wide-records-experimental"]
 
 [dev-dependencies]
 # W3-D (request R4): `tests/real_chain.rs` drives the keeper over the
