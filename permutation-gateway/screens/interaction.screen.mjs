@@ -12,23 +12,41 @@ import assert from 'node:assert/strict';
 import { chromium } from 'playwright-core';
 import { startServer } from './server.mjs';
 import { storageFor, LATEST_UNIX, HOME, CAMP_TILE, HOSTS } from './world.mjs';
+import * as NK from './ws07/nokey-page.mjs';
 
-let browser, srv;
-before(async () => { srv = await startServer(); browser = await chromium.launch(); });
+// Workstream 07: WS07_KEYLESS=1 runs this file with no key anywhere (screens/ws07/nokey-page.mjs): the fixture server
+// keyless, no seed in storage, a test wallet with the viewer's address that refuses to sign, the page on wylls.test
+// (no dev wallet), and every key operation counted and checked empty at the end of each test. The tests that sign or
+// send are skipped in that run (`SIGNS`): a keyless run checks only what the page does before anything is signed.
+// Without the variable the file runs as it always did.
+const KEYLESS = process.env.WS07_KEYLESS === '1';
+const SIGNS = KEYLESS ? 'signs or sends: not run without a key (WS07_KEYLESS)' : false;
+let browser, srv, base;
+before(async () => {
+  srv = await startServer({ keyless: KEYLESS });
+  const port = Number(new URL(srv.url).port);
+  base = KEYLESS ? NK.pageBase(port) : srv.url;
+  browser = await chromium.launch(KEYLESS ? NK.launchOptions(port) : {});
+});
 after(async () => { await browser?.close(); await srv?.close(); });
+/** The context's storage and, keyless, its guard and test wallet; at the end (keyless) no key was used. */
+async function prime(t, context, stageStore) {
+  t.after(async () => { if (KEYLESS) await NK.assertKeyless(context, assert); await context.close(); });
+  if (KEYLESS) await NK.prepare(context, srv.viewer, { lang: 'ja' });
+  else await context.addInitScript(s => { for (const [k, v] of Object.entries(s)) localStorage.setItem(k, v); }, stageStore);
+}
 
 async function open(t, { width = 390, height = 844, stage = 'holding', page: file = 'index.html', query = '' } = {}) {
   srv.stage(stage);
   const phone = width < 760;
   const context = await browser.newContext({ viewport: { width, height }, isMobile: phone, hasTouch: phone, locale: 'ja-JP', timezoneId: 'UTC' });
-  t.after(() => context.close());
-  await context.addInitScript(s => { for (const [k, v] of Object.entries(s)) localStorage.setItem(k, v); }, storageFor(srv.viewer, { stage, lang: 'ja' }));
+  await prime(t, context, storageFor(srv.viewer, { stage, lang: 'ja' }));
   const page = await context.newPage();
   const errors = [];
   page.on('pageerror', e => errors.push(e.message));
   page.on('console', m => { if (m.type() === 'error') errors.push(m.text()); });
   await page.clock.setFixedTime(new Date(LATEST_UNIX * 1000 + 500));
-  await page.goto(`${srv.url}/frontier/${file}${query}`);
+  await page.goto(`${base}/frontier/${file}${query}`);
   // (the page is ready when the dial counts AND the viewer's record has answered: since wave 3 the dial counts while
   // the play page still says `data-stage="loading"`, and the layout settles a moment later; a press aimed at a box
   // measured in between missed, e.g. the sheet's handle)
@@ -494,7 +512,7 @@ test('the land: lit tiles when a host has the hand, a tap is the order, a refusa
 });
 
 // hud-2 (UX design 8.2, 8.3): the outcome of an action is said at the map, and documents stand over it.
-test('a refusal is a toast at the map with "try again"; the report is a wide sheet over the map that a press outside puts away', { timeout: 90_000 }, async t => {
+test('a refusal is a toast at the map with "try again"; the report is a wide sheet over the map that a press outside puts away', { skip: SIGNS, timeout: 90_000 }, async t => {
   const page = await open(t, { width: 1440, height: 900, query: `?at=${HOME.p},${HOME.q},${HOME.tile},1.0` });
   const posts = [];
   page.on('request', r => { if (r.method() === 'POST' && r.url().includes('/f/relay')) posts.push(r.url()); });
@@ -758,16 +776,15 @@ async function openLive(t, { width = 1440, height = 900, stage = 'holding', ...o
   t.after(() => srv.live(false));
   const phone = width < 760;
   const context = await browser.newContext({ viewport: { width, height }, isMobile: phone, hasTouch: phone, locale: 'ja-JP', timezoneId: 'UTC' });
-  t.after(() => context.close());
   // (with the march book of this device: the page knows where the viewer's sealed march went)
-  await context.addInitScript(s => { for (const [k, v] of Object.entries(s)) localStorage.setItem(k, v); }, storageFor(srv.viewer, { stage, lang: 'ja', live: true }));
+  await prime(t, context, storageFor(srv.viewer, { stage, lang: 'ja', live: true }));
   const page = await context.newPage();
   const errors = [], posts = [];
   page.on('pageerror', e => errors.push(e.message));
   page.on('console', m => { if (m.type() === 'error') errors.push(m.text()); });
   page.on('response', r => { if (r.status() >= 400) errors.push(`HTTP ${r.status()} ${r.url()}`); });
   page.on('request', r => { if (r.method() === 'POST') posts.push(new URL(r.url()).pathname); });
-  await page.goto(`${srv.url}/frontier/index.html`);
+  await page.goto(`${base}/frontier/index.html`);
   await page.waitForFunction(() => /\d/.test(document.getElementById('bell-chip')?.textContent ?? '') && document.body.dataset.stage !== 'loading');
   const sync = () => page.evaluate(async () => { const { FS } = await import('/frontier/fstate.mjs'); const r = await (await fetch('/h/season')).json(); FS.chain.observe(r.latestUnix, r.latestSlot); FS.chain.rate = r.sample.rate; });
   const poll = () => page.evaluate(async () => { const c = await import('/frontier/controller.mjs'); await c.refresh(); });
@@ -863,7 +880,7 @@ const strip = (page, res) => page.locator(`#res-strip [data-res="${res}"] .res-v
 const mine = world => world.summary().me;
 
 for (const vp of [{ width: 1440, height: 900 }, { width: 390, height: 844 }]) {
-  test(`the real turn @ ${vp.width}: the toll's banner; then what the turn resolved, in order: the march at the camp unsealed and its battle played once from the clash report; the host stands on the camp's tile; the building`, { timeout: 120_000 }, async t => {
+  test(`the real turn @ ${vp.width}: the toll's banner; then what the turn resolved, in order: the march at the camp unsealed and its battle played once from the clash report; the host stands on the camp's tile; the building`, { skip: SIGNS, timeout: 120_000 }, async t => {
     // (a turn every 20 s, the first toll 4 s after load: the world's defaults but for the delay)
     const { page, world, events, until, drawn } = await openLive(t, { ...vp, delay: 4 });
     const phone = vp.width < 760;
@@ -950,7 +967,7 @@ for (const vp of [{ width: 1440, height: 900 }, { width: 390, height: 844 }]) {
   });
 }
 
-test('an accepted order: the pending chip and the ring on the tile, then the landed state; the herald shows it (a build at the rule\'s cost, a muster with its moment)', { timeout: 90_000 }, async t => {
+test('an accepted order: the pending chip and the ring on the tile, then the landed state; the herald shows it (a build at the rule\'s cost, a muster with its moment)', { skip: SIGNS, timeout: 90_000 }, async t => {
   // (a turn of ten minutes, as on a chain: nothing but the orders happens)
   const { page, world, posts, events, until, press } = await openLive(t, { turn: 600, delay: 400, landMs: 1100 });
   await page.locator('#frontier-map[data-lod="tile"][data-terrain="ready"]').waitFor();
@@ -989,7 +1006,7 @@ test('an accepted order: the pending chip and the ring on the tile, then the lan
   assert.deepEqual(world.orders.map(o => [o.name, o.ok]), [['Build', true], ['Muster', true]]);
 });
 
-test('seal and depart is accepted and shown; a second march in the turn too; with the action bucket empty the next is refused: a toast at the map with "try again", and the retry sends once more', { timeout: 150_000 }, async t => {
+test('seal and depart is accepted and shown; a second march in the turn too; with the action bucket empty the next is refused: a toast at the map with "try again", and the retry sends once more', { skip: SIGNS, timeout: 150_000 }, async t => {
   const { page, world, posts, events, until, press, store } = await openLive(t, { turn: 600, delay: 400, landMs: 900 });
   await page.locator('#frontier-map[data-lod="tile"][data-terrain="ready"]').waitFor();
   const compose = async host => {
@@ -1041,7 +1058,7 @@ test('seal and depart is accepted and shown; a second march in the turn too; wit
   await store(FS => (FS.holdings?.[0]?.transit ?? []).filter(x => x.state === 1).length === 1);
 });
 
-test('a host is mustered onto a chosen tile: it forms there on the board, is in the roster from the next turn, and takes orders once that turn is settled', { timeout: 120_000 }, async t => {
+test('a host is mustered onto a chosen tile: it forms there on the board, is in the roster from the next turn, and takes orders once that turn is settled', { skip: SIGNS, timeout: 120_000 }, async t => {
   const { page, world, until, poll, turn, drawn } = await openLive(t, { turn: 6, delay: 5 });
   await page.locator('#frontier-map[data-lod="tile"][data-terrain="ready"]').waitFor();
   await turn(43);
@@ -1097,7 +1114,7 @@ test('a host is mustered onto a chosen tile: it forms there on the board, is in 
   await page.locator(`[data-act="compose"][data-host="${id}"]:not([disabled])`).waitFor({ timeout: 10_000 });
 });
 
-test('a march to an empty tile, through the page\'s own order card: sealed, revealed by this device in its arrival turn, and the host is drawn on the tile where it stays', { timeout: 180_000 }, async t => {
+test('a march to an empty tile, through the page\'s own order card: sealed, revealed by this device in its arrival turn, and the host is drawn on the tile where it stays', { skip: SIGNS, timeout: 180_000 }, async t => {
   const live = await openLive(t, { turn: 8, delay: 7 });
   const { page, world, events, press, poll, turn, drawn, store } = live;
   await page.locator('#frontier-map[data-lod="tile"][data-terrain="ready"]').waitFor();
@@ -1154,7 +1171,7 @@ test('a march to an empty tile, through the page\'s own order card: sealed, reve
   await store(`FS => (FS.book ?? []).some(e => e.host === '${HOSTS.free}' && e.state === 'settled')`);
 });
 
-test('a new owner trains, forms a host and marches on the camp through the page\'s own controls: the clash is the rules kernel\'s, its battle plays from the report, and the host stands on the camp\'s tile', { timeout: 240_000 }, async t => {
+test('a new owner trains, forms a host and marches on the camp through the page\'s own controls: the clash is the rules kernel\'s, its battle plays from the report, and the host stands on the camp\'s tile', { skip: SIGNS, timeout: 240_000 }, async t => {
   // (a hamlet just landed, with stores that pay for 400 Spearmen: the starter kit buys 500 at most, of which a camp of 250 leaves little)
   const live = await openLive(t, { stage: 'provisional', turn: 5, delay: 4, stores: [2_000, 300, 200, 500, 0, 500, 0, 0] });
   const { page, world, events, until, press, poll, turn, drawn, store } = live;
@@ -1223,7 +1240,7 @@ test('a new owner trains, forms a host and marches on the camp through the page\
 // the rule's own numbers, one tap orders; a new host forms up on the tile that is tapped; each order answers in
 // its own words, is said on the effects bus with its kind and tile, and stands in the list of this turn.
 for (const vp of [{ width: 1440, height: 900 }, { width: 390, height: 844 }]) {
-  test(`the hand @ ${vp.width}: the village's bar in the dock's place, the build fan with real numbers, a host formed on a tapped tile, this turn's list`, { timeout: 120_000 }, async t => {
+  test(`the hand @ ${vp.width}: the village's bar in the dock's place, the build fan with real numbers, a host formed on a tapped tile, this turn's list`, { skip: SIGNS, timeout: 120_000 }, async t => {
     const { page, world, events, until, store } = await openLive(t, { ...vp, delay: 600, landMs: 700 });
     const phone = vp.width < 760;
     await page.locator('#frontier-map[data-lod="tile"][data-terrain="ready"]').waitFor();
@@ -1340,7 +1357,7 @@ const protoSeen = page => page.evaluate(() => {
     asked: performance.getEntriesByType('resource').map(e => new URL(e.name).pathname).filter(p => /^\/(h|gw\/f)\/proto\//.test(p)) };
 });
 for (const vp of [{ width: 1440, height: 900 }, { width: 390, height: 844 }]) {
-  test(`the banner prototype @ ${vp.width} (a design; the sample world started with claims): the label from the first frame, village land on the plate, a banner raised through the page: its record floods the board and the plate counts`, { timeout: 150_000 }, async t => {
+  test(`the banner prototype @ ${vp.width} (a design; the sample world started with claims): the label from the first frame, village land on the plate, a banner raised through the page: its record floods the board and the plate counts`, { skip: SIGNS, timeout: 150_000 }, async t => {
     const { page, world, posts, store, turn } = await openLive(t, { ...vp, turn: 6, delay: 5, claims: true });
     await page.locator('#frontier-map[data-lod="tile"][data-terrain="ready"]').waitFor();
     await store('FS => FS.proto && FS.proto.me && FS.proto.lands.size > 0');

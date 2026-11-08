@@ -1270,6 +1270,10 @@ p.fact-chips { display: flex; flex-wrap: wrap; gap: var(--s1); margin: var(--s2)
 .btn.primary.nc-btn:active { transform: translateY(2px); box-shadow: inset 0 2px 4px rgba(90,64,10,.6), 0 0 0 2px rgba(10,22,20,.9); }
 .btn.primary.nc-btn[disabled] { background: rgba(255,255,255,.07); border-color: rgba(244,239,224,.3); color: var(--hud-ink-2); box-shadow: none; opacity: 1; filter: none; }
 .nc-note { grid-column: 1 / -1; margin: 0 !important; font-size: var(--t1); line-height: 1.5; color: var(--hud-ink-2); }
+/* (workstream 07: the season's deadlines end the note on a desktop — as a line of their own they pushed the heading and
+   the banners above the screen's lower half; a phone hides that note and shows them as their own line, below. Each
+   copy is display:none at the other width, so it is read once) */
+.nc-note.nc-deadline { display: none; }
 .nc-wallet { display: grid; gap: 4px; justify-items: end; }
 .nc-wallet-k { font-size: var(--t1); color: var(--hud-ink-2); }
 .wallet-list { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: 6px; }
@@ -1314,6 +1318,7 @@ p.fact-chips { display: flex; flex-wrap: wrap; gap: var(--s1); margin: var(--s2)
   .nc-note { display: none; }
   /* (workstream 07: the season's deadlines stay on a phone: after the join deadline the program refuses the join) */
   .nc-note.nc-deadline { display: block; }
+  .nc-deadline-in { display: none; }
   .nc-go { justify-content: stretch; } .nc-go .nc-btn { flex: 1 1 auto; min-height: 48px; }
   .nc-wallet { justify-items: start; }
 }
