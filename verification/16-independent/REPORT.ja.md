@@ -1734,3 +1734,78 @@ gateway・web の鍵なしの一式（CI と同じ `scripts/ci/node-keyfree.sh p
 5. 合成の march の fixture を、鍵を使って記録し直すことを承認するか。承認すれば tamper の試験を戻せる。承認しなければ、既知の失敗として固定したまま。
 
 ログ: `logs/phase16/`
+
+# 第17期（2026-11-08）：④の公開候補 af41e617
+
+## 22.1 対象（GitHub から取得して照合した）
+
+- ④ `claude/gallant-ride-cunptv`: `af41e617218f3a93d94c7374d125ac61fd69833d`、tree `18663848b7262f42edfe0eefac5825f166c5895d`。取得したとき（13:24 UTC）の HEAD で、利用者の指定と一致した。
+- 20db3313 の上に、次を足したもの:
+  - ⑬ 36376b3b（R3）と c82fe0e1（⑯の R3 の入力を試験データにしたもの）
+  - ⑦ 24369382、① c01c7418、② r6、③ 6ee7c4d1、⑥ 7bcdfa24
+  - ⑨ capacity-preview（版のビット 0x1000）、⑩ 0002・V26 の再生、⑪ 0013〜0016
+  - ⑳ cb47e720（0xDD）、VW1（4ecef1d9）
+- その後、④の branch は 970c50a1（tree `7c329699…`）を経て `b3d0897869add543985c3f7a6c7aa8b7991f9bf1`（tree `2e378f3a9fb60e82d504e9b2de410acea9ae132b`）まで進んだ。b3d08978 は 22.6 で別に扱う。
+
+## 22.2 ⑬の R3 の修正
+
+- 修正（36376b3b）は ws04-run.mjs の `sendTraces` である。停止した run で効果の欄が空でも、次のどれかがあれば unknown にする:
+  - failed・expired 以外の attempt
+  - reserved または unconfirmed の手数料
+  - in_flight
+  - receipt
+- ⑯の R3 の入力 12 件は、すべて unknown になった（`logs/phase17/run-view-real.log`）。
+- 本物の view 157 件の読みは、修正の前（20db3313）と後（af41e617）で同じだった（`scripts/fate-dist.mjs`）。効果の無い本物の停止（Failed 6、Expired 4、Cancelled 5）は、今も failed または cancelled と読まれる。**修正で後退した読みは無い。**
+- ④の view の生成（view.rs、store.rs、model.rs、executor.rs）は、20db3313 と同じ blob だった。
+- ⑬の全件（④の runexec は af41e617 から build、⑤ 10e74967、二つのガード）:
+  - 197 件中、189 件通過、1 件失敗、7 件 skip。
+  - 失敗の 1 件は longrun の「steady step time」だった。day 42 から ms/day が約 1 秒から約 5.5 秒に跳ねており、同時に走らせていた Rust の build の負荷による。
+  - skip のうち 1 件は、WS16_REAL_VIEWS を設定していなかったためのもの。
+  - 負荷の無いときに、この 2 ファイル（longrun と ws04-run-view）を流し直すと 10/10 だった（`logs/phase17/ws13-rerun.log`）。
+  - 署名を伴う 6 件は skip のままで、数えない。ガードの記録は自己試験の 11 件だけだった。
+
+## 22.3 wide が Unknown のままであること
+
+- V0（⑪ 0016）: 0x4000 の Season の wide の tag は、どの build でも UNVERIFIABLE（WideUnmodelled）になる。VW が build されていなくても、命令が 1 つでもあれば PASS にならない。
+- VW1: wide の記録があれば、最後に必ず UNVERIFIABLE（WideUnmodelled）が付く。
+- ⑯の `probes/v16_vw_unknown.rs`:
+  - w1〜w4 は通過した。確かめたこと:
+    - whole で矛盾の無い chain でも PASS にならない。
+    - 始めが刈られた、unproven の履歴は WideChainUnproven で、FAIL にならない。
+    - ほかのプログラムの frame の記録、失敗した取引の記録は、記録として数えない。
+  - **欠陥（af41e617）**: unproven の履歴で途中の記録が 1 件欠けると、FAIL WideChainBroken になる（w3 で記録し、w5 で失敗として再現した。`logs/phase17/v16-vw-w5-af41.log`）。
+    - 最終の口座との不一致は「whole のときだけ FAIL」としているので、それと食い違う。
+    - その結果、⑲の履歴の欠けが、改ざんの主張に変わってしまう。
+    - ④に連絡し、④は b3d08978 で直した（22.6）。
+
+## 22.4 回帰（af41e617、ホスト、鍵なし、PDA あり）
+
+| 対象 | 結果 |
+|---|---|
+| chain-flow の照合 | 31/31。作り直した出力は 7 ファイルとも一致。変異は 12/12 を検出 |
+| ws04 | 130 通過、0 失敗、10 ignored（gateway.rs 9 件は鍵を使う。chain_caravan 1 件は run.sh で流す） |
+| e2e-native | 24（registry を含む） |
+| ⑯ intake の回帰 7、荷車の障害 4 | 通過 |
+| 検証器（既定の build） | 154、fixtures 8（`march_fixture_is_fresh` を除外） |
+| 検証器（wide-world-experimental） | 121（VW1 と⑯の w1〜w4 を含む） |
+| findex | 80、ingest の鍵なし 4 件、wide_typed_index 12（feature あり） |
+| herald | 5（feature なし）、wide と wide_capture で 12（feature あり） |
+| keeper の wide | 132 |
+| frontier-abi の world_index | 138（feature あり。feature なしだと 0 件で、未実行として扱う） |
+| map_growth | 既定 9、wide 20 |
+| localnet の feed_scan_tests | 3 |
+
+## 22.5 ゲームの既存画面
+
+- gateway・web の鍵なしの一式（CI と同じ。193 ファイル、鍵を使う 97 ファイルは除外）:
+  - 1886 件中、1884 件通過、1 件失敗、1 件 skip。
+  - 失敗の 1 件は `citizens-run-check` の hook の監査で、120 秒の timeout ちょうどで止まった。Rust の build と同時に走らせていた。
+  - 負荷の無いときに、そのファイルを流し直すと 25/25 だった（`logs/phase17/gateway-run-check-rerun.log`）。
+  - ④の申告（1885/0）とは、件数が 1 件違う。
+- ⑦の画面 6 本と単体 14 本（af41e617 の上で。screens の server、world、liveworld は 24369382 と同じ）: 120/120。
+- 画面への接続は §21.5 から変わっていない。
+  - run の受付には、画面からも gateway からも呼び出し元が無い。
+  - ⑩の保管は、誤りの文だけ。
+  - wide は読み取り専用。
+
+ログ: `logs/phase17/`

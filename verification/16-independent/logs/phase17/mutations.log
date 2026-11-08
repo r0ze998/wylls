@@ -1,0 +1,12 @@
+M1-a-tag+1 exit=1 25 ok; FAIL A: citizen_tag = LE u64 of the Citizen address's first 8 bytes FAIL B: run for stage A's Citizen FAIL B: spec owner = citizen_tag (u64 exact) FAIL B: settle key owner = citizen_tag (u64 exact) FAIL D: one ship id, carrying the citizen_tag FAIL E: prize inputs = stage A's Citizen  25/31 consistent
+M10-e-both-vault-paid exit=1 30 ok; FAIL E: the vault keeps the one entry fee (nothing paid out)  30/31 consistent
+M11-e-both-other-citizen exit=1 30 ok; FAIL E: the prize step ran with stage A's Citizen address  30/31 consistent
+M12-e-both-claim-ok exit=1 30 ok; FAIL E: claim_B_after_transfer refused (BadAccount)  30/31 consistent
+M2-b-other-citizen exit=1 30 ok; FAIL B: run for stage A's Citizen  30/31 consistent
+M3-c-fact-tag exit=1 30 ok; FAIL C: identity_alias ties the tag to the pass  30/31 consistent
+M4-d-ship-tag exit=1 30 ok; FAIL D: one ship id, carrying the citizen_tag  30/31 consistent
+M5-e-other-citizen exit=1 29 ok; FAIL E: the summary's run equals the run record (e-prize-run.json) FAIL E: the prize step ran with stage A's Citizen address  29/31 consistent
+M6-a-no-transfer exit=1 30 ok; FAIL A: one transfer, to another owner  30/31 consistent
+M7-e-claim-paid exit=1 29 ok; FAIL E: the summary's run equals the run record (e-prize-run.json) FAIL E: claim_A_with_pass_citizen refused (BadAccount)  29/31 consistent
+M8-e-summary-citizen exit=1 30 ok; FAIL E: the summary's run equals the run record (e-prize-run.json)  30/31 consistent
+M9-e-summary-claim exit=1 30 ok; FAIL E: the summary's run equals the run record (e-prize-run.json)  30/31 consistent

@@ -1,0 +1,160 @@
+TAP version 13
+# Subtest: the three stack configs: the pinned values, the test chain, every port in 41901-41999 and the stack's own parser rules (bots_args is a string)
+ok 1 - the three stack configs: the pinned values, the test chain, every port in 41901-41999 and the stack's own parser rules (bots_args is a string)
+  ---
+  duration_ms: 3.06421
+  type: 'test'
+  ...
+# Subtest: the conquest demo stack config: conquest = true, 6 script bots with --s1, the same ports and parser rules
+ok 2 - the conquest demo stack config: conquest = true, 6 script bots with --s1, the same ports and parser rules
+  ---
+  duration_ms: 0.46339
+  type: 'test'
+  ...
+# Subtest: --dry-run of a conquest stack config: the AI fleet gets --s1; AI_RUNS_MD redirects the runs entry and drops the git commit; a non-conquest config is unchanged
+ok 3 - --dry-run of a conquest stack config: the AI fleet gets --s1; AI_RUNS_MD redirects the runs entry and drops the git commit; a non-conquest config is unchanged
+  ---
+  duration_ms: 1052.374767
+  type: 'test'
+  ...
+# Subtest: port rule: 41901-41999 only; 41900 itself, 41000-41899 and the reserved ports are refused; a duplicate and a busy port are named
+ok 4 - port rule: 41901-41999 only; 41900 itself, 41000-41899 and the reserved ports are refused; a duplicate and a busy port are named
+  ---
+  duration_ms: 0.40896
+  type: 'test'
+  ...
+# Subtest: environment: the paid-API variables are refused, an unrelated variable is not
+ok 5 - environment: the paid-API variables are refused, an unrelated variable is not
+  ---
+  duration_ms: 0.436696
+  type: 'test'
+  ...
+# Subtest: the old gateway is src/server.mjs, not the M1 relay src/frontier/server.mjs
+ok 6 - the old gateway is src/server.mjs, not the M1 relay src/frontier/server.mjs
+  ---
+  duration_ms: 0.291766
+  type: 'test'
+  ...
+# Subtest: the citizens config: loopback URLs only, ports in 41901-41999 and none of the stack's
+ok 7 - the citizens config: loopback URLs only, ports in 41901-41999 and none of the stack's
+  ---
+  duration_ms: 39.254354
+  type: 'test'
+  ...
+# Subtest: the lock: taken once, refused while its pid lives, replaced when the pid is gone, released only by its owner
+ok 8 - the lock: taken once, refused while its pid lives, replaced when the pid is gone, released only by its owner
+  ---
+  duration_ms: 7.052875
+  type: 'test'
+  ...
+# Subtest: every command-line entry runs when its path goes through a symlink (macOS /var is one) and prints before it exits
+ok 9 - every command-line entry runs when its path goes through a symlink (macOS /var is one) and prints before it exits
+  ---
+  duration_ms: 550.612375
+  type: 'test'
+  ...
+# Subtest: --check passes on a clean tree with the shipped configs
+ok 10 - --check passes on a clean tree with the shipped configs
+  ---
+  duration_ms: 184.463589
+  type: 'test'
+  ...
+# Subtest: --check refuses a paid-API key variable (set, even empty) and a key file under .local
+ok 11 - --check refuses a paid-API key variable (set, even empty) and a key file under .local
+  ---
+  duration_ms: 730.540674
+  type: 'test'
+  ...
+# Subtest: --check refuses uncommitted changes under every guarded path and nothing else
+ok 12 - --check refuses uncommitted changes under every guarded path and nothing else
+  ---
+  duration_ms: 2561.180461
+  type: 'test'
+  ...
+# Subtest: --check refuses forbidden ports and a busy port: 41900 itself, 41000-41899, the reserved list, outside 41999
+ok 13 - --check refuses forbidden ports and a busy port: 41900 itself, 41000-41899, the reserved list, outside 41999
+  ---
+  duration_ms: 1489.357586
+  type: 'test'
+  ...
+# Subtest: --check refuses a stack that is not the local test chain, and a citizens config that leaves the loopback
+ok 14 - --check refuses a stack that is not the local test chain, and a citizens config that leaves the loopback
+  ---
+  duration_ms: 793.437672
+  type: 'test'
+  ...
+# Subtest: --check refuses a held stack lock (a live pid) and says so; a stale lock is a note, not a refusal
+ok 15 - --check refuses a held stack lock (a live pid) and says so; a stale lock is a note, not a refusal
+  ---
+  duration_ms: 372.736424
+  type: 'test'
+  ...
+# Subtest: --ab needs --rep (1..3) and --rep needs --ab; the script refuses unknown options
+ok 16 - --ab needs --rep (1..3) and --rep needs --ab; the script refuses unknown options
+  ---
+  duration_ms: 515.215748
+  type: 'test'
+  ...
+# Subtest: --dry-run prints the start order of 8.4 and starts and writes nothing
+ok 17 - --dry-run prints the start order of 8.4 and starts and writes nothing
+  ---
+  duration_ms: 349.124574
+  type: 'test'
+  ...
+# Subtest: --dry-run names the A/B copy: arm and rep in the run id, bot_seed 32 + rep, season = seed, 12 AI citizens (deck-2); a rep 3 uses seed 35
+ok 18 - --dry-run names the A/B copy: arm and rep in the run id, bot_seed 32 + rep, season = seed, 12 AI citizens (deck-2); a rep 3 uses seed 35
+  ---
+  duration_ms: 2147.86644
+  type: 'test'
+  ...
+# Subtest: every child is started without the paid-API variables: the script's list is the guard's list
+ok 19 - every child is started without the paid-API variables: the script's list is the guard's list
+  ---
+  duration_ms: 0.779316
+  type: 'test'
+  ...
+# Subtest: a real start without the other units refuses before anything is taken: no server.mjs, no binaries
+ok 20 - a real start without the other units refuses before anything is taken: no server.mjs, no binaries
+  ---
+  duration_ms: 707.895841
+  type: 'test'
+  ...
+# Subtest: a real start in a throwaway repository: slots, commitments, the RUNS.md entry (committed), the registrar in the background, the stack that dies; the trap stops every child, writes the END line and releases the lock
+ok 21 - a real start in a throwaway repository: slots, commitments, the RUNS.md entry (committed), the registrar in the background, the stack that dies; the trap stops every child, writes the END line and releases the lock
+  ---
+  duration_ms: 5002.236963
+  type: 'test'
+  ...
+# Subtest: ai-hook-check.sh: its own self-test passes (every pinned violation shape is reported for its reason)
+ok 22 - ai-hook-check.sh: its own self-test passes (every pinned violation shape is reported for its reason)
+  ---
+  duration_ms: 3315.980418
+  type: 'test'
+  ...
+# Subtest: archived AI-only integration respects hook ownership; product integration is a separate development line
+ok 23 - archived AI-only integration respects hook ownership; product integration is a separate development line
+  ---
+  duration_ms: 41945.219726
+  type: 'test'
+  ...
+# Subtest: G10 grep: no paid-API name, no public-network word and no outside URL under citizens/ (bin/ and mind/guards.mjs excepted, as the contract says)
+ok 24 - G10 grep: no paid-API name, no public-network word and no outside URL under citizens/ (bin/ and mind/guards.mjs excepted, as the contract says)
+  ---
+  duration_ms: 13.69658
+  type: 'test'
+  ...
+# Subtest: the prize stack config is the conquest demo plus a prize pool; --dry-run gives the AI fleet the operator invites and the demo none
+ok 25 - the prize stack config is the conquest demo plus a prize pool; --dry-run gives the AI fleet the operator invites and the demo none
+  ---
+  duration_ms: 727.951489
+  type: 'test'
+  ...
+1..25
+# tests 25
+# suites 0
+# pass 25
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 63268.950916

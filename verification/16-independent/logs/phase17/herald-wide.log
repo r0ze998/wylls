@@ -1,0 +1,37 @@
+### herald-wide HEAD af41e617218f3a93d94c7374d125ac61fd69833d tree 18663848b7262f42edfe0eefac5825f166c5895d
+?? frontier-node/crates/findex/tests/v16_history_coverage.rs
+?? frontier-node/crates/findex/tests/v16_history_gaps.rs
+?? frontier-node/crates/verify/tests/v16_cpi_keyfree.rs
+?? frontier-node/crates/verify/tests/v16_v27_gate.rs
+?? frontier-node/crates/verify/tests/v16_vw_unknown.rs
+?? permutation-gateway/node_modules
+?? verification/
+?? workstreams/04-execution/tests/v16_chain_caravan_faults.rs
+?? workstreams/04-execution/tests/v16_intake_regressions.rs
+   Compiling herald v0.1.0 (/tmp/claude-0/-home-user-wylls/47a54b0f-427a-5cca-bc82-feb7c5056956/scratchpad/v25/frontier-node/crates/herald)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 10.87s
+     Running tests/wide.rs (target/debug/deps/wide-23b80020647bf1fc)
+
+running 3 tests
+test on::pages_are_bounded_and_a_close_is_recorded_as_closed_and_kills_the_cursor ... ok
+test on::the_fixture_archive_is_recorded_exactly_and_bytes_changing_move_no_snapshot ... ok
+test on::the_routes_answer_with_explicit_codes ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.10s
+
+     Running tests/wide_capture.rs (target/debug/deps/wide_capture-d8926acd4a181607)
+
+running 9 tests
+test captures_full_width_land_and_holdings_without_legacy_alias_and_survives_restart ... ok
+test current_close_account_tables_match_the_writer_without_legacy_dispatch ... ok
+test current_close_wire_shapes_remain_unsupported_by_legacy_history ... ok
+test current_writer_event_is_v82_with_standing_separate_and_never_legacy_success ... ok
+test explicit_province_and_holding_closes_work_in_either_order_without_reopening_land ... ok
+test holding_changes_invalidate_page_snapshot_and_close_removes_only_the_holding ... ok
+test me_reports_wide_slot_as_unknown_until_the_matching_capture_arrives ... ok
+test new_holding_open_transits_field_is_captured_and_unknown_layout_is_not_empty ... ok
+test refuses_forged_world_address_owner_and_invalid_replacements_without_faking_close ... ok
+
+test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.06s
+
+exit=0

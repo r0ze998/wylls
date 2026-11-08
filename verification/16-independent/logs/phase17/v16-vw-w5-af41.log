@@ -1,0 +1,39 @@
+   Compiling verify v0.1.0 (/tmp/claude-0/-home-user-wylls/47a54b0f-427a-5cca-bc82-feb7c5056956/scratchpad/v25/frontier-node/crates/verify)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 1.25s
+     Running tests/v16_vw_unknown.rs (target/debug/deps/v16_vw_unknown-593975ec9043158e)
+
+running 5 tests
+test w1_a_whole_consistent_chain_is_still_never_pass ... ok
+test w2_records_seen_from_the_middle_of_an_unproven_history_are_unverifiable ... ok
+test w3_a_record_missing_in_the_middle_of_an_unproven_history ... ok
+test w4_records_inside_another_programs_frame_or_a_failed_transaction_are_not_records ... ok
+test w5_a_gap_in_an_unproven_history_is_unverifiable_not_a_fail_and_a_wrong_head_still_fails ... FAILED
+
+failures:
+
+---- w5_a_gap_in_an_unproven_history_is_unverifiable_not_a_fail_and_a_wrong_head_still_fails stdout ----
+
+thread 'w5_a_gap_in_an_unproven_history_is_unverifiable_not_a_fail_and_a_wrong_head_still_fails' (14723) panicked at crates/verify/tests/v16_vw_unknown.rs:96:5:
+[("FAIL", "WideChainBroken"), ("UNVERIFIABLE", "WideUnmodelled")]
+stack backtrace:
+   0: __rustc::rust_begin_unwind
+             at /rustc/59807616e1fa2540724bfbac14d7976d7e4a3860/library/std/src/panicking.rs:689:5
+   1: core::panicking::panic_fmt
+             at /rustc/59807616e1fa2540724bfbac14d7976d7e4a3860/library/core/src/panicking.rs:80:14
+   2: v16_vw_unknown::w5_a_gap_in_an_unproven_history_is_unverifiable_not_a_fail_and_a_wrong_head_still_fails
+             at ./tests/v16_vw_unknown.rs:96:5
+   3: v16_vw_unknown::w5_a_gap_in_an_unproven_history_is_unverifiable_not_a_fail_and_a_wrong_head_still_fails::{{closure}}
+             at ./tests/v16_vw_unknown.rs:91:93
+   4: core::ops::function::FnOnce::call_once
+             at /rustc/59807616e1fa2540724bfbac14d7976d7e4a3860/library/core/src/ops/function.rs:250:5
+   5: <fn() -> core::result::Result<(), alloc::string::String> as core::ops::function::FnOnce<()>>::call_once
+             at /rustc/59807616e1fa2540724bfbac14d7976d7e4a3860/library/core/src/ops/function.rs:250:5
+note: Some details are omitted, run with `RUST_BACKTRACE=full` for a verbose backtrace.
+
+
+failures:
+    w5_a_gap_in_an_unproven_history_is_unverifiable_not_a_fail_and_a_wrong_head_still_fails
+
+test result: FAILED. 4 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.18s
+
+error: test failed, to rerun pass `-p verify --test v16_vw_unknown`

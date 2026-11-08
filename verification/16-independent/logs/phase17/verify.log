@@ -1,0 +1,281 @@
+### verify HEAD af41e617218f3a93d94c7374d125ac61fd69833d tree 18663848b7262f42edfe0eefac5825f166c5895d
+?? frontier-node/crates/findex/tests/v16_history_coverage.rs
+?? frontier-node/crates/findex/tests/v16_history_gaps.rs
+?? frontier-node/crates/verify/tests/v16_cpi_keyfree.rs
+?? frontier-node/crates/verify/tests/v16_v27_gate.rs
+?? frontier-node/crates/verify/tests/v16_vw_unknown.rs
+?? permutation-gateway/node_modules
+?? verification/
+?? workstreams/04-execution/tests/v16_chain_caravan_faults.rs
+?? workstreams/04-execution/tests/v16_intake_regressions.rs
+   Compiling permutation-rules v0.1.0 (/tmp/claude-0/-home-user-wylls/47a54b0f-427a-5cca-bc82-feb7c5056956/scratchpad/v25/permutation-rules)
+   Compiling frontier-abi v0.1.0 (/tmp/claude-0/-home-user-wylls/47a54b0f-427a-5cca-bc82-feb7c5056956/scratchpad/v25/frontier-abi)
+   Compiling fclient v0.1.0 (/tmp/claude-0/-home-user-wylls/47a54b0f-427a-5cca-bc82-feb7c5056956/scratchpad/v25/frontier-node/crates/fclient)
+   Compiling findex v0.1.0 (/tmp/claude-0/-home-user-wylls/47a54b0f-427a-5cca-bc82-feb7c5056956/scratchpad/v25/frontier-node/crates/findex)
+   Compiling keeper v0.1.0 (/tmp/claude-0/-home-user-wylls/47a54b0f-427a-5cca-bc82-feb7c5056956/scratchpad/v25/frontier-node/crates/keeper)
+   Compiling verify v0.1.0 (/tmp/claude-0/-home-user-wylls/47a54b0f-427a-5cca-bc82-feb7c5056956/scratchpad/v25/frontier-node/crates/verify)
+   Compiling localnet v0.1.0 (/tmp/claude-0/-home-user-wylls/47a54b0f-427a-5cca-bc82-feb7c5056956/scratchpad/v25/frontier-node/crates/localnet)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 58.97s
+     Running unittests src/lib.rs (target/debug/deps/verify_core-8c0d6e681c8bcee2)
+
+running 50 tests
+test checks::v0_coverage::tests::every_abi_tag_has_a_coverage_answer ... ok
+test checks::v11_land::tests::home_rule_follows_the_program_and_fails_closed_without_evidence ... ok
+test checks::v11_land::tests::legacy_wedge_rule_is_the_programs ... ok
+test checks::v11_land::tests::dispersed_ticket_judgement_follows_the_program_and_fails_closed ... ok
+test checks::v11_land::tests::ticket_site_rule_follows_the_program_and_fails_closed_without_evidence ... ok
+test checks::v11_land::tests::tickets_are_attributed_by_instruction_evidence_and_mixed_transactions_never_pass ... ok
+test checks::v23_caravans::tests::settle_to_vault_credits_the_cargo_once ... ok
+test checks::v23_caravans::tests::close_vault_rules ... ok
+test checks::v24_structures::tests::gather_wears_once ... ok
+test checks::v25_nations::tests::a_vote_counts_once ... ok
+test checks::v25_nations::tests::an_expulsion_flags_the_target ... ok
+test checks::v25_nations::tests::a_stance_is_written_only_when_passed ... ok
+test checks::v26_growth::tests::a_valid_extension_passes_and_the_next_ones_stop_at_the_ceiling ... ok
+test checks::v26_growth::tests::a_post_state_or_record_other_than_the_programs_fails ... ok
+test checks::v26_growth::tests::an_extension_the_program_would_refuse_fails ... ok
+test checks::v26_growth::tests::the_guard_judges_only_an_isolated_extension_and_never_calls_a_bundle_invalid ... ok
+test checks::v27_residents::tests::an_honest_join_resident_has_no_finding ... ok
+test checks::v27_residents::tests::a_policy_the_archive_does_not_show_leaves_the_resident_unverifiable ... ok
+test checks::v27_residents::tests::duplicates_fail ... ok
+test checks::v26_growth::tests::incomplete_evidence_is_unverifiable_never_a_pass ... ok
+test checks::v27_residents::tests::forged_joins_fail ... ok
+test checks::v27_residents::tests::missing_evidence_is_never_a_pass ... ok
+test checks::v28_resident_acts::tests::a_resident_act_is_listed_as_the_instruction_it_ran ... ok
+test checks::v27_residents::tests::mismatches_fail ... ok
+test checks::v27_residents::tests::the_resident_proof_accounts_are_canonical ... ok
+test checks::v28_resident_acts::tests::a_wrong_program_feed_cannot_judge_a_holder ... ok
+test checks::v28_resident_acts::tests::an_inner_instruction_no_check_models_stays_unverifiable ... ok
+test checks::v28_resident_acts::tests::canonical_addresses_are_judged_with_or_without_the_join ... ok
+test checks::v28_resident_acts::tests::matching_authority_in_a_partial_feed_is_still_unproven ... ok
+test checks::v28_resident_acts::tests::inner_accounts_and_result_are_judged_against_the_join ... ok
+test checks::v28_resident_acts::tests::the_holder_and_its_live_session_act_through_a_to_b_to_a ... ok
+test checks::v9_addresses::resident_joined_tests::a_record_that_stands_for_its_join_passes ... ok
+test checks::v28_resident_acts::tests::owner_only_acts_refuse_the_session ... ok
+test checks::v9_addresses::resident_joined_tests::one_record_per_join_and_per_resident_id ... ok
+test checks::v9_addresses::resident_tests::a_flagged_citizen_with_a_wallet_derives_nothing ... ok
+test checks::v9_addresses::resident_tests::nft_citizen_address_comes_from_the_resident_id ... ok
+test checks::v9_addresses::resident_tests::wallet_citizen_address_is_unchanged ... ok
+test conquest::tests::captured_turn_still_credits_previous_owner ... ok
+test conquest::tests::neutral_and_season_boundary_never_mint_extra_time ... ok
+test facts::resident_tests::a_resident_joined_without_its_join_resident_creates_no_citizen ... ok
+test facts::resident_tests::resident_joined_makes_the_nft_citizen_known_by_its_tag ... ok
+test holding::intro_tests::conquest_founding_shield_follows_the_season_timers ... ok
+test holding::intro_tests::conquest_train_pays_the_v2_cost ... ok
+test checks::v9_addresses::resident_joined_tests::a_record_without_its_join_or_with_a_forged_key_fails ... ok
+test holding::intro_tests::intro_build_replay_consumes_exactly_one_persisted_entitlement ... ok
+test resident_feed::tests::one_ledger_order_read_far_enough_is_whole_and_nothing_else_is ... ok
+test resident_feed::tests::the_fixture_form_round_trips ... ok
+test holding::intro_tests::s1_founding_workshop_and_arms_training ... ok
+test checks::v28_resident_acts::tests::without_a_whole_record_only_a_stale_generation_is_a_fail ... ok
+test checks::v28_resident_acts::tests::old_owners_old_sessions_and_old_generations_accepted_are_fails ... ok
+
+test result: ok. 50 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+     Running tests/camp_clear.rs (target/debug/deps/camp_clear-28d94d2c2360e214)
+
+running 3 tests
+test w6s7_slice_holds_a_spawn_and_clear_in_one_resolve ... ok
+test v11_a_clear_with_no_camp_and_no_spawn_still_fails ... ok
+test v11_a_camp_spawned_and_cleared_in_one_resolve_is_no_mismatch ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/custody.rs (target/debug/deps/custody-cb659ecb141bd8a2)
+
+running 6 tests
+test a_custody_season_is_never_a_pass ... ok
+test a_failed_custody_instruction_is_not_flagged ... ok
+test a_lot_account_in_a_season_without_custody_fails ... ok
+test custody_fields_in_a_vault_or_caravan_fail ... ok
+test baselines_are_not_flagged ... ok
+test a_landed_custody_instruction_in_a_season_without_custody_fails ... ok
+
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.42s
+
+     Running tests/custody_history.rs (target/debug/deps/custody_history-4b8d3319c3010b6b)
+
+running 8 tests
+test an_expected_caravan_keeps_its_quantity ... ok
+test a_closed_lot_opened_again_is_a_new_lot ... ok
+test composed_kernel_steps_never_fail ... ok
+test random_kernel_histories_never_fail ... ok
+test goods_in_without_a_caravan_to_explain_them_are_unverifiable_not_fail ... ok
+test the_kernels_own_history_passes_and_the_season_is_still_not_a_pass ... ok
+test order_bookkeeping_that_no_step_makes_fails ... ok
+test a_change_no_custody_step_makes_fails_at_its_transaction ... ok
+
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.03s
+
+     Running tests/custody_state.rs (target/debug/deps/custody_state-a221f13ff459a265)
+
+running 7 tests
+test random_kernel_runs_never_fail_the_audit ... ok
+test a_broken_lot_in_a_post_state_fails_at_its_transaction ... ok
+test a_vault_over_its_cap_fails ... ok
+test what_the_kernel_writes_passes_the_audit_and_the_season_is_still_unverifiable ... ok
+test undecided_rules_are_unverifiable_not_fail ... ok
+test vault_counts_fail_only_when_the_visible_lots_exceed_them ... ok
+test a_lot_the_kernel_cannot_write_fails ... ok
+
+test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.00s
+
+     Running tests/evidence.rs (target/debug/deps/evidence-268edcdffecfd1ae)
+
+running 9 tests
+test a_mention_whose_logs_show_no_run_is_not_reported ... ok
+test a_written_s1_account_without_its_post_state_is_not_a_pass ... ok
+test a_cpi_only_transaction_without_logs_is_not_a_pass ... ok
+test a_written_account_without_its_post_state_is_not_a_pass ... ok
+test the_fixtures_have_nothing_for_v0e ... ok
+test a_call_without_logs_is_not_a_pass has been running for over 60 seconds
+test logs_that_lose_their_tail_are_not_a_pass has been running for over 60 seconds
+test the_program_run_by_another_program_is_not_a_pass ... ok
+test logs_the_runtime_cut_are_not_a_pass has been running for over 60 seconds
+test a_call_without_logs_is_not_a_pass ... ok
+test logs_that_lose_their_tail_are_not_a_pass ... ok
+test logs_the_runtime_cut_are_not_a_pass ... ok
+
+test result: ok. 9 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 158.10s
+
+     Running tests/history.rs (target/debug/deps/history-aaea16e2b20607d3)
+
+running 16 tests
+test a_saved_fixture_cannot_launder_an_rpc_history ... ok
+test a_ledger_feed_or_a_fixture_keeps_the_verdict_without_claiming_completeness ... ok
+test a_detected_gap_is_not_verified_over ... ok
+test a_witness_down_leaves_the_history_unproven ... ok
+test an_rpc_archive_keeps_its_coverage ... ok
+test archives_report_where_their_records_came_from ... ok
+test cross_checked_is_still_not_a_complete_history ... ok
+test dataset_scope_is_explicit_and_conflicting_feed_coverage_is_unproven ... ok
+test default_settings_fetch_an_unproven_history ... ok
+test empty_local_feed_is_an_observation_not_a_complete_season ... ok
+test every_rpc_coverage_state_is_unproven ... ok
+test malformed_feed_cursors_and_empty_archives_never_gain_dataset_trust ... ok
+test a_witness_behind_does_not_end_the_history_early ... ok
+test a_self_contained_fail_still_fails_over_an_unproven_history ... ok
+test the_verifier_never_passes_an_unproven_history ... ok
+test a_missing_range_is_not_reported_as_a_forgery_of_an_unproven_history ... ok
+
+test result: ok. 16 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 15.74s
+
+     Running tests/history_assurance.rs (target/debug/deps/history_assurance-a2836dccf9d5d300)
+
+running 8 tests
+test a_live_read_without_the_scan_shows_neither ... ok
+test a_live_read_from_a_ledger_that_can_rewind_lacks_prefix_identity ... ok
+test a_scanned_durable_live_read_at_the_final_states_point_can_pass ... ok
+test a_ledger_that_moved_before_the_final_states_is_not_at_one_point ... ok
+test gaps_survive_a_fixture_and_old_or_foreign_ones_are_never_whole ... ok
+test an_archive_alone_names_all_it_cannot_show ... ok
+test a_rewound_node_is_a_tail_mismatch ... ok
+test a_matching_tail_does_not_promote_an_archive ... ok
+
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.02s
+
+     Running tests/ledger_history.rs (target/debug/deps/ledger_history-3032e85c801373df)
+
+running 7 tests
+test a_ledger_that_changed_during_the_read_is_unproven ... ok
+test a_ledger_that_shrank_during_a_live_read_is_unproven ... ok
+test matching_live_status_never_proves_completeness_or_hides_local_failures ... ok
+test successful_feed_with_unreadable_status_is_unproven ... ok
+test an_archive_the_node_no_longer_matches_is_unproven ... ok
+test a_whole_feed_archive_is_the_ledgers_and_pairs_with_a_live_read ... ok
+test an_archive_without_its_ledger_or_numbers_is_unproven ... ok
+
+test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.02s
+
+     Running tests/missing_state.rs (target/debug/deps/missing_state-9987535714621a88)
+
+running 2 tests
+test an_archive_without_post_states_says_continuity_is_unjudged ... ok
+test a_holding_write_with_no_earlier_post_state_is_not_a_pass ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.46s
+
+     Running tests/new_bands.rs (target/debug/deps/new_bands-e04c443afdc20f67)
+
+running 10 tests
+test a_resident_joined_without_its_join_is_unverifiable ... ok
+test a_divert_outside_a_transit_settlement_is_unverifiable ... ok
+test an_unknown_program_version_is_never_a_pass_keyfree ... ok
+test every_abi_v2_tag_has_a_v0_answer_on_a_recorded_season ... ok
+test every_conquest_kind_the_abi_knows_is_modelled ... ok
+test no_tag_or_an_unknown_tag_under_a_known_program_fails ... ok
+test tags_outside_abi_v2_are_told_apart ... ok
+test a_record_no_instruction_left_is_not_a_pass has been running for over 60 seconds
+test a_record_of_a_new_kind_is_not_a_pass has been running for over 60 seconds
+test an_instruction_of_a_new_band_is_not_a_pass has been running for over 60 seconds
+test an_instruction_of_a_new_band_is_not_a_pass ... ok
+test a_record_of_a_new_kind_is_not_a_pass ... ok
+test a_record_no_instruction_left_is_not_a_pass ... ok
+
+test result: ok. 10 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 658.64s
+
+     Running tests/open_items.rs (target/debug/deps/open_items-bdc3dc27d565c339)
+
+running 3 tests
+test a_final_account_held_by_the_delegation_program_fails_today ... ok
+test the_recorded_season_passes_with_its_quiet_end ... ok
+test a_prefix_of_a_continuing_world_fails_today ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.21s
+
+     Running tests/resident_ledger.rs (target/debug/deps/resident_ledger-7a917bae20474e60)
+
+running 4 tests
+test without_the_scan_or_with_no_resident_record_the_live_feed_is_never_whole ... ok
+test the_live_resident_feed_takes_its_extent_from_the_same_answers ... ok
+test both_archives_of_one_ledger_are_one_order ... ok
+test a_resident_archive_not_the_ledgers_whole_feed_or_of_another_ledger_is_never_whole ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.04s
+
+     Running tests/unit.rs (target/debug/deps/unit-3b700d160a555e96)
+
+running 8 tests
+test no_post_states_is_unverifiable ... ok
+test fixture_round_trip ... ok
+test report_schema_and_codes ... ok
+test undecodable_record_fails ... ok
+test skip_replay_checks_every_bell ... ok
+test rechain_is_the_identity_on_honest_archives ... ok
+test reveal_in_the_archive_grace_is_a_warning ... ok
+test unopenable_seal_is_missing_data ... ok
+
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 4.19s
+
+     Running tests/v16_cpi_keyfree.rs (target/debug/deps/v16_cpi_keyfree-e07da1b8f3cd7da2)
+
+running 6 tests
+test v16_k3_truncated_logs_of_a_transaction_naming_the_program_are_not_a_pass ... ok
+test v16_k2_a_transaction_naming_the_program_with_no_logs_is_not_a_pass ... ok
+test v16_k1_a_nested_invocation_of_the_program_is_not_a_pass ... ok
+test v16_k0_control_the_fixture_passes ... ok
+test v16_k4_measured_complete_logs_showing_the_program_never_ran ... ok
+test v16_k5_a_successful_call_whose_log_tail_was_lost_is_not_a_pass ... ok
+
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 6.17s
+
+     Running tests/v16_v27_gate.rs (target/debug/deps/v16_v27_gate-e8908d2593fcc346)
+
+running 3 tests
+test v16_j1_an_honest_join_is_left_to_v27_only_when_v27_runs ... ok
+test v16_j2_a_malformed_join_is_never_left_unjudged_even_when_v27_runs ... ok
+test v16_j3_measured_a_join_under_a_program_version_without_nft ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/ws04_scan_resident.rs (target/debug/deps/ws04_scan_resident-38b379a728d3a334)
+
+running 4 tests
+test a_stale_archive_is_named_by_the_node_check_and_never_whole ... ok
+test a_scanned_resident_archive_of_another_ledger_is_never_whole ... ok
+test a_cursor_ahead_of_its_records_is_never_confirmed ... ok
+test archives_stay_unproven_even_when_the_node_check_matches ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.04s
+
+exit=0

@@ -1,0 +1,45 @@
+### runs-client HEAD af41e617218f3a93d94c7374d125ac61fd69833d tree 18663848b7262f42edfe0eefac5825f166c5895d
+?? frontier-node/crates/findex/tests/v16_history_coverage.rs
+?? frontier-node/crates/findex/tests/v16_history_gaps.rs
+?? frontier-node/crates/verify/tests/v16_cpi_keyfree.rs
+?? frontier-node/crates/verify/tests/v16_v27_gate.rs
+?? frontier-node/crates/verify/tests/v16_vw_unknown.rs
+?? permutation-gateway/node_modules
+?? verification/
+?? workstreams/04-execution/tests/v16_chain_caravan_faults.rs
+?? workstreams/04-execution/tests/v16_intake_regressions.rs
+TAP version 13
+# Subtest: hands the authenticated requester and the chain to run accept
+ok 1 - hands the authenticated requester and the chain to run accept
+  ---
+  duration_ms: 253.52306
+  type: 'test'
+  ...
+# Subtest: a refusal from the chain check comes back as NotAuthorized
+ok 2 - a refusal from the chain check comes back as NotAuthorized
+  ---
+  duration_ms: 127.081733
+  type: 'test'
+  ...
+# Subtest: a requester without the authenticated facts is not handed over
+ok 3 - a requester without the authenticated facts is not handed over
+  ---
+  duration_ms: 0.985915
+  type: 'test'
+  ...
+# Subtest: the real binary: no node to read the pass from, nothing admitted
+ok 4 - the real binary: no node to read the pass from, nothing admitted # SKIP set RUNEXEC_BIN
+  ---
+  duration_ms: 0.127083
+  type: 'test'
+  ...
+1..4
+# tests 4
+# suites 0
+# pass 3
+# fail 0
+# cancelled 0
+# skipped 1
+# todo 0
+# duration_ms 635.041776
+exit=0

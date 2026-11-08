@@ -1,0 +1,31 @@
+### findex-wide HEAD af41e617218f3a93d94c7374d125ac61fd69833d tree 18663848b7262f42edfe0eefac5825f166c5895d
+?? frontier-node/crates/findex/tests/v16_history_coverage.rs
+?? frontier-node/crates/findex/tests/v16_history_gaps.rs
+?? frontier-node/crates/verify/tests/v16_cpi_keyfree.rs
+?? frontier-node/crates/verify/tests/v16_v27_gate.rs
+?? frontier-node/crates/verify/tests/v16_vw_unknown.rs
+?? permutation-gateway/node_modules
+?? verification/
+?? workstreams/04-execution/tests/v16_chain_caravan_faults.rs
+?? workstreams/04-execution/tests/v16_intake_regressions.rs
+   Compiling findex v0.1.0 (/tmp/claude-0/-home-user-wylls/47a54b0f-427a-5cca-bc82-feb7c5056956/scratchpad/v25/frontier-node/crates/findex)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.96s
+     Running tests/wide_typed_index.rs (target/debug/deps/wide_typed_index-e7cf0587860a537b)
+
+running 12 tests
+test archive_gap_replay_signature_duplicate_and_slot_regression_stop_before_advance ... ok
+test bad_head_rolls_back_the_whole_batch_and_durable_block_refuses_later_reads ... ok
+test dedicated_store_archives_indexes_and_resumes_without_promoting_captures ... ok
+test durable_archive_tail_is_replayed_on_reopen_and_ahead_index_is_refused ... ok
+test every_kind_has_a_separate_wide_record_and_canonical_attribution ... ok
+test missing_chain_prefix_wrong_world_and_terminal_continuation_are_not_accepted ... ok
+test mixed_records_preserve_full_id_and_chains_without_legacy_tables_or_verification ... ok
+test readonly_pages_pin_content_not_just_cursor_and_never_upgrade_old_schema ... ok
+test rollback_and_unrelated_frames_never_advance_wide_heads ... ok
+test sqlite_write_failure_preserves_raw_data_and_commits_no_partial_index ... ok
+test unknown_records_missing_frames_and_partial_catchup_are_never_empty_success ... ok
+test unsupported_store_retains_raw_archive_and_stops_pulls_and_reopening ... ok
+
+test result: ok. 12 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.22s
+
+exit=0

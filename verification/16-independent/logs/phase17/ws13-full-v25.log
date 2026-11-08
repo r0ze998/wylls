@@ -1,0 +1,1261 @@
+### ws13-full v25 HEAD af41e617218f3a93d94c7374d125ac61fd69833d tree-of-13 9219fb53d0256c9e6a0d24adabaa8ad14c9f13b1 worktree-13 18663848b7262f42edfe0eefac5825f166c5895d runexec sha256 4cb6634ddc601d3baf6dfb046015c6a3707619df78ce718d6ba052240f74cac1 ws05 10e749677d96301766c2930a8f903baf28cce0bc
+TAP version 13
+# Subtest: collusion through the provider: an answer naming a transfer that was not offered is refused, and nothing moves
+ok 1 - collusion through the provider: an answer naming a transfer that was not offered is refused, and nothing moves
+  ---
+  duration_ms: 829.085017
+  type: 'test'
+  ...
+# Subtest: a gift asked by a resident of the same owner is declined (terms), and the decline is the only reply
+ok 2 - a gift asked by a resident of the same owner is declined (terms), and the decline is the only reply
+  ---
+  duration_ms: 136.413578
+  type: 'test'
+  ...
+# Subtest: gift cycles: a resident does not give back round a chain of gifts, and the audit finds a cycle among people
+ok 3 - gift cycles: a resident does not give back round a chain of gifts, and the audit finds a cycle among people
+  ---
+  duration_ms: 37.852374
+  type: 'test'
+  ...
+# Subtest: two chatty residents short of the same good do not answer each other without end
+ok 4 - two chatty residents short of the same good do not answer each other without end
+  ---
+  duration_ms: 2257.576741
+  type: 'test'
+  ...
+# Subtest: the same operation twice: a repeated post is one record, a second reply is refused, a replayed send is one action
+ok 5 - the same operation twice: a repeated post is one record, a second reply is refused, a replayed send is one action
+  ---
+  duration_ms: 9.65865
+  type: 'test'
+  ...
+# Subtest: words in a request do not change what may be chosen, and reach the provider only as marked, untrusted text
+ok 6 - words in a request do not change what may be chosen, and reach the provider only as marked, untrusted text
+  ---
+  duration_ms: 144.164688
+  type: 'test'
+  ...
+# Subtest: a raid changes the next answer: after its caravan is taken on a road, the resident declines that road for a while
+ok 7 - a raid changes the next answer: after its caravan is taken on a road, the resident declines that road for a while
+  ---
+  duration_ms: 197.368613
+  type: 'test'
+  ...
+# Subtest: boundaries in the middle of caravans, claims, returns and open requests change nothing
+ok 8 - boundaries in the middle of caravans, claims, returns and open requests change nothing
+  ---
+  duration_ms: 4317.952551
+  type: 'test'
+  ...
+# Subtest: restart exactly at a boundary, and a crash inside a promise kept across one: same holdings, moves, costs
+ok 9 - restart exactly at a boundary, and a crash inside a promise kept across one: same holdings, moves, costs
+  ---
+  duration_ms: 5110.191027
+  type: 'test'
+  ...
+# Subtest: a pause across a boundary keeps the debt: it is reported while paused and repaid on resume
+ok 10 - a pause across a boundary keeps the debt: it is reported while paused and repaid on resume # SKIP keyless run (the default; WS13_WITH_KEYS=1 for keys): this test signs or checks signatures
+  ---
+  duration_ms: 0.145264
+  type: 'test'
+  ...
+# Subtest: the decision allowance ends new decisions only: promises are still kept; the owner extends it by a finite step
+ok 11 - the decision allowance ends new decisions only: promises are still kept; the owner extends it by a finite step # SKIP keyless run (the default; WS13_WITH_KEYS=1 for keys): this test signs or checks signatures
+  ---
+  duration_ms: 0.0673
+  type: 'test'
+  ...
+# Subtest: a version-1 resident (counterparties by citizen id) opens as version 2 without rewriting its history
+ok 12 - a version-1 resident (counterparties by citizen id) opens as version 2 without rewriting its history
+  ---
+  duration_ms: 46.908667
+  type: 'test'
+  ...
+# Subtest: flat is the default and unchanged: the fixed price, answered or not
+ok 13 - flat is the default and unchanged: the fixed price, answered or not
+  ---
+  duration_ms: 1.301163
+  type: 'test'
+  ...
+# Subtest: price book: the quote is reserved before the call, the measured usage is charged after
+ok 14 - price book: the quote is reserved before the call, the measured usage is charged after
+  ---
+  duration_ms: 171.402909
+  type: 'test'
+  ...
+# Subtest: price book: usage above the quote is charged at the quote and recorded as overrun
+ok 15 - price book: usage above the quote is charged at the quote and recorded as overrun
+  ---
+  duration_ms: 123.052694
+  type: 'test'
+  ...
+# Subtest: price book: a late call stays undecided — reserved, unresolved, counted against the call cap — and is never released by code
+ok 16 - price book: a late call stays undecided — reserved, unresolved, counted against the call cap — and is never released by code
+  ---
+  duration_ms: 235.082641
+  type: 'test'
+  ...
+# Subtest: price book: a provider refusal before generating charges nothing; an answer refused here is charged its usage
+ok 17 - price book: a provider refusal before generating charges nothing; an answer refused here is charged its usage
+  ---
+  duration_ms: 56.916667
+  type: 'test'
+  ...
+# Subtest: price book: a model the book does not price is refused before any call
+ok 18 - price book: a model the book does not price is refused before any call
+  ---
+  duration_ms: 0.704104
+  type: 'test'
+  ...
+# Subtest: with workstream 5's real TokenPriceBook (its FIXTURE book; invented prices)
+ok 19 - with workstream 5's real TokenPriceBook (its FIXTURE book; invented prices)
+  ---
+  duration_ms: 107.558716
+  type: 'test'
+  ...
+# Subtest: two residents keep playing for many turns, each by its own goal, through the provider
+ok 20 - two residents keep playing for many turns, each by its own goal, through the provider
+  ---
+  duration_ms: 2098.100099
+  type: 'test'
+  ...
+# Subtest: a person's request declined for goal, deadline and budget, each with an alternative; the world keeps moving
+ok 21 - a person's request declined for goal, deadline and budget, each with an alternative; the world keeps moving
+  ---
+  duration_ms: 0.653064
+  type: 'test'
+  ...
+# Subtest: a result changes the next action: after a broken promise the resident asks someone else
+ok 22 - a result changes the next action: after a broken promise the resident asks someone else
+  ---
+  duration_ms: 0.68021
+  type: 'test'
+  ...
+# Subtest: mechanics: no duplicate sends, books balance, daily limits held
+ok 23 - mechanics: no duplicate sends, books balance, daily limits held
+  ---
+  duration_ms: 0.539649
+  type: 'test'
+  ...
+# Subtest: restart ({"restartAt":70}): resumes without a second action and reaches the same world
+ok 24 - restart ({"restartAt":70}): resumes without a second action and reaches the same world
+  ---
+  duration_ms: 1937.779323
+  type: 'test'
+  ...
+# Subtest: restart ({"crash":"after-decision"}): resumes without a second action and reaches the same world
+ok 25 - restart ({"crash":"after-decision"}): resumes without a second action and reaches the same world
+  ---
+  duration_ms: 1707.978619
+  type: 'test'
+  ...
+# Subtest: restart ({"crash":"after-intent"}): resumes without a second action and reaches the same world
+ok 26 - restart ({"crash":"after-intent"}): resumes without a second action and reaches the same world
+  ---
+  duration_ms: 1657.601768
+  type: 'test'
+  ...
+# Subtest: restart ({"crash":"after-submit"}): resumes without a second action and reaches the same world
+ok 27 - restart ({"crash":"after-submit"}): resumes without a second action and reaches the same world
+  ---
+  duration_ms: 1789.066824
+  type: 'test'
+  ...
+# Subtest: restart inside a two-step accept and inside a promise-return duty: one reply, one caravan, same world
+ok 28 - restart inside a two-step accept and inside a promise-return duty: one reply, one caravan, same world
+  ---
+  duration_ms: 5101.06839
+  type: 'test'
+  ...
+# (node:3688) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+# (Use `node --trace-warnings ...` to show where the warning was created)
+# Subtest: runexec happy: without a finality attestation, or with a cross-check offered as one, every receipt is held
+ok 29 - runexec happy: without a finality attestation, or with a cross-check offered as one, every receipt is held
+  ---
+  duration_ms: 95.163571
+  type: 'test'
+  ...
+# Subtest: runexec crash: without a finality attestation, or with a cross-check offered as one, every receipt is held
+ok 30 - runexec crash: without a finality attestation, or with a cross-check offered as one, every receipt is held
+  ---
+  duration_ms: 79.683316
+  type: 'test'
+  ...
+# Subtest: runexec raid: without a finality attestation, or with a cross-check offered as one, every receipt is held
+ok 31 - runexec raid: without a finality attestation, or with a cross-check offered as one, every receipt is held
+  ---
+  duration_ms: 58.832142
+  type: 'test'
+  ...
+# Subtest: runexec lost-response: without a finality attestation, or with a cross-check offered as one, every receipt is held
+ok 32 - runexec lost-response: without a finality attestation, or with a cross-check offered as one, every receipt is held
+  ---
+  duration_ms: 59.893068
+  type: 'test'
+  ...
+# Subtest: runexec stores taken in under a finality attestation: each receipt once, also after a restart and a second pass
+ok 33 - runexec stores taken in under a finality attestation: each receipt once, also after a restart and a second pass
+  ---
+  duration_ms: 286.656407
+  type: 'test'
+  ...
+# happy: 3 receipts, 1 send facts, held 1 (not_a_memory_input)
+# crash: 3 receipts, 1 send facts, held 1 (not_a_memory_input)
+# raid: 3 receipts, 1 send facts, held 1 (not_a_memory_input)
+# lost-response: 3 receipts, 1 send facts, held 1 (not_a_memory_input)
+# Subtest: the resident reads 12 over runexec's records: no allocation and no complete index, so no breach is decided and nothing is acted on
+ok 34 - the resident reads 12 over runexec's records: no allocation and no complete index, so no breach is decided and nothing is acted on
+  ---
+  duration_ms: 69.52126
+  type: 'test'
+  ...
+# 12 on runexec happy: unconfirmed, unconfirmed; lines: unknown, unknown
+# Subtest: without the guard and without WS13_WITH_KEYS=1 the harness is keyless too (checked in a child: nothing is made)
+ok 35 - without the guard and without WS13_WITH_KEYS=1 the harness is keyless too (checked in a child: nothing is made)
+  ---
+  duration_ms: 292.187342
+  type: 'test'
+  ...
+# Subtest: the guard blocks key making, signing and HMAC; hashing still works
+ok 36 - the guard blocks key making, signing and HMAC; hashing still works
+  ---
+  duration_ms: 1.81031
+  type: 'test'
+  ...
+# Subtest: shared set-up is keyless: addresses are labels, no key file, and the world still wants the unsigned mark
+ok 37 - shared set-up is keyless: addresses are labels, no key file, and the world still wants the unsigned mark
+  ---
+  duration_ms: 40.829268
+  type: 'test'
+  ...
+# Subtest: the demo runs keyless end to end, with a restart and a crash, and writes no key file
+ok 38 - the demo runs keyless end to end, with a restart and a crash, and writes no key file
+  ---
+  duration_ms: 1114.225582
+  type: 'test'
+  ...
+# Subtest: the guard also blocks PDA derivation, web3 keypairs and signing, and the repository's own PDA helper
+ok 39 - the guard also blocks PDA derivation, web3 keypairs and signing, and the repository's own PDA helper
+  ---
+  duration_ms: 3.238877
+  type: 'test'
+  ...
+# Subtest: model calls a day: past callsPerDay the fallback decides, every call is charged once, the books balance
+ok 40 - model calls a day: past callsPerDay the fallback decides, every call is charged once, the books balance
+  ---
+  duration_ms: 362.700775
+  type: 'test'
+  ...
+# Subtest: money: a deposit of three calls pays for three; then the fallback, never an overdraft
+ok 41 - money: a deposit of three calls pays for three; then the fallback, never an overdraft
+  ---
+  duration_ms: 306.906339
+  type: 'test'
+  ...
+# Subtest: a late or invalid provider is charged, refused, and paused after three failures
+ok 42 - a late or invalid provider is charged, refused, and paused after three failures
+  ---
+  duration_ms: 353.890727
+  type: 'test'
+  ...
+# Subtest: the owner stops it with a signed command; another key or a replay cannot; a stop pauses: nothing sent is rolled back, nothing waiting is lost
+ok 43 - the owner stops it with a signed command; another key or a replay cannot; a stop pauses: nothing sent is rolled back, nothing waiting is lost # SKIP keyless run (the default; WS13_WITH_KEYS=1 for keys): this test signs or checks signatures
+  ---
+  duration_ms: 0.234611
+  type: 'test'
+  ...
+# Subtest: the operator's halt file stops it; maxTurns ends it
+ok 44 - the operator's halt file stops it; maxTurns ends it
+  ---
+  duration_ms: 150.255234
+  type: 'test'
+  ...
+# Subtest: a send refused for a passing reason is retried with a growing wait, at most maxRetries times
+ok 45 - a send refused for a passing reason is retried with a growing wait, at most maxRetries times
+  ---
+  duration_ms: 246.516724
+  type: 'test'
+  ...
+# Subtest: pacing: decisions are at least wakeEveryBells apart, except a reply to a request addressed to it
+ok 46 - pacing: decisions are at least wakeEveryBells apart, except a reply to a request addressed to it
+  ---
+  duration_ms: 471.433387
+  type: 'test'
+  ...
+# {"samples":[{"day":5,"asa":{"state":29698,"journal":14,"cooldown":0,"episodes":70,"decisions":140,"ledgerHistory":69},"ren":{"state":28131,"journal":13,"cooldown":0,"episodes":70,"decisions":139,"ledgerHistory":66}},{"day":10,"asa":{"state":46168,"journal":13,"cooldown":0,"episodes":137,"decisions":279,"ledgerHistory":131},"ren":{"state":46335,"journal":14,"cooldown":0,"episodes":138,"decisions":280,"ledgerHistory":129}},{"day":15,"asa":{"state":64341,"journal":14,"cooldown":0,"episodes":205,"decisions":420,"ledgerHistory":194},"ren":{"state":62769,"journal":13,"cooldown":0,"episodes":205,"decisions":419,"ledgerHistory":191}},{"day":20,"asa":{"state":80775,"journal":13,"cooldown":0,"episodes":272,"decisions":559,"ledgerHistory":256},"ren":{"state":80942,"journal":14,"cooldown":0,"episodes":273,"decisions":560,"ledgerHistory":254}},{"day":25,"asa":{"state":98947,"journal":14,"cooldown":0,"episodes":340,"decisions":700,"ledgerHistory":319},"ren":{"state":97375,"journal":13,"cooldown":0,"episodes":340,"decisions":699,"ledgerHistory":316}},{"day":30,"asa":{"state":115380,"journal":13,"cooldown":0,"episodes":407,"decisions":839,"ledgerHistory":381},"ren":{"state":115547,"journal":14,"cooldown":0,"episodes":408,"decisions":840,"ledgerHistory":379}},{"day":35,"asa":{"state":133552,"journal":14,"cooldown":0,"episodes":475,"decisions":980,"ledgerHistory":444},"ren":{"state":131980,"journal":13,"cooldown":0,"episodes":475,"decisions":979,"ledgerHistory":441}},{"day":40,"asa":{"state":148774,"journal":13,"cooldown":0,"episodes":542,"decisions":1119,"ledgerHistory":500},"ren":{"state":149478,"journal":14,"cooldown":0,"episodes":543,"decisions":1120,"ledgerHistory":500}},{"day":45,"asa":{"state":150038,"journal":14,"cooldown":0,"episodes":610,"decisions":1260,"ledgerHistory":500},"ren":{"state":149273,"journal":13,"cooldown":0,"episodes":610,"decisions":1259,"ledgerHistory":500}}],"msPerDay":{"first3":[927,923,793],"last3":[5477,6007,5512]},"posts":278,"events":2349,"maxRead":{"asa":{"events":3,"requests":8},"ren":{"events":3,"requests":8}}}
+# Subtest: 45 game days: bounded present state and reads, history grows with events only, steady step time
+not ok 47 - 45 game days: bounded present state and reads, history grows with events only, steady step time
+  ---
+  duration_ms: 75327.566266
+  type: 'test'
+  location: '/tmp/claude-0/-home-user-wylls/47a54b0f-427a-5cca-bc82-feb7c5056956/scratchpad/v25/workstreams/13-citizens/test/longrun.test.mjs:14:1'
+  failureType: 'testCodeFailure'
+  error: 'ms/day 927,923,793,861,973,1146,1188,1127,1091,1038,1189,1183,1230,1326,1167,1315,1305,1219,1280,1265,1326,1323,1459,1190,1322,1437,1347,1425,1579,1419,1456,1373,1598,1399,1462,1498,1577,1516,1403,1537,1585,5425,5477,6007,5512'
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected: true
+  actual: false
+  operator: '=='
+  stack: |-
+    TestContext.<anonymous> (file:///tmp/claude-0/-home-user-wylls/47a54b0f-427a-5cca-bc82-feb7c5056956/scratchpad/v25/workstreams/13-citizens/test/longrun.test.mjs:77:10)
+    async Test.run (node:internal/test_runner/test:1054:7)
+    async startSubtestAfterBootstrap (node:internal/test_runner/harness:296:3)
+  ...
+# Subtest: a workstream-5 chat provider plugs in through fromChatProvider; its JSON is checked like any answer; no network here
+ok 48 - a workstream-5 chat provider plugs in through fromChatProvider; its JSON is checked like any answer; no network here
+  ---
+  duration_ms: 3.781789
+  type: 'test'
+  ...
+# Subtest: the demo refuses to start with a paid-API key in its environment (the citizens' guard)
+ok 49 - the demo refuses to start with a paid-API key in its environment (the citizens' guard)
+  ---
+  duration_ms: 0.651228
+  type: 'test'
+  ...
+# Subtest: memory: the local adapter keeps an episode once, survives a reopen, recalls with the citizens' retrieval
+ok 50 - memory: the local adapter keeps an episode once, survives a reopen, recalls with the citizens' retrieval
+  ---
+  duration_ms: 2.65132
+  type: 'test'
+  ...
+# Subtest: memory is replaceable: an in-memory stand-in for workstream 12 with the same interface gives the same decisions
+ok 51 - memory is replaceable: an in-memory stand-in for workstream 12 with the same interface gives the same decisions
+  ---
+  duration_ms: 384.79963
+  type: 'test'
+  ...
+# Subtest: execution and board ports are checked for their methods (a workstream-4 runner must offer submit, status, cancel)
+ok 52 - execution and board ports are checked for their methods (a workstream-4 runner must offer submit, status, cancel)
+  ---
+  duration_ms: 12.177579
+  type: 'test'
+  ...
+# Subtest: a raided return is paid once, even when the executor forgets its key and would execute it again
+ok 53 - a raided return is paid once, even when the executor forgets its key and would execute it again
+  ---
+  duration_ms: 1069.844811
+  type: 'test'
+  ...
+# Subtest: a paid return clears its marker once the board settles it; nothing is re-created or re-sent afterwards
+ok 54 - a paid return clears its marker once the board settles it; nothing is re-created or re-sent afterwards
+  ---
+  duration_ms: 1107.47835
+  type: 'test'
+  ...
+# Subtest: a restart after the journal and the executor have both forgotten: still one payment, no phantom action
+ok 55 - a restart after the journal and the executor have both forgotten: still one payment, no phantom action
+  ---
+  duration_ms: 1270.944968
+  type: 'test'
+  ...
+# Subtest: a port that keeps keys for less than one game day is refused before the resident sends anything
+ok 56 - a port that keeps keys for less than one game day is refused before the resident sends anything
+  ---
+  duration_ms: 11.150955
+  type: 'test'
+  ...
+# Subtest: starter kit, base production and the Hamlet cap are the Rust rules'
+ok 57 - starter kit, base production and the Hamlet cap are the Rust rules'
+  ---
+  duration_ms: 1.931445
+  type: 'test'
+  ...
+# Subtest: caravan speed and fee, the flat hex, the action bucket
+ok 58 - caravan speed and fee, the flat hex, the action bucket
+  ---
+  duration_ms: 2.366955
+  type: 'test'
+  ...
+# Subtest: pledge-only goods never move, and a 5-hex road takes 2 bells
+ok 59 - pledge-only goods never move, and a 5-hex road takes 2 bells
+  ---
+  duration_ms: 0.377433
+  type: 'test'
+  ...
+# (node:3773) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+# (Use `node --trace-warnings ...` to show where the warning was created)
+# Subtest: versions this stack ran against
+ok 60 - versions this stack ran against
+  ---
+  duration_ms: 1.002768
+  type: 'test'
+  ...
+# {"ws05":"10e749677d96301766c2930a8f903baf28cce0bc","ws12":"af41e617218f3a93d94c7374d125ac61fd69833d"}
+# Subtest: stack: plain
+ok 61 - stack: plain
+  ---
+  duration_ms: 2461.301987
+  type: 'test'
+  ...
+# asa: {"sends":12,"keys":12,"lines":12,"newAttempts":0,"calls":19,"settled":"7977","undecided":"0","episodes":17,"notes":17}
+# ren: {"sends":11,"keys":11,"lines":11,"newAttempts":0,"calls":18,"settled":"7612","undecided":"0","episodes":21,"notes":21}
+# Subtest: stack: restart at bell 50 (every object rebuilt from files)
+ok 62 - stack: restart at bell 50 (every object rebuilt from files)
+  ---
+  duration_ms: 4261.862203
+  type: 'test'
+  ...
+# asa: {"sends":12,"keys":12,"lines":12,"newAttempts":0,"calls":19,"settled":"7977","undecided":"0","episodes":17,"notes":17}
+# ren: {"sends":11,"keys":11,"lines":11,"newAttempts":0,"calls":18,"settled":"7612","undecided":"0","episodes":21,"notes":21}
+# asa: {"sends":12,"keys":12,"lines":12,"newAttempts":0,"calls":19,"settled":"7977","undecided":"0","episodes":17,"notes":17}
+# ren: {"sends":11,"keys":11,"lines":11,"newAttempts":0,"calls":18,"settled":"7612","undecided":"0","episodes":21,"notes":21}
+# Subtest: stack: a stop right after a send
+ok 63 - stack: a stop right after a send
+  ---
+  duration_ms: 2354.743204
+  type: 'test'
+  ...
+# asa: {"sends":12,"keys":12,"lines":12,"newAttempts":0,"calls":19,"settled":"7977","undecided":"0","episodes":17,"notes":17}
+# ren: {"sends":11,"keys":11,"lines":11,"newAttempts":0,"calls":18,"settled":"7612","undecided":"0","episodes":21,"notes":21}
+# Subtest: stack: a reply lost after the send arrived
+ok 64 - stack: a reply lost after the send arrived
+  ---
+  duration_ms: 2119.638279
+  type: 'test'
+  ...
+# asa: {"sends":12,"keys":12,"lines":12,"newAttempts":0,"calls":19,"settled":"7977","undecided":"0","episodes":17,"notes":17}
+# ren: {"sends":11,"keys":11,"lines":11,"newAttempts":0,"calls":18,"settled":"7612","undecided":"0","episodes":21,"notes":21}
+# Subtest: stack: an operator halt right after a send, the registry cannot cancel, and the result arrives late
+ok 65 - stack: an operator halt right after a send, the registry cannot cancel, and the result arrives late
+  ---
+  duration_ms: 1701.17734
+  type: 'test'
+  ...
+# asa: {"sends":12,"keys":12,"lines":12,"newAttempts":0,"calls":17,"settled":"6907","undecided":"0","episodes":16,"notes":16}
+# ren: {"sends":6,"keys":6,"lines":6,"newAttempts":0,"calls":7,"settled":"2570","undecided":"0","episodes":7,"notes":7}
+# Subtest: stack: a stop in the middle of a model call
+ok 66 - stack: a stop in the middle of a model call
+  ---
+  duration_ms: 1948.80474
+  type: 'test'
+  ...
+# asa: {"sends":12,"keys":12,"lines":12,"newAttempts":0,"calls":17,"settled":"6959","undecided":"0","episodes":16,"notes":16}
+# ren: {"sends":12,"keys":12,"lines":12,"newAttempts":0,"calls":19,"settled":"7640","undecided":"3326","episodes":21,"notes":21}
+# Subtest: stack: memory acted on (12 c6877a1a; fixture basis under the test switch): once 12 decides Kou's breach, nothing is given to or asked of Kou; everything else holds
+ok 67 - stack: memory acted on (12 c6877a1a; fixture basis under the test switch): once 12 decides Kou's breach, nothing is given to or asked of Kou; everything else holds
+  ---
+  duration_ms: 3747.444669
+  type: 'test'
+  ...
+# asa: {"sends":12,"keys":12,"lines":12,"newAttempts":0,"calls":19,"settled":"7977","undecided":"0","episodes":17,"notes":17}
+# ren: {"sends":11,"keys":11,"lines":11,"newAttempts":0,"calls":18,"settled":"7612","undecided":"0","episodes":21,"notes":21}
+# asa: {"sends":12,"keys":12,"lines":12,"newAttempts":0,"calls":13,"settled":"5698","undecided":"0","episodes":14,"notes":14}
+# ren: {"sends":12,"keys":12,"lines":12,"newAttempts":0,"calls":14,"settled":"6002","undecided":"0","episodes":16,"notes":16}
+# held by 12: 14 (first at bell 13: request:Wood); of them choices Ren had without 12 at the same bell: 2
+# ren served: plain [[7,"Kou"]], acted [[7,"Kou"]]
+# Subtest: halt file: a pause; nothing sent while it is there; removed, the same key is sent once
+ok 68 - halt file: a pause; nothing sent while it is there; removed, the same key is sent once
+  ---
+  duration_ms: 74.941078
+  type: 'test'
+  ...
+# Subtest: halt file: results of earlier sends are still read while halted
+ok 69 - halt file: results of earlier sends are still read while halted
+  ---
+  duration_ms: 30.037203
+  type: 'test'
+  ...
+# Subtest: cancel, unsent: dropped and never sent
+ok 70 - cancel, unsent: dropped and never sent
+  ---
+  duration_ms: 90.367182
+  type: 'test'
+  ...
+# Subtest: cancel, sent and still queued: the world withdraws it; it ends cancelled, with no new attempt
+ok 71 - cancel, sent and still queued: the world withdraws it; it ends cancelled, with no new attempt
+  ---
+  duration_ms: 110.814677
+  type: 'test'
+  ...
+# Subtest: cancel where the port cannot cancel, then 'expired': ends cancelled, NOT re-attempted (without the cancel it would be)
+ok 72 - cancel where the port cannot cancel, then 'expired': ends cancelled, NOT re-attempted (without the cancel it would be)
+  ---
+  duration_ms: 182.359782
+  type: 'test'
+  ...
+# Subtest: cancel where the port cannot cancel and the result arrives late as landed: landed, recorded as cancel-requested
+ok 73 - cancel where the port cannot cancel and the result arrives late as landed: landed, recorded as cancel-requested
+  ---
+  duration_ms: 198.957227
+  type: 'test'
+  ...
+# Subtest: cancel: a delivery owed to someone is not cancelled by a cancel
+ok 74 - cancel: a delivery owed to someone is not cancelled by a cancel
+  ---
+  duration_ms: 94.174414
+  type: 'test'
+  ...
+# Subtest: revocation: unsent lines are revoked, nothing is sent, no model call, no reservation
+ok 75 - revocation: unsent lines are revoked, nothing is sent, no model call, no reservation
+  ---
+  duration_ms: 48.967711
+  type: 'test'
+  ...
+# Subtest: revocation: a send whose reply was lost is only read, never sent again (it would be re-sent without the revocation)
+ok 76 - revocation: a send whose reply was lost is only read, never sent again (it would be re-sent without the revocation)
+  ---
+  duration_ms: 132.827163
+  type: 'test'
+  ...
+# Subtest: revocation: an 'expired' result under it is not re-attempted; lifting it does not bring revoked lines back
+ok 77 - revocation: an 'expired' result under it is not re-attempted; lifting it does not bring revoked lines back
+  ---
+  duration_ms: 108.239539
+  type: 'test'
+  ...
+# Subtest: an ambiguous throw keeps the original key until its fate is known
+ok 78 - an ambiguous throw keeps the original key until its fate is known
+  ---
+  duration_ms: 69.068272
+  type: 'test'
+  ...
+# Subtest: an ambiguous transport-result keeps the original key until its fate is known
+ok 79 - an ambiguous transport-result keeps the original key until its fate is known
+  ---
+  duration_ms: 42.974429
+  type: 'test'
+  ...
+# Subtest: a send that never reached the world is re-sent under the same key, and lands once
+ok 80 - a send that never reached the world is re-sent under the same key, and lands once
+  ---
+  duration_ms: 92.09319
+  type: 'test'
+  ...
+# Subtest: the port's "unknown" is waited out with backoff and never re-sent; a definite answer settles it
+ok 81 - the port's "unknown" is waited out with backoff and never re-sent; a definite answer settles it
+  ---
+  duration_ms: 296.513613
+  type: 'test'
+  ...
+# Subtest: a game day without a definite answer makes the line unresolved: reported, still blocking, and it recovers
+ok 82 - a game day without a definite answer makes the line unresolved: reported, still blocking, and it recovers
+  ---
+  duration_ms: 668.330684
+  type: 'test'
+  ...
+# Subtest: an unresolved promise is reported in owed() and survives a restart
+ok 83 - an unresolved promise is reported in owed() and survives a restart
+  ---
+  duration_ms: 399.468567
+  type: 'test'
+  ...
+# Subtest: outside the key retention a lost send is never re-sent (the key may have been forgotten): it becomes unresolved
+ok 84 - outside the key retention a lost send is never re-sent (the key may have been forgotten): it becomes unresolved
+  ---
+  duration_ms: 522.931987
+  type: 'test'
+  ...
+# Subtest: a resident joins by the rule a person joins by: one village, the starter kit, nothing more
+ok 85 - a resident joins by the rule a person joins by: one village, the starter kit, nothing more # SKIP keyless run (the default; WS13_WITH_KEYS=1 for keys): this test signs or checks signatures
+  ---
+  duration_ms: 0.746795
+  type: 'test'
+  ...
+# Subtest: every viewer reads the same public part; nobody is labelled AI or person; own quota only for oneself
+ok 86 - every viewer reads the same public part; nobody is labelled AI or person; own quota only for oneself
+  ---
+  duration_ms: 42.883941
+  type: 'test'
+  ...
+# Subtest: actions: signed by the actor, idempotent per actor and key, cancellable only before they land
+ok 87 - actions: signed by the actor, idempotent per actor and key, cancellable only before they land # SKIP keyless run (the default; WS13_WITH_KEYS=1 for keys): this test signs or checks signatures
+  ---
+  duration_ms: 0.188462
+  type: 'test'
+  ...
+# Subtest: a resident holds its own key (0600) and no participant can use it; its ports carry no operator power
+ok 88 - a resident holds its own key (0600) and no participant can use it; its ports carry no operator power # SKIP keyless run (the default; WS13_WITH_KEYS=1 for keys): this test signs or checks signatures
+  ---
+  duration_ms: 0.07558
+  type: 'test'
+  ...
+# Subtest: receipts keep the seven states; registered waits; unqueryable and unknown names throw
+ok 89 - receipts keep the seven states; registered waits; unqueryable and unknown names throw
+  ---
+  duration_ms: 1.970703
+  type: 'test'
+  ...
+# Subtest: the port declares retention for good, registers before sending, and NoRecord alone is null
+ok 90 - the port declares retention for good, registers before sending, and NoRecord alone is null
+  ---
+  duration_ms: 10.695063
+  type: 'test'
+  ...
+# Subtest: real registry: a build is registered, sent once, read through runexec and lands
+ok 91 - real registry: a build is registered, sent once, read through runexec and lands
+  ---
+  duration_ms: 196.231177
+  type: 'test'
+  ...
+# Subtest: real registry: "unknown" from the wallet is held and never sent again
+ok 92 - real registry: "unknown" from the wallet is held and never sent again
+  ---
+  duration_ms: 221.156048
+  type: 'test'
+  ...
+# Subtest: real registry: "expired" allows one new attempt under a new key; an unreadable wallet is read again
+ok 93 - real registry: "expired" allows one new attempt under a new key; an unreadable wallet is read again
+  ---
+  duration_ms: 301.519297
+  type: 'test'
+  ...
+# Subtest: the fixture is a real p04-run/0.1 view and reads as landed
+ok 94 - the fixture is a real p04-run/0.1 view and reads as landed
+  ---
+  duration_ms: 1.592656
+  type: 'test'
+  ...
+# Subtest: stopped with contradictory effect fields: unknown, never failed
+ok 95 - stopped with contradictory effect fields: unknown, never failed
+  ---
+  duration_ms: 1.193717
+  type: 'test'
+  ...
+# Subtest: stopped with consistent fields keeps its meaning: effects → landed; none → failed / cancelled
+ok 96 - stopped with consistent fields keeps its meaning: effects → landed; none → failed / cancelled
+  ---
+  duration_ms: 1.472262
+  type: 'test'
+  ...
+# Subtest: an unknown view_version is not interpreted
+ok 97 - an unknown view_version is not interpreted
+  ---
+  duration_ms: 0.257259
+  type: 'test'
+  ...
+# Subtest: a resident reading such a view does not act again: one accept for the action, the line held
+ok 98 - a resident reading such a view does not act again: one accept for the action, the line held
+  ---
+  duration_ms: 146.395104
+  type: 'test'
+  ...
+# Subtest: stopped with no effect listed but a trace of a send (attempt, fee, in_flight, receipt): unknown, never failed or cancelled
+ok 99 - stopped with no effect listed but a trace of a send (attempt, fee, in_flight, receipt): unknown, never failed or cancelled
+  ---
+  duration_ms: 0.961412
+  type: 'test'
+  ...
+# Subtest: R3 in a resident: a stopped run with an undecided attempt is held; the action is not handed over again
+ok 100 - R3 in a resident: a stopped run with an undecided attempt is held; the action is not handed over again
+  ---
+  duration_ms: 129.603086
+  type: 'test'
+  ...
+# Subtest: workstream 16's 12 R3 inputs: none is read as failed or cancelled
+ok 101 - workstream 16's 12 R3 inputs: none is read as failed or cancelled
+  ---
+  duration_ms: 0.373875
+  type: 'test'
+  ...
+# Subtest: workstream 16's 157 real views: no real view reads as unknown because of R3
+ok 102 - workstream 16's 157 real views: no real view reads as unknown because of R3 # SKIP set WS16_REAL_VIEWS
+  ---
+  duration_ms: 0.423488
+  type: 'test'
+  ...
+# Subtest: the state list and terminal set are workstream 4's (model.rs RunState::ALL, terminal())
+ok 103 - the state list and terminal set are workstream 4's (model.rs RunState::ALL, terminal())
+  ---
+  duration_ms: 1.502143
+  type: 'test'
+  ...
+# Subtest: mapping: took effect, pending, stopped with and without effects, held, unknown, absent
+ok 104 - mapping: took effect, pending, stopped with and without effects, held, unknown, absent
+  ---
+  duration_ms: 0.70131
+  type: 'test'
+  ...
+# Subtest: the port: kept for good, same key replays, another spec under the key is a conflict
+ok 105 - the port: kept for good, same key replays, another spec under the key is a conflict
+  ---
+  duration_ms: 0.588275
+  type: 'test'
+  ...
+# Subtest: a resident on the fake workstream 4: pending until the caravan leaves, then landed; unavailable reads are waited out
+ok 106 - a resident on the fake workstream 4: pending until the caravan leaves, then landed; unavailable reads are waited out
+  ---
+  duration_ms: 67.086523
+  type: 'test'
+  ...
+# Subtest: the port hands workstream 4 the requester the credential layer gave, and nothing without one
+ok 107 - the port hands workstream 4 the requester the credential layer gave, and nothing without one
+  ---
+  duration_ms: 1.672044
+  type: 'test'
+  ...
+# Subtest: refusals: definite ones (nothing written) come back refused; StoreError/Spawn are thrown (maybe written)
+ok 108 - refusals: definite ones (nothing written) come back refused; StoreError/Spawn are thrown (maybe written)
+  ---
+  duration_ms: 0.975651
+  type: 'test'
+  ...
+# Subtest: status: NoRecord alone is "never accepted"; StoreUnavailable is no answer; effects are read at the top of the view
+ok 109 - status: NoRecord alone is "never accepted"; StoreUnavailable is no answer; effects are read at the top of the view
+  ---
+  duration_ms: 0.577991
+  type: 'test'
+  ...
+# Subtest: a resident whose pass is no longer current (NotAuthorized): the line fails, no new attempt, nothing re-sent
+ok 110 - a resident whose pass is no longer current (NotAuthorized): the line fails, no new attempt, nothing re-sent
+  ---
+  duration_ms: 133.460632
+  type: 'test'
+  ...
+# Subtest: a StoreError on accept after the run was written: the key is kept and read back; one run, landed
+ok 111 - a StoreError on accept after the run was written: the key is kept and read back; one run, landed
+  ---
+  duration_ms: 45.287224
+  type: 'test'
+  ...
+# Subtest: real runexec run view: the demo store's run, NoRecord, and a missing store
+ok 112 - real runexec run view: the demo store's run, NoRecord, and a missing store
+  ---
+  duration_ms: 104.813981
+  type: 'test'
+  ...
+# Subtest: workstream 4's clients/runs.mjs: the requester file it hands over, and a NotAuthorized refusal through the port
+ok 113 - workstream 4's clients/runs.mjs: the requester file it hands over, and a NotAuthorized refusal through the port
+  ---
+  duration_ms: 639.367709
+  type: 'test'
+  ...
+# Subtest: without requesterOf at all, submit is refused and accept is never called
+ok 114 - without requesterOf at all, submit is refused and accept is never called
+  ---
+  duration_ms: 72.284922
+  type: 'test'
+  ...
+# Subtest: the resident names the same seven states as workstream 4
+ok 115 - the resident names the same seven states as workstream 4
+  ---
+  duration_ms: 1.335068
+  type: 'test'
+  ...
+# Subtest: expired: nothing happened, so one new attempt under a new key, and the action happens once
+ok 116 - expired: nothing happened, so one new attempt under a new key, and the action happens once
+  ---
+  duration_ms: 65.88416
+  type: 'test'
+  ...
+# Subtest: not-sent: nothing happened, so one new attempt under a new key, and the action happens once
+ok 117 - not-sent: nothing happened, so one new attempt under a new key, and the action happens once
+  ---
+  duration_ms: 43.675209
+  type: 'test'
+  ...
+# Subtest: unknown: never taken as "did not happen" and never sent again, under any key
+ok 118 - unknown: never taken as "did not happen" and never sent again, under any key
+  ---
+  duration_ms: 341.628266
+  type: 'test'
+  ...
+# Subtest: unqueryable: never taken as "did not happen" and never sent again, under any key
+ok 119 - unqueryable: never taken as "did not happen" and never sent again, under any key
+  ---
+  duration_ms: 447.769172
+  type: 'test'
+  ...
+# Subtest: pending: waits, then settles on the later answer without a new send
+ok 120 - pending: waits, then settles on the later answer without a new send
+  ---
+  duration_ms: 148.299205
+  type: 'test'
+  ...
+# Subtest: registered: waits, then settles on the later answer without a new send
+ok 121 - registered: waits, then settles on the later answer without a new send
+  ---
+  duration_ms: 132.007344
+  type: 'test'
+  ...
+# Subtest: workstream 5 version these tests ran against
+ok 122 - workstream 5 version these tests ran against
+  ---
+  duration_ms: 0.927012
+  type: 'test'
+  ...
+# workstream 5 at 10e749677d96301766c2930a8f903baf28cce0bc
+# Subtest: 5's ledger through the demo set-up, normal: both ledgers agree, call by call
+ok 123 - 5's ledger through the demo set-up, normal: both ledgers agree, call by call
+  ---
+  duration_ms: 1467.690127
+  type: 'test'
+  ...
+# asa: 19 calls in 5's ledger; settled 7977, undecided 0, released 0; wallet spent 7977
+# ren: 18 calls in 5's ledger; settled 7612, undecided 0, released 0; wallet spent 7612
+# Subtest: 5's ledger through the demo set-up, restart at bell 50: both ledgers agree, call by call
+ok 124 - 5's ledger through the demo set-up, restart at bell 50: both ledgers agree, call by call
+  ---
+  duration_ms: 1352.248703
+  type: 'test'
+  ...
+# asa: 19 calls in 5's ledger; settled 7977, undecided 0, released 0; wallet spent 7977
+# ren: 18 calls in 5's ledger; settled 7612, undecided 0, released 0; wallet spent 7612
+# Subtest: 5's ledger through the demo set-up, stop right after a submit: both ledgers agree, call by call
+ok 125 - 5's ledger through the demo set-up, stop right after a submit: both ledgers agree, call by call
+  ---
+  duration_ms: 1327.508505
+  type: 'test'
+  ...
+# asa: 19 calls in 5's ledger; settled 7977, undecided 0, released 0; wallet spent 7977
+# ren: 18 calls in 5's ledger; settled 7612, undecided 0, released 0; wallet spent 7612
+# Subtest: 5's ledger through the demo set-up, stop in the middle of a model call: both ledgers agree, call by call
+ok 126 - 5's ledger through the demo set-up, stop in the middle of a model call: both ledgers agree, call by call
+  ---
+  duration_ms: 1262.144651
+  type: 'test'
+  ...
+# asa: 17 calls in 5's ledger; settled 6959, undecided 0, released 0; wallet spent 6959
+# ren: 19 calls in 5's ledger; settled 7640, undecided 3326, released 0; wallet spent 7640
+# Subtest: an unknown outcome stays undecided in both ledgers, and a restart does not release it
+ok 127 - an unknown outcome stays undecided in both ledgers, and a restart does not release it
+  ---
+  duration_ms: 24.680565
+  type: 'test'
+  ...
+# Subtest: a refusal before generating releases in 5 and charges 0 in the wallet
+ok 128 - a refusal before generating releases in 5 and charges 0 in the wallet
+  ---
+  duration_ms: 54.317468
+  type: 'test'
+  ...
+# Subtest: duplicate execution: a second process for the same resident is refused; a process taken over cannot call the model
+ok 129 - duplicate execution: a second process for the same resident is refused; a process taken over cannot call the model
+  ---
+  duration_ms: 119.414992
+  type: 'test'
+  ...
+# Subtest: 5's caps bind: a quote over 5's per-call cap is refused before the call
+ok 130 - 5's caps bind: a quote over 5's per-call cap is refused before the call
+  ---
+  duration_ms: 24.580818
+  type: 'test'
+  ...
+# Subtest: a stop in the middle of a model call, without 5's own recovery: the resident tells 5, and it is undecided
+ok 131 - a stop in the middle of a model call, without 5's own recovery: the resident tells 5, and it is undecided
+  ---
+  duration_ms: 415.394236
+  type: 'test'
+  ...
+# Subtest: 5's ledger and 12's mirror together, through the demo, stopped in the middle of a model call
+ok 132 - 5's ledger and 12's mirror together, through the demo, stopped in the middle of a model call
+  ---
+  duration_ms: 1158.772337
+  type: 'test'
+  ...
+# Subtest: 5's ledger with 4's real registry: a send whose result is unknown is never re-sent, and costs still agree
+ok 133 - 5's ledger with 4's real registry: a send whose result is unknown is never re-sent, and costs still agree
+  ---
+  duration_ms: 347.466937
+  type: 'test'
+  ...
+# Subtest: a stop before 5's reservation (5's own recovery on): released in both ledgers, no cost twice, no send twice
+ok 134 - a stop before 5's reservation (5's own recovery on): released in both ledgers, no cost twice, no send twice
+  ---
+  duration_ms: 1623.637851
+  type: 'test'
+  ...
+# ren: 18 calls in 5; released 0; wallet holds 0 ()
+# Subtest: a stop before 5's reservation (5's own recovery off): released in both ledgers, no cost twice, no send twice
+ok 135 - a stop before 5's reservation (5's own recovery off): released in both ledgers, no cost twice, no send twice
+  ---
+  duration_ms: 1041.022309
+  type: 'test'
+  ...
+# ren: 18 calls in 5; released 0; wallet holds 0 ()
+# Subtest: a stop after 5's reservation (5's own recovery on): released in both ledgers, no cost twice, no send twice
+ok 136 - a stop after 5's reservation (5's own recovery on): released in both ledgers, no cost twice, no send twice
+  ---
+  duration_ms: 982.513382
+  type: 'test'
+  ...
+# ren: 19 calls in 5; released 1; wallet holds 0 ()
+# Subtest: a stop after 5's reservation (5's own recovery off): released in both ledgers, no cost twice, no send twice
+ok 137 - a stop after 5's reservation (5's own recovery off): released in both ledgers, no cost twice, no send twice
+  ---
+  duration_ms: 1162.329136
+  type: 'test'
+  ...
+# ren: 19 calls in 5; released 1; wallet holds 0 ()
+# Subtest: settled with the hold's amount: settled at exactly the given amount, once; the record is closed
+ok 138 - settled with the hold's amount: settled at exactly the given amount, once; the record is closed
+  ---
+  duration_ms: 38.630882
+  type: 'test'
+  ...
+# Subtest: kept, never charged or refunded: settled without a settled amount
+ok 139 - kept, never charged or refunded: settled without a settled amount
+  ---
+  duration_ms: 29.565621
+  type: 'test'
+  ...
+# Subtest: kept, never charged or refunded: settled with settled null
+ok 140 - kept, never charged or refunded: settled with settled null
+  ---
+  duration_ms: 23.325765
+  type: 'test'
+  ...
+# Subtest: kept, never charged or refunded: settled with a non-decimal settled amount
+ok 141 - kept, never charged or refunded: settled with a non-decimal settled amount
+  ---
+  duration_ms: 29.568242
+  type: 'test'
+  ...
+# Subtest: kept, never charged or refunded: settled with a negative settled amount
+ok 142 - kept, never charged or refunded: settled with a negative settled amount
+  ---
+  duration_ms: 18.215952
+  type: 'test'
+  ...
+# Subtest: kept, never charged or refunded: settled above the hold
+ok 143 - kept, never charged or refunded: settled above the hold
+  ---
+  duration_ms: 20.933516
+  type: 'test'
+  ...
+# Subtest: kept, never charged or refunded: settled with a number, not a decimal string
+ok 144 - kept, never charged or refunded: settled with a number, not a decimal string
+  ---
+  duration_ms: 33.172796
+  type: 'test'
+  ...
+# Subtest: kept, never charged or refunded: settled without an amount
+ok 145 - kept, never charged or refunded: settled without an amount
+  ---
+  duration_ms: 51.066667
+  type: 'test'
+  ...
+# Subtest: kept, never charged or refunded: settled for another amount
+ok 146 - kept, never charged or refunded: settled for another amount
+  ---
+  duration_ms: 35.558691
+  type: 'test'
+  ...
+# Subtest: kept, never charged or refunded: released without an amount
+ok 147 - kept, never charged or refunded: released without an amount
+  ---
+  duration_ms: 20.390934
+  type: 'test'
+  ...
+# Subtest: kept, never charged or refunded: released for another amount
+ok 148 - kept, never charged or refunded: released for another amount
+  ---
+  duration_ms: 16.929444
+  type: 'test'
+  ...
+# Subtest: kept, never charged or refunded: undecided
+ok 149 - kept, never charged or refunded: undecided
+  ---
+  duration_ms: 12.610564
+  type: 'test'
+  ...
+# Subtest: kept, never charged or refunded: absent although the record says reserved
+ok 150 - kept, never charged or refunded: absent although the record says reserved
+  ---
+  duration_ms: 11.645258
+  type: 'test'
+  ...
+# Subtest: kept, never charged or refunded: reserved left over
+ok 151 - kept, never charged or refunded: reserved left over
+  ---
+  duration_ms: 12.689323
+  type: 'test'
+  ...
+# Subtest: kept, never charged or refunded: an unknown state
+ok 152 - kept, never charged or refunded: an unknown state
+  ---
+  duration_ms: 17.951527
+  type: 'test'
+  ...
+# Subtest: kept, never charged or refunded: null
+ok 153 - kept, never charged or refunded: null
+  ---
+  duration_ms: 14.618775
+  type: 'test'
+  ...
+# Subtest: kept, never charged or refunded: a string
+ok 154 - kept, never charged or refunded: a string
+  ---
+  duration_ms: 17.233354
+  type: 'test'
+  ...
+# Subtest: kept, never charged or refunded: a state that is not a string
+ok 155 - kept, never charged or refunded: a state that is not a string
+  ---
+  duration_ms: 14.102359
+  type: 'test'
+  ...
+# Subtest: kept, never charged or refunded: an empty object
+ok 156 - kept, never charged or refunded: an empty object
+  ---
+  duration_ms: 15.041513
+  type: 'test'
+  ...
+# Subtest: released with the hold's amount: an unresolved hold is released (the cost ledger says nothing was billed)
+ok 157 - released with the hold's amount: an unresolved hold is released (the cost ledger says nothing was billed)
+  ---
+  duration_ms: 19.483912
+  type: 'test'
+  ...
+# Subtest: absent with the record at reserving (never reserved there): released
+ok 158 - absent with the record at reserving (never reserved there): released
+  ---
+  duration_ms: 12.535041
+  type: 'test'
+  ...
+# Subtest: recover() throws: the step goes on, the hold stays unresolved, and the next step tries again (bounded)
+ok 159 - recover() throws: the step goes on, the hold stays unresolved, and the next step tries again (bounded)
+  ---
+  duration_ms: 16.406963
+  type: 'test'
+  ...
+# Subtest: recover() keeps throwing: at most 3 tries in the process, then once a game day
+ok 160 - recover() keeps throwing: at most 3 tries in the process, then once a game day
+  ---
+  duration_ms: 34.104939
+  type: 'test'
+  ...
+# Subtest: undecided, later settled by the cost ledger: re-checked once a game day, settled once at that amount
+ok 161 - undecided, later settled by the cost ledger: re-checked once a game day, settled once at that amount
+  ---
+  duration_ms: 31.820948
+  type: 'test'
+  ...
+# Subtest: other categories are never touched: a sending game hold named by a record, a held game hold without one
+ok 162 - other categories are never touched: a sending game hold named by a record, a held game hold without one
+  ---
+  duration_ms: 15.838035
+  type: 'test'
+  ...
+# Subtest: without a record: a held inference hold is released once; running and unresolved ones stay unresolved
+ok 163 - without a record: a held inference hold is released once; running and unresolved ones stay unresolved
+  ---
+  duration_ms: 19.359614
+  type: 'test'
+  ...
+# Subtest: workstream 5 under test (attribution)
+ok 164 - workstream 5 under test (attribution)
+  ---
+  duration_ms: 3.901982
+  type: 'test'
+  ...
+# WS05 /tmp/claude-0/-home-user-wylls/47a54b0f-427a-5cca-bc82-feb7c5056956/scratchpad/w05 at 10e749677d96301766c2930a8f903baf28cce0bc; FileCostLedger.openFenced present: opens with recovery are fenced
+# Subtest: 5 ledger: a stop after-mark-running (5's own recovery on): 5 says released, the wallet follows, no model call, nothing twice
+ok 165 - 5 ledger: a stop after-mark-running (5's own recovery on): 5 says released, the wallet follows, no model call, nothing twice
+  ---
+  duration_ms: 851.356465
+  type: 'test'
+  ...
+# Subtest: 5 ledger: a stop after-mark-running (5's own recovery off): 5 says released, the wallet follows, no model call, nothing twice
+ok 166 - 5 ledger: a stop after-mark-running (5's own recovery off): 5 says released, the wallet follows, no model call, nothing twice
+  ---
+  duration_ms: 723.715501
+  type: 'test'
+  ...
+# Subtest: 5 ledger: a stop after-cost-calling (5's own recovery on): 5 says undecided, the wallet follows, no model call, nothing twice
+ok 167 - 5 ledger: a stop after-cost-calling (5's own recovery on): 5 says undecided, the wallet follows, no model call, nothing twice
+  ---
+  duration_ms: 822.945851
+  type: 'test'
+  ...
+# Subtest: 5 ledger: a stop after-cost-calling (5's own recovery off): 5 says released, the wallet follows, no model call, nothing twice
+ok 168 - 5 ledger: a stop after-cost-calling (5's own recovery off): 5 says released, the wallet follows, no model call, nothing twice
+  ---
+  duration_ms: 774.13039
+  type: 'test'
+  ...
+# Subtest: 5 ledger: a stop after the wallet hold, before its record: the orphan held hold is released; 5 never saw the call
+ok 169 - 5 ledger: a stop after the wallet hold, before its record: the orphan held hold is released; 5 never saw the call
+  ---
+  duration_ms: 1065.559609
+  type: 'test'
+  ...
+# Subtest: flat cost: a stop after the wallet hold leaves an orphan held hold; the next start releases it, and nothing else
+ok 170 - flat cost: a stop after the wallet hold leaves an orphan held hold; the next start releases it, and nothing else
+  ---
+  duration_ms: 537.718591
+  type: 'test'
+  ...
+# Subtest: flat cost: a stop right after markRunning (no record to prove the call was not made) stays unresolved, never released
+ok 171 - flat cost: a stop right after markRunning (no record to prove the call was not made) stays unresolved, never released
+  ---
+  duration_ms: 528.536563
+  type: 'test'
+  ...
+# Subtest: public evidence reaches the provider, marked and untrusted, with its state and sources; nothing else changes
+ok 172 - public evidence reaches the provider, marked and untrusted, with its state and sources; nothing else changes
+  ---
+  duration_ms: 80.755366
+  type: 'test'
+  ...
+# Subtest: an unknown public record stays "unknown" in the prompt; no broken episode, no trust change
+ok 173 - an unknown public record stays "unknown" in the prompt; no broken episode, no trust change
+  ---
+  duration_ms: 46.894145
+  type: 'test'
+  ...
+# Subtest: without a sourced identity mapping nothing is shown, and the withholding is recorded
+ok 174 - without a sourced identity mapping nothing is shown, and the withholding is recorded
+  ---
+  duration_ms: 54.29688
+  type: 'test'
+  ...
+# Subtest: a failing sidecar never blocks a decision
+ok 175 - a failing sidecar never blocks a decision
+  ---
+  duration_ms: 28.480646
+  type: 'test'
+  ...
+# (node:4638) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+# (Use `node --trace-warnings ...` to show where the warning was created)
+# Subtest: ea0636eb mirror, normal: one private note per episode, nothing becomes evidence, the residents act the same
+ok 176 - ea0636eb mirror, normal: one private note per episode, nothing becomes evidence, the residents act the same
+  ---
+  duration_ms: 2478.597871
+  type: 'test'
+  ...
+# asa: 17 episodes, 17 notes
+# ren: 21 episodes, 21 notes
+# Subtest: ea0636eb mirror, restart at bell 50: one private note per episode, nothing becomes evidence, the residents act the same
+ok 177 - ea0636eb mirror, restart at bell 50: one private note per episode, nothing becomes evidence, the residents act the same
+  ---
+  duration_ms: 2262.845242
+  type: 'test'
+  ...
+# asa: 17 episodes, 17 notes
+# ren: 21 episodes, 21 notes
+# Subtest: ea0636eb mirror, stop right after a submit, then reopen: one private note per episode, nothing becomes evidence, the residents act the same
+ok 178 - ea0636eb mirror, stop right after a submit, then reopen: one private note per episode, nothing becomes evidence, the residents act the same
+  ---
+  duration_ms: 1932.844913
+  type: 'test'
+  ...
+# asa: 17 episodes, 17 notes
+# ren: 21 episodes, 21 notes
+# Subtest: ea0636eb evidence: the test world is not the Season bell, so 12 is not asked and the resident records why
+ok 179 - ea0636eb evidence: the test world is not the Season bell, so 12 is not asked and the resident records why
+  ---
+  duration_ms: 38.970536
+  type: 'test'
+  ...
+# Subtest: ea0636eb evidence: on the same clock and world, 12 answers; an unpaired wallet is identity_unverified
+ok 180 - ea0636eb evidence: on the same clock and world, 12 answers; an unpaired wallet is identity_unverified
+  ---
+  duration_ms: 63.750738
+  type: 'test'
+  ...
+# Subtest: ea0636eb evidence: another world is withheld; a memory without a world is world_unverified
+ok 181 - ea0636eb evidence: another world is withheld; a memory without a world is world_unverified
+  ---
+  duration_ms: 77.708134
+  type: 'test'
+  ...
+# Subtest: wrapMemory is applied at every (re)open, crash reopens included, and a pass-through wrapper changes nothing
+ok 182 - wrapMemory is applied at every (re)open, crash reopens included, and a pass-through wrapper changes nothing
+  ---
+  duration_ms: 2266.5029
+  type: 'test'
+  ...
+# Subtest: the test world declares its clock; evidence on another clock is not read, evidence on the same clock is
+ok 183 - the test world declares its clock; evidence on another clock is not read, evidence on the same clock is
+  ---
+  duration_ms: 87.667084
+  type: 'test'
+  ...
+# Subtest: the sidecar keeps its clock declaration; a wallet-address principal (44 characters) is accepted
+ok 184 - the sidecar keeps its clock declaration; a wallet-address principal (44 characters) is accepted
+  ---
+  duration_ms: 2.096195
+  type: 'test'
+  ...
+# Subtest: walletPrincipal names its source, and maps only a base58 wallet address
+ok 185 - walletPrincipal names its source, and maps only a base58 wallet address
+  ---
+  duration_ms: 0.508569
+  type: 'test'
+  ...
+# (node:4656) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+# (Use `node --trace-warnings ...` to show where the warning was created)
+# Subtest: baseline: without workstream 12, Ren accepts Kou's request
+ok 186 - baseline: without workstream 12, Ren accepts Kou's request
+  ---
+  duration_ms: 95.507069
+  type: 'test'
+  ...
+# Subtest: basis: chain only with every part chain and sourced and a finalized attestation; cross_checked counts as neither finality nor completeness
+ok 187 - basis: chain only with every part chain and sourced and a finalized attestation; cross_checked counts as neither finality nor completeness
+  ---
+  duration_ms: 1.123395
+  type: 'test'
+  ...
+# Subtest: success (fixture inputs, test switch on): world, clock, finality and identity line up; 12 decides not_sent; Ren does not send first
+ok 188 - success (fixture inputs, test switch on): world, clock, finality and identity line up; 12 decides not_sent; Ren does not send first
+  ---
+  duration_ms: 93.644577
+  type: 'test'
+  ...
+# Subtest: refused: the same fixture inputs without the test switch are shown and recorded, never acted on
+ok 189 - refused: the same fixture inputs without the test switch are shown and recorded, never acted on
+  ---
+  duration_ms: 98.866017
+  type: 'test'
+  ...
+# Subtest: refused: provenance not stated
+ok 190 - refused: provenance not stated
+  ---
+  duration_ms: 102.353566
+  type: 'test'
+  ...
+# Subtest: refused: the resident's clock is not the world's (test world clock; and a Season clock with another bellSecs)
+ok 191 - refused: the resident's clock is not the world's (test world clock; and a Season clock with another bellSecs)
+  ---
+  duration_ms: 176.500571
+  type: 'test'
+  ...
+# Subtest: refused: another world, or a memory without a world
+ok 192 - refused: another world, or a memory without a world
+  ---
+  duration_ms: 120.780963
+  type: 'test'
+  ...
+# Subtest: refused: no finality (the index attestation is only confirmed): 12 does not decide, nothing is acted on
+ok 193 - refused: no finality (the index attestation is only confirmed): 12 does not decide, nothing is acted on
+  ---
+  duration_ms: 64.846558
+  type: 'test'
+  ...
+# Subtest: refused: no index attestation at all: the promise stays unknown, never read as not sent
+ok 194 - refused: no index attestation at all: the promise stays unknown, never read as not sent
+  ---
+  duration_ms: 84.487425
+  type: 'test'
+  ...
+# Subtest: refused: Kou is not paired with a citizen of this world (identity)
+ok 195 - refused: Kou is not paired with a citizen of this world (identity)
+  ---
+  duration_ms: 55.093264
+  type: 'test'
+  ...
+# Subtest: per record: the facts behind the breach must be chain-read too; a port declared chain over fixture records does not act
+ok 196 - per record: the facts behind the breach must be chain-read too; a port declared chain over fixture records does not act
+  ---
+  duration_ms: 71.205091
+  type: 'test'
+  ...
+# Subtest: per record: records without a basis are unstated and never act, even under the test switch
+ok 197 - per record: records without a basis are unstated and never act, even under the test switch
+  ---
+  duration_ms: 55.317807
+  type: 'test'
+  ...
+1..197
+# tests 197
+# suites 0
+# pass 189
+# fail 1
+# cancelled 0
+# skipped 7
+# todo 0
+# duration_ms 85925.74711
+exit=1

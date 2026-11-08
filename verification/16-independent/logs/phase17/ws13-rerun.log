@@ -1,0 +1,71 @@
+TAP version 13
+# {"samples":[{"day":5,"asa":{"state":29698,"journal":14,"cooldown":0,"episodes":70,"decisions":140,"ledgerHistory":69},"ren":{"state":28131,"journal":13,"cooldown":0,"episodes":70,"decisions":139,"ledgerHistory":66}},{"day":10,"asa":{"state":46168,"journal":13,"cooldown":0,"episodes":137,"decisions":279,"ledgerHistory":131},"ren":{"state":46335,"journal":14,"cooldown":0,"episodes":138,"decisions":280,"ledgerHistory":129}},{"day":15,"asa":{"state":64341,"journal":14,"cooldown":0,"episodes":205,"decisions":420,"ledgerHistory":194},"ren":{"state":62769,"journal":13,"cooldown":0,"episodes":205,"decisions":419,"ledgerHistory":191}},{"day":20,"asa":{"state":80775,"journal":13,"cooldown":0,"episodes":272,"decisions":559,"ledgerHistory":256},"ren":{"state":80942,"journal":14,"cooldown":0,"episodes":273,"decisions":560,"ledgerHistory":254}},{"day":25,"asa":{"state":98947,"journal":14,"cooldown":0,"episodes":340,"decisions":700,"ledgerHistory":319},"ren":{"state":97375,"journal":13,"cooldown":0,"episodes":340,"decisions":699,"ledgerHistory":316}},{"day":30,"asa":{"state":115380,"journal":13,"cooldown":0,"episodes":407,"decisions":839,"ledgerHistory":381},"ren":{"state":115547,"journal":14,"cooldown":0,"episodes":408,"decisions":840,"ledgerHistory":379}},{"day":35,"asa":{"state":133552,"journal":14,"cooldown":0,"episodes":475,"decisions":980,"ledgerHistory":444},"ren":{"state":131980,"journal":13,"cooldown":0,"episodes":475,"decisions":979,"ledgerHistory":441}},{"day":40,"asa":{"state":148774,"journal":13,"cooldown":0,"episodes":542,"decisions":1119,"ledgerHistory":500},"ren":{"state":149478,"journal":14,"cooldown":0,"episodes":543,"decisions":1120,"ledgerHistory":500}},{"day":45,"asa":{"state":150038,"journal":14,"cooldown":0,"episodes":610,"decisions":1260,"ledgerHistory":500},"ren":{"state":149273,"journal":13,"cooldown":0,"episodes":610,"decisions":1259,"ledgerHistory":500}}],"msPerDay":{"first3":[712,627,688],"last3":[1644,1588,1499]},"posts":278,"events":2349,"maxRead":{"asa":{"events":3,"requests":8},"ren":{"events":3,"requests":8}}}
+# Subtest: 45 game days: bounded present state and reads, history grows with events only, steady step time
+ok 1 - 45 game days: bounded present state and reads, history grows with events only, steady step time
+  ---
+  duration_ms: 51584.607902
+  type: 'test'
+  ...
+# Subtest: the fixture is a real p04-run/0.1 view and reads as landed
+ok 2 - the fixture is a real p04-run/0.1 view and reads as landed
+  ---
+  duration_ms: 0.950504
+  type: 'test'
+  ...
+# Subtest: stopped with contradictory effect fields: unknown, never failed
+ok 3 - stopped with contradictory effect fields: unknown, never failed
+  ---
+  duration_ms: 0.629722
+  type: 'test'
+  ...
+# Subtest: stopped with consistent fields keeps its meaning: effects → landed; none → failed / cancelled
+ok 4 - stopped with consistent fields keeps its meaning: effects → landed; none → failed / cancelled
+  ---
+  duration_ms: 0.957477
+  type: 'test'
+  ...
+# Subtest: an unknown view_version is not interpreted
+ok 5 - an unknown view_version is not interpreted
+  ---
+  duration_ms: 0.143072
+  type: 'test'
+  ...
+# Subtest: a resident reading such a view does not act again: one accept for the action, the line held
+ok 6 - a resident reading such a view does not act again: one accept for the action, the line held
+  ---
+  duration_ms: 89.667694
+  type: 'test'
+  ...
+# Subtest: stopped with no effect listed but a trace of a send (attempt, fee, in_flight, receipt): unknown, never failed or cancelled
+ok 7 - stopped with no effect listed but a trace of a send (attempt, fee, in_flight, receipt): unknown, never failed or cancelled
+  ---
+  duration_ms: 0.815466
+  type: 'test'
+  ...
+# Subtest: R3 in a resident: a stopped run with an undecided attempt is held; the action is not handed over again
+ok 8 - R3 in a resident: a stopped run with an undecided attempt is held; the action is not handed over again
+  ---
+  duration_ms: 94.974585
+  type: 'test'
+  ...
+# Subtest: workstream 16's 12 R3 inputs: none is read as failed or cancelled
+ok 9 - workstream 16's 12 R3 inputs: none is read as failed or cancelled
+  ---
+  duration_ms: 0.403712
+  type: 'test'
+  ...
+# Subtest: workstream 16's 157 real views: no real view reads as unknown because of R3
+ok 10 - workstream 16's 157 real views: no real view reads as unknown because of R3
+  ---
+  duration_ms: 7.449951
+  type: 'test'
+  ...
+1..10
+# tests 10
+# suites 0
+# pass 10
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 52017.898751

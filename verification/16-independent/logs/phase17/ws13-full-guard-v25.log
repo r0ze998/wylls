@@ -1,0 +1,11 @@
+3704 crypto.generateKeyPairSync
+3704 crypto.createPrivateKey
+3704 crypto.sign
+3704 crypto.createHmac
+3704 crypto.generateKeyPairSync
+3704 web3.PublicKey.findProgramAddressSync
+3704 web3.PublicKey.createProgramAddressSync
+3704 web3.Keypair.generate
+3704 web3.Keypair.fromSeed
+3704 solana-tx.findProgramAddress
+3704 solana-tx.createProgramAddress

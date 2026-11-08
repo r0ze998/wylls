@@ -1,0 +1,732 @@
+### ws07 HEAD af41e617218f3a93d94c7374d125ac61fd69833d
+TAP version 13
+# Subtest: phone: with 01's board on this server, the card's button opens it with this village as the destination (en, ja)
+ok 1 - phone: with 01's board on this server, the card's button opens it with this village as the destination (en, ja)
+  ---
+  duration_ms: 5465.78264
+  type: 'test'
+  ...
+# Subtest: phone: no board — nothing; a board not read, or of another Season — said, and not opened
+ok 2 - phone: no board — nothing; a board not read, or of another Season — said, and not opened
+  ---
+  duration_ms: 5164.626286
+  type: 'test'
+  ...
+# Subtest: pc: with 01's board on this server, the card's button opens it with this village as the destination (en, ja)
+ok 3 - pc: with 01's board on this server, the card's button opens it with this village as the destination (en, ja)
+  ---
+  duration_ms: 3537.216659
+  type: 'test'
+  ...
+# Subtest: pc: no board — nothing; a board not read, or of another Season — said, and not opened
+ok 4 - pc: no board — nothing; a board not read, or of another Season — said, and not opened
+  ---
+  duration_ms: 5414.458828
+  type: 'test'
+  ...
+# Subtest: phone: the game page's join screen says the season's lines in English and Japanese; no key, no dev wallet; a reload says them again
+ok 5 - phone: the game page's join screen says the season's lines in English and Japanese; no key, no dev wallet; a reload says them again
+  ---
+  duration_ms: 18562.083282
+  type: 'test'
+  ...
+# Subtest: phone: /h/events failing, the chronicle under More says the record was not read — never empty — and again after a reload
+ok 6 - phone: /h/events failing, the chronicle under More says the record was not read — never empty — and again after a reload
+  ---
+  duration_ms: 11242.499114
+  type: 'test'
+  ...
+# Subtest: pc: the game page's join screen says the season's lines in English and Japanese; no key, no dev wallet; a reload says them again
+ok 7 - pc: the game page's join screen says the season's lines in English and Japanese; no key, no dev wallet; a reload says them again
+  ---
+  duration_ms: 23722.507239
+  type: 'test'
+  ...
+# Subtest: pc: /h/events failing, the chronicle under More says the record was not read — never empty — and again after a reload
+ok 8 - pc: /h/events failing, the chronicle under More says the record was not read — never empty — and again after a reload
+  ---
+  duration_ms: 15587.543522
+  type: 'test'
+  ...
+# Subtest: phone: the S1 village card says a caravan past its turn is overdue and not settled — never arrived —, and nothing else is added
+ok 9 - phone: the S1 village card says a caravan past its turn is overdue and not settled — never arrived —, and nothing else is added
+  ---
+  duration_ms: 2898.941619
+  type: 'test'
+  ...
+# Subtest: phone: with 04, 05 and 01 registered (mocks) each says its state; the cooperation button is disabled with its reason
+ok 10 - phone: with 04, 05 and 01 registered (mocks) each says its state; the cooperation button is disabled with its reason
+  ---
+  duration_ms: 3119.085933
+  type: 'test'
+  ...
+# Subtest: phone: the cooperation button, when 01 says it may be pressed, is reached by keyboard and opens once per press
+ok 11 - phone: the cooperation button, when 01 says it may be pressed, is reached by keyboard and opens once per press
+  ---
+  duration_ms: 963.973856
+  type: 'test'
+  ...
+# Subtest: pc: the S1 village card says a caravan past its turn is overdue and not settled — never arrived —, and nothing else is added
+ok 12 - pc: the S1 village card says a caravan past its turn is overdue and not settled — never arrived —, and nothing else is added
+  ---
+  duration_ms: 1101.349029
+  type: 'test'
+  ...
+# Subtest: pc: with 04, 05 and 01 registered (mocks) each says its state; the cooperation button is disabled with its reason
+ok 13 - pc: with 04, 05 and 01 registered (mocks) each says its state; the cooperation button is disabled with its reason
+  ---
+  duration_ms: 2525.949091
+  type: 'test'
+  ...
+# Subtest: pc: the cooperation button, when 01 says it may be pressed, is reached by keyboard and opens once per press
+ok 14 - pc: the cooperation button, when 01 says it may be pressed, is reached by keyboard and opens once per press
+  ---
+  duration_ms: 1534.653977
+  type: 'test'
+  ...
+# Subtest: phone: a first look lists the viewer's S1 losses, keeps a taken caravan's arrival apart, and "seen" moves the mark once
+ok 15 - phone: a first look lists the viewer's S1 losses, keeps a taken caravan's arrival apart, and "seen" moves the mark once
+  ---
+  duration_ms: 1994.60635
+  type: 'test'
+  ...
+# Subtest: phone: a double press moves the mark once; a refused write keeps the notice and says so
+ok 16 - phone: a double press moves the mark once; a refused write keeps the notice and says so
+  ---
+  duration_ms: 2439.229719
+  type: 'test'
+  ...
+# Subtest: phone: a gap offers no "seen", and a read that failed confirms only what it read
+ok 17 - phone: a gap offers no "seen", and a read that failed confirms only what it read
+  ---
+  duration_ms: 2342.766073
+  type: 'test'
+  ...
+# Subtest: phone: the display contract says each state with a symbol and words, in Japanese and English
+ok 18 - phone: the display contract says each state with a symbol and words, in Japanese and English
+  ---
+  duration_ms: 2791.719336
+  type: 'test'
+  ...
+# Subtest: pc: a first look lists the viewer's S1 losses, keeps a taken caravan's arrival apart, and "seen" moves the mark once
+ok 19 - pc: a first look lists the viewer's S1 losses, keeps a taken caravan's arrival apart, and "seen" moves the mark once
+  ---
+  duration_ms: 1604.364008
+  type: 'test'
+  ...
+# Subtest: pc: a double press moves the mark once; a refused write keeps the notice and says so
+ok 20 - pc: a double press moves the mark once; a refused write keeps the notice and says so
+  ---
+  duration_ms: 2803.981106
+  type: 'test'
+  ...
+# Subtest: pc: a gap offers no "seen", and a read that failed confirms only what it read
+ok 21 - pc: a gap offers no "seen", and a read that failed confirms only what it read
+  ---
+  duration_ms: 2576.275166
+  type: 'test'
+  ...
+# Subtest: pc: the display contract says each state with a symbol and words, in Japanese and English
+ok 22 - pc: the display contract says each state with a symbol and words, in Japanese and English
+  ---
+  duration_ms: 2714.697382
+  type: 'test'
+  ...
+# Subtest: phone, events HTTP 503 from the start: no page error; the record is said as not read, never as empty
+ok 23 - phone, events HTTP 503 from the start: no page error; the record is said as not read, never as empty
+  ---
+  duration_ms: 6960.327626
+  type: 'test'
+  ...
+# Subtest: phone, events connection reset from the start: no page error; the record is said as not read, never as empty
+ok 24 - phone, events connection reset from the start: no page error; the record is said as not read, never as empty
+  ---
+  duration_ms: 5869.015552
+  type: 'test'
+  ...
+# Subtest: phone, events read, then failing, then back: what was read stays and is said as older; the line goes once read again
+ok 25 - phone, events read, then failing, then back: what was read stays and is said as older; the line goes once read again
+  ---
+  duration_ms: 66256.027441
+  type: 'test'
+  ...
+# Subtest: pc, events HTTP 503 from the start: no page error; the record is said as not read, never as empty
+ok 26 - pc, events HTTP 503 from the start: no page error; the record is said as not read, never as empty
+  ---
+  duration_ms: 4563.710117
+  type: 'test'
+  ...
+# Subtest: pc, events connection reset from the start: no page error; the record is said as not read, never as empty
+ok 27 - pc, events connection reset from the start: no page error; the record is said as not read, never as empty
+  ---
+  duration_ms: 5792.050132
+  type: 'test'
+  ...
+# Subtest: pc, events read, then failing, then back: what was read stays and is said as older; the line goes once read again
+ok 28 - pc, events read, then failing, then back: what was read stays and is said as older; the line goes once read again
+  ---
+  duration_ms: 65091.326345
+  type: 'test'
+  ...
+# Subtest: phone, a reload while events still fail: the new page says not read again, never empty; once back, the record shows
+ok 29 - phone, a reload while events still fail: the new page says not read again, never empty; once back, the record shows
+  ---
+  duration_ms: 10193.20025
+  type: 'test'
+  ...
+# Subtest: pc, a reload while events still fail: the new page says not read again, never empty; once back, the record shows
+ok 30 - pc, a reload while events still fail: the new page says not read again, never empty; once back, the record shows
+  ---
+  duration_ms: 12923.230842
+  type: 'test'
+  ...
+# Subtest: phone en: NFT card, the seven send states and the read states say themselves; nothing overflows; a reload shows the same
+ok 31 - phone en: NFT card, the seven send states and the read states say themselves; nothing overflows; a reload shows the same
+  ---
+  duration_ms: 4183.189988
+  type: 'test'
+  ...
+# Subtest: phone ja: NFT card, the seven send states and the read states say themselves; nothing overflows; a reload shows the same
+ok 32 - phone ja: NFT card, the seven send states and the read states say themselves; nothing overflows; a reload shows the same
+  ---
+  duration_ms: 3004.987531
+  type: 'test'
+  ...
+# Subtest: pc en: NFT card, the seven send states and the read states say themselves; nothing overflows; a reload shows the same
+ok 33 - pc en: NFT card, the seven send states and the read states say themselves; nothing overflows; a reload shows the same
+  ---
+  duration_ms: 3489.500041
+  type: 'test'
+  ...
+# Subtest: pc ja: NFT card, the seven send states and the read states say themselves; nothing overflows; a reload shows the same
+ok 34 - pc ja: NFT card, the seven send states and the read states say themselves; nothing overflows; a reload shows the same
+  ---
+  duration_ms: 3240.212813
+  type: 'test'
+  ...
+# Subtest: which actions are asked: those that may have left the relay (sent, or failed after it), not a refusal
+ok 35 - which actions are asked: those that may have left the relay (sent, or failed after it), not a refusal
+  ---
+  duration_ms: 1.725591
+  type: 'test'
+  ...
+# Subtest: the relay's answer is 04's state; a failed read or an unknown word is "could not be queried", never a failure
+ok 36 - the relay's answer is 04's state; a failed read or an unknown word is "could not be queried", never a failure
+  ---
+  duration_ms: 0.248185
+  type: 'test'
+  ...
+# Subtest: each sent action carries its state line under it, in Japanese and English; the plain "送信" never stands for the outcome alone
+ok 37 - each sent action carries its state line under it, in Japanese and English; the plain "送信" never stands for the outcome alone
+  ---
+  duration_ms: 28.90165
+  type: 'test'
+  ...
+# Subtest: a history not read again says the shown one is older; an agent never read is not "nothing yet" for a failed read
+ok 38 - a history not read again says the shown one is older; an agent never read is not "nothing yet" for a failed read
+  ---
+  duration_ms: 4.44985
+  type: 'test'
+  ...
+# Subtest: the line is drawn with the notices, while a summary of this scope is not confirmed; "seen" takes it away, × does not
+ok 39 - the line is drawn with the notices, while a summary of this scope is not confirmed; "seen" takes it away, × does not
+  ---
+  duration_ms: 2.304656
+  type: 'test'
+  ...
+# Subtest: pressing it opens the list under その他 at the summary, with its "seen" in focus
+ok 40 - pressing it opens the list under その他 at the summary, with its "seen" in focus
+  ---
+  duration_ms: 0.651081
+  type: 'test'
+  ...
+# Subtest: a phone draws the line under the strip and moves the notices down; a wide screen does not draw it
+ok 41 - a phone draws the line under the strip and moves the notices down; a wide screen does not draw it
+  ---
+  duration_ms: 0.570481
+  type: 'test'
+  ...
+# Subtest: English words for the line
+ok 42 - English words for the line
+  ---
+  duration_ms: 1.045856
+  type: 'test'
+  ...
+# Subtest: C1: with a gap between the mark and what was read, "seen" is not offered and the mark does not move
+ok 43 - C1: with a gap between the mark and what was read, "seen" is not offered and the mark does not move
+  ---
+  duration_ms: 14.353362
+  type: 'test'
+  ...
+# Subtest: C1: the reader reads from the mark itself, so a mark older than the chronicle's window is no gap
+ok 44 - C1: the reader reads from the mark itself, so a mark older than the chronicle's window is no gap
+  ---
+  duration_ms: 1.147393
+  type: 'test'
+  ...
+# Subtest: C3: a page that fails stops the reading; the mark can move over what was read and no further
+ok 45 - C3: a page that fails stops the reading; the mark can move over what was read and no further
+  ---
+  duration_ms: 1.228483
+  type: 'test'
+  ...
+# Subtest: C3: the page limit is not a complete read
+ok 46 - C3: the page limit is not a complete read
+  ---
+  duration_ms: 0.430115
+  type: 'test'
+  ...
+# Subtest: C2: a first look marks its window's first turn as the horizon; a later look says nothing before it was seen here
+ok 47 - C2: a first look marks its window's first turn as the horizon; a later look says nothing before it was seen here
+  ---
+  duration_ms: 0.737386
+  type: 'test'
+  ...
+# Subtest: C2: a first look that could not reach its window's first turn says from which turn it read
+ok 48 - C2: a first look that could not reach its window's first turn says from which turn it read
+  ---
+  duration_ms: 0.507911
+  type: 'test'
+  ...
+# Subtest: C4: a caravan taken from the viewer arrives for the taker, not for its sender; the taker's arrival is the taker's
+ok 49 - C4: a caravan taken from the viewer arrives for the taker, not for its sender; the taker's arrival is the taker's
+  ---
+  duration_ms: 0.455695
+  type: 'test'
+  ...
+# Subtest: C4: between two looks the book is carried on, so a later arrival of a taken caravan is not the sender's
+ok 50 - C4: between two looks the book is carried on, so a later arrival of a taken caravan is not the sender's
+  ---
+  duration_ms: 0.325714
+  type: 'test'
+  ...
+# Subtest: C4: the book is kept with the mark, so the next look knows a caravan taken before it
+ok 51 - C4: the book is kept with the mark, so the next look knows a caravan taken before it
+  ---
+  duration_ms: 0.473292
+  type: 'test'
+  ...
+# Subtest: C4: with neither the send nor the take read, the holder is unknown and the item says so (never the sender's arrival)
+ok 52 - C4: with neither the send nor the take read, the holder is unknown and the item says so (never the sender's arrival)
+  ---
+  duration_ms: 1.118696
+  type: 'test'
+  ...
+# Subtest: other people's caravans and other nations' votes are not the viewer's news
+ok 53 - other people's caravans and other nations' votes are not the viewer's news
+  ---
+  duration_ms: 0.288137
+  type: 'test'
+  ...
+# Subtest: C5: records read twice or out of order give the same summary as a clean read
+ok 54 - C5: records read twice or out of order give the same summary as a clean read
+  ---
+  duration_ms: 0.285543
+  type: 'test'
+  ...
+# Subtest: C5: overlapping pages from the herald are read once
+ok 55 - C5: overlapping pages from the herald are read once
+  ---
+  duration_ms: 1.749199
+  type: 'test'
+  ...
+# Subtest: C6: another wallet and another season never read this one's mark or book
+ok 56 - C6: another wallet and another season never read this one's mark or book
+  ---
+  duration_ms: 0.421047
+  type: 'test'
+  ...
+# Subtest: C6: a reading started for one scope and overtaken by another is stale and gives nothing
+ok 57 - C6: a reading started for one scope and overtaken by another is stale and gives nothing
+  ---
+  duration_ms: 19.831752
+  type: 'test'
+  ...
+# Subtest: C6: a mark beyond the season's head (a reset world, an old device) is not used, and "seen" replaces it
+ok 58 - C6: a mark beyond the season's head (a reset world, an old device) is not used, and "seen" replaces it
+  ---
+  duration_ms: 9.235576
+  type: 'test'
+  ...
+# Subtest: another device (no mark here) is a first look, and says it cannot tell a first visit from another device
+ok 59 - another device (no mark here) is a first look, and says it cannot tell a first visit from another device
+  ---
+  duration_ms: 0.669805
+  type: 'test'
+  ...
+# Subtest: a reload without "seen" shows the same summary; "seen" twice is harmless; the mark never moves back
+ok 60 - a reload without "seen" shows the same summary; "seen" twice is harmless; the mark never moves back
+  ---
+  duration_ms: 0.581804
+  type: 'test'
+  ...
+# Subtest: storage that refuses or silently drops a write: "seen" reports it and the mark stays
+ok 61 - storage that refuses or silently drops a write: "seen" reports it and the mark stays
+  ---
+  duration_ms: 0.270645
+  type: 'test'
+  ...
+# Subtest: a version 1 mark (before the horizon and the book) still reads
+ok 62 - a version 1 mark (before the horizon and the book) still reads
+  ---
+  duration_ms: 0.189861
+  type: 'test'
+  ...
+# Subtest: the page reads the away summary from its own reader, per scope, and "seen" passes the summary's confirm
+ok 63 - the page reads the away summary from its own reader, per scope, and "seen" passes the summary's confirm
+  ---
+  duration_ms: 1.410966
+  type: 'test'
+  ...
+# Subtest: after "seen" a reload queues no head notice, so the phone's entry line is not drawn again; after only ×, the same events come back
+ok 64 - after "seen" a reload queues no head notice, so the phone's entry line is not drawn again; after only ×, the same events come back
+  ---
+  duration_ms: 1.630455
+  type: 'test'
+  ...
+# Subtest: a caravan past its arrival turn and not settled yet: "overdue, not settled" under its row — never "arrived"
+ok 65 - a caravan past its arrival turn and not settled yet: "overdue, not settled" under its row — never "arrived"
+  ---
+  duration_ms: 37.497422
+  type: 'test'
+  ...
+# Subtest: a caravan gone from the road's list with no end read: "state unknown", never arrived or lost; its end read clears it; a reload (a new page state) says nothing of it
+ok 66 - a caravan gone from the road's list with no end read: "state unknown", never arrived or lost; its end read clears it; a reload (a new page state) says nothing of it
+  ---
+  duration_ms: 2.627114
+  type: 'test'
+  ...
+# Subtest: a take read after the send marks the caravan taken: its settlement elsewhere is the raider's, not a misdelivery
+ok 67 - a take read after the send marks the caravan taken: its settlement elsewhere is the raider's, not a misdelivery
+  ---
+  duration_ms: 1.946492
+  type: 'test'
+  ...
+# Subtest: 04's own arrival, when 04 registers it, replaces the page's
+ok 68 - 04's own arrival, when 04 registers it, replaces the page's
+  ---
+  duration_ms: 0.908629
+  type: 'test'
+  ...
+# Subtest: with nothing registered the village card shows no cancel, no costs and no manual line
+ok 69 - with nothing registered the village card shows no cancel, no costs and no manual line
+  ---
+  duration_ms: 0.388565
+  type: 'test'
+  ...
+# Subtest: 04's cancel shows under the caravan its source names; 05's costs and manual play over the caravans
+ok 70 - 04's cancel shows under the caravan its source names; 05's costs and manual play over the caravans
+  ---
+  duration_ms: 2.034313
+  type: 'test'
+  ...
+# Subtest: to a village (Holding::credit adds the record's cargo whole): the intake is known; "full" and "partial" are against the SEND RECORD's amount, said so
+ok 71 - to a village (Holding::credit adds the record's cargo whole): the intake is known; "full" and "partial" are against the SEND RECORD's amount, said so
+  ---
+  duration_ms: 2.390853
+  type: 'test'
+  ...
+# Subtest: the intake known and the comparison possible are two judgements: no send read → intake only; a send to another place or generation → intake only
+ok 72 - the intake known and the comparison possible are two judgements: no send read → intake only; a send to another place or generation → intake only
+  ---
+  duration_ms: 1.466149
+  type: 'test'
+  ...
+# Subtest: under another program version, or an outcome not read, the intake is not read from the record
+ok 73 - under another program version, or an outcome not read, the intake is not read from the record
+  ---
+  duration_ms: 0.724953
+  type: 'test'
+  ...
+# Subtest: to a storehouse (settle_caravan cuts at the vault's cap, the record keeps the whole cargo): never verified, even when the send matches
+ok 74 - to a storehouse (settle_caravan cuts at the vault's cap, the record keeps the whole cargo): never verified, even when the send matches
+  ---
+  duration_ms: 0.993703
+  type: 'test'
+  ...
+# Subtest: a lost cargo is final; between two looks the sends read before are carried on
+ok 75 - a lost cargo is final; between two looks the sends read before are carried on
+  ---
+  duration_ms: 0.496069
+  type: 'test'
+  ...
+# Subtest: burned: the caravan walks on empty and is logged delivered with no cargo — the sender is told the burn, never an arrival
+ok 76 - burned: the caravan walks on empty and is logged delivered with no cargo — the sender is told the burn, never an arrival
+  ---
+  duration_ms: 0.405893
+  type: 'test'
+  ...
+# Subtest: taken: the caravan is the raider's; the sender is told the take, never an arrival; the raider's arrival names another place than the send, so it is not compared with it
+ok 77 - taken: the caravan is the raider's; the sender is told the take, never an arrival; the raider's arrival names another place than the send, so it is not compared with it
+  ---
+  duration_ms: 0.617154
+  type: 'test'
+  ...
+# Subtest: English words for the connected states
+ok 78 - English words for the connected states
+  ---
+  duration_ms: 1.267137
+  type: 'test'
+  ...
+# Subtest: 04 cancel: three stages said apart; a stage not received is "not received", never a stage
+ok 79 - 04 cancel: three stages said apart; a stage not received is "not received", never a stage
+  ---
+  duration_ms: 18.070969
+  type: 'test'
+  ...
+# Subtest: a caravan's arrival in its states: overdue is not arrived, settled-unverified shows no amount as taken in, verified part, verified all, lost
+ok 80 - a caravan's arrival in its states: overdue is not arrived, settled-unverified shows no amount as taken in, verified part, verified all, lost
+  ---
+  duration_ms: 6.150843
+  type: 'test'
+  ...
+# Subtest: 05 cost: reserved, committed, unsettled, released said apart; only "committed" is paid
+ok 81 - 05 cost: reserved, committed, unsettled, released said apart; only "committed" is paid
+  ---
+  duration_ms: 0.435669
+  type: 'test'
+  ...
+# Subtest: 05 spendable: the stores less the costs; whether committed costs already left the stores must be said
+ok 82 - 05 spendable: the stores less the costs; whether committed costs already left the stores must be said
+  ---
+  duration_ms: 0.282071
+  type: 'test'
+  ...
+# Subtest: 05 manual: back to manual play, and the orders already signed go on
+ok 83 - 05 manual: back to manual play, and the orders already signed go on
+  ---
+  duration_ms: 0.232725
+  type: 'test'
+  ...
+# Subtest: a status line says its state with a symbol and words (role=status), and has English words
+ok 84 - a status line says its state with a symbol and words (role=status), and has English words
+  ---
+  duration_ms: 1.826805
+  type: 'test'
+  ...
+# Subtest: 01 cooperation: with nothing registered the S1 village card is as it was; a registered entry adds one button
+ok 85 - 01 cooperation: with nothing registered the S1 village card is as it was; a registered entry adds one button
+  ---
+  duration_ms: 0.799161
+  type: 'test'
+  ...
+# Subtest: the slot sits in the S1 village card under the nation's council
+ok 86 - the slot sits in the S1 village card under the nation's council
+  ---
+  duration_ms: 0.209383
+  type: 'test'
+  ...
+# Subtest: reading the board: absent (404), not read (5xx, network, odd body), read
+ok 87 - reading the board: absent (404), not read (5xx, network, odd body), read
+  ---
+  duration_ms: 2.295033
+  type: 'test'
+  ...
+# Subtest: the slot: nothing without a board; a board not read or of another Season is said, disabled; this village opens it
+ok 88 - the slot: nothing without a board; a board not read or of another Season is said, disabled; this village opens it
+  ---
+  duration_ms: 35.602247
+  type: 'test'
+  ...
+# Subtest: the board may name its page on this origin; another origin is not followed
+ok 89 - the board may name its page on this origin; another origin is not followed
+  ---
+  duration_ms: 0.460815
+  type: 'test'
+  ...
+# Subtest: on an S1 season the map's guide points where the drawer's step does, never at a camp the drawer does not ask for
+ok 90 - on an S1 season the map's guide points where the drawer's step does, never at a camp the drawer does not ask for
+  ---
+  duration_ms: 27.550084
+  type: 'test'
+  ...
+# Subtest: the S1 guide's build step marks the village; its march and hold steps mark nothing on the map (the drawer names the keep)
+ok 91 - the S1 guide's build step marks the village; its march and hold steps mark nothing on the map (the drawer names the keep)
+  ---
+  duration_ms: 2.919248
+  type: 'test'
+  ...
+# Subtest: an M1 season keeps its own guide on the map (the camp for the first march)
+ok 92 - an M1 season keeps its own guide on the map (the camp for the first march)
+  ---
+  duration_ms: 0.25176
+  type: 'test'
+  ...
+# Subtest: the NFT list not read: the card says so — not "no NFT" — and offers nothing from it; read with none: no card
+ok 93 - the NFT list not read: the card says so — not "no NFT" — and offers nothing from it; read with none: no card
+  ---
+  duration_ms: 30.902237
+  type: 'test'
+  ...
+# Subtest: an answer for a wallet no longer connected is dropped
+ok 94 - an answer for a wallet no longer connected is dropped
+  ---
+  duration_ms: 0.515896
+  type: 'test'
+  ...
+# Subtest: a wallet change forgets the NFT played and the list; NFT login and logout are another viewer, the key session kept
+ok 95 - a wallet change forgets the NFT played and the list; NFT login and logout are another viewer, the key session kept
+  ---
+  duration_ms: 2.849321
+  type: 'test'
+  ...
+# Subtest: the march book of an NFT resident is not its wallet's (the sealed marches and their reveal material kept apart)
+ok 96 - the march book of an NFT resident is not its wallet's (the sealed marches and their reveal material kept apart)
+  ---
+  duration_ms: 3.545979
+  type: 'test'
+  ...
+# Subtest: the away summary keeps an NFT's marks apart from its wallet's (app.mjs awayWho); the words name the NFT too
+ok 97 - the away summary keeps an NFT's marks apart from its wallet's (app.mjs awayWho); the words name the NFT too
+  ---
+  duration_ms: 1.418494
+  type: 'test'
+  ...
+# Subtest: the help says the rule this page carries — and both rules have their words in both languages
+ok 98 - the help says the rule this page carries — and both rules have their words in both languages
+  ---
+  duration_ms: 2.332107
+  type: 'test'
+  ...
+# Subtest: the port is the rules crate's: coverage, wear, the stop rule, watch, march_watch, caravan_watch, fastest_path round palisades
+ok 99 - the port is the rules crate's: coverage, wear, the stop rule, watch, march_watch, caravan_watch, fastest_path round palisades
+  ---
+  duration_ms: 541.15073
+  type: 'test'
+  ...
+# Subtest: off S1 nobody is stopped; on S1 the viewer's walker reads the structures, the stances and the expelled flag
+ok 100 - off S1 nobody is stopped; on S1 the viewer's walker reads the structures, the stances and the expelled flag
+  ---
+  duration_ms: 4.92664
+  type: 'test'
+  ...
+# Subtest: a caravan is sent round a palisade that stops it, where the fastest road would have been refused (Path)
+ok 101 - a caravan is sent round a palisade that stops it, where the fastest road would have been refused (Path)
+  ---
+  duration_ms: 25.875576
+  type: 'test'
+  ...
+# Subtest: the siege offer holds back the refusals the page can tell: the own village shielded, a busy or owing site
+ok 102 - the siege offer holds back the refusals the page can tell: the own village shielded, a busy or owing site
+  ---
+  duration_ms: 17.117784
+  type: 'test'
+  ...
+# Subtest: the S1 forecast counts the keep the program fights with (the page's own builder did not), and the towers' wear
+ok 103 - the S1 forecast counts the keep the program fights with (the page's own builder did not), and the towers' wear
+  ---
+  duration_ms: 19.213342
+  type: 'test'
+  ...
+# Subtest: the envelope keeps the Province bytes it decoded; the march wear reads the Provinces the page holds
+ok 104 - the envelope keeps the Province bytes it decoded; the march wear reads the Provinces the page holds
+  ---
+  duration_ms: 7.635449
+  type: 'test'
+  ...
+# Subtest: the away notice offers "seen" (which moves the player's mark) beside its ×, and an S1 notice goes to its place
+ok 105 - the away notice offers "seen" (which moves the player's mark) beside its ×, and an S1 notice goes to its place
+  ---
+  duration_ms: 0.739682
+  type: 'test'
+  ...
+# Subtest: the away items read the codes as the program numbers them: proposals 1 stance, 2 expulsion, 3 readmission; a march's result 1 Stays … 8 BadSeal
+ok 106 - the away items read the codes as the program numbers them: proposals 1 stance, 2 expulsion, 3 readmission; a march's result 1 Stays … 8 BadSeal
+  ---
+  duration_ms: 5.629927
+  type: 'test'
+  ...
+# Subtest: track keeps "no answer" (unqueryable) apart from "answered: not final" (unknown); neither is failed
+ok 107 - track keeps "no answer" (unqueryable) apart from "answered: not final" (unknown); neither is failed
+  ---
+  duration_ms: 3.001119
+  type: 'test'
+  ...
+# Subtest: the seven states: each its own symbol-and-words line; only landed, failed, expired, not-sent say final; none of the open ones says failed
+ok 108 - the seven states: each its own symbol-and-words line; only landed, failed, expired, not-sent say final; none of the open ones says failed
+  ---
+  duration_ms: 0.739846
+  type: 'test'
+  ...
+# Subtest: no page read (an HTTP error or a thrown fetch): the refresh finishes, and the page says the record was not read — never "nothing yet"
+ok 109 - no page read (an HTTP error or a thrown fetch): the refresh finishes, and the page says the record was not read — never "nothing yet"
+  ---
+  duration_ms: 16.862332
+  type: 'test'
+  ...
+# Subtest: pages read, then a poll fails: what was read stays, said as older; a later good poll clears it
+ok 110 - pages read, then a poll fails: what was read stays, said as older; a later good poll clears it
+  ---
+  duration_ms: 1.536696
+  type: 'test'
+  ...
+# Subtest: before any poll the page says it is loading, not that nothing happened
+ok 111 - before any poll the page says it is loading, not that nothing happened
+  ---
+  duration_ms: 0.521465
+  type: 'test'
+  ...
+# Subtest: no sentence of the page types the turn's length any more
+ok 112 - no sentence of the page types the turn's length any more
+  ---
+  duration_ms: 1.339222
+  type: 'test'
+  ...
+# Subtest: the turn is said from the clock: 10 game minutes, and on a faster clock the real time too
+ok 113 - the turn is said from the clock: 10 game minutes, and on a faster clock the real time too
+  ---
+  duration_ms: 16.074255
+  type: 'test'
+  ...
+# Subtest: the deadlines are the season's; after the join deadline the join is off and says why
+ok 114 - the deadlines are the season's; after the join deadline the join is off and says why
+  ---
+  duration_ms: 5.108789
+  type: 'test'
+  ...
+# Subtest: with nothing registered, the page says only the program's facts: its end turn, as an old-style season's, never the world's
+ok 115 - with nothing registered, the page says only the program's facts: its end turn, as an old-style season's, never the world's
+  ---
+  duration_ms: 14.71606
+  type: 'test'
+  ...
+# Subtest: when 04/08 register that the world goes on, the end turn is not said and WrongStatus is not put down to it; the world's line and the war period's stand apart
+ok 116 - when 04/08 register that the world goes on, the end turn is not said and WrongStatus is not put down to it; the world's line and the war period's stand apart
+  ---
+  duration_ms: 1.115899
+  type: 'test'
+  ...
+# Subtest: the words the page keeps say no world end or reset: the dial, the conquest card, the map, the quota, the away summary
+ok 117 - the words the page keeps say no world end or reset: the dial, the conquest card, the map, the quota, the away summary
+  ---
+  duration_ms: 4.50771
+  type: 'test'
+  ...
+# Subtest: across a period's boundary the mark, the book and an arrival go on: a caravan sent before it and settled after it is the same caravan
+ok 118 - across a period's boundary the mark, the book and an arrival go on: a caravan sent before it and settled after it is the same caravan
+  ---
+  duration_ms: 6.071164
+  type: 'test'
+  ...
+# Subtest: a restart after the boundary reads from the mark again and tells each record once
+ok 119 - a restart after the boundary reads from the mark again and tells each record once
+  ---
+  duration_ms: 0.684486
+  type: 'test'
+  ...
+# Subtest: a different season record (another ID) is said as that, not as the world starting over
+ok 120 - a different season record (another ID) is said as that, not as the world starting over
+  ---
+  duration_ms: 0.345371
+  type: 'test'
+  ...
+1..120
+# tests 120
+# suites 0
+# pass 120
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 200409.370949
+exit=0
