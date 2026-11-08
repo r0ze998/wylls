@@ -1,6 +1,8 @@
 # permutation-nft-resident-spike：NFT で譲渡できる住民アカウント（隔離試作）
 
-**状態（2026-11-08、v0.24）**：ローカルのみ（模擬チェーン、LiteSVM、ループバック validator）。公開発行・devnet／mainnet・実資金・新しい鍵は無し。価格・無料／有料・供給数・公開発行・ロイヤリティは未決（`docs/UNDECIDED.ja.md`）。Metaplex Core は**試作の選定方式**で、本線採用は未決。継続世界は決定済み。依存パッケージ無し（Node 20+ の標準モジュールだけ。`test-gateway/` だけは `permutation-gateway` の依存を使う）。v0.8 で担当ブランチへ通常 push（根拠は `docs/PUSH-AUDIT.ja.md`）。merge・deploy はしていない。
+**状態（2026-11-08、v0.25）**：ローカルのみ（模擬チェーン、LiteSVM、ループバック validator）。公開発行・devnet／mainnet・実資金・新しい鍵は無し。価格・無料／有料・供給数・公開発行・ロイヤリティは未決（`docs/UNDECIDED.ja.md`）。Metaplex Core は**試作の選定方式**で、本線採用は未決。継続世界は決定済み。依存パッケージ無し（Node 20+ の標準モジュールだけ。`test-gateway/` だけは `permutation-gateway` の依存を使う）。v0.8 で担当ブランチへ通常 push（根拠は `docs/PUSH-AUDIT.ja.md`）。merge・deploy はしていない。
+
+**v0.25 の変更**：元ゲームの controller の NFT の場面を、program の本物の印（`resident-citizen.json`）に揃えた。それで再現した不具合を直した：NFT の持ち主の `/h/me` に、asset を鍵にした財布の Citizen が来ると、自分のものとして採っていた。今は `WrongKey` で拒否する（`docs/HOLDER-CONTRACT.ja.md` §15）。同じ節に、v0.24 の試験で鍵を作る試験を見落として走らせた誤りを記録した。
 
 **v0.24 の変更**：NFT の住民が自分の `/h/me` を読むと web client が `WrongKey` で拒否していた不整合を直した（client の codec が Citizen の住民の印を読み、`checkMe` と wide の持ち物の照合が住民 ID の住所と asset で確かめる）。program が書く NFT Citizen のバイトを `frontier-abi/vectors/v2/resident-citizen.json` に固定し、client の試験はそれを読む（`docs/HOLDER-CONTRACT.ja.md` §14）。v0.23 は wide の WideResidentAct（§13）、v0.22 は ResidentAct の内側の命令（§12）。
 
