@@ -2715,3 +2715,18 @@ checkpoint の `95b0ab225ca9e9e626941b51981df2240198d91c`（tree `89a64830da3991
   - 起こりうること：他の端末から既に参加していれば、program が Join を拒否する（Citizen がすでにある）。paidJoin は 1 つの transaction なので、入場料だけが引かれることはないと見るが、⑯ は program の側を確かめていない。
   - 案（最小）：`join` と `paidJoin` の前に、confirmHome と同じ確認を入れる（`if (FS.meStatus !== 'ready') { await refresh(); if (FS.meStatus !== 'ready') return; }`）。表示（nation choice を残すこと）はそのままにできる。
 - ⑯ は ⑦ の試験を流していない。⑦ の 6/6、174/174、ws07-read の 6/6 は、⑦ の結果だけ。
+
+## 29.9 ④ 883b4be6 → 8c53176a、⑦ 9cd15799、未決の項目
+
+- ④ `8c53176a5d149d21f40ac3ad3b03c3a6f541c68b`（tree `13fb04244627d0176379d2b8fea08796e7b4f53c`）:
+  - `883b4be6`：⑦ a8c9eccb の 6 file（controller・fstate・drawer・ws07-read・wave3-hud・ws07-me-answered）と一致。
+  - `8c53176a`：ws07-me-answered.test.mjs を via-src に載せた。
+  - scan の `--check` は exit 0（119 / 209 / 23 / 8）。
+- ⑦ `9cd15799f58911ea5f10babfac202a2129247f00`（tree `5aeb18dc…`、親 a8c9eccb。④ にはまだ入っていない）。§29.6 の marchObjective への対応。
+  - ⑯ の probe では、province が読めないとき、marchObjective は `{act:'guide-open'}`「記録を読み込んでいます…」を返し、村の tab へ案内しない（`logs/phase23/ws07-9cd15799-unread-guide.txt`）。§29.6 の点は直った。
+- **未決のまま残すもの（⑯ の判断ではない）**:
+  - §29.8 (b)：通常の `join` と `paidJoin` は meStatus を確かめずに送る。
+    - ⑦ は「持ち主が、送信と署名の境界を変えないと決めた範囲の外」として、この round では変更しなかった。④ と利用者に、別の項目として渡した。
+    - 16576826 から変わっていない振る舞い。paidJoin が入場料だけを引きうるかは、program の側で確かめていない。
+  - concurrency の `cancels_race_executors` の非決定性。④ が別の commit で調べている。
+- ④ の訂正（持ち主から）：③ の cold-open.test.mjs は、退行を止める門ではなく、再現と診断のためのもの。⑯ の §29.7 の補足と同じ。

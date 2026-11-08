@@ -1,0 +1,7 @@
+### ⑦ 9cd15799f58911ea5f10babfac202a2129247f00 (tree 5aeb18dc): guide with the village's province unread
+{
+ "homeProvinceUnread": "true",
+ "hostRows": "0",
+ "scoutObjective": "undefined",
+ "marchObjective": "{\"act\":\"guide-open\",\"data\":{},\"label\":\"記録を読み込んでいます…\"}"
+}
