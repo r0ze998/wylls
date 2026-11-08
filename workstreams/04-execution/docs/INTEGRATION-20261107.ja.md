@@ -869,12 +869,12 @@ fa822453 の上に載せた。各チームのサブツリーは、チームが�
 | ⑲・⑦ | `f001c9c3`・`41a52e19`・`3c7e8cb4`・`4532651d` | `553f7fe7` | S1 golden に本物の herald の答え（events、rosters 0〜5、overview、overview2、隣の Province 3 つ、caravans、nations）。ws07-grow-s1 の ABSENT は 4 path。試験の relay が (4,-1) を 404 にして storm を再現する |
 
 **何まで確かめたか**（鍵なしの runner と guard の下。呼び出し元と import 先の静的な審査の後）
-- **柵のある経路**：本物の structures feed、page が塞ぐ hex はちょうど (4,0) tile 6、カードの経路は ⑧ の迂回と一致し、その hex に入らない。到着は window の中、beacon の確認が通り、seal は有効で押さない。ws07-grow-palisade 2/2（④・⑦・⑯）。⑲ の `ws19_map_contract` 3/3（④・⑲・⑯）。
+- **柵のある経路**：本物の structures feed、page が塞ぐ hex はちょうど (4,0) tile 6、カードの経路は ⑧ の迂回と一致し、その hex に入らない。到着は window の中、beacon の確認が通り、seal は有効で押さない。ws07-grow-palisade 2/2（④・⑦。⑯ は ⑦ の `01bb323f` の上で）。⑲ の `ws19_map_contract` 3/3（④・⑲・⑯）。
 - **retry storm**：
   - `web-frontier-want-province`：修正前 3/4（すぐの読み直しだけが落ちる）、修正後 4/4。④ と ⑯ の実行。
-  - ws07-grow-s1：修正前 0/2。553f7fe7 の golden の上でも、(4,-1) への要求が 304 回と 475 回。修正後 2/2。
+  - ws07-grow-s1：修正前 0/2。553f7fe7 の golden の上でも、(4,-1) への要求が 304 回と 475 回（④。⑯ は `4532651d` の上で 332 回と 525 回）。修正後 2/2。
   - 553f7fe7 の上で、key-free 37/37。
-  - fe7a810a の上で、ws07-guard・grow-s1・grow-palisade・grow-r5・march が各 2/2、read 6/6、wide 3/3、grow 3/3。
+  - fe7a810a の上で（④ の実行だけ。⑯ はこの commit では node の試験だけ）、ws07-guard・grow-s1・grow-palisade・grow-r5・march が各 2/2、read 6/6、wide 3/3、grow 3/3。
 - **本物の read の追加**：既存の答えは一つも変わらない（⑲・⑯）。新しい import の `people/roster.mjs` は import を持たない。
 
 **数えないもの**
