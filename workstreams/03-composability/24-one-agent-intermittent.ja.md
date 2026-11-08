@@ -131,3 +131,21 @@
 
 - 判断は④に任せる：この再現で原因を確定とするか。
 - ④の `Store::open` の修正が入れば、`openRunStore` は無くても通るはずである。
+
+## 6. ④の修正 89232fad（tree 0301f85e）の runexec で（③が自分で build、debug、sha256 c1be9b93…）
+
+| 試験 | 16576826 の runexec | 89232fad の runexec |
+|---|---|---|
+| `run-store-cold-open.sh`、n=2 | 6/80、9/200 で失敗 | 0/160、0/400 |
+| `run-store-cold-open.sh`、n=8 | 0/160 | 0/320 |
+| 新しいファイル、別の接続が rollback-journal の書き込みを持つ | 0.00 秒で失敗 | busy timeout（10 秒）まで待つ |
+| 旧い setup、順序を強制、85 行と同じ assertion | **10/10 で失敗** | **10/10 で通る** |
+| `cold-open.test.mjs` | 旧い setup は失敗の形 | 旧い setup は「race is fixed」の分岐、5/5 |
+| `run-guarded.sh`（16576826 の木） | 35/35 | 35/35 |
+
+旧い setup で、同じ順序を強制した 85 行の assertion は次のようになる。
+
+- 16576826 の runexec では失敗する。
+- 89232fad の runexec では通る。
+
+④の修正が、この機構を取り除くことを示している。
