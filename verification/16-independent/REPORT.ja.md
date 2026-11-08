@@ -3065,3 +3065,34 @@ checkpoint の `95b0ab225ca9e9e626941b51981df2240198d91c`（tree `89a64830da3991
   - これらの old-fails / new-passes の数は、鍵を使わない手順の外のものとして扱う。⑳ の鍵を使わない回帰の証拠は web-frontier-resident-me だけ（⑯ も 5/5）。
   - 記録は HOLDER-CONTRACT §15（⑳ `1da4a517166c487e4736f55f4c4f22a29a69b162`。5ee5fa35 の上で、文書を 6 行足しただけ）。
   - ⑯ の §29.23 の判断（controller の修正は静的に正しい。2 つの試験の証拠は鍵を使わないと確かめられていない）は変わらない。
+
+## 29.24 訂正：⑳ の「v0.24 の 103 file は鍵を使わない」は無効
+
+⑳ の公開の記録 HOLDER-CONTRACT §15（⑳ `1da4a517166c487e4736f55f4c4f22a29a69b162`）に基づき、次のとおり記録する。seed や秘密の値は、ここには書かない。
+
+- **無効とする主張**：⑳ v0.24 の「103 file を鍵なしで流した」。この数は、鍵を使わない合格には数えない。
+- **実際に行われたこと（⑳ の記録による）**:
+  - v0.24 の 103 file には、`web-frontier-opening-world`、`web-frontier-s1`、`web-frontier-territory`、`web-frontier-live` の 4 file が入っていた。
+  - これらでは、固定の seed からの鍵の導出と署名が実行された（試験の file の中で `keyFromSeed` を呼ぶもの）。
+- **今回の広い再実行（v0.25）で起きたこと（⑳ の記録による）**:
+  - ⑳ の監視は、最初の `subtle.importKey('pkcs8')` で 26 回止めた。署名の前。
+  - **これを「鍵が導出されなかった」証拠や、鍵を使わない合格には数えない**。
+  - ⑯ の静的な読み（web/session.mjs の `keyFromSeed`、85〜94 行）:
+    - `publicKeyOf(s)` による公開鍵の JS での導出（89 行）が、importKey の**前**に走る。
+    - 最初の `importKey('pkcs8')`（92 行）は try/catch の中にあるので、そこで止められても飲み込まれ、94 行の 2 回目の importKey で止まる。
+    - つまり、importKey での停止は、seed からの公開鍵の導出が終わった**後**の停止である。止まったのは、秘密鍵の取り込みと署名の前。
+  - 分かること：4 file で importKey が呼ばれたこと、署名の前で止まったこと。
+  - 分からないこと:
+    - 26 回の停止の前に、ほかに何が導出されたか。
+    - 監視が覆わない経路（JS の別の導出、子 process）で何が起きたか。
+    - v0.24 の 4 file で何回署名したか。
+- **⑳ が `node-key-tests.txt` に載る file を、確かめずに流したこと**（⑳ の訂正。§29.23 の追記）：wide-holding-ui、resident-home、web-frontier-herald、ws07-nft/me-answered。
+  - これらの結果（old-fails / new-passes、「56 件中 55 件、鍵の呼び出し 0」、「101 file で 0」を含む）は、鍵を使わない手順の外のものとして扱う。
+- **resident の修正（⑳ 8443d12e、5ee5fa35）の評価に使う証拠**は、次の 2 つだけ:
+  - 静的な審査（§29.15、§29.23）。
+  - 呼び出しが 0 件だった限定試験：`web-frontier-resident-me`。⑯ の実行で 8443d12e と 5ee5fa35 の両方で **5/5**、repo の guard と ⑯ の hook v2 の下で鍵の入口の呼び出しは 0 件。scan の list に載らず、`--covers` も通る。
+  - §29.15 で ⑯ が流した probe（wallet の Citizen の decode の比較）は、鍵を使わない純粋な関数。
+  - ⑳ が 2026-11-08 に送ってきた「1014/1014 across 103 web-frontier and frontier-resident files」は、⑯ の記録のどこにも合格として数えていない（今回、ここで無効と明記する）。
+- **⑯ 自身の手順**:
+  - ⑯ は、guard に既知の鍵の経路を止めさせる目的で試験を流していない。今回の pass で流したのは、scan の list に載らないか、review された file と、⑯ の純粋な probe だけ。
+  - 以前の ⑤ の 4 file の件（§ phase 18 より前。guard で Keypair.generate に当たったもの）は、当時から鍵を使うものとして記録し、合格に数えていない。
