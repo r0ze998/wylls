@@ -163,9 +163,20 @@ mod tests {
         // ② rights-experimental carries the provisional bit 0x2000, ⑨
         // capacity-preview 0x1000 (workstream 4's provisional allocation,
         // 2026-11-08): other programs, never the same version.
-        let want = 4
-            | if cfg!(feature = "rights-experimental") { 0x2000 } else { 0 }
-            | if cfg!(feature = "capacity-preview") { 0x1000 } else { 0 };
+        let want =
+            4 | if cfg!(feature = "wide-world-experimental") {
+                0x4000
+            } else {
+                0
+            } | if cfg!(feature = "rights-experimental") {
+                0x2000
+            } else {
+                0
+            } | if cfg!(feature = "capacity-preview") {
+                0x1000
+            } else {
+                0
+            };
         assert_eq!(crate::PROGRAM_VERSION, want);
     }
 
@@ -179,7 +190,7 @@ mod tests {
         assert_eq!(
             crate::PROGRAM_VERSION,
             5 | if cfg!(feature = "capacity-preview") {
-                0x2000
+                0x1000
             } else {
                 0
             }

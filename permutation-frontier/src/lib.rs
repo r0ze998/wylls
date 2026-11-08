@@ -158,7 +158,7 @@ pub const PROGRAM_VERSION: u16 = frontier_abi::v2::presets::PROGRAM_VERSION_S1
 pub const PROGRAM_VERSION: u16 =
     frontier_abi::v2::presets::PROGRAM_VERSION_CUSTODY | capacity_bit();
 
-/// Workstream 09's capacity preview (`capacity-preview`): the `0x2000` bit
+/// Workstream 09's capacity preview (`capacity-preview`): the `0x1000` bit (provisional, workstream 4; ② rights has 0x2000)
 /// (a proposal, `frontier_abi::capacity::CAPACITY_PREVIEW_VERSION_BIT`), so
 /// a capacity build's Seasons are its own; with custody it is the custody
 /// build's version with the bit (lots feed jobs there).
@@ -221,6 +221,7 @@ pub fn dispatch(
         .is_some_and(|t| frontier_abi::v2::rights::is_rights_tag(*t))
     {
         return proc::rights::dispatch(program_id, accounts, data);
+    }
     // Workstream 09's capacity preview (band 0xF0–0xFD): a default build
     // never reaches this arm and refuses the bytes as unknown tags below.
     #[cfg(feature = "capacity-preview")]

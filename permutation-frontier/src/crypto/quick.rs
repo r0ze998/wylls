@@ -307,6 +307,9 @@ pub(crate) const fn hex32(s: &[u8]) -> [u8; 32] {
 /// the opt-in native dispatcher test of the wide march reuses to verify a
 /// public round signature against the production key (verification only).
 #[cfg(test)]
+// The hint constructor and the public vectors are used by the opt-in
+// native-crypto-tests build only; in every other test build they are unused.
+#[cfg_attr(not(feature = "native-crypto-tests"), allow(dead_code))]
 pub(crate) mod tests {
     use super::*;
     use ark_bls12_381::{g2::Config as G2Config, Fq2};
