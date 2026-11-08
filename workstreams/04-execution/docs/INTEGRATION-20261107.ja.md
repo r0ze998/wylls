@@ -712,3 +712,21 @@ fa822453 の上に載せた。各チームのサブツリーは、チームが�
 - ⑯ が自分で流していないもの：keeper と、②⑨⑱⑲⑳ の Rust の一式（④ の結果だけ）、ws07-guard（④ の 2/2 だけ）、保守的な除外。
 - 未解決のまま残すもの：③ の再現しない 1 回の失敗、⑯ の hook の下で結論の出ない gateway の 37 件。合意した限界（fix とは別）：⑥ の J7、digest と実行元の範囲、Worker の realm。
 - 結論：この bounded pass の checkpoint で、「すべての機能が完成した」ではない。
+
+**§17 の更新（⑯ の REPORT §29、8574a9af）**
+- 「⑯ の hook の下で結論の出ない gateway の試験 37 件」は、**候補の欠陥ではなく、⑯ の実行の条件によるもの**と分かった。
+  - 37 は file の数ではなく結果の数：14 file の全体と、7 file の中の 23 の subtest。合わせて 21 file（一覧は ⑯ の logs/phase23/hook37-list.txt）。
+  - 原因：⑯ の最初の hook（node:module registerHooks の sync load hook）が、Node 22.22 で uuid の require(esm) を壊した（web3.js → jayson → uuid）。hook を NODE_OPTIONS で渡したので、permission model の子の process にも入り、読めずに落ちた（ERR_ACCESS_DENIED 4 件）。
+  - 同じ blob の gateway は、hook なしで 1908/1908（7535a17e と 20db3313）。
+  - 鍵なしで流せる 4 file（agent-wallet-bench、agent-wallet-s1、frontier-resident、frontier-s1-relay）は、静的な監査の後、repo の guard と hook v2（--import だけ）で 22/22。鍵の入口の呼び出しは 0。
+  - 残る 17 file は scan の保守的な除外（src/ 経由 14、追えない 3）で、流していない。
+  - 一つだけ観察できていないもの：relay-resume の正しい faucet の記録が、hook v1 の下で「無効」とされた仕組み。⑯ の pure な probe では、hook なし・v1・v2 のどれでも、正しい記録を受け入れ、13 の変異を拒む。
+  - ④ の node-keyfree.sh は guard を --import で渡すので、この問題は無い。
+- ③ の 4d44f021 の失敗の実行条件（⑯ から ③ に送られた）：17:44:00Z、前景、3.1 秒、NODE_OPTIONS なし。roots は ⑯ の 4d44f021 の作業木、RUNEXEC_BIN は ws04 a33e3b0a の debug build（sha256 4cb6634d…）、run-guarded.sh はそのまま。4 vCPU、ほかの job は無し、run の外で共有した tmpdir や SQLite は無し。並列は node --test の file ごとの並列だけ。
+- これを受けても、③ の失敗は INCONCLUSIVE のまま（cold open の競合は、起こりうる仕組みとして示されたが、その run の原因とは示されていない）。
+
+**§17 の後の後継**（16576826 は基準のまま、95b0ab22 は区切りのまま）
+- `89232fad`（tree `0301f85e`）：④ の runexec `Store::open` の WAL の切替えの修正。古い store.rs で落ち、新しいもので通る `tests/store_cold_open.rs`。
+- `490407d8`：⑦ `9b547d9d` の merge（記録が読めない viewer を「未参加」として見せない）。
+- `8afe8426`（tree `94c56522`）：③ `d4b22c97` の重ね（試験の頑丈さ、registry busy の場合）。
+- どれも ⑯ の独立の review の途中。
