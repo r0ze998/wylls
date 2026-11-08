@@ -790,3 +790,58 @@ fa822453 の上に載せた。各チームのサブツリーは、チームが�
 - 37 は file の数ではなく結果の数（14 file の全体と、7 file の中の 23 の subtest。合わせて 21 file）。
 - **候補の欠陥ではなく、⑯ の実行の条件**：⑯ の最初の hook が Node 22.22 で uuid の require(esm) を壊し、NODE_OPTIONS で渡したので permission model の子の process でも落ちた。同じ blob は hook なしで 1908/1908。
 - 鍵なしで流せる 4 file は 22/22。残る 17 file は保守的な除外で流していない。relay-resume の一件の仕組みだけは観察できていない。
+
+## 19. 引継ぎ：元ゲームの S1 map の実装 pass（④、2026-11-08）
+
+**位置**（この節は文書だけの commit。実装の候補とは別）
+- 実装の候補：`claude/gallant-ride-cunptv` @ `585e9fab66390656eaf580aed73c72a9f51997e3`（tree `b161e1c2e7807bfe9493115601c95ec9fbda5166`）。**全機能の完成ではない。**
+- 過去の検証済みの基準は `16576826`（tree `7f6ff8b0`）のまま。§18 の `caeb1b74` と、`95b0ab22` は過去の区切り。
+- `caeb1b74` から first-parent で 26 commit、32 file。すべて `[skip ci]` で、この枝の workflow run は 16 のまま。
+- ⑯ の独立の確認：`585e9fab` まで（`verification/16-independent/REPORT.ja.md` §29.14〜§29.29、`claude/dreamy-ramanujan-ijj8qj` @ `04be870b`）。各 merge の tree が、親の `git merge-tree` と一致する（手の編集なし）ことも確かめた。
+
+**取り込んだ差分**（各担当の exact SHA → 候補の commit）
+| 担当 | SHA | 候補 | 中身 |
+|---|---|---|---|
+| ⑧ | `6507c519`・`5e7ac44c`・`fdac9b62`・`4eeb6c7f` | `a6e261f8`・`ceb4cc9e`・`a5faebec`・`6a20fa67` | 輪 4→5 の経路と seed・geometry の契約（frontier-v3.wasm）、四段階の S1 の Season・Frontier のバイト（SDK の encoder） |
+| ⑦ | `9c23282d` | `5461e842` | 元の全画面で輪 d→d+1 の成長、署名の前まで |
+| ⑳ | `8443d12e` | `ff831702` | NFT の住民の `/h/me` を、その asset の住民の住所で受ける（読み取りの契約、HOLDER-CONTRACT §14） |
+| ④ | — | `5e0f2ec2` | connect-live と growth-route の reviewed を、⑳ の変更の後に審査し直した（digest） |
+| ⑦ | `4f60a629` | `b64cef2c` | 輪 4→5 の段階を全画面で（ws07-grow-r5） |
+| ⑧（⑲ を含む） | `e01fff60`（⑲ `32e13f7c`、⑧ `631c1963`） | `dd7f8735` | ⑲ の本物の router の S1 golden と、⑧ の試験がそれを画面の herald で読む |
+| ⑲ | `023088ea` | `afd427b3` | wide の拒否の assertion を厳密に |
+| ⑦ | `b1142259` | `233731c5` | ws07-grow の clear() を UI 経由に（試験だけ） |
+| ⑲ | `5ff7ad50`（`2dd66100`） | `fc6b923b` | S1 の Season を write_params のように（lead 2〜72）、map-arrival（署名の前の checkMarch） |
+| ⑲ | `68d9c6d4`（`7875891d`） | `2bbbc33c` | M1 の Season の quicknet、両 golden で checkBeacon |
+| ⑳ | `5ee5fa35`（文書 `1da4a517`・`0a766757`） | `7311597f`・`0b105a33` | `viewerOwnCitizen`：viewer と同じ種類の Citizen だけを採る（controller.mjs +14） |
+| ④ | — | `ff749ed2`・`d9e34303`・`5cdc4cac`・`685c4dda` | HOLDER-CONTRACT §15 の「4 による訂正」（文書だけ） |
+| ⑧ | `51a668c0` | `16777540` | herald の fixtures-are-fresh が growth-route.mjs を除く（静的に確認のみ） |
+| ⑦ | `2329031c`・`53ea9008` | `819831e4`・`fa8b2a8e` | app.mjs：読み込み中の二度目の押下で経路を求め直す。ws07-grow-s1（新） |
+| ⑯ | `204ab3a7` の v2 patch | `dae7e567` | `web-frontier-viewer-own-citizen.test.mjs` と reviewed の一行（closure `87c87356…`） |
+| ⑦ | `75653728`・`adfdecaf` | `025c93b0`・`585e9fab` | ws07-grow-s1：出会う 404 はすべて記録した不在の path。構造物の feed を読み、柵なし |
+| ⑲ | `e3abbee1` | `c378c1ce` | S1 golden が本物の空の構造物の feed（`/h/structures.json`、200）を返す |
+
+**何まで確かめたか**（鍵なしの runner と guard の下。呼び出し元と import 先の静的な審査の後）
+- **元ゲームの S1 map の実装**：ws07-grow-s1（デスクトップと電話）。(4,0) の host を手に取る → 成長前は (5,0) を拒否 → 成長後は ⑧ の ROUTE の注文カード、到着は lead 2〜72 の中、ページの beacon の確認が通る → 「seal and depart」が有効になる（押さない）→ 取消し → 再読込で段階が残る。④ の実行 2/2（`585e9fab`）、⑯ の実行 2/2（`adfdecaf`、同じ tree）。app.mjs の修正は、旧で 0/2・新で 2/2（⑦、⑯ §29.27）。他の画面：ws07-guard 2/2、ws07-grow-r5 2/2、ws07-grow 3/3、ws07-wide 3/3、ws07-march 2/2、ws07-read 6/6（④、full Chromium）。
+- **本物の read contract**：⑲ の `ws19_map_contract`（本物の Ingest と `server::router` を 127.0.0.1 で）2/2（④・⑲、⑯ §29.29）。node の map-contract・map-arrival・growth-route（④ 26/26 に含む）。herald の handler・codec と client の decoder は成長と村の情報で一致し、直すものは無かった（⑲）。herald `--lib` 44/44 は ⑲ の実行だけ。S1 の Season のバイトと program の `write_params` の一致は、field の名と順の静的な比較だけ（④、⑯ §29.22）。値をバイトで突き合わせる実行はしていない。
+- **NFT の読み取りの修正**：
+  - `8443d12e` の読み取りの契約：`web-frontier-resident-me` 5/5（呼び出し 0。⑳ が `1da4a517` で、⑯ が `8443d12e`・`5ee5fa35` で）。これは §14 の契約で、`viewerOwnCitizen` の証拠ではない。
+  - `5ee5fa35` の `viewerOwnCitizen`：静的な審査（④、⑯ §29.23）と、⑯ の新しい reviewed の試験 `web-frontier-viewer-own-citizen` 4/4（④・⑯）。修正の 14 行だけを戻すと、拒否の 2 件が落ちて 2/4（④ の実行。後で戻した）。
+
+**無効な結果と、有効な結果を混ぜない**（詳細：`permutation-nft-resident-spike/docs/HOLDER-CONTRACT.ja.md` §15、⑯ REPORT §29.23〜§29.25）
+- ⑳ の v0.24 の「103 file・1014 件が鍵なしで合格」は**誤り**。その実行で、`web-frontier-opening-world`・`web-frontier-s1`・`web-frontier-territory`・`web-frontier-live` が固定の seed から鍵を導出し、署名した（⑳ の記録）。
+- v0.25 の広い再実行は、guard が最初の `subtle.importKey('pkcs8')` で 26 回止めた。**止まったことは、導出が無かった証拠ではない。** ⑯ の静的な読みでは、`web/session.mjs` の `keyFromSeed` で `publicKeyOf(seed)` が最初の importKey より前に実行されるので、停止の前に JS の公開鍵の導出は済んでいる。分からないこと：停止の前に他に何が実行されたか、監視していない API での導出、監視が鍵の API をすべて覆うか、数の内訳。
+- ⑳ が一覧に載る file（wide-holding-ui、resident-home、web-frontier-herald、ws07-nft、ws07-me-answered）を直接走らせた結果（「55/56」「101 file 呼び出し 0」を含む）は、鍵なしの手順の外。証拠に数えない。
+- 有効なものは、上の「何まで確かめたか」に書いた限定の実行だけ。その中心は `web-frontier-viewer-own-citizen` 4/4 と map の限定試験。
+- reviewed の登録に、利用者の承認は要件ではない（`scripts/ci/node-key-reviewed.txt` 1〜5 行、`scan-node-key-tests.mjs` 111〜112 行）。④ が前に「承認が要る」と書いたのは根拠の無い誤りで、§15 で訂正した。
+
+**確かめていないもの**
+- ws07-grow-s1 の golden に無い 20 の `/h/` path（events、rosters、輪 0〜2 の overview、隣の Province など）。page はそれらで 404 を受け、それ以外の 404 は無いことを試験が確かめる。
+- 柵（palisade）が経路の上にある world。
+- 本物の Seal、署名、送信、着地、実チェーン、SVM、CI。key-tests job。
+- 一覧に載る file：`web-frontier-wide-holding-ui`（reviewed にしていない）、`web-frontier-resident-home`（直接の該当なので reviewed にできない）、`web-frontier-herald`（⑧ の `51a668c0` は静的に確認しただけ）。
+- gateway・web の全体、Rust の workspace の全体。
+
+**利用者の判断待ち**（変えていない）
+- NFT の `/h/me/{asset}`：asset を鍵にした財布の Citizen と NFT Citizen が両方あるとき、どちらを返すか。今は (a) 財布が先で、page が拒否する（読み取りの誤り）。⑲ の選択肢は (a) 今のまま、(b) NFT を優先、(c) 両方を返す、(d) 別の問い合わせ。⑲ の推奨は、今は (a)、変えるなら (d)。
+- join と paidJoin の meStatus の確認（§18）。
+- ⑩ の SettleCustody の拡張、⑤ の requester の権限、⑭・⑮ のゲームの目標、31 章。
