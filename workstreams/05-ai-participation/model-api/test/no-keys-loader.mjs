@@ -1,5 +1,6 @@
-// Module hook for no-keys-guard.mjs: in the shared modules that make, derive or sign, every such export is replaced
-// by one that throws (the source text is rewritten as it loads; nothing on disk changes).
+// Module hook for no-keys-guard.mjs in its STRICT mode (P05_GUARD_DERIVE=1): in the shared modules that make, derive or
+// sign, every such export is replaced by one that throws (the source text is rewritten as it loads; nothing on disk
+// changes).
 const TARGETS = [
   [/\/client\/src\/solana-tx\.mjs$/, ['createProgramAddress', 'findProgramAddress']],
   [/\/client\/src\/keys\.mjs$/, ['loadOrCreateKeypairSync', 'loadOrCreateKeypair']],
