@@ -3725,3 +3725,60 @@ workflow run が 16 のままであることは ④ が数えたもので、⑯ 
 - 1〜7 回目の hud について：鍵の生成、導出、署名があったかどうかは、確かめられていない。
 - 1 回目の自己試験と、他の file で止めた記録は、鍵の経路が実際に呼ばれたことを示す。止まる前の導出の有無は分からない。
 - 7 の「node_modules に解決される @noble の bare import」は、⑯ の確認では comment の中だけである（上の 2.）。
+
+## 29.36 監査の終わりと、再開してよい最小の名指しの確認（ユーザーの方針による。⑯ は今は何も走らせない）
+
+### A. 以前の 7 回の実行の短い照合（読むだけ）。これで監査を閉じる
+
+- 6 回目（95b0ab22）と 7 回目（c4eae408）の HEAD は、この clone にある。どちらの時点でも、hud の試験は 12 個で、鍵の API の名前を含まず、`CTRL.useHerald`、`CTRL.wantProvince` とその定数しか使わない。ただし、commit していない変更と、同じ実行に入った他の file は記録が無い。
+- 1〜5 回目の HEAD（cd89bcfd、788f0505、a8868191、d1c03583）は、push されたどの ref にも無く、正確な木は手に入らない。
+- 原本の log、完全な出力、正確な木が無いので、次のように区別して監査を閉じる。
+  - **実際に入った鍵の API は、guard が止めた**（7 の記録：1 回目は自己試験と、live、marches、people、s1 での generateKey 1 回と importKey(pkcs8) 16 回。3、4 回目は agent での createPrivateKey）。
+  - **止まる前に、JS だけの導出があったかどうかは確かめられていない**（session.mjs の keyFromSeed は、importKey の前に publicKeyOf を呼ぶ）。
+  - 5 回目は log を /dev/null に捨てたので、止めた記録が無い。
+  - hud について、1〜7 回目に鍵の処理があったかどうかは確かめられていない。
+  - 手順の違反は確定している。
+- 欠けた証拠を、再実行で補うことはしない。
+
+### B. 今後の名指しの試験の前提（各 run で全部そろうこと）
+
+1. 実行する木は、決めた SHA で、`git status --porcelain=v1 -uall` が空であること。`HEAD`、`HEAD^{tree}`、status の sha256 を保存する。
+2. 試験の file ごとに、静的な import の閉包を確かめる。追えない構文（child_process、worker_threads、計算した import()）が 0 であること。
+3. 試験が呼ぶ経路から、`session.mjs` の `publicKeyOf`、`keyFromSeed`、`preflight`、`fsession` の `derive`、`restore`、`importBackup`、`wallet` の `devWallet`、`enableDevWallet`、`sealMarch` に届かないことを、静的に示す。示せない経路は除外する。
+4. `node-key-tests.txt` に載らないこと。載らない理由が reviewed の行なら、その digest が今の木で計算した値と一致すること（`--check` が exit 0）。
+5. runner は `scripts/ci/node-keyfree.sh`、guard は repo の `scripts/ci/no-keys-guard.mjs`（node-keyfree.sh が `--import` する）。自前の guard は使わない。guard の自己試験はしない。
+6. `NODE_OPTIONS`、`WS*_ROOT`、`RUNEXEC_BIN`、`RUNEXEC_VIEW_BIN` は unset にする。`command -v node`、`node --version`、NODE_OPTIONS が unset であることを保存する。
+7. stdout、stderr、終了の status を、絞らずにすべて file に保存する。1 回の起動で 1 file だけを走らせる。
+
+### C. ⑯ が独立に許可できるもの
+
+**SHA は `553f7fe79f904415e8f42482ba06b4caef90f650`（tree `dcbc19702effdd87e5797bfadb5ff2bbb21de974`）だけ。** ⑯ の検査用の worktree では status が空だった。
+
+| file（`permutation-gateway/test/`） | sha256（先頭 16 桁） | 一覧 | reviewed | 閉包 | 鍵の側の file | 届かないことの根拠 |
+|---|---|---|---|---|---|---|
+| `web-frontier-map-contract.test.mjs` | 97fd1b989fce625f | 無し | 無し（載らない） | 52 | 0 | 閉包に、鍵の API を名指す file が無い |
+| `web-frontier-map-arrival.test.mjs` | 86b502025feeb9e5 | 無し | `61acfc1b` | 66 | noble の 4 file だけ | noble は seal.mjs の `sealMarch` の中の動的 import の先にだけある。試験は sealMarch を呼ばない（試験の text では "no seal" の注釈だけ）。wasm は空の import object で instantiate される |
+| `web-frontier-growth-route.test.mjs` | 02ddb46182be5d24 | 無し | `6af13991` | 74 | noble の 4 file だけ | map-arrival と同じ。試験の中に seal の参照は 0 |
+| `web-frontier-viewer-own-citizen.test.mjs` | 3cf8455595a0f82f | 無し | `c57b84cc` | 137 | session、wallet、fsession、fplay、fprize、prize、noble | 試験が呼ぶのは `applyMeResult` だけ。(§29.26) `matchesCitizen` は FS.session が null なので呼ばれず、中身も純粋な比較（fsession.mjs 111〜123 行目）。`refreshDelegation` は loadAgents の前に戻る。鍵の入口の呼び出し元（controller.mjs 578 `syncConnectedWallet`、1931 `join`、1947 `session`、2147・2163 `startPlay`）には届かない。読み込みの時点の呼び出しは 0 |
+| `web-frontier-want-province.test.mjs` | 59b75f65ef4dc73c | 無し | `a623aab2` | 137 | 同上 | 試験が呼ぶのは `useHerald` と `wantProvince` だけ（→ loadEnvelope → 差し替えの herald）。上の呼び出し元には届かない（§29.33） |
+
+runner と guard の sha256（先頭 16 桁）：`node-keyfree.sh` 938b864ec064564d、`no-keys-guard.mjs` 55846275f351761d、`scan-node-key-tests.mjs` 1bdc5c3862a94415、`node-key-tests.txt` 6e377b5a639c6c7d、`node-key-reviewed.txt` b086d7b2db088709。
+
+**決めた command。** 1 file ごとに 1 回。`<name>` は上の 5 つ。`$O` は保存先。
+```
+cd <553f7fe7 の、status が空の worktree>
+git rev-parse HEAD HEAD^{tree} > $O/tree.txt; git status --porcelain=v1 -uall | sha256sum >> $O/tree.txt
+env -u NODE_OPTIONS -u WS04_SCAN_ROOT -u RUNEXEC_BIN -u RUNEXEC_VIEW_BIN sh -c 'command -v node; node --version; echo "NODE_OPTIONS=${NODE_OPTIONS-unset}"' > $O/env.txt 2>&1
+env -u NODE_OPTIONS -u WS04_SCAN_ROOT -u RUNEXEC_BIN -u RUNEXEC_VIEW_BIN bash scripts/ci/node-keyfree.sh permutation-gateway test/web-frontier-<name>.test.mjs > $O/<name>.stdout 2> $O/<name>.stderr; echo $? > $O/<name>.exit
+```
+
+**除外するもの（証明できない、または範囲の外）。**
+- ws07 の画面のすべて。page の realm（app.mjs と、browser の中の session.mjs）で publicKeyOf や keyFromSeed に届かないことを、静的にまだ示せていない。
+- cargo の ws19_map_contract（Rust 側の到達性を、この基準ではまだ審査していない）。
+- web-frontier-hud（一覧に載る）。
+- 553f7fe7 にまだ入っていないもの（19 の a41d1cd2 と、4 の手元の f293a684）。
+- 鍵の経路を再現する実行と、guard の自己試験はすべて。
+
+**JS だけの導出を見張る guard を 4 が作る場合。** 既知の鍵の API を試しに呼んではならない。審査は静的に、または鍵を含まない無害な fixture だけで行う。
+
+**再開できるのは、上の表の 5 つの確認だけである。** 走らせるかどうかは、ユーザーの指示に従う。⑯ は今は走らせない。実際の署名、生成、導出、取引、CI は、引き続き禁止。
