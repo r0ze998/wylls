@@ -119,7 +119,7 @@ export async function keyfreeWorld({ relay = 'current' } = {}) {
   }
   const node = scriptedNode();
   const state = { caravans: 0, stores: [500, 500, 50, 500, 0, 100, 0, 0], vault: [0, 0, 400, 0, 0, 0, 0, 0], events: [], moving: [], down: null };
-  const script = { next: 'sent', sends: new Map(), n: 0, posts: 0, chainSent: 0, commands: [] };
+  const script = { next: 'sent', sends: new Map(), n: 0, posts: 0, chainSent: 0, commands: [], requests: [] };
   const history = []; // the wallet's action lines for this harness's sends (the real ledger's shape)
 
   const v2 = (kind, values) => encodeAccount(kind, { SEASON_ID, LAYOUT_VERSION: 2, ...values }, { profile: 2 });
@@ -147,6 +147,7 @@ export async function keyfreeWorld({ relay = 'current' } = {}) {
 
   async function action(body) {
     script.posts++;
+    script.requests.push(body?.request ?? null); // what ③ put on the wire, as sent
     // After an NFT transfer the REAL gateway decides: its submit authenticates, gates, holds and refuses in #build
     // (residentRefusal) before building or signing anything (the fake keyring throws if signing were reached).
     if (nft.transferred) {
@@ -164,6 +165,9 @@ export async function keyfreeWorld({ relay = 'current' } = {}) {
     if (prior) return { status: 200, json: { ...prior, replayed: true } };
     const mode = script.next; script.next = 'sent';
     if (mode === 'unreachable') return { transport: true };
+    // `script.answer = {status, json}` with next 'answer': the relay's answer to this POST, as given (the wallet's own
+    // error shapes, e.g. a 409 from its idempotency journal). Nothing is recorded or sent.
+    if (mode === 'answer') { const a = script.answer; script.answer = null; return a; }
     const facts = { sent: true, signature: `sig-${++script.n}`, lastValidBlockHeight: 150, slotFloor: 70, signedAt: NOW * 1000 };
     let res;
     // ⑤'s Duplicate AS DESCRIBED: not rebuilt; failed, sent: null, code Duplicate, the earlier send's signature.

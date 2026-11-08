@@ -30,6 +30,18 @@ const fail = (code, message, extra = {}) => { const e = { ok: false, error: { co
 const sha = s => createHash('sha256').update(s).digest('hex');
 const RESOURCE_NAMES = ['Food', 'Wood', 'Stone', 'Ore', 'Arms', 'Gold', 'Science', 'Influence'];
 const cargoArray = c => RESOURCE_NAMES.map(r => (Number.isInteger(c?.[r]) ? c[r] : 0));
+/**
+ * prepare_caravan's `cargo` as its schema states it (tools.mjs cargoSchema): an object of resource names to whole
+ * units 0–1,000,000. Anything else is refused by name, never read as 0: a misspelt or fractional amount must not
+ * plan a different caravan than the one asked for. Returns the eight amounts, or {error}.
+ */
+function askedCargo(c) {
+  if (!c || typeof c !== 'object' || Array.isArray(c)) return { error: 'cargo must be an object of resource names to whole amounts' };
+  const unknown = Object.keys(c).filter(k => !RESOURCE_NAMES.includes(k));
+  if (unknown.length) return { error: `cargo: unknown resource ${unknown.map(k => JSON.stringify(k)).join(', ')} (one of ${RESOURCE_NAMES.join(', ')})`, field: unknown[0] };
+  for (const [k, v] of Object.entries(c)) if (!Number.isInteger(v) || v < 0 || v > 1_000_000) return { error: `cargo.${k} must be a whole amount from 0 to 1000000`, field: k };
+  return { amounts: cargoArray(c) };
+}
 
 /**
  * @param {object} o
@@ -108,7 +120,9 @@ export function createWyllsMcp({ auth, game, store, now = Date.now, log = () => 
     let v, plan;
     try {
       v = await game.view(principal);
-      plan = await game.plan(v, { from: String(args?.from ?? ''), to: String(args?.to ?? ''), cargo: cargoArray(args?.cargo) });
+      const cargo = askedCargo(args?.cargo);
+      if (cargo.error) return fail('BadRequest', cargo.error, cargo.field ? { field: `cargo.${cargo.field}` } : {});
+      plan = await game.plan(v, { from: String(args?.from ?? ''), to: String(args?.to ?? ''), cargo: cargo.amounts });
     } catch (e) { return gameFail(e); }
     const id = `pln_${sha(`${principal.linkId}\n${now()}\n${Math.random()}`).slice(0, 20)}`;
     const a = v.agent;
@@ -358,12 +372,22 @@ export function createWyllsMcp({ auth, game, store, now = Date.now, log = () => 
       // The gateway's own record for this key: nothing was sent under it, ever.
       definite(op, link, code, res.error?.message ?? 'refused', 'agent wallet gateway / relay');
       op.error.boundary = refusalOf(code);
-    } else if (op.unknownSince === null && [400, 401, 403, 404, 409].includes(r.status)) {
+    } else if (r.status === 409 && ['SendFailed', 'IdempotencyConflict'].includes(code)) {
+      // The wallet already holds a request under this key (its idempotency journal): one whose answer it never saved
+      // or whose send it cannot verify (SendFailed, the same request: its prior signature, if any, is this request's
+      // own), or a different request (IdempotencyConflict: nothing of it is taken as this one's). Either may have been
+      // sent: never "nothing was sent", never released; held, and its own signature (if known) decides.
+      if (code === 'SendFailed' && typeof res.signature === 'string' && res.signature) op.gateway.signature = res.signature;
+      else op.gateway.signature = null;
+      uncertain(op, link, `the agent wallet already holds a request under this key (${code}): it may have been sent`);
+      hold(op, code === 'SendFailed' ? 'PriorRequestUnresolved' : 'KeyHeldByAnotherRequest', `${res.error ?? res.message ?? code}: held, counted, not re-sent; ${op.gateway.signature ? 'its own signature decides' : 'nothing decides it until the wallet\'s record or the chain does'}`, { evidence: { code, signature: op.gateway.signature } });
+    } else if (op.attempts === 1 && op.unknownSince === null && [400, 401, 403, 404, 409].includes(r.status)) {
       // Refused before anything (credential, shape, conflict) on a first, clean attempt.
       definite(op, link, code, res.error?.message ?? res.error ?? 'refused', 'agent wallet gateway / relay');
       op.error.boundary = refusalOf(code);
-    } else if (op.unknownSince !== null && [400, 401, 403, 404, 409].includes(r.status)) {
-      // An earlier attempt may have been sent and this one cannot be: the chain decides.
+    } else if ([400, 401, 403, 404, 409].includes(r.status)) {
+      // Not the first attempt (an earlier one may have been sent: a lost answer, or a stop before its answer was
+      // saved) and this one is refused: the chain decides.
       uncertain(op, link, `a retry was refused (${code}) after an attempt with an unknown outcome: the chain decides`);
     } else {
       // Rate limited or a server error: nothing decided; retry with the same requestId.
