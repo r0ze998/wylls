@@ -128,6 +128,8 @@ impl World {
             bell: Some(BELL),
             before: &before,
             after: &after,
+            closed_before: &|_| false,
+            program: [0x9F; 32],
         })
     }
 }
@@ -501,18 +503,20 @@ fn missing_evidence_is_not_replayed_and_not_a_fail() {
             bell: None,
             before: &before,
             after: &after,
+            closed_before: &|_| false,
+            program: [0x9F; 32],
         });
         assert!(matches!(r, Replayed::Unreplayed(_)), "{}", c.name);
     }
 }
 
 #[test]
-fn caravan_instructions_are_not_replayed() {
+fn a_caravan_instruction_without_its_accounts_is_not_replayed() {
     let w = World::citizens();
     let d = x::ReconcileLot {}.to_bytes();
     assert_eq!(
         w.replay(&d, &[]),
-        Replayed::Unreplayed("ReconcileLot is not replayed yet (it moves a caravan)".into())
+        Replayed::Unreplayed("the instruction lacks its season account".into())
     );
 }
 
@@ -756,7 +760,7 @@ fn verify_replays_a_landed_instruction_and_fails_a_tampered_one() {
 }
 
 #[test]
-fn verify_leaves_a_caravan_instruction_unverifiable() {
+fn verify_leaves_a_caravan_instruction_without_evidence_unverifiable() {
     let c = Case {
         name: "DepositLot",
         data: x::DepositLot {
@@ -778,7 +782,7 @@ fn verify_leaves_a_caravan_instruction_unverifiable() {
         vec![(
             CUSTODY_REPLAY_INCOMPLETE.to_string(),
             false,
-            "DepositLot is not replayed yet (it moves a caravan)".to_string(),
+            "the instruction lacks its accounts".to_string(),
             sig
         )]
     );

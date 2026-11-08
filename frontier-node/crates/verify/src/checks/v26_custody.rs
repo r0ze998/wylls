@@ -1,7 +1,8 @@
 //! V26 guard (workstream 10, custody), listed as `V26:custody-guard`. The
 //! custody check is not complete (V26 replays the instructions that touch
-//! one lot, not the custody caravans nor the records), so a history that
-//! carries any custody trace is never a PASS:
+//! one lot, and the lot's side of those that move a caravan, not the
+//! caravans' routes and wear nor the records), so a history that carries
+//! any custody trace is never a PASS:
 //!
 //! - in a season whose program has no custody (every ruleset up to
 //!   `RULESET_HASH_V3`; the S1 program refuses the tags) a trace is a FAIL,
@@ -15,7 +16,8 @@
 //! custody step keeps between a lot's recorded states (see [`history`]),
 //! and `V26:custody-replay` runs each landed OpenLot, SetLotQuota,
 //! SetLotOrder, RevokeLotOrder, ConsumeLot and CloseLot through the kernel
-//! on the states recorded before it (see [`replay`]). What they find wrong
+//! on the states recorded before it, and the lot's side of DepositLot,
+//! ShipLot, WithdrawLot, SettleCustody and ReconcileLot (see [`replay`]). What they find wrong
 //! is a FAIL whatever the rest; none of them upgrades the season: the best
 //! a custody season gets is UNVERIFIABLE.
 //!
@@ -227,7 +229,7 @@ pub fn run(cx: &mut Ctx) {
                 bell,
                 tx,
                 format!(
-                    "{what}: custody is not verified (V26 does not replay caravans or records yet)"
+                    "{what}: custody is not verified (V26 does not replay the caravans' routes or the records yet)"
                 ),
             );
         } else {
@@ -832,6 +834,10 @@ pub enum Replayed {
     /// The input lacks what the replay needs (a state before or after), or
     /// the instruction is not replayed by this build: UNVERIFIABLE.
     Unreplayed(String),
+    /// A caravan instruction whose lot side matches the kernel, with parts
+    /// of the handler that are not replayed (the detail names them):
+    /// UNVERIFIABLE.
+    Partial(String),
 }
 
 /// An account's data before a transaction (`None`: not in the input).
@@ -839,6 +845,9 @@ pub type StateBefore<'a> = &'a dyn Fn(&[u8; 32]) -> Option<Vec<u8>>;
 /// An account after a transaction: `None` not in its post-state,
 /// `Some(None)` closed, `Some(Some(data))` its data.
 pub type StateAfter<'a> = &'a dyn Fn(&[u8; 32]) -> Option<Option<Vec<u8>>>;
+/// Whether the input shows an account closed before a transaction (its
+/// last recorded state is a closure), as opposed to not in the input.
+pub type ClosedBefore<'a> = &'a dyn Fn(&[u8; 32]) -> bool;
 
 /// One custody instruction and the evidence around it, for [`replay_ix`].
 pub struct ReplayCase<'a> {
@@ -855,6 +864,11 @@ pub struct ReplayCase<'a> {
     /// An account after it: `None` not in the transaction's post-state,
     /// `Some(None)` closed, `Some(Some(data))` its data.
     pub after: StateAfter<'a>,
+    /// Whether an account with no state before was closed before it.
+    pub closed_before: ClosedBefore<'a>,
+    /// The program's id (the custody addresses are derived from it and the
+    /// season account).
+    pub program: [u8; 32],
 }
 
 /// The kernel's view of a Vault account (the program's `vault_view`; the
@@ -935,9 +949,9 @@ fn lot_summary(l: &permutation_rules::frontier::custody::Lot) -> String {
     )
 }
 
-/// The instructions [`replay_ix`] replays: those that touch one lot and at
-/// most its vault. The ones that move a caravan (DepositLot, ShipLot,
-/// SettleCustody, ReconcileLot, WithdrawLot) are not replayed yet.
+/// The instructions [`replay_ix`] replays in full on the custody side:
+/// those that touch one lot and at most its vault. The ones that move a
+/// caravan are [`CARAVAN_REPLAYED`] (the lot's side only).
 pub const REPLAYED: [Ix; 6] = [
     Ix::OpenLot,
     Ix::SetLotQuota,
@@ -950,8 +964,9 @@ pub const REPLAYED: [Ix; 6] = [
 /// The lot's position in a custody instruction's accounts.
 fn lot_index(kind: Ix) -> usize {
     match kind {
-        Ix::OpenLot => 6,
-        Ix::RevokeLotOrder => 4,
+        Ix::OpenLot | Ix::DepositLot => 6,
+        Ix::RevokeLotOrder | Ix::SettleCustody => 4,
+        Ix::ReconcileLot => 3,
         _ => 5,
     }
 }
@@ -970,8 +985,11 @@ pub fn replay_ix(c: &ReplayCase) -> Replayed {
     let Some(kind) = c.data.first().copied().and_then(Ix::from_tag) else {
         return un("not a custody instruction");
     };
+    if CARAVAN_REPLAYED.contains(&kind) {
+        return replay_caravan(c, kind);
+    }
     if !REPLAYED.contains(&kind) {
-        return Replayed::Unreplayed(format!("{kind:?} is not replayed yet (it moves a caravan)"));
+        return Replayed::Unreplayed(format!("{kind:?} is not a custody instruction V26 replays"));
     }
     let key = |i: usize| c.accounts.get(i).copied();
     let Some(bell) = c.bell else {
@@ -1178,11 +1196,13 @@ pub fn replay_ix(c: &ReplayCase) -> Replayed {
 /// `V26:custody-replay` (custody seasons): each landed transaction with
 /// one custody instruction is replayed by [`replay_ix`] on the states the
 /// input recorded before it. A mismatch or a refusal is a FAIL
-/// (`CustodyReplayMismatch`) at that transaction; an instruction that is
-/// not replayed yet, several custody instructions in one transaction, or
-/// missing evidence is UNVERIFIABLE (`CustodyReplayIncomplete`). A match
-/// adds nothing; the guard's traces stay UNVERIFIABLE (caravans and the
-/// records are not replayed), so a custody season is still never a PASS.
+/// (`CustodyReplayMismatch`) at that transaction; several custody
+/// instructions in one transaction, missing evidence, or a caravan
+/// instruction whose lot side matches but whose route, wear or settlement
+/// conditions are not replayed ([`replay_caravan`]) is UNVERIFIABLE
+/// (`CustodyReplayIncomplete`). A full match adds nothing; the guard's
+/// traces stay UNVERIFIABLE (the caravans' routes and the records are not
+/// replayed), so a custody season is still never a PASS.
 pub fn replay(cx: &mut Ctx) {
     let w = cx.w;
     let genesis = cx.f.genesis_ts;
@@ -1217,6 +1237,14 @@ pub fn replay(cx: &mut Ctx) {
         let accounts: Vec<[u8; 32]> = ix.accounts.iter().map(|a| a.0).collect();
         let before = |k: &[u8; 32]| w.state_before(k, t).map(|d| d.to_vec());
         let after = |k: &[u8; 32]| tx.post.get(k).map(|a| a.as_ref().map(|a| a.data.clone()));
+        // Closed before: the last transaction before this one that wrote
+        // the account left it closed.
+        let closed_before = |k: &[u8; 32]| {
+            w.posts.get(k).is_some_and(|v| {
+                let i = v.partition_point(|&u| u < t);
+                i > 0 && matches!(w.txs[v[i - 1]].post.get(k), Some(None))
+            })
+        };
         let case = ReplayCase {
             data: &ix.data,
             accounts: &accounts,
@@ -1224,6 +1252,8 @@ pub fn replay(cx: &mut Ctx) {
             bell: frontier_abi::prologue::bell_at(genesis, tx.time),
             before: &before,
             after: &after,
+            closed_before: &closed_before,
+            program: w.program,
         };
         let entity = ix
             .tag()
@@ -1234,7 +1264,7 @@ pub fn replay(cx: &mut Ctx) {
         match replay_ix(&case) {
             Replayed::Matches => {}
             Replayed::Mismatch(m) => found.push((entity, t, true, m)),
-            Replayed::Unreplayed(m) => found.push((entity, t, false, m)),
+            Replayed::Unreplayed(m) | Replayed::Partial(m) => found.push((entity, t, false, m)),
         }
     }
     // FAILs first, so that the listing's cut never hides one.
@@ -1270,6 +1300,514 @@ pub fn replay(cx: &mut Ctx) {
                 Some(t),
                 what,
             );
+        }
+    }
+}
+
+// ------------------------------------------------------------ replay: caravans
+
+/// The custody instructions that move a caravan, replayed on the lot's side
+/// by [`replay_caravan`].
+pub const CARAVAN_REPLAYED: [Ix; 5] = [
+    Ix::DepositLot,
+    Ix::ShipLot,
+    Ix::WithdrawLot,
+    Ix::SettleCustody,
+    Ix::ReconcileLot,
+];
+
+/// What the replay of a caravan instruction does not re-judge (the parts
+/// of the program's handler that are not the custody kernel's).
+fn not_replayed(kind: Ix) -> &'static str {
+    match kind {
+        Ix::DepositLot => "the route, its tower wear, the arrival and the path slots (the send rules V23 judges for SendCaravan) and a holding source's debit",
+        Ix::ShipLot | Ix::WithdrawLot => "the route, its tower wear, the arrival and the path slots (the send rules V23 judges for SendCaravan)",
+        Ix::SettleCustody => "the path Provinces' resolution and raid state, the fee and the rent",
+        _ => "",
+    }
+}
+
+/// An account's data before the transaction, told apart from a closed one:
+/// `Ok(Some)` its data, `Ok(None)` closed (the input shows it closed), `Err`
+/// not in the input.
+fn known_before(c: &ReplayCase, k: &[u8; 32]) -> Result<Option<Vec<u8>>, ()> {
+    match (c.before)(k) {
+        Some(d) => Ok(Some(d)),
+        None if (c.closed_before)(k) => Ok(None),
+        None => Err(()),
+    }
+}
+
+/// The caravan a custody send created, as the program writes it: its
+/// custody mark, resource and owner, and its cargo of the lot's resource
+/// (after the route's wear). `Err`: what is wrong.
+fn sent_caravan(d: &[u8], custody: Option<(u8, u64)>, r: usize, qty: i64) -> Result<i64, String> {
+    use crate::world::le;
+    if d.len() < CV::SIZE || d[..8] != CV::MAGIC {
+        return Err("it left no Caravan".into());
+    }
+    match custody {
+        Some((res, owner_tag)) => {
+            if d[CV::CUSTODY] != CV::CUSTODY_LOT
+                || d[CV::CUSTODY_RESOURCE] != res
+                || le(&d[CV::CUSTODY_OWNER_TAG..CV::CUSTODY_OWNER_TAG + 8]) != owner_tag
+            {
+                return Err(
+                    "its Caravan is not marked custody for the lot's owner and resource".into(),
+                );
+            }
+        }
+        None => {
+            if d[CV::CUSTODY] != CV::CUSTODY_NONE {
+                return Err("its Caravan is marked custody for a withdrawal".into());
+            }
+        }
+    }
+    let mut kept = 0;
+    for i in 0..8 {
+        let c = le(&d[CV::cargo(i)..CV::cargo(i) + 8]) as i64;
+        if i == r {
+            kept = c;
+        } else if c != 0 {
+            return Err(format!("its Caravan carries resource {i}"));
+        }
+    }
+    if kept < 0 || kept > qty {
+        return Err(format!("its Caravan carries {kept} of the {qty} sent"));
+    }
+    Ok(kept)
+}
+
+/// Replays the lot's side of a custody instruction that moves a caravan:
+/// the kernel step (`begin_inbound`, `spend_ship`, `finish_inbound`,
+/// `forfeit`, `drop_inbound`) on the states before, with the caravan's
+/// identity and cargo as the transaction recorded them, against the lots
+/// and vault the transaction left. `Partial`: the lot's side matches, and
+/// [`not_replayed`] names what is not re-judged (UNVERIFIABLE).
+fn replay_caravan(c: &ReplayCase, kind: Ix) -> Replayed {
+    use crate::world::le;
+    use frontier_abi::v2::ix as x;
+    use frontier_abi::v2::layout::player::citizen as C;
+    use frontier_abi::v2::layout::s1::place as PLC;
+    use permutation_rules::fixed::MILLI;
+    use permutation_rules::frontier::custody as K;
+    let un = |s: &str| Replayed::Unreplayed(s.to_string());
+    let bad = |what: String| Replayed::Mismatch(format!("{kind:?} landed, but {what}"));
+    let key = |i: usize| c.accounts.get(i).copied();
+    let Some(bell) = c.bell else {
+        return un("the transaction's bell is not known");
+    };
+    let season_i = if matches!(kind, Ix::SettleCustody | Ix::ReconcileLot) {
+        1
+    } else {
+        2
+    };
+    let Some(season) = key(season_i) else {
+        return un("the instruction lacks its season account");
+    };
+    let ctx = frontier_abi::addr::AddrCtx {
+        season,
+        program: c.program,
+    };
+    let milli = |u: u32| u as i64 * MILLI;
+    let lot_of = |k: &[u8; 32]| -> Result<K::Lot, Replayed> {
+        match (c.before)(k) {
+            Some(d) => K::Lot::decode(&d).ok_or_else(|| bad("its lot account is not a Lot".into())),
+            None => Err(un(
+                "the lot's state before the transaction is not in the input",
+            )),
+        }
+    };
+    let vault_of = |k: &[u8; 32]| -> Result<K::VaultView, Replayed> {
+        match (c.before)(k) {
+            Some(d) => {
+                vault_view_of(&d).ok_or_else(|| bad("its vault account is not a Vault".into()))
+            }
+            None => Err(un(
+                "the vault's state before the transaction is not in the input",
+            )),
+        }
+    };
+    // The lots the transaction left, against the kernel's.
+    let lot_left = |k: &[u8; 32], want: &K::Lot| -> Option<Replayed> {
+        match (c.after)(k) {
+            None => Some(un(
+                "the lot's state after the transaction is not in the input",
+            )),
+            Some(None) => Some(bad("the lot account is gone".into())),
+            Some(Some(d)) => match K::Lot::decode(&d) {
+                Some(got) if got == *want => None,
+                Some(got) => Some(bad(format!(
+                    "it left the lot ({}) where the kernel writes ({})",
+                    lot_summary(&got),
+                    lot_summary(want)
+                ))),
+                None => Some(bad("it left a lot that does not decode".into())),
+            },
+        }
+    };
+    let refused =
+        |e: K::CustodyError| bad(format!("the kernel refuses it on the state before ({e:?})"));
+    let partial = || {
+        Replayed::Partial(format!(
+            "{kind:?}: the lot's side matches the kernel; not replayed: {}",
+            not_replayed(kind)
+        ))
+    };
+    match kind {
+        // ---------------------------------------------- the three sends
+        Ix::DepositLot | Ix::ShipLot | Ix::WithdrawLot => {
+            let (Some(signer), Some(citizen_key)) = (key(0), key(3)) else {
+                return un("the instruction lacks its player accounts");
+            };
+            let Some(citizen) = (c.before)(&citizen_key) else {
+                return un("the Citizen's state before the transaction is not in the input");
+            };
+            let actor = match actor_of(&signer, &citizen_key, &citizen, c.time) {
+                Ok(a) => a,
+                Err(e) => return bad(e),
+            };
+            let Some(cseq) = citizen.get(C::CARAVANS..C::CARAVANS + 4).map(le) else {
+                return bad("the Citizen account is short".into());
+            };
+            let (seq, qty, lot_i, vault_i, caravan_i) = match kind {
+                Ix::DepositLot => match x::DepositLot::decode(c.data) {
+                    Ok(a) => (a.seq, a.qty, 6, 5, 7),
+                    Err(_) => return bad("its data does not decode".into()),
+                },
+                Ix::ShipLot => match x::ShipLot::decode(c.data) {
+                    Ok(a) => (a.seq, a.qty, 5, 4, 8),
+                    Err(_) => return bad("its data does not decode".into()),
+                },
+                _ => match x::WithdrawLot::decode(c.data) {
+                    Ok(a) => (a.seq, a.qty, 5, 4, 7),
+                    Err(_) => return bad("its data does not decode".into()),
+                },
+            };
+            if seq as u64 != cseq {
+                return bad(format!(
+                    "its caravan number {seq} is not the Citizen's next ({cseq})"
+                ));
+            }
+            let (Some(lk), Some(vk), Some(ck)) = (key(lot_i), key(vault_i), key(caravan_i)) else {
+                return un("the instruction lacks its accounts");
+            };
+            if ck != frontier_abi::v2::addr::caravan(&ctx, actor.tag, seq) {
+                return bad(
+                    "its caravan account is not the signer's caravan of that number".into(),
+                );
+            }
+            let mut l = match lot_of(&lk) {
+                Ok(l) => l,
+                Err(r) => return r,
+            };
+            let v = match vault_of(&vk) {
+                Ok(v) => v,
+                Err(r) => return r,
+            };
+            let q = milli(qty);
+            let r = l.resource as usize;
+            let custody = (kind != Ix::WithdrawLot).then_some((l.resource, l.owner_tag));
+            let kept = match (c.after)(&ck) {
+                None | Some(None) => {
+                    return un("the caravan's state after the transaction is not in the input")
+                }
+                Some(Some(d)) => match sent_caravan(&d, custody, r, q) {
+                    Ok(k) => k,
+                    Err(e) => return bad(e),
+                },
+            };
+            match kind {
+                Ix::DepositLot => {
+                    if actor.by_session {
+                        return bad("a deposit is signed by the session, not the wallet".into());
+                    }
+                    if l.owner != citizen_key {
+                        return bad("the signer's Citizen is not the lot's owner".into());
+                    }
+                    if q <= 0 {
+                        return bad("it deposits nothing".into());
+                    }
+                    // A vault source: its general stock debited by the
+                    // quantity sent (a holding source is V7's).
+                    let Some(sk) = key(4) else {
+                        return un("the instruction lacks its source account");
+                    };
+                    if let Some(sb) = (c.before)(&sk).as_deref().and_then(vault_view_of) {
+                        match (c.after)(&sk).flatten().as_deref().and_then(vault_view_of) {
+                            None => return un("the source vault's state after the transaction is not in the input"),
+                            Some(sa) => {
+                                let mut want = sb.stores;
+                                want[r] -= q;
+                                if sa.stores != want {
+                                    return bad("the source vault is not debited by the quantity sent".into());
+                                }
+                            }
+                        }
+                    }
+                    if let Err(e) = K::begin_inbound(&v, &mut l, (actor.tag, seq), kept) {
+                        return refused(e);
+                    }
+                    if let Some(f) = lot_left(&lk, &l) {
+                        return f;
+                    }
+                }
+                Ix::ShipLot => {
+                    let Ok(a) = x::ShipLot::decode(c.data) else {
+                        return bad("its data does not decode".into());
+                    };
+                    let (Some(tvk), Some(tlk)) = (key(6), key(7)) else {
+                        return un("the instruction lacks its destination accounts");
+                    };
+                    let mut tl = match lot_of(&tlk) {
+                        Ok(l) => l,
+                        Err(r) => return r,
+                    };
+                    if (tl.owner_tag, tl.resource) != (l.owner_tag, l.resource) || tlk == lk {
+                        return bad(
+                            "its destination lot is not another lot of the same owner and resource"
+                                .into(),
+                        );
+                    }
+                    let tv = match vault_of(&tvk) {
+                        Ok(v) => v,
+                        Err(r) => return r,
+                    };
+                    let by = if a.slot == x::SHIP_BY_OWNER {
+                        K::By::Owner
+                    } else {
+                        K::By::Order {
+                            slot: a.slot,
+                            id: a.id,
+                        }
+                    };
+                    if let Err(e) =
+                        K::spend_ship(&v, &mut l, &actor, by, q, K::ShipTo::Lot(tl.place()), bell)
+                    {
+                        return refused(e);
+                    }
+                    if let Err(e) = K::begin_inbound(&tv, &mut tl, (actor.tag, seq), kept) {
+                        return refused(e);
+                    }
+                    if let Some(f) = lot_left(&lk, &l).or_else(|| lot_left(&tlk, &tl)) {
+                        return f;
+                    }
+                }
+                _ => {
+                    let Ok(a) = x::WithdrawLot::decode(c.data) else {
+                        return bad("its data does not decode".into());
+                    };
+                    // The destination: one of the signer's own live places,
+                    // the one named.
+                    let Some(dk) = key(6) else {
+                        return un("the instruction lacks its destination account");
+                    };
+                    let Some(db) = (c.before)(&dk) else {
+                        return un(
+                            "the destination's state before the transaction is not in the input",
+                        );
+                    };
+                    match super::v23_caravans::live_place(&db) {
+                        Some((p, owner))
+                            if owner == citizen_key
+                                && (p.kind, p.p, p.q, p.at, p.gen)
+                                    == (a.dst_kind, a.dst_p, a.dst_q, a.dst_at, a.dst_gen) => {}
+                        _ => {
+                            return bad(
+                                "its destination is not the signer's own live place named".into()
+                            )
+                        }
+                    }
+                    let to = K::PlaceRef {
+                        kind: a.dst_kind,
+                        p: a.dst_p,
+                        q: a.dst_q,
+                        at: a.dst_at,
+                        gen: a.dst_gen,
+                        tile: 0,
+                    };
+                    if let Err(e) = K::spend_ship(
+                        &v,
+                        &mut l,
+                        &actor,
+                        K::By::Owner,
+                        q,
+                        K::ShipTo::OwnPlace(to),
+                        bell,
+                    ) {
+                        return refused(e);
+                    }
+                    if let Some(f) = lot_left(&lk, &l) {
+                        return f;
+                    }
+                }
+            }
+            partial()
+        }
+        // ---------------------------------------------- the settlement
+        Ix::SettleCustody => {
+            let Ok(a) = x::SettleCustody::decode(c.data) else {
+                return bad("its data does not decode".into());
+            };
+            let (Some(ck), Some(vk), Some(lk), Some(bk), Some(rk)) =
+                (key(2), key(3), key(4), key(5), key(6))
+            else {
+                return un("the instruction lacks its accounts");
+            };
+            if bk != a.beneficiary {
+                return bad("its beneficiary account is not the one named".into());
+            }
+            let Some(cd) = (c.before)(&ck) else {
+                return un("the caravan's state before the transaction is not in the input");
+            };
+            if cd.len() < CV::SIZE || cd[..8] != CV::MAGIC {
+                return bad("its caravan account is not a Caravan".into());
+            }
+            let (tag, seq) = (
+                le(&cd[CV::OWNER_TAG..CV::OWNER_TAG + 8]),
+                le(&cd[CV::SEQ..CV::SEQ + 4]) as u32,
+            );
+            if ck != frontier_abi::v2::addr::caravan(&ctx, tag, seq) {
+                return bad("its caravan account is not that caravan's address".into());
+            }
+            if cd[CV::STATE] != CV::STATE_MOVING {
+                return bad("the caravan was not moving".into());
+            }
+            if cd[CV::CUSTODY] != CV::CUSTODY_LOT {
+                return bad("the caravan is not a custody caravan".into());
+            }
+            if c.time < le(&cd[CV::ARRIVE_TS..CV::ARRIVE_TS + 8]) as i64 {
+                return bad("the caravan had not arrived".into());
+            }
+            if cd[CV::RENT_TO..CV::RENT_TO + 32] != rk {
+                return bad("its rent account is not the caravan's".into());
+            }
+            let res = cd[CV::CUSTODY_RESOURCE];
+            if res as usize >= 8 {
+                return bad("the caravan's custody resource is not a resource".into());
+            }
+            let cargo = le(&cd[CV::cargo(res as usize)..CV::cargo(res as usize) + 8]) as i64;
+            let owner_tag = le(&cd[CV::CUSTODY_OWNER_TAG..CV::CUSTODY_OWNER_TAG + 8]);
+            let dst = CV::DST;
+            let (dp, dq) = (
+                le(&cd[dst + PLC::P..dst + PLC::P + 2]) as u16 as i16,
+                le(&cd[dst + PLC::Q..dst + PLC::Q + 2]) as u16 as i16,
+            );
+            let (dgen, dtile) = (cd[dst + PLC::GEN], cd[dst + PLC::TILE]);
+            if lk != frontier_abi::v2::addr::lot(&ctx, dp, dq, dtile, dgen, owner_tag, res) {
+                return bad("its lot account is not the caravan's destination lot".into());
+            }
+            let mut l = match lot_of(&lk) {
+                Ok(l) => l,
+                Err(r) => return r,
+            };
+            if vk != frontier_abi::v2::addr::vault(&ctx, l.p as i32, l.q as i32, l.tile) {
+                return bad("its vault account is not the lot's vault".into());
+            }
+            let v = match known_before(c, &vk) {
+                Ok(Some(d)) => match vault_view_of(&d) {
+                    Some(v) => Some(v),
+                    None => return bad("its vault account is not a Vault".into()),
+                },
+                Ok(None) => None,
+                Err(()) => {
+                    return un("the vault's state before the transaction is not in the input")
+                }
+            };
+            if let Err(e) = K::finish_inbound(v.as_ref(), &mut l, (tag, seq), cargo) {
+                return refused(e);
+            }
+            if let Some(f) = lot_left(&lk, &l) {
+                return f;
+            }
+            match (c.after)(&ck) {
+                None => return un("the caravan's state after the transaction is not in the input"),
+                Some(Some(d)) if d.iter().any(|b| *b != 0) => {
+                    return bad("the caravan is not closed".into())
+                }
+                Some(_) => {}
+            }
+            partial()
+        }
+        // ---------------------------------------------- reconciliation
+        _ => {
+            let (Some(vk), Some(lk)) = (key(2), key(3)) else {
+                return un("the instruction lacks its accounts");
+            };
+            let mut l = match lot_of(&lk) {
+                Ok(l) => l,
+                Err(r) => return r,
+            };
+            if vk != frontier_abi::v2::addr::vault(&ctx, l.p as i32, l.q as i32, l.tile) {
+                return bad("its vault account is not the lot's vault".into());
+            }
+            let mut v = match known_before(c, &vk) {
+                Ok(Some(d)) => match vault_view_of(&d) {
+                    Some(v) => Some(v),
+                    None => return bad("its vault account is not a Vault".into()),
+                },
+                Ok(None) => None,
+                Err(()) => {
+                    return un("the vault's state before the transaction is not in the input")
+                }
+            };
+            let mut changed = false;
+            let mut seized = false;
+            if let Some(v) = v.as_mut() {
+                if l.state == K::LOT_OPEN && v.gen != l.vault_gen {
+                    if let Err(e) = K::forfeit(v, &mut l) {
+                        return refused(e);
+                    }
+                    changed = true;
+                    seized = true;
+                }
+            }
+            for ak in c.accounts.iter().skip(4) {
+                let Some(i) = l.inbound.iter().position(|ib| {
+                    ib.live && *ak == frontier_abi::v2::addr::caravan(&ctx, ib.caravan_tag, ib.seq)
+                }) else {
+                    return bad("a listed caravan is not one the lot expects".into());
+                };
+                let ck = (l.inbound[i].caravan_tag, l.inbound[i].seq);
+                let seen = match known_before(c, ak) {
+                    Ok(None) => K::CaravanSeen::Absent,
+                    Ok(Some(d)) if d.len() >= CV::SIZE && d[..8] == CV::MAGIC => {
+                        if d[CV::CUSTODY] == CV::CUSTODY_TAKEN {
+                            K::CaravanSeen::Taken
+                        } else {
+                            K::CaravanSeen::Custody
+                        }
+                    }
+                    Ok(Some(_)) => return bad("a listed caravan account is not a Caravan".into()),
+                    Err(()) => {
+                        return un(
+                            "a listed caravan's state before the transaction is not in the input",
+                        )
+                    }
+                };
+                if let Err(e) = K::drop_inbound(&mut l, ck, seen) {
+                    return refused(e);
+                }
+                changed = true;
+            }
+            if !changed {
+                return bad("it changes nothing (the program refuses that)".into());
+            }
+            if let Some(f) = lot_left(&lk, &l) {
+                return f;
+            }
+            if seized {
+                let want = v.expect("seized");
+                match (c.after)(&vk) {
+                    None => return un("the vault's state after the transaction is not in the input"),
+                    Some(d) => match d.as_deref().and_then(vault_view_of) {
+                        Some(got) if (got.stores, got.quota, got.lots) == (want.stores, want.quota, want.lots) => {}
+                        Some(_) => return bad("it left the vault's stores or custody counts otherwise than the forfeiture".into()),
+                        None => return bad("it left no Vault at the vault account".into()),
+                    },
+                }
+            }
+            Replayed::Matches
         }
     }
 }
