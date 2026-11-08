@@ -697,3 +697,10 @@ fa822453 の上に載せた。各チームのサブツリーは、チームが�
 - 外の木（`WS*_ROOT` がこのチェックアウトでない）：scan は読まない。**拒否**（95b0ab22、exit 6）。手で監査するまで流さない。
 - Rust の binary（`RUNEXEC_BIN`）：scan は読まない。`RUNEXEC_BIN_SHA256` で bytes を名指したときだけ流す。「監査した source から build した」は実行する人の申告で、④ の build（`f039854a…`、16576826 から。`workstreams/04-execution/src` はその後変わっていない）について ④ が申告する。それ以外は**要手動監査**。
 - package の import（node_modules）：scan は辿らない。実行のときの guard だけが守る。
+
+**§17 への追記（⑯ の REPORT §28 と照合して、2026-11-08）**
+- ⑯ の checkpoint は 55d5c2da まで（⑯ が確かめた）。④ の checkpoint は 95b0ab22（node-keyfree.sh の門。⑯ はまだ確かめていない）。55d5c2da と 95b0ab22 の差は `scripts/ci/node-keyfree.sh` だけ。
+- **原因が分からないまま残る 1 件**：③ の integration の「③ and ⑤ on one agent…」が、⑯ の 4d44f021 の run で一度だけ落ちた（`r3.state` が undefined）。その後の 9 回と基準の 5 回では再現しない。後退とも flake とも断定しない。
+- **⑯ の hook の下で結論が出ていない gateway の試験 37 件**（hook と module の link が合わない）。候補の欠陥ではないが、確かめてもいない。
+- **④ の run が使った外の root と binary**（⑯ の問い）：⑥ connect-live・ports などの run では、`WS03_ROOT`・`WS04_ROOT` はどちらもこの候補の木（int-merge の作業木の root）。`RUNEXEC_BIN` は 16576826 から build した debug の runexec（sha256 `f039854aaaad26d141201f9e1066eacf4be11e69f0c2f1e6365ad0bd3d76819b`）。`workstreams/04-execution/src` は 16576826 から変わっていない。95b0ab22 からは、この binary を `RUNEXEC_BIN_SHA256` で名指さないと流れない。
+- ⑯ の手順の誤り：`71713b34` の広い add -f（⑯ の §27.9 で監査済み、untrack 済み、履歴には残る）。
