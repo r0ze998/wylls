@@ -4006,3 +4006,43 @@ env -u NODE_OPTIONS -u WS04_SCAN_ROOT -u RUNEXEC_BIN -u RUNEXEC_VIEW_BIN bash sc
 - package を読み込まず、置き換えを読み直して、効かなければ失敗する。これは今の guard の「黙ってあきらめる」問題に答えている。
 - resolve の hook は、static と dynamic の ESM import に効く。ただし、node:test の内部の module は hook を通らない。だから `node:vm` などを拒んでも、試験の runner は壊れない見込みである。これは実行して確かめていない。
 - `--test` の子の process は、親の `--import` を execArgv で受け継ぐ（⑯ の以前の hook v2 の active check で見た挙動）。
+
+## 29.40 19 の書き直しの結果、a41d1cd2 での 3 file、4 の記録の script、7 の ws07-guard の修正（⑯ は何も走らせていない）
+
+### A. 19 の 59f4a064 の書き直しの 1 回（19 の報告。記録は 19 の scratchpad にある）
+
+- cargo 1.95.0、rustc 1.95.0、exit は 101 で想定どおり。S1 の古い assertion（494 行目、events が 121 で、期待は 67）で落ちた。M1 と柵の試験は通った。
+- 変わった file は、S1 と柵の golden だけ。M1 は一字一句同じ。
+- **19 が宣言した範囲の外の変化：`/h/season` の `headSeq`。**
+  - 静的に確かめた。`headSeq` は `views.rs:84` の `f.st.events.to_string()` で、`fold.rs:652` が record を 1 つ fold するたびに 1 増やす。
+  - だから、宣言した `/h/events` の record の数と同じ量で、新しい挙動ではない。⑯ は、これを event の数の範囲に含めて受け入れる。
+- 数の照合。
+  - 各段で +54 ＝ 輪 2〜4 の州の数（12＋18＋24）。KEEP は州 1 つにつき 1 つ。
+  - grown では +84 ＝ 54＋30（輪 5）。
+  - keep/4,0 の 200 の本体（tile 1、troops 100、holder 0）は、§29.31 で page の codec で読んだ (4,0) の州の bytes（keep の tile 1、troops 100）と合う。
+- 次の手順：19 は assertion を直し、golden の 2 つと合わせて commit し、その SHA を ⑯ に送る。⑯ が審査してから、比べる mode の run をする。
+
+### B. 19 の a41d1cd2 での 3 file（4 が統合の候補にしたいもの）
+
+- 553f7fe7 から a41d1cd2 への差分は、S1 の golden、`ws19_map_contract.rs`、`web-frontier-map-contract.test.mjs`（+22 行、import の追加は無し）の 3 file だけ。preload の 15 file には差分が無い。
+- a41d1cd2（tree `6cdc86c2…`）で：
+  - map-contract は closure `aefe0a5e…`。52 file で、鍵の API を名指す file は無い。一覧にも載らない。
+  - map-arrival は `61acfc1b…`、growth-route は `6af13991…`。どちらも 553f7fe7 と同じ。
+  - 追えない構文は 0。`--check` は exit 0。
+- 判定：§29.36 の B〜D の条件のまま、この 3 file は **a41d1cd2、および同じ tree `6cdc86c2` を持つ 4 の f293a684** で、許可できる。
+
+### C. 4 の記録の script（40b41ac4、手元だけ、走らせていない）
+
+- 4 は、§29.36 の B〜D の条件を強制して、node-keyfree.sh を 1 file ずつ呼ぶだけの recorder を作った。guard は加えない。
+- 所見：
+  - `node-keyfree.sh` と `scan-node-key-tests.mjs` の sha256 も固定して確かめるとよい。どちらも実行される code である。
+  - recorder の中の `node … --digest` は、file を読む node の起動で、guard の外で走る。scan は、file を読むのと `git ls-files` だけをする。
+- これを commit すると HEAD が変わるので、使うには、その SHA を ⑯ がもう一度審査する必要がある。
+
+### D. 7 の c3826129（ws07-guard の自己試験を外したもの。走らせていない）
+
+- 変わったのは `ws07-guard.screen.mjs` だけ（+25 −67）。
+- `keyFromSeed(`、`publicKeyOf(`、`generateKey(`、`deriveBits(`、`deriveKey(`、`.sign(`、`importKey(`、`signMessage(`、`signTransaction(`、digest の数えは、どれも 0 件。
+- 残っているのは `String(…)` で source の text を読むことだけ（36〜42、81、89 行目）。fail-closed の試験は、guard の無い `/session.mjs` を import するが、その top-level は鍵の関数を呼ばない（§29.24 の審査）。
+- `srv.stage('holding')` は、live が null なので createLive に届かない。
+- 判定：**鍵の自己試験は取り除かれた。** ただし、browser の画面の実行は、§29.39 D の 4 つの点が満たされるまで、除外のままである。
