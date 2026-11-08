@@ -2,3 +2,4 @@
 4bfe2198db048805c5705d7d17c966711a04e6eec65ed62afc026c4c28fc0fb6  0002-Program-custody-share-the-lot-and-vault-helpers-with.patch
 78f12d7a995ff719b03c5bcb779a4be4f83a654f721ec6a5edadc9bb9439c278  0003-Verifier-V26-replay-the-lot-s-side-of-the-custody-ca.patch
 8a254c71b4575d1276c7f4a4394fe8f381a91841ad8ca86286556ee5f71f5cfe  0004-Verifier-V26-the-caravan-instructions-records-agains.patch
+1cfe322230a1a6b73b4678a78bf3d704085f2d0cc614f2c47b7fe49108c901d7  0005-Verifier-V26-single-lot-records-canonical-addresses-.patch

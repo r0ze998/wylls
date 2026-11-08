@@ -100,3 +100,18 @@
 ## 6. ④への適用方法
 
 `af41e617` の上で `git am workstreams/10-custody/patches-candidate/0003-*.patch 0004-*.patch`（`sha256sum -c SHA256SUMS`）。結果は `6e50cc75…`、`8199dc35…`（tree `fd033ff2b1807ccfc876ff81706d2930588a5556`）。または⑩の担当ブランチの merge の第 2 親として保存した commit を cherry-pick。変えるのは `frontier-node/crates/verify` の `checks/v26_custody.rs` と試験だけ（`codes.rs`・`mod.rs` は変えない）。確認：`cargo test --locked -p verify --test custody --test custody_state --test custody_history --test custody_replay --test custody_replay_caravans`（42 件）。
+
+## 7. 追補：16576826 の上の 0005（2026-11-08）
+
+④の統合候補 `16576826084a8ea7bd6b12b845d50b97f3d14904` は⑩の 0001〜0004 を含む（`v26_custody.rs`・`custody_replay_caravans.rs` の blob が⑩のものと同じであることを確認した）。その上に `patches-candidate/0005`：commit `0075d356ba519bdf2af80843b30db71e71725c4b`（tree `79e331928a97e25f8b406774284939d27308a185`）。④の先端 `4d44f021` にも `git apply --check` で当たる（その間の commit は⑩のファイルに触れていない）。
+
+| 変えたこと | 前 | 後 |
+|---|---|---|
+| 単命令の記録 | OpenLot・SetLotQuota・SetLotOrder・RevokeLotOrder・ConsumeLot は区画と倉が一致すれば所見なし（記録は見ていない） | `LOT_OPENED`・`LOT_QUOTA`・`LOT_ORDER`（受け手の tag はその Citizen から）・`LOT_REVOKED`（カーネルが解放した量）・`LOT_CONSUMED` を照らし合わせ、区画の `LOT_LOSS` がないこと。記録が見えなければ UNVERIFIABLE（完全な一致には記録が要る）。CloseLot の CLOSE（鎖と lamports）は比べない |
+| 矛盾する記録 | 同じ種類・鍵の記録が 2 つあり、片方が一致すれば通っていた | FAIL（プログラムは 1 命令に 1 つ） |
+| 住所 | 区画・倉の住所を見ていなかった：同じ状態を別の口座に置いても一致した（**欠陥**） | 区画は `addr::lot`、倉は `addr::vault`（公開の導出）、単命令の倉は区画の倉、OpenLot の区画は新しい区画の住所、運ぶ注文の宛先と預け入れの出どころの倉も（プログラムの確認と同じ） |
+| 下がった CONSUMED | 履歴の検査は通し、V26 の所見は何も出なかった（ガードの痕跡だけ） | `CustodyHistoryUnexplained`（UNVERIFIABLE）：「CONSUMED fell by …: a return of unused goods, which no record shows yet」。返却の記録の種類は④の採番待ち（決めていない） |
+
+試験（鍵の生成・導出・署名なし、固定 seed なし）：`custody` 6・`custody_history` 9・`custody_replay` 14・`custody_replay_caravans` 13・`custody_state` 7（49 件）、`new_bands` 10、lib の `v0_` 1、`frontier-node` の check、stable の clippy `-D warnings`、rustfmt：すべて通過（16576826 + 0005）。変異 7 件（区画の住所・倉が区画のもの・二重の記録・下がった CONSUMED の注記・新しい区画の住所・隊商の区画の住所・単命令の記録）をすべて検出。
+
+④へ：V23 の `route`・`check_caravan`・`check_slots`・`slots_of` を `pub(crate)` にするかは引き続き④の判断（§3 H1・H2）。⑩は V23 のファイルを変えていない。
