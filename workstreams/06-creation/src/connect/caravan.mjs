@@ -158,7 +158,10 @@ export function toRunSpecs({ plan, planHash, env, nonce, places, ownerTag, deadl
   if (confirmedRev(plan, "caravan.send") !== now) {
     return { ok: false, findings: [{ code: "EFFECT_REVISED", effect: "caravan.send", confirmed: confirmedRev(plan, "caravan.send"), now }] };
   }
-  if (typeof nonce !== "string" || !nonce) return { ok: false, findings: [{ code: "SHAPE", detail: "nonce" }] };
+  if (typeof nonce !== "string" || !NONCE.test(nonce)) return { ok: false, findings: [{ code: "SHAPE", detail: "nonce: 1–16 of A–Z a–z 0–9 . _ -" }] };
+  if (!/^[0-9a-f]{64}$/.test(planHash)) return { ok: false, findings: [{ code: "SHAPE", detail: "planHash" }] };
+  const badStep = m.steps.find((x) => !STEP.test(x.id));
+  if (badStep) return { ok: false, findings: [{ code: "SHAPE", step: badStep.id, detail: "a step id in a run id: 1–40 of A–Z a–z 0–9 _ -" }] };
   const params = plan.bindings?.params ?? {};
   const runs = [];
   for (const s of stepOrder(m)) {
@@ -176,7 +179,7 @@ export function toRunSpecs({ plan, planHash, env, nonce, places, ownerTag, deadl
     runs.push({
       step: s.id,
       spec: {
-        run_id: `ws06:${planHash}:${nonce}:${s.id}`,
+        run_id: runIdOf(planHash, nonce, s.id),
         owner: ownerTag,
         stock: placeRef(src),
         inbound: null,
@@ -221,34 +224,47 @@ export function bindInbound(entry, prevEntry, prevView) {
   const v = readRunView(prevView);
   if (!v.ok) return v;
   if (v.runId !== prevEntry.spec.run_id) return { ok: false, code: "SHAPE", detail: "the view is of another run" };
+  if (v.view.spec?.owner !== prevEntry.spec.owner) return { ok: false, code: "SHAPE", detail: "the view's owner is not the plan's" };
   if (["Failed", "Cancelled", "Expired"].includes(v.state)) return { ok: false, code: "INBOUND_STOPPED", state: v.state, why: "前の荷車は送られなかった・止まった。次の手順は始めない" };
   if (!SHIPPED.includes(v.state) || !Number.isSafeInteger(v.view.detail?.ship_seq)) return { ok: false, code: "WAIT", state: v.state, why: "前の荷車がまだ道に出ていない（連番が決まっていない）" };
   return { ok: true, spec: { ...entry.spec, inbound: { owner: v.view.spec.owner, seq: v.view.detail.ship_seq } } };
 }
 
+/** ④'s run view (`runexec run view`, src/view.rs `p04-run/0.1`, ④ cf517b55). */
 function readRunView(view) {
-  if (view?.viewVersion !== "p04-run/0.1") return { ok: false, code: "SHAPE", detail: `view version ${view?.viewVersion}` };
+  if (view?.view_version !== "p04-run/0.1") return { ok: false, code: "SHAPE", detail: `view version ${view?.view_version}` };
   if (!RUN_STATES.includes(view.state)) return { ok: false, code: "SHAPE", detail: `unknown run state ${view.state}` };
-  return { ok: true, runId: view.runId, state: view.state, view };
+  if (typeof view.run_id !== "string") return { ok: false, code: "SHAPE", detail: "run_id" };
+  return { ok: true, runId: view.run_id, state: view.state, view };
 }
 
 /**
- * 06's result from a ④ run view: the same reading as `resultOf`. PROVISIONAL
- * shape (`p04-run/0.1`: runId, state, held, cancel, detail.outcome,
- * detail.ship_seq, spec) — 06's guess, used by the dispatch tests; ④'s
- * accept/view command, being written in ④, defines the real one, and this
- * reader follows it when it arrives.
+ * 06's result from ④'s run view (`runexec run view` / the answer of `run
+ * accept`, src/view.rs): the same reading as `resultOf`. `sent` and
+ * `settled` in the view come from receipts, not from a request's state.
  */
 export function resultOfRun4(view) {
   const v = readRunView(view);
   if (!v.ok) return v;
-  return resultOf({ run_id: view.runId, state: view.state, outcome: view.detail?.outcome ?? null, held_reason: view.held ?? null, cancel_phase: view.cancel ?? null });
+  return resultOf({ run_id: view.run_id, state: view.state, outcome: view.outcome ?? view.detail?.outcome ?? null, held_reason: view.held_reason ?? null, cancel_phase: view.cancel_phase ?? null });
 }
 
 /** ③'s placeIds: `vault:p,q,tile` and `village:p,q,site` (mcp/src/game.mjs). */
 export const PLACE_ID = /^(vault|village):-?\d+,-?\d+,\d+$/;
 /** ③'s requestId (mcp/src/tools.mjs REQUEST_ID). */
 export const REQUEST_ID = /^[A-Za-z0-9._:-]{8,100}$/;
+/** ③'s runId (tools.mjs RUN_ID, 84f710d5); ④'s run_id is 1..=128 bytes (main.rs read_spec). */
+export const RUN_ID = /^[A-Za-z0-9._:-]{8,128}$/;
+/** A run request's nonce and a step id, as they go into a run id: `ws06:<plan hash 64>:<nonce ≤16>:<step ≤40>` ≤ 127. */
+const NONCE = /^[A-Za-z0-9._-]{1,16}$/;
+const STEP = /^[A-Za-z0-9_-]{1,40}$/;
+
+/** 06's run id of one step of one run request; null when the parts do not fit ③'s and ④'s rule. */
+export function runIdOf(planHash, nonce, step) {
+  if (!/^[0-9a-f]{64}$/.test(planHash) || !NONCE.test(nonce) || !STEP.test(step)) return null;
+  const id = `ws06:${planHash}:${nonce}:${step}`;
+  return RUN_ID.test(id) ? id : null;
+}
 
 /**
  * The ③ MCP calls for one accepted run request of an adopted plan, on the
@@ -274,8 +290,10 @@ export function toMcpCaravans({ plan, planHash, env, nonce, view, effectRevs }) 
   if (!c.connectable) return { ok: false, findings: c.reasons.map((r) => ({ code: "NOT_CONNECTED", ...r })) };
   const now = effectRev({ effectRevs }, "caravan.send");
   if (confirmedRev(plan, "caravan.send") !== now) return { ok: false, findings: [{ code: "EFFECT_REVISED", effect: "caravan.send", confirmed: confirmedRev(plan, "caravan.send"), now }] };
-  if (typeof nonce !== "string" || !/^[A-Za-z0-9._-]{1,32}$/.test(nonce)) return { ok: false, findings: [{ code: "SHAPE", detail: "nonce: 1–32 of A–Z a–z 0–9 . _ -" }] };
+  if (typeof nonce !== "string" || !NONCE.test(nonce)) return { ok: false, findings: [{ code: "SHAPE", detail: "nonce: 1–16 of A–Z a–z 0–9 . _ -" }] };
   if (!/^[0-9a-f]{64}$/.test(planHash)) return { ok: false, findings: [{ code: "SHAPE", detail: "planHash" }] };
+  const badStep = m.steps.find((x) => !STEP.test(x.id));
+  if (badStep) return { ok: false, findings: [{ code: "SHAPE", step: badStep.id, detail: "a step id in a run id: 1–40 of A–Z a–z 0–9 _ -" }] };
   const mine = new Map((view?.places ?? []).map((p) => [p.placeId, p]));
   const params = plan.bindings?.params ?? {};
   const findings = [];
@@ -292,7 +310,7 @@ export function toMcpCaravans({ plan, planHash, env, nonce, view, effectRevs }) 
     for (const p of problems) findings.push({ code: "CARGO", step: s.id, ...p });
     if (!cargo.some((n) => n > 0)) findings.push({ code: "CARGO", step: s.id, why: "空の荷車（③ は NoCargo）" });
     if (findings.length) continue;
-    const runId = `ws06:${planHash}:${nonce}:${s.id}`;
+    const runId = runIdOf(planHash, nonce, s.id);
     calls.push({
       step: s.id,
       prepare: { from, to, cargo },

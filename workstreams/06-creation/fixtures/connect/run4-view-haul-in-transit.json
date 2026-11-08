@@ -1,6 +1,17 @@
 {
-  "cancel": null,
-  "cancelRequested": false,
+  "attempts": [
+    {
+      "fee": 5000,
+      "request_key": "cv:77:0",
+      "sig": "b9315e828ab2d4bdc45e6c4442d984e594c47f1f",
+      "status": "landed",
+      "step": "ship",
+      "valid_until": 12
+    }
+  ],
+  "cancel_phase": null,
+  "cancel_requested": false,
+  "cargo_only": true,
   "detail": {
     "cancel": null,
     "fac_attempts": 0,
@@ -24,7 +35,20 @@
     "ship_seq": 0,
     "unresolved": 0
   },
-  "held": null,
+  "effects": [
+    "caravan_sent"
+  ],
+  "fees": {
+    "charged": 5000,
+    "released": 0,
+    "reserved": 0,
+    "unconfirmed": 0
+  },
+  "held_reason": null,
+  "in_flight": false,
+  "next_check": 3,
+  "outcome": null,
+  "reason": null,
   "receipts": [
     {
       "body": {
@@ -48,7 +72,9 @@
       "subject": "cv:77:0"
     }
   ],
-  "runId": "ws06:10442184bb06d9953641c47f952500e0ba835d582005544b377d1c8db4fa073b:r1:haul",
+  "run_id": "ws06:10442184bb06d9953641c47f952500e0ba835d582005544b377d1c8db4fa073b:r1:haul",
+  "sent": true,
+  "settled": false,
   "spec": {
     "budget": {
       "max_attempts": 3,
@@ -56,7 +82,6 @@
       "max_port_errors": 5
     },
     "deadline_slot": 400,
-    "facility": null,
     "inbound": null,
     "inputs": [
       0,
@@ -108,7 +133,35 @@
       "q": 0
     }
   },
+  "spec_digest": "e881249239537cf13cdf4f85e441d25208590b30168aedbe2051c146e215e671",
   "state": "InTransit",
   "terminal": false,
-  "viewVersion": "p04-run/0.1"
+  "transitions": [
+    {
+      "executor": "exec-a",
+      "from": "Accepted",
+      "reason": "cargo only: cargo reserved, no facility step",
+      "to": "FacilityConfirmed"
+    },
+    {
+      "executor": "exec-a",
+      "from": "FacilityConfirmed",
+      "reason": "SendCaravan signed, seq 0 pinned",
+      "to": "ShipRequested"
+    },
+    {
+      "executor": "exec-a",
+      "from": "ShipRequested",
+      "reason": "accepted by the execution path",
+      "to": "ShipSubmitted"
+    },
+    {
+      "executor": "exec-a",
+      "from": "ShipSubmitted",
+      "reason": "caravan cv:77:0 is ours (signature and content)",
+      "to": "InTransit"
+    }
+  ],
+  "version": 4,
+  "view_version": "p04-run/0.1"
 }

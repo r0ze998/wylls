@@ -2,9 +2,10 @@
  * 06's caravan connection checked against the delivered code of ③ and ④,
  * not against 06's own copies of their contracts.
  *
- *   WS03_ROOT   a checkout of ③ (preserve/ws03-mcp-acdcd0bf, acdcd0bf…)
- *   WS04_ROOT   a checkout of ④ (claude/gallant-ride-cunptv, 8e96f24d…)
+ *   WS03_ROOT   a checkout of ③ (claude/modest-goldberg-c180fk, 84f710d5…)
+ *   WS04_ROOT   a checkout of ④ (claude/gallant-ride-cunptv, cf517b55…)
  *   RUNEXEC_BIN ④'s `runexec`, built from WS04_ROOT (cargo build --release --bin runexec)
+ *   WS06_RUN4_STORE  optional: a store ④'s executor wrote on 06's specs (handoff/ws04-check)
  *
  * Without them every test is skipped. Nothing here generates, imports,
  * derives or uses a key, or signs: the crypto guard below is installed
@@ -106,54 +107,75 @@ test("④'s gateway accepts the action ③ would build from 06's call; the key f
   assert.throws(() => parseActionRequest({ ...request, source: "ws06" }), (e) => e.code === "BadRequest");
 });
 
-/** Whether this ④ takes a caravan-only RunSpec (`facility: Option<FacilityRef>`, ④ 30a3fd2e and later). */
-function has4a() {
+// the requester as the gateway's credential layer hands it over: public addresses only, nothing authenticated here
+const ADDR = (n) => "1".repeat(31) + n;
+const REQ = { actor: ADDR("A"), generation: 1, citizen: ADDR("C"), authenticatedBy: "test: the gateway's credential layer (stand-in)" };
+const fixtureSpecs = () => JSON.parse(readFileSync(new URL("../fixtures/connect/ws06-runspecs.json", import.meta.url), "utf8"));
+
+test("④'s RunSpec takes 06's caravan-only spec (facility: Option, ④ 30a3fd2e and later)", { skip }, () => {
   const model = readFileSync(join(WS04_ROOT, "workstreams/04-execution/src/model.rs"), "utf8");
   const spec = model.slice(model.indexOf("pub struct RunSpec"), model.indexOf("}", model.indexOf("pub struct RunSpec")));
-  if (/pub facility: Option<FacilityRef>,/.test(spec)) return true;
-  assert.match(spec, /pub facility: FacilityRef,/);
-  return false;
-}
-
-test("④'s RunSpec: a required facility (before 30a3fd2e) or a cargo-only run (30a3fd2e and later)", { skip }, (t) => {
-  t.diagnostic(has4a() ? "④ with a cargo-only RunSpec (facility is Option; ④ 30a3fd2e and later)" : "④ before 30a3fd2e: facility is required");
+  assert.match(spec, /pub facility: Option<FacilityRef>,/);
 });
 
-/** Whether this runexec has an accept/view command for RunSpec JSON (④ is writing it; 06 does not). */
-function hasRunCli() {
-  try { execFileSync(RUNEXEC_BIN, ["run", "view", "--db", join(mkdtempSync(join(tmpdir(), "ws06-probe-")), "p.db"), "--run", "probe"], { encoding: "utf8", stdio: "pipe" }); return true; }
-  catch (e) { try { return JSON.parse(String(e.stdout).trim().split("\n").at(-1)).error === "NoRecord"; } catch { return false; } }
-}
+test("④ run accept: 06 hands the spec and the upstream requester through ④'s own client; a refusal is held as an answer", { skip }, async () => {
+  const { createRunsClient } = await load(WS04_ROOT, "workstreams/04-execution/clients/runs.mjs");
+  const { run4FromRunexec } = await import("../src/connect/ports.mjs");
+  const db = join(mkdtempSync(join(tmpdir(), "ws06-runs-")), "runs.db");
+  // no node at 127.0.0.1:9: ④ cannot read the pass, so nothing is admitted (④ reads the chain; 06 never decides who may run)
+  const runs = createRunsClient({ bin: RUNEXEC_BIN, db, rpc: "http://127.0.0.1:9", program: ADDR("P"), season: ADDR("S") });
+  const port = run4FromRunexec({ runs, bin: RUNEXEC_BIN, db });
+  const [haul] = fixtureSpecs();
+  await assert.rejects(port.accept(haul, REQ), (e) => e.code === "NotAuthorized" && e.definitive === true);
+  // a requester 06 would have to complete is refused by ④'s client before runexec is started
+  await assert.rejects(port.accept(haul, { ...REQ, authenticatedBy: "" }), (e) => e.code === "BadRequest" && e.definitive === true);
+  // the same through the dispatcher: held, the run id unchanged, nothing retried
+  const { Dispatch } = await import("../src/connect/dispatch.mjs");
+  const { relayRequest } = await import("../cli/connect-fixture.mjs");
+  let saved = null;
+  const d = new Dispatch({ journal: { load: () => saved, save: (o) => { saved = JSON.parse(JSON.stringify(o)); } }, run4: port });
+  const p = d.plan({ route: "run", ...relayRequest(), requester: REQ });
+  const st = await d.advance(p.key);
+  assert.equal(st.steps[0].state, "held");
+  assert.match(st.steps[0].why, /NotAuthorized/);
+  assert.equal(st.steps[0].runId, haul.run_id);
+  assert.equal(st.complete, false);
+});
 
-test("④ accept/view: runexec takes 06's RunSpec JSON and gives the run back by its id", { skip }, (t) => {
-  if (!has4a()) return t.skip("④ without a cargo-only RunSpec");
-  if (!hasRunCli()) return t.skip("④'s accept/view command has not arrived (being written in ④); the shape here is 06's provisional p04-run/0.1");
-  const fixture = readFileSync(new URL("../fixtures/connect/ws06-runspecs.json", import.meta.url), "utf8");
-  const dir = mkdtempSync(join(tmpdir(), "ws06-run4-"));
-  const db = join(dir, "runs.db");
-  const [haul] = JSON.parse(fixture);
-  const specFile = join(dir, "haul.json");
-  writeFileSync(specFile, JSON.stringify(haul));
-  const cli = (...a) => {
-    try { return { code: 0, out: JSON.parse(execFileSync(RUNEXEC_BIN, ["run", ...a, "--db", db], { encoding: "utf8" }).trim().split("\n").at(-1)) }; }
-    catch (e) { return { code: e.status, out: JSON.parse(String(e.stdout).trim().split("\n").at(-1)) }; }
-  };
-  assert.deepEqual(cli("accept", "--spec", specFile).out, { runId: haul.run_id, accepted: "Created" });
-  assert.equal(cli("accept", "--spec", specFile).out.accepted, "Existing(Accepted)");
-  writeFileSync(specFile, JSON.stringify({ ...haul, ship: { ...haul.ship, cargo: [0, 5, 0, 0, 0, 0, 0, 0] } }));
-  assert.equal(cli("accept", "--spec", specFile).code, 4, "same run id, another spec: Conflict");
-  writeFileSync(specFile, JSON.stringify({ ...haul, run_id: `${haul.run_id}:x`, rights_units: 1 }));
-  assert.equal(cli("accept", "--spec", specFile).code, 2, "a caravan-only run with right units is refused");
-  const v = cli("view", "--run", haul.run_id);
-  assert.equal(v.code, 0);
-  assert.equal(v.out.viewVersion, "p04-run/0.1");
-  assert.equal(v.out.state, "Accepted");
-  assert.equal(v.out.spec.facility, null);
-  const r = C.resultOfRun4(v.out);
-  assert.equal(r.ok, true);
-  assert.equal(r.final, false);
-  assert.deepEqual(r.counted, {});
-  assert.equal(cli("view", "--run", "ws06:none").code, 3, "NoRecord");
+test("④ run view: 06 reads ④'s own store with the real runexec; arrival and amount from ④'s judgement", { skip: skip || (!process.env.WS06_RUN4_STORE && "set WS06_RUN4_STORE (a store ④'s executor wrote on 06's specs: handoff/ws04-check)") }, async () => {
+  const { run4FromRunexec } = await import("../src/connect/ports.mjs");
+  const db = process.env.WS06_RUN4_STORE;
+  const port = run4FromRunexec({ runs: { accept: async () => { throw new Error("not used"); } }, bin: RUNEXEC_BIN, db });
+  const [haul, fwd] = fixtureSpecs();
+  const vh = await port.view(haul.run_id), vf = await port.view(fwd.run_id);
+  for (const v of [vh, vf]) {
+    const r = C.resultOfRun4(v);
+    assert.equal(r.ok, true, JSON.stringify(r));
+    assert.equal(r.state, "Fulfilled");
+    assert.deepEqual(r.counted, { wood: 4 });
+  }
+  assert.deepEqual(vf.spec.inbound, { owner: 119, seq: vh.detail.ship_seq }, "the second waited for the first caravan");
+  assert.equal(await port.view("ws06:none:x:y"), null, "NoRecord from a store that was read");
+  const nowhere = run4FromRunexec({ runs: {}, bin: RUNEXEC_BIN, db: join(mkdtempSync(join(tmpdir(), "ws06-none-")), "no-such-store.db") });
+  await assert.rejects(nowhere.view(haul.run_id), (e) => e.code === "StoreUnavailable", "a missing store is no answer, not NoRecord");
+});
+
+test("③'s rules in its source: requestId and runId patterns, the cargo names, the plan answers 06 treats as re-plan", { skip }, () => {
+  const tools = readFileSync(join(WS03_ROOT, "workstreams/03-composability/mcp/src/tools.mjs"), "utf8");
+  const server = readFileSync(join(WS03_ROOT, "workstreams/03-composability/mcp/src/server.mjs"), "utf8");
+  const re = (name) => new RegExp(tools.match(new RegExp(`export const ${name} = /(.+)/;`))[1]);
+  assert.equal(re("RUN_ID").source, C.RUN_ID.source);
+  const c = call();
+  assert.ok(re("REQUEST_ID").test(c.requestId) && re("RUN_ID").test(c.runId), `${c.requestId} ${c.runId}`);
+  const longest = C.runIdOf("f".repeat(64), "n".repeat(16), "s".repeat(40));
+  assert.ok(longest && re("RUN_ID").test(longest) && longest.length <= 128, "the longest 06 run id fits ③ and ④");
+  assert.equal(C.runIdOf("f".repeat(64), "n".repeat(17), "s"), null);
+  for (const code of ["PlanUnknown", "PlanUsed", "PlanExpired", "PlanStale", "IdempotencyConflict", "NotResent", "RunRegistryUnavailable"]) assert.ok(server.includes(`fail('${code}'`), code);
+  // the requestId check comes before the plan lookup: a gone plan is answered only when nothing was sent under the requestId
+  assert.ok(server.indexOf("const prior = store.operation(opId)") < server.indexOf("fail('PlanUnknown'"));
+  const names = tools.match(/\[('Food'[^\]]+)\]/)[1].split(",").map((x) => x.trim().replace(/'/g, ""));
+  assert.deepEqual(names.map((x) => x.toLowerCase()), [...C.CORE_RESOURCES]);
+  assert.match(tools, /name: 'get_run_status'/);
 });
 
 /** A loopback GET /f/agent/fate?id=&key= answering per key, chunked like the wallet. */

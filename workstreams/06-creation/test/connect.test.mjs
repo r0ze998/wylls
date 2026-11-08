@@ -207,9 +207,8 @@ test("④ act receipts: a send is never complete or counted; unknown holds; only
   assert.equal(resultOfAct({ ...act("landed"), receiptVersion: "p04-acts/9" }).ok, false);
 });
 
-// run views in 06's provisional p04-run/0.1 shape, written by ④'s executor on the specs below (in a scratch
-// checkout with 06's withdrawn proposal P06-4a; ④ 30a3fd2e gives the same states on the same specs, the
-// shape of ④'s own accept/view command is not known yet)
+// ④'s own run views (runexec::view::run_view, p04-run/0.1, ④ cf517b55), written by ④'s executor on the specs
+// below in a scratch checkout (handoff/ws04-check/ws06_check.rs, not left in ④)
 const VIEW4 = (name) => JSON.parse(readFileSync(new URL(`../fixtures/connect/run4-view-${name}.json`, import.meta.url), "utf8"));
 
 test("a two-caravan plan becomes two ④ runs; the second waits for the first (its caravan as inbound)", () => {
@@ -226,7 +225,8 @@ test("a two-caravan plan becomes two ④ runs; the second waits for the first (i
   assert.equal(b.ok, true, JSON.stringify(b));
   assert.deepEqual(b.spec.inbound, { owner: 119, seq: 0 });
   assert.equal(bindInbound(forward, haul, { ...VIEW4("haul-in-transit"), state: "Failed" }).code, "INBOUND_STOPPED");
-  assert.equal(bindInbound(forward, haul, { ...VIEW4("haul-in-transit"), runId: "other" }).code, "SHAPE");
+  assert.equal(bindInbound(forward, haul, { ...VIEW4("haul-in-transit"), run_id: "other" }).code, "SHAPE");
+  assert.equal(bindInbound(forward, haul, { ...VIEW4("haul-in-transit"), spec: { ...VIEW4("haul-in-transit").spec, owner: 1 } }).code, "SHAPE", "another owner's caravan is not bound");
   assert.equal(bindInbound(haul, forward, VIEW4("haul-in-transit")).ok, false, "the first waits for nothing");
   // ③'s MCP route plans one caravan at a time: a chain does not go that way
   assert.equal(connectability(relayManifest()).connectable, false);
@@ -251,5 +251,5 @@ test("④'s run views read as 06 results: arrival and amount from ④'s judgemen
   assert.equal(lost.state, "Failed");
   assert.equal(lost.actual.kind, "none");
   assert.deepEqual(lost.counted, {});
-  assert.equal(resultOfRun4({ ...VIEW4("haul-fulfilled"), viewVersion: "p04-run/9" }).ok, false);
+  assert.equal(resultOfRun4({ ...VIEW4("haul-fulfilled"), view_version: "p04-run/9" }).ok, false);
 });

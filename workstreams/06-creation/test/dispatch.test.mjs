@@ -2,11 +2,15 @@
  * Dispatch (src/connect/dispatch.mjs): run ids fixed from the plan, the
  * journal written before every outside call, lost answers and restarts.
  *
- * ④'s accept/view command and ③'s b76b0a57 have not arrived, so ④ and ③
- * are fakes with the idempotency their delivered contracts give: ④'s store
- * answers Created / Existing for one run id and spec, Conflict for another
- * spec; ③ sends one requestId once. A fake can apply a call and lose its
- * answer. A restart is a new Dispatch on the saved journal.
+ * ④ and ③ are fakes here with the behaviour of the delivered code
+ * (④ cf517b55 main.rs `run accept`, ③ 84f710d5 server.mjs send_caravan):
+ * ④ answers Created / Existing for one run id and spec, Conflict for another
+ * spec, NotAuthorized when the requester is not the pass's holder; ③
+ * answers a requestId it already took with that operation before it looks
+ * at the plan (another plan or run: IdempotencyConflict), and a gone plan
+ * only when it sent nothing. A fake can apply a call and lose its answer. A
+ * restart is a new Dispatch on the saved journal. test/connect-live.test.mjs
+ * runs the real ④ binary and checks ③'s rules in its source.
  *
  * No key is generated, imported, derived or used, and nothing is signed.
  */
@@ -28,6 +32,8 @@ const { relayRequest } = await import("../cli/connect-fixture.mjs");
 const { mineDelivery } = await import("../src/scenario.mjs");
 
 const lost = () => { const e = new Error("no answer (timeout)"); e.code = "LOST"; return e; };
+// the requester as the gateway's credential layer hands it over (public addresses; nothing here authenticates)
+const REQ = { actor: "1".repeat(31) + "A", generation: 1, citizen: "1".repeat(31) + "C", authenticatedBy: "test: the gateway's credential layer (stand-in)" };
 
 function memJournal() {
   let saved = null;
@@ -39,14 +45,17 @@ function memJournal() {
 function fake4() {
   const runs = new Map();
   const f = {
-    runs, accepts: 0, created: 0, loseAccept: 0, failView: 0,
-    async accept(spec) {
+    runs, accepts: 0, created: 0, loseAccept: 0, failView: 0, requesters: [], refuse: null,
+    async accept(spec, requester) {
       f.accepts++;
+      f.requesters.push(requester);
+      if (f.refuse) throw Object.assign(new Error("refused"), { code: f.refuse, definitive: true });
       const d = contentHash(spec);
       let result;
       const had = runs.get(spec.run_id);
       if (!had) { runs.set(spec.run_id, { spec, digest: d, state: "Accepted", detail: { ship_seq: null, outcome: null } }); f.created++; result = "Created"; }
-      else result = had.digest === d ? "Existing" : "Conflict";
+      else if (had.digest === d) result = "Existing";
+      else throw Object.assign(new Error("another spec under this run id"), { code: "Conflict", definitive: true });
       if (f.loseAccept > 0) { f.loseAccept--; throw lost(); }
       return { result };
     },
@@ -54,7 +63,8 @@ function fake4() {
       if (f.failView > 0) { f.failView--; throw new Error("could not ask"); }
       const r = runs.get(runId);
       if (!r) return null;
-      return { viewVersion: "p04-run/0.1", runId, state: r.state, terminal: ["Fulfilled", "Partial", "DeliveredUnverified", "Failed", "Cancelled", "Expired"].includes(r.state), held: r.held ?? null, cancel: null, detail: r.detail, spec: r.spec, receipts: [] };
+      // ④'s run view keys (src/view.rs)
+      return { view_version: "p04-run/0.1", run_id: runId, state: r.state, terminal: ["Fulfilled", "Partial", "DeliveredUnverified", "Failed", "Cancelled", "Expired"].includes(r.state), held_reason: r.held ?? null, cancel_phase: null, detail: r.detail, outcome: r.detail.outcome ?? null, spec: r.spec, receipts: [] };
     },
     /** what ④'s executor would have done to a run */
     set(runId, state, detail = {}) { const r = runs.get(runId); r.state = state; Object.assign(r.detail, detail); },
@@ -69,13 +79,13 @@ test("run route: ids fixed in the journal before any call; a lost accept answer 
   const four = fake4();
   let d = new Dispatch({ journal: j, run4: four });
   const req = relayRequest();
-  const p = d.plan({ route: "run", ...req });
+  const p = d.plan({ route: "run", ...req, requester: REQ });
   assert.equal(p.ok, true, JSON.stringify(p.findings));
   assert.equal(four.accepts, 0, "planning calls nobody");
   assert.equal(JSON.parse(JSON.stringify(j.load())).plans[p.key].steps[0].state, "planned");
   // the same request again: the same ids; other content under the same key: refused
-  assert.deepEqual(d.plan({ route: "run", ...req }).steps.map((s) => s.runId), p.steps.map((s) => s.runId));
-  assert.equal(d.plan({ route: "run", ...req, budget: { ...req.budget, max_fee: 1 } }).findings[0].code, "CONFLICT");
+  assert.deepEqual(d.plan({ route: "run", ...req, requester: REQ }).steps.map((s) => s.runId), p.steps.map((s) => s.runId));
+  assert.equal(d.plan({ route: "run", ...req, requester: REQ, budget: { ...req.budget, max_fee: 1 } }).findings[0].code, "CONFLICT");
 
   four.loseAccept = 1; // ④ stores the run, the answer is lost
   let st = await d.advance(p.key);
@@ -88,13 +98,18 @@ test("run route: ids fixed in the journal before any call; a lost accept answer 
   assert.equal(four.created, 1);
   assert.equal(four.accepts, 1, "the second pass looked first and did not repeat the accept");
   assert.equal(four.runs.size, 1, "the second step waits: it is not accepted before the first is on the road");
+  assert.ok(four.requesters.every((r) => JSON.stringify(r) === JSON.stringify(REQ)), "④ got the upstream requester unchanged");
+  // no requester, or one 06 would have to complete: not planned
+  for (const bad of [undefined, { ...REQ, authenticatedBy: "" }, { ...REQ, authenticatedBy: undefined }, { ...REQ, extra: 1 }, { ...REQ, actor: "x" }]) {
+    assert.equal(new Dispatch({ journal: memJournal(), run4: four }).plan({ route: "run", ...relayRequest(), requester: bad }).findings[0].code, "REQUESTER");
+  }
 });
 
 test("run route: the second step binds the first caravan once and keeps it across a restart; completion only from verified arrivals", async () => {
   const j = memJournal();
   const four = fake4();
   let d = new Dispatch({ journal: j, run4: four });
-  const p = d.plan({ route: "run", ...relayRequest() });
+  const p = d.plan({ route: "run", ...relayRequest(), requester: REQ });
   await d.advance(p.key);
   const [haul, fwd] = p.steps.map((s) => s.runId);
   four.set(haul, "InTransit", { ship_seq: 7 });
@@ -116,7 +131,7 @@ test("run route: the second step binds the first caravan once and keeps it acros
   // a fresh plan where both arrive verified in full: complete
   const j2 = memJournal(), f2 = fake4();
   const d2 = new Dispatch({ journal: j2, run4: f2 });
-  const p2 = d2.plan({ route: "run", ...relayRequest(), nonce: "r2" });
+  const p2 = d2.plan({ route: "run", ...relayRequest(), requester: REQ, nonce: "r2" });
   await d2.advance(p2.key);
   const [h2, w2] = p2.steps.map((s) => s.runId);
   f2.set(h2, "InTransit", { ship_seq: 1 });
@@ -131,7 +146,7 @@ test("run route: Conflict and a missing record are held, never answered with a n
   const j = memJournal();
   const four = fake4();
   const d = new Dispatch({ journal: j, run4: four });
-  const p = d.plan({ route: "run", ...relayRequest() });
+  const p = d.plan({ route: "run", ...relayRequest(), requester: REQ });
   // someone else's spec already sits under the first run id at ④
   const first = p.steps[0];
   four.runs.set(first.runId, { spec: { ...first.spec, ship: { ...first.spec.ship, cargo: [0, 9, 0, 0, 0, 0, 0, 0] } }, digest: "other", state: "Accepted", detail: {} });
@@ -142,7 +157,7 @@ test("run route: Conflict and a missing record are held, never answered with a n
   // a plan whose run is unknown to ④ after acceptance
   const j3 = memJournal(), f3 = fake4();
   const d3 = new Dispatch({ journal: j3, run4: f3 });
-  const p3 = d3.plan({ route: "run", ...relayRequest(), nonce: "r3" });
+  const p3 = d3.plan({ route: "run", ...relayRequest(), requester: REQ, nonce: "r3" });
   await d3.advance(p3.key);
   f3.runs.delete(p3.steps[0].runId);
   st = await d3.advance(p3.key);
@@ -151,16 +166,26 @@ test("run route: Conflict and a missing record are held, never answered with a n
   // Conflict on a fresh accept
   const j4 = memJournal(), f4 = fake4();
   const d4 = new Dispatch({ journal: j4, run4: f4 });
-  const p4 = d4.plan({ route: "run", ...relayRequest(), nonce: "r4" });
+  const p4 = d4.plan({ route: "run", ...relayRequest(), requester: REQ, nonce: "r4" });
   f4.view = async () => null;
   f4.runs.set(p4.steps[0].runId, { spec: {}, digest: "other", state: "Accepted", detail: {} });
   st = await d4.advance(p4.key);
   assert.equal(st.steps[0].state, "held");
   assert.equal(st.steps[0].runId, p4.steps[0].runId, "the run id did not change");
+  // the requester is not the pass's holder (④ NotAuthorized, exit 5): held, nothing retried
+  const j6 = memJournal(), f6 = fake4();
+  const d6 = new Dispatch({ journal: j6, run4: f6 });
+  const p6 = d6.plan({ route: "run", ...relayRequest(), requester: REQ, nonce: "r6" });
+  f6.refuse = "NotAuthorized";
+  st = await d6.advance(p6.key);
+  assert.equal(st.steps[0].state, "held");
+  assert.match(st.steps[0].why, /NotAuthorized/);
+  await d6.advance(p6.key);
+  assert.equal(f6.accepts, 1, "a refusal is not retried");
   // a view that cannot be read leaves the step as it was
   const j5 = memJournal(), f5 = fake4();
   const d5 = new Dispatch({ journal: j5, run4: f5 });
-  const p5 = d5.plan({ route: "run", ...relayRequest(), nonce: "r5" });
+  const p5 = d5.plan({ route: "run", ...relayRequest(), requester: REQ, nonce: "r5" });
   await d5.advance(p5.key);
   f5.failView = 1;
   st = await d5.advance(p5.key);
@@ -171,14 +196,24 @@ test("run route: Conflict and a missing record are held, never answered with a n
 // ③ faked: one requestId is sent once; ④'s act registry read by run id
 function fakeAct() {
   const f = {
-    sends: 0, applied: new Map(), loseSend: 0, receipts: new Map(),
-    async send({ requestId, runId }) {
-      if (!f.applied.has(requestId)) { f.applied.set(requestId, runId); f.sends++; f.receipts.set(runId, { receiptVersion: "p04-acts/0.1", runId, state: "registered", newAttemptAllowed: false }); }
+    sends: 0, prepares: 0, ops: new Map(), plans: new Map(), loseSend: 0, receipts: new Map(),
+    async prepare(args) { f.prepares++; const planId = `plan-${f.prepares}`; f.plans.set(planId, { args, live: true }); return { planId }; },
+    async send({ planId, requestId, runId }) {
+      const prior = f.ops.get(requestId);
+      if (prior) {
+        if (prior.planId !== planId || prior.runId !== runId) throw Object.assign(new Error("another plan or run"), { code: "IdempotencyConflict", definitive: true });
+      } else {
+        const pl = f.plans.get(planId);
+        if (!pl?.live) throw Object.assign(new Error("plan gone"), { code: "PlanAgain" });
+        pl.live = false;
+        f.ops.set(requestId, { planId, runId }); f.sends++;
+        f.receipts.set(requestId, { receiptVersion: "p04-acts/0.1", runId, state: "registered", newAttemptAllowed: false });
+      }
       if (f.loseSend > 0) { f.loseSend--; throw lost(); }
       return { ok: true };
     },
-    async status(runId) { return f.receipts.get(runId) ?? null; },
-    fate(runId, state) { f.receipts.set(runId, { receiptVersion: "p04-acts/0.1", runId, state, newAttemptAllowed: state === "expired" || state === "not-sent" }); },
+    async status(runId, requestId) { const r = f.receipts.get(requestId); return r && r.runId === runId ? r : null; },
+    fate(runId, requestId, state) { f.receipts.set(requestId, { receiptVersion: "p04-acts/0.1", runId, state, newAttemptAllowed: state === "expired" || state === "not-sent" }); },
   };
   return f;
 }
@@ -211,7 +246,7 @@ test("act route: a lost send answer and a restart send once; landed is not compl
   st = await d.advance(p.key);
   assert.equal(three.sends, 1, "one send");
   assert.equal(st.steps[0].attempts, 1, "④ had the act, so ③ was not called again");
-  three.fate(p.steps[0].runId, "landed");
+  three.fate(p.steps[0].runId, p.steps[0].requestId, "landed");
   st = await d.advance(p.key);
   assert.equal(st.steps[0].final, true);
   assert.equal(st.complete, false, "landed is the send, not the arrival");
@@ -221,7 +256,7 @@ test("act route: a lost send answer and a restart send once; landed is not compl
   let d2 = new Dispatch({ journal: j2, act: t2 });
   const p2 = d2.plan({ route: "act", ...actRequest("a2") });
   await d2.advance(p2.key);
-  t2.fate(p2.steps[0].runId, "unknown");
+  t2.fate(p2.steps[0].runId, p2.steps[0].requestId, "unknown");
   st = await d2.advance(p2.key);
   assert.equal(st.steps[0].state, "held");
   for (let i = 0; i < 3; i++) { d2 = new Dispatch({ journal: j2, act: t2 }); st = await d2.advance(p2.key); }
@@ -232,11 +267,41 @@ test("act route: a lost send answer and a restart send once; landed is not compl
   const d3 = new Dispatch({ journal: j3, act: t3 });
   const p3 = d3.plan({ route: "act", ...actRequest("a3") });
   await d3.advance(p3.key);
-  t3.fate(p3.steps[0].runId, "expired");
+  t3.fate(p3.steps[0].runId, p3.steps[0].requestId, "expired");
   st = await d3.advance(p3.key);
   st = await d3.advance(p3.key);
   assert.equal(t3.sends, 1, "a proved non-send is not retried here: a new attempt is a new run request");
   assert.equal(st.steps[0].result.newRequestAllowed, true);
+
+  // the plan expires before the first send reaches ③ (and a restart): a new plan, the same requestId; one send
+  const j4 = memJournal(), t4 = fakeAct();
+  let d4 = new Dispatch({ journal: j4, act: t4 });
+  const p4 = d4.plan({ route: "act", ...actRequest("a4") });
+  const realSend = t4.send;
+  t4.send = async () => { throw lost(); }; // never reaches ③
+  await d4.advance(p4.key);
+  t4.send = realSend;
+  for (const pl of t4.plans.values()) pl.live = false; // expired meanwhile
+  d4 = new Dispatch({ journal: j4, act: t4 });
+  st = await d4.advance(p4.key);
+  assert.equal(st.steps[0].state, "sending", "PlanAgain: the plan is dropped, nothing sent");
+  st = await d4.advance(p4.key);
+  assert.equal(t4.prepares, 2);
+  assert.equal(t4.sends, 1);
+  assert.equal(t4.ops.get(p4.steps[0].requestId).runId, p4.steps[0].runId);
+
+  // a send that reached ③ under the first plan is never re-planned: the same plan and requestId again
+  const j5 = memJournal(), t5 = fakeAct();
+  let d5 = new Dispatch({ journal: j5, act: t5 });
+  const p5 = d5.plan({ route: "act", ...actRequest("a5") });
+  t5.loseSend = 1;
+  t5.status = async () => null; // ④ has not registered it yet
+  await d5.advance(p5.key);
+  d5 = new Dispatch({ journal: j5, act: t5 });
+  st = await d5.advance(p5.key);
+  assert.equal(t5.prepares, 1, "no new plan");
+  assert.equal(t5.sends, 1, "③ returned its operation for the requestId");
+  assert.notEqual(st.steps[0].state, "held");
 });
 
 test("the file journal survives a process restart and leaves no partial file", async () => {
@@ -244,7 +309,7 @@ test("the file journal survives a process restart and leaves no partial file", a
   const path = join(dir, "dispatch.json");
   const four = fake4();
   let d = new Dispatch({ journal: fileJournal(path, fs), run4: four });
-  const p = d.plan({ route: "run", ...relayRequest() });
+  const p = d.plan({ route: "run", ...relayRequest(), requester: REQ });
   four.loseAccept = 1;
   await d.advance(p.key);
   d = new Dispatch({ journal: fileJournal(path, fs), run4: four });

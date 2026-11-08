@@ -1,6 +1,8 @@
 {
-  "cancel": null,
-  "cancelRequested": false,
+  "attempts": [],
+  "cancel_phase": null,
+  "cancel_requested": false,
+  "cargo_only": true,
   "detail": {
     "cancel": null,
     "fac_attempts": 0,
@@ -21,9 +23,28 @@
     "ship_seq": null,
     "unresolved": 0
   },
-  "held": null,
+  "effects": [],
+  "fees": {
+    "charged": 0,
+    "released": 0,
+    "reserved": 0,
+    "unconfirmed": 0
+  },
+  "held_reason": null,
+  "in_flight": false,
+  "next_check": 22,
+  "outcome": {
+    "cargo_logged": null,
+    "delivered": null,
+    "effects": [],
+    "note": "InputLost",
+    "verification": "NotShipped"
+  },
+  "reason": "InputLost",
   "receipts": [],
-  "runId": "ws06:10442184bb06d9953641c47f952500e0ba835d582005544b377d1c8db4fa073b:r1:forward",
+  "run_id": "ws06:10442184bb06d9953641c47f952500e0ba835d582005544b377d1c8db4fa073b:r1:forward",
+  "sent": false,
+  "settled": false,
   "spec": {
     "budget": {
       "max_attempts": 3,
@@ -31,7 +52,6 @@
       "max_port_errors": 5
     },
     "deadline_slot": 400,
-    "facility": null,
     "inbound": {
       "owner": 119,
       "seq": 0
@@ -86,7 +106,71 @@
       "q": 0
     }
   },
+  "spec_digest": "6002277ec49df7b08b27ff1b6cfc52a2231bb087e9dd80891db9cb76123a4f3e",
   "state": "Failed",
   "terminal": true,
-  "viewVersion": "p04-run/0.1"
+  "transitions": [
+    {
+      "executor": "exec-a",
+      "from": "Accepted",
+      "reason": "wait",
+      "to": "Accepted"
+    },
+    {
+      "executor": "exec-a",
+      "from": "Accepted",
+      "reason": "wait",
+      "to": "Accepted"
+    },
+    {
+      "executor": "exec-a",
+      "from": "Accepted",
+      "reason": "wait",
+      "to": "Accepted"
+    },
+    {
+      "executor": "exec-a",
+      "from": "Accepted",
+      "reason": "wait",
+      "to": "Accepted"
+    },
+    {
+      "executor": "exec-a",
+      "from": "Accepted",
+      "reason": "wait",
+      "to": "Accepted"
+    },
+    {
+      "executor": "exec-a",
+      "from": "Accepted",
+      "reason": "wait",
+      "to": "Accepted"
+    },
+    {
+      "executor": "exec-a",
+      "from": "Accepted",
+      "reason": "wait",
+      "to": "Accepted"
+    },
+    {
+      "executor": "exec-a",
+      "from": "Accepted",
+      "reason": "wait",
+      "to": "Accepted"
+    },
+    {
+      "executor": "exec-a",
+      "from": "Accepted",
+      "reason": "wait",
+      "to": "Accepted"
+    },
+    {
+      "executor": "exec-a",
+      "from": "Accepted",
+      "reason": "InputLost",
+      "to": "Failed"
+    }
+  ],
+  "version": 10,
+  "view_version": "p04-run/0.1"
 }

@@ -7,18 +7,23 @@
  *   run route  06 → ④ accept(RunSpec) / view(run id)       (arrival and amount judged by ④)
  *   act route  06 → ③ send(prepare, requestId, run id)      (④'s act registry knows the send only)
  *
- * The ports are interfaces. ④'s accept/view command and ③'s b76b0a57 have
- * not arrived; their adapters plug in here. Until then the tests drive
- * fakes that keep the same idempotency the delivered contracts promise:
- * ④'s store answers Created / Existing for the same run id and spec and
- * Conflict for another spec (store.rs `accept`); ③ sends one requestId
- * once (send_caravan).
+ * The ports (adapters for ④ cf517b55's `runexec run accept|view` and ③
+ * 84f710d5's MCP tools are in ports.mjs):
  *
- *   run4 = { accept(spec) -> { result: "Created"|"Existing"|"Conflict" }   (throws: no answer)
- *            view(runId)  -> view | null (no record)                       (throws: could not ask) }
- *   act  = { send({ prepare, requestId, runId }) -> { ok }                 (throws: no answer)
- *            status(runId) -> ④ act receipt (p04-acts/0.1) | null          (throws: could not ask) }
+ *   run4 = { accept(spec, requester) -> { result: "Created"|"Existing" }
+ *              throws { definitive: true, code } for a refusal (NotAuthorized, Conflict, BadRequest),
+ *              anything else for no answer;
+ *            view(runId)  -> ④ run view | null (no record)          (throws: could not ask) }
+ *   act  = { prepare({ from, to, cargo }) -> { planId }                (③ prepare_caravan; throws: no answer)
+ *            send({ planId, requestId, runId }) -> { ok } | throws { code: "PlanAgain" } | throws
+ *            status(runId, requestId) -> ④ act receipt (p04-acts/0.1) | null   (throws: could not ask) }
  *   journal = { load() -> object | null, save(object) }   (save is durable before it returns)
+ *
+ * The requester of a run (who asks, for ④'s intake) is the one the
+ * gateway's credential layer authenticated: { actor, generation, citizen,
+ * authenticatedBy }. 06 takes it from its caller as it is, keeps it with the
+ * run request and hands it to ④ unchanged; 06 never writes authenticatedBy
+ * and never authenticates anyone.
  *
  * What never happens here, whatever the outside answers or fails to answer:
  *   - a new run id or requestId for the same plan, request and step;
@@ -61,8 +66,12 @@ export class Dispatch {
    * before anything is sent. The same request again returns what is there;
    * the same key with other content is refused, never replaced.
    */
-  plan({ route, plan, planHash, env, nonce, ...rest }) {
+  plan({ route, plan, planHash, env, nonce, requester, ...rest }) {
     const key = Dispatch.key(planHash, nonce);
+    if (route === "run") {
+      const bad = requesterProblem(requester);
+      if (bad) return { ok: false, findings: [{ code: "REQUESTER", detail: bad }] };
+    }
     const made = route === "run"
       ? toRunSpecs({ plan, planHash, env, nonce, ...rest })
       : route === "act" ? toMcpCaravans({ plan, planHash, env, nonce, ...rest }) : { ok: false, findings: [{ code: "SHAPE", detail: "route: run | act" }] };
@@ -70,11 +79,11 @@ export class Dispatch {
     const steps = route === "run"
       ? made.runs.map((r) => ({ step: r.step, runId: r.spec.run_id, awaits: r.awaits, spec: r.spec, specDigest: digest(r.spec), bound: null, state: "planned", pin: r.pin }))
       : made.calls.map((c) => ({ step: c.step, runId: c.runId, requestId: c.requestId, prepare: c.prepare, state: "planned", pin: c.pin }));
-    const fresh = { route, key, steps };
+    const fresh = { route, key, steps, ...(route === "run" ? { requester: clone(requester) } : {}) };
     const had = this.data.plans[key];
     if (had) {
-      const same = contentHash({ route: had.route, steps: had.steps.map(({ step, runId, requestId, specDigest, prepare }) => ({ step, runId, requestId, specDigest, prepare })) })
-        === contentHash({ route, steps: steps.map(({ step, runId, requestId, specDigest, prepare }) => ({ step, runId, requestId, specDigest, prepare })) });
+      const same = contentHash({ route: had.route, requester: had.requester ?? null, steps: had.steps.map(({ step, runId, requestId, specDigest, prepare }) => ({ step, runId, requestId, specDigest, prepare })) })
+        === contentHash({ route, requester: fresh.requester ?? null, steps: steps.map(({ step, runId, requestId, specDigest, prepare }) => ({ step, runId, requestId, specDigest, prepare })) });
       return same ? { ok: true, key, already: true, steps: clone(had.steps) } : { ok: false, findings: [{ code: "CONFLICT", key, detail: "this run request was planned with other content" }] };
     }
     this.data.plans[key] = fresh;
@@ -124,8 +133,14 @@ export class Dispatch {
       s.attempts = (s.attempts ?? 0) + 1;
       this.#save(); // before the call: a restart repeats the same accept
       let r;
-      try { r = await this.run4.accept(spec); } catch (e) { s.lastError = String(e.message ?? e); this.#save(); return; }
-      if (r?.result === "Conflict") { s.state = "held"; s.why = "④ holds another spec under this run id"; this.#save(); return; }
+      try { r = await this.run4.accept(spec, p.requester); } catch (e) {
+        s.lastError = `${e.code ?? "Error"}: ${String(e.message ?? e)}`;
+        // a refusal is an answer: held for a person (NotAuthorized: the requester is not the pass's holder;
+        // Conflict: another spec under this run id; BadRequest), never retried with new ids
+        if (e.definitive) { s.state = "held"; s.why = s.lastError; }
+        this.#save();
+        return;
+      }
       if (r?.result !== "Created" && r?.result !== "Existing") { s.lastError = `unexpected accept answer ${JSON.stringify(r)}`; this.#save(); return; }
       s.state = "accepted";
       this.#save();
@@ -148,22 +163,38 @@ export class Dispatch {
     if (s.state === "sending") {
       // an earlier send may have reached ③ and lost its answer: if ④ has the act, do not call ③ again
       let rec;
-      try { rec = await this.act.status(s.runId); } catch (e) { s.lastError = String(e.message ?? e); this.#save(); return; }
+      try { rec = await this.act.status(s.runId, s.requestId); } catch (e) { s.lastError = String(e.message ?? e); this.#save(); return; }
       if (rec !== null) { s.state = "sent-requested"; this.#save(); }
     }
     if (s.state === "planned" || s.state === "sending") {
+      if (!s.planId) {
+        // ③ plans the road and fixes the fields; a plan is valid for minutes and sends nothing
+        let pl;
+        try { pl = await this.act.prepare(s.prepare); } catch (e) { s.lastError = String(e.message ?? e); this.#save(); return; }
+        if (!pl?.planId) { s.lastError = JSON.stringify(pl); this.#save(); return; }
+        s.planId = pl.planId;
+        this.#save();
+      }
       s.state = "sending";
       s.attempts = (s.attempts ?? 0) + 1;
-      this.#save(); // before the call: a restart repeats the same send, same requestId
+      this.#save(); // before the call: a restart repeats the same send, same planId and requestId
       try {
-        const r = await this.act.send({ prepare: s.prepare, requestId: s.requestId, runId: s.runId });
+        const r = await this.act.send({ planId: s.planId, requestId: s.requestId, runId: s.runId });
         if (!r?.ok) { s.lastError = JSON.stringify(r); this.#save(); return; }
-      } catch (e) { s.lastError = String(e.message ?? e); this.#save(); return; }
+      } catch (e) {
+        s.lastError = `${e.code ?? "Error"}: ${String(e.message ?? e)}`;
+        // ③ sent nothing under this requestId and the plan is gone (unknown, used, expired, stale):
+        // a new plan, the same requestId and run id (③ answers a requestId it already sent before it looks at the plan)
+        if (e.code === "PlanAgain") s.planId = null;
+        else if (e.definitive) { s.state = "held"; s.why = s.lastError; }
+        this.#save();
+        return;
+      }
       s.state = "sent-requested";
       this.#save();
     }
     let rec;
-    try { rec = await this.act.status(s.runId); } catch (e) { s.lastError = String(e.message ?? e); this.#save(); return; }
+    try { rec = await this.act.status(s.runId, s.requestId); } catch (e) { s.lastError = String(e.message ?? e); this.#save(); return; }
     if (rec === null) return; // not registered yet: read again later; never a reason to send again
     const r = resultOfAct(rec);
     if (!r.ok) { s.lastError = r.detail; this.#save(); return; }
@@ -181,6 +212,19 @@ export class Dispatch {
     const complete = p.route === "run" && steps.every((s) => s.final && s.result?.state === "Fulfilled" && s.result.evidence?.usable);
     return { ok: true, key, route: p.route, complete, held: steps.some((s) => s.state === "held"), steps };
   }
+}
+
+const B58 = /^[1-9A-HJ-NP-Za-km-z]{32,44}$/;
+
+/** Why a requester cannot be handed to ④ as it is (④ clients/runs.mjs requesterFile), or null. */
+export function requesterProblem(r) {
+  if (!r || typeof r !== "object") return "a run needs the requester the gateway authenticated";
+  for (const k of Object.keys(r)) if (!["actor", "generation", "citizen", "authenticatedBy"].includes(k)) return `unknown requester member ${k}`;
+  if (typeof r.actor !== "string" || !B58.test(r.actor)) return "requester.actor: the authenticated signer (base58)";
+  if (typeof r.citizen !== "string" || !B58.test(r.citizen)) return "requester.citizen: the Citizen acted for (base58)";
+  if (!Number.isInteger(r.generation) || r.generation < 0 || r.generation > 0xffffffff) return "requester.generation: the pass generation (u32)";
+  if (typeof r.authenticatedBy !== "string" || !r.authenticatedBy.trim()) return "requester.authenticatedBy: named by the layer that authenticated it, not by 06";
+  return null;
 }
 
 /** A journal in one JSON file, written to a temporary file and renamed over the old one. */

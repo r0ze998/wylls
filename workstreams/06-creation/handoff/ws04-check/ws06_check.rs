@@ -3,6 +3,15 @@ mod common;
 use common::*;
 use runexec::model::*;
 
+/// With WS06_VIEW_OUT set, writes 04's own run view (runexec::view::run_view) of a run.
+fn out(h: &H, id: &str, name: &str) {
+    if let Ok(dir) = std::env::var("WS06_VIEW_OUT") {
+        let v = runexec::view::run_view(&h.ex.store, id).unwrap().unwrap();
+        std::fs::write(format!("{dir}/{name}.json"), format!("{}
+", serde_json::to_string_pretty(&v).unwrap())).unwrap();
+    }
+}
+
 fn specs() -> Vec<RunSpec> {
     serde_json::from_str(&std::fs::read_to_string(std::env::var("WS06_FIXTURE").unwrap()).unwrap()).unwrap()
 }
@@ -19,6 +28,7 @@ fn chain(name: &str, burn: bool) -> (H, String, String) {
         h.ex.tick().unwrap();
         h.sim.with(|w| w.advance(1));
     }
+    out(&h, &a, if burn { "haul-in-transit-burn" } else { "haul-in-transit" });
     let key = CaravanKey { owner: OWNER, seq: h.run(&a).detail.ship_seq.unwrap() };
     s[1].inbound = Some(key);
     h.accept(&s[1]);
@@ -37,6 +47,13 @@ fn chain(name: &str, burn: bool) -> (H, String, String) {
 #[test]
 fn ws06_chain_on_04_cargo_only() {
     let (h, a, b) = chain("ws06-check", false);
+    out(&h, &a, "haul-fulfilled");
+    out(&h, &b, "forward-fulfilled");
+    // With WS06_DB_OUT set: a copy of the store, for 06 to read with the real `runexec run view`.
+    if let Ok(dir) = std::env::var("WS06_DB_OUT") {
+        let conn = rusqlite::Connection::open(&h.db).unwrap();
+        conn.execute_batch(&format!("VACUUM INTO '{dir}/ws06-chain.sqlite'")).unwrap();
+    }
     for id in [&a, &b] {
         let r = h.run(id);
         println!("{id}: {} {:?}", r.state.name(), r.detail.outcome);
@@ -57,6 +74,8 @@ fn ws06_chain_on_04_cargo_only() {
 #[test]
 fn ws06_chain_inbound_burned() {
     let (h, a, b) = chain("ws06-check-burn", true);
+    out(&h, &a, "haul-burned");
+    out(&h, &b, "forward-input-lost");
     assert_eq!(h.run(&a).detail.outcome.unwrap().verification, Verification::KnownZero);
     assert_eq!(h.run(&b).state, RunState::Failed);
     println!("{b}: {:?}", h.run(&b).detail.reason);

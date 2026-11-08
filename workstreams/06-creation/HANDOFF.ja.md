@@ -125,3 +125,17 @@
   - ⑥の JSON は④ `6984acfa` の荷車だけの Run で、2段とも Fulfilled まで動いた（scratch の確認）。
   - 応答消失・再起動で、受付も送信も1回だけだった（偽物の④③で）。
 - **依存待ち：** ④の受付・照会の CLI。③ `b76b0a57`（GitHub に無い）。
+
+## 11. ④の受付・照会と③の runId 契約への接続（2026-11-08）
+
+詳しくは [docs/11](docs/11-connection.ja.md) §11。
+
+- **④ `cf517b55`：**
+  - 受付は④自身の `clients/runs.mjs` で行い、上流の依頼者をそのまま渡す。⑥は `authenticatedBy` を作らない。
+  - 照会は `runexec run view`。読み手は④の実際の照会の形に合わせた。
+- **③ `84f710d5`：** `send_caravan {planId, requestId, runId}` と `get_run_status {runId}`。⑥の実行 id は127文字以下で、③④の規則に合う。
+- **試験：** すべて鍵なしで通過。`ports` 2、`dispatch` 5、`connect` 10、`connect-live` 6（未実行1）、scratch の④の試験 3。
+- **依存待ち：**
+  - ④の受付で依頼者が通る試験（チェーンが要る）。
+  - ⑥の計画を受け取る gateway の route（③⑤）。
+  - ③のサーバーを通す試験。

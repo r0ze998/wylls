@@ -224,3 +224,38 @@ Receipt は種類と対象（`kind|subject`）で重複を除きます。出ど�
 1. ④の受付・照会の CLI。⑥の `run4` の口（`accept(spec)`・`view(runId)`）に、④の形でつなぐ。⑥の照会の形 `p04-run/0.1` は仮のもの。
 2. ③ `b76b0a57`。⑥の `act` の口（`send({prepare, requestId, runId})`・`status(runId)`）につなぐ。③が実行 id を④に渡すか（P06-3a）。
 3. ④の実チェーンの読み取り口、施設の貸出（②）、C の消費・束。
+
+## 11. ④の受付・照会と③の runId 契約への接続（2026-11-08）
+
+**照合先：**
+- ④：`claude/gallant-ride-cunptv` = `cf517b558d1303a84dba618550f40cb460b7ad99`。`runexec run accept --spec --requester --rpc --program --season`、`runexec run view --db --run`、`clients/runs.mjs` がある。
+- ③：`claude/modest-goldberg-c180fk` = `84f710d52d4eb5fee02084fb5a04378516fe4cc1`。`send_caravan {planId, requestId, runId}` と `get_run_status {runId}` がある（`b76b0a57` 以降）。
+
+### 11.1 実装（`src/connect/ports.mjs`、`dispatch.mjs`、`caravan.mjs`）
+
+| 区間 | 実装 |
+|---|---|
+| 実行 id | `ws06:<計画のハッシュ 64桁>:<依頼の番号 ≤16>:<手順 ≤40>`。127文字以下で、③の RUN_ID（8〜128）にも④の run_id（1〜128）にも合う。合わない番号・手順の id は拒否する |
+| ④の受付 | `run4FromRunexec`。④自身の `createRunsClient`（⑥は写さず、渡されたものを使う）で `run accept` を呼ぶ。依頼者 `{actor, generation, citizen, authenticatedBy}` は、上流（gateway の認証層）から受け取ったものをそのまま渡す。⑥は `authenticatedBy` を作らず、欠けていれば計画しない |
+| ④の拒否 | `NotAuthorized`（パスの持ち主でない）・`Conflict`・`BadRequest` は「答え」として保留にし、新しい id で繰り返さない。それ以外（StoreError など）は答えがないものとして、同じ呼び出しを後で繰り返す |
+| ④の照会 | `run view`。`NoRecord` は「記録がない」。ストアが無い・読めない（`StoreUnavailable`）は、記録がないことの証拠にしない |
+| ④の照会の形 | ④の `src/view.rs` の `p04-run/0.1`（`view_version`・`run_id`・`state`・`held_reason`・`cancel_phase`・`outcome`・`detail.ship_seq`・`spec`）。⑥の仮の形は捨てた |
+| ③の送信 | `act3FromMcp`。`prepare_caravan`（荷は S1 の資源名のオブジェクト）→ 控えに planId → `send_caravan {planId, requestId, runId}` → `get_run_status {runId}` の④の登録簿から、この requestId の行動の受領証だけを読む |
+| ③の計画の切れ | `PlanUnknown`・`PlanUsed`・`PlanExpired`・`PlanStale` のときだけ、同じ requestId と実行 id で計画を作り直す。③は、その requestId で送った操作があれば計画を見る前にそれを返す（`server.mjs`、照合で確認）ので、この答えが来るのは何も送っていないときだけ |
+| ③の拒否 | `IdempotencyConflict` などは保留。`RelayUnreachable`・`NotResent`・`RunRegistryUnavailable` は、同じ requestId で後で繰り返す |
+
+### 11.2 試験（鍵の生成・導出・署名なし。PDA の公開アドレスの算出は、④のコードの中にあるが、⑥の試験では呼ばない）
+
+| 試験 | 相手 | 結果 |
+|---|---|---|
+| `ports`（2） | 偽物 | ③の荷の名前、計画の作り直し、拒否と答えなしの区別、別の送り手の行動を読まないこと。④の拒否の区別、照会の NoRecord とストアなし |
+| `dispatch`（5） | ④③の振る舞いに合わせた偽物 | 依頼者はそのまま④へ渡す。欠けた依頼者は計画しない。NotAuthorized は保留で繰り返さない。③の計画が送る前に切れたら作り直し、送信は1回。送った後は作り直さない |
+| `connect-live`（7） | ④ `cf517b55` の `clients/runs.mjs` と、そこからビルドした `runexec`。③ `84f710d5` のソース | 6件通過、1件未実行（gateway の npm 依存が未導入）。④の受付は、チェーンのノードが無いので NotAuthorized（⑥はそれを保留にし、id を変えない）。④の照会は、④の実行器が⑥の2段の計画で書いたストアを、本物の `run view` で読み、2段とも Fulfilled、2段目の待ち先は1段目の荷車。③の RUN_ID が⑥と同じ、計画の答えの前に requestId を見ること、荷の名前 |
+| scratch の④の試験（`handoff/ws04-check/ws06_check.rs`、3件） | ④ `cf517b55` の実行器 | ⑥の RunSpec JSON が④の荷車だけの Run で2段とも Fulfilled。同じ id・同じ指定は Existing、別の指定は Conflict。④には残していない |
+
+### 11.3 まだつながっていないところ
+
+1. **④の受付で依頼者が通る試験：** ④がチェーン（パスの PDA）を読むので、⑥からはノード無しの拒否までしか試していない。通る側は④自身の `tests/intake_chain.rs`（スタンドインのノード）が確かめている。
+2. **gateway の経路：** ⑥の計画を④の `run accept` へ渡すのは、依頼者を認証した gateway（③⑤）。どの route が、⑥の計画と依頼者を受け取って⑥の dispatch を呼ぶかは未決。⑥は、その route が使う関数（`Dispatch`・`run4FromRunexec`）までを持つ。
+3. **③の MCP の実物を通す試験：** ③の鍵なし試験は、パッチを当てた財布の木と⑤の成果物を要する。⑥からは、③のソースの規則の照合と、③の答えの形に合わせた偽物までで、③のサーバーを動かしていない。
+4. ④の実チェーンの読み取り口（到着の決着）、施設の貸出（②）、C の消費・束は、変わらず依存待ち。

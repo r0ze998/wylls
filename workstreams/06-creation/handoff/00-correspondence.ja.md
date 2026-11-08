@@ -6,7 +6,7 @@
 
 | ⑥の要素 | ⑥が求める性質 | ②の契約 | ④（③）の契約 | 状態 | 足りないもの・不一致 |
 |---|---|---|---|---|---|
-| **荷車**（⑥の `caravan.send`。採用済みの S1 の命令） | 採用済みの計画から実行 id を固定して送り、実行 id で追い、到着と量を次の手順へ渡す。応答消失・再起動でも二重に登録・送信しない | ― | ④ `6984acfa`：荷車だけの Run（`30a3fd2e`）、act の登録簿（7状態）。受付・照会の CLI は④で作成中。③ `acdcd0bf`（`b76b0a57` は未着） | **⑥の側は実装**：`dispatch.mjs`（控えを先に書く、同じ呼び出しだけを繰り返す）、`toRunSpecs`・`bindInbound`・`resultOfRun4`・`toMcpCaravans`・`resultOfAct`。⑥の JSON は④の荷車だけの Run で2段とも動いた（scratch の確認） | ④の受付・照会の CLI、③ `b76b0a57` と実行 id の受け渡し、④の実チェーンの読み取り口 |
+| **荷車**（⑥の `caravan.send`。採用済みの S1 の命令） | 採用済みの計画から実行 id を固定して送り、実行 id で追い、到着と量を次の手順へ渡す。応答消失・再起動でも二重に登録・送信しない | ― | ④ `cf517b55`：`run accept`（上流の依頼者つき、パスをチェーンで確かめる）・`run view`（`p04-run/0.1`）・act の登録簿。③ `84f710d5`：`send_caravan {planId, requestId, runId}`・`get_run_status {runId}` | **接続（④③の実物で照合）**：`ports.mjs`（④の client と runexec、③の道具）・`dispatch.mjs`。④の照会は④自身のストアを本物の CLI で読んだ。④の受付は依頼者をそのまま渡し、拒否を保留にする（[docs/11](../docs/11-connection.ja.md) §11） | ④の受付が依頼者を通す試験（チェーン）。⑥の計画を受け取る gateway の route。③のサーバーを通す試験 |
 | **結果**（到着・数える量・C の証拠） | 確定した配達だけを証拠にする。到着量が分からないものを 0 と書かない | ― | ④の15状態、`Verification`（Recorded / RuleDerived / KnownZero / Unverifiable / NotShipped）、数量契約、Receipt（`kind|subject` で重複除去） | **接続（変換）**：`resultOf`・`dedupeReceipts` | ⑥の模擬の記録（`delivered/made/raided/failed`）は④の状態の部分集合。⑥の模擬は置き換えていない |
 | **工房**（B：他人の工房を使用権で動かす。⑥の `workshop.run`） | 施設所有者が出した使用権で、利用者の倉の中で加工する | **StockSwap は交換で、加工能力の貸出ではない。未採用。⑥の工房の代替にしない**（補遺 §2、② HANDOFF §0） | ④の Run の施設は MOCK（`fac:<run_id>`、P3） | **つながらない** | 加工能力の貸出の契約がない。⑥の工房は S2 の `UseRun` の模擬のまま。最初の体験にどちらを採るかは未決定 |
 | **束**（C：配送で届いた物を押さえ、一度だけ消費。採用保留） | 配送の物そのものを排他的に確保 | 押さえの契約なし（StockSwap の預かりは交換の両側のもの） | Receipt は「過去の出来事の証拠で、今も物が残っている証明ではない」。押さえの契約なし | **つながらない／採用保留** | 予約・escrow の一般化（必要な場面が出たときだけ） |
