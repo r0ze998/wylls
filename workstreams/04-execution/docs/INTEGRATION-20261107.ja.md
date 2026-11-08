@@ -621,3 +621,79 @@ fa822453 の上に載せた。各チームのサブツリーは、チームが�
 - verify（c260c438）：⑯ が 128/128。
 - ⑥ の 5 件（node-key-reviewed.txt）：⑥ が、keys.mjs の export 6 つを「呼ばれたら throw する罠」に替えて流し、罠に当たったのは 0 件（38 件中 37 通過・1 省略）。静的な理由に加える証拠として記録する。
   - **ガードが止めた試み（⑥、記録のみ）**：⑥ は対照として `roles.test.mjs`（鍵を作る試験）を罠の下で流し、罠に 4 回当たった。鍵は作られず・導かれず・読み込まれず・署名に使われていない。利用者の規則（鍵の処理を動かして探さない）により、④ から ⑥ に、今後は対照を静的な fixture にするよう伝えた。
+
+## 17. この bounded pass の checkpoint（④、2026-11-08）
+
+**位置**
+- 検証済みの基準：`16576826084a8ea7bd6b12b845d50b97f3d14904`（tree `7f6ff8b0fd1a3765fe00f4507ee87fdcd1ccdd71`）。置き換えていない（今の HEAD の祖先）。
+- この pass の最後：`claude/gallant-ride-cunptv` @ `95b0ab225ca9e9e626941b51981df2240198d91c`（tree `89a64830da399101530eef3e004b81d5007d2203`）。16576826 から first-parent で 34 commit、85 file。すべて `[skip ci]`、この枝の workflow run は 16 のまま（最後は 2026-11-06 の `8e96f24d`）。
+- ⑯ の独立の確認：6de240aa まで済み（REPORT §25〜§27.11、`claude/dreamy-ramanujan-ijj8qj` @ `c615fb8f`）。**55d5c2da（⑦ の wide の画面の試験）と 95b0ab22（④ の guard の門）は ⑯ がまだ確かめていない。**
+
+**16576826 からの差分の出所**（重ねたもの＝その担当の directory だけ。merge・cherry-pick＝その担当の commit）
+
+| 担当 | 取り込んだ commit | 候補での commit |
+|---|---|---|
+| ① | `ca44e603`、`9dcb1e88`（協力の依頼の画面） | `4d44f021`、`42b1f393` |
+| ② | `626a5cc8`（V0 の Grant） | merge `387721c2` |
+| ③ | `838338be`（MCP の cargo と 409） | `7e820189` |
+| ④ | 鍵の試験の scan と guard（`9781d04e`、`11bc9698`、`bb41fc0d`、`5045fe3d`、`95b0ab22`）、V23 の共有（`c260c438`）、⑱ の試験の clippy（`7c7fe932`） | 同じ |
+| ⑥ | `7232c86b`、`11be9d44`、`5f74a270`、`0918a973`（journal の lock） | `d35604d6`、`eb700a8a`、`82ddc29f`、`695e1d83` |
+| ⑦ | `487e75e8`・`e28d6b38`、`780acac7`、`84251e5a`、`55d5c2da` | merge `a23f02bb`、`d415e013`、`6de240aa`、早送り `55d5c2da` |
+| ⑨ | `b1157847`（capacity の桁あふれ） | merge `6875228d` |
+| ⑩ | `0075d356`、`3fd1db24`、`995bfe3c`（V26） | merge `d83a9707`、cherry-pick `02be5f41`、`0dd37253` |
+| ⑪ | patch 0017（V27、sha256 `babba7ff…`） | `3e617b28` |
+| ⑫ | `5370d0fe`、`13903d94`、`a7ac51b7`（journal の torn） | `720ab60b`、`4b3b399e`、`64960c1e` |
+| ⑬ | `a420f924`（run view の欠けは unknown） | `5133f3c7` |
+| ⑮ | `fb7bbdef`（0 の到着の端数） | `0541478f` |
+| ⑱ | `0bf02548`、`a7bc0d01`（keeper の Reveal の秘匿、owner の track） | merge `7d25f1eb`、`d3b89ede` |
+| ⑲ | `5b7a0fda`（findex のページの巻き戻し） | merge `83e10889` |
+| ⑳ | `8c328cbc`（V28 の WideEconomy） | merge `8d8e8c18` |
+
+**1〜20 の状態**（統合済み／保存のみ／非公開／製品判断待ち）
+- ① 統合済み。
+- ② 統合済み。製品判断待ち：版のビット（rights 0x2000 など）は仮の割当て。
+- ③ 統合済み。
+- ④ 統合済み（scan・guard・V23 の共有）。製品判断待ち：依頼者の認証と route（S1 は D5-a を勧める。未採用）。
+- ⑤ この pass では新しい差分なし（`07fc6f64` は基準に入っている）。製品判断待ち：R・D1・D3・D5。
+- ⑥ 統合済み。J7（手順の外で生きている lock が消される）は運用の限界（利用者の判断）。製品判断待ち：D1〜D5。intake は `NoAuthenticatedRequester` で閉じたまま。
+- ⑦ 統合済み。製品判断待ち：reveal／⑮／31 章の方針。
+- ⑧ この pass では新しい差分なし。結果は 7535a17e のものを、変わっていない file について持ち越す。製品判断待ち：31 章。
+- ⑨ 統合済み。製品判断待ち：記録の kind、AccountKind 25・26、KERNEL_VERSIONS、R1 などの仮の割当て。
+- ⑩ 統合済み。製品判断待ち：LOT_RETURNED、U1〜U3、SettleCustody の Province 条件を写すか。
+- ⑪ 統合済み（0017）。
+- ⑫ 統合済み。
+- ⑬ 統合済み。
+- ⑭ この pass では新しい差分なし。製品の選択だけが残る。
+- ⑮ 統合済み。
+- ⑯ 独立の検証。記録は ⑯ の枝にだけあり、候補には入れない。
+- ⑰ **非公開**。賞金の series は非公開のまま。候補にも公開の枝にも入れていない。製品判断待ち：U48〜U52、中止の返金の出口など。
+- ⑱ 統合済み。
+- ⑲ 統合済み。
+- ⑳ 統合済み。製品判断待ち：U49／U50。
+- 保存のみ：chosen-march の demo（`64f7cd15`、`86b293e8`、`298fdc91`、`f9b0f60b`、`26769fa1`、`07ae3f0d`、`7702251c`）、`preserve/*` の枝。この docs の枝（review/ws04-docs-handoff-20261108）は候補に merge していない。NFT の賞金の候補 `3090242a` は受け取っていない。
+
+**この pass で ④ が新しく流した試験**（呼び出し元と import 先の静的な監査で、本物の鍵に届かないと示した named targets だけ）
+- Node（no-keys-guard の下）：⑮ 134、③ 25（7 省略）、⑥ の 5 file 37（1 省略）、① 8 file 161、⑫ の CI 一覧 76（1 省略）、gateway の ws07-coop 4（後に 5）、ws07-world 6。
+- Rust：verify（V0・V23・V24・V26・V27・V28、custody 系 6/7/9/14/13、rights_replay 19、resident_ledger 4、ws04_scan_resident 4）、findex（lib 10、ws19_feed_pages 4）、keeper（4 module で 32）、permutation-rules と permutation-frontier の capacity（debug と release）、⑨ の kernel 43。clippy -D warnings と rustfmt。
+- Browser（full Chromium、`ws07-guard` の fail-closed の証明を先に流してから）：ws07-guard 2、ws07-march 2、ws07-wide 3、ws07-s1-pure 8、ws07-s1-page 4。鍵の使用の記録 0。
+- scan の静的な fixture：6/6（前の版では落ちることも確かめた）。
+
+**持ち越し（新しく流していない）**
+- 16576826 の結果：⑤ の strict 61/61（④ と ⑯）、gateway・web 1908、⑯ の 7535a17e の Rust の一式、⑧ の 7535a17e の結果。入力の変わっていない部分だけに当てはまる。
+- gateway・web の全体は、この pass で流し直していない（web の hud・join・coopboard・css が変わった。関係する試験の多くは、今は保守的な除外）。
+
+**別に記録する証拠**
+- ガードが止めた試み（繰り返さない）：④ が scan の直しの途中で ⑥ の 11 file を一度流した（最初の鍵の呼び出しで拒否、鍵は作られていない）。⑥ が対照として roles.test.mjs を罠の下で流した（罠に 4 回、鍵は作られていない）。
+- 手順の誤り：④ が resident_ledger・ws04_scan_resident を、ヒットの中身を確かめる前に流した（後で World::parse だけと確認）。⑥ の差分を試験の前に push した（直後に流した）。fail-open だった頃の ws07-guard を一度流した（どの呼び出しも拒否され、何も導かれていない）。
+
+**実行していない経路**
+- 署名、Seal（封じる）、送信、着地、実チェーン（frontier-localnet）、SBF、LiteSVM。**これらの成功は主張しない。**
+- 鍵を使う試験：scan が一覧にする 119（直接・helper）、205（src/ を辿る、保守的）、23（追えない、保守的）。gateway の鍵なしの job は 72 file になる（107 は監査されるまで除外のまま。この pass では解除しない）。
+- ⑦ の interaction の既定（鍵あり）の run、wide の herald の index、capture の鮮度。
+- ⑨ の run.sh、② の new_bands・evidence（④ は流していない）、Rust の workspace 全体。
+
+**鍵の試験の scan の限界**（実行元を監査したかどうかで分ける）
+- このチェックアウトの JavaScript：scan と review の digest が静的に読む。監査済み。
+- 外の木（`WS*_ROOT` がこのチェックアウトでない）：scan は読まない。**拒否**（95b0ab22、exit 6）。手で監査するまで流さない。
+- Rust の binary（`RUNEXEC_BIN`）：scan は読まない。`RUNEXEC_BIN_SHA256` で bytes を名指したときだけ流す。「監査した source から build した」は実行する人の申告で、④ の build（`f039854a…`、16576826 から。`workstreams/04-execution/src` はその後変わっていない）について ④ が申告する。それ以外は**要手動監査**。
+- package の import（node_modules）：scan は辿らない。実行のときの guard だけが守る。
