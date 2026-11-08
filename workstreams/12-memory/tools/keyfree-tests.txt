@@ -1,0 +1,13 @@
+# Workstream 12 test files audited key-free, with every module they import (12's src and adapters, and
+# permutation-gateway citizens/memory {config,ledger,retrieve}, citizens/mind/sanitize, citizens/persona/names,
+# permutation-server web/frontier/people/identity): node:crypto is used only for createHash and, when a signed
+# allocation is present, createPublicKey + verify of someone else's signature. None of these files makes one.
+# Only these files are run (tools/test-nokey.sh). Not listed: files that use fixtures/scenario.mjs signed
+# allocations or keysFor, and adapters-ws13-real.test.mjs (it loads workstream 13's demo through the gateway, whose
+# callees were not audited here).
+test/adapters-canonical.test.mjs
+test/adapters-ws13-canonical.test.mjs
+test/independent-world-boundary.test.mjs
+test/receipt-integrity-keyfree.test.mjs
+test/citizens-characterization.test.mjs
+test/provenance-coverage.test.mjs
