@@ -2949,3 +2949,16 @@ checkpoint の `95b0ab225ca9e9e626941b51981df2240198d91c`（tree `89a64830da3991
   - ⑲ の S1 の fixture は、Province の terrain・sites・passable mask を Rust の `permutation_rules::frontier::terrain::generate_province`（ring seed と座標から）で作る。
   - Node の試験は、それを ⑧ の GEOMETRY（wasm の kernel から固定した値）と比べて一致した。
   - したがって、§29.13 と §29.15 で「Rust との照合が無い」とした ⑧ の固定値は、⑲ のこの試験が入れば、Rust の規則と wasm の kernel の両方で確かめられることになる（ring 4 と 5 の (4,0) と (5,0) について）。
+
+## 29.17 ④ b64cef2c、⑦ b1142259、⑧ 631c1963
+
+- **④ `b64cef2c687d9b8c94ceaad90dc901fe26d18518`**（tree `d129e9c5e57b4c3848aba32fe834d2cc9418d21f`、親 5e0f2ec2 と ⑦ 4f60a629 の merge）:
+  - server.mjs と ws07-grow-r5 は 4f60a629 と一致する。
+  - ⑧ の growth-route の fixture（4eeb6c7f のもの）と node-key-reviewed（付け直した digest）は 5e0f2ec2 のまま。
+  - この組み合わせは、⑯ が §29.16 で fixture を差し替えて流したものと同じで、ws07-grow-r5 は 2/2 だった。④ も b64cef2c で 2/2 と報告している。
+- **⑦ `b1142259232f134e39aca7613a134e3cb867d8aa`**（tree `da784228…`、親 4f60a629。④ にはまだ入っていない）:
+  - ws07-grow の `clear()` は、hand の close と drawer の close を UI で押し、状態が消えるのを待つ形になった。`FS` を直接書き換える行は 0 になった（§29.14 の指摘 (3) は直った）。
+  - route と arrival は今も `FS.compose` から読む（⑦ が明記している）。
+  - ⑯ の実行：ws07-grow を full Chromium と repo の guard の下で **3/3**。
+- **⑧ `631c1963`**（親 b5ce03ba = 5e0f2ec2 の merge）：fixture の注と試験の assert の文言だけを変えた。§29.15 の「大きさは M1 と S1 で同じ」を反映している。scan の `--check` は exit 0。
+- 記録は `logs/phase23/ws07-b114-ws08-631c-b64c.txt`。
