@@ -20,6 +20,7 @@ import { mkdir } from 'node:fs/promises';
 import { join } from 'node:path';
 import { chromium } from 'playwright-core';
 import { startServer } from './server.mjs';
+import * as NK from './ws07/nokey-page.mjs';
 import * as W from './world.mjs';
 import { decodeAccount, encodeAccount } from '../../permutation-server/web/sdk/frontier/codec.mjs';
 import { LOGS } from '../../permutation-server/web/sdk/frontier/abi-v2-logs.mjs';
@@ -41,7 +42,7 @@ function body(name, bell, fields = {}) {
 const cargo = arr => { const b = new Uint8Array(32), v = new DataView(b.buffer); arr.forEach((n, i) => v.setUint32(i * 4, n, true)); return b; };
 
 before(async () => {
-  srv = await startServer();
+  srv = await startServer({ keyless: true });
   srv.stage('holding');
   const rec = W.seasonRecord();
   const s1Season = encodeAccount('Season', { ...decodeAccount('Season', Buffer.from(rec.bytes_b64, 'base64'), { profile: 1 }), PROGRAM_VERSION: 4, LAYOUT_VERSION: 2 }, { profile: 2 });
@@ -54,21 +55,23 @@ before(async () => {
     if (m && feeds[m[1]]) return json(res, feeds[m[1]]);
     if (path === '/h/events') {
       const after = BigInt(u.searchParams.get('after') ?? '0'), all = [...events, ...extra].filter(e => BigInt(e.seq) > after);
-      return json(res, { events: all, next: all.at(-1)?.seq ?? String(after), full: false });
+      return json(res, { v: 1, events: all, next: all.at(-1)?.seq ?? String(after), full: false });
     }
     const t = new URL(srv.url);
     const p = request({ host: t.hostname, port: t.port, path: req.url, method: req.method, headers: req.headers }, r => { res.writeHead(r.statusCode, r.headers); r.pipe(res); });
     req.pipe(p);
   });
   await new Promise(r => relay.listen(0, '127.0.0.1', r));
-  base = `http://127.0.0.1:${relay.address().port}`;
-  browser = await chromium.launch(process.env.WS07_CHROME ? { executablePath: process.env.WS07_CHROME } : {});
+  // (workstream 07: the keyless whole page — ws07/nokey-page.mjs: not a loopback host, a test wallet with no key)
+  base = NK.pageBase(relay.address().port);
+  browser = await chromium.launch({ args: NK.launchArgs(relay.address().port), ...(process.env.WS07_CHROME ? { executablePath: process.env.WS07_CHROME } : {}) });
   // the viewer's tag and village, as the page reads them (a first load with the feeds empty)
   const ctx = await context({ width: 1440, height: 900 });
   const page = await ctx.newPage();
   await page.goto(`${base}/frontier/`);
   await untilPage(page, fsReady);
   const who = await page.evaluate(async () => { const { FS } = await import('/frontier/fstate.mjs'); const { ownTag } = await import('/frontier/people/ui.mjs'); const h = FS.holdings[0]; return { tag: String(ownTag(FS)), bell: FS.nowBell, p: h.p, q: h.q, tile: h.tile, faction: FS.citizen.faction }; });
+  await NK.assertKeyless(ctx, assert);
   await ctx.close();
   viewerTag = who.tag;
   const place = (kind, tile) => ({ kind, p: who.p, q: who.q, at: 2, gen: 1, tile });
@@ -102,7 +105,7 @@ const fsReady = async () => { const { FS } = await import('/frontier/fstate.mjs'
 const s1Feeds = async () => { const { FS } = await import('/frontier/fstate.mjs'); return (FS.s1?.caravans?.moving?.length ?? 0) > 0; };
 async function context(viewport) {
   const ctx = await browser.newContext({ viewport });
-  await ctx.addInitScript(s => { for (const [k, v] of Object.entries(s)) { try { localStorage.setItem(k, v); } catch { /* none */ } } }, W.storageFor(srv.viewer, { stage: 'holding', lang: 'ja' }));
+  await ctx.addInitScript(NK.init, NK.initArg(srv.viewer, { lang: 'ja' }));
   return ctx;
 }
 // (the drawer is drawn again when the feeds come in: a card caught between two drawings is taken again)
@@ -163,6 +166,7 @@ for (const size of SIZES) {
     assert.equal(await page.locator('[data-act="away-seen"]').count(), 0, 'nothing new after the mark: no summary');
     assert.equal(await page.locator('#away-entry:visible').count(), 0, 'and no line');
     assert.deepEqual(errors, []);
+    await NK.assertKeyless(ctx, assert);
     await ctx.close();
   });
 
@@ -201,6 +205,7 @@ for (const size of SIZES) {
     await card.scrollIntoViewIfNeeded();
     await shot(card, `ws07-s1-page-card-mock-${size.name}`);
     assert.deepEqual(errors, []);
+    await NK.assertKeyless(ctx, assert);
     await ctx.close();
   });
 }

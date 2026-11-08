@@ -58,3 +58,30 @@ test('the board may name its page on this origin; another origin is not followed
   assert.match(CB.boardHref(FS(), b('//evil.example/x')), new RegExp(`^${CB.BOARD_PAGE.replace(/[/.]/g, '\\$&')}`));
   assert.match(CB.boardHref(FS(), b('https://evil.example/x')), new RegExp(`^${CB.BOARD_PAGE.replace(/[/.]/g, '\\$&')}`));
 });
+
+// ---------------------------------------------------------------- against workstream 01's REAL board (coop/board.mjs)
+import { createBoard, createServer as createBoardServer } from '../../workstreams/01-national-strategy/coop/board.mjs';
+import { mkdtemp } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+
+test("01's real board: its /coop/config is read, its Season compared, and its page opened for this village", async () => {
+  const PROG = 'Frnt1111111111111111111111111111111111111111';
+  const board = createBoard({ herald: 'http://127.0.0.1:9', programId: PROG, seasonId: 7n, dataDir: await mkdtemp(join(tmpdir(), 'ws07-coop-')) });
+  const hs = createBoardServer(board, { herald: 'http://127.0.0.1:9' });
+  await new Promise(r => hs.listen(0, '127.0.0.1', r));
+  try {
+    const base = `http://127.0.0.1:${hs.address().port}`;
+    const b = await CB.probeBoard({ base });
+    assert.equal(b.read, 'ok');
+    assert.deepEqual(b.config.season, { programId: PROG, seasonId: '7' });
+    const fs = { season: { seasonId: 7n }, pin: { programId: PROG }, holdings: [{ p: 2, q: -1, site: 3, gen: 4 }], activeHolding: 0 };
+    assert.deepEqual(CB.boardState(fs, b), { available: true });
+    assert.equal(CB.boardState({ ...fs, season: { seasonId: 8n } }, b).available, false, 'another Season');
+    assert.equal(CB.boardState({ ...fs, pin: { programId: 'Othr1111111111111111111111111111111111111111' } }, b).available, false, 'another program');
+    assert.equal(CB.boardHref(fs, b), `${b.config.page}?to=${encodeURIComponent('2,-1,3,4')}`);
+    // the page is the board's own: served by it
+    const page = await fetch(base + CB.boardHref(fs, b));
+    assert.equal(page.status, 200);
+  } finally { hs.close(); }
+});
