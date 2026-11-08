@@ -535,7 +535,29 @@ fn growth_tx() -> (Tx, [usize; 4]) {
                 &payload,
                 &mut [(EntityKind::Province, &mut pd)],
             );
-            t.push(vec![body], vec![(cx.province(c.p, c.q), pd)]);
+            let mut bodies = vec![body];
+            // OpenProvince's KEEP record (permutation-frontier proc/map.rs,
+            // right after PROVINCE_OPEN in the same instruction, chained to
+            // the Province): cause PLACED, the holder, from NONE, troops,
+            // consolidated_until_bell, gen, read back from the keep the
+            // Province now holds (none for rings 0-1 or without a keep tile).
+            if let Ok(Some(k)) = qm::read_keep(&pd) {
+                let mut kp = vec![
+                    frontier_abi::v2::log::keep_cause::PLACED,
+                    k.holder,
+                    kkeep::NONE,
+                ];
+                kp.extend(k.troops.to_le_bytes());
+                kp.extend(k.consolidated_until_bell.to_le_bytes());
+                kp.extend(k.gen.to_le_bytes());
+                bodies.push(rec(
+                    AnyKind::Cq(CqKind::KEEP),
+                    &key,
+                    &kp,
+                    &mut [(EntityKind::Province, &mut pd)],
+                ));
+            }
+            t.push(bodies, vec![(cx.province(c.p, c.q), pd)]);
         }
     };
     for d in 0..=R_MAX {
