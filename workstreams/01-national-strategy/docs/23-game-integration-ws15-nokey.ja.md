@@ -125,3 +125,4 @@ guard（④ `525a623f` の `scripts/ci/no-keys-guard.mjs`）は node:crypto・We
 - ①：`/coop/config` に `page`（この板の画面の道、同じ origin）を足した。0003 は不要（当てない）。
 - **食い違い（⑦へ連絡）：** ⑦は `String(config.season)` を今のシーズン ID と比べるが、①の `season` は `{programId, seasonId}` の object。①の本物の config を⑦の `boardState` に入れると、いつも「別の世界（シーズン）」になり押せない（使い捨ての worktree で確かめた）。`config.season.seasonId` と比べれば通る（同じ確かめで、季節の確かめを通り、村の選択の段に進む）。①は `season` の形を変えない（①の画面が使う）。
 - `coop.test.mjs` の HTTP の試験で、config の `season` の形と `page` を確かめる。
+- 2026-11-08：⑦が直した（`claude/wylls-ui-ux-visual-oixhgs` `243693829bb3d1af5d86e4b7a90c7314fe42371c`、[skip ci]）。①の本物の config を⑦の `boardState`・`boardHref` に入れて確かめた（cc、検証待ち）：同じシーズンは季節の確かめを通って村の選択の段へ、別のシーズンは「別の世界」で押せない、開く先は `config.page`。
