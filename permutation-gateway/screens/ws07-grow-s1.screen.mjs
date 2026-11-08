@@ -15,10 +15,10 @@
 //     check passes (the golden carries drand quicknet's public chain hash and key); "seal and depart" is enabled and
 //     NEVER pressed. (An earlier golden had a zero lead window and a non-quicknet beacon; neither is judged on here.)
 //   - cancel (やめる); a reload keeps the stage.
-// What is not real here: the 20 /h/ paths the golden lacks (ABSENT: events, rosters 0–5, overviews 0–2, overview2 2,
-// provinces 3,0 · 3,1 · 4,-1, caravans, nations, standings, control, conquest, keep) answer 404 — inferred from the
-// golden, not shown to be the router's answer at these stages; their console lines are the only errors allowed, and
-// every 404 the page meets is asserted to be one of them. The structures feed IS the router's (19's e3abbee1): empty,
+// What is not real here: the 4 /h/ paths the golden lacks (ABSENT: conquest, control, keep, standings; 19's f001c9c3
+// added the router's real answers for the rest) answer 404 — inferred, not shown to be the router's answer; roster 5's
+// NoSuchRing 404 before growth IS the router's. Their console lines are the only errors allowed, and every 404 the
+// page meets is asserted to be one of them. The structures feed IS the router's (19's e3abbee1): empty,
 // so the route is planned with no palisade; a world with a palisade on the route is not exercised. Nothing is sealed, signed or sent.
 //
 // Run from this folder: node --test ws07-grow-s1.screen.mjs
@@ -36,13 +36,13 @@ const HOST_TILE = { p: 4, q: 0, tile: 0 }, TARGET = { p: 5, q: 0, tile: 0 };
 /** What the page says on the map for a press on (5,0) with the host in hand, before growth. */
 /**
  * The /h/ paths the page asks for that the golden does not carry: the relay answers them 404 NotFound (inferred from
- * the golden: it is not shown that the real router serves none of them at these stages). Workstream 16's list (§29.27).
+ * the golden, not shown to be the router's answer). Since 19's f001c9c3 the golden has the router's real answers for
+ * events, rosters, overviews 0–2, overview2 0–2, provinces 3,0 · 3,1 · 4,-1, caravans and nations; these four remain.
  * (/h/structures.json is in the golden since 19's e3abbee1: the router's empty S1 feed, read by the page — see below.)
  */
-const ABSENT = new Set(['/h/caravans.json', '/h/conquest/0.json', '/h/control/latest.bin', '/h/events', '/h/keep/4,0.json', '/h/nations.json',
-  '/h/overview/0/latest.bin', '/h/overview/1/latest.bin', '/h/overview/2/latest.bin', '/h/overview2/2/latest.bin',
-  '/h/province/3,0/latest', '/h/province/3,1/latest', '/h/province/4,-1/latest',
-  ...[0, 1, 2, 3, 4, 5].map(d => `/h/roster/${d}/latest.bin`), '/h/standings/latest.json']);
+const ABSENT = new Set(['/h/conquest/0.json', '/h/control/latest.bin', '/h/keep/4,0.json', '/h/standings/latest.json']);
+/** The router's own 404s in the golden (19's f001c9c3): roster 5 is NoSuchRing until ring 5 is grown. Real answers. */
+const ROUTER_404 = new Set(['/h/roster/5/latest.bin']);
 const REFUSED = { extendable: /まだ地図の外/, unopened: /まだひらいていない土地です/, pending: /生まれるところです/ };
 
 let srv, relay, browser, base, stage = 'before';
@@ -210,7 +210,7 @@ for (const vp of [{ width: 1440, height: 900, name: 'desktop' }, { width: 390, h
     }
 
     assert.deepEqual([...notFound].filter(p => !p.startsWith('/h/')), [], 'no 404 for the page\'s own files');
-    assert.deepEqual([...notFound].filter(p => !ABSENT.has(p)).sort(), [], 'every 404 is a documented golden-absent herald path');
+    assert.deepEqual([...notFound].filter(p => !ABSENT.has(p) && !ROUTER_404.has(p)).sort(), [], 'every 404 is a documented golden-absent path or the router\'s own 404');
     const storm = [...provinceAsks].filter(([, n]) => n > 20);
     assert.deepEqual(storm, [], `no Province asked for more than 20 times in this run (${JSON.stringify([...provinceAsks])})`);
     assert.deepEqual(posts, [], 'no request but reads');
