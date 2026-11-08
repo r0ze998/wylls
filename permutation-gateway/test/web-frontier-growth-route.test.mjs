@@ -20,7 +20,7 @@ import * as Wasm from '../../permutation-server/web/frontier/wasm.mjs';
 import { kernelFile } from '../../permutation-server/web/frontier/fconquest.mjs';
 import { planRoute } from '../../permutation-server/web/frontier/fmarch.mjs';
 import { createTerrain } from '../../permutation-server/web/frontier/map/terrain.mjs';
-import { ringOf, wedgeOf, regionOf, tileHex, provinceCentre, ringProvinces } from '../../permutation-server/web/frontier/fgeo.mjs';
+import { ringOf, wedgeOf, regionOf, tileHex, provinceCentre, ringProvinces, DIRECTIONS } from '../../permutation-server/web/frontier/fgeo.mjs';
 import { PRESETS } from '../../permutation-server/web/sdk/frontier/abi-v2-presets.mjs';
 import { createHerald } from '../../permutation-server/web/frontier/herald.mjs';
 import { decode } from '../../permutation-server/web/frontier/fcodec.mjs';
@@ -175,4 +175,18 @@ test('the real router\'s answers (workstream 19\'s golden): the same fields, see
       assert.equal(BigInt(acct.passableMask), want5.passableMask);
     }
   }
+});
+
+test('a palisade on the grown route: the re-planned route goes round its hex; without ring 5\'s seed there is still none', () => {
+  const walk = dirs => dirs.reduce((w, d) => [...w, { q: w.at(-1).q + DIRECTIONS[d][0], r: w.at(-1).r + DIRECTIONS[d][1] }], [tileHex(G.ORIGIN.p, G.ORIGIN.q, G.ORIGIN.tile)]);
+  const pal = tileHex(G.PALISADE.p, G.PALISADE.q, G.PALISADE.tile), on = w => w.some(h => h.q === pal.q && h.r === pal.r);
+  assert.ok(on(walk(G.ROUTE.dirs)), 'the palisade stands on the unblocked route (its first step)');
+  assert.deepEqual(walk(G.ROUTE.dirs).at(-1), tileHex(G.TARGET.p, G.TARGET.q, G.TARGET.tile));
+  const r = planRoute(k, { from: G.ORIGIN, to: G.TARGET, unit: 0, seeds: G.plannerSeeds(6), blocked: [pal] });
+  assert.ok(r.ok, r.code);
+  const { dirs, pathLen, hexes, secs, provinces } = r.route;
+  assert.deepEqual({ dirs, pathLen, hexes, secs, provinces }, G.ROUTE_AROUND_PALISADE);
+  assert.equal(on(walk(dirs)), false, 'the re-planned route does not enter the palisade hex');
+  assert.deepEqual(walk(dirs).at(-1), tileHex(G.TARGET.p, G.TARGET.q, G.TARGET.tile));
+  assert.deepEqual(planRoute(k, { from: G.ORIGIN, to: G.TARGET, unit: 0, seeds: G.plannerSeeds(5), blocked: [pal] }), { ok: false, code: 'NoPath' });
 });

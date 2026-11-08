@@ -111,6 +111,14 @@ export const GEOMETRY = Object.freeze({
 export const ROUTE = Object.freeze({
   dirs: [0, 0, 0, 0, 1, 1, 0, 1, 1], pathLen: 9, hexes: 9, secs: 1320, provinces: [{ p: 4, q: 0 }, { p: 5, q: 0 }],
 });
+/**
+ * A palisade on that route (workstream 19's golden ws19-map-growth-s1-palisade.json: kind 2 at (4,0) tile 6, the
+ * route's first hex where one may stand): plan_path with it blocked goes round it, one hex longer, same provinces.
+ */
+export const PALISADE = Object.freeze({ p: 4, q: 0, tile: 6 });
+export const ROUTE_AROUND_PALISADE = Object.freeze({
+  dirs: [5, 0, 0, 1, 0, 1, 1, 0, 1, 1], pathLen: 10, hexes: 10, secs: 1320, provinces: [{ p: 4, q: 0 }, { p: 5, q: 0 }],
+});
 export const EXPECT = Object.freeze({
   before:   { place: 'extendable', seed5: false, route: 'NoPath' },
   extended: { place: 'unopened',   seed5: false, route: 'NoPath' },
