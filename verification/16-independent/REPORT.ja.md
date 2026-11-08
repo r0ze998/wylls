@@ -3011,3 +3011,16 @@ checkpoint の `95b0ab225ca9e9e626941b51981df2240198d91c`（tree `89a64830da3991
   - 鍵の API の名前は、⑧ の growth-route と同じく、vendor の BLS にしかない（seal-worker の経路で、封印のときだけ）。
 - ⑯ の実行：map-arrival、map-contract、growth-route を repo の guard と hook v2 の下で **20/20**、hook の記録は 0 件（`logs/phase23/fc6b-map-arrival.txt`）。
 - ⑯ が流していないもの：Rust の ws19_map_contract（④ の fc6b923b での 2/2 がある）。S1 の Season の bytes が MC_LOCAL_7D の write_params と同じになったことは、Rust の側の主張で、⑯ は確かめていない。
+
+## 29.22 §29.21 の残り：S1 の Season の bytes と write_params（静的な照合）
+
+- 対象：④ fc6b923b の `frontier-node/crates/herald/src/cqfixture/growth.rs` `season_bytes_from` と、`permutation-frontier/src/proc/season.rs` `write_params`。
+- ⑯ の静的な照合（両方の関数が書く field の名前を抜き出して比べた）:
+  - 共通する 49 の field は、**同じ順番**で書かれる。
+  - write_params にあって fixture に無いもの：`STATUS_CREATED`、`GENESIS_ROUND`、`PAYOUT_PARAMS_HASH`、`SHADE_AUDITOR`。
+  - fixture にあって write_params に無いもの：`SIZE`、`SEASON_ID`、`STATUS_RUNNING`、`RULESET_HASH_V3`、`RULES_VERSION_S1`、`CONQUEST_PARAMS`。
+  - これらの差は、④ が挙げたもの（STATUS は CREATED ではなく RUNNING、GENESIS_ROUND・PAYOUT_PARAMS_HASH・SHADE_AUDITOR は 0、CONQUEST_PARAMS は write_params の外）と合う。
+- 確かめていないこと:
+  - 値（min_lead / max_lead が preset の 2 / 72 であること、GENESIS_SEED、CREATED_TS など）の照合。
+  - write_params を実際に走らせて byte を比べること。そうする試験は無い。
+  - したがって、「write_params と同じ field を同じ順で、述べられた違いだけを除いて書く」ところまでが確かめられた範囲。
