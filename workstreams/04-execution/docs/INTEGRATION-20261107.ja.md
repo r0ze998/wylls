@@ -744,7 +744,7 @@ fa822453 の上に載せた。各チームのサブツリーは、チームが�
 - 今の候補：`claude/gallant-ride-cunptv` @ `caeb1b7463e5a7e5b473a71c9c4f08a34bc17fea`（tree `5916b6461432226867036a33948a73fcbae7334d`）。**全機能の完成ではない。**
 - 過去の区切り：`95b0ab225ca9e9e626941b51981df2240198d91c`（tree `89a64830`）。過去の検証済みの基準：`16576826`（tree `7f6ff8b0`）。どちらもそのまま残す。
 - 95b0ab22 から first-parent で 13 commit、25 file。すべて `[skip ci]`、この枝の workflow run は 16 のまま。
-- ⑯ の独立の確認：`7e6ef2b6` まで（REPORT §29.1〜§29.11、`claude/dreamy-ramanujan-ijj8qj` @ `a0e10420`）。**`caeb1b74` は ⑯ の review 待ち。**
+- ⑯ の独立の確認：`caeb1b74` まで（REPORT §29.1〜§29.12、`claude/dreamy-ramanujan-ijj8qj` @ `7d0991d9`）。16576826 からの後継で、⑯ が確かめていないものは無い。
 
 **95b0ab22 からの差分**
 | commit | 出所 | 中身 |
@@ -779,7 +779,7 @@ fa822453 の上に載せた。各チームのサブツリーは、チームが�
 **未解決・利用者の判断待ち**
 - **join と paidJoin の meStatus の確認**（⑯ §29.8 b）：今の記録の読みが成功したかを確かめずに送る。16576826 から変わっていない。送れる時を変えるので、新しい Join の gating・鮮度の規則は決めていない。
 - **paidJoin の手数料**（⑯ §29.10、公開の source と署名しない pure な probe）：atomic の形では Pay と Join が一つの取引で、relay はその形だけを受け、送る前に simulate する。Join が失敗すれば、取引の原子性で Pay の送金と Entry も戻る。**source の上では、入場の手数料だけが取られることは無い。** ネットワークの手数料は relay の fee payer が払い、着地して失敗したときだけかかる（wallet の quota に数える）。残高不足の faucet は別の取引で戻らない（localnet だけ）。**確かめていない**：SVM での実行、wallet が relay の外で Pay だけを送る場合（Join の無い手数料。別の利用者の操作）、RelayOutcomeUnknown（Pay と Join は一緒のままだが、結果が分からない）。（⑯ の §29.10 が最新、5827099c。公開の source と pure な probe で、実行はしていない）
-- cancels_race_executors：門で「canceller が遅れて始まる」原因は取り除いた。後の cancel が実行中に届くかは、今も時間に依存し、それを戻した assertion が確かめる（完全に決定的とは言わない）。`caeb1b74` は ⑯ の review 待ち。
+- cancels_race_executors：門で「canceller が遅れて始まる」原因は取り除いた。後の cancel が実行中に届くかは、今も時間に依存し、それを戻した assertion が確かめる（完全に決定的とは言わない）。⑯ も §29.12 で同じ表現に同意し、hang と assertion の二点が直ったことを確かめた（一時的な編集で、門の前の失敗は 1 秒で FAILED、2 秒遅れの canceller は通る）。
 
 **③ の過去の一回の失敗と、cold open の仕組み（分けて書く）**
 - 仕組み：新しい run store を二つの process が同時に開くと、`PRAGMA journal_mode=WAL` が busy の待ちなしで「database is locked」を返す。③ が決定的に再現し（試験 17 の line 85 と同じ値 `[undefined, true, 'real']`）、`89232fad` で直した。旧で落ち新で通る証拠がある。
