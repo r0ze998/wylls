@@ -19,6 +19,12 @@ import { provinceName } from '../hud/place.mjs';
 import { cardHead, stamp, bar } from './parts.mjs';
 
 /** Every host of the viewer's first holding in the provinces the page holds (home and destinations). */
+/**
+ * (workstream 07) The village's own province not read yet (or its read failed): its hosts come from that record, so
+ * "no host" is not known. The troops screen and the guide say so instead of "none" (and offer no Train or Muster).
+ */
+export const homeProvinceUnread = (FS, h = activeHolding(FS)) => !!h && !FS?.provinces?.has?.(`${h.p},${h.q}`);
+
 export function hostRows(FS) {
   const h = activeHolding(FS);
   if (!h) return [];
@@ -50,6 +56,11 @@ export function hostState(r, nowBell) {
 export function render(FS) {
   const rows = hostRows(FS);
   const h = activeHolding(FS);
+  if (!rows.length && homeProvinceUnread(FS, h)) {
+    return html`<section class="vcard" aria-labelledby="hosts-title">${cardHead({ id: 'hosts-title', ic: 'sword', title: L`軍勢` })}
+      <p role="status"><strong>${L`記録をまだ読み込めていません`}</strong> ${L`通信の状態を確かめてください。読み込み直すと、もう一度試します。`}</p>
+      <div class="actions"><button type="button" class="btn" data-act="reload">${L`読み込み直す`}</button></div></section>`;
+  }
   if (!rows.length) {
     return html`<section class="vcard" aria-labelledby="hosts-title">${cardHead({ id: 'hosts-title', ic: 'sword', title: L`軍勢` })}
       <p>${L`軍勢はいません。村で兵を訓練し、軍勢を編成してください。`}</p>
