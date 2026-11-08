@@ -234,8 +234,14 @@ async fn a_whole_feed_archive_is_the_ledgers_and_pairs_with_a_live_read() {
         txs.iter().map(|t| t.signature).collect::<Vec<_>>(),
         vec![sig(11), sig(14), sig(15)]
     );
-    assert_eq!(h.source, Source::Unknown);
-    assert!(h.detail.contains("rollback"));
+    // ⑲ 2026-11-08: the ledger's feed, but an archive alone names what it
+    // cannot show; never whole.
+    assert_eq!(h.source, Source::LedgerFeed);
+    assert!(h.unproven());
+    assert!(
+        h.gaps.contains(&verify_core::history::Gap::ArchiveOnly),
+        "{h:?}"
+    );
     let (live, lh) = input::fetch_txs(&url, &prog(), true, None, None)
         .await
         .unwrap();
@@ -243,9 +249,20 @@ async fn a_whole_feed_archive_is_the_ledgers_and_pairs_with_a_live_read() {
         live.iter().map(|t| t.seq).collect::<Vec<_>>(),
         vec![1, 4, 5]
     );
-    assert_eq!(lh.source, Source::Unknown);
-    assert!(lh.detail.contains("not an atomic ledger snapshot"));
+    // 2c8fbfa2's rule, with ⑲'s names (2026-11-08): this node answers
+    // without the scan, so neither the prefix nor the point is shown: never
+    // PASS, before or after the seal.
+    assert!(lh.unproven());
+    assert!(lh
+        .gaps
+        .contains(&verify_core::history::Gap::PrefixIdentityUnverified));
+    assert!(lh
+        .gaps
+        .contains(&verify_core::history::Gap::PointInTimeUnverified));
     assert_eq!(apply(&lh, report()).verdict, Verdict::Unverifiable);
+    let mut sealed = lh.clone();
+    input::seal_point_in_time(&url, &mut sealed).await;
+    assert!(sealed.unproven(), "{sealed:?}");
     assert_ne!(
         lh, h,
         "an archive not checked against the node does not pair with a live read"
@@ -253,8 +270,13 @@ async fn a_whole_feed_archive_is_the_ledgers_and_pairs_with_a_live_read() {
     // Checked against the node: the same ledger, one detail.
     let dir = archive_dir.clone();
     let ch = input::confirm_archive(&dir, &url, h).await.unwrap();
-    assert_eq!(ch.source, Source::Unknown);
-    assert!(ch.detail.contains("cross-check matched"));
+    // A matching tail: no longer archive-only, but the ledger's records
+    // before it are not shown to be the node's (no digest): unproven.
+    assert_eq!(ch.source, Source::LedgerFeed);
+    assert!(!ch.gaps.contains(&verify_core::history::Gap::ArchiveOnly));
+    assert!(ch
+        .gaps
+        .contains(&verify_core::history::Gap::PrefixIdentityUnverified));
     assert_eq!(apply(&ch, report()).verdict, Verdict::Unverifiable);
 }
 
@@ -394,7 +416,15 @@ async fn matching_live_status_never_proves_completeness_or_hides_local_failures(
             .await
             .unwrap();
         assert_eq!(txs.len(), 3);
-        assert_eq!(h.source, Source::Unknown);
+        // A matching status alone (no scan here) never proves completeness:
+        // unproven with both named gaps, and still so after the seal.
+        assert!(h.unproven(), "{h:?}");
+        assert!(h
+            .gaps
+            .contains(&verify_core::history::Gap::PrefixIdentityUnverified));
+        let mut sealed = h.clone();
+        input::seal_point_in_time(&url, &mut sealed).await;
+        assert!(sealed.unproven(), "{sealed:?}");
         assert_eq!(h.report()["complete"], false);
         assert_eq!(apply(&h, report()).verdict, Verdict::Unverifiable);
         for (check, code) in [

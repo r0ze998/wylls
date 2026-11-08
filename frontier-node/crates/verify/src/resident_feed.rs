@@ -309,13 +309,19 @@ pub async fn fetch(
             0,
             0,
         ),
-        // A complete scan of one ledger is recorded, but not yet trusted as
-        // the whole history: the conditions for a live read are undecided.
+        // ⑲ 2026-11-08: a complete scan of one ledger is the ledger's feed
+        // with what it could not show named (the prefix, the final states'
+        // point): unproven, so no range is whole (`gaps_before`), until both
+        // are shown (`input::seal_point_in_time` after the final states).
         (Some(sc), Some(id)) if sc >= last_game => (
-            History::unknown(format!(
-                "resident feed {url}: ledger {id} scanned through seq {sc}; a live read is not yet accepted as the whole history"
-            )),
-            0,
+            crate::input::live_assurance(
+                url,
+                History::ledger_feed(format!("ledger {id}")),
+                s.rewind_safe(),
+                s.scanned(),
+            )
+            .await,
+            sc,
             sc,
         ),
         (Some(sc), Some(_)) => (
@@ -380,8 +386,10 @@ impl ResidentFeed {
         // (`feed_scanned`, workstream 04), else the program's last seq: the
         // archive was found whole through it (`findex::ledger`).
         let c = a.cursor();
+        // ⑲ 2026-11-08: a `ledger_feed` with gaps (every archive today:
+        // its ledger prefix is not shown) is unproven and claims no range.
         let through = match history.source {
-            Source::LedgerFeed => c
+            Source::LedgerFeed if !history.unproven() => c
                 .get("feed_scanned")
                 .and_then(Value::as_u64)
                 .or_else(|| c.get("feed_after").and_then(Value::as_u64))

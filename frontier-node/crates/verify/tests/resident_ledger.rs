@@ -102,7 +102,12 @@ fn answer(n: &Node, req: &Value) -> Value {
                 txs
             }
         }
-        "frontier_status" => json!({"runId": n.run_id()}),
+        "frontier_status" => {
+            // The ledger's length and size as the scan answers them (⑲
+            // 2026-11-08: the final states' point is checked against them).
+            let len = n.ledger.lock().unwrap().len();
+            json!({"runId": n.run_id(), "transactions": len, "ledgerBytes": 100 * len})
+        }
         _ => Value::Null,
     };
     json!({"jsonrpc": "2.0", "id": id, "result": result})
@@ -207,9 +212,10 @@ async fn both_archives_of_one_ledger_are_one_order() {
     assert_eq!(txs.iter().map(|t| t.seq).collect::<Vec<_>>(), vec![1, 4, 6]);
     let rdir = archive_of(&url, other(), Some("run1")).await;
     let mut rf = ResidentFeed::from_archive(&rdir, other(), BTreeMap::new()).unwrap();
-    assert_eq!(rf.history.source, Source::Unknown);
-    // ⑲ (rewind check): an archive not checked against the node says so.
-    assert!(rf.history.detail.contains("rollback"));
+    // ⑲ (2026-11-08): the ledger's feed, but an archive names what it cannot
+    // show (archive_only, prefix, point): unproven.
+    assert_eq!(rf.history.source, Source::LedgerFeed);
+    assert!(rf.history.unproven());
     assert_eq!(
         rf.txs.iter().map(|t| t.seq).collect::<Vec<_>>(),
         vec![2, 3, 5],
@@ -238,8 +244,12 @@ async fn both_archives_of_one_ledger_are_one_order() {
     rf.history = input::confirm_archive(&rdir, &url, rf.history)
         .await
         .unwrap();
-    assert_eq!(rf.history.source, Source::Unknown);
-    assert!(rf.history.detail.contains("cross-check matched"));
+    // ⑲ 2026-11-08: the tail matched; the prefix is still not shown.
+    assert_eq!(rf.history.source, Source::LedgerFeed);
+    assert!(rf
+        .history
+        .gaps
+        .contains(&verify_core::history::Gap::PrefixIdentityUnverified));
     assert!(
         !rf.gaps_before(&lw, &lh, 6).is_empty(),
         "{:?}",
@@ -270,58 +280,64 @@ async fn a_resident_archive_not_the_ledgers_whole_feed_or_of_another_ledger_is_n
         BTreeMap::new(),
     )
     .unwrap();
-    assert!(rf2.history.detail.contains("rollback"));
+    assert!(rf2.history.unproven());
     let why = rf2.gaps_before(&w, &h, 6);
     assert!(
         why.iter()
-            .any(|x| x.contains("source (unknown) does not show a whole history")),
+            .any(|x| x.contains("does not show a whole history")),
         "{why:?}"
     );
 }
 
 /// The live read on a scanning node (workstream 4): the transactions the
-/// scan saw are kept, with the ledger's extent as `tip`, but no range is
-/// claimed whole (`through` 0, `unknown`): a live read is not accepted as the
-/// whole history while its conditions are undecided (2c8fbfa2). A ledger that
-/// grows between the reads is read through its new end; still never whole.
+/// scan saw are kept, with the ledger's extent as `tip`. It is unproven
+/// (2c8fbfa2's rule) until both of what a live read must show are shown
+/// (⑲, 2026-11-08): every read scanned from a ledger that cannot rewind
+/// under its runId, and the node still at the read's point after the final
+/// states (sealed here); then its range is whole through the scan, not past
+/// it. A ledger that grows between the reads is read through its new end.
 #[tokio::test]
 async fn the_live_resident_feed_takes_its_extent_from_the_same_answers() {
     let (n, url) = node_with(&["run1"], &two_programs(), true).await;
     let (txs, h) = input::fetch_txs(&url, &prog(), true, None, None)
         .await
         .unwrap();
-    assert_eq!(h.source, Source::Unknown);
+    assert!(h.unproven(), "unproven until sealed");
     let policy = Address::new_from_array([0x76; 32]);
-    let rf = verify_core::resident_feed::fetch(&url, &other(), &policy, &txs)
+    let mut rf = verify_core::resident_feed::fetch(&url, &other(), &policy, &txs)
         .await
         .unwrap();
-    assert_eq!(rf.history.source, Source::Unknown);
-    assert!(
-        rf.history
-            .detail
-            .contains("ledger run1 scanned through seq 6"),
-        "{}",
-        rf.history.detail
-    );
-    assert_eq!((rf.through, rf.tip), (0, Some(6)));
+    // ⑲ 2026-11-08: both live reads are at one ledger point only once the
+    // final states are read and the node is still there (sealed here).
+    assert!(rf.history.unproven() && h.unproven());
+    let mut h = h;
+    input::seal_point_in_time(&url, &mut h).await;
+    input::seal_point_in_time(&url, &mut rf.history).await;
+    assert_eq!(rf.history, h, "the same ledger, from the scan's runId");
+    assert_eq!((rf.through, rf.tip), (6, Some(6)));
     assert_eq!(
         rf.txs.iter().map(|t| t.seq).collect::<Vec<_>>(),
         vec![2, 3, 5]
     );
     let w = World::parse(&prog(), &txs, BTreeMap::new(), 0);
-    assert!(!rf.gaps_before(&w, &h, 7).is_empty());
+    assert!(
+        rf.gaps_before(&w, &h, 7).is_empty(),
+        "{:?}",
+        rf.gaps_before(&w, &h, 7)
+    );
     assert!(!rf.gaps_before(&w, &h, 8).is_empty());
     // The ledger grows after the game read: a resident transaction lands at 7.
     n.ledger.lock().unwrap().push((17, other()));
-    let rf = verify_core::resident_feed::fetch(&url, &other(), &policy, &txs)
+    let mut rf = verify_core::resident_feed::fetch(&url, &other(), &policy, &txs)
         .await
         .unwrap();
-    assert_eq!((rf.through, rf.tip), (0, Some(7)));
+    input::seal_point_in_time(&url, &mut rf.history).await;
+    assert_eq!((rf.through, rf.tip), (7, Some(7)));
     assert_eq!(
         rf.txs.iter().map(|t| t.seq).collect::<Vec<_>>(),
         vec![2, 3, 5, 7]
     );
-    assert!(!rf.gaps_before(&w, &h, 8).is_empty());
+    assert!(rf.gaps_before(&w, &h, 8).is_empty());
 }
 
 /// A node that does not scan (the plain array) or a read with no resident
