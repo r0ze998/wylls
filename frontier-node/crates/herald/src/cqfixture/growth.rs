@@ -124,10 +124,21 @@ fn rec(
     payload: &[u8],
     chain: &mut [(EntityKind, &mut Vec<u8>)],
 ) -> Vec<u8> {
+    rec_at(kind, frontier_abi::log::NO_BELL, key, payload, chain)
+}
+
+/// A record at `bell` (the bell the instruction landed in).
+fn rec_at(
+    kind: AnyKind,
+    bell: u32,
+    key: &[u8],
+    payload: &[u8],
+    chain: &mut [(EntityKind, &mut Vec<u8>)],
+) -> Vec<u8> {
     let mut p = payload.to_vec();
     p.resize(kind.payload_len(), 0);
     let mut out = vec![0u8; 512];
-    let n = v2log::write_body(kind, frontier_abi::log::NO_BELL, key, &p, &mut out).unwrap_or(0);
+    let n = v2log::write_body(kind, bell, key, &p, &mut out).unwrap_or(0);
     let bwt = out[..n].to_vec();
     let mut links: Vec<Link> = vec![];
     for (e, d) in chain.iter_mut() {
@@ -147,10 +158,15 @@ fn rec(
 struct Tx {
     txs: Vec<TxRecord>,
     seq: u64,
+    /// Every account's latest posted bytes (a later write starts from them).
+    last: std::collections::BTreeMap<[u8; 32], Vec<u8>>,
 }
 
 impl Tx {
     fn push(&mut self, bodies: Vec<Vec<u8>>, post: Vec<([u8; 32], Vec<u8>)>) {
+        for (k, d) in &post {
+            self.last.insert(*k, d.clone());
+        }
         self.seq += 1;
         let mut sig = [0u8; 64];
         sig[..8].copy_from_slice(&self.seq.to_le_bytes());
@@ -465,8 +481,14 @@ fn holding(owner: &[u8; 32], site: u8, tile: u8, faction: u8) -> Vec<u8> {
 
 /// The archive and where each stage ends (`txs[..ends[k]]`).
 pub fn map_growth() -> (Vec<TxRecord>, [usize; 4]) {
+    let (t, ends) = growth_tx();
+    (t.txs, ends)
+}
+
+fn growth_tx() -> (Tx, [usize; 4]) {
     let cx = ctx();
     let mut t = Tx {
+        last: Default::default(),
         txs: vec![],
         seq: 0,
     };
@@ -597,5 +619,135 @@ pub fn map_growth() -> (Vec<TxRecord>, [usize; 4]) {
     );
     open_ring(&mut t, d);
     let e3 = t.txs.len();
-    (t.txs, [e0, e1, e2, e3])
+    (t, [e0, e1, e2, e3])
+}
+
+/// The palisade of [`palisade_case`]: `(P, Q, tile)` on 8's route from
+/// HOME tile 0 to TARGET tile 0 (growth-route.mjs `ROUTE.dirs`), the first
+/// hex of the walk where BuildStructure may stand one (passable, not a
+/// site, not the keep, no camp present), the destination excluded.
+pub const ROUTE_DIRS: [u8; 9] = [0, 0, 0, 0, 1, 1, 0, 1, 1];
+
+/// The tiles 8's route walks through, in order (origin excluded).
+pub fn route_tiles() -> Vec<(i32, i32, u8)> {
+    use permutation_rules::frontier::geometry::locate;
+    use permutation_rules::hex::{Hex, DIRECTIONS};
+    let mut h = ProvinceCoord::new(HOME.0, HOME.1).tile(0).expect("tile 0");
+    ROUTE_DIRS
+        .iter()
+        .map(|&d| {
+            let (dq, dr) = DIRECTIONS[d as usize];
+            h = Hex::new(h.q + dq, h.r + dr);
+            let (pc, t) = locate(h);
+            (pc.p, pc.q, t)
+        })
+        .collect()
+}
+
+/// Where the palisade stands (see [`ROUTE_DIRS`]).
+pub fn palisade_at() -> (i32, i32, u8) {
+    let tiles = route_tiles();
+    let last = tiles.len() - 1;
+    tiles[..last]
+        .iter()
+        .copied()
+        .find(|&(p, q, tile)| {
+            let c = ProvinceCoord::new(p, q);
+            let t = generate_province(&ring_seed(c.ring() as u16), c);
+            let w = c.wedge().unwrap_or(0);
+            let keep = kkeep::keep_tile(&t, &t.sites, t.site_count, w).filter(|_| c.ring() >= 2);
+            t.passable(tile)
+                && !t.sites[..t.site_count as usize].contains(&tile)
+                && keep != Some(tile)
+        })
+        .expect("a buildable hex on the route")
+}
+
+/// A second, independent case (the empty-world [`map_growth`] is
+/// unchanged): the grown world, then one BuildStructure(palisade) by the
+/// fixture's faction-2 Citizen (the NFT resident, its Holding at HOME
+/// site 1) on [`palisade_at`], as `proc/structure.rs build_structure`
+/// writes it: the Structure account (STATE_LIVE, gen 1, the owner's tag,
+/// notify owner, entry 0, kind palisade), the Province's structure entry 0,
+/// the Citizen's PALISADES counter, and STRUCTURE_BUILT chained to the
+/// Citizen, Holding, Province and Structure. **Not modelled:** the Holding's
+/// payment (`kt::cost(PALISADE)` from its stores through the economy
+/// kernel); the Holding is not reposted. A palisade of faction 2 stops a
+/// faction-1 march by the existing stance rule (`s1walk.mjs stops`: another
+/// nation at war; a fresh season's stances are all war). `ends[0]` is the
+/// grown world, `ends[1]` the build.
+pub fn palisade_case() -> (Vec<TxRecord>, [usize; 2]) {
+    use frontier_abi::v2::layout::player::citizen as C2s;
+    use frontier_abi::v2::layout::province::structure_entry as TE;
+    use frontier_abi::v2::layout::s1::structure as TW;
+    let cx = ctx();
+    let (mut t, ends) = growth_tx();
+    let grown = ends[3];
+    let (p, q, tile) = palisade_at();
+    let raddr = resident_citizen();
+    let mut rc = t.last[&raddr].clone();
+    let haddr = cx.holding(HOME.0, HOME.1, 1);
+    let mut hd = t.last[&haddr].clone();
+    let paddr = cx.province(p, q);
+    let mut pd = t.last[&paddr].clone();
+    let saddr = frontier_abi::v2::addr::structure(&cx, p, q, tile);
+    let faction = rc[C2::FACTION];
+    let owner_tag =
+        u64::from_le_bytes(rc[C2::CITIZEN_TAG..C2::CITIZEN_TAG + 8].try_into().unwrap());
+    let mut sd = vec![0u8; TW::SIZE];
+    write_header(&mut sd, AccountKind::Structure, SEASON_ID);
+    put(&mut sd, TW::P, &(p as i16).to_le_bytes());
+    put(&mut sd, TW::Q, &(q as i16).to_le_bytes());
+    sd[TW::TILE] = tile;
+    sd[TW::STATE] = TW::STATE_LIVE;
+    sd[TW::FACTION] = faction;
+    sd[TW::GEN] = 1;
+    put(&mut sd, TW::OWNER_CITIZEN, &raddr);
+    put(&mut sd, TW::OWNER_TAG, &owner_tag.to_le_bytes());
+    put(&mut sd, TW::BUILT_TS, &(GENESIS_TS + 300).to_le_bytes());
+    put(
+        &mut sd,
+        TW::SEIZED_BELL,
+        &frontier_abi::log::NO_BELL.to_le_bytes(),
+    );
+    sd[TW::NOTIFY] = TW::NOTIFY_OWNER;
+    sd[TW::ENTRY] = 0;
+    sd[TW::KIND] = TW::KIND_PALISADE;
+    let o = TE::at(0);
+    pd[o + TE::KIND] = TW::KIND_PALISADE;
+    pd[o + TE::TILE] = tile;
+    pd[o + TE::FACTION] = faction;
+    pd[o + TE::GEN] = 1;
+    rc[C2s::PALISADES] += 1;
+    let cost = permutation_rules::frontier::structure::cost(TW::KIND_PALISADE);
+    let mut cb = [0u8; 64];
+    for (i, v) in cost.iter().enumerate() {
+        cb[8 * i..8 * i + 8].copy_from_slice(&v.to_le_bytes());
+    }
+    let digest: [u8; 32] = Sha256::digest(cb).into();
+    let hkey = host_id(HOME.0, HOME.1, 1, 0, 0).unwrap_or(0);
+    let mut payload = owner_tag.to_le_bytes().to_vec();
+    payload.extend([faction, 1, 0, TW::NOTIFY_OWNER]);
+    payload.extend(hkey.to_le_bytes());
+    payload.extend(digest);
+    payload.push(TW::KIND_PALISADE);
+    let mut key = p.to_le_bytes().to_vec();
+    key.extend(q.to_le_bytes());
+    key.push(tile);
+    // BuildStructure lands at GENESIS_TS + 300: bell 0.
+    let built = rec_at(
+        AnyKind::Cq(CqKind::STRUCTURE_BUILT),
+        0,
+        &key,
+        &payload,
+        &mut [
+            (EntityKind::Citizen, &mut rc),
+            (EntityKind::Holding, &mut hd),
+            (EntityKind::Province, &mut pd),
+            (EntityKind::Structure, &mut sd),
+        ],
+    );
+    t.push(vec![built], vec![(raddr, rc), (paddr, pd), (saddr, sd)]);
+    let e = t.txs.len();
+    (t.txs, [grown, e])
 }
