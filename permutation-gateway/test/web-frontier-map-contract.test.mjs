@@ -17,6 +17,7 @@ import { createHash } from 'node:crypto';
 import { createHerald } from '../../permutation-server/web/frontier/herald.mjs';
 import * as W from '../../permutation-server/web/frontier/map/world.mjs';
 import { seasonAddresses } from '../../permutation-server/web/frontier/faddr.mjs';
+import { blockedHexes } from '../../permutation-server/web/frontier/s1walk.mjs';
 
 const GOLDEN = JSON.parse(readFileSync(new URL('../../frontier-node/crates/herald/tests/golden/ws19-map-growth.json', import.meta.url), 'utf8'));
 // The S1 golden (ring 4 → 5; used from the wide test on and in the S1 section below).
@@ -244,5 +245,18 @@ test('S1: an NFT resident\'s /h/me (workstream 20): its Citizen at the resident-
     // The wallet's own read is still the wallet Citizen.
     const w = await h.me(S1.wallet);
     assert.ok(w.ok && w.record.citizen.address !== S1.residentCitizen, stage);
+  }
+});
+
+test('S1: the structures feed is the router\'s real empty answer at every stage, so the route has no palisade to avoid', async () => {
+  for (const stage of S1_STAGES) {
+    assert.equal(S1.stages[stage]['/h/structures.json'].status, 200, stage);
+    const { h, asked } = s1Herald(stage);
+    const r = await h.structures();
+    assert.ok(r.ok, `${stage}: ${r.code} ${r.message ?? ''}`);
+    assert.deepEqual(r.structures, { v: 1, structures: [], sightings: [] }, stage);
+    assert.ok(asked.includes('/h/structures.json'), stage);
+    // What the page's route planner is given as blocked hexes (s1walk.mjs blockedHexes → fmarch planRoute `blocked`).
+    assert.deepEqual(blockedHexes(r.structures.structures, {}, 1, false), [], stage);
   }
 });

@@ -269,6 +269,9 @@ fn s1_paths() -> Vec<String> {
         v.push(format!("/h/overview/{d}/latest.bin"));
         v.push(format!("/h/overview2/{d}/latest.bin"));
     }
+    // The S1 structures feed: the palisades the page's route planner avoids
+    // (s1walk.mjs palisadeHexesOf -> fmarch.mjs planRoute `blocked`).
+    v.push("/h/structures.json".into());
     v.push("/h/wide-index/status".into());
     v.push("/h/world/wide".into());
     v
@@ -435,6 +438,18 @@ async fn the_s1_ring_4_to_5_growth_matches_the_golden_and_8s_contract() {
             "{s}: the resident-id address: {me}"
         );
         assert_eq!(me["holdings"].as_array().map(|a| a.len()), Some(1), "{s}");
+    }
+    // The structures feed the route planner reads: the S1 herald serves it
+    // from the start (conquest.rs seed_s1), and this world has no
+    // structure record, so it is the real empty answer at every stage, not
+    // a 404 read as "no palisades".
+    for s in gr::STAGES {
+        assert_eq!(status(&g, s, "/h/structures.json"), 200, "{s}");
+        assert_eq!(
+            body(&g, s, "/h/structures.json"),
+            &json!({"v": 1, "structures": [], "sightings": []}),
+            "{s}"
+        );
     }
     assert_eq!(status(&g, "extended", "/h/world/ring/5"), 404);
     assert_eq!(
