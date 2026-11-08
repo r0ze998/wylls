@@ -302,3 +302,17 @@ test('S1 palisade case: the router\'s structures and nations feeds give the page
     assert.deepEqual(blockedHexes(st.structures.structures, na.nations.stances, 2, false), []);
   }
 });
+
+test('S1 palisade case: the stance is read from the nations feed, not defaulted (a pass stance stops nothing)', async () => {
+  // The router's nations answer is all war, which is also stanceOf's default for a missing table; here the same answer
+  // with nation 2 → faction 1 set to pass (STANCE index 1) shows the verdict follows the table read.
+  const h = s1pHerald('palisade');
+  const st = await h.structures();
+  const na = await h.nations();
+  assert.ok(st.ok && na.ok);
+  const stances = na.nations.stances.map(row => [...row]);
+  stances[2][1] = 1;
+  assert.deepEqual(blockedHexes(st.structures.structures, stances, 1, false), [], 'pass: not stopped');
+  stances[2][1] = 0;
+  assert.equal(blockedHexes(st.structures.structures, stances, 1, false).length, 1, 'war: stopped');
+});

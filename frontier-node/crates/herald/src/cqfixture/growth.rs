@@ -656,9 +656,16 @@ pub fn palisade_at() -> (i32, i32, u8) {
             let t = generate_province(&ring_seed(c.ring() as u16), c);
             let w = c.wedge().unwrap_or(0);
             let keep = kkeep::keep_tile(&t, &t.sites, t.site_count, w).filter(|_| c.ring() >= 2);
+            // The camp, from the Province bytes the fixture writes (build_structure: `camp_present && camp == tile`).
+            let pd = province(c);
+            let cp = P::CAMP;
+            let camp_here = pd[cp + frontier_abi::layout::province::camp::STATE]
+                == frontier_abi::layout::province::camp::STATE_PRESENT
+                && pd[cp + frontier_abi::layout::province::camp::TILE] == tile;
             t.passable(tile)
                 && !t.sites[..t.site_count as usize].contains(&tile)
                 && keep != Some(tile)
+                && !camp_here
         })
         .expect("a buildable hex on the route")
 }
@@ -672,7 +679,12 @@ pub fn palisade_at() -> (i32, i32, u8) {
 /// the Citizen's PALISADES counter, and STRUCTURE_BUILT chained to the
 /// Citizen, Holding, Province and Structure. **Not modelled:** the Holding's
 /// payment (`kt::cost(PALISADE)` from its stores through the economy
-/// kernel); the Holding is not reposted. A palisade of faction 2 stops a
+/// kernel); the Holding is not reposted, so its published chain head lags
+/// the STRUCTURE_BUILT link to it (16's review, REPORT §29.31). Also left
+/// as the fixture's: the Structure's RENT_TO (the program writes the
+/// payer's key; zero here). Scene choices no definition fixes, made for
+/// this case only: the builder (the existing faction-2 Citizen), notify
+/// (NOTIFY_OWNER) and the hex (the first buildable one on the route). A palisade of faction 2 stops a
 /// faction-1 march by the existing stance rule (`s1walk.mjs stops`: another
 /// nation at war; a fresh season's stances are all war). `ends[0]` is the
 /// grown world, `ends[1]` the build.
