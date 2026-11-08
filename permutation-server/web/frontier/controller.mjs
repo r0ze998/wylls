@@ -2144,7 +2144,7 @@ export async function startPlay({ herald: h, cfg }) {
   FS.ui = scope() ? loadUi(uiStorage, uiKey(scope())) : loadUi(uiStorage, '');
   FS.tab = FS.ui.tab;
   wallet.discover();
-  if (cfg.dev && pin?.cluster === 'localnet') await wallet.enableDevWallet({ cluster: 'localnet', allowed: true }).catch(() => false);
+  if (cfg.dev && cfg.devWallet !== false && pin?.cluster === 'localnet') await wallet.enableDevWallet({ cluster: 'localnet', allowed: true }).catch(() => false);
   let walletEventsReady = false;
   const listWallets = () => {
     FS.walletList = wallet.list(wallet.chainOf(pin?.cluster ?? 'localnet'));
