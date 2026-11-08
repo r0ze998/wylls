@@ -1,2 +1,0 @@
-ok 1 - V16-B1: a sent request key is still a replay after 2,000 later requests (invariant of DESIGN.md §6.6)
-not ok 2 - V16-B7: MCP requestIds are namespaced per agent (two agents, the same requestId, both act)

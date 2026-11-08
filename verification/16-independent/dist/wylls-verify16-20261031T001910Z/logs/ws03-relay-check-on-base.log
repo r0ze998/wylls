@@ -1,6 +1,0 @@
-ok 1 - [SIMULATED] SendCaravan is a sponsored player shape; the direct call passes the relay's allowlist
-ok 2 - [SIMULATED] the courier's owner-signed shape is refused: the fourth instruction is not the Frontier program's
-ok 3 - [SIMULATED] the courier's delegated shape is refused for the same reason; its payer is not the relay either
-ok 4 - [SIMULATED] the relay's budget for SendCaravan, against the local measurements of the courier paths
-# pass 4
-# fail 0
