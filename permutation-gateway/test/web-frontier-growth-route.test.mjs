@@ -124,7 +124,7 @@ test('the S1 bytes: the page\'s herald decodes the Season at layout 2 / v4 with 
     const r = await createHerald({ base: 'http://h', fetch }).season();
     assert.ok(r.ok, `${stage}: ${r.code}`);
     const s = r.season, cq = [s.conquestParams].flat()[0];
-    assert.equal(Buffer.from(rec.bytes_b64, 'base64').length, 2048, 'a layout-2 Season (not a layout-1 one)');
+    assert.equal(Buffer.from(rec.bytes_b64, 'base64').length, 2048, 'the Season account size (the same at both layouts: layout and program version below tell S1 from M1)');
     assert.deepEqual([s.layoutVersion, s.programVersion], [2, 4]);
     assert.equal(kernelFile(s), 'frontier-v3.wasm');
     assert.equal(Buffer.from(s.rulesetHash).toString('hex'), PRESETS.ruleset_hash_v3, 'the kernel the before() hook loaded is the one this Season names');
@@ -133,7 +133,7 @@ test('the S1 bytes: the page\'s herald decodes the Season at layout 2 / v4 with 
     assert.equal(s.genesisRing, G.GENESIS_RING);
     assert.deepEqual([...s.genesisSeed], [...G.GENESIS_SEED], 'the genesis rings\' seeds come from the Season\'s own genesis seed');
     const fb = G.frontierBytes(stage), f = decode('Frontier', fb, { seasonId: G.SEASON_ID });
-    assert.equal(fb.length, 512);
+    assert.equal(fb.length, 512); // the Frontier size, also the same at both layouts
     assert.equal(f.ringsOpened, rec.ringsOpened, stage);
     assert.equal(Math.max(s.rMax, f.rMaxExt), rec.rMax, `${stage}: the herald's rMax is the effective one`);
     assert.equal(rec.rMaxCeiling, cq.rMaxCeiling);
