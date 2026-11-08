@@ -1,0 +1,193 @@
+{
+  "label": "LOCAL FIXTURE: real relay/agent wallet/MCP code over a scripted chain; program effects emulated; models are scripted stand-ins, not LLMs",
+  "adapters": {
+    "grant": "provisional: ② rights contract not received; reads the agent wallet policy + mode + delegation, narrowed by the owner's local mandate",
+    "command": "provisional: ③ command contract not received; derived from the program ABI (ixOf) and the agent gateway (accountsFor)",
+    "run": "provisional: ④ Run contract not received; a local append-only journal over the gateway's ActionResult and GET /f/tx"
+  },
+  "world": {
+    "start": 1800108000,
+    "end": 1800109200,
+    "stores": {
+      "Food": 280,
+      "Wood": 1200,
+      "Stone": 300,
+      "Ore": 80,
+      "Arms": 0,
+      "Gold": 60
+    },
+    "reserve": {
+      "Spearman": 200
+    }
+  },
+  "runs": [
+    {
+      "runId": "north-op-1",
+      "status": "done",
+      "by": "rules",
+      "items": [
+        {
+          "request": "N-1",
+          "title": "北方拠点の守り:槍兵200",
+          "proposed": {
+            "name": "Train",
+            "fields": {
+              "unit": 0,
+              "n": 200
+            }
+          },
+          "outcome": "sent",
+          "code": null,
+          "reason": "中継が受け付けて送った。着地と効果は次の確認で見る",
+          "ownerDecision": null
+        },
+        {
+          "request": "N-2",
+          "title": "北方拠点の倉へ木材900",
+          "proposed": {
+            "name": "SendCaravan",
+            "fields": {}
+          },
+          "outcome": "needs_owner",
+          "code": "WalletRequired",
+          "reason": "他のプレイヤーの村・倉への隊商は、チェーンが財布の署名を求める（caravan.rs WalletRequired）。代理の鍵では送れない",
+          "ownerDecision": "本人がプレイ画面の隊商の欄で、宛先・荷・量を確かめて財布で署名する"
+        },
+        {
+          "request": "N-4",
+          "title": "北の見張り塔を使わせて",
+          "proposed": {
+            "name": "UseFacility",
+            "fields": {}
+          },
+          "outcome": "needs_owner",
+          "code": "NotImplemented",
+          "reason": "UseFacility: 施設の利用権（段階2の使用権の札）は、試遊甲では紙の札と台帳で手動運用。プログラムの命令はない",
+          "ownerDecision": "本人が試遊の手順（札・台帳）で行うか、実装を待つ"
+        },
+        {
+          "request": "N-3",
+          "title": "投票:北の国への構えを「警戒」に",
+          "proposed": {
+            "name": "Vote",
+            "fields": {
+              "id": 17,
+              "yes": 1
+            }
+          },
+          "outcome": "needs_owner",
+          "code": "DecidedNotForProxy",
+          "reason": "Vote: 2026-10-23 決定（29-remaining-decisions E2 を採用）：代理に投票は任せない。国の投票は村の持ち主本人が行う",
+          "ownerDecision": "本人が自分の財布で Vote するか決める"
+        }
+      ],
+      "ignored": [
+        {
+          "requestId": "N-5",
+          "code": "RequestExpired"
+        },
+        {
+          "requestId": "N-6",
+          "code": "NotOurNation"
+        },
+        {
+          "requestId": "X-1",
+          "code": "NotFromFollowedAuthor"
+        },
+        {
+          "requestId": "X-2",
+          "code": "NotFromFollowedAuthor"
+        }
+      ],
+      "notes": []
+    },
+    {
+      "runId": "north-op-2",
+      "status": "done",
+      "verified": [
+        {
+          "key": "3103b7fe-b7ac-4e86-9ebc-0dfbadcfa616|N-1|Train|m1",
+          "outcome": "contributed",
+          "effect": {
+            "confirmed": true,
+            "seen": 200,
+            "expected": 200
+          }
+        }
+      ],
+      "items": [
+        {
+          "request": "N-2",
+          "title": "北方拠点の倉へ木材900",
+          "proposed": {
+            "name": "SendCaravan",
+            "fields": {}
+          },
+          "outcome": "needs_owner",
+          "code": "WalletRequired",
+          "reason": "他のプレイヤーの村・倉への隊商は、チェーンが財布の署名を求める（caravan.rs WalletRequired）。代理の鍵では送れない",
+          "ownerDecision": "本人がプレイ画面の隊商の欄で、宛先・荷・量を確かめて財布で署名する"
+        },
+        {
+          "request": "N-4",
+          "title": "北の見張り塔を使わせて",
+          "proposed": {
+            "name": "UseFacility",
+            "fields": {}
+          },
+          "outcome": "needs_owner",
+          "code": "NotImplemented",
+          "reason": "UseFacility: 施設の利用権（段階2の使用権の札）は、試遊甲では紙の札と台帳で手動運用。プログラムの命令はない",
+          "ownerDecision": "本人が試遊の手順（札・台帳）で行うか、実装を待つ"
+        },
+        {
+          "request": "N-3",
+          "title": "投票:北の国への構えを「警戒」に",
+          "proposed": {
+            "name": "Vote",
+            "fields": {
+              "id": 17,
+              "yes": 1
+            }
+          },
+          "outcome": "needs_owner",
+          "code": "DecidedNotForProxy",
+          "reason": "Vote: 2026-10-23 決定（29-remaining-decisions E2 を採用）：代理に投票は任せない。国の投票は村の持ち主本人が行う",
+          "ownerDecision": "本人が自分の財布で Vote するか決める"
+        }
+      ],
+      "ignored": [
+        {
+          "requestId": "N-5",
+          "code": "RequestExpired"
+        },
+        {
+          "requestId": "N-6",
+          "code": "NotOurNation"
+        },
+        {
+          "requestId": "X-1",
+          "code": "NotFromFollowedAuthor"
+        },
+        {
+          "requestId": "X-2",
+          "code": "NotFromFollowedAuthor"
+        }
+      ],
+      "notes": [
+        {
+          "requestId": "N-1",
+          "code": "AlreadyContributed",
+          "reason": "この依頼への協力は記録済み"
+        }
+      ]
+    }
+  ],
+  "memory": [
+    {
+      "requestId": "N-1",
+      "outcome": "contributed",
+      "verified": true
+    }
+  ]
+}

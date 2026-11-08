@@ -1,0 +1,260 @@
+diff --git a/permutation-gateway/src/frontier/agent/contract.mjs b/permutation-gateway/src/frontier/agent/contract.mjs
+index 95325cdc..4a77df40 100644
+--- a/permutation-gateway/src/frontier/agent/contract.mjs
++++ b/permutation-gateway/src/frontier/agent/contract.mjs
+@@ -60,6 +60,9 @@ export const ERR = Object.freeze({
+   BUDGET_EXCEEDED: 'BudgetExceeded',
+   DAILY_LIMIT: 'DailyLimitReached',
+   CALL_LIMIT: 'CallLimitReached',
++  PER_CALL_LIMIT: 'PerCallLimit',
++  CATEGORY_LIMIT: 'CategoryLimit',
++  POLICY_EXPIRED: 'PolicyExpired',
+   INSUFFICIENT_BALANCE: 'InsufficientBalance',
+   IDEMPOTENCY_CONFLICT: 'IdempotencyConflict',
+   SESSION_NOT_DELEGATED: 'SessionNotDelegated',
+diff --git a/permutation-gateway/src/frontier/agent/gateway.mjs b/permutation-gateway/src/frontier/agent/gateway.mjs
+index 03e05945..23af907b 100644
+--- a/permutation-gateway/src/frontier/agent/gateway.mjs
++++ b/permutation-gateway/src/frontier/agent/gateway.mjs
+@@ -409,6 +409,7 @@ export class AgentGateway {
+   /** The synchronous gate every action passes before money moves; throws the refusal. */
+   #gate(rec, r) {
+     if (rec.mode !== MODES.AUTO) throw new AgentError(ERR.AGENT_STOPPED, 'the agent is stopped (manual mode); the owner must switch it to auto', 409, { mode: rec.mode, modeEpoch: rec.modeEpoch });
++    this.#unexpired(rec);
+     if (r.policyVersion !== rec.policy.version) throw new AgentError(ERR.STALE_POLICY, `the request was decided under policy ${r.policyVersion}; the current one is ${rec.policy.version}`, 409, { policyVersion: rec.policy.version });
+     if (r.modeEpoch !== undefined && r.modeEpoch !== rec.modeEpoch) throw new AgentError(ERR.STALE_MODE, `the request began in mode epoch ${r.modeEpoch}; the current one is ${rec.modeEpoch}`, 409, { modeEpoch: rec.modeEpoch });
+     checkAllowed(rec.policy, r.action.name);
+@@ -509,14 +510,27 @@ export class AgentGateway {
+    * held before the call, so a call the agent cannot pay for is never
+    * made. Returns `{ok, charged, result | error, tokens}`.
+    */
+-  async meterInference(agentId, fn, { key = randomUUID(), free = false, model = null } = {}) {
++  /** The owner's permission has an end (policy.expiresAt): past it nothing is acted or called, as after a stop. */
++  #unexpired(rec) {
++    if (Number.isSafeInteger(rec.policy.expiresAt) && this.now() >= rec.policy.expiresAt) throw new AgentError(ERR.POLICY_EXPIRED, 'the owner\'s permission for this agent has expired', 409, { expiresAt: rec.policy.expiresAt });
++  }
++
++  /**
++   * `price` (optional): this call's hold instead of the fixed test price — the most it can cost (a token ceiling × a
++   * price). `actual(result, error)` (optional): what it did cost, settled ≤ the hold (the rest comes back). Without
++   * them the call is held and settled at the fixed price, as before. `served(result)` (optional): the model the server
++   * says answered, recorded next to the configured `model`.
++   */
++  async meterInference(agentId, fn, { key = randomUUID(), free = false, model = null, price = null, actual = null, served = null } = {}) {
+     const rec = this.ledger.get(agentId);
+     if (rec.mode !== MODES.AUTO) throw new AgentError(ERR.AGENT_STOPPED, 'the agent is stopped', 409);
++    this.#unexpired(rec);
++    if (price !== null && !isAmount(String(price))) throw new AgentError(ERR.BAD_REQUEST, 'price must be a base-unit amount');
+     if (free) {
+       const result = await fn();
+       return { ok: true, charged: '0', result };
+     }
+-    const hold = this.ledger.hold(agentId, { category: CATEGORIES.INFERENCE, amount: this.prices.inference, key, ttlMs: INFERENCE_HOLD_TTL_MS, policyVersion: rec.policy.version, modeEpoch: rec.modeEpoch });
++    const hold = this.ledger.hold(agentId, { category: CATEGORIES.INFERENCE, amount: price !== null ? String(price) : this.prices.inference, key, ttlMs: INFERENCE_HOLD_TTL_MS, policyVersion: rec.policy.version, modeEpoch: rec.modeEpoch });
+     // Running: a stop while the model works does not give the hold back; the call is paid for when it returns.
+     this.ledger.markRunning(agentId, hold.id);
+     let result;
+@@ -525,13 +539,19 @@ export class AgentGateway {
+     const tokens = result?.tokens ?? null;
+     // The outcome is known now: settle, also when the hold had become unresolved (past its TTL) in the meantime.
+     const late = rec.holds[hold.id]?.state === 'unresolved';
+-    const settled = this.ledger.settle(agentId, hold.id, undefined, { model, tokens, ok: !error, ...(late ? { late: true } : {}) });
++    let spent;
++    if (typeof actual === 'function') {
++      try { const a = BigInt(actual(result, error)); spent = String(a < 0n ? 0n : a > BigInt(hold.amount) ? BigInt(hold.amount) : a); } catch { spent = undefined; }
++    }
++    let servedModel = null;
++    if (typeof served === 'function') { try { servedModel = served(result) ?? null; } catch { servedModel = null; } }
++    const settled = this.ledger.settle(agentId, hold.id, spent, { model, tokens, ok: !error, ...(servedModel ? { servedModel: String(servedModel).slice(0, 120) } : {}), ...(spent !== undefined ? { metered: true } : {}), ...(late ? { late: true } : {}) });
+     if (!settled) {
+       // The hold is gone (the operator refunded it): the owner is not billed twice; the operator's record keeps the late result.
+       this.ledger.recordOperatorCost({ agentId, kind: 'late-result', holdId: hold.id, key, amount: hold.amount, model, ok: !error });
+       this.log(`agent wallet: ${agentId} model call ${key} returned after its hold was refunded: not charged, recorded`);
+     }
+-    const charged = settled ? hold.amount : '0';
++    const charged = settled ? (spent ?? hold.amount) : '0';
+     if (error) return { ok: false, charged, error: { code: ERR.INFERENCE_FAILED, message: String(error?.message ?? error) }, tokens };
+     return { ok: true, charged, result, tokens };
+   }
+diff --git a/permutation-gateway/src/frontier/agent/ledger.mjs b/permutation-gateway/src/frontier/agent/ledger.mjs
+index f1c30c12..9f81bf9c 100644
+--- a/permutation-gateway/src/frontier/agent/ledger.mjs
++++ b/permutation-gateway/src/frontier/agent/ledger.mjs
+@@ -141,6 +141,7 @@ export class AgentLedger {
+     const key = budgetDay(this.now());
+     if (rec.day.key !== key) rec.day = { key, spent: ZERO, calls: 0 };
+     rec.day.calls ??= 0;
++    rec.day.byCategory ??= {};
+   }
+ 
+   #heldTotal(rec, filter = () => true) {
+@@ -170,6 +171,16 @@ export class AgentLedger {
+       const perDay = big(rec.policy.budget.perDay);
+       const today = big(rec.day.spent) + this.#heldTotal(rec);
+       if (today + a > perDay) throw new AgentError(ERR.DAILY_LIMIT, `daily limit ${perDay} would be exceeded`, 402, { perDay: str(perDay), today: str(today) });
++      // The owner's optional finer caps: one hold's most, and each category's total and day apart from the whole.
++      const b = rec.policy.budget;
++      if (b.perCall !== undefined && a > big(b.perCall)) throw new AgentError(ERR.PER_CALL_LIMIT, `one ${category} hold of ${a} is over the per-call cap ${b.perCall}`, 402, { perCall: b.perCall, needed: str(a), category });
++      const cap = b.byCategory?.[category];
++      if (cap) {
++        const heldCat = this.#heldTotal(rec, h => h.category === category);
++        if (cap.total !== undefined && big(rec.bal.spent[category]) + heldCat + a > big(cap.total)) throw new AgentError(ERR.CATEGORY_LIMIT, `the ${category} budget ${cap.total} would be exceeded`, 402, { category, cap: cap.total, used: str(big(rec.bal.spent[category]) + heldCat) });
++        const todayCat = big(rec.day.byCategory[category] ?? ZERO) + heldCat;
++        if (cap.perDay !== undefined && todayCat + a > big(cap.perDay)) throw new AgentError(ERR.CATEGORY_LIMIT, `the ${category} daily limit ${cap.perDay} would be exceeded`, 402, { category, perDay: cap.perDay, today: str(todayCat) });
++      }
+     }
+     if (category === CATEGORIES.INFERENCE) {
+       // A model call counts whether or not it is priced: the owner's callsPerDay is a count, next to the money.
+@@ -280,6 +291,7 @@ export class AgentLedger {
+     rec.bal.available = str(big(rec.bal.available) + big(h.amount) - s);
+     rec.bal.spent[h.category] = str(big(rec.bal.spent[h.category]) + s);
+     rec.day.spent = str(big(rec.day.spent) + s);
++    rec.day.byCategory[h.category] = str(big(rec.day.byCategory[h.category] ?? ZERO) + s);
+     this.note(rec, { type: 'spend', category: h.category, amount: str(s), key: h.key, ...ref });
+     this.save();
+     return true;
+diff --git a/permutation-gateway/src/frontier/agent/policy.mjs b/permutation-gateway/src/frontier/agent/policy.mjs
+index 8cb50cde..ce536b84 100644
+--- a/permutation-gateway/src/frontier/agent/policy.mjs
++++ b/permutation-gateway/src/frontier/agent/policy.mjs
+@@ -3,7 +3,10 @@
+ // the gateway on every request, never by the model's prompt.
+ //
+ //   { allowed: [action or group name, …],
+-//     budget: { total, perDay, callsPerDay? } }   // test-USDC base units (strings); callsPerDay: model calls a day (integer), optional
++//     budget: { total, perDay, callsPerDay?,      // test-USDC base units (strings); callsPerDay: model calls a day (integer), optional
++//               perCall?,                         // optional: the most one hold (one model call, one priced action) may take
++//               byCategory? },                    // optional: { inference: {total?, perDay?}, game: {total?, perDay?} }, apart from the whole
++//     expiresAt? }                                // optional: unix ms after which the agent may not act or call (the owner's permission ends)
+ //
+ // `total` caps all the agent's spending ever (settled + held); `perDay` caps
+ // one UTC day's. Prices are the operator's (config), not the owner's.
+@@ -25,7 +28,21 @@ export function normalisePolicy(p) {
+   if (!isAmount(b.total)) bad('budget.total must be a base-unit amount string');
+   if (!isAmount(b.perDay)) bad('budget.perDay must be a base-unit amount string');
+   if (b.callsPerDay !== undefined && b.callsPerDay !== null && (!Number.isInteger(b.callsPerDay) || b.callsPerDay < 0)) bad('budget.callsPerDay must be a non-negative integer');
+-  return { allowed: [...allowed].sort(), budget: { total: b.total, perDay: b.perDay, ...(Number.isInteger(b.callsPerDay) ? { callsPerDay: b.callsPerDay } : {}) } };
++  if (b.perCall !== undefined && b.perCall !== null && !isAmount(b.perCall)) bad('budget.perCall must be a base-unit amount string');
++  let byCategory = null;
++  if (b.byCategory !== undefined && b.byCategory !== null) {
++    if (typeof b.byCategory !== 'object' || Array.isArray(b.byCategory)) bad('budget.byCategory must be an object');
++    byCategory = {};
++    for (const [c, lim] of Object.entries(b.byCategory)) {
++      if (c !== 'inference' && c !== 'game') bad(`budget.byCategory: ${c} is not a spending category an owner caps (inference, game)`);
++      const out = {};
++      for (const k of ['total', 'perDay']) if (lim?.[k] !== undefined && lim[k] !== null) { if (!isAmount(lim[k])) bad(`budget.byCategory.${c}.${k} must be a base-unit amount string`); out[k] = lim[k]; }
++      byCategory[c] = out;
++    }
++  }
++  if (p.expiresAt !== undefined && p.expiresAt !== null && (!Number.isSafeInteger(p.expiresAt) || p.expiresAt <= 0)) bad('expiresAt must be unix milliseconds');
++  return { allowed: [...allowed].sort(), budget: { total: b.total, perDay: b.perDay, ...(Number.isInteger(b.callsPerDay) ? { callsPerDay: b.callsPerDay } : {}),
++    ...(isAmount(b.perCall) ? { perCall: b.perCall } : {}), ...(byCategory ? { byCategory } : {}) }, ...(Number.isSafeInteger(p.expiresAt) ? { expiresAt: p.expiresAt } : {}) };
+ }
+ 
+ /** Throws ActionNotAllowed unless `name` is allowed by `policy` (and delegable at all). */
+diff --git a/permutation-gateway/test/agent-wallet-staking-limits.test.mjs b/permutation-gateway/test/agent-wallet-staking-limits.test.mjs
+new file mode 100644
+index 00000000..5e8c7c88
+--- /dev/null
++++ b/permutation-gateway/test/agent-wallet-staking-limits.test.mjs
+@@ -0,0 +1,100 @@
++// The owner's finer limits for AI staking (workstreams/05-ai-participation, patch 0001): a cap on one hold
++// (perCall), caps per spending category apart from the whole (byCategory), an end to the owner's permission
++// (expiresAt), and a model call held at its own quote and settled at its measured cost. Each is enforced by
++// the gateway and the ledger, where no caller (the runner, an MCP client, a model) can go around it.
++import { test } from 'node:test';
++import assert from 'node:assert/strict';
++import { Keypair } from '@solana/web3.js';
++import { ERR } from '../src/frontier/agent/contract.mjs';
++import { normalisePolicy } from '../src/frontier/agent/policy.mjs';
++import { actionRequest, call, createAgent, delegate, deposit, ownerCommand, policy, relay, sound } from './agent-wallet-fixtures.mjs';
++
++const post = (r, path, body) => call(r.public, 'POST', path, { body, ip: '127.0.0.1' });
++
++async function ready(r, p) {
++  const owner = Keypair.generate();
++  const o = owner.publicKey.toBase58();
++  const made = await createAgent(r, owner, { policy: p });
++  await deposit(r, o, made.agentId, 1_000_000n);
++  delegate(r, o, made.agentKey);
++  assert.equal((await post(r, '/f/agent/command', ownerCommand(owner, 'mode', { agentId: made.agentId, params: { mode: 'auto' } }))).status, 200);
++  return { owner, o, ...made, act: (over = {}) => r.gateway.submit(actionRequest(made.agentId, over), { capability: made.capability }) };
++}
++
++test('the policy keeps the new limits only when given, and refuses malformed ones', () => {
++  assert.deepEqual(normalisePolicy(policy()), { allowed: ['Build', 'Garrison', 'Harvest', 'Muster', 'Train'], budget: { total: '1000000', perDay: '1000000' } }, 'an old policy is unchanged');
++  const p = normalisePolicy({ allowed: ['economy'], budget: { total: '9', perDay: '9', perCall: '5', byCategory: { inference: { perDay: '3' }, game: { total: '4' } } }, expiresAt: 1_900_000_000_000 });
++  assert.deepEqual(p.budget, { total: '9', perDay: '9', perCall: '5', byCategory: { inference: { perDay: '3' }, game: { total: '4' } } });
++  assert.equal(p.expiresAt, 1_900_000_000_000);
++  assert.throws(() => normalisePolicy({ allowed: [], budget: { total: '1', perDay: '1', perCall: '-1' } }), /perCall/);
++  assert.throws(() => normalisePolicy({ allowed: [], budget: { total: '1', perDay: '1', byCategory: { network: { total: '1' } } } }), /network is not/);
++  assert.throws(() => normalisePolicy({ allowed: [], budget: { total: '1', perDay: '1' }, expiresAt: 'soon' }), /expiresAt/);
++});
++
++test('perCall: one priced action or one model call above the cap is refused before anything is held or sent', async () => {
++  const r = relay({ prices: { inference: '10000', game: { Harvest: '7000', Train: '12000' } } });
++  const a = await ready(r, { allowed: ['economy'], budget: { total: '1000000', perDay: '1000000', perCall: '10000' } });
++  const big = await a.act({ name: 'Train', fields: { unit: 0, n: 100 }, key: 'pc-train' });
++  assert.deepEqual([big.status, big.error.code], ['refused', ERR.PER_CALL_LIMIT]);
++  assert.equal(r.chain.sent.length, 0);
++  const ok = await a.act({ key: 'pc-harvest' });
++  assert.equal(ok.status, 'sent');
++  // A model call held at a quote above the cap is never made.
++  let ran = false;
++  await assert.rejects(r.gateway.meterInference(a.agentId, async () => { ran = true; }, { price: '10001' }), e => e.code === ERR.PER_CALL_LIMIT);
++  assert.equal(ran, false);
++  sound(r);
++});
++
++test('byCategory: model calls and game spending have their own day and total caps, under the whole budget', async () => {
++  const r = relay({ prices: { inference: '10000', game: { Harvest: '7000' } } });
++  const a = await ready(r, { allowed: ['economy'], budget: { total: '1000000', perDay: '1000000', byCategory: { inference: { perDay: '20000' }, game: { total: '14000' } } } });
++  const call1 = await r.gateway.meterInference(a.agentId, async () => 'x');
++  const call2 = await r.gateway.meterInference(a.agentId, async () => 'y');
++  assert.deepEqual([call1.charged, call2.charged], ['10000', '10000']);
++  await assert.rejects(r.gateway.meterInference(a.agentId, async () => 'z'), e => e.code === ERR.CATEGORY_LIMIT && e.extra?.category === 'inference');
++  // Game: two harvests of 7,000 fit the game total of 14,000 (reserved counts); the third does not, whatever the model spent.
++  assert.equal((await a.act({ key: 'g1' })).status, 'sent');
++  assert.equal((await a.act({ key: 'g2' })).status, 'sent');
++  const third = await a.act({ key: 'g3' });
++  assert.deepEqual([third.status, third.error.code, third.error.category], ['refused', ERR.CATEGORY_LIMIT, 'game']);
++  // Settled game spending keeps counting after the chain answers.
++  await r.gateway.reconcile();
++  assert.equal((await a.act({ key: 'g4' })).error.code, ERR.CATEGORY_LIMIT);
++  sound(r);
++});
++
++test('expiresAt: past the owner\'s permission no action is sent and no model call is made; the owner can extend it', async () => {
++  let now = Date.now();
++  const r = relay({ now: () => now });
++  const a = await ready(r, { allowed: ['economy'], budget: { total: '1000000', perDay: '1000000' }, expiresAt: now + 60_000 });
++  assert.equal((await a.act({ key: 'e1' })).status, 'sent');
++  now += 60_000;
++  const late = await a.act({ key: 'e2', policyVersion: 1 });
++  assert.deepEqual([late.status, late.error.code], ['refused', ERR.POLICY_EXPIRED]);
++  let ran = false;
++  await assert.rejects(r.gateway.meterInference(a.agentId, async () => { ran = true; }), e => e.code === ERR.POLICY_EXPIRED);
++  assert.equal(ran, false);
++  assert.equal(r.chain.sent.length, 1);
++  const ext = await post(r, '/f/agent/command', ownerCommand(a.owner, 'policy', { agentId: a.agentId, params: { policy: { allowed: ['economy'], budget: { total: '1000000', perDay: '1000000' }, expiresAt: now + 60_000 } }, expiresAt: now + 30_000 }));
++  assert.equal(ext.status, 200, JSON.stringify(ext.json));
++  assert.equal(ext.json.agent.policy.expiresAt, now + 60_000);
++  assert.equal((await a.act({ key: 'e3', policyVersion: 2 })).status, 'sent');
++});
++
++test('a metered model call: held at its quote, settled at its measured cost, the rest comes back; the served model is recorded next to the configured one', async () => {
++  const r = relay({ prices: { inference: '10000' } });
++  const a = await ready(r, policy());
++  const m = await r.gateway.meterInference(a.agentId, async () => ({ usage: { cost: 1234 }, servedModel: 'gemma-3-4b-it' }), { key: 'metered', price: '5000', actual: res => res.usage.cost, served: res => res.servedModel, model: 'gemma-4-26b-a4b-it' });
++  assert.equal(m.charged, '1234');
++  const v = r.gateway.view(a.agentId);
++  assert.equal(v.balance.spent.inference, '1234');
++  const line = v.history.find(h => h.type === 'spend' && h.key === 'metered');
++  assert.deepEqual([line.amount, line.model, line.servedModel, line.metered], ['1234', 'gemma-4-26b-a4b-it', 'gemma-3-4b-it', true]);
++  // A measured cost above the hold is cut to the hold; a failing call without a measure is charged its hold.
++  const over = await r.gateway.meterInference(a.agentId, async () => ({ c: 99_999 }), { key: 'over', price: '3000', actual: res => res.c });
++  assert.equal(over.charged, '3000');
++  const failed = await r.gateway.meterInference(a.agentId, async () => { throw new Error('boom'); }, { key: 'fail', price: '2000', actual: (res, err) => (err ? undefined : 0) });
++  assert.deepEqual([failed.ok, failed.charged], [false, '2000']);
++  sound(r);
++});

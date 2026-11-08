@@ -1,0 +1,7 @@
+# AI staking demo (local fixture; fake model server; scripted chain) → workstreams/05-ai-participation/logs/staking
+model: configured gemma-4-26b-a4b-it via local-openai; the server SELF-REPORTS alias gemma-4-26b-a4b-it, file name gemma-3-4b-it-Q4_K_M.gguf (not verified: no file hash)
+stake-1: done, charged 10000; R-1=sent; checked against the mock chain and mock effect: contributed
+stake-2: done, charged 10000; R-2=sent; checked against the mock chain and mock effect: contributed
+stake-3: stopped-by-budget (BudgetExceeded), charged 10000; R-3=refused(BudgetExceeded); checked against the mock chain and mock effect: -
+stake-4: stopped-by-budget (BudgetExceeded), charged 0; no proposal; checked against the mock chain and mock effect: -
+settled: inference 30000, game 30000; withdrawn 40000 of 100000 test-USDC base units (6 decimals; no USDC moved: scripted chain); books sound; agent manual, key not the agent
