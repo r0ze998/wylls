@@ -108,10 +108,14 @@ mut src/fold.mjs "    c.evidence_basis = recs.length ? { kind: recs.reduce((a, r
 mut src/fold.mjs "        c.grounds_extra = cov.aliases;" "" "aliases behind a coverage left out of the grounds"
 mut src/records.mjs "  const body = { v: RECORD_VERSION, type: 'fact', kind, bell, created_bell, visibility: checkVisibility(visibility), data: d, source: key, ...(b ? { basis: b } : {}) };" "  const body = { v: RECORD_VERSION, type: 'fact', kind, bell, created_bell, visibility: checkVisibility(visibility), data: d, source: key };" "fact basis dropped"
 mut adapters/canonical.mjs "    runSpecs: store.runSpecs, resolveOwner: ids.resolve, basis: stated(sources.store), aliasBasis: stated(sources.me)," "    runSpecs: store.runSpecs, resolveOwner: ids.resolve, basis: { kind: 'chain', source: 'store' }, aliasBasis: { kind: 'chain', source: 'me' }," "connection labels every fact chain"
-echo "# persistence and feed (2026-11-08b)"
-mut src/store.mjs "    const pre = t ? " "    const pre = false ? " "append after a torn line fuses with it"
+echo "# persistence and feed (2026-11-08b, run rule after 16's double-crash finding)
+mut src/store.mjs "    const pre = (this.openLine ? '\\n' : '') + (t ? " "    const pre = (this.openLine ? '\\n' : '') + (false ? " "append after a torn line fuses with it"
+mut src/store.mjs "    const pre = (this.openLine ? '\\n' : '')" "    const pre = (false ? '\\n' : '')" "append runs onto a last line missing its newline"
 mut src/store.mjs "    this._write({ record: rec }); // first the file: if this throws, memory is unchanged and the append can be retried
     this._keep(rec);" "    this._keep(rec);
     this._write({ record: rec });" "kept before written"
 mut adapters/ws04-receipts.mjs "    try { for (const f of facts) checkFact(f); } catch (e) {" "    try { } catch (e) {" "one bad receipt stops the feed"
-mut src/store.mjs "          if (next?.torn && next.torn.line === i + 1 && next.torn.sha256 === sha256hex(line)) { j.torn++; return; }" "          if (next?.torn) { j.torn++; return; }" "torn marker accepted without its line and bytes"
+mut src/store.mjs "        if (unnamed) throw new Error" "        if (false) throw new Error" "unnamed damage in the middle accepted"
+mut src/store.mjs "        while (e + 1 <= last && (rows[e + 1] === undefined || rows[e + 1] === null)) e++;" "" "a second crash inside the naming write refuses the journal"
+mut src/store.mjs "    if (this.dirty) this._rescanTail();" "" "retry after a part-way failed write runs onto its bytes"
+mut src/store.mjs "        if (prev) { if (row.record.type" "        if (false) { if (row.record.type" "a row written twice is replayed twice"
