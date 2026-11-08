@@ -486,10 +486,11 @@ mod tests {
         }
         assert_eq!(WIDTHS_V2[89], (false, 0, 0), "89 reserved");
         // Of 104–134 (workstream 4's allocation rev 4) the kinds are ⑧'s
-        // FRONTIER_EXTENDED (104), custody's LOT_* (105–113) and ⑳'s
+        // FRONTIER_EXTENDED (104), custody's LOT_* (105–113), ②'s GRANT_*
+        // (114–119, provisional, contracts/ABI-ALLOCATION-20261106) and ⑳'s
         // RESIDENT_JOINED (130); the body writer refuses every other code
         // there, and anything past 134.
-        let kind = |c: usize| c == 104 || (105..=113).contains(&c) || c == 130;
+        let kind = |c: usize| c == 104 || (105..=119).contains(&c) || c == 130;
         for (code, w) in WIDTHS_V2.iter().enumerate().skip(104) {
             assert_eq!(w.0, kind(code), "{code}");
             if !kind(code) {
