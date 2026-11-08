@@ -108,3 +108,10 @@ mut src/fold.mjs "    c.evidence_basis = recs.length ? { kind: recs.reduce((a, r
 mut src/fold.mjs "        c.grounds_extra = cov.aliases;" "" "aliases behind a coverage left out of the grounds"
 mut src/records.mjs "  const body = { v: RECORD_VERSION, type: 'fact', kind, bell, created_bell, visibility: checkVisibility(visibility), data: d, source: key, ...(b ? { basis: b } : {}) };" "  const body = { v: RECORD_VERSION, type: 'fact', kind, bell, created_bell, visibility: checkVisibility(visibility), data: d, source: key };" "fact basis dropped"
 mut adapters/canonical.mjs "    runSpecs: store.runSpecs, resolveOwner: ids.resolve, basis: stated(sources.store), aliasBasis: stated(sources.me)," "    runSpecs: store.runSpecs, resolveOwner: ids.resolve, basis: { kind: 'chain', source: 'store' }, aliasBasis: { kind: 'chain', source: 'me' }," "connection labels every fact chain"
+echo "# persistence and feed (2026-11-08b)"
+mut src/store.mjs "    const pre = t ? " "    const pre = false ? " "append after a torn line fuses with it"
+mut src/store.mjs "    this._write({ record: rec }); // first the file: if this throws, memory is unchanged and the append can be retried
+    this._keep(rec);" "    this._keep(rec);
+    this._write({ record: rec });" "kept before written"
+mut adapters/ws04-receipts.mjs "    try { for (const f of facts) checkFact(f); } catch (e) {" "    try { } catch (e) {" "one bad receipt stops the feed"
+mut src/store.mjs "          if (next?.torn && next.torn.line === i + 1 && next.torn.sha256 === sha256hex(line)) { j.torn++; return; }" "          if (next?.torn) { j.torn++; return; }" "torn marker accepted without its line and bytes"
