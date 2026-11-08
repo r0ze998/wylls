@@ -3238,3 +3238,18 @@ checkpoint の `95b0ab225ca9e9e626941b51981df2240198d91c`（tree `89a64830da3991
 - 未実行：封・署名・送信・着地。本物の router の上での実行。
 - log：`logs/phase23/ws07-grow-s1-2329.txt`。
 - 全体の完了は宣言しない。
+
+## 29.28 ④ 685c4dda の照合（⑦ 2329031c と ⑯ の試験 v2 の取り込み）
+
+対象：④ `685c4dda70ea2adc271f5f03fe2f4dacd650951a`（tree `d41c239b4e2d5d7aeb8d2ce338ed7b48547e4fc2`）。親は 5cdc4cac から続く。
+
+- **⑦ 2329031c の merge** `819831e4`：tree `285554b6…` は、`git merge-tree 5cdc4cac 2329031c` が出す tree と同じ。§29.27 のレビューはそのまま有効。
+- **⑦ 53ea9008 の merge** `fa8b2a8e`：tree `ab75723f…` は、merge-tree が出す tree と同じ。⑦ 側の変更は、ws07-grow-r5 の注釈の 2 行だけ。
+- **⑯ の試験** `dae7e567`：⑯ の `patches/v16-viewer-own-citizen-on-5cdc4cac.patch` と、内容が一字一句同じ。685c4dda の木で `--digest` を取ると `closure=87c87356…` で、登録された値と一致する。`node-keyfree.sh` で走らせると **4/4**（11 file が reviewed）。
+- **HOLDER-CONTRACT §15（`685c4dda`）。** 証拠の項に、この試験と ④ の静的審査、4/4、修正を戻したときの 2/4 を記した。wide-holding-ui は登録していないことと、resident-home は直接 scan に載るので登録できないことも、正しく書いている。⑯ の §29.26 の点 2（⑳ の 7 file の実行を証拠から外すこと）は、④ の 16777540 と d9e34303 で既に直っていた。
+- **集計。**
+  - 通過：merge の tree の照合 2 件、patch の同一性、digest の一致、4/4。
+  - 失敗：0。
+  - blocked：0。
+  - 未実行：一覧に載る file すべて。
+  - 全体の完了は宣言しない。
