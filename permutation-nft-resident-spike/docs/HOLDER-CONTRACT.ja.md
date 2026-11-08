@@ -357,7 +357,7 @@ herald の `me_citizen` は、財布の Citizen が無ければ、`resident_asse
 - 既存の試験（`wide-holding-ui` の controller の場面）は、今も `WALLET = asset` の Citizen を使っている。財布が asset と同じ値の財布の Citizen として正しく読めるので落ちない。program のバイトに置き換えるかは、その試験の担当（7）の判断。
 - herald の Rust 側の `/h/me` の JSON（NFT のとき）は、この照合では見ていない。client が見るのは `citizen.address` とバイトだけ。
 
-試験（鍵ペアの生成・導出・署名なし。実行前に静的に確認し、鍵を作る・使う 13 の試験 file は除外）：web-frontier・frontier-resident の 103 file・1014 件が合格。`abi-vectors --check`（18 file fresh）、`frontier-abi --test contract vectors_are_fresh`、`abi-vectors` の clippy（`-D warnings`）と rustfmt。
+**【無効（2026-11-08、4 の訂正）：この「103 file 鍵なし・1014 件合格」は誤り。§15 末尾「4 による訂正」を参照】** 試験（鍵ペアの生成・導出・署名なし。実行前に静的に確認し、鍵を作る・使う 13 の試験 file は除外）：web-frontier・frontier-resident の 103 file・1014 件が合格。`abi-vectors --check`（18 file fresh）、`frontier-abi --test contract vectors_are_fresh`、`abi-vectors` の clippy（`-D warnings`）と rustfmt。
 
 ## 15. 元ゲームの controller の NFT の場面を、program の本物の印で（2026-11-08、v0.25）
 
@@ -413,3 +413,25 @@ asset を鍵にした財布の Citizen と NFT Citizen が両方あるとき、h
 v0.24 で「鍵なし」として走らせた 103 file には、鍵を作る試験が入っていた。`web-frontier-opening-world`・`web-frontier-s1` は試験の file の中で `keyFromSeed` を呼ぶ。`web-frontier-territory`・`web-frontier-live` は import 先で呼ぶ。除外の grep は `fromSeed` を大文字と小文字を区別して探していたので、`keyFromSeed` を見落とした。このため v0.24 のときに、この 4 file の固定の seed からの鍵の導出と署名が実行された。
 
 今回は監視が最初の `subtle.importKey('pkcs8')` で止めた（26 回、署名の前）。この 4 file は二度と走らせない。今後は、除外を大文字と小文字を区別せずに `keyFromSeed`・`devWallet`・`enableDevWallet` まで広げ、import 先の呼び出しも静的に追う。
+
+### 4 による訂正（2026-11-08、統合担当）
+
+この節と §14 の試験の記述のうち、証拠として扱うものと扱わないものを分ける。秘密の値・seed の中身はここに書かない。
+
+**無効とするもの**
+
+- §14（v0.24）の「web-frontier・frontier-resident の 103 file・1014 件が鍵なしで合格」。20 の記録では、この実行に `web-frontier-opening-world`・`web-frontier-s1`・`web-frontier-territory`・`web-frontier-live` の 4 file が含まれ、固定の seed からの鍵の導出と署名が実行された。鍵なしの合格には数えない。
+- 今回の広い再実行（残り 101 file と上の 4 file）。監視は最初の `subtle.importKey('pkcs8')` で 26 回止めた（20 の記録）。この停止は「鍵が導出されなかった」証拠ではなく、鍵なしの合格にも数えない。同じ実行の「101 file で鍵の呼び出し 0」も、この修正の証拠には使わない。
+
+**実行された内容・停止点・分かる範囲／分からない範囲（20 の記録による）**
+
+- 実行された内容：v0.24 では上の 4 file が最後まで走り、鍵の導出と署名が実行された。今回はその 4 file が再び起動され、監視が止めた。
+- 停止点：各停止は最初の `subtle.importKey('pkcs8')` の呼び出しで、署名の前（20 の監視の記録）。
+- 分かる範囲：監視が記録した API の呼び出しと、その停止点。
+- 分からない範囲：停止までに各 file で実行された処理（seed の扱い、監視していない API での導出があったか）、監視が鍵の API をすべて覆っているか。v0.24 の実行で何がどこまで作られたかを、停止の記録から推すことはできない。
+
+**この修正（`viewerOwnCitizen`）の評価に使う証拠**
+
+- 20 の限定試験：変更した試験と関連の 7 file、56 件中 55 件が合格、記録された鍵の呼び出しは 0（残る 1 件は変更前から落ちる fixture の一覧の件）。修正を戻すと追加の 2 件が落ちる（20 の実行）。
+- 4 の静的審査：`residentAsset` は印の無い Citizen では無い（undefined）、印が無効なら null、有効なら asset のバイト（fcodec）。よって財布の viewer は印の無い Citizen だけ、NFT の viewer は `FS.resident.asset` を名指す印の Citizen だけを採り、それ以外は既存の `WrongKey` の経路になる。
+- 4 の実行（統合候補の上、鍵なしの runner と guard）：`web-frontier-resident-me` と地図の試験 3 file で 26/26、ブラウザの ws07-guard・ws07-grow・ws07-grow-r5・ws07-wide が合格。`web-frontier-wide-holding-ui`・`web-frontier-resident-home` は scan が保守的に鍵の一覧に入れているので、4 は走らせていない。
