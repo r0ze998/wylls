@@ -219,13 +219,40 @@ pub type Alert = (u64, Option<String>, String, String);
 
 const RUN_COLS: &str = "spec, state, detail, version, cancel_requested, held_reason, lease_owner, lease_epoch, next_check";
 
+/// How long a statement waits for another process's lock (the busy timeout).
+const BUSY_WAIT: std::time::Duration = std::time::Duration::from_secs(10);
+
+/// `PRAGMA journal_mode=WAL`, waiting for another process's lock as every
+/// other statement does. SQLite answers this pragma SQLITE_BUSY at once,
+/// without the busy handler, while another connection holds a lock on a file
+/// that is not in WAL mode yet: two processes opening one new store at the
+/// same time (a cold start) could fail with "database is locked" although
+/// the other one held the lock for milliseconds. Retried here within the same
+/// budget as the busy timeout; any other error, and the mode SQLite reports,
+/// are as before.
+fn wal(conn: &Connection) -> Result<(), String> {
+    let deadline = std::time::Instant::now() + BUSY_WAIT;
+    loop {
+        match conn.query_row("PRAGMA journal_mode=WAL", [], |r| r.get::<_, String>(0)) {
+            Ok(_) => return Ok(()),
+            Err(rusqlite::Error::SqliteFailure(e, _))
+                if e.code == rusqlite::ErrorCode::DatabaseBusy
+                    && std::time::Instant::now() < deadline =>
+            {
+                std::thread::sleep(std::time::Duration::from_millis(5));
+            }
+            Err(e) => return Err(e.to_string()),
+        }
+    }
+}
+
 impl Store {
     pub fn open(path: &Path) -> Result<Store, String> {
         let conn = sql(Connection::open(path))?;
-        sql(conn.busy_timeout(std::time::Duration::from_secs(10)))?;
+        sql(conn.busy_timeout(BUSY_WAIT))?;
+        wal(&conn)?;
         sql(conn.execute_batch(
-            "PRAGMA journal_mode=WAL;
-             PRAGMA synchronous=FULL;
+            "PRAGMA synchronous=FULL;
              CREATE TABLE IF NOT EXISTS runs(run_id TEXT PRIMARY KEY, spec TEXT NOT NULL, spec_digest TEXT NOT NULL,
                  state TEXT NOT NULL, detail TEXT NOT NULL, version INTEGER NOT NULL,
                  cancel_requested INTEGER NOT NULL DEFAULT 0, held_reason TEXT,
