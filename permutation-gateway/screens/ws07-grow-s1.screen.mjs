@@ -113,6 +113,8 @@ for (const vp of [{ width: 1440, height: 900, name: 'desktop' }, { width: 390, h
     const phone = vp.width < 760;
     const ctx = await browser.newContext({ viewport: { width: vp.width, height: vp.height }, isMobile: phone, hasTouch: phone, locale: 'ja-JP', timezoneId: 'UTC' });
     await NK.prepare(ctx, { wallet: GOLDEN.wallet }, { lang: 'ja' });
+    // fail-closed: the browser key guard proven installed by source text before the game page opens (16, §29.39 D 1)
+    await NK.requireGuard(ctx, base, assert);
     const page = await ctx.newPage();
     const tap = async at => { const p = await tileAt(page, at); if (phone) await page.touchscreen.tap(p.x, p.y); else await page.mouse.click(p.x, p.y); };
     const press = loc => (phone ? loc.tap() : loc.click());
@@ -149,6 +151,7 @@ for (const vp of [{ width: 1440, height: 900, name: 'desktop' }, { width: 390, h
     for (const st of G.STAGE_ORDER) {
       stage = st;
       await page.goto(url);
+      await NK.requireGuardOn(page, assert);   // (the guard on the game page, before any press)
       await until(page, async () => { const { FS } = await import('/frontier/fstate.mjs'); return FS.meStatus === 'ready' && (FS.holdings?.length ?? 0) > 0; }, null, { timeout: 30_000 });
       await until(page, async n => (await import('/frontier/fstate.mjs')).FS.record?.rings?.length === n, GOLDEN.stages[st]['/h/season'].body.rings.length);
       // the host's tile: the host in hand (the page's own hosts list says it is there)

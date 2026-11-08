@@ -78,6 +78,50 @@ export async function prepare(ctx, viewer, opts) {
     await route.fulfill({ response: r, body: body + SESSION_GUARD });
   });
 }
+/**
+ * The guard's sentinels, read from the outside (a page function, installed with Playwright's evaluate: the page's CSP
+ * allows no eval): what is served and what is installed, by SOURCE TEXT ONLY — NOTHING key-shaped is called (workstream
+ * 16, REPORT §29.38 A). → {secure, subtle, ok: [...], bad: [...]}; 10 sentinels.
+ */
+export const SENTINELS = async guardText => {
+  const out = { secure: isSecureContext, subtle: !!crypto.subtle, ok: [], bad: [] };
+  const say = (ok, what) => (ok ? out.ok : out.bad).push(what);
+  let served = '';
+  try { served = await (await fetch('/session.mjs', { cache: 'no-store' })).text(); } catch { served = ''; }
+  say(served.endsWith(guardText), 'session.mjs served with the guard');
+  const S = await import('/session.mjs');   // (its top level calls no key function: audited by workstream 16)
+  for (const f of ['keyFromSeed', 'publicKeyOf']) say(String(S[f]).includes(`key use blocked: ${f}`) && !String(S[f]).includes('subtle()'), `session.mjs ${f} is the refusal`);
+  for (const m of ['generateKey', 'deriveKey', 'deriveBits', 'sign', 'unwrapKey', 'importKey']) {
+    const src = String(crypto.subtle?.[m]);
+    say(!!crypto.subtle && !src.includes('[native code]') && src.includes('key use blocked'), `subtle.${m} is the refusal`);
+  }
+  say(String(globalThis.Worker).includes('worker blocked'), 'Worker is the refusal');
+  return out;
+};
+/** The sentinels of `page` (any document of the origin). Calls nothing key-shaped. */
+export async function sentinelsOf(page) {
+  await page.evaluate(`window.__ws07sentinels = ${SENTINELS.toString()};`);
+  return page.evaluate(g => window.__ws07sentinels(g), SESSION_GUARD);
+}
+/**
+ * FAIL-CLOSED precondition (workstream 16, REPORT §29.39 D 1), for the start of every keyless screen, after `prepare`
+ * and BEFORE the game page is opened: a page of `ctx` shows /session.mjs as a text document (no game code runs), and
+ * the sentinels must all hold — the session.mjs route and the init script's subtle and Worker replacements installed.
+ * If any is missing the assertion throws and the test stops having opened no game page and called nothing.
+ */
+export async function requireGuard(ctx, base, assert) {
+  const page = await ctx.newPage();
+  try {
+    await page.goto(`${base}/session.mjs`);
+    const proof = await sentinelsOf(page);
+    assert.deepEqual([proof.secure, proof.subtle, proof.bad, proof.ok.length], [true, true, [], 10], `the browser key guard is installed before the game page opens (${JSON.stringify(proof.bad)})`);
+  } finally { await page.close(); }
+}
+/** The same sentinels on the game page itself, once it is open and before any press (calls nothing key-shaped). */
+export async function requireGuardOn(page, assert) {
+  const proof = await sentinelsOf(page);
+  assert.deepEqual([proof.secure, proof.subtle, proof.bad, proof.ok.length], [true, true, [], 10], `the browser key guard is installed on the game page (${JSON.stringify(proof.bad)})`);
+}
 /** The init script's argument for a keyless viewer. */
 export const initArg = (viewer, opts) => ({ store: storage(opts), address: viewer.wallet, name: TEST_WALLET });
 

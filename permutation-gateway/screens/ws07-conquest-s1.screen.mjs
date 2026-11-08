@@ -115,6 +115,8 @@ for (const vp of [{ width: 1440, height: 900, name: 'desktop' }, { width: 390, h
     const phone = vp.width < 760;
     const ctx = await browser.newContext({ viewport: { width: vp.width, height: vp.height }, isMobile: phone, hasTouch: phone, locale: 'ja-JP', timezoneId: 'UTC' });
     await NK.prepare(ctx, { wallet: GOLDEN.wallet }, { lang: 'ja' });
+    // fail-closed: the browser key guard proven installed by source text before the game page opens (16, §29.39 D 1)
+    await NK.requireGuard(ctx, base, assert);
     const page = await ctx.newPage();
     const press = loc => (phone ? loc.tap() : loc.click());
     const errors = [], posts = [], notFound = new Set(), answered = new Map();
@@ -126,6 +128,7 @@ for (const vp of [{ width: 1440, height: 900, name: 'desktop' }, { width: 390, h
     const seasonRec = GOLDEN.stages.before['/h/season'].body;  // (the same clock as ws07-grow-s1)
     await page.clock.setFixedTime(new Date(Number(seasonRec.latestUnix) * 1000 + 500));
     await page.goto(`${base}/frontier/index.html?at=${KEEP_TILE.p},${KEEP_TILE.q},${KEEP_TILE.tile},${phone ? '0.55' : '1.0'}`);
+    await NK.requireGuardOn(page, assert);   // (and on the game page, before any press)
     await until(page, async () => { const { FS } = await import('/frontier/fstate.mjs'); return FS.meStatus === 'ready' && (FS.holdings?.length ?? 0) > 0; }, null, { timeout: 30_000 });
     // the conquest refresh has read control, standings and the conquest day (events set by refreshKeepEvents)
     await until(page, async () => Array.isArray((await import('/frontier/fstate.mjs')).FS.conquest?.events), null, { timeout: 30_000 });

@@ -23,25 +23,7 @@ import { startServer } from './server.mjs';
 import * as NK from './ws07/nokey-page.mjs';
 import { LATEST_UNIX } from './world.mjs';
 
-/**
- * The guard's sentinels, read from the outside (a page function): what is served and what is installed, by source text.
- * NOTHING key-shaped is called here. → {secure, subtle, ok: [...], bad: [...]}.
- */
-const SENTINELS = async guardText => {
-  const out = { secure: isSecureContext, subtle: !!crypto.subtle, ok: [] , bad: [] };
-  const say = (ok, what) => (ok ? out.ok : out.bad).push(what);
-  let served = '';
-  try { served = await (await fetch('/session.mjs', { cache: 'no-store' })).text(); } catch { served = ''; }
-  say(served.endsWith(guardText), 'session.mjs served with the guard');
-  const S = await import('/session.mjs');   // (its top level calls no key function: audited by workstream 16)
-  for (const f of ['keyFromSeed', 'publicKeyOf']) say(String(S[f]).includes(`key use blocked: ${f}`) && !String(S[f]).includes('subtle()'), `session.mjs ${f} is the refusal`);
-  for (const m of ['generateKey', 'deriveKey', 'deriveBits', 'sign', 'unwrapKey', 'importKey']) {
-    const src = String(crypto.subtle?.[m]);
-    say(!!crypto.subtle && !src.includes('[native code]') && src.includes('key use blocked'), `subtle.${m} is the refusal`);
-  }
-  say(String(globalThis.Worker).includes('worker blocked'), 'Worker is the refusal');
-  return out;
-};
+// (the sentinels: NK.SENTINELS, shared with every keyless screen's fail-closed precondition NK.requireGuard)
 
 let srv, browser, base;
 before(async () => {
@@ -64,8 +46,7 @@ test('the browser guard is installed, proven by source text only (no guarded ent
 
   // ---- 1. the proof, from the outside: nothing key-shaped is called here
   // (installed by Playwright's own evaluate: the page's CSP does not allow eval)
-  await page.evaluate(`window.__ws07sentinels = ${SENTINELS.toString()};`);
-  const proof = await page.evaluate(g => window.__ws07sentinels(g), NK.SESSION_GUARD);
+  const proof = await NK.sentinelsOf(page);
   assert.deepEqual([proof.secure, proof.subtle], [true, true], 'a secure context with WebCrypto');
   assert.deepEqual(proof.bad, [], 'the guard is installed: every sentinel holds (nothing was called)');
   assert.equal(proof.ok.length, 10);
@@ -101,8 +82,7 @@ test('fail-closed: with the guard missing, the proof fails — and nothing key-s
     await setup(ctx);
     const page = await ctx.newPage();
     await page.goto(`${base}/session.mjs`);
-    await page.evaluate(`window.__ws07sentinels = ${SENTINELS.toString()};`);
-    const proof = await page.evaluate(g => window.__ws07sentinels(g), NK.SESSION_GUARD);
+    const proof = await NK.sentinelsOf(page);
     assert.equal(proof.bad.length, bad, `${name}: ${bad} sentinels fail (${JSON.stringify(proof.bad)})`);
     assert.deepEqual(await page.evaluate(() => JSON.parse(localStorage.getItem('ws07:keyUses') ?? '[]')), [], `${name}: nothing was called`);
     await ctx.close();
