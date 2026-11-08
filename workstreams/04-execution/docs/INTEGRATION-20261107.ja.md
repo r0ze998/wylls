@@ -737,3 +737,56 @@ fa822453 の上に載せた。各チームのサブツリーは、チームが�
 - **利用者の判断を待つもの：join と paidJoin の meStatus の確認**（⑯ §29.8 b）。controller の join と paidJoin は、今の記録の読みが成功したかを確かめずに送る。16576826 から変わっていない（この回の後退ではない）。⑯ の最小の案は、confirmHome と同じ確認を前に置くこと。送れる時を変えるので、⑦ も ④ も変えていない。
   - ⑯ の静的な事実（§29.10、公開の source と、署名しない pure な probe だけ）：atomic の paidJoin は、Pay と Join を一つの取引に入れ、relay はその形だけを受け、送る前に署名済みの bytes を simulate する。Join は既存の Citizen に Err(AlreadyDone)、Pay は既存の Entry に Err(AlreadyPaid)。取引の原子性により、atomic の形では Join が失敗すれば Pay の送金と Entry も戻る。source の上では、手数料だけが取られることは無い。ネットワークの手数料は relay の fee payer が払い、着地して失敗したときだけかかる。残高が足りないときの faucet は別の取引で、Join が失敗しても戻らない（localnet だけ）。
   - 確かめていないもの：SVM での実行（keypair を使う試験）。wallet が relay の外で Pay だけを自分で送る場合。
+
+## 18. 引継ぎ：95b0ab22 の後の継続（④、2026-11-08）
+
+**位置**
+- 今の候補：`claude/gallant-ride-cunptv` @ `caeb1b7463e5a7e5b473a71c9c4f08a34bc17fea`（tree `5916b6461432226867036a33948a73fcbae7334d`）。**全機能の完成ではない。**
+- 過去の区切り：`95b0ab225ca9e9e626941b51981df2240198d91c`（tree `89a64830`）。過去の検証済みの基準：`16576826`（tree `7f6ff8b0`）。どちらもそのまま残す。
+- 95b0ab22 から first-parent で 13 commit、25 file。すべて `[skip ci]`、この枝の workflow run は 16 のまま。
+- ⑯ の独立の確認：`7e6ef2b6` まで（REPORT §29.1〜§29.11、`claude/dreamy-ramanujan-ijj8qj` @ `a0e10420`）。**`caeb1b74` は ⑯ の review 待ち。**
+
+**95b0ab22 からの差分**
+| commit | 出所 | 中身 |
+|---|---|---|
+| `89232fad` | ④ | runexec `Store::open`：WAL への切替えが、他の process の lock を busy の予算（10 秒）の中で待つ。`tests/store_cold_open.rs`（古いもので落ち、新しいもので通る） |
+| `490407d8` | ⑦ `9b547d9d` | 記録が読めない viewer を「未参加」（国の選択）として見せない |
+| `8afe8426` | ③ `d4b22c97` | ③ の試験：store を一度開いてから使う、registry busy の場合 |
+| `dc9974e2` | ⑦ `08928ea5` | 村の Province が読めない間、案内が Muster・Train を勧めない |
+| `f2e63ff2` | ④ | 試験の helper の型 alias（clippy type_complexity）。動作は同じ |
+| `b9a4c0a2` | ③ `a24d6dbb` | 一つの agent の失敗の決定的な再現（cold-open.test.mjs） |
+| `b381c2bb` | ⑦ `c4eae408` | 軍勢の画面が、読めない間に「軍勢はいません」と言わない |
+| `1398f44c` | ④・③ `c029948a` | key 一覧 1 行と ③ の doc 24 §6（commit の文は key 一覧だけを書いている） |
+| `883b4be6`・`8c53176a` | ⑦ `a8c9eccb`・④ | 「未参加」と答えた後の読み失敗で、国の選択を閉じない（FS.meAnswered）。key 一覧 1 行 |
+| `6af321d2` | ④ | cancels_race_executors：executor と時計を、最初の cancel まで門で待たせる |
+| `7e6ef2b6` | ⑦ `9cd15799` | 案内の行軍の段が、読めない間に「兵を準備する」と言わない |
+| `caeb1b74` | ④ | ⑯ の指摘への修正：canceller が死んでも試験が止まらない（drop guard）。門の前の cancel を競合の数から外す |
+
+**実行したもの**（呼び出し元と import 先の静的な監査の後、鍵に届かないと示した named targets だけ）
+- runexec：lib、store_cold_open（古い store.rs で 2 件とも落ち、新しいもので通る）、concurrency、run_cli、act_cli、acts、intake_chain。clippy -D warnings（1.89、CI の toolchain）と rustfmt。
+- cold open の競合：`runexec status` の 2 process × 80 で、古い binary 8/160、修正後 0/160。③ の `act register` の再現でも、修正後 0/160（n=2）・0/320（n=8）。⑯ の独立の build で 42/400 → 0/400。
+- ③ の run-guarded.sh：16576826 の store.rs の runexec と、修正後の runexec の両方で 35/35（2 回ずつ）。
+- ⑦ の画面（full Chromium、`ws07-guard` の fail-closed の証明を先に）：ws07-guard 2/2、ws07-read は修正ごとに新で通り、旧で、その修正の群だけが落ちる。Node の guard の阻止 0。
+- ⑥ の 5 件（修正後の runexec を sha で名指し）：37 通過・1 省略。
+- cancels_race_executors：一時的な編集（commit していない）で、2 秒遅れの canceller は旧で落ち新で通る。門の前で死ぬ canceller は 2 秒で fail（hang しない）。
+
+**実行していないもの**
+- ⑦ の unit 試験（web-frontier-ws07-unread、ws07-me-answered、wave3-hud、first-village-ui など）：scan の保守的な除外。⑦ の結果だけがある。
+- runexec の gateway.rs（node の gateway が署名する）と signed.rs。
+- 鍵を使う試験、署名、Seal、送信、着地、実チェーン、SVM。**これらの成功は主張しない。**
+- gateway・web の全体、Rust の workspace 全体。
+
+**未解決・利用者の判断待ち**
+- **join と paidJoin の meStatus の確認**（⑯ §29.8 b）：今の記録の読みが成功したかを確かめずに送る。16576826 から変わっていない。送れる時を変えるので、新しい Join の gating・鮮度の規則は決めていない。
+- **paidJoin の手数料**（⑯ §29.10、公開の source と署名しない pure な probe）：atomic の形では Pay と Join が一つの取引で、relay はその形だけを受け、送る前に simulate する。Join が失敗すれば、取引の原子性で Pay の送金と Entry も戻る。**source の上では、入場の手数料だけが取られることは無い。** ネットワークの手数料は relay の fee payer が払い、着地して失敗したときだけかかる（wallet の quota に数える）。残高不足の faucet は別の取引で戻らない（localnet だけ）。**確かめていない**：SVM での実行、wallet が relay の外で Pay だけを送る場合（別の利用者の操作）。
+- cancels_race_executors：門で「canceller が遅れて始まる」原因は取り除いた。後の cancel が実行中に届くかは、今も時間に依存し、それを戻した assertion が確かめる（完全に決定的とは言わない）。`caeb1b74` は ⑯ の review 待ち。
+
+**③ の過去の一回の失敗と、cold open の仕組み（分けて書く）**
+- 仕組み：新しい run store を二つの process が同時に開くと、`PRAGMA journal_mode=WAL` が busy の待ちなしで「database is locked」を返す。③ が決定的に再現し（試験 17 の line 85 と同じ値 `[undefined, true, 'real']`）、`89232fad` で直した。旧で落ち新で通る証拠がある。
+- 過去の出来事：4d44f021 の一回の失敗が、この順序を通ったことは**証明されていない**（その run は r3 を表示していない）。観察されたすべての値と合うが、閉じたとは書かない。
+- 回帰を fail で捕まえるのは `store_cold_open` だけ。③ の cold-open.test.mjs は旧と修正後の両方を受け入れる診断で、同じ強さの gate ではない。
+
+**37 件の gateway の分類の訂正**
+- 37 は file の数ではなく結果の数（14 file の全体と、7 file の中の 23 の subtest。合わせて 21 file）。
+- **候補の欠陥ではなく、⑯ の実行の条件**：⑯ の最初の hook が Node 22.22 で uuid の require(esm) を壊し、NODE_OPTIONS で渡したので permission model の子の process でも落ちた。同じ blob は hook なしで 1908/1908。
+- 鍵なしで流せる 4 file は 22/22。残る 17 file は保守的な除外で流していない。relay-resume の一件の仕組みだけは観察できていない。
