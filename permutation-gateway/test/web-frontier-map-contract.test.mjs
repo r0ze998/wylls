@@ -18,7 +18,8 @@ import { createHerald } from '../../permutation-server/web/frontier/herald.mjs';
 import * as W from '../../permutation-server/web/frontier/map/world.mjs';
 import { seasonAddresses } from '../../permutation-server/web/frontier/faddr.mjs';
 import { blockedHexes } from '../../permutation-server/web/frontier/s1walk.mjs';
-import { DIRECTIONS, tileHex } from '../../permutation-server/web/frontier/fgeo.mjs';
+import { DIRECTIONS, tileHex, ringSize } from '../../permutation-server/web/frontier/fgeo.mjs';
+import { decodeRoster, createRoster } from '../../permutation-server/web/frontier/people/roster.mjs';
 
 const GOLDEN = JSON.parse(readFileSync(new URL('../../frontier-node/crates/herald/tests/golden/ws19-map-growth.json', import.meta.url), 'utf8'));
 // The S1 golden (ring 4 → 5; used from the wide test on and in the S1 section below).
@@ -316,3 +317,77 @@ test('S1 palisade case: the stance is read from the nations feed, not defaulted 
   stances[2][1] = 0;
   assert.equal(blockedHexes(st.structures.structures, stances, 1, false).length, 1, 'war: stopped');
 });
+
+// ------------------------------------------------------------------ the reads the golden lacked (4's §19, 7's ABSENT list)
+// The router's own answers for the record feed, the rosters of rings 0–5, the inner overviews, the Provinces round the
+// origin and the two other S1 feeds, read with the page's own decoders. A 404 the router gives stays a 404.
+const S1_RECORDS = { before: 67, extended: 68, opened: 69, grown: 100 };
+
+test('S1 golden-absent reads: the record feed, as herald.mjs events() reads it', async () => {
+  for (const stage of S1_STAGES) {
+    const { h } = s1Herald(stage);
+    const e = await h.events(0);
+    assert.ok(e.ok, `${stage}: ${e.code} ${e.message ?? ''}`);
+    assert.equal(e.events.length, S1_RECORDS[stage], stage);
+    assert.equal(e.next, String(S1_RECORDS[stage]), stage);
+    assert.equal(e.full, false, stage);
+  }
+});
+
+test('S1 golden-absent reads: rosters 0–5 decode for every open ring; ring 5 is the router\'s 404 until its Provinces exist', async () => {
+  for (const stage of S1_STAGES) {
+    for (let d = 0; d <= 5; d++) {
+      const a = S1.stages[stage][`/h/roster/${d}/latest.bin`];
+      if (d === 5 && stage !== 'grown') {
+        assert.equal(a.status, 404, `${stage} ring 5`);
+        assert.deepEqual(a.body, { ok: false, code: 'NoSuchRing' }, `${stage} ring 5`);
+        continue;
+      }
+      assert.equal(a.status, 200, `${stage} ring ${d}`);
+      const r = decodeRoster(Buffer.from(a.body.b64, 'base64'));
+      assert.equal(r.season, 71n, `${stage} ring ${d}`);
+      assert.equal(r.ring, d, `${stage} ring ${d}`);
+      assert.equal(r.provinces.size, ringSize(d), `${stage} ring ${d}: one record per Province on chain`);
+    }
+    // The page's roster store over the same answers: the holders of (4,0) sites 0 and 1, none on site 2.
+    const { f } = stageFetch2(stage);
+    const store = createRoster({ fetch: f, now: () => 1e12 });
+    store.ensure(4);
+    for (let i = 0; i < 5; i++) await tick();
+    assert.ok(store.ownerOf(4, 0, 0), `${stage}: (4,0) site 0 held`);
+    assert.ok(store.ownerOf(4, 0, 1), `${stage}: (4,0) site 1 held`);
+    assert.equal(store.ownerOf(4, 0, 2), null, `${stage}: (4,0) site 2 free`);
+  }
+});
+
+test('S1 golden-absent reads: overviews of rings 0–2, the Provinces round the origin, caravans and nations', async () => {
+  for (const stage of S1_STAGES) {
+    const { h } = s1Herald(stage);
+    for (let d = 0; d <= 2; d++) {
+      const o = await h.overview(d);
+      assert.ok(o.ok, `${stage} overview ${d}: ${o.code} ${o.message ?? ''}`);
+      const o2 = await h.overview2(d);
+      assert.ok(o2.ok, `${stage} overview2 ${d}: ${o2.code} ${o2.message ?? ''}`);
+    }
+    for (const [p, q] of [[3, 0], [3, 1], [4, -1]]) {
+      const pv = await h.province(p, q);
+      assert.ok(pv.ok, `${stage} (${p},${q}): ${pv.code} ${pv.message ?? ''}`);
+      assert.deepEqual([pv.province.p, pv.province.q], [p, q]);
+    }
+    const c = await h.caravans();
+    assert.ok(c.ok, `${stage}: ${c.code}`);
+    const n = await h.nations();
+    assert.ok(n.ok, `${stage}: ${n.code}`);
+  }
+});
+
+/** A plain fetch over one S1 stage (b64 bodies as bytes), for modules that take a fetch (people/roster.mjs). */
+function stageFetch2(stage) {
+  const answers = S1.stages[stage];
+  const f = async url => {
+    const a = answers[new URL(url, 'http://h').pathname] ?? { status: 404, body: { ok: false, code: 'NotFound' } };
+    const body = a.body?.b64 !== undefined ? Buffer.from(a.body.b64, 'base64') : JSON.stringify(a.body);
+    return new Response(body, { status: a.status });
+  };
+  return { f };
+}

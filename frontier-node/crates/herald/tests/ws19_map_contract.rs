@@ -76,7 +76,7 @@ async fn serve_stages(
     let (diffs, _) = broadcast::channel(64);
     let cfg = IngestCfg::new(&dir, program, season);
     let mut ing = Ingest::open(cfg.clone(), diffs.clone()).unwrap();
-    let app = App::new(
+    let mut app = App::new(
         ing.fold.clone(),
         herald_fold::files::Out::new(cfg.files_dir()),
         SeasonStatic {
@@ -86,6 +86,9 @@ async fn serve_stages(
         },
         diffs,
     );
+    // The record index /h/events reads, as main.rs sets it for every herald
+    // that is not read-only (no other route reads it).
+    app.index = Some(cfg.index_path());
     let l = tokio::net::TcpListener::bind(("127.0.0.1", 0))
         .await
         .unwrap();
@@ -272,6 +275,23 @@ fn s1_paths() -> Vec<String> {
     // The S1 structures feed: the palisades the page's route planner avoids
     // (s1walk.mjs palisadeHexesOf -> fmarch.mjs planRoute `blocked`).
     v.push("/h/structures.json".into());
+    // Reads the original game makes that the golden lacked (7's ABSENT list,
+    // 4's §19): the record feed, rosters, overviews of the inner rings, the
+    // Provinces round the origin, and the two other S1 feeds. Whatever the
+    // router answers is recorded, 404 included.
+    v.push("/h/events".into());
+    for d in 0..=5 {
+        v.push(format!("/h/roster/{d}/latest.bin"));
+    }
+    for d in 0..=2 {
+        v.push(format!("/h/overview/{d}/latest.bin"));
+        v.push(format!("/h/overview2/{d}/latest.bin"));
+    }
+    for (p, q) in [(3, 0), (3, 1), (4, -1)] {
+        v.push(format!("/h/province/{p},{q}/latest"));
+    }
+    v.push("/h/caravans.json".into());
+    v.push("/h/nations.json".into());
     v.push("/h/wide-index/status".into());
     v.push("/h/world/wide".into());
     v
@@ -438,6 +458,50 @@ async fn the_s1_ring_4_to_5_growth_matches_the_golden_and_8s_contract() {
             "{s}: the resident-id address: {me}"
         );
         assert_eq!(me["holdings"].as_array().map(|a| a.len()), Some(1), "{s}");
+    }
+    // The reads the golden lacked (7's ABSENT list): every one is the
+    // router's 200 for an open ring or a Province on chain, except roster 5
+    // before its Provinces exist, the router's 404 NoSuchRing (kept as it is).
+    for (s, records) in [
+        ("before", 67),
+        ("extended", 68),
+        ("opened", 69),
+        ("grown", 100),
+    ] {
+        let mut want200: Vec<String> = vec![
+            "/h/events".into(),
+            "/h/caravans.json".into(),
+            "/h/nations.json".into(),
+        ];
+        want200.extend((0..=4).map(|d| format!("/h/roster/{d}/latest.bin")));
+        for d in 0..=2 {
+            want200.push(format!("/h/overview/{d}/latest.bin"));
+            want200.push(format!("/h/overview2/{d}/latest.bin"));
+        }
+        for (p, q) in [(3, 0), (3, 1), (4, -1)] {
+            want200.push(format!("/h/province/{p},{q}/latest"));
+        }
+        for path in &want200 {
+            assert_eq!(status(&g, s, path), 200, "{s} {path}");
+        }
+        let ev = body(&g, s, "/h/events");
+        assert_eq!(
+            ev["events"].as_array().map(|a| a.len()),
+            Some(records),
+            "{s}"
+        );
+        assert_eq!(ev["next"], json!(records.to_string()), "{s}");
+        let r5 = "/h/roster/5/latest.bin";
+        if s == "grown" {
+            assert_eq!(status(&g, s, r5), 200, "{s}");
+        } else {
+            assert_eq!(status(&g, s, r5), 404, "{s}");
+            assert_eq!(
+                body(&g, s, r5),
+                &json!({"ok": false, "code": "NoSuchRing"}),
+                "{s}"
+            );
+        }
     }
     // The structures feed the route planner reads: the S1 herald serves it
     // from the start (conquest.rs seed_s1), and this world has no
