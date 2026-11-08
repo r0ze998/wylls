@@ -1,0 +1,4088 @@
+{
+ "source": {
+  "candidate": "20db3313adf25481b714798759b1fdd0cb917275",
+  "store": "arrival-concurrent-2916-2.sqlite",
+  "run_id": "r1",
+  "how": "runexec run view of a run stored by workstreams/04-execution tests (faults/arrival/...), built from 20db3313"
+ },
+ "base_view": {
+  "attempts": [
+   {
+    "fee": 5000,
+    "request_key": "fac:r1",
+    "sig": "6fa5a24159f82252a65e50897b503f800e1b5f5a",
+    "status": "landed",
+    "step": "facility",
+    "valid_until": 12
+   },
+   {
+    "fee": 5000,
+    "request_key": "cv:77:0",
+    "sig": "63353057c8fd663e6b7ddd6be05ddd1933e2f13a",
+    "status": "landed",
+    "step": "ship",
+    "valid_until": 14
+   }
+  ],
+  "cancel_phase": null,
+  "cancel_requested": false,
+  "cargo_only": false,
+  "detail": {
+   "cancel": null,
+   "fac_attempts": 1,
+   "outcome": {
+    "cargo_logged": [
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     3,
+     0
+    ],
+    "delivered": [
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     3,
+     0
+    ],
+    "effects": [
+     "facility_used fac:r1",
+     "caravan_sent cv:77:0",
+     "caravan_settled cv:77:0"
+    ],
+    "note": "delivered in full (lower bound \u2265 request)",
+    "verification": "Recorded"
+   },
+   "pending": null,
+   "port_errors": 0,
+   "raid": null,
+   "reason": null,
+   "sent_cargo": [
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    3,
+    0
+   ],
+   "settle": {
+    "cargo": [
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     3,
+     0
+    ],
+    "credited": [
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     3,
+     0
+    ],
+    "dst": {
+     "at": 5,
+     "gen": 1,
+     "kind": 2,
+     "p": 1,
+     "q": 0
+    },
+    "key": {
+     "owner": 119,
+     "seq": 0
+    },
+    "outcome": 0,
+    "slot": 24
+   },
+   "ship_attempts": 1,
+   "ship_seq": 0,
+   "unresolved": 0
+  },
+  "effects": [
+   "facility_used",
+   "caravan_sent",
+   "caravan_settled"
+  ],
+  "fees": {
+   "charged": 10000,
+   "released": 0,
+   "reserved": 0,
+   "unconfirmed": 0
+  },
+  "held_reason": null,
+  "in_flight": false,
+  "next_check": 25,
+  "outcome": {
+   "cargo_logged": [
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    3,
+    0
+   ],
+   "delivered": [
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    3,
+    0
+   ],
+   "effects": [
+    "facility_used fac:r1",
+    "caravan_sent cv:77:0",
+    "caravan_settled cv:77:0"
+   ],
+   "note": "delivered in full (lower bound \u2265 request)",
+   "verification": "Recorded"
+  },
+  "reason": null,
+  "receipts": [
+   {
+    "body": {
+     "consumed": [
+      0,
+      5,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+     ],
+     "key": "fac:r1",
+     "produced": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      3,
+      0
+     ],
+     "rights_units": 1,
+     "sig": "6fa5a24159f82252a65e50897b503f800e1b5f5a",
+     "slot": 2
+    },
+    "kind": "facility_used",
+    "run_id": "r1",
+    "slot": 2,
+    "source": "sig:6fa5a24159f82252a65e50897b503f800e1b5f5a",
+    "subject": "fac:r1"
+   },
+   {
+    "body": {
+     "cargo": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      3,
+      0
+     ],
+     "content_from": "event:63353057c8fd663e6b7ddd6be05ddd1933e2f13a:0",
+     "seq": 0
+    },
+    "kind": "caravan_sent",
+    "run_id": "r1",
+    "slot": 4,
+    "source": "sig:63353057c8fd663e6b7ddd6be05ddd1933e2f13a",
+    "subject": "cv:77:0"
+   },
+   {
+    "body": {
+     "cargo": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      3,
+      0
+     ],
+     "credited": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      3,
+      0
+     ],
+     "dst": {
+      "at": 5,
+      "gen": 1,
+      "kind": 2,
+      "p": 1,
+      "q": 0
+     },
+     "key": {
+      "owner": 119,
+      "seq": 0
+     },
+     "outcome": 0,
+     "slot": 24
+    },
+    "kind": "caravan_settled",
+    "run_id": "r1",
+    "slot": 24,
+    "source": "event:settle:cv:77:0",
+    "subject": "cv:77:0"
+   }
+  ],
+  "run_id": "r1",
+  "sent": true,
+  "settled": true,
+  "spec": {
+   "budget": {
+    "max_attempts": 3,
+    "max_fee": 200000,
+    "max_port_errors": 5
+   },
+   "deadline_slot": 400,
+   "facility": {
+    "place": {
+     "at": 2,
+     "gen": 1,
+     "kind": 1,
+     "p": 0,
+     "q": 1
+    },
+    "recipe": 1
+   },
+   "inbound": null,
+   "inputs": [
+    0,
+    5,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0
+   ],
+   "outputs": [
+    0,
+    0,
+    0,
+    0,
+    0,
+    0,
+    3,
+    0
+   ],
+   "owner": 119,
+   "rights_units": 1,
+   "run_id": "r1",
+   "ship": {
+    "cargo": [
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     3,
+     0
+    ],
+    "dst": {
+     "at": 5,
+     "gen": 1,
+     "kind": 2,
+     "p": 1,
+     "q": 0
+    }
+   },
+   "stock": {
+    "at": 1,
+    "gen": 1,
+    "kind": 1,
+    "p": 0,
+    "q": 0
+   }
+  },
+  "spec_digest": "ed74b8e3dbcab63c0a2bcb80dc4a7468efe20f1951ce486560fcaf8f28e813d2",
+  "state": "Fulfilled",
+  "terminal": true,
+  "transitions": [
+   {
+    "executor": "exec-a",
+    "from": "Accepted",
+    "reason": "inputs and right reserved",
+    "to": "Reserved"
+   },
+   {
+    "executor": "exec-a",
+    "from": "Reserved",
+    "reason": "facility request signed",
+    "to": "FacilityRequested"
+   },
+   {
+    "executor": "exec-a",
+    "from": "FacilityRequested",
+    "reason": "accepted by the execution path",
+    "to": "FacilitySubmitted"
+   },
+   {
+    "executor": "exec-a",
+    "from": "FacilitySubmitted",
+    "reason": "facility use read on the canonical side",
+    "to": "FacilityConfirmed"
+   },
+   {
+    "executor": "exec-a",
+    "from": "FacilityConfirmed",
+    "reason": "SendCaravan signed, seq 0 pinned",
+    "to": "ShipRequested"
+   },
+   {
+    "executor": "exec-a",
+    "from": "ShipRequested",
+    "reason": "accepted by the execution path",
+    "to": "ShipSubmitted"
+   },
+   {
+    "executor": "exec-a",
+    "from": "ShipSubmitted",
+    "reason": "caravan cv:77:0 is ours (signature and content)",
+    "to": "InTransit"
+   },
+   {
+    "executor": "exec-a",
+    "from": "InTransit",
+    "reason": "wait",
+    "to": "InTransit"
+   },
+   {
+    "executor": "exec-a",
+    "from": "InTransit",
+    "reason": "wait",
+    "to": "InTransit"
+   },
+   {
+    "executor": "exec-a",
+    "from": "InTransit",
+    "reason": "wait",
+    "to": "InTransit"
+   },
+   {
+    "executor": "exec-a",
+    "from": "InTransit",
+    "reason": "settlement read",
+    "to": "Arrived"
+   },
+   {
+    "executor": "exec-a",
+    "from": "Arrived",
+    "reason": "delivered in full (lower bound \u2265 request)",
+    "to": "Fulfilled"
+   }
+  ],
+  "version": 12,
+  "view_version": "p04-run/0.1"
+ },
+ "cases": {
+  "Failed+ship landed": {
+   "attempts": [
+    {
+     "fee": 5000,
+     "request_key": "fac:r1",
+     "sig": "6fa5a24159f82252a65e50897b503f800e1b5f5a",
+     "status": "landed",
+     "step": "facility",
+     "valid_until": 12
+    },
+    {
+     "fee": 5000,
+     "request_key": "cv:77:0",
+     "sig": "63353057c8fd663e6b7ddd6be05ddd1933e2f13a",
+     "status": "landed",
+     "step": "ship",
+     "valid_until": 14
+    }
+   ],
+   "cancel_phase": null,
+   "cancel_requested": false,
+   "cargo_only": false,
+   "detail": {
+    "cancel": null,
+    "fac_attempts": 1,
+    "outcome": {
+     "cargo_logged": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      3,
+      0
+     ],
+     "delivered": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      3,
+      0
+     ],
+     "effects": [
+      "facility_used fac:r1",
+      "caravan_sent cv:77:0",
+      "caravan_settled cv:77:0"
+     ],
+     "note": "delivered in full (lower bound \u2265 request)",
+     "verification": "Recorded"
+    },
+    "pending": null,
+    "port_errors": 0,
+    "raid": null,
+    "reason": null,
+    "sent_cargo": [
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     3,
+     0
+    ],
+    "settle": {
+     "cargo": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      3,
+      0
+     ],
+     "credited": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      3,
+      0
+     ],
+     "dst": {
+      "at": 5,
+      "gen": 1,
+      "kind": 2,
+      "p": 1,
+      "q": 0
+     },
+     "key": {
+      "owner": 119,
+      "seq": 0
+     },
+     "outcome": 0,
+     "slot": 24
+    },
+    "ship_attempts": 1,
+    "ship_seq": 0,
+    "unresolved": 0
+   },
+   "effects": [],
+   "fees": {
+    "charged": 10000,
+    "released": 0,
+    "reserved": 0,
+    "unconfirmed": 0
+   },
+   "held_reason": null,
+   "in_flight": false,
+   "next_check": 25,
+   "outcome": {
+    "cargo_logged": [
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     3,
+     0
+    ],
+    "delivered": [
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     3,
+     0
+    ],
+    "effects": [],
+    "note": "delivered in full (lower bound \u2265 request)",
+    "verification": "Recorded"
+   },
+   "reason": null,
+   "receipts": [],
+   "run_id": "r1",
+   "sent": false,
+   "settled": true,
+   "spec": {
+    "budget": {
+     "max_attempts": 3,
+     "max_fee": 200000,
+     "max_port_errors": 5
+    },
+    "deadline_slot": 400,
+    "facility": {
+     "place": {
+      "at": 2,
+      "gen": 1,
+      "kind": 1,
+      "p": 0,
+      "q": 1
+     },
+     "recipe": 1
+    },
+    "inbound": null,
+    "inputs": [
+     0,
+     5,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0
+    ],
+    "outputs": [
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     3,
+     0
+    ],
+    "owner": 119,
+    "rights_units": 1,
+    "run_id": "r1",
+    "ship": {
+     "cargo": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      3,
+      0
+     ],
+     "dst": {
+      "at": 5,
+      "gen": 1,
+      "kind": 2,
+      "p": 1,
+      "q": 0
+     }
+    },
+    "stock": {
+     "at": 1,
+     "gen": 1,
+     "kind": 1,
+     "p": 0,
+     "q": 0
+    }
+   },
+   "spec_digest": "ed74b8e3dbcab63c0a2bcb80dc4a7468efe20f1951ce486560fcaf8f28e813d2",
+   "state": "Failed",
+   "terminal": true,
+   "transitions": [
+    {
+     "executor": "exec-a",
+     "from": "Accepted",
+     "reason": "inputs and right reserved",
+     "to": "Reserved"
+    },
+    {
+     "executor": "exec-a",
+     "from": "Reserved",
+     "reason": "facility request signed",
+     "to": "FacilityRequested"
+    },
+    {
+     "executor": "exec-a",
+     "from": "FacilityRequested",
+     "reason": "accepted by the execution path",
+     "to": "FacilitySubmitted"
+    },
+    {
+     "executor": "exec-a",
+     "from": "FacilitySubmitted",
+     "reason": "facility use read on the canonical side",
+     "to": "FacilityConfirmed"
+    },
+    {
+     "executor": "exec-a",
+     "from": "FacilityConfirmed",
+     "reason": "SendCaravan signed, seq 0 pinned",
+     "to": "ShipRequested"
+    },
+    {
+     "executor": "exec-a",
+     "from": "ShipRequested",
+     "reason": "accepted by the execution path",
+     "to": "ShipSubmitted"
+    },
+    {
+     "executor": "exec-a",
+     "from": "ShipSubmitted",
+     "reason": "caravan cv:77:0 is ours (signature and content)",
+     "to": "InTransit"
+    },
+    {
+     "executor": "exec-a",
+     "from": "InTransit",
+     "reason": "wait",
+     "to": "InTransit"
+    },
+    {
+     "executor": "exec-a",
+     "from": "InTransit",
+     "reason": "wait",
+     "to": "InTransit"
+    },
+    {
+     "executor": "exec-a",
+     "from": "InTransit",
+     "reason": "wait",
+     "to": "InTransit"
+    },
+    {
+     "executor": "exec-a",
+     "from": "InTransit",
+     "reason": "settlement read",
+     "to": "Arrived"
+    },
+    {
+     "executor": "exec-a",
+     "from": "Arrived",
+     "reason": "delivered in full (lower bound \u2265 request)",
+     "to": "Fulfilled"
+    }
+   ],
+   "version": 12,
+   "view_version": "p04-run/0.1"
+  },
+  "Failed+receipt caravan_sent": {
+   "attempts": [],
+   "cancel_phase": null,
+   "cancel_requested": false,
+   "cargo_only": false,
+   "detail": {
+    "cancel": null,
+    "fac_attempts": 1,
+    "outcome": {
+     "cargo_logged": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      3,
+      0
+     ],
+     "delivered": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      3,
+      0
+     ],
+     "effects": [
+      "facility_used fac:r1",
+      "caravan_sent cv:77:0",
+      "caravan_settled cv:77:0"
+     ],
+     "note": "delivered in full (lower bound \u2265 request)",
+     "verification": "Recorded"
+    },
+    "pending": null,
+    "port_errors": 0,
+    "raid": null,
+    "reason": null,
+    "sent_cargo": [
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     3,
+     0
+    ],
+    "settle": {
+     "cargo": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      3,
+      0
+     ],
+     "credited": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      3,
+      0
+     ],
+     "dst": {
+      "at": 5,
+      "gen": 1,
+      "kind": 2,
+      "p": 1,
+      "q": 0
+     },
+     "key": {
+      "owner": 119,
+      "seq": 0
+     },
+     "outcome": 0,
+     "slot": 24
+    },
+    "ship_attempts": 1,
+    "ship_seq": 0,
+    "unresolved": 0
+   },
+   "effects": [],
+   "fees": {
+    "charged": 10000,
+    "released": 0,
+    "reserved": 0,
+    "unconfirmed": 0
+   },
+   "held_reason": null,
+   "in_flight": false,
+   "next_check": 25,
+   "outcome": {
+    "cargo_logged": [
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     3,
+     0
+    ],
+    "delivered": [
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     3,
+     0
+    ],
+    "effects": [],
+    "note": "delivered in full (lower bound \u2265 request)",
+    "verification": "Recorded"
+   },
+   "reason": null,
+   "receipts": [
+    {
+     "body": {
+      "consumed": [
+       0,
+       5,
+       0,
+       0,
+       0,
+       0,
+       0,
+       0
+      ],
+      "key": "fac:r1",
+      "produced": [
+       0,
+       0,
+       0,
+       0,
+       0,
+       0,
+       3,
+       0
+      ],
+      "rights_units": 1,
+      "sig": "6fa5a24159f82252a65e50897b503f800e1b5f5a",
+      "slot": 2
+     },
+     "kind": "facility_used",
+     "run_id": "r1",
+     "slot": 2,
+     "source": "sig:6fa5a24159f82252a65e50897b503f800e1b5f5a",
+     "subject": "fac:r1"
+    },
+    {
+     "body": {
+      "cargo": [
+       0,
+       0,
+       0,
+       0,
+       0,
+       0,
+       3,
+       0
+      ],
+      "content_from": "event:63353057c8fd663e6b7ddd6be05ddd1933e2f13a:0",
+      "seq": 0
+     },
+     "kind": "caravan_sent",
+     "run_id": "r1",
+     "slot": 4,
+     "source": "sig:63353057c8fd663e6b7ddd6be05ddd1933e2f13a",
+     "subject": "cv:77:0"
+    },
+    {
+     "body": {
+      "cargo": [
+       0,
+       0,
+       0,
+       0,
+       0,
+       0,
+       3,
+       0
+      ],
+      "credited": [
+       0,
+       0,
+       0,
+       0,
+       0,
+       0,
+       3,
+       0
+      ],
+      "dst": {
+       "at": 5,
+       "gen": 1,
+       "kind": 2,
+       "p": 1,
+       "q": 0
+      },
+      "key": {
+       "owner": 119,
+       "seq": 0
+      },
+      "outcome": 0,
+      "slot": 24
+     },
+     "kind": "caravan_settled",
+     "run_id": "r1",
+     "slot": 24,
+     "source": "event:settle:cv:77:0",
+     "subject": "cv:77:0"
+    }
+   ],
+   "run_id": "r1",
+   "sent": false,
+   "settled": true,
+   "spec": {
+    "budget": {
+     "max_attempts": 3,
+     "max_fee": 200000,
+     "max_port_errors": 5
+    },
+    "deadline_slot": 400,
+    "facility": {
+     "place": {
+      "at": 2,
+      "gen": 1,
+      "kind": 1,
+      "p": 0,
+      "q": 1
+     },
+     "recipe": 1
+    },
+    "inbound": null,
+    "inputs": [
+     0,
+     5,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0
+    ],
+    "outputs": [
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     3,
+     0
+    ],
+    "owner": 119,
+    "rights_units": 1,
+    "run_id": "r1",
+    "ship": {
+     "cargo": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      3,
+      0
+     ],
+     "dst": {
+      "at": 5,
+      "gen": 1,
+      "kind": 2,
+      "p": 1,
+      "q": 0
+     }
+    },
+    "stock": {
+     "at": 1,
+     "gen": 1,
+     "kind": 1,
+     "p": 0,
+     "q": 0
+    }
+   },
+   "spec_digest": "ed74b8e3dbcab63c0a2bcb80dc4a7468efe20f1951ce486560fcaf8f28e813d2",
+   "state": "Failed",
+   "terminal": true,
+   "transitions": [
+    {
+     "executor": "exec-a",
+     "from": "Accepted",
+     "reason": "inputs and right reserved",
+     "to": "Reserved"
+    },
+    {
+     "executor": "exec-a",
+     "from": "Reserved",
+     "reason": "facility request signed",
+     "to": "FacilityRequested"
+    },
+    {
+     "executor": "exec-a",
+     "from": "FacilityRequested",
+     "reason": "accepted by the execution path",
+     "to": "FacilitySubmitted"
+    },
+    {
+     "executor": "exec-a",
+     "from": "FacilitySubmitted",
+     "reason": "facility use read on the canonical side",
+     "to": "FacilityConfirmed"
+    },
+    {
+     "executor": "exec-a",
+     "from": "FacilityConfirmed",
+     "reason": "SendCaravan signed, seq 0 pinned",
+     "to": "ShipRequested"
+    },
+    {
+     "executor": "exec-a",
+     "from": "ShipRequested",
+     "reason": "accepted by the execution path",
+     "to": "ShipSubmitted"
+    },
+    {
+     "executor": "exec-a",
+     "from": "ShipSubmitted",
+     "reason": "caravan cv:77:0 is ours (signature and content)",
+     "to": "InTransit"
+    },
+    {
+     "executor": "exec-a",
+     "from": "InTransit",
+     "reason": "wait",
+     "to": "InTransit"
+    },
+    {
+     "executor": "exec-a",
+     "from": "InTransit",
+     "reason": "wait",
+     "to": "InTransit"
+    },
+    {
+     "executor": "exec-a",
+     "from": "InTransit",
+     "reason": "wait",
+     "to": "InTransit"
+    },
+    {
+     "executor": "exec-a",
+     "from": "InTransit",
+     "reason": "settlement read",
+     "to": "Arrived"
+    },
+    {
+     "executor": "exec-a",
+     "from": "Arrived",
+     "reason": "delivered in full (lower bound \u2265 request)",
+     "to": "Fulfilled"
+    }
+   ],
+   "version": 12,
+   "view_version": "p04-run/0.1"
+  },
+  "Failed+in_flight": {
+   "attempts": [],
+   "cancel_phase": null,
+   "cancel_requested": false,
+   "cargo_only": false,
+   "detail": {
+    "cancel": null,
+    "fac_attempts": 1,
+    "outcome": {
+     "cargo_logged": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      3,
+      0
+     ],
+     "delivered": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      3,
+      0
+     ],
+     "effects": [
+      "facility_used fac:r1",
+      "caravan_sent cv:77:0",
+      "caravan_settled cv:77:0"
+     ],
+     "note": "delivered in full (lower bound \u2265 request)",
+     "verification": "Recorded"
+    },
+    "pending": null,
+    "port_errors": 0,
+    "raid": null,
+    "reason": null,
+    "sent_cargo": [
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     3,
+     0
+    ],
+    "settle": {
+     "cargo": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      3,
+      0
+     ],
+     "credited": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      3,
+      0
+     ],
+     "dst": {
+      "at": 5,
+      "gen": 1,
+      "kind": 2,
+      "p": 1,
+      "q": 0
+     },
+     "key": {
+      "owner": 119,
+      "seq": 0
+     },
+     "outcome": 0,
+     "slot": 24
+    },
+    "ship_attempts": 1,
+    "ship_seq": 0,
+    "unresolved": 0
+   },
+   "effects": [],
+   "fees": {
+    "charged": 10000,
+    "released": 0,
+    "reserved": 0,
+    "unconfirmed": 0
+   },
+   "held_reason": null,
+   "in_flight": true,
+   "next_check": 25,
+   "outcome": {
+    "cargo_logged": [
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     3,
+     0
+    ],
+    "delivered": [
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     3,
+     0
+    ],
+    "effects": [],
+    "note": "delivered in full (lower bound \u2265 request)",
+    "verification": "Recorded"
+   },
+   "reason": null,
+   "receipts": [],
+   "run_id": "r1",
+   "sent": false,
+   "settled": true,
+   "spec": {
+    "budget": {
+     "max_attempts": 3,
+     "max_fee": 200000,
+     "max_port_errors": 5
+    },
+    "deadline_slot": 400,
+    "facility": {
+     "place": {
+      "at": 2,
+      "gen": 1,
+      "kind": 1,
+      "p": 0,
+      "q": 1
+     },
+     "recipe": 1
+    },
+    "inbound": null,
+    "inputs": [
+     0,
+     5,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0
+    ],
+    "outputs": [
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     3,
+     0
+    ],
+    "owner": 119,
+    "rights_units": 1,
+    "run_id": "r1",
+    "ship": {
+     "cargo": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      3,
+      0
+     ],
+     "dst": {
+      "at": 5,
+      "gen": 1,
+      "kind": 2,
+      "p": 1,
+      "q": 0
+     }
+    },
+    "stock": {
+     "at": 1,
+     "gen": 1,
+     "kind": 1,
+     "p": 0,
+     "q": 0
+    }
+   },
+   "spec_digest": "ed74b8e3dbcab63c0a2bcb80dc4a7468efe20f1951ce486560fcaf8f28e813d2",
+   "state": "Failed",
+   "terminal": true,
+   "transitions": [
+    {
+     "executor": "exec-a",
+     "from": "Accepted",
+     "reason": "inputs and right reserved",
+     "to": "Reserved"
+    },
+    {
+     "executor": "exec-a",
+     "from": "Reserved",
+     "reason": "facility request signed",
+     "to": "FacilityRequested"
+    },
+    {
+     "executor": "exec-a",
+     "from": "FacilityRequested",
+     "reason": "accepted by the execution path",
+     "to": "FacilitySubmitted"
+    },
+    {
+     "executor": "exec-a",
+     "from": "FacilitySubmitted",
+     "reason": "facility use read on the canonical side",
+     "to": "FacilityConfirmed"
+    },
+    {
+     "executor": "exec-a",
+     "from": "FacilityConfirmed",
+     "reason": "SendCaravan signed, seq 0 pinned",
+     "to": "ShipRequested"
+    },
+    {
+     "executor": "exec-a",
+     "from": "ShipRequested",
+     "reason": "accepted by the execution path",
+     "to": "ShipSubmitted"
+    },
+    {
+     "executor": "exec-a",
+     "from": "ShipSubmitted",
+     "reason": "caravan cv:77:0 is ours (signature and content)",
+     "to": "InTransit"
+    },
+    {
+     "executor": "exec-a",
+     "from": "InTransit",
+     "reason": "wait",
+     "to": "InTransit"
+    },
+    {
+     "executor": "exec-a",
+     "from": "InTransit",
+     "reason": "wait",
+     "to": "InTransit"
+    },
+    {
+     "executor": "exec-a",
+     "from": "InTransit",
+     "reason": "wait",
+     "to": "InTransit"
+    },
+    {
+     "executor": "exec-a",
+     "from": "InTransit",
+     "reason": "settlement read",
+     "to": "Arrived"
+    },
+    {
+     "executor": "exec-a",
+     "from": "Arrived",
+     "reason": "delivered in full (lower bound \u2265 request)",
+     "to": "Fulfilled"
+    }
+   ],
+   "version": 12,
+   "view_version": "p04-run/0.1"
+  },
+  "Failed+fees unconfirmed": {
+   "attempts": [],
+   "cancel_phase": null,
+   "cancel_requested": false,
+   "cargo_only": false,
+   "detail": {
+    "cancel": null,
+    "fac_attempts": 1,
+    "outcome": {
+     "cargo_logged": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      3,
+      0
+     ],
+     "delivered": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      3,
+      0
+     ],
+     "effects": [
+      "facility_used fac:r1",
+      "caravan_sent cv:77:0",
+      "caravan_settled cv:77:0"
+     ],
+     "note": "delivered in full (lower bound \u2265 request)",
+     "verification": "Recorded"
+    },
+    "pending": null,
+    "port_errors": 0,
+    "raid": null,
+    "reason": null,
+    "sent_cargo": [
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     3,
+     0
+    ],
+    "settle": {
+     "cargo": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      3,
+      0
+     ],
+     "credited": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      3,
+      0
+     ],
+     "dst": {
+      "at": 5,
+      "gen": 1,
+      "kind": 2,
+      "p": 1,
+      "q": 0
+     },
+     "key": {
+      "owner": 119,
+      "seq": 0
+     },
+     "outcome": 0,
+     "slot": 24
+    },
+    "ship_attempts": 1,
+    "ship_seq": 0,
+    "unresolved": 0
+   },
+   "effects": [],
+   "fees": {
+    "charged": 10000,
+    "released": 0,
+    "reserved": 0,
+    "unconfirmed": 5000
+   },
+   "held_reason": null,
+   "in_flight": false,
+   "next_check": 25,
+   "outcome": {
+    "cargo_logged": [
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     3,
+     0
+    ],
+    "delivered": [
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     3,
+     0
+    ],
+    "effects": [],
+    "note": "delivered in full (lower bound \u2265 request)",
+    "verification": "Recorded"
+   },
+   "reason": null,
+   "receipts": [],
+   "run_id": "r1",
+   "sent": false,
+   "settled": true,
+   "spec": {
+    "budget": {
+     "max_attempts": 3,
+     "max_fee": 200000,
+     "max_port_errors": 5
+    },
+    "deadline_slot": 400,
+    "facility": {
+     "place": {
+      "at": 2,
+      "gen": 1,
+      "kind": 1,
+      "p": 0,
+      "q": 1
+     },
+     "recipe": 1
+    },
+    "inbound": null,
+    "inputs": [
+     0,
+     5,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0
+    ],
+    "outputs": [
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     3,
+     0
+    ],
+    "owner": 119,
+    "rights_units": 1,
+    "run_id": "r1",
+    "ship": {
+     "cargo": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      3,
+      0
+     ],
+     "dst": {
+      "at": 5,
+      "gen": 1,
+      "kind": 2,
+      "p": 1,
+      "q": 0
+     }
+    },
+    "stock": {
+     "at": 1,
+     "gen": 1,
+     "kind": 1,
+     "p": 0,
+     "q": 0
+    }
+   },
+   "spec_digest": "ed74b8e3dbcab63c0a2bcb80dc4a7468efe20f1951ce486560fcaf8f28e813d2",
+   "state": "Failed",
+   "terminal": true,
+   "transitions": [
+    {
+     "executor": "exec-a",
+     "from": "Accepted",
+     "reason": "inputs and right reserved",
+     "to": "Reserved"
+    },
+    {
+     "executor": "exec-a",
+     "from": "Reserved",
+     "reason": "facility request signed",
+     "to": "FacilityRequested"
+    },
+    {
+     "executor": "exec-a",
+     "from": "FacilityRequested",
+     "reason": "accepted by the execution path",
+     "to": "FacilitySubmitted"
+    },
+    {
+     "executor": "exec-a",
+     "from": "FacilitySubmitted",
+     "reason": "facility use read on the canonical side",
+     "to": "FacilityConfirmed"
+    },
+    {
+     "executor": "exec-a",
+     "from": "FacilityConfirmed",
+     "reason": "SendCaravan signed, seq 0 pinned",
+     "to": "ShipRequested"
+    },
+    {
+     "executor": "exec-a",
+     "from": "ShipRequested",
+     "reason": "accepted by the execution path",
+     "to": "ShipSubmitted"
+    },
+    {
+     "executor": "exec-a",
+     "from": "ShipSubmitted",
+     "reason": "caravan cv:77:0 is ours (signature and content)",
+     "to": "InTransit"
+    },
+    {
+     "executor": "exec-a",
+     "from": "InTransit",
+     "reason": "wait",
+     "to": "InTransit"
+    },
+    {
+     "executor": "exec-a",
+     "from": "InTransit",
+     "reason": "wait",
+     "to": "InTransit"
+    },
+    {
+     "executor": "exec-a",
+     "from": "InTransit",
+     "reason": "wait",
+     "to": "InTransit"
+    },
+    {
+     "executor": "exec-a",
+     "from": "InTransit",
+     "reason": "settlement read",
+     "to": "Arrived"
+    },
+    {
+     "executor": "exec-a",
+     "from": "Arrived",
+     "reason": "delivered in full (lower bound \u2265 request)",
+     "to": "Fulfilled"
+    }
+   ],
+   "version": 12,
+   "view_version": "p04-run/0.1"
+  },
+  "Expired+ship landed": {
+   "attempts": [
+    {
+     "fee": 5000,
+     "request_key": "fac:r1",
+     "sig": "6fa5a24159f82252a65e50897b503f800e1b5f5a",
+     "status": "landed",
+     "step": "facility",
+     "valid_until": 12
+    },
+    {
+     "fee": 5000,
+     "request_key": "cv:77:0",
+     "sig": "63353057c8fd663e6b7ddd6be05ddd1933e2f13a",
+     "status": "landed",
+     "step": "ship",
+     "valid_until": 14
+    }
+   ],
+   "cancel_phase": null,
+   "cancel_requested": false,
+   "cargo_only": false,
+   "detail": {
+    "cancel": null,
+    "fac_attempts": 1,
+    "outcome": {
+     "cargo_logged": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      3,
+      0
+     ],
+     "delivered": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      3,
+      0
+     ],
+     "effects": [
+      "facility_used fac:r1",
+      "caravan_sent cv:77:0",
+      "caravan_settled cv:77:0"
+     ],
+     "note": "delivered in full (lower bound \u2265 request)",
+     "verification": "Recorded"
+    },
+    "pending": null,
+    "port_errors": 0,
+    "raid": null,
+    "reason": null,
+    "sent_cargo": [
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     3,
+     0
+    ],
+    "settle": {
+     "cargo": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      3,
+      0
+     ],
+     "credited": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      3,
+      0
+     ],
+     "dst": {
+      "at": 5,
+      "gen": 1,
+      "kind": 2,
+      "p": 1,
+      "q": 0
+     },
+     "key": {
+      "owner": 119,
+      "seq": 0
+     },
+     "outcome": 0,
+     "slot": 24
+    },
+    "ship_attempts": 1,
+    "ship_seq": 0,
+    "unresolved": 0
+   },
+   "effects": [],
+   "fees": {
+    "charged": 10000,
+    "released": 0,
+    "reserved": 0,
+    "unconfirmed": 0
+   },
+   "held_reason": null,
+   "in_flight": false,
+   "next_check": 25,
+   "outcome": {
+    "cargo_logged": [
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     3,
+     0
+    ],
+    "delivered": [
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     3,
+     0
+    ],
+    "effects": [],
+    "note": "delivered in full (lower bound \u2265 request)",
+    "verification": "Recorded"
+   },
+   "reason": null,
+   "receipts": [],
+   "run_id": "r1",
+   "sent": false,
+   "settled": true,
+   "spec": {
+    "budget": {
+     "max_attempts": 3,
+     "max_fee": 200000,
+     "max_port_errors": 5
+    },
+    "deadline_slot": 400,
+    "facility": {
+     "place": {
+      "at": 2,
+      "gen": 1,
+      "kind": 1,
+      "p": 0,
+      "q": 1
+     },
+     "recipe": 1
+    },
+    "inbound": null,
+    "inputs": [
+     0,
+     5,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0
+    ],
+    "outputs": [
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     3,
+     0
+    ],
+    "owner": 119,
+    "rights_units": 1,
+    "run_id": "r1",
+    "ship": {
+     "cargo": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      3,
+      0
+     ],
+     "dst": {
+      "at": 5,
+      "gen": 1,
+      "kind": 2,
+      "p": 1,
+      "q": 0
+     }
+    },
+    "stock": {
+     "at": 1,
+     "gen": 1,
+     "kind": 1,
+     "p": 0,
+     "q": 0
+    }
+   },
+   "spec_digest": "ed74b8e3dbcab63c0a2bcb80dc4a7468efe20f1951ce486560fcaf8f28e813d2",
+   "state": "Expired",
+   "terminal": true,
+   "transitions": [
+    {
+     "executor": "exec-a",
+     "from": "Accepted",
+     "reason": "inputs and right reserved",
+     "to": "Reserved"
+    },
+    {
+     "executor": "exec-a",
+     "from": "Reserved",
+     "reason": "facility request signed",
+     "to": "FacilityRequested"
+    },
+    {
+     "executor": "exec-a",
+     "from": "FacilityRequested",
+     "reason": "accepted by the execution path",
+     "to": "FacilitySubmitted"
+    },
+    {
+     "executor": "exec-a",
+     "from": "FacilitySubmitted",
+     "reason": "facility use read on the canonical side",
+     "to": "FacilityConfirmed"
+    },
+    {
+     "executor": "exec-a",
+     "from": "FacilityConfirmed",
+     "reason": "SendCaravan signed, seq 0 pinned",
+     "to": "ShipRequested"
+    },
+    {
+     "executor": "exec-a",
+     "from": "ShipRequested",
+     "reason": "accepted by the execution path",
+     "to": "ShipSubmitted"
+    },
+    {
+     "executor": "exec-a",
+     "from": "ShipSubmitted",
+     "reason": "caravan cv:77:0 is ours (signature and content)",
+     "to": "InTransit"
+    },
+    {
+     "executor": "exec-a",
+     "from": "InTransit",
+     "reason": "wait",
+     "to": "InTransit"
+    },
+    {
+     "executor": "exec-a",
+     "from": "InTransit",
+     "reason": "wait",
+     "to": "InTransit"
+    },
+    {
+     "executor": "exec-a",
+     "from": "InTransit",
+     "reason": "wait",
+     "to": "InTransit"
+    },
+    {
+     "executor": "exec-a",
+     "from": "InTransit",
+     "reason": "settlement read",
+     "to": "Arrived"
+    },
+    {
+     "executor": "exec-a",
+     "from": "Arrived",
+     "reason": "delivered in full (lower bound \u2265 request)",
+     "to": "Fulfilled"
+    }
+   ],
+   "version": 12,
+   "view_version": "p04-run/0.1"
+  },
+  "Expired+receipt caravan_sent": {
+   "attempts": [],
+   "cancel_phase": null,
+   "cancel_requested": false,
+   "cargo_only": false,
+   "detail": {
+    "cancel": null,
+    "fac_attempts": 1,
+    "outcome": {
+     "cargo_logged": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      3,
+      0
+     ],
+     "delivered": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      3,
+      0
+     ],
+     "effects": [
+      "facility_used fac:r1",
+      "caravan_sent cv:77:0",
+      "caravan_settled cv:77:0"
+     ],
+     "note": "delivered in full (lower bound \u2265 request)",
+     "verification": "Recorded"
+    },
+    "pending": null,
+    "port_errors": 0,
+    "raid": null,
+    "reason": null,
+    "sent_cargo": [
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     3,
+     0
+    ],
+    "settle": {
+     "cargo": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      3,
+      0
+     ],
+     "credited": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      3,
+      0
+     ],
+     "dst": {
+      "at": 5,
+      "gen": 1,
+      "kind": 2,
+      "p": 1,
+      "q": 0
+     },
+     "key": {
+      "owner": 119,
+      "seq": 0
+     },
+     "outcome": 0,
+     "slot": 24
+    },
+    "ship_attempts": 1,
+    "ship_seq": 0,
+    "unresolved": 0
+   },
+   "effects": [],
+   "fees": {
+    "charged": 10000,
+    "released": 0,
+    "reserved": 0,
+    "unconfirmed": 0
+   },
+   "held_reason": null,
+   "in_flight": false,
+   "next_check": 25,
+   "outcome": {
+    "cargo_logged": [
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     3,
+     0
+    ],
+    "delivered": [
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     3,
+     0
+    ],
+    "effects": [],
+    "note": "delivered in full (lower bound \u2265 request)",
+    "verification": "Recorded"
+   },
+   "reason": null,
+   "receipts": [
+    {
+     "body": {
+      "consumed": [
+       0,
+       5,
+       0,
+       0,
+       0,
+       0,
+       0,
+       0
+      ],
+      "key": "fac:r1",
+      "produced": [
+       0,
+       0,
+       0,
+       0,
+       0,
+       0,
+       3,
+       0
+      ],
+      "rights_units": 1,
+      "sig": "6fa5a24159f82252a65e50897b503f800e1b5f5a",
+      "slot": 2
+     },
+     "kind": "facility_used",
+     "run_id": "r1",
+     "slot": 2,
+     "source": "sig:6fa5a24159f82252a65e50897b503f800e1b5f5a",
+     "subject": "fac:r1"
+    },
+    {
+     "body": {
+      "cargo": [
+       0,
+       0,
+       0,
+       0,
+       0,
+       0,
+       3,
+       0
+      ],
+      "content_from": "event:63353057c8fd663e6b7ddd6be05ddd1933e2f13a:0",
+      "seq": 0
+     },
+     "kind": "caravan_sent",
+     "run_id": "r1",
+     "slot": 4,
+     "source": "sig:63353057c8fd663e6b7ddd6be05ddd1933e2f13a",
+     "subject": "cv:77:0"
+    },
+    {
+     "body": {
+      "cargo": [
+       0,
+       0,
+       0,
+       0,
+       0,
+       0,
+       3,
+       0
+      ],
+      "credited": [
+       0,
+       0,
+       0,
+       0,
+       0,
+       0,
+       3,
+       0
+      ],
+      "dst": {
+       "at": 5,
+       "gen": 1,
+       "kind": 2,
+       "p": 1,
+       "q": 0
+      },
+      "key": {
+       "owner": 119,
+       "seq": 0
+      },
+      "outcome": 0,
+      "slot": 24
+     },
+     "kind": "caravan_settled",
+     "run_id": "r1",
+     "slot": 24,
+     "source": "event:settle:cv:77:0",
+     "subject": "cv:77:0"
+    }
+   ],
+   "run_id": "r1",
+   "sent": false,
+   "settled": true,
+   "spec": {
+    "budget": {
+     "max_attempts": 3,
+     "max_fee": 200000,
+     "max_port_errors": 5
+    },
+    "deadline_slot": 400,
+    "facility": {
+     "place": {
+      "at": 2,
+      "gen": 1,
+      "kind": 1,
+      "p": 0,
+      "q": 1
+     },
+     "recipe": 1
+    },
+    "inbound": null,
+    "inputs": [
+     0,
+     5,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0
+    ],
+    "outputs": [
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     3,
+     0
+    ],
+    "owner": 119,
+    "rights_units": 1,
+    "run_id": "r1",
+    "ship": {
+     "cargo": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      3,
+      0
+     ],
+     "dst": {
+      "at": 5,
+      "gen": 1,
+      "kind": 2,
+      "p": 1,
+      "q": 0
+     }
+    },
+    "stock": {
+     "at": 1,
+     "gen": 1,
+     "kind": 1,
+     "p": 0,
+     "q": 0
+    }
+   },
+   "spec_digest": "ed74b8e3dbcab63c0a2bcb80dc4a7468efe20f1951ce486560fcaf8f28e813d2",
+   "state": "Expired",
+   "terminal": true,
+   "transitions": [
+    {
+     "executor": "exec-a",
+     "from": "Accepted",
+     "reason": "inputs and right reserved",
+     "to": "Reserved"
+    },
+    {
+     "executor": "exec-a",
+     "from": "Reserved",
+     "reason": "facility request signed",
+     "to": "FacilityRequested"
+    },
+    {
+     "executor": "exec-a",
+     "from": "FacilityRequested",
+     "reason": "accepted by the execution path",
+     "to": "FacilitySubmitted"
+    },
+    {
+     "executor": "exec-a",
+     "from": "FacilitySubmitted",
+     "reason": "facility use read on the canonical side",
+     "to": "FacilityConfirmed"
+    },
+    {
+     "executor": "exec-a",
+     "from": "FacilityConfirmed",
+     "reason": "SendCaravan signed, seq 0 pinned",
+     "to": "ShipRequested"
+    },
+    {
+     "executor": "exec-a",
+     "from": "ShipRequested",
+     "reason": "accepted by the execution path",
+     "to": "ShipSubmitted"
+    },
+    {
+     "executor": "exec-a",
+     "from": "ShipSubmitted",
+     "reason": "caravan cv:77:0 is ours (signature and content)",
+     "to": "InTransit"
+    },
+    {
+     "executor": "exec-a",
+     "from": "InTransit",
+     "reason": "wait",
+     "to": "InTransit"
+    },
+    {
+     "executor": "exec-a",
+     "from": "InTransit",
+     "reason": "wait",
+     "to": "InTransit"
+    },
+    {
+     "executor": "exec-a",
+     "from": "InTransit",
+     "reason": "wait",
+     "to": "InTransit"
+    },
+    {
+     "executor": "exec-a",
+     "from": "InTransit",
+     "reason": "settlement read",
+     "to": "Arrived"
+    },
+    {
+     "executor": "exec-a",
+     "from": "Arrived",
+     "reason": "delivered in full (lower bound \u2265 request)",
+     "to": "Fulfilled"
+    }
+   ],
+   "version": 12,
+   "view_version": "p04-run/0.1"
+  },
+  "Expired+in_flight": {
+   "attempts": [],
+   "cancel_phase": null,
+   "cancel_requested": false,
+   "cargo_only": false,
+   "detail": {
+    "cancel": null,
+    "fac_attempts": 1,
+    "outcome": {
+     "cargo_logged": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      3,
+      0
+     ],
+     "delivered": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      3,
+      0
+     ],
+     "effects": [
+      "facility_used fac:r1",
+      "caravan_sent cv:77:0",
+      "caravan_settled cv:77:0"
+     ],
+     "note": "delivered in full (lower bound \u2265 request)",
+     "verification": "Recorded"
+    },
+    "pending": null,
+    "port_errors": 0,
+    "raid": null,
+    "reason": null,
+    "sent_cargo": [
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     3,
+     0
+    ],
+    "settle": {
+     "cargo": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      3,
+      0
+     ],
+     "credited": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      3,
+      0
+     ],
+     "dst": {
+      "at": 5,
+      "gen": 1,
+      "kind": 2,
+      "p": 1,
+      "q": 0
+     },
+     "key": {
+      "owner": 119,
+      "seq": 0
+     },
+     "outcome": 0,
+     "slot": 24
+    },
+    "ship_attempts": 1,
+    "ship_seq": 0,
+    "unresolved": 0
+   },
+   "effects": [],
+   "fees": {
+    "charged": 10000,
+    "released": 0,
+    "reserved": 0,
+    "unconfirmed": 0
+   },
+   "held_reason": null,
+   "in_flight": true,
+   "next_check": 25,
+   "outcome": {
+    "cargo_logged": [
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     3,
+     0
+    ],
+    "delivered": [
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     3,
+     0
+    ],
+    "effects": [],
+    "note": "delivered in full (lower bound \u2265 request)",
+    "verification": "Recorded"
+   },
+   "reason": null,
+   "receipts": [],
+   "run_id": "r1",
+   "sent": false,
+   "settled": true,
+   "spec": {
+    "budget": {
+     "max_attempts": 3,
+     "max_fee": 200000,
+     "max_port_errors": 5
+    },
+    "deadline_slot": 400,
+    "facility": {
+     "place": {
+      "at": 2,
+      "gen": 1,
+      "kind": 1,
+      "p": 0,
+      "q": 1
+     },
+     "recipe": 1
+    },
+    "inbound": null,
+    "inputs": [
+     0,
+     5,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0
+    ],
+    "outputs": [
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     3,
+     0
+    ],
+    "owner": 119,
+    "rights_units": 1,
+    "run_id": "r1",
+    "ship": {
+     "cargo": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      3,
+      0
+     ],
+     "dst": {
+      "at": 5,
+      "gen": 1,
+      "kind": 2,
+      "p": 1,
+      "q": 0
+     }
+    },
+    "stock": {
+     "at": 1,
+     "gen": 1,
+     "kind": 1,
+     "p": 0,
+     "q": 0
+    }
+   },
+   "spec_digest": "ed74b8e3dbcab63c0a2bcb80dc4a7468efe20f1951ce486560fcaf8f28e813d2",
+   "state": "Expired",
+   "terminal": true,
+   "transitions": [
+    {
+     "executor": "exec-a",
+     "from": "Accepted",
+     "reason": "inputs and right reserved",
+     "to": "Reserved"
+    },
+    {
+     "executor": "exec-a",
+     "from": "Reserved",
+     "reason": "facility request signed",
+     "to": "FacilityRequested"
+    },
+    {
+     "executor": "exec-a",
+     "from": "FacilityRequested",
+     "reason": "accepted by the execution path",
+     "to": "FacilitySubmitted"
+    },
+    {
+     "executor": "exec-a",
+     "from": "FacilitySubmitted",
+     "reason": "facility use read on the canonical side",
+     "to": "FacilityConfirmed"
+    },
+    {
+     "executor": "exec-a",
+     "from": "FacilityConfirmed",
+     "reason": "SendCaravan signed, seq 0 pinned",
+     "to": "ShipRequested"
+    },
+    {
+     "executor": "exec-a",
+     "from": "ShipRequested",
+     "reason": "accepted by the execution path",
+     "to": "ShipSubmitted"
+    },
+    {
+     "executor": "exec-a",
+     "from": "ShipSubmitted",
+     "reason": "caravan cv:77:0 is ours (signature and content)",
+     "to": "InTransit"
+    },
+    {
+     "executor": "exec-a",
+     "from": "InTransit",
+     "reason": "wait",
+     "to": "InTransit"
+    },
+    {
+     "executor": "exec-a",
+     "from": "InTransit",
+     "reason": "wait",
+     "to": "InTransit"
+    },
+    {
+     "executor": "exec-a",
+     "from": "InTransit",
+     "reason": "wait",
+     "to": "InTransit"
+    },
+    {
+     "executor": "exec-a",
+     "from": "InTransit",
+     "reason": "settlement read",
+     "to": "Arrived"
+    },
+    {
+     "executor": "exec-a",
+     "from": "Arrived",
+     "reason": "delivered in full (lower bound \u2265 request)",
+     "to": "Fulfilled"
+    }
+   ],
+   "version": 12,
+   "view_version": "p04-run/0.1"
+  },
+  "Expired+fees unconfirmed": {
+   "attempts": [],
+   "cancel_phase": null,
+   "cancel_requested": false,
+   "cargo_only": false,
+   "detail": {
+    "cancel": null,
+    "fac_attempts": 1,
+    "outcome": {
+     "cargo_logged": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      3,
+      0
+     ],
+     "delivered": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      3,
+      0
+     ],
+     "effects": [
+      "facility_used fac:r1",
+      "caravan_sent cv:77:0",
+      "caravan_settled cv:77:0"
+     ],
+     "note": "delivered in full (lower bound \u2265 request)",
+     "verification": "Recorded"
+    },
+    "pending": null,
+    "port_errors": 0,
+    "raid": null,
+    "reason": null,
+    "sent_cargo": [
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     3,
+     0
+    ],
+    "settle": {
+     "cargo": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      3,
+      0
+     ],
+     "credited": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      3,
+      0
+     ],
+     "dst": {
+      "at": 5,
+      "gen": 1,
+      "kind": 2,
+      "p": 1,
+      "q": 0
+     },
+     "key": {
+      "owner": 119,
+      "seq": 0
+     },
+     "outcome": 0,
+     "slot": 24
+    },
+    "ship_attempts": 1,
+    "ship_seq": 0,
+    "unresolved": 0
+   },
+   "effects": [],
+   "fees": {
+    "charged": 10000,
+    "released": 0,
+    "reserved": 0,
+    "unconfirmed": 5000
+   },
+   "held_reason": null,
+   "in_flight": false,
+   "next_check": 25,
+   "outcome": {
+    "cargo_logged": [
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     3,
+     0
+    ],
+    "delivered": [
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     3,
+     0
+    ],
+    "effects": [],
+    "note": "delivered in full (lower bound \u2265 request)",
+    "verification": "Recorded"
+   },
+   "reason": null,
+   "receipts": [],
+   "run_id": "r1",
+   "sent": false,
+   "settled": true,
+   "spec": {
+    "budget": {
+     "max_attempts": 3,
+     "max_fee": 200000,
+     "max_port_errors": 5
+    },
+    "deadline_slot": 400,
+    "facility": {
+     "place": {
+      "at": 2,
+      "gen": 1,
+      "kind": 1,
+      "p": 0,
+      "q": 1
+     },
+     "recipe": 1
+    },
+    "inbound": null,
+    "inputs": [
+     0,
+     5,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0
+    ],
+    "outputs": [
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     3,
+     0
+    ],
+    "owner": 119,
+    "rights_units": 1,
+    "run_id": "r1",
+    "ship": {
+     "cargo": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      3,
+      0
+     ],
+     "dst": {
+      "at": 5,
+      "gen": 1,
+      "kind": 2,
+      "p": 1,
+      "q": 0
+     }
+    },
+    "stock": {
+     "at": 1,
+     "gen": 1,
+     "kind": 1,
+     "p": 0,
+     "q": 0
+    }
+   },
+   "spec_digest": "ed74b8e3dbcab63c0a2bcb80dc4a7468efe20f1951ce486560fcaf8f28e813d2",
+   "state": "Expired",
+   "terminal": true,
+   "transitions": [
+    {
+     "executor": "exec-a",
+     "from": "Accepted",
+     "reason": "inputs and right reserved",
+     "to": "Reserved"
+    },
+    {
+     "executor": "exec-a",
+     "from": "Reserved",
+     "reason": "facility request signed",
+     "to": "FacilityRequested"
+    },
+    {
+     "executor": "exec-a",
+     "from": "FacilityRequested",
+     "reason": "accepted by the execution path",
+     "to": "FacilitySubmitted"
+    },
+    {
+     "executor": "exec-a",
+     "from": "FacilitySubmitted",
+     "reason": "facility use read on the canonical side",
+     "to": "FacilityConfirmed"
+    },
+    {
+     "executor": "exec-a",
+     "from": "FacilityConfirmed",
+     "reason": "SendCaravan signed, seq 0 pinned",
+     "to": "ShipRequested"
+    },
+    {
+     "executor": "exec-a",
+     "from": "ShipRequested",
+     "reason": "accepted by the execution path",
+     "to": "ShipSubmitted"
+    },
+    {
+     "executor": "exec-a",
+     "from": "ShipSubmitted",
+     "reason": "caravan cv:77:0 is ours (signature and content)",
+     "to": "InTransit"
+    },
+    {
+     "executor": "exec-a",
+     "from": "InTransit",
+     "reason": "wait",
+     "to": "InTransit"
+    },
+    {
+     "executor": "exec-a",
+     "from": "InTransit",
+     "reason": "wait",
+     "to": "InTransit"
+    },
+    {
+     "executor": "exec-a",
+     "from": "InTransit",
+     "reason": "wait",
+     "to": "InTransit"
+    },
+    {
+     "executor": "exec-a",
+     "from": "InTransit",
+     "reason": "settlement read",
+     "to": "Arrived"
+    },
+    {
+     "executor": "exec-a",
+     "from": "Arrived",
+     "reason": "delivered in full (lower bound \u2265 request)",
+     "to": "Fulfilled"
+    }
+   ],
+   "version": 12,
+   "view_version": "p04-run/0.1"
+  },
+  "Cancelled+ship landed": {
+   "attempts": [
+    {
+     "fee": 5000,
+     "request_key": "fac:r1",
+     "sig": "6fa5a24159f82252a65e50897b503f800e1b5f5a",
+     "status": "landed",
+     "step": "facility",
+     "valid_until": 12
+    },
+    {
+     "fee": 5000,
+     "request_key": "cv:77:0",
+     "sig": "63353057c8fd663e6b7ddd6be05ddd1933e2f13a",
+     "status": "landed",
+     "step": "ship",
+     "valid_until": 14
+    }
+   ],
+   "cancel_phase": null,
+   "cancel_requested": false,
+   "cargo_only": false,
+   "detail": {
+    "cancel": null,
+    "fac_attempts": 1,
+    "outcome": {
+     "cargo_logged": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      3,
+      0
+     ],
+     "delivered": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      3,
+      0
+     ],
+     "effects": [
+      "facility_used fac:r1",
+      "caravan_sent cv:77:0",
+      "caravan_settled cv:77:0"
+     ],
+     "note": "delivered in full (lower bound \u2265 request)",
+     "verification": "Recorded"
+    },
+    "pending": null,
+    "port_errors": 0,
+    "raid": null,
+    "reason": null,
+    "sent_cargo": [
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     3,
+     0
+    ],
+    "settle": {
+     "cargo": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      3,
+      0
+     ],
+     "credited": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      3,
+      0
+     ],
+     "dst": {
+      "at": 5,
+      "gen": 1,
+      "kind": 2,
+      "p": 1,
+      "q": 0
+     },
+     "key": {
+      "owner": 119,
+      "seq": 0
+     },
+     "outcome": 0,
+     "slot": 24
+    },
+    "ship_attempts": 1,
+    "ship_seq": 0,
+    "unresolved": 0
+   },
+   "effects": [],
+   "fees": {
+    "charged": 10000,
+    "released": 0,
+    "reserved": 0,
+    "unconfirmed": 0
+   },
+   "held_reason": null,
+   "in_flight": false,
+   "next_check": 25,
+   "outcome": {
+    "cargo_logged": [
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     3,
+     0
+    ],
+    "delivered": [
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     3,
+     0
+    ],
+    "effects": [],
+    "note": "delivered in full (lower bound \u2265 request)",
+    "verification": "Recorded"
+   },
+   "reason": null,
+   "receipts": [],
+   "run_id": "r1",
+   "sent": false,
+   "settled": true,
+   "spec": {
+    "budget": {
+     "max_attempts": 3,
+     "max_fee": 200000,
+     "max_port_errors": 5
+    },
+    "deadline_slot": 400,
+    "facility": {
+     "place": {
+      "at": 2,
+      "gen": 1,
+      "kind": 1,
+      "p": 0,
+      "q": 1
+     },
+     "recipe": 1
+    },
+    "inbound": null,
+    "inputs": [
+     0,
+     5,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0
+    ],
+    "outputs": [
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     3,
+     0
+    ],
+    "owner": 119,
+    "rights_units": 1,
+    "run_id": "r1",
+    "ship": {
+     "cargo": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      3,
+      0
+     ],
+     "dst": {
+      "at": 5,
+      "gen": 1,
+      "kind": 2,
+      "p": 1,
+      "q": 0
+     }
+    },
+    "stock": {
+     "at": 1,
+     "gen": 1,
+     "kind": 1,
+     "p": 0,
+     "q": 0
+    }
+   },
+   "spec_digest": "ed74b8e3dbcab63c0a2bcb80dc4a7468efe20f1951ce486560fcaf8f28e813d2",
+   "state": "Cancelled",
+   "terminal": true,
+   "transitions": [
+    {
+     "executor": "exec-a",
+     "from": "Accepted",
+     "reason": "inputs and right reserved",
+     "to": "Reserved"
+    },
+    {
+     "executor": "exec-a",
+     "from": "Reserved",
+     "reason": "facility request signed",
+     "to": "FacilityRequested"
+    },
+    {
+     "executor": "exec-a",
+     "from": "FacilityRequested",
+     "reason": "accepted by the execution path",
+     "to": "FacilitySubmitted"
+    },
+    {
+     "executor": "exec-a",
+     "from": "FacilitySubmitted",
+     "reason": "facility use read on the canonical side",
+     "to": "FacilityConfirmed"
+    },
+    {
+     "executor": "exec-a",
+     "from": "FacilityConfirmed",
+     "reason": "SendCaravan signed, seq 0 pinned",
+     "to": "ShipRequested"
+    },
+    {
+     "executor": "exec-a",
+     "from": "ShipRequested",
+     "reason": "accepted by the execution path",
+     "to": "ShipSubmitted"
+    },
+    {
+     "executor": "exec-a",
+     "from": "ShipSubmitted",
+     "reason": "caravan cv:77:0 is ours (signature and content)",
+     "to": "InTransit"
+    },
+    {
+     "executor": "exec-a",
+     "from": "InTransit",
+     "reason": "wait",
+     "to": "InTransit"
+    },
+    {
+     "executor": "exec-a",
+     "from": "InTransit",
+     "reason": "wait",
+     "to": "InTransit"
+    },
+    {
+     "executor": "exec-a",
+     "from": "InTransit",
+     "reason": "wait",
+     "to": "InTransit"
+    },
+    {
+     "executor": "exec-a",
+     "from": "InTransit",
+     "reason": "settlement read",
+     "to": "Arrived"
+    },
+    {
+     "executor": "exec-a",
+     "from": "Arrived",
+     "reason": "delivered in full (lower bound \u2265 request)",
+     "to": "Fulfilled"
+    }
+   ],
+   "version": 12,
+   "view_version": "p04-run/0.1"
+  },
+  "Cancelled+receipt caravan_sent": {
+   "attempts": [],
+   "cancel_phase": null,
+   "cancel_requested": false,
+   "cargo_only": false,
+   "detail": {
+    "cancel": null,
+    "fac_attempts": 1,
+    "outcome": {
+     "cargo_logged": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      3,
+      0
+     ],
+     "delivered": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      3,
+      0
+     ],
+     "effects": [
+      "facility_used fac:r1",
+      "caravan_sent cv:77:0",
+      "caravan_settled cv:77:0"
+     ],
+     "note": "delivered in full (lower bound \u2265 request)",
+     "verification": "Recorded"
+    },
+    "pending": null,
+    "port_errors": 0,
+    "raid": null,
+    "reason": null,
+    "sent_cargo": [
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     3,
+     0
+    ],
+    "settle": {
+     "cargo": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      3,
+      0
+     ],
+     "credited": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      3,
+      0
+     ],
+     "dst": {
+      "at": 5,
+      "gen": 1,
+      "kind": 2,
+      "p": 1,
+      "q": 0
+     },
+     "key": {
+      "owner": 119,
+      "seq": 0
+     },
+     "outcome": 0,
+     "slot": 24
+    },
+    "ship_attempts": 1,
+    "ship_seq": 0,
+    "unresolved": 0
+   },
+   "effects": [],
+   "fees": {
+    "charged": 10000,
+    "released": 0,
+    "reserved": 0,
+    "unconfirmed": 0
+   },
+   "held_reason": null,
+   "in_flight": false,
+   "next_check": 25,
+   "outcome": {
+    "cargo_logged": [
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     3,
+     0
+    ],
+    "delivered": [
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     3,
+     0
+    ],
+    "effects": [],
+    "note": "delivered in full (lower bound \u2265 request)",
+    "verification": "Recorded"
+   },
+   "reason": null,
+   "receipts": [
+    {
+     "body": {
+      "consumed": [
+       0,
+       5,
+       0,
+       0,
+       0,
+       0,
+       0,
+       0
+      ],
+      "key": "fac:r1",
+      "produced": [
+       0,
+       0,
+       0,
+       0,
+       0,
+       0,
+       3,
+       0
+      ],
+      "rights_units": 1,
+      "sig": "6fa5a24159f82252a65e50897b503f800e1b5f5a",
+      "slot": 2
+     },
+     "kind": "facility_used",
+     "run_id": "r1",
+     "slot": 2,
+     "source": "sig:6fa5a24159f82252a65e50897b503f800e1b5f5a",
+     "subject": "fac:r1"
+    },
+    {
+     "body": {
+      "cargo": [
+       0,
+       0,
+       0,
+       0,
+       0,
+       0,
+       3,
+       0
+      ],
+      "content_from": "event:63353057c8fd663e6b7ddd6be05ddd1933e2f13a:0",
+      "seq": 0
+     },
+     "kind": "caravan_sent",
+     "run_id": "r1",
+     "slot": 4,
+     "source": "sig:63353057c8fd663e6b7ddd6be05ddd1933e2f13a",
+     "subject": "cv:77:0"
+    },
+    {
+     "body": {
+      "cargo": [
+       0,
+       0,
+       0,
+       0,
+       0,
+       0,
+       3,
+       0
+      ],
+      "credited": [
+       0,
+       0,
+       0,
+       0,
+       0,
+       0,
+       3,
+       0
+      ],
+      "dst": {
+       "at": 5,
+       "gen": 1,
+       "kind": 2,
+       "p": 1,
+       "q": 0
+      },
+      "key": {
+       "owner": 119,
+       "seq": 0
+      },
+      "outcome": 0,
+      "slot": 24
+     },
+     "kind": "caravan_settled",
+     "run_id": "r1",
+     "slot": 24,
+     "source": "event:settle:cv:77:0",
+     "subject": "cv:77:0"
+    }
+   ],
+   "run_id": "r1",
+   "sent": false,
+   "settled": true,
+   "spec": {
+    "budget": {
+     "max_attempts": 3,
+     "max_fee": 200000,
+     "max_port_errors": 5
+    },
+    "deadline_slot": 400,
+    "facility": {
+     "place": {
+      "at": 2,
+      "gen": 1,
+      "kind": 1,
+      "p": 0,
+      "q": 1
+     },
+     "recipe": 1
+    },
+    "inbound": null,
+    "inputs": [
+     0,
+     5,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0
+    ],
+    "outputs": [
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     3,
+     0
+    ],
+    "owner": 119,
+    "rights_units": 1,
+    "run_id": "r1",
+    "ship": {
+     "cargo": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      3,
+      0
+     ],
+     "dst": {
+      "at": 5,
+      "gen": 1,
+      "kind": 2,
+      "p": 1,
+      "q": 0
+     }
+    },
+    "stock": {
+     "at": 1,
+     "gen": 1,
+     "kind": 1,
+     "p": 0,
+     "q": 0
+    }
+   },
+   "spec_digest": "ed74b8e3dbcab63c0a2bcb80dc4a7468efe20f1951ce486560fcaf8f28e813d2",
+   "state": "Cancelled",
+   "terminal": true,
+   "transitions": [
+    {
+     "executor": "exec-a",
+     "from": "Accepted",
+     "reason": "inputs and right reserved",
+     "to": "Reserved"
+    },
+    {
+     "executor": "exec-a",
+     "from": "Reserved",
+     "reason": "facility request signed",
+     "to": "FacilityRequested"
+    },
+    {
+     "executor": "exec-a",
+     "from": "FacilityRequested",
+     "reason": "accepted by the execution path",
+     "to": "FacilitySubmitted"
+    },
+    {
+     "executor": "exec-a",
+     "from": "FacilitySubmitted",
+     "reason": "facility use read on the canonical side",
+     "to": "FacilityConfirmed"
+    },
+    {
+     "executor": "exec-a",
+     "from": "FacilityConfirmed",
+     "reason": "SendCaravan signed, seq 0 pinned",
+     "to": "ShipRequested"
+    },
+    {
+     "executor": "exec-a",
+     "from": "ShipRequested",
+     "reason": "accepted by the execution path",
+     "to": "ShipSubmitted"
+    },
+    {
+     "executor": "exec-a",
+     "from": "ShipSubmitted",
+     "reason": "caravan cv:77:0 is ours (signature and content)",
+     "to": "InTransit"
+    },
+    {
+     "executor": "exec-a",
+     "from": "InTransit",
+     "reason": "wait",
+     "to": "InTransit"
+    },
+    {
+     "executor": "exec-a",
+     "from": "InTransit",
+     "reason": "wait",
+     "to": "InTransit"
+    },
+    {
+     "executor": "exec-a",
+     "from": "InTransit",
+     "reason": "wait",
+     "to": "InTransit"
+    },
+    {
+     "executor": "exec-a",
+     "from": "InTransit",
+     "reason": "settlement read",
+     "to": "Arrived"
+    },
+    {
+     "executor": "exec-a",
+     "from": "Arrived",
+     "reason": "delivered in full (lower bound \u2265 request)",
+     "to": "Fulfilled"
+    }
+   ],
+   "version": 12,
+   "view_version": "p04-run/0.1"
+  },
+  "Cancelled+in_flight": {
+   "attempts": [],
+   "cancel_phase": null,
+   "cancel_requested": false,
+   "cargo_only": false,
+   "detail": {
+    "cancel": null,
+    "fac_attempts": 1,
+    "outcome": {
+     "cargo_logged": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      3,
+      0
+     ],
+     "delivered": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      3,
+      0
+     ],
+     "effects": [
+      "facility_used fac:r1",
+      "caravan_sent cv:77:0",
+      "caravan_settled cv:77:0"
+     ],
+     "note": "delivered in full (lower bound \u2265 request)",
+     "verification": "Recorded"
+    },
+    "pending": null,
+    "port_errors": 0,
+    "raid": null,
+    "reason": null,
+    "sent_cargo": [
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     3,
+     0
+    ],
+    "settle": {
+     "cargo": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      3,
+      0
+     ],
+     "credited": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      3,
+      0
+     ],
+     "dst": {
+      "at": 5,
+      "gen": 1,
+      "kind": 2,
+      "p": 1,
+      "q": 0
+     },
+     "key": {
+      "owner": 119,
+      "seq": 0
+     },
+     "outcome": 0,
+     "slot": 24
+    },
+    "ship_attempts": 1,
+    "ship_seq": 0,
+    "unresolved": 0
+   },
+   "effects": [],
+   "fees": {
+    "charged": 10000,
+    "released": 0,
+    "reserved": 0,
+    "unconfirmed": 0
+   },
+   "held_reason": null,
+   "in_flight": true,
+   "next_check": 25,
+   "outcome": {
+    "cargo_logged": [
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     3,
+     0
+    ],
+    "delivered": [
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     3,
+     0
+    ],
+    "effects": [],
+    "note": "delivered in full (lower bound \u2265 request)",
+    "verification": "Recorded"
+   },
+   "reason": null,
+   "receipts": [],
+   "run_id": "r1",
+   "sent": false,
+   "settled": true,
+   "spec": {
+    "budget": {
+     "max_attempts": 3,
+     "max_fee": 200000,
+     "max_port_errors": 5
+    },
+    "deadline_slot": 400,
+    "facility": {
+     "place": {
+      "at": 2,
+      "gen": 1,
+      "kind": 1,
+      "p": 0,
+      "q": 1
+     },
+     "recipe": 1
+    },
+    "inbound": null,
+    "inputs": [
+     0,
+     5,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0
+    ],
+    "outputs": [
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     3,
+     0
+    ],
+    "owner": 119,
+    "rights_units": 1,
+    "run_id": "r1",
+    "ship": {
+     "cargo": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      3,
+      0
+     ],
+     "dst": {
+      "at": 5,
+      "gen": 1,
+      "kind": 2,
+      "p": 1,
+      "q": 0
+     }
+    },
+    "stock": {
+     "at": 1,
+     "gen": 1,
+     "kind": 1,
+     "p": 0,
+     "q": 0
+    }
+   },
+   "spec_digest": "ed74b8e3dbcab63c0a2bcb80dc4a7468efe20f1951ce486560fcaf8f28e813d2",
+   "state": "Cancelled",
+   "terminal": true,
+   "transitions": [
+    {
+     "executor": "exec-a",
+     "from": "Accepted",
+     "reason": "inputs and right reserved",
+     "to": "Reserved"
+    },
+    {
+     "executor": "exec-a",
+     "from": "Reserved",
+     "reason": "facility request signed",
+     "to": "FacilityRequested"
+    },
+    {
+     "executor": "exec-a",
+     "from": "FacilityRequested",
+     "reason": "accepted by the execution path",
+     "to": "FacilitySubmitted"
+    },
+    {
+     "executor": "exec-a",
+     "from": "FacilitySubmitted",
+     "reason": "facility use read on the canonical side",
+     "to": "FacilityConfirmed"
+    },
+    {
+     "executor": "exec-a",
+     "from": "FacilityConfirmed",
+     "reason": "SendCaravan signed, seq 0 pinned",
+     "to": "ShipRequested"
+    },
+    {
+     "executor": "exec-a",
+     "from": "ShipRequested",
+     "reason": "accepted by the execution path",
+     "to": "ShipSubmitted"
+    },
+    {
+     "executor": "exec-a",
+     "from": "ShipSubmitted",
+     "reason": "caravan cv:77:0 is ours (signature and content)",
+     "to": "InTransit"
+    },
+    {
+     "executor": "exec-a",
+     "from": "InTransit",
+     "reason": "wait",
+     "to": "InTransit"
+    },
+    {
+     "executor": "exec-a",
+     "from": "InTransit",
+     "reason": "wait",
+     "to": "InTransit"
+    },
+    {
+     "executor": "exec-a",
+     "from": "InTransit",
+     "reason": "wait",
+     "to": "InTransit"
+    },
+    {
+     "executor": "exec-a",
+     "from": "InTransit",
+     "reason": "settlement read",
+     "to": "Arrived"
+    },
+    {
+     "executor": "exec-a",
+     "from": "Arrived",
+     "reason": "delivered in full (lower bound \u2265 request)",
+     "to": "Fulfilled"
+    }
+   ],
+   "version": 12,
+   "view_version": "p04-run/0.1"
+  },
+  "Cancelled+fees unconfirmed": {
+   "attempts": [],
+   "cancel_phase": null,
+   "cancel_requested": false,
+   "cargo_only": false,
+   "detail": {
+    "cancel": null,
+    "fac_attempts": 1,
+    "outcome": {
+     "cargo_logged": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      3,
+      0
+     ],
+     "delivered": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      3,
+      0
+     ],
+     "effects": [
+      "facility_used fac:r1",
+      "caravan_sent cv:77:0",
+      "caravan_settled cv:77:0"
+     ],
+     "note": "delivered in full (lower bound \u2265 request)",
+     "verification": "Recorded"
+    },
+    "pending": null,
+    "port_errors": 0,
+    "raid": null,
+    "reason": null,
+    "sent_cargo": [
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     3,
+     0
+    ],
+    "settle": {
+     "cargo": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      3,
+      0
+     ],
+     "credited": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      3,
+      0
+     ],
+     "dst": {
+      "at": 5,
+      "gen": 1,
+      "kind": 2,
+      "p": 1,
+      "q": 0
+     },
+     "key": {
+      "owner": 119,
+      "seq": 0
+     },
+     "outcome": 0,
+     "slot": 24
+    },
+    "ship_attempts": 1,
+    "ship_seq": 0,
+    "unresolved": 0
+   },
+   "effects": [],
+   "fees": {
+    "charged": 10000,
+    "released": 0,
+    "reserved": 0,
+    "unconfirmed": 5000
+   },
+   "held_reason": null,
+   "in_flight": false,
+   "next_check": 25,
+   "outcome": {
+    "cargo_logged": [
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     3,
+     0
+    ],
+    "delivered": [
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     3,
+     0
+    ],
+    "effects": [],
+    "note": "delivered in full (lower bound \u2265 request)",
+    "verification": "Recorded"
+   },
+   "reason": null,
+   "receipts": [],
+   "run_id": "r1",
+   "sent": false,
+   "settled": true,
+   "spec": {
+    "budget": {
+     "max_attempts": 3,
+     "max_fee": 200000,
+     "max_port_errors": 5
+    },
+    "deadline_slot": 400,
+    "facility": {
+     "place": {
+      "at": 2,
+      "gen": 1,
+      "kind": 1,
+      "p": 0,
+      "q": 1
+     },
+     "recipe": 1
+    },
+    "inbound": null,
+    "inputs": [
+     0,
+     5,
+     0,
+     0,
+     0,
+     0,
+     0,
+     0
+    ],
+    "outputs": [
+     0,
+     0,
+     0,
+     0,
+     0,
+     0,
+     3,
+     0
+    ],
+    "owner": 119,
+    "rights_units": 1,
+    "run_id": "r1",
+    "ship": {
+     "cargo": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      3,
+      0
+     ],
+     "dst": {
+      "at": 5,
+      "gen": 1,
+      "kind": 2,
+      "p": 1,
+      "q": 0
+     }
+    },
+    "stock": {
+     "at": 1,
+     "gen": 1,
+     "kind": 1,
+     "p": 0,
+     "q": 0
+    }
+   },
+   "spec_digest": "ed74b8e3dbcab63c0a2bcb80dc4a7468efe20f1951ce486560fcaf8f28e813d2",
+   "state": "Cancelled",
+   "terminal": true,
+   "transitions": [
+    {
+     "executor": "exec-a",
+     "from": "Accepted",
+     "reason": "inputs and right reserved",
+     "to": "Reserved"
+    },
+    {
+     "executor": "exec-a",
+     "from": "Reserved",
+     "reason": "facility request signed",
+     "to": "FacilityRequested"
+    },
+    {
+     "executor": "exec-a",
+     "from": "FacilityRequested",
+     "reason": "accepted by the execution path",
+     "to": "FacilitySubmitted"
+    },
+    {
+     "executor": "exec-a",
+     "from": "FacilitySubmitted",
+     "reason": "facility use read on the canonical side",
+     "to": "FacilityConfirmed"
+    },
+    {
+     "executor": "exec-a",
+     "from": "FacilityConfirmed",
+     "reason": "SendCaravan signed, seq 0 pinned",
+     "to": "ShipRequested"
+    },
+    {
+     "executor": "exec-a",
+     "from": "ShipRequested",
+     "reason": "accepted by the execution path",
+     "to": "ShipSubmitted"
+    },
+    {
+     "executor": "exec-a",
+     "from": "ShipSubmitted",
+     "reason": "caravan cv:77:0 is ours (signature and content)",
+     "to": "InTransit"
+    },
+    {
+     "executor": "exec-a",
+     "from": "InTransit",
+     "reason": "wait",
+     "to": "InTransit"
+    },
+    {
+     "executor": "exec-a",
+     "from": "InTransit",
+     "reason": "wait",
+     "to": "InTransit"
+    },
+    {
+     "executor": "exec-a",
+     "from": "InTransit",
+     "reason": "wait",
+     "to": "InTransit"
+    },
+    {
+     "executor": "exec-a",
+     "from": "InTransit",
+     "reason": "settlement read",
+     "to": "Arrived"
+    },
+    {
+     "executor": "exec-a",
+     "from": "Arrived",
+     "reason": "delivered in full (lower bound \u2265 request)",
+     "to": "Fulfilled"
+    }
+   ],
+   "version": 12,
+   "view_version": "p04-run/0.1"
+  }
+ }
+}
