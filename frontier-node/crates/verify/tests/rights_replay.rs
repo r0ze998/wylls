@@ -1014,6 +1014,43 @@ fn a_grant_under_a_program_that_does_not_run_it_fails() {
     }
 }
 
+/// Under a combined experimental build (the rights bit beside the NFT or
+/// the wide bit: `0xA004`, `0x6004`), the Grant instructions run under
+/// rules this verifier does not implement: V0 leaves none to VR and calls
+/// none a forgery; each is UNVERIFIABLE (`UnverifiedInstruction`), beside
+/// the season's `UnknownProgramVersion` (r7). Unsigned placeholders only.
+#[test]
+fn a_grant_under_a_combined_build_is_unverifiable_never_left_to_vr() {
+    use verify_core::Severity::{Fail, Unverifiable};
+    for pv in [
+        rt::PROGRAM_VERSION_RIGHTS_S1 | 0x8000,
+        rt::PROGRAM_VERSION_RIGHTS_S1 | 0x4000,
+    ] {
+        let b = base();
+        let (mut fl, _) = honest(&b);
+        let mut b0 = b.inp.clone();
+        as_rights_build(&mut b0, pv);
+        as_rights_build(&mut fl.inp, pv);
+        let found = new_findings(&b0, &fl.inp);
+        assert!(of(&found, "V0", Fail).is_empty(), "{pv:#06x}: {found:#?}");
+        let v0 = of(&found, "V0", Unverifiable);
+        assert_eq!(
+            v0.iter()
+                .filter(|l| l.contains(UNVERIFIED_INSTRUCTION))
+                .count(),
+            7,
+            "{pv:#06x}: {found:#?}"
+        );
+        assert!(
+            verify_core::verify(&fl.inp)
+                .findings
+                .iter()
+                .any(|f| f.code == UNKNOWN_PROGRAM_VERSION),
+            "{pv:#06x}"
+        );
+    }
+}
+
 /// Findings of check `check` with severity `sev` among `found`.
 fn of(
     found: &[(String, verify_core::Severity)],
