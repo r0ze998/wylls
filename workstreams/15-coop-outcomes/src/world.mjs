@@ -128,7 +128,9 @@ export function buildWorld({ state, events, taint = {}, gapFrom = {}, costs, joi
           // goods as `slack`, once per arrival (on its first part) plus what the sent goods already carried.
           const lotKind = worstQty(worstQty(qk, p.qtyKind ?? 'exact'), qtyOfTrust(worst(v, p.verified)));
           const slack = (p.slack ?? 0) + (i === 0 && lotKind !== 'exact' ? 1 : 0);
-          if (q > 0) placeLot(W, { id: `${s.id}#${i}`, owner: s.to, resource: s.resource, qty: q, verified: worst(v, p.verified), qtyKind: lotKind, slack, origin: p.origin, path: extend(p.path, s.id), hops: (p.hops ?? 0) + 1, at: e.at, ship: s.id, evidence: [...s.evidence], tainted: s.tainted || tainted(taint, e) }, !s.project);
+          // A non-exact arrival that logs 0 still carries its fraction (a lower bound of 0 is [0, 1), not nothing):
+          // without a lot for it, a requirement it could still close would read as short instead of undecided.
+          if (q > 0 || (lotKind !== 'exact' && slack > 0)) placeLot(W, { id: `${s.id}#${i}`, owner: s.to, resource: s.resource, qty: q, verified: worst(v, p.verified), qtyKind: lotKind, slack, origin: p.origin, path: extend(p.path, s.id), hops: (p.hops ?? 0) + 1, at: e.at, ship: s.id, evidence: [...s.evidence], tainted: s.tainted || tainted(taint, e) }, !s.project);
         });
         const p = s.project ? W.projects.get(s.project) : null;
         if (p && !p.completed) {

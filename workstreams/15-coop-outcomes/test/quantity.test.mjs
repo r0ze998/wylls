@@ -86,3 +86,25 @@ test('a lower-bound lot put in over several inputs carries its fraction once, no
   const t = v.achievements.joint[0].projects[0].stages.inputs.perResource.wood;
   assert.deepEqual([t.lo, t.hi, t.hiOpen, t.status], [199, 200, true, 'short'], 'real < 199 + 1 = 200: provably short');
 });
+
+test('through the world: a non-exact arrival that logs 0 keeps its fraction (undecided, not short); exact and zero do not', () => {
+  const run = arrivals => {
+    const ev = [];
+    let seq = 0;
+    const add = (at, kind, f, verified = 'chain') => ev.push({ id: `c:${seq}`, stream: 'c', seq: seq++, at, kind, verified, ...f });
+    add(1, 'project.open', { project: 'P', goal: 'J-pal', structure: 'palisade', steward: 'n2-0' });
+    arrivals.forEach(([qty, qtyKind, verified], i) => {
+      add(3, 'ship.send', { ship: `w${i}`, from: 'n3-0', to: 'project:P', resource: 'wood', qty: Math.max(qty, 1), fromOutside: true });
+      add(5, 'ship.arrive', { ship: `w${i}`, qty, qtyKind }, verified);
+    });
+    const R = { ...RULESETS.B, joint: [{ ...RULESETS.B.joint[0], id: 'J-pal', structure: 'palisade', requires: { wood: 200 } }] };
+    const t = evaluate(R, { state: baseState(), events: ev }).achievements.joint[0].projects[0].stages.inputs.perResource.wood;
+    return [t.lo, t.hi, t.hiOpen, t.status];
+  };
+  // [199, 200) + [0, 1) = [199, 201): 200 is reachable
+  assert.deepEqual(run([[199, 'lower_bound', 'chain_lower_bound'], [0, 'lower_bound', 'chain_lower_bound']]), [199, 201, true, 'undecided']);
+  assert.deepEqual(run([[199, 'lower_bound', 'chain_lower_bound'], [0, 'unknown', 'unverified']]), [199, 201, true, 'undecided']);
+  // 199 + [0, 1) < 200: provably short; a zero adds nothing
+  assert.deepEqual(run([[199, 'exact', 'chain'], [0, 'lower_bound', 'chain_lower_bound']]), [199, 200, true, 'short']);
+  assert.deepEqual(run([[199, 'exact', 'chain'], [0, 'zero', 'chain']]), [199, 199, false, 'short']);
+});
