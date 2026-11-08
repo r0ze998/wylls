@@ -36,6 +36,7 @@ export default {
   "マス {0}": "Tile {0}",
   "命令の結果を確認しています。": "Checking the result of your order.",
   "最初の村を置いています": "Placing your first village",
+  "最初の村を置ける中心の土地が埋まっているため、自分の国の外側の土地に村の申し込みを出します。": "The central land where first villages are placed is full, so a village request goes to your nation's outer land instead.",
   "村を築いて始める": "Found a village and begin",
   "領土を確保する": "Claim territory",
   "食料・鉱石・金の配分を見ながら、最初の兵を訓練しましょう。": "Balance food, ore and gold as you train your first troops.",
