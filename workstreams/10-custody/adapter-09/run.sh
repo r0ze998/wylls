@@ -95,13 +95,13 @@ mutate "an actor's move may change the owner" $L "            By::Actor(a) if a 
 # ⑨'s own bridge10 at the pinned commit, on this adapter, in a temporary
 # tree (⑨'s code is not copied into this branch, nor patched): the one lot
 # table's returns, rests, replays and restarts, checked on ⑩'s side.
-echo "== ⑨ bridge10 (06c817cc) on this adapter" | tee "$out/with-bridge10.log"
-pin9=06c817cc2704f58b80475ec1f065463ede565aa9
+echo "== ⑨ bridge10 (872fe6a2) on this adapter" | tee "$out/with-bridge10.log"
+pin9=872fe6a2195267415684351126cd9abb6effcd2a
 root="$(git -C "$here" rev-parse --show-toplevel)"
 git -C "$root" cat-file -e "$pin9^{commit}" 2>/dev/null || git -C "$root" fetch -q origin claude/elegant-bohr-co2uhr
 for want in "permutation-rules 9ffca167ec9284f5aeb320003839a12a268a95d5" \
-            "workstreams/09-capacity/kernel f2398a2cfa6458599f9b0b2634ac947d2a047609" \
-            "workstreams/09-capacity/bridge10 7d393b4319a2e4699b3526fe93adca3908ae588a"; do
+            "workstreams/09-capacity/kernel 9bd610c39980dd3c5b79f4ae1ee3e635443d5394" \
+            "workstreams/09-capacity/bridge10 1177f5021ac22977fb2b6f63984dd9bca9e71678"; do
   set -- $want
   [ "$(git -C "$root" rev-parse "$pin9:$1")" = "$2" ] || { echo "$1 tree mismatch at $pin9" | tee -a "$out/with-bridge10.log"; exit 1; }
 done
