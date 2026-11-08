@@ -134,14 +134,18 @@ pub fn judge_outside_v2(
             )),
         };
     }
-    // Workstream 02-rights (proposal): a Grant instruction of a
-    // `rights-experimental` build (the S1 rules with the provisional rights
-    // bit) is VR's to judge in a season whose S1 checks run; VR does not
-    // run otherwise, so it is `Unverifiable`, never left unjudged. Under any
-    // other program version the band rule below applies (a known version
-    // that does not run it: `Fail`).
+    // Workstream 02-rights (proposal): a Grant instruction of the
+    // `rights-experimental` build alone (`PROGRAM_VERSION_RIGHTS_S1`, the S1
+    // rules with the provisional rights bit; an exact match, as the NFT
+    // build's above) is VR's to judge in a season whose S1 checks run; VR
+    // does not run otherwise, so it is `Unverifiable`, never left unjudged.
+    // A combined experimental build (the rights bit beside the wide or the
+    // NFT bit) runs Grants under rules this verifier does not implement, so
+    // its Grant tags fall to the band rule below: `Unverifiable` under that
+    // unknown version, never left to VR (r7). Under a known version that
+    // does not run Grants (M1, production S1) the band rule is `Fail`.
     if frontier_abi::v2::rights::is_rights_tag(tag)
-        && pv.is_some_and(frontier_abi::v2::rights::runs_grants)
+        && pv == Some(frontier_abi::v2::rights::PROGRAM_VERSION_RIGHTS_S1)
     {
         return if s1 {
             None
@@ -354,5 +358,71 @@ mod tests {
         assert!(supported(Ix::ExtendFrontier, true, true));
         assert!(!supported(Ix::ExtendFrontier, true, false));
         assert!(!supported(Ix::ExtendFrontier, false, false));
+    }
+
+    /// The order of the outside-v2 judgement — Grant, then wide, then the
+    /// bands — over every combination of program version and season kind
+    /// (02-rights with ⑪'s r13 and r16 rules; key-free: pure function,
+    /// literal bytes). A version is "modelled" only when this verifier
+    /// implements it exactly (`known_version`): a combined experimental
+    /// build (rights with NFT `0xA004`, with wide `0x6004`, all three
+    /// `0xE004`) is not, so none of its tags may be left to a check (`None`)
+    /// or called a forgery (`Fail`): each stays UNVERIFIABLE.
+    #[test]
+    fn grant_then_wide_then_bands_and_unknown_combinations_stay_unverifiable() {
+        use crate::Severity::{Fail, Unverifiable};
+        use frontier_abi::v2::rights::{is_rights_tag, PROGRAM_VERSION_RIGHTS_S1 as RIGHTS};
+        const S1: u16 = PROGRAM_VERSION_S1;
+        let versions: [Option<u16>; 9] = [
+            None,
+            Some(1),
+            Some(S1),
+            Some(RIGHTS),
+            Some(WIDE_EXPERIMENTAL_VERSION_BIT | S1),
+            Some(PROGRAM_VERSION_NFT_S1),
+            Some(RIGHTS | WIDE_EXPERIMENTAL_VERSION_BIT),
+            Some(RIGHTS | 0x8000),
+            Some(RIGHTS | 0x8000 | WIDE_EXPERIMENTAL_VERSION_BIT),
+        ];
+        // A Grant tag, a wide draft tag, WideReveal, another band (custody),
+        // ⑪'s band, and two tags no band holds.
+        let tags = [0xD0u8, 0xD5, 0xD6, 0xEE, 0xC2, 0xE8, 0xFE, 0xD9];
+        for pv in versions {
+            for s1 in [true, false] {
+                for tag in tags {
+                    let got = judge_outside_v2(tag, &[tag], pv, s1);
+                    let sev = got.as_ref().map(|g| g.0);
+                    let at = format!("tag {tag:#04x}, pv {pv:?}, s1 {s1}: {got:?}");
+                    let known = pv.is_some_and(known_version);
+                    if pv == Some(RIGHTS) && is_rights_tag(tag) {
+                        // VR's, where it runs; never left unjudged.
+                        if s1 {
+                            assert!(got.is_none(), "{at}");
+                        } else {
+                            assert_eq!(sev, Some(Unverifiable), "{at}");
+                        }
+                    } else if is_wide_tag(tag)
+                        && pv.is_some_and(|v| v & WIDE_EXPERIMENTAL_VERSION_BIT != 0)
+                    {
+                        assert_eq!(
+                            got.map(|g| (g.0, g.1)),
+                            Some((Unverifiable, WIDE_UNMODELLED)),
+                            "{at}"
+                        );
+                    } else if known {
+                        // A known program refuses the tag: a forgery.
+                        assert_eq!(sev, Some(Fail), "{at}");
+                    } else {
+                        // Unknown, combined or absent version: never a check's,
+                        // never a forgery claim.
+                        assert_eq!(sev, Some(Unverifiable), "{at}");
+                    }
+                }
+            }
+        }
+        // The combined builds are not versions this verifier implements.
+        for v in [RIGHTS | WIDE_EXPERIMENTAL_VERSION_BIT, RIGHTS | 0x8000] {
+            assert!(!known_version(v), "{v:#06x}");
+        }
     }
 }

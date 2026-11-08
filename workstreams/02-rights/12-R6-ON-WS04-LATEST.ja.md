@@ -233,3 +233,33 @@
 - 組み合わせた build の版を決めるのは④である。
 
 **⑪の 0016**（④ `4ecef1d9` の上。wide の tag を VW に任せる）も、同じ関数を変える。衝突した時は、Grant の判定 → wide の判定 → 帯、の順に並べる。
+
+## 10. 第7回：統合した検証器での順序の確認と、分類の誤りの修正（④ `16576826` の上）
+
+**確認したこと：** 統合した V0 の `judge_outside_v2` は、⑪の 0013・0016 を含み、Grant の判定 → wide の判定 → 帯 の順に並んでいる。
+
+**見つけた誤り（試験で再現した）：**
+- V0 は、Grant の tag を VR に任せるかどうかを `runs_grants(pv)` で決めていた。これは「0x2000 の bit があり、下位が 4」だけを見る。
+- そのため、検証器が実装していない組み合わせの版でも、Grant の命令を「判定の対象」（`None`）として VR に渡していた。該当する版：
+  - `0x6004`（rights＋wide）
+  - `0xA004`（rights＋NFT）
+  - `0xE004`（三つすべて）
+- 季節の `UnknownProgramVersion`（UNVERIFIABLE）があるので、判定が PASS になることはなかった。しかし命令ごとの分類が、「知らない組み合わせの版は UNVERIFIABLE」という規則と、NFT 側の厳密な一致（`pv == 0x8004`）に合っていなかった。
+
+**修正：** V0 が Grant を VR に任せるのは、`pv == PROGRAM_VERSION_RIGHTS_S1`（`0x2004`）の時だけにした。
+- 組み合わせの版の Grant の tag は、帯の規則に落ちて UNVERIFIABLE になる（`UnverifiedInstruction`）。
+- ABI（`runs_grants` を含む）と、仮の番号の割当は変えていない。
+- StockSwap と施設の権限は、有効にしていない。
+
+**鍵を使わない回帰例：**
+
+| 試験 | 内容 |
+|---|---|
+| `checks::v0_coverage::tests::grant_then_wide_then_bands_and_unknown_combinations_stay_unverifiable`（lib） | 版 9 通り × S1 か否か × tag 8 個の組み合わせで、順序と分類を確かめる。版は None、1、4、0x2004、0x4004、0x8004、0x6004、0xA004、0xE004。修正の前は `tag 0xd0, pv 0x6004, s1 true: None` で失敗した |
+| `rights_replay::a_grant_under_a_combined_build_is_unverifiable_never_left_to_vr` | 正直な Grant の流れを `0xA004` と `0x6004` で記録した場合を見る。V0 の FAIL はなく、7 命令がすべて `UnverifiedInstruction`。季節の `UnknownProgramVersion` も出る |
+
+**呼び出し先の監査：**
+- 実行した試験は、lib、`rights_replay`、`new_bands`、`missing_state`、`evidence`。
+- `src/` の試験 module に、鍵の作成・署名、`fixture::march`、`tamper::t20_injected` への到達はない。
+- `rights_replay` が共通部品から呼ぶのは、fixture（JSON）の読み込みだけである。鍵を作る `world`、`send`、`TestKey` には届かない。
+- `tamper`・`coverage`・`record`・`fixtures` は実行していない。
