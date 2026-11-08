@@ -1,0 +1,7 @@
+### hook v2 proof by source text (no entry point called)
+with v2: {"installed":true,"missing":[],"web3":"loads"}
+without: {"installed":false,"missing":["session.mjs publicKeyOf","session.mjs keyFromSeed","session.mjs importBackup","wallet.mjs devWallet","wallet.mjs enableDevWallet","fsession.mjs importBackup"],"web3":"loads"}
+import('@solana/web3.js') under v16-web-key-hook.mjs: Error: request for './max.js' is from a module not been linked
+import('@solana/web3.js') under v16-web-key-hook2.mjs: loads
+in node --test children (source-text test + agent-wallet-s1): # pass 8 # fail 0 
+control, same test without the hook: # pass 0 # fail 1 

@@ -1,0 +1,6 @@
+// source-text check only: no key entry point is called
+import test from 'node:test'; import assert from 'node:assert/strict';
+test('the v2 hook is active in this test process', async () => {
+  const s = await import('<worktree>/permutation-server/web/session.mjs');
+  assert.ok(String(s.publicKeyOf).includes('⑯ key hook') && String(s.keyFromSeed).includes('⑯ key hook'));
+});

@@ -2088,7 +2088,7 @@ Rust の側は 23.3 に書く。
 - その guard が見えない、web の純 JS の鍵の導出（publicKeyOf など）について、CI の鍵なしの gateway の一式（194 file）を、⑯ の web の hook を足して流した。
   - 1877 件のうち、1839 件通過、37 件失敗、1 件 skip。**hook の記録は 0 件**だった。
   - 37 件の失敗は、hook（Node 22 の registerHooks）と一部の module の link が合わないために起きたもの（"request for './max.js' is from a module not been linked"）で、候補の欠陥ではない。④ の hook なしの実行は 1908/0。
-  - したがって、この 37 file（`logs/phase21/hook-inconclusive-files.txt`）については、hook での確かめは結論が出ていない。
+  - したがって、この 37 件（14 file の全体と、ほかの 7 file の中の 23 件。§29 で訂正。file の一覧は `logs/phase21/hook-inconclusive-files.txt`、件ごとの一覧は `logs/phase23/hook37-list.txt`）については、hook での確かめは結論が出ていない。
 
 ## 26.4 そのほか
 
@@ -2556,3 +2556,66 @@ T7（crash では作れない損傷）の結果：
   - RUNEXEC_BIN は、16576826 から build した debug の runexec（sha256 `f039854aaaad26d141201f9e1066eacf4be11e69f0c2f1e6365ad0bd3d76819b`）だった。
   - ⑯ が確かめられるのは、ws04 の source が 16576826 から 95b0 まで `a33e3b0a` のまま変わらないことまで。その binary の bytes は見ていない。
 - 結論は §28.7 のまま。この bounded pass の checkpoint であって、全機能の完成ではない。
+
+# 第23期（2026-11-09）：「gateway の 37 件 inconclusive」の再調査
+
+checkpoint の `95b0ab225ca9e9e626941b51981df2240198d91c`（tree `89a64830da399101530eef3e004b81d5007d2203`）は、区切りとしてそのまま保つ。基準は 16576826 のまま。
+
+## 29.1 37 件とは何か（訂正を含む）
+
+- 前の記録（§26.3、§28.4）の「37 file」は**誤り**。37 は失敗した**件**で、内訳は次のとおり（件ごとの一覧は `logs/phase23/hook37-list.txt`）:
+  - 14 個の file 全体（ERR_TEST_FAILURE）。
+  - ほかの 7 file の中の 23 件の subtest。
+  - 合わせて 21 file になる。
+- その run は 7c7fe932 で、`NODE_OPTIONS="--import v16-web-key-hook.mjs"` を付けて `node-keyfree.sh permutation-gateway` を流したもの。hook の記録は 0 件だった。
+
+| 95b0 での scan の区分 | 件数 | 見えた誤り |
+|---|---|---|
+| RUNNABLE（鍵の閉包なし） | 4 file | file ごとの失敗（ERR_TEST_FAILURE） |
+| unfollowed（子 process） | 4 件 | ERR_ACCESS_DENIED |
+| via-src（閉包が鍵の API の名前に届く） | 16 件 | `request for './max.js' is from a module not been linked` |
+| via-src | 10 file | file ごとの失敗 |
+| via-src | 3 件 | 判定の失敗（下の 29.2） |
+
+## 29.2 原因の切り分け
+
+- **誤った runner 条件（⑯ の道具）**。直接の証拠がある:
+  - Node 22.22 で `registerHooks` に同期の `load` を登録しただけで、`@solana/web3.js` → jayson → uuid の ESM の require が link に失敗する。
+    - 鍵を使わない `import('@solana/web3.js')` だけで再現した（v1 では失敗、v2 では読み込める。`logs/phase23/hook2-proof.txt`）。
+  - hook を `NODE_OPTIONS` で渡したため、試験が permission model の下で起動する子 process にも hook が入った。その file が読めずに ERR_ACCESS_DENIED になった（4 件）。
+  - 判定の失敗 2 件は、子 process がこの link error で落ちたもの:
+    - 「forbidden ports」は、実際の値が link error の文だった。
+    - 「a real start without the other units」は、終了 code が 2 ではなく 1 だった。
+- **同じ code は、hook なしでは通っている**:
+  - 7535a17e と 20db3313 の gateway の src、これらの試験 file、package-lock は、7c7fe932 と同じ blob。
+  - その版での hook なしの key-free の run は 1908/1908（`logs-v27`）で、37 件は失敗しなかった。
+- **仕組みを観測できていないもの（1 件）**：`frontier-relay-resume`「resume rejects malformed budget … while accepting valid records」。
+  - v1 の run では、正しい faucet の記録が「invalid」とされた（`new PublicKey(...)` が try の中で throw したと推定）。
+  - ⑯ の純粋な関数の probe（`probes/v16-gw-relay-records.mjs`。fixture も seed も鍵も使わず、validateRelayRecords だけを呼ぶ）では、hook なし・v2・v1 のどれでも、正しい記録は通り、13 個の変形はすべて拒否された（`logs/phase23/relay-records.txt`）。
+  - 単独では再現しないので、v1 の hook と試験 process の状態の組み合わせによるものと見る。実際の欠陥の証拠は無い。
+- race と実際の欠陥：37 件のどれにも、証拠は無い。
+
+## 29.3 再調査（key-free に流せるものだけ）
+
+- ⑯ の hook v2（`scripts/v16-web-key-hook2.mjs`、loader `-loader.mjs`）:
+  - `module.register`（別の thread で動く async の hook）を使うので、`require` には触れない。
+  - `--import` だけで渡し、NODE_OPTIONS は使わない。
+  - 入ったことの証明は source の text だけで行う（`v16-web-key-hook2-proof.mjs`）。v2 では入っており、無い場合は 6 件が欠けると出る。
+  - `node --test` の子 process でも有効なことを、source の text だけを見る試験で示した（hook なしの対照は失敗する）。
+  - v1 の対照の script（`v16-web-key-hook-control.mjs`）は鍵の関数を呼ぶ形（fail-open）なので、使わない。
+- **RUNNABLE の 4 file**（agent-wallet-bench、agent-wallet-s1、frontier-resident、frontier-s1-relay）:
+  - 静的監査：閉包は 20〜30 file。PAT の hit は無い。spawn、計算した import、Keypair、鍵の入口の名前も無い。web3.js からは PublicKey・Connection・Transaction・定数だけを import する。
+  - `scan --covers` が通り、list に載っていない。
+  - repo の guard と hook v2 の下で、**22/22**。hook の記録は 0 件（`logs/phase23/gw4-hook2.txt`）。
+- **残り 17 file**（via-src 14、unfollowed 3）は、95b0 の scan の保守的な除外なので、**流していない**。
+  - 不変条件のうち、純粋な関数で確かめられたのは、frontier-relay-resume の validateRelayRecords だけ（上）。
+  - そのほかの子 process や permission model の試験（citizens-run-check、seat-live-run、memory/audit-permission、mind-server ほか）は、fixture が runner の起動や seed のファイルを伴うので、⑯ の probe では置き換えていない。
+
+## 29.4 結論
+
+- 37 件は、⑯ の v1 hook の runner 条件によるもので、候補の欠陥ではない。根拠は、link error の再現、NODE_OPTIONS が子 process に伝わったこと、同じ code が hook なしで 1908/1908 だったこと。
+- 1 件（relay-resume）だけは仕組みを観測できていないが、純粋な関数で不変条件を確かめた。
+- ④ に渡す修正は無い。⑯ の道具の側の問題で、node-keyfree.sh は `--import` で guard を渡しており、NODE_OPTIONS を使わない。
+- ③ の 1 回だけの失敗：③ が主担当で調べている。③ の新しい commit は、まだ無い（`838338be` のまま）。
+  - ⑯ は、失敗した run の記録（`logs/phase23/s03-one-off-failure-4d44.txt`）を ③ に渡した。期待は `['accepted', true, 'real']`、実際は `[undefined, true, 'real']`、integration.test.mjs の 85 行。
+  - ⑯ は、独自の修正はしない。

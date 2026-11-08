@@ -1,0 +1,4 @@
+### pure validateRelayRecords probe at 95b0ab22 (repo guard)
+none: {"good":"accepted","badRefused":"13/13"}
+v16-web-key-hook2.mjs: {"good":"accepted","badRefused":"13/13"}
+v16-web-key-hook.mjs: {"good":"accepted","badRefused":"13/13"}

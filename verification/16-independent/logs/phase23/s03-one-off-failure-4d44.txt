@@ -1,0 +1,35 @@
+TAP version 13
+# Subtest: issue: ③ asks for its own mcp token; ⑤'s ai token (⑤'s rotate-capability {source} form) keeps working; one whoami contract
+not ok 17 - ③ and ⑤ on one agent and one ④ registry: separate acts; neither unknown nor unqueryable is a new attempt
+  ---
+  duration_ms: 562.706543
+  type: 'test'
+  location: '$S/v27n/workstreams/03-composability/mcp/test/keyfree/integration.test.mjs:74:1'
+  failureType: 'testCodeFailure'
+  error: |-
+    Expected values to be strictly deep-equal:
+    + actual - expected
+    
+      [
+    +   undefined,
+    -   'accepted',
+        true,
+        'real'
+      ]
+    
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected:
+    0: 'accepted'
+    1: true
+    2: 'real'
+  actual:
+    1: true
+    2: 'real'
+  operator: 'deepStrictEqual'
+  stack: |-
+    TestContext.<anonymous> (file://$S/v27n/workstreams/03-composability/mcp/test/keyfree/integration.test.mjs:85:12)
+    process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+    async Test.run (node:internal/test_runner/test:1054:7)
+    async Test.processPendingSubtests (node:internal/test_runner/test:744:7)
+  ...
