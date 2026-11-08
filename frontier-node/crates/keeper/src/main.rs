@@ -23,7 +23,7 @@ use keeper_core::{api, Keeper};
 
 fn usage() -> ! {
     eprintln!(
-        "usage: frontier-keeper --config <keeper.toml> [--dev] [--peace-start <fraction>] [--init-seed] [--require-existing-journal] [--observe-wide] [--review-wide <version_hex>:<ruleset_hash_hex>]"
+        "usage: frontier-keeper --config <keeper.toml> [--dev] [--peace-start <fraction>] [--init-seed] [--require-existing-journal] [--observe-wide] [--follow-wide] [--review-wide <version_hex>:<ruleset_hash_hex>]"
     );
     std::process::exit(2);
 }
@@ -66,6 +66,10 @@ async fn main() {
     let (mut dev, mut init, mut require_existing_journal) = (false, false, false);
     #[cfg(feature = "wide-world-experimental")]
     let mut observe_wide = false;
+    // `--follow-wide`: the read-only observation follower after the legacy
+    // feed gate (needs `--observe-wide`). Off unless named.
+    #[cfg(feature = "wide-world-experimental")]
+    let mut follow_wide = false;
     // `--review-wide <program_version_hex>:<ruleset_hash_hex>`: the pinned
     // deployment of the read-only wide review (needs `--observe-wide`).
     #[cfg(feature = "wide-world-experimental")]
@@ -81,6 +85,8 @@ async fn main() {
             "--dev" => dev = true,
             #[cfg(feature = "wide-world-experimental")]
             "--observe-wide" => observe_wide = true,
+            #[cfg(feature = "wide-world-experimental")]
+            "--follow-wide" => follow_wide = true,
             #[cfg(feature = "wide-world-experimental")]
             "--review-wide" => {
                 let spec = args.get(i + 1).cloned().unwrap_or_else(|| usage());
@@ -114,6 +120,11 @@ async fn main() {
     }
     let Some(cfg_path) = cfg_path else { usage() };
     if init && require_existing_journal {
+        usage();
+    }
+    #[cfg(feature = "wide-world-experimental")]
+    if follow_wide && !observe_wide {
+        eprintln!("--follow-wide needs --observe-wide");
         usage();
     }
     let text = std::fs::read_to_string(&cfg_path).unwrap_or_else(|e| {
@@ -236,12 +247,29 @@ async fn main() {
                 std::process::exit(2)
             });
     }
+    // Read-only observation after the legacy feed gate blocks: the
+    // follower's own cursor, the same observer; no legacy cursor, gate,
+    // signature or completeness claim.
+    #[cfg(feature = "wide-world-experimental")]
+    if follow_wide {
+        k.enable_wide_follow().unwrap_or_else(|e| {
+            eprintln!("wide follow: {e}");
+            std::process::exit(2)
+        });
+    }
     // Read-only review of the observer's candidates under the pinned
     // deployment; plans and reviews only, never enqueues.
     #[cfg(feature = "wide-world-experimental")]
     if let Some(dep) = review_wide {
         k.enable_wide_review(dep).unwrap_or_else(|e| {
             eprintln!("wide review: {e}");
+            std::process::exit(2)
+        });
+        // The same-response snapshot through the keeper's own read port
+        // (the JSON-RPC port implements `SnapshotPort`): one
+        // getMultipleAccounts per reviewed plan, no second client.
+        k.enable_wide_snapshot_via_port().unwrap_or_else(|e| {
+            eprintln!("wide snapshot: {e}");
             std::process::exit(2)
         });
     }

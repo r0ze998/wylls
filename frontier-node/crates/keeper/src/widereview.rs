@@ -44,6 +44,9 @@ use crate::widesnapshot::SnapshotMeta;
 pub const KIND_SETTLE_DEPARTURE: &str = "wide-settle-departure";
 pub const KIND_RETURN: &str = "wide-return";
 pub const KIND_REVEAL: &str = "wide-reveal";
+pub const KIND_GATHER: &str = "wide-gather";
+pub const KIND_RESOLVE: &str = "wide-resolve";
+pub const KIND_SETTLE_TRANSIT: &str = "wide-settle-transit";
 
 /// What is reviewed: a stable key by full identity, the engine's filing
 /// facts, and the instruction's shape. No account bytes, no key material.
@@ -51,7 +54,9 @@ pub const KIND_REVEAL: &str = "wide-reveal";
 pub struct Subject {
     /// `wide-settle-departure:<world>:<host ref>:<slot>`,
     /// `wide-return:<world>:<standing key>:<holding ref>`,
-    /// `wide-reveal:<world>:<host ref>:<slot>:<arrive bell>` (hex of the
+    /// `wide-reveal:<world>:<host ref>:<slot>:<arrive bell>`,
+    /// `wide-gather:<world>:<dest key>:<bell>:<start>`,
+    /// `wide-resolve:<world>:<province key>:<bell>` (hex of the
     /// canonical bytes; never a `u64` alias).
     pub key: String,
     pub kind: &'static str,
@@ -81,6 +86,35 @@ impl Subject {
                     hex::encode(f.holding.to_bytes())
                 ),
                 KIND_RETURN,
+            ),
+            Duty::Gather(f) => (
+                format!(
+                    "{KIND_GATHER}:{}:{}:{}:{}",
+                    hex::encode(f.dest.world().as_bytes()),
+                    hex::encode(f.dest.to_bytes()),
+                    f.bell,
+                    f.start
+                ),
+                KIND_GATHER,
+            ),
+            Duty::Resolve(f) => (
+                format!(
+                    "{KIND_RESOLVE}:{}:{}:{}",
+                    hex::encode(f.province.world().as_bytes()),
+                    hex::encode(f.province.to_bytes()),
+                    f.bell
+                ),
+                KIND_RESOLVE,
+            ),
+            Duty::SettleTransit(f) => (
+                format!(
+                    "{KIND_SETTLE_TRANSIT}:{}:{}:{}:{}",
+                    hex::encode(f.host.key().world().as_bytes()),
+                    hex::encode(f.host.to_bytes()),
+                    f.transit_slot,
+                    f.arrive_bell
+                ),
+                KIND_SETTLE_TRANSIT,
             ),
         };
         Subject {
@@ -149,6 +183,11 @@ pub enum Deny {
     /// The payer's balance at the context slot does not cover the
     /// calculated lower bound (rent + base fee).
     FundingUnmet,
+    /// The payer cannot be this instruction's fee payer: executable,
+    /// program-owned, or a conflicting state account of
+    /// the instruction (`widefees::Funding::Ineligible`); its balance is
+    /// not funding.
+    FundingIneligible,
 }
 
 /// The engine facts the review reads, through public methods only.
@@ -278,6 +317,7 @@ fn assess(
     match needs.as_ref().map(|n| n.funding) {
         None | Some(Funding::Unknown(_)) => r.denials.push(Deny::FundingUnknown),
         Some(Funding::Unmet { .. }) => r.denials.push(Deny::FundingUnmet),
+        Some(Funding::Ineligible(_)) => r.denials.push(Deny::FundingIneligible),
         Some(Funding::MetLowerBound { .. }) => {}
     }
     r.denials.sort();

@@ -224,7 +224,9 @@ pub struct Provenance {
     /// feed source that returned the record is the only authority for its
     /// commitment, and that source is the caller's to trust or not.
     pub signatures_verified: bool,
-    /// Always `"feed record wire + frame-bound PSW1 Departed"`.
+    /// [`METHOD_FEED`] for a proof this module extracted; a store that
+    /// accepts caller-supplied proofs replaces whatever the caller set with
+    /// [`METHOD_SUPPLIED`] and clears `signatures_verified`.
     pub method: &'static str,
 }
 
@@ -817,10 +819,17 @@ pub fn depart_proof(rec: &TxRecord, scope: &ProofScope) -> Result<DepartProof, U
             signature: sig,
             instruction_index: found.ix_index,
             signatures_verified: false,
-            method: "feed record wire + frame-bound PSW1 Departed",
+            method: METHOD_FEED,
         },
     })
 }
+
+/// The provenance method of a proof this module extracted.
+pub const METHOD_FEED: &str = "feed record wire + frame-bound PSW1 Departed";
+/// The provenance method a store assigns to a proof a caller handed in:
+/// not extracted here; whatever the caller claimed is replaced by this.
+pub const METHOD_SUPPLIED: &str =
+    "caller-supplied proof: not extracted here; provenance unverified";
 
 /// Convenience: the outcome of a page of feed records, each attempted
 /// independently. Rolled-back and legacy records are reported, not hidden.

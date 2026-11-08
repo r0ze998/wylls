@@ -67,6 +67,39 @@ fn province_only(kind: WideKind, bell: u32, key: &[u8], payload: &[u8]) -> Vec<u
 fn unlinked(kind: WideKind, bell: u32, key: &[u8], payload: &[u8]) -> Vec<u8> {
     encode(kind, bell, key, payload, &[]).unwrap()
 }
+/// A body whose links are the ABI's first step from the zero head for each
+/// of the kind's entities (what a first record of fresh accounts carries):
+/// the observer verifies these; the literal `both` links it refuses.
+fn from_zero(kind: WideKind, bell: u32, key: &[u8], payload: &[u8]) -> Vec<u8> {
+    let mut b = vec![0u8; wev::MAX_BODY];
+    let n = wev::write_body(kind, bell, key, payload, &mut b).unwrap();
+    b.truncate(n);
+    let links: Vec<WideLink> = kind
+        .links()
+        .iter()
+        .map(|e| wev::advance(*e, 0, &[0; 32], &b).unwrap())
+        .collect();
+    encode(kind, bell, key, payload, &links).unwrap()
+}
+/// `departed` with first-step links (for records the observer is shown).
+fn departed_from_zero(m: &March, slot: u8, depart: u32, arrive: u32, root: u8) -> Vec<u8> {
+    from_zero(
+        WideKind::Departed,
+        depart,
+        &wev::host_key(&m.host, m.home),
+        &wev::departed_payload(
+            slot,
+            depart,
+            arrive,
+            300_000,
+            61,
+            5_000,
+            7_000,
+            11_000,
+            &[root; 32],
+        ),
+    )
+}
 fn batch(seq: u64, bodies: Vec<Vec<u8>>) -> WideBatch {
     WideBatch {
         seq,
@@ -840,7 +873,9 @@ fn activity_after_a_close_never_overwrites_the_close() {
 fn feed_transactions_are_frame_checked_and_rollbacks_are_never_wide_events() {
     let m = march();
     let p = program();
-    let body = departed(&m, 0, 6, 20, 0xAB);
+    // First-step links: the observer below verifies chain continuity and
+    // refuses a sequence-1 link that is not the step from the zero head.
+    let body = departed_from_zero(&m, 0, 6, 20, 0xAB);
     // A committed PSW1 body in the program's frame.
     match observe_tx(&wide_tx(3, std::slice::from_ref(&body)), &p).unwrap() {
         TxObservation::Wide(b) => {
@@ -951,7 +986,7 @@ fn observer_exact_replay_covers_every_transaction_outcome() {
             None,
         ),
         tx(1, vec![], Some("rollback")),
-        wide_tx(1, &[departed(&march(), 0, 6, 20, 1)]),
+        wide_tx(1, &[departed_from_zero(&march(), 0, 6, 20, 1)]),
     ];
     for record in records {
         let mut o = WideObserver::new(scope(), Limits::default());
@@ -970,7 +1005,7 @@ fn observer_exact_replay_covers_every_transaction_outcome() {
         assert_eq!(o.status(), blocked, "sticky");
     }
     let mut o = WideObserver::new(scope(), Limits::default());
-    let mut record = wide_tx(1, &[departed(&march(), 0, 6, 20, 1)]);
+    let mut record = wide_tx(1, &[departed_from_zero(&march(), 0, 6, 20, 1)]);
     o.observe_page(std::slice::from_ref(&record), &program());
     record.err = Some("rollback".into());
     o.observe_page(&[record], &program());

@@ -80,6 +80,7 @@ pub mod resolve;
 pub mod roster;
 pub mod rules;
 pub mod seal;
+pub mod settle;
 pub mod ticket;
 pub mod tiles;
 pub mod wide_ix;
@@ -116,6 +117,10 @@ pub use resolve::{
     WideStepOut, KEEP_SITE,
 };
 pub use roster::{RosterError, WideRoster};
+pub use settle::{
+    plan_settlement, wide_admit, wide_valid_outcome, PayTo, SettlementPlan, WideOutcome,
+    WideSlotDecision, WideSlotEntry,
+};
 pub use rules::{
     CampRule, FreeCityRule, KeepHolderRule, RegionRule, RuleBytes, RulesError, WideRulesConfig,
     WIDE_RULES_CONFIG_VERSION,

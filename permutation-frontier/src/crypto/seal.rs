@@ -249,7 +249,17 @@ pub(crate) mod tests {
     /// (key, value) lists (the file is pretty-printed one field per line).
     pub(crate) fn cases(
     ) -> alloc::vec::Vec<alloc::vec::Vec<(alloc::string::String, alloc::string::String)>> {
-        let text = include_str!("../../../permutation-rules/vectors/seal-vectors-v1.json");
+        cases_in(include_str!(
+            "../../../permutation-rules/vectors/seal-vectors-v1.json"
+        ))
+    }
+
+    /// [`cases`] over any vector file of the same shape (a `cases` array of
+    /// flat objects, one string field per line): the wide settlement
+    /// expectations the host dispatcher tests share with the keeper's.
+    pub(crate) fn cases_in(
+        text: &str,
+    ) -> alloc::vec::Vec<alloc::vec::Vec<(alloc::string::String, alloc::string::String)>> {
         let mut out = alloc::vec::Vec::new();
         let mut cur: Option<alloc::vec::Vec<_>> = None;
         for line in text.lines() {

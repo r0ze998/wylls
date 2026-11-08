@@ -13,11 +13,17 @@
 //! ArrivalDay (`wide_arrival_day::SIZE`) when none exists, each created by
 //! `init_with_seed` from the fee payer (`proc/wide.rs::reveal`, the
 //! effects) with `init::rent(size)` — the Rent sysvar's **full** minimum
-//! balance for the size — as the handler's **precondition**. The system
-//! transfer the creation makes tops up only the shortfall when the address
-//! already holds lamports; this review does **not** model that netting: it
-//! requires the full minimum as the safe bound and labels the two
-//! separately (`rent_rule`). WideSettleDeparture and WideReturn create
+//! balance for the size — as the handler's **precondition** (the reveal
+//! guards the payer's balance against the full minimum before creating).
+//! The system transfer the creation makes (`init::top_up`) moves only
+//! `total − lamports already at the address` and refuses `Insufficient`
+//! when the payer holds less than that. For the reveal this review keeps
+//! the full minimum (the handler's guard, `RENT_RULE_FULL`); for the
+//! **gather**, whose handler has no such guard, it nets the lamports the
+//! plan's snapshot showed at the ClashInputs address (`RENT_RULE_TOP_UP`):
+//! a fully prefunded address leaves the payer the fee alone. Each candidate
+//! names its rule (`rent_rule`) and the netted amount
+//! (`prefunded_lamports`). WideSettleDeparture and WideReturn create
 //! nothing.
 //!
 //! **Bound to one candidate and one verified snapshot.** The rent and the
@@ -37,10 +43,12 @@
 use fclient::abi::CU_MAX;
 use fclient::budgets::Budget;
 use fclient::fees::{DEFAULT_LOADED_LIMIT, LAMPORTS_PER_SIGNATURE};
-use frontier_abi::world_index::arrival::{wide_arrival_day, wide_arrival_slot};
+use frontier_abi::world_index::arrival::{wide_arrival_day, wide_arrival_slot, wide_clash_inputs};
+use frontier_abi::world_index::roster::wide_roster;
 use serde_json::{json, Value};
+use solana_instruction::Instruction;
 
-use crate::wideduty::{Block, Candidate, Reads};
+use crate::wideduty::{Block, Candidate, Duty, Reads};
 use crate::widereveal::RevealCandidate;
 use crate::widesnapshot::SnapshotMeta;
 
@@ -62,7 +70,12 @@ impl<T: Copy> Known<T> {
 }
 
 /// Whether the payer's balance in the snapshot covers the calculated
-/// lower bound.
+/// lower bound — for a payer that **can** pay: an ordinary System wallet
+/// (System-owned, no data, not executable) that is not another account of
+/// the instruction. A program-owned or executable account, or a conflicting state-account alias, is
+/// [`Funding::Ineligible`]. System-owned data accounts need nonce/runtime
+/// and transfer validation and remain [`Funding::Unknown`], never a
+/// balance-based eligibility claim.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Funding {
     /// Covers the lower bound at the snapshot's context slot (nothing
@@ -75,6 +88,48 @@ pub enum Funding {
     },
     /// The payer's account or the requirement itself is not known.
     Unknown(&'static str),
+    /// The payer is known and cannot be this instruction's fee payer
+    /// (named reason); its balance is not reported as funding.
+    Ineligible(&'static str),
+}
+
+/// The payer names a **state** account of the instruction (the Season, a
+/// record, a program, the system): one address in two roles, one of them
+/// a program account, is an invalid transaction, not a funding question.
+/// A **wallet** role of the instruction (a beneficiary, a rent payer, a
+/// rent recipient, a resolver) may be the payer: the legacy keeper's
+/// settle names its own beneficiary; the handler pays a wallet whoever
+/// signed.
+pub const PAYER_ALIASES: &str =
+    "the payer is also a state account of the instruction (role alias); not a fee payer";
+/// The fee payer's lower bound is the transaction's: the fee and the rent
+/// of accounts the handler creates from the payer. Nothing more.
+pub const FUNDING_SCOPE_FEE_AND_CREATIONS: &str =
+    "the payer's lower bound covers the transaction fee and the rent of accounts created from the payer; nothing else moves from the payer";
+/// A settlement moves lamports out of the **holding's** balance, not the
+/// payer's: a met lower bound says nothing about the settlement.
+pub const FUNDING_SCOPE_SETTLE_TRANSIT: &str =
+    "the payer's lower bound covers the transaction fee only; the settlement's lamports move from the holding's own balance and the closed accounts' rent, none of which is the payer's — MetLowerBound is not settlement funding";
+/// An executable account.
+pub const PAYER_EXECUTABLE: &str = "the payer account is executable: a program, not a wallet";
+/// A program-owned account.
+pub const PAYER_PROGRAM_OWNED: &str =
+    "the payer account is not System-owned: a program's account cannot fund a System transfer";
+/// A System-owned account carrying data.
+pub const PAYER_SYSTEM_DATA: &str =
+    "System account data needs nonce, rent-reserve and transfer validation; eligibility is unknown";
+
+/// Why a present payer account cannot pay, if it cannot.
+fn ineligible(a: &fclient::ports::Account) -> Option<&'static str> {
+    if a.executable {
+        Some(PAYER_EXECUTABLE)
+    } else if a.owner != fclient::addr::system_program() {
+        Some(PAYER_PROGRAM_OWNED)
+    } else if !a.data.is_empty() {
+        Some(PAYER_SYSTEM_DATA)
+    } else {
+        None
+    }
 }
 
 /// The requirements of executing one candidate.
@@ -82,8 +137,21 @@ pub enum Funding {
 pub struct ExecutionNeeds {
     /// The accounts the handler would create: `(name, ABI size)`.
     pub creates: Vec<(&'static str, usize)>,
-    /// Σ **full** minimum balances of `creates`, from the snapshot's Rent.
+    /// Σ **full** minimum balances of `creates`, from the snapshot's Rent:
+    /// the `total` the handler passes to the creation.
     pub rent_lamports: Known<u64>,
+    /// Lamports already at the created address in the candidate's
+    /// snapshot that the creation's top-up nets (`init::top_up`: the payer
+    /// covers `total − held`), when the handler has no guard requiring the
+    /// full minimum of the payer. 0 when nothing is netted.
+    pub prefunded_lamports: u64,
+    /// Which rule the requirement follows (per handler).
+    pub rent_rule: &'static str,
+    /// What the lower bound covers and what it does not (per duty).
+    pub funding_scope: &'static str,
+    /// Instruction positions a wallet may hold alongside the payer role
+    /// without being an alias (per duty's table).
+    pub payer_wallet_roles: Vec<usize>,
     /// `LAMPORTS_PER_SIGNATURE × signatures_assumed`: a modelled lower
     /// bound; the network's fee at send time is not read.
     pub signatures_assumed: u8,
@@ -113,7 +181,10 @@ impl ExecutionNeeds {
         json!({
             "creates": self.creates.iter().map(|(n, s)| json!({"account": n, "size": s})).collect::<Vec<_>>(),
             "rent_lamports": known(&self.rent_lamports),
-            "rent_rule": "handler precondition: the full minimum balance per created account (init::rent(size)); the creation's transfer tops up only a prefunded address's shortfall, which this review does not net",
+            "prefunded_lamports": self.prefunded_lamports,
+            "rent_rule": self.rent_rule,
+            "funding_scope": self.funding_scope,
+            "payer_wallet_roles": self.payer_wallet_roles,
             "signatures_assumed": self.signatures_assumed,
             "base_fee_lamports": known(&self.base_fee_lamports),
             "priority_fee_lamports": known(&self.priority_fee_lamports),
@@ -133,7 +204,17 @@ const BASE_FEE_NOTE: &str = "5,000 lamports × one signature assumed: a modelled
 const PRIORITY_NOTE: &str = "no ComputeBudget price is chosen by the planners";
 const RENT_NO_SYSVAR: &str = "the Rent sysvar was not in the candidate's snapshot";
 const NOT_BOUND: &str = "the reads are not the verified snapshot this candidate was planned over";
+/// The funding reason when the candidate names the all-zero placeholder.
+pub const NO_PAYER: &str = "no fee payer set: the candidate names the System Program address as a placeholder, which is not a wallet";
 const FEE_EVIDENCE_NOTE: &str = "the handler stores whatever ComputeBudget prefix the sent transaction carries; absent, the parser's defaults (zero) are accepted; the prefix is keeper policy, not a handler mandate";
+/// The reveal: the handler guards the payer's balance against the full
+/// minimum before creating; a prefunded address is not netted.
+pub const RENT_RULE_FULL: &str = "handler precondition: the full minimum balance per created account (init::rent(size)) of the payer; the creation's top-up would net a prefunded address but the handler's guard does not";
+/// The gather: no such guard; `init_with_seed` tops the address up to the
+/// full minimum from the payer, so the payer needs only the shortfall.
+pub const RENT_RULE_TOP_UP: &str = "handler creation: init_with_seed with init::rent(size) as the total; init::top_up transfers total − lamports already at the address (Insufficient when the payer holds less); the requirement is that shortfall";
+/// Nothing is created.
+pub const RENT_RULE_NONE: &str = "no account is created";
 
 /// What the engine would request for a wide tag: no measured row exists
 /// for the draft band, so `Budgets::get` falls back to `CU_MAX` and the
@@ -156,9 +237,21 @@ fn bound<'a>(
     (m.digest() == c.digest()).then_some(m)
 }
 
+/// The wallet roles of WideSettleTransit (`wide_ix::SETTLE_TRANSIT`): the
+/// slot beneficiary, the resolver, the holding's rent payer, the settle
+/// beneficiary and the transit record's rent recipient. The payer may be
+/// any of them.
+pub const SETTLE_TRANSIT_WALLET_ROLES: [usize; 5] = [8, 9, 10, 11, 16];
+
+#[allow(clippy::too_many_arguments)]
 fn needs_of(
     creates: Vec<(&'static str, usize)>,
+    prefunded_lamports: u64,
+    rent_rule: &'static str,
+    funding_scope: &'static str,
+    wallet_roles: &[usize],
     payer: &solana_address::Address,
+    instruction: &Instruction,
     reads: &Reads,
     candidate_snapshot: Option<&SnapshotMeta>,
 ) -> Result<ExecutionNeeds, Block> {
@@ -180,20 +273,58 @@ fn needs_of(
     let base_fee = LAMPORTS_PER_SIGNATURE
         .checked_mul(u64::from(signatures_assumed))
         .ok_or(Block::Overflow("base fee"))?;
+    // The payer's part of the rent: the full minimum less what the created
+    // address already holds (0 unless the handler nets it), then the fee.
     let required = match rent_lamports {
         Known::Known(r) => Known::Known(
-            r.checked_add(base_fee)
+            r.saturating_sub(prefunded_lamports)
+                .checked_add(base_fee)
                 .ok_or(Block::Overflow("required lamports"))?,
         ),
         Known::Unchecked(why) => Known::Unchecked(why),
     };
-    let funding = match (required, snap, reads.accounts.get(payer)) {
-        (Known::Unchecked(why), _, _) => Funding::Unknown(why),
-        (Known::Known(_), None, _) => Funding::Unknown(NOT_BOUND),
-        (Known::Known(_), Some(_), None) => {
+    // The payer in a **state** role of the same instruction (position 0 is
+    // the payer itself; the duty's wallet roles are allowed): an invalid
+    // transaction, judged from the candidate alone.
+    let aliases = instruction
+        .accounts
+        .iter()
+        .enumerate()
+        .skip(1)
+        .any(|(i, m)| m.pubkey == *payer && !wallet_roles.contains(&i));
+    let payer_account = reads.accounts.get(payer);
+    // A present payer that cannot pay, by its shape (owner, data,
+    // executable) — only from the bound snapshot's bytes.
+    let shape = match (snap, payer_account) {
+        (Some(_), Some(Some(a))) => ineligible(a),
+        _ => None,
+    };
+    // The all-zero address is the System Program: a placeholder an
+    // unsigned candidate names when no payer is set, never a wallet whose
+    // balance could fund anything. Then the alias, then the shape: a
+    // balance is reported only for an eligible payer.
+    let early = if *payer == solana_address::Address::default() {
+        Some(Funding::Unknown(NO_PAYER))
+    } else if aliases {
+        Some(Funding::Ineligible(PAYER_ALIASES))
+    } else {
+        shape.map(|reason| {
+            if reason == PAYER_SYSTEM_DATA {
+                Funding::Unknown(reason)
+            } else {
+                Funding::Ineligible(reason)
+            }
+        })
+    };
+    let funding = match (early, required, snap, payer_account) {
+        (Some(f), _, _, _) => f,
+        (None, Known::Unchecked(why), _, _) => Funding::Unknown(why),
+        (None, Known::Known(_), None, _) => Funding::Unknown(NOT_BOUND),
+        (None, Known::Known(_), Some(_), None) => {
             Funding::Unknown("the payer's account is not in the snapshot")
         }
-        (Known::Known(req), Some(_), Some(acc)) => {
+        (None, Known::Known(req), Some(_), Some(acc)) => {
+            // Absent: a wallet that holds nothing yet (ordinary, empty).
             let lamports = acc.as_ref().map_or(0, |a| a.lamports);
             if lamports >= req {
                 Funding::MetLowerBound {
@@ -212,6 +343,10 @@ fn needs_of(
     Ok(ExecutionNeeds {
         creates,
         rent_lamports,
+        prefunded_lamports,
+        rent_rule,
+        funding_scope,
+        payer_wallet_roles: wallet_roles.to_vec(),
         signatures_assumed,
         base_fee_lamports: Known::Known(base_fee),
         priority_fee_lamports: Known::Unchecked(PRIORITY_NOTE),
@@ -235,13 +370,57 @@ pub fn reveal_needs(c: &RevealCandidate, reads: &Reads) -> Result<ExecutionNeeds
     if !c.facts.day_present {
         creates.push(("wide ArrivalDay", wide_arrival_day::SIZE));
     }
-    needs_of(creates, &c.fee_payer, reads, c.snapshot())
+    needs_of(
+        creates,
+        0,
+        RENT_RULE_FULL,
+        FUNDING_SCOPE_FEE_AND_CREATIONS,
+        &[],
+        &c.fee_payer,
+        &c.instruction,
+        reads,
+        c.snapshot(),
+    )
 }
 
-/// The needs of a WideSettleDeparture or WideReturn candidate: no account
-/// is created.
+/// The needs of a WideSettleDeparture or WideReturn candidate (no account
+/// is created) or of a WideGather: the ClashInputs when the plan found
+/// none, created with the full minimum as the total but **topped up** from
+/// the payer only by the shortfall over what the address already held in
+/// the plan's snapshot (`init::top_up`; the gather handler has no guard
+/// requiring the payer to hold the full minimum, unlike the reveal).
 pub fn duty_needs(c: &Candidate, reads: &Reads) -> Result<ExecutionNeeds, Block> {
-    needs_of(Vec::new(), &c.payer, reads, c.snapshot())
+    let (creates, prefunded, rule) = match &c.duty {
+        Duty::Gather(f) if !f.inputs_present => (
+            vec![("wide ClashInputs", wide_clash_inputs::SIZE)],
+            f.inputs_prefunded_lamports,
+            RENT_RULE_TOP_UP,
+        ),
+        // The resolve's roster: the handler requires the fee payer to hold
+        // the full minimum (`fee_payer.lamports() < rent_r → Insufficient`)
+        // before the creation tops the address up — the full rule, exact.
+        Duty::Resolve(f) if f.roster_created => {
+            (vec![("wide Roster", wide_roster::SIZE)], 0, RENT_RULE_FULL)
+        }
+        _ => (Vec::new(), 0, RENT_RULE_NONE),
+    };
+    // The settlement's wallet roles may be the payer; its lamports are the
+    // holding's, so the payer's bound is the fee alone.
+    let (scope, roles): (&'static str, &[usize]) = match &c.duty {
+        Duty::SettleTransit(_) => (FUNDING_SCOPE_SETTLE_TRANSIT, &SETTLE_TRANSIT_WALLET_ROLES),
+        _ => (FUNDING_SCOPE_FEE_AND_CREATIONS, &[]),
+    };
+    needs_of(
+        creates,
+        prefunded,
+        rule,
+        scope,
+        roles,
+        &c.payer,
+        &c.instruction,
+        reads,
+        c.snapshot(),
+    )
 }
 
 /// A one-line summary of the assumptions, for status output.

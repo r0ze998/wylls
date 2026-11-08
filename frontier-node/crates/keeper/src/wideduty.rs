@@ -1,6 +1,7 @@
 //! **Read-only, opt-in** (feature `wide-world-experimental`): planning of
 //! the two permissionless wide settlements the keeper could one day send —
-//! WideSettleDeparture (0xDC op 3) and WideReturn (0xDC op 2) — as
+//! WideSettleDeparture (0xDC op 3) and WideReturn (0xDC op 2) — and, since
+//! the eighth slice, of the keeper's WideGather (0xDC op 4), as
 //! **unsigned** instructions built from current account reads, with the
 //! dispatcher's own account tables and refusals replayed over the decoded
 //! state. Nothing here signs, simulates, sends or queues; the keeper's
@@ -52,28 +53,124 @@
 //! A return of hosts standing in a province other than their holding's own
 //! needs the tenth account (the holding's own province, where the capture
 //! lock is read); the planner adds it exactly then.
+//!
+//! **WideGather (0xDC op 4), eighth slice.** [`plan_gather`] plans the
+//! destination's gather of revealed arrivals into the wide ClashInputs, the
+//! deployed GatherClash over the wide records (`proc/wide.rs::gather`):
+//! `[fee_payer s,w] [season r] [province r] [anchor|archive r] [inputs w]
+//! [arrivalday r] [ix_sysvar r] [system]` then `n × [slot r] [transit
+//! r|w]` (`wide_ix::GATHER`). The handler's rules replayed in its order:
+//! the keeper prologue (Running or Ended, this build's), the destination a
+//! wide province of this world at its canonical address, `bell ≥
+//! resolved_next` (`LatchClosed`), `bell < end_bell` (`WrongStatus`), the
+//! reveal window of the bell **closed** for the province's stored region
+//! against THE anchor or its archive entry (`TooEarly`, `NoAnchor`), the
+//! ClashInputs at its canonical address absent (created from the fee
+//! payer; the creation tops up only the shortfall over what the address
+//! holds, `init::top_up` — the fee review nets a prefunded address) or
+//! this province's and bell's and not resolved (`AlreadyDone`), **the wide
+//! ArrivalDay as the arrival evidence** — its bit clear, the handler
+//! completes the mask without reading a slot: with no record that is a
+//! complete empty record the resolve does not need (not planned,
+//! `NoArrivals`, a policy), with a partial record it is the completing
+//! gather the resolve requires (planned, one position, nothing written to
+//! the positions); **never** is the absence of feed events read as "no
+//! arrivals". The cursor is bounded **before** any slot is read: the first
+//! ungathered position and the contiguous ungathered run after it, at most
+//! [`GATHER_MAX_POSITIONS`] (every position present fits one packet under
+//! the widest ComputeBudget prefix; [`packet_len`] against
+//! [`GATHER_PACKET_BYTES`] guards the result). Every position's slot at
+//! its canonical address, absent or this record's; a present slot's host
+//! transit record at the slot's bound address, this host's and this
+//! bell's; `Departed` at the first position refused (`DepartureUnsettled`:
+//! the origin settles first), later in the cursor it **cuts** the cursor
+//! before it (the ready prefix is a valid gather); `Settled` /
+//! `DestroyedAtOrigin` stamped (writable); `Gathered` at this destination
+//! left as is (read-only). An absent slot's transit position is the slot's
+//! own address (any read-only account, the handler says; nothing is
+//! invented). The facts predict the mask, the present count as the
+//! handler's scan of **every** position of the written record (a position
+//! that does not decode fails the handler), the completion and the
+//! stamps; a resolve needs every position gathered (`remaining_after`).
+//!
+//! **WideResolve (0xDC op 1), ninth slice.** [`plan_resolve`] plans the
+//! one-bell wide resolve of an observed province's **current**
+//! `resolved_next` (`proc/wide.rs::resolve`, `wide_ix::RESOLVE`:
+//! `[fee_payer s,w] [season r] [province w] [roster w] [seedcache|archive
+//! r] [anchor|archive r] [clash_inputs r|w] [arrivalday r] [system]`). The
+//! handler's rules in its order: the keeper prologue; the province
+//! canonical and of this world; `bell = resolved_next` (the planner reads
+//! it; the model's `NotDue` is `OutOfOrder`); `bell < end_bell`
+//! (`SeasonEnded`); the reveal window closed against THE anchor or its
+//! archive entry of the province's **stored** region; the bell seed as
+//! `hold::bell_seed` takes it — a SeedCache of THE anchor at the address
+//! its **stored nonce** recomputes, this season's, bell's and region's,
+//! naming the anchor's key and `A` and the round `S(bell, A)`
+//! (`SeedNotReady` otherwise), or, when THE anchor is archived, the
+//! archive entry's seed with the **same archive account in both the seed
+//! and the anchor positions**; the nonce is not derivable, so the planner
+//! takes it from the caller and asks for a bounded probe when missing
+//! ([`find_seed_nonce`]: the legacy keeper's 256 nonces, in chunks);
+//! the ArrivalDay's bit as the arrival evidence — set, the ClashInputs
+//! must be present, canonical, fully gathered and unresolved
+//! (`NotGathered` / `AlreadyResolved`), absent with the bit clear the bell
+//! runs over the residents alone; the Season's conquest block of this
+//! build's version (`ConquestParams`); the roster present and canonical,
+//! or absent while no entry is live. Then **the actual bell model on
+//! scratch copies**: `world_index::resolve::resolve_bell` with
+//! `frontier_ruleset()` and `StepParams::of_season`, the resolved
+//! arrivals written back, the resolver and the resolve time (the observed
+//! clock's) into the record, the summary into the province, so the plan
+//! knows the engagements, the destroyed and bounced, whether the bell
+//! **creates the roster from the fee payer** (an arrival that stays claims
+//! an entry; the handler then requires the payer to hold the roster's
+//! **full** minimum balance — `Insufficient` otherwise — before the
+//! creation tops the address up: the fee review's `RENT_RULE_FULL`, exact
+//! to the handler, not the gather's netting), the input digest and the
+//! output digest **at the observed clock** (the landed record carries the
+//! execution clock's `resolved_ts`). The model's refusals of unported
+//! S1/S2 state (a live fort, a caravan, a conquest record, a packed
+//! pending op) are kept as `Unported`; every other model refusal is
+//! `ResolveModel` by name. The program applies its own model; the plan is
+//! a prediction from a read.
+//!
+//! **Not planned here.** WideSettleTransit (the arrivals' settlement after
+//! the resolve) is the next slice; a resolved bell has no planned
+//! settlement yet. Arrival processing is **not** complete.
 
 use std::collections::BTreeMap;
 
 use fclient::abi::status;
-use fclient::decode::{is_absent, Season};
+use fclient::clock::SeasonClock;
+use fclient::decode::{is_absent, AnchorArchive, BellAnchor, Season, SeedCache};
 use fclient::ports::{Account, ChainPort, ClockSysvar};
-use frontier_abi::addr::AddrCtx;
-use frontier_abi::bytes::{rd_u32, rd_u64, rd_u8};
+use fclient::tx::TxBudget;
+use fclient::{Hash, Transaction};
+use frontier_abi::addr::{archive_part_of, AddrCtx};
+use frontier_abi::bytes::{rd_u32, rd_u64, rd_u8, wr_arr, wr_u32, wr_u8};
+use frontier_abi::clash_model::arrival_stamina;
+use frontier_abi::conquest_model::StepParams;
 use frontier_abi::entry::{find_entry, read_entry, EntryOp};
+use frontier_abi::layout::beacon::anchor_archive as AA;
 use frontier_abi::layout::header;
 use frontier_abi::layout::province::entry as E;
 use frontier_abi::layout::province::province as PV;
+use frontier_abi::layout::province::summary as SU;
 use frontier_abi::prologue::{Group, Wr};
 use frontier_abi::v2::layout::player::holding as H;
+use frontier_abi::v2::presets::CONQUEST_VERSION;
 use frontier_abi::v2::prologue::capture_locked;
-use frontier_abi::world_index::wide_ix::{self as wix, Return, SettleDeparture};
+use frontier_abi::world_index::arrival as wa;
+use frontier_abi::world_index::event as wev;
+use frontier_abi::world_index::wide_ix::{self as wix, Gather, Resolve, Return, SettleDeparture};
 use frontier_abi::world_index::{
     holding as wh, land as wl, march as wm, resolve as wres, roster as wro, wide_host_alias,
-    MarchState, ProvinceKey, WideHolding, WideHostRef, WideProvince, WideRoster, WideTransit,
-    WorldId,
+    MarchEvent, MarchState, ProvinceKey, WideHolding, WideHostRef, WideProvince, WideRoster,
+    WideTransit, WorldId,
 };
 use permutation_rules::fixed::MILLI;
+use permutation_rules::frontier::beacon::bell_end;
+use permutation_rules::frontier::clash::frontier_ruleset;
 use permutation_rules::frontier::host::DESTROYED_BELOW;
 use serde_json::{json, Value};
 use solana_address::Address;
@@ -296,6 +393,143 @@ pub enum Block {
     QuotaRefused(&'static str),
     /// An arithmetic overflow the handler would refuse.
     Overflow(&'static str),
+    // ---- the gather planner ----
+    /// Gather: the wide ArrivalDay of the bell's day is absent or its bit
+    /// is clear **and no ClashInputs exists**: the handler would create a
+    /// complete, empty record the resolve does not need (it takes the
+    /// residents alone when both are absent), so the planner does not
+    /// propose it — a planner policy, not a handler refusal. With a partial
+    /// record and a clear bit the completing gather **is** planned. Read
+    /// from the accounts at their canonical addresses, never from the
+    /// absence of feed events.
+    NoArrivals,
+    /// Gather: every position of the record is gathered already (the
+    /// cursor is empty; the resolve may run).
+    AlreadyGathered,
+    /// Gather: the ClashInputs carries `FLAG_RESOLVED` (`AlreadyDone`).
+    AlreadyResolved,
+    /// Gather: the reveal window of the bell is still open by the observed
+    /// clock (`TooEarly`).
+    WindowOpen { reveal_close: i64, now: i64 },
+    /// Gather: THE anchor of `(bell, region)` is absent and its archive
+    /// does not hold the bell (`NoAnchor`), named.
+    NoAnchor(&'static str),
+    /// Gather: a present slot's transit record is still `Departed`: the
+    /// origin must settle the departure first (`DepartureUnsettled`).
+    DepartureUnsettled { position: u8 },
+    // ---- the resolve planner ----
+    /// Resolve: the bell model found `resolved_next` not the bell asked
+    /// (`OutOfOrder`); the planner always plans the province's current one.
+    OutOfOrder { resolved_next: u32, bell: u32 },
+    /// Resolve: THE anchor is present and the SeedCache's nonce was not
+    /// supplied: its canonical address depends on the nonce (256 possible),
+    /// which a bounded probe finds (`find_seed_nonce`); nothing is planned
+    /// without it.
+    SeedNonceUnknown { bell: u32, region: u8 },
+    /// Resolve: the bell seed is not on chain (`SeedNotReady`), named: the
+    /// cache absent at the supplied nonce, or a cache that does not match
+    /// THE anchor (its key, `A` or the seed round).
+    SeedNotReady(&'static str),
+    /// Resolve: the ArrivalDay says arrivals exist and the ClashInputs is
+    /// absent or not fully gathered (`NotGathered`); a gather of this bell
+    /// comes first.
+    NotGathered { bell: u32 },
+    /// Resolve: the Season carries no conquest block of this build's
+    /// version (`BadAccount`): the step parameters are unknown.
+    ConquestParams,
+    /// Resolve: the bell model refuses S1/S2 state no wide handler writes
+    /// (a live fort, a caravan, a conquest record, a packed pending op),
+    /// named (`Unported`).
+    Unported(&'static str),
+    /// Resolve: the bell model (`world_index::resolve::resolve_bell`)
+    /// refused, its reason by name.
+    ResolveModel(String),
+    // ---- the transit settlement planner (`crate::widesettle`) ----
+    /// Settle: the transit record's host is of another generation than the
+    /// holding (the handler's `NotImplemented`: no wide capture exists).
+    HistoricalGeneration { host_gen: u8, holding_gen: u8 },
+    /// Settle: the march is still `Departed` at the origin
+    /// (`DepartureUnsettled`).
+    OriginUnsettled,
+    /// Settle: the sealed destination is not a present province; the
+    /// routed settlement under the region's anchor is not planned here.
+    DestinationAbsent,
+    /// Settle: THE anchor's (or the archive entry's) stored round signature
+    /// is not the verified public one supplied: the chain would open the
+    /// seal under a signature this planner did not verify.
+    AnchorSignatureMismatch,
+    /// Settle: `now < close + 600` or the destination has not resolved past
+    /// the arrival (`TooEarly`), with the times.
+    TooEarlyToSettle {
+        settle_at: i64,
+        now: i64,
+        resolved_next: u32,
+    },
+    /// Settle: the ClashInputs of the arrival is absent or not resolved;
+    /// the routed/unresolved settlement is not planned here.
+    InputsUnresolved,
+    /// Settle: the host is not present in the resolved final set. Kept for
+    /// callers; since the twelfth slice the planner plans the record's
+    /// bounce and rout instead of refusing with it.
+    NotInFinalSet,
+    /// Settle: a final-set host's slot at its position is absent or
+    /// another host's; the tip then goes to `pool_owed`, not planned here.
+    SlotNotOwn,
+    /// Settle: the final-set fate is not a fate code (the handler's
+    /// `BadAccount`).
+    FateUnsupported(u8),
+    /// Settle: the host earns the camp's loot (the owner Citizen is a
+    /// further account); not planned here.
+    CampLootUnsupported,
+    /// Settle: the seal did not open and validate under the verified public
+    /// round signature; the handler would confiscate it as a bad seal,
+    /// which is not planned here (named step).
+    BadSealUnsupported(&'static str),
+    /// Settle: the holding's escrow is below the plan's total (`BadAccount`).
+    EscrowShort { escrow: u64, total: u64 },
+    /// Settle: the holding counts no open transit (`BadAccount`).
+    NoOpenTransit,
+    /// Settle: the Rent sysvar is not among the reads: the handler's divert
+    /// rule (`pay_or_divert`: a wallet the payment would leave below its
+    /// rent-exempt minimum is diverted) cannot be reproduced; named.
+    RentSysvarMissing(&'static str),
+    /// Settle: the holding's lamports cannot back a payment the replay
+    /// delivers to a wallet (`move_lamports`: `Insufficient`).
+    HoldingBackingShort {
+        payment: &'static str,
+        holding_lamports: u64,
+        amount: u64,
+    },
+    /// Settle: the runtime's invariant, not a handler line — the holding's
+    /// lamports changed and would end below its rent-exempt minimum
+    /// (conservative refusal).
+    HoldingBelowRentExemption { after: u64, floor: u64 },
+    /// Settle: a whole-account close under `Sink::Never` would divert (the
+    /// recipient wallet would stay below its rent-exempt minimum): the
+    /// handler's `BadAccount`; the target named (`"slot"`, `"transit"`).
+    CloseWouldDivert(&'static str),
+    /// Settle: a close's recipient is a state account of the instruction
+    /// (a close source, the holding, a record, the System Program) or any
+    /// program-owned account: the handler pays it directly, but the
+    /// source/recipient balance transitions are not replayed here —
+    /// a conservative refusal, not a handler rule; the target named.
+    CloseRecipientAlias(&'static str),
+    /// Settle: the slot's rent recipient is the fee payer's position and
+    /// the review payer is the all-zero placeholder: that close cannot be
+    /// judged against a wallet; named.
+    PayerPlaceholder(&'static str),
+    /// Settle: the host comes home and the home province is absent (the
+    /// handler's `BadAccount`: the re-entry needs it).
+    ReturnNeedsHome,
+    /// Settle: the transit record's unit is not a reserve unit
+    /// (`BadAccount`).
+    BadUnit(u8),
+    /// Settle: the transit record's faction has no doctrine (`BadAccount`).
+    BadFaction(u8),
+    /// Settle: the home roster refuses to claim the returning host's
+    /// reference at the free index (its table already holds the host, or
+    /// the alias collides): the handler's `BadAccount`.
+    RosterClaimRefused,
     /// The same-response snapshot could not be taken (the port's reason).
     Snapshot(String),
     /// Planned over one response, the plan asked for keys the response
@@ -361,10 +595,142 @@ pub struct ReturnFacts {
     pub skipped_in_transit: usize,
 }
 
+/// A present wide ArrivalSlot of a gather's cursor and what the handler
+/// would make of it from the host's transit record.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct GatherSlot {
+    pub host: WideHostRef,
+    /// The host's holding transit slot the arrival names (the record the
+    /// handler reads: `transit_address(holding, transit_slot)`).
+    pub transit_slot: u8,
+    pub transit_state: MarchState,
+    /// The transit record is stamped `Gathered` by this gather (it was
+    /// `Settled` or `DestroyedAtOrigin`); its account is writable then.
+    pub stamps: bool,
+    /// The arrival record the handler writes: present when the troops
+    /// after the origin's settle are at least `DESTROYED_BELOW`.
+    pub predicted_present: bool,
+    pub predicted_destroyed: bool,
+    pub troops_milli: u32,
+    pub stamina: u16,
+}
+
+/// One position of a gather's cursor.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct GatherPosition {
+    pub position: u8,
+    pub faction: u8,
+    pub i: u8,
+    /// The slot at the position's canonical address, when present.
+    pub slot: Option<GatherSlot>,
+}
+
+/// What a Gather plan established from the reads.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct GatherFacts {
+    pub dest: ProvinceKey,
+    pub bell: u32,
+    pub region: u8,
+    pub resolved_next: u32,
+    /// The cursor: positions `start..start + n` of the 24, at most
+    /// [`GATHER_MAX_POSITIONS`], bounded before any slot was read.
+    pub start: u8,
+    pub n: u8,
+    /// The ArrivalDay's bit of the bell is set: the cursor's slots were
+    /// read and are written. Clear (only with a partial record): the
+    /// handler completes the mask without reading a slot; the cursor is
+    /// one position, its slot unread, nothing written to the positions.
+    pub day_bit_set: bool,
+    /// The cursor was cut before this position: its slot's host transit
+    /// record is still `Departed` (the origin has not settled); the
+    /// positions before it are gathered now, that one waits.
+    pub cut_at_unsettled: Option<u8>,
+    /// The ClashInputs exists (else the handler creates it from the fee
+    /// payer with `init::rent(size)` as the total, topping up only the
+    /// shortfall over what the address already holds).
+    pub inputs_present: bool,
+    /// Lamports already at the ClashInputs address when it is absent (a
+    /// prefunded System account), netted by the creation's top-up; 0
+    /// otherwise.
+    pub inputs_prefunded_lamports: u64,
+    pub arrivals_mask_before: u32,
+    pub predicted_mask_after: u32,
+    /// The handler's `n_present` after this gather: the present arrivals
+    /// among the positions gathered before (read from the record) plus
+    /// those this cursor finds present.
+    pub predicted_n_present: u8,
+    /// `predicted_mask_after == ALL_GATHERED`: the resolve may take it.
+    pub predicted_complete: bool,
+    /// Complete with no present arrival (`FLAG_NO_ARRIVALS` then).
+    pub predicted_no_arrivals: bool,
+    /// Positions still ungathered after this gather.
+    pub remaining_after: u8,
+    /// Transit records this gather stamps.
+    pub stamps: u8,
+    /// `"anchor"` (THE BellAnchor) or `"archive"` (its archive entry).
+    pub anchor_source: &'static str,
+    /// `A` of the anchor, the reveal close it fixes, and the observed clock
+    /// the window was judged by.
+    pub a_ts: i64,
+    pub reveal_close: i64,
+    pub judged_at: i64,
+    pub positions: Vec<GatherPosition>,
+}
+
+/// What a Resolve plan established: the inputs the handler authenticates
+/// and the bell model's outcome replayed on scratch copies of the bytes.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ResolveFacts {
+    pub province: ProvinceKey,
+    /// The province's `resolved_next` as read: the one bell it resolves.
+    pub bell: u32,
+    pub region: u8,
+    /// The resolver the data names (the caller's public address; written
+    /// into the ClashInputs and the summary by the handler).
+    pub beneficiary: Address,
+    /// `"cache"` (a SeedCache of THE anchor) or `"archive"` (the archive
+    /// entry, both the seed and the anchor positions).
+    pub seed_source: &'static str,
+    pub seed_nonce: Option<u8>,
+    pub seed_round: u64,
+    pub anchor_source: &'static str,
+    pub a_ts: i64,
+    pub reveal_close: i64,
+    pub judged_at: i64,
+    /// The ArrivalDay's bit: arrivals exist and the gathered record is
+    /// required.
+    pub arrivals_expected: bool,
+    pub inputs_present: bool,
+    /// The gathered record's `n_present` (0 without a record).
+    pub n_arrivals: u8,
+    pub roster_present: bool,
+    /// The bell claims an entry in an absent roster: the handler creates it
+    /// from the fee payer, who must hold its **full** minimum balance.
+    pub roster_created: bool,
+    pub live_entries_before: u8,
+    pub engagements: u32,
+    pub destroyed: u8,
+    pub bounced: u8,
+    pub settled: bool,
+    /// `event::resolve_input_digest` over the bytes as read.
+    pub input_digest: [u8; 32],
+    /// `event::resolve_output_digest` over the scratch bytes **with the
+    /// observed clock's `resolved_ts`**: the handler writes the execution
+    /// clock there, so the landed record's digest equals this one only
+    /// when executed at the same second.
+    pub output_digest_at_observed_clock: [u8; 32],
+    pub resolved_ts_at_observed_clock: u32,
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Duty {
     SettleDeparture(SettleFacts),
     Return(ReturnFacts),
+    Gather(GatherFacts),
+    Resolve(ResolveFacts),
+    /// WideSettleTransit, planned by `crate::widesettle` (its facts live
+    /// there).
+    SettleTransit(Box<crate::widesettle::SettleTransitFacts>),
 }
 
 /// A validated, **unsigned** instruction and the facts it rests on.
@@ -539,6 +905,94 @@ impl ReturnFacts {
     }
 }
 
+/// The ABI's state byte of a march state (`WideTransit`'s own encoding is
+/// private; the numbers are the layout's: 0 free, 1 departed, 2 settled, 3
+/// destroyed at origin, 4 gathered).
+pub(crate) fn march_state_byte(s: MarchState) -> u8 {
+    match s {
+        MarchState::Free => 0,
+        MarchState::Departed => 1,
+        MarchState::Settled => 2,
+        MarchState::DestroyedAtOrigin => 3,
+        MarchState::Gathered => 4,
+    }
+}
+
+impl GatherSlot {
+    pub(crate) fn canon(&self, c: &mut Canon) {
+        c.host(&self.host);
+        c.u8(self.transit_slot);
+        c.u8(march_state_byte(self.transit_state));
+        c.bool(self.stamps);
+        c.bool(self.predicted_present);
+        c.bool(self.predicted_destroyed);
+        c.u32(self.troops_milli);
+        c.u16(self.stamina);
+    }
+}
+
+impl GatherFacts {
+    pub(crate) fn canon(&self, c: &mut Canon) {
+        c.province(&self.dest);
+        c.u32(self.bell);
+        c.u8(self.region);
+        c.u32(self.resolved_next);
+        c.u8(self.start);
+        c.u8(self.n);
+        c.bool(self.day_bit_set);
+        c.option(self.cut_at_unsettled, Canon::u8);
+        c.bool(self.inputs_present);
+        c.u64(self.inputs_prefunded_lamports);
+        c.u32(self.arrivals_mask_before);
+        c.u32(self.predicted_mask_after);
+        c.u8(self.predicted_n_present);
+        c.bool(self.predicted_complete);
+        c.bool(self.predicted_no_arrivals);
+        c.u8(self.remaining_after);
+        c.u8(self.stamps);
+        c.str(self.anchor_source);
+        c.i64(self.a_ts);
+        c.i64(self.reveal_close);
+        c.i64(self.judged_at);
+        c.len(self.positions.len());
+        for p in &self.positions {
+            c.u8(p.position);
+            c.u8(p.faction);
+            c.u8(p.i);
+            c.option(p.slot.as_ref(), |w, s| s.canon(w));
+        }
+    }
+}
+
+impl ResolveFacts {
+    pub(crate) fn canon(&self, c: &mut Canon) {
+        c.province(&self.province);
+        c.u32(self.bell);
+        c.u8(self.region);
+        c.address(&self.beneficiary);
+        c.str(self.seed_source);
+        c.option(self.seed_nonce, Canon::u8);
+        c.u64(self.seed_round);
+        c.str(self.anchor_source);
+        c.i64(self.a_ts);
+        c.i64(self.reveal_close);
+        c.i64(self.judged_at);
+        c.bool(self.arrivals_expected);
+        c.bool(self.inputs_present);
+        c.u8(self.n_arrivals);
+        c.bool(self.roster_present);
+        c.bool(self.roster_created);
+        c.u8(self.live_entries_before);
+        c.u32(self.engagements);
+        c.u8(self.destroyed);
+        c.u8(self.bounced);
+        c.bool(self.settled);
+        c.bytes(&self.input_digest);
+        c.bytes(&self.output_digest_at_observed_clock);
+        c.u32(self.resolved_ts_at_observed_clock);
+    }
+}
+
 impl Duty {
     pub(crate) fn canon(&self, c: &mut Canon) {
         match self {
@@ -548,6 +1002,18 @@ impl Duty {
             }
             Duty::Return(f) => {
                 c.u8(2);
+                f.canon(c);
+            }
+            Duty::Gather(f) => {
+                c.u8(3);
+                f.canon(c);
+            }
+            Duty::Resolve(f) => {
+                c.u8(4);
+                f.canon(c);
+            }
+            Duty::SettleTransit(f) => {
+                c.u8(5);
                 f.canon(c);
             }
         }
@@ -630,6 +1096,83 @@ impl Candidate {
                     "skipped_in_transit": f.skipped_in_transit,
                 }),
             ),
+            Duty::Gather(f) => (
+                "WideGather",
+                json!({
+                    "dest": hex::encode(f.dest.to_bytes()),
+                    "bell": f.bell,
+                    "region": f.region,
+                    "resolved_next": f.resolved_next,
+                    "start": f.start,
+                    "n": f.n,
+                    "max_positions": GATHER_MAX_POSITIONS,
+                    "day_bit_set": f.day_bit_set,
+                    "cut_at_unsettled": f.cut_at_unsettled,
+                    "inputs_present": f.inputs_present,
+                    "inputs_prefunded_lamports": f.inputs_prefunded_lamports,
+                    "arrivals_mask_before": f.arrivals_mask_before,
+                    "predicted_mask_after": f.predicted_mask_after,
+                    "predicted_n_present": f.predicted_n_present,
+                    "predicted_complete": f.predicted_complete,
+                    "predicted_no_arrivals": f.predicted_no_arrivals,
+                    "remaining_after": f.remaining_after,
+                    "stamps": f.stamps,
+                    "anchor_source": f.anchor_source,
+                    "a_ts": f.a_ts,
+                    "reveal_close": f.reveal_close,
+                    "judged_at": f.judged_at,
+                    "positions": f.positions.iter().map(|p| json!({
+                        "position": p.position,
+                        "faction": p.faction,
+                        "i": p.i,
+                        "slot": p.slot.as_ref().map(|s| json!({
+                            "host": hex::encode(s.host.to_bytes()),
+                            "transit_slot": s.transit_slot,
+                            "transit_state": march_state_byte(s.transit_state),
+                            "stamps": s.stamps,
+                            "predicted_present": s.predicted_present,
+                            "predicted_destroyed": s.predicted_destroyed,
+                            "troops_milli": s.troops_milli,
+                            "stamina": s.stamina,
+                        })),
+                    })).collect::<Vec<_>>(),
+                    "arrival_evidence": "the wide ArrivalDay at its canonical address; never the absence of feed events; a clear bit with a partial record is the completing gather (no slot read)",
+                    "absent_slot_transit_position": "the slot's own address, read-only (any account, the handler says)",
+                    "n_present_rule": "the handler's scan of every position after the cursor is written; a position that does not decode fails it",
+                }),
+            ),
+            Duty::Resolve(f) => (
+                "WideResolve",
+                json!({
+                    "province": hex::encode(f.province.to_bytes()),
+                    "bell": f.bell,
+                    "region": f.region,
+                    "beneficiary": f.beneficiary.to_string(),
+                    "seed_source": f.seed_source,
+                    "seed_nonce": f.seed_nonce,
+                    "seed_round": f.seed_round,
+                    "anchor_source": f.anchor_source,
+                    "a_ts": f.a_ts,
+                    "reveal_close": f.reveal_close,
+                    "judged_at": f.judged_at,
+                    "arrivals_expected": f.arrivals_expected,
+                    "inputs_present": f.inputs_present,
+                    "n_arrivals": f.n_arrivals,
+                    "roster_present": f.roster_present,
+                    "roster_created": f.roster_created,
+                    "live_entries_before": f.live_entries_before,
+                    "engagements": f.engagements,
+                    "destroyed": f.destroyed,
+                    "bounced": f.bounced,
+                    "settled": f.settled,
+                    "input_digest": hex::encode(f.input_digest),
+                    "output_digest_at_observed_clock": hex::encode(f.output_digest_at_observed_clock),
+                    "resolved_ts_at_observed_clock": f.resolved_ts_at_observed_clock,
+                    "model": "world_index::resolve::resolve_bell replayed on scratch copies; the program applies its own; the output digest depends on the execution clock",
+                    "roster_rent_rule": "handler precondition when created: the fee payer holds the roster's full minimum balance (Insufficient otherwise); the creation then tops the address up",
+                }),
+            ),
+            Duty::SettleTransit(f) => ("WideSettleTransit", f.describe()),
         };
         json!({
             "kind": kind,
@@ -762,7 +1305,7 @@ pub(crate) fn season_of(scope: &Scope, reads: &Reads) -> Result<(Season, bool), 
 
 /// The event-chain headroom of a chained account: `seq + n` must not
 /// overflow (`event::advance` → the handler's `Overflow`).
-fn chain_headroom(d: &[u8], n: u64, what: &'static str) -> Result<(), Block> {
+pub(crate) fn chain_headroom(d: &[u8], n: u64, what: &'static str) -> Result<(), Block> {
     let seq = rd_u64(d, header::EVENT_SEQ).ok_or(Block::Unreadable(what))?;
     seq.checked_add(n)
         .map(|_| ())
@@ -820,7 +1363,7 @@ pub(crate) fn holding_at<'a>(
     Ok(Some((h, acc.data.as_slice())))
 }
 
-fn roster_at<'a>(
+pub(crate) fn roster_at<'a>(
     reads: &'a Reads,
     scope: &Scope,
     a: &Address,
@@ -853,7 +1396,7 @@ pub(crate) fn transit_at(
 /// The handler's `capture_lock_of`: a live holding (provisional or final)
 /// whose site mirror in `pd` shows a completed, unsettled capture is
 /// locked.
-fn capture_lock_of(pd: &[u8], hd: &[u8]) -> Result<(), Block> {
+pub(crate) fn capture_lock_of(pd: &[u8], hd: &[u8]) -> Result<(), Block> {
     let state = rd_u8(hd, H::STATE).ok_or(Block::Unreadable("holding"))?;
     if matches!(state, H::STATE_PROVISIONAL | H::STATE_FINAL) {
         let site = rd_u8(hd, H::SITE).ok_or(Block::Unreadable("holding"))?;
@@ -892,11 +1435,33 @@ fn candidate(
     data: Vec<u8>,
     status_promoted_by_clock: bool,
 ) -> Candidate {
+    candidate_with(
+        scope,
+        reads,
+        payer,
+        duty,
+        metas(table, keys),
+        data,
+        status_promoted_by_clock,
+    )
+}
+
+/// [`candidate`] over account metas the planner built itself (a repeated
+/// group the table's flat zip cannot express).
+pub(crate) fn candidate_with(
+    scope: &Scope,
+    reads: &Reads,
+    payer: Address,
+    duty: Duty,
+    accounts: Vec<AccountMeta>,
+    data: Vec<u8>,
+    status_promoted_by_clock: bool,
+) -> Candidate {
     let mut c = Candidate {
         duty,
         instruction: Instruction {
             program_id: scope.program,
-            accounts: metas(table, keys),
+            accounts,
             data,
         },
         payer,
@@ -1261,6 +1826,1018 @@ pub fn plan_return(
     )))
 }
 
+// ------------------------------------------------------------ Gather
+
+/// The packet one transaction must fit: the extractor's wire bound
+/// (`crate::widefollow::MAX_RECORD_WIRE_BYTES`, 1,232 bytes).
+pub const GATHER_PACKET_BYTES: usize = crate::widefollow::MAX_RECORD_WIRE_BYTES;
+
+/// The positions of a gather (6 factions × 4 slots), the handler's.
+pub const GATHER_POSITIONS: u8 = wix::GATHER_POSITIONS;
+
+/// The most positions one planned gather takes, fixed **before** any slot
+/// is read so that no position outside the cursor is ever judged. Sized
+/// so that a cursor with every position present fits one packet under
+/// the widest budget prefix: a legacy message with one signature is
+/// `479 + 66·n` bytes when all `n` slots are present (10 fixed keys plus a
+/// slot key and a transit key per position, two account indices per
+/// position, the four ComputeBudget instructions at full width and the
+/// 10-byte Gather data), plus 32 when the payer is also an instruction
+/// key; `n = 8` gives at most 1,039 of the 1,232 (`n = 11` would not fit).
+/// [`packet_len`] guards the built instruction regardless.
+pub const GATHER_MAX_POSITIONS: usize = 8;
+
+/// Read rounds a live-read plan may take before `ReadLoop`: the gather
+/// asks in four waves (Season, destination, inputs and day; anchor and
+/// archive; the cursor's slots; the present slots' transits) and decides
+/// at the fifth evaluation; the settles and the return take fewer.
+pub const MAX_READ_ROUNDS: usize = 6;
+
+/// The widest ComputeBudget prefix the keeper's engine may put before an
+/// instruction (limit, price, loaded-data limit and a heap frame: four
+/// instructions at their full widths). The planner sizes the packet
+/// against it; the engine chooses the actual values.
+fn widest_budget() -> TxBudget {
+    TxBudget {
+        cu_limit: u32::MAX,
+        cu_price: u64::MAX,
+        loaded_limit: u32::MAX,
+        heap: Some(u32::MAX),
+    }
+}
+
+/// The wire length of `ix` alone as one unsigned legacy transaction paid
+/// by `payer` under the widest budget prefix (one signature). When the
+/// payer is also one of the instruction's keys (the all-zero review
+/// placeholder is the System Program) the message holds it once; 32 bytes
+/// are added so the bound also holds for a wallet that is not.
+pub fn packet_len(ix: &Instruction, payer: &Address) -> usize {
+    let msg = fclient::tx::message(
+        std::slice::from_ref(ix),
+        &widest_budget(),
+        payer,
+        &Hash::default(),
+    );
+    let t = Transaction::new_unsigned(msg);
+    let collide = ix.accounts.iter().any(|m| m.pubkey == *payer);
+    fclient::tx::wire(&t).len() + if collide { 32 } else { 0 }
+}
+
+/// `A` of THE anchor of `(bell, region)` as the handler's `anchor_time`
+/// reads it from the account at its canonical address, or from the
+/// region-half-day archive once the bell is archived (then also the
+/// archive entry's seed, which `bell_seed` takes from the same account).
+pub struct AnchorRead {
+    /// The account the instruction names in the anchor position.
+    pub key: Address,
+    /// `"anchor"` or `"archive"`.
+    pub source: &'static str,
+    pub a_ts: i64,
+    /// The archive entry's seed when the source is the archive.
+    pub archive_seed: Option<[u8; 32]>,
+    /// The round-`T(bell)` signature the account stores (THE anchor's
+    /// `sig48`, or the archive entry's `sig`): the chain's, which the
+    /// settle handler decompresses and opens the seal under.
+    pub sig48: [u8; 48],
+    /// THE anchor's landing slot; `None` once archived (the archive does
+    /// not keep it).
+    pub anchor_slot: Option<u64>,
+}
+
+/// Reads THE anchor or its archive entry from `reads` (both addresses
+/// already requested by the caller). `NoAnchor` when neither holds the
+/// bell; `NotCanonical` when the account at the address is another's.
+pub(crate) fn anchor_read(
+    reads: &Reads,
+    scope: &Scope,
+    ctx: &AddrCtx,
+    sid: u64,
+    genesis_ts: i64,
+    bell: u32,
+    region: u8,
+) -> Result<AnchorRead, Block> {
+    let anchor_addr = addr(ctx.bell_anchor(bell, region));
+    let part = archive_part_of(bell);
+    let archive_addr = addr(ctx.anchor_archive(region, part));
+    match presence(reads, &anchor_addr, &scope.program, "anchor")? {
+        Some(acc) => {
+            let a = BellAnchor::decode(&acc.data).map_err(|_| Block::Unreadable("anchor"))?;
+            if a.season_id != sid || a.bell != bell || a.region != region {
+                return Err(Block::NotCanonical("anchor"));
+            }
+            Ok(AnchorRead {
+                key: anchor_addr,
+                source: "anchor",
+                a_ts: a.a,
+                archive_seed: None,
+                sig48: a.sig48,
+                anchor_slot: Some(a.slot),
+            })
+        }
+        None => match presence(reads, &archive_addr, &scope.program, "archive")? {
+            None => Err(Block::NoAnchor("absent")),
+            Some(acc) => {
+                let ar =
+                    AnchorArchive::decode(&acc.data).map_err(|_| Block::Unreadable("archive"))?;
+                if ar.season_id != sid || ar.region != region || ar.part != part {
+                    return Err(Block::NotCanonical("archive"));
+                }
+                if !ar.is_archived(bell) {
+                    return Err(Block::NoAnchor("archive without the bell"));
+                }
+                let e = ar
+                    .entries
+                    .get(bell as usize % AA::ENTRIES_N)
+                    .ok_or(Block::Unreadable("archive"))?;
+                let a = bell_end(genesis_ts, bell)
+                    .checked_add(e.a_off as i64)
+                    .ok_or(Block::Overflow("anchor time"))?;
+                Ok(AnchorRead {
+                    key: archive_addr,
+                    source: "archive",
+                    a_ts: a,
+                    archive_seed: Some(e.seed),
+                    sig48: e.sig,
+                    anchor_slot: None,
+                })
+            }
+        },
+    }
+}
+
+/// A present slot of the cursor as read, before the instruction is sized.
+struct SlotRead {
+    position: u8,
+    slot: wa::WideArrivalSlot,
+    transit_addr: Address,
+}
+
+/// Plans WideGather of `(dest, bell)`: the first ungathered position and
+/// the contiguous ungathered run after it, cut to what one packet carries.
+/// Asks for the Season, the destination, the ClashInputs and the
+/// ArrivalDay; then THE anchor and its archive; then the run's slots; then
+/// the present slots' transit records. Module doc: the rules and their
+/// order.
+pub fn plan_gather(
+    scope: &Scope,
+    payer: Address,
+    dest: ProvinceKey,
+    bell: u32,
+    reads: &Reads,
+) -> Step<Candidate> {
+    let ctx = ctx_of(scope);
+    let world =
+        tri!(WorldId::derive_legacy_season(&ctx.season, &ctx.program).map_err(|_| Block::World));
+    if dest.world() != world {
+        return Step::Done(Err(Block::World));
+    }
+    let dest_addr = addr(wl::province_address(&ctx, dest.coord()));
+    let inputs_addr = addr(wa::clash_inputs_address(&ctx, dest, bell));
+    let day = wa::day_of(bell);
+    let day_addr = addr(wa::arrival_day_address(&ctx, dest, day));
+    need!(reads, [scope.season, dest_addr, inputs_addr, day_addr]);
+    let (season, promoted) = tri!(season_of(scope, reads));
+    let sid = season.h.season_id;
+    // 1. the destination, the latch, the end bell.
+    let (prov, pd) = tri!(tri!(province_at(
+        reads,
+        scope,
+        &ctx,
+        &dest_addr,
+        sid,
+        world,
+        "dest_province"
+    ))
+    .ok_or(Block::Absent("dest_province")));
+    if prov.coord != dest.coord() {
+        return Step::Done(Err(Block::NotCanonical("dest_province")));
+    }
+    let rn = tri!(rd_u32(pd, PV::RESOLVED_NEXT).ok_or(Block::Unreadable("dest_province")));
+    if bell < rn {
+        return Step::Done(Err(Block::LatchClosed(
+            "destination resolved past the bell",
+        )));
+    }
+    if bell >= season.end_bell {
+        return Step::Done(Err(Block::SeasonEnded));
+    }
+    let region = prov.region;
+    // 2. the window: THE anchor of (bell, region), or its archive entry.
+    let anchor_addr = addr(ctx.bell_anchor(bell, region));
+    let archive_addr = addr(ctx.anchor_archive(region, archive_part_of(bell)));
+    need!(reads, [anchor_addr, archive_addr]);
+    let an = tri!(anchor_read(
+        reads,
+        scope,
+        &ctx,
+        sid,
+        season.genesis_ts,
+        bell,
+        region
+    ));
+    let (anchor_key, anchor_source, a_ts) = (an.key, an.source, an.a_ts);
+    let Some(now) = reads.clock else {
+        return Step::Done(Err(Block::TimingNeedsClock));
+    };
+    let clock = SeasonClock::from_season(&season);
+    let close = clock.reveal_close(bell, a_ts);
+    if now.unix_timestamp < close {
+        return Step::Done(Err(Block::WindowOpen {
+            reveal_close: close,
+            now: now.unix_timestamp,
+        }));
+    }
+    // 3. the ClashInputs: absent (created), or this record's, not resolved.
+    //    Absent: the lamports already at the address (a prefunded System
+    //    account, or nothing) are what the creation's top-up nets
+    //    (`init::top_up`: the payer covers only the shortfall).
+    let (inputs_present, mask_before, cd, inputs_prefunded_lamports) =
+        match tri!(presence(reads, &inputs_addr, &scope.program, "inputs")) {
+            None => {
+                let held = reads
+                    .accounts
+                    .get(&inputs_addr)
+                    .and_then(|a| a.as_ref())
+                    .map_or(0, |a| a.lamports);
+                (false, 0u32, None, held)
+            }
+            Some(acc) => {
+                let ih = tri!(wa::WideClashInputsHdr::read(&acc.data)
+                    .map_err(|_| Block::Unreadable("inputs")));
+                if ih.season_id != sid || ih.dest != dest || ih.bell != bell {
+                    return Step::Done(Err(Block::NotCanonical("inputs")));
+                }
+                if ih.flags & wa::wide_clash_inputs::FLAG_RESOLVED != 0 {
+                    return Step::Done(Err(Block::AlreadyResolved));
+                }
+                (true, ih.arrivals_mask, Some(acc.data.as_slice()), 0)
+            }
+        };
+    if mask_before == wa::wide_clash_inputs::ALL_GATHERED {
+        return Step::Done(Err(Block::AlreadyGathered));
+    }
+    // 4. the arrival evidence: the ArrivalDay's bit. Clear, the handler
+    //    completes the record without reading a slot: with no record that
+    //    is a complete empty record the resolve does not need (not
+    //    planned: `NoArrivals`, a policy); with a partial record it is the
+    //    completing gather the resolve requires (planned, one position).
+    let day_bit_set = match tri!(presence(reads, &day_addr, &scope.program, "arrivalday")) {
+        None => false,
+        Some(acc) => {
+            let d =
+                tri!(wa::WideArrivalDay::read(&acc.data)
+                    .map_err(|_| Block::Unreadable("arrivalday")));
+            if d.season_id != sid || d.dest != dest || d.day != day {
+                return Step::Done(Err(Block::NotCanonical("arrivalday")));
+            }
+            d.has(bell)
+        }
+    };
+    if !day_bit_set && !inputs_present {
+        return Step::Done(Err(Block::NoArrivals));
+    }
+    // 5. the cursor, bounded **before** any slot is read: the first
+    //    ungathered position and the contiguous ungathered run after it, at
+    //    most `GATHER_MAX_POSITIONS` (every position present still fits one
+    //    packet under the widest budget prefix); one position when the day
+    //    bit is clear (the handler reads no slot then).
+    let positions = GATHER_POSITIONS as usize;
+    let start = (0..positions)
+        .find(|k| mask_before & (1u32 << k) == 0)
+        .expect("not every position is gathered");
+    let mut run_end = start;
+    while run_end < positions
+        && run_end - start < GATHER_MAX_POSITIONS
+        && mask_before & (1u32 << run_end) == 0
+    {
+        run_end += 1;
+    }
+    if !day_bit_set {
+        run_end = start + 1;
+    }
+    let slot_addrs: Vec<Address> = (start..run_end)
+        .map(|k| {
+            addr(wa::arrival_slot_address(
+                &ctx,
+                dest,
+                bell,
+                (k / 4) as u8,
+                (k % 4) as u8,
+            ))
+        })
+        .collect();
+    let mut n = run_end - start;
+    let mut slots: BTreeMap<u8, (GatherSlot, Address)> = BTreeMap::new();
+    let mut cut_at_unsettled: Option<u8> = None;
+    if day_bit_set {
+        need!(reads, slot_addrs.clone());
+        // 6. the slots of the cursor, each absent or this record's position.
+        let mut present: Vec<SlotRead> = Vec::new();
+        for (j, k) in (start..run_end).enumerate() {
+            let (f, i) = ((k / 4) as u8, (k % 4) as u8);
+            let Some(acc) = tri!(presence(reads, &slot_addrs[j], &scope.program, "slot")) else {
+                continue;
+            };
+            let s =
+                tri!(wa::WideArrivalSlot::read(&acc.data).map_err(|_| Block::Unreadable("slot")));
+            if s.season_id != sid || s.dest != dest || s.bell != bell || s.faction != f || s.i != i
+            {
+                return Step::Done(Err(Block::NotCanonical("slot")));
+            }
+            let hkey = wh::holding_address(&ctx, s.host.key().coord(), s.host.site());
+            let transit_addr = addr(wm::transit_address(&ctx, &hkey, s.transit_slot));
+            present.push(SlotRead {
+                position: k as u8,
+                slot: s,
+                transit_addr,
+            });
+        }
+        let transit_addrs: Vec<Address> = present.iter().map(|p| p.transit_addr).collect();
+        need!(reads, transit_addrs);
+        // 7. each present slot's transit record, as `gather_arrival` judges
+        //    it, in position order. A `Departed` record (the origin has not
+        //    settled) at the first position blocks; later in the cursor it
+        //    cuts the cursor before it: the ready prefix is a valid gather
+        //    and the handler never sees the unsettled position.
+        for p in &present {
+            if cut_at_unsettled.is_some() {
+                break;
+            }
+            let s = &p.slot;
+            let t = tri!(
+                tri!(transit_at(reads, scope, &p.transit_addr)).ok_or(Block::Absent("transit"))
+            );
+            if t.host != s.host || t.arrive_bell != bell {
+                return Step::Done(Err(Block::NotCanonical("transit")));
+            }
+            let stamps = match t.state {
+                MarchState::Departed => {
+                    if p.position as usize == start {
+                        return Step::Done(Err(Block::DepartureUnsettled {
+                            position: p.position,
+                        }));
+                    }
+                    cut_at_unsettled = Some(p.position);
+                    n = p.position as usize - start;
+                    continue;
+                }
+                MarchState::Free => return Step::Done(Err(Block::TransitState(t.state))),
+                MarchState::Gathered => {
+                    if t.dest != Some(dest) {
+                        return Step::Done(Err(Block::NotCanonical("transit")));
+                    }
+                    false
+                }
+                MarchState::Settled | MarchState::DestroyedAtOrigin => {
+                    tri!(t
+                        .step(MarchEvent::Gather { dest }, None)
+                        .map_err(|_| Block::TransitState(t.state)));
+                    true
+                }
+            };
+            let (predicted_destroyed, troops, stamina) = if t.state == MarchState::DestroyedAtOrigin
+            {
+                (true, 0, 0)
+            } else {
+                let troops = t.troops_after;
+                let stamina = arrival_stamina(t.stamina_after, t.depart_bell, bell);
+                (troops < DESTROYED_BELOW, troops, stamina)
+            };
+            slots.insert(
+                p.position,
+                (
+                    GatherSlot {
+                        host: s.host,
+                        transit_slot: s.transit_slot,
+                        transit_state: t.state,
+                        stamps,
+                        predicted_present: !predicted_destroyed,
+                        predicted_destroyed,
+                        troops_milli: troops,
+                        stamina,
+                    },
+                    p.transit_addr,
+                ),
+            );
+        }
+    }
+    // 8. the instruction: the fixed eight, then one `[slot r] [transit
+    //    r|w]` pair per position of the cursor; an absent (or unread) slot's
+    //    transit position is the slot's own address, read-only. The packet
+    //    bound is a guard here, never a trim: the cursor was bounded first.
+    let fixed = [
+        payer,
+        scope.season,
+        dest_addr,
+        anchor_key,
+        inputs_addr,
+        day_addr,
+        fclient::addr::instructions_sysvar(),
+        fclient::addr::system_program(),
+    ];
+    let mut accounts = metas(wix::GATHER, &fixed);
+    for (j, slot_addr) in slot_addrs.iter().take(n).enumerate() {
+        let k = (start + j) as u8;
+        accounts.push(AccountMeta::new_readonly(*slot_addr, false));
+        match slots.get(&k) {
+            Some((s, ta)) => accounts.push(AccountMeta {
+                pubkey: *ta,
+                is_signer: false,
+                is_writable: s.stamps,
+            }),
+            None => accounts.push(AccountMeta::new_readonly(*slot_addr, false)),
+        }
+    }
+    let ix = Instruction {
+        program_id: scope.program,
+        accounts,
+        data: Gather {
+            bell,
+            start: start as u8,
+            n: n as u8,
+        }
+        .to_bytes()
+        .to_vec(),
+    };
+    if packet_len(&ix, &payer) > GATHER_PACKET_BYTES {
+        return Step::Done(Err(Block::Overflow("packet")));
+    }
+    // 9. the prediction over the whole record, as the handler scans it:
+    //    **every** position of the scratch after the cursor is written —
+    //    the cursor's positions as this gather writes them (zeroed, then
+    //    the present slots' arrivals; untouched when the day bit is clear),
+    //    every other position as the record holds it, masked or not: a
+    //    position that does not decode fails the handler (`BadAccount`),
+    //    a present arrival anywhere counts.
+    let mut mask_after = mask_before;
+    if day_bit_set {
+        for k in start..start + n {
+            mask_after |= 1u32 << k;
+        }
+    } else {
+        mask_after = wa::wide_clash_inputs::ALL_GATHERED;
+    }
+    let mut n_present: u32 = 0;
+    for k in 0..positions {
+        if day_bit_set && k >= start && k < start + n {
+            if slots
+                .get(&(k as u8))
+                .is_some_and(|(s, _)| s.predicted_present)
+            {
+                n_present += 1;
+            }
+            continue;
+        }
+        if let Some(cd) = cd {
+            let a =
+                tri!(wa::WideArrival::read_at(cd, k)
+                    .map_err(|_| Block::Unreadable("inputs position")));
+            if a.is_some_and(|a| a.present) {
+                n_present += 1;
+            }
+        }
+    }
+    let mut stamps: u8 = 0;
+    let mut out_positions = Vec::with_capacity(n);
+    for k in start..start + n {
+        let slot = slots.get(&(k as u8)).map(|(s, _)| s.clone());
+        if slot.as_ref().is_some_and(|s| s.stamps) {
+            stamps += 1;
+        }
+        out_positions.push(GatherPosition {
+            position: k as u8,
+            faction: (k / 4) as u8,
+            i: (k % 4) as u8,
+            slot,
+        });
+    }
+    let predicted_complete = mask_after == wa::wide_clash_inputs::ALL_GATHERED;
+    let facts = GatherFacts {
+        dest,
+        bell,
+        region,
+        resolved_next: rn,
+        start: start as u8,
+        n: n as u8,
+        day_bit_set,
+        cut_at_unsettled,
+        inputs_present,
+        inputs_prefunded_lamports,
+        arrivals_mask_before: mask_before,
+        predicted_mask_after: mask_after,
+        predicted_n_present: n_present.min(positions as u32) as u8,
+        predicted_complete,
+        predicted_no_arrivals: predicted_complete && n_present == 0,
+        remaining_after: (positions as u32 - mask_after.count_ones()) as u8,
+        stamps,
+        anchor_source,
+        a_ts,
+        reveal_close: close,
+        judged_at: now.unix_timestamp,
+        positions: out_positions,
+    };
+    let data = ix.data.clone();
+    Step::Done(Ok(candidate_with(
+        scope,
+        reads,
+        payer,
+        Duty::Gather(facts),
+        ix.accounts,
+        data,
+        promoted,
+    )))
+}
+
+/// [`plan_gather`] over live reads.
+pub async fn gather_via<P: ChainPort>(
+    port: &P,
+    scope: &Scope,
+    payer: Address,
+    dest: ProvinceKey,
+    bell: u32,
+    min_slot: u64,
+) -> Result<Candidate, Block> {
+    drive(port, min_slot, |r| plan_gather(scope, payer, dest, bell, r)).await
+}
+
+/// [`plan_gather`] over one snapshot response, with the Rent sysvar (the
+/// gather may create the ClashInputs) and the fee payer's account in it.
+pub async fn gather_snapshot<P: ChainPort + SnapshotPort>(
+    port: &P,
+    scope: &Scope,
+    payer: Address,
+    dest: ProvinceKey,
+    bell: u32,
+    min_slot: u64,
+) -> Result<(Candidate, Snapshot), Block> {
+    snapshot_plan(port, min_slot, true, &[payer], |r| {
+        plan_gather(scope, payer, dest, bell, r)
+    })
+    .await
+}
+
+/// From the model: `(destination, arrival bell)` pairs of open marches
+/// whose `Revealed` was seen with an arrival bell in the applied history,
+/// whose destination has no `Resolve` of that bell and whose ClashInputs
+/// is not fully gathered or closed as the records say. A hint of what to
+/// **read**: the plan decides from the ArrivalDay and the slots on the
+/// chain, never from these records (a reveal the feed missed is still
+/// gathered; a reveal the feed shows may be gathered already).
+pub fn gather_candidates(d: &WideDiscovery) -> Vec<(ProvinceKey, u32)> {
+    let mut out: Vec<(ProvinceKey, u32)> = d
+        .hosts
+        .values()
+        .filter_map(|st| {
+            let t = st.transit.as_ref()?;
+            if !t.open() {
+                return None;
+            }
+            let r = t.reveal.as_ref()?;
+            let bell = r.arrive_bell?;
+            let dest = r.dest;
+            if d.provinces
+                .get(&dest)
+                .is_some_and(|p| p.resolved_bells.contains(&bell))
+            {
+                return None;
+            }
+            if d.inputs.get(&(dest, bell)).is_some_and(|g| {
+                g.closed.is_some() || g.arrivals_mask == wa::wide_clash_inputs::ALL_GATHERED
+            }) {
+                return None;
+            }
+            Some((dest, bell))
+        })
+        .collect();
+    out.sort();
+    out.dedup();
+    out
+}
+
+// ------------------------------------------------------------ Resolve
+
+/// SeedCache nonces a bounded probe tries (the legacy `SeedFinder`'s 256:
+/// the nonce is the poster's choice and is not derivable).
+pub const SEED_NONCES: usize = 256;
+/// Keys per `accounts` read of the probe.
+const SEED_PROBE_CHUNK: usize = 64;
+/// The position of the ClashInputs in [`wix::RESOLVE`] (`Wr::Either`:
+/// writable exactly when present).
+const RESOLVE_INPUTS: usize = 6;
+
+/// The bell model's refusal as a block: `NotDue` is the handler's
+/// `OutOfOrder`, the unported S1/S2 state by name, everything else the
+/// ABI's error by name.
+fn resolve_block(e: wres::ResolveError) -> Block {
+    match e {
+        wres::ResolveError::NotDue { next, bell } => Block::OutOfOrder {
+            resolved_next: next,
+            bell,
+        },
+        wres::ResolveError::Unported(u) => Block::Unported(match u {
+            wres::Unported::Fort => "fort",
+            wres::Unported::Caravan => "caravan",
+            wres::Unported::ConquestRecord(_) => "conquest record",
+            wres::Unported::PendingOp(_) => "pending op",
+        }),
+        other => Block::ResolveModel(format!("{other:?}")),
+    }
+}
+
+/// Plans WideResolve of `province`'s current `resolved_next` with
+/// `beneficiary` as the resolver the data names (the caller's public
+/// address; never chosen here). `seed_nonce`: the SeedCache nonce when THE
+/// anchor is present (`SeedNonceUnknown` asks for it; [`find_seed_nonce`]
+/// finds it); unused on the archive path. Asks for the Season, the
+/// province and the roster; then the anchor, the archive, the inputs and
+/// the day; then the cache. Module doc: the rules and their order.
+pub fn plan_resolve(
+    scope: &Scope,
+    payer: Address,
+    beneficiary: Address,
+    province: ProvinceKey,
+    seed_nonce: Option<u8>,
+    reads: &Reads,
+) -> Step<Candidate> {
+    let ctx = ctx_of(scope);
+    let world =
+        tri!(WorldId::derive_legacy_season(&ctx.season, &ctx.program).map_err(|_| Block::World));
+    if province.world() != world {
+        return Step::Done(Err(Block::World));
+    }
+    let province_addr = addr(wl::province_address(&ctx, province.coord()));
+    let roster_addr = addr(wro::roster_address(&ctx, province));
+    need!(reads, [scope.season, province_addr, roster_addr]);
+    let (season, promoted) = tri!(season_of(scope, reads));
+    let sid = season.h.season_id;
+    let sd: &[u8] = tri!(
+        tri!(presence(reads, &scope.season, &scope.program, "season"))
+            .ok_or(Block::Absent("season"))
+    )
+    .data
+    .as_slice();
+    // 1. the province: canonical, its current bell, the end bell.
+    let (prov, pd) = tri!(tri!(province_at(
+        reads,
+        scope,
+        &ctx,
+        &province_addr,
+        sid,
+        world,
+        "province"
+    ))
+    .ok_or(Block::Absent("province")));
+    if prov.coord != province.coord() {
+        return Step::Done(Err(Block::NotCanonical("province")));
+    }
+    let bell = tri!(rd_u32(pd, PV::RESOLVED_NEXT).ok_or(Block::Unreadable("province")));
+    if bell >= season.end_bell {
+        return Step::Done(Err(Block::SeasonEnded));
+    }
+    let region = prov.region;
+    // 2. the window: THE anchor of (bell, region), or its archive entry;
+    //    the gathered record and the arrival evidence of the bell.
+    let anchor_addr = addr(ctx.bell_anchor(bell, region));
+    let archive_addr = addr(ctx.anchor_archive(region, archive_part_of(bell)));
+    let inputs_addr = addr(wa::clash_inputs_address(&ctx, province, bell));
+    let day = wa::day_of(bell);
+    let day_addr = addr(wa::arrival_day_address(&ctx, province, day));
+    need!(reads, [anchor_addr, archive_addr, inputs_addr, day_addr]);
+    let an = tri!(anchor_read(
+        reads,
+        scope,
+        &ctx,
+        sid,
+        season.genesis_ts,
+        bell,
+        region
+    ));
+    let Some(now) = reads.clock else {
+        return Step::Done(Err(Block::TimingNeedsClock));
+    };
+    let clock = SeasonClock::from_season(&season);
+    let close = clock.reveal_close(bell, an.a_ts);
+    if now.unix_timestamp < close {
+        return Step::Done(Err(Block::WindowOpen {
+            reveal_close: close,
+            now: now.unix_timestamp,
+        }));
+    }
+    // 3. the bell seed, as `bell_seed` takes it.
+    let seed_round = clock.seed_round(bell, an.a_ts);
+    let (seed, seed_key, seed_source, seed_nonce_used) = match an.archive_seed {
+        Some(s) => (s, an.key, "archive", None),
+        None => {
+            let Some(nonce) = seed_nonce else {
+                return Step::Done(Err(Block::SeedNonceUnknown { bell, region }));
+            };
+            let cache_addr = addr(ctx.seed_cache(bell, region, nonce));
+            need!(reads, [cache_addr]);
+            let Some(acc) = tri!(presence(reads, &cache_addr, &scope.program, "seedcache")) else {
+                return Step::Done(Err(Block::SeedNotReady("cache absent at the nonce")));
+            };
+            let c = tri!(SeedCache::decode(&acc.data).map_err(|_| Block::Unreadable("seedcache")));
+            if c.season_id != sid || c.bell != bell || c.region != region {
+                return Step::Done(Err(Block::NotCanonical("seedcache")));
+            }
+            if addr(ctx.seed_cache(bell, region, c.nonce)) != cache_addr {
+                return Step::Done(Err(Block::NotCanonical("seedcache")));
+            }
+            if c.anchor_key != an.key || c.a != an.a_ts || c.round != seed_round {
+                return Step::Done(Err(Block::SeedNotReady("cache does not match THE anchor")));
+            }
+            (c.seed, cache_addr, "cache", Some(c.nonce))
+        }
+    };
+    // 4. the arrival evidence and the gathered record.
+    let arrivals_expected = match tri!(presence(reads, &day_addr, &scope.program, "arrivalday")) {
+        None => false,
+        Some(acc) => {
+            let d =
+                tri!(wa::WideArrivalDay::read(&acc.data)
+                    .map_err(|_| Block::Unreadable("arrivalday")));
+            if d.season_id != sid || d.dest != province || d.day != day {
+                return Step::Done(Err(Block::NotCanonical("arrivalday")));
+            }
+            d.has(bell)
+        }
+    };
+    let (inputs_present, cd_before): (bool, Vec<u8>) =
+        match tri!(presence(reads, &inputs_addr, &scope.program, "inputs")) {
+            None => {
+                if arrivals_expected {
+                    return Step::Done(Err(Block::NotGathered { bell }));
+                }
+                (false, Vec::new())
+            }
+            Some(acc) => {
+                let ih = tri!(wa::WideClashInputsHdr::read(&acc.data)
+                    .map_err(|_| Block::Unreadable("inputs")));
+                if ih.season_id != sid || ih.dest != province || ih.bell != bell {
+                    return Step::Done(Err(Block::NotCanonical("inputs")));
+                }
+                if ih.arrivals_mask != wa::wide_clash_inputs::ALL_GATHERED {
+                    return Step::Done(Err(Block::NotGathered { bell }));
+                }
+                if ih.flags & wa::wide_clash_inputs::FLAG_RESOLVED != 0 {
+                    return Step::Done(Err(Block::AlreadyResolved));
+                }
+                (true, acc.data.clone())
+            }
+        };
+    // 5. the step parameters: the Season's conquest block, this build's.
+    let Some(prm) = StepParams::of_season(sd) else {
+        return Step::Done(Err(Block::ConquestParams));
+    };
+    if prm.cq.conquest_version != CONQUEST_VERSION {
+        return Step::Done(Err(Block::ConquestParams));
+    }
+    // 6. the roster: present and canonical, or absent while no entry is
+    //    live (modelled as the empty table under its would-be header with
+    //    the fee payer as rent recipient, as the handler does).
+    let live = tri!(wres::live_ids(pd).map_err(|_| Block::RosterUnpaired));
+    let live_count = live.iter().flatten().count();
+    let (roster, rd_initial, roster_present) =
+        match tri!(roster_at(reads, scope, &roster_addr, sid, province)) {
+            Some((r, rd)) => (r, rd.to_vec(), true),
+            None => {
+                if live_count > 0 {
+                    return Step::Done(Err(Block::Absent("roster")));
+                }
+                let r = WideRoster::new(sid, province, payer.to_bytes());
+                let mut d = vec![0u8; wro::wide_roster::SIZE];
+                tri!(r
+                    .write_header(&mut d)
+                    .map_err(|_| Block::Unreadable("roster")));
+                (r, d, false)
+            }
+        };
+    // The Resolve record chains the province once.
+    tri!(chain_headroom(pd, 1, "province"));
+    // 7. the input commitment, over the bytes as read.
+    let input_digest =
+        wev::resolve_input_digest(province, bell, &seed, sd, pd, &rd_initial, &cd_before);
+    // 8. the bell model on scratch copies, then the handler's write-backs.
+    let mut pd_s = pd.to_vec();
+    let mut rd_s = rd_initial.clone();
+    let mut cd_s = cd_before.clone();
+    let out = tri!(wres::resolve_bell(
+        &mut pd_s,
+        &roster,
+        &mut rd_s,
+        (!cd_s.is_empty()).then_some(&cd_before[..]),
+        bell,
+        &seed,
+        &frontier_ruleset(),
+        &prm,
+    )
+    .map_err(resolve_block));
+    let resolved_ts = now
+        .unix_timestamp
+        .saturating_sub(season.genesis_ts)
+        .clamp(0, u32::MAX as i64) as u32;
+    let n_arrivals = if cd_s.is_empty() {
+        0
+    } else {
+        tri!(wres::write_resolved(&mut cd_s, &out.applied).map_err(resolve_block));
+        let mut ih =
+            tri!(wa::WideClashInputsHdr::read(&cd_s).map_err(|_| Block::Unreadable("inputs")));
+        ih.resolver = beneficiary.to_bytes();
+        ih.resolved_ts = resolved_ts;
+        tri!(ih.write(&mut cd_s).map_err(|_| Block::Unreadable("inputs")));
+        ih.n_present
+    };
+    {
+        let o = PV::RESOLVE_SUMMARY;
+        let mut r8 = [0u8; 8];
+        r8.copy_from_slice(&beneficiary.to_bytes()[..8]);
+        let ok = wr_u32(&mut pd_s, o + SU::BELL, bell)
+            & wr_u32(&mut pd_s, o + SU::ENGAGEMENTS, out.clash.engagements)
+            & wr_u8(&mut pd_s, o + SU::ARRIVALS, n_arrivals)
+            & wr_u8(&mut pd_s, o + SU::DESTROYED, out.applied.destroyed)
+            & wr_u8(&mut pd_s, o + SU::BOUNCED, out.applied.bounced)
+            & wr_arr(&mut pd_s, o + SU::RESOLVER, &r8);
+        if !ok {
+            return Step::Done(Err(Block::Unreadable("province")));
+        }
+    }
+    let output_digest = wev::resolve_output_digest(&out.clash.digest(), &pd_s, &rd_s, &cd_s);
+    // 9. the roster the bell needed and the province had none of: created
+    //    from the fee payer (the full minimum is the handler's guard; the
+    //    fee review states it).
+    let roster_created = !roster_present && rd_s != rd_initial;
+    if roster_created
+        && tri!(wres::live_ids(&pd_s).map_err(|_| Block::RosterUnpaired))
+            .iter()
+            .all(|e| e.is_none())
+    {
+        return Step::Done(Err(Block::RosterUnpaired));
+    }
+    // 10. the instruction: the table's nine, the inputs writable exactly
+    //     when present (the handler requires it then).
+    let keys = [
+        payer,
+        scope.season,
+        province_addr,
+        roster_addr,
+        seed_key,
+        an.key,
+        inputs_addr,
+        day_addr,
+        fclient::addr::system_program(),
+    ];
+    let mut accounts = metas(wix::RESOLVE, &keys);
+    accounts[RESOLVE_INPUTS].is_writable = inputs_present;
+    let facts = ResolveFacts {
+        province,
+        bell,
+        region,
+        beneficiary,
+        seed_source,
+        seed_nonce: seed_nonce_used,
+        seed_round,
+        anchor_source: an.source,
+        a_ts: an.a_ts,
+        reveal_close: close,
+        judged_at: now.unix_timestamp,
+        arrivals_expected,
+        inputs_present,
+        n_arrivals,
+        roster_present,
+        roster_created,
+        live_entries_before: live_count as u8,
+        engagements: out.clash.engagements,
+        destroyed: out.applied.destroyed,
+        bounced: out.applied.bounced,
+        settled: out.settled,
+        input_digest,
+        output_digest_at_observed_clock: output_digest,
+        resolved_ts_at_observed_clock: resolved_ts,
+    };
+    Step::Done(Ok(candidate_with(
+        scope,
+        reads,
+        payer,
+        Duty::Resolve(facts),
+        accounts,
+        Resolve {
+            bell,
+            beneficiary: beneficiary.to_bytes(),
+        }
+        .to_bytes()
+        .to_vec(),
+        promoted,
+    )))
+}
+
+/// [`plan_resolve`] over live reads.
+#[allow(clippy::too_many_arguments)]
+pub async fn resolve_via<P: ChainPort>(
+    port: &P,
+    scope: &Scope,
+    payer: Address,
+    beneficiary: Address,
+    province: ProvinceKey,
+    seed_nonce: Option<u8>,
+    min_slot: u64,
+) -> Result<Candidate, Block> {
+    drive(port, min_slot, |r| {
+        plan_resolve(scope, payer, beneficiary, province, seed_nonce, r)
+    })
+    .await
+}
+
+/// [`plan_resolve`] over one snapshot response, with the Rent sysvar (the
+/// bell may create the roster) and the fee payer's account in it.
+#[allow(clippy::too_many_arguments)]
+pub async fn resolve_snapshot<P: ChainPort + SnapshotPort>(
+    port: &P,
+    scope: &Scope,
+    payer: Address,
+    beneficiary: Address,
+    province: ProvinceKey,
+    seed_nonce: Option<u8>,
+    min_slot: u64,
+) -> Result<(Candidate, Snapshot), Block> {
+    snapshot_plan(port, min_slot, true, &[payer], |r| {
+        plan_resolve(scope, payer, beneficiary, province, seed_nonce, r)
+    })
+    .await
+}
+
+/// The nonces of every SeedCache of `(bell, region)` on chain: the legacy
+/// keeper's probe of the [`SEED_NONCES`] canonical addresses, in chunks,
+/// through `accounts` alone (at least `min_slot`) — four reads, always.
+/// Every present, program-owned, decodable cache whose stored bell, region
+/// and nonce are the address's, in nonce order. Which of them agrees with
+/// THE anchor is the planner's to judge: a caller that was refused one
+/// nonce tries the next, never the same one again.
+pub async fn find_seed_nonces<P: ChainPort>(
+    port: &P,
+    scope: &Scope,
+    bell: u32,
+    region: u8,
+    min_slot: u64,
+) -> Result<Vec<u8>, Block> {
+    let ctx = ctx_of(scope);
+    let keys: Vec<Address> = (0..SEED_NONCES)
+        .map(|n| addr(ctx.seed_cache(bell, region, n as u8)))
+        .collect();
+    let mut found = Vec::new();
+    for (i, chunk) in keys.chunks(SEED_PROBE_CHUNK).enumerate() {
+        let got = port
+            .accounts(chunk, min_slot)
+            .await
+            .map_err(|e| Block::Read(e.to_string()))?;
+        if got.len() != chunk.len() {
+            return Err(Block::Read("account count differs from the request".into()));
+        }
+        for (j, acc) in got.iter().enumerate() {
+            let Some(a) = acc else { continue };
+            if a.owner != scope.program {
+                continue;
+            }
+            let Ok(c) = SeedCache::decode(&a.data) else {
+                continue;
+            };
+            let nonce = (i * SEED_PROBE_CHUNK + j) as u8;
+            if c.bell == bell && c.region == region && c.nonce == nonce {
+                found.push(nonce);
+            }
+        }
+    }
+    Ok(found)
+}
+
+/// The first of [`find_seed_nonces`], if any.
+pub async fn find_seed_nonce<P: ChainPort>(
+    port: &P,
+    scope: &Scope,
+    bell: u32,
+    region: u8,
+    min_slot: u64,
+) -> Result<Option<u8>, Block> {
+    Ok(find_seed_nonces(port, scope, bell, region, min_slot)
+        .await?
+        .first()
+        .copied())
+}
+
+/// From the model: **every** observed province not seen closed, in key
+/// order — bounded by the observer's own province limit
+/// (`Limits::max_provinces`), never cut here, so the tick's rotating
+/// cursor reaches each of them in turn under its plan cap. A hint of what
+/// to **read**: the plan takes the province's current `resolved_next`
+/// from the chain, so bells without observed arrivals (resident-only
+/// bells) are planned too and no intermediate bell is skipped.
+pub fn resolve_candidates(d: &WideDiscovery) -> Vec<ProvinceKey> {
+    d.provinces
+        .iter()
+        .filter(|(_, p)| p.closed.is_none())
+        .map(|(k, _)| *k)
+        .collect()
+}
+
 // ------------------------------------------------------------ the read driver
 
 /// Reads at least `min_slot` through the port and plans; the Clock is read
@@ -1273,7 +2850,7 @@ where
 {
     let mut reads = Reads::new(min_slot);
     reads.clock = port.clock().await.ok();
-    for _ in 0..4 {
+    for _ in 0..MAX_READ_ROUNDS {
         match plan(&reads) {
             Step::Done(r) => return r,
             Step::Need(addrs) => {

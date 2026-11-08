@@ -4,10 +4,11 @@
 //! accounts, syscall stubs, clock, log capture and serial lock. Filter:
 //! `map_growth_runtime_tests::wide_land::wide_economy::`.
 //!
-//! What it shows, through the program's real `dispatch` (never `run_tx`:
-//! every call here is a direct dispatch with no rollback, so a "nothing
+//! What it shows, through the program's real `dispatch` (economy actions
+//! and refusals are direct dispatches with no rollback, so a "nothing
 //! changed" assertion after a refusal is the handler's own guarantee, not
-//! the executor's):
+//! the executor's; the opt-in transit test uses `run_tx` only for its
+//! successful return, via the parent's settlement helper):
 //!
 //! - Harvest, all nine Build items and several Train units executing for
 //!   the Citizen's wallet, its Frontier session, and an NFT resident's
@@ -503,6 +504,94 @@ impl Econ {
     fn holding_data(&mut self) -> Vec<u8> {
         self.w.holding_data(self.coord, self.site)
     }
+}
+
+/// Interleave a real Train after the parent's real WideDepart calls.
+/// Stock is the sole added fixture. Both active transit records, the
+/// paired roster, all economic accounts and their lamports are observed;
+/// refusals use direct dispatch, never the rollback-capable executor.
+#[cfg(all(
+    feature = "native-crypto-tests",
+    not(feature = "test-beacon"),
+    not(target_os = "solana")
+))]
+pub(super) fn train_after_real_depart(
+    w: &mut Wide,
+    member: &Member,
+    coord: WideCoord,
+    site: u8,
+) -> Vec<u8> {
+    use frontier_abi::world_index::march::{MarchState, WideTransit};
+    stock(w, coord, site, STOCK);
+    let t = target(w, coord, site);
+    let a = accounts(w, member, WALLET_A, coord, site, false);
+    let transits = [w.transit(coord, site, 0), w.transit(coord, site, 1)];
+    for transit in &transits {
+        let march = WideTransit::from_bytes(&transit.try_borrow_data().unwrap()).unwrap();
+        assert_eq!(march.state, MarchState::Departed);
+        assert_eq!(march.host.holding_ref(), t.href);
+    }
+    let mut watched = a.clone();
+    watched.extend(transits.iter().cloned());
+    watched.push(w.roster(coord));
+    let before = snapshot(&watched);
+    let logs = (
+        LOGS.lock().unwrap().clone(),
+        WIDE_LOGS.lock().unwrap().clone(),
+    );
+    let train = Action::Train { unit: 0, n: 10 };
+    let mut stranger = a.clone();
+    stranger[0] = wallet(WALLET_B, true, false, 0);
+    assert_eq!(refused(&stranger, &bytes(train)), E::Auth as u32);
+    assert_eq!(snapshot(&watched), before);
+    assert_eq!(
+        refused(
+            &a,
+            &bytes(Action::Train {
+                unit: 0,
+                n: 1_000_000
+            })
+        ),
+        E::Insufficient as u32
+    );
+    assert_eq!(snapshot(&watched), before);
+    assert_eq!(
+        (
+            LOGS.lock().unwrap().clone(),
+            WIDE_LOGS.lock().unwrap().clone()
+        ),
+        logs
+    );
+
+    let d = succeeded(&a, &bytes(train));
+    check_receipt(&t, &d, train, false, &mut Vec::new());
+    assert_eq!(
+        WideHolding::read(&d.post.holding).unwrap(),
+        WideHolding::read(&d.pre.holding).unwrap(),
+        "same identity, generation and open-transit count"
+    );
+    assert_eq!(
+        rd_u32(&d.post.holding, H::HOST_SEQ),
+        rd_u32(&d.pre.holding, H::HOST_SEQ)
+    );
+    assert_eq!(
+        rd_u32(&d.post.holding, H::reserve(0)),
+        rd_u32(&d.pre.holding, H::reserve(0)) + 10
+    );
+    let after = snapshot(&watched);
+    for (pre, post) in before.iter().zip(&after) {
+        assert_eq!(
+            (pre.0, pre.2),
+            (post.0, post.2),
+            "no lamport or owner change"
+        );
+    }
+    assert_eq!(
+        after[6..],
+        before[6..],
+        "active transits and paired roster untouched"
+    );
+    d.record
 }
 
 // ------------------------------------------------------------------ tests
@@ -1263,4 +1352,277 @@ fn wide_economy_due_finality_refusals_leave_state_and_bucket_unchanged() {
         H::STATE_PROVISIONAL,
         "still provisional after both refusals"
     );
+}
+
+/// One holding through an active march, Train and a reserve return. The
+/// Q3 scene runs Reveal/Gather/Resolve but stages departures (the debit
+/// gate is closed); stock and the home faction's full roster are explicit
+/// fixtures. No key is generated and no signature is produced. Only the
+/// successful settlement uses the parent's rollback-capable helper;
+/// economic refusals and the settlement replay use direct dispatch.
+#[cfg(all(
+    feature = "native-crypto-tests",
+    not(feature = "test-beacon"),
+    not(target_os = "solana")
+))]
+#[test]
+fn wide_economy_train_during_transit_preserves_escrow_and_returns_into_changed_reserve() {
+    use frontier_abi::log::{seal_code, transit_outcome as TO};
+    use frontier_abi::world_index::march::{MarchState, WideTransit};
+
+    let _g = begin();
+    let Q3Scene {
+        mut w,
+        a,
+        coord,
+        site,
+        dest,
+        key,
+        dkey,
+        arrive,
+        fee,
+        bond,
+        tip,
+        total,
+        rent_t,
+        payer,
+        payer2,
+        payer3,
+        payer4,
+        hosts,
+        marches,
+        ..
+    } = native_q3_scene(0);
+    let host = hosts[3]; // E: unrevealed, 401 troops, routed by the real record.
+    let (slot, commit, seal) = marches[3];
+    w.at(23, 60);
+
+    // A full home faction makes the return credit the holding reserve.
+    // These are resident fixtures, not a claim that eight arrivals ran.
+    let tiles = w.free_tiles(coord, PV::FACTION_CAP, &[]);
+    for (i, tile) in tiles.into_iter().enumerate() {
+        let resident = WideHostRef::new(key, site, 1, 50 + i as u32).unwrap();
+        w.stage_resident(coord, resident, a.faction, tile, 1_000);
+    }
+    stock(&mut w, coord, site, STOCK);
+    let t = target(&mut w, coord, site);
+    assert_eq!(host.holding_ref(), t.href);
+    let home = w.province(coord);
+    let destination = w.province(dest);
+    let dest_start = chain(&destination);
+    let transit = w.transit(coord, site, slot);
+    let transit_before = snapshot(&[transit.clone()]);
+    let march = WideTransit::from_bytes(&transit.try_borrow_data().unwrap()).unwrap();
+    assert_eq!((march.state, march.host), (MarchState::Settled, host));
+    assert_eq!(march.troops_after, 401_000);
+    let hd0 = w.holding_data(coord, site);
+    let holding0 = WideHolding::read(&hd0).unwrap();
+    assert_eq!(march.host_identity, holding0.host_identity);
+    assert_eq!(holding0.open_transits, 3);
+    assert_eq!(Ro(&hd0).u64(H::ESCROW).unwrap(), total * 3);
+    assert_eq!(Ro(&hd0).u64(H::POOL_OWED).unwrap(), 0);
+    let reserve0 = rd_u32(&hd0, H::reserve(0));
+
+    // Prepare precisely the helper's account order once, outside every
+    // refusal snapshot; stage_seed itself is a fixture write.
+    let region = WideProvince::read(&w.province_data(dest)).unwrap().region;
+    let anchor = w.stage_seed(arrive, region, &BELL_SEED).1;
+    let settle_accounts = vec![
+        payer.clone(),
+        w.w.season.clone(),
+        t.holding.clone(),
+        destination.clone(),
+        w.inputs(dest, arrive),
+        w.slot(dest, arrive, a.faction, 0),
+        home.clone(),
+        anchor,
+        unsigned(&payer2),
+        unsigned(&payer3),
+        unsigned(&payer),
+        unsigned(&payer4),
+        transit.clone(),
+        w.roster(coord),
+        w.w.system.clone(),
+        w.roster(dest),
+        unsigned(&payer),
+    ];
+    let econ_accounts = accounts(&mut w, &a, WALLET_A, coord, site, false);
+    let mut watched = settle_accounts.clone();
+    watched.extend(econ_accounts.iter().cloned());
+    let all_logs = || {
+        (
+            LOGS.lock().unwrap().clone(),
+            WIDE_LOGS.lock().unwrap().clone(),
+        )
+    };
+    let refuse_unchanged = |action_accounts: &[AccountInfo<'static>], data: &[u8], want| {
+        let before = snapshot(&watched);
+        let action_before = snapshot(action_accounts);
+        let logs = all_logs();
+        assert_eq!(exec(action_accounts, data), Err(want));
+        assert_eq!(
+            snapshot(&watched),
+            before,
+            "direct refusal wrote state or lamports"
+        );
+        assert_eq!(snapshot(action_accounts), action_before);
+        assert_eq!(all_logs(), logs, "direct refusal changed log contents");
+    };
+    let train = Action::Train { unit: 0, n: 10 };
+    let mut stranger = econ_accounts.clone();
+    stranger[0] = wallet(WALLET_B, true, false, 0);
+    refuse_unchanged(&stranger, &bytes(train), E::Auth as u32);
+    // Real payment refusal, with no patched auth or resource gate.
+    refuse_unchanged(
+        &econ_accounts,
+        &bytes(Action::Train {
+            unit: 0,
+            n: 1_000_000,
+        }),
+        E::Insufficient as u32,
+    );
+
+    let lamports0: Vec<_> = watched.iter().map(AccountInfo::lamports).collect();
+    let mut trace = Vec::new();
+    let d = succeeded(&econ_accounts, &bytes(train));
+    check_receipt(&t, &d, train, false, &mut trace);
+    assert_eq!(
+        trace.len(),
+        1,
+        "retain the drained economy record for the combined trace"
+    );
+    assert_eq!(WideHolding::read(&d.post.holding).unwrap(), holding0);
+    assert_eq!(
+        rd_u32(&d.post.holding, H::HOST_SEQ),
+        rd_u32(&hd0, H::HOST_SEQ)
+    );
+    assert_eq!(snapshot(&[transit.clone()]), transit_before);
+    assert_eq!(rd_u32(&d.post.holding, H::reserve(0)), reserve0 + 10);
+    assert_eq!(
+        watched
+            .iter()
+            .map(AccountInfo::lamports)
+            .collect::<Vec<_>>(),
+        lamports0
+    );
+
+    // Settlement sees exactly the trained holding, not a reconstructed one.
+    let balances = || {
+        [
+            payer.lamports(),
+            payer2.lamports(),
+            payer3.lamports(),
+            payer4.lamports(),
+            t.holding.lamports(),
+            transit.lamports(),
+        ]
+    };
+    let before = balances();
+    let n_entries = w.province_data(coord)[PV::N_ENTRIES];
+    assert_eq!(
+        code(w.settle_transit_home(
+            host,
+            slot,
+            dest,
+            arrive,
+            a.faction,
+            0,
+            commit,
+            seal,
+            payer2.clone(),
+            payer3.clone(),
+            payer4.clone(),
+            home.clone()
+        )),
+        Ok(())
+    );
+    let after = balances();
+    assert_eq!(after[0] - before[0], bond + rent_t);
+    assert_eq!(after[2] - before[2], fee);
+    assert_eq!((after[1], after[3]), (before[1], before[3]));
+    assert_eq!(before[4] - after[4], fee + bond);
+    assert_eq!((before[5], after[5]), (rent_t, 0));
+    assert_eq!(
+        before.iter().sum::<u64>(),
+        after.iter().sum::<u64>(),
+        "lamports conserved"
+    );
+    let hd1 = w.holding_data(coord, site);
+    let mut expected_holding = holding0;
+    expected_holding.open_transits -= 1;
+    assert_eq!(WideHolding::read(&hd1).unwrap(), expected_holding);
+    assert_eq!(rd_u32(&hd1, H::HOST_SEQ), rd_u32(&hd0, H::HOST_SEQ));
+    assert_eq!(Ro(&hd1).u64(H::ESCROW).unwrap(), total * 2);
+    assert_eq!(Ro(&hd1).u64(H::POOL_OWED).unwrap(), tip);
+    assert_eq!(
+        rd_u32(&hd1, H::reserve(0)),
+        reserve0 + 10 + 200,
+        "200 whole survivors add to the trained reserve, not its old value"
+    );
+    assert_eq!(w.province_data(coord)[PV::N_ENTRIES], n_entries);
+    assert!(absent(&transit));
+    assert!(
+        records().is_empty(),
+        "no PS2 diversion when the tip stays owed here"
+    );
+    let returned = wide_records();
+    assert_eq!(returned.len(), 2);
+    let settled = WideRecord::decode(&returned[0]).unwrap();
+    assert_eq!(
+        (settled.kind, settled.host()),
+        (WideKind::TransitSettled, Some(host))
+    );
+    assert_eq!(&settled.payload[..3], &[slot, TO::ROUTED, seal_code::VALID]);
+    assert_eq!(&settled.payload[3..7], &200_500u32.to_le_bytes());
+    assert_eq!(&settled.payload[7..15], &tip.to_le_bytes());
+    assert_eq!(settled.payload[31], 1, "home credited");
+    let returned_home = WideRecord::decode(&returned[1]).unwrap();
+    assert_eq!(
+        (
+            returned_home.kind,
+            returned_home.host(),
+            returned_home.standing()
+        ),
+        (WideKind::Return, Some(host), Some(key))
+    );
+    assert_eq!(&returned_home.payload[..4], &200_000u32.to_le_bytes());
+    assert_eq!(&returned_home.payload[4..6], &[0, wev::RETURN_TO_RESERVE]);
+    trace.extend(returned);
+
+    // Independently recompute each prev-head -> next-head with the ABI,
+    // including both return links after the saved economy receipt.
+    for (target, start, end) in [
+        (WideTarget::Holding(t.href), t.h0, chain(&t.holding)),
+        (WideTarget::Province(key), t.p0, chain(&home)),
+        (WideTarget::Province(dkey), dest_start, chain(&destination)),
+    ] {
+        let entity = target.entity();
+        let mut previous = start;
+        for body in &trace {
+            let record = WideRecord::decode(body).unwrap();
+            if record.concerns(target) && record.kind.links().contains(&entity) {
+                let next = wev::advance(entity, previous.0, &previous.1, record.body_without_tail)
+                    .unwrap();
+                assert_eq!(record.link(entity), Some(next));
+                previous = (next.seq, next.head);
+            }
+        }
+        assert_eq!(previous, end);
+        assert_eq!(
+            wev::verify_chain(target, start, trace.iter().map(Vec::as_slice)),
+            Ok(end)
+        );
+    }
+    assert_eq!(chain(&t.holding).0, t.h0.0 + 3);
+    assert_eq!(chain(&home).0, t.p0.0 + 1);
+    assert_eq!(chain(&destination).0, dest_start.0 + 1);
+
+    let replay = wix::SettleTransit {
+        transit_slot: slot,
+        commit,
+        seal,
+        beneficiary: *payer4.key.as_array(),
+    }
+    .to_bytes();
+    refuse_unchanged(&settle_accounts, &replay, E::TransitState as u32);
 }

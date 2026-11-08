@@ -154,6 +154,29 @@ pub enum SnapshotError {
     BadRent(&'static str),
 }
 
+impl SnapshotError {
+    /// A bounded, typed code for status output: the variant and its
+    /// numeric or static-string payload, **never** the RPC's own text
+    /// (which may carry a URL with credentials or arbitrary server
+    /// output).
+    pub fn code(&self) -> String {
+        match self {
+            SnapshotError::Unsupported => "Unsupported".into(),
+            SnapshotError::TooManyKeys { n, max } => format!("TooManyKeys({n},{max})"),
+            SnapshotError::DuplicateKey => "DuplicateKey".into(),
+            SnapshotError::Rpc(_) => "Rpc".into(),
+            SnapshotError::Malformed(w) => format!("Malformed({w})"),
+            SnapshotError::Partial { want, got } => format!("Partial({want},{got})"),
+            SnapshotError::Stale {
+                context_slot,
+                min_slot,
+            } => format!("Stale({context_slot},{min_slot})"),
+            SnapshotError::BadClock(w) => format!("BadClock({w})"),
+            SnapshotError::BadRent(w) => format!("BadRent({w})"),
+        }
+    }
+}
+
 /// The sealed facts of one response. Constructed only by
 /// [`parse_snapshot_response`]; read through methods; re-verified against
 /// the reads it is attached to by [`SnapshotMeta::verify`].
@@ -480,34 +503,186 @@ impl SnapshotPort for RpcPort {
     }
 }
 
+/// The **object-safe** form of [`SnapshotPort`], so a runtime generic over
+/// `ChainPort` alone can carry the snapshot as an **additive, optional**
+/// adapter (`Box<dyn SnapshotSource>`) without a new bound on every port
+/// implementation. Every `SnapshotPort` is a `SnapshotSource` (blanket
+/// impl); the keeper's JSON-RPC port is one, a fake port in a test is one,
+/// a port without the capability answers `Unsupported`.
+pub trait SnapshotSource: Send + Sync {
+    /// [`SnapshotPort::snapshot`], boxed.
+    fn snapshot_boxed<'a>(
+        &'a self,
+        keys: &'a [Address],
+        with_rent: bool,
+        min_slot: u64,
+    ) -> std::pin::Pin<Box<dyn Future<Output = Result<Snapshot, SnapshotError>> + Send + 'a>>;
+
+    /// A label for status output: what the source is, never where (no URL,
+    /// no secret).
+    fn label(&self) -> &'static str {
+        "SnapshotPort: one getMultipleAccounts with minContextSlot, parsed by parse_snapshot_response"
+    }
+}
+
+impl<T: SnapshotPort + Send + Sync> SnapshotSource for T {
+    fn snapshot_boxed<'a>(
+        &'a self,
+        keys: &'a [Address],
+        with_rent: bool,
+        min_slot: u64,
+    ) -> std::pin::Pin<Box<dyn Future<Output = Result<Snapshot, SnapshotError>> + Send + 'a>> {
+        Box::pin(SnapshotPort::snapshot(self, keys, with_rent, min_slot))
+    }
+}
+
+/// A boxed future of one snapshot.
+pub type SnapshotFuture<'a> =
+    std::pin::Pin<Box<dyn Future<Output = Result<Snapshot, SnapshotError>> + Send + 'a>>;
+
+/// `SnapshotPort::snapshot` of a concrete port type as a plain function
+/// pointer: taken where `P: SnapshotPort` is known
+/// (`Keeper::enable_wide_snapshot_via_port`) and called later where the
+/// runtime only knows `P: ChainPort`. Nothing is boxed or trusted beyond
+/// the port the keeper already reads through.
+pub type SnapshotFn<P> = for<'a> fn(&'a P, &'a [Address], bool, u64) -> SnapshotFuture<'a>;
+
+/// The function [`SnapshotFn`] points at.
+pub fn snapshot_via<'a, P: SnapshotPort>(
+    port: &'a P,
+    keys: &'a [Address],
+    with_rent: bool,
+    min_slot: u64,
+) -> SnapshotFuture<'a> {
+    Box::pin(port.snapshot(keys, with_rent, min_slot))
+}
+
+/// The keeper's own read port as a snapshot source, through the function
+/// pointer taken when its type was known to implement `SnapshotPort`.
+pub struct PortSnapshot<'a, P> {
+    pub port: &'a P,
+    pub f: SnapshotFn<P>,
+}
+
+impl<P: Sync> SnapshotPort for PortSnapshot<'_, P> {
+    fn snapshot(
+        &self,
+        keys: &[Address],
+        with_rent: bool,
+        min_slot: u64,
+    ) -> impl Future<Output = Result<Snapshot, SnapshotError>> + Send {
+        // The returned future captures the port borrow (the struct's
+        // lifetime) and an owned copy of the keys — never the
+        // intersection of two independent borrows, which no hidden type
+        // could name.
+        let port = self.port;
+        let f = self.f;
+        let keys: Vec<Address> = keys.to_vec();
+        async move { f(port, &keys, with_rent, min_slot).await }
+    }
+}
+
+/// How the runtime's wide review takes its snapshot, if at all.
+pub enum SnapshotMode<P> {
+    /// No snapshot: ordinary reads, every candidate non-coherent.
+    Off,
+    /// Through the keeper's **own** read port (preferred: the same node,
+    /// the same client, no second relation to trust).
+    ViaPort(SnapshotFn<P>),
+    /// Through a separately attached source. Its relation to the read
+    /// port (same node or not) is the operator's claim and is **not**
+    /// verified here; the response is still bound to its own keys,
+    /// context slot and sysvars like any other.
+    Separate(Box<dyn SnapshotSource>),
+}
+
+impl<P> SnapshotMode<P> {
+    pub fn label(&self) -> &'static str {
+        match self {
+            SnapshotMode::Off => "off: ordinary reads only",
+            SnapshotMode::ViaPort(_) => "the keeper's own read port (SnapshotPort)",
+            SnapshotMode::Separate(_) => {
+                "a separately attached source; its relation to the read port is not verified"
+            }
+        }
+    }
+}
+
 /// Plans over one snapshot. First the key set is learned through ordinary
 /// reads (non-coherent; the planner asks in rounds); then **one** snapshot
 /// of every key it asked for plus `extra_keys` (a fee payer whose balance
 /// the fee review bounds) is taken at or past `min_slot`; then the plan
 /// runs again over that response alone. A plan that asks for a key the
 /// snapshot does not hold (the state moved between the two) is
-/// `Block::SnapshotIncomplete`, never patched from another read.
+/// `Block::SnapshotIncomplete`, never patched from another read. A plan
+/// that says `Block::RentSysvarMissing` while the keys are learned (a
+/// Rent-dependent rule) has the Rent sysvar read once for the discovery
+/// when `with_rent`; the final judgement still uses the response's own
+/// Rent and nothing of the discovery reads.
 pub async fn snapshot_plan<P, T, F>(
     port: &P,
+    min_slot: u64,
+    with_rent: bool,
+    extra_keys: &[Address],
+    plan: F,
+) -> Result<(T, Snapshot), Block>
+where
+    P: ChainPort + SnapshotPort,
+    F: FnMut(&Reads) -> Step<T>,
+{
+    snapshot_plan_with(port, port, min_slot, with_rent, extra_keys, plan).await
+}
+
+/// [`snapshot_plan`] with the ordinary reads from `port` and the one
+/// response from a separate `source` (the runtime's additive adapter). The
+/// same three steps, the same refusals; the planner closure is the same
+/// one the orchestrator path uses.
+pub async fn snapshot_plan_with<P, S, T, F>(
+    port: &P,
+    source: &S,
     min_slot: u64,
     with_rent: bool,
     extra_keys: &[Address],
     mut plan: F,
 ) -> Result<(T, Snapshot), Block>
 where
-    P: ChainPort + SnapshotPort,
+    P: ChainPort,
+    S: SnapshotSource + ?Sized,
     F: FnMut(&Reads) -> Step<T>,
 {
     // 1. learn the keys (ordinary reads, lower bound, separate clock).
     let mut reads = Reads::new(min_slot);
     reads.clock = port.clock().await.ok();
     let mut rounds = 0;
+    // A planner that judges a Rent-dependent rule (the settlement's divert
+    // rule) says `RentSysvarMissing` once every account is in hand; with
+    // `with_rent`, the Rent sysvar is then read **once** here (an ordinary
+    // read, like the clock) so the key set can be learned. Other planners
+    // never say it, so their read counts are unchanged. The judgement in
+    // step 3 is over the response's own Rent alone.
+    let mut rent_tried = false;
     loop {
         rounds += 1;
         if rounds > 6 {
             return Err(Block::ReadLoop);
         }
         match plan(&reads) {
+            Step::Done(Err(Block::RentSysvarMissing(_)))
+                if with_rent && !rent_tried && reads.rent.is_none() =>
+            {
+                rent_tried = true;
+                let got = port
+                    .accounts(&[rent_sysvar()], min_slot)
+                    .await
+                    .map_err(|e| Block::Read(e.to_string()))?;
+                reads.rent = match got.as_slice() {
+                    [Some(acc)] => RentSysvar::decode(&acc.data),
+                    _ => None,
+                };
+                if reads.rent.is_none() {
+                    return Err(Block::RentSysvarMissing("discovery read"));
+                }
+            }
             Step::Done(Err(b)) => return Err(b),
             Step::Done(Ok(_)) => break,
             Step::Need(addrs) => {
@@ -531,10 +706,10 @@ where
             keys.push(*k);
         }
     }
-    let snap = port
-        .snapshot(&keys, with_rent, min_slot)
+    let snap = source
+        .snapshot_boxed(&keys, with_rent, min_slot)
         .await
-        .map_err(|e| Block::Snapshot(format!("{e:?}")))?;
+        .map_err(|e| Block::Snapshot(e.code()))?;
     // 3. the plan over that response alone.
     match plan(&snap.reads()) {
         Step::Done(Ok(t)) => Ok((t, snap)),

@@ -19,14 +19,21 @@
 //! applied history", never "none exist": the arrival evidence stays the
 //! chain's ArrivalDay account, which the read plan asks for.
 //!
-//! Inputs are **already authenticated** bodies: a caller hands over one
-//! successful transaction's `PSW1` bodies with the source sequence and a
-//! provenance [`Scope`] ([`WideBatch`]), or a whole feed `TxRecord` through
-//! the frame-checked adapter ([`observe_tx`], `fclient::typed_log`), which
-//! never turns a rolled-back transaction or a failed CPI subtree into a wide
-//! event. The model verifies no event chain (the typed reader's job), reads
-//! no account, sends nothing, and emits no instruction: its plans are
-//! read-account requirements ([`ReadRequirement`]) only.
+//! Inputs are **format-checked** bodies, not authenticated history: a
+//! caller hands over one successful transaction's `PSW1` bodies with the
+//! source sequence and a provenance [`Scope`] ([`WideBatch`]), or a whole
+//! feed `TxRecord` through the frame-checked adapter ([`observe_tx`],
+//! `fclient::typed_log`), which checks the runtime log structure and the
+//! record codec and never turns a rolled-back transaction or a failed CPI
+//! subtree into a wide event. Nothing here verifies a signature or the
+//! source's coverage. The model ([`WideDiscovery`]) verifies no event
+//! chain; the observer ([`WideObserver`]) verifies **local chain
+//! continuity** — each record's links against the previous head it saw for
+//! that province or holding, the typed index's rule — from an anchor that
+//! is verified only when it is the first link from the zero head and is
+//! otherwise taken on trust and marked so. The model reads no account,
+//! sends nothing, and emits no instruction: its plans are read-account
+//! requirements ([`ReadRequirement`]) only.
 //!
 //! **Bounded and atomic.** Every cap ([`Limits`]) is checked before a batch
 //! changes anything: the input (bodies per batch, bytes) up front, and the
@@ -70,7 +77,9 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use frontier_abi::addr::AddrCtx;
-use frontier_abi::world_index::event::{EventError, WideKind, WideRecord, MAX_BODY};
+use frontier_abi::world_index::event::{
+    advance, EventError, WideEntity, WideKind, WideRecord, WideTarget, MAX_BODY,
+};
 use frontier_abi::world_index::{
     arrival as wa, holding as wh, land as wl, march as wm, roster as wro, ProvinceKey, WideHostRef,
     WorldId,
@@ -1915,8 +1924,59 @@ pub struct WideObserver {
     pub last_seq_seen: Option<u64>,
     /// Pages whose sequences did not continue the previous one.
     pub gaps: u64,
+    /// The number of leading records of the **last** page shown that the
+    /// observer processed: `0` when it was already blocked, when the page
+    /// came from another program, or when the page failed validation
+    /// before any record was applied; `k` when record `k` blocked it
+    /// (records `0..k` processed, exact replays included); the page's
+    /// length otherwise. What a consumer of the same page may take as
+    /// observer-accepted; a numeric sequence threshold is not that.
+    pub accepted_prefix: usize,
     /// Exact whole-transaction fingerprints, including legacy and rollbacks.
     observations: BTreeMap<u64, [u8; 32]>,
+    /// The event chain of every province and holding seen, by full key
+    /// (`(entity, key bytes)`), as the typed index keeps it: the last link
+    /// and whether the province closed. Continuity is verified from the
+    /// **first link seen** per entity (`chain_anchored`); the prefix before
+    /// it is unknown, as everything before the applied history is.
+    chains: BTreeMap<(u8, Vec<u8>), ChainHead>,
+    /// Entities whose first link seen was sequence 1 and equal to
+    /// `advance` from the zero head: verified from genesis, as the typed
+    /// index verifies.
+    pub chain_anchored_from_genesis: u64,
+    /// Entities whose first link seen was taken on trust (mid-history): its
+    /// prefix is unknown and **not** verified; no equivalence with the
+    /// typed index's from-zero chain is claimed for them.
+    pub chain_anchored_unverified: u64,
+    /// Links verified against the previous observed head.
+    pub chain_verified: u64,
+}
+
+/// Chain keys the observer keeps; one more blocks it (a bound, never a
+/// completeness claim).
+pub const MAX_CHAIN_KEYS: usize = 4_096;
+
+/// The last link of an entity's event chain as observed, in the typed
+/// index's terms (`findex::wide_index::ChainState`) plus what the index
+/// never needs to say: whether the chain was verified from genesis.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ChainHead {
+    pub seq: u64,
+    pub head: [u8; 32],
+    /// The slot the feed record that carried this link **asserted** — the
+    /// source's claim, not proof the record landed there (nothing here
+    /// verified the record against the chain). A response's context slot
+    /// before it cannot be compared with the link; one at or past it can,
+    /// under that same unverified assertion.
+    pub slot: u64,
+    /// `ProvinceClosed` was seen: no record may continue the chain.
+    pub terminal: bool,
+    /// The first link seen was sequence 1 and `advance` from the zero head
+    /// reproduced it: the whole chain seen is verified from genesis. `false`
+    /// when the first link was anchored on trust mid-history — then only
+    /// continuity after it is verified, and the head is **not** claimed
+    /// equivalent to the typed index's.
+    pub from_genesis: bool,
 }
 
 impl WideObserver {
@@ -1930,14 +1990,187 @@ impl WideObserver {
             decode_failures: 0,
             last_seq_seen: None,
             gaps: 0,
+            accepted_prefix: 0,
             observations: BTreeMap::new(),
+            chains: BTreeMap::new(),
+            chain_anchored_from_genesis: 0,
+            chain_anchored_unverified: 0,
+            chain_verified: 0,
         }
+    }
+
+    /// The observed chain head of a province or holding of this world, by
+    /// full identity; `None` when no linked record of it was seen (never
+    /// proof of absence).
+    pub fn chain(&self, target: WideTarget) -> Option<ChainHead> {
+        let key = match target {
+            WideTarget::Province(p) => p.to_bytes().to_vec(),
+            WideTarget::Holding(h) => h.holding_ref().to_bytes().to_vec(),
+        };
+        self.chains.get(&(target.entity() as u8, key)).copied()
+    }
+
+    /// The model's own input caps (`Limits`: bodies per batch, bytes of one
+    /// body, bytes of the batch), applied here **before** the chain plan so
+    /// that an oversized batch is refused by lengths alone — no further
+    /// decode of the bodies (the typed reader decoded the frame already,
+    /// in `observe_tx`), no staged scan, no head or model change. The same
+    /// refusal the model would make; stated once, earlier.
+    fn input_caps(&self, batch: &WideBatch) -> Result<(), String> {
+        let l = &self.model.limits;
+        let bodies = batch.bodies.len();
+        if bodies > l.max_bodies_per_batch {
+            return Err(format!(
+                "bodies per batch: {bodies} over the cap {}",
+                l.max_bodies_per_batch
+            ));
+        }
+        let largest = batch.bodies.iter().map(Vec::len).max().unwrap_or(0);
+        if largest > l.max_body_bytes {
+            return Err(format!(
+                "bytes of one body: {largest} over the cap {}",
+                l.max_body_bytes
+            ));
+        }
+        let total = batch
+            .bodies
+            .iter()
+            .map(Vec::len)
+            .fold(0usize, usize::saturating_add);
+        if total > l.max_batch_bytes {
+            return Err(format!(
+                "bytes of the batch: {total} over the cap {}",
+                l.max_batch_bytes
+            ));
+        }
+        Ok(())
+    }
+
+    /// The chain links of one batch against the observed heads — the typed
+    /// index's rule (`findex::wide_index::WideIndex::index_one`): per link,
+    /// the entity's full identity from the record, the expected next link
+    /// `advance(entity, seq, head, body_without_tail)`, equality with the
+    /// carried link, and no continuation after `ProvinceClosed`. An entity
+    /// seen for the first time: a link with sequence 0 is refused; sequence
+    /// 1 must be exactly `advance` from the zero head (the index's own first
+    /// step) and is then verified from genesis, else refused; a sequence
+    /// past 1 is a mid-history **anchor** taken on trust and marked so (the
+    /// observer may start mid-history; the index starts from zero). A
+    /// refusal applies to the whole transaction: no head of it is kept.
+    /// Returns the staged heads to commit once
+    /// the model accepts the batch, with the counts
+    /// `(anchored from genesis, anchored unverified, verified)`; nothing
+    /// is written here.
+    #[allow(clippy::type_complexity)]
+    fn chain_plan(
+        &self,
+        batch: &WideBatch,
+    ) -> Result<(Vec<((u8, Vec<u8>), ChainHead)>, (u64, u64, u64)), String> {
+        let mut staged: Vec<((u8, Vec<u8>), ChainHead)> = Vec::new();
+        let (mut from_genesis, mut unverified, mut verified) = (0u64, 0u64, 0u64);
+        for (i, body) in batch.bodies.iter().enumerate() {
+            let r = WideRecord::decode(body).map_err(|e| format!("body {i}: {e:?}"))?;
+            for link in r.links.iter().flatten() {
+                let key = match link.entity {
+                    WideEntity::Province => r
+                        .province_of()
+                        .ok_or("province link without an identity")?
+                        .to_bytes()
+                        .to_vec(),
+                    WideEntity::Holding => r
+                        .holding_of()
+                        .ok_or("holding link without an identity")?
+                        .to_bytes()
+                        .to_vec(),
+                };
+                let k = (link.entity as u8, key);
+                let prior = staged
+                    .iter()
+                    .rev()
+                    .find(|(kk, _)| *kk == k)
+                    .map(|(_, h)| *h)
+                    .or_else(|| self.chains.get(&k).copied());
+                let genesis = match prior {
+                    None => {
+                        // The first link seen for this entity. Sequence 0 is
+                        // impossible (`advance` starts at 1): refused.
+                        // Sequence 1 must be exactly the index's first step
+                        // from the zero head, else refused (a wrong head at
+                        // the very start is a wrong chain, not an anchor).
+                        // Only a sequence past 1 can be a mid-history
+                        // anchor, taken on trust and marked so.
+                        if link.seq == 0 {
+                            return Err(format!(
+                                "wide {:?} chain link with sequence 0 at transaction {}",
+                                link.entity, batch.seq
+                            ));
+                        }
+                        let from_zero = advance(link.entity, 0, &[0; 32], r.body_without_tail)
+                            .ok_or("wide chain overflow")?;
+                        if link.seq == 1 {
+                            if *link != from_zero {
+                                return Err(format!(
+                                    "wide {:?} chain head at sequence 1 does not follow the zero head at transaction {}",
+                                    link.entity, batch.seq
+                                ));
+                            }
+                            from_genesis += 1;
+                            true
+                        } else {
+                            unverified += 1;
+                            false
+                        }
+                    }
+                    Some(h) => {
+                        if h.terminal {
+                            return Err(format!(
+                                "wide {:?} chain continues after ProvinceClosed at transaction {}",
+                                link.entity, batch.seq
+                            ));
+                        }
+                        let expected = advance(link.entity, h.seq, &h.head, r.body_without_tail)
+                            .ok_or("wide chain overflow")?;
+                        if expected != *link {
+                            return Err(format!(
+                                "wide {:?} chain sequence/head mismatch at transaction {}",
+                                link.entity, batch.seq
+                            ));
+                        }
+                        verified += 1;
+                        h.from_genesis
+                    }
+                };
+                let terminal =
+                    r.kind == WideKind::ProvinceClosed && link.entity == WideEntity::Province;
+                staged.push((
+                    k,
+                    ChainHead {
+                        seq: link.seq,
+                        head: link.head,
+                        slot: batch.slot,
+                        terminal,
+                        from_genesis: genesis,
+                    },
+                ));
+            }
+        }
+        let new_keys = staged
+            .iter()
+            .filter(|(k, _)| !self.chains.contains_key(k))
+            .map(|(k, _)| k)
+            .collect::<std::collections::BTreeSet<_>>()
+            .len();
+        if self.chains.len() + new_keys > MAX_CHAIN_KEYS {
+            return Err(format!("wide chain keys over the cap {MAX_CHAIN_KEYS}"));
+        }
+        Ok((staged, (from_genesis, unverified, verified)))
     }
 
     /// Observes a strictly ordered feed page. Exact known overlap is a
     /// no-op; conflicting or forgotten overlap, zero sequences and invalid
     /// page order block permanently. Gaps are recorded, never completeness.
     pub fn observe_page(&mut self, page: &[fclient::ports::TxRecord], program: &Address) -> usize {
+        self.accepted_prefix = 0;
         if self.model.blocked().is_some() {
             return 0;
         }
@@ -1968,14 +2201,17 @@ impl WideObserver {
             previous = Some(tx.seq);
         }
         let mut applied = 0;
-        for tx in page {
+        for (i, tx) in page.iter().enumerate() {
             // Debug for this concrete, fully owned TxRecord is deterministic
             // and escaped/field-delimited, covering every field (not merely
             // decoded bodies). It is an in-memory window, never persisted.
             let fp: [u8; 32] = Sha256::digest(format!("{tx:?}").as_bytes()).into();
             if self.last_seq_seen.is_some_and(|l| tx.seq <= l) {
                 if self.observations.get(&tx.seq) == Some(&fp) {
-                    continue; // An exact replay mutates no state or counters.
+                    // An exact replay mutates no state or counters; it was
+                    // accepted when first seen.
+                    self.accepted_prefix = i + 1;
+                    continue;
                 }
                 let reason = if self.observations.contains_key(&tx.seq) {
                     "conflicting transaction replay"
@@ -1999,13 +2235,39 @@ impl WideObserver {
             match observe_tx(tx, program) {
                 Ok(TxObservation::Legacy) => self.legacy_txs += 1,
                 Ok(TxObservation::RolledBack) => self.rolled_back_txs += 1,
-                Ok(TxObservation::Wide(batch)) => match self.model.apply(&batch) {
-                    Ok(a) if a.replay => self.replayed_txs += 1,
-                    Ok(_) => {
-                        self.wide_txs += 1;
-                        applied += 1;
+                // The model's input caps first — before any chain work, so
+                // an oversized batch costs no further decode and moves
+                // nothing — then the chain links (the typed index's rule),
+                // then the model; the heads move only when both accepted
+                // the batch.
+                Ok(TxObservation::Wide(batch)) => match self
+                    .input_caps(&batch)
+                    .and_then(|()| self.chain_plan(&batch))
+                {
+                    Err(reason) => {
+                        self.model.block_external(
+                            tx.seq,
+                            tx.slot,
+                            &tx.signature.to_string(),
+                            reason,
+                        );
                     }
-                    Err(_) => {}
+                    Ok((heads, (from_genesis, unverified, verified))) => {
+                        match self.model.apply(&batch) {
+                            Ok(a) if a.replay => self.replayed_txs += 1,
+                            Ok(_) => {
+                                for (k, h) in heads {
+                                    self.chains.insert(k, h);
+                                }
+                                self.chain_anchored_from_genesis += from_genesis;
+                                self.chain_anchored_unverified += unverified;
+                                self.chain_verified += verified;
+                                self.wide_txs += 1;
+                                applied += 1;
+                            }
+                            Err(_) => {}
+                        }
+                    }
                 },
                 Err(e) => {
                     self.decode_failures += 1;
@@ -2025,6 +2287,7 @@ impl WideObserver {
             while self.observations.len() > self.model.limits.max_fingerprints {
                 self.observations.pop_first();
             }
+            self.accepted_prefix = i + 1;
         }
         applied
     }
@@ -2051,6 +2314,14 @@ impl WideObserver {
             "replayed_txs": self.replayed_txs,
             "decode_failures": self.decode_failures,
             "gaps": self.gaps,
+            "chain": {
+                "keys": self.chains.len(),
+                "max_keys": MAX_CHAIN_KEYS,
+                "anchored_from_genesis": self.chain_anchored_from_genesis,
+                "anchored_unverified": self.chain_anchored_unverified,
+                "verified": self.chain_verified,
+                "note": "a chain whose first link seen is sequence 1 from the zero head is verified from genesis; any other first link is an anchor on trust, its prefix unknown and unverified, with no equivalence to the typed index claimed",
+            },
             "provinces": self.model.provinces.len(),
             "holdings": self.model.holdings.len(),
             "hosts": self.model.hosts.len(),
