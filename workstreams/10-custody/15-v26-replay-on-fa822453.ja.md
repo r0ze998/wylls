@@ -14,6 +14,7 @@
 
 | 起点 | 当て方 | 結果の commit | tree |
 |---|---|---|---|
+| `5ee66869`（④の指定、tree `f140f6316d7db6e1bd410cca3a751ec40006ef4a`） | `git am` | `workstream/10-custody-5ee6` `aa8110f83c030b4b17f4f51ea35a646db2f15986` | `bd2ed1f07da907333b43efa1f18a780f94ca5822` |
 | `fa822453`（最新） | `git am` | `workstream/10-custody-fa822` `b91d2e52c705ab1cfa3d0bf8c5860cfa2b4c446f` | `b123bc4b0cca4c3f5ed79dc9dd362f8f4a4ca243` |
 | `cf517b55` | 先に `patches-r4/0015`、次にこの patch（`git am`） | `workstream/10-custody-cf517` `fea1f36f…`（0015、tree `93d3c31b…`）→ `f9f9754544bff5e818b14d99236ac668ce53794b` | `8eaa7585dc05f55ee0bcd518b5d991fe5c955594` |
 
@@ -67,6 +68,7 @@
 |---|---|---|
 | `cf517b55` + 0015（再生の前） | rules（全部）、frontier-abi（全部）＋ `abi-vectors --check`、permutation-frontier（既定 107、`custody-preview` 108）、`sync-web-sdk.mjs --check`、カーネルの写し（`core-kernel.py --check`）、`frontier-node` の `cargo check --workspace --all-targets --locked`、verify の `custody` 6・`custody_history` 8・`custody_state` 7・`new_bands` 7・lib の `v0_coverage`（⑱の `every_abi_tag_has_a_coverage_answer`）1 | すべて通過。**U4（⑱の期待値）は⑪の patch 0012（`6cd6dd14`）で解消済み** |
 | `cf517b55` + 0015 + 再生（`f9f97545`） | `frontier-node` の check、verify の `custody` 6・`custody_history` 8・`custody_replay` 10・`custody_state` 7・`new_bands` 7・lib の `v0_` 1、stable（1.97）の clippy `-p verify --all-targets -D warnings`、stable の rustfmt | すべて通過 |
+| `5ee66869` + 再生（`aa8110f8`） | `frontier-node` の check、verify の `custody` 6・`custody_history` 8・`custody_replay` 10・`custody_state` 7・`new_bands` 7・lib の `v0_` 1、stable の clippy `-D warnings`、stable の rustfmt | すべて通過 |
 | `fa822453` + 再生（`b91d2e52`） | `frontier-node` の check、verify の `custody` 6・`custody_history` 8・`custody_replay` 10・`custody_state` 7・`new_bands` 7・lib の `v0_` 1、stable の clippy `-D warnings`、stable の rustfmt | すべて通過 |
 
 実行していない：LiteSVM・SBF・`tamper.rs`・`record.rs`・`coverage.rs`・`fixtures.rs`・`tests/common` の `world()` を使う試験など、鍵の生成・導出・署名を伴うもの。
@@ -95,6 +97,14 @@
 
 ## 6. ④への適用方法
 
-1. 最新の `fa822453` の上で：`git am workstreams/10-custody/patches-candidate/0001-*.patch`（`sha256sum -c SHA256SUMS`）。tree が `b123bc4b0cca4c3f5ed79dc9dd362f8f4a4ca243` になることを確認する。または commit `b91d2e52`（⑩の担当ブランチの merge の第 2 親として保存）を cherry-pick。
+1. ④の指定の基点 `5ee66869` なら commit `aa8110f8`（tree `bd2ed1f0…`）を cherry-pick、または同じ patch を `git am`。最新の `fa822453` の上で：`git am workstreams/10-custody/patches-candidate/0001-*.patch`（`sha256sum -c SHA256SUMS`）。tree が `b123bc4b0cca4c3f5ed79dc9dd362f8f4a4ca243` になることを確認する。または commit `b91d2e52`（⑩の担当ブランチの merge の第 2 親として保存）を cherry-pick。
 2. 確認（鍵なし）：`cd frontier-node && cargo test --locked -p verify --test custody --test custody_state --test custody_history --test custody_replay`（31 件）。
 3. ⑩の担当ブランチの先端の `permutation-rules/`・`frontier-node/` は以前の統合候補のまま（core は patch と、merge の第 2 親として保存しているだけ）。
+
+## 7. ⑨の capacity-preview との接続（⑨からの確認、2026-11-08）
+
+| # | ⑨の質問 | ⑩の答え |
+|---|---|---|
+| 1 | ⑨の命令の中で `custody::consume`・`return_unused` を呼んでよいか、共有の補助関数はあるか | カーネルの関数（`permutation_rules::frontier::custody`）はそのまま呼べる。プログラムの `proc/custody.rs` の読み書き・倉の検査（`vault_view`・`vault_of_lot`・`lot_of`・`put_lot`・`put_vault`・`actor`）は**モジュールの中だけ**（`pub` でない）。⑩が `pub(crate)` にする差分を出せる（⑩の領域、判定は変わらない）。同じ配置を⑨が別に書くと二重になるので、こちらを勧める |
+| 2 | V26 は⑨の命令（0xF6・0xF9）が区画を動かすことをどう扱うか | 今の V26 では FAIL にならない：区画の口座の変化は履歴の検査で、「利用注文の減った量の範囲で CONSUMED が増える」「CONSUMED は減ってよい（返却）」として通る。⑨の命令は custody の命令ではないので再生されず、区画は痕跡として UNVERIFIABLE のまま。**⑨の命令を再生して検証するには、V26 が⑨の tag と口座の順を知る必要がある**（⑨の命令が確定した後に⑩が足す）。記録：`consume` には `LOT_CONSUMED`（112）があるが、返却の記録の種類は ABI にない（番号は④の割当） |
+| 3 | 凍結した区画 | ⑩のカーネルも、押収された倉の区画には `consume`・`return_unused` を拒む（`usable`）。未返却のまま残すのは⑩のアダプターと同じ。没収の扱いは未決のまま（所有者の判断） |
