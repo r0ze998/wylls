@@ -8,13 +8,12 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { noDerivation, runScenario, ws15Export, FIXTURE, W } from './scenario-e2e.mjs';
+import { runScenario, ws15Export, FIXTURE, W } from './scenario-e2e.mjs';
 import { fold } from '../coop/record.mjs';
 import { GOALS } from '../coop/goal.mjs';
 import { deliveredText } from '../coop/ws04.mjs';
 import { RESOURCE_JA } from '../coop/record.mjs';
 
-noDerivation();
 const run = runScenario(fs.mkdtempSync(path.join(os.tmpdir(), 'ws01-e2e-')));
 
 test('送出：本物の planSend で計画し、sending の記録の後に着地。着地の前の二度目の送付と、再起動の後の（結び付け前の）送付は断る', async () => {

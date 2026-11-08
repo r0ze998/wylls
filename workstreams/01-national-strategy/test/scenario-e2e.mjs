@@ -4,7 +4,8 @@
 // 鍵の生成・導出・署名を一つも行わない：
 //   - ウォレットは決まった 32 バイトの base58 の文字列（鍵の対ではない）。記録の sig は 'unsigned:<signer>' で、板の verify を
 //     その文字列を確かめるだけの関数に差し替える（Ed25519 の verifySig は呼ばない）。
-//   - 口座の住所は ids.mjs の tableAddresses（番号を振るだけの表。find_program_address・create_with_seed を呼ばない）。
+//   - 口座の住所は本物（faddr.mjs の PDA・create_with_seed：公開の住所の計算。2026-11-08 に許可）。導出しない表（ids.mjs tableAddresses）に
+//     差し替えることもできる（noDerivation）。
 //   - 送出：本物の planSend（チェーンの口座から送り元・道・番号）と、ゲームと同じ fplay.buildShape で「署名の無い」取引の中身を作る。
 //     ウォレットの署名・手数料の鍵の署名の欄には、決まったバイト列（署名ではない）を入れ、偽のチェーンに着地させる。
 // 偽物：チェーン（test/coop-chain.mjs）、ヘラルド（空の一覧）、住所、署名。本物：record.mjs の fold、board.mjs、chain.mjs の読み取り・
@@ -124,7 +125,7 @@ export async function runScenario(dir) {
   // r3：焼かれた
   ch.caravanSent(W.C, tc, 1, HOME_A, arr({ stone: 50 }));
   await put(W.C, { kind: 'link', request: r3, caravan: { ownerTag: tc, seq: 1 } });
-  ch.caravanRaided(W.C, tc, 1, 1, W.A, '1', HOME_A, arr({ stone: 50 }));
+  ch.caravanRaided(W.C, tc, 1, 1, W.A, tag(W.A), HOME_A, arr({ stone: 50 }));
   // r4：別の村で確定（襲撃の記録なし）
   ch.caravanSent(W.B, tb, 3, HOME_A, arr({ wood: 30 }));
   await put(W.B, { kind: 'link', request: r4, caravan: { ownerTag: tb, seq: 3 } });
@@ -140,7 +141,7 @@ export async function runScenario(dir) {
   // ---- 再起動の後の照会
   board = openBoard(dir, ch, clock);
   const after = await board.view({ viewer: W.A.address });
-  return { board, before, after, recordsBefore, ids: { r1, r2, r3, r4, r5 }, steps, ch, citizenOf: w => addressesOf(S).of('Citizen', { wallet: w.address }) };
+  return { board, before, after, recordsBefore, ids: { r1, r2, r3, r4, r5 }, steps, ch, tags: Object.fromEntries(Object.entries(W).map(([k, w]) => [tag(w), k])), citizenOf: w => addressesOf(S).of('Citizen', { wallet: w.address }) };
 }
 
 /** ⑮へ渡す形：fold() の実物の出力と、到着・依頼の充足の照会（量の区間つき）。 */
@@ -150,7 +151,7 @@ export function ws15Export(r, foldState) {
   return {
     v: 1,
     note: '①の fold() の実物の出力（record.mjs createFolder、板の state()）と、同じ板の照会（goal.mjs coopView）の抜き出し。台本は test/scenario-e2e.mjs。'
-      + ' ウォレット・住所・owner tag・署名は試験用の決まった値（鍵の生成・導出・署名をしていない。owner tag は導出しない住所の表の番号で、本物の S1 の値ではない）。',
+      + ' ウォレットは試験用の決まった 32 バイト（鍵の対ではない）、署名の欄は決まった印（署名ではない）。口座の住所と owner tag は、そのウォレットから本物の S1 の計算（PDA・create_with_seed、Citizen の住所の先頭 8 バイト）で出した値。',
     context: S,
     wallets: name,
     requestLabels: label,

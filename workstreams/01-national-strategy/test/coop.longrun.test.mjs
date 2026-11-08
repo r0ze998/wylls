@@ -6,8 +6,8 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { testSigner, signRecord, ownerTagOf, recordId } from '../coop/record.mjs';
-import { createBoard } from '../coop/board.mjs';
+import { ownerTagOf, recordId } from '../coop/record.mjs';
+import { fixedSigner, unsignedRecord, verifyUnsigned, createBoard } from './nokey.mjs';
 import { fakeChain } from './coop-chain.mjs';
 import { encode as b58 } from '../../../permutation-server/web/sdk/base58.mjs';
 
@@ -18,7 +18,7 @@ const HOME = { kind: 'holding', p: 3, q: 0, site: 2, gen: 1 };
 const ms = f => { const t = process.hrtime.bigint(); const r = f(); return [r, Number(process.hrtime.bigint() - t) / 1e6]; };
 
 test('記録 2 万件の板：読み直し・表示・受け取りの時間とメモリ（記録を全部やり直さない）', async () => {
-  const A = await testSigner(new Uint8Array(32).fill(11)), B = await testSigner(new Uint8Array(32).fill(22));
+  const A = await fixedSigner(new Uint8Array(32).fill(11)), B = await fixedSigner(new Uint8Array(32).fill(22));
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'ws01-long-'));
   // 保存済みの履歴：依頼 5000 件、それぞれに応答・取り下げ・取消（4 件ずつ）。読み直しでは署名を確かめない（受け取った時に確かめた）
   const lines = [];
@@ -45,7 +45,7 @@ test('記録 2 万件の板：読み直し・表示・受け取りの時間と�
   // 新しい記録の受け取り：全部を畳み込み直さないので、履歴の大きさに比例しない
   const t1 = process.hrtime.bigint();
   for (let i = 0; i < 50; i++) {
-    const r = await board.submit(await signRecord(A, { v: 1, season: S, at: now, kind: 'request', goalId, need: { wood: 1 }, to: HOME, nation: 0, expiresAt: now + 3600, nonce: `live${i}` }));
+    const r = await board.submit(await unsignedRecord(A, { v: 1, season: S, at: now, kind: 'request', goalId, need: { wood: 1 }, to: HOME, nation: 0, expiresAt: now + 3600, nonce: `live${i}` }));
     assert.ok(r.ok, r.why);
   }
   const submitMs = Number(process.hrtime.bigint() - t1) / 1e6 / 50;
@@ -57,7 +57,7 @@ test('記録 2 万件の板：読み直し・表示・受け取りの時間と�
 });
 
 test('チェーンを読む回数：終わった隊商・確かめた国・規則の版は覚え、2回目の表示では届け先の村の今の口座（同じ村は一度）だけを読む', async () => {
-  const P = { a: await testSigner(new Uint8Array(32).fill(11)), b: await testSigner(new Uint8Array(32).fill(22)) };
+  const P = { a: await fixedSigner(new Uint8Array(32).fill(11)), b: await fixedSigner(new Uint8Array(32).fill(22)) };
   const ch = fakeChain(programId, '91');
   ch.season(); ch.citizen(P.a, 0); ch.citizen(P.b, 2); ch.holding(HOME, P.a, 0);
   const calls = { account: 0, signatures: 0, transaction: 0 };
@@ -66,7 +66,7 @@ test('チェーンを読む回数：終わった隊商・確かめた国・規�
   ch.setClock(() => t);
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'ws01-long2-'));
   const board = createBoard({ herald: null, programId, seasonId: '91', dataDir: dir, now: () => t, reader, fetchHerald: async () => ({ status: 200, json: null }) });
-  const put = async (who, rec) => { t += 1; return board.submit(await signRecord(who, { v: 1, season: S, at: t, ...rec })); };
+  const put = async (who, rec) => { t += 1; return board.submit(await unsignedRecord(who, { v: 1, season: S, at: t, ...rec })); };
   const tag = ownerTagOf(S, P.b.address);
   const N = 60;
   for (let i = 0; i < N; i++) {

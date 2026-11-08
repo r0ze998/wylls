@@ -8,8 +8,8 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import crypto from 'node:crypto';
-import { testSigner, signRecord, ownerTagOf } from '../coop/record.mjs';
-import { createBoard } from '../coop/board.mjs';
+import { ownerTagOf } from '../coop/record.mjs';
+import { fixedSigner, unsignedRecord, verifyUnsigned, createBoard } from './nokey.mjs';
 import { fakeChain } from './coop-chain.mjs';
 import { encode as b58 } from '../../../permutation-server/web/sdk/base58.mjs';
 import { LAYOUTS } from '../../../permutation-server/web/sdk/frontier/abi-v2-layouts.mjs';
@@ -21,7 +21,7 @@ const goalId = 'crossing-storehouse-v1';
 const HOME_A = { kind: 'holding', p: 3, q: 0, site: 2, gen: 1 };
 
 async function people() {
-  const mk = async n => testSigner(new Uint8Array(32).fill(n));
+  const mk = async n => fixedSigner(new Uint8Array(32).fill(n));
   return { a: await mk(11), b: await mk(22), c: await mk(33) };
 }
 
@@ -63,7 +63,7 @@ test('境界をまたぐ：前の文脈で送った隊商が境界の後に着�
   const clock = { now: () => t };
   for (const k of ['90', '91']) ch[k].setClock(() => t);
   let board = boardAt(dir, reader, clock, S90);
-  const put = async (who, ctx, rec) => { t += 1; return board.submit(await signRecord(who, { v: 1, season: ctx, at: t, ...rec })); };
+  const put = async (who, ctx, rec) => { t += 1; return board.submit(await unsignedRecord(who, { v: 1, season: ctx, at: t, ...rec })); };
 
   // ---- 境界の前（文脈 90）
   const id90 = (await put(P.a, S90, { kind: 'request', goalId, need: { wood: 200, stone: 200 }, to: HOME_A, nation: 0, expiresAt: t + 30 * 86400 - 10, nonce: 'w' })).id;
@@ -123,7 +123,7 @@ test('同じ番号・同じ持ち主の印でも、文脈が違えば別の隊�
   const clock = { now: () => t };
   for (const k of ['90', '91']) ch[k].setClock(() => t);
   let board = boardAt(dir, reader, clock, S90);
-  const put = async (who, ctx, rec) => { t += 1; return board.submit(await signRecord(who, { v: 1, season: ctx, at: t, ...rec })); };
+  const put = async (who, ctx, rec) => { t += 1; return board.submit(await unsignedRecord(who, { v: 1, season: ctx, at: t, ...rec })); };
   const id90 = (await put(P.a, S90, { kind: 'request', goalId, need: { wood: 300 }, to: HOME_A, nation: 0, expiresAt: t + 86400, nonce: 'a' })).id;
   await put(P.b, S90, { kind: 'respond', request: id90, answer: 'accept', offer: { wood: 300 }, nation: 2 });
   t += 30;
@@ -148,7 +148,7 @@ test('旧い板（シーズンごとのフォルダ）の記録は読むだけ�
   const legacy = fs.mkdtempSync(path.join(os.tmpdir(), 'ws01-legacy-'));
   // 旧い形：記録そのものを1行ずつ（受け取った時刻なし）
   const t0 = 1_789_000_000;
-  const req = await signRecord(P.a, { v: 1, season: S89, at: t0, kind: 'request', goalId, need: { wood: 50 }, to: HOME_A, nation: 0, expiresAt: t0 + 86400, nonce: 'old' });
+  const req = await unsignedRecord(P.a, { v: 1, season: S89, at: t0, kind: 'request', goalId, need: { wood: 50 }, to: HOME_A, nation: 0, expiresAt: t0 + 86400, nonce: 'old' });
   fs.writeFileSync(path.join(legacy, 'records.jsonl'), `${JSON.stringify(req)}\n`);
   const hash = () => crypto.createHash('sha256').update(fs.readFileSync(path.join(legacy, 'records.jsonl'))).digest('hex');
   const h0 = hash();
@@ -160,7 +160,7 @@ test('旧い板（シーズンごとのフォルダ）の記録は読むだけ�
   assert.equal(v.requests[0].ctx.seasonId, '89');
   assert.equal(v.requests[0].stateNow, 'expired', '依頼は自分の期限で期限切れ（文脈の切り替えとは別）');
   t += 1;
-  assert.ok((await board.submit(await signRecord(P.a, { v: 1, season: S91, at: t, kind: 'request', goalId, need: { wood: 1 }, to: HOME_A, nation: 0, expiresAt: t + 100, nonce: 'n' }))).ok);
+  assert.ok((await board.submit(await unsignedRecord(P.a, { v: 1, season: S91, at: t, kind: 'request', goalId, need: { wood: 1 }, to: HOME_A, nation: 0, expiresAt: t + 100, nonce: 'n' }))).ok);
   assert.equal(hash(), h0, '旧い板のファイルは書き換えない');
   assert.ok(!fs.readFileSync(path.join(dir, 'records.jsonl'), 'utf8').includes('"old"'), '旧い記録をこちらへ写さない');
   // 前の文脈の一覧に無い文脈の旧い記録は読めない（断って示す）

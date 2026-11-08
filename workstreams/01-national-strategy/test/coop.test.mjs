@@ -9,10 +9,11 @@ import os from 'node:os';
 import path from 'node:path';
 import http from 'node:http';
 import { fileURLToPath } from 'node:url';
-import { testSigner, signRecord, ownerTagOf, fold, verifySig, recordId } from '../coop/record.mjs';
+import { ownerTagOf, fold, recordId } from '../coop/record.mjs';
+import { fixedSigner, unsignedRecord, verifyUnsigned, createBoard } from './nokey.mjs';
 import { indexFeed, arrivalOf } from '../coop/arrival.mjs';
 import { GOALS } from '../coop/goal.mjs';
-import { createBoard, createServer, PAGE } from '../coop/board.mjs';
+import { createServer, PAGE } from '../coop/board.mjs';
 import * as P from '../../../permutation-server/web/frontier/fplay.mjs';
 import { seasonAddresses } from '../../../permutation-server/web/frontier/faddr.mjs';
 import { fakeChain as fakeChainOf } from './coop-chain.mjs';
@@ -27,7 +28,7 @@ const HOME_A = { kind: 'holding', p: 3, q: 0, site: 2, gen: 1 };      // 依頼�
 const dstOf = to => ({ kind: 1, p: to.p, q: to.q, at: to.site, gen: to.gen, tile: 20 });
 
 async function people() {
-  const mk = async n => testSigner(new Uint8Array(32).fill(n));
+  const mk = async n => fixedSigner(new Uint8Array(32).fill(n));
   return { a: await mk(11), b: await mk(22), c: await mk(33), d: await mk(44) };
 }
 
@@ -82,7 +83,7 @@ function setup({ ended = true, chain = null, dir = null, clockAt = 1_790_000_000
   const H = fakeHerald({ ended, chain, onSend: () => clock.tick(10) });
   chain?.setClock?.(clock.now);
   const board = createBoard({ herald: null, programId, seasonId: '90', dataDir: dir, now: clock.now, fetchHerald: async () => ({ status: 200, json: structuredClone(H.file) }), reader: chain?.reader ?? null });
-  const put = async (who, rec) => { clock.tick(1); return board.submit(await signRecord(who, { v: 1, season, at: clock.now(), ...rec })); };
+  const put = async (who, rec) => { clock.tick(1); return board.submit(await unsignedRecord(who, { v: 1, season, at: clock.now(), ...rec })); };
   return { dir, H, clock, board, put, chain };
 }
 
@@ -357,18 +358,18 @@ test('記録の確かめ：署名の改ざん・時刻のずれ・自分の依�
   const { a, b } = await people();
   const { board, put, clock } = setup({ chain: standardChain(await people()) });
   const id = await request(put, a);
-  const signed = await signRecord(b, { v: 1, season, at: clock.now(), kind: 'respond', request: id, answer: 'decline', nation: 2 });
-  assert.equal(await verifySig(signed), true);
-  assert.equal((await board.submit({ ...signed, answer: 'accept', offer: { wood: 1 } })).why, '署名が合わない');
+  const signed = await unsignedRecord(b, { v: 1, season, at: clock.now(), kind: 'respond', request: id, answer: 'decline', nation: 2 });
+  assert.equal(await verifyUnsigned(signed), true);
+  // 中身の改ざん（同じ署名で答えを変える）の確かめは、本物の署名（Ed25519）が要るので、この試験では行わない（鍵を作らない。2026-11-08）
   assert.equal((await board.submit({ ...signed, signer: a.address })).why, '署名が合わない', '別の人の名で出せない');
-  assert.match((await board.submit(await signRecord(b, { v: 1, season, at: clock.now() - 10000, kind: 'leave', goalId }))).why, /時刻/);
+  assert.match((await board.submit(await unsignedRecord(b, { v: 1, season, at: clock.now() - 10000, kind: 'leave', goalId }))).why, /時刻/);
   assert.match((await put(a, { kind: 'respond', request: id, answer: 'accept', offer: { wood: 1 }, nation: 0 })).why, /自分の依頼/);
   assert.match((await put(b, { kind: 'respond', request: id, answer: 'accept', offer: { ore: 5 }, nation: 2 })).why, /依頼にない量/);
   assert.match((await put(b, { kind: 'respond', request: id, answer: 'accept', offer: { wood: 999 }, nation: 2 })).why, /依頼にない量/);
   assert.match((await put(a, { kind: 'request', goalId: 'tower', need: { wood: 1 }, to: HOME_A, nation: 0, expiresAt: clock.now() + 100, nonce: 'x' })).why, /知らない目的/);
   assert.match((await put(a, { kind: 'request', goalId, need: { wood: 1 }, to: HOME_A, nation: 0, expiresAt: clock.now() + 100, nonce: 'n1' })).ok ? '' : 'x', /^$/, '同じ内容でも時刻が違えば別の依頼');
   // 同じ記録を二度
-  const once = await signRecord(b, { v: 1, season, at: clock.now(), kind: 'respond', request: id, answer: 'decline', nation: 2 });
+  const once = await unsignedRecord(b, { v: 1, season, at: clock.now(), kind: 'respond', request: id, answer: 'decline', nation: 2 });
   assert.ok((await board.submit(once)).ok);
   assert.match((await board.submit(once)).why, /二度/);
   // 物々交換・加工の貸出・到着時払いの記録の種類はない
@@ -430,7 +431,7 @@ test('HTTP：板の入口で、画面・記録・表示が出て、それ以外�
     assert.equal((await fetch(`${base}/ws01/repo/permutation-server/web/sdk/bytes.mjs`)).status, 200);
     assert.equal((await fetch(`${base}/ws01/repo/frontier-node/Cargo.toml`)).status, 404, '決めた場所の外は出さない');
     assert.equal((await fetch(`${base}/ws01/repo/..%2F..%2Fetc/passwd`)).status, 404);
-    const rec = await signRecord(a, { v: 1, season, at: Math.floor(Date.now() / 1000), kind: 'request', goalId, need: { wood: 1 }, to: HOME_A, nation: 0, expiresAt: Math.floor(Date.now() / 1000) + 60, nonce: 'h' });
+    const rec = await unsignedRecord(a, { v: 1, season, at: Math.floor(Date.now() / 1000), kind: 'request', goalId, need: { wood: 1 }, to: HOME_A, nation: 0, expiresAt: Math.floor(Date.now() / 1000) + 60, nonce: 'h' });
     const r = await (await fetch(`${base}/coop/records`, { method: 'POST', body: JSON.stringify(rec) })).json();
     assert.ok(r.ok, r.why);
     const v = await (await fetch(`${base}/coop/view?nation=0`)).json();
@@ -551,7 +552,7 @@ test('重複：同じ隊商は二つ目の依頼に結び付けられない（�
   const again = createBoard({ herald: null, programId, seasonId: '90', dataDir: dir, now: clock.now, fetchHerald: async () => ({ status: 200, json: structuredClone(H.file) }), reader: chain.reader });
   H.send(P.b, 0, [0, 200, 0, 0, 0, 0, 0, 0]);   // たとえ一覧に戻って見えても
   clock.tick(1);
-  assert.match((await again.submit(await signRecord(P.b, { v: 1, season, at: clock.now(), kind: 'link', request: id2, caravan: { ownerTag: ownerTagOf(season, P.b.address), seq: 0 } }))).why, /もう結び付け/);
+  assert.match((await again.submit(await unsignedRecord(P.b, { v: 1, season, at: clock.now(), kind: 'link', request: id2, caravan: { ownerTag: ownerTagOf(season, P.b.address), seq: 0 } }))).why, /もう結び付け/);
   // 署名の再送（同じ記録をもう一度。再読込の後も）
   const first = again.records.find(r => r.kind === 'link');
   assert.match((await again.submit(first)).why, /二度/);
@@ -566,7 +567,7 @@ test('重複：同じ隊商は二つ目の依頼に結び付けられない（�
   for (const x of [x1, x2]) await put2(P.c, { kind: 'respond', request: x, answer: 'accept', offer: { wood: 200 }, nation: 4 });
   H2.send(P.c, 0, [0, 200, 0, 0, 0, 0, 0, 0]);
   const now = c2.now();
-  const recs = await Promise.all([x1, x2].map(x => signRecord(P.c, { v: 1, season, at: now, kind: 'link', request: x, caravan: { ownerTag: ownerTagOf(season, P.c.address), seq: 0 } })));
+  const recs = await Promise.all([x1, x2].map(x => unsignedRecord(P.c, { v: 1, season, at: now, kind: 'link', request: x, caravan: { ownerTag: ownerTagOf(season, P.c.address), seq: 0 } })));
   const out = await Promise.all(recs.map(r => b2.submit(r)));
   assert.equal(out.filter(o => o.ok).length, 1, out.map(o => o.why).join(' / '));
 });
@@ -586,7 +587,7 @@ test('重複：履歴が欠けた板が二つ目の結び付けを受けても�
   let t = 1_790_000_000 + 100;
   const gap = createBoard({ herald: null, programId, seasonId: '90', dataDir: dir, now: () => t, fetchHerald: async () => ({ status: 200, json: structuredClone(H.file) }), reader: chain.reader });
   t += 1;
-  assert.ok((await gap.submit(await signRecord(P.b, { v: 1, season, at: t, kind: 'link', request: id2, caravan: { ownerTag: ownerTagOf(season, P.b.address), seq: 0 } }))).ok, '欠けた板は二つ目を受けてしまう');
+  assert.ok((await gap.submit(await unsignedRecord(P.b, { v: 1, season, at: t, kind: 'link', request: id2, caravan: { ownerTag: ownerTagOf(season, P.b.address), seq: 0 } }))).ok, '欠けた板は二つ目を受けてしまう');
   // 欠けた行が後から戻る（ファイルの末尾に）
   fs.appendFileSync(file, `${linkLine}\n`);
   H.settle(P.b, 0, 0, [0, 200, 0, 0, 0, 0, 0, 0]);
@@ -632,7 +633,7 @@ test('再起動：依頼・応答・結び付け・重複防止は記録から�
   assert.equal(v.requests[0].links.length, 1);
   assert.equal(v.damaged.length, 1, '欠落は表示に出す');
   clock.tick(1);
-  assert.ok((await re.submit(await signRecord(P.c, { v: 1, season, at: clock.now(), kind: 'respond', request: id, answer: 'decline', nation: 4 }))).ok);
+  assert.ok((await re.submit(await unsignedRecord(P.c, { v: 1, season, at: clock.now(), kind: 'respond', request: id, answer: 'decline', nation: 4 }))).ok);
   const after = loadRecords(file);
   assert.equal(after.records.length, 4, '新しい記録は壊れた行に続けず、次の行に書かれた');
   assert.equal(after.damaged.length, 1);

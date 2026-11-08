@@ -1,3 +1,4 @@
+// 【鍵が要る：未実施】乱数の鍵の種を作り、取引に署名する。2026-11-08 の方針（鍵の生成・導出・署名をしない。固定の種も含む）で実行しない。
 // 本物の中継（permutation-gateway src/frontier/server.mjs）と本物のヘラルド（frontier-herald）で、依頼の画面から中継へ届くかを確かめる。
 // チェーン（Agave）は無い：中継は blockhash を取れずに答えるので、「届いた・答えを読めた」までを確かめる。
 //   必要：permutation-gateway の依存（npm ci --ignore-scripts --prefix permutation-gateway）、

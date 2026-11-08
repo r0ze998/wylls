@@ -164,3 +164,15 @@ node workstreams/01-national-strategy/test/browser.smoke.mjs --shots  # 11 件�
 | ヘラルド `cargo test --offline -p herald --lib`（④ `8e96f24d` に 0002b を当てた使い捨ての worktree） | 40／40 通過 |
 | `browser.smoke.mjs`（国の卓） | 14／14 通過 |
 | `coop.test`・`coop.send.test`・`coop.continuity.test`・`coop.longrun.test`・`coop.browser`・`coop.realrelay` | 実行していない |
+
+## 9-3l. 本来のゲームへの接続・⑮との接続・鍵を使わない試験（2026-11-08。cc の実行、検証待ち）
+
+鍵の生成・導出・署名を伴う試験は、固定の種・呼び出し先も含めて実行していない（23章 23-4）。④の `scripts/ci/no-keys-guard.mjs`（525a623f）を `--import` した。
+
+| 試験 | 木 | 結果 |
+|---|---|---|
+| `--test workstreams/01-national-strategy/test/*.test.mjs`（16 ファイル） | ①（a110411b の後） | 229 通過・5 skip（⑮が無い）・0 失敗 |
+| 同上 | ④ cf517b55 ＋ ① の merge（使い捨て） | 234／234 |
+| `coop.browser.nokey.mjs` | 両方 | 8／8 |
+| `browser.smoke.mjs` | merge した木 | 14／14 |
+| `coop.send.wallet-signing.mjs`・`coop.browser.mjs`・`coop.realrelay.mjs` | — | 実行していない（鍵） |

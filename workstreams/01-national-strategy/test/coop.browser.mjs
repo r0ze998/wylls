@@ -1,3 +1,4 @@
+// 【鍵が要る：未実施】Dev Wallet（keyFromSeed）と、偽の中継の手数料の鍵（testSigner）で署名する。鍵を使わない段は coop.browser.nokey.mjs。2026-11-08 の方針（鍵の生成・導出・署名をしない。固定の種も含む）で実行しない。
 // 国をまたぐ依頼の画面を本物のブラウザ（Chromium）で押す。2人（別々の Dev Wallet）で、依頼 → 応じる → 隊商の結び付け
 // → 到着の確定 → 共同の目的、と取消を確かめる。ヘラルドは偽物（隊商の一覧を手で書き換える）。チェーンは使わない。
 //   node workstreams/01-national-strategy/test/coop.browser.mjs [--shots]

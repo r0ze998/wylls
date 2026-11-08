@@ -1,6 +1,6 @@
 {
  "v": 1,
- "note": "①の fold() の実物の出力（record.mjs createFolder、板の state()）と、同じ板の照会（goal.mjs coopView）の抜き出し。台本は test/scenario-e2e.mjs。 ウォレット・住所・owner tag・署名は試験用の決まった値（鍵の生成・導出・署名をしていない。owner tag は導出しない住所の表の番号で、本物の S1 の値ではない）。",
+ "note": "①の fold() の実物の出力（record.mjs createFolder、板の state()）と、同じ板の照会（goal.mjs coopView）の抜き出し。台本は test/scenario-e2e.mjs。 ウォレットは試験用の決まった 32 バイト（鍵の対ではない）、署名の欄は決まった印（署名ではない）。口座の住所と owner tag は、そのウォレットから本物の S1 の計算（PDA・create_with_seed、Citizen の住所の先頭 8 バイト）で出した値。",
  "context": {
   "programId": "CktRuQ2mttgRGkXJtyksdKHjUdc2C4TgDzyB98oEzy8",
   "seasonId": "91"
@@ -72,7 +72,7 @@
       "responder": "2VDW9dFE1ZXz4zWAbaBDQFynNVdRpQ73HyfSHMzBSL6Z",
       "claimedNation": 2,
       "caravan": {
-       "ownerTag": "1003",
+       "ownerTag": "4372626378048414624",
        "seq": 0,
        "ctx": "CktRuQ2mttgRGkXJtyksdKHjUdc2C4TgDzyB98oEzy8/91"
       },
@@ -83,7 +83,7 @@
       "responder": "3EKkiwNLWqoUbzFkPrmKbtUB4EweE6f4STzevYUmezeL",
       "claimedNation": 1,
       "caravan": {
-       "ownerTag": "1004",
+       "ownerTag": "8889114154671114944",
        "seq": 0,
        "ctx": "CktRuQ2mttgRGkXJtyksdKHjUdc2C4TgDzyB98oEzy8/91"
       },
@@ -95,7 +95,7 @@
      {
       "responder": "2VDW9dFE1ZXz4zWAbaBDQFynNVdRpQ73HyfSHMzBSL6Z",
       "caravan": {
-       "ownerTag": "1003",
+       "ownerTag": "4372626378048414624",
        "seq": 0,
        "ctx": "CktRuQ2mttgRGkXJtyksdKHjUdc2C4TgDzyB98oEzy8/91"
       },
@@ -156,7 +156,7 @@
       "responder": "2VDW9dFE1ZXz4zWAbaBDQFynNVdRpQ73HyfSHMzBSL6Z",
       "claimedNation": 2,
       "caravan": {
-       "ownerTag": "1003",
+       "ownerTag": "4372626378048414624",
        "seq": 1,
        "ctx": "CktRuQ2mttgRGkXJtyksdKHjUdc2C4TgDzyB98oEzy8/91"
       },
@@ -167,7 +167,7 @@
       "responder": "2VDW9dFE1ZXz4zWAbaBDQFynNVdRpQ73HyfSHMzBSL6Z",
       "claimedNation": 2,
       "caravan": {
-       "ownerTag": "1003",
+       "ownerTag": "4372626378048414624",
        "seq": 2,
        "ctx": "CktRuQ2mttgRGkXJtyksdKHjUdc2C4TgDzyB98oEzy8/91"
       },
@@ -217,7 +217,7 @@
       "responder": "3EKkiwNLWqoUbzFkPrmKbtUB4EweE6f4STzevYUmezeL",
       "claimedNation": 1,
       "caravan": {
-       "ownerTag": "1004",
+       "ownerTag": "8889114154671114944",
        "seq": 1,
        "ctx": "CktRuQ2mttgRGkXJtyksdKHjUdc2C4TgDzyB98oEzy8/91"
       },
@@ -267,7 +267,7 @@
       "responder": "2VDW9dFE1ZXz4zWAbaBDQFynNVdRpQ73HyfSHMzBSL6Z",
       "claimedNation": 2,
       "caravan": {
-       "ownerTag": "1003",
+       "ownerTag": "4372626378048414624",
        "seq": 3,
        "ctx": "CktRuQ2mttgRGkXJtyksdKHjUdc2C4TgDzyB98oEzy8/91"
       },
@@ -317,7 +317,7 @@
       "responder": "2VDW9dFE1ZXz4zWAbaBDQFynNVdRpQ73HyfSHMzBSL6Z",
       "claimedNation": 2,
       "caravan": {
-       "ownerTag": "1003",
+       "ownerTag": "4372626378048414624",
        "seq": 4,
        "ctx": "CktRuQ2mttgRGkXJtyksdKHjUdc2C4TgDzyB98oEzy8/91"
       },
@@ -342,14 +342,14 @@
    "46713f2164a5b01450dff837c697e0092ddc21e875e2234559869da1b0c7b527",
    "8ad89e73fc3afddcc326f3554122450898ecb6569c15dfa129aabcfb4bedc017",
    "1b51716f0c513bc4a31ee0bb7b650a10c8dfc5843a842147fa4ab70b2ef1408e",
-   "ebc0ede65b676591fd620bc43d25617e268e7bd12871b426fef40510712154e9",
-   "a2903f612cbe7642749bdf77583540b38ac04d3268b70bd50c0af5f52e066ab9",
-   "e2d6c9f1ec6288b2a20780eb88f97a429153bde2d574645ab2bef722739c6816",
-   "bb9151d77e70fc5c75be5cacd5d55ca471f87ac14c3fc44be244e8ce27d9d5dd",
-   "dfb7f6dc38727a71cb079baec046e9c52adcae1ac80c28e1cc6ead616aa5f631",
-   "f2c9e5ad30745e5e96871ec4787099cb68c0a8481adb54a01b63437ed1491c7f",
-   "d1790d719d47fadc0bd8ee7e2d8aa6a04b04e619453c948b50f81a38c0a05b87",
-   "9d90011172c6d33eb49a9b9084a28a561587dd309deffa9e46c429e65e99ecfd"
+   "41354286d2d8f364424dcb0c611eeaa5d50eadad7a89a3169fd4af892f893d63",
+   "cd2bf3b1824b4039ba270f9de5e8c2088307d0f7852909426bc039b488375ee0",
+   "4c2e0109476839c2e3b3d4c63ba3953de34dc97f07f557dbfd3a96206b4b9dd7",
+   "9ac56442a8066335f7575f9aa4d2ac5d23830f6b817d39465a13ecf509454dc6",
+   "9fb78793eb7ebd8127be2201ac50dd8f422a82b2068ac72c6d2146aa02b05783",
+   "d8987c1abfa26c712177abde5909c4930e33305e1cc19563dfb1879b9c484540",
+   "a1f8ce7402eb16168a37b69f90e133abb6d0ff9be040bc039f12f15fa6861718",
+   "a1e178cee6ae6f6054357a21d792891ef890639f6fdb7ed09422c433b3275861"
   ]
  },
  "view": {
@@ -500,7 +500,7 @@
     "requestId": "f298a0ed5ab7ac442deff6b91da358cb81c1a4f4f173772f7cc1bfdd0660c88f",
     "label": "r1",
     "caravanId": {
-     "ownerTag": "1003",
+     "ownerTag": "4372626378048414624",
      "seq": 0,
      "ctx": "CktRuQ2mttgRGkXJtyksdKHjUdc2C4TgDzyB98oEzy8/91"
     },
@@ -549,7 +549,7 @@
     "requestId": "f298a0ed5ab7ac442deff6b91da358cb81c1a4f4f173772f7cc1bfdd0660c88f",
     "label": "r1",
     "caravanId": {
-     "ownerTag": "1004",
+     "ownerTag": "8889114154671114944",
      "seq": 0,
      "ctx": "CktRuQ2mttgRGkXJtyksdKHjUdc2C4TgDzyB98oEzy8/91"
     },
@@ -598,7 +598,7 @@
     "requestId": "6bba6d66820d5460bef4f59c9caa6bdc1b9dd3ce581a884931477569931a4ed8",
     "label": "r2",
     "caravanId": {
-     "ownerTag": "1003",
+     "ownerTag": "4372626378048414624",
      "seq": 1,
      "ctx": "CktRuQ2mttgRGkXJtyksdKHjUdc2C4TgDzyB98oEzy8/91"
     },
@@ -638,7 +638,7 @@
     "requestId": "6bba6d66820d5460bef4f59c9caa6bdc1b9dd3ce581a884931477569931a4ed8",
     "label": "r2",
     "caravanId": {
-     "ownerTag": "1003",
+     "ownerTag": "4372626378048414624",
      "seq": 2,
      "ctx": "CktRuQ2mttgRGkXJtyksdKHjUdc2C4TgDzyB98oEzy8/91"
     },
@@ -678,7 +678,7 @@
     "requestId": "685c4ce6dbb626d0e0b5d9dd0c22bdefdfc3199ad26caf1bfeef0ec2a0c6d417",
     "label": "r3",
     "caravanId": {
-     "ownerTag": "1004",
+     "ownerTag": "8889114154671114944",
      "seq": 1,
      "ctx": "CktRuQ2mttgRGkXJtyksdKHjUdc2C4TgDzyB98oEzy8/91"
     },
@@ -715,7 +715,7 @@
     "requestId": "53ddfc8df21f26cc74c67555257f0ac941cce6eecce0b7316ec62dc9a31ea01b",
     "label": "r4",
     "caravanId": {
-     "ownerTag": "1003",
+     "ownerTag": "4372626378048414624",
      "seq": 3,
      "ctx": "CktRuQ2mttgRGkXJtyksdKHjUdc2C4TgDzyB98oEzy8/91"
     },
@@ -741,7 +741,7 @@
     "requestId": "b72e9984f702295dba8a06f6a51e2ad5fbea85baa0074ba798a79101a5b53679",
     "label": "r5",
     "caravanId": {
-     "ownerTag": "1003",
+     "ownerTag": "4372626378048414624",
      "seq": 4,
      "ctx": "CktRuQ2mttgRGkXJtyksdKHjUdc2C4TgDzyB98oEzy8/91"
     },

@@ -63,7 +63,7 @@ export function fakeChain(programId, seasonId) {
   const tx = (addrs, records, { err = null, foreign = [], signature: named = null, message = null, signatures = [] } = {}) => {
     const signature = named ?? `sig${seasonId}-${++n}`;   // 文脈ごとに違う名前（二つの偽のチェーンを一つの読み手で読むとき）
     if (named) ++n;
-    const logs = [`Program ${programId} invoke [1]`, ...records.map(([name, f]) => `Program data: UFMy ${toBase64(ps2Body(name, 100 + n, f))}`), `Program ${programId} success`,
+    const logs = [`Program ${programId} invoke [1]`, ...records.map(([name, f]) => `Program data: UFMy ${toBase64(ps2Body(name, 100 + n, { bell: 100 + n, ...f }))}`)   /* 記録の中の bell（CARAVAN_RAIDED など）も同じ鐘 */, `Program ${programId} success`,
       ...foreign.map(([pid, name, f]) => [`Program ${pid} invoke [1]`, `Program data: UFMy ${toBase64(ps2Body(name, 1, f))}`, `Program ${pid} success`]).flat()];
     txs.set(signature, { err, logs, slot: n, blockTime: clock(), message, signatures: signatures.length ? signatures : [signature] });
     for (const a of addrs) sigs.set(a, [{ signature, err }, ...(sigs.get(a) ?? [])]);

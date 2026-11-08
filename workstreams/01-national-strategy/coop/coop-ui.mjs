@@ -32,11 +32,34 @@ async function api(path, body) {
   return r.json();
 }
 
-async function connectDev() {
+/** 板のネットワーク（Wallet Standard の chain）。板の --cluster（既定 localnet）。 */
+const chainOf = () => W.chainOf(cfg?.cluster ?? 'localnet');
+const DEV = 'dev';
+
+/**
+ * ウォレットを選ぶ：ゲームと同じ wallet.mjs で、ブラウザにある Wallet Standard のウォレットを並べる（Phantom などの拡張）。
+ * Dev Wallet（localnet だけ）は、選んで押したときに初めて有効にする（有効にすると、この画面の localStorage に鍵の種を作るため）。
+ */
+function renderWallets() {
+  const list = W.list(chainOf()).filter(e => !e.dev);
+  const opts = [...list.map((e, i) => `<option value="${i}"${e.why ? ' disabled' : ''}>${esc(e.name)}${e.why ? `（${esc(e.why)}）` : ''}</option>`),
+    ...(chainOf() === 'solana:localnet' ? [`<option value="${DEV}">Dev Wallet（ローカル）</option>`] : [])];
+  const keep = $('wallet').value;
+  $('wallet').innerHTML = opts.join('') || '<option disabled>使えるウォレットが見つからない</option>';
+  if ([...$('wallet').options].some(o => o.value === keep && !o.disabled)) $('wallet').value = keep;
+  else { const first = [...$('wallet').options].find(o => !o.disabled); if (first) $('wallet').value = first.value; }
+}
+
+async function connectWallet() {
   try {
-    await W.enableDevWallet({ cluster: 'localnet', allowed: true });
-    const dev = W.list('solana:localnet').find(e => e.dev);
-    await W.connect(dev, { chain: 'solana:localnet' });
+    const chain = chainOf();
+    let entry;
+    if ($('wallet').value === DEV) {
+      await W.enableDevWallet({ cluster: 'localnet', allowed: chain === 'solana:localnet' });
+      entry = W.list(chain).find(e => e.dev);
+    } else entry = W.list(chain).filter(e => !e.dev)[Number($('wallet').value)];
+    if (!entry) return say('ウォレットを選んでください', 'warn');
+    await W.connect(entry, { chain });
     const c = W.connected();
     signer = {
       address: c.address,
@@ -253,12 +276,15 @@ $('send').addEventListener('click', () => {
   post({ kind: 'request', goalId, need, to, nation: myNation(), expiresAt: at + Math.round(Number($('hours').value) * 3600), nonce: Math.random().toString(36).slice(2) }, '依頼を出した（応じた人がいても、物は自動では動かない）');
 });
 $('leave').addEventListener('click', () => post({ kind: 'leave', goalId }, 'この目的から抜けた。自分の依頼は取り消し、応じた答えは取り下げた。送った隊商はそのまま届く'));
-$('connect').addEventListener('click', connectDev);
+$('connect').addEventListener('click', connectWallet);
 $('nation').addEventListener('change', refresh);
 $('judge').addEventListener('change', refresh);
 
 (async () => {
   cfg = await api('/coop/config');
+  W.discover();
+  W.onChange(renderWallets);
+  renderWallets();
   $('season').textContent = `シーズン ${cfg.season.seasonId}（プログラム ${short(cfg.season.programId)}）`;
   $('goalTitle').textContent = cfg.goals[goalId].title;
   $('judge').innerHTML = cfg.judges.map(j => `<option value="${esc(j.id)}"${j.id === cfg.judge ? ' selected' : ''}>${esc(j.label)}</option>`).join('');

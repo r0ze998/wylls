@@ -4,7 +4,7 @@
 //
 //   node workstreams/01-national-strategy/coop/board.mjs --herald http://127.0.0.1:41940 \
 //        --program <program id> --season <id> --rpc http://127.0.0.1:41910 [--port 41873] [--data <dir>] [--judge arrivals]
-//        [--previous <program>:<season> …] [--legacy-data <旧い板のフォルダ> …] [--segment-mb 64]
+//        [--previous <program>:<season> …] [--legacy-data <旧い板のフォルダ> …] [--segment-mb 64] [--cluster localnet]
 //
 // 中継（relay）へは、ゲームと同じく同じ入口の /gw を通す（板 → ヘラルドの /gw → 中継）。
 // 中継は CORS の見出しを返さず、OPTIONS にも答えない（permutation-gateway src/frontier/app.mjs：Access-Control-Allow-Origin なし、
@@ -53,7 +53,7 @@ export function loadRecords(file) {
  * 観測の時刻（observed.json）が失われると、再起動の後に初めて見た時刻になる（仮B は「到着より後」を確かめられず、達成にならない側に倒れる）。
  */
 export function createBoard({ herald, programId, seasonId, dataDir, judge = 'arrivals', now = () => Math.floor(Date.now() / 1000), fetchHerald = null, reader = null, relay = '/gw', rpc = null,
-  previous = [], legacyDirs = [], segmentBytes = DEFAULT_SEGMENT_BYTES, verify = verifySig }) {
+  previous = [], legacyDirs = [], segmentBytes = DEFAULT_SEGMENT_BYTES, verify = verifySig, cluster = 'localnet' }) {
   // verify：記録の署名の確かめ（既定は Ed25519 の verifySig）。試験だけが、署名を使わない確かめに差し替える（CLI からは変えられない）
   // 今の文脈（新しい依頼・ヘラルド・見ている人の国）と、前の文脈（読み続ける）。文脈を世界の正本として決めるのは④⑧。①は渡された一覧を使う。
   const season = { programId, seasonId: String(seasonId) };
@@ -237,7 +237,7 @@ export function createBoard({ herald, programId, seasonId, dataDir, judge = 'arr
     return { ...v, heraldFeed: file ? { moving: (file.moving ?? []).length, ended: Array.isArray(file.ended) ? file.ended.length : null } : null, chain: !!reader, damaged, contexts, store: { segments: segments.length, problems: storeProblems } };
   }
 
-  const config = () => ({ season, contexts, goals: GOALS, judges: Object.values(JUDGES).map(j => ({ id: j.id, label: j.label, means: j.means })), judge, herald, chain: !!reader, damaged, relay, rpcProxy: !!rpc, store: { segments, problems: storeProblems } });
+  const config = () => ({ season, contexts, cluster, goals: GOALS, judges: Object.values(JUDGES).map(j => ({ id: j.id, label: j.label, means: j.means })), judge, herald, chain: !!reader, damaged, relay, rpcProxy: !!rpc, store: { segments, problems: storeProblems } });
   return { submit, view, config, records, caravans, season, contexts, rpc, state };
 }
 
@@ -340,7 +340,7 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
   const legacyDirs = all('legacy-data');
   const segmentBytes = Math.round(Number(arg('segment-mb', String(DEFAULT_SEGMENT_BYTES / 1048576))) * 1048576);   // 記録の区間の大きさ（MB）
   const rpc = arg('rpc');   // 例：http://127.0.0.1:41910（国と届け先の村をチェーンで確かめる。ないと国籍未検証）
-  const board = createBoard({ herald, programId, seasonId, dataDir, judge: arg('judge', 'arrivals'), reader: rpc ? rpcReader(rpc) : null, rpc, previous, legacyDirs, segmentBytes });   // 中継は同じ入口の /gw（ヘラルドの --relay が要る）
+  const board = createBoard({ herald, programId, seasonId, dataDir, judge: arg('judge', 'arrivals'), reader: rpc ? rpcReader(rpc) : null, rpc, previous, legacyDirs, segmentBytes, cluster: arg('cluster', 'localnet') });   // ウォレットのネットワーク（Wallet Standard の chain）   // 中継は同じ入口の /gw（ヘラルドの --relay が要る）
   createServer(board, { herald }).listen(port, '127.0.0.1', () => {
     console.log(`依頼の板：http://127.0.0.1:${port}/ws01/  ゲーム：http://127.0.0.1:${port}/frontier/frontier/  （ヘラルド ${herald}、記録 ${dataDir}）`);
   });
