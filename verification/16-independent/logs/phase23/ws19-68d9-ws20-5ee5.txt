@@ -1,0 +1,6 @@
+### ⑲ 68d9c6d48cb9603635c6f9f057cfaa9171af737b (tree a5fbf199): map-arrival + map-contract, repo guard + hook v2
+scan --check exit 0; covers ok; # tests 15 # pass 15 # fail 0  hook lines 0
+
+### ⑳ 5ee5fa3566b15514020e4f40567818aa0ddbd0e0 (tree f3db89f4)
+scan --check exit 0; resident-home = direct section (mock wallet names signTransaction/signMessage), wide-holding-ui = via-src: NOT run
+resident-me (runnable): # tests 5 # pass 5 # fail 0  hook lines 0

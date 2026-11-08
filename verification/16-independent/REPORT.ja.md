@@ -3024,3 +3024,39 @@ checkpoint の `95b0ab225ca9e9e626941b51981df2240198d91c`（tree `89a64830da3991
   - 値（min_lead / max_lead が preset の 2 / 72 であること、GENESIS_SEED、CREATED_TS など）の照合。
   - write_params を実際に走らせて byte を比べること。そうする試験は無い。
   - したがって、「write_params と同じ field を同じ順で、述べられた違いだけを除いて書く」ところまでが確かめられた範囲。
+
+## 29.23 ⑲ 68d9c6d4（beacon の値）と ⑳ 5ee5fa35（NFT の viewer が自分の Citizen だけを採る）
+
+### ⑲ 68d9c6d4
+- 対象：⑲ `68d9c6d48cb9603635c6f9f057cfaa9171af737b`（tree `a5fbf199…`、④ fc6b923b の上。試験と fixture だけ）。
+- **program と profile から一意に決まるか**：決まる。
+  - M1 の growth の Season の QUICKNET_PK_HASH は、写した値ではなく、共通の定数 `frontier_abi::presets::QUICKNET_PK_HASH` を書く。
+  - NETWORK 2（`NETWORK_QUICKNET`）、quicknet の genesis と period も presets の定数で、presets の validate が S1 にそれを課す。
+- **食い違いを隠す assert があるか**：見つからない。
+  - checkBeacon（seal.mjs 161 行）は、network、公開鍵の pin、clock、chain hash、pk hash を順に確かめ、それぞれ別の code を返す。
+  - 試験は、S1 の 4 段階と M1 の 3 段階で kind が quicknet であること（ok のときだけ kind が付く）を確かめる。
+  - 否定の場合：NETWORK 0 と 0 の hash（NotQuicknet）、pk hash の 1 byte の違い（PkHashMismatch）、別の公開鍵（NotQuicknet）。
+  - 「NETWORK 2 で hash だけが 0」の場合は、hash の違いの場合に含まれる。
+- **鍵の code に届くか**：届かない。checkBeacon は sha256 と文字列の比較だけ。BLS は seal-worker の経路だけで、起動しない。
+- ⑯ の実行：scan の `--check` は exit 0（reviewed 10）、`--covers` も通る。map-arrival と map-contract を repo の guard と hook v2 の下で **15/15**、hook の記録は 0 件。Rust は流していない。
+
+### ⑳ 5ee5fa35
+- 対象：⑳ `5ee5fa3566b15514020e4f40567818aa0ddbd0e0`（tree `f3db89f4…`、親 ④ dd7f8735）。product の変更は、controller.mjs の `viewerOwnCitizen` と、applyMeResult の入口の 1 行。
+- **wallet の経路は変わらないか**：変わらない。
+  - wallet で遊ぶとき（FS.resident が null）は、`residentAsset === undefined` の Citizen（mark の無い wallet の Citizen）だけを採る。§29.15 で確かめたとおり、wallet の Citizen の decode には residentAsset が無い。
+  - 違いは、wallet の Citizen に無効な mark（residentAsset が null）があるときに拒否されることだけ（herald の checkMe と同じ扱い）。
+- **NFT で遊ぶとき**：mark があり、その asset が遊んでいる NFT と一致する Citizen だけを採る。
+  - wallet の Citizen（mark が無い）と、無効な mark（null）は WrongKey になる。
+- **拒否された read は、前に採った Citizen を残すか**：残す。
+  - 拒否は `me = {ok:false, code:'WrongKey'}` にして、applyMeResult の既存の error の分岐に入れる。その分岐は FS.citizen と holdings を変えず、meStatus を 'error' にする。
+  - ⑦ の meAnswered（§29.8）の下では、前に答えがあれば表示はそのまま保たれる。
+- **NFT の Citizen はいつも mark つきで decode されるか**：条件つきで成り立つ。
+  - fcodec は header の byte 16〜17 が 2 のときだけ profile 2 で decode し、mark を読む。program は layout_version を書く（⑳ が挙げた layout/mod.rs）。
+  - layout_version が 2 でない NFT の Citizen は mark が読まれず、NFT の viewer には WrongKey になる。偽って受け入れるのではなく、拒否する側に倒れる。
+- **試験の閉包**：
+  - ⑳ が変えた 2 つの試験のうち、`web-frontier-resident-home` は scan の **direct** の区分。試験そのものの mock の wallet が `signTransaction` と `signMessage` の名前を持つ。
+  - `web-frontier-wide-holding-ui` は via-src。
+  - ⑯ はどちらも流していない。この 2 つでの ⑳ の結果（修正を戻すと 2 件が失敗する）は、⑳ の静的な監査と受け身の monitor に基づくもので、⑯ は鍵を使わないことを確かめていない。
+  - ⑯ が流したのは、流してよい `web-frontier-resident-me` だけで、5/5、hook の記録は 0 件。
+  - ⑳ が前の round で、鍵を導出する 4 つの file を流したと開示していることも記録する（HOLDER-CONTRACT §15）。
+- 記録は `logs/phase23/ws19-68d9-ws20-5ee5.txt`。
