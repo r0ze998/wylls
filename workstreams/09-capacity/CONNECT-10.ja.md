@@ -241,6 +241,10 @@
 | ④ | 記録の kind（20 種と帯 10 枠）、`ClaimSplit` の tag、magic、`RSV_700` を表に載せるか、0001 の版（S1 か S2 か） |
 | ⑩ | なし（T5 は ⑩ が `connect` を外して解決） |
 
+## 9. プログラムでの接続（2026-11-08）
+
+⑩ の区画は、bridge10（ホストの接続）に加えて、プログラムの中でも ⑨ の命令につながった（`capacity-preview` と `custody-preview` の両方の build）。DepositToJob の出どころ `SOURCE_LOT` は ⑩ の `consume`（利用注文、用途 `0x0901`、整数単位、`LOT_CONSUMED` を区画の鎖に）、ClaimJob は使わなかった鉱石を `return_unused` で区画へ（端数・凍結・満杯は予約に未返却）。詳細と ⑩ への依頼（返却の記録の種類、区画ごとの未返却）は [INTEGRATION-04.ja.md](INTEGRATION-04.ja.md) §6。
+
 ## 8. 再現
 
 ```sh

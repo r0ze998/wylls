@@ -46,6 +46,16 @@ nft-experimental = ["program"]
 # PSF_CUSTODY_PREVIEW_BUILD; never deployable until LiteSVM tests, measured
 # budgets and the verifier's V26 exist.
 custody-preview = []
+# Workstream 09 (capacity lending), a preview: the capacity instructions
+# 0xF0–0xFD (`proc::capacity`, workstream 4's provisional band), dispatched
+# before the v2 tags; the build carries the `0x1000` program-version bit (provisional, workstream 4 2026-11-08; ② rights has 0x2000)
+# (workstream 09's proposal) so its Seasons never mix with others. No PS2
+# record (the kinds are not allocated). Not deployable.
+capacity-preview = [
+    "program",
+    "frontier-abi/capacity-preview",
+    "permutation-rules/capacity-preview",
+]
 # Local development only (2026-11-07): the draft wide land write path on the
 # provisional band 0xD6–0xDA (`proc::wide`), the wide terrain kernel and the
 # `world_index` identity models; the build carries the `0x4000` program

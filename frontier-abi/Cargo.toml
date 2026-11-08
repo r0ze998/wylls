@@ -29,6 +29,10 @@ default = []
 # program, the vectors and every hash are built exactly as before; it adds
 # no dependency (I-03 holds).
 world-index-experimental = []
+# Workstream 09 (capacity lending), a preview: `capacity`, the instruction
+# tags 0xF0-0xFD, their data, account lists and addresses. Off by default:
+# no vector, hash or default-build change; no new dependency.
+capacity-preview = []
 
 [lints.rust]
 unexpected_cfgs = { level = "warn", check-cfg = ['cfg(target_os, values("solana"))'] }

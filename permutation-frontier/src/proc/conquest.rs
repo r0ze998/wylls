@@ -1463,6 +1463,7 @@ pub fn settle_capture(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
         let doctrine = *of_faction(captor_faction).ok_or(BAD_ACCOUNT)?;
         let eff = capture_effects(&h, doctrine);
         h.walls = eff.walls;
+        h.lent_workshops = eff.lent_workshops;
         if !credited {
             for s in h.stores.iter_mut() {
                 s.value = 0;

@@ -23,3 +23,8 @@ abi-04-provisional = []
 [dependencies]
 permutation-rules = { path = "../../../permutation-rules", features = ["std"] }
 borsh = { version = "=1.6.1", features = ["derive"] }
+
+[dev-dependencies]
+# The program's rules for capacity (feature capacity-preview), compared with
+# this kernel by tests/rules_port.rs.
+permutation-rules = { path = "../../../permutation-rules", features = ["std", "capacity-preview"] }

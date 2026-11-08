@@ -150,11 +150,34 @@ pub const PROGRAM_VERSION: u16 = frontier_abi::v2::presets::PROGRAM_VERSION_S1
         frontier_abi::v2::rights::RIGHTS_EXPERIMENTAL_VERSION_BIT
     } else {
         0
-    };
+    }
+    | capacity_bit();
 /// Custody remains a separate preview. No version is allocated for its
 /// combination with NFT residents or the host-only wide writer.
 #[cfg(feature = "custody-preview")]
-pub const PROGRAM_VERSION: u16 = frontier_abi::v2::presets::PROGRAM_VERSION_CUSTODY;
+pub const PROGRAM_VERSION: u16 =
+    frontier_abi::v2::presets::PROGRAM_VERSION_CUSTODY | capacity_bit();
+
+/// Workstream 09's capacity preview (`capacity-preview`): the `0x2000` bit
+/// (a proposal, `frontier_abi::capacity::CAPACITY_PREVIEW_VERSION_BIT`), so
+/// a capacity build's Seasons are its own; with custody it is the custody
+/// build's version with the bit (lots feed jobs there).
+const fn capacity_bit() -> u16 {
+    #[cfg(feature = "capacity-preview")]
+    {
+        frontier_abi::capacity::CAPACITY_PREVIEW_VERSION_BIT
+    }
+    #[cfg(not(feature = "capacity-preview"))]
+    {
+        0
+    }
+}
+#[cfg(all(feature = "capacity-preview", feature = "rights-experimental"))]
+compile_error!("capacity-preview and rights-experimental together: the program version is undecided (workstream 4)");
+#[cfg(all(feature = "capacity-preview", feature = "nft-experimental"))]
+compile_error!("capacity-preview and nft-experimental together: the program version is undecided (workstream 4)");
+#[cfg(all(feature = "capacity-preview", feature = "wide-world-experimental"))]
+compile_error!("capacity-preview and wide-world-experimental together: the program version is undecided (workstream 4)");
 #[cfg(all(feature = "custody-preview", feature = "nft-experimental"))]
 compile_error!("custody-preview and nft-experimental together: the program version is undecided (workstream 4)");
 #[cfg(all(feature = "custody-preview", feature = "rights-experimental"))]
@@ -198,6 +221,14 @@ pub fn dispatch(
         .is_some_and(|t| frontier_abi::v2::rights::is_rights_tag(*t))
     {
         return proc::rights::dispatch(program_id, accounts, data);
+    // Workstream 09's capacity preview (band 0xF0–0xFD): a default build
+    // never reaches this arm and refuses the bytes as unknown tags below.
+    #[cfg(feature = "capacity-preview")]
+    if data
+        .first()
+        .is_some_and(|t| frontier_abi::capacity::is_capacity_tag(*t))
+    {
+        return proc::capacity::dispatch(program_id, accounts, data);
     }
     use frontier_abi::v2::Ix;
     use proc::*;

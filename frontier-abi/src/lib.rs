@@ -38,6 +38,9 @@ extern crate std;
 pub mod addr;
 pub mod budgets;
 pub mod bytes;
+/// Workstream 09's instructions (a preview, `capacity-preview`).
+#[cfg(feature = "capacity-preview")]
+pub mod capacity;
 pub mod clash_model;
 pub mod conquest_model;
 pub mod entry;
