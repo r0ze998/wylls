@@ -170,7 +170,7 @@ fn unverified_after(sig: &str) -> (String, bool, String, String, String) {
         CUSTODY_UNVERIFIED.to_string(),
         false,
         account(0xD1),
-        "a Lot account after it: custody is not verified (V26 does not replay caravans or records yet)".to_string(),
+        "a Lot account after it: custody is not verified (V26 does not replay the caravans' routes or the records yet)".to_string(),
         sig.to_string(),
     )
 }

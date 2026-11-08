@@ -226,7 +226,7 @@ fn a_custody_season_is_never_a_pass() {
                 CUSTODY_UNVERIFIED,
                 false,
                 "transaction",
-                "a landed ConsumeLot instruction: custody is not verified (V26 does not replay caravans or records yet)",
+                "a landed ConsumeLot instruction: custody is not verified (V26 does not replay the caravans' routes or the records yet)",
                 sig.as_str(),
             ),
         ],
