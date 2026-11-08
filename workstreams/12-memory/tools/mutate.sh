@@ -103,3 +103,8 @@ mut adapters/canonical.mjs "  if (h.basis !== 'ledger_feed') why.push" "  if (fa
 mut adapters/canonical.mjs "  if (h.heldBack !== 0) why.push" "  if (false) why.push" "held-back history used for absence"
 mut adapters/canonical.mjs "  if (missing.length) why.push" "  if (false) why.push" "absence over some routes only"
 mut adapters/canonical.mjs "  if (['not_fetched', 'gap', 'unverifiable'].includes(h.state)) why.push" "  if (false) why.push" "gap read as nothing happened"
+echo "# per-record provenance (2026-11-08, 13's request)"
+mut src/fold.mjs "    c.evidence_basis = recs.length ? { kind: recs.reduce((a, r) => (order.indexOf(r.kind) < order.indexOf(a) ? r.kind : a), 'chain'), records: recs } : null;" "    c.evidence_basis = recs.length ? { kind: recs[recs.length - 1].kind, records: recs } : null;" "breach basis from one record, not the weakest"
+mut src/fold.mjs "        c.grounds_extra = cov.aliases;" "" "aliases behind a coverage left out of the grounds"
+mut src/records.mjs "  const body = { v: RECORD_VERSION, type: 'fact', kind, bell, created_bell, visibility: checkVisibility(visibility), data: d, source: key, ...(b ? { basis: b } : {}) };" "  const body = { v: RECORD_VERSION, type: 'fact', kind, bell, created_bell, visibility: checkVisibility(visibility), data: d, source: key };" "fact basis dropped"
+mut adapters/canonical.mjs "    runSpecs: store.runSpecs, resolveOwner: ids.resolve, basis: stated(sources.store), aliasBasis: stated(sources.me)," "    runSpecs: store.runSpecs, resolveOwner: ids.resolve, basis: { kind: 'chain', source: 'store' }, aliasBasis: { kind: 'chain', source: 'me' }," "connection labels every fact chain"

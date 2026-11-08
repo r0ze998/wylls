@@ -233,7 +233,7 @@ export function knowledge(records, viewer, clock, { observedBy = clock, world = 
       else if (c.data.from_bell <= reach + 1) reach = Math.max(reach, c.data.to_bell);
       else break;
       basis.push(c.id); listed.push(...c.data.caravans);
-      if (reach >= to) return { ok: true, basis, listed };
+      if (reach >= to) return { ok: true, basis, listed, aliases: basis.flatMap(id => { const cv = coverages.find(x => x.id === id); return aliasBasis({ partition: cv.data.partition, sender: cv.data.sender }); }) };
     }
     const fails = lookupFails.filter(l => l.data.query === 'coverage' && l.data.sender && principalOfTag(l.data.partition, l.data.sender, l.legacy ? l.data.sender : null) === principal);
     return { ok: false, failed: fails.length > 0, insufficient: [...new Set(insufficient)].sort(), partial_range: good.length > 0,
@@ -470,6 +470,7 @@ export function knowledge(records, viewer, clock, { observedBy = clock, world = 
       }
       else {
         c.sources.push(...cov.basis);
+        c.grounds_extra = cov.aliases;
         const listed = cov.listed.map(x => ({ x, f: one(sentBy, caravanKey(x)).f }));
         const unknownDst = listed.filter(y => !y.f);
         const maybe = listed.filter(y => y.f && y.f.bell >= c.made_bell && !allocatedCaravans.has(caravanKey(y.x)));
@@ -487,6 +488,14 @@ export function knowledge(records, viewer, clock, { observedBy = clock, world = 
       }
     }
     c.sources = [...new Set(c.sources)];
+    // evidence_basis: where the FACTS this state rests on were read (their `basis`), plus the identity aliases that
+    // tied a coverage to the debtor. kind is the weakest of them ('unstated' if any has none; null when no fact is
+    // involved). Workstream 13 acts on a decided breach only when this is 'chain'.
+    const ground = [...new Set([...c.sources, ...(c.grounds_extra ?? [])])].map(id => byId.get(id)).filter(r => r?.type === 'fact');
+    delete c.grounds_extra;
+    const recs = ground.map(r => ({ id: r.id, kind: r.basis?.kind ?? 'unstated', source: r.basis?.source ?? null }));
+    const order = ['unstated', 'fixture', 'integration-output', 'chain'];
+    c.evidence_basis = recs.length ? { kind: recs.reduce((a, r) => (order.indexOf(r.kind) < order.indexOf(a) ? r.kind : a), 'chain'), records: recs } : null;
   }
   const declined = acts('decline').filter(d => requests.has(d.act.ref)).map(d => ({ id: d.id, by: d.speaker, request: d.act.ref }));
   const unassigned = ofKind('caravan_sent').filter(f => !allocatedCaravans.has(caravanKey(f.data.caravan))).map(f => ({ fact: f.id, caravan: f.data.caravan, dst: f.data.dst }));
