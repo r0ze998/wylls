@@ -6,6 +6,8 @@ export const SEASON = { cluster: 'localnet-fixture', programId: PROGRAM, seasonA
 export const OTHER = 'Asker111111111111111111111111111111111111111'.slice(0, 44);
 export const TAG = '0102030405060708';
 export const FIXTURE = { kind: 'fixture', source: 'ws13 test: synthetic herald and index records, no chain' };
+/** Workstream 12's per-fact basis (fa4baf14): these records are fixtures, and say so. */
+export const FIXTURE_BASIS = Object.freeze({ kind: 'fixture', source: 'ws13 test fixture (not read from any chain)' });
 export const ALL_FIXTURE = { world: FIXTURE, clock: FIXTURE, finality: FIXTURE, identity: FIXTURE, records: FIXTURE };
 
 /** A synthetic /h/me for a wallet: Citizen v2 bytes with WALLET @ 64 and CITIZEN_TAG @ 208 (no key involved). */
@@ -23,7 +25,7 @@ export async function heraldMe(m12, wallet) {
  * 12's memory with Kou's broken promise. `finality` is the coverage's (12 decides only on 'finalized'); `withWorld`
  * false leaves the memory without a world; `coverage` false leaves the promise undecided.
  */
-export async function memoryFor(m12, kou, { finality = 'finalized', withWorld = true, coverage = true } = {}) {
+export async function memoryFor(m12, kou, { finality = 'finalized', withWorld = true, coverage = true, basis = FIXTURE_BASIS } = {}) {
   const { createMemory } = await m12('src/index.mjs');
   const { worldFromSeason } = await m12('adapters/canonical.mjs');
   const { SEND_ROUTES } = await m12('src/records.mjs');
@@ -33,9 +35,9 @@ export async function memoryFor(m12, kou, { finality = 'finalized', withWorld = 
   const place = { partition: w.partition, kind: 2, p: 1, q: 0, at: 5, gen: 1 };
   const req = m.say({ speaker: OTHER, bell: 0, visibility: pub, act: { type: 'request', to: kou, resource: 'science', qty: 3, by_bell: 1, place } });
   m.say({ speaker: kou, bell: 0, visibility: pub, act: { type: 'accept', ref: req.id, qty: 3, by_bell: 1 } });
-  m.observe({ kind: 'identity_alias', bell: 0, created_bell: 0, visibility: pub, source: { chain: 'index', sig: 'fixture-alias-kou', ix: 0 }, data: { partition: w.partition, tag: TAG, principal: kou } });
+  m.observe({ kind: 'identity_alias', bell: 0, created_bell: 0, visibility: pub, source: { chain: 'index', sig: 'fixture-alias-kou', ix: 0 }, ...(basis ? { basis } : {}), data: { partition: w.partition, tag: TAG, principal: kou } });
   if (coverage) {
-    m.observe({ kind: 'coverage', bell: 9, created_bell: 9, visibility: pub, source: { chain: 'index', sig: 'fixture-coverage-kou', ix: 0 },
+    m.observe({ kind: 'coverage', bell: 9, created_bell: 9, visibility: pub, source: { chain: 'index', sig: 'fixture-coverage-kou', ix: 0 }, ...(basis ? { basis } : {}),
       data: { world: w.world, partition: w.partition, sender: TAG, from_bell: 0, to_bell: 9, routes: [...SEND_ROUTES], finality, completeness: { gapless: true, from_slot: 0, to_slot: 13_499 }, caravans: [] } });
   }
   return { m, w };

@@ -727,18 +727,27 @@ export class Resident {
     if (mine && theirs && !sameClock(mine, theirs)) return { lines: [], breaches, summary: counterparties.map(counterparty => ({ counterparty, status: 'clock_mismatch', clocks: [clockId(mine), clockId(theirs)] })) };
     const wm = worldMismatch(this.ports.observe?.world ?? null, port.world ?? null);
     if (wm) return { lines: [], breaches, summary: counterparties.map(counterparty => ({ counterparty, status: 'world_mismatch', why: wm, worlds: [this.ports.observe.world.world_id, port.world.world_id] })) };
+    // Two conditions, both: the port's inputs (world, clock, finality, identity, records) and the facts behind the
+    // breach itself (workstream 12's evidence_basis, per commitment) are chain-read. The test switch admits a fixture
+    // basis on both, never an unstated one.
     const basis = port.basis ?? 'unstated';
-    const actOn = basis === 'chain' || (basis === 'fixture' && this.ports.evidenceUse === 'fixture-for-tests-only');
+    const testing = this.ports.evidenceUse === 'fixture-for-tests-only';
+    const admits = k => k === 'chain' || (testing && k === 'fixture');
+    const actOn = admits(basis);
     const lines = [];
     const summary = [];
     for (const counterparty of counterparties) {
       let r;
       try { r = port.read({ counterparty, worldBell: bell }); } catch (e) { summary.push({ counterparty, status: 'error', error: String(e.message).slice(0, 80) }); continue; }
       const broke = r.status === 'ok' ? (r.facts ?? []).filter(f => f.verified && f.breach) : [];
+      const grounded = actOn ? broke.filter(f => admits(f.evidenceBasis ?? 'unstated')) : [];
+      const why = !broke.length || grounded.length ? null
+        : !actOn ? `basis ${basis}: not chain evidence`
+        : `the facts behind the breach are ${[...new Set(broke.map(f => f.evidenceBasis ?? 'unstated'))].join('/')}: not chain evidence`;
       summary.push({ counterparty, status: r.status, lines: r.lines.length, epistemic: [...new Set(r.lines.map(l => l.epistemic))],
-        ...(r.facts ? { basis, verifiedBreaches: broke.map(f => f.commitment), acted: broke.length > 0 && actOn, ...(broke.length && !actOn ? { notActedBecause: `basis ${basis}: not chain evidence`, ...(port.basisWhy?.length ? { basisWhy: port.basisWhy.slice(0, 6) } : {}) } : {}) } : {}) });
+        ...(r.facts ? { basis, verifiedBreaches: broke.map(f => f.commitment), evidenceBases: broke.map(f => f.evidenceBasis ?? 'unstated'), acted: grounded.length > 0, ...(why ? { notActedBecause: why, ...(!actOn && port.basisWhy?.length ? { basisWhy: port.basisWhy.slice(0, 6) } : {}) } : {}) } : {}) });
       if (r.status !== 'ok') continue;
-      if (broke.length && actOn) breaches.set(counterparty, { basis, commitments: broke.map(f => ({ commitment: f.commitment, state: f.state, due_bell: f.due_bell, sources: f.sources.slice(0, 4) })) });
+      if (grounded.length) breaches.set(counterparty, { basis, commitments: grounded.map(f => ({ commitment: f.commitment, state: f.state, due_bell: f.due_bell, evidenceBasis: f.evidenceBasis, sources: f.sources.slice(0, 4) })) });
       for (const l of r.lines.slice(0, 3)) {
         lines.push(`- about ${counterparty.slice(0, 8)} [${l.epistemic}; sources ${l.sources.slice(0, 2).join(', ')}]: ${wrapUntrusted(l.text, { from: 'workstream-12', ch: 'public-record', bell })}`);
       }
