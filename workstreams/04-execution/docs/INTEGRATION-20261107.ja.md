@@ -487,3 +487,35 @@ fa822453 の上に載せた。各チームのサブツリーは、チームが�
 - wide のルール 6 点（`docs/frontier/map-growth/PLAYABLE-WIDE-COMPATIBILITY.md`）、⑧ の 31 章（`workstreams/08-persistence/31-decisions.ja.md`）。
 - 仮の割当て：版のビット（rights 0x2000、capacity 0x1000、wide 0x4000）、⑨ の記録の kind・AccountKind 25 と 26・KERNEL_VERSIONS（`workstreams/09-capacity/INTEGRATION-04.ja.md`）、⑩ の LOT_RETURNED（`workstreams/10-custody/16-v26-caravan-replay.ja.md`）。
 - 保留した demo：`64f7cd15`、`86b293e8`、`298fdc91`、`f9b0f60b`、`26769fa1`、`07ae3f0d`、`7702251c`。本来の画面には入れていない。
+
+### 16.1 ⑧ の読み取りの結果と、建設の締め切りの照合（読むだけ。規則は選ばない）
+
+**⑧ が確かめたこと（16576826 で）**
+- 31 章の古い懸念のうち、次の 2 つは直っている：
+  - 札と分散配置：`ticket_nation_allowed`
+  - 年代記の feed の誤り：`FS.chronicle ?? []`
+- wide の開設・claim・行軍・帰還：
+  - host だけの実験。Solana の build は無い。
+  - WideSetRules は一度だけ設定できる。設定しないままなら NotImplemented のまま。
+- ⑧ の将来の設定の案「1/2/2/1」（砦の分散、今の自由都市の hash、今の野営地、鍵を並べ替えた beacon の地域）：
+  - 提案だけで、採用していない。
+  - 費用・容量の数え方と、賞の対象は、未決のまま。
+- 31 章の勧め：
+  - §1：中心が満員のときは、新しい地理の成長の規則ではなく、札への切り替えにする。画面の候補 `d1d07078` は取り消してあり、候補に入っていない。
+  - §2：世界・座標・本拠・世代・番号の全体の識別子。提案だけで、新しい形式と規則の hash が要る。live では確かめていない。
+
+**有限のシーズンの最後のベルに頼んだ建設が、終わりの後まで続くか（④ が 16576826 のコードを読んだ）**
+- 確かめたこと：
+  - `permutation-frontier/src/proc/holding.rs` の `build_as` は、完成の時刻 `done_at` を、シーズンの終わりと比べない。
+  - `permutation-rules/src/frontier/holding.rs` の `enqueue` は、前の項目の `done_at` の続きから数え、上限を付けない。
+  - そのため、最後のベルに頼んだ建設の完成は、シーズンの終わりの後になりうる。
+  - プレイヤーの操作は、`frontier-abi/src/prologue.rs` の `player_prologue` が `STATUS_RUNNING` だけを通すので、終わりの後には新しく頼めない。
+  - ただし、次の経路は `STATUS_ENDED` も通し、holding を今の時刻で `touch` する：隊商の精算（`caravan.rs`）、征服（`conquest.rs`）、軍勢の帰還（`host.rs`）、custody（`custody.rs`）。`touch` は期限の来た項目を完成させる。このため、終わりの後に完成が反映されうる。
+- 確かめていないこと：
+  - 「最長 792 ベル」という上限の数字。
+  - 終わりの後の完成が、得点や賞に影響するか。賞の集計は、州と土地を数える。建物が数えられるかは確かめていない。
+- 提案の commit `02013235`：
+  - GitHub の ref にも手元にも無いので、中身と当てはまるかは確かめられない。
+- 扱い：
+  - 懸念は「古い」ではなく「今もありうる」として残す。
+  - 締め切りの規則（終わりで打ち切る、終わりで止める、続ける）は選ばず、コードも変えていない。
