@@ -86,7 +86,7 @@
   - 視点は国 1。nations の feed の構えはすべて戦争。golden にある /h/ の path は 6 本で、ほかは 404（ページ自身のファイルの 404 はないことを確かめる）。
 - **ページ全体で到達したところ**（デスクトップ・スマホ、ページ自身の押下で）：
   - grown：通れない hex はない。注文の札の道は ⑧ の ROUTE（dirs [0,0,0,0,1,1,0,1,1]、1320 秒）。
-  - palisade：structures と nations の feed を読み、ページが通さない hex（palisadeHexesOf）はちょうど柵の hex [{q:33, r:-16}]。
+  - palisade：structures と nations の feed を読み、ページが通さない hex（palisadeHexesOf）はちょうど柵の hex [{q:33, r:-16}]。道は ⑲ が固定した答え（2db2db4b）と完全に一致することを要求する（NoPath を受け入れる分岐はない）。
     - (4,0) t0 → (5,0) t0 の札の道は、ページの S1 kernel が `blocked` をつけて立てる：dirs [5,0,0,1,0,1,1,0,1,1]、1320 秒、(4,0)→(5,0)。
     - 道の hex（marchcard.routeHexes）は柵の hex に入らない。⑧ の道とは違う。
   - どちらの段階でも、到着のターンは窓の中にあり、beacon の確認も通り、「封をして出発する」は押せる状態（押していない）。
