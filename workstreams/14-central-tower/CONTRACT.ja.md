@@ -86,9 +86,13 @@
 
 ⑭は⑮のコードを変えていません。
 
-### 5.2 最新版 `cb87e30c` との照合（未実施）
+### 5.2 最新版との照合（2026-11-08、実施済み）
 
-照合に要るもの（⑮の `cb87e30c`、前提コミットを明記した bundle か GitHub の push）：`workstreams/15-coop-outcomes/src/adapters/ws14.mjs`、`src/contract.mjs`、⑭の出力を使う試験と fixture。受け取ったら、⑭が渡した契約 v1 の fixture（`bde8d1c1` で作った A・B・C）を⑮の受け取り側に通して、時刻・掲示と応答の意味・`actor`・`unverified` の扱いを確かめる。
+⑮ `claude/determined-maxwell-uhc6a3` @ `95f44cf34a1e52688f208f25260b8b8cd27b5178`（tree `4215146e33d12f9c1b8ed669d6608881ae376cf1`、`adapters/ws14.mjs` は `cb87e30c` から同じ）。
+- ⑮の `scenarios/fixtures/ws14-v1-bde8d1c1-case{A,B,C}.json` は、⑭が渡した fixture とバイト単位で同じ。
+- ⑮の `test/contract-ws14.test.mjs`：11件合格。呼び出し先（`evaluate`・`rulesets`・`adapters/ws14`・`canon` の sha256）まで読み、鍵の生成・導出・署名がないことを確かめてから実行した。
+- ⑭の A・B・C を⑮の `normalizeTowerFacts`・`fromTowerFacts` に通した結果：拒否0、problems 0、`bellsPerHour` 6、区切り2（168・336時間）。評価期間は作られない。B は `tower.request.posted` 631・`taken` 597・`fulfilled` 523（⑭の数と一致）。C は `tower.relay.swap` 206。全件 `verified: 'model'`（評価器は事実として数えない）。目撃への読み替えはない。
+- 5.1 の食い違いはすべて解消している。
 
 ## 6. 今のゲームの中央の事実（`wylls.ws14.centre-facts/1`、2026-11-08）
 
