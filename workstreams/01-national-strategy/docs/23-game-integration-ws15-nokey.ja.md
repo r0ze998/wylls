@@ -15,8 +15,8 @@
 | U3 | 鍵を使う既存の試験を、入力の差し替えへ移す | ①の `*.test.mjs` がすべて鍵を使わずに通る。移せないものは別のファイルに分け、理由を書く | `test/nokey.mjs` を使う形に直し、guard の下で全体を走らせる | — | `test/nokey.mjs`、`coop.test.mjs`・`coop.continuity.test.mjs`・`coop.longrun.test.mjs`・`coop.send.test.mjs`、`coop.send.wallet-signing.mjs`（分けたもの） | 実装済み・検証待ち |
 | U4 | 本来のゲームの入口：ゲームと同じウォレットで署名する | 依頼の画面が、ゲームの `wallet.mjs` が見つける Wallet Standard のウォレット（Phantom などの拡張）を選べる。Dev Wallet は localnet で、選んだときだけ有効になる（有効にすると画面に鍵の種を作るため） | `test/coop.browser.nokey.mjs`（鍵を持たない Wallet Standard のウォレットを画面に登録して押す） | — | `coop/coop-ui.mjs`、`coop/index.html`、`coop/board.mjs`（`--cluster`） | 実装済み・検証待ち |
 | U5 | 再起動の後の未確定送信を、本物の画面で | sending の記録が残った送信が着地した後、板を作り直し画面を開き直すと、送る代わりに「着地した隊商 #n を結び付ける」が出て、押すと結び付く | `coop.browser.nokey.mjs` の 5 段目 | U4 | なし（21章の pending.mjs をそのまま使う） | 実装済み・検証待ち |
-| U6 | 担当ブランチへの push | `[skip ci]` 付きの通常の push。禁止の CI が動かない。配備・公開が起きない | GitHub Actions の run の一覧、PR の check・status | 外部連携の確認（23-5） | — | 23-5 |
-| U7 | ④・⑮へ連絡 | 契約と差分を、それぞれの会話に送る | 送った文面（23-6） | U1・U2 | — | 23-6 |
+| U6 | 担当ブランチへの push | `[skip ci]` 付きの通常の push。禁止の CI が動かない。配備・公開が起きない | GitHub Actions の run の一覧、PR の check・status | 外部連携の確認（23-5） | — | 実装済み（48f34e77 を push、branch の workflow run 0 件）・検証待ち |
+| U7 | ④・⑮へ連絡 | 契約と差分を、それぞれの会話に送る | 送った文面（23-6） | U1・U2 | — | 送った（返事待ち） |
 
 ## 23-2. ⑮との実物の接続（U2）
 
@@ -74,7 +74,12 @@ guard（④ `525a623f` の `scripts/ci/no-keys-guard.mjs`）は node:crypto・We
 
 ## 23-6. ④・⑮への連絡
 
-④（session_01C5Nj2aHp7d9xEM41j6obNp）と⑮（session_01C5Nj2bMKyve1rAhRwWMmdb）に、23-2・23-7 の内容を送る（送った結果は 09 章 9-3l）。
+2026-11-08、①の版 48f34e77 を示して送った（どちらも delivered。返事はまだ無い）：
+
+| 宛先 | 中身 |
+|---|---|
+| ⑮ session_01C5Nj2bMKyve1rAhRwWMmdb | 23-2 の結果と、揃えてほしい点 (a) 入力は boardForEvaluators（ws01-board v1）(b) 隊商の鍵に文脈 (c) linkResolver の場所の確かめ (d) cargo 0 の確定 (e) 依頼の状態の値。⑮ cb87e30c が GitHub に無いので、版の SHA と bundle を頼んだ |
+| ④ session_01C5Nj2aHp7d9xEM41j6obNp | 23-7 の適用の仕方（cf517b55 への merge・合成した木 0ce703ce・guard の下の試験の結果）、QUANTITY-CONTRACT §7 ①への対応、共有パッチの照合（0002b の名前は⑤のパッチと別物）、⑮との接続。0002b の採否を頼んだ |
 
 ## 23-7. ④への適用の仕方
 
