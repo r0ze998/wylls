@@ -115,3 +115,19 @@
 試験（鍵の生成・導出・署名なし、固定 seed なし）：`custody` 6・`custody_history` 9・`custody_replay` 14・`custody_replay_caravans` 13・`custody_state` 7（49 件）、`new_bands` 10、lib の `v0_` 1、`frontier-node` の check、stable の clippy `-D warnings`、rustfmt：すべて通過（16576826 + 0005）。変異 7 件（区画の住所・倉が区画のもの・二重の記録・下がった CONSUMED の注記・新しい区画の住所・隊商の区画の住所・単命令の記録）をすべて検出。
 
 ④へ：V23 の `route`・`check_caravan`・`check_slots`・`slots_of` を `pub(crate)` にするかは引き続き④の判断（§3 H1・H2）。⑩は V23 のファイルを変えていない。
+
+## 8. 追補：c260c438 の上の 0006（送る 3 命令の経路、2026-11-08）
+
+④が `c260c438` で V23 の `route`・`check_caravan`・`check_slots`・`slots_of`・`worn_cargo`・`Routed` を `pub(crate)` にした（意味は変えていない。H1 の解消）。その上に `patches-candidate/0006`：commit `3fd1db24dc51b028945cbe78b32c54977bd6e95c`（tree `c4e78493362a7fffde805edb6e9e041415cde26b`）。④の先端 `bb41fc0d` にも当たる（その間の verify の変更は V27 だけ）。
+
+DepositLot・ShipLot・WithdrawLot を、proc::custody の `send`（SendCaravan と同じ）として判定する：手数料が `CARAVAN_FEE` 以上、最初の経路の州が出発地の州（公開の住所）、V23 の `route`（経路の州の前の状態・Citizen の faction・Season の stances による `Walker::of`）、塔の摩耗、各区間の枠（`check_slots`）、Caravan（`check_caravan`：持ち主・番号・faction・出発地・行き先・送った積荷の摩耗後・手数料・出発・到着・最後の枠の鐘）、Citizen の隊商の番号が 1 進むこと。
+
+| 結果 | 判定 |
+|---|---|
+| 区画の側・記録・経路がすべて一致 | **完全な一致**（所見なし）。持ち物（Holding）からの預け入れは UNVERIFIABLE（支払いは V7） |
+| 経路が規則と違う | FAIL `CustodyReplayMismatch` |
+| Season・経路の州の前後・出どころ・Citizen の後が入力にない | UNVERIFIABLE「the route is not judged: …」。既定値で補わない |
+
+SettleCustody の経路の州の解決・襲撃・手数料・家賃、預け入れの持ち物からの支払いは引き続き UNVERIFIABLE（④の (b)：共有で済むものではない。州の条件の写しは設計を④に送ってから）。
+
+試験（鍵の生成・導出・署名なし）：lib の `send_route_tests` 3 件（一つの州の中の ShipLot。歩みが区間の枠を書く：完全な一致／到着が 1 秒遅い・枠がない・番号が進まない・行き先に着かない経路・手数料が足りない・最初の州が違う：FAIL／Season・州の前後・Citizen の後がない：判定しない）。隊商の試験の fixture は有効な手数料と州の住所に直した。`custody` 6・`custody_history` 9・`custody_replay` 14・`custody_replay_caravans` 13・`custody_state` 7、lib の v26・v23・v24・v0 13、`new_bands` 10、`frontier-node` の check、stable の clippy、rustfmt：すべて通過（c260c438 + 0006）。変異 8 件（Caravan を見ない・枠を見ない・番号を見ない・手数料を見ない・最初の州を見ない・Season の欠落を見ない・経路の誤りを証拠不足とする・枠の後の欠落を見ない）をすべて検出。
