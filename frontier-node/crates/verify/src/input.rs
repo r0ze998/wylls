@@ -547,12 +547,10 @@ pub async fn fetch_txs(
                 "local node feed {url}: the ledger shrank while it was read ({b} to {a} bytes): rewound"
             ))
         } else {
-            match id(&after) {
-                Some(id) => History::ledger_feed(format!("ledger {id}")),
-                None => {
-                    History::ledger_feed(format!("local node feed {url} (ledger not reported)"))
-                }
-            }
+            History::unknown(format!(
+                "local node feed {url}: ledger {:?} status matched; not an atomic ledger snapshot, completeness remains unproven",
+                id(&after)
+            ))
         };
         return Ok((out, history));
     }
