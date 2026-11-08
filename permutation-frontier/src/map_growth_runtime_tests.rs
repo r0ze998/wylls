@@ -1726,3 +1726,35 @@ fn map_growth_expansion_is_refused_without_a_ceiling_and_never_past_ring_128() {
     assert_eq!((ro, ext), (129, 128));
     assert!(records().is_empty());
 }
+
+/// A finite season's map is the one it ends with (workstream 08,
+/// `f3f23442`): ExtendFrontier from the season's end bell is `WrongStatus`
+/// while EndSeason has not been sent (the effective status is still
+/// Running), and writes and logs nothing; in the bell before the end the
+/// same extension lands. A continuous world's end bell is `NO_END_BELL`
+/// (u32::MAX), which no bell reaches.
+#[test]
+fn map_growth_expansion_is_refused_from_the_end_bell_of_a_finite_season() {
+    let _g = begin();
+    at_bell(1);
+    let mut w = World::growing();
+    w.set_shard_homes(0, 0, 0, WEDGE0_HOMES);
+    w.fold();
+    let _ = records();
+    {
+        // The same Season, ending at bell 2 (joins closed at bell 1).
+        let mut d = w.season.try_borrow_mut_data().unwrap();
+        put(&mut d, S::JOIN_CLOSE_BELL, &1u32.to_le_bytes());
+        put(&mut d, S::END_BELL, &2u32.to_le_bytes());
+    }
+    at_bell(2);
+    let before = w.frontier_data();
+    assert_eq!(w.extend_frontier(5), Err(E::WrongStatus as u32));
+    assert_eq!(w.frontier_data(), before, "nothing written");
+    assert!(records().is_empty(), "nothing logged");
+    at_bell(3);
+    assert_eq!(w.extend_frontier(5), Err(E::WrongStatus as u32), "nor later");
+    at_bell(1);
+    assert_eq!(w.extend_frontier(5), Ok(()), "the last bell still grows");
+    assert_eq!(w.frontier_state().1, 5);
+}

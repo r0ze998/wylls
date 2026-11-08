@@ -411,6 +411,8 @@ mod tests {
         put(&mut d, l::THETA_EARLY_BPS, &5_500u16.to_le_bytes());
         put(&mut d, l::THETA_LATE_BPS, &6_500u16.to_le_bytes());
         put(&mut d, l::THETA_SWITCH_SECS, &259_200u32.to_le_bytes());
+        // A 7-day season (end bell 1,008), as M1_LOCAL_7D.
+        put(&mut d, l::END_BELL, &1_008u32.to_le_bytes());
         let mut s = Season::decode(&d).unwrap();
         let mut cq = frontier_abi::v2::presets::FRONTIER_7;
         cq.r_max_ceiling = ceiling;
