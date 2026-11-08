@@ -2694,3 +2694,24 @@ checkpoint の `95b0ab225ca9e9e626941b51981df2240198d91c`（tree `89a64830da3991
   - したがって、④ の修正が退行して古い形に戻っても、赤くはならない（分岐の診断が消えるだけ）。
   - 退行を赤で捕まえるのは、④ の `store_cold_open` だけになる。③ はこの形で変更しないとした。⑯ は、これを限界として記録する。
 - ⑦ の marchObjective（§29.6）は、c4eae408 のまま変わっていない（⑦ の判断を待つ）。
+
+## 29.8 ⑦ a8c9eccb（`FS.meAnswered`）の独立のレビュー（静的な読み）
+
+- 対象：⑦ `a8c9eccb6ddc8fa9a469488386cc3a3bdd409ae6`（tree `47bbfbdffd6ce6c585cef6653b30974388e3dbed`、親 c4eae408）。⑯ が §29.5 で挙げた「NotFound の後で refresh が失敗すると、join の流れが閉じる」に対する修正。
+  - meAnswered は、applyMeResult の 2 つの答えの分岐（found、NotFound）でだけ true になる。
+  - false に戻るのは、resetViewer、useHerald、page の読み込み直し。
+  - drawer の viewerState は、`meStatus==='error' && !meAnswered && Citizen も村も無い` のときだけ unreachable を返す。
+- **(a) resetViewer と useHerald を通らずに viewer を変える経路はあるか**：見つからない。
+  - FS.wallet、FS.resident、FS.citizen を代入するのは controller だけ。wallet の切り替えも NFT の切り替えも resetViewer を通る（controller 146・547〜560）。
+  - herald を換えるのは useHerald だけで、startPlay（2123）と app.mjs:3595 から呼ばれる。season の pin は startPlay で決まる。
+  - 代入はあるが、viewer の変更ではないもの:
+    - 318 行：actOnce が、同じ wallet が持つ同じ NFT の generation を、送る直前に読み直す。Citizen は FS.resident.citizen のまま。
+    - 1462 行：refreshOverviews が、同じ herald の season record で FS.season を置き換える。
+- **(b) 「not joined」を失敗の後も保つと、Join を出すべきでないときに出せるか**：**出せる（低い）**。
+  - ⑦ が挙げた確認（instantHome の 1215、waitForOwn の 1265、confirmHome の 1301）は、instant home の流れのもの。
+  - 通常の `join` の action（1907〜1925 行）と、prize の季節の `paidJoin`（x402 の入場料と Join を 1 つの transaction で送る）は、meStatus を確かめずに、session を導出し、Join を送る。`act()` も meStatus を見ない。
+  - したがって、「NotFound の後で refresh が失敗した」状態（meStatus が error、meAnswered が true）では、join の流れが開いたまま Join を送れる。
+  - これは 95b0 の振る舞いに戻ったもので、16576826 から退行したわけではない。
+  - 起こりうること：他の端末から既に参加していれば、program が Join を拒否する（Citizen がすでにある）。paidJoin は 1 つの transaction なので、入場料だけが引かれることはないと見るが、⑯ は program の側を確かめていない。
+  - 案（最小）：`join` と `paidJoin` の前に、confirmHome と同じ確認を入れる（`if (FS.meStatus !== 'ready') { await refresh(); if (FS.meStatus !== 'ready') return; }`）。表示（nation choice を残すこと）はそのままにできる。
+- ⑯ は ⑦ の試験を流していない。⑦ の 6/6、174/174、ws07-read の 6/6 は、⑦ の結果だけ。
