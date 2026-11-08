@@ -3191,3 +3191,50 @@ checkpoint の `95b0ab225ca9e9e626941b51981df2240198d91c`（tree `89a64830da3991
 差分：`patches/v16-viewer-own-citizen-on-5cdc4cac.patch`。ff749ed2 版の差分は、記録のために残す。
 
 変異の対照（修正を戻すと拒否の 2 試験が落ちる）は、ff749ed2 版の試験で得た結果である。追加した場合は、そのとき既に落ちていた試験の中にあるので、v2 では対照を取り直していない。
+
+## 29.27 ⑦ 2329031c（地図の 2 回目の押下と ws07-grow-s1）の独立のレビュー
+
+対象：⑦ `2329031c48de7ba36fd064518db20d8a638c3eee`（tree `dda088d2…`、親 `d91fa625`）。変わったのは `app.mjs`（+3 −1）、新しい `screens/ws07-grow-s1.screen.mjs`、INTEGRATION の 3 つ。
+
+**(1) `NOTE_TEXT.wait` の同一性（静的）。**
+- `NOTE_TEXT` は `map/actions.mjs:697` の `Object.freeze` した object で、`wait` は 1 つの arrow 関数である。
+- 地図の注記に `wait` を渡すのは 2 か所で、どちらも同じ参照を渡す。`app.mjs:1039` は `NOTE_TEXT.wait` をそのまま渡す。`refusalText('NoKernel')`（:954）は `NOTE_TEXT.wait` を返す。
+- 断りを書く他の場所は、どれも別の関数を渡す。
+  - `refusalText` の他の分岐：その場で作る arrow か `NOTE_TEXT.unreachable`
+  - `NOTE_TEXT.unopened`
+  - `PLACE_NOTE[where]`：world.mjs の別の freeze した表で、`wait` を含まない
+  - `pickRefusal`：その場で作る arrow
+  - :1024、:1430、:1701、:1777、:1840：その場で作る arrow
+- だから、断りが「読み込み中」と取り違えられることは無い。`FS.mapNote` を `mapNote()` 以外で書く場所は、null を代入するものだけである。
+- **限界。** 規則の module の読み込みが失敗し続けると、`wantKernel` の catch が `kernelAsked=false` に戻し、押すたびに読み込みをやり直す。その間は注記がずっと `wait` なので、同じマスを 2 回押しても選択にならない。軍勢は手に残るので、手を閉じる操作で抜けられる。これは UX の判断で、⑦ の担当。
+- `routeTo` は `!A?.actor` のときも null を返し、注記は `wait` になる。ただし mapTap のこの枝では、`actionsNow()` が actor の無いときに null を返す。その場合は手前の `!A` で return するので、この枝には来ない。
+
+**(2) ws07-grow-s1 の実行。**
+- 実行の前に、node 側の import の閉包を審査した。鍵の API を名指す file の集合は、§29.14 で審査して走らせた ws07-grow と同じである。`startServer({ keyless: true })` なので、`world.viewer` は `keyFromSeed` を呼ばない。`growth-route.mjs` が使う node:crypto は `createHash` だけ。
+- 実行：full Chromium と repo の no-keys-guard の下で、⑦ の commit のままの版は **2/2**。
+- **対照。** `app.mjs` の 1 行の修正を戻すと、**0/2**。デスクトップもスマホも grown の段で止まった（`who: null`、`compose: null`。軍勢が手から落ち、札が開かない）。⑦ の「古い版 0/2、新しい版 2/2」と一致する。
+
+**(3) 404 は、主張を実際より強く見せるか（⑦ の問い）。**
+- ⑯ は、記録だけを加えた写し（`probes/v16-grow-s1-404.screen.mjs.txt`。`page.on('response')` で 404 を集め、console.log を 1 行出すだけ）を 2/2 で走らせた。
+- ページが受けた 404 は、すべて `/h/` だった。ページ自身の file の 404 は 0 件。
+- relay が 404 を返した `/h/` の path は 21 種類で、デスクトップとスマホで同じだった：
+  - `caravans.json`、`conquest`、`control`、`events`、`keep`、`nations.json`、`standings`、`structures.json`
+  - `overview/0..2`、`overview2/2`
+  - `province/3,0`、`3,1`、`4,-1`
+  - `roster/0..5`
+- **INTEGRATION の記述は狭い。** 記述は「events、roster、輪 0〜2 の overview、隣の州」だけで、conquest、control、keep、standings、caravans、structures、nations、overview2/2、roster 3〜5 が抜けている。
+- **主張に効くもの。** `structures.json` の 404 では、柵（palisade）が 0 になる。だから「⑧ の ROUTE と一歩ずつ一致」は、柵の無い条件での一致である。本物の herald がこの段で structures を返すかどうかは、この golden からは分からない。「router と同じ 404」という説明も、golden に無いことからの推定で、router の実物は見ていない。
+- **主張に効かないもの。** 隣の州の 404 は、(4,0) から (5,0) への道筋と assertion には効かない。lead window と beacon の判定は `/h/season` の本物の値に基づく。
+- **試験の穴。**
+  - console error の除外は「status of 404」の文字列で行っている。ページ自身の file の 404 も黙って許されてしまう（今回は 0 件だった）。
+  - `missing` の集合は集めているのに、assert していない。
+  - 提案：404 は `/h/` だけで、`missing` は記録した 21 種類と一致する、と assert する。こうすれば、新しく欠けた path に気づける。
+
+**集計。**
+- 通過：静的な照合 1 件、2/2、記録版 2/2。
+- 対照：期待どおり 0/2。
+- 失敗：0。
+- blocked：0。
+- 未実行：封・署名・送信・着地。本物の router の上での実行。
+- log：`logs/phase23/ws07-grow-s1-2329.txt`。
+- 全体の完了は宣言しない。

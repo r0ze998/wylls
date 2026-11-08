@@ -1,0 +1,23 @@
+### ⑦ 2329031c48de7ba36fd064518db20d8a638c3eee (tree dda088d2) ws07-grow-s1.screen.mjs, full Chromium, repo no-keys-guard (node side audited first: same key-named closure set as ws07-grow, keyless:true)
+## as committed
+ok 1 - 19's S1 herald answers, 08's stages @ desktop: the host at (4,0) in hand, (5,0) refused until grown, then 08's route in the order card (not sealed)
+ok 2 - 19's S1 herald answers, 08's stages @ phone: the host at (4,0) in hand, (5,0) refused until grown, then 08's route in the order card (not sealed)
+# tests 2
+# pass 2
+# fail 0
+## ⑯ logging-only copy (adds page.on('response') for 404s and one console.log; screens/v16-grow-s1-404.screen.mjs, not committed)
+ok 1 - 19's S1 herald answers, 08's stages @ desktop: the host at (4,0) in hand, (5,0) refused until grown, then 08's route in the order card (not sealed)
+ok 2 - 19's S1 herald answers, 08's stages @ phone: the host at (4,0) in hand, (5,0) refused until grown, then 08's route in the order card (not sealed)
+# tests 2
+# pass 2
+# fail 0
+V16_404 desktop {"relayMissing":["/h/caravans.json","/h/conquest/0.json","/h/control/latest.bin","/h/events","/h/keep/4,0.json","/h/nations.json","/h/overview/0/latest.bin","/h/overview/1/latest.bin","/h/overview/2/latest.bin","/h/overview2/2/latest.bin","/h/province/3,0/latest","/h/province/3,1/latest","/h/province/4,-1/latest","/h/roster/0/latest.bin","/h/roster/1/latest.bin","/h/roster/2/latest.bin","/h/roster/3/latest.bin","/h/roster/4/latest.bin","/h/roster/5/latest.bin","/h/standings/latest.json","/h/structures.json"],"non_h":[]}
+V16_404 phone {"relayMissing":["/h/caravans.json","/h/conquest/0.json","/h/control/latest.bin","/h/events","/h/keep/4,0.json","/h/nations.json","/h/overview/0/latest.bin","/h/overview/1/latest.bin","/h/overview/2/latest.bin","/h/overview2/2/latest.bin","/h/province/3,0/latest","/h/province/3,1/latest","/h/province/4,-1/latest","/h/roster/0/latest.bin","/h/roster/1/latest.bin","/h/roster/2/latest.bin","/h/roster/3/latest.bin","/h/roster/4/latest.bin","/h/roster/5/latest.bin","/h/standings/latest.json","/h/structures.json"],"non_h":[]}
+## control: app.mjs mapTap hunk reverted (old rule)
+not ok 1 - 19's S1 herald answers, 08's stages @ desktop: the host at (4,0) in hand, (5,0) refused until grown, then 08's route in the order card (not sealed)
+  error: 'until: timed out ({"place5":"open","who":null,"note":null,"lead":[2,72],"compose":null})'
+not ok 2 - 19's S1 herald answers, 08's stages @ phone: the host at (4,0) in hand, (5,0) refused until grown, then 08's route in the order card (not sealed)
+  error: 'until: timed out ({"place5":"open","who":null,"note":null,"lead":[2,72],"compose":null})'
+# tests 2
+# pass 0
+# fail 2
