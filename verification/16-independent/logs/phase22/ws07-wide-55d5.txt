@@ -1,0 +1,7 @@
+ok 1 - the default stage is byte-identical: unset, and set then removed
+ok 2 - the wide village @ desktop: chosen, kept, back to the ordinary village; back/forward, a reload; another world refused
+ok 3 - the wide village @ phone: chosen, kept, back to the ordinary village; back/forward, a reload; another world refused
+# tests 3
+# pass 3
+# fail 0
+exit=0

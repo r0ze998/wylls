@@ -2419,3 +2419,72 @@ T7（crash では作れない損傷）の結果：
   - ⑯ は ws07-guard を流していない（④ の 2/2 だけがある）。
 - ⑯ の独立の実行：6de240aa の ws07-march を、full Chromium と repo の `no-keys-guard` の下で流し、**2/2**（desktop・phone）。`logs/phase22/ws07-march-6de2.txt`。
   - 届いた範囲は、§27.4 と同じく封印前の order の作成まで。seal・署名・送信・march の成功の証拠にはしない。
+
+## 28. この pass の最終 checkpoint：④ 55d5c2da
+
+### 28.1 対象と、55d5c2da で独立に確かめた範囲
+
+- **checkpoint**：④ `claude/gallant-ride-cunptv` @ `55d5c2daa22b0ce63e6ad02c6ee5e607bbfd2255`（tree `40f00de6a9c2a9e63ec4549457e2f8889679b561`）。基準は引き続き `16576826084a8ea7bd6b12b845d50b97f3d14904`（tree `7f6ff8b0…`）。
+- 55d5c2da は 6de240aa からの fast-forward で、⑦ の 1 commit。変わったのは 4 file:
+  - `screens/server.mjs`
+  - `screens/ws07-wide.screen.mjs`（新規）
+  - `screens/ws07/wide-stage.mjs`（新規）
+  - INTEGRATION.ja.md
+- 次のものは 6de240aa と同じ tree:
+  - frontier-node、scripts/ci、workstreams/06-creation、workstreams/12-memory
+  - nokey-page.mjs、ws07-guard.screen.mjs、world.mjs、permutation-server/web
+  - したがって、§27.7〜27.11 の custody・scan・⑫・⑥・guard の結果は、そのまま当てはまる。
+- 55d5 の限られた差分の監査:
+  - `meWith` は、試験が設定したときだけ /h/me を書き換える。設定しなければ、world.mjs の答えそのまま。
+  - wide-stage・fwide.mjs・map/wide.mjs の閉包（world.mjs を除く）に、鍵の API はない。world.mjs の keyFromSeed は、keyless の viewer では呼ばれない（§27.4）。
+  - wide holding の address は `withSeed(season, seed, program)` で、公開の with-seed 計算だけを使う。
+- ⑯ の実行：ws07-wide を、full Chromium と repo の no-keys-guard の下で流し、**3/3**（`logs/phase22/ws07-wide-55d5.txt`）:
+  - 既定の stage が byte まで同じこと（sha256 `8e00cf59…`。未設定のとき、設定して外したとき）。
+  - desktop と phone で、wide village を選ぶ、保つ、戻る、戻る・進む、reload、別の world の拒否。
+  - 範囲は表示だけ。herald の wide index、捕獲の通貨、chain は含まない。
+
+### 28.2 この pass で直り、⑯ が独立に確かめたもの
+
+| 項目 | 直した版 | ⑯ の確認 |
+|---|---|---|
+| ⑥ の journal の lock の競合（J1〜J5、⑥ の R1・R2） | ⑥ 5f74a270（④ 82ddc29f） | J1〜J5 は拒否される（695e・§27.3） |
+| ⑫ の二度の crash で journal が開けない | ⑫ a7ac51b7（④ 64960c1e） | 二度の crash：123,219 回で 0。三度の crash：401,837 回で 0。損傷は拒否される。対照で検出できる（§27.7） |
+| scan が spawn や計算した import をたどれない | ④ bb41fc0d | 2 件が載った（§27.8） |
+| review が古くなっても有効なまま | ④ 5045fe3d | S0 は通り、S1〜S4 は exit 5（§27.11） |
+| V26 が path Province の無い記録を FAIL にする | ⑩ 995bfe3c（④ 0dd37253） | Partial になる（§27.11） |
+| ⑦ G1（installed proof の fail-open）・G2（Worker の生成） | ⑦ 84251e5a（④ 6de240aa） | 静的に読んだ。ws07-guard は ⑯ は流していない。march は 2/2 |
+
+### 28.3 合意した運用の限界（**直してはいない**。別枠で記録する）
+
+- **⑥ J7**：生きている持ち主の `.lock` や `.takeover` が、手順の外で消されたり置き換えられたりすると、古い書き込みが 1 回通りうる。
+  - ⑥ の §8.3 に、制約（外から消さない、自動で掃除されるディレクトリに置かない）として書いた。
+  - 塞ぐには、カーネルの lock か、条件付きで書ける保存先が要る。持ち主は、新しい native の依存を入れないと決めた。
+  - J6 は手順の中では起きない。注入した `alive` でだけ届く。
+- **review の digest の範囲**：digest が固定するのは、この repo の中の JS の閉包と `targets=` だけ。
+  - connect-live が実行のときに `WS03_ROOT` と `WS04_ROOT` から読む**外の tree**、試験が spawn する **Rust の binary**（`RUNEXEC_BIN`）は、digest の外にある。
+  - **今回の実行を監査した証拠**（過去の、特定の実行についてのもの）:
+    - ⑯ は 4d44f021 で、WS03_ROOT と WS04_ROOT を候補の tree そのものにして connect-live を流した（§25.3）。
+    - その runexec は ⑯ が a33e3b0a から build したもの（sha256 `4cb6634d…`）。ws04 の Rust の source には、鍵の API の呼び出しが無い（comment だけ）。
+    - 55d5 では、ws04 の subtree は同じ a33e3b0a。connect-live の閉包（98 file）のうち、4d44f021 から変わったのは `06-creation/src/connect/dispatch.mjs` の 1 つだけで、⑯ が監査して probe も流した。
+    - ④ の 55d5 での実行が、どの root と binary を使ったかは、⑯ は確かめていない。
+  - **将来の保証**：無い。別の root や別の binary を指せば、review していない code が動く。CI では環境変数が無く、skip される。
+- **Worker の realm**：page の中の guard は、Worker の**中**を守らない。Worker の生成は拒否し、記録する。seal を押す試験が無いので、今は届かない。
+
+### 28.4 未解決のもの（実害の可能性があるものだけ）
+
+- この pass の範囲で、実害が確かめられた未解決の欠陥は**ない**。
+- 説明できていないもの：③ の integration「③ and ⑤ on one agent…」が 4d44f021 で 1 回だけ失敗した（`r3.state` が undefined）。その後の 9 回と基準の 5 回では再現しない。原因は分かっておらず、閉じていない。
+
+### 28.5 確かめていないもの（欠陥ではなく、証拠の範囲）
+
+- 封印・署名・送信・chain への着地・march の成功。鍵を使う interaction の実行。
+- 保守的に除外している試験（src を通る 205 件、unfollowed の 23 件。今回、除外を解いてはいない）。⑬ の ws12-* の試験。⑫ の allocation の経路。
+- ②・⑨・⑱・⑲・⑳ の Rust の試験の一括（④ の結果だけ）。ws07-guard（④ の結果だけ）。
+- ⑯ の web key hook が registerHooks と合わずに結論の出なかった gateway の 37 件。
+
+### 28.6 ⑯ 自身の手順の誤り
+
+- `71713b34` での広い `git add -f`：61 件を誤って公開した。§27.9 で監査し、秘密も賞品の素材も無いと判断した。追跡は外したが、履歴には残っている。
+- それ以降は、明示した path だけを stage している。
+
+**結論**：55d5c2da を、この pass の checkpoint とすることを ④ に提案する。全機能の完成を意味しない。上の限界と、確かめていないものが残る。
