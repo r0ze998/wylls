@@ -18,6 +18,7 @@ import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { small, run } from './helpers.mjs';
 import { fateOfRun, runViewClient, ws04ExecutionPort, DEFINITE_REFUSALS } from '../resident/ports/ws04-run.mjs';
+import { ws04Runs, clientFile } from './roots.mjs';
 
 const ADDR = c => '1'.repeat(31) + c; // syntactically base58; not a key of anything
 const REQUESTER = { actor: ADDR('A'), generation: 1, citizen: ADDR('C'), authenticatedBy: 'test stand-in: no credential layer here' };
@@ -128,8 +129,8 @@ test('real runexec run view: the demo store\'s run, NoRecord, and a missing stor
 });
 
 // ---- workstream 4's real runs client, with a stand-in runexec ------------------------------------------------------
-const RUNS_CLIENT = process.env.WS04_RUNS_CLIENT;
-test('workstream 4\'s clients/runs.mjs: the requester file it hands over, and a NotAuthorized refusal through the port', { skip: RUNS_CLIENT ? false : 'set WS04_RUNS_CLIENT' }, async () => {
+const RUNS_CLIENT = clientFile(ws04Runs(), 'workstreams/04-execution/clients/runs.mjs');
+test('workstream 4\'s clients/runs.mjs: the requester file it hands over, and a NotAuthorized refusal through the port', { skip: RUNS_CLIENT ? false : 'workstream 4 clients/runs.mjs (WS04_RUNS_CLIENT, or in this tree)' }, async () => {
   const { createRunsClient } = await import(pathToFileURL(path.resolve(RUNS_CLIENT)).href);
   const dir = mkdtempSync(path.join(os.tmpdir(), 'ws13-runs-stub-'));
   const stub = (name, body) => { const p = path.join(dir, name); writeFileSync(p, `#!/usr/bin/env node\n${body}\n`); chmodSync(p, 0o755); return p; };

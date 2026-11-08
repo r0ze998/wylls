@@ -18,9 +18,10 @@ import { small, run, tmp } from './helpers.mjs';
 import { ws12CanonicalEvidence } from '../resident/ports/ws12-canonical.mjs';
 import { seasonClock } from '../resident/frame.mjs';
 import { decisionsOf } from '../demo/report.mjs';
+import { ws12 } from './roots.mjs';
 
-const ROOT = process.env.WS12_ROOT ?? process.env.WS12_EA0636EB;
-const skip = ROOT ? false : 'set WS12_ROOT to a tree with workstream 12 (ea0636eb or later)';
+const ROOT = ws12('canonical').root;
+const skip = ROOT ? false : 'workstream 12 ea0636eb or later (WS12_ROOT, or in this tree)';
 const m12 = async rel => import(pathToFileURL(path.join(ROOT, 'workstreams/12-memory', rel)).href);
 
 const norm = s => s.replace(/[0-9a-f]{16}/g, 'ID').replace(/- ターン \d+: restart.*\n/g, '');

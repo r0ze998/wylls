@@ -9,6 +9,7 @@ import path from 'node:path';
 import { small, run } from './helpers.mjs';
 import { flatCost, priceBookCost } from '../resident/ports/cost.mjs';
 import { decisionsOf } from '../demo/report.mjs';
+import { ws05 as ws05Root } from './roots.mjs';
 
 /** A stand-in with workstream 5's TokenPriceBook methods: 1 unit per input token or byte, 5 per output token. */
 const standIn = () => ({
@@ -90,7 +91,7 @@ test('price book: a model the book does not price is refused before any call', (
 });
 
 // In the tree, or a restored checkout of workstream 5 (WS05_ROOT).
-const WS05 = (process.env.WS05_ROOT ?? process.env.WS05_E9D1551A) ? pathToFileURL(path.join(process.env.WS05_ROOT ?? process.env.WS05_E9D1551A, 'workstreams/05-ai-participation/model-api/src/price-book.mjs')) : new URL('../../05-ai-participation/model-api/src/price-book.mjs', import.meta.url);
+const WS05 = ws05Root().root ? pathToFileURL(path.join(ws05Root().root, 'workstreams/05-ai-participation/model-api/src/price-book.mjs')) : new URL('../../05-ai-participation/model-api/src/price-book.mjs', import.meta.url);
 const ws05 = existsSync(fileURLToPath(WS05));
 test('with workstream 5\'s real TokenPriceBook (its FIXTURE book; invented prices)', { skip: ws05 ? false : 'workstream 5 code is not in this tree' }, async () => {
   const { FIXTURE_BOOK } = await import(WS05);

@@ -14,11 +14,13 @@ import { NEEDS_KEYS } from '../world/identity.mjs';
 // skip it. From 1583026f the keys are lazy (derived only when a signed allocation is verified) and newMemory,
 // promise and coverage sign nothing: with WS12_ROOT pointing at such a tree, these tests run keyless (the guard
 // would fail them, not let them derive, if a key were touched).
-const ROOT12 = process.env.WS12_ROOT ?? null;
+const R12 = ws12('lazy-fixture');
+const ROOT12 = R12.root;
 const FIXTURE = ROOT12 ? pathToFileURL(path.join(ROOT12, 'workstreams/12-memory/fixtures/scenario.mjs')).href : '../../12-memory/fixtures/scenario.mjs';
-const NEEDS_FIXTURE = NEEDS_KEYS && !ROOT12 ? 'keyless run: this tree\'s workstream 12 fixture derives keys from fixed seeds when imported (set WS12_ROOT to 12 at 1583026f or later)' : false;
+const NEEDS_FIXTURE = NEEDS_KEYS && !ROOT12 ? 'keyless run: no workstream 12 with a lazy-key fixture (1583026f or later) in WS12_ROOT or this tree' : false;
 const { newMemory, promise, coverage, PUBLIC } = NEEDS_FIXTURE ? {} : await import(FIXTURE);
 import { decisionsOf } from '../demo/report.mjs';
+import { ws12 } from './roots.mjs';
 
 /** Workstream 12's memory, read-only: any method other than knowledge() throws (and is counted). */
 function readOnly(m) {

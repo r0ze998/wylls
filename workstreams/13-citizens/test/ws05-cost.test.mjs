@@ -16,11 +16,12 @@ import { small, run, tmp } from './helpers.mjs';
 import { ws05LedgerCost } from '../resident/ports/ws05-cost.mjs';
 import { decisionsOf } from '../demo/report.mjs';
 import { expectCommit } from './versions.mjs';
+import { ws05, ws12, ws04Acts, clientFile } from './roots.mjs';
 
 // Workstream 5's tree: WS05_ROOT (or the older name WS05_E9D1551A). The commit it is at is printed by every test and,
 // with WS05_EXPECT set, must match: a pass on one version of 5 is never a pass on another.
-const ROOT = process.env.WS05_ROOT ?? process.env.WS05_E9D1551A;
-const skip = ROOT ? false : 'set WS05_ROOT to a checkout of workstream 5';
+const ROOT = ws05().root;
+const skip = ROOT ? false : 'workstream 5 (WS05_ROOT, or in this tree)';
 const WS05_COMMIT = ROOT ? expectCommit('WS05', ROOT) : null;
 test('workstream 5 version these tests ran against', { skip }, t => { t.diagnostic(`workstream 5 at ${WS05_COMMIT}`); });
 const m5 = rel => import(pathToFileURL(path.join(ROOT, 'workstreams/05-ai-participation/model-api/src', rel)).href);
@@ -202,8 +203,8 @@ test("a stop in the middle of a model call, without 5's own recovery: the reside
 });
 
 // ---- together with workstreams 4 and 12 (each only when its tree is given) ------------------------------------------
-const ROOT12 = process.env.WS12_ROOT ?? process.env.WS12_EA0636EB;
-const CLIENT4 = process.env.WS04_ACTS_CLIENT, BIN4 = process.env.RUNEXEC_BIN;
+const ROOT12 = ws12('canonical').root;
+const CLIENT4 = clientFile(ws04Acts(), 'workstreams/04-execution/clients/acts.mjs'), BIN4 = process.env.RUNEXEC_BIN;
 
 test("5's ledger and 12's mirror together, through the demo, stopped in the middle of a model call", { skip: skip || (ROOT12 ? false : 'set WS12_ROOT'), timeout: 120_000 }, async () => {
   const { createMemory } = await import(pathToFileURL(path.join(ROOT12, 'workstreams/12-memory/src/index.mjs')).href);
@@ -222,7 +223,7 @@ test("5's ledger and 12's mirror together, through the demo, stopped in the midd
   assert.equal([...f.ledgerOf('ren').items.values()].filter(i => i.state === 'undecided').length, 1);
 });
 
-test("5's ledger with 4's real registry: a send whose result is unknown is never re-sent, and costs still agree", { skip: skip || (CLIENT4 && BIN4 ? false : 'set WS04_ACTS_CLIENT and RUNEXEC_BIN'), timeout: 120_000 }, async () => {
+test("5's ledger with 4's real registry: a send whose result is unknown is never re-sent, and costs still agree", { skip: skip || (CLIENT4 && BIN4 ? false : `missing: ${[!CLIENT4 && 'workstream 4 clients/acts.mjs', !BIN4 && 'RUNEXEC_BIN (no tree carries the binary)'].filter(Boolean).join(', ')}`), timeout: 120_000 }, async () => {
   const http = await import('node:http');
   const { createActsClient } = await import(pathToFileURL(path.resolve(CLIENT4)).href);
   const { ws04ActsPort } = await import('../resident/ports/ws04-acts.mjs');
