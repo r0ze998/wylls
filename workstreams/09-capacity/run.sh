@@ -58,8 +58,8 @@ trap bclean EXIT
 mkdir -p "$btmp/w/workstreams/09-capacity"
 git -C "$root" archive HEAD permutation-rules frontier-abi rust-toolchain.toml | tar -x -C "$btmp/w"
 git -C "$root" archive "$pin10" workstreams/10-custody/custody workstreams/10-custody/adapter-09 | tar -x -C "$btmp/w"
-cp -r "$here/kernel" "$here/bridge10" "$btmp/w/workstreams/09-capacity/"
-rm -rf "$btmp/w/workstreams/09-capacity/kernel/target" "$btmp/w/workstreams/09-capacity/bridge10/target"
+# The sources only (a build directory is never copied).
+tar -C "$here" --exclude=target -cf - kernel bridge10 | tar -x -C "$btmp/w/workstreams/09-capacity"
 (
   cd "$btmp/w/workstreams/09-capacity/bridge10"
   export CARGO_TARGET_DIR="$here/bridge10/target"
@@ -103,9 +103,14 @@ git -C "$root" apply --check -R "$here/patches/0001-holding-lent-workshops.patch
       # shellcheck disable=SC2086
       cargo test -q $args 2>&1 | grep -E "^test result|FAILED|panicked|^error"
     done
+    # Clippy of the capacity builds, judged on workstream 09's files only
+    # (a finding in the base is counted, not hidden, and fails nothing here).
     for f in capacity-preview capacity-preview,custody-preview; do
       echo "## clippy permutation-frontier --features $f"
-      cargo clippy -q -p permutation-frontier --features "$f" --all-targets -- -D warnings 2>&1 | grep -E "^error" || true
+      c="$(cargo clippy -q -p permutation-frontier --features "$f" --all-targets -- -D warnings 2>&1 || true)"
+      mine="$(printf '%s\n' "$c" | grep -E -- '--> (permutation-frontier/src/(proc/capacity|capacity_runtime_tests)|frontier-abi/src/capacity|permutation-rules/src/frontier/capacity)' || true)"
+      [ -n "$mine" ] && printf 'error: clippy in workstream 09 files\n%s\n' "$mine"
+      echo "clippy findings outside workstream 09's files: $(printf '%s\n' "$c" | grep -cE -- '^\s+--> ' || true)"
     done
     echo "## kernel with --features core-patch-0001 (the rules port compared with the kernel)"
     (cd workstreams/09-capacity/kernel && cargo test -q --release --features core-patch-0001 -- --nocapture 2>&1 |
