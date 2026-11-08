@@ -3564,3 +3564,52 @@ workflow run が 16 のままであることは ④ が数えたもので、⑯ 
 - **24 行目。** ws07-grow-palisade 2/2 の ⑯ の分は、7 の 01bb323f（新しい controller）の上での実行で、553f7fe7 の上ではない。
 
 数え間違いと SHA の誤りは無かった。新しい実行はしていない。
+
+## 29.35 安全の確認：7 が直接走らせた一覧の file `web-frontier-hud.test.mjs`（13/13）は鍵に届いたか（静的のみ、再実行なし）
+
+ユーザーの指示で、優先して行った確認。この間、⑯ は自分の背景の実行（19 の a41d1cd2 の確認）を止めた。4 には、広い実行を止め、選んだ最小の確認以外を始めないよう伝えた。7 には、当時の正確な command、SHA、NODE_OPTIONS と guard、完全な出力を保存して共有するよう頼んだ。まだ届いていない。調べたのは 7 の `1fc0a5aa`（hud の試験を加えた commit）の source だけで、読むだけにした。秘密鍵や seed の値は、表示も保存もしていない。
+
+**なぜ一覧に載るか。**
+- 試験の text に、鍵の API の名前は 0 件。Keypair、fromSeed、nacl、ed25519、sign、seed、wallet、session、subtle、crypto、spawn、Worker も、grep で 0 件だった（330 行目の "derived name" は lord の名前の話）。
+- だから、直接の該当でも helper の該当でもなく、「src/ を通る」保守的な除外にあたる。`node-key-tests.txt` の 174 行目。
+
+**import の閉包。** 178 file。追えない構文（child_process、worker_threads、計算した import()）は 0。
+- 鍵の API を名指す file は、出どころが 3 つある：
+  - `controller.mjs`（試験の 186 行目で import）の先にある session、wallet、fsession、fplay、fprize、sdk/frontier/prize。
+  - seal.mjs が sealMarch の中で literal の import をする seal-worker の先の、vendored の noble の 4 file。
+  - map/tilt.mjs（`Math.sign` の誤検出）。
+- 試験が import する他の module の閉包には、session、wallet、fsession、fplay、fprize が入らない：hud、inspect、feed、marchcard、identity、minimap、search、lang、fstate。
+- noble の bls12-381.mjs の 418〜421 行目にある鍵の例は、doc の comment の中の公開の例で、実行される code ではない。値は写していない。
+
+**読み込みの時点の実行（定義と呼び出しの区別）。**
+- 閉包のどの file も、top-level で鍵の module の束縛を呼ばない。controller.mjs の top-level にある参照は、`let tx = { submit, track }` などの束縛だけ。
+- top-level の文で実行されるのは、次だけである：
+  - `fwide.guardLegacy`
+  - `onLangChange`
+  - waitview と leader-sprite の listener の登録
+  - onboard の `busOn` の登録（handler は event が来たときだけ動く）
+  - seal-worker の `WorkerGlobalScope` の判定（node では偽）
+  - lang の `if (inBrowser)`（偽）
+  - base58 と bytes の表の作成
+- noble の `randomSecretKey`、`getPublicKey`、`sign` は、定義だけで、factory の作成中に呼ばれない（abstract/bls.mjs の 187、308〜314、329〜333 行目）。
+
+**実際に届く呼び出し。**
+- 試験が controller から使うのは、`CTRL.useHerald`、`CTRL.wantProvince`、`CTRL.WANT_IN_FLIGHT`、`CTRL.WANT_REFRESH_MS` だけ（186〜227 行目）。
+- `useHerald` に渡す herald は、試験が作る差し替えで、`province()` しか持たない（191、213 行目）。
+- 経路は `wantProvince` → `loadEnvelope` → 差し替えの `province()` → `latestEnvelope`、`protoLand`、`keepFromProvince`。§29.33 の want-province の試験と同じ経路で、鍵の入口は無い。
+- 他の 12 の試験は、hud、inspect、feed、marchcard、identity、minimap、search の純粋な関数を呼ぶ。これらの閉包に session と wallet の側は入らない。
+- `sealMarch` と `sealRequest` を呼ぶのは controller、seal、seal-worker だけで、試験が使う関数からは届かない。
+
+**証拠で確定できること。**
+- この試験の source が呼ぶ経路に、keypair の生成、秘密鍵の導出、署名、wallet の署名、subprocess は無い。
+- 読み込みの時点にも、鍵の入口は呼ばれない。
+- だから、7 の実行は「一覧に載る file を、鍵なしの手順の外で走らせた」という選び方の違反である。source から見る限り、鍵の処理に届いた証拠は無い。
+
+**分からないこと（7 の情報待ち）。**
+- 正確な command、tree の SHA、uncommitted の変更があったか。
+- 当時の NODE_OPTIONS と `--import`（guard や他の hook が入っていたか）。
+- 完全な出力。
+- 「修正前に落ちる」の実行が、どの tree の上だったか。
+- source と違う file（commit していない編集など）で走らせていた場合、上の静的な結論はその実行には当てはまらない。
+
+**集計。** 静的な確認だけで、実行は 0。全体の完了は宣言しない。
