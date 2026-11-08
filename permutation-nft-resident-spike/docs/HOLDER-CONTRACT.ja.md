@@ -414,6 +414,19 @@ v0.24 で「鍵なし」として走らせた 103 file には、鍵を作る試�
 
 今回は監視が最初の `subtle.importKey('pkcs8')` で止めた（26 回、署名の前）。この 4 file は二度と走らせない。今後は、除外を大文字と小文字を区別せずに `keyFromSeed`・`devWallet`・`enableDevWallet` まで広げ、import 先の呼び出しも静的に追う。
 
+追記（同日）：リポジトリには、鍵を扱う node の試験の正式な一覧 `scripts/ci/node-key-tests.txt` がある（`scan-node-key-tests.mjs` が書く。試験の file か、その import する helper が鍵の API を名指すもの。鍵なしの CI では走らせず、手動の key-tests job だけが走らせる）。20 はこの一覧を確かめずに走らせた。v0.24 と v0.25 の両方で、一覧に載る file を直接走らせた。その中には、この節で変えた `web-frontier-wide-holding-ui`・`web-frontier-resident-home` と、`web-frontier-herald`・`web-frontier-ws07-nft`・`web-frontier-ws07-me-answered` などが入る。
+
+v0.25 の監視の下で、実際に鍵の API が呼ばれたのは上の 4 file だけで、他は 0 回だった。それでも、一覧に載る file を鍵なしの扱いで走らせたこと自体が、この repo の決まりに反する。
+
+今後、鍵なしで走らせるのは `scripts/ci/node-keyfree.sh` と、この一覧に無い file だけにする。この節の回帰のうち、`web-frontier-resident-me`（一覧に無い）は鍵なしの CI で走る。controller の 2 file の回帰は、一覧に載るので key-tests job の側になる。
+
+### 試験の記録の訂正（確定）
+
+- **無効**：§14 の「web-frontier・frontier-resident の 103 file・1014 件が鍵なしで合格」と、§15 の「残りの 101 file も鍵の呼び出しは 0」。どちらも鍵なしの成功として扱わない。103 file の実行には、固定の seed からの鍵の導出と署名が入っていた。今回の広い実行では、`subtle.importKey('pkcs8')` が 26 回 guard に止められた。どちらも適格でない実行である。
+- **適格な実行**：`scripts/ci/node-keyfree.sh permutation-gateway test/web-frontier-resident-me.test.mjs` を 1da4a517 で 1 回。scan の check が通り、1 file だけを repo の guard の下で走らせた（"0 seen by the guard"）。5/5 が合格。
+- **適格でない実行**：今回、監視の下で鍵の API の呼び出しが 0 だった focused な試験の file のうち、`web-frontier-wide-holding-ui`・`web-frontier-resident-home`・`web-frontier-ws07-nft`・`web-frontier-ws07-me-answered`・`web-frontier-herald` は `node-key-tests.txt` に載り、reviewed の一覧（`node-key-reviewed.txt`）にも無い。だから、呼び出しが 0 でも鍵なしの証拠にはならない。controller の修正（5ee5fa35）の旧で落ち・新で通るという結果も、この扱いになる。
+- 以後、広い一括実行と grep だけでの除外はしない。走らせるのは、reviewed の一覧と、変更に要る最小の名指しの試験だけにする。その試験も、到達する call path・import・subprocess を先に審査したものに限る。
+
 ### 4 による訂正（2026-11-08、統合担当）
 
 この節と §14 の試験の記述のうち、証拠として扱うものと扱わないものを分ける。秘密の値・seed の中身はここに書かない。
@@ -428,11 +441,12 @@ v0.24 で「鍵なし」として走らせた 103 file には、鍵を作る試�
 - 実行された内容：v0.24 では上の 4 file が最後まで走り、鍵の導出と署名が実行された。今回はその 4 file が再び起動され、監視が止めた。
 - 停止点：各停止は最初の `subtle.importKey('pkcs8')` の呼び出しで、署名の前（20 の監視の記録）。
 - 分かる範囲：監視が記録した API の呼び出しと、その停止点。
+- 16 の静的な読み（REPORT §29.24）：`web/session.mjs` の `keyFromSeed` では、`publicKeyOf(seed)` が最初の `importKey` より前に実行される。よって停止は、seed からの公開鍵の導出の後に起きている。
 - 分からない範囲：停止までに各 file で実行された処理（seed の扱い、監視していない API での導出があったか）、監視が鍵の API をすべて覆っているか。v0.24 の実行で何がどこまで作られたかを、停止の記録から推すことはできない。
 
 **この修正（`viewerOwnCitizen`）の評価に使う証拠**
 
-- 20 の鍵なしの適格な実行は 1 つだけ：`scripts/ci/node-keyfree.sh permutation-gateway test/web-frontier-resident-me.test.mjs`（1da4a517、scan の check が通り、repo の guard の下で 1 file、"0 seen by the guard"、5/5）。これは §14 の読取りの契約（fcodec・`checkMe`・本物の `createHerald().me`）を覆うが、`viewerOwnCitizen` は通らない。
-- 20 の限定試験（7 file、56 件中 55 件、監視の記録では鍵の呼び出し 0）と「修正を戻すと 2 件が落ちる」（20 の訂正、2026-11-08）は、この修正の鍵なしの証拠に数えない。7 file のうち `web-frontier-wide-holding-ui`・`web-frontier-resident-home`・`web-frontier-ws07-nft`・`web-frontier-ws07-me-answered`・`web-frontier-herald` は `node-key-tests.txt` に載り、reviewed の一覧（`node-key-reviewed.txt`）に無い。戻すと落ちる 2 件は、wide-holding-ui の中にある。この修正の実行による確認は、reviewed の一覧への登録か、key-tests job での確認を待つ（4 の判断）。
-- 4 の静的審査：`residentAsset` は印の無い Citizen では無い（undefined）、印が無効なら null、有効なら asset のバイト（fcodec）。よって財布の viewer は印の無い Citizen だけ、NFT の viewer は `FS.resident.asset` を名指す印の Citizen だけを採り、それ以外は既存の `WrongKey` の経路になる。
-- 4 の実行（統合候補の上、鍵なしの runner と guard）：`web-frontier-resident-me` と地図の試験 3 file で 26/26、ブラウザの ws07-guard・ws07-grow・ws07-grow-r5・ws07-wide が合格。`web-frontier-wide-holding-ui`・`web-frontier-resident-home` は scan が保守的に鍵の一覧に入れているので、4 は走らせていない。
+- 鍵なしの証拠として数えるのは、静的審査と、`web-frontier-resident-me`（鍵の一覧にも reviewed の一覧にも無い）の呼び出し 0 の限定実行だけ。
+- 4 の静的審査：`residentAsset` は印の無い Citizen では無い（undefined）、印が無効なら null、有効なら asset のバイト（fcodec）。よって財布の viewer は印の無い Citizen だけ、NFT の viewer は `FS.resident.asset` を名指す印の Citizen だけを採り、それ以外は既存の `WrongKey` の経路になる。16 も同じ結論（REPORT §29.23）。
+- 限定実行：`web-frontier-resident-me` 5/5（20 が 1da4a517 で、16 が 8443d12e と 5ee5fa35 で、repo の guard の下、"0 seen by the guard"）。4 は統合候補の上で、この file と地図の試験 3 file を鍵なしの runner で 26/26、ブラウザの ws07-guard・ws07-grow・ws07-grow-r5・ws07-wide を guard の下で走らせ、すべて合格。
+- 数えないもの：20 の focused な 7 file の実行（56 件中 55 件、修正を戻すと 2 件が落ちる）。`web-frontier-wide-holding-ui`・`web-frontier-resident-home` などが鍵の一覧に載り reviewed の一覧に無いので、呼び出し 0 の記録があっても鍵なしの証拠ではない。よって controller の修正の「旧で落ち・新で通る」には、鍵なしの手順での裏付けが無い。4 はこれらの file を走らせていない。
