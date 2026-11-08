@@ -48,6 +48,15 @@ custody-preview = []
 # `world_index` identity models; the build carries the `0x4000` program
 # version bit so its Seasons never mix with production ones. Not deployable;
 # no stable ABI, no allocated numbers.
+# Workstream 02-rights, local development only (2026-11-08): the
+# workshop-stock swap Grant on the provisional tags 0xD0–0xD5
+# (`proc::rights`), its PS2 records (provisional kinds 114–119) and errors
+# (200–213). The build carries the provisional `0x2000` program version
+# bit (`frontier_abi::v2::rights::RIGHTS_EXPERIMENTAL_VERSION_BIT`) so its
+# Seasons never mix with production ones; the default build refuses the
+# tags as unknown. Not deployable: StockSwap is not adopted, its economic
+# terms are undecided, and workstream 4 fixes the numbers.
+rights-experimental = ["program"]
 wide-world-experimental = [
     "program",
     "frontier-abi/world-index-experimental",

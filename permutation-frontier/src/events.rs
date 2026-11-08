@@ -163,8 +163,8 @@ pub fn emit(
 /// Highest record kind code of ABI v2 (S1 map growth: FRONTIER_EXTENDED = 104; 89
 /// reserved, MC §6), widened to 134 for ⑳'s RESIDENT_JOINED = 130
 /// (workstream 4's allocation 130–134). Custody's LOT_* are 105–113
-/// (allocation rev 4); 114–129 and 131–134 stay undefined (other teams'
-/// provisional ranges).
+/// (allocation rev 4); 02-rights' Grant records (proposal) are 114–119;
+/// 120–129 and 131–134 stay undefined (other teams' provisional ranges).
 pub const MAX_KIND_V2: usize = 134;
 
 /// `(defined, key width, payload width)` per record kind code of ABI v2:

@@ -9,7 +9,7 @@
 //! exception like M1's CLASH and DEPART (notes D-4).
 
 use crate::addr::split_host_id;
-use crate::bytes::{rd_arr, rd_i16, rd_i32, rd_u32, rd_u64, rd_u8, Cursor, Writer};
+use crate::bytes::{rd_arr, rd_i16, rd_i32, rd_i64, rd_u32, rd_u64, rd_u8, Cursor, Writer};
 use crate::log::{
     self as v1, chains_of as chains_of_v1, field as field_v1, CitizenRef, EntityKind as V1Entity,
     EntityRef, Kind as V1Kind, HEAD_LEN, MAX_LINKS, VERSION,
@@ -157,6 +157,16 @@ cq_kinds! {
     LOT_REVOKED = 111; key ["lot": 15]; payload ["slot": 1, "id": 4, "released": 8];
     LOT_CONSUMED = 112; key ["lot": 15]; payload ["id": 4, "user_tag": 8, "qty": 8, "purpose": 2];
     LOT_LOSS = 113; key ["lot": 15]; payload ["cause": 1, "qty": 8, "to_tag": 8, "caravan_tag": 8, "caravan_seq": 4];
+    // Workstream 02-rights (proposal, NOT adopted): the Grant records.
+    // Codes 114–119 follow workstream 4's provisional allocation (rev 3,
+    // 2026-11-06: 8 has 104, 10 has 105–113, ⑳ 130); the integrator confirms
+    // them. Key: the Grant (issuer tag, nonce); amounts in milli-units.
+    GRANT_ISSUED = 114; key ["issuer_tag": 8, "nonce": 4]; payload ["grantee_tag": 8, "p": 4, "q": 4, "facility_site": 1, "facility_gen": 1, "station_site": 1, "station_gen": 1, "max_swaps": 2, "max_units": 4, "expires_ts": 8, "rent": 8];
+    SWAP_RESERVED = 115; key ["issuer_tag": 8, "nonce": 4]; payload ["grantee_tag": 8, "p": 4, "q": 4, "facility_site": 1, "station_site": 1, "seq": 2, "units": 4, "ore": 8, "wood": 8, "arms": 8];
+    SWAP_EXECUTED = 116; key ["issuer_tag": 8, "nonce": 4]; payload ["grantee_tag": 8, "p": 4, "q": 4, "facility_site": 1, "station_site": 1, "seq": 2, "units": 4, "ore": 8, "wood": 8, "arms": 8];
+    SWAP_RELEASED = 117; key ["issuer_tag": 8, "nonce": 4]; payload ["by": 1, "p": 4, "q": 4, "facility_site": 1, "station_site": 1, "ret_ore": 8, "ret_wood": 8, "ret_arms": 8, "kept_ore": 8, "kept_wood": 8, "kept_arms": 8];
+    GRANT_REVOKED = 118; key ["issuer_tag": 8, "nonce": 4]; payload ["by": 1, "p": 4, "q": 4, "facility_site": 1, "station_site": 1, "ret_ore": 8, "ret_wood": 8, "ret_arms": 8, "kept_ore": 8, "kept_wood": 8, "kept_arms": 8];
+    GRANT_CLOSED = 119; key ["issuer_tag": 8, "nonce": 4]; payload ["rent": 8, "rent_to": 8];
     // ⑳ (provisional; workstream 4's allocation 130–134, 131–134 spare):
     // JoinResident created an NFT-resident Citizen. Key: the resident ID
     // `sha256("PSF-RES" ‖ asset)[0..15]`; no links (64 B with the tail).
@@ -916,6 +926,59 @@ pub fn chains_of(kind: AnyKind, key: &[u8], payload: &[u8]) -> Option<Chains> {
             }
             c.push(E::Lot, EntityRefV2::Lot(k), false);
         }
+        // 02-rights (proposal): the issuer's Citizen (its P prologue).
+        CqKind::GRANT_ISSUED => {
+            let issuer = CitizenRef::Tag8(rd_u64(key, 0)?);
+            c.push(E::Citizen, Base(EntityRef::Citizen(issuer)), false);
+        }
+        // The grantee's Citizen, then the station, then the facility (the
+        // program's order; the sort is stable within one entity kind).
+        CqKind::SWAP_RESERVED | CqKind::SWAP_EXECUTED => {
+            let (p, q) = (rd_i32(pay("p")?, 0)?, rd_i32(pay("q")?, 0)?);
+            let grantee = CitizenRef::Tag8(rd_u64(pay("grantee_tag")?, 0)?);
+            c.push(E::Citizen, Base(EntityRef::Citizen(grantee)), false);
+            let station = rd_u8(pay("station_site")?, 0)?;
+            let facility = rd_u8(pay("facility_site")?, 0)?;
+            c.push(
+                E::Holding,
+                Base(EntityRef::Holding {
+                    p,
+                    q,
+                    site: station,
+                }),
+                false,
+            );
+            c.push(
+                E::Holding,
+                Base(EntityRef::Holding {
+                    p,
+                    q,
+                    site: facility,
+                }),
+                false,
+            );
+        }
+        // An undo chains exactly the holdings it credited (named by the
+        // returned amounts, never optional: two optional Holding links
+        // could not be told apart); a revoke also the issuer's Citizen.
+        CqKind::SWAP_RELEASED | CqKind::GRANT_REVOKED => {
+            let (p, q) = (rd_i32(pay("p")?, 0)?, rd_i32(pay("q")?, 0)?);
+            if k == CqKind::GRANT_REVOKED {
+                let issuer = CitizenRef::Tag8(rd_u64(key, 0)?);
+                c.push(E::Citizen, Base(EntityRef::Citizen(issuer)), false);
+            }
+            let amt = |n: &str| -> Option<i64> { rd_i64(pay(n)?, 0) };
+            if amt("ret_ore")? > 0 || amt("ret_wood")? > 0 {
+                let site = rd_u8(pay("station_site")?, 0)?;
+                c.push(E::Holding, Base(EntityRef::Holding { p, q, site }), false);
+            }
+            if amt("ret_arms")? > 0 {
+                let site = rd_u8(pay("facility_site")?, 0)?;
+                c.push(E::Holding, Base(EntityRef::Holding { p, q, site }), false);
+            }
+        }
+        // The Grant is not chained; its CLOSE chains nothing.
+        CqKind::GRANT_CLOSED => {}
     }
     c.sort();
     Some(c)
@@ -1207,10 +1270,15 @@ mod tests {
                 k.body_len()
             );
         }
-        assert_eq!(CQ_SPECS.len(), 34, "MC's 9, S1's 15, custody's 9 and ⑳'s 1");
+        assert_eq!(
+            CQ_SPECS.len(),
+            40,
+            "MC's 9, S1's 15, custody's 9, ⑳'s 1 and 02-rights' 6 (proposal)"
+        );
         // ⑳: only 130 of workstream 4's 130–134; custody is 105–113
-        // (allocation rev 4); nothing else between 114 and 134 is a kind.
-        for v in (114u8..=129).chain(131..=134) {
+        // (allocation rev 4), 02-rights 114–119 (proposal); nothing else
+        // between 120 and 134 is a kind.
+        for v in (120u8..=129).chain(131..=134) {
             assert!(AnyKind::from_u8(v).is_none(), "{v} is not a kind");
         }
         let rj = AnyKind::Cq(CqKind::RESIDENT_JOINED);

@@ -117,6 +117,24 @@ static SERIAL: Mutex<()> = Mutex::new(());
 #[path = "wide_land_runtime_tests.rs"]
 mod wide_land;
 
+// Workstream 02-rights (`rights-experimental`): the workshop-stock swap
+// Grant, through the same stubs, clock and serial lock
+// (`map_growth_runtime_tests::rights::`).
+#[cfg(feature = "rights-experimental")]
+#[path = "rights_runtime_tests.rs"]
+mod rights;
+
+/// Without `rights-experimental` the Grant's provisional tags 0xD0–0xD5
+/// are unknown tags (`BadData`), refused before any account is read.
+#[cfg(not(feature = "rights-experimental"))]
+#[test]
+fn map_growth_default_build_refuses_the_grant_tags() {
+    let _g = begin();
+    for t in 0xD0u8..=0xD5 {
+        assert_eq!(run(&[], &[t]), Err(E::BadData.code()), "{t:#x}");
+    }
+}
+
 /// Backing memory of every account created by a test: key → (data pointer,
 /// capacity, owner pointer). The stub resizes and reassigns through it.
 type Memory = HashMap<[u8; 32], (usize, usize, usize)>;

@@ -378,8 +378,8 @@ pub mod cqlog {
     use crate::layout::{chain_of, set_chain};
 
     /// Highest kind code a v2 record carries: the program's
-    /// `events::MAX_KIND_V2` (134, for ⑳'s RESIDENT_JOINED = 130; 105–129
-    /// and 131–134 undefined).
+    /// `events::MAX_KIND_V2` (134, for ⑳'s RESIDENT_JOINED = 130; 02-rights'
+    /// proposal 114–119; 120–129 and 131–134 undefined).
     pub const MAX_KIND: usize = crate::events::MAX_KIND_V2;
 
     /// `(defined, key width, payload width)` per kind: M1's and MC's.
