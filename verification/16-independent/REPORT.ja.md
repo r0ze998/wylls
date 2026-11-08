@@ -3112,3 +3112,66 @@ checkpoint の `95b0ab225ca9e9e626941b51981df2240198d91c`（tree `89a64830da3991
 - blocked：0。
 - 未実行：controller の 2 file を含む、一覧に載る 5 file。⑯ は鍵経路を guard に止めさせる実行をしない。
 - 全体の完了は宣言しない。
+
+## 29.26 ④ ff749ed2 の照合と、resident の controller 修正に足す、鍵なしの限定試験
+
+### ④ `ff749ed2e16985aff7e6e550bb2e091868b73800`（tree `58a844b374eb8a41922a01aefe3323267a84ed69`）
+
+- **⑲ の merge** `2bbbc33c`：tree `a5fbf199…` は ⑲ `68d9c6d4` の tree と同じ。§29.23 のレビューはそのまま有効。
+- **⑳ の merge** `7311597f`：tree `abd6beba…` は、`git merge-tree 2bbbc33c 5ee5fa35` が出す tree と同じ。手で加えた変更は無い。
+- **④ の文書の commit** `ff749ed2`：HOLDER-CONTRACT だけを変える。§14 の行には無効の印を付けた。§15 には「4 による訂正」を加えた。
+- **④ の訂正と ⑳ の確定訂正の差。** ④ の訂正は「評価に使う証拠」の最初に、⑳ の 7 file の実行（55/56、鍵の呼び出し 0）を挙げている。⑳ の確定訂正 `0a766757`（§29.25）では、この実行の 5 file は一覧に載り reviewed にも無いので、適格でない。ユーザーの指示も同じである。だから、この 7 file の実行は「適格でない」へ移すのが正しい。
+- **HOLDER-CONTRACT の版が 2 つある。** ④ の枝は ⑳ の `1da4a517` と `0a766757`（§15 の訂正の 2 回）を取り込んでいない。§15 の末尾は、⑳ の版と ④ の版で別々に書かれている。後で merge すると、同じ場所で衝突する。
+- **herald の既知の不具合（静的に確認）。** `web-frontier-herald` の「the fixtures are fresh」は、`test/fixtures/frontier/` の file の一覧が make-fixtures の一覧と同じであることを求める。`growth-route.mjs`（⑧ `631c1963` が最後に変更）はその dir にあるが、make-fixtures には無い。だから、この試験は落ちる。④ の記述どおり。この file は一覧に載るので、⑯ も走らせていない。
+
+### 新しく作った名指しの試験（`web-frontier-viewer-own-citizen.test.mjs`、⑯ が作った候補）
+
+既存の 2 file（wide-holding-ui、resident-home）は走らせない。代わりに、修正の 4 つの性質だけを確かめる file を新しく作った。
+- 試験 file 本体と、reviewed の 1 行を合わせた差分：`patches/v16-viewer-own-citizen-on-ff749ed2.patch`（ff749ed2 に当てる）。
+- 取り込みは ④ に任せる。試験の内容は ⑳ の確認待ち。production の規則は変えていない。
+
+**中身。** program 自身の bytes（`frontier-abi/vectors/v2/resident-citizen.json`）を、page の codec で decode して使う。
+- NFT の viewer のとき、WALLET が asset の財布の Citizen を拒む。その前に採っていた Citizen と holdings は、同じ object のまま残る。
+- NFT の viewer は、別の asset を名指す印、無効な印 2 種、ふつうの財布の Citizen も拒む。この場合も、すでにある値は上書きされない。
+- NFT の viewer は、asset を名指す本物の印の Citizen を採る。holdings も採る。
+- 財布の viewer は、印の無い財布の Citizen を今も採る（以前の動作を壊していない）。印のある Citizen と無効な印は拒み、すでにある値は上書きされない。
+- Citizen の無い読みは今も `found`、NotFound は今も `missing`。
+- fixture が説明どおりの中身かどうかも、試験の中で確かめる。
+
+**実行の前に行った静的な審査**（`scripts/v16-closure-audit.mjs`、`scripts/v16-toplevel-refs.mjs`。どちらも text を読むだけ）：
+- 試験の text に、鍵の API の名前は無い。spawn、worker、計算した import() も無い。
+- import の閉包は 137 file。鍵の API を名指す file は 11 ある：session、wallet、fsession、fplay、fprize、sdk/frontier/prize、map/tilt（`Math.sign` の誤検出）と、vendored の noble の 4 file。
+- **読み込みの時点。** どの file も、top-level で鍵の module の束縛を呼ばない。top-level にあるのは束縛の参照だけ（例：`let tx = { submit, track }`）。top-level の文で実行されるのは次だけで、どれも鍵に触れない：
+  - `fwide.guardLegacy`（閉包に鍵の file が無い）
+  - `onLangChange`
+  - `onArtWanted`
+  - seal-worker の `WorkerGlobalScope` の判定（node では偽）
+  - lang の `if (inBrowser)`（偽）
+  - base58 と bytes の表の作成
+- **呼び出しの経路。** `applyMeResult` から届くのは次だけ：
+  - `viewerOwnCitizen`（base58）
+  - fwide（閉包に鍵の file が無い）
+  - `fland.landState`（`rent`、`isZeroRef` だけで、fmarch や seal を呼ばない）
+  - pin が無いので、メモリの中の land の記録
+  - `fstate.invalidate`（この閉包のどこにも `registerRenderers(` が無いので、描画は走らない）
+  - `refreshDelegation`。wallet があり、sessionProblem が null で、agentWallet が定義済みなので、`loadAgents` の前に戻る。
+  - `FS.session` は null なので、`fsession.matchesCitizen` は呼ばれない。
+- **reviewed の行。** `closure=3175899e36b67c25bdc8eefb7f38ff8522531dbcb2ffd376edd93090a74b26b8` を加えた。scan を作り直しても `node-key-tests.txt` は変わらない。`--check` は exit 0（11 file が reviewed で走れる）。
+
+**実行**（ff749ed2 に上の差分を当てた木）：
+- `node-keyfree.sh permutation-gateway test/web-frontier-viewer-own-citizen.test.mjs`：**4/4 合格**。1 file だけで、221 file は一覧に載るので除かれた。
+- repo の guard と ⑯ の hook v2（`--import` だけ）の下で同じ file を走らせた。hook が働いていることは source の text で確かめた（同じ実行の active check、1/1）。**4/4 合格**、hook の記録は **0 行**。
+- **変異の対照。** 5ee5fa35 が controller に加えた 14 行だけを戻し、digest を付け直して、`node-keyfree.sh` で走らせた。拒否の 2 試験が `'found' !== 'error'` で落ちた。採る側の 2 試験は通った（2 合格、2 失敗）。
+- log：`logs/phase23/viewer-own-citizen-ff74.txt`。
+
+**証拠の区別。**
+- 以前からある適格な実行：resident-me の 5/5（§29.24、§29.25）。
+- 今回の新しい証拠：上の名指しの試験。修正ありで 4/4、修正を戻すと 2 件が落ちる。どちらも key-free の runner と guard の下で、鍵の入口の呼び出しは 0。
+- wide-holding-ui と resident-home の 2 file は、今も走らせていない。⑳ の 55/56 の実行も、今も証拠に数えない。
+
+**集計。**
+- 通過：静的な審査 3 件（merge の tree 2 件と herald の静的確認）、新しい試験の 4/4 を 2 通りの監視で、変異の対照（期待どおり 2 件が落ちる）。
+- 失敗：0。
+- blocked：0。
+- 未実行：一覧に載る file すべて（wide-holding-ui、resident-home、herald など）。⑯ の木の外での CI。
+- 全体の完了は宣言しない。

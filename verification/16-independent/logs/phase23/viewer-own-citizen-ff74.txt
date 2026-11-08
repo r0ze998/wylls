@@ -1,0 +1,103 @@
+### ⑯ new named regression test for ⑳ 5ee5fa35 applyMeResult/viewerOwnCitizen, on ④ ff749ed2e16985aff7e6e550bb2e091868b73800 (tree 58a844b3) + patches/v16-viewer-own-citizen-on-ff749ed2.patch
+## static audit: closure of the test (scripts/v16-closure-audit.mjs)
+{
+ "files": 137,
+ "keyApiNamed": [
+  "permutation-server/web/sdk/vendor/noble/curves/bls12-381.mjs",
+  "permutation-server/web/sdk/vendor/noble/curves/abstract/bls.mjs",
+  "permutation-server/web/sdk/vendor/noble/curves/abstract/modular.mjs",
+  "permutation-server/web/sdk/vendor/noble/curves/abstract/weierstrass.mjs",
+  "permutation-server/web/frontier/fsession.mjs",
+  "permutation-server/web/session.mjs",
+  "permutation-server/web/frontier/fplay.mjs",
+  "permutation-server/web/wallet.mjs",
+  "permutation-server/web/frontier/map/tilt.mjs",
+  "permutation-server/web/frontier/fprize.mjs",
+  "permutation-server/web/sdk/frontier/prize.mjs"
+ ],
+ "unfollowed": [],
+ "bare": {
+  "node:test": [
+   "permutation-gateway/test/web-frontier-viewer-own-citizen.test.mjs"
+  ],
+  "node:assert/strict": [
+   "permutation-gateway/test/web-frontier-viewer-own-citizen.test.mjs"
+  ],
+  "node:fs": [
+   "permutation-gateway/test/web-frontier-viewer-own-citizen.test.mjs"
+  ],
+  "@noble/hashes/hmac": [
+   "permutation-server/web/sdk/vendor/noble/hashes/hmac.mjs"
+  ],
+  "@noble/hashes/sha2": [
+   "permutation-server/web/sdk/vendor/noble/hashes/hmac.mjs"
+  ],
+  "@noble/curves/bls12-381": [
+   "permutation-server/web/sdk/vendor/noble/curves/bls12-381.mjs"
+  ]
+ }
+}
+## top-level references to key-module bindings (scripts/v16-toplevel-refs.mjs; bindings only, no call at load)
+permutation-server/web/frontier/controller.mjs top-level refs: ["125: const viewerCitizen = () => FS.resident?.citizen ?? io.pinned().addresses.of('Citizen', { wallet: FS.wallet.address });", '169: let tx = { submit, track };', '169: let tx = { submit, track };', '170: export function useTransport(t) { tx = t ? { submit: t.submit ?? submit, track: t.track ?? track } : { submit, track }; }', '170: export function useTransport(t) { tx = t ? { submit: t.submit ?? submit, track: t.track ?? track } : { submit, track }; }', '172: let prizeIo = fprize;', '173: export function usePrize(p) { prizeIo = p ? { ...fprize, ...p } : fprize; }', '507: function resetViewer({ wallet: walletChanged = true } = {}) {', '551: export function adoptConnectedWallet(next = wallet.connected()) {']
+permutation-server/web/frontier/fplay.mjs top-level refs: []
+permutation-server/web/frontier/fprize.mjs top-level refs: []
+permutation-server/web/frontier/fsession.mjs top-level refs: []
+permutation-server/web/frontier/seal-worker.mjs top-level refs: ['26: const G2 = bls.G2.ProjectivePoint;', '27: const G1 = bls.G1.ProjectivePoint;', '28: const Fr = bls.fields.Fr;']
+permutation-server/web/sdk/frontier/prize.mjs top-level refs: []
+permutation-server/web/sdk/vendor/noble/curves/bls12-381.mjs top-level refs: []
+permutation-server/web/session.mjs top-level refs: []
+permutation-server/web/wallet.mjs top-level refs: []
+## node-keyfree.sh (repo guard only)
+119 by the scan, 209 through src/ (conservative), 23 unfollowed (conservative), 11 reviewed and runnable, 0 seen by the guard
+key-free run: 1 files in permutation-gateway (221 left out, listed)
+TAP version 13
+# Subtest: the fixtures are what they claim (decoded by the page codec)
+ok 1 - the fixtures are what they claim (decoded by the page codec)
+  ---
+  type: 'test'
+  ...
+# Subtest: NFT viewer: the wallet Citizen at the asset address is refused; the Citizen and holdings already adopted stay
+ok 2 - NFT viewer: the wallet Citizen at the asset address is refused; the Citizen and holdings already adopted stay
+  ---
+  type: 'test'
+  ...
+# Subtest: NFT viewer: the Citizen whose resident mark names the asset played is adopted, with its holdings
+ok 3 - NFT viewer: the Citizen whose resident mark names the asset played is adopted, with its holdings
+  ---
+  type: 'test'
+  ...
+# Subtest: wallet viewer: the unmarked wallet Citizen is still adopted; a marked one is refused and leaves it in place
+ok 4 - wallet viewer: the unmarked wallet Citizen is still adopted; a marked one is refused and leaves it in place
+  ---
+  type: 'test'
+  ...
+1..4
+# tests 4
+# suites 0
+# pass 4
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+## repo guard + ⑯ hook v2 (--import only), with the source-text active check
+ok 1 - the v2 hook is active in this test process
+ok 2 - the fixtures are what they claim (decoded by the page codec)
+ok 3 - NFT viewer: the wallet Citizen at the asset address is refused; the Citizen and holdings already adopted stay
+ok 4 - NFT viewer: the Citizen whose resident mark names the asset played is adopted, with its holdings
+ok 5 - wallet viewer: the unmarked wallet Citizen is still adopted; a marked one is refused and leaves it in place
+# tests 5
+# pass 5
+# fail 0
+hook log lines: 0
+## mutation control: the 14-line controller hunk of 5ee5fa35 reverted (v48r), digest re-pinned, node-keyfree.sh
+119 by the scan, 209 through src/ (conservative), 23 unfollowed (conservative), 11 reviewed and runnable, 0 seen by the guard
+key-free run: 1 files in permutation-gateway (221 left out, listed)
+ok 1 - the fixtures are what they claim (decoded by the page codec)
+not ok 2 - NFT viewer: the wallet Citizen at the asset address is refused; the Citizen and holdings already adopted stay
+    'found' !== 'error'
+ok 3 - NFT viewer: the Citizen whose resident mark names the asset played is adopted, with its holdings
+not ok 4 - wallet viewer: the unmarked wallet Citizen is still adopted; a marked one is refused and leaves it in place
+    'found' !== 'error'
+# tests 4
+# pass 2
+# fail 2
