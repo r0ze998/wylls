@@ -1,0 +1,422 @@
+From 91f73d41d7e3099a9503bce641f21283a08648e7 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Fri, 30 Oct 2026 23:44:56 +0000
+Subject: [PATCH 06/14] Verifier: a custody trace is never a PASS (V26 guard)
+
+Before: a forged landed OpenLot in a recorded season, a Lot account or a
+vault/caravan with custody fields verified as PASS (custody tags are
+known tags; no check read them). V26:custody-guard runs on every season:
+a landed custody instruction, a LOT_* record, a Lot's CLOSE, or a Lot /
+custody counts / custody fields in any post-state or final account is a
+FAIL (CustodyInProgramWithoutIt) in a season whose program has no
+custody, and UNVERIFIABLE (CustodyUnverified) in a custody season until
+V26 replays it. Refused transactions are not traces. tests/custody.rs.
+
+Ported to the integration candidate c1e8137e: the module sits beside
+the candidate's v26_growth, v27_residents and v28_resident_acts, and
+uses workstream 18's Ctx::unverifiable (same signature) instead of adding
+a second one. Note: the candidate registers workstream 8's map growth as
+V26:map-growth, while workstream 4's allocation rev 6 gives V26 to
+custody; the finding codes do not overlap, the check id does (left for
+4).
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01C5Nj2cMNVbfXW4D5Pzsbxg
+---
+ frontier-node/crates/verify/src/checks/mod.rs |   5 +
+ .../crates/verify/src/checks/v26_custody.rs   | 179 ++++++++++++++++++
+ frontier-node/crates/verify/src/codes.rs      |   9 +
+ frontier-node/crates/verify/tests/custody.rs  | 155 +++++++++++++++
+ 4 files changed, 348 insertions(+)
+ create mode 100644 frontier-node/crates/verify/src/checks/v26_custody.rs
+ create mode 100644 frontier-node/crates/verify/tests/custody.rs
+
+diff --git a/frontier-node/crates/verify/src/checks/mod.rs b/frontier-node/crates/verify/src/checks/mod.rs
+index cb9b8068..bad6128c 100644
+--- a/frontier-node/crates/verify/src/checks/mod.rs
++++ b/frontier-node/crates/verify/src/checks/mod.rs
+@@ -21,6 +21,7 @@ pub mod v25_nations;
+ pub mod v26_growth;
+ pub mod v27_residents;
+ pub mod v28_resident_acts;
++pub mod v26_custody;
+ pub mod v2_program;
+ pub mod v3_random;
+ pub mod v4_windows;
+@@ -286,6 +287,10 @@ pub fn run(input: &Input) -> Report {
+         v28_resident_acts::run(&mut cx);
+         ran.push("V28:resident-acts");
+     }
++    // Workstream 10: custody has no check yet; any trace of it is never a
++    // PASS (every season: a season without custody FAILs on it).
++    v26_custody::run(&mut cx);
++    ran.push("V26:custody-guard");
+     ran.push("V10");
+     counts(&mut cx);
+     let verdict = if cx.findings.iter().any(|x| x.severity == Severity::Fail) {
+diff --git a/frontier-node/crates/verify/src/checks/v26_custody.rs b/frontier-node/crates/verify/src/checks/v26_custody.rs
+new file mode 100644
+index 00000000..6389b02b
+--- /dev/null
++++ b/frontier-node/crates/verify/src/checks/v26_custody.rs
+@@ -0,0 +1,179 @@
++//! V26 guard (workstream 10, custody), listed as `V26:custody-guard`. The
++//! custody check proper (the kernel's replay of every lot, order and
++//! custody caravan) does not exist yet, so a history that carries any
++//! custody trace is never a PASS:
++//!
++//! - in a season whose program has no custody (every ruleset up to
++//!   `RULESET_HASH_V3`; the S1 program refuses the tags) a trace is a FAIL,
++//!   `CustodyInProgramWithoutIt`;
++//! - in a custody season (`RULESET_HASH_V4`, or a Season of
++//!   `program_version >= PROGRAM_VERSION_CUSTODY`) it is UNVERIFIABLE,
++//!   `CustodyUnverified`, until V26 replays it.
++//!
++//! A trace is: a custody instruction (0xC1–0xCB) of a landed transaction
++//! (top level: a CPI is caught by what it leaves), a custody record
++//! (`LOT_*`, a Lot's CLOSE), or, in any post-state or final account of the
++//! program, a Lot, a Vault with custody counts, a Caravan with custody
++//! fields. A failed transaction carrying a custody tag is not a trace (the
++//! program refused it).
++
++use frontier_abi::v2::layout::s1::{caravan as CV, lot as LT, vault as VA};
++use frontier_abi::v2::log::CqKind;
++use frontier_abi::v2::presets::{PROGRAM_VERSION_CUSTODY, RULESET_HASH_V4};
++use frontier_abi::v2::Ix;
++
++use super::{ent, Ctx};
++use crate::codes::{CUSTODY_IN_PROGRAM_WITHOUT_IT, CUSTODY_UNVERIFIED};
++
++const V: &str = "V26";
++/// Findings listed one by one before the rest is counted in one line.
++const LISTED: usize = 16;
++
++/// Whether the season is a custody one.
++pub fn custody_season(cx: &Ctx) -> bool {
++    cx.cfg.ruleset_hash == RULESET_HASH_V4
++        || cx.input.finals.values().flatten().any(|a| {
++            fclient::decode::Season::decode(&a.data)
++                .is_ok_and(|s| s.program_version >= PROGRAM_VERSION_CUSTODY)
++        })
++}
++
++const LOT_KINDS: [CqKind; 9] = [
++    CqKind::LOT_OPENED,
++    CqKind::LOT_QUOTA,
++    CqKind::LOT_INBOUND,
++    CqKind::LOT_SHIPPED,
++    CqKind::LOT_SETTLED,
++    CqKind::LOT_ORDER,
++    CqKind::LOT_REVOKED,
++    CqKind::LOT_CONSUMED,
++    CqKind::LOT_LOSS,
++];
++
++/// What custody leaves in an account of the program, if anything.
++fn account_trace(d: &[u8]) -> Option<&'static str> {
++    let magic = d.get(..8)?;
++    let nonzero = |o: usize, n: usize| d.get(o..o + n).is_some_and(|b| b.iter().any(|x| *x != 0));
++    if magic == LT::MAGIC {
++        return Some("a Lot account");
++    }
++    if magic == VA::MAGIC && (nonzero(VA::CUSTODY_QUOTA, 64) || nonzero(VA::CUSTODY_LOTS, 2)) {
++        return Some("a Vault with custody counts");
++    }
++    if magic == CV::MAGIC
++        && (nonzero(CV::CUSTODY, 2)
++            || nonzero(CV::CUSTODY_OWNER_TAG, 8)
++            || nonzero(CV::TAKEN_BY_TAG, 8))
++    {
++        return Some("a Caravan with custody fields");
++    }
++    None
++}
++
++pub fn run(cx: &mut Ctx) {
++    let w = cx.w;
++    let program = w.program;
++    let mut traces: Vec<(String, u32, Option<usize>, String)> = vec![];
++    for (t, tx) in w.txs.iter().enumerate() {
++        if !tx.ok {
++            continue;
++        }
++        for ix in &tx.ixs {
++            if let Some(x) = ix.tag().and_then(Ix::from_tag).filter(|x| x.is_custody()) {
++                traces.push((
++                    "transaction".into(),
++                    u32::MAX,
++                    Some(t),
++                    format!("a landed {} instruction", x.name()),
++                ));
++            }
++        }
++        for (k, a) in &tx.post {
++            if let Some(a) = a.as_ref().filter(|a| a.owner.to_bytes() == program) {
++                if let Some(what) = account_trace(&a.data) {
++                    traces.push((
++                        ent("account", k),
++                        u32::MAX,
++                        Some(t),
++                        format!("{what} after it"),
++                    ));
++                }
++            }
++        }
++    }
++    for r in &w.cq_recs {
++        if LOT_KINDS.contains(&r.kind) {
++            traces.push((
++                "transaction".into(),
++                r.bell,
++                Some(r.tx),
++                format!("record {} is custody's {}", r.pos, r.kind.name()),
++            ));
++        }
++    }
++    let lot_kind = frontier_abi::v2::layout::AccountKind::Lot as u8;
++    for r in &w.recs {
++        if r.kind == frontier_abi::log::Kind::CLOSE && r.key.first() == Some(&lot_kind) {
++            traces.push((
++                "transaction".into(),
++                r.bell,
++                Some(r.tx),
++                format!("record {} closes a Lot", r.pos),
++            ));
++        }
++    }
++    for (k, a) in &w.finals {
++        if let Some(a) = a.as_ref().filter(|a| a.owner.to_bytes() == program) {
++            if let Some(what) = account_trace(&a.data) {
++                traces.push((
++                    ent("account", k),
++                    u32::MAX,
++                    None,
++                    format!("{what} at the pinned slot"),
++                ));
++            }
++        }
++    }
++    if traces.is_empty() {
++        return;
++    }
++    let custody = custody_season(cx);
++    let n = traces.len();
++    for (i, (entity, bell, tx, what)) in traces.into_iter().enumerate() {
++        if i == LISTED {
++            let rest = format!("{} more custody traces", n - LISTED);
++            if custody {
++                cx.unverifiable(V, CUSTODY_UNVERIFIED, "season", u32::MAX, None, rest);
++            } else {
++                cx.fail(
++                    V,
++                    CUSTODY_IN_PROGRAM_WITHOUT_IT,
++                    "season",
++                    u32::MAX,
++                    None,
++                    rest,
++                );
++            }
++            break;
++        }
++        if custody {
++            cx.unverifiable(
++                V,
++                CUSTODY_UNVERIFIED,
++                entity,
++                bell,
++                tx,
++                format!("{what}: custody is not verified (no V26 replay yet)"),
++            );
++        } else {
++            cx.fail(
++                V,
++                CUSTODY_IN_PROGRAM_WITHOUT_IT,
++                entity,
++                bell,
++                tx,
++                format!("{what} in a season whose program has no custody"),
++            );
++        }
++    }
++}
+diff --git a/frontier-node/crates/verify/src/codes.rs b/frontier-node/crates/verify/src/codes.rs
+index 759874ba..a90e1bd9 100644
+--- a/frontier-node/crates/verify/src/codes.rs
++++ b/frontier-node/crates/verify/src/codes.rs
+@@ -211,3 +211,12 @@ pub const WARN_CODES: &[&str] = &[
+     CONSERVATION_GAP,
+     PREFUNDED,
+ ];
++// Custody (workstream 10): no V26 yet.
++/// A custody trace (a landed custody instruction, a custody record, a Lot
++/// account, custody fields in a Vault or Caravan) in a season whose program
++/// has no custody (ruleset up to `RULESET_HASH_V3`): that program refuses
++/// the tags, so the history is not its own.
++pub const CUSTODY_IN_PROGRAM_WITHOUT_IT: &str = "CustodyInProgramWithoutIt";
++/// A custody trace in a custody season (`RULESET_HASH_V4`): V26 does not
++/// exist, so the history cannot be verified (never PASS).
++pub const CUSTODY_UNVERIFIED: &str = "CustodyUnverified";
+diff --git a/frontier-node/crates/verify/tests/custody.rs b/frontier-node/crates/verify/tests/custody.rs
+new file mode 100644
+index 00000000..58d620ee
+--- /dev/null
++++ b/frontier-node/crates/verify/tests/custody.rs
+@@ -0,0 +1,155 @@
++//! Custody (workstream 10) is not verified yet (no V26): a history that
++//! carries any trace of it must never PASS. In a season whose program has
++//! no custody (every ruleset up to `RULESET_HASH_V3`) such a trace is a
++//! FAIL; in a custody season it is UNVERIFIABLE until V26 exists.
++//!
++//! The recorded fixtures are M1 and MC seasons (no S1 recording is
++//! committed), so the traces are injected: a landed custody instruction, a
++//! Lot account, a vault or caravan with custody fields set.
++
++mod common;
++
++use common::*;
++use verify_core::codes::{CUSTODY_IN_PROGRAM_WITHOUT_IT, CUSTODY_UNVERIFIED};
++use verify_core::{Input, Verdict};
++
++const LOT_MAGIC: &[u8; 8] = b"PSF1CLOT";
++
++/// The first landed transaction with an instruction of the program.
++fn landed_with_ix(inp: &Input) -> usize {
++    let program = inp.cfg.program;
++    inp.txs
++        .iter()
++        .position(|t| {
++            t.err.is_none()
++                && fclient::tx::from_wire(&t.tx).is_ok_and(|tx| {
++                    let keys = &tx.message.account_keys;
++                    tx.message
++                        .instructions
++                        .iter()
++                        .any(|c| keys[c.program_id_index as usize] == program)
++                })
++        })
++        .expect("a landed program transaction")
++}
++
++/// Appends to landed transaction `t` a copy of its first program
++/// instruction whose data is `data` (a forged custody instruction).
++fn inject_ix(inp: &mut Input, t: usize, data: &[u8]) {
++    let mut tx = fclient::tx::from_wire(&inp.txs[t].tx).expect("tx");
++    let program = inp.cfg.program;
++    let keys = tx.message.account_keys.clone();
++    let mut ci = tx
++        .message
++        .instructions
++        .iter()
++        .find(|c| keys[c.program_id_index as usize] == program)
++        .expect("instruction")
++        .clone();
++    ci.data = data.to_vec();
++    tx.message.instructions.push(ci);
++    inp.txs[t].tx = fclient::tx::wire(&tx);
++}
++
++fn verdict(inp: &Input) -> verify_core::Report {
++    verify_core::verify(inp)
++}
++
++#[test]
++fn baselines_are_not_flagged() {
++    for (name, inp) in [("march", march()), ("land", land())] {
++        let r = verdict(&inp);
++        assert!(
++            !r.fails_with(CUSTODY_IN_PROGRAM_WITHOUT_IT) && !r.fails_with(CUSTODY_UNVERIFIED),
++            "{name}: {}",
++            show(&r)
++        );
++    }
++}
++
++#[test]
++fn a_landed_custody_instruction_in_a_season_without_custody_fails() {
++    for tag in frontier_abi::v2::Ix::CUSTODY {
++        let mut inp = march();
++        let t = landed_with_ix(&inp);
++        inject_ix(&mut inp, t, &[tag.tag()]);
++        let r = verdict(&inp);
++        assert_eq!(r.verdict, Verdict::Fail, "{}: {}", tag.name(), show(&r));
++        assert!(r.fails_with(CUSTODY_IN_PROGRAM_WITHOUT_IT), "{}", show(&r));
++    }
++}
++
++#[test]
++fn a_failed_custody_instruction_is_not_flagged() {
++    // The v3 program refuses the tag (BadData): a failed transaction with
++    // it is the program doing its job.
++    let mut inp = march();
++    let t = landed_with_ix(&inp);
++    inject_ix(&mut inp, t, &[frontier_abi::v2::Ix::ShipLot.tag()]);
++    inp.txs[t].err = Some("custom program error: 0x1".into());
++    let r = verdict(&inp);
++    assert!(!r.fails_with(CUSTODY_IN_PROGRAM_WITHOUT_IT), "{}", show(&r));
++}
++
++#[test]
++fn a_lot_account_in_a_season_without_custody_fails() {
++    let mut inp = march();
++    let program = inp.cfg.program;
++    let mut data = vec![0u8; 576];
++    data[..8].copy_from_slice(LOT_MAGIC);
++    inp.finals.insert(
++        [0xC1; 32],
++        Some(fclient::ports::Account {
++            lamports: 1,
++            data,
++            owner: program,
++            executable: false,
++        }),
++    );
++    let r = verdict(&inp);
++    assert_eq!(r.verdict, Verdict::Fail, "{}", show(&r));
++    assert!(r.fails_with(CUSTODY_IN_PROGRAM_WITHOUT_IT), "{}", show(&r));
++}
++
++#[test]
++fn custody_fields_in_a_vault_or_caravan_fail() {
++    use frontier_abi::v2::layout::s1::{caravan as CV, vault as VA};
++    for (magic, size, at) in [
++        (VA::MAGIC, VA::SIZE, VA::CUSTODY_LOTS),
++        (CV::MAGIC, CV::SIZE, CV::CUSTODY),
++    ] {
++        let mut inp = march();
++        let program = inp.cfg.program;
++        let mut data = vec![0u8; size];
++        data[..8].copy_from_slice(&magic);
++        data[at] = 1;
++        inp.finals.insert(
++            [0xC2; 32],
++            Some(fclient::ports::Account {
++                lamports: 1,
++                data,
++                owner: program,
++                executable: false,
++            }),
++        );
++        let r = verdict(&inp);
++        assert!(r.fails_with(CUSTODY_IN_PROGRAM_WITHOUT_IT), "{}", show(&r));
++    }
++}
++
++#[test]
++fn a_custody_season_is_never_a_pass() {
++    // A season configured as custody's (RULESET_HASH_V4): any custody trace
++    // is UNVERIFIABLE (no V26) or worse, never PASS.
++    let mut inp = march();
++    inp.cfg.ruleset_hash = frontier_abi::v2::presets::RULESET_HASH_V4;
++    let t = landed_with_ix(&inp);
++    inject_ix(&mut inp, t, &[frontier_abi::v2::Ix::ConsumeLot.tag()]);
++    let r = verdict(&inp);
++    assert_ne!(r.verdict, Verdict::Pass, "{}", show(&r));
++    assert!(
++        r.findings.iter().any(|f| f.code == CUSTODY_UNVERIFIED),
++        "{}",
++        show(&r)
++    );
++}
+-- 
+2.43.0
+

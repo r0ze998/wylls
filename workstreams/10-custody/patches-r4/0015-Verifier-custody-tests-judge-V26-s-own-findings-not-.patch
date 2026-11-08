@@ -1,0 +1,439 @@
+From ed1e009e537c89624024183d25dd924ac732be4b Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Sat, 7 Nov 2026 06:52:18 +0000
+Subject: [PATCH] Verifier custody tests: judge V26's own findings, not the
+ verdict [skip ci]
+
+Workstream 4 found that the synthetic march fixture already FAILs on
+V11 (six bad placements), so the custody tests' "not PASS" assertions
+held even with custody's judgement broken: custody_state around lines
+314, 350 and 367 and custody_history around 436, and likewise the
+custody-season and no-custody checks in custody.rs.
+
+Each such case now compares V26's own findings exactly (code, FAIL or
+not, entity, detail, transaction) and the verdict custody alone gives
+(Unverifiable, or Fail with only CustodyInProgramWithoutIt). Three
+mutations of the verifier that keep custody short of a FAIL but wrong (a
+spurious vault-count note when lots are missing from the input, a wrong
+forfeited amount, an unexplained change pinned to no transaction) pass
+the old tests and fail these. Tests that generate, derive or sign keys
+were not run.
+
+[skip ci]: this branch's CI runs tests that generate and sign keys.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01C5Nj2cMNVbfXW4D5Pzsbxg
+---
+ frontier-node/crates/verify/tests/custody.rs  |  86 +++++++++++--
+ .../crates/verify/tests/custody_history.rs    |  90 +++++++++++---
+ .../crates/verify/tests/custody_state.rs      | 116 +++++++++++++++---
+ 3 files changed, 254 insertions(+), 38 deletions(-)
+
+diff --git a/frontier-node/crates/verify/tests/custody.rs b/frontier-node/crates/verify/tests/custody.rs
+index 58d620ee..27dd2ae3 100644
+--- a/frontier-node/crates/verify/tests/custody.rs
++++ b/frontier-node/crates/verify/tests/custody.rs
+@@ -11,7 +11,7 @@ mod common;
+ 
+ use common::*;
+ use verify_core::codes::{CUSTODY_IN_PROGRAM_WITHOUT_IT, CUSTODY_UNVERIFIED};
+-use verify_core::{Input, Verdict};
++use verify_core::Input;
+ 
+ const LOT_MAGIC: &[u8; 8] = b"PSF1CLOT";
+ 
+@@ -51,6 +51,25 @@ fn inject_ix(inp: &mut Input, t: usize, data: &[u8]) {
+     inp.txs[t].tx = fclient::tx::wire(&tx);
+ }
+ 
++/// V26's own findings: (code, FAIL?, entity, detail, signature). The
++/// fixture already FAILs elsewhere (V11), so the report's verdict says
++/// nothing about custody; these do.
++fn v26(r: &verify_core::Report) -> Vec<(String, bool, String, String, String)> {
++    r.findings
++        .iter()
++        .filter(|f| f.check == "V26")
++        .map(|f| {
++            (
++                f.code.clone(),
++                f.fail(),
++                f.entity.clone(),
++                f.detail.clone(),
++                f.signature.clone(),
++            )
++        })
++        .collect()
++}
++
+ fn verdict(inp: &Input) -> verify_core::Report {
+     verify_core::verify(inp)
+ }
+@@ -74,8 +93,23 @@ fn a_landed_custody_instruction_in_a_season_without_custody_fails() {
+         let t = landed_with_ix(&inp);
+         inject_ix(&mut inp, t, &[tag.tag()]);
+         let r = verdict(&inp);
+-        assert_eq!(r.verdict, Verdict::Fail, "{}: {}", tag.name(), show(&r));
+-        assert!(r.fails_with(CUSTODY_IN_PROGRAM_WITHOUT_IT), "{}", show(&r));
++        let sig = inp.txs[t].signature.to_string();
++        assert_eq!(
++            v26(&r),
++            vec![(
++                CUSTODY_IN_PROGRAM_WITHOUT_IT.to_string(),
++                true,
++                "transaction".to_string(),
++                format!(
++                    "a landed {} instruction in a season whose program has no custody",
++                    tag.name()
++                ),
++                sig,
++            )],
++            "{}: {}",
++            tag.name(),
++            show(&r)
++        );
+     }
+ }
+ 
+@@ -88,7 +122,7 @@ fn a_failed_custody_instruction_is_not_flagged() {
+     inject_ix(&mut inp, t, &[frontier_abi::v2::Ix::ShipLot.tag()]);
+     inp.txs[t].err = Some("custom program error: 0x1".into());
+     let r = verdict(&inp);
+-    assert!(!r.fails_with(CUSTODY_IN_PROGRAM_WITHOUT_IT), "{}", show(&r));
++    assert!(v26(&r).is_empty(), "{}", show(&r));
+ }
+ 
+ #[test]
+@@ -107,8 +141,18 @@ fn a_lot_account_in_a_season_without_custody_fails() {
+         }),
+     );
+     let r = verdict(&inp);
+-    assert_eq!(r.verdict, Verdict::Fail, "{}", show(&r));
+-    assert!(r.fails_with(CUSTODY_IN_PROGRAM_WITHOUT_IT), "{}", show(&r));
++    assert_eq!(
++        v26(&r),
++        vec![(
++            CUSTODY_IN_PROGRAM_WITHOUT_IT.to_string(),
++            true,
++            format!("account:{}", fclient::Address::new_from_array([0xC1; 32])),
++            "a Lot account at the pinned slot in a season whose program has no custody".to_string(),
++            String::new(),
++        )],
++        "{}",
++        show(&r)
++    );
+ }
+ 
+ #[test]
+@@ -146,9 +190,33 @@ fn a_custody_season_is_never_a_pass() {
+     let t = landed_with_ix(&inp);
+     inject_ix(&mut inp, t, &[frontier_abi::v2::Ix::ConsumeLot.tag()]);
+     let r = verdict(&inp);
+-    assert_ne!(r.verdict, Verdict::Pass, "{}", show(&r));
+-    assert!(
+-        r.findings.iter().any(|f| f.code == CUSTODY_UNVERIFIED),
++    // The fixture FAILs elsewhere already (V11), so judge V26 alone:
++    // exactly one finding, UNVERIFIABLE, naming the landed instruction at
++    // its transaction.
++    let sig = inp.txs[t].signature.to_string();
++    let v26: Vec<_> = r
++        .findings
++        .iter()
++        .filter(|f| f.check == "V26")
++        .map(|f| {
++            (
++                f.code.as_str(),
++                f.fail(),
++                f.entity.as_str(),
++                f.detail.as_str(),
++                f.signature.as_str(),
++            )
++        })
++        .collect();
++    assert_eq!(
++        v26,
++        vec![(
++            CUSTODY_UNVERIFIED,
++            false,
++            "transaction",
++            "a landed ConsumeLot instruction: custody is not verified (no V26 replay yet)",
++            sig.as_str(),
++        )],
+         "{}",
+         show(&r)
+     );
+diff --git a/frontier-node/crates/verify/tests/custody_history.rs b/frontier-node/crates/verify/tests/custody_history.rs
+index 13d1a273..fe0a6118 100644
+--- a/frontier-node/crates/verify/tests/custody_history.rs
++++ b/frontier-node/crates/verify/tests/custody_history.rs
+@@ -126,6 +126,55 @@ fn recorded(states: &[Vec<u8>]) -> (Input, Vec<String>) {
+     (inp, sigs)
+ }
+ 
++/// V26's own findings, sorted: (code, FAIL?, entity, detail, signature).
++/// The fixture (`march`) already FAILs elsewhere (V11: six bad placements),
++/// so the report's verdict says nothing about custody; these do.
++fn v26(r: &verify_core::Report) -> Vec<(String, bool, String, String, String)> {
++    let mut v: Vec<_> = r
++        .findings
++        .iter()
++        .filter(|f| f.check == "V26")
++        .map(|f| {
++            (
++                f.code.clone(),
++                f.fail(),
++                f.entity.clone(),
++                f.detail.clone(),
++                f.signature.clone(),
++            )
++        })
++        .collect();
++    v.sort();
++    v
++}
++
++/// The verdict custody alone would give (V26's findings only).
++fn custody_verdict(r: &verify_core::Report) -> Verdict {
++    let f = r.findings.iter().filter(|f| f.check == "V26");
++    if f.clone().any(|f| f.fail()) {
++        Verdict::Fail
++    } else if f.count() > 0 {
++        Verdict::Unverifiable
++    } else {
++        Verdict::Pass
++    }
++}
++
++fn account(k: u8) -> String {
++    format!("account:{}", fclient::Address::new_from_array([k; 32]))
++}
++
++/// The UNVERIFIABLE trace V26 gives a Lot in a transaction's post-state.
++fn unverified_after(sig: &str) -> (String, bool, String, String, String) {
++    (
++        CUSTODY_UNVERIFIED.to_string(),
++        false,
++        account(0xD1),
++        "a Lot account after it: custody is not verified (no V26 replay yet)".to_string(),
++        sig.to_string(),
++    )
++}
++
+ fn history_fails(r: &verify_core::Report) -> Vec<(String, String)> {
+     r.findings
+         .iter()
+@@ -144,12 +193,15 @@ fn the_kernels_own_history_passes_and_the_season_is_still_not_a_pass() {
+             lot_transition_findings(&w[0], &w[1])
+         );
+     }
+-    let (inp, _) = recorded(&states);
++    let (inp, sigs) = recorded(&states);
+     let r = verify_core::verify(&inp);
+-    assert!(history_fails(&r).is_empty(), "{}", show(&r));
+     assert!(r.checks_run.contains(&"V26:custody-history"));
+-    assert_ne!(r.verdict, Verdict::Pass, "{}", show(&r));
+-    assert!(r.findings.iter().any(|f| f.code == CUSTODY_UNVERIFIED));
++    // One trace per recorded state, and nothing else: no history finding
++    // of any severity; custody UNVERIFIABLE.
++    let mut want: Vec<_> = sigs.iter().map(|s| unverified_after(s)).collect();
++    want.sort();
++    assert_eq!(v26(&r), want, "{}", show(&r));
++    assert_eq!(custody_verdict(&r), Verdict::Unverifiable);
+ }
+ 
+ #[test]
+@@ -423,17 +475,27 @@ fn goods_in_without_a_caravan_to_explain_them_are_unverifiable_not_fail() {
+         lot_transition_unexplained(&bytes(&prev), &bytes(&cur)).len(),
+         1
+     );
+-    let (inp, _) = recorded(&[bytes(&prev), bytes(&cur)]);
++    let (inp, sigs) = recorded(&[bytes(&prev), bytes(&cur)]);
+     let r = verify_core::verify(&inp);
+-    assert!(history_fails(&r).is_empty(), "{}", show(&r));
+-    assert!(
+-        r.findings
+-            .iter()
+-            .any(|f| f.code == CUSTODY_HISTORY_UNEXPLAINED && !f.fail()),
+-        "{}",
+-        show(&r)
+-    );
+-    assert_ne!(r.verdict, Verdict::Pass);
++    // The two traces and one unexplained change, at the transaction that
++    // recorded it, with its amounts; no FAIL; custody UNVERIFIABLE.
++    let mut want = vec![
++        unverified_after(&sigs[0]),
++        unverified_after(&sigs[1]),
++        (
++            CUSTODY_HISTORY_UNEXPLAINED.to_string(),
++            false,
++            account(0xD1),
++            format!(
++                "IN_TOTAL grew by {}; the caravans settled since could deliver 0",
++                3 * MILLI
++            ),
++            sigs[1].clone(),
++        ),
++    ];
++    want.sort();
++    assert_eq!(v26(&r), want, "{}", show(&r));
++    assert_eq!(custody_verdict(&r), Verdict::Unverifiable);
+ }
+ 
+ /// Several kernel steps between two recorded states (a transaction with
+diff --git a/frontier-node/crates/verify/tests/custody_state.rs b/frontier-node/crates/verify/tests/custody_state.rs
+index 098ccbe5..f6ef8a8c 100644
+--- a/frontier-node/crates/verify/tests/custody_state.rs
++++ b/frontier-node/crates/verify/tests/custody_state.rs
+@@ -137,6 +137,55 @@ fn v26_fails(r: &verify_core::Report) -> Vec<String> {
+         .collect()
+ }
+ 
++/// V26's own findings, sorted: (code, FAIL?, entity, detail, signature).
++/// The fixture (`march`) already FAILs elsewhere (V11: six bad placements),
++/// so the report's verdict says nothing about custody; these do.
++fn v26(r: &verify_core::Report) -> Vec<(String, bool, String, String, String)> {
++    let mut v: Vec<_> = r
++        .findings
++        .iter()
++        .filter(|f| f.check == "V26")
++        .map(|f| {
++            (
++                f.code.clone(),
++                f.fail(),
++                f.entity.clone(),
++                f.detail.clone(),
++                f.signature.clone(),
++            )
++        })
++        .collect();
++    v.sort();
++    v
++}
++
++/// The verdict custody alone would give (V26's findings only).
++fn custody_verdict(r: &verify_core::Report) -> Verdict {
++    let f = r.findings.iter().filter(|f| f.check == "V26");
++    if f.clone().any(|f| f.fail()) {
++        Verdict::Fail
++    } else if f.count() > 0 {
++        Verdict::Unverifiable
++    } else {
++        Verdict::Pass
++    }
++}
++
++fn account(k: u8) -> String {
++    format!("account:{}", fclient::Address::new_from_array([k; 32]))
++}
++
++/// The UNVERIFIABLE trace V26 gives every custody account at the pinned slot.
++fn unverified_at_slot(k: u8, what: &str) -> (String, bool, String, String, String) {
++    (
++        CUSTODY_UNVERIFIED.to_string(),
++        false,
++        account(k),
++        format!("{what} at the pinned slot: custody is not verified (no V26 replay yet)"),
++        String::new(),
++    )
++}
++
+ fn fails(d: &[u8]) -> Vec<&'static str> {
+     lot_findings(d)
+         .into_iter()
+@@ -156,7 +205,14 @@ fn what_the_kernel_writes_passes_the_audit_and_the_season_is_still_unverifiable(
+     );
+     assert!(vault_findings(&vault_bytes(&v)).is_empty());
+     let r = verify_core::verify(&season(&[(0xD1, bytes(&l)), (0xD2, vault_bytes(&v))]));
+-    assert_ne!(r.verdict, Verdict::Pass, "{}", show(&r));
++    // Exactly the two traces, nothing broken: custody is UNVERIFIABLE.
++    let mut want = vec![
++        unverified_at_slot(0xD1, "a Lot account"),
++        unverified_at_slot(0xD2, "a Vault with custody counts"),
++    ];
++    want.sort();
++    assert_eq!(v26(&r), want, "{}", show(&r));
++    assert_eq!(custody_verdict(&r), Verdict::Unverifiable);
+     assert!(v26_fails(&r).is_empty(), "{}", show(&r));
+     assert!(r.checks_run.contains(&"V26:custody-state"));
+     for c in [
+@@ -310,8 +366,15 @@ fn vault_counts_fail_only_when_the_visible_lots_exceed_them() {
+     );
+     // One lot missing from the input: the sums are lower, not a FAIL.
+     let r = verify_core::verify(&season(&[(0xD1, bytes(&a)), (0xD2, vault_bytes(&v))]));
+-    assert!(v26_fails(&r).is_empty(), "{}", show(&r));
+-    assert_ne!(r.verdict, Verdict::Pass);
++    // Only the two traces: no CustodyVaultCounts of any severity (the
++    // visible sums are lower, which proves nothing), custody UNVERIFIABLE.
++    let mut want = vec![
++        unverified_at_slot(0xD1, "a Lot account"),
++        unverified_at_slot(0xD2, "a Vault with custody counts"),
++    ];
++    want.sort();
++    assert_eq!(v26(&r), want, "{}", show(&r));
++    assert_eq!(custody_verdict(&r), Verdict::Unverifiable);
+     // The vault counts one lot fewer than are visible, or less quota.
+     for forge in [
+         |v: &mut K::VaultView| v.lots -= 1,
+@@ -346,12 +409,22 @@ fn undecided_rules_are_unverifiable_not_fail() {
+     seized.gen = 2;
+     seized.owner = [0xEE; 32];
+     let r = verify_core::verify(&season(&[(0xD1, bytes(&l)), (0xD2, vault_bytes(&seized))]));
+-    assert!(v26_fails(&r).is_empty(), "{}", show(&r));
+-    assert_ne!(r.verdict, Verdict::Pass);
+-    assert!(r
+-        .findings
+-        .iter()
+-        .any(|f| f.code == CUSTODY_RULE_UNDECIDED && !f.fail()));
++    // The two traces and one undecided rule, on the vault, naming both
++    // generations; nothing broken.
++    let mut want = vec![
++        unverified_at_slot(0xD1, "a Lot account"),
++        unverified_at_slot(0xD2, "a Vault with custody counts"),
++        (
++            CUSTODY_RULE_UNDECIDED.to_string(),
++            false,
++            account(0xD2),
++            "an open lot of generation 1 in a seized vault (generation 2): what seizure does to it is not decided".to_string(),
++            String::new(),
++        ),
++    ];
++    want.sort();
++    assert_eq!(v26(&r), want, "{}", show(&r));
++    assert_eq!(custody_verdict(&r), Verdict::Unverifiable);
+     // A forfeited lot (⑩'s proposal ran): unverifiable while its totals add
+     // up; a FAIL when they do not.
+     let mut s = seized;
+@@ -359,12 +432,25 @@ fn undecided_rules_are_unverifiable_not_fail() {
+     K::forfeit(&mut s, &mut f).unwrap();
+     assert_eq!(fails(&bytes(&f)), Vec::<&str>::new());
+     let r = verify_core::verify(&season(&[(0xD1, bytes(&f))]));
+-    assert!(v26_fails(&r).is_empty(), "{}", show(&r));
+-    assert!(r
+-        .findings
+-        .iter()
+-        .any(|f| f.code == CUSTODY_RULE_UNDECIDED && !f.fail()));
+-    assert_ne!(r.verdict, Verdict::Pass);
++    // The lot's trace and one undecided rule on the lot, with what it
++    // forfeited; nothing broken.
++    assert!(f.forfeited > 0);
++    let mut want = vec![
++        unverified_at_slot(0xD1, "a Lot account"),
++        (
++            CUSTODY_RULE_UNDECIDED.to_string(),
++            false,
++            account(0xD1),
++            format!(
++                "a forfeited lot ({} forfeited): forfeiture is not a decided rule",
++                f.forfeited
++            ),
++            String::new(),
++        ),
++    ];
++    want.sort();
++    assert_eq!(v26(&r), want, "{}", show(&r));
++    assert_eq!(custody_verdict(&r), Verdict::Unverifiable);
+     f.forfeited += MILLI;
+     let r = verify_core::verify(&season(&[(0xD1, bytes(&f))]));
+     assert!(r.fails_with(CUSTODY_LOT_BROKEN), "{}", show(&r));
+-- 
+2.43.0
+

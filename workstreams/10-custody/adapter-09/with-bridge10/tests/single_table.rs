@@ -1,4 +1,4 @@
-//! ⑩'s one lot table under ⑨'s own bridge10 (06c817cc): a job fed from
+//! ⑩'s one lot table under ⑨'s own bridge10 (872fe6a2): a job fed from
 //! another owner's lot and a job fed from the user's own lot, side by side
 //! in one table; unused ore back un-consumed, the sub-unit rest owed;
 //! replays and restarts change nothing. Checked on ⑩'s side at every step:
