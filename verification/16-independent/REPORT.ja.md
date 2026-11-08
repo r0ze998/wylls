@@ -2962,3 +2962,18 @@ checkpoint の `95b0ab225ca9e9e626941b51981df2240198d91c`（tree `89a64830da3991
   - ⑯ の実行：ws07-grow を full Chromium と repo の guard の下で **3/3**。
 - **⑧ `631c1963`**（親 b5ce03ba = 5e0f2ec2 の merge）：fixture の注と試験の assert の文言だけを変えた。§29.15 の「大きさは M1 と S1 で同じ」を反映している。scan の `--check` は exit 0。
 - 記録は `logs/phase23/ws07-b114-ws08-631c-b64c.txt`。
+
+## 29.18 ⑲ 32e13f7c・023088ea（§29.16 の 2 点の修正）
+
+- 対象：⑲ `023088ea7922058e3d7f069116a5674c9e695a11`（tree `0b3911ad…`）。15b4c0ae の上に、④ 5e0f2ec2 の merge（a2362f78）、32e13f7c、023088ea。
+- **空の assert**（023088ea）：直った。
+  - wide world と wide index は、golden の両方で `503 {ok:false, code}` を、client の code は `WideWorldUnavailable` と `WideIndexUnavailable` を、完全一致で確かめるようになった。
+  - どんな英数字でも通る正規表現と、status による分岐は無くなった。
+- **genesis の seed の食い違い**（32e13f7c）：直った。
+  - Rust の `cqfixture/growth.rs` の `ring_seed` は、d ≤ GENESIS_RING で `RS::GENESIS_RING_DOMAIN`（`PSF-RING`）‖ genesis_seed ‖ le16 d を使う。
+  - Node の試験は、各段階で、router の rings と growth の field を、⑧ の `growthFields` と比べる。
+  - これで ⑧（4eeb6c7f）と ⑲ の fixture は、ring 0〜3 でも一致する。
+- ⑯ の実行:
+  - scan の `--check` は exit 0。試験は list に載っておらず、`--covers` も通る。import は herald・world・faddr と node の組み込みだけ。
+  - repo の guard と hook v2 の下で **11/11**、hook の記録は 0 件（`logs/phase23/ws19-0230.txt`）。
+  - Rust の試験（ws19_map_contract）は、⑯ は流していない。

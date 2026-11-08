@@ -1,0 +1,14 @@
+### ⑲ 023088ea7922058e3d7f069116a5674c9e695a11 (tree 0b3911ad) web-frontier-map-contract.test.mjs, repo guard + hook v2
+scan --check exit 0; not listed; covers ok
+# tests 11 # pass 11 # fail 0  hook lines 0
+ok 1 - the golden is the router's three stages
+ok 2 - one page polling a growing map: the season record, ring lists and places follow each stage with no reload
+ok 3 - a ring requested but not seeded: its list is not asked, and the herald's list says requested
+ok 4 - provinces: an open one decodes, one never on chain is NotFound (pending, not an error of the page)
+ok 5 - me: the wallet's Citizen and its Holding at (1,0) site 0, checked against the public PDAs
+ok 6 - the wide world and the wide index: explicit unavailability on a herald built without them, never a dense fallback
+ok 7 - S1: the layout-2 Season decodes, and the page's world follows before → extended → opened → grown
+ok 8 - S1: Provinces (4,0) and (5,0) decode at layout 2 with 8's sites, passable mask and terrain
+ok 9 - S1: me names the wallet's Holding at (4,0) and its host on tile 0; overviews of rings 3–5 decode
+ok 10 - S1: the router's seeds and growth fields are 8's (growth-route.mjs ringSeed, growthFields) at every stage
+ok 11 - S1: an NFT resident's /h/me (workstream 20): its Citizen at the resident-id address, accepted for its own asset
