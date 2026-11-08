@@ -2730,3 +2730,45 @@ checkpoint の `95b0ab225ca9e9e626941b51981df2240198d91c`（tree `89a64830da3991
     - 16576826 から変わっていない振る舞い。paidJoin が入場料だけを引きうるかは、program の側で確かめていない。
   - concurrency の `cancels_race_executors` の非決定性。④ が別の commit で調べている。
 - ④ の訂正（持ち主から）：③ の cold-open.test.mjs は、退行を止める門ではなく、再現と診断のためのもの。⑯ の §29.7 の補足と同じ。
+
+## 29.10 paidJoin の入場料と Join は同じ atomic な transaction か（静的な事実の確認だけ。仕様は決めていない）
+
+対象は ④ `8c53176a5d149d21f40ac3ad3b03c3a6f541c68b`。公開の source だけを読んだ。署名、keypair、実際の transaction、CI は使っていない。金額などの賞品の詳細は書かない。
+
+用語：「ネットワークの手数料」は Solana の transaction fee（lamports）。「入場料」は、アプリの prize program の Pay が動かす token。
+
+**確かめた事実**
+1. **client（web/frontier/controller.mjs paidJoin、fprize.mjs、sdk/frontier/prize.mjs joinViaX402）**:
+   - wallet の残高が入場料に足りないときは、先に `POST /f/faucet` を呼ぶ。
+     - これは relay が自分で送る**別の transaction** で、localnet だけで動き、test token を渡す。
+     - 後で Join が失敗しても、元には戻らない。ただし、これは渡すもので、取るものではない。
+   - 次に `/f/x402/join` に 2 回 POST する。
+     - 1 回目は 402 と価格を受け取るだけで、状態は変えない。
+     - 2 回目は、client が `[CU の上限, price 0, loaded data の上限, Pay, Join]` を **1 つの message** として組み、wallet が 1 回署名して送る。
+   - ネットワークの手数料を払うのは relay（`feePayer` は relay のもの）で、wallet ではない。
+2. **relay（permutation-gateway/src/frontier/routes/prize.mjs `POST /f/x402/join`、routes/relay.mjs `sponsor`）**:
+   - 受け付ける形は 2 つだけ:
+     - `atomic`：`classifyPaidJoin` が、ちょうど上の 5 つの instruction の形を要求する。
+     - `settled`：入場料を含まない通常の Join。この wallet の Entry がすでに `finalized` で存在し、その額が入場料以上のときだけ。
+   - ⑯ の純粋な probe（`probes/v16-paid-join-shape.mjs`、`logs/phase23/paid-join-shape-8c53.txt`）では、SDK の paidJoinMessage は atomic として受け付けられた。次の形はすべて拒否された:
+     - Pay だけ。
+     - Join だけ（atomic としては拒否。settled の確認に回る）。
+     - Join を Pay より前に置いたもの。
+     - Pay を 2 回含むもの。
+   - relay は、署名した**同じ bytes** を先に simulate する。simulate が失敗すれば送らないので、状態も手数料も動かない。
+   - その後 `sendRawTransaction`（skipPreflight）で送り、結果を待つ。
+   - atomic の AlreadyPaid は、finalized の確認のうえで 409（AlreadyJoined または AlreadyPaid）になる。
+3. **program**:
+   - game の Join（permutation-frontier/src/proc/citizen.rs、396 行のあたり）は、Citizen がすでにあれば `Err(AlreadyDone)` を返す。何もせずに成功する扱いにはならない。
+   - prize の Pay（permutation-prize/src/lib.rs、577〜580 行）は、Entry がすでにあれば `Err(AlreadyPaid)` を返す。そうでなければ、同じ instruction の中で、token の移動（CPI）と Entry の作成を行う。
+   - Solana の transaction は全体が atomic なので、atomic の形で Join が失敗すれば、同じ transaction の Pay の token の移動と Entry の作成（その rent を払うのは relay）も取り消される。
+   - **結論**：relay の paidJoin（atomic）では、入場料だけが引かれて Join が無い状態は、source の上では起きない。
+4. **ネットワークの手数料**:
+   - simulate が通り、実行のときに失敗した場合（simulate と実行の間に状態が変わった場合）は、Solana の規則で、ネットワークの手数料は relay の fee payer から引かれる。wallet からではない。
+   - relay はそれを、その wallet の quota（`moved`）に数える。入場料は動かない。
+
+**確かめていないこと**
+- program を実際に動かしての確認。SVM の試験は keypair を使うので流していない。Solana の atomicity が成り立つことは前提とした。
+- relay を通さずに、wallet が自分で Pay だけを送る場合。program の Pay は単独でも呼べる。その場合は、入場料と Entry ができて Join の無い状態があり得て、後で settled の Join が受け付けられる。ただし、これは paidJoin の外の、利用者自身の別の transaction。
+- `RelayOutcomeUnknown`（送った結果が分からない）とき。client は失敗として扱うが、transaction は Pay と Join を一緒に含んだまま着地するかもしれない。結果が分からないということで、入場料だけが引かれるということではない。
+- 表示の鮮度や Join の gating の方針は変えていない（§29.8 (b) は未決のまま）。

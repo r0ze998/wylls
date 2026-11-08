@@ -1,0 +1,8 @@
+### ④ 8c53176a5d149d21f40ac3ad3b03c3a6f541c68b: classifyPaidJoin on SDK-built, unsigned messages (probes/v16-paid-join-shape.mjs, repo guard; fixed-byte public addresses, no keypair, no signature)
+{
+ "SDK paidJoinMessage [limit, price 0, loaded, Pay, Join]": "ACCEPTED as atomic",
+ "Pay without Join": "refused: exactly five instructions: the compute-budget prefix, the prize program's Pay and the game's Join",
+ "Join without Pay": "refused: exactly five instructions: the compute-budget prefix, the prize program's Pay and the game's Join",
+ "Join before Pay": "refused: the fourth instruction must be the prize program's Pay",
+ "Pay, Join and a second Pay": "refused: exactly five instructions: the compute-budget prefix, the prize program's Pay and the game's Join"
+}
