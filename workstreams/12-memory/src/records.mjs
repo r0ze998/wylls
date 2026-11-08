@@ -196,13 +196,24 @@ export function utterance({ speaker, bell, channel = 'dm', visibility, text = ''
  * id is derived from it alone, so the same record delivered twice has the same id (dedupe), and the same key with
  * a different body is a collision.
  */
-export function fact({ kind, bell, created_bell = bell, source, visibility = { scope: 'public' }, data }) {
+/** Where a fact was read, in workstream 13's words (13 81a03cf5 basisCheck): what the reader states, never inferred. */
+export const BASIS_KINDS = Object.freeze(['chain', 'integration-output', 'fixture']);
+function checkBasis(b) {
+  if (b === undefined || b === null) return null;
+  if (!b || !BASIS_KINDS.includes(b.kind) || typeof b.source !== 'string' || !b.source || b.source.length > 200 || Object.keys(b).length !== 2) fail('fact', 'basis {kind: chain|integration-output|fixture, source}');
+  return { kind: b.kind, source: b.source };
+}
+
+export function fact({ kind, bell, created_bell = bell, source, visibility = { scope: 'public' }, data, basis }) {
   if (!FACT_KINDS.includes(kind)) fail('fact', `kind ${kind}`);
   if (!isBell(bell) || !isBell(created_bell) || created_bell < bell) fail('fact', 'bell / created_bell (observed before it happened)');
   if (!source || typeof source.sig !== 'string' || !source.sig || !Number.isInteger(source.ix)) fail('fact', 'source');
   const d = checkFactData(kind, data, bell);
   const key = { chain: String(source.chain ?? 'local'), sig: source.sig, ix: source.ix };
-  const body = { v: RECORD_VERSION, type: 'fact', kind, bell, created_bell, visibility: checkVisibility(visibility), data: d, source: key };
+  const b = checkBasis(basis);
+  // basis is part of the body (and of body_sha) when given: the same record read again with ANOTHER basis is a
+  // collision, kept apart, the first one kept; a record without one is unchanged from before (legacy: unstated).
+  const body = { v: RECORD_VERSION, type: 'fact', kind, bell, created_bell, visibility: checkVisibility(visibility), data: d, source: key, ...(b ? { basis: b } : {}) };
   // body_sha excludes created_bell: the same chain record observed again later is a duplicate, not a collision
   const { created_bell: _obs, ...stable } = body;
   return { id: idOf('fact', { kind, ...key }), ...body, epistemic: EPISTEMIC.fact, sources: [`${key.chain}:${key.sig}#${key.ix}`], body_sha: sha256hex(canonical(stable)).slice(0, 16) };

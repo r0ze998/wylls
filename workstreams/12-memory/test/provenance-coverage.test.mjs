@@ -172,3 +172,16 @@ test('block-time clock: the bell length is the herald\'s bellSecs, never assumed
   assert.throws(() => clockFromGenesis({ genesisTs: 0, blockTimeOfSlot: () => 0 }), /bellSecs/);
   assert.equal(c600(-100), null, 'before genesis: unknown');
 });
+
+test('every fact the connection writes carries the basis its input was stated with; none without a statement', () => {
+  const m = mem();
+  connectCanonical(m, base({ sources: { ...ALL_FX, store: { kind: 'integration-output', source: 'runexec demo (simulated chain)' } } }));
+  const facts = m.journal.records().filter(r => r.type === 'fact');
+  assert.ok(facts.length > 0);
+  for (const f of facts) assert.deepEqual(f.basis, f.kind === 'identity_alias' ? ALL_FX.me : { kind: 'integration-output', source: 'runexec demo (simulated chain)' }, f.kind);
+  const m2 = mem();
+  connectCanonical(m2, base());
+  assert.ok(m2.journal.records().filter(r => r.type === 'fact').every(f => !('basis' in f)), 'unstated: no basis invented');
+  const r = coverageFromHistory(H({}), { ...ctx, basis: { kind: 'fixture', source: 'hypothetical index' } });
+  assert.deepEqual(r.coverage.basis, { kind: 'fixture', source: 'hypothetical index' });
+});
