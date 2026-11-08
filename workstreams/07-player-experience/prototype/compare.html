@@ -1,0 +1,68 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>視覚の方向 3 案</title>
+<link rel="stylesheet" href="proto.css">
+<style>
+  .cmp { padding: 12px 16px 24px; }
+  .cmp h1 { font-size: 20px; margin: 4px 0 8px; }
+  .cols { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
+  .col { background: var(--card); border: 1px solid var(--rule); border-radius: var(--r); padding: 10px; box-shadow: var(--shadow); }
+  .col.rec { border: 2.5px solid var(--accent); }
+  .col h2 { font-size: 16px; margin: 0 0 4px; }
+  .col img, .col .map-host { width: 100%; border-radius: 8px; border: 1px solid var(--rule); }
+  .col .map-host { max-height: 360px; overflow: hidden; }
+  .col .map { min-width: 0; }
+  table.crit { width: 100%; border-collapse: collapse; font-size: 13px; margin-top: 14px; background: var(--card); }
+  table.crit th, table.crit td { border: 1px solid var(--rule); padding: 6px 8px; vertical-align: top; text-align: left; }
+  table.crit th[scope="row"] { width: 15%; background: var(--paper-2); }
+  .gray .col .map-host, .gray .col img { filter: grayscale(1); }
+  .cvd .col .map-host, .cvd .col img { filter: url(#deut); }
+  @media (max-width: 860px) { .cols { grid-template-columns: 1fr; } table.crit { font-size: 12px; } }
+</style>
+</head>
+<body>
+<svg width="0" height="0" style="position:absolute" aria-hidden="true"><filter id="deut"><feColorMatrix type="matrix" values="0.625 0.375 0 0 0  0.7 0.3 0 0 0  0 0.3 0.7 0 0  0 0 0 1 0"/></filter></svg>
+<header class="top"><div class="brand"><strong>WYLLS</strong> <span class="ws">⑦ 視覚の方向</span> <span class="mock">比較用の見本（試作用の架空データ）</span></div>
+  <div class="tools"><label class="sel"><input type="radio" name="see" value="color" checked> カラー</label><label class="sel"><input type="radio" name="see" value="gray"> 白黒で見る</label><label class="sel"><input type="radio" name="see" value="cvd"> 2 型色覚の近似</label><a class="btn small" href="index.html">試作へ戻る</a></div></header>
+<main class="cmp" id="cmp">
+  <h1>同じ場面を 3 つの方向で：あなたの村ハルデン、北の貯蔵庫からの隊商、戦争中のダンマールの柵と物見櫓、通行の国エンバー、見えていない東側</h1>
+  <p class="small muted">1 は今のクライアントの実画面（docs/design/uplift/shots、別の場面）。2 と 3 は同じ架空データをこの場で描いています。比べるのは配色ではなく、何をどの形で表すか、です。白黒・色覚の切り替えで、色に頼っていないかを確かめられます。</p>
+  <div class="cols">
+    <section class="col"><h2>1　卓上の箱庭（いまの方向・uplift の決定）</h2><img src="../../../docs/design/uplift/shots/directions/A-caravan.jpg" alt="今のクライアントの見本：彩色した地形のヘックスに、家並み・兵の人形・荷車の絵が立つ。隊商の札に到着ターン"><p class="small">彩色した地形と、家並み・人形・荷車の絵。暮らしが見える。国は境の色の帯と印。</p></section>
+    <section class="col rec"><h2>2　記録の地図（推奨）</h2><div class="map-host" id="m-atlas"></div><p class="small">紙と墨。地形は模様＋淡い色、国は色＋印の形、状態は輪の線種＋記号＋カードの文。名前は自分のもの・選んだもの・知らせのあるものだけ。</p></section>
+    <section class="col"><h2>3　盤の駒</h2><div class="map-host" id="m-tokens"></div><p class="small">平らな色面と丸い駒。色の差で速く読めるが、白黒・色覚の切り替えで状態が消える。</p></section>
+  </div>
+  <table class="crit">
+    <thead><tr><th>観点</th><th>1 卓上の箱庭</th><th>2 記録の地図（推奨）</th><th>3 盤の駒</th></tr></thead>
+    <tbody>
+      <tr><th scope="row">建物の見分け</th><td>家並み・塔・柵の絵。遠目には村の annex と施設の絵が競う</td><td>一筆の線の記号（村は屋根の数で規模、倉・物見櫓・柵・要塞・軍勢が別の形）。16px でも形で分かる</td><td>駒の上の白い記号。駒の色が強く、記号は二番手</td></tr>
+      <tr><th scope="row">地形</th><td>焼き込みのタイルと絵（山・森）。見た目は豊か、歩く遅さは読めない</td><td>模様＋淡い色（森は木の記号、丘はけば、山は線画、水は波）。凡例に「遅い」「通れない」</td><td>色だけ</td></tr>
+      <tr><th scope="row">国の所属</th><td>境の帯と印</td><td>色＋形の印（6 種）を必ず併記。自分は二重の輪</td><td>駒の色だけ</td></tr>
+      <tr><th scope="row">状態</th><td>金の輪（自分）。戦争と通行の見分け方は今回は確かめていない（未確認）</td><td>戦争＝破線の輪、通行＝点線の輪、包囲＝交差の印、保護＝盾、知らせ＝!、見えていない＝斜線。カードが文で言う</td><td>色の差だけ。白黒で消える</td></tr>
+      <tr><th scope="row">情報の優先順位</th><td>絵と格子と札が同じ強さで競う（uplift でも課題）</td><td>①知らせの帯 → ②選んだもののカード → ③地図。地図の名前は 3 種類だけ。道はターンの目盛り付き</td><td>駒が最も強く、知らせが埋もれる</td></tr>
+      <tr><th scope="row">Realms との似かた</th><td>高い、と見た目からは判断（彩色ヘックスの立体的な箱庭、建物と兵の絵）。試遊で確かめる</td><td>低い。「記録・封・ターン」の WYLLS の芯を絵の言葉にする。ヘックス・村・生産・物流・軍事はそのまま</td><td>中（一般的な盤ゲーム）</td></tr>
+      <tr><th scope="row">作る量</th><td>既存</td><td>中。まずは既存のレンズ（国の色・軍事・地形）と並ぶ「記録の地図」レンズとして入れ、試遊で既定にするか決める。絵の資産は捨てない</td><td>中</td></tr>
+      <tr><th scope="row">失うもの</th><td>—</td><td>暮らしの絵の温度（レンズとして入れれば失わない）</td><td>読みの正確さ（色に頼る）</td></tr>
+    </tbody>
+  </table>
+  <p class="small">推奨は 2。ただし uplift の決定（1 を基本の見た目にする）を覆す提案ではありません。<strong>判断する場面（隊商・進軍の計画、不足の比較、留守の要約）で使う表示の規則</strong>として 2 を入れ、普段の見た目を 2 に替えるかは、人間の試遊（PLAYTEST.ja.md の問い V1〜V3）で決めます。</p>
+</main>
+<script type="module">
+  import { renderMap } from './mapview.mjs';
+  import * as Wd from './world.mjs';
+  const scene = { provinces: Wd.PROVINCES, terrain: Wd.TERRAIN, villages: Wd.VILLAGES.map(v => ({ ...v, alert: v.own })), structures: Wd.STRUCTURES, vaults: Wd.VAULTS, hosts: Wd.HOSTS, iron: Wd.IRON, sight: Wd.sight, me: { faction: Wd.ME.faction }, stances: Wd.STANCES };
+  const { caravanPreview } = await import('../src/caravan-preview.mjs');
+  const v = Wd.VAULTS[0];
+  const pv = caravanPreview({ p: v.p, q: v.q, tile: v.tile }, { p: 0, q: 0, tile: 30 }, v.have, { lands: Wd.LANDS, structures: Wd.STRUCTURES, stances: Wd.STANCES, faction: 2, genesisTs: Wd.GENESIS, now: Wd.nowTs(), provinces: Wd.provinces(), sight: Wd.sight });
+  const route = { from: { p: v.p, q: v.q, tile: v.tile }, steps: pv.road.steps, turns: pv.turns, avoidedAt: '1,0,8' };
+  for (const style of ['atlas', 'tokens']) {
+    const m = renderMap(scene, { style, size: 16, selected: { p: 0, q: 0, tile: 30 }, route, ariaLabel: style });
+    const el = document.getElementById(`m-${style}`); el.innerHTML = m.svg;
+  }
+  document.addEventListener('change', e => { if (e.target.name === 'see') { const c = document.getElementById('cmp'); c.classList.toggle('gray', e.target.value === 'gray'); c.classList.toggle('cvd', e.target.value === 'cvd'); } });
+</script>
+</body>
+</html>

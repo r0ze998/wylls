@@ -1,0 +1,616 @@
+From 4a898cb7f12029132d372ff9d32e5e64440ef34a Mon Sep 17 00:00:00 2001
+From: ws07 <noreply@anthropic.com>
+Date: Sat, 31 Oct 2026 00:13:48 +0000
+Subject: [PATCH 12/15] Web client: no world end or reset in the page's words;
+ the world's continuity and the war period said apart
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+The project's direction is a world that does not end or reset with a
+period, and a war period (戦期) that is a separate thing whose bounds,
+tally and prizes are not decided. This program still has an end turn, so
+the page now says it as what it is: the turn after which this program takes
+no new order, an old-style season's. It never says this as the world
+ending: the dial reads 受付終了, the join card's line and WrongStatus name
+the program, and the conquest card says the conquest (an old-style season)
+is over. The map's edge is "the map as it is now", the daily quota turns
+with the game day, rings open as turns go on, and a different season record
+is said as another record, not as the world starting over.
+
+hud/worldclock.mjs defines no world and no period. It says, on separate
+lines, what workstreams 04/08 register: that the world goes on, and the war
+period in force with its tally or "not decided". With nothing registered it
+says nothing of either. With continuity registered, the program's end turn
+is not said and WrongStatus is not put down to it. Tests: the words checked
+for world end and reset, the two lines apart, and the away summary's mark,
+book and an arrival across a period's boundary and a restart, each record
+told once. Applies after 0011.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01C5Nj2bNLFpFghsNM9fsQG5
+---
+ .../test/web-frontier-conquest-hand.test.mjs  |   2 +-
+ .../test/web-frontier-errors.test.mjs         |   2 +-
+ .../test/web-frontier-shell.test.mjs          |   2 +-
+ .../test/web-frontier-world.test.mjs          |  10 +-
+ .../test/web-frontier-ws07-terms.test.mjs     |   4 +-
+ .../test/web-frontier-ws07-world.test.mjs     | 137 ++++++++++++++++++
+ permutation-server/web/frontier/app.mjs       |   5 +-
+ permutation-server/web/frontier/fi18n.mjs     |   2 +-
+ .../web/frontier/hud/dialcard.mjs             |   2 +-
+ .../web/frontier/hud/glossary.mjs             |   2 +-
+ .../web/frontier/hud/provstrip.mjs            |   2 +-
+ .../web/frontier/hud/returnwords.mjs          |   2 +-
+ .../web/frontier/hud/worldclock.mjs           |  53 +++++++
+ permutation-server/web/frontier/map/world.mjs |   4 +-
+ .../web/frontier/screens/join.mjs             |   2 +
+ .../web/frontier/seasonterms.mjs              |  11 +-
+ .../web/lang/en-frontier-play.mjs             |  23 ++-
+ permutation-server/web/lang/en-frontier.mjs   |   4 +-
+ permutation-server/web/lang/en-play.mjs       |   1 +
+ 19 files changed, 239 insertions(+), 31 deletions(-)
+ create mode 100644 permutation-gateway/test/web-frontier-ws07-world.test.mjs
+ create mode 100644 permutation-server/web/frontier/hud/worldclock.mjs
+
+diff --git a/permutation-gateway/test/web-frontier-conquest-hand.test.mjs b/permutation-gateway/test/web-frontier-conquest-hand.test.mjs
+index a7016709..acf166db 100644
+--- a/permutation-gateway/test/web-frontier-conquest-hand.test.mjs
++++ b/permutation-gateway/test/web-frontier-conquest-hand.test.mjs
+@@ -202,7 +202,7 @@ test('the season-end card stands only when the records say so: the pool final af
+   assert.equal(P.seasonEndLine(end), 'Aster holds the most provinces (11)');
+   assert.equal(P.seasonEndLine(tie), 'Tied for first: Aster / Borealis (10 each)');
+   const card = plain(P.renderSeasonEnd(end));
+-  assert.match(card, /The season is over Aster holds the most provinces \(11\)/);
++  assert.match(card, /This conquest \(an old-style season\) is over Aster holds the most provinces \(11\)/);
+   assert.match(card, /confirmed on the local test chain/);
+   assert.doesNotMatch(card, CJK);
+ });
+diff --git a/permutation-gateway/test/web-frontier-errors.test.mjs b/permutation-gateway/test/web-frontier-errors.test.mjs
+index b5a9c909..81aeaab7 100644
+--- a/permutation-gateway/test/web-frontier-errors.test.mjs
++++ b/permutation-gateway/test/web-frontier-errors.test.mjs
+@@ -164,7 +164,7 @@ test('failureText: number, then name, then the page\'s codes, then the HTTP stat
+   assert.ok(fi18n.CLIENT_CODES.includes('TipNotPreset') === false, 'TipNotPreset is an ABI code (61), not duplicated');
+   setLang('ja');
+   // (hud-4: said as what the player can still do, not as "the relay's quota"; two sentences, each with its 。)
+-  assert.equal(fi18n.failureText({ code: 'QuotaExceeded' }), '今日送れる操作の回数を使い切りました。シーズンの日付が変わると、また送れます。');
++  assert.equal(fi18n.failureText({ code: 'QuotaExceeded' }), '今日送れる操作の回数を使い切りました。ゲーム内の日付が変わると、また送れます。');
+   // no program or page text counts bells, names the beacon, a keeper or a site ticket, or says 精算
+   for (const name of fi18n.ERROR_NAMES) assert.doesNotMatch(fi18n.errorText(name), /鐘|ビーコン|キーパー|入植希望|精算|区画|口座/, name);
+   for (const code of fi18n.CLIENT_CODES) assert.doesNotMatch(fi18n.clientText(code), /鐘|ビーコン|キーパー|入植希望|精算|区画|口座|frontier\.wasm/, code);
+diff --git a/permutation-gateway/test/web-frontier-shell.test.mjs b/permutation-gateway/test/web-frontier-shell.test.mjs
+index 9f3855ab..b7d2a82f 100644
+--- a/permutation-gateway/test/web-frontier-shell.test.mjs
++++ b/permutation-gateway/test/web-frontier-shell.test.mjs
+@@ -63,7 +63,7 @@ test('the turn dial: one line of text in both languages, cut into the dial\'s th
+   const textOf = chip => dialMarkup(chip).map(String).join('').replace(/<[^>]*>/g, '');
+   setLang('en');
+   assert.equal(chipText(run), 'Turn 1,034 · 6:12 left');
+-  assert.equal(chipText({ bell: 1008, secondsLeft: 1, ended: true }), 'Turn 1,008 · ended');
++  assert.equal(chipText({ bell: 1008, secondsLeft: 1, ended: true }), 'Turn 1,008 · no new orders');
+   // the dial's markup reads exactly as the one line (the glue between the places is visually hidden, not dropped)
+   for (const lang of ['ja', 'en']) {
+     setLang(lang);
+diff --git a/permutation-gateway/test/web-frontier-world.test.mjs b/permutation-gateway/test/web-frontier-world.test.mjs
+index c169b56d..57422e32 100644
+--- a/permutation-gateway/test/web-frontier-world.test.mjs
++++ b/permutation-gateway/test/web-frontier-world.test.mjs
+@@ -73,23 +73,23 @@ test('the season border: the outward sides of ring rMax, 12·rMax + 6 of them, e
+ });
+ 
+ test('the words: each state says itself, in both languages', () => {
+-  assert.equal(W.ringText('outside', 7), '第7輪（このシーズンの地図の外）');
++  assert.equal(W.ringText('outside', 7), '第7輪（いまの地図の外）');
+   assert.equal(W.ringText('unopened', 6), '第6輪（まだひらいていません）');
+   assert.equal(W.ringText('pending', 5), '第5輪（生まれるところです）');
+   assert.equal(W.ringText('open', 4), '第4輪');
+-  assert.equal(W.PLACE_NOTE.outside(), 'ここはこのシーズンの地図の外です');
++  assert.equal(W.PLACE_NOTE.outside(), 'ここはいまの地図の外です');
+   assert.equal(W.PLACE_NOTE.unopened(), 'まだひらいていない土地です');
+   setLang('en');
+-  assert.equal(W.ringText('outside', 7), 'Ring 7 (outside this season’s map)');
++  assert.equal(W.ringText('outside', 7), 'Ring 7 (outside the map as it is now)');
+   assert.equal(W.ringText('pending', 5), 'Ring 5 (being made)');
+-  assert.equal(W.PLACE_NOTE.outside(), 'This is outside this season’s map');
++  assert.equal(W.PLACE_NOTE.outside(), 'This is outside the map as it is now');
+   assert.equal(W.PLACE_NOTE.pending(), 'This land is being made (a moment, please)');
+ });
+ 
+ test('the inspector names the state of the ring under the selection', () => {
+   const FS = { record: REC, world: W.worldOf(REC), selected: { p: 7, q: 0 }, mode: 'play' };
+   assert.equal(inspect.inspectModel(FS, null).place, 'outside');
+-  assert.match(String(inspect.render(FS, null)), /第7輪（このシーズンの地図の外）/);
++  assert.match(String(inspect.render(FS, null)), /第7輪（いまの地図の外）/);
+   FS.selected = { p: 6, q: 0 };
+   assert.match(String(inspect.render(FS, null)), /第6輪（まだひらいていません）/);
+   FS.selected = { p: 5, q: 0 };
+diff --git a/permutation-gateway/test/web-frontier-ws07-terms.test.mjs b/permutation-gateway/test/web-frontier-ws07-terms.test.mjs
+index a794626d..43cb0406 100644
+--- a/permutation-gateway/test/web-frontier-ws07-terms.test.mjs
++++ b/permutation-gateway/test/web-frontier-ws07-terms.test.mjs
+@@ -35,11 +35,11 @@ test('the turn is said from the clock: 10 game minutes, and on a faster clock th
+ 
+ test('the deadlines are the season\'s; after the join deadline the join is off and says why', () => {
+   setLang('ja');
+-  assert.equal(T.deadlineLine(FSat(100)), '参加の受付は第1,512ターンまで（あと約 10 日）。シーズンは第2,016ターンで終わります（あと約 13 日）。');
++  assert.equal(T.deadlineLine(FSat(100)), '参加の受付は第1,512ターンまで（あと約 10 日）。このプログラム（旧方式のシーズン）が新しい命令を受け付けるのは第2,016ターンまでです（あと約 13 日）。');
+   assert.equal(T.wrongStatusWhy(FSat(100), 'join'), null);
+   assert.equal(T.wrongStatusWhy(FSat(1600), 'join'), '参加の受付は第1,512ターンで締め切られました。');
+   assert.equal(T.wrongStatusWhy(FSat(1600), 'build'), null, 'other orders are still taken');
+-  assert.match(T.wrongStatusWhy(FSat(2100), 'build'), /第2,016ターンで終わった/);
++  assert.match(T.wrongStatusWhy(FSat(2100), 'build'), /このプログラム（旧方式のシーズン）は第2,016ターンで新しい命令の受付を終えたため/);
+   const cards = { factions: Array.from({ length: 6 }, (_, f) => ({ faction: f })) };
+   const markup = s => String(renderNations({ ...FSat(s), ...cards, wallet: { address: 'W' }, joinDraft: { faction: 1 }, overviews: new Map(), homeChoice: null, inFlight: 0 }));
+   assert.match(markup(100), /参加の受付は第1,512ターンまで/);
+diff --git a/permutation-gateway/test/web-frontier-ws07-world.test.mjs b/permutation-gateway/test/web-frontier-ws07-world.test.mjs
+new file mode 100644
+index 00000000..c900f442
+--- /dev/null
++++ b/permutation-gateway/test/web-frontier-ws07-world.test.mjs
+@@ -0,0 +1,137 @@
++// Workstream 07: the world does not end with a period (the project's direction). The page says this program's end
++// turn as the program's — an old-style season's — and never as the world ending or starting over; the world's
++// continuity and the war period (戦期) are said apart, and only from what their owners register (hud/worldclock.mjs);
++// and the page's own state — the away summary's mark, its book of caravans, an arrival — goes on across a period's
++// boundary and across a restart, with nothing told twice.
++import { test } from 'node:test';
++import assert from 'node:assert/strict';
++import { readFileSync } from 'node:fs';
++import { LOGS } from '../../permutation-server/web/sdk/frontier/abi-v2-logs.mjs';
++import { toBase64 } from '../../permutation-server/web/sdk/bytes.mjs';
++import { decodeRecord } from '../../permutation-server/web/frontier/flog.mjs';
++import * as T from '../../permutation-server/web/frontier/seasonterms.mjs';
++import * as WC from '../../permutation-server/web/frontier/hud/worldclock.mjs';
++import * as RS from '../../permutation-server/web/frontier/hud/returnsum.mjs';
++import * as RW from '../../permutation-server/web/frontier/hud/returnwords.mjs';
++import * as RR from '../../permutation-server/web/frontier/hud/awayread.mjs';
++import enPlay from '../../permutation-server/web/lang/en-frontier-play.mjs';
++import enFrontier from '../../permutation-server/web/lang/en-frontier.mjs';
++import { setLang } from '../../permutation-server/web/lang.mjs';
++
++const G = 1_800_000_000;
++const FSat = bell => ({ season: { genesisTs: G, endBell: 2016, joinCloseBell: 1512 }, clock: { genesisTs: G }, chain: { now: () => G + bell * 600 + 1 } });
++
++test('with nothing registered, the page says only the program\'s facts: its end turn, as an old-style season\'s, never the world\'s', () => {
++  setLang('ja');
++  assert.deepEqual(WC.worldLines(FSat(100)), [], 'no "the world goes on" and no war period from a guess');
++  assert.equal(WC.renderWorldLines(FSat(100)), '');
++  assert.match(T.deadlineLine(FSat(100)), /このプログラム（旧方式のシーズン）が新しい命令を受け付けるのは第2,016ターンまでです/);
++  assert.match(T.deadlineLine(FSat(2100)), /このプログラム（旧方式のシーズン）は第2,016ターンで新しい命令の受付を終えました/);
++  for (const t of [T.deadlineLine(FSat(100)), T.deadlineLine(FSat(2100)), T.wrongStatusWhy(FSat(2100), 'build')]) assert.doesNotMatch(t, /世界が終わ|世界は終わ|リセット|作り直|シーズンは終わり|シーズンは第[\d,]+ターンで終わ/);
++});
++
++test('when 04/08 register that the world goes on, the end turn is not said and WrongStatus is not put down to it; the world\'s line and the war period\'s stand apart', () => {
++  setLang('ja');
++  const off1 = WC.registerWorldSource('continuity', () => ({ continuous: true }));
++  const off2 = WC.registerWorldSource('warPeriod', () => ({ fromBell: 2017, toBell: 3024 }));
++  try {
++    assert.doesNotMatch(T.deadlineLine(FSat(2100)), /このプログラム|第2,016ターン/);
++    assert.equal(T.wrongStatusWhy(FSat(2100), 'build'), null);
++    const lines = WC.worldLines(FSat(2100));
++    assert.deepEqual(lines.map(x => x.key), ['world', 'warPeriod']);
++    assert.equal(lines[0].text, '世界：期間の区切りで終わったり作り直したりしません');
++    assert.equal(lines[1].text, '戦期：第2,017〜3,024ターン。集計の方法は未決定です（世界はこの区切りで終わりません）', 'no tally or prize is made up');
++    assert.match(String(WC.renderWorldLines(FSat(2100))), /<li data-key="world">[^<]*<\/li><li data-key="warPeriod">/);
++  } finally { off1(); off2(); }
++  const off3 = WC.registerWorldSource('warPeriod', () => ({ fromBell: 1, toBell: 9, label: '第一戦期', tally: '州の保持時間' }));
++  try { assert.equal(WC.worldLines(FSat(5))[0].text, '第一戦期：第1〜9ターン。集計：州の保持時間（世界はこの区切りで終わりません）'); } finally { off3(); }
++  const bad = WC.registerWorldSource('continuity', () => { throw new Error('x'); });
++  try { assert.deepEqual(WC.worldLines(FSat(5)), []); assert.match(T.deadlineLine(FSat(5)), /このプログラム/); } finally { bad(); }
++  assert.throws(() => WC.registerWorldSource('season', () => null), TypeError);
++});
++
++test('the words the page keeps say no world end or reset: the dial, the conquest card, the map, the quota, the away summary', () => {
++  const src = f => readFileSync(new URL(`../../permutation-server/web/frontier/${f}`, import.meta.url), 'utf8');
++  assert.match(src('app.mjs'), /L`ターン \$\{fmtNum\(chip\.bell\)\} · 受付終了`/);
++  assert.match(src('hud/provstrip.mjs'), /L`この征服戦（旧方式のシーズン）は終わりました`/);
++  assert.match(src('map/world.mjs'), /L`ここはいまの地図の外です`/);
++  for (const f of ['seasonterms.mjs', 'hud/worldclock.mjs', 'hud/returnwords.mjs', 'hud/provstrip.mjs', 'map/world.mjs', 'hud/dialcard.mjs', 'hud/glossary.mjs']) {
++    const strings = [...src(f).matchAll(/L`([^`]*)`/g)].map(m => m[1]);
++    for (const s of strings) assert.doesNotMatch(s, /世界が終わ|世界は終わ(?!り)|リセット|新しいシーズンです|シーズンは終わりました|このシーズンの地図/, `${f}: ${s}`);
++  }
++  const values = [...Object.values(enPlay), ...Object.values(enFrontier)].map(v => (typeof v === 'function' ? v(2, 2, 2, 2) : v));
++  for (const v of values) assert.doesNotMatch(v, /\bA new season\. Nothing of the earlier season\b|\bthis season.s map\b|^The season is over$|season's day rolls over/, v);
++});
++
++// ---------------------------------------------------------------- the page's own state across a period's boundary and a restart
++function body(name, bell, fields = {}) {
++  const spec = LOGS.kinds.find(k => k.name === name), parts = [...spec.key, ...spec.payload];
++  const b = new Uint8Array(6 + parts.reduce((a, f) => a + f.len, 0) + 1), v = new DataView(b.buffer);
++  b[0] = 1; b[1] = spec.kind; v.setUint32(2, bell, true);
++  let o = 6;
++  for (const f of parts) { const x = fields[f.name]; if (x instanceof Uint8Array) b.set(x.subarray(0, f.len), o); else if (x !== undefined) { if (f.len === 8) v.setBigUint64(o, BigInt(x), true); else if (f.len === 4) v.setInt32(o, Number(x), true); else if (f.len === 2) v.setUint16(o, Number(x), true); else if (f.len === 1) b[o] = Number(x); } o += f.len; }
++  return toBase64(b);
++}
++const cargo = arr => { const b = new Uint8Array(32), v = new DataView(b.buffer); arr.forEach((n, i) => v.setUint32(i * 4, n, true)); return b; };
++const ev = (seq, name, bell, f) => ({ seq: String(seq), bell, body_b64: body(name, bell, f) });
++const F400 = [400, 0, 0, 0, 0, 0, 0, 0];
++// a war period ends at turn 300 (as a source would say); the world, its records and their seq go on through it
++const BOUNDARY = 300;
++const H = [
++  ev(101, 'CARAVAN_SENT', 295, { owner_tag: 5, seq: 2, faction: 1, dst: 1, cargo: cargo(F400) }),
++  ev(102, 'SIEGE_DECLARED', 298, { p: 0, q: 0, site: 0, attacker: 3, owner_faction: 1, owner_tag: 5, required: 44 }),
++  ev(103, 'CARAVAN_SETTLED', 304, { owner_tag: 5, seq: 2, outcome: 0, dst: 1, cargo: cargo(F400) }),
++  ev(104, 'SIEGE_DECLARED', 306, { p: 0, q: 0, site: 0, attacker: 4, owner_faction: 1, owner_tag: 5, required: 40 }),
++];
++const me = { tag: 5n, faction: 1, holdings: [{ p: 0, q: 0, site: 0 }], hostOf: () => null };
++// (the herald as it stands at turn `now`: the records logged so far)
++let now = 0;
++const herald = { async events(after) { const rows = H.filter(e => e.bell <= now && BigInt(e.seq) > BigInt(after)); return { ok: true, events: rows, next: rows.at(-1)?.seq ?? null, full: false }; } };
++const storage = () => { const m = new Map(); return { getItem: k => m.get(k) ?? null, setItem: (k, v) => m.set(k, v) }; };
++const look = async (st, nowBell) => {
++  now = nowBell;
++  const marks = RS.loadMarks(st, '7', 'W');
++  const r = await RR.createAwayReader({ events: a => herald.events(a) }).start({ scope: 'g|7|W', from: marks?.confirmedSeq ?? '100' });
++  return RS.summarize({ records: r.records, read: { after: r.after, complete: r.complete }, marks, last: RS.loadLast(st), season: '7', wallet: 'W', nowBell, me, rules: { programVersion: 4 } });
++};
++
++test('across a period\'s boundary the mark, the book and an arrival go on: a caravan sent before it and settled after it is the same caravan', async () => {
++  setLang('ja');
++  const st = storage();
++  // a look before the boundary, confirmed at seq 102 (turn 298)
++  const before = await look(st, 299);
++  assert.ok(before.items.some(i => i.seq === '102'));
++  assert.equal(before.confirm.toSeq, '102');
++  const saved = RS.confirm(st, { seasonId: '7', wallet: 'W', confirm: before.confirm, at: 1 });
++  assert.equal(saved.moved, true);
++  // after the boundary: the same scope, the same mark — no "new season", nothing before the mark told again
++  const after = await look(st, 310);
++  assert.equal(after.mode, 'sinceConfirmed');
++  assert.deepEqual(after.items.map(i => i.seq).sort(), ['103', '104']);
++  assert.ok(after.items.every(i => Number(i.bell) > BOUNDARY), 'only what came after the mark');
++  // the caravan sent before the boundary arrives after it. Its send was read before the mark, so the book kept with the
++  // mark says who holds it (the viewer), and its send's amount is not at hand: the intake is told, the comparison is not
++  const arr = after.items.find(i => i.kind === 'CARAVAN_SETTLED');
++  assert.ok(arr, 'the caravan crossing the boundary is still the viewer\'s');
++  assert.deepEqual(arr.facts.arrival, { state: 'verifiedIntake', intake: F400, compare: 'sentUnknown' }, 'the intake is known, the comparison is not made up');
++  assert.equal(RS.loadMarks(st, '7', 'W').caravans['5:2'], '5', 'the book crossed the boundary with the mark');
++});
++
++test('a restart after the boundary reads from the mark again and tells each record once', async () => {
++  const st = storage();
++  const first = await look(st, 310);
++  RS.confirm(st, { seasonId: '7', wallet: 'W', confirm: first.confirm, at: 1 });
++  const restarted = await look(st, 311);
++  assert.equal(restarted.items.length, 0, 'nothing told twice after a restart');
++  assert.deepEqual(restarted.confirm, { ok: false, why: 'nothing' });
++  assert.equal(RS.loadMarks(st, '7', 'W').confirmedSeq, '104');
++});
++
++test('a different season record (another ID) is said as that, not as the world starting over', () => {
++  setLang('ja');
++  const s = RS.summarize({ records: [], read: { after: '0' }, marks: null, last: { seasonId: '7', wallet: 'W' }, season: '8', wallet: 'W', nowBell: 5, me });
++  assert.equal(s.mode, 'newSeason');
++  const t = RW.headText(s);
++  assert.match(t, /前に見ていたものとは別のシーズン記録（ID が違う記録）です。前の記録の出来事は、ここには含めていません。/);
++  assert.doesNotMatch(t, /新しいシーズンです|リセット|消え/);
++});
+diff --git a/permutation-server/web/frontier/app.mjs b/permutation-server/web/frontier/app.mjs
+index fe878082..fae749ef 100644
+--- a/permutation-server/web/frontier/app.mjs
++++ b/permutation-server/web/frontier/app.mjs
+@@ -181,7 +181,8 @@ const setText = (id, text) => { const el = $(id); if (el && el.textContent !== t
+ export function chipText(chip) {
+   if (!chip || (chip.bell === null && !chip.beforeGenesis)) return L`ターン —`;
+   if (chip.beforeGenesis) return L`開始まで ${countdown(chip.secondsLeft)}`;
+-  if (chip.ended) return L`ターン ${fmtNum(chip.bell)} · 終了`;
++  // (past the program's end turn: this program takes no new order — said as that, not as the world being over)
++  if (chip.ended) return L`ターン ${fmtNum(chip.bell)} · 受付終了`;
+   return L`ターン ${fmtNum(chip.bell)} · 残り ${countdown(chip.secondsLeft)}`;
+ }
+ 
+@@ -189,7 +190,7 @@ export function chipText(chip) {
+ export function dialParts(chip) {
+   if (!chip || (chip.bell === null && !chip.beforeGenesis)) return { label: L`ターン`, num: '—', left: '' };
+   if (chip.beforeGenesis) return { label: L`開始まで`, num: countdown(chip.secondsLeft), left: '' };
+-  return { label: L`ターン`, num: fmtNum(chip.bell), left: chip.ended ? L`終了` : countdown(chip.secondsLeft) };
++  return { label: L`ターン`, num: fmtNum(chip.bell), left: chip.ended ? L`受付終了` : countdown(chip.secondsLeft) };
+ }
+ 
+ /**
+diff --git a/permutation-server/web/frontier/fi18n.mjs b/permutation-server/web/frontier/fi18n.mjs
+index c10dc622..908852b4 100644
+--- a/permutation-server/web/frontier/fi18n.mjs
++++ b/permutation-server/web/frontier/fi18n.mjs
+@@ -223,7 +223,7 @@ const CLIENT_TEXT = {
+   RelayOutcomeUnknown: () => L`取引が送られた可能性があります。署名の結果を確認するまで再送しないでください。`,
+   SendOutcomeUnknown: () => L`取引が送られた可能性があります。署名の結果を確認するまで再送しないでください。`,
+   UseRevealRoute: () => L`開封は取引ではなく開封の材料として送ります`,
+-  QuotaExceeded: () => L`今日送れる操作の回数を使い切りました。シーズンの日付が変わると、また送れます。`,
++  QuotaExceeded: () => L`今日送れる操作の回数を使い切りました。ゲーム内の日付が変わると、また送れます。`,
+   InviteRequired: () => L`このシーズンに参加するには招待が必要です`,
+   OperatorLowFunds: () => L`手数料を立て替える資金が足りません。しばらくしてから試してください。`,
+   BadSignature: () => L`署名を確認できませんでした`,
+diff --git a/permutation-server/web/frontier/hud/dialcard.mjs b/permutation-server/web/frontier/hud/dialcard.mjs
+index e9ec3897..595e20f2 100644
+--- a/permutation-server/web/frontier/hud/dialcard.mjs
++++ b/permutation-server/web/frontier/hud/dialcard.mjs
+@@ -89,7 +89,7 @@ export function renderDialCard(chip, items = [], list = '') {
+   const running = chip && chip.bell !== null && !chip.beforeGenesis && !chip.ended;
+   const head = !chip || (chip.bell === null && !chip.beforeGenesis) ? html`<strong>${L`ターン —`}</strong>`
+     : chip.beforeGenesis ? html`<strong>${L`開始まで`}</strong><span class="dial-pop-left"><span class="num" data-dial-left>${countdown(chip.secondsLeft)}</span></span>`
+-      : html`<strong>${L`ターン ${fmtNum(chip.bell)}`}</strong>${chip.ended ? html`<span class="dial-pop-left">${L`終了`}</span>` : html`<span class="dial-pop-left">${L`次のターンまで`} <span class="num" data-dial-left>${countdown(chip.secondsLeft)}</span></span>`}`;
++      : html`<strong>${L`ターン ${fmtNum(chip.bell)}`}</strong>${chip.ended ? html`<span class="dial-pop-left">${L`受付終了`}</span>` : html`<span class="dial-pop-left">${L`次のターンまで`} <span class="num" data-dial-left>${countdown(chip.secondsLeft)}</span></span>`}`;
+   return html`<p class="dial-pop-now">${icon('bell')}${head}</p>
+     <p class="dial-pop-what">${TERMS.bell.text()}</p>
+     ${running && list ? list : running ? html`<h4 class="dial-pop-h">${L`次のターンで`}</h4>${items.length
+diff --git a/permutation-server/web/frontier/hud/glossary.mjs b/permutation-server/web/frontier/hud/glossary.mjs
+index 756b556f..98a63277 100644
+--- a/permutation-server/web/frontier/hud/glossary.mjs
++++ b/permutation-server/web/frontier/hud/glossary.mjs
+@@ -24,7 +24,7 @@ export const TERMS = Object.freeze({
+   retreat: { name: () => L`撤退の倍率`, text: () => L`守り手の兵が自軍のこの倍率を超えていたら、戦わずに引き返します（損失なし）。` },
+   seal: { name: () => L`封`, text: () => `${sealLine()}${L`ほかの人に見えるのは、出発したこと、出発地、兵の数、到着のターンです。到着のターンが始まると、あなたの端末が先に封を開けることがあります。そのときにはもう、そのターンの到着も守り手も変えられません。`}` },
+   dormant: { name: () => L`休眠`, text: () => L`領主が長く何もしないと村は休眠し、さらに放っておくと手放されます。何か操作すれば延びます。` },
+-  ring: { name: () => L`輪`, text: () => L`大協約を中心にした州の輪です。シーズンが進むと外側の輪がひらきます。` },
++  ring: { name: () => L`輪`, text: () => L`大協約を中心にした州の輪です。ターンが進むと外側の輪がひらきます。` },
+   garrison: { name: () => L`守備隊`, text: () => L`村に残る守り手です。ターンの始まりにいた分が数えられ、攻め手に反撃します。城壁があると強くなります。` },
+   vigil: { name: () => L`夜番`, text: () => L`毎日決まった時間、あなたが眠っている間も守りを固める時間帯です。` },
+   shield: { name: () => L`保護`, text: () => L`村ができてしばらくは攻められません。保護が切れるまでの時間です。` },
+diff --git a/permutation-server/web/frontier/hud/provstrip.mjs b/permutation-server/web/frontier/hud/provstrip.mjs
+index 4498316e..fa3fa57d 100644
+--- a/permutation-server/web/frontier/hud/provstrip.mjs
++++ b/permutation-server/web/frontier/hud/provstrip.mjs
+@@ -114,7 +114,7 @@ export function renderSeasonEnd(m) {
+   if (!m) return '';
+   return html`<section class="se-card${m.mine ? ' se-mine' : ''}" role="status" aria-labelledby="se-title">
+     <button type="button" class="se-x" data-act="se-close" aria-label="${L`閉じる`}">${icon('close')}</button>
+-    <p class="se-kicker">${icon('flag')}<span>${L`シーズンは終わりました`}</span></p>
++    <p class="se-kicker">${icon('flag')}<span>${L`この征服戦（旧方式のシーズン）は終わりました`}</span></p>
+     <h2 id="se-title" class="se-line">${m.winners.map(f => crest(f, 34))}<span>${seasonEndLine(m)}</span></h2>
+     <ol class="se-area" aria-label="${L`国ごとの州の数`}">${m.area.map((n, f) => html`<li class="kh-n${f}${m.winners.includes(f) ? ' se-win' : ''}">${crest(f, 22)}<span class="se-name">${factionName(f)}</span><strong class="num">${fmtNum(n)}</strong></li>`)}</ol>
+     <p class="se-note">${m.source === 'pool' ? L`賞金プールの集計（Tally と Finalize）がチェーンで確定しました。州の数はチェーンの記録を数えたものです。` : L`最終の順位の記録が確定しました。州の数はチェーンの記録を数えたものです。`}${m.mine ? html` <strong>${L`あなたの国の勝利です。`}</strong>` : ''}</p>
+diff --git a/permutation-server/web/frontier/hud/returnwords.mjs b/permutation-server/web/frontier/hud/returnwords.mjs
+index 8ac00d80..e35ba8e6 100644
+--- a/permutation-server/web/frontier/hud/returnwords.mjs
++++ b/permutation-server/web/frontier/hud/returnwords.mjs
+@@ -49,7 +49,7 @@ export function headText(s) {
+     sinceConfirmed: () => L`あなたが確認したのは第${fmtNum(s.since?.bell ?? 0)}ターンまでです。`,
+     firstOnDevice: () => L`この端末では、このシーズンとウォレットで確認した記録がありません（初めてか、別の端末か、ブラウザの記録が消えた場合）。直近 ${fmtNum(FIRST_LOOK_BELLS)} ターンだけを見ています。`,
+     otherWallet: () => L`この端末で前に使ったウォレットとは別です。そのウォレットの記録は使いません。直近 ${fmtNum(FIRST_LOOK_BELLS)} ターンだけを見ています。`,
+-    newSeason: () => L`新しいシーズンです。前のシーズンの出来事は含みません。`,
++    newSeason: () => L`前に見ていたものとは別のシーズン記録（ID が違う記録）です。前の記録の出来事は、ここには含めていません。`,
+     markAhead: () => L`この端末に残っていた確認の位置は、いまのシーズンの記録より先を指していたため使いません。直近 ${fmtNum(FIRST_LOOK_BELLS)} ターンだけを見ています。`,
+   }[s.mode]?.() ?? '';
+   const horizon = s.mode === 'sinceConfirmed' && Number.isFinite(s.horizonBell) && s.horizonBell > 0 ? L`この端末では第${fmtNum(s.horizonBell)}ターンより前の出来事は見ていません。` : '';
+diff --git a/permutation-server/web/frontier/hud/worldclock.mjs b/permutation-server/web/frontier/hud/worldclock.mjs
+new file mode 100644
+index 00000000..9205a1f9
+--- /dev/null
++++ b/permutation-server/web/frontier/hud/worldclock.mjs
+@@ -0,0 +1,53 @@
++// The world's continuity and the war period, said apart (workstream 07). The direction of the project: the world does
++// not end or reset with a period; a war period (戦期) that bounds war and competition is a separate thing, and how it
++// is bounded, what it tallies and what it pays are not decided. The shared core and the move to a continuing world
++// are workstream 04's and 08's: this file defines no world and no period. It only says, in words kept apart, what
++// their owners register — and, until they do, nothing about either: the page then says only the facts of the
++// program it runs on (seasonterms.mjs: the turn after which this program takes no new order, as an old-style
++// season's).
++//
++// Sources (one each; a second registration replaces the first; a source that throws says nothing):
++//   continuity  (FS) → {continuous: true} | {continuous: false, endBell} | null     04/08: whether this world ends
++//   warPeriod   (FS) → {fromBell, toBell, label?, tally?} | null                      the war period in force, if any
++import { html } from '../../util.mjs';
++import { L, fmtNum } from '../../lang.mjs';
++
++const sources = new Map();
++export const WORLD_SOURCES = Object.freeze({ continuity: '04/08', warPeriod: '04/08' });
++
++/** Register the source of `kind`; returns a function that removes it. */
++export function registerWorldSource(kind, fn) {
++  if (!Object.hasOwn(WORLD_SOURCES, kind) || typeof fn !== 'function') throw new TypeError(`world source: one of ${Object.keys(WORLD_SOURCES).join(', ')}, and a function`);
++  sources.set(kind, fn);
++  return () => { if (sources.get(kind) === fn) sources.delete(kind); };
++}
++/** What the source of `kind` says for this page, or null. */
++export function worldFrom(kind, FS) {
++  const fn = sources.get(kind);
++  if (!fn) return null;
++  try { return fn(FS) ?? null; } catch { return null; }
++}
++/** Whether the owners say this world goes on without an end (only then is the program's end turn not said). */
++export const worldContinues = FS => worldFrom('continuity', FS)?.continuous === true;
++
++/**
++ * The lines the page says of the world and of the war period, each on its own: `[{key, text}]`. Nothing for what
++ * was not registered: no "the world goes on" and no war period are said from a guess.
++ */
++export function worldLines(FS) {
++  const out = [];
++  const c = worldFrom('continuity', FS);
++  if (c?.continuous === true) out.push({ key: 'world', text: L`世界：期間の区切りで終わったり作り直したりしません` });
++  const w = worldFrom('warPeriod', FS);
++  if (w && Number.isFinite(Number(w.fromBell)) && Number.isFinite(Number(w.toBell))) {
++    const name = w.label ? String(w.label) : L`戦期`;
++    out.push({ key: 'warPeriod', text: L`${name}：第${fmtNum(Number(w.fromBell))}〜${fmtNum(Number(w.toBell))}ターン。${w.tally ? L`集計：${String(w.tally)}` : L`集計の方法は未決定です`}（世界はこの区切りで終わりません）` });
++  }
++  return out;
++}
++
++/** The lines as the page draws them (role=note; the world's line and the war period's never share a sentence). */
++export function renderWorldLines(FS) {
++  const lines = worldLines(FS);
++  return lines.length ? html`<ul class="ws07-world" aria-label="${L`世界と戦期`}">${lines.map(x => html`<li data-key="${x.key}">${x.text}</li>`)}</ul>` : '';
++}
+diff --git a/permutation-server/web/frontier/map/world.mjs b/permutation-server/web/frontier/map/world.mjs
+index 485e5ae8..4781f724 100644
+--- a/permutation-server/web/frontier/map/world.mjs
++++ b/permutation-server/web/frontier/map/world.mjs
+@@ -89,14 +89,14 @@ export function paintEdge(ctx, segs, scale = 1) {
+ 
+ /** The map's answer to a tap on a place that is not open land. */
+ export const PLACE_NOTE = Object.freeze({
+-  outside: () => L`ここはこのシーズンの地図の外です`,
++  outside: () => L`ここはいまの地図の外です`,
+   unopened: () => L`まだひらいていない土地です`,
+   pending: () => L`この土地は生まれるところです（しばらくお待ちください）`,
+ });
+ 
+ /** The ring as the inspector says it, with what the place is. */
+ export function ringText(state, ring) {
+-  if (state === PLACE.outside) return L`第${fmtNum(ring)}輪（このシーズンの地図の外）`;
++  if (state === PLACE.outside) return L`第${fmtNum(ring)}輪（いまの地図の外）`;
+   if (state === PLACE.unopened) return L`第${fmtNum(ring)}輪（まだひらいていません）`;
+   if (state === PLACE.pending) return L`第${fmtNum(ring)}輪（生まれるところです）`;
+   return L`第${fmtNum(ring)}輪`;
+diff --git a/permutation-server/web/frontier/screens/join.mjs b/permutation-server/web/frontier/screens/join.mjs
+index 1cb66892..c469ea49 100644
+--- a/permutation-server/web/frontier/screens/join.mjs
++++ b/permutation-server/web/frontier/screens/join.mjs
+@@ -30,6 +30,7 @@ import { renderJoinTerms } from './prize.mjs';
+ import { tokenUnits } from '../fprize.mjs';
+ import { renderDelegated } from '../fdelegation.mjs';
+ import { deadlineLine, wrongStatusWhy } from '../seasonterms.mjs';
++import { renderWorldLines } from '../hud/worldclock.mjs';
+ 
+ const FACTIONS = [0, 1, 2, 3, 4, 5];
+ /** A candidate place by the name a village there would carry, never by its number or its coordinates (the row flies there). */
+@@ -100,6 +101,7 @@ export function renderNations(FS) {
+     ${instant && FS.homeChoice?.error ? html`<p class="notice error" role="alert">${FS.homeChoice.error.text ?? failureText(FS.homeChoice.error)}</p>` : ''}
+     <p class="nc-note">${territoryEnabled(FS) ? L`国を選ぶだけで始められます。この開発版の進行は、サーバーを再起動すると最初からになります。` : FS.wallet ? L`ウォレットが2回、確認を求めます。ゲーム内の鍵を作るための署名と、参加のための署名です。` : L`ウォレットを使うのは、参加の署名のときだけです。そのあとの操作はこの端末のゲーム内の鍵が署名し、手数料はゲーム側が立て替えます（テスト用の SOL で、価値はありません）。`}${pick ? html` ${L`この国の土地には、村を置ける場所があと約 ${fmtNum(pick.free)} あります。`}` : ''}</p>
+     ${deadlineLine(FS) ? html`<p class="nc-note">${deadlineLine(FS)}</p>` : ''}
++    ${renderWorldLines(FS)}
+     ${FS.prize && !FS.citizen ? renderJoinTerms(FS) : ''}
+   </div>`;
+   return html`<section class="nations" aria-labelledby="join-faction">
+diff --git a/permutation-server/web/frontier/seasonterms.mjs b/permutation-server/web/frontier/seasonterms.mjs
+index f5a9562a..f423161a 100644
+--- a/permutation-server/web/frontier/seasonterms.mjs
++++ b/permutation-server/web/frontier/seasonterms.mjs
+@@ -6,8 +6,14 @@
+ // `joinCloseBell` and ends at its `endBell` (Season account); the program
+ // refuses a join after the one and every order after the other with
+ // WrongStatus, which this page words with its cause.
++//
++// The world is to go on without an end (the project's direction; its shared core is 04's and 08's). This program
++// still has an end turn, so the page says it as what it is — the turn after which THIS program takes no new order,
++// an old-style season's — and never as the world ending; when the owners register that the world goes on
++// (hud/worldclock.mjs), the end turn is not said at all.
+ import { L, fmtNum } from '../lang.mjs';
+ import { BELL_SECS, bellStart } from './clock.mjs';
++import { worldContinues } from './hud/worldclock.mjs';
+ 
+ let pace = () => 1;
+ /** The chain's pace as the page knows it (app.mjs: the accelerated local clock's rate, else 1). */
+@@ -40,14 +46,15 @@ export function deadlineLine(FS) {
+   const d = deadlines(FS);
+   if (!d) return '';
+   const join = d.join.closed ? L`参加の受付は第${fmtNum(d.join.bell)}ターンで締め切られました。` : L`参加の受付は第${fmtNum(d.join.bell)}ターンまで（あと約 ${spanWords(d.join.realLeft)}）。`;
+-  const end = d.end.ended ? L`シーズンは終わりました。` : L`シーズンは第${fmtNum(d.end.bell)}ターンで終わります（あと約 ${spanWords(d.end.realLeft)}）。`;
++  const end = worldContinues(FS) ? '' : d.end.ended ? L`このプログラム（旧方式のシーズン）は第${fmtNum(d.end.bell)}ターンで新しい命令の受付を終えました。`
++    : L`このプログラム（旧方式のシーズン）が新しい命令を受け付けるのは第${fmtNum(d.end.bell)}ターンまでです（あと約 ${spanWords(d.end.realLeft)}）。`;
+   return `${join}${end}`;
+ }
+ /** WrongStatus said with its cause when the cause is the season's clock; null otherwise (the page's own words stand). */
+ export function wrongStatusWhy(FS, action = null) {
+   const d = deadlines(FS);
+   if (!d) return null;
+-  if (d.end.ended) return L`シーズンは第${fmtNum(d.end.bell)}ターンで終わったため、この操作はできません。`;
++  if (d.end.ended && !worldContinues(FS)) return L`このプログラム（旧方式のシーズン）は第${fmtNum(d.end.bell)}ターンで新しい命令の受付を終えたため、この操作は受け付けられません。`;
+   if (action === 'join' && d.join.closed) return L`参加の受付は第${fmtNum(d.join.bell)}ターンで締め切られました。`;
+   return null;
+ }
+diff --git a/permutation-server/web/lang/en-frontier-play.mjs b/permutation-server/web/lang/en-frontier-play.mjs
+index f6f2c120..c8686b34 100644
+--- a/permutation-server/web/lang/en-frontier-play.mjs
++++ b/permutation-server/web/lang/en-frontier-play.mjs
+@@ -357,9 +357,9 @@ export default {
+   '輪': 'Ring',
+   '第{0}輪': 'Ring {0}',
+   '第{0}輪（まだひらいていません）': 'Ring {0} (not open yet)',
+-  '第{0}輪（このシーズンの地図の外）': 'Ring {0} (outside this season’s map)',
++  '第{0}輪（いまの地図の外）': 'Ring {0} (outside the map as it is now)',
+   '第{0}輪（生まれるところです）': 'Ring {0} (being made)',
+-  'ここはこのシーズンの地図の外です': 'This is outside this season’s map',
++  'ここはいまの地図の外です': 'This is outside the map as it is now',
+   'この土地は生まれるところです（しばらくお待ちください）': 'This land is being made (a moment, please)',
+   '地形': 'Terrain',
+   '村を持つ国': 'Nations with villages here',
+@@ -761,13 +761,10 @@ export default {
+   'ゲーム内の {0}（この世界では実時間で約 {1}）': '{0} of game time (in this world about {1} of real time)',
+   '参加の受付は第{0}ターンで締め切られました。': 'Joining closed at turn {0}.',
+   '参加の受付は第{0}ターンまで（あと約 {1}）。': 'Joining is open until turn {0} (about {1} left). ',
+-  'シーズンは終わりました。': 'The season has ended.',
+-  'シーズンは第{0}ターンで終わります（あと約 {1}）。': 'The season ends at turn {0} (about {1} left).',
+-  'シーズンは第{0}ターンで終わったため、この操作はできません。': 'The season ended at turn {0}; this order is no longer taken.',
+   '進軍の戦い方です。突撃は側撃に、側撃は迎撃に、迎撃は突撃に強く、待機の構えには相性がありません。': 'How a march fights. Assault beats Flank, Flank beats Brace and Brace beats Assault; Hold has no edge either way.',
+   '撤退の倍率': 'Retreat ratio',
+   '守り手の兵が自軍のこの倍率を超えていたら、戦わずに引き返します（損失なし）。': 'If the defenders outnumber your host by more than this ratio, it turns back without a fight (no loss).',
+-  '大協約を中心にした州の輪です。シーズンが進むと外側の輪がひらきます。': 'The rings of provinces around the Concord. Outer rings open as the season goes on.',
++  '大協約を中心にした州の輪です。ターンが進むと外側の輪がひらきます。': 'The rings of provinces around the Concord. Outer rings open as the season goes on.',
+   '村に残る守り手です。ターンの始まりにいた分が数えられ、攻め手に反撃します。城壁があると強くなります。': 'The defenders who stay in a village. Those present when the turn began are counted, and they strike back at attackers; walls make them stronger.',
+   '集落・町・都市・城塞の四つです。上がるほど生産と守りが増えます。': 'There are four: Hamlet, Town, City, Stronghold. Each step raises production and defence.',
+   // ---- what is happening on a tile (people/activity.mjs): a march on the road names its owner; a sealed destination is never said
+@@ -978,7 +975,7 @@ export default {
+   'あなたが確認したのは第{0}ターンまでです。': 'You marked up to turn {0} as seen.',
+   'この端末では、このシーズンとウォレットで確認した記録がありません（初めてか、別の端末か、ブラウザの記録が消えた場合）。直近 {0} ターンだけを見ています。': 'This device holds no "seen" mark for this season and wallet (a first visit, another device, or cleared browser data). Only the last {0} turns are shown.',
+   'この端末で前に使ったウォレットとは別です。そのウォレットの記録は使いません。直近 {0} ターンだけを見ています。': 'This is not the wallet last used on this device; its marks are not used. Only the last {0} turns are shown.',
+-  '新しいシーズンです。前のシーズンの出来事は含みません。': 'A new season. Nothing of the earlier season is included.',
++  '前に見ていたものとは別のシーズン記録（ID が違う記録）です。前の記録の出来事は、ここには含めていません。': 'This is another season record (a different ID) from the one seen before. Events of that record are not included here.',
+   '確認した位置のあとの記録の一部を読めていません。欠けた分の出来事は推測しません。': 'Some records after your mark could not be read; nothing is guessed for them.',
+   'この端末に残っていた確認の位置は、いまのシーズンの記録より先を指していたため使いません。直近 {0} ターンだけを見ています。': 'The mark kept on this device points past this season\'s records, so it is not used. Only the last {0} turns are shown.',
+   'この端末では第{0}ターンより前の出来事は見ていません。': 'Nothing before turn {0} was seen on this device.',
+@@ -1282,7 +1279,7 @@ export default {
+   '第{0}ターンまでのチェーンの記録です。押すと順位の表を開きます': 'From the chain\'s records up to turn {0}. Press to open the standings',
+   '最終の州の数': 'Final provinces',
+   '{0}が最も多くの州を保持（{1}）': '{0} holds the most provinces ({1})', '首位は同数：{0}（各 {1}）': 'Tied for first: {0} ({1} each)',
+-  'シーズンは終わりました': 'The season is over', '国ごとの州の数': 'Provinces per nation',
++  'この征服戦（旧方式のシーズン）は終わりました': 'This conquest (an old-style season) is over', '国ごとの州の数': 'Provinces per nation',
+   '賞金プールの集計（Tally と Finalize）がチェーンで確定しました。州の数はチェーンの記録を数えたものです。': 'The prize pool\'s count (Tally and Finalize) is confirmed on the local test chain. Provinces are counted from the chain\'s records.',
+   '最終の順位の記録が確定しました。州の数はチェーンの記録を数えたものです。': 'The final standings are recorded. Provinces are counted from the chain\'s records.',
+   'あなたの国の勝利です。': 'Your nation has won.', '結果と賞金を見る': 'See the result and the prize',
+@@ -1395,6 +1392,16 @@ export default {
+   '行き先が無くなっていたため、どこにも入っていません（確定）': 'Its destination was gone, so it went nowhere (final)',
+   '差の理由は、記録で確かめるまで決めません': 'Why the rest is missing is not decided until the records show it',
+   '隊商（ターン {0}）：{1}': 'Your caravan (turn {0}): {1}',
++  // workstream 07: the program's end turn said as the program's, and the world's continuity and the war period apart (seasonterms.mjs, hud/worldclock.mjs)
++  'このプログラム（旧方式のシーズン）は第{0}ターンで新しい命令の受付を終えました。': 'This program (an old-style season) stopped taking new orders at turn {0}. ',
++  'このプログラム（旧方式のシーズン）が新しい命令を受け付けるのは第{0}ターンまでです（あと約 {1}）。': 'This program (an old-style season) takes new orders until turn {0} (about {1} left). ',
++  'このプログラム（旧方式のシーズン）は第{0}ターンで新しい命令の受付を終えたため、この操作は受け付けられません。': 'This program (an old-style season) stopped taking new orders at turn {0}, so this order is not taken.',
++  '世界：期間の区切りで終わったり作り直したりしません': 'The world: it does not end or start over at a period\'s end',
++  '{0}：第{1}〜{2}ターン。{3}（世界はこの区切りで終わりません）': '{0}: turns {1}–{2}. {3} (the world does not end with it)',
++  '戦期': 'War period',
++  '集計：{0}': 'Tally: {0}',
++  '集計の方法は未決定です': 'How it is tallied is not decided',
++  '世界と戦期': 'The world and the war period',
+   // workstream 07: the basis of an arrival's comparison and the intake judged apart (hud/statusview.mjs, statussources.mjs)
+   '数量は記録の単位です（1 未満は切り捨て）': 'Amounts are in the records\' units (anything under one is dropped)',
+   '比べた基準は送付記録の数量です。送付記録の数量は経路の減少を引いたあとの量で、最初に積んだ量と経路の損失は、この記録からは確定しません': 'The basis is the amount on the send record. That amount is after the loss on the road: what was first loaded and what the road took cannot be told from this record',
+diff --git a/permutation-server/web/lang/en-frontier.mjs b/permutation-server/web/lang/en-frontier.mjs
+index 1d8ce405..3edbc721 100644
+--- a/permutation-server/web/lang/en-frontier.mjs
++++ b/permutation-server/web/lang/en-frontier.mjs
+@@ -45,7 +45,7 @@ export default {
+   // the turn dial (UX design section 6): the HUD clock counts turns; the bell is what tolls when one ends
+   'ターン —': 'Turn —',
+   'ターン {0} · 残り {1}': 'Turn {0} · {1} left',
+-  'ターン {0} · 終了': 'Turn {0} · ended',
++  'ターン {0} · 受付終了': 'Turn {0} · no new orders',
+   'ターン': 'Turn',
+   '開始まで {0}': 'Starts in {0}',
+   '開始まで': 'Starts in',
+@@ -483,7 +483,7 @@ export default {
+   '賞金の受け取りを送信中です。結果を確認するまで再請求しないでください。': 'The prize claim is being sent. Do not submit another claim before its outcome is known.',
+   '賞金の受け取り結果がまだ確認できません。署名の結果を確認するまで再請求しないでください。': 'The prize claim has no verified outcome yet. Check its signature before claiming again.',
+   'この鍵は運営が動かす代理人のものです。代理人の操作は代理人の窓口から送ります。': 'This key belongs to an operator-run agent. Its actions go through the agent wallet.',
+-  '今日送れる操作の回数を使い切りました。シーズンの日付が変わると、また送れます。': 'You have used up the actions you can send today. You can send more when the season\'s day rolls over.',
++  '今日送れる操作の回数を使い切りました。ゲーム内の日付が変わると、また送れます。': 'You have used up the actions you can send today. You can send more when the game day rolls over.',
+   '手数料を立て替える資金が足りません。しばらくしてから試してください。': 'The funds that cover the fees have run short. Try again shortly.',
+   '取引の期限が切れました。もう一度送ってください。': 'The transaction expired. Send it again.',
+   '送信が速すぎます。少し待ってください。': 'Sending too fast. Wait a moment.',
+diff --git a/permutation-server/web/lang/en-play.mjs b/permutation-server/web/lang/en-play.mjs
+index 024859ad..0a492a63 100644
+--- a/permutation-server/web/lang/en-play.mjs
++++ b/permutation-server/web/lang/en-play.mjs
+@@ -183,6 +183,7 @@ export default {
+   '馬のいる土地を都市が使うと+1': '+1 when a city works a tile with horses',
+   '公開中': 'Revealing',
+   '終了': 'Over',
++  '受付終了': 'No new orders',
+   '締切で': 'At the deadline',
+   '封印を閉じ、公開して全勢力を同時に解決': 'Seals close, are revealed, and every faction resolves at once',
+   '締切{0}秒前': '{0} s before the deadline',
+-- 
+2.43.0
+
