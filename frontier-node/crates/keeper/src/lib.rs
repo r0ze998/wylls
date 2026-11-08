@@ -365,6 +365,7 @@ impl<P: ChainPort, D: DrandPort> Keeper<P, D> {
             per_write_cap: cfg.per_write_cap_lamports,
             d_resend_slots: cfg.d_resend_slots,
             cap_resend_slots: cfg.cap_resend_slots,
+            max_unknown_w_versions: cfg.max_unknown_w_versions,
             ..EngineParams::default()
         };
         let pk96 = drand.info().public_key;

@@ -182,6 +182,16 @@ impl SeasonView {
         .tlock_round(self.genesis_ts, b)
     }
 
+    /// When drand publishes `T(b)`: its round time (⑱: before it, only the
+    /// owner can open the seal of a march arriving at `b`).
+    pub fn published_at(&self, b: u32) -> i64 {
+        fclient::clock::Drand {
+            genesis: self.drand_genesis,
+            period: self.drand_period,
+        }
+        .round_time(self.tlock_round(b))
+    }
+
     /// The Depart minimum tip (§5.11 check 5) from the Season account;
     /// without it, from the herald's `tipPriorityMilli` and `revealCuLimit`.
     pub fn tip_min(&self, reveal_loaded_limit: u32) -> u64 {
