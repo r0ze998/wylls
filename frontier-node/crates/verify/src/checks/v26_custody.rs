@@ -1676,8 +1676,12 @@ fn send_route(c: &ReplayCase, s: &Send) -> Result<(), RouteNot> {
     if s.fee < CARAVAN_FEE {
         return wrong("its fee is below the caravan fee");
     }
+    // The program needs one path Province or more for every send (its
+    // account list, `send`'s first Province): a list without one is not
+    // what it ran (the instruction's accounts may not all be in the input:
+    // an account index outside the message is dropped), so not judged.
     let Some(first) = s.provinces.first() else {
-        return wrong("it lists no path Province");
+        return missing("the instruction lists no path Province (the program needs one or more)");
     };
     if *first != s.ctx.province(s.src.p as i32, s.src.q as i32) {
         return wrong("its first path Province is not the origin's");
@@ -2773,6 +2777,13 @@ mod send_route_tests {
             &w.replay(&low, &f.accounts),
             "below the caravan fee"
         ));
+        // No path Province listed: the input is short, not judged.
+        let a: Vec<Key> = f.accounts[..f.accounts.len() - 1].to_vec();
+        let r = f.w.replay(&f.data, &a);
+        assert!(
+            matches!(&r, Replayed::Partial(m) if m.contains("the route is not judged") && m.contains("no path Province")),
+            "{r:?}"
+        );
         // A first path Province that is not the origin's.
         let mut a = f.accounts.clone();
         *a.last_mut().unwrap() = [0x70; 32];
