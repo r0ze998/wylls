@@ -187,7 +187,7 @@ export const PLACE_NOTE = Object.freeze({
   outside: () => L`ここはいまの地図の外です`,
   unopened: () => L`まだひらいていない土地です`,
   pending: () => L`この土地は生まれるところです（しばらくお待ちください）`,
-  extendable: () => L`ここはまだ地図の外です（このシーズンは、ここまで地図を広げられます）`,
+  extendable: () => L`ここはまだ地図の外です（地図はここまで広げられます）`,
   beyondCeiling: () => L`ここはこのシーズンの上限の外です`,
   beyondHard: () => L`ここはプログラムの上限（第128輪）の外です`,
 });
