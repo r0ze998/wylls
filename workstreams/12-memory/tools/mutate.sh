@@ -116,6 +116,6 @@ mut src/store.mjs "    this._write({ record: rec }); // first the file: if this 
     this._write({ record: rec });" "kept before written"
 mut adapters/ws04-receipts.mjs "    try { for (const f of facts) checkFact(f); } catch (e) {" "    try { } catch (e) {" "one bad receipt stops the feed"
 mut src/store.mjs "        if (unnamed) throw new Error" "        if (false) throw new Error" "unnamed damage in the middle accepted"
-mut src/store.mjs "        while (e + 1 <= last && (rows[e + 1] === undefined || rows[e + 1] === null)) e++;" "" "a second crash inside the naming write refuses the journal"
 mut src/store.mjs "    if (this.dirty) this._rescanTail();" "" "retry after a part-way failed write runs onto its bytes"
 mut src/store.mjs "        if (prev) { if (row.record.type" "        if (false) { if (row.record.type" "a row written twice is replayed twice"
+mut src/store.mjs "        while (k <= last && (rows[k] === undefined || rows[k] === null || rows[k]?.torn)) k++;" "        while (k <= last && (rows[k] === undefined || rows[k] === null)) k++;" "a crash inside the markers of the naming write refuses the journal"

@@ -58,7 +58,8 @@ test('an unreadable last line that ends in a newline is handled the same way; da
   const b = createMemory({ path: p3 });
   b.note(note(1));
   appendFileSync(p3, '{"x\n{"torn":{"line":1,"sha256":"00"}}\n');
-  assert.throws(() => createMemory({ path: p3 }), /corrupt line 2/);
+  appendFileSync(p3, `${readFileSync(p3, 'utf8').split('\n')[0]}\n`.replace('"n1"', '"nX"')); // a record after it
+  assert.throws(() => createMemory({ path: p3 }), /corrupt line 2/, 'a marker for another line does not excuse damage before a record');
 });
 
 test('a failed write leaves memory unchanged; the same append can be retried and survives a restart', () => {
@@ -284,4 +285,30 @@ test('journals written by earlier versions open unchanged and take new records',
     assert.deepEqual(createMemory({ path: p }).journal.records().map(x => x.text), [...had, 'n9'], name);
     assert.ok(readFileSync(p, 'utf8').startsWith(text), `${name}: the old bytes are kept as they were`);
   }
+});
+
+test('two crashes: a cut of the write naming a torn tail, then a cut of the next one (inside its markers too): always opens, nothing lost', () => {
+  const base = tmp();
+  const m = createMemory({ path: base });
+  m.note(note(1)); m.note(note(2));
+  appendFileSync(base, '{"record":{"id":"half-writ');
+  const t0 = readFileSync(base, 'utf8');
+  const after = text => { const c = tmp(); writeFileSync(c, text); createMemory({ path: c }).note(note(3)); return readFileSync(c, 'utf8').slice(text.length); };
+  const full1 = after(t0);
+  let reloads = 0;
+  for (let a = 0; a < full1.length; a += 3) {
+    const t1 = t0 + full1.slice(0, a);
+    const kept1 = createMemory({ path: (() => { const p = tmp(); writeFileSync(p, t1); return p; })() }).journal.records().map(x => x.text);
+    const full2 = after(t1);
+    for (let b = 0; b <= full2.length; b++) {
+      const p = tmp();
+      writeFileSync(p, t1 + full2.slice(0, b));
+      const r = createMemory({ path: p }); reloads++;
+      const got = r.journal.records().map(x => x.text);
+      assert.deepEqual(got.slice(0, kept1.length), kept1, `cuts ${a}/${b}: nothing earlier lost`);
+      r.note(note(7));
+      assert.deepEqual(createMemory({ path: p }).journal.records().map(x => x.text), [...got, 'n7'], `cuts ${a}/${b}`);
+    }
+  }
+  assert.ok(reloads > 1000);
 });

@@ -54,23 +54,26 @@ export class Journal {
       let last = lines.length - 1;
       while (last >= 0 && !lines[last]) last--;
       const unreadable = [];
-      // Unreadable lines come in runs (one crash, or a crash while the next write was naming the first). A run that
-      // reaches the end of the file is a torn tail. Any other run must be named, line and bytes, by the {torn} markers
-      // that follow it (a later write named them); otherwise it is damage, and the journal is refused.
+      // Unreadable lines come in stretches: one crash, or more crashes while a later write was naming them. A stretch
+      // runs from an unreadable line over every unreadable line and {torn} marker after it, up to the first readable
+      // record. If no record follows (the stretch reaches the end of the file), it is a torn tail, still being named:
+      // the next write names each of its unreadable lines. Otherwise every unreadable line in it must be named, line
+      // and bytes, by a marker in it; an unnamed one is damage, and the journal is refused.
       for (let i = 0; i <= last; i++) {
         if (rows[i] !== undefined) continue;
-        let e = i;
-        while (e + 1 <= last && (rows[e + 1] === undefined || rows[e + 1] === null)) e++;
-        const run = [];
-        for (let k = i; k <= e; k++) if (rows[k] === undefined) run.push({ line: k + 1, sha256: sha256hex(lines[k]) });
-        if (e === last) { j.torn += run.length; j.tornTail = { lines: run, closed: text.endsWith('\n') }; break; }
-        const named = new Set();
-        for (let k = e + 1; k <= last && (rows[k] === null || rows[k]?.torn); k++) if (rows[k]?.torn) named.add(`${rows[k].torn.line}|${rows[k].torn.sha256}`);
-        const unnamed = run.find(t => !named.has(`${t.line}|${t.sha256}`));
-        if (unnamed) throw new Error(`journal: corrupt line ${unnamed.line} in ${path}`);
+        let k = i;
+        while (k <= last && (rows[k] === undefined || rows[k] === null || rows[k]?.torn)) k++;
+        const run = [], named = new Set();
+        for (let x = i; x < k; x++) {
+          if (rows[x] === undefined) run.push({ line: x + 1, sha256: sha256hex(lines[x]) });
+          else if (rows[x]?.torn) named.add(`${rows[x].torn.line}|${rows[x].torn.sha256}`);
+        }
         j.torn += run.length;
         unreadable.push(...run.map(t => t.line - 1));
-        i = e;
+        if (k > last) { j.tornTail = { lines: run.filter(t => !named.has(`${t.line}|${t.sha256}`)), closed: text.endsWith('\n') }; if (!j.tornTail.lines.length) j.tornTail = null; break; }
+        const unnamed = run.find(t => !named.has(`${t.line}|${t.sha256}`));
+        if (unnamed) throw new Error(`journal: corrupt line ${unnamed.line} in ${path}`);
+        i = k - 1;
       }
       const skip = new Set(unreadable);
       lines.forEach((line, i) => {
@@ -103,9 +106,17 @@ export class Journal {
     let last = lines.length - 1;
     while (last >= 0 && !lines[last]) last--;
     const parse = l => { try { return JSON.parse(l); } catch { return undefined; } };
-    const run = [];
-    for (let k = last; k >= 0 && (!lines[k] || parse(lines[k]) === undefined); k--) if (lines[k]) run.unshift({ line: k + 1, sha256: sha256hex(lines[k]) });
-    this.tornTail = run.length ? { lines: run } : null;
+    // the tail stretch (unreadable lines and markers after the last record), as on open: name what is not named yet
+    const run = [], named = new Set();
+    for (let k = last; k >= 0; k--) {
+      if (!lines[k]) continue;
+      const r = parse(lines[k]);
+      if (r === undefined) run.unshift({ line: k + 1, sha256: sha256hex(lines[k]) });
+      else if (r?.torn) named.add(`${r.torn.line}|${r.torn.sha256}`);
+      else break;
+    }
+    const todo = run.filter(t => !named.has(`${t.line}|${t.sha256}`));
+    this.tornTail = todo.length ? { lines: todo } : null;
     this.openLine = text.length > 0 && !text.endsWith('\n');
   }
 
