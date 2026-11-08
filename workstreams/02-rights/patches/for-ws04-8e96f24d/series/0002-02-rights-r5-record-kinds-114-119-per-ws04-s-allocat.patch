@@ -1,0 +1,172 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Fri, 6 Nov 2026 12:27:10 +0000
+Subject: [PATCH 2/2] 02-rights r5: record kinds 114-119 per ws04's allocation
+ rev 3; 0xFE test
+
+ws04's provisional ABI allocation (rev 3, 2026-11-06, 8e96f24d) gives
+the Grant records kinds 114-119 (8 has 104, 10 has 105-113). The six
+CqKinds move from 200-205; the highest kind (events::MAX_KIND_V2,
+cqlog::MAX_KIND) goes from 205 to 119. Tags 0xD0-0xD5 and errors
+200-213 already match the allocation. The Grant keeps its own magic
+PSF2GRNT; AccountKind 24 stays a reservation (not in the shared enum
+while the Grant is not adopted).
+
+The unknown-instruction test also uses 0xFE, the tag the allocation
+keeps unassigned for verifier tests.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01C5Nj2bMRw3LSNvj17s1QPg
+---
+ frontier-abi/src/v2/log.rs                    | 19 ++++++++++---------
+ frontier-abi/src/v2/rights.rs                 |  8 ++++----
+ .../crates/verify/src/checks/vr_rights.rs     |  2 +-
+ .../crates/verify/tests/rights_replay.rs      | 14 +++++++++++++-
+ permutation-frontier/src/events.rs            |  4 ++--
+ permutation-frontier/src/proc/conquest.rs     |  4 ++--
+ permutation-frontier/src/proc/rights.rs       |  2 +-
+ 7 files changed, 33 insertions(+), 20 deletions(-)
+
+diff --git a/frontier-abi/src/v2/log.rs b/frontier-abi/src/v2/log.rs
+index a662650f..df8ab2c3 100644
+--- a/frontier-abi/src/v2/log.rs
++++ b/frontier-abi/src/v2/log.rs
+@@ -143,16 +143,17 @@ cq_kinds! {
+     RAID_OPENED = 101; key ["owner_tag": 8, "seq": 4]; payload ["p": 4, "q": 4, "bell": 4, "raider_host": 8, "raider_tag": 8, "domestic": 1];
+     FORT_GARRISONED = 102; key ["p": 4, "q": 4, "tile": 1]; payload ["owner_tag": 8, "troops": 4, "pend_bell": 4, "pend": 2, "holding_key": 8];
+     REST = 103; key ["p": 4, "q": 4, "from": 4]; payload ["to": 4, "holder": 1, "territory": 4, "spawns": 1, "digest": 32];
+-    // Workstream 02-rights (proposal, NOT allocated): the Grant records.
+-    // Codes 200–205 are provisional (far from 104–112, which workstreams 8
+-    // and 10 propose); the integrator confirms or moves them. Key: the
++    // Workstream 02-rights (proposal, NOT adopted): the Grant records.
++    // Codes 114–119 follow workstream 4's provisional allocation (rev 3,
++    // 2026-11-06: 8 has 104, 10 has 105–113); the integrator confirms
++    // them. Key: the
+     // Grant (issuer tag, nonce); amounts in milli-units.
+-    GRANT_ISSUED = 200; key ["issuer_tag": 8, "nonce": 4]; payload ["grantee_tag": 8, "p": 4, "q": 4, "facility_site": 1, "facility_gen": 1, "station_site": 1, "station_gen": 1, "max_swaps": 2, "max_units": 4, "expires_ts": 8, "rent": 8];
+-    SWAP_RESERVED = 201; key ["issuer_tag": 8, "nonce": 4]; payload ["grantee_tag": 8, "p": 4, "q": 4, "facility_site": 1, "station_site": 1, "seq": 2, "units": 4, "ore": 8, "wood": 8, "arms": 8];
+-    SWAP_EXECUTED = 202; key ["issuer_tag": 8, "nonce": 4]; payload ["grantee_tag": 8, "p": 4, "q": 4, "facility_site": 1, "station_site": 1, "seq": 2, "units": 4, "ore": 8, "wood": 8, "arms": 8];
+-    SWAP_RELEASED = 203; key ["issuer_tag": 8, "nonce": 4]; payload ["by": 1, "p": 4, "q": 4, "facility_site": 1, "station_site": 1, "ret_ore": 8, "ret_wood": 8, "ret_arms": 8, "kept_ore": 8, "kept_wood": 8, "kept_arms": 8];
+-    GRANT_REVOKED = 204; key ["issuer_tag": 8, "nonce": 4]; payload ["by": 1, "p": 4, "q": 4, "facility_site": 1, "station_site": 1, "ret_ore": 8, "ret_wood": 8, "ret_arms": 8, "kept_ore": 8, "kept_wood": 8, "kept_arms": 8];
+-    GRANT_CLOSED = 205; key ["issuer_tag": 8, "nonce": 4]; payload ["rent": 8, "rent_to": 8];
++    GRANT_ISSUED = 114; key ["issuer_tag": 8, "nonce": 4]; payload ["grantee_tag": 8, "p": 4, "q": 4, "facility_site": 1, "facility_gen": 1, "station_site": 1, "station_gen": 1, "max_swaps": 2, "max_units": 4, "expires_ts": 8, "rent": 8];
++    SWAP_RESERVED = 115; key ["issuer_tag": 8, "nonce": 4]; payload ["grantee_tag": 8, "p": 4, "q": 4, "facility_site": 1, "station_site": 1, "seq": 2, "units": 4, "ore": 8, "wood": 8, "arms": 8];
++    SWAP_EXECUTED = 116; key ["issuer_tag": 8, "nonce": 4]; payload ["grantee_tag": 8, "p": 4, "q": 4, "facility_site": 1, "station_site": 1, "seq": 2, "units": 4, "ore": 8, "wood": 8, "arms": 8];
++    SWAP_RELEASED = 117; key ["issuer_tag": 8, "nonce": 4]; payload ["by": 1, "p": 4, "q": 4, "facility_site": 1, "station_site": 1, "ret_ore": 8, "ret_wood": 8, "ret_arms": 8, "kept_ore": 8, "kept_wood": 8, "kept_arms": 8];
++    GRANT_REVOKED = 118; key ["issuer_tag": 8, "nonce": 4]; payload ["by": 1, "p": 4, "q": 4, "facility_site": 1, "station_site": 1, "ret_ore": 8, "ret_wood": 8, "ret_arms": 8, "kept_ore": 8, "kept_wood": 8, "kept_arms": 8];
++    GRANT_CLOSED = 119; key ["issuer_tag": 8, "nonce": 4]; payload ["rent": 8, "rent_to": 8];
+ }
+ 
+ /// S1 caravan places as logged (8 B): `kind u8 ‖ p i16 ‖ q i16 ‖
+diff --git a/frontier-abi/src/v2/rights.rs b/frontier-abi/src/v2/rights.rs
+index 57f4d10d..5997d291 100644
+--- a/frontier-abi/src/v2/rights.rs
++++ b/frontier-abi/src/v2/rights.rs
+@@ -287,7 +287,7 @@ ix_rights! {
+ // ------------------------------------------------------------ PS2 records
+ 
+ /// The Grant's PS2 records (kinds `GRANT_ISSUED` … `GRANT_CLOSED` of
+-/// [`crate::v2::log::CqKind`], **provisional codes 200–205**): one shared
++/// [`crate::v2::log::CqKind`], **provisional codes 114–119**, workstream 4's allocation rev 3): one shared
+ /// encoding for the program that logs them and the verifier that replays
+ /// them. Every record is keyed by the Grant (`issuer_tag ‖ nonce`).
+ pub mod record {
+@@ -631,9 +631,9 @@ mod tests {
+         ] {
+             assert_eq!(AnyKind::Cq(k).key_len(), 12);
+             assert!(record::is_rights(k));
+-            // Provisional codes: outside every other proposal (8: 104,
+-            // 10: 104–112) and the base table (up to 103).
+-            assert!((200..=205).contains(&(k as u8)));
++            // Provisional codes (workstream 4's allocation rev 3): above
++            // the base table (up to 103), 8's 104 and 10's 105–113.
++            assert!((114..=119).contains(&(k as u8)));
+         }
+         let s = record::Swap {
+             grantee_tag: 7,
+diff --git a/frontier-node/crates/verify/src/checks/vr_rights.rs b/frontier-node/crates/verify/src/checks/vr_rights.rs
+index 64aaddc1..a709ef1d 100644
+--- a/frontier-node/crates/verify/src/checks/vr_rights.rs
++++ b/frontier-node/crates/verify/src/checks/vr_rights.rs
+@@ -1,5 +1,5 @@
+ //! VR — the workshop-stock swap Grant (workstream 02-rights, **candidate**:
+-//! the check name, its codes and the record kinds 200–205 are provisional,
++//! the check name, its codes and the record kinds 114–119 are provisional,
+ //! not allocated).
+ //!
+ //! What it judges, over every successful program instruction:
+diff --git a/frontier-node/crates/verify/tests/rights_replay.rs b/frontier-node/crates/verify/tests/rights_replay.rs
+index ce443a54..0b1db6a5 100644
+--- a/frontier-node/crates/verify/tests/rights_replay.rs
++++ b/frontier-node/crates/verify/tests/rights_replay.rs
+@@ -1,5 +1,5 @@
+ //! **Workstream 02-rights (candidate, test only):** the verifier against
+-//! the workshop-stock swap Grant's records (provisional kinds 200–205) and
++//! the workshop-stock swap Grant's records (provisional kinds 114–119) and
+ //! its check VR.
+ //!
+ //! **No key is generated, derived or used, and nothing is signed.** The
+@@ -847,6 +847,18 @@ fn an_unknown_instruction_or_account_fails() {
+     let found = new_findings(&b.inp, &fl.inp);
+     assert!(has(&found, UNKNOWN_INSTRUCTION), "{found:#?}");
+     assert!(has(&found, UNKNOWN_ACCOUNT), "{found:#?}");
++    // 0xFE, the tag workstream 4's allocation (rev 3) keeps unassigned for
++    // the verifier's unknown-instruction tests, alone: V0 fails it.
++    let (mut fl, _) = honest(&b);
++    let t = fl.time();
++    let ix = Instruction {
++        program_id: fl.inp.cfg.program,
++        accounts: vec![meta(b.grantee_w, true, true)],
++        data: vec![0xFE],
++    };
++    fl.push(b.grantee_w, ix, vec![], &[], t);
++    let found = new_findings(&b.inp, &fl.inp);
++    assert!(has(&found, UNKNOWN_INSTRUCTION), "0xFE: {found:#?}");
+ }
+ 
+ #[test]
+diff --git a/permutation-frontier/src/events.rs b/permutation-frontier/src/events.rs
+index 4d62fb60..450f338a 100644
+--- a/permutation-frontier/src/events.rs
++++ b/permutation-frontier/src/events.rs
+@@ -161,10 +161,10 @@ pub fn emit(
+ // ------------------------------------------------------------ ABI v2
+ 
+ /// Highest record kind code of ABI v2 (S1 map growth: REST; 89 reserved, MC §6).
+-/// 02-rights (proposal): 205, the provisional Grant records 200–205; the
++/// 02-rights (proposal): 119, the provisional Grant records 114–119; the
+ /// codes between are undefined in [`WIDTHS_V2`] and refused by
+ /// [`write_body_v2`] as before.
+-pub const MAX_KIND_V2: usize = 205;
++pub const MAX_KIND_V2: usize = 119;
+ 
+ /// `(defined, key width, payload width)` per record kind code of ABI v2:
+ /// [`WIDTHS`] for M1's kinds and `frontier_abi::v2::log::CQ_SPECS` for
+diff --git a/permutation-frontier/src/proc/conquest.rs b/permutation-frontier/src/proc/conquest.rs
+index 49748624..a0b625c8 100644
+--- a/permutation-frontier/src/proc/conquest.rs
++++ b/permutation-frontier/src/proc/conquest.rs
+@@ -369,8 +369,8 @@ pub mod cqlog {
+     use crate::layout::{chain_of, set_chain};
+ 
+     /// Highest kind code a v2 record carries (103: S1's REST; 02-rights
+-    /// proposal: 205, its provisional Grant records 200–205).
+-    pub const MAX_KIND: usize = 205;
++    /// proposal: 119, its provisional Grant records 114–119).
++    pub const MAX_KIND: usize = 119;
+ 
+     /// `(defined, key width, payload width)` per kind: M1's and MC's.
+     pub const WIDTHS: [(bool, u16, u16); MAX_KIND + 1] = {
+diff --git a/permutation-frontier/src/proc/rights.rs b/permutation-frontier/src/proc/rights.rs
+index d148a414..30b7f772 100644
+--- a/permutation-frontier/src/proc/rights.rs
++++ b/permutation-frontier/src/proc/rights.rs
+@@ -34,7 +34,7 @@
+ //!   burned; ReleaseSwap that can return nothing is `ReturnBlocked`, and
+ //!   CloseGrant waits (`StillLive`). A store above its cap keeps a return
+ //!   (`Accrual::add` may exceed the cap; settle never lowers it).
+-//! - **Records (candidate, provisional kinds 200–205).** Every instruction
++//! - **Records (candidate, provisional kinds 114–119).** Every instruction
+ //!   logs one PS2 record (`frontier_abi::v2::rights::record`): GRANT_ISSUED
+ //!   chains the issuer's Citizen; SWAP_RESERVED and SWAP_EXECUTED the
+ //!   grantee's Citizen, the station and the facility; SWAP_RELEASED the
