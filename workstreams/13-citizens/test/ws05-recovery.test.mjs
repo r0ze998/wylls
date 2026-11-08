@@ -150,7 +150,7 @@ async function reopenOnce(r, { costFor, wire }) {
   return again;
 }
 
-// ---- with workstream 5's ledger (original e9d1551a) -----------------------------------------------------------------
+// ---- with workstream 5's ledger (e9d1551a or 10e74967) --------------------------------------------------------------
 const CASES = [
   // [stop point, 5's own recovery, expected 5 state of the recovered call]
   ['after-mark-running', true, 'released'],
