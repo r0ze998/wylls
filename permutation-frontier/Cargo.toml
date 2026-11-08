@@ -48,8 +48,8 @@ nft-experimental = ["program"]
 custody-preview = []
 # Workstream 09 (capacity lending), a preview: the capacity instructions
 # 0xF0–0xFD (`proc::capacity`, workstream 4's provisional band), dispatched
-# before the v2 tags; the build carries the `0x2000` program-version bit
-# (workstream 09's proposal) so its Seasons never mix with others. No PS2
+# before the v2 tags; the build carries the `0x1000` program-version bit
+# (workstream 4's provisional allocation) so its Seasons never mix with others. No PS2
 # record (the kinds are not allocated). Not deployable.
 capacity-preview = [
     "program",

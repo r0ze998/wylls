@@ -67,7 +67,7 @@
 
 1. **記録の kind**：⑨ の記録は 20 種、帯 120–129 は 10 枠。決まるまで capacity の build は ⑨ の PS2 記録を出さない（検証器から見て UNVERIFIABLE）。
 2. **口座**：AccountKind 25・26 を `v2::layout::AccountKind` に入れるか（今は ABI の外、命令の処理が持ち主・住所・magic を検査）。magic の提案 `PSF1CPOL`・`PSF1CJOB`。
-3. **版**：capacity の build の版の印 `0x2000`（提案）。custody と一緒なら `5 | 0x2000`。NFT・wide との組み合わせは `compile_error`。
+3. **版**：capacity の build の版の印は **`0x1000`**（④ の仮の割当て、2026-11-08。② の rights の build が `0x2000` を使うため）。custody と一緒なら `5 | 0x1000`。NFT・wide との組み合わせは `compile_error`。
 4. **ルールの hash**：⑨ の規則は `KERNEL_VERSIONS` に入れていない。規則の束ね方の試験（`frontier_shared.rs`）は、⑨ の module を「feature の内側の未結合の preview」と名指しで除外した（隠していない）。
 5. **共有の監視の一覧**：`permutation-frontier/src/ix.rs` の「倉の在庫を書く場所」の一覧に ⑨ の書き手を足した（上限で抑えている）。
 6. **継続世界の R1**：⑨ の利用者・所有者の命令は既存の player prologue を通るので、戦期の終わり（end bell）の後に拒否される。⑨ は拒否しないことを求めている（CONTINUITY.ja.md）。
@@ -100,7 +100,7 @@
 - 区画の側の記録（`LOT_CONSUMED`、返却）は ⑩ の kind。⑨ の記録は ⑨ の Pool・Job の鎖に載せる案（entity kind は ④ の判断）。
 - 代わりに 20 枠を割り当てるなら、副種別を外し、表の順に 1 つずつにすればよい。
 
-**④ の回答（2026-11-08）の反映**：(e) 版の印は別の program の版として扱う（⑨ は `0x2000`）。ただし ⑨ は **custody と同時に build できるようにしている**（区画からの投入に両方が要る。版は `5 | 0x2000`）。④ は「同時に compile できないようにするのは、それまでの扱いとして妥当」としたが、⑨ は両方を要するので、この組み合わせの版も ④ に決めてほしい。(d)・(b) は仮の割当として載せてよい（正式化はこの候補の上で 0001 を確かめてから）。(a)・(c) は保留（記録は出さない）。(f) RULESET_HASH には入れない（入れていない）。
+**④ の回答（2026-11-08）の反映**：(e) 版の印は別の program の版として扱う（⑨ は ④ の仮の割当てで **`0x1000`**。② の rights の build が `0x2000` を使うため、④ が 2026-11-08 に変えた。rights と capacity の同時の build は ④ の側で `compile_error`）。⑨ は **custody と同時に build できるようにしている**（区画からの投入に両方が要る。版は `5 | 0x1000`）。④ は「同時に compile できないようにするのは、それまでの扱いとして妥当」としたが、⑨ は両方を要するので、この組み合わせの版も ④ に決めてほしい。(d)・(b) は仮の割当として載せてよい（正式化はこの候補の上で 0001 を確かめてから）。(a)・(c) は保留（記録は出さない）。(f) RULESET_HASH には入れない（入れていない）。
 
 **④ の土台の clippy の指摘**：`ae0df617` の `permutation-frontier/src/crypto/quick.rs` の試験の値に、使われていない関数・定数が 8 件ある（既定の build でも出る）。⑨ の `run.sh` は ⑨ のファイルの指摘だけで失敗にし、残りは数を記録する（`results/core-tests.log`）。
 

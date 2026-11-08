@@ -6,8 +6,8 @@
 //! are workstream 4's provisional allocation (`ABI-ALLOCATION-20261106.ja.md`
 //! rev 3–6: tags 0xF0–0xFD, errors 110–149, AccountKind 25 CapacityPool and
 //! 26 CapacityJob, seeds `cp` and `cj`). The magic values (`PSF1CPOL`,
-//! `PSF1CJOB`) and [`CAPACITY_PREVIEW_VERSION_BIT`] are workstream 09's
-//! proposals, not allocations. **No record kind is allocated** (workstream
+//! `PSF1CJOB`) and [`CAPACITY_PREVIEW_VERSION_BIT`] (`0x1000`) are
+//! provisional (workstream 4's of 2026-11-08 for the bit). **No record kind is allocated** (workstream
 //! 09 has 20 kinds of record, workstream 4's band 120–129 holds 10): a
 //! capacity build logs no PS2 record for these instructions, and the
 //! verifier cannot judge them (they are unverifiable, as custody was before
@@ -55,9 +55,11 @@ use crate::layout::AccountKind as K;
 use crate::prologue::{Acc, Group, Spec, Wr};
 use crate::v2::layout::AccountKind as K2;
 
-/// The bit a capacity build sets in its `PROGRAM_VERSION` (proposal;
-/// disjoint from the NFT build's `0x8000` and the wide build's `0x4000`).
-pub const CAPACITY_PREVIEW_VERSION_BIT: u16 = 0x2000;
+/// The bit a capacity build sets in its `PROGRAM_VERSION` (workstream 4's
+/// provisional allocation of 2026-11-08: `0x1000`, since workstream 2's
+/// rights build carries `0x2000`; disjoint from the NFT build's `0x8000`
+/// and the wide build's `0x4000`).
+pub const CAPACITY_PREVIEW_VERSION_BIT: u16 = 0x1000;
 
 pub const TAG_FIRST: u8 = 0xF0;
 pub const TAG_LAST: u8 = 0xFD;
@@ -673,7 +675,9 @@ mod tests {
         for v in [PROGRAM_VERSION_V2, PROGRAM_VERSION_S1, 5u16, 0x8004, 0x4004] {
             assert_eq!(v & CAPACITY_PREVIEW_VERSION_BIT, 0, "{v:#x}");
         }
-        assert_eq!(CAPACITY_PREVIEW_VERSION_BIT & (0x8000 | 0x4000), 0);
+        // NFT 0x8000, wide 0x4000, workstream 2's rights 0x2000.
+        assert_eq!(CAPACITY_PREVIEW_VERSION_BIT & (0x8000 | 0x4000 | 0x2000), 0);
+        assert_eq!(CAPACITY_PREVIEW_VERSION_BIT, 0x1000);
     }
 
     #[test]

@@ -163,7 +163,7 @@ mod tests {
         assert_eq!(
             crate::PROGRAM_VERSION,
             4 | if cfg!(feature = "capacity-preview") {
-                0x2000
+                0x1000
             } else {
                 0
             }
@@ -180,7 +180,7 @@ mod tests {
         assert_eq!(
             crate::PROGRAM_VERSION,
             5 | if cfg!(feature = "capacity-preview") {
-                0x2000
+                0x1000
             } else {
                 0
             }

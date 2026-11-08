@@ -153,8 +153,8 @@ pub const PROGRAM_VERSION: u16 = frontier_abi::v2::presets::PROGRAM_VERSION_S1
 pub const PROGRAM_VERSION: u16 =
     frontier_abi::v2::presets::PROGRAM_VERSION_CUSTODY | capacity_bit();
 
-/// Workstream 09's capacity preview (`capacity-preview`): the `0x2000` bit
-/// (a proposal, `frontier_abi::capacity::CAPACITY_PREVIEW_VERSION_BIT`), so
+/// Workstream 09's capacity preview (`capacity-preview`): the `0x1000` bit
+/// (workstream 4's provisional allocation, `frontier_abi::capacity::CAPACITY_PREVIEW_VERSION_BIT`), so
 /// a capacity build's Seasons are its own; with custody it is the custody
 /// build's version with the bit (lots feed jobs there).
 const fn capacity_bit() -> u16 {
