@@ -3096,3 +3096,19 @@ checkpoint の `95b0ab225ca9e9e626941b51981df2240198d91c`（tree `89a64830da3991
 - **⑯ 自身の手順**:
   - ⑯ は、guard に既知の鍵の経路を止めさせる目的で試験を流していない。今回の pass で流したのは、scan の list に載らないか、review された file と、⑯ の純粋な probe だけ。
   - 以前の ⑤ の 4 file の件（§ phase 18 より前。guard で Keypair.generate に当たったもの）は、当時から鍵を使うものとして記録し、合格に数えていない。
+
+## 29.25 ⑳ の確定訂正 0a766757 の照合（文書のみ）
+
+対象：⑳ `0a766757cffbee6e7229e385d59633e72e00ffbf`（tree `6bef5b7824771be3e65eb8972fa775dd01f14763`）。親 `1da4a517` からの差分は `permutation-nft-resident-spike/docs/HOLDER-CONTRACT.ja.md` の 7 行追加だけ。`5ee5fa35` から見ても、変わったのは同じ文書だけで（`git diff 5ee5fa35 1da4a517` も同じ文書の 6 行）、コードと `scripts/` は変わっていない。
+
+照合した内容（静的な照合のみ、新しい試験は走らせていない）：
+- 無効とする主張は 2 つ：§14 の「103 file・1014 件」と、§15 の「残りの 101 file も 0」。§29.24 の記録と一致する。guard が止めた 26 回の pkcs8 import は、鍵が作られなかった証拠にも、鍵なしの合格にも数えない。この扱いも変わらない。
+- 適格な実行は 1 件だけ（resident-me 単独、1da4a517、5/5）。`web-frontier-resident-me` は 0a766757 の `node-key-tests.txt` にも `node-key-reviewed.txt` にも載っていない。0a766757 の木で scan の `--check` は exit 0、`--covers` も exit 0。1da4a517 のコードは 5ee5fa35 と同じなので、⑯ が 8443d12e と 5ee5fa35 で得た resident-me の 5/5（§29.24）は同じコードに当たる。1da4a517 そのものでは、⑯ は走らせていない。
+- 適格でない 5 file（wide-holding-ui、resident-home、ws07-nft、ws07-me-answered、herald）は、どれも `node-key-tests.txt` に 1 回ずつ載り、reviewed の一覧には無い。⑳ の記述どおり。controller の修正 5ee5fa35 の「旧で落ち、新で通る」結果は、鍵なしの証拠ではない。
+
+判定：5ee5fa35 は §29.23 の静的な審査と、resident-me の zero-call の実行（5/5）だけで評価する。
+- 通過：静的な照合 3 件、scan の --check と --covers の 2 件。
+- 失敗：0。
+- blocked：0。
+- 未実行：controller の 2 file を含む、一覧に載る 5 file。⑯ は鍵経路を guard に止めさせる実行をしない。
+- 全体の完了は宣言しない。
