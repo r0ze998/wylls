@@ -109,3 +109,24 @@ test('a reviewed named target with its reason stays runnable; a direct hit or a 
     rmSync(dir, { recursive: true, force: true });
   }
 });
+
+test('a test that starts a child process or imports a computed path is unfollowed (conservative) until reviewed', () => {
+  const dir = tree({
+    'workstreams/05-ai-participation/model-api/test/spawns.test.mjs': `import { spawn } from 'node:child_process';\nspawn(process.execPath, ['x.mjs']);\n`,
+    'workstreams/12-memory/test/computed.test.mjs': `const u = new URL('../x.mjs', import.meta.url);\nawait import(u);\n`,
+    'workstreams/12-memory/test/literal.test.mjs': `await import('./ok.mjs');\n`,
+    'workstreams/12-memory/test/ok.mjs': `export const a = 1;\n`,
+    'scripts/ci/node-key-tests.txt': '',
+  });
+  try {
+    assert.equal(run(dir).status, 0);
+    const text = readFileSync(path.join(dir, 'scripts/ci/node-key-tests.txt'), 'utf8');
+    assert.deepEqual(listed(dir).sort(), ['workstreams/05-ai-participation/model-api/test/spawns.test.mjs', 'workstreams/12-memory/test/computed.test.mjs']);
+    assert.ok(text.indexOf('spawns.test.mjs') > text.indexOf('# unfollowed'), 'in the unfollowed section');
+    writeFileSync(path.join(dir, 'scripts/ci/node-key-reviewed.txt'), 'workstreams/12-memory/test/computed.test.mjs  # its target names no key API\n');
+    assert.equal(run(dir).status, 0);
+    assert.deepEqual(listed(dir), ['workstreams/05-ai-participation/model-api/test/spawns.test.mjs']);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});

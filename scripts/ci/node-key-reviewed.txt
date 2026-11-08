@@ -1,8 +1,11 @@
 # Node test files whose import closure reaches a file that names a key API, cleared by a static call-path review:
 # what they call never reaches the key code, so the key-free jobs run them (scan-node-key-tests.mjs). One per line,
 # `<path>  # <why>`; a file the scan lists directly or through a test helper cannot be named here.
-workstreams/06-creation/test/ports.test.mjs  # ④ 2026-11-08: reaches keys.mjs only by plan.mjs's import (via caravan.mjs); calls caravan's CORE_RESOURCES and the runexec/③ ports, never plan's signHash
+workstreams/06-creation/test/ports.test.mjs  # ④ 2026-11-08: reaches keys.mjs only through plan.mjs (plan.mjs imports it directly and via registry.mjs and validate.mjs; via caravan.mjs); calls caravan's CORE_RESOURCES and the runexec/③ ports, never plan's signHash
 workstreams/06-creation/test/dispatch.test.mjs  # ④ 2026-11-08: caravan.mjs uses plan.mjs's resolve only (a pure lookup); connect-fixture's relayRequest and scenario's mineDelivery name no key; fileJournal uses node:crypto randomUUID only
 workstreams/06-creation/test/connect.test.mjs  # ④ 2026-11-08: toMcpCaravans/toRunSpecs -> plan.resolve only; scenario and connect-fixture name no key
-workstreams/06-creation/test/connect-live.test.mjs  # ④ 2026-11-08: as connect/dispatch/ports; replaces crypto.subtle key methods with throwers itself; ③ and ④ code read from their trees
+workstreams/06-creation/test/connect-live.test.mjs  # ④ 2026-11-08: as connect/dispatch/ports (keys.mjs only through plan.mjs, as there); load(root, rel) reads ③'s server.mjs and ④'s clients, which name no key API (static read 2026-11-08); replaces crypto.subtle key methods with throwers itself; ③ and ④ code read from their trees
 workstreams/06-creation/test/intake.test.mjs  # ④ 2026-11-08: intake.mjs names no key; dispatch as above
+workstreams/12-memory/test/adapters-ws13-canonical.test.mjs  # ④ 2026-11-08: its computed imports are ⑬'s resident/frame.mjs, ports/ws12-canonical.mjs and ports/ws12-public-evidence.mjs, whose import closures name no key API (static closure)
+workstreams/12-memory/test/provenance-coverage.test.mjs  # ④ 2026-11-08: its computed import is ⑬'s resident/ports/ws12-canonical.mjs, whose import closure names no key API (static closure)
+scripts/ci/scan-node-key-tests.test.mjs  # ④ 2026-11-08: spawns only node with scan-node-key-tests.mjs, which reads files (its key-API pattern is text, never called); fixture files are written as text and never imported

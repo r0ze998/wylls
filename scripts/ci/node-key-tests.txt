@@ -327,4 +327,29 @@ workstreams/13-citizens/test/ws12-canonical.test.mjs
 workstreams/13-citizens/test/ws12-identity-clock.test.mjs
 workstreams/13-citizens/test/ws12-public-evidence.test.mjs
 workstreams/13-citizens/test/ws12-reflect.test.mjs
+# unfollowed (conservative: its closure starts a child process or a worker, or imports a computed path, which the
+# scan cannot follow; listed until a review names it in scripts/ci/node-key-reviewed.txt with its reason)
+permutation-gateway/test/citizens-ac10a-brain-stats.test.mjs
+permutation-gateway/test/citizens-ac10a-goals-served.test.mjs
+permutation-gateway/test/citizens-ac10a-sealed-why.test.mjs
+permutation-gateway/test/citizens-audit-permission.test.mjs
+permutation-gateway/test/citizens-integ-b-clock.test.mjs
+permutation-gateway/test/citizens-memory-permission.test.mjs
+permutation-gateway/test/citizens-mind-guards.test.mjs
+permutation-gateway/test/citizens-mind-server.test.mjs
+permutation-gateway/test/citizens-package-evidence.test.mjs
+permutation-gateway/test/citizens-pilot.test.mjs
+permutation-gateway/test/citizens-probe-target.test.mjs
+permutation-gateway/test/citizens-probe.test.mjs
+permutation-gateway/test/citizens-report.test.mjs
+permutation-gateway/test/citizens-seat-script.test.mjs
+permutation-gateway/test/web-sdk.test.mjs
+workstreams/04-execution/clients/acts.test.mjs
+workstreams/04-execution/clients/runs.test.mjs
+workstreams/05-ai-participation/model-api/test/multiprocess.test.mjs
+workstreams/05-ai-participation/model-api/test/safety-e2e.test.mjs
+workstreams/05-ai-participation/model-api/test/ws13-stop.test.mjs
+workstreams/12-memory/test/adapters-ws13-real.test.mjs
+workstreams/13-citizens/test/integration-records.test.mjs
+workstreams/14-central-tower/game/centre.test.mjs
 # seen by the guard (they reach a key API in src/ at run time; added by hand)
