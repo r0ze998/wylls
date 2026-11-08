@@ -1,0 +1,40 @@
+### ④ 89232fad1b648750fa63026a80902d1c0926bc07 tree 0301f85e0e0ab7ad8d58eac1c60caf475fe00524 (ws04 runexec, ⑯ build sha256 3438c7d0dfb7b37d3a24c4f453041b4e1b61fe2b43167d468dbbc92aac192359)
+unittests: test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+tests/concurrency.rs: test result: FAILED. 7 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.72s
+test a_store_opened_while_another_holds_the_new_files_lock_waits_and_opens ... ok
+test a_store_whose_lock_is_never_released_still_fails ... ok
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 10.00s
+
+concurrency, first run (right after the build):
+test cancels_race_executors ... FAILED
+cancelled 0 (after the facility: 0), fulfilled 36
+thread 'cancels_race_executors' panicked at tests/concurrency.rs:320:5:
+== new ws04 89232fad:
+  1: cancelled 15 (after the facility: 8), fulfilled 21 | 8 passed; 0 failed
+  2: cancelled 14 (after the facility: 6), fulfilled 22 | 8 passed; 0 failed
+  3: cancelled 17 (after the facility: 9), fulfilled 19 | 8 passed; 0 failed
+  4: cancelled 11 (after the facility: 9), fulfilled 25 | 8 passed; 0 failed
+  5: cancelled 11 (after the facility: 5), fulfilled 25 | 8 passed; 0 failed
+  6: cancelled 11 (after the facility: 3), fulfilled 25 | 8 passed; 0 failed
+  7: cancelled 15 (after the facility: 2), fulfilled 21 | 8 passed; 0 failed
+  8: cancelled 11 (after the facility: 5), fulfilled 25 | 8 passed; 0 failed
+== old ws04 a33e3b0a (7535a17e):
+  1: cancelled 16 (after the facility: 10), fulfilled 20 | 8 passed; 0 failed
+  2: cancelled 16 (after the facility: 8), fulfilled 20 | 8 passed; 0 failed
+  3: cancelled 15 (after the facility: 8), fulfilled 21 | 8 passed; 0 failed
+  4: cancelled 9 (after the facility: 4), fulfilled 27 | 8 passed; 0 failed
+  5: cancelled 14 (after the facility: 11), fulfilled 22 | 8 passed; 0 failed
+  6: cancelled 12 (after the facility: 5), fulfilled 24 | 8 passed; 0 failed
+
+③'s cold-open reproduction (d4b22c97 run-store-cold-open.sh, 200 trials × 2 processes):
+== old 4cb6634ddc601d3b
+trial 189 proc 1 exit 1: {"error":"StoreError","message":"database is locked"}
+trial 192 proc 1 exit 1: {"error":"StoreError","message":"database is locked"}
+failures: 42 of 400
+== new 3438c7d0dfb7b37d
+failures: 0 of 400
+
+③ d4b22c97 tests over 89232fad (run-guarded.sh, WS*_ROOT = that tree, RUNEXEC_BIN = the 89232fad build):
+run 1: # tests 33 # pass 33 # fail 0 
+run 2: # tests 33 # pass 33 # fail 0 
+run 3: # tests 33 # pass 33 # fail 0 

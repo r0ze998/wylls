@@ -2619,3 +2619,40 @@ checkpoint の `95b0ab225ca9e9e626941b51981df2240198d91c`（tree `89a64830da3991
 - ③ の 1 回だけの失敗：③ が主担当で調べている。③ の新しい commit は、まだ無い（`838338be` のまま）。
   - ⑯ は、失敗した run の記録（`logs/phase23/s03-one-off-failure-4d44.txt`）を ③ に渡した。期待は `['accepted', true, 'real']`、実際は `[undefined, true, 'real']`、integration.test.mjs の 85 行。
   - ⑯ は、独自の修正はしない。
+
+## 29.5 ③ の 1 回だけの失敗：③・④ の調査と、⑯ の独立のレビュー
+
+- ⑯ の run の条件（③ と ④ に送った）:
+  - 2026-11-08T17:44:00Z。foreground で約 3.1 秒。NODE_OPTIONS は無い。
+  - WS03_GATEWAY_ROOT=`<4d44f021 の tree>/permutation-gateway`。WS04_ROOT と WS05_ROOT は、どちらも 4d44f021 の tree。
+  - RUNEXEC_BIN は、⑯ が a33e3b0a から build したもの（sha256 `4cb6634d…`）。run-guarded.sh はそのまま使った。
+  - 4 vCPU。⑯ のほかの job は無かった（最後の job は 16:32Z に終わっていた）。並列に動いていたのは、node --test が file ごとに並べたものだけ。
+- **③ `d4b22c971d5e16e1e17dbe593bfa5790e9816ca5`**（③ の dir の tree `7cf99188…`、親 838338be）。変わったのは試験と文書だけ:
+  - harness の `openRunStore`（store を setup で 1 回開く）。
+  - integration と run に、それを 1 行ずつ足した。
+  - mock の `registry-busy.test.mjs`。
+  - 再現の script。
+- ⑯ の確認:
+  - 候補の ③ の dir（838338be と一致する）に ③ の 6 file を重ね、89232fad の build を使って run-guarded.sh を流した。**33/33 を 3 回**。
+  - registry-busy は、registry の最初の StoreError で何も送らずに RunRegistryUnavailable を返し、再試行では 1 回だけ登録して 1 回だけ送ることを確かめる。
+  - 元の失敗の形（`[undefined, true, 'real']`：r3 の state が無い）は、registry が StoreError を返したときの ③ の答えと合う。ただし、ログが無いので因果は確かめられない（③・④ と同じ結論）。
+  - 注意：③ の setup が store を先に開くので、③ の試験は ④ の cold open の修正が後で退行しても気づかない。退行の検知は、④ の `store_cold_open` に任せることになる。
+- **④ `89232fad1b648750fa63026a80902d1c0926bc07`**（tree `0301f85e0e0ab7ad8d58eac1c60caf475fe00524`、95b0 からの 1 commit）。`store.rs` の `wal()` は、`PRAGMA journal_mode=WAL` だけを、SQLITE_BUSY のときに 10 秒の予算の中で 5 ms ごとに再試行する。ほかの誤り、SQLite が返す mode を見ないことは、前のまま。
+  - 静的監査：runexec の依存に鍵も HTTP も無い。concurrency の試験は Sim だけで、passnode を使わない。store_cold_open は SQLite の一時 file だけ。
+  - ⑯ の build：sha256 `3438c7d0…`（④ の `72740db3…` とは build の環境が違う）。
+  - 結果（`logs/phase23/ws04-89232fad.txt`）:
+    - lib 2/2、store_cold_open 2/2。
+    - ③ の再現（2 process × 200 回）：**古い binary は 400 回中 42 回失敗**（"database is locked"）、**新しい binary は 0 回**。
+    - concurrency：最初の 1 回だけ `cancels_race_executors` が「the race was not exercised」で失敗した（cancelled 0、fulfilled 36）。その後の 8 回は 8/8 で、cancelled は 11〜17。
+      - 古い ws04（a33e3b0a）でも 6 回とも 8/8 で、cancelled は 9〜16。
+      - 分布が同じなので、この修正のせいではない。競合が起きたことを要求する試験が、その run で競合を起こせなかった（試験の時間依存）と見る。
+      - 実際の欠陥ではなく、試験の設計の問題として ④ に伝える。
+- **⑦ `9b547d9d6daf68447dca3a6ba731f710df497bc1`**（親 95b0）。drawer.mjs の viewerState に 5 行足した。
+  - ⑯ の純粋な関数の probe（`probes/v16-ws07-viewer-state.mjs`。drawer.mjs の閉包には封印用の noble の BLS があるが、読み込むだけで呼ばない。repo の guard の下で流した）。結果（`logs/phase23/ws07-9b547d9d-viewer-state.txt`）:
+    - 最初の read が失敗した場合：古い版は known で join が開いた（⑦ の言う不具合）。新しい版は unreachable で join は閉じる。
+    - **⑦ の問いへの答え**：NotFound（not joined が分かった）の後で、refresh が失敗した場合。
+      - applyMeResult の error は citizen と holdings を残すので、citizen は null、holdings は空のまま、meStatus は 'error' になる。
+      - 新しい版では unreachable になり、join は閉じる。古い版では known で、join は開いていた。
+      - つまり、前の read で「not joined」が分かっていても、一時的な失敗で join の流れが閉じる。次の refresh（controller 1847 行）が成功するまで閉じたまま。
+      - Citizen を知っている場合は known のままなので、扱いが非対称。
+    - ただし、他の端末から参加したかもしれないので、閉じるほうが安全側とも言える。欠陥ではなく、⑦ が決めること（表示の判断で、game の規則ではない）として伝える。

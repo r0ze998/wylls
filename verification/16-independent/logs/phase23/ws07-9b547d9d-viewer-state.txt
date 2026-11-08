@@ -1,0 +1,19 @@
+### ⑦ 9b547d9d6daf68447dca3a6ba731f710df497bc1 (new) vs 95b0ab22 (old): viewerState / joinOpen (probes/v16-ws07-viewer-state.mjs, repo guard)
+== 95b0ab225ca9e9e626941b51981df2240198d91c
+{
+ "first read failed (nothing known)": "known / join open",
+ "NotFound: not joined": "known / join open",
+ "NotFound, then a refresh failed": "known / join open",
+ "Citizen known, then a refresh failed": "known / join open",
+ "village known, then a refresh failed": "known / join closed",
+ "still loading": "pending / join closed"
+}
+== 9b547d9d6daf68447dca3a6ba731f710df497bc1
+{
+ "first read failed (nothing known)": "unreachable / join closed",
+ "NotFound: not joined": "known / join open",
+ "NotFound, then a refresh failed": "unreachable / join closed",
+ "Citizen known, then a refresh failed": "known / join open",
+ "village known, then a refresh failed": "known / join closed",
+ "still loading": "pending / join closed"
+}
