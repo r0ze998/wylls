@@ -446,8 +446,11 @@ v0.25 の監視の下で、実際に鍵の API が呼ばれたのは上の 4 fil
 
 **この修正（`viewerOwnCitizen`）の評価に使う証拠**
 
-- `viewerOwnCitizen` の証拠は、静的審査だけ。鍵なしの手順で、この修正（NFT の viewer が別の種類の Citizen を拒む場面）を実行して確かめたものは無い。
+- `viewerOwnCitizen` の証拠は、静的審査と、次の鍵なしの限定試験。
+  - `permutation-gateway/test/web-frontier-viewer-own-citizen.test.mjs`（16 が作成、4 が統合）。`applyMeResult` だけを、`resident-citizen.json` の本物のバイトで呼ぶ。`scripts/ci/node-key-reviewed.txt` に登録（closure 87c87356…）。
+  - 登録前の 4 の静的審査：試験の FS（session null・agentWallet false）では `fsession.matchesCitizen` は呼ばれず、`refreshDelegation` は `loadAgents` の前で返る。137 file の closure に、読み込み時に鍵の API を呼ぶ file は無い（`seal-worker.mjs` の末尾は Worker の中でだけ動く）。
+  - `node-keyfree.sh` で 4/4（"0 seen by the guard"）。修正の 14 行だけを戻し digest を一時的に付け直すと、拒否の 2 件が落ちて 2/4（4 の実行。終わった後に戻した）。
 - 4 の静的審査：`residentAsset` は印の無い Citizen では無い（undefined）、印が無効なら null、有効なら asset のバイト（fcodec）。よって財布の viewer は印の無い Citizen だけ、NFT の viewer は `FS.resident.asset` を名指す印の Citizen だけを採り、それ以外は既存の `WrongKey` の経路になる。16 も同じ結論（REPORT §29.23）。
 - 限定実行（この修正の裏付けではない）：`web-frontier-resident-me` 5/5（20 が 1da4a517 で、16 が 8443d12e と 5ee5fa35 で、repo の guard の下、"0 seen by the guard"）。これが確かめるのは §14 の読み取りの契約（fcodec・`checkMe`・本物の `createHerald().me`）で、`viewerOwnCitizen` ではない。4 は統合候補の上で、この file と地図の試験 3 file を鍵なしの runner で 26/26、ブラウザの ws07-guard・ws07-grow・ws07-grow-r5・ws07-wide を guard の下で走らせ、すべて合格。これらは財布の viewer の経路が壊れていないことを示すだけで、NFT の viewer の拒否は試していない。
-- 実行による裏付けの道は、静的な call path の審査を経た `scripts/ci/node-key-reviewed.txt` への登録（その file の冒頭と `scan-node-key-tests.mjs` の既存の手順。ユーザーの承認は要件ではない。4 が前に「承認が要る」と書いたのは根拠の無い誤り）。ただし同じ手順により、scan が直接または test の helper で載せる file は登録できない（`web-frontier-resident-home` は直接。`web-frontier-wide-holding-ui` は src/ 経由なので審査の対象になりうる）。key-tests job の実行は今回許可されていない。
+- 実行による裏付けは、上の試験で得た（既存の reviewed の手順。ユーザーの承認は要件ではない。4 が前に「承認が要る」と書いたのは根拠の無い誤り）。scan が直接または test の helper で載せる file は登録できない（`web-frontier-resident-home` は直接）。`web-frontier-wide-holding-ui` は登録していない。key-tests job の実行は今回許可されていない。
 - 数えないもの：20 の focused な 7 file の実行（56 件中 55 件、修正を戻すと 2 件が落ちる）。`web-frontier-wide-holding-ui`・`web-frontier-resident-home` などが鍵の一覧に載り reviewed の一覧に無いので、呼び出し 0 の記録があっても鍵なしの証拠ではない。よって controller の修正の「旧で落ち・新で通る」には、鍵なしの手順での裏付けが無い。4 はこれらの file を走らせていない。
