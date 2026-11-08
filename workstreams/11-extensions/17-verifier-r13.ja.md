@@ -138,3 +138,27 @@
 **②の V0 と V0E の変更**（②のブランチ `claude/modest-wozniak-xcc7d8` @ `d0da1d02`、未統合）は review した。
 - Grant の命令と記録を「判定の対象」にするのは、V27 と同じ形。条件は、版が `runs_grants` で、S1 の検査（VR）が動くこと。妥当。
 - ただし、②の v0_coverage の差分は 0013 の前の木を基にしているので、衝突する。②には 0013 の上で作り直すよう伝えた。
+
+## 9. r16: wide-world の命令を V0 から VW に渡す（2026-11-08、パッチ 0016、④との分担）
+
+**分担（④の提案）。**
+- ④が VW1 を作る。`checks/vw_chains.rs`、feature `wide-world-experimental`、`4ecef1d9`。中身は wide の event の chain の照合で、wide のルールは判定しない。
+- ⑪が V0 で振り分ける。
+- ⑳が 0xDD WideResidentAct を判定する（V28）。
+- wide のルール 6 点は未決のまま。⑪は決めていない。
+
+**0016**（`4ecef1d9` に当てる。0013・0014 は候補に入っている。0015 も重ねて当たる）。
+- **V0 の振り分け:** 版のビット 0x4000 を持つ Season（wide の build）では、wide のタグ（0xD6–0xDF と 0xEE）を UNVERIFIABLE `WideUnmodelled` にする。意味は「VW に任せた。wide のルールはモデルが無い」。それ以外のタグは 0013 のまま。
+- **版:** wide の版（`0x4004`、NFT と合わせた `0xC004`）は `known_version` に**入れない**。wide のルールが無いので、Season として `UnknownProgramVersion` になり、PASS にならない。
+- **code:** `WIDE_UNMODELLED` を `codes.rs` に移した。`vw_chains.rs` は `pub use crate::codes::WIDE_UNMODELLED;`（1 行の変更）。
+- **定数:** V0 は既定の build でも動くので、版のビットとタグの範囲を literal で持つ。feature を付けたときだけ動く試験 `v0_wide_literals_are_the_wide_abi` が、`wide_ix` の定数と一致することを確かめる。
+
+| パッチ | 当て先 | SHA-256 | tree |
+|---|---|---|---|
+| `patches/0016-verify-v0-wide-tags-left-to-vw-on-ws04-4ecef1d9.patch` | `4ecef1d9` | `7aaf442c911e41f5e570e09a90bfb20cf836531e6ec384c977c5b131b88a85ad` | `689c264ef67f72caad0a8b8cb736561a02296e13` |
+
+**試験**（`results/verify-after-r16.log`）。
+- **既定の build:** 92 件通過。内訳は lib 50、camp_clear 3、evidence 8、missing_state 2、new_bands 10、open_items 3、unit 8、fixtures 8。
+- **feature `wide-world-experimental`:** VW の lib の試験 7 件と、new_bands の 2 件（wide の振り分けと、literal の一致）が通った。
+- fmt と、両方の feature での clippy `-D warnings` も通った。
+- `vw_chains.rs` の試験に、鍵ペアと署名が無いことを確かめた。
