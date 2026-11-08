@@ -302,3 +302,33 @@
 - **技術上の閉鎖**（この判断の後に開ける）：DEPART_DEBIT_ENABLED は配備用の build では false。境目をまたぐ移動は拒否。feature は既定で無効で、SBF では使えない。
 
 **取り込んでいないもの**：⑬（別口）。⑤ の共有コア（③が担当）。⑦ は claude/wylls-ui-ux-visual-oixhgs を aa20628a へ積み直し中。⑰ は公開待ち（routes/prize.mjs をどちらにするかは利用者の判断）。⑳ d85c42da は文書1行のみ。②・① はまだ取得できない。
+
+## 13. 2026-11-08 の第2回の統合（④）
+
+fa822453 の上に載せた。各チームのサブツリーは、チームが申告した tree と一致することを確かめた。
+
+| 取り込んだもの | commit | 確認（鍵なし） |
+|---|---|---|
+| ⑦ 960ca258（22 commit）と ⑱ 6fefd3e6（marches の 4件、サンプル世界を鍵なしにする） | 821b23c5 | gateway・web 1882/0（192ファイル、鍵を使う97ファイルは除外） |
+| ⑭ 45da6d38、⑮ 2a3a0c94、① 099a462f、⑥ 148bcebd | fbdd3741、d437b22a、20f0c0d1、384e8e3d | ⑭ 40、⑮ 133、① 234 と browser の鍵なし 8、⑥ 18（省略 7） |
+| ⑫ fa4baf14（workstreams/12-memory だけ） | 5c324f91 | ⑫ 62（省略 1） |
+| ⑧ 2ad3f450、a8303465、6516a52f、9d2323b1、d6c17faa、0a716e02、46a5fd16（d1d07078 は製品の判断が要るので外した） | f3834d35〜ace22dc6 | map_growth 8（既定）と 19（wide） |
+| ⑲ 4dbbe4a3（名前を付けた欠け gaps と LedgerMark） | 7c78e191 | verify の一式（下記） |
+| ⑳ b2bd9711、⑪ 606910ba のディレクトリとパッチ 0013 | — | verify の一式 |
+| 利用者の integrate/ws13-on-ws04-20261108 5d178b77（⑬ 0e6df20e、⑫ fa4baf14、W1） | cd05ff57 | ⑬ 188件中 182 合格、0 失敗、6 省略（署名を伴うもの）。runexec と ⑤ 10e74967 は実物 |
+| ⑤ の 6 パッチ（10e74967、on-ws04-6984acfa）＋ ③ 6b5d1b7b のディレクトリ | 74b29df8 ほか | agent/、mcp/、routes/agent.mjs は ⑤ の e29ec011 と同じ。③ の方法どおりの木（dc4a6265）で ③ 24/24 |
+
+**衝突の解消**
+- ⑲ と 2c8fbfa2 と ④ の scan：⑲ の設計を採った。live は、欠けが無くなるまで unproven。2c8fbfa2 の live の試験 2件は、Unknown を見る代わりに unproven と point_in_time_unverified を見るようにした。判定は Unverifiable のままで、緩めていない。
+- ⑫ の版は、5d178b77 の中身と同じだった（6c72f320）。二重には当てていない。
+
+**この候補の verify**：lib 50、history 16、history_assurance 8、ledger_history 7、resident_ledger 4、ws04_scan_resident 4、evidence 8、camp_clear 3、unit 8、missing_state 2、open_items 3、custody 6・8・7、new_bands 10
+
+**この候補の keeper ほか**：⑱ の鍵なし 8件、wide_duties 70、wide_reveal 30、wide_feed_guard 12、agents の reveal_time_tests 1、frontier-abi の全部、runexec の全部（署名を伴う gateway の 9件と chain_caravan の 1件は ignored）、chain-flow の check-fixtures 31/31
+
+**残っていること**
+- ③ の試験は、この候補では 12/24 にとどまる。原因：③ の代わりのヘラルドの /h/me に `slots` が無い。本物のヘラルドはこれを出し、統合後の画面（ac16d39e）はこれを要る。手元で `slots: []` を足すと 24/24 になった（commit はしていない）。③ に直してもらうよう頼んだ。
+- ⑬ の 4種の SQLite を読む canonical の試験（WS04_DB）は、ここでは実行していない。
+- ⑰ は公開を待っている。routes/prize.mjs をどちらにするかは、利用者の判断。
+- ⑨ の割当て（記録の kind、ClaimSplit、RULESET_HASH）は保留にした。
+- 実チェーン、SBF・LiteSVM、ブラウザでの表示は、まだ確かめていない。
