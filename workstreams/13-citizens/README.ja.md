@@ -2,6 +2,8 @@
 
 作業日 2026-10-30。基準 commit `4cd901de9f8e0d6c0b2016851d30595c4a70aa46`（統合候補 `integrate/claude-consolidation-20261029` の handoff 文書。`main` 9214293 に試遊キット文書を足したもの）。作業ブランチ `claude/eager-cerf-k74z5s`（この担当専用。`main` から 4cd901de へ早送り）。この担当の成果物はすべてこのディレクトリにあり、**共有コード（`permutation-gateway` ほか）は一行も変えていない**。共有コードへの変更は [patches/](patches/) に未適用の差分として分けた。
 
+> **2026-11-08：** ④ `cf517b55` の認証付き run 受付（requester、Created/Existing、NotAuthorized、run view の NoRecord と StoreUnavailable）に run ポートを合わせ、⑲の実契約（coverage・history）で入力を判定。記録は [WORK-20261108.ja.md](WORK-20261108.ja.md)。
+>
 > **2026-11-06（6 回目）：** ⑤ `09cd4aab`・③ `b76b0a57`・⑲ `4ee79ecc` は未着（⑤は e9d1551a のまま、その合格を 09cd4aab の合格とは読まない。試験は走らせた版を記録・固定）。`cross_checked` を確定根拠・完全性に数えない入力契約、④ `6984acfa` の runexec が出した記録を⑫経由で読む経路、PDA・web3 の鍵と署名まで止めるガード（監査で試み 0）。記録は [WORK-20261106f.ja.md](WORK-20261106f.ja.md)。
 >
 > **2026-11-06（5 回目）：** ⑫ `c6877a1a` の記憶が判断に反映する経路（⑫が確定根拠つきで決めた違反だけ、出どころが全部 chain のときだけ。fixture は試験スイッチ下のみ）、成功例と 7 つの拒否例、⑤の予約と⑬の保存の間の停止、停止ファイル・処理取消・権限撤回の区別。④ `d0e96d53` を基準。⑤ `276a392b` は未着。記録は [WORK-20261106e.ja.md](WORK-20261106e.ja.md)。
@@ -69,6 +71,7 @@
 | [06-evaluation.ja.md](06-evaluation.ja.md) | 機械的な検査と、人格・自律性・面白さの評価の分け方 |
 | [07-continuous-world.ja.md](07-continuous-world.ja.md) | 継続する世界：残っていたシーズン依存、変えた挙動、試験、残る判断 |
 | [08-retention-contract.ja.md](08-retention-contract.ja.md) | ④との送信記録の保持契約（提案）と回帰試験 |
+| [WORK-20261108.ja.md](WORK-20261108.ja.md) | 2026-11-08：④の認証付き run 受付との契約合わせ、⑲の実契約 |
 | [WORK-20261106f.ja.md](WORK-20261106f.ja.md) | 2026-11-06（6 回目）：版の固定、入力契約、統合版の記録、PDA まで含めた鍵の遮断 |
 | [WORK-20261106e.ja.md](WORK-20261106e.ja.md) | 2026-11-06（5 回目）：記憶の判断への反映、予約と保存の間の停止、3 種類の止め方 |
 | [WORK-20261106d.ja.md](WORK-20261106d.ja.md) | 2026-11-06（4 回目）：④・⑤・⑫の最新版の同時接続、6 つの場面での二重防止 |

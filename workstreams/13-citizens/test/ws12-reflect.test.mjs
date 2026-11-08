@@ -85,10 +85,15 @@ test('basis: chain only with every part chain and sourced and a finalized attest
   const y = basisCheck({ ...all, records: { kind: 'chain', source: 'ws19', cross_checked: true } }, { world: W });
   assert.ok(y.why.includes('records: cross_checked is not completeness'));
   // workstream 19's history words: never complete; not_fetched and gaps are not absence
-  for (const records of [{ ...chain, complete: null }, { ...chain, complete: false }, { ...chain, history_unproven: true }, { ...chain, coverage: [{ state: 'ledger_feed' }, { state: 'not_fetched' }] }]) {
+  // workstream 19's real fields (cf517b55 docs/frontier/history-coverage.ja.md)
+  for (const records of [{ ...chain, complete: null }, { ...chain, complete: false }, { ...chain, history_unproven: true },
+    ...['not_fetched', 'gap', 'unverifiable', 'cross_checked'].map(state => ({ ...chain, coverage: { state, range: [0, 900], heldBack: 0 } })),
+    { ...chain, coverage: { state: 'cross_checked', heldBack: 3 } },
+    ...['as_given', 'ledger_feed', 'unproven'].map(basis => ({ ...chain, history: { basis, complete: basis === 'unproven' ? false : null, scope: 'observed_transactions' } })),
+    { ...chain, findings: ['HistoryUnproven'] }]) {
     const z = basisCheck({ ...all, records }, { world: W });
     assert.equal(z.basis, 'unstated', JSON.stringify(records));
-    assert.ok(z.why.some(w => /history/.test(w)));
+    assert.ok(z.why.some(w => /history|coverage|HistoryUnproven/.test(w)), JSON.stringify(z.why));
   }
 });
 
