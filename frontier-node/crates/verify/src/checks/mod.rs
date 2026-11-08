@@ -293,13 +293,14 @@ pub fn run(input: &Input) -> Report {
         v28_resident_acts::run(&mut cx);
         ran.push("V28:resident-acts");
     }
-    // Workstream 10: custody has no check yet; any trace of it is never a
-    // PASS (every season: a season without custody FAILs on it).
+    // Workstream 10: custody is checked in part (V26); any trace of it is
+    // never a PASS (a season without custody FAILs on it).
     v26_custody::run(&mut cx);
     ran.push("V26:custody-guard");
     if v26_custody::custody_season(&cx) {
         ran.push("V26:custody-state");
         ran.push("V26:custody-history");
+        ran.push("V26:custody-replay");
     }
     ran.push("V10");
     counts(&mut cx);

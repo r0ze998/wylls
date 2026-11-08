@@ -1,19 +1,23 @@
 //! V26 guard (workstream 10, custody), listed as `V26:custody-guard`. The
-//! custody check proper (the kernel's replay of every lot, order and
-//! custody caravan) does not exist yet, so a history that carries any
-//! custody trace is never a PASS:
+//! custody check is not complete (V26 replays the instructions that touch
+//! one lot, not the custody caravans nor the records), so a history that
+//! carries any custody trace is never a PASS:
 //!
 //! - in a season whose program has no custody (every ruleset up to
 //!   `RULESET_HASH_V3`; the S1 program refuses the tags) a trace is a FAIL,
 //!   `CustodyInProgramWithoutIt`;
 //! - in a custody season (`RULESET_HASH_V4`, or a Season of
 //!   `program_version >= PROGRAM_VERSION_CUSTODY`) it is UNVERIFIABLE,
-//!   `CustodyUnverified`, until V26 replays it.
+//!   `CustodyUnverified`.
 //!
 //! In a custody season, `V26:custody-state` also re-judges what the
-//! accounts alone settle (see [`audit`]): a state the kernel cannot produce
-//! is a FAIL whatever the history. That never upgrades the season: with the
-//! history not replayed, the best a custody season gets is UNVERIFIABLE.
+//! accounts alone settle (see [`audit`]), `V26:custody-history` what every
+//! custody step keeps between a lot's recorded states (see [`history`]),
+//! and `V26:custody-replay` runs each landed OpenLot, SetLotQuota,
+//! SetLotOrder, RevokeLotOrder, ConsumeLot and CloseLot through the kernel
+//! on the states recorded before it (see [`replay`]). What they find wrong
+//! is a FAIL whatever the rest; none of them upgrades the season: the best
+//! a custody season gets is UNVERIFIABLE.
 //!
 //! A trace is: a custody instruction (0xC2–0xCC) of a landed transaction
 //! (top level: a CPI is caught by what it leaves), a custody record
@@ -30,8 +34,8 @@ use frontier_abi::v2::Ix;
 use super::{ent, Ctx};
 use crate::codes::{
     CUSTODY_HISTORY_BROKEN, CUSTODY_HISTORY_UNEXPLAINED, CUSTODY_IN_PROGRAM_WITHOUT_IT,
-    CUSTODY_LOT_BROKEN, CUSTODY_OVER_CAPACITY, CUSTODY_RULE_UNDECIDED, CUSTODY_UNVERIFIED,
-    CUSTODY_VAULT_COUNTS,
+    CUSTODY_LOT_BROKEN, CUSTODY_OVER_CAPACITY, CUSTODY_REPLAY_INCOMPLETE, CUSTODY_REPLAY_MISMATCH,
+    CUSTODY_RULE_UNDECIDED, CUSTODY_UNVERIFIED, CUSTODY_VAULT_COUNTS,
 };
 use crate::Severity;
 
@@ -194,6 +198,7 @@ pub fn run(cx: &mut Ctx) {
     if custody {
         audit(cx);
         history(cx);
+        replay(cx);
     }
     let n = traces.len();
     for (i, (entity, bell, tx, what)) in traces.into_iter().enumerate() {
@@ -221,7 +226,9 @@ pub fn run(cx: &mut Ctx) {
                 entity,
                 bell,
                 tx,
-                format!("{what}: custody is not verified (no V26 replay yet)"),
+                format!(
+                    "{what}: custody is not verified (V26 does not replay caravans or records yet)"
+                ),
             );
         } else {
             cx.fail(
@@ -808,5 +815,461 @@ pub fn history(cx: &mut Ctx) {
             break;
         }
         cx.fail(V, CUSTODY_HISTORY_BROKEN, entity, u32::MAX, tx, what);
+    }
+}
+
+// ------------------------------------------------------------ replay
+
+/// What the replay concluded for one landed custody instruction.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Replayed {
+    /// The kernel, run on the accounts as they were before the transaction
+    /// with the instruction's own arguments and signer, writes exactly what
+    /// the transaction left in the lot (and the vault's custody counts).
+    Matches,
+    /// It does not, or the kernel refuses the instruction: a FAIL.
+    Mismatch(String),
+    /// The input lacks what the replay needs (a state before or after), or
+    /// the instruction is not replayed by this build: UNVERIFIABLE.
+    Unreplayed(String),
+}
+
+/// An account's data before a transaction (`None`: not in the input).
+pub type StateBefore<'a> = &'a dyn Fn(&[u8; 32]) -> Option<Vec<u8>>;
+/// An account after a transaction: `None` not in its post-state,
+/// `Some(None)` closed, `Some(Some(data))` its data.
+pub type StateAfter<'a> = &'a dyn Fn(&[u8; 32]) -> Option<Option<Vec<u8>>>;
+
+/// One custody instruction and the evidence around it, for [`replay_ix`].
+pub struct ReplayCase<'a> {
+    /// The instruction's data, with its tag.
+    pub data: &'a [u8],
+    /// Its account keys, in order (`[actor, payer, season, citizen, …]`).
+    pub accounts: &'a [[u8; 32]],
+    /// The transaction's block time (the program's clock).
+    pub time: i64,
+    /// The bell at `time` (`bell_at(genesis_ts, time)`), if known.
+    pub bell: Option<u32>,
+    /// An account's data before the transaction (`None`: not in the input).
+    pub before: StateBefore<'a>,
+    /// An account after it: `None` not in the transaction's post-state,
+    /// `Some(None)` closed, `Some(Some(data))` its data.
+    pub after: StateAfter<'a>,
+}
+
+/// The kernel's view of a Vault account (the program's `vault_view`; the
+/// address checks are V9's).
+pub fn vault_view_of(d: &[u8]) -> Option<permutation_rules::frontier::custody::VaultView> {
+    use crate::world::le;
+    use permutation_rules::frontier::holding::RESOURCES;
+    if d.len() < VA::SIZE || d.get(..8) != Some(&VA::MAGIC[..]) {
+        return None;
+    }
+    let mut stores = [0i64; RESOURCES];
+    let mut quota = [0i64; RESOURCES];
+    for i in 0..RESOURCES {
+        stores[i] = le(&d[VA::store(i)..VA::store(i) + 8]) as i64;
+        quota[i] = le(&d[VA::custody_quota(i)..VA::custody_quota(i) + 8]) as i64;
+    }
+    Some(permutation_rules::frontier::custody::VaultView {
+        p: le(&d[VA::P..VA::P + 2]) as u16 as i16,
+        q: le(&d[VA::Q..VA::Q + 2]) as u16 as i16,
+        tile: d[VA::TILE],
+        gen: d[VA::GEN],
+        live: d[VA::STATE] == VA::STATE_LIVE,
+        owner: d[VA::OWNER_CITIZEN..VA::OWNER_CITIZEN + 32]
+            .try_into()
+            .ok()?,
+        owner_tag: le(&d[VA::OWNER_TAG..VA::OWNER_TAG + 8]),
+        stores,
+        cap: le(&d[VA::CAP..VA::CAP + 8]) as i64,
+        quota,
+        lots: le(&d[VA::CUSTODY_LOTS..VA::CUSTODY_LOTS + 2]) as u16,
+    })
+}
+
+/// A Citizen account's tag.
+fn citizen_tag(d: &[u8]) -> Option<u64> {
+    use frontier_abi::v2::layout::player::citizen as C;
+    d.get(C::CITIZEN_TAG..C::CITIZEN_TAG + 8)
+        .map(crate::world::le)
+}
+
+/// The kernel's actor for the player prologue `[actor, payer, season,
+/// citizen]` (wallet prologue, `Auth::Wallet`): the Citizen, its tag, and
+/// whether the signer is its unexpired Frontier session rather than its
+/// wallet. `Err`: the prologue refuses the signer.
+fn actor_of(
+    signer: &[u8; 32],
+    citizen_key: &[u8; 32],
+    citizen: &[u8],
+    time: i64,
+) -> Result<permutation_rules::frontier::custody::Actor, String> {
+    use crate::world::le;
+    use frontier_abi::v2::layout::player::citizen as C;
+    let short = || "the Citizen account is short".to_string();
+    let wallet = citizen.get(C::WALLET..C::WALLET + 32).ok_or_else(short)?;
+    let session = citizen.get(C::SESSION..C::SESSION + 32).ok_or_else(short)?;
+    let expiry = le(citizen
+        .get(C::SESSION_EXPIRY..C::SESSION_EXPIRY + 8)
+        .ok_or_else(short)?) as i64;
+    let tag = citizen_tag(citizen).ok_or_else(short)?;
+    let by_session = if signer[..] == *wallet {
+        false
+    } else if signer[..] == *session && session.iter().any(|b| *b != 0) && time < expiry {
+        true
+    } else {
+        return Err("the signer is neither the Citizen's wallet nor its unexpired session".into());
+    };
+    Ok(permutation_rules::frontier::custody::Actor {
+        citizen: *citizen_key,
+        tag,
+        by_session,
+    })
+}
+
+fn lot_summary(l: &permutation_rules::frontier::custody::Lot) -> String {
+    format!(
+        "state {}, quota {}, held {}, in {}, out {}, consumed {}, nonce {}",
+        l.state, l.quota, l.held, l.in_total, l.out_total, l.consumed, l.nonce
+    )
+}
+
+/// The instructions [`replay_ix`] replays: those that touch one lot and at
+/// most its vault. The ones that move a caravan (DepositLot, ShipLot,
+/// SettleCustody, ReconcileLot, WithdrawLot) are not replayed yet.
+pub const REPLAYED: [Ix; 6] = [
+    Ix::OpenLot,
+    Ix::SetLotQuota,
+    Ix::SetLotOrder,
+    Ix::RevokeLotOrder,
+    Ix::ConsumeLot,
+    Ix::CloseLot,
+];
+
+/// The lot's position in a custody instruction's accounts.
+fn lot_index(kind: Ix) -> usize {
+    match kind {
+        Ix::OpenLot => 6,
+        Ix::RevokeLotOrder => 4,
+        _ => 5,
+    }
+}
+
+/// Replays one landed custody instruction against the kernel
+/// (`permutation_rules::frontier::custody`), in the account order and with
+/// the argument reading of `permutation-frontier/src/proc/custody.rs`.
+/// Not replayed here (other checks' or not modelled): the accounts'
+/// addresses and owners (V9), the season and the action bucket (the
+/// prologue's), the records the instruction writes.
+pub fn replay_ix(c: &ReplayCase) -> Replayed {
+    use frontier_abi::v2::ix as x;
+    use permutation_rules::fixed::MILLI;
+    use permutation_rules::frontier::custody as K;
+    let un = |s: &str| Replayed::Unreplayed(s.to_string());
+    let Some(kind) = c.data.first().copied().and_then(Ix::from_tag) else {
+        return un("not a custody instruction");
+    };
+    if !REPLAYED.contains(&kind) {
+        return Replayed::Unreplayed(format!("{kind:?} is not replayed yet (it moves a caravan)"));
+    }
+    let key = |i: usize| c.accounts.get(i).copied();
+    let Some(bell) = c.bell else {
+        return un("the transaction's bell is not known");
+    };
+    let (Some(signer), Some(citizen_key)) = (key(0), key(3)) else {
+        return un("the instruction lacks its player accounts");
+    };
+    let Some(citizen) = (c.before)(&citizen_key) else {
+        return un("the Citizen's state before the transaction is not in the input");
+    };
+    let bad = |what: String| Replayed::Mismatch(format!("{kind:?} landed, but {what}"));
+    let actor = match actor_of(&signer, &citizen_key, &citizen, c.time) {
+        Ok(a) => a,
+        Err(e) => return bad(e),
+    };
+    let milli = |u: u32| u as i64 * MILLI;
+    let Some(lot_key) = key(lot_index(kind)) else {
+        return un("the instruction lacks its lot account");
+    };
+    let vault_key = if kind == Ix::RevokeLotOrder {
+        None
+    } else {
+        match key(4) {
+            Some(k) => Some(k),
+            None => return un("the instruction lacks its vault account"),
+        }
+    };
+    let mut v: Option<K::VaultView> = match vault_key.and_then(|k| (c.before)(&k)) {
+        Some(d) => match vault_view_of(&d) {
+            Some(v) => Some(v),
+            None => return bad("its vault account is not a Vault".to_string()),
+        },
+        None => None,
+    };
+    let mut lot = if kind == Ix::OpenLot {
+        None
+    } else {
+        match (c.before)(&lot_key) {
+            Some(d) => match K::Lot::decode(&d) {
+                Some(l) => Some(l),
+                None => return bad("its lot account is not a Lot".to_string()),
+            },
+            None => return un("the lot's state before the transaction is not in the input"),
+        }
+    };
+    // Every replayed step reads the vault but RevokeLotOrder and the close
+    // of a forfeited lot.
+    let needs_vault = match kind {
+        Ix::RevokeLotOrder => false,
+        Ix::CloseLot => lot.is_some_and(|l| l.state == K::LOT_OPEN),
+        _ => true,
+    };
+    if needs_vault && v.is_none() {
+        return un("the vault's state before the transaction is not in the input");
+    }
+    if !needs_vault {
+        v = None; // the program does not write it then
+    }
+    let bad_data = || bad("its data does not decode".to_string());
+    let result: Result<(), K::CustodyError> = match (kind, lot.as_mut(), v.as_mut()) {
+        (Ix::OpenLot, None, Some(v)) => {
+            let Ok(a) = x::OpenLot::decode(c.data) else {
+                return bad_data();
+            };
+            let (Some(owner_key), Some(payer)) = (key(5), key(1)) else {
+                return un("the instruction lacks its accounts");
+            };
+            let Some(owner) = (c.before)(&owner_key) else {
+                return un("the owner Citizen's state before the transaction is not in the input");
+            };
+            let Some(owner_tag) = citizen_tag(&owner) else {
+                return bad("the owner Citizen account is short".to_string());
+            };
+            K::open(
+                v,
+                &actor,
+                (owner_key, owner_tag),
+                a.resource,
+                milli(a.quota),
+                bell,
+                payer,
+            )
+            .map(|l| lot = Some(l))
+        }
+        (Ix::SetLotQuota, Some(l), Some(v)) => {
+            let Ok(a) = x::SetLotQuota::decode(c.data) else {
+                return bad_data();
+            };
+            K::set_quota(v, l, &actor, milli(a.quota))
+        }
+        (Ix::SetLotOrder, Some(l), Some(v)) => {
+            let Ok(a) = x::SetLotOrder::decode(c.data) else {
+                return bad_data();
+            };
+            let Some(grantee) = key(6) else {
+                return un("the instruction lacks its grantee account");
+            };
+            let dst = K::PlaceRef::vault(a.dst_p, a.dst_q, a.dst_tile, a.dst_gen);
+            if a.kind == K::ORDER_SHIP {
+                // The program: the destination vault stands now, of that
+                // generation.
+                let Some(dk) = key(7) else {
+                    return un("the instruction lacks its destination vault");
+                };
+                match (c.before)(&dk).map(|d| vault_view_of(&d)) {
+                    None => return un(
+                        "the destination vault's state before the transaction is not in the input",
+                    ),
+                    Some(Some(dv)) if dv.live && dv.place() == dst => {}
+                    Some(_) => {
+                        return bad("its destination is not a standing vault of that generation"
+                            .to_string())
+                    }
+                }
+            }
+            let spec = K::OrderSpec {
+                kind: a.kind,
+                grantee,
+                qty: milli(a.qty),
+                expires_bell: a.expires_bell,
+                dst,
+                purpose: a.purpose,
+            };
+            K::set_order(v, l, &actor, a.slot, a.nonce, &spec, bell).map(|_| ())
+        }
+        (Ix::RevokeLotOrder, Some(l), None) => {
+            let Ok(a) = x::RevokeLotOrder::decode(c.data) else {
+                return bad_data();
+            };
+            K::revoke_order(l, &actor, a.slot, a.id, bell).map(|_| ())
+        }
+        (Ix::ConsumeLot, Some(l), Some(v)) => {
+            let Ok(a) = x::ConsumeLot::decode(c.data) else {
+                return bad_data();
+            };
+            K::consume(v, l, &actor, a.slot, a.id, milli(a.qty), a.purpose, bell)
+        }
+        (Ix::CloseLot, Some(l), v) => {
+            if x::CloseLot::decode(c.data).is_err() {
+                return bad_data();
+            }
+            if key(6) != Some(l.rent_to) {
+                return bad("its rent account is not the lot's".to_string());
+            }
+            K::close(v, l, Some(&actor), bell)
+        }
+        _ => unreachable!("the states above are set for each replayed kind"),
+    };
+    if let Err(e) = result {
+        return bad(format!("the kernel refuses it on the state before ({e:?})"));
+    }
+    // The lot the transaction left.
+    let gone = |d: &Option<Vec<u8>>| d.as_ref().is_none_or(|d| d.iter().all(|b| *b == 0));
+    match (c.after)(&lot_key) {
+        None => return un("the lot's state after the transaction is not in the input"),
+        Some(d) if kind == Ix::CloseLot => {
+            if !gone(&d) {
+                return bad("the lot account is still there".to_string());
+            }
+        }
+        Some(d) if gone(&d) => return bad("the lot account is gone".to_string()),
+        Some(d) => {
+            let want = lot.expect("kept");
+            match K::Lot::decode(d.as_deref().unwrap_or_default()) {
+                Some(got) if got == want => {}
+                Some(got) => {
+                    return bad(format!(
+                        "it left the lot ({}) where the kernel writes ({})",
+                        lot_summary(&got),
+                        lot_summary(&want)
+                    ))
+                }
+                None => return bad("it left a lot that does not decode".to_string()),
+            }
+        }
+    }
+    // The vault, where the program writes it (open, quota, the close of an
+    // open lot): stores, quota and lot count as the kernel leaves them.
+    let writes_vault = match kind {
+        Ix::OpenLot | Ix::SetLotQuota => true,
+        Ix::CloseLot => v.is_some(),
+        _ => false,
+    };
+    if let (true, Some(want), Some(vk)) = (writes_vault, v, vault_key) {
+        match (c.after)(&vk) {
+            None => return un("the vault's state after the transaction is not in the input"),
+            Some(d) => match d.as_deref().and_then(vault_view_of) {
+                Some(got)
+                    if (got.stores, got.quota, got.lots) == (want.stores, want.quota, want.lots) => {}
+                Some(got) => {
+                    return bad(format!(
+                        "it left the vault's custody counts (quota {:?}, lots {}) where the kernel writes (quota {:?}, lots {})",
+                        got.quota, got.lots, want.quota, want.lots
+                    ))
+                }
+                None => return bad("it left no Vault at the vault account".to_string()),
+            },
+        }
+    }
+    Replayed::Matches
+}
+
+/// `V26:custody-replay` (custody seasons): each landed transaction with
+/// one custody instruction is replayed by [`replay_ix`] on the states the
+/// input recorded before it. A mismatch or a refusal is a FAIL
+/// (`CustodyReplayMismatch`) at that transaction; an instruction that is
+/// not replayed yet, several custody instructions in one transaction, or
+/// missing evidence is UNVERIFIABLE (`CustodyReplayIncomplete`). A match
+/// adds nothing; the guard's traces stay UNVERIFIABLE (caravans and the
+/// records are not replayed), so a custody season is still never a PASS.
+pub fn replay(cx: &mut Ctx) {
+    let w = cx.w;
+    let genesis = cx.f.genesis_ts;
+    let mut found: Vec<(String, usize, bool, String)> = vec![];
+    for (t, tx) in w.txs.iter().enumerate() {
+        if !tx.ok {
+            continue;
+        }
+        let custody: Vec<&crate::world::Ix> = tx
+            .ixs
+            .iter()
+            .filter(|ix| {
+                ix.tag()
+                    .and_then(Ix::from_tag)
+                    .is_some_and(|x| x.is_custody())
+            })
+            .collect();
+        let [ix] = custody.as_slice() else {
+            if custody.len() > 1 {
+                found.push((
+                    "transaction".into(),
+                    t,
+                    false,
+                    format!(
+                        "{} custody instructions in one transaction are not replayed yet",
+                        custody.len()
+                    ),
+                ));
+            }
+            continue;
+        };
+        let accounts: Vec<[u8; 32]> = ix.accounts.iter().map(|a| a.0).collect();
+        let before = |k: &[u8; 32]| w.state_before(k, t).map(|d| d.to_vec());
+        let after = |k: &[u8; 32]| tx.post.get(k).map(|a| a.as_ref().map(|a| a.data.clone()));
+        let case = ReplayCase {
+            data: &ix.data,
+            accounts: &accounts,
+            time: tx.time,
+            bell: frontier_abi::prologue::bell_at(genesis, tx.time),
+            before: &before,
+            after: &after,
+        };
+        let entity = ix
+            .tag()
+            .and_then(Ix::from_tag)
+            .and_then(|k| accounts.get(lot_index(k)))
+            .map(|k| ent("account", k))
+            .unwrap_or_else(|| "transaction".into());
+        match replay_ix(&case) {
+            Replayed::Matches => {}
+            Replayed::Mismatch(m) => found.push((entity, t, true, m)),
+            Replayed::Unreplayed(m) => found.push((entity, t, false, m)),
+        }
+    }
+    // FAILs first, so that the listing's cut never hides one.
+    found.sort_by_key(|f| !f.2);
+    let n = found.len();
+    let more_fail = found.iter().skip(LISTED).any(|f| f.2);
+    for (i, (entity, t, fail, what)) in found.into_iter().enumerate() {
+        if i == LISTED {
+            fail_or_unverifiable(
+                cx,
+                V,
+                if more_fail {
+                    CUSTODY_REPLAY_MISMATCH
+                } else {
+                    CUSTODY_REPLAY_INCOMPLETE
+                },
+                more_fail,
+                "season",
+                None,
+                format!("{} more custody replay findings", n - LISTED),
+            );
+            break;
+        }
+        if fail {
+            cx.fail(V, CUSTODY_REPLAY_MISMATCH, entity, u32::MAX, Some(t), what);
+        } else {
+            unverifiable(
+                cx,
+                V,
+                CUSTODY_REPLAY_INCOMPLETE,
+                entity,
+                u32::MAX,
+                Some(t),
+                what,
+            );
+        }
     }
 }
