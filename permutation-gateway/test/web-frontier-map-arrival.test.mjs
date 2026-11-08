@@ -13,7 +13,10 @@ import { readFileSync } from 'node:fs';
 import { createHerald } from '../../permutation-server/web/frontier/herald.mjs';
 import { seasonAddresses } from '../../permutation-server/web/frontier/faddr.mjs';
 import { arrivalWindow, checkMarch, tipOptions, RETREAT_CHOICES } from '../../permutation-server/web/frontier/fmarch.mjs';
+import { checkBeacon } from '../../permutation-server/web/frontier/seal.mjs';
 import { ROUTE } from './fixtures/frontier/growth-route.mjs';
+
+const M1 = JSON.parse(readFileSync(new URL('../../frontier-node/crates/herald/tests/golden/ws19-map-growth.json', import.meta.url), 'utf8'));
 
 const S1 = JSON.parse(readFileSync(new URL('../../frontier-node/crates/herald/tests/golden/ws19-map-growth-s1.json', import.meta.url), 'utf8'));
 
@@ -87,4 +90,39 @@ test('before growth there is no route, and a zero-window Season leaves no arriva
     assert.deepEqual(checkMarch({ ...m, earliest, arriveBell: Math.max(2, earliest) }), []);
     assert.deepEqual(checkMarch({ ...m, earliest, arriveBell: Math.max(2, earliest) - 1 }), ['ArrivalBell']);
   }
+});
+
+// The beacon (app.mjs: FS.beacon = checkBeacon({drand: record.drand, seasonPkHash: season.quicknetPkHash,
+// cluster: record.cluster, seasonNetwork: season.network})): read-only decode of public bytes, nothing sealed.
+const beaconOf = (record, season) => checkBeacon({ drand: record.drand, seasonPkHash: season.quicknetPkHash, cluster: record.cluster, seasonNetwork: season.network });
+
+test('the beacon: both goldens are quicknet (no NotQuicknet banner); the old zero-beacon Season is refused', async () => {
+  for (const stage of ['before', 'extended', 'opened', 'grown']) {
+    const s = await heraldAt(stage).season();
+    assert.ok(s.ok, s.code);
+    assert.deepEqual(beaconOf(s.record, s.season).ok, true, stage);
+    assert.equal(beaconOf(s.record, s.season).kind, 'quicknet', stage);
+  }
+  for (const stage of ['S0', 'S1', 'S2']) {
+    const a = M1.stages[stage]['/h/season'];
+    const f = async () => new Response(JSON.stringify(a.body), { status: a.status });
+    const h = createHerald({ fetch: f, seasonId: M1.season });
+    const s = await h.season();
+    assert.ok(s.ok, s.code);
+    assert.equal(beaconOf(s.record, s.season).kind, 'quicknet', `M1 ${stage}`);
+  }
+  // Negative: the S1 Season as the golden had it before 2dd66100 (NETWORK 0, no pk hash), and a pk hash of
+  // another key with NETWORK 2.
+  const patched = edit => heraldAt('grown', (a, path) => {
+    if (path !== '/h/season') return a;
+    const b = Buffer.from(a.body.bytes_b64, 'base64');
+    edit(b);
+    return { ...a, body: { ...a.body, bytes_b64: b.toString('base64') } };
+  });
+  const old = await patched(b => { b[180] = 0; b.fill(0, 184, 216); }).season();
+  assert.deepEqual(beaconOf(old.record, old.season), { ok: false, code: 'NotQuicknet' });
+  const other = await patched(b => { b[184] ^= 0xff; }).season();
+  assert.deepEqual(beaconOf(other.record, other.season), { ok: false, code: 'PkHashMismatch' });
+  const s = await heraldAt('grown').season();
+  assert.deepEqual(beaconOf({ ...s.record, drand: { ...s.record.drand, publicKey: '00'.repeat(96) } }, s.season), { ok: false, code: 'NotQuicknet' });
 });

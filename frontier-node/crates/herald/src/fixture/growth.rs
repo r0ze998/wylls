@@ -69,6 +69,14 @@ fn season() -> Vec<u8> {
     d[S::GENESIS_RING] = GENESIS_RING;
     put(&mut d, S::R_MAX, &R_MAX.to_le_bytes());
     put(&mut d, S::GENESIS_SEED, &GENESIS_SEED);
+    // The beacon CreateSeason requires (`quicknet_pk_hash ==
+    // QUICKNET_PK_HASH`; NETWORK 2 and the quicknet schedule are already
+    // the fixture Season's), so the page's checkBeacon accepts the season.
+    put(
+        &mut d,
+        S::QUICKNET_PK_HASH,
+        &frontier_abi::presets::QUICKNET_PK_HASH,
+    );
     d
 }
 
