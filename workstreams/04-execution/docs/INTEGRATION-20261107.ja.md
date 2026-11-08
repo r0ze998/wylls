@@ -847,3 +847,46 @@ fa822453 の上に載せた。各チームのサブツリーは、チームが�
 - join と paidJoin の meStatus の確認（§18）。
 - ⑩ の SettleCustody の拡張、⑤ の requester の権限、⑭・⑮ のゲームの目標、31 章。
 - ⑯ の REPORT が開いたまま挙げるもの（④ はここで決めない）：⑥ の J7（外から lock を消されたときの限界。native の依存は入れない、と利用者が選んだ運用の限界）、reviewed の digest と runner の範囲、Worker の realm、kernel が読み込まれないままのときの二度目の押下の扱い（⑦ の判断）。
+
+## 20. 引継ぎ：§19 の後の S1 map の続き（④、2026-11-08）
+
+**位置**（この節も文書だけの commit。実装の候補とは別）
+- 実装の候補：`claude/gallant-ride-cunptv` @ `553f7fe79f904415e8f42482ba06b4caef90f650`（tree `dcbc19702effdd87e5797bfadb5ff2bbb21de974`）。**全機能の完成ではない。**
+- 一つ前の確定の区切りは §19 の `585e9fab`（tree `b161e1c2`）。過去の検証済みの基準は `16576826`（tree `7f6ff8b0`）のまま。
+- すべて `[skip ci]`。この枝の workflow run は 16 のまま（④ の確認）。
+- ⑯ の独立の確認：`553f7fe7` まで（REPORT §29.31〜§29.33、`claude/dreamy-ramanujan-ijj8qj` @ `b04fc718`）。
+
+**取り込んだ差分**（各担当の exact SHA → 候補の commit）
+| 担当 | SHA | 候補 | 中身 |
+|---|---|---|---|
+| ⑲ | `3c7c0929`（`dbeb4458`） | `b45bb806` | 8 の route の上に柵を一つ（(4,0) tile 6）。本物の structures feed に出る独立の golden（`ws19-map-growth-s1-palisade.json`） |
+| ⑲・⑧ | `2db2db4b`・`d1ba760c` | `078e946c`・`91bbfef5` | v3 kernel の柵を避ける経路を固定（10 hexes、1320 秒）。`node-key-reviewed.txt` の衝突は ④ が手で解き、二つの digest を計算し直した |
+| ⑲ | `8945b582` | `b226f6e2` | palisade_at の camp の確認、fixture と program の違いの記述、読んだ stance で決まる試験 |
+| ⑦ | `5d8292cb`・`827aabcc`・`4e5f0915` | `c47d0acd`・`0cdd8491` | 全画面の柵の場面（ws07-grow-palisade）。⑧ の迂回の経路と一致することを要する |
+| ⑦ | `1fc0a5aa`・`01bb323f` | `f9be57bf` | 読み込みに失敗した Province を、既存の `WANT_REFRESH_MS` だけ待ってから読み直す（controller.mjs に条件 1 つ。16576826 からある不具合）。画面が Province ごとの要求を 20 以下に制限する |
+| ④ | — | `872ec015` | viewer-own-citizen の reviewed を ⑦ の変更の後に審査し直した（wantProvince はその経路に無い） |
+| ⑯ | patch `v16-want-province-on-01bb323f` | `fe7a810a` | `web-frontier-want-province.test.mjs` と reviewed の一行（closure `a623aab2`） |
+| ⑲・⑦ | `f001c9c3`・`41a52e19`・`3c7e8cb4`・`4532651d` | `553f7fe7` | S1 golden に本物の herald の答え（events、rosters 0〜5、overview、overview2、隣の Province 3 つ、caravans、nations）。ws07-grow-s1 の ABSENT は 4 path。試験の relay が (4,-1) を 404 にして storm を再現する |
+
+**何まで確かめたか**（鍵なしの runner と guard の下。呼び出し元と import 先の静的な審査の後）
+- **柵のある経路**：本物の structures feed、page が塞ぐ hex はちょうど (4,0) tile 6、カードの経路は ⑧ の迂回と一致し、その hex に入らない。到着は window の中、beacon の確認が通り、seal は有効で押さない。ws07-grow-palisade 2/2（④・⑦・⑯）。⑲ の `ws19_map_contract` 3/3（④・⑲・⑯）。
+- **retry storm**：
+  - `web-frontier-want-province`：修正前 3/4（すぐの読み直しだけが落ちる）、修正後 4/4。④ と ⑯ の実行。
+  - ws07-grow-s1：修正前 0/2。553f7fe7 の golden の上でも、(4,-1) への要求が 304 回と 475 回。修正後 2/2。
+  - 553f7fe7 の上で、key-free 37/37。
+  - fe7a810a の上で、ws07-guard・grow-s1・grow-palisade・grow-r5・march が各 2/2、read 6/6、wide 3/3、grow 3/3。
+- **本物の read の追加**：既存の答えは一つも変わらない（⑲・⑯）。新しい import の `people/roster.mjs` は import を持たない。
+
+**数えないもの**
+- ⑦ の `web-frontier-hud.test.mjs` の結果（修正前に落ち、修正後 13/13）。この file は `node-key-tests.txt` に載る（src/ 経由）。⑦ が直接走らせたので、鍵なしの手順の外。⑦ も認めた。代わりの単体の証拠は ⑯ の `web-frontier-want-province`。
+
+**確かめていないもの**
+- 553f7fe7 の上での ws07-grow-r5・read・wide・march・grow。これらの file と fixture は fe7a810a から変わっていない。
+- golden に無い 4 path：`/h/conquest/0.json`、`/h/control/latest.bin`、`/h/keep/4,0.json`、`/h/standings/latest.json`。
+- 柵について：
+  - 道を残さない柵、自国の柵、war 以外の stance の page での扱い、建てる者の支払い。
+  - fixture と program の違い（⑯ §29.31）：`RENT_TO` が 0、建てた Holding を出し直さないので chain の head が遅れる、Holding の鍵が gen 0。
+- ⑦ の挙げた二点（NoPath の文言が地形を名指す、routeCache の key が柵の数だけを見る）は、この fixture では再現しない。変えていない。
+- 本物の Seal、署名、送信、着地、実チェーン、CI、key-tests job。一覧に載る file。
+
+**利用者の判断待ち**：§19 のとおり。変わっていない。
