@@ -413,3 +413,9 @@ asset を鍵にした財布の Citizen と NFT Citizen が両方あるとき、h
 v0.24 で「鍵なし」として走らせた 103 file には、鍵を作る試験が入っていた。`web-frontier-opening-world`・`web-frontier-s1` は試験の file の中で `keyFromSeed` を呼ぶ。`web-frontier-territory`・`web-frontier-live` は import 先で呼ぶ。除外の grep は `fromSeed` を大文字と小文字を区別して探していたので、`keyFromSeed` を見落とした。このため v0.24 のときに、この 4 file の固定の seed からの鍵の導出と署名が実行された。
 
 今回は監視が最初の `subtle.importKey('pkcs8')` で止めた（26 回、署名の前）。この 4 file は二度と走らせない。今後は、除外を大文字と小文字を区別せずに `keyFromSeed`・`devWallet`・`enableDevWallet` まで広げ、import 先の呼び出しも静的に追う。
+
+追記（同日）：リポジトリには、鍵を扱う node の試験の正式な一覧 `scripts/ci/node-key-tests.txt` がある（`scan-node-key-tests.mjs` が書く。試験の file か、その import する helper が鍵の API を名指すもの。鍵なしの CI では走らせず、手動の key-tests job だけが走らせる）。20 はこの一覧を確かめずに走らせた。v0.24 と v0.25 の両方で、一覧に載る file を直接走らせた。その中には、この節で変えた `web-frontier-wide-holding-ui`・`web-frontier-resident-home` と、`web-frontier-herald`・`web-frontier-ws07-nft`・`web-frontier-ws07-me-answered` などが入る。
+
+v0.25 の監視の下で、実際に鍵の API が呼ばれたのは上の 4 file だけで、他は 0 回だった。それでも、一覧に載る file を鍵なしの扱いで走らせたこと自体が、この repo の決まりに反する。
+
+今後、鍵なしで走らせるのは `scripts/ci/node-keyfree.sh` と、この一覧に無い file だけにする。この節の回帰のうち、`web-frontier-resident-me`（一覧に無い）は鍵なしの CI で走る。controller の 2 file の回帰は、一覧に載るので key-tests job の側になる。
