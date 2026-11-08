@@ -4633,3 +4633,437 @@ mod owner_track_tests {
         assert!(shared.tracks.is_empty());
     }
 }
+
+/// ⑱: no plaintext Reveal reaches the RPC before THE anchor of its arrival
+/// is on chain and this keeper holds T(arrive)'s signature — exercised
+/// without a key. drand is the workspace's recorded public quicknet rounds
+/// (`fclient::beacon::FixtureDrand`: verified against quicknet's public key,
+/// nothing signed); the chain is `FakePort` read only. `plan` never sends:
+/// a Reveal write pending in the engine is what would go to the RPC next,
+/// so "not pending" (and `FakePort` with nothing simulated or sent) is the
+/// invariant at the RPC boundary.
+#[cfg(test)]
+mod reveal_secrecy_keyfree_tests {
+    use super::*;
+    use crate::config::KeeperConfig;
+    use crate::engine::EngineParams;
+    use crate::playindex::DepartRec;
+    use crate::testkit::{self, FakePort};
+    use base64::Engine as _;
+    use fclient::addr::Addresses;
+    use fclient::beacon::{fixture_dir, quicknet_info, FixtureDrand};
+    use fclient::budgets::Budgets;
+    use fclient::clock::SeasonClock;
+    use fclient::decode::Season;
+    use std::sync::atomic::Ordering;
+
+    /// A recorded quicknet round: T(ARRIVE) of the season below.
+    const ROUND: u64 = 32_551_361;
+    const ARRIVE: u32 = 200;
+    const SEASON: u64 = 7;
+    const ORIGIN: (i16, i16) = (2, 0);
+
+    fn program() -> Address {
+        Address::new_from_array([0x5F; 32])
+    }
+
+    /// A genesis that makes ROUND the first round at or after
+    /// bell_end(ARRIVE): T(ARRIVE) = ROUND.
+    fn genesis() -> i64 {
+        let q = quicknet_info();
+        let t = q.genesis_time + (ROUND as i64 - 1) * q.period as i64;
+        t - (ARRIVE as i64 + 1) * BELL_SECS
+    }
+
+    fn bell_end() -> i64 {
+        genesis() + (ARRIVE as i64 + 1) * BELL_SECS
+    }
+
+    struct KEnv {
+        port: FakePort,
+        drand: FixtureDrand,
+        season: Season,
+        addrs: Addresses,
+        cfg: KeeperConfig,
+        engine: Engine,
+        rounds: Rounds,
+        seeds: SeedFinder,
+        shared: Shared,
+        beacon: BTreeMap<(u32, u8), AnchorInfo>,
+        host: u64,
+        dep: u32,
+        holding: Address,
+        m: ([u8; 37], [u8; 32], [u8; 32]),
+    }
+
+    impl KEnv {
+        fn new() -> KEnv {
+            let q = quicknet_info();
+            let drand = FixtureDrand::load(&fixture_dir(), q.clone()).expect("recorded rounds");
+            assert!(drand.rounds.contains_key(&ROUND), "fixture round {ROUND}");
+            let season = testkit::season(genesis(), 1_008, &q);
+            let mut cfg = KeeperConfig::new(program(), SEASON, Address::new_from_array([0xBE; 32]));
+            cfg.roles = vec!["reveal".into()];
+            let budgets =
+                Budgets::from_json(&serde_json::from_str(crate::CANONICAL_BUDGETS).unwrap())
+                    .unwrap();
+            let addrs = Addresses::new(program(), SEASON);
+            let host = fclient::addr::host_id(ORIGIN.0 as i32, ORIGIN.1 as i32, 1, 1, 5).unwrap();
+            let dep = ARRIVE - 3;
+            let p = seal::Plain {
+                version: 1,
+                host_id: host,
+                arrive_bell: ARRIVE,
+                dest_p: ORIGIN.0,
+                dest_q: ORIGIN.1,
+                dest_tile: 5,
+                stance: 1,
+                ..Default::default()
+            };
+            let m = (seal::pack(&p), [host as u8; 32], [7; 32]);
+            let root = seal::seal_root(&seal::commit(&m.0, &m.1), &m.2);
+            let holding = addrs.holding(ORIGIN.0 as i32, ORIGIN.1 as i32, 1);
+            let port = FakePort::default();
+            port.put(
+                holding,
+                testkit::acct(
+                    program(),
+                    testkit::holding(1, 0, (1, host, dep, ARRIVE, root)),
+                ),
+            );
+            KEnv {
+                port,
+                rounds: Rounds::new(q.public_key),
+                drand,
+                season,
+                addrs,
+                cfg,
+                engine: Engine::new(budgets, EngineParams::default()),
+                seeds: SeedFinder::default(),
+                shared: Shared::default(),
+                beacon: BTreeMap::new(),
+                host,
+                dep,
+                holding,
+                m,
+            }
+        }
+
+        fn key(&self) -> String {
+            format!("reveal:{}:{}", self.host, self.dep)
+        }
+
+        fn duty(&self) -> PlayDuty {
+            let mut d = PlayDuty::default();
+            d.index.departs.insert(
+                (self.host, self.dep),
+                DepartRec {
+                    host: self.host,
+                    origin: ORIGIN,
+                    origin_tile: 5,
+                    depart_bell: self.dep,
+                    arrive: ARRIVE,
+                    dep_mass: 10,
+                    tip: 0,
+                    seal_root: [0; 32],
+                    commit: [0; 32],
+                    seal: [0; 165],
+                    slot: 1,
+                },
+            );
+            d
+        }
+
+        /// What `/v1/reveal` hands the duty (one owner callback).
+        fn owner_callback(&mut self, track: &str) {
+            let b = base64::engine::general_purpose::STANDARD;
+            self.shared.reveals.push((
+                track.into(),
+                json!({
+                    "holding": self.holding.to_string(), "transit_slot": 0,
+                    "plain_b64": b.encode(self.m.0), "salt_b64": b.encode(self.m.1),
+                    "ct_hash_b64": b.encode(self.m.2),
+                }),
+            ));
+        }
+
+        fn region() -> u8 {
+            ix::region_of(ORIGIN.0 as i32, ORIGIN.1 as i32)
+        }
+
+        /// A BellAnchor account as an RPC returns it.
+        fn chain_anchor(&self, season_id: u64, bell: u32, owner: Address) {
+            self.port.put(
+                self.addrs.anchor(ARRIVE, Self::region()),
+                testkit::acct(
+                    owner,
+                    testkit::bell_anchor(season_id, bell, Self::region(), bell_end() + 2, ROUND),
+                ),
+            );
+        }
+
+        async fn try_plan(
+            &mut self,
+            d: &mut PlayDuty,
+            slot: u64,
+            now: i64,
+            journal: Option<&Journal>,
+        ) -> PortResult<()> {
+            self.port.set_clock(slot, now);
+            let t = Tick {
+                slot,
+                now,
+                season: &self.season,
+                clock: SeasonClock::from_season(&self.season),
+                addrs: &self.addrs,
+                cfg: &self.cfg,
+            };
+            d.plan(
+                &t,
+                &self.port,
+                &self.drand,
+                &mut self.rounds,
+                &mut self.engine,
+                &self.beacon,
+                &mut self.seeds,
+                &mut self.shared,
+                journal,
+                &[],
+            )
+            .await
+        }
+
+        /// Nothing reached the RPC: no Reveal write pending, nothing
+        /// simulated or sent.
+        fn assert_nothing_out(&self, why: &str) {
+            assert!(
+                !self.engine.is_pending(&self.key()),
+                "Reveal pending: {why}"
+            );
+            assert_eq!(
+                self.port.simulated.load(Ordering::SeqCst),
+                0,
+                "simulated: {why}"
+            );
+            assert!(self.port.sent.lock().unwrap().is_empty(), "sent: {why}");
+        }
+
+        fn reveal_writes(&self) -> usize {
+            self.engine
+                .pending_keys()
+                .iter()
+                .filter(|k| k.starts_with("reveal:"))
+                .count()
+        }
+    }
+
+    fn temp_journal(tag: &str) -> std::path::PathBuf {
+        std::env::temp_dir().join(format!(
+            "wylls-r18-secrecy-{tag}-{}-{}.db",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ))
+    }
+
+    /// No anchor; then THE anchor on chain while drand has not served
+    /// T(arrive) (held); then the round: the Reveal goes, once.
+    #[tokio::test]
+    async fn held_until_the_anchor_and_its_round() {
+        let mut e = KEnv::new();
+        let mut d = e.duty();
+        e.owner_callback("t1");
+        let held = e.drand.rounds.remove(&ROUND).unwrap();
+        for (slot, now) in [
+            (50, bell_end() - 570),
+            (60, bell_end() + 2),
+            (70, bell_end() + 30),
+        ] {
+            e.try_plan(&mut d, slot, now, None).await.unwrap();
+            e.assert_nothing_out(&format!("no anchor at {now}"));
+        }
+        e.chain_anchor(SEASON, ARRIVE, program());
+        for slot in [80, 90] {
+            e.try_plan(&mut d, slot, bell_end() + 40, None)
+                .await
+                .unwrap();
+            e.assert_nothing_out("anchor on chain, T(arrive) not served by drand");
+        }
+        e.drand.rounds.insert(ROUND, held);
+        e.try_plan(&mut d, 100, bell_end() + 50, None)
+            .await
+            .unwrap();
+        assert!(
+            e.engine.is_pending(&e.key()),
+            "anchor and round: the Reveal goes"
+        );
+        assert_eq!(e.reveal_writes(), 1);
+    }
+
+    /// A served round that does not verify is no publication either.
+    #[tokio::test]
+    async fn a_round_that_does_not_verify_is_held() {
+        let mut e = KEnv::new();
+        let mut d = e.duty();
+        e.owner_callback("t1");
+        e.chain_anchor(SEASON, ARRIVE, program());
+        let mut bad = e.drand.rounds[&ROUND].clone();
+        bad.sig48[5] ^= 1;
+        e.drand.rounds.insert(ROUND, bad);
+        e.try_plan(&mut d, 50, bell_end() + 30, None).await.unwrap();
+        e.assert_nothing_out("a forged T(arrive)");
+        assert!(e.rounds.bad >= 1);
+    }
+
+    /// An account at the anchor's address that is not THE anchor of this
+    /// season, bell and program (a stale or lying read) holds the material.
+    #[tokio::test]
+    async fn a_stale_or_foreign_anchor_read_is_no_anchor() {
+        for (season_id, bell, owner, why) in [
+            (SEASON + 1, ARRIVE, program(), "another season"),
+            (SEASON, ARRIVE - 1, program(), "another bell"),
+            (
+                SEASON,
+                ARRIVE,
+                Address::new_from_array([0x11; 32]),
+                "another owner",
+            ),
+        ] {
+            let mut e = KEnv::new();
+            let mut d = e.duty();
+            e.owner_callback("t1");
+            e.chain_anchor(season_id, bell, owner);
+            for slot in [50, 60] {
+                e.try_plan(&mut d, slot, bell_end() + 30, None)
+                    .await
+                    .unwrap();
+                e.assert_nothing_out(why);
+            }
+        }
+    }
+
+    /// The RPC does not answer (feed and account reads): the tick fails,
+    /// nothing goes; it answers again: the Reveal goes.
+    #[tokio::test]
+    async fn a_read_failure_sends_nothing() {
+        let mut e = KEnv::new();
+        let mut d = e.duty();
+        e.owner_callback("t1");
+        e.chain_anchor(SEASON, ARRIVE, program());
+        e.port.fail_reads.store(true, Ordering::SeqCst);
+        for slot in [50, 60] {
+            assert!(e
+                .try_plan(&mut d, slot, bell_end() + 30, None)
+                .await
+                .is_err());
+            e.assert_nothing_out("reads failing");
+        }
+        e.port.fail_reads.store(false, Ordering::SeqCst);
+        e.try_plan(&mut d, 70, bell_end() + 40, None).await.unwrap();
+        assert!(e.engine.is_pending(&e.key()));
+    }
+
+    /// The journal's owner material cannot be read (a journal opened whole
+    /// whose table is gone at the first tick; `Journal::open_existing`
+    /// refuses one already missing it at start): the tick fails before
+    /// anything is planned, even with the anchor and the round in hand.
+    #[tokio::test]
+    async fn an_unreadable_journal_sends_nothing() {
+        let path = temp_journal("unreadable");
+        Journal::open(&path).unwrap();
+        let j = Journal::open_existing(&path).unwrap();
+        rusqlite::Connection::open(&path)
+            .unwrap()
+            .execute_batch("ALTER TABLE owner_material RENAME TO owner_material_gone;")
+            .unwrap();
+        assert!(Journal::open_existing(&path).is_err(), "refused at start");
+        let mut e = KEnv::new();
+        let mut d = e.duty();
+        e.owner_callback("t1");
+        e.chain_anchor(SEASON, ARRIVE, program());
+        let r = e.try_plan(&mut d, 50, bell_end() + 30, Some(&j)).await;
+        assert!(r.is_err(), "an unreadable journal stops the tick");
+        e.assert_nothing_out("journal unreadable");
+        let _ = std::fs::remove_file(&path);
+    }
+
+    /// The duty's own journal write of the material is interrupted (an
+    /// INSERT that aborts): the material still waits for the anchor, and
+    /// nothing goes before it.
+    #[tokio::test]
+    async fn an_interrupted_journal_write_still_waits_for_the_anchor() {
+        let path = temp_journal("write");
+        Journal::open(&path).unwrap();
+        rusqlite::Connection::open(&path)
+            .unwrap()
+            .execute_batch(
+                "CREATE TRIGGER fail_owner_material BEFORE INSERT ON owner_material
+                 BEGIN SELECT RAISE(ABORT, 'interrupted'); END;",
+            )
+            .unwrap();
+        let j = Journal::open_existing(&path).unwrap();
+        let mut e = KEnv::new();
+        let mut d = e.duty();
+        e.owner_callback("t1");
+        e.try_plan(&mut d, 50, bell_end() + 30, Some(&j))
+            .await
+            .unwrap();
+        e.assert_nothing_out("write interrupted, no anchor");
+        assert!(j.owner_materials().unwrap().is_empty());
+        e.chain_anchor(SEASON, ARRIVE, program());
+        e.try_plan(&mut d, 60, bell_end() + 40, Some(&j))
+            .await
+            .unwrap();
+        assert!(e.engine.is_pending(&e.key()));
+        let _ = std::fs::remove_file(&path);
+    }
+
+    /// Restart and duplicate callbacks: the owner calls back twice, the
+    /// keeper restarts from its journal (a new duty, engine and round cache),
+    /// the owner calls back again; nothing goes before THE anchor, and one
+    /// Reveal write once it lands.
+    #[tokio::test]
+    async fn restart_and_duplicate_callbacks_send_one_reveal_after_the_anchor() {
+        let path = temp_journal("restart");
+        {
+            let j = Journal::open(&path).unwrap();
+            let mut e = KEnv::new();
+            let mut d = e.duty();
+            e.owner_callback("t1");
+            e.owner_callback("t2");
+            e.try_plan(&mut d, 50, bell_end() + 30, Some(&j))
+                .await
+                .unwrap();
+            e.assert_nothing_out("before the restart");
+            assert_eq!(j.owner_materials().unwrap().len(), 1, "one row per march");
+        }
+        let j = Journal::open_existing(&path).unwrap();
+        let mut e = KEnv::new();
+        let mut d = e.duty();
+        for slot in [60, 70] {
+            e.try_plan(&mut d, slot, bell_end() + 40, Some(&j))
+                .await
+                .unwrap();
+            e.assert_nothing_out("restored, no anchor");
+        }
+        e.owner_callback("t3");
+        e.try_plan(&mut d, 80, bell_end() + 45, Some(&j))
+            .await
+            .unwrap();
+        e.assert_nothing_out("a third callback, no anchor");
+        e.chain_anchor(SEASON, ARRIVE, program());
+        e.try_plan(&mut d, 90, bell_end() + 50, Some(&j))
+            .await
+            .unwrap();
+        assert!(e.engine.is_pending(&e.key()));
+        e.owner_callback("t4");
+        e.try_plan(&mut d, 100, bell_end() + 55, Some(&j))
+            .await
+            .unwrap();
+        assert_eq!(e.reveal_writes(), 1, "one Reveal write per march");
+        assert_eq!(d.stats.reveals_sent, 1);
+        let _ = std::fs::remove_file(&path);
+    }
+}
