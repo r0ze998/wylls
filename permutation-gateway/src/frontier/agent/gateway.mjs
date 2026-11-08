@@ -53,12 +53,42 @@ import { checkAllowed, normalisePolicy } from './policy.mjs';
 import { fateOf, slotFloorOf } from './fate.mjs';
 
 export const MAX_AGENTS_PER_OWNER = 8;
+/** The senders that hold a token of their own (A1). `browser` acts by the owner's signed command, never by a token. */
+export const SOURCES_WITH_TOKENS = Object.freeze(['ai', 'mcp']);
 /** Build's walls item: the only profile-1 Build that names the Province (web fplay.mjs ITEM_WALLS). */
 export const ITEM_WALLS = 6;
 /** How long an action's hold may stay `held` before `expire` gives it back (the relay path takes seconds). */
 export const ACTION_HOLD_TTL_MS = 120_000;
 /** A model call's hold: long enough for a slow local model. */
 export const INFERENCE_HOLD_TTL_MS = 10 * 60_000;
+/** How many times an action is built again after its bytes collided with another request's (Duplicate before sending). */
+export const DUPLICATE_REBUILDS = 2;
+/** Actions that carry the Citizen's sequence number: never rebuilt on a Duplicate (workstream 04 AUTH-ROUTES §4). */
+export const SEQ_ACTIONS = Object.freeze(new Set(['SendCaravan']));
+
+/**
+ * One lane per Citizen (workstream 04 AUTH-ROUTES B1): every action for agents of the same owner (one Citizen, one
+ * session key) runs its build → sign → send one at a time, in arrival order, in THIS relay process. A failure or a
+ * refusal frees the lane for the next. Other relay processes and other machines are not in this lane (see
+ * workstream 05 CONNECT-7 §3: the agent wallet's own state file allows one relay process).
+ */
+export class CitizenLanes {
+  constructor() { this.tails = new Map(); this.depth = new Map(); }
+  run(key, fn) {
+    const prev = this.tails.get(key) ?? Promise.resolve();
+    this.depth.set(key, (this.depth.get(key) ?? 0) + 1);
+    const p = prev.then(fn, fn);
+    const tail = p.then(() => {}, () => {}).finally(() => {
+      const d = this.depth.get(key) - 1;
+      if (d === 0) { this.depth.delete(key); if (this.tails.get(key) === tail) this.tails.delete(key); } else this.depth.set(key, d);
+    });
+    this.tails.set(key, tail);
+    return p;
+  }
+  waiting(key) { return this.depth.get(key) ?? 0; }
+}
+/** The lane of an agent: its owner's Citizen (all of an owner's agents act through the one Citizen and its session key). */
+export const laneOf = rec => `citizen-of:${rec.owner}`;
 /** Default per-call test price of one model call (base units; 0.01 test USDC). TEST VALUE. */
 export const DEFAULT_INFERENCE_PRICE = '10000';
 
@@ -171,7 +201,9 @@ export class AgentGateway {
    * @param {object} [o.prices]  {inference: base units per model call, game: {actionName: base units}}
    * @param {object} [o.waits]   {withdraw: {tries, every}} how long `withdraw` waits for the chain before leaving it to reconcile
    */
-  constructor({ ctx, ledger, keyring, custody = null, prices = {}, waits = {}, unresolvedReleaseMs = null, fullHistory = false, now = Date.now, log = () => {} }) {
+  constructor({ ctx, ledger, keyring, custody = null, prices = {}, waits = {}, unresolvedReleaseMs = null, fullHistory = false, now = Date.now, log = () => {}, lanes = new CitizenLanes() }) {
+    /** Per-Citizen serial lanes (B1): build, sign and send of one Citizen's actions never overlap in this process. */
+    this.lanes = lanes;
     /** The node keeps every transaction (the in-process local chain): see fate.mjs. Off: the node must prove its history. */
     this.fullHistory = fullHistory === true;
     /** The proposed deadline rule (§6.5): null keeps unresolved holds until the operator decides. Not a default. */
@@ -275,16 +307,36 @@ export class AgentGateway {
     return { agent: this.view(agentId), capability };
   }
 
-  #issueCapability(agentId) {
+  #issueCapability(agentId, source = null) {
     const token = randomBytes(32).toString('base64url');
-    const version = this.ledger.setCapability(agentId, sha256hex(token));
-    return { token, version };
+    const version = this.ledger.setCapability(agentId, sha256hex(token), source);
+    return { token, version, source: source ?? 'any' };
   }
 
-  /** Replaces the capability token (owner command); the old one stops working at once. */
-  rotateCapability(agentId, owner) {
+  /**
+   * Replaces a capability token (owner command); the old one stops working at once. Without `source`, the general
+   * token (as before). With `source` ('ai' | 'mcp', workstream 04 AUTH-ROUTES A1), that sender's own token: it is
+   * accepted only for requests of that source, and issuing it leaves the general token and the other sender's alone —
+   * workstream 03's MCP consent and workstream 05's autopilot no longer turn each other's token into BadCapability.
+   */
+  rotateCapability(agentId, owner, source = null) {
     this.#own(agentId, owner);
-    return { agent: this.view(agentId), capability: this.#issueCapability(agentId) };
+    if (source !== null) this.#sender(source);
+    return { agent: this.view(agentId), capability: this.#issueCapability(agentId, source) };
+  }
+
+  /**
+   * Removes a token (owner command): one sender's ('ai' | 'mcp', A1) — that sender stops at once, the others go on —
+   * or the general one ('any'). A request that was let in by it and has not been sent yet sends nothing.
+   */
+  revokeCapability(agentId, owner, source) {
+    this.#own(agentId, owner);
+    if (source !== 'any') this.#sender(source);
+    return { agent: this.view(agentId), revoked: this.ledger.revokeCapability(agentId, source), source };
+  }
+
+  #sender(source) {
+    if (source !== SOURCES_WITH_TOKENS[0] && source !== SOURCES_WITH_TOKENS[1]) throw new AgentError(ERR.BAD_REQUEST, `source must be one of ${SOURCES_WITH_TOKENS.join(', ')} (browser requests are owner commands)`);
   }
 
   setPolicy(agentId, owner, policy) {
@@ -489,7 +541,10 @@ export class AgentGateway {
     // Everything up to the hold inside #run happens before this function's first await: synchronous for concurrent callers.
     const r = parseActionRequest(request);
     const rec = this.ledger.get(r.agentId);
-    this.#authenticate(rec, credential);
+    // Which credential let this request in (null: the owner or the in-process runner). It is checked again when the
+    // request's turn in the Citizen's lane comes and right before its bytes leave: a token replaced or revoked while
+    // the request waited sends nothing.
+    const who = this.#authenticate(rec, credential, r.source);
     const hash = sha256hex(canonical({ action: r.action, policyVersion: r.policyVersion, modeEpoch: r.modeEpoch ?? null, source: r.source }));
     if (this.ledger.actionWritesFailed) throw new AgentError(ERR.SEND_FAILED, 'action state could not be saved; restart and audit before another send', 503);
     const flightKey = `${rec.agentId}\n${r.idempotencyKey}`;
@@ -505,22 +560,46 @@ export class AgentGateway {
       if (!prior.result) throw new AgentError(ERR.SEND_FAILED, 'this action key has a saved request without a final response; inspect its prior signature', 409, { signature: prior.signature ?? null });
       return { ...prior.result, replayed: true, balance: this.ledger.balance(rec.agentId) };
     }
-    const promise = this.#run(rec, r, hash).finally(() => this.inflight.delete(flightKey));
+    // The idempotency record above is per request; the lane orders the Citizen's sends (B1). The gate and the hold run
+    // when the request's turn comes, still synchronously before #run's first await.
+    const promise = this.lanes.run(laneOf(rec), () => this.#run(rec, r, hash, who)).finally(() => this.inflight.delete(flightKey));
     this.inflight.set(flightKey, { hash, promise });
     return promise;
   }
 
-  #authenticate(rec, credential) {
-    if (credential.runner === true) return;
+  /**
+   * Read-only: whether `credential` is this agent's current capability, and what it may ask for. Authenticates exactly as
+   * submit does, and writes nothing (no idempotency record, no history, no hold). A refusal throws as submit's would.
+   */
+  whoami(agentId, credential = {}) {
+    const rec = this.ledger.get(agentId);
+    const who = this.#authenticate(rec, credential);
+    return { agentId: rec.agentId, owner: rec.owner, capabilityVersion: rec.capabilityVersion ?? null, capabilitySource: who?.source ?? null, ...(who?.version ? { senderCapabilityVersion: who.version } : {}), mode: rec.mode, modeEpoch: rec.modeEpoch,
+      policyVersion: rec.policy.version, allowed: [...rec.policy.allowed], village: [...rec.village] };
+  }
+
+  /**
+   * `source`: the request's sender (submit). A sender's own token (A1) is accepted for that source only; the general
+   * token for any. Returns {source, version} of the token that matched (whoami reports it).
+   */
+  #authenticate(rec, credential, source = null) {
+    if (credential.runner === true) return null;
     if (typeof credential.owner === 'string') {
       if (credential.owner !== rec.owner) throw new AgentError(ERR.NOT_OWNER, 'this agent belongs to another owner', 403);
-      return;
+      return null;
     }
     const token = credential.capability;
-    if (typeof token !== 'string' || !rec.capabilityHash) throw new AgentError(ERR.BAD_CAPABILITY, 'a valid capability token is required', 401);
+    const senders = Object.entries(rec.capabilities ?? {});
+    if (typeof token !== 'string' || (!rec.capabilityHash && !senders.length)) throw new AgentError(ERR.BAD_CAPABILITY, 'a valid capability token is required', 401);
     const a = Buffer.from(sha256hex(token), 'hex');
-    const b = Buffer.from(rec.capabilityHash, 'hex');
-    if (a.length !== b.length || !timingSafeEqual(a, b)) throw new AgentError(ERR.BAD_CAPABILITY, 'the capability token is not this agent\'s current one', 401);
+    const same = h => { const b = Buffer.from(h, 'hex'); return a.length === b.length && timingSafeEqual(a, b); };
+    for (const [s, c] of senders) {
+      if (!same(c.hash)) continue;
+      if (source !== null && s !== source) throw new AgentError(ERR.BAD_CAPABILITY, `this token is the ${s} sender's; the request says source ${source}`, 401);
+      return { source: s, version: c.version };
+    }
+    if (rec.capabilityHash && same(rec.capabilityHash)) return { source: 'any', version: rec.capabilityVersion };
+    throw new AgentError(ERR.BAD_CAPABILITY, 'the capability token is not this agent\'s current one', 401);
   }
 
   /** The synchronous gate every action passes before money moves; throws the refusal. */
@@ -533,7 +612,18 @@ export class AgentGateway {
     if (r.action.holding.some((v, i) => v !== rec.village[i])) throw new AgentError(ERR.WRONG_VILLAGE, `the agent acts on its own village ${rec.village.join(',')} only`, 403, { village: rec.village });
   }
 
-  async #run(rec, r, hash) {
+  /** Whether the credential that let a request in is still the agent's current one (see submit). */
+  #stillCurrent(rec, who) {
+    if (!who) return true;
+    if (who.source === 'any') return !!rec.capabilityHash && rec.capabilityVersion === who.version;
+    return rec.capabilities?.[who.source]?.version === who.version;
+  }
+
+  #assertCurrent(rec, who) {
+    if (!this.#stillCurrent(rec, who)) throw new AgentError(ERR.BAD_CAPABILITY, `the ${who.source === 'any' ? 'general' : who.source} capability that let this request in was replaced or revoked before it was sent`, 401);
+  }
+
+  async #run(rec, r, hash, who = null) {
     const key = r.idempotencyKey;
     const refused = (e, status = RESULT_STATUS.REFUSED, charges = [], facts = {}) => {
       const err = e instanceof RouteError ? { code: e.code, message: e.message, ...(e.extra ?? {}) } : { code: ERR.SEND_FAILED, message: String(e?.message ?? e) };
@@ -543,6 +633,7 @@ export class AgentGateway {
     };
     let hold = null;
     try {
+      this.#assertCurrent(rec, who);
       this.#gate(rec, r);
       // Every check above and this hold are synchronous: a concurrent request cannot slip between them.
       hold = this.ledger.hold(rec.agentId, { category: CATEGORIES.GAME, amount: this.prices.game[r.action.name] ?? '0', key, ttlMs: ACTION_HOLD_TTL_MS, policyVersion: r.policyVersion, modeEpoch: rec.modeEpoch, requestHash: hash });
@@ -558,19 +649,42 @@ export class AgentGateway {
     let signed = null;
     let res;
     try {
-      const { shape, tx, wire, lastValidBlockHeight, slotFloor } = await this.#build(rec, r);
-      const sent = await sponsor(this.ctx, { ip: '127.0.0.1', surface: 'agent' }, {
-        tx, wire, shape, lastValidBlockHeight, viaAgent: true,
-        beforeSend: ({ signature, lastValidBlockHeight: lvbh }) => {
-          // Synchronous, right before the bytes leave: a stop or a new policy in the meantime refuses.
-          if (rec.mode !== MODES.AUTO || rec.modeEpoch !== epoch) throw new AgentError(ERR.AGENT_STOPPED, 'the agent was stopped while this action was being prepared', 409);
-          if (rec.policy.version !== r.policyVersion) throw new AgentError(ERR.STALE_POLICY, 'the policy changed while this action was being prepared', 409);
-          this.ledger.markSending(rec.agentId, hold.id, signature, lvbh, slotFloor);
-          signed = { signature, lastValidBlockHeight: Number.isSafeInteger(lvbh) ? lvbh : null, slotFloor: Number.isSafeInteger(slotFloor) ? slotFloor : null, signedAt: this.ledger.now() };
-          sending = true;
-        },
-        onSent: ({ signature, moved }) => this.ledger.recordNetwork(rec.agentId, { lamports: feeOf(shape) + BigInt(moved ?? 0), signature, key }),
-      });
+      // Two different requests for the same action, built with the same blockhash (the book shares one read between
+      // concurrent callers and caches it) and the same randomly drawn fee payer, are the same bytes: the relay's replay
+      // guard refuses the second as Duplicate. This request's key is new (checked above), so that Duplicate is another
+      // request's transaction, nothing of this one was sent: build it again with another fee payer.
+      const avoid = new Set();
+      let sent;
+      for (let attempt = 0; ; attempt++) {
+        const { shape, tx, wire, lastValidBlockHeight, slotFloor } = await this.#build(rec, r, avoid);
+        const built = { lastValidBlockHeight, slotFloor };
+        try {
+          sent = await sponsor(this.ctx, { ip: '127.0.0.1', surface: 'agent' }, {
+            tx, wire, shape, lastValidBlockHeight, viaAgent: true,
+            beforeSend: ({ signature, lastValidBlockHeight: lvbh }) => {
+              // Synchronous, right before the bytes leave: a stop or a new policy in the meantime refuses.
+              if (rec.mode !== MODES.AUTO || rec.modeEpoch !== epoch) throw new AgentError(ERR.AGENT_STOPPED, 'the agent was stopped while this action was being prepared', 409);
+              if (rec.policy.version !== r.policyVersion) throw new AgentError(ERR.STALE_POLICY, 'the policy changed while this action was being prepared', 409);
+              this.#assertCurrent(rec, who);
+              this.ledger.markSending(rec.agentId, hold.id, signature, lvbh, slotFloor);
+              signed = { signature, lastValidBlockHeight: Number.isSafeInteger(lvbh) ? lvbh : null, slotFloor: Number.isSafeInteger(slotFloor) ? slotFloor : null, signedAt: this.ledger.now() };
+              sending = true;
+            },
+            onSent: ({ signature, moved }) => this.ledger.recordNetwork(rec.agentId, { lamports: feeOf(shape) + BigInt(moved ?? 0), signature, key }),
+          });
+        } catch (e) {
+          // Not for an action that carries the Citizen's sequence number (SendCaravan: its caravan id is the Citizen's
+          // CARAVANS counter): a Duplicate there may be this Citizen's own earlier caravan with the same seq, and a
+          // rebuild with another fee payer could pay a second fee for the same seq (workstream 04 AUTH-ROUTES §4).
+          if (!sending && e instanceof RouteError && e.code === 'Duplicate' && attempt < DUPLICATE_REBUILDS && !SEQ_ACTIONS.has(r.action.name)) { avoid.add(shape.feePayer); continue; }
+          // A Duplicate of a seq action is NOT proof that nothing of it was sent: these exact bytes (the same Citizen
+          // seq, so the same effect) already left in an earlier submission. It goes back as `failed` with `sent: null`
+          // and that transaction's signature, so the caller follows its fate and holds while the fate is unknown.
+          if (!sending && e instanceof RouteError && e.code === 'Duplicate' && SEQ_ACTIONS.has(r.action.name)) e.duplicateOf = { signature: e.extra?.signature ?? null, ...built };
+          throw e;
+        }
+        break;
+      }
       // Sent. A priced action stays reserved until the chain's answer (reconcile); a free one has nothing to settle.
       if (big(hold.amount) === 0n) this.ledger.release(rec.agentId, hold.id, 'free');
       const facts = { ...sendFacts(signed), signature: sent.signature };
@@ -579,7 +693,15 @@ export class AgentGateway {
       this.log(`agent wallet: ${rec.agentId} ${r.action.name} sent ${sent.signature} (${r.source}, key ${key})`);
     } catch (e) {
       if (this.ledger.actionWritesFailed) throw e;
-      if (!sending) {
+      if (!sending && e.duplicateOf) {
+        // Nothing of THIS request left, so its own hold comes back; but the same bytes did leave before: not `not-sent`.
+        this.ledger.release(rec.agentId, hold.id, 'duplicate');
+        const d = e.duplicateOf;
+        res = refused(e, RESULT_STATUS.FAILED, [], d.signature
+          ? { sent: null, duplicateOf: d.signature, signature: d.signature, lastValidBlockHeight: d.lastValidBlockHeight ?? null, slotFloor: d.slotFloor ?? null }
+          : { sent: null });
+        this.log(`agent wallet: ${rec.agentId} ${r.action.name} is a duplicate of ${d.signature ?? 'an earlier submission'}; follow it, do not resend`);
+      } else if (!sending) {
         // Nothing left this process: the hold comes back whole.
         this.ledger.release(rec.agentId, hold.id, 'refused');
         // A refusal of the gateway's or the relay's (a RouteError) is 'refused'; an exception on the way (RPC down) is 'failed'.
@@ -598,7 +720,7 @@ export class AgentGateway {
   }
 
   /** The signed transaction of an action, after the chain says the agent's key is the Citizen's live session key. */
-  async #build(rec, r) {
+  async #build(rec, r, avoid = new Set()) {
     const { ctx } = this;
     const [season, clock, citizen] = await Promise.all([ctx.chain.season(), ctx.chain.clock(), ctx.chain.citizen(ctx.addresses.citizen(rec.owner))]);
     if (!citizen) throw new AgentError(ERR.SESSION_NOT_DELEGATED, 'the owner has no Citizen this season', 409);
@@ -611,7 +733,8 @@ export class AgentGateway {
     const profile = profileForSeason(season);
     const fields = normaliseFields(r.action.name, r.action.fields, profile);
     const accounts = accountsFor(r.action.name, { addresses: ctx.addresses, actor: rec.agentKey, owner: rec.owner, holding: r.action.holding, fields, route: r.action.route ?? null, profile });
-    const feePayer = ctx.pool.draw().publicKey.toBase58();
+    let feePayer = ctx.pool.draw().publicKey.toBase58();
+    for (let i = 0; i < 8 && avoid.has(feePayer); i++) feePayer = ctx.pool.draw().publicKey.toBase58();
     // Read before the blockhash: at or below any slot this transaction can land in (fate.mjs history coverage).
     const slotFloor = await slotFloorOf(ctx.connection);
     const { blockhash, lastValidBlockHeight } = await ctx.blockhashes.latest();
@@ -790,7 +913,7 @@ export class AgentGateway {
     return {
       agentId: rec.agentId, owner: rec.owner, payout: rec.payout, agentKey: rec.agentKey, citizen: this.ctx.addresses.citizen(rec.owner), village: [...rec.village],
       mode: rec.mode, modeEpoch: rec.modeEpoch, policy: { ...rec.policy, allowed: [...rec.policy.allowed], budget: { ...rec.policy.budget } },
-      capabilityVersion: rec.capabilityVersion, balance: this.ledger.balance(agentId), day: this.#dayOf(rec), holds, withdrawals,
+      capabilityVersion: rec.capabilityVersion, senderCapabilities: Object.fromEntries(Object.entries(rec.capabilities ?? {}).map(([s, c]) => [s, { version: c.version }])), balance: this.ledger.balance(agentId), day: this.#dayOf(rec), holds, withdrawals,
       history: rec.history.slice(-50), historySeq: Number.isInteger(rec.seq) ? rec.seq : rec.history.length, driver: this.#driverOf(rec), createdAt: rec.createdAt, testAssetsOnly: true,
     };
   }

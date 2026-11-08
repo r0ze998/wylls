@@ -4,7 +4,7 @@
  *   run4FromRunexec  ④ cf517b55: `runexec run accept` through ④'s own
  *                    clients/runs.mjs (`createRunsClient`, passed in; 06 does
  *                    not copy it), and `runexec run view` (read only).
- *   act3FromMcp      ③ 84f710d5: the MCP tools prepare_caravan,
+ *   act3FromMcp      ③ c95287d5 (from 84f710d5 on): the MCP tools prepare_caravan,
  *                    send_caravan {planId, requestId, runId} and
  *                    get_run_status {runId}, through a `callTool(name, args)`
  *                    the MCP client provides.
@@ -25,8 +25,12 @@ export function cargoForMcp(cargo) {
   return out;
 }
 
-/** ③'s plan answers that call for a new plan under the same requestId (server.mjs: unknown, used, expired, stale). */
-const PLAN_AGAIN = ["PlanUnknown", "PlanUsed", "PlanExpired", "PlanStale"];
+/**
+ * ③'s plan answers that call for a new plan under the same requestId: they come only when ③ holds no
+ * operation for the requestId (server.mjs; confirmed by ③ at c95287d5). NOT PlanUsed: another requestId
+ * already sent that plan, so a new plan could send a second caravan — held instead.
+ */
+const PLAN_AGAIN = ["PlanUnknown", "PlanExpired", "PlanStale"];
 
 /** ④'s refusals that are answers (exit codes 2, 4, 5 of run accept): held, never retried with new ids. */
 const DEFINITIVE4 = ["BadRequest", "Conflict", "NotAuthorized"];
@@ -62,7 +66,7 @@ export function run4FromRunexec({ runs, bin, db, execFile = nodeExecFile, timeou
 }
 
 /** ③'s answers that end a send for a person: the same requestId under another plan or run, a refused action. */
-const DEFINITIVE3 = ["IdempotencyConflict", "BadRequest", "ActionNotAllowed", "NotYourPlace", "WalletRequired", "AgentStopped", "SessionNotDelegated"];
+const DEFINITIVE3 = ["IdempotencyConflict", "PlanUsed", "RequestIdUsedOnAnotherConnection", "BadRequest", "ActionNotAllowed", "NotYourPlace", "WalletRequired", "AgentStopped", "SessionNotDelegated"];
 
 export function act3FromMcp({ callTool }) {
   if (typeof callTool !== "function") throw new Error("callTool(name, args) is required");

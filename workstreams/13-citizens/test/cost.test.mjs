@@ -89,8 +89,8 @@ test('price book: a model the book does not price is refused before any call', (
   assert.throws(() => priceBookCost({}, { provider: 'x', model: 'y' }), /quote\(\) and measure\(\)/);
 });
 
-// In the tree, or a restored checkout of workstream 5 (WS05_E9D1551A).
-const WS05 = process.env.WS05_E9D1551A ? pathToFileURL(path.join(process.env.WS05_E9D1551A, 'workstreams/05-ai-participation/model-api/src/price-book.mjs')) : new URL('../../05-ai-participation/model-api/src/price-book.mjs', import.meta.url);
+// In the tree, or a restored checkout of workstream 5 (WS05_ROOT).
+const WS05 = (process.env.WS05_ROOT ?? process.env.WS05_E9D1551A) ? pathToFileURL(path.join(process.env.WS05_ROOT ?? process.env.WS05_E9D1551A, 'workstreams/05-ai-participation/model-api/src/price-book.mjs')) : new URL('../../05-ai-participation/model-api/src/price-book.mjs', import.meta.url);
 const ws05 = existsSync(fileURLToPath(WS05));
 test('with workstream 5\'s real TokenPriceBook (its FIXTURE book; invented prices)', { skip: ws05 ? false : 'workstream 5 code is not in this tree' }, async () => {
   const { FIXTURE_BOOK } = await import(WS05);

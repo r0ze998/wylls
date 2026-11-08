@@ -217,14 +217,18 @@ pub enum ExtendWait {
     TooSoon,
     /// No wedge has `wedge_occupied ≥ θ × wedge_open` on the folded values.
     NotCrowded,
+    /// The season's end bell has come: a finite season does not grow from
+    /// it on (the program's `WrongStatus`), even before EndSeason.
+    PastEnd,
 }
 
 /// The ExtendFrontier rule (`proc/map.rs` `extend_frontier`) on the
 /// decoded accounts: `Ok(d)` with `d = effective r_max + 1` when the
 /// program would accept ExtendFrontier(d) now. The same checks, in the
 /// program's order: a ceiling, `d ≤ ceiling`, Running, `rings_opened ==
-/// d` (every ring up to the effective `r_max` opened), a bell since the
-/// last ring opening, some wedge crowded past θ.
+/// d` (every ring up to the effective `r_max` opened), before the
+/// season's end bell, a bell since the last ring opening, some wedge
+/// crowded past θ.
 pub fn frontier_extend_check(s: &Season, fr: &Frontier, now: i64) -> Result<u16, ExtendWait> {
     let ceiling = s.conquest.as_ref().map_or(0, |c| c.r_max_ceiling);
     if ceiling == 0 {
@@ -241,6 +245,9 @@ pub fn frontier_extend_check(s: &Season, fr: &Frontier, now: i64) -> Result<u16,
         return Err(ExtendWait::RingsNotOpened);
     }
     let bell = crate::clock::bell_at(s.genesis_ts, now).unwrap_or(0);
+    if bell >= s.end_bell {
+        return Err(ExtendWait::PastEnd);
+    }
     if bell < fr.last_ring_open_bell.saturating_add(1) {
         return Err(ExtendWait::TooSoon);
     }
@@ -382,6 +389,8 @@ mod tests {
         put(&mut d, l::THETA_LATE_BPS, &6_500u16.to_le_bytes());
         put(&mut d, l::THETA_SWITCH_SECS, &259_200u32.to_le_bytes());
         put(&mut d, l::RELEASE_AFTER_SECS, &864_000u32.to_le_bytes());
+        // A 7-day season (end bell 1,008), as M1_LOCAL_7D.
+        put(&mut d, l::END_BELL, &1_008u32.to_le_bytes());
         Season::decode(&d).unwrap()
     }
 
@@ -488,6 +497,19 @@ mod tests {
         cq.r_max_ceiling = 18;
         s.conquest = Some(cq);
         assert_eq!(frontier_extend_check(&s, &fr, now), Ok(17));
+        // From the season's end bell on (Running until EndSeason): never.
+        // (Past the θ switch the late θ, 65 %, applies: wedge 2 at 70 %.)
+        let end = g + s.end_bell as i64 * 600;
+        let late = frontier(17, 3, [100; 6], [0, 0, 70, 0, 0, 0]);
+        assert_eq!(
+            frontier_extend_check(&s, &late, end - 1),
+            Ok(17),
+            "the last bell still grows"
+        );
+        assert_eq!(
+            frontier_extend_check(&s, &late, end),
+            Err(ExtendWait::PastEnd)
+        );
         // Not Running yet.
         assert_eq!(
             frontier_extend_check(&s, &fr, g - 1),

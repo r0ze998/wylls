@@ -83,6 +83,18 @@ node workstreams/01-national-strategy/coop/board.mjs --herald http://127.0.0.1:4
 | ⑦の入口 | `proposals/0003-s1-coop-entry.patch`（未適用）：村の引き出し「交易と防備」に「国をまたぐ依頼」を足し、この村を届け先にして依頼の画面を開く。開く先の住所と英語の訳は統合で決める |
 | AI の参加（⑤） | 対象外 |
 
+## 17-4a. 中継（relay）への道と CORS（2026-10-30、本物の中継とヘラルドで確認）
+
+| 確かめたこと | 結果 | どう確かめたか |
+|---|---|---|
+| 本物の中継（`permutation-gateway/src/frontier/server.mjs`）は CORS の見出しを返すか | **返さない**。`OPTIONS` は 404 NotFound | チェーンなしで中継を起動し（使い捨ての試験用の種）、直接問い合わせた |
+| 別の入口の画面から中継の住所へ直接送れるか | **送れない**（ブラウザが GET も JSON の POST も止める）。前回の板の `--relay http://…:41933` の使い方は本物では動かなかった | Playwright（`test/coop.realrelay.mjs`） |
+| 同じ入口の `/gw`（板 → 本物のヘラルドの `gw` → 本物の中継）なら届くか | **届く**。中継の答え（チェーンが無いので blockhash の誤り）を画面が読める。ゲームと同じ `fchainio.mjs relayInfo` も同じ | 本物のヘラルド（`frontier-herald`、`--relay`）と本物の中継で、Playwright |
+| 板の変更 | 中継は既定で `/gw`（ゲームの `config.mjs` と同じ形）。`--relay` は廃止 | `coop/board.mjs` |
+| まだ確かめていないこと | 中継が実際に取引を受けて手数料を払い、チェーンに載せるところ（blockhash・残高・プログラムが要る） | Agave が要る（17-4b） |
+
+この確認のために、`permutation-gateway` の依存を `npm ci --ignore-scripts --prefix permutation-gateway`（`docs/RUNNING.md` の手順、lockfile どおり、install script なし）で入れた（`node_modules` は .gitignore）。ヘラルドは `cargo build --locked -p herald --bin frontier-herald`（Agave は要らない）。
+
 ## 17-4b. 本物のチェーンでの確認に要るもの（承認待ち）
 
 **未実施。** 外部のインストーラを実行する操作は許可されなかったので、回避していない（別の取得方法も試していない）。この環境に、使える SBF の成果物（`permutation_frontier.so`）・`cargo-build-sbf`・platform-tools はない（ファイルシステム全体を探した）。記録にある組み立ての sha256（`docs/frontier/m1/W2-A-NOTES.md`）は M1 の時のコードのもので、今の S1 のコードとは一致を確かめられない。
@@ -93,8 +105,15 @@ node workstreams/01-national-strategy/coop/board.mjs --herald http://127.0.0.1:4
 | 取得元 | Anza の配布：`https://release.anza.xyz/v3.1.9/install`（中で GitHub の `anza-xyz/agave` の v3.1.9 のリリース `solana-release-x86_64-unknown-linux-gnu.tar.bz2` を取る）。初めての組み立てで platform-tools v1.52（`anza-xyz/platform-tools` のリリース）が取られる |
 | 変わる場所 | `~/.local/share/solana/install/`（リリースと `active_release`）、`~/.cache/solana/`（platform-tools）。インストーラはシェルの設定に PATH を足すことがある（`build-frontier.sh` は自分で PATH を足すので不要）。リポジトリでは `permutation-frontier/target/`・`frontier-node/target/`・`.local/`（どれも .gitignore） |
 | 承認の後のコマンド | `scripts/build-frontier.sh --features test-beacon`（試験用のビーコン。本番には出せない組み立て）→ `(cd frontier-node && cargo build --locked --release --workspace)` → 別の作業場所でパッチ 0002 を当てたヘラルドを組み立てる → `frontier-stack up --conquest …`（17-2）→ `node coop/board.mjs --herald … --program … --season … --rpc http://127.0.0.1:41910` → 2人の入口で依頼・応答・隊商・結び付け・確定を通す。失敗・取消・略奪・相手の退出も同じ世界で |
-| 確かめること | ヘラルドの `ended` の `cargo` と、村の口座の在庫の増え方が規則どおりか（下限になっているか）、倉あてが未検証になるか、Citizen の口座で国が確かめられるか |
+| 確かめること | CARAVAN_SETTLED の `cargo` と、村の口座の在庫の増え方が規則どおりか（RuleDerived：整数単位で一致するか）、倉あてが Unverifiable になるか、Citizen の口座で国が確かめられるか、中継が `/gw` 経由で取引を受けて載せるか、自分の取引の署名で着地を確かめられるか、占領の前後の受取人 |
 | 課金・外部 | なし（ローカルのチェーン、試験用のトークン）。push・deploy はしない |
+
+## 17-4c. 送る前の見込み・競合・結果不明（2026-10-30）
+
+- **不足の見込み：** 送る前に、送り元の村の在庫を、ゲームと同じ計算（`fland.mjs storesAt`・`rulebook.mjs settled`）で今の時刻へ進め、依頼の荷との不足を出す（画面は確認の窓に出す）。見込みなので計画は止めない。**足りるかの最終判定はプログラム**（Insufficient）。
+- **送信の結果：** 自分の取引の署名で確かめる（`chain.mjs sendOutcome`）。`landed`（自分の取引に計画の隊商の記録がある）だけ自動で結び付ける。`failed`（プログラムが断った：在庫の競合・番号の競合）・`mismatch`・`seq-taken`（自分の取引が見えないまま番号が進んだ）は結び付けず、計画し直せる。`unknown`（取引も番号の進みも見えない）は、分かるまで同じ依頼へ次を送らない。
+- **結び付けの前の到着：** 隊商の口座は確定で閉じる。口座がなければ、チェーンの元の送信（CARAVAN_SENT、いちばん古いもの）で、送った人・行き先・荷を確かめる。応じる前に送った隊商は結び付けない（送信の時刻が応答より後であること）。
+- **結び付けの持ち主：** 隊商の鍵（OWNER_TAG）が署名した人の印で、口座があるときは今の OWNER_CITIZEN も署名した人（奪われた隊商は結び付けない）。
 
 ## 17-5. テスト
 

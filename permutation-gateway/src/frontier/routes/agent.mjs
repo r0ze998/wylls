@@ -13,7 +13,8 @@
 //          op mode               params {mode: 'manual'|'auto'}               → {agent}
 //          op withdraw           params {amount} | {all: true}                → {withdrawal, agent}
 //          op action             params {idempotencyKey?, policyVersion, modeEpoch?, action}  → ActionResult (source 'browser')
-//          op rotate-capability                                              → {agent, capability}
+//          op rotate-capability  params {source?: 'ai'|'mcp'}                → {agent, capability}  (with source: that sender's own token)
+//          op revoke-capability  params {source: 'ai'|'mcp'|'any'}           → {agent, revoked}      (that sender's token, or the general one)
 //   GET  /f/agent/by-owner?owner=            the owner's agents, briefly
 //   POST /f/agent/deposit {agentId, signature}   credits a confirmed owner-signed deposit to the custody account
 //   POST /f/agent/deposit {agentId, tx, lastValidBlockHeight?}
@@ -21,6 +22,7 @@
 //                                            the relay co-signs, simulates, sends, waits and credits (the browser's path)
 //   POST /f/agent/action  {capability, request}  an ActionRequest with the agent's capability token (source 'ai' or 'mcp')
 //                                                → ActionResult (always 200: `ok`, `status`, `error.code` say what happened)
+//   POST /f/agent/whoami   {agentId, capability} read only: is this the agent's current capability (records nothing)
 //   POST /f/agent/reconcile                      operator only: settle sent holds and withdrawals by the chain's answer
 //   GET  /f/agent/unresolved                     operator only: model calls whose outcome was unknown, and the operator's cost record
 //   POST /f/agent/settle {agentId, holdId, outcome: charge|refund, note?, by?, evidence?}   operator only: decide one unresolved call (audited:
@@ -100,7 +102,9 @@ export const agentRoutes = {
       case 'policy': return { body: { ok: true, agent: g.setPolicy(agentId, owner, p.policy) } };
       case 'mode': return { body: { ok: true, agent: g.setMode(agentId, owner, p.mode) } };
       case 'withdraw': return { body: { ok: true, ...(await g.withdraw(agentId, owner, { amount: p.amount, all: p.all === true })) } };
-      case 'rotate-capability': return { body: { ok: true, ...g.rotateCapability(agentId, owner) } };
+      // params.source ('ai' | 'mcp'): that sender's own token (A1); none: the general token, as before.
+      case 'rotate-capability': return { body: { ok: true, ...g.rotateCapability(agentId, owner, p.source ?? null) } };
+      case 'revoke-capability': return { body: { ok: true, ...g.revokeCapability(agentId, owner, p.source) } };
       case 'action': {
         const result = await g.submit({ agentId, source: 'browser', idempotencyKey: p.idempotencyKey ?? command.nonce, policyVersion: p.policyVersion, modeEpoch: p.modeEpoch, action: p.action }, { owner });
         return { body: result };
@@ -130,6 +134,15 @@ export const agentRoutes = {
     if (!SOURCES.includes(source) || source === 'browser') throw new RouteError(400, 'request.source must be ai or mcp (browser requests are owner commands)', 'BadRequest');
     if (typeof r.agentId === 'string') ctx.limiter.check(`f-agent-action:${r.agentId}`, { burst: 30, perSecond: 1 }, 'actions for this agent');
     return { body: await g.submit({ ...r, source }, { capability: b.capability }) };
+  },
+
+  // Read-only: is this capability the agent's current one? Nothing is recorded (agent wallet AgentGateway.whoami).
+  'POST /f/agent/whoami': async (ctx, req) => {
+    const g = agents(ctx);
+    const b = await req.json();
+    const agentId = str(b.agentId, 'agentId');
+    ctx.limiter.check(`f-agent-whoami:${agentId}`, { burst: 10, perSecond: 1 }, 'capability checks for this agent');
+    return { body: { ok: true, ...g.whoami(agentId, { capability: b.capability }) } };
   },
 
   'POST /f/agent/reconcile': async (ctx, req) => {

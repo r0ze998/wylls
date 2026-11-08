@@ -16,7 +16,7 @@ import { signTalk, verifyTalk } from '../../../client/src/talk-node.mjs';
 import { AgentError, ERR } from './contract.mjs';
 
 export const OWNER_PREFIX = 'Wylls agent wallet command v1\n';
-export const OWNER_OPS = Object.freeze(['create', 'policy', 'mode', 'withdraw', 'action', 'rotate-capability']);
+export const OWNER_OPS = Object.freeze(['create', 'policy', 'mode', 'withdraw', 'action', 'rotate-capability', 'revoke-capability']);
 export const MAX_COMMAND_MS = 10 * 60_000;
 
 /** Canonical JSON: object keys sorted at every level (so signer and verifier agree byte for byte). */

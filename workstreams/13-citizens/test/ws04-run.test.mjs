@@ -8,6 +8,10 @@ import { small, run } from './helpers.mjs';
 import { fateOfRun, WS04_STATES, WS04_TERMINAL, ws04ExecutionPort } from '../resident/ports/ws04-run.mjs';
 import { assertPort } from '../resident/ports/execution.mjs';
 
+// A FIXTURE requester (what a credential layer would hand over; nothing here authenticates anyone).
+const FIXTURE_REQUESTER = { actor: '1'.repeat(31) + 'A', generation: 1, citizen: '1'.repeat(31) + 'C', authenticatedBy: 'test fixture: no credential layer' };
+const requesterOf = () => FIXTURE_REQUESTER;
+
 const MODEL = readFileSync(new URL('../../04-execution/src/model.rs', import.meta.url), 'utf8');
 
 test('the state list and terminal set are workstream 4\'s (model.rs RunState::ALL, terminal())', () => {
@@ -56,7 +60,7 @@ const specOf = req => ({ owner: 'fixture-owner-tag', action: req.action });
 
 test('the port: kept for good, same key replays, another spec under the key is a conflict', async () => {
   const c = fake4();
-  const port = ws04ExecutionPort(c, { specOf });
+  const port = ws04ExecutionPort(c, { specOf, requesterOf });
   assert.ok(assertPort('execution', port));
   const req = { idempotencyKey: 'ren:t1:1', action: { name: 'SendCaravan', fields: { to: 'c2', goods: { Food: 40 } } } };
   assert.equal((await port.submit(req)).status, 'sent');
@@ -72,7 +76,7 @@ test('a resident on the fake workstream 4: pending until the caravan leaves, the
   const ren = env.rs.ren;
   let down = 0;
   const c = fake4({ unavailable: () => down > 0 });
-  ren.ports.execution = ws04ExecutionPort(c, { specOf });
+  ren.ports.execution = ws04ExecutionPort(c, { specOf, requesterOf });
   await run(env, 1, { each: () => { c.step(); } });
   const it = Object.values(ren.state.journal).find(j => j.action);
   assert.ok(it, 'the resident sent through workstream 4');

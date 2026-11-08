@@ -236,7 +236,12 @@ async fn archives_stay_unproven_even_when_the_node_check_matches() {
     assert!(h.unproven(), "{h:?}");
     let h = input::confirm_archive(&fd, &url, h).await.unwrap();
     assert!(h.unproven(), "{h:?}");
-    assert!(h.detail.contains("cross-check matched"), "{}", h.detail);
+    // ⑲ 2026-11-08: the tail matched; the prefix is still not shown.
+    assert!(
+        h.gaps
+            .contains(&verify_core::history::Gap::PrefixIdentityUnverified),
+        "{h:?}"
+    );
     assert_eq!(
         txs.iter().map(|t| t.seq).collect::<Vec<_>>(),
         vec![1, 4, 6, 8]

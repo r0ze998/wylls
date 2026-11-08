@@ -21,12 +21,15 @@ test("③: cargo by S1 name, plan answers become re-plan, refusals are answers, 
   answer = { prepare_caravan: { planId: "pl-1", expiresAt: "x" } };
   assert.deepEqual(await port.prepare({ from: "vault:2,-1,7", to: "vault:3,-1,4", cargo: [0, 1, 0, 2, 0, 0, 0, 0] }), { planId: "pl-1" });
   assert.deepEqual(calls[0], ["prepare_caravan", { from: "vault:2,-1,7", to: "vault:3,-1,4", cargo: { Wood: 1, Ore: 2 } }]);
-  for (const code of ["PlanUnknown", "PlanUsed", "PlanExpired", "PlanStale"]) {
+  for (const code of ["PlanUnknown", "PlanExpired", "PlanStale"]) {
     answer = { send_caravan: { ok: false, error: { code, message: "m" } } };
     await assert.rejects(port.send({ planId: "pl-1", requestId: "ws06.abcdefgh", runId: "ws06:x" }), (e) => e.code === "PlanAgain" && e.was === code && !e.definitive);
   }
-  answer = { send_caravan: { ok: false, error: { code: "IdempotencyConflict", message: "m" } } };
-  await assert.rejects(port.send({ planId: "p", requestId: "r", runId: "x" }), (e) => e.definitive === true);
+  // PlanUsed: another requestId sent the plan; a new plan could send a second caravan. A reconnect reusing a requestId: refused, nothing sent
+  for (const code of ["IdempotencyConflict", "PlanUsed", "RequestIdUsedOnAnotherConnection"]) {
+    answer = { send_caravan: { ok: false, error: { code, message: "m" } } };
+    await assert.rejects(port.send({ planId: "p", requestId: "r", runId: "x" }), (e) => e.definitive === true && e.code === code, code);
+  }
   answer = { send_caravan: { ok: false, error: { code: "RelayUnreachable", message: "m", retryable: true } } };
   await assert.rejects(port.send({ planId: "p", requestId: "r", runId: "x" }), (e) => !e.definitive, "a retryable failure is no answer");
   answer = { send_caravan: { state: "accepted", runId: "x" } };

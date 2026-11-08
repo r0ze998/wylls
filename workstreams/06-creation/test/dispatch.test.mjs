@@ -319,3 +319,17 @@ test("the file journal survives a process restart and leaves no partial file", a
   assert.equal(JSON.parse(readFileSync(path, "utf8")).format, "wylls.creation.dispatch/0");
   assert.equal(fs.existsSync(`${path}.tmp`), false);
 });
+
+test("act route: PlanUsed (another requestId sent the plan) and a requestId reused on another connection are held, never re-planned", async () => {
+  for (const code of ["PlanUsed", "RequestIdUsedOnAnotherConnection"]) {
+    const j = memJournal(), t = fakeAct();
+    const d = new Dispatch({ journal: j, act: t });
+    const p = d.plan({ route: "act", ...actRequest(`u-${code.length}`) });
+    t.send = async () => { throw Object.assign(new Error(code), { code, definitive: true }); };
+    let st = await d.advance(p.key);
+    st = await d.advance(p.key);
+    assert.equal(st.steps[0].state, "held", code);
+    assert.equal(t.prepares, 1, `${code}: no new plan`);
+    assert.equal(t.sends, 0);
+  }
+});

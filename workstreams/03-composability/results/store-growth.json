@@ -1,0 +1,44 @@
+[
+ {
+  "operations": 10000,
+  "fileMB": 21.7,
+  "saveMs": 299,
+  "loadMs": 167,
+  "ownerQueryMs": 11,
+  "heapMB": 93
+ },
+ {
+  "operations": 50000,
+  "fileMB": 108.8,
+  "saveMs": 1735,
+  "loadMs": 1094,
+  "ownerQueryMs": 44,
+  "heapMB": 478
+ },
+ {
+  "archived": 10000,
+  "mainOps": 200,
+  "mainFileMB": 0.44,
+  "archiveMB": 21.6,
+  "saveMs": 15,
+  "loadMs": 184,
+  "ownerQueryMs": 4,
+  "listed": 50,
+  "oneMs": 0.03,
+  "archiveEachMs": 0.395,
+  "heapMB": 514
+ },
+ {
+  "archived": 50000,
+  "mainOps": 200,
+  "mainFileMB": 0.44,
+  "archiveMB": 108.3,
+  "saveMs": 13,
+  "loadMs": 1755,
+  "ownerQueryMs": 18,
+  "listed": 50,
+  "oneMs": 0.03,
+  "archiveEachMs": 0.367,
+  "heapMB": 341
+ }
+]
