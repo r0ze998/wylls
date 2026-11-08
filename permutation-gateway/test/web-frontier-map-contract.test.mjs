@@ -211,3 +211,31 @@ test('S1: me names the wallet\'s Holding at (4,0) and its host on tile 0; overvi
     }
   }
 });
+
+test('S1: the router\'s seeds and growth fields are 8\'s (growth-route.mjs ringSeed, growthFields) at every stage', async () => {
+  const G = await import('./fixtures/frontier/growth-route.mjs');
+  for (const stage of S1_STAGES) {
+    const { h } = s1Herald(stage);
+    const s = await h.season();
+    assert.ok(s.ok, stage);
+    const want = G.growthFields(stage);
+    assert.deepEqual(s.record.rings, want.rings, `${stage}: seeded rings and seeds`);
+    for (const k of ['rMax', 'ringsOpened', 'ringProvinces', 'rMaxCeiling', 'rMaxHard', 'placement', 'heartlandMaxRing']) {
+      assert.deepEqual(s.record[k], want[k], `${stage} ${k}`);
+    }
+  }
+});
+
+test('S1: an NFT resident\'s /h/me (workstream 20): its Citizen at the resident-id address, accepted for its own asset', async () => {
+  for (const stage of S1_STAGES) {
+    const { h } = s1Herald(stage);
+    const me = await h.me(S1.residentAsset);
+    assert.ok(me.ok, `${stage}: ${me.code} ${me.message ?? ''}`);
+    assert.equal(me.citizen.residentAsset !== undefined && me.citizen.residentAsset !== null, true, stage);
+    assert.equal(me.record.citizen.address, S1.residentCitizen, stage);
+    assert.deepEqual([me.holdings[0].p, me.holdings[0].q, me.holdings[0].site], [4, 0, 1], stage);
+    // The wallet's own read is still the wallet Citizen.
+    const w = await h.me(S1.wallet);
+    assert.ok(w.ok && w.record.citizen.address !== S1.residentCitizen, stage);
+  }
+});

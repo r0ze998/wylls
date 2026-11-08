@@ -262,7 +262,9 @@ fn s1_paths() -> Vec<String> {
         v.push(format!("/h/province/{p},{q}/latest"));
     }
     v.push(format!("/h/me/{}", g::wallet()));
+    v.push(format!("/h/me/{}", g::resident_asset()));
     v.push(format!("/h/holding/{},{},0.json", g::HOME.0, g::HOME.1));
+    v.push(format!("/h/holding/{},{},1.json", g::HOME.0, g::HOME.1));
     for d in 3..=5 {
         v.push(format!("/h/overview/{d}/latest.bin"));
         v.push(format!("/h/overview2/{d}/latest.bin"));
@@ -337,6 +339,8 @@ async fn the_s1_ring_4_to_5_growth_matches_the_golden_and_8s_contract() {
         "program": gr::program().to_string(),
         "season": gr::SEASON_ID.to_string(),
         "host": gr::host().to_string(),
+        "residentAsset": gr::resident_asset().to_string(),
+        "residentCitizen": solana_address::Address::new_from_array(gr::resident_citizen()).to_string(),
         "stages": out,
     });
     if std::env::var("WS19_GOLDEN_WRITE").is_ok() {
@@ -370,7 +374,7 @@ async fn the_s1_ring_4_to_5_growth_matches_the_golden_and_8s_contract() {
         let expect: Vec<(u64, String)> = (0..seeded)
             .map(|d| (d as u64, hex::encode(gr::ring_seed(d))))
             .collect();
-        assert_eq!(rings, expect, "{s}: seeded rings with sha256(\"ring\" + d)");
+        assert_eq!(rings, expect, "{s}: seeded rings with their seeds");
         assert_eq!(status(&g, s, "/h/province/4,0/latest"), 200, "{s}");
         assert_eq!(
             status(&g, s, "/h/province/5,0/latest"),
@@ -391,6 +395,15 @@ async fn the_s1_ring_4_to_5_growth_matches_the_golden_and_8s_contract() {
                 .any(|h| h.to_string().contains(&gr::host().to_string())),
             "{s}: the wallet's host on (4,0): {hosts:?}"
         );
+    }
+    // The NFT resident: me_citizen serves its Citizen for the asset key.
+    for s in gr::STAGES {
+        let me = body(&g, s, &format!("/h/me/{}", gr::resident_asset()));
+        assert_eq!(
+            me["citizen"]["address"], g["residentCitizen"],
+            "{s}: the resident-id address: {me}"
+        );
+        assert_eq!(me["holdings"].as_array().map(|a| a.len()), Some(1), "{s}");
     }
     assert_eq!(status(&g, "extended", "/h/world/ring/5"), 404);
     assert_eq!(

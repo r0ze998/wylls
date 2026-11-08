@@ -7,11 +7,11 @@
 //! Season 71: program_version 4, the S1 ruleset (`RULESET_HASH_V3`),
 //! `MC_LOCAL_7D`'s conquest block with `r_max_ceiling` 6, placement 0,
 //! not continuous; genesis ring 3, Season `r_max` 4, genesis seed `[1; 32]`.
-//! Ring seeds are `sha256("ring" ‖ d)` (8's rule) for every ring. On a
-//! real chain rings `0..=genesis_ring` are seeded at open from
-//! `sha256("PSF-RING" ‖ genesis_seed ‖ le16 d)` instead; the herald does not
-//! check the rule, so this fixture follows 8 for all rings (noted, not a
-//! rule change). Province terrain, sites and passable mask come from
+//! Ring seeds: rings `0..=genesis_ring` are seeded at open with the
+//! program's genesis rule `sha256("PSF-RING" ‖ genesis_seed ‖ le16 d)`
+//! (permutation-frontier `proc/map.rs` `genesis_ring_seed`, I-30); rings
+//! above take `sha256("ring" ‖ d)` standing in for the beacon round's seed
+//! (8's rule, growth-route.mjs 4eeb6c7f). Province terrain, sites and passable mask come from
 //! `generate_province(ring seed, coordinate)`.
 //!
 //! Stages:
@@ -23,6 +23,10 @@
 //!   `rings_opened` 6.
 //! - **grown**: ConsumeRingSeed(5): RING_SEED with the seed, and the 30
 //!   Provinces of ring 5.
+//!
+//! From the first stage on, an NFT resident (workstream 20) too: a Citizen
+//! marked with `resident_citizen::mark` for [`resident_asset`] at the
+//! resident-id address, with its Holding at HOME site 1.
 //!
 //! Keyless: fixed byte-pattern signatures, no transaction bytes, public
 //! PDAs.
@@ -83,9 +87,26 @@ pub fn params() -> ConquestParams {
     }
 }
 
-/// `sha256("ring" ‖ decimal d)` (8's rule).
+/// Ring `d`'s seed: a genesis ring's from the genesis seed (I-30), a
+/// crowding ring's `sha256("ring" ‖ decimal d)` (8's stand-in).
 pub fn ring_seed(d: u16) -> [u8; 32] {
-    Sha256::digest(format!("ring{d}").as_bytes()).into()
+    if d <= GENESIS_RING as u16 {
+        Sha256::digest([RS::GENESIS_RING_DOMAIN, &GENESIS_SEED, &d.to_le_bytes()].concat()).into()
+    } else {
+        Sha256::digest(format!("ring{d}").as_bytes()).into()
+    }
+}
+
+/// An NFT resident's asset (a fixed public pattern: an address, not a key).
+pub fn resident_asset() -> Address {
+    Address::new_from_array([0xA5; 32])
+}
+
+/// The NFT resident's Citizen: `citizen_by_tag15(resident_tag15(asset))`.
+pub fn resident_citizen() -> [u8; 32] {
+    ctx().citizen_by_tag15(&frontier_abi::resident_citizen::resident_tag15(
+        &resident_asset().to_bytes(),
+    ))
 }
 
 /// The host of the wallet on (4, 0) tile 0.
@@ -277,9 +298,11 @@ fn province(c: ProvinceCoord) -> Vec<u8> {
         None => qm::write_no_keep(&mut pd).expect("no keep"),
     }
     if (c.p, c.q) == HOME {
-        let o = P::site(0);
-        pd[o + SM::STATE] = SM::STATE_HOLDING;
-        pd[o + SM::FACTION] = 1;
+        for (s, f) in [(0, 1), (1, 2)] {
+            let o = P::site(s);
+            pd[o + SM::STATE] = SM::STATE_HOLDING;
+            pd[o + SM::FACTION] = f;
+        }
         let e = Entry {
             id: host(),
             faction: 1,
@@ -301,16 +324,16 @@ fn province(c: ProvinceCoord) -> Vec<u8> {
     pd
 }
 
-fn citizen(addr: &[u8; 32]) -> Vec<u8> {
+fn citizen(addr: &[u8; 32], site: u8, faction: u8) -> Vec<u8> {
     let mut d = vec![0u8; C2::SIZE];
     write_header(&mut d, AccountKind::Citizen, SEASON_ID);
     put(&mut d, C2::WALLET, &wallet().to_bytes());
-    d[C2::FACTION] = 1;
+    d[C2::FACTION] = faction;
     d[C2::HOLDINGS_N] = 1;
     // HoldingRef {P i16, Q i16, site u8, gen u8} x3; unused: gen 255.
     put(&mut d, C2::HOLDING, &(HOME.0 as i16).to_le_bytes());
     put(&mut d, C2::HOLDING + 2, &(HOME.1 as i16).to_le_bytes());
-    d[C2::HOLDING + 4] = 0;
+    d[C2::HOLDING + 4] = site;
     d[C2::HOLDING + 5] = 0;
     for i in 1..3 {
         d[C2::HOLDING + 6 * i + 5] = 255;
@@ -320,16 +343,16 @@ fn citizen(addr: &[u8; 32]) -> Vec<u8> {
     d
 }
 
-fn holding(owner: &[u8; 32], tile: u8) -> Vec<u8> {
+fn holding(owner: &[u8; 32], site: u8, tile: u8, faction: u8) -> Vec<u8> {
     let mut d = vec![0u8; H2::SIZE];
     write_header(&mut d, AccountKind::Holding, SEASON_ID);
     put(&mut d, H2::P, &(HOME.0 as i16).to_le_bytes());
     put(&mut d, H2::Q, &(HOME.1 as i16).to_le_bytes());
-    d[H2::SITE] = 0;
+    d[H2::SITE] = site;
     d[H2::TILE] = tile;
     d[H2::STATE] = 1;
     put(&mut d, H2::OWNER_CITIZEN, owner);
-    d[H2::FACTION] = 1;
+    d[H2::FACTION] = faction;
     put(&mut d, H2::FOUNDED_TS, &GENESIS_TS.to_le_bytes());
     d
 }
@@ -395,10 +418,27 @@ pub fn map_growth() -> (Vec<TxRecord>, [usize; 4]) {
     t.push(
         vec![],
         vec![
-            (caddr, citizen(&caddr)),
+            (caddr, citizen(&caddr, 0, 1)),
             (
                 cx.holding(HOME.0, HOME.1, 0),
-                holding(&caddr, home.sites[0]),
+                holding(&caddr, 0, home.sites[0], 1),
+            ),
+        ],
+    );
+    // An NFT resident (workstream 20): the Citizen at the resident-id
+    // address, marked with `resident_citizen::mark` (WALLET zero, the asset,
+    // the flag), its Holding at HOME site 1.
+    let asset = resident_asset().to_bytes();
+    let raddr = resident_citizen();
+    let mut rc = citizen(&raddr, 1, 2);
+    assert!(frontier_abi::resident_citizen::mark(&mut rc, &asset));
+    t.push(
+        vec![],
+        vec![
+            (raddr, rc),
+            (
+                cx.holding(HOME.0, HOME.1, 1),
+                holding(&raddr, 1, home.sites[1], 2),
             ),
         ],
     );
