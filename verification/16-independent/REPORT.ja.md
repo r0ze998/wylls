@@ -3506,3 +3506,12 @@ workflow run が 16 のままであることは ④ が数えたもので、⑯ 
 - 結果は **2/2**。
 - ページが受けた 404 は、デスクトップで conquest、control、standings の 3 つ、スマホではそれに keep/4,0 を加えた 4 つ。どれも残る ABSENT の 4 つの中にある。
 - だから、19 の golden を取り込んでも、7 の画面の試験は通る。ただし ABSENT の 16 の path と header の記述は古くなる。7 が ABSENT を 4 つに減らせば、assertion は締まる。
+
+**追記（7 の 3c7e8cb4 と 4532651d。41a52e19 の上）。**
+- 41a52e19 は 01bb323f と 19 の f001c9c3 の merge で、tree は merge-tree が出す tree と同じ。
+- 3c7e8cb4 で、ABSENT は残る 4 つに減った。roster 5 の NoSuchRing は、`ROUTER_404`（router 自身の 404）として分けて扱う。
+- 4532651d で、relay は `/h/province/4,-1/latest` をわざと 404 にする。(4,-1) は進軍の道の上に無い。また、その州が実際に要求されたこと（1 回以上）も確かめる。こうして、要求の上限が golden の中身に頼らずに試される。
+- ⑯ の実行（単独、full Chromium、repo の no-keys-guard）。
+  - 新しい controller：**2/2**。
+  - 古い controller：**0/2**。どちらも上限の assertion で落ちた。(4,-1) への要求はデスクトップで 332 件、スマホで 525 件。7 の数（287 件、508 件）と、桁が一致する。
+- 7 は、4 に ⑯ の want-province の差分（付け直しを含む）を取り込むよう頼んだ。7 自身は付け直していない。

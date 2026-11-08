@@ -50,3 +50,18 @@ not ok 2 - 19's palisade on 08's route @ phone: blocked hex read; the order card
 # fail 2
 no Province asked for more than 20 times in this run ([["/h/province/4,0/latest",8],["/h/province/4,-1/latest",414],["/h/province/3,0/latest",405],["/h/province/3,1/latest",409]]
 no Province asked for more than 20 times in this run ([["/h/province/4,0/latest",6],["/h/province/4,-1/latest",458],["/h/province/3,0/latest",430],["/h/province/3,1/latest",514],["/h/province/5,0/latest",1]]
+### 7 4532651d (tree 66fba309) ws07-grow-s1 with the injected 404 on /h/province/4,-1, alone, full Chromium, repo no-keys-guard
+## fixed controller
+ok 1 - 19's S1 herald answers, 08's stages @ desktop: the host at (4,0) in hand, (5,0) refused until grown, then 08's route in the order card (not sealed)
+ok 2 - 19's S1 herald answers, 08's stages @ phone: the host at (4,0) in hand, (5,0) refused until grown, then 08's route in the order card (not sealed)
+# tests 2
+# pass 2
+# fail 0
+## old controller (1fc0a5aa's 3 lines reverted, restored after)
+not ok 1 - 19's S1 herald answers, 08's stages @ desktop: the host at (4,0) in hand, (5,0) refused until grown, then 08's route in the order card (not sealed)
+not ok 2 - 19's S1 herald answers, 08's stages @ phone: the host at (4,0) in hand, (5,0) refused until grown, then 08's route in the order card (not sealed)
+# tests 2
+# pass 0
+# fail 2
+no Province asked for more than 20 times in this run ([["/h/province/4,0/latest",15],["/h/province/4,-1/latest",332],["/h/province/3,0/latest",4],["/h/province/3,1/latest",4]]
+no Province asked for more than 20 times in this run ([["/h/province/4,0/latest",10],["/h/province/4,-1/latest",525],["/h/province/3,0/latest",5],["/h/province/3,1/latest",5]]
