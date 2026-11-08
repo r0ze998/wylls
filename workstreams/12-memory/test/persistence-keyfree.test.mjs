@@ -159,3 +159,129 @@ test('private facts decide only for their parties; public views show neither the
   const C = b58encode(Buffer.alloc(32, 12));
   assert.equal(m.knowledge({ tag: C, nation: null }, 300).commitments[0].state, 'unconfirmed');
 });
+
+test('a crash at ANY byte of the write that names a torn tail (and a third crash after that) still opens, keeps every record and loses none written later', () => {
+  const base = tmp();
+  const m = createMemory({ path: base });
+  m.note(note(1)); m.note(note(2));
+  appendFileSync(base, '{"record":{"id":"half-writ'); // crash 1
+  const before = readFileSync(base, 'utf8');
+  const copy = tmp(); writeFileSync(copy, before);
+  createMemory({ path: copy }).note(note(3));
+  const full = readFileSync(copy, 'utf8').slice(before.length); // newline + marker + the n3 row
+  for (let n = 0; n <= full.length; n++) {
+    const p = tmp();
+    writeFileSync(p, before + full.slice(0, n)); // crash 2 after n bytes
+    const r = createMemory({ path: p });
+    const texts = r.journal.records().map(x => x.text);
+    assert.deepEqual(texts, n >= full.length - 1 ? ['n1', 'n2', 'n3'] : ['n1', 'n2'], `cut ${n}`); // the row is whole once only its newline is missing
+    r.note(note(4));
+    assert.deepEqual(createMemory({ path: p }).journal.records().map(x => x.text), [...texts, 'n4'], `cut ${n}: written after the reload`);
+    if (n % 7 === 3) { // crash 3, inside the next naming write
+      const p3 = tmp();
+      writeFileSync(p3, before + full.slice(0, n));
+      const r3 = createMemory({ path: p3 });
+      const pre = readFileSync(p3, 'utf8');
+      const c3 = tmp(); writeFileSync(c3, pre); createMemory({ path: c3 }).note(note(5));
+      const full3 = readFileSync(c3, 'utf8').slice(pre.length);
+      for (const k of [1, Math.floor(full3.length / 2), full3.length - 1]) {
+        const q = tmp();
+        writeFileSync(q, pre + full3.slice(0, k));
+        const r4 = createMemory({ path: q });
+        const seen = r4.journal.records().map(x => x.text);
+        assert.deepEqual(seen.slice(0, texts.length), texts, `cut ${n} then ${k}: nothing earlier lost`);
+        assert.ok(seen.length === texts.length || (seen.length === texts.length + 1 && seen.at(-1) === 'n5'), `cut ${n} then ${k}: ${seen}`);
+        r4.note(note(6));
+        assert.deepEqual(createMemory({ path: q }).journal.records().map(x => x.text), [...seen, 'n6'], `cut ${n} then ${k}`);
+      }
+      void r3;
+    }
+  }
+});
+
+test('valid JSON that is not a journal row is refused as a corrupt line, not a crash', () => {
+  for (const junk of ['5', '{}', '"x"', 'null', '{"record":3}']) {
+    const p = tmp();
+    const m = createMemory({ path: p });
+    m.note(note(1));
+    appendFileSync(p, `${junk}\n`);
+    m.note(note(2)); // not last: no tear story can explain it
+    assert.throws(() => createMemory({ path: p }), /corrupt line 2/, junk);
+  }
+});
+
+test('a whole last record without its newline is kept, and the next record is not run onto it', () => {
+  const p = tmp();
+  const m = createMemory({ path: p });
+  m.note(note(1)); m.note(note(2));
+  writeFileSync(p, readFileSync(p, 'utf8').slice(0, -1)); // the crash took only the final newline
+  const r = createMemory({ path: p });
+  assert.deepEqual([r.journal.torn, r.journal.records().length], [0, 2]);
+  r.note(note(3));
+  assert.deepEqual(createMemory({ path: p }).journal.records().map(x => x.text), ['n1', 'n2', 'n3']);
+});
+
+test('a write that fails part-way (with or without a torn tail before it): the retry keeps every record, at every cut', () => {
+  for (const torn of [false, true]) {
+    const base = tmp();
+    const m = createMemory({ path: base });
+    m.note(note(1));
+    if (torn) appendFileSync(base, '{"record":{"id":"ha');
+    const before = readFileSync(base, 'utf8');
+    const c = tmp(); writeFileSync(c, before); createMemory({ path: c }).note(note(2));
+    const full = readFileSync(c, 'utf8').slice(before.length);
+    for (let n = 0; n < full.length; n++) {
+      const p = tmp(); writeFileSync(p, before);
+      const r = createMemory({ path: p });
+      r.journal._appendFile = (f, s) => { appendFileSync(f, s.slice(0, n)); throw new Error('ENOSPC'); };
+      assert.throws(() => r.note(note(2)), /ENOSPC/);
+      assert.equal(r.journal.records().length, 1, 'not kept after a failed write');
+      delete r.journal._appendFile;
+      assert.equal(r.note(note(2)).status, 'added', `torn ${torn} cut ${n}: retry`);
+      r.note(note(3));
+      const back = createMemory({ path: p });
+      assert.deepEqual(back.journal.records().map(x => x.text), ['n1', 'n2', 'n3'], `torn ${torn} cut ${n}`);
+      assert.ok(readFileSync(p, 'utf8').startsWith(before), 'nothing before it rewritten');
+    }
+  }
+});
+
+test('markers: a repeated marker is harmless; a marker for other bytes or another line does not excuse damage', () => {
+  const p = tmp();
+  const m = createMemory({ path: p });
+  m.note(note(1));
+  appendFileSync(p, '{"rec');
+  const r = createMemory({ path: p });
+  r.note(note(2));
+  const text = readFileSync(p, 'utf8');
+  const marker = text.split('\n').find(l => l.startsWith('{"torn"'));
+  writeFileSync(p, text.replace(`${marker}\n`, `${marker}\n${marker}\n`)); // the same marker twice
+  assert.deepEqual(createMemory({ path: p }).journal.records().map(x => x.text), ['n1', 'n2']);
+  const other = marker.replace(/"sha256":"[0-9a-f]+"/, '"sha256":"00"');
+  writeFileSync(p, text.replace(marker, other));
+  assert.throws(() => createMemory({ path: p }), /corrupt line 2/, 'a marker that names other bytes');
+});
+
+test('journals written by earlier versions open unchanged and take new records', () => {
+  const row = (i, extra = '') => JSON.stringify({ record: createMemory({}).note(note(i)).record }) + extra;
+  const cases = {
+    // before 5370d0fe: a torn tail, never named
+    'pre-5370d0fe torn tail': `${row(1)}\n{"record":{"id":"x`,
+    // before 5370d0fe: the old defect already happened (a record written onto a torn line): those bytes stay torn
+    'pre-5370d0fe fused record': `${row(1)}\n{"record":{"id":"x${row(2)}\n`,
+    // 5370d0fe: one marker per torn line, then the record
+    '5370d0fe marker': null,
+    'garbage last line with newline': `${row(1)}\ngarbage\n`,
+  };
+  { const p0 = tmp(); writeFileSync(p0, `${row(1)}\n{"rec`); createMemory({ path: p0 }).note(note(2)); cases['5370d0fe marker'] = readFileSync(p0, 'utf8'); }
+  for (const [name, text] of Object.entries(cases)) {
+    const p = tmp();
+    writeFileSync(p, text);
+    const m = createMemory({ path: p });
+    const had = m.journal.records().map(x => x.text);
+    assert.ok(had.includes('n1'), name);
+    m.note(note(9));
+    assert.deepEqual(createMemory({ path: p }).journal.records().map(x => x.text), [...had, 'n9'], name);
+    assert.ok(readFileSync(p, 'utf8').startsWith(text), `${name}: the old bytes are kept as they were`);
+  }
+});

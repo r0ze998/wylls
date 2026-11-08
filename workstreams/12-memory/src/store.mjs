@@ -20,7 +20,10 @@
 // rewritten: the first write after such a reload starts a new line and records a `{torn: {line, sha256}}` marker
 // naming it, so later reloads skip exactly that line (and nothing appended after it is fused with it and lost).
 // A record is kept in memory only after its line is written: a failed write leaves memory as it was, and the same
-// append can be retried (it is not mistaken for a duplicate of a record that never reached the file).
+// append can be retried (it is not mistaken for a duplicate of a record that never reached the file). A write that
+// failed part-way leaves unknown bytes: the next write reads the tail again and names what it finds there first.
+// Unreadable lines are taken in runs: a run at the end of the file is a torn tail (one crash, or more crashes while
+// naming it); any other run must be named, line and bytes, by the markers right after it, or the journal is refused.
 import { appendFileSync, existsSync, mkdirSync, readFileSync } from 'node:fs';
 import { dirname } from 'node:path';
 import { canonical, sha256hex, verifyAllocation } from './records.mjs';
@@ -35,32 +38,55 @@ export class Journal {
     this.rejects = [];
     this.torn = 0;
     this.tornTail = null;
+    this.openLine = false;
+    this.dirty = false;
   }
 
   static open(path = null, { keys = {} } = {}) {
     const j = new Journal(null, { keys });
     if (path && existsSync(path)) {
       const text = readFileSync(path, 'utf8');
+      // a complete last line without its newline (cut right before it): the next write must not run onto it
+      j.openLine = text.length > 0 && !text.endsWith('\n');
       const lines = text.split('\n');
       const parse = l => { try { return JSON.parse(l); } catch { return undefined; } };
+      const rows = lines.map(l => (l ? parse(l) : null)); // null: empty, undefined: unreadable
+      let last = lines.length - 1;
+      while (last >= 0 && !lines[last]) last--;
+      const unreadable = [];
+      // Unreadable lines come in runs (one crash, or a crash while the next write was naming the first). A run that
+      // reaches the end of the file is a torn tail. Any other run must be named, line and bytes, by the {torn} markers
+      // that follow it (a later write named them); otherwise it is damage, and the journal is refused.
+      for (let i = 0; i <= last; i++) {
+        if (rows[i] !== undefined) continue;
+        let e = i;
+        while (e + 1 <= last && (rows[e + 1] === undefined || rows[e + 1] === null)) e++;
+        const run = [];
+        for (let k = i; k <= e; k++) if (rows[k] === undefined) run.push({ line: k + 1, sha256: sha256hex(lines[k]) });
+        if (e === last) { j.torn += run.length; j.tornTail = { lines: run, closed: text.endsWith('\n') }; break; }
+        const named = new Set();
+        for (let k = e + 1; k <= last && (rows[k] === null || rows[k]?.torn); k++) if (rows[k]?.torn) named.add(`${rows[k].torn.line}|${rows[k].torn.sha256}`);
+        const unnamed = run.find(t => !named.has(`${t.line}|${t.sha256}`));
+        if (unnamed) throw new Error(`journal: corrupt line ${unnamed.line} in ${path}`);
+        j.torn += run.length;
+        unreadable.push(...run.map(t => t.line - 1));
+        i = e;
+      }
+      const skip = new Set(unreadable);
       lines.forEach((line, i) => {
-        if (!line) return;
-        const row = parse(line);
-        if (row === undefined) {
-          const next = parse(lines[i + 1] ?? '');
-          // a torn line named by the marker written right after it (an earlier reload saw it torn)
-          if (next?.torn && next.torn.line === i + 1 && next.torn.sha256 === sha256hex(line)) { j.torn++; return; }
-          if (i === lines.length - 1) { j.torn++; j.tornTail = { line: i + 1, sha256: sha256hex(line) }; return; }
-          // as before: an unreadable last line that does end in a newline is also taken as torn (now named, too)
-          if (i === lines.length - 2 && lines[lines.length - 1] === '') { j.torn++; j.tornTail = { line: i + 1, sha256: sha256hex(line), closed: true }; return; }
-          throw new Error(`journal: corrupt line ${i + 1} in ${path}`);
-        }
+        if (!line || skip.has(i) || rows[i] === undefined) return;
+        const row = rows[i];
+        if (!row || typeof row !== 'object' || !(row.torn || row.rejected || (row.record && typeof row.record === 'object'))) throw new Error(`journal: corrupt line ${i + 1} in ${path}`);
         if (row.torn) return; // the marker itself
         if (row.rejected) { j.rejects.push(row.rejected); return; }
         if (row.record.type === 'allocation') {
           const bad = verifyAllocation(row.record, keys);
           if (bad) throw new Error(`journal: allocation ${row.record.id} on line ${i + 1} fails verification (${bad})`);
         }
+        // the same row twice (a write that reached the file although it reported a failure, then its retry):
+        // kept once; another body under the same id is a collision, as on append
+        const prev = j.byId.get(row.record.id);
+        if (prev) { if (row.record.type === 'fact' && prev.body_sha !== row.record.body_sha) j.rejects.push({ id: row.record.id, type: 'fact', reason: 'collision' }); return; }
         j._keep(row.record);
       });
     }
@@ -68,14 +94,31 @@ export class Journal {
     return j;
   }
 
+  /** After a write that failed (possibly part-way), the bytes at the end are unknown: read the tail again. */
+  _rescanTail() {
+    this.dirty = false;
+    if (!existsSync(this.path)) return;
+    const text = readFileSync(this.path, 'utf8');
+    const lines = text.split('\n');
+    let last = lines.length - 1;
+    while (last >= 0 && !lines[last]) last--;
+    const parse = l => { try { return JSON.parse(l); } catch { return undefined; } };
+    const run = [];
+    for (let k = last; k >= 0 && (!lines[k] || parse(lines[k]) === undefined); k--) if (lines[k]) run.unshift({ line: k + 1, sha256: sha256hex(lines[k]) });
+    this.tornTail = run.length ? { lines: run } : null;
+    this.openLine = text.length > 0 && !text.endsWith('\n');
+  }
+
   _write(row) {
     if (!this.path) return;
     mkdirSync(dirname(this.path), { recursive: true });
+    if (this.dirty) this._rescanTail();
     // after a reload that found a torn last line: close it with a newline and name it, in the same write
     const t = this.tornTail;
-    const pre = t ? `${t.closed ? '' : '\n'}${JSON.stringify({ torn: { line: t.line, sha256: t.sha256 } })}\n` : '';
-    appendFileSync(this.path, `${pre}${JSON.stringify(row)}\n`);
+    const pre = (this.openLine ? '\n' : '') + (t ? t.lines.map(x => `${JSON.stringify({ torn: { line: x.line, sha256: x.sha256 } })}\n`).join('') : '');
+    try { (this._appendFile ?? appendFileSync)(this.path, `${pre}${JSON.stringify(row)}\n`); } catch (e) { this.dirty = true; throw e; }
     this.tornTail = null;
+    this.openLine = false;
   }
   _keep(rec) { this.list.push(rec); this.byId.set(rec.id, rec); if (rec.type === 'allocation') this.nonces.set(rec.nonce_key, rec.id); }
   _reject(rec, reason) {
