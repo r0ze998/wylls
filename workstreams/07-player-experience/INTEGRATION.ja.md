@@ -80,11 +80,7 @@ Node 側の guard の下で実行した。止めた鍵の操作は Node 側で 0
 interaction の既定の実行（鍵を使う）は、この環境では走らせていない。
 
 ### 0m.7 残り・ブロック
-- **wide の村の選択を、本来のページ全体で確かめること：ブロック中。**
-  - 共有 fixture の Citizen の枠の参照は gen 0。`fwide.citizenBindings` はそれを `malformed` と読む。
-  - 本来のページで wide の在庫を通すには、正しい（gen が 1 以上の）参照を持つ fixture の Citizen が要る。そうすると fixture の Holding の address が変わる。
-  - fixture の変更は ④ と調整する（この版ではしていない）。
-  - wide の選択の UI は、別の fixture（screens/wide-holding-fixture）と単体試験で確かめられている。
+- wide の村の選択をページ全体で確かめること：§0m.9 で済んだ（④ の条件付きの了承による）。
 - 封・署名・送信・チェーンでの実行は確かめていない。interaction の送信の試験 12 件は、鍵なしでは走らせていない。
 - 決めていない：自己公開の方針、⑮、31 章の残りの決定。保留中の local demo の機能は有効にしていない。
 
@@ -111,6 +107,27 @@ interaction の既定の実行（鍵を使う）は、この環境では走ら�
 - **G3**（prototype.call による迂回）：web の code にその箇所はない。対応していない。
 - **結果**（Node の guard は 0 件）：ws07-guard 2/2、ws07-march 2/2（Worker の拒否を足した後に流し直した）。
 - **今後の実行**：web-frontier 全体の再実行で、既知の鍵の試験 20 件を guard に止めさせることはしない。鍵の経路は先に静的に除外し、対象のファイルを限って流す。
+
+### 0m.9 wide の村をページ全体で選ぶ（`ws07-wide.screen.mjs`、④ の条件付きの了承）
+- **④ の条件**：既定の stage は byte 単位で同じ。公開の with-seed・PDA の address だけを使う。新しい stage はこの試験だけが使う。
+- **方法**：world.mjs は変えていない。fixture のサーバーに `srv.meWith(f)` を足した。設定しなければ何もしない。
+  - `ws07/wide-stage.mjs` の `wideMe(viewer)` は、'holding' stage の /h/me だけを書き換える。
+  - 書き換えるのは次の 2 つ。
+    - Citizen の枠 2 を wide の印 {0,0,12,0} に、枠 3 を空き（gen 255）にする。
+    - `wideContext`・`wideHoldings` を足す。枠 2 は、2^53 を超える座標で捕捉した村。WideHolding の bytes は公開の値だけで作る。
+  - 枠 1 は fixture の村のまま（gen 0）で、解析は 'malformed' と分類する（チェーンの村は gen 1 以上）。host の ID・Holding・Province・address は何も変えていない。
+- **既定の stage**：5 つの stage × 7 つの答えの sha256 は `8e00cf59e5a91705454cab58b12bccdf63c8d2aa18de08587bea64ea9cee0e5b`。
+  - hook を足す前（6de240aa）に記録した。
+  - 試験では、hook がないとき、設定して外した後の両方で同じ値になることを確かめる。
+- **ページで確かめたこと**（デスクトップ・スマホ）：
+  - W2 の pip（デスクトップは rail、スマホは休んでいるシート）を押すと、村の drawer に wide のカードが出る（読み取り専用、捕捉・未検証、座標は欠けない）。
+  - 2 回押してもカードは一つ。記録を 2 回読み直しても、選択は保たれる。
+  - 「ふつうの村に戻る」で、ふつうの村に戻る。
+  - 戻る・進む、選んだままの再読み込みのあと、ページは丸ごと戻り、何も選ばれておらず、pip はある。
+  - 別の世界の envelope は拒否され、「読み込めません（WorldMismatch）」と 再試行 が出て、pip は出ない。
+  - 読み取り以外の request は 0、error は 0、鍵の使用の記録は空。
+- **結果**：3/3（既定の stage の一致、デスクトップ、スマホ）。Node の guard は 0 件。
+- **確かめていないこと**：herald の wide の索引、捕捉の新しさ、チェーン、wide の村への命令（拒否は単体の試験で確かめられている）。
 
 ## 0l. ① の本物の板での確認と、ページ全体の画面テストを鍵なしにしたこと
 

@@ -51,6 +51,7 @@ export async function startServer({ port: listenPort = 0, bootstrap = false, key
   const v = await W.viewer({ keyless });
   let stage = 'none';
   let live = null, liveOpts = {};
+  let meWith = null;
   const requests = [];
   const json = (res, code, body) => { res.writeHead(code, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' }); res.end(JSON.stringify(body)); return code; };
   const readJson = req => new Promise(resolve => { const parts = []; req.on('data', c => parts.push(c)); req.on('end', () => { try { resolve(JSON.parse(Buffer.concat(parts).toString() || '{}')); } catch { resolve(null); } }); req.on('error', () => resolve(null)); });
@@ -74,7 +75,9 @@ export async function startServer({ port: listenPort = 0, bootstrap = false, key
     }
     if ((m = /^\/h\/province\/(-?\d+),(-?\d+)\/(latest|\d+)$/.exec(path))) return json(res, 200, W.provinceEnvelope(Number(m[1]), Number(m[2]), m[3] === 'latest' ? W.BELL : Number(m[3]), stage));
     if ((m = /^\/h\/bell\/(\d+)\/region\/(\d+)$/.exec(path))) return json(res, 200, W.bellRegion(Number(m[1]), Number(m[2])));
-    if ((m = /^\/h\/me\/(\w+)$/.exec(path))) return m[1] === v.wallet ? json(res, 200, W.meRecord(v, stage)) : json(res, 200, W.meRecord({ ...v, wallet: m[1] }, 'none'));
+    // (workstream 07: `meWith` — set only by a test that asks for it, e.g. ws07/wide-stage.mjs — rewrites the viewer's
+    // record; unset, the answer is exactly world.mjs's)
+    if ((m = /^\/h\/me\/(\w+)$/.exec(path))) return m[1] === v.wallet ? json(res, 200, meWith ? meWith(W.meRecord(v, stage), stage) : W.meRecord(v, stage)) : json(res, 200, W.meRecord({ ...v, wallet: m[1] }, 'none'));
     if (path === '/h/events') {
       // (workstream 07: the page as the herald serves it — v 1, string cursors, only events after `after`, `next` the
       // last one sent or `after` itself — which the herald client checks since workstream 4's aa20628a)
@@ -153,6 +156,8 @@ export async function startServer({ port: listenPort = 0, bootstrap = false, key
     stage: s => { const next = W.STAGES.includes(s) ? s : 'none'; if (live && next !== stage) live = createLive({ viewer: v, keyless, ...liveOpts, stage: next }); stage = next; },
     live: (on = true, opts = {}) => { liveOpts = opts; live = on ? createLive({ viewer: v, keyless, ...opts, stage }) : null; W.setLiveStorage(!!on); return live; },
     advance: opts => live?.advance(opts) ?? null,
+    // (workstream 07: a test's own rewrite of the viewer's /h/me record, `(record, stage) → record`; null removes it)
+    meWith: f => { meWith = typeof f === 'function' ? f : null; },
     pause: (on = true) => live?.pause(on) ?? null,
     world: () => live,
     requests,
