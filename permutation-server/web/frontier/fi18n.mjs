@@ -230,7 +230,7 @@ const CLIENT_TEXT = {
   RelayOutcomeUnknown: () => L`取引が送られた可能性があります。署名の結果を確認するまで再送しないでください。`,
   SendOutcomeUnknown: () => L`取引が送られた可能性があります。署名の結果を確認するまで再送しないでください。`,
   UseRevealRoute: () => L`開封は取引ではなく開封の材料として送ります`,
-  QuotaExceeded: () => L`今日送れる操作の回数を使い切りました。シーズンの日付が変わると、また送れます。`,
+  QuotaExceeded: () => L`今日送れる操作の回数を使い切りました。ゲーム内の日付が変わると、また送れます。`,
   InviteRequired: () => L`このシーズンに参加するには招待が必要です`,
   OperatorLowFunds: () => L`手数料を立て替える資金が足りません。しばらくしてから試してください。`,
   BadSignature: () => L`署名を確認できませんでした`,
@@ -299,6 +299,8 @@ const CLIENT_TEXT = {
   ResidentUnverified: () => L`住民の持ち主を確かめられなかったため、送りませんでした。あとでもう一度試してください。`,
   Expired: () => L`取引は期限までに記録されませんでした`,
   Unconfirmed: () => L`取引がまだ確認できません。あとで状態を確かめます。`,
+  // (workstream 07: no read of the transaction's state answered — not a failure, it may still land)
+  TxUnqueryable: () => L`取引の状態を照会できませんでした。失敗したという意味ではなく、記録されている場合もあります。あとで状態を確かめます。`,
   TransactionFailed: () => L`取引は記録されましたが失敗しました`,
   NotSaved: () => L`この端末に進軍の記録を保存できないため、送りませんでした`,
   BadName: () => L`名前は1〜24文字の文字・数字・空白・「-」「_」「.」で付けてください`,

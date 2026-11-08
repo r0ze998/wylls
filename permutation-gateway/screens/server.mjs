@@ -46,8 +46,9 @@ const TYPES = { '.html': 'text/html; charset=utf-8', '.mjs': 'text/javascript; c
  * open learns it at its next season poll), `pause(on)` stops and restarts the clock; `world()` is the live world
  * (its `orders`, `summary()`, `now()`, `turn()`), or null.
  */
-export async function startServer({ port: listenPort = 0, bootstrap = false } = {}) {
-  const v = await W.viewer();
+export async function startServer({ port: listenPort = 0, bootstrap = false, keyless = false } = {}) {
+  // (workstream 07: `keyless` — the viewer is named without deriving a key; for tests that connect no wallet)
+  const v = await W.viewer({ keyless });
   let stage = 'none';
   let live = null, liveOpts = {};
   const requests = [];
@@ -143,8 +144,8 @@ export async function startServer({ port: listenPort = 0, bootstrap = false } = 
     url: `http://127.0.0.1:${port}`,
     port,
     viewer: v,
-    stage: s => { const next = W.STAGES.includes(s) ? s : 'none'; if (live && next !== stage) live = createLive({ viewer: v, ...liveOpts, stage: next }); stage = next; },
-    live: (on = true, opts = {}) => { liveOpts = opts; live = on ? createLive({ viewer: v, ...opts, stage }) : null; W.setLiveStorage(!!on); return live; },
+    stage: s => { const next = W.STAGES.includes(s) ? s : 'none'; if (live && next !== stage) live = createLive({ viewer: v, keyless, ...liveOpts, stage: next }); stage = next; },
+    live: (on = true, opts = {}) => { liveOpts = opts; live = on ? createLive({ viewer: v, keyless, ...opts, stage }) : null; W.setLiveStorage(!!on); return live; },
     advance: opts => live?.advance(opts) ?? null,
     pause: (on = true) => live?.pause(on) ?? null,
     world: () => live,
