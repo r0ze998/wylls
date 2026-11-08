@@ -1,0 +1,8 @@
+### cmp HEAD 7535a17e135ff3b18f7ad1160599f1473b334794 tree 1960174902f4e90ac61a004264954757a528cd1e
+same a-join.json
+same b-caravan.json
+same b-store-dump.json
+same c-memory.json
+same d-outcome.json
+same e-prize-run.json
+same e-prize.json

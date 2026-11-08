@@ -1,0 +1,18 @@
+### verify-fixtures HEAD 7535a17e135ff3b18f7ad1160599f1473b334794 tree 1960174902f4e90ac61a004264954757a528cd1e
+   Compiling verify v0.1.0 (/tmp/claude-0/-home-user-wylls/47a54b0f-427a-5cca-bc82-feb7c5056956/scratchpad/v25/frontier-node/crates/verify)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 1.14s
+     Running tests/fixtures.rs (target/debug/deps/fixtures-099b97b283dc9d18)
+
+running 8 tests
+test failed_attempts_counted_per_march ... ok
+test land_program_passes ... ok
+test cli_exit_codes ... ok
+test shielded_refused_march_is_unrevealed_by_rule ... ok
+test march_synth_passes_but_for_its_six_impossible_tickets ... ok
+test unshielded_rout_stays_a_liveness_warning ... ok
+test arrival_after_end_is_fail ... ok
+test march_program_passes ... ok
+
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 1 filtered out; finished in 2.79s
+
+exit=0

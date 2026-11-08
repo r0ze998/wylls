@@ -1,0 +1,23 @@
+16:10:39 verify exit=0
+16:10:43 verify-fixtures exit=0
+16:29:40 verify-wide exit=0
+16:29:51 verify-economy exit=0
+16:30:11 keeper-wide exit=0
+16:30:19 findex exit=0
+16:30:20 findex-ingest-keyfree exit=0
+16:30:22 findex-wide exit=0
+16:30:33 herald exit=0
+16:30:45 herald-wide exit=0
+16:30:58 localnet-feed-scan exit=0
+16:31:02 frontier-node target removed
+16:31:17 abi-world-index exit=0
+16:31:31 frontier-wide-land exit=0
+16:31:31 root target removed
+16:32:17 run.sh exit=0
+16:32:17 committed exit=0
+16:32:17 cmp 7 same 0 diff
+16:32:18 mutations 12/12 detected
+16:32:35 ws04-all exit=0
+16:32:36 e2e-native exit=0
+16:32:37 runs-client exit=0
+16:32:37 RUST DONE

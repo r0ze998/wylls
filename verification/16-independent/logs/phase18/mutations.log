@@ -1,0 +1,12 @@
+M1-a-tag+1 exit=1 FAIL A: citizen_tag = LE u64 of the Citizen address's first 8 bytes FAIL B: run for stage A's Citizen 
+M10-e-both-vault-paid exit=1 FAIL E: the vault keeps the one entry fee (nothing paid out) 
+M11-e-both-other-citizen exit=1 FAIL E: the prize step ran with stage A's Citizen address 
+M12-e-both-claim-ok exit=1 FAIL E: claim_B_after_transfer refused (BadAccount) 
+M2-b-other-citizen exit=1 FAIL B: run for stage A's Citizen 
+M3-c-fact-tag exit=1 FAIL C: identity_alias ties the tag to the pass 
+M4-d-ship-tag exit=1 FAIL D: one ship id, carrying the citizen_tag 
+M5-e-other-citizen exit=1 FAIL E: the summary's run equals the run record (e-prize-run.json) FAIL E: the prize step ran with stage A's Citizen address 
+M6-a-no-transfer exit=1 FAIL A: one transfer, to another owner 
+M7-e-claim-paid exit=1 FAIL E: the summary's run equals the run record (e-prize-run.json) FAIL E: claim_A_with_pass_citizen refused (BadAccount) 
+M8-e-summary-citizen exit=1 FAIL E: the summary's run equals the run record (e-prize-run.json) 
+M9-e-summary-claim exit=1 FAIL E: the summary's run equals the run record (e-prize-run.json) 

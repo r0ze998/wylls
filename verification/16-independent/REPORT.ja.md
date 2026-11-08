@@ -1847,3 +1847,43 @@ wide の new_bands が長くかかった件の調べ:
   - `web-frontier-controller.test.mjs` は鍵を使う試験の一覧に入っているので、流していない（未実行）。
 
 Rust の側は 23.3 に書く。
+
+## 23.3 最終候補 7535a17e（Rust と ⑬）
+
+- 隔離した worktree で流した。HEAD は `7535a17e135ff3b18f7ad1160599f1473b334794`、tree は `1960174902f4e90ac61a004264954757a528cd1e`。
+- 試験は鍵を使わないものだけ。native-crypto-tests と、保留した demo の feature は使っていない。
+- **すべて、この SHA で流した。旧 SHA の結果は、どれも流用していない。**
+
+| 対象 | 通過 | 失敗 | 未実行・除外 |
+|---|---|---|---|
+| verify の既定の一式（custody 6・8・7、custody_replay 10、custody_replay_caravans 11、rights_replay 18、new_bands 10、⑯ の 9 を含む） | 193 | 0 | — |
+| verify fixtures | 8 | 0 | `march_fixture_is_fresh`（鍵で署名する） |
+| verify wide-world（lib 59、history 16、new_bands 11、⑯ の VW1 w1〜w5） | 91 | 0 | — |
+| verify wide-economy（lib 60、wide_economy 6） | 66 | 0 | — |
+| keeper の wide（discovery 14、duties 70、economy_index 3、feed_guard 12、reveal 33、snapshot_rpc 6） | 138 | 0 | — |
+| findex（既定の 80、ingest の鍵なし 4、wide_typed_index 12） | 96 | 0 | ingest の鍵を使う 4 件 |
+| herald（既定 4、wide 13） | 17 | 0 | — |
+| localnet の feed_scan_tests | 3 | 0 | 鍵を使うほかの試験 |
+| frontier-abi の world_index（feature あり） | 139 | 0 | — |
+| permutation-frontier の `map_growth_runtime_tests::wide_land`（wide、wide_economy 12 件を含む） | 23 | 0 | ほかの map growth は ⑧ が担当（10 件と 33 件。⑯ は自分の結果として数えない） |
+| chain-flow | 31/31、7 ファイルとも一致、変異は 12/12 を検出 | 0 | — |
+| ws04（⑯ の intake 7、荷車 4 を含む） | 130 | 0 | gateway.rs の 9 件（鍵）、chain_caravan 1 件（run.sh で実行） |
+| e2e-native（registry を含む） | 24 | 0 | — |
+| runs の client（実バイナリ） | 4 | 0 | — |
+| ⑬ の全件（runexec は 7535a17e で build、sha256 `4cb6634d…`。⑤ 10e74967、二つのガード、WS16_REAL_VIEWS） | 191 | 0 | 署名を伴う 6 件 |
+| gateway・web の鍵なしの一式（23.2） | 1908 | 0 | skip 1 件、鍵を使う 97 ファイル（web-frontier-controller.test.mjs を含む） |
+| ⑦ の画面 8 本（23.2） | 46 | 0 | — |
+
+**判定**: 7535a17e の鍵なしの範囲で、失敗は 0 件。
+
+まだ確かめていないもの（鍵、または実チェーンが要る）:
+
+- 署名と送信
+- 実チェーン、SBF、LiteSVM
+- native-crypto-tests の wide の封印
+- gateway を通る run の受付
+- web-frontier-controller.test.mjs
+- ⑬ の署名を伴う 6 件
+- 本番の requester の認証層（③⑤。利用者の判断で、未決）
+
+④ が試して取り下げた relay attestation と pin の修正は、⑤ の review 待ちで、新しい HEAD はまだ無い。

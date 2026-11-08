@@ -1,0 +1,11 @@
+15625 crypto.generateKeyPairSync
+15625 crypto.createPrivateKey
+15625 crypto.sign
+15625 crypto.createHmac
+15625 crypto.generateKeyPairSync
+15625 web3.PublicKey.findProgramAddressSync
+15625 web3.PublicKey.createProgramAddressSync
+15625 web3.Keypair.generate
+15625 web3.Keypair.fromSeed
+15625 solana-tx.findProgramAddress
+15625 solana-tx.createProgramAddress

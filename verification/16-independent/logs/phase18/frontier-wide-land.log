@@ -1,0 +1,46 @@
+### frontier-wide-land HEAD 7535a17e135ff3b18f7ad1160599f1473b334794 tree 1960174902f4e90ac61a004264954757a528cd1e
+   Compiling frontier-abi v0.1.0 (/tmp/claude-0/-home-user-wylls/47a54b0f-427a-5cca-bc82-feb7c5056956/scratchpad/v25/frontier-abi)
+   Compiling permutation-frontier v0.1.0 (/tmp/claude-0/-home-user-wylls/47a54b0f-427a-5cca-bc82-feb7c5056956/scratchpad/v25/permutation-frontier)
+warning: method `at` is never used
+   --> permutation-frontier/src/wide_land_runtime_tests.rs:422:8
+    |
+355 | impl Wide {
+    | --------- method in this implementation
+...
+422 |     fn at(&self, bell: u32, secs: i64) -> i64 {
+    |        ^^
+    |
+    = note: `#[warn(dead_code)]` on by default
+
+warning: `permutation-frontier` (lib test) generated 1 warning
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 13.58s
+     Running unittests src/lib.rs (permutation-chain/target/debug/deps/permutation_frontier-1e5830df26749b8c)
+
+running 23 tests
+test map_growth_runtime_tests::wide_land::wide_economy::wide_economy_builds_every_item_and_chains_the_province_only_for_the_mirror_items ... ok
+test map_growth_runtime_tests::wide_land::wide_economy::wide_economy_due_finality_refusals_leave_state_and_bucket_unchanged ... ok
+test map_growth_runtime_tests::wide_land::wide_economy::wide_economy_exports_cross_check_fixtures_when_asked ... ok
+test map_growth_runtime_tests::wide_land::wide_economy::wide_economy_harvest_runs_under_the_wallet_and_flips_finality_lazily ... ok
+test map_growth_runtime_tests::wide_land::wide_economy::wide_economy_mirror_staging_refuses_late_holding_chain_overflow ... ok
+test map_growth_runtime_tests::wide_land::wide_economy::wide_economy_nft_resident_acts_as_owner_and_session_through_the_band_act ... ok
+test map_growth_runtime_tests::wide_land::wide_economy::wide_economy_refuses_a_holding_that_is_not_the_citizens_canonical_live_one ... ok
+test map_growth_runtime_tests::wide_land::wide_economy::wide_economy_refuses_held_borrows_and_writes_nothing ... ok
+test map_growth_runtime_tests::wide_land::wide_economy::wide_economy_refuses_the_s1_refusals_and_a_chain_overflow_before_any_write ... ok
+test map_growth_runtime_tests::wide_land::wide_economy::wide_economy_refuses_the_shape_the_signers_and_the_season_gates_before_any_write ... ok
+test map_growth_runtime_tests::wide_land::wide_economy::wide_economy_runs_for_the_wallet_session_and_refuses_an_expired_one ... ok
+test map_growth_runtime_tests::wide_land::wide_economy::wide_economy_trains_several_units_and_refuses_the_invalid_unit_and_zero ... ok
+test map_growth_runtime_tests::wide_land::wide_land_host_musters_resolves_dissolves_and_returns_through_the_envelope ... ok
+test map_growth_runtime_tests::wide_land::wide_land_march_stages_settle_a_staged_departure_up_to_the_crypto_gate ... ok
+test map_growth_runtime_tests::wide_land::wide_land_marked_slot_is_taken_for_the_deployed_writers_until_unbound ... ok
+test map_growth_runtime_tests::wide_land::wide_land_nft_resident_acts_at_its_generation_and_season_end_closes_the_ticket_first ... ok
+test map_growth_runtime_tests::wide_land::wide_land_open_province_creates_a_whole_province_only_under_an_explicit_configuration ... ok
+test map_growth_runtime_tests::wide_land::wide_land_ring_seed_is_requested_after_the_deployed_gates_and_bound_to_the_beacon_round ... ok
+test map_growth_runtime_tests::wide_land::wide_land_rules_configuration_is_authority_bound_explicit_and_write_once ... ok
+test map_growth_runtime_tests::wide_land::wide_land_season_end_closes_the_march_records_as_the_deployed_closes_do ... ok
+test map_growth_runtime_tests::wide_land::wide_land_ticket_escrow_is_retained_reused_and_returned_as_the_deployed_escrow ... ok
+test map_growth_runtime_tests::wide_land::wide_land_ticket_is_filed_drawn_settled_and_finalized_as_the_deployed_outpost ... ok
+test map_growth_runtime_tests::wide_land::wide_land_ticket_lottery_displaces_the_lower_score_and_refuses_before_writing ... ok
+
+test result: ok. 23 passed; 0 failed; 0 ignored; 0 measured; 145 filtered out; finished in 0.22s
+
+exit=0

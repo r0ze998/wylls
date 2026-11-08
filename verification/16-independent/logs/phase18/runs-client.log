@@ -1,0 +1,36 @@
+### runs-client HEAD 7535a17e135ff3b18f7ad1160599f1473b334794 tree 1960174902f4e90ac61a004264954757a528cd1e
+TAP version 13
+# Subtest: hands the authenticated requester and the chain to run accept
+ok 1 - hands the authenticated requester and the chain to run accept
+  ---
+  duration_ms: 30.452728
+  type: 'test'
+  ...
+# Subtest: a refusal from the chain check comes back as NotAuthorized
+ok 2 - a refusal from the chain check comes back as NotAuthorized
+  ---
+  duration_ms: 31.304787
+  type: 'test'
+  ...
+# Subtest: a requester without the authenticated facts is not handed over
+ok 3 - a requester without the authenticated facts is not handed over
+  ---
+  duration_ms: 0.844467
+  type: 'test'
+  ...
+# Subtest: the real binary: no node to read the pass from, nothing admitted
+ok 4 - the real binary: no node to read the pass from, nothing admitted
+  ---
+  duration_ms: 11.726632
+  type: 'test'
+  ...
+1..4
+# tests 4
+# suites 0
+# pass 4
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 202.261384
+exit=0

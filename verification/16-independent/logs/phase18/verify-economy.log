@@ -1,0 +1,82 @@
+### verify-economy HEAD 7535a17e135ff3b18f7ad1160599f1473b334794 tree 1960174902f4e90ac61a004264954757a528cd1e
+   Compiling verify v0.1.0 (/tmp/claude-0/-home-user-wylls/47a54b0f-427a-5cca-bc82-feb7c5056956/scratchpad/v25/frontier-node/crates/verify)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 8.81s
+     Running unittests src/lib.rs (target/debug/deps/verify_core-c2d93329193f86a9)
+
+running 60 tests
+test checks::v0_coverage::tests::every_abi_tag_has_a_coverage_answer ... ok
+test checks::v11_land::tests::dispersed_ticket_judgement_follows_the_program_and_fails_closed ... ok
+test checks::v11_land::tests::home_rule_follows_the_program_and_fails_closed_without_evidence ... ok
+test checks::v11_land::tests::legacy_wedge_rule_is_the_programs ... ok
+test checks::v11_land::tests::ticket_site_rule_follows_the_program_and_fails_closed_without_evidence ... ok
+test checks::v11_land::tests::tickets_are_attributed_by_instruction_evidence_and_mixed_transactions_never_pass ... ok
+test checks::v23_caravans::tests::close_vault_rules ... ok
+test checks::v23_caravans::tests::settle_to_vault_credits_the_cargo_once ... ok
+test checks::v24_structures::tests::gather_wears_once ... ok
+test checks::v25_nations::tests::a_stance_is_written_only_when_passed ... ok
+test checks::v25_nations::tests::a_vote_counts_once ... ok
+test checks::v25_nations::tests::an_expulsion_flags_the_target ... ok
+test checks::v26_growth::tests::a_post_state_or_record_other_than_the_programs_fails ... ok
+test checks::v26_growth::tests::a_valid_extension_passes_and_the_next_ones_stop_at_the_ceiling ... ok
+test checks::v26_growth::tests::an_extension_the_program_would_refuse_fails ... ok
+test checks::v26_growth::tests::incomplete_evidence_is_unverifiable_never_a_pass ... ok
+test checks::v26_growth::tests::the_guard_judges_only_an_isolated_extension_and_never_calls_a_bundle_invalid ... ok
+test checks::v27_residents::tests::a_policy_the_archive_does_not_show_leaves_the_resident_unverifiable ... ok
+test checks::v27_residents::tests::an_honest_join_resident_has_no_finding ... ok
+test checks::v27_residents::tests::duplicates_fail ... ok
+test checks::v27_residents::tests::forged_joins_fail ... ok
+test checks::v27_residents::tests::mismatches_fail ... ok
+test checks::v27_residents::tests::missing_evidence_is_never_a_pass ... ok
+test checks::v27_residents::tests::the_resident_proof_accounts_are_canonical ... ok
+test checks::v28_resident_acts::tests::a_resident_act_is_listed_as_the_instruction_it_ran ... ok
+test checks::v28_resident_acts::tests::a_wrong_program_feed_cannot_judge_a_holder ... ok
+test checks::v28_resident_acts::tests::an_inner_instruction_no_check_models_stays_unverifiable ... ok
+test checks::v28_resident_acts::tests::canonical_addresses_are_judged_with_or_without_the_join ... ok
+test checks::v28_resident_acts::tests::inner_accounts_and_result_are_judged_against_the_join ... ok
+test checks::v28_resident_acts::tests::matching_authority_in_a_partial_feed_is_still_unproven ... ok
+test checks::v28_resident_acts::tests::old_owners_old_sessions_and_old_generations_accepted_are_fails ... ok
+test checks::v28_resident_acts::tests::owner_only_acts_refuse_the_session ... ok
+test checks::v28_resident_acts::tests::the_holder_and_its_live_session_act_through_a_to_b_to_a ... ok
+test checks::v28_resident_acts::tests::without_a_whole_record_only_a_stale_generation_is_a_fail ... ok
+test checks::v9_addresses::resident_joined_tests::a_record_that_stands_for_its_join_passes ... ok
+test checks::v9_addresses::resident_joined_tests::a_record_without_its_join_or_with_a_forged_key_fails ... ok
+test checks::v9_addresses::resident_joined_tests::one_record_per_join_and_per_resident_id ... ok
+test checks::v9_addresses::resident_tests::a_flagged_citizen_with_a_wallet_derives_nothing ... ok
+test checks::v9_addresses::resident_tests::nft_citizen_address_comes_from_the_resident_id ... ok
+test checks::v9_addresses::resident_tests::wallet_citizen_address_is_unchanged ... ok
+test conquest::tests::captured_turn_still_credits_previous_owner ... ok
+test conquest::tests::neutral_and_season_boundary_never_mint_extra_time ... ok
+test facts::resident_tests::a_resident_joined_without_its_join_resident_creates_no_citizen ... ok
+test facts::resident_tests::resident_joined_makes_the_nft_citizen_known_by_its_tag ... ok
+test holding::intro_tests::conquest_founding_shield_follows_the_season_timers ... ok
+test holding::intro_tests::conquest_train_pays_the_v2_cost ... ok
+test holding::intro_tests::intro_build_replay_consumes_exactly_one_persisted_entitlement ... ok
+test holding::intro_tests::s1_founding_workshop_and_arms_training ... ok
+test resident_feed::tests::one_ledger_order_read_far_enough_is_whole_and_nothing_else_is ... ok
+test resident_feed::tests::the_fixture_form_round_trips ... ok
+test wide_economy::tests::a_full_wall_queue_refuses_before_any_record_is_judged ... ok
+test wide_economy::tests::a_tier_up_finished_by_the_touch_is_the_mirror_tier_of_the_next_one ... ok
+test wide_economy::tests::bucket_arithmetic_rounds_down_and_an_empty_bucket_refuses ... ok
+test wide_economy::tests::citizen_magic_and_season_are_refused_structurally_not_by_digest ... ok
+test wide_economy::tests::finality_is_recomputed_and_must_match_the_receipt ... ok
+test wide_economy::tests::identity_state_and_season_refusals_fail_closed ... ok
+test wide_economy::tests::input_digest_is_judged_before_any_arithmetic ... ok
+test wide_economy::tests::nonstandard_shield_rewritten_by_the_m1_rule_is_refused ... ok
+test wide_economy::tests::self_built_records_verify_and_claim_no_season ... ok
+test wide_economy::tests::unrepresentable_holding_numbers_are_refused_not_overflowed ... ok
+
+test result: ok. 60 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.03s
+
+     Running tests/wide_economy.rs (target/debug/deps/wide_economy-4a03db4c32a89f45)
+
+running 6 tests
+test a_corrupted_pre_state_is_refused_by_the_receipt_before_any_arithmetic ... ok
+test a_flip_anywhere_in_any_input_refuses ... ok
+test every_recorded_case_verifies_as_one_transition ... ok
+test record_fields_are_each_checked ... ok
+test records_and_snapshots_of_different_cases_do_not_mix ... ok
+test unaffected_fields_and_headers_are_part_of_the_verdict ... ok
+
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.30s
+
+exit=0

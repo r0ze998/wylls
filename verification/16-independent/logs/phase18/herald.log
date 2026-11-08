@@ -1,0 +1,20 @@
+### herald HEAD 7535a17e135ff3b18f7ad1160599f1473b334794 tree 1960174902f4e90ac61a004264954757a528cd1e
+   Compiling herald v0.1.0 (/tmp/claude-0/-home-user-wylls/47a54b0f-427a-5cca-bc82-feb7c5056956/scratchpad/v25/frontier-node/crates/herald)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 11.02s
+     Running tests/ingest_health.rs (target/debug/deps/ingest_health-9ee5160f09d5eb15)
+
+running 3 tests
+test a_failed_store_reads_stopped ... ok
+test a_failing_pull_shows_in_status_until_one_succeeds ... ok
+test coverage_is_kept_when_a_pull_succeeds ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.26s
+
+     Running tests/wide_index_read.rs (target/debug/deps/wide_index_read-b35be78bbe7c7640)
+
+running 1 test
+test default_routes_are_explicitly_unavailable ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+exit=0

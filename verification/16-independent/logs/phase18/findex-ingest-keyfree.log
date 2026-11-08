@@ -1,0 +1,14 @@
+### findex-ingest-keyfree HEAD 7535a17e135ff3b18f7ad1160599f1473b334794 tree 1960174902f4e90ac61a004264954757a528cd1e
+   Compiling findex v0.1.0 (/tmp/claude-0/-home-user-wylls/47a54b0f-427a-5cca-bc82-feb7c5056956/scratchpad/v25/frontier-node/crates/findex)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 1.51s
+     Running tests/ingest.rs (target/debug/deps/ingest-3a8ab5251c5be534)
+
+running 4 tests
+test rpc_poll_refuses_a_server_that_ignores_before ... ok
+test rpc_poll_tolerates_another_order_within_a_slot ... ok
+test rpc_poll_refuses_a_history_gap ... ok
+test rpc_poll_pages_back_to_the_last_signature ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 5 filtered out; finished in 0.01s
+
+exit=0

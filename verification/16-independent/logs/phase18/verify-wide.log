@@ -1,0 +1,124 @@
+### verify-wide HEAD 7535a17e135ff3b18f7ad1160599f1473b334794 tree 1960174902f4e90ac61a004264954757a528cd1e
+   Compiling frontier-abi v0.1.0 (/tmp/claude-0/-home-user-wylls/47a54b0f-427a-5cca-bc82-feb7c5056956/scratchpad/v25/frontier-abi)
+   Compiling fclient v0.1.0 (/tmp/claude-0/-home-user-wylls/47a54b0f-427a-5cca-bc82-feb7c5056956/scratchpad/v25/frontier-node/crates/fclient)
+   Compiling findex v0.1.0 (/tmp/claude-0/-home-user-wylls/47a54b0f-427a-5cca-bc82-feb7c5056956/scratchpad/v25/frontier-node/crates/findex)
+   Compiling keeper v0.1.0 (/tmp/claude-0/-home-user-wylls/47a54b0f-427a-5cca-bc82-feb7c5056956/scratchpad/v25/frontier-node/crates/keeper)
+   Compiling verify v0.1.0 (/tmp/claude-0/-home-user-wylls/47a54b0f-427a-5cca-bc82-feb7c5056956/scratchpad/v25/frontier-node/crates/verify)
+   Compiling localnet v0.1.0 (/tmp/claude-0/-home-user-wylls/47a54b0f-427a-5cca-bc82-feb7c5056956/scratchpad/v25/frontier-node/crates/localnet)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 22.91s
+     Running unittests src/lib.rs (target/debug/deps/verify_core-f50624ee0e2ab0b1)
+
+running 59 tests
+test checks::v0_coverage::tests::every_abi_tag_has_a_coverage_answer ... ok
+test checks::v11_land::tests::dispersed_ticket_judgement_follows_the_program_and_fails_closed ... ok
+test checks::v11_land::tests::home_rule_follows_the_program_and_fails_closed_without_evidence ... ok
+test checks::v11_land::tests::legacy_wedge_rule_is_the_programs ... ok
+test checks::v11_land::tests::ticket_site_rule_follows_the_program_and_fails_closed_without_evidence ... ok
+test checks::v11_land::tests::tickets_are_attributed_by_instruction_evidence_and_mixed_transactions_never_pass ... ok
+test checks::v23_caravans::tests::close_vault_rules ... ok
+test checks::v23_caravans::tests::settle_to_vault_credits_the_cargo_once ... ok
+test checks::v24_structures::tests::gather_wears_once ... ok
+test checks::v25_nations::tests::a_stance_is_written_only_when_passed ... ok
+test checks::v25_nations::tests::a_vote_counts_once ... ok
+test checks::v25_nations::tests::an_expulsion_flags_the_target ... ok
+test checks::v26_growth::tests::a_post_state_or_record_other_than_the_programs_fails ... ok
+test checks::v26_growth::tests::a_valid_extension_passes_and_the_next_ones_stop_at_the_ceiling ... ok
+test checks::v26_growth::tests::an_extension_the_program_would_refuse_fails ... ok
+test checks::v26_growth::tests::incomplete_evidence_is_unverifiable_never_a_pass ... ok
+test checks::v26_growth::tests::the_guard_judges_only_an_isolated_extension_and_never_calls_a_bundle_invalid ... ok
+test checks::v27_residents::tests::a_policy_the_archive_does_not_show_leaves_the_resident_unverifiable ... ok
+test checks::v27_residents::tests::an_honest_join_resident_has_no_finding ... ok
+test checks::v27_residents::tests::duplicates_fail ... ok
+test checks::v27_residents::tests::forged_joins_fail ... ok
+test checks::v27_residents::tests::mismatches_fail ... ok
+test checks::v27_residents::tests::missing_evidence_is_never_a_pass ... ok
+test checks::v27_residents::tests::the_resident_proof_accounts_are_canonical ... ok
+test checks::v28_resident_acts::tests::a_resident_act_is_listed_as_the_instruction_it_ran ... ok
+test checks::v28_resident_acts::tests::a_wrong_program_feed_cannot_judge_a_holder ... ok
+test checks::v28_resident_acts::tests::an_inner_instruction_no_check_models_stays_unverifiable ... ok
+test checks::v28_resident_acts::tests::canonical_addresses_are_judged_with_or_without_the_join ... ok
+test checks::v28_resident_acts::tests::inner_accounts_and_result_are_judged_against_the_join ... ok
+test checks::v28_resident_acts::tests::matching_authority_in_a_partial_feed_is_still_unproven ... ok
+test checks::v28_resident_acts::tests::old_owners_old_sessions_and_old_generations_accepted_are_fails ... ok
+test checks::v28_resident_acts::tests::owner_only_acts_refuse_the_session ... ok
+test checks::v28_resident_acts::tests::the_holder_and_its_live_session_act_through_a_to_b_to_a ... ok
+test checks::v28_resident_acts::tests::the_wide_resident_act_is_judged_by_the_same_holder_contract ... ok
+test checks::v28_resident_acts::tests::without_a_whole_record_only_a_stale_generation_is_a_fail ... ok
+test checks::v9_addresses::resident_joined_tests::a_record_that_stands_for_its_join_passes ... ok
+test checks::v9_addresses::resident_joined_tests::a_record_without_its_join_or_with_a_forged_key_fails ... ok
+test checks::v9_addresses::resident_joined_tests::one_record_per_join_and_per_resident_id ... ok
+test checks::v9_addresses::resident_tests::a_flagged_citizen_with_a_wallet_derives_nothing ... ok
+test checks::v9_addresses::resident_tests::nft_citizen_address_comes_from_the_resident_id ... ok
+test checks::v9_addresses::resident_tests::wallet_citizen_address_is_unchanged ... ok
+test checks::vw_chains::tests::a_broken_or_reordered_link_fails_at_its_transaction ... ok
+test checks::vw_chains::tests::a_chain_from_genesis_walks_to_its_last_link ... ok
+test checks::vw_chains::tests::a_chain_observed_from_its_middle_is_taken_from_its_first_link ... ok
+test checks::vw_chains::tests::a_first_link_at_seq_one_must_start_from_genesis ... ok
+test checks::vw_chains::tests::a_missing_middle_record_is_unverifiable_unless_the_history_is_whole ... ok
+test checks::vw_chains::tests::an_undecodable_wide_body_fails_and_a_wide_season_is_never_pass ... ok
+test checks::vw_chains::tests::psw1_lines_count_only_inside_the_program_frame ... ok
+test checks::vw_chains::tests::real_wide_records_chain_and_a_tampered_link_fails ... ok
+test conquest::tests::captured_turn_still_credits_previous_owner ... ok
+test conquest::tests::neutral_and_season_boundary_never_mint_extra_time ... ok
+test facts::resident_tests::a_resident_joined_without_its_join_resident_creates_no_citizen ... ok
+test facts::resident_tests::resident_joined_makes_the_nft_citizen_known_by_its_tag ... ok
+test holding::intro_tests::conquest_founding_shield_follows_the_season_timers ... ok
+test holding::intro_tests::conquest_train_pays_the_v2_cost ... ok
+test holding::intro_tests::intro_build_replay_consumes_exactly_one_persisted_entitlement ... ok
+test holding::intro_tests::s1_founding_workshop_and_arms_training ... ok
+test resident_feed::tests::one_ledger_order_read_far_enough_is_whole_and_nothing_else_is ... ok
+test resident_feed::tests::the_fixture_form_round_trips ... ok
+
+test result: ok. 59 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.04s
+
+     Running tests/history.rs (target/debug/deps/history-c96132a8293d0b43)
+
+running 16 tests
+test a_detected_gap_is_not_verified_over ... ok
+test a_ledger_feed_or_a_fixture_keeps_the_verdict_without_claiming_completeness ... ok
+test a_missing_range_is_not_reported_as_a_forgery_of_an_unproven_history ... ok
+test a_saved_fixture_cannot_launder_an_rpc_history ... ok
+test a_self_contained_fail_still_fails_over_an_unproven_history ... ok
+test a_witness_behind_does_not_end_the_history_early ... ok
+test a_witness_down_leaves_the_history_unproven ... ok
+test an_rpc_archive_keeps_its_coverage ... ok
+test archives_report_where_their_records_came_from ... ok
+test cross_checked_is_still_not_a_complete_history ... ok
+test dataset_scope_is_explicit_and_conflicting_feed_coverage_is_unproven ... ok
+test default_settings_fetch_an_unproven_history ... ok
+test empty_local_feed_is_an_observation_not_a_complete_season ... ok
+test every_rpc_coverage_state_is_unproven ... ok
+test malformed_feed_cursors_and_empty_archives_never_gain_dataset_trust ... ok
+test the_verifier_never_passes_an_unproven_history ... ok
+
+test result: ok. 16 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 56.13s
+
+     Running tests/new_bands.rs (target/debug/deps/new_bands-bbc8c088f0ac42ad)
+
+running 11 tests
+test a_divert_outside_a_transit_settlement_is_unverifiable ... ok
+test a_record_no_instruction_left_is_not_a_pass ... ok
+test a_record_of_a_new_kind_is_not_a_pass ... ok
+test a_resident_joined_without_its_join_is_unverifiable ... ok
+test an_instruction_of_a_new_band_is_not_a_pass ... ok
+test an_unknown_program_version_is_never_a_pass_keyfree ... ok
+test every_abi_v2_tag_has_a_v0_answer_on_a_recorded_season ... ok
+test every_conquest_kind_the_abi_knows_is_modelled ... ok
+test no_tag_or_an_unknown_tag_under_a_known_program_fails ... ok
+test tags_outside_abi_v2_are_told_apart ... ok
+test v0_wide_literals_are_the_wide_abi ... ok
+
+test result: ok. 11 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1058.11s
+
+     Running tests/v16_vw_unknown.rs (target/debug/deps/v16_vw_unknown-1a1a816bd453f4d9)
+
+running 5 tests
+test w1_a_whole_consistent_chain_is_still_never_pass ... ok
+test w2_records_seen_from_the_middle_of_an_unproven_history_are_unverifiable ... ok
+test w3_a_record_missing_in_the_middle_of_an_unproven_history ... ok
+test w4_records_inside_another_programs_frame_or_a_failed_transaction_are_not_records ... ok
+test w5_a_gap_in_an_unproven_history_is_unverifiable_not_a_fail_and_a_wrong_head_still_fails ... ok
+
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+exit=0
