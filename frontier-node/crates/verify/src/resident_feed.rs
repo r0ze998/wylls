@@ -269,10 +269,10 @@ impl ResidentFeed {
 /// the feed, and nothing past it was read. No separate status call: the
 /// values come from the same answers as the records.
 ///
-/// Always `unknown` for now (2c8fbfa2, merged by workstream 04 on
-/// 2026-11-08): even a complete scan is not accepted as the whole history
-/// until the conditions for a live read are decided. The reasons kept in the
-/// detail: a complete scan of one ledger, or that the node does not scan or name its ledger,
+/// A complete scan is `ledger_feed` with named gaps (⑲, 2026-11-08): it is
+/// unproven (never PASS) until `point_in_time_unverified` is sealed after
+/// the final states are read and no `prefix_identity_unverified` remains.
+/// `unknown` (never whole) when the node does not scan or name its ledger,
 /// when the feed is empty (no proof of an empty history, as `fetch_txs`), or
 /// when the scan ends before the game feed's last seq (the two reads are then
 /// not in the order this needs).
@@ -309,13 +309,17 @@ pub async fn fetch(
             0,
             0,
         ),
-        // A complete scan of one ledger is recorded, but not yet trusted as
-        // the whole history: the conditions for a live read are undecided.
+        // ⑲ 2026-11-08: a live read names what it could not show (the prefix,
+        // the final states' point) like the game history's.
         (Some(sc), Some(id)) if sc >= last_game => (
-            History::unknown(format!(
-                "resident feed {url}: ledger {id} scanned through seq {sc}; a live read is not yet accepted as the whole history"
-            )),
-            0,
+            crate::input::live_assurance(
+                url,
+                History::ledger_feed(format!("ledger {id}")),
+                s.rewind_safe(),
+                s.scanned(),
+            )
+            .await,
+            sc,
             sc,
         ),
         (Some(sc), Some(_)) => (
@@ -344,10 +348,8 @@ pub async fn fetch(
     };
     Ok(ResidentFeed {
         program: *resident_program,
-        // Live reads remain Unknown until the safety conditions for a
-        // direct node read are decided (2c8fbfa2; the owner's rule: an
-        // unproven history is never PASS). Even an empty observation does
-        // not prove no resident transaction.
+        // An unproven history (any named gap, or unknown) is never PASS.
+        // Even an empty observation does not prove no resident transaction.
         history,
         after: 0,
         through,
@@ -380,8 +382,10 @@ impl ResidentFeed {
         // (`feed_scanned`, workstream 04), else the program's last seq: the
         // archive was found whole through it (`findex::ledger`).
         let c = a.cursor();
+        // ⑲ 2026-11-08: a `ledger_feed` with gaps (every archive today:
+        // its ledger prefix is not shown) is unproven and claims no range.
         let through = match history.source {
-            Source::LedgerFeed => c
+            Source::LedgerFeed if !history.unproven() => c
                 .get("feed_scanned")
                 .and_then(Value::as_u64)
                 .or_else(|| c.get("feed_after").and_then(Value::as_u64))
