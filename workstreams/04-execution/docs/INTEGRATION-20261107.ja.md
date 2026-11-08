@@ -428,3 +428,62 @@ fa822453 の上に載せた。各チームのサブツリーは、チームが�
 - verify：wide-economy lib 60 と wide_economy 6、wide lib 59、既定の一式
 - keeper の wide：70・33・14・6・12
 - herald の wide：3・10・1
+
+## 16. 検証済みの候補 16576826 と、その記録（④、2026-11-08）
+
+**候補（固定）**
+- `claude/gallant-ride-cunptv` @ `16576826084a8ea7bd6b12b845d50b97f3d14904`（tree `7f6ff8b0fd1a3765fe00f4507ee87fdcd1ccdd71`）
+- 統合の後の判断は、ここでは何もしていない。この節は文書だけで、別の review の枝に置く（候補の枝には入れない）。
+
+**§15 の後に取り込んだもの（取得した源）**
+
+| 源 | 取り込み方 | 候補の commit |
+|---|---|---|
+| ⑥ `ef9f152d`（文書） | merge | `daa7f48f` |
+| ⑧ `6ff7347e`（土地の数の回帰試験と31章） | cherry-pick（`d1d07078` とその取り消しは入れない） | `cd449f08` |
+| ⑦ `aac14551`（鍵なしで画面全体を開く試験） | merge | `c2faf106` |
+| ⑤ `638c46b5`（⑤のディレクトリ。鍵の guard の変更は監査した） | ディレクトリを checkout | `bd63fc41` |
+| chosen-march の core と UI の部分（`4b34fd67` まで。10 commit） | merge。直したもの：controller.mjs、wideholding.mjs の文言 | `11cc2f2b`、`7535a17e` |
+| ⑤ `07fc6f64`（relay の木の attestation。隔離した ref `refs/review/ws05-07fc6f64` で読んだ） | ディレクトリを checkout（tree `01582ec1` で一致） | `16576826` |
+
+**7535a17e から 16576826 への差**
+- `workstreams/05-ai-participation/model-api` の 4 ファイルだけ（+129/−26）。
+- permutation-gateway の subtree（`52ccd7fc`）と workstreams/04-execution は、7535a17e と同じ。
+
+**独立した検証（どの木の結果かを分けて書く）**
+- **⑧（7535a17e で実行）**
+  - 終了ベル、BeaconLog、配置の fail-closed、輪128、土地の数を確かめた。退行なし。
+  - 成長の host 試験 10/10、wide の成長 33/33（成長 10 と wide land 23）、本体の lib 112、abi 152、rules 520、web 63/63。
+  - 16576826 については、⑧の担当ファイルが同じであることを確かめた。新しく流したものではない。
+- **⑯（7535a17e で実行。REPORT §23。`claude/dreamy-ramanujan-ijj8qj` の `cb2b44f5`）**
+  - 鍵なしの範囲で失敗 0 件。
+  - verify：既定 193、wide-world 91（VW1 と w1〜w5）、wide-economy 66
+  - keeper の wide 138、findex 96、herald 17、abi の world_index 139、wide land 23
+  - chain-flow 31/31（変異 12/12）、④ 130、e2e-native 24、⑬ 191（6 件は省略）、gateway・web 1908、画面 46/46
+- **⑯（16576826 で実行。REPORT §23.4・§24。`0beb9f6c`）**
+  - ⑤ の strict の一式 61/61、⑤ の wallet 13/13、relay-tree の負の対照 2 つ（期待どおり落ちる）。
+  - 長い Rust の一式は流し直していない。コードが同じなので、7535a17e の結果として扱う。
+- **④（16576826 で実行）**
+  - ⑤ の strict の一式 61/61。runexec はこの checkout から build したもの（sha256 `f039854a…`）。
+  - 負の対照 2 つ、⑤ の wallet 13/13、gateway・web 1908 通過・0 失敗・1 省略。
+- **`web-frontier-controller.test.mjs`**
+  - 鍵の一覧に入っているので、CI の鍵なしの一式には入っていない。
+  - guard を付けて手で流した結果：④ が fixture を直した後に 19/19。⑯ も 7535a17e で 19/19（⑯ の hook の記録 0 件、guard の発動 0 回）。
+  - 一覧は scan が機械的に作るので、手で例外にはしない。
+
+**CI**
+- `claude/gallant-ride-cunptv` の workflow run の数は、この枝だけで数えて 16 のまま。
+- 最後の run は 2026-11-06 の `8e96f24d` で、その後の push はすべて `[skip ci]`。
+- repository 全体の数ではない。
+
+**まだ確かめていないもの（実装はあるが、鍵なしの制約のため）**
+- プレイヤーが署名して送る経路。画面の操作は実装済みだが、ブラウザでの署名と、実チェーンでの送信と着地は、検証していない。
+- 鍵を使う試験：gateway.rs の 9 件、tamper・record・coverage、findex の ingest の 4 件、⑬ の署名を伴う 6 件、native-crypto-tests。
+- 実チェーン（frontier-localnet）、SBF、LiteSVM。
+
+**採用していない判断（提案だけ）**
+- 依頼者の認証と route：⑤ の R・D1・D3・D5（`workstreams/05-ai-participation/model-api/DECISIONS-PROPOSAL-9.ja.md`）、⑥ の D1〜D5（`workstreams/06-creation/docs/12-intake-contract.ja.md`）。⑥ の計画の実行と ⑬ の住民の run は、`NoAuthenticatedRequester` で止めている。
+- 賞金：U48〜U52（`permutation-nft-resident-spike/docs/UNDECIDED.ja.md`）、中止の返金の出口、受取の route（④版か⑰版か）。NFT の賞金の候補 `3090242a` は、まだ受け取っていない。
+- wide のルール 6 点（`docs/frontier/map-growth/PLAYABLE-WIDE-COMPATIBILITY.md`）、⑧ の 31 章（`workstreams/08-persistence/31-decisions.ja.md`）。
+- 仮の割当て：版のビット（rights 0x2000、capacity 0x1000、wide 0x4000）、⑨ の記録の kind・AccountKind 25 と 26・KERNEL_VERSIONS（`workstreams/09-capacity/INTEGRATION-04.ja.md`）、⑩ の LOT_RETURNED（`workstreams/10-custody/16-v26-caravan-replay.ja.md`）。
+- 保留した demo：`64f7cd15`、`86b293e8`、`298fdc91`、`f9b0f60b`、`26769fa1`、`07ae3f0d`、`7702251c`。本来の画面には入れていない。
