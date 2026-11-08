@@ -262,14 +262,19 @@ export function requesterProblem(r) {
  *
  *   - Opening takes `<path>.lock` by exclusive create. The lock names its
  *     holder: pid, the process's start time (/proc/<pid>/stat, so a reused
- *     pid is not mistaken for the holder) and a token of this open.
+ *     pid is not mistaken for the holder) and a token of this open. It is
+ *     written to a temporary file first and linked in, so no reader ever
+ *     sees it empty (an empty file would read as "no holder").
  *   - A lock whose holder still runs is refused (JournalLocked) — the same
  *     process included: a second open in one process is refused, not merged.
  *     A lock left by a previous run (its pid gone, or the same pid with
  *     another start time: a restart) is taken over.
- *   - A takeover holds `<path>.lock.takeover` (exclusive create) while it
- *     re-reads the lock and replaces it only if it is still the one judged
- *     stale; two openers that saw the same stale lock cannot both win.
+ *   - A takeover holds `<path>.lock.takeover` (taken the same way) while it
+ *     re-reads the lock and replaces it (rename) only if it is still the one
+ *     judged stale. A takeover mutex left by a dead taker is itself taken
+ *     over the same way, under `<path>.lock.takeover.takeover`; no process
+ *     ever removes a file that another process holds, so two live openers
+ *     can never hold the same mutex, and only one can replace the lock.
  *   - Every save first checks that the lock still carries this open's token;
  *     a writer that lost the lock is refused (JournalFenced) and writes nothing.
  *   - close() removes the lock only if it is still this open's.
@@ -284,11 +289,12 @@ export function requesterProblem(r) {
  */
 export function fileJournal(path, fs, { pid = process.pid, alive, startOf = procStart, token = randomToken() } = {}) {
   const lock = `${path}.lock`;
-  const mutex = `${lock}.takeover`;
   const mine = { pid, start: startOf(pid), token };
   const body = JSON.stringify(mine);
-  const readLock = () => { try { return String(fs.readFileSync(lock, "utf8")); } catch (e) { if (e.code === "ENOENT") return null; throw e; } };
-  const parse = (text) => { try { const v = JSON.parse(text); return v && typeof v === "object" ? v : null; } catch { return null; } };
+  const parse = (text) => {
+    if (/^\s*\d+\s*$/.test(text ?? "")) return { pid: Number(text) }; // a lock of the earlier format: only a pid
+    try { const v = JSON.parse(text); return v && typeof v === "object" ? v : null; } catch { return null; }
+  };
   const known = (s) => s !== null && s !== undefined;
   /**
    * Whether the holder a lock names is a running process (the same pid with another start time is not).
@@ -303,34 +309,43 @@ export function fileJournal(path, fs, { pid = process.pid, alive, startOf = proc
     return !known(h.start) || !known(now) || h.start === now;
   };
   const create = (file, text) => { const fd = fs.openSync(file, "wx"); try { fs.writeSync(fd, `${text}\n`); fs.fsyncSync(fd); } finally { fs.closeSync(fd); } };
-  const refuse = (h) => Object.assign(new Error(`journal ${path} is held by process ${h?.pid ?? "?"}${h?.pid === pid ? " (this process: another open)" : ""}`), { code: "JournalLocked" });
-  const open = () => {
-    try { create(lock, body); return; } catch (e) { if (e.code !== "EEXIST") throw e; }
-    const seen = readLock();
-    if (seen === null) return open(); // released meanwhile
-    const holder = parse(seen);
-    if (running(holder)) throw refuse(holder);
-    // stale: take it over, one taker at a time, only if it is still the lock judged stale
-    try { create(mutex, body); } catch (e) {
-      if (e.code !== "EEXIST") throw e;
-      let t = null;
-      try { t = parse(String(fs.readFileSync(mutex, "utf8"))); } catch (r) { if (r.code !== "ENOENT") throw r; }
-      if (running(t)) throw Object.assign(new Error(`journal ${path}: another process is taking the stale lock over`), { code: "JournalLocked" });
-      fs.rmSync(mutex, { force: true }); // a taker that died mid-takeover
-      return open();
-    }
-    try {
-      if (readLock() !== seen) throw refuse(parse(readLock()));
-      const tmp = `${lock}.${token}.tmp`;
-      create(tmp, body);
-      fs.renameSync(tmp, lock);
-    } finally {
-      fs.rmSync(mutex, { force: true });
+  const read = (file) => { try { return String(fs.readFileSync(file, "utf8")); } catch (e) { if (e.code === "ENOENT") return null; throw e; } };
+  /** Puts this open's body at `file` already written: a temporary file, then link (exclusive) or rename (replace). */
+  const place = (file, replace) => {
+    const tmp = `${file}.${token}.tmp`;
+    create(tmp, body);
+    try { if (replace) fs.renameSync(tmp, file); else fs.linkSync(tmp, file); } finally { fs.rmSync(tmp, { force: true }); }
+  };
+  const refuse = (file, h) => Object.assign(new Error(file === lock
+    ? `journal ${path} is held by process ${h?.pid ?? "?"}${h?.pid === pid ? " (this process: another open)" : ""}`
+    : `journal ${path}: process ${h?.pid ?? "?"} is taking the stale lock over`), { code: "JournalLocked" });
+  /**
+   * Takes `file` (the lock, or a takeover mutex): an exclusive link when it is absent; when it names a
+   * holder that no longer runs, a replace done only while holding `<file>.takeover` (taken the same way)
+   * and only if `file` is still the one judged stale. Nobody removes a file another process holds.
+   */
+  const acquire = (file, depth) => {
+    if (depth > 8) throw refuse(file, null);
+    for (;;) {
+      try { place(file, false); return; } catch (e) { if (e.code !== "EEXIST") throw e; }
+      const seen = read(file);
+      if (seen === null) continue; // released meanwhile
+      const h = parse(seen);
+      if (running(h)) throw refuse(file, h);
+      const sub = `${file}.takeover`;
+      acquire(sub, depth + 1);
+      try {
+        if (read(file) === seen) { place(file, true); return; }
+      } finally {
+        fs.rmSync(sub, { force: true });
+      }
+      // replaced meanwhile: look again
     }
   };
+  const open = () => acquire(lock, 0);
   open();
   const dir = path.includes("/") ? path.slice(0, path.lastIndexOf("/")) || "/" : ".";
-  const holds = () => parse(readLock())?.token === token;
+  const holds = () => parse(read(lock))?.token === token;
   return {
     load() {
       try { return JSON.parse(fs.readFileSync(path, "utf8")); } catch (e) { if (e.code === "ENOENT") return null; throw e; }
