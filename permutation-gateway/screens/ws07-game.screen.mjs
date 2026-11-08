@@ -17,7 +17,7 @@ const SHOTS = process.env.WS07_SHOTS ?? null;
 const SIZES = [{ name: 'phone', width: 390, height: 844 }, { name: 'pc', width: 1440, height: 900 }];
 let srv, browser, base;
 before(async () => {
-  srv = await startServer();
+  srv = await startServer({ keyless: true });
   base = `http://wylls.test:${new URL(srv.url).port}/frontier/index.html`;
   browser = await chromium.launch({ args: ['--host-resolver-rules=MAP wylls.test 127.0.0.1'], ...(process.env.WS07_CHROME ? { executablePath: process.env.WS07_CHROME } : {}) });
   if (SHOTS) await mkdir(SHOTS, { recursive: true });

@@ -13,7 +13,7 @@ import { startServer } from './server.mjs';
 const OUT = process.env.WS07_SHOTS ? new URL(`file://${process.env.WS07_SHOTS.replace(/\/?$/, '/')}`) : null;
 const SIZES = [{ name: 'phone', width: 390, height: 844 }, { name: 'pc', width: 1440, height: 900 }];
 let srv, browser;
-before(async () => { srv = await startServer(); browser = await chromium.launch(process.env.WS07_CHROME ? { executablePath: process.env.WS07_CHROME } : {}); if (OUT) await mkdir(OUT, { recursive: true }); });
+before(async () => { srv = await startServer({ keyless: true }); browser = await chromium.launch(process.env.WS07_CHROME ? { executablePath: process.env.WS07_CHROME } : {}); if (OUT) await mkdir(OUT, { recursive: true }); });
 after(async () => { await browser?.close(); await srv?.close(); });
 
 /** English, the title card seen, NO wallet and no session key; every key operation blocked and counted. */
