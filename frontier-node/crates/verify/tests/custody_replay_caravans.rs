@@ -19,10 +19,11 @@ use frontier_abi::v2::addr;
 use frontier_abi::v2::ix as x;
 use frontier_abi::v2::layout::player::citizen as C;
 use frontier_abi::v2::layout::s1::{caravan as CV, place as PL, vault as VA};
+use frontier_abi::v2::log::{lot_loss, CqKind, LotKey};
 use permutation_rules::fixed::MILLI;
 use permutation_rules::frontier::custody as K;
 use permutation_rules::frontier::holding::Resource;
-use verify_core::checks::v26_custody::{replay_ix, ReplayCase, Replayed};
+use verify_core::checks::v26_custody::{replay_ix, ReplayCase, ReplayRecord, Replayed};
 use verify_core::codes::*;
 
 type Key = [u8; 32];
@@ -171,6 +172,7 @@ struct World {
     before: BTreeMap<Key, Vec<u8>>,
     after: BTreeMap<Key, Option<Vec<u8>>>,
     closed: BTreeSet<Key>,
+    records: Vec<ReplayRecord>,
 }
 
 impl World {
@@ -187,6 +189,7 @@ impl World {
             after: &after,
             closed_before: &closed,
             program: PROGRAM,
+            records: &self.records,
         })
     }
 }
@@ -215,6 +218,94 @@ struct Case {
     accounts: Vec<Key>,
     w: World,
     want: Replayed,
+}
+
+// ------------------------------------------------------------ records (frontier_abi::v2::log)
+
+fn raw(l: &K::Lot) -> Vec<u8> {
+    LotKey {
+        p: l.p,
+        q: l.q,
+        tile: l.tile,
+        gen: l.vault_gen,
+        owner_tag: l.owner_tag,
+        resource: l.resource,
+    }
+    .raw()
+    .to_vec()
+}
+
+fn ck() -> Vec<u8> {
+    let mut k = 0xB2u64.to_le_bytes().to_vec();
+    k.extend_from_slice(&SEQ.to_le_bytes());
+    k
+}
+
+fn rec(kind: CqKind, key: Vec<u8>, parts: &[&[u8]]) -> ReplayRecord {
+    ReplayRecord {
+        kind,
+        key,
+        payload: parts.concat(),
+    }
+}
+
+/// LOT_INBOUND: lot 15, sent 8, worn 8, from_lot 1.
+fn inbound(l: &K::Lot, sent: i64, worn: i64, from_lot: u8) -> ReplayRecord {
+    rec(
+        CqKind::LOT_INBOUND,
+        ck(),
+        &[
+            &raw(l),
+            &sent.to_le_bytes(),
+            &worn.to_le_bytes(),
+            &[from_lot],
+        ],
+    )
+}
+
+/// LOT_SHIPPED: lot 15, sent 8, worn 8, to_lot 1, order_id 4, carrier_tag 8.
+fn shipped(l: &K::Lot, sent: i64, worn: i64, to_lot: u8) -> ReplayRecord {
+    rec(
+        CqKind::LOT_SHIPPED,
+        ck(),
+        &[
+            &raw(l),
+            &sent.to_le_bytes(),
+            &worn.to_le_bytes(),
+            &[to_lot],
+            &u32::MAX.to_le_bytes(),
+            &0xB2u64.to_le_bytes(),
+        ],
+    )
+}
+
+/// LOT_SETTLED: lot 15, delivered 8, burned 8, dest_gone 8.
+fn settled(l: &K::Lot, delivered: i64, burned: i64, gone: i64) -> ReplayRecord {
+    rec(
+        CqKind::LOT_SETTLED,
+        ck(),
+        &[
+            &raw(l),
+            &delivered.to_le_bytes(),
+            &burned.to_le_bytes(),
+            &gone.to_le_bytes(),
+        ],
+    )
+}
+
+/// LOT_LOSS (key: lot 15): cause 1, qty 8, to_tag 8, caravan_tag 8, caravan_seq 4.
+fn lost(l: &K::Lot, cause: u8, qty: i64, to: u64, caravan: (u64, u32)) -> ReplayRecord {
+    rec(
+        CqKind::LOT_LOSS,
+        raw(l),
+        &[
+            &[cause],
+            &qty.to_le_bytes(),
+            &to.to_le_bytes(),
+            &caravan.0.to_le_bytes(),
+            &caravan.1.to_le_bytes(),
+        ],
+    )
 }
 
 fn partial(kind: &str, what: &str) -> Replayed {
@@ -248,6 +339,10 @@ fn cases() -> Vec<Case> {
         src.stores[ORE as usize] -= 10 * MILLI;
         w.after.insert(k.lot_a, Some(lot_bytes(&l)));
         w.after.insert(k.src, Some(vault_bytes(&src)));
+        w.records = vec![
+            inbound(&l, 10 * MILLI, MILLI, 0),
+            lost(&l, lot_loss::WORN, MILLI, 0, (0xB2, SEQ)),
+        ];
         w.after.insert(
             k.caravan,
             Some(caravan_bytes(CV::CUSTODY_LOT, 9 * MILLI, T + 900)),
@@ -305,6 +400,11 @@ fn cases() -> Vec<Case> {
         K::begin_inbound(&vb, &mut tl, (0xB2, SEQ), 4 * MILLI).unwrap();
         w.after.insert(k.lot_a, Some(lot_bytes(&l)));
         w.after.insert(k.lot_b, Some(lot_bytes(&tl)));
+        w.records = vec![
+            shipped(&l, 5 * MILLI, MILLI, 1),
+            inbound(&tl, 5 * MILLI, MILLI, 1),
+            lost(&l, lot_loss::WORN, MILLI, 0, (0xB2, SEQ)),
+        ];
         w.after.insert(
             k.caravan,
             Some(caravan_bytes(CV::CUSTODY_LOT, 4 * MILLI, T + 900)),
@@ -364,6 +464,7 @@ fn cases() -> Vec<Case> {
             k.caravan,
             Some(caravan_bytes(CV::CUSTODY_NONE, 5 * MILLI, T + 900)),
         );
+        w.records = vec![shipped(&l, 5 * MILLI, 0, 0)];
         out.push(Case {
             name: "WithdrawLot",
             data: x::WithdrawLot {
@@ -399,6 +500,7 @@ fn cases() -> Vec<Case> {
         K::finish_inbound(Some(&v), &mut l, (0xB2, SEQ), 9 * MILLI).unwrap();
         w.after.insert(k.lot_a, Some(lot_bytes(&l)));
         w.after.insert(k.caravan, None);
+        w.records = vec![settled(&l, 9 * MILLI, 0, 0)];
         out.push(Case {
             name: "SettleCustody",
             data: x::SettleCustody { beneficiary: BENEF }.to_bytes().to_vec(),
@@ -420,9 +522,10 @@ fn cases() -> Vec<Case> {
         w.before.insert(k.va, vault_bytes(&seized));
         w.before.insert(k.lot_a, lot_bytes(&l));
         let (mut sv, mut sl) = (seized, l);
-        K::forfeit(&mut sv, &mut sl).unwrap();
+        let f = K::forfeit(&mut sv, &mut sl).unwrap();
         w.after.insert(k.lot_a, Some(lot_bytes(&sl)));
         w.after.insert(k.va, Some(vault_bytes(&sv)));
+        w.records = vec![lost(&sl, lot_loss::SEIZED, f.qty, 0xCA, (0, 0))];
         out.push(Case {
             name: "ReconcileLot (seized)",
             data: x::ReconcileLot {}.to_bytes().to_vec(),
@@ -438,12 +541,13 @@ fn cases() -> Vec<Case> {
         let mut w = World::default();
         w.before.insert(k.va, vault_bytes(&v));
         w.before.insert(k.lot_a, lot_bytes(&l));
-        w.before.insert(
-            k.caravan,
-            caravan_bytes(CV::CUSTODY_TAKEN, 9 * MILLI, T + 900),
-        );
+        // Taken by the raider of tag 0xCA.
+        let mut taken = caravan_bytes(CV::CUSTODY_TAKEN, 9 * MILLI, T + 900);
+        taken[CV::TAKEN_BY_TAG..CV::TAKEN_BY_TAG + 8].copy_from_slice(&0xCAu64.to_le_bytes());
+        w.before.insert(k.caravan, taken);
         K::drop_inbound(&mut l, (0xB2, SEQ), K::CaravanSeen::Taken).unwrap();
         w.after.insert(k.lot_a, Some(lot_bytes(&l)));
+        w.records = vec![lost(&l, lot_loss::RAIDED, 9 * MILLI, 0xCA, (0xB2, SEQ))];
         out.push(Case {
             name: "ReconcileLot (taken)",
             data: x::ReconcileLot {}.to_bytes().to_vec(),
@@ -463,6 +567,7 @@ fn cases() -> Vec<Case> {
         w.closed.insert(k.caravan);
         K::drop_inbound(&mut l, (0xB2, SEQ), K::CaravanSeen::Absent).unwrap();
         w.after.insert(k.lot_a, Some(lot_bytes(&l)));
+        w.records = vec![lost(&l, lot_loss::RAIDED, 9 * MILLI, 0, (0xB2, SEQ))];
         out.push(Case {
             name: "ReconcileLot (closed)",
             data: x::ReconcileLot {}.to_bytes().to_vec(),
@@ -686,6 +791,10 @@ fn a_settlement_to_a_closed_vault_delivers_nothing_and_an_unknown_one_is_not_jud
     let s = K::finish_inbound(None, &mut l, (0xB2, SEQ), 9 * MILLI).unwrap();
     assert_eq!(s.dest_gone, 9 * MILLI);
     w.after.insert(k.lot_a, Some(lot_bytes(&l)));
+    w.records = vec![
+        settled(&l, 0, 0, 9 * MILLI),
+        lost(&l, lot_loss::DESTINATION_GONE, 9 * MILLI, 0, (0xB2, SEQ)),
+    ];
     assert_eq!(w.replay(&c.data, &c.accounts), c.want);
     // Booked as delivered while the vault is gone: a mismatch.
     let mut d = c.w.clone();
@@ -865,6 +974,29 @@ fn recorded(build: impl Fn(Key) -> Case) -> (verify_core::Input, String, Case) {
             .post
             .push((fclient::Address::new_from_array(*k), d.clone().map(acct)));
     }
+    // The records, as the program logs them in a frame of its own.
+    use base64::Engine;
+    let b64 = base64::engine::general_purpose::STANDARD;
+    let pid = program.to_string();
+    inp.txs[b].logs.push(format!("Program {pid} invoke [1]"));
+    for r in &case.w.records {
+        let mut body = vec![0u8; 512];
+        let n = frontier_abi::v2::log::write_body(
+            frontier_abi::v2::log::AnyKind::Cq(r.kind),
+            BELL,
+            &r.key,
+            &r.payload,
+            &mut body,
+        )
+        .unwrap();
+        let n = frontier_abi::v2::log::write_tail(&[], &mut body, n).unwrap();
+        inp.txs[b].logs.push(format!(
+            "Program data: {} {}",
+            b64.encode(fclient::log::PS2),
+            b64.encode(&body[..n])
+        ));
+    }
+    inp.txs[b].logs.push(format!("Program {pid} success"));
     let sig = inp.txs[b].signature.to_string();
     (inp, sig, case)
 }
@@ -968,4 +1100,42 @@ fn verify_keeps_a_settlement_unverifiable_when_its_lot_side_matches() {
             sig
         )]
     );
+}
+
+#[test]
+fn the_records_are_the_kernels() {
+    for c in cases() {
+        // Each record dropped: not judged; each record's amount changed
+        // by one unit: a mismatch.
+        for i in 0..c.w.records.len() {
+            let mut w = c.w.clone();
+            let r = w.records.remove(i);
+            let got = w.replay(&c.data, &c.accounts);
+            assert!(
+                matches!(got, Replayed::Unreplayed(_)),
+                "{} without its {}: {got:?}",
+                c.name,
+                r.kind.name()
+            );
+            let mut w = c.w.clone();
+            let p = &mut w.records[i].payload;
+            let at = if r.kind == CqKind::LOT_LOSS { 1 } else { 15 };
+            p[at] ^= 0x01;
+            let got = w.replay(&c.data, &c.accounts);
+            let Replayed::Mismatch(m) = &got else {
+                panic!("{} with its {} changed: {got:?}", c.name, r.kind.name())
+            };
+            assert!(m.contains("record"), "{}: {m}", c.name);
+        }
+        // A loss the kernel does not give.
+        let l = K::Lot::decode(&c.w.after[&lot_a()].clone().unwrap()).unwrap();
+        let mut w = c.w.clone();
+        w.records
+            .push(lost(&l, lot_loss::BURNED, MILLI, 0, (0xB2, SEQ)));
+        let got = w.replay(&c.data, &c.accounts);
+        let Replayed::Mismatch(m) = &got else {
+            panic!("{} with an extra loss: {got:?}", c.name)
+        };
+        assert!(m.contains("LOT_LOSS"), "{}: {m}", c.name);
+    }
 }
