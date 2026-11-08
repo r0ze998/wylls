@@ -662,13 +662,10 @@ impl Pool {
             .iter()
             .find(|g| g.seq == seq)
             .map_or(0, |g| g.spent);
-        spent
-            + self
-                .occ
-                .iter()
-                .filter(|o| o.grant == seq)
-                .map(|o| o.budget)
-                .sum::<i64>()
+        self.occ
+            .iter()
+            .filter(|o| o.grant == seq)
+            .fold(spent, |a, o| a.saturating_add(o.budget))
     }
 }
 
@@ -798,7 +795,7 @@ pub fn lend(
             .map_err(|_| CapError::ReclaimBlocked)?;
     }
     p.lent = lent;
-    p.owner_seq += 1;
+    p.owner_seq = p.owner_seq.checked_add(1).ok_or(CapError::Overflow)?;
     p.last_owner_op = Some(op);
     Ok(Done::Applied(alloc::vec![if lend {
         Event::Lent {
@@ -961,14 +958,25 @@ pub fn reserve(
     if p.policies.dormancy == DormancyPolicy::RefuseNewWhenDormant && dormant {
         return Err(CapError::OwnerAway);
     }
+    // `units` and `max_output` are the instruction's: a sum past the type's
+    // range exceeds every cap (this crate is built without overflow checks).
     let same_grant = p.peak(now, start, end, |o| o.grant == grant);
-    if same_grant + units > g.max_units {
+    if same_grant
+        .checked_add(units)
+        .is_none_or(|n| n > g.max_units)
+    {
         return Err(CapError::GrantUnitsExceeded);
     }
-    if p.grant_output(grant) + max_output > g.max_output {
+    if p.grant_output(grant)
+        .checked_add(max_output)
+        .is_none_or(|n| n > g.max_output)
+    {
         return Err(CapError::GrantOutputExceeded);
     }
-    if p.peak(now, start, end, |_| true) + units > p.lent {
+    if p.peak(now, start, end, |_| true)
+        .checked_add(units)
+        .is_none_or(|n| n > p.lent)
+    {
         return Err(CapError::CapacityExceeded);
     }
     if p.occ.len() >= MAX_JOBS {
@@ -1406,6 +1414,15 @@ pub mod layout {
         Some(take(d, o, 1)?[0])
     }
 
+    /// A flag byte: 0 or 1, anything else is not a record of ours.
+    fn flag(d: &[u8], o: &mut usize) -> Option<bool> {
+        match u8_(d, o)? {
+            0 => Some(false),
+            1 => Some(true),
+            _ => None,
+        }
+    }
+
     fn key(d: &[u8], o: &mut usize) -> Option<Key> {
         take(d, o, 32)?.try_into().ok()
     }
@@ -1571,7 +1588,7 @@ pub mod layout {
             let lent = u32_(d, o)?;
             let owner_seq = u32_(d, o)?;
             let has = u8_(d, o)?;
-            let lend = u8_(d, o)? == 1;
+            let lend = flag(d, o)?;
             let units = u32_(d, o)?;
             let seq = u32_(d, o)?;
             let last_owner_op = match has {
@@ -1600,7 +1617,11 @@ pub mod layout {
                     grants.push(Grant {
                         seq: u32_(d, o)?,
                         user: key(d, o)?,
-                        recipe: u8_(d, o)?,
+                        recipe: {
+                            let r = u8_(d, o)?;
+                            recipe(r)?;
+                            r
+                        },
                         max_units: u32_(d, o)?,
                         max_output: i64_(d, o)?,
                         from: i64_(d, o)?,
@@ -1627,11 +1648,7 @@ pub mod layout {
                         start: i64_(d, o)?,
                         end: i64_(d, o)?,
                         end_eff: i64_(d, o)?,
-                        open: match u8_(d, o)? {
-                            0 => false,
-                            1 => true,
-                            _ => return None,
-                        },
+                        open: flag(d, o)?,
                         budget: i64_(d, o)?,
                     });
                 }
@@ -1727,9 +1744,9 @@ pub mod layout {
                 _ => return None,
             };
             let settled = i64_(d, o)?;
-            let started_logged = u8_(d, o)? == 1;
+            let started_logged = flag(d, o)?;
             let claimed = i64_(d, o)?;
-            let refunded = u8_(d, o)? == 1;
+            let refunded = flag(d, o)?;
             let returned = [i64_(d, o)?, i64_(d, o)?];
             let forfeited_in = [i64_(d, o)?, i64_(d, o)?];
             let forfeited_out = i64_(d, o)?;
@@ -1741,7 +1758,10 @@ pub mod layout {
             for _ in 0..n {
                 deposits.push(Deposit {
                     id: u64_(d, o)?,
-                    input: u8_(d, o)?,
+                    input: {
+                        let i = u8_(d, o)?;
+                        (i < 2).then_some(i)?
+                    },
                     amount: i64_(d, o)?,
                     src: u64_(d, o)?,
                 });
@@ -1871,6 +1891,49 @@ mod tests {
         // A wrong magic is not a pool.
         d[0] ^= 1;
         assert_eq!(Job::decode(&d), None);
+        d[0] ^= 1;
+        assert!(Job::decode(&d).is_some());
+        // A flag byte that is neither 0 nor 1, a deposit's input past the
+        // recipe's two: not a record of ours.
+        let hdr = layout::job::HEADER;
+        let started = hdr + 4 + 4 + 8 + 32 + 1 + 4 + 8 + 8 + 8 + 16 + 9 + 8;
+        let mut bad = d.clone();
+        bad[started] = 2;
+        assert_eq!(Job::decode(&bad), None);
+        let input0 = hdr + layout::job::BODY + 1 + 8;
+        let mut bad = d.clone();
+        bad[input0] = 2;
+        assert_eq!(Job::decode(&bad), None);
+        let mut pd = alloc::vec![0u8; layout::pool::SIZE];
+        let pool = Pool::decode(&{
+            let (p, _) = open_pool(None, &fac(), &A, id(), Policies::PROVISIONAL).unwrap();
+            let mut p = p.unwrap();
+            p.grants.push(Grant {
+                seq: 1,
+                user: B,
+                recipe: RECIPE_ARMS,
+                max_units: 1,
+                max_output: 1,
+                from: 0,
+                until: 1,
+                revoked_at: None,
+                spent: 0,
+                last_job_seq: None,
+            });
+            p.encode(&mut pd).unwrap();
+            pd.clone()
+        });
+        assert!(pool.is_some());
+        // The grant's recipe byte: an unknown recipe is refused.
+        let recipe_at = layout::pool::HEADER + layout::pool::BODY + 1 + 4 + 32;
+        let mut bad = pd.clone();
+        bad[recipe_at] = 9;
+        assert_eq!(Pool::decode(&bad), None);
+        // The last owner op's lend flag.
+        let lend_at = layout::pool::HEADER + 2 + 2 + 1 + 1 + 32 + 3 + 4 + 4 + 1;
+        let mut bad = pd.clone();
+        bad[lend_at] = 7;
+        assert_eq!(Pool::decode(&bad), None);
     }
 
     #[test]
@@ -1879,5 +1942,160 @@ mod tests {
         assert_eq!(layout::pool::OCC, 45);
         assert_eq!(layout::job::DEPOSIT, 25);
         assert_eq!((layout::pool::SIZE, layout::job::SIZE), (1_548, 377));
+    }
+}
+
+#[cfg(test)]
+mod boundary_tests {
+    use super::*;
+
+    const A: Key = [0xA1; 32];
+    const B: Key = [0xB2; 32];
+    const T0: i64 = 1_800_000_000;
+
+    fn fac() -> Facility {
+        Facility {
+            gen: 1,
+            owner: A,
+            reused: false,
+            end: None,
+        }
+    }
+
+    /// A pool with one copy lent and B's grant of one unit, one job
+    /// holding that unit over [T0+60, T0+3660).
+    fn pool_with_a_job() -> Pool {
+        let id = FacilityId {
+            p: 0,
+            q: 0,
+            site: 0,
+            gen: 1,
+        };
+        let (p, _) = open_pool(None, &fac(), &A, id, Policies::PROVISIONAL).unwrap();
+        let mut p = p.unwrap();
+        p.lent = 1;
+        grant(
+            &mut p,
+            &fac(),
+            T0,
+            &A,
+            Grant {
+                seq: 1,
+                user: B,
+                recipe: RECIPE_ARMS,
+                max_units: 1,
+                max_output: 100 * MILLI,
+                from: T0,
+                until: T0 + 86_400,
+                revoked_at: None,
+                spent: 0,
+                last_job_seq: None,
+            },
+        )
+        .unwrap();
+        reserve(
+            &mut p,
+            &fac(),
+            false,
+            None,
+            T0,
+            &B,
+            1,
+            1,
+            1,
+            T0 + 60,
+            T0 + 3_660,
+            MILLI,
+        )
+        .unwrap();
+        p
+    }
+
+    /// `units` comes from the instruction: near `u32::MAX` it must be
+    /// refused, not wrap past the grant's and the pool's caps.
+    #[test]
+    fn huge_units_are_refused_not_wrapped() {
+        let mut p = pool_with_a_job();
+        let before = p.clone();
+        for units in [u32::MAX, u32::MAX - 1] {
+            let r = reserve(
+                &mut p,
+                &fac(),
+                false,
+                None,
+                T0,
+                &B,
+                1,
+                2,
+                units,
+                T0 + 60,
+                T0 + 3_660,
+                MILLI,
+            );
+            assert_eq!(r.map(|_| ()), Err(CapError::GrantUnitsExceeded), "{units}");
+        }
+        assert_eq!(p, before);
+        // A second grant with no job and no unit cap of its own: the grant's
+        // sum fits, the pool's (the first grant's job plus these) does not.
+        grant(
+            &mut p,
+            &fac(),
+            T0,
+            &A,
+            Grant {
+                seq: 2,
+                user: B,
+                recipe: RECIPE_ARMS,
+                max_units: u32::MAX,
+                max_output: 100 * MILLI,
+                from: T0,
+                until: T0 + 86_400,
+                revoked_at: None,
+                spent: 0,
+                last_job_seq: None,
+            },
+        )
+        .unwrap();
+        let before = p.clone();
+        let r = reserve(
+            &mut p,
+            &fac(),
+            false,
+            None,
+            T0,
+            &B,
+            2,
+            1,
+            u32::MAX,
+            T0 + 60,
+            T0 + 3_660,
+            MILLI,
+        );
+        assert_eq!(r.map(|_| ()), Err(CapError::CapacityExceeded));
+        assert_eq!(p, before);
+    }
+
+    /// `max_output` comes from the instruction too: near `i64::MAX` it must
+    /// not wrap past the grant's output budget.
+    #[test]
+    fn huge_max_output_is_refused_not_wrapped() {
+        let mut p = pool_with_a_job();
+        p.lent = 2;
+        p.grants[0].max_units = 2;
+        let r = reserve(
+            &mut p,
+            &fac(),
+            false,
+            None,
+            T0,
+            &B,
+            1,
+            2,
+            1,
+            T0 + 60,
+            T0 + 3_660,
+            i64::MAX,
+        );
+        assert_eq!(r.map(|_| ()), Err(CapError::GrantOutputExceeded));
     }
 }

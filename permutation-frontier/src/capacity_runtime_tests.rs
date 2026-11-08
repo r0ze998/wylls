@@ -945,3 +945,64 @@ fn capacity_whole_units_go_back_into_the_lot_unconsumed() {
     assert_eq!(t.vault_store(ARMS), 14_500);
     assert_eq!(t.retire((1, 1)), Ok(()));
 }
+
+/// Boundaries through the real dispatch: a reservation of `u32::MAX`
+/// copies is refused (the rules no longer wrap the sum past the caps), and
+/// a claim the user's vault cannot hold is refused whole: the job, the
+/// pool and the vault are as before (the harness does not roll back, so
+/// this also shows the handler writes nothing before it refuses).
+#[test]
+fn capacity_boundaries_refuse_and_write_nothing() {
+    let _g = begin();
+    let mut t = Cap::new();
+    let (a, b) = (t.a.clone_member(), t.b.clone_member());
+    assert_eq!(t.open(&a, [0, 0, 0]), Ok(()));
+    assert_eq!(t.lend(&a, 2, 0, true), Ok(()));
+    assert_eq!(t.grant(&a, 1, &b, GENESIS + 10 * 86_400), Ok(()));
+    let start = GENESIS + 7_200;
+    let pool_before = t.pool_data().unwrap();
+    assert_eq!(
+        t.reserve(&b, 1, 1, u32::MAX, start, start + 3_600, MILLI),
+        Err(err(cap::CapError::GrantUnitsExceeded))
+    );
+    assert_eq!(
+        t.reserve(&b, 1, 1, 1, start, start + 3_600, i64::MAX),
+        Err(err(cap::CapError::GrantOutputExceeded))
+    );
+    assert_eq!(t.pool_data().unwrap(), pool_before);
+    assert!(t.job_data((1, 1)).is_none());
+    // A job that makes 20 arms into a vault with room for 10.
+    let job = (1, 1);
+    assert_eq!(
+        t.reserve(&b, 1, 1, 2, start, start + 3 * 3_600, 20 * MILLI),
+        Ok(())
+    );
+    let vault = t.vault.clone();
+    assert_eq!(
+        t.deposit(&b, job, 1, Resource::Ore, 40 * MILLI, &vault),
+        Ok(())
+    );
+    assert_eq!(
+        t.deposit(&b, job, 2, Resource::Wood, 20 * MILLI, &vault),
+        Ok(())
+    );
+    {
+        let mut d = t.vault.try_borrow_mut_data().unwrap();
+        // CAP is per resource: room for 10 arms.
+        put(&mut d, VA::CAP, &(10 * MILLI).to_le_bytes());
+    }
+    crate::prologue::set_test_clock(start + 4 * 3_600, 3_000);
+    let (pool0, job0) = (t.pool_data().unwrap(), t.job_data(job).unwrap());
+    let vault0 = t.vault.try_borrow_data().unwrap().to_vec();
+    assert_eq!(t.claim(&b, job), Err(err(cap::CapError::Custody)));
+    assert_eq!(t.pool_data().unwrap(), pool0);
+    assert_eq!(t.job_data(job).unwrap(), job0);
+    assert_eq!(t.vault.try_borrow_data().unwrap().to_vec(), vault0);
+    // Room again: the same claim goes through.
+    {
+        let mut d = t.vault.try_borrow_mut_data().unwrap();
+        put(&mut d, VA::CAP, &(500 * MILLI).to_le_bytes());
+    }
+    assert_eq!(t.claim(&b, job), Ok(()));
+    assert_eq!(t.vault_store(ARMS), 20 * MILLI);
+}

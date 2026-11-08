@@ -314,19 +314,17 @@ impl Pool {
             .iter()
             .find(|g| g.id == id)
             .map_or(0, |g| g.spent);
-        spent
-            + self
-                .jobs
-                .iter()
-                .filter(|j| j.id.grant == id)
-                .map(|j| {
-                    if j.fin == Fin::Open {
-                        j.max_output
-                    } else {
-                        j.settled
-                    }
-                })
-                .sum::<i64>()
+        self.jobs
+            .iter()
+            .filter(|j| j.id.grant == id)
+            .map(|j| {
+                if j.fin == Fin::Open {
+                    j.max_output
+                } else {
+                    j.settled
+                }
+            })
+            .fold(spent, i64::saturating_add)
     }
 }
 
@@ -710,7 +708,7 @@ impl<C: Custody + Clone> Harness<C> {
                 debug_assert_eq!(fac.lent, lent);
                 let p = self.pool_mut(facility);
                 p.lent = lent;
-                p.owner_seq += 1;
+                p.owner_seq = p.owner_seq.checked_add(1).ok_or(CapError::Overflow)?;
                 p.last_owner_op = Some(op.clone());
                 ev.push(if lend {
                     Event::Lent {
@@ -1041,14 +1039,24 @@ impl<C: Custody + Clone> Harness<C> {
         {
             return Err(CapError::OwnerAway.into());
         }
+        // A sum past the type's range exceeds every cap.
         let same_grant = p.peak(now, start, end, |j| j.id.grant == job.grant);
-        if same_grant + units > g.max_units {
+        if same_grant
+            .checked_add(units)
+            .is_none_or(|n| n > g.max_units)
+        {
             return Err(CapError::GrantUnitsExceeded.into());
         }
-        if p.grant_output(job.grant) + max_output > g.max_output {
+        if p.grant_output(job.grant)
+            .checked_add(max_output)
+            .is_none_or(|n| n > g.max_output)
+        {
             return Err(CapError::GrantOutputExceeded.into());
         }
-        if p.peak(now, start, end, |_| true) + units > p.lent {
+        if p.peak(now, start, end, |_| true)
+            .checked_add(units)
+            .is_none_or(|n| n > p.lent)
+        {
             return Err(CapError::CapacityExceeded.into());
         }
         if p.jobs.len() >= MAX_JOBS {
