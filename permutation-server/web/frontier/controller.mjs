@@ -47,7 +47,7 @@ import { raidOffers, s1VillageModel, s1TileModel, siegeOffer, expelOffer, carava
 import { placeData, raidProvinces, cargoBytes, RAID_CHOICE } from './fplay.mjs';
 import { cachedReach, reachKey, reachableKeeps } from './fkeepreach.mjs';
 import * as fprize from './fprize.mjs';
-import { instantHomeEnabled, heartlandFull, HOME_GRANTED, planHomes, homeSites, homeRingsOpen, seasonPlace, sameHome, homeKey, loadHome, saveHome, grantId } from './home.mjs';
+import { instantHomeEnabled, HOME_GRANTED, planHomes, homeSites, homeRingsOpen, seasonPlace, sameHome, homeKey, loadHome, saveHome, grantId } from './home.mjs';
 // the prototype rule "banners" (a design tried in the sample world, never sent to a chain): its routes and the reading of its records
 import * as protoIo from './proto/orders.mjs';
 import * as pm from './proto/hand-model.mjs';
@@ -1162,8 +1162,6 @@ export async function refreshConquest() {
 function needsHomeChoice() {
   if (!instantHomeEnabled(FS.season) || FS.holdings?.length || FS.meStatus === 'error') return false;
   if (!FS.citizen) return true;
-  // the heartland has no free home for this nation: the ticket path (autoTicket) instead (home.mjs heartlandFull)
-  if (heartlandFull(FS)) return false;
   return FS.land?.stage === 'joined' && !(FS.citizen.flags & (HOME_GRANTED | 4 | 16));
 }
 

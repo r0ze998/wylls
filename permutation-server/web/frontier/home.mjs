@@ -7,16 +7,6 @@ import { hash32 } from './fjoin.mjs';
 export const HOME_GRANTED = 32;
 export const INTRO_BUILD_AVAILABLE = 2;
 export const instantHomeEnabled = season => ((Number(season?.layoutVersion ?? 1) === 1 && Number(season?.programVersion) === 2) || (Number(season?.layoutVersion) === 2 && Number(season?.programVersion) >= 3));
-/**
- * Workstream 08 (candidate, for workstream 4 and the owner to adopt or drop): an instant-home Season whose heartland
- * has no free first home for the viewer's nation (`planHomes` said `NoFreeHome`) while the viewer has joined and has
- * no village. PlaceHome places only in rings 2 .. heartland_max_ring, so from there the program's ticket path
- * (FileTicket / SettleTicket into the nation's own open rings, unchanged and still dispatched) is the only way to a
- * first village, and the only first homes that can still count toward the crowding rule that grows the map. While
- * this is true the page files tickets (controller autoTicket) instead of waiting on the heartland.
- */
-export const heartlandFull = FS => instantHomeEnabled(FS?.season) && !!FS?.citizen && !FS?.holdings?.length
-  && FS?.homeChoice?.error?.code === 'NoFreeHome' && FS.homeChoice.faction === FS.citizen.faction;
 export const sameHome = (a, b) => !!a && !!b && a.p === b.p && a.q === b.q && a.site === b.site;
 export const homeKey = (scope, wallet = 'visitor') => `wylls-home:v1:${scope.cluster}:${scope.programId}:${scope.seasonId}:${wallet}`;
 const validSite = s => !!s && Number.isInteger(s.p) && Number.isInteger(s.q) && Number.isInteger(s.site) && s.site >= 0 && s.site < 12 && ringOf(s.p, s.q) >= 2;

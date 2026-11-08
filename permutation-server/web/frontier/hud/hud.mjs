@@ -41,7 +41,6 @@ export const NEAR_FULL_SECS = 3600;
 
 export { activeHolding } from '../fstate.mjs';
 import { activeHolding } from '../fstate.mjs';
-import { heartlandFull } from '../home.mjs';
 
 // ------------------------------------------------------------------ the bell pill
 /** `{bell, secondsLeft, frac, urgency, beforeGenesis, ended}` at chain time `now`. */
@@ -344,7 +343,7 @@ export function renderNextRow(next) {
  * said the request had been refused).
  */
 export function waitingLine(FS) {
-  if (Number(FS.season?.programVersion ?? 1) >= 2 && !['ticket', 'refugee'].includes(FS.land?.stage) && !(Number(FS.citizen?.flags ?? 0) & (32 | 4)) && !heartlandFull(FS)) {
+  if (Number(FS.season?.programVersion ?? 1) >= 2 && !['ticket', 'refugee'].includes(FS.land?.stage) && !(Number(FS.citizen?.flags ?? 0) & (32 | 4))) {
     return FS.homeChoice?.busy || FS.homeChoice?.pending ? L`村を準備しています…` : FS.homeChoice?.error ? failureText(FS.homeChoice.error) : L`村を築ける土地を探しています…`;
   }
   const stage = FS.land?.stage ?? 'none', st = FS.autoTicket?.state ?? null;

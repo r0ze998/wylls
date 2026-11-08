@@ -12,7 +12,7 @@ import { html, raw } from '../../util.mjs';
 import { L, Lh, fmtNum, lang } from '../../lang.mjs';
 import { factionName, DOCTRINE_NAMES, HOLDING_STATES, failureText } from '../fi18n.mjs';
 import { freeByNation, ticketTimes } from '../fland.mjs';
-import { heartlandFull, homeRingsOpen, seasonPlace } from '../home.mjs';
+import { homeRingsOpen, seasonPlace } from '../home.mjs';
 import { dueHtml } from './shell.mjs';
 import { leaderFigure, leaderHex, leaderSvg, DOCTRINE_PITCH } from '../people/leaders.mjs';
 import { placeName } from '../people/identity.mjs';
@@ -260,7 +260,6 @@ function renderPlacing(FS) {
   }[a?.state] ?? (() => L`まもなく村の申し込みを自動で出します。`);
   return html`<section class="vcard wait-card" aria-labelledby="join-sites">
     ${waitHead(FS, again ? L`新しい村の場所を探しています` : L`村の申し込みを出しています`, a?.state ?? null)}
-    ${heartlandFull(FS) ? html`<p class="muted" data-home-fallback>${L`最初の村を置ける中心の土地が埋まっているため、自分の国の外側の土地に村の申し込みを出します。`}</p>` : ''}
     <div class="wait-state"><p role="status">${line()}</p>
       ${a?.state === 'waiting' && FS.landRec?.autoTryFailed ? html`<div class="actions wait-acts"><button type="button" class="btn" data-act="auto-ticket">${icon('return')}${L`いますぐやり直す`}</button></div>` : ''}</div>
     ${waitClockBox(c, L`次のターンまで`)}
@@ -373,6 +372,6 @@ export function render(FS) {
   if (stage === 'ticket') return renderTicket(FS);
   if (stage === 'provisional') return renderProvisional(FS);
   if (stage === 'final') return html`<p>${L`村が確定しました。「村」から始めましょう。`}</p>`;
-  if (instant && stage !== 'refugee' && !(Number(FS.citizen?.flags ?? 0) & (32 | 4)) && !heartlandFull(FS)) return renderInstantPlacing(FS);
+  if (instant && stage !== 'refugee' && !(Number(FS.citizen?.flags ?? 0) & (32 | 4))) return renderInstantPlacing(FS);
   return renderPlacing(FS);
 }
