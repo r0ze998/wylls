@@ -112,3 +112,26 @@ test('R3 in a resident: a stopped run with an undecided attempt is held; the act
   assert.deepEqual([...new Set(accepts.filter(a => JSON.stringify(a.action) === action).map(a => a.run_id))], [first]);
   assert.ok(['sent', 'unresolved'].includes(ren.state.journal[first].state), ren.state.journal[first].state);
 });
+
+// ---- workstream 16's own R3 inputs (claude/dreamy-ramanujan-ijj8qj @ 82df9208, probes/fixtures/v16-r3-inputs.json):
+// a real `runexec run view` (runexec from workstream 4 20db3313) edited into 12 stopped views with no effect listed
+// but a trace of a send. Copied once into test/fixtures/ws16-r3-inputs.json.
+const R3 = JSON.parse(readFileSync(new URL('./fixtures/ws16-r3-inputs.json', import.meta.url), 'utf8'));
+
+test("workstream 16's 12 R3 inputs: none is read as failed or cancelled", () => {
+  const cases = Object.entries(R3.cases);
+  assert.equal(cases.length, 12);
+  for (const [name, v] of cases) assert.equal(fateOfRun(v).fate, 'unknown', name);
+});
+
+// Workstream 16's 157 real views (fixtures/v16-real-views-20db3313.jsonl on the same commit), read in place when
+// WS16_REAL_VIEWS points at the file: the safe-side rule changes none of them.
+const REAL = process.env.WS16_REAL_VIEWS;
+test("workstream 16's 157 real views: no real view reads as unknown because of R3", { skip: REAL ? false : 'set WS16_REAL_VIEWS' }, () => {
+  const views = readFileSync(REAL, 'utf8').trim().split('\n').map(l => JSON.parse(l)).map(x => x.view ?? x); // each line: {…, view}
+  assert.equal(views.length, 157);
+  const r3 = views.map(v => [v.run_id, v.state, fateOfRun(v)]).filter(([, , f]) => /a send may have taken effect/.test(f.why ?? ''));
+  assert.deepEqual(r3, []);
+  const noEffect = views.filter(v => ['Failed', 'Expired', 'Cancelled'].includes(v.state)).map(v => fateOfRun(v).fate).filter(f => f === 'failed' || f === 'cancelled');
+  assert.ok(noEffect.length > 0, 'the real no-effect stops still read as failed / cancelled');
+});
