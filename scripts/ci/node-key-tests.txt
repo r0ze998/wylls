@@ -258,6 +258,7 @@ workstreams/03-composability/mcp/test/keyfree/capability.test.mjs
 workstreams/03-composability/mcp/test/keyfree/encoding.test.mjs
 workstreams/03-composability/mcp/test/keyfree/herald-contract.test.mjs
 workstreams/03-composability/mcp/test/keyfree/integration.test.mjs
+workstreams/03-composability/mcp/test/keyfree/registry-busy.test.mjs
 workstreams/03-composability/mcp/test/keyfree/run.test.mjs
 workstreams/03-composability/mcp/test/keyfree/ws05-contract.test.mjs
 workstreams/05-ai-participation/model-api/integration/same-citizen-contention.test.mjs

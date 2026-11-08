@@ -296,3 +296,14 @@ export function mcpServer(w, { storeFile = null, acts = null, clock = { t: NOW *
   };
   return { auth, mcp, store, game, tool, connectAs, connectViaRelay, plan, clock, herald: w.herald };
 }
+
+/**
+ * Opens a fresh run store of workstream 04 once, alone, before anything uses it concurrently (`runexec act list`: no
+ * row is written). Measured on ④ 16576826's runexec: two processes making a brand-new store's first open at the same
+ * moment answer `StoreError: database is locked` 9 times in 200 (the WAL switch and schema creation in Store::open,
+ * not covered by its busy timeout); with the store opened once first, 0 in 300. That race is ④'s to fix (reported with
+ * its reproduction); a test that means to exercise ③ and ⑤ together must not depend on it by accident.
+ */
+export async function openRunStore(createActsClient, bin, db) {
+  await createActsClient({ bin, db }).list('ws03-test-open-run-store');
+}
