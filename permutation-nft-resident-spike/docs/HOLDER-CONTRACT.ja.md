@@ -299,3 +299,18 @@ v0.17 の持ち主の定義への置き換え（`authorize` = `holder` + `author
 - `coverage`（固定のバイトから鍵を作る）、`record`・`fixtures`（鍵を作り署名する）は実行しない。
 - 本物の ResidentAct を含む記録済みの季節が無いので、内側の命令が V7・V23 などで判定されることは、記録の再生では確かめていない（単体試験だけ）。
 - wide のゲーム（所有者側の CC、`preserve/wide-*`）の NFT 用の入口 0xDD は、V28 も V0 も知らない（その版の検証器は c94a5df7 から分かれている）。
+
+## 13. wide の世界の WideResidentAct（0xDD）を V28 で（2026-11-08、v0.23）
+
+④ の分担（④ VW1 の鎖 → ⑪ wide の帯を VW へ → ⑳ 0xDD を V28 で）に従い、④ の 4ecef1d9（VW1）の上に作った。実験の build（`--features wide-world-experimental`）だけ。
+
+| 項目 | 内容 |
+|---|---|
+| 入口 | `v28_resident_acts::run_wide`。VW1 の直後に走る。0xE2 の経路（`run`）とは互いの命令を判定しない |
+| 解読 | ABI の `world_index::wide_ix::ResidentAct::decode` と `command()`。program（`proc::wide::resident_act`）と同じく、内側は WideClaimSite・WideDepart・0xDA のプレイヤーの Muster・Dissolve だけ。それ以外が成功していれば FAIL（`ResidentActMismatch`）。文書の表は ClaimSite・Depart の 2 つだけを挙げているが、program は 4 つを走らせる |
+| 同じ判定 | 証明の 4 アカウント（読み取り専用）、Citizen（書き込み可）、Season、正規の住所、参加時の link、実行後の Citizen（住民の asset、財布 0、`LAST_ACTION_TS`：4 つの handler はどれも書く）、持ち主・世代・session（共通の持ち主の定義、⑲ の履歴の規則） |
+| session | wide の 4 つの命令は所有者も生きた session も通す（`wide::player_start_as` の `session_ok = true`）。所有者だけの行為は無い |
+| 内側 | VW に渡す。VW はまだ命令を再生しないので、いつも `ResidentInnerUnmodelled`（UNVERIFIABLE）。wide の季節は PASS にならない |
+| 未決 | wide の 6 つの未決のルールには触れていない |
+
+試験（鍵ペアの生成・導出・署名なし）：feature あり lib（V28 11・resident_feed 2・V23 2・VW1 7）22、feature あり `--test history` 16・`resident_ledger` 4、feature なし lib 14。clippy は両方の build で合格。
