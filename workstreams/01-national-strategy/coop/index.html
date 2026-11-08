@@ -63,11 +63,12 @@
       <label>期限（時間） <input id="hours" type="number" min="1" max="720" value="24"></label>
     </div>
     <div class="row">届け先（自分の村）：
-      <label>P <input id="toP" type="number" value="0"></label>
-      <label>Q <input id="toQ" type="number" value="0"></label>
-      <label>村の番号 <input id="toSite" type="number" min="0" max="63" value="0"></label>
-      <label>世代 <input id="toGen" type="number" min="0" value="0"></label>
+      <label>P <input id="toP" type="number" value=""></label>
+      <label>Q <input id="toQ" type="number" value=""></label>
+      <label>村の番号 <input id="toSite" type="number" min="0" max="63" value=""></label>
+      <label>世代 <input id="toGen" type="number" min="0" value=""></label>
     </div>
+    <div class="row warn" id="entryWarn" data-testid="entry-warn" hidden></div>
     <div class="row"><button id="send">依頼を出す（署名）</button> <button id="leave">この目的から抜ける（署名）</button></div>
   </section>
 

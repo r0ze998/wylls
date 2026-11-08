@@ -127,6 +127,20 @@ export function recipientOf(arrival, now, requesterCitizen, rules = { status: 'v
 }
 
 /**
+ * 依頼の届け先が、いま依頼した人の村（同じ世代）か。表示のためだけの確かめ（記録の受け取りの規則ではない。断らない）。
+ *   now：chain.mjs holdingNow の結果（届け先の村の今の口座）、requesterCitizen：依頼した人の Citizen の住所。
+ * {status: 'verified'} | {status: 'mismatch', why}（今のチェーンで、持ち主か世代が違う・村の口座が無い：送っても到着時の受取人が依頼した人でなく
+ * 数えられない）| {status: 'unknown', why}（今は読めない：分からないだけで、違うとは言わない）。
+ */
+export function destinationOf(now, to, requesterCitizen) {
+  if (!now) return { status: 'unknown', why: '届け先の村の口座をまだ読んでいない' };
+  if (now.status !== 'found') return /村の口座がない/.test(now.why ?? '') ? { status: 'mismatch', why: '届け先の村の口座がない' } : { status: 'unknown', why: now.why ?? '届け先の村の口座を読めない' };
+  if (now.ownerCitizen !== requesterCitizen) return { status: 'mismatch', why: '届け先の村の今の持ち主が、依頼した人ではない' };
+  if (now.gen !== to.gen) return { status: 'mismatch', why: `届け先の村の世代が違う（依頼 ${to.gen}・今 ${now.gen}：占領か再入植）` };
+  return { status: 'verified' };
+}
+
+/**
  * 一つの到着を、共同の目的に数える量（依頼の資源ごと）と、数えない理由。
  * あわせて、この到着が数えられうる量の上限（未満、資源ごと：countUpper）と、もう変わらないか（final）を返す（④ QUANTITY-CONTRACT §4）。
  */
@@ -175,7 +189,7 @@ export function coopView({ state, file, obs = { ended: {}, vaults: {} }, checks 
   });
   const byReq = {};
   for (const a of arrivals) (byReq[a.requestId] ??= []).push(a);
-  const requests = Object.values(state.requests).map(q => ({ ...q, stateNow: stateAt(q, now), arrivals: byReq[q.id] ?? [], fulfilment: fulfilmentOf(q, byReq[q.id] ?? []),
+  const requests = Object.values(state.requests).map(q => ({ ...q, stateNow: stateAt(q, now), arrivals: byReq[q.id] ?? [], fulfilment: fulfilmentOf(q, byReq[q.id] ?? []), destination: checks.destinations?.[q.id] ?? null,
     sendings: (q.sendings ?? []).map(z => ({ ...z, outcome: checks.sendings?.[z.walletSig] ?? { status: 'unknown', why: 'まだ確かめていない' } })) }));
   // 国は文脈ごとの Citizen の口座で確かめる（checks.citizens の鍵は「文脈|ウォレット」。古い形の「ウォレット」だけの鍵も読む）
   const citizen = (w, c = season) => checks.citizens?.[`${c ? ctxKey(c) : ''}|${w}`] ?? checks.citizens?.[w] ?? { status: 'unverified', why: 'まだ確かめていない' };
