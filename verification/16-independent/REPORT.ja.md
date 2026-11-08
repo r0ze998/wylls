@@ -2977,3 +2977,16 @@ checkpoint の `95b0ab225ca9e9e626941b51981df2240198d91c`（tree `89a64830da3991
   - scan の `--check` は exit 0。試験は list に載っておらず、`--covers` も通る。import は herald・world・faddr と node の組み込みだけ。
   - repo の guard と hook v2 の下で **11/11**、hook の記録は 0 件（`logs/phase23/ws19-0230.txt`）。
   - Rust の試験（ws19_map_contract）は、⑯ は流していない。
+
+## 29.19 ④ dd7f8735（⑧ e01fff60 の merge：⑲ 32e13f7c と ⑧ 631c1963 を含む）
+
+- 対象：④ `dd7f8735a1feb1d89c6506325a108ebc70c0ffa6`（tree `a47c4694fb649cb2aa940a6fafe0e5b2976347e6`、b64cef2c の上）。
+- 一致するもの:
+  - ⑲ の Rust の fixture 2 つ、ws19_map_contract.rs、golden 2 つは ⑲ 32e13f7c と一致する（023088ea でも同じ。023088ea が変えたのは Node の試験だけ）。
+  - ⑧ の growth-route の fixture、試験、node-key-reviewed は ⑧ e01fff60 と一致する。
+  - scan の `--check` は exit 0。
+- **足りないもの**：`web-frontier-map-contract.test.mjs` は ⑲ **32e13f7c** の版で、⑲ **023088ea** の版ではない。
+  - したがって、§29.16 で指摘した空の assert（`assert.match(wi.code, /^WideIndex|^[A-Za-z0-9]+$/)`、125 行）と、status による分岐が、④ の候補に残っている。
+  - 023088ea は、この 1 file だけを変える（+13 −6）。
+  - 案：⑲ 023088ea（branch `claude/ecstatic-cannon-d0jfc4`）の map-contract を取り込む。それで §29.18 で確かめた版（11/11）になる。
+- ⑯ は dd7f8735 の Rust と Node の試験を流していない（④ の 2/2 と 17/17 がある。⑲ の版は §29.18 で 11/11）。
