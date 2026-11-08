@@ -1009,85 +1009,24 @@ fn bell(now: i64, a: &[AccountInfo]) -> R<u32> {
 // ------------------------------------------------------------ lots (workstream 10)
 
 /// Another owner's lot feeding a job (workstream 10's custody kernel,
-/// `permutation_rules::frontier::custody`): the use order's grantee
-/// consumes whole units (`consume`, logged `LOT_CONSUMED` on the lot's
-/// chain as ConsumeLot logs it), and what the job did not use is
-/// un-consumed back into the lot (`return_unused`). No record kind exists
-/// for a return yet (workstream 10's to allocate); the lot's state is
-/// written, its chain is not advanced. In a build without custody a lot
-/// source is unknown data.
+/// `permutation_rules::frontier::custody`, through `proc::custody`'s own
+/// readers and writers): the use order's grantee consumes whole units
+/// (`consume`, logged `LOT_CONSUMED` on the lot's chain as ConsumeLot logs
+/// it), and what the job did not use is un-consumed back into the lot
+/// (`return_unused`). No record kind exists for a return yet (workstream
+/// 4's to allocate, asked by workstream 10); the lot's state is written,
+/// its chain is not advanced, and workstream 10's V26 accepts the lower
+/// CONSUMED as unverifiable. In a build without custody a lot source is
+/// unknown data.
 #[cfg(feature = "custody-preview")]
 mod lots {
-    use super::super::conquest::{cq, cqlog, Chained2};
+    use super::super::custody::{actor, cerr, emit_lot, lot_of, lot_raw, put_lot, vault_of_lot};
     use super::*;
-    use frontier_abi::v2::log::{CqKind, EntityKind as E2, LotKey};
-    use frontier_abi::v2::CqError;
+    use frontier_abi::v2::log::CqKind;
     use permutation_rules::frontier::custody::{self as kc, CustodyError, Lot, VaultView};
 
-    /// The kernel's refusals as program codes (as `proc::custody`'s).
-    fn cerr(e: CustodyError) -> Error {
-        use CustodyError as E;
-        match e {
-            E::NotAuthorized => FrontierError::NotOwner.into(),
-            E::WalletRequired => cq(CqError::WalletRequired),
-            E::Insufficient => FrontierError::Insufficient.into(),
-            E::Capacity => cq(CqError::CustodyCapacity),
-            E::NoSlot => cq(CqError::CustodyNoSlot),
-            E::Expired => cq(CqError::OrderExpired),
-            E::Forfeited => cq(CqError::LotForfeited),
-            E::NotEmpty => cq(CqError::LotNotEmpty),
-            E::InTransit => cq(CqError::CaravanEarly),
-            E::State => FrontierError::AlreadyDone.into(),
-            E::Overflow => crate::error::OVERFLOW,
-            E::Resource | E::Quantity | E::Order | E::Stale | E::SelfDealing => {
-                FrontierError::BadData.into()
-            }
-        }
-    }
-
-    fn vault_view(p: &Pubkey, ctx: &addr::AddrCtx, sid: u64, ai: &AccountInfo) -> R<VaultView> {
-        present_v2(ai, p, K2::Vault, sid)?;
-        let d = ai.try_borrow_data()?;
-        let r = Ro(&d);
-        let (vp, vq, tile) = (r.i16(VA::P)?, r.i16(VA::Q)?, r.u8(VA::TILE)?);
-        expect_key(
-            ai,
-            &frontier_abi::v2::addr::vault(ctx, vp as i32, vq as i32, tile),
-        )?;
-        let mut stores = [0i64; RESOURCES];
-        let mut quota = [0i64; RESOURCES];
-        for i in 0..RESOURCES {
-            stores[i] = r.i64(VA::store(i))?;
-            quota[i] = r.i64(VA::custody_quota(i))?;
-        }
-        Ok(VaultView {
-            p: vp,
-            q: vq,
-            tile,
-            gen: r.u8(VA::GEN)?,
-            live: r.u8(VA::STATE)? == VA::STATE_LIVE,
-            owner: r.arr(VA::OWNER_CITIZEN)?,
-            owner_tag: r.u64(VA::OWNER_TAG)?,
-            stores,
-            cap: r.i64(VA::CAP)?,
-            quota,
-            lots: r.u16(VA::CUSTODY_LOTS)?,
-        })
-    }
-
-    fn lot_key(l: &Lot) -> LotKey {
-        LotKey {
-            p: l.p,
-            q: l.q,
-            tile: l.tile,
-            gen: l.vault_gen,
-            owner_tag: l.owner_tag,
-            resource: l.resource,
-        }
-    }
-
-    /// A present lot at its canonical address, and its vault (canonical for
-    /// the lot's tile).
+    /// A present lot at its canonical address, and its vault (present,
+    /// canonical for the lot's tile): workstream 10's own readers.
     fn lot_and_vault(
         p: &Pubkey,
         ctx: &addr::AddrCtx,
@@ -1095,23 +1034,9 @@ mod lots {
         vault: &AccountInfo,
         lot: &AccountInfo,
     ) -> R<(Lot, VaultView)> {
-        present_v2(lot, p, K2::Lot, sid)?;
-        let l = Lot::decode(&lot.try_borrow_data()?).ok_or(BAD_ACCOUNT)?;
-        let k = lot_key(&l);
-        expect_key(
-            lot,
-            &frontier_abi::v2::addr::lot(ctx, k.p, k.q, k.tile, k.gen, k.owner_tag, k.resource),
-        )?;
-        expect_key(
-            vault,
-            &frontier_abi::v2::addr::vault(ctx, l.p as i32, l.q as i32, l.tile),
-        )?;
-        let v = vault_view(p, ctx, sid, vault)?;
+        let l = lot_of(p, ctx, sid, lot)?;
+        let v = vault_of_lot(p, ctx, sid, vault, &l)?.ok_or(cerr(CustodyError::Forfeited))?;
         Ok((l, v))
-    }
-
-    fn put_lot(ai: &AccountInfo, l: &Lot) -> R<()> {
-        l.encode(&mut ai.try_borrow_mut_data()?).ok_or(BAD_ACCOUNT)
     }
 
     /// DepositToJob from a lot.
@@ -1167,15 +1092,10 @@ mod lots {
         if events(done).is_none() {
             return Ok(());
         }
-        let actor = kc::Actor {
-            citizen: signer,
-            tag: pl.pc.citizen_tag,
-            by_session: pl.pc.by_session,
-        };
         kc::consume(
             &v,
             &mut l,
-            &actor,
+            &actor(pl, citizen),
             slot,
             order,
             amount,
@@ -1198,16 +1118,12 @@ mod lots {
             .u64(pl.pc.citizen_tag)
             .i64(amount)
             .u16(fc::PURPOSE_WORKSHOP_ARMS);
-        let mut ld = lot_ai.try_borrow_mut_data()?;
-        cqlog::emit(
-            CqKind::LOT_CONSUMED as u8,
+        emit_lot(
+            CqKind::LOT_CONSUMED,
             pl.pc.now_bell,
-            &lot_key(&l).raw(),
+            &lot_raw(&l),
             payload.get()?,
-            &mut [Chained2 {
-                entity: E2::Lot,
-                data: &mut ld,
-            }],
+            lot_ai,
         )
     }
 
