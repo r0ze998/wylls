@@ -62,7 +62,8 @@ for (const scenario of SCENARIOS) {
       const m = createMemory({ world: a.W.world, partitions: a.W.partitions });
       const r = c.connectCanonical(m, { season: a.season, events: a.events, me: a.me, store, binding: a.binding, finality });
       assert.equal(r.status, 'held', `${finality ? 'cross_checked' : 'none'}: ${r.reasons}`);
-      assert.ok(r.reasons.includes('no_finality_attestation'));
+      // 12 up to c6877a1a: no_finality_attestation for both; from fa4baf14 a cross-check gets its own reason
+      assert.ok(finality ? r.reasons.some(x => ['no_finality_attestation', 'cross_check_is_not_finality'].includes(x)) : r.reasons.includes('no_finality_attestation'), `${r.reasons}`);
       assert.equal(r.held.length, store.receipts.length, 'all held');
       assert.equal(m.journal.records().filter(x => x.kind?.startsWith?.('caravan_')).length, 0, 'nothing taken in');
     }

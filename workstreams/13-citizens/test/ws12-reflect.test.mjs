@@ -27,6 +27,7 @@ const skip = ROOT ? false : 'set WS12_ROOT to a tree with workstream 12 at c6877
 const m12 = rel => import(pathToFileURL(path.join(ROOT, 'workstreams/12-memory', rel)).href);
 
 import { PROGRAM, ALL_FIXTURE, FIXTURE, heraldMe, memoryFor as memoryFor12 } from './ws12-fixture.mjs';
+// Needs workstream 12 at fa4baf14 or later (per-fact basis, per-commitment evidence_basis).
 const memoryFor = (kou, o) => memoryFor12(m12, kou, o);
 
 /**
@@ -163,4 +164,30 @@ test('refused: no index attestation at all: the promise stays unknown, never rea
 test('refused: Kou is not paired with a citizen of this world (identity)', { skip }, async () => {
   const r = await play(env => wire(env, { known: false }));
   assert.ok(notActed(r, 'identity').every(e => e.status === 'identity_unverified'));
+});
+
+// ---- workstream 12's per-commitment evidence basis (fa4baf14) ------------------------------------------------------
+const CHAIN_DECLARED = (() => { const c = { kind: 'chain', source: 'test: DECLARED chain over fixture records (the hole 12 closed)' }; return { world: c, clock: c, finality: { ...c, commitment: 'finalized', slot: 900, world_id: null }, identity: c, records: c }; })();
+
+test("per record: the facts behind the breach must be chain-read too; a port declared chain over fixture records does not act", { skip }, async () => {
+  // the port-level provenance claims chain (as a careless caller could); 12's evidence_basis says the coverage and
+  // the alias are fixtures: nothing is acted on, and the decision says why.
+  const r = await play(async env => {
+    const ctx = await wire(env, { use: null, provenance: null });
+    const prov = { ...CHAIN_DECLARED, finality: { ...CHAIN_DECLARED.finality, world_id: ctx.w.world.world_id } };
+    const c = await m12('adapters/canonical.mjs');
+    const ren = env.rs.ren;
+    const ids = c.resolverFromIdentity([c.identityFromHeraldMe(await heraldMe(m12, env.ps.Kou.address), { partition: ctx.w.partition }).entry]);
+    ren.ports.evidence = ws12CanonicalEvidence({ ws12EvidencePort: c.ws12EvidencePort, memory: ctx.m, identity: ids, worldClock: ctx.w.clock, residentClock: ren.ports.observe.clock, provenance: prov });
+    assert.equal(ren.ports.evidence.basis, 'chain', 'the port-level check alone would have said chain');
+  });
+  const ev = notActed(r, 'per-record fixture').find(e => e.status === 'ok');
+  assert.deepEqual(ev.evidenceBases, ['fixture']);
+  assert.match(ev.notActedBecause, /facts behind the breach are fixture/);
+});
+
+test('per record: records without a basis are unstated and never act, even under the test switch', { skip }, async () => {
+  const r = await play(env => wire(env, { mem: { basis: null } }));
+  const ev = notActed(r, 'unstated records').find(e => e.status === 'ok');
+  assert.deepEqual(ev.evidenceBases, ['unstated']);
 });

@@ -88,6 +88,9 @@ export function ws12CanonicalEvidence({ ws12EvidencePort, memory, identity, worl
       const k = memory.knowledge(PUBLIC_VIEWER, q.worldBell, { observedBy: q.worldBell });
       const facts = k.commitments.filter(c => c.debtor === q.counterparty).map(c => ({
         commitment: c.id, state: c.state, due_bell: c.due_bell, verified: VERIFIED_STATES.includes(c.state), breach: BREACH_STATES.includes(c.state), sources: [...c.sources],
+        // Workstream 12 (fa4baf14) says, per commitment, where every fact behind its state was read: the weakest of
+        // them (unstated < fixture < integration-output < chain). Older 12 gives none: unstated.
+        evidenceBasis: c.evidence_basis?.kind ?? 'unstated', evidenceRecords: (c.evidence_basis?.records ?? []).length,
       }));
       return { ...r, facts, basis, basisWhy };
     },

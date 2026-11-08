@@ -146,3 +146,20 @@ test('workstream 4\'s clients/runs.mjs: the requester file it hands over, and a 
   const bad = ws04ExecutionPort({ accept: (s, r2) => createRunsClient({ bin: ok, ...opts }).accept(s, r2), view: async () => null }, { specOf, requesterOf: () => ({ ...REQUESTER, authenticatedBy: '' }) });
   assert.equal((await bad.submit({ idempotencyKey: 'ren:t1:3', action: {} })).error.code, 'BadRequest');
 });
+
+test('without requesterOf at all, submit is refused and accept is never called', async () => {
+  const c = fake4();
+  for (const opts of [{ specOf }, { specOf, requesterOf: null }, { specOf, requesterOf: 'not a function' }]) {
+    const port = ws04ExecutionPort(c, opts);
+    const r = await port.submit({ idempotencyKey: 'ren:t1:1', action: {} });
+    assert.deepEqual([r.status, r.error.code], ['refused', 'NoAuthenticatedRequester']);
+  }
+  assert.equal(c.accepts.length, 0, 'accept called 0 times');
+  // a resident on such a port: the line fails with NoAuthenticatedRequester, no new attempt, accept still 0
+  const env = await small({ residents: [{ id: 'ren', goal: 'village-first', pos: { q: 0, r: 0 } }] });
+  env.rs.ren.ports.execution = ws04ExecutionPort(c, { specOf });
+  await run(env, 20);
+  const it = Object.values(env.rs.ren.state.journal).find(j => j.purpose?.type === 'build');
+  assert.deepEqual([it.state, it.error], ['failed', 'NoAuthenticatedRequester']);
+  assert.equal(c.accepts.length, 0);
+});

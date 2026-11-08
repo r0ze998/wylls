@@ -51,7 +51,8 @@ export function fateOfRun(run) {
  *
  * `requesterOf(request)`: who asks, as the gateway's credential layer (workstreams 3 and 5) authenticated it:
  * `{actor, generation, citizen, authenticatedBy}`. This port never signs or verifies anything and never makes up a
- * generation: without a requester nothing is handed to workstream 4 (`NoAuthenticatedRequester`, nothing sent).
+ * generation: without `requesterOf`, or when it gives no requester, nothing is handed to workstream 4
+ * (`NoAuthenticatedRequester`, nothing sent; accept is not called).
  *
  * `client.view(runId)` (or the older `client.run(runId)`): the run view (`runexec run view`, p04-run/0.1), or a
  * refusal: `NoRecord` alone means "never accepted here" (null); `StoreUnavailable` and anything else is no answer
@@ -74,10 +75,11 @@ export function ws04ExecutionPort(client, { specOf, requesterOf = null }) {
     retentionBells: Infinity,
     async submit(req) {
       const spec = { ...specOf(req), run_id: req.idempotencyKey };
-      const requester = requesterOf ? requesterOf(req) : null;
-      if (requesterOf && !requester) return { ok: false, status: 'refused', error: { code: 'NoAuthenticatedRequester', message: 'no requester authenticated by the credential layer: not handed to workstream 4' } };
+      // No credential layer (requesterOf absent) or no requester from it: nothing is handed to workstream 4.
+      const requester = typeof requesterOf === 'function' ? requesterOf(req) : null;
+      if (!requester) return { ok: false, status: 'refused', error: { code: 'NoAuthenticatedRequester', message: 'no requester authenticated by the credential layer: not handed to workstream 4' } };
       let a;
-      try { a = requesterOf ? await client.accept(spec, requester) : await client.accept(spec); } catch (e) {
+      try { a = await client.accept(spec, requester); } catch (e) {
         const code = e?.code === 'Conflict' ? 'IdempotencyConflict' : e?.code;
         if (DEFINITE_REFUSALS.includes(e?.code)) return { ok: false, status: 'refused', error: { code, message: String(e.message ?? e).slice(0, 200) } };
         throw e; // StoreError, Spawn, anything else: maybe written; the resident reads it back under the same key
