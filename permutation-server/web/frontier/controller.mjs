@@ -919,6 +919,9 @@ export function wantProvince(p, q, onLoad = () => {}, { now = Date.now(), bell =
   if (!herald || artWanted.has(key) || artWanted.size >= WANT_IN_FLIGHT) return false;
   const have = FS.provinces.get(key);
   if (have && !(have.bell < bell && now - (fetchedAt.get(key) ?? 0) >= WANT_REFRESH_MS)) return false;
+  // (workstream 07: a Province asked for and not stored — its read failed, e.g. 404 for one not on chain yet — waits the
+  // same interval: each finished load redraws, and the redraw asked for it again at once, hundreds of times a minute)
+  if (!have && fetchedAt.has(key) && now - fetchedAt.get(key) < WANT_REFRESH_MS) return false;
   artWanted.add(key);
   fetchedAt.set(key, now);
   loadEnvelope(p, q).catch(() => null).finally(() => { artWanted.delete(key); onLoad(); });
