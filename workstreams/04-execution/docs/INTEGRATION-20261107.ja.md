@@ -584,3 +584,29 @@ fa822453 の上に載せた。各チームのサブツリーは、チームが�
 - program の custody の `send` は、SendCaravan と同じ `proc::caravan::route` を同じ引数で呼ぶ。そこで V23 の `route`・`check_caravan`・`check_slots`・`slots_of` を V26 から使えるようにした。
 - 共有で賄えないもの（V26 では UNVERIFIABLE のまま）：SettleCustody の道の Province の解決（`RESOLVED_NEXT`）と raid の状態、手数料と rent。DepositLot の holding からの引き落とし。V23 の `judge_settle_caravan` も、これらは確かめていない。
 - V26 の実装は ⑩ の担当。⑩ に案を送った。PASS への格上げはしていない。
+
+### 16.5 後継 11bc9698 まで：⑥ の lock、⑦ の browser の guard、src/ を辿る scan（④、2026-11-08）
+
+- `claude/gallant-ride-cunptv` @ `11bc9698`。どれも `[skip ci]`、この枝の CI の数は 16 のまま。基準は 16576826 のまま。
+- 取り込み：⑥ `11be9d44`・`5f74a270`・`0918a973`、⑱ `a7bc0d01`、⑪ 0017、⑫ `13903d94`、⑦ `487e75e8`・`e28d6b38`。
+
+**⑥ の journal の lock：二つを分けて書く**
+- (1) ⑥ の手順（open・takeover・save・close）の中の競合：直した。⑯ の J1〜J5、⑥ の R1（空の mutex が「奪う人がいない」と読まれる）・R2（他の taker の置き換えた mutex を消す）。5f74a270 で、file は書き終えてから置き、他の処理の file は誰も消さない。
+- (2) J7：生きている持ち主の `.lock` を、手順の外（一時 file の掃除・運用の後始末など）が消した場合、save の窓で古い書き込みが 1 回通る。⑥ の中では直さない、運用の限界として残す（利用者の判断、2026-11-08：新しい native の依存を足してまで閉じない）。
+  - 運用の条件：生きている持ち主の `.lock`・`.takeover` を手順の外で消さない。journal を自動で掃除される directory に置かない。
+  - 被害：journal が一度、古い状態に戻る。二重送信の立証ではない（実行 id と requestId は plan から決まり、④・③ は同じ id を一度しか受けない）。
+
+**⑦ の browser の guard と、UI の検証の再開**
+- ⑦ の helper は full Chromium（channel 'chromium'、`chromium-1243/chrome-linux64/chrome`）で開き、`web/session.mjs` を配るときに `keyFromSeed`・`publicKeyOf` を拒否に差し替える。差し替えられない（配る file が変わった・取得に失敗）と、module は読まれない。
+- 入っていることの証明：`ws07-guard.screen.mjs` 1/1（④ が c260c438 の上の a23f02bb で流した）。secure context、WebCrypto あり。`keyFromSeed`・`publicKeyOf` は入口で拒否し、derivation の最初の段（digest）は 0 回。generateKey・deriveBits・sign・pkcs8 の importKey も拒否。記録は順に残り、reload の後も guard は入る。入力は 0 バイトで、何も導かず・作らず・署名しない。
+- その上で流した UI：march の画面 2/2（desktop・phone）、S1 pure 8/8、S1 page 4/4、ws07-coop（Node）5/5。鍵の使用の記録 0。
+- 静的な確認：`web/frontier/` は `lobby.mjs` も `preflight` も呼ばない。固定 seed の `preflight` は実行していない。
+- 届いた範囲：march の注文を組む操作（host と tile、stance、取消、再読込、戻る・進む）。**届いていない範囲**：「封じて出発」は押さない。封じること・送ること・チェーンでの着地は確かめていない。
+
+**src/ を辿る scan（11bc9698）**
+- 三つに分けて書く：
+  - 直接、または test の helper が鍵の API を名指しする file（119）：実行しない。
+  - import を src/ まで辿ると、鍵の API を名指しする file に届くもの（205）：**保守的な除外**。呼ぶことは示していない（定義や言及にも当たる）。実行しない。
+  - 静的な呼び出しの監査で、鍵の処理を呼ばないと示した named targets（`scripts/ci/node-key-reviewed.txt`、理由つき。今は ⑥ の 5）：実行する。
+- 鍵なしの job で流れる数（数えただけ、実行していない）：gateway 194 → 87、receipt spike 2 → 2、⑫ の CI の一覧 8 → 8、⑥ 5 → 5。gateway の 107 は、監査して reviewed に入れるまで流れない。
+- 確かめ方：静的な fixture 4/4。前の scan では 4 件中 3 件が落ちる。
