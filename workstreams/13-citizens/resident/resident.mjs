@@ -110,8 +110,8 @@ export class Resident {
   /**
    * ports: observe() → {world, board}; join(record) → citizen; execution (ExecutionPort); board (BoardPort);
    * provider (ProviderPort); memory (MemoryPort); fallback(candidates) → candidate id (the seam for workstream 5's autopilot).
-   * crash: test hook {at: 'after-decision'|'after-intent'|'after-submit'|'during-inference'|'before-cost-reserve'|'after-cost-reserve',
-   *        turn?, key?} throws there once.
+   * crash: test hook {at: 'after-decision'|'after-intent'|'after-submit'|'during-inference'|'before-cost-reserve'|'after-cost-reserve'|
+   *        'after-wallet-hold'|'after-mark-running'|'after-cost-calling', turn?, key?} throws there once.
    */
   constructor({ dir, ports, crash = null, log = () => {}, identity = null }) {
     this.dir = dir;
@@ -141,26 +141,59 @@ export class Resident {
   }
 
   /**
-   * Calls the cost port's own ledger still holds as reserved or calling when this process starts were cut off by a
-   * stop: a call that was calling may have reached the provider (undecided: never released, never 0); one only
-   * reserved was not made (released). Told once, at the first step after the restart, when the ports are in place.
+   * After a stop, every model call this resident had on file (`state.costCalls`, written ahead) is reconciled with
+   * the cost port's OWN persistent ledger, whose state (after that ledger's own recovery) is authoritative:
+   *   - whether the provider can have been reached is said by this record: the model is called only after the phase
+   *     `calling` is saved, so a call still on file as `reserving` or `reserved` was never made;
+   *   - `cost.recover(callKey, {phase, notCalled})` settles the cost ledger's side by its own rules (a call not made is
+   *     released there; one maybe made becomes undecided) and returns its state; the wallet hold then follows it:
+   *     released, or never reserved → released; settled → settled at the same amount; undecided → unresolved, and the
+   *     record stays on file until the cost ledger decides it with evidence; missing, amounts that differ, or no ledger
+   *     to ask → unresolved, kept on file. Nothing uncertain is released or made 0 here, and a second run changes nothing.
+   * Then an inference hold still `held` that no record names (a stop between the hold and its record) was never marked
+   * running, so no model call followed it: it is released. Running or unresolved holds without a record are left as
+   * they are (the constructor made running ones unresolved). Holds of other categories are never touched.
    */
   #costRestart() {
-    const open = this.state.costCalls;
-    if (!open || this.costRestartDone) return;
+    if (this.costRestartDone) return;
     this.costRestartDone = true;
+    const open = this.state.costCalls ?? {};
     const cost = this.ports.cost;
+    let changed = false;
     for (const [callKey, c] of Object.entries(open)) {
-      // 'reserving' (maybe reserved there) and 'reserved': the call was never made: released in both ledgers.
-      // 'calling': it may have reached the provider: undecided there; the wallet hold is already unresolved.
-      cost?.restarted?.(callKey, c.phase);
-      if (c.phase !== 'calling') {
-        const h = this.ledger.get(this.id).holds[c.holdId];
-        if (h && h.state === 'held') this.ledger.release(this.id, c.holdId, 'restart before calling');
-      }
-      delete open[callKey];
+      changed = true;
+      const notCalled = c.phase === 'reserving' || c.phase === 'reserved';
+      const s = typeof cost?.recover === 'function' ? cost.recover(callKey, { phase: c.phase, notCalled }) : { state: 'unknown' };
+      const r = this.#alignHold(this.ledger.get(this.id).holds[c.holdId] ?? null, s, { callKey, phase: c.phase });
+      if (r.done) delete open[callKey];
+      else Object.assign(c, { costState: s.state, kept: r.why });
     }
-    this.save();
+    const named = new Set(Object.values(open).map(c => c.holdId));
+    for (const h of Object.values(this.ledger.get(this.id).holds)) {
+      if (h.category !== 'inference' || h.state !== 'held' || named.has(h.id)) continue;
+      this.ledger.release(this.id, h.id, 'restart: held for a model call that was never made');
+      this.ledger.recordSettlement({ agentId: this.id, kind: 'restart-reconcile', holdId: h.id, key: h.key, action: 'release', why: 'held, never running, no record' });
+      changed = true;
+    }
+    if (changed) this.save();
+  }
+
+  /** The wallet hold `h` of a recovered call, made to follow the cost ledger's state `s` (see #costRestart). */
+  #alignHold(h, s, { callKey, phase }) {
+    const note = action => this.ledger.recordSettlement({ agentId: this.id, kind: 'restart-reconcile', holdId: h.id, key: callKey, phase, costState: s.state, action });
+    if (h && h.category !== 'inference') return { done: false, why: 'not an inference hold: not touched' };
+    const neverReserved = s.state === 'absent' && phase === 'reserving';
+    if (h && s.amount !== undefined && s.amount !== h.amount) { this.#unresolve(h, 'restart: amounts differ'); return { done: false, why: `amounts differ (cost ledger ${s.amount}, wallet ${h.amount})` }; }
+    if (s.state === 'released' || neverReserved) { if (h) { this.ledger.release(this.id, h.id, 'restart before calling'); note('release'); } return { done: true }; }
+    if (s.state === 'settled') { if (h) { this.ledger.settle(this.id, h.id, s.settled, { kind: 'inference', recovered: callKey }); note('settle'); } return { done: true }; }
+    if (h) this.#unresolve(h, `restart: cost ledger ${s.state}`);
+    return { done: false, why: s.state === 'undecided' ? 'undecided in the cost ledger: kept until it is decided with evidence' : `cost ledger state ${s.state}: kept` };
+  }
+
+  /** A hold whose call may have been made: unresolved (a held one is marked running first: markUnresolved takes only running). */
+  #unresolve(h, why) {
+    if (h.state === 'held') this.ledger.markRunning(this.id, h.id);
+    if (this.ledger.get(this.id).holds[h.id]?.state === 'running') this.ledger.markUnresolved(this.id, h.id, why);
   }
 
   get state() { return this.store.state; }
@@ -790,6 +823,8 @@ export class Resident {
       let hold = null;
       try { hold = this.ledger.hold(this.id, { category: 'inference', amount: quote, key: `${this.id}:t${turn}:infer`, policyVersion: 1, modeEpoch: this.ledger.get(this.id).modeEpoch }); }
       catch (e) { d.refusal = e.code ?? 'BudgetRefused'; }
+      // A stop here leaves a `held` hold that no record names: no model call follows it (#costRestart releases it).
+      if (hold) this.#crashAt('after-wallet-hold', turn);
       // A cost port with a ledger of its own (workstream 5's, ports/ws05-cost.mjs) reserves the same call under its
       // own key, one per hold, before the call; its refusal (a cap, a lost process lease) means no call.
       const callKey = hold ? `${this.id}:t${turn}:infer:${hold.id}` : null;
@@ -805,7 +840,10 @@ export class Resident {
       }
       if (hold) {
         this.ledger.markRunning(this.id, hold.id);
-        if (st.costCalls?.[callKey]) { cost.calling?.(callKey); st.costCalls[callKey].phase = 'calling'; }
+        // markRunning saves the whole state: a stop from here finds the hold running and the record (if any) still
+        // `reserved`: the model has not been called (#costRestart reconciles it with the cost ledger).
+        this.#crashAt('after-mark-running', turn);
+        if (st.costCalls?.[callKey]) { cost.calling?.(callKey); this.#crashAt('after-cost-calling', turn); st.costCalls[callKey].phase = 'calling'; }
         this.save();
         this.#crashAt('during-inference', turn);
         let outcome = 'answered', usage = null;
