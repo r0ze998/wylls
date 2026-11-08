@@ -31,6 +31,8 @@ pub mod v7_replay;
 pub mod v8_lag;
 pub mod v9_addresses;
 pub mod vr_rights;
+#[cfg(feature = "wide-world-experimental")]
+pub mod vw_chains;
 
 use crate::facts::{Facts, SigCache};
 use crate::input::{Config, Input};
@@ -298,6 +300,12 @@ pub fn run(input: &Input) -> Report {
     // never a PASS (a season without custody FAILs on it).
     v26_custody::run(&mut cx);
     ran.push("V26:custody-guard");
+    // The wide world's event chains (VW1; experimental build only).
+    #[cfg(feature = "wide-world-experimental")]
+    {
+        vw_chains::run(&mut cx);
+        ran.push("VW1:wide-chains");
+    }
     if v26_custody::custody_season(&cx) {
         ran.push("V26:custody-state");
         ran.push("V26:custody-history");
