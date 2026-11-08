@@ -2488,3 +2488,60 @@ T7（crash では作れない損傷）の結果：
 - それ以降は、明示した path だけを stage している。
 
 **結論**：55d5c2da を、この pass の checkpoint とすることを ④ に提案する。全機能の完成を意味しない。上の限界と、確かめていないものが残る。
+
+### 28.7 ④ 95b0ab22（最終 HEAD）と、16576826 以降の各後継についての判定
+
+- **最終 checkpoint**：④ `claude/gallant-ride-cunptv` @ `95b0ab225ca9e9e626941b51981df2240198d91c`（tree `89a64830da399101530eef3e004b81d5007d2203`）。55d5c2da からの fast-forward で、変わったのは `scripts/ci/node-keyfree.sh` だけ（+19 行）。
+- 静的監査:
+  - 新しい確認は、`cd` と `node --test` より前で行われる。拒否されれば、何も実行されない。
+  - `^WS[0-9]+_[A-Z0-9_]*ROOT$` は、試験が読む code の root の変数をすべて覆う（WS03_ROOT、WS04_ROOT、WS05_ROOT、WS03_GATEWAY_ROOT。分割代入での読み込みも grep した）。
+  - binary の変数は RUNEXEC_BIN と RUNEXEC_VIEW_BIN の 2 つで、それ以外に binary を指す変数は無い。
+  - symlink は `pwd -P` で解決される。
+- 無害な fixture での確かめ。どの場合も、glob はどの file にも当たらないので、試験は一つも動かない:
+
+| 入力 | 結果 |
+|---|---|
+| 外のディレクトリを指す WS04_ROOT | exit 6 |
+| この checkout への symlink の WS04_ROOT | 通る（0 件で exit 0） |
+| WS03_GATEWAY_ROOT=/tmp | exit 6 |
+| `/bin/sh` の小さな script を RUNEXEC_BIN にし、sha を付けない | exit 6 |
+| 同じく、間違った sha を付ける | exit 6 |
+| 同じく、正しい sha を付ける | 通る（0 件） |
+| 何も設定しない | 0 件で、`node --test` を起動しない |
+
+- **限界（将来の保証と、今回の証拠を分けて書く）**:
+  - `_SHA256` が確かめるのは、bytes が名指しされたものと同じことだけ。「この checkout の監査済みの source から build した」というのは、運用者の申告。check と実行の間で file が入れ替わることも防がない。
+  - ④ の build（`f039854a…`、16576826 から）は、⑯ は bytes を見ていない。
+  - ⑯ が確かめたのは次のことだけ:
+    - ws04 の source が 16576826 から 95b0 まで `a33e3b0a` のまま変わらないこと。
+    - その Rust の source に、鍵の API の呼び出しが無いこと（comment だけ）。
+    - ⑯ 自身の build（sha256 `4cb6634d…`）の由来。
+  - 外の tree を手で監査して流すことは、この script では覆えない。
+- これまで判定を記録していなかった 3 つの commit を、静的に確かめた:
+  - `eb700a8a`：06-creation が ⑥ 11be9d44 と一致。
+  - `d3b89ede`：keeper の api・journal・lib・play.rs が ⑱ b55f64a4 と一致。play.rs は a7bc0d01 から clone_on_copy の 1 token だけ違う。
+  - `3e617b28`：v27_residents.rs が、16576826 に ⑪ patch 0017（d58e9de2）を当てたものと同じ blob（`59d49126…`）。この file は 95b0 まで変わらず、⑯ が 02be5f41 で流した lib の v27 の unit test 7 件が、この版で通っている。
+
+16576826 以降の各後継についての判定:
+
+| 後継 | ⑯ の判定 | 記録 |
+|---|---|---|
+| 0541478f、7e820189、d35604d6、4d44f021 | 4d44f021 でまとめて確かめた。各 directory は元の担当と一致し、影響する試験を流した。⑥ の J1〜J3 を見つけた | §25 |
+| 9781d04e、42b1f393、720ab60b、5133f3c7、7d25f1eb、8d8e8c18、387721c2、83e10889、6875228d、7c7fe932 | 7c7fe932 でまとめて確かめた。⑫ の torn marker の欠陥（のちに直った）、scan の監査、hook での実行 | §26 |
+| d83a9707、c260c438 | verify の lib・custody・rights：128/128 | §27.5 |
+| eb700a8a、d3b89ede、3e617b28 | 静的な一致（上）。keeper の試験は流していない | §28.7 |
+| 82ddc29f、4b3b399e、695e1d83 | 一致。⑥ の J1〜J7 を再実行。⑫ の二度の crash の欠陥を見つけた（のちに直った） | §27.1〜27.3 |
+| a23f02bb、11bc9698 | ⑦ の guard の監査、march 2/2。scan の見落とし 2 件（のちに直った） | §27.4、27.6 |
+| 64960c1e、bb41fc0d、d415e013 | ⑫ の修正を確認。review が古くなる問題（のちに直った）。⑦ は表示だけ | §27.7、27.8 |
+| 02be5f41 | verify 123/123。account の並びが短い記録を FAIL にする（のちに直った） | §27.10 |
+| 5045fe3d、0dd37253、6de240aa | digest は成り立つ。V26 は Partial。⑦ は fail-closed。march 2/2 | §27.11 |
+| 55d5c2da | ws07-wide 3/3、差分の監査 | §28.1 |
+| 95b0ab22 | 上の静的監査と fixture | §28.7 |
+
+- commit の単位で、確かめていない後継は無い。ただし、§28.5 に挙げたもの（keeper と Rust の一括、ws07-guard ほか）は、⑯ は流していない。
+- 未解決のまま記録に残すもの:
+  - ③ の 1 回だけ再現しない失敗。
+  - ⑯ の hook と合わなかった gateway の 37 件（inconclusive）。
+  - どちらも ④ の §17 にも残すよう求める。
+
+**結論**：95b0ab22 を、この bounded pass の最終 checkpoint とすることに同意する。§28.3 の運用の限界と、§28.5 の確かめていないものを条件とする。全機能の完成を意味しない。
