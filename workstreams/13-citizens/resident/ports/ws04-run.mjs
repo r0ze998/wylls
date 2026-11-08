@@ -44,7 +44,25 @@ export function effectsOf(run) {
   const contradictions = [];
   if (lists.length === 2 && (lists[0][1].length > 0) !== (lists[1][1].length > 0)) contradictions.push(`${lists[0][0]} has ${lists[0][1].length}, ${lists[1][0]} has ${lists[1][1].length}`);
   if (new Set(departed.map(([, b]) => b)).size > 1) contradictions.push(`caravan_sent: ${departed.map(([n, b]) => `${n} ${b}`).join(', ')}`);
-  return { any: lists.some(([, v]) => v.length > 0) || run.sent === true, contradictions };
+  return { any: lists.some(([, v]) => v.length > 0) || run.sent === true, contradictions, traces: sendTraces(run) };
+}
+
+/**
+ * Traces in a run view that a send may have taken effect, in workstream 4's own words (cf517b55 executor.rs
+ * `is_undecided`, store.rs `AttemptRow.status` and `fees`): an attempt is decided as "no effect" only when it is
+ * `failed` (landed as a failure, fee charged) or `expired` (confirmed never to land); `intent`, `sent`, `unknown`,
+ * `rejected` (the signed bytes can still land until their validity ends), `superseded` (outcome still open) and
+ * `landed` are not. Fees reserved or unconfirmed are the same signal; `in_flight`, or receipts, too.
+ */
+export const NO_EFFECT_ATTEMPTS = Object.freeze(['failed', 'expired']);
+export function sendTraces(run) {
+  const t = [];
+  for (const a of Array.isArray(run.attempts) ? run.attempts : []) if (!NO_EFFECT_ATTEMPTS.includes(a?.status)) t.push(`attempt ${a?.request_key ?? '?'} ${a?.status ?? 'no status'}`);
+  if (Number(run.fees?.reserved) > 0) t.push(`fees.reserved ${run.fees.reserved}`);
+  if (Number(run.fees?.unconfirmed) > 0) t.push(`fees.unconfirmed ${run.fees.unconfirmed}`);
+  if (run.in_flight === true) t.push('in_flight');
+  if (Array.isArray(run.receipts) && run.receipts.length > 0) t.push(`${run.receipts.length} receipt(s)`);
+  return t;
 }
 
 export function fateOfRun(run) {
@@ -60,6 +78,8 @@ export function fateOfRun(run) {
   const e = effectsOf(run);
   if (e.contradictions.length) return { ...base, fate: 'unknown', why: `contradictory run view: ${e.contradictions.join('; ')}` };
   if (e.any) return { ...base, fate: 'landed', stoppedAfterEffects: run.state };
+  // No effect is listed, but something in the view says a send may have gone out: not decided either way.
+  if (e.traces.length) return { ...base, fate: 'unknown', why: `stopped with no effect listed, but a send may have taken effect: ${e.traces.slice(0, 4).join('; ')}` };
   if (run.state === 'Cancelled') return { ...base, fate: 'cancelled' };
   return { ...base, fate: 'failed', fateError: run.state };
 }

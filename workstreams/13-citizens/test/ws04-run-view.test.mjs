@@ -12,6 +12,9 @@ import { fateOfRun, ws04ExecutionPort } from '../resident/ports/ws04-run.mjs';
 
 const VIEW = JSON.parse(readFileSync(new URL('./fixtures/ws04-run-view-happy.json', import.meta.url), 'utf8'));
 const stopped = (state, o) => ({ ...VIEW, state, terminal: true, ...o });
+// A stopped run where nothing took place, said by every field: its attempts decided as no effect (expired, failed),
+// no receipt, no fee open, not in flight.
+const NOTHING = { attempts: VIEW.attempts.map((a, i) => ({ ...a, status: i ? 'failed' : 'expired' })), receipts: [], in_flight: false, fees: { charged: 5000, released: 5000, reserved: 0, unconfirmed: 0 } };
 const SENT = ['facility_used', 'caravan_sent'], SENT_OUT = ['facility_used fac:demo-happy', 'caravan_sent cv:77:0'];
 
 test('the fixture is a real p04-run/0.1 view and reads as landed', () => {
@@ -37,9 +40,10 @@ test('stopped with contradictory effect fields: unknown, never failed', () => {
 
 test('stopped with consistent fields keeps its meaning: effects → landed; none → failed / cancelled', () => {
   assert.deepEqual([fateOfRun(stopped('Failed', { effects: SENT, sent: true, outcome: { ...VIEW.outcome, effects: SENT_OUT } })).fate], ['landed']);
-  assert.equal(fateOfRun(stopped('Failed', { effects: [], sent: false, outcome: { ...VIEW.outcome, effects: [] } })).fate, 'failed');
-  assert.equal(fateOfRun(stopped('Expired', { effects: [], sent: false, outcome: null })).fate, 'failed');
-  assert.equal(fateOfRun(stopped('Cancelled', { effects: [], sent: false, outcome: { ...VIEW.outcome, effects: [] } })).fate, 'cancelled');
+  assert.equal(fateOfRun(stopped('Failed', { ...NOTHING, effects: [], sent: false, outcome: { ...VIEW.outcome, effects: [] } })).fate, 'failed');
+  assert.equal(fateOfRun(stopped('Expired', { ...NOTHING, effects: [], sent: false, outcome: null })).fate, 'failed');
+  assert.equal(fateOfRun(stopped('Cancelled', { ...NOTHING, effects: [], sent: false, outcome: { ...VIEW.outcome, effects: [] } })).fate, 'cancelled');
+  assert.equal(fateOfRun(stopped('Failed', { ...NOTHING, attempts: [], effects: [], sent: false, outcome: null })).fate, 'failed', 'no attempt at all');
   // a facility used but no caravan, said the same by every field: something took place (landed), not a contradiction
   assert.equal(fateOfRun(stopped('Failed', { effects: ['facility_used'], sent: false, outcome: { ...VIEW.outcome, effects: ['facility_used fac:demo-happy'] } })).fate, 'landed');
 });
@@ -69,4 +73,42 @@ test('a resident reading such a view does not act again: one accept for the acti
   assert.deepEqual([...new Set(same)], [first], `the same action was handed to workstream 4 only under its first key (${same})`);
   assert.equal(accepts.filter(a => a.run_id === first).length, 1, 'submitted once');
   assert.ok(['sent', 'unresolved'].includes(ren.state.journal[first].state), `held: ${ren.state.journal[first].state}`);
+});
+
+// ---- R3 (workstream 16's audit; not observed in 157 real views): no effect listed, but traces of a send ------------
+test('stopped with no effect listed but a trace of a send (attempt, fee, in_flight, receipt): unknown, never failed or cancelled', () => {
+  const none = { effects: [], sent: false, outcome: { ...VIEW.outcome, effects: [] } };
+  const with_ = (name, o) => [name, o];
+  const traces = [
+    ...['intent', 'sent', 'unknown', 'rejected', 'superseded', 'landed'].map(status => with_(`an attempt ${status}`, { ...NOTHING, attempts: [{ ...VIEW.attempts[1], status }] })),
+    with_('fees.unconfirmed > 0', { ...NOTHING, fees: { ...NOTHING.fees, unconfirmed: 5000 } }),
+    with_('fees.reserved > 0', { ...NOTHING, fees: { ...NOTHING.fees, reserved: 5000 } }),
+    with_('in_flight', { ...NOTHING, in_flight: true }),
+    with_('a receipt', { ...NOTHING, receipts: [VIEW.receipts[1]] }),
+  ];
+  for (const state of ['Failed', 'Expired', 'Cancelled']) {
+    for (const [name, o] of traces) {
+      const f = fateOfRun(stopped(state, { ...o, ...none }));
+      assert.equal(f.fate, 'unknown', `${state}, ${name}`);
+      assert.match(f.why, /a send may have taken effect/, `${state}, ${name}`);
+    }
+  }
+});
+
+test('R3 in a resident: a stopped run with an undecided attempt is held; the action is not handed over again', async () => {
+  const accepts = [], runs = new Map();
+  const c = {
+    async accept(spec) { accepts.push(spec); if (!runs.has(spec.run_id)) runs.set(spec.run_id, { ...VIEW, run_id: spec.run_id, spec, state: 'Accepted', terminal: false, effects: [], sent: false, outcome: null }); return { ...runs.get(spec.run_id), accept: 'Created' }; },
+    async view(id) { const r = runs.get(id); if (!r) throw Object.assign(new Error('no record'), { code: 'NoRecord' }); return r; },
+  };
+  const env = await small({ residents: [{ id: 'ren', goal: 'village-first', pos: { q: 0, r: 0 } }] });
+  const ren = env.rs.ren;
+  ren.ports.execution = ws04ExecutionPort(c, { specOf: req => ({ owner: 119, action: req.action }), requesterOf: () => ({ actor: '1'.repeat(32), generation: 1, citizen: '1'.repeat(32), authenticatedBy: 'test fixture' }) });
+  await run(env, 1);
+  const first = [...runs.keys()][0];
+  Object.assign(runs.get(first), stopped('Failed', { ...NOTHING, effects: [], sent: false, outcome: { ...VIEW.outcome, effects: [] }, attempts: [{ ...VIEW.attempts[1], status: 'sent' }], fees: { ...NOTHING.fees, reserved: 5000 } }), { run_id: first, spec: runs.get(first).spec });
+  await run(env, 60);
+  const action = JSON.stringify(runs.get(first).spec.action);
+  assert.deepEqual([...new Set(accepts.filter(a => JSON.stringify(a.action) === action).map(a => a.run_id))], [first]);
+  assert.ok(['sent', 'unresolved'].includes(ren.state.journal[first].state), ren.state.journal[first].state);
 });
