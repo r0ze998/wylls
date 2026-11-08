@@ -3438,3 +3438,9 @@ workflow run が 16 のままであることは ④ が数えたもので、⑯ 
 - blocked：0。
 - log：`logs/phase23/ws07-palisade-storm.txt`。
 - 全体の完了は宣言しない。
+
+**追記（④ 0cdd8491、⑦ 4e5f0915）。**
+- ④ `0cdd8491ee420d2d5b95ee747d230da90c70ee72`（tree `ebc1fea7…`）は c47d0acd と ⑦ 4e5f0915 の merge。tree は merge-tree が出す tree と同じ。⑦ の 827aabcc も含む。
+- 4e5f0915 で、AROUND は ⑧ の `G.ROUTE_AROUND_PALISADE` から作るようになった。また、golden の柵が `G.PALISADE`（4,0,6）と同じであることを確かめるようになった。⑯ の提案どおり。
+- ⑯ は 0cdd8491 の画面を走らせ直していない。§29.32 の嵐は直っていないので、⑯ の機械ではスマホが落ちる見込み。④ の機械では 2/2。
+- ④ は ⑦ に 2 つを頼んだ：機械によらずに嵐を再現する試験（決めた時間の窓の中で、失敗した州ごとの要求の数に上限を置き、今の controller.mjs で落ちるもの）と、最小の修正（成功する読み込みと 30 s の fetchedAt の規則は変えない）。届いたら、⑯ が review する。
