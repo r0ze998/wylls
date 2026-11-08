@@ -342,6 +342,24 @@ test('the wide inventory binds world, season, Citizen, canonical addresses and c
   assert.equal(parseWideInventory(record({ citizen: undefined }), PINS).status, 'ready');
 });
 
+test('an NFT viewer\'s wide inventory reads the program\'s NFT Citizen bytes (workstream 20, vectors/v2/resident-citizen.json)', () => {
+  // The Citizen bytes frontier-abi `resident_citizen::mark` writes (WALLET zero, the asset in RSV_348, the flag),
+  // decoded by the client's codec; the slot refs are home (2,0,3) gen 1, a wide ref and an empty slot.
+  const V = JSON.parse(readFileSync(new URL('../../frontier-abi/vectors/v2/resident-citizen.json', import.meta.url), 'utf8'));
+  const bytes = name => decode('Citizen', fromHex(V.cases.find(c => c.case === name).bytes), { seasonId: 5 });
+  const nft = bytes('nft');
+  const at = residentCitizen(PIN.addresses, V.asset), owner = fromB58(at);
+  const r = record({ ctx: context({ citizen: at }), entries: [entry({ ...FAR, owner })], citizen: { address: at } });
+  const pins = { ...PINS, citizen: at, citizenRecord: nft, viewerKey: V.asset };
+  assert.equal(parseWideInventory(r, pins).status, 'ready');
+  // another viewer, or a flagged Citizen the program never writes, is refused
+  refused(() => parseWideInventory(r, { ...pins, viewerKey: WALLET_A }), 'WrongKey');
+  refused(() => parseWideInventory(r, { ...pins, citizenRecord: bytes('flagged_with_wallet') }), 'WrongKey');
+  refused(() => parseWideInventory(r, { ...pins, citizenRecord: bytes('flagged_zero_asset') }), 'WrongKey');
+  // the program's wallet Citizen bytes for the asset viewer: another viewer
+  refused(() => parseWideInventory(r, { ...pins, citizenRecord: bytes('wallet') }), 'WrongKey');
+});
+
 test('a record with Citizen A\'s bytes and no Citizen address cannot show Citizen B\'s internally consistent wide inventory (regression)', () => {
   // B's inventory, valid on its own: B's envelope, B's capture at its canonical address, B's bytes
   const b = record({ ctx: context({ citizen: OTHER_CITIZEN }), entries: [entry({ ...FAR, owner: OTHER_OWNER })], citizen: {} });

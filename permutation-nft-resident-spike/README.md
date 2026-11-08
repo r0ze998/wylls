@@ -1,8 +1,8 @@
 # permutation-nft-resident-spike：NFT で譲渡できる住民アカウント（隔離試作）
 
-**状態（2026-11-08、v0.22）**：ローカルのみ（模擬チェーン、LiteSVM、ループバック validator）。公開発行・devnet／mainnet・実資金・新しい鍵は無し。価格・無料／有料・供給数・公開発行・ロイヤリティは未決（`docs/UNDECIDED.ja.md`）。Metaplex Core は**試作の選定方式**で、本線採用は未決。継続世界は決定済み。依存パッケージ無し（Node 20+ の標準モジュールだけ。`test-gateway/` だけは `permutation-gateway` の依存を使う）。v0.8 で担当ブランチへ通常 push（根拠は `docs/PUSH-AUDIT.ja.md`）。merge・deploy はしていない。
+**状態（2026-11-08、v0.24）**：ローカルのみ（模擬チェーン、LiteSVM、ループバック validator）。公開発行・devnet／mainnet・実資金・新しい鍵は無し。価格・無料／有料・供給数・公開発行・ロイヤリティは未決（`docs/UNDECIDED.ja.md`）。Metaplex Core は**試作の選定方式**で、本線採用は未決。継続世界は決定済み。依存パッケージ無し（Node 20+ の標準モジュールだけ。`test-gateway/` だけは `permutation-gateway` の依存を使う）。v0.8 で担当ブランチへ通常 push（根拠は `docs/PUSH-AUDIT.ja.md`）。merge・deploy はしていない。
 
-**v0.22 の変更**：ResidentAct の内側の命令を、財布の Citizen と同じ検査で判定するようにした（検証器が act を内側の命令としても並べる）。program が NFT Citizen に session を認めない行為（他のプレイヤーへの送付・CloseVault・CloseStructure）を session が行えば、記録が揃っているときは FAIL。未モデルの内側の命令だけを UNVERIFIABLE に残す（`docs/HOLDER-CONTRACT.ja.md` §12）。
+**v0.24 の変更**：NFT の住民が自分の `/h/me` を読むと web client が `WrongKey` で拒否していた不整合を直した（client の codec が Citizen の住民の印を読み、`checkMe` と wide の持ち物の照合が住民 ID の住所と asset で確かめる）。program が書く NFT Citizen のバイトを `frontier-abi/vectors/v2/resident-citizen.json` に固定し、client の試験はそれを読む（`docs/HOLDER-CONTRACT.ja.md` §14）。v0.23 は wide の WideResidentAct（§13）、v0.22 は ResidentAct の内側の命令（§12）。
 
 **v0.21 の変更**：④ の台帳の走査（`frontier_feed` の scan）を受け取り、⑳ が示した 4 条件をコードで確認した。住民プログラムの生の読み取りは、範囲と台帳の長さを記録と同じ答えから取る（別の status の呼び出しをやめた）。保存物は Unknown のまま。実ノードでは未検証（`docs/HOLDER-CONTRACT.ja.md` §11）。
 
