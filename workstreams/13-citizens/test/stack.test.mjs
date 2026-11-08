@@ -22,6 +22,9 @@ import { ws04ActsPort } from '../resident/ports/ws04-acts.mjs';
 import { ws05LedgerCost } from '../resident/ports/ws05-cost.mjs';
 import { ws12CanonicalEvidence } from '../resident/ports/ws12-canonical.mjs';
 import { decisionsOf } from '../demo/report.mjs';
+import { keylessIdentity } from '../resident/keys.mjs';
+import { seasonClock } from '../resident/frame.mjs';
+import { ALL_FIXTURE, heraldMe, memoryFor } from './ws12-fixture.mjs';
 
 const { WS04_ACTS_CLIENT: CLIENT4, RUNEXEC_BIN: BIN4, WS05_E9D1551A: ROOT5 } = process.env;
 const ROOT12 = process.env.WS12_ROOT ?? process.env.WS12_EA0636EB;
@@ -39,7 +42,7 @@ const season = { cluster: 'localnet-synthetic', programId: 'Prog1111111111111111
  * The whole stack for one run. `fateOverride(agent, key, bell)` may answer the wallet's fate for a key instead of
  * the world; `loseReplyOf(resident, key, n)` makes the n-th send of a resident arrive and its reply be lost.
  */
-async function stack(out, { fateOverride = () => undefined, loseReply = () => false } = {}) {
+async function stack(out, { fateOverride = () => undefined, loseReply = () => false, memoryActed = false } = {}) {
   const { createActsClient } = await import(pathToFileURL(path.resolve(CLIENT4)).href);
   const { FileCostLedger } = await imp(ROOT5, 'workstreams/05-ai-participation/model-api/src/cost-store.mjs');
   const { ProcessLease } = await imp(ROOT5, 'workstreams/05-ai-participation/model-api/src/process-lease.mjs');
@@ -90,8 +93,27 @@ async function stack(out, { fateOverride = () => undefined, loseReply = () => fa
         return res;
       },
     });
-    r.ports.evidence = ws12CanonicalEvidence({ ws12EvidencePort: c12.ws12EvidencePort, memory: createMemory({ world: w.world, partitions: w.partitions }), identity: c12.resolverFromIdentity([]), worldClock: w.clock, residentClock: r.ports.observe.clock });
+    if (!memoryActed) {
+      r.ports.evidence = ws12CanonicalEvidence({ ws12EvidencePort: c12.ws12EvidencePort, memory: createMemory({ world: w.world, partitions: w.partitions }), identity: c12.resolverFromIdentity([]), worldClock: w.clock, residentClock: r.ports.observe.clock });
+      return;
+    }
+    // Memory acted on: the resident's bell declared to be 12's Season bell and its world 12's world (both FIXTURE
+    // declarations), 12 holding Kou's broken promise (fixture records), the test switch on.
+    const kou = keylessIdentity('Kou').address;
+    const fx = kouFx;
+    void kou;
+    r.ports.observe = Object.assign(r.ports.observe.bind(null), { world: fx.w.world, clock: seasonClock(fx.w.clock) });
+    r.ports.evidence = ws12CanonicalEvidence({ ws12EvidencePort: c12.ws12EvidencePort, memory: fx.m, identity: fx.ids, worldClock: fx.w.clock, residentClock: seasonClock(fx.w.clock), provenance: ALL_FIXTURE });
+    r.ports.evidenceUse = 'fixture-for-tests-only';
   };
+  let kouFx = null;
+  const kouMemory = async kou => {
+    if (kouFx) return kouFx;
+    const { m, w: ww } = await memoryFor(rel => imp(ROOT12, `workstreams/12-memory/${rel}`), kou);
+    const ids = c12.resolverFromIdentity([c12.identityFromHeraldMe(await heraldMe(rel => imp(ROOT12, `workstreams/12-memory/${rel}`), kou), { partition: ww.partition }).entry]);
+    return (kouFx = { m, w: ww, ids });
+  };
+  try { if (memoryActed) await kouMemory(keylessIdentity('Kou').address); } catch (e) { srv.close(); throw e; }
   const wrapMemory = (port, r) => {
     mkdirSync(path.join(out, 'ws12'), { recursive: true });
     const p = mirrorMemoryPort(port, createMemory({ path: path.join(out, 'ws12', `${r.id}.jsonl`) }), { owner: r.address });
@@ -119,7 +141,7 @@ async function stack(out, { fateOverride = () => undefined, loseReply = () => fa
 }
 
 /** The invariants every scenario must keep. Returns numbers for the record. */
-async function invariants(t, s, all) {
+async function invariants(t, s, all, { evidence = 'withheld' } = {}) {
   const out = {};
   for (const id of ['asa', 'ren']) {
     const r = all[id];
@@ -169,7 +191,8 @@ async function invariants(t, s, all) {
     assert.deepEqual([k.facts.length, k.commitments.length, Object.keys(k.reliability).length], [0, 0, 0]);
     // Evidence: the test world's clock is not the Season bell: 12 is never read, the withholding is recorded.
     const ev = decisionsOf(r).filter(d => d.evidence).flatMap(d => d.evidence.map(e => e.status));
-    assert.ok(ev.every(x => x === 'clock_mismatch'), `${id}: evidence withheld (${[...new Set(ev)]})`);
+    if (evidence === 'withheld') assert.ok(ev.every(x => x === 'clock_mismatch'), `${id}: evidence withheld (${[...new Set(ev)]})`);
+    else assert.ok(ev.every(x => ['ok', 'identity_unverified'].includes(x)), `${id}: evidence read on the same clock and world (${[...new Set(ev)]})`);
     if (process.env.WS13_DEBUG) t.diagnostic(`${id} rows: ${JSON.stringify(rows.map(a => [a.idempotencyKey, a.state, a.why ?? a.lastReadError ?? null]))} journal: ${JSON.stringify(Object.values(r.state.journal).map(j => [j.key, j.state, j.lastFate ?? null]))}`);
     out[id] = { sends: mine.length, keys: registered.size, lines: bases.length, newAttempts: mine.filter(k => k.includes('#a')).length, calls: items.length, settled: c.settled, undecided: c.undecided, episodes: eps.length, notes: notes.length };
     t.diagnostic(`${id}: ${JSON.stringify(out[id])}`);
@@ -183,7 +206,7 @@ async function play(t, opts = {}, hooks = {}) {
   const s = await stack(out, hooks);
   try {
     const r = await runDemo({ out, bells: BELLS, wire: s.wire, wrapMemory: s.wrapMemory, costFor: s.costFor, each: async all => { s.tick(all.world.bell + 1); if (hooks.each) await hooks.each(all, s); }, ...opts });
-    const inv = await invariants(t, s, r.all);
+    const inv = await invariants(t, s, r.all, { evidence: hooks.memoryActed ? 'read' : 'withheld' });
     return { r, s, inv };
   } finally { s.close(); }
 }
@@ -251,4 +274,37 @@ test('stack: a stop in the middle of a model call', { skip, timeout: 300_000 }, 
   const { inv } = await play(t, { crash: { resident: 'ren', at: 'during-inference', turn: 3 } });
   assert.ok(BigInt(inv.ren.undecided) > 0n, 'that call is undecided in both ledgers, not released, not 0');
   assert.equal(inv.asa.undecided, '0');
+});
+
+test('stack: memory acted on (12 c6877a1a; fixture basis under the test switch): once 12 decides Kou\'s breach, nothing is given to or asked of Kou; everything else holds', { skip, timeout: 300_000 }, async t => {
+  const plain = await play(t);
+  const acted = await play(t, {}, { memoryActed: true });
+  const kou = keylessIdentity('Kou').address;
+  const heldFor = all => decisionsOf(all.ren).flatMap(d => d.excluded).filter(x => x.reason === 'ws12-verified-breach');
+  const held = heldFor(acted.r.all);
+  assert.ok(held.length > 0, 'with 12, the accept of Kou\'s request is held');
+  assert.ok(held.every(x => x.basis === 'fixture'));
+  const evs = decisionsOf(acted.r.all.ren).flatMap(d => d.evidence ?? []).filter(e => e.counterparty === kou && e.status === 'ok');
+  assert.ok(evs.some(e => e.acted && e.basis === 'fixture'));
+  // Whose requests Ren served, and when: 12 decides Kou's promise only after its due bell (1) plus the grace (6),
+  // so from bell 8 on. Before that the evidence is `said` and nothing is acted on; after it, Kou is not served.
+  const served = all => {
+    const names = Object.fromEntries(Object.values(all.world.s.citizens).map(c => [c.id, c.name]));
+    const reqs = Object.fromEntries(all.board.requests().map(q => [q.id, q]));
+    return decisionsOf(all.ren).filter(d => d.kind === 'accept').map(d => ({ bell: d.bell, from: names[reqs[d.act.request]?.from] ?? '?', ev: d.evidence ?? [] }));
+  };
+  const a = served(acted.r.all);
+  for (const x of a.filter(x => x.from === 'Kou')) {
+    assert.ok(x.bell <= 7, `a Kou request served at bell ${x.bell}, after 12 decided the breach`);
+    assert.ok(x.ev.filter(e => e.counterparty === kou).every(e => !e.acted && e.verifiedBreaches.length === 0), 'served only while 12 had not decided');
+  }
+  // What Ren could choose: each candidate 12 held (asking Kou for an exchange, or serving Kou) was a choice Ren had
+  // at the same bell without 12.
+  const plainAt = new Map(decisionsOf(plain.r.all.ren).map(d => [d.bell, new Set(d.candidates.map(c => c.id))]));
+  const heldAt = decisionsOf(acted.r.all.ren).flatMap(d => d.excluded.filter(x => x.reason === 'ws12-verified-breach').map(x => [d.bell, x.candidate]));
+  const wasChoice = heldAt.filter(([b, c]) => plainAt.get(b)?.has(c));
+  assert.ok(wasChoice.length > 0, 'held candidates were real choices without 12');
+  assert.ok(heldAt.every(([b]) => b >= 8), 'nothing held before 12 decided');
+  t.diagnostic(`held by 12: ${heldAt.length} (first at bell ${heldAt[0]?.[0]}: ${heldAt[0]?.[1]}); of them choices Ren had without 12 at the same bell: ${wasChoice.length}`);
+  t.diagnostic(`ren served: plain ${JSON.stringify(served(plain.r.all).map(x => [x.bell, x.from]))}, acted ${JSON.stringify(a.map(x => [x.bell, x.from]))}`);
 });

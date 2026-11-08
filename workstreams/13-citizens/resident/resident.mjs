@@ -110,7 +110,8 @@ export class Resident {
   /**
    * ports: observe() → {world, board}; join(record) → citizen; execution (ExecutionPort); board (BoardPort);
    * provider (ProviderPort); memory (MemoryPort); fallback(candidates) → candidate id (the seam for workstream 5's autopilot).
-   * crash: test hook {at: 'after-decision'|'after-intent'|'after-submit'|'during-inference', turn?, key?} throws there once.
+   * crash: test hook {at: 'after-decision'|'after-intent'|'after-submit'|'during-inference'|'before-cost-reserve'|'after-cost-reserve',
+   *        turn?, key?} throws there once.
    */
   constructor({ dir, ports, crash = null, log = () => {}, identity = null }) {
     this.dir = dir;
@@ -150,9 +151,16 @@ export class Resident {
     this.costRestartDone = true;
     const cost = this.ports.cost;
     for (const [callKey, c] of Object.entries(open)) {
+      // 'reserving' (maybe reserved there) and 'reserved': the call was never made: released in both ledgers.
+      // 'calling': it may have reached the provider: undecided there; the wallet hold is already unresolved.
       cost?.restarted?.(callKey, c.phase);
+      if (c.phase !== 'calling') {
+        const h = this.ledger.get(this.id).holds[c.holdId];
+        if (h && h.state === 'held') this.ledger.release(this.id, c.holdId, 'restart before calling');
+      }
       delete open[callKey];
     }
+    this.save();
   }
 
   get state() { return this.store.state; }
@@ -203,7 +211,7 @@ export class Resident {
    */
   owed() {
     const started = Object.values(this.state.journal)
-      .filter(j => ['deliver', 'return'].includes(j.purpose?.type) && OPEN_STATES.includes(j.state))
+      .filter(j => ['deliver', 'return'].includes(j.purpose?.type) && (OPEN_STATES.includes(j.state) || j.state === 'revoked'))
       .map(j => ({ key: j.key, type: j.purpose.type, request: j.purpose.request, state: j.state }));
     const waiting = (this.state.debts ?? []).filter(d => !started.some(s => s.request === d.request)).map(d => ({ type: 'return', ...d, state: 'not-started' }));
     return [...started, ...waiting];
@@ -239,7 +247,14 @@ export class Resident {
    * decisions: promises already made are still kept, by code.
    */
   #stopReason() {
+    // The owner's revocation of the resident's authority (recorded in the agent wallet's policy, which only a signed
+    // owner command changes): the strongest stop. Nothing is sent again under it, not even a re-send under the same
+    // key, no model is called and nothing is reserved; unsent lines are dropped as `revoked`.
+    if (this.ledger.get(this.id).policy?.revoked) return { why: 'authority-revoked', keepPromises: false, revoked: true };
+    // The operator's halt file: a pause. Nothing new is sent; results are still read; on removal the journal goes on
+    // under the same keys.
     if (existsSync(this.charter.haltFile)) return { why: 'halted-by-operator', keepPromises: false };
+    // The owner's manual mode: also a pause (with an optional withdrawal of unsent builds: command() `withdraw`).
     if (this.ledger.get(this.id).mode !== 'auto') return { why: 'stopped-by-owner', keepPromises: false };
     if (this.state.turn >= this.charter.limits.maxTurns) return { why: 'max-turns', keepPromises: true };
     return null;
@@ -324,6 +339,12 @@ export class Resident {
     this.#settleReturns(obs);
     this.#noteDebts(obs);
     // A paused resident still reads (its cursors do not move, so nothing is missed when it resumes) and reports what it owes.
+    if (stop?.revoked) {
+      const dropped = this.#applyRevocation();
+      await this.#reconcile({ send: false });
+      this.save();
+      return { bell, stopped: stop.why, ...(dropped.length ? { revoked: dropped } : {}), owed: this.owed() };
+    }
     if (stop && !stop.keepPromises) { await this.#reconcile({ send: false }); this.save(); return { bell, stopped: stop.why, owed: this.owed() }; }
 
     await this.#reconcile({ send: true });
@@ -432,7 +453,9 @@ export class Resident {
   #prune(bell) {
     const st = this.state;
     for (const [k, it] of Object.entries(st.journal)) {
-      if (!OPEN_STATES.includes(it.state) && bell - (it.settledBell ?? it.landedBell ?? it.nextBell ?? bell) > BELLS_PER_DAY) delete st.journal[k];
+      // A revoked delivery or return stays: it is still owed (owed() lists it for the owner).
+      const stillOwed = it.state === 'revoked' && ['deliver', 'return'].includes(it.purpose?.type);
+      if (!OPEN_STATES.includes(it.state) && !stillOwed && bell - (it.settledBell ?? it.landedBell ?? it.nextBell ?? bell) > BELLS_PER_DAY) delete st.journal[k];
     }
     for (const [k, until] of Object.entries(st.cooldown)) if (until <= bell) delete st.cooldown[k];
     for (const [k, f] of Object.entries(st.failures)) if (f.until + BELLS_PER_DAY <= bell) delete st.failures[k];
@@ -480,10 +503,13 @@ export class Resident {
       let s;
       try { s = await this.ports.execution.status(it.sendKey); } catch { s = { fate: 'unknown', unavailable: true }; }
       if (s?.fate === 'landed') { Object.assign(it, { state: 'landed', landedBell: s.landedBell }); this.#clearUnclear(it); continue; }
-      if (s?.fate === 'failed') { this.#clearUnclear(it); this.#retryOrFail(it, s.fateError); continue; }
+      // A line whose cancellation was asked for, or whose authority was revoked, ends when it did not take effect:
+      // no new attempt follows.
+      const noMore = it.cancelRequested ? 'cancelled' : this.#revoked() ? 'revoked' : null;
+      if (s?.fate === 'failed') { this.#clearUnclear(it); if (noMore) Object.assign(it, { state: noMore, lastFate: 'failed', error: s.fateError }); else this.#retryOrFail(it, s.fateError); continue; }
       if (s?.fate === 'cancelled') { it.state = 'cancelled'; this.#clearUnclear(it); continue; }
       // Proven not to have happened: a new attempt under a new key (#a2 …), within maxRetries.
-      if (NOTHING_HAPPENED.has(s?.fate)) { this.#clearUnclear(it); it.lastFate = s.fate; this.#retryOrFail(it, s.fate); continue; }
+      if (NOTHING_HAPPENED.has(s?.fate)) { this.#clearUnclear(it); it.lastFate = s.fate; if (noMore) it.state = noMore; else this.#retryOrFail(it, s.fate); continue; }
       if (s?.fate === 'pending' || s?.fate === 'registered') continue; // accepted and on its way
       // unknown (it may have landed) and unqueryable (could not ask) fall through: held, read again, never re-sent.
       // No definite answer.
@@ -492,7 +518,7 @@ export class Resident {
       it.nextQueryBell = this.bell + Math.min(this.charter.limits.pulseBells, 2 ** Math.min(it.unclear - 1, 6));
       const retention = this.ports.execution.retentionBells ?? 0;
       const withinRetention = Number.isInteger(it.submittedBell) && this.bell - it.submittedBell < retention;
-      if (send && s === null && it.lastError === 'Transport' && it.unclear >= UNCLEAR_BEFORE_RESUBMIT && withinRetention && (it.resubmits ?? 0) < this.charter.limits.maxRetries) {
+      if (send && !it.cancelRequested && s === null && it.lastError === 'Transport' && it.unclear >= UNCLEAR_BEFORE_RESUBMIT && withinRetention && (it.resubmits ?? 0) < this.charter.limits.maxRetries) {
         it.resubmits = (it.resubmits ?? 0) + 1;
         it.state = 'intended';
         await this.#run(it);
@@ -508,6 +534,47 @@ export class Resident {
   #clearUnclear(it) {
     if (it.unclear != null || it.unresolvedBell != null) it.settledBell = this.bell;
     delete it.unclear; delete it.firstUnclearBell; delete it.nextQueryBell;
+  }
+
+  #revoked() { return Boolean(this.ledger.get(this.id).policy?.revoked); }
+
+  /** Under a revocation: every line not yet sent is dropped (`revoked`); sent ones are only read from now on. */
+  #applyRevocation() {
+    const out = [];
+    for (const it of Object.values(this.state.journal)) {
+      if (it.state !== 'intended') continue;
+      // A line whose send may have reached the world (a lost reply) is not unsent: it is read, never sent again.
+      if (it.lastError === 'Transport' && it.sendKey) { it.state = 'sent'; continue; }
+      Object.assign(it, { state: 'revoked', why: 'authority revoked by the owner', revokedBell: this.bell });
+      out.push(it.key);
+    }
+    return out;
+  }
+
+  /**
+   * Cancels ONE action (the owner's or operator's request; not a stop of the resident). Not yet sent: dropped, never
+   * sent. Sent: the execution port is asked to cancel (the test world can withdraw a queued request; workstream 4
+   * cannot recall signed bytes: NotSupported), and the line is marked so that if it did not take effect (cancelled,
+   * expired, not-sent, failed) it ends as `cancelled` with NO new attempt; if it landed anyway it is `landed`. An
+   * unknown result stays held, as always. A delivery or return the resident owes is not cancelled here (it is a
+   * promise to someone else; the owner's revocation is the way to stop it, and it stays listed as owed).
+   */
+  async cancelAction(key, { by = 'owner' } = {}) {
+    const it = Object.values(this.state.journal).find(j => j.key === key || j.sendKey === key);
+    if (!it) return { key, refused: 'NoSuchAction' };
+    if (['deliver', 'return'].includes(it.purpose?.type)) return { key, refused: 'Owed', why: `a ${it.purpose.type} owed to someone: not cancelled by a cancel` };
+    if (!OPEN_STATES.includes(it.state)) return { key, refused: 'AlreadyFinal', state: it.state };
+    it.cancelRequested = { by, bell: this.bell };
+    let port = null;
+    if (it.state === 'intended' && !(it.lastError === 'Transport' && it.sendKey)) {
+      Object.assign(it, { state: 'cancelled', why: `cancelled by ${by} before it was sent` });
+    } else {
+      try { port = await this.ports.execution.cancel(it.sendKey); } catch (e) { port = { cancelled: false, reason: String(e.message).slice(0, 80) }; }
+      it.cancelResult = port;
+      if (it.state === 'intended') it.state = 'sent'; // a maybe-sent line: from now on read, never sent again
+    }
+    this.save();
+    return { key: it.key, state: it.state, port };
   }
 
   /** The owner's explicit withdrawal at a stop: unsent actions that promise nothing to anyone (builds) are dropped. */
@@ -604,14 +671,13 @@ export class Resident {
     return w;
   }
 
-  #request(obs, bell, turn, cands, wakes) {
+  #request(obs, bell, turn, cands, wakes, evidence) {
     const me = this.state.citizen;
     const village = obs.world.villages.find(v => v.citizen === me);
     const goal = GOALS[this.charter.goal];
     const mem = this.ports.memory.recall({ focus: [this.address, ...cands.flatMap(c => (c.act.to ? [this.#who(c.act.to)] : []))], bell });
     const handles = mem.map((_, i) => `M${i + 1}`);
     const inbox = obs.board.requests.filter(r => cands.some(c => c.act.request === r.id));
-    const evidence = this.#publicEvidence(cands, bell);
     const user = [
       `Turn ${bell}. Woken by: ${wakes.join(', ')}.`,
       `My village ${me}: ${Object.entries(village.stores).filter(([, v]) => v).map(([k, v]) => `${k} ${v}`).join(', ')}; buildings ${village.buildings.join(',') || 'none'}.`,
@@ -634,36 +700,50 @@ export class Resident {
   }
 
   /**
-   * Public evidence about the counterparties of this decision, read through workstream 12's read-only sidecar
-   * (`ports.evidence`, resident/ports/ws12-public-evidence.mjs from the integration branch). It is shown to the
-   * provider as marked, untrusted text with its epistemic state and sources, and recorded in the decision; it does
-   * NOT change trust, candidates, scores, limits or sends, and nothing is ever written to workstream 12's memory.
-   * Without the port, or when the sidecar withholds (world or identity unverified) or fails, nothing is shown.
-   * The port is handed this resident's own bell; mapping it to workstream 12's world bell, and a wallet address
-   * to a workstream 12 principal, is the port's job (workstreams 4/8 must supply both; tests use fixtures).
+   * Public evidence about the counterparties of this decision, read through workstream 12's read-only port
+   * (`ports.evidence`: resident/ports/ws12-canonical.mjs over 12's canonical port, or the older sidecar
+   * ws12-public-evidence.mjs). It is shown to the provider as marked, untrusted text with its epistemic state and
+   * sources, recorded in the decision, and never written back to workstream 12.
+   *
+   * It changes the decision in one way only, in code: a counterparty with a commitment workstream 12 DECIDED as a
+   * breach (verified `not_sent` or `partial`) gets nothing from this resident first: candidates that would send to it
+   * (accept its request) or ask it for an exchange (request) are held, with the commitment ids. Only when:
+   *   - the port answers on this resident's clock and world (else nothing is read: clock_mismatch, world_mismatch);
+   *   - 12 answered `ok` (world, identity and clock verified by 12) and decided the commitment (finality is 12's);
+   *   - the port's basis is `chain`: every input (world, clock, finality, identity, records) read from the chain with
+   *     a source. A `fixture` or `unstated` basis is shown and recorded but never acted on, so a test fixture is never
+   *     taken for chain evidence. `ports.evidenceUse = 'fixture-for-tests-only'` lifts that for a test, and every
+   *     decision it touches records the basis.
+   * It never raises trust, a score or a limit, and an `unknown` or `said` line changes nothing.
    */
   #publicEvidence(cands, bell) {
     const port = this.ports.evidence;
-    if (!port || typeof port.read !== 'function') return { lines: [], summary: null };
+    if (!port || typeof port.read !== 'function') return { lines: [], summary: null, breaches: new Map() };
     const counterparties = [...new Set(cands.flatMap(c => (c.act.to ? [this.#who(c.act.to)] : [])))].slice(0, 3);
+    const breaches = new Map();
     // Evidence on another clock than this resident's bell is not read: a bell of one clock is not a bell of the other.
     // Nor evidence about another world (workstream 12's {cluster, world_id}).
     const mine = this.ports.observe?.clock ?? null, theirs = port.clock ?? null;
-    if (mine && theirs && !sameClock(mine, theirs)) return { lines: [], summary: counterparties.map(counterparty => ({ counterparty, status: 'clock_mismatch', clocks: [clockId(mine), clockId(theirs)] })) };
+    if (mine && theirs && !sameClock(mine, theirs)) return { lines: [], breaches, summary: counterparties.map(counterparty => ({ counterparty, status: 'clock_mismatch', clocks: [clockId(mine), clockId(theirs)] })) };
     const wm = worldMismatch(this.ports.observe?.world ?? null, port.world ?? null);
-    if (wm) return { lines: [], summary: counterparties.map(counterparty => ({ counterparty, status: 'world_mismatch', why: wm, worlds: [this.ports.observe.world.world_id, port.world.world_id] })) };
+    if (wm) return { lines: [], breaches, summary: counterparties.map(counterparty => ({ counterparty, status: 'world_mismatch', why: wm, worlds: [this.ports.observe.world.world_id, port.world.world_id] })) };
+    const basis = port.basis ?? 'unstated';
+    const actOn = basis === 'chain' || (basis === 'fixture' && this.ports.evidenceUse === 'fixture-for-tests-only');
     const lines = [];
     const summary = [];
     for (const counterparty of counterparties) {
       let r;
       try { r = port.read({ counterparty, worldBell: bell }); } catch (e) { summary.push({ counterparty, status: 'error', error: String(e.message).slice(0, 80) }); continue; }
-      summary.push({ counterparty, status: r.status, lines: r.lines.length, epistemic: [...new Set(r.lines.map(l => l.epistemic))] });
+      const broke = r.status === 'ok' ? (r.facts ?? []).filter(f => f.verified && f.breach) : [];
+      summary.push({ counterparty, status: r.status, lines: r.lines.length, epistemic: [...new Set(r.lines.map(l => l.epistemic))],
+        ...(r.facts ? { basis, verifiedBreaches: broke.map(f => f.commitment), acted: broke.length > 0 && actOn, ...(broke.length && !actOn ? { notActedBecause: `basis ${basis}: not chain evidence` } : {}) } : {}) });
       if (r.status !== 'ok') continue;
+      if (broke.length && actOn) breaches.set(counterparty, { basis, commitments: broke.map(f => ({ commitment: f.commitment, state: f.state, due_bell: f.due_bell, sources: f.sources.slice(0, 4) })) });
       for (const l of r.lines.slice(0, 3)) {
         lines.push(`- about ${counterparty.slice(0, 8)} [${l.epistemic}; sources ${l.sources.slice(0, 2).join(', ')}]: ${wrapUntrusted(l.text, { from: 'workstream-12', ch: 'public-record', bell })}`);
       }
     }
-    return { lines, summary };
+    return { lines, summary, breaches };
   }
 
   async #decide(obs, bell, wakes) {
@@ -681,7 +761,12 @@ export class Resident {
     const { excluded, assessment } = built;
     // The same action is never chosen while an earlier one is still on its way, nor straight after it failed.
     const inFlight = new Set(Object.values(st.journal).filter(j => j.action && OPEN_STATES.includes(j.state)).map(j => actionSig(j.action)));
+    // Workstream 12's public evidence, read once for this decision (see #publicEvidence for when it may act).
+    const evidence = this.#publicEvidence(built.candidates, bell);
     const held = c => {
+      const to = c.act?.to ? this.#who(c.act.to) : null;
+      const b = to && ['accept', 'request'].includes(c.kind) ? evidence.breaches.get(to) : null;
+      if (b) return { reason: 'ws12-verified-breach', why: `workstream 12 decided ${b.commitments.map(x => `${x.commitment.slice(0, 12)} ${x.state}`).join(', ')} (basis ${b.basis})`, commitments: b.commitments.map(x => x.commitment), basis: b.basis };
       const a = candidateAction(c);
       if (!a) return null;
       if (inFlight.has(actionSig(a))) return { reason: 'in-flight', why: 'the same action is still on its way' };
@@ -691,6 +776,7 @@ export class Resident {
     for (const c of built.candidates) { const h = held(c); if (h) excluded.push({ candidate: c.id, ...h }); }
     const candidates = built.candidates.filter(c => !held(c));
     const d = { turn, bell, wakes, goal: this.charter.goal, candidates: candidates.map(c => ({ id: c.id, kind: c.kind, score: Math.round(c.score * 100) / 100, summary: c.summary })), excluded, need: assessment.shortfall, idle: assessment.idle };
+    if (evidence.summary?.length) d.evidence = evidence.summary;
     let choice = null;
     if (candidates.length === 1) { choice = 'wait'; d.by = 'code'; d.reason = 'nothing to choose'; }
     else if (st.providerPausedUntil > bell) { d.refusal = 'ProviderPaused'; }
@@ -699,7 +785,7 @@ export class Resident {
       // What the call is reserved at, and later charged: ports/cost.mjs (flat by default; workstream 5's price book
       // when the owner configures one).
       const cost = this.ports.cost ?? flatCost(b.pricePerCall);
-      const req = this.#request(obs, bell, turn, candidates, wakes);
+      const req = this.#request(obs, bell, turn, candidates, wakes, evidence);
       const quote = cost.quote(req);
       let hold = null;
       try { hold = this.ledger.hold(this.id, { category: 'inference', amount: quote, key: `${this.id}:t${turn}:infer`, policyVersion: 1, modeEpoch: this.ledger.get(this.id).modeEpoch }); }
@@ -708,15 +794,20 @@ export class Resident {
       // own key, one per hold, before the call; its refusal (a cap, a lost process lease) means no call.
       const callKey = hold ? `${this.id}:t${turn}:infer:${hold.id}` : null;
       if (hold && typeof cost.reserve === 'function') {
-        try { cost.reserve(callKey, quote); (st.costCalls ??= {})[callKey] = { holdId: hold.id, phase: 'reserved', bell }; }
-        catch (e) { this.ledger.release(this.id, hold.id, `cost ledger refused: ${e.code ?? 'refused'}`); d.refusal = e.code ?? 'CostRefused'; d.cost = { kind: cost.kind, quote, refused: e.code ?? 'refused' }; hold = null; }
+        // Written ahead: the call is on file (with its wallet hold) BEFORE the other ledger reserves it, so a stop
+        // between the two is found at the next start and released in both, never left reserved or reserved twice.
+        (st.costCalls ??= {})[callKey] = { holdId: hold.id, phase: 'reserving', bell };
+        this.save();
+        this.#crashAt('before-cost-reserve', turn);
+        try { cost.reserve(callKey, quote); st.costCalls[callKey].phase = 'reserved'; }
+        catch (e) { delete st.costCalls[callKey]; this.ledger.release(this.id, hold.id, `cost ledger refused: ${e.code ?? 'refused'}`); d.refusal = e.code ?? 'CostRefused'; d.cost = { kind: cost.kind, quote, refused: e.code ?? 'refused' }; hold = null; }
+        if (hold) this.#crashAt('after-cost-reserve', turn);
       }
       if (hold) {
         this.ledger.markRunning(this.id, hold.id);
         if (st.costCalls?.[callKey]) { cost.calling?.(callKey); st.costCalls[callKey].phase = 'calling'; }
         this.save();
         this.#crashAt('during-inference', turn);
-        if (req.evidence?.length) d.evidence = req.evidence;
         let outcome = 'answered', usage = null;
         try {
           const ans = await decideWithin(this.ports.provider, req);

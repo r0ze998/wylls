@@ -243,3 +243,32 @@ test("5's ledger with 4's real registry: a send whose result is unknown is never
   assert.equal(Object.values(ren.state.journal).find(j => j.key === first).state, 'sent', 'held, not taken as not-done');
   agree(ren, f.ledgerOf('ren'));
 });
+
+// ---- a stop between 5's reservation and the resident's own save ------------------------------------------------------
+for (const at of ['before-cost-reserve', 'after-cost-reserve']) {
+  for (const recover of [true, false]) {
+    test(`a stop ${at.replace('-cost-reserve', " 5's reservation")} (5's own recovery ${recover ? 'on' : 'off'}): released in both ledgers, no cost twice, no send twice`, { skip, timeout: 120_000 }, async t => {
+      const out = tmp();
+      const f = await ws05Factory(out, { recover });
+      const submits = [];
+      const wire = r => { const p = r.ports.execution; r.ports.execution = { ...p, async submit(req) { submits.push([r.id, req.idempotencyKey]); return p.submit(req); } }; };
+      const r = await runDemo({ out, bells: 120, costFor: f.costFor, wire, crash: { resident: 'ren', at, turn: 3 } });
+      assert.equal(r.summary.mechanical.restarts.length, 1, 'the stop happened');
+      for (const id of ['asa', 'ren']) {
+        const { items, c } = agree(r.all[id], f.ledgerOf(id));
+        assert.equal(BigInt(c.undecided), 0n, `${id}: nothing undecided (no call was made by the cut-off turn)`);
+        if (id === 'ren') {
+          const released = items.filter(i => i.state === 'released');
+          // before: 5 never reserved it (nothing to release); after: the reservation is released once
+          assert.equal(released.length, at === 'after-cost-reserve' ? 1 : 0, `released: ${released.map(i => i.reason)}`);
+          if (released.length) assert.match(released[0].reason, /restart before calling|gone before calling/);
+          const holds = Object.values(r.all.ren.ledger.get('ren').holds).filter(h => h.category === 'inference');
+          assert.equal(holds.filter(h => ['held', 'running'].includes(h.state)).length, 0, 'no wallet hold left open');
+          t.diagnostic(`ren: ${items.length} calls in 5; released ${released.length}; wallet holds ${holds.length} (${[...new Set(holds.map(h => h.state))]})`);
+        }
+      }
+      const keys = submits.map(([id, k]) => `${id}|${k}`);
+      assert.equal(new Set(keys).size, keys.length, 'every action key submitted once');
+    });
+  }
+}
