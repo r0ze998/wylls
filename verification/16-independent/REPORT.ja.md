@@ -3684,3 +3684,28 @@ workflow run が 16 のままであることは ④ が数えたもので、⑯ 
 4. 鍵の経路を再現する実行は、目的を問わず行わない。
 
 監査が終わっても、実行は自動では再開しない。
+
+**追記（7 の照合の結果と、以前の直接の実行の開示。7 は再実行していない。7 の証拠は 7 の scratchpad にあり、⑯ は読めない）。**
+
+**1. 一字一句の照合**（7 は transcript の編集の文字列を 0cdd8491 の blob に当てた）。7 の示した blob の hash は、⑯ が git で求めた値と一致する：
+- hud の試験は、両方の実行で `b97ed4a3` = 1fc0a5aa の blob。
+- controller.mjs は、古い版の実行で `caf86dd5` = 0cdd8491 の blob、新しい版の実行で `634d43f7` = 1fc0a5aa の blob。
+- 7 によると、21:51〜22:38 に permutation-server へ書いた tool call はほかに無い。22:26 に controller.mjs を一度差し替えたが、保存した写しから戻した。22:09 の時点の git status は無いので、追跡している他の file の状態は推定である。
+- よって、⑯ が監査した source（1fc0a5aa）は、新しい版の実行の木と一致する。古い版の実行の木との違いは controller.mjs の 3 行だけ。ただし、どちらも「他の file に変更が無かった」ことは推定である。
+
+**2. node_modules の件（7 の懸念の訂正）。** 閉包に出る bare の `@noble/curves/bls12-381`、`@noble/hashes/hmac`、`@noble/hashes/sha2` は、vendored の file の comment の中にしか無い（hmac.mjs の 1、81、82 行目、bls12-381.mjs の 1、416 行目）。本物の import はどれも相対の path（`./utils.mjs`、`../hashes/sha2.mjs` など）である。node_modules は、この閉包に入らない。⑯ の閉包の道具が comment の中の文字列を拾っていたので、それを記しておく。
+
+**3. 以前の直接の実行 7 回**（11 月 6 日 00:18〜11 月 8 日 19:28。7 の自己申告で、⑯ は確かめられない）。
+- どれも 7 の自前の guard を使い、絞った出力だけが残っている。SHA、commit していない変更、node の version の記録は無い。
+- **1 回目（11 月 6 日 00:18）。**
+  - guard の自己試験として、わざと `generateKeyPairSync` を呼んだ（guard が止めた）。これは、既知の鍵の処理を guard に止めさせる実行で、禁止されている種類のものにあたる。
+  - 同じ loop の他の file（live、marches、people、s1）で、`subtle.generateKey` 1 回と、`importKey(pkcs8, sign)` 16 回が止められた。
+- **3 回目と 4 回目（11 月 6 日 12:32、12:35）。** `web-frontier-agent` で `createPrivateKey` が止められた。
+- **5 回目（11 月 8 日 11:51）。** `NOKEYS_LOG=/dev/null` だったので、止めた記録は残らない。
+- **判定（証拠が言える範囲だけ）。**
+  - これらの実行では、鍵の API に入る経路が実際に呼ばれ、guard がそこで止めた。これは記録された事実である。
+  - 止まる前に、JS だけの導出（session.mjs の `keyFromSeed` は `importKey` の前に `publicKeyOf` を呼ぶ。§29.24）が実行されたかどうかは、証拠で確かめられていない。
+  - 1〜7 回目の hud の file について、鍵の生成、導出、署名に届いたかどうかは分からない。
+  - 手順の違反（一覧に載る file を手順の外で走らせたこと、自前の guard、自己試験）は確定している。
+
+**4. 判断待ちの点（ユーザー）。** この開示は hud の 13/13 の範囲を超えている。11 月 6 日と 8 日の、他の一覧の file（live、marches、people、s1、agent）の実行で、鍵の経路に入ったことが記録されている。⑯ は、これ以上の照合（その時点の source を読むだけの確認）を、ユーザーの指示があるまで始めない。新しい実行の保留は続ける。
