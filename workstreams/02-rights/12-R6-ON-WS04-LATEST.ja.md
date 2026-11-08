@@ -224,3 +224,12 @@
 - 記録がない、または kind が違う時は FAIL。ログが失われた時は UNVERIFIABLE。
 - 照合で余った記録は、`RightsRecordOrphan`（FAIL）になる。CPI の中なら UNVERIFIABLE。
 - そのため、V0E の `explained()` が「同じ取引に Grant 命令が 1 つでもある」で判定済みとしても、余った記録は VR が拾う。
+
+**`known_version` に `0x2004` を入れることの前提（⑪の注意を受けて）：**
+- `0x2004` の季節で、帯のない tag や空の命令は FAIL（偽造の断定）になる。
+- これが正しいのは、`0x2004` の build が、⑩の custody・wide・⑳の命令を持たない場合である。コードでは、これが次のように保たれている：
+  - `custody-preview` とは同時に build できない（`compile_error`）。
+  - wide や NFT と一緒に build すると、版は `0x6004`・`0xA004` になり、`0x2004` ではなくなる。その版は `known_version` に入っていないので、帯のない tag は UNVERIFIABLE になる。
+- 組み合わせた build の版を決めるのは④である。
+
+**⑪の 0016**（④ `4ecef1d9` の上。wide の tag を VW に任せる）も、同じ関数を変える。衝突した時は、Grant の判定 → wide の判定 → 帯、の順に並べる。
