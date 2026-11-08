@@ -20,13 +20,16 @@
 //! - ⑪ r9: workstream 20's `nft-experimental` program
 //!   ([`PROGRAM_VERSION_NFT_S1`], S1's rules plus the resident tags
 //!   0xE0–0xE7) is a known version. In its seasons JoinResident (0xE1) is
-//!   judged (V27, with ⑳'s V9 and facts); CreateResidentPolicy and
-//!   ResidentAct decode but are `UnverifiedInstruction`. Elsewhere, and for
+//!   judged (V27, with ⑳'s V9 and facts), and so is a ResidentAct whose inner
+//!   instruction the act runs (r14: V28 and the inner instruction's own check,
+//!   with S1's checks on); CreateResidentPolicy decodes but is
+//!   `UnverifiedInstruction`. Elsewhere, and for
 //!   every tag workstream 4 allocated to a workstream (see
 //!   [`allocated_band`]) that a known program version does not run, the
 //!   FAIL names the band: a known program refuses it. Under a program
-//!   version this verifier does not know, an allocated tag is
-//!   `UnverifiedInstruction` instead (that program may run it, e.g. ②'s
+//!   version this verifier does not know (or none the archive shows), any
+//!   tag outside ABI v2, allocated or not, is `UnverifiedInstruction` instead
+//!   (r13) (that program may run it, e.g. ②'s
 //!   Grant), never a PASS and not a forgery claim; likewise when the
 //!   archive does not show the program version at all.
 //!
@@ -96,6 +99,18 @@ pub fn judge_outside_v2(
                 UNVERIFIED_INSTRUCTION,
                 "JoinResident in a season whose S1 checks did not run (V27 did not judge it)".into(),
             )),
+            // ⑳'s ResidentAct (r14): the world lists its inner player
+            // instruction as an instruction of its own (`world::unwrap_resident`),
+            // which V0 and the check that models it judge like a wallet
+            // Citizen's; V28 judges the rest (holder, owner-only acts, proof
+            // accounts, the join, the Citizen after). So it is left to them
+            // only where V28 runs (`s1`) and the act can run the inner tag.
+            Some(Command::Act { inner, .. }) if s1 && rw::act_runs(inner[0]) => None,
+            Some(Command::Act { .. }) => Some((
+                Unverifiable,
+                UNVERIFIED_INSTRUCTION,
+                format!("ResidentAct 0x{tag:02x} whose inner instruction the act does not run, or in a season whose S1 checks (V28) did not run"),
+            )),
             Some(_) => Some((
                 Unverifiable,
                 UNVERIFIED_INSTRUCTION,
@@ -104,11 +119,23 @@ pub fn judge_outside_v2(
         };
     }
     let Some(band) = allocated_band(tag) else {
-        return Some((
-            Fail,
-            UNKNOWN_INSTRUCTION,
-            format!("tag 0x{tag:02x}, not in ABI v2, succeeded"),
-        ));
+        // Only a program version this verifier knows refuses the tag: that is
+        // the evidence for a FAIL. Under another version (an experimental
+        // build such as the wide-world draft band 0xD6–0xDA, which carries
+        // its own version bit) or none in the archive, nothing says which
+        // program ran, so the tag is not a forgery claim (⑪ r13).
+        return Some(match pv {
+            Some(v) if known_version(v) => (
+                Fail,
+                UNKNOWN_INSTRUCTION,
+                format!("tag 0x{tag:02x}, not in ABI v2, succeeded under program version {v}, which refuses it"),
+            ),
+            _ => (
+                Unverifiable,
+                UNVERIFIED_INSTRUCTION,
+                format!("tag 0x{tag:02x}, not in ABI v2, succeeded under a program version this verifier does not know, or one the archive does not show"),
+            ),
+        });
     };
     // Only a program version this verifier knows is evidence that the tag
     // was refused. Without CreateSeason in the archive (`None`: a history
@@ -183,17 +210,19 @@ pub fn run(cx: &mut Ctx) {
         }
         for ix in &t.ixs {
             let Some(tag) = ix.tag() else {
-                cx.fail(
-                    V,
-                    UNKNOWN_INSTRUCTION,
-                    format!("tx#{i}"),
-                    0,
-                    Some(i),
-                    format!(
-                        "instruction {} of the program has no data (no tag) and succeeded",
-                        ix.index
-                    ),
+                // A known program refuses an empty instruction; under another
+                // version, or none the archive shows, it is not a forgery
+                // claim (r13, as for a tag outside ABI v2).
+                let pv = cx.f.params.as_ref().map(|p| p.program_version);
+                let d = format!(
+                    "instruction {} of the program has no data (no tag) and succeeded",
+                    ix.index
                 );
+                if pv.is_some_and(known_version) {
+                    cx.fail(V, UNKNOWN_INSTRUCTION, format!("tx#{i}"), 0, Some(i), d);
+                } else {
+                    cx.unverifiable(V, UNVERIFIED_INSTRUCTION, format!("tx#{i}"), 0, Some(i), d);
+                }
                 continue;
             };
             let Some(known) = Ix::from_tag(tag) else {
