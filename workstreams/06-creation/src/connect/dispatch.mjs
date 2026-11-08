@@ -285,7 +285,11 @@ export function requesterProblem(r) {
  * process table; start times still come from `startOf`.
  *
  * Limits: the holder check reads the local process table, so writers on
- * other machines or pid namespaces sharing the file are not told apart.
+ * other machines or pid namespaces sharing the file are not told apart. A
+ * live holder's lock removed or replaced outside this code (a temp cleaner,
+ * a hand edit) inside a save's window lets that one save land after another
+ * holder's (docs/12 §8.3); closing that needs a kernel lock, so keep the
+ * journal out of directories that are cleaned automatically.
  */
 export function fileJournal(path, fs, { pid = process.pid, alive, startOf = procStart, token = randomToken() } = {}) {
   const lock = `${path}.lock`;
