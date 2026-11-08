@@ -1,0 +1,29 @@
+diff --git a/permutation-frontier/svm-tests/src/chain.rs b/permutation-frontier/svm-tests/src/chain.rs
+index 3bf0d031..6abdf053 100644
+--- a/permutation-frontier/svm-tests/src/chain.rs
++++ b/permutation-frontier/svm-tests/src/chain.rs
+@@ -781,7 +781,10 @@ impl Chain {
+     /// SIMD-0186 loaded size of `msg` against the current state: Σ(data +
+     /// 64) over the message's existing accounts (the instructions sysvar
+     /// and absent accounts count 0) plus the ProgramData (data + 64) of
+-    /// every invoked LoaderV3 program not already listed, each once.
++    /// every LoaderV3 program the message invokes **or lists** (a program
++    /// reached by CPI is listed as an account) not already listed, each
++    /// once. The listed case was measured on solana-test-validator 3.1.9 by
++    /// workstreams/03-composability/drill/cpi-loaded-drill.sh.
+     pub fn loaded_size(&self, msg: &Message) -> u64 {
+         let ix_sysvar = fclient::addr::instructions_sysvar();
+         let mut total = 0u64;
+@@ -796,9 +799,9 @@ impl Chain {
+             }
+         }
+         let mut counted: Vec<Address> = vec![];
+-        for ci in &msg.instructions {
+-            let pid = msg.account_keys[ci.program_id_index as usize];
+-            let Some(p) = self.svm.get_account(&pid) else {
++        // Every invoked program is listed too: the listed keys cover both.
++        for pid in &msg.account_keys {
++            let Some(p) = self.svm.get_account(pid) else {
+                 continue;
+             };
+             if p.owner != loader_v3() || p.data.len() < 36 || p.data[..4] != 2u32.to_le_bytes() {
