@@ -13,6 +13,7 @@
 import { fromBase64 } from '../sdk/bytes.mjs';
 import { encode as toB58 } from '../sdk/base58.mjs';
 import { decode } from './fcodec.mjs';
+import { residentCitizen } from '../sdk/frontier/resident.mjs';
 import { parseTerritory } from './territory.mjs';
 import { provincesWithin, provinceFromIndex, provinceIndex, cellOf, provinceCentre, ringOf } from './fgeo.mjs';
 import { parseWideIndexStatus, parseWideIndexPage } from './map/widehistory.mjs';
@@ -257,11 +258,19 @@ export function staleness({ latestUnix, chainNow, behind: measured }) {
  * check of integ-W2): the Citizen at the canonical address of `wallet` and
  * naming it; each Holding at its canonical address, owned by that Citizen
  * and one of the Citizen's holdings; at most three. Throws HeraldError.
+ *
+ * Workstream 20: `/h/me/{key}` serves the wallet's Citizen, else the NFT
+ * Citizen of the asset `key` (herald `me_citizen`). An NFT Citizen (its
+ * bytes carry the resident mark, fcodec `residentAsset`) must name `key` as
+ * its asset and sit at the resident id's address (`residentCitizen`); an
+ * invalid mark is refused. Its holdings are owned by that address.
  */
 export function checkMe(addresses, wallet, record, citizen, holdings) {
-  const want = addresses.of('Citizen', { wallet });
+  const nft = citizen?.residentAsset !== undefined;
+  if (nft) check(citizen.residentAsset !== null && toB58(citizen.residentAsset) === wallet, 'WrongKey', 'the NFT Citizen names another asset');
+  const want = nft ? residentCitizen(addresses, wallet) : addresses.of('Citizen', { wallet });
   if (citizen) {
-    check(toB58(citizen.wallet) === wallet, 'WrongKey', 'the Citizen names another wallet');
+    if (!nft) check(toB58(citizen.wallet) === wallet, 'WrongKey', 'the Citizen names another wallet');
     if (record.citizen?.address !== undefined) check(record.citizen.address === want, 'WrongKey', 'the Citizen is not at its canonical address');
   }
   check(holdings.length <= 3, 'BadRecord', 'more than three holdings');

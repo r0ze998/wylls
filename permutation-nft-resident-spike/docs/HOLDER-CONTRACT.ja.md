@@ -314,3 +314,47 @@ v0.17 の持ち主の定義への置き換え（`authorize` = `holder` + `author
 | 未決 | wide の 6 つの未決のルールには触れていない |
 
 試験（鍵ペアの生成・導出・署名なし）：feature あり lib（V28 11・resident_feed 2・V23 2・VW1 7）22、feature あり `--test history` 16・`resident_ledger` 4、feature なし lib 14。clippy は両方の build で合格。
+
+## 14. 既存の地図へ渡す読取りの契約：NFT の住民の `/h/me`（2026-11-08、v0.24）
+
+統合候補 caeb1b74 の上で、herald の `/h/me/{key}` から web client の地図（村・wide の持ち物）までの読み取りを、NFT の住民について照合した。新しいルールは足していない（wide の書き込み、所有・寿命・close、U49/U50、賞金には触れていない）。
+
+### 見つけた不整合（実証済み、最小修正）
+
+herald の `me_citizen` は、財布の Citizen が無ければ、`resident_asset == key` の NFT Citizen を返す。client の controller も `herald.me(viewerKey())`（`FS.resident?.asset ?? wallet`）で尋ねる。ところが client の照合は財布の Citizen だけを前提にしていた。
+
+- `herald.mjs` `checkMe`：`citizen.wallet === key` と、財布から導いた住所を求めていた。NFT Citizen は `WALLET` が 0 で、住所は住民 ID のもの。だから NFT の住民が自分の `/h/me` を読むと、いつも `WrongKey` で拒否された（実際の program のバイトで再現。修正を戻すと試験が落ちる）。
+- `fwide.mjs` `parseWideInventory`：`citizenRecord.wallet` が 0 のバイト列（真）でも `toB58(wallet) === viewerKey` を求めていたので、NFT の住民の wide の持ち物も `WrongKey`。
+- client の codec（`fcodec.decode`）は `RSV_348` を読み飛ばすので、住民の印（asset、flag）を見る手段が無かった。
+
+既存の試験は NFT Citizen を「`WALLET` に asset を入れた財布の Citizen」として手で作っていたので、この不整合を通していた。
+
+### 修正（client の読み取りだけ）
+
+| 場所 | 変更 |
+|---|---|
+| `fcodec.mjs` `decode` | v2 の Citizen で flag（380 の bit 0）が立っていれば `residentAsset` を出す。`WALLET` が 0 で asset が 0 でなければ asset のバイト、そうでなければ null（program が書かない印。Rust の `resident_asset` が None のもの）。flag が無ければ欄そのものが無い（財布の Citizen の解読は前と同じ）。348・380・36 B の位置は layout 表と照合し、ずれていれば `BadLayout` |
+| `herald.mjs` `checkMe` | NFT Citizen なら：`residentAsset` が `key` と一致（null・別の asset は `WrongKey`）、住所は `residentCitizen(addresses, key)`、持ち物の持ち主もその住所。財布の Citizen の照合は前と同じ |
+| `fwide.mjs` | `residentAsset` があればそれと `viewerKey` を比べる。無ければ前と同じく財布と比べる |
+
+### 19 へ渡す契約と fixture
+
+- fixture：`frontier-abi/vectors/v2/resident-citizen.json`（`abi-vectors` が書く。`--check` と `vectors_are_fresh` が鮮度を見る）。Rust の `resident_citizen::mark` が v2 Citizen に付けた印そのもの。4 件：`wallet`、`nft`、`flagged_with_wallet`、`flagged_zero_asset`。それぞれに、`resident_asset` の答えと、herald がその key に返す Citizen の住所（`ctx.citizen` / `ctx.citizen_by_tag15`）が付く。季節の住所と program は `addresses.json` と同じ合成値。
+- 試験：`permutation-gateway/test/web-frontier-resident-me.test.mjs`（5 件）。client 自身の codec・住所の計算・本物の `createHerald().me` を、差し替えた fetch で走らせる。期待値は Rust 側から来るので、両側に同じ手書きの値を置く形ではない。
+  - 通る：NFT Citizen と、その住所が持つ Holding。財布の Citizen（前と同じ）。
+  - `WrongKey`：別の asset、別の住所（asset を財布として導いた住所を含む）、印が無効なもの 2 つ、財布の Citizen を asset で、NFT Citizen を財布で、別の Citizen が持つ Holding。
+  - codec の拒否：切り詰め（380 B・383 B）は `WrongSize`、magic 違いは `WrongMagic`、別の季は `WrongSeason`、不完全な記録は `BadRecord`。
+- `web-frontier-wide-holding-ui.test.mjs` に 1 件：同じバイトで wide の持ち物が `ready`。別の viewer、無効な印、財布の Citizen のバイトは `WrongKey`。
+
+### 既に合っていて、変えなかったもの
+
+- wide の座標と u64：herald は 10 進の文字列で出し、`fwide`（`parseWideInt`・`parseU64`）は BigInt で読む。2^53 を超える座標（`9007199254740993`）は既存の試験が固定している。Number には通さない。
+- 世代：`/f/residents` の `generation` は u32 で、住民の口座の asset が一致し、住民 program が持つ口座のときだけ出る（そうでなければ null）。client は署名の直前に読み直す（`currentGeneration`）。古い世代や違う持ち主は program が拒否する（`StaleGeneration`・`NotCurrentAuthority`）。gateway の答えは助言で、地図の読み取りの根拠にはしていない。
+- `/f/residents` の `joined`・`link` は口座があるかどうかだけで、持ち主の program や中身は見ていない。ただし client は住所を自分で計算し直し、Citizen そのものは `/h/me` のバイトを上の照合で確かめるので、地図に出るものには届かない。今の契約のまま、変えていない。
+
+### 未決・範囲外
+
+- 既存の試験（`wide-holding-ui` の controller の場面）は、今も `WALLET = asset` の Citizen を使っている。財布が asset と同じ値の財布の Citizen として正しく読めるので落ちない。program のバイトに置き換えるかは、その試験の担当（7）の判断。
+- herald の Rust 側の `/h/me` の JSON（NFT のとき）は、この照合では見ていない。client が見るのは `citizen.address` とバイトだけ。
+
+試験（鍵ペアの生成・導出・署名なし。実行前に静的に確認し、鍵を作る・使う 13 の試験 file は除外）：web-frontier・frontier-resident の 103 file・1014 件が合格。`abi-vectors --check`（18 file fresh）、`frontier-abi --test contract vectors_are_fresh`、`abi-vectors` の clippy（`-D warnings`）と rustfmt。

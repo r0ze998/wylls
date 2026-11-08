@@ -6,7 +6,9 @@
 // decode('Season', bytes) → {kind, …fields} with camelCase names; u64/i64
 // as BigInt, smaller integers as numbers, byte arrays as Uint8Array,
 // sub-records as objects (arrays of them for ×N). Reserved bytes are left
-// out. The magic, the size and (when given) the season id are checked.
+// out, except an NFT resident's mark inside a v2 Citizen's RSV_348
+// (`residentAsset`, below). The magic, the size and (when given) the season
+// id are checked.
 import { ACCOUNTS, RECORDS } from './abi.mjs';
 import { LAYOUTS as V2 } from '../sdk/frontier/abi-v2-layouts.mjs';
 const fields = xs => xs.map(x => [x.name, x.off, x.len, x.ty]);
@@ -81,6 +83,28 @@ function checkWorldMode(bytes, season) {
 const text = b => String.fromCharCode(...b);
 
 /**
+ * Workstream 20 (frontier-abi `resident_citizen`; vectors/v2/resident-citizen.json): an NFT resident's v2 Citizen
+ * carries its Core asset in the first 32 bytes of `RSV_348` and `FLAG_RESIDENT` in the byte after, with `WALLET`
+ * zero. A flagged Citizen decodes with `residentAsset`: the asset bytes, or null when the mark is invalid (a
+ * non-zero wallet or a zero asset, which the program never writes and every reader refuses as the asset's
+ * Citizen); an unflagged one has no `residentAsset` at all, so wallet Citizens decode exactly as before.
+ */
+export const RESIDENT_ASSET_OFF = 348;
+export const RESIDENT_FLAGS_OFF = 380;
+export const FLAG_RESIDENT = 1;
+function residentMark(layout, b, out) {
+  const rsv = layout.fields.find(f => f[0] === 'RSV_348');
+  const wallet = layout.fields.find(f => f[0] === 'WALLET');
+  if (!rsv || !wallet || rsv[1] !== RESIDENT_ASSET_OFF || rsv[1] + rsv[2] !== layout.size || RESIDENT_FLAGS_OFF !== RESIDENT_ASSET_OFF + 32) {
+    throw new CodecError('BadLayout', 'the Citizen layout has no resident mark where frontier-abi puts it');
+  }
+  if ((b[RESIDENT_FLAGS_OFF] & FLAG_RESIDENT) === 0) return;
+  const asset = b.slice(RESIDENT_ASSET_OFF, RESIDENT_ASSET_OFF + 32);
+  const walletZero = b.subarray(wallet[1], wallet[1] + 32).every(x => x === 0);
+  out.residentAsset = walletZero && asset.some(x => x !== 0) ? asset : null;
+}
+
+/**
  * Decode one account. `seasonId` (string, number or BigInt), when given,
  * must equal the header's. Throws CodecError (`WrongKind`, `WrongSize`,
  * `WrongMagic`, `WrongSeason`).
@@ -101,6 +125,7 @@ export function decode(kind, bytes, { seasonId, profile } = {}) {
     if (f[3] === 'rsv' || f[1] + f[2] > b.length) continue;
     out[camel(f[0])] = readField(b, dv, 0, f, records);
   }
+  if (kind === 'Citizen' && profile >= 2) residentMark(layout, b, out);
   if (kind === 'Season' && b.length === layout.size) {
     const layoutV2 = out.layoutVersion >= 2;
     const programV2 = out.programVersion >= 3;
