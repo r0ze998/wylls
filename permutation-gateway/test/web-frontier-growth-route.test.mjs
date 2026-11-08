@@ -8,8 +8,9 @@
 //   map/terrain.mjs createTerrain               the page's terrain reader, on the record's seeds
 //   fgeo.mjs       ringOf / wedgeOf / regionOf / tileHex   the page's geometry, against the kernel's
 // A ring with no seed in the record has no route and no terrain; once its seed is listed, its Provinces are read
-// and routed by the same rules as the rings before it. No account bytes here (workstream 19's Rust fixture has
-// those), no M1 account, no key. The existing live-map route evidence runs on frontier.wasm (M1); this is the S1 one.
+// and routed by the same rules as the rings before it. The only account bytes are the S1 Season and Frontier
+// (layout 2, the SDK's encoder), read by the page's herald and fcodec; Province / Holding bytes are workstream 19's.
+// No M1 account, no key. The existing live-map route evidence runs on frontier.wasm (M1); this is the S1 one.
 import { test, before } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
@@ -21,6 +22,8 @@ import { planRoute } from '../../permutation-server/web/frontier/fmarch.mjs';
 import { createTerrain } from '../../permutation-server/web/frontier/map/terrain.mjs';
 import { ringOf, wedgeOf, regionOf, tileHex, provinceCentre, ringProvinces } from '../../permutation-server/web/frontier/fgeo.mjs';
 import { PRESETS } from '../../permutation-server/web/sdk/frontier/abi-v2-presets.mjs';
+import { createHerald } from '../../permutation-server/web/frontier/herald.mjs';
+import { decode } from '../../permutation-server/web/frontier/fcodec.mjs';
 import * as G from './fixtures/frontier/growth-route.mjs';
 
 const S1 = { layoutVersion: 2, programVersion: 4 };
@@ -111,5 +114,28 @@ test('the grown ring is read by the same rules: geometry (page = kernel) and ter
       assert.deepEqual(t.sites, want.sites);
       assert.equal(t.passable, want.passableMask);
     }
+  }
+});
+
+test('the S1 bytes: the page\'s herald decodes the Season at layout 2 / v4 with the v3 ruleset; rMax = max(Season, Frontier)', async () => {
+  for (const stage of G.STAGE_ORDER) {
+    const rec = G.seasonRecord(stage);
+    const fetch = async url => ({ ok: true, status: 200, headers: { get: () => 'application/json' }, json: async () => rec, text: async () => JSON.stringify(rec), arrayBuffer: async () => new ArrayBuffer(0), url });
+    const r = await createHerald({ base: 'http://h', fetch }).season();
+    assert.ok(r.ok, `${stage}: ${r.code}`);
+    const s = r.season, cq = [s.conquestParams].flat()[0];
+    assert.equal(Buffer.from(rec.bytes_b64, 'base64').length, 2048, 'a layout-2 Season (not a layout-1 one)');
+    assert.deepEqual([s.layoutVersion, s.programVersion], [2, 4]);
+    assert.equal(kernelFile(s), 'frontier-v3.wasm');
+    assert.equal(Buffer.from(s.rulesetHash).toString('hex'), PRESETS.ruleset_hash_v3, 'the kernel the before() hook loaded is the one this Season names');
+    assert.deepEqual([cq.rMaxCeiling, cq.placement, cq.continuous, cq.heartlandMaxRing], [G.CEILING, 0, 0, 3]);
+    assert.equal(s.rMax, G.SEASON_R_MAX, 'the extension does not rewrite the Season');
+    assert.equal(s.genesisRing, G.GENESIS_RING);
+    assert.deepEqual([...s.genesisSeed], [...G.GENESIS_SEED], 'the genesis rings\' seeds come from the Season\'s own genesis seed');
+    const fb = G.frontierBytes(stage), f = decode('Frontier', fb, { seasonId: G.SEASON_ID });
+    assert.equal(fb.length, 512);
+    assert.equal(f.ringsOpened, rec.ringsOpened, stage);
+    assert.equal(Math.max(s.rMax, f.rMaxExt), rec.rMax, `${stage}: the herald's rMax is the effective one`);
+    assert.equal(rec.rMaxCeiling, cq.rMaxCeiling);
   }
 });
