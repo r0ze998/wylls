@@ -86,3 +86,28 @@ fn w4_records_inside_another_programs_frame_or_a_failed_transaction_are_not_reco
     let j = judge("P", &[(0, true, &a), (1, false, &a)], &[], true);
     assert!(matches!(j.last(), Some(Judgement::Unverifiable { code: WIDE_UNMODELLED, .. })), "{:?}", codes(&j));
 }
+
+#[test]
+fn w5_a_gap_in_an_unproven_history_is_unverifiable_not_a_fail_and_a_wrong_head_still_fails() {
+    // ⑯'s rule check (④ fixed it in b3d08978): a record missing in the middle of an unproven history is a gap,
+    // UNVERIFIABLE; the same gap in a whole history is a FAIL. Expected to FAIL on af41e617 (the defect).
+    let l = logs(3, &[0, 2], &[]);
+    let unproven = judge("P", &[(0, true, &l)], &[], false);
+    assert!(!unproven.iter().any(|x| matches!(x, Judgement::Fail { .. })), "{:?}", codes(&unproven));
+    assert!(unproven.iter().any(|x| matches!(x, Judgement::Unverifiable { code: WIDE_CHAIN_UNPROVEN, .. })), "{:?}", codes(&unproven));
+    let whole = judge("P", &[(0, true, &l)], &[], true);
+    assert!(whole.iter().any(|x| matches!(x, Judgement::Fail { code: WIDE_CHAIN_BROKEN, .. })), "{:?}", codes(&whole));
+    // A link that follows its predecessor in sequence but with another head is a forgery whatever the history.
+    let mut t = logs(2, &[0, 1], &[]);
+    let b64 = base64::engine::general_purpose::STANDARD;
+    let last = t.iter().rposition(|x| x.starts_with("Program data: ")).unwrap();
+    let parts: Vec<String> = t[last]["Program data: ".len()..].split(' ').map(String::from).collect();
+    let mut rec = b64.decode(&parts[1]).unwrap();
+    let n = rec.len();
+    rec[n - 1] ^= 1; // flip a byte of the record's link (its tail)
+    t[last] = format!("Program data: {} {}", parts[0], b64.encode(&rec));
+    for whole in [false, true] {
+        let j = judge("P", &[(0, true, &t)], &[], whole);
+        assert!(j.iter().any(|x| matches!(x, Judgement::Fail { .. })), "whole={whole}: {:?}", codes(&j));
+    }
+}
