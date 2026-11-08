@@ -11,7 +11,7 @@ import { existsSync, mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { HAS_0008, OWNER, keyfreeWorld, mcpServer } from './harness.mjs';
+import { HAS_0008, OWNER, keyfreeWorld, mcpServer, openRunStore } from './harness.mjs';
 
 const BIN = process.env.RUNEXEC_BIN;
 const CLIENT4 = process.env.WS04_ROOT && path.join(process.env.WS04_ROOT, 'workstreams/04-execution/clients/acts.mjs');
@@ -27,6 +27,7 @@ async function setup(extra = {}) {
   const w = await keyfreeWorld();
   const fp = await w.fatePort();
   const db = path.join(mkdtempSync(path.join(tmpdir(), 'ws03-run-')), 'runs.db');
+  await openRunStore(createActsClient, BIN, db); // before ③ and ⑤ use it at once (harness.mjs: ④'s cold-open race)
   const acts = () => createActsClient({ bin: BIN, db, gatewayPort: fp.address().port });
   return { w, fp, db, acts, s: mcpServer(w, { acts: acts(), ...extra }) };
 }
