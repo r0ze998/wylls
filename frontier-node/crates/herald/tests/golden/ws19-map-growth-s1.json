@@ -15,6 +15,21 @@
         },
         "status": 200
       },
+      "/h/conquest/0.json": {
+        "body": {
+          "day": 0,
+          "events": [],
+          "v": 1
+        },
+        "status": 200
+      },
+      "/h/control/latest.bin": {
+        "body": {
+          "code": "NotYet",
+          "ok": false
+        },
+        "status": 404
+      },
       "/h/events": {
         "body": {
           "events": [
@@ -2360,6 +2375,13 @@
         },
         "status": 200
       },
+      "/h/keep/4,0.json": {
+        "body": {
+          "code": "NoSuchKeep",
+          "ok": false
+        },
+        "status": 404
+      },
       "/h/me/29d2S7vB453rNYFdR5Ycwt7y9haRT5fwVwL9zTmBhfV2": {
         "body": {
           "alerts": [],
@@ -2774,6 +2796,13 @@
           "windowNext": 600
         },
         "status": 200
+      },
+      "/h/standings/latest.json": {
+        "body": {
+          "code": "NotYet",
+          "ok": false
+        },
+        "status": 404
       },
       "/h/structures.json": {
         "body": {
@@ -3364,6 +3393,21 @@
           "vaults": []
         },
         "status": 200
+      },
+      "/h/conquest/0.json": {
+        "body": {
+          "day": 0,
+          "events": [],
+          "v": 1
+        },
+        "status": 200
+      },
+      "/h/control/latest.bin": {
+        "body": {
+          "code": "NotYet",
+          "ok": false
+        },
+        "status": 404
       },
       "/h/events": {
         "body": {
@@ -5738,6 +5782,13 @@
         },
         "status": 200
       },
+      "/h/keep/4,0.json": {
+        "body": {
+          "code": "NoSuchKeep",
+          "ok": false
+        },
+        "status": 404
+      },
       "/h/me/29d2S7vB453rNYFdR5Ycwt7y9haRT5fwVwL9zTmBhfV2": {
         "body": {
           "alerts": [],
@@ -6152,6 +6203,13 @@
           "windowNext": 600
         },
         "status": 200
+      },
+      "/h/standings/latest.json": {
+        "body": {
+          "code": "NotYet",
+          "ok": false
+        },
+        "status": 404
       },
       "/h/structures.json": {
         "body": {
@@ -6742,6 +6800,21 @@
           "vaults": []
         },
         "status": 200
+      },
+      "/h/conquest/0.json": {
+        "body": {
+          "day": 0,
+          "events": [],
+          "v": 1
+        },
+        "status": 200
+      },
+      "/h/control/latest.bin": {
+        "body": {
+          "code": "NotYet",
+          "ok": false
+        },
+        "status": 404
       },
       "/h/events": {
         "body": {
@@ -10217,6 +10290,13 @@
         },
         "status": 200
       },
+      "/h/keep/4,0.json": {
+        "body": {
+          "code": "NoSuchKeep",
+          "ok": false
+        },
+        "status": 404
+      },
       "/h/me/29d2S7vB453rNYFdR5Ycwt7y9haRT5fwVwL9zTmBhfV2": {
         "body": {
           "alerts": [],
@@ -10641,6 +10721,13 @@
           "windowNext": 600
         },
         "status": 200
+      },
+      "/h/standings/latest.json": {
+        "body": {
+          "code": "NotYet",
+          "ok": false
+        },
+        "status": 404
       },
       "/h/structures.json": {
         "body": {
@@ -11451,6 +11538,21 @@
           "vaults": []
         },
         "status": 200
+      },
+      "/h/conquest/0.json": {
+        "body": {
+          "day": 0,
+          "events": [],
+          "v": 1
+        },
+        "status": 200
+      },
+      "/h/control/latest.bin": {
+        "body": {
+          "code": "NotYet",
+          "ok": false
+        },
+        "status": 404
       },
       "/h/events": {
         "body": {
@@ -13854,6 +13956,13 @@
         },
         "status": 200
       },
+      "/h/keep/4,0.json": {
+        "body": {
+          "code": "NoSuchKeep",
+          "ok": false
+        },
+        "status": 404
+      },
       "/h/me/29d2S7vB453rNYFdR5Ycwt7y9haRT5fwVwL9zTmBhfV2": {
         "body": {
           "alerts": [],
@@ -14269,6 +14378,13 @@
           "windowNext": 600
         },
         "status": 200
+      },
+      "/h/standings/latest.json": {
+        "body": {
+          "code": "NotYet",
+          "ok": false
+        },
+        "status": 404
       },
       "/h/structures.json": {
         "body": {

@@ -391,3 +391,25 @@ function stageFetch2(stage) {
   };
   return { f };
 }
+
+test('S1 last four reads: conquest day 0 is the router\'s live empty feed; control, standings and keep are its own 404s', async () => {
+  for (const stage of S1_STAGES) {
+    const { h, asked } = s1Herald(stage);
+    const c = await h.conquestDay(0);
+    assert.ok(c.ok, `${stage}: ${c.code} ${c.message ?? ''}`);
+    assert.deepEqual(c.day.events, [], `${stage}: no keep contest or capture yet`);
+    for (const [call, path, code] of [
+      [() => h.control(), '/h/control/latest.bin', 'NotYet'],
+      [() => h.standings(), '/h/standings/latest.json', 'NotYet'],
+      [() => h.keep(4, 0), '/h/keep/4,0.json', 'NoSuchKeep'],
+    ]) {
+      // The golden holds the router's own 404 with its code …
+      assert.deepEqual(S1.stages[stage][path], { status: 404, body: { ok: false, code } }, `${stage} ${path}`);
+      // … and the page's reader refuses it as a missing file, never as a value.
+      const r = await call();
+      assert.equal(r.ok, false, `${stage} ${path}`);
+      assert.equal(r.code, 'NotFound', `${stage} ${path}`);
+      assert.ok(asked.includes(path), `${stage} ${path} was asked`);
+    }
+  }
+});
