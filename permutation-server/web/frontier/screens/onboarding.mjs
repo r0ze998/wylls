@@ -160,6 +160,8 @@ function renderArrivalGuide(FS, st, open) {
 /** Pick the first useful action for the military loop, without spending resources implicitly. */
 export function marchObjective(FS) {
   const bell = FS.nowBell ?? 0, h = activeHolding(FS);
+  // (workstream 07, workstream 16's review: hosts not known while the village's province is unread — not "train some")
+  if (homeProvinceUnread(FS, h)) return { act: 'guide-open', data: {}, label: L`記録を読み込んでいます…` };
   const rows = hostRows(FS).filter(r => r.unit !== SCOUT && r.unit !== SETTLER);
   const ready = rows.find(r => r.state === 1 && !r.pending && !r.inTransit && r.readyBell <= bell && r.stamina >= DEPART_STAMINA
     && !actionBlocks('Depart', { holding: h, citizen: FS.citizen, province: r.province, now: FS.chain?.now?.() ?? 0, nowBell: bell, host: r }).length);
