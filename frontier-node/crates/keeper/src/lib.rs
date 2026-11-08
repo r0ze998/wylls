@@ -222,6 +222,9 @@ pub struct Shared {
     pub tracks: BTreeMap<String, Value>,
     pub nudges: Vec<Value>,
     pub next_track: u64,
+    /// `/v1/reveal` read the journal's acknowledged tracks (⑱: ids go on
+    /// after them, the same material answers its journalled track).
+    pub owner_tracks_restored: bool,
     /// `"P,Q"` → what holds the province now (W4-C, `/v1/nudge`).
     pub blocking: BTreeMap<String, Vec<Value>>,
 }

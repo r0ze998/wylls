@@ -190,6 +190,21 @@ async fn reveal(State(st): State<ApiState>, h: HeaderMap, Json(v): Json<Value>) 
             "keeper discovery is incomplete or unsupported; automatic game writes are paused",
         );
     }
+    // What this journal acknowledged before a restart, read once before the
+    // first id is given (⑱); unreadable: refused as a failed write is.
+    if let (Some(path), false) = (&st.journal, s.owner_tracks_restored) {
+        if crate::journal::Journal::open(path)
+            .and_then(|j| restore_owner_tracks(&mut s, &j))
+            .is_err()
+        {
+            return err(
+                StatusCode::SERVICE_UNAVAILABLE,
+                "JournalUnavailable",
+                "owner material could not be stored",
+            );
+        }
+        s.owner_tracks_restored = true;
+    }
     if let Some(id) = s.reveal_keys.get(&dedupe).cloned() {
         return (
             StatusCode::ACCEPTED,
@@ -374,6 +389,38 @@ pub async fn serve_full(
     Ok(Running { addr, task })
 }
 
+/// What `/v1/reveal` acknowledged before a restart (⑱): track ids go on
+/// after the highest one journalled (a new march's track never takes the
+/// id of a restored one), and the same material answers the track it was
+/// journalled under (no second track for one submission).
+pub fn restore_owner_tracks(s: &mut Shared, j: &crate::journal::Journal) -> Result<(), String> {
+    let n = |t: &str| t.strip_prefix('r').and_then(|x| x.parse::<u64>().ok());
+    for (track, _, _) in j.owner_tracks()? {
+        if let Some(i) = n(&track) {
+            s.next_track = s.next_track.max(i);
+        }
+    }
+    for r in j.owner_materials()? {
+        if let Some(i) = n(&r.track) {
+            s.next_track = s.next_track.max(i);
+        }
+        let (Ok(plain), Ok(salt)) = (
+            <[u8; 37]>::try_from(r.plain.as_slice()),
+            <[u8; 32]>::try_from(r.salt.as_slice()),
+        ) else {
+            continue;
+        };
+        let dedupe = format!(
+            "{}:{}:{}",
+            r.holding,
+            r.transit_slot,
+            hex::encode(fclient::seal::commit(&plain, &salt))
+        );
+        s.reveal_keys.entry(dedupe).or_insert(r.track);
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -545,6 +592,117 @@ mod tests {
             assert!(state.tracks.is_empty());
         }
         r.stop();
+    }
+
+    #[tokio::test]
+    async fn a_restart_keeps_track_ids_and_answers_the_same_material() {
+        // ⑱: a second process on the same journal. The same material is
+        // answered with the track it was acknowledged under (no second
+        // track); another march's track takes an id after every journalled
+        // one, never a restored march's id.
+        let journal_path = std::env::temp_dir().join(format!(
+            "wylls-journal-restart-tracks-{}-{}.db",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        let tok = "t".repeat(32);
+        let body = |host: u64, salt: u8| {
+            let p = fclient::seal::Plain {
+                version: 1,
+                host_id: host,
+                arrive_bell: 9,
+                stance: 1,
+                ..Default::default()
+            };
+            json!({
+                "holding": solana_address::Address::new_from_array([3; 32]).to_string(),
+                "transit_slot": 1,
+                "plain_b64": B64.encode(fclient::seal::pack(&p)),
+                "salt_b64": B64.encode([salt; 32]),
+                "ct_hash_b64": B64.encode([2u8; 32]),
+            })
+        };
+        let post = |addr, b: Value| {
+            let tok = tok.clone();
+            async move {
+                let (c, v) = call(addr, "POST", "/v1/reveal", Some(&tok), Some(b)).await;
+                assert_eq!(c, 202, "{v}");
+                v["track"].as_str().unwrap().to_string()
+            }
+        };
+        // First process: march 43 twice (two materials: two tracks), march 44.
+        {
+            let shared: Arc<Mutex<Shared>> = Default::default();
+            let r = serve_full(
+                "127.0.0.1:0".parse().unwrap(),
+                shared,
+                tok.clone(),
+                None,
+                Some(journal_path.clone()),
+            )
+            .await
+            .unwrap();
+            assert_eq!(post(r.addr, body(43, 1)).await, "r1");
+            assert_eq!(
+                post(r.addr, body(43, 1)).await,
+                "r1",
+                "same material, same track"
+            );
+            assert_eq!(post(r.addr, body(43, 5)).await, "r2");
+            assert_eq!(post(r.addr, body(44, 1)).await, "r3");
+            r.stop();
+        }
+        // Second process.
+        let shared: Arc<Mutex<Shared>> = Default::default();
+        let r = serve_full(
+            "127.0.0.1:0".parse().unwrap(),
+            shared.clone(),
+            tok.clone(),
+            None,
+            Some(journal_path.clone()),
+        )
+        .await
+        .unwrap();
+        assert_eq!(
+            post(r.addr, body(43, 5)).await,
+            "r2",
+            "journalled material: its track"
+        );
+        assert_eq!(post(r.addr, body(44, 1)).await, "r3");
+        assert_eq!(
+            post(r.addr, body(45, 1)).await,
+            "r4",
+            "a new march: after every journalled id"
+        );
+        assert_eq!(
+            lock(&shared).reveals.len(),
+            1,
+            "only the new material is queued again"
+        );
+        r.stop();
+        let j = crate::journal::Journal::open_existing(&journal_path).unwrap();
+        let tracks: Vec<(String, u64)> = j
+            .owner_tracks()
+            .unwrap()
+            .into_iter()
+            .map(|(t, h, _)| (t, h))
+            .collect();
+        assert_eq!(
+            tracks,
+            vec![
+                ("r1".into(), 43),
+                ("r2".into(), 43),
+                ("r3".into(), 44),
+                ("r4".into(), 45)
+            ]
+        );
+        drop(j);
+        for suffix in ["", "-wal", "-shm"] {
+            let _ = std::fs::remove_file(format!("{}{suffix}", journal_path.display()));
+        }
     }
 
     #[tokio::test]
