@@ -15,10 +15,11 @@ use common::*;
 use frontier_abi::v2::ix as x;
 use frontier_abi::v2::layout::player::citizen as C;
 use frontier_abi::v2::layout::s1::vault as VA;
+use frontier_abi::v2::log::{CqKind, LotKey};
 use permutation_rules::fixed::MILLI;
 use permutation_rules::frontier::custody as K;
 use permutation_rules::frontier::holding::Resource;
-use verify_core::checks::v26_custody::{replay_ix, ReplayCase, Replayed};
+use verify_core::checks::v26_custody::{replay_ix, ReplayCase, ReplayRecord, Replayed};
 use verify_core::codes::*;
 
 type Key = [u8; 32];
@@ -32,9 +33,34 @@ const USER_W: Key = [0xC2; 32];
 const USER: Key = [0xC3; 32];
 const PAYER: Key = [0x9A; 32];
 const SEASON: Key = [0x5E; 32];
-const VAULT: Key = [0x7A; 32];
-const LOT: Key = [0xD1; 32];
 const SYSTEM: Key = [0; 32];
+
+std::thread_local! {
+    /// The program the addresses are derived from (the fixture's in the
+    /// tests through `verify`).
+    static PROGRAM: std::cell::Cell<Key> = const { std::cell::Cell::new([0x9F; 32]) };
+}
+
+fn program() -> Key {
+    PROGRAM.with(|p| p.get())
+}
+
+fn ctx() -> frontier_abi::addr::AddrCtx {
+    frontier_abi::addr::AddrCtx {
+        season: SEASON,
+        program: program(),
+    }
+}
+
+/// The vault on tile 7 of Province (3, −2) and the owner's ore lot in it,
+/// at their addresses (public `create_with_seed` derivations).
+fn vault_k() -> Key {
+    frontier_abi::v2::addr::vault(&ctx(), 3, -2, 7)
+}
+
+fn lot_k() -> Key {
+    frontier_abi::v2::addr::lot(&ctx(), 3, -2, 7, 1, 0xB2, Resource::Ore as u8)
+}
 const ORE: u8 = Resource::Ore as u8;
 const T: i64 = 50_000; // block time of every replayed instruction
 const BELL: u32 = 30;
@@ -108,6 +134,7 @@ fn act(k: Key) -> K::Actor {
 struct World {
     before: BTreeMap<Key, Vec<u8>>,
     after: BTreeMap<Key, Option<Vec<u8>>>,
+    records: Vec<ReplayRecord>,
 }
 
 impl World {
@@ -129,10 +156,102 @@ impl World {
             before: &before,
             after: &after,
             closed_before: &|_| false,
-            program: [0x9F; 32],
-            records: &[],
+            program: program(),
+            records: &self.records,
         })
     }
+}
+
+// ------------------------------------------------------------ records (frontier_abi::v2::log)
+
+fn raw(l: &K::Lot) -> Vec<u8> {
+    LotKey {
+        p: l.p,
+        q: l.q,
+        tile: l.tile,
+        gen: l.vault_gen,
+        owner_tag: l.owner_tag,
+        resource: l.resource,
+    }
+    .raw()
+    .to_vec()
+}
+
+/// The record a single-lot instruction logs, from the ABI's fields: the
+/// lot `before` it (OpenLot: none) and `after` it (CloseLot logs CLOSE, not
+/// compared). The signer's Citizen tag is its key's first byte here.
+fn records_of(
+    data: &[u8],
+    signer_tag: u64,
+    before: Option<&K::Lot>,
+    after: &K::Lot,
+) -> Vec<ReplayRecord> {
+    let r = |kind, parts: &[&[u8]]| {
+        vec![ReplayRecord {
+            kind,
+            key: raw(after),
+            payload: parts.concat(),
+        }]
+    };
+    match frontier_abi::v2::Ix::from_tag(data[0]).unwrap() {
+        frontier_abi::v2::Ix::OpenLot => r(
+            CqKind::LOT_OPENED,
+            &[&signer_tag.to_le_bytes(), &after.quota.to_le_bytes()],
+        ),
+        frontier_abi::v2::Ix::SetLotQuota => r(CqKind::LOT_QUOTA, &[&after.quota.to_le_bytes()]),
+        frontier_abi::v2::Ix::SetLotOrder => {
+            let a = x::SetLotOrder::decode(data).unwrap();
+            let o = after.orders[a.slot as usize];
+            r(
+                CqKind::LOT_ORDER,
+                &[
+                    &[a.slot],
+                    &o.id.to_le_bytes(),
+                    &[o.kind],
+                    &0xC3u64.to_le_bytes(),
+                    &o.qty_left.to_le_bytes(),
+                    &o.expires_bell.to_le_bytes(),
+                    &o.dst.encode(),
+                    &o.purpose.to_le_bytes(),
+                ],
+            )
+        }
+        frontier_abi::v2::Ix::RevokeLotOrder => {
+            let a = x::RevokeLotOrder::decode(data).unwrap();
+            let mut b = *before.unwrap();
+            let released = K::revoke_order(&mut b, &act(OWNER), a.slot, a.id, BELL).unwrap();
+            r(
+                CqKind::LOT_REVOKED,
+                &[&[a.slot], &a.id.to_le_bytes(), &released.to_le_bytes()],
+            )
+        }
+        frontier_abi::v2::Ix::ConsumeLot => {
+            let a = x::ConsumeLot::decode(data).unwrap();
+            r(
+                CqKind::LOT_CONSUMED,
+                &[
+                    &a.id.to_le_bytes(),
+                    &signer_tag.to_le_bytes(),
+                    &(a.qty as i64 * MILLI).to_le_bytes(),
+                    &a.purpose.to_le_bytes(),
+                ],
+            )
+        }
+        _ => vec![],
+    }
+}
+
+/// Adds to each case the record its instruction logs.
+fn with_records(mut cs: Vec<Case>) -> Vec<Case> {
+    for c in &mut cs {
+        let Some(Some(d)) = c.w.after.get(&lot_k()).cloned() else {
+            continue;
+        };
+        let after = K::Lot::decode(&d).unwrap();
+        let before = c.w.before.get(&lot_k()).map(|d| K::Lot::decode(d).unwrap());
+        c.w.records = records_of(&c.data, c.accounts[3][0] as u64, before.as_ref(), &after);
+    }
+    cs
 }
 
 /// A lot holding 30 of ore (as a deposit and its settlement left it),
@@ -197,7 +316,7 @@ fn cases() -> Vec<Case> {
     {
         let mut w = World::citizens();
         let mut v = view();
-        w.before.insert(VAULT, vault_bytes(&v));
+        w.before.insert(vault_k(), vault_bytes(&v));
         let a = x::OpenLot {
             resource: ORE,
             quota: 40,
@@ -212,12 +331,21 @@ fn cases() -> Vec<Case> {
             PAYER,
         )
         .unwrap();
-        w.after.insert(LOT, Some(lot_bytes(&l)));
-        w.after.insert(VAULT, Some(vault_bytes(&v)));
+        w.after.insert(lot_k(), Some(lot_bytes(&l)));
+        w.after.insert(vault_k(), Some(vault_bytes(&v)));
         out.push(Case {
             name: "OpenLot",
             data: a.to_bytes().to_vec(),
-            accounts: vec![KEEPER_W, PAYER, SEASON, KEEPER, VAULT, OWNER, LOT, SYSTEM],
+            accounts: vec![
+                KEEPER_W,
+                PAYER,
+                SEASON,
+                KEEPER,
+                vault_k(),
+                OWNER,
+                lot_k(),
+                SYSTEM,
+            ],
             w,
         });
     }
@@ -226,15 +354,15 @@ fn cases() -> Vec<Case> {
     {
         let mut w = World::citizens();
         let (mut v, mut l) = (v0, l0);
-        w.before.insert(VAULT, vault_bytes(&v));
-        w.before.insert(LOT, lot_bytes(&l));
+        w.before.insert(vault_k(), vault_bytes(&v));
+        w.before.insert(lot_k(), lot_bytes(&l));
         K::set_quota(&mut v, &mut l, &act(KEEPER), 50 * MILLI).unwrap();
-        w.after.insert(LOT, Some(lot_bytes(&l)));
-        w.after.insert(VAULT, Some(vault_bytes(&v)));
+        w.after.insert(lot_k(), Some(lot_bytes(&l)));
+        w.after.insert(vault_k(), Some(vault_bytes(&v)));
         out.push(Case {
             name: "SetLotQuota",
             data: x::SetLotQuota { quota: 50 }.to_bytes().to_vec(),
-            accounts: vec![KEEPER_W, PAYER, SEASON, KEEPER, VAULT, LOT],
+            accounts: vec![KEEPER_W, PAYER, SEASON, KEEPER, vault_k(), lot_k()],
             w,
         });
     }
@@ -244,13 +372,22 @@ fn cases() -> Vec<Case> {
     K::set_order(&v0, &mut l1, &act(OWNER), 0, 0, &spec(&o, USER), BELL).unwrap();
     {
         let mut w = World::citizens();
-        w.before.insert(VAULT, vault_bytes(&v0));
-        w.before.insert(LOT, lot_bytes(&l0));
-        w.after.insert(LOT, Some(lot_bytes(&l1)));
+        w.before.insert(vault_k(), vault_bytes(&v0));
+        w.before.insert(lot_k(), lot_bytes(&l0));
+        w.after.insert(lot_k(), Some(lot_bytes(&l1)));
         out.push(Case {
             name: "SetLotOrder",
             data: o.to_bytes().to_vec(),
-            accounts: vec![OWNER_W, PAYER, SEASON, OWNER, VAULT, LOT, USER, VAULT],
+            accounts: vec![
+                OWNER_W,
+                PAYER,
+                SEASON,
+                OWNER,
+                vault_k(),
+                lot_k(),
+                USER,
+                vault_k(),
+            ],
             w,
         });
     }
@@ -259,9 +396,9 @@ fn cases() -> Vec<Case> {
     K::consume(&v0, &mut l2, &act(USER), 0, 0, 15 * MILLI, PURPOSE, BELL).unwrap();
     {
         let mut w = World::citizens();
-        w.before.insert(VAULT, vault_bytes(&v0));
-        w.before.insert(LOT, lot_bytes(&l1));
-        w.after.insert(LOT, Some(lot_bytes(&l2)));
+        w.before.insert(vault_k(), vault_bytes(&v0));
+        w.before.insert(lot_k(), lot_bytes(&l1));
+        w.after.insert(lot_k(), Some(lot_bytes(&l2)));
         out.push(Case {
             name: "ConsumeLot",
             data: x::ConsumeLot {
@@ -272,7 +409,7 @@ fn cases() -> Vec<Case> {
             }
             .to_bytes()
             .to_vec(),
-            accounts: vec![USER_W, PAYER, SEASON, USER, VAULT, LOT],
+            accounts: vec![USER_W, PAYER, SEASON, USER, vault_k(), lot_k()],
             w,
         });
     }
@@ -291,12 +428,12 @@ fn cases() -> Vec<Case> {
     .unwrap();
     {
         let mut w = World::citizens();
-        w.before.insert(LOT, lot_bytes(&l2));
-        w.after.insert(LOT, Some(lot_bytes(&l3)));
+        w.before.insert(lot_k(), lot_bytes(&l2));
+        w.after.insert(lot_k(), Some(lot_bytes(&l3)));
         out.push(Case {
             name: "RevokeLotOrder",
             data: x::RevokeLotOrder { slot: 0, id: 0 }.to_bytes().to_vec(),
-            accounts: vec![OWNER_S, PAYER, SEASON, OWNER, LOT],
+            accounts: vec![OWNER_S, PAYER, SEASON, OWNER, lot_k()],
             w,
         });
     }
@@ -314,19 +451,19 @@ fn cases() -> Vec<Case> {
         )
         .unwrap();
         let mut w = World::citizens();
-        w.before.insert(VAULT, vault_bytes(&v));
-        w.before.insert(LOT, lot_bytes(&l));
+        w.before.insert(vault_k(), vault_bytes(&v));
+        w.before.insert(lot_k(), lot_bytes(&l));
         K::close(Some(&mut v), &mut l, Some(&act(KEEPER)), BELL).unwrap();
-        w.after.insert(LOT, None);
-        w.after.insert(VAULT, Some(vault_bytes(&v)));
+        w.after.insert(lot_k(), None);
+        w.after.insert(vault_k(), Some(vault_bytes(&v)));
         out.push(Case {
             name: "CloseLot",
             data: x::CloseLot {}.to_bytes().to_vec(),
-            accounts: vec![KEEPER_W, PAYER, SEASON, KEEPER, VAULT, LOT, PAYER],
+            accounts: vec![KEEPER_W, PAYER, SEASON, KEEPER, vault_k(), lot_k(), PAYER],
             w,
         });
     }
-    out
+    with_records(out)
 }
 
 fn mismatch(r: &Replayed) -> bool {
@@ -353,14 +490,14 @@ fn a_different_result_is_a_mismatch() {
         // Every byte of the lot's kernel fields the kernel would write, off
         // by one unit in HELD (or, for a close, the lot left in place).
         let mut w = c.w.clone();
-        match w.after.get(&LOT).cloned().flatten() {
+        match w.after.get(&lot_k()).cloned().flatten() {
             Some(d) => {
                 let mut l = K::Lot::decode(&d).unwrap();
                 l.held += MILLI;
-                w.after.insert(LOT, Some(lot_bytes(&l)));
+                w.after.insert(lot_k(), Some(lot_bytes(&l)));
             }
             None => {
-                w.after.insert(LOT, w.before.get(&LOT).cloned());
+                w.after.insert(lot_k(), w.before.get(&lot_k()).cloned());
             }
         }
         let r = w.replay(&c.data, &c.accounts);
@@ -371,13 +508,13 @@ fn a_different_result_is_a_mismatch() {
 #[test]
 fn the_vaults_counts_are_replayed_where_the_program_writes_them() {
     for c in cases() {
-        let Some(Some(d)) = c.w.after.get(&VAULT).cloned() else {
+        let Some(Some(d)) = c.w.after.get(&vault_k()).cloned() else {
             continue;
         };
         let mut v = verify_core::checks::v26_custody::vault_view_of(&d).unwrap();
         v.lots += 1;
         let mut w = c.w.clone();
-        w.after.insert(VAULT, Some(vault_bytes(&v)));
+        w.after.insert(vault_k(), Some(vault_bytes(&v)));
         let r = w.replay(&c.data, &c.accounts);
         let Replayed::Mismatch(m) = &r else {
             panic!("{}: {r:?}", c.name)
@@ -447,8 +584,8 @@ fn a_step_the_kernel_refuses_is_a_mismatch() {
     let c = get("SetLotOrder");
     let mut w = c.w.clone();
     // The lot the order already went into (NONCE 1) is the state before.
-    let l = K::Lot::decode(&w.after[&LOT].clone().unwrap()).unwrap();
-    w.before.insert(LOT, lot_bytes(&l));
+    let l = K::Lot::decode(&w.after[&lot_k()].clone().unwrap()).unwrap();
+    w.before.insert(lot_k(), lot_bytes(&l));
     let r = w.replay(&c.data, &c.accounts);
     assert_eq!(
         r,
@@ -460,8 +597,8 @@ fn a_step_the_kernel_refuses_is_a_mismatch() {
     let (v, l) = filled();
     let c = get("CloseLot");
     let mut w = c.w.clone();
-    w.before.insert(VAULT, vault_bytes(&v));
-    w.before.insert(LOT, lot_bytes(&l));
+    w.before.insert(vault_k(), vault_bytes(&v));
+    w.before.insert(lot_k(), lot_bytes(&l));
     assert!(mismatch(&w.replay(&c.data, &c.accounts)));
     // Rent to an account that is not the lot's.
     let c = get("CloseLot");
@@ -473,7 +610,7 @@ fn a_step_the_kernel_refuses_is_a_mismatch() {
 #[test]
 fn missing_evidence_is_not_replayed_and_not_a_fail() {
     for c in cases() {
-        for k in [LOT, VAULT, c.accounts[3]] {
+        for k in [lot_k(), vault_k(), c.accounts[3]] {
             for side in 0..2 {
                 let mut w = c.w.clone();
                 let had = if side == 0 {
@@ -539,8 +676,8 @@ fn random_runs_replay_and_any_unit_off_is_caught() {
         let mut nonce = 0u32;
         for _ in 0..6 {
             let mut w = World::citizens();
-            w.before.insert(VAULT, vault_bytes(&v));
-            w.before.insert(LOT, lot_bytes(&l));
+            w.before.insert(vault_k(), vault_bytes(&v));
+            w.before.insert(lot_k(), lot_bytes(&l));
             let before = l;
             let (data, accounts): (Vec<u8>, Vec<Key>) = match rnd(3) {
                 0 => {
@@ -566,7 +703,16 @@ fn random_runs_replay_and_any_unit_off_is_caught() {
                     nonce += 1;
                     (
                         o.to_bytes().to_vec(),
-                        vec![OWNER_W, PAYER, SEASON, OWNER, VAULT, LOT, USER, VAULT],
+                        vec![
+                            OWNER_W,
+                            PAYER,
+                            SEASON,
+                            OWNER,
+                            vault_k(),
+                            lot_k(),
+                            USER,
+                            vault_k(),
+                        ],
                     )
                 }
                 1 => {
@@ -596,7 +742,7 @@ fn random_runs_replay_and_any_unit_off_is_caught() {
                         }
                         .to_bytes()
                         .to_vec(),
-                        vec![USER_W, PAYER, SEASON, USER, VAULT, LOT],
+                        vec![USER_W, PAYER, SEASON, USER, vault_k(), lot_k()],
                     )
                 }
                 _ => {
@@ -607,11 +753,12 @@ fn random_runs_replay_and_any_unit_off_is_caught() {
                     }
                     (
                         x::RevokeLotOrder { slot, id }.to_bytes().to_vec(),
-                        vec![OWNER_W, PAYER, SEASON, OWNER, LOT],
+                        vec![OWNER_W, PAYER, SEASON, OWNER, lot_k()],
                     )
                 }
             };
-            w.after.insert(LOT, Some(lot_bytes(&l)));
+            w.after.insert(lot_k(), Some(lot_bytes(&l)));
+            w.records = records_of(&data, accounts[3][0] as u64, Some(&before), &l);
             assert_eq!(w.replay(&data, &accounts), Replayed::Matches, "{before:?}");
             matched += 1;
             let mut off = l;
@@ -620,7 +767,7 @@ fn random_runs_replay_and_any_unit_off_is_caught() {
                 1 => off.consumed -= MILLI,
                 _ => off.orders[rnd(2) as usize].qty_left += MILLI,
             }
-            w.after.insert(LOT, Some(lot_bytes(&off)));
+            w.after.insert(lot_k(), Some(lot_bytes(&off)));
             if off != l {
                 assert!(mismatch(&w.replay(&data, &accounts)));
                 caught += 1;
@@ -724,12 +871,45 @@ fn recorded(case: &Case) -> (verify_core::Input, String) {
             .post
             .push((fclient::Address::new_from_array(*k), d.clone().map(acct)));
     }
+    log_records(&mut inp.txs[b].logs, &program.to_string(), &w.records);
     let sig = inp.txs[b].signature.to_string();
     (inp, sig)
 }
 
+/// `records` as the program logs them, in a frame of its own.
+fn log_records(logs: &mut Vec<String>, pid: &str, records: &[ReplayRecord]) {
+    use base64::Engine;
+    let b64 = base64::engine::general_purpose::STANDARD;
+    logs.push(format!("Program {pid} invoke [1]"));
+    for r in records {
+        let mut body = vec![0u8; 512];
+        let n = frontier_abi::v2::log::write_body(
+            frontier_abi::v2::log::AnyKind::Cq(r.kind),
+            BELL,
+            &r.key,
+            &r.payload,
+            &mut body,
+        )
+        .unwrap();
+        let n = frontier_abi::v2::log::write_tail(&[], &mut body, n).unwrap();
+        logs.push(format!(
+            "Program data: {} {}",
+            b64.encode(fclient::log::PS2),
+            b64.encode(&body[..n])
+        ));
+    }
+    logs.push(format!("Program {pid} success"));
+}
+
+/// The fixture's program, for the addresses of the tests through `verify`.
+fn use_fixture_program() {
+    let p = march().cfg.program.to_bytes();
+    PROGRAM.with(|c| c.set(p));
+}
+
 #[test]
 fn verify_replays_a_landed_instruction_and_fails_a_tampered_one() {
+    use_fixture_program();
     // SetLotQuota: its kernel step does not read the bell, so the
     // fixture's own bell at that transaction does not matter.
     let c = cases()
@@ -742,9 +922,9 @@ fn verify_replays_a_landed_instruction_and_fails_a_tampered_one() {
     assert_eq!(replay_findings(&r), vec![]);
     // The same transaction, its lot left one unit off.
     let mut bad = c;
-    let mut l = K::Lot::decode(&bad.w.after[&LOT].clone().unwrap()).unwrap();
+    let mut l = K::Lot::decode(&bad.w.after[&lot_k()].clone().unwrap()).unwrap();
     l.held += MILLI;
-    bad.w.after.insert(LOT, Some(lot_bytes(&l)));
+    bad.w.after.insert(lot_k(), Some(lot_bytes(&l)));
     let (inp, sig2) = recorded(&bad);
     assert_eq!(sig, sig2);
     let r = verify_core::verify(&inp);
@@ -763,6 +943,7 @@ fn verify_replays_a_landed_instruction_and_fails_a_tampered_one() {
 
 #[test]
 fn verify_leaves_a_caravan_instruction_without_evidence_unverifiable() {
+    use_fixture_program();
     let c = Case {
         name: "DepositLot",
         data: x::DepositLot {
@@ -774,7 +955,7 @@ fn verify_leaves_a_caravan_instruction_without_evidence_unverifiable() {
         }
         .to_bytes()
         .to_vec(),
-        accounts: vec![OWNER_W, PAYER, SEASON, OWNER, VAULT, VAULT, LOT],
+        accounts: vec![OWNER_W, PAYER, SEASON, OWNER, vault_k(), vault_k(), lot_k()],
         w: World::citizens(),
     };
     let (inp, sig) = recorded(&c);
@@ -793,4 +974,143 @@ fn verify_leaves_a_caravan_instruction_without_evidence_unverifiable() {
         0,
         "the guard's traces stay"
     );
+}
+
+// ------------------------------------------------------------ adversarial
+
+#[test]
+fn a_lot_or_vault_off_its_address_is_a_mismatch() {
+    for c in cases() {
+        // The same states at another lot account.
+        let other: Key = [0xD1; 32];
+        let mut w = c.w.clone();
+        if let Some(d) = w.before.remove(&lot_k()) {
+            w.before.insert(other, d);
+        }
+        if let Some(d) = w.after.remove(&lot_k()) {
+            w.after.insert(other, d);
+        }
+        let a: Vec<Key> = c
+            .accounts
+            .iter()
+            .map(|k| if *k == lot_k() { other } else { *k })
+            .collect();
+        let r = w.replay(&c.data, &a);
+        let Replayed::Mismatch(m) = &r else {
+            panic!("{}: {r:?}", c.name)
+        };
+        assert!(m.contains("address"), "{}: {m}", c.name);
+        // The same states at another vault account.
+        if !c.accounts.contains(&vault_k()) {
+            continue;
+        }
+        let ov: Key = [0x7A; 32];
+        let mut w = c.w.clone();
+        if let Some(d) = w.before.remove(&vault_k()) {
+            w.before.insert(ov, d);
+        }
+        if let Some(d) = w.after.remove(&vault_k()) {
+            w.after.insert(ov, d);
+        }
+        let a: Vec<Key> = c
+            .accounts
+            .iter()
+            .map(|k| if *k == vault_k() { ov } else { *k })
+            .collect();
+        let r = w.replay(&c.data, &a);
+        let Replayed::Mismatch(m) = &r else {
+            panic!("{} (vault): {r:?}", c.name)
+        };
+        assert!(m.contains("vault"), "{}: {m}", c.name);
+    }
+}
+
+#[test]
+fn the_single_lot_records_are_the_kernels() {
+    for c in cases() {
+        if c.w.records.is_empty() {
+            assert_eq!(c.name, "CloseLot");
+            continue;
+        }
+        // Not shown: not judged.
+        let mut w = c.w.clone();
+        w.records.clear();
+        let r = w.replay(&c.data, &c.accounts);
+        assert!(matches!(r, Replayed::Unreplayed(_)), "{}: {r:?}", c.name);
+        // Changed by one bit in each byte of its payload: a mismatch.
+        for i in 0..c.w.records[0].payload.len() {
+            let mut w = c.w.clone();
+            w.records[0].payload[i] ^= 0x01;
+            let r = w.replay(&c.data, &c.accounts);
+            assert!(mismatch(&r), "{} byte {i}: {r:?}", c.name);
+        }
+        // Shown twice, once right and once wrong: the program logs one.
+        let mut w = c.w.clone();
+        let mut wrong = w.records[0].clone();
+        wrong.payload[0] ^= 0x01;
+        w.records.push(wrong);
+        let r = w.replay(&c.data, &c.accounts);
+        let Replayed::Mismatch(m) = &r else {
+            panic!("{}: {r:?}", c.name)
+        };
+        assert!(m.contains("records for one instruction"), "{}: {m}", c.name);
+        // A loss on the lot that no single-lot step gives.
+        let mut w = c.w.clone();
+        w.records.push(ReplayRecord {
+            kind: CqKind::LOT_LOSS,
+            key: w.records[0].key.clone(),
+            payload: [&[1u8][..], &MILLI.to_le_bytes(), &[0; 20]].concat(),
+        });
+        assert!(mismatch(&w.replay(&c.data, &c.accounts)), "{}", c.name);
+    }
+}
+
+#[test]
+fn verify_replays_a_single_lot_instruction_with_its_record_to_a_full_match() {
+    use_fixture_program();
+    let c = cases()
+        .into_iter()
+        .find(|c| c.name == "SetLotQuota")
+        .unwrap();
+    let (inp, _) = recorded(&c);
+    let r = verify_core::verify(&inp);
+    assert_eq!(replay_findings(&r), vec![]);
+    // Without its record: not judged, never a match.
+    let mut c2 = c;
+    c2.w.records.clear();
+    let (inp, sig) = recorded(&c2);
+    let r = verify_core::verify(&inp);
+    assert_eq!(
+        replay_findings(&r),
+        vec![(
+            CUSTODY_REPLAY_INCOMPLETE.to_string(),
+            false,
+            "its LOT_QUOTA record is not among the records shown".to_string(),
+            sig
+        )]
+    );
+}
+
+#[test]
+fn another_standing_vault_at_its_own_address_is_not_the_lots() {
+    // A real vault (tile 9, at its own address) given for the lot on tile 7.
+    let mut v9 = view();
+    v9.tile = 9;
+    let k9 = frontier_abi::v2::addr::vault(&ctx(), 3, -2, 9);
+    for name in ["SetLotQuota", "ConsumeLot", "CloseLot"] {
+        let c = cases().into_iter().find(|c| c.name == name).unwrap();
+        let mut w = c.w.clone();
+        w.before.insert(k9, vault_bytes(&v9));
+        let a: Vec<Key> = c
+            .accounts
+            .iter()
+            .map(|k| if *k == vault_k() { k9 } else { *k })
+            .collect();
+        assert_eq!(
+            w.replay(&c.data, &a),
+            Replayed::Mismatch(format!(
+                "{name} landed, but its vault account is not the lot's vault"
+            ))
+        );
+    }
 }
