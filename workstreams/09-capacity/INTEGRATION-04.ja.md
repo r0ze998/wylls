@@ -1,4 +1,7 @@
-# ⑨ ゲーム本体（プログラム）への接続（2026-11-08、④ の候補 `cf517b55` の上）
+# ⑨ ゲーム本体（プログラム）への接続（2026-11-08、④ の候補 `cf517b55` の上、`ae0df617` に追従）
+
+> **④ の候補が `ae0df617cad8bef17b8763abe7f99baad11d78b2`（tree `4219fe2e…`）に進んだので、⑨ の担当ブランチに通常の merge で取り込んだ**（merge commit `cf439dba…`、衝突なし、どちらの commit も書き換えていない）。その上の `run.sh` の修正が `e529f157…`（tree `cecc28f26a68768a134d08aad0f8adda436e213c`）。**`ae0df617` に当てる列は [patches/to-04-ae0df617/](patches/to-04-ae0df617/)**（⑨ の 7 commit。`git am` で tree `cecc28f2…`、一致を確認）。下の §1 の `cf517b55` 向けの列も残す。§7 に、④ に求められた記録の kind の一覧と 10 枠に収める案。
+
 
 ⑨ の担当ブランチ `claude/elegant-bohr-co2uhr` を、④ の公開統合候補 `cf517b558d1303a84dba618550f40cb460b7ad99`（`claude/gallant-ride-cunptv`）まで fast-forward し、その上に ⑨ のコアの変更を 5 つの commit で積んだ。④ の候補には ⑨ の `872fe6a2`（kernel `9bd610c3…`、bridge10 `1177f502…`）が既に入っていた（作り直していない）。
 
@@ -75,3 +78,28 @@
 1. **返却の記録の種類**：ClaimJob が `return_unused` で区画の `CONSUMED` を減らすが、記録の種類が無いので区画の鎖を進めていない（区画の状態だけ書く）。⑩ の V26 が状態の変化を記録と照らすなら、`LOT_RETURNED` のような種類が要る。
 2. **区画ごとの未返却**：1 単位未満の端数は予約（Job 口座）が持つので、その予約は退役できない。adapter-09 の `owed` と同じく区画の側に未返却を持てば、端数が貯まって整数単位になれる。
 3. ⑨ は ⑩ のファイルを変えていない。⑩ の custody の読み書き（倉の見え方、区画の住所、拒否の番号）は ⑨ の `proc/capacity.rs` に写した（`proc::custody` の関数は非公開のため）。公開してもらえれば写しをやめる。
+
+## 7. 記録の kind（④ の求め：一覧と、帯 120–129 の 10 枠に収める案）
+
+**案であって決定ではない**（④ が ⑪ とあわせて決める）。⑨ の記録は 20 種（`kernel/src/event.rs`、規則の `capacity::Event` も同じ）。kind に 1 バイトの副種別（sub-kind）を足し、意味の近いものを同じ kind にまとめると 10 枠に収まる。
+
+| kind（案） | 名前（案） | 副種別 → ⑨ の記録 | 主な中身 |
+|---|---|---|---|
+| 120 | CAP_POOL | 0 PoolOpened、1 FacilityLost、2 PoolRetired | owner／喪失の時刻と占領者 |
+| 121 | CAP_LEND | 0 Lent、1 Reclaimed | units、lent、時刻 |
+| 122 | CAP_GRANT | 0 Granted、1 Revoked、2 GrantRetired | grant、user／取消の時刻と取り消した予約の数 |
+| 123 | CAP_RESERVED | 0 Reserved | job、units、窓、max_output |
+| 124 | CAP_DEPOSITED | 0 Deposited | job、投入 id、資源、量（出どころ：倉／区画は鍵で区別できる） |
+| 125 | CAP_RUN | 0 Started、1 Settled、2 Completed | job、今回の産出、使った量、累計 |
+| 126 | CAP_STOPPED | 0 Cancelled、1 Lost | job、時刻、それまでの産出 |
+| 127 | CAP_CLAIMED | 0 Claimed、1 Refunded | job、産出、返した材料（分割：整数単位と端数） |
+| 128 | CAP_FORFEITED | 0 Forfeited | job、占領者へ移った産出と材料、占領者 |
+| 129 | CAP_RETIRED | 0 Retired、1 Receipt | job、uid、産出／四つの口座（⑩ の式） |
+
+- 再生の検証器は、kind と副種別の組で ⑨ の規則（`frontier::capacity`）の記録と 1 対 1 に照らせる。
+- 区画の側の記録（`LOT_CONSUMED`、返却）は ⑩ の kind。⑨ の記録は ⑨ の Pool・Job の鎖に載せる案（entity kind は ④ の判断）。
+- 代わりに 20 枠を割り当てるなら、副種別を外し、表の順に 1 つずつにすればよい。
+
+**④ の回答（2026-11-08）の反映**：(e) 版の印は別の program の版として扱う（⑨ は `0x2000`）。ただし ⑨ は **custody と同時に build できるようにしている**（区画からの投入に両方が要る。版は `5 | 0x2000`）。④ は「同時に compile できないようにするのは、それまでの扱いとして妥当」としたが、⑨ は両方を要するので、この組み合わせの版も ④ に決めてほしい。(d)・(b) は仮の割当として載せてよい（正式化はこの候補の上で 0001 を確かめてから）。(a)・(c) は保留（記録は出さない）。(f) RULESET_HASH には入れない（入れていない）。
+
+**④ の土台の clippy の指摘**：`ae0df617` の `permutation-frontier/src/crypto/quick.rs` の試験の値に、使われていない関数・定数が 8 件ある（既定の build でも出る）。⑨ の `run.sh` は ⑨ のファイルの指摘だけで失敗にし、残りは数を記録する（`results/core-tests.log`）。
