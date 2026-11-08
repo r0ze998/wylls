@@ -25,17 +25,41 @@ const PENDING = new Set(['Accepted', 'Reserved', 'FacilityRequested', 'FacilityS
  * @param run  null (no run with this id: never accepted) or {state, held_reason?, effects?: [] (p04-run/0.1), outcome?: {effects?: []}}
  * @returns    null, or {ok, status: 'sent', fate: 'pending'|'landed'|'failed'|'cancelled'|'unknown', fateError?, ws04State, partial?, unverified?}
  */
+/** Run view versions this port reads (workstream 4 src/view.rs RUN_VIEW_VERSION). A view without one is an older fake. */
+export const RUN_VIEW_VERSIONS = Object.freeze(['p04-run/0.1']);
+
+/**
+ * What a run view says about effects, from every field that says anything (p04-run/0.1, cf517b55):
+ *   `effects`          receipt kinds in the store (top level)
+ *   `outcome.effects`  the executor's "effects that took place before the run stopped" ("kind subject")
+ *   `sent`             a confirmed caravan_sent receipt
+ * In workstream 4 today all three come from the same facts. If they ever disagree (one effects list empty and the
+ * other not, or the caravan's departure said by one and denied by another), the view is contradictory: no field is
+ * preferred, nothing is claimed, the answer is unknown.
+ */
+export function effectsOf(run) {
+  const lists = [['effects', run.effects], ['outcome.effects', run.outcome?.effects]].filter(([, v]) => Array.isArray(v));
+  const kinds = v => v.map(x => String(x).split(' ')[0]);
+  const departed = [...lists.map(([n, v]) => [n, kinds(v).includes('caravan_sent')]), ...(typeof run.sent === 'boolean' ? [['sent', run.sent]] : [])];
+  const contradictions = [];
+  if (lists.length === 2 && (lists[0][1].length > 0) !== (lists[1][1].length > 0)) contradictions.push(`${lists[0][0]} has ${lists[0][1].length}, ${lists[1][0]} has ${lists[1][1].length}`);
+  if (new Set(departed.map(([, b]) => b)).size > 1) contradictions.push(`caravan_sent: ${departed.map(([n, b]) => `${n} ${b}`).join(', ')}`);
+  return { any: lists.some(([, v]) => v.length > 0) || run.sent === true, contradictions };
+}
+
 export function fateOfRun(run) {
   if (run === null || run === undefined) return null;
   const base = { ok: true, status: 'sent', ws04State: run.state };
-  // p04-run/0.1 (cf517b55 src/view.rs) lists the receipt kinds as `effects` at the top; older views under `outcome`.
-  const effects = run.effects ?? run.outcome?.effects ?? [];
+  if (run.view_version !== undefined && !RUN_VIEW_VERSIONS.includes(run.view_version)) return { ...base, fate: 'unknown', why: `unknown run view version ${run.view_version}` };
   if (!WS04_STATES.includes(run.state)) return { ...base, fate: 'unknown', why: `unknown workstream 4 state ${run.state}` };
   if (run.held_reason) return { ...base, fate: 'unknown', why: `held: ${run.held_reason}` };
   if (TOOK_EFFECT.has(run.state)) return { ...base, fate: 'landed', ...(run.state === 'Partial' ? { partial: true } : {}), ...(run.state === 'DeliveredUnverified' ? { unverified: true } : {}) };
   if (PENDING.has(run.state)) return { ...base, fate: 'pending' };
-  // Stopped: Failed, Cancelled, Expired.
-  if (effects.length) return { ...base, fate: 'landed', stoppedAfterEffects: run.state };
+  // Stopped: Failed, Cancelled, Expired. Whether something took place first decides it; a contradictory view decides
+  // nothing (held: it may have left, so it is never sent again, and it is not claimed as landed either).
+  const e = effectsOf(run);
+  if (e.contradictions.length) return { ...base, fate: 'unknown', why: `contradictory run view: ${e.contradictions.join('; ')}` };
+  if (e.any) return { ...base, fate: 'landed', stoppedAfterEffects: run.state };
   if (run.state === 'Cancelled') return { ...base, fate: 'cancelled' };
   return { ...base, fate: 'failed', fateError: run.state };
 }
