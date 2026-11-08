@@ -925,8 +925,22 @@ export function wantProvince(p, q, onLoad = () => {}, { now = Date.now(), bell =
   return true;
 }
 
+/**
+ * ⑳: whether the Citizen of a /h/me read is the viewer's own kind. Playing an NFT, the NFT's Citizen: its bytes carry
+ * the resident mark naming the asset played (fcodec `residentAsset`). As the wallet, a wallet Citizen: no mark. The
+ * herald serves the key's wallet Citizen first (`me_citizen`), and the herald client checks each kind against the key
+ * alone, so a wallet Citizen whose wallet is the asset address passes there; it is still not the NFT's Citizen.
+ */
+function viewerOwnCitizen(citizen) {
+  if (!citizen) return true;
+  const mark = citizen.residentAsset;
+  return FS.resident ? !!mark && toBase58(mark) === FS.resident.asset : mark === undefined;
+}
+
 /** Apply one /h/me read to the viewer. A missing Citizen is ready; a failed read is an error. */
 export function applyMeResult(me) {
+  // (another kind of Citizen than the viewer's: refused like any other Citizen of another key, never adopted)
+  if (me.ok && !viewerOwnCitizen(me.citizen)) me = { ok: false, code: 'WrongKey' };
   if (me.ok) {
     FS.meStatus = 'ready'; FS.meError = null; FS.meAnswered = true;
     const before = FS.land?.stage;

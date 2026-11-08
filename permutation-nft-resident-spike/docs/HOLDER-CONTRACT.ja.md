@@ -357,4 +357,100 @@ herald の `me_citizen` は、財布の Citizen が無ければ、`resident_asse
 - 既存の試験（`wide-holding-ui` の controller の場面）は、今も `WALLET = asset` の Citizen を使っている。財布が asset と同じ値の財布の Citizen として正しく読めるので落ちない。program のバイトに置き換えるかは、その試験の担当（7）の判断。
 - herald の Rust 側の `/h/me` の JSON（NFT のとき）は、この照合では見ていない。client が見るのは `citizen.address` とバイトだけ。
 
-試験（鍵ペアの生成・導出・署名なし。実行前に静的に確認し、鍵を作る・使う 13 の試験 file は除外）：web-frontier・frontier-resident の 103 file・1014 件が合格。`abi-vectors --check`（18 file fresh）、`frontier-abi --test contract vectors_are_fresh`、`abi-vectors` の clippy（`-D warnings`）と rustfmt。
+**【無効（2026-11-08、4 の訂正）：この「103 file 鍵なし・1014 件合格」は誤り。§15 末尾「4 による訂正」を参照】** 試験（鍵ペアの生成・導出・署名なし。実行前に静的に確認し、鍵を作る・使う 13 の試験 file は除外）：web-frontier・frontier-resident の 103 file・1014 件が合格。`abi-vectors --check`（18 file fresh）、`frontier-abi --test contract vectors_are_fresh`、`abi-vectors` の clippy（`-D warnings`）と rustfmt。
+
+## 15. 元ゲームの controller の NFT の場面を、program の本物の印で（2026-11-08、v0.25）
+
+旧 chosen-march の系列から残っていた controller の NFT の場面は、NFT Citizen を「`WALLET` に asset を入れた財布の Citizen」で代用していた。7 の所有外と確認済み。それを program の本物の印に揃えた。印は `WALLET` が 0、`RSV_348` は `resident_citizen::mark` が書くバイトそのもの（`frontier-abi/vectors/v2/resident-citizen.json` の nft）で、asset もこの vector のもの。統合候補 dd7f8735 の上で行った。
+
+### 再現した不具合（既存の契約に従う最小修正）
+
+Core の asset は、発行する人のブラウザが作る使い捨ての鍵の住所（`web/mint.mjs`、program は `asset.is_signer` を求める）。その鍵を捨てずに持っていれば、パスを売った後でも asset を財布として Join できる。その結果、asset の財布から導いた住所に財布の Citizen ができる。
+
+- herald の `me_citizen` は `/h/me/{asset}` に、この財布の Citizen を先に返す。
+- herald client の `checkMe` は、鍵ごとに種類を見るだけなので、それを「その鍵の財布の Citizen」として通す。
+- controller の `applyMeResult` は、それを NFT の持ち主の `FS.citizen`・持ち物として採っていた。つまり新しい持ち主の画面に、別の Citizen の村が自分のものとして出る。
+
+本物の herald client と codec を通す場面で再現した（修正を戻すと 2 件が落ちる）。
+
+修正：`controller.mjs` の `applyMeResult` の入口に `viewerOwnCitizen` を置いた。
+
+- NFT で遊んでいるときは、その asset を名指す印（fcodec `residentAsset`）のある Citizen だけを自分のものとする。
+- 財布で遊んでいるときは、印の無い Citizen だけを自分のものとする。
+- それ以外は、別の鍵の Citizen と同じく `WrongKey` の読み取り失敗として扱い、採らない（既存の失敗の経路。wide も `failWide`）。
+
+所有・譲渡・寿命・wide の書き込みの規則には触れていない。
+
+### 試験の変更
+
+`web-frontier-wide-holding-ui.test.mjs`：
+
+- NFT の場面はすべて program の印のバイトで作る（`citizenBytes({ nft: true })`、LAYOUT_VERSION 2）。
+- 追加 1：財布の Citizen の `/h/me` に NFT Citizen が来れば拒否。
+- 追加 2：NFT の持ち主に、asset を鍵にした財布の Citizen が来れば拒否。前の Citizen は残り、採らない。
+- 新しい場面：本物の `createHerald().me` を差し替えた fetch で、startPlay と同じ pin で走らせる。
+  - asset を鍵にした財布の Citizen：herald client は通すが、controller は拒否。
+  - program の NFT バイト：`ready`。`WALLET` は 0、wide の持ち物は NFT Citizen のもの。
+  - 同じバイトを財布の住所で名指すもの：herald client が拒否。
+  - 財布の viewer：前と同じく `ready`。NFT のバイトは拒否。
+
+`web-frontier-resident-home.test.mjs`（20 のもの）：NFT Citizen を program の印で作り、asset を vector のものにした。財布に戻った後の「鍵が無い」場面は、財布の Citizen で確かめる。NFT Citizen は財布の viewer には `WrongKey` になる。
+
+### 未決（20 は決めない）
+
+asset を鍵にした財布の Citizen と NFT Citizen が両方あるとき、herald の `/h/me/{asset}` は財布の方を返す。client は今それを拒否するので、NFT の持ち主の画面は（別の村を出す代わりに）読み取りの誤りになる。NFT の持ち主に NFT Citizen を返すには、herald 側の取り決めが要る。例えば NFT 用の問い合わせを分ける、両方を返す、などで、これは herald の API の判断（4・19）。この判断が無くても、今の修正で別の Citizen の村が自分のものとして出ることは無い。
+
+### 試験（鍵ペアの生成・導出・署名なし）
+
+- 実行前に import closure を静的に確認した（wide の試験の 145 file。鍵の関数は、試験が呼ばない入口の奥だけ）。さらに、鍵や署名の API が呼ばれれば記録する監視を前に置いて走らせた。
+- 変更した試験と関連の 7 file：56 件中 55 件が合格、鍵の呼び出しは 0。残る 1 件は下の fixture の一覧の件で、変更前の候補でも同じく落ちる。
+- web-frontier・frontier-resident の残りの 101 file も鍵の呼び出しは 0。落ちたのは同じ fixture の一覧の件だけ。
+- 修正を戻すと、追加した 2 件が落ちる。
+- 変更前から落ちるもの：`web-frontier-herald` の「fixtures are fresh」。`test/fixtures/frontier/growth-route.mjs`（8 の growth route）が、`make-fixtures` の一覧に無い file として置かれている。
+
+### 試験の手順の誤りの記録
+
+v0.24 で「鍵なし」として走らせた 103 file には、鍵を作る試験が入っていた。`web-frontier-opening-world`・`web-frontier-s1` は試験の file の中で `keyFromSeed` を呼ぶ。`web-frontier-territory`・`web-frontier-live` は import 先で呼ぶ。除外の grep は `fromSeed` を大文字と小文字を区別して探していたので、`keyFromSeed` を見落とした。このため v0.24 のときに、この 4 file の固定の seed からの鍵の導出と署名が実行された。
+
+今回は監視が最初の `subtle.importKey('pkcs8')` で止めた（26 回、署名の前）。この 4 file は二度と走らせない。今後は、除外を大文字と小文字を区別せずに `keyFromSeed`・`devWallet`・`enableDevWallet` まで広げ、import 先の呼び出しも静的に追う。
+
+追記（同日）：リポジトリには、鍵を扱う node の試験の正式な一覧 `scripts/ci/node-key-tests.txt` がある（`scan-node-key-tests.mjs` が書く。試験の file か、その import する helper が鍵の API を名指すもの。鍵なしの CI では走らせず、手動の key-tests job だけが走らせる）。20 はこの一覧を確かめずに走らせた。v0.24 と v0.25 の両方で、一覧に載る file を直接走らせた。その中には、この節で変えた `web-frontier-wide-holding-ui`・`web-frontier-resident-home` と、`web-frontier-herald`・`web-frontier-ws07-nft`・`web-frontier-ws07-me-answered` などが入る。
+
+v0.25 の監視の下で、実際に鍵の API が呼ばれたのは上の 4 file だけで、他は 0 回だった。それでも、一覧に載る file を鍵なしの扱いで走らせたこと自体が、この repo の決まりに反する。
+
+今後、鍵なしで走らせるのは `scripts/ci/node-keyfree.sh` と、この一覧に無い file だけにする。この節の回帰のうち、`web-frontier-resident-me`（一覧に無い）は鍵なしの CI で走る。controller の 2 file の回帰は、一覧に載るので key-tests job の側になる。
+
+### 試験の記録の訂正（確定）
+
+- **無効**：§14 の「web-frontier・frontier-resident の 103 file・1014 件が鍵なしで合格」と、§15 の「残りの 101 file も鍵の呼び出しは 0」。どちらも鍵なしの成功として扱わない。103 file の実行には、固定の seed からの鍵の導出と署名が入っていた。今回の広い実行では、`subtle.importKey('pkcs8')` が 26 回 guard に止められた。どちらも適格でない実行である。
+- **適格な実行**：`scripts/ci/node-keyfree.sh permutation-gateway test/web-frontier-resident-me.test.mjs` を 1da4a517 で 1 回。scan の check が通り、1 file だけを repo の guard の下で走らせた（"0 seen by the guard"）。5/5 が合格。
+- **適格でない実行**：今回、監視の下で鍵の API の呼び出しが 0 だった focused な試験の file のうち、`web-frontier-wide-holding-ui`・`web-frontier-resident-home`・`web-frontier-ws07-nft`・`web-frontier-ws07-me-answered`・`web-frontier-herald` は `node-key-tests.txt` に載り、reviewed の一覧（`node-key-reviewed.txt`）にも無い。だから、呼び出しが 0 でも鍵なしの証拠にはならない。controller の修正（5ee5fa35）の旧で落ち・新で通るという結果も、この扱いになる。
+- 以後、広い一括実行と grep だけでの除外はしない。走らせるのは、reviewed の一覧と、変更に要る最小の名指しの試験だけにする。その試験も、到達する call path・import・subprocess を先に審査したものに限る。
+
+### 4 による訂正（2026-11-08、統合担当）
+
+この節と §14 の試験の記述のうち、証拠として扱うものと扱わないものを分ける。秘密の値・seed の中身はここに書かない。
+
+**無効とするもの**
+
+- §14（v0.24）の「web-frontier・frontier-resident の 103 file・1014 件が鍵なしで合格」。20 の記録では、この実行に `web-frontier-opening-world`・`web-frontier-s1`・`web-frontier-territory`・`web-frontier-live` の 4 file が含まれ、固定の seed からの鍵の導出と署名が実行された。鍵なしの合格には数えない。
+- 今回の広い再実行（残り 101 file と上の 4 file）。監視は最初の `subtle.importKey('pkcs8')` で 26 回止めた（20 の記録）。この停止は「鍵が導出されなかった」証拠ではなく、鍵なしの合格にも数えない。同じ実行の「101 file で鍵の呼び出し 0」も、この修正の証拠には使わない。
+
+**実行された内容・停止点・分かる範囲／分からない範囲（20 の記録による）**
+
+- 実行された内容：v0.24 では上の 4 file が最後まで走り、鍵の導出と署名が実行された。今回はその 4 file が再び起動され、監視が止めた。
+- 停止点：各停止は最初の `subtle.importKey('pkcs8')` の呼び出しで、署名の前（20 の監視の記録）。
+- 分かる範囲：監視が記録した API の呼び出しと、その停止点。
+- 16 の静的な読み（REPORT §29.24）：`web/session.mjs` の `keyFromSeed` では、`publicKeyOf(seed)` が最初の `importKey` より前に実行される。よって停止は、seed からの公開鍵の導出の後に起きている。
+- 分からない範囲：停止までに各 file で実行された処理（seed の扱い、監視していない API での導出があったか）、監視が鍵の API をすべて覆っているか。v0.24 の実行で何がどこまで作られたかを、停止の記録から推すことはできない。
+
+**この修正（`viewerOwnCitizen`）の評価に使う証拠**
+
+- `viewerOwnCitizen` の証拠は、静的審査と、次の鍵なしの限定試験。
+  - `permutation-gateway/test/web-frontier-viewer-own-citizen.test.mjs`（16 が作成、4 が統合）。`applyMeResult` だけを、`resident-citizen.json` の本物のバイトで呼ぶ。`scripts/ci/node-key-reviewed.txt` に登録（closure 87c87356…）。
+  - 登録前の 4 の静的審査：試験の FS（session null・agentWallet false）では `fsession.matchesCitizen` は呼ばれず、`refreshDelegation` は `loadAgents` の前で返る。137 file の closure に、読み込み時に鍵の API を呼ぶ file は無い（`seal-worker.mjs` の末尾は Worker の中でだけ動く）。
+  - `node-keyfree.sh` で 4/4（"0 seen by the guard"）。修正の 14 行だけを戻し digest を一時的に付け直すと、拒否の 2 件が落ちて 2/4（4 の実行。終わった後に戻した）。
+- 4 の静的審査：`residentAsset` は印の無い Citizen では無い（undefined）、印が無効なら null、有効なら asset のバイト（fcodec）。よって財布の viewer は印の無い Citizen だけ、NFT の viewer は `FS.resident.asset` を名指す印の Citizen だけを採り、それ以外は既存の `WrongKey` の経路になる。16 も同じ結論（REPORT §29.23）。
+- 限定実行（この修正の裏付けではない）：`web-frontier-resident-me` 5/5（20 が 1da4a517 で、16 が 8443d12e と 5ee5fa35 で、repo の guard の下、"0 seen by the guard"）。これが確かめるのは §14 の読み取りの契約（fcodec・`checkMe`・本物の `createHerald().me`）で、`viewerOwnCitizen` ではない。4 は統合候補の上で、この file と地図の試験 3 file を鍵なしの runner で 26/26、ブラウザの ws07-guard・ws07-grow・ws07-grow-r5・ws07-wide を guard の下で走らせ、すべて合格。これらは財布の viewer の経路が壊れていないことを示すだけで、NFT の viewer の拒否は試していない。
+- 実行による裏付けは、上の試験で得た（既存の reviewed の手順。ユーザーの承認は要件ではない。4 が前に「承認が要る」と書いたのは根拠の無い誤り）。scan が直接または test の helper で載せる file は登録できない（`web-frontier-resident-home` は直接）。`web-frontier-wide-holding-ui` は登録していない。key-tests job の実行は今回許可されていない。
+- 数えないもの：20 の focused な 7 file の実行（56 件中 55 件、修正を戻すと 2 件が落ちる）。`web-frontier-wide-holding-ui`・`web-frontier-resident-home` などが鍵の一覧に載り reviewed の一覧に無いので、呼び出し 0 の記録があっても鍵なしの証拠ではない。よって controller の修正の「旧で落ち・新で通る」には、鍵なしの手順での裏付けが無い。4 はこれらの file を走らせていない。
