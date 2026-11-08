@@ -165,9 +165,11 @@ export function fromRunReceipts(receipts, runs, map, opts = {}) {
     } else if (r.kind === 'caravan_settled') {
       const mismatch = run.reason === 'DestinationMismatch' || (run.spec?.ship?.dst && !samePlace(b.dst, run.spec.ship.dst) && Number(b.outcome) !== OUTCOME_LOST);
       const q = quantityOf(b, run.outcome);
+      const sentOf = sentCargo.get(`${cv.owner}:${cv.seq}`) ?? run.spec?.ship?.cargo ?? null;
       (b.cargo ?? []).forEach((logged, i) => {
         const res = SLOT_RESOURCES[i];
-        if (!res || !logged) return;
+        // Sent but logged as 0 (less than one unit kept): the caravan still settled; at least 0 (④ RuleDerived 0).
+        if (!res || !(logged || sentOf?.[i])) return;
         if (mismatch) emit('ship.lost', { ship: ship(res), cause: 'unconfirmed' }, 'chain');
         else if (q.kind === 'zero') emit('ship.arrive', { ship: ship(res), qty: 0, qtyKind: 'zero' }, 'chain');
         else if (q.kind === 'lower_bound') emit('ship.arrive', { ship: ship(res), qty: q.qty?.[i] ?? 0, qtyKind: 'lower_bound' }, 'chain_lower_bound');
