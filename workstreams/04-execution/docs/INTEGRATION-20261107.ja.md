@@ -519,3 +519,34 @@ fa822453 の上に載せた。各チームのサブツリーは、チームが�
 - 扱い：
   - 懸念は「古い」ではなく「今もありうる」として残す。
   - 締め切りの規則（終わりで打ち切る、終わりで止める、続ける）は選ばず、コードも変えていない。
+
+### 16.2 画面の検証範囲の訂正（⑦ から、2026-11-08）
+
+**⑦ の訂正**
+- これまでの既定の headless shell では、secure-origin の指定（`--unsafely-treat-insecure-origin-as-secure`）が効いていなかった。
+- そのため、ページでは WebCrypto が使えず、march の画面は NoWasm で止まっていた。実際の march の操作は動いていなかった。
+- ⑦ は full Chromium に切り替えた。ページ自身の `keyFromSeed` なども、呼ばれる前に拒否するガードと、ガードが入っていることの assertion を足して、確かめ直している。
+- `session.preflight()` は固定 seed（`fill(7)`）から鍵を導くので、これまでどおり実行しない。
+
+**この記録での分け方**
+- 画面の部品の試験の成功と、WASM を動かした march の操作の成功は、別のものとして書く。
+- §16 の「画面 46/46」（⑯、7535a17e）、「web 63/63」（⑧、7535a17e）、`web-frontier-controller.test.mjs` の 19/19 は、画面の部品の試験の結果として扱う。march の操作を確かめたものではない。
+- **march の操作は、⑦ の新しい結果が届くまで「確かめていない」とする。** 検証済みとは書かない。
+
+**④ の S1 の画面の試験（4d44f021、`screens/ws07-s1-pure.screen.mjs` の 8/8）について**
+- `WS07_CHROME=/opt/pw-browsers/chromium` で流した。これは full Chromium（`chromium-1243/chrome-linux64/chrome`）で、headless shell ではない。
+- 中身は、S1 の村のカードと、① の板への入口の試験。march の操作は含まない。画面の部品の試験の結果として扱う。
+- ページ内のガード（`screens/ws07/nokey-page.mjs`）が止めるのは、WebCrypto の generateKey・deriveKey・deriveBits・sign・unwrapKey と、pkcs8 などの importKey。
+  - `keyFromSeed` は、公開鍵の計算（`publicKeyOf`、JS で seed から計算する）の後に、pkcs8 の importKey を呼ぶ。記録が 0 件なので、`keyFromSeed` は最後まで呼ばれていない。
+  - ただし、`publicKeyOf` だけを呼ぶ経路（`importBackup`）は、このガードでは止まらない。この試験はバックアップを読み込まないので、通らない。
+  - 「導出がなかった」の根拠は、記録とコードの読みによるもので、入れたガードが証明したものではない。⑦ のガードが入るまで、④ はブラウザの画面の試験をこれ以上流さない。
+- 最初の 1 回は、playwright-core のリンク先の誤り（`ERR_MODULE_NOT_FOUND`）で失敗した。これは ④ の手順の誤りで、ページの不具合ではない。
+- 今、ほかに失敗している S1 の試験の記録は見つかっていない。⑦ の新しい結果を受け取ってから、この訂正に照らして原因を分ける。
+
+### 16.3 後継の候補 4d44f021（④、2026-11-08）
+
+- `claude/gallant-ride-cunptv` @ `4d44f021df1e9e6c37a072e81bcfc04f0c2e6d06`（tree `131c6cb451bd597ccc037546bd96d2373ce9ffa0`）。16576826 の上に、各担当の directory だけを重ねた 4 commit。どれも `[skip ci]`。
+  - ⑮ `fb7bbdef` → `0541478f`、③ `838338be` → `7e820189`、⑥ `7232c86b` → `d35604d6`、① `ca44e603` → `4d44f021`
+- 検証済みの基準は 16576826 のまま。4d44f021 は ⑯ が差分の範囲を確かめている途中。
+- ④ が流したもの（すべて no-keys-guard の下）：⑮ 134/134、③ 25 通過・7 省略、⑥ 29 通過・1 省略（2 回）、① 239/239 と coop.browser.nokey 10/10、gateway の ws07-coop 4/4、S1 の画面 8/8（§16.2 のとおり、画面の部品の試験）。
+- ⑥ の package 全体を guard の script で流すと、`test/roles.test.mjs`（`generateKey()` を呼ぶ）が鍵の一覧に無いため、exit 3 で止まる。このファイルは変わっておらず、実行していない。scan が ⑥ の directory を見ていないことによる、もとからの欠け。直していない。
