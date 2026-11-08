@@ -1,12 +1,12 @@
-// Contract test against ⑭'s centre facts (wylls.ws14.centre-facts/1, d9c8b81d): outputs of ⑭'s own centreFacts
-// (scenarios/fixtures/ws14-centre-d9c8b81d.json, gen-ws14-centre.mjs). Reported as an aggregate; never events.
+// Contract test against ⑭'s centre facts (wylls.ws14.centre-facts/1, 88cf67c0): outputs of ⑭'s own centreFacts
+// (scenarios/fixtures/ws14-centre-88cf67c0.json, gen-ws14-centre.mjs). Reported as an aggregate; never events.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { readCentreFacts } from '../src/adapters/ws14-centre.mjs';
 import { fromTowerFacts } from '../src/adapters/ws14.mjs';
 
-const fx = JSON.parse(readFileSync(new URL('../scenarios/fixtures/ws14-centre-d9c8b81d.json', import.meta.url), 'utf8'));
+const fx = JSON.parse(readFileSync(new URL('../scenarios/fixtures/ws14-centre-88cf67c0.json', import.meta.url), 'utf8'));
 const O = fx.outputs;
 
 test('a still fold is a snapshot; vaults, structures, transits and sightings are counted per kind', () => {
@@ -30,6 +30,14 @@ test('cargo summed over resources by the source is not used; the evaluator keeps
   assert.ok(r.notUsed.some(s => /sum over resources/.test(s)));
   assert.ok(!JSON.stringify(r.counts).includes('80'));
   assert.ok(r.transitOwners.every(o => !('cargo' in o)));
+  // ⑭'s per-resource cargo (88cf67c0) is read per resource: 100 + 30 wood, 50 stone at the centre; 100 wood through the Concord
+  assert.deepEqual(r.cargo.byResource.wood, { centre: 130, concord: 100 });
+  assert.deepEqual(r.cargo.byResource.stone, { centre: 50, concord: 0 });
+  assert.equal(r.cargo.notGiven, 0);
+  // a transit without cargoByResource (⑭ before 88cf67c0) is "not given", not zero
+  const old = { ...O.still, facts: O.still.facts.map(({ cargoByResource, ...f }) => f) };
+  assert.equal(readCentreFacts(old).cargo.notGiven, 2);
+  assert.deepEqual(readCentreFacts(old).cargo.byResource.wood, { centre: 0, concord: 0 });
 });
 
 test('u64 owner tags stay exact strings', () => {
@@ -48,9 +56,9 @@ test('a moving fold is "between"; no /h/status is "source unknown": listed, not 
   assert.equal(f.slotCommitment, 'not stated by the herald');
 });
 
-test('a sighting carries no owner and no subject: credited to no one', () => {
+test('a sighting names the tower\'s owner and its subject (u64 exact), and is credited to no one (undecided)', () => {
   const r = readCentreFacts(O.still);
-  assert.deepEqual(r.sightings, [{ bell: 290, what: 'caravan', towerFaction: 2, faction: 0, creditedTo: null }]);
+  assert.deepEqual(r.sightings, [{ bell: 290, what: 'caravan', towerFaction: 2, faction: 0, towerOwnerTag: '31', subject: '17278127443140898241', creditedTo: null }]);
 });
 
 test('refusals: another version, another schema, an unknown kind, a fact not derived', () => {

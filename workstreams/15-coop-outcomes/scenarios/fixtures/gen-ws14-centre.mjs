@@ -1,7 +1,7 @@
 #!/usr/bin/env node
-// Regenerates scenarios/fixtures/ws14-centre-d9c8b81d.json by running ⑭'s own `centreFacts` (game/centre.mjs at
-// d9c8b81d09fac0a0eeb9ef471e1dc7cb2c20fbd1, origin/claude/hopeful-cori-tql3le). Extract first (read only):
-//   git archive d9c8b81d workstreams/14-central-tower | tar -x -C <dir>
+// Regenerates scenarios/fixtures/ws14-centre-88cf67c0.json by running ⑭'s own `centreFacts` (game/centre.mjs at
+// 88cf67c025811f6ffaf555fa52f6899d954edbe6, origin/claude/hopeful-cori-tql3le). Extract first (read only):
+//   git archive 88cf67c0 workstreams/14-central-tower | tar -x -C <dir>
 //   git show 3f3c8478:workstreams/01-national-strategy/test/fixtures/herald-caravans-ended.json > <dir>/herald-caravans-ended.json
 //   node workstreams/15-coop-outcomes/scenarios/fixtures/gen-ws14-centre.mjs <dir>
 // Inputs: (1) ①'s committed herald file (a real herald output; nothing of it is at the centre); (2) a feed ⑮ wrote in
@@ -31,7 +31,7 @@ const feeds = {
 };
 const st = (events, lastSlot) => ({ v: 1, foldedThrough: 4, events, lastSlot, alarms: [] });
 const out = {
-  source: { repo: 'r0ze998/wylls', branch: 'claude/hopeful-cori-tql3le', commit: 'd9c8b81d09fac0a0eeb9ef471e1dc7cb2c20fbd1', code: 'workstreams/14-central-tower/game/centre.mjs centreFacts',
+  source: { repo: 'r0ze998/wylls', branch: 'claude/hopeful-cori-tql3le', commit: '88cf67c025811f6ffaf555fa52f6899d954edbe6', code: 'workstreams/14-central-tower/game/centre.mjs centreFacts',
     note: 'Each output is what ⑭\'s centreFacts returned. "herald" reads ①\'s committed herald file (3f3c8478 test/fixtures/herald-caravans-ended.json); "still" and "moving" read a feed ⑮ wrote in the herald\'s shape. No running herald was read.' },
   outputs: {
     herald: centreFacts({ caravans: { v: 1, moving: herald.moving ?? [], vaults: herald.vaults ?? [] }, structures: null, observedAt: 'fixture' }),
@@ -41,5 +41,5 @@ const out = {
     badVersion: centreFacts({ caravans: { v: 2, moving: [], vaults: [] } }),
   },
 };
-writeFileSync(new URL('./ws14-centre-d9c8b81d.json', import.meta.url), `${JSON.stringify(out, null, 1)}\n`);
+writeFileSync(new URL('./ws14-centre-88cf67c0.json', import.meta.url), `${JSON.stringify(out, null, 1)}\n`);
 for (const [k, o] of Object.entries(out.outputs)) console.log(k, o.refused ?? `${o.facts.length} facts, stable ${o.provenance.stable}`);

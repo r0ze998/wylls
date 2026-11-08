@@ -217,8 +217,8 @@
 
 ## 5f. ⑭の中央の事実（centre-facts/1）、⑫・⑬との名前の揃え、①の待ち（2026-11-08）
 
-**⑭ `wylls.ws14.centre-facts/1`（`d9c8b81d09fac0a0eeb9ef471e1dc7cb2c20fbd1`、`origin/claude/hopeful-cori-tql3le`）**
-- `gen-ws14-centre.mjs` が⑭の `game/centre.mjs` の `centreFacts` をそのまま動かし、その返り値を `scenarios/fixtures/ws14-centre-d9c8b81d.json` に置いた。入力は二つ。
+**⑭ `wylls.ws14.centre-facts/1`（`88cf67c025811f6ffaf555fa52f6899d954edbe6`、`origin/claude/hopeful-cori-tql3le`。最初に読んだ `d9c8b81d` に、⑮の観察を受けて⑭が資源ごとの積荷・目撃の持ち主と subject を足した版）**
+- `gen-ws14-centre.mjs` が⑭の `game/centre.mjs` の `centreFacts` をそのまま動かし、その返り値を `scenarios/fixtures/ws14-centre-88cf67c0.json` に置いた。入力は二つ。
   - ①が commit したヘラルドのファイル。本物のヘラルドの出力で、中央には何もない。
   - ⑮がヘラルドの形で書いた一覧（⑭の試験と同じ形）。
 - 読むのは `src/adapters/ws14-centre.mjs` の `readCentreFacts`。**事実の集計として報告するだけで、評価器の event にはしない。** 目標・報酬枠・得点・賞金は読まない。中央の倉・建物・通行が何に値するかの規則がないため。
@@ -228,8 +228,8 @@
   - 違う → `between`
   - 読んでいない → `source_unknown`
   - どれでも事実は並べるが、時刻を推し量らない。
-- **使わない欄：** `centre.transit.cargo` は資源をまたいだ合計（⑭の `sumCargo`。例：木材30＋石材50＝80）。summary の積荷の割合もその合計から作られている。⑮は資源を合計しないので、どちらも使わない。数は事実から数え直す。
-- 目撃（`centre.sighting`）には、物見櫓の持ち主も、見られたものも入っていない。だから誰の手柄にもしない（`creditedTo: null`）。
+- **使わない欄：** `centre.transit.cargo` は資源をまたいだ合計（⑭の `sumCargo`。例：木材30＋石材50＝80）。summary の積荷の割合もその合計から作られている。⑮は資源を合計しないので、どちらも使わない。代わりに⑭が足した `cargoByResource`（ヘラルドの 8 枠）を資源ごとに数える。Science・Influence は、数えない資源として別に出す。`cargoByResource` のない事実（d9c8b81d の形）は「量なし」とし、0 とはしない。そのほかの数も、事実から数え直す。
+- 目撃（`centre.sighting`）には、物見櫓の持ち主（`towerOwnerTag`）と、見られたもの（`subject`）がある（88cf67c0）。⑮はそれを u64 の文字列のまま報告する。目撃が誰に何をもたらすかは決まっていないので、誰の手柄にもしない（`creditedTo: null`）。
 
 **目撃の出どころ（以前の記述の補足）**
 - S1 のチェーンには目撃の記録がない。ヘラルドは公開の記録（DEPART・REVEAL など）から目撃を計算して `h/structures.json` の `sightings` に出している（`frontier-node/crates/herald/src/structure.rs`）。
@@ -245,6 +245,8 @@
 - 届くまで、⑮は 3f3c8478 の `fold()`（§5d）で照合している。requests は id をキーにしたオブジェクト。記録の season は `{programId, seasonId}` で、fold は season の違う記録を拒む。
 - `fold()` の返り値自体は season を持たない。そのため、どの program・season の板かは呼び出し側が⑫の `worldFromSeason` と揃えて渡すしかない。これを①への確認点にした。
 
+**⑭の照合（⑭から 2026-11-08）**：⑮ 95f44cf3 で、⑭の v1 の固定データ（案 A・B・C）はバイト単位で同じだった。contract-ws14 の 11 件も合格。A・B・C を通すと、拒否 0、境界 2（168・336）、評価期間は作られなかった。B の掲示・引受・完了は 631・597・523 で、⑭の数と一致した。旧版 b1a09a0b の食い違いは解消済みとされた。
+
 **試験**：`test/contract-ws14-centre.test.mjs`（7 件）。全体で 127 件。
 
 ## 6. 残っていること（2026-11-08 時点）
@@ -253,7 +255,7 @@
 1. ①の `a110411b`（GitHub にない）。届いたら、`fold()` の requests の形と season の文脈を照合する。①の板が受け付けた本物の（署名つきの）記録の列と、チェーンから読んだ隊商の確定（`caravanEndFromChain` の実際の返り値）も未受領。
 2. ④が⑮の更新を取り込むかどうかと、stage D の差分（`patches/ws04-chain-flow-stage-d-cf517b55.patch`）を当てるかどうか（④の判断）。④の cargo の stage A・B は鍵を作る試験を含むので、⑮では動かしていない。固定データだけで確かめた。
 3. ⑬の住民が実際に送った隊商の、④の store（receipt と run）。
-4. ⑭の centre-facts の積荷を資源ごとに出す欄、目撃の持ち主と subject（⑮から要求はしていない。使うかどうかは規則の判断）。
+4. （⑭が 88cf67c0 で足した。⑮はそれを読む。目撃を使うかどうかは規則の判断のまま）
 5. 差分の基点 `32ad894d`・`1913625d` と、もとの候補 commit の本体（照合できていない）。
 
 **持ち主の判断（未決のまま）**

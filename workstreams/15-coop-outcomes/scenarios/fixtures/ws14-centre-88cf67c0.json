@@ -2,7 +2,7 @@
  "source": {
   "repo": "r0ze998/wylls",
   "branch": "claude/hopeful-cori-tql3le",
-  "commit": "d9c8b81d09fac0a0eeb9ef471e1dc7cb2c20fbd1",
+  "commit": "88cf67c025811f6ffaf555fa52f6899d954edbe6",
   "code": "workstreams/14-central-tower/game/centre.mjs centreFacts",
   "note": "Each output is what ⑭'s centreFacts returned. \"herald\" reads ①'s committed herald file (3f3c8478 test/fixtures/herald-caravans-ended.json); \"still\" and \"moving\" read a feed ⑮ wrote in the herald's shape. No running herald was read."
  },
@@ -29,6 +29,38 @@
     "concordShare": 0,
     "cargoInnerShare": 0,
     "cargoConcordShare": 0,
+    "cargoByResource": {
+     "all": [
+      0,
+      50,
+      80,
+      0,
+      0,
+      0,
+      0,
+      0
+     ],
+     "inner": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+     ],
+     "concord": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+     ]
+    },
     "vaultsAtCentre": 0,
     "vaultsInConcord": 0,
     "structuresAtCentre": 0,
@@ -109,6 +141,16 @@
      "innermostRing": 1,
      "provinces": 2,
      "cargo": 80,
+     "cargoByResource": [
+      0,
+      30,
+      50,
+      0,
+      0,
+      0,
+      0,
+      0
+     ],
      "raided": false,
      "seq": 3,
      "kind": "centre.transit",
@@ -122,6 +164,16 @@
      "innermostRing": 0,
      "provinces": 5,
      "cargo": 100,
+     "cargoByResource": [
+      0,
+      100,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+     ],
      "raided": false,
      "seq": 4,
      "kind": "centre.transit",
@@ -135,8 +187,10 @@
       "tile": 30
      },
      "towerFaction": 2,
+     "towerOwnerTag": "31",
      "what": "caravan",
      "faction": 0,
+     "subject": "17278127443140898241",
      "seq": 5,
      "kind": "centre.sighting",
      "verified": "derived"
@@ -150,6 +204,38 @@
     "concordShare": 0.3333333333333333,
     "cargoInnerShare": 0.6428571428571429,
     "cargoConcordShare": 0.35714285714285715,
+    "cargoByResource": {
+     "all": [
+      0,
+      230,
+      50,
+      0,
+      0,
+      0,
+      0,
+      0
+     ],
+     "inner": [
+      0,
+      130,
+      50,
+      0,
+      0,
+      0,
+      0,
+      0
+     ],
+     "concord": [
+      0,
+      100,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+     ]
+    },
     "vaultsAtCentre": 2,
     "vaultsInConcord": 1,
     "structuresAtCentre": 1,
@@ -251,6 +337,16 @@
      "innermostRing": 1,
      "provinces": 2,
      "cargo": 80,
+     "cargoByResource": [
+      0,
+      30,
+      50,
+      0,
+      0,
+      0,
+      0,
+      0
+     ],
      "raided": false,
      "seq": 3,
      "kind": "centre.transit",
@@ -264,6 +360,16 @@
      "innermostRing": 0,
      "provinces": 5,
      "cargo": 100,
+     "cargoByResource": [
+      0,
+      100,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+     ],
      "raided": false,
      "seq": 4,
      "kind": "centre.transit",
@@ -277,8 +383,10 @@
       "tile": 30
      },
      "towerFaction": 2,
+     "towerOwnerTag": "31",
      "what": "caravan",
      "faction": 0,
+     "subject": "17278127443140898241",
      "seq": 5,
      "kind": "centre.sighting",
      "verified": "derived"
@@ -292,6 +400,38 @@
     "concordShare": 0.3333333333333333,
     "cargoInnerShare": 0.6428571428571429,
     "cargoConcordShare": 0.35714285714285715,
+    "cargoByResource": {
+     "all": [
+      0,
+      230,
+      50,
+      0,
+      0,
+      0,
+      0,
+      0
+     ],
+     "inner": [
+      0,
+      130,
+      50,
+      0,
+      0,
+      0,
+      0,
+      0
+     ],
+     "concord": [
+      0,
+      100,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+     ]
+    },
     "vaultsAtCentre": 2,
     "vaultsInConcord": 1,
     "structuresAtCentre": 1,
@@ -381,6 +521,16 @@
      "innermostRing": 1,
      "provinces": 2,
      "cargo": 80,
+     "cargoByResource": [
+      0,
+      30,
+      50,
+      0,
+      0,
+      0,
+      0,
+      0
+     ],
      "raided": false,
      "seq": 3,
      "kind": "centre.transit",
@@ -394,6 +544,16 @@
      "innermostRing": 0,
      "provinces": 5,
      "cargo": 100,
+     "cargoByResource": [
+      0,
+      100,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+     ],
      "raided": false,
      "seq": 4,
      "kind": "centre.transit",
@@ -407,8 +567,10 @@
       "tile": 30
      },
      "towerFaction": 2,
+     "towerOwnerTag": "31",
      "what": "caravan",
      "faction": 0,
+     "subject": "17278127443140898241",
      "seq": 5,
      "kind": "centre.sighting",
      "verified": "derived"
@@ -422,6 +584,38 @@
     "concordShare": 0.3333333333333333,
     "cargoInnerShare": 0.6428571428571429,
     "cargoConcordShare": 0.35714285714285715,
+    "cargoByResource": {
+     "all": [
+      0,
+      230,
+      50,
+      0,
+      0,
+      0,
+      0,
+      0
+     ],
+     "inner": [
+      0,
+      130,
+      50,
+      0,
+      0,
+      0,
+      0,
+      0
+     ],
+     "concord": [
+      0,
+      100,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+     ]
+    },
     "vaultsAtCentre": 2,
     "vaultsInConcord": 1,
     "structuresAtCentre": 1,
