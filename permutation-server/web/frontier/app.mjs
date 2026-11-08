@@ -1026,7 +1026,9 @@ function mapTap(hit) {
   if (t) { orderMarch(A, hit).catch(() => {}); return true; }
   // unlit: a second tap on the tile just refused selects it
   const n = FS.mapNote;
-  if (n && n.p === hit.p && n.q === hit.q && n.tile === hit.idx && fxNow() - n.at < 6000) { FS.mapNote = null; return false; }
+  // (workstream 07: "the rules are loading" is not a refusal — the planner loads on the first route asked for — so the
+  // tap again asks for the route again; it used to select the tile and drop the host from the hand)
+  if (n && n.say !== NOTE_TEXT.wait && n.p === hit.p && n.q === hit.q && n.tile === hit.idx && fxNow() - n.at < 6000) { FS.mapNote = null; return false; }
   // (a place that is not open land says which it is: beyond the season's map, not open yet, or being made; fog over open
   // land is the survey's and is answered by the route below)
   const where = placeNow(FS, hit.p, hit.q);
