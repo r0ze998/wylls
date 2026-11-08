@@ -40,8 +40,27 @@
    - 単体の試験 web-frontier-ws07-unread を新しく足した（日本語・英語）。
    - 結果：ws07-read（2 番目の組で軍勢の画面も確かめる）は、古い版で 0/2、新しい版で 2/2。ws07-unread は、古い版で読み込めず失敗、新しい版で 2/2。
 
+4. **⑯ の 9b547d9d のレビューへの対応：「国にまだ加わっていない」と読めたあとの失敗で、国の選択が閉じていた**（この commit）
+   - 新しい鮮度の方針は決めていない。同じ viewer・同じ世界で読めた答えの表示を、失敗のあとも保つだけ。
+   - **状態**：`FS.meAnswered` は、この viewer の /h/me が少なくとも一度答えたこと（見つかった、または NotFound）。
+     - 立つのは applyMeResult の 2 つの答えの枝だけ。
+     - 読むのは hud/drawer.mjs の viewerState だけ。
+     - 注文や署名の境界（meStatus を見る controller の 1211・1261・1297・1847 行）は変えていない。
+   - **初回のエラー**（答えがまだない）は 'unreachable'（読めていない）。**NotFound に答えたあとのエラー**は 'known' で、国の選択は保たれる。
+   - **reset**（前の答えを別の identity に使わない）：
+     - resetViewer：ウォレットの切替・切断（adoptConnectedWallet）、NFT の切替と解除（adoptResident）。
+     - useHerald：herald、つまり世界の切替。
+     - 再読み込み：新しいページは false から始まる。
+     - 前の viewer への返事が遅れて届いても、refresh の currentViewer の確認で、applyMeResult の前に捨てられる。
+   - **試験**：
+     - 新しい単体 web-frontier-ws07-me-answered（実際の controller で）は 6/6。古い版では 7 つの確認が落ちる（wave3-hud を含む）。
+       - 初回の失敗は 'unreachable'。
+       - NotFound のあとの失敗では、国の選択が保たれる。
+       - 別のウォレット・切断して同じウォレット・NFT・別の herald・NFT の解除の 5 通りで、前の答えは保たれない。
+     - ws07-read の 3 番目の組（デスクトップ・スマホ）：未参加 → 失敗しても国の選択が保たれる → 失敗したまま再読み込みすると「読めていない」。古い版で 0/2、新しい版で 2/2。
+
 ### 0n.3 実行した範囲
-- **画面**：ws07-read 4/4（デスクトップ・スマホ × 2 組）。
+- **画面**：ws07-read 6/6（デスクトップ・スマホ × 3 組）。
 - **単体**：hud/drawer・hud/hud を読む 13 本で 166/166。案内と軍勢の画面に関わる 15 本（ws07-unread を含む）で 155/155。
   - web-frontier-s1 は既知の鍵の経路があるので除いた。
   - resident-home は静的に確かめた（定数と、address だけの偽ウォレット）。
