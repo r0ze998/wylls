@@ -7,16 +7,23 @@
 // Account bytes: only the S1 Season and Frontier (layout 2, by the SDK's own encoder) that carry the growth.
 // Province / Holding bytes and the herald router's golden responses are workstream 19's (frontier-abi, real
 // router); `withGrowth` overlays these fields on such a record so both carry the same stage, seeds and coordinates.
-// Nothing here is a layout-1 (M1) account, and nothing here touches a key: the seeds are sha256 of a public label,
-// the same rule as web-frontier-live-map.
+// Nothing here is a layout-1 (M1) account, and nothing here touches a key: the seeds are public hashes (ringSeed).
 //
 // Pinned by test/web-frontier-growth-route.test.mjs against the committed frontier-v3.wasm and the page's modules.
 import { createHash } from 'node:crypto';
 import { encodeAccount } from '../../../../permutation-server/web/sdk/frontier/codec.mjs';
 import { PRESETS } from '../../../../permutation-server/web/sdk/frontier/abi-v2-presets.mjs';
 
-/** Ring d's seed: sha256("ring" + d), hex (public; the existing live-map evidence uses the same rule). */
-export const ringSeed = d => createHash('sha256').update(`ring${d}`).digest('hex');
+/** The Season's genesis ring and genesis seed ([1;32]): rings 0..=GENESIS_RING are seeded at open from it. */
+export const GENESIS_RING = 3, GENESIS_SEED = new Uint8Array(32).fill(1);
+/**
+ * Ring d's seed, hex (public). Rings 0..=GENESIS_RING: the program's genesis rule (I-30, permutation-frontier
+ * proc/map.rs) sha256("PSF-RING" ‖ genesis_seed ‖ le16(d)). Rings above it (the crowding rings, which take a
+ * beacon seed on chain): sha256("ring" + d), the rule of the existing live-map evidence, standing in for the beacon.
+ */
+export const ringSeed = d => (d <= GENESIS_RING
+  ? createHash('sha256').update('PSF-RING').update(GENESIS_SEED).update(Uint8Array.of(d & 0xff, d >> 8)).digest('hex')
+  : createHash('sha256').update(`ring${d}`).digest('hex'));
 /** The herald's `rings` list for rings 0..n-1 (only seeded rings are listed: views.rs season_json). */
 export const seededRings = n => Array.from({ length: n }, (_, d) => ({ d, seed: ringSeed(d) }));
 /** The planner's `seeds` argument for the same rings (what app.mjs seedsNow passes). */
@@ -74,8 +81,8 @@ export function seasonBytes() {
   const b = MC7.base;
   return encodeAccount('Season', {
     SEASON_ID: BigInt(SEASON_ID), LAYOUT_VERSION: 2, PROGRAM_VERSION: 4, RULESET_HASH: hexBytes(PRESETS.ruleset_hash_v3),
-    REGIONS: b.regions, GENESIS_RING: 3, R_MAX: SEASON_R_MAX, BELL_SECS, GENESIS_TS: BigInt(GENESIS_TS),
-    JOIN_CLOSE_BELL: b.join_close_bell, END_BELL: b.end_bell, GENESIS_SEED: new Uint8Array(32).fill(1),
+    REGIONS: b.regions, GENESIS_RING, R_MAX: SEASON_R_MAX, BELL_SECS, GENESIS_TS: BigInt(GENESIS_TS),
+    JOIN_CLOSE_BELL: b.join_close_bell, END_BELL: b.end_bell, GENESIS_SEED,
     CONQUEST_PARAMS: [upper({ ...MC7.conquest, r_max_ceiling: CEILING, placement: 0, continuous: 0 })],
   }, { profile: 2 });
 }
