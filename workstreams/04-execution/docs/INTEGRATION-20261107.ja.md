@@ -890,3 +890,37 @@ fa822453 の上に載せた。各チームのサブツリーは、チームが�
 - 本物の Seal、署名、送信、着地、実チェーン、CI、key-tests job。一覧に載る file。
 
 **利用者の判断待ち**：§19 のとおり。変わっていない。
+
+## 21. 引継ぎ：鍵の安全の監査の後と、f293a684（④、2026-11-08。CC から Codex へ）
+
+**位置**（文書だけの commit）
+- 実装の候補：`claude/gallant-ride-cunptv` @ `f293a684de3b30c775bdb63a8c599cc1ee748782`（tree `6cdc86c2c0e1b3a441625ce63c0dbf8230a2033c`）＝ `553f7fe7` ＋ ⑲ `a41d1cd2`（conquest・control・standings・keep の本物の router の答え）。**全機能の完成ではない。** 過去の検証済みの基準は `16576826` のまま。
+- すべて `[skip ci]`。この枝の workflow run は 16 のまま（最後は 2026-11-06）。
+- 保存だけの枝：`archive/ws04-recorder-wip-20261108` @ `ec39e577bde75d4d3b96aa1a4eab8a36cd841b05`。④ の recorder の候補 `40b41ac4`（`scripts/ci/record-keyfree-run.sh`、`node-key-subset.txt`）と、WIP の印の空の commit。**審査は commit としては済んでおらず、一度も走らせず、統合していない。** 取り下げた subset の guard（`bc5ad528`）は入っていない。
+
+**鍵の安全の監査の結論**（⑯ REPORT §29.35〜§29.41）
+- ⑦ の `web-frontier-hud.test.mjs` の直接の実行（13/13）と、それ以前の 7 回の実行：手順の違反は確定。実際に入った鍵の API は guard が止めた（generateKey、importKey(pkcs8)、createPrivateKey、generateKeyPairSync の自己試験）。止まる前に JS だけの導出（session.mjs の publicKeyOf）があったかどうかは確かめられていない。13/13 は採用しない。欠けた証拠を再実行で補わない。
+- ④ の ws07-guard の 23 回（487e75e8 の fail-open が 1 回、84251e5a 以後の fail-closed が 22 回、すべて合格）：page の中の stub が拒否した記録で、安全な実行の証拠ではなく、導出の証拠でもない。⑦ は c3826129 で、ws07-guard から鍵の入口を呼ぶ処理を除いた（未統合・未実行）。
+- ④ の以前の実行の環境の穴：`NODE_OPTIONS=--use-openssl-ca` が設定されていた。int-merge の `permutation-gateway/node_modules` があり、guard の preload が審査していない `@solana/web3.js`・`@noble/curves` を読んでいた。鍵の処理ではなく、証拠の穴として記録する。
+- repo の guard は JS だけの導出（session.mjs の publicKeyOf）を見張らない。だから、名指しの試験は静的な到達不能の証明に頼る（⑯ §29.36 B〜D）。
+
+**条件を満たして走らせたもの**（⑯ §29.36 C＋D：node_modules の無い新しい worktree、`git status --porcelain=v1 -uall` が空、preload の 15 file の digest `b301d64baeaea253`、`env -u NODE_OPTIONS -u NODE_PATH -u WS04_SCAN_ROOT -u RUNEXEC_BIN -u RUNEXEC_VIEW_BIN bash scripts/ci/node-keyfree.sh permutation-gateway test/web-frontier-<name>.test.mjs`、1 file ずつ、stdout・stderr・exit をすべて保存）
+- `553f7fe7`：map-contract 17/17、map-arrival 5/5、growth-route 7/7、viewer-own-citizen 4/4、want-province 4/4。後の 2 つは、④ の静的な呼び出しの図（applyMeResult・useHerald・wantProvince・loadEnvelope・refreshDelegation から、鍵の入口を含む関数に届かない。FS の状態によらない）が ⑯ と一致してから走らせた。
+- `f293a684`：map-contract 18/18、map-arrival 5/5、growth-route 7/7。
+- どれも exit 0、stderr は空、走らせた後も status は空。記録は ④ の scratchpad の `runs/`（Codex からは読めない。結果はこの節と ⑯ への報告にある）。
+
+**走らせていないもの・除外したもの**
+- browser の画面のすべて（page の realm での到達不能が、まだ静的に示されていない）。
+- cargo（f293a684 の ⑲ `ws19_map_contract` を含む。新しい基準では審査していない）。
+- `web-frontier-hud` と、鍵の一覧に載る file のすべて。CI。
+
+**保留の候補**（審査または実行が済んでいないので、統合していない）
+- ⑲ `c2acd3a9`：KEEP の record を出す fixture の修正で、golden を一度だけ作り直し、assertion を直したもの。⑯ の審査と、比べる側の cargo の実行を待つ。
+- ⑦ の画面の commit（`5f8e68b1`、`c3826129`、`5a5e5cf2`）：conquest の読み取り、ws07-guard からの鍵の呼び出しの除去、source だけの fail-closed の guard の前提。どれも走らせていない。
+
+**次の具体的な手順**
+1. recorder：`node-keyfree.sh` と `scan-node-key-tests.mjs` の sha256 も固定し（⑯ §29.40 C）、その SHA を ⑯ が審査してから使う。
+2. ⑲ `c2acd3a9`：⑯ の審査と比べる側の実行の後に統合し、node の 3 file を同じ条件で走らせる。
+3. 画面の runner：node_modules は playwright-core の link だけ、`NODE_OPTIONS`・`NODE_PATH` は unset、preload の digest、画面の file の sha256 を固定、出力をすべて保存。diff で ⑯ の審査を受けてから、⑦ の保留の commit を審査し、走らせる。
+4. 利用者の判断待ち（変わっていない）：NFT の `/h/me/{asset}` でどちらの Citizen を返すか、join と paidJoin の meStatus、⑩ の SettleCustody、⑤ の requester の権限、⑭・⑮ の目標、⑰、31 章。
+- 鍵の生成・導出・署名と CI の禁止は続く。未解決の NFT の prize、secret、ignored の file は公開しない。
