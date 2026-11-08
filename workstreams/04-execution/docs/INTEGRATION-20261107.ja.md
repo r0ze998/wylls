@@ -778,7 +778,7 @@ fa822453 の上に載せた。各チームのサブツリーは、チームが�
 
 **未解決・利用者の判断待ち**
 - **join と paidJoin の meStatus の確認**（⑯ §29.8 b）：今の記録の読みが成功したかを確かめずに送る。16576826 から変わっていない。送れる時を変えるので、新しい Join の gating・鮮度の規則は決めていない。
-- **paidJoin の手数料**（⑯ §29.10、公開の source と署名しない pure な probe）：atomic の形では Pay と Join が一つの取引で、relay はその形だけを受け、送る前に simulate する。Join が失敗すれば、取引の原子性で Pay の送金と Entry も戻る。**source の上では、入場の手数料だけが取られることは無い。** ネットワークの手数料は relay の fee payer が払い、着地して失敗したときだけかかる（wallet の quota に数える）。残高不足の faucet は別の取引で戻らない（localnet だけ）。**確かめていない**：SVM での実行、wallet が relay の外で Pay だけを送る場合（別の利用者の操作）。
+- **paidJoin の手数料**（⑯ §29.10、公開の source と署名しない pure な probe）：atomic の形では Pay と Join が一つの取引で、relay はその形だけを受け、送る前に simulate する。Join が失敗すれば、取引の原子性で Pay の送金と Entry も戻る。**source の上では、入場の手数料だけが取られることは無い。** ネットワークの手数料は relay の fee payer が払い、着地して失敗したときだけかかる（wallet の quota に数える）。残高不足の faucet は別の取引で戻らない（localnet だけ）。**確かめていない**：SVM での実行、wallet が relay の外で Pay だけを送る場合（Join の無い手数料。別の利用者の操作）、RelayOutcomeUnknown（Pay と Join は一緒のままだが、結果が分からない）。（⑯ の §29.10 が最新、5827099c。公開の source と pure な probe で、実行はしていない）
 - cancels_race_executors：門で「canceller が遅れて始まる」原因は取り除いた。後の cancel が実行中に届くかは、今も時間に依存し、それを戻した assertion が確かめる（完全に決定的とは言わない）。`caeb1b74` は ⑯ の review 待ち。
 
 **③ の過去の一回の失敗と、cold open の仕組み（分けて書く）**
