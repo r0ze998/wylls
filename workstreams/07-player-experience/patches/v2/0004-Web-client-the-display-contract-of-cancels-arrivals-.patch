@@ -1,0 +1,444 @@
+From 73aaf22b50e335abfe6070677adcf94db19e9b00 Mon Sep 17 00:00:00 2001
+From: ws07 <noreply@anthropic.com>
+Date: Fri, 30 Oct 2026 09:49:30 +0000
+Subject: [PATCH 4/5] Web client: the display contract of cancels, arrivals and
+ costs, and the slot for nations' cooperation
+
+hud/statusview.mjs words the states workstreams 04 and 05 own (a cancel's
+three stages, an unverified arrival apart from a partial one, the four kinds
+of a cost, the switch back to manual play) from plain objects whose fields it
+names and checks: a stage it does not know or a field left out is shown as
+"not received", never guessed. hud/coopentry.mjs is one slot in the S1
+village card, under the nation's council, that workstream 01 fills; with no
+entry registered the page is as it was.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01C5Nj2bNLFpFghsNM9fsQG5
+---
+ .../test/web-frontier-ws07-contracts.test.mjs | 112 +++++++++++++++
+ permutation-server/web/frontier/app.mjs       |   3 +
+ permutation-server/web/frontier/frontier.css  |   8 ++
+ .../web/frontier/hud/coopentry.mjs            |  43 ++++++
+ .../web/frontier/hud/statusview.mjs           | 136 ++++++++++++++++++
+ .../web/frontier/screens/s1.mjs               |   4 +-
+ .../web/lang/en-frontier-play.mjs             |  32 +++++
+ 7 files changed, 337 insertions(+), 1 deletion(-)
+ create mode 100644 permutation-gateway/test/web-frontier-ws07-contracts.test.mjs
+ create mode 100644 permutation-server/web/frontier/hud/coopentry.mjs
+ create mode 100644 permutation-server/web/frontier/hud/statusview.mjs
+
+diff --git a/permutation-gateway/test/web-frontier-ws07-contracts.test.mjs b/permutation-gateway/test/web-frontier-ws07-contracts.test.mjs
+new file mode 100644
+index 00000000..ceb5bce8
+--- /dev/null
++++ b/permutation-gateway/test/web-frontier-ws07-contracts.test.mjs
+@@ -0,0 +1,112 @@
++// Workstream 07: the display contract of states workstreams 04 and 05 own (hud/statusview.mjs) and the slot that
++// workstream 01's cooperation fills (hud/coopentry.mjs). The states' own rules are not here: these tests ask that the
++// page says each state apart, says what it did not receive, and never fills it in.
++import { test } from 'node:test';
++import assert from 'node:assert/strict';
++import * as SV from '../../permutation-server/web/frontier/hud/statusview.mjs';
++import * as CO from '../../permutation-server/web/frontier/hud/coopentry.mjs';
++import { renderS1Village } from '../../permutation-server/web/frontier/screens/s1.mjs';
++import { setLang } from '../../permutation-server/web/lang.mjs';
++
++const C = (...a) => [...a, 0, 0, 0, 0, 0, 0, 0, 0].slice(0, 8);
++const jp = /[぀-ヿ一-鿿]/;
++
++test('04 cancel: three stages said apart; a stage not received is "not received", never a stage', () => {
++  setLang('ja');
++  const a = SV.cancelView({ stage: 'stopNew' }), b = SV.cancelView({ stage: 'awaitSigned', signedPending: 2 }), c = SV.cancelView({ stage: 'cancelled', settled: [{ text: '木材 300 は着いています' }] });
++  assert.deepEqual([a.symbol, b.symbol, c.symbol], ['‖', '⌛', '■']);
++  assert.match(a.details.join(), /署名済みの要求はまだ止まっていません/, 'stopping new sends does not stop signed ones');
++  assert.match(b.text, /署名済みの要求 2 件の確認を待っています/);
++  assert.match(c.details.join(), /取消の前に成立した分は戻りません.*木材 300 は着いています/);
++  const nosettled = SV.cancelView({ stage: 'cancelled' });
++  assert.match(nosettled.details.join(), /まだ受け取っていません/, 'no "settled" is not "nothing settled"');
++  assert.deepEqual(nosettled.errors, ['settled: missing']);
++  assert.match(SV.cancelView({ stage: 'cancelled', settled: [] }).details.join(), /成立した分はありません/);
++  const bad = SV.cancelView({ stage: 'done' });
++  assert.deepEqual([bad.ok, bad.symbol, bad.errors], [false, '?', ['stage: done']]);
++  assert.match(SV.cancelView({ stage: 'awaitSigned' }).text, /件数は受け取っていません/);
++});
++
++test('04 arrival: an unverified amount is not a partial arrival and shows no amount', () => {
++  setLang('ja');
++  const u = SV.arrivalView({ state: 'unverified', sent: C(400), arrived: C(100) });
++  assert.equal(u.key, 'arrival:unverified');
++  assert.doesNotMatch([u.text, ...u.details].join(), /100|400/);
++  const p = SV.arrivalView({ state: 'partial', sent: C(400), arrived: C(100) });
++  assert.deepEqual([p.key, p.symbol], ['arrival:partial', '◐']);
++  assert.match(p.text, /一部が着きました：食料 100/);
++  assert.match(p.details.join(), /差の理由.*記録で確かめるまで決めません/);
++  assert.equal(SV.arrivalView({ state: 'partial', arrived: C(100) }).ok, false, 'a partial arrival needs what was sent');
++  assert.equal(SV.arrivalView({ state: 'full', arrived: C(400) }).symbol, '●');
++  assert.equal(SV.arrivalView({}).ok, false);
++});
++
++test('05 cost: reserved, committed, unsettled, released said apart; only "committed" is paid', () => {
++  setLang('ja');
++  const v = SV.COST_PHASES.map(phase => SV.costView({ phase, amounts: C(0, 50) }));
++  assert.deepEqual(v.map(x => x.symbol), ['◇', '◆', '◇?', '↺']);
++  assert.match(v[0].details.join(), /まだ支払っていません/);
++  assert.match(v[1].details.join(), /支払いが確定しました/);
++  assert.match(SV.costView({ phase: 'unsettled' }).text, /額はまだ決まっていません/);
++  assert.equal(SV.costView({ phase: 'reserved' }).ok, false, 'a reservation with no amount was not received');
++  assert.equal(SV.costView({ phase: 'paid' }).ok, false);
++});
++
++test('05 spendable: the stores less the costs; whether committed costs already left the stores must be said', () => {
++  const have = C(100, 100);
++  assert.deepEqual(SV.spendable(have, [{ phase: 'reserved', amounts: C(30) }]).errors, ['committedInHave: missing']);
++  const r = SV.spendable(have, [{ phase: 'reserved', amounts: C(30) }, { phase: 'committed', amounts: C(10) }, { phase: 'released', amounts: C(50) }], { committedInHave: true });
++  assert.deepEqual([r.free.slice(0, 2), r.uncertain], [[70, 100], false]);
++  const r2 = SV.spendable(have, [{ phase: 'committed', amounts: C(10) }], { committedInHave: false });
++  assert.deepEqual(r2.free.slice(0, 1), [90]);
++  const r3 = SV.spendable(have, [{ phase: 'unsettled', amounts: C(0, 40) }, { phase: 'unsettled' }], { committedInHave: true });
++  assert.deepEqual([r3.free.slice(0, 2), r3.uncertain], [[100, 60], true], 'an unsettled cost is held back at its most, and said uncertain');
++});
++
++test('05 manual: back to manual play, and the orders already signed go on', () => {
++  setLang('ja');
++  assert.match(SV.manualView({ signedPending: 3 }).details.join(), /すでに署名した操作 3 件は止まらずに進みます/);
++  assert.match(SV.manualView({}).details.join(), /止まりません（件数は受け取っていません）/);
++  assert.deepEqual(SV.manualView({}).errors, ['signedPending: missing']);
++});
++
++test('a status line says its state with a symbol and words (role=status), and has English words', () => {
++  setLang('ja');
++  const out = String(SV.renderStatus(SV.arrivalView({ state: 'unverified' })));
++  assert.match(out, /role="status"/);
++  assert.match(out, /aria-hidden="true">\?<\/span> <strong>到着量はまだ確かめられていません/);
++  setLang('en');
++  const all = [SV.cancelView({ stage: 'stopNew' }), SV.cancelView({ stage: 'awaitSigned', signedPending: 1 }), SV.cancelView({ stage: 'cancelled', settled: [] }), SV.arrivalView({ state: 'unverified' }),
++    SV.arrivalView({ state: 'partial', sent: C(4), arrived: C(1) }), SV.arrivalView({ state: 'full', arrived: C(4) }), ...SV.COST_PHASES.map(phase => SV.costView({ phase, amounts: C(1) })), SV.costView({ phase: 'unsettled' }),
++    SV.manualView({ signedPending: 2 }), SV.manualView({}), SV.manualView({ signedPending: 0 }), SV.cancelView({})];
++  for (const v of all) assert.doesNotMatch([v.text, ...v.details].join(' '), jp, `${v.key}: ${v.text}`);
++  setLang('ja');
++});
++
++test('01 cooperation: with nothing registered the S1 village card is as it was; a registered entry adds one button', () => {
++  setLang('ja');
++  assert.equal(CO.renderCoopSlot({}), '');
++  assert.equal(CO.openCoop({}, 'x'), false);
++  let opened = 0, avail = false;
++  const off = CO.registerCoopEntry({ id: 'n1', title: () => '国と協力する', state: () => (avail ? { available: true } : { available: false, why: '国の卓が開くのはターン 700 から' }), open: () => { opened++; } });
++  const closed = String(CO.renderCoopSlot({}));
++  assert.match(closed, /data-act="coop-open"[^>]*data-id="n1"[^>]*disabled/);
++  assert.match(closed, /国の卓が開くのはターン 700 から/);
++  assert.equal(CO.openCoop({}, 'n1'), false, 'not while it says it is not available');
++  avail = true;
++  assert.doesNotMatch(String(CO.renderCoopSlot({})), /disabled/);
++  assert.equal(CO.openCoop({}, 'other'), false);
++  assert.equal(CO.openCoop({}, 'n1'), true);
++  assert.equal(opened, 1);
++  off();
++  assert.equal(CO.renderCoopSlot({}), '');
++  assert.throws(() => CO.registerCoopEntry({ id: 'x' }), TypeError);
++  CO.registerCoopEntry({ id: 'n2', title: () => 'x', state: () => { throw new Error('boom'); }, open: () => {} });
++  assert.match(String(CO.renderCoopSlot({})), /理由を受け取れていません/);
++  CO.registerCoopEntry({ id: 'n3', title: () => 'x', state: () => ({ available: true }), open: () => {} })();
++});
++
++test('the slot sits in the S1 village card under the nation\'s council', () => {
++  const src = renderS1Village.toString();
++  assert.match(src, /fold\('s1-nation'[\s\S]*renderCoopSlot\(FS\)\}<\/section>/);
++});
+diff --git a/permutation-server/web/frontier/app.mjs b/permutation-server/web/frontier/app.mjs
+index 384ba06a..461e58d1 100644
+--- a/permutation-server/web/frontier/app.mjs
++++ b/permutation-server/web/frontier/app.mjs
+@@ -36,6 +36,7 @@ import { PLACE, PLACE_NOTE, partialRings, placeNow, worldOf } from './map/world.
+ import * as hand from './hud/hand.mjs';
+ import * as turnlist from './hud/turnlist.mjs';
+ import { createCamKeep } from './hud/camkeep.mjs';
++import { openCoop as coopEntryOpen } from './hud/coopentry.mjs';
+ import { settled } from './hud/rulebook.mjs';
+ import * as dialcard from './hud/dialcard.mjs';
+ import { paintVillagePics } from './map/village.mjs';
+@@ -2950,6 +2951,8 @@ function shutDrawer({ focus = false } = {}) {
+ }
+ 
+ export const HUD_ACTIONS = {
++  // nations' cooperation (hud/coopentry.mjs): the entry workstream 01 registers, pressed in the S1 village card
++  'coop-open': d => { if (coopEntryOpen(FS, d.id)) invalidate('panel'); },
+   // ---- a conquest season (hud/keephand.mjs, hud/provstrip.mjs): a signature to the clipboard, the season-end card put away
+   'kh-copy': async (d, el) => {
+     let ok = false;
+diff --git a/permutation-server/web/frontier/frontier.css b/permutation-server/web/frontier/frontier.css
+index e0a223b8..dbe0b8d0 100644
+--- a/permutation-server/web/frontier/frontier.css
++++ b/permutation-server/web/frontier/frontier.css
+@@ -2325,6 +2325,14 @@ body[data-kind="wait"] .plate .plate-go[data-act="join-open"] { display: none; }
+ .s1-offers .s1-offer .blocked { flex-basis: 100%; margin: 0; }
+ .s1-raid { margin: var(--s2, 8px) 0; }
+ 
++/* workstream 07: states other workstreams own (hud/statusview.mjs) and the cooperation slot (hud/coopentry.mjs).
++   The symbol and the words carry the state; the border only repeats it. */
++.ws07-status { display: block; margin: 4px 0; padding: 4px 8px; border-left: 3px solid currentColor; }
++.ws07-status .ws07-sym { display: inline-block; min-width: 1.4em; font-weight: 700; }
++.ws07-status-details { margin: 2px 0 0 1.6em; padding: 0; list-style: disc; font-size: var(--t1); }
++.ws07-status.tone-unknown { border-left-style: dashed; }
++.ws07-coop { margin-top: var(--s2); }
++
+ /* ================================================================== the film's frame: a laptop's width (1280 × 720)
+    The demo is filmed with the page laid out at 1280 × 720 CSS px (device scale 1.5: a 1920 × 1080 picture). What stood
+    cut, covered or colliding at that size is set right here, under three conditions and no other: between 1100 and
+diff --git a/permutation-server/web/frontier/hud/coopentry.mjs b/permutation-server/web/frontier/hud/coopentry.mjs
+new file mode 100644
+index 00000000..7a03ecb8
+--- /dev/null
++++ b/permutation-server/web/frontier/hud/coopentry.mjs
+@@ -0,0 +1,43 @@
++// The way in to nations' cooperation (workstream 07): one slot in the S1
++// village card, under the nation's council, that workstream 01 fills. The
++// rules of cooperation between nations and of the central tower are 01's;
++// this file decides none of them. With no entry registered the slot is
++// empty and the page is as it was.
++//
++// 01 registers `{id, title, state(FS) → {available, why?}, open(FS)}`:
++// `title` the button's words (in the page's language), `state` whether it
++// can be pressed now and, when not, why (shown under it), `open` what
++// pressing it does. The page calls `open` through the HUD action
++// `coop-open`.
++import { html, raw } from '../../util.mjs';
++import { L } from '../../lang.mjs';
++
++let entry = null;
++
++/** 01's entry (one at a time; a second call replaces the first). Returns a function that removes it. */
++export function registerCoopEntry(e) {
++  if (!e || typeof e.id !== 'string' || typeof e.title !== 'function' || typeof e.state !== 'function' || typeof e.open !== 'function') throw new TypeError('coop entry: {id, title(), state(FS), open(FS)}');
++  entry = e;
++  return () => { if (entry === e) entry = null; };
++}
++/** The registered entry, or null. */
++export const coopEntry = () => entry;
++
++/** The slot: '' with no entry; else the button, and why it cannot be pressed when it cannot. */
++export function renderCoopSlot(FS) {
++  if (!entry) return '';
++  let st;
++  try { st = entry.state(FS) ?? { available: false }; } catch { st = { available: false, why: null }; }
++  const why = st.available ? '' : html`<p class="blocked">${st.why ? String(st.why) : L`いまは使えません（理由を受け取れていません）`}</p>`;
++  return html`<div class="ws07-coop" data-coop="${entry.id}"><button type="button" class="btn" data-act="coop-open" data-id="${entry.id}" ${raw(st.available ? '' : 'disabled')}>${String(entry.title())}</button>${why}</div>`;
++}
++
++/** The HUD action: open the entry if it is the one the button named and it can be pressed now. */
++export function openCoop(FS, id) {
++  if (!entry || entry.id !== id) return false;
++  let st;
++  try { st = entry.state(FS); } catch { return false; }
++  if (!st?.available) return false;
++  entry.open(FS);
++  return true;
++}
+diff --git a/permutation-server/web/frontier/hud/statusview.mjs b/permutation-server/web/frontier/hud/statusview.mjs
+new file mode 100644
+index 00000000..0159abfd
+--- /dev/null
++++ b/permutation-server/web/frontier/hud/statusview.mjs
+@@ -0,0 +1,136 @@
++// What the page shows for states other workstreams own (workstream 07): the
++// display contract, not the states themselves. Workstream 04 owns the
++// cancelling of sends and the arrival of goods; workstream 05 owns the cost
++// of an order and the switch back to manual play. Neither's code was in
++// hand when this was written, so each view takes a plain object whose
++// fields are named here and checks it: a stage it does not know, or a field
++// left out, is shown as "not received" and listed in `errors` — never
++// filled in by a guess.
++//
++// Each view is `{ok, key, symbol, text, details: [text], tone, errors}`.
++// The symbol and the words carry the state; the tone (a class name) only
++// repeats it, so nothing is told by colour alone.
++//
++//   cancelView    04: new sends stopped → signed requests awaiting the
++//                 chain → cancelled, with what had already taken effect
++//   arrivalView   04: the arrived amount unverified, a part arrived, all
++//                 arrived (an unverified amount is never a partial arrival)
++//   costView      05: reserved, committed, unsettled, released
++//   spendable     05: what the stores leave free after the costs, said as
++//                 uncertain while any cost is unsettled
++//   manualView    05: back to manual play; the orders already signed go on
++import { html } from '../../util.mjs';
++import { L, fmtNum } from '../../lang.mjs';
++import { RESOURCES } from '../fi18n.mjs';
++import { RESOURCE_ORDER } from '../resources.mjs';
++
++/** 04: the three stages of a cancel, in order. */
++export const CANCEL_STAGES = Object.freeze(['stopNew', 'awaitSigned', 'cancelled']);
++/** 04: what is known of an arrival. */
++export const ARRIVAL_STATES = Object.freeze(['unverified', 'partial', 'full']);
++/** 05: the four kinds of a cost. */
++export const COST_PHASES = Object.freeze(['reserved', 'committed', 'unsettled', 'released']);
++
++const count = n => (Number.isInteger(n) && n >= 0 ? n : null);
++const isCargo = c => Array.isArray(c) && c.length === 8 && c.every(n => Number.isFinite(n) && n >= 0);
++const cargoText = c => c.map((n, i) => (n > 0 ? `${RESOURCES[RESOURCE_ORDER[i]]} ${fmtNum(n)}` : null)).filter(Boolean).join(L`・`) || L`なし`;
++const notReceived = (key, errors) => ({ ok: false, key, symbol: '?', text: L`状態を受け取れていません`, details: [], tone: 'unknown', errors });
++
++/**
++ * 04's cancel. `x`: `{stage, signedPending?: n, settled?: [{text}] | null}`.
++ * `settled` is what took effect before the cancel (null: not received yet,
++ * [] : nothing took effect).
++ */
++export function cancelView(x) {
++  if (!x || !CANCEL_STAGES.includes(x.stage)) return notReceived('cancel', [`stage: ${x?.stage ?? 'missing'}`]);
++  const n = count(x.signedPending);
++  if (x.stage === 'stopNew') {
++    return { ok: true, key: 'cancel:stopNew', symbol: '‖', tone: 'threat', errors: [],
++      text: L`新しい送信を止めました`,
++      details: [L`署名済みの要求はまだ止まっていません。チェーンの確認を待ちます`] };
++  }
++  if (x.stage === 'awaitSigned') {
++    return { ok: true, key: 'cancel:awaitSigned', symbol: '⌛', tone: 'threat', errors: n === null ? ['signedPending: missing'] : [],
++      text: n === null ? L`署名済みの要求の確認を待っています（件数は受け取っていません）` : L`署名済みの要求 ${fmtNum(n)} 件の確認を待っています`,
++      details: [L`確認が済むまで、取消は終わっていません`] };
++  }
++  const settled = Array.isArray(x.settled) ? x.settled : null;
++  return { ok: true, key: 'cancel:cancelled', symbol: '■', tone: 'result', errors: settled === null ? ['settled: missing'] : [],
++    text: L`取消が終わりました`,
++    details: settled === null ? [L`取消の前に成立した分は、まだ受け取っていません`]
++      : settled.length ? [L`取消の前に成立した分は戻りません：`, ...settled.map(s => String(s.text ?? ''))]
++      : [L`取消の前に成立した分はありません`] };
++}
++
++/**
++ * 04's arrival. `x`: `{state, sent?: cargo, arrived?: cargo}` (cargo: eight
++ * whole amounts in the page's resource order). An unverified arrival shows
++ * no arrived amount at all; a partial one shows the recorded amount and
++ * names no cause for the difference.
++ */
++export function arrivalView(x) {
++  if (!x || !ARRIVAL_STATES.includes(x.state)) return notReceived('arrival', [`state: ${x?.state ?? 'missing'}`]);
++  if (x.state === 'unverified') {
++    return { ok: true, key: 'arrival:unverified', symbol: '?', tone: 'unknown', errors: [],
++      text: L`到着量はまだ確かめられていません`,
++      details: [L`確かめられるまで、届いた量としては数えません`] };
++  }
++  const errors = [...(isCargo(x.arrived) ? [] : ['arrived: missing']), ...(x.state === 'partial' && !isCargo(x.sent) ? ['sent: missing'] : [])];
++  if (errors.length) return notReceived('arrival', errors);
++  if (x.state === 'partial') {
++    return { ok: true, key: 'arrival:partial', symbol: '◐', tone: 'loss', errors: [],
++      text: L`一部が着きました：${cargoText(x.arrived)}`,
++      details: [L`送った量：${cargoText(x.sent)}`, L`差の理由（略奪・道中の減り・置き場の上限）は、記録で確かめるまで決めません`] };
++  }
++  return { ok: true, key: 'arrival:full', symbol: '●', tone: 'result', errors: [], text: L`全部着きました：${cargoText(x.arrived)}`, details: [] };
++}
++
++/** 05's cost. `x`: `{phase, amounts?: cargo}`; an unsettled cost may have no amount yet. */
++export function costView(x) {
++  if (!x || !COST_PHASES.includes(x.phase)) return notReceived('cost', [`phase: ${x?.phase ?? 'missing'}`]);
++  const amt = isCargo(x.amounts) ? cargoText(x.amounts) : null;
++  if (x.phase !== 'unsettled' && amt === null) return notReceived('cost', ['amounts: missing']);
++  const v = {
++    reserved: { symbol: '◇', tone: 'threat', text: L`予約：${amt ?? ''}`, details: [L`まだ支払っていません。使える量からは引いて見せます`] },
++    committed: { symbol: '◆', tone: 'result', text: L`確定：${amt ?? ''}`, details: [L`支払いが確定しました`] },
++    unsettled: { symbol: '◇?', tone: 'unknown', text: amt === null ? L`未確定（額はまだ決まっていません）` : L`未確定：最大 ${amt}`, details: [L`予約とも確定とも違います。決まるまで支払ったとは言いません`] },
++    released: { symbol: '↺', tone: 'gain', text: L`予約の解放：${amt ?? ''}`, details: [L`予約が戻りました。使える量に戻して数えます`] },
++  }[x.phase];
++  return { ok: true, key: `cost:${x.phase}`, errors: [], ...v };
++}
++
++/**
++ * What the stores leave free once the costs are counted. `have`: cargo;
++ * `costs`: costView inputs; `committedInHave`: whether 05's committed costs
++ * have already left `have` (05 must say; undefined is an error, not a
++ * guess). → `{ok, free: cargo, uncertain, errors}`.
++ */
++export function spendable(have, costs = [], { committedInHave } = {}) {
++  const errors = [...(isCargo(have) ? [] : ['have: missing']), ...(typeof committedInHave === 'boolean' ? [] : ['committedInHave: missing'])];
++  if (errors.length) return { ok: false, free: null, uncertain: true, errors };
++  const free = [...have];
++  let uncertain = false;
++  for (const c of costs) {
++    if (!COST_PHASES.includes(c?.phase)) { errors.push(`phase: ${c?.phase ?? 'missing'}`); uncertain = true; continue; }
++    if (c.phase === 'released') continue;
++    if (c.phase === 'committed' && committedInHave) continue;
++    if (!isCargo(c.amounts)) { uncertain = true; continue; }
++    // (an unsettled cost is held back at its most; the result says it is uncertain)
++    if (c.phase === 'unsettled') uncertain = true;
++    c.amounts.forEach((n, i) => { free[i] = Math.max(0, free[i] - n); });
++  }
++  return { ok: errors.length === 0, free, uncertain, errors };
++}
++
++/** 05's switch back to manual play. `x`: `{signedPending?: n}` — the orders already signed, which do not stop. */
++export function manualView(x) {
++  const n = count(x?.signedPending);
++  return { ok: true, key: 'manual', symbol: '✋', tone: 'result', errors: n === null ? ['signedPending: missing'] : [],
++    text: L`手動に戻しました`,
++    details: [n === null ? L`すでに署名した操作は止まりません（件数は受け取っていません）` : n === 0 ? L`署名済みで進行中の操作はありません` : L`すでに署名した操作 ${fmtNum(n)} 件は止まらずに進みます`] };
++}
++
++/** A view as one status line: the symbol and the words first, the details under them (role=status, not colour). */
++export function renderStatus(v) {
++  return html`<div class="ws07-status tone-${v.tone}" role="status" data-key="${v.key}"><span class="ws07-sym" aria-hidden="true">${v.symbol}</span> <strong>${v.text}</strong>${v.details.length ? html`<ul class="ws07-status-details">${v.details.map(d => html`<li>${d}</li>`)}</ul>` : ''}</div>`;
++}
+diff --git a/permutation-server/web/frontier/screens/s1.mjs b/permutation-server/web/frontier/screens/s1.mjs
+index a043eb9d..d32f2ac7 100644
+--- a/permutation-server/web/frontier/screens/s1.mjs
++++ b/permutation-server/web/frontier/screens/s1.mjs
+@@ -29,6 +29,7 @@ import { MAX_VAULTS, VAULT_COST } from '../fcaravan.mjs';
+ import { S1_WORDS, caravanArriveBell, caravanId } from '../map/s1marks.mjs';
+ import { cardHead, chip, fold, label } from './parts.mjs';
+ import { swatch } from './shell.mjs';
++import { renderCoopSlot } from '../hud/coopentry.mjs';
+ 
+ // ------------------------------------------------------------------ the rules the page offers by (structure.rs, caravan.rs, nation.rs)
+ /** structure::KIND_*. */
+@@ -490,7 +491,8 @@ export function renderS1Village(FS) {
+     ${caravans}${owned}
+     ${fold('s1-send', html`${icon('flag')}${L`隊商を送る`}`, send)}
+     ${fort ? fold('s1-fort', html`${icon('shield')}${L`要塞に兵を入れる`}`, fort) : ''}
+-    ${nation ? fold('s1-nation', html`${icon('banner')}${L`国の議会`}`, nation) : ''}</section>`;
++    ${nation ? fold('s1-nation', html`${icon('banner')}${L`国の議会`}`, nation) : ''}
++    ${renderCoopSlot(FS)}</section>`;
+ }
+ 
+ /** A proposal in words. */
+diff --git a/permutation-server/web/lang/en-frontier-play.mjs b/permutation-server/web/lang/en-frontier-play.mjs
+index 02505c8b..c8456a51 100644
+--- a/permutation-server/web/lang/en-frontier-play.mjs
++++ b/permutation-server/web/lang/en-frontier-play.mjs
+@@ -1348,4 +1348,36 @@ export default {
+   '多かった結果': 'Most often',
+   '構えごとに、ルールで {0} 回ずつ試した幅です。同じターンに着くほかの進軍は封印中のため、数えていません。': 'Each stance tried {0} times with the rules. Other marches arriving that turn are sealed, so they are not counted.',
+   '送ったら取り消せません。行き先と構えはターン {0} が終わるまで封印されます。': 'Once sent, this cannot be taken back. The destination and stance stay sealed until turn {0} ends.',
++  // workstream 07: the display contract of other workstreams' states (hud/statusview.mjs) and the cooperation slot
++  '状態を受け取れていません': 'State not received',
++  'なし': 'None',
++  '新しい送信を止めました': 'New sends are stopped',
++  '署名済みの要求はまだ止まっていません。チェーンの確認を待ちます': 'Requests already signed are not stopped yet; waiting for the chain to confirm them',
++  '署名済みの要求の確認を待っています（件数は受け取っていません）': 'Waiting for signed requests to be confirmed (their number was not received)',
++  '署名済みの要求 {0} 件の確認を待っています': n => `Waiting for ${plural(Number(String(n).replace(/,/g, '')), '{0} signed request', '{0} signed requests')} to be confirmed`,
++  '確認が済むまで、取消は終わっていません': 'The cancel is not over until they are confirmed',
++  '取消が終わりました': 'The cancel is complete',
++  '取消の前に成立した分は、まだ受け取っていません': 'What took effect before the cancel has not been received yet',
++  '取消の前に成立した分は戻りません：': 'What took effect before the cancel is not undone:',
++  '取消の前に成立した分はありません': 'Nothing took effect before the cancel',
++  '到着量はまだ確かめられていません': 'The amount that arrived is not verified yet',
++  '確かめられるまで、届いた量としては数えません': 'It is not counted as arrived until it is verified',
++  '一部が着きました：{0}': 'Part arrived: {0}',
++  '送った量：{0}': 'Sent: {0}',
++  '差の理由（略奪・道中の減り・置き場の上限）は、記録で確かめるまで決めません': 'Why the rest is missing (a raid, loss on the road, a full store) is not decided until the records show it',
++  '全部着きました：{0}': 'All arrived: {0}',
++  '予約：{0}': 'Reserved: {0}',
++  'まだ支払っていません。使える量からは引いて見せます': 'Not paid yet; shown as taken out of what you can use',
++  '確定：{0}': 'Committed: {0}',
++  '支払いが確定しました': 'The payment is committed',
++  '未確定（額はまだ決まっていません）': 'Unsettled (the amount is not decided yet)',
++  '未確定：最大 {0}': 'Unsettled: at most {0}',
++  '予約とも確定とも違います。決まるまで支払ったとは言いません': 'Neither reserved nor committed; not called paid until it is decided',
++  '予約の解放：{0}': 'Reservation released: {0}',
++  '予約が戻りました。使える量に戻して数えます': 'The reservation came back; it counts as usable again',
++  '手動に戻しました': 'Back to manual play',
++  'すでに署名した操作は止まりません（件数は受け取っていません）': 'Orders already signed do not stop (their number was not received)',
++  '署名済みで進行中の操作はありません': 'No signed order is under way',
++  'すでに署名した操作 {0} 件は止まらずに進みます': n => `${plural(Number(String(n).replace(/,/g, '')), '{0} order already signed goes', '{0} orders already signed go')} on without stopping`,
++  'いまは使えません（理由を受け取れていません）': 'Not available now (no reason was received)',
+ };
+-- 
+2.43.0
+

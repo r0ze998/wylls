@@ -1,0 +1,473 @@
+From 53aa6841c1d6ac613ad84a0c4770bee8ea890139 Mon Sep 17 00:00:00 2001
+From: ws07 <noreply@anthropic.com>
+Date: Fri, 6 Nov 2026 00:34:25 +0000
+Subject: [PATCH 15/18] Web client: a record not read is not an empty one; 04's
+ open send states kept apart
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+- Spectator (workstream 08's finding): when the first /h/events page failed,
+  FS.chronicle stayed undefined and refreshChronicle threw on
+  `FS.chronicle.filter`, so the refresh never finished. A thrown read is now
+  a failed read, FS.chronicleRead says how the last poll went, and
+  FS.chronicle stays undefined until a page is read.
+- screens/chronicle.mjs chronicleState/readLine: loading, not read ("does
+  not mean the record is empty"), older (the last poll failed, what was
+  read before stays); the spectator's highlights and clashes say "not
+  known" instead of "No clash yet" when nothing was read.
+- fplay.track: a read that never answers is `unqueryable` (TxUnqueryable),
+  apart from GET /f/tx's `unknown`; neither is a failure (04's
+  EXECUTION-CONTRACT-20261106 §1). hud/statusview.mjs sendView: 04's seven
+  states, each with its own symbol and words.
+- Tests (no key, no signature): ws07-spectate unit (fails before the fix
+  with the TypeError), ws07-sendstates, and ws07-spectate.screen.mjs in
+  English, phone and PC, on the fixture server with /h/events failing in
+  the browser.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01C5Nj2bNLFpFghsNM9fsQG5
+---
+ .../screens/ws07-spectate.screen.mjs          | 79 +++++++++++++++++++
+ .../web-frontier-ws07-sendstates.test.mjs     | 44 +++++++++++
+ .../test/web-frontier-ws07-spectate.test.mjs  | 66 ++++++++++++++++
+ .../web/frontier/controller.mjs               | 13 ++-
+ permutation-server/web/frontier/fi18n.mjs     |  2 +
+ permutation-server/web/frontier/fplay.mjs     | 14 +++-
+ .../web/frontier/hud/statusview.mjs           | 20 +++++
+ .../web/frontier/screens/chronicle.mjs        | 24 +++++-
+ .../web/frontier/screens/spectate.mjs         |  6 +-
+ .../web/lang/en-frontier-play.mjs             | 20 +++++
+ permutation-server/web/lang/en-frontier.mjs   |  1 +
+ 11 files changed, 278 insertions(+), 11 deletions(-)
+ create mode 100644 permutation-gateway/screens/ws07-spectate.screen.mjs
+ create mode 100644 permutation-gateway/test/web-frontier-ws07-sendstates.test.mjs
+ create mode 100644 permutation-gateway/test/web-frontier-ws07-spectate.test.mjs
+
+diff --git a/permutation-gateway/screens/ws07-spectate.screen.mjs b/permutation-gateway/screens/ws07-spectate.screen.mjs
+new file mode 100644
+index 00000000..1df63dd5
+--- /dev/null
++++ b/permutation-gateway/screens/ws07-spectate.screen.mjs
+@@ -0,0 +1,79 @@
++// Workstream 07: the spectator page in English when /h/events cannot be read (workstream 08's finding). The page is
++// served by the screen suite's fixture server (server.mjs: a FIXTURE herald, not a chain and not a recorded run); the
++// events route is made to fail in the browser (HTTP 503, or the connection aborted). Checked: no page error, the
++// record is said as not read — not as empty —, an earlier read stays and is said as older, and the page recovers.
++// No wallet is connected and no storage holds a key; an init script blocks and counts every key operation (none).
++import { test, before, after } from 'node:test';
++import assert from 'node:assert/strict';
++import { mkdir } from 'node:fs/promises';
++import { chromium } from 'playwright-core';
++import { startServer } from './server.mjs';
++
++// (screenshots only when WS07_SHOTS names a directory: nothing is written into the tree)
++const OUT = process.env.WS07_SHOTS ? new URL(`file://${process.env.WS07_SHOTS.replace(/\/?$/, '/')}`) : null;
++const SIZES = [{ name: 'phone', width: 390, height: 844 }, { name: 'pc', width: 1440, height: 900 }];
++let srv, browser;
++before(async () => { srv = await startServer(); browser = await chromium.launch(process.env.WS07_CHROME ? { executablePath: process.env.WS07_CHROME } : {}); if (OUT) await mkdir(OUT, { recursive: true }); });
++after(async () => { await browser?.close(); await srv?.close(); });
++
++/** English, the title card seen, NO wallet and no session key; every key operation blocked and counted. */
++function init() {
++  try { localStorage.setItem('ps-lang', 'en'); localStorage.setItem('ps-fintro:v1', '1'); } catch { /* no storage */ }
++  window.__keyUses = [];
++  const s = crypto.subtle;
++  for (const m of ['generateKey', 'deriveKey', 'deriveBits', 'sign', 'unwrapKey']) { const f = s[m]; Object.defineProperty(s, m, { value: async (...a) => { window.__keyUses.push(m); throw new Error(`key use blocked: ${m}`); } }); void f; }
++  const imp = s.importKey.bind(s);
++  Object.defineProperty(s, 'importKey', { value: async (fmt, data, alg, ext, uses) => { if (fmt === 'pkcs8' || (uses ?? []).includes('sign')) { window.__keyUses.push(`importKey:${fmt}`); throw new Error('key use blocked'); } return imp(fmt, data, alg, ext, uses); } });
++}
++
++async function open(size, mode) {
++  const ctx = await browser.newContext({ viewport: { width: size.width, height: size.height } });
++  await ctx.addInitScript(init);
++  const page = await ctx.newPage();
++  const errors = [];
++  page.on('pageerror', e => errors.push(String(e)));
++  page.on('console', m => { if (m.type() === 'error' && /frontier|TypeError/.test(m.text())) errors.push(m.text()); });
++  const state = { mode };
++  await page.route('**/h/events*', route => (state.mode === 'down' ? route.fulfill({ status: 503, contentType: 'application/json', body: '{"code":"Unavailable"}' })
++    : state.mode === 'abort' ? route.abort('connectionreset') : route.continue()));
++  await page.goto(`${srv.url}/frontier/spectate.html`);
++  return { ctx, page, errors, state };
++}
++const panel = page => page.locator('#panel-body').innerText();
++async function until(page, re, ms = 15000) { const t0 = Date.now(); for (;;) { const t = await panel(page).catch(() => ''); if (re.test(t)) return t; if (Date.now() - t0 > ms) return t; await page.waitForTimeout(250); } }
++
++for (const size of SIZES) {
++  for (const mode of ['down', 'abort']) {
++    test(`${size.name}, events ${mode === 'down' ? 'HTTP 503' : 'connection reset'} from the start: no page error; the record is said as not read, never as empty`, async () => {
++      const { ctx, page, errors } = await open(size, mode);
++      try {
++        const t = await until(page, /record of events could not be loaded/);
++        assert.match(t, /The record of events could not be loaded \((HTTP503|network)\)\. This does not mean the record is empty/);
++        assert.match(t, /whether there was a clash is not known/);
++        assert.doesNotMatch(t, /No clash yet|No highlights yet|Nothing recorded yet/);
++        assert.deepEqual(errors, []);
++        assert.deepEqual(await page.evaluate(() => window.__keyUses), [], 'no key operation');
++        if (OUT) await page.screenshot({ path: new URL(`spectate-unread-${mode}-en-${size.name}.png`, OUT).pathname });
++      } finally { await ctx.close(); }
++    });
++  }
++  test(`${size.name}, events read, then failing, then back: what was read stays and is said as older; the line goes once read again`, async () => {
++    const { ctx, page, errors, state } = await open(size, 'up');
++    try {
++      await page.locator('[data-act="report-open"]').first().waitFor({ timeout: 15000 });
++      const before = await panel(page);
++      assert.doesNotMatch(before, /could not be loaded/);
++      state.mode = 'down';
++      await page.evaluate(() => document.dispatchEvent(new Event('visibilitychange')));
++      const t = await until(page, /latest record of events could not be loaded/, 45000);
++      assert.match(t, /The latest record of events could not be loaded \(HTTP503\)\. What is shown here is what was loaded before/);
++      assert.ok(await page.locator('[data-act="report-open"]').count() > 0, 'the clashes read before are still listed');
++      if (OUT) await page.screenshot({ path: new URL(`spectate-stale-en-${size.name}.png`, OUT).pathname });
++      state.mode = 'up';
++      const back = await until(page, /^(?![\s\S]*record of events could not be loaded)/, 45000);
++      assert.doesNotMatch(back, /could not be loaded/);
++      assert.deepEqual(errors, []);
++      assert.deepEqual(await page.evaluate(() => window.__keyUses), []);
++    } finally { await ctx.close(); }
++  });
++}
+diff --git a/permutation-gateway/test/web-frontier-ws07-sendstates.test.mjs b/permutation-gateway/test/web-frontier-ws07-sendstates.test.mjs
+new file mode 100644
+index 00000000..b890a68f
+--- /dev/null
++++ b/permutation-gateway/test/web-frontier-ws07-sendstates.test.mjs
+@@ -0,0 +1,44 @@
++// Workstream 07: 04's seven states of a signed send kept apart up to the screen (EXECUTION-CONTRACT-20261106 §1).
++// GET /f/tx answers landed, failed or unknown (04 §2: its "unknown" covers pending and unknown); a read that never
++// answers is "unqueryable", not "unknown" and never a failure. No key, no signature: txStatus is a stub.
++import { test } from 'node:test';
++import assert from 'node:assert/strict';
++import { track } from '../../permutation-server/web/frontier/fplay.mjs';
++import * as SV from '../../permutation-server/web/frontier/hud/statusview.mjs';
++import { clientText } from '../../permutation-server/web/frontier/fi18n.mjs';
++import { setLang } from '../../permutation-server/web/lang.mjs';
++
++const wait = async () => {};
++
++test('track keeps "no answer" (unqueryable) apart from "answered: not final" (unknown); neither is failed', async () => {
++  const seq = answers => { let i = 0; return async () => { const a = answers[Math.min(i++, answers.length - 1)]; if (a instanceof Error) throw a; return a; }; };
++  const run = answers => track('sig', { tries: 3, wait, read: seq(answers) });
++  assert.deepEqual(await run([{ ok: true, state: 'landed', slot: 9 }]), { ok: true, state: 'landed', slot: 9 });
++  assert.equal((await run([{ ok: true, state: 'failed', code: 'X' }])).state, 'failed');
++  assert.deepEqual(await run([{ ok: true, state: 'unknown' }]), { ok: false, state: 'unknown', code: 'Unconfirmed' });
++  assert.deepEqual(await run([{ ok: false, code: 'HTTP503' }]), { ok: false, state: 'unqueryable', code: 'TxUnqueryable' });
++  assert.deepEqual(await run([new Error('down')]), { ok: false, state: 'unqueryable', code: 'TxUnqueryable' }, 'a thrown read is no answer, not a crash');
++  assert.deepEqual(await run([{ ok: true, state: 'unknown' }, { ok: false, code: 'network' }]), { ok: false, state: 'unknown', code: 'Unconfirmed' }, 'once answered, a later lost read does not make it unqueryable');
++  setLang('en');
++  assert.match(clientText('TxUnqueryable'), /could not be queried\. This does not mean it failed/);
++  assert.doesNotMatch(clientText('Unconfirmed'), /fail/i);
++  setLang('ja');
++});
++
++test('the seven states: each its own symbol-and-words line; only landed, failed, expired, not-sent say final; none of the open ones says failed', () => {
++  setLang('ja');
++  const v = SV.SEND_STATES.map(state => SV.sendView({ state }));
++  assert.deepEqual(v.map(x => x.key), SV.SEND_STATES.map(s => `send:${s}`));
++  assert.ok(v.every(x => x.ok && x.errors.length === 0));
++  assert.equal(new Set(v.map(x => x.text)).size, 7, 'seven texts, none merged');
++  for (const x of v) {
++    const t = [x.text, ...x.details].join();
++    if (['send:pending', 'send:unknown', 'send:unqueryable'].includes(x.key)) { assert.doesNotMatch(t, /（確定）/); assert.match(t, /失敗したという意味ではありません|失敗とも成功とも言いません/); }
++    else assert.match(t, /（確定）/);
++  }
++  assert.equal(SV.sendView({ state: 'cancelled' }).ok, false, 'a state 04 does not name is not received');
++  setLang('en');
++  const jp = /[぀-ヿ一-鿿]/;
++  for (const x of SV.SEND_STATES.map(state => SV.sendView({ state }))) assert.doesNotMatch([x.text, ...x.details].join(' '), jp, x.key);
++  setLang('ja');
++});
+diff --git a/permutation-gateway/test/web-frontier-ws07-spectate.test.mjs b/permutation-gateway/test/web-frontier-ws07-spectate.test.mjs
+new file mode 100644
+index 00000000..7713d42f
+--- /dev/null
++++ b/permutation-gateway/test/web-frontier-ws07-spectate.test.mjs
+@@ -0,0 +1,66 @@
++// Workstream 07: the spectator page when /h/events cannot be read (found by workstream 08). Before, the first poll's
++// failure left FS.chronicle undefined and refreshChronicle threw on it (`FS.chronicle.filter`), so the refresh never
++// finished; and a record never read was shown as an empty one ("No clash yet", "Nothing recorded yet"). Now the read
++// state is kept (FS.chronicleRead) and said. No wallet, no key, no signature: a fake herald answers.
++import { test } from 'node:test';
++import assert from 'node:assert/strict';
++import * as C from '../../permutation-server/web/frontier/controller.mjs';
++import { FS } from '../../permutation-server/web/frontier/fstate.mjs';
++import * as spectate from '../../permutation-server/web/frontier/screens/spectate.mjs';
++import * as chronicle from '../../permutation-server/web/frontier/screens/chronicle.mjs';
++import { setLang } from '../../permutation-server/web/lang.mjs';
++
++/** A herald that answers nothing but what a test gives it (every other read: not ok). */
++const herald = events => new Proxy({ events }, { get: (o, k) => (k in o ? o[k] : async () => ({ ok: false, code: 'NotFound' })) });
++const text = FS => spectate.render(FS).map(String).join('\n').replace(/<[^>]+>/g, ' ');
++const spectator = () => ({ mode: 'spectate', wallet: null, citizen: null, holdings: [], season: { seasonId: 7n, endBell: 2016, bellSecs: 600 }, clock: { genesisTs: 0 }, chain: { now: () => 6000 },
++  record: { headSeq: '120', latestSlot: 1 }, provinces: new Map(), overviews: new Map(), chronicle: undefined, chronicleRead: undefined, feed: [], watch: {} });
++
++async function withFS(fake, fn) {
++  const saved = { ...FS };
++  try { Object.assign(FS, spectator()); C.useHerald(fake); await fn(); } finally { C.useHerald(null); for (const k of Object.keys(FS)) if (!(k in saved)) delete FS[k]; Object.assign(FS, saved); }
++}
++
++test('no page read (an HTTP error or a thrown fetch): the refresh finishes, and the page says the record was not read — never "nothing yet"', async () => {
++  for (const events of [async () => ({ ok: false, code: 'HTTP503' }), async () => { throw Object.assign(new Error('down'), { code: 'network' }); }]) {
++    await withFS(herald(events), async () => {
++      await C.refresh();
++      assert.equal(FS.chronicle, undefined, 'nothing read is not an empty record');
++      assert.equal(FS.chronicleRead.ok, false);
++      assert.deepEqual(chronicle.chronicleState(FS).state, 'unread');
++      setLang('en');
++      const t = text(FS);
++      assert.match(t, /The record of events could not be loaded \((HTTP503|network)\)\. This does not mean the record is empty/);
++      assert.match(t, /whether there was a clash is not known/);
++      assert.doesNotMatch(t, /No clash yet|No highlights yet|Nothing recorded yet/, 'an unread record is not an empty one');
++      setLang('ja');
++      assert.doesNotMatch(text(FS), /まだ衝突はありません|まだ見どころはありません|まだ記録はありません/);
++    });
++  }
++});
++
++test('pages read, then a poll fails: what was read stays, said as older; a later good poll clears it', async () => {
++  let down = false;
++  const page = { ok: true, events: [], next: '120', full: false };
++  await withFS(herald(async () => (down ? { ok: false, code: 'HTTP502' } : page)), async () => {
++    await C.refresh();
++    assert.deepEqual(FS.chronicle, [], 'a page read with no records: an empty record, known');
++    setLang('en');
++    assert.match(text(FS), /No clash yet/);
++    down = true; await C.refresh();
++    assert.equal(chronicle.chronicleState(FS).state, 'stale');
++    assert.match(text(FS), /The latest record of events could not be loaded \(HTTP502\)\. What is shown here is what was loaded before/);
++    down = false; await C.refresh();
++    assert.equal(chronicle.chronicleState(FS).state, 'ok');
++    assert.doesNotMatch(text(FS), /could not be loaded/);
++    setLang('ja');
++  });
++});
++
++test('before any poll the page says it is loading, not that nothing happened', () => {
++  setLang('en');
++  const fs = spectator();
++  assert.match(String(chronicle.render(fs)).replace(/<[^>]+>/g, ' '), /Loading the record of events/);
++  assert.doesNotMatch(text(fs), /No clash yet|No highlights yet|Nothing recorded yet|could not be loaded/, 'loading is not "could not be loaded" either');
++  setLang('ja');
++});
+diff --git a/permutation-server/web/frontier/controller.mjs b/permutation-server/web/frontier/controller.mjs
+index c070c34e..e6cad5f6 100644
+--- a/permutation-server/web/frontier/controller.mjs
++++ b/permutation-server/web/frontier/controller.mjs
+@@ -768,9 +768,14 @@ async function readMarches() {
+ 
+ async function refreshChronicle() {
+   if (cursor === 0 && FS.record?.headSeq !== undefined) cursor = chronicleStart(FS.record.headSeq);
++  // (workstream 07: a page that could not be read is said as such — screens/chronicle.mjs chronicleState —, never as an
++  // empty record: FS.chronicle stays undefined until a page has been read, and FS.chronicleRead says how the last poll went)
++  let failed = null, pages = 0;
+   for (let page = 0; page < CHRONICLE_PAGES; page++) {
+-    const r = await herald.events(cursor);
+-    if (!r.ok) break;
++    let r;
++    try { r = await herald.events(cursor); } catch (e) { r = { ok: false, code: e?.code ?? 'network' }; }
++    if (!r?.ok) { failed = String(r?.code ?? 'Unavailable'); break; }
++    pages++;
+     const { records } = decodePage(r.events);
+     // (the prototype's own records ride on the same pages, in a sample world that serves them)
+     if (FS.proto) { const had = FS.proto.log, log = pm.mergeLog(had, pm.landRecords(r.events)); if (log.length !== had.length || log.at(-1)?.seq !== had.at(-1)?.seq) { FS.proto.log = log; FS.proto.rev = (FS.proto.rev ?? 0) + 1; } }
+@@ -780,13 +785,15 @@ async function refreshChronicle() {
+     if (r.next !== null && r.next !== undefined) cursor = r.next;
+     if (!r.full) break;
+   }
++  if (pages > 0 && FS.chronicle === undefined) FS.chronicle = [];
++  FS.chronicleRead = { ok: failed === null, code: failed, pages, bell: nowBell() };
+   const own = FS.holdings ?? [];
+   FS.isMine = rec => {
+     if (rec.host_id !== undefined) { const h = hostParts(rec.host_id); return !!h && own.some(o => o.p === h.p && o.q === h.q && o.site === h.site); }
+     return rec.p !== undefined && own.some(o => o.p === rec.p && o.q === rec.q && (rec.site === undefined || rec.site === o.site));
+   };
+   // Incoming (§7.7): public departures from other factions' holdings.
+-  const departures = FS.chronicle.filter(x => x.record.name === 'DEPART').map(x => {
++  const departures = (FS.chronicle ?? []).filter(x => x.record.name === 'DEPART').map(x => {
+     const h = hostParts(x.record.host_id);
+     const ov = h && [...FS.overviews.values()].flatMap(o => o.provinces).find(pr => pr.p === h.p && pr.q === h.q);
+     return { ...x.record, faction: ov && h ? ov.owners[h.site] : null };
+diff --git a/permutation-server/web/frontier/fi18n.mjs b/permutation-server/web/frontier/fi18n.mjs
+index 908852b4..97195d30 100644
+--- a/permutation-server/web/frontier/fi18n.mjs
++++ b/permutation-server/web/frontier/fi18n.mjs
+@@ -284,6 +284,8 @@ const CLIENT_TEXT = {
+   SessionMismatch: () => L`このゲーム内の鍵は、登録されているものと違います`,
+   Expired: () => L`取引は期限までに記録されませんでした`,
+   Unconfirmed: () => L`取引がまだ確認できません。あとで状態を確かめます。`,
++  // (workstream 07: no read of the transaction's state answered — not a failure, it may still land)
++  TxUnqueryable: () => L`取引の状態を照会できませんでした。失敗したという意味ではなく、記録されている場合もあります。あとで状態を確かめます。`,
+   TransactionFailed: () => L`取引は記録されましたが失敗しました`,
+   NotSaved: () => L`この端末に進軍の記録を保存できないため、送りませんでした`,
+   BadName: () => L`名前は1〜24文字の文字・数字・空白・「-」「_」「.」で付けてください`,
+diff --git a/permutation-server/web/frontier/fplay.mjs b/permutation-server/web/frontier/fplay.mjs
+index 04df7ae9..f5be778d 100644
+--- a/permutation-server/web/frontier/fplay.mjs
++++ b/permutation-server/web/frontier/fplay.mjs
+@@ -258,15 +258,21 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
+ 
+ /**
+  * Follow a sent transaction: `{ok: true, state: 'landed', slot}` or
+- * `{ok: false, state: 'failed'|'expired'|'unknown', code, programCode?}`.
++ * `{ok: false, state: 'failed'|'expired'|'unknown'|'unqueryable', code, programCode?}`.
++ * (workstream 07, 04's seven states — EXECUTION-CONTRACT-20261106 §1: `unknown` is GET /f/tx answering "not final, or
++ * not provable" — 04's pending and unknown, which this route does not tell apart —; `unqueryable` is no read answering at
++ * all (the route, the network or its 5xx). Neither is a failure: both may still land, and nothing is sent again.)
+  */
+-export async function track(signature, { tries = 40, every = 1500, wait = sleep } = {}) {
++export async function track(signature, { tries = 40, every = 1500, wait = sleep, read = io.txStatus } = {}) {
++  let answered = false;
+   for (let i = 0; i < tries; i++) {
+-    const r = await io.txStatus(signature);
++    let r;
++    try { r = await read(signature); } catch { r = { ok: false, code: 'network' }; }
++    if (r?.ok) answered = true;
+     if (r.ok && r.state === 'landed') return { ok: true, state: 'landed', slot: r.slot };
+     if (r.ok && r.state === 'failed') return { ok: false, state: 'failed', code: r.code ?? 'TransactionFailed', programCode: r.programCode };
+     if (r.ok && r.state === 'expired') return { ok: false, state: 'expired', code: 'Expired' };
+     if (i + 1 < tries) await wait(every);
+   }
+-  return { ok: false, state: 'unknown', code: 'Unconfirmed' };
++  return answered ? { ok: false, state: 'unknown', code: 'Unconfirmed' } : { ok: false, state: 'unqueryable', code: 'TxUnqueryable' };
+ }
+diff --git a/permutation-server/web/frontier/hud/statusview.mjs b/permutation-server/web/frontier/hud/statusview.mjs
+index 7c1652d6..03220848 100644
+--- a/permutation-server/web/frontier/hud/statusview.mjs
++++ b/permutation-server/web/frontier/hud/statusview.mjs
+@@ -62,6 +62,26 @@ const notReceived = (key, errors) => ({ ok: false, key, symbol: '?', text: L`状
+  * `settled` is what took effect before the cancel (null: not received yet,
+  * [] : nothing took effect).
+  */
++/**
++ * 04's seven states of a signed send (workstreams/04-execution/docs/EXECUTION-CONTRACT-20261106.ja.md §1, the agent
++ * wallet's GET /f/agent/fate `state`), each said apart. Only landed, failed, expired and not-sent are final; pending,
++ * unknown and unqueryable are not, and none of them is said as a failure. `x`: `{state}`.
++ */
++export const SEND_STATES = Object.freeze(['not-sent', 'landed', 'failed', 'expired', 'pending', 'unknown', 'unqueryable']);
++export function sendView(x) {
++  if (!x || !SEND_STATES.includes(x.state)) return notReceived('send', [`state: ${x?.state ?? 'missing'}`]);
++  const v = {
++    'not-sent': ['○', 'unknown', L`送られていません`, L`何も送られていないため、効果はありません（確定）`],
++    landed: ['●', 'result', L`記録されました`, L`確定した記録で、誤りはありません（確定）`],
++    failed: ['✕', 'loss', L`記録されましたが失敗しました`, L`手数料は払われ、効果はありません（確定）`],
++    expired: ['⌛', 'loss', L`期限までに記録されませんでした`, L`有効期限を過ぎ、記録が無いことを確かめました（確定）`],
++    pending: ['…', 'unknown', L`確定を待っています`, L`まだ確定していません。失敗したという意味ではありません`],
++    unknown: ['?', 'unknown', L`結果は不明です`, L`有効期限は過ぎましたが、記録されなかったとは示せません。失敗とも成功とも言いません`],
++    unqueryable: ['?', 'unknown', L`状態を照会できませんでした`, L`記録を読めませんでした。取引については何も分かっていません。失敗したという意味ではありません`],
++  }[x.state];
++  return { ok: true, key: `send:${x.state}`, symbol: v[0], tone: v[1], errors: [], text: v[2], details: [v[3]] };
++}
++
+ export function cancelView(x) {
+   if (!x || !CANCEL_STAGES.includes(x.stage)) return notReceived('cancel', [`stage: ${x?.stage ?? 'missing'}`]);
+   const n = count(x.signedPending);
+diff --git a/permutation-server/web/frontier/screens/chronicle.mjs b/permutation-server/web/frontier/screens/chronicle.mjs
+index 3a0d2c33..716ffdc1 100644
+--- a/permutation-server/web/frontier/screens/chronicle.mjs
++++ b/permutation-server/web/frontier/screens/chronicle.mjs
+@@ -100,13 +100,33 @@ function turnBlock(bell, rows) {
+  * The chronicle as a document: the record grouped by turn, the latest turns
+  * in sight and the rest behind a fold; a line with a place goes there.
+  */
++/**
++ * How the record pages stand (controller.mjs refreshChronicle sets FS.chronicleRead): 'waiting' (nothing tried yet),
++ * 'unread' (no page could be read: nothing is known of the record — not that it is empty), 'stale' (pages were read
++ * before, the last poll failed: what is shown is older), 'ok'. → `{state, code}`.
++ */
++export function chronicleState(FS) {
++  const r = FS?.chronicleRead, have = Array.isArray(FS?.chronicle);
++  if (!r) return { state: have ? 'ok' : 'waiting', code: null };
++  if (r.ok) return { state: 'ok', code: null };
++  return { state: have ? 'stale' : 'unread', code: r.code ?? null };
++}
++/** The line that says the record could not be read (or not yet), or '' when it was read. */
++export function readLine(FS) {
++  const s = chronicleState(FS);
++  if (s.state === 'waiting') return html`<p class="muted read-state" role="status" data-read="waiting">${icon('hourglass')}${L`出来事の記録を読み込んでいます`}</p>`;
++  if (s.state === 'unread') return html`<p class="blocked read-state" role="status" data-read="unread">${icon('alert')}${L`出来事の記録を読み込めませんでした（${s.code ?? '?'}）。記録が空という意味ではありません。次の読み込みでもう一度試します`}</p>`;
++  if (s.state === 'stale') return html`<p class="muted read-state" role="status" data-read="stale">${icon('alert')}${L`最新の出来事の記録を読み込めませんでした（${s.code ?? '?'}）。ここに出ているのは前に読めた分です`}</p>`;
++  return '';
++}
+ export function render(FS) {
+   const rows = chronicleRows(FS.chronicle ?? [], FS.isMine ?? (() => false), 60, FS);
+-  if (!rows.length) return html`<section class="vcard" aria-labelledby="chronicle-title">${cardHead({ id: 'chronicle-title', ic: 'quill', title: L`年代記` })}<p class="muted">${L`まだ記録はありません`}</p></section>`;
++  const st = chronicleState(FS).state, line = readLine(FS);
++  if (!rows.length) return html`<section class="vcard" aria-labelledby="chronicle-title">${cardHead({ id: 'chronicle-title', ic: 'quill', title: L`年代記` })}${st === 'ok' || st === 'stale' ? html`${line}<p class="muted">${L`まだ記録はありません`}</p>` : line}</section>`;
+   const turns = [];
+   for (const r of rows) { const t = turns[turns.length - 1]; if (t && t.bell === r.bell) t.rows.push(r); else turns.push({ bell: r.bell, rows: [r] }); }
+   const first = turns.slice(0, TURNS_SHOWN), rest = turns.slice(TURNS_SHOWN);
+   return html`<section class="vcard chronicle-card" aria-labelledby="chronicle-title">${cardHead({ id: 'chronicle-title', ic: 'quill', title: L`年代記`, sub: L`この世界で起きたことの記録` })}
+-    <ol class="chron">${first.map(t => turnBlock(t.bell, t.rows))}</ol>
++    ${line}<ol class="chron">${first.map(t => turnBlock(t.bell, t.rows))}</ol>
+     ${rest.length ? fold('chron-old', L`それより前の記録（${fmtNum(rest.reduce((a, t) => a + t.rows.length, 0))}）`, html`<ol class="chron">${rest.map(t => turnBlock(t.bell, t.rows))}</ol>`) : ''}</section>`;
+ }
+diff --git a/permutation-server/web/frontier/screens/spectate.mjs b/permutation-server/web/frontier/screens/spectate.mjs
+index 329b66a2..a7a9885e 100644
+--- a/permutation-server/web/frontier/screens/spectate.mjs
++++ b/permutation-server/web/frontier/screens/spectate.mjs
+@@ -91,13 +91,15 @@ export function render(FS, { ownerOf = null, standings = '' } = {}) {
+     .filter(c => (b === null || c.bell === b) && (f === null || provinceFactions(FS.overviews, c.p, c.q).includes(f))).slice(0, SPECTATE_REPORTS);
+   const items = highlights(FS.chronicle, FS.overviews, FS.roster, { limit: 12, faction: f, bell: b, where: (p, q) => provinceName(FS, p, q) });
+   const scope = [f !== null ? factionName(f) : null, b !== null ? L`ターン ${fmtNum(b)}` : null].filter(Boolean).join(' · ');
++  // (workstream 07: with no record page read, "nothing yet" would be a guess — the read state is said instead)
++  const known = ['ok', 'stale'].includes(chronicleScreen.chronicleState(FS).state), why = chronicleScreen.readLine(FS);
+   return [
+     html`<p class="muted how-line">${icon('eye')}${L`ウォレットなしで、地図とターンの進み具合を見られます。`}</p>`,
+-    html`<section class="vcard" aria-labelledby="watch-hl-title">${cardHead({ id: 'watch-hl-title', ic: 'flag', title: scope ? L`見どころ（${scope}）` : L`見どころ` })}${renderHighlights(items, { go: true })}</section>`,
++    html`<section class="vcard" aria-labelledby="watch-hl-title">${cardHead({ id: 'watch-hl-title', ic: 'flag', title: scope ? L`見どころ（${scope}）` : L`見どころ` })}${known ? renderHighlights(items, { go: true }) : why}</section>`,
+     renderWatch(FS),
+     standings ? html`<details class="watch-mini"><summary>${L`国の順位`}</summary>${standings}</details>` : '',
+     FS.chain && FS.clock ? bellScreen.render(FS) : '',
+-    reportScreen.renderLinks(clashes, L`最近の衝突`, { FS }) || html`<p class="muted">${L`まだ衝突はありません`}</p>`,
++    reportScreen.renderLinks(clashes, L`最近の衝突`, { FS }) || (known ? html`<p class="muted">${L`まだ衝突はありません`}</p>` : chronicleScreen.chronicleState(FS).state === 'unread' ? html`<p class="muted">${L`記録を読めていないため、衝突があったかは分かりません`}</p>` : ''),
+     chronicleScreen.render(FS),
+     // (when the page's view of the world dates from, in the game's own unit: a chain slot is a word for the builders.
+     // The design review of 2026-10-24; the slot stays in the element's title for whoever checks the record)
+diff --git a/permutation-server/web/lang/en-frontier-play.mjs b/permutation-server/web/lang/en-frontier-play.mjs
+index 49b99dc1..d1b4ee8d 100644
+--- a/permutation-server/web/lang/en-frontier-play.mjs
++++ b/permutation-server/web/lang/en-frontier-play.mjs
+@@ -322,6 +322,26 @@ export default {
+ 
+   // ---- the spectator (screens/spectate.mjs)
+   'まだ衝突はありません': 'No clash yet',
++  // workstream 07: 04's seven states of a signed send (hud/statusview.mjs sendView)
++  '送られていません': 'Not sent',
++  '何も送られていないため、効果はありません（確定）': 'Nothing was sent, so it had no effect (final)',
++  '記録されました': 'Recorded',
++  '確定した記録で、誤りはありません（確定）': 'Finalized, with no error (final)',
++  '記録されましたが失敗しました': 'Recorded, but it failed',
++  '手数料は払われ、効果はありません（確定）': 'The fee was paid, and it had no effect (final)',
++  '期限までに記録されませんでした': 'Not recorded before its deadline',
++  '有効期限を過ぎ、記録が無いことを確かめました（確定）': 'Its validity ran out, and it was shown that it was not recorded (final)',
++  '確定を待っています': 'Waiting to be finalized',
++  'まだ確定していません。失敗したという意味ではありません': 'It has not been finalized yet. This does not mean it failed',
++  '結果は不明です': 'The outcome is unknown',
++  '有効期限は過ぎましたが、記録されなかったとは示せません。失敗とも成功とも言いません': 'Its validity ran out, but it cannot be shown that it was not recorded. It is said to be neither a failure nor a success',
++  '状態を照会できませんでした': 'Its state could not be queried',
++  '記録を読めませんでした。取引については何も分かっていません。失敗したという意味ではありません': 'The record could not be read. Nothing is known about the transaction. This does not mean it failed',
++  // workstream 07: the record pages not read are said as such, never as an empty record (screens/chronicle.mjs readLine)
++  '出来事の記録を読み込んでいます': 'Loading the record of events',
++  '出来事の記録を読み込めませんでした（{0}）。記録が空という意味ではありません。次の読み込みでもう一度試します': 'The record of events could not be loaded ({0}). This does not mean the record is empty. It will be tried again on the next load',
++  '最新の出来事の記録を読み込めませんでした（{0}）。ここに出ているのは前に読めた分です': 'The latest record of events could not be loaded ({0}). What is shown here is what was loaded before',
++  '記録を読めていないため、衝突があったかは分かりません': 'The record could not be loaded, so whether there was a clash is not known',
+   'スロット {0} 時点': 'As of slot {0}',
+   'ターン {0} の時点の世界です': 'The world as of turn {0}',
+ 
+diff --git a/permutation-server/web/lang/en-frontier.mjs b/permutation-server/web/lang/en-frontier.mjs
+index 3edbc721..06083a23 100644
+--- a/permutation-server/web/lang/en-frontier.mjs
++++ b/permutation-server/web/lang/en-frontier.mjs
+@@ -498,6 +498,7 @@ export default {
+   'このゲーム内の鍵は、登録されているものと違います': 'This in-game key is not the one registered for you.',
+   'この鍵は、このシーズンのどの参加者の鍵とも一致しません': 'This key does not match any player\'s key in this season.',
+   '取引がまだ確認できません。あとで状態を確かめます。': 'The transaction is not confirmed yet. It will be checked again later.',
++  '取引の状態を照会できませんでした。失敗したという意味ではなく、記録されている場合もあります。あとで状態を確かめます。': 'The transaction\'s state could not be queried. This does not mean it failed: it may have been recorded. It will be checked again later.',
+   'ルールがまだ読み込まれていません': 'The rules are not loaded yet.',
+   'このサーバーにはルールのファイルがまだありません': 'This server does not have the rules file yet.',
+   '封の回が到着のターンと合いません': 'The seal\'s round does not match the arrival turn.',
+-- 
+2.43.0
+

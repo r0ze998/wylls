@@ -1,0 +1,368 @@
+From e9adf32bada097d56d6d1d6bf2e1340686a8c5a1 Mon Sep 17 00:00:00 2001
+From: ws07 <noreply@anthropic.com>
+Date: Fri, 30 Oct 2026 00:16:56 +0000
+Subject: [PATCH 01/15] Web client: the turn's length and the season's
+ deadlines from the season, not from the words
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+Connection patch of workstream 07 (player experience), brief item 4 and
+claim 5.
+
+The glossary, the first card and the title wrote 「10分ごと」 into their
+sentences: on a local world whose clock runs 10× or 40× faster a turn lasts
+a minute or fifteen seconds, and the words said otherwise. No screen named
+the season's join deadline (Season.joinCloseBell), and a join after it was
+refused with the generic WrongStatus. frontier/seasonterms.mjs words a
+turn from BELL_SECS and the chain's pace (on a faster clock, the real time
+too) and reads the deadlines from the season; the join screen says them and,
+once joining closed, turns its button off with the cause. Three tests that
+pinned the old sentences now pin the new ones.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01C5Nj2bNLFpFghsNM9fsQG5
+---
+ .../test/web-frontier-fix2.test.mjs           |  2 +-
+ .../test/web-frontier-wave2-hud.test.mjs      |  2 +-
+ .../test/web-frontier-words.test.mjs          |  4 +-
+ .../test/web-frontier-ws07-terms.test.mjs     | 50 +++++++++++++++++
+ permutation-server/web/frontier/app.mjs       |  2 +
+ .../web/frontier/hud/glossary.mjs             |  4 +-
+ .../web/frontier/intro/title.mjs              |  3 +-
+ .../web/frontier/screens/join.mjs             |  7 ++-
+ .../web/frontier/screens/onboarding.mjs       |  3 +-
+ .../web/frontier/seasonterms.mjs              | 53 +++++++++++++++++++
+ .../web/lang/en-frontier-play.mjs             | 15 +++++-
+ permutation-server/web/lang/en-frontier.mjs   |  2 +-
+ 12 files changed, 136 insertions(+), 11 deletions(-)
+ create mode 100644 permutation-gateway/test/web-frontier-ws07-terms.test.mjs
+ create mode 100644 permutation-server/web/frontier/seasonterms.mjs
+
+diff --git a/permutation-gateway/test/web-frontier-fix2.test.mjs b/permutation-gateway/test/web-frontier-fix2.test.mjs
+index 6f289d87..2a3ef486 100644
+--- a/permutation-gateway/test/web-frontier-fix2.test.mjs
++++ b/permutation-gateway/test/web-frontier-fix2.test.mjs
+@@ -251,7 +251,7 @@ test('the turn dial is a button on all three pages; its card says the turn, the
+   assert.equal(dialcard.nextBellItems(FS, { hostInfo: () => ({ mine: true, unit: 'Spearman', troops: 400, dest: null }) })[1].text, 'あなたの槍兵 400 が行き先に着きます', 'no destination is named that this device does not hold');
+   const card = String(dialcard.renderDialCard(chip, items));
+   assert.match(card, /<strong>ターン 42<\/strong><span class="dial-pop-left">次のターンまで <span class="num" data-dial-left>9:22<\/span><\/span>/);
+-  assert.match(card, /10分ごとの区切りがターンです。/, 'the one sentence that says what a turn is');
++  assert.match(card, /10 分ごとの区切りがターンです。/, 'the one sentence that says what a turn is (its length from the clock: frontier/seasonterms.mjs)');
+   assert.match(card, /<h4 class="dial-pop-h">次のターンで<\/h4><ul class="dial-pop-list">/);
+   assert.match(String(dialcard.renderDialCard(chip, [])), /次のターンであなたに届くものは、いまはありません。/, 'nothing is invented');
+   assert.doesNotMatch(String(dialcard.renderDialCard(null, [])), /次のターンで/);
+diff --git a/permutation-gateway/test/web-frontier-wave2-hud.test.mjs b/permutation-gateway/test/web-frontier-wave2-hud.test.mjs
+index faac2e6a..ba707ef6 100644
+--- a/permutation-gateway/test/web-frontier-wave2-hud.test.mjs
++++ b/permutation-gateway/test/web-frontier-wave2-hud.test.mjs
+@@ -51,7 +51,7 @@ test('the title: an opaque scene of its own (the bell\'s tower and the six stand
+   // the numbered reference is a turn; nothing claims secrecy
+   assert.equal(title.liveLine({ seasonId: 1, bell: 1034, holdings: 1055 }), '第1季 · ターン 1,034 · 1,055 の村 · 6 つの国');
+   assert.doesNotMatch(text(out), /誰にもわからない|秘密|第\d+鐘|知るのは送った者だけ/);
+-  assert.match(text(out), /十分ごとにターンが変わり、封をして送り出した進軍がいっせいに着いて、同じ州の軍勢とぶつかる。/);
++  assert.match(text(out), /10 分ごとにターンが変わり、封をして送り出した進軍がいっせいに着いて、同じ州の軍勢とぶつかる。/);
+   assert.deepEqual(title.sentences('Six nations. A bell every ten minutes. Every march sealed.'), ['Six nations. ', 'A bell every ten minutes. ', 'Every march sealed.']);
+   // the picture: the tower's foot in the upper half, the six standards round it inside the picture, far ones first
+   for (const [w, h] of [[1440, 900], [390, 844], [2560, 1300]]) {
+diff --git a/permutation-gateway/test/web-frontier-words.test.mjs b/permutation-gateway/test/web-frontier-words.test.mjs
+index 499c81b2..c990c691 100644
+--- a/permutation-gateway/test/web-frontier-words.test.mjs
++++ b/permutation-gateway/test/web-frontier-words.test.mjs
+@@ -45,10 +45,10 @@ test('every number is a turn\'s: no numbered bell in the client\'s strings or in
+   }
+   // the one line that ties the two, in the help
+   setLang('ja');
+-  assert.match(TERMS.bell.text(), /10分ごとの区切りがターンです。/);
++  assert.match(TERMS.bell.text(), /10 分ごとの区切りがターンです。/);
+   assert.equal(TERMS.bell.name(), 'ターン');
+   setLang('en');
+-  assert.match(TERMS.bell.text(), /A turn is the ten-minute step of the game\./);
++  assert.match(TERMS.bell.text(), /A turn is the step of the game, every 10 minutes\./);
+   setLang('ja');
+ });
+ 
+diff --git a/permutation-gateway/test/web-frontier-ws07-terms.test.mjs b/permutation-gateway/test/web-frontier-ws07-terms.test.mjs
+new file mode 100644
+index 00000000..a794626d
+--- /dev/null
++++ b/permutation-gateway/test/web-frontier-ws07-terms.test.mjs
+@@ -0,0 +1,50 @@
++// Workstream 07 (player experience), connection patch: the season's times in
++// words, read from the season and the chain's clock. The glossary, the first
++// card and the title wrote 「10分ごと」 into their sentences, which a local
++// world at 10× or 40× contradicts; no screen named the join deadline, and a
++// join after it failed with the generic WrongStatus.
++import { test } from 'node:test';
++import assert from 'node:assert/strict';
++import { readFileSync } from 'node:fs';
++import { setLang } from '../../permutation-server/web/lang.mjs';
++import * as T from '../../permutation-server/web/frontier/seasonterms.mjs';
++import { TERMS } from '../../permutation-server/web/frontier/hud/glossary.mjs';
++import { renderNations } from '../../permutation-server/web/frontier/screens/join.mjs';
++
++const WEB = new URL('../../permutation-server/web/frontier/', import.meta.url);
++const season = { genesisTs: 0, endBell: 2016, joinCloseBell: 1512, layoutVersion: 2, programVersion: 4 };
++const FSat = (bell, extra = {}) => ({ season, clock: { genesisTs: 0 }, chain: { now: () => bell * 600 + 30 }, ...extra });
++
++test('no sentence of the page types the turn\'s length any more', () => {
++  for (const f of ['hud/glossary.mjs', 'screens/onboarding.mjs', 'intro/title.mjs']) assert.doesNotMatch(readFileSync(new URL(f, WEB), 'utf8'), /L`[^`]*(10分|十分)ごと/, f);
++});
++
++test('the turn is said from the clock: 10 game minutes, and on a faster clock the real time too', () => {
++  setLang('ja');
++  try {
++    T.setTermsPace(() => 1);
++    assert.match(TERMS.bell.text(), /^10 分ごとの区切りがターンです。/);
++    T.setTermsPace(() => 10);
++    assert.match(TERMS.bell.text(), /^ゲーム内の 10 分（この世界では実時間で約 60 秒）ごとの区切りがターンです。/);
++    T.setTermsPace(() => 40);
++    assert.match(TERMS.bell.text(), /約 15 秒/);
++    setLang('en');
++    assert.match(TERMS.bell.text(), /every 10 minutes of game time \(in this world about 15 seconds of real time\)/);
++  } finally { T.setTermsPace(() => 1); setLang('ja'); }
++});
++
++test('the deadlines are the season\'s; after the join deadline the join is off and says why', () => {
++  setLang('ja');
++  assert.equal(T.deadlineLine(FSat(100)), '参加の受付は第1,512ターンまで（あと約 10 日）。シーズンは第2,016ターンで終わります（あと約 13 日）。');
++  assert.equal(T.wrongStatusWhy(FSat(100), 'join'), null);
++  assert.equal(T.wrongStatusWhy(FSat(1600), 'join'), '参加の受付は第1,512ターンで締め切られました。');
++  assert.equal(T.wrongStatusWhy(FSat(1600), 'build'), null, 'other orders are still taken');
++  assert.match(T.wrongStatusWhy(FSat(2100), 'build'), /第2,016ターンで終わった/);
++  const cards = { factions: Array.from({ length: 6 }, (_, f) => ({ faction: f })) };
++  const markup = s => String(renderNations({ ...FSat(s), ...cards, wallet: { address: 'W' }, joinDraft: { faction: 1 }, overviews: new Map(), homeChoice: null, inFlight: 0 }));
++  assert.match(markup(100), /参加の受付は第1,512ターンまで/);
++  const late = markup(1600);
++  assert.match(late, /参加の受付は第1,512ターンで締め切られました/);
++  assert.match(late, /data-act="home-confirm"[^>]*disabled/);
++  assert.equal(T.deadlineLine({}), '', 'no season: nothing said');
++});
+diff --git a/permutation-server/web/frontier/app.mjs b/permutation-server/web/frontier/app.mjs
+index cc24eff4..42599fd0 100644
+--- a/permutation-server/web/frontier/app.mjs
++++ b/permutation-server/web/frontier/app.mjs
+@@ -19,6 +19,7 @@ import { conquestEnabled, kernelFile, outpostOffer } from './fconquest.mjs';
+ import { config } from './config.mjs';
+ import { FS, invalidate, registerRenderers } from './fstate.mjs';
+ import { createHerald, nextPoll, staleness } from './herald.mjs';
++import { setTermsPace } from './seasonterms.mjs';
+ import { setPin, setRelay } from './fchainio.mjs';
+ import { checkBeacon } from './seal.mjs';
+ import { ChainClock, bellChip, countdown, seasonClock, bellStart, pollCap } from './clock.mjs';
+@@ -3489,6 +3490,7 @@ async function loadSeason(herald) {
+   for (const d of [...(FS.worldRings?.keys() ?? [])]) if (!partial.includes(d)) FS.worldRings.delete(d);
+   for (const d of partial) herald.worldRing(d).then(a => { if (a.ok) { (FS.worldRings ??= new Map()).set(d, a.present); invalidate('map', 'panel'); } }).catch(() => {});
+   setS1(season);
++  setTermsPace(() => (FS.chain?.accelerated ? FS.chain.rate : 1));
+   FS.clock = seasonClock(season);
+   // Only a localnet Clock runs accelerated (§8.7); every other cluster's rate is 1.
+   FS.chain.setAccelerated(record.cluster === 'localnet');
+diff --git a/permutation-server/web/frontier/hud/glossary.mjs b/permutation-server/web/frontier/hud/glossary.mjs
+index f3bdb789..756b556f 100644
+--- a/permutation-server/web/frontier/hud/glossary.mjs
++++ b/permutation-server/web/frontier/hud/glossary.mjs
+@@ -5,6 +5,7 @@
+ import { html } from '../../util.mjs';
+ import { L } from '../../lang.mjs';
+ import { icon } from './icons.mjs';
++import { turnLine } from '../seasonterms.mjs';
+ 
+ /**
+  * The seal in ONE sentence, the same wherever it is said (UX design 11.13): the order card (hud/marchcard.mjs), the
+@@ -17,7 +18,8 @@ export const sealLine = () => L`行き先と構えは封印され、到着のタ
+ 
+ export const TERMS = Object.freeze({
+   // the one line that ties the bell to the turn (every number on the screen is a turn's; the bell is what tolls)
+-  bell: { name: () => L`ターン`, text: () => L`10分ごとの区切りがターンです。同じターンに同じ州へ着いた軍勢の衝突は、まとめて一度に決まります。守り手に数えられるのは、ターンの始まりにそこにいた軍勢です。` },
++  // (the length from the clock, never typed: frontier/seasonterms.mjs — on a faster local clock the real time too)
++  bell: { name: () => L`ターン`, text: () => L`${turnLine()}ごとの区切りがターンです。同じターンに同じ州へ着いた軍勢の衝突は、まとめて一度に決まります。守り手に数えられるのは、ターンの始まりにそこにいた軍勢です。` },
+   stance: { name: () => L`構え`, text: () => L`進軍の戦い方です。突撃は側撃に、側撃は迎撃に、迎撃は突撃に強く、待機の構えには相性がありません。` },
+   retreat: { name: () => L`撤退の倍率`, text: () => L`守り手の兵が自軍のこの倍率を超えていたら、戦わずに引き返します（損失なし）。` },
+   seal: { name: () => L`封`, text: () => `${sealLine()}${L`ほかの人に見えるのは、出発したこと、出発地、兵の数、到着のターンです。到着のターンが始まると、あなたの端末が先に封を開けることがあります。そのときにはもう、そのターンの到着も守り手も変えられません。`}` },
+diff --git a/permutation-server/web/frontier/intro/title.mjs b/permutation-server/web/frontier/intro/title.mjs
+index 335643ea..93857c30 100644
+--- a/permutation-server/web/frontier/intro/title.mjs
++++ b/permutation-server/web/frontier/intro/title.mjs
+@@ -22,6 +22,7 @@ import { factionName } from '../fi18n.mjs';
+ import { FACTION_FILL, FACTION_DARK, FACTION_MARK, sigilPath } from '../people/avatar.mjs';
+ import { leaderFigure, CHARACTERS } from '../people/leaders.mjs';
+ import { icon } from '../hud/icons.mjs';
++import { turnSpan } from '../seasonterms.mjs';
+ 
+ export const INTRO_KEY = 'ps-fintro:v1';
+ /** The leaders appear one by one (ms apart) after the title. */
+@@ -102,7 +103,7 @@ export function render({ mode = 'play', live = '', stage = null } = {}) {
+     <div class="intro-card">
+       <h2 class="intro-title" id="intro-title" data-name>Wylls</h2>
+       <p class="intro-tagline" lang="en"><span class="intro-orn" aria-hidden="true"></span><span class="intro-tag"><span class="nowrap">${TAGLINE}</span></span><span class="intro-orn intro-orn-r" aria-hidden="true"></span></p>
+-      <p class="intro-lore">${L`十分ごとにターンが変わり、封をして送り出した進軍がいっせいに着いて、同じ州の軍勢とぶつかる。`}</p>
++      <p class="intro-lore">${L`${turnSpan()}ごとにターンが変わり、封をして送り出した進軍がいっせいに着いて、同じ州の軍勢とぶつかる。`}</p>
+       <ol class="intro-leaders">${leaders}</ol>
+       ${live ? html`<p class="intro-live"><span class="intro-dot" aria-hidden="true"></span>${live}</p>` : ''}
+       <button type="button" class="btn primary intro-go" data-act="intro-close">${ctaText(mode, stage)}${icon('next')}</button>
+diff --git a/permutation-server/web/frontier/screens/join.mjs b/permutation-server/web/frontier/screens/join.mjs
+index 984b4ccc..1cb66892 100644
+--- a/permutation-server/web/frontier/screens/join.mjs
++++ b/permutation-server/web/frontier/screens/join.mjs
+@@ -29,6 +29,7 @@ import { leaderWords } from '../map/waitview.mjs';
+ import { renderJoinTerms } from './prize.mjs';
+ import { tokenUnits } from '../fprize.mjs';
+ import { renderDelegated } from '../fdelegation.mjs';
++import { deadlineLine, wrongStatusWhy } from '../seasonterms.mjs';
+ 
+ const FACTIONS = [0, 1, 2, 3, 4, 5];
+ /** A candidate place by the name a village there would carry, never by its number or its coordinates (the row flies there). */
+@@ -74,6 +75,9 @@ export function renderNations(FS) {
+   // Before the first turn the program has no turn to place a village in (PlaceHome: WrongStatus): say so, no button to fail.
+   const now = FS.chain?.now?.() ?? null, g = FS.clock?.genesisTs;
+   const early = instant && now !== null && Number.isFinite(g) && now < g ? Math.max(1, Math.ceil((g - now) / 60)) : 0;
++  // the season's deadlines, read from the season (frontier/seasonterms.mjs): after the join deadline the program refuses
++  // the join (WrongStatus); the button says why instead of failing
++  const closed = wrongStatusWhy(FS, 'join');
+   // The season's join gate (I-51), or a relay that answered InviteRequired.
+   // A season with a prize pool is joined by paying its fee (x402), not with an invite.
+   const gated = !FS.prize && (FS.inviteRequired || !!FS.season?.joinGate?.some?.(x => x !== 0));
+@@ -90,11 +94,12 @@ export function renderNations(FS) {
+     <div class="nc-what">${says}${pick ? '' : html`<div class="nc-item nc-def"><span class="nc-hint">${icon('banner')}</span><div class="nc-text"><strong class="nc-name">${L`旗を一つ選んでください`}</strong><span class="nc-pitch">${L`選ぶのは国だけです。最初の村の場所は自動で決まります。`}</span></div></div>`}</div>
+     <div class="nc-go">
+       ${gated ? html`<label class="field nc-invite">${L`招待コード`}<input name="invite" autocomplete="off" data-bind="invite" value="${FS.joinDraft?.invite ?? ''}"></label>` : ''}
+-      ${FS.wallet ? html`<button type="button" class="btn primary nc-btn" data-act="${instant ? 'home-confirm' : 'join'}" ${raw(pick && !busy && !early ? '' : 'disabled')}>${icon('banner')}${busy ? L`村を準備しています…` : early ? L`季節の始まりを待っています` : pick ? L`${pick.name}で始める` : L`国を選んで始める`}</button>${early ? html`<p class="nc-early" role="status">${L`最初のターンが始まると参加できます（あと約 ${early} 分）。国はいま選んでおけます。`}</p>` : ''}`
++      ${FS.wallet ? html`<button type="button" class="btn primary nc-btn" data-act="${instant ? 'home-confirm' : 'join'}" ${raw(pick && !busy && !early && !closed ? '' : 'disabled')}>${icon('banner')}${busy ? L`村を準備しています…` : early ? L`季節の始まりを待っています` : pick ? L`${pick.name}で始める` : L`国を選んで始める`}</button>${early ? html`<p class="nc-early" role="status">${L`最初のターンが始まると参加できます（あと約 ${early} 分）。国はいま選んでおけます。`}</p>` : ''}${closed ? html`<p class="nc-early" role="status">${closed}</p>` : ''}`
+         : html`<div class="nc-wallet"><span class="nc-wallet-k">${L`始めるには、先にウォレットをつなぎます。`}</span>${walletButtons(FS)}</div>`}
+     </div>
+     ${instant && FS.homeChoice?.error ? html`<p class="notice error" role="alert">${FS.homeChoice.error.text ?? failureText(FS.homeChoice.error)}</p>` : ''}
+     <p class="nc-note">${territoryEnabled(FS) ? L`国を選ぶだけで始められます。この開発版の進行は、サーバーを再起動すると最初からになります。` : FS.wallet ? L`ウォレットが2回、確認を求めます。ゲーム内の鍵を作るための署名と、参加のための署名です。` : L`ウォレットを使うのは、参加の署名のときだけです。そのあとの操作はこの端末のゲーム内の鍵が署名し、手数料はゲーム側が立て替えます（テスト用の SOL で、価値はありません）。`}${pick ? html` ${L`この国の土地には、村を置ける場所があと約 ${fmtNum(pick.free)} あります。`}` : ''}</p>
++    ${deadlineLine(FS) ? html`<p class="nc-note">${deadlineLine(FS)}</p>` : ''}
+     ${FS.prize && !FS.citizen ? renderJoinTerms(FS) : ''}
+   </div>`;
+   return html`<section class="nations" aria-labelledby="join-faction">
+diff --git a/permutation-server/web/frontier/screens/onboarding.mjs b/permutation-server/web/frontier/screens/onboarding.mjs
+index 1254a8b9..c17ec04e 100644
+--- a/permutation-server/web/frontier/screens/onboarding.mjs
++++ b/permutation-server/web/frontier/screens/onboarding.mjs
+@@ -23,6 +23,7 @@ import { territoryEnabled } from '../territory.mjs';
+ import { DEPART_STAMINA } from '../fmarch.mjs';
+ import { conquestOn } from '../hud/keephand.mjs';
+ import { conquestObjective, renderConquestGuide } from './conquestguide.mjs';
++import { turnLine } from '../seasonterms.mjs';
+ 
+ const TITLE = {
+   welcome: () => L`ようこそ`,
+@@ -38,7 +39,7 @@ const TITLE = {
+   done: () => L`完了`,
+ };
+ const DO = {
+-  welcome: () => L`五つの言葉だけ覚えましょう。村（あなたの拠点）、軍勢（動かす兵）、ターン（10分ごとの区切り）、進軍（封をした移動）、探索（斥候で周りを調べる）です。`,
++  welcome: () => L`五つの言葉だけ覚えましょう。村（あなたの拠点）、軍勢（動かす兵）、ターン（${turnLine()}ごとの区切り）、進軍（封をした移動）、探索（斥候で周りを調べる）です。`,
+   // stage-neutral (a returning or refugee player too), following the automatic ticket (review finding 9)
+   join: FS => {
+     const stage = FS.land?.stage ?? 'none', st = FS.autoTicket?.state;
+diff --git a/permutation-server/web/frontier/seasonterms.mjs b/permutation-server/web/frontier/seasonterms.mjs
+new file mode 100644
+index 00000000..f5a9562a
+--- /dev/null
++++ b/permutation-server/web/frontier/seasonterms.mjs
+@@ -0,0 +1,53 @@
++// The season's times in words, read from the season and the chain's clock,
++// never written into a sentence (workstream 07, brief item 4). A turn is
++// BELL_SECS of the chain's clock (clock.mjs, the program's travel.rs); on a
++// local world the clock may run faster (the stack's --scale), and there a turn
++// lasts BELL_SECS / rate real seconds. The season takes joins until its
++// `joinCloseBell` and ends at its `endBell` (Season account); the program
++// refuses a join after the one and every order after the other with
++// WrongStatus, which this page words with its cause.
++import { L, fmtNum } from '../lang.mjs';
++import { BELL_SECS, bellStart } from './clock.mjs';
++
++let pace = () => 1;
++/** The chain's pace as the page knows it (app.mjs: the accelerated local clock's rate, else 1). */
++export function setTermsPace(fn) { pace = typeof fn === 'function' ? fn : () => 1; }
++const rate = () => { const r = Number(pace()); return Number.isFinite(r) && r > 1 ? r : 1; };
++
++/** Seconds in words, at the scale they are long ("10 分", "約 3 時間" style numbers come from the caller). */
++export function spanWords(secs) {
++  const s = Math.max(0, Math.round(secs));
++  if (s < 90) return L`${fmtNum(s)} 秒`;
++  if (s < 90 * 60) return L`${fmtNum(Math.round(s / 60))} 分`;
++  if (s < 48 * 3600) return L`${fmtNum(Math.round(s / 3600))} 時間`;
++  return L`${fmtNum(Math.round(s / 86400))} 日`;
++}
++/** A turn's length of game time ("10 分"). */
++export const turnSpan = () => spanWords(BELL_SECS);
++/** A turn's length as the player lives it: game time, and on a faster clock the real time too. */
++export const turnLine = () => (rate() > 1 ? L`ゲーム内の ${turnSpan()}（この世界では実時間で約 ${spanWords(BELL_SECS / rate())}）` : turnSpan());
++
++/** The season's deadlines: `{join: {bell, closed, realLeft}, end: {bell, ended, realLeft}}`, or null without a season or clock. */
++export function deadlines(FS) {
++  const s = FS?.season, g = Number(FS?.clock?.genesisTs ?? s?.genesisTs), now = Number(FS?.chain?.now?.());
++  if (!s || !Number.isFinite(g) || !Number.isFinite(now)) return null;
++  const nowBell = Math.floor((now - g) / BELL_SECS), endBell = Number(s.endBell), joinBell = Number(s.joinCloseBell ?? s.endBell);
++  const left = b => Math.max(0, (bellStart(g, b) - now) / rate());
++  return { join: { bell: joinBell, closed: nowBell >= joinBell, realLeft: left(joinBell) }, end: { bell: endBell, ended: nowBell >= endBell, realLeft: left(endBell) } };
++}
++/** The deadlines in one line for the join screen. */
++export function deadlineLine(FS) {
++  const d = deadlines(FS);
++  if (!d) return '';
++  const join = d.join.closed ? L`参加の受付は第${fmtNum(d.join.bell)}ターンで締め切られました。` : L`参加の受付は第${fmtNum(d.join.bell)}ターンまで（あと約 ${spanWords(d.join.realLeft)}）。`;
++  const end = d.end.ended ? L`シーズンは終わりました。` : L`シーズンは第${fmtNum(d.end.bell)}ターンで終わります（あと約 ${spanWords(d.end.realLeft)}）。`;
++  return `${join}${end}`;
++}
++/** WrongStatus said with its cause when the cause is the season's clock; null otherwise (the page's own words stand). */
++export function wrongStatusWhy(FS, action = null) {
++  const d = deadlines(FS);
++  if (!d) return null;
++  if (d.end.ended) return L`シーズンは第${fmtNum(d.end.bell)}ターンで終わったため、この操作はできません。`;
++  if (action === 'join' && d.join.closed) return L`参加の受付は第${fmtNum(d.join.bell)}ターンで締め切られました。`;
++  return null;
++}
+diff --git a/permutation-server/web/lang/en-frontier-play.mjs b/permutation-server/web/lang/en-frontier-play.mjs
+index 6628e413..de577002 100644
+--- a/permutation-server/web/lang/en-frontier-play.mjs
++++ b/permutation-server/web/lang/en-frontier-play.mjs
+@@ -752,7 +752,18 @@ export default {
+   'このタブを閉じても、封は自動で開けられます。': ' If you close this tab, the seal is still opened automatically.',
+   // ---- the help (hud/glossary.mjs)
+   'ターン': 'Turn',
+-  '10分ごとの区切りがターンです。同じターンに同じ州へ着いた軍勢の衝突は、まとめて一度に決まります。守り手に数えられるのは、ターンの始まりにそこにいた軍勢です。': 'A turn is the ten-minute step of the game. Clashes between hosts that reach the same province on the same turn are all decided at once. The defenders are the hosts that were there when the turn began.',
++  '{0}ごとの区切りがターンです。同じターンに同じ州へ着いた軍勢の衝突は、まとめて一度に決まります。守り手に数えられるのは、ターンの始まりにそこにいた軍勢です。': 'A turn is the step of the game, every {0}. Clashes between hosts that reach the same province on the same turn are all decided at once. The defenders are the hosts that were there when the turn began.',
++  // workstream 07: the turn's length and the season's deadlines, said from the season (frontier/seasonterms.mjs)
++  '{0} 秒': n => plural(Number(String(n).replace(/,/g, '')), '{0} second', '{0} seconds'),
++  '{0} 分': n => plural(Number(String(n).replace(/,/g, '')), '{0} minute', '{0} minutes'),
++  '{0} 時間': n => plural(Number(String(n).replace(/,/g, '')), '{0} hour', '{0} hours'),
++  '{0} 日': n => plural(Number(String(n).replace(/,/g, '')), '{0} day', '{0} days'),
++  'ゲーム内の {0}（この世界では実時間で約 {1}）': '{0} of game time (in this world about {1} of real time)',
++  '参加の受付は第{0}ターンで締め切られました。': 'Joining closed at turn {0}.',
++  '参加の受付は第{0}ターンまで（あと約 {1}）。': 'Joining is open until turn {0} (about {1} left). ',
++  'シーズンは終わりました。': 'The season has ended.',
++  'シーズンは第{0}ターンで終わります（あと約 {1}）。': 'The season ends at turn {0} (about {1} left).',
++  'シーズンは第{0}ターンで終わったため、この操作はできません。': 'The season ended at turn {0}; this order is no longer taken.',
+   '進軍の戦い方です。突撃は側撃に、側撃は迎撃に、迎撃は突撃に強く、待機の構えには相性がありません。': 'How a march fights. Assault beats Flank, Flank beats Brace and Brace beats Assault; Hold has no edge either way.',
+   '撤退の倍率': 'Retreat ratio',
+   '守り手の兵が自軍のこの倍率を超えていたら、戦わずに引き返します（損失なし）。': 'If the defenders outnumber your host by more than this ratio, it turns back without a fight (no loss).',
+@@ -1065,7 +1076,7 @@ export default {
+   '結果か兵数が変わった軍勢：{0}': 'Hosts whose result or troops change: {0}',
+   '構えと撤退の倍率を決めて「もしもを計算する」を押すと、実際の結果と並べて出ます。': 'Choose a stance and a retreat ratio, press “Work out the what-if”, and it appears beside the real result.',
+   // ---- the guide, the village, the join screens, the map's controls
+-  '五つの言葉だけ覚えましょう。村（あなたの拠点）、軍勢（動かす兵）、ターン（10分ごとの区切り）、進軍（封をした移動）、探索（斥候で周りを調べる）です。': 'Five words are enough: village (your base), host (troops you move), turn (the ten-minute step), march (a sealed move) and explore (scouts look around).',
++  '五つの言葉だけ覚えましょう。村（あなたの拠点）、軍勢（動かす兵）、ターン（{0}ごとの区切り）、進軍（封をした移動）、探索（斥候で周りを調べる）です。': 'Five words are enough: village (your base), host (troops you move), turn (the step of every {0}), march (a sealed move) and explore (scouts look around).',
+   '「村」で農場と伐採場を建てます。': 'On the Village tab, build a Farm and a Lumber camp.',
+   'はじめの案内はここまでです。ガイドは「その他」からいつでも開けます。': 'That is the end of the first steps. You can open the guide again at any time from More.',
+   '場所': 'Place',
+diff --git a/permutation-server/web/lang/en-frontier.mjs b/permutation-server/web/lang/en-frontier.mjs
+index 0151765e..1d8ce405 100644
+--- a/permutation-server/web/lang/en-frontier.mjs
++++ b/permutation-server/web/lang/en-frontier.mjs
+@@ -543,7 +543,7 @@ export default {
+   'ターン {0} に変わったあと、約 {1} 分で決まります。': 'After turn {0} begins, your village is decided in about {1} min.',
+   '村の場所はもうすぐ決まる。待つあいだに、戦い方を確かめておこう。': 'The village will be placed soon. The wait is a good time to learn how a clash goes.',
+   'まずは村の申し込みだ。通りしだい、候補地が地図に並ぶ。': 'First, the village request. Once it is in, the candidate sites appear on the map.',
+-  '十分ごとにターンが変わり、封をして送り出した進軍がいっせいに着いて、同じ州の軍勢とぶつかる。': 'Every ten minutes the turn changes: the marches sent under seal arrive together and meet whoever stands in the same province.',
++  '{0}ごとにターンが変わり、封をして送り出した進軍がいっせいに着いて、同じ州の軍勢とぶつかる。': 'Every {0} the turn changes: the marches sent under seal arrive together and meet whoever stands in the same province.',
+   '確定した村': 'Confirmed',
+   'はじめの探索はあと {0} 回、必ず功績 4 を得ます。': n => plural(n, 'Your next exploration is sure to earn 4 Works (the season\'s score).', 'Your next {0} explorations are each sure to earn 4 Works (the season\'s score).'),
+   'サーバーが応じませんでした。少し待ってから、もう一度試してください。': 'The server did not answer. Wait a moment, then try again.',
+-- 
+2.43.0
+

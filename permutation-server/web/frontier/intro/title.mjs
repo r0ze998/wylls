@@ -22,6 +22,7 @@ import { factionName } from '../fi18n.mjs';
 import { FACTION_FILL, FACTION_DARK, FACTION_MARK, sigilPath } from '../people/avatar.mjs';
 import { leaderFigure, CHARACTERS } from '../people/leaders.mjs';
 import { icon } from '../hud/icons.mjs';
+import { turnSpan } from '../seasonterms.mjs';
 
 export const INTRO_KEY = 'ps-fintro:v1';
 /** The leaders appear one by one (ms apart) after the title. */
@@ -102,7 +103,7 @@ export function render({ mode = 'play', live = '', stage = null } = {}) {
     <div class="intro-card">
       <h2 class="intro-title" id="intro-title" data-name>Wylls</h2>
       <p class="intro-tagline" lang="en"><span class="intro-orn" aria-hidden="true"></span><span class="intro-tag"><span class="nowrap">${TAGLINE}</span></span><span class="intro-orn intro-orn-r" aria-hidden="true"></span></p>
-      <p class="intro-lore">${L`十分ごとにターンが変わり、封をして送り出した進軍がいっせいに着いて、同じ州の軍勢とぶつかる。`}</p>
+      <p class="intro-lore">${L`${turnSpan()}ごとにターンが変わり、封をして送り出した進軍がいっせいに着いて、同じ州の軍勢とぶつかる。`}</p>
       <ol class="intro-leaders">${leaders}</ol>
       ${live ? html`<p class="intro-live"><span class="intro-dot" aria-hidden="true"></span>${live}</p>` : ''}
       <button type="button" class="btn primary intro-go" data-act="intro-close">${ctaText(mode, stage)}${icon('next')}</button>

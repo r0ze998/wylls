@@ -251,7 +251,7 @@ test('the turn dial is a button on all three pages; its card says the turn, the 
   assert.equal(dialcard.nextBellItems(FS, { hostInfo: () => ({ mine: true, unit: 'Spearman', troops: 400, dest: null }) })[1].text, 'あなたの槍兵 400 が行き先に着きます', 'no destination is named that this device does not hold');
   const card = String(dialcard.renderDialCard(chip, items));
   assert.match(card, /<strong>ターン 42<\/strong><span class="dial-pop-left">次のターンまで <span class="num" data-dial-left>9:22<\/span><\/span>/);
-  assert.match(card, /10分ごとの区切りがターンです。/, 'the one sentence that says what a turn is');
+  assert.match(card, /10 分ごとの区切りがターンです。/, 'the one sentence that says what a turn is (its length from the clock: frontier/seasonterms.mjs)');
   assert.match(card, /<h4 class="dial-pop-h">次のターンで<\/h4><ul class="dial-pop-list">/);
   assert.match(String(dialcard.renderDialCard(chip, [])), /次のターンであなたに届くものは、いまはありません。/, 'nothing is invented');
   assert.doesNotMatch(String(dialcard.renderDialCard(null, [])), /次のターンで/);

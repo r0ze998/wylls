@@ -1,0 +1,705 @@
+From e0dfcdb6755753ad9f467ed1b49e1e965bf9dce8 Mon Sep 17 00:00:00 2001
+From: ws07 <noreply@anthropic.com>
+Date: Fri, 6 Nov 2026 12:33:17 +0000
+Subject: [PATCH 17/18] Web client: NFT choice, account switches and Run states
+ connected to the page's rules
+
+- 20's NFT list (controller.loadNfts): a list not read is said as such
+  (FS.nftsRead; "does not mean it has none"), never as no NFT; an answer
+  for a wallet no longer connected is dropped; every wallet change reads
+  it again (syncConnectedWallet).
+- One reset for a new viewer (resetViewer): a wallet change, and a change
+  between the wallet's own Citizen and one of its resident NFTs (nft-login,
+  nft-logout). The latter keeps the wallet's key session and prize; the
+  NFT played and the list belong to the wallet.
+- The away summary keeps an NFT resident's marks apart from its wallet's
+  (app.mjs awayWho), and its words say "wallet (or resident NFT)".
+- Agent page: each sent action's state is 04's (GET /f/agent/fate, seven
+  states through hud/statusview.mjs sendView; a failed read is
+  "unqueryable"); a history or agent list not read is not "nothing yet".
+- Tests (no key): ws07-nft 4, ws07-agent 4, screens ws07-v17 (ja/en,
+  phone/PC, reload) on fixture state.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01C5Nj2bNLFpFghsNM9fsQG5
+---
+ .../screens/ws07-v17.screen.mjs               | 85 +++++++++++++++++++
+ .../screens/ws07/v17-agent.html               | 13 +++
+ .../screens/ws07/v17-agent.mjs                | 14 +++
+ .../screens/ws07/v17-parts.html               | 18 ++++
+ .../screens/ws07/v17-parts.mjs                | 30 +++++++
+ .../test/web-frontier-ws07-agent.test.mjs     | 51 +++++++++++
+ .../test/web-frontier-ws07-nft.test.mjs       | 81 ++++++++++++++++++
+ permutation-server/web/frontier/app.mjs       |  3 +-
+ .../web/frontier/controller.mjs               | 62 +++++++++-----
+ permutation-server/web/frontier/fagent.mjs    | 53 ++++++++++--
+ .../web/frontier/hud/returnwords.mjs          |  2 +-
+ .../web/frontier/screens/join.mjs             |  3 +
+ .../web/lang/en-frontier-agent.mjs            |  4 +
+ .../web/lang/en-frontier-play.mjs             |  2 +-
+ permutation-server/web/lang/en-frontier.mjs   |  2 +
+ 15 files changed, 390 insertions(+), 33 deletions(-)
+ create mode 100644 permutation-gateway/screens/ws07-v17.screen.mjs
+ create mode 100644 permutation-gateway/screens/ws07/v17-agent.html
+ create mode 100644 permutation-gateway/screens/ws07/v17-agent.mjs
+ create mode 100644 permutation-gateway/screens/ws07/v17-parts.html
+ create mode 100644 permutation-gateway/screens/ws07/v17-parts.mjs
+ create mode 100644 permutation-gateway/test/web-frontier-ws07-agent.test.mjs
+ create mode 100644 permutation-gateway/test/web-frontier-ws07-nft.test.mjs
+
+diff --git a/permutation-gateway/screens/ws07-v17.screen.mjs b/permutation-gateway/screens/ws07-v17.screen.mjs
+new file mode 100644
+index 00000000..eee4a92e
+--- /dev/null
++++ b/permutation-gateway/screens/ws07-v17.screen.mjs
+@@ -0,0 +1,85 @@
++// Workstream 07: this round's parts of the real client in Chromium (screens/ws07/v17-parts.html), FIXTURE state only:
++// workstream 20's NFT card (a list not read, a list, an NFT played), the agent history with workstream 4's seven
++// send states, and the chronicle's read states — Japanese and English, phone 390 and PC 1440, after a reload too. An
++// init script blocks and counts every key operation (none are expected: nothing here signs).
++import { test, before, after } from 'node:test';
++import assert from 'node:assert/strict';
++import { createServer } from 'node:http';
++import { readFile, mkdir } from 'node:fs/promises';
++import { fileURLToPath } from 'node:url';
++import { extname, join, normalize } from 'node:path';
++import { chromium } from 'playwright-core';
++
++const ROOT = fileURLToPath(new URL('../../', import.meta.url));
++const TYPES = { '.html': 'text/html; charset=utf-8', '.mjs': 'text/javascript', '.js': 'text/javascript', '.css': 'text/css', '.json': 'application/json', '.svg': 'image/svg+xml', '.png': 'image/png', '.webp': 'image/webp', '.woff2': 'font/woff2' };
++const SHOTS = process.env.WS07_SHOTS ?? null;
++const SIZES = [{ name: 'phone', width: 390, height: 844 }, { name: 'pc', width: 1440, height: 900 }];
++let srv, base, browser;
++before(async () => {
++  srv = createServer(async (req, res) => {
++    const path = normalize(decodeURIComponent(new URL(req.url, 'http://x').pathname)).replace(/^([/\\])+/, '');
++    if (path.startsWith('..')) { res.writeHead(403).end(); return; }
++    try { const b = await readFile(join(ROOT, path)); res.writeHead(200, { 'content-type': TYPES[extname(path)] ?? 'application/octet-stream' }).end(b); } catch { res.writeHead(404).end(); }
++  });
++  await new Promise(r => srv.listen(0, '127.0.0.1', r));
++  base = `http://127.0.0.1:${srv.address().port}/permutation-gateway/screens/ws07/`;
++  browser = await chromium.launch(process.env.WS07_CHROME ? { executablePath: process.env.WS07_CHROME } : {});
++  if (SHOTS) await mkdir(SHOTS, { recursive: true });
++});
++after(async () => { await browser?.close(); srv?.close(); });
++
++function guard() {
++  window.__keyUses = [];
++  const s = crypto.subtle;
++  for (const m of ['generateKey', 'deriveKey', 'deriveBits', 'sign', 'unwrapKey']) Object.defineProperty(s, m, { value: async () => { window.__keyUses.push(m); throw new Error(`key use blocked: ${m}`); } });
++  const imp = s.importKey.bind(s);
++  Object.defineProperty(s, 'importKey', { value: async (fmt, data, alg, ext, uses) => { if (fmt === 'pkcs8' || (uses ?? []).includes('sign')) { window.__keyUses.push(`importKey:${fmt}`); throw new Error('key use blocked'); } return imp(fmt, data, alg, ext, uses); } });
++}
++
++for (const size of SIZES) for (const l of ['en', 'ja']) {
++  test(`${size.name} ${l}: NFT card, the seven send states and the read states say themselves; nothing overflows; a reload shows the same`, async () => {
++    const ctx = await browser.newContext({ viewport: { width: size.width, height: size.height } });
++    await ctx.addInitScript(guard);
++    const page = await ctx.newPage();
++    const errors = [];
++    page.on('pageerror', e => errors.push(String(e)));
++    try {
++      await page.goto(`${base}v17-parts.html?lang=${l}`);
++      await page.waitForFunction(() => window.ws07?.ready);
++      const agentPage = await ctx.newPage();
++      agentPage.on('pageerror', e => errors.push(String(e)));
++      await agentPage.goto(`${base}v17-agent.html?lang=${l}`);
++      await agentPage.waitForFunction(() => window.ws07?.ready);
++      const check = async () => {
++        const nft = await page.locator('#nft').innerText(), chron = await page.locator('#chron').innerText();
++        const agent = await agentPage.locator('#agent').innerText();
++        if (l === 'en') {
++          assert.match(nft, /The resident NFTs of this wallet could not be loaded \(HTTP503\)\. This does not mean it has none/);
++          assert.match(nft, /Play this NFT/); assert.match(nft, /Join with this NFT/); assert.match(nft, /Playing as an NFT/);
++          for (const w of ['Not sent', 'Recorded', 'Recorded, but it failed', 'Not recorded before its deadline', 'Waiting to be finalized', 'The outcome is unknown', 'Its state could not be queried']) assert.ok(agent.includes(w), w);
++          assert.match(agent, /latest history could not be loaded \(HTTP502\)/);
++          assert.match(chron, /Loading the record of events/);
++          assert.match(chron, /The record of events could not be loaded \(HTTP503\)\. This does not mean the record is empty/);
++          assert.match(chron, /The latest record of events could not be loaded \(network\)/);
++          const jp = await page.evaluate(() => [...document.querySelectorAll('#nft, #agent, #chron')].map(e => e.innerText).join('\n').match(/[぀-ヿ一-鿿]+/g) ?? []);
++          assert.deepEqual(jp, [], 'no Japanese left in the English parts');
++        } else {
++          assert.match(nft, /住民NFTを読み込めませんでした（HTTP503）。NFTが無いという意味ではありません/);
++          assert.match(agent, /状態を照会できませんでした/);
++          assert.match(chron, /記録が空という意味ではありません/);
++        }
++        assert.equal(await page.locator('#nft [data-act="nft-login"]').count(), 3, 'buttons only from the list read, none from the failed read');
++        assert.equal(await page.locator('#nft [data-act="nft-login"][disabled]').count(), 1, 'the NFT with no resident record cannot be pressed');
++        assert.equal(await agentPage.locator('#agent [data-key^="send:"]').count(), 7);
++        for (const p of [page, agentPage]) assert.equal(await p.evaluate(() => document.documentElement.scrollWidth > window.innerWidth + 1), false, 'no sideways scroll');
++      };
++      await check();
++      if (SHOTS) { await page.screenshot({ path: join(SHOTS, `ws07-v17-${l}-${size.name}.png`), fullPage: true }); await agentPage.screenshot({ path: join(SHOTS, `ws07-v17-agent-${l}-${size.name}.png`), fullPage: true }); }
++      await page.reload(); await page.waitForFunction(() => window.ws07?.ready);
++      await agentPage.reload(); await agentPage.waitForFunction(() => window.ws07?.ready);
++      await check();
++      assert.deepEqual(errors, []);
++      for (const p of [page, agentPage]) assert.deepEqual(await p.evaluate(() => window.__keyUses), []);
++    } finally { await ctx.close(); }
++  });
++}
+diff --git a/permutation-gateway/screens/ws07/v17-agent.html b/permutation-gateway/screens/ws07/v17-agent.html
+new file mode 100644
+index 00000000..12d97e19
+--- /dev/null
++++ b/permutation-gateway/screens/ws07/v17-agent.html
+@@ -0,0 +1,13 @@
++<!doctype html>
++<html lang="ja">
++<head>
++  <meta charset="utf-8">
++  <meta name="viewport" content="width=device-width, initial-scale=1">
++  <title>ws07 v17 agent</title>
++  <link rel="stylesheet" href="/permutation-server/web/frontier/agent.css">
++</head>
++<body>
++  <main class="agent-main" id="agent"></main>
++  <script type="module" src="./v17-agent.mjs"></script>
++</body>
++</html>
+diff --git a/permutation-gateway/screens/ws07/v17-agent.mjs b/permutation-gateway/screens/ws07/v17-agent.mjs
+new file mode 100644
+index 00000000..6befa4e5
+--- /dev/null
++++ b/permutation-gateway/screens/ws07/v17-agent.mjs
+@@ -0,0 +1,14 @@
++// The agent page's history (fagent.mjs renderHistory) under the agent page's own stylesheet (agent.css), FIXTURE
++// state: one action in each of workstream 4's seven send states (not-sent: a failure before anything was sent, as 04's
++// fate route answers for one), and a history not read again. No wallet, no key.
++import { setLang, lang } from '../../../permutation-server/web/lang.mjs';
++import { setHtml } from '../../../permutation-server/web/util.mjs';
++import * as AG from '../../../permutation-server/web/frontier/fagent.mjs';
++import { SEND_STATES } from '../../../permutation-server/web/frontier/hud/statusview.mjs';
++
++const q = new URLSearchParams(location.search);
++setLang(q.get('lang') === 'en' ? 'en' : 'ja');
++document.documentElement.lang = lang();
++const history = SEND_STATES.map((s, i) => ({ type: 'action', name: ['Muster', 'Depart', 'Harvest', 'Build', 'Train', 'Explore', 'Settle'][i], status: s === 'not-sent' ? 'failed' : 'sent', ...(s === 'not-sent' ? { code: 'Unavailable' } : {}), key: `k${i}`, at: Date.UTC(2026, 10, 6, 3, i) }));
++setHtml(document.getElementById('agent'), AG.renderHistory({ agentId: 'ag1', history }, { fates: new Map(SEND_STATES.map((s, i) => [`k${i}`, s])), read: { ok: false, code: 'HTTP502' } }));
++window.ws07 = { ready: true };
+diff --git a/permutation-gateway/screens/ws07/v17-parts.html b/permutation-gateway/screens/ws07/v17-parts.html
+new file mode 100644
+index 00000000..7294dd2d
+--- /dev/null
++++ b/permutation-gateway/screens/ws07/v17-parts.html
+@@ -0,0 +1,18 @@
++<!doctype html>
++<html lang="ja">
++<head>
++  <meta charset="utf-8">
++  <meta name="viewport" content="width=device-width, initial-scale=1">
++  <title>ws07 v17 parts</title>
++  <link rel="stylesheet" href="/permutation-server/web/frontier/frontier.css">
++  <style>html, body { height: auto; overflow: auto; } .ws07-harness { max-width: 760px; margin: 0 auto; padding: 16px; } h1 { font-size: 1.1rem; color: var(--land); } h2 { font-size: 1rem; margin-top: 24px; color: var(--land); } .sheet { background: var(--paper-sheet); color: var(--ink); padding: 8px 12px; border-radius: 2px; display: grid; gap: 8px; }</style>
++</head>
++<body>
++  <div class="ws07-harness">
++    <h1 id="title"></h1>
++    <h2 id="h-nft"></h2><section class="sheet" id="nft"></section>
++    <h2 id="h-chron"></h2><section class="sheet" id="chron"></section>
++  </div>
++  <script type="module" src="./v17-parts.mjs"></script>
++</body>
++</html>
+diff --git a/permutation-gateway/screens/ws07/v17-parts.mjs b/permutation-gateway/screens/ws07/v17-parts.mjs
+new file mode 100644
+index 00000000..1e6fdfe8
+--- /dev/null
++++ b/permutation-gateway/screens/ws07/v17-parts.mjs
+@@ -0,0 +1,30 @@
++// The harness page of ws07-v17.screen.mjs: this round's parts of the real client in a real browser, fed FIXTURE
++// state (no chain, no relay, no wallet, no key): workstream 20's NFT card as workstream 07 connected it (a list not
++// read, a list, an NFT played), the agent page's history with workstream 4's seven send states and a history not read
++// again, and the chronicle's read states (loading, not read, older).
++import { setLang, lang, L } from '../../../permutation-server/web/lang.mjs';
++import { setHtml, html } from '../../../permutation-server/web/util.mjs';
++import { renderNfts } from '../../../permutation-server/web/frontier/screens/join.mjs';
++import * as chron from '../../../permutation-server/web/frontier/screens/chronicle.mjs';
++
++const q = new URLSearchParams(location.search);
++setLang(q.get('lang') === 'en' ? 'en' : 'ja');
++document.documentElement.lang = lang();
++const en = lang() === 'en';
++document.getElementById('title').textContent = en ? 'Workstream 07: this round\'s parts (fixture state)' : '⑦ この回の部品（固定データ）';
++document.getElementById('h-nft').textContent = en ? 'Resident NFTs (20)' : '住民NFT（⑳）';
++document.getElementById('h-chron').textContent = en ? 'Chronicle read states' : '年代記の読み込みの状態';
++
++const W = { address: 'Wa11et1111111111111111111111111111111111111' };
++const A = n => `NFTasset${String(n).repeat(35)}`;
++setHtml(document.getElementById('nft'), html`${[
++  renderNfts({ wallet: W, nftsRead: { ok: false, code: 'HTTP503' } }),
++  renderNfts({ wallet: W, nftsRead: { ok: true }, joinDraft: { faction: 2 }, nfts: { residents: [{ asset: A(1), generation: 3, joined: true }, { asset: A(2), generation: 1, joined: false }, { asset: A(3), generation: null }] } }),
++  renderNfts({ wallet: W, resident: { asset: A(1) } }),
++]}`);
++setHtml(document.getElementById('chron'), html`${[
++  chron.render({ chronicle: undefined, chronicleRead: undefined }),
++  chron.render({ chronicle: undefined, chronicleRead: { ok: false, code: 'HTTP503' } }),
++  chron.render({ chronicle: [], chronicleRead: { ok: false, code: 'network' } }),
++]}`);
++window.ws07 = { ready: true };
+diff --git a/permutation-gateway/test/web-frontier-ws07-agent.test.mjs b/permutation-gateway/test/web-frontier-ws07-agent.test.mjs
+new file mode 100644
+index 00000000..9d33bbd0
+--- /dev/null
++++ b/permutation-gateway/test/web-frontier-ws07-agent.test.mjs
+@@ -0,0 +1,51 @@
++// Workstream 07: the agent page says what became of each sent action as workstream 4 names it (GET /f/agent/fate:
++// EXECUTION-CONTRACT-20261106 §1, seven states), and a read that fails is not an empty answer. FIXTURE views only;
++// no wallet signs and no key is made.
++import { test } from 'node:test';
++import assert from 'node:assert/strict';
++import * as AG from '../../permutation-server/web/frontier/fagent.mjs';
++import { SEND_STATES } from '../../permutation-server/web/frontier/hud/statusview.mjs';
++import { setLang } from '../../permutation-server/web/lang.mjs';
++
++const text = h => String(h).replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ');
++const view = { agentId: 'ag1', history: [
++  { type: 'action', name: 'Muster', status: 'sent', key: 'k1', at: 1 },
++  { type: 'action', name: 'Depart', status: 'failed', code: 'X', key: 'k2', at: 2, signature: 'sig2' },
++  { type: 'action', name: 'Harvest', status: 'refused', code: 'NotOwner', key: 'k3', at: 3 },
++] };
++
++test('which actions are asked: those that may have left the relay (sent, or failed after it), not a refusal', () => {
++  assert.deepEqual(AG.fateKeys(view), ['k1', 'k2']);
++  assert.deepEqual(AG.fateKeys({ history: Array.from({ length: 14 }, (_, i) => ({ type: 'action', status: 'sent', key: `k${i}` })) }, 10).length, 10);
++});
++
++test('the relay\'s answer is 04\'s state; a failed read or an unknown word is "could not be queried", never a failure', () => {
++  for (const s of SEND_STATES) assert.equal(AG.fateState({ ok: true, state: s }), s);
++  assert.equal(AG.fateState({ ok: false, code: 'HTTP503' }), 'unqueryable');
++  assert.equal(AG.fateState(null), 'unqueryable');
++  assert.equal(AG.fateState({ ok: true, state: 'cancelled' }), 'unqueryable', 'a word 04 does not use is not guessed into one');
++});
++
++test('each sent action carries its state line under it, in Japanese and English; the plain "送信" never stands for the outcome alone', () => {
++  for (const lang of ['ja', 'en']) {
++    setLang(lang);
++    const fates = new Map([['k1', 'pending'], ['k2', 'unknown']]);
++    const h = String(AG.renderHistory(view, { fates }));
++    assert.match(h, /data-key="send:pending"/);
++    assert.match(h, /data-key="send:unknown"/);
++    assert.equal((h.match(/data-key="send:/g) ?? []).length, 2, 'a refused action has no send state');
++    const t = text(h);
++    if (lang === 'en') { assert.match(t, /Waiting to be finalized/); assert.match(t, /The outcome is unknown/); assert.doesNotMatch(t, /[぀-ヿ一-鿿]/); }
++    else { assert.match(t, /確定を待っています/); assert.match(t, /結果は不明です/); }
++    for (const s of SEND_STATES) assert.match(String(AG.renderHistory(view, { fates: new Map([['k1', s]]) })), new RegExp(`data-key="send:${s}"`));
++  }
++  setLang('ja');
++});
++
++test('a history not read again says the shown one is older; an agent never read is not "nothing yet" for a failed read', () => {
++  setLang('en');
++  const t = text(AG.renderHistory(view, { read: { ok: false, code: 'HTTP502' } }));
++  assert.match(t, /The agent(&#39;|')s latest history could not be loaded \(HTTP502\)\. What is shown here is what was loaded before/);
++  assert.doesNotMatch(text(AG.renderHistory(view, { read: { ok: true } })), /could not be loaded/);
++  setLang('ja');
++});
+diff --git a/permutation-gateway/test/web-frontier-ws07-nft.test.mjs b/permutation-gateway/test/web-frontier-ws07-nft.test.mjs
+new file mode 100644
+index 00000000..96fdd62f
+--- /dev/null
++++ b/permutation-gateway/test/web-frontier-ws07-nft.test.mjs
+@@ -0,0 +1,81 @@
++// Workstream 07: workstream 20's NFT choice and first join on the page (web part of dc55f159), connected to the page's
++// rules: a list of NFTs that could not be read is not "no NFTs"; a wallet change forgets the NFT played and the list
++// and reads the list again; playing an NFT is another viewer (what was read for the wallet's own Citizen goes, its
++// key session stays); the away summary keeps an NFT's marks apart from its wallet's. FIXTURE data only: a fake relay
++// (globalThis.fetch) and a fake herald; no wallet signs, no key is made.
++import { test } from 'node:test';
++import assert from 'node:assert/strict';
++import { readFileSync } from 'node:fs';
++import * as C from '../../permutation-server/web/frontier/controller.mjs';
++import * as io from '../../permutation-server/web/frontier/fchainio.mjs';
++import { FS } from '../../permutation-server/web/frontier/fstate.mjs';
++import { renderNfts } from '../../permutation-server/web/frontier/screens/join.mjs';
++import { setLang } from '../../permutation-server/web/lang.mjs';
++
++const A = 'Wa11et1111111111111111111111111111111111111', B = 'Wa11et2222222222222222222222222222222222222';
++const NFT = 'NFTasset11111111111111111111111111111111111';
++const text = h => String(h).replace(/<[^>]+>/g, ' ');
++const herald = new Proxy({}, { get: () => async () => ({ ok: false, code: 'NotFound' }) });
++async function withFS(over, fn) {
++  const saved = { ...FS }, fetch0 = globalThis.fetch, relay0 = io.relay();
++  try { Object.assign(FS, over); await fn(); } finally {
++    globalThis.fetch = fetch0; io.setRelay(relay0); C.useHerald(null);
++    for (const k of Object.keys(FS)) if (!(k in saved)) delete FS[k]; Object.assign(FS, saved);
++  }
++}
++const nftSeason = { season: { seasonId: 7n, programVersion: 0x8004, joinGate: [0] }, wallet: { address: A } };
++
++test('the NFT list not read: the card says so — not "no NFT" — and offers nothing from it; read with none: no card', async () => {
++  for (const [answer, code] of [[() => ({ ok: false, status: 503, json: async () => ({ code: 'Unavailable' }) }), /\(.+\)/], [() => { throw new TypeError('fetch failed'); }, /\(.+\)/]]) {
++    await withFS(nftSeason, async () => {
++      io.setRelay('http://relay.test'); globalThis.fetch = async () => answer();
++      await C.loadNfts();
++      assert.equal(FS.nftsRead.ok, false);
++      assert.equal(FS.nfts, null);
++      setLang('en');
++      const t = text(renderNfts(FS));
++      assert.match(t, /The resident NFTs of this wallet could not be loaded \(.+\)\. This does not mean it has none/);
++      assert.match(t, code);
++      assert.doesNotMatch(String(renderNfts(FS)), /data-act="nft-login"/);
++      setLang('ja');
++    });
++  }
++  await withFS(nftSeason, async () => {
++    io.setRelay('http://relay.test');
++    globalThis.fetch = async () => ({ ok: true, status: 200, json: async () => ({ ok: true, residents: [], policy: { residentProgram: '11111111111111111111111111111111' } }) });
++    await C.loadNfts();
++    assert.deepEqual([FS.nftsRead.ok, FS.nfts.residents.length], [true, 0]);
++    assert.equal(String(renderNfts(FS)), '', 'read, and none: nothing to offer');
++  });
++});
++
++test('an answer for a wallet no longer connected is dropped', async () => {
++  await withFS(nftSeason, async () => {
++    io.setRelay('http://relay.test');
++    globalThis.fetch = async () => { FS.wallet = { address: B }; return { ok: true, status: 200, json: async () => ({ ok: true, residents: [{ asset: NFT, generation: 1, joined: true }], policy: {} }) }; };
++    await C.loadNfts();
++    assert.equal(FS.nfts, null);
++    assert.equal(FS.nftsRead, null);
++  });
++});
++
++test('a wallet change forgets the NFT played and the list; NFT login and logout are another viewer, the key session kept', async () => {
++  await withFS({ ...nftSeason, resident: { asset: NFT }, nfts: { residents: [{ asset: NFT }] }, nftsRead: { ok: true }, citizen: { faction: 1 }, holdings: [{ p: 0, q: 0 }], session: { publicKey: 'S' }, marches: [1] }, async () => {
++    assert.equal(C.adoptConnectedWallet({ address: B }), true);
++    assert.deepEqual([FS.resident, FS.nfts, FS.nftsRead, FS.citizen, FS.session], [null, null, null, null, null]);
++  });
++  await withFS({ ...nftSeason, mode: 'play', clock: null, resident: { asset: NFT, citizen: 'C' }, citizen: { faction: 1 }, holdings: [{ p: 0, q: 0 }], marches: [1], book: [1], session: { publicKey: 'S' }, prize: { pool: 1 } }, async () => {
++    C.useHerald(herald);
++    await C.ACTIONS['nft-logout']();
++    assert.equal(FS.resident, null);
++    assert.deepEqual([FS.citizen, FS.holdings, FS.marches, FS.book], [null, [], [], []], "the NFT's Citizen, villages and marches are not shown as the wallet's");
++    assert.deepEqual([FS.session, FS.prize], [{ publicKey: 'S' }, { pool: 1 }], "the wallet's own key session and prize stay");
++  });
++});
++
++test('the away summary keeps an NFT\'s marks apart from its wallet\'s (app.mjs awayWho); the words name the NFT too', () => {
++  const app = readFileSync(new URL('../../permutation-server/web/frontier/app.mjs', import.meta.url), 'utf8');
++  assert.match(app, /const awayWho = \(\) => \(\{[^\n]*FS\.resident\?\.asset \? `\$\{FS\.wallet\.address\}#nft:\$\{FS\.resident\.asset\}`/);
++  const words = readFileSync(new URL('../../permutation-server/web/frontier/hud/returnwords.mjs', import.meta.url), 'utf8');
++  assert.match(words, /前に使ったウォレット（または住民NFT）とは別です/);
++});
+diff --git a/permutation-server/web/frontier/app.mjs b/permutation-server/web/frontier/app.mjs
+index 2e9e18f6..5fb101d1 100644
+--- a/permutation-server/web/frontier/app.mjs
++++ b/permutation-server/web/frontier/app.mjs
+@@ -2282,7 +2282,8 @@ const awayMe = () => ({ tag: (() => { try { return BigInt(ownTag(FS) ?? 0); } ca
+  */
+ const awayReader = returnRead.createAwayReader({ events: a => (heraldRef ? heraldRef.events(a) : Promise.resolve({ ok: false })) });
+ let awayBusy = false, awayBook = null, awaySent = null, awayQueue = [];
+-const awayWho = () => ({ season: String(FS.season?.seasonId ?? ''), wallet: FS.wallet?.address ?? '' });
++// (workstream 07: an NFT resident (⑳) is another viewer than its wallet's own Citizen: its marks are kept apart)
++const awayWho = () => ({ season: String(FS.season?.seasonId ?? ''), wallet: FS.wallet?.address ? (FS.resident?.asset ? `${FS.wallet.address}#nft:${FS.resident.asset}` : FS.wallet.address) : '' });
+ const awayScopeNow = () => { const { season, wallet } = awayWho(); return season && wallet ? returnRead.awayScope({ herald: String(FS.season?.genesisTs ?? ''), seasonId: season, wallet }) : null; };
+ const S1_NEWS = new Set(['CARAVAN_RAIDED', 'RAID_OPENED', 'CARAVAN_SETTLED', 'VAULT_SEIZED', 'STRUCTURE_SEIZED', 'SIEGE_DECLARED', 'CAPTURE_SETTLED', 'NATION_DECIDED', 'NATION_PROPOSED']);
+ /** The ends of caravans the away reader read: a caravan gone from the road's list is no longer "state unknown" once read. */
+diff --git a/permutation-server/web/frontier/controller.mjs b/permutation-server/web/frontier/controller.mjs
+index 3666fe07..d97b0021 100644
+--- a/permutation-server/web/frontier/controller.mjs
++++ b/permutation-server/web/frontier/controller.mjs
+@@ -117,12 +117,17 @@ const viewerKey = () => FS.resident?.asset ?? FS.wallet?.address;
+ const viewerCitizen = () => FS.resident?.citizen ?? io.pinned().addresses.of('Citizen', { wallet: FS.wallet.address });
+ 
+ /** ⑳: the wallet's resident NFTs (GET /f/residents); none when the relay has no resident policy. */
+-async function loadNfts() {
+-  FS.nfts = null;
++export async function loadNfts() {
++  FS.nfts = null; FS.nftsRead = null;
+   // Only a season of the nft-experimental program (its program version
+   // carries 0x8000) has residents; other seasons never ask.
+   if (!FS.wallet || !io.relay() || !(Number(FS.season?.programVersion ?? 0) & 0x8000)) return;
+-  const r = await fresident.loadResidents(FS.wallet.address).catch(() => null);
++  const address = FS.wallet.address;
++  const r = await fresident.loadResidents(address).catch(e => ({ ok: false, code: e?.code ?? 'network' }));
++  // (workstream 07: an answer for a wallet no longer connected is dropped; a list not read is said as such
++  // — FS.nftsRead —, never as "this wallet has no NFT")
++  if (FS.wallet?.address !== address) return;
++  FS.nftsRead = { ok: !!r?.ok, code: r?.ok ? null : String(r?.code ?? 'Unavailable') };
+   if (r?.ok && r.policy) FS.nfts = { residents: r.residents, policy: r.policy };
+   invalidate('panel');
+ }
+@@ -451,18 +456,13 @@ function refreshSoon(ms = 1500) {
+   refreshTimer = setTimeout(() => refresh().catch(e => console.error('frontier refresh:', e)), ms);
+ }
+ 
+-/** A wallet event changes the viewer immediately; old /h/me replies may not restore the former owner. */
+-export function adoptConnectedWallet(next = wallet.connected()) {
+-  const address = next?.address ?? null;
+-  if (address === (FS.wallet?.address ?? null)) { FS.wallet = next; return false; }
+-  ++walletSyncEpoch;
+-  ++viewerRefresh;
+-  ++homesRefresh;
+-  agentsReadAt = -Infinity;
+-  prizeReadAt = 0;
+-  FS.wallet = next;
+-  FS.session = null;
+-  FS.sessionProblem = null;
++/**
++ * Forget everything read for the viewer (workstream 07: shared by a wallet change and by a change between the wallet's
++ * own Citizen and one of its resident NFTs — each is another viewer: its Citizen, villages, marches and notices).
++ */
++function resetViewer({ wallet: walletChanged = true } = {}) {
++  if (walletChanged) FS.session = null;
++  if (walletChanged) FS.sessionProblem = null;
+   FS.citizen = null;
+   FS.holdings = [];
+   FS.activeHolding = 0;
+@@ -475,8 +475,8 @@ export function adoptConnectedWallet(next = wallet.connected()) {
+   FS.orders = [];
+   FS.departed = null;
+   mySlots = [];
+-  FS.delegation = null;
+-  FS.agentWallet = undefined;
++  if (walletChanged) FS.delegation = null;
++  if (walletChanged) FS.agentWallet = undefined;
+   FS.homeChoice = null;
+   FS.homeGrant = null;
+   FS.homeFocus = null;
+@@ -490,9 +490,24 @@ export function adoptConnectedWallet(next = wallet.connected()) {
+   FS.autoNudgeBell = null;
+   FS.incoming = [];
+   FS.isMine = () => false;
+-  FS.prize = null;
+-  FS.prizePayment = null;
++  if (walletChanged) FS.prize = null;
++  if (walletChanged) FS.prizePayment = null;
+   FS.notice = null;
++  // (⑳: the NFT played and the wallet's NFT list belong to the wallet)
++  if (walletChanged) { FS.resident = null; FS.nfts = null; FS.nftsRead = null; }
++}
++
++/** A wallet event changes the viewer immediately; old /h/me replies may not restore the former owner. */
++export function adoptConnectedWallet(next = wallet.connected()) {
++  const address = next?.address ?? null;
++  if (address === (FS.wallet?.address ?? null)) { FS.wallet = next; return false; }
++  ++walletSyncEpoch;
++  ++viewerRefresh;
++  ++homesRefresh;
++  agentsReadAt = -Infinity;
++  prizeReadAt = 0;
++  FS.wallet = next;
++  resetViewer({ wallet: true });
+   FS.meStatus = next ? 'loading' : 'ready';
+   FS.meError = null;
+   invalidate('panel', 'tabs', 'chips', 'map');
+@@ -515,6 +530,7 @@ async function syncConnectedWallet({ refreshUnchanged = false } = {}) {
+       FS.session = restored;
+     } catch (e) { console.error('frontier session restore:', e); }
+   }
++  if (epoch === walletSyncEpoch) await loadNfts();
+   if (epoch === walletSyncEpoch) await refresh();
+ }
+ 
+@@ -1799,11 +1815,15 @@ export const ACTIONS = {
+       });
+       if (!r?.ok) return r;
+     }
++    // (workstream 07: another viewer — the NFT's Citizen —: what was read for the wallet's own Citizen goes)
++    ++viewerRefresh; ++homesRefresh;
++    resetViewer({ wallet: false });
+     FS.resident = { ...id, joined: true };
+-    invalidate('panel');
++    FS.meStatus = 'loading';
++    invalidate('panel', 'tabs', 'chips', 'map');
+     await refresh();
+   },
+-  'nft-logout': async () => { FS.resident = null; invalidate('panel'); await refresh(); },
++  'nft-logout': async () => { ++viewerRefresh; ++homesRefresh; resetViewer({ wallet: false }); FS.resident = null; FS.meStatus = 'loading'; invalidate('panel', 'tabs', 'chips', 'map'); await refresh(); },
+   'pick-faction': d => { FS.joinDraft = { ...(FS.joinDraft ?? {}), faction: num(d.f) }; invalidate('panel'); if (needsHomeChoice()) return refreshHomes({ force: true }); },
+   join: async () => {
+     const pin = io.pinned();
+diff --git a/permutation-server/web/frontier/fagent.mjs b/permutation-server/web/frontier/fagent.mjs
+index 0a1ffa54..ba2c1614 100644
+--- a/permutation-server/web/frontier/fagent.mjs
++++ b/permutation-server/web/frontier/fagent.mjs
+@@ -26,6 +26,7 @@ import { decode as fromBase58 } from '../sdk/base58.mjs';
+ import * as io from './fchainio.mjs';
+ import { tokenUnits, loadPrize, faucet } from './fprize.mjs';
+ import { submit, track, accountsFor } from './fplay.mjs';
++import { sendView, renderStatus } from './hud/statusview.mjs';
+ 
+ export const PREFIX = 'Wylls agent wallet command v1\n';
+ export const GROUPS = Object.freeze(['economy', 'explore', 'military', 'vigil']);
+@@ -105,6 +106,7 @@ export function historyRows(view) {
+       case 'spend': text = h.category === 'inference' ? (h.ok === false ? L`判断（失敗も1回分）` : h.late ? L`判断（遅れて届いた結果）` : L`判断`) : h.category === 'game' ? L`ゲーム内の支払い` : L`手数料`; break;
+       case 'network': text = L`手数料は運営が負担（SOL ${fmtNum(h.lamports)} lamports）`; break;
+       case 'action': text = L`行動 ${h.name}：${h.status === 'sent' ? L`送信` : h.status === 'refused' ? L`拒否（${h.code ?? ''}）` : L`失敗（${h.code ?? ''}）`}`; break;
++      // (workstream 07: what became of a sent action is 04's state, read by its key — fates; see renderHistory)
+       case 'release': text = h.reason === 'operator-refund' ? L`運営が返金` : L`予約を戻した（${h.reason}）`; break;
+       case 'unresolved': text = L`判断の結果が届かず、運営の確認待ち`; break;
+       case 'withdraw': text = L`引き出し ${usdc(h.amount)}`; break;
+@@ -119,7 +121,7 @@ export function historyRows(view) {
+     }
+     // A decision's fee is the `spend` line's amount; the decision line names it in its text only, so one call is never counted twice in the amount column.
+     const amount = h.type !== 'decision' && h.amount != null && h.type !== 'network' ? usdc(h.amount) : null;
+-    rows.push({ at: h.at, kind: h.type, category: h.type === 'decision' ? null : h.category ?? null, amount, text, source: h.source ?? null, signature: h.signature ?? null, reason: h.reason ?? null });
++    rows.push({ at: h.at, kind: h.type, category: h.type === 'decision' ? null : h.category ?? null, amount, text, source: h.source ?? null, signature: h.signature ?? null, reason: h.reason ?? null, key: h.type === 'action' ? h.key ?? null : null });
+   }
+   return rows.reverse();
+ }
+@@ -212,6 +214,15 @@ export function depositMessage({ owner, terms, amount, feePayer, blockhash, ata,
+ export const loadTerms = opts => io.request('GET', '/f/agent/terms', opts);
+ export const loadMine = (owner, opts) => io.request('GET', `/f/agent/by-owner?owner=${encodeURIComponent(owner)}`, opts);
+ export const loadAgent = (id, opts) => io.request('GET', `/f/agent?id=${encodeURIComponent(id)}`, opts);
++/** GET /f/agent/fate: one action by its idempotency key (workstream 04, EXECUTION-CONTRACT-20261106 §1–§2). */
++export const loadFate = (id, key, opts) => io.request('GET', `/f/agent/fate?id=${encodeURIComponent(id)}&key=${encodeURIComponent(key)}`, opts);
++/**
++ * (workstream 07) The state of a sent action as 04 names it: the relay's `state` when it answered with one of the seven,
++ * else `unqueryable` — a read that failed says nothing of the transaction, and is never told as a failure.
++ */
++export const fateState = r => (r?.ok && ['not-sent', 'landed', 'failed', 'expired', 'pending', 'unknown', 'unqueryable'].includes(r.state) ? r.state : 'unqueryable');
++/** The actions whose fate is asked: the newest `n` with a key that may have left the relay (sent, or failed after it). */
++export const fateKeys = (view, n = 10) => (view?.history ?? []).filter(h => h.type === 'action' && h.key && h.status !== 'refused').slice(-n).map(h => h.key);
+ export const sendCommand = (signed, opts) => io.request('POST', '/f/agent/command', { ...opts, body: signed });
+ 
+ /** Build, sign (wallet) and send a sponsored deposit; returns the relay's answer. */
+@@ -302,11 +313,17 @@ export function renderMoney(view, { walletBalance = null } = {}) {
+   </section>`;
+ }
+ 
+-export function renderHistory(view) {
++/**
++ * The history. `fates`: Map key → 04's state of that action (fateState), or undefined while not read; `read`: `{ok,
++ * code}` of the last read of the agent (workstream 07: a history not read is not an empty one).
++ */
++export function renderHistory(view, { fates = null, read = null } = {}) {
+   const rows = historyRows(view);
+-  return html`<section class="agent-card" aria-labelledby="hist-title"><h3 id="hist-title">${L`履歴（費目別）`}</h3>
++  const stale = read && !read.ok ? html`<p class="blocked" role="status" data-read="stale">${L`代理人の最新の履歴を読み込めませんでした（${read.code ?? '?'}）。ここに出ているのは前に読めた分です`}</p>` : '';
++  const fateOf = r => (r.key && fates?.has(r.key) ? renderStatus(sendView({ state: fates.get(r.key) })) : '');
++  return html`<section class="agent-card" aria-labelledby="hist-title"><h3 id="hist-title">${L`履歴（費目別）`}</h3>${stale}
+     ${rows.length ? html`<table class="agent-history"><thead><tr><th>${L`時刻`}</th><th>${L`費目`}</th><th>${L`額`}</th><th>${L`内容`}</th></tr></thead><tbody>
+-      ${rows.slice(0, 60).map(r => html`<tr class="row-${r.kind}"><td>${new Date(r.at).toLocaleTimeString()}</td><td>${r.category ? categoryName(r.category) : ''}</td><td>${r.amount ?? ''}</td><td>${r.text}${r.source ? html` <span class="muted">(${r.source})</span>` : ''}${r.reason ? html`<br><span class="agent-reason">${L`理由（モデルの説明・未検証）：${r.reason}`}</span>` : ''}</td></tr>`)}
++      ${rows.slice(0, 60).map(r => html`<tr class="row-${r.kind}"><td>${new Date(r.at).toLocaleTimeString()}</td><td>${r.category ? categoryName(r.category) : ''}</td><td>${r.amount ?? ''}</td><td>${r.text}${fateOf(r)}${r.source ? html` <span class="muted">(${r.source})</span>` : ''}${r.reason ? html`<br><span class="agent-reason">${L`理由（モデルの説明・未検証）：${r.reason}`}</span>` : ''}</td></tr>`)}
+     </tbody></table>` : html`<p class="muted">${L`まだ何もありません`}</p>`}
+   </section>`;
+ }
+@@ -352,7 +369,7 @@ export function restoreForm(root, name, typed) {
+ }
+ 
+ export async function mountAgentPage({ root, wallet, fsession, herald, prize }) {
+-  const S = { wallet: null, pin: null, terms: null, mine: [], view: null, capability: null, note: null, busy: false, walletBalance: null, session: null };
++  const S = { wallet: null, pin: null, terms: null, mine: [], view: null, capability: null, note: null, busy: false, walletBalance: null, session: null, fates: new Map(), viewRead: null };
+   const say = (text, tone = '') => { S.note = { text, tone }; draw(); };
+   const draw = () => setHtml(root, render());
+   const render = () => {
+@@ -369,11 +386,23 @@ export async function mountAgentPage({ root, wallet, fsession, herald, prize })
+       return parts;
+     }
+     if (S.capability) parts.push(renderCapability(S.capability));
+-    parts.push(renderBalance(S.view), renderMode(S.view), renderDelegation(S.view), renderMoney(S.view, { walletBalance: S.walletBalance }), renderPolicy(S.view), renderHistory(S.view));
++    parts.push(renderBalance(S.view), renderMode(S.view), renderDelegation(S.view), renderMoney(S.view, { walletBalance: S.walletBalance }), renderPolicy(S.view), renderHistory(S.view, { fates: S.fates, read: S.viewRead }));
+     return parts;
+   };
+   const refresh = async () => {
+-    if (S.view) { const v = await loadAgent(S.view.agentId); if (v.ok) S.view = v; }
++    if (S.view) {
++      const id = S.view.agentId;
++      const v = await loadAgent(id).catch(e => ({ ok: false, code: e?.code ?? 'network' }));
++      if (S.view?.agentId !== id) return;
++      // (workstream 07: a failed read keeps what was read and says it is older; the sent actions' states are 04's)
++      S.viewRead = { ok: !!v.ok, code: v.ok ? null : String(v.code ?? v.error ?? 'Unavailable') };
++      if (v.ok) S.view = v;
++      for (const key of fateKeys(S.view)) {
++        const f = await loadFate(id, key).catch(() => null);
++        if (S.view?.agentId !== id) return;
++        S.fates.set(key, fateState(f));
++      }
++    }
+     if (S.wallet && prize) { const p = await prize.loadPrize(S.wallet.address); if (p.ok && p.pool?.wallet) S.walletBalance = p.pool.wallet.balance; }
+     draw();
+   };
+@@ -392,12 +421,18 @@ export async function mountAgentPage({ root, wallet, fsession, herald, prize })
+       await wallet.connect(entry, { chain: wallet.chainOf(S.pin.cluster) });
+       S.wallet = wallet.connected();
+       S.session = await fsession.restore({ cluster: S.pin.cluster, programId: S.pin.programId, seasonId: S.pin.seasonId }, S.wallet.address);
+-      const mine = await loadMine(S.wallet.address);
++      const mine = await loadMine(S.wallet.address).catch(e => ({ ok: false, code: e?.code ?? 'network' }));
+       if (mine.ok) S.mine = mine.agents;
++      // (workstream 07: not read is not "you have no agent")
++      else say(L`このウォレットの代理人を読み込めませんでした（${String(mine.code ?? mine.error ?? '?')}）。代理人がいないという意味ではありません`, 'bad');
+       if (S.mine.length === 1) { const v = await loadAgent(S.mine[0].agentId); if (v.ok) S.view = v; }
+       await refresh();
+     },
+-    async open(d) { const v = await loadAgent(d.id); if (v.ok) { S.view = v; S.capability = null; } draw(); },
++    async open(d) {
++      const v = await loadAgent(d.id).catch(e => ({ ok: false, code: e?.code ?? 'network' }));
++      if (v.ok) { S.view = v; S.capability = null; S.fates = new Map(); S.viewRead = null; await refresh(); return; }
++      say(L`代理人を読み込めませんでした（${String(v.code ?? v.error ?? '?')}）`, 'bad');
++    },
+     async mode(d) { const r = await command('mode', { mode: d.mode }); if (!r.ok) return say(r.error, 'bad'); S.view = { ...S.view, ...r.agent }; say(d.mode === 'auto' ? L`自動にしました` : L`止めました（サーバー側）`); await refresh(); },
+     async rotate() { const r = await command('rotate-capability'); if (!r.ok) return say(r.error, 'bad'); S.capability = r.capability; draw(); },
+     async faucet() { const r = await prize.faucet(S.wallet.address); say(r.ok ? L`テストUSDCを受け取りました` : r.error, r.ok ? '' : 'bad'); await refresh(); },
+diff --git a/permutation-server/web/frontier/hud/returnwords.mjs b/permutation-server/web/frontier/hud/returnwords.mjs
+index e35ba8e6..25e2492e 100644
+--- a/permutation-server/web/frontier/hud/returnwords.mjs
++++ b/permutation-server/web/frontier/hud/returnwords.mjs
+@@ -48,7 +48,7 @@ export function headText(s) {
+   const mode = {
+     sinceConfirmed: () => L`あなたが確認したのは第${fmtNum(s.since?.bell ?? 0)}ターンまでです。`,
+     firstOnDevice: () => L`この端末では、このシーズンとウォレットで確認した記録がありません（初めてか、別の端末か、ブラウザの記録が消えた場合）。直近 ${fmtNum(FIRST_LOOK_BELLS)} ターンだけを見ています。`,
+-    otherWallet: () => L`この端末で前に使ったウォレットとは別です。そのウォレットの記録は使いません。直近 ${fmtNum(FIRST_LOOK_BELLS)} ターンだけを見ています。`,
++    otherWallet: () => L`この端末で前に使ったウォレット（または住民NFT）とは別です。その記録は使いません。直近 ${fmtNum(FIRST_LOOK_BELLS)} ターンだけを見ています。`,
+     newSeason: () => L`前に見ていたものとは別のシーズン記録（ID が違う記録）です。前の記録の出来事は、ここには含めていません。`,
+     markAhead: () => L`この端末に残っていた確認の位置は、いまのシーズンの記録より先を指していたため使いません。直近 ${fmtNum(FIRST_LOOK_BELLS)} ターンだけを見ています。`,
+   }[s.mode]?.() ?? '';
+diff --git a/permutation-server/web/frontier/screens/join.mjs b/permutation-server/web/frontier/screens/join.mjs
+index b21bffc1..38db4888 100644
+--- a/permutation-server/web/frontier/screens/join.mjs
++++ b/permutation-server/web/frontier/screens/join.mjs
+@@ -334,6 +334,9 @@ export function renderNfts(FS) {
+       <p>${L`住民NFT ${shortKey(FS.resident.asset)} の住民として遊んでいます。操作のたびにウォレットが署名を求めます。NFTを譲渡すると、この端末からは操作できなくなります。`}</p>
+       <div class="actions"><button type="button" class="btn" data-act="nft-logout">${L`ウォレットの住民に戻る`}</button></div></section>`;
+   }
++  // (workstream 07: a list that could not be read is not an empty one: say so, and offer nothing from it)
++  if (FS.wallet && FS.nftsRead && !FS.nftsRead.ok) return html`<section class="vcard" aria-labelledby="join-nft">${cardHead({ id: 'join-nft', ic: 'seal', title: L`住民NFTで入る` })}
++    <p class="blocked" role="status" data-read="unread">${L`このウォレットの住民NFTを読み込めませんでした（${FS.nftsRead.code ?? '?'}）。NFTが無いという意味ではありません。もう一度読み込むと、また確かめます`}</p></section>`;
+   const list = FS.nfts?.residents ?? [];
+   if (!FS.wallet || !list.length) return '';
+   const pick = Number.isInteger(FS.joinDraft?.faction);
+diff --git a/permutation-server/web/lang/en-frontier-agent.mjs b/permutation-server/web/lang/en-frontier-agent.mjs
+index 8903c1c8..a53b89aa 100644
+--- a/permutation-server/web/lang/en-frontier-agent.mjs
++++ b/permutation-server/web/lang/en-frontier-agent.mjs
+@@ -72,6 +72,10 @@ export default {
+   '額': 'Amount',
+   '内容': 'What',
+   'まだ何もありません': 'Nothing yet',
++  // workstream 07: reads that fail are not empty answers (fagent.mjs)
++  '代理人の最新の履歴を読み込めませんでした（{0}）。ここに出ているのは前に読めた分です': 'The agent\'s latest history could not be loaded ({0}). What is shown here is what was loaded before',
++  '代理人を読み込めませんでした（{0}）': 'The agent could not be loaded ({0})',
++  'このウォレットの代理人を読み込めませんでした（{0}）。代理人がいないという意味ではありません': 'This wallet\'s agents could not be loaded ({0}). This does not mean it has none',
+   '接続用トークン（この一度だけ表示）': 'Connection token (shown only once)',
+   '外部の AI や MCP にこのトークンを渡すと、許可した行動を予算の中で要求できます。作成・入金・停止・引き出しはできません。無くしたら再発行してください。': 'Give this token to an outside AI or MCP server: it can request the allowed actions within the budget. It cannot create, deposit, stop or withdraw. Reissue it if it is lost.',
+   '再発行（古いトークンは無効）': 'Reissue (the old token stops working)',
+diff --git a/permutation-server/web/lang/en-frontier-play.mjs b/permutation-server/web/lang/en-frontier-play.mjs
+index d1b4ee8d..9c46764e 100644
+--- a/permutation-server/web/lang/en-frontier-play.mjs
++++ b/permutation-server/web/lang/en-frontier-play.mjs
+@@ -994,7 +994,7 @@ export default {
+   '新しい記録はありません。': 'No new records.',
+   'あなたが確認したのは第{0}ターンまでです。': 'You marked up to turn {0} as seen.',
+   'この端末では、このシーズンとウォレットで確認した記録がありません（初めてか、別の端末か、ブラウザの記録が消えた場合）。直近 {0} ターンだけを見ています。': 'This device holds no "seen" mark for this season and wallet (a first visit, another device, or cleared browser data). Only the last {0} turns are shown.',
+-  'この端末で前に使ったウォレットとは別です。そのウォレットの記録は使いません。直近 {0} ターンだけを見ています。': 'This is not the wallet last used on this device; its marks are not used. Only the last {0} turns are shown.',
++  'この端末で前に使ったウォレット（または住民NFT）とは別です。その記録は使いません。直近 {0} ターンだけを見ています。': 'This is not the wallet (or resident NFT) last used on this device; its record is not used. Only the last {0} turns are looked at.',
+   '前に見ていたものとは別のシーズン記録（ID が違う記録）です。前の記録の出来事は、ここには含めていません。': 'This is another season record (a different ID) from the one seen before. Events of that record are not included here.',
+   '確認した位置のあとの記録の一部を読めていません。欠けた分の出来事は推測しません。': 'Some records after your mark could not be read; nothing is guessed for them.',
+   'この端末に残っていた確認の位置は、いまのシーズンの記録より先を指していたため使いません。直近 {0} ターンだけを見ています。': 'The mark kept on this device points past this season\'s records, so it is not used. Only the last {0} turns are shown.',
+diff --git a/permutation-server/web/lang/en-frontier.mjs b/permutation-server/web/lang/en-frontier.mjs
+index d22f1ea2..41802853 100644
+--- a/permutation-server/web/lang/en-frontier.mjs
++++ b/permutation-server/web/lang/en-frontier.mjs
+@@ -725,6 +725,8 @@ export default {
+   'NFTで遊んでいます': 'Playing as an NFT',
+   'ウォレットの住民に戻る': 'Back to the wallet\'s resident',
+   '住民NFTで入る': 'Enter with a resident NFT',
++  // workstream 07: the NFT list not read is not an empty one (screens/join.mjs renderNfts)
++  'このウォレットの住民NFTを読み込めませんでした（{0}）。NFTが無いという意味ではありません。もう一度読み込むと、また確かめます': 'The resident NFTs of this wallet could not be loaded ({0}). This does not mean it has none. They will be checked again on the next load',
+   '1枚のNFTにつき1人の住民です。NFTを譲渡すると、住民を操作できるのは新しい持ち主だけになります。': 'One NFT, one resident. When the NFT is transferred, only its new owner can act for the resident.',
+   '住民の記録がありません': 'No resident record',
+   'このNFTで遊ぶ': 'Play this NFT',
+-- 
+2.43.0
+

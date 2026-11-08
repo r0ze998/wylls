@@ -1298,6 +1298,8 @@ p.fact-chips { display: flex; flex-wrap: wrap; gap: var(--s1); margin: var(--s2)
   .nc-what { min-height: 78px; align-items: start; }
   .nc-pitch { font-size: var(--t1); line-height: 1.5; }
   .nc-note { display: none; }
+  /* (workstream 07: the season's deadlines stay on a phone: after the join deadline the program refuses the join) */
+  .nc-note.nc-deadline { display: block; }
   .nc-go { justify-content: stretch; } .nc-go .nc-btn { flex: 1 1 auto; min-height: 48px; }
   .nc-wallet { justify-items: start; }
 }
@@ -2349,6 +2351,22 @@ body[data-kind="wait"] .plate .plate-go[data-act="join-open"] { display: none; }
 .s1-offers .s1-offer .blocked { flex-basis: 100%; margin: 0; }
 .s1-raid { margin: var(--s2, 8px) 0; }
 
+/* workstream 07: states other workstreams own (hud/statusview.mjs) and the cooperation slot (hud/coopentry.mjs).
+   The symbol and the words carry the state; the border only repeats it. */
+.ws07-status { display: block; margin: 4px 0; padding: 4px 8px; border-left: 3px solid currentColor; }
+.ws07-status .ws07-sym { display: inline-block; min-width: 1.4em; font-weight: 700; }
+.ws07-status-details { margin: 2px 0 0 1.6em; padding: 0; list-style: disc; font-size: var(--t1); }
+.ws07-status.tone-unknown { border-left-style: dashed; }
+.ws07-coop { margin-top: var(--s2); }
+
+/* workstream 07: the away summary's way in on a phone (app.mjs renderAwayEntry). A phone shows one notice over the map;
+   while a summary of what happened while away is not confirmed, this line under the strip says so and opens it. The
+   notices move down by its height. Wide screens show the summary itself and not this line. */
+.away-entry { display: none; }
+@media (max-width: 759px) {
+  body[data-away-entry="1"] .away-entry:not([hidden]) { display: inline-flex; align-items: center; gap: 6px; position: fixed; z-index: 19; top: calc(var(--strip) + 34px); left: calc(var(--edge) + var(--target) + 8px); right: calc(var(--edge) + var(--target) + 8px); min-height: var(--target); padding: 4px 12px; border: 1px solid var(--brass-lo); border-radius: 8px; background: var(--plate-bg); color: var(--hud-ink); font-size: var(--t2); box-shadow: var(--shadow), var(--plate-edge); text-align: left; }
+  body[data-away-entry="1"] .feed { top: calc(var(--strip) + 34px + var(--target) + 6px); }
+}
 /* ================================================================== the film's frame: a laptop's width (1280 × 720)
    The demo is filmed with the page laid out at 1280 × 720 CSS px (device scale 1.5: a 1920 × 1080 picture). What stood
    cut, covered or colliding at that size is set right here, under three conditions and no other: between 1100 and
