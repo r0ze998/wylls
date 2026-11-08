@@ -260,3 +260,45 @@
 - CLI: 譲渡後のAは exit 5、Bは Created。依頼者なしは exit 2。
 
 **ここで試験していない部分:** 署名の検証そのもの（gatewayの認証層、③/⑤）は、試験に署名が要るため対象外です。`authenticatedBy` は、検証した層の名前を記録するだけです。実ノード（frontier-localnet）での読み取りも未実施です。
+
+## 12. 2026-11-08 の統合（④）
+
+基点 cf517b55 の上に、次の順で載せた。各チームのサブツリーは、チームが申告した tree と一致することを確認した。
+
+| 順 | 取り込んだもの | commit | 確認（鍵なし） |
+|---|---|---|---|
+| 1 | live の台帳の読み取りを未証明のままにする（2c8fbfa2） | 8decc936 | verify：lib 47、history 16、ledger_history 7、resident_ledger 4、new_bands 7 |
+| 2 | ⑩ ed1e009e（custody の試験が V26 自身の所見で判定する） | 5ee66869 | custody 6、custody_state 8、custody_history 7 |
+| 3 | ⑭ 5f4c0b99、のちに d9c8b81d | edd091aa、4b13a7e3 | ⑭ 38 |
+| 4 | ゲーム画面の文：custody 100〜104、WideWorldUnavailable。node-key-tests.txt に1行追加（鍵を使うので除外） | 122039e1 | gateway・web 1779/0 |
+| 5 | ⑱ fc645596、⑮ 95f44cf3、⑫ 7b75122f、⑥ 59bc9565 | bd14dc81、40356ebb、1dd7b5e9、35ab0f1b | agents の reveal_time_tests 1、⑮ 120、⑫ 56（省略2）、⑥ ports・dispatch・connect・connect-live 17（省略7） |
+| 6 | registry.txt の 0xc1〜0xcc（ExtendFrontier と custody の lot） | f7d3b70d | e2e-native registry 1 |
+| 7 | wide 系列 0465adc5（preserve/wide-keeper-duties。capture-read・discovery・reader-guards と同じ patch を含む） | cd8b1756 | 下記 |
+| 8 | widemode の英語14文、WideIndexUnavailable | 9f68f123 | gateway・web 1790/0 |
+| 9 | ⑮ の chain-flow stage D の patch。⑫ の CI job memory12 | d491fd8d、aa20628a | check-fixtures 31/31、check-ci-keyfree ok |
+
+**行った衝突の解消**
+- verify/src/resident_feed.rs（2c8fbfa2 と ④ の scan）：安全側に倒した。scan で全体を読めても history は unknown、through は 0 とする。取得した取引は残し（所見は作る）、tip は報告する。試験の期待値は厳しい方向に変えた。
+- keeper/src/play.rs の plan_core（⑱ と wide）：wide の feed gate → load_owner_materials → take_shared → ⑱ の owner_tracks_from_chain、の順。
+
+**wide 系列の確認**（試験の呼び出し先を監査した。鍵ペアの生成・導出や署名はなく、engine は中身を見るだけで送信しない）
+- keeper：wide_duties 70、wide_discovery 14、wide_reveal 30、wide_snapshot_rpc 6、wide_feed_guard 12
+- frontier-abi：world_index 138
+- permutation-frontier：map_growth の実行時試験 17（wide-world-experimental）と 6（既定）
+- rules：frontier_clash_identity 4
+- findex：wide_typed_index 12、ws04_feed_scan 11
+- herald：wide 3、wide_capture 9、wide_index_read 1
+- 実行していないもの：native-crypto-tests の feature（公開の vector を検証するだけだが opt-in）、SBF、LiteSVM、ブラウザでの表示
+
+**wide の到達点と残り**（実装済みでも、まだ遊べる完成ではない）
+- **できていること**：ゲーム画面の地図に、記録された広い世界を読み取り専用で表示する（map/widemode.mjs、herald の /h/world/wide、型付きの索引、観測された履歴は「未検証」と表示）。wide の州の中では、開く → 招集 → 出発 → 開封 → 集合 → 決着 → 精算 → 帰還 → シーズン末の閉鎖までが、host の試験で本物の dispatcher を通る。keeper は、署名しない候補として作り、観測して照合するところまで。
+- **ルールの判断が要るので止めているもの**（docs/frontier/map-growth/PLAYABLE-WIDE-COMPATIBILITY.md）：
+  1. 一つの世界か、地域に分けるか
+  2. 128 環より外の国の配置の続け方
+  3. 環の乱数（seed）の証明
+  4. 賞の対象とする土地の範囲と集計（今の tally は 17 環まで）
+  5. 旧形式と wide の境目（移行）
+  6. 128 環をまたぐ行軍で、同点と押し出しの順番（二つの key の系統の間）
+- **技術上の閉鎖**（この判断の後に開ける）：DEPART_DEBIT_ENABLED は配備用の build では false。境目をまたぐ移動は拒否。feature は既定で無効で、SBF では使えない。
+
+**取り込んでいないもの**：⑬（別口）。⑤ の共有コア（③が担当）。⑦ は claude/wylls-ui-ux-visual-oixhgs を aa20628a へ積み直し中。⑰ は公開待ち（routes/prize.mjs をどちらにするかは利用者の判断）。⑳ d85c42da は文書1行のみ。②・① はまだ取得できない。
