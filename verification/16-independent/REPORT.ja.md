@@ -2821,3 +2821,31 @@ checkpoint の `95b0ab225ca9e9e626941b51981df2240198d91c`（tree `89a64830da3991
   - canceller を最初の cancel の前に 2 秒遅らせた（一時的な変更）：pass。競った cancel は 9、gate での cancel は 3。
 - ④ の言うとおり、gate が取り除くのは「canceller が遅れて、仕事がすべて終わった後に来る」原因だけ。後の cancel が実行の途中に当たるかは、まだ時間に依存する。完全に決定的になったわけではない。
 - 残る制限：これまでと同じ（§29.11）。
+
+## 29.13 ⑧ a6e261f8（growth の route の試験）の独立のレビュー
+
+- 対象：⑧ `a6e261f8dd5ac2d1626951d8c285886c2c95198f`（tree `77a95e662a2e475953e58723b535044408eee5e3`、親 caeb1b74）。branch `claude/festive-tesla-iwwc5t` の `6507c519` は tree が同じ。3 file、+194 行。
+- **1. reviewed の理由**：おおむね正しい。
+  - `scan --check` は exit 0。`--digest` は記された `closure=34a5b8e0…` と一致した。
+  - 閉包は 64 file。鍵の API の名前は 4 file だけで、すべて vendor の noble BLS（bls.mjs、modular.mjs、weierstrass.mjs、bls12-381.mjs）。
+  - そこへの経路は、どれも `terrain.mjs → fconquest.mjs → fland.mjs → fmarch.mjs → seal.mjs` を経て、`seal.mjs` の **動的な** `import('./seal-worker.mjs')` から入る。
+  - その import は `sealMarch` の中の、Worker が無いときの inline の分岐だけにある。`new Worker(...)` も `startWorker()` の中だけ。どちらも封印のときにしか動かない。
+  - 理由の文の補足：理由の文は Worker の経路しか書いていない。scan がたどる辺は inline の動的な import のほうなので、それも書くとよい。
+  - 試験が呼ぶのは planRoute（`kernel.call('plan_path')` と tileHex）、world・terrain・fgeo の関数、loadKernel だけ。sealMarch は呼ばない。
+- **2. 期待値が kernel の答えを固定しているだけか**：一部はそう。
+  - 構造としての確認（kernel とは独立）:
+    - 段階ごとの place（world.mjs）。
+    - seed が無いときの NoPath と terrain の null。
+    - 画面と kernel の geometry の一致（ring 4 と 5 のすべての Province）。
+  - 固定値:
+    - terrain の sha256、sites、passableMask、route の dirs と secs。
+    - これらは、**この tree の中の他のどこにも無い**（⑯ が digest と mask で grep した）。⑲ の Rust fixture との照合は、まだ無い。今は kernel の答えを固定した回帰の値。
+  - ⑯ の独立の照合:
+    - tile 0 は (4,0) で axial (32,−16)、(5,0) で (41,−20)。hex の距離は max(9, 4, 5) = 9。
+    - 固定値の pathLen 9（dirs も 9 個）と一致するので、最短の経路であることとは矛盾しない。
+- **3. v3 の読み込みは画面と同じ確認か**：同じ 3 つを通る（`wasm.mjs` loadKernel）。
+  - bytes の sha256 が公開の `.sha256` と一致すること。試験は commit された同じ file を読む。画面は `${url}.sha256` を fetch する。
+  - ABI の版。
+  - ruleset hash。違いは 1 つ：画面は season の record の rulesetHash を使い、試験は `PRESETS.ruleset_hash_v3` を使う。
+  - kernelFile は、S1（layout 2、program_version 4）で `frontier-v3.wasm` を選ぶ（試験が assert）。
+- **⑯ の実行**：repo の guard と ⑯ の hook v2 の下で 2 回とも **4/4**。hook の記録は 0 件（`logs/phase23/ws08-growth-route.txt`）。鍵の生成・導出・署名は無い。ring の seed は、公開の label の sha256。
