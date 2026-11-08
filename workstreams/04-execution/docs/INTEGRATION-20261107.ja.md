@@ -796,8 +796,8 @@ fa822453 の上に載せた。各チームのサブツリーは、チームが�
 **位置**（この節は文書だけの commit。実装の候補とは別）
 - 実装の候補：`claude/gallant-ride-cunptv` @ `585e9fab66390656eaf580aed73c72a9f51997e3`（tree `b161e1c2e7807bfe9493115601c95ec9fbda5166`）。**全機能の完成ではない。**
 - 過去の検証済みの基準は `16576826`（tree `7f6ff8b0`）のまま。§18 の `caeb1b74` と、`95b0ab22` は過去の区切り。
-- `caeb1b74` から first-parent で 26 commit、32 file。すべて `[skip ci]` で、この枝の workflow run は 16 のまま。
-- ⑯ の独立の確認：`585e9fab` まで（`verification/16-independent/REPORT.ja.md` §29.14〜§29.29、`claude/dreamy-ramanujan-ijj8qj` @ `04be870b`）。各 merge の tree が、親の `git merge-tree` と一致する（手の編集なし）ことも確かめた。
+- `caeb1b74` から first-parent で 26 commit、32 file。すべて `[skip ci]` で、この枝の workflow run は 16 のまま（④ が 585e9fab の後に一覧で確認。最後の run は 2026-11-06）。
+- ⑯ の独立の確認：`585e9fab` まで（`verification/16-independent/REPORT.ja.md` §29.14〜§29.29、`claude/dreamy-ramanujan-ijj8qj` @ `04be870b`）。16 の merge のうち 15 は、tree が親の `git merge-tree` と一致する（手の編集なし）。`0b105a33`（⑳ `0a766757` の merge）だけは、HOLDER-CONTRACT の衝突を ④ が手で解いた（その 1 file で +18 −18。commit の文に記載）。
 
 **取り込んだ差分**（各担当の exact SHA → 候補の commit）
 | 担当 | SHA | 候補 | 中身 |
@@ -822,15 +822,16 @@ fa822453 の上に載せた。各チームのサブツリーは、チームが�
 
 **何まで確かめたか**（鍵なしの runner と guard の下。呼び出し元と import 先の静的な審査の後）
 - **元ゲームの S1 map の実装**：ws07-grow-s1（デスクトップと電話）。(4,0) の host を手に取る → 成長前は (5,0) を拒否 → 成長後は ⑧ の ROUTE の注文カード、到着は lead 2〜72 の中、ページの beacon の確認が通る → 「seal and depart」が有効になる（押さない）→ 取消し → 再読込で段階が残る。④ の実行 2/2（`585e9fab`）、⑯ の実行 2/2（`adfdecaf`、同じ tree）。app.mjs の修正は、旧で 0/2・新で 2/2（⑦、⑯ §29.27）。他の画面：ws07-guard 2/2、ws07-grow-r5 2/2、ws07-grow 3/3、ws07-wide 3/3、ws07-march 2/2、ws07-read 6/6（④、full Chromium）。
-- **本物の read contract**：⑲ の `ws19_map_contract`（本物の Ingest と `server::router` を 127.0.0.1 で）2/2（④・⑲、⑯ §29.29）。node の map-contract・map-arrival・growth-route（④ 26/26 に含む）。herald の handler・codec と client の decoder は成長と村の情報で一致し、直すものは無かった（⑲）。herald `--lib` 44/44 は ⑲ の実行だけ。S1 の Season のバイトと program の `write_params` の一致は、field の名と順の静的な比較だけ（④、⑯ §29.22）。値をバイトで突き合わせる実行はしていない。
+- **本物の read contract**：⑲ の `ws19_map_contract`（本物の Ingest と `server::router` を 127.0.0.1 で）2/2（④ は `dd7f8735`・`fc6b923b`・`7311597f`・`c378c1ce` で、⑲ は自分の枝で、⑯ は `e3abbee1` で。§29.29。`585e9fab` の上では走らせていないが、その後の差分は ws07-grow-s1 と ⑦ の文書だけ）。node の map-contract・map-arrival・growth-route（④ 26/26 に含む）。herald の handler・codec と client の decoder は成長と村の情報で一致し、直すものは無かった（⑲）。herald `--lib` 44/44 は ⑲ の実行だけ。S1 の Season のバイトと program の `write_params` の一致は、field の名と順の静的な比較だけ（④、⑯ §29.22）。値をバイトで突き合わせる実行はしていない。
 - **NFT の読み取りの修正**：
   - `8443d12e` の読み取りの契約：`web-frontier-resident-me` 5/5（呼び出し 0。⑳ が `1da4a517` で、⑯ が `8443d12e`・`5ee5fa35` で）。これは §14 の契約で、`viewerOwnCitizen` の証拠ではない。
-  - `5ee5fa35` の `viewerOwnCitizen`：静的な審査（④、⑯ §29.23）と、⑯ の新しい reviewed の試験 `web-frontier-viewer-own-citizen` 4/4（④・⑯）。修正の 14 行だけを戻すと、拒否の 2 件が落ちて 2/4（④ の実行。後で戻した）。
+  - `5ee5fa35` の `viewerOwnCitizen`：静的な審査（④、⑯ §29.23）と、⑯ の新しい reviewed の試験 `web-frontier-viewer-own-citizen` 4/4（④・⑯）。修正の 14 行だけを戻すと、拒否の 2 件が落ちて 2/4（⑯ が v1 を `ff749ed2` で、§29.26。④ が v2 を `fa8b2a8e` の上で。どちらも後で戻した）。
 
 **無効な結果と、有効な結果を混ぜない**（詳細：`permutation-nft-resident-spike/docs/HOLDER-CONTRACT.ja.md` §15、⑯ REPORT §29.23〜§29.25）
 - ⑳ の v0.24 の「103 file・1014 件が鍵なしで合格」は**誤り**。その実行で、`web-frontier-opening-world`・`web-frontier-s1`・`web-frontier-territory`・`web-frontier-live` が固定の seed から鍵を導出し、署名した（⑳ の記録）。
 - v0.25 の広い再実行は、guard が最初の `subtle.importKey('pkcs8')` で 26 回止めた。**止まったことは、導出が無かった証拠ではない。** ⑯ の静的な読みでは、`web/session.mjs` の `keyFromSeed` で `publicKeyOf(seed)` が最初の importKey より前に実行されるので、停止の前に JS の公開鍵の導出は済んでいる。分からないこと：停止の前に他に何が実行されたか、監視していない API での導出、監視が鍵の API をすべて覆うか、数の内訳。
-- ⑳ が一覧に載る file（wide-holding-ui、resident-home、web-frontier-herald、ws07-nft、ws07-me-answered）を直接走らせた結果（「55/56」「101 file 呼び出し 0」を含む）は、鍵なしの手順の外。証拠に数えない。
+- 「101 file 呼び出し 0」は、上の 26 回の停止と同じ広い再実行のもの。証拠に数えない。
+- ⑳ が一覧に載る file（`web-frontier-wide-holding-ui`、`web-frontier-resident-home`、`web-frontier-herald`、`web-frontier-ws07-nft`、`web-frontier-ws07-me-answered`）を直接走らせた結果（focused な 7 file の「55/56」と、修正を戻すと落ちる 2 件を含む）は、鍵なしの手順の外。証拠に数えない。
 - 有効なものは、上の「何まで確かめたか」に書いた限定の実行だけ。その中心は `web-frontier-viewer-own-citizen` 4/4 と map の限定試験。
 - reviewed の登録に、利用者の承認は要件ではない（`scripts/ci/node-key-reviewed.txt` 1〜5 行、`scan-node-key-tests.mjs` 111〜112 行）。④ が前に「承認が要る」と書いたのは根拠の無い誤りで、§15 で訂正した。
 
@@ -845,3 +846,4 @@ fa822453 の上に載せた。各チームのサブツリーは、チームが�
 - NFT の `/h/me/{asset}`：asset を鍵にした財布の Citizen と NFT Citizen が両方あるとき、どちらを返すか。今は (a) 財布が先で、page が拒否する（読み取りの誤り）。⑲ の選択肢は (a) 今のまま、(b) NFT を優先、(c) 両方を返す、(d) 別の問い合わせ。⑲ の推奨は、今は (a)、変えるなら (d)。
 - join と paidJoin の meStatus の確認（§18）。
 - ⑩ の SettleCustody の拡張、⑤ の requester の権限、⑭・⑮ のゲームの目標、31 章。
+- ⑯ の REPORT が開いたまま挙げるもの（④ はここで決めない）：⑥ の J7（外から lock を消されたときの限界。native の依存は入れない、と利用者が選んだ運用の限界）、reviewed の digest と runner の範囲、Worker の realm、kernel が読み込まれないままのときの二度目の押下の扱い（⑦ の判断）。
