@@ -37,6 +37,7 @@ import * as hand from './hud/hand.mjs';
 import * as turnlist from './hud/turnlist.mjs';
 import { createCamKeep } from './hud/camkeep.mjs';
 import { openCoop as coopEntryOpen } from './hud/coopentry.mjs';
+import { installCoopBoard } from './hud/coopboard.mjs';
 import { settled } from './hud/rulebook.mjs';
 import * as dialcard from './hud/dialcard.mjs';
 import { paintVillagePics } from './map/village.mjs';
@@ -3928,6 +3929,8 @@ export async function boot() {
     if (FS.mode === 'spectate') startSpectate(herald);
     if (FS.mode === 'play') {
       // the first answer about the viewer decides whether the join flow opens by itself (hud/drawer.mjs) and where the map opens (map/opening.mjs)
+      // (workstream 07: 01's cooperation board, when this server has one — hud/coopboard.mjs; nothing shown when not)
+      installCoopBoard({ changed: () => invalidate('panel') });
       startPlay({ herald, cfg }).catch(e => console.error('frontier play:', e)).then(() => { FS.playReady = true; FS.viewerMissed = !!FS.wallet && !FS.land; invalidate('panel', 'tabs', 'rail', 'chips'); }).finally(() => { viewerKnown = true; map?.invalidate(); });
       // the drawer starts closed: the tab of the last visit is not reopened over the map
       FS.tab = 'map';

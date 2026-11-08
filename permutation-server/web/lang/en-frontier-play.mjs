@@ -322,6 +322,11 @@ export default {
 
   // ---- the spectator (screens/spectate.mjs)
   'まだ衝突はありません': 'No clash yet',
+  // workstream 07: the way to 01's cooperation board from the S1 village card (hud/coopboard.mjs)
+  '国をまたぐ依頼を開く': 'Open requests across nations',
+  '国をまたぐ依頼の板を読み込めませんでした（{0}）。もう一度読み込むと、また確かめます': 'The board of requests across nations could not be loaded ({0}). It will be checked again on the next load',
+  'この依頼の板は、別の世界（シーズン）のものです': 'This board of requests belongs to another world (season)',
+  '村を選ぶと、その村を届け先にして開けます': 'Choose a village to open it with that village as the destination',
   // workstream 07: 04's seven states of a signed send (hud/statusview.mjs sendView)
   '送られていません': 'Not sent',
   '何も送られていないため、効果はありません（確定）': 'Nothing was sent, so it had no effect (final)',

@@ -4,9 +4,10 @@
 // this file decides none of them. With no entry registered the slot is
 // empty and the page is as it was.
 //
-// 01 registers `{id, title, state(FS) → {available, why?}, open(FS)}`:
+// 01 registers `{id, title, state(FS) → {available, why?} | {hidden: true}, open(FS)}`:
 // `title` the button's words (in the page's language), `state` whether it
-// can be pressed now and, when not, why (shown under it), `open` what
+// can be pressed now and, when not, why (shown under it) — or `hidden` when
+// the thing it opens is not on this server at all —, `open` what
 // pressing it does. The page calls `open` through the HUD action
 // `coop-open`.
 import { html, raw } from '../../util.mjs';
@@ -28,6 +29,7 @@ export function renderCoopSlot(FS) {
   if (!entry) return '';
   let st;
   try { st = entry.state(FS) ?? { available: false }; } catch { st = { available: false, why: null }; }
+  if (st.hidden === true) return '';
   const why = st.available ? '' : html`<p class="blocked">${st.why ? String(st.why) : L`いまは使えません（理由を受け取れていません）`}</p>`;
   return html`<div class="ws07-coop" data-coop="${entry.id}"><button type="button" class="btn" data-act="coop-open" data-id="${entry.id}" ${raw(st.available ? '' : 'disabled')}>${String(entry.title())}</button>${why}</div>`;
 }
