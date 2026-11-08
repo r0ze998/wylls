@@ -3328,3 +3328,57 @@ checkpoint の `95b0ab225ca9e9e626941b51981df2240198d91c`（tree `89a64830da3991
 「585e9fab の上では走らせていないが、その後の差分は ws07-grow-s1 と ⑦ の文書だけ」は、`git diff c378c1ce 585e9fab` で確かめた。その 2 file だけである。
 
 workflow run が 16 のままであることは ④ が数えたもので、⑯ は確かめていない。
+
+## 29.31 ⑲ の柵の場合 3c7c0929 と 2db2db4b の独立のレビュー
+
+対象：⑲ `3c7c0929455fe7e80bc355c186211e919cc5c336`（tree `9a03b8f2…`、585e9fab の上）と、その上の `2db2db4b`（tree `bf9619ba…`）。
+
+**(1) map_growth の出力は変わらない。**
+- 変更は 3 つだけ：`rec` が `rec_at(NO_BELL)` を呼ぶようになったこと、`Tx.last`（push のたびに記録するだけ）、`growth_tx` への切り出し。
+- ⑯ の実行：`cargo test -p herald --test ws19_map_contract` が **3/3**。この試験は、本物の router の答えを、空の世界の S1 golden とも柵の golden とも突き合わせる。`WS19_GOLDEN_WRITE` は設定しておらず、走らせた後も worktree に変更は無い。
+
+**(2) `build_structure` との照合（静的）。** program 側は `proc/structure.rs:189-378`。
+- 一致するもの：
+  - Structure の各 field：P、Q、TILE、STATE_LIVE、FACTION、GEN 1、OWNER_CITIZEN、OWNER_TAG、BUILT_TS、SEIZED_BELL=NO_BELL、NOTIFY、ENTRY、KIND。
+  - Province の structure entry 0（kind、tile、faction、gen 1）。
+  - Citizen の PALISADES +1（offset 314。abi の assert で固定）。
+  - key9（i32 p、i32 q、tile）。
+  - payload の順（owner_tag、faction、1、entry、notify、host_id、cost_digest、kind。53 B）。`cost_digest` は holding.rs と同じく、8 つの i64 の LE を sha256 にかけたもの。cost は同じ `permutation_rules::frontier::structure::cost`。
+  - chain の順は Citizen、Holding、Province、Structure。
+  - bell 0：BELL_SECS は 600 なので、GENESIS_TS+300 は bell 0。
+- **違うもの、または新たに選んだもの：**
+  - **`RENT_TO`（offset 128）。** program は payer の key を書くが、fixture は 0 のまま。
+  - **Holding の chain の頭。** `rec_at` は hd の seq と head（24..64）を進めるが、hd は repost されない。だから、公開される Holding の chain の頭は、STRUCTURE_BUILT がつなぐ先より古いままになる。これは「支払いを再現していない」とは別の帰結である。
+  - **holding key の gen。** `host_id(4,0,1,0,0)` の gen 0 は、fixture の Holding の GEN（一度も設定されず 0）と合っている。program は `hh.gen` を使う。
+  - **選んだもの**：notify = NOTIFY_OWNER、建てる者 = faction 2 の NFT の住民、tile = 道筋の上で最初に建てられる hex。
+
+**(3) (4,0) t6（hex 33,-16）。** router が返す `/h/province/4,0` の bytes を、page の codec で読んだ（`probes/v16-ws19-palisade-hex.mjs`）。
+- passableMask の bit 6 は 1。sites に 6 は無い。keep は tile 1。camp は state 0（tile 0）。
+- 柵の段では、entry 0 が {kind 2, tile 6, faction 2, gen 1} になる。
+- `palisade_at` の判定には camp の条件が無い（program にはある）。今回の場所には camp が無いので、結果は同じ。
+- この hex が ⑧ の道筋の上にあり、行き先ではないことは、Rust と Node の両方の試験が確かめている。
+
+**(4) stance は feed から読んでいる。**
+- page の `refreshS1` は `s1.nations = r.nations` とし、`walkerOf` は `fs.s1.nations.stances` を使う。試験の `na.nations.stances` と同じ field である。
+- **限界。** golden の stance の表は、すべて 0（STANCE_WAR）。`stanceOf` は、表が無いときも war を返す。だから、この場合の判定は「feed を読んだ」ときと「既定の値を使った」ときで同じになり、区別できない。通行を許す、または同盟の stance での判定は、試すものが無い。
+
+**(5) 2db2db4b：kernel が柵を避ける道筋。**
+- **閉包。** 66 file。鍵の API を名指すのは vendored の noble の 4 file だけで、seal-worker の後ろにある。追えない構文は 0。
+  - seal-worker の top-level にあるのは、`bls.G2` などの束縛の参照だけ。
+  - `wasm.mjs` は `WebAssembly.instantiate(bytes, {})` で、import の object が空なので、wasm から外を呼べない。
+  - `--digest` は `a6fb6711…` で、reviewed の行と一致する。`--check` は exit 0。
+- **固定した道筋は kernel の答えか。** ⑯ の probe（`probes/v16-ws19-palisade-route.mjs`、repo の guard の下）で、kernel の答えをそのまま表示した：
+  - 柵なし：dirs [0,0,0,0,1,1,0,1,1]、1320 s、9 hex。
+  - (33,-16) を塞いだとき：[5,0,0,1,0,1,1,0,1,1]、1320 s、10 hex。
+  - これは ⑲ が固定した AROUND と同じで、⑲ が選んだ値ではない。
+  - 道筋の上のどの 1 hex を塞いでも、kernel は 1320 s の道筋を返した（9〜11 hex）。
+- `checkMarch` に渡す `arriveBell: 3` は試験が与える値である。kernel の `earliestBell`（bell 0 の +300 s に出発）も 3 で、整合している。
+- ⑯ の実行：`node-keyfree.sh` で map-arrival、map-contract、growth-route が **24/24**。
+
+**集計。**
+- 通過：cargo 3/3、node 23/23（3c7c0929）と 24/24（2db2db4b）、静的な照合。
+- 失敗：0。
+- blocked：0。
+- 未実行：柵のある世界の全画面、Holding の支払い、通行を許す・同盟の stance、封・署名・送信。
+- log：`logs/phase23/ws19-palisade-3c7c-2db2.txt`。
+- 全体の完了は宣言しない。

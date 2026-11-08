@@ -1,0 +1,20 @@
+### ⑲ 3c7c0929455fe7e80bc355c186211e919cc5c336 (tree 9a03b8f2)
+## cargo test -p herald --test ws19_map_contract (WS19_GOLDEN_WRITE unset; live router vs both S1 goldens; worktree clean after)
+running 3 tests
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.35s
+## node-keyfree map-contract + map-arrival + growth-route
+key-free run: 3 files in permutation-gateway (221 left out, listed)
+# tests 23
+# pass 23
+# fail 0
+## probes/v16-ws19-palisade-hex.mjs: the router's /h/province/4,0 bytes (palisade golden) through the page codec
+grown {"fields":["passableMask","nSitesUsed","sites","siteCount","siteMirror","keep","keepsTakenBy","camp","structures"],"tile6passable":true,"siteCount":12,"sites":{"0":4,"1":33,"2":49,"3":53,"4":0,"5":11,"6":13,"7":17,"8":26,"9":28,"10":38,"11":43},"keep":{"tile":1,"holder":0,"contender":255,"progress":0,"required":72,"flags":0,"changes":0,"troops":100,"sinceBell":0,"consolidatedUntilBell":0,"contestFromBell":0,"ge
+palisade {"fields":["passableMask","nSitesUsed","sites","siteCount","siteMirror","keep","keepsTakenBy","camp","structures"],"tile6passable":true,"siteCount":12,"sites":{"0":4,"1":33,"2":49,"3":53,"4":0,"5":11,"6":13,"7":17,"8":26,"9":28,"10":38,"11":43},"keep":{"tile":1,"holder":0,"contender":255,"progress":0,"required":72,"flags":0,"changes":0,"troops":100,"sinceBell":0,"consolidatedUntilBell":0,"contestFromBell":0,
+### ⑲ 2db2db4b (tree bf9619ba)
+## node-keyfree map-arrival + map-contract + growth-route
+key-free run: 3 files in permutation-gateway (221 left out, listed)
+# tests 24
+# pass 24
+# fail 0
+## probes/v16-ws19-palisade-route.mjs (repo no-keys-guard): the kernel's own answers, printed
+{"hex":{"q":33,"r":-16},"free":{"dirs":[0,0,0,0,1,1,0,1,1],"secs":1320,"hexes":9},"blocked":{"dirs":[5,0,0,1,0,1,1,0,1,1],"secs":1320,"hexes":10},"altBlocks":["33,-16:1320s/10","34,-16:1320s/10","35,-16:1320s/10","36,-16:1320s/10","37,-17:1320s/9","38,-18:1320s/9","39,-18:1320s/11","40,-19:1320s/11"],"earliestBellFromBell0":3,"lead":[null,null]}
