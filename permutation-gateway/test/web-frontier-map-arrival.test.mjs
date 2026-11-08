@@ -7,12 +7,16 @@
 // Key-free: no seal, no Worker, no signature. checkMarch, arrivalWindow and tipOptions are pure; seal.mjs is
 // imported for constants only (sealMarch is never called). The route is workstream 8's planRoute answer
 // (growth-route.mjs ROUTE, pinned there against frontier-v3.wasm).
-import { test } from 'node:test';
+import { test, before } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { createHerald } from '../../permutation-server/web/frontier/herald.mjs';
 import { seasonAddresses } from '../../permutation-server/web/frontier/faddr.mjs';
-import { arrivalWindow, checkMarch, tipOptions, RETREAT_CHOICES } from '../../permutation-server/web/frontier/fmarch.mjs';
+import { arrivalWindow, checkMarch, tipOptions, planRoute, RETREAT_CHOICES } from '../../permutation-server/web/frontier/fmarch.mjs';
+import * as Wasm from '../../permutation-server/web/frontier/wasm.mjs';
+import { kernelFile } from '../../permutation-server/web/frontier/fconquest.mjs';
+import { tileHex } from '../../permutation-server/web/frontier/fgeo.mjs';
+import { PRESETS } from '../../permutation-server/web/sdk/frontier/abi-v2-presets.mjs';
 import { checkBeacon } from '../../permutation-server/web/frontier/seal.mjs';
 import { ROUTE } from './fixtures/frontier/growth-route.mjs';
 
@@ -125,4 +129,55 @@ test('the beacon: both goldens are quicknet (no NotQuicknet banner); the old zer
   assert.deepEqual(beaconOf(other.record, other.season), { ok: false, code: 'PkHashMismatch' });
   const s = await heraldAt('grown').season();
   assert.deepEqual(beaconOf({ ...s.record, drand: { ...s.record.drand, publicKey: '00'.repeat(96) } }, s.season), { ok: false, code: 'NotQuicknet' });
+});
+
+// ------------------------------------------------------------------ the palisade case: the kernel's route with `blocked`
+// tests/golden/ws19-map-growth-s1-palisade.json (cqfixture::growth::palisade_case): one palisade of faction 2 at
+// (4,0) tile 6 on 8's route. The real rules module (frontier-v3.wasm, loaded as growth-route.test.mjs does, sha256
+// checked) plans (4,0) t0 → (5,0) t0 for unit 0 with the golden's seeds, without and with that hex blocked.
+const S1P = JSON.parse(readFileSync(new URL('../../frontier-node/crates/herald/tests/golden/ws19-map-growth-s1-palisade.json', import.meta.url), 'utf8'));
+let kernel = null;
+before(async () => {
+  const file = kernelFile({ layoutVersion: 2, programVersion: 4 });
+  const dir = new URL('../../permutation-server/web/frontier/wasm/', import.meta.url);
+  const bytes = readFileSync(new URL(file, dir));
+  const published = readFileSync(new URL(`${file}.sha256`, dir), 'utf8').trim().split(/\s+/)[0];
+  kernel = await Wasm.loadKernel({ url: file, sha256Hex: published, ruleset: PRESETS.ruleset_hash_v3,
+    fetch: async () => ({ ok: true, arrayBuffer: async () => bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.length) }) });
+});
+
+// What the kernel answers (pinned): with the palisade's hex blocked the route goes round it; without, it is 8's ROUTE.
+const AROUND = Object.freeze({ dirs: [5, 0, 0, 1, 0, 1, 1, 0, 1, 1], pathLen: 10, hexes: 10, secs: 1320, provinces: [{ p: 4, q: 0 }, { p: 5, q: 0 }] });
+const DIRS = [[1, 0], [1, -1], [0, -1], [-1, 0], [-1, 1], [0, 1]]; // fgeo DIRECTIONS
+const walkHexes = (from, dirs) => { let { q, r } = tileHex(from.p, from.q, from.tile); return dirs.map(d => { q += DIRS[d][0]; r += DIRS[d][1]; return `${q},${r}`; }); };
+
+test('palisade case: the kernel plans round the palisade the structures feed names; the order still passes every pre-seal check', async () => {
+  const rec = S1P.stages.palisade['/h/season'].body;
+  const seeds = rec.rings.map(r => ({ ring: r.d, seed: r.seed }));
+  const from = { p: 4, q: 0, tile: 0 }, to = { p: 5, q: 0, tile: 0 };
+  const at = S1P.palisade;
+  const hex = tileHex(at.p, at.q, at.tile);
+  assert.deepEqual(hex, { q: 33, r: -16 });
+  const pick = r => r.ok ? { dirs: r.route.dirs, pathLen: r.route.pathLen, hexes: r.route.hexes, secs: r.route.secs, provinces: r.route.provinces } : r;
+  // Without the palisade: 8's route, and its walk enters the palisade's hex.
+  const free = planRoute(kernel, { from, to, unit: 0, seeds });
+  assert.deepEqual(pick(free), { dirs: ROUTE.dirs, pathLen: ROUTE.pathLen, hexes: ROUTE.hexes, secs: ROUTE.secs, provinces: ROUTE.provinces });
+  assert.ok(walkHexes(from, free.route.dirs).includes(`${hex.q},${hex.r}`), '8\'s route walks through (4,0) tile 6');
+  // With it blocked (what palisadeHexesOf gives a faction-1 viewer from the feeds): round it, never entering it.
+  const around = planRoute(kernel, { from, to, unit: 0, seeds, blocked: [hex] });
+  assert.deepEqual(pick(around), AROUND);
+  assert.ok(!walkHexes(from, around.route.dirs).includes(`${hex.q},${hex.r}`), 'the re-planned walk avoids the palisade');
+  assert.equal(walkHexes(from, around.route.dirs).at(-1), (() => { const d = tileHex(5, 0, 0); return `${d.q},${d.r}`; })());
+  // The composer's pre-seal check with that route from the golden's host (bell 0): clean for an arrival in the window.
+  const h = (() => {
+    const f = async url => {
+      const a = S1P.stages.palisade[new URL(url, 'http://h').pathname] ?? { status: 404, body: { ok: false, code: 'NotFound' } };
+      return new Response(JSON.stringify(a.body), { status: a.status });
+    };
+    const x = createHerald({ fetch: f, seasonId: S1P.season });
+    x.pin(S1P.season, seasonAddresses(S1P.program, BigInt(S1P.season)));
+    return x;
+  })();
+  const m = await orderAt(h, 0);
+  assert.deepEqual(checkMarch({ ...m, route: { ...around.route, path: null }, arriveBell: 3 }), []);
 });
