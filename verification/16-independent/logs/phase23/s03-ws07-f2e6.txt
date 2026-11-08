@@ -1,0 +1,20 @@
+### ③ a24d6dbbcef67a6321bd9abc009fe15aa9b440f1 cold-open.test.mjs over ④ 89232fad (③ dir overlaid), guards as run-guarded.sh
+old = runexec 4cb6634d (ws04 a33e3b0a); new = ⑯ build of 89232fad 3438c7d0; diag = 'the cold-open race is fixed' diagnostic
+old run 1: # pass 2 # fail 0 # skipped 0  diag=0
+old run 2: # pass 2 # fail 0 # skipped 0  diag=0
+old run 3: # pass 2 # fail 0 # skipped 0  diag=0
+new run 1: # pass 2 # fail 0 # skipped 0  diag=1
+new run 2: # pass 2 # fail 0 # skipped 0  diag=1
+new run 3: # pass 2 # fail 0 # skipped 0  diag=1
+
+### ⑦ c4eae4082d4da1486bb875533941e00b322d5db4: guide with the village's province unread (probes/v16-ws07-unread-guide.mjs)
+{
+ "homeProvinceUnread": "true",
+ "hostRows": "0",
+ "scoutObjective": "undefined",
+ "marchObjective": "{\"act\":\"tab\",\"data\":{\"tab\":\"holding\"},\"label\":\"村で兵を準備する\"}"
+}
+
+### ④ f2e63ff2298cfa03149356ce8b5390934c83717c: scan --check
+119 by the scan, 206 through src/ (conservative), 23 unfollowed (conservative), 8 reviewed and runnable, 0 seen by the guard
+exit=0

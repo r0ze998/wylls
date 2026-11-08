@@ -2656,3 +2656,28 @@ checkpoint の `95b0ab225ca9e9e626941b51981df2240198d91c`（tree `89a64830da3991
       - つまり、前の read で「not joined」が分かっていても、一時的な失敗で join の流れが閉じる。次の refresh（controller 1847 行）が成功するまで閉じたまま。
       - Citizen を知っている場合は known のままなので、扱いが非対称。
     - ただし、他の端末から参加したかもしれないので、閉じるほうが安全側とも言える。欠陥ではなく、⑦ が決めること（表示の判断で、game の規則ではない）として伝える。
+
+## 29.6 ④ の後続 490407d8 → 8afe8426 → dc9974e2 → f2e63ff2、③ a24d6dbb、⑦ 08928ea5 / c4eae408
+
+- ④ `f2e63ff2298cfa03149356ce8b5390934c83717c`（tree `7372d19bc7fb6a80057c864888b5470c356993ca`）。89232fad の上の commit:
+  - `490407d8`：⑦ 9b547d9d の 3 file と一致（§29.5 で確かめたもの）。
+  - `8afe8426`：③ の dir が ③ d4b22c97 と一致。`node-key-tests.txt` の変更は、registry-busy.test.mjs を via-src に 1 行足しただけ。
+  - `dc9974e2`：⑦ 08928ea5 の onboarding・ws07-read・first-village-ui と一致。
+  - `f2e63ff2`：passnode.rs に型の別名を 1 つ足しただけ。型は同じで、動作は変わらない。ws04 の src は 89232fad と一致。
+  - scan の `--check` は exit 0（119 / 206 / 23 / 8）。
+- **③ `a24d6dbbcef67a6321bd9abc009fe15aa9b440f1`**（③ の dir の tree `76322139…`）。`cold-open.test.mjs` は、③ と ⑤ の同時の最初の open を、SQLite の lock を握ることで強制する（時間に頼らない）。
+  - ⑯ は、89232fad に ③ の dir を重ねて流した（`logs/phase23/s03-ws07-f2e6.txt`）:
+    - 古い runexec（4cb6634d）：3 回とも 2/2。旧 setup の場合に、元の失敗の値 `[undefined, true, 'real']`、RunRegistryUnavailable、送信 0 が毎回再現する。
+    - 新しい runexec（89232fad）：3 回とも 2/2。毎回「the cold-open race is fixed」の診断が出て、登録は他方の open を待って通る。
+  - **結論**：仕組みは確かめられた。古い binary で値まで再現し、④ の修正で消える。4d44f021 の元の run がこの順序だったことそのものは、ログが無いので確かめられない（③・④ と同じ）。
+- **⑦ 08928ea5 / c4eae408**（村の province が読めないとき、guide は Muster や Train を勧めない。hosts の画面は「記録をまだ読み込めていません」と出す）。⑦ の問いへの答え（静的な読みと、純粋な関数の probe `probes/v16-ws07-unread-guide.mjs`）:
+  - **ずっと止まったままになる正当な状態はあるか**：見つからない。
+    - web の code で `FS.provinces` に対して行うのは set だけで、delete・clear・追い出しは無い。
+    - `refresh()` は、/h/me が読めた poll のたびに、すべての holding の province を `loadEnvelope` で読み直す（`wantProvince` の 12 件の上限は通らない）。poll は 30 秒ごとで、誤りのたびに倍、最長 5 分。
+    - したがって guard は、次に province が読めたときに外れる。外れないのは、/h/province（または /h/me）が失敗し続けている間だけで、そのときは本当に読めていない。
+    - 注意：/h/me が失敗すると、`refresh()` はその場で戻るので、province は読み直されない。その間は、drawer も unreachable なので、表示は食い違わない。
+  - **marchObjective にも同じ guard が要るか**：province が読めないとき、hostRows は空なので、marchObjective は `{tab:'holding'}`「村で兵を準備する」を返す（probe で確認）。
+    - 村の画面の Train は、`actionBlocks` が resident の操作（Muster、Garrison、Depart など）しか止めないので、province が読めなくても押せる。
+    - つまり、軍勢があるかもしれないのに、訓練を勧めて村へ案内する。重複した命令ではないが、資源を使う方向へ誤って導く。
+    - 同じ「読み込んでいます」の扱いにするのがよい。どうするかは ⑦ が決める（表示の判断）。
+  - ⑯ は ⑦ の画面と unit の試験を流していない（④ と ⑦ の結果がある）。
