@@ -15,10 +15,11 @@
 //     check passes (the golden carries drand quicknet's public chain hash and key); "seal and depart" is enabled and
 //     NEVER pressed. (An earlier golden had a zero lead window and a non-quicknet beacon; neither is judged on here.)
 //   - cancel (やめる); a reload keeps the stage.
-// What is not real here: the 4 /h/ paths the golden lacks (ABSENT: conquest, control, keep, standings; 19's f001c9c3
-// added the router's real answers for the rest) answer 404 — inferred, not shown to be the router's answer; roster 5's
-// NoSuchRing 404 before growth IS the router's. Their console lines are the only errors allowed, and every 404 the
-// page meets is asserted to be one of them. The structures feed IS the router's (19's e3abbee1): empty,
+// Every /h/ path the page asks for has the router's own answer in the golden (19's a41d1cd2 added the last four:
+// conquest day 0, control, standings, keep 4,0). Its 404s (roster 5 before growth, control and standings NotYet, keep
+// 4,0 NoSuchKeep — the last a fixture gap, see router404) are the only console errors allowed, and every 404 the page
+// meets is asserted to be one of them or the injected failed Province read. What those four show on the page is
+// checked in ws07-conquest-s1. The structures feed IS the router's (19's e3abbee1): empty,
 // so the route is planned with no palisade; a world with a palisade on the route is not exercised. Nothing is sealed, signed or sent.
 //
 // Run from this folder: node --test ws07-grow-s1.screen.mjs
@@ -35,14 +36,15 @@ const GOLDEN = JSON.parse(readFileSync(new URL('../../frontier-node/crates/heral
 const HOST_TILE = { p: 4, q: 0, tile: 0 }, TARGET = { p: 5, q: 0, tile: 0 };
 /** What the page says on the map for a press on (5,0) with the host in hand, before growth. */
 /**
- * The /h/ paths the page asks for that the golden does not carry: the relay answers them 404 NotFound (inferred from
- * the golden, not shown to be the router's answer). Since 19's f001c9c3 the golden has the router's real answers for
- * events, rosters, overviews 0–2, overview2 0–2, provinces 3,0 · 3,1 · 4,-1, caravans and nations; these four remain.
- * (/h/structures.json is in the golden since 19's e3abbee1: the router's empty S1 feed, read by the page — see below.)
+ * Since 19's a41d1cd2 the golden carries the router's answer for every /h/ path the page asks for here: no path is
+ * answered by the relay's own 404 any more (asserted below: `missing` holds only the injected failed read).
+ * The router's own 404s are read from the golden itself (status 404 at that stage), never listed by hand:
+ *   roster 5 NoSuchRing until ring 5 is grown; control and standings NotYet (no bell resolved in this world yet);
+ *   keep 4,0 NoSuchKeep — a FIXTURE GAP (19, a41d1cd2): the fixture writes (4,0)'s keep into the Province bytes but not
+ *   the KEEP (PLACED) record the program's OpenProvince emits, so a real chain would answer 200. Not read as "no keep"
+ *   here or in ws07-conquest-s1 (only that the page handles the router's 404).
  */
-const ABSENT = new Set(['/h/conquest/0.json', '/h/control/latest.bin', '/h/keep/4,0.json', '/h/standings/latest.json']);
-/** The router's own 404s in the golden (19's f001c9c3): roster 5 is NoSuchRing until ring 5 is grown. Real answers. */
-const ROUTER_404 = new Set(['/h/roster/5/latest.bin']);
+const router404 = stage => new Set(Object.entries(GOLDEN.stages[stage]).filter(([, a]) => a.status === 404).map(([p]) => p));
 /**
  * A failed Province read, injected on purpose (workstream 04's ask): the relay answers this neighbour 404, as a herald
  * does for a Province not on chain, whatever the golden holds — so the per-Province request bound below keeps
@@ -217,7 +219,9 @@ for (const vp of [{ width: 1440, height: 900, name: 'desktop' }, { width: 390, h
     }
 
     assert.deepEqual([...notFound].filter(p => !p.startsWith('/h/')), [], 'no 404 for the page\'s own files');
-    assert.deepEqual([...notFound].filter(p => !ABSENT.has(p) && !ROUTER_404.has(p) && p !== FAIL_PROVINCE).sort(), [], 'every 404 is a documented golden-absent path, the router\'s own 404, or the injected failed read');
+    const routers = new Set(G.STAGE_ORDER.flatMap(st => [...router404(st)]));
+    assert.deepEqual([...notFound].filter(p => !routers.has(p) && p !== FAIL_PROVINCE).sort(), [], 'every 404 is the router\'s own (from the golden) or the injected failed read');
+    assert.deepEqual([...missing].filter(p => p !== FAIL_PROVINCE).sort(), [], 'no /h/ path the page asked for is missing from the golden (19\'s a41d1cd2)');
     assert.ok((provinceAsks.get(FAIL_PROVINCE) ?? 0) >= 1, 'the injected failed Province read was asked for (the bound below is exercised)');
     const storm = [...provinceAsks].filter(([, n]) => n > 20);
     assert.deepEqual(storm, [], `no Province asked for more than 20 times in this run (${JSON.stringify([...provinceAsks])})`);
