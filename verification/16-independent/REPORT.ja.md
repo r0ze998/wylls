@@ -3253,3 +3253,33 @@ checkpoint の `95b0ab225ca9e9e626941b51981df2240198d91c`（tree `89a64830da3991
   - blocked：0。
   - 未実行：一覧に載る file すべて。
   - 全体の完了は宣言しない。
+
+## 29.29 ⑦ 75653728、⑲ e3abbee1、④ 025c93b0・c378c1ce（§29.27 の 404 の指摘への対応）
+
+- **⑦ `756537280443c8374f2c98ebf3a4182a9158305a`**（tree `895f2b05…`）：試験と INTEGRATION だけを変える。
+  - `ABSENT` に挙げた 21 の path は、⑯ の記録版の写しが拾った 21 種類と完全に一致した。デスクトップとスマホで同じ。
+  - 新しい assertion は 2 つ：ページが受けた 404 はすべて `/h/` の下にあること、そのすべてが `ABSENT` に入っていること。だから、ページ自身の file の 404 は落ちるようになった。
+  - ⑯ の実行（full Chromium、repo の no-keys-guard）：**2/2**。
+- **⑲ `e3abbee11c337641db816cdea541c5a6cee2ef0c`**（tree `71d5a766…`）：変わったのは試験と golden の 3 つの file だけ。
+  - Rust の試験は、`/h/structures.json` を `s1_paths` に加え、4 つの段のすべてで 200 と `{"v":1,"structures":[],"sightings":[]}` を確かめる。
+  - この試験は、router の実際の答え `g` を golden の file と `assert_eq!(g, want)` で突き合わせる。だから、空の答えは golden を読み込んだものではなく、router の実物の答えである。
+  - ⑯ の実行：`cargo test -p herald --test ws19_map_contract` が **2/2**。`WS19_GOLDEN_WRITE` は設定していない。走らせた後も worktree に変更は無い。
+  - Node の試験は `herald.structures()` と `s1walk.blockedHexes` を使い、どの段でも `[]` になる。
+    - ページの `palisadeHexesOf` も、同じ `structures` の配列を `blockedHexes` に渡す。stances は、試験が `{}`、ページが nations の 404 による null で違う。しかし配列が空なので、結果はどちらも `[]` になる。
+    - `s1walk.mjs` の閉包は 6 file で、鍵の API を名指す file は無い。map-contract も 51 file で同じく無く、一覧にも載っていない。
+    - ⑯ の実行（`node-keyfree.sh`、map-contract と map-arrival）：**16/16**。新しい structures の試験も含む。
+  - **⑲ の問いへの答え。** route の条件のうち「柵が無い」ことは、これで router の答えとして読まれた。残る推定は 2 つ：残りの 20 の ABSENT の path と、柵のある世界。どちらも ⑲ が書いたとおり、意図して対象にしていない。
+- **④ の merge。**
+  - `025c93b06d3c01df696f49ff7c3ae7b2bbe3af92`（tree `43877414…`）は 685c4dda と 75653728 の merge。
+  - `c378c1cecb2272cf9d2381f28abbb6d15e9db853`（tree `7a2df3cc…`）は 025c93b0 と e3abbee1 の merge。
+  - どちらの tree も、`git merge-tree` が出す tree と同じ。
+- **⑦ `adfdecaf9da81e8a9967e8ec887b5963ce5c1a08`**（tree `b161e1c2…`）。親 f8f426b3 の tree は c378c1ce と同じ `7a2df3cc…`。
+  - ABSENT から structures を外した（20 の path）。grown の段で、feed を読んだこと（`read: true`）、structure が 0、`palisadeHexesOf(FS)` が 0、の 3 つを確かめる。
+  - 注意：`palisadeHexesOf` は `walkerOf` が null（S1 が無効か、faction が無い）のときも `[]` を返す。`blocked: 0` だけでは、feed を通ったかどうかは分からない。`read: true` と `n: 0` が、その分を補っている。
+  - 実行の結果は、下の追記に書く。
+- **集計**（ここまで）：
+  - 通過：一覧の一致 1 件、2/2、16/16、cargo 2/2、merge の tree の照合 2 件。
+  - 失敗：0。
+  - blocked：0。
+  - 未実行：柵のある世界。封・署名・送信。
+  - log：`logs/phase23/ws07-7565-ws19-e3ab.txt`。
