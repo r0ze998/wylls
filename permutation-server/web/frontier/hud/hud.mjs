@@ -435,5 +435,9 @@ export function renderRail(FS, { todoOpen = false } = {}) {
  * caller passes, the to-do lines. One composition for both widths, so a phone has the wide selector too.
  */
 export function renderRest(FS, { next = '', todoMax = 8 } = {}) {
-  return [renderPlate(FS), html`${renderWideInventoryStatus(FS)}${renderWidePips(FS)}`, next, renderTodo(FS, { max: todoMax, open: true })];
+  // (workstream 07: the wide inventory's status line stands AFTER the "next thing", not between it and the plate: on a
+  // herald without the wide index every player has that line, and above the next thing it pushed the next thing out of
+  // the phone's peek — the sheet at rest shows the plate and the next thing whole, interaction.screen.mjs. The line and
+  // the pips are unchanged; only the order is.)
+  return [renderPlate(FS), html`${renderWidePips(FS)}`, next, html`${renderWideInventoryStatus(FS)}`, renderTodo(FS, { max: todoMax, open: true })];
 }

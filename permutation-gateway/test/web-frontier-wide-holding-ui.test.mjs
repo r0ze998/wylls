@@ -441,10 +441,12 @@ test('the legacy village, its model, activeHolding and the plate are unchanged; 
 test('the phone sheet\'s resting markup carries the wide selector with the plate: hud.renderRest, the one composition app.mjs restMarkup uses', () => {
   const FS = legacyWorld();
   const before = hud.renderRest(FS, { next: '' }).map(flat);
-  assert.equal(before.length, 4, 'plate, wide pips, the next row, the to-do lines');
+  // (workstream 07: the inventory's status line stands after the next row, so the next row stays whole in the phone's peek)
+  assert.equal(before.length, 5, 'plate, wide pips, the next row, the inventory status, the to-do lines');
   assert.equal(before[0], flat(hud.renderPlate(FS)), 'the plate first, as before');
   assert.equal(before[1], '', 'no inventory read yet: no pip (never a pip for "unknown")');
-  assert.equal(before[3], flat(hud.renderTodo(FS, { max: 8, open: true })));
+  assert.equal(before[3], '', 'no status line while the inventory is being read');
+  assert.equal(before[4], flat(hud.renderTodo(FS, { max: 8, open: true })));
   assert.doesNotMatch(before.join(''), /wide-select/);
   adoptWide(FS, record({ ctx: context({ inventory: inventory('legacy', 'wide', 'wide') }), entries: [entry(FAR), entry({ ...NEAR, slot: 3, site: 7, status: 'not-captured' })] }), pinsOf(['legacy', 'wide', 'wide']));
   const after = hud.renderRest(FS, { next: '<next-row/>', todoMax: 8 }).map(flat);
@@ -453,15 +455,17 @@ test('the phone sheet\'s resting markup carries the wide selector with the plate
   assert.match(after[1], /data-act="wide-select" data-slot="2" aria-current="false"/);
   assert.match(after[1], /data-act="wide-select" data-slot="3"/);
   assert.equal(after[2], '<next-row/>', 'the caller\'s next row, after the pips');
-  assert.equal(after[3], before[3]);
+  assert.equal(after[3], '', 'a ready inventory has no status line');
+  assert.equal(after[4], before[4]);
   assert.doesNotMatch(after[0], /wide-select/, 'one copy: never inside the plate or among its legacy pips');
   // a selection marks the pip in the sheet too; unavailable and error show none
   selectWide(FS, 3);
   assert.match(hud.renderRest(FS).map(flat)[1], /data-slot="3" aria-current="true"/);
   for (const st of [{ wideStatus: 'unavailable', wideHoldings: null }, { wideStatus: 'error', wideHoldings: null }]) {
-    const status = hud.renderRest({ ...FS, ...st }).map(flat)[1];
-    assert.doesNotMatch(status, /wide-select/);
-    assert.match(status, /wide-inventory-status/);
+    const parts = hud.renderRest({ ...FS, ...st }, { next: '<next-row/>' }).map(flat);
+    assert.doesNotMatch(parts[1], /wide-select/);
+    assert.equal(parts[2], '<next-row/>');
+    assert.match(parts[3], /wide-inventory-status/, 'said, after the next row');
   }
   // the phone path in app.mjs is this composition (a source check: app.mjs is not importable without a document)
   const app = readFileSync(new URL('../../permutation-server/web/frontier/app.mjs', import.meta.url), 'utf8');
