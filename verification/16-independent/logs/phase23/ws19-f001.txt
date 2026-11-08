@@ -5,3 +5,11 @@ key-free run: 3 files in permutation-gateway (221 left out, listed)
 # fail 0
 ## cargo ws19_map_contract (WS19_GOLDEN_WRITE unset; worktree clean after)
 test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.27s
+### 7 01bb323f ws07-grow-s1 (logging copy: prints the 404 set) with 19 f001c9c3's S1 golden copied in (restored after), fixed controller, alone
+ok 1 - 19's S1 herald answers, 08's stages @ desktop: the host at (4,0) in hand, (5,0) refused until grown, then 08's route in the order card (not sealed)
+ok 2 - 19's S1 herald answers, 08's stages @ phone: the host at (4,0) in hand, (5,0) refused until grown, then 08's route in the order card (not sealed)
+# tests 2
+# pass 2
+# fail 0
+V16_S1 desktop {"notFound":["/h/conquest/0.json","/h/control/latest.bin","/h/standings/latest.json"]}
+V16_S1 phone {"notFound":["/h/conquest/0.json","/h/control/latest.bin","/h/keep/4,0.json","/h/standings/latest.json"]}

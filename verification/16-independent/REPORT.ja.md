@@ -3501,3 +3501,8 @@ workflow run が 16 のままであることは ④ が数えたもので、⑯ 
   - まだ生成されていない州の 404 は、柵の golden と roster 5 に残っている。
   - 組み合わせた実行の結果は、下の追記に書く。
 - log：`logs/phase23/ws19-f001.txt`。
+
+**追記（組み合わせた実行）。** 7 の 01bb323f（新しい controller）の ws07-grow-s1 を、19 の f001c9c3 の S1 golden に差し替えて、単独で走らせた。走らせたのは記録だけを加えた写しで、golden は終わった後に戻した。
+- 結果は **2/2**。
+- ページが受けた 404 は、デスクトップで conquest、control、standings の 3 つ、スマホではそれに keep/4,0 を加えた 4 つ。どれも残る ABSENT の 4 つの中にある。
+- だから、19 の golden を取り込んでも、7 の画面の試験は通る。ただし ABSENT の 16 の path と header の記述は古くなる。7 が ABSENT を 4 つに減らせば、assertion は締まる。
