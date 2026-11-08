@@ -3060,3 +3060,8 @@ checkpoint の `95b0ab225ca9e9e626941b51981df2240198d91c`（tree `89a64830da3991
   - ⑯ が流したのは、流してよい `web-frontier-resident-me` だけで、5/5、hook の記録は 0 件。
   - ⑳ が前の round で、鍵を導出する 4 つの file を流したと開示していることも記録する（HOLDER-CONTRACT §15）。
 - 記録は `logs/phase23/ws19-68d9-ws20-5ee5.txt`。
+- 追記（⑳ の訂正）：
+  - ⑳ は、web-frontier-wide-holding-ui と web-frontier-resident-home を、`node-key-tests.txt` を確かめずにじかに流したと訂正した。web-frontier-herald と ws07-nft/me-answered も同じ。
+  - これらの old-fails / new-passes の数は、鍵を使わない手順の外のものとして扱う。⑳ の鍵を使わない回帰の証拠は web-frontier-resident-me だけ（⑯ も 5/5）。
+  - 記録は HOLDER-CONTRACT §15（⑳ `1da4a517166c487e4736f55f4c4f22a29a69b162`。5ee5fa35 の上で、文書を 6 行足しただけ）。
+  - ⑯ の §29.23 の判断（controller の修正は静的に正しい。2 つの試験の証拠は鍵を使わないと確かめられていない）は変わらない。
