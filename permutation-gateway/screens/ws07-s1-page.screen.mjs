@@ -64,7 +64,7 @@ before(async () => {
   await new Promise(r => relay.listen(0, '127.0.0.1', r));
   // (workstream 07: the keyless whole page — ws07/nokey-page.mjs: not a loopback host, a test wallet with no key)
   base = NK.pageBase(relay.address().port);
-  browser = await chromium.launch({ args: NK.launchArgs(relay.address().port), ...(process.env.WS07_CHROME ? { executablePath: process.env.WS07_CHROME } : {}) });
+  browser = await chromium.launch({ ...NK.launchOptions(relay.address().port), ...(process.env.WS07_CHROME ? { executablePath: process.env.WS07_CHROME } : {}) });
   // the viewer's tag and village, as the page reads them (a first load with the feeds empty)
   const ctx = await context({ width: 1440, height: 900 });
   const page = await ctx.newPage();
@@ -105,7 +105,7 @@ const fsReady = async () => { const { FS } = await import('/frontier/fstate.mjs'
 const s1Feeds = async () => { const { FS } = await import('/frontier/fstate.mjs'); return (FS.s1?.caravans?.moving?.length ?? 0) > 0; };
 async function context(viewport) {
   const ctx = await browser.newContext({ viewport });
-  await ctx.addInitScript(NK.init, NK.initArg(srv.viewer, { lang: 'ja' }));
+  await NK.prepare(ctx, srv.viewer, { lang: 'ja' });
   return ctx;
 }
 // (the drawer is drawn again when the feeds come in: a card caught between two drawings is taken again)
