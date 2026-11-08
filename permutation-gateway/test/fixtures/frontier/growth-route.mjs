@@ -4,13 +4,16 @@
 // (chapter 28: effective rMax = max(Season r_max @68, Frontier R_MAX_EXT @66); ceiling = conquest u16 @78, hard
 // limit 128), the public ring seeds, two Provinces on either side of the old edge, and what the real S1 rules
 // module (frontier-v3.wasm, the kernel `kernelFile` picks for layout 2 / program_version 4) answers there.
-// What it is not: account bytes. The S1 Season / Frontier / RingSeed / Province / Holding bytes and the herald
-// router's golden responses are workstream 19's Rust fixture (frontier-abi); `withGrowth` overlays these fields on
-// such a record so both carry the same stage, seeds and coordinates. Nothing here is a layout-1 (M1) account, and
-// nothing here touches a key: the seeds are sha256 of a public label, the same rule as web-frontier-live-map.
+// Account bytes: only the S1 Season and Frontier (layout 2, by the SDK's own encoder) that carry the growth.
+// Province / Holding bytes and the herald router's golden responses are workstream 19's (frontier-abi, real
+// router); `withGrowth` overlays these fields on such a record so both carry the same stage, seeds and coordinates.
+// Nothing here is a layout-1 (M1) account, and nothing here touches a key: the seeds are sha256 of a public label,
+// the same rule as web-frontier-live-map.
 //
 // Pinned by test/web-frontier-growth-route.test.mjs against the committed frontier-v3.wasm and the page's modules.
 import { createHash } from 'node:crypto';
+import { encodeAccount } from '../../../../permutation-server/web/sdk/frontier/codec.mjs';
+import { PRESETS } from '../../../../permutation-server/web/sdk/frontier/abi-v2-presets.mjs';
 
 /** Ring d's seed: sha256("ring" + d), hex (public; the existing live-map evidence uses the same rule). */
 export const ringSeed = d => createHash('sha256').update(`ring${d}`).digest('hex');
@@ -55,6 +58,36 @@ export function growthFields(stage) {
  * creation value; the herald's rMax carries the extension (Frontier R_MAX_EXT), as on chain.
  */
 export const withGrowth = (record, stage) => ({ ...record, ...growthFields(stage) });
+
+// ------------------------------------------------------------------ the S1 Season and Frontier bytes (layout 2)
+// Built with the SDK's own encoder (sdk/frontier/codec.mjs encodeAccount, profile 2: Season 2048 bytes, Frontier
+// 512), not a second one. Workstream 19's herald golden is a layout-1 (M1) world without the conquest block, so the
+// S1 growth fields (conquest R_MAX_CEILING @78, Frontier R_MAX_EXT @66) are here. Other Season fields are the
+// MC_LOCAL_7D preset's conquest block with program_version 4 and the S1 ruleset hash, so the page loads v3.
+export const SEASON_ID = 71, GENESIS_TS = 1_800_000_000, BELL_SECS = 600;
+const hexBytes = h => Uint8Array.from(h.match(/../g), x => parseInt(x, 16));
+const upper = o => Object.fromEntries(Object.entries(o).map(([k, v]) => [k.toUpperCase(), v]));
+const MC7 = PRESETS.presets.find(p => p.name === 'MC_LOCAL_7D').fields;
+
+/** The world's Season bytes (the same at every stage: an extension does not rewrite the Season). */
+export function seasonBytes() {
+  const b = MC7.base;
+  return encodeAccount('Season', {
+    SEASON_ID: BigInt(SEASON_ID), LAYOUT_VERSION: 2, PROGRAM_VERSION: 4, RULESET_HASH: hexBytes(PRESETS.ruleset_hash_v3),
+    REGIONS: b.regions, GENESIS_RING: 3, R_MAX: SEASON_R_MAX, BELL_SECS, GENESIS_TS: BigInt(GENESIS_TS),
+    JOIN_CLOSE_BELL: b.join_close_bell, END_BELL: b.end_bell, GENESIS_SEED: new Uint8Array(32).fill(1),
+    CONQUEST_PARAMS: [upper({ ...MC7.conquest, r_max_ceiling: CEILING, placement: 0, continuous: 0 })],
+  }, { profile: 2 });
+}
+/** The world's Frontier bytes at a stage: RINGS_OPENED and R_MAX_EXT (0 until ExtendFrontier). */
+export const frontierBytes = stage => encodeAccount('Frontier', {
+  SEASON_ID: BigInt(SEASON_ID), LAYOUT_VERSION: 2, RINGS_OPENED: STAGES[stage].ringsOpened, R_MAX_EXT: STAGES[stage].rExt,
+}, { profile: 2 });
+/** A whole /h/season record at a stage (the fields the page reads; views.rs season_json's names). */
+export const seasonRecord = stage => withGrowth({
+  v: 1, season: String(SEASON_ID), genesisTs: GENESIS_TS, bellSecs: BELL_SECS, rulesetHash: PRESETS.ruleset_hash_v3,
+  continuous: false, bytes_b64: Buffer.from(seasonBytes()).toString('base64'),
+}, stage);
 
 /** The two Provinces on either side of the old edge (ring 4 → ring 5), with what the rules give them. */
 export const ORIGIN = Object.freeze({ p: 4, q: 0, tile: 0 });
