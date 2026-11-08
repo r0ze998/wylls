@@ -2024,3 +2024,25 @@ Rust の側は 23.3 に書く。
 - ただし、8 本の画面の試験は、どれも WASM の march の操作を assert していない。見ているのは、join の画面の文、村のカード・引き出し・協力の板、chronicle の失敗の表示などである。
 - したがって、**46/46 は画面の部品と表示の証拠で、本来の WASM の march の操作の証拠ではない**。march の成功、署名、live には数えない。
 - ⑦ の NoWasm の訂正（headless shell で secure-origin が効かない）は、その設定で流した run だけに当てはまる。⑯ の run は、その設定ではない。
+
+## 25.5 ⑥ の journal の lock の修正 11be9d44（④ の候補には、まだ入っていない）
+
+- ⑥ の branch `claude/wylls-creation-publishing-reuse-31aiyj` の HEAD: `11be9d4446b8b01bfd34c2e0d1b0ae793ae73a7e`、tree `b001859824a178563a63dcff31c55c54069fb64d`。1360ce51 と 11be9d44 の 2 commit。
+- 中身:
+  - lock を JSON（pid、process の開始時刻、random の token）にした。
+  - 乗っ取りを `.takeover` の mutex の中で行う。lock を読み直して、変わっていないことを確かめ、一時ファイルを rename する。
+  - save() は、lock が自分の token のときだけ書き、そうでなければ JournalFenced を返す。
+  - 同じ pid の二度目の open は JournalLocked になる。
+  - 新しい import は `randomUUID`（node:crypto）だけで、鍵には当たらない。
+- ⑯ の probe（隔離した worktree で、④ の候補の no-keys-guard を付けて流した）:
+  - `v16-ws06-journal-lock.test.mjs`：4/4。
+    - J1：A は JournalLocked で拒否され、B だけが開く。
+    - J2：JournalLocked で拒否。
+    - J3：JournalFenced で拒否され、journal は B の "sent" のまま。
+    - J4：通過。
+  - `v16-ws06-journal-lock-r2.test.mjs`（新規）：2/2。
+    - J5：死んだ taker の mutex を二つの taker が見つけた場合、A は JournalLocked で拒否され、書いたのは B だけ。lock も B のもの。
+    - **J6（残る隙間）**：save() の fence の確認が通った直後に乗っ取りが起きると、その save の rename が 1 回だけ通る。新しい holder の `{"step":"sent"}` が、古い `{"step":"stale"}` で上書きされた。次の save は JournalFenced になる。
+      - 失った lock 1 つにつき、古い書き込みが 1 回起きうる、ということである。journal の整合の問題であって、二重送信ではない。
+      - 直し方の候補（どれにするかは ⑥ の判断）：rename の直前に lock の token を確かめ直して窓を縮める。あるいは、token ごとの journal に書き、読む側は lock の token で選ぶ（世代の fencing）。
+- ⑥ の試験（ports、dispatch、connect、connect-live、intake。③ と ④ は候補の木のものを使った）：36 件のうち、35 件通過、0 件失敗、1 件 skip（WS06_RUN4_STORE が要る）。
