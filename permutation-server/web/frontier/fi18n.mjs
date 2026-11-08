@@ -223,6 +223,7 @@ const CLIENT_TEXT = {
   NotFound: () => L`まだ記録がありません`,
   WideWorldUnavailable: () => L`この配信元は記録された世界を出していません（WideWorldUnavailable）。`,
   WideIndexUnavailable: () => L`この配信元は世界の履歴の索引を出していません（WideIndexUnavailable）。`,
+  BadConfig: () => L`協力の板の設定を読めませんでした（BadConfig）。`,
   WrongSeason: () => L`別のシーズンの記録です`,
   WrongKey: () => L`頼んだものと違う記録が届きました`,
   NotQuicknet: () => L`このシーズンの公開乱数は quicknet ではありません`,
