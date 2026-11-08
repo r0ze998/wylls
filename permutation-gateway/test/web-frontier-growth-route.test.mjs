@@ -130,6 +130,8 @@ test('the S1 bytes: the page\'s herald decodes the Season at layout 2 / v4 with 
     assert.equal(Buffer.from(s.rulesetHash).toString('hex'), PRESETS.ruleset_hash_v3, 'the kernel the before() hook loaded is the one this Season names');
     assert.deepEqual([cq.rMaxCeiling, cq.placement, cq.continuous, cq.heartlandMaxRing], [G.CEILING, 0, 0, 3]);
     assert.equal(s.rMax, G.SEASON_R_MAX, 'the extension does not rewrite the Season');
+    assert.equal(s.genesisRing, G.GENESIS_RING);
+    assert.deepEqual([...s.genesisSeed], [...G.GENESIS_SEED], 'the genesis rings\' seeds come from the Season\'s own genesis seed');
     const fb = G.frontierBytes(stage), f = decode('Frontier', fb, { seasonId: G.SEASON_ID });
     assert.equal(fb.length, 512);
     assert.equal(f.ringsOpened, rec.ringsOpened, stage);
