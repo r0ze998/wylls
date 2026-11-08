@@ -69,6 +69,8 @@ export class Dispatch {
   plan({ route, plan, planHash, env, nonce, requester, ...rest }) {
     const key = Dispatch.key(planHash, nonce);
     if (route === "run") {
+      // nobody authenticated a requester: closed, as workstream 13's port answers (NoAuthenticatedRequester)
+      if (requester === undefined || requester === null) return { ok: false, findings: [{ code: "NoAuthenticatedRequester", detail: "a run needs the requester the gateway authenticated; 06 never makes one" }] };
       const bad = requesterProblem(requester);
       if (bad) return { ok: false, findings: [{ code: "REQUESTER", detail: bad }] };
     }
@@ -99,12 +101,21 @@ export class Dispatch {
   async advance(key) {
     const p = this.data.plans[key];
     if (!p) return { ok: false, code: "NO_RECORD" };
-    for (const s of p.steps) {
-      if (p.route === "run") await this.#advanceRun(p, s);
-      else await this.#advanceAct(s);
+    // one pass per key at a time in this process: a second caller gets the state, not a second call outside
+    if (this.#busy.has(key)) return { ...this.status(key), busy: true };
+    this.#busy.add(key);
+    try {
+      for (const s of p.steps) {
+        if (p.route === "run") await this.#advanceRun(p, s);
+        else await this.#advanceAct(s);
+      }
+    } finally {
+      this.#busy.delete(key);
     }
     return this.status(key);
   }
+
+  #busy = new Set();
 
   async #advanceRun(p, s) {
     if (s.state === "held" || s.final) return;
@@ -159,7 +170,22 @@ export class Dispatch {
   }
 
   async #advanceAct(s) {
-    if (s.state === "held" || s.final) return;
+    if (s.final) return;
+    if (s.state === "held") {
+      // held on a result-unknown send: keep READING ④ (never send); a later final fate ends the hold.
+      // Held on a refusal (s.unknown not set): nothing to read.
+      if (!s.unknown) return;
+      let rec;
+      try { rec = await this.act.status(s.runId, s.requestId); } catch (e) { s.lastError = String(e.message ?? e); this.#save(); return; }
+      if (rec === null) return;
+      const r = resultOfAct(rec);
+      if (!r.ok) { s.lastError = r.detail; this.#save(); return; }
+      s.result = r;
+      if (r.sendFinal) { s.final = true; s.state = "sent-requested"; s.unknown = false; s.why = null; }
+      else if (!r.hold) { s.state = "sent-requested"; s.unknown = false; s.why = null; }
+      this.#save();
+      return;
+    }
     if (s.state === "sending") {
       // an earlier send may have reached ③ and lost its answer: if ④ has the act, do not call ③ again
       let rec;
@@ -199,7 +225,7 @@ export class Dispatch {
     const r = resultOfAct(rec);
     if (!r.ok) { s.lastError = r.detail; this.#save(); return; }
     s.result = r;
-    if (r.hold) { s.state = "held"; s.why = r.says; }
+    if (r.hold) { s.state = "held"; s.why = r.says; s.unknown = true; }
     if (r.sendFinal) s.final = true;
     this.#save();
   }
@@ -227,8 +253,27 @@ export function requesterProblem(r) {
   return null;
 }
 
-/** A journal in one JSON file, written to a temporary file and renamed over the old one. */
-export function fileJournal(path, fs) {
+/**
+ * A journal in one JSON file, written to a temporary file, fsynced, renamed
+ * over the old one, and the directory fsynced (so the rename survives a power
+ * loss). One writer at a time: opening takes `<path>.lock` (exclusive create,
+ * holding the pid); a second opener is refused (JournalLocked) instead of
+ * silently overwriting the first one's state. A lock whose pid is no longer
+ * running is taken over. `close()` releases it.
+ */
+export function fileJournal(path, fs, { pid = process.pid, alive = pidAlive } = {}) {
+  const lock = `${path}.lock`;
+  const take = () => { const fd = fs.openSync(lock, "wx"); try { fs.writeSync(fd, `${pid}\n`); fs.fsyncSync(fd); } finally { fs.closeSync(fd); } };
+  try {
+    take();
+  } catch (e) {
+    if (e.code !== "EEXIST") throw e;
+    const holder = Number.parseInt(String(fs.readFileSync(lock, "utf8")).trim(), 10);
+    if (Number.isSafeInteger(holder) && holder !== pid && alive(holder)) throw Object.assign(new Error(`journal ${path} is held by process ${holder}`), { code: "JournalLocked" });
+    fs.unlinkSync(lock); // the holder is gone (or is this process): take it over
+    take();
+  }
+  const dir = path.includes("/") ? path.slice(0, path.lastIndexOf("/")) || "/" : ".";
   return {
     load() {
       try { return JSON.parse(fs.readFileSync(path, "utf8")); } catch (e) { if (e.code === "ENOENT") return null; throw e; }
@@ -238,6 +283,15 @@ export function fileJournal(path, fs) {
       const fd = fs.openSync(tmp, "w");
       try { fs.writeSync(fd, `${JSON.stringify(obj)}\n`); fs.fsyncSync(fd); } finally { fs.closeSync(fd); }
       fs.renameSync(tmp, path);
+      const d = fs.openSync(dir, "r");
+      try { fs.fsyncSync(d); } finally { fs.closeSync(d); }
+    },
+    close() {
+      try { if (Number.parseInt(String(fs.readFileSync(lock, "utf8")).trim(), 10) === pid) fs.unlinkSync(lock); } catch (e) { if (e.code !== "ENOENT") throw e; }
     },
   };
+}
+
+function pidAlive(pid) {
+  try { process.kill(pid, 0); return true; } catch (e) { return e.code === "EPERM"; }
 }
