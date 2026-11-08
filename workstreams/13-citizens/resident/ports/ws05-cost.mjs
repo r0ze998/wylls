@@ -1,6 +1,8 @@
 // The resident's cost port over workstream 5's cost ledger (e9d1551a, model-api/src: price-book.mjs TokenPriceBook,
-// cost-store.mjs FileCostLedger over run-cost.mjs RunCostMock, process-lease.mjs ProcessLease). Workstream 13 does not
-// import workstream 5: the caller hands in 5's book and ledger.
+// cost-store.mjs FileCostLedger over run-cost.mjs RunCostMock, process-lease.mjs ProcessLease). The methods used here
+// are the same at 10e74967 (5's cost API there only adds FileCostLedger.openFenced, a way to open the ledger that the
+// caller may use; this port does not call it). Workstream 13 does not import workstream 5: the caller hands in 5's
+// book and ledger.
 //
 // Two ledgers, one call each, never summed:
 //   - the agent wallet's AgentLedger (the resident's money: hold → running → settle | unresolved), as before;

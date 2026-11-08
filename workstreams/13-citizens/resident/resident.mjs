@@ -53,6 +53,19 @@ export const DEFAULT_BUDGET = Object.freeze({ pricePerCall: '10000', total: '600
 // A UTC midnight: the agent ledger counts its daily budget by UTC day, so a game day (bell / 144) and a ledger day coincide.
 export const GENESIS_SECS = 1_799_971_200;
 const TRANSIENT = new Set(['BucketEmpty', 'QuotaExceeded', 'SendFailed', 'Transport']);
+/** A restart's attempts at reconciling the model calls on file (then the daily re-check, #costRecheck, takes over). */
+const COST_RESTART_TRIES = 3;
+const DECIMAL = /^(0|[1-9][0-9]*)$/;
+const COST_STATES = new Set(['released', 'settled', 'undecided', 'reserved', 'calling', 'absent', 'unknown']);
+/**
+ * What a cost port's recover() answered, made safe to act on: an unknown or malformed answer is `unknown`; an amount
+ * that is not a plain decimal string is missing (null). Only released/settled with matching amounts close anything.
+ */
+function costStateOf(s) {
+  if (!s || typeof s !== 'object' || typeof s.state !== 'string' || !COST_STATES.has(s.state)) return { state: 'unknown', amount: null, settled: null };
+  const dec = v => (typeof v === 'string' && DECIMAL.test(v) ? v : null);
+  return { state: s.state, amount: dec(s.amount), settled: dec(s.settled) };
+}
 /**
  * Workstream 4's seven states after a send (docs/EXECUTION-CONTRACT-20261106.ja.md §1, the agent wallet's
  * GET /f/agent/fate): landed and failed are final; expired and not-sent are final AND prove nothing happened, so a
@@ -146,46 +159,74 @@ export class Resident {
    *   - whether the provider can have been reached is said by this record: the model is called only after the phase
    *     `calling` is saved, so a call still on file as `reserving` or `reserved` was never made;
    *   - `cost.recover(callKey, {phase, notCalled})` settles the cost ledger's side by its own rules (a call not made is
-   *     released there; one maybe made becomes undecided) and returns its state; the wallet hold then follows it:
-   *     released, or never reserved → released; settled → settled at the same amount; undecided → unresolved, and the
-   *     record stays on file until the cost ledger decides it with evidence; missing, amounts that differ, or no ledger
-   *     to ask → unresolved, kept on file. Nothing uncertain is released or made 0 here, and a second run changes nothing.
-   * Then an inference hold still `held` that no record names (a stop between the hold and its record) was never marked
-   * running, so no model call followed it: it is released. Running or unresolved holds without a record are left as
-   * they are (the constructor made running ones unresolved). Holds of other categories are never touched.
+   *     released there; one maybe made becomes undecided) and returns its state, which the wallet hold then follows
+   *     (#alignHold). Only an answer that is well formed and names the hold's own amount closes anything: released →
+   *     released; settled → settled at the cost ledger's settled amount (never the default full hold). Everything else
+   *     (undecided, missing, malformed, amounts that differ or are absent, a recover() that throws, no ledger to ask)
+   *     leaves the hold unresolved and the record on file. Nothing uncertain is released or made 0 here.
+   *   - a failure is tried again at the next steps, at most COST_RESTART_TRIES times in this process; records kept on
+   *     file are then looked at again once a game day (#costRecheck), and at every restart. Not on every model call.
+   * Then, once, an inference hold still `held` that no record names (a stop between the hold and its record) was never
+   * marked running, so no model call followed it: it is released. Running or unresolved holds without a record are left
+   * as they are (the constructor made running ones unresolved). Holds of other categories are never touched.
    */
   #costRestart() {
     if (this.costRestartDone) return;
-    this.costRestartDone = true;
+    this.costRestartTries = (this.costRestartTries ?? 0) + 1;
     const open = this.state.costCalls ?? {};
-    const cost = this.ports.cost;
-    let changed = false;
+    let changed = false, failed = false;
     for (const [callKey, c] of Object.entries(open)) {
       changed = true;
-      const notCalled = c.phase === 'reserving' || c.phase === 'reserved';
-      const s = typeof cost?.recover === 'function' ? cost.recover(callKey, { phase: c.phase, notCalled }) : { state: 'unknown' };
-      const r = this.#alignHold(this.ledger.get(this.id).holds[c.holdId] ?? null, s, { callKey, phase: c.phase });
-      if (r.done) delete open[callKey];
-      else Object.assign(c, { costState: s.state, kept: r.why });
+      if (this.#reconcileCall(callKey, c) === 'error') failed = true;
     }
-    const named = new Set(Object.values(open).map(c => c.holdId));
-    for (const h of Object.values(this.ledger.get(this.id).holds)) {
-      if (h.category !== 'inference' || h.state !== 'held' || named.has(h.id)) continue;
-      this.ledger.release(this.id, h.id, 'restart: held for a model call that was never made');
-      this.ledger.recordSettlement({ agentId: this.id, kind: 'restart-reconcile', holdId: h.id, key: h.key, action: 'release', why: 'held, never running, no record' });
-      changed = true;
+    if (!this.costSweepDone) {
+      this.costSweepDone = true;
+      const named = new Set(Object.values(open).map(c => c.holdId));
+      for (const h of Object.values(this.ledger.get(this.id).holds)) {
+        if (h.category !== 'inference' || h.state !== 'held' || named.has(h.id)) continue;
+        changed = true;
+        try {
+          this.ledger.release(this.id, h.id, 'restart: held for a model call that was never made');
+          this.ledger.recordSettlement({ agentId: this.id, kind: 'restart-reconcile', holdId: h.id, key: h.key, action: 'release', why: 'held, never running, no record' });
+        } catch { this.costSweepDone = false; failed = true; }
+      }
     }
+    if (!failed || this.costRestartTries >= COST_RESTART_TRIES) this.costRestartDone = true;
+    this.state.costRecheckBell = null;
     if (changed) this.save();
   }
 
-  /** The wallet hold `h` of a recovered call, made to follow the cost ledger's state `s` (see #costRestart). */
+  /** One record against the cost ledger: 'done' (closed in both), 'kept' (left on file, conservatively) or 'error'. */
+  #reconcileCall(callKey, c) {
+    const cost = this.ports.cost;
+    const notCalled = c.phase === 'reserving' || c.phase === 'reserved';
+    let s, error = null, r;
+    try { s = costStateOf(typeof cost?.recover === 'function' ? cost.recover(callKey, { phase: c.phase, notCalled }) : null); }
+    catch (e) { error = e; s = { state: 'unknown', amount: null, settled: null }; }
+    try { r = this.#alignHold(this.ledger.get(this.id).holds[c.holdId] ?? null, s, { callKey, phase: c.phase }); }
+    catch (e) { error ??= e; r = { done: false, why: 'the wallet hold could not be aligned' }; }
+    if (r.done) { delete this.state.costCalls[callKey]; return 'done'; }
+    Object.assign(c, { costState: error ? 'error' : s.state, kept: error ? `${r.why} (${String(error?.message ?? error).slice(0, 120)})` : r.why, checkedBell: this.bell });
+    return error ? 'error' : 'kept';
+  }
+
+  /** The wallet hold `h` of a recovered call, made to follow the cost ledger's (normalised) state `s`. */
   #alignHold(h, s, { callKey, phase }) {
     const note = action => this.ledger.recordSettlement({ agentId: this.id, kind: 'restart-reconcile', holdId: h.id, key: callKey, phase, costState: s.state, action });
     if (h && h.category !== 'inference') return { done: false, why: 'not an inference hold: not touched' };
-    const neverReserved = s.state === 'absent' && phase === 'reserving';
-    if (h && s.amount !== undefined && s.amount !== h.amount) { this.#unresolve(h, 'restart: amounts differ'); return { done: false, why: `amounts differ (cost ledger ${s.amount}, wallet ${h.amount})` }; }
-    if (s.state === 'released' || neverReserved) { if (h) { this.ledger.release(this.id, h.id, 'restart before calling'); note('release'); } return { done: true }; }
-    if (s.state === 'settled') { if (h) { this.ledger.settle(this.id, h.id, s.settled, { kind: 'inference', recovered: callKey }); note('settle'); } return { done: true }; }
+    // The cost ledger never reserved it (the stop came before its reservation): no model call can have followed.
+    if (s.state === 'absent' && phase === 'reserving') { if (h) { this.ledger.release(this.id, h.id, 'restart before calling'); note('release'); } return { done: true }; }
+    if (s.state === 'released' || s.state === 'settled') {
+      if (!h) return { done: true }; // the wallet side is closed already
+      if (s.amount === null || s.amount !== h.amount) { this.#unresolve(h, 'restart: cost ledger amount missing or different'); return { done: false, why: `cost ledger ${s.state} for ${s.amount ?? 'no amount'}, wallet hold ${h.amount}: kept` }; }
+      if (s.state === 'released') { this.ledger.release(this.id, h.id, phase === 'calling' ? 'restart: released by the cost ledger' : 'restart before calling'); note('release'); return { done: true }; }
+      // Settled: at the cost ledger's settled amount, which must be given and within the hold (ledger.settle would
+      // otherwise charge the full hold for a missing amount).
+      if (s.settled === null || BigInt(s.settled) > BigInt(h.amount)) { this.#unresolve(h, 'restart: settled amount missing or above the hold'); return { done: false, why: `cost ledger settled ${s.settled ?? 'without an amount'}, wallet hold ${h.amount}: kept` }; }
+      this.ledger.settle(this.id, h.id, s.settled, { kind: 'inference', recovered: callKey });
+      note('settle');
+      return { done: true };
+    }
     if (h) this.#unresolve(h, `restart: cost ledger ${s.state}`);
     return { done: false, why: s.state === 'undecided' ? 'undecided in the cost ledger: kept until it is decided with evidence' : `cost ledger state ${s.state}: kept` };
   }
@@ -194,6 +235,23 @@ export class Resident {
   #unresolve(h, why) {
     if (h.state === 'held') this.ledger.markRunning(this.id, h.id);
     if (this.ledger.get(this.id).holds[h.id]?.state === 'running') this.ledger.markUnresolved(this.id, h.id, why);
+  }
+
+  /**
+   * Records kept on file (undecided in the cost ledger, unreadable, amounts that differ) are reconciled again at most
+   * once a game day, so a decision the cost ledger makes later, with its evidence, reaches the wallet without a
+   * restart. Bounded: not per model call; it closes nothing the cost ledger does not say.
+   */
+  #costRecheck() {
+    if (!this.costRestartDone) return;
+    const kept = Object.entries(this.state.costCalls ?? {}).filter(([, c]) => c.costState);
+    if (!kept.length) return;
+    const last = this.state.costRecheckBell;
+    if (last == null || this.bell < last) { this.state.costRecheckBell = this.bell; return; }
+    if (this.bell < last + BELLS_PER_DAY) return;
+    this.state.costRecheckBell = this.bell;
+    for (const [callKey, c] of kept) this.#reconcileCall(callKey, c);
+    this.save();
   }
 
   get state() { return this.store.state; }
@@ -355,6 +413,7 @@ export class Resident {
     const obs = await this.ports.observe(this.address, { events: st.cursor?.events ?? 0, boardBell: Math.max(0, Math.min((st.cursor?.board ?? 0) - 1, (this.bell ?? 0) - GIFT_WINDOW_BELLS)) });
     const bell = obs.world.bell;
     this.bell = bell;
+    this.#costRecheck();
     this.addr = new Map(obs.world.villages.map(v => [v.citizen, v.owner]));
     this.#migrate(obs, bell);
     if (!st.citizen) {

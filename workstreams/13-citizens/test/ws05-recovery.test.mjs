@@ -9,9 +9,13 @@
 // action key is submitted once, and a further restart changes nothing.
 //
 // Keyless: run under test/keyless-guard.mjs (and scripts/ci/no-keys-guard.mjs from permutation-gateway). Fixture
-// provider only: no model, no chain, no network, nothing billed. WS05_E9D1551A must point at the restored ORIGINAL
-// workstream 5 package e9d1551a for the 5-ledger cases (nothing here claims anything about 5 at 9a4051c7); the
-// flat-cost cases need no workstream 5.
+// provider only: no model, no chain, no network, nothing billed. WS05_ROOT (or WS05_E9D1551A) points at a workstream 5
+// checkout for the 5-ledger cases: the original package e9d1551a, or the public 10e74967. Its commit and its open path
+// are recorded and asserted, so a pass is never read as a pass of the other version. The flat-cost cases need no 5.
+//   5 with FileCostLedger.openFenced (10e74967): every open with 5's own recovery goes through openFenced (lease first,
+//     then the restart rule), counted and asserted;
+//   5 without it (e9d1551a): the explicit legacy open (lease.acquire, new FileCostLedger, recoverStale), asserted too;
+//   recover=false (deliberate): lease and ledger only, no 5 recovery at all, on either version.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdirSync } from 'node:fs';
@@ -22,18 +26,39 @@ import { tmp } from './helpers.mjs';
 import { ws05LedgerCost } from '../resident/ports/ws05-cost.mjs';
 import { openResident } from '../world/harness.mjs';
 import { fixtureProvider } from '../resident/ports/provider.mjs';
+import { expectCommit } from './versions.mjs';
 
-const ROOT = process.env.WS05_E9D1551A;
-const skip5 = ROOT ? false : 'set WS05_E9D1551A to workstream 5 at e9d1551a';
+// Workstream 5's tree: WS05_ROOT (or the older name WS05_E9D1551A). Its commit is recorded below; WS05_EXPECT=<sha>
+// makes the file fail unless the tree is that commit (e9d1551aa049f25c54fd6ebc24185d93a2d8ac4c for the original
+// package, 10e749677d96301766c2930a8f903baf28cce0bc for the public one).
+const ROOT = process.env.WS05_ROOT ?? process.env.WS05_E9D1551A;
+const skip5 = ROOT ? false : 'set WS05_ROOT (or WS05_E9D1551A) to a checkout of workstream 5 (e9d1551a or 10e74967)';
+const WS05_COMMIT = ROOT ? expectCommit('WS05', ROOT) : null;
 const m5 = rel => import(pathToFileURL(path.join(ROOT, 'workstreams/05-ai-participation/model-api/src', rel)).href);
+test('workstream 5 under test (attribution)', { skip: skip5 }, async t => {
+  const { FileCostLedger } = await m5('cost-store.mjs');
+  const fenced = typeof FileCostLedger.openFenced === 'function';
+  t.diagnostic(`WS05 ${ROOT} at ${WS05_COMMIT}; FileCostLedger.openFenced ${fenced ? 'present: opens with recovery are fenced' : 'absent: legacy open'}`);
+  // The two known versions, so neither is ever taken for the other.
+  if (WS05_COMMIT.startsWith('e9d1551a')) assert.equal(fenced, false, 'e9d1551a has no openFenced');
+  if (WS05_COMMIT.startsWith('10e74967')) assert.equal(fenced, true, '10e74967 has openFenced');
+});
 const PROVIDER = 'anthropic', MODEL = 'claude-fixture-model'; // an entry of 5's FIXTURE_BOOK (invented numbers)
 const TURN = 3;
 
-/** One 5 ledger directory per resident, a lease per open (a synthetic pid; the previous open's pid is dead). */
+/**
+ * One 5 ledger directory per resident, a lease per open (a synthetic pid; the previous open's pid is dead). How each
+ * open is made is counted (`opens`) and asserted by `assertOpens(n)`:
+ *   recover=true, 5 has FileCostLedger.openFenced → openFenced (lease first, then 5's restart rule);
+ *   recover=true, 5 without it (e9d1551a)       → legacy: lease.acquire, new FileCostLedger, recoverStale;
+ *   recover=false (deliberate)                   → lease.acquire, new FileCostLedger, no 5 recovery at all.
+ */
 async function ws05Factory(root, { recover = true } = {}) {
   const { FileCostLedger } = await m5('cost-store.mjs');
   const { ProcessLease } = await m5('process-lease.mjs');
   const { FIXTURE_BOOK } = await m5('price-book.mjs');
+  const fencedAvailable = typeof FileCostLedger.openFenced === 'function';
+  const opens = { fenced: 0, legacy: 0, noRecover: 0 };
   const alive = new Set();
   const lastPid = {};
   let next = 2_000_000;
@@ -44,12 +69,29 @@ async function ws05Factory(root, { recover = true } = {}) {
     const pid = (lastPid[r.id] = next++);
     alive.add(pid);
     const lease = new ProcessLease({ dir, agentId: r.id, pid, isAlive: p => alive.has(p), ttlMs: 3_600_000 });
-    lease.acquire();
-    const ledger = new FileCostLedger({ dir, init: { available: '400000', caps: {} }, lease });
-    if (recover) ledger.recoverStale({ ttlMs: 3_600_000, isAlive: p => alive.has(p) });
+    const init = { available: '400000', caps: {} };
+    let ledger;
+    if (!recover) {
+      lease.acquire();
+      ledger = new FileCostLedger({ dir, init, lease });
+      opens.noRecover++;
+    } else if (fencedAvailable) {
+      ({ ledger } = FileCostLedger.openFenced({ dir, lease, init, ttlMs: 3_600_000 }));
+      opens.fenced++;
+    } else {
+      lease.acquire();
+      ledger = new FileCostLedger({ dir, init, lease });
+      ledger.recoverStale({ ttlMs: 3_600_000, isAlive: p => alive.has(p) });
+      opens.legacy++;
+    }
     return ws05LedgerCost({ book: FIXTURE_BOOK(), ledger, provider: PROVIDER, model: MODEL });
   };
-  return { costFor, ledgerOf: id => new FileCostLedger({ dir: path.join(root, 'ws05', id) }) };
+  /** Exactly `n` opens so far, all by the one path this version and this case call for. */
+  const assertOpens = n => {
+    const want = !recover ? { fenced: 0, legacy: 0, noRecover: n } : fencedAvailable ? { fenced: n, legacy: 0, noRecover: 0 } : { fenced: 0, legacy: n, noRecover: 0 };
+    assert.deepEqual(opens, want, `5 opens (openFenced ${fencedAvailable ? 'present' : 'absent'}, recover ${recover})`);
+  };
+  return { costFor, ledgerOf: id => new FileCostLedger({ dir: path.join(root, 'ws05', id) }), opens, fencedAvailable, assertOpens };
 }
 
 const sum = xs => xs.reduce((a, b) => a + BigInt(b), 0n);
@@ -123,6 +165,7 @@ for (const [at, recover, expect5] of CASES) {
     const rec = recorder();
     const r = await runDemo({ out, bells: 80, costFor: f.costFor, wire: rec.wire, crash: { resident: 'ren', at, turn: TURN } });
     common(r, rec);
+    f.assertOpens(3); // asa and ren at the start, ren again after the stop
     const ren = r.all.ren;
     const { items, w } = agree(ren, f.ledgerOf('ren'));
     for (const id of ['asa']) agree(r.all[id], f.ledgerOf(id));
@@ -154,6 +197,7 @@ for (const [at, recover, expect5] of CASES) {
     const hold2 = again.ledger.get('ren').holds[holdIdOf(key)];
     assert.deepEqual(hold2 ? [hold2.state, hold2.amount] : null, before.hold ? [before.hold.state, before.hold.amount] : null, 'wallet unchanged for the recovered key');
     agree(again, f.ledgerOf('ren'));
+    f.assertOpens(4);
     assert.ok(!rec.calls.some(c => c.calling.includes(key)), 'still never called');
   });
 }
@@ -164,6 +208,7 @@ test('5 ledger: a stop after the wallet hold, before its record: the orphan held
   const rec = recorder();
   const r = await runDemo({ out, bells: 80, costFor: f.costFor, wire: rec.wire, crash: { resident: 'ren', at: 'after-wallet-hold', turn: TURN } });
   common(r, rec);
+  f.assertOpens(3);
   const { items } = agree(r.all.ren, f.ledgerOf('ren'));
   assert.equal(items.filter(i => /restart|gone/.test(`${i.reason ?? ''} ${i.why ?? ''}`)).length, 0, '5 never reserved the cut-off call');
   assert.ok(historyOf(r.all.ren).some(e => e.type === 'release' && /never made/.test(e.reason ?? '')), 'the orphan hold was released');
