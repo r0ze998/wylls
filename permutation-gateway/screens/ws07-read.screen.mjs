@@ -130,3 +130,45 @@ for (const vp of [{ width: 1440, height: 900, name: 'desktop' }, { width: 390, h
     await ctx.close();
   });
 }
+
+// "Not joined" answered (the nation choice is open), then a refresh fails: the nation choice stays — what the record
+// answered for this viewer and world is kept (workstream 16's review of 9b547d9d). A reload is a new page with no
+// answer: still failing, it is "not read". (Wallet, NFT and world switches clearing the kept answer: the unit test
+// web-frontier-ws07-me-answered.)
+for (const vp of [{ width: 1440, height: 900, name: 'desktop' }, { width: 390, height: 844, name: 'phone' }]) {
+  test(`not joined, then a refresh fails @ ${vp.name}: the nation choice stays`, { timeout: 120_000 }, async () => {
+    const phone = vp.width < 760;
+    srv.stage('none');
+    try {
+      const ctx = await browser.newContext({ viewport: { width: vp.width, height: vp.height }, isMobile: phone, hasTouch: phone, locale: 'ja-JP', timezoneId: 'UTC' });
+      await NK.prepare(ctx, srv.viewer, { lang: 'ja' });
+      let fail = false;
+      await ctx.route(/\/h\/me\//, r => (fail ? r.fulfill({ status: 503, contentType: 'application/json', body: '{"code":"Unavailable"}' }) : r.fallback()));
+      const page = await ctx.newPage();
+      const errors = [], posts = [];
+      page.on('pageerror', e => errors.push(e.message));
+      page.on('console', m => { if (m.type() === 'error' && !/status of 503/.test(m.text())) errors.push(m.text()); });
+      page.on('request', r => { if (r.method() !== 'GET' && r.method() !== 'HEAD') posts.push(`${r.method()} ${new URL(r.url()).pathname}`); });
+      await page.clock.setFixedTime(new Date(LATEST_UNIX * 1000 + 500));
+      await page.goto(`${base}/frontier/index.html`);
+      await page.locator('.banner-pick').first().waitFor();
+      fail = true;
+      await page.evaluate(async () => { const c = await import('/frontier/controller.mjs'); await c.refresh(); });
+      const s = await seen(page);
+      assert.equal(s.me, 'error');
+      assert.ok(s.banners === 6, `the nation choice stays (${s.banners} banners)`);
+      assert.equal(s.reload, 0, 'not the "not read" plate');
+      // a reload while the read still fails: a new page has no answer yet — "not read", never the former "not joined"
+      await page.reload();
+      await page.waitForFunction(async () => (await import('/frontier/fstate.mjs')).FS.meStatus === 'error');
+      await page.locator('[data-act="reload"]:visible').first().waitFor();
+      const r = await seen(page);
+      assert.deepEqual([r.banners, r.reload], [0, 1], 'after a reload: not read, no nation choice');
+      fail = false;
+      assert.deepEqual(posts, [], 'no request but reads');
+      assert.deepEqual(errors, [], 'no page error');
+      await NK.assertKeyless(ctx, assert);
+      await ctx.close();
+    } finally { srv.stage('holding'); }
+  });
+}

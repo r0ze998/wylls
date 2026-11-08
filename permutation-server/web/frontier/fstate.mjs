@@ -23,6 +23,7 @@ export const FS = {
   holdings: [],          // decoded Holdings
   meStatus: 'loading',   // loading | ready | error: an unread account is never "not joined"
   meError: null,
+  meAnswered: false,     // the viewer's record answered at least once (found or "not joined"); reset with the viewer
   homeChoice: null,      // decoded land candidates and current selected site
   homeGrant: null,       // confirmed first holding, until the player starts building
   // ---- the viewer's wide (captured, unverified) inventory: never inside `holdings` (fwide.mjs)

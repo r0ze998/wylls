@@ -29,11 +29,12 @@ export const holdsLand = FS => ['provisional', 'final'].includes(FS.land?.stage)
  */
 export function viewerState(FS) {
   if ((FS.mode ?? 'play') !== 'play') return 'known';
-  // (workstream 07: the viewer's record was asked for and did not come — controller.applyMeResult's error — and nothing
-  // of the viewer is known: unreachable, not "not joined". `FS.land` is always set (landState(null) is {stage: 'none'}),
-  // so without this a failed first read opened the nation choice for a player who has a village. A record read before
-  // and failing now keeps what it showed: a Citizen or a village is known.)
-  if (FS.meStatus === 'error' && !FS.citizen && !(FS.holdings ?? []).length) return 'unreachable';
+  // (workstream 07: the viewer's record was asked for and has never answered — controller.applyMeResult's error, and no
+  // answer since the viewer was set (`FS.meAnswered`) — and nothing of the viewer is known: unreachable, not "not joined".
+  // `FS.land` is always set (landState(null) is {stage: 'none'}), so without this a failed first read opened the nation
+  // choice for a player who has a village. A record that answered before and fails now keeps what it showed: a Citizen,
+  // a village, or "not joined" (workstream 16's review of 9b547d9d: a refresh failing in the nation choice closed it).)
+  if (FS.meStatus === 'error' && !FS.meAnswered && !FS.citizen && !(FS.holdings ?? []).length) return 'unreachable';
   if (FS.land || FS.citizen || (FS.holdings ?? []).length) return 'known';
   if (!FS.playReady) return FS.error && !FS.record ? 'unreachable' : 'pending';
   return FS.viewerMissed ? 'unreachable' : 'known';

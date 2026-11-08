@@ -505,6 +505,10 @@ function refreshSoon(ms = 1500) {
  * own Citizen and one of its resident NFTs — each is another viewer: its Citizen, villages, marches and notices).
  */
 function resetViewer({ wallet: walletChanged = true } = {}) {
+  // (workstream 07: the former viewer's answer is not this viewer's: hud/drawer.mjs viewerState keeps an answered
+  // record's view across a failed refresh only for the viewer and world it answered for. A reply still in flight for
+  // the former viewer is dropped by refresh's currentViewer check, before applyMeResult.)
+  FS.meAnswered = false;
   if (walletChanged) FS.session = null;
   if (walletChanged) FS.sessionProblem = null;
   FS.citizen = null;
@@ -897,7 +901,7 @@ async function refreshChronicle() {
 }
 
 /** The herald client this controller reads (startPlay sets it; tests pass a fake). */
-export function useHerald(h) { herald = h; cursor = 0; mySlots = []; conquestRefresh += 1; homesRefresh += 1; viewerRefresh += 1; fwide.clearWide(FS); }
+export function useHerald(h) { herald = h; cursor = 0; mySlots = []; conquestRefresh += 1; homesRefresh += 1; viewerRefresh += 1; fwide.clearWide(FS); FS.meAnswered = false; }
 
 /**
  * Load the latest envelope of a province the map draws at tile detail, the
@@ -924,7 +928,7 @@ export function wantProvince(p, q, onLoad = () => {}, { now = Date.now(), bell =
 /** Apply one /h/me read to the viewer. A missing Citizen is ready; a failed read is an error. */
 export function applyMeResult(me) {
   if (me.ok) {
-    FS.meStatus = 'ready'; FS.meError = null;
+    FS.meStatus = 'ready'; FS.meError = null; FS.meAnswered = true;
     const before = FS.land?.stage;
     FS.citizen = me.citizen;
     FS.holdings = me.holdings;
@@ -957,7 +961,7 @@ export function applyMeResult(me) {
     return 'found';
   }
   if (me.code === 'NotFound') {
-    FS.meStatus = 'ready'; FS.meError = null;
+    FS.meStatus = 'ready'; FS.meError = null; FS.meAnswered = true;
     FS.citizen = null; FS.holdings = []; FS.land = landState(null);
     mySlots = [];
     fwide.clearWide(FS); FS.wideStatus = 'unavailable';
