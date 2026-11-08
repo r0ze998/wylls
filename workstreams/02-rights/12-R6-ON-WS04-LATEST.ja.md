@@ -130,8 +130,54 @@
 
 ## 7. 実行した試験の結果
 
-（push の後に記入する。）
+**④ `fa822453` を merge した tree で：**
 
-## 8. 変更したファイルの範囲
+| 試験 | 結果 |
+|---|---|
+| `permutation-frontier` の `map_growth_runtime_tests::`、`--features rights-experimental` | 46 件通過（②の 40 件と④の 6 件） |
+| 同、既定の build | 7 件通過（④の 6 件と、Grant の tag を拒否する試験） |
+| `frontier-abi` の `v2::` | 52 件通過（`account_builders_and_the_status_reader` を含む） |
+| `verify` の lib | 47 件通過 |
+| `verify` の `rights_replay` | 18 件通過 |
+| `verify` の `evidence`（⑪） | 8 件通過 |
+| `verify` の `missing_state`（⑪） | 2 件通過 |
+| clippy `-D warnings`（`verify`・`fclient`・`herald`・`frontier-abi`） | 通過 |
+| fmt（②が変えたファイル） | 通過 |
 
-（push の後に記入する。）
+**`cf517b55` の上（merge の前）、⑪への修正の案を当てた状態で：**
+- 監査した試験の全部が通過した。lib 47 と、次の試験：
+  - `camp_clear` 3
+  - `custody` 6
+  - `custody_history` 8
+  - `custody_state` 7
+  - `evidence` 8
+  - `history` 16
+  - `ledger_history` 6
+  - `missing_state` 2
+  - `new_bands` 7
+  - `open_items` 3
+  - `resident_ledger` 4
+  - `rights_replay` 19（回帰例を含む）
+  - `tamper` 58
+  - `unit` 8
+  - `ws04_scan_resident` 4
+- 修正の案を外すと、回帰例だけが失敗する（MarchState、Vault、Caravan、Structure、Nation）。
+
+**④の基準にもともとある指摘（②の差分は触れていない）：**
+- `cargo fmt --check` の差分：`frontier-abi/src/v2/error.rs`、`world_index/mod.rs`、`keeper/src/lib.rs`、`proc/wide.rs`
+- `permutation-frontier` の clippy の `dead_code`：`crypto/quick.rs`
+
+**CI：**
+- 担当ブランチへの push の後、GitHub Actions の実行は 0 件（`list_workflow_runs`、branch で絞った）。
+- 先端の commit は `[skip ci]` 付き。
+
+## 8. 変更したファイルの範囲（④ `fa822453` との差。`workstreams/02-rights/` を除く）
+
+| 範囲 | ファイル |
+|---|---|
+| ABI | `frontier-abi/src/v2/{log.rs, mod.rs, rights.rs}` |
+| プログラム | `permutation-frontier/{Cargo.toml, src/error.rs, src/events.rs, src/lib.rs, src/proc/mod.rs, src/proc/conquest.rs, src/proc/rights.rs, src/rights_runtime_tests.rs, src/map_growth_runtime_tests.rs}` |
+| 検証器 | `frontier-node/crates/verify/{Cargo.toml, src/codes.rs, src/checks/{mod.rs, v0_coverage.rs, v0_evidence.rs, v7_replay.rs, vr_rights.rs}, tests/rights_replay.rs}` |
+| 網羅的な match | `frontier-node/crates/{fclient,herald}/src/conquest.rs` |
+
+④の harness（`map_growth_runtime_tests.rs`）に足したのは、子 module の宣言と既定の build の試験 1 件だけである。④の init・prologue・Stubs は変えていない。

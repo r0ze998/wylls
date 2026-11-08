@@ -1220,4 +1220,3 @@ fn post_states_short_of_the_writes_are_never_a_pass() {
         }
     }
 }
-
