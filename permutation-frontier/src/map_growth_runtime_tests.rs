@@ -1925,3 +1925,36 @@ fn map_growth_heartland_first_homes_alone_stop_the_map_at_ring_5() {
         "late, even before ring 5: 60/108 < 65 %"
     );
 }
+
+/// The site arithmetic the growth decisions rest on (workstream 08 chapter
+/// 31), on real openings (the real dispatch, literal ring seeds as
+/// ConsumeRingSeed leaves them): ring `d` opens `12·d` sites in each wedge
+/// (12 per province, `d` provinces per wedge), all free in rings 2–3 and
+/// `11·d` free from ring 4 on (one Free City site per province). So the
+/// open sites of rings `2..=R` in one wedge are `6·(R·(R+1) − 2)`. A rule
+/// change in terrain, sites or Free City placement shows here first.
+#[test]
+fn map_growth_open_and_free_sites_per_wedge_through_ring_8() {
+    let _g = begin();
+    at_bell(1);
+    let mut w = World::new();
+    w.open_rings_for_capacity(8);
+    let mut open_through = 0u32;
+    for d in 2..=8u32 {
+        let (mut sites, mut free) = ([0u32; 6], [0u32; 6]);
+        for c in permutation_rules::frontier::geometry::ring_provinces(d) {
+            let wd = crate::proc::map::fund_wedge(c) as usize;
+            sites[wd] += w.province_data(c)[PV::SITE_COUNT] as u32;
+            free[wd] += w.free_sites(c);
+        }
+        assert_eq!(sites, [12 * d; 6], "ring {d}: open sites per wedge");
+        let want_free = if d < 4 { 12 * d } else { 11 * d };
+        assert_eq!(free, [want_free; 6], "ring {d}: free sites per wedge");
+        open_through += 12 * d;
+        assert_eq!(open_through, 6 * (d * (d + 1) - 2), "rings 2..={d}");
+    }
+    let funds: Vec<u32> = (0..6u8)
+        .map(|x| rd_u32(&w.fund_data(x), PF::OPEN_SITES))
+        .collect();
+    assert_eq!(funds, vec![open_through; 6], "the funds counted the same");
+}

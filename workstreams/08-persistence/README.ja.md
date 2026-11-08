@@ -49,6 +49,7 @@
 | 28 | [28-world-clock-period-contract.ja.md](28-world-clock-period-contract.ja.md) | 世界ID・時計・期間の契約（④と整理した候補、①⑫⑬⑮へ）。機械で読む形は `contract/world-clock-period.json` |
 | 29 | [29-on-04-latest.ja.md](29-on-04-latest.ja.md) | ④の最新（`8e96f24d`）への移植：地図拡張、継続世界の差、BeaconLog の再投稿の最小差分、保存・再起動・履歴の確認 |
 | 30 | [30-on-04-cf517.ja.md](30-on-04-cf517.ja.md) | ④の公開統合候補 `cf517b55` への統合（終了ベルの修正、BeaconLog、桁あふれ）、開拓と地図の成長のつながり（最初の本拠だけでは輪5で止まる）と画面の候補、広域座標の反復の段階ごとの現状と必要な決定 |
+| 31 | [31-decisions.ja.md](31-decisions.ja.md) | 残っている利用者の判断（提案つき）：中心が満員のときの最初の村、広域の行軍の識別子、広域の土地を開く規則と砦の持ち主。実際の開通で確かめた土地の数 |
 | — | [sim/](sim/) | シミュレーター（Node.js、依存ライブラリなし） |
 | — | [results/](results/) | 生成された結果。`core`、`replication-seeds101-130`、`sensitivity`、`exploits`、`retention`、`placement/`（配置の比較。その中の各群と再現）、`coop/`（協力の検査器と再現） |
 | — | [repro/](repro/) | シーズン終了時の再現テスト（リポジトリの外で組み立てて実行）と、修正の草案 |
