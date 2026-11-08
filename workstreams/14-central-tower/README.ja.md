@@ -1,9 +1,9 @@
 # ⑭ 中央の大きな塔：役割を遊べる形で比べる
 
-これは**提案と検証の作業記録**であり、採用済みの仕様ではありません。勝利条件・塔の本番用途は採用していません。共有コア（`permutation-*`、`frontier-*`、`permutation-server/web`）には一行も手を入れていません。push・deploy はしていません。
+これは**提案と検証の作業記録**であり、採用済みの仕様ではありません。勝利条件・塔の本番用途は採用していません。共有コア（`permutation-*`、`frontier-*`、`permutation-server/web`）には一行も手を入れていません。deploy はしていません。
 
 - 基点：`4cd901de9f8e0d6c0b2016851d30595c4a70aa46`（統合候補 `integrate/claude-consolidation-20261029` の先頭。確認時の `main` は `921429322d5aecd1a3df0dd8d82c405c87dd985a` で、基点はその6 commit 先。差分は文書のみ）
-- 作業ブランチ：`claude/hopeful-cori-tql3le`（`main` から基点へ早送りしてから作業。ローカル commit のみ）
+- 作業ブランチ：`claude/hopeful-cori-tql3le`（`main` から基点へ早送りしてから作業）。2026-11-08 に GitHub へ通常の push をした（先端のコミットに `[skip ci]`）。push の後、このブランチで GitHub Actions は起動せず、Vercel・Netlify などの連携は待機中のまま実行0件、deployment の記録も0件だった。連携の設定そのものは読めていない
 - 2026-10-31 の確認：統合候補は `a4fc78ca` に進んでいた（引き継ぎ文書の更新だけ）。④・⑧の継続世界の共通方針は remote にまだない（未受領）。
 - 対象：地図の中心、**大協約（Concord、州 (0,0)、輪0）に描かれる大きな塔**。S1 の物見櫓（`KIND_TOWER`、プレイヤーが建てる見張りの建物）とは別物です。
 - 実行前に確認したもの：HEAD、未 commit の変更（なし）、AGENTS.md（repo に存在しない）、関連スキル（repo に存在しない。`.claude/` もない）、`docs/DEVELOPMENT-HANDOFF.ja.md`、`docs/design/redesign/README.ja.md` と `99-decisions.ja.md`。
