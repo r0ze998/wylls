@@ -55,7 +55,7 @@ export async function startServer({ port: listenPort = 0, bootstrap = false, key
   const json = (res, code, body) => { res.writeHead(code, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' }); res.end(JSON.stringify(body)); return code; };
   const readJson = req => new Promise(resolve => { const parts = []; req.on('data', c => parts.push(c)); req.on('end', () => { try { resolve(JSON.parse(Buffer.concat(parts).toString() || '{}')); } catch { resolve(null); } }); req.on('error', () => resolve(null)); });
 
-  async function herald(path, res) {
+  async function herald(path, res, url = null) {
     let m;
     if (path === '/h/season') return json(res, 200, W.seasonRecord());
     if ((m = /^\/h\/overview\/(\d+)\/(?:latest|\d+)\.bin$/.exec(path))) {
@@ -76,8 +76,12 @@ export async function startServer({ port: listenPort = 0, bootstrap = false, key
     if ((m = /^\/h\/bell\/(\d+)\/region\/(\d+)$/.exec(path))) return json(res, 200, W.bellRegion(Number(m[1]), Number(m[2])));
     if ((m = /^\/h\/me\/(\w+)$/.exec(path))) return m[1] === v.wallet ? json(res, 200, W.meRecord(v, stage)) : json(res, 200, W.meRecord({ ...v, wallet: m[1] }, 'none'));
     if (path === '/h/events') {
-      const list = W.events();
-      return json(res, 200, { events: list, next: list[list.length - 1].seq, full: false });
+      // (workstream 07: the page as the herald serves it — v 1, string cursors, only events after `after`, `next` the
+      // last one sent or `after` itself — which the herald client checks since workstream 4's aa20628a)
+      let after = 0n;
+      try { after = BigInt(url?.searchParams?.get('after') ?? '0'); } catch { after = 0n; }
+      const list = W.events().filter(e => BigInt(e.seq) > after);
+      return json(res, 200, { v: 1, events: list, next: list.length ? list[list.length - 1].seq : String(after), full: false });
     }
     if ((m = /^\/h\/clash\/(-?\d+),(-?\d+)\/(\d+)$/.exec(path))) {
       if (Number(m[1]) === W.HOME.p && Number(m[2]) === W.HOME.q && Number(m[3]) === W.REPORT_BELL) return json(res, 200, W.clashReport());
@@ -126,7 +130,7 @@ export async function startServer({ port: listenPort = 0, bootstrap = false, key
         // the live world answers the files it keeps (the clock, the provinces of its rings, the viewer, the log,
         // its clashes); everything else is the still fixture's
         const r = live ? live.herald(path, url) : null;
-        code = r ? json(res, r.status, r.body) : await herald(path, res);
+        code = r ? json(res, r.status, r.body) : await herald(path, res, url);
       } else if (path.startsWith('/gw/')) {
         // the live relay answers what it plays; everything else gets the fixture's own answer
         const r = live ? await live.relay(req.method, path, req.method === 'POST' ? await readJson(req) : null) : null;
