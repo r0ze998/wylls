@@ -183,7 +183,7 @@ export class Dispatch {
         if (!r?.ok) { s.lastError = JSON.stringify(r); this.#save(); return; }
       } catch (e) {
         s.lastError = `${e.code ?? "Error"}: ${String(e.message ?? e)}`;
-        // ③ sent nothing under this requestId and the plan is gone (unknown, used, expired, stale):
+        // ③ sent nothing under this requestId and the plan is gone (unknown, expired, stale; PlanUsed is held):
         // a new plan, the same requestId and run id (③ answers a requestId it already sent before it looks at the plan)
         if (e.code === "PlanAgain") s.planId = null;
         else if (e.definitive) { s.state = "held"; s.why = s.lastError; }

@@ -241,8 +241,8 @@ Receipt は種類と対象（`kind|subject`）で重複を除きます。出ど�
 | ④の照会 | `run view`。`NoRecord` は「記録がない」。ストアが無い・読めない（`StoreUnavailable`）は、記録がないことの証拠にしない |
 | ④の照会の形 | ④の `src/view.rs` の `p04-run/0.1`（`view_version`・`run_id`・`state`・`held_reason`・`cancel_phase`・`outcome`・`detail.ship_seq`・`spec`）。⑥の仮の形は捨てた |
 | ③の送信 | `act3FromMcp`。`prepare_caravan`（荷は S1 の資源名のオブジェクト）→ 控えに planId → `send_caravan {planId, requestId, runId}` → `get_run_status {runId}` の④の登録簿から、この requestId の行動の受領証だけを読む |
-| ③の計画の切れ | `PlanUnknown`・`PlanUsed`・`PlanExpired`・`PlanStale` のときだけ、同じ requestId と実行 id で計画を作り直す。③は、その requestId で送った操作があれば計画を見る前にそれを返す（`server.mjs`、照合で確認）ので、この答えが来るのは何も送っていないときだけ |
-| ③の拒否 | `IdempotencyConflict` などは保留。`RelayUnreachable`・`NotResent`・`RunRegistryUnavailable` は、同じ requestId で後で繰り返す |
+| ③の計画の切れ | `PlanUnknown`・`PlanExpired`・`PlanStale` のときだけ、同じ requestId と実行 id で計画を作り直す。③は、その requestId で送った操作があれば計画を見る前にそれを返す（`server.mjs`、③が c95287d5 で確認）ので、この答えが来るのは何も送っていないときだけ。**`PlanUsed` は別の requestId がその計画を送ったという意味で、作り直すと2台目が出うるので保留**（③の指摘で 2026-11-08 に訂正） |
+| ③の拒否 | `IdempotencyConflict`・`PlanUsed`・`RequestIdUsedOnAnotherConnection`（再接続した別の接続で同じ requestId。何も送らない）などは保留。`RelayUnreachable`・`NotResent`・`RunRegistryUnavailable` は、同じ requestId で後で繰り返す |
 
 ### 11.2 試験（鍵の生成・導出・署名なし。PDA の公開アドレスの算出は、④のコードの中にあるが、⑥の試験では呼ばない）
 
@@ -259,3 +259,8 @@ Receipt は種類と対象（`kind|subject`）で重複を除きます。出ど�
 2. **gateway の経路：** ⑥の計画を④の `run accept` へ渡すのは、依頼者を認証した gateway（③⑤）。どの route が、⑥の計画と依頼者を受け取って⑥の dispatch を呼ぶかは未決。⑥は、その route が使う関数（`Dispatch`・`run4FromRunexec`）までを持つ。
 3. **③の MCP の実物を通す試験：** ③の鍵なし試験は、パッチを当てた財布の木と⑤の成果物を要する。⑥からは、③のソースの規則の照合と、③の答えの形に合わせた偽物までで、③のサーバーを動かしていない。
 4. ④の実チェーンの読み取り口（到着の決着）、施設の貸出（②）、C の消費・束は、変わらず依存待ち。
+
+**③からの回答（2026-11-08、③ `c95287d51dff8e92a1a9db67163b37b35e6d94eb`、`23-connect-ws05-real-for-ws04.ja.md` §4）：**
+- 計画の切れ：PlanUnknown・PlanExpired・PlanStale は「その requestId の操作が無いとき」だけ。PlanUsed は違う（上の表で訂正済み）。
+- idempotencyKey `ws03:<linkId>:<requestId>` の形は固定。linkId は再接続ごとに変わる。③は、別の接続での同じ requestId を `RequestIdUsedOnAnotherConnection` で拒否する（何も送らない）。末尾の requestId で引くことは可。`get_run_status` は、終わっていない行を④から読み直す。
+- ③の鍵なし試験 `keyfree/run.test.mjs` を⑥の形の runId・requestId で回し、24/24 通過（③の報告。⑥は確かめていない）。
