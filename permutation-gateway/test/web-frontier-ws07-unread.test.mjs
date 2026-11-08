@@ -4,6 +4,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { render as hosts, homeProvinceUnread } from '../../permutation-server/web/frontier/screens/host.mjs';
+import { marchObjective } from '../../permutation-server/web/frontier/screens/onboarding.mjs';
 import { setLang } from '../../permutation-server/web/lang.mjs';
 
 const site = { p: 2, q: 0, site: 2, gen: 1, tile: 20, faction: 0 };
@@ -28,4 +29,12 @@ test('the troops screen: the village\'s province not read is said, with 読み�
 test('in English too', () => {
   setLang('en');
   try { assert.match(plain(hosts(fs(new Map()))), /Your record has not loaded yet/); } finally { setLang('ja'); }
+});
+
+test('the guide\'s march step: the village\'s province not read is not "prepare troops" (workstream 16\'s review)', () => {
+  setLang('ja');
+  const unread = marchObjective(fs(new Map()));
+  assert.deepEqual([unread.act, unread.label], ['guide-open', '記録を読み込んでいます…']);
+  const read = marchObjective(fs(new Map([['2,0', { province: { p: 2, q: 0, resolvedNext: 10, entries: [] } }]])));
+  assert.deepEqual([read.act, read.data], ['tab', { tab: 'holding' }], 'read, and no host: prepare troops, as before');
 });
