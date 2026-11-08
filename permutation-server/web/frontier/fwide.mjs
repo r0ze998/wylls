@@ -307,7 +307,12 @@ export function parseWideInventory(record, pins = {}) {
   // the viewer's own Citizen bytes decide the bindings; an envelope without them is half a record
   check(isObj(pins.citizenRecord), code, 'a wide envelope without the Citizen bytes');
   const bindings = citizenBindings(pins.citizenRecord);
-  if (pins.viewerKey !== undefined && pins.viewerKey !== null && pins.citizenRecord.wallet) check(toB58(pins.citizenRecord.wallet) === pins.viewerKey, 'WrongKey', 'the Citizen bytes name another viewer');
+  // (workstream 20: an NFT Citizen's bytes name its asset, with the wallet zero — fcodec `residentAsset`)
+  if (pins.viewerKey !== undefined && pins.viewerKey !== null) {
+    const r = pins.citizenRecord;
+    if (r.residentAsset !== undefined) check(r.residentAsset !== null && toB58(r.residentAsset) === pins.viewerKey, 'WrongKey', 'the Citizen bytes name another viewer');
+    else if (r.wallet) check(toB58(r.wallet) === pins.viewerKey, 'WrongKey', 'the Citizen bytes name another viewer');
+  }
   const world = pins.world ?? worldIdOf(pins.seasonAddress, pins.programId);
   const ctx = contextOf(ctxJ, { world, seasonId: pins.seasonId, citizen });
   check(ctx.inventory.every((x, i) => x.binding === bindings[i]), code, 'the inventory disagrees with the Citizen bytes');
