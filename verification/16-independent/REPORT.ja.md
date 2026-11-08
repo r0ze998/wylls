@@ -3827,3 +3827,54 @@ env -u NODE_OPTIONS -u WS04_SCAN_ROOT -u RUNEXEC_BIN -u RUNEXEC_VIEW_BIN bash sc
 - 1 つの test target だけの command（`cargo test -p herald --test ws19_map_contract`、`WS19_GOLDEN_WRITE` は unset）。
 - 審査では、鍵の生成、導出、署名の crate や関数（ed25519、solana の keypair など）に、test の呼び出しから届かないことを示す。cqfixture の `sig` は seq の bytes を詰めた偽物で、署名ではない（growth.rs の `Tx::push`）。
 - broad な cargo の実行や、全部の試験には広げない。
+
+## 29.37 7 の以前の実行の command（part 2）と、19 の Rust の候補 59f4a064 の静的な判定（何も走らせていない）
+
+### 7 の part 2 と補足（7 の自己申告。⑯ は 7 の scratchpad を読めない）
+
+- 1〜4 回目は、file ごとに別の node の process で走った。guard の log の各行には、その process の argv（つまり file の名前）が入る。
+  - 1 回目：live 2 回、marches 12 回、s1 2 回が `importKey(pkcs8, sign)`。people 1 回が `subtle.generateKey`。
+  - 2 回目：0 行。
+  - 3、4 回目：agent の `createPrivateKey` が各 1 行。
+  - **web-frontier-hud の名前の行は、4 つの log のどれにも無い。**
+- 5 回目は、hud を NOKEYS_LOG=/dev/null で走らせた。また、`node -e` で glossary.mjs を guard 無しで実行していた。
+- 6、7 回目は、複数の file を 1 つの process で走らせたので、file ごとの記録が無い。6、7 回目には、一覧に載る `web-frontier-resident-home` と `web-frontier-wide-holding-ui` も入っていた。
+- **閉じる判定（§29.36 A と同じ区別）。**
+  - 1〜4 回目の hud では、guard が見張る API への当たりは記録されていない。ただし、見張っていない JS だけの導出や署名は分からない。
+  - 5〜7 回目は記録が無い。
+  - 他の file で実際に入った鍵の API は、guard が止めた。止まる前の JS だけの導出は確かめられていない。
+  - 手順の違反は確定している。
+
+### 19 の `59f4a0644186f9360a55291f80390d3d9ca453a3`（tree `c89cbca8…`、親 a41d1cd2）
+
+**変更。** `cqfixture/growth.rs` の open_ring の中だけ（+23 −1）。PROVINCE_OPEN の後で、Province の keep を読み直し、keep があれば KEEP の record を足す。
+- program の `proc/map.rs` 843〜857 行目と、payload が一致する：`PLACED`、holder、`kkeep::NONE`、troops u32、consolidated_until_bell u32、gen u32（15 B）。
+- key は同じ raw（P、Q）。chain は Province だけ。
+- 違い（既知で、残してある）：program は `log_bell(now)` の bell で書くが、fixture は NO_BELL のまま。genesis の Free City は別の欠けで、この commit の範囲外。
+
+**`cargo test -p herald --offline --test ws19_map_contract` の到達性（静的）。**
+- 試験の file が使うもの：`common`（VecSource、tmp）、herald_fold の fixture、cqfixture、runner、server、views、`fclient::http::parse_response`、`fclient::beacon::quicknet_info`、`fclient::decode::Season::decode`、tokio。
+- `quicknet_info`（fclient beacon.rs 41 行目〜）は、公開の QUICKNET の定数を hex で decode するだけ。
+- 鍵を作る `TestKey::new()`（beacon.rs 282〜283 行目）を使うのは、herald の `main.rs`（89、150 行目、binary）と、他の integration test（cq_server、cq_fold、viewers、server、load）だけ。この test の binary と、herald の lib の module（main.rs 以外）には無い。
+- herald の lib の `beacon::` は、時刻の計算（bell_end、tlock_round、seed_round、reveal_close）だけ。
+- herald の lib の依存（Cargo.toml 21〜35 行目）に、署名の crate は無い。
+- dev-dependencies（keeper、localnet、solana-program-runtime など）は link されるが、この test からは呼ばれない。
+- 読み込み前に code を実行する仕組みは無い：Cargo.lock に ctor、inventory、linkme の crate は無く、herald、fclient、findex に `#[ctor]`、`#[used]`、`link_section` も無い。
+- herald、fclient、findex、frontier-abi、permutation-rules に build.rs は無い（外の crate の build script は、cache が無ければ compile の時に走る）。
+- fixture の `Tx::push` の sig は、seq の bytes を詰めたもので、署名ではない。
+- 試験の中に subprocess は無い。router は 127.0.0.1:0 で、同じ process の中で動く。書き込むのは temp の下と、`WS19_GOLDEN_WRITE` のときの `tests/golden/` だけ。
+
+**判定（実行の前）。**
+- この 1 つの target が呼ぶ経路から、鍵ペアの生成、秘密鍵の導出、署名に届くものは、静的に見つからない。届きうる `TestKey` は、この binary の呼び出しの外にある。
+- 候補（走らせるかどうかはユーザーの判断）：
+  1. 新しい worktree の 59f4a064 で、`(cd frontier-node && WS19_GOLDEN_WRITE=1 cargo test -p herald --offline --test ws19_map_contract)`。
+     - golden を書き直すための 1 回で、assertion が落ちるのは想定どおり。
+     - 終わった後の `git status` は、`ws19-map-growth-s1.json` と `ws19-map-growth-s1-palisade.json` だけが変わっていること。M1 の `ws19-map-growth.json` が変わっていれば止める。
+  2. 19 が a41d1cd2 と entry ごとに比べる。範囲外の変化があれば止める。assertion を直して commit し、⑯ がその新しい SHA を審査する。
+  3. その新しい SHA で、`WS19_GOLDEN_WRITE` を unset にして同じ command を走らせる（比べるだけの mode）。
+- **各実行の条件：**
+  - `CARGO_TARGET_DIR` を明示し、`--offline` を付け、`RUSTFLAGS` は unset にする。
+  - `cargo --version` と `rustc --version` を保存する。
+  - stdout、stderr、終了の status を絞らずに保存する。
+  - broad な cargo の実行と、他の test target には広げない。
+- browser の画面は、まだ解除しない。
