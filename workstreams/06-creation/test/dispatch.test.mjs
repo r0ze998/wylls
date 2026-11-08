@@ -514,7 +514,53 @@ test("journal lock, fencing: a writer that lost the lock writes nothing; its clo
   return assert.rejects(d.advance(p.key), (e) => e.code === "JournalFenced").then(() => assert.equal(four.accepts, 0, "the accept is never made: the journal write before it was refused"));
 });
 
-test("journal lock, real processes: eight that race for one stale lock, five rounds: exactly one wins each round", async () => {
+test("journal lock, real interleavings (16's J6, truthful liveness): no writer the lock does not name ever lands its save", async () => {
+  const { actor } = await import("./lock-steps.mjs");
+  const mod = new URL("../src/connect/dispatch.mjs", import.meta.url).href;
+  const table = { 111: "s111", 333: "s333" }; // A=111 and C=333 run; 999 and 998 are gone
+  const A_PAUSES = [{ name: "A-lock-rename", op: "rename", end: ".lock" }, { name: "A-save-tmp", op: "open", match: "dispatch.json.", not: ".lock" }];
+  const run = async (setup, cPauses) => {
+    const path = lockDir();
+    setup(path);
+    const C = actor({ mod, path, pid: 333, table, pauses: cPauses, steps: [{ op: "open" }, { op: "save", obj: { who: "C", step: "sent" } }] });
+    const A = actor({ mod, path, pid: 111, table, pauses: A_PAUSES, steps: [{ op: "open" }, { op: "save", obj: { who: "A" } }] });
+    const at = (seen, name) => assert.equal(seen.at(-1)?.name, name, JSON.stringify(seen));
+    at(await C.until("C-1"), "C-1"); // C inside its takeover, having judged the stale file
+    at(await A.until("A-lock-rename"), "A-lock-rename"); // A holds the takeover mutex, about to replace the lock
+    C.release();
+    const c = (await C.until("C-lock-rename")).filter((m) => m.event === "step"); // 11be9d44: C reached its own lock replace here
+    A.release();
+    const a1 = await A.until("A-save-tmp");
+    at(a1, "A-save-tmp"); // A holds the lock and passed save()'s fence check
+    C.release();
+    await C.finish();
+    A.release();
+    const a = [...a1, ...(await A.finish())].filter((m) => m.event === "step");
+    assert.deepEqual(c.map((m) => [m.op, m.ok, m.code]), [["open", false, "JournalLocked"]], "C is refused while a live taker holds the mutex");
+    assert.deepEqual(a.map((m) => [m.op, m.ok]), [["open", true], ["save", true]]);
+    assert.equal(JSON.parse(readFileSync(`${path}.lock`, "utf8")).pid, 111, "the writer whose save landed is the lock's holder");
+    assert.deepEqual(JSON.parse(readFileSync(path, "utf8")), { who: "A" });
+    const dir = path.slice(0, path.lastIndexOf("/"));
+    assert.deepEqual(fs.readdirSync(dir).sort(), ["dispatch.json", "dispatch.json.lock"], "no takeover mutex or temporary file left");
+  };
+  const deadLock = (p) => fs.writeFileSync(`${p}.lock`, JSON.stringify({ pid: 999, start: "s999", token: "dead" }) + "\n");
+  // the takeover mutex must never be visible empty (an empty file reads as "no taker")
+  await run(deadLock, [{ name: "C-1", op: "write", match: ".lock.takeover" }, { name: "C-lock-rename", op: "rename", end: ".lock" }]);
+  // a dead taker's mutex: C judged it dead, then A put its own there; C must not remove or replace A's
+  await run((p) => { deadLock(p); fs.writeFileSync(`${p}.lock.takeover`, JSON.stringify({ pid: 998, start: "s998", token: "dead-taker" }) + "\n"); },
+    [{ name: "C-1", op: "rm", end: ".lock.takeover" }, { name: "C-1", op: "link", end: ".lock.takeover.takeover" }, { name: "C-lock-rename", op: "rename", end: ".lock" }]);
+});
+
+test("journal lock, the earlier format (a bare pid): a running holder is refused, a gone one is taken over", () => {
+  const path = lockDir();
+  fs.writeFileSync(`${path}.lock`, "4300\n");
+  assert.throws(() => fileJournal(path, fs, { pid: 4301, startOf: procs([[4300, "s4300"], [4301, "s4301"]]) }), (e) => e.code === "JournalLocked");
+  const j = fileJournal(path, fs, { pid: 4301, startOf: procs([[4301, "s4301"]]) });
+  j.save({ v: 1 });
+  j.close();
+});
+
+test("journal lock, real processes: eight that race for one stale lock (every other round with a dead taker's mutex too), five rounds: exactly one wins each round", async () => {
   const { spawn } = await import("node:child_process");
   const { fileURLToPath } = await import("node:url");
   const mod = new URL("../src/connect/dispatch.mjs", import.meta.url).href;
@@ -523,6 +569,7 @@ test("journal lock, real processes: eight that race for one stale lock, five rou
   for (let round = 0; round < 5; round++) {
     const path = lockDir();
     fs.writeFileSync(`${path}.lock`, JSON.stringify({ pid: 2147483646, start: "gone", token: "dead" }));
+    if (round % 2) fs.writeFileSync(`${path}.lock.takeover`, JSON.stringify({ pid: 2147483645, start: "gone", token: "dead-taker" }));
     const outs = await Promise.all(Array.from({ length: 8 }, () => new Promise((ok) => {
       const c = spawn(process.execPath, ["--input-type=module", "-e", child, path], { stdio: ["ignore", "pipe", "inherit"] });
       let o = ""; c.stdout.on("data", (x) => { o += x; }); c.on("close", () => ok(o));
