@@ -210,6 +210,13 @@ pub struct PlayDuty {
     /// Owner marches whose track already says `landed` (from an engine
     /// outcome or from the chain), so it is never written twice (⑱).
     owner_landed: BTreeSet<(u64, u32)>,
+    /// Every track acknowledged for an owner march `(host, arrive)`: a
+    /// second `/v1/reveal` for the same march (other material, or after a
+    /// restart) has its own track, and each answers the march's one result
+    /// (⑱). Read back from the journal's `owner_track`.
+    owner_aliases: BTreeMap<(u64, u32), BTreeSet<String>>,
+    /// The march's latest track state, given to a track acknowledged later.
+    owner_state: BTreeMap<(u64, u32), Value>,
     /// ArrivalDay bits `(P, Q, day)` → (bits, the Clock `now` of the read).
     days: BTreeMap<(i16, i16, u32), DayRead>,
     /// Province-bells a skip found not quiet: gathered and resolved instead.
@@ -351,14 +358,58 @@ impl PlayDuty {
                 ))
             })
             .collect::<PortResult<Vec<_>>>()?;
+        let tracks = match journal {
+            Some(j) => j.owner_tracks().map_err(|e| {
+                PortError::Io(format!(
+                    "{FATAL_JOURNAL_MARKER} owner track read failed: {e}"
+                ))
+            })?,
+            None => Vec::new(),
+        };
         for (key, material) in restored {
             if !self.owner.contains_key(&key) {
                 self.owner_restored.push(key);
             }
             self.owner.entry(key).or_insert(material);
         }
+        // Every track acknowledged before the restart answers again (⑱).
+        for (track, host, bell) in tracks {
+            if self.owner.contains_key(&(host, bell)) {
+                self.owner_aliases
+                    .entry((host, bell))
+                    .or_default()
+                    .insert(track);
+            }
+        }
         self.owner_loaded = true;
         Ok(())
+    }
+
+    /// Every track of owner march `key` (the material's own and the ones
+    /// acknowledged for it before).
+    fn owner_track_ids(&self, key: &(u64, u32)) -> Vec<String> {
+        let mut ids: BTreeSet<String> = self.owner_aliases.get(key).cloned().unwrap_or_default();
+        if let Some(m) = self.owner.get(key) {
+            ids.insert(m.track.clone());
+        }
+        ids.into_iter().collect()
+    }
+
+    /// The march's state for every one of its tracks (⑱). A march that
+    /// landed stays landed: a later state is not one of its results.
+    fn owner_state_set(&mut self, key: (u64, u32), v: Value) -> Vec<(String, Value)> {
+        if !self.owner.contains_key(&key) {
+            return vec![];
+        }
+        let landed = |x: &Value| x.get("state").and_then(|s| s.as_str()) == Some("landed");
+        if self.owner_state.get(&key).is_some_and(landed) && !landed(&v) {
+            return vec![];
+        }
+        self.owner_state.insert(key, v.clone());
+        self.owner_track_ids(&key)
+            .into_iter()
+            .map(|t| (t, v.clone()))
+            .collect()
     }
 
     /// Owner tracks the chain settles, whoever sent the Reveal (⑱): an
@@ -371,10 +422,10 @@ impl PlayDuty {
     /// signature) is never overwritten.
     pub fn owner_tracks_from_chain(&mut self, shared: &mut Shared) {
         for key in std::mem::take(&mut self.owner_restored) {
-            if let Some(m) = self.owner.get(&key) {
+            for t in self.owner_track_ids(&key) {
                 shared
                     .tracks
-                    .entry(m.track.clone())
+                    .entry(t)
                     .or_insert_with(|| json!({"state": "queued", "restored": true}));
             }
         }
@@ -390,11 +441,10 @@ impl PlayDuty {
             .collect();
         for (key, slot) in seen {
             self.owner_landed.insert(key);
-            let m = &self.owner[&key];
-            shared.tracks.insert(
-                m.track.clone(),
-                json!({"state": "landed", "slot": slot, "source": "chain"}),
-            );
+            let v = json!({"state": "landed", "slot": slot, "source": "chain"});
+            for (t, v) in self.owner_state_set(key, v) {
+                shared.tracks.insert(t, v);
+            }
         }
     }
 
@@ -433,10 +483,10 @@ impl PlayDuty {
                 if let Some(ok) = ok {
                     let e = self.stats.reveal_latency.entry(ok.1).or_insert((0, 0));
                     e.1 = e.1.max(*slot);
-                    if let Some(m) = self.owner.get(&ok) {
+                    if self.owner.contains_key(&ok) {
                         self.owner_landed.insert(ok);
-                        tracks.push((
-                            m.track.clone(),
+                        tracks.extend(self.owner_state_set(
+                            ok,
                             json!({"state": "landed", "signature": sig.to_string(), "slot": slot}),
                         ));
                     }
@@ -480,9 +530,9 @@ impl PlayDuty {
                     Some(abi::err::QUOTA_REFUSED) => {
                         ts.refused = true;
                         self.stats.reveals_refused += 1;
-                        if let Some(m) = ok.and_then(|ok| self.owner.get(&ok)) {
-                            tracks.push((
-                                m.track.clone(),
+                        if let Some(ok) = ok {
+                            tracks.extend(self.owner_state_set(
+                                ok,
                                 json!({"state": "refused", "code": "QuotaRefused"}),
                             ));
                         }
@@ -498,9 +548,9 @@ impl PlayDuty {
                         self.stats.reveals_missed += 1;
                     }
                 }
-                if let Some(m) = ok.and_then(|ok| self.owner.get(&ok)) {
+                if let Some(ok) = ok {
                     let c = code.and_then(abi::error_name).unwrap_or("WindowClosed");
-                    tracks.push((m.track.clone(), json!({"state": "expired", "code": c})));
+                    tracks.extend(self.owner_state_set(ok, json!({"state": "expired", "code": c})));
                 }
             }
             ("sdep", Outcome::Landed { .. }) => self.stats.departures_settled += 1,
@@ -626,7 +676,21 @@ impl PlayDuty {
                     ct_hash: m.ct_hash.to_vec(),
                 });
             }
-            self.owner.insert((p.host_id, p.arrive_bell), m);
+            let key = (p.host_id, p.arrive_bell);
+            // One march, every track acknowledged for it (⑱): a later
+            // callback's track takes the march's state at once.
+            if let Some(old) = self.owner.get(&key) {
+                let old = old.track.clone();
+                self.owner_aliases.entry(key).or_default().insert(old);
+            }
+            self.owner_aliases
+                .entry(key)
+                .or_default()
+                .insert(m.track.clone());
+            if let Some(v) = self.owner_state.get(&key) {
+                shared.tracks.insert(m.track.clone(), v.clone());
+            }
+            self.owner.insert(key, m);
         }
         for n in shared.nudges.drain(..) {
             let bell = n.get("bell").and_then(|b| b.as_u64()).unwrap_or(0) as u32;
@@ -1309,11 +1373,9 @@ impl PlayDuty {
                                 }
                             }
                         }
-                        if let Some(m) = self.owner.get(&(k.0, arrive)) {
-                            shared.tracks.insert(
-                                m.track.clone(),
-                                json!({"state": "expired", "code": "WindowClosed"}),
-                            );
+                        let v = json!({"state": "expired", "code": "WindowClosed"});
+                        for (t, v) in self.owner_state_set((k.0, arrive), v) {
+                            shared.tracks.insert(t, v);
                         }
                     }
                     continue;
@@ -1466,10 +1528,8 @@ impl PlayDuty {
                 ) {
                     engine.set_bid_bonus(&format!("reveal:{}", rkey(k)), n_c - rank_i);
                     self.stats.reveals_sent += 1;
-                    if let Some(m) = self.owner.get(&(k.0, arrive)) {
-                        shared
-                            .tracks
-                            .insert(m.track.clone(), json!({"state": "sent"}));
+                    for (t, v) in self.owner_state_set((k.0, arrive), json!({"state": "sent"})) {
+                        shared.tracks.insert(t, v);
                     }
                 } else {
                     // Not sent (a backoff after a transient refusal): the
@@ -4848,6 +4908,58 @@ mod reveal_secrecy_keyfree_tests {
             assert!(self.port.sent.lock().unwrap().is_empty(), "sent: {why}");
         }
 
+        /// One more owner march (another holding site), its Depart in the
+        /// index and its own material; nothing of it on chain.
+        fn other_march(&self, d: &mut PlayDuty) -> (u64, u32, Value) {
+            let host = fclient::addr::host_id(ORIGIN.0 as i32, ORIGIN.1 as i32, 2, 1, 5).unwrap();
+            let dep = ARRIVE - 3;
+            d.index.departs.insert(
+                (host, dep),
+                DepartRec {
+                    host,
+                    origin: ORIGIN,
+                    origin_tile: 5,
+                    depart_bell: dep,
+                    arrive: ARRIVE,
+                    dep_mass: 10,
+                    tip: 0,
+                    seal_root: [0; 32],
+                    commit: [0; 32],
+                    seal: [0; 165],
+                    slot: 1,
+                },
+            );
+            let p = seal::Plain {
+                version: 1,
+                host_id: host,
+                arrive_bell: ARRIVE,
+                dest_p: ORIGIN.0,
+                dest_q: ORIGIN.1,
+                dest_tile: 6,
+                stance: 1,
+                ..Default::default()
+            };
+            let b = base64::engine::general_purpose::STANDARD;
+            let item = json!({
+                "holding": self.addrs.holding(ORIGIN.0 as i32, ORIGIN.1 as i32, 2).to_string(),
+                "transit_slot": 0, "plain_b64": b.encode(seal::pack(&p)),
+                "salt_b64": b.encode([host as u8; 32]), "ct_hash_b64": b.encode([8u8; 32]),
+            });
+            (host, dep, item)
+        }
+
+        /// An engine outcome of the Reveal write `key`, applied as the
+        /// keeper applies it (no signature is made: a placeholder value).
+        fn outcome(&mut self, d: &mut PlayDuty, key: &str, o: Outcome) {
+            for (id, v) in d.on_outcome(key, &o) {
+                self.shared.tracks.insert(id, v);
+            }
+        }
+
+        fn track(&self, id: &str) -> Value {
+            self.shared.tracks.get(id).cloned().unwrap_or(Value::Null)
+        }
+
         fn reveal_writes(&self) -> usize {
             self.engine
                 .pending_keys()
@@ -5064,6 +5176,182 @@ mod reveal_secrecy_keyfree_tests {
             .unwrap();
         assert_eq!(e.reveal_writes(), 1, "one Reveal write per march");
         assert_eq!(d.stats.reveals_sent, 1);
+        let _ = std::fs::remove_file(&path);
+    }
+
+    fn landed(slot: u64) -> Outcome {
+        Outcome::Landed {
+            slot,
+            sig: fclient::ports::Signature::default(),
+            payer: Address::new_from_array([9; 32]),
+            versions: 1,
+            first_slot: slot - 1,
+            already_done: false,
+        }
+    }
+
+    /// Duplicate owner callbacks of one march (two tracks for the same
+    /// material): before THE anchor nothing goes and neither track moves;
+    /// with it, one Reveal write and both tracks say `sent`, then the one
+    /// landing; a callback after the landing answers it at once; another
+    /// march's track is never touched, and its own expiry leaves this one's
+    /// landing alone.
+    #[tokio::test]
+    async fn duplicate_callbacks_of_one_march_answer_its_one_result() {
+        let mut e = KEnv::new();
+        let mut d = e.duty();
+        // drand has not served T(arrive) yet (the keeper caches a round it
+        // verified, so it is held from the start).
+        let held = e.drand.rounds.remove(&ROUND).unwrap();
+        e.owner_callback("t1");
+        e.try_plan(&mut d, 50, bell_end() + 20, None).await.unwrap();
+        e.owner_callback("t2");
+        e.try_plan(&mut d, 60, bell_end() + 25, None).await.unwrap();
+        e.assert_nothing_out("duplicates before the anchor");
+        assert_eq!((e.track("t1"), e.track("t2")), (Value::Null, Value::Null));
+        // Another march, its own track.
+        let (h2, dep2, item) = e.other_march(&mut d);
+        e.shared.reveals.push(("u1".into(), item));
+        e.chain_anchor(SEASON, ARRIVE, program());
+        e.try_plan(&mut d, 70, bell_end() + 30, None).await.unwrap();
+        e.assert_nothing_out("anchor, round held");
+        e.drand.rounds.insert(ROUND, held);
+        e.try_plan(&mut d, 80, bell_end() + 40, None).await.unwrap();
+        assert_eq!(
+            e.reveal_writes(),
+            1,
+            "one Reveal write for the duplicated march"
+        );
+        assert!(e.engine.is_pending(&e.key()));
+        assert_eq!(e.track("t1"), json!({"state": "sent"}));
+        assert_eq!(e.track("t2"), json!({"state": "sent"}));
+        assert_eq!(e.track("u1"), Value::Null, "the other march was not sent");
+        let key = e.key();
+        e.outcome(&mut d, &key, landed(901));
+        let want = e.track("t1");
+        assert_eq!(want["state"], "landed");
+        assert_eq!(want["slot"], 901);
+        assert_eq!(e.track("t2"), want, "the earlier track answers the landing");
+        assert_eq!(e.track("u1"), Value::Null);
+        // A callback after the landing (a resend): the result at once, no
+        // second Reveal.
+        e.owner_callback("t3");
+        e.try_plan(&mut d, 90, bell_end() + 50, None).await.unwrap();
+        assert_eq!(e.track("t3"), want);
+        assert_eq!(d.stats.reveals_sent, 1);
+        // The other march expires: its track only; a landed march stays.
+        e.outcome(
+            &mut d,
+            &format!("reveal:{h2}:{dep2}"),
+            Outcome::Dead {
+                reason: "deadline".into(),
+                code: None,
+            },
+        );
+        assert_eq!(e.track("u1")["state"], "expired");
+        for t in ["t1", "t2", "t3"] {
+            assert_eq!(e.track(t), want, "{t}");
+        }
+        e.outcome(
+            &mut d,
+            &key,
+            Outcome::Dead {
+                reason: "late".into(),
+                code: None,
+            },
+        );
+        for t in ["t1", "t2", "t3"] {
+            assert_eq!(e.track(t), want, "{t}: a landed march is not expired after");
+        }
+    }
+
+    /// A restart (a new process: new duty, engine, API state): every track
+    /// acknowledged before it answers again — `queued` while the march waits
+    /// — and all of them take the march's landing seen on chain; nothing
+    /// goes before THE anchor.
+    #[tokio::test]
+    async fn every_track_of_a_march_survives_a_restart() {
+        let path = temp_journal("tracks");
+        {
+            let j = Journal::open(&path).unwrap();
+            let mut e = KEnv::new();
+            let mut d = e.duty();
+            e.owner_callback("r1");
+            e.try_plan(&mut d, 50, bell_end() + 20, Some(&j))
+                .await
+                .unwrap();
+            e.owner_callback("r2");
+            e.try_plan(&mut d, 60, bell_end() + 25, Some(&j))
+                .await
+                .unwrap();
+            e.assert_nothing_out("before the restart");
+            let rows = j.owner_materials().unwrap();
+            assert_eq!(rows.len(), 1);
+            assert_eq!(
+                rows[0].track, "r2",
+                "the material row keeps the latest track"
+            );
+            let tracks: Vec<String> = j.owner_tracks().unwrap().into_iter().map(|t| t.0).collect();
+            assert_eq!(tracks, vec!["r1".to_string(), "r2".to_string()]);
+        }
+        let j = Journal::open_existing(&path).unwrap();
+        let mut e = KEnv::new();
+        let mut d = e.duty();
+        e.try_plan(&mut d, 70, bell_end() + 30, Some(&j))
+            .await
+            .unwrap();
+        e.assert_nothing_out("restored, no anchor");
+        let q = json!({"state": "queued", "restored": true});
+        assert_eq!((e.track("r1"), e.track("r2")), (q.clone(), q));
+        // Revealed (by another keeper) and seen on chain.
+        d.index.slots.insert(
+            (ORIGIN.0, ORIGIN.1, ARRIVE, 1, 0),
+            crate::playindex::RevealRec {
+                dest: ORIGIN,
+                arrive: ARRIVE,
+                faction: 1,
+                i: 0,
+                host: e.host,
+                displaced: None,
+                beneficiary: Address::new_from_array([4; 32]),
+                slot: 950,
+                created_day: false,
+            },
+        );
+        e.try_plan(&mut d, 80, bell_end() + 40, Some(&j))
+            .await
+            .unwrap();
+        let want = json!({"state": "landed", "slot": 950, "source": "chain"});
+        assert_eq!((e.track("r1"), e.track("r2")), (want.clone(), want));
+        e.assert_nothing_out("revealed on chain: this keeper sends none");
+        let _ = std::fs::remove_file(&path);
+    }
+
+    /// An older journal (no `owner_track` table): its material rows' tracks
+    /// are carried over when it is opened.
+    #[test]
+    fn an_older_journal_keeps_its_tracks() {
+        let path = temp_journal("older");
+        {
+            let j = Journal::open(&path).unwrap();
+            j.save_owner_material(&crate::journal::OwnerRow {
+                host: 5,
+                bell: 9,
+                track: "r7".into(),
+                holding: Address::new_from_array([2; 32]).to_string(),
+                transit_slot: 0,
+                plain: vec![0; 37],
+                salt: vec![0; 32],
+                ct_hash: vec![0; 32],
+            })
+            .unwrap();
+        }
+        rusqlite::Connection::open(&path)
+            .unwrap()
+            .execute_batch("DROP TABLE owner_track;")
+            .unwrap();
+        let j = Journal::open_existing(&path).unwrap();
+        assert_eq!(j.owner_tracks().unwrap(), vec![("r7".to_string(), 5, 9)]);
         let _ = std::fs::remove_file(&path);
     }
 }

@@ -169,6 +169,7 @@ impl Journal {
         Self::ensure_write_id_column(&conn)?;
         Self::ensure_tag_column(&conn)?;
         Self::ensure_recovered_finality_table(&conn)?;
+        Self::ensure_owner_track_table(&conn)?;
         Self::check_known_fees(&conn)?;
         sql(conn.execute_batch("PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL;"))?;
         let journal = Journal { conn, crash: None };
@@ -266,6 +267,22 @@ impl Journal {
         Ok(())
     }
 
+    /// Every owner track ever acknowledged for a march (⑱). `owner_material`
+    /// keeps one row per march (`(host, bell)`), and a second `/v1/reveal`
+    /// for the same march replaces its `track`: without this table the
+    /// track acknowledged first was lost at a restart. Add-only; an older
+    /// journal is filled from its `owner_material` rows.
+    fn ensure_owner_track_table(conn: &Connection) -> Result<(), String> {
+        sql(conn.execute_batch(
+            "CREATE TABLE IF NOT EXISTS owner_track(track TEXT PRIMARY KEY,
+                 host INTEGER NOT NULL, bell INTEGER NOT NULL);
+             INSERT OR IGNORE INTO owner_track(track, host, bell)
+                 SELECT track, host, bell FROM owner_material;",
+        ))?;
+        sql(conn.prepare("SELECT track, host, bell FROM owner_track LIMIT 0"))?;
+        Ok(())
+    }
+
     /// Opens (or creates) the journal (`":memory:"` for tests).
     pub fn open(path: &Path) -> Result<Journal, String> {
         let conn = sql(Connection::open(path))?;
@@ -312,6 +329,7 @@ impl Journal {
         Self::ensure_write_id_column(&conn)?;
         Self::ensure_tag_column(&conn)?;
         Self::ensure_recovered_finality_table(&conn)?;
+        Self::ensure_owner_track_table(&conn)?;
         Self::check_known_fees(&conn)?;
         Ok(Journal { conn, crash: None })
     }
@@ -778,8 +796,11 @@ impl Journal {
     /// Owner reveal material accepted by `/v1/reveal` (⑱): it waits for
     /// THE anchor of its arrival, so it must outlive a restart (before, it
     /// became a journalled Reveal attempt at once).
+    /// The march's track is also kept in `owner_track` (one transaction):
+    /// a track acknowledged earlier for the same march stays known.
     pub fn save_owner_material(&self, m: &OwnerRow) -> Result<(), String> {
-        sql(self.conn.execute(
+        let tx = sql(self.conn.unchecked_transaction())?;
+        sql(tx.execute(
             "INSERT OR REPLACE INTO owner_material(host, bell, track, holding, transit_slot, plain, salt, ct_hash)
              VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
             params![
@@ -792,8 +813,27 @@ impl Journal {
                 m.salt,
                 m.ct_hash
             ],
-        ))
-        .map(|_| ())
+        ))?;
+        sql(tx.execute(
+            "INSERT OR IGNORE INTO owner_track(track, host, bell) VALUES(?1, ?2, ?3)",
+            params![m.track, m.host as i64, m.bell],
+        ))?;
+        sql(tx.commit())
+    }
+
+    /// Every acknowledged owner track and its march `(track, host, bell)`.
+    pub fn owner_tracks(&self) -> Result<Vec<(String, u64, u32)>, String> {
+        let mut st = sql(self
+            .conn
+            .prepare("SELECT track, host, bell FROM owner_track ORDER BY rowid"))?;
+        let rows = sql(st.query_map([], |r| {
+            Ok((
+                r.get::<_, String>(0)?,
+                r.get::<_, i64>(1)? as u64,
+                r.get(2)?,
+            ))
+        }))?;
+        rows.map(sql).collect()
     }
 
     /// Every journalled owner material.
