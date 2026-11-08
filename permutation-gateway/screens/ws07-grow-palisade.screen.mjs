@@ -32,9 +32,10 @@ import * as G from '../test/fixtures/frontier/growth-route.mjs';
 const GOLDEN = JSON.parse(readFileSync(new URL('../../frontier-node/crates/herald/tests/golden/ws19-map-growth-s1-palisade.json', import.meta.url)));
 const HOST_TILE = { p: 4, q: 0, tile: 0 }, TARGET = { p: 5, q: 0, tile: 0 };
 const PAL = GOLDEN.palisade;
-/** Workstream 19's expected planner answer at "palisade" (2db2db4b: frontier-v3.wasm plan_path, unit 0, the golden's
- * seeds, blocked [tileHex(4,0,6)]): the way round, 10 steps, the same 1320 s. */
-const AROUND = Object.freeze({ dirs: [5, 0, 0, 1, 0, 1, 1, 0, 1, 1], secs: 1320, provinces: [{ p: 4, q: 0 }, { p: 5, q: 0 }] });
+assert.deepEqual({ p: PAL.p, q: PAL.q, tile: PAL.tile }, { ...G.PALISADE }, '19\'s golden and 08\'s fixture name the same palisade tile');
+/** The expected planner answer at "palisade": 08's growth-route.mjs ROUTE_AROUND_PALISADE (pinned by 19's 2db2db4b and
+ * 08's d1ba760c: frontier-v3.wasm plan_path, unit 0, the golden's seeds, blocked [tileHex(4,0,6)]). */
+const AROUND = Object.freeze({ dirs: G.ROUTE_AROUND_PALISADE.dirs, secs: G.ROUTE_AROUND_PALISADE.secs, provinces: G.ROUTE_AROUND_PALISADE.provinces });
 
 let srv, relay, browser, base, stage = 'grown';
 before(async () => {
