@@ -65,6 +65,12 @@ export function sendTraces(run) {
   return t;
 }
 
+/** The fields of p04-run/0.1 (cf517b55 src/view.rs run_view) a stopped run is decided from. */
+const VIEW_FIELDS = Object.freeze([
+  ['effects', Array.isArray], ['attempts', Array.isArray], ['receipts', Array.isArray], ['sent', v => typeof v === 'boolean'],
+  ['in_flight', v => typeof v === 'boolean'], ['fees', v => v !== null && typeof v === 'object' && !Array.isArray(v)],
+]);
+
 export function fateOfRun(run) {
   if (run === null || run === undefined) return null;
   const base = { ok: true, status: 'sent', ws04State: run.state };
@@ -75,6 +81,10 @@ export function fateOfRun(run) {
   if (PENDING.has(run.state)) return { ...base, fate: 'pending' };
   // Stopped: Failed, Cancelled, Expired. Whether something took place first decides it; a contradictory view decides
   // nothing (held: it may have left, so it is never sent again, and it is not claimed as landed either).
+  // A versioned view says "no effect" only through all the fields workstream 4's run view writes (src/view.rs): one
+  // that lacks any of them is incomplete, not evidence of nothing.
+  const missing = run.view_version === undefined ? [] : VIEW_FIELDS.filter(([k, ok]) => !ok(run[k])).map(([k]) => k);
+  if (missing.length) return { ...base, fate: 'unknown', why: `incomplete run view: no ${missing.join(', ')}` };
   const e = effectsOf(run);
   if (e.contradictions.length) return { ...base, fate: 'unknown', why: `contradictory run view: ${e.contradictions.join('; ')}` };
   if (e.any) return { ...base, fate: 'landed', stoppedAfterEffects: run.state };

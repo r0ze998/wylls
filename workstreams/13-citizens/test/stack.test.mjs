@@ -26,11 +26,12 @@ import { expectCommit } from './versions.mjs';
 import { keylessIdentity } from '../resident/keys.mjs';
 import { seasonClock } from '../resident/frame.mjs';
 import { ALL_FIXTURE, heraldMe, memoryFor } from './ws12-fixture.mjs';
+import { ws05, ws12, ws04Acts, clientFile } from './roots.mjs';
 
-const { WS04_ACTS_CLIENT: CLIENT4, RUNEXEC_BIN: BIN4 } = process.env;
-const ROOT5 = process.env.WS05_ROOT ?? process.env.WS05_E9D1551A;
-const ROOT12 = process.env.WS12_ROOT ?? process.env.WS12_EA0636EB;
-const skip = CLIENT4 && BIN4 && ROOT5 && ROOT12 ? false : 'set WS04_ACTS_CLIENT, RUNEXEC_BIN, WS05_ROOT and WS12_ROOT';
+const CLIENT4 = clientFile(ws04Acts(), 'workstreams/04-execution/clients/acts.mjs'), BIN4 = process.env.RUNEXEC_BIN;
+const ROOT5 = ws05().root;
+const ROOT12 = ws12('evidence-basis').root;
+const skip = CLIENT4 && BIN4 && ROOT5 && ROOT12 ? false : `missing: ${[!CLIENT4 && 'workstream 4 clients/acts.mjs', !BIN4 && 'RUNEXEC_BIN (no tree carries the binary)', !ROOT5 && 'workstream 5', !ROOT12 && 'workstream 12 with evidence_basis'].filter(Boolean).join(', ')}`;
 const VERSIONS = skip ? null : { ws05: expectCommit('WS05', ROOT5), ws12: expectCommit('WS12', ROOT12) };
 test('versions this stack ran against', { skip }, t => { t.diagnostic(JSON.stringify(VERSIONS)); });
 const imp = (root, rel) => import(pathToFileURL(path.join(root, rel)).href);

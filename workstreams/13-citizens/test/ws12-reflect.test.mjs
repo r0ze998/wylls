@@ -22,11 +22,12 @@ import { ws12CanonicalEvidence, basisOf, basisCheck } from '../resident/ports/ws
 import { seasonClock, MOCK_CLOCK } from '../resident/frame.mjs';
 import { decisionsOf } from '../demo/report.mjs';
 
-const ROOT = process.env.WS12_ROOT ?? process.env.WS12_EA0636EB;
-const skip = ROOT ? false : 'set WS12_ROOT to a tree with workstream 12 at c6877a1a or later';
+const ROOT = ws12('evidence-basis').root;
+const skip = ROOT ? false : 'workstream 12 fa4baf14 or later, with evidence_basis (WS12_ROOT, or in this tree)';
 const m12 = rel => import(pathToFileURL(path.join(ROOT, 'workstreams/12-memory', rel)).href);
 
 import { PROGRAM, ALL_FIXTURE, FIXTURE, heraldMe, memoryFor as memoryFor12 } from './ws12-fixture.mjs';
+import { ws12 } from './roots.mjs';
 // Needs workstream 12 at fa4baf14 or later (per-fact basis, per-commitment evidence_basis).
 const memoryFor = (kou, o) => memoryFor12(m12, kou, o);
 
