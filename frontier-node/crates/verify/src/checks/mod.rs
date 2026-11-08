@@ -305,6 +305,8 @@ pub fn run(input: &Input) -> Report {
     {
         vw_chains::run(&mut cx);
         ran.push("VW1:wide-chains");
+        v28_resident_acts::run_wide(&mut cx);
+        ran.push("V28:wide-resident-acts");
     }
     if v26_custody::custody_season(&cx) {
         ran.push("V26:custody-state");
