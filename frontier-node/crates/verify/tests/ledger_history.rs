@@ -240,8 +240,14 @@ async fn a_whole_feed_archive_is_the_ledgers_and_pairs_with_a_live_read() {
         txs.iter().map(|t| t.signature).collect::<Vec<_>>(),
         vec![sig(11), sig(14), sig(15)]
     );
-    assert_eq!(h.source, Source::Unknown);
-    assert!(h.detail.contains("rollback"));
+    // ⑲ 2026-11-08: the ledger's feed, but an archive alone names what it
+    // cannot show; never whole.
+    assert_eq!(h.source, Source::LedgerFeed);
+    assert!(h.unproven());
+    assert!(
+        h.gaps.contains(&verify_core::history::Gap::ArchiveOnly),
+        "{h:?}"
+    );
     let (live, lh) = input::fetch_txs(&url, &prog(), true, None, None)
         .await
         .unwrap();
@@ -257,8 +263,13 @@ async fn a_whole_feed_archive_is_the_ledgers_and_pairs_with_a_live_read() {
     // Checked against the node: the same ledger, one detail.
     let dir = archive_dir.clone();
     let ch = input::confirm_archive(&dir, &url, h).await.unwrap();
-    assert_eq!(ch.source, Source::Unknown);
-    assert!(ch.detail.contains("cross-check matched"));
+    // A matching tail: no longer archive-only, but the ledger's records
+    // before it are not shown to be the node's (no digest): unproven.
+    assert_eq!(ch.source, Source::LedgerFeed);
+    assert!(!ch.gaps.contains(&verify_core::history::Gap::ArchiveOnly));
+    assert!(ch
+        .gaps
+        .contains(&verify_core::history::Gap::PrefixIdentityUnverified));
     assert_eq!(apply(&ch, report()).verdict, Verdict::Unverifiable);
 }
 

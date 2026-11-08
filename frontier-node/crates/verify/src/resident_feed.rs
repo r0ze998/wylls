@@ -302,7 +302,18 @@ pub async fn fetch(
             )),
             0,
         ),
-        (Some(sc), Some(id)) if sc >= last_game => (History::ledger_feed(format!("ledger {id}")), sc),
+        // ⑲ 2026-11-08: a live read names what it could not show (the prefix,
+        // the final states' point) like the game history's.
+        (Some(sc), Some(id)) if sc >= last_game => (
+            crate::input::live_assurance(
+                url,
+                History::ledger_feed(format!("ledger {id}")),
+                s.rewind_safe(),
+                s.scanned(),
+            )
+            .await,
+            sc,
+        ),
         (Some(sc), Some(_)) => (
             History::unknown(format!(
                 "resident feed {url}: scanned through seq {sc}, before the game feed's last seq {last_game}"
@@ -359,8 +370,10 @@ impl ResidentFeed {
         // (`feed_scanned`, workstream 04), else the program's last seq: the
         // archive was found whole through it (`findex::ledger`).
         let c = a.cursor();
+        // ⑲ 2026-11-08: a `ledger_feed` with gaps (every archive today:
+        // its ledger prefix is not shown) is unproven and claims no range.
         let through = match history.source {
-            Source::LedgerFeed => c
+            Source::LedgerFeed if !history.unproven() => c
                 .get("feed_scanned")
                 .and_then(Value::as_u64)
                 .or_else(|| c.get("feed_after").and_then(Value::as_u64))
