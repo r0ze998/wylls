@@ -15,10 +15,11 @@
 //     check passes (the golden carries drand quicknet's public chain hash and key); "seal and depart" is enabled and
 //     NEVER pressed. (An earlier golden had a zero lead window and a non-quicknet beacon; neither is judged on here.)
 //   - cancel (やめる); a reload keeps the stage.
-// What is not real here: the 21 /h/ paths the golden lacks (ABSENT: events, rosters 0–5, overviews 0–2, overview2 2,
-// provinces 3,0 · 3,1 · 4,-1, caravans, structures, nations, standings, control, conquest, keep) answer 404 — inferred
-// from the golden, not shown to be the router's answer at these stages; their console lines are the only errors
-// allowed, and every 404 the page meets is asserted to be one of them. structures.json 404 = no palisades. Nothing is sealed, signed or sent.
+// What is not real here: the 20 /h/ paths the golden lacks (ABSENT: events, rosters 0–5, overviews 0–2, overview2 2,
+// provinces 3,0 · 3,1 · 4,-1, caravans, nations, standings, control, conquest, keep) answer 404 — inferred from the
+// golden, not shown to be the router's answer at these stages; their console lines are the only errors allowed, and
+// every 404 the page meets is asserted to be one of them. The structures feed IS the router's (19's e3abbee1): empty,
+// so the route is planned with no palisade; a world with a palisade on the route is not exercised. Nothing is sealed, signed or sent.
 //
 // Run from this folder: node --test ws07-grow-s1.screen.mjs
 import { test, before, after } from 'node:test';
@@ -36,12 +37,12 @@ const HOST_TILE = { p: 4, q: 0, tile: 0 }, TARGET = { p: 5, q: 0, tile: 0 };
 /**
  * The /h/ paths the page asks for that the golden does not carry: the relay answers them 404 NotFound (inferred from
  * the golden: it is not shown that the real router serves none of them at these stages). Workstream 16's list (§29.27).
- * Note: /h/structures.json 404 means no palisades — the route equals 08's ROUTE on that assumption.
+ * (/h/structures.json is in the golden since 19's e3abbee1: the router's empty S1 feed, read by the page — see below.)
  */
 const ABSENT = new Set(['/h/caravans.json', '/h/conquest/0.json', '/h/control/latest.bin', '/h/events', '/h/keep/4,0.json', '/h/nations.json',
   '/h/overview/0/latest.bin', '/h/overview/1/latest.bin', '/h/overview/2/latest.bin', '/h/overview2/2/latest.bin',
   '/h/province/3,0/latest', '/h/province/3,1/latest', '/h/province/4,-1/latest',
-  ...[0, 1, 2, 3, 4, 5].map(d => `/h/roster/${d}/latest.bin`), '/h/standings/latest.json', '/h/structures.json']);
+  ...[0, 1, 2, 3, 4, 5].map(d => `/h/roster/${d}/latest.bin`), '/h/standings/latest.json']);
 const REFUSED = { extendable: /まだ地図の外/, unopened: /まだひらいていない土地です/, pending: /生まれるところです/ };
 
 let srv, relay, browser, base, stage = 'before';
@@ -173,8 +174,16 @@ for (const vp of [{ width: 1440, height: 900, name: 'desktop' }, { width: 390, h
       const s = await state(page);
       assert.equal(s.place5, 'open');
       assert.deepEqual(s.compose.dest, [TARGET.p, TARGET.q, TARGET.tile]);
-      // (with no palisades: /h/structures.json is golden-absent, answered 404 — see ABSENT)
-      assert.deepEqual(s.compose.route, { dirs: G.ROUTE.dirs, secs: G.ROUTE.secs, provinces: G.ROUTE.provinces }, '08\'s route to the step (no palisades)');
+      // the structures feed was read and holds no palisade (the router's answer in the golden: {v:1, structures:[],
+      // sightings:[]}), so the planner was given no blocked hex — a 404 here would mean "not seeded", not "none")
+      const feed = await page.evaluate(async () => {
+        const { FS } = await import('/frontier/fstate.mjs');
+        const { palisadeHexesOf } = await import('/frontier/s1walk.mjs');
+        const st = FS.s1?.structures ?? null;
+        return { read: !!st && Array.isArray(st.structures), n: st?.structures?.length ?? null, blocked: palisadeHexesOf(FS).length };
+      });
+      assert.deepEqual(feed, { read: true, n: 0, blocked: 0 }, 'the structures feed read (the router\'s, in the golden): no structure, no blocked hex');
+      assert.deepEqual(s.compose.route, { dirs: G.ROUTE.dirs, secs: G.ROUTE.secs, provinces: G.ROUTE.provinces }, '08\'s route to the step (structures feed read: no palisade)');
       await page.locator('#mc-title').waitFor({ state: 'attached' });
       await until(page, async () => Number.isInteger((await import('/frontier/fstate.mjs')).FS.compose?.arriveBell));
       // the arrival: the golden Season's lead window (19's fc6b923b: CreateSeason's MC_LOCAL_7D write, lead 2..72) holds
