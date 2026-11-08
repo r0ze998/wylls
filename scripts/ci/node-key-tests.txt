@@ -231,6 +231,7 @@ permutation-gateway/test/web-frontier-ws07-connect.test.mjs
 permutation-gateway/test/web-frontier-ws07-contracts.test.mjs
 permutation-gateway/test/web-frontier-ws07-coop.test.mjs
 permutation-gateway/test/web-frontier-ws07-guide-s1.test.mjs
+permutation-gateway/test/web-frontier-ws07-me-answered.test.mjs
 permutation-gateway/test/web-frontier-ws07-nft.test.mjs
 permutation-gateway/test/web-frontier-ws07-reveal.test.mjs
 permutation-gateway/test/web-frontier-ws07-s1walk.test.mjs
