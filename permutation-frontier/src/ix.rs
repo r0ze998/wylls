@@ -160,7 +160,14 @@ mod tests {
             crate::RULESET_HASH,
             frontier_abi::v2::presets::RULESET_HASH_V3
         );
-        assert_eq!(crate::PROGRAM_VERSION, 4);
+        assert_eq!(
+            crate::PROGRAM_VERSION,
+            4 | if cfg!(feature = "capacity-preview") {
+                0x2000
+            } else {
+                0
+            }
+        );
     }
 
     #[cfg(feature = "custody-preview")]
@@ -170,7 +177,14 @@ mod tests {
             crate::RULESET_HASH,
             frontier_abi::v2::presets::RULESET_HASH_V4
         );
-        assert_eq!(crate::PROGRAM_VERSION, 5);
+        assert_eq!(
+            crate::PROGRAM_VERSION,
+            5 | if cfg!(feature = "capacity-preview") {
+                0x2000
+            } else {
+                0
+            }
+        );
         assert_eq!(crate::RULES_VERSION, 13);
     }
 
@@ -216,6 +230,9 @@ mod tests {
             // Custody: the kernel's view written back (forfeiture within the
             // lot's quota, a deposit's debit).
             ("custody.rs", "w.set_i64(VA::store(i), v.stores[i])?;"),
+            // Capacity (workstream 09, `capacity-preview`): a deposit's
+            // debit, a claim's credit refused past `CAP − CUSTODY_QUOTA`.
+            ("capacity.rs", "w.set_i64(VA::store(i), self.stores[i])?;"),
         ];
         let want: Vec<(String, String)> = want
             .iter()

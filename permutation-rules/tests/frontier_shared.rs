@@ -1312,17 +1312,28 @@ fn ruleset_hash_binds_versions_and_catalog() {
     );
     let src = include_str!("../src/frontier/mod.rs");
     let mut modules = 0;
+    let mut previous = "";
     for line in src.lines() {
         if let Some(m) = line
             .strip_prefix("pub mod ")
             .and_then(|r| r.strip_suffix(';'))
         {
+            // Workstream 09's capacity rules are a preview behind their
+            // feature, bound to no ruleset hash until workstream 4 gives a
+            // capacity build its version (named here, not hidden).
+            if previous == r#"#[cfg(feature = "capacity-preview")]"# {
+                assert_eq!(m, "capacity");
+                assert!(!names.contains(&m));
+                previous = line;
+                continue;
+            }
             assert!(
                 names.contains(&m),
                 "module {m} has no KERNEL_VERSIONS entry"
             );
             modules += 1;
         }
+        previous = line;
     }
     assert_eq!(modules + 1, names.len(), "one entry per module + frontier");
     // Golden value: a change to any bound constant or table changes it on

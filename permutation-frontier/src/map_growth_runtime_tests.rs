@@ -116,6 +116,11 @@ static SERIAL: Mutex<()> = Mutex::new(());
 #[cfg(feature = "wide-world-experimental")]
 #[path = "wide_land_runtime_tests.rs"]
 mod wide_land;
+// Workstream 09's capacity preview (`capacity-preview`) shares it too:
+// `map_growth_runtime_tests::capacity::`.
+#[cfg(feature = "capacity-preview")]
+#[path = "capacity_runtime_tests.rs"]
+mod capacity;
 
 /// Backing memory of every account created by a test: key → (data pointer,
 /// capacity, owner pointer). The stub resizes and reassigns through it.
