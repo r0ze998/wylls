@@ -1,9 +1,10 @@
 #!/usr/bin/env bash
-# Workstream 09: build, test and demo the capacity kernel, then check core
-# patch 0001 in a temporary worktree (the main checkout is never patched).
+# Workstream 09: build, test and demo the capacity kernel and its bridge to
+# workstream 10's custody, then the core in this tree (workstream 4's
+# candidate with patch 0001 applied and the capacity preview).
 #
 #   workstreams/09-capacity/run.sh            # everything
-#   workstreams/09-capacity/run.sh --no-patch # skip the patched worktree
+#   workstreams/09-capacity/run.sh --no-patch # skip the core stage
 #
 # The bridge10 stage needs workstream 10's pinned commit (fetched from the
 # integration branch when missing).
@@ -82,34 +83,37 @@ trap - EXIT
 
 [ "$patch_too" = 1 ] || exit 0
 
-echo "== patch 0001 in a temporary worktree =="
-tmp="$(mktemp -d "${TMPDIR:-/tmp}/wylls-09-XXXXXX")"
-cleanup() { git -C "$root" worktree remove --force "$tmp/w" >/dev/null 2>&1 || true; rm -rf "$tmp"; }
-trap cleanup EXIT
-git -C "$root" worktree add -q --detach "$tmp/w" HEAD
-# The kernel as it is in this checkout (it may not be committed yet).
-rm -rf "$tmp/w/workstreams/09-capacity/kernel"
-mkdir -p "$tmp/w/workstreams/09-capacity"
-cp -r "$here/kernel" "$tmp/w/workstreams/09-capacity/kernel"
-rm -rf "$tmp/w/workstreams/09-capacity/kernel/target"
-git -C "$tmp/w" apply "$here/patches/0001-holding-lent-workshops.patch"
-export CARGO_TARGET_DIR="$tmp/target"
+# The core in this tree: workstream 4's candidate with workstream 09's core
+# commits on it (patch 0001 applied; the capacity preview behind its
+# feature). Only host tests: no SBF, no LiteSVM, no verifier tests (their
+# shared helpers sign), no Node test that needs keys.
+echo "== the core in this tree (patch 0001, capacity preview) =="
+git -C "$root" apply --check -R "$here/patches/0001-holding-lent-workshops.patch" ||
+  { echo "patch 0001 is not applied in this tree" >&2; exit 1; }
 (
-  cd "$tmp/w"
+  cd "$root"
   {
-    echo "# patch 0001 on $(git -C "$root" rev-parse HEAD)"
-    echo "## permutation-rules"
-    cargo test -q -p permutation-rules 2>&1 | grep -E "^test result|FAILED|panicked"
-    echo "## frontier-abi"
-    cargo test -q -p frontier-abi 2>&1 | grep -E "^test result|FAILED|panicked"
-    echo "## permutation-frontier (host)"
-    cargo test -q -p permutation-frontier 2>&1 | grep -E "^test result|FAILED|panicked"
-    echo "## kernel with --features core-patch-0001"
-    (cd workstreams/09-capacity/kernel && cargo test -q --features core-patch-0001 2>&1 | grep -E "^test result|FAILED|panicked")
-  } | tee "$out/patch-0001-tests.log"
+    echo "# core at $(git -C "$root" rev-parse HEAD)"
+    for args in "-p permutation-rules" "-p permutation-rules --features capacity-preview" \
+      "-p frontier-abi" "-p frontier-abi --features capacity-preview" \
+      "-p permutation-frontier" "-p permutation-frontier --features capacity-preview" \
+      "-p permutation-frontier --features custody-preview" \
+      "-p permutation-frontier --features capacity-preview,custody-preview"; do
+      echo "## cargo test $args"
+      # shellcheck disable=SC2086
+      cargo test -q $args 2>&1 | grep -E "^test result|FAILED|panicked|^error"
+    done
+    for f in capacity-preview capacity-preview,custody-preview; do
+      echo "## clippy permutation-frontier --features $f"
+      cargo clippy -q -p permutation-frontier --features "$f" --all-targets -- -D warnings 2>&1 | grep -E "^error" || true
+    done
+    echo "## kernel with --features core-patch-0001 (the rules port compared with the kernel)"
+    (cd workstreams/09-capacity/kernel && cargo test -q --release --features core-patch-0001 -- --nocapture 2>&1 |
+      grep -E "^test result|FAILED|panicked|rules port:")
+  } | tee "$out/core-tests.log"
 )
-if grep -q FAILED "$out/patch-0001-tests.log"; then
-  echo "patch 0001 tests failed" >&2
+if grep -qE "FAILED|^error" "$out/core-tests.log"; then
+  echo "core tests failed" >&2
   exit 1
 fi
 echo "ok"
