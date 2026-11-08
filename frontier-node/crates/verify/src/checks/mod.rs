@@ -57,6 +57,11 @@ pub struct Ctx<'a> {
     pub cq_expected: std::collections::BTreeMap<usize, Vec<crate::cqrec::Expected>>,
     /// The transactions whose skip or clash V7 replayed on the v2 path.
     pub cq_replayed: std::collections::BTreeSet<usize>,
+    /// `(transaction, instruction index)` of the player instructions an NFT
+    /// resident's Citizen ran through ResidentAct that the program allows only
+    /// to the pass's owner, not its session (⑳: V23 marks a SendCaravan to
+    /// another player; V28 judges the holder).
+    pub owner_required: std::collections::BTreeSet<(usize, usize)>,
 }
 
 impl Ctx<'_> {
@@ -197,6 +202,7 @@ pub fn run(input: &Input) -> Report {
         s1: crate::conquest::s1_applies(input),
         cq_expected: Default::default(),
         cq_replayed: Default::default(),
+        owner_required: Default::default(),
     };
     let mut ran: Vec<&'static str> = vec![];
     // What this verifier can judge at all: unknown or unmodelled

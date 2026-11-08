@@ -50,7 +50,8 @@ pub use crate::codes::HISTORY_UNPROVEN;
 /// - V28 (⑳, 2026-11-07): a ResidentAct's inner instruction, proof-account
 ///   flags, Season, canonical addresses, its pass's JoinResident (fetched)
 ///   and the Citizen's post-state, all inside fetched transactions; **not**
-///   `ResidentOldAuthority`, which rests on the resident program's feed.
+///   `ResidentOldAuthority` and `ResidentOwnerRequired`, which rest on the
+///   resident program's feed.
 ///
 /// Everything else (V1's chains and heads, V5, V7 and the other replays
 /// over earlier state) is not, until its owner says otherwise.
@@ -64,7 +65,10 @@ pub fn self_contained(f: &Finding) -> bool {
         && match f.check {
             "V0" => f.code != crate::codes::UNDECODABLE,
             "V27" => true,
-            "V28" => f.code != crate::codes::RESIDENT_OLD_AUTHORITY,
+            "V28" => {
+                f.code != crate::codes::RESIDENT_OLD_AUTHORITY
+                    && f.code != crate::codes::RESIDENT_OWNER_REQUIRED
+            }
             "V9" => f.entity == "RESIDENT_JOINED",
             _ => false,
         }

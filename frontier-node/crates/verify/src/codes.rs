@@ -38,6 +38,10 @@ pub const RESIDENT_ACT_MISMATCH: &str = "ResidentActMismatch";
 /// pass's holder at the time: an earlier generation, a previous owner, a
 /// previous owner's session (FAIL, V28).
 pub const RESIDENT_OLD_AUTHORITY: &str = "ResidentOldAuthority";
+/// A ResidentAct the program allows only to the pass's owner (a send to
+/// another player, CloseVault, CloseStructure) accepted from its session
+/// (FAIL, V28).
+pub const RESIDENT_OWNER_REQUIRED: &str = "ResidentOwnerRequired";
 /// A ResidentAct whose holder or join the record cannot show (UNVERIFIABLE, V28).
 pub const RESIDENT_ACT_UNPROVEN: &str = "ResidentActUnproven";
 /// A ResidentAct's inner instruction, whose own effects no check replays yet (UNVERIFIABLE, V28).
