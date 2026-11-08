@@ -39,7 +39,14 @@ const { parseActionRequest } = await import(pathToFileURL(path.join(GATEWAY_ROOT
 const fateMod = await import(pathToFileURL(path.join(GATEWAY_ROOT, 'src/frontier/agent/fate.mjs')).href);
 /** The wallet tree has GET /f/agent/fate's logic (actionFateView) and patch 0008 (per-sender capabilities). */
 export const HAS_FATE = typeof gw.actionFateView === 'function';
-export const HAS_0008 = Array.isArray(gw.CAPABILITY_SOURCES);
+/**
+ * Which per-sender capability code the wallet tree carries: 'ws05' (⑤'s shared core, 0005–0007: rotateCapability /
+ * revokeCapability with a source, view `senderCapabilities`, whoami `capabilitySource` 'any' for the general token),
+ * '0008' (③'s earlier proposal), or null.
+ */
+export const SENDER_API = typeof gw.AgentGateway.prototype.revokeCapability === 'function' ? 'ws05' : Array.isArray(gw.CAPABILITY_SOURCES) ? '0008' : null;
+export const HAS_SENDERS = SENDER_API !== null;
+export const HAS_0008 = HAS_SENDERS; // the tests' old name: "has per-sender capabilities"
 
 const constant = n => base58(Uint8Array.from({ length: 32 }, (_, i) => (i * 7 + n) % 251 + 1));
 export const OWNER = constant(11);
@@ -104,6 +111,12 @@ export async function keyfreeWorld({ relay = 'current' } = {}) {
   const made = g.createAgent({ owner: OWNER, village: VILLAGE, policy: { allowed: ['transport', 'economy'], budget: { total: '1000000', perDay: '1000000' } } });
   const agentId = made.agent.agentId;
   g.setMode(agentId, OWNER, 'auto');
+  // One way for the tests to issue and revoke a sender's token on either code: on ⑤'s, its own methods (an alias,
+  // no logic of the harness's).
+  if (SENDER_API === 'ws05') {
+    g.issueSourceCapability = (a, o, s) => g.rotateCapability(a, o, s);
+    g.revokeSourceCapability = (a, o, s) => g.revokeCapability(a, o, s);
+  }
   const node = scriptedNode();
   const state = { caravans: 0, stores: [500, 500, 50, 500, 0, 100, 0, 0], vault: [0, 0, 400, 0, 0, 0, 0, 0], events: [], moving: [], down: null };
   const script = { next: 'sent', sends: new Map(), n: 0, posts: 0, chainSent: 0, commands: [] };
@@ -141,7 +154,7 @@ export async function keyfreeWorld({ relay = 'current' } = {}) {
       return { status: 200, json: res };
     }
     let bound;
-    try { bound = g.whoami(body?.request?.agentId, { capability: body?.capability }).capabilitySource; } catch (e) { return { status: e.status ?? 401, json: { error: e.message, code: e.code } }; }
+    try { bound = g.whoami(body?.request?.agentId, { capability: body?.capability }).capabilitySource; if (bound === 'any') bound = null; } catch (e) { return { status: e.status ?? 401, json: { error: e.message, code: e.code } }; }
     let r;
     try { r = parseActionRequest(body.request); } catch (e) { return { status: 400, json: { error: e.message, code: e.code ?? 'BadRequest' } }; }
     if (bound && r.source !== bound) return { status: 401, json: { error: `this capability is issued for source ${bound}, not ${r.source}`, code: 'BadCapability' } };
@@ -181,10 +194,10 @@ export async function keyfreeWorld({ relay = 'current' } = {}) {
         const id = u.searchParams.get('id');
         if (id !== agentId) return json(404, { error: 'no such agent', code: 'UnknownAgent' });
         const v = { ...g.view(id), history: history.slice(-50) };
-        if (relay === 'old') delete v.capabilities;
+        if (relay === 'old') { delete v.capabilities; delete v.senderCapabilities; }
         // `relay: 'ws05'`: ⑤'s contract AS ⑤ DESCRIBED IT (message 2026-11-06, not ⑤'s code): the view lists
         // `senderCapabilities`; rotate-capability {source} issues a sender's token; issue-capability does not exist.
-        if (relay === 'ws05') { v.senderCapabilities = v.capabilities; delete v.capabilities; }
+        if (relay === 'ws05' && v.capabilities && !v.senderCapabilities) { v.senderCapabilities = v.capabilities; delete v.capabilities; } // on ⑤'s tree: its own view, unchanged
         return json(200, v);
       }
       if (p === '/f/agent/command' && init.method === 'POST') {
@@ -197,6 +210,8 @@ export async function keyfreeWorld({ relay = 'current' } = {}) {
           }
           // `relay: 'unbound'`: a relay that lists capabilities but answers a sender's request with the agent's one token.
           if (relay === 'ws05' && c.op === 'issue-capability') return json(400, { error: 'unknown op', code: 'BadRequest' });
+          if (relay === 'unbound' && SENDER_API === 'ws05' && c.op === 'rotate-capability') return json(200, { ok: true, ...g.rotateCapability(c.agentId, c.owner) });
+          if (SENDER_API === 'ws05' && c.op === 'issue-capability') return json(400, { error: 'unknown op', code: 'BadRequest' }); // ⑤'s relay has no such op
           if (c.op === 'issue-capability' && relay === 'unbound') return json(200, { ok: true, ...g.rotateCapability(c.agentId, c.owner) });
           if (c.op === 'issue-capability') return json(200, { ok: true, ...g.issueSourceCapability(c.agentId, c.owner, c.params?.source) });
           if (c.op === 'revoke-capability') return json(200, { ok: true, ...g.revokeSourceCapability(c.agentId, c.owner, c.params?.source) });

@@ -11,7 +11,7 @@ import { existsSync, mkdtempSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { HAS_0008, HAS_FATE, OWNER, keyfreeWorld, mcpServer } from './harness.mjs';
+import { HAS_0008, HAS_FATE, OWNER, SENDER_API, keyfreeWorld, mcpServer } from './harness.mjs';
 
 const BIN = process.env.RUNEXEC_BIN;
 const CLIENT4 = process.env.WS04_ROOT && path.join(process.env.WS04_ROOT, 'workstreams/04-execution/clients/acts.mjs');
@@ -19,7 +19,7 @@ const PORT5 = process.env.WS05_ROOT && path.join(process.env.WS05_ROOT, 'workstr
 const need = (...xs) => xs.find(Boolean) ?? false;
 const skipCap = need(!HAS_FATE && 'needs the wallet with GET /f/agent/fate', !HAS_0008 && 'needs patch 0008 in WS03_GATEWAY_ROOT');
 const skipAll = need(skipCap, (!BIN || !existsSync(BIN)) && 'set RUNEXEC_BIN', (!CLIENT4 || !existsSync(CLIENT4)) && 'set WS04_ROOT', (!PORT5 || !existsSync(PORT5)) && 'set WS05_ROOT');
-const who = (w, token) => { try { return w.g.whoami(w.agentId, { capability: token }).capabilitySource ?? 'unscoped'; } catch (e) { return e.code; } };
+const who = (w, token) => { try { const x = w.g.whoami(w.agentId, { capability: token }).capabilitySource ?? 'unscoped'; return x === 'any' ? 'unscoped' : x; } catch (e) { return e.code; } };
 
 async function setup({ storeFile = null } = {}) {
   const { createActsClient } = await import(pathToFileURL(CLIENT4).href);
@@ -52,7 +52,8 @@ test('resolved with per-sender capabilities (0008): ③ asks for an mcp token; �
   const s = mcpServer(w);
   const ai = w.g.issueSourceCapability(w.agentId, OWNER, 'ai').capability.token; // the owner gives ⑤ its own
   const cmd = await s.auth.capabilityCommandFor(OWNER, w.agentId, 'nonce-kf-1', 0);
-  assert.deepEqual([cmd.op, cmd.params], ['issue-capability', { source: 'mcp' }], '③ never asks for the global rotation on such a relay');
+  // ⑤'s relay: rotate-capability {source}; 0008: issue-capability. Either way a sender's own token, never the global rotation.
+  assert.deepEqual([cmd.op, cmd.params], [SENDER_API === 'ws05' ? 'rotate-capability' : 'issue-capability', { source: 'mcp' }], '③ never asks for the global rotation on such a relay');
   // The relay runs the owner's command (its signature check is the route's unchanged code; not run here).
   let mcp = w.g.issueSourceCapability(w.agentId, OWNER, cmd.params.source).capability.token;
   const link = s.connectAs(mcp);
@@ -65,9 +66,9 @@ test('resolved with per-sender capabilities (0008): ③ asks for an mcp token; �
   assert.equal((await fiveSends(w, ai, 'p05.cap.1')).json.status, 'sent', '⑤ sends with its ai token, after ③\'s connects');
   assert.equal((await fiveSends(w, mcp, 'p05.cap.2')).json.code, 'BadCapability', '③\'s token cannot act as ai');
   assert.equal((await fiveSends(w, ai, 'p05.cap.3', 'mcp')).json.code, 'BadCapability', '⑤\'s token cannot act as mcp');
-  // An older relay (no per-sender capabilities): ③ falls back to the rotation, the conflict as before.
+  // The relay's view lists each sender's token version (⑤: senderCapabilities; 0008: capabilities), never a hash.
   const v = await s.game.json('GET', `http://relay.test/f/agent?id=${w.agentId}`);
-  assert.deepEqual(v.json.capabilities, { ai: { version: 1 }, mcp: { version: 2 } });
+  assert.deepEqual(v.json.senderCapabilities ?? v.json.capabilities, { ai: { version: 1 }, mcp: { version: 2 } });
 });
 
 test('③ and ⑤ on one agent and one ④ registry: separate acts; neither unknown nor unqueryable is a new attempt', { skip: skipAll }, async () => {

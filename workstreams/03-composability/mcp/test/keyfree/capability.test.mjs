@@ -4,10 +4,10 @@
 // revocation and its check). MOCK: the relay's signature check on owner commands (not run), an older relay (scripted).
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { HAS_0008, OWNER, keyfreeWorld, mcpServer } from './harness.mjs';
+import { HAS_0008, OWNER, SENDER_API, keyfreeWorld, mcpServer } from './harness.mjs';
 
 const skip = HAS_0008 ? false : 'needs patch 0008 in WS03_GATEWAY_ROOT';
-const who = (w, token) => { try { const r = w.g.whoami(w.agentId, { capability: token }); return r.capabilitySource ?? r.source ?? 'unscoped'; } catch (e) { return e.code; } };
+const who = (w, token) => { try { const r = w.g.whoami(w.agentId, { capability: token }); const x = r.capabilitySource ?? r.source ?? 'unscoped'; return x === 'any' ? 'unscoped' : x; } catch (e) { return e.code; } };
 const fiveSend = async (w, token, requestId) => (await w.fetch('http://relay.test/f/agent/action', { method: 'POST', body: JSON.stringify({ capability: token,
   request: { agentId: w.agentId, source: 'ai', idempotencyKey: `ai:${requestId}`, policyVersion: 1, action: { name: 'Harvest', holding: [-3, 7, 11], fields: {} } } }) })).json();
 const five = async w => (await w.fetch('http://relay.test/f/agent/command', { method: 'POST', body: JSON.stringify({ command: { op: 'rotate-capability', owner: OWNER, agentId: w.agentId, params: { source: 'ai' } } }) })).json();
@@ -18,11 +18,11 @@ test('issue: ③ asks for its own mcp token; ⑤\'s ai token (⑤\'s rotate-capa
   const ai = (await five(w)).capability;
   assert.deepEqual([ai.source, who(w, ai.token)], ['ai', 'ai'], '⑤\'s form issues an ai token on this relay');
   const c = await s.connectViaRelay();
-  assert.deepEqual([c.command.op, c.command.params, c.meta], ['issue-capability', { source: 'mcp' }, { source: 'mcp', version: 1 }]);
+  assert.deepEqual([c.command.op, c.command.params, c.meta], [SENDER_API === 'ws05' ? 'rotate-capability' : 'issue-capability', { source: 'mcp' }, { source: 'mcp', version: 1 }]);
   const wm = w.g.whoami(w.agentId, { capability: c.token });
-  assert.deepEqual([wm.capabilitySource, wm.capabilitySourceVersion, 'source' in wm], ['mcp', 1, false], 'capabilitySource is the one field');
+  assert.deepEqual([wm.capabilitySource, wm.capabilitySourceVersion ?? wm.senderCapabilityVersion, 'source' in wm], ['mcp', 1, false], 'capabilitySource is the one field');
   assert.equal(who(w, ai.token), 'ai', '⑤ is not stopped by ③\'s connection');
-  assert.deepEqual(w.script.commands, ['rotate-capability', 'issue-capability']);
+  assert.deepEqual(w.script.commands, ['rotate-capability', SENDER_API === 'ws05' ? 'rotate-capability' : 'issue-capability']);
 });
 
 test('renew: a new connection replaces ③\'s old token at the relay (the old one is refused there), ⑤\'s untouched; the old link cannot send', { skip }, async () => {
@@ -57,7 +57,7 @@ test('revoke: dropping ③\'s copy is not enough — the owner\'s revoke-capabil
   assert.deepEqual([rr.confirmed, s.auth.link(c.linkId).relayRevoke.confirmed], [true, true]);
   assert.deepEqual([who(w, c.token), who(w, ai)], ['BadCapability', 'ai'], 'refused at the relay; ⑤ still works');
   const v = (await s.game.json('GET', `http://relay.test/f/agent?id=${w.agentId}`)).json;
-  assert.deepEqual(v.capabilities, { ai: { version: 1 } });
+  assert.deepEqual(v.senderCapabilities ?? v.capabilities, { ai: { version: 1 } });
 });
 
 test('an older relay (one capability per agent): no write connection, nothing sent to the relay, ⑤\'s token intact — and why', { skip }, async () => {

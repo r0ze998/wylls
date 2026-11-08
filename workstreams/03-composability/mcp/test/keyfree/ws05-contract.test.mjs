@@ -7,7 +7,7 @@ import assert from 'node:assert/strict';
 import { HAS_0008, OWNER, keyfreeWorld, mcpServer } from './harness.mjs';
 
 const skip = HAS_0008 ? false : 'needs a wallet tree with per-sender capabilities (WS03_GATEWAY_ROOT)';
-const who = (w, token) => { try { return w.g.whoami(w.agentId, { capability: token }).capabilitySource ?? 'unscoped'; } catch (e) { return e.code; } };
+const who = (w, token) => { try { const x = w.g.whoami(w.agentId, { capability: token }).capabilitySource ?? 'unscoped'; return x === 'any' ? 'unscoped' : x; } catch (e) { return e.code; } };
 const cmd = async (w, op, params) => (await w.fetch('http://relay.test/f/agent/command', { method: 'POST', body: JSON.stringify({ command: { op, owner: OWNER, agentId: w.agentId, params } }) })).json();
 
 test('⑤\'s contract: ③ sends rotate-capability {source: mcp} only where the view lists senderCapabilities; ⑤\'s ai token survives issue, renewal and ③\'s revocation', { skip }, async () => {
