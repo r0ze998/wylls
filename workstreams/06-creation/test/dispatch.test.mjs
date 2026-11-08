@@ -311,11 +311,14 @@ test("the file journal survives a process restart and leaves no partial file", a
   const dir = mkdtempSync(join(tmpdir(), "ws06-journal-"));
   const path = join(dir, "dispatch.json");
   const four = fake4();
-  let d = new Dispatch({ journal: fileJournal(path, fs), run4: four });
+  // two runs of the program: the same pid (common in a container), another process start time
+  const first = { pid: 4242, startOf: (pid) => (pid === 4242 ? "start-1" : null) };
+  let d = new Dispatch({ journal: fileJournal(path, fs, first), run4: four });
   const p = d.plan({ route: "run", ...relayRequest(), requester: REQ });
   four.loseAccept = 1;
   await d.advance(p.key);
-  d = new Dispatch({ journal: fileJournal(path, fs), run4: four });
+  // the first run died without close(): the restart takes its lock over
+  d = new Dispatch({ journal: fileJournal(path, fs, { pid: 4242, startOf: (pid) => (pid === 4242 ? "start-2" : null) }), run4: four });
   const st = await d.advance(p.key);
   assert.equal(st.steps[0].state, "accepted");
   assert.equal(four.created, 1);
@@ -383,25 +386,162 @@ test("two passes over one request at once in one process: one goes out, the othe
   assert.equal(four.accepts, 1, "one accept, not two");
 });
 
-test("the file journal has one writer: a second opener is refused, a dead holder's lock is taken over; the directory is fsynced", async () => {
-  const dir = mkdtempSync(join(tmpdir(), "ws06-lock-"));
-  const path = join(dir, "dispatch.json");
-  const j1 = fileJournal(path, fs, { pid: 111, alive: (pid) => pid === 111 });
-  assert.throws(() => fileJournal(path, fs, { pid: 222, alive: (pid) => pid === 111 }), (e) => e.code === "JournalLocked");
+// A process table for the lock: pid -> start time ("missing" = no such process)
+const procs = (entries) => { const t = new Map(entries); return (pid) => (t.has(pid) ? t.get(pid) : null); };
+const lockDir = () => join(mkdtempSync(join(tmpdir(), "ws06-lock-")), "dispatch.json");
+
+test("journal lock, same process: a second open is refused; close() releases only its own lock", () => {
+  const path = lockDir();
+  const table = procs([[700, "s700"]]);
+  const a = fileJournal(path, fs, { pid: 700, startOf: table });
+  assert.throws(() => fileJournal(path, fs, { pid: 700, startOf: table }), (e) => e.code === "JournalLocked", "the same pid and start: another open in this process");
+  // with the real process table, as 16 probed it
+  const real = lockDir();
+  const r1 = fileJournal(real, fs);
+  assert.throws(() => fileJournal(real, fs), (e) => e.code === "JournalLocked");
+  r1.close();
+  const r2 = fileJournal(real, fs); // after close: open again
+  r2.close();
+  a.save({ format: "wylls.creation.dispatch/0", plans: {} });
+  a.close();
+  assert.equal(fs.existsSync(`${path}.lock`), false);
+});
+
+test("journal lock, live holder: another process cannot take it; a previous run's lock (dead pid, or the same pid restarted) is taken over", () => {
+  const path = lockDir();
+  const a = fileJournal(path, fs, { pid: 800, startOf: procs([[800, "s800"], [801, "s801"]]) });
+  assert.throws(() => fileJournal(path, fs, { pid: 801, startOf: procs([[800, "s800"], [801, "s801"]]) }), (e) => e.code === "JournalLocked");
+  // 800 died (not in the table): 801 takes over
+  const b = fileJournal(path, fs, { pid: 801, startOf: procs([[801, "s801"]]) });
+  // a pid now used by an unrelated process (another start time) is not the holder: taken over
+  const c = fileJournal(path, fs, { pid: 802, startOf: procs([[801, "reused"], [802, "s802"]]) });
+  assert.throws(() => b.save({ v: 1 }), (e) => e.code === "JournalFenced");
+  c.close();
+  void a;
+});
+
+test("journal lock, 16's probe shape: pids absent from the process table, liveness from an injected alive()", () => {
+  const none = () => null; // no /proc entry for any of these pids
+  // J2: the same pid twice is refused although the process table does not know it
+  const p2 = lockDir();
+  const j1 = fileJournal(p2, fs, { pid: 111, alive: () => true, startOf: none });
+  assert.throws(() => fileJournal(p2, fs, { pid: 111, alive: () => true, startOf: none }), (e) => e.code === "JournalLocked");
+  assert.throws(() => fileJournal(p2, fs, { pid: 111, alive: () => false, startOf: none }), (e) => e.code === "JournalLocked", "this process even if alive() says no");
   j1.close();
-  const j2 = fileJournal(path, fs, { pid: 222, alive: () => true });
-  j2.close();
-  // a holder that died without closing
-  fileJournal(path, fs, { pid: 333, alive: () => true });
-  const j3 = fileJournal(path, fs, { pid: 444, alive: (pid) => pid === 444 });
-  // the saved journal survives; the rename is followed by an fsync of the directory
+  // J4: alive() is honoured: a live holder in another process is refused, close() releases
+  const p4 = lockDir();
+  const a4 = fileJournal(p4, fs, { pid: 111, alive: () => true, startOf: none });
+  assert.throws(() => fileJournal(p4, fs, { pid: 222, alive: () => true, startOf: none }), (e) => e.code === "JournalLocked");
+  a4.close();
+  assert.equal(fs.existsSync(`${p4}.lock`), false);
+  // J1: two restarts after a crash, interleaved: one wins
+  const p1 = lockDir();
+  fs.writeFileSync(`${p1}.lock`, "999\n"); // a crashed holder, old lock format
+  const dead999 = (p) => p !== 999;
+  let b = null, once = false;
+  const aFs = { ...fs, readFileSync: (f, o) => {
+    const v = fs.readFileSync(f, o);
+    if (!once && String(f) === `${p1}.lock`) { once = true; b = fileJournal(p1, fs, { pid: 222, alive: dead999, startOf: none }); }
+    return v;
+  } };
+  assert.throws(() => fileJournal(p1, aFs, { pid: 111, alive: dead999, startOf: none }), (e) => e.code === "JournalLocked");
+  b.save({ who: "B" });
+  assert.deepEqual(JSON.parse(readFileSync(p1, "utf8")), { who: "B" });
+  // J3: a writer whose lock was taken over is fenced
+  const p3 = lockDir();
+  const a3 = fileJournal(p3, fs, { pid: 111, alive: () => true, startOf: none });
+  const b3 = fileJournal(p3, fs, { pid: 222, alive: (p) => p === 222, startOf: none });
+  b3.save({ who: "B", step: "sent" });
+  assert.throws(() => a3.save({ who: "A", step: "stale" }), (e) => e.code === "JournalFenced");
+  assert.deepEqual(JSON.parse(readFileSync(p3, "utf8")), { who: "B", step: "sent" });
+  a3.close();
+  assert.equal(fs.existsSync(`${p3}.lock`), true, "the fenced writer's close leaves B's lock");
+  b3.close();
+});
+
+test("journal lock, takeover race: two openers that judged the same lock stale cannot both win", () => {
+  const path = lockDir();
+  fileJournal(path, fs, { pid: 900, startOf: procs([[900, "s900"]]) }); // dies without close
+  const table = procs([[901, "s901"], [902, "s902"]]);
+  let b = null, bErr = null;
+  // A reads the stale lock; before A takes it over, B runs its whole takeover
+  let interleaved = false;
+  const aFs = { ...fs, readFileSync: (f, o) => {
+    const v = fs.readFileSync(f, o);
+    if (!interleaved && String(f).endsWith(".lock")) {
+      interleaved = true;
+      try { b = fileJournal(path, fs, { pid: 902, startOf: table }); } catch (e) { bErr = e; }
+    }
+    return v;
+  } };
+  let aErr = null;
+  try { fileJournal(path, aFs, { pid: 901, startOf: table }); } catch (e) { aErr = e; }
+  assert.equal(bErr, null, "B took it over");
+  assert.equal(aErr?.code, "JournalLocked", "A sees the lock changed and gives up");
+  b.save({ v: "B" });
+  assert.deepEqual(JSON.parse(readFileSync(path, "utf8")), { v: "B" });
+  // a takeover that is under way (its taker alive) is not raced either
+  const path2 = lockDir();
+  fileJournal(path2, fs, { pid: 910, startOf: procs([[910, "s910"]]) });
+  fs.writeFileSync(`${path2}.lock.takeover`, JSON.stringify({ pid: 911, start: "s911", token: "t" }));
+  assert.throws(() => fileJournal(path2, fs, { pid: 912, startOf: procs([[911, "s911"], [912, "s912"]]) }), (e) => e.code === "JournalLocked");
+  // a taker that died mid-takeover does not block forever
+  const j = fileJournal(path2, fs, { pid: 912, startOf: procs([[912, "s912"]]) });
+  j.close();
+  assert.equal(fs.existsSync(`${path2}.lock.takeover`), false);
+});
+
+test("journal lock, fencing: a writer that lost the lock writes nothing; its close() leaves the new holder's lock", () => {
+  const path = lockDir();
+  const a = fileJournal(path, fs, { pid: 1000, startOf: procs([[1000, "s1000"]]) });
+  a.save({ v: "A" });
+  // A is judged gone (e.g. by a process in another view of the table); B takes over
+  const b = fileJournal(path, fs, { pid: 1001, startOf: procs([[1001, "s1001"]]) });
+  assert.throws(() => a.save({ v: "A again" }), (e) => e.code === "JournalFenced");
+  assert.deepEqual(JSON.parse(readFileSync(path, "utf8")), { v: "A" }, "the old writer changed nothing");
+  a.close();
+  assert.ok(fs.existsSync(`${path}.lock`), "A's close did not remove B's lock");
+  b.save({ v: "B" });
+  b.close();
+  assert.equal(fs.existsSync(`${path}.lock`), false);
+  // a Dispatch over a fenced journal stops at its first write: no outside call follows
+  const path3 = lockDir();
+  const four = fake4();
+  const j = fileJournal(path3, fs, { pid: 1100, startOf: procs([[1100, "s1100"]]) });
+  const d = new Dispatch({ journal: j, run4: four });
+  const p = d.plan({ route: "run", ...relayRequest(), requester: REQ, nonce: "fz" });
+  fileJournal(path3, fs, { pid: 1101, startOf: procs([[1101, "s1101"]]) }); // takes over
+  return assert.rejects(d.advance(p.key), (e) => e.code === "JournalFenced").then(() => assert.equal(four.accepts, 0, "the accept is never made: the journal write before it was refused"));
+});
+
+test("journal lock, real processes: eight that race for one stale lock, five rounds: exactly one wins each round", async () => {
+  const { spawn } = await import("node:child_process");
+  const { fileURLToPath } = await import("node:url");
+  const mod = new URL("../src/connect/dispatch.mjs", import.meta.url).href;
+  const child = `const { fileJournal } = await import(${JSON.stringify(mod)}); const fs = await import("node:fs");
+    try { fileJournal(process.argv[1], fs); process.stdout.write("won"); setTimeout(() => {}, 300); } catch (e) { process.stdout.write(e.code); }`;
+  for (let round = 0; round < 5; round++) {
+    const path = lockDir();
+    fs.writeFileSync(`${path}.lock`, JSON.stringify({ pid: 2147483646, start: "gone", token: "dead" }));
+    const outs = await Promise.all(Array.from({ length: 8 }, () => new Promise((ok) => {
+      const c = spawn(process.execPath, ["--input-type=module", "-e", child, path], { stdio: ["ignore", "pipe", "inherit"] });
+      let o = ""; c.stdout.on("data", (x) => { o += x; }); c.on("close", () => ok(o));
+    })));
+    assert.equal(outs.filter((o) => o === "won").length, 1, `round ${round}: ${outs.join(",")}`);
+    assert.ok(outs.every((o) => o === "won" || o === "JournalLocked"), outs.join(","));
+    void fileURLToPath;
+  }
+});
+
+test("the file journal is fsynced through the directory after the rename", () => {
+  const path = lockDir();
+  const dir = path.slice(0, path.lastIndexOf("/"));
   const dirFds = new Set(), syncedDirs = [];
   const spy = { ...fs, fsyncSync: (fd) => { if (dirFds.has(fd)) syncedDirs.push(fd); return fs.fsyncSync(fd); }, openSync: (...a) => { const fd = fs.openSync(...a); if (a[0] === dir) dirFds.add(fd); return fd; } };
-  j3.close();
-  const j4 = fileJournal(path, spy, { pid: 555, alive: () => false });
-  new Dispatch({ journal: j4, run4: fake4() }).plan({ route: "run", ...relayRequest(), requester: REQ, nonce: "f1" });
+  const j = fileJournal(path, spy, { pid: 1200, startOf: procs([[1200, "s1200"]]) });
+  new Dispatch({ journal: j, run4: fake4() }).plan({ route: "run", ...relayRequest(), requester: REQ, nonce: "f1" });
   assert.ok(syncedDirs.length > 0, "the directory was fsynced after the rename");
   assert.equal(JSON.parse(readFileSync(path, "utf8")).format, "wylls.creation.dispatch/0");
-  j4.close();
+  j.close();
   assert.equal(fs.existsSync(`${path}.lock`), false);
 });

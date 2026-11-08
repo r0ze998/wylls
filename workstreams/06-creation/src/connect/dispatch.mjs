@@ -34,6 +34,8 @@
  * run request: a new nonce, so new ids. This module never makes one itself.
  */
 
+import { randomUUID } from "node:crypto";
+import { readFileSync } from "node:fs";
 import { contentHash } from "../canonical.mjs";
 import { bindInbound, resultOfAct, resultOfRun4, toMcpCaravans, toRunSpecs } from "./caravan.mjs";
 
@@ -256,30 +258,86 @@ export function requesterProblem(r) {
 /**
  * A journal in one JSON file, written to a temporary file, fsynced, renamed
  * over the old one, and the directory fsynced (so the rename survives a power
- * loss). One writer at a time: opening takes `<path>.lock` (exclusive create,
- * holding the pid); a second opener is refused (JournalLocked) instead of
- * silently overwriting the first one's state. A lock whose pid is no longer
- * running is taken over. `close()` releases it.
+ * loss). One writer at a time, fenced:
+ *
+ *   - Opening takes `<path>.lock` by exclusive create. The lock names its
+ *     holder: pid, the process's start time (/proc/<pid>/stat, so a reused
+ *     pid is not mistaken for the holder) and a token of this open.
+ *   - A lock whose holder still runs is refused (JournalLocked) — the same
+ *     process included: a second open in one process is refused, not merged.
+ *     A lock left by a previous run (its pid gone, or the same pid with
+ *     another start time: a restart) is taken over.
+ *   - A takeover holds `<path>.lock.takeover` (exclusive create) while it
+ *     re-reads the lock and replaces it only if it is still the one judged
+ *     stale; two openers that saw the same stale lock cannot both win.
+ *   - Every save first checks that the lock still carries this open's token;
+ *     a writer that lost the lock is refused (JournalFenced) and writes nothing.
+ *   - close() removes the lock only if it is still this open's.
+ *
+ * A holder with this open's pid and start time is this process and is never
+ * taken over, even when the process table has no entry for it. `alive(pid)`,
+ * when given (tests, probes), answers whether a pid exists in place of the
+ * process table; start times still come from `startOf`.
+ *
+ * Limits: the holder check reads the local process table, so writers on
+ * other machines or pid namespaces sharing the file are not told apart.
  */
-export function fileJournal(path, fs, { pid = process.pid, alive = pidAlive } = {}) {
+export function fileJournal(path, fs, { pid = process.pid, alive, startOf = procStart, token = randomToken() } = {}) {
   const lock = `${path}.lock`;
-  const take = () => { const fd = fs.openSync(lock, "wx"); try { fs.writeSync(fd, `${pid}\n`); fs.fsyncSync(fd); } finally { fs.closeSync(fd); } };
-  try {
-    take();
-  } catch (e) {
-    if (e.code !== "EEXIST") throw e;
-    const holder = Number.parseInt(String(fs.readFileSync(lock, "utf8")).trim(), 10);
-    if (Number.isSafeInteger(holder) && holder !== pid && alive(holder)) throw Object.assign(new Error(`journal ${path} is held by process ${holder}`), { code: "JournalLocked" });
-    fs.unlinkSync(lock); // the holder is gone (or is this process): take it over
-    take();
-  }
+  const mutex = `${lock}.takeover`;
+  const mine = { pid, start: startOf(pid), token };
+  const body = JSON.stringify(mine);
+  const readLock = () => { try { return String(fs.readFileSync(lock, "utf8")); } catch (e) { if (e.code === "ENOENT") return null; throw e; } };
+  const parse = (text) => { try { const v = JSON.parse(text); return v && typeof v === "object" ? v : null; } catch { return null; } };
+  const known = (s) => s !== null && s !== undefined;
+  /**
+   * Whether the holder a lock names is a running process (the same pid with another start time is not).
+   * A holder with this pid and this start time is this process, whatever the process table says.
+   * `alive(pid)`, when given, answers whether a pid exists in place of the process table.
+   */
+  const running = (h) => {
+    if (!h || !Number.isSafeInteger(h.pid) || h.pid <= 0) return false;
+    if (h.pid === pid && (h.start === mine.start || (!known(h.start) && !known(mine.start)))) return true;
+    const now = startOf(h.pid);
+    if (alive ? alive(h.pid) !== true : now === null) return false; // no such process
+    return !known(h.start) || !known(now) || h.start === now;
+  };
+  const create = (file, text) => { const fd = fs.openSync(file, "wx"); try { fs.writeSync(fd, `${text}\n`); fs.fsyncSync(fd); } finally { fs.closeSync(fd); } };
+  const refuse = (h) => Object.assign(new Error(`journal ${path} is held by process ${h?.pid ?? "?"}${h?.pid === pid ? " (this process: another open)" : ""}`), { code: "JournalLocked" });
+  const open = () => {
+    try { create(lock, body); return; } catch (e) { if (e.code !== "EEXIST") throw e; }
+    const seen = readLock();
+    if (seen === null) return open(); // released meanwhile
+    const holder = parse(seen);
+    if (running(holder)) throw refuse(holder);
+    // stale: take it over, one taker at a time, only if it is still the lock judged stale
+    try { create(mutex, body); } catch (e) {
+      if (e.code !== "EEXIST") throw e;
+      let t = null;
+      try { t = parse(String(fs.readFileSync(mutex, "utf8"))); } catch (r) { if (r.code !== "ENOENT") throw r; }
+      if (running(t)) throw Object.assign(new Error(`journal ${path}: another process is taking the stale lock over`), { code: "JournalLocked" });
+      fs.rmSync(mutex, { force: true }); // a taker that died mid-takeover
+      return open();
+    }
+    try {
+      if (readLock() !== seen) throw refuse(parse(readLock()));
+      const tmp = `${lock}.${token}.tmp`;
+      create(tmp, body);
+      fs.renameSync(tmp, lock);
+    } finally {
+      fs.rmSync(mutex, { force: true });
+    }
+  };
+  open();
   const dir = path.includes("/") ? path.slice(0, path.lastIndexOf("/")) || "/" : ".";
+  const holds = () => parse(readLock())?.token === token;
   return {
     load() {
       try { return JSON.parse(fs.readFileSync(path, "utf8")); } catch (e) { if (e.code === "ENOENT") return null; throw e; }
     },
     save(obj) {
-      const tmp = `${path}.tmp`;
+      if (!holds()) throw Object.assign(new Error(`journal ${path}: this writer no longer holds the lock; nothing written`), { code: "JournalFenced" });
+      const tmp = `${path}.${token}.tmp`;
       const fd = fs.openSync(tmp, "w");
       try { fs.writeSync(fd, `${JSON.stringify(obj)}\n`); fs.fsyncSync(fd); } finally { fs.closeSync(fd); }
       fs.renameSync(tmp, path);
@@ -287,11 +345,22 @@ export function fileJournal(path, fs, { pid = process.pid, alive = pidAlive } = 
       try { fs.fsyncSync(d); } finally { fs.closeSync(d); }
     },
     close() {
-      try { if (Number.parseInt(String(fs.readFileSync(lock, "utf8")).trim(), 10) === pid) fs.unlinkSync(lock); } catch (e) { if (e.code !== "ENOENT") throw e; }
+      if (holds()) fs.rmSync(lock, { force: true });
     },
   };
 }
 
-function pidAlive(pid) {
-  try { process.kill(pid, 0); return true; } catch (e) { return e.code === "EPERM"; }
+/** A process's start time from /proc/<pid>/stat (field 22), null if there is no such process, undefined if unknown. */
+function procStart(pid) {
+  try {
+    const stat = readFileSync(`/proc/${pid}/stat`, "utf8");
+    return stat.slice(stat.lastIndexOf(")") + 2).split(" ")[19];
+  } catch (e) {
+    if (e.code === "ENOENT") return null;
+    try { process.kill(pid, 0); return undefined; } catch (k) { return k.code === "EPERM" ? undefined : null; }
+  }
+}
+
+function randomToken() {
+  return randomUUID();
 }
