@@ -38,7 +38,6 @@ const CAPTOR: Key = [0xCA; 32];
 const PAYER: Key = [0x9A; 32];
 const BENEF: Key = [0xBE; 32];
 const SYSTEM: Key = [0; 32];
-const PROV: Key = [0x70; 32];
 const ORE: u8 = Resource::Ore as u8;
 const T: i64 = 50_000;
 const BELL: u32 = 30;
@@ -60,6 +59,7 @@ struct Keys {
     lot_a: Key,
     lot_b: Key,
     caravan: Key,
+    prov: Key,
 }
 
 fn keys(program: Key) -> Keys {
@@ -71,6 +71,7 @@ fn keys(program: Key) -> Keys {
         lot_a: addr::lot(&c, 3, -2, 7, 1, 0xB2, ORE),
         lot_b: addr::lot(&c, 3, -2, 9, 1, 0xB2, ORE),
         caravan: addr::caravan(&c, 0xB2, SEQ),
+        prov: c.province(3, -2),
     }
 }
 
@@ -190,6 +191,7 @@ impl World {
             closed_before: &closed,
             program: PROGRAM,
             records: &self.records,
+            genesis_ts: T - BELL as i64 * 600,
         })
     }
 }
@@ -314,7 +316,13 @@ fn partial(kind: &str, what: &str) -> Replayed {
     ))
 }
 
-const SEND: &str = "the route, its tower wear, the arrival and the path slots (the send rules V23 judges for SendCaravan)";
+/// What a send without its Season and path Provinces in the input gives:
+/// its lot's side judged, its route not.
+fn route_not_judged(kind: &str) -> Replayed {
+    Replayed::Partial(format!(
+        "{kind}: the lot's side matches the kernel; the route is not judged: the Season's state before the transaction is not in the input"
+    ))
+}
 
 /// Each caravan instruction as the program would land it, with the states
 /// the kernel writes.
@@ -354,18 +362,15 @@ fn cases() -> Vec<Case> {
                 qty: 10,
                 steps: 2,
                 path: [0; 12],
-                fee: 5_000,
+                fee: 50_000,
             }
             .to_bytes()
             .to_vec(),
             accounts: vec![
-                OWNER_W, PAYER, SEASON, OWNER, k.src, k.va, k.lot_a, k.caravan, SYSTEM, PROV,
+                OWNER_W, PAYER, SEASON, OWNER, k.src, k.va, k.lot_a, k.caravan, SYSTEM, k.prov,
             ],
             w,
-            want: partial(
-                "DepositLot",
-                &format!("{SEND} and a holding source's debit"),
-            ),
+            want: route_not_judged("DepositLot"),
         });
     }
     // ShipLot by the owner: 5 to its lot in vault B, 4 left after the wear.
@@ -418,16 +423,16 @@ fn cases() -> Vec<Case> {
                 qty: 5,
                 steps: 1,
                 path: [0; 12],
-                fee: 5_000,
+                fee: 50_000,
             }
             .to_bytes()
             .to_vec(),
             accounts: vec![
                 OWNER_W, PAYER, SEASON, OWNER, k.va, k.lot_a, k.vb, k.lot_b, k.caravan, SYSTEM,
-                PROV,
+                k.prov,
             ],
             w,
-            want: partial("ShipLot", SEND),
+            want: route_not_judged("ShipLot"),
         });
     }
     // WithdrawLot by the owner's session: 5 to its own vault.
@@ -477,15 +482,15 @@ fn cases() -> Vec<Case> {
                 dst_gen: 1,
                 steps: 1,
                 path: [0; 12],
-                fee: 5_000,
+                fee: 50_000,
             }
             .to_bytes()
             .to_vec(),
             accounts: vec![
-                OWNER_S, PAYER, SEASON, OWNER, k.va, k.lot_a, k.src, k.caravan, SYSTEM, PROV,
+                OWNER_S, PAYER, SEASON, OWNER, k.va, k.lot_a, k.src, k.caravan, SYSTEM, k.prov,
             ],
             w,
-            want: partial("WithdrawLot", SEND),
+            want: route_not_judged("WithdrawLot"),
         });
     }
     // SettleCustody: the deposit's caravan arrives with 9.
@@ -504,7 +509,9 @@ fn cases() -> Vec<Case> {
         out.push(Case {
             name: "SettleCustody",
             data: x::SettleCustody { beneficiary: BENEF }.to_bytes().to_vec(),
-            accounts: vec![PAYER, SEASON, k.caravan, k.va, k.lot_a, BENEF, PAYER, PROV],
+            accounts: vec![
+                PAYER, SEASON, k.caravan, k.va, k.lot_a, BENEF, PAYER, k.prov,
+            ],
             w,
             want: partial(
                 "SettleCustody",
@@ -719,7 +726,7 @@ fn a_send_the_program_refuses_is_a_mismatch() {
         qty: 31,
         steps: 1,
         path: [0; 12],
-        fee: 5_000,
+        fee: 50_000,
     }
     .to_bytes();
     assert_eq!(

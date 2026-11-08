@@ -158,6 +158,7 @@ impl World {
             closed_before: &|_| false,
             program: program(),
             records: &self.records,
+            genesis_ts: T - BELL as i64 * 600,
         })
     }
 }
@@ -644,6 +645,7 @@ fn missing_evidence_is_not_replayed_and_not_a_fail() {
             closed_before: &|_| false,
             program: [0x9F; 32],
             records: &[],
+            genesis_ts: T - BELL as i64 * 600,
         });
         assert!(matches!(r, Replayed::Unreplayed(_)), "{}", c.name);
     }

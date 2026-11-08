@@ -16,8 +16,9 @@
 //! custody step keeps between a lot's recorded states (see [`history`]),
 //! and `V26:custody-replay` runs each landed OpenLot, SetLotQuota,
 //! SetLotOrder, RevokeLotOrder, ConsumeLot and CloseLot through the kernel
-//! on the states recorded before it, and the lot's side of DepositLot,
-//! ShipLot, WithdrawLot, SettleCustody and ReconcileLot (see [`replay`]). What they find wrong
+//! on the states recorded before it, the lot's side of DepositLot,
+//! ShipLot, WithdrawLot, SettleCustody and ReconcileLot, and the three
+//! sends' walk with V23's SendCaravan rules (see [`replay`]). What they find wrong
 //! is a FAIL whatever the rest; none of them upgrades the season: the best
 //! a custody season gets is UNVERIFIABLE.
 //!
@@ -889,6 +890,8 @@ pub struct ReplayCase<'a> {
     pub program: [u8; 32],
     /// The records the transaction logged, in order.
     pub records: &'a [ReplayRecord],
+    /// The season's genesis time (the bells of a send's schedule).
+    pub genesis_ts: i64,
 }
 
 /// The kernel's view of a Vault account (the program's `vault_view`; the
@@ -1389,6 +1392,7 @@ pub fn replay(cx: &mut Ctx) {
             closed_before: &closed_before,
             program: w.program,
             records: &records,
+            genesis_ts: genesis,
         };
         let entity = ix
             .tag()
@@ -1455,8 +1459,6 @@ pub const CARAVAN_REPLAYED: [Ix; 5] = [
 /// of the program's handler that are not the custody kernel's).
 fn not_replayed(kind: Ix) -> &'static str {
     match kind {
-        Ix::DepositLot => "the route, its tower wear, the arrival and the path slots (the send rules V23 judges for SendCaravan) and a holding source's debit",
-        Ix::ShipLot | Ix::WithdrawLot => "the route, its tower wear, the arrival and the path slots (the send rules V23 judges for SendCaravan)",
         Ix::SettleCustody => "the path Provinces' resolution and raid state, the fee and the rent",
         _ => "",
     }
@@ -1608,6 +1610,146 @@ fn records_match(
     None
 }
 
+/// A vault's place as a caravan stores it (the program's `vault_place`).
+fn vault_place(l: &permutation_rules::frontier::custody::Lot) -> super::v23_caravans::Place {
+    super::v23_caravans::Place {
+        kind: frontier_abi::v2::layout::s1::place::KIND_VAULT,
+        p: l.p,
+        q: l.q,
+        at: l.tile,
+        gen: l.vault_gen,
+        tile: l.tile,
+    }
+}
+
+/// What the send of a custody instruction needs (proc::custody's `send`).
+struct Send<'a> {
+    citizen_key: [u8; 32],
+    citizen: &'a [u8],
+    seq: u32,
+    src: super::v23_caravans::Place,
+    dst: super::v23_caravans::Place,
+    cargo: [i64; 8],
+    steps: u8,
+    path: [u8; 12],
+    fee: u64,
+    caravan: [u8; 32],
+    provinces: &'a [[u8; 32]],
+    bell: u32,
+    ctx: &'a frontier_abi::addr::AddrCtx,
+}
+
+/// Why a send's walk is not a match: a rule it breaks (FAIL), or a state
+/// it needs that the input lacks (not judged).
+enum RouteNot {
+    Wrong(String),
+    Missing(String),
+}
+
+/// The replay's states, as V23's judgements read them.
+struct CaseStates<'a, 'b>(&'a ReplayCase<'b>);
+
+impl super::v23_caravans::States for CaseStates<'_, '_> {
+    fn before(&self, k: &[u8; 32]) -> Option<Vec<u8>> {
+        (self.0.before)(k)
+    }
+    fn after(&self, k: &[u8; 32]) -> Option<Vec<u8>> {
+        (self.0.after)(k).flatten()
+    }
+}
+
+/// A custody send's walk, as SendCaravan's (V23's `route`, `check_slots`,
+/// `check_caravan`): the fee, the first path Province the origin's, the
+/// walk and its schedule over the path Provinces before it, the tower
+/// wear, each run's slot written, the Caravan as written (owner, number,
+/// faction, origin, destination, the cargo worn, fee, departure, arrival,
+/// last slot bell) and the Citizen's counter moved by one. A state the
+/// input lacks (the Season, a path Province, the Citizen after) is
+/// `Missing`, never judged.
+fn send_route(c: &ReplayCase, s: &Send) -> Result<(), RouteNot> {
+    use super::v23_caravans::{self as v23, States};
+    use frontier_abi::v2::layout::player::citizen as C;
+    use permutation_rules::frontier::caravan::{caravan_id, CARAVAN_FEE};
+    use permutation_rules::frontier::geometry::ProvinceCoord;
+    let wrong = |m: &str| Err(RouteNot::Wrong(m.to_string()));
+    let missing = |m: &str| Err(RouteNot::Missing(m.to_string()));
+    if s.fee < CARAVAN_FEE {
+        return wrong("its fee is below the caravan fee");
+    }
+    let Some(first) = s.provinces.first() else {
+        return wrong("it lists no path Province");
+    };
+    if *first != s.ctx.province(s.src.p as i32, s.src.q as i32) {
+        return wrong("its first path Province is not the origin's");
+    }
+    let Some(season) = c.accounts.get(2) else {
+        return missing("the instruction lacks its season account");
+    };
+    if (c.before)(season).is_none() {
+        return missing("the Season's state before the transaction is not in the input");
+    }
+    if s.provinces.iter().any(|k| (c.before)(k).is_none()) {
+        return missing("a path Province's state before the transaction is not in the input");
+    }
+    let Some(&faction) = s.citizen.get(C::FACTION) else {
+        return wrong("the Citizen account is short");
+    };
+    let Some(tag) = citizen_tag(s.citizen) else {
+        return wrong("the Citizen account is short");
+    };
+    let st = CaseStates(c);
+    let at = v23::At {
+        now: c.time,
+        bell: s.bell,
+        genesis_ts: c.genesis_ts,
+    };
+    let coord = |p: &v23::Place| (ProvinceCoord::new(p.p as i32, p.q as i32), p.tile);
+    let r = v23::route(
+        &st,
+        s.provinces,
+        coord(&s.src),
+        coord(&s.dst),
+        s.steps,
+        &s.path,
+        faction,
+        &super::v24_structures::Walker::of(&st, season, &s.citizen_key, faction),
+        caravan_id(tag, s.seq),
+        at,
+    )
+    .map_err(|w| RouteNot::Wrong(format!("its walk is not the rules' ({})", w.1)))?;
+    if r.slots.iter().any(|(k, _)| st.after(k).is_none()) {
+        return missing("a path Province's state after the transaction is not in the input");
+    }
+    v23::check_slots(&st, &r)
+        .map_err(|w| RouteNot::Wrong(format!("its walk's slots are not the rules' ({})", w.1)))?;
+    let Some(cd) = st.after(&s.caravan) else {
+        return missing("the caravan's state after the transaction is not in the input");
+    };
+    v23::check_caravan(
+        &cd,
+        &s.citizen_key,
+        s.seq,
+        faction,
+        &s.src,
+        &s.dst,
+        &s.cargo,
+        s.fee,
+        &r,
+        at,
+    )
+    .map_err(|w| RouteNot::Wrong(format!("its caravan is not the rules' ({})", w.1)))?;
+    match st.after(&s.citizen_key) {
+        None => missing("the Citizen's state after the transaction is not in the input"),
+        Some(d)
+            if d.get(C::CARAVANS..C::CARAVANS + 4).map(crate::world::le)
+                == Some(s.seq as u64 + 1) =>
+        {
+            Ok(())
+        }
+        Some(_) => wrong("the Citizen's caravan counter is not moved by one"),
+    }
+}
+
 /// Replays the lot's side of a custody instruction that moves a caravan:
 /// the kernel step (`begin_inbound`, `spend_ship`, `finish_inbound`,
 /// `forfeit`, `drop_inbound`) on the states before, with the caravan's
@@ -1753,6 +1895,10 @@ fn replay_caravan(c: &ReplayCase, kind: Ix) -> Replayed {
                     Err(e) => return bad(e),
                 },
             };
+            // The caravan's destination, for the send's walk (the lot's
+            // vault for a deposit; set below for a shipment and a
+            // withdrawal).
+            let mut route_dst = vault_place(&l);
             match kind {
                 Ix::DepositLot => {
                     if actor.by_session {
@@ -1845,6 +1991,7 @@ fn replay_caravan(c: &ReplayCase, kind: Ix) -> Replayed {
                     if let Some(f) = lot_left(&lk, &l).or_else(|| lot_left(&tlk, &tl)) {
                         return f;
                     }
+                    route_dst = vault_place(&tl);
                     let ck = (actor.tag, seq);
                     let oid = if a.slot == x::SHIP_BY_OWNER {
                         u32::MAX
@@ -1892,7 +2039,10 @@ fn replay_caravan(c: &ReplayCase, kind: Ix) -> Replayed {
                         Some((p, owner))
                             if owner == citizen_key
                                 && (p.kind, p.p, p.q, p.at, p.gen)
-                                    == (a.dst_kind, a.dst_p, a.dst_q, a.dst_at, a.dst_gen) => {}
+                                    == (a.dst_kind, a.dst_p, a.dst_q, a.dst_at, a.dst_gen) =>
+                        {
+                            route_dst = p
+                        }
                         _ => {
                             return bad(
                                 "its destination is not the signer's own live place named".into()
@@ -1939,7 +2089,67 @@ fn replay_caravan(c: &ReplayCase, kind: Ix) -> Replayed {
                     }
                 }
             }
-            partial()
+            // The send itself: proc::custody's `send` is SendCaravan's
+            // (the same walk, wear, slots and Caravan; V23's functions).
+            let (steps, path, fee, first) = match kind {
+                Ix::DepositLot => match x::DepositLot::decode(c.data) {
+                    Ok(a) => (a.steps, a.path, a.fee, 9),
+                    Err(_) => return bad("its data does not decode".into()),
+                },
+                Ix::ShipLot => match x::ShipLot::decode(c.data) {
+                    Ok(a) => (a.steps, a.path, a.fee, 10),
+                    Err(_) => return bad("its data does not decode".into()),
+                },
+                _ => match x::WithdrawLot::decode(c.data) {
+                    Ok(a) => (a.steps, a.path, a.fee, 9),
+                    Err(_) => return bad("its data does not decode".into()),
+                },
+            };
+            let route_src = if kind == Ix::DepositLot {
+                match key(4)
+                    .and_then(|k| (c.before)(&k))
+                    .and_then(|d| super::v23_caravans::live_place(&d))
+                {
+                    Some((p, owner)) if owner == citizen_key => p,
+                    Some(_) => return bad("its source is not the signer's own place".into()),
+                    None => {
+                        return Replayed::Partial(format!(
+                            "{kind:?}: the lot's side matches the kernel; the route is not judged: the source's state before the transaction is not in the input"
+                        ))
+                    }
+                }
+            } else {
+                vault_place(&l)
+            };
+            let mut cargo = [0i64; 8];
+            cargo[r] = q;
+            let send = Send {
+                citizen_key,
+                citizen: &citizen,
+                seq,
+                src: route_src,
+                dst: route_dst,
+                cargo,
+                steps,
+                path,
+                fee,
+                caravan: ck,
+                provinces: c.accounts.get(first..).unwrap_or_default(),
+                bell,
+                ctx: &ctx,
+            };
+            match send_route(c, &send) {
+                Err(RouteNot::Wrong(m)) => bad(m),
+                Err(RouteNot::Missing(m)) => Replayed::Partial(format!(
+                    "{kind:?}: the lot's side matches the kernel; the route is not judged: {m}"
+                )),
+                Ok(()) if kind == Ix::DepositLot && route_src.kind == PLC::KIND_HOLDING => {
+                    Replayed::Partial(format!(
+                        "{kind:?}: the lot's side and the route match; not replayed: the holding source's debit (V7's)"
+                    ))
+                }
+                Ok(()) => Replayed::Matches,
+            }
         }
         // ---------------------------------------------- the settlement
         Ix::SettleCustody => {
@@ -2132,6 +2342,465 @@ fn replay_caravan(c: &ReplayCase, kind: Ix) -> Replayed {
                 return f;
             }
             Replayed::Matches
+        }
+    }
+}
+
+#[cfg(test)]
+mod send_route_tests {
+    //! A custody send's walk judged with V23's own functions: a ShipLot in
+    //! one Province, from the lot's vault (tile 7) to the owner's other lot
+    //! (tile 9). The expected walk is V23's `route` on the same states (its
+    //! rules are V23's and tested there); what is tested here is that V26
+    //! hands it the send's arguments and judges each part. No key is
+    //! generated, derived or used to sign: the addresses are public
+    //! `create_with_seed` derivations.
+    use super::super::v23_caravans as v23;
+    use super::*;
+    use frontier_abi::v2::layout::player::citizen as C;
+    use frontier_abi::v2::layout::province::{caravan_slot as CS, province as PR};
+    use frontier_abi::v2::layout::s1::place as PL;
+    use permutation_rules::fixed::MILLI;
+    use permutation_rules::frontier::caravan::{self as kcv, caravan_id};
+    use permutation_rules::frontier::custody as K;
+    use permutation_rules::frontier::geometry::ProvinceCoord;
+    use std::collections::BTreeMap;
+
+    type Key = [u8; 32];
+    const PROGRAM: Key = [0x9F; 32];
+    const SEASON: Key = [0x5E; 32];
+    const OWNER_W: Key = [0xB1; 32];
+    const OWNER: Key = [0xB2; 32];
+    const KEEPER: Key = [0x4B; 32];
+    const PAYER: Key = [0x9A; 32];
+    const T: i64 = 50_000;
+    const BELL: u32 = 30;
+    // The departure 10 s before a bell starts: the walk stands on a tile
+    // at that bell (a run, its slot in the Province).
+    const GENESIS: i64 = T - BELL as i64 * 600 - 590;
+    const SEQ: u32 = 3;
+    const ORE: u8 = permutation_rules::frontier::holding::Resource::Ore as u8;
+
+    fn ctx() -> frontier_abi::addr::AddrCtx {
+        frontier_abi::addr::AddrCtx {
+            season: SEASON,
+            program: PROGRAM,
+        }
+    }
+
+    #[derive(Clone, Default)]
+    struct W {
+        before: BTreeMap<Key, Vec<u8>>,
+        after: BTreeMap<Key, Option<Vec<u8>>>,
+        records: Vec<ReplayRecord>,
+    }
+
+    impl v23::States for W {
+        fn before(&self, k: &Key) -> Option<Vec<u8>> {
+            self.before.get(k).cloned()
+        }
+        fn after(&self, k: &Key) -> Option<Vec<u8>> {
+            self.after.get(k).cloned().flatten()
+        }
+    }
+
+    impl W {
+        fn replay(&self, data: &[u8], accounts: &[Key]) -> Replayed {
+            let before = |k: &Key| self.before.get(k).cloned();
+            let after = |k: &Key| self.after.get(k).cloned();
+            replay_ix(&ReplayCase {
+                data,
+                accounts,
+                time: T,
+                bell: Some(BELL),
+                before: &before,
+                after: &after,
+                closed_before: &|_| false,
+                program: PROGRAM,
+                records: &self.records,
+                genesis_ts: GENESIS,
+            })
+        }
+    }
+
+    fn citizen(caravans: u32) -> Vec<u8> {
+        let mut d = vec![0u8; C::SIZE];
+        d[C::WALLET..C::WALLET + 32].copy_from_slice(&OWNER_W);
+        d[C::CITIZEN_TAG..C::CITIZEN_TAG + 8].copy_from_slice(&0xB2u64.to_le_bytes());
+        d[C::CARAVANS..C::CARAVANS + 4].copy_from_slice(&caravans.to_le_bytes());
+        d
+    }
+
+    fn vault(tile: u8) -> K::VaultView {
+        K::VaultView {
+            p: 3,
+            q: -2,
+            tile,
+            gen: 1,
+            live: true,
+            owner: KEEPER,
+            owner_tag: 0x4B,
+            stores: [0; 8],
+            cap: 100 * MILLI,
+            quota: [0; 8],
+            lots: 0,
+        }
+    }
+
+    fn vault_bytes(v: &K::VaultView) -> Vec<u8> {
+        let mut d = vec![0u8; VA::SIZE];
+        d[..8].copy_from_slice(&VA::MAGIC);
+        d[VA::P..VA::P + 2].copy_from_slice(&v.p.to_le_bytes());
+        d[VA::Q..VA::Q + 2].copy_from_slice(&v.q.to_le_bytes());
+        d[VA::TILE] = v.tile;
+        d[VA::GEN] = v.gen;
+        d[VA::STATE] = VA::STATE_LIVE;
+        d[VA::OWNER_CITIZEN..VA::OWNER_CITIZEN + 32].copy_from_slice(&v.owner);
+        d[VA::OWNER_TAG..VA::OWNER_TAG + 8].copy_from_slice(&v.owner_tag.to_le_bytes());
+        for r in 0..8 {
+            d[VA::store(r)..VA::store(r) + 8].copy_from_slice(&v.stores[r].to_le_bytes());
+            d[VA::custody_quota(r)..VA::custody_quota(r) + 8]
+                .copy_from_slice(&v.quota[r].to_le_bytes());
+        }
+        d[VA::CAP..VA::CAP + 8].copy_from_slice(&v.cap.to_le_bytes());
+        d[VA::CUSTODY_LOTS..VA::CUSTODY_LOTS + 2].copy_from_slice(&v.lots.to_le_bytes());
+        d
+    }
+
+    fn lot_bytes(l: &K::Lot) -> Vec<u8> {
+        let mut d = vec![0u8; K::layout::lot::SIZE];
+        l.encode(&mut d).unwrap();
+        d
+    }
+
+    fn province() -> Vec<u8> {
+        let mut d = vec![0u8; PR::SIZE];
+        d[PR::P..PR::P + 2].copy_from_slice(&3i16.to_le_bytes());
+        d[PR::Q..PR::Q + 2].copy_from_slice(&(-2i16).to_le_bytes());
+        d[PR::PASSABLE_MASK..PR::PASSABLE_MASK + 8].copy_from_slice(&u64::MAX.to_le_bytes());
+        d
+    }
+
+    fn place_at(d: &mut [u8], off: usize, p: &v23::Place) {
+        d[off + PL::KIND] = p.kind;
+        d[off + PL::P..off + PL::P + 2].copy_from_slice(&p.p.to_le_bytes());
+        d[off + PL::Q..off + PL::Q + 2].copy_from_slice(&p.q.to_le_bytes());
+        d[off + PL::SITE_OR_TILE] = p.at;
+        d[off + PL::GEN] = p.gen;
+        d[off + PL::TILE] = p.tile;
+    }
+
+    /// A path of `steps` from tile 7 to tile 9 inside Province (3, −2).
+    fn path_7_to_9(land: kcv::Land) -> (u8, [u8; 12]) {
+        let origin = (ProvinceCoord::new(3, -2), 7);
+        for n in 1..=4u8 {
+            let mut dirs = vec![0u8; n as usize];
+            loop {
+                let path = kcv::pack(&dirs).unwrap();
+                if let Ok(w) = kcv::walk(origin, &path, n, &[land], 10_000) {
+                    if w.last()
+                        .is_some_and(|s| (s.province, s.tile) == origin.0.pair(9))
+                    {
+                        return (n, path);
+                    }
+                }
+                // next direction vector
+                let mut i = 0;
+                loop {
+                    if i == dirs.len() {
+                        break;
+                    }
+                    dirs[i] += 1;
+                    if dirs[i] < 6 {
+                        break;
+                    }
+                    dirs[i] = 0;
+                    i += 1;
+                }
+                if i == dirs.len() {
+                    break;
+                }
+            }
+        }
+        panic!("no path from tile 7 to tile 9");
+    }
+
+    trait Pair {
+        fn pair(self, t: u8) -> (ProvinceCoord, u8);
+    }
+    impl Pair for ProvinceCoord {
+        fn pair(self, t: u8) -> (ProvinceCoord, u8) {
+            (self, t)
+        }
+    }
+
+    struct Fixture {
+        w: W,
+        data: Vec<u8>,
+        accounts: Vec<Key>,
+        caravan: Key,
+        prov: Key,
+    }
+
+    /// The owner ships 5 of ore by its wallet from its lot in the vault on
+    /// tile 7 to its lot in the vault on tile 9; everything the program
+    /// writes, with the walk V23's `route` gives on these states.
+    fn fixture() -> Fixture {
+        let c = ctx();
+        let (va, vb) = (addr_vault(7), addr_vault(9));
+        let (la, lb) = (
+            frontier_abi::v2::addr::lot(&c, 3, -2, 7, 1, 0xB2, ORE),
+            frontier_abi::v2::addr::lot(&c, 3, -2, 9, 1, 0xB2, ORE),
+        );
+        let caravan = frontier_abi::v2::addr::caravan(&c, 0xB2, SEQ);
+        let prov = c.province(3, -2);
+        let mut w = W::default();
+        w.before.insert(OWNER, citizen(SEQ));
+        w.before.insert(SEASON, vec![0u8; 512]);
+        w.before.insert(prov, province());
+        // The lots: 30 held on tile 7, an empty one on tile 9.
+        let keeper = K::Actor {
+            citizen: KEEPER,
+            tag: 0x4B,
+            by_session: false,
+        };
+        let owner = K::Actor {
+            citizen: OWNER,
+            tag: 0xB2,
+            by_session: false,
+        };
+        let mut v7 = vault(7);
+        let mut l7 = K::open(&mut v7, &keeper, (OWNER, 0xB2), ORE, 40 * MILLI, 10, PAYER).unwrap();
+        K::begin_inbound(&v7, &mut l7, (0x77, 1), 30 * MILLI).unwrap();
+        K::finish_inbound(Some(&v7), &mut l7, (0x77, 1), 30 * MILLI).unwrap();
+        let mut v9 = vault(9);
+        let mut l9 = K::open(&mut v9, &keeper, (OWNER, 0xB2), ORE, 20 * MILLI, 10, PAYER).unwrap();
+        w.before.insert(va, vault_bytes(&v7));
+        w.before.insert(la, lot_bytes(&l7));
+        w.before.insert(vb, vault_bytes(&v9));
+        w.before.insert(lb, lot_bytes(&l9));
+        // The walk.
+        let land = kcv::Land {
+            at: ProvinceCoord::new(3, -2),
+            passable: u64::MAX,
+            rough: 0,
+            road: 0,
+        };
+        let (steps, path) = path_7_to_9(land);
+        let (src, dst) = (vault_place(&l7), vault_place(&l9));
+        let at = v23::At {
+            now: T,
+            bell: BELL,
+            genesis_ts: GENESIS,
+        };
+        let r = v23::route(
+            &w,
+            &[prov],
+            (ProvinceCoord::new(3, -2), 7),
+            (ProvinceCoord::new(3, -2), 9),
+            steps,
+            &path,
+            0,
+            &super::super::v24_structures::Walker::of(&w, &SEASON, &OWNER, 0),
+            caravan_id(0xB2, SEQ),
+            at,
+        )
+        .unwrap();
+        let q = 5 * MILLI;
+        let mut cargo = [0i64; 8];
+        cargo[ORE as usize] = q;
+        let kept = v23::worn_cargo(&cargo, r.worn)[ORE as usize];
+        // The lots after.
+        K::spend_ship(
+            &v7,
+            &mut l7,
+            &owner,
+            K::By::Owner,
+            q,
+            K::ShipTo::Lot(l9.place()),
+            BELL,
+        )
+        .unwrap();
+        K::begin_inbound(&v9, &mut l9, (0xB2, SEQ), kept).unwrap();
+        w.after.insert(la, Some(lot_bytes(&l7)));
+        w.after.insert(lb, Some(lot_bytes(&l9)));
+        // The Caravan as written.
+        let mut cd = vec![0u8; CV::SIZE];
+        cd[..8].copy_from_slice(&CV::MAGIC);
+        cd[CV::OWNER_CITIZEN..CV::OWNER_CITIZEN + 32].copy_from_slice(&OWNER);
+        cd[CV::OWNER_TAG..CV::OWNER_TAG + 8].copy_from_slice(&0xB2u64.to_le_bytes());
+        cd[CV::SEQ..CV::SEQ + 4].copy_from_slice(&SEQ.to_le_bytes());
+        cd[CV::FACTION] = 0;
+        cd[CV::STATE] = CV::STATE_MOVING;
+        place_at(&mut cd, CV::SRC, &src);
+        place_at(&mut cd, CV::DST, &dst);
+        cd[CV::cargo(ORE as usize)..CV::cargo(ORE as usize) + 8]
+            .copy_from_slice(&kept.to_le_bytes());
+        cd[CV::FEE..CV::FEE + 8].copy_from_slice(&50_000u64.to_le_bytes());
+        cd[CV::DEPART_TS..CV::DEPART_TS + 8].copy_from_slice(&T.to_le_bytes());
+        cd[CV::ARRIVE_TS..CV::ARRIVE_TS + 8].copy_from_slice(&r.arrive.to_le_bytes());
+        cd[CV::LAST_BELL..CV::LAST_BELL + 4].copy_from_slice(&r.last_bell.to_le_bytes());
+        cd[CV::CUSTODY] = CV::CUSTODY_LOT;
+        cd[CV::CUSTODY_RESOURCE] = ORE;
+        cd[CV::CUSTODY_OWNER_TAG..CV::CUSTODY_OWNER_TAG + 8]
+            .copy_from_slice(&0xB2u64.to_le_bytes());
+        w.after.insert(caravan, Some(cd));
+        // Each run's slot in its Province, the Citizen's counter.
+        let mut pa = province();
+        for (i, (_, slot)) in r.slots.iter().enumerate() {
+            slot.encode(&mut pa[CS::at(i)..CS::at(i) + CS::SIZE])
+                .unwrap();
+        }
+        w.after.insert(prov, Some(pa));
+        w.after.insert(OWNER, Some(citizen(SEQ + 1)));
+        // The records.
+        let ck = (0xB2u64, SEQ);
+        let raw = |l: &K::Lot| lot_raw(l).to_vec();
+        let mut shp = raw(&l7);
+        shp.extend_from_slice(&q.to_le_bytes());
+        shp.extend_from_slice(&(q - kept).to_le_bytes());
+        shp.push(1);
+        shp.extend_from_slice(&u32::MAX.to_le_bytes());
+        shp.extend_from_slice(&0xB2u64.to_le_bytes());
+        let mut inb = raw(&l9);
+        inb.extend_from_slice(&q.to_le_bytes());
+        inb.extend_from_slice(&(q - kept).to_le_bytes());
+        inb.push(1);
+        w.records = vec![
+            ReplayRecord {
+                kind: CqKind::LOT_SHIPPED,
+                key: caravan_key(ck),
+                payload: shp,
+            },
+            ReplayRecord {
+                kind: CqKind::LOT_INBOUND,
+                key: caravan_key(ck),
+                payload: inb,
+            },
+        ];
+        if let Some(p) = loss(lot_loss::WORN, q - kept, 0, ck) {
+            w.records.push(ReplayRecord {
+                kind: CqKind::LOT_LOSS,
+                key: raw(&l7),
+                payload: p,
+            });
+        }
+        let data = frontier_abi::v2::ix::ShipLot {
+            seq: SEQ,
+            slot: frontier_abi::v2::ix::SHIP_BY_OWNER,
+            id: 0,
+            qty: 5,
+            steps,
+            path,
+            fee: 50_000,
+        }
+        .to_bytes()
+        .to_vec();
+        let accounts = vec![
+            OWNER_W, PAYER, SEASON, OWNER, va, la, vb, lb, caravan, [0; 32], prov,
+        ];
+        Fixture {
+            w,
+            data,
+            accounts,
+            caravan,
+            prov,
+        }
+    }
+
+    fn addr_vault(tile: u8) -> Key {
+        frontier_abi::v2::addr::vault(&ctx(), 3, -2, tile)
+    }
+
+    fn mismatch_with(r: &Replayed, what: &str) -> bool {
+        matches!(r, Replayed::Mismatch(m) if m.contains(what))
+    }
+
+    #[test]
+    fn a_send_whose_walk_is_v23s_is_a_full_match() {
+        let f = fixture();
+        // The walk writes a slot (so the slot checks below are not empty).
+        assert_ne!(f.w.after[&f.prov].clone().unwrap(), province());
+        assert_eq!(f.w.replay(&f.data, &f.accounts), Replayed::Matches);
+    }
+
+    #[test]
+    fn a_walk_off_the_rules_is_a_mismatch() {
+        let f = fixture();
+        // The arrival a second late.
+        let mut w = f.w.clone();
+        let mut cd = w.after[&f.caravan].clone().unwrap();
+        let a = i64::from_le_bytes(cd[CV::ARRIVE_TS..CV::ARRIVE_TS + 8].try_into().unwrap());
+        cd[CV::ARRIVE_TS..CV::ARRIVE_TS + 8].copy_from_slice(&(a + 1).to_le_bytes());
+        w.after.insert(f.caravan, Some(cd));
+        assert!(mismatch_with(
+            &w.replay(&f.data, &f.accounts),
+            "its caravan is not the rules'"
+        ));
+        // A run's slot not written.
+        let mut w = f.w.clone();
+        w.after.insert(f.prov, Some(province()));
+        assert!(mismatch_with(
+            &w.replay(&f.data, &f.accounts),
+            "its walk's slots"
+        ));
+        // The Citizen's counter not moved.
+        let mut w = f.w.clone();
+        w.after.insert(OWNER, Some(citizen(SEQ)));
+        assert!(mismatch_with(
+            &w.replay(&f.data, &f.accounts),
+            "caravan counter"
+        ));
+        // A path that does not end at the destination.
+        let mut d = f.data.clone();
+        let x = frontier_abi::v2::ix::ShipLot::decode(&d).unwrap();
+        let other = frontier_abi::v2::ix::ShipLot {
+            steps: x.steps + 1,
+            ..x
+        };
+        d = other.to_bytes().to_vec();
+        assert!(mismatch_with(
+            &f.w.replay(&d, &f.accounts),
+            "its walk is not the rules'"
+        ));
+        // A fee below the caravan fee (the Caravan written with it).
+        let low = frontier_abi::v2::ix::ShipLot { fee: 49_999, ..x }.to_bytes();
+        let mut w = f.w.clone();
+        let mut cd = w.after[&f.caravan].clone().unwrap();
+        cd[CV::FEE..CV::FEE + 8].copy_from_slice(&49_999u64.to_le_bytes());
+        w.after.insert(f.caravan, Some(cd));
+        assert!(mismatch_with(
+            &w.replay(&low, &f.accounts),
+            "below the caravan fee"
+        ));
+        // A first path Province that is not the origin's.
+        let mut a = f.accounts.clone();
+        *a.last_mut().unwrap() = [0x70; 32];
+        let mut w = f.w.clone();
+        w.before.insert([0x70; 32], province());
+        assert!(mismatch_with(&w.replay(&f.data, &a), "first path Province"));
+    }
+
+    #[test]
+    fn a_walk_without_its_evidence_is_not_judged() {
+        let f = fixture();
+        for (what, drop_before, k) in [
+            ("Season", true, SEASON),
+            ("path Province's state before", true, f.prov),
+            ("path Province's state after", false, f.prov),
+            ("Citizen's state after", false, OWNER),
+        ] {
+            let mut w = f.w.clone();
+            if drop_before {
+                w.before.remove(&k);
+            } else {
+                w.after.remove(&k);
+            }
+            let r = w.replay(&f.data, &f.accounts);
+            assert!(
+                matches!(&r, Replayed::Partial(m) if m.contains("the route is not judged") && m.contains(what)),
+                "{what}: {r:?}"
+            );
         }
     }
 }
