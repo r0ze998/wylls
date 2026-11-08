@@ -1,0 +1,85 @@
+diff --git a/permutation-gateway/test/web-frontier-delegation.test.mjs b/permutation-gateway/test/web-frontier-delegation.test.mjs
+index be2d3af5..2ae2a4fe 100644
+--- a/permutation-gateway/test/web-frontier-delegation.test.mjs
++++ b/permutation-gateway/test/web-frontier-delegation.test.mjs
+@@ -18,7 +18,8 @@ const agents = [{ agentId: 'a1', agentKey, mode: 'auto', village: [1, 2, 3] }, {
+ 
+ test('delegatedTo: only a key mismatch whose session key is one of the owner\'s agents\' keys', () => {
+   assert.deepEqual(delegatedTo({ sessionProblem: 'SessionMismatch', citizen, agents }), { agentId: 'a1', agentKey, mode: 'auto', village: [1, 2, 3] });
+-  assert.equal(delegatedTo({ sessionProblem: 'SessionMismatch', citizen, agents: [agents[1]] }), null, 'another key (not this owner\'s agent): the usual card');
++  // ⑯ P5: another key (not this owner's agent) is a foreign hand-over (a courier mandate, a key set elsewhere), not "no key here"
++  assert.deepEqual(delegatedTo({ sessionProblem: 'SessionMismatch', citizen, agents: [agents[1]] }), { agentId: null, agentKey, mode: 'foreign', village: null, foreign: true }, 'another key (not this owner\'s agent): the foreign-key card, never the silent regenerate');
+   assert.equal(delegatedTo({ sessionProblem: 'SessionExpired', citizen, agents }), null, 'an expired session is not a hand-over');
+   assert.equal(delegatedTo({ sessionProblem: 'NoSession', citizen, agents }), null);
+   assert.equal(delegatedTo({ sessionProblem: null, citizen, agents }), null);
+diff --git a/permutation-server/web/frontier/fdelegation.mjs b/permutation-server/web/frontier/fdelegation.mjs
+index 9deb5163..82dc94af 100644
+--- a/permutation-server/web/frontier/fdelegation.mjs
++++ b/permutation-server/web/frontier/fdelegation.mjs
+@@ -33,7 +33,10 @@ export function delegatedTo({ sessionProblem, citizen, agents }) {
+   const session = sessionOf(citizen);
+   if (!session || !Array.isArray(agents)) return null;
+   const a = agents.find(x => x?.agentKey === session);
+-  return a ? { agentId: a.agentId, agentKey: a.agentKey, mode: a.mode === 'auto' ? 'auto' : 'manual', village: a.village ?? null } : null;
++  if (a) return { agentId: a.agentId, agentKey: a.agentKey, mode: a.mode === 'auto' ? 'auto' : 'manual', village: a.village ?? null };
++  // ⑯ P5: the Citizen's session key is some other key (another program's PDA, e.g. a courier mandate, or a key the
++  // owner set elsewhere). It is not "no key on this device": regenerating the key here would take it back silently.
++  return { agentId: null, agentKey: session, mode: 'foreign', village: null, foreign: true };
+ }
+ 
+ /**
+@@ -48,6 +51,12 @@ export async function loadAgents(owner, opts) {
+ 
+ /** The card shown instead of "regenerate the game key" while the agent holds the village's key. */
+ export function renderDelegated(d) {
++  if (d.foreign) {
++    return html`<section class="vcard" aria-labelledby="join-agent">${cardHead({ id: 'join-agent', ic: 'lock', title: L`別の鍵に任せています` })}
++      <p>${L`この村のゲーム内の鍵は、このページの代理人ではない別の鍵（${d.agentKey}）が持っています。外部の委任（別のプログラム）かもしれません。この端末の鍵では送れません。`}</p>
++      <p>${L`鍵を取り戻すと、その委任は解除されます（ウォレットで署名）。`}</p>
++      <div class="actions"><button type="button" class="btn primary" data-act="session">${L`鍵を取り戻して自分で操作する`}</button></div></section>`;
++  }
+   const auto = d.mode === 'auto';
+   return html`<section class="vcard" aria-labelledby="join-agent">${cardHead({ id: 'join-agent', ic: 'lock', title: L`代理人に任せています` })}
+     <p>${auto ? L`この村の操作は、いま代理人（自動）が行っています。この端末のゲーム内の鍵では送れません。` : L`この村の鍵は、まだ代理人が持っています（代理人は停止中）。この端末のゲーム内の鍵では送れません。`}</p>
+@@ -64,6 +73,10 @@ export function renderDelegated(d) {
+  * take-back (the page's `session` action) and the agent page link.
+  */
+ export function handNote(d) {
++  if (d.foreign) {
++    return html`<span class="hand-agent">${icon('lock')}<span>${L`この村の鍵は別の鍵（外部の委任）が持っています。この端末の鍵では送れません。`}</span>
++    <button type="button" class="btn small primary" data-act="session">${L`鍵を取り戻す`}</button></span>`;
++  }
+   return html`<span class="hand-agent">${icon('lock')}<span>${d.mode === 'auto' ? L`代理人に任せています（自動）。この端末の鍵では送れません。` : L`鍵はまだ代理人が持っています（代理人は停止中）。この端末の鍵では送れません。`}</span>
+     <button type="button" class="btn small primary" data-act="session">${L`鍵を取り戻す`}</button>
+     <a class="btn small" href="${AGENT_PAGE}" data-agent-link="1">${L`代理人のページ`}</a></span>`;
+@@ -72,10 +85,12 @@ export function handNote(d) {
+ /** A sentence added to a refusal while the agent holds the key (the relay answers Auth: this device's key is not the session). */
+ export function refusalNote(delegation, code) {
+   if (!delegation || (code !== 'Auth' && code !== 'SessionMismatch')) return null;
++  if (delegation.foreign) return L`この村の鍵は別の鍵（外部の委任）が持っているため、この端末の鍵では送れません。鍵を取り戻してから操作してください。`;
+   return L`この村は代理人に任せているため、この端末の鍵では送れません。代理人のページ（「その他」）で止めるか、鍵を取り戻してから操作してください。`;
+ }
+ 
+ /** What to say after the key was taken back here while the agent is still in auto on the server. */
+ export function takenBackNote(delegation) {
++  if (delegation?.foreign) return L`鍵を取り戻しました。外部の委任は解除されています。`;
+   return delegation?.mode === 'auto' ? L`鍵を取り戻しました。代理人はサーバー上ではまだ自動です（鍵がないので何も送れず、判断料もかかりません）。止めるには代理人のページで「手動に戻す」を押してください。` : L`鍵を取り戻しました。`;
+ }
+diff --git a/permutation-server/web/lang/en-frontier.mjs b/permutation-server/web/lang/en-frontier.mjs
+index b65530ff..79676f59 100644
+--- a/permutation-server/web/lang/en-frontier.mjs
++++ b/permutation-server/web/lang/en-frontier.mjs
+@@ -713,6 +713,13 @@ export default {
+   'この村は代理人に任せているため、この端末の鍵では送れません。代理人のページ（「その他」）で止めるか、鍵を取り戻してから操作してください。': 'This village is handed to your agent, so this device\'s key cannot send for it. Stop the agent on its page (under "More"), or take the key back first.',
+   '鍵を取り戻しました。代理人はサーバー上ではまだ自動です（鍵がないので何も送れず、判断料もかかりません）。止めるには代理人のページで「手動に戻す」を押してください。': 'You have the key back. The agent is still in auto on the server (without the key it can send nothing, and no decision is charged). To stop it, press "Back to manual" on the agent page.',
+   '鍵を取り戻しました。': 'You have the key back.',
++  // ⑯ P5: a session key that is neither this device's nor one of the owner's agents (a courier mandate, a key set elsewhere)
++  '別の鍵に任せています': 'Handed to another key',
++  'この村のゲーム内の鍵は、このページの代理人ではない別の鍵（{0}）が持っています。外部の委任（別のプログラム）かもしれません。この端末の鍵では送れません。': 'This village\'s game key is held by another key ({0}), not one of this page\'s agents: possibly a delegation to another program. This device\'s key cannot send.',
++  '鍵を取り戻すと、その委任は解除されます（ウォレットで署名）。': 'Taking the key back revokes that delegation (your wallet signs).',
++  'この村の鍵は別の鍵（外部の委任）が持っています。この端末の鍵では送れません。': 'Another key (an outside delegation) holds this village\'s key. This device\'s key cannot send.',
++  'この村の鍵は別の鍵（外部の委任）が持っているため、この端末の鍵では送れません。鍵を取り戻してから操作してください。': 'Another key (an outside delegation) holds this village\'s key, so this device\'s key cannot send. Take the key back first.',
++  '鍵を取り戻しました。外部の委任は解除されています。': 'You have the key back. The outside delegation is revoked.',
+   '代理人に任せています（自動）。この端末の鍵では送れません。': 'Handed to your agent (auto). This device\'s key cannot send.',
+   '鍵はまだ代理人が持っています（代理人は停止中）。この端末の鍵では送れません。': 'Your agent still holds the key (the agent is stopped). This device\'s key cannot send.',
+   '鍵を取り戻す': 'Take the key back',

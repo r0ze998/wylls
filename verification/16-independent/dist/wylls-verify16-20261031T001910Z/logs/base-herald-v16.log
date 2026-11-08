@@ -1,0 +1,8 @@
+test v16_a2_two_sent_records_of_one_key_stay_one_caravan ... ok
+test v16_a1c_a_take_does_not_leave_the_caravan_marked_as_a_plain_cart_of_the_victim ... FAILED
+test v16_a1_feed_names_the_raider_as_the_holder_after_a_take ... FAILED
+test v16_c2_feed_keeps_the_tower_wear_of_a_send ... FAILED
+thread 'v16_a1c_a_take_does_not_leave_the_caravan_marked_as_a_plain_cart_of_the_victim' (1172) panicked at crates/herald/tests/v16_caravan_holder.rs:101:5:
+thread 'v16_a1_feed_names_the_raider_as_the_holder_after_a_take' (1171) panicked at crates/herald/tests/v16_caravan_holder.rs:83:5:
+thread 'v16_c2_feed_keeps_the_tower_wear_of_a_send' (1174) panicked at crates/herald/tests/v16_caravan_holder.rs:114:5:
+test result: FAILED. 1 passed; 3 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.21s

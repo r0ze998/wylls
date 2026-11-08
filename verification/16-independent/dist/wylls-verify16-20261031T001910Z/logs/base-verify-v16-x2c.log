@@ -1,0 +1,11 @@
+test v16_x2_control_the_fixture_passes_untouched ... ok
+test v16_a8_a_cpi_shaped_transaction_leaves_nothing_judged_and_the_run_still_passes ... FAILED
+test v16_x2_a_landed_instruction_of_a_reserved_tag_is_not_a_pass ... FAILED
+test v16_x2b_a_landed_instruction_of_an_unknown_future_tag_is_not_a_pass ... FAILED
+test v16_x2c_a_landed_instruction_of_a_known_but_unjudged_tag_is_named_in_the_report ... FAILED
+thread 'v16_a8_a_cpi_shaped_transaction_leaves_nothing_judged_and_the_run_still_passes' (24001) panicked at crates/verify/tests/v16_unknown_tag.rs:140:5:
+thread 'v16_x2_a_landed_instruction_of_a_reserved_tag_is_not_a_pass' (24002) panicked at crates/verify/tests/v16_unknown_tag.rs:67:5:
+thread 'v16_x2b_a_landed_instruction_of_an_unknown_future_tag_is_not_a_pass' (24004) panicked at crates/verify/tests/v16_unknown_tag.rs:79:5:
+thread 'v16_x2c_a_landed_instruction_of_a_known_but_unjudged_tag_is_named_in_the_report' (24005) panicked at crates/verify/tests/v16_unknown_tag.rs:161:5:
+a landed instruction nobody judges must at least be named in the report (tx#8857, tag 0x32); got PASS with:
+test result: FAILED. 1 passed; 4 failed; 0 ignored; 0 measured; 0 filtered out; finished in 5.54s

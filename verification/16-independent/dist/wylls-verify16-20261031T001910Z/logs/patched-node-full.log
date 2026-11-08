@@ -1,0 +1,6 @@
+not ok 1545 - V16-C3: after the user switches accounts in the wallet, the page acts as the new account (model of controller.mjs startPlay)
+not ok 2473 - completeness (a): every marked Japanese text has an English entry
+# tests 2536
+# pass 2533
+# fail 2
+# skipped 1

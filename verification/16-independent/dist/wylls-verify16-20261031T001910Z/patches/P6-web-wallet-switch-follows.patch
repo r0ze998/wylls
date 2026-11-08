@@ -1,0 +1,23 @@
+diff --git a/permutation-server/web/frontier/controller.mjs b/permutation-server/web/frontier/controller.mjs
+index f7aba64e..6b0dde90 100644
+--- a/permutation-server/web/frontier/controller.mjs
++++ b/permutation-server/web/frontier/controller.mjs
+@@ -1880,7 +1880,17 @@ export async function startPlay({ herald: h, cfg }) {
+   wallet.discover();
+   if (cfg.dev && pin?.cluster === 'localnet') await wallet.enableDevWallet({ cluster: 'localnet', allowed: true }).catch(() => false);
+   const listWallets = () => { FS.walletList = wallet.list(wallet.chainOf(pin?.cluster ?? 'localnet')); invalidate('panel'); };
+-  wallet.onChange(listWallets);
++  // ⑯ P6: a switch of the account inside the wallet (the Wallet Standard `change` event, wallet.mjs) is a
++  // reconnect: the page's account, Citizen, holdings and game key follow it, instead of acting as the previous one.
++  wallet.onChange(() => {
++    listWallets();
++    const c = wallet.connected();
++    if (!FS.wallet) return;
++    if (!c) { FS.wallet = null; FS.session = null; FS.meStatus = 'idle'; invalidate('panel', 'tabs', 'map'); return; }
++    if (c.address === FS.wallet.address) return;
++    FS.wallet = c; FS.meStatus = 'loading'; FS.meError = null; FS.homeGrant = null; FS.session = null;
++    fsession.restore(scope(), c.address).then(s => { FS.session = s; return refresh(); }).catch(e => console.error('frontier wallet switch:', e));
++  });
+   listWallets();
+   // A silent reconnect of the wallet used last time (no popup; nothing if it does not trust this page).
+   const last = wallet.lastWalletName();

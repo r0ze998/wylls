@@ -2287,3 +2287,45 @@ T7（crash では作れない損傷）の結果：
 - 書き込み 1 回が、ファイルの中で連続していない形で失われる場合（file system の性質）。
 - allocation（署名の検証の経路）。
 - ④ の候補にはまだ入っていない（④ の 11bc9698 は 13903d94 のまま）。
+
+### 27.8 ④ 64960c1e → bb41fc0d → d415e013：review 済みの判断が、変更の後も残り続けるか
+
+- 対象:
+  - `64960c1ecba9343f4df7624a5b0d0bcb4fd3a519`（tree `7673ab42…`）：12-memory が ⑫ a7ac51b7 と**一致**。§27.7 がそのまま当てはまる。
+  - `bb41fc0d9bda0a7cbff5afcfccfdfcce959dff6c`（tree `c21df14035a0ceed52cf354b72b7e9fbecf17234`）：scan の変更。
+  - その上の `d415e0131c275cd5ee4e8e97da78b6dd349e129a`（tree `f4529f406c17ce36d81531400c2295470981fea0`）：⑦ 780acac7 の merge。
+- bb41fc0d の scan：
+  - `--check` は exit 0（119 / 205 / 23 unfollowed / 8 reviewed）。fixture の試験は 5/5。
+  - ⑯ が §27.6 で挙げた 2 件は、unfollowed として list に載った。
+- **review が古くなる問題（新規）**：
+  - `node-key-reviewed.txt` の entry は、path と理由の文だけ。
+  - scan が review を外すのは、次のどれかの場合だけ:
+    - 直接または helper での hit になった。
+    - 閉包が鍵の API の名前を含まなくなった。
+    - その file が、scan の調べる対象から外れた。
+  - そのため、review の後で、試験自身や依存先に鍵を**呼ぶ**変更を入れても、review は通り続ける。
+- 確かめ方：⑯ の静的 fixture `probes/v16-scan-stale-review.mjs`。
+  - 一時ディレクトリに text の file を書き、scan に読ませるだけ。import も実行もしない。
+  - 鍵の API の名前は、文字列をつないで作る。
+
+| 場合 | ④ bb41fc0d の scan | ⑯ の試作（閉包の digest） |
+|---|---|---|
+| S0 review したまま | 流してよいまま。`--check` は 0 | 同じ |
+| S1 依存先（caravan）が plan.sealPlan → signHash を呼ぶようになる | **流してよいまま。`--check` は 0** | exit 5 「stale review」 |
+| S2 試験自身が signHash を呼ぶ（試験の text には鍵の API の名前が出ない） | **流してよいまま。`--check` は 0** | exit 5 |
+| S3 鍵を生成する新しい依存を import して呼ぶ | **流してよいまま。`--check` は 0** | exit 5 |
+| S4 閉包の中の無害な comment の変更 | 流してよいまま | exit 5（再審査が要る。代償） |
+| C0 対照：S1 で review の entry が無い場合 | `--check` は 3。再生成すると list に載る | 同じ |
+
+ログは `logs/phase22/scan-stale-review-{bb41,proto}.txt`。
+
+- **最小の仕組みの案**（試作：`patches/v16-scan-review-digest.diff`、57 行、bb41fc0d の scan に対して）:
+  - entry を `<path>  closure=<hex 16 桁以上> [targets=a,b]  # 理由` にする。
+  - digest は、試験の文字列の相対 import の閉包**全体**（試験自身を含む）について、（path、bytes の sha256）を並べ替えたものの sha256。`targets=` には、review が読んだ計算 import や spawn の先を書き、その閉包も digest に含める。
+  - scan は毎回 digest を計算し直す。一致しなければ exit 5 で「stale review」と出し、新しい digest を示す。その間、その試験は保守的な除外のほうに戻る。
+  - digest の無い entry も exit 5 になる。今ある 8 件には、再審査のうえで digest を付ける必要がある。
+  - unfollowed から review で外す entry（⑫ の adapters-ws13-*、connect-live の `load(root, rel)`、scan の fixture 試験）は、`targets=` が無いと、行き先の変更を検知できない。
+- 試作の確認：上の表の 6 場合だけ。fixture は ④ の scan の fixture 試験と同じ形。実際の tree の 8 件には当てていない。
+- ⑦ 780acac7（d415e013 に入った）：5 file が 780acac7 と一致する。
+  - web の差分は表示の順番、css、締め切りの行だけ。鍵・署名・session・wallet の経路の変更はない（文言の行は既存の表示のまま）。
+  - browser は、④ が G1 の修正まで止めているので、流していない。

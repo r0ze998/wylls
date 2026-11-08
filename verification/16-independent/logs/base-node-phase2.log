@@ -1,0 +1,200 @@
+TAP version 13
+# Subtest: T18-1: a march stays sealed until its arrival turn has ended (README.md:25); the self-reveal is not due before that
+not ok 1 - T18-1: a march stays sealed until its arrival turn has ended (README.md:25); the self-reveal is not due before that
+  ---
+  duration_ms: 1.380876
+  type: 'test'
+  location: '/home/user/wylls/permutation-gateway/test/v16-public-ops.test.mjs:26:1'
+  failureType: 'testCodeFailure'
+  error: "the destination must not be sent in clear before the arrival turn has ended; the self-reveal is due at bell start + 0 s, 600 s before the seal's round 35734812 (send)"
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected: true
+  actual: false
+  operator: '=='
+  stack: |-
+    TestContext.<anonymous> (file:///home/user/wylls/permutation-gateway/test/v16-public-ops.test.mjs:38:10)
+    Test.runInAsyncScope (node:async_hooks:214:14)
+    Test.run (node:internal/test_runner/test:1047:25)
+    Test.start (node:internal/test_runner/test:944:17)
+    startSubtestAfterBootstrap (node:internal/test_runner/harness:296:17)
+  ...
+# Subtest: T19-1: the prototype crank undelegates in the order the program requires (chunks 1..19, nations, chunk 0)
+not ok 2 - T19-1: the prototype crank undelegates in the order the program requires (chunks 1..19, nations, chunk 0)
+  ---
+  duration_ms: 1.788689
+  type: 'test'
+  location: '/home/user/wylls/permutation-gateway/test/v16-public-ops.test.mjs:42:1'
+  failureType: 'testCodeFailure'
+  error: |-
+    the crank's first intent is [1000,1001,1002]; the program takes world chunk 1 first and refuses anything else with UndelegationOrder
+    + actual - expected
+    ... Skipped lines
+    
+      [
+    +   1000,
+    +   1001,
+    +   1002,
+    +   1003,
+    +   1004,
+    +   1005,
+        1,
+        2,
+        3,
+        4,
+        5,
+    ...
+        19,
+    -   1000,
+    -   1001,
+    -   1002,
+    -   1003,
+    -   1004,
+    -   1005,
+        0
+      ]
+    
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected:
+    0: 1
+    1: 2
+    2: 3
+    3: 4
+    4: 5
+    5: 6
+    6: 7
+    7: 8
+    8: 9
+    9: 10
+    10: 11
+    11: 12
+    12: 13
+    13: 14
+    14: 15
+    15: 16
+    16: 17
+    17: 18
+    18: 19
+    19: 1000
+    20: 1001
+    21: 1002
+    22: 1003
+    23: 1004
+    24: 1005
+    25: 0
+  actual:
+    0: 1000
+    1: 1001
+    2: 1002
+    3: 1003
+    4: 1004
+    5: 1005
+    6: 1
+    7: 2
+    8: 3
+    9: 4
+    10: 5
+    11: 6
+    12: 7
+    13: 8
+    14: 9
+    15: 10
+    16: 11
+    17: 12
+    18: 13
+    19: 14
+    20: 15
+    21: 16
+    22: 17
+    23: 18
+    24: 19
+    25: 0
+  operator: 'deepStrictEqual'
+  stack: |-
+    TestContext.<anonymous> (file:///home/user/wylls/permutation-gateway/test/v16-public-ops.test.mjs:46:10)
+    Test.runInAsyncScope (node:async_hooks:214:14)
+    Test.run (node:internal/test_runner/test:1047:25)
+    Test.processPendingSubtests (node:internal/test_runner/test:744:18)
+    Test.postRun (node:internal/test_runner/test:1173:19)
+    Test.run (node:internal/test_runner/test:1101:12)
+    async startSubtestAfterBootstrap (node:internal/test_runner/harness:296:3)
+  ...
+# Subtest: T17-1: a generic x402 "exact" Solana payment (one TransferChecked of maxAmountRequired to payTo) is refused; only this repo's [prefix, Pay, Join] shape pays
+ok 3 - T17-1: a generic x402 "exact" Solana payment (one TransferChecked of maxAmountRequired to payTo) is refused; only this repo's [prefix, Pay, Join] shape pays
+  ---
+  duration_ms: 77.697979
+  type: 'test'
+  ...
+# Subtest: T17-2: the 200 was lost; resending the same X-PAYMENT must tell the client the payment settled (the transaction), not only "duplicate"
+not ok 4 - T17-2: the 200 was lost; resending the same X-PAYMENT must tell the client the payment settled (the transaction), not only "duplicate"
+  ---
+  duration_ms: 55.731467
+  type: 'test'
+  location: '/home/user/wylls/permutation-gateway/test/v16-x402-settlement.test.mjs:145:1'
+  failureType: 'testCodeFailure'
+  error: 'the retry must name the settled transaction 3TuJMgLTAUoBSC3agbsU9s8yMkCFLyKbPM1Ho7fBjviCPU5d2cWRvseC1ZTc6iHwFcAP7AqqWv8n3RpcR5kZ9EPS; got 409 {"error":"this exact transaction was relayed already; sign a new one (with a fresh blockhash)","code":"Duplicate"}'
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected: true
+  actual: false
+  operator: '=='
+  stack: |-
+    TestContext.<anonymous> (file:///home/user/wylls/permutation-gateway/test/v16-x402-settlement.test.mjs:159:10)
+    process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+    async Test.run (node:internal/test_runner/test:1054:7)
+    async Test.processPendingSubtests (node:internal/test_runner/test:744:7)
+  ...
+# Subtest: T17-3: after a 504 SettlementPending the transaction landed; a retry with a fresh transaction is told AlreadyPaid instead of "you are in"
+not ok 5 - T17-3: after a 504 SettlementPending the transaction landed; a retry with a fresh transaction is told AlreadyPaid instead of "you are in"
+  ---
+  duration_ms: 15109.96144
+  type: 'test'
+  location: '/home/user/wylls/permutation-gateway/test/v16-x402-settlement.test.mjs:162:1'
+  failureType: 'testCodeFailure'
+  error: 'a paid member retrying must not read as a refused payment; got 402 {"code":"AlreadyPaid","error":"payment refused: the transaction would fail in BUA8TdtdJyBYt6T5gS61UgP8aruRykYByBZDcWhXLxgi: custom program error: 0x105"}'
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected: true
+  actual: false
+  operator: '=='
+  stack: |-
+    TestContext.<anonymous> (file:///home/user/wylls/permutation-gateway/test/v16-x402-settlement.test.mjs:188:10)
+    process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+    async Test.run (node:internal/test_runner/test:1054:7)
+    async Test.processPendingSubtests (node:internal/test_runner/test:744:7)
+  ...
+# Subtest: T17-4: a payment whose network is another cluster's is refused with the requirements (confirmation)
+ok 6 - T17-4: a payment whose network is another cluster's is refused with the requirements (confirmation)
+  ---
+  duration_ms: 47.072388
+  type: 'test'
+  ...
+# Subtest: T17-5: a Claim that landed but whose Entry cannot be read back is reported with amount "0" (an unknown amount shown as zero)
+not ok 7 - T17-5: a Claim that landed but whose Entry cannot be read back is reported with amount "0" (an unknown amount shown as zero)
+  ---
+  duration_ms: 49.621801
+  type: 'test'
+  location: '/home/user/wylls/permutation-gateway/test/v16-x402-settlement.test.mjs:201:1'
+  failureType: 'testCodeFailure'
+  error: 'the claim landed but its amount is unknown; the answer says {"ok":true,"signature":"2psi5vNpJ8rrXeQaXqhRFzRD2t4Rb617Z8J6XgV1gZnYzxaB7DxrJCfpuLpC2QKPy3sEUZ7WojAiD2RvuFxoW5Py","amount":"0","testAssetsOnly":true}'
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected: '0'
+  actual: '0'
+  operator: 'notStrictEqual'
+  stack: |-
+    TestContext.<anonymous> (file:///home/user/wylls/permutation-gateway/test/v16-x402-settlement.test.mjs:219:10)
+    process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+    async Test.run (node:internal/test_runner/test:1054:7)
+    async Test.processPendingSubtests (node:internal/test_runner/test:744:7)
+  ...
+1..7
+# tests 7
+# suites 0
+# pass 2
+# fail 5
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 15714.294959

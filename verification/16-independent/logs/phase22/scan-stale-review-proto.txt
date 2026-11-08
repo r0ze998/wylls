@@ -1,0 +1,32 @@
+{
+ "C0 control: S1 with no review entry at all": {
+  "before": "test NOT listed (runs in key-free jobs: the review still holds)",
+  "check": "--check exit 3",
+  "after": "test LISTED (excluded from key-free jobs)"
+ },
+ "S4 harmless edit to a file in the closure (a comment)": {
+  "before": "test NOT listed (runs in key-free jobs: the review still holds)",
+  "check": "--check exit 5",
+  "after": "scan refuses (exit 5): stale review (the test or its closure changed since the review): workstreams/06-creation/test/dispatch.test.mjs  -> re-review, then closure=bf0402976d666238"
+ },
+ "S0 as reviewed (only plan.resolve is called)": {
+  "before": "test NOT listed (runs in key-free jobs: the review still holds)",
+  "check": "--check passes (exit 0)",
+  "after": "test NOT listed (runs in key-free jobs: the review still holds)"
+ },
+ "S1 dependency changed: caravan now calls plan.sealPlan (-> signHash -> key generation)": {
+  "before": "test NOT listed (runs in key-free jobs: the review still holds)",
+  "check": "--check exit 5",
+  "after": "scan refuses (exit 5): stale review (the test or its closure changed since the review): workstreams/06-creation/test/dispatch.test.mjs  -> re-review, then closure=824d4e62793b2886"
+ },
+ "S2 the reviewed test itself now calls signHash (no key-API name in its own text)": {
+  "before": "test NOT listed (runs in key-free jobs: the review still holds)",
+  "check": "--check exit 5",
+  "after": "scan refuses (exit 5): stale review (the test or its closure changed since the review): workstreams/06-creation/test/dispatch.test.mjs  -> re-review, then closure=b8857773788d84a0"
+ },
+ "S3 a new dependency that generates a key is imported and called": {
+  "before": "test NOT listed (runs in key-free jobs: the review still holds)",
+  "check": "--check exit 5",
+  "after": "scan refuses (exit 5): stale review (the test or its closure changed since the review): workstreams/06-creation/test/dispatch.test.mjs  -> re-review, then closure=bd84256dddc09f15"
+ }
+}

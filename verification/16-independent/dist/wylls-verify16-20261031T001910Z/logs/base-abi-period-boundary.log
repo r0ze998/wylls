@@ -1,0 +1,9 @@
+test v16_p1_a_routine_action_in_the_last_bell_before_the_boundary_is_accepted_today ... ok
+test v16_p2_a_routine_action_at_the_period_boundary_is_still_accepted ... FAILED
+test v16_p3_the_worlds_length_is_not_capped_by_a_season_parameter ... FAILED
+test v16_p4_a_caravan_sent_before_the_boundary_can_still_be_settled_after_it ... FAILED
+thread 'v16_p2_a_routine_action_at_the_period_boundary_is_still_accepted' panicked at frontier-abi/tests/v16_period_boundary.rs:60:5:
+thread 'v16_p3_the_worlds_length_is_not_capped_by_a_season_parameter' panicked at frontier-abi/tests/v16_period_boundary.rs:74:5:
+thread 'v16_p4_a_caravan_sent_before_the_boundary_can_still_be_settled_after_it' panicked at frontier-abi/tests/v16_period_boundary.rs:112:5:
+a caravan sent before the boundary must be settleable after it; today it waits for bell 1009 to resolve, which never happens (CaravanEarly for ever: cargo and rent stuck)
+test result: FAILED. 1 passed; 3 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.10s

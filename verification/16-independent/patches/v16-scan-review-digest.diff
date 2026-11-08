@@ -1,0 +1,57 @@
+--- /tmp/claude-0/-home-user-wylls/47a54b0f-427a-5cca-bc82-feb7c5056956/scratchpad/v36/scripts/ci/scan-node-key-tests.mjs	2026-11-08 18:35:46.371574597 +0000
++++ /tmp/claude-0/-home-user-wylls/47a54b0f-427a-5cca-bc82-feb7c5056956/scratchpad/proto/scripts/ci/scan-node-key-tests.mjs	2026-11-08 18:36:24.887198076 +0000
+@@ -19,6 +19,7 @@
+ import { execFileSync } from 'node:child_process';
+ import { dirname, join, relative, resolve, sep } from 'node:path';
+ import { fileURLToPath } from 'node:url';
++import { createHash } from 'node:crypto';
+ 
+ const root = process.env.WS04_SCAN_ROOT ? resolve(process.env.WS04_SCAN_ROOT) : resolve(dirname(fileURLToPath(import.meta.url)), '../..');
+ export const PAT = /Keypair\.generate|Keypair\.fromSeed|Keypair\.fromSecretKey|generateKeyPair|generateKey\(|createPrivateKey|subtle\.(sign|generateKey|importKey)|signTransaction|signMessage|\.sign\(|partialSign|ed25519\.|secp256k1\.|nacl|keygen|secretKey|privateKey/;
+@@ -139,15 +140,30 @@
+   }
+   return null;
+ }
++
++// ⑯ prototype: a review holds only for the code it read. Digest = sha256 over the sorted (path, sha256 of bytes) of the
++// test's whole literal-import closure, plus the closures of the targets the review names (computed imports, spawns).
++function closureFiles(file, seen = new Set()) {
++  if (seen.has(file) || !existsSync(file) || file.split(sep).includes('node_modules')) return seen;
++  seen.add(file);
++  for (const spec of imports(readFileSync(file, 'utf8'))) closureFiles(resolve(dirname(file), spec), seen);
++  return seen;
++}
++function reviewDigest(rel, targets) {
++  const files = new Set();
++  for (const f of [rel, ...targets]) closureFiles(join(root, f), files);
++  const rows = [...files].map(f => `${relative(root, f)}\0${createHash('sha256').update(readFileSync(f)).digest('hex')}`).sort();
++  return createHash('sha256').update(rows.join('\n')).digest('hex');
++}
+ const reviewedPath = join(root, 'scripts/ci/node-key-reviewed.txt');
+ const reviewed = new Map();
+ const reviewBad = [];
+ if (existsSync(reviewedPath)) {
+   for (const l of readFileSync(reviewedPath, 'utf8').split('\n')) {
+     if (!l.trim() || l.startsWith('#')) continue;
+-    const m = /^(\S+)\s+#\s*(\S.*)$/.exec(l);
+-    if (!m) { reviewBad.push(`no reason: ${l}`); continue; }
+-    reviewed.set(m[1], m[2]);
++    const m = /^(\S+)\s+closure=([0-9a-f]{16,64})(?:\s+targets=(\S+))?\s+#\s*(\S.*)$/.exec(l);
++    if (!m) { reviewBad.push(`no closure digest or no reason (\`<path>  closure=<hex> [targets=a,b]  # why\`): ${l}`); continue; }
++    reviewed.set(m[1], { digest: m[2], targets: m[3] ? m[3].split(',') : [], why: m[4] });
+   }
+ }
+ const viaSrc = [], unfollowed = [];
+@@ -156,7 +172,11 @@
+   const hit = closureHit(join(root, f));
+   const loose = hit ? null : closureUnfollowed(join(root, f));
+   if (!hit && !loose) { if (reviewed.has(f)) reviewBad.push(`reviewed but its closure names no key API and follows every import (remove it): ${f}`); continue; }
+-  if (reviewed.has(f)) continue;
++  if (reviewed.has(f)) {
++    const r = reviewed.get(f), now = reviewDigest(f, r.targets);
++    if (!now.startsWith(r.digest)) { reviewBad.push(`stale review (the test or its closure changed since the review): ${f}  -> re-review, then closure=${now.slice(0, 16)}`); (hit ? viaSrc : unfollowed).push(f); }
++    continue;
++  }
+   (hit ? viaSrc : unfollowed).push(f);
+ }
+ for (const f of reviewed.keys()) if (!examined.has(f)) reviewBad.push(`reviewed but not examined: ${f}`);
