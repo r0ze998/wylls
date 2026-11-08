@@ -2015,6 +2015,471 @@
       }
     },
     {
+      "kind": 114,
+      "name": "GRANT_ISSUED",
+      "key": [
+        {
+          "name": "issuer_tag",
+          "len": 8
+        },
+        {
+          "name": "nonce",
+          "len": 4
+        }
+      ],
+      "payload": [
+        {
+          "name": "grantee_tag",
+          "len": 8
+        },
+        {
+          "name": "p",
+          "len": 4
+        },
+        {
+          "name": "q",
+          "len": 4
+        },
+        {
+          "name": "facility_site",
+          "len": 1
+        },
+        {
+          "name": "facility_gen",
+          "len": 1
+        },
+        {
+          "name": "station_site",
+          "len": 1
+        },
+        {
+          "name": "station_gen",
+          "len": 1
+        },
+        {
+          "name": "max_swaps",
+          "len": 2
+        },
+        {
+          "name": "max_units",
+          "len": 4
+        },
+        {
+          "name": "expires_ts",
+          "len": 8
+        },
+        {
+          "name": "rent",
+          "len": 8
+        }
+      ],
+      "body_without_tail_len": 60,
+      "vector": {
+        "bell": 2114,
+        "body_without_tail": "017242080000213e5b7895b2cfec213e5b786b88a5c2dffc193605000000ffffffff6b6b6b6b6b886b88a5c26b88a5c2dffc19366b88a5c2dffc1936",
+        "body": "017242080000213e5b7895b2cfec213e5b786b88a5c2dffc193605000000ffffffff6b6b6b6b6b886b88a5c26b88a5c2dffc19366b88a5c2dffc193601040400000000000000b5a302be0e6e111fd503a68566206a5dde8da210ae199e7897a3a3881f5095da",
+        "decodes": true,
+        "chains": [
+          {
+            "entity": 4,
+            "who": "Base(Citizen(Tag8(17064053868169215521)))",
+            "prev_seq": 3,
+            "prev_head": "9934560a365e372823e04b7020f67b951d245119aeb8bc447d5a9dd8ab2c3cd6",
+            "seq": 4,
+            "head": "b5a302be0e6e111fd503a68566206a5dde8da210ae199e7897a3a3881f5095da"
+          }
+        ]
+      }
+    },
+    {
+      "kind": 115,
+      "name": "SWAP_RESERVED",
+      "key": [
+        {
+          "name": "issuer_tag",
+          "len": 8
+        },
+        {
+          "name": "nonce",
+          "len": 4
+        }
+      ],
+      "payload": [
+        {
+          "name": "grantee_tag",
+          "len": 8
+        },
+        {
+          "name": "p",
+          "len": 4
+        },
+        {
+          "name": "q",
+          "len": 4
+        },
+        {
+          "name": "facility_site",
+          "len": 1
+        },
+        {
+          "name": "station_site",
+          "len": 1
+        },
+        {
+          "name": "seq",
+          "len": 2
+        },
+        {
+          "name": "units",
+          "len": 4
+        },
+        {
+          "name": "ore",
+          "len": 8
+        },
+        {
+          "name": "wood",
+          "len": 8
+        },
+        {
+          "name": "arms",
+          "len": 8
+        }
+      ],
+      "body_without_tail_len": 66,
+      "vector": {
+        "bell": 2115,
+        "body_without_tail": "017343080000213e5b7895b2cfec213e5b786b88a5c2dffc193605000000ffffffff6b6b6b886b88a5c26b88a5c2dffc19366b88a5c2dffc19366b88a5c2dffc1936",
+        "body": "017343080000213e5b7895b2cfec213e5b786b88a5c2dffc193605000000ffffffff6b6b6b886b88a5c26b88a5c2dffc19366b88a5c2dffc19366b88a5c2dffc193603040400000000000000be3ce946f58876a21587c95b8a4cdc6fea14947e22466e9130a06549b4abba190505000000000000005d0ba07104ffc6091ad81b8673c4afe9d069fe6aa2ad48fe72ecf670560d344e0506000000000000009c805235f5b6bfd801828aa306b67237e833a1c5d2ef5f41ddff2b81cfa90b5e",
+        "decodes": true,
+        "chains": [
+          {
+            "entity": 4,
+            "who": "Base(Citizen(Tag8(3898424990439409771)))",
+            "prev_seq": 3,
+            "prev_head": "6db0a4ad3116a1a9777e88314d404dc2601d573059105e1a19d71491e64548e9",
+            "seq": 4,
+            "head": "be3ce946f58876a21587c95b8a4cdc6fea14947e22466e9130a06549b4abba19"
+          },
+          {
+            "entity": 5,
+            "who": "Base(Holding { p: 5, q: -1, site: 107 })",
+            "prev_seq": 4,
+            "prev_head": "a02788ada353fb955d0690ebd121492dc9e6ca43bc63c2556a84d35b31860711",
+            "seq": 5,
+            "head": "5d0ba07104ffc6091ad81b8673c4afe9d069fe6aa2ad48fe72ecf670560d344e"
+          },
+          {
+            "entity": 5,
+            "who": "Base(Holding { p: 5, q: -1, site: 107 })",
+            "prev_seq": 5,
+            "prev_head": "b8bebf056de5bd67535b3ef5484cc3781c5ad80bb3cbeff70b96d62723f99e7d",
+            "seq": 6,
+            "head": "9c805235f5b6bfd801828aa306b67237e833a1c5d2ef5f41ddff2b81cfa90b5e"
+          }
+        ]
+      }
+    },
+    {
+      "kind": 116,
+      "name": "SWAP_EXECUTED",
+      "key": [
+        {
+          "name": "issuer_tag",
+          "len": 8
+        },
+        {
+          "name": "nonce",
+          "len": 4
+        }
+      ],
+      "payload": [
+        {
+          "name": "grantee_tag",
+          "len": 8
+        },
+        {
+          "name": "p",
+          "len": 4
+        },
+        {
+          "name": "q",
+          "len": 4
+        },
+        {
+          "name": "facility_site",
+          "len": 1
+        },
+        {
+          "name": "station_site",
+          "len": 1
+        },
+        {
+          "name": "seq",
+          "len": 2
+        },
+        {
+          "name": "units",
+          "len": 4
+        },
+        {
+          "name": "ore",
+          "len": 8
+        },
+        {
+          "name": "wood",
+          "len": 8
+        },
+        {
+          "name": "arms",
+          "len": 8
+        }
+      ],
+      "body_without_tail_len": 66,
+      "vector": {
+        "bell": 2116,
+        "body_without_tail": "017444080000213e5b7895b2cfec213e5b786b88a5c2dffc193605000000ffffffff6b6b6b886b88a5c26b88a5c2dffc19366b88a5c2dffc19366b88a5c2dffc1936",
+        "body": "017444080000213e5b7895b2cfec213e5b786b88a5c2dffc193605000000ffffffff6b6b6b886b88a5c26b88a5c2dffc19366b88a5c2dffc19366b88a5c2dffc1936030404000000000000001a1a3200f84aed59ae8185a35260f83ecdb1e12ccaae35e4d2d7bc087552a6e4050500000000000000bd2599e7da6b2e0023e4a73af0cf9a6df9530d9c2f470128db09e7eb7744bd0e05060000000000000073f48a929153003ad823f2d69acb63a388d9cde78bf0f1f2a7a49689e22f3ac1",
+        "decodes": true,
+        "chains": [
+          {
+            "entity": 4,
+            "who": "Base(Citizen(Tag8(3898424990439409771)))",
+            "prev_seq": 3,
+            "prev_head": "2ef5b287606f1aa6501a10bbf40062787b34d6d80835538487a9e43104589f73",
+            "seq": 4,
+            "head": "1a1a3200f84aed59ae8185a35260f83ecdb1e12ccaae35e4d2d7bc087552a6e4"
+          },
+          {
+            "entity": 5,
+            "who": "Base(Holding { p: 5, q: -1, site: 107 })",
+            "prev_seq": 4,
+            "prev_head": "0ddd3486f2206ebba1a6f8582a9e5e2202ae304bb1a43dcdd80c2e356b118033",
+            "seq": 5,
+            "head": "bd2599e7da6b2e0023e4a73af0cf9a6df9530d9c2f470128db09e7eb7744bd0e"
+          },
+          {
+            "entity": 5,
+            "who": "Base(Holding { p: 5, q: -1, site: 107 })",
+            "prev_seq": 5,
+            "prev_head": "9f8898f4b47ad1262a1c505b29b0f5ea189cf02d06cd021f6df9a25a936be40a",
+            "seq": 6,
+            "head": "73f48a929153003ad823f2d69acb63a388d9cde78bf0f1f2a7a49689e22f3ac1"
+          }
+        ]
+      }
+    },
+    {
+      "kind": 117,
+      "name": "SWAP_RELEASED",
+      "key": [
+        {
+          "name": "issuer_tag",
+          "len": 8
+        },
+        {
+          "name": "nonce",
+          "len": 4
+        }
+      ],
+      "payload": [
+        {
+          "name": "by",
+          "len": 1
+        },
+        {
+          "name": "p",
+          "len": 4
+        },
+        {
+          "name": "q",
+          "len": 4
+        },
+        {
+          "name": "facility_site",
+          "len": 1
+        },
+        {
+          "name": "station_site",
+          "len": 1
+        },
+        {
+          "name": "ret_ore",
+          "len": 8
+        },
+        {
+          "name": "ret_wood",
+          "len": 8
+        },
+        {
+          "name": "ret_arms",
+          "len": 8
+        },
+        {
+          "name": "kept_ore",
+          "len": 8
+        },
+        {
+          "name": "kept_wood",
+          "len": 8
+        },
+        {
+          "name": "kept_arms",
+          "len": 8
+        }
+      ],
+      "body_without_tail_len": 77,
+      "vector": {
+        "bell": 2117,
+        "body_without_tail": "017545080000213e5b7895b2cfec213e5b786b05000000ffffffff6b6b6b88a5c2dffc19366b88a5c2dffc19366b88a5c2dffc19366b88a5c2dffc19366b88a5c2dffc19366b88a5c2dffc1936",
+        "body": "017545080000213e5b7895b2cfec213e5b786b05000000ffffffff6b6b6b88a5c2dffc19366b88a5c2dffc19366b88a5c2dffc19366b88a5c2dffc19366b88a5c2dffc19366b88a5c2dffc193602050400000000000000a62658a6f3d4676469c678a438900adfcf50e1c6fe37522fdcb02ded9aa246b405050000000000000076dfe5c473b76ab622d52febae5821e2f50aab1fc42e4a525765b5fadd4b377b",
+        "decodes": true,
+        "chains": [
+          {
+            "entity": 5,
+            "who": "Base(Holding { p: 5, q: -1, site: 107 })",
+            "prev_seq": 3,
+            "prev_head": "2b05fc68c04cf76b42f98b1ac67ee364a44ca35018234784f22cc47702cbab84",
+            "seq": 4,
+            "head": "a62658a6f3d4676469c678a438900adfcf50e1c6fe37522fdcb02ded9aa246b4"
+          },
+          {
+            "entity": 5,
+            "who": "Base(Holding { p: 5, q: -1, site: 107 })",
+            "prev_seq": 4,
+            "prev_head": "e853b770f20053cc31832ceee76fa394d27334c41aae168c99e2e4c90aa4d20b",
+            "seq": 5,
+            "head": "76dfe5c473b76ab622d52febae5821e2f50aab1fc42e4a525765b5fadd4b377b"
+          }
+        ]
+      }
+    },
+    {
+      "kind": 118,
+      "name": "GRANT_REVOKED",
+      "key": [
+        {
+          "name": "issuer_tag",
+          "len": 8
+        },
+        {
+          "name": "nonce",
+          "len": 4
+        }
+      ],
+      "payload": [
+        {
+          "name": "by",
+          "len": 1
+        },
+        {
+          "name": "p",
+          "len": 4
+        },
+        {
+          "name": "q",
+          "len": 4
+        },
+        {
+          "name": "facility_site",
+          "len": 1
+        },
+        {
+          "name": "station_site",
+          "len": 1
+        },
+        {
+          "name": "ret_ore",
+          "len": 8
+        },
+        {
+          "name": "ret_wood",
+          "len": 8
+        },
+        {
+          "name": "ret_arms",
+          "len": 8
+        },
+        {
+          "name": "kept_ore",
+          "len": 8
+        },
+        {
+          "name": "kept_wood",
+          "len": 8
+        },
+        {
+          "name": "kept_arms",
+          "len": 8
+        }
+      ],
+      "body_without_tail_len": 77,
+      "vector": {
+        "bell": 2118,
+        "body_without_tail": "017646080000213e5b7895b2cfec213e5b786b05000000ffffffff6b6b6b88a5c2dffc19366b88a5c2dffc19366b88a5c2dffc19366b88a5c2dffc19366b88a5c2dffc19366b88a5c2dffc1936",
+        "body": "017646080000213e5b7895b2cfec213e5b786b05000000ffffffff6b6b6b88a5c2dffc19366b88a5c2dffc19366b88a5c2dffc19366b88a5c2dffc19366b88a5c2dffc19366b88a5c2dffc19360304040000000000000025ac6823a0300f1ca649d10ee1b05b0e5870036fbc2998437eca942c9d0c98820505000000000000008039fcba29466c848b3d97513adf3fb7f3b215223e839bde84e702eef957c97d050600000000000000bfd96dffd17beadf8c34db4fd4e1f9cd62cd06c2770835495f4bc40197a09f5d",
+        "decodes": true,
+        "chains": [
+          {
+            "entity": 4,
+            "who": "Base(Citizen(Tag8(17064053868169215521)))",
+            "prev_seq": 3,
+            "prev_head": "51a95e6fe1dd0b50375c9837bc818423048fc10cc7926f5bd092a523a5e5346b",
+            "seq": 4,
+            "head": "25ac6823a0300f1ca649d10ee1b05b0e5870036fbc2998437eca942c9d0c9882"
+          },
+          {
+            "entity": 5,
+            "who": "Base(Holding { p: 5, q: -1, site: 107 })",
+            "prev_seq": 4,
+            "prev_head": "a3277c4b5cc97477ea0f7a6a81a435b1e7dd82bc002bebc60ceabe0145364c13",
+            "seq": 5,
+            "head": "8039fcba29466c848b3d97513adf3fb7f3b215223e839bde84e702eef957c97d"
+          },
+          {
+            "entity": 5,
+            "who": "Base(Holding { p: 5, q: -1, site: 107 })",
+            "prev_seq": 5,
+            "prev_head": "d4b1ea266fb73882815b2824cc6d5a3afab9bbeff509398ce29d28a27ae35e52",
+            "seq": 6,
+            "head": "bfd96dffd17beadf8c34db4fd4e1f9cd62cd06c2770835495f4bc40197a09f5d"
+          }
+        ]
+      }
+    },
+    {
+      "kind": 119,
+      "name": "GRANT_CLOSED",
+      "key": [
+        {
+          "name": "issuer_tag",
+          "len": 8
+        },
+        {
+          "name": "nonce",
+          "len": 4
+        }
+      ],
+      "payload": [
+        {
+          "name": "rent",
+          "len": 8
+        },
+        {
+          "name": "rent_to",
+          "len": 8
+        }
+      ],
+      "body_without_tail_len": 34,
+      "vector": {
+        "bell": 2119,
+        "body_without_tail": "017747080000213e5b7895b2cfec213e5b786b88a5c2dffc19366b88a5c2dffc1936",
+        "body": "017747080000213e5b7895b2cfec213e5b786b88a5c2dffc19366b88a5c2dffc193600",
+        "decodes": true,
+        "chains": []
+      }
+    },
+    {
       "kind": 130,
       "name": "RESIDENT_JOINED",
       "key": [
