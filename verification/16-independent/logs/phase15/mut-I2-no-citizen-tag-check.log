@@ -1,0 +1,78 @@
+   Compiling wylls-runexec v0.1.0 (/tmp/claude-0/-home-user-wylls/47a54b0f-427a-5cca-bc82-feb7c5056956/scratchpad/v23/workstreams/04-execution)
+warning: function `refused` is never used
+   --> tests/v16_intake_regressions.rs:197:4
+    |
+197 | fn refused(r: Result<runexec::store::Accept, String>, why: &str) {
+    |    ^^^^^^^
+    |
+    = note: `#[warn(dead_code)]` on by default
+
+warning: constant `STALE` is never used
+   --> tests/v16_intake_regressions.rs:204:7
+    |
+204 | const STALE: &str = "another pass generation";
+    |       ^^^^^
+
+warning: constant `NOT_CURRENT` is never used
+   --> tests/v16_intake_regressions.rs:205:7
+    |
+205 | const NOT_CURRENT: &str = "not the pass's current owner nor its live session";
+    |       ^^^^^^^^^^^
+
+warning: `wylls-runexec` (test "v16_intake_regressions") generated 3 warnings
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 1.48s
+     Running tests/intake.rs (target/debug/deps/intake-d83bfda60eb8afe5)
+
+running 6 tests
+test a_repeated_run_id_from_the_previous_owner_is_refused ... ok
+test a_lingering_session_of_the_previous_owner_is_refused ... ok
+test after_a_transfer_the_previous_owner_and_its_session_are_refused ... ok
+test the_owner_is_admitted_and_the_check_is_kept_on_the_run ... ok
+test a_run_admitted_before_a_transfer_keeps_its_check ... ok
+test a_run_without_a_sound_pass_is_refused ... FAILED
+
+failures:
+
+---- a_run_without_a_sound_pass_is_refused stdout ----
+
+thread 'a_run_without_a_sound_pass_is_refused' panicked at tests/intake.rs:202:19:
+refused, but for: no NFT pass for the run's citizen: every player needs a pass
+stack backtrace:
+   0: __rustc::rust_begin_unwind
+             at /rustc/29483883eed69d5fb4db01964cdf2af4d86e9cb2/library/std/src/panicking.rs:697:5
+   1: core::panicking::panic_fmt
+             at /rustc/29483883eed69d5fb4db01964cdf2af4d86e9cb2/library/core/src/panicking.rs:75:14
+   2: intake::refused
+             at ./tests/intake.rs:202:19
+   3: intake::a_run_without_a_sound_pass_is_refused
+             at ./tests/intake.rs:330:5
+   4: intake::a_run_without_a_sound_pass_is_refused::{{closure}}
+             at ./tests/intake.rs:316:43
+   5: core::ops::function::FnOnce::call_once
+             at /rustc/29483883eed69d5fb4db01964cdf2af4d86e9cb2/library/core/src/ops/function.rs:250:5
+   6: core::ops::function::FnOnce::call_once
+             at /rustc/29483883eed69d5fb4db01964cdf2af4d86e9cb2/library/core/src/ops/function.rs:250:5
+note: Some details are omitted, run with `RUST_BACKTRACE=full` for a verbose backtrace.
+
+
+failures:
+    a_run_without_a_sound_pass_is_refused
+
+test result: FAILED. 5 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.14s
+
+error: test failed, to rerun pass `--test intake`
+     Running tests/v16_intake_regressions.rs (target/debug/deps/v16_intake_regressions-586d3dd29c4da457)
+
+running 7 tests
+test v16_i1_a_refusal_stores_nothing_and_does_not_reveal_a_run ... ok
+test v16_i4_transfers_a_to_b_to_a_admit_only_the_current_generation ... ok
+test v16_i2_a_repeat_by_the_holders_session_keeps_the_first_check ... ok
+test v16_i6_every_tampered_pass_account_is_refused_and_stores_nothing ... ok
+test v16_i5_a_session_acts_only_before_its_expiry_and_in_its_generation ... ok
+test v16_i3_the_check_survives_a_restart_and_the_run_completes ... ok
+test v16_i7_a_run_admitted_before_a_transfer_finishes_once_through_a_crash ... ok
+
+test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.07s
+
+error: 1 target failed:
+    `--test intake`

@@ -1,0 +1,17 @@
+11:45:49 fetch exit=0
+11:46:32 run.sh exit=0
+11:46:33 committed exit=0
+11:46:33 cmp 7 same 0 diff
+11:46:34 mutations done
+11:46:35 probe exit=0
+11:46:50 ws04-all exit=0
+11:46:52 e2e-native exit=101
+11:46:52 runs-client exit=0
+11:46:52 ALL DONE
+12:05:10 verify exit=0
+12:05:14 verify-fixtures exit=0
+12:05:16 findex-ingest-keyfree exit=0
+12:05:22 findex exit=0
+12:05:34 localnet-feed-scan exit=0
+12:05:45 herald exit=0
+12:05:45 NODE ALL DONE

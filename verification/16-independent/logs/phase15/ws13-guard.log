@@ -1,0 +1,11 @@
+13199 crypto.generateKeyPairSync
+13199 crypto.createPrivateKey
+13199 crypto.sign
+13199 crypto.createHmac
+13199 crypto.generateKeyPairSync
+13199 web3.PublicKey.findProgramAddressSync
+13199 web3.PublicKey.createProgramAddressSync
+13199 web3.Keypair.generate
+13199 web3.Keypair.fromSeed
+13199 solana-tx.findProgramAddress
+13199 solana-tx.createProgramAddress

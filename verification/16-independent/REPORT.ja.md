@@ -1364,3 +1364,218 @@ V11 が変わった経緯:
 - 実際の localnet のプロセスで、⑳の住民の feed を読むこと。
 
 ログ: `logs/phase14/`
+
+# 第15期（2026-11-08）：④の公開候補 cf517b55（受付の requester・所有者・世代の照合）
+
+## 20.1 対象と差分
+
+- 取得: `git fetch origin claude/gallant-ride-cunptv`
+- HEAD は `cf517b558d1303a84dba618550f40cb460b7ad99`、tree は `75b67dc4f929527deaf885ae8858325e0b23b482`。
+- 8234b8dd の上に 3 コミット:
+  - 7d2fbe0d: cargo-only の run CLI
+  - e61ea4db: runexec の受付が、依頼者を pass の現在の holder と照合する
+  - cf517b55: 受付が chain の pass を読む
+- 変わったのは `workstreams/04-execution` だけ。次の subtree は 8234b8dd と同じだった。
+  - frontier-node `e3014ca1`
+  - permutation-frontier `13cfd749`
+  - permutation-prize `9dbc6350`
+  - frontier-abi `486adaa5`
+  - permutation-rules `f449a002`
+  - permutation-gateway `8c200763`
+- **同じ subtree でも、旧 SHA の結果は流用せず、この SHA で流し直した。**
+
+## 20.2 受付の照合（読解）
+
+- 確認は `intake::authorize` → `check_requester` の順に進む。
+  1. requester の Citizen の citizen_tag が、run の owner と一致する。
+  2. link と policy が、ゲームのプログラムの口座である。
+  3. ⑳の `resident_auth::holder` と `Holder::authority` で、所有者と世代を照合する。
+- この確認は store を開く前に行われる。同じ run_id を再び依頼した場合も同じ。
+- `run accept` の CLI は `--requester` と `--rpc` を必須にしている。拒否は exit 5 で、store に何も書かない。
+- 照合を通らない受付の経路は、次の 2 つだけ。どちらも外部からの依頼は通らない。
+  - in-process の `Executor::accept`
+  - `demo` コマンド
+- **残る点**（実装上の制限。④も明記している）:
+  - 依頼者が本当に署名したかは、gateway の資格層（③⑤）の責任である。runexec は `is_signer` 相当として受け取る。
+  - 照合（pass の読取り）と store への受付の間に譲渡が起きると、旧所有者の run が受け付けられうる。これは受付前の譲渡と同じ扱い（受付済みの run は最後まで走る。利用者の決定 2026-11-07）。
+  - executor は、authority の無い run（in-process の経路）もそのまま実行する。
+
+鍵の監査:
+
+- 新しいファイルは、鍵を作らず、署名もしない。
+  - `src/intake.rs`、`src/intake_rpc.rs`（PDA の計算だけ）
+  - `tests/intake.rs`、`intake_chain.rs`、`run_cli.rs`、`common/passnode.rs`
+  - `clients/runs.mjs`・`runs.test.mjs`
+- Sim の「署名」は sha256 の digest で、鍵ではない。
+
+## 20.3 ⑯の独立試験と変異
+
+`probes/v16_intake_regressions.rs` は 7/7 で通過した（mock の Sim、鍵なし）。pass の口座のバイトを作る部分は④の `tests/intake.rs` から写し、試験そのものは⑯が書いた。
+
+| 試験 | 内容 |
+|---|---|
+| i1 | 譲渡後、旧所有者とその session の依頼は、世代が古くても新しくても拒否され、store に何も残らない。新所有者が作った run_id を旧所有者が再び依頼しても、Existing を知ることはできない |
+| i2 | holder の session が同じ spec を再依頼すると Existing になる。最初の照合（Owner B、世代 1）は上書きされない。別の spec なら Conflict |
+| i3 | 再起動後、照合は store から読み出せる。再依頼は Existing になり、run は Fulfilled まで進む。監査とストア検査も通る |
+| i4 | A→B→A と譲渡すると、通るのは (A, 世代 2) だけ。(A,0)、(A,1)、(B,1)、(B,2) は拒否され、何も残らない |
+| i5 | session は、期限が now ちょうど・過ぎている・前の世代で設定されたもの、のどれでも拒否される。期限内なら Session として受け付ける |
+| i6 | pass の口座を 9 通りに改ざんすると、すべて拒否され、何も残らない（link・policy の所有プログラム、link の Citizen、asset の所有者・guard・key、resident の key・所有者、link の長さ）。citizen の不一致と owner の不一致も拒否される |
+| i7 | 譲渡前に受け付けた run は、`ship.before_send` で落ちて再起動しても、1 回だけ Fulfilled になる。照合は (A, 0) のまま残り、旧所有者は新しい run を作れない |
+
+照合のコードを、④の試験と⑯の試験に対して 4 通り壊した（`scripts/mutate-intake.sh`、`--no-fail-fast`）。
+
+| 変異 | ④ intake（6 件） | ⑯（7 件） |
+|---|---|---|
+| I1 世代を依頼者の値ではなく pass の値で照合する | 2 件 FAIL | i4 が FAIL |
+| I2 citizen_tag の照合を外す | 1 件 FAIL（文言の照合） | 通過（`check_requester` が link の Citizen で同じことを確かめるので、拒否の文言が変わるだけ） |
+| I3 link・policy の所有プログラムの照合を外す | 1 件 FAIL | i6 が FAIL |
+| I4 `accept_as` が照合を通らない | 6 件 FAIL | 7 件 FAIL |
+
+## 20.4 回帰（cf517b55、ホスト、鍵なし、PDA あり）
+
+| 対象 | 結果 | 位置づけ |
+|---|---|---|
+| chain-flow の照合 | 31/31 | fixture |
+| 作り直した出力とコミット済み fixture の比較 | 7 ファイルすべて一致 | fixture |
+| 照合器の変異 M1〜M12 | 12/12 を検出 | fixture |
+| A NFT 参加と譲渡 | 2/2 | ホスト |
+| E 賞金 | 2/2 | ホスト |
+| B 荷車 | 1/1 | mock |
+| C・D 記憶と成果 | 完了 | JS |
+| ⑯の荷車の障害試験 | 4/4 | mock |
+| ws04 の全試験（下記） | すべて通過 | mock とホスト |
+| e2e-native の chain_nft 2、chain_prize 2、claims_vs_closes 12、error_codes 3、legacy_season_claims 4 | すべて通過 | ホスト |
+| **e2e-native の registry** | **0/1（FAIL）** | 20.5 |
+| runs の client（実バイナリを含む） | 4/4 | ホスト |
+
+ws04 の全試験の内訳:
+
+- lib 2、act_cli 6、acts 6、arrival 10、cargo_only 4、concurrency 8、continuity 4、faults 39、gateway_facts 7、intake 6、intake_chain 5、routes 4、run_cli 12、signed 6
+- ⑯の v16_* 11（荷車 4、受付 7）
+- `gateway.rs` の 9 件は ignored で、流していない。20.6 を参照。
+
+検証器・findex・localnet・herald（cf517b55 で流し直した。鍵を使う試験は除いた）:
+
+| 対象 | 結果 |
+|---|---|
+| 検証器 lib | 47 |
+| 検証器 camp_clear 3、custody 6・8・7、evidence 8、history 16、ledger_history 6、missing_state 2、new_bands 7、open_items 3、resident_ledger 4、unit 8、ws04_scan_resident 4 | すべて通過 |
+| ⑯の v16_cpi_keyfree 6、v16_v27_gate 3 | すべて通過 |
+| 検証器 fixtures（`march_fixture_is_fresh` を除外） | 8/8 |
+| findex lib 10、coverage 14、ledger 15、no_hidden_gap 4、open_items 5、store_failure 5、ws04_feed_scan 11、ws04_join_adversarial 7 | すべて通過 |
+| ⑯の v16_history_gaps 3、v16_history_coverage 4 | すべて通過 |
+| findex ingest の鍵なし 4 件 | 4/4 |
+| localnet feed_scan_tests | 3/3 |
+| herald ingest_health | 3 |
+
+## 20.5 見つかった欠陥：contracts/registry.txt が古い
+
+- `e2e-native/tests/registry.rs::registry_matches_the_code` が失敗する。メッセージは「the code's numbers differ from contracts/registry.txt」。
+- 隔離した worktree で `REGEN=1` を付けて再生成し、差分を記録した（`logs/phase15/registry-diff.txt`）。その後、元に戻した。
+- コードにあって registry.txt に無い命令は 12 個。
+  - 0xC1 ExtendFrontier（地図の拡大、7df3187a）
+  - 0xC2〜0xCC OpenLot … WithdrawLot（⑩の保管、00b36406）
+- registry.txt が最後に更新されたのは c37652ed（2026-11-06）。
+- ABI の割当表（`ABI-ALLOCATION-20261106.ja.md` の 28・29・44・45 行）には、これらが載っている。
+- frontier-abi と permutation-frontier は 8234b8dd でも同じなので、8234b8dd・6cd6dd14 でも同じように失敗するはずである（⑯はその版では e2e-native を全件流していない）。
+- **④の担当。直し方は REGEN=1 で生成し、差分を確かめてコミットすること。**
+
+## 20.6 実行していないもの（鍵）と、ゲームへの接続
+
+`tests/gateway.rs`（ws04 の run を agent wallet の gateway に通す 9 件）は流していない。
+
+- この試験の bridge（`bridge/agent-gateway-bridge.mjs`）は `Keypair.generate()` を呼ぶ。gateway も取引に署名する。
+- **したがって、④の run が実際の gateway のコードと鍵なしで結びつくことは、確かめていない。**
+
+ゲームの既存の画面への反映（`permutation-server/web`）:
+
+| 機能 | 画面の側 | ⑯の確認 |
+|---|---|---|
+| NFT 参加と ResidentAct | `frontier/fresident.mjs`・`fplay.mjs`・`controller.mjs`、SDK の `sdk/frontier/resident.mjs`（PDA の計算） | `frontier-resident.test.mjs` と `web-frontier-resident.test.mjs` は 8/8（no-keys-guard の下、鍵なし） |
+| run の受付（④ cf517b55） | **画面にも gateway にも呼び出し元がない** | ⑬の resident ports（`13-citizens/resident/ports/ws04-acts.mjs`）だけが ws04 を呼ぶ |
+| 賞金の請求 | 旧 Season の `claim.mjs`・`chainio.mjs` だけ | NFT 住民の請求は未実装（E は BadAccount を確かめるだけ） |
+| RecordNation | 画面には無い | — |
+| 記憶（⑫） | `frontier/council/*` に記憶の語はある。⑫の canonical との接続は読んでいない | 未確認 |
+| 成果（⑮） | `drawers/era.mjs`・`hud/top.mjs` | 未確認 |
+| 地図の拡大と保管（0xC1〜0xCC） | gateway の tag 表と budget 表だけで、画面は無い | — |
+
+`web-frontier-chainio`・`web-frontier-controller` の試験は、`scripts/ci/node-key-tests.txt`（鍵を使う試験の一覧）に入っているので流していない。
+
+## 20.7 ⑬ 81a03cf5（cdab18e8 を含む）を cf517b55 に重ねた木
+
+- ⑬は `claude/eager-cerf-k74z5s` で公開されていた。
+  - HEAD は `81a03cf5b32abe7d757a5cd224b2abce74308a6d`、tree は `ffa82c9f82a9f16017ebcd216e981f0787a07a08`。
+  - cdab18e8（`cdab18e84b6f3de0c81a6e2c302f8d4cc5e4d502`）を含む。
+  - cf517b55 には入っていない。
+- ⑬の変更は `workstreams/13-citizens` の中だけだった。この directory は、⑬の基点 745e7ec6 と cf517b55 で同じ（tree `2aa557cf`）。
+  - そこで、cf517b55 に⑬の directory を重ねた。結果の tree は `cb180b5a903b22cda6c9c4e304f36f12e7d1036f`（commit ではない）。
+- 鍵の確認:
+  - ⑬の keyless guard は、node:crypto、web3.js、solana-tx の PDA を止める。ガードは PDA も止めるので、許可された範囲より厳しい。
+  - ⑬の鍵は `resident/keys.mjs`（node:crypto）と、gateway の `talk-node.mjs`（node:crypto）だけ。ガードが覆わない ed25519 の library は import されていない。
+- 結果:
+  - keyless の試験は **87 通過、0 失敗、57 skip**。skip は鍵が要るもので、数えない。
+  - デモは、そのままの実行と bell 70 で再起動した実行の transcript が一致した（`3fa6919f…`）。
+- ガードの記録は 11 件で、どれも 1 つの process だった。
+  - `keyless.test.mjs` が、ガードが止めることを確かめる自己試験の 11 回（crypto 5、web3 4、solana-tx 2）。
+  - ほかに鍵を使おうとした試験は無い。
+
+## 20.8 ①〜⑳の成果の所在（cf517b55 と比べて）
+
+基準:
+
+- 祖先として含むかで分けた。祖先でない場合は、さらに次の 2 点を見た。
+  - `git cherry` で、同じ patch が候補にあるか。
+  - その branch が触ったファイルが、候補の中で同じ内容になっているか。
+- 下の「候補に無い」は、どちらで見ても内容が入っていないもの。
+
+| 担当 | 公開されている最新 | cf517b55 との関係 |
+|---|---|---|
+| ① | preserve/ws01-coop-s1-3f3c8478 | 含む |
+| ② | preserve/ws02-rights-dc3bd3d（10-30） | 候補に無い（7 コミット、31 ファイル） |
+| ③ | claude/modest-goldberg-c180fk 84f710d5（11-06） | 候補に無い（20 コミット、`workstreams/03-composability` の 104 ファイル） |
+| ④ | cf517b55 | 本体 |
+| ⑤ | preserve/ws05-provider-budget-45cba41e（10-30） | 候補に無い |
+| ⑥ | preserve/ws06-creation-517796dc | 含む |
+| ⑦ | preserve/ws07-series・return-fixes（10-30） | 候補に無い（画面の S1 部品） |
+| ⑧ | ws08-persistence は含む。ws08-continuous・cont-verify（10-31） | 後の 2 つは候補に無い（触ったファイルのうち 24 件だけ同じ） |
+| ⑨ | `workstreams/09-capacity`（integrate/ws09-10-audit） | 含む |
+| ⑩ | claude/great-babbage-3ogkqu 9107b753（11-07） | 候補に無い 3 コミット（patch 0015 の core） |
+| ⑪ | claude/kind-fermat-earbxe c137b51b（r12） | 0012 は候補にある。branch の 6 コミット（文書と r12）は無い |
+| ⑫ | `workstreams/12-memory` | 候補にある |
+| ⑬ | claude/eager-cerf-k74z5s 81a03cf5 | 候補に無い（20.7 で重ねて確認） |
+| ⑭ | preserve/ws14-7d7f2143 | 含む |
+| ⑮ | preserve/ws15-b1a09a0b | 含む。bf7f43fc は remote に無い（未着） |
+| ⑯ | 本 branch | 検証だけ |
+| ⑰ | preserve/ws17-0c80381d（10-31） | 候補に無い。RecordNation の tgz（464144b8…）も未着 |
+| ⑱ | preserve/ws18-4fbe0c77、fix/ws18-clippy-hostile | 候補に無い（触ったファイル 20 件のうち 8〜9 件だけ同じ） |
+| ⑲ | r2 c022f4fc と台帳の巻き戻り対策（3c664a61・7ab2b0b2） | 含む。ER（preserve/ws19-a91b7a4f・supp-d793ebd4）は無い |
+| ⑳ | claude/funny-wozniak-cy4n64 d85c42da | 候補に無いのは文書の 1 コミットだけ |
+
+利用者の作業（preserve/wide-*）:
+
+- 次の 10 本ほどが、候補に入っていない。
+  - wide-keeper-duties（+39）、wide-read-integration（+25）、wide-keeper-discovery（+24）
+  - wide-real-depart-host、wide-recovery-crypto-wip、wide-interprovince-staged-wip、wide-reader-guards、wide-capture-read、wide-seal-records-wip、wide-combat-core、wide-claim-lifecycle、wide-open-province
+- 中身は、広い世界の keeper、読取り、戦闘、請求。
+- **wide-recovery-crypto-wip には暗号の作業が含まれるので、検証するときは鍵の監査が必要。**
+
+## 20.9 実チェーンで確かめていないこと、次の一手
+
+確かめていないこと（§17.5・§18.3・§19.4 に加えて）:
+
+- 実際の gateway を通る run の受付（`gateway.rs` は鍵を使う）
+- 画面から run の受付を呼ぶ経路（呼び出し元が無い）
+- 署名した依頼者の認証（③⑤）
+- localnet のプロセスで pass を読むこと（`intake_chain` は代役のノード）
+
+次の一手:
+
+- ④:
+  - registry.txt を作り直してコミットする。
+  - gateway の run の試験を、鍵を使わない形（署名済みのデータを入力にする、または署名を検査しない入口）で用意する。
+  - 依頼者の認証が、どの層のどの関数で行われるかを明記する。
+  - ⑬ 81a03cf5、⑩ 9107b753、③ 84f710d5 を統合するかどうかを決める。
+- ⑬: 81a03cf5 を④に統合してもらう。⑯は、cf517b55 に重ねた木で 87 件の通過を確かめた。
+- 未着: ⑮ bf7f43fc、⑰ RecordNation の tgz。
+
+ログ: `logs/phase15/`

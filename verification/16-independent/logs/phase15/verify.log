@@ -1,0 +1,636 @@
+### verify HEAD cf517b558d1303a84dba618550f40cb460b7ad99 tree 75b67dc4f929527deaf885ae8858325e0b23b482
+?? frontier-node/crates/findex/tests/v16_history_coverage.rs
+?? frontier-node/crates/findex/tests/v16_history_gaps.rs
+?? frontier-node/crates/verify/tests/v16_cpi_keyfree.rs
+?? frontier-node/crates/verify/tests/v16_v27_gate.rs
+?? workstreams/04-execution/tests/v16_chain_caravan_faults.rs
+?? workstreams/04-execution/tests/v16_intake_regressions.rs
+   Compiling proc-macro2 v1.0.107
+   Compiling quote v1.0.47
+   Compiling unicode-ident v1.0.26
+   Compiling libc v0.2.189
+   Compiling cfg-if v1.0.5
+   Compiling version_check v0.9.5
+   Compiling typenum v1.20.1
+   Compiling generic-array v0.14.7
+   Compiling subtle v2.6.1
+   Compiling const-oid v0.9.6
+   Compiling autocfg v1.5.1
+   Compiling serde_core v1.0.229
+   Compiling syn v2.0.119
+   Compiling getrandom v0.2.17
+   Compiling rand_core v0.6.4
+   Compiling syn v3.0.6
+   Compiling serde v1.0.229
+   Compiling ident_case v1.0.1
+   Compiling strsim v0.11.1
+   Compiling num-traits v0.2.19
+   Compiling cpufeatures v0.2.17
+   Compiling thiserror v2.0.21
+   Compiling darling_core v0.23.0
+   Compiling feature-probe v0.1.1
+   Compiling bv v0.11.1
+   Compiling wincode v0.5.5
+   Compiling pastey v0.2.3
+   Compiling semver v1.0.28
+   Compiling five8_core v1.0.0
+   Compiling rustc_version v0.4.1
+   Compiling solana-sanitize v3.0.1
+   Compiling curve25519-dalek v4.1.3
+   Compiling five8 v1.0.0
+   Compiling solana-program-error v3.0.1
+   Compiling zerocopy v0.8.59
+   Compiling five8_const v1.0.0
+   Compiling solana-atomic-u64 v3.0.1
+   Compiling sha2-const-stable v0.1.0
+   Compiling ppv-lite86 v0.2.21
+   Compiling rand_chacha v0.3.1
+   Compiling rand v0.8.8
+   Compiling getrandom v0.3.4
+   Compiling num-integer v0.1.47
+   Compiling once_cell v1.21.4
+   Compiling either v1.18.0
+   Compiling find-msvc-tools v0.1.14
+   Compiling shlex v2.0.1
+   Compiling cc v1.5.1
+   Compiling ahash v0.8.12
+   Compiling arrayvec v0.7.8
+   Compiling bs58 v0.5.1
+   Compiling num-bigint v0.4.8
+   Compiling serde_derive v1.0.229
+   Compiling zeroize_derive v1.5.0
+   Compiling thiserror-impl v2.0.21
+   Compiling darling_macro v0.23.0
+   Compiling darling v0.23.0
+   Compiling wincode-derive v0.4.6
+   Compiling zeroize v1.9.0
+   Compiling crypto-common v0.1.7
+   Compiling block-buffer v0.10.4
+   Compiling digest v0.10.7
+   Compiling sha2 v0.10.9
+   Compiling bytemuck_derive v1.12.1
+   Compiling curve25519-dalek-derive v0.1.1
+   Compiling solana-instruction-error v2.4.0
+   Compiling bincode v1.3.3
+   Compiling signature v2.2.0
+   Compiling solana-sdk-macro v3.0.1
+   Compiling bytemuck v1.25.2
+   Compiling ed25519 v2.2.3
+   Compiling solana-transaction-error v3.3.2
+   Compiling serde-big-array v0.5.1
+   Compiling hybrid-array v0.4.15
+   Compiling base64 v0.22.1
+   Compiling cpufeatures v0.3.1
+   Compiling cmov v0.5.4
+   Compiling crypto-common v0.2.2
+   Compiling ctutils v0.4.2
+   Compiling block-buffer v0.12.1
+   Compiling blake3 v1.8.7
+   Compiling ed25519-dalek v2.2.0
+   Compiling rand_core v0.9.5
+   Compiling rand_chacha v0.9.0
+   Compiling digest v0.11.3
+   Compiling allocator-api2 v0.2.21
+   Compiling memchr v2.8.3
+   Compiling constant_time_eq v0.4.2
+   Compiling rand v0.9.5
+   Compiling hmac v0.12.1
+   Compiling enum-ordinalize-derive v4.4.2
+   Compiling paste v1.0.15
+   Compiling log v0.4.34
+   Compiling lazy_static v1.5.0
+   Compiling solana-program-memory v3.1.0
+   Compiling radium v0.7.0
+   Compiling itertools v0.14.0
+   Compiling bitflags v2.13.2
+   Compiling tap v1.0.1
+   Compiling wyz v0.5.1
+   Compiling funty v2.0.0
+   Compiling itoa v1.0.18
+   Compiling solana-define-syscall v4.0.1
+   Compiling serde_bytes v0.11.19
+   Compiling bitvec v1.1.1
+   Compiling rand_xorshift v0.3.0
+   Compiling byteorder v1.5.0
+   Compiling pbkdf2 v0.11.0
+   Compiling ark-serialize-derive v0.5.0
+   Compiling solana-hash v4.5.0
+   Compiling solana-signature v3.4.1
+   Compiling solana-sha256-hasher v3.1.0
+   Compiling solana-address v2.6.1
+   Compiling solana-pubkey v4.2.1
+   Compiling solana-sdk-ids v3.1.0
+   Compiling solana-instruction v3.4.1
+   Compiling solana-sysvar-id v3.1.0
+   Compiling solana-get-sysvar v1.0.0
+   Compiling solana-signer v3.0.1
+   Compiling solana-epoch-schedule v3.2.0
+   Compiling solana-short-vec v3.2.2
+   Compiling solana-clock v3.1.1
+   Compiling enum-ordinalize v4.4.2
+   Compiling solana-account-info v3.1.1
+   Compiling educe v0.6.0
+   Compiling solana-message v4.4.1
+   Compiling solana-slot-hashes v3.1.0
+   Compiling solana-rent v4.3.0
+   Compiling solana-fee-calculator v3.2.2
+   Compiling solana-program-entrypoint v3.1.1
+   Compiling solana-transaction v4.1.6
+   Compiling solana-stake-history v1.0.0
+   Compiling solana-slot-history v3.1.0
+   Compiling solana-last-restart-slot v3.1.0
+   Compiling solana-epoch-rewards v3.1.0
+   Compiling solana-sysvar v4.1.0
+   Compiling ff v0.13.1
+   Compiling group v0.13.0
+   Compiling ark-std v0.5.0
+   Compiling num-bigint v0.2.6
+   Compiling equivalent v1.0.2
+   Compiling solana-msg v3.1.0
+   Compiling solana-system-interface v3.2.0
+   Compiling ark-serialize v0.5.0
+   Compiling solana-account v4.3.2
+   Compiling solana-seed-phrase v3.0.0
+   Compiling ark-ff-macros v0.5.0
+   Compiling ark-ff-asm v0.5.0
+   Compiling itertools v0.13.0
+   Compiling num-rational v0.2.4
+   Compiling num-complex v0.2.4
+   Compiling winnow v1.0.4
+   Compiling syn v1.0.109
+   Compiling hashbrown v0.17.1
+   Compiling void v1.0.2
+   Compiling solana-svm-feature-set v4.2.2
+   Compiling unreachable v1.0.0
+   Compiling toml_parser v1.1.3+spec-1.1.0
+   Compiling indexmap v2.14.2
+   Compiling solana-serialize-utils v3.1.2
+   Compiling hashbrown v0.15.5
+   Compiling toml_datetime v1.1.1+spec-1.1.0
+   Compiling ascii v0.9.3
+   Compiling combine v3.8.1
+   Compiling toml_edit v0.25.15+spec-1.1.0
+   Compiling solana-svm-transaction v4.2.0
+   Compiling hash32 v0.3.1
+   Compiling enum-iterator-derive v1.5.0
+   Compiling blst v0.3.17
+   Compiling num-iter v0.1.46
+   Compiling darling_core v0.24.1
+   Compiling ark-ff v0.5.0
+   Compiling num_cpus v1.17.0
+   Compiling zmij v1.0.23
+   Compiling cfg_aliases v0.2.2
+   Compiling pin-project-lite v0.2.17
+   Compiling rustc-demangle v0.1.28
+   Compiling solana-sbpf v0.21.1
+   Compiling ark-poly v0.5.0
+   Compiling ark-ec v0.5.0
+   Compiling borsh v1.6.1
+   Compiling threadpool v1.8.1
+   Compiling enum-iterator v2.3.0
+   Compiling num v0.2.1
+   Compiling proc-macro-crate v3.5.0
+   Compiling solana-instructions-sysvar v4.0.0
+   Compiling solana-keypair v3.1.2
+   Compiling solana-cpi v3.1.0
+   Compiling solana-precompile-error v3.0.0
+   Compiling bytes v1.12.1
+   Compiling foldhash v0.2.0
+   Compiling serde_json v1.0.151
+   Compiling eager v0.1.0
+   Compiling solana-fee-structure v3.0.0
+   Compiling solana-svm-timings v4.2.2
+   Compiling solana-svm-callback v4.2.2
+   Compiling solana-stake-interface v4.3.0
+   Compiling borsh-derive v1.6.1
+   Compiling solana-transaction-context v4.2.2
+   Compiling percentage v0.1.0
+   Compiling darling_macro v0.24.1
+   Compiling pairing v0.23.0
+   Compiling solana-loader-v3-interface v7.0.0
+   Compiling solana-stable-layout v3.0.1
+   Compiling solana-svm-log-collector v4.2.2
+   Compiling solana-svm-type-overrides v4.2.2
+   Compiling byte-slice-cast v1.2.3
+   Compiling solana-svm-measure v4.2.2
+   Compiling crunchy v0.2.4
+   Compiling solana-program-runtime v4.2.2
+   Compiling darling v0.24.1
+   Compiling serde_with_macros v3.23.0
+   Compiling blstrs v0.7.1
+   Compiling ark-serialize-derive v0.4.2
+   Compiling serde_with v3.23.0
+   Compiling der v0.7.10
+   Compiling ark-serialize-derive v0.6.0
+   Compiling ark-std v0.6.0
+   Compiling ark-std v0.4.0
+   Compiling errno v0.3.14
+   Compiling percent-encoding v2.3.2
+   Compiling signal-hook-registry v1.4.8
+   Compiling ark-serialize v0.4.2
+   Compiling digest v0.9.0
+   Compiling derivative v2.2.0
+   Compiling ark-ff-macros v0.4.2
+   Compiling ark-ff-asm v0.4.2
+   Compiling ark-serialize v0.6.0
+   Compiling ark-ff-macros v0.6.0
+   Compiling ark-ff-asm v0.6.0
+   Compiling tokio-macros v2.7.2
+   Compiling itertools v0.10.5
+   Compiling socket2 v0.6.5
+   Compiling mio v1.2.3
+   Compiling opaque-debug v0.3.1
+   Compiling libsecp256k1-core v0.3.0
+   Compiling ark-ff v0.6.0
+   Compiling spki v0.7.3
+   Compiling hashbrown v0.13.2
+   Compiling futures-core v0.3.34
+   Compiling thiserror v1.0.69
+   Compiling base16ct v0.2.0
+   Compiling rand_core v0.10.1
+   Compiling getrandom v0.4.3
+   Compiling keccak v0.1.6
+   Compiling sec1 v0.7.3
+   Compiling ark-ff v0.4.2
+   Compiling pkcs8 v0.10.2
+   Compiling tokio v1.53.1
+   Compiling agave-feature-set v4.2.2
+   Compiling ark-poly v0.6.0
+   Compiling solana-packet v4.2.0
+   Compiling inout v0.1.4
+   Compiling crypto-bigint v0.5.5
+   Compiling thiserror-impl v1.0.69
+   Compiling smallvec v1.16.2
+   Compiling anyhow v1.0.104
+   Compiling elliptic-curve v0.13.8
+   Compiling ark-ec v0.6.0
+   Compiling ark-poly v0.4.2
+   Compiling ark-ec v0.4.2
+   Compiling cipher v0.4.4
+   Compiling sha3 v0.10.9
+   Compiling chacha20 v0.10.2
+   Compiling libsecp256k1-gen-ecmult v0.3.0
+   Compiling libsecp256k1-gen-genmult v0.3.0
+   Compiling http v1.5.0
+   Compiling ark-bn254 v0.5.0
+   Compiling rfc6979 v0.4.0
+   Compiling tracing-attributes v0.1.31
+   Compiling itertools v0.15.0
+   Compiling tracing-core v0.1.36
+   Compiling vcpkg v0.2.15
+   Compiling pkg-config v0.3.34
+   Compiling fnv v1.0.7
+   Compiling uriparse v0.6.4
+   Compiling ecdsa v0.16.9
+   Compiling http-body v1.1.0
+   Compiling libsecp256k1 v0.7.2
+   Compiling libsqlite3-sys v0.38.2
+   Compiling ark-bn254 v0.4.0
+   Compiling rand v0.10.3
+   Compiling ark-bls12-381 v0.6.0
+   Compiling qstring v0.7.2
+   Compiling permutation-rules v0.1.0 (/tmp/claude-0/-home-user-wylls/47a54b0f-427a-5cca-bc82-feb7c5056956/scratchpad/v23/permutation-rules)
+   Compiling universal-hash v0.5.1
+   Compiling block-buffer v0.9.0
+   Compiling num-derive v0.4.2
+   Compiling httparse v1.10.1
+   Compiling derivation-path v0.2.0
+   Compiling solana-derivation-path v3.0.0
+   Compiling sha2 v0.9.9
+   Compiling frontier-abi v0.1.0 (/tmp/claude-0/-home-user-wylls/47a54b0f-427a-5cca-bc82-feb7c5056956/scratchpad/v23/frontier-abi)
+   Compiling polyval v0.6.2
+   Compiling tracing v0.1.44
+   Compiling tlock v0.0.10
+   Compiling light-poseidon v0.2.0
+   Compiling k256 v0.13.4
+   Compiling light-poseidon v0.4.0
+   Compiling ctr v0.9.2
+   Compiling aes v0.8.4
+   Compiling ark-bls12-381 v0.5.0
+   Compiling solana-bincode v3.1.0
+   Compiling aead v0.5.2
+   Compiling cfg_eval v0.1.2
+   Compiling solana-hash-512 v1.1.0
+   Compiling arrayref v0.3.9
+   Compiling tower-service v0.3.3
+   Compiling hex v0.4.3
+   Compiling fclient v0.1.0 (/tmp/claude-0/-home-user-wylls/47a54b0f-427a-5cca-bc82-feb7c5056956/scratchpad/v23/frontier-node/crates/fclient)
+   Compiling solana-sha512-hasher v1.0.1
+   Compiling aes-gcm-siv v0.11.1
+   Compiling solana-poseidon v4.0.0
+   Compiling solana-secp256k1-recover v3.3.0
+   Compiling solana-seed-derivable v3.0.0
+   Compiling solana-bn254 v3.2.1
+   Compiling solana-keccak-hasher v3.1.0
+   Compiling merlin v3.0.0
+   Compiling futures-channel v0.3.34
+   Compiling solana-bls12-381-syscall v0.1.1
+   Compiling hashlink v0.12.2
+   Compiling solana-nonce v3.2.1
+   Compiling solana-blake3-hasher v3.1.0
+   Compiling solana-curve25519 v4.0.1
+   Compiling solana-serde-varint v3.0.1
+   Compiling sync_wrapper v1.0.2
+   Compiling httpdate v1.0.3
+   Compiling crc32fast v1.5.2
+   Compiling atomic-waker v1.1.2
+   Compiling slab v0.4.12
+   Compiling tower-layer v0.3.3
+   Compiling fallible-iterator v0.3.0
+   Compiling futures-task v0.3.34
+   Compiling fallible-streaming-iterator v0.1.9
+   Compiling futures-util v0.3.34
+   Compiling hyper v1.11.1
+   Compiling solana-vote-interface v6.0.3
+   Compiling solana-syscalls v4.2.2
+   Compiling solana-nonce-account v4.1.1
+   Compiling solana-zk-sdk v5.0.1
+   Compiling solana-bls-signatures v3.3.0
+   Compiling http-body-util v0.1.5
+   Compiling solana-builtins-default-costs v4.2.2
+   Compiling form_urlencoded v1.2.2
+   Compiling solana-borsh v3.0.2
+   Compiling solana-compute-budget-interface v3.0.0
+   Compiling solana-compute-budget v4.2.2
+   Compiling solana-address v1.1.0
+   Compiling qualifier_attr v0.2.2
+   Compiling simd-adler32 v0.3.10
+   Compiling ryu v1.0.23
+   Compiling adler2 v2.0.1
+   Compiling mime v0.3.17
+   Compiling axum-core v0.5.6
+   Compiling miniz_oxide v0.9.1
+   Compiling solana-bpf-loader-program v4.2.2
+   Compiling serde_urlencoded v0.7.1
+   Compiling solana-pubkey v3.0.0
+   Compiling solana-compute-budget-instruction v4.2.2
+   Compiling solana-vote-program v4.2.2
+   Compiling solana-zk-elgamal-proof-program v4.2.2
+   Compiling solana-system-program v4.2.2
+   Compiling tower v0.5.3
+   Compiling hyper-util v0.1.21
+   Compiling agave-transaction-view v4.2.2
+   Compiling solana-compute-budget-program v4.2.2
+   Compiling solana-zk-token-proof-program v4.2.2
+   Compiling serde_path_to_error v0.1.20
+   Compiling matchit v0.8.4
+   Compiling axum v0.8.9
+   Compiling solana-builtins v4.2.2
+   Compiling solana-runtime-transaction v4.2.2
+   Compiling flate2 v1.1.10
+   Compiling solana-loader-v4-interface v3.1.0
+   Compiling agave-reserved-account-keys v4.2.2
+   Compiling solana-fee v4.2.2
+   Compiling solana-feature-gate-interface v4.0.0
+   Compiling solana-loader-v3-interface v8.0.1
+   Compiling solana-address-lookup-table-interface v3.1.0
+   Compiling ansi_term v0.12.1
+   Compiling solana-native-token v3.0.0
+   Compiling rusqlite v0.40.2
+   Compiling litesvm v0.16.0
+   Compiling findex v0.1.0 (/tmp/claude-0/-home-user-wylls/47a54b0f-427a-5cca-bc82-feb7c5056956/scratchpad/v23/frontier-node/crates/findex)
+   Compiling localnet v0.1.0 (/tmp/claude-0/-home-user-wylls/47a54b0f-427a-5cca-bc82-feb7c5056956/scratchpad/v23/frontier-node/crates/localnet)
+   Compiling verify v0.1.0 (/tmp/claude-0/-home-user-wylls/47a54b0f-427a-5cca-bc82-feb7c5056956/scratchpad/v23/frontier-node/crates/verify)
+   Compiling keeper v0.1.0 (/tmp/claude-0/-home-user-wylls/47a54b0f-427a-5cca-bc82-feb7c5056956/scratchpad/v23/frontier-node/crates/keeper)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 4m 40s
+     Running unittests src/lib.rs (target/debug/deps/verify_core-c45dc2ac745a4e7b)
+
+running 47 tests
+test checks::v0_coverage::tests::every_abi_tag_has_a_coverage_answer ... ok
+test checks::v11_land::tests::legacy_wedge_rule_is_the_programs ... ok
+test checks::v11_land::tests::home_rule_follows_the_program_and_fails_closed_without_evidence ... ok
+test checks::v11_land::tests::dispersed_ticket_judgement_follows_the_program_and_fails_closed ... ok
+test checks::v11_land::tests::ticket_site_rule_follows_the_program_and_fails_closed_without_evidence ... ok
+test checks::v11_land::tests::tickets_are_attributed_by_instruction_evidence_and_mixed_transactions_never_pass ... ok
+test checks::v23_caravans::tests::close_vault_rules ... ok
+test checks::v23_caravans::tests::settle_to_vault_credits_the_cargo_once ... ok
+test checks::v25_nations::tests::a_stance_is_written_only_when_passed ... ok
+test checks::v24_structures::tests::gather_wears_once ... ok
+test checks::v25_nations::tests::a_vote_counts_once ... ok
+test checks::v25_nations::tests::an_expulsion_flags_the_target ... ok
+test checks::v26_growth::tests::incomplete_evidence_is_unverifiable_never_a_pass ... ok
+test checks::v26_growth::tests::an_extension_the_program_would_refuse_fails ... ok
+test checks::v26_growth::tests::a_valid_extension_passes_and_the_next_ones_stop_at_the_ceiling ... ok
+test checks::v26_growth::tests::a_post_state_or_record_other_than_the_programs_fails ... ok
+test checks::v26_growth::tests::the_guard_judges_only_an_isolated_extension_and_never_calls_a_bundle_invalid ... ok
+test checks::v27_residents::tests::an_honest_join_resident_has_no_finding ... ok
+test checks::v27_residents::tests::a_policy_the_archive_does_not_show_leaves_the_resident_unverifiable ... ok
+test checks::v27_residents::tests::duplicates_fail ... ok
+test checks::v27_residents::tests::forged_joins_fail ... ok
+test checks::v27_residents::tests::missing_evidence_is_never_a_pass ... ok
+test checks::v27_residents::tests::the_resident_proof_accounts_are_canonical ... ok
+test checks::v27_residents::tests::mismatches_fail ... ok
+test checks::v28_resident_acts::tests::a_wrong_program_feed_cannot_judge_a_holder ... ok
+test checks::v28_resident_acts::tests::canonical_addresses_are_judged_with_or_without_the_join ... ok
+test checks::v28_resident_acts::tests::inner_accounts_and_result_are_judged_against_the_join ... ok
+test checks::v28_resident_acts::tests::matching_authority_in_a_partial_feed_is_still_unproven ... ok
+test checks::v9_addresses::resident_joined_tests::a_record_that_stands_for_its_join_passes ... ok
+test checks::v9_addresses::resident_joined_tests::a_record_without_its_join_or_with_a_forged_key_fails ... ok
+test checks::v9_addresses::resident_joined_tests::one_record_per_join_and_per_resident_id ... ok
+test checks::v9_addresses::resident_tests::a_flagged_citizen_with_a_wallet_derives_nothing ... ok
+test checks::v9_addresses::resident_tests::nft_citizen_address_comes_from_the_resident_id ... ok
+test checks::v9_addresses::resident_tests::wallet_citizen_address_is_unchanged ... ok
+test conquest::tests::captured_turn_still_credits_previous_owner ... ok
+test conquest::tests::neutral_and_season_boundary_never_mint_extra_time ... ok
+test facts::resident_tests::a_resident_joined_without_its_join_resident_creates_no_citizen ... ok
+test facts::resident_tests::resident_joined_makes_the_nft_citizen_known_by_its_tag ... ok
+test holding::intro_tests::conquest_founding_shield_follows_the_season_timers ... ok
+test holding::intro_tests::conquest_train_pays_the_v2_cost ... ok
+test checks::v28_resident_acts::tests::the_holder_and_its_live_session_act_through_a_to_b_to_a ... ok
+test holding::intro_tests::intro_build_replay_consumes_exactly_one_persisted_entitlement ... ok
+test resident_feed::tests::one_ledger_order_read_far_enough_is_whole_and_nothing_else_is ... ok
+test holding::intro_tests::s1_founding_workshop_and_arms_training ... ok
+test resident_feed::tests::the_fixture_form_round_trips ... ok
+test checks::v28_resident_acts::tests::without_a_whole_record_only_a_stale_generation_is_a_fail ... ok
+test checks::v28_resident_acts::tests::old_owners_old_sessions_and_old_generations_accepted_are_fails ... ok
+
+test result: ok. 47 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+     Running tests/camp_clear.rs (target/debug/deps/camp_clear-55e4651223a88151)
+
+running 3 tests
+test w6s7_slice_holds_a_spawn_and_clear_in_one_resolve ... ok
+test v11_a_camp_spawned_and_cleared_in_one_resolve_is_no_mismatch ... ok
+test v11_a_clear_with_no_camp_and_no_spawn_still_fails ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/custody.rs (target/debug/deps/custody-e66a73dc46fb552e)
+
+running 6 tests
+test a_lot_account_in_a_season_without_custody_fails ... ok
+test a_failed_custody_instruction_is_not_flagged ... ok
+test a_custody_season_is_never_a_pass ... ok
+test custody_fields_in_a_vault_or_caravan_fail ... ok
+test baselines_are_not_flagged ... ok
+test a_landed_custody_instruction_in_a_season_without_custody_fails ... ok
+
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.45s
+
+     Running tests/custody_history.rs (target/debug/deps/custody_history-af212461ee2271a9)
+
+running 8 tests
+test an_expected_caravan_keeps_its_quantity ... ok
+test a_closed_lot_opened_again_is_a_new_lot ... ok
+test composed_kernel_steps_never_fail ... ok
+test random_kernel_histories_never_fail ... ok
+test goods_in_without_a_caravan_to_explain_them_are_unverifiable_not_fail ... ok
+test the_kernels_own_history_passes_and_the_season_is_still_not_a_pass ... ok
+test order_bookkeeping_that_no_step_makes_fails ... ok
+test a_change_no_custody_step_makes_fails_at_its_transaction ... ok
+
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.06s
+
+     Running tests/custody_state.rs (target/debug/deps/custody_state-9f228f3ed38c7af7)
+
+running 7 tests
+test random_kernel_runs_never_fail_the_audit ... ok
+test a_broken_lot_in_a_post_state_fails_at_its_transaction ... ok
+test a_vault_over_its_cap_fails ... ok
+test what_the_kernel_writes_passes_the_audit_and_the_season_is_still_unverifiable ... ok
+test undecided_rules_are_unverifiable_not_fail ... ok
+test vault_counts_fail_only_when_the_visible_lots_exceed_them ... ok
+test a_lot_the_kernel_cannot_write_fails ... ok
+
+test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.93s
+
+     Running tests/evidence.rs (target/debug/deps/evidence-bc10b50e6beebef8)
+
+running 8 tests
+test a_mention_whose_logs_show_no_run_is_not_reported ... ok
+test a_cpi_only_transaction_without_logs_is_not_a_pass ... ok
+test a_written_account_without_its_post_state_is_not_a_pass ... ok
+test the_fixtures_have_nothing_for_v0e ... ok
+test a_call_without_logs_is_not_a_pass has been running for over 60 seconds
+test logs_that_lose_their_tail_are_not_a_pass has been running for over 60 seconds
+test the_program_run_by_another_program_is_not_a_pass ... ok
+test a_call_without_logs_is_not_a_pass ... ok
+test logs_that_lose_their_tail_are_not_a_pass ... ok
+test logs_the_runtime_cut_are_not_a_pass has been running for over 60 seconds
+test logs_the_runtime_cut_are_not_a_pass ... ok
+
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 142.46s
+
+     Running tests/history.rs (target/debug/deps/history-0ec37a83d6dc1143)
+
+running 16 tests
+test a_saved_fixture_cannot_launder_an_rpc_history ... ok
+test a_ledger_feed_or_a_fixture_keeps_the_verdict_without_claiming_completeness ... ok
+test a_detected_gap_is_not_verified_over ... ok
+test a_witness_down_leaves_the_history_unproven ... ok
+test an_rpc_archive_keeps_its_coverage ... ok
+test archives_report_where_their_records_came_from ... ok
+test cross_checked_is_still_not_a_complete_history ... ok
+test dataset_scope_is_explicit_and_conflicting_feed_coverage_is_unproven ... ok
+test default_settings_fetch_an_unproven_history ... ok
+test empty_local_feed_is_an_observation_not_a_complete_season ... ok
+test every_rpc_coverage_state_is_unproven ... ok
+test malformed_feed_cursors_and_empty_archives_never_gain_dataset_trust ... ok
+test a_witness_behind_does_not_end_the_history_early ... ok
+test a_self_contained_fail_still_fails_over_an_unproven_history ... ok
+test the_verifier_never_passes_an_unproven_history ... ok
+test a_missing_range_is_not_reported_as_a_forgery_of_an_unproven_history ... ok
+
+test result: ok. 16 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 16.25s
+
+     Running tests/ledger_history.rs (target/debug/deps/ledger_history-4b3a7e0061f70627)
+
+running 6 tests
+test a_ledger_that_changed_during_the_read_is_unproven ... ok
+test a_ledger_that_shrank_during_a_live_read_is_unproven ... ok
+test successful_feed_with_unreadable_status_is_unproven ... ok
+test an_archive_without_its_ledger_or_numbers_is_unproven ... ok
+test a_whole_feed_archive_is_the_ledgers_and_pairs_with_a_live_read ... ok
+test an_archive_the_node_no_longer_matches_is_unproven ... ok
+
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.02s
+
+     Running tests/missing_state.rs (target/debug/deps/missing_state-b429bf382e4cbf2d)
+
+running 2 tests
+test an_archive_without_post_states_says_continuity_is_unjudged ... ok
+test a_holding_write_with_no_earlier_post_state_is_not_a_pass ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.53s
+
+     Running tests/new_bands.rs (target/debug/deps/new_bands-75f453764d66c92a)
+
+running 7 tests
+test a_resident_joined_without_its_join_is_unverifiable ... ok
+test a_divert_outside_a_transit_settlement_is_unverifiable ... ok
+test every_conquest_kind_the_abi_knows_is_modelled ... ok
+test tags_outside_abi_v2_are_told_apart ... ok
+test a_record_no_instruction_left_is_not_a_pass has been running for over 60 seconds
+test a_record_of_a_new_kind_is_not_a_pass has been running for over 60 seconds
+test an_instruction_of_a_new_band_is_not_a_pass has been running for over 60 seconds
+test an_instruction_of_a_new_band_is_not_a_pass ... ok
+test a_record_of_a_new_kind_is_not_a_pass ... ok
+test a_record_no_instruction_left_is_not_a_pass ... ok
+
+test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 640.47s
+
+     Running tests/open_items.rs (target/debug/deps/open_items-83c44809c8ed1094)
+
+running 3 tests
+test a_prefix_of_a_continuing_world_fails_today ... ok
+test a_final_account_held_by_the_delegation_program_fails_today ... ok
+test the_recorded_season_passes_with_its_quiet_end ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.20s
+
+     Running tests/resident_ledger.rs (target/debug/deps/resident_ledger-df63c0bb99a24c78)
+
+running 4 tests
+test the_live_resident_feed_takes_its_extent_from_the_same_answers ... ok
+test without_the_scan_or_with_no_resident_record_the_live_feed_is_never_whole ... ok
+test both_archives_of_one_ledger_are_one_order ... ok
+test a_resident_archive_not_the_ledgers_whole_feed_or_of_another_ledger_is_never_whole ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.03s
+
+     Running tests/unit.rs (target/debug/deps/unit-cbe220e373c53e89)
+
+running 8 tests
+test no_post_states_is_unverifiable ... ok
+test fixture_round_trip ... ok
+test report_schema_and_codes ... ok
+test undecodable_record_fails ... ok
+test skip_replay_checks_every_bell ... ok
+test rechain_is_the_identity_on_honest_archives ... ok
+test reveal_in_the_archive_grace_is_a_warning ... ok
+test unopenable_seal_is_missing_data ... ok
+
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 4.00s
+
+     Running tests/v16_cpi_keyfree.rs (target/debug/deps/v16_cpi_keyfree-b8e79fcca1eed85f)
+
+running 6 tests
+test v16_k2_a_transaction_naming_the_program_with_no_logs_is_not_a_pass ... ok
+test v16_k1_a_nested_invocation_of_the_program_is_not_a_pass ... ok
+test v16_k0_control_the_fixture_passes ... ok
+test v16_k3_truncated_logs_of_a_transaction_naming_the_program_are_not_a_pass ... ok
+test v16_k4_measured_complete_logs_showing_the_program_never_ran ... ok
+test v16_k5_a_successful_call_whose_log_tail_was_lost_is_not_a_pass ... ok
+
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 6.07s
+
+     Running tests/v16_v27_gate.rs (target/debug/deps/v16_v27_gate-f9f1ff08c0d65825)
+
+running 3 tests
+test v16_j1_an_honest_join_is_left_to_v27_only_when_v27_runs ... ok
+test v16_j2_a_malformed_join_is_never_left_unjudged_even_when_v27_runs ... ok
+test v16_j3_measured_a_join_under_a_program_version_without_nft ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/ws04_scan_resident.rs (target/debug/deps/ws04_scan_resident-1a667fddb55d50b6)
+
+running 4 tests
+test a_stale_archive_is_named_by_the_node_check_and_never_whole ... ok
+test a_cursor_ahead_of_its_records_is_never_confirmed ... ok
+test a_scanned_resident_archive_of_another_ledger_is_never_whole ... ok
+test archives_stay_unproven_even_when_the_node_check_matches ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.03s
+
+exit=0

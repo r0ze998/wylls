@@ -1,0 +1,110 @@
+### e2e-native HEAD cf517b558d1303a84dba618550f40cb460b7ad99 tree 75b67dc4f929527deaf885ae8858325e0b23b482
+?? frontier-node/crates/findex/tests/v16_history_coverage.rs
+?? frontier-node/crates/findex/tests/v16_history_gaps.rs
+?? frontier-node/crates/verify/tests/v16_cpi_keyfree.rs
+?? frontier-node/crates/verify/tests/v16_v27_gate.rs
+?? workstreams/04-execution/tests/v16_chain_caravan_faults.rs
+?? workstreams/04-execution/tests/v16_intake_regressions.rs
+   Compiling wylls-e2e-native v0.1.0 (/tmp/claude-0/-home-user-wylls/47a54b0f-427a-5cca-bc82-feb7c5056956/scratchpad/v23/workstreams/04-execution/e2e-native)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 1.55s
+     Running unittests src/lib.rs (target/debug/deps/wylls_e2e_native-e4e3f382a017b466)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/chain_nft.rs (target/debug/deps/chain_nft-50f41e48eaa0b220)
+
+running 2 tests
+test forged_missing_mismatched_and_duplicate_joins_are_refused ... ok
+test nft_join_then_transfer_revokes_the_old_owner ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.02s
+
+     Running tests/chain_prize.rs (target/debug/deps/chain_prize-1b87bc90982a3d30)
+
+running 2 tests
+test the_current_prize_program_cannot_pay_an_nft_pass_citizen ... ok
+test the_same_pool_pays_a_wallet_citizen ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.03s
+
+     Running tests/claims_vs_closes.rs (target/debug/deps/claims_vs_closes-1ff8b52632d480ff)
+
+running 12 tests
+test a_province_closed_after_tally_makes_finalize_impossible ... ok
+test a_province_closed_before_tally_is_left_out_silently ... ok
+test a_record_of_a_losing_nation_is_refused_like_the_citizen ... ok
+test a_recorded_nation_keeps_the_claim_after_the_citizen_is_closed ... ok
+test a_third_partys_close_citizen_after_the_grace_strands_an_unclaimed_share ... ok
+test an_aborted_season_leaves_the_pool_without_an_exit ... ok
+test entry_spare_bytes_are_unused ... ok
+test pay_is_accepted_after_the_end ... ok
+test record_nation_takes_only_the_entrys_own_citizen ... ok
+test refund_mode_needs_no_citizen_with_or_without_the_fix ... ok
+test tally_and_finalize_within_the_grace_are_unaffected_by_later_closes ... ok
+test without_a_record_the_old_behaviour_is_unchanged ... ok
+
+test result: ok. 12 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.17s
+
+     Running tests/error_codes.rs (target/debug/deps/error_codes-8f2d1af79bd4aa8e)
+
+running 3 tests
+test game_error_numbers_are_unique_and_every_copy_agrees ... ok
+test next_free_numbers ... ok
+test prize_error_numbers_are_unique_and_every_copy_agrees ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/legacy_season_claims.rs (target/debug/deps/legacy_season_claims-5880c244cf2141c6)
+
+running 4 tests
+test a_closed_citizen_loses_its_shares_claim_but_not_a_refund ... ok
+test legacy_paid_entry_claim_pays_out_exactly ... ok
+test unpaid_winner_cannot_claim ... ok
+test while_the_world_runs_deposits_have_no_exit ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.10s
+
+     Running tests/registry.rs (target/debug/deps/registry-56ecdde5bb93f17c)
+
+running 1 test
+test registry_matches_the_code ... FAILED
+
+failures:
+
+---- registry_matches_the_code stdout ----
+
+thread 'registry_matches_the_code' panicked at tests/registry.rs:194:5:
+the code's numbers differ from contracts/registry.txt; regenerate with REGEN=1 and review the diff
+stack backtrace:
+   0: __rustc::rust_begin_unwind
+             at /rustc/29483883eed69d5fb4db01964cdf2af4d86e9cb2/library/std/src/panicking.rs:697:5
+   1: core::panicking::panic_fmt
+             at /rustc/29483883eed69d5fb4db01964cdf2af4d86e9cb2/library/core/src/panicking.rs:75:14
+   2: registry::registry_matches_the_code
+             at ./tests/registry.rs:194:5
+   3: registry::registry_matches_the_code::{{closure}}
+             at ./tests/registry.rs:186:31
+   4: core::ops::function::FnOnce::call_once
+             at /rustc/29483883eed69d5fb4db01964cdf2af4d86e9cb2/library/core/src/ops/function.rs:250:5
+   5: core::ops::function::FnOnce::call_once
+             at /rustc/29483883eed69d5fb4db01964cdf2af4d86e9cb2/library/core/src/ops/function.rs:250:5
+note: Some details are omitted, run with `RUST_BACKTRACE=full` for a verbose backtrace.
+
+
+failures:
+    registry_matches_the_code
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.10s
+
+error: test failed, to rerun pass `--test registry`
+   Doc-tests wylls_e2e_native
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+error: 1 target failed:
+    `--test registry`
+exit=101

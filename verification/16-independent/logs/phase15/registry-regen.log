@@ -1,0 +1,25 @@
+   Compiling solana-get-sysvar v1.0.0 (/tmp/claude-0/-home-user-wylls/47a54b0f-427a-5cca-bc82-feb7c5056956/scratchpad/v23/workstreams/04-execution/e2e-native/vendor/solana-get-sysvar)
+   Compiling permutation-rules v0.1.0 (/tmp/claude-0/-home-user-wylls/47a54b0f-427a-5cca-bc82-feb7c5056956/scratchpad/v23/permutation-rules)
+   Compiling solana-clock v4.0.0
+   Compiling solana-slot-hashes v3.2.0
+   Compiling solana-rent v4.4.0
+   Compiling solana-clock v3.2.1
+   Compiling solana-slot-history v3.2.0
+   Compiling solana-stake-history v1.1.0
+   Compiling solana-epoch-schedule v3.3.0
+   Compiling solana-last-restart-slot v3.2.0
+   Compiling solana-epoch-rewards v3.2.0
+   Compiling solana-sysvar v4.3.0
+   Compiling solana-program v4.0.0
+   Compiling frontier-abi v0.1.0 (/tmp/claude-0/-home-user-wylls/47a54b0f-427a-5cca-bc82-feb7c5056956/scratchpad/v23/frontier-abi)
+   Compiling permutation-frontier v0.1.0 (/tmp/claude-0/-home-user-wylls/47a54b0f-427a-5cca-bc82-feb7c5056956/scratchpad/v23/permutation-frontier)
+   Compiling permutation-prize v0.1.0 (/tmp/claude-0/-home-user-wylls/47a54b0f-427a-5cca-bc82-feb7c5056956/scratchpad/v23/permutation-prize)
+   Compiling wylls-e2e-native v0.1.0 (/tmp/claude-0/-home-user-wylls/47a54b0f-427a-5cca-bc82-feb7c5056956/scratchpad/v23/workstreams/04-execution/e2e-native)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 15.61s
+     Running tests/registry.rs (target/debug/deps/registry-576b7572bd65dc79)
+
+running 1 test
+test registry_matches_the_code ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+

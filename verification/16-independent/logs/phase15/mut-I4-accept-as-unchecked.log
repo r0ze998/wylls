@@ -1,0 +1,367 @@
+   Compiling wylls-runexec v0.1.0 (/tmp/claude-0/-home-user-wylls/47a54b0f-427a-5cca-bc82-feb7c5056956/scratchpad/v23/workstreams/04-execution)
+warning: function `refused` is never used
+   --> tests/v16_intake_regressions.rs:197:4
+    |
+197 | fn refused(r: Result<runexec::store::Accept, String>, why: &str) {
+    |    ^^^^^^^
+    |
+    = note: `#[warn(dead_code)]` on by default
+
+warning: constant `STALE` is never used
+   --> tests/v16_intake_regressions.rs:204:7
+    |
+204 | const STALE: &str = "another pass generation";
+    |       ^^^^^
+
+warning: constant `NOT_CURRENT` is never used
+   --> tests/v16_intake_regressions.rs:205:7
+    |
+205 | const NOT_CURRENT: &str = "not the pass's current owner nor its live session";
+    |       ^^^^^^^^^^^
+
+warning: `wylls-runexec` (test "v16_intake_regressions") generated 3 warnings
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 1.72s
+     Running tests/intake.rs (target/debug/deps/intake-d83bfda60eb8afe5)
+
+running 6 tests
+test a_lingering_session_of_the_previous_owner_is_refused ... FAILED
+test a_run_without_a_sound_pass_is_refused ... FAILED
+test a_run_admitted_before_a_transfer_keeps_its_check ... FAILED
+test a_repeated_run_id_from_the_previous_owner_is_refused ... FAILED
+test after_a_transfer_the_previous_owner_and_its_session_are_refused ... FAILED
+test the_owner_is_admitted_and_the_check_is_kept_on_the_run ... FAILED
+
+failures:
+
+---- a_lingering_session_of_the_previous_owner_is_refused stdout ----
+
+thread 'a_lingering_session_of_the_previous_owner_is_refused' panicked at tests/intake.rs:203:18:
+admitted (Created); expected refusal: not the pass's current owner nor its live session
+stack backtrace:
+   0: __rustc::rust_begin_unwind
+             at /rustc/29483883eed69d5fb4db01964cdf2af4d86e9cb2/library/std/src/panicking.rs:697:5
+   1: core::panicking::panic_fmt
+             at /rustc/29483883eed69d5fb4db01964cdf2af4d86e9cb2/library/core/src/panicking.rs:75:14
+   2: intake::refused
+             at ./tests/intake.rs:203:18
+   3: intake::a_lingering_session_of_the_previous_owner_is_refused
+             at ./tests/intake.rs:275:5
+   4: intake::a_lingering_session_of_the_previous_owner_is_refused::{{closure}}
+             at ./tests/intake.rs:271:58
+   5: core::ops::function::FnOnce::call_once
+             at /rustc/29483883eed69d5fb4db01964cdf2af4d86e9cb2/library/core/src/ops/function.rs:250:5
+   6: core::ops::function::FnOnce::call_once
+             at /rustc/29483883eed69d5fb4db01964cdf2af4d86e9cb2/library/core/src/ops/function.rs:250:5
+note: Some details are omitted, run with `RUST_BACKTRACE=full` for a verbose backtrace.
+
+---- a_run_without_a_sound_pass_is_refused stdout ----
+
+thread 'a_run_without_a_sound_pass_is_refused' panicked at tests/intake.rs:203:18:
+admitted (Created); expected refusal: no NFT pass
+stack backtrace:
+   0: __rustc::rust_begin_unwind
+             at /rustc/29483883eed69d5fb4db01964cdf2af4d86e9cb2/library/std/src/panicking.rs:697:5
+   1: core::panicking::panic_fmt
+             at /rustc/29483883eed69d5fb4db01964cdf2af4d86e9cb2/library/core/src/panicking.rs:75:14
+   2: intake::refused
+             at ./tests/intake.rs:203:18
+   3: intake::a_run_without_a_sound_pass_is_refused
+             at ./tests/intake.rs:328:5
+   4: intake::a_run_without_a_sound_pass_is_refused::{{closure}}
+             at ./tests/intake.rs:316:43
+   5: core::ops::function::FnOnce::call_once
+             at /rustc/29483883eed69d5fb4db01964cdf2af4d86e9cb2/library/core/src/ops/function.rs:250:5
+   6: core::ops::function::FnOnce::call_once
+             at /rustc/29483883eed69d5fb4db01964cdf2af4d86e9cb2/library/core/src/ops/function.rs:250:5
+note: Some details are omitted, run with `RUST_BACKTRACE=full` for a verbose backtrace.
+
+---- a_run_admitted_before_a_transfer_keeps_its_check stdout ----
+
+thread 'a_run_admitted_before_a_transfer_keeps_its_check' panicked at tests/intake.rs:391:34:
+kept through the run
+stack backtrace:
+   0: __rustc::rust_begin_unwind
+             at /rustc/29483883eed69d5fb4db01964cdf2af4d86e9cb2/library/std/src/panicking.rs:697:5
+   1: core::panicking::panic_fmt
+             at /rustc/29483883eed69d5fb4db01964cdf2af4d86e9cb2/library/core/src/panicking.rs:75:14
+   2: core::panicking::panic_display
+             at /rustc/29483883eed69d5fb4db01964cdf2af4d86e9cb2/library/core/src/panicking.rs:268:5
+   3: core::option::expect_failed
+             at /rustc/29483883eed69d5fb4db01964cdf2af4d86e9cb2/library/core/src/option.rs:2081:5
+   4: core::option::Option<T>::expect
+             at /rustc/29483883eed69d5fb4db01964cdf2af4d86e9cb2/library/core/src/option.rs:960:21
+   5: intake::a_run_admitted_before_a_transfer_keeps_its_check
+             at ./tests/intake.rs:391:34
+   6: intake::a_run_admitted_before_a_transfer_keeps_its_check::{{closure}}
+             at ./tests/intake.rs:383:54
+   7: core::ops::function::FnOnce::call_once
+             at /rustc/29483883eed69d5fb4db01964cdf2af4d86e9cb2/library/core/src/ops/function.rs:250:5
+   8: core::ops::function::FnOnce::call_once
+             at /rustc/29483883eed69d5fb4db01964cdf2af4d86e9cb2/library/core/src/ops/function.rs:250:5
+note: Some details are omitted, run with `RUST_BACKTRACE=full` for a verbose backtrace.
+
+---- a_repeated_run_id_from_the_previous_owner_is_refused stdout ----
+
+thread 'a_repeated_run_id_from_the_previous_owner_is_refused' panicked at tests/intake.rs:203:18:
+admitted (Existing(Accepted)); expected refusal: another pass generation
+stack backtrace:
+   0: __rustc::rust_begin_unwind
+             at /rustc/29483883eed69d5fb4db01964cdf2af4d86e9cb2/library/std/src/panicking.rs:697:5
+   1: core::panicking::panic_fmt
+             at /rustc/29483883eed69d5fb4db01964cdf2af4d86e9cb2/library/core/src/panicking.rs:75:14
+   2: intake::refused
+             at ./tests/intake.rs:203:18
+   3: intake::a_repeated_run_id_from_the_previous_owner_is_refused
+             at ./tests/intake.rs:305:5
+   4: intake::a_repeated_run_id_from_the_previous_owner_is_refused::{{closure}}
+             at ./tests/intake.rs:299:58
+   5: core::ops::function::FnOnce::call_once
+             at /rustc/29483883eed69d5fb4db01964cdf2af4d86e9cb2/library/core/src/ops/function.rs:250:5
+   6: core::ops::function::FnOnce::call_once
+             at /rustc/29483883eed69d5fb4db01964cdf2af4d86e9cb2/library/core/src/ops/function.rs:250:5
+note: Some details are omitted, run with `RUST_BACKTRACE=full` for a verbose backtrace.
+
+---- after_a_transfer_the_previous_owner_and_its_session_are_refused stdout ----
+
+thread 'after_a_transfer_the_previous_owner_and_its_session_are_refused' panicked at tests/intake.rs:239:38:
+called `Option::unwrap()` on a `None` value
+stack backtrace:
+   0: __rustc::rust_begin_unwind
+             at /rustc/29483883eed69d5fb4db01964cdf2af4d86e9cb2/library/std/src/panicking.rs:697:5
+   1: core::panicking::panic_fmt
+             at /rustc/29483883eed69d5fb4db01964cdf2af4d86e9cb2/library/core/src/panicking.rs:75:14
+   2: core::panicking::panic
+             at /rustc/29483883eed69d5fb4db01964cdf2af4d86e9cb2/library/core/src/panicking.rs:145:5
+   3: core::option::unwrap_failed
+             at /rustc/29483883eed69d5fb4db01964cdf2af4d86e9cb2/library/core/src/option.rs:2072:5
+   4: core::option::Option<T>::unwrap
+             at /rustc/29483883eed69d5fb4db01964cdf2af4d86e9cb2/library/core/src/option.rs:1005:21
+   5: intake::after_a_transfer_the_previous_owner_and_its_session_are_refused
+             at ./tests/intake.rs:239:38
+   6: intake::after_a_transfer_the_previous_owner_and_its_session_are_refused::{{closure}}
+             at ./tests/intake.rs:230:69
+   7: core::ops::function::FnOnce::call_once
+             at /rustc/29483883eed69d5fb4db01964cdf2af4d86e9cb2/library/core/src/ops/function.rs:250:5
+   8: core::ops::function::FnOnce::call_once
+             at /rustc/29483883eed69d5fb4db01964cdf2af4d86e9cb2/library/core/src/ops/function.rs:250:5
+note: Some details are omitted, run with `RUST_BACKTRACE=full` for a verbose backtrace.
+
+---- the_owner_is_admitted_and_the_check_is_kept_on_the_run stdout ----
+
+thread 'the_owner_is_admitted_and_the_check_is_kept_on_the_run' panicked at tests/intake.rs:218:42:
+kept
+stack backtrace:
+   0: __rustc::rust_begin_unwind
+             at /rustc/29483883eed69d5fb4db01964cdf2af4d86e9cb2/library/std/src/panicking.rs:697:5
+   1: core::panicking::panic_fmt
+             at /rustc/29483883eed69d5fb4db01964cdf2af4d86e9cb2/library/core/src/panicking.rs:75:14
+   2: core::panicking::panic_display
+             at /rustc/29483883eed69d5fb4db01964cdf2af4d86e9cb2/library/core/src/panicking.rs:268:5
+   3: core::option::expect_failed
+             at /rustc/29483883eed69d5fb4db01964cdf2af4d86e9cb2/library/core/src/option.rs:2081:5
+   4: core::option::Option<T>::expect
+             at /rustc/29483883eed69d5fb4db01964cdf2af4d86e9cb2/library/core/src/option.rs:960:21
+   5: intake::the_owner_is_admitted_and_the_check_is_kept_on_the_run
+             at ./tests/intake.rs:218:42
+   6: intake::the_owner_is_admitted_and_the_check_is_kept_on_the_run::{{closure}}
+             at ./tests/intake.rs:211:60
+   7: core::ops::function::FnOnce::call_once
+             at /rustc/29483883eed69d5fb4db01964cdf2af4d86e9cb2/library/core/src/ops/function.rs:250:5
+   8: core::ops::function::FnOnce::call_once
+             at /rustc/29483883eed69d5fb4db01964cdf2af4d86e9cb2/library/core/src/ops/function.rs:250:5
+note: Some details are omitted, run with `RUST_BACKTRACE=full` for a verbose backtrace.
+
+
+failures:
+    a_lingering_session_of_the_previous_owner_is_refused
+    a_repeated_run_id_from_the_previous_owner_is_refused
+    a_run_admitted_before_a_transfer_keeps_its_check
+    a_run_without_a_sound_pass_is_refused
+    after_a_transfer_the_previous_owner_and_its_session_are_refused
+    the_owner_is_admitted_and_the_check_is_kept_on_the_run
+
+test result: FAILED. 0 passed; 6 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.15s
+
+error: test failed, to rerun pass `--test intake`
+     Running tests/v16_intake_regressions.rs (target/debug/deps/v16_intake_regressions-586d3dd29c4da457)
+
+running 7 tests
+test v16_i4_transfers_a_to_b_to_a_admit_only_the_current_generation ... FAILED
+test v16_i1_a_refusal_stores_nothing_and_does_not_reveal_a_run ... FAILED
+test v16_i2_a_repeat_by_the_holders_session_keeps_the_first_check ... FAILED
+test v16_i3_the_check_survives_a_restart_and_the_run_completes ... FAILED
+test v16_i6_every_tampered_pass_account_is_refused_and_stores_nothing ... FAILED
+test v16_i5_a_session_acts_only_before_its_expiry_and_in_its_generation ... FAILED
+test v16_i7_a_run_admitted_before_a_transfer_finishes_once_through_a_crash ... FAILED
+
+failures:
+
+---- v16_i4_transfers_a_to_b_to_a_admit_only_the_current_generation stdout ----
+
+thread 'v16_i4_transfers_a_to_b_to_a_admit_only_the_current_generation' panicked at tests/v16_intake_regressions.rs:275:9:
+161 gen 0
+stack backtrace:
+   0: __rustc::rust_begin_unwind
+             at /rustc/29483883eed69d5fb4db01964cdf2af4d86e9cb2/library/std/src/panicking.rs:697:5
+   1: core::panicking::panic_fmt
+             at /rustc/29483883eed69d5fb4db01964cdf2af4d86e9cb2/library/core/src/panicking.rs:75:14
+   2: v16_intake_regressions::v16_i4_transfers_a_to_b_to_a_admit_only_the_current_generation
+             at ./tests/v16_intake_regressions.rs:275:9
+   3: v16_intake_regressions::v16_i4_transfers_a_to_b_to_a_admit_only_the_current_generation::{{closure}}
+             at ./tests/v16_intake_regressions.rs:269:68
+   4: core::ops::function::FnOnce::call_once
+             at /rustc/29483883eed69d5fb4db01964cdf2af4d86e9cb2/library/core/src/ops/function.rs:250:5
+   5: core::ops::function::FnOnce::call_once
+             at /rustc/29483883eed69d5fb4db01964cdf2af4d86e9cb2/library/core/src/ops/function.rs:250:5
+note: Some details are omitted, run with `RUST_BACKTRACE=full` for a verbose backtrace.
+
+---- v16_i1_a_refusal_stores_nothing_and_does_not_reveal_a_run stdout ----
+
+thread 'v16_i1_a_refusal_stores_nothing_and_does_not_reveal_a_run' panicked at tests/v16_intake_regressions.rs:222:9:
+assertion failed: h.ex.accept_as(&cargo("x", &h), &req(who, g), &chain).is_err()
+stack backtrace:
+   0: __rustc::rust_begin_unwind
+             at /rustc/29483883eed69d5fb4db01964cdf2af4d86e9cb2/library/std/src/panicking.rs:697:5
+   1: core::panicking::panic_fmt
+             at /rustc/29483883eed69d5fb4db01964cdf2af4d86e9cb2/library/core/src/panicking.rs:75:14
+   2: core::panicking::panic
+             at /rustc/29483883eed69d5fb4db01964cdf2af4d86e9cb2/library/core/src/panicking.rs:145:5
+   3: v16_intake_regressions::v16_i1_a_refusal_stores_nothing_and_does_not_reveal_a_run
+             at ./tests/v16_intake_regressions.rs:222:9
+   4: v16_intake_regressions::v16_i1_a_refusal_stores_nothing_and_does_not_reveal_a_run::{{closure}}
+             at ./tests/v16_intake_regressions.rs:217:63
+   5: core::ops::function::FnOnce::call_once
+             at /rustc/29483883eed69d5fb4db01964cdf2af4d86e9cb2/library/core/src/ops/function.rs:250:5
+   6: core::ops::function::FnOnce::call_once
+             at /rustc/29483883eed69d5fb4db01964cdf2af4d86e9cb2/library/core/src/ops/function.rs:250:5
+note: Some details are omitted, run with `RUST_BACKTRACE=full` for a verbose backtrace.
+
+---- v16_i2_a_repeat_by_the_holders_session_keeps_the_first_check stdout ----
+
+thread 'v16_i2_a_repeat_by_the_holders_session_keeps_the_first_check' panicked at tests/v16_intake_regressions.rs:242:41:
+kept
+stack backtrace:
+   0: __rustc::rust_begin_unwind
+             at /rustc/29483883eed69d5fb4db01964cdf2af4d86e9cb2/library/std/src/panicking.rs:697:5
+   1: core::panicking::panic_fmt
+             at /rustc/29483883eed69d5fb4db01964cdf2af4d86e9cb2/library/core/src/panicking.rs:75:14
+   2: core::panicking::panic_display
+             at /rustc/29483883eed69d5fb4db01964cdf2af4d86e9cb2/library/core/src/panicking.rs:268:5
+   3: core::option::expect_failed
+             at /rustc/29483883eed69d5fb4db01964cdf2af4d86e9cb2/library/core/src/option.rs:2081:5
+   4: core::option::Option<T>::expect
+             at /rustc/29483883eed69d5fb4db01964cdf2af4d86e9cb2/library/core/src/option.rs:960:21
+   5: v16_intake_regressions::v16_i2_a_repeat_by_the_holders_session_keeps_the_first_check
+             at ./tests/v16_intake_regressions.rs:242:41
+   6: v16_intake_regressions::v16_i2_a_repeat_by_the_holders_session_keeps_the_first_check::{{closure}}
+             at ./tests/v16_intake_regressions.rs:234:66
+   7: core::ops::function::FnOnce::call_once
+             at /rustc/29483883eed69d5fb4db01964cdf2af4d86e9cb2/library/core/src/ops/function.rs:250:5
+   8: core::ops::function::FnOnce::call_once
+             at /rustc/29483883eed69d5fb4db01964cdf2af4d86e9cb2/library/core/src/ops/function.rs:250:5
+note: Some details are omitted, run with `RUST_BACKTRACE=full` for a verbose backtrace.
+
+---- v16_i3_the_check_survives_a_restart_and_the_run_completes stdout ----
+
+thread 'v16_i3_the_check_survives_a_restart_and_the_run_completes' panicked at tests/v16_intake_regressions.rs:256:67:
+persisted
+stack backtrace:
+   0: __rustc::rust_begin_unwind
+             at /rustc/29483883eed69d5fb4db01964cdf2af4d86e9cb2/library/std/src/panicking.rs:697:5
+   1: core::panicking::panic_fmt
+             at /rustc/29483883eed69d5fb4db01964cdf2af4d86e9cb2/library/core/src/panicking.rs:75:14
+   2: core::panicking::panic_display
+             at /rustc/29483883eed69d5fb4db01964cdf2af4d86e9cb2/library/core/src/panicking.rs:268:5
+   3: core::option::expect_failed
+             at /rustc/29483883eed69d5fb4db01964cdf2af4d86e9cb2/library/core/src/option.rs:2081:5
+   4: core::option::Option<T>::expect
+             at /rustc/29483883eed69d5fb4db01964cdf2af4d86e9cb2/library/core/src/option.rs:960:21
+   5: v16_intake_regressions::v16_i3_the_check_survives_a_restart_and_the_run_completes
+             at ./tests/v16_intake_regressions.rs:256:67
+   6: v16_intake_regressions::v16_i3_the_check_survives_a_restart_and_the_run_completes::{{closure}}
+             at ./tests/v16_intake_regressions.rs:250:63
+   7: core::ops::function::FnOnce::call_once
+             at /rustc/29483883eed69d5fb4db01964cdf2af4d86e9cb2/library/core/src/ops/function.rs:250:5
+   8: core::ops::function::FnOnce::call_once
+             at /rustc/29483883eed69d5fb4db01964cdf2af4d86e9cb2/library/core/src/ops/function.rs:250:5
+note: Some details are omitted, run with `RUST_BACKTRACE=full` for a verbose backtrace.
+
+---- v16_i6_every_tampered_pass_account_is_refused_and_stores_nothing stdout ----
+
+thread 'v16_i6_every_tampered_pass_account_is_refused_and_stores_nothing' panicked at tests/v16_intake_regressions.rs:317:9:
+admitted with link owned by another program
+stack backtrace:
+   0: __rustc::rust_begin_unwind
+             at /rustc/29483883eed69d5fb4db01964cdf2af4d86e9cb2/library/std/src/panicking.rs:697:5
+   1: core::panicking::panic_fmt
+             at /rustc/29483883eed69d5fb4db01964cdf2af4d86e9cb2/library/core/src/panicking.rs:75:14
+   2: v16_intake_regressions::v16_i6_every_tampered_pass_account_is_refused_and_stores_nothing
+             at ./tests/v16_intake_regressions.rs:317:9
+   3: v16_intake_regressions::v16_i6_every_tampered_pass_account_is_refused_and_stores_nothing::{{closure}}
+             at ./tests/v16_intake_regressions.rs:301:70
+   4: core::ops::function::FnOnce::call_once
+             at /rustc/29483883eed69d5fb4db01964cdf2af4d86e9cb2/library/core/src/ops/function.rs:250:5
+   5: core::ops::function::FnOnce::call_once
+             at /rustc/29483883eed69d5fb4db01964cdf2af4d86e9cb2/library/core/src/ops/function.rs:250:5
+note: Some details are omitted, run with `RUST_BACKTRACE=full` for a verbose backtrace.
+
+---- v16_i5_a_session_acts_only_before_its_expiry_and_in_its_generation stdout ----
+
+thread 'v16_i5_a_session_acts_only_before_its_expiry_and_in_its_generation' panicked at tests/v16_intake_regressions.rs:285:5:
+expiry == now
+stack backtrace:
+   0: __rustc::rust_begin_unwind
+             at /rustc/29483883eed69d5fb4db01964cdf2af4d86e9cb2/library/std/src/panicking.rs:697:5
+   1: core::panicking::panic_fmt
+             at /rustc/29483883eed69d5fb4db01964cdf2af4d86e9cb2/library/core/src/panicking.rs:75:14
+   2: v16_intake_regressions::v16_i5_a_session_acts_only_before_its_expiry_and_in_its_generation
+             at ./tests/v16_intake_regressions.rs:285:5
+   3: v16_intake_regressions::v16_i5_a_session_acts_only_before_its_expiry_and_in_its_generation::{{closure}}
+             at ./tests/v16_intake_regressions.rs:282:72
+   4: core::ops::function::FnOnce::call_once
+             at /rustc/29483883eed69d5fb4db01964cdf2af4d86e9cb2/library/core/src/ops/function.rs:250:5
+   5: core::ops::function::FnOnce::call_once
+             at /rustc/29483883eed69d5fb4db01964cdf2af4d86e9cb2/library/core/src/ops/function.rs:250:5
+note: Some details are omitted, run with `RUST_BACKTRACE=full` for a verbose backtrace.
+
+---- v16_i7_a_run_admitted_before_a_transfer_finishes_once_through_a_crash stdout ----
+
+thread 'v16_i7_a_run_admitted_before_a_transfer_finishes_once_through_a_crash' panicked at tests/v16_intake_regressions.rs:344:34:
+called `Option::unwrap()` on a `None` value
+stack backtrace:
+   0: __rustc::rust_begin_unwind
+             at /rustc/29483883eed69d5fb4db01964cdf2af4d86e9cb2/library/std/src/panicking.rs:697:5
+   1: core::panicking::panic_fmt
+             at /rustc/29483883eed69d5fb4db01964cdf2af4d86e9cb2/library/core/src/panicking.rs:75:14
+   2: core::panicking::panic
+             at /rustc/29483883eed69d5fb4db01964cdf2af4d86e9cb2/library/core/src/panicking.rs:145:5
+   3: core::option::unwrap_failed
+             at /rustc/29483883eed69d5fb4db01964cdf2af4d86e9cb2/library/core/src/option.rs:2072:5
+   4: core::option::Option<T>::unwrap
+             at /rustc/29483883eed69d5fb4db01964cdf2af4d86e9cb2/library/core/src/option.rs:1005:21
+   5: v16_intake_regressions::v16_i7_a_run_admitted_before_a_transfer_finishes_once_through_a_crash
+             at ./tests/v16_intake_regressions.rs:344:34
+   6: v16_intake_regressions::v16_i7_a_run_admitted_before_a_transfer_finishes_once_through_a_crash::{{closure}}
+             at ./tests/v16_intake_regressions.rs:332:75
+   7: core::ops::function::FnOnce::call_once
+             at /rustc/29483883eed69d5fb4db01964cdf2af4d86e9cb2/library/core/src/ops/function.rs:250:5
+   8: core::ops::function::FnOnce::call_once
+             at /rustc/29483883eed69d5fb4db01964cdf2af4d86e9cb2/library/core/src/ops/function.rs:250:5
+note: Some details are omitted, run with `RUST_BACKTRACE=full` for a verbose backtrace.
+
+
+failures:
+    v16_i1_a_refusal_stores_nothing_and_does_not_reveal_a_run
+    v16_i2_a_repeat_by_the_holders_session_keeps_the_first_check
+    v16_i3_the_check_survives_a_restart_and_the_run_completes
+    v16_i4_transfers_a_to_b_to_a_admit_only_the_current_generation
+    v16_i5_a_session_acts_only_before_its_expiry_and_in_its_generation
+    v16_i6_every_tampered_pass_account_is_refused_and_stores_nothing
+    v16_i7_a_run_admitted_before_a_transfer_finishes_once_through_a_crash
+
+test result: FAILED. 0 passed; 7 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.14s
+
+error: test failed, to rerun pass `--test v16_intake_regressions`
+error: 2 targets failed:
+    `--test intake`
+    `--test v16_intake_regressions`

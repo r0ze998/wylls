@@ -1,0 +1,20 @@
+### herald HEAD cf517b558d1303a84dba618550f40cb460b7ad99 tree 75b67dc4f929527deaf885ae8858325e0b23b482
+?? frontier-node/crates/findex/tests/v16_history_coverage.rs
+?? frontier-node/crates/findex/tests/v16_history_gaps.rs
+?? frontier-node/crates/verify/tests/v16_cpi_keyfree.rs
+?? frontier-node/crates/verify/tests/v16_v27_gate.rs
+?? permutation-gateway/node_modules
+?? workstreams/04-execution/tests/v16_chain_caravan_faults.rs
+?? workstreams/04-execution/tests/v16_intake_regressions.rs
+   Compiling herald v0.1.0 (/tmp/claude-0/-home-user-wylls/47a54b0f-427a-5cca-bc82-feb7c5056956/scratchpad/v23/frontier-node/crates/herald)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 9.88s
+     Running tests/ingest_health.rs (target/debug/deps/ingest_health-4e1cccee7e8e6f0f)
+
+running 3 tests
+test a_failed_store_reads_stopped ... ok
+test a_failing_pull_shows_in_status_until_one_succeeds ... ok
+test coverage_is_kept_when_a_pull_succeeds ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.37s
+
+exit=0

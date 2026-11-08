@@ -1,0 +1,58 @@
+TAP version 13
+# Subtest: the resident id and the NFT Citizen address match the program
+ok 1 - the resident id and the NFT Citizen address match the program
+  ---
+  duration_ms: 3.161228
+  type: 'test'
+  ...
+# Subtest: a ResidentAct around a player shape is that shape, with its proof and generation
+ok 2 - a ResidentAct around a player shape is that shape, with its proof and generation
+  ---
+  duration_ms: 10.092105
+  type: 'test'
+  ...
+# Subtest: ResidentAct refusals: the plain budget, a writable or signing proof, a Join or SetSession inside, a missing proof
+ok 3 - ResidentAct refusals: the plain budget, a writable or signing proof, a Join or SetSession inside, a missing proof
+  ---
+  duration_ms: 4.865599
+  type: 'test'
+  ...
+# Subtest: JoinResident: classified as a join of the owner, with and without the join gate
+ok 4 - JoinResident: classified as a join of the owner, with and without the join gate
+  ---
+  duration_ms: 2.110522
+  type: 'test'
+  ...
+# Subtest: the resident record and the asset owner decode from bytes
+ok 5 - the resident record and the asset owner decode from bytes
+  ---
+  duration_ms: 0.35769
+  type: 'test'
+  ...
+# Subtest: GET /f/residents lists the wallet's resident NFTs from the chain, checking each hit
+ok 6 - GET /f/residents lists the wallet's resident NFTs from the chain, checking each hit
+  ---
+  duration_ms: 5.601081
+  type: 'test'
+  ...
+# Subtest: an NFT Citizen's action names its Citizen and the owner, and is a ResidentAct the relay takes
+ok 7 - an NFT Citizen's action names its Citizen and the owner, and is a ResidentAct the relay takes
+  ---
+  duration_ms: 16.3099
+  type: 'test'
+  ...
+# Subtest: the first login of an NFT is a JoinResident signed by the owner
+ok 8 - the first login of an NFT is a JoinResident signed by the owner
+  ---
+  duration_ms: 3.784226
+  type: 'test'
+  ...
+1..8
+# tests 8
+# suites 0
+# pass 8
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 599.801301

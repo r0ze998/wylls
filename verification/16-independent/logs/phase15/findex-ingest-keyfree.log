@@ -1,0 +1,21 @@
+### findex-ingest-keyfree HEAD cf517b558d1303a84dba618550f40cb460b7ad99 tree 75b67dc4f929527deaf885ae8858325e0b23b482
+?? frontier-node/crates/findex/tests/v16_history_coverage.rs
+?? frontier-node/crates/findex/tests/v16_history_gaps.rs
+?? frontier-node/crates/verify/tests/v16_cpi_keyfree.rs
+?? frontier-node/crates/verify/tests/v16_v27_gate.rs
+?? permutation-gateway/node_modules
+?? workstreams/04-execution/tests/v16_chain_caravan_faults.rs
+?? workstreams/04-execution/tests/v16_intake_regressions.rs
+   Compiling findex v0.1.0 (/tmp/claude-0/-home-user-wylls/47a54b0f-427a-5cca-bc82-feb7c5056956/scratchpad/v23/frontier-node/crates/findex)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 1.46s
+     Running tests/ingest.rs (target/debug/deps/ingest-2d27ff3546c79fa0)
+
+running 4 tests
+test rpc_poll_refuses_a_server_that_ignores_before ... ok
+test rpc_poll_tolerates_another_order_within_a_slot ... ok
+test rpc_poll_refuses_a_history_gap ... ok
+test rpc_poll_pages_back_to_the_last_signature ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 5 filtered out; finished in 0.01s
+
+exit=0

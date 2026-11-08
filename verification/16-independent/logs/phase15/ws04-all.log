@@ -1,0 +1,291 @@
+### ws04-all HEAD cf517b558d1303a84dba618550f40cb460b7ad99 tree 75b67dc4f929527deaf885ae8858325e0b23b482
+?? frontier-node/crates/findex/tests/v16_history_coverage.rs
+?? frontier-node/crates/findex/tests/v16_history_gaps.rs
+?? frontier-node/crates/verify/tests/v16_cpi_keyfree.rs
+?? frontier-node/crates/verify/tests/v16_v27_gate.rs
+?? workstreams/04-execution/tests/v16_chain_caravan_faults.rs
+?? workstreams/04-execution/tests/v16_intake_regressions.rs
+   Compiling wylls-runexec v0.1.0 (/tmp/claude-0/-home-user-wylls/47a54b0f-427a-5cca-bc82-feb7c5056956/scratchpad/v23/workstreams/04-execution)
+warning: function `refused` is never used
+   --> tests/v16_intake_regressions.rs:197:4
+    |
+197 | fn refused(r: Result<runexec::store::Accept, String>, why: &str) {
+    |    ^^^^^^^
+    |
+    = note: `#[warn(dead_code)]` on by default
+
+warning: constant `STALE` is never used
+   --> tests/v16_intake_regressions.rs:204:7
+    |
+204 | const STALE: &str = "another pass generation";
+    |       ^^^^^
+
+warning: constant `NOT_CURRENT` is never used
+   --> tests/v16_intake_regressions.rs:205:7
+    |
+205 | const NOT_CURRENT: &str = "not the pass's current owner nor its live session";
+    |       ^^^^^^^^^^^
+
+warning: `wylls-runexec` (test "v16_intake_regressions") generated 3 warnings
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 6.26s
+     Running unittests src/lib.rs (target/debug/deps/runexec-9e6a0653fa39eb38)
+
+running 2 tests
+test gateway::tests::dechunks_what_node_sends ... ok
+test policy::tests::no_military_instruction_is_automatable ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running unittests src/main.rs (target/debug/deps/runexec-4db0f6b1d4cf1b0c)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/act_cli.rs (target/debug/deps/act_cli-c3175491f3f3c5e1)
+
+running 6 tests
+test an_unreachable_gateway_is_unqueryable_and_keeps_what_was_known ... ok
+test concurrent_first_registrations_of_one_key_agree ... ok
+test final_states_survive_later_contradicting_reads ... ok
+test refusals_are_machine_readable ... ok
+test register_status_and_list_through_the_command ... ok
+test the_states_stay_apart_and_only_proved_nothing_allows_a_new_attempt ... ok
+
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.47s
+
+     Running tests/acts.rs (target/debug/deps/acts-8ef612ce3512cae4)
+
+running 6 tests
+test a_failed_read_is_unqueryable_and_keeps_what_was_known ... ok
+test a_restart_answers_from_the_store ... ok
+test final_states_never_change_and_contradictions_are_kept_aside ... ok
+test pending_then_finalized_with_the_signing_facts ... ok
+test registration_is_idempotent_and_never_merged ... ok
+test result_unknown_and_not_sent_are_distinct ... ok
+
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.06s
+
+     Running tests/arrival.rs (target/debug/deps/arrival-ceb792c3969d885d)
+
+running 10 tests
+test burn_record_from_history_makes_zero_known ... ok
+test capture_locked_destination_waits ... ok
+test concurrent_movements_at_the_destination_do_not_change_the_verdict ... ok
+test destination_mismatch_without_raid_record_is_unconfirmed ... ok
+test fraction_below_one_unit_is_not_known_zero ... ok
+test holding_destination_is_rule_derived ... ok
+test known_zero_outcomes ... ok
+test lower_bound_below_request_is_partial ... ok
+test raid_record_must_match_the_caravan_and_the_kind ... ok
+test vault_record_without_credit_is_unverified_even_if_balance_matches ... ok
+
+test result: ok. 10 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.53s
+
+     Running tests/cargo_only.rs (target/debug/deps/cargo_only-f0cfeab0591a70a4)
+
+running 4 tests
+test a_cargo_only_run_ships_its_cargo_and_is_fulfilled ... ok
+test a_cargo_only_run_waits_for_its_cargo_and_fails_at_its_deadline ... ok
+test a_cargo_only_spec_with_making_parts_is_refused ... ok
+test a_making_spec_serialises_as_before ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.09s
+
+     Running tests/chain_caravan.rs (target/debug/deps/chain_caravan-2d829582dfad260c)
+
+running 1 test
+test the_nft_citizen_sends_a_cargo_only_caravan ... ignored, stage B of tools/chain-flow.sh: needs CHAIN_OUT/a-join.json from stage A
+
+test result: ok. 0 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/concurrency.rs (target/debug/deps/concurrency-0ca3a0ba74187fa8)
+
+running 8 tests
+test cancels_race_executors ... ok
+test late_ship_landing_is_waited_for_not_resent ... ok
+test many_executors_many_runs ... ok
+test per_owner_rule_holds_between_check_and_write ... ok
+test same_executor_id_twice_is_fenced_by_epoch ... ok
+test second_executor_cannot_claim_a_held_lease ... ok
+test second_run_of_an_owner_waits_for_the_seq ... ok
+test zombie_executor_is_fenced ... ok
+
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.57s
+
+     Running tests/continuity.rs (target/debug/deps/continuity-b1c85b215dfd990d)
+
+running 4 tests
+test a_store_is_never_applied_to_another_world ... ok
+test boundaries_and_restarts_change_nothing ... ok
+test finished_runs_do_not_slow_the_due_query ... ok
+test legacy_world_end_holds_work_and_strands_the_late_road ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.90s
+
+     Running tests/faults.rs (target/debug/deps/faults-4e57ac0e9e3cc17d)
+
+running 39 tests
+test acceptance_is_idempotent ... ok
+test attempts_are_bounded ... ok
+test cancel_before_send ... ok
+test cancel_in_transit_is_too_late ... ok
+test cancel_races_the_send_write ... ok
+test cancel_while_in_flight ... ok
+test capacity_clip_gives_partial ... ok
+test destination_seized_before_send ... ok
+test destination_seized_in_transit ... ok
+test duplicated_and_reversed_feed ... ok
+test every_state_has_an_ownership_row_and_terminal_states_are_final ... ok
+test expired_attempt_never_lands ... ok
+test fee_budget_is_bounded ... ok
+test happy_path_fulfils_with_three_receipts ... ok
+test history_gap_is_reconciled_from_entity_history ... ok
+test inbound_fraction_is_not_reported_lost ... ok
+test inbound_taken_fails_the_run ... ok
+test indeterminate_is_held_then_resumed ... ok
+test late_landing_after_deadline ... ok
+test no_materials_expires ... ok
+test port_down_holds_then_resumes ... ok
+test raids ... ok
+test response_lost_but_committed ... ok
+test restart_after_validity_ran_out ... ok
+test right_units_are_reserved_across_runs ... ok
+test rights_expire_while_in_flight ... ok
+test rights_expired_before_send ... ok
+test send_to_another_player_is_held_for_the_wallet ... ok
+test seq_taken_by_another_send ... ok
+test seq_taken_seen_in_entity_history ... ok
+test settle_seen_before_send_is_harmless ... ok
+test stale_snapshot_writes_and_sends_nothing ... ok
+test stock_spent_after_reservation_goes_back_to_waiting ... ok
+test stop_and_restart_at_every_point ... ok
+test timeout_without_commit_is_rebroadcast ... ok
+test transient_indeterminate_is_retried_not_held ... ok
+test unseen_take_is_found_at_settlement ... ok
+test waits_for_inbound_materials ... ok
+test wear_gives_partial ... ok
+
+test result: ok. 39 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.74s
+
+     Running tests/gateway.rs (target/debug/deps/gateway-b622e5467fec2c7d)
+
+running 9 tests
+test crash_before_the_gateway_call_resends_the_same_key ... ignored, needs node and permutation-gateway/node_modules; run with --ignored
+test expired_permission_from_patch_0001_holds_the_run ... ignored, needs node and permutation-gateway/node_modules; run with --ignored
+test failure_after_signing_is_followed_by_its_signature ... ignored, needs node and permutation-gateway/node_modules; run with --ignored
+test gateway_answer_lost_is_recovered_from_history_without_a_second_send ... ignored, needs node and permutation-gateway/node_modules; run with --ignored
+test gateway_send_fulfils_with_the_signed_content_checked ... ignored, needs node and permutation-gateway/node_modules; run with --ignored
+test lost_answer_under_cancel_is_read_from_history_not_resent ... ignored, needs node and permutation-gateway/node_modules; run with --ignored
+test manual_mode_holds_then_auto_and_resume_ship_once ... ignored, needs node and permutation-gateway/node_modules; run with --ignored
+test policy_refusal_holds_the_run_with_the_outputs_at_stock ... ignored, needs node and permutation-gateway/node_modules; run with --ignored
+test source_other_than_the_village_is_refused_before_any_call ... ignored, needs node and permutation-gateway/node_modules; run with --ignored
+
+test result: ok. 0 passed; 0 failed; 9 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/gateway_facts.rs (target/debug/deps/gateway_facts-78bf1e3e44aa2906)
+
+running 7 tests
+test failure_after_signing_is_followed_by_its_signature ... ok
+test failure_before_sending_is_absent ... ok
+test older_gateway_failure_is_still_held ... ok
+test proved_expiry_allows_one_new_attempt ... ok
+test result_unknown_holds_as_indeterminate ... ok
+test sent_and_finalized_is_fulfilled_once ... ok
+test unqueryable_is_a_read_failure_not_an_outcome ... ok
+
+test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.26s
+
+     Running tests/intake.rs (target/debug/deps/intake-36448c5970c9b391)
+
+running 6 tests
+test a_lingering_session_of_the_previous_owner_is_refused ... ok
+test a_repeated_run_id_from_the_previous_owner_is_refused ... ok
+test a_run_admitted_before_a_transfer_keeps_its_check ... ok
+test a_run_without_a_sound_pass_is_refused ... ok
+test after_a_transfer_the_previous_owner_and_its_session_are_refused ... ok
+test the_owner_is_admitted_and_the_check_is_kept_on_the_run ... ok
+
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.09s
+
+     Running tests/intake_chain.rs (target/debug/deps/intake_chain-d892e076361a4c8e)
+
+running 5 tests
+test a_run_a_session_asked_for_before_the_transfer_runs_to_its_end ... ok
+test a_run_accepted_before_the_transfer_runs_to_its_end ... ok
+test after_the_transfer_only_the_new_holder_is_admitted ... ok
+test the_chain_reader_refuses_an_unsound_pass ... ok
+test the_run_accept_command_checks_the_requester_against_the_chain ... ok
+
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.15s
+
+     Running tests/routes.rs (target/debug/deps/routes-4b7fac92078b2067)
+
+running 4 tests
+test executor_on_another_store_takes_the_seq ... ok
+test identical_send_by_another_route_is_not_ours ... ok
+test our_signature_with_other_content_is_held ... ok
+test owner_and_seq_alone_prove_nothing ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.16s
+
+     Running tests/run_cli.rs (target/debug/deps/run_cli-8c028e3ffa5aa020)
+
+running 12 tests
+test a_cargo_only_run_is_accepted_viewed_and_replayed_without_a_duplicate ... ok
+test a_making_run_is_stored_as_before_same_json_same_digest ... ok
+test a_missing_run_is_no_record_only_in_a_readable_store_and_an_unreadable_one_is_no_answer ... ok
+test a_null_member_is_unknown_unless_the_spec_omits_it_and_a_member_given_twice_is_refused ... ok
+test a_slot_beyond_sqlite_integers_is_refused_and_the_largest_one_is_kept ... ok
+test a_spec_over_one_mebibyte_is_refused_before_the_store_exists ... ok
+test a_view_is_one_snapshot_a_write_committed_while_it_reads_does_not_show ... ok
+test malformed_input_and_options_are_refused_before_anything_is_written ... ok
+test runs_accepted_by_the_command_persist_and_the_executor_carries_them_to_the_end ... ok
+test the_same_id_with_another_spec_is_refused_and_nothing_changes ... ok
+test view_only_reads_it_creates_no_store_and_leaves_an_existing_one_as_it_was ... ok
+test views_beside_a_running_executor_never_mix_moments ... ok
+
+test result: ok. 12 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.62s
+
+     Running tests/signed.rs (target/debug/deps/signed-07b4877b6acb5009)
+
+running 6 tests
+test cancel_in_transit_is_recorded_ineffective ... ok
+test new_attempt_only_after_stale_bytes_expired ... ok
+test preflight_refusal_fails_only_after_validity ... ok
+test preflight_refusal_is_not_final_while_bytes_are_valid ... ok
+test stale_bytes_sent_after_cancel_within_validity_land_and_are_reported ... ok
+test stale_bytes_sent_after_validity_are_refused ... ok
+
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.18s
+
+     Running tests/v16_chain_caravan_faults.rs (target/debug/deps/v16_chain_caravan_faults-7296fdec759153cd)
+
+running 4 tests
+test v16_b1_duplicate_and_conflicting_acceptance ... ok
+test v16_b2_lost_answer_timeout_and_late_landing_send_once ... ok
+test v16_b3_crash_before_the_send_then_restart ... ok
+test v16_b4_a_feed_that_repeats_every_record_counts_once ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.18s
+
+     Running tests/v16_intake_regressions.rs (target/debug/deps/v16_intake_regressions-86bfada554e22851)
+
+running 7 tests
+test v16_i1_a_refusal_stores_nothing_and_does_not_reveal_a_run ... ok
+test v16_i2_a_repeat_by_the_holders_session_keeps_the_first_check ... ok
+test v16_i3_the_check_survives_a_restart_and_the_run_completes ... ok
+test v16_i4_transfers_a_to_b_to_a_admit_only_the_current_generation ... ok
+test v16_i5_a_session_acts_only_before_its_expiry_and_in_its_generation ... ok
+test v16_i6_every_tampered_pass_account_is_refused_and_stores_nothing ... ok
+test v16_i7_a_run_admitted_before_a_transfer_finishes_once_through_a_crash ... ok
+
+test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.21s
+
+   Doc-tests runexec
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+exit=0
