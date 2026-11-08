@@ -97,7 +97,7 @@
 ## 5. 試験（鍵の生成・導出・署名を伴うものは実行していない）
 
 **監査したこと：**
-- 実行する試験のファイルと、そこから呼ぶ共通部品に、`Keypair`・署名・鍵の導出がないことを確かめた。
+- 実行する試験のファイルと、そこから呼ぶ共通部品・`src/` の呼び出し先に、`Keypair`・署名・鍵の導出がないことを確かめた。最初は試験のファイルだけを見ていたため、`tamper` を見落とした（§7 の訂正）。
 - PDA と with-seed のアドレス計算（公開の hash）は使う。
 
 **実行しなかった試験：**
@@ -106,6 +106,7 @@
 |---|---|
 | `verify` の `coverage`・`record` | `Keypair` を作る |
 | `verify` の `fixtures` | `fixture::march` が試験用の鍵で署名する（④の `ba8f77dc` の記録どおり） |
+| `verify` の `tamper` | `src/tamper.rs::t20_injected` が固定の seed から鍵を作って署名する。**一度実行してしまった**（§7 の訂正） |
 | LiteSVM、SBF、`svm-tests` | 署名を伴う |
 
 結果は §7 の表にまとめる（push の後に記入する）。
@@ -144,7 +145,13 @@
 | clippy `-D warnings`（`verify`・`fclient`・`herald`・`frontier-abi`） | 通過 |
 | fmt（②が変えたファイル） | 通過 |
 
-**`cf517b55` の上（merge の前）、⑪への修正の案を当てた状態で：**
+**⚠ 違反の訂正（2026-11-08）：** 次の段落の実行には `tamper` 58 件が入っていた。そのうち `tamper_program_t20_claim_injected` は、`src/tamper.rs::t20_injected` で **固定の seed から鍵ペアを作り（`Keypair::new_from_array([0x20; 32])`）、取引に署名する**（`fclient::tx::build`）。これはユーザーの禁止事項（鍵ペアの生成・導出・署名。固定 seed を含む）に反する。
+- 原因：実行前の監査が試験のファイルだけを見ていて、呼び出し先の `src/` を見ていなかった。⑪からの指摘で気づいた。
+- 実行は第6回のこの 1 回だけで、それより前の回では `tamper` を実行していない。鍵はプロセスの中で作られただけで、保存も外部への送信もしていない。
+- 再監査（呼び出し先まで）：`src/` で鍵を作るのは `tamper::t20_injected` と `src/fixture/` だけである。ほかに実行した試験（下の一覧から `tamper` を除いたもの、`rights_replay`、lib）は、どちらにも届かない。
+- 以後、`tamper` は実行しない。下の `tamper` 58 の結果は、根拠から外す。
+
+**`cf517b55` の上（merge の前）、⑪への修正の案を当てた状態で（`tamper` は上の訂正のとおり）：**
 - 監査した試験の全部が通過した。lib 47 と、次の試験：
   - `camp_clear` 3
   - `custody` 6
@@ -181,3 +188,39 @@
 | 網羅的な match | `frontier-node/crates/{fclient,herald}/src/conquest.rs` |
 
 ④の harness（`map_growth_runtime_tests.rs`）に足したのは、子 module の宣言と既定の build の試験 1 件だけである。④の init・prologue・Stubs は変えていない。
+
+## 9. ⑪の 0013・0014 との関係（⑪の review を受けて）
+
+**衝突：**
+- ⑪の `0013` は、帯のない tag を FAIL にする条件を「知っている版の時だけ」に変える。
+- `0014` は、ResidentAct を V28 に任せる。
+- どちらも `v0_coverage.rs` の `judge_outside_v2` を変える。このブランチの V0 の差分（④の `fa822453` が基準）とは、`let Some(band) = allocated_band(tag) else` の周りで衝突する。
+
+**作り直したもの：** `patches/for-ws04/after-ws11-0013-0014/0001-v0-grant-on-0013-0014.diff`
+- 基準は、このブランチの `v0_coverage.rs` を④の版に戻し、⑪の 0013・0014 を当てたもの。
+- 足すのは次の三つ：
+  - `known_version` に `0x2004` を足す。
+  - Grant の判定を、帯の規則の前に置く。順は、Grant の判定 → 帯 → 帯のない tag（知らない版なら UNVERIFIABLE）。
+  - 版の一覧の文言を直す。
+
+**④の適用の手順：**
+1. ⑪の 0013・0014 を当てる。
+2. このブランチを merge する。`v0_coverage.rs` が衝突したら、0013・0014 の側を採る。
+3. 上の diff を当てる。
+
+**試験**（④ `fa822453` に、このブランチ、0013、0014、上の diff を当てた tree で）：
+
+| 試験 | 結果 |
+|---|---|
+| `verify` の lib | 47 件通過 |
+| `verify` の `rights_replay` | 18 件通過 |
+| `verify` の `new_bands` | 10 件通過（⑪の 0013・0014 の試験を含む） |
+| `verify` の `missing_state` | 2 件通過 |
+
+鍵と署名がないことは、呼び出し先まで確かめた。`tamper` は実行していない。
+
+**VR の 1 対 1 の照合（⑪の質問への答え）：**
+- VR は、取引の Grant 命令を、記録の順に 1 つずつ照合する（`recs.next()`）。
+- 記録がない、または kind が違う時は FAIL。ログが失われた時は UNVERIFIABLE。
+- 照合で余った記録は、`RightsRecordOrphan`（FAIL）になる。CPI の中なら UNVERIFIABLE。
+- そのため、V0E の `explained()` が「同じ取引に Grant 命令が 1 つでもある」で判定済みとしても、余った記録は VR が拾う。
