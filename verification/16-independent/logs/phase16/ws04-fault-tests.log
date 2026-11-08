@@ -1,0 +1,174 @@
+   Compiling proc-macro2 v1.0.107
+   Compiling quote v1.0.47
+   Compiling unicode-ident v1.0.27
+   Compiling version_check v0.9.5
+   Compiling typenum v1.20.1
+   Compiling generic-array v0.14.7
+   Compiling equivalent v1.0.3
+   Compiling winnow v1.0.4
+   Compiling hashbrown v0.17.1
+   Compiling crypto-common v0.1.7
+   Compiling block-buffer v0.10.4
+   Compiling digest v0.10.7
+   Compiling cfg-if v1.0.5
+   Compiling indexmap v2.14.2
+   Compiling syn v2.0.119
+   Compiling toml_datetime v1.1.2+spec-1.1.0
+   Compiling toml_parser v1.1.5+spec-1.1.0
+   Compiling cpufeatures v0.2.17
+   Compiling shlex v2.0.1
+   Compiling find-msvc-tools v0.1.15
+   Compiling cfg_aliases v0.2.2
+   Compiling semver v1.0.28
+   Compiling toml_edit v0.25.17+spec-1.1.0
+   Compiling rustc_version v0.4.1
+   Compiling cc v1.10.0
+   Compiling borsh v1.6.1
+   Compiling proc-macro-crate v3.5.0
+   Compiling sha2 v0.10.9
+   Compiling serde_core v1.0.229
+   Compiling vcpkg v0.2.15
+   Compiling pkg-config v0.3.34
+   Compiling once_cell v1.21.4
+   Compiling curve25519-dalek v4.1.3
+   Compiling five8_core v1.0.0
+   Compiling foldhash v0.2.0
+   Compiling libsqlite3-sys v0.38.2
+   Compiling zmij v1.0.23
+   Compiling syn v3.0.9
+   Compiling borsh-derive v1.6.1
+   Compiling curve25519-dalek-derive v0.1.1
+   Compiling rand_core v0.6.4
+   Compiling serde v1.0.229
+   Compiling zeroize v1.9.0
+   Compiling serde_json v1.0.151
+   Compiling subtle v2.6.1
+   Compiling solana-hash v4.6.0
+   Compiling permutation-rules v0.1.0 (/tmp/claude-0/-home-user-wylls/47a54b0f-427a-5cca-bc82-feb7c5056956/scratchpad/v24/permutation-rules)
+   Compiling solana-sha256-hasher v3.1.0
+   Compiling serde_derive v1.0.229
+   Compiling hashlink v0.12.2
+   Compiling five8 v1.0.0
+   Compiling five8_const v1.0.0
+   Compiling itoa v1.0.18
+   Compiling sha2-const-stable v0.1.0
+   Compiling fallible-streaming-iterator v0.1.9
+   Compiling memchr v2.8.3
+   Compiling solana-program-error v3.0.1
+   Compiling bitflags v2.13.2
+   Compiling fallible-iterator v0.3.0
+   Compiling smallvec v1.16.4
+   Compiling solana-address v2.6.1
+   Compiling hex v0.4.3
+   Compiling base64 v0.22.1
+   Compiling frontier-abi v0.1.0 (/tmp/claude-0/-home-user-wylls/47a54b0f-427a-5cca-bc82-feb7c5056956/scratchpad/v24/frontier-abi)
+   Compiling rusqlite v0.40.2
+   Compiling wylls-runexec v0.1.0 (/tmp/claude-0/-home-user-wylls/47a54b0f-427a-5cca-bc82-feb7c5056956/scratchpad/v24/workstreams/04-execution)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 33.10s
+     Running tests/arrival.rs (target/debug/deps/arrival-fb68b746808ca068)
+
+running 10 tests
+test burn_record_from_history_makes_zero_known ... ok
+test capture_locked_destination_waits ... ok
+test concurrent_movements_at_the_destination_do_not_change_the_verdict ... ok
+test destination_mismatch_without_raid_record_is_unconfirmed ... ok
+test fraction_below_one_unit_is_not_known_zero ... ok
+test holding_destination_is_rule_derived ... ok
+test known_zero_outcomes ... ok
+test lower_bound_below_request_is_partial ... ok
+test raid_record_must_match_the_caravan_and_the_kind ... ok
+test vault_record_without_credit_is_unverified_even_if_balance_matches ... ok
+
+test result: ok. 10 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.56s
+
+     Running tests/cargo_only.rs (target/debug/deps/cargo_only-147b2ff634b75fb4)
+
+running 4 tests
+test a_cargo_only_run_ships_its_cargo_and_is_fulfilled ... ok
+test a_cargo_only_run_waits_for_its_cargo_and_fails_at_its_deadline ... ok
+test a_cargo_only_spec_with_making_parts_is_refused ... ok
+test a_making_spec_serialises_as_before ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.13s
+
+     Running tests/concurrency.rs (target/debug/deps/concurrency-c52c18ead305f71a)
+
+running 8 tests
+test cancels_race_executors ... ok
+test late_ship_landing_is_waited_for_not_resent ... ok
+test many_executors_many_runs ... ok
+test per_owner_rule_holds_between_check_and_write ... ok
+test same_executor_id_twice_is_fenced_by_epoch ... ok
+test second_executor_cannot_claim_a_held_lease ... ok
+test second_run_of_an_owner_waits_for_the_seq ... ok
+test zombie_executor_is_fenced ... ok
+
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.81s
+
+     Running tests/continuity.rs (target/debug/deps/continuity-96f0bbfa463a35b1)
+
+running 4 tests
+test a_store_is_never_applied_to_another_world ... ok
+test boundaries_and_restarts_change_nothing ... ok
+test finished_runs_do_not_slow_the_due_query ... ok
+test legacy_world_end_holds_work_and_strands_the_late_road ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.93s
+
+     Running tests/faults.rs (target/debug/deps/faults-025487a9dabe15ac)
+
+running 39 tests
+test acceptance_is_idempotent ... ok
+test attempts_are_bounded ... ok
+test cancel_before_send ... ok
+test cancel_in_transit_is_too_late ... ok
+test cancel_races_the_send_write ... ok
+test cancel_while_in_flight ... ok
+test capacity_clip_gives_partial ... ok
+test destination_seized_before_send ... ok
+test destination_seized_in_transit ... ok
+test duplicated_and_reversed_feed ... ok
+test every_state_has_an_ownership_row_and_terminal_states_are_final ... ok
+test expired_attempt_never_lands ... ok
+test fee_budget_is_bounded ... ok
+test happy_path_fulfils_with_three_receipts ... ok
+test history_gap_is_reconciled_from_entity_history ... ok
+test inbound_fraction_is_not_reported_lost ... ok
+test inbound_taken_fails_the_run ... ok
+test indeterminate_is_held_then_resumed ... ok
+test late_landing_after_deadline ... ok
+test no_materials_expires ... ok
+test port_down_holds_then_resumes ... ok
+test raids ... ok
+test response_lost_but_committed ... ok
+test restart_after_validity_ran_out ... ok
+test right_units_are_reserved_across_runs ... ok
+test rights_expire_while_in_flight ... ok
+test rights_expired_before_send ... ok
+test send_to_another_player_is_held_for_the_wallet ... ok
+test seq_taken_by_another_send ... ok
+test seq_taken_seen_in_entity_history ... ok
+test settle_seen_before_send_is_harmless ... ok
+test stale_snapshot_writes_and_sends_nothing ... ok
+test stock_spent_after_reservation_goes_back_to_waiting ... ok
+test stop_and_restart_at_every_point ... ok
+test timeout_without_commit_is_rebroadcast ... ok
+test transient_indeterminate_is_retried_not_held ... ok
+test unseen_take_is_found_at_settlement ... ok
+test waits_for_inbound_materials ... ok
+test wear_gives_partial ... ok
+
+test result: ok. 39 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.85s
+
+     Running tests/signed.rs (target/debug/deps/signed-73b57c92b0d03f0c)
+
+running 6 tests
+test cancel_in_transit_is_recorded_ineffective ... ok
+test new_attempt_only_after_stale_bytes_expired ... ok
+test preflight_refusal_fails_only_after_validity ... ok
+test preflight_refusal_is_not_final_while_bytes_are_valid ... ok
+test stale_bytes_sent_after_cancel_within_validity_land_and_are_reported ... ok
+test stale_bytes_sent_after_validity_are_refused ... ok
+
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.24s
+

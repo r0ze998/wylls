@@ -1,0 +1,94 @@
+### frontier-map-growth-wide HEAD 20db3313adf25481b714798759b1fdd0cb917275
+   Compiling permutation-rules v0.1.0 (/tmp/claude-0/-home-user-wylls/47a54b0f-427a-5cca-bc82-feb7c5056956/scratchpad/v24/permutation-rules)
+   Compiling frontier-abi v0.1.0 (/tmp/claude-0/-home-user-wylls/47a54b0f-427a-5cca-bc82-feb7c5056956/scratchpad/v24/frontier-abi)
+   Compiling permutation-frontier v0.1.0 (/tmp/claude-0/-home-user-wylls/47a54b0f-427a-5cca-bc82-feb7c5056956/scratchpad/v24/permutation-frontier)
+warning: function `hint_for` is never used
+   --> permutation-frontier/src/crypto/quick.rs:320:19
+    |
+320 |     pub(crate) fn hint_for(u: Fq) -> [u8; HINT_LEN] {
+    |                   ^^^^^^^^
+    |
+    = note: `#[warn(dead_code)]` on by default
+
+warning: function `hints_for_round` is never used
+   --> permutation-frontier/src/crypto/quick.rs:357:19
+    |
+357 |     pub(crate) fn hints_for_round(round: u64) -> [u8; 2 * HINT_LEN] {
+    |                   ^^^^^^^^^^^^^^^
+
+warning: function `decode` is never used
+   --> permutation-frontier/src/crypto/quick.rs:365:19
+    |
+365 |     pub(crate) fn decode<const N: usize>(s: &str) -> [u8; N] {
+    |                   ^^^^^^
+
+warning: constant `FIXTURE_ROUND` is never used
+   --> permutation-frontier/src/crypto/quick.rs:372:22
+    |
+372 |     pub(crate) const FIXTURE_ROUND: u64 = 32_551_361;
+    |                      ^^^^^^^^^^^^^
+
+warning: constant `FIXTURE_SIG_HEX` is never used
+   --> permutation-frontier/src/crypto/quick.rs:373:22
+    |
+373 |     pub(crate) const FIXTURE_SIG_HEX: &str = "b07de38f2242ea4ae09960f14c44b826764b4f00a7b5dbb64f0adaeb8084fd91231934b3f7e1e2ae86cadd2d27a...
+    |                      ^^^^^^^^^^^^^^^
+
+warning: constant `FIXTURE_HINTS_HEX` is never used
+   --> permutation-frontier/src/crypto/quick.rs:374:22
+    |
+374 |     pub(crate) const FIXTURE_HINTS_HEX: &str = "0114dcf59722b7585538cfa4b87b8ccc137ebdd8cf87bb88bd356225cf9c3bfe410f598a3a77d9c98705940ac...
+    |                      ^^^^^^^^^^^^^^^^^
+
+warning: constant `Q3_ROUND` is never used
+   --> permutation-frontier/src/crypto/quick.rs:377:22
+    |
+377 |     pub(crate) const Q3_ROUND: u64 = 32_556_137;
+    |                      ^^^^^^^^
+
+warning: constant `Q3_SIG_HEX` is never used
+   --> permutation-frontier/src/crypto/quick.rs:378:22
+    |
+378 |     pub(crate) const Q3_SIG_HEX: &str = "878cd56168e11268d95ad61604f87af5d1d0fb8d9015c81a4484a679250bea3514d9899def7041bcdbfdc02be5da17d5";
+    |                      ^^^^^^^^^^
+
+warning: methods `genesis` and `at` are never used
+   --> permutation-frontier/src/wide_land_runtime_tests.rs:412:8
+    |
+351 | impl Wide {
+    | --------- methods in this implementation
+...
+412 |     fn genesis(&self) -> i64 {
+    |        ^^^^^^^
+...
+418 |     fn at(&self, bell: u32, secs: i64) -> i64 {
+    |        ^^
+
+warning: `permutation-frontier` (lib test) generated 9 warnings
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 16.55s
+     Running unittests src/lib.rs (permutation-chain/target/debug/deps/permutation_frontier-1e5830df26749b8c)
+
+running 19 tests
+test map_growth_runtime_tests::map_growth_dispersed_home_lands_off_its_wedge_and_counts_under_the_provinces_wedge ... ok
+test map_growth_runtime_tests::map_growth_dispersed_placement_refuses_a_stranger_a_taken_site_and_a_second_grant ... ok
+test map_growth_runtime_tests::map_growth_expansion_extends_the_frontier_opens_the_ring_and_creates_its_provinces ... ok
+test map_growth_runtime_tests::map_growth_expansion_is_refused_from_the_end_bell_of_a_finite_season ... ok
+test map_growth_runtime_tests::map_growth_expansion_is_refused_without_a_ceiling_and_never_past_ring_128 ... ok
+test map_growth_runtime_tests::map_growth_expansion_waits_a_bell_and_the_crowding_rule_then_grows_again_within_the_funds ... ok
+test map_growth_runtime_tests::map_growth_heartland_first_homes_alone_stop_the_map_at_ring_5 ... ok
+test map_growth_runtime_tests::map_growth_release_dormant_undoes_the_wedge_counter_and_keeps_the_lifetime_grant ... ok
+test map_growth_runtime_tests::wide_land::wide_land_host_musters_resolves_dissolves_and_returns_through_the_envelope ... ok
+test map_growth_runtime_tests::wide_land::wide_land_march_stages_settle_a_staged_departure_up_to_the_crypto_gate ... ok
+test map_growth_runtime_tests::wide_land::wide_land_marked_slot_is_taken_for_the_deployed_writers_until_unbound ... ok
+test map_growth_runtime_tests::wide_land::wide_land_nft_resident_acts_at_its_generation_and_season_end_closes_the_ticket_first ... ok
+test map_growth_runtime_tests::wide_land::wide_land_open_province_creates_a_whole_province_only_under_an_explicit_configuration ... ok
+test map_growth_runtime_tests::wide_land::wide_land_ring_seed_is_requested_after_the_deployed_gates_and_bound_to_the_beacon_round ... ok
+test map_growth_runtime_tests::wide_land::wide_land_rules_configuration_is_authority_bound_explicit_and_write_once ... ok
+test map_growth_runtime_tests::wide_land::wide_land_season_end_closes_the_march_records_as_the_deployed_closes_do ... ok
+test map_growth_runtime_tests::wide_land::wide_land_ticket_escrow_is_retained_reused_and_returned_as_the_deployed_escrow ... ok
+test map_growth_runtime_tests::wide_land::wide_land_ticket_is_filed_drawn_settled_and_finalized_as_the_deployed_outpost ... ok
+test map_growth_runtime_tests::wide_land::wide_land_ticket_lottery_displaces_the_lower_score_and_refuses_before_writing ... ok
+
+test result: ok. 19 passed; 0 failed; 0 ignored; 0 measured; 108 filtered out; finished in 0.24s
+
+exit=0

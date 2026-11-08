@@ -1,0 +1,216 @@
+### ws07 screens HEAD 243693829bb3d1af5d86e4b7a90c7314fe42371c tree 27b079f9be19e98d6b346c0fd6cd4af35c442f7f playwright-core 1.63.0 chromium /opt/pw-browsers/chromium
+TAP version 13
+# Subtest: phone: with 01's board on this server, the card's button opens it with this village as the destination (en, ja)
+ok 1 - phone: with 01's board on this server, the card's button opens it with this village as the destination (en, ja)
+  ---
+  duration_ms: 18109.269329
+  type: 'test'
+  ...
+# Subtest: phone: no board — nothing; a board not read, or of another Season — said, and not opened
+ok 2 - phone: no board — nothing; a board not read, or of another Season — said, and not opened
+  ---
+  duration_ms: 5103.568925
+  type: 'test'
+  ...
+# Subtest: pc: with 01's board on this server, the card's button opens it with this village as the destination (en, ja)
+ok 3 - pc: with 01's board on this server, the card's button opens it with this village as the destination (en, ja)
+  ---
+  duration_ms: 4159.582996
+  type: 'test'
+  ...
+# Subtest: pc: no board — nothing; a board not read, or of another Season — said, and not opened
+ok 4 - pc: no board — nothing; a board not read, or of another Season — said, and not opened
+  ---
+  duration_ms: 6136.48414
+  type: 'test'
+  ...
+# Subtest: phone: the game page's join screen says the season's lines in English and Japanese; no key, no dev wallet; a reload says them again
+ok 5 - phone: the game page's join screen says the season's lines in English and Japanese; no key, no dev wallet; a reload says them again
+  ---
+  duration_ms: 33302.518604
+  type: 'test'
+  ...
+# Subtest: phone: /h/events failing, the chronicle under More says the record was not read — never empty — and again after a reload
+ok 6 - phone: /h/events failing, the chronicle under More says the record was not read — never empty — and again after a reload
+  ---
+  duration_ms: 11310.651213
+  type: 'test'
+  ...
+# Subtest: pc: the game page's join screen says the season's lines in English and Japanese; no key, no dev wallet; a reload says them again
+ok 7 - pc: the game page's join screen says the season's lines in English and Japanese; no key, no dev wallet; a reload says them again
+  ---
+  duration_ms: 23810.255945
+  type: 'test'
+  ...
+# Subtest: pc: /h/events failing, the chronicle under More says the record was not read — never empty — and again after a reload
+ok 8 - pc: /h/events failing, the chronicle under More says the record was not read — never empty — and again after a reload
+  ---
+  duration_ms: 12201.960902
+  type: 'test'
+  ...
+# Subtest: phone: the S1 village card says a caravan past its turn is overdue and not settled — never arrived —, and nothing else is added
+ok 9 - phone: the S1 village card says a caravan past its turn is overdue and not settled — never arrived —, and nothing else is added
+  ---
+  duration_ms: 15028.837605
+  type: 'test'
+  ...
+# Subtest: phone: with 04, 05 and 01 registered (mocks) each says its state; the cooperation button is disabled with its reason
+ok 10 - phone: with 04, 05 and 01 registered (mocks) each says its state; the cooperation button is disabled with its reason
+  ---
+  duration_ms: 2755.251873
+  type: 'test'
+  ...
+# Subtest: phone: the cooperation button, when 01 says it may be pressed, is reached by keyboard and opens once per press
+ok 11 - phone: the cooperation button, when 01 says it may be pressed, is reached by keyboard and opens once per press
+  ---
+  duration_ms: 1494.831483
+  type: 'test'
+  ...
+# Subtest: pc: the S1 village card says a caravan past its turn is overdue and not settled — never arrived —, and nothing else is added
+ok 12 - pc: the S1 village card says a caravan past its turn is overdue and not settled — never arrived —, and nothing else is added
+  ---
+  duration_ms: 1545.234436
+  type: 'test'
+  ...
+# Subtest: pc: with 04, 05 and 01 registered (mocks) each says its state; the cooperation button is disabled with its reason
+ok 13 - pc: with 04, 05 and 01 registered (mocks) each says its state; the cooperation button is disabled with its reason
+  ---
+  duration_ms: 2551.75518
+  type: 'test'
+  ...
+# Subtest: pc: the cooperation button, when 01 says it may be pressed, is reached by keyboard and opens once per press
+ok 14 - pc: the cooperation button, when 01 says it may be pressed, is reached by keyboard and opens once per press
+  ---
+  duration_ms: 1287.328817
+  type: 'test'
+  ...
+# Subtest: phone: a first look lists the viewer's S1 losses, keeps a taken caravan's arrival apart, and "seen" moves the mark once
+ok 15 - phone: a first look lists the viewer's S1 losses, keeps a taken caravan's arrival apart, and "seen" moves the mark once
+  ---
+  duration_ms: 2366.487034
+  type: 'test'
+  ...
+# Subtest: phone: a double press moves the mark once; a refused write keeps the notice and says so
+ok 16 - phone: a double press moves the mark once; a refused write keeps the notice and says so
+  ---
+  duration_ms: 2564.369351
+  type: 'test'
+  ...
+# Subtest: phone: a gap offers no "seen", and a read that failed confirms only what it read
+ok 17 - phone: a gap offers no "seen", and a read that failed confirms only what it read
+  ---
+  duration_ms: 2435.928938
+  type: 'test'
+  ...
+# Subtest: phone: the display contract says each state with a symbol and words, in Japanese and English
+ok 18 - phone: the display contract says each state with a symbol and words, in Japanese and English
+  ---
+  duration_ms: 2518.000785
+  type: 'test'
+  ...
+# Subtest: pc: a first look lists the viewer's S1 losses, keeps a taken caravan's arrival apart, and "seen" moves the mark once
+ok 19 - pc: a first look lists the viewer's S1 losses, keeps a taken caravan's arrival apart, and "seen" moves the mark once
+  ---
+  duration_ms: 2607.221456
+  type: 'test'
+  ...
+# Subtest: pc: a double press moves the mark once; a refused write keeps the notice and says so
+ok 20 - pc: a double press moves the mark once; a refused write keeps the notice and says so
+  ---
+  duration_ms: 2992.234617
+  type: 'test'
+  ...
+# Subtest: pc: a gap offers no "seen", and a read that failed confirms only what it read
+ok 21 - pc: a gap offers no "seen", and a read that failed confirms only what it read
+  ---
+  duration_ms: 2414.553939
+  type: 'test'
+  ...
+# Subtest: pc: the display contract says each state with a symbol and words, in Japanese and English
+ok 22 - pc: the display contract says each state with a symbol and words, in Japanese and English
+  ---
+  duration_ms: 2657.904916
+  type: 'test'
+  ...
+# Subtest: phone, events HTTP 503 from the start: no page error; the record is said as not read, never as empty
+ok 23 - phone, events HTTP 503 from the start: no page error; the record is said as not read, never as empty
+  ---
+  duration_ms: 8187.569247
+  type: 'test'
+  ...
+# Subtest: phone, events connection reset from the start: no page error; the record is said as not read, never as empty
+ok 24 - phone, events connection reset from the start: no page error; the record is said as not read, never as empty
+  ---
+  duration_ms: 5919.458376
+  type: 'test'
+  ...
+# Subtest: phone, events read, then failing, then back: what was read stays and is said as older; the line goes once read again
+ok 25 - phone, events read, then failing, then back: what was read stays and is said as older; the line goes once read again
+  ---
+  duration_ms: 66657.717662
+  type: 'test'
+  ...
+# Subtest: pc, events HTTP 503 from the start: no page error; the record is said as not read, never as empty
+ok 26 - pc, events HTTP 503 from the start: no page error; the record is said as not read, never as empty
+  ---
+  duration_ms: 4756.247461
+  type: 'test'
+  ...
+# Subtest: pc, events connection reset from the start: no page error; the record is said as not read, never as empty
+ok 27 - pc, events connection reset from the start: no page error; the record is said as not read, never as empty
+  ---
+  duration_ms: 4963.505105
+  type: 'test'
+  ...
+# Subtest: pc, events read, then failing, then back: what was read stays and is said as older; the line goes once read again
+ok 28 - pc, events read, then failing, then back: what was read stays and is said as older; the line goes once read again
+  ---
+  duration_ms: 64691.491243
+  type: 'test'
+  ...
+# Subtest: phone, a reload while events still fail: the new page says not read again, never empty; once back, the record shows
+ok 29 - phone, a reload while events still fail: the new page says not read again, never empty; once back, the record shows
+  ---
+  duration_ms: 10556.952803
+  type: 'test'
+  ...
+# Subtest: pc, a reload while events still fail: the new page says not read again, never empty; once back, the record shows
+ok 30 - pc, a reload while events still fail: the new page says not read again, never empty; once back, the record shows
+  ---
+  duration_ms: 11839.413974
+  type: 'test'
+  ...
+# Subtest: phone en: NFT card, the seven send states and the read states say themselves; nothing overflows; a reload shows the same
+ok 31 - phone en: NFT card, the seven send states and the read states say themselves; nothing overflows; a reload shows the same
+  ---
+  duration_ms: 3959.194693
+  type: 'test'
+  ...
+# Subtest: phone ja: NFT card, the seven send states and the read states say themselves; nothing overflows; a reload shows the same
+ok 32 - phone ja: NFT card, the seven send states and the read states say themselves; nothing overflows; a reload shows the same
+  ---
+  duration_ms: 3774.484755
+  type: 'test'
+  ...
+# Subtest: pc en: NFT card, the seven send states and the read states say themselves; nothing overflows; a reload shows the same
+ok 33 - pc en: NFT card, the seven send states and the read states say themselves; nothing overflows; a reload shows the same
+  ---
+  duration_ms: 2425.50595
+  type: 'test'
+  ...
+# Subtest: pc ja: NFT card, the seven send states and the read states say themselves; nothing overflows; a reload shows the same
+ok 34 - pc ja: NFT card, the seven send states and the read states say themselves; nothing overflows; a reload shows the same
+  ---
+  duration_ms: 2759.757148
+  type: 'test'
+  ...
+1..34
+# tests 34
+# suites 0
+# pass 34
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 214486.981503
+exit=0

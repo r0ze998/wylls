@@ -1,0 +1,5 @@
+baseline: # pass 17 # fail 0 
+N1-no-requester-guard: # pass 15 # fail 2  failed: the port hands workstream 4 the requester the credential layer gave, a;without requesterOf at all, submit is refused and accept is never call;
+N2-notauthorized-retried: # pass 14 # fail 3  failed: refusals: definite ones (nothing written) come back refused; StoreErro;a resident whose pass is no longer current (NotAuthorized): the line f;workstream 4's clients/runs.mjs: the requester file it hands over, and;
+N3-contradiction-ignored: # pass 15 # fail 2  failed: stopped with contradictory effect fields: unknown, never failed;a resident reading such a view does not act again: one accept for the ;
+N4-held-not-unknown: # pass 16 # fail 1  failed: mapping: took effect, pending, stopped with and without effects, held,;

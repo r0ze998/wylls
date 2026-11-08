@@ -1579,3 +1579,158 @@ ws04 の全試験の内訳:
 - 未着: ⑮ bf7f43fc、⑰ RecordNation の tgz。
 
 ログ: `logs/phase15/`
+
+# 第16期（2026-11-08）：④の公開 HEAD 20db3313、⑬ d9ac99ad、⑦ 24369382
+
+## 21.1 対象の版（GitHub から取得して照合した）
+
+| 対象 | commit | tree | 備考 |
+|---|---|---|---|
+| ④ `claude/gallant-ride-cunptv` の公開 HEAD | `20db3313adf25481b714798759b1fdd0cb917275` | `b2304c4fa25e53bb15f1dbbffd42d6042c878957` | 2026-11-08 12:41 UTC。ae0df617 に④の文書（§13）を足しただけ |
+| 利用者が示した基準 fa822453 | `fa8224538b8e4e4a92c2aee06ff5186a7e033576` | `8c4b1a852a90bafc777d96eab62d400c53294d17` | 20db3313 の祖先 |
+| ④が申告した ae0df617 | `ae0df617cad8bef17b8763abe7f99baad11d78b2` | `4219fe2e03ce2b25776f1441efbe76fe9f2e551a` | 公開されている。20db3313 の親 |
+| ⑬ `claude/eager-cerf-k74z5s` | `d9ac99ad1e468426d790e84971f09c43bfd1a3d3` | `92323016897f91d11af48ba945976561bbeccacb` | 候補に入っていない。⑬の 0e6df20e までは候補にある |
+| 20db3313 に d9ac99ad の差分を当てた木 | （commit ではない） | `1d762ba11e983a403c8779fd6f730790f0002c0f` | d9ac99ad の差分は ws04-run.mjs と、その試験・fixture・文書だけ。そのまま当たった |
+| ⑤ `claude/ai-participation-provider-budget` | `10e749677d96301766c2930a8f903baf28cce0bc` | `50f0f5059c9e74abf9b4ff5cb4524a6d564f35c8` | ⑬の試験の WS05_ROOT に使った |
+| ⑦ `claude/wylls-ui-ux-visual-oixhgs` | `243693829bb3d1af5d86e4b7a90c7314fe42371c` | `27b079f9be19e98d6b346c0fd6cd4af35c442f7f` | 20db3313 の上に 5 commit |
+
+旧 SHA の結果は流用していない。すべてこの版で流し直した。
+
+## 21.2 ⑬→④：認証済みの requester を必須とすること
+
+読解で確かめたこと:
+
+- ⑬の `ws04ExecutionPort` は、`requesterOf` が無いとき、または requester を返さないときに `NoAuthenticatedRequester` を返す。このとき `accept` は呼ばれない。
+- ④の受付が拒否したとき（NotAuthorized、BadRequest、Conflict）は、確定した拒否として扱い、新しい key で送り直さない。
+- **ただし、`ws04ExecutionPort` を組み立てているのは、候補の中では⑬の試験だけである。本物の認証層（③⑤）から requester を渡す経路は、まだ無い。** gateway の `relay.mjs` にある `requesterOf` は settle 用の別のもので、ed25519 の署名を検査する。画面にも gateway にも、run の受付を呼ぶところは無い。
+
+試験（ホスト、鍵なし。⑬の手順 §5 どおり）:
+
+- ④の runexec は 20db3313 から build した（sha256 `dae6ef86…`）。⑤は 10e74967、⑫と⑬は候補の木のもの。
+- 二つの鍵ガードを `NODE_OPTIONS` で子 process まで入れた。
+- 結果:
+
+| 木 | 件数 | 通過 | 失敗 | skip |
+|---|---|---|---|---|
+| 20db3313 | 188 | 182 | 0 | 6 |
+| d9ac99ad を当てた木 | 193 | 187 | 0 | 6 |
+
+- skip の 6 件は署名を伴うもので、数えない。
+- ガードの記録は 11 件。どれも 1 つの process で、keyless.test の自己試験だった。
+- 環境変数を付けない run.sh だけで流すと、121 件通過・67 件 skip になる。④の申告（182）は、外部の木（⑤⑫、runexec）をつないだときの数である。
+
+⑬の run port のコードを 4 通り壊した（d9ac99ad の木で。⑬の試験 3 本、17 件に対して）:
+
+| 変異 | 結果 |
+|---|---|
+| N1 requester が無いときの拒否を外す | 2 件 FAIL |
+| N2 NotAuthorized を確定した拒否から外す | 3 件 FAIL |
+| N3 矛盾した view の判定を外す | 2 件 FAIL |
+| N4 held を unknown にしない | 1 件 FAIL |
+
+## 21.3 unknown のときに送り直さないこと（⑬ d9ac99ad）と、本物の view
+
+- 20db3313 の④の試験（faults、arrival、cargo_only、concurrency、continuity、signed。どれも通過）が保存した run は 157 件ある。それぞれ、実物の `runexec run view` で読んだ（`probes/fixtures/v16-real-views-20db3313.jsonl`）。
+  - 状態の内訳: Fulfilled 103、Cancelled 23、Failed 15、Partial 6、Expired 5、DeliveredUnverified 3、Accepted 1、Reserved 1。
+- ⑯の `probes/v16-run-view-real.test.mjs` の結果（候補の木と、d9ac99ad の木の両方で）:
+  - R1: 本物の view に、矛盾したものは無い。
+  - R2: 出発の痕跡（ship attempt が landed、receipt に caravan_sent）がある view を、failed や cancelled と読むことは無い。7 件の Failed（略奪と、輸送中の差し押さえ）は、landed（停止の前に効果あり）と読まれた。
+  - 本物の view では、attempts・receipts・sent はいつも一致していた。**d9ac99ad の言うとおり、矛盾は本物の view では観測されなかった。**
+- **R3（防御上の穴、本物の view では未観測）**:
+  - 停止した view で、effects・outcome.effects・sent がどれも空なのに、次のどれかがあるとする。
+    - ship attempt が landed
+    - receipt に caravan_sent
+    - in_flight が true
+    - fees.unconfirmed が 0 より大きい
+  - このとき fateOfRun は、Failed と Expired を failed、Cancelled を cancelled と読む（12 通りすべて。d9ac99ad の有無で変わらない）。
+  - failed のとき、resident は同じ key では送り直さない。しかし時間を置いてから同じ行動を選び直せるので、新しい key で二重に送る余地がある。
+  - 入力は `probes/fixtures/v16-r3-inputs.json`。⑬に渡した。直すかどうかは⑬の判断（④が統合中なので、⑯は直さない）。
+
+## 21.4 費用の復旧（W1）と⑤の台帳
+
+- ⑬の W1 の試験は、21.2 の 182 件に含まれ、すべて通過した。
+  - stop の位置は 3 か所: wallet の hold の後、markRunning の後、cost の calling の後。
+  - 試したのは、⑤の台帳あり（⑤の回復あり・なし）と、固定の費用の場合。
+- ⑯の `probes/v16-ws05-fencing.test.mjs`（⑤ 10e74967、一時 directory、pid と時計は注入）は 3/3 通過した。
+  - f1: crash の後に二つの process が同時に再起動しても、lease を取れるのは片方だけ（もう片方は AlreadyRunning）。回復は 1 回だけ（reserved は戻り、calling は undecided）。三度目に開いても、何も変わらない。
+  - f2: 心拍が止まったまま生きている process（zombie）は、乗っ取られた後は新しい reserve ができない（LeaseLost）。回復済みの item を動かすことも、二重に戻すこともできない。
+  - f3: 乗っ取りのときに呼び出し中だった item は undecided になる。zombie が実測した費用は 1 回だけ settle され、その後の settle と release は効かない。
+  - **記録したこと:** 回復済みの item に対する zombie の `calling()` は、何もせず、例外も出さない。呼び出した側は知らされない。⑤の `inferOnce` は reserve と calling を同期で続けて行うので、乗っ取りがその間に入る余地は TTL の境目の一瞬だけである。⑤への改善提案にとどめる。
+
+## 21.5 ゲームの既存画面への接続
+
+| 機能 | 画面（permutation-server/web） | ⑯の確認 |
+|---|---|---|
+| wide | `app.mjs` が `map/widemode.mjs` を mount する。読み取り専用で、記録された広い世界を表示する | gateway・web の鍵なしの一式に含まれる |
+| ⑩の保管 | 誤りの文（fi18n の 100〜104）だけ。操作の画面は無い | 同上 |
+| run の受付（④） | **呼び出し元が無い** | — |
+| ⑬の住民 | 画面は無い（⑬は「新しい UI は作っていない」と書いている） | ⑬の試験（21.2） |
+| ⑫の記憶 | council が `/h/ai/memory/<tag>/episodes.json` を読む | 一式に含まれる |
+| ⑤の agent | `fagent.mjs`・`fdelegation.mjs`（`/f/agent`） | 一式に含まれる。③⑤の capability の接続は後続 |
+| ⑦の画面 | 協力の板（`hud/coopboard.mjs`）など（24369382） | 21.6 |
+
+gateway・web の鍵なしの一式（CI と同じ `scripts/ci/node-keyfree.sh permutation-gateway 'test/*.test.mjs' 'screens/logic.screen.mjs'`）:
+
+- 192 ファイルを流した。鍵を使う 97 ファイルは一覧に従って除いた。
+- 1883 件のうち、1882 件通過、0 件失敗、1 件 skip。NoKeysGuard の発動は 0 回。④の申告 1882/0 と一致した。
+
+## 21.6 ⑦ 24369382
+
+流す前の監査:
+
+- 画面の試験のうち、game と spectate は `startServer({ keyless: true })` を使う。
+  - world.mjs の viewer は KEYLESS_WALLET を、liveworld は KEYLESS_FEE_PAYER を使う。どちらも鍵から作らない名前である。
+  - ただし fee の鍵は、sponsor のときにだけ導かれる。node の側に no-keys-guard を入れたので、もし導けば例外になる。
+- coop と v17 は、ブラウザの init script でガードしている。
+- s1 と s1-card にはガードが無い。そこで、ページ（s1-parts.html、s1-card.html）が import するモジュールを静的にすべて辿った（`scripts/import-closure.py`。102 個と 76 個）。
+  - 鍵の API にあたるのは、vendor の noble にある関数の定義だけだった。vendor の外から呼んでいるところは無い。
+- `ws07-s1-page` と `ws07-s1-pure` は `startServer()`（固定 seed で鍵を導く）を使うので、流していない。
+
+結果（Chromium は `/opt/pw-browsers/chromium`、playwright-core 1.63.0。no-keys-guard の下で）:
+
+| 試験 | 結果 |
+|---|---|
+| 画面 6 本（spectate、game、s1、s1-card、v17、coop） | 34/34 |
+| 単体 `test/web-frontier-ws07-*.test.mjs`（14 本） | 86/86 |
+
+⑦の申告の「95 件」とは数が合わない。⑦に問い合わせた。
+
+## 21.7 回帰（20db3313、ホスト、鍵なし、PDA あり）
+
+| 対象 | 結果 |
+|---|---|
+| chain-flow の照合 | 31/31。作り直した出力は 7 ファイルとも一致 |
+| 照合器の変異 M1〜M12 | 12/12 を検出 |
+| ws04 の全試験 | すべて通過（⑯の 11 を含む） |
+| e2e-native | すべて通過。registry 1/1 で、④の修正を確認した |
+| runs の client | 3 通過、1 skip（実バイナリの試験。cf517b55 で 4/4 を確認済み） |
+| 検証器 | lib 50、camp_clear 3、custody 6・8・7、evidence 8、history 16、history_assurance 8、ledger_history 7、missing_state 2、new_bands 10、open_items 3、resident_ledger 4、unit 8、ws04_scan_resident 4、fixtures 8（`march_fixture_is_fresh` を除外）、⑯の 9。すべて通過 |
+| findex | lib 10、coverage 14、ledger 15、no_hidden_gap 4、open_items 5、store_failure 7、ws04_feed_scan 11、ws04_join_adversarial 7、ingest の鍵なし 4 件、⑯の 7。すべて通過 |
+| findex wide_typed_index（feature wide-records-experimental） | 12 |
+| localnet feed_scan_tests | 3 |
+| herald | ingest_health 3、wide_index_read 1、wide 1（feature なし）。feature wide-world-experimental を付けると wide 3、wide_capture 9 |
+| keeper（feature wide-world-experimental） | wide_duties 70、wide_discovery 14、wide_reveal 30、wide_snapshot_rpc 6、wide_feed_guard 12 |
+| frontier-abi world_index（feature world-index-experimental） | 138 |
+| permutation-frontier map_growth | 既定 8、wide 19 |
+
+**注意**: findex の wide_typed_index、herald の wide_capture、frontier-abi の world_index は、feature を付けないと 0 件になる。0 件は未実行と同じで、合格には数えない。上の数は、feature を付けて流し直したもの。
+
+- ⑯の変異の script（M4）が、⑮の stage D の patch（d491fd8d）による `d-outcome.json` の形の変更で止まっていた。これは照合器の穴ではなく、⑯の script の不備である。直してから流し直した。
+- 鍵を使うので流していないもの:
+  - `gateway.rs` の 9 件
+  - 検証器の tamper、record、coverage、`march_fixture_is_fresh`
+  - findex の ingest の 4 件
+  - localnet のほかの試験
+  - fclient の試験
+  - ⑦の s1-page と s1-pure
+- wide で、まだ流していないもの: native-crypto-tests、SBF、LiteSVM、ブラウザでの wide の表示
+
+## 21.8 利用者の判断が要ること（⑯は決めない）
+
+1. 本番で、requester をどの層が認証して④に渡すか（③⑤の gateway の資格層か、新しい経路か）。決まるまで、run は試験の中だけで、gateway の 9 件は鍵なしでは流せない。
+2. wide の 6 つのルール（④ §12）。決まるまで、wide は読み取り専用で、境目をまたぐ移動は拒否され、配備用の build では DEPART_DEBIT が無効のまま。
+3. ⑰の routes/prize.mjs をどちらにするか。決まるまで、NFT 住民の賞金請求は統合されない。
+4. ⑧ d1d07078（製品の判断）。
+5. 合成の march の fixture を、鍵を使って記録し直すことを承認するか。承認すれば tamper の試験を戻せる。承認しなければ、既知の失敗として固定したまま。
+
+ログ: `logs/phase16/`

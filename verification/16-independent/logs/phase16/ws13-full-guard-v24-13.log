@@ -1,0 +1,11 @@
+5321 crypto.generateKeyPairSync
+5321 crypto.createPrivateKey
+5321 crypto.sign
+5321 crypto.createHmac
+5321 crypto.generateKeyPairSync
+5321 web3.PublicKey.findProgramAddressSync
+5321 web3.PublicKey.createProgramAddressSync
+5321 web3.Keypair.generate
+5321 web3.Keypair.fromSeed
+5321 solana-tx.findProgramAddress
+5321 solana-tx.createProgramAddress

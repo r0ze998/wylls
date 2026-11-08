@@ -1,0 +1,29 @@
+TAP version 13
+# R3 {"Failed+ship landed":"failed","Failed+receipt caravan_sent":"failed","Failed+in_flight":"failed","Failed+fees unconfirmed":"failed","Expired+ship landed":"failed","Expired+receipt caravan_sent":"failed","Expired+in_flight":"failed","Expired+fees unconfirmed":"failed","Cancelled+ship landed":"cancelled","Cancelled+receipt caravan_sent":"cancelled","Cancelled+in_flight":"cancelled","Cancelled+fees unconfirmed":"cancelled"}
+# Subtest: R1: no real view is contradictory
+ok 1 - R1: no real view is contradictory
+  ---
+  duration_ms: 1.848679
+  type: 'test'
+  ...
+# Subtest: R2: no real view that shows the caravan left is read as failed or cancelled
+ok 2 - R2: no real view that shows the caravan left is read as failed or cancelled
+  ---
+  duration_ms: 2.322652
+  type: 'test'
+  ...
+# Subtest: R3: a stopped view with empty effect fields but other evidence of a departure
+ok 3 - R3: a stopped view with empty effect fields but other evidence of a departure
+  ---
+  duration_ms: 1.156043
+  type: 'test'
+  ...
+1..3
+# tests 3
+# suites 0
+# pass 3
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 182.812803

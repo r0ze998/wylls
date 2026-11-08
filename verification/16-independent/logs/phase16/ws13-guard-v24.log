@@ -1,0 +1,11 @@
+3508 crypto.generateKeyPairSync
+3508 crypto.createPrivateKey
+3508 crypto.sign
+3508 crypto.createHmac
+3508 crypto.generateKeyPairSync
+3508 web3.PublicKey.findProgramAddressSync
+3508 web3.PublicKey.createProgramAddressSync
+3508 web3.Keypair.generate
+3508 web3.Keypair.fromSeed
+3508 solana-tx.findProgramAddress
+3508 solana-tx.createProgramAddress

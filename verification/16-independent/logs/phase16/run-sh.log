@@ -1,0 +1,275 @@
+### run.sh HEAD 20db3313adf25481b714798759b1fdd0cb917275 tree b2304c4fa25e53bb15f1dbbffd42d6042c878957
+?? frontier-node/crates/findex/tests/v16_history_coverage.rs
+?? frontier-node/crates/findex/tests/v16_history_gaps.rs
+?? frontier-node/crates/verify/tests/v16_cpi_keyfree.rs
+?? frontier-node/crates/verify/tests/v16_v27_gate.rs
+?? permutation-gateway/node_modules
+?? verification/
+?? workstreams/04-execution/tests/v16_chain_caravan_faults.rs
+?? workstreams/04-execution/tests/v16_intake_regressions.rs
+== A: NFT join and transfer (game program, host build)
+   Compiling proc-macro2 v1.0.107
+   Compiling unicode-ident v1.0.26
+   Compiling quote v1.0.47
+   Compiling version_check v0.9.5
+   Compiling cfg-if v1.0.5
+   Compiling typenum v1.20.1
+   Compiling generic-array v0.14.7
+   Compiling const-oid v0.9.6
+   Compiling subtle v2.6.1
+   Compiling libc v0.2.189
+   Compiling equivalent v1.0.2
+   Compiling hashbrown v0.16.1
+   Compiling winnow v1.0.4
+   Compiling indexmap v2.13.1
+   Compiling syn v2.0.119
+   Compiling syn v3.0.6
+   Compiling getrandom v0.2.17
+   Compiling rand_core v0.6.4
+   Compiling toml_datetime v1.0.1+spec-1.1.0
+   Compiling toml_parser v1.0.10+spec-1.1.0
+   Compiling serde_core v1.0.229
+   Compiling cfg_aliases v0.2.2
+   Compiling serde v1.0.229
+   Compiling toml_edit v0.25.5+spec-1.1.0
+   Compiling borsh v1.6.1
+   Compiling proc-macro-crate v3.5.0
+   Compiling serde_derive v1.0.229
+   Compiling once_cell v1.21.4
+   Compiling cpufeatures v0.2.17
+   Compiling five8_core v0.1.2
+   Compiling five8 v1.0.0
+   Compiling bytemuck_derive v1.12.1
+   Compiling bytemuck v1.25.2
+   Compiling semver v1.0.28
+   Compiling rustc_version v0.4.1
+   Compiling autocfg v1.5.1
+   Compiling curve25519-dalek v4.1.3
+   Compiling zeroize_derive v1.5.0
+   Compiling borsh-derive v1.6.1
+   Compiling curve25519-dalek-derive v0.1.1
+   Compiling zeroize v1.8.2
+   Compiling five8_const v1.0.0
+   Compiling solana-atomic-u64 v3.0.1
+   Compiling sha2-const-stable v0.1.0
+   Compiling solana-sanitize v3.0.1
+   Compiling num-traits v0.2.19
+   Compiling crypto-common v0.1.7
+   Compiling block-buffer v0.10.4
+   Compiling digest v0.10.7
+   Compiling sha2 v0.10.9
+   Compiling zerocopy v0.8.59
+   Compiling bincode v1.3.3
+   Compiling bs58 v0.5.1
+   Compiling solana-sdk-macro v3.0.1
+   Compiling solana-hash v4.6.0
+   Compiling solana-program-error v3.0.1
+   Compiling solana-sha256-hasher v3.1.0
+   Compiling num-integer v0.1.47
+   Compiling solana-address v2.7.0
+   Compiling solana-instruction-error v2.5.0
+   Compiling der v0.7.10
+   Compiling solana-sdk-ids v3.1.0
+   Compiling solana-sysvar-id v3.1.0
+   Compiling solana-pubkey v4.3.0
+   Compiling solana-get-sysvar v1.0.0 (/tmp/claude-0/-home-user-wylls/47a54b0f-427a-5cca-bc82-feb7c5056956/scratchpad/v24/workstreams/04-execution/e2e-native/vendor/solana-get-sysvar)
+   Compiling arrayvec v0.7.8
+   Compiling solana-instruction v4.0.0
+   Compiling num-bigint v0.4.8
+   Compiling solana-instruction v3.5.1
+   Compiling spki v0.7.3
+   Compiling ff v0.13.1
+   Compiling solana-program-memory v3.1.0
+   Compiling shlex v2.0.1
+   Compiling base16ct v0.2.0
+   Compiling feature-probe v0.1.1
+   Compiling find-msvc-tools v0.1.13
+   Compiling bv v0.11.1
+   Compiling cc v1.4.7
+   Compiling sec1 v0.7.3
+   Compiling solana-account-info v3.1.1
+   Compiling group v0.13.0
+   Compiling pkcs8 v0.10.2
+   Compiling hmac v0.12.1
+   Compiling crypto-bigint v0.5.5
+   Compiling enum-ordinalize-derive v4.4.2
+   Compiling ppv-lite86 v0.2.21
+   Compiling thiserror v2.0.20
+   Compiling rand_chacha v0.3.1
+   Compiling log v0.4.34
+   Compiling rand v0.8.8
+   Compiling paste v1.0.15
+   Compiling solana-fee-calculator v3.3.0
+   Compiling elliptic-curve v0.13.8
+   Compiling blake3 v1.5.5
+   Compiling ark-std v0.5.0
+   Compiling enum-ordinalize v4.4.2
+   Compiling rfc6979 v0.4.0
+   Compiling solana-clock v4.0.0
+   Compiling signature v2.2.0
+   Compiling ark-serialize-derive v0.5.0
+   Compiling thiserror-impl v2.0.20
+   Compiling ahash v0.8.12
+   Compiling either v1.18.0
+   Compiling itertools v0.13.0
+   Compiling ark-serialize v0.5.0
+   Compiling solana-clock v3.2.1
+   Compiling ecdsa v0.16.9
+   Compiling ark-ff-macros v0.5.0
+   Compiling educe v0.6.0
+   Compiling memoffset v0.9.1
+   Compiling ark-ff-asm v0.5.0
+   Compiling keccak v0.1.6
+   Compiling allocator-api2 v0.2.21
+   Compiling solana-define-syscall v4.0.1
+   Compiling solana-msg v3.1.0
+   Compiling arrayref v0.3.9
+   Compiling constant_time_eq v0.3.1
+   Compiling solana-system-interface v3.3.0
+   Compiling hashbrown v0.15.5
+   Compiling solana-program-entrypoint v3.1.1
+   Compiling sha3 v0.10.9
+   Compiling solana-slot-history v3.2.0
+   Compiling k256 v0.13.4
+   Compiling solana-stake-history v1.1.0
+   Compiling solana-nonce v3.3.0
+   Compiling solana-last-restart-slot v3.2.0
+   Compiling solana-slot-hashes v3.2.0
+   Compiling solana-epoch-schedule v3.3.0
+   Compiling solana-epoch-rewards v3.2.0
+   Compiling solana-rent v4.4.0
+   Compiling solana-serialize-utils v3.1.2
+   Compiling bitflags v2.13.2
+   Compiling base64 v0.22.1
+   Compiling lazy_static v1.5.0
+   Compiling solana-instructions-sysvar v3.0.1
+   Compiling solana-secp256k1-recover v3.3.0
+   Compiling solana-sysvar v4.3.0
+   Compiling ark-ff v0.5.0
+   Compiling solana-example-mocks v4.0.0
+   Compiling solana-keccak-hasher v3.1.0
+   Compiling solana-blake3-hasher v3.1.0
+   Compiling solana-cpi v3.1.0
+   Compiling solana-big-mod-exp v3.0.0
+   Compiling solana-stable-layout v3.0.1
+   Compiling solana-epoch-stake v3.0.1
+   Compiling solana-program-pack v3.1.0
+   Compiling solana-borsh v3.0.2
+   Compiling permutation-rules v0.1.0 (/tmp/claude-0/-home-user-wylls/47a54b0f-427a-5cca-bc82-feb7c5056956/scratchpad/v24/permutation-rules)
+   Compiling solana-serde-varint v3.0.1
+   Compiling solana-short-vec v3.3.0
+   Compiling solana-program-option v3.1.0
+   Compiling solana-native-token v3.0.0
+   Compiling solana-program v4.0.0
+   Compiling ark-poly v0.5.0
+   Compiling frontier-abi v0.1.0 (/tmp/claude-0/-home-user-wylls/47a54b0f-427a-5cca-bc82-feb7c5056956/scratchpad/v24/frontier-abi)
+   Compiling ark-ec v0.5.0
+   Compiling ark-bls12-381 v0.5.0
+   Compiling permutation-frontier v0.1.0 (/tmp/claude-0/-home-user-wylls/47a54b0f-427a-5cca-bc82-feb7c5056956/scratchpad/v24/permutation-frontier)
+   Compiling permutation-prize v0.1.0 (/tmp/claude-0/-home-user-wylls/47a54b0f-427a-5cca-bc82-feb7c5056956/scratchpad/v24/permutation-prize)
+   Compiling wylls-e2e-native v0.1.0 (/tmp/claude-0/-home-user-wylls/47a54b0f-427a-5cca-bc82-feb7c5056956/scratchpad/v24/workstreams/04-execution/e2e-native)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 28.07s
+     Running tests/chain_nft.rs (target/debug/deps/chain_nft-4f6d8ddbad1a93c5)
+
+running 2 tests
+test forged_missing_mismatched_and_duplicate_joins_are_refused ... ok
+test nft_join_then_transfer_revokes_the_old_owner ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.02s
+
+== B: the Citizen's caravan (run executor, simulated world)
+   Compiling permutation-rules v0.1.0 (/tmp/claude-0/-home-user-wylls/47a54b0f-427a-5cca-bc82-feb7c5056956/scratchpad/v24/permutation-rules)
+   Compiling frontier-abi v0.1.0 (/tmp/claude-0/-home-user-wylls/47a54b0f-427a-5cca-bc82-feb7c5056956/scratchpad/v24/frontier-abi)
+   Compiling wylls-runexec v0.1.0 (/tmp/claude-0/-home-user-wylls/47a54b0f-427a-5cca-bc82-feb7c5056956/scratchpad/v24/workstreams/04-execution)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 9.73s
+     Running tests/chain_caravan.rs (target/debug/deps/chain_caravan-65203f050d3f4db3)
+
+running 1 test
+test the_nft_citizen_sends_a_cargo_only_caravan ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.10s
+
+== E: the prize program with the pass's Citizen (game + prize programs, host build)
+   Compiling wylls-e2e-native v0.1.0 (/tmp/claude-0/-home-user-wylls/47a54b0f-427a-5cca-bc82-feb7c5056956/scratchpad/v24/workstreams/04-execution/e2e-native)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 1.27s
+     Running tests/chain_prize.rs (target/debug/deps/chain_prize-7f9fb8fa7f8a07bd)
+
+running 2 tests
+test the_current_prize_program_cannot_pay_an_nft_pass_citizen ... ok
+test the_same_pool_pays_a_wallet_citizen ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.03s
+
+== C, D (and E's summary): memory (12), outcome (15)
+{
+ "C": {
+  "added": 4,
+  "held": 0,
+  "facts": [
+   "identity_alias",
+   "caravan_sent",
+   "caravan_settled",
+   "caravan_credited"
+  ]
+ },
+ "D": {
+  "events": [
+   "ship.send::chain",
+   "ship.arrive:lower_bound:chain_lower_bound"
+  ],
+  "skipped": 0,
+  "held": 0,
+  "rejected": 0
+ },
+ "E": "run: the current prize program with the pass's Citizen; the NFT prize itself is the owner's CC's (not implemented here)"
+}
+(node:26927) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+== PDA-free check of this run's outputs
+(node:26934) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+(Use `node --trace-warnings ...` to show where the warning was created)
+ok   A: citizen_tag = LE u64 of the Citizen address's first 8 bytes
+ok   A: citizen_tag_hex
+ok   A: RESIDENT_JOINED carries resident id ‖ asset
+ok   A: v2 record: ver 1, kind 130 (RESIDENT_JOINED), bell u32, then the key
+ok   A: joined at generation 0
+ok   A: one transfer, to another owner
+ok   B: run for stage A's Citizen
+ok   B: store bound to stage A's world
+ok   B: caravan subject is the Citizen's tag
+ok   B: run Fulfilled
+ok   B: spec owner = citizen_tag (u64 exact)
+ok   B: cargo-only spec (no facility)
+ok   B: every receipt is this caravan's
+ok   B: settle key owner = citizen_tag (u64 exact)
+ok   C: caravan facts sender = citizen_tag_hex
+ok   C: nothing held; re-ingest adds nothing
+ok   C: identity_alias ties the tag to the pass
+ok   D: send by the pass, 4
+ok   D: arrival at least 4 (lower bound)
+ok   D: one ship id, carrying the citizen_tag
+ok   D: ⑮ normalize rejects nothing, no gap
+ok   E: prize inputs = stage A's Citizen
+ok   E: the summary's run equals the run record (e-prize-run.json)
+ok   E: the prize step ran with stage A's Citizen address
+ok   E: the pass's Citizen is not citizen(wallet)
+ok   E: BadAccount is the prize program's 257
+ok   E: claim_A_with_pass_citizen refused (BadAccount)
+ok   E: claim_A_with_wallet_citizen refused (BadAccount)
+ok   E: record_nation_with_pass_citizen refused (BadAccount)
+ok   E: claim_B_after_transfer refused (BadAccount)
+ok   E: the vault keeps the one entry fee (nothing paid out)
+31/31 consistent
+== outputs in /tmp/claude-0/-home-user-wylls/47a54b0f-427a-5cca-bc82-feb7c5056956/scratchpad/v24-out
+total 168
+-rw-r--r-- 1 root root    919 Nov  8 12:57 a-join.json
+-rw-r--r-- 1 root root    454 Nov  8 12:57 b-caravan.json
+-rw-r--r-- 1 root root   2064 Nov  8 12:57 b-store-dump.json
+-rw-r--r-- 1 root root 110592 Nov  8 12:57 b-store.sqlite
+-rw-r--r-- 1 root root  32768 Nov  8 12:57 b-store.sqlite-shm
+-rw-r--r-- 1 root root      0 Nov  8 12:57 b-store.sqlite-wal
+-rw-r--r-- 1 root root   2177 Nov  8 12:57 c-memory.json
+-rw-r--r-- 1 root root   1374 Nov  8 12:57 d-outcome.json
+-rw-r--r-- 1 root root    479 Nov  8 12:57 e-prize-run.json
+-rw-r--r-- 1 root root   2500 Nov  8 12:57 e-prize.json
+exit=0

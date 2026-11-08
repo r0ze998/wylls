@@ -1,0 +1,690 @@
+### ws07 HEAD 243693829bb3d1af5d86e4b7a90c7314fe42371c tree 27b079f9be19e98d6b346c0fd6cd4af35c442f7f
+TAP version 13
+# node:internal/modules/package_json_reader:314
+#   throw new ERR_MODULE_NOT_FOUND(packageName, fileURLToPath(base), null);
+#         ^
+# Error [ERR_MODULE_NOT_FOUND]: Cannot find package 'playwright-core' imported from /tmp/claude-0/-home-user-wylls/47a54b0f-427a-5cca-bc82-feb7c5056956/scratchpad/v24-07/permutation-gateway/screens/ws07-coop.screen.mjs
+#     at Object.getPackageJSONURL (node:internal/modules/package_json_reader:314:9)
+#     at packageResolve (node:internal/modules/esm/resolve:767:81)
+#     at moduleResolve (node:internal/modules/esm/resolve:853:18)
+#     at defaultResolve (node:internal/modules/esm/resolve:983:11)
+#     at \#cachedDefaultResolve (node:internal/modules/esm/loader:731:20)
+#     at ModuleLoader.resolve (node:internal/modules/esm/loader:708:38)
+#     at ModuleLoader.getModuleJobForImport (node:internal/modules/esm/loader:310:38)
+#     at ModuleJob._link (node:internal/modules/esm/module_job:182:49) {
+#   code: 'ERR_MODULE_NOT_FOUND'
+# }
+# Node.js v22.22.0
+# Subtest: screens/ws07-coop.screen.mjs
+not ok 1 - screens/ws07-coop.screen.mjs
+  ---
+  duration_ms: 569.582382
+  type: 'test'
+  location: '/tmp/claude-0/-home-user-wylls/47a54b0f-427a-5cca-bc82-feb7c5056956/scratchpad/v24-07/permutation-gateway/screens/ws07-coop.screen.mjs:1:1'
+  failureType: 'testCodeFailure'
+  exitCode: 1
+  signal: ~
+  error: 'test failed'
+  code: 'ERR_TEST_FAILURE'
+  ...
+# node:internal/modules/package_json_reader:314
+#   throw new ERR_MODULE_NOT_FOUND(packageName, fileURLToPath(base), null);
+#         ^
+# Error [ERR_MODULE_NOT_FOUND]: Cannot find package 'playwright-core' imported from /tmp/claude-0/-home-user-wylls/47a54b0f-427a-5cca-bc82-feb7c5056956/scratchpad/v24-07/permutation-gateway/screens/ws07-game.screen.mjs
+#     at Object.getPackageJSONURL (node:internal/modules/package_json_reader:314:9)
+#     at packageResolve (node:internal/modules/esm/resolve:767:81)
+#     at moduleResolve (node:internal/modules/esm/resolve:853:18)
+#     at defaultResolve (node:internal/modules/esm/resolve:983:11)
+#     at \#cachedDefaultResolve (node:internal/modules/esm/loader:731:20)
+#     at ModuleLoader.resolve (node:internal/modules/esm/loader:708:38)
+#     at ModuleLoader.getModuleJobForImport (node:internal/modules/esm/loader:310:38)
+#     at ModuleJob._link (node:internal/modules/esm/module_job:182:49) {
+#   code: 'ERR_MODULE_NOT_FOUND'
+# }
+# Node.js v22.22.0
+# Subtest: screens/ws07-game.screen.mjs
+not ok 2 - screens/ws07-game.screen.mjs
+  ---
+  duration_ms: 550.470467
+  type: 'test'
+  location: '/tmp/claude-0/-home-user-wylls/47a54b0f-427a-5cca-bc82-feb7c5056956/scratchpad/v24-07/permutation-gateway/screens/ws07-game.screen.mjs:1:1'
+  failureType: 'testCodeFailure'
+  exitCode: 1
+  signal: ~
+  error: 'test failed'
+  code: 'ERR_TEST_FAILURE'
+  ...
+# node:internal/modules/package_json_reader:314
+#   throw new ERR_MODULE_NOT_FOUND(packageName, fileURLToPath(base), null);
+#         ^
+# Error [ERR_MODULE_NOT_FOUND]: Cannot find package 'playwright-core' imported from /tmp/claude-0/-home-user-wylls/47a54b0f-427a-5cca-bc82-feb7c5056956/scratchpad/v24-07/permutation-gateway/screens/ws07-s1-card.screen.mjs
+#     at Object.getPackageJSONURL (node:internal/modules/package_json_reader:314:9)
+#     at packageResolve (node:internal/modules/esm/resolve:767:81)
+#     at moduleResolve (node:internal/modules/esm/resolve:853:18)
+#     at defaultResolve (node:internal/modules/esm/resolve:983:11)
+#     at \#cachedDefaultResolve (node:internal/modules/esm/loader:731:20)
+#     at ModuleLoader.resolve (node:internal/modules/esm/loader:708:38)
+#     at ModuleLoader.getModuleJobForImport (node:internal/modules/esm/loader:310:38)
+#     at ModuleJob._link (node:internal/modules/esm/module_job:182:49) {
+#   code: 'ERR_MODULE_NOT_FOUND'
+# }
+# Node.js v22.22.0
+# Subtest: screens/ws07-s1-card.screen.mjs
+not ok 3 - screens/ws07-s1-card.screen.mjs
+  ---
+  duration_ms: 376.182429
+  type: 'test'
+  location: '/tmp/claude-0/-home-user-wylls/47a54b0f-427a-5cca-bc82-feb7c5056956/scratchpad/v24-07/permutation-gateway/screens/ws07-s1-card.screen.mjs:1:1'
+  failureType: 'testCodeFailure'
+  exitCode: 1
+  signal: ~
+  error: 'test failed'
+  code: 'ERR_TEST_FAILURE'
+  ...
+# node:internal/modules/package_json_reader:314
+#   throw new ERR_MODULE_NOT_FOUND(packageName, fileURLToPath(base), null);
+#         ^
+# Error [ERR_MODULE_NOT_FOUND]: Cannot find package 'playwright-core' imported from /tmp/claude-0/-home-user-wylls/47a54b0f-427a-5cca-bc82-feb7c5056956/scratchpad/v24-07/permutation-gateway/screens/ws07-s1.screen.mjs
+#     at Object.getPackageJSONURL (node:internal/modules/package_json_reader:314:9)
+#     at packageResolve (node:internal/modules/esm/resolve:767:81)
+#     at moduleResolve (node:internal/modules/esm/resolve:853:18)
+#     at defaultResolve (node:internal/modules/esm/resolve:983:11)
+#     at \#cachedDefaultResolve (node:internal/modules/esm/loader:731:20)
+#     at ModuleLoader.resolve (node:internal/modules/esm/loader:708:38)
+#     at ModuleLoader.getModuleJobForImport (node:internal/modules/esm/loader:310:38)
+#     at ModuleJob._link (node:internal/modules/esm/module_job:182:49) {
+#   code: 'ERR_MODULE_NOT_FOUND'
+# }
+# Node.js v22.22.0
+# Subtest: screens/ws07-s1.screen.mjs
+not ok 4 - screens/ws07-s1.screen.mjs
+  ---
+  duration_ms: 478.530272
+  type: 'test'
+  location: '/tmp/claude-0/-home-user-wylls/47a54b0f-427a-5cca-bc82-feb7c5056956/scratchpad/v24-07/permutation-gateway/screens/ws07-s1.screen.mjs:1:1'
+  failureType: 'testCodeFailure'
+  exitCode: 1
+  signal: ~
+  error: 'test failed'
+  code: 'ERR_TEST_FAILURE'
+  ...
+# node:internal/modules/package_json_reader:314
+#   throw new ERR_MODULE_NOT_FOUND(packageName, fileURLToPath(base), null);
+#         ^
+# Error [ERR_MODULE_NOT_FOUND]: Cannot find package 'playwright-core' imported from /tmp/claude-0/-home-user-wylls/47a54b0f-427a-5cca-bc82-feb7c5056956/scratchpad/v24-07/permutation-gateway/screens/ws07-spectate.screen.mjs
+#     at Object.getPackageJSONURL (node:internal/modules/package_json_reader:314:9)
+#     at packageResolve (node:internal/modules/esm/resolve:767:81)
+#     at moduleResolve (node:internal/modules/esm/resolve:853:18)
+#     at defaultResolve (node:internal/modules/esm/resolve:983:11)
+#     at \#cachedDefaultResolve (node:internal/modules/esm/loader:731:20)
+#     at ModuleLoader.resolve (node:internal/modules/esm/loader:708:38)
+#     at ModuleLoader.getModuleJobForImport (node:internal/modules/esm/loader:310:38)
+#     at ModuleJob._link (node:internal/modules/esm/module_job:182:49) {
+#   code: 'ERR_MODULE_NOT_FOUND'
+# }
+# Node.js v22.22.0
+# Subtest: screens/ws07-spectate.screen.mjs
+not ok 5 - screens/ws07-spectate.screen.mjs
+  ---
+  duration_ms: 513.936071
+  type: 'test'
+  location: '/tmp/claude-0/-home-user-wylls/47a54b0f-427a-5cca-bc82-feb7c5056956/scratchpad/v24-07/permutation-gateway/screens/ws07-spectate.screen.mjs:1:1'
+  failureType: 'testCodeFailure'
+  exitCode: 1
+  signal: ~
+  error: 'test failed'
+  code: 'ERR_TEST_FAILURE'
+  ...
+# node:internal/modules/package_json_reader:314
+#   throw new ERR_MODULE_NOT_FOUND(packageName, fileURLToPath(base), null);
+#         ^
+# Error [ERR_MODULE_NOT_FOUND]: Cannot find package 'playwright-core' imported from /tmp/claude-0/-home-user-wylls/47a54b0f-427a-5cca-bc82-feb7c5056956/scratchpad/v24-07/permutation-gateway/screens/ws07-v17.screen.mjs
+#     at Object.getPackageJSONURL (node:internal/modules/package_json_reader:314:9)
+#     at packageResolve (node:internal/modules/esm/resolve:767:81)
+#     at moduleResolve (node:internal/modules/esm/resolve:853:18)
+#     at defaultResolve (node:internal/modules/esm/resolve:983:11)
+#     at \#cachedDefaultResolve (node:internal/modules/esm/loader:731:20)
+#     at ModuleLoader.resolve (node:internal/modules/esm/loader:708:38)
+#     at ModuleLoader.getModuleJobForImport (node:internal/modules/esm/loader:310:38)
+#     at ModuleJob._link (node:internal/modules/esm/module_job:182:49) {
+#   code: 'ERR_MODULE_NOT_FOUND'
+# }
+# Node.js v22.22.0
+# Subtest: screens/ws07-v17.screen.mjs
+not ok 6 - screens/ws07-v17.screen.mjs
+  ---
+  duration_ms: 461.051581
+  type: 'test'
+  location: '/tmp/claude-0/-home-user-wylls/47a54b0f-427a-5cca-bc82-feb7c5056956/scratchpad/v24-07/permutation-gateway/screens/ws07-v17.screen.mjs:1:1'
+  failureType: 'testCodeFailure'
+  exitCode: 1
+  signal: ~
+  error: 'test failed'
+  code: 'ERR_TEST_FAILURE'
+  ...
+# Subtest: which actions are asked: those that may have left the relay (sent, or failed after it), not a refusal
+ok 7 - which actions are asked: those that may have left the relay (sent, or failed after it), not a refusal
+  ---
+  duration_ms: 1.475138
+  type: 'test'
+  ...
+# Subtest: the relay's answer is 04's state; a failed read or an unknown word is "could not be queried", never a failure
+ok 8 - the relay's answer is 04's state; a failed read or an unknown word is "could not be queried", never a failure
+  ---
+  duration_ms: 0.222204
+  type: 'test'
+  ...
+# Subtest: each sent action carries its state line under it, in Japanese and English; the plain "送信" never stands for the outcome alone
+ok 9 - each sent action carries its state line under it, in Japanese and English; the plain "送信" never stands for the outcome alone
+  ---
+  duration_ms: 43.690263
+  type: 'test'
+  ...
+# Subtest: a history not read again says the shown one is older; an agent never read is not "nothing yet" for a failed read
+ok 10 - a history not read again says the shown one is older; an agent never read is not "nothing yet" for a failed read
+  ---
+  duration_ms: 0.442325
+  type: 'test'
+  ...
+# Subtest: the line is drawn with the notices, while a summary of this scope is not confirmed; "seen" takes it away, × does not
+ok 11 - the line is drawn with the notices, while a summary of this scope is not confirmed; "seen" takes it away, × does not
+  ---
+  duration_ms: 1.9275
+  type: 'test'
+  ...
+# Subtest: pressing it opens the list under その他 at the summary, with its "seen" in focus
+ok 12 - pressing it opens the list under その他 at the summary, with its "seen" in focus
+  ---
+  duration_ms: 4.763351
+  type: 'test'
+  ...
+# Subtest: a phone draws the line under the strip and moves the notices down; a wide screen does not draw it
+ok 13 - a phone draws the line under the strip and moves the notices down; a wide screen does not draw it
+  ---
+  duration_ms: 0.357646
+  type: 'test'
+  ...
+# Subtest: English words for the line
+ok 14 - English words for the line
+  ---
+  duration_ms: 0.664034
+  type: 'test'
+  ...
+# Subtest: C1: with a gap between the mark and what was read, "seen" is not offered and the mark does not move
+ok 15 - C1: with a gap between the mark and what was read, "seen" is not offered and the mark does not move
+  ---
+  duration_ms: 43.937509
+  type: 'test'
+  ...
+# Subtest: C1: the reader reads from the mark itself, so a mark older than the chronicle's window is no gap
+ok 16 - C1: the reader reads from the mark itself, so a mark older than the chronicle's window is no gap
+  ---
+  duration_ms: 1.500422
+  type: 'test'
+  ...
+# Subtest: C3: a page that fails stops the reading; the mark can move over what was read and no further
+ok 17 - C3: a page that fails stops the reading; the mark can move over what was read and no further
+  ---
+  duration_ms: 5.829623
+  type: 'test'
+  ...
+# Subtest: C3: the page limit is not a complete read
+ok 18 - C3: the page limit is not a complete read
+  ---
+  duration_ms: 0.80288
+  type: 'test'
+  ...
+# Subtest: C2: a first look marks its window's first turn as the horizon; a later look says nothing before it was seen here
+ok 19 - C2: a first look marks its window's first turn as the horizon; a later look says nothing before it was seen here
+  ---
+  duration_ms: 0.752959
+  type: 'test'
+  ...
+# Subtest: C2: a first look that could not reach its window's first turn says from which turn it read
+ok 20 - C2: a first look that could not reach its window's first turn says from which turn it read
+  ---
+  duration_ms: 0.457991
+  type: 'test'
+  ...
+# Subtest: C4: a caravan taken from the viewer arrives for the taker, not for its sender; the taker's arrival is the taker's
+ok 21 - C4: a caravan taken from the viewer arrives for the taker, not for its sender; the taker's arrival is the taker's
+  ---
+  duration_ms: 4.63572
+  type: 'test'
+  ...
+# Subtest: C4: between two looks the book is carried on, so a later arrival of a taken caravan is not the sender's
+ok 22 - C4: between two looks the book is carried on, so a later arrival of a taken caravan is not the sender's
+  ---
+  duration_ms: 1.285761
+  type: 'test'
+  ...
+# Subtest: C4: the book is kept with the mark, so the next look knows a caravan taken before it
+ok 23 - C4: the book is kept with the mark, so the next look knows a caravan taken before it
+  ---
+  duration_ms: 0.943827
+  type: 'test'
+  ...
+# Subtest: C4: with neither the send nor the take read, the holder is unknown and the item says so (never the sender's arrival)
+ok 24 - C4: with neither the send nor the take read, the holder is unknown and the item says so (never the sender's arrival)
+  ---
+  duration_ms: 1.038455
+  type: 'test'
+  ...
+# Subtest: other people's caravans and other nations' votes are not the viewer's news
+ok 25 - other people's caravans and other nations' votes are not the viewer's news
+  ---
+  duration_ms: 4.349697
+  type: 'test'
+  ...
+# Subtest: C5: records read twice or out of order give the same summary as a clean read
+ok 26 - C5: records read twice or out of order give the same summary as a clean read
+  ---
+  duration_ms: 0.468251
+  type: 'test'
+  ...
+# Subtest: C5: overlapping pages from the herald are read once
+ok 27 - C5: overlapping pages from the herald are read once
+  ---
+  duration_ms: 7.72419
+  type: 'test'
+  ...
+# Subtest: C6: another wallet and another season never read this one's mark or book
+ok 28 - C6: another wallet and another season never read this one's mark or book
+  ---
+  duration_ms: 0.475423
+  type: 'test'
+  ...
+# Subtest: C6: a reading started for one scope and overtaken by another is stale and gives nothing
+ok 29 - C6: a reading started for one scope and overtaken by another is stale and gives nothing
+  ---
+  duration_ms: 29.882919
+  type: 'test'
+  ...
+# Subtest: C6: a mark beyond the season's head (a reset world, an old device) is not used, and "seen" replaces it
+ok 30 - C6: a mark beyond the season's head (a reset world, an old device) is not used, and "seen" replaces it
+  ---
+  duration_ms: 0.959004
+  type: 'test'
+  ...
+# Subtest: another device (no mark here) is a first look, and says it cannot tell a first visit from another device
+ok 31 - another device (no mark here) is a first look, and says it cannot tell a first visit from another device
+  ---
+  duration_ms: 2.156448
+  type: 'test'
+  ...
+# Subtest: a reload without "seen" shows the same summary; "seen" twice is harmless; the mark never moves back
+ok 32 - a reload without "seen" shows the same summary; "seen" twice is harmless; the mark never moves back
+  ---
+  duration_ms: 0.746823
+  type: 'test'
+  ...
+# Subtest: storage that refuses or silently drops a write: "seen" reports it and the mark stays
+ok 33 - storage that refuses or silently drops a write: "seen" reports it and the mark stays
+  ---
+  duration_ms: 0.249574
+  type: 'test'
+  ...
+# Subtest: a version 1 mark (before the horizon and the book) still reads
+ok 34 - a version 1 mark (before the horizon and the book) still reads
+  ---
+  duration_ms: 0.114081
+  type: 'test'
+  ...
+# Subtest: the page reads the away summary from its own reader, per scope, and "seen" passes the summary's confirm
+ok 35 - the page reads the away summary from its own reader, per scope, and "seen" passes the summary's confirm
+  ---
+  duration_ms: 1.723286
+  type: 'test'
+  ...
+# Subtest: after "seen" a reload queues no head notice, so the phone's entry line is not drawn again; after only ×, the same events come back
+ok 36 - after "seen" a reload queues no head notice, so the phone's entry line is not drawn again; after only ×, the same events come back
+  ---
+  duration_ms: 2.11699
+  type: 'test'
+  ...
+# Subtest: a caravan past its arrival turn and not settled yet: "overdue, not settled" under its row — never "arrived"
+ok 37 - a caravan past its arrival turn and not settled yet: "overdue, not settled" under its row — never "arrived"
+  ---
+  duration_ms: 26.455517
+  type: 'test'
+  ...
+# Subtest: a caravan gone from the road's list with no end read: "state unknown", never arrived or lost; its end read clears it; a reload (a new page state) says nothing of it
+ok 38 - a caravan gone from the road's list with no end read: "state unknown", never arrived or lost; its end read clears it; a reload (a new page state) says nothing of it
+  ---
+  duration_ms: 2.35027
+  type: 'test'
+  ...
+# Subtest: a take read after the send marks the caravan taken: its settlement elsewhere is the raider's, not a misdelivery
+ok 39 - a take read after the send marks the caravan taken: its settlement elsewhere is the raider's, not a misdelivery
+  ---
+  duration_ms: 1.72983
+  type: 'test'
+  ...
+# Subtest: 04's own arrival, when 04 registers it, replaces the page's
+ok 40 - 04's own arrival, when 04 registers it, replaces the page's
+  ---
+  duration_ms: 0.829413
+  type: 'test'
+  ...
+# Subtest: with nothing registered the village card shows no cancel, no costs and no manual line
+ok 41 - with nothing registered the village card shows no cancel, no costs and no manual line
+  ---
+  duration_ms: 0.356335
+  type: 'test'
+  ...
+# Subtest: 04's cancel shows under the caravan its source names; 05's costs and manual play over the caravans
+ok 42 - 04's cancel shows under the caravan its source names; 05's costs and manual play over the caravans
+  ---
+  duration_ms: 1.93051
+  type: 'test'
+  ...
+# Subtest: to a village (Holding::credit adds the record's cargo whole): the intake is known; "full" and "partial" are against the SEND RECORD's amount, said so
+ok 43 - to a village (Holding::credit adds the record's cargo whole): the intake is known; "full" and "partial" are against the SEND RECORD's amount, said so
+  ---
+  duration_ms: 1.958834
+  type: 'test'
+  ...
+# Subtest: the intake known and the comparison possible are two judgements: no send read → intake only; a send to another place or generation → intake only
+ok 44 - the intake known and the comparison possible are two judgements: no send read → intake only; a send to another place or generation → intake only
+  ---
+  duration_ms: 1.393543
+  type: 'test'
+  ...
+# Subtest: under another program version, or an outcome not read, the intake is not read from the record
+ok 45 - under another program version, or an outcome not read, the intake is not read from the record
+  ---
+  duration_ms: 0.566448
+  type: 'test'
+  ...
+# Subtest: to a storehouse (settle_caravan cuts at the vault's cap, the record keeps the whole cargo): never verified, even when the send matches
+ok 46 - to a storehouse (settle_caravan cuts at the vault's cap, the record keeps the whole cargo): never verified, even when the send matches
+  ---
+  duration_ms: 0.907858
+  type: 'test'
+  ...
+# Subtest: a lost cargo is final; between two looks the sends read before are carried on
+ok 47 - a lost cargo is final; between two looks the sends read before are carried on
+  ---
+  duration_ms: 0.489534
+  type: 'test'
+  ...
+# Subtest: burned: the caravan walks on empty and is logged delivered with no cargo — the sender is told the burn, never an arrival
+ok 48 - burned: the caravan walks on empty and is logged delivered with no cargo — the sender is told the burn, never an arrival
+  ---
+  duration_ms: 0.380901
+  type: 'test'
+  ...
+# Subtest: taken: the caravan is the raider's; the sender is told the take, never an arrival; the raider's arrival names another place than the send, so it is not compared with it
+ok 49 - taken: the caravan is the raider's; the sender is told the take, never an arrival; the raider's arrival names another place than the send, so it is not compared with it
+  ---
+  duration_ms: 2.645643
+  type: 'test'
+  ...
+# Subtest: English words for the connected states
+ok 50 - English words for the connected states
+  ---
+  duration_ms: 1.220474
+  type: 'test'
+  ...
+# Subtest: 04 cancel: three stages said apart; a stage not received is "not received", never a stage
+ok 51 - 04 cancel: three stages said apart; a stage not received is "not received", never a stage
+  ---
+  duration_ms: 45.572542
+  type: 'test'
+  ...
+# Subtest: a caravan's arrival in its states: overdue is not arrived, settled-unverified shows no amount as taken in, verified part, verified all, lost
+ok 52 - a caravan's arrival in its states: overdue is not arrived, settled-unverified shows no amount as taken in, verified part, verified all, lost
+  ---
+  duration_ms: 6.084392
+  type: 'test'
+  ...
+# Subtest: 05 cost: reserved, committed, unsettled, released said apart; only "committed" is paid
+ok 53 - 05 cost: reserved, committed, unsettled, released said apart; only "committed" is paid
+  ---
+  duration_ms: 0.409547
+  type: 'test'
+  ...
+# Subtest: 05 spendable: the stores less the costs; whether committed costs already left the stores must be said
+ok 54 - 05 spendable: the stores less the costs; whether committed costs already left the stores must be said
+  ---
+  duration_ms: 0.35475
+  type: 'test'
+  ...
+# Subtest: 05 manual: back to manual play, and the orders already signed go on
+ok 55 - 05 manual: back to manual play, and the orders already signed go on
+  ---
+  duration_ms: 0.197173
+  type: 'test'
+  ...
+# Subtest: a status line says its state with a symbol and words (role=status), and has English words
+ok 56 - a status line says its state with a symbol and words (role=status), and has English words
+  ---
+  duration_ms: 9.041808
+  type: 'test'
+  ...
+# Subtest: 01 cooperation: with nothing registered the S1 village card is as it was; a registered entry adds one button
+ok 57 - 01 cooperation: with nothing registered the S1 village card is as it was; a registered entry adds one button
+  ---
+  duration_ms: 0.92269
+  type: 'test'
+  ...
+# Subtest: the slot sits in the S1 village card under the nation's council
+ok 58 - the slot sits in the S1 village card under the nation's council
+  ---
+  duration_ms: 0.23252
+  type: 'test'
+  ...
+# Subtest: reading the board: absent (404), not read (5xx, network, odd body), read
+ok 59 - reading the board: absent (404), not read (5xx, network, odd body), read
+  ---
+  duration_ms: 1.676644
+  type: 'test'
+  ...
+# Subtest: the slot: nothing without a board; a board not read or of another Season is said, disabled; this village opens it
+ok 60 - the slot: nothing without a board; a board not read or of another Season is said, disabled; this village opens it
+  ---
+  duration_ms: 35.018588
+  type: 'test'
+  ...
+# Subtest: the board may name its page on this origin; another origin is not followed
+ok 61 - the board may name its page on this origin; another origin is not followed
+  ---
+  duration_ms: 0.387242
+  type: 'test'
+  ...
+# Subtest: on an S1 season the map's guide points where the drawer's step does, never at a camp the drawer does not ask for
+ok 62 - on an S1 season the map's guide points where the drawer's step does, never at a camp the drawer does not ask for
+  ---
+  duration_ms: 23.104265
+  type: 'test'
+  ...
+# Subtest: the S1 guide's build step marks the village; its march and hold steps mark nothing on the map (the drawer names the keep)
+ok 63 - the S1 guide's build step marks the village; its march and hold steps mark nothing on the map (the drawer names the keep)
+  ---
+  duration_ms: 10.531397
+  type: 'test'
+  ...
+# Subtest: an M1 season keeps its own guide on the map (the camp for the first march)
+ok 64 - an M1 season keeps its own guide on the map (the camp for the first march)
+  ---
+  duration_ms: 0.25908
+  type: 'test'
+  ...
+# Subtest: the NFT list not read: the card says so — not "no NFT" — and offers nothing from it; read with none: no card
+ok 65 - the NFT list not read: the card says so — not "no NFT" — and offers nothing from it; read with none: no card
+  ---
+  duration_ms: 11.637558
+  type: 'test'
+  ...
+# Subtest: an answer for a wallet no longer connected is dropped
+ok 66 - an answer for a wallet no longer connected is dropped
+  ---
+  duration_ms: 0.397718
+  type: 'test'
+  ...
+# Subtest: a wallet change forgets the NFT played and the list; NFT login and logout are another viewer, the key session kept
+ok 67 - a wallet change forgets the NFT played and the list; NFT login and logout are another viewer, the key session kept
+  ---
+  duration_ms: 1.02734
+  type: 'test'
+  ...
+# Subtest: the march book of an NFT resident is not its wallet's (the sealed marches and their reveal material kept apart)
+ok 68 - the march book of an NFT resident is not its wallet's (the sealed marches and their reveal material kept apart)
+  ---
+  duration_ms: 20.892918
+  type: 'test'
+  ...
+# Subtest: the away summary keeps an NFT's marks apart from its wallet's (app.mjs awayWho); the words name the NFT too
+ok 69 - the away summary keeps an NFT's marks apart from its wallet's (app.mjs awayWho); the words name the NFT too
+  ---
+  duration_ms: 1.415814
+  type: 'test'
+  ...
+# Subtest: the help says the rule this page carries — and both rules have their words in both languages
+ok 70 - the help says the rule this page carries — and both rules have their words in both languages
+  ---
+  duration_ms: 2.480221
+  type: 'test'
+  ...
+# Subtest: the port is the rules crate's: coverage, wear, the stop rule, watch, march_watch, caravan_watch, fastest_path round palisades
+ok 71 - the port is the rules crate's: coverage, wear, the stop rule, watch, march_watch, caravan_watch, fastest_path round palisades
+  ---
+  duration_ms: 493.818931
+  type: 'test'
+  ...
+# Subtest: off S1 nobody is stopped; on S1 the viewer's walker reads the structures, the stances and the expelled flag
+ok 72 - off S1 nobody is stopped; on S1 the viewer's walker reads the structures, the stances and the expelled flag
+  ---
+  duration_ms: 0.658917
+  type: 'test'
+  ...
+# Subtest: a caravan is sent round a palisade that stops it, where the fastest road would have been refused (Path)
+ok 73 - a caravan is sent round a palisade that stops it, where the fastest road would have been refused (Path)
+  ---
+  duration_ms: 19.836704
+  type: 'test'
+  ...
+# Subtest: the siege offer holds back the refusals the page can tell: the own village shielded, a busy or owing site
+ok 74 - the siege offer holds back the refusals the page can tell: the own village shielded, a busy or owing site
+  ---
+  duration_ms: 14.739794
+  type: 'test'
+  ...
+# Subtest: the S1 forecast counts the keep the program fights with (the page's own builder did not), and the towers' wear
+ok 75 - the S1 forecast counts the keep the program fights with (the page's own builder did not), and the towers' wear
+  ---
+  duration_ms: 23.298612
+  type: 'test'
+  ...
+# Subtest: the envelope keeps the Province bytes it decoded; the march wear reads the Provinces the page holds
+ok 76 - the envelope keeps the Province bytes it decoded; the march wear reads the Provinces the page holds
+  ---
+  duration_ms: 8.012834
+  type: 'test'
+  ...
+# Subtest: the away notice offers "seen" (which moves the player's mark) beside its ×, and an S1 notice goes to its place
+ok 77 - the away notice offers "seen" (which moves the player's mark) beside its ×, and an S1 notice goes to its place
+  ---
+  duration_ms: 0.829397
+  type: 'test'
+  ...
+# Subtest: the away items read the codes as the program numbers them: proposals 1 stance, 2 expulsion, 3 readmission; a march's result 1 Stays … 8 BadSeal
+ok 78 - the away items read the codes as the program numbers them: proposals 1 stance, 2 expulsion, 3 readmission; a march's result 1 Stays … 8 BadSeal
+  ---
+  duration_ms: 3.293874
+  type: 'test'
+  ...
+# Subtest: track keeps "no answer" (unqueryable) apart from "answered: not final" (unknown); neither is failed
+ok 79 - track keeps "no answer" (unqueryable) apart from "answered: not final" (unknown); neither is failed
+  ---
+  duration_ms: 2.729078
+  type: 'test'
+  ...
+# Subtest: the seven states: each its own symbol-and-words line; only landed, failed, expired, not-sent say final; none of the open ones says failed
+ok 80 - the seven states: each its own symbol-and-words line; only landed, failed, expired, not-sent say final; none of the open ones says failed
+  ---
+  duration_ms: 1.076264
+  type: 'test'
+  ...
+# Subtest: no page read (an HTTP error or a thrown fetch): the refresh finishes, and the page says the record was not read — never "nothing yet"
+ok 81 - no page read (an HTTP error or a thrown fetch): the refresh finishes, and the page says the record was not read — never "nothing yet"
+  ---
+  duration_ms: 17.957223
+  type: 'test'
+  ...
+# Subtest: pages read, then a poll fails: what was read stays, said as older; a later good poll clears it
+ok 82 - pages read, then a poll fails: what was read stays, said as older; a later good poll clears it
+  ---
+  duration_ms: 1.72298
+  type: 'test'
+  ...
+# Subtest: before any poll the page says it is loading, not that nothing happened
+ok 83 - before any poll the page says it is loading, not that nothing happened
+  ---
+  duration_ms: 0.605085
+  type: 'test'
+  ...
+# Subtest: no sentence of the page types the turn's length any more
+ok 84 - no sentence of the page types the turn's length any more
+  ---
+  duration_ms: 5.988167
+  type: 'test'
+  ...
+# Subtest: the turn is said from the clock: 10 game minutes, and on a faster clock the real time too
+ok 85 - the turn is said from the clock: 10 game minutes, and on a faster clock the real time too
+  ---
+  duration_ms: 12.689264
+  type: 'test'
+  ...
+# Subtest: the deadlines are the season's; after the join deadline the join is off and says why
+ok 86 - the deadlines are the season's; after the join deadline the join is off and says why
+  ---
+  duration_ms: 3.480406
+  type: 'test'
+  ...
+# Subtest: with nothing registered, the page says only the program's facts: its end turn, as an old-style season's, never the world's
+ok 87 - with nothing registered, the page says only the program's facts: its end turn, as an old-style season's, never the world's
+  ---
+  duration_ms: 12.359627
+  type: 'test'
+  ...
+# Subtest: when 04/08 register that the world goes on, the end turn is not said and WrongStatus is not put down to it; the world's line and the war period's stand apart
+ok 88 - when 04/08 register that the world goes on, the end turn is not said and WrongStatus is not put down to it; the world's line and the war period's stand apart
+  ---
+  duration_ms: 1.089212
+  type: 'test'
+  ...
+# Subtest: the words the page keeps say no world end or reset: the dial, the conquest card, the map, the quota, the away summary
+ok 89 - the words the page keeps say no world end or reset: the dial, the conquest card, the map, the quota, the away summary
+  ---
+  duration_ms: 3.556017
+  type: 'test'
+  ...
+# Subtest: across a period's boundary the mark, the book and an arrival go on: a caravan sent before it and settled after it is the same caravan
+ok 90 - across a period's boundary the mark, the book and an arrival go on: a caravan sent before it and settled after it is the same caravan
+  ---
+  duration_ms: 2.313557
+  type: 'test'
+  ...
+# Subtest: a restart after the boundary reads from the mark again and tells each record once
+ok 91 - a restart after the boundary reads from the mark again and tells each record once
+  ---
+  duration_ms: 0.552768
+  type: 'test'
+  ...
+# Subtest: a different season record (another ID) is said as that, not as the world starting over
+ok 92 - a different season record (another ID) is said as that, not as the world starting over
+  ---
+  duration_ms: 0.385115
+  type: 'test'
+  ...
+1..92
+# tests 92
+# suites 0
+# pass 86
+# fail 6
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 5300.995702
+exit=1

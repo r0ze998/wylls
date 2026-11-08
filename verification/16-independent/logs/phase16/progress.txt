@@ -1,0 +1,22 @@
+12:57:05 fetch exit=0
+12:57:45 run.sh exit=0
+12:57:45 committed exit=0
+12:57:45 cmp 7 same 0 diff
+12:57:46 mutations done
+12:57:47 probe exit=0
+12:58:04 ws04-all exit=0
+12:58:06 e2e-native exit=0
+12:58:06 runs-client exit=0
+12:58:06 ALL DONE
+13:16:49 verify exit=0
+13:16:53 verify-fixtures exit=0
+13:16:55 findex-ingest-keyfree exit=0
+13:17:02 findex exit=0
+13:17:17 localnet-feed-scan exit=0
+13:17:30 herald exit=0
+13:17:57 keeper-wide exit=0
+13:17:57 NODE ALL DONE
+13:18:14 abi-world-index exit=0
+13:18:44 frontier-map-growth exit=0
+13:19:01 frontier-map-growth-wide exit=0
+13:19:01 FRONTIER DONE

@@ -1,0 +1,41 @@
+### herald HEAD 20db3313adf25481b714798759b1fdd0cb917275 tree b2304c4fa25e53bb15f1dbbffd42d6042c878957
+?? frontier-node/crates/findex/tests/v16_history_coverage.rs
+?? frontier-node/crates/findex/tests/v16_history_gaps.rs
+?? frontier-node/crates/verify/tests/v16_cpi_keyfree.rs
+?? frontier-node/crates/verify/tests/v16_v27_gate.rs
+?? permutation-gateway/node_modules
+?? verification/
+?? workstreams/04-execution/tests/v16_chain_caravan_faults.rs
+?? workstreams/04-execution/tests/v16_intake_regressions.rs
+   Compiling herald v0.1.0 (/tmp/claude-0/-home-user-wylls/47a54b0f-427a-5cca-bc82-feb7c5056956/scratchpad/v24/frontier-node/crates/herald)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 12.09s
+     Running tests/ingest_health.rs (target/debug/deps/ingest_health-0ef03b82d576c859)
+
+running 3 tests
+test a_failed_store_reads_stopped ... ok
+test a_failing_pull_shows_in_status_until_one_succeeds ... ok
+test coverage_is_kept_when_a_pull_succeeds ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.72s
+
+     Running tests/wide.rs (target/debug/deps/wide-4869d577ca8cd8ea)
+
+running 1 test
+test without_the_feature_the_routes_are_explicitly_unavailable ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.02s
+
+     Running tests/wide_capture.rs (target/debug/deps/wide_capture-0d4f3e90c3fd7fbc)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/wide_index_read.rs (target/debug/deps/wide_index_read-92e9adcfb53dc257)
+
+running 1 test
+test default_routes_are_explicitly_unavailable ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+exit=0

@@ -1,0 +1,11 @@
+3824 crypto.generateKeyPairSync
+3824 crypto.createPrivateKey
+3824 crypto.sign
+3824 crypto.createHmac
+3824 crypto.generateKeyPairSync
+3824 web3.PublicKey.findProgramAddressSync
+3824 web3.PublicKey.createProgramAddressSync
+3824 web3.Keypair.generate
+3824 web3.Keypair.fromSeed
+3824 solana-tx.findProgramAddress
+3824 solana-tx.createProgramAddress

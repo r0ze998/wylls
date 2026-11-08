@@ -1,0 +1,42 @@
+### committed HEAD 20db3313adf25481b714798759b1fdd0cb917275 tree b2304c4fa25e53bb15f1dbbffd42d6042c878957
+?? frontier-node/crates/findex/tests/v16_history_coverage.rs
+?? frontier-node/crates/findex/tests/v16_history_gaps.rs
+?? frontier-node/crates/verify/tests/v16_cpi_keyfree.rs
+?? frontier-node/crates/verify/tests/v16_v27_gate.rs
+?? permutation-gateway/node_modules
+?? verification/
+?? workstreams/04-execution/tests/v16_chain_caravan_faults.rs
+?? workstreams/04-execution/tests/v16_intake_regressions.rs
+ok   A: citizen_tag = LE u64 of the Citizen address's first 8 bytes
+ok   A: citizen_tag_hex
+ok   A: RESIDENT_JOINED carries resident id ‖ asset
+ok   A: v2 record: ver 1, kind 130 (RESIDENT_JOINED), bell u32, then the key
+ok   A: joined at generation 0
+ok   A: one transfer, to another owner
+ok   B: run for stage A's Citizen
+ok   B: store bound to stage A's world
+ok   B: caravan subject is the Citizen's tag
+ok   B: run Fulfilled
+ok   B: spec owner = citizen_tag (u64 exact)
+ok   B: cargo-only spec (no facility)
+ok   B: every receipt is this caravan's
+ok   B: settle key owner = citizen_tag (u64 exact)
+ok   C: caravan facts sender = citizen_tag_hex
+ok   C: nothing held; re-ingest adds nothing
+ok   C: identity_alias ties the tag to the pass
+ok   D: send by the pass, 4
+ok   D: arrival at least 4 (lower bound)
+ok   D: one ship id, carrying the citizen_tag
+ok   D: ⑮ normalize rejects nothing, no gap
+ok   E: prize inputs = stage A's Citizen
+ok   E: the summary's run equals the run record (e-prize-run.json)
+ok   E: the prize step ran with stage A's Citizen address
+ok   E: the pass's Citizen is not citizen(wallet)
+ok   E: BadAccount is the prize program's 257
+ok   E: claim_A_with_pass_citizen refused (BadAccount)
+ok   E: claim_A_with_wallet_citizen refused (BadAccount)
+ok   E: record_nation_with_pass_citizen refused (BadAccount)
+ok   E: claim_B_after_transfer refused (BadAccount)
+ok   E: the vault keeps the one entry fee (nothing paid out)
+31/31 consistent
+exit=0

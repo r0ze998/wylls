@@ -1,0 +1,179 @@
+### keeper-wide HEAD 20db3313adf25481b714798759b1fdd0cb917275 tree b2304c4fa25e53bb15f1dbbffd42d6042c878957
+?? frontier-node/crates/findex/tests/v16_history_coverage.rs
+?? frontier-node/crates/findex/tests/v16_history_gaps.rs
+?? frontier-node/crates/verify/tests/v16_cpi_keyfree.rs
+?? frontier-node/crates/verify/tests/v16_v27_gate.rs
+?? permutation-gateway/node_modules
+?? verification/
+?? workstreams/04-execution/tests/v16_chain_caravan_faults.rs
+?? workstreams/04-execution/tests/v16_intake_regressions.rs
+   Compiling frontier-abi v0.1.0 (/tmp/claude-0/-home-user-wylls/47a54b0f-427a-5cca-bc82-feb7c5056956/scratchpad/v24/frontier-abi)
+   Compiling agents v0.1.0 (/tmp/claude-0/-home-user-wylls/47a54b0f-427a-5cca-bc82-feb7c5056956/scratchpad/v24/frontier-node/crates/agents)
+   Compiling fclient v0.1.0 (/tmp/claude-0/-home-user-wylls/47a54b0f-427a-5cca-bc82-feb7c5056956/scratchpad/v24/frontier-node/crates/fclient)
+   Compiling keeper v0.1.0 (/tmp/claude-0/-home-user-wylls/47a54b0f-427a-5cca-bc82-feb7c5056956/scratchpad/v24/frontier-node/crates/keeper)
+   Compiling findex v0.1.0 (/tmp/claude-0/-home-user-wylls/47a54b0f-427a-5cca-bc82-feb7c5056956/scratchpad/v24/frontier-node/crates/findex)
+   Compiling localnet v0.1.0 (/tmp/claude-0/-home-user-wylls/47a54b0f-427a-5cca-bc82-feb7c5056956/scratchpad/v24/frontier-node/crates/localnet)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 24.41s
+     Running tests/wide_discovery.rs (target/debug/deps/wide_discovery-9e9c8b9af4dd51d5)
+
+running 14 tests
+test activity_after_a_close_never_overwrites_the_close ... ok
+test aggregate_nested_caps_are_atomic ... ok
+test batches_apply_atomically_and_index_full_identities_only ... ok
+test close_only_slots_days_and_inputs_keep_exact_identity_and_rent_and_are_planned ... ok
+test feed_transactions_are_frame_checked_and_rollbacks_are_never_wide_events ... ok
+test identical_replay_is_idempotent_and_any_other_replay_blocks ... ok
+test input_and_state_caps_refuse_before_applying_and_block ... ok
+test observations_are_never_authoritative_and_the_horizon_claims_nothing ... ok
+test observer_cannot_decode_a_foreign_program_under_its_scope ... ok
+test observer_exact_replay_covers_every_transaction_outcome ... ok
+test observer_unknown_replay_zero_and_bad_page_order_fail_closed ... ok
+test reveal_and_gather_after_day_close_keep_terminal_evidence ... ok
+test stages_without_their_departure_are_kept_as_anomalies_not_inferred ... ok
+test wrong_world_version_and_malformed_bodies_refuse_the_whole_batch_and_block ... ok
+
+test result: ok. 14 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+     Running tests/wide_duties.rs (target/debug/deps/wide_duties-b42365f114265c88)
+
+running 70 tests
+test a_clear_day_bit_with_a_partial_record_plans_the_completing_gather ... ok
+test a_gather_blocks_on_the_handlers_refusals ... ok
+test a_gather_candidate_carries_the_handlers_accounts_cursor_and_predictions ... ok
+test a_gather_candidate_is_bound_to_its_snapshot_and_content ... ok
+test a_gather_resumes_after_the_gathered_positions_and_refuses_a_finished_or_resolved_record ... ok
+test a_later_unsettled_position_never_blocks_the_first_ready_packet ... ok
+test a_legacy_replay_that_blocks_the_observer_stops_the_follower_without_reinterpretation ... ok
+test a_multi_event_transaction_separates_event_ordinals_from_archive_and_feed_cursors ... ok
+test a_mutated_settle_candidate_loses_its_snapshot_fee_bound_and_review ... ok
+test a_prefunded_clash_inputs_leaves_the_payer_the_fee_alone ... ok
+test a_present_transit_record_in_any_state_holds_the_return_back_as_the_handler_does ... ok
+test a_refused_seed_cache_is_forgotten_and_rediscovered_with_bounded_reads ... ok
+test a_resident_only_resolve_candidate_runs_the_bell_model_on_scratch_bytes ... ok
+test a_resolve_blocks_on_wrong_cache_archive_identity_and_timing ... ok
+test a_resolve_candidate_is_bound_to_its_snapshot_and_content ... ok
+test a_resolve_with_gathered_arrivals_predicts_the_roster_creation_and_its_full_rent ... ok
+test a_supplied_proof_never_keeps_the_callers_provenance_claims ... ok
+test absence_rule_matches_the_programs_definition_at_every_position ... ok
+test an_oversized_page_is_refused_unread_before_the_observer_or_the_store_sees_it ... ok
+test an_oversized_wide_batch_is_refused_before_any_chain_work ... ok
+test archive_index_and_keeper_observation_agree_on_literal_records ... ok
+test candidates_come_from_the_discovery_model_as_hints_only ... ok
+test chain_anchors_refuse_sequence_zero_and_a_wrong_first_head_for_the_whole_transaction ... ok
+test follower_feed_errors_are_counted_without_text_and_non_wide_records_pass_through ... ok
+test funding_is_reported_only_for_an_eligible_ordinary_wallet ... ok
+test gather_hints_come_from_revealed_open_marches_only ... ok
+test gather_via_reads_in_four_waves_through_the_port ... ok
+test proof_binds_the_commitment_and_seal_of_a_plain_depart_to_its_departed_record ... ok
+test proof_enforces_the_prologue_flags_under_both_authorities_and_accepts_wallet_aliases ... ok
+test proof_extraction_follows_the_observers_accepted_prefix_not_a_sequence_threshold ... ok
+test proof_is_unavailable_on_rollback_missing_or_non_canonical_wire ... ok
+test proof_refuses_every_field_account_or_world_mismatch ... ok
+test proof_refuses_legacy_rings_bad_seal_flags_and_out_of_bound_inputs ... ok
+test proof_requires_exactly_one_departed_inside_the_depart_instructions_own_frame ... ok
+test proof_unwraps_a_resident_act_only_with_exactly_four_readonly_proof_accounts ... ok
+test proof_validates_every_program_record_through_the_typed_reader_first ... ok
+test proofs_for_keeps_a_settled_departure_until_revealed_or_settled ... ok
+test reconciliation_compares_observed_heads_with_a_coherent_snapshot_as_cross_input_consistency ... ok
+test resolve_hints_are_the_observed_open_provinces ... ok
+test resolve_hints_rotate_over_every_observed_province_under_the_plan_cap ... ok
+test return_plan_adds_the_tenth_account_for_a_foreign_holding_and_reads_its_lock_there ... ok
+test return_plan_credits_a_live_holding_at_the_reference_generation_and_strands_otherwise ... ok
+test return_plan_reads_all_four_transit_positions_and_settles_at_most_return_max_in_entry_order ... ok
+test return_plan_refuses_event_chains_without_room_for_every_record_it_would_log ... ok
+test return_plan_refuses_the_legacy_wide_boundary_and_other_worlds ... ok
+test reveal_hints_retry_next_slot_bounded_and_a_new_proof_invalidates_the_entry ... ok
+test season_judgement_matches_the_abi_effective_status_rule ... ok
+test settle_plan_asks_for_reads_in_two_steps_then_builds_the_exact_six_accounts ... ok
+test settle_plan_blocks_exactly_where_the_handler_refuses ... ok
+test settle_plan_is_permissionless_over_owner_and_generation ... ok
+test settle_plan_predicts_the_stored_values_and_refuses_chains_without_headroom ... ok
+test settle_plan_requires_the_pinned_deployment_and_judges_seeded_only_by_the_observed_clock ... ok
+test status_never_serialises_raw_error_text ... ok
+test the_byte_preflight_refuses_oversized_records_and_pages_before_the_observer ... ok
+test the_driver_reads_through_the_port_at_the_requested_bound_and_never_simulates_or_sends ... ok
+test the_follower_pulls_bounded_pages_after_the_gate_and_feeds_observer_and_proofs ... ok
+test the_follower_refuses_a_page_that_is_not_past_its_cursor_before_the_observer_sees_it ... ok
+test the_follower_resumes_after_the_observers_position_and_never_repulls_it ... ok
+test the_follower_stops_when_the_observer_blocks_and_never_pulls_past_it ... ok
+test the_keepers_own_port_serves_the_snapshot_through_the_function_pointer ... ok
+test the_placeholder_payer_is_never_funding_and_cannot_be_set ... ok
+test the_present_count_mirrors_the_handlers_scan_of_every_position ... ok
+test the_proof_store_feeds_reveal_hints_only_with_inputs_and_blocks_without_a_publication ... ok
+test the_proof_store_lists_revealed_open_marches_for_settlement ... ok
+test the_tick_plans_a_gather_candidate_reviews_it_and_enqueues_nothing ... ok
+test the_tick_plans_a_resolve_after_a_bounded_nonce_probe_and_enqueues_nothing ... ok
+test the_tick_reconciles_a_candidates_accounts_as_diagnostics_only ... ok
+test the_tick_review_plans_reviews_and_enqueues_nothing ... ok
+test two_resolve_hints_share_the_plan_cap_and_the_one_probe_per_tick ... ok
+test world_bytes_past_the_debug_prefix_are_candidate_content ... ok
+
+test result: ok. 70 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.09s
+
+     Running tests/wide_feed_guard.rs (target/debug/deps/wide_feed_guard-4ceefc2da53b7fd8)
+
+running 12 tests
+test all_new_close_kinds_block_both_indexes_without_advancing_the_cursor ... ok
+test both_indexes_freeze_before_first_wide_transaction_and_stay_blocked ... ok
+test direct_library_gate_restores_durable_block_before_planning ... ok
+test direct_play_and_land_duty_calls_cannot_bypass_block ... ok
+test durable_block_survives_reopen_and_rejects_corrupt_state ... ok
+test failed_wide_and_other_program_frames_do_not_poison_legacy_history ... ok
+test incomplete_provenance_and_invalid_body_are_not_successful_empty_history ... ok
+test journal_failure_never_reopens_game_writes ... ok
+test partial_catchup_is_not_ready_and_legacy_resumes_only_at_feed_end ... ok
+test pull_returns_blocked_and_never_fetches_past_or_retries_it ... ok
+test queued_retries_and_new_game_writes_are_gated_but_not_cancelled ... ok
+test raw_body_library_calls_refuse_wide_versions_without_kind_aliases ... ok
+
+test result: ok. 12 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.02s
+
+     Running tests/wide_reveal.rs (target/debug/deps/wide_reveal-8c8d7683d819b409)
+
+running 30 tests
+test a_generation_mismatch_is_accepted_as_the_handler_does_and_the_downstream_risk_is_said ... ok
+test a_mutated_reveal_candidate_loses_its_snapshot_fee_bound_and_review ... ok
+test from_beacon_opens_the_recorded_public_vector_and_corruptions_refuse ... ok
+test publication_gates_refuse_before_anything_destination_bearing_is_produced ... ok
+test reveal_driver_reads_in_three_rounds_at_the_bound_and_never_simulates_or_sends ... ok
+test reveal_plan_blocks_on_opening_and_season_problems ... ok
+test reveal_plan_judges_the_window_by_the_observed_clock_and_the_log ... ok
+test reveal_plan_reads_in_rounds_builds_the_exact_accounts_and_labels_a_supplied_opening ... ok
+test reveal_plan_rebinds_the_proof_to_the_record_as_it_is_now ... ok
+test reveal_plan_replays_latch_path_shield_quota_and_arrival_day ... ok
+test reveal_readiness_blocks_retry_next_slot_while_closed_windows_wait ... ok
+test review_denies_every_wide_candidate_with_concrete_reasons_and_enqueues_nothing ... ok
+test settle_transit_candidate_is_bound_to_its_snapshot_and_content ... ok
+test settle_transit_mirrors_the_programs_claim_rule_for_the_slot ... ok
+test settle_transit_payer_may_hold_wallet_roles_but_never_state_roles ... ok
+test settle_transit_plans_a_staying_host_from_the_shared_settlement_functions ... ok
+test settle_transit_plans_the_outranked_bounce_and_the_rout_from_the_record ... ok
+test settle_transit_predicts_payment_routes_over_the_payees_shapes_in_the_handlers_order ... ok
+test settle_transit_refuses_a_return_the_handler_would_refuse ... ok
+test settle_transit_refuses_everything_outside_the_slice ... ok
+test settle_transit_refuses_what_the_handlers_payments_and_closes_would_abort ... ok
+test settle_transit_return_predictions_match_the_shared_dispatcher_expectations ... ok
+test settle_transit_stages_the_returning_fates_as_stage_return_home_does ... ok
+test snapshot_parsing_refuses_partial_malformed_oversized_stale_and_bad_sysvar_responses ... ok
+test snapshot_provenance_cannot_be_moved_onto_other_bytes ... ok
+test snapshot_reveal_is_coherent_at_the_context_slot_and_the_fee_review_bounds_the_payer ... ok
+test the_fixture_season_puts_the_vectors_round_at_t_of_the_arrival_bell ... ok
+test the_tick_plans_a_transit_settlement_from_a_revealed_open_march_under_the_shared_budget ... ok
+test the_tick_reviews_a_reveal_only_from_a_stored_proof_a_verified_beacon_and_the_public_opening ... ok
+test world_bytes_past_the_debug_prefix_are_reveal_candidate_content ... ok
+
+test result: ok. 30 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.84s
+
+     Running tests/wide_snapshot_rpc.rs (target/debug/deps/wide_snapshot_rpc-aefa67e9d5870468)
+
+running 6 tests
+test one_rpc_response_binds_accounts_clock_rent_and_actual_context ... ok
+test oversized_snapshot_is_rejected_before_any_http_request ... ok
+test rpc_snapshot_refuses_clock_from_another_slot ... ok
+test rpc_snapshot_refuses_context_below_requested_minimum ... ok
+test rpc_snapshot_refuses_foreign_owned_sysvars ... ok
+test rpc_snapshot_without_rent_still_uses_one_response ... ok
+
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+exit=0

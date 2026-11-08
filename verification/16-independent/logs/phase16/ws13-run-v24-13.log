@@ -1,0 +1,8 @@
+ws13: mode keyless
+# tests 193
+# pass 126
+# fail 0
+# skipped 67
+ws13: mode keyless transcript plain 3fa6919fa0486907ee2d71a42ff8517e9d881bf73df16563d4538b8ba240ee78 restart 3fa6919fa0486907ee2d71a42ff8517e9d881bf73df16563d4538b8ba240ee78 same
+ws13: results in /tmp/claude-0/-home-user-wylls/47a54b0f-427a-5cca-bc82-feb7c5056956/scratchpad/v24-13/workstreams/13-citizens/results (root /tmp/claude-0/-home-user-wylls/47a54b0f-427a-5cca-bc82-feb7c5056956/scratchpad/v24-13)
+exit=0

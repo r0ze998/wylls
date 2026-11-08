@@ -1,0 +1,84 @@
+### e2e-native HEAD 20db3313adf25481b714798759b1fdd0cb917275 tree b2304c4fa25e53bb15f1dbbffd42d6042c878957
+?? frontier-node/crates/findex/tests/v16_history_coverage.rs
+?? frontier-node/crates/findex/tests/v16_history_gaps.rs
+?? frontier-node/crates/verify/tests/v16_cpi_keyfree.rs
+?? frontier-node/crates/verify/tests/v16_v27_gate.rs
+?? permutation-gateway/node_modules
+?? verification/
+?? workstreams/04-execution/tests/v16_chain_caravan_faults.rs
+?? workstreams/04-execution/tests/v16_intake_regressions.rs
+   Compiling wylls-e2e-native v0.1.0 (/tmp/claude-0/-home-user-wylls/47a54b0f-427a-5cca-bc82-feb7c5056956/scratchpad/v24/workstreams/04-execution/e2e-native)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 1.36s
+     Running unittests src/lib.rs (target/debug/deps/wylls_e2e_native-f3e0673a0d548481)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/chain_nft.rs (target/debug/deps/chain_nft-4f6d8ddbad1a93c5)
+
+running 2 tests
+test forged_missing_mismatched_and_duplicate_joins_are_refused ... ok
+test nft_join_then_transfer_revokes_the_old_owner ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.02s
+
+     Running tests/chain_prize.rs (target/debug/deps/chain_prize-7f9fb8fa7f8a07bd)
+
+running 2 tests
+test the_current_prize_program_cannot_pay_an_nft_pass_citizen ... ok
+test the_same_pool_pays_a_wallet_citizen ... ok
+
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.03s
+
+     Running tests/claims_vs_closes.rs (target/debug/deps/claims_vs_closes-e44beb0b5cc0eb36)
+
+running 12 tests
+test a_province_closed_after_tally_makes_finalize_impossible ... ok
+test a_province_closed_before_tally_is_left_out_silently ... ok
+test a_record_of_a_losing_nation_is_refused_like_the_citizen ... ok
+test a_recorded_nation_keeps_the_claim_after_the_citizen_is_closed ... ok
+test a_third_partys_close_citizen_after_the_grace_strands_an_unclaimed_share ... ok
+test an_aborted_season_leaves_the_pool_without_an_exit ... ok
+test entry_spare_bytes_are_unused ... ok
+test pay_is_accepted_after_the_end ... ok
+test record_nation_takes_only_the_entrys_own_citizen ... ok
+test refund_mode_needs_no_citizen_with_or_without_the_fix ... ok
+test tally_and_finalize_within_the_grace_are_unaffected_by_later_closes ... ok
+test without_a_record_the_old_behaviour_is_unchanged ... ok
+
+test result: ok. 12 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.15s
+
+     Running tests/error_codes.rs (target/debug/deps/error_codes-08db9aeb7364c541)
+
+running 3 tests
+test game_error_numbers_are_unique_and_every_copy_agrees ... ok
+test next_free_numbers ... ok
+test prize_error_numbers_are_unique_and_every_copy_agrees ... ok
+
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+     Running tests/legacy_season_claims.rs (target/debug/deps/legacy_season_claims-dd816e15d1b7e053)
+
+running 4 tests
+test a_closed_citizen_loses_its_shares_claim_but_not_a_refund ... ok
+test legacy_paid_entry_claim_pays_out_exactly ... ok
+test unpaid_winner_cannot_claim ... ok
+test while_the_world_runs_deposits_have_no_exit ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.08s
+
+     Running tests/registry.rs (target/debug/deps/registry-fa38f52d7dd654e5)
+
+running 1 test
+test registry_matches_the_code ... ok
+
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests wylls_e2e_native
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+exit=0
