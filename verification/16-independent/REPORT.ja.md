@@ -3288,3 +3288,30 @@ checkpoint の `95b0ab225ca9e9e626941b51981df2240198d91c`（tree `89a64830da3991
 - ⑯ は ⑦ `adfdecaf` の ws07-grow-s1 を、full Chromium と repo の no-keys-guard の下で走らせ、**2/2**。grown の段の feed の assertion（`read: true`、`n: 0`、`blocked: 0`）も通った。
 - ④ `585e9fab66390656eaf580aed73c72a9f51997e3` は c378c1ce と adfdecaf の merge。tree `b161e1c2…` は adfdecaf の tree と同じなので、この実行がそのまま当てはまる。
 - 集計：失敗 0、blocked 0。全体の完了は宣言しない。
+
+## 29.30 ④ の引継ぎ文書 §19（review/ws04-docs-handoff-20261108 @ 308fa4b0）の照合（静的のみ）
+
+対象：`308fa4b06be6dfb9ff454670e15903c67642f3a0`（tree `c5dbb398…`、親 591458a1）。INTEGRATION-20261107 §19 の 55 行だけ。
+
+**正しかったもの**
+- 表の 20 組（担当の SHA → 候補の commit）は、どれも正しい。
+  - merge の 16 組では、候補の第 2 親が担当の SHA と一致する。
+  - ⑧ の 4 組では、`ceb4cc9e`・`a5faebec`・`6a20fa67` の patch-id が担当の commit と同じ。`a6e261f8` は ⑧ の commit そのもので、`6507c519` はその上の merge（tree が同じ）。
+  - どの候補も 585e9fab の祖先である。
+- caeb1b74 から first-parent で 26 commit、32 file。基準 16576826 の tree は `7f6ff8b0`。
+- write_params の照合は §29.22、無効と有効の区別は §29.23〜§29.25 を指していて、どちらも正しい。
+
+**直すべき点**
+- **merge の tree についての主張。** §19 は「各 merge の tree が親の merge-tree と一致する（手の編集なし）」と書く。⑯ が今回 16 の merge をすべて計算し直すと、15 は一致した。
+  - `0b105a33`（⑳ 0a766757 の merge）は HOLDER-CONTRACT.ja.md で衝突していて、④ が手で解いた（+18 −18、この file だけ）。④ は以前にこの解き方を説明している。
+  - この 1 件は「手の編集なし」から外すべき。
+- **数の帰属。**
+  - 「修正の 14 行だけを戻すと 2/4」は、④ の実行だけでなく ⑯ の実行でもある（試験の v1、ff749ed2 の上で。§29.26）。
+  - ⑯ の cargo の ws19_map_contract 2/2 は、585e9fab ではなく e3abbee1 の上で走らせたもの。
+- **一覧に載る file を直接走らせた件**（42 行目）。「101 file 呼び出し 0」は、一覧に載る file を名指しで走らせた実行ではなく、41 行目の広い再実行（26 回の停止）の結果である。また、file の名前は `web-frontier-ws07-nft`、`web-frontier-ws07-me-answered` が正しい。
+- **判断待ちの一覧に抜けがある。** ⑯ が開いたままにしている次の 4 つが無い：
+  - ⑥ J7 の外部の lock の削除の限界
+  - digest と runner の範囲
+  - Worker の realm
+  - （⑦ の判断）規則の読み込みが失敗し続けるときの、2 回目の押下
+- **⑯ が確かめていないもの。** 「この枝の workflow run は 16 のまま」は、⑯ は確かめていない。
