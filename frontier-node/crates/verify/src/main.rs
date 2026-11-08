@@ -252,6 +252,17 @@ fn main() {
             }
             _ => usage("--resident-program needs --resident-archive DIR, or --rpc URL --localnet"),
         };
+        // ⑲: everything is read; a history read through the ledger point the
+        // node is still at was read at the final states' point. Otherwise
+        // `point_in_time_unverified` stays (never PASS).
+        let mut history = history;
+        let mut resident_feed = resident_feed;
+        if let Some(u) = &rpc {
+            rt.block_on(input::seal_point_in_time(u, &mut history));
+            if let Some(f) = resident_feed.as_mut() {
+                rt.block_on(input::seal_point_in_time(u, &mut f.history));
+            }
+        }
         Input {
             cfg: Config {
                 program,

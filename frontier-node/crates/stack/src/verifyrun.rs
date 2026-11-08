@@ -104,6 +104,14 @@ pub async fn read_input(st: &Value) -> Result<Input, String> {
             vec![]
         }
     };
+    // ⑲: the history and the final states at one ledger point, or
+    // `point_in_time_unverified` stays (never PASS).
+    let mut history = history;
+    input::seal_point_in_time(&rpc, &mut history).await;
+    let mut resident_feed = resident_feed;
+    if let Some(f) = resident_feed.as_mut() {
+        input::seal_point_in_time(&rpc, &mut f.history).await;
+    }
     Ok(Input {
         cfg: Config {
             program,
