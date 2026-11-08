@@ -735,6 +735,11 @@ export default {
   'この住民NFTは、この住民のものではないか、正しいNFTではありません': 'This resident NFT is not this resident\'s, or is not a valid NFT.',
   '住民の記録が、このNFTのものではないか、正しくありません': 'The resident record is not this NFT\'s, or is not valid.',
   'この住民NFTには譲渡の保護がないため、操作できません': 'This resident NFT lacks its transfer guard, so it cannot act.',
+  '保管庫に、この割り当てや隊商の荷を入れる空きがありません（空きは出発のときに確保します）': 'The vault has no room for this quota or this caravan\'s goods (room is reserved at departure).',
+  'この保管枠には、空いている注文や受け入れの枠がありません': 'This lot has no free order or inbound slot.',
+  'この注文は期限が切れたか、期限を超えて続くことになります': 'This order has expired, or would run past its time limit.',
+  'この保管枠の保管庫は差し押さえられました。いまできるのは、保管枠の整理（ReconcileLot）だけです': 'This lot\'s vault was seized: only reconciling it (ReconcileLot) is possible.',
+  'この保管枠には、まだ品物・到着予定の隊商・有効な注文があります（または、割り当てが中身より少なすぎます）': 'This lot still holds goods, expects a caravan or has a live order (or the quota is below what it holds).',
   '住民NFTが署名のあとに譲渡されました。今の持ち主として操作し直してください': 'The resident NFT moved after this was signed. Act again as its current owner.',
   'いまの住民NFTの持ち主（またはその接続）だけが操作できます': 'Only the resident NFT\'s current owner (or its session) can act.',
   // The village handed to the owner's agent (frontier/fdelegation.mjs).
