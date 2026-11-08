@@ -127,7 +127,7 @@ fn stress(
     n: usize,
     cancel: bool,
     seed: u64,
-) -> (std::path::PathBuf, Sim, Vec<String>) {
+) -> (std::path::PathBuf, Sim, Vec<String>, Option<String>) {
     let mut w = SimWorld::new();
     let s = scene(&mut w);
     w.grant(OWNER, s.facility, 1_000, 1_000_000);
@@ -202,6 +202,16 @@ fn stress(
     let canceller = cancel.then(|| {
         let (db, ids, stop, go) = (db.clone(), ids.clone(), stop.clone(), go.clone());
         thread::spawn(move || {
+            // Opens the gate however this thread ends (a panic included), so the
+            // executors and the clock never wait on a canceller that died: the
+            // panic then fails the test at join() instead of hanging it.
+            struct OpenOnDrop(Arc<AtomicBool>);
+            impl Drop for OpenOnDrop {
+                fn drop(&mut self) {
+                    self.0.store(true, Ordering::SeqCst);
+                }
+            }
+            let _open = OpenOnDrop(go.clone());
             let store = Store::open(&db).unwrap();
             let mut rng = Lcg(seed ^ 0xC0FFEE);
             let mut picks: Vec<(String, u64)> = vec![];
@@ -226,7 +236,8 @@ fn stress(
                     break;
                 }
             }
-            go.store(true, Ordering::SeqCst);
+            // The run cancelled before the gate opened: not a race.
+            picks.first().map(|(id, _)| id.clone())
         })
     });
     // The clock (held at the gate too: the slots the runs live by do not pass
@@ -254,16 +265,14 @@ fn stress(
         .into_iter()
         .map(|t| t.join().expect("executor thread"))
         .collect();
-    if let Some(c) = canceller {
-        c.join().unwrap();
-    }
+    let gated = canceller.and_then(|c| c.join().unwrap());
     assert!(ticks.iter().all(|&t| t > 0));
-    (db, sim, ids)
+    (db, sim, ids, gated)
 }
 
 #[test]
 fn many_executors_many_runs() {
-    let (db, sim, ids) = stress("stress", 16, 4, false, 7);
+    let (db, sim, ids, _) = stress("stress", 16, 4, false, 7);
     let store = Store::open(&db).unwrap();
     let mut executors = std::collections::BTreeSet::new();
     for id in &ids {
@@ -294,9 +303,13 @@ fn many_executors_many_runs() {
 
 #[test]
 fn cancels_race_executors() {
-    let (mut cancelled, mut fulfilled, mut cancelled_after_facility) = (0, 0, 0);
+    // `cancelled` counts only cancels that raced running executors: the run
+    // cancelled before the gate opened (stress's first cancel) is counted
+    // apart, so the race this test asserts is not satisfied by construction.
+    let (mut cancelled, mut fulfilled, mut cancelled_after_facility, mut cancelled_at_gate) =
+        (0, 0, 0, 0);
     for seed in [3, 11, 29] {
-        let (db, sim, ids) = stress("cancel-stress", 12, 3, true, seed);
+        let (db, sim, ids, gated) = stress("cancel-stress", 12, 3, true, seed);
         let store = Store::open(&db).unwrap();
         for id in &ids {
             let row = store.load(id).unwrap().unwrap();
@@ -311,6 +324,10 @@ fn cancels_race_executors() {
             match row.state {
                 RunState::Cancelled => {
                     assert_eq!(shipped, 0, "{id}: cancelled yet shipped");
+                    if gated.as_deref() == Some(id.as_str()) {
+                        cancelled_at_gate += 1;
+                        continue;
+                    }
                     cancelled += 1;
                     if sim.with(|w| w.effects(&format!("fac:{id}"))) == 1 {
                         cancelled_after_facility += 1;
@@ -341,7 +358,7 @@ fn cancels_race_executors() {
         sim.with(|w| w.audit()).unwrap();
         check_store(&store);
     }
-    eprintln!("cancelled {cancelled} (after the facility: {cancelled_after_facility}), fulfilled {fulfilled}");
+    eprintln!("cancelled {cancelled} (after the facility: {cancelled_after_facility}), fulfilled {fulfilled}, cancelled at the gate {cancelled_at_gate}");
     assert!(cancelled > 0 && fulfilled > 0, "the race was not exercised");
 }
 
