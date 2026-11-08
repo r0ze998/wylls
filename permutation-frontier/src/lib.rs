@@ -57,6 +57,13 @@ compile_error!("local-economy-demo is a host-only local demo clock, not deployab
 #[cfg(all(feature = "local-economy-demo", feature = "nft-experimental"))]
 compile_error!("local-economy-demo requires program version 0x4004: do not enable nft-experimental with it");
 
+// The public-fixture march sandbox has native crypto and a departure debit
+// path, but is never a deployable build and never uses a test beacon key.
+#[cfg(all(target_os = "solana", feature = "local-march-demo"))]
+compile_error!("local-march-demo is a host-only in-memory sandbox, not deployable");
+#[cfg(all(feature = "local-march-demo", feature = "test-beacon"))]
+compile_error!("local-march-demo requires public production-beacon fixtures, not test-beacon");
+
 extern crate alloc;
 
 pub mod addr;

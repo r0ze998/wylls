@@ -4344,7 +4344,10 @@ fn march_route(
 /// so this test's gate refusal and its staged departure belong to the
 /// ordinary build; the native build runs the real departure instead
 /// (`wide_land_native_departs_posts_the_beacon_and_settles_for_real`).
-#[cfg(not(all(feature = "native-crypto-tests", not(target_os = "solana"))))]
+#[cfg(not(all(
+    not(target_os = "solana"),
+    any(feature = "native-crypto-tests", feature = "local-march-demo")
+)))]
 #[test]
 fn wide_land_march_stages_settle_a_staged_departure_up_to_the_crypto_gate() {
     use frontier_abi::world_index::march::{MarchState, WideTransit, WIDE_TRANSIT_LEN};
@@ -5992,6 +5995,24 @@ fn wide_land_native_real_depart_train_hostile_combat_and_survivor_return() {
     not(target_os = "solana")
 ))]
 fn native_real_depart_round_trip(train_during_transit: bool, hostile_resident: bool) {
+    native_real_depart_round_trip_internal(train_during_transit, hostile_resident, false);
+}
+
+/// Export only the fixed initial local march world and public order material.
+/// No departure or later gameplay snapshot is exported.
+#[cfg(all(feature = "native-crypto-tests", not(feature = "test-beacon"),
+    not(feature = "local-march-demo"), not(target_os = "solana")))]
+#[test]
+#[ignore = "writes only the fixed local march initial fixture directory"]
+fn wide_land_native_export_local_march_initial_fixture() {
+    native_real_depart_round_trip_internal(false, true, true);
+}
+
+#[cfg(all(feature = "native-crypto-tests", not(feature = "test-beacon"),
+    not(target_os = "solana")))]
+fn native_real_depart_round_trip_internal(
+    train_during_transit: bool, hostile_resident: bool, export_initial: bool,
+) {
     use crate::crypto::quick;
     use crate::crypto::seal::tests::{cases, get, hex};
     use crate::crypto::sys;
@@ -6250,6 +6271,149 @@ fn native_real_depart_round_trip(train_during_transit: bool, hostile_resident: b
         seal_of(host_b, arrive, dest_tile_b, &dirs_b, true);
     let (_pt_c, seal_c, commit_c, _ct_c, _root_c) =
         seal_of(host_c, arrive - 1, dest_tile_c, &dirs_c, false);
+
+    if export_initial {
+        use frontier_abi::world_index::tiles::WideTile;
+        use std::fmt::Write as _;
+        fn hex_bytes(bytes: &[u8]) -> String {
+            let mut text = String::with_capacity(bytes.len() * 2);
+            for byte in bytes { write!(&mut text, "{byte:02x}").unwrap(); }
+            text
+        }
+        // Initial-only fixtures: resource stock and destination history.
+        // No depart, arrival, casualty or return effect is precomputed.
+        {
+            let holding = w.holding(coord, site);
+            let mut data = holding.try_borrow_mut_data().unwrap();
+            for resource in 0..RESOURCES {
+                put(&mut data, H::store(resource) + AC::VALUE, &(1_900i64 * MILLI).to_le_bytes());
+            }
+        }
+        // The destination begins prepared through bell 19, just as in
+        // the audited scenario. Run every prior bell so score, keep,
+        // camp and snapshot cursors agree, rather than patching one field.
+        // This is initial destination preparation, not a player march.
+        w.at(21, 300);
+        let next = Ro(&w.province_data(dest)).u32(PV::RESOLVED_NEXT).unwrap();
+        for bell in next..arrive {
+            assert_eq!(code(w.resolve(dest, bell)), Ok(()), "fixture destination bell {bell}");
+        }
+        assert_eq!(Ro(&w.province_data(dest)).u32(PV::RESOLVED_NEXT).unwrap(), 20);
+        assert_eq!(Ro(&w.province_data(dest)).u32(PV2::SCORE_NEXT_BELL).unwrap(), 20);
+        w.at(6, 60);
+        let enemy_faction = (a.faction + 1) % 6;
+        let enemy = WideHostRef::new(dkey, 0, 1, 900).unwrap();
+        let enemy_i = w.stage_resident(dest, enemy, enemy_faction, dest_tile_a, 10_000);
+        {
+            let province = w.province(dest);
+            let mut data = province.try_borrow_mut_data().unwrap();
+            let mut entry = read_entry(&data, enemy_i).unwrap();
+            entry.dealt_bps = of_faction_v3(enemy_faction).unwrap()
+                .dealt_bps(Posture::Stance(Stance::Hold), false) as u16;
+            assert!(entry.dealt_bps > 0);
+            write_entry(&mut data, enemy_i, &entry).unwrap();
+        }
+        let mut accounts: Vec<(String, AccountInfo<'static>)> = vec![
+            ("season".into(), w.w.season.clone()),
+            ("citizen".into(), a.citizen.clone()),
+            ("holding".into(), w.holding(coord, site)),
+            ("origin".into(), w.province(coord)),
+            ("destination".into(), w.province(dest)),
+            ("origin_roster".into(), w.roster(coord)),
+            ("destination_roster".into(), w.roster(dest)),
+            ("actor".into(), wallet(WALLET_A, true, false, 0)),
+            ("payer".into(), w.w.payer.clone()),
+            ("system".into(), w.w.system.clone()),
+            ("archive".into(), w.no_archive(region, arrive)),
+            ("beacon_log".into(), w.beacon_log(region)),
+            ("ix_sysvar".into(), w.ix_sysvar()),
+            ("origin_day".into(), w.day(coord, 5)),
+            ("destination_day".into(), w.day(dest, arrive)),
+        ];
+        for slot in 0..4 {
+            let transit = w.transit(coord, site, slot);
+            assert!(transit.data_is_empty());
+            accounts.push((format!("transit_{slot}"), transit));
+        }
+        let origin_region = wr::wide_region(coord);
+        for bell in [5, 6] {
+            let (cache, anchor) = w.stage_seed(bell, origin_region, &BELL_SEED);
+            accounts.push((format!("origin_cache_{bell}"), cache));
+            accounts.push((format!("origin_anchor_{bell}"), anchor));
+            accounts.push((format!("origin_inputs_{bell}"), w.inputs(coord, bell)));
+        }
+        for bell in [21, 22, 23] {
+            let (cache, anchor) = w.stage_seed(bell, region, &BELL_SEED);
+            accounts.push((format!("destination_cache_{bell}"), cache));
+            accounts.push((format!("destination_anchor_{bell}"), anchor));
+            accounts.push((format!("destination_inputs_{bell}"), w.inputs(dest, bell)));
+        }
+        let (cache, anchor) = w.beacon_pair_real(arrive, region);
+        assert!(cache.data_is_empty() && anchor.data_is_empty());
+        accounts.push(("arrival_cache".into(), cache));
+        accounts.push(("arrival_anchor".into(), anchor));
+        accounts.push(("destination_inputs_20".into(), w.inputs(dest, arrive)));
+        for faction in 0..6 {
+            for slot in 0..4 {
+                accounts.push((format!("slot_{faction}_{slot}"), w.slot(dest, arrive, faction, slot)));
+            }
+        }
+        let mut account_text = String::new();
+        for (name, account) in &accounts {
+            writeln!(&mut account_text, "{}\t{}\t{}\t{}\t{}", name,
+                hex_bytes(account.key.as_ref()), hex_bytes(account.owner.as_ref()),
+                account.lamports(), hex_bytes(&account.try_borrow_data().unwrap())).unwrap();
+        }
+        let mut metadata = String::new();
+        let mut meta = |name: &str, value: String| { writeln!(&mut metadata, "{name}\t{value}").unwrap(); };
+        meta("format", "wylls-local-march-initial-v1".into());
+        meta("provenance", "86b293e8+4b34fd67;initial-only-export;destination-real-resolve1through19".into());
+        meta("feature", "wide-world-experimental,native-crypto-tests".into());
+        meta("auth", "MOCK_AUTH_NO_SIGNATURE".into());
+        meta("beacon", "PUBLIC_SIGNATURE_FIXTURES;NON_ARRIVAL_SYNTHETIC".into());
+        meta("initial_fixtures", "stock1900;destination_real_resolves1through19;enemy10000milli;B_C_residents_retained".into());
+        meta("program", hex_bytes(&PROGRAM));
+        meta("world", hex_bytes(w.world_id().as_bytes()));
+        meta("host", hex_bytes(&host_a.to_bytes()));
+        meta("enemy_host", hex_bytes(&enemy.to_bytes()));
+        meta("origin_p", coord.p().to_string()); meta("origin_q", coord.q().to_string());
+        meta("destination_p", dest.p().to_string()); meta("destination_q", dest.q().to_string());
+        meta("site", site.to_string()); meta("gen", "1".into());
+        meta("faction", a.faction.to_string()); meta("enemy_faction", enemy_faction.to_string());
+        meta("origin_tile", tile_a.to_string()); meta("destination_tile", dest_tile_a.to_string());
+        meta("enemy_entry", enemy_i.to_string()); meta("region", region.to_string());
+        meta("origin_region", origin_region.to_string()); meta("genesis", GENESIS_T.to_string());
+        meta("arrive_bell", arrive.to_string()); meta("initial_bell", "6".into());
+        meta("initial_ts", (GENESIS_T + 6 * 600 + 60).to_string());
+        meta("tip", w.min_tip().to_string()); meta("fee", fee.to_string()); meta("bond", bond.to_string());
+        meta("t_round", T_ROUND.to_string()); meta("s_round", S_ROUND.to_string());
+        meta("anchor_ts", A_TS.to_string());
+        for (name, bytes) in [("plain", &pt_a[..]), ("seal", &seal_a[..]),
+            ("commit", &commit_a[..]), ("ct_hash", &ct_a[..]), ("root", &root_a[..]),
+            ("salt", &salt[..]), ("sig_t", &sig_t[..]), ("sig_s", &sig_s[..]),
+            ("hints_t", &hints_t[..]), ("hints_s", &hints_s[..]), ("directions", &dirs_a[..])] {
+            meta(name, hex_bytes(bytes));
+        }
+        let mut tile = WideTile::of(TileAddress::new(key, tile_a).unwrap());
+        let mut route = format!("{},{},{}", coord.p(), coord.q(), tile_a);
+        for &direction in &dirs_a {
+            tile = tile.neighbors()[direction as usize].unwrap();
+            write!(&mut route, ";{},{},{}", tile.province_coord().p(), tile.province_coord().q(), tile.local()).unwrap();
+        }
+        meta("route", route);
+        meta("via", via_a.iter().map(|p| format!("{},{}", p.p(), p.q())).collect::<Vec<_>>().join(";"));
+        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("examples/local_march_demo/fixtures");
+        std::fs::create_dir_all(&path).unwrap();
+        let mut manifest = String::new();
+        for (name, bytes) in [("accounts.tsv", account_text.as_bytes()), ("metadata.tsv", metadata.as_bytes())] {
+            std::fs::write(path.join(name), bytes).unwrap();
+            writeln!(&mut manifest, "{}  {}", hex_bytes(&permutation_rules::hash::sha256(&[bytes])), name).unwrap();
+        }
+        std::fs::write(path.join("SHA256SUMS"), manifest).unwrap();
+        eprintln!("Exported {} initial account images; no departure or later gameplay effects", accounts.len());
+        return;
+    }
 
     // --- The real departures (bell 6 + 60 s), and the refusals that must
     // commit nothing.

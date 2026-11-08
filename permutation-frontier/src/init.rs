@@ -78,14 +78,46 @@ impl SeasonSigner {
     }
 }
 
-/// The rent-exempt minimum of `space` bytes (Rent sysvar).
+// Local march dispatches opt in to deterministic Rent on their thread.
+// The hook starts unset and is never consulted by other build modes.
+#[cfg(feature = "local-march-demo")]
+std::thread_local! {
+    static LOCAL_MARCH_RENT: core::cell::Cell<bool> = const { core::cell::Cell::new(false) };
+}
+
+/// Enable the fixed default Rent for this thread's local march dispatch.
+/// The sandbox must clear this scope after each call, including refusals.
+#[cfg(feature = "local-march-demo")]
+pub fn set_local_march_rent() {
+    LOCAL_MARCH_RENT.with(|enabled| enabled.set(true));
+}
+
+/// Clear the local march Rent scope; subsequent calls fail closed.
+#[cfg(feature = "local-march-demo")]
+pub fn clear_local_march_rent() {
+    LOCAL_MARCH_RENT.with(|enabled| enabled.set(false));
+}
+
+/// The rent-exempt minimum of `space` bytes (Rent sysvar, or explicitly
+/// scoped deterministic Rent in the host-only local march sandbox).
 pub fn rent(space: usize) -> R<u64> {
-    // Tests only: the host build cannot read the Rent sysvar (see
-    // `prologue::set_test_clock`); the default rent stands in.
-    #[cfg(test)]
-    return Ok(Rent::default().minimum_balance(space));
-    #[cfg(not(test))]
-    Ok(<Rent as solana_program::sysvar::Sysvar>::get()?.minimum_balance(space))
+    #[cfg(feature = "local-march-demo")]
+    {
+        if !LOCAL_MARCH_RENT.with(|enabled| enabled.get()) {
+            return Err(solana_program::program_error::ProgramError::UnsupportedSysvar.into());
+        }
+        Ok(Rent::default().minimum_balance(space))
+    }
+    // Existing native tests retain their default-Rent fixture unless the
+    // explicit local-march-demo feature selects its scoped hook above.
+    #[cfg(all(test, not(feature = "local-march-demo")))]
+    {
+        Ok(Rent::default().minimum_balance(space))
+    }
+    #[cfg(all(not(test), not(feature = "local-march-demo")))]
+    {
+        Ok(<Rent as solana_program::sysvar::Sysvar>::get()?.minimum_balance(space))
+    }
 }
 
 /// Absent: owned by the System program with no data (lamports ignored).

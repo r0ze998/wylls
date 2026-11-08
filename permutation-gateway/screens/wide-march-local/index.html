@@ -1,0 +1,9 @@
+<!doctype html>
+<html lang="ja"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex"><title>LOCAL MARCH · MOCK AUTH</title><link rel="icon" href="data:,"><link rel="stylesheet" href="./local.css"></head>
+<body>
+<header><h1>LOCAL MARCH · 技術プロトタイプ</h1><p><strong>LOCAL SIMULATION · MOCK AUTH · NO WALLET / CHAIN / REAL TRANSACTION</strong></p><p>署名者フラグによる疑似認可。公開ビーコン素材を使用するため、命令の秘密性はありません。CPIはローカルで模擬実行され、チェーンのトランザクションではありません。</p><p>経済デモとは別の独立セッションです。完成したゲーム画面や本番接続ではありません。</p></header>
+<main>
+<section aria-labelledby="status-title"><h2 id="status-title">ホスト状態</h2><p id="status" role="status" aria-live="polite">読み込み中…</p><p id="notice" role="alert"></p><dl id="facts"></dl><div id="controls"></div><button id="refresh" type="button">状態を再取得 (GET)</button><button id="reset" type="button" disabled>この行軍セッションをリセット</button></section>
+<section aria-labelledby="map-title"><h2 id="map-title">実座標・固定経路</h2><p>ローカルホストの実座標です。チェーンから取得した地図ではありません。表示していない場所は不明です。地図の線はホストが返した固定経路で、自由な行軍先指定は未対応です。</p><p id="map-phase" role="status">現在位置の状態なし</p><div id="map"></div><ul id="positions"></ul></section>
+<section><h2>部隊・処理結果</h2><p>部隊数、戦闘、帰還、経済の結果はRustホストが返します。ブラウザは計算しません。時刻が到達しても、到着処理を実行するまでは決済されません。</p><pre id="details">状態なし</pre></section>
+</main><script type="module" src="./local.mjs"></script></body></html>

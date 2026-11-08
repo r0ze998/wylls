@@ -3718,23 +3718,21 @@ pub fn close_roster(p: &Pubkey, a: &[AccountInfo]) -> R<()> {
 /// closed flow passes native review (`WIDE-LAND-WRITER.md` §−2.4f lists
 /// the conditions). Not a product switch: a build constant.
 ///
-/// **Test-only opening.** The constant is `true` in exactly one build: the
-/// crate's own unit tests compiled with the `native-crypto-tests` feature
-/// on a non-SBF host (`cfg(test)` is never set for a library or a program
-/// anyone links or deploys, and the feature is dev-only). There the
-/// opt-in host experiment drives WideDepart's effects for real — the
-/// escrow, the transit record from the payer, the entry's `Spend`, the
-/// record — and settles them against a beacon posted through the real
-/// PostAnchor and PostSeed with public round signatures (nothing mocked,
-/// no verdict substituted). Every other build — the experimental host
-/// library, its ordinary unit tests, SBF — keeps the gate closed and the
-/// `NotImplemented` refusal. No policy gate of the departure (the player
-/// prologue, the identity gate, the boundary, the funds) is bypassed by
-/// this: only the final refusal-before-effects is lifted, in that build.
+/// **Explicit host openings.** Native unit tests (`native-crypto-tests`)
+/// and the opt-in `local-march-demo` host sandbox enable the real debit
+/// effects. The latter is a separate, non-deployable build with simulated
+/// authority and public beacon fixtures; enabling it affects the linked
+/// host library, not only an example executable. Default, ordinary wide,
+/// and economy-only builds retain the refusal. Solana builds never enable
+/// this constant, and local-march-demo is rejected there at compile time.
+/// No player authorization, identity, funds or finality check is bypassed:
+/// only this final refusal-before-effects is lifted in those host builds.
 pub const DEPART_DEBIT_ENABLED: bool = cfg!(all(
-    test,
-    feature = "native-crypto-tests",
-    not(target_os = "solana")
+    not(target_os = "solana"),
+    any(
+        all(test, feature = "native-crypto-tests"),
+        feature = "local-march-demo"
+    )
 ));
 
 /// 0xDA WideDepart(host ref, transit_slot, arrive_bell, tip, commit,

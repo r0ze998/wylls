@@ -1,8 +1,9 @@
 //! Raw SIMD-0388 BLS12-381 syscalls (signatures as in Agave 4.x; declared
 //! here because the pinned `solana-define-syscall` predates the 5-argument
 //! `sol_curve_pairing_map`). Ported from SP-V2 unchanged. On the host every
-//! call fails (returns non-zero), except explicitly opted-in unit tests using
-//! the real native SIMD-0388 implementation. Non-test host code stays closed.
+//! call fails (returns non-zero), except opted-in native unit tests and the
+//! explicit host-only local-march-demo build using real SIMD-0388 math.
+//! Other non-test host builds stay closed.
 
 #[cfg(target_os = "solana")]
 extern "C" {
@@ -31,21 +32,39 @@ pub const GROUP_OP_MUL: u64 = 2;
 
 #[cfg(all(
     not(target_os = "solana"),
-    not(all(test, feature = "native-crypto-tests", not(target_os = "solana")))
+    not(all(
+        not(target_os = "solana"),
+        any(
+            all(test, feature = "native-crypto-tests"),
+            feature = "local-march-demo"
+        )
+    ))
 ))]
 unsafe fn sol_curve_group_op(_: u64, _: u64, _: *const u8, _: *const u8, _: *mut u8) -> u64 {
     1
 }
 #[cfg(all(
     not(target_os = "solana"),
-    not(all(test, feature = "native-crypto-tests", not(target_os = "solana")))
+    not(all(
+        not(target_os = "solana"),
+        any(
+            all(test, feature = "native-crypto-tests"),
+            feature = "local-march-demo"
+        )
+    ))
 ))]
 unsafe fn sol_curve_decompress(_: u64, _: *const u8, _: *mut u8) -> u64 {
     1
 }
 #[cfg(all(
     not(target_os = "solana"),
-    not(all(test, feature = "native-crypto-tests", not(target_os = "solana")))
+    not(all(
+        not(target_os = "solana"),
+        any(
+            all(test, feature = "native-crypto-tests"),
+            feature = "local-march-demo"
+        )
+    ))
 ))]
 unsafe fn sol_curve_pairing_map(_: u64, _: u64, _: *const u8, _: *const u8, _: *mut u8) -> u64 {
     1
@@ -62,7 +81,13 @@ pub enum SysError {
 
 /// G1 addition of two uncompressed big-endian (Zcash) points: on-curve
 /// checked, subgroup unchecked (SIMD-0388).
-#[cfg(not(all(test, feature = "native-crypto-tests", not(target_os = "solana"))))]
+#[cfg(not(all(
+    not(target_os = "solana"),
+    any(
+        all(test, feature = "native-crypto-tests"),
+        feature = "local-march-demo"
+    )
+)))]
 pub fn bls_g1_add(a: &[u8; 96], b: &[u8; 96]) -> Result<[u8; 96], SysError> {
     let mut out = [0u8; 96];
     // SAFETY: both inputs are 96-B buffers and `out` has room for 96 B, the
@@ -83,7 +108,13 @@ pub fn bls_g1_add(a: &[u8; 96], b: &[u8; 96]) -> Result<[u8; 96], SysError> {
 }
 
 /// G1 decompression (48-B Zcash big-endian), subgroup checked.
-#[cfg(not(all(test, feature = "native-crypto-tests", not(target_os = "solana"))))]
+#[cfg(not(all(
+    not(target_os = "solana"),
+    any(
+        all(test, feature = "native-crypto-tests"),
+        feature = "local-march-demo"
+    )
+)))]
 pub fn bls_g1_decompress(c: &[u8; 48]) -> Result<[u8; 96], SysError> {
     let mut out = [0u8; 96];
     // SAFETY: 48-B input, 96-B output, as the syscall expects for G1.
@@ -96,7 +127,13 @@ pub fn bls_g1_decompress(c: &[u8; 48]) -> Result<[u8; 96], SysError> {
 
 /// G2 decompression (96-B Zcash big-endian), subgroup checked; `None` if
 /// the bytes are not a G2 point.
-#[cfg(not(all(test, feature = "native-crypto-tests", not(target_os = "solana"))))]
+#[cfg(not(all(
+    not(target_os = "solana"),
+    any(
+        all(test, feature = "native-crypto-tests"),
+        feature = "local-march-demo"
+    )
+)))]
 pub fn bls_g2_decompress(c: &[u8; 96]) -> Option<[u8; 192]> {
     let mut out = [0u8; 192];
     // SAFETY: 96-B input, 192-B output, as the syscall expects for G2.
@@ -108,7 +145,13 @@ pub fn bls_g2_decompress(c: &[u8; 96]) -> Option<[u8; 192]> {
 }
 
 /// `scalar` (32-B big-endian, below r) times the G2 point `p`.
-#[cfg(not(all(test, feature = "native-crypto-tests", not(target_os = "solana"))))]
+#[cfg(not(all(
+    not(target_os = "solana"),
+    any(
+        all(test, feature = "native-crypto-tests"),
+        feature = "local-march-demo"
+    )
+)))]
 pub fn bls_g2_mul(scalar: &[u8; 32], p: &[u8; 192]) -> Option<[u8; 192]> {
     let mut out = [0u8; 192];
     // SAFETY: 32-B scalar, 192-B point, 192-B output (G2 multiplication).
@@ -130,7 +173,13 @@ pub fn bls_g2_mul(scalar: &[u8; 32], p: &[u8; 192]) -> Option<[u8; 192]> {
 /// Product of `n` pairings; the points are fully validated by the syscall
 /// (on curve, prime-order subgroup). `g1` holds `n` × 96 B, `g2` `n` ×
 /// 192 B; the result is the 576-B big-endian Gt element.
-#[cfg(not(all(test, feature = "native-crypto-tests", not(target_os = "solana"))))]
+#[cfg(not(all(
+    not(target_os = "solana"),
+    any(
+        all(test, feature = "native-crypto-tests"),
+        feature = "local-march-demo"
+    )
+)))]
 pub fn bls_pairing(g1: &[u8], g2: &[u8], n: u64, out: &mut [u8; 576]) -> Result<(), SysError> {
     let n_us = n as usize;
     if g1.len() < 96 * n_us || g2.len() < 192 * n_us {
@@ -146,11 +195,13 @@ pub fn bls_pairing(g1: &[u8], g2: &[u8], n: u64, out: &mut [u8; 576]) -> Result<
     Ok(())
 }
 
-#[cfg(all(test, not(feature = "native-crypto-tests")))]
+#[cfg(all(
+    test,
+    not(any(feature = "native-crypto-tests", feature = "local-march-demo"))
+))]
 mod tests {
     use super::*;
 
-    #[cfg(not(feature = "native-crypto-tests"))]
     #[test]
     fn host_stubs_fail_closed() {
         assert!(bls_g1_decompress(&[0; 48]).is_err());
@@ -163,8 +214,20 @@ mod tests {
     }
 }
 
-#[cfg(all(test, feature = "native-crypto-tests", not(target_os = "solana")))]
+#[cfg(all(
+    not(target_os = "solana"),
+    any(
+        all(test, feature = "native-crypto-tests"),
+        feature = "local-march-demo"
+    )
+))]
 #[path = "native_tests.rs"]
 mod native;
-#[cfg(all(test, feature = "native-crypto-tests", not(target_os = "solana")))]
+#[cfg(all(
+    not(target_os = "solana"),
+    any(
+        all(test, feature = "native-crypto-tests"),
+        feature = "local-march-demo"
+    )
+))]
 pub use native::*;

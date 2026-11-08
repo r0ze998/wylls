@@ -1,5 +1,6 @@
-//! Real SIMD-0388 math for opt-in unit tests, never linked into a host
-//! application or SBF program. No signatures, keys or verdicts are mocked.
+//! Real SIMD-0388 math for opt-in native unit tests and local-march-demo.
+//! Never linked into SBF. No signatures, keys or verdicts are mocked; this
+//! module performs point operations and verification, not key generation.
 use super::SysError;
 use solana_bls12_381_syscall::{self as bls, Endianness::BE, Version::V0};
 
@@ -27,12 +28,20 @@ pub fn bls_pairing(g1: &[u8], g2: &[u8], n: u64, out: &mut [u8; 576]) -> Result<
     }
     let p1: alloc::vec::Vec<_> = g1[..96 * n as usize]
         .chunks_exact(96)
-        .map(|b| bls::PodG1Point(b.try_into().unwrap()))
-        .collect();
+        .map(|b| {
+            b.try_into()
+                .map(bls::PodG1Point)
+                .map_err(|_| SysError::BadPoint)
+        })
+        .collect::<Result<_, _>>()?;
     let p2: alloc::vec::Vec<_> = g2[..192 * n as usize]
         .chunks_exact(192)
-        .map(|b| bls::PodG2Point(b.try_into().unwrap()))
-        .collect();
+        .map(|b| {
+            b.try_into()
+                .map(bls::PodG2Point)
+                .map_err(|_| SysError::BadPoint)
+        })
+        .collect::<Result<_, _>>()?;
     *out = bls::bls12_381_pairing_map(V0, &p1, &p2, BE)
         .ok_or(SysError::BadPoint)?
         .0;

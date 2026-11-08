@@ -65,6 +65,10 @@ wide-world-experimental = [
 # `nft-experimental` (the fixtures carry program version 0x4004) and refuses
 # to build with it. Never deployable.
 local-economy-demo = ["wide-world-experimental"]
+# Explicit host-only march sandbox. Enables native public BLS verification
+# and the departure debit path only in this opt-in build. No network,
+# transaction signing or deployment is provided by this feature.
+local-march-demo = ["local-economy-demo", "dep:solana-bls12-381-syscall"]
 
 [[example]]
 name = "local_economy_demo"
@@ -87,3 +91,11 @@ unexpected_cfgs = { level = "warn", check-cfg = ['cfg(target_os, values("solana"
 
 [target.'cfg(not(target_os = "solana"))'.dev-dependencies]
 solana-bls12-381-syscall = "=0.1.1"
+
+[target.'cfg(not(target_os = "solana"))'.dependencies]
+solana-bls12-381-syscall = { version = "=0.1.1", optional = true }
+
+[[example]]
+name = "local_march_demo"
+path = "examples/local_march_demo/main.rs"
+required-features = ["local-march-demo"]
