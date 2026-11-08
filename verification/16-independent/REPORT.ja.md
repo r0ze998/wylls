@@ -3444,3 +3444,60 @@ workflow run が 16 のままであることは ④ が数えたもので、⑯ 
 - 4e5f0915 で、AROUND は ⑧ の `G.ROUTE_AROUND_PALISADE` から作るようになった。また、golden の柵が `G.PALISADE`（4,0,6）と同じであることを確かめるようになった。⑯ の提案どおり。
 - ⑯ は 0cdd8491 の画面を走らせ直していない。§29.32 の嵐は直っていないので、⑯ の機械ではスマホが落ちる見込み。④ の機械では 2/2。
 - ④ は ⑦ に 2 つを頼んだ：機械によらずに嵐を再現する試験（決めた時間の窓の中で、失敗した州ごとの要求の数に上限を置き、今の controller.mjs で落ちるもの）と、最小の修正（成功する読み込みと 30 s の fetchedAt の規則は変えない）。届いたら、⑯ が review する。
+
+## 29.33 7 の province の要求の嵐の修正（1fc0a5aa、01bb323f）と、19 の S1 golden の追加（f001c9c3）
+
+以後、担当の番号は丸で囲まずに書く。
+
+### 7 `1fc0a5aa1c05b6ce8268e4bd7b9f473bc272beb6` と `01bb323f60ce579b6a9427795d813f81f4afb95f`（tree `3b99e205…`）
+
+**静的な確認。**
+- 修正は `wantProvince` に足した 1 行：`if (!have && fetchedAt.has(key) && now - fetchedAt.get(key) < WANT_REFRESH_MS) return false;`
+  - 最初の読み込み（`fetchedAt` にまだ無い）は止めない。
+  - 読み込みが成功して保存された州（`have` がある）は、これまでと同じ規則のまま。
+  - 境界は `<` なので、ちょうど 30 s で再び要求する。
+  - `fetchedAt` は要求を始めた時刻で、失敗した時刻ではない。404 に限らず、一時的な失敗（Unavailable など）も 30 s 待つ。
+  - `FS.provinces` は fstate の初期化のほかに作り直されないので、「保存が消えた後に止められる」退行は無い。
+- 失敗の直後にすぐ要求し直すことに頼る呼び出し元は無い。
+  - `refresh()`、holdings と host の州、compose の refresh、選んだ州は、`loadEnvelope` を直接呼ぶ。この修正の影響を受けない。
+  - `wantProvince` の呼び出し元（app.mjs 1318・1793・2963・3784・3831、controller.mjs 1170）は、戻り値によらず自分の処理を続ける。`onLoad` は描き直すだけ。
+- **scan の門（新しい指摘）。** 7 の head（01bb323f）では `scan --check` が **exit 5** になる。controller.mjs が変わったので、⑯ の viewer-own-citizen の reviewed の digest が古くなった。
+  - 変わったのは `wantProvince` の 3 行で、`applyMeResult` の経路には無い（applyMeResult の中に wantProvince の呼び出しは 0）。
+  - だから付け直しは正当で、新しい値は `c57b84cc…`。
+- **7 の unit 試験について。** 7 の 13/13 は `web-frontier-hud.test.mjs` の中にあり、この file は `node-key-tests.txt` に載っている。だから鍵なしの証拠にはならず、⑯ もこの file は走らせていない。
+- 代わりに ⑯ が最小の名指しの試験を作った：`web-frontier-want-province.test.mjs`。
+  - 閉包は 137 file で、viewer-own-citizen と同じ。
+  - 読み込みの時点の top-level の監査をやり直し、鍵の入口を呼ぶものは無かった。
+  - 試験が通る経路：`wantProvince` → `loadEnvelope` → 差し替えた herald の province()、`latestEnvelope`、`protoLand`（FS.proto は null）、`keepFromProvince`（純粋）。`useHerald` → `fwide.clearWide`。
+  - 確かめること：最初の読み込みは止まらない。失敗の後は、すぐにも、30 s 以内にも（新しい bell でも）要求せず、30 s ちょうどで要求する。失敗の後の成功は保存され、その後は保存された州の規則に従う。最初から成功する州は、これまでの規則のまま。
+  - reviewed の行は `closure=a623aab2…`。
+
+**実行**（⑯ の機械。以前スマホが落ちた環境。画面は 1 本ずつ単独で、full Chromium と repo の no-keys-guard の下で走らせた）：
+- 新しい controller：`node-keyfree.sh` で want-province と viewer-own-citizen（付け直し後）が **8/8**。`--check` は exit 0（12 file が reviewed）。
+- 古い controller（7 の 3 行を戻し、走らせる間だけ digest を付け直し、終わった後に戻した）：want-province は **3/4**。落ちたのは「失敗の直後に再び要求しない」の 1 件だけ。最初の読み込み、成功後の回復、成功した読み込みの 3 件は、古いコードでも新しいコードでも同じ答え。だから、この修正が変えるのは失敗の経路だけである。
+- 新しい controller の画面：ws07-grow-palisade **2/2**（以前は ⑯ の機械でスマホが落ちた）、ws07-grow-s1 **2/2**。
+  - 要求を数える写しで数えた。404 の州（3,0、3,1、4,-1）への要求は、それぞれ 2 件（page を読み込むたびに 1 件）。使っている州 (4,0) は最大 6 件。
+- 古い controller の画面：ws07-grow-palisade **0/2**。どちらも、落ちたのは要求の上限の assertion（デスクトップは 405〜414 件、スマホは 430〜514 件）で、browser が落ちたのではない。
+- **上限 20 の妥当性。** 新しいコードの最大は 6、古いコードは 405 以上で、差は大きい。1 回の page の読み込みで 1 件に、30 s ごとの再要求が加わるだけなので、遅い機械でも 20 には届かない見込み。
+- **pan の helper**（01bb323f）。
+  - 押す位置の下端を、action bar と、幅が画面の 6 割を超える #panel（スマホの sheet）の上端にした。デスクトップの横の drawer は除外する。
+  - host を押す前にも、その tile を視野に入れる。動かし方は、map 自身の矢印 key。
+  - 12 回動かしても視野に入らなければ、そのまま押し、そのあとの `inHand` の assert か `until` の timeout で落ちる。だから、ページの失敗を隠さない。
+  - 別の論点（判断は 7）：スマホでは、深い link `?at=` の tile が sheet の下に入ることがある。
+- **差分。** `patches/v16-want-province-on-01bb323f.patch`：新しい試験と、reviewed の 2 行（viewer-own-citizen の付け直しと、want-province の追加）。log は `logs/phase23/ws07-storm-fix-01bb.txt`。
+
+### 19 `f001c9c3a149a5f7931f3902828332310af374be`（tree `39518426…`）
+
+- **(1) 既存の答えは変わっていない。** 0cdd8491 の S1 golden の entry をすべて突き合わせ、変わったものは 0 件。最上位の field も同じ。M1 の golden と柵の golden は触っていない。
+- **追加された path。** 各段に 18 の path が増えた：7 の ABSENT のうち 16（events、roster 0〜5、overview 0〜2、overview2/2、州 3,0・3,1・4,-1、caravans、nations）と、overview2/0・1。
+  - ABSENT に残るのは conquest/0.json、control、keep/4,0.json、standings の 4 つ。
+- **(2) index。** main.rs は 95 行で無条件に、208 行で read-only でないときに `app.index` を設定する。`app.index` を読むのは server.rs の `events`（591 行）だけである。
+- **(3) status。** 増えた path は、roster 5 を除いてどの段でも 200。roster 5 は grown より前の段で 404 NoSuchRing（router の本物の答え）。cargo の突き合わせで確かめた。
+- **(5) 閉包。** `people/roster.mjs` は import が 0。map-contract の閉包は 52 file で、鍵の API を名指す file は無く、一覧にも載っていない。golden に secret や mnemonic の文字は無い。prize の名がつく field は、公開の `prizeMaxRing` だけ。
+- **⑯ の実行。** `node-keyfree.sh` で map-contract、map-arrival、growth-route が **29/29**。cargo の ws19_map_contract が **3/3**（`WS19_GOLDEN_WRITE` は設定していない。worktree に変更は無い）。
+- **元の page の fixture への影響。**
+  - 7 の ws07-grow-s1 の ABSENT（20 の path）は、この golden を取り込むと 16 の path が過大になる。試験は「404 は ABSENT の部分集合」だけを見るので、通り続ける。ただし header の記述は古くなる。
+  - 隣の州の 3 つが 200 になるので、ws07-grow-s1 は嵐を起こさなくなる。嵐の再現は、柵の golden（6 つの path だけ）の側に残る。
+  - まだ生成されていない州の 404 は、柵の golden と roster 5 に残っている。
+  - 組み合わせた実行の結果は、下の追記に書く。
+- log：`logs/phase23/ws19-f001.txt`。

@@ -1,0 +1,52 @@
+### 7 1fc0a5aa + 01bb323f (tree 3b99e205), workstream 16's checks on this machine (where the phone case crashed before)
+## scan --check on clean 01bb323f: exit 5 (viewer-own-citizen review stale: controller.mjs +3 lines in wantProvince, not on applyMeResult's path; re-pinned to c57b84cc in the patch)
+## node-keyfree want-province (new, reviewed) + viewer-own-citizen (re-pinned), fixed controller
+key-free run: 2 files in permutation-gateway (221 left out, listed)
+ok 1 - the fixtures are what they claim (decoded by the page codec)
+ok 2 - NFT viewer: the wallet Citizen at the asset address is refused; the Citizen and holdings already adopted stay
+ok 3 - NFT viewer: the Citizen whose resident mark names the asset played is adopted, with its holdings
+ok 4 - wallet viewer: the unmarked wallet Citizen is still adopted; a marked one is refused and leaves it in place
+ok 5 - the first read of a Province is never held back
+ok 6 - after a failed read: not again at once nor within the interval (even at a new bell); again at its end
+ok 7 - a read that succeeds after a failure is stored; then the existing rule for a stored copy applies
+ok 8 - a Province whose first read succeeds keeps the existing rule
+# tests 8
+# pass 8
+# fail 0
+## the same want-province test, old controller (1fc0a5aa's 3 lines reverted, digests re-pinned for the run, then restored)
+key-free run: 1 files in permutation-gateway (221 left out, listed)
+ok 1 - the first read of a Province is never held back
+not ok 2 - after a failed read: not again at once nor within the interval (even at a new bell); again at its end
+ok 3 - a read that succeeds after a failure is stored; then the existing rule for a stored copy applies
+ok 4 - a Province whose first read succeeds keeps the existing rule
+# tests 4
+# pass 3
+# fail 1
+## fixed controller: ws07-grow-palisade (alone, full Chromium, repo no-keys-guard)
+ok 1 - 19's palisade on 08's route @ desktop: blocked hex read; the order card goes round it (or is refused); cancel, reselect
+ok 2 - 19's palisade on 08's route @ phone: blocked hex read; the order card goes round it (or is refused); cancel, reselect
+# tests 2
+# pass 2
+# fail 0
+## fixed controller: v16-grow-palisade-asks (alone, full Chromium, repo no-keys-guard)
+ok 1 - 19's palisade on 08's route @ desktop: blocked hex read; the order card goes round it (or is refused); cancel, reselect
+ok 2 - 19's palisade on 08's route @ phone: blocked hex read; the order card goes round it (or is refused); cancel, reselect
+# tests 2
+# pass 2
+# fail 0
+## fixed controller: ws07-grow-s1 (alone, full Chromium, repo no-keys-guard)
+ok 1 - 19's S1 herald answers, 08's stages @ desktop: the host at (4,0) in hand, (5,0) refused until grown, then 08's route in the order card (not sealed)
+ok 2 - 19's S1 herald answers, 08's stages @ phone: the host at (4,0) in hand, (5,0) refused until grown, then 08's route in the order card (not sealed)
+# tests 2
+# pass 2
+# fail 0
+V16_ASKS desktop [["/h/province/3,0/latest",2],["/h/province/3,1/latest",2],["/h/province/4,-1/latest",2],["/h/province/4,0/latest",6],["/h/province/5,0/latest",2]]
+V16_ASKS phone [["/h/province/3,0/latest",2],["/h/province/3,1/latest",2],["/h/province/4,-1/latest",2],["/h/province/4,0/latest",5]]
+## old controller: ws07-grow-palisade (alone)
+not ok 1 - 19's palisade on 08's route @ desktop: blocked hex read; the order card goes round it (or is refused); cancel, reselect
+not ok 2 - 19's palisade on 08's route @ phone: blocked hex read; the order card goes round it (or is refused); cancel, reselect
+# tests 2
+# pass 0
+# fail 2
+no Province asked for more than 20 times in this run ([["/h/province/4,0/latest",8],["/h/province/4,-1/latest",414],["/h/province/3,0/latest",405],["/h/province/3,1/latest",409]]
+no Province asked for more than 20 times in this run ([["/h/province/4,0/latest",6],["/h/province/4,-1/latest",458],["/h/province/3,0/latest",430],["/h/province/3,1/latest",514],["/h/province/5,0/latest",1]]

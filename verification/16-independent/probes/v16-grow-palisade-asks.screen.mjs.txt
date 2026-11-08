@@ -1,0 +1,192 @@
+// Workstream 07: a palisade on the march's way, on the original WHOLE game page, from workstream 19's REAL router answers
+// (frontier-node/crates/herald/tests/golden/ws19-map-growth-s1-palisade.json, 3c7c0929): workstream 08's S1 world grown
+// to ring 5, at two stages — "grown" (no structure) and "palisade" (after one BuildStructure: a palisade, kind 2, of
+// nation 2 at (4,0) tile 6, the first hex of 08's route where one may stand). The viewer (nation 1; all stances war in
+// the nations feed) and its host on (4,0) tile 0, as a connected player with no key (screens/ws07/nokey-page.mjs:
+// the test wallet carries only the golden's wallet address), phone and desktop.
+//
+// A relay answers the six /h/ paths the golden has (season, structures, nations, provinces 4,0 and 5,0, the viewer's
+// /h/me) with their recorded status and body, and any other /h/ path 404 NotFound (inferred from the golden; every 404
+// the page meets is asserted to be under /h/). Through the page's own presses, at each stage after a reload:
+//   - the structures and nations feeds read; the hexes the page will not plan through (s1walk palisadeHexesOf) are
+//     none at "grown" and exactly the palisade's hex at "palisade" (a foreign nation at war stops the walker);
+//   - the host on (4,0) tile 0 in hand; (5,0) tile 0 pressed: at "grown" the order card has 08's route to the step; at
+//     "palisade" the page's own planner (frontier-v3.wasm plan_path with that hex `blocked`) gives a route whose hexes
+//     (marchcard.routeHexes) never enter the palisade's hex: exactly 19's pinned answer (dirs [5,0,0,1,0,1,1,0,1,1],
+//     1320 s, (4,0) → (5,0); not NoPath);
+//   - the card's arrival inside the Season's lead window, "seal and depart" enabled, NEVER pressed;
+//   - cancel (やめる), then the host again and the destination again: the same route; a reload keeps the stage.
+// Not exercised: the builder's payment, a palisade of the viewer's own nation, stances other than war. Nothing is
+// sealed, signed or sent.
+//
+// Run from this folder: node --test ws07-grow-palisade.screen.mjs
+import { test, before, after } from 'node:test';
+import assert from 'node:assert/strict';
+import { createServer, request } from 'node:http';
+import { readFileSync } from 'node:fs';
+import { chromium } from 'playwright-core';
+import { startServer } from './server.mjs';
+import * as NK from './ws07/nokey-page.mjs';
+import * as G from '../test/fixtures/frontier/growth-route.mjs';
+
+const GOLDEN = JSON.parse(readFileSync(new URL('../../frontier-node/crates/herald/tests/golden/ws19-map-growth-s1-palisade.json', import.meta.url)));
+const HOST_TILE = { p: 4, q: 0, tile: 0 }, TARGET = { p: 5, q: 0, tile: 0 };
+const PAL = GOLDEN.palisade;
+assert.deepEqual({ p: PAL.p, q: PAL.q, tile: PAL.tile }, { ...G.PALISADE }, '19\'s golden and 08\'s fixture name the same palisade tile');
+/** The expected planner answer at "palisade": 08's growth-route.mjs ROUTE_AROUND_PALISADE (pinned by 19's 2db2db4b and
+ * 08's d1ba760c: frontier-v3.wasm plan_path, unit 0, the golden's seeds, blocked [tileHex(4,0,6)]). */
+const AROUND = Object.freeze({ dirs: G.ROUTE_AROUND_PALISADE.dirs, secs: G.ROUTE_AROUND_PALISADE.secs, provinces: G.ROUTE_AROUND_PALISADE.provinces });
+
+let srv, relay, browser, base, stage = 'grown';
+before(async () => {
+  srv = await startServer({ keyless: true });
+  relay = createServer((req, res) => {
+    const u = new URL(req.url, 'http://x');
+    if (u.pathname.startsWith('/h/')) {
+      const a = GOLDEN.stages[stage][u.pathname];
+      if (!a) { res.writeHead(404, { 'content-type': 'application/json', 'cache-control': 'no-store' }); return res.end('{"ok":false,"code":"NotFound"}'); }
+      if (a.body?.b64 !== undefined) { res.writeHead(a.status, { 'content-type': 'application/octet-stream', 'cache-control': 'no-store' }); return res.end(Buffer.from(a.body.b64, 'base64')); }
+      res.writeHead(a.status, { 'content-type': 'application/json', 'cache-control': 'no-store' }); return res.end(JSON.stringify(a.body));
+    }
+    const t = new URL(srv.url);
+    const pr = request({ host: t.hostname, port: t.port, path: req.url, method: req.method, headers: { ...req.headers, host: t.host } }, r => { res.writeHead(r.statusCode, r.headers); r.pipe(res); });
+    req.pipe(pr);
+  });
+  await new Promise(r => relay.listen(0, r));
+  base = NK.pageBase(relay.address().port);
+  browser = await chromium.launch(NK.launchOptions(relay.address().port));
+});
+after(async () => { await browser?.close(); relay?.close(); await srv?.close(); });
+
+async function tileAt(page, at) {
+  await page.evaluate(async () => {
+    if (window.__map) return;
+    const { FrontierMap } = await import('/frontier/map/fmap.mjs');
+    const P = FrontierMap.prototype, draw = P.draw;
+    P.draw = function (...a) { window.__map = this; return draw.apply(this, a); };
+    for (let i = 0; i < 80 && !window.__map; i++) { window.dispatchEvent(new Event('resize')); await new Promise(r => setTimeout(r, 50)); }
+  });
+  return page.evaluate(async at => {
+    const m = window.__map, frame = () => new Promise(r => requestAnimationFrame(r));
+    for (let still = 0, i = 0; still < 10 && i < 400; i++) { await frame(); still = m.cam.moving || m.reachFly ? 0 : still + 1; }
+    const { tileHex } = await import('/frontier/fgeo.mjs');
+    const { project } = await import('/map.mjs');
+    const h = tileHex(at.p, at.q, at.tile), c = project(h.q, h.r);
+    return m.project(c.x, c.y);
+  }, at);
+}
+async function until(page, fn, arg, { timeout = 15_000 } = {}) {
+  const end = Date.now() + timeout;
+  while (Date.now() < end) { if (await page.evaluate(fn, arg)) return; await page.waitForTimeout(200); }
+  throw new Error(`until: timed out (${JSON.stringify(await look(page).catch(e => e.message))})`);
+}
+/** What the page holds: the feeds, the blocked hexes, the hand, the card and its route's hexes. */
+const look = page => page.evaluate(async () => {
+  const { FS } = await import('/frontier/fstate.mjs');
+  const { subjectOf } = await import('/frontier/hud/hand.mjs');
+  const { palisadeHexesOf } = await import('/frontier/s1walk.mjs');
+  const { routeHexes } = await import('/frontier/hud/marchcard.mjs');
+  const s = subjectOf(FS), c = FS.compose;
+  return { structures: FS.s1?.structures?.structures?.length ?? null, stances: !!FS.s1?.nations?.stances, blocked: palisadeHexesOf(FS),
+    who: s ? (s.kind === 'village' ? 'village' : String(s.host.id)) : null, note: FS.mapNote?.text ?? null,
+    compose: c ? { dest: c.dest ? [c.dest.p, c.dest.q, c.dest.tile] : null, err: c.routeError ?? null, route: c.route ? { dirs: [...c.route.dirs], secs: c.route.secs, provinces: c.route.provinces.map(x => ({ p: x.p, q: x.q })) } : null,
+      hexes: routeHexes(c), bell: c.arriveBell ?? null, earliest: c.earliest ?? null } : null,
+    lead: [Number(FS.season?.minLead), Number(FS.season?.maxLead)], now: FS.nowBell ?? 0, beacon: FS.error?.code ?? null };
+});
+
+for (const vp of [{ width: 1440, height: 900, name: 'desktop' }, { width: 390, height: 844, name: 'phone' }]) {
+  test(`19's palisade on 08's route @ ${vp.name}: blocked hex read; the order card goes round it (or is refused); cancel, reselect`, { timeout: 300_000 }, async () => {
+    const phone = vp.width < 760;
+    const ctx = await browser.newContext({ viewport: { width: vp.width, height: vp.height }, isMobile: phone, hasTouch: phone, locale: 'ja-JP', timezoneId: 'UTC' });
+    await NK.prepare(ctx, { wallet: GOLDEN.wallet }, { lang: 'ja' });
+    const page = await ctx.newPage();
+    const tap = async at => { const p = await tileAt(page, at); if (phone) await page.touchscreen.tap(p.x, p.y); else await page.mouse.click(p.x, p.y); };
+    const press = loc => (phone ? loc.tap() : loc.click());
+    const errors = [], posts = [], notFound = new Set();
+    page.on('pageerror', e => errors.push(e.message));
+    page.on('console', m => { if (m.type() === 'error' && !/status of 404/.test(m.text())) errors.push(m.text()); });
+    page.on('request', r => { if (r.method() !== 'GET' && r.method() !== 'HEAD') posts.push(`${r.method()} ${new URL(r.url()).pathname}`); });
+    page.on('response', r => { if (r.status() === 404) notFound.add(new URL(r.url()).pathname); });
+    // (a Province the herald does not have is asked for again only after the refresh interval, never in a storm: 16's
+    // §29.32 measured 300+ requests a path in 2 minutes before controller.wantProvince waited for failed reads too)
+    const provinceAsks = new Map();
+    page.on('request', r => { const path = new URL(r.url()).pathname; if (/^\/h\/province\//.test(path)) provinceAsks.set(path, (provinceAsks.get(path) ?? 0) + 1); });
+    const seasonRec = GOLDEN.stages.grown['/h/season'].body;
+    await page.clock.setFixedTime(new Date(Number(seasonRec.latestUnix) * 1000 + 500));
+    const url = `${base}/frontier/index.html?at=${HOST_TILE.p},${HOST_TILE.q},${HOST_TILE.tile},${phone ? '0.55' : '1.0'}`;
+    const bringIntoView = async at => {
+      for (let i = 0; i < 12; i++) {
+        const p = await tileAt(page, at), w = vp.width;
+        const top = 40 + await page.evaluate(() => Math.max(150, ...[...document.querySelectorAll('.banner.error')].map(e => e.getBoundingClientRect()).filter(r => r.height > 0).map(r => r.bottom)));
+        // (above the action bar and above the drawer or phone sheet where it stands: a tile under them takes no press)
+        const bottom = await page.evaluate(() => Math.min(innerHeight, ...['hand', 'panel'].map(id => document.getElementById(id)).filter(e => e && !e.hidden).map(e => e.getBoundingClientRect()).filter(r => r.height > 0 && r.width > innerWidth * 0.6).map(r => r.top))) - 40;
+        if (p.x > 40 && p.x < w - 40 && p.y > top && p.y < bottom) return;
+        await page.locator('#frontier-map').focus();
+        const key = p.x >= w - 40 ? 'ArrowRight' : p.x <= 40 ? 'ArrowLeft' : p.y <= top ? 'ArrowUp' : 'ArrowDown';
+        for (let k = 0; k < 3; k++) await page.keyboard.press(key);
+        await page.waitForTimeout(400);
+      }
+    };
+    const inHand = () => page.evaluate(async id => { const { FS } = await import('/frontier/fstate.mjs'); const s = (await import('/frontier/hud/hand.mjs')).subjectOf(FS); return s?.kind === 'host' && String(s.host.id) === id; }, String(GOLDEN.host));
+    /** The host in hand and (5,0) tile 0 pressed: the card, or the map's answer. (A first press may meet the planner loading.) */
+    const order = async () => {
+      // (the host's tile in view first: a phone's first view need not be centred on ?at — the sheet may stand half up)
+      for (let i = 0; i < 3 && !(await inHand()); i++) { await bringIntoView(HOST_TILE); await tap(HOST_TILE); await page.waitForTimeout(600); }
+      assert.equal(await inHand(), true, `${stage}: the host at (4,0) tile 0 in hand (${JSON.stringify(await page.evaluate(async () => { const { FS } = await import('/frontier/fstate.mjs'); const { subjectOf, ownHosts } = await import('/frontier/hud/hand.mjs'); const s = subjectOf(FS); return { sel: FS.selected, who: s ? s.kind : null, hosts: ownHosts(FS).length, provinces: [...FS.provinces.keys()], note: FS.mapNote?.text ?? null }; }))})`);
+      await page.locator('#hand [data-hand="march"]').first().waitFor();
+      await bringIntoView(TARGET);
+      await tap(TARGET);
+      await until(page, async () => { const { FS } = await import('/frontier/fstate.mjs'); return !!FS.compose || !!FS.mapNote; });
+      if ((await look(page)).note === 'ルールを読み込んでいます') { await page.waitForTimeout(1500); await tap(TARGET); }
+      await until(page, async () => { const { FS } = await import('/frontier/fstate.mjs'); return !!FS.compose?.route || !!FS.compose?.routeError || (!!FS.mapNote && FS.mapNote.text !== 'ルールを読み込んでいます'); });
+      return look(page);
+    };
+    const results = {};
+    for (const st of ['grown', 'palisade']) {
+      stage = st;
+      await page.goto(url);
+      await until(page, async () => { const { FS } = await import('/frontier/fstate.mjs'); return FS.meStatus === 'ready' && (FS.holdings?.length ?? 0) > 0 && !!FS.kernel && !!FS.s1?.structures && !!FS.s1?.nations; }, null, { timeout: 30_000 });
+      const want = st === 'grown' ? [] : [await page.evaluate(async p => { const { tileHex } = await import('/frontier/fgeo.mjs'); const h = tileHex(p.p, p.q, p.tile); return { q: h.q, r: h.r }; }, PAL)];
+      let s = await look(page);
+      assert.equal(s.structures, st === 'grown' ? 0 : 1, `${st}: the structures feed read`);
+      assert.equal(s.stances, true, `${st}: the nations feed read`);
+      assert.deepEqual(s.blocked.map(h => ({ q: h.q, r: h.r })), want, `${st}: the hexes the page will not plan through`);
+      s = await order();
+      results[st] = s;
+      if (st === 'grown') {
+        assert.deepEqual(s.compose?.route, { dirs: G.ROUTE.dirs, secs: G.ROUTE.secs, provinces: G.ROUTE.provinces }, 'grown: 08\'s route (no structure)');
+      } else {
+        // 19's pinned answer (2db2db4b, web-frontier-map-arrival): plan_path with the palisade's hex blocked
+        assert.deepEqual(s.compose?.route, AROUND, 'palisade: 19\'s expected route round the palisade (not NoPath)');
+        const hit = s.compose.hexes.filter(h => want.some(b => b.q === h.q && b.r === h.r));
+        assert.deepEqual(hit, [], 'palisade: the route never enters the palisade\'s hex');
+        assert.deepEqual(s.compose.dest, [TARGET.p, TARGET.q, TARGET.tile]);
+      }
+      if (s.compose?.route) {
+        await page.locator('#mc-title').waitFor({ state: 'attached' });
+        await until(page, async () => Number.isInteger((await import('/frontier/fstate.mjs')).FS.compose?.arriveBell));
+        s = await look(page);
+        assert.ok(s.compose.bell >= s.compose.earliest && s.compose.bell <= s.now + s.lead[1], `${st}: arrival ${s.compose.bell} in the window`);
+        assert.equal(s.beacon, null, `${st}: the page's beacon check passes`);
+        await page.locator('[data-act="march-send"]:not([disabled])').waitFor({ timeout: 15_000 });
+        // cancel, then the host and the destination again: the same route
+        const before = s.compose.route;
+        await press(page.locator('[data-act="compose-close"]:visible').first());
+        await page.waitForFunction(() => !document.getElementById('mc-title'));
+        const again = await order();
+        assert.deepEqual(again.compose?.route, before, `${st}: reselected, the same route`);
+        await press(page.locator('[data-act="compose-close"]:visible').first());
+        await page.waitForFunction(() => !document.getElementById('mc-title'));
+      }
+    }
+
+    assert.deepEqual([...notFound].filter(p => !p.startsWith('/h/')), [], 'no 404 for the page\'s own files');
+    console.log('V16_ASKS', vp.name, JSON.stringify([...provinceAsks].sort()));
+    const storm = [...provinceAsks].filter(([, n]) => n > 20);
+    assert.deepEqual(storm, [], `no Province asked for more than 20 times in this run (${JSON.stringify([...provinceAsks])})`);
+    assert.deepEqual(posts, [], 'no request but reads');
+    assert.deepEqual(errors, [], 'no page error, and no console error but the 404s of golden-absent herald paths');
+    await NK.assertKeyless(ctx, assert);
+    await ctx.close();
+  });
+}
