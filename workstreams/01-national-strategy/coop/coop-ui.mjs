@@ -155,8 +155,8 @@ function renderRequests() {
       ${!mine && accepted && open && !badDst && cfg.relay && cfg.rpcProxy ? (blocking(q)
         ? (blocking(q).kind === 'landed-unlinked'
           ? `<div class="row"><button data-act="link" data-id="${esc(q.id)}" data-tag="${esc(blocking(q).sending.caravan.ownerTag)}" data-seq="${blocking(q).sending.caravan.seq}" data-testid="pending-link">着地した隊商 #${blocking(q).sending.caravan.seq} をこの依頼に結び付ける</button><span class="warn">結び付けるまで次は署名・送付しない（同じ物を二度送らない）</span></div>`
-          : `<div class="row"><button data-act="send" data-id="${esc(q.id)}" data-testid="pending-send">前の送信（隊商 #${blocking(q).sending.caravan.seq}）の結果を確かめる</button><span class="warn">結果が分かるまで次は署名・送付しない</span></div>`)
-        : `<div class="row"><button data-act="send" data-id="${esc(q.id)}">この画面から送る（${esc(needText(resp.offer))}。ウォレットで署名）</button></div>`) : ''}
+          : `<div class="row"><button data-act="send" data-id="${esc(q.id)}" data-testid="pending-send"${sendingNow.has(q.id) ? ' disabled aria-busy="true"' : ''}>前の送信（隊商 #${blocking(q).sending.caravan.seq}）の結果を確かめる</button><span class="warn">結果が分かるまで次は署名・送付しない</span></div>`)
+        : `<div class="row"><button data-act="send" data-id="${esc(q.id)}" data-testid="send"${sendingNow.has(q.id) ? ' disabled aria-busy="true"' : ''}>この画面から送る（${esc(needText(resp.offer))}。ウォレットで署名）</button>${sendingNow.has(q.id) ? '<span class="note" data-testid="send-busy">送る手続きの途中（ウォレットの画面を確かめてください）</span>' : ''}</div>`) : ''}
       ${!mine && accepted && open && !badDst ? `<div class="note">ゲームの村の引き出し「交易と防備」からも送れる：行き先 (${q.to.p},${q.to.q}) 村${q.to.site}、荷 ${esc(needText(resp.offer))}。他の人の村へ送る隊商は、ウォレットで署名します。</div>
         <div class="row">${cands.length ? cands.map(m => `<button data-act="link" data-id="${esc(q.id)}" data-tag="${esc(m.ownerTag)}" data-seq="${m.seq}">隊商 #${m.seq}（${esc(needText(Object.fromEntries(RESOURCES.map((r, i) => [r, m.cargo[i]]).filter(([, v]) => v > 0))))}）をこの依頼に結び付ける</button>`).join('') : '<span class="note">この届け先へ向かう自分の隊商はまだ見えない</span>'}</div>` : ''}
     </div>`;
@@ -212,7 +212,25 @@ document.addEventListener('click', e => {
 /** この依頼への自分の送信のうち、次の送付を止めるもの（結果が分からない・着地したのに結び付けていない。板の sending の記録から。再読込・板の再起動の後も残る）。 */
 const blocking = q => (signer ? pendingSendOf(q, signer.address, z => z.outcome) : null);
 
+/**
+ * 送る手続きの途中の依頼（依頼の ID）。同じ依頼の「送る」をもう一度押しても、計画・確認・ウォレットへの署名の求めを二重に始めない。
+ * 手続きが終われば（送った・断られた・取り消した・失敗した・結果を追い終えた）、finally で外してボタンを戻す。
+ */
+const sendingNow = new Set();
+
 async function sendFor(q) {
+  if (sendingNow.has(q.id)) return say('この依頼の送る手続きが進んでいる。終わるまで待ってください（ウォレットの画面を確かめてください）', 'warn');
+  sendingNow.add(q.id);
+  renderRequests();
+  try {
+    return await sendOnce(q);
+  } finally {
+    sendingNow.delete(q.id);
+    renderRequests();
+  }
+}
+
+async function sendOnce(q) {
   const c = W.connected();
   if (!c || !signer) return say('先に署名する人を接続してください', 'warn');
   const b = blocking(q);

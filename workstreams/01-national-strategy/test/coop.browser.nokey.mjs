@@ -41,8 +41,13 @@ const dst = { kind: 1, p: 3, q: 0, at: 2, gen: 1, tile: 20 };
 const HOME_B = { p: 4, q: 0, site: 5, gen: 1 };
 
 const file = { v: 1, moving: [], vaults: [], ended: [] };
+// 中継：本物と同じく板 → ヘラルドの /gw で届く。ここでは GET /f/relay（手数料を払う住所・blockhash を答えるだけ。署名しない）だけを答える。
+// POST（取引を送る）は試験では起きてはならないので、来たら数えて断る。
+const relayPosts = [];
 const herald = http.createServer((req, res) => {
   if (req.url.startsWith('/h/caravans.json')) { res.writeHead(200, { 'content-type': 'application/json' }); return res.end(JSON.stringify(file)); }
+  if (req.url === '/gw/f/relay' && req.method === 'GET') { res.writeHead(200, { 'content-type': 'application/json' }); return res.end(JSON.stringify({ ok: true, programId, feePayer: b58(new Uint8Array(32).fill(9)), blockhash: b58(new Uint8Array(32).fill(5)), lastValidBlockHeight: 99 })); }
+  if (req.url.startsWith('/gw/')) { relayPosts.push(req.url); res.writeHead(500, { 'content-type': 'application/json' }); return res.end(JSON.stringify({ ok: false, code: 'NotInThisTest' })); }
   res.writeHead(404); res.end();
 });
 await new Promise(r => herald.listen(0, '127.0.0.1', r));
@@ -81,7 +86,9 @@ const errors = [], results = [];
 const step = async (name, f) => { try { await f(); results.push(['ok', name]); } catch (e) { results.push(['not ok', name, e.message]); } };
 
 /** 画面に、鍵を持たない Wallet Standard のウォレットを登録する（ゲームの wallet.mjs の discover が受け取る）。 */
-function walletScript({ address, fill }) {
+function walletScript({ address, fill, deferSign = false }) {
+  // deferSign：取引の署名を求められたら、署名せずに待つ（window.__signCalls で数え、window.__rejectSign() で断る）。署名したバイト列は返さない
+  window.__signCalls = 0;
   const account = { address, publicKey: new Uint8Array(32), chains: ['solana:localnet'], features: ['solana:signTransaction', 'solana:signMessage'] };
   const wallet = {
     version: '1.0.0', name: 'Test Wallet (no keys)', icon: 'data:image/svg+xml;base64,PHN2Zy8+', chains: ['solana:localnet'], accounts: [account],
@@ -89,15 +96,19 @@ function walletScript({ address, fill }) {
       'standard:connect': { version: '1.0.0', connect: async () => ({ accounts: [account] }) },
       'standard:events': { version: '1.0.0', on: () => () => {} },
       'solana:signMessage': { version: '1.0.0', signMessage: async (...inputs) => inputs.map(i => ({ signedMessage: i.message, signature: new Uint8Array(64).fill(fill) })) },
-      'solana:signTransaction': { version: '1.0.0', supportedTransactionVersions: ['legacy'], signTransaction: async () => { throw new Error('この試験のウォレットは取引に署名しない'); } },
+      'solana:signTransaction': { version: '1.0.0', supportedTransactionVersions: ['legacy'], signTransaction: async () => {
+        window.__signCalls += 1;
+        if (!deferSign) throw new Error('この試験のウォレットは取引に署名しない');
+        return new Promise((_, reject) => { window.__rejectSign = () => reject(Object.assign(new Error('User rejected the request'), { code: 4001 })); });
+      } },
     },
   };
   window.addEventListener('wallet-standard:app-ready', e => e.detail.register(wallet));
 }
 
-async function player(who, nation, server = srv, query = undefined) {
+async function player(who, nation, server = srv, query = undefined, { deferSign = false } = {}) {
   const ctx = await browser.newContext({ viewport: { width: 1280, height: 1000 } });
-  await ctx.addInitScript(walletScript, { address: who.address, fill: who.fill });
+  await ctx.addInitScript(walletScript, { address: who.address, fill: who.fill, deferSign });
   const page = await ctx.newPage();
   page.on('pageerror', e => errors.push(String(e)));
   page.on('dialog', d => d.accept());
@@ -235,6 +246,52 @@ try {
     assert.equal(await row.locator('[data-act=link]').count(), 0);
     assert.doesNotMatch(await row.textContent(), /ゲームの村の引き出し「交易と防備」からも送れる/);
     await pb3.context().close();
+  });
+
+  await step('送るを続けて押す：ウォレットの署名の求めが終わるまで、二つ目の手続き（計画・確認・署名の求め）を始めない。断る・取り消すとボタンが戻る', async () => {
+    const pa4 = await player(A, 0, srv);
+    await pa4.click('#send');
+    await pa4.waitForSelector('#msg .ok');
+    const q = Object.values(board.state().requests).sort((x, y) => y.at - x.at)[0];
+    await pa4.context().close();
+    const pb4 = await player(B, 2, srv, undefined, { deferSign: true });
+    const row = pb4.locator(`[data-req="${q.id}"]`);
+    await row.locator('[data-act=accept]').click();
+    await pb4.waitForSelector('#msg .ok');
+    const sendingsBefore = q.sendings.length;
+    const signCalls = () => pb4.evaluate(() => window.__signCalls);
+    // 1 回目：確認に応じ、ウォレットが署名を求められたまま待つ
+    await row.locator('[data-testid=send]').click();
+    await pb4.waitForFunction(() => window.__signCalls === 1, null, { timeout: 15000 });
+    await row.locator('[data-testid=send-busy]').waitFor();
+    assert.equal(await row.locator('[data-testid=send]').isDisabled(), true, '手続きの途中はボタンを押せない');
+    // 2 回目：ボタンを無理に押しても（disabled を外して click）、ウォレットへの求めは増えない
+    await pb4.evaluate(id => { const b = document.querySelector(`[data-req="${id}"] [data-testid=send]`); b.disabled = false; b.click(); }, q.id);
+    await pb4.waitForSelector('#msg .warn:has-text("送る手続きが進んでいる")');
+    await new Promise(r => setTimeout(r, 1500));
+    assert.equal(await signCalls(), 1, '二つ目の署名の求めを始めない');
+    // ウォレットで断る → 手続きが終わり、ボタンが戻る
+    await pb4.evaluate(() => window.__rejectSign());
+    await pb4.waitForSelector('#msg .bad:has-text("送れなかった")');
+    await row.locator('[data-testid=send-busy]').waitFor({ state: 'detached' });
+    assert.equal(await row.locator('[data-testid=send]').isDisabled(), false, '断った後はまた押せる');
+    // 確認で取り消す → ウォレットへ求めず、ボタンが戻る
+    pb4.removeAllListeners('dialog');
+    pb4.once('dialog', d => d.dismiss());
+    await row.locator('[data-testid=send]').click();
+    await pb4.waitForSelector('#msg :text("送らなかった")');
+    assert.equal(await signCalls(), 1, '取り消したら署名を求めない');
+    assert.equal(await row.locator('[data-testid=send]').isDisabled(), false);
+    // もう一度送り、また断る：求めはちょうど 1 回増える（手続きが前の手続きから戻っている）
+    pb4.on('dialog', d => d.accept());
+    await row.locator('[data-testid=send]').click();
+    await pb4.waitForFunction(() => window.__signCalls === 2, null, { timeout: 15000 });
+    await pb4.evaluate(() => window.__rejectSign());
+    await pb4.waitForSelector('#msg .bad:has-text("送れなかった")');
+    assert.equal(await signCalls(), 2);
+    assert.deepEqual(relayPosts, [], '中継へは何も送っていない');
+    assert.equal(board.state().requests[q.id].sendings.length, sendingsBefore, '署名されていないので sending の記録も無い');
+    await pb4.context().close();
   });
 
   await step('スマホの幅で横にはみ出さない', async () => {
