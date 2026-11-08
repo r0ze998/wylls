@@ -32,18 +32,32 @@ const { joinKind } = await import('../../permutation-server/web/frontier/hud/dra
 const { NO_TICKET } = await import('../../permutation-server/web/frontier/fland.mjs');
 const { ringProvinces, wedgeOf } = await import('../../permutation-server/web/frontier/fgeo.mjs');
 const { joinShardOf } = await import('../../permutation-server/web/frontier/faddr.mjs');
-const { encode: b58 } = await import('../../permutation-server/web/sdk/base58.mjs');
+const { encode: b58, decode: fromB58 } = await import('../../permutation-server/web/sdk/base58.mjs');
+const { decode } = await import('../../permutation-server/web/frontier/fcodec.mjs');
+const { encodeAccount } = await import('../../permutation-server/web/sdk/frontier/codec.mjs');
+const { fromHex } = await import('../../permutation-server/web/sdk/bytes.mjs');
 const { PROGRAM, SEASON_ID } = await import('../screens/world.mjs');
 
 const key = n => b58(new Uint8Array(32).fill(n));
-const OWNER = key(0xa1), NFT = key(0x5a), CHAIN = 'solana:localnet';
+/**
+ * The NFT played: the asset and the resident mark the program writes (frontier-abi `resident_citizen::mark`;
+ * vectors/v2/resident-citizen.json, case nft), never a wallet Citizen standing in for it.
+ */
+const RESIDENT = JSON.parse(readFileSync(new URL('../../frontier-abi/vectors/v2/resident-citizen.json', import.meta.url), 'utf8'));
+const OWNER = key(0xa1), NFT = RESIDENT.asset, CHAIN = 'solana:localnet';
 /** The identity the page plays the NFT as (fresident.identityOf's shape, written in: no address is made here). */
 const id = { asset: NFT, citizen: key(0x41), generation: 3, joined: true, proof: { policy: key(0x61), link: key(0x62), asset: NFT, resident: key(0x63) } };
 const home = ringProvinces(2)[0], FACTION = wedgeOf(home.p, home.q);
 const site = { p: home.p, q: home.q, site: 0, faction: FACTION, gen: 0 };
 const province = (p, q) => ({ p, q, siteCount: 2, sites: [5, 14], siteMirror: [{ state: 0, gen: 0 }, { state: 0, gen: 0 }], ticketCohorts: [] });
-/** An NFT Citizen as the herald decodes it: joined, no Frontier session (zero), no ticket, no holding. */
-const nftCitizen = () => ({ faction: FACTION, flags: 1, session: new Uint8Array(32), sessionExpiry: 0n, ticketEscrow: 0n, ticketBell: NO_TICKET, holding: [], ticketSites: [] });
+/** A joined v2 Citizen as the herald client decodes it: no Frontier session (zero), no ticket, no holding; the wallet's, or the NFT's with the program's resident mark over a zero wallet. */
+const citizenOf = ({ wallet = null } = {}) => {
+  const b = encodeAccount('Citizen', { SEASON_ID: BigInt(SEASON_ID), LAYOUT_VERSION: 2, WALLET: wallet ? fromB58(wallet) : new Uint8Array(32), FACTION, FLAGS: 1, TICKET_BELL: NO_TICKET }, { profile: 2 });
+  if (!wallet) b.set(fromHex(RESIDENT.cases.find(c => c.case === 'nft').bytes).subarray(RESIDENT.resident_asset_off), RESIDENT.resident_asset_off);
+  return decode('Citizen', b, { seasonId: SEASON_ID });
+};
+const nftCitizen = () => citizenOf();
+const walletCitizen = () => citizenOf({ wallet: OWNER });
 
 /** A Wallet Standard wallet that records its calls and signs nothing (fixed bytes back): the NFT's owner. */
 function fakeWallet() {
@@ -119,6 +133,7 @@ test('an NFT Citizen\'s first village: the confirm sends the PlaceHome as a Resi
 
 test('the viewer\'s key problem is the wallet Citizen\'s only: an NFT Citizen (a zero session on chain) has none to mend, and the drawer shows it the wait', () => {
   const citizen = nftCitizen();
+  assert.equal(b58(citizen.residentAsset), NFT, 'the program\'s NFT Citizen (WALLET zero, the asset marked)');
   Object.assign(FS, { wallet: { address: OWNER }, session: { publicKey: key(0x33), publicKeyBytes: new Uint8Array(32).fill(0x33) }, sessionProblem: null, delegation: null, agentWallet: false, resident: { ...id }, landRec: undefined });
   assert.equal(C.applyMeResult({ ok: true, record: {}, citizen, holdings: [], slots: [] }), 'found');
   assert.equal(FS.sessionProblem, null, 'playing an NFT: the wallet\'s own key is not held against its Citizen');
@@ -127,7 +142,10 @@ test('the viewer\'s key problem is the wallet Citizen\'s only: an NFT Citizen (a
   assert.equal(joinKind({ ...FS, session: null }), 'wait', 'with no key at all, the same');
   assert.equal(joinKind({ ...FS, wallet: null }), 'join', 'without the owner\'s wallet nothing can be signed');
   FS.resident = null;
-  C.applyMeResult({ ok: true, record: {}, citizen, holdings: [], slots: [] });
+  // as the wallet again, the NFT's Citizen is not its own (refused, not adopted); its own wallet Citizen is
+  assert.equal(C.applyMeResult({ ok: true, record: {}, citizen, holdings: [], slots: [] }), 'error');
+  assert.equal(FS.meError?.code, 'WrongKey');
+  assert.equal(C.applyMeResult({ ok: true, record: {}, citizen: walletCitizen(), holdings: [], slots: [] }), 'found');
   assert.equal(FS.sessionProblem, 'NoSession', 'the wallet\'s own Citizen without a registered key: a key to make');
   assert.equal(joinKind(FS), 'join');
   assert.equal(joinKind({ ...FS, sessionProblem: null }), 'wait');

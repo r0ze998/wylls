@@ -332,6 +332,23 @@ async fn the_s1_ring_4_to_5_growth_matches_the_golden_and_8s_contract() {
     zero.base.min_lead = 0;
     zero.base.max_lead = 0;
     assert_eq!(zero.validate(), Err("min_lead"));
+    // The beacon is quicknet's public constants, the only one CreateSeason
+    // accepts: the pk hash is sha256 of the quicknet key the herald serves,
+    // NETWORK 2, the quicknet genesis and period.
+    let qn = fclient::beacon::quicknet_info();
+    {
+        use sha2::{Digest, Sha256};
+        let h: [u8; 32] = Sha256::digest(qn.public_key).into();
+        assert_eq!(h, frontier_abi::presets::QUICKNET_PK_HASH);
+    }
+    assert_eq!(
+        sp.base.quicknet_pk_hash,
+        frontier_abi::presets::QUICKNET_PK_HASH
+    );
+    assert_eq!(
+        (sp.base.network, sp.base.drand_genesis, sp.base.drand_period),
+        (2, qn.genesis_time, qn.period)
+    );
     let se = fclient::decode::Season::decode(&gr::season_bytes_from(&sp)).unwrap();
     assert_eq!((se.min_lead, se.max_lead), (2, 72));
     assert_eq!(se.conquest.map(|c| c.r_max_ceiling), Some(gr::CEILING));

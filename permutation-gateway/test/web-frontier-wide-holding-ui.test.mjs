@@ -38,6 +38,7 @@ import { FS as STORE, activeHolding } from '../../permutation-server/web/frontie
 import { worldIdOf, ringPosition, WIDE_BOUND, WORLD_DOMAIN } from '../../permutation-server/web/frontier/map/wide.mjs';
 import { withSeed } from '../../permutation-server/web/frontier/faddr.mjs';
 import { decode } from '../../permutation-server/web/frontier/fcodec.mjs';
+import { createHerald } from '../../permutation-server/web/frontier/herald.mjs';
 import { encodeAccount } from '../../permutation-server/web/sdk/frontier/codec.mjs';
 import { residentCitizen } from '../../permutation-server/web/sdk/frontier/resident.mjs';
 import { encode as toB58, decode as fromB58 } from '../../permutation-server/web/sdk/base58.mjs';
@@ -60,8 +61,14 @@ const CITIZEN = PIN.addresses.of('Citizen', { wallet: WALLET_A });
 const OWNER = fromB58(CITIZEN);
 const OTHER_CITIZEN = PIN.addresses.of('Citizen', { wallet: WALLET_B });
 const OTHER_OWNER = fromB58(OTHER_CITIZEN);
-/** An NFT resident (⑳): its Citizen sits at the resident id's address. */
-const ASSET = toB58(new Uint8Array(32).fill(0x21));
+/**
+ * An NFT resident (⑳): its Citizen sits at the resident id's address. The asset and the resident mark (WALLET zero,
+ * RSV_348) are the program's own: frontier-abi `abi-vectors` writes them with `resident_citizen::mark`
+ * (vectors/v2/resident-citizen.json, case nft); nothing here models an NFT Citizen as a wallet Citizen.
+ */
+const RESIDENT = JSON.parse(readFileSync(new URL('../../frontier-abi/vectors/v2/resident-citizen.json', import.meta.url), 'utf8'));
+const ASSET = RESIDENT.asset;
+const RESIDENT_MARK = fromHex(RESIDENT.cases.find(c => c.case === 'nft').bytes).subarray(RESIDENT.resident_asset_off);
 const NFT_CITIZEN = residentCitizen(PIN.addresses, ASSET);
 const NFT_OWNER = fromB58(NFT_CITIZEN);
 const ENV = Object.freeze({ seasonAddress: SEASON_ADDR, programId: PROGRAM, world: WORLD, season: '5' });
@@ -75,9 +82,17 @@ const STORE_RATES = [40, 30, 25, 10, 5, 0, 0, 0];
 // ------------------------------------------------------------------ the viewer's Citizen bytes (the slot refs decide the bindings)
 const REF = Object.freeze({ empty: { P: 0, Q: 0, SITE: 0, GEN: 255 }, wide: { P: 0, Q: 0, SITE: 12, GEN: 0 }, home: { P: 2, Q: 0, SITE: 3, GEN: 1 }, legacy: { P: 3, Q: -1, SITE: 1, GEN: 1 } });
 const refsOf = bindings => bindings.map((b, i) => (b === 'legacy' ? (i === 0 ? REF.home : REF.legacy) : REF[b]));
-/** The viewer's decoded Citizen, by the codec's own round trip of the v2 layout: the wallet (or the NFT asset) and the three slot refs. */
-const citizenRecord = ({ wallet = WALLET_A, bindings = ['legacy', 'wide', 'empty'], refs = refsOf(bindings) } = {}) =>
-  decode('Citizen', encodeAccount('Citizen', { SEASON_ID: 5n, WALLET: fromB58(wallet), FACTION: 2, HOLDING: refs, TICKET_BELL: 0xffffffff }, { profile: 2 }), { profile: 2, seasonId: 5 });
+/** The viewer's v2 Citizen bytes: the wallet and the three slot refs; for an NFT resident, the program's resident mark over a zero wallet. */
+const citizenBytes = ({ wallet = WALLET_A, nft = false, bindings = ['legacy', 'wide', 'empty'], refs = refsOf(bindings) } = {}) => {
+  // (LAYOUT_VERSION 2, as every v2 account carries it: the codec picks the v2 layout from it when no profile is given)
+  const b = encodeAccount('Citizen', { SEASON_ID: 5n, LAYOUT_VERSION: 2, WALLET: nft ? new Uint8Array(32) : fromB58(wallet), FACTION: 2, HOLDING: refs, TICKET_BELL: 0xffffffff }, { profile: 2 });
+  if (nft) b.set(RESIDENT_MARK, RESIDENT.resident_asset_off);
+  return b;
+};
+/** The viewer's decoded Citizen, by the codec's own round trip of the v2 layout. */
+const citizenRecord = opts => decode('Citizen', citizenBytes(opts), { profile: 2, seasonId: 5 });
+/** The NFT resident's own Citizen, as the program writes it (its `residentAsset` is ASSET). */
+const nftCitizenRecord = opts => citizenRecord({ ...opts, nft: true });
 /** The parser's pins as the controller passes them: the season's addresses, the viewer's derived Citizen and the viewer's Citizen bytes. */
 const PINS = Object.freeze({ seasonAddress: SEASON_ADDR, programId: PROGRAM, seasonId: '5', citizen: CITIZEN, citizenRecord: citizenRecord() });
 const pinsOf = (bindings, over = {}) => ({ ...PINS, citizenRecord: citizenRecord({ bindings }), ...over });
@@ -663,6 +678,10 @@ test('the controller pins the wide inventory to the Citizen it derives from the 
     CTRL.applyMeResult(meOf(citizenRecord(), wideOf(CITIZEN, OWNER)));
     assert.equal(STORE.wideStatus, 'ready'); assert.equal(STORE.wideHoldings.context.citizen, CITIZEN); assert.equal(STORE.wideError, null);
     assert.match(flat(renderWidePips(STORE)), /data-slot="2"/);
+    // the wallet's /h/me carrying an NFT Citizen (its mark names an asset, so it is not this wallet's Citizen): refused, not adopted
+    const walletOwn = STORE.citizen;
+    assert.equal(CTRL.applyMeResult(meOf(nftCitizenRecord(), wideOf(CITIZEN, OWNER))), 'error');
+    assert.deepEqual([STORE.meStatus, STORE.meError.code, STORE.wideStatus, STORE.citizen], ['error', 'WrongKey', 'error', walletOwn]);
     // A's bytes with slot 2 not bound wide while the envelope says wide: refused
     CTRL.applyMeResult(meOf(citizenRecord({ bindings: ['legacy', 'empty', 'empty'] }), wideOf(CITIZEN, OWNER)));
     assert.equal(STORE.wideError.code, 'BadWideRecord');
@@ -671,20 +690,27 @@ test('the controller pins the wide inventory to the Citizen it derives from the 
     assert.equal(STORE.wideError.code, 'BadWideRecord');
     // playing an NFT: the pin is the NFT's Citizen; A's inventory is then another Citizen's, and bytes of another viewer are refused
     STORE.resident = { ...NFT, citizen: NFT_CITIZEN };
-    CTRL.applyMeResult(meOf(citizenRecord({ wallet: ASSET }), wideOf(CITIZEN, OWNER)));
+    CTRL.applyMeResult(meOf(nftCitizenRecord(), wideOf(CITIZEN, OWNER)));
     assert.equal(STORE.wideError.code, 'WrongKey');
     CTRL.applyMeResult(meOf(citizenRecord({ wallet: WALLET_A }), wideOf(NFT_CITIZEN, NFT_OWNER)));
     assert.equal(STORE.wideError.code, 'WrongKey');
-    CTRL.applyMeResult(meOf(citizenRecord({ wallet: ASSET }), wideOf(NFT_CITIZEN, NFT_OWNER)));
+    CTRL.applyMeResult(meOf(nftCitizenRecord(), wideOf(NFT_CITIZEN, NFT_OWNER)));
     assert.equal(STORE.wideStatus, 'ready'); assert.equal(STORE.wideHoldings.context.citizen, NFT_CITIZEN);
+    assert.equal(toB58(STORE.citizen.residentAsset), ASSET, 'the NFT\'s own Citizen is the viewer\'s');
+    // a wallet Citizen keyed by the asset (WALLET = the asset address; the herald's me_citizen serves such a Citizen
+    // first for /h/me/{asset}, and the herald client takes it as that key's wallet Citizen) is not the NFT's: refused,
+    // never adopted as the NFT player's Citizen or holdings
+    const nftOwn = STORE.citizen;
+    assert.equal(CTRL.applyMeResult(meOf(citizenRecord({ wallet: ASSET }), wideOf(NFT_CITIZEN, NFT_OWNER))), 'error');
+    assert.deepEqual([STORE.meStatus, STORE.meError.code, STORE.wideStatus, STORE.wideError.code, STORE.citizen], ['error', 'WrongKey', 'error', 'WrongKey', nftOwn]);
     // no wide fields at all: unavailable, never an empty inventory; NotFound: unavailable, nothing kept
-    CTRL.applyMeResult(meOf(citizenRecord({ wallet: ASSET })));
+    CTRL.applyMeResult(meOf(nftCitizenRecord()));
     assert.equal(STORE.wideStatus, 'unavailable');
-    CTRL.applyMeResult(meOf(citizenRecord({ wallet: ASSET }), wideOf(NFT_CITIZEN, NFT_OWNER))); selectWide(STORE, 2);
+    CTRL.applyMeResult(meOf(nftCitizenRecord(), wideOf(NFT_CITIZEN, NFT_OWNER))); selectWide(STORE, 2);
     assert.equal(CTRL.applyMeResult({ ok: false, code: 'NotFound' }), 'missing');
     assert.deepEqual([STORE.wideStatus, STORE.wideHoldings, STORE.wideSelect], ['unavailable', null, null]);
     // a failed read: an error, no data, no selection
-    CTRL.applyMeResult(meOf(citizenRecord({ wallet: ASSET }), wideOf(NFT_CITIZEN, NFT_OWNER))); selectWide(STORE, 2);
+    CTRL.applyMeResult(meOf(nftCitizenRecord(), wideOf(NFT_CITIZEN, NFT_OWNER))); selectWide(STORE, 2);
     assert.equal(CTRL.applyMeResult({ ok: false, code: 'Unavailable' }), 'error');
     assert.deepEqual([STORE.wideStatus, STORE.wideHoldings, STORE.wideSelect, STORE.wideError.code], ['error', null, null, 'Unavailable']);
   } finally { restore(); }
@@ -715,7 +741,7 @@ test('an NFT login or logout changes the viewer at once: the former viewer\'s wi
     assert.equal(STORE.resident?.citizen, NFT_CITIZEN, 'the NFT\'s Citizen is derived, not read');
     assert.deepEqual([STORE.wideStatus, STORE.wideHoldings, STORE.wideSelect, STORE.wideError], ['loading', null, null, null], 'cleared while the read is in flight');
     assert.equal(wideModel(STORE).kind, 'none'); assert.equal(flat(renderWidePips(STORE)), '');
-    (await read(ASSET))(meOf(citizenRecord({ wallet: ASSET }), wideOf(NFT_CITIZEN, NFT_OWNER)));
+    (await read(ASSET))(meOf(nftCitizenRecord(), wideOf(NFT_CITIZEN, NFT_OWNER)));
     await login;
     assert.equal(STORE.wideStatus, 'ready'); assert.equal(STORE.wideHoldings.context.citizen, NFT_CITIZEN); assert.equal(STORE.wideSelect, null, 'the former viewer\'s choice is not this one\'s');
     CTRL.ACTIONS['wide-select']({ slot: '2' });
@@ -732,7 +758,7 @@ test('an NFT login or logout changes the viewer at once: the former viewer\'s wi
     answerWallet(meOf(citizenRecord(), wideOf(CITIZEN, OWNER)));
     await logout;
     assert.deepEqual([STORE.wideStatus, STORE.wideHoldings, STORE.wideSelect], ['loading', null, null], 'a late answer for a former viewer restores nothing');
-    answerNft(meOf(citizenRecord({ wallet: ASSET }), wideOf(NFT_CITIZEN, NFT_OWNER)));
+    answerNft(meOf(nftCitizenRecord(), wideOf(NFT_CITIZEN, NFT_OWNER)));
     await again;
     assert.equal(STORE.wideStatus, 'ready'); assert.equal(STORE.wideHoldings.context.citizen, NFT_CITIZEN); assert.equal(STORE.wideSelect, null);
     // a final logout answered in order: the wallet's own inventory, no selection carried over
@@ -754,6 +780,50 @@ test('an NFT login or logout changes the viewer at once: the former viewer\'s wi
     CTRL.adoptResident(null);
     assert.deepEqual([STORE.wideStatus, STORE.wideSelect, STORE.resident], ['loading', null, null]);
     assert.equal(reads.length, 0, 'no read left unanswered');
+  } finally { CTRL.useHerald(null); restore(); }
+});
+
+test('the controller reads an NFT resident\'s own /h/me through the real herald client: the program\'s resident bytes are the viewer\'s; a wallet Citizen keyed by the asset is refused; the wallet viewer is unchanged (⑳)', async () => {
+  const restore = keepStore();
+  const routes = new Map();
+  // The real herald client over a stand-in fetch, pinned as startPlay pins it (the season's public addresses).
+  const h = createHerald({ base: 'http://herald.test', seasonId: 5, fetch: async url => {
+    const m = /\/h\/me\/([^/?]+)$/.exec(String(url));
+    const body = m ? routes.get(decodeURIComponent(m[1])) : undefined;
+    return body === undefined ? { ok: false, status: 404, json: async () => ({}) } : { ok: true, status: 200, json: async () => structuredClone(body) };
+  } });
+  h.pin('5', PIN.addresses);
+  const answer = (address, bytes, wide) => ({ v: 1, citizen: { address, bytes_b64: toBase64(bytes) }, holdings: [], slots: [], ...wide });
+  try {
+    Object.assign(STORE, baseStore(), { resident: { ...NFT, citizen: NFT_CITIZEN } });
+    CTRL.useHerald(h);
+    // a wallet Citizen keyed by the asset, at that wallet's canonical address: the herald client accepts it for the
+    // key, the controller does not take it as the NFT's Citizen
+    routes.set(ASSET, answer(PIN.addresses.of('Citizen', { wallet: ASSET }), citizenBytes({ wallet: ASSET }), wideOf(NFT_CITIZEN, NFT_OWNER)));
+    assert.equal((await h.me(ASSET)).ok, true, 'a valid wallet Citizen for the key, as far as the herald client can tell');
+    await CTRL.refresh();
+    assert.deepEqual([STORE.meStatus, STORE.meError?.code, STORE.citizen, STORE.wideStatus], ['error', 'WrongKey', null, 'error']);
+    // the program's NFT Citizen bytes at the resident id's address: the viewer's own Citizen and wide inventory
+    routes.set(ASSET, answer(NFT_CITIZEN, citizenBytes({ nft: true }), wideOf(NFT_CITIZEN, NFT_OWNER)));
+    await CTRL.refresh();
+    assert.equal(STORE.meStatus, 'ready', STORE.meError?.code);
+    assert.equal(toB58(STORE.citizen.residentAsset), ASSET);
+    assert.ok(STORE.citizen.wallet.every(x => x === 0), 'WALLET zero, as the program writes it');
+    assert.deepEqual([STORE.wideStatus, STORE.wideHoldings.context.citizen], ['ready', NFT_CITIZEN]);
+    // the same bytes named at the asset's wallet-derived address: refused by the herald client itself
+    routes.set(ASSET, answer(PIN.addresses.of('Citizen', { wallet: ASSET }), citizenBytes({ nft: true }), wideOf(NFT_CITIZEN, NFT_OWNER)));
+    await CTRL.refresh();
+    assert.deepEqual([STORE.meStatus, STORE.meError?.code], ['error', 'WrongKey']);
+    // the wallet viewer: its own Citizen, read and adopted as before; the NFT's bytes for the wallet key are refused
+    STORE.resident = null;
+    routes.set(WALLET_A, answer(CITIZEN, citizenBytes(), wideOf(CITIZEN, OWNER)));
+    await CTRL.refresh();
+    assert.equal(STORE.meStatus, 'ready', STORE.meError?.code);
+    assert.equal(toB58(STORE.citizen.wallet), WALLET_A); assert.equal(STORE.citizen.residentAsset, undefined);
+    assert.deepEqual([STORE.wideStatus, STORE.wideHoldings.context.citizen], ['ready', CITIZEN]);
+    routes.set(WALLET_A, answer(CITIZEN, citizenBytes({ nft: true }), wideOf(CITIZEN, OWNER)));
+    await CTRL.refresh();
+    assert.deepEqual([STORE.meStatus, STORE.meError?.code], ['error', 'WrongKey']);
   } finally { CTRL.useHerald(null); restore(); }
 });
 
