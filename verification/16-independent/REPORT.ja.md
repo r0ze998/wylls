@@ -4077,3 +4077,13 @@ env -u NODE_OPTIONS -u WS04_SCAN_ROOT -u RUNEXEC_BIN -u RUNEXEC_VIEW_BIN bash sc
   - 3：node の側の条件つきの経路。keyless の literal と、`srv.live` を呼ぶ箇所が 0 件であることの明示。
   - 4：screens 用の runner（node_modules は playwright-core だけ、NODE_PATH は unset、完全な出力の保存）。4 に頼む。
 - 画面の実行は、まだ除外のまま。
+
+### C. want-province と viewer-own-citizen：4 と ⑯ の合意
+
+- 4 は、553f7fe7 で自分の静的な呼び出しの図を作った（comment と文字列を除き、本物の `name(` の呼び出しだけを数えた）。
+  - `applyMeResult`、`useHerald`、`wantProvince`、`loadEnvelope`、`refreshDelegation` から、鍵の入口を含む関数にも、その呼び出し元にも届かない。鍵の入口を含む関数は `syncConnectedWallet` 578、`startPlay` 2147・2163、ACTIONS の `join` と `session` 1928・1944。呼び出し元は `confirmHome` 1315・1348・1360。
+  - fwide、fland、fdelegation、fconquest、fstate、fui は鍵の入口を名指さない。`matchesCitizen` は純粋。`loadAgents` は GET で、`request`（fchainio.mjs 55）は普通の fetch。
+  - FS の状態によらない、という ⑯ の §29.39 C と一致した。
+- これで、ユーザーの条件（⑯ の証明と、4 の除外の理由が合うまで保留）は満たされた。
+- この 2 file は、§29.36 の C と D の条件のまま、553f7fe7 で実行してよい：reviewed の digest は viewer-own-citizen `c57b84cc…` と want-province `a623aab2…`、node_modules の無い worktree、preload の digest `b301d64b…`、NODE_OPTIONS と NODE_PATH は unset、1 file ずつ、完全な出力を保存。
+- 結果は、4 の報告を待つ。
