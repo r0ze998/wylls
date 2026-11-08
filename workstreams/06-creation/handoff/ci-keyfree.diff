@@ -6,12 +6,12 @@ index ce35e259..f77105ab 100644
        - name: Gateway and web tests (key-free)
          working-directory: .
          run: scripts/ci/node-keyfree.sh permutation-gateway 'test/*.test.mjs' 'screens/logic.screen.mjs'
-+      # Workstream 06 (creation): the four key-free files only, named one by one;
++      # Workstream 06 (creation): the five key-free files only, named one by one;
 +      # 06's other tests sign with keys derived from demo seeds and run only by hand.
 +      - name: Creation, caravan connection (workstream 06, key-free)
 +        working-directory: .
 +        if: hashFiles('workstreams/06-creation/test/connect.test.mjs') != ''
-+        run: scripts/ci/node-keyfree.sh workstreams/06-creation 'test/connect.test.mjs' 'test/connect-live.test.mjs' 'test/dispatch.test.mjs' 'test/ports.test.mjs'
++        run: scripts/ci/node-keyfree.sh workstreams/06-creation 'test/connect.test.mjs' 'test/connect-live.test.mjs' 'test/dispatch.test.mjs' 'test/ports.test.mjs' 'test/intake.test.mjs'
  
    # ------------------------------------------------------------------ M1
    # Frontier M1 (docs/frontier/m1/M1-CONTRACT.md §3.2, §12; CL-36). The
