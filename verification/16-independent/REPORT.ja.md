@@ -3388,3 +3388,11 @@ workflow run が 16 のままであることは ④ が数えたもので、⑯ 
 - tree `9a03b8f2…` は 3c7c0929 の tree と同じで、merge-tree が出す tree とも一致する。だから、§29.31 の 3c7c0929 での実行（cargo 3/3、node 23/23）がそのまま当てはまる。
 - ⑲ の 2db2db4b（map-arrival の柵の試験）は、まだ取り込まれていない。
 - §29.31 の 3 点（RENT_TO、Holding の chain の頭、holding key の gen）は、取り込んだ後も残っている。
+
+**追記（⑲ 8945b582、tree `b8f9fc27…`、2db2db4b の上）。**
+- `palisade_at` に camp の条件が加わった。使う camp の layout は、program と同じ `frontier_abi::layout::province::camp`（STATE @1、STATE_PRESENT=1）である。golden は変わっていない。cargo の突き合わせが通るので、結果に影響が無いことが確かめられる。
+- 新しい Node の試験は、読んだ表の stance [2][1] を 1（pass）にすると塞がれず、0（war）に戻すと 1 hex が塞がれることを確かめる。これで、`blockedHexes` が表の値を使うことが示された。
+  - `stanceOf` の向きは `stances[n][f]` で、n = 柵の国 2、f = 見る者の faction 1。
+  - ただし、page が実際に feed の表を store に入れることは、§29.31 の静的な確認（`refreshS1` が `s1.nations = r.nations` とする）に頼っている。
+- RENT_TO、Holding の chain の頭の遅れ、場面の選択は、`palisade_case` の doc に書かれた。値は変えていない。payer と支払いは定義が決めないので、変えないという ⑲ の理由は妥当である。
+- ⑯ の実行：`node-keyfree.sh` で map-contract、map-arrival、growth-route が **25/25**。cargo の ws19_map_contract が **3/3**。worktree に変更は無い。

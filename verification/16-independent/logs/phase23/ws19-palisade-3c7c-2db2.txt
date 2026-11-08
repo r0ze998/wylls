@@ -18,3 +18,10 @@ key-free run: 3 files in permutation-gateway (221 left out, listed)
 # fail 0
 ## probes/v16-ws19-palisade-route.mjs (repo no-keys-guard): the kernel's own answers, printed
 {"hex":{"q":33,"r":-16},"free":{"dirs":[0,0,0,0,1,1,0,1,1],"secs":1320,"hexes":9},"blocked":{"dirs":[5,0,0,1,0,1,1,0,1,1],"secs":1320,"hexes":10},"altBlocks":["33,-16:1320s/10","34,-16:1320s/10","35,-16:1320s/10","36,-16:1320s/10","37,-17:1320s/9","38,-18:1320s/9","39,-18:1320s/11","40,-19:1320s/11"],"earliestBellFromBell0":3,"lead":[null,null]}
+### ⑲ 8945b582 (tree b8f9fc27)
+key-free run: 3 files in permutation-gateway (221 left out, listed)
+# tests 25
+# pass 25
+# fail 0
+## cargo ws19_map_contract (WS19_GOLDEN_WRITE unset; worktree clean after)
+test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.39s
