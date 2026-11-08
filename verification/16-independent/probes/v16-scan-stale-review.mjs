@@ -17,7 +17,14 @@ const base = {
   'scripts/ci/node-key-reviewed.txt': `${T}  ${process.env.V16_DIGEST ? 'closure=0000000000000000  ' : ''}# review: caravan uses plan.resolve only (pure)\n`,
 };
 // with a digest-pinning scan (V16_DIGEST=1): take the digest the scan reports for the reviewed state, as a reviewer would
-const pin = d => { const r = run(d); const m = /closure=([0-9a-f]{16})/.exec(r.stderr); if (m) { const f = path.join(d, 'scripts/ci/node-key-reviewed.txt'); writeFileSync(f, readFileSync(f, 'utf8').replace('closure=0000000000000000', `closure=${m[1]}`)); } };
+// (a scan with `--digest <path>` (④ 5045fe3d and later) prints the digest; else take it from the stale-review message)
+const pin = d => {
+  const f = path.join(d, 'scripts/ci/node-key-reviewed.txt');
+  const g = run(d, ['--digest', T]); const full = /closure=([0-9a-f]{64})/.exec(g.stdout);
+  if (full) { writeFileSync(f, `${T}  closure=${full[1]}  # review: caravan uses plan.resolve only (pure)\n`); return; }
+  const r = run(d); const m = /closure=([0-9a-f]{16})/.exec(r.stderr);
+  if (m) writeFileSync(f, readFileSync(f, 'utf8').replace('closure=0000000000000000', `closure=${m[1]}`));
+};
 const tree = files => { const d = mkdtempSync(path.join(os.tmpdir(), 'v16-scan-stale-')); for (const [r, b] of Object.entries(files)) { mkdirSync(path.dirname(path.join(d, r)), { recursive: true }); writeFileSync(path.join(d, r), b); } return d; };
 const run = (d, args = []) => spawnSync(process.execPath, [scan, ...args], { env: { ...process.env, WS04_SCAN_ROOT: d }, encoding: 'utf8' });
 const listed = d => readFileSync(path.join(d, 'scripts/ci/node-key-tests.txt'), 'utf8').split('\n').filter(l => l && !l.startsWith('#'));

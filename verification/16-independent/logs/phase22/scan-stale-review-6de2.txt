@@ -1,0 +1,32 @@
+{
+ "C0 control: S1 with no review entry at all": {
+  "before": "test NOT listed (runs in key-free jobs: the review still holds)",
+  "check": "--check exit 3",
+  "after": "test LISTED (excluded from key-free jobs)"
+ },
+ "S4 harmless edit to a file in the closure (a comment)": {
+  "before": "test NOT listed (runs in key-free jobs: the review still holds)",
+  "check": "--check exit 5",
+  "after": "scan refuses (exit 5): stale review (what it read changed; review again): workstreams/06-creation/test/dispatch.test.mjs  closure=59fd74e08486bb65114057360950410891f6f4a6738e0f0298d91f3f17b88962"
+ },
+ "S0 as reviewed (only plan.resolve is called)": {
+  "before": "test NOT listed (runs in key-free jobs: the review still holds)",
+  "check": "--check passes (exit 0)",
+  "after": "test NOT listed (runs in key-free jobs: the review still holds)"
+ },
+ "S1 dependency changed: caravan now calls plan.sealPlan (-> signHash -> key generation)": {
+  "before": "test NOT listed (runs in key-free jobs: the review still holds)",
+  "check": "--check exit 5",
+  "after": "scan refuses (exit 5): stale review (what it read changed; review again): workstreams/06-creation/test/dispatch.test.mjs  closure=8af4fc1f173ad18f8a02b9df00aaa92655ba2a25ca4f78eda06a106784f11679"
+ },
+ "S2 the reviewed test itself now calls signHash (no key-API name in its own text)": {
+  "before": "test NOT listed (runs in key-free jobs: the review still holds)",
+  "check": "--check exit 5",
+  "after": "scan refuses (exit 5): stale review (what it read changed; review again): workstreams/06-creation/test/dispatch.test.mjs  closure=9b2ae9a5cf6dc885efb94ee856fd88916b302bce092e50f6a93f67e4119d83dd"
+ },
+ "S3 a new dependency that generates a key is imported and called": {
+  "before": "test NOT listed (runs in key-free jobs: the review still holds)",
+  "check": "--check exit 5",
+  "after": "scan refuses (exit 5): stale review (what it read changed; review again): workstreams/06-creation/test/dispatch.test.mjs  closure=8e3688a05e622c2770056e736866205c0eeef7b56c257aca73e385aad95c6caf"
+ }
+}

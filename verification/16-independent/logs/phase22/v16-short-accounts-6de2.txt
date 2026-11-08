@@ -1,0 +1,10 @@
+V16 DepositLot: full = Partial("DepositLot: the lot's side matches the kernel; the route is not judged: the Season's state before the transaction is not in the input")
+V16 DepositLot: without path Provinces = Partial("DepositLot: the lot's side matches the kernel; the route is not judged: the instruction lists no path Province (the program needs one or more)")
+V16 DepositLot: cut before the vault = Unreplayed("the instruction lacks its accounts")
+V16 ShipLot: full = Partial("ShipLot: the lot's side matches the kernel; the route is not judged: the Season's state before the transaction is not in the input")
+V16 ShipLot: without path Provinces = Partial("ShipLot: the lot's side matches the kernel; the route is not judged: the instruction lists no path Province (the program needs one or more)")
+V16 ShipLot: cut before the vault = Unreplayed("the instruction lacks its accounts")
+V16 WithdrawLot: full = Partial("WithdrawLot: the lot's side matches the kernel; the route is not judged: the Season's state before the transaction is not in the input")
+V16 WithdrawLot: without path Provinces = Partial("WithdrawLot: the lot's side matches the kernel; the route is not judged: the instruction lists no path Province (the program needs one or more)")
+V16 WithdrawLot: cut before the vault = Unreplayed("the instruction lacks its accounts")
+test result: ok. 14 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.24s

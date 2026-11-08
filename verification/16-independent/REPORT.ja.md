@@ -2386,3 +2386,36 @@ T7（crash では作れない損傷）の結果：
   - path Province の無い記録は「account が欠けた入力」なので、同じ file の慣例（account が欠ければ UNVERIFIABLE）に合わせるのがよい。
   - 案：`get(first..)` が None か空のときは Partial「the instruction lacks its path Province accounts」にする。どうするかは ⑩ の判断。
   - 実害：landed した本物の記録では起きない。切れた記録や偽の記録で、UNVERIFIABLE の代わりに FAIL になるだけ。
+
+### 27.11 ④ 5045fe3d → 0dd37253 → 6de240aa：review の digest、V26 の修正、⑦ の fail-closed の guard
+
+- 対象：`6de240aa4e8c6d0ce4732fe9c63d9b5bdb9a7e99`（tree `6115eac21df58c5a16ce8527f0b0438319ce2bae`）。02be5f41 の上に次の 3 つ:
+  - `5045fe3d`（tree `21d7c76e…`）：scan に review の digest を入れた。
+  - `0dd37253`（tree `7fe5ddb6…`）：⑩ `995bfe3ccd1b97ab41ab2a9718c36afc69a68b06`（0007）の cherry-pick。差分は⑩と**同じ**。
+  - `6de240aa`：⑦ `84251e5a…`（tree `c2e576ef…`）の merge。`permutation-gateway/screens` と `permutation-server/web` は 84251e5a と**一致**。
+- **V26（0007）**：
+  - path Province が無いと、`wrong` の代わりに `missing`（Partial）になった。
+  - ⑯ の probe で、DepositLot・ShipLot・WithdrawLot のどれも「not judged: the instruction lists no path Province」になった。§27.10 の点は直った。
+  - custody_replay_caravans は 13 件に ⑯ の probe 1 件を足して 14/14（`logs/phase22/v16-short-accounts-6de2.txt`）。試験 file は元に戻した。
+  - 「0 歩の例外は無い」という ⑩ の訂正は、⑯ が読んだ custody.rs:428 と一致する。
+- **scan の review の digest（5045fe3d）**：
+  - `--check` は exit 0（119/205/23/8）。fixture の試験は 6/6。
+  - ⑯ の fixture を、`--digest` で正しい digest を付ける形に直して流した（`logs/phase22/scan-stale-review-6de2.txt`）:
+    - S0（review したまま）は通る。
+    - S1・S2・S3（鍵の呼び出しを足す）と S4（comment）は、exit 5「stale review」。
+    - C0（entry が無い）は list に載る。
+  - 実際の list は、流す前と byte まで同じ。
+  - 8 件の entry の閉包には、bare の package import が無い（node_modules の外の code が digest から漏れない）。
+  - **残る限界（低い）**：connect-live の `load(WS03_ROOT, …)` と `load(WS04_ROOT, …)` は、環境変数が指す**別の tree** から、実行のときに読む。
+    - digest が固定するのは、この repo の中の同じ path の file だけ。違う commit の ③・④ を指せば、review していない code が動く。
+    - CI では環境変数が無いので skip される（試験の 33 行）。
+    - 案：WS03_ROOT と WS04_ROOT が repo の root でなければ、読む前に target の digest を確かめるか、skip する。または、review はこの repo の root を指すときだけ有効と、理由の文に書く。RUNEXEC_BIN（Rust）も同じ。
+- **⑦ の guard（84251e5a）の静的な読み**:
+  - ws07-guard は、10 個の sentinel（配る session.mjs の末尾、2 つの関数の本体、subtle の 6 つの method、Worker）を、呼び出しなしに source の text で確かめる。
+  - 一つでも外れれば何も呼ばずに止まり、page の中でも呼ぶ前に確かめ直す。wallet の 2 つの sign も、source を確かめてから呼ぶ。
+  - 陰性の試験は、guard 無しで 10 件、route の無い init で 3 件の sentinel が外れることを示し、そのときの記録は空。
+  - NK.init は Worker と SharedWorker の生成を拒否し、記録する。
+  - G1（fail-open）と G2（Worker の生成）は直った。Worker の realm の中の guard は無いまま（seal を押す試験は無い）。
+  - ⑯ は ws07-guard を流していない（④ の 2/2 だけがある）。
+- ⑯ の独立の実行：6de240aa の ws07-march を、full Chromium と repo の `no-keys-guard` の下で流し、**2/2**（desktop・phone）。`logs/phase22/ws07-march-6de2.txt`。
+  - 届いた範囲は、§27.4 と同じく封印前の order の作成まで。seal・署名・送信・march の成功の証拠にはしない。

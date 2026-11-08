@@ -1,0 +1,6 @@
+ok 1 - the march order @ desktop: choose, change, stance, cancel, repeated presses, a refresh, back/forward and a reload — nothing sealed, signed or sent
+ok 2 - the march order @ phone: choose, change, stance, cancel, repeated presses, a refresh, back/forward and a reload — nothing sealed, signed or sent
+# tests 2
+# pass 2
+# fail 0
+exit=0
