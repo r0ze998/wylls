@@ -56,6 +56,8 @@ use permutation_rules::frontier::geometry::{
 };
 use permutation_rules::frontier::terrain::generate_province;
 
+pub mod growth;
+
 pub const SEASON_ID: u64 = 9;
 pub const GENESIS_TS: i64 = 1_800_000_000;
 pub const END_BELL: u32 = 288;

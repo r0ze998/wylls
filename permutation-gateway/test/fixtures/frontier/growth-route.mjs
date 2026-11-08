@@ -67,9 +67,10 @@ export function growthFields(stage) {
 export const withGrowth = (record, stage) => ({ ...record, ...growthFields(stage) });
 
 // ------------------------------------------------------------------ the S1 Season and Frontier bytes (layout 2)
-// Built with the SDK's own encoder (sdk/frontier/codec.mjs encodeAccount, profile 2: Season 2048 bytes, Frontier
-// 512), not a second one. Workstream 19's herald golden is a layout-1 (M1) world without the conquest block, so the
-// S1 growth fields (conquest R_MAX_CEILING @78, Frontier R_MAX_EXT @66) are here. Other Season fields are the
+// Built with the SDK's own encoder (sdk/frontier/codec.mjs encodeAccount, profile 2), not a second one. The sizes
+// (Season 2048, Frontier 512) are the same at both layouts; layout_version 2, program_version 4 and the v3 ruleset
+// hash are what make these S1. Workstream 19's router golden of the same stages (herald cqfixture/growth.rs) is
+// the real-handler counterpart; this builder is the minimal one the page tests run without it. Other fields are the
 // MC_LOCAL_7D preset's conquest block with program_version 4 and the S1 ruleset hash, so the page loads v3.
 export const SEASON_ID = 71, GENESIS_TS = 1_800_000_000, BELL_SECS = 600;
 const hexBytes = h => Uint8Array.from(h.match(/../g), x => parseInt(x, 16));

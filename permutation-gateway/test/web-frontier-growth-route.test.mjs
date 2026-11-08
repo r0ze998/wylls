@@ -124,7 +124,7 @@ test('the S1 bytes: the page\'s herald decodes the Season at layout 2 / v4 with 
     const r = await createHerald({ base: 'http://h', fetch }).season();
     assert.ok(r.ok, `${stage}: ${r.code}`);
     const s = r.season, cq = [s.conquestParams].flat()[0];
-    assert.equal(Buffer.from(rec.bytes_b64, 'base64').length, 2048, 'a layout-2 Season (not a layout-1 one)');
+    assert.equal(Buffer.from(rec.bytes_b64, 'base64').length, 2048, 'the Season account size (the same at both layouts: layout and program version below tell S1 from M1)');
     assert.deepEqual([s.layoutVersion, s.programVersion], [2, 4]);
     assert.equal(kernelFile(s), 'frontier-v3.wasm');
     assert.equal(Buffer.from(s.rulesetHash).toString('hex'), PRESETS.ruleset_hash_v3, 'the kernel the before() hook loaded is the one this Season names');
@@ -133,9 +133,46 @@ test('the S1 bytes: the page\'s herald decodes the Season at layout 2 / v4 with 
     assert.equal(s.genesisRing, G.GENESIS_RING);
     assert.deepEqual([...s.genesisSeed], [...G.GENESIS_SEED], 'the genesis rings\' seeds come from the Season\'s own genesis seed');
     const fb = G.frontierBytes(stage), f = decode('Frontier', fb, { seasonId: G.SEASON_ID });
-    assert.equal(fb.length, 512);
+    assert.equal(fb.length, 512); // the Frontier size, also the same at both layouts
     assert.equal(f.ringsOpened, rec.ringsOpened, stage);
     assert.equal(Math.max(s.rMax, f.rMaxExt), rec.rMax, `${stage}: the herald's rMax is the effective one`);
     assert.equal(rec.rMaxCeiling, cq.rMaxCeiling);
+  }
+});
+
+// Workstream 19's real-router golden (its branch 32e13f7c; merge that before this test) of the same four stages (herald cqfixture/growth.rs → Fold → server::router):
+// the page's herald reads each stage's /h/season and Province envelopes, and the route runs on the record's seeds.
+const GOLDEN = new URL('../../frontier-node/crates/herald/tests/golden/ws19-map-growth-s1.json', import.meta.url);
+test('the real router\'s answers (workstream 19\'s golden): the same fields, seeds, Provinces and route at every stage', async () => {
+  const g = JSON.parse(readFileSync(GOLDEN, 'utf8'));
+  for (const stage of G.STAGE_ORDER) {
+    const answers = g.stages[stage];
+    const fetch = async url => {
+      const a = answers[new URL(url).pathname];
+      const status = a?.status ?? 404, body = a?.body ?? null;
+      return { ok: status === 200, status, headers: { get: () => 'application/json' }, json: async () => body, text: async () => JSON.stringify(body), arrayBuffer: async () => new ArrayBuffer(0), url };
+    };
+    const h = createHerald({ base: 'http://h', fetch });
+    const r = await h.season();
+    assert.ok(r.ok, `${stage}: ${r.code}`);
+    const rec = r.record, want = G.growthFields(stage);
+    for (const k of ['rMax', 'ringsOpened', 'ringProvinces', 'rMaxCeiling', 'rMaxHard', 'placement', 'heartlandMaxRing', 'rings']) assert.deepEqual(rec[k], want[k], `${stage} ${k}`);
+    assert.deepEqual([r.season.layoutVersion, r.season.programVersion, kernelFile(r.season)], [2, 4, 'frontier-v3.wasm']);
+    assert.equal(Buffer.from(r.season.rulesetHash).toString('hex'), PRESETS.ruleset_hash_v3);
+    assert.equal(W.placeOf(W.worldOf(rec), G.TARGET.p, G.TARGET.q), G.EXPECT[stage].place, stage);
+    const rt = route(rec), exp = G.EXPECT[stage].route;
+    if (typeof exp === 'string') assert.deepEqual(rt, { ok: false, code: exp }, stage);
+    else assert.deepEqual({ hexes: rt.route.hexes, secs: rt.route.secs, provinces: rt.route.provinces }, { hexes: exp.hexes, secs: exp.secs, provinces: exp.provinces }, stage);
+    // the Provinces the router serves: (4,0) at every stage, (5,0) once ring 5 is grown; their bytes are the rules'
+    for (const [key, want5] of Object.entries(G.GEOMETRY)) {
+      const [p, q] = key.split(',').map(Number), pv = await h.province(p, q);
+      if (want5.ring === 5 && !G.EXPECT[stage].seed5) { assert.equal(pv.ok, false, `${stage}: (5,0) is not served before it exists`); continue; }
+      assert.ok(pv.ok, `${stage} ${key}: ${pv.code}`);
+      const acct = pv.province;
+      assert.equal(pv.provinceBytes.length, 4736, `${stage} ${key}: a layout-2 Province (4736; layout 1 is 4096)`);
+      assert.equal(createHash('sha256').update(Uint8Array.from(acct.terrain)).digest('hex'), want5.terrainSha256, `${stage} ${key}`);
+      assert.deepEqual(Array.from(acct.sites).slice(0, acct.siteCount), want5.sites);
+      assert.equal(BigInt(acct.passableMask), want5.passableMask);
+    }
   }
 });
