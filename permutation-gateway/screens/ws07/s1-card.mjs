@@ -37,6 +37,13 @@ if (q.get('mock') === '1') {
   let opened = 0;
   registerCoopEntry({ id: 'mock-coop', title: () => (lang() === 'en' ? 'Cooperate with nations (mock)' : '国と協力する（mock）'), state: () => (q.get('coop') === 'open' ? { available: true } : { available: false, why: lang() === 'en' ? 'The table opens at turn 700 (mock)' : '卓が開くのはターン 700 から（mock）' }), open: () => { opened++; document.body.dataset.coopOpened = String(opened); } });
 }
+// With `?board=1` the REAL connection to workstream 01's board (hud/coopboard.mjs) is installed instead of a mock; the
+// test answers /coop/config in the browser. Opening is recorded, not followed.
+if (q.get('board') === '1') {
+  FS.season = { seasonId: 7n };
+  const { installCoopBoard } = await import('../../../permutation-server/web/frontier/hud/coopboard.mjs');
+  installCoopBoard({ changed: () => render(), open: href => { document.body.dataset.coopHref = href; } });
+}
 const root = document.getElementById('card');
 function render() { setHtml(root, renderS1Village(FS)); document.body.dataset.ready = '1'; }
 // (as the page's HUD action `coop-open`: hud/coopentry.mjs openCoop)
