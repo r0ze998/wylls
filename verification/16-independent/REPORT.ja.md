@@ -3782,3 +3782,48 @@ env -u NODE_OPTIONS -u WS04_SCAN_ROOT -u RUNEXEC_BIN -u RUNEXEC_VIEW_BIN bash sc
 **JS だけの導出を見張る guard を 4 が作る場合。** 既知の鍵の API を試しに呼んではならない。審査は静的に、または鍵を含まない無害な fixture だけで行う。
 
 **再開できるのは、上の表の 5 つの確認だけである。** 走らせるかどうかは、ユーザーの指示に従う。⑯ は今は走らせない。実際の署名、生成、導出、取引、CI は、引き続き禁止。
+
+### D. 追加の条件：preload の guard そのものの審査（ユーザーの補足を受けて）
+
+`scripts/ci/no-keys-guard.mjs`（553f7fe7、100 行）が読み込みの時点に行うこと：
+- **組み込みの module。** `node:crypto` の 16 の関数を置き換え（30〜34 行目）、WebCrypto の subtle の 5 つと、秘密の鍵の `importKey` を置き換える（37〜53 行目）。どちらも組み込みなので、いつも働く。
+- **cwd から解決する package の import。** `load()`（56〜61 行目）は、`createRequire(cwd/noop.js).resolve` で `@solana/web3.js`、`@noble/curves/ed25519`、`@noble/curves/secp256k1` を解決し、**import する**。そのため、package の top-level の code が実行される。
+  - 失敗はすべて `catch` され、null が返る。そのときは置き換えを黙ってあきらめる。
+  - curve の置き換えも、`try {…} catch { /* frozen */ }` で失敗を黙って無視する（82、85 行目）。
+- **vendored の BLS。** `cwd` または `cwd/..` の `permutation-server/web/sdk/vendor/noble/curves/bls12-381.mjs` を import する（93〜98 行目）。
+  - 返る object は freeze されていない（abstract/bls.mjs の `bls()` は普通の object を返す）ので、置き換えは効く。
+  - 試験が相対の path で import するものと同じ file の URL なので、同じ instance である。
+- **見張らないもの。** session.mjs の `publicKeyOf`（digest と BigInt の JS だけ）は対象の外。だから「guard を使った」ことは、すべての経路を止めた証拠にはならない。5 つの file の許可は、上の C の静的な到達不能に頼っている。
+
+**この環境の解決の結果**（file の有無を見ただけで、node は走らせていない）：
+- `/home/user/wylls/permutation-gateway/node_modules` は追跡されない file の集まりで、`@solana/web3.js` と `@noble/curves` がある。ここで走らせると、guard の preload が審査していない bytes を実行する。
+- `NODE_PATH=/usr/local/lib/node_modules_global` が設定されている。その中に `@solana/web3.js` と `@noble/curves` は無い。
+- ⑯ の検査用の worktree（scratchpad の下）は、どの祖先にも `node_modules` が無い。`/root/.node_modules`、`/root/.node_libraries`、`/opt/node22/lib/node` も無い。
+- 5 つの試験の閉包の本物の bare import（comment を除く）は `node:` の組み込みだけ。だから、package が解決できなくても試験は動き、試験の側からも web3 や noble の package には届かない。
+
+**preload が実行する bytes**（node_modules が無い場合）：
+- guard と、vendored の noble の 14 file。合わせて 15 file で、どれも追跡されている。
+- 一覧：`logs/phase23/guard-preload-files-553f.txt`。sorted の sha256 の一覧の sha256 の先頭 16 桁は `b301d64baeaea253`。
+- noble の top-level と `bls()` の工場が行うのは、曲線と field と pairing の構成だけ。`randomSecretKey`、`sign`、`getPublicKey` は定義されるだけで、呼ばれない（abstract/bls.mjs 285〜410 行目。weierstrass.mjs 1173 行目の randomBytes は sign の関数の中）。
+
+**C の command への追加条件（どれも必須）：**
+- 走らせる木は、`node_modules` がどの祖先にも無い、新しい 553f7fe7 の worktree。main の checkout（`/home/user/wylls`）では走らせない。
+- `NODE_PATH` も unset にする（`env -u NODE_PATH`）。
+- 走らせる前に、cwd（`permutation-gateway`）からすべての祖先、`$HOME/.node_modules`、`$HOME/.node_libraries`、`<prefix>/lib/node` に `node_modules` が無いことを、file の有無だけで確かめて保存する。
+- preload の 15 file の sha256 を保存し、`b301d64baeaea253` と一致すること。
+- この条件の下では、guard の web3 と noble（ed25519、secp256k1）の置き換えは行われない（load が null を返す）。それで問題ないのは、試験からもそれらに届かないからである。
+
+**判定。** C の 5 つの file は、この追加の条件にも通る。範囲は：
+- SHA `553f7fe7`（tree `dcbc1970`）の、node_modules の無い新しい worktree。
+- `env -u NODE_OPTIONS -u NODE_PATH -u WS04_SCAN_ROOT -u RUNEXEC_BIN -u RUNEXEC_VIEW_BIN bash scripts/ci/node-keyfree.sh permutation-gateway test/web-frontier-<name>.test.mjs`
+- 1 file ずつ、stdout、stderr、終了の status を絞らずに保存する。
+- browser と Rust は解除しない。
+
+### E. Rust の ws19_map_contract（並行の候補。今は判定だけ）
+
+19 の KEEP の record の修正が届いたら、決まった SHA で次の範囲だけを静的に審査し、実行の前に判定を 4 と 19 に送る。
+- その SHA の `frontier-node/crates/herald/tests/ws19_map_contract.rs` と、`cqfixture/growth.rs` などの fixture の source。
+- 生成の対象の golden の 3 つ。
+- 1 つの test target だけの command（`cargo test -p herald --test ws19_map_contract`、`WS19_GOLDEN_WRITE` は unset）。
+- 審査では、鍵の生成、導出、署名の crate や関数（ed25519、solana の keypair など）に、test の呼び出しから届かないことを示す。cqfixture の `sig` は seq の bytes を詰めた偽物で、署名ではない（growth.rs の `Tx::push`）。
+- broad な cargo の実行や、全部の試験には広げない。

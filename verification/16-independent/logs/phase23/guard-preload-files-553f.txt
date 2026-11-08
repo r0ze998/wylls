@@ -1,0 +1,15 @@
+permutation-server/web/sdk/vendor/noble/curves/abstract/bls.mjs
+permutation-server/web/sdk/vendor/noble/curves/abstract/curve.mjs
+permutation-server/web/sdk/vendor/noble/curves/abstract/hash-to-curve.mjs
+permutation-server/web/sdk/vendor/noble/curves/abstract/modular.mjs
+permutation-server/web/sdk/vendor/noble/curves/abstract/tower.mjs
+permutation-server/web/sdk/vendor/noble/curves/abstract/weierstrass.mjs
+permutation-server/web/sdk/vendor/noble/curves/bls12-381.mjs
+permutation-server/web/sdk/vendor/noble/curves/utils.mjs
+permutation-server/web/sdk/vendor/noble/hashes/_md.mjs
+permutation-server/web/sdk/vendor/noble/hashes/_u64.mjs
+permutation-server/web/sdk/vendor/noble/hashes/crypto.mjs
+permutation-server/web/sdk/vendor/noble/hashes/hmac.mjs
+permutation-server/web/sdk/vendor/noble/hashes/sha2.mjs
+permutation-server/web/sdk/vendor/noble/hashes/utils.mjs
+scripts/ci/no-keys-guard.mjs
