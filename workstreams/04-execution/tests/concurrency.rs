@@ -167,10 +167,21 @@ fn stress(
         }
     }
     let stop = Arc::new(AtomicBool::new(false));
+    // With cancels, the executors start only after the first cancel has been
+    // requested: the race this stress is for (a cancel arriving while its run
+    // is in flight) then always happens. Without the gate, a canceller
+    // scheduled late on a loaded machine found every run already finished
+    // ("the race was not exercised", cancelled 0). The later cancels keep
+    // their timing and still race the running executors. The clock waits at
+    // the same gate.
+    let go = Arc::new(AtomicBool::new(!cancel));
     let mut threads = vec![];
     for k in 0..n {
-        let (db, sim, stop) = (db.clone(), sim.clone(), stop.clone());
+        let (db, sim, stop, go) = (db.clone(), sim.clone(), stop.clone(), go.clone());
         threads.push(thread::spawn(move || {
+            while !go.load(Ordering::SeqCst) && !stop.load(Ordering::SeqCst) {
+                thread::sleep(Duration::from_millis(1));
+            }
             let mut ex = executor(&db, &sim, &format!("exec-{k}"));
             ex.params.lease = 3;
             // Few runs per tick, so the work spreads over the executors.
@@ -189,7 +200,7 @@ fn stress(
         }));
     }
     let canceller = cancel.then(|| {
-        let (db, ids, stop) = (db.clone(), ids.clone(), stop.clone());
+        let (db, ids, stop, go) = (db.clone(), ids.clone(), stop.clone(), go.clone());
         thread::spawn(move || {
             let store = Store::open(&db).unwrap();
             let mut rng = Lcg(seed ^ 0xC0FFEE);
@@ -199,17 +210,31 @@ fn stress(
                     picks.push((id.clone(), rng.next() % 4_000));
                 }
             }
-            for (id, wait) in &picks {
-                thread::sleep(Duration::from_micros(*wait));
-                store.request_cancel(id).unwrap();
+            for (i, (id, wait)) in picks.iter().enumerate() {
+                if i > 0 {
+                    thread::sleep(Duration::from_micros(*wait));
+                }
+                let at = store.request_cancel(id).unwrap();
+                if i == 0 {
+                    assert!(
+                        at.is_some_and(|s| !s.terminal()),
+                        "{id}: the first cancel finds its run in flight ({at:?})"
+                    );
+                    go.store(true, Ordering::SeqCst);
+                }
                 if stop.load(Ordering::SeqCst) {
                     break;
                 }
             }
+            go.store(true, Ordering::SeqCst);
         })
     });
-    // The clock.
+    // The clock (held at the gate too: the slots the runs live by do not pass
+    // before any executor may work).
     let store = Store::open(&db).unwrap();
+    while !go.load(Ordering::SeqCst) {
+        thread::sleep(Duration::from_millis(1));
+    }
     for _ in 0..4_000 {
         thread::sleep(Duration::from_micros(500));
         sim.with(|w| w.advance(1));
