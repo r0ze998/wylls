@@ -14,7 +14,7 @@
 import { fastestPath, pack, landsWanted, landOfProvince, CARAVAN_FEE } from '../../../permutation-server/web/frontier/fcaravan.mjs';
 import * as fplay from '../../../permutation-server/web/frontier/fplay.mjs';
 import * as io from '../../../permutation-server/web/frontier/fchainio.mjs';
-import { seasonAddresses } from '../../../permutation-server/web/frontier/faddr.mjs';
+import { addressesOf } from './ids.mjs';
 import { decode } from '../../../permutation-server/web/frontier/fcodec.mjs';
 import { RESOURCES, ownerTagOf } from './record.mjs';
 import { PRESETS as V2 } from '../../../permutation-server/web/sdk/frontier/abi-v2-presets.mjs';
@@ -23,21 +23,24 @@ import { PRESETS as V2 } from '../../../permutation-server/web/sdk/frontier/abi-
 export const S1_RULESET_HASH = V2.ruleset_hash_v3;
 import { encode as toBase58 } from '../../../permutation-server/web/sdk/base58.mjs';
 import { citizenOf, holdingOf } from './chain.mjs';
+import { storesAt } from '../../../permutation-server/web/frontier/fland.mjs';
+import { settled } from '../../../permutation-server/web/frontier/hud/rulebook.mjs';
+import { RESOURCE_ORDER } from '../../../permutation-server/web/frontier/fi18n.mjs';
 
 const fail = (code, why) => ({ ok: false, code, why });
 
 /** 村の口座（v2）から、送り元・届け先に要る欄。 */
 async function holdingAt(reader, season, ref) {
-  const A = seasonAddresses(season.programId, season.seasonId);
+  const A = addressesOf(season);
   const bytes = await reader.account(A.of('Holding', ref));
   if (!bytes) return null;
   const h = decode('Holding', bytes, { seasonId: season.seasonId });
-  return { p: h.p, q: h.q, site: h.site, gen: h.gen, tile: h.tile, ownerCitizen: toBase58(h.ownerCitizen) };
+  return { p: h.p, q: h.q, site: h.site, gen: h.gen, tile: h.tile, ownerCitizen: toBase58(h.ownerCitizen), decoded: h };
 }
 
 /** 州の口座から、道を探すのに要る地形の印（ゲームの画面が herald の封筒から得るのと同じ欄）。 */
 async function landsFromChain(reader, season, a, b) {
-  const A = seasonAddresses(season.programId, season.seasonId);
+  const A = addressesOf(season);
   const out = [];
   for (const c of landsWanted(a, b)) {
     const bytes = await reader.account(A.of('Province', c));
@@ -53,7 +56,7 @@ async function landsFromChain(reader, season, a, b) {
  *   cargo：{resource: 量}（依頼の資源だけ、依頼の量まで）、source：送り元の村 {p, q, site}（省略すると Citizen の最初の村）。
  * → {ok: true, name: 'SendCaravan', accounts, fields, plan, caravan: {ownerTag, seq}, src, dst} か {ok: false, code, why}
  */
-export async function planSend({ reader, season, wallet, request, cargo, source = null, profile = 3 }) {
+export async function planSend({ reader, season, wallet, request, cargo, source = null, profile = 3, now = Math.floor(Date.now() / 1000) }) {
   if (!reader) return fail('NoChain', 'チェーンを読めないので、送り元・道・番号を決められない');
   if (request.requester === wallet) return fail('OwnRequest', '自分の依頼には送れない（自分の村の間の移動はゲームの画面から）');
   // 荷：依頼の資源だけ、依頼の量まで
@@ -71,7 +74,7 @@ export async function planSend({ reader, season, wallet, request, cargo, source 
   if (!ref) return fail('NoVillage', '送り元の村がない');
   const src = await holdingAt(reader, season, { p: ref.p, q: ref.q, site: ref.site });
   if (!src) return fail('NoVillage', '送り元の村の口座がない');
-  const A = seasonAddresses(season.programId, season.seasonId);
+  const A = addressesOf(season);
   if (src.ownerCitizen !== me.citizen) return fail('NotYourVillage', '送り元の村の持ち主ではない');
   // 届け先：依頼の村が、依頼した人の村で、世代が同じ
   const host = await holdingOf(reader, season, request.to, request.requester);
@@ -81,12 +84,17 @@ export async function planSend({ reader, season, wallet, request, cargo, source 
   const plan = fastestPath({ p: src.p, q: src.q, tile: src.tile }, { p: dstH.p, q: dstH.q, tile: dstH.tile }, await landsFromChain(reader, season, src, dstH));
   if (!plan || !plan.dirs.length) return fail('NoPath', 'そこまで隊商の道が届かない（32マス・4州まで）');
   const seq = Number(me.caravans ?? 0);
+  // 送る前の見込み：送り元の村の在庫を、ゲームの画面と同じ計算（fland.mjs storesAt・rulebook.mjs settled）で今の時刻に進めて、不足を出す。
+  // 見込みであり判定ではない：送るまでに在庫は変わりうる（ほかの送信・建設・維持費）。足りるかの最終判定はプログラム（Insufficient）。
+  const have = storesAt(settled(src.decoded, now), now, RESOURCE_ORDER).map(x => x.value);
+  const shortfall = Object.fromEntries(Object.entries(cargo).filter(([, v]) => v > 0).map(([r, v]) => [r, Math.max(0, v - (have[RESOURCES.indexOf(r)] ?? 0))]).filter(([, v]) => v > 0));
+  const estimate = { at: now, have: Object.fromEntries(Object.keys(cargo).map(r => [r, have[RESOURCES.indexOf(r)] ?? 0])), shortfall, final: 'プログラムが送信の時に判定する（Insufficient）' };
   const srcPlace = { kind: 'holding', p: src.p, q: src.q, site: src.site, gen: src.gen };
   const dst = { kind: 'holding', p: request.to.p, q: request.to.q, site: request.to.site, gen: request.to.gen };
   // 口座と欄（ゲームの画面の s1Caravan と同じ組み立て。ほかの人あてなので actor はウォレット）
   const accounts = fplay.accountsFor('SendCaravan', { addresses: A, wallet, actor: wallet, profile, seq, src: srcPlace, dst, provinces: plan.provinces });
   const fields = { seq, ...fplay.placeData(dst), steps: plan.dirs.length, path: pack(plan.dirs), cargo: fplay.cargoBytes(amounts), fee: CARAVAN_FEE };
-  return { ok: true, name: 'SendCaravan', accounts, fields, plan, src: srcPlace, dst, cargo: amounts, caravan: { ownerTag: ownerTagOf(season, wallet), seq } };
+  return { ok: true, name: 'SendCaravan', accounts, fields, plan, src: srcPlace, dst, cargo: amounts, caravan: { ownerTag: ownerTagOf(season, wallet), seq }, estimate };
 }
 
 /**

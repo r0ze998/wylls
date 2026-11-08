@@ -1,0 +1,45 @@
+{
+  "contract": "wylls.world-clock-period/0.1 (workstream 08 proposal, aligned with workstream 4 8e96f24d; the registry of workstream 4 stays canonical)",
+  "undecided": ["war period length, split, scoring", "prizes, entry fees, NFT", "the war-period account (workstream 4 P-C4)", "map ceiling adoption", "placement adoption", "history compaction (M7)"],
+  "world": {
+    "account": "Season PDA [\"season\", le64(season_id)] under the game program",
+    "season_id": { "where": "Season u64 @8", "meaning": "the world's number; never incremented" },
+    "world_id": "<program base58>/<world account base58>",
+    "name": "{cluster, world_id}",
+    "continuous_iff": "conquest byte 80 CONTINUOUS == 1 and end_bell == join_close_bell == 4294967295",
+    "refuse": ["flag not 0/1", "placement (conquest byte 77) not 0/1", "continuous with a finite end_bell", "layout and program versions disagree"],
+    "herald_copy": "/h/season: cluster, programId, seasonAddress, season, continuous"
+  },
+  "clock": {
+    "bell": "floor((t - genesis_ts) / bell_secs) for t >= genesis_ts; u32",
+    "genesis_ts": { "where": "Season i64 @144", "herald": "genesisTs" },
+    "bell_secs": { "where": "Season u32 @140", "herald": "bellSecs", "note": "read, never assume 600" },
+    "never_reset": true,
+    "same_clock_iff": "kind == 'season-bell' and genesisTs and bellSecs equal",
+    "slot_to_bell": "only with a known block time; otherwise hold",
+    "day": "floor(bell / (86400 / bell_secs))",
+    "no_end_bell": 4294967295,
+    "last_usable_bell": 4294967294
+  },
+  "periods": {
+    "canonical": null,
+    "input": "windows: [{id, opensAt, endsAt}]",
+    "unit_proposal": "world bell (u32), half-open [opensAt, endsAt); to be confirmed by workstream 4",
+    "id": "opaque string from the provider, not derived from season_id",
+    "boundary_changes_world_state": false,
+    "example": { "windows": [ { "id": "example-only", "opensAt": 0, "endsAt": 2016 } ] }
+  },
+  "map": {
+    "effective_r_max": "max(Season u16 @68, Frontier R_MAX_EXT u16 @66)",
+    "ceiling": { "where": "conquest u16 @78", "hard_limit": 128, "infinite": false },
+    "prize_tally_max_ring": 17,
+    "placement": { "where": "conquest u8 @77", "values": { "0": "wedge", "1": "dispersed" } },
+    "extend_ix": "0xC1 ExtendFrontier",
+    "extend_log_kind": 104
+  },
+  "history": {
+    "event_identity": "signature || instruction index || log index (workstream 4)",
+    "per_account_chain": { "event_seq": "u64 @24", "event_head": "[u8;32] @32" },
+    "herald_events_numbers_canonical": false
+  }
+}

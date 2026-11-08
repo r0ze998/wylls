@@ -10,7 +10,9 @@
 mod common;
 
 use common::*;
-use verify_core::codes::{CUSTODY_IN_PROGRAM_WITHOUT_IT, CUSTODY_UNVERIFIED};
+use verify_core::codes::{
+    CUSTODY_IN_PROGRAM_WITHOUT_IT, CUSTODY_REPLAY_INCOMPLETE, CUSTODY_UNVERIFIED,
+};
 use verify_core::Input;
 
 const LOT_MAGIC: &[u8; 8] = b"PSF1CLOT";
@@ -191,7 +193,7 @@ fn a_custody_season_is_never_a_pass() {
     inject_ix(&mut inp, t, &[frontier_abi::v2::Ix::ConsumeLot.tag()]);
     let r = verdict(&inp);
     // The fixture FAILs elsewhere already (V11), so judge V26 alone:
-    // exactly one finding, UNVERIFIABLE, naming the landed instruction at
+    // the guard's finding, UNVERIFIABLE, naming the landed instruction at
     // its transaction.
     let sig = inp.txs[t].signature.to_string();
     let v26: Vec<_> = r
@@ -208,15 +210,26 @@ fn a_custody_season_is_never_a_pass() {
             )
         })
         .collect();
+    // The replay cannot run it (the fixture has no custody states and its
+    // early transactions no bell): UNVERIFIABLE too.
     assert_eq!(
         v26,
-        vec![(
-            CUSTODY_UNVERIFIED,
-            false,
-            "transaction",
-            "a landed ConsumeLot instruction: custody is not verified (no V26 replay yet)",
-            sig.as_str(),
-        )],
+        vec![
+            (
+                CUSTODY_REPLAY_INCOMPLETE,
+                false,
+                "transaction",
+                "the transaction's bell is not known",
+                sig.as_str(),
+            ),
+            (
+                CUSTODY_UNVERIFIED,
+                false,
+                "transaction",
+                "a landed ConsumeLot instruction: custody is not verified (V26 does not replay caravans or records yet)",
+                sig.as_str(),
+            ),
+        ],
         "{}",
         show(&r)
     );

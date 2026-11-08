@@ -163,8 +163,8 @@ pub fn emit(
 /// Highest record kind code of ABI v2 (S1 map growth: FRONTIER_EXTENDED = 104; 89
 /// reserved, MC §6), widened to 134 for ⑳'s RESIDENT_JOINED = 130
 /// (workstream 4's allocation 130–134). Custody's LOT_* are 105–113
-/// (allocation rev 4); 114–129 and 131–134 stay undefined (other teams'
-/// provisional ranges).
+/// (allocation rev 4); 02-rights' Grant records (proposal) are 114–119;
+/// 120–129 and 131–134 stay undefined (other teams' provisional ranges).
 pub const MAX_KIND_V2: usize = 134;
 
 /// `(defined, key width, payload width)` per record kind code of ABI v2:
@@ -486,10 +486,11 @@ mod tests {
         }
         assert_eq!(WIDTHS_V2[89], (false, 0, 0), "89 reserved");
         // Of 104–134 (workstream 4's allocation rev 4) the kinds are ⑧'s
-        // FRONTIER_EXTENDED (104), custody's LOT_* (105–113) and ⑳'s
+        // FRONTIER_EXTENDED (104), custody's LOT_* (105–113), ②'s GRANT_*
+        // (114–119, provisional, contracts/ABI-ALLOCATION-20261106) and ⑳'s
         // RESIDENT_JOINED (130); the body writer refuses every other code
         // there, and anything past 134.
-        let kind = |c: usize| c == 104 || (105..=113).contains(&c) || c == 130;
+        let kind = |c: usize| c == 104 || (105..=119).contains(&c) || c == 130;
         for (code, w) in WIDTHS_V2.iter().enumerate().skip(104) {
             assert_eq!(w.0, kind(code), "{code}");
             if !kind(code) {

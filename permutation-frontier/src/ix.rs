@@ -160,7 +160,10 @@ mod tests {
             crate::RULESET_HASH,
             frontier_abi::v2::presets::RULESET_HASH_V3
         );
-        assert_eq!(crate::PROGRAM_VERSION, 4);
+        // ② rights-experimental is the S1 program with its provisional
+        // version bit 0x2000 (another program; ②'s own tests pin it).
+        let want = if cfg!(feature = "rights-experimental") { 0x2004 } else { 4 };
+        assert_eq!(crate::PROGRAM_VERSION, want);
     }
 
     #[cfg(feature = "custody-preview")]

@@ -1,0 +1,35 @@
+From 41bacca4d2497527bb3c7949e27a4e24bc86690e Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Thu, 5 Nov 2026 23:46:57 +0000
+Subject: [PATCH 3/3] 02-rights candidate: list every writable account in the
+ injected revoke
+
+A recording lists the post-state of every writable account. The
+injected RevokeGrant with nothing escrowed now lists the two holdings,
+unchanged, as well. Workstream 18's V7 reports a writable Holding with
+no post-state as missing data, which is how this surfaced.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01C5Nj2bMRw3LSNvj17s1QPg
+---
+ frontier-node/crates/verify/tests/rights_replay.rs | 4 +++-
+ 1 file changed, 3 insertions(+), 1 deletion(-)
+
+diff --git a/frontier-node/crates/verify/tests/rights_replay.rs b/frontier-node/crates/verify/tests/rights_replay.rs
+index f5d57ad..d271bec 100644
+--- a/frontier-node/crates/verify/tests/rights_replay.rs
++++ b/frontier-node/crates/verify/tests/rights_replay.rs
+@@ -622,7 +622,9 @@ fn honest(b: &Base) -> (Flow, Key) {
+             swap_accts(b.issuer_w, b.issuer_c),
+         ),
+         vec![body],
+-        &[b.issuer_c, grant],
++        // A recording lists every writable account: the holdings too,
++        // unchanged (nothing was escrowed).
++        &[b.issuer_c, grant, b.facility, b.station],
+         t,
+     );
+     // 7. CloseGrant: the rent to the issuer's wallet (RENT_TO), the Grant gone.
+-- 
+2.43.0
+

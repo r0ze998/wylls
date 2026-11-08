@@ -231,7 +231,7 @@ export function connectCanonical(memory, { season, events, me = [], store, bindi
   out.identity.conflicts = ids.conflicts;
   out.ingest = ingestReceipts(memory, store.receipts, {
     partition: world.partition, observedBell, bellOfSlot: clockFromHeraldEvents(events), finalizedSlot: fin.slot,
-    runSpecs: store.runSpecs, resolveOwner: ids.resolve,
+    runSpecs: store.runSpecs, resolveOwner: ids.resolve, basis: stated(sources.store), aliasBasis: stated(sources.me),
   });
   out.held = out.ingest.held;
   return out;
@@ -263,7 +263,10 @@ export function ws12EvidencePort(memory, { identity = null, worldBellOf = null }
       const bell = typeof worldBellOf === 'function' ? worldBellOf(worldBell) : null;
       if (!Number.isSafeInteger(bell) || bell < 0) return { status: 'clock_unverified', lines: [] };
       const k = memory.knowledge(PUBLIC_VIEWER, bell, { observedBy: bell });
-      return { status: 'ok', lines: memoryLines(k, [counterparty]).map(l => ({ about: l.about, epistemic: l.epistemic, text: l.text, sources: [...l.sources], identitySource: known.source })) };
+      const basisOfCommitment = new Map(k.commitments.map(c => [c.id, c.evidence_basis ?? null]));
+      // evidence_basis on commitment lines: where the facts behind that state were read (13 acts only on 'chain')
+      return { status: 'ok', lines: memoryLines(k, [counterparty]).map(l => ({ about: l.about, epistemic: l.epistemic, text: l.text, sources: [...l.sources], identitySource: known.source,
+        ...(basisOfCommitment.has(l.id) ? { evidence_basis: basisOfCommitment.get(l.id) } : {}) })) };
     },
   });
 }
@@ -286,7 +289,7 @@ export function ws12EvidencePort(memory, { identity = null, worldBellOf = null }
  * Returns {coverage: args for memory.observe | null, why: [...]}. With today's published history every call returns
  * null: no producer can yet state completeness, so 12 keeps every unseen send unconfirmed (never "not sent").
  */
-export function coverageFromHistory(h, { world, partition, bellOfSlot, observedBell }) {
+export function coverageFromHistory(h, { world, partition, bellOfSlot, observedBell, basis = null }) {
   const why = [];
   if (!h || typeof h !== 'object') return { coverage: null, why: ['no_history'] };
   if (h.basis !== 'ledger_feed') why.push(`basis_${h.basis ?? 'missing'}_cannot_prove_absence`);
@@ -307,7 +310,7 @@ export function coverageFromHistory(h, { world, partition, bellOfSlot, observedB
   if (!why.length && !(Number.isSafeInteger(observedBell) && toBell <= observedBell)) why.push('observed_before_range_end');
   if (why.length) return { coverage: null, why };
   return { coverage: {
-    kind: 'coverage', bell: toBell, created_bell: observedBell, visibility: { scope: 'public' },
+    kind: 'coverage', bell: toBell, created_bell: observedBell, visibility: { scope: 'public' }, ...(stated(basis) ? { basis: stated(basis) } : {}),
     source: { chain: partition, sig: `coverage|${h.sender}|${fr.from_slot}|${fr.to_slot}|${h.source}`.slice(0, 200), ix: 0 },
     data: { world, partition, sender: h.sender, from_bell: fromBell, to_bell: toBell, routes: [...SEND_ROUTES], finality: 'finalized',
       completeness: { gapless: true, from_slot: fr.from_slot, to_slot: fr.to_slot }, caravans: h.caravans.map(c => ({ partition, sender: h.sender, seq: c.seq })) },

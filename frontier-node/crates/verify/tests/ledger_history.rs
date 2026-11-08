@@ -249,20 +249,15 @@ async fn a_whole_feed_archive_is_the_ledgers_and_pairs_with_a_live_read() {
         live.iter().map(|t| t.seq).collect::<Vec<_>>(),
         vec![1, 4, 5]
     );
-    // 2c8fbfa2's rule, with ⑲'s names (2026-11-08): this node answers
-    // without the scan, so neither the prefix nor the point is shown: never
-    // PASS, before or after the seal.
-    assert!(lh.unproven());
-    assert!(lh
-        .gaps
-        .contains(&verify_core::history::Gap::PrefixIdentityUnverified));
-    assert!(lh
-        .gaps
-        .contains(&verify_core::history::Gap::PointInTimeUnverified));
+    // ⑲ 2026-11-08: a live read is unproven by its named gap until the
+    // final states are sealed at the same ledger point (not done here).
+    assert!(lh.unproven(), "{lh:?}");
+    assert!(
+        lh.gaps
+            .contains(&verify_core::history::Gap::PointInTimeUnverified),
+        "{lh:?}"
+    );
     assert_eq!(apply(&lh, report()).verdict, Verdict::Unverifiable);
-    let mut sealed = lh.clone();
-    input::seal_point_in_time(&url, &mut sealed).await;
-    assert!(sealed.unproven(), "{sealed:?}");
     assert_ne!(
         lh, h,
         "an archive not checked against the node does not pair with a live read"
@@ -416,15 +411,12 @@ async fn matching_live_status_never_proves_completeness_or_hides_local_failures(
             .await
             .unwrap();
         assert_eq!(txs.len(), 3);
-        // A matching status alone (no scan here) never proves completeness:
-        // unproven with both named gaps, and still so after the seal.
         assert!(h.unproven(), "{h:?}");
-        assert!(h
-            .gaps
-            .contains(&verify_core::history::Gap::PrefixIdentityUnverified));
-        let mut sealed = h.clone();
-        input::seal_point_in_time(&url, &mut sealed).await;
-        assert!(sealed.unproven(), "{sealed:?}");
+        assert!(
+            h.gaps
+                .contains(&verify_core::history::Gap::PointInTimeUnverified),
+            "{h:?}"
+        );
         assert_eq!(h.report()["complete"], false);
         assert_eq!(apply(&h, report()).verdict, Verdict::Unverifiable);
         for (check, code) in [

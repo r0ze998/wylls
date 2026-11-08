@@ -100,13 +100,33 @@ function turnBlock(bell, rows) {
  * The chronicle as a document: the record grouped by turn, the latest turns
  * in sight and the rest behind a fold; a line with a place goes there.
  */
+/**
+ * How the record pages stand (controller.mjs refreshChronicle sets FS.chronicleRead): 'waiting' (nothing tried yet),
+ * 'unread' (no page could be read: nothing is known of the record — not that it is empty), 'stale' (pages were read
+ * before, the last poll failed: what is shown is older), 'ok'. → `{state, code}`.
+ */
+export function chronicleState(FS) {
+  const r = FS?.chronicleRead, have = Array.isArray(FS?.chronicle);
+  if (!r) return { state: have ? 'ok' : 'waiting', code: null };
+  if (r.ok) return { state: 'ok', code: null };
+  return { state: have ? 'stale' : 'unread', code: r.code ?? null };
+}
+/** The line that says the record could not be read (or not yet), or '' when it was read. */
+export function readLine(FS) {
+  const s = chronicleState(FS);
+  if (s.state === 'waiting') return html`<p class="muted read-state" role="status" data-read="waiting">${icon('hourglass')}${L`出来事の記録を読み込んでいます`}</p>`;
+  if (s.state === 'unread') return html`<p class="blocked read-state" role="status" data-read="unread">${icon('alert')}${L`出来事の記録を読み込めませんでした（${s.code ?? '?'}）。記録が空という意味ではありません。次の読み込みでもう一度試します`}</p>`;
+  if (s.state === 'stale') return html`<p class="muted read-state" role="status" data-read="stale">${icon('alert')}${L`最新の出来事の記録を読み込めませんでした（${s.code ?? '?'}）。ここに出ているのは前に読めた分です`}</p>`;
+  return '';
+}
 export function render(FS) {
   const rows = chronicleRows(FS.chronicle ?? [], FS.isMine ?? (() => false), 60, FS);
-  if (!rows.length) return html`<section class="vcard" aria-labelledby="chronicle-title">${cardHead({ id: 'chronicle-title', ic: 'quill', title: L`年代記` })}<p class="muted">${L`まだ記録はありません`}</p></section>`;
+  const st = chronicleState(FS).state, line = readLine(FS);
+  if (!rows.length) return html`<section class="vcard" aria-labelledby="chronicle-title">${cardHead({ id: 'chronicle-title', ic: 'quill', title: L`年代記` })}${st === 'ok' || st === 'stale' ? html`${line}<p class="muted">${L`まだ記録はありません`}</p>` : line}</section>`;
   const turns = [];
   for (const r of rows) { const t = turns[turns.length - 1]; if (t && t.bell === r.bell) t.rows.push(r); else turns.push({ bell: r.bell, rows: [r] }); }
   const first = turns.slice(0, TURNS_SHOWN), rest = turns.slice(TURNS_SHOWN);
   return html`<section class="vcard chronicle-card" aria-labelledby="chronicle-title">${cardHead({ id: 'chronicle-title', ic: 'quill', title: L`年代記`, sub: L`この世界で起きたことの記録` })}
-    <ol class="chron">${first.map(t => turnBlock(t.bell, t.rows))}</ol>
+    ${line}<ol class="chron">${first.map(t => turnBlock(t.bell, t.rows))}</ol>
     ${rest.length ? fold('chron-old', L`それより前の記録（${fmtNum(rest.reduce((a, t) => a + t.rows.length, 0))}）`, html`<ol class="chron">${rest.map(t => turnBlock(t.bell, t.rows))}</ol>`) : ''}</section>`;
 }

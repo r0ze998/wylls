@@ -56,3 +56,19 @@
 - **⑬の試験の多く**は、デモが gateway を通して `@solana/web3.js` を読み込み、npm 依存が無いので動かない。呼出し先も監査していないので、走らせていない。
 - **⑤ 9a4051c7**：③が取得を調整中。⑫は⑤と直接にはつないでいない。
 - **未決のまま変えていないもの**：遅れた返済、私的記憶の公開・譲渡、NFT 譲渡時の記憶、金銭の条件。
+
+## 6. 追補：記録ごとの出どころ（⑬の指摘への対応）
+
+⑬から指摘があった。`provenance.records` は `connectCanonical` に渡したストアの出どころしか述べていない。そのため、同じ memory に別の経路で fixture の coverage が入っても、⑬が fixture の not_sent を chain の根拠として扱えてしまう。
+
+- **事実の `basis`**（`src/records.mjs`）：事実に任意で `{kind: chain|integration-output|fixture, source}` を付けられるようにした。`basis` は本文（と body_sha）に含める。そのため、同じ記録を別の basis で読み直すと衝突になり、先のものが残る（chain の読みが fixture の読みを上書きすることはない）。basis の無い既存の記録は今までと同じで、unstated として扱う。
+- **書き手**：`connectCanonical` は、Receipt の事実にはストアの、本人の対応には `/h/me` の、呼出し元が述べた basis を付ける。述べられていなければ付けない。`coverageFromHistory({basis})` も同じ。
+- **約束の `evidence_basis`**（`src/fold.mjs`）：その状態の根拠になった事実すべてについて、`{id, kind, source}` と、最も弱い kind を出す。根拠には、coverage を債務者に結び付けた本人の対応も含める。basis の無い事実が一つでもあれば `unstated`、事実が一つも無ければ null。`ws12EvidencePort` の約束の行にも同じものを載せる。
+- **試験**（`test/evidence-basis.test.mjs`、鍵なし、allocation なし）：
+  - chain の本人の対応に fixture の coverage を組み合わせた not_sent は、fixture になる。
+  - 根拠がすべて chain のときだけ chain になる。
+  - basis の無い記録が混じると unstated になる。
+  - 別の basis での読み直しは衝突になり、再起動しても先のものが残る。
+  - port の行が evidence_basis を運ぶ。
+  - 変異試験 4 か所はすべて検出した。
+- **⑬側の作業（⑬の判断）**：違反の根拠が chain かどうかは、`commitments[].evidence_basis.kind === 'chain'` で判定できる。

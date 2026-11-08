@@ -117,6 +117,24 @@ static SERIAL: Mutex<()> = Mutex::new(());
 #[path = "wide_land_runtime_tests.rs"]
 mod wide_land;
 
+// Workstream 02-rights (`rights-experimental`): the workshop-stock swap
+// Grant, through the same stubs, clock and serial lock
+// (`map_growth_runtime_tests::rights::`).
+#[cfg(feature = "rights-experimental")]
+#[path = "rights_runtime_tests.rs"]
+mod rights;
+
+/// Without `rights-experimental` the Grant's provisional tags 0xD0–0xD5
+/// are unknown tags (`BadData`), refused before any account is read.
+#[cfg(not(feature = "rights-experimental"))]
+#[test]
+fn map_growth_default_build_refuses_the_grant_tags() {
+    let _g = begin();
+    for t in 0xD0u8..=0xD5 {
+        assert_eq!(run(&[], &[t]), Err(E::BadData.code()), "{t:#x}");
+    }
+}
+
 /// Backing memory of every account created by a test: key → (data pointer,
 /// capacity, owner pointer). The stub resizes and reassigns through it.
 type Memory = HashMap<[u8; 32], (usize, usize, usize)>;
@@ -1725,4 +1743,180 @@ fn map_growth_expansion_is_refused_without_a_ceiling_and_never_past_ring_128() {
     let (ro, ext, ..) = w.frontier_state();
     assert_eq!((ro, ext), (129, 128));
     assert!(records().is_empty());
+}
+
+/// A finite season's map is the one it ends with (workstream 08,
+/// `f3f23442`): ExtendFrontier from the season's end bell is `WrongStatus`
+/// while EndSeason has not been sent (the effective status is still
+/// Running), and writes and logs nothing; in the bell before the end the
+/// same extension lands. A continuous world's end bell is `NO_END_BELL`
+/// (u32::MAX), which no bell reaches.
+#[test]
+fn map_growth_expansion_is_refused_from_the_end_bell_of_a_finite_season() {
+    let _g = begin();
+    at_bell(1);
+    let mut w = World::growing();
+    w.set_shard_homes(0, 0, 0, WEDGE0_HOMES);
+    w.fold();
+    let _ = records();
+    {
+        // The same Season, ending at bell 2 (joins closed at bell 1).
+        let mut d = w.season.try_borrow_mut_data().unwrap();
+        put(&mut d, S::JOIN_CLOSE_BELL, &1u32.to_le_bytes());
+        put(&mut d, S::END_BELL, &2u32.to_le_bytes());
+    }
+    at_bell(2);
+    let before = w.frontier_data();
+    assert_eq!(w.extend_frontier(5), Err(E::WrongStatus as u32));
+    assert_eq!(w.frontier_data(), before, "nothing written");
+    assert!(records().is_empty(), "nothing logged");
+    at_bell(3);
+    assert_eq!(w.extend_frontier(5), Err(E::WrongStatus as u32), "nor later");
+    at_bell(1);
+    assert_eq!(w.extend_frontier(5), Ok(()), "the last bell still grows");
+    assert_eq!(w.frontier_state().1, 5);
+}
+
+/// The RingSeed of ring `d` as genesis (rings up to the genesis ring:
+/// `genesis_ring_seed`) or OpenRing + ConsumeRingSeed (beyond it: `seed`)
+/// leave it: present, seeded. Test pre-state, not the program's write (a
+/// beacon round cannot be verified or signed here; module doc).
+fn seeded_ring_seed_bytes(d: u16, seed: &[u8; 32]) -> Vec<u8> {
+    let mut b = vec![0u8; RS::SIZE];
+    assert!(write_header(&mut b, K2::RingSeed, SEASON_ID));
+    put(&mut b, RS::D, &d.to_le_bytes());
+    b[RS::STATUS] = RS::STATUS_SEEDED;
+    put(&mut b, RS::SEED, seed);
+    b
+}
+
+impl World {
+    /// Rings `2..=last` opened province by province through OpenProvince,
+    /// from funds whose `open_sites` start at 0 (so they count exactly what
+    /// the program opened). Rings up to the genesis ring take the genesis
+    /// seed, outer rings a literal seed each.
+    fn open_rings_for_capacity(&mut self, last: u16) {
+        for w in 0..6u8 {
+            let f = self.fund(w);
+            let mut d = f.try_borrow_mut_data().unwrap();
+            put(&mut d, PF::OPEN_SITES, &0u32.to_le_bytes());
+        }
+        for d in 2..=last {
+            let seed = if d <= self.setup.genesis_ring as u16 {
+                crate::proc::map::genesis_ring_seed(&GENESIS_SEED, d)
+            } else {
+                [0x30 + d as u8; 32]
+            };
+            let key = self.ctx.ring_seed(d);
+            self.ring_seeds.insert(
+                d,
+                info(
+                    leak(key, PROGRAM, seeded_ring_seed_bytes(d, &seed), 0, BIG),
+                    false,
+                    true,
+                ),
+            );
+            for c in permutation_rules::frontier::geometry::ring_provinces(d as u32) {
+                assert_eq!(self.open_province(c), Ok(()), "OpenProvince {c:?}");
+            }
+        }
+    }
+
+    /// Free sites (state FREE) of the opened Province of `c`.
+    fn free_sites(&mut self, c: ProvinceCoord) -> u32 {
+        let pd = self.province_data(c);
+        (0..pd[PV::SITE_COUNT] as usize)
+            .filter(|&i| pd[PV::site(i) + SM::STATE] == SM::STATE_FREE)
+            .count() as u32
+    }
+}
+
+/// First homes alone against the crowding rule, on real openings
+/// (workstream 08; the real dispatch; θ and its switch of the S1 seasons'
+/// base preset `M1_LOCAL_7D`: 55 % early, 65 % after 3 days).
+///
+/// Only first homes count as occupied (PlaceHome, SettleTicket; released
+/// by ReleaseDormant) and a season with the instant home places them only
+/// in the heartland (rings 2..=3). Rings 2–4 opened through OpenProvince
+/// give each wedge 108 open sites and 60 free heartland sites:
+/// - early, the first extension (ring 5) lands only when every free
+///   heartland site of a wedge is homed (60/108 = 55.6 %); one fewer is
+///   Capacity;
+/// - late (65 %), a full heartland is Capacity;
+/// - once ring 5 is open (its sites added), ring 6 is Capacity in both
+///   phases (60/168 = 35.7 %).
+///
+/// Homes are written as the folded JoinShard pre-state (every heartland
+/// site of the wedge homed), as the growth tests write theirs; the rest is
+/// the program's. The rule is unchanged here: this pins what it implies.
+#[test]
+fn map_growth_heartland_first_homes_alone_stop_the_map_at_ring_5() {
+    let _g = begin();
+    at_bell(1);
+    let mut w = World::growing();
+    {
+        let base = frontier_abi::presets::M1_LOCAL_7D;
+        let mut d = w.season.try_borrow_mut_data().unwrap();
+        put(&mut d, S::THETA_EARLY_BPS, &base.theta_early_bps.to_le_bytes());
+        put(&mut d, S::THETA_LATE_BPS, &base.theta_late_bps.to_le_bytes());
+        put(&mut d, S::THETA_SWITCH_SECS, &base.theta_switch_secs.to_le_bytes());
+    }
+    w.open_rings_for_capacity(4);
+    let hmr = w.cq.heartland_max_ring as u32;
+    assert_eq!(hmr, 3);
+    let mut heart = [0u32; 6];
+    for d in 2..=hmr {
+        for c in permutation_rules::frontier::geometry::ring_provinces(d) {
+            heart[crate::proc::map::fund_wedge(c) as usize] += w.free_sites(c);
+        }
+    }
+    let open = |w: &mut World| -> Vec<u32> {
+        (0..6u8)
+            .map(|x| rd_u32(&w.fund_data(x), PF::OPEN_SITES))
+            .collect()
+    };
+    assert_eq!(heart, [60; 6], "free heartland sites per wedge");
+    assert_eq!(open(&mut w), vec![108; 6], "open sites of rings 2-4 per wedge");
+
+    // Early: one home short of a full heartland in wedge 0 is not enough.
+    w.set_shard_homes(0, 0, 0, heart[0] - 1);
+    w.fold();
+    assert_eq!(w.extend_frontier(5), Err(E::Capacity as u32));
+    // Every free heartland site of wedge 0 homed: 60/108 >= 55 %.
+    w.set_shard_homes(0, 0, 0, heart[0]);
+    w.fold();
+    let _ = records();
+    assert_eq!(w.extend_frontier(5), Ok(()));
+
+    // Ring 5 opened and created (the program's OpenRing and OpenProvince;
+    // its seed written as ConsumeRingSeed leaves it).
+    at_bell(2);
+    w.fold();
+    assert_eq!(w.open_ring(5), Ok(()));
+    w.seed_ring_as_consume_ring_seed_would(5, &RING5_SEED);
+    for c in permutation_rules::frontier::geometry::ring_provinces(5) {
+        assert_eq!(w.open_province(c), Ok(()), "OpenProvince {c:?}");
+    }
+    let opened = open(&mut w);
+    assert!(opened.iter().all(|&o| o > 108), "ring 5's sites counted: {opened:?}");
+    at_bell(3);
+    w.fold();
+    assert_eq!(
+        w.extend_frontier(6),
+        Err(E::Capacity as u32),
+        "early: {} of {} open sites",
+        heart[0],
+        opened[0]
+    );
+
+    // Late phase (after theta_switch_secs): a full heartland is not 65 %.
+    let late_bell = (frontier_abi::presets::M1_LOCAL_7D.theta_switch_secs / 600) + 4;
+    at_bell(late_bell);
+    w.fold();
+    assert_eq!(w.extend_frontier(6), Err(E::Capacity as u32), "late, ring 6");
+    assert!(
+        (heart[0] as u64) * 10_000
+            < frontier_abi::presets::M1_LOCAL_7D.theta_late_bps as u64 * 108,
+        "late, even before ring 5: 60/108 < 65 %"
+    );
 }

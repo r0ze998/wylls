@@ -1,0 +1,808 @@
+{
+ "v": 1,
+ "note": "①の fold() の実物の出力（record.mjs createFolder、板の state()）と、同じ板の照会（goal.mjs coopView）の抜き出し。台本は test/scenario-e2e.mjs。 ウォレットは試験用の決まった 32 バイト（鍵の対ではない）、署名の欄は決まった印（署名ではない）。口座の住所と owner tag は、そのウォレットから本物の S1 の計算（PDA・create_with_seed、Citizen の住所の先頭 8 バイト）で出した値。",
+ "context": {
+  "programId": "CktRuQ2mttgRGkXJtyksdKHjUdc2C4TgDzyB98oEzy8",
+  "seasonId": "91"
+ },
+ "wallets": {
+  "k7FaK87WHGVXzkaoHb7CdVPgkKDQhZ29VLDeBVbDfYn": "A",
+  "2VDW9dFE1ZXz4zWAbaBDQFynNVdRpQ73HyfSHMzBSL6Z": "B",
+  "3EKkiwNLWqoUbzFkPrmKbtUB4EweE6f4STzevYUmezeL": "C"
+ },
+ "requestLabels": {
+  "f298a0ed5ab7ac442deff6b91da358cb81c1a4f4f173772f7cc1bfdd0660c88f": "r1",
+  "6bba6d66820d5460bef4f59c9caa6bdc1b9dd3ce581a884931477569931a4ed8": "r2",
+  "685c4ce6dbb626d0e0b5d9dd0c22bdefdfc3199ad26caf1bfeef0ec2a0c6d417": "r3",
+  "53ddfc8df21f26cc74c67555257f0ac941cce6eecce0b7316ec62dc9a31ea01b": "r4",
+  "b72e9984f702295dba8a06f6a51e2ad5fbea85baa0074ba798a79101a5b53679": "r5"
+ },
+ "fold": {
+  "requests": {
+   "f298a0ed5ab7ac442deff6b91da358cb81c1a4f4f173772f7cc1bfdd0660c88f": {
+    "id": "f298a0ed5ab7ac442deff6b91da358cb81c1a4f4f173772f7cc1bfdd0660c88f",
+    "ctx": {
+     "programId": "CktRuQ2mttgRGkXJtyksdKHjUdc2C4TgDzyB98oEzy8",
+     "seasonId": "91"
+    },
+    "goalId": "crossing-storehouse-v1",
+    "requester": "k7FaK87WHGVXzkaoHb7CdVPgkKDQhZ29VLDeBVbDfYn",
+    "nation": 0,
+    "need": {
+     "wood": 200,
+     "stone": 200
+    },
+    "to": {
+     "kind": "holding",
+     "p": 3,
+     "q": 0,
+     "site": 2,
+     "gen": 1
+    },
+    "at": 1800000001,
+    "expiresAt": 1800086400,
+    "state": "open",
+    "cancel": null,
+    "responses": {
+     "2VDW9dFE1ZXz4zWAbaBDQFynNVdRpQ73HyfSHMzBSL6Z": {
+      "id": "616fd084ceb4bb8c2f9f8b224def9ac91f6b8965bbe78548c66e1fea74c8fa2e",
+      "answer": "accept",
+      "offer": {
+       "wood": 200,
+       "stone": 200
+      },
+      "nation": 2,
+      "at": 1800000006,
+      "withdrawn": false
+     },
+     "3EKkiwNLWqoUbzFkPrmKbtUB4EweE6f4STzevYUmezeL": {
+      "id": "8ad89e73fc3afddcc326f3554122450898ecb6569c15dfa129aabcfb4bedc017",
+      "answer": "accept",
+      "offer": {
+       "wood": 200,
+       "stone": 200
+      },
+      "nation": 1,
+      "at": 1800000010,
+      "withdrawn": false
+     }
+    },
+    "links": [
+     {
+      "responder": "2VDW9dFE1ZXz4zWAbaBDQFynNVdRpQ73HyfSHMzBSL6Z",
+      "claimedNation": 2,
+      "caravan": {
+       "ownerTag": "4372626378048414624",
+       "seq": 0,
+       "ctx": "CktRuQ2mttgRGkXJtyksdKHjUdc2C4TgDzyB98oEzy8/91"
+      },
+      "at": 1800000045,
+      "n": 12
+     },
+     {
+      "responder": "3EKkiwNLWqoUbzFkPrmKbtUB4EweE6f4STzevYUmezeL",
+      "claimedNation": 1,
+      "caravan": {
+       "ownerTag": "8889114154671114944",
+       "seq": 0,
+       "ctx": "CktRuQ2mttgRGkXJtyksdKHjUdc2C4TgDzyB98oEzy8/91"
+      },
+      "at": 1800000106,
+      "n": 13
+     }
+    ],
+    "sendings": [
+     {
+      "responder": "2VDW9dFE1ZXz4zWAbaBDQFynNVdRpQ73HyfSHMzBSL6Z",
+      "caravan": {
+       "ownerTag": "4372626378048414624",
+       "seq": 0,
+       "ctx": "CktRuQ2mttgRGkXJtyksdKHjUdc2C4TgDzyB98oEzy8/91"
+      },
+      "walletSig": "2Ye7HdjVLrVVgq9vq2sxjTzjGXUbhDt2CiM6VN4SFCbR1aBBJCDJoU8pCc158ACwyimoPX1yHtAHJUy7qtYfYVEL",
+      "blockhash": "LbUiWL3xVV8hTFYBVdbTNrpDo41NKS6o3LHHuDzjfcY",
+      "cargo": {
+       "wood": 120,
+       "stone": 80
+      },
+      "src": {
+       "p": 4,
+       "q": 0,
+       "site": 5,
+       "gen": 1
+      },
+      "at": 1800000042,
+      "n": 11
+     }
+    ]
+   },
+   "6bba6d66820d5460bef4f59c9caa6bdc1b9dd3ce581a884931477569931a4ed8": {
+    "id": "6bba6d66820d5460bef4f59c9caa6bdc1b9dd3ce581a884931477569931a4ed8",
+    "ctx": {
+     "programId": "CktRuQ2mttgRGkXJtyksdKHjUdc2C4TgDzyB98oEzy8",
+     "seasonId": "91"
+    },
+    "goalId": "crossing-storehouse-v1",
+    "requester": "k7FaK87WHGVXzkaoHb7CdVPgkKDQhZ29VLDeBVbDfYn",
+    "nation": 0,
+    "need": {
+     "wood": 10
+    },
+    "to": {
+     "kind": "holding",
+     "p": 3,
+     "q": 0,
+     "site": 2,
+     "gen": 1
+    },
+    "at": 1800000002,
+    "expiresAt": 1800086401,
+    "state": "open",
+    "cancel": null,
+    "responses": {
+     "2VDW9dFE1ZXz4zWAbaBDQFynNVdRpQ73HyfSHMzBSL6Z": {
+      "id": "76d63a54384d8a35c65da9479f62952337c0861cb94a13fe663b8669fd93c2dd",
+      "answer": "accept",
+      "offer": {
+       "wood": 10
+      },
+      "nation": 2,
+      "at": 1800000007,
+      "withdrawn": false
+     }
+    },
+    "links": [
+     {
+      "responder": "2VDW9dFE1ZXz4zWAbaBDQFynNVdRpQ73HyfSHMzBSL6Z",
+      "claimedNation": 2,
+      "caravan": {
+       "ownerTag": "4372626378048414624",
+       "seq": 1,
+       "ctx": "CktRuQ2mttgRGkXJtyksdKHjUdc2C4TgDzyB98oEzy8/91"
+      },
+      "at": 1800000107,
+      "n": 14
+     },
+     {
+      "responder": "2VDW9dFE1ZXz4zWAbaBDQFynNVdRpQ73HyfSHMzBSL6Z",
+      "claimedNation": 2,
+      "caravan": {
+       "ownerTag": "4372626378048414624",
+       "seq": 2,
+       "ctx": "CktRuQ2mttgRGkXJtyksdKHjUdc2C4TgDzyB98oEzy8/91"
+      },
+      "at": 1800000108,
+      "n": 15
+     }
+    ],
+    "sendings": []
+   },
+   "685c4ce6dbb626d0e0b5d9dd0c22bdefdfc3199ad26caf1bfeef0ec2a0c6d417": {
+    "id": "685c4ce6dbb626d0e0b5d9dd0c22bdefdfc3199ad26caf1bfeef0ec2a0c6d417",
+    "ctx": {
+     "programId": "CktRuQ2mttgRGkXJtyksdKHjUdc2C4TgDzyB98oEzy8",
+     "seasonId": "91"
+    },
+    "goalId": "crossing-storehouse-v1",
+    "requester": "k7FaK87WHGVXzkaoHb7CdVPgkKDQhZ29VLDeBVbDfYn",
+    "nation": 0,
+    "need": {
+     "stone": 50
+    },
+    "to": {
+     "kind": "holding",
+     "p": 3,
+     "q": 0,
+     "site": 2,
+     "gen": 1
+    },
+    "at": 1800000003,
+    "expiresAt": 1800086402,
+    "state": "open",
+    "cancel": null,
+    "responses": {
+     "3EKkiwNLWqoUbzFkPrmKbtUB4EweE6f4STzevYUmezeL": {
+      "id": "1b51716f0c513bc4a31ee0bb7b650a10c8dfc5843a842147fa4ab70b2ef1408e",
+      "answer": "accept",
+      "offer": {
+       "stone": 50
+      },
+      "nation": 1,
+      "at": 1800000011,
+      "withdrawn": false
+     }
+    },
+    "links": [
+     {
+      "responder": "3EKkiwNLWqoUbzFkPrmKbtUB4EweE6f4STzevYUmezeL",
+      "claimedNation": 1,
+      "caravan": {
+       "ownerTag": "8889114154671114944",
+       "seq": 1,
+       "ctx": "CktRuQ2mttgRGkXJtyksdKHjUdc2C4TgDzyB98oEzy8/91"
+      },
+      "at": 1800000109,
+      "n": 16
+     }
+    ],
+    "sendings": []
+   },
+   "53ddfc8df21f26cc74c67555257f0ac941cce6eecce0b7316ec62dc9a31ea01b": {
+    "id": "53ddfc8df21f26cc74c67555257f0ac941cce6eecce0b7316ec62dc9a31ea01b",
+    "ctx": {
+     "programId": "CktRuQ2mttgRGkXJtyksdKHjUdc2C4TgDzyB98oEzy8",
+     "seasonId": "91"
+    },
+    "goalId": "crossing-storehouse-v1",
+    "requester": "k7FaK87WHGVXzkaoHb7CdVPgkKDQhZ29VLDeBVbDfYn",
+    "nation": 0,
+    "need": {
+     "wood": 30
+    },
+    "to": {
+     "kind": "holding",
+     "p": 3,
+     "q": 0,
+     "site": 2,
+     "gen": 1
+    },
+    "at": 1800000004,
+    "expiresAt": 1800086403,
+    "state": "open",
+    "cancel": null,
+    "responses": {
+     "2VDW9dFE1ZXz4zWAbaBDQFynNVdRpQ73HyfSHMzBSL6Z": {
+      "id": "8e7edcb8690767af45c5ba3d69fde5797d43b5e7a49e10e1a7abaf333e9ca0f0",
+      "answer": "accept",
+      "offer": {
+       "wood": 30
+      },
+      "nation": 2,
+      "at": 1800000008,
+      "withdrawn": false
+     }
+    },
+    "links": [
+     {
+      "responder": "2VDW9dFE1ZXz4zWAbaBDQFynNVdRpQ73HyfSHMzBSL6Z",
+      "claimedNation": 2,
+      "caravan": {
+       "ownerTag": "4372626378048414624",
+       "seq": 3,
+       "ctx": "CktRuQ2mttgRGkXJtyksdKHjUdc2C4TgDzyB98oEzy8/91"
+      },
+      "at": 1800000110,
+      "n": 17
+     }
+    ],
+    "sendings": []
+   },
+   "b72e9984f702295dba8a06f6a51e2ad5fbea85baa0074ba798a79101a5b53679": {
+    "id": "b72e9984f702295dba8a06f6a51e2ad5fbea85baa0074ba798a79101a5b53679",
+    "ctx": {
+     "programId": "CktRuQ2mttgRGkXJtyksdKHjUdc2C4TgDzyB98oEzy8",
+     "seasonId": "91"
+    },
+    "goalId": "crossing-storehouse-v1",
+    "requester": "k7FaK87WHGVXzkaoHb7CdVPgkKDQhZ29VLDeBVbDfYn",
+    "nation": 0,
+    "need": {
+     "wood": 1
+    },
+    "to": {
+     "kind": "holding",
+     "p": 3,
+     "q": 0,
+     "site": 2,
+     "gen": 1
+    },
+    "at": 1800000005,
+    "expiresAt": 1800086404,
+    "state": "open",
+    "cancel": null,
+    "responses": {
+     "2VDW9dFE1ZXz4zWAbaBDQFynNVdRpQ73HyfSHMzBSL6Z": {
+      "id": "46713f2164a5b01450dff837c697e0092ddc21e875e2234559869da1b0c7b527",
+      "answer": "accept",
+      "offer": {
+       "wood": 1
+      },
+      "nation": 2,
+      "at": 1800000009,
+      "withdrawn": false
+     }
+    },
+    "links": [
+     {
+      "responder": "2VDW9dFE1ZXz4zWAbaBDQFynNVdRpQ73HyfSHMzBSL6Z",
+      "claimedNation": 2,
+      "caravan": {
+       "ownerTag": "4372626378048414624",
+       "seq": 4,
+       "ctx": "CktRuQ2mttgRGkXJtyksdKHjUdc2C4TgDzyB98oEzy8/91"
+      },
+      "at": 1800000111,
+      "n": 18
+     }
+    ],
+    "sendings": []
+   }
+  },
+  "left": {},
+  "rejected": [],
+  "accepted": [
+   "f298a0ed5ab7ac442deff6b91da358cb81c1a4f4f173772f7cc1bfdd0660c88f",
+   "6bba6d66820d5460bef4f59c9caa6bdc1b9dd3ce581a884931477569931a4ed8",
+   "685c4ce6dbb626d0e0b5d9dd0c22bdefdfc3199ad26caf1bfeef0ec2a0c6d417",
+   "53ddfc8df21f26cc74c67555257f0ac941cce6eecce0b7316ec62dc9a31ea01b",
+   "b72e9984f702295dba8a06f6a51e2ad5fbea85baa0074ba798a79101a5b53679",
+   "616fd084ceb4bb8c2f9f8b224def9ac91f6b8965bbe78548c66e1fea74c8fa2e",
+   "76d63a54384d8a35c65da9479f62952337c0861cb94a13fe663b8669fd93c2dd",
+   "8e7edcb8690767af45c5ba3d69fde5797d43b5e7a49e10e1a7abaf333e9ca0f0",
+   "46713f2164a5b01450dff837c697e0092ddc21e875e2234559869da1b0c7b527",
+   "8ad89e73fc3afddcc326f3554122450898ecb6569c15dfa129aabcfb4bedc017",
+   "1b51716f0c513bc4a31ee0bb7b650a10c8dfc5843a842147fa4ab70b2ef1408e",
+   "41354286d2d8f364424dcb0c611eeaa5d50eadad7a89a3169fd4af892f893d63",
+   "cd2bf3b1824b4039ba270f9de5e8c2088307d0f7852909426bc039b488375ee0",
+   "4c2e0109476839c2e3b3d4c63ba3953de34dc97f07f557dbfd3a96206b4b9dd7",
+   "9ac56442a8066335f7575f9aa4d2ac5d23830f6b817d39465a13ecf509454dc6",
+   "9fb78793eb7ebd8127be2201ac50dd8f422a82b2068ac72c6d2146aa02b05783",
+   "d8987c1abfa26c712177abde5909c4930e33305e1cc19563dfb1879b9c484540",
+   "a1f8ce7402eb16168a37b69f90e133abb6d0ff9be040bc039f12f15fa6861718",
+   "a1e178cee6ae6f6054357a21d792891ef890639f6fdb7ed09422c433b3275861"
+  ]
+ },
+ "view": {
+  "requests": [
+   {
+    "id": "f298a0ed5ab7ac442deff6b91da358cb81c1a4f4f173772f7cc1bfdd0660c88f",
+    "label": "r1",
+    "need": {
+     "wood": 200,
+     "stone": 200
+    },
+    "stateNow": "open",
+    "fulfilment": {
+     "status": "fulfilled",
+     "lower": {
+      "wood": 200,
+      "stone": 200
+     },
+     "upperExclusive": {
+      "wood": 202,
+      "stone": 202
+     },
+     "shortBy": {},
+     "open": 0,
+     "held": 0,
+     "unproven": 0,
+     "knownZero": 0,
+     "links": 2,
+     "counted": {
+      "wood": 200,
+      "stone": 200
+     }
+    }
+   },
+   {
+    "id": "6bba6d66820d5460bef4f59c9caa6bdc1b9dd3ce581a884931477569931a4ed8",
+    "label": "r2",
+    "need": {
+     "wood": 10
+    },
+    "stateNow": "open",
+    "fulfilment": {
+     "status": "undetermined",
+     "lower": {
+      "wood": 9
+     },
+     "upperExclusive": {
+      "wood": 11
+     },
+     "shortBy": {
+      "wood": 1
+     },
+     "open": 0,
+     "held": 0,
+     "unproven": 0,
+     "knownZero": 0,
+     "links": 2,
+     "counted": {
+      "wood": 9
+     }
+    }
+   },
+   {
+    "id": "685c4ce6dbb626d0e0b5d9dd0c22bdefdfc3199ad26caf1bfeef0ec2a0c6d417",
+    "label": "r3",
+    "need": {
+     "stone": 50
+    },
+    "stateNow": "open",
+    "fulfilment": {
+     "status": "not-reached",
+     "lower": {
+      "stone": 0
+     },
+     "upperExclusive": {
+      "stone": 0
+     },
+     "shortBy": {
+      "stone": 50
+     },
+     "open": 0,
+     "held": 0,
+     "unproven": 0,
+     "knownZero": 1,
+     "links": 1,
+     "counted": {
+      "stone": 0
+     }
+    }
+   },
+   {
+    "id": "53ddfc8df21f26cc74c67555257f0ac941cce6eecce0b7316ec62dc9a31ea01b",
+    "label": "r4",
+    "need": {
+     "wood": 30
+    },
+    "stateNow": "open",
+    "fulfilment": {
+     "status": "undetermined",
+     "lower": {
+      "wood": 0
+     },
+     "upperExclusive": null,
+     "shortBy": {
+      "wood": 30
+     },
+     "open": 1,
+     "held": 1,
+     "unproven": 0,
+     "knownZero": 0,
+     "links": 1,
+     "counted": {
+      "wood": 0
+     }
+    }
+   },
+   {
+    "id": "b72e9984f702295dba8a06f6a51e2ad5fbea85baa0074ba798a79101a5b53679",
+    "label": "r5",
+    "need": {
+     "wood": 1
+    },
+    "stateNow": "open",
+    "fulfilment": {
+     "status": "not-reached",
+     "lower": {
+      "wood": 0
+     },
+     "upperExclusive": {
+      "wood": 1
+     },
+     "shortBy": {
+      "wood": 1
+     },
+     "open": 0,
+     "held": 0,
+     "unproven": 0,
+     "knownZero": 0,
+     "links": 1,
+     "counted": {
+      "wood": 0
+     }
+    }
+   }
+  ],
+  "arrivals": [
+   {
+    "requestId": "f298a0ed5ab7ac442deff6b91da358cb81c1a4f4f173772f7cc1bfdd0660c88f",
+    "label": "r1",
+    "caravanId": {
+     "ownerTag": "4372626378048414624",
+     "seq": 0,
+     "ctx": "CktRuQ2mttgRGkXJtyksdKHjUdc2C4TgDzyB98oEzy8/91"
+    },
+    "responder": "B",
+    "state": "delivered",
+    "delivered": {
+     "wood": 119,
+     "stone": 80
+    },
+    "verification": "RuleDerived",
+    "held": null,
+    "cargoLogged": {
+     "wood": 119,
+     "stone": 80
+    },
+    "amount": {
+     "kind": "lower-bound",
+     "perResource": {
+      "wood": {
+       "min": 119,
+       "maxExclusive": 120
+      },
+      "stone": {
+       "min": 80,
+       "maxExclusive": 81
+      }
+     }
+    },
+    "shipped": {
+     "wood": 120,
+     "stone": 80
+    },
+    "terminal": "Partial",
+    "counted": {
+     "wood": 119,
+     "stone": 80
+    },
+    "countUpper": {
+     "wood": 120,
+     "stone": 81
+    },
+    "countFinal": true,
+    "notCountedWhy": null
+   },
+   {
+    "requestId": "f298a0ed5ab7ac442deff6b91da358cb81c1a4f4f173772f7cc1bfdd0660c88f",
+    "label": "r1",
+    "caravanId": {
+     "ownerTag": "8889114154671114944",
+     "seq": 0,
+     "ctx": "CktRuQ2mttgRGkXJtyksdKHjUdc2C4TgDzyB98oEzy8/91"
+    },
+    "responder": "C",
+    "state": "delivered",
+    "delivered": {
+     "wood": 81,
+     "stone": 120
+    },
+    "verification": "RuleDerived",
+    "held": null,
+    "cargoLogged": {
+     "wood": 81,
+     "stone": 120
+    },
+    "amount": {
+     "kind": "lower-bound",
+     "perResource": {
+      "wood": {
+       "min": 81,
+       "maxExclusive": 82
+      },
+      "stone": {
+       "min": 120,
+       "maxExclusive": 121
+      }
+     }
+    },
+    "shipped": {
+     "wood": 81,
+     "stone": 120
+    },
+    "terminal": "Fulfilled",
+    "counted": {
+     "wood": 81,
+     "stone": 120
+    },
+    "countUpper": {
+     "wood": 82,
+     "stone": 121
+    },
+    "countFinal": true,
+    "notCountedWhy": null
+   },
+   {
+    "requestId": "6bba6d66820d5460bef4f59c9caa6bdc1b9dd3ce581a884931477569931a4ed8",
+    "label": "r2",
+    "caravanId": {
+     "ownerTag": "4372626378048414624",
+     "seq": 1,
+     "ctx": "CktRuQ2mttgRGkXJtyksdKHjUdc2C4TgDzyB98oEzy8/91"
+    },
+    "responder": "B",
+    "state": "delivered",
+    "delivered": {
+     "wood": 5
+    },
+    "verification": "RuleDerived",
+    "held": null,
+    "cargoLogged": {
+     "wood": 5
+    },
+    "amount": {
+     "kind": "lower-bound",
+     "perResource": {
+      "wood": {
+       "min": 5,
+       "maxExclusive": 6
+      }
+     }
+    },
+    "shipped": {
+     "wood": 5
+    },
+    "terminal": "Fulfilled",
+    "counted": {
+     "wood": 5
+    },
+    "countUpper": {
+     "wood": 6
+    },
+    "countFinal": true,
+    "notCountedWhy": null
+   },
+   {
+    "requestId": "6bba6d66820d5460bef4f59c9caa6bdc1b9dd3ce581a884931477569931a4ed8",
+    "label": "r2",
+    "caravanId": {
+     "ownerTag": "4372626378048414624",
+     "seq": 2,
+     "ctx": "CktRuQ2mttgRGkXJtyksdKHjUdc2C4TgDzyB98oEzy8/91"
+    },
+    "responder": "B",
+    "state": "delivered",
+    "delivered": {
+     "wood": 4
+    },
+    "verification": "RuleDerived",
+    "held": null,
+    "cargoLogged": {
+     "wood": 4
+    },
+    "amount": {
+     "kind": "lower-bound",
+     "perResource": {
+      "wood": {
+       "min": 4,
+       "maxExclusive": 5
+      }
+     }
+    },
+    "shipped": {
+     "wood": 5
+    },
+    "terminal": "Partial",
+    "counted": {
+     "wood": 4
+    },
+    "countUpper": {
+     "wood": 5
+    },
+    "countFinal": true,
+    "notCountedWhy": null
+   },
+   {
+    "requestId": "685c4ce6dbb626d0e0b5d9dd0c22bdefdfc3199ad26caf1bfeef0ec2a0c6d417",
+    "label": "r3",
+    "caravanId": {
+     "ownerTag": "8889114154671114944",
+     "seq": 1,
+     "ctx": "CktRuQ2mttgRGkXJtyksdKHjUdc2C4TgDzyB98oEzy8/91"
+    },
+    "responder": "C",
+    "state": "raided-burned",
+    "delivered": {
+     "stone": 0
+    },
+    "verification": "KnownZero",
+    "held": null,
+    "cargoLogged": null,
+    "amount": {
+     "kind": "zero",
+     "perResource": {
+      "stone": {
+       "min": 0,
+       "maxExclusive": 0,
+       "exact": true
+      }
+     }
+    },
+    "shipped": {
+     "stone": 50
+    },
+    "terminal": "Failed",
+    "counted": null,
+    "countUpper": {
+     "stone": 0
+    },
+    "countFinal": true,
+    "notCountedWhy": "届かなかった（0 と分かっている）"
+   },
+   {
+    "requestId": "53ddfc8df21f26cc74c67555257f0ac941cce6eecce0b7316ec62dc9a31ea01b",
+    "label": "r4",
+    "caravanId": {
+     "ownerTag": "4372626378048414624",
+     "seq": 3,
+     "ctx": "CktRuQ2mttgRGkXJtyksdKHjUdc2C4TgDzyB98oEzy8/91"
+    },
+    "responder": "B",
+    "state": "misdelivered",
+    "delivered": null,
+    "verification": null,
+    "held": "DestinationMismatch",
+    "cargoLogged": {
+     "wood": 30
+    },
+    "amount": null,
+    "shipped": {
+     "wood": 30
+    },
+    "terminal": "DestinationMismatch",
+    "counted": null,
+    "countUpper": null,
+    "countFinal": false,
+    "notCountedWhy": "別の場所（原因を確認中）"
+   },
+   {
+    "requestId": "b72e9984f702295dba8a06f6a51e2ad5fbea85baa0074ba798a79101a5b53679",
+    "label": "r5",
+    "caravanId": {
+     "ownerTag": "4372626378048414624",
+     "seq": 4,
+     "ctx": "CktRuQ2mttgRGkXJtyksdKHjUdc2C4TgDzyB98oEzy8/91"
+    },
+    "responder": "B",
+    "state": "delivered",
+    "delivered": {
+     "wood": 0
+    },
+    "verification": "RuleDerived",
+    "held": null,
+    "cargoLogged": {
+     "wood": 0
+    },
+    "amount": {
+     "kind": "lower-bound",
+     "perResource": {
+      "wood": {
+       "min": 0,
+       "maxExclusive": 1
+      }
+     }
+    },
+    "shipped": {
+     "wood": 1
+    },
+    "terminal": "Partial",
+    "counted": {
+     "wood": 0
+    },
+    "countUpper": {
+     "wood": 1
+    },
+    "countFinal": true,
+    "notCountedWhy": null
+   }
+  ],
+  "joint": [
+   {
+    "host": "A",
+    "progress": [
+     {
+      "resource": "wood",
+      "verified": 209,
+      "need": 200,
+      "unit": "whole",
+      "bound": "lower",
+      "underBy": 4
+     },
+     {
+      "resource": "stone",
+      "verified": 200,
+      "need": 200,
+      "unit": "whole",
+      "bound": "lower",
+      "underBy": 2
+     }
+    ],
+    "verdict": "achieved",
+    "done": true,
+    "why": "資源ごとに、証明できた入荷量が基準に届き、確かめた他国からの到着がある"
+   }
+  ]
+ }
+}

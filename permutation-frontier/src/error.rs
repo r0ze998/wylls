@@ -11,6 +11,7 @@
 
 use solana_program::program_error::ProgramError;
 
+pub use frontier_abi::v2::rights::RightsError;
 pub use frontier_abi::v2::CqError;
 pub use frontier_abi::FrontierError;
 
@@ -38,6 +39,9 @@ pub enum Error {
     Frontier(FrontierError),
     /// An MC code (`frontier_abi::v2::CqError`, stable forever).
     Cq(CqError),
+    /// Proposal (02-rights): a facility-use Grant code (200–211,
+    /// unallocated).
+    Rights(RightsError),
     Program(ProgramError),
 }
 
@@ -56,6 +60,12 @@ impl From<CqError> for Error {
     }
 }
 
+impl From<RightsError> for Error {
+    fn from(e: RightsError) -> Self {
+        Error::Rights(e)
+    }
+}
+
 impl From<ProgramError> for Error {
     fn from(e: ProgramError) -> Self {
         Error::Program(e)
@@ -67,6 +77,7 @@ impl From<Error> for ProgramError {
         match e {
             Error::Frontier(f) => ProgramError::Custom(f.code()),
             Error::Cq(c) => ProgramError::Custom(c.code()),
+            Error::Rights(r) => ProgramError::Custom(r.code()),
             Error::Program(p) => p,
         }
     }
@@ -92,6 +103,7 @@ impl Error {
         match self {
             Error::Frontier(f) => Some(f.code()),
             Error::Cq(c) => Some(c.code()),
+            Error::Rights(r) => Some(r.code()),
             Error::Program(_) => None,
         }
     }

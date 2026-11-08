@@ -1,0 +1,11 @@
+[package]
+name = "wylls-ws07-vectors"
+version = "0.0.0"
+edition = "2021"
+publish = false
+description = "Writes the S1 walk vectors (structure.rs march_watch, caravan_watch, wear_bps; caravan.rs fastest_path with stopped palisades removed) that workstream 07's JS ports are pinned against. Reads permutation-rules; changes nothing in it."
+
+[dependencies]
+permutation-rules = { path = "../../../permutation-rules", features = ["std"] }
+
+[workspace]

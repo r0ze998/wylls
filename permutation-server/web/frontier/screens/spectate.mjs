@@ -92,13 +92,15 @@ export function render(FS, { ownerOf = null, standings = '' } = {}) {
     .filter(c => (b === null || c.bell === b) && (f === null || provinceFactions(FS.overviews, c.p, c.q).includes(f))).slice(0, SPECTATE_REPORTS);
   const items = highlights(FS.chronicle, FS.overviews, FS.roster, { limit: 12, faction: f, bell: b, where: (p, q) => provinceName(FS, p, q), place: seasonPlace(FS.season) });
   const scope = [f !== null ? factionName(f) : null, b !== null ? L`ターン ${fmtNum(b)}` : null].filter(Boolean).join(' · ');
+  // (workstream 07: with no record page read, "nothing yet" would be a guess — the read state is said instead)
+  const known = ['ok', 'stale'].includes(chronicleScreen.chronicleState(FS).state), why = chronicleScreen.readLine(FS);
   return [
     html`<p class="muted how-line">${icon('eye')}${L`ウォレットなしで、地図とターンの進み具合を見られます。`}</p>`,
-    html`<section class="vcard" aria-labelledby="watch-hl-title">${cardHead({ id: 'watch-hl-title', ic: 'flag', title: scope ? L`見どころ（${scope}）` : L`見どころ` })}${renderHighlights(items, { go: true })}</section>`,
+    html`<section class="vcard" aria-labelledby="watch-hl-title">${cardHead({ id: 'watch-hl-title', ic: 'flag', title: scope ? L`見どころ（${scope}）` : L`見どころ` })}${known ? renderHighlights(items, { go: true }) : why}</section>`,
     renderWatch(FS),
     standings ? html`<details class="watch-mini"><summary>${L`国の順位`}</summary>${standings}</details>` : '',
     FS.chain && FS.clock ? bellScreen.render(FS) : '',
-    reportScreen.renderLinks(clashes, L`最近の衝突`, { FS }) || html`<p class="muted">${L`まだ衝突はありません`}</p>`,
+    reportScreen.renderLinks(clashes, L`最近の衝突`, { FS }) || (known ? html`<p class="muted">${L`まだ衝突はありません`}</p>` : chronicleScreen.chronicleState(FS).state === 'unread' ? html`<p class="muted">${L`記録を読めていないため、衝突があったかは分かりません`}</p>` : ''),
     chronicleScreen.render(FS),
     // (when the page's view of the world dates from, in the game's own unit: a chain slot is a word for the builders.
     // The design review of 2026-10-24; the slot stays in the element's title for whoever checks the record)

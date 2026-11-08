@@ -269,10 +269,10 @@ impl ResidentFeed {
 /// the feed, and nothing past it was read. No separate status call: the
 /// values come from the same answers as the records.
 ///
-/// Always `unknown` for now (2c8fbfa2, merged by workstream 04 on
-/// 2026-11-08): even a complete scan is not accepted as the whole history
-/// until the conditions for a live read are decided. The reasons kept in the
-/// detail: a complete scan of one ledger, or that the node does not scan or name its ledger,
+/// A complete scan is `ledger_feed` with named gaps (⑲, 2026-11-08): it is
+/// unproven (never PASS) until `point_in_time_unverified` is sealed after
+/// the final states are read and no `prefix_identity_unverified` remains.
+/// `unknown` (never whole) when the node does not scan or name its ledger,
 /// when the feed is empty (no proof of an empty history, as `fetch_txs`), or
 /// when the scan ends before the game feed's last seq (the two reads are then
 /// not in the order this needs).
@@ -309,10 +309,8 @@ pub async fn fetch(
             0,
             0,
         ),
-        // ⑲ 2026-11-08: a complete scan of one ledger is the ledger's feed
-        // with what it could not show named (the prefix, the final states'
-        // point): unproven, so no range is whole (`gaps_before`), until both
-        // are shown (`input::seal_point_in_time` after the final states).
+        // ⑲ 2026-11-08: a live read names what it could not show (the prefix,
+        // the final states' point) like the game history's.
         (Some(sc), Some(id)) if sc >= last_game => (
             crate::input::live_assurance(
                 url,
@@ -350,10 +348,8 @@ pub async fn fetch(
     };
     Ok(ResidentFeed {
         program: *resident_program,
-        // Live reads remain Unknown until the safety conditions for a
-        // direct node read are decided (2c8fbfa2; the owner's rule: an
-        // unproven history is never PASS). Even an empty observation does
-        // not prove no resident transaction.
+        // An unproven history (any named gap, or unknown) is never PASS.
+        // Even an empty observation does not prove no resident transaction.
         history,
         after: 0,
         through,

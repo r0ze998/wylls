@@ -164,7 +164,7 @@ test('failureText: number, then name, then the page\'s codes, then the HTTP stat
   assert.ok(fi18n.CLIENT_CODES.includes('TipNotPreset') === false, 'TipNotPreset is an ABI code (61), not duplicated');
   setLang('ja');
   // (hud-4: said as what the player can still do, not as "the relay's quota"; two sentences, each with its 。)
-  assert.equal(fi18n.failureText({ code: 'QuotaExceeded' }), '今日送れる操作の回数を使い切りました。シーズンの日付が変わると、また送れます。');
+  assert.equal(fi18n.failureText({ code: 'QuotaExceeded' }), '今日送れる操作の回数を使い切りました。ゲーム内の日付が変わると、また送れます。');
   // no program or page text counts bells, names the beacon, a keeper or a site ticket, or says 精算
   for (const name of fi18n.ERROR_NAMES) assert.doesNotMatch(fi18n.errorText(name), /鐘|ビーコン|キーパー|入植希望|精算|区画|口座/, name);
   for (const code of fi18n.CLIENT_CODES) assert.doesNotMatch(fi18n.clientText(code), /鐘|ビーコン|キーパー|入植希望|精算|区画|口座|frontier\.wasm/, code);

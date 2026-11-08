@@ -48,3 +48,15 @@ Eternum UX 調査の提案を採用する前に、次を確認する。
 4. `main` への merge と devnet での作業は、それぞれ別の判断として扱う。
 
 最初に、甲の試遊を現行 S1 で実施できる条件と、国の共同作戦をどう試すかを確認する。旧 core playtest、fun-ab、EVE・Eternum 提案は参照先に留め、試遊の正本を増やさない。
+
+## ⑦ プレイヤー体験（2026-11-08）
+
+- ブランチ：`claude/wylls-ui-ux-visual-oixhgs`（④ の公開候補 `claude/gallant-ride-cunptv` @ `5ee66869` の上）。記録は `workstreams/07-player-experience/`（最新は INTEGRATION.ja.md §0i）。
+- 状態：画面の接続はすべて「実装済み・検証待ち」。⑦（cc）が鍵を使わずに確かめた範囲は §0i に書いた。Codex の検証はまだ。
+- ④ への適用：④ の候補の上に積んだ commit なので、そのまま取り込める。⑳ の web 部分は候補に入っているため含めていない。
+- ブロック中：
+  - ⑱ の自己公開の時刻に合わせた画面テストと固定データ。⑱ の `claude/brave-bohr-xe4n4p` が候補に入るのを待つ。
+  - ページ全体での参加・切替・代理人の確認。鍵が要る。
+- 注意：
+  - 本来の画面を loopback の host（127.0.0.1 など）で、localnet のシーズンとして開くと、開発用ウォレットの鍵が自動で作られる。
+  - 画面テストのサーバーは、既定の起動で固定シードから鍵を導く。鍵を使わない試験では `startServer({ keyless: true })` を使う。

@@ -181,7 +181,7 @@ fn unverified_at_slot(k: u8, what: &str) -> (String, bool, String, String, Strin
         CUSTODY_UNVERIFIED.to_string(),
         false,
         account(k),
-        format!("{what} at the pinned slot: custody is not verified (no V26 replay yet)"),
+        format!("{what} at the pinned slot: custody is not verified (V26 does not replay caravans or records yet)"),
         String::new(),
     )
 }

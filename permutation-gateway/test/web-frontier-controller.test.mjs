@@ -154,8 +154,9 @@ test('a send reported failed that landed anyway is revived by its live transit (
 
 test('herald client: a null holding in /h/me is skipped; /h/events reports a full page', async () => {
   const pages = {
-    '/h/me/W': { v: 1, wallet: 'W', citizen: null, holdings: [null], hosts: [] },
-    '/h/events?after=0': { v: 1, events: [], next: '500', full: true },
+    '/h/me/W': { v: 1, wallet: 'W', citizen: null, holdings: [null], hosts: [], slots: [] },
+    // A full page as the real herald serves one: rows in order, next = the last row's seq.
+    '/h/events?after=0': { v: 1, events: [{ seq: '500', body_b64: 'AA==' }], next: '500', full: true },
   };
   const fetch = async url => {
     const j = pages[url];
@@ -167,6 +168,7 @@ test('herald client: a null holding in /h/me is skipped; /h/events reports a ful
   assert.deepEqual(me.holdings, []);
   const ev = await h.events(0);
   assert.equal(ev.full, true);
+  assert.equal(ev.next, '500');
 });
 
 test('the garrison form offers increases only (the M1 program refuses delta ≤ 0)', () => {
