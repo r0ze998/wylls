@@ -107,10 +107,19 @@ for (const vp of [{ width: 1440, height: 900, name: 'desktop' }, { width: 390, h
     await page.waitForTimeout(2500);
     assert.equal(await page.evaluate(async () => (await import('/frontier/fstate.mjs')).FS.provinces.has('2,0')), false, 'the province was not read');
     assert.deepEqual(await offered(), [], 'no Train or Muster offered while the hosts are not known');
+    // the troops screen says the record is not read, never "no hosts"
+    const tab = page.locator('[data-act="tab"][data-tab="hosts"]:visible').first();
+    await (phone ? tab.tap() : tab.click());
+    await page.waitForFunction(() => /記録をまだ読み込めていません/.test(document.getElementById('panel-body')?.textContent ?? ''));
+    assert.doesNotMatch(await page.locator('#panel-body').textContent(), /軍勢はいません/);
 
     fail = false;
     await page.evaluate(async () => { const c = await import('/frontier/controller.mjs'); await c.refresh(); });
     await page.waitForFunction(async () => (await import('/frontier/fstate.mjs')).FS.provinces.has('2,0'));
+    // (the troops screen, read: its hosts are listed)
+    await page.waitForFunction(() => !!document.querySelector('#panel-body .hosts'), null, { timeout: 15_000 });
+    const map = page.locator('[data-act="tab"][data-tab="map"]:visible').first();
+    if (await map.count()) await (phone ? map.tap() : map.click());
     await page.waitForFunction(() => [...document.querySelectorAll('[data-act="explore-open"]')].some(e => e.offsetParent !== null), null, { timeout: 15_000 });
     const after = await offered();
     assert.ok(after.includes('explore-open') && !after.includes('home-scout-muster') && !after.includes('home-scout-train'), `read: the Scout that is there (${after})`);

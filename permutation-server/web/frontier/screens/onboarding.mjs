@@ -17,7 +17,7 @@ import { icon } from '../hud/icons.mjs';
 import { cardHead } from './parts.mjs';
 import { activeHolding } from '../fstate.mjs';
 import { SCOUT, SETTLER, actionBlocks, ticketTimes } from '../fland.mjs';
-import { hostRows } from './host.mjs';
+import { hostRows, homeProvinceUnread } from './host.mjs';
 import { countdown } from '../clock.mjs';
 import { territoryEnabled } from '../territory.mjs';
 import { DEPART_STAMINA } from '../fmarch.mjs';
@@ -168,12 +168,10 @@ export function marchObjective(FS) {
   return { act: 'tab', data: { tab: 'holding' }, label: L`村で兵を準備する` };
 }
 
-/**
- * (workstream 07) The village's own province not read yet: its hosts are read from that record (screens/host.mjs
- * hostRows), so "no Scout host" is not known — the guide offers no Train or Muster then. A failed read used to look
- * like "no scouts" and the guide's one button mustered a second Scout host from the reserve.
- */
-const homeUnread = (FS, h) => !!h && !FS.provinces?.has?.(`${h.p},${h.q}`);
+// (workstream 07) the village's own province not read yet: "no Scout host" is not known — the guide offers no Train or
+// Muster then (screens/host.mjs homeProvinceUnread). A failed read used to look like "no scouts", and the guide's one
+// button mustered a second Scout host from the reserve.
+const homeUnread = (FS, h) => homeProvinceUnread(FS, h);
 
 function scoutObjective(FS) {
   const h = activeHolding(FS);
