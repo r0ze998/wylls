@@ -255,6 +255,7 @@ workstreams/01-national-strategy/test/coop.send.test.mjs
 workstreams/01-national-strategy/test/coop.test.mjs
 workstreams/01-national-strategy/test/coop.ws15.test.mjs
 workstreams/03-composability/mcp/test/keyfree/capability.test.mjs
+workstreams/03-composability/mcp/test/keyfree/cold-open.test.mjs
 workstreams/03-composability/mcp/test/keyfree/encoding.test.mjs
 workstreams/03-composability/mcp/test/keyfree/herald-contract.test.mjs
 workstreams/03-composability/mcp/test/keyfree/integration.test.mjs
