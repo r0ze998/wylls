@@ -112,6 +112,10 @@
   - ws07-grow-s1 で golden にない path は 4 本（conquest・control・keep・standings）。roster 5 の NoSuchRing（広がる前）は、router 自身の 404 として扱う。
   - この golden では州の 404 が起きないので、求めつづける不具合の証拠は ws07-grow-palisade に残る。柵の golden は変わっておらず、隣の州は 404 のまま。古い版で 0/2、新しい版で 2/2。
   - ws07-grow-s1 2/2、ws07-grow-palisade 2/2。
+- **golden に頼らない再現（④ の依頼）**：
+  - ws07-grow-s1 の relay は、隣の州 (4,-1) をわざと 404 にする。まだチェーンにない州に herald が答えるのと同じ形。(4,-1) は進軍の道の上にはない。
+  - 州ごとの回数の上限は、golden の中身と関係なく、古い不具合を再現する。
+  - f001c9c3 の上で古い controller だと 0/2（(4,-1) を 287 回・508 回求める）、新しい controller で 2/2。
 
 ### 0o.3 結果
 - ws07-grow 3/3（既定の一致、デスクトップ、スマホ）。ws07-grow-r5 2/2。ws07-grow-s1 2/2。ws07-march 2/2、ws07-read 6/6（app.mjs の変更のあとに流し直した）。

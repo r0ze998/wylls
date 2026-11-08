@@ -43,6 +43,13 @@ const HOST_TILE = { p: 4, q: 0, tile: 0 }, TARGET = { p: 5, q: 0, tile: 0 };
 const ABSENT = new Set(['/h/conquest/0.json', '/h/control/latest.bin', '/h/keep/4,0.json', '/h/standings/latest.json']);
 /** The router's own 404s in the golden (19's f001c9c3): roster 5 is NoSuchRing until ring 5 is grown. Real answers. */
 const ROUTER_404 = new Set(['/h/roster/5/latest.bin']);
+/**
+ * A failed Province read, injected on purpose (workstream 04's ask): the relay answers this neighbour 404, as a herald
+ * does for a Province not on chain, whatever the golden holds — so the per-Province request bound below keeps
+ * reproducing controller.wantProvince's old retry storm (fixed in 1fc0a5aa) independently of the golden's contents.
+ * (4,-1) is not on the march's route.
+ */
+const FAIL_PROVINCE = '/h/province/4,-1/latest';
 const REFUSED = { extendable: /まだ地図の外/, unopened: /まだひらいていない土地です/, pending: /生まれるところです/ };
 
 let srv, relay, browser, base, stage = 'before';
@@ -52,7 +59,7 @@ before(async () => {
   relay = createServer((req, res) => {
     const u = new URL(req.url, 'http://x');
     if (u.pathname.startsWith('/h/')) {
-      const a = GOLDEN.stages[stage][u.pathname];
+      const a = u.pathname === FAIL_PROVINCE ? null : GOLDEN.stages[stage][u.pathname];
       if (!a) { missing.add(u.pathname); res.writeHead(404, { 'content-type': 'application/json', 'cache-control': 'no-store' }); return res.end('{"ok":false,"code":"NotFound"}'); }
       if (a.body?.b64 !== undefined) { res.writeHead(a.status, { 'content-type': 'application/octet-stream', 'cache-control': 'no-store' }); return res.end(Buffer.from(a.body.b64, 'base64')); }
       res.writeHead(a.status, { 'content-type': 'application/json', 'cache-control': 'no-store' }); return res.end(JSON.stringify(a.body));
@@ -210,7 +217,8 @@ for (const vp of [{ width: 1440, height: 900, name: 'desktop' }, { width: 390, h
     }
 
     assert.deepEqual([...notFound].filter(p => !p.startsWith('/h/')), [], 'no 404 for the page\'s own files');
-    assert.deepEqual([...notFound].filter(p => !ABSENT.has(p) && !ROUTER_404.has(p)).sort(), [], 'every 404 is a documented golden-absent path or the router\'s own 404');
+    assert.deepEqual([...notFound].filter(p => !ABSENT.has(p) && !ROUTER_404.has(p) && p !== FAIL_PROVINCE).sort(), [], 'every 404 is a documented golden-absent path, the router\'s own 404, or the injected failed read');
+    assert.ok((provinceAsks.get(FAIL_PROVINCE) ?? 0) >= 1, 'the injected failed Province read was asked for (the bound below is exercised)');
     const storm = [...provinceAsks].filter(([, n]) => n > 20);
     assert.deepEqual(storm, [], `no Province asked for more than 20 times in this run (${JSON.stringify([...provinceAsks])})`);
     assert.deepEqual(posts, [], 'no request but reads');
