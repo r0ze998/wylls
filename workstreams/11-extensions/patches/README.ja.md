@@ -1,5 +1,7 @@
 # patches: 共有コアへの変更案
 
+> **r13（2026-11-08）。** ④の公開統合候補 `cf517b55` へは [0013](0013-verify-v0-forgery-only-under-a-known-program-and-keyfree-coverage-on-cf517b55.patch) を当てる。SHA-256 は `84fdbe7b2b588f2516fa3eeb376af466fef72b5ab5f68a601c5aee18582eae35`、当てた後の tree は `9ab02b5a78f23f849c13847e0f44f1f86b5fff4b`。中身は 2 つ。V0 が偽造（FAIL）とするのは知っている版のプログラムのときだけにした。ABI の coverage の契約を、鍵なしで確かめる試験を足した。詳細は [17](../17-verifier-r13.ja.md)。
+
 > **r11（2026-11-06）。** 当てる順は 0010（`6984acfa` へ）→ ⑳の `4b233e4a`・`b2f7becc` → [0011](0011-verify-v27-resident-proof-accounts-canonical-after-ws20-b2f7becc.patch)（SHA-256 `f59e1ab5c870d8adb9147611481f19152d1e843d2df464767dd37425073f253c`）。0011 は V27 で JoinResident の policy、link、resident の正規アドレス（PDA）を照合する。tree は `9a9e49e0b1e38b516d29b9a6cff6afa386b7538a`。詳細は [16](../16-verifier-r11.ja.md)。
 
 > **r9（2026-11-06）。** ④の候補 `d0e96d53` へは、⑳の `45d95e31` を当ててから [0009](0009-verify-v27-join-resident-on-ws04-d0e96d53-after-ws20-45d95e31.patch) を当てる。0009 の SHA-256 は `39da19690fa070c019630e100c9535a2fe21f2d95bd5a3dc9bb3a7a2c4f2a823`、当てた後の tree は `1bec57a040640820c0032549470aab9c9300906c`。正しい JoinResident を検証する（V0 が NFT 版を知り、V27 で命令・記録・Citizen・link・時刻を照合する）。②の正当な命令（知らない版）と偽の命令は V0 で区別する。詳細は [15](../15-verifier-r9.ja.md)。

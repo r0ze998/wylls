@@ -1,6 +1,6 @@
 # ⑪ 拡張方式: 利用者や AI が世界の機能を増やす方法
 
-作業日 2026-10-30〜11-06（r11 まで）。**r11: V27 で JoinResident の policy、link、resident の正規アドレス（PDA。オーナーの許可の範囲）を照合する（パッチ 0011）。****r9: 正しい NFT 参加（JoinResident）を検証する V27（パッチ 0009、⑳の 45d95e31 の上）。****r7: ④の現在版 `8e96f24d` へ 1 つで当たる検証器パッチ 0006、②⑳の新しい命令・記録との照合、DIVERT の PASS の経路を塞いだ。****r6: 検証器パッチ 0005（0004 の上）、⑥の公開状態と⑪の実行状態の分離の契約試験。****r5: ⑥との接続準備（`creation-bridge/`）と検証器の残件（パッチ 0004）。****r4: 世界は終了・リセットしない（2026-10-31 の方針訂正）。⑪の対応は [09](09-continuing-world.ja.md)。**基準 commit `4cd901de9f8e0d6c0b2016851d30595c4a70aa46`。この担当の成果物はすべてこのディレクトリにあり、共有コア（`permutation-frontier`、`frontier-abi`、`permutation-rules`、`frontier-node`、`permutation-gateway`）は一行も変えていない。
+作業日 2026-10-30〜11-08（r13 まで）。**r13: 公開統合候補 `cf517b55` で ABI と coverage の契約を照合した。V0 の偽造の判定は、知っている版のときだけにした（パッチ 0013）。****r11: V27 で JoinResident の policy、link、resident の正規アドレス（PDA。オーナーの許可の範囲）を照合する（パッチ 0011）。****r9: 正しい NFT 参加（JoinResident）を検証する V27（パッチ 0009、⑳の 45d95e31 の上）。****r7: ④の現在版 `8e96f24d` へ 1 つで当たる検証器パッチ 0006、②⑳の新しい命令・記録との照合、DIVERT の PASS の経路を塞いだ。****r6: 検証器パッチ 0005（0004 の上）、⑥の公開状態と⑪の実行状態の分離の契約試験。****r5: ⑥との接続準備（`creation-bridge/`）と検証器の残件（パッチ 0004）。****r4: 世界は終了・リセットしない（2026-10-31 の方針訂正）。⑪の対応は [09](09-continuing-world.ja.md)。**基準 commit `4cd901de9f8e0d6c0b2016851d30595c4a70aa46`。この担当の成果物はすべてこのディレクトリにあり、共有コア（`permutation-frontier`、`frontier-abi`、`permutation-rules`、`frontier-node`、`permutation-gateway`）は一行も変えていない。
 
 > **これは本番に任意コード実行を開く決定ではない。案 B、Burn、運営の停止権限はいずれも採用していない（2026-10-30）。** 以下の結果はホスト上の試験で、オンチェーンの保証ではない（[08](08-host-vs-onchain.ja.md)）。 比較と試作の許可の範囲で、案を比べ、推奨案をホスト上の隔離した crate で試作した。例の機能（「見張りの誓い」）は例であり、採用したゲームルールではない。
 
@@ -32,6 +32,7 @@
 | [05-results](05-results.ja.md) | 試験結果、測定、未実行 |
 | [06-adoption](06-adoption.ja.md) | 採用前に決めること（オーナーの判断・技術の確認・他担当との照合） |
 | [07-discrepancies](07-discrepancies.ja.md) | 文書とコードの食い違い |
+| [17-verifier-r13](17-verifier-r13.ja.md) | **r13**: 統合候補での ①〜⑳ の命令・記録の答え、合成 march の既知の 6 件と新しい退行の切り分け、鍵なしの coverage の試験 |
 | [16-verifier-r11](16-verifier-r11.ja.md) | **r11**: JoinResident の証明口座の正規アドレス、禁止操作が無いことの呼び出し先までの確認、⑲の履歴判定との整合、実装・試験・未確認の区別 |
 | [15-verifier-r9](15-verifier-r9.ja.md) | **r9**: JoinResident の照合（命令・NFT・世代・国・shard・時刻・世界ごとの重複・post-state）、V0 の NFT 版と②の命令の区別、当てる順 |
 | [14-verifier-r7](14-verifier-r7.ja.md) | **r7**: ④の現在版へのパッチ 0006（0004＋0005＋r7）、②⑳⑪の新しいタグ・記録種別が PASS にならないこと、TRANSIT_SETTLED の外の DIVERT、未知の conquest 種別の仕掛け |
