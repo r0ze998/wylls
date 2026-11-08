@@ -3396,3 +3396,45 @@ workflow run が 16 のままであることは ④ が数えたもので、⑯ 
   - ただし、page が実際に feed の表を store に入れることは、§29.31 の静的な確認（`refreshS1` が `s1.nations = r.nations` とする）に頼っている。
 - RENT_TO、Holding の chain の頭の遅れ、場面の選択は、`palisade_case` の doc に書かれた。値は変えていない。payer と支払いは定義が決めないので、変えないという ⑲ の理由は妥当である。
 - ⑯ の実行：`node-keyfree.sh` で map-contract、map-arrival、growth-route が **25/25**。cargo の ws19_map_contract が **3/3**。worktree に変更は無い。
+
+## 29.32 ⑦ ws07-grow-palisade（5d8292cb、827aabcc）、④ 91bbfef5・c47d0acd、ページの province の要求の嵐
+
+**④ `91bbfef517cb7af8f3107e5f962ec895e48ea775`（tree `708de771…`）**
+- 2 つの merge から成る。
+  - `078e946c`（⑲ 2db2db4b の merge）：tree は merge-tree が出す tree と同じ。
+  - `91bbfef5`（⑧ d1ba760c の merge）：`node-key-reviewed.txt` の衝突を、④ が手で解いた。差はこの 1 file の行だけ。
+- ④ が付け直した digest は、⑯ が計算し直した値と同じ：growth-route `6af13991…`、map-arrival `61acfc1b…`。map-arrival の digest が変わったのは、閉包に growth-route.mjs が入っているため。`--check` は exit 0。
+- ⑧ d1ba760c の `ROUTE_AROUND_PALISADE` は、⑯ の probe が kernel から表示した答え（§29.31）と同じ。growth-route の閉包は 74 file で、鍵の API を名指すのは vendored の noble の 4 file だけ。
+- ⑯ の実行：`node-keyfree.sh` で map-arrival、map-contract、growth-route、viewer-own-citizen が **29/29**。
+
+**④ `c47d0acd9d5e5ddd467c43626bf2fac2084c02e9`（tree `bd1f3c5a…`）**
+- 2 つの merge（⑲ 8945b582 の `b226f6e2`、⑦ 5d8292cb の `c47d0acd`）とも、tree は merge-tree が出す tree と同じ。
+- 取り込んだ ⑦ の試験は 5d8292cb の版で、締めた 827aabcc の版ではない。
+
+**⑦ 5d8292cb と 827aabcc（ws07-grow-palisade）**
+- 静的な確認。
+  - 5d8292cb の NoPath の枝は緩すぎた。route が無ければ、どんな断りでも通っていた。
+  - 827aabcc はこの枝を外し、⑲ が固定した AROUND（[5,0,0,1,0,1,1,0,1,1]、1320 s）との一致を要求する。これで十分である。
+  - ⑧ が `G.ROUTE_AROUND_PALISADE` を export したので、⑦ は自分で値を書き写さずにそれを使える。
+- 実行（⑯ の機械、full Chromium、repo の no-keys-guard）。
+  - 5d8292cb の版と、記録だけを加えた写しを**同時に**走らせた。2 つの browser が並んで動き、資源が尽きた。これは ⑯ の runner の誤りなので、この結果は数えない。それでも、記録の写しが示した道筋は、デスクトップでもスマホでも AROUND と同じだった。
+  - 827aabcc の版を単独で走らせた：**デスクトップは通り、スマホは落ちた**。console に `net::ERR_INSUFFICIENT_RESOURCES` が 27 件出た。
+  - 要求を数える写し（`probes/v16-grow-palisade-req.screen.mjs.txt`）を単独で走らせた。
+    - デスクトップは約 2 分で計 1712 件の要求を出した。そのうち `/h/province/4,-1`、`3,0`、`3,1`（golden に無く 404 になる隣の州）が 345、331、326 件で、約 740 件が `ERR_ABORTED` だった。
+    - スマホでは renderer が落ちた（`touchscreen.tap: Target crashed`）。
+- **原因はページの不具合である（静的に確認）。** `controller.mjs` の `wantProvince`（917〜926 行）：
+  - 読み込みに失敗した州（404 など）は `FS.provinces` に入らない。だから `have` が undefined になり、`fetchedAt` の 30 s の間隔は見られない。
+  - そのため、読み込みが終わるたびに `onLoad` が描き直しを起こし、描き直しの中から `wantProvince` がすぐまた要求を出す。404 の州は、待ちなしで要求され続ける。
+  - この挙動は、基準 16576826 の時点から既にある（33bb7d9a、2026-10-01）。⑦ の今回の変更で入ったものではない。
+  - 本物の herald でも、まだ書かれていない州や種の無い州が 404 を返せば、同じ嵐が起きうる。
+  - ws07-grow-s1 も同じ 3 つの州で 404 を受ける。⑯ の機械では 2/2 で通ったが、嵐の有無は数えていない。
+- **区別。** 嵐は、ページの実際の不具合で、⑦ の画面の担当になる。スマホが落ちるかどうかは機械の速さ（環境）によるらしい。④ と ⑦ の機械では 2/2 だった。⑯ の機械では 827aabcc のスマホは**通らない**。
+- **提案（判断は ⑦）。** 見つからなかった州にも `fetchedAt` の間隔を当てる（否定の cache）。そうすれば、試験の 404 にも本物の 404 にも嵐が起きない。
+
+**集計。**
+- 通過：node 29/29、merge の照合 4 件、静的な照合、827aabcc のデスクトップ 1/1。
+- 失敗：827aabcc のスマホ 1/1（ページの嵐による。機械の速さにも依存）。
+- 数えないもの：5d8292cb を 2 つ同時に走らせた実行。
+- blocked：0。
+- log：`logs/phase23/ws07-palisade-storm.txt`。
+- 全体の完了は宣言しない。

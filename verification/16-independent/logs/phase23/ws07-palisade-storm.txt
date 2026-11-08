@@ -1,0 +1,30 @@
+### ⑦ 5d8292cb ws07-grow-palisade + ⑯ logging copy, run TOGETHER (two browsers at once: ⑯'s runner error; not counted)
+ok 1 - 19's palisade on 08's route @ desktop: blocked hex read; the order card goes round it (or is refused); cancel, reselect
+not ok 2 - 19's palisade on 08's route @ phone: blocked hex read; the order card goes round it (or is refused); cancel, reselect
+not ok 3 - 19's palisade on 08's route @ desktop: blocked hex read; the order card goes round it (or is refused); cancel, reselect
+not ok 4 - 19's palisade on 08's route @ phone: blocked hex read; the order card goes round it (or is refused); cancel, reselect
+# tests 4
+# pass 1
+# fail 3
+V16_PAL desktop {"palisade":{"dirs":[5,0,0,1,0,1,1,0,1,1],"secs":1320,"provinces":[{"p":4,"q":0},{"p":5,"q":0}]},"note":"ルールを読み込んでいます"}
+V16_PAL phone {"palisade":{"dirs":[5,0,0,1,0,1,1,0,1,1],"secs":1320,"provinces":[{"p":4,"q":0},{"p":5,"q":0}]},"note":"ルールを読み込んでいます"}
+### ⑦ 827aabcc ws07-grow-palisade alone, full Chromium, repo no-keys-guard
+ok 1 - 19's palisade on 08's route @ desktop: blocked hex read; the order card goes round it (or is refused); cancel, reselect
+not ok 2 - 19's palisade on 08's route @ phone: blocked hex read; the order card goes round it (or is refused); cancel, reselect
+# tests 2
+# pass 1
+# fail 1
+phone console ERR_INSUFFICIENT_RESOURCES present: 1
+### ⑯ request-count copy of 827aabcc (probes/v16-grow-palisade-req.screen.mjs.txt), alone
+ok 1 - 19's palisade on 08's route @ desktop: blocked hex read; the order card goes round it (or is refused); cancel, reselect
+not ok 2 - 19's palisade on 08's route @ phone: blocked hex read; the order card goes round it (or is refused); cancel, reselect
+# tests 2
+# pass 1
+# fail 1
+V16_REQ desktop {"total":1712,"top":[["/h/province/4,-1/latest",345],["/h/province/3,0/latest",331],["/h/province/3,1/latest",326],["/frontier/art/ui/icons.svg",23],["/h/province/4,0/latest",7],["/h/season",6],["/h/overview/0/latest.bin",4],["/frontier/art/ui/logo.svg",4],["/h/overview/1/latest.bin",4],["/h/overview/2/latest.bin",4],["/h/overview/3/latest.bin",4],["/h/overview/4/latest.bin",4]],"failed":[["/h/province/4,-1/latest net::ERR_ABORTED",253],["/h/province/3,0/latest net::ERR_ABORTED",246],["/h/province/3,1/latest net::ERR_ABORTED",243],["/h/control/latest.bin net::ERR_ABORTED",4],["/h/standings/latest.json net::ERR_ABORTED",4],["/h/caravans.json net::ERR_ABORTED",4],["/h/conquest/0.json net::ERR_ABORTED",4],["/h/events net::ERR_ABORTED",4]]}
+  error: 'touchscreen.tap: Target crashed '
+### ⑲ 2db2db4b (via ④ 91bbfef5): node-keyfree map-arrival + map-contract + growth-route + viewer-own-citizen
+key-free run: 4 files in permutation-gateway (221 left out, listed)
+# tests 29
+# pass 29
+# fail 0
