@@ -1,0 +1,13 @@
+# Named key-free subset for scripts/ci/record-keyfree-run.sh (workstream 04, 2026-11-08), under workstream 16's
+# conditions (verification/16-independent/REPORT.ja.md §29.36 B-D). One per line: `<path>  closure=<sha256>  # <why>`,
+# closure as `scan-node-key-tests.mjs --digest <path>` prints it. A file is named here only after 16 has reviewed, at
+# this tree, its static closure and that what it calls cannot reach session.mjs publicKeyOf / keyFromSeed / preflight,
+# fsession derive / restore / importBackup, wallet devWallet / enableDevWallet, or sealMarch. Not named until 16's
+# proof and 4's exclusion reason agree: web-frontier-want-province, web-frontier-viewer-own-citizen.
+# The guard's preload files (no-keys-guard.mjs and the vendored noble it imports when no node_modules resolves), and
+# the sha256 of their `sha256sum ... | sort -k2` list:
+# preload: permutation-server/web/sdk/vendor/noble/curves/abstract/bls.mjs permutation-server/web/sdk/vendor/noble/curves/abstract/curve.mjs permutation-server/web/sdk/vendor/noble/curves/abstract/hash-to-curve.mjs permutation-server/web/sdk/vendor/noble/curves/abstract/modular.mjs permutation-server/web/sdk/vendor/noble/curves/abstract/tower.mjs permutation-server/web/sdk/vendor/noble/curves/abstract/weierstrass.mjs permutation-server/web/sdk/vendor/noble/curves/bls12-381.mjs permutation-server/web/sdk/vendor/noble/curves/utils.mjs permutation-server/web/sdk/vendor/noble/hashes/_md.mjs permutation-server/web/sdk/vendor/noble/hashes/_u64.mjs permutation-server/web/sdk/vendor/noble/hashes/crypto.mjs permutation-server/web/sdk/vendor/noble/hashes/hmac.mjs permutation-server/web/sdk/vendor/noble/hashes/sha2.mjs permutation-server/web/sdk/vendor/noble/hashes/utils.mjs scripts/ci/no-keys-guard.mjs
+# preload-sha256: b301d64baeaea253898db096143e36be616cabeba1f964f0cf0785c51e46ab78
+permutation-gateway/test/web-frontier-map-contract.test.mjs  closure=ac0d3ff6d4bfa57202d9d27639a16760947a5eea285901f8a308a5c3be800756  # 16 §29.36 C: no closure file names a key API
+permutation-gateway/test/web-frontier-map-arrival.test.mjs  closure=61acfc1bcebdfc280c0db4fd42b843c434cb1da9c52364638596e4a8a1fd76a3  # 16 §29.36 C: noble only behind sealMarch's dynamic import, never called; wasm with an empty import object
+permutation-gateway/test/web-frontier-growth-route.test.mjs  closure=6af13991b6a3a75eaf8702128f62c3d8a1c38412778a629c42a1f57c364e40ac  # 16 §29.36 C: as map-arrival
