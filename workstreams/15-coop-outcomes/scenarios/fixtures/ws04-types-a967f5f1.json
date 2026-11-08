@@ -1,0 +1,29 @@
+{
+ "source": {
+  "repo": "r0ze998/wylls", "branch": "preserve/ws04-a967f5f1", "commit": "a967f5f1c64facc32facf07010f39a679c77d80a",
+  "types": "workstreams/04-execution/src/store.rs Receipt; src/ports.rs Settle, Raid; src/model.rs RunSpec, Outcome, Verification, Reason; executor.rs receipt bodies (caravan_sent: {seq, cargo, content_from})",
+  "note": "Written by ⑮ in the JSON form of ④'s serde types (externally tagged enums as their names, Option as null). ④ has committed no JSON produced by a run; this is not a run output. Owners above 2^53: the subject's hex is exact, the JSON number is not."
+ },
+ "runs": {
+  "run-village": { "spec": { "run_id": "run-village", "owner": 21, "ship": { "dst": { "kind": 1, "p": 3, "q": -2, "at": 7, "gen": 1 }, "cargo": [0, 0, 300, 0, 0, 50, 0, 0] } }, "outcome": { "delivered": [0, 0, 300, 0, 0, 50, 0, 0], "verification": "RuleDerived", "cargo_logged": [0, 0, 300, 0, 0, 50, 0, 0], "effects": ["caravan_settled cv:15:1"], "note": "" }, "reason": null },
+  "run-vault": { "spec": { "run_id": "run-vault", "owner": 31, "ship": { "dst": { "kind": 2, "p": 3, "q": -2, "at": 7, "gen": 1 }, "cargo": [0, 200, 0, 0, 0, 0, 0, 0] } }, "outcome": { "delivered": null, "verification": "Unverifiable", "cargo_logged": [0, 200, 0, 0, 0, 0, 0, 0], "effects": [], "note": "" }, "reason": null },
+  "run-burn": { "spec": { "run_id": "run-burn", "owner": 31, "ship": { "dst": { "kind": 1, "p": 3, "q": -2, "at": 7, "gen": 1 }, "cargo": [0, 0, 0, 0, 20, 0, 0, 0] } }, "outcome": { "delivered": [0, 0, 0, 0, 0, 0, 0, 0], "verification": "KnownZero", "cargo_logged": null, "effects": [], "note": "" }, "reason": "LostInTransit" },
+  "run-elsewhere": { "spec": { "run_id": "run-elsewhere", "owner": 31, "ship": { "dst": { "kind": 1, "p": 3, "q": -2, "at": 7, "gen": 1 }, "cargo": [0, 0, 0, 0, 0, 50, 0, 0] } }, "outcome": null, "reason": "DestinationMismatch" },
+  "run-big": { "spec": { "run_id": "run-big", "owner": 10321098765432109876, "ship": { "dst": { "kind": 1, "p": 3, "q": -2, "at": 7, "gen": 1 }, "cargo": [0, 0, 100, 0, 0, 0, 0, 0] } }, "outcome": { "delivered": [0, 0, 100, 0, 0, 0, 0, 0], "verification": "RuleDerived", "cargo_logged": [0, 0, 100, 0, 0, 0, 0, 0], "effects": [], "note": "" }, "reason": null }
+ },
+ "receipts": [
+  { "run_id": "run-village", "kind": "caravan_sent", "subject": "cv:15:1", "source": "sig:s1", "slot": 30, "body": { "seq": 1, "cargo": [0, 0, 300, 0, 0, 50, 0, 0], "content_from": "stock" } },
+  { "run_id": "run-village", "kind": "caravan_settled", "subject": "cv:15:1", "source": "event:e1", "slot": 40, "body": { "key": { "owner": 21, "seq": 1 }, "outcome": 0, "dst": { "kind": 1, "p": 3, "q": -2, "at": 7, "gen": 1 }, "cargo": [0, 0, 300, 0, 0, 50, 0, 0], "credited": null, "slot": 40 } },
+  { "run_id": "run-village", "kind": "caravan_settled", "subject": "cv:15:1", "source": "history:h1", "slot": 40, "body": { "key": { "owner": 21, "seq": 1 }, "outcome": 0, "dst": { "kind": 1, "p": 3, "q": -2, "at": 7, "gen": 1 }, "cargo": [0, 0, 300, 0, 0, 50, 0, 0], "credited": null, "slot": 40 } },
+  { "run_id": "run-vault", "kind": "caravan_sent", "subject": "cv:1f:1", "source": "sig:s2", "slot": 40, "body": { "seq": 1, "cargo": [0, 200, 0, 0, 0, 0, 0, 0], "content_from": "stock" } },
+  { "run_id": "run-vault", "kind": "caravan_settled", "subject": "cv:1f:1", "source": "event:e2", "slot": 55, "body": { "key": { "owner": 31, "seq": 1 }, "outcome": 0, "dst": { "kind": 2, "p": 3, "q": -2, "at": 7, "gen": 1 }, "cargo": [0, 200, 0, 0, 0, 0, 0, 0], "credited": null, "slot": 55 } },
+  { "run_id": "run-burn", "kind": "caravan_sent", "subject": "cv:1f:2", "source": "sig:s3", "slot": 40, "body": { "seq": 2, "cargo": [0, 0, 0, 0, 20, 0, 0, 0], "content_from": "stock" } },
+  { "run_id": "run-burn", "kind": "caravan_raided", "subject": "cv:1f:2", "source": "event:e3", "slot": 45, "body": { "key": { "owner": 31, "seq": 2 }, "choice": 1, "raider": 66, "taken": [0, 0, 0, 0, 0, 0, 0, 0], "slot": 45 } },
+  { "run_id": "run-elsewhere", "kind": "caravan_sent", "subject": "cv:1f:3", "source": "sig:s4", "slot": 40, "body": { "seq": 3, "cargo": [0, 0, 0, 0, 0, 50, 0, 0], "content_from": "stock" } },
+  { "run_id": "run-elsewhere", "kind": "caravan_settled", "subject": "cv:1f:3", "source": "event:e4", "slot": 55, "body": { "key": { "owner": 31, "seq": 3 }, "outcome": 0, "dst": { "kind": 1, "p": 9, "q": 0, "at": 1, "gen": 1 }, "cargo": [0, 0, 0, 0, 0, 50, 0, 0], "credited": null, "slot": 55 } },
+  { "run_id": "run-big", "kind": "caravan_sent", "subject": "cv:8f3a5b2c1d4e6f34:4", "source": "sig:s5", "slot": 41, "body": { "seq": 4, "cargo": [0, 0, 100, 0, 0, 0, 0, 0], "content_from": "stock" } },
+  { "run_id": "run-big", "kind": "caravan_settled", "subject": "cv:8f3a5b2c1d4e6f34:4", "source": "event:e5", "slot": 56, "body": { "key": { "owner": 10321098765432109876, "seq": 4 }, "outcome": 0, "dst": { "kind": 1, "p": 3, "q": -2, "at": 7, "gen": 1 }, "cargo": [0, 0, 100, 0, 0, 0, 0, 0], "credited": null, "slot": 56 } },
+  { "run_id": "run-big", "kind": "caravan_raided", "subject": "cv:8f3a5b2c1d4e6f34:5", "source": "event:e6", "slot": 57, "body": { "key": { "owner": 10321098765432109876, "seq": 5 }, "choice": 0, "raider": 12345678901234567890, "taken": [0, 0, 10, 0, 0, 0, 0, 0], "slot": 57 } },
+  { "run_id": "run-x", "kind": "facility_used", "subject": "fac:run-x", "source": "sig:s9", "slot": 20, "body": { "key": "fac:run-x", "sig": "s9", "slot": 20, "consumed": [0, 0, 0, 0, 0, 0, 0, 0], "produced": [0, 0, 0, 0, 0, 0, 0, 0], "rights_units": 1 } }
+ ]
+}

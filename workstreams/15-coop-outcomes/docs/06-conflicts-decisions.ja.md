@@ -41,3 +41,6 @@
 8. **村あての到着（他の担当どうし）。** ①は積荷を下限、④は正確な量（RuleDerived）とする。評価器は選べるようにし、既定は①に合わせた。
 9. **中央塔。** `DESIGN.md` は5段の Engine を書くが、プログラムにはない（⑭の報告。⑭が確認中）。評価器は塔を任意の入力として扱い、Engine の配当（`frontier-sim`）は使っていない。
 10. **構造物の費用のコメント。** `structure.rs` の `cost_units` のコメントは「wood, stone, arms, gold」と書く。配列は8枠で、arms は Horses の枠（`arms.rs` `ARMS = Resource::Horses`）。コメントと値は一致する。誤読しやすいので記す（食い違いではない）。
+11. **④の Receipt の body（2026-11-06）。** ④の型（`store.rs` の Receipt）は body を構造として持つが、保存と書き出しは JSON の文字列（`body_json`）。u64 の持ち主・襲撃者は JSON の数で、JavaScript では 2⁵³ を超えると丸まる。⑮は文字列から正確に読む（`parseExact`）。
+12. **④の demo の積荷（2026-11-06）。** ④の `runexec demo` は Science（8 枠の 6 番）を送る。⑮の評価器の資源は 6 種（food・wood・stone・ore・arms・gold）で、Science・Influence を持たない。数えない資源として報告する。
+13. **④の数量契約 §7 a と書き出し（2026-11-06）。** §7 a は「verification は Run の outcome にある」とする。⑫の書き出しは receipts と spec だけで、outcome を含まない。⑮は settle の記録から §3 の区分を決める。

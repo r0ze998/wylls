@@ -1,0 +1,286 @@
+{
+ "source": {
+  "repo": "r0ze998/wylls",
+  "branch": "preserve/ws01-coop-s1-3f3c8478",
+  "commit": "3f3c8478b0a37a7ecfd6ca4641b8d47fb58aff52",
+  "code": "workstreams/01-national-strategy/coop/arrival.mjs arrivalOf, creditedOf; herald file test/fixtures/herald-caravans-ended.json",
+  "note": "Produced by ①'s functions. Chain ends are inputs in the shape caravanEndFromChain returns; no chain was read."
+ },
+ "request": {
+  "id": "req-a",
+  "goalId": "crossing-storehouse-v1",
+  "requester": "W-n1-0",
+  "nation": 1,
+  "need": {
+   "wood": 200,
+   "stone": 100
+  },
+  "to": {
+   "kind": "holding",
+   "p": 3,
+   "q": 0,
+   "site": 2,
+   "gen": 1
+  },
+  "at": 1790000000,
+  "expiresAt": 1790100000,
+  "state": "open",
+  "cancel": null,
+  "responses": {},
+  "links": [
+   {
+    "responder": "W-88",
+    "claimedNation": 2,
+    "caravan": {
+     "ownerTag": "88",
+     "seq": 0
+    },
+    "at": 1790000601,
+    "n": 1
+   },
+   {
+    "responder": "W-88",
+    "claimedNation": 2,
+    "caravan": {
+     "ownerTag": "88",
+     "seq": 1
+    },
+    "at": 1790000602,
+    "n": 2
+   },
+   {
+    "responder": "W-88",
+    "claimedNation": 2,
+    "caravan": {
+     "ownerTag": "88",
+     "seq": 3
+    },
+    "at": 1790000603,
+    "n": 3
+   },
+   {
+    "responder": "W-88",
+    "claimedNation": 2,
+    "caravan": {
+     "ownerTag": "88",
+     "seq": 4
+    },
+    "at": 1790000604,
+    "n": 4
+   },
+   {
+    "responder": "W-88",
+    "claimedNation": 2,
+    "caravan": {
+     "ownerTag": "88",
+     "seq": 5
+    },
+    "at": 1790000605,
+    "n": 5
+   },
+   {
+    "responder": "W-88",
+    "claimedNation": 2,
+    "caravan": {
+     "ownerTag": "88",
+     "seq": 2
+    },
+    "at": 1790000606,
+    "n": 6
+   },
+   {
+    "responder": "W-88",
+    "claimedNation": 2,
+    "caravan": {
+     "ownerTag": "88",
+     "seq": 0
+    },
+    "at": 1790000607,
+    "n": 7
+   },
+   {
+    "responder": "W-88",
+    "claimedNation": 2,
+    "caravan": {
+     "ownerTag": "88",
+     "seq": 6
+    },
+    "at": 1790000608,
+    "n": 8
+   }
+  ]
+ },
+ "arrivals": {
+  "chain village (lower bound)": {
+   "requestId": "req-a",
+   "caravanId": {
+    "ownerTag": "88",
+    "seq": 0
+   },
+   "owner": {
+    "ownerTag": "88"
+   },
+   "responder": "W-88",
+   "source": "chain-log",
+   "state": "delivered",
+   "cargo": {
+    "wood": 114,
+    "stone": 0
+   },
+   "verifiedQty": {
+    "wood": 114,
+    "stone": 0
+   },
+   "qtyKind": "lower-bound",
+   "basis": "CARAVAN_SETTLED の積荷（切り捨て）＋ Holding::credit は上限なしで全部加算（holding.rs:296-300, 774-783）",
+   "signature": "sigA",
+   "note": "村あて：チェーンの CARAVAN_SETTLED の積荷を、実入荷量の下限として数える"
+  },
+  "chain storehouse at the address (unverified)": {
+   "requestId": "req-a",
+   "caravanId": {
+    "ownerTag": "88",
+    "seq": 1
+   },
+   "owner": {
+    "ownerTag": "88"
+   },
+   "responder": "W-88",
+   "source": "chain-log",
+   "state": "misdelivered",
+   "cargo": {
+    "wood": 0,
+    "stone": 80
+   },
+   "verifiedQty": null,
+   "signature": "sigB",
+   "note": "依頼の届け先とは別の場所に確定した。数えない"
+  },
+  "chain lost": {
+   "requestId": "req-a",
+   "caravanId": {
+    "ownerTag": "88",
+    "seq": 3
+   },
+   "owner": {
+    "ownerTag": "88"
+   },
+   "responder": "W-88",
+   "source": "chain-log",
+   "state": "lost",
+   "cargo": {
+    "wood": 50,
+    "stone": 0
+   },
+   "verifiedQty": null,
+   "signature": "sigC",
+   "note": "行き先がない・世代が違うので失われた（CARAVAN_SETTLED の LOST）"
+  },
+  "chain elsewhere": {
+   "requestId": "req-a",
+   "caravanId": {
+    "ownerTag": "88",
+    "seq": 4
+   },
+   "owner": {
+    "ownerTag": "88"
+   },
+   "responder": "W-88",
+   "source": "chain-log",
+   "state": "misdelivered",
+   "cargo": {
+    "wood": 60,
+    "stone": 0
+   },
+   "verifiedQty": null,
+   "signature": "sigD",
+   "note": "依頼の届け先とは別の場所に確定した。数えない"
+  },
+  "chain burned": {
+   "requestId": "req-a",
+   "caravanId": {
+    "ownerTag": "88",
+    "seq": 5
+   },
+   "owner": {
+    "ownerTag": "88"
+   },
+   "responder": "W-88",
+   "source": "chain-log",
+   "state": "raided-burned",
+   "verifiedQty": null,
+   "signature": "sigE",
+   "note": "襲撃で焼かれた（CARAVAN_RAIDED）。数えない"
+  },
+  "chain taken": {
+   "requestId": "req-a",
+   "caravanId": {
+    "ownerTag": "88",
+    "seq": 2
+   },
+   "owner": {
+    "ownerTag": "99"
+   },
+   "responder": "W-88",
+   "source": "chain-log",
+   "state": "raided-taken",
+   "verifiedQty": null,
+   "signature": "sigF",
+   "note": "襲撃で奪われた（CARAVAN_RAIDED。J2：奪った人の物）。数えない"
+  },
+  "herald only (no chain read)": {
+   "requestId": "req-a",
+   "caravanId": {
+    "ownerTag": "88",
+    "seq": 0
+   },
+   "owner": {
+    "ownerTag": "88"
+   },
+   "responder": "W-88",
+   "state": "delivered",
+   "cargo": {
+    "wood": 114,
+    "stone": 0
+   },
+   "verifiedQty": null,
+   "source": "herald-ended",
+   "note": "ヘラルドの写しでは村に確定。チェーンの取引の記録と照合していない（板に --rpc がない）。量は数えない"
+  },
+  "chain has nothing yet": {
+   "requestId": "req-a",
+   "caravanId": {
+    "ownerTag": "88",
+    "seq": 6
+   },
+   "owner": {
+    "ownerTag": "88"
+   },
+   "responder": "W-88",
+   "state": "unknown",
+   "verifiedQty": null,
+   "source": "none",
+   "note": "一覧にも確定の記録にもない。チェーンの取引の記録に、この隊商の確定・襲撃はまだない。量は数えない"
+  }
+ },
+ "creditedOf": {
+  "village": {
+   "qty": [
+    0,
+    114,
+    0,
+    0,
+    0,
+    0,
+    0,
+    0
+   ],
+   "qtyKind": "lower-bound",
+   "basis": "CARAVAN_SETTLED の積荷（切り捨て）＋ Holding::credit は上限なしで全部加算（holding.rs:296-300, 774-783）"
+  },
+  "storehouse": {
+   "qty": null,
+   "why": "倉あては上限で切り捨てられ、加算された量も加算の前の在庫も記録にない（caravan.rs SettleCaravan）。未検証"
+  }
+ }
+}

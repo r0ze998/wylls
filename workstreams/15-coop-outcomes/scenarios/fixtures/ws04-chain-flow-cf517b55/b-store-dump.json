@@ -1,0 +1,29 @@
+{
+  "world": "game:1111111111111111111111111111111111111111111111111111111111111111/season:0279b161f9d6c5d680144a7198e1b2023184d3bd11916180a86effd069821be8",
+  "receipts": [
+    {
+      "run_id": "chain-1",
+      "kind": "caravan_sent",
+      "subject": "cv:1b61af352e1d1351:0",
+      "source": "sig:3a67518570b21763be7f6e5612a1a00516eb25f2",
+      "slot": 2,
+      "body": "{\"cargo\":[0,4,0,0,0,0,0,0],\"content_from\":\"event:3a67518570b21763be7f6e5612a1a00516eb25f2:0\",\"seq\":0}"
+    },
+    {
+      "run_id": "chain-1",
+      "kind": "caravan_settled",
+      "subject": "cv:1b61af352e1d1351:0",
+      "source": "event:settle:cv:1b61af352e1d1351:0",
+      "slot": 22,
+      "body": "{\"cargo\":[0,4,0,0,0,0,0,0],\"credited\":[0,4,0,0,0,0,0,0],\"dst\":{\"at\":5,\"gen\":1,\"kind\":2,\"p\":1,\"q\":0},\"key\":{\"owner\":1973050754706772817,\"seq\":0},\"outcome\":0,\"slot\":22}"
+    }
+  ],
+  "runs": [
+    {
+      "run_id": "chain-1",
+      "state": "Fulfilled",
+      "spec": "{\"run_id\":\"chain-1\",\"owner\":1973050754706772817,\"stock\":{\"kind\":1,\"p\":0,\"q\":0,\"at\":1,\"gen\":1},\"inbound\":null,\"inputs\":[0,0,0,0,0,0,0,0],\"outputs\":[0,0,0,0,0,0,0,0],\"rights_units\":0,\"ship\":{\"dst\":{\"kind\":2,\"p\":1,\"q\":0,\"at\":5,\"gen\":1},\"cargo\":[0,4,0,0,0,0,0,0]},\"deadline_slot\":400,\"budget\":{\"max_attempts\":3,\"max_fee\":200000,\"max_port_errors\":5}}",
+      "detail": "{\"ship_seq\":0,\"sent_cargo\":[0,4,0,0,0,0,0,0],\"fac_attempts\":0,\"ship_attempts\":1,\"port_errors\":0,\"pending\":null,\"cancel\":null,\"unresolved\":0,\"reason\":null,\"outcome\":{\"delivered\":[0,4,0,0,0,0,0,0],\"verification\":\"Recorded\",\"cargo_logged\":[0,4,0,0,0,0,0,0],\"effects\":[\"caravan_sent cv:1b61af352e1d1351:0\",\"caravan_settled cv:1b61af352e1d1351:0\"],\"note\":\"delivered in full (lower bound ≥ request)\"},\"settle\":{\"key\":{\"owner\":1973050754706772817,\"seq\":0},\"outcome\":0,\"dst\":{\"kind\":2,\"p\":1,\"q\":0,\"at\":5,\"gen\":1},\"cargo\":[0,4,0,0,0,0,0,0],\"credited\":[0,4,0,0,0,0,0,0],\"slot\":22},\"raid\":null}"
+    }
+  ]
+}

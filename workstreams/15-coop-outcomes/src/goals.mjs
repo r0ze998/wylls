@@ -10,7 +10,7 @@
 // into a project and the project was completed: delivering or trading alone
 // is never a reason. Resources are never added together; progress is a
 // per-resource table and, where one number is shown, the scarcest share.
-import { countsAs } from './world.mjs';
+import { countsAs, worstQty } from './world.mjs';
 import { gapsBefore } from './ledger.mjs';
 
 /** Record kinds each kind of verdict could be changed by (a gap in a stream that may carry one undecides it). */
@@ -59,16 +59,23 @@ export function creditInputs(p, V) {
   const need = { ...p.requires };
   const lines = [];
   const per = {};
-  for (const r of Object.keys(p.requires).sort()) per[r] = { required: p.requires[r], credited: 0, lowerBound: 0, unverified: 0, surplus: 0, late: 0 };
+  for (const r of Object.keys(p.requires).sort()) per[r] = { required: p.requires[r], credited: 0, lowerBound: 0, unverified: 0, surplus: 0, late: 0, lo: 0, hi: 0, hiOpen: false };
   for (const i of [...p.inputs].sort(sortBy('at'))) {
     const t = per[i.resource];
-    const kind = countsAs(i.verified);
+    // The quantity kind of the input (④'s quantity contract §3): exact, lower bound [b, b+1), unknown [0, q+1).
+    const qk = worstQty(i.qtyKind ?? 'exact', countsAs(i.verified) === 'none' ? 'unknown' : countsAs(i.verified));
+    const kind = qk === 'unknown' ? 'none' : qk;
     let code = null;
     let credited = 0;
     if (lateFor(V, p, i.at)) { t.late += i.qty; code = 'late'; }
     else if (V.carryInputs === false && i.at < V.opensAt) { t.late += i.qty; code = 'before_window'; }
-    else if (kind === 'none') { t.unverified += i.qty; code = 'unverified_qty'; }
+    else if (kind === 'none') { const sl = i.slack ?? 1; t.unverified += i.qty; t.hi += i.qty + sl; t.hiOpen ||= sl > 0; code = 'unverified_qty'; }
     else {
+      // `slack`: the fraction the goods may hide, carried once per arrival (a split lot does not repeat it).
+      const sl = kind === 'lower_bound' ? i.slack ?? 1 : i.slack ?? 0;
+      t.lo += i.qty;
+      t.hi += i.qty + sl;
+      if (sl > 0) t.hiOpen = true;
       credited = Math.min(i.qty, need[i.resource]);
       need[i.resource] -= credited;
       t.credited += credited;
@@ -78,10 +85,16 @@ export function creditInputs(p, V) {
     }
     lines.push({ input: i.id, actor: i.actor, nation: i.nation, cluster: i.cluster, origin: i.origin, resource: i.resource, qty: i.qty, credited, code, evidence: i.evidence, tainted: i.tainted });
   }
-  for (const t of Object.values(per)) t.shareBps = share(t.credited, t.required);
+  // Per resource (④ §4): met when the lower bounds reach the requirement; short when even the upper
+  // bound cannot (an open bound is never reached); otherwise undecided.
+  for (const t of Object.values(per)) {
+    t.shareBps = share(t.credited, t.required);
+    t.status = t.lo >= t.required ? 'met' : (t.hiOpen ? t.hi <= t.required : t.hi < t.required) ? 'short' : 'undecided';
+  }
   const met = Object.values(per).every(t => t.credited >= t.required);
+  const undecided = !met && Object.values(per).every(t => t.status !== 'short');
   const scarcestBps = Math.min(...Object.values(per).map(t => t.shareBps));
-  return { per, lines, met, scarcestBps };
+  return { per, lines, met, undecided, scarcestBps };
 }
 
 /** Maximum matching of nations to distinct clusters (`edges`: nation → clusters), deterministic. */
@@ -162,9 +175,12 @@ function judgeProject(W, g, p, ctx) {
   const inputs = { met: credit.met, perResource: credit.per, scarcestBps: credit.scarcestBps };
   if (!credit.met) {
     const short = Object.entries(credit.per).filter(([, t]) => t.credited < t.required);
-    const couldClose = short.every(([, t]) => t.credited + t.unverified >= t.required);
-    reasons.push(R('stage_inputs', p.inputs.map(i => i.id), Object.fromEntries(short.map(([r, t]) => [r, { required: t.required, credited: t.credited, unverified: t.unverified, late: t.late }]))));
-    if (couldClose && short.some(([, t]) => t.unverified > 0)) { indeterminate = true; reasons.push(R('unverified_qty', p.inputs.filter(i => countsAs(i.verified) === 'none').map(i => i.id))); }
+    reasons.push(R('stage_inputs', p.inputs.map(i => i.id), Object.fromEntries(short.map(([r, t]) => [r, { required: t.required, credited: t.credited, upper: t.hi, upperOpen: t.hiOpen, unverified: t.unverified, late: t.late, status: t.status }]))));
+    if (credit.undecided) {
+      indeterminate = true;
+      const unknown = p.inputs.filter(i => countsAs(i.verified) === 'none' || i.qtyKind === 'unknown').map(i => i.id);
+      reasons.push(R(unknown.length ? 'unverified_qty' : 'qty_undecided', unknown.length ? unknown : p.inputs.map(i => i.id)));
+    }
   }
   for (const l of credit.lines) if (l.code === 'late') reasons.push(R('late', [l.input]));
   // Stage 2: construction completed.
@@ -304,8 +320,12 @@ export function judgePersonal(W, personalRules, joint, ctx) {
     for (const l of creditInputs(withOriginClusters(W, p), W).lines) if (l.credited) credited.push({ ...l, project: p.id });
   }
   for (const g of personalRules) {
-    if (g.kind === 'scout' && !W.towerInput) {
-      out.push({ goal: g.id, track: 'personal', subject: null, status: 'not_offered', reasons: [R('goal_not_in_ruleset', [], '⑭の塔の入力がないので、この目標は出さない')] });
+    if (g.kind === 'scout' && !W.sightings.size) {
+      out.push({ goal: g.id, track: 'personal', subject: null, status: 'not_offered', reasons: [R('no_sighting_source')] });
+      continue;
+    }
+    if (g.kind === 'board_helper' && !W.board.length) {
+      out.push({ goal: g.id, track: 'personal', subject: null, status: 'not_offered', reasons: [R('goal_not_in_ruleset', [], '掲示板（⑭の塔の案 B）の事実がないので、この目標は出さない')] });
       continue;
     }
     const slots = new Map();
@@ -363,6 +383,22 @@ function judgePersonalGoal(W, g, a, credited) {
     const hit = Object.entries(per).filter(([r, q]) => q >= (g.minQty[r] ?? Infinity)).map(([r]) => r).sort();
     return { status: tainted(mine) ? 'indeterminate' : hit.length ? 'achieved' : 'not_achieved', perResource: per,
       reasons: [R(hit.length ? 'achieved' : mine.every(r => r.domestic) ? 'domestic' : 'below_min', mine.map(r => r.id), { resources: hit })] };
+  }
+  if (g.kind === 'board_helper') {
+    // Answering another nation's posted request counts once the exchange has arrived both ways
+    // (fulfilled). Posting is not helping; taking alone is a send, not an arrival. Model facts (⑭)
+    // are never a fact of the game: they give 'model_only', never 'achieved'.
+    const mine = W.board.filter(b => b.taken.some(t => t.actor === a.id));
+    if (!mine.length) return null;
+    // ⑭ v1 names the responder whose goods arrived; without it (v0) any of the actor's takes stands in.
+    const answered = b => (b.fulfilled.responder !== undefined ? b.fulfilled.responder === a.id : true);
+    const done = mine.filter(b => b.fulfilled && inWindow(W, b.fulfilled.at) && answered(b) && b.taken.some(t => t.actor === a.id && t.cross === true && t.cluster !== b.posted?.cluster));
+    const evidence = mine.flatMap(b => [b.posted?.id, ...b.taken.filter(t => t.actor === a.id).map(t => t.id), b.fulfilled?.id].filter(Boolean));
+    if (!done.length) return { status: 'not_achieved', reasons: [R('taken_not_arrived', evidence)] };
+    const model = done.some(b => [b.posted, b.fulfilled, ...b.taken].some(x => x && x.verified === 'model'));
+    const t = done.some(b => [b.posted, b.fulfilled, ...b.taken].some(x => x?.tainted));
+    return { status: t ? 'indeterminate' : model ? 'model_only' : 'achieved', requests: done.map(b => b.req).sort(),
+      reasons: [R(model ? 'model_only' : 'achieved', evidence, { requests: done.map(b => b.req).sort() })] };
   }
   if (g.kind === 'scout') {
     const mine = [...W.sightings.values()].filter(s => s.actor === a.id && s.at < W.closeAt);
