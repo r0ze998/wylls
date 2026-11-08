@@ -292,6 +292,12 @@ fn s1_paths() -> Vec<String> {
     }
     v.push("/h/caravans.json".into());
     v.push("/h/nations.json".into());
+    // The last four reads of 7's ABSENT list: the day's conquest file, the
+    // control file, the keep of the host's Province, the standings.
+    v.push("/h/conquest/0.json".into());
+    v.push("/h/control/latest.bin".into());
+    v.push(format!("/h/keep/{},{}.json", g::HOME.0, g::HOME.1));
+    v.push("/h/standings/latest.json".into());
     v.push("/h/wide-index/status".into());
     v.push("/h/world/wide".into());
     v
@@ -500,6 +506,33 @@ async fn the_s1_ring_4_to_5_growth_matches_the_golden_and_8s_contract() {
                 body(&g, s, r5),
                 &json!({"ok": false, "code": "NoSuchRing"}),
                 "{s}"
+            );
+        }
+    }
+    // The last four reads, as the router answers them in this world (no
+    // bell resolved, no hour folded): the day's conquest feed is live and
+    // empty; control and standings are not written yet (404 NotYet). The keep
+    // of (4,0) is 404 NoSuchKeep here because this fixture does not emit the
+    // KEEP (PLACED) record the program's OpenProvince emits for a Province
+    // with a keep (proc/map.rs), so it is the router's answer for this
+    // archive, not evidence that (4,0) has no keep.
+    for s in gr::STAGES {
+        assert_eq!(status(&g, s, "/h/conquest/0.json"), 200, "{s}");
+        assert_eq!(
+            body(&g, s, "/h/conquest/0.json"),
+            &json!({"v": 1, "day": 0, "events": []}),
+            "{s}"
+        );
+        for (path, code) in [
+            ("/h/control/latest.bin", "NotYet"),
+            ("/h/standings/latest.json", "NotYet"),
+            ("/h/keep/4,0.json", "NoSuchKeep"),
+        ] {
+            assert_eq!(status(&g, s, path), 404, "{s} {path}");
+            assert_eq!(
+                body(&g, s, path),
+                &json!({"ok": false, "code": code}),
+                "{s} {path}"
             );
         }
     }
