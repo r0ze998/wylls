@@ -14,6 +14,13 @@
  * A world snapshot lists the levels it runs (`world.features`); a manifest
  * that uses an effect of another level is refused with EFFECT_UNAVAILABLE.
  *
+ * `rev` is the revision of an effect's meaning (what its instruction checks,
+ * takes and makes). The world does not end when the core changes: a change
+ * of meaning raises the effect's rev in the running world (`world.effectRevs`
+ * in the mock), and a plan confirmed under an older rev stops with
+ * EFFECT_REVISED until its user confirms a new plan. Plans that use only
+ * unchanged effects keep running. See docs/10-continuous-world.ja.md.
+ *
  * Numbers marked [phase 6] are the code's placeholders, copied, not chosen here.
  */
 
@@ -33,6 +40,7 @@ export const LEVELS = table({
 
 export const EFFECTS = table({
   "caravan.send": {
+    rev: 1,
     ja: "荷車で送る",
     commands: ["SendCaravan (0xB1)", "SettleCaravan (0xB2, 誰でも)"],
     availability: "base",
@@ -57,6 +65,7 @@ export const EFFECTS = table({
     ],
   },
   "workshop.run": {
+    rev: 1,
     ja: "他人の工房を使用権の札で動かす",
     commands: ["UseRun (0xC8)"],
     availability: "s2-branch",
@@ -80,6 +89,7 @@ export const EFFECTS = table({
     ],
   },
   "receipt.withdraw": {
+    rev: 1,
     ja: "受け取りの札で他人の倉から引き出す",
     commands: ["ClaimReceipt (0xC6)", "WithdrawReceipt (0xC7)", "SettleCaravan (0xB2)"],
     availability: "s2-branch",
@@ -101,6 +111,7 @@ export const EFFECTS = table({
     ],
   },
   "shares.withdraw": {
+    rev: 1,
     ja: "持ち分の札で共有の倉から引き出す",
     commands: ["WithdrawShares (0xC4)", "SettleCaravan (0xB2)"],
     availability: "s2-branch",
@@ -131,7 +142,8 @@ export const SETUP = table({
 
 /**
  * World effects a manifest cannot compose. `class`:
- *   core-extension  needs a new rule in the core (a new season / program version)
+ *   core-extension  needs a new rule in the core (a new program version, added to
+ *                   the running world by ④'s migration; never a world reset)
  *   forbidden       ruled out by the adopted design
  * The reasons cite the design documents; docs/04-world-effects.ja.md
  * compares how an extension could be added.
@@ -148,6 +160,22 @@ export const NOT_COMPOSABLE = table({
   "signal.hidden": { class: "forbidden", ja: "移動中の軍など隠れた情報を合図にする", ref: "21-stage3-play.ja.md §2" },
   "code.run": { class: "forbidden", ja: "任意のコードを実行する（本番には入れない。この課題の範囲外）", ref: "課題⑥の制約" },
 });
+
+/** An effect's revision in a world: the world's own, else the catalog's. */
+export function effectRev(world, effect) {
+  return Object.hasOwn(world?.effectRevs ?? {}, effect) ? world.effectRevs[effect] : EFFECTS[effect]?.rev;
+}
+
+/**
+ * The revision a plan was confirmed under. A plan made before revisions
+ * were recorded (format wylls.creation.plan/0 without `effects`, up to
+ * commit 517796dc) was confirmed against the catalog of that commit, where
+ * every effect was what is now rev 1: that is read as rev 1, and said so.
+ */
+export const LEGACY_EFFECT_REV = 1;
+export function confirmedRev(plan, effect) {
+  return Object.hasOwn(plan?.effects ?? {}, effect) ? plan.effects[effect] : LEGACY_EFFECT_REV;
+}
 
 export const TRIGGERS = table({
   manual: { available: true, ja: "手で実行（段階2と同じ）" },
