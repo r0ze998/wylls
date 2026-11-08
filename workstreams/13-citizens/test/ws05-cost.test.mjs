@@ -4,7 +4,7 @@
 //   processes, fenced by 5's ProcessLease) reserves, settles, releases or holds undecided; the agent wallet's
 //   AgentLedger keeps the resident's own money as before. The two must agree call by call, and an unknown cost must
 //   stay undecided in both, through a restart and a stop in the middle of a model call.
-// Set WS05_E9D1551A to a checkout of workstream 5 at e9d1551a (restored from its delivery bundle); skipped otherwise.
+// Set WS05_ROOT to a checkout of workstream 5 (e9d1551a was restored from its delivery bundle); skipped otherwise.
 // No model is called (fixture providers), nothing is signed, no key is made.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
@@ -15,9 +15,14 @@ import { runDemo } from '../demo/run-demo.mjs';
 import { small, run, tmp } from './helpers.mjs';
 import { ws05LedgerCost } from '../resident/ports/ws05-cost.mjs';
 import { decisionsOf } from '../demo/report.mjs';
+import { expectCommit } from './versions.mjs';
 
-const ROOT = process.env.WS05_E9D1551A;
-const skip = ROOT ? false : 'set WS05_E9D1551A to workstream 5 at e9d1551a';
+// Workstream 5's tree: WS05_ROOT (or the older name WS05_E9D1551A). The commit it is at is printed by every test and,
+// with WS05_EXPECT set, must match: a pass on one version of 5 is never a pass on another.
+const ROOT = process.env.WS05_ROOT ?? process.env.WS05_E9D1551A;
+const skip = ROOT ? false : 'set WS05_ROOT to a checkout of workstream 5';
+const WS05_COMMIT = ROOT ? expectCommit('WS05', ROOT) : null;
+test('workstream 5 version these tests ran against', { skip }, t => { t.diagnostic(`workstream 5 at ${WS05_COMMIT}`); });
 const m5 = rel => import(pathToFileURL(path.join(ROOT, 'workstreams/05-ai-participation/model-api/src', rel)).href);
 const PROVIDER = 'anthropic', MODEL = 'claude-fixture-model'; // an entry of 5's FIXTURE_BOOK (invented numbers)
 const files = dir => readdirSync(dir).flatMap(f => { const p = path.join(dir, f); return statSync(p).isDirectory() ? files(p) : [p]; });
