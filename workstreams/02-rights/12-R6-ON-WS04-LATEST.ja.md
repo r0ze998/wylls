@@ -188,3 +188,39 @@
 | 網羅的な match | `frontier-node/crates/{fclient,herald}/src/conquest.rs` |
 
 ④の harness（`map_growth_runtime_tests.rs`）に足したのは、子 module の宣言と既定の build の試験 1 件だけである。④の init・prologue・Stubs は変えていない。
+
+## 9. ⑪の 0013・0014 との関係（⑪の review を受けて）
+
+**衝突：**
+- ⑪の `0013` は、帯のない tag を FAIL にする条件を「知っている版の時だけ」に変える。
+- `0014` は、ResidentAct を V28 に任せる。
+- どちらも `v0_coverage.rs` の `judge_outside_v2` を変える。このブランチの V0 の差分（④の `fa822453` が基準）とは、`let Some(band) = allocated_band(tag) else` の周りで衝突する。
+
+**作り直したもの：** `patches/for-ws04/after-ws11-0013-0014/0001-v0-grant-on-0013-0014.diff`
+- 基準は、このブランチの `v0_coverage.rs` を④の版に戻し、⑪の 0013・0014 を当てたもの。
+- 足すのは次の三つ：
+  - `known_version` に `0x2004` を足す。
+  - Grant の判定を、帯の規則の前に置く。順は、Grant の判定 → 帯 → 帯のない tag（知らない版なら UNVERIFIABLE）。
+  - 版の一覧の文言を直す。
+
+**④の適用の手順：**
+1. ⑪の 0013・0014 を当てる。
+2. このブランチを merge する。`v0_coverage.rs` が衝突したら、0013・0014 の側を採る。
+3. 上の diff を当てる。
+
+**試験**（④ `fa822453` に、このブランチ、0013、0014、上の diff を当てた tree で）：
+
+| 試験 | 結果 |
+|---|---|
+| `verify` の lib | 47 件通過 |
+| `verify` の `rights_replay` | 18 件通過 |
+| `verify` の `new_bands` | 10 件通過（⑪の 0013・0014 の試験を含む） |
+| `verify` の `missing_state` | 2 件通過 |
+
+鍵と署名がないことは、呼び出し先まで確かめた。`tamper` は実行していない。
+
+**VR の 1 対 1 の照合（⑪の質問への答え）：**
+- VR は、取引の Grant 命令を、記録の順に 1 つずつ照合する（`recs.next()`）。
+- 記録がない、または kind が違う時は FAIL。ログが失われた時は UNVERIFIABLE。
+- 照合で余った記録は、`RightsRecordOrphan`（FAIL）になる。CPI の中なら UNVERIFIABLE。
+- そのため、V0E の `explained()` が「同じ取引に Grant 命令が 1 つでもある」で判定済みとしても、余った記録は VR が拾う。
