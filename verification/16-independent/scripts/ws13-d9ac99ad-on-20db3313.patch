@@ -1,0 +1,159 @@
+diff --git a/workstreams/13-citizens/WORK-20261108.ja.md b/workstreams/13-citizens/WORK-20261108.ja.md
+index 5de36b3a..81d2d1c3 100644
+--- a/workstreams/13-citizens/WORK-20261108.ja.md
++++ b/workstreams/13-citizens/WORK-20261108.ja.md
+@@ -89,3 +89,19 @@
+ - **⑫の新しい理由語**：`integration-records` は、⑫ fa4baf14 の `cross_check_is_not_finality` も受け付けるようにした。全件保留という挙動は同じ。⑫の c6877a1a と fa4baf14 の両方で 6/6。
+ - **全体**（④・⑤ 10e74967・⑫ fa4baf14 を版を固定して指定し、ガードと試みの記録をかけた）：149 件、合格 143、失敗 0、省略 6（署名を伴う試験）。鍵・PDA の試み 0。
+ - **W1 と run-port**：W1 は変更していない。run-port は F1 の修正のまま。
++
++## 追記 3：F1 の防御的レビュー（run view の効果欄の食い違い）
++
++- **再現**：した（コード上）。④ cf517b55 の契約では、`outcome.effects`（executor が書く「止まる前に起きた効果」、"kind subject" の形）と、最上位の `effects`（店の receipt の種類）は別の欄である。前の `fateOfRun` は `run.effects ?? run.outcome?.effects` と読んでいた。そのため、最上位が `[]` だと、outcome.effects にある caravan_sent が見えなかった。
++  - 実物の view（runexec 7d2fbe0d の demo-happy）を固定 fixture として写し、`Failed`／`Expired`・`effects: []`・`outcome.effects: ['caravan_sent …']` にすると、判定は `failed` だった。`sent: true` で効果欄が空の場合も `failed` だった。
++  - 住民の上でも、同じ行動（Build item 3）が新しいターンの鍵（`ren:t3:1`）で、もう一度④に渡った。#a2 ではなく、新しい判断として二度目になる危険である。
++  - ④の実物では両欄とも同じ事実から作られるので、**この食い違いは観測されていない**。実物の raid の view では、caravan_raided が最上位にあって outcome.effects には無いなど、二つの欄の集合は元から一致しない（どちらも空ではない）。
++- **変えた契約**（`resident/ports/ws04-run.mjs` の `effectsOf`・`fateOfRun`）：止まった run（Failed・Cancelled・Expired）では、何か言っている欄（`effects`、`outcome.effects`、`sent`）をすべて見る。
++  - 片方の効果欄だけが空、または caravan_sent の有無が欄の間で食い違う場合は、**unknown**（矛盾する view）。保留し、送り直さず、landed とも言わない。
++  - 食い違いが無ければ、効果がある → landed、無い → failed／cancelled（従来どおり）。
++  - `view_version` が書かれていて `p04-run/0.1` でなければ、解釈しない（unknown）。
++  - 和集合を取って成功扱いを増やすことはしていない。
++- **試験**（`test/ws04-run-view.test.mjs`、5 件）：矛盾 5 通りは unknown、一致する場合は従来どおり、未知の版は unknown。住民では、その行動が④に渡るのは最初の鍵の 1 回だけで、行は保留のまま。
++  - 旧コード（0e6df20e の ws04-run.mjs）では 3 件が落ちることを確かめた。修正後は 5/5 合格。
++- **全体**（④・⑤ 10e74967・⑫ fa4baf14、ガードと試みの記録）：154 件、合格 148、失敗 0、省略 6（署名を伴う試験）。試みは 0。
++- **W1** は触っていない。
+diff --git a/workstreams/13-citizens/resident/ports/ws04-run.mjs b/workstreams/13-citizens/resident/ports/ws04-run.mjs
+index 8c16bb71..1deada5e 100644
+--- a/workstreams/13-citizens/resident/ports/ws04-run.mjs
++++ b/workstreams/13-citizens/resident/ports/ws04-run.mjs
+@@ -25,17 +25,41 @@ const PENDING = new Set(['Accepted', 'Reserved', 'FacilityRequested', 'FacilityS
+  * @param run  null (no run with this id: never accepted) or {state, held_reason?, effects?: [] (p04-run/0.1), outcome?: {effects?: []}}
+  * @returns    null, or {ok, status: 'sent', fate: 'pending'|'landed'|'failed'|'cancelled'|'unknown', fateError?, ws04State, partial?, unverified?}
+  */
++/** Run view versions this port reads (workstream 4 src/view.rs RUN_VIEW_VERSION). A view without one is an older fake. */
++export const RUN_VIEW_VERSIONS = Object.freeze(['p04-run/0.1']);
++
++/**
++ * What a run view says about effects, from every field that says anything (p04-run/0.1, cf517b55):
++ *   `effects`          receipt kinds in the store (top level)
++ *   `outcome.effects`  the executor's "effects that took place before the run stopped" ("kind subject")
++ *   `sent`             a confirmed caravan_sent receipt
++ * In workstream 4 today all three come from the same facts. If they ever disagree (one effects list empty and the
++ * other not, or the caravan's departure said by one and denied by another), the view is contradictory: no field is
++ * preferred, nothing is claimed, the answer is unknown.
++ */
++export function effectsOf(run) {
++  const lists = [['effects', run.effects], ['outcome.effects', run.outcome?.effects]].filter(([, v]) => Array.isArray(v));
++  const kinds = v => v.map(x => String(x).split(' ')[0]);
++  const departed = [...lists.map(([n, v]) => [n, kinds(v).includes('caravan_sent')]), ...(typeof run.sent === 'boolean' ? [['sent', run.sent]] : [])];
++  const contradictions = [];
++  if (lists.length === 2 && (lists[0][1].length > 0) !== (lists[1][1].length > 0)) contradictions.push(`${lists[0][0]} has ${lists[0][1].length}, ${lists[1][0]} has ${lists[1][1].length}`);
++  if (new Set(departed.map(([, b]) => b)).size > 1) contradictions.push(`caravan_sent: ${departed.map(([n, b]) => `${n} ${b}`).join(', ')}`);
++  return { any: lists.some(([, v]) => v.length > 0) || run.sent === true, contradictions };
++}
++
+ export function fateOfRun(run) {
+   if (run === null || run === undefined) return null;
+   const base = { ok: true, status: 'sent', ws04State: run.state };
+-  // p04-run/0.1 (cf517b55 src/view.rs) lists the receipt kinds as `effects` at the top; older views under `outcome`.
+-  const effects = run.effects ?? run.outcome?.effects ?? [];
++  if (run.view_version !== undefined && !RUN_VIEW_VERSIONS.includes(run.view_version)) return { ...base, fate: 'unknown', why: `unknown run view version ${run.view_version}` };
+   if (!WS04_STATES.includes(run.state)) return { ...base, fate: 'unknown', why: `unknown workstream 4 state ${run.state}` };
+   if (run.held_reason) return { ...base, fate: 'unknown', why: `held: ${run.held_reason}` };
+   if (TOOK_EFFECT.has(run.state)) return { ...base, fate: 'landed', ...(run.state === 'Partial' ? { partial: true } : {}), ...(run.state === 'DeliveredUnverified' ? { unverified: true } : {}) };
+   if (PENDING.has(run.state)) return { ...base, fate: 'pending' };
+-  // Stopped: Failed, Cancelled, Expired.
+-  if (effects.length) return { ...base, fate: 'landed', stoppedAfterEffects: run.state };
++  // Stopped: Failed, Cancelled, Expired. Whether something took place first decides it; a contradictory view decides
++  // nothing (held: it may have left, so it is never sent again, and it is not claimed as landed either).
++  const e = effectsOf(run);
++  if (e.contradictions.length) return { ...base, fate: 'unknown', why: `contradictory run view: ${e.contradictions.join('; ')}` };
++  if (e.any) return { ...base, fate: 'landed', stoppedAfterEffects: run.state };
+   if (run.state === 'Cancelled') return { ...base, fate: 'cancelled' };
+   return { ...base, fate: 'failed', fateError: run.state };
+ }
+diff --git a/workstreams/13-citizens/test/fixtures/ws04-run-view-happy.json b/workstreams/13-citizens/test/fixtures/ws04-run-view-happy.json
+new file mode 100644
+index 00000000..f4c66999
+--- /dev/null
++++ b/workstreams/13-citizens/test/fixtures/ws04-run-view-happy.json
+@@ -0,0 +1 @@
++{"attempts":[{"fee":5000,"request_key":"fac:demo-happy","sig":"b07227c82f0c08964ab608a5bc5f9bf3c96a8da4","status":"landed","step":"facility","valid_until":12},{"fee":5000,"request_key":"cv:77:0","sig":"63353057c8fd663e6b7ddd6be05ddd1933e2f13a","status":"landed","step":"ship","valid_until":14}],"cancel_phase":null,"cancel_requested":false,"cargo_only":false,"detail":{"cancel":null,"fac_attempts":1,"outcome":{"cargo_logged":[0,0,0,0,0,0,3,0],"delivered":[0,0,0,0,0,0,3,0],"effects":["facility_used fac:demo-happy","caravan_sent cv:77:0","caravan_settled cv:77:0"],"note":"delivered in full (lower bound ≥ request)","verification":"Recorded"},"pending":null,"port_errors":0,"raid":null,"reason":null,"sent_cargo":[0,0,0,0,0,0,3,0],"settle":{"cargo":[0,0,0,0,0,0,3,0],"credited":[0,0,0,0,0,0,3,0],"dst":{"at":5,"gen":1,"kind":2,"p":1,"q":0},"key":{"owner":119,"seq":0},"outcome":0,"slot":24},"ship_attempts":1,"ship_seq":0,"unresolved":0},"effects":["facility_used","caravan_sent","caravan_settled"],"fees":{"charged":10000,"released":0,"reserved":0,"unconfirmed":0},"held_reason":null,"in_flight":false,"next_check":25,"outcome":{"cargo_logged":[0,0,0,0,0,0,3,0],"delivered":[0,0,0,0,0,0,3,0],"effects":["facility_used fac:demo-happy","caravan_sent cv:77:0","caravan_settled cv:77:0"],"note":"delivered in full (lower bound ≥ request)","verification":"Recorded"},"reason":null,"receipts":[{"body":{"consumed":[0,5,0,0,0,0,0,0],"key":"fac:demo-happy","produced":[0,0,0,0,0,0,3,0],"rights_units":1,"sig":"b07227c82f0c08964ab608a5bc5f9bf3c96a8da4","slot":2},"kind":"facility_used","run_id":"demo-happy","slot":2,"source":"sig:b07227c82f0c08964ab608a5bc5f9bf3c96a8da4","subject":"fac:demo-happy"},{"body":{"cargo":[0,0,0,0,0,0,3,0],"content_from":"event:63353057c8fd663e6b7ddd6be05ddd1933e2f13a:0","seq":0},"kind":"caravan_sent","run_id":"demo-happy","slot":4,"source":"sig:63353057c8fd663e6b7ddd6be05ddd1933e2f13a","subject":"cv:77:0"},{"body":{"cargo":[0,0,0,0,0,0,3,0],"credited":[0,0,0,0,0,0,3,0],"dst":{"at":5,"gen":1,"kind":2,"p":1,"q":0},"key":{"owner":119,"seq":0},"outcome":0,"slot":24},"kind":"caravan_settled","run_id":"demo-happy","slot":24,"source":"event:settle:cv:77:0","subject":"cv:77:0"}],"run_id":"demo-happy","sent":true,"settled":true,"spec":{"budget":{"max_attempts":3,"max_fee":200000,"max_port_errors":5},"deadline_slot":400,"facility":{"place":{"at":2,"gen":1,"kind":1,"p":0,"q":1},"recipe":1},"inbound":null,"inputs":[0,5,0,0,0,0,0,0],"outputs":[0,0,0,0,0,0,3,0],"owner":119,"rights_units":1,"run_id":"demo-happy","ship":{"cargo":[0,0,0,0,0,0,3,0],"dst":{"at":5,"gen":1,"kind":2,"p":1,"q":0}},"stock":{"at":1,"gen":1,"kind":1,"p":0,"q":0}},"spec_digest":"c503c78572c0d13468750b55d8a165ae0d150443386998c8b68b64f42b365167","state":"Fulfilled","terminal":true,"transitions":[{"executor":"demo","from":"Accepted","reason":"inputs and right reserved","to":"Reserved"},{"executor":"demo","from":"Reserved","reason":"facility request signed","to":"FacilityRequested"},{"executor":"demo","from":"FacilityRequested","reason":"accepted by the execution path","to":"FacilitySubmitted"},{"executor":"demo","from":"FacilitySubmitted","reason":"facility use read on the canonical side","to":"FacilityConfirmed"},{"executor":"demo","from":"FacilityConfirmed","reason":"SendCaravan signed, seq 0 pinned","to":"ShipRequested"},{"executor":"demo","from":"ShipRequested","reason":"accepted by the execution path","to":"ShipSubmitted"},{"executor":"demo","from":"ShipSubmitted","reason":"caravan cv:77:0 is ours (signature and content)","to":"InTransit"},{"executor":"demo","from":"InTransit","reason":"wait","to":"InTransit"},{"executor":"demo","from":"InTransit","reason":"wait","to":"InTransit"},{"executor":"demo","from":"InTransit","reason":"wait","to":"InTransit"},{"executor":"demo","from":"InTransit","reason":"settlement read","to":"Arrived"},{"executor":"demo","from":"Arrived","reason":"delivered in full (lower bound ≥ request)","to":"Fulfilled"}],"version":12,"view_version":"p04-run/0.1"}
+diff --git a/workstreams/13-citizens/test/ws04-run-view.test.mjs b/workstreams/13-citizens/test/ws04-run-view.test.mjs
+new file mode 100644
+index 00000000..9ca3a9a6
+--- /dev/null
++++ b/workstreams/13-citizens/test/ws04-run-view.test.mjs
+@@ -0,0 +1,72 @@
++// A stopped run's view whose effect fields disagree (a defensive review of the run port; not observed in
++// workstream 4 cf517b55, whose view builds both effect lists from the same facts).
++// The fixture test/fixtures/ws04-run-view-happy.json is a real `runexec run view` (p04-run/0.1) of runexec's own
++// demo-happy run (runexec built from 7d2fbe0d, whose src/view.rs is cf517b55's), copied once and only edited here.
++// Rule checked: a contradictory view is unknown (held: never sent again, never claimed as landed); a consistent one
++// keeps its meaning; an unknown view_version is not interpreted.
++import { test } from 'node:test';
++import assert from 'node:assert/strict';
++import { readFileSync } from 'node:fs';
++import { small, run } from './helpers.mjs';
++import { fateOfRun, ws04ExecutionPort } from '../resident/ports/ws04-run.mjs';
++
++const VIEW = JSON.parse(readFileSync(new URL('./fixtures/ws04-run-view-happy.json', import.meta.url), 'utf8'));
++const stopped = (state, o) => ({ ...VIEW, state, terminal: true, ...o });
++const SENT = ['facility_used', 'caravan_sent'], SENT_OUT = ['facility_used fac:demo-happy', 'caravan_sent cv:77:0'];
++
++test('the fixture is a real p04-run/0.1 view and reads as landed', () => {
++  assert.equal(VIEW.view_version, 'p04-run/0.1');
++  assert.equal(VIEW.state, 'Fulfilled');
++  assert.equal(fateOfRun(VIEW).fate, 'landed');
++});
++
++test('stopped with contradictory effect fields: unknown, never failed', () => {
++  const cases = [
++    ['Failed: effects [] but outcome.effects has caravan_sent', stopped('Failed', { effects: [], sent: false, outcome: { ...VIEW.outcome, effects: ['caravan_sent cv:77:0'] } })],
++    ['Expired: the same', stopped('Expired', { effects: [], sent: false, outcome: { ...VIEW.outcome, effects: ['caravan_sent cv:77:0'] } })],
++    ['Failed: sent true, no effects anywhere', stopped('Failed', { effects: [], sent: true, outcome: null })],
++    ['Expired: effects has caravan_sent, sent false', stopped('Expired', { effects: ['caravan_sent'], sent: false, outcome: null })],
++    ['Cancelled: outcome.effects has caravan_sent, effects only facility_used', stopped('Cancelled', { effects: ['facility_used'], sent: false, outcome: { ...VIEW.outcome, effects: SENT_OUT } })],
++  ];
++  for (const [name, v] of cases) {
++    const f = fateOfRun(v);
++    assert.equal(f.fate, 'unknown', name);
++    assert.match(f.why, /contradictory run view/, name);
++  }
++});
++
++test('stopped with consistent fields keeps its meaning: effects → landed; none → failed / cancelled', () => {
++  assert.deepEqual([fateOfRun(stopped('Failed', { effects: SENT, sent: true, outcome: { ...VIEW.outcome, effects: SENT_OUT } })).fate], ['landed']);
++  assert.equal(fateOfRun(stopped('Failed', { effects: [], sent: false, outcome: { ...VIEW.outcome, effects: [] } })).fate, 'failed');
++  assert.equal(fateOfRun(stopped('Expired', { effects: [], sent: false, outcome: null })).fate, 'failed');
++  assert.equal(fateOfRun(stopped('Cancelled', { effects: [], sent: false, outcome: { ...VIEW.outcome, effects: [] } })).fate, 'cancelled');
++  // a facility used but no caravan, said the same by every field: something took place (landed), not a contradiction
++  assert.equal(fateOfRun(stopped('Failed', { effects: ['facility_used'], sent: false, outcome: { ...VIEW.outcome, effects: ['facility_used fac:demo-happy'] } })).fate, 'landed');
++});
++
++test('an unknown view_version is not interpreted', () => {
++  const f = fateOfRun({ ...VIEW, view_version: 'p04-run/0.2' });
++  assert.equal(f.fate, 'unknown');
++  assert.match(f.why, /unknown run view version/);
++});
++
++test('a resident reading such a view does not act again: one accept for the action, the line held', async () => {
++  const accepts = [], runs = new Map();
++  const c = {
++    async accept(spec) { accepts.push(spec); if (!runs.has(spec.run_id)) runs.set(spec.run_id, { ...VIEW, run_id: spec.run_id, spec, state: 'Accepted', terminal: false, effects: [], sent: false, outcome: null }); return { ...runs.get(spec.run_id), accept: 'Created' }; },
++    async view(id) { const r = runs.get(id); if (!r) throw Object.assign(new Error('no record'), { code: 'NoRecord' }); return r; },
++  };
++  const env = await small({ residents: [{ id: 'ren', goal: 'village-first', pos: { q: 0, r: 0 } }] });
++  const ren = env.rs.ren;
++  ren.ports.execution = ws04ExecutionPort(c, { specOf: req => ({ owner: 119, action: req.action }), requesterOf: () => ({ actor: '1'.repeat(32), generation: 1, citizen: '1'.repeat(32), authenticatedBy: 'test fixture' }) });
++  await run(env, 1);
++  const first = [...runs.keys()][0];
++  // the run stops; its view says a caravan left in outcome.effects but not at the top
++  Object.assign(runs.get(first), { state: 'Expired', terminal: true, effects: [], sent: false, outcome: { ...VIEW.outcome, effects: ['caravan_sent cv:77:0'] } });
++  await run(env, 60);
++  const action = JSON.stringify(runs.get(first).spec.action);
++  const same = accepts.filter(a => JSON.stringify(a.action) === action).map(a => a.run_id);
++  assert.deepEqual([...new Set(same)], [first], `the same action was handed to workstream 4 only under its first key (${same})`);
++  assert.equal(accepts.filter(a => a.run_id === first).length, 1, 'submitted once');
++  assert.ok(['sent', 'unresolved'].includes(ren.state.journal[first].state), `held: ${ren.state.journal[first].state}`);
++});
