@@ -1,26 +1,21 @@
-// Workstream 07: the BROWSER key guard of screens/ws07/nokey-page.mjs is installed, and refuses at the entry —
-// before any derivation runs. (The Node guard, tools/nokeys.mjs / NOKEYS_LOG, is a separate thing: it guards the
+// Workstream 07: the BROWSER key guard of screens/ws07/nokey-page.mjs is installed — shown without calling any
+// guarded entry. (The Node guard, tools/nokeys.mjs / NOKEYS_LOG, is a separate thing: it guards the
 // test process and the fixture server; this file checks only what runs in the page.)
 //
-// In a page opened as every keyless whole-page test opens it (NK.launchOptions + NK.prepare):
+// In a page opened as every keyless whole-page test opens it (NK.launchOptions + NK.prepare), checked by SOURCE TEXT
+// ONLY — no guarded entry is ever called (workstream 16, REPORT §29.38 A: calling keyFromSeed / publicKeyOf or the
+// subtle generate·derive·sign·importKey entries, even with zero bytes against an installed guard, is a key-API
+// self-test; earlier versions of this file did that and their results are not evidence):
 //   - the page is a secure context (WebCrypto present: the flag is honoured by the full Chromium);
-//   - web/session.mjs, as served, has its key functions replaced: keyFromSeed and publicKeyOf refuse at once, and
-//     WebCrypto's digest — the first step of the real publicKeyOf — is NOT called by them (counted);
-//   - WebCrypto's generateKey, deriveBits, sign and a pkcs8 importKey refuse;
-//   - the test wallet refuses signMessage and signTransaction;
-//   - each refusal is recorded in the page (window.__keyUses and localStorage 'ws07:keyUses'), in order.
-// The inputs handed to the refused entries are zero bytes and no wallet message is built: nothing is derived,
-// generated or signed. This is the only file that calls the guarded entries on purpose; every other keyless test
-// asserts that the record stays EMPTY (NK.assertKeyless).
-//
-// FAIL-CLOSED (workstream 16's audit G1, 2026-11-08): no guarded entry is called until the guard is proven from the
-// outside, without calling anything key-shaped — the served web/session.mjs text ends with NK.SESSION_GUARD; the
-// module's keyFromSeed / publicKeyOf are the replacement bodies (their source says 'key use blocked', not the real
-// one); every guarded crypto.subtle method's source is the replacement (not '[native code]'); the test wallet's two
-// sign functions are the refusal; Worker is the refusal. If any check fails the test stops there, having called
-// nothing. The calls themselves run in a page function that checks the same sentinels again first and calls nothing
-// if one fails. Scope: the page realm only. Node (tools/nokeys.mjs) is separate; Worker realms are not guarded,
-// only refused (the page makes a Worker only to seal, which no keyless test does).
+//   - web/session.mjs, as served, ends with NK.SESSION_GUARD, and its keyFromSeed / publicKeyOf are the replacement
+//     bodies (their source says 'key use blocked', not the real one);
+//   - every guarded crypto.subtle method's source is the replacement (not '[native code]'); Worker is the refusal;
+//   - the test wallet's signMessage and signTransaction are the refusal (by source);
+//   - the page booted, and reloaded, with the key-use record EMPTY.
+// The second test shows the proof fails with the guard missing — still calling nothing key-shaped (it imports
+// /session.mjs for its source only; its top level calls no key function).
+// Scope: the page realm only. Node (the repo guard, scripts/ci/no-keys-guard.mjs) is separate; Worker realms are not
+// guarded, only refused (the page makes a Worker only to seal, which no keyless test does).
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { chromium } from 'playwright-core';
@@ -58,7 +53,7 @@ before(async () => {
 });
 after(async () => { await browser?.close(); await srv?.close(); });
 
-test('the browser guard is installed and refuses at the entry (no derivation runs); every refusal is recorded', { timeout: 60_000 }, async () => {
+test('the browser guard is installed, proven by source text only (no guarded entry is called)', { timeout: 60_000 }, async () => {
   const ctx = await browser.newContext({ locale: 'ja-JP', timezoneId: 'UTC' });
   await NK.prepare(ctx, srv.viewer, { lang: 'ja' });
   const page = await ctx.newPage();
@@ -68,68 +63,31 @@ test('the browser guard is installed and refuses at the entry (no derivation run
   assert.deepEqual(await page.evaluate(() => JSON.parse(localStorage.getItem('ws07:keyUses') ?? '[]')), [], 'the page booted with no key use');
 
   // ---- 1. the proof, from the outside: nothing key-shaped is called here
-  // (kept in the page for step 2, installed by Playwright's own evaluate: the page's CSP does not allow eval)
+  // (installed by Playwright's own evaluate: the page's CSP does not allow eval)
   await page.evaluate(`window.__ws07sentinels = ${SENTINELS.toString()};`);
   const proof = await page.evaluate(g => window.__ws07sentinels(g), NK.SESSION_GUARD);
   assert.deepEqual([proof.secure, proof.subtle], [true, true], 'a secure context with WebCrypto');
   assert.deepEqual(proof.bad, [], 'the guard is installed: every sentinel holds (nothing was called)');
   assert.equal(proof.ok.length, 10);
 
-  // ---- 2. the refusals: the page function checks the sentinels again and calls nothing if one fails
-  const r = await page.evaluate(async guardText => {
-    const check = typeof window.__ws07sentinels === 'function' ? await window.__ws07sentinels(guardText) : { bad: ['no sentinel check in the page'] };
-    if (check.bad.length) return { aborted: check.bad };
-    const out = {};
-    // count WebCrypto's digest from here on: the real publicKeyOf starts with digest('SHA-512', seed)
-    let digests = 0;
-    const d = crypto.subtle.digest.bind(crypto.subtle);
-    Object.defineProperty(crypto.subtle, 'digest', { value: (...a) => { digests++; return d(...a); } });
-    const refused = async f => { try { await f(); return 'went through'; } catch (e) { return String(e.message); } };
-    const S = await import('/session.mjs');
-    const zero = new Uint8Array(32);
-    out.keyFromSeed = await refused(() => S.keyFromSeed(zero));
-    out.publicKeyOf = await refused(() => S.publicKeyOf(zero));
-    out.digestsBySession = digests;
-    out.generateKey = await refused(() => crypto.subtle.generateKey({ name: 'Ed25519' }, false, ['sign', 'verify']));
-    out.deriveBits = await refused(() => crypto.subtle.deriveBits({ name: 'HKDF', hash: 'SHA-256', salt: zero, info: zero }, null, 256));
-    out.sign = await refused(() => crypto.subtle.sign({ name: 'Ed25519' }, null, zero));
-    out.importPkcs8 = await refused(() => crypto.subtle.importKey('pkcs8', zero, { name: 'Ed25519' }, false, ['sign']));
-    out.uses = [...window.__keyUses];
-    out.stored = JSON.parse(localStorage.getItem('ws07:keyUses') ?? '[]');
-    return out;
-  }, NK.SESSION_GUARD);
-  assert.equal(r.aborted, undefined, `the page found a sentinel broken and called nothing: ${JSON.stringify(r.aborted)}`);
-  assert.equal(r.keyFromSeed, 'key use blocked: keyFromSeed');
-  assert.equal(r.publicKeyOf, 'key use blocked: publicKeyOf');
-  assert.equal(r.digestsBySession, 0, 'refused at the entry: the derivation\'s first step (digest) never ran');
-  for (const k of ['generateKey', 'deriveBits', 'sign']) assert.equal(r[k], `key use blocked: ${k}`);
-  assert.equal(r.importPkcs8, 'key use blocked');
-  const expected = ['keyFromSeed', 'publicKeyOf', 'generateKey', 'deriveBits', 'sign', 'importKey:pkcs8'];
-  assert.deepEqual(r.uses, expected, 'each refusal recorded in the page, in order');
-  assert.deepEqual(r.stored, expected, 'and in its storage (kept across reloads)');
-
-  // the test wallet refuses to sign (asked through Wallet Standard's registration, as the page's wallet module is)
-  const w = await page.evaluate(async () => {
+  // (workstream 16, REPORT §29.38 A: the guarded entries are NOT called to see them refuse — calling keyFromSeed /
+  // publicKeyOf / subtle generate·derive·sign·importKey, even with zero bytes against an installed guard, is a key-API
+  // self-test and is not done. The proof is the sentinels above, by source text only.)
+  // the test wallet's two sign functions are the refusal — read by source, never called
+  const w = await page.evaluate(() => {
     const got = [];
     window.dispatchEvent(new CustomEvent('wallet-standard:app-ready', { detail: { register: x => got.push(x) } }));
     const wal = got.find(x => x.name === 'Test Wallet (no keys)');
-    // (fail-closed: the two sign functions must be the refusal before either is called)
-    const srcs = [String(wal?.features['solana:signMessage']?.signMessage), String(wal?.features['solana:signTransaction']?.signTransaction)];
-    if (!srcs.every(x => x.includes('signs nothing'))) return { found: !!wal, aborted: srcs };
-    const refused = async f => { try { await f(); return 'went through'; } catch (e) { return String(e.message); } };
-    return { found: !!wal, msg: await refused(() => wal.features['solana:signMessage'].signMessage({ message: new Uint8Array(0) })), tx: await refused(() => wal.features['solana:signTransaction'].signTransaction({ transaction: new Uint8Array(0) })), uses: JSON.parse(localStorage.getItem('ws07:keyUses')) };
+    return { found: !!wal, srcs: [String(wal?.features['solana:signMessage']?.signMessage), String(wal?.features['solana:signTransaction']?.signTransaction)] };
   });
   assert.equal(w.found, true);
-  assert.equal(w.aborted, undefined, 'the wallet\'s sign functions are the refusal (checked before calling)');
-  assert.equal(w.msg, 'this test wallet has no key and signs nothing');
-  assert.equal(w.tx, 'this test wallet has no key and signs nothing');
-  assert.deepEqual(w.uses.slice(-2), ['wallet sign asked', 'wallet sign asked']);
+  assert.ok(w.srcs.every(x => x.includes('signs nothing')), 'the wallet\'s sign functions are the refusal (by source; not called)');
 
   // a reload keeps the record (the guard is installed again before the page's own scripts)
   await page.reload();
   await page.waitForFunction(() => document.body.dataset.stage && document.body.dataset.stage !== 'loading');
   assert.equal(await page.evaluate(async () => String((await import('/session.mjs')).keyFromSeed).includes('key use blocked')), true, 'installed again after a reload');
-  assert.equal((await page.evaluate(() => JSON.parse(localStorage.getItem('ws07:keyUses')))).length, expected.length + 2);
+  assert.deepEqual(await page.evaluate(() => JSON.parse(localStorage.getItem('ws07:keyUses') ?? '[]')), [], 'still no key use (nothing key-shaped was called)');
   await ctx.close();
 });
 
