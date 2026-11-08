@@ -506,6 +506,12 @@ pub fn extend_frontier(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
         return Err(FrontierError::TooEarly.into());
     }
     let now_bell = bell_or_zero(&hdr, now.ts);
+    // A finite season's map is the one it ends with: no growth from its
+    // end bell on, even while EndSeason has not been sent yet (the
+    // effective status stays Running until it is).
+    if now_bell >= hdr.end_bell {
+        return Err(FrontierError::WrongStatus.into());
+    }
     if now_bell < last_bell.saturating_add(1) {
         return Err(FrontierError::TooEarly.into());
     }
