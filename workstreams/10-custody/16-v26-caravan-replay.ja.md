@@ -131,3 +131,7 @@ DepositLot・ShipLot・WithdrawLot を、proc::custody の `send`（SendCaravan 
 SettleCustody の経路の州の解決・襲撃・手数料・家賃、預け入れの持ち物からの支払いは引き続き UNVERIFIABLE（④の (b)：共有で済むものではない。州の条件の写しは設計を④に送ってから）。
 
 試験（鍵の生成・導出・署名なし）：lib の `send_route_tests` 3 件（一つの州の中の ShipLot。歩みが区間の枠を書く：完全な一致／到着が 1 秒遅い・枠がない・番号が進まない・行き先に着かない経路・手数料が足りない・最初の州が違う：FAIL／Season・州の前後・Citizen の後がない：判定しない）。隊商の試験の fixture は有効な手数料と州の住所に直した。`custody` 6・`custody_history` 9・`custody_replay` 14・`custody_replay_caravans` 13・`custody_state` 7、lib の v26・v23・v24・v0 13、`new_bands` 10、`frontier-node` の check、stable の clippy、rustfmt：すべて通過（c260c438 + 0006）。変異 8 件（Caravan を見ない・枠を見ない・番号を見ない・手数料を見ない・最初の州を見ない・Season の欠落を見ない・経路の誤りを証拠不足とする・枠の後の欠落を見ない）をすべて検出。
+
+## 9. 追補：02be5f41 の上の 0007（2026-11-08）
+
+経路の州を 1 つも列挙しない送る命令を FAIL から UNVERIFIABLE（「the route is not judged」）に。プログラムはどの送る命令にも経路の州を 1 つ以上要る（`check_accounts_v2` の path_province 1〜4、`send` の `provinces.first()`。歩数 0 でも同じ）ので、列挙がないのは入力が短い（メッセージの外の口座番号は読み込みで落ちる）とみなし、他の口座が欠けた場合と同じく判定しない。commit `995bfe3ccd1b97ab41ab2a9718c36afc69a68b06`、試験：lib の `send_route_tests` 3、custody の 5 ファイル 49、lib の v26・v23・v24・v0 13、`frontier-node` の check、clippy、rustfmt：通過。変異（FAIL に戻す）を検出。

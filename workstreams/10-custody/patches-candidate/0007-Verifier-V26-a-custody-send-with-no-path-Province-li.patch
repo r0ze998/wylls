@@ -1,0 +1,56 @@
+From 995bfe3ccd1b97ab41ab2a9718c36afc69a68b06 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Sun, 8 Nov 2026 18:39:41 +0000
+Subject: [PATCH] Verifier V26: a custody send with no path Province listed is
+ not judged [skip ci]
+
+The program needs one path Province or more for every send
+(check_accounts_v2: path_province 1..4; send's provinces.first()),
+including a walk of no step. A send whose listed accounts have none is
+not what the program ran: the input's instruction can be short (an
+account index outside the message is dropped when the message is
+read), so it is UNVERIFIABLE ("the route is not judged"), as every
+other missing account of a replayed instruction already is, not a
+FAIL. Test: send_route_tests, the list without its Province.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01C5Nj2cMNVbfXW4D5Pzsbxg
+---
+ .../crates/verify/src/checks/v26_custody.rs         | 13 ++++++++++++-
+ 1 file changed, 12 insertions(+), 1 deletion(-)
+
+diff --git a/frontier-node/crates/verify/src/checks/v26_custody.rs b/frontier-node/crates/verify/src/checks/v26_custody.rs
+index 96e75223..cedf1fbb 100644
+--- a/frontier-node/crates/verify/src/checks/v26_custody.rs
++++ b/frontier-node/crates/verify/src/checks/v26_custody.rs
+@@ -1676,8 +1676,12 @@ fn send_route(c: &ReplayCase, s: &Send) -> Result<(), RouteNot> {
+     if s.fee < CARAVAN_FEE {
+         return wrong("its fee is below the caravan fee");
+     }
++    // The program needs one path Province or more for every send (its
++    // account list, `send`'s first Province): a list without one is not
++    // what it ran (the instruction's accounts may not all be in the input:
++    // an account index outside the message is dropped), so not judged.
+     let Some(first) = s.provinces.first() else {
+-        return wrong("it lists no path Province");
++        return missing("the instruction lists no path Province (the program needs one or more)");
+     };
+     if *first != s.ctx.province(s.src.p as i32, s.src.q as i32) {
+         return wrong("its first path Province is not the origin's");
+@@ -2773,6 +2777,13 @@ mod send_route_tests {
+             &w.replay(&low, &f.accounts),
+             "below the caravan fee"
+         ));
++        // No path Province listed: the input is short, not judged.
++        let a: Vec<Key> = f.accounts[..f.accounts.len() - 1].to_vec();
++        let r = f.w.replay(&f.data, &a);
++        assert!(
++            matches!(&r, Replayed::Partial(m) if m.contains("the route is not judged") && m.contains("no path Province")),
++            "{r:?}"
++        );
+         // A first path Province that is not the origin's.
+         let mut a = f.accounts.clone();
+         *a.last_mut().unwrap() = [0x70; 32];
+-- 
+2.43.0
+
