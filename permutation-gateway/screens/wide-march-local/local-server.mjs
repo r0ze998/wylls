@@ -1,4 +1,5 @@
-// Isolated local march server. Strict loopback Host/Origin, fixed subprocess, serial revisions.
+// Isolated local village-and-march server (protocol v2: economy and march on one holding, one revision, one clock).
+// Strict loopback Host/Origin, fixed subprocess, serial revisions.
 // Only /api/state, /api/action, /api/reset and exact browser dependencies are exposed.
 // Initial state is captured from the first validated local host reply, not a chain provenance pin.
 import { createServer } from 'node:http';
@@ -176,7 +177,9 @@ export function createController({ bridge, initial, maxPending = MAX_PENDING }) 
       try {
         next = await exchange({ kind: 'get' });
         validateState(next, initial);
-        if (next.status !== 'ok' || next.revision !== 0 || next.command !== 'get' || next.phase !== 'ready' || next.trained !== false) throw new LocalModelError('BadStart', 'first state is not an ok revision 0');
+        const e = next.economy;
+        if (next.status !== 'ok' || next.revision !== 0 || next.command !== 'get' || next.phase !== 'ready'
+          || e.usedThisInstant !== 0 || e.harvests !== 0 || e.farmBuilds !== 0 || e.trains !== 0) throw new LocalModelError('BadStart', 'first state is not an ok revision 0');
         initial = JSON.parse(JSON.stringify(next));
       } catch (e) { stop('start', e.code, 'get'); return { status: 502, body: { error: 'uncertain', view: view() } }; }
       last = next; phase = 'ready';
