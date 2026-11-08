@@ -1298,6 +1298,8 @@ p.fact-chips { display: flex; flex-wrap: wrap; gap: var(--s1); margin: var(--s2)
   .nc-what { min-height: 78px; align-items: start; }
   .nc-pitch { font-size: var(--t1); line-height: 1.5; }
   .nc-note { display: none; }
+  /* (workstream 07: the season's deadlines stay on a phone: after the join deadline the program refuses the join) */
+  .nc-note.nc-deadline { display: block; }
   .nc-go { justify-content: stretch; } .nc-go .nc-btn { flex: 1 1 auto; min-height: 48px; }
   .nc-wallet { justify-items: start; }
 }
