@@ -102,7 +102,9 @@
   provenance: { from, before, after, stable, why, slotCommitment },  // ヘラルドの畳み込みの位置（下）
   facts: [ { seq, kind, verified: 'derived', ... } ],
   summary: { moving, throughInner, throughConcord, innerShare, concordShare,
-             cargoInnerShare, cargoConcordShare, vaultsAtCentre, vaultsInConcord,
+             cargoInnerShare, cargoConcordShare,          // 資源をまたいだ合計の割合
+             cargoByResource: { all, inner, concord },     // 資源ごと（8枠）
+             vaultsAtCentre, vaultsInConcord,
              structuresAtCentre, structuresInConcord, byFaction } }
 ```
 
@@ -112,8 +114,8 @@
 |---|---|---|
 | `centre.vault` | `p, q, tile, ring, concord, faction, ownerTag, gen` | 中央に建っている倉（個人の物。今のコードでは大協約にも建てられる） |
 | `centre.structure` | `p, q, tile, ring, concord, structureKind, faction, ownerTag` | 中央に建っている S1 の建物（`tower`＝物見櫓・`palisade`・`fort`） |
-| `centre.transit` | `ownerTag, seqOfOwner, faction, throughConcord, innermostRing, provinces, cargo, raided` | 道中の隊商で、通る州（`provinces`）が中央に入るもの |
-| `centre.sighting` | `bell, tower, towerFaction, what, faction` | 中央に立つ物見櫓が報告した目撃（S1 の目撃。⑭の塔の目撃ではない） |
+| `centre.transit` | `ownerTag, seqOfOwner, faction, throughConcord, innermostRing, provinces, cargo, cargoByResource, raided` | 道中の隊商で、通る州（`provinces`）が中央に入るもの。`cargoByResource` はヘラルドの積荷そのまま（規則の資源8枠、i 番目＝資源 i）。`cargo` は資源をまたいだ合計で、単位が混ざる |
+| `centre.sighting` | `bell, tower, towerFaction, towerOwnerTag, what, faction, subject` | 中央に立つ物見櫓が報告した目撃（S1 の目撃。⑭の塔の目撃ではない）。`towerOwnerTag`＝物見櫓の持ち主、`subject`＝見られたもの（ヘラルドの欄そのまま） |
 
 - 一覧は**今の状態**だけ。着いた隊商は `moving` から消える。閉じた倉は、ヘラルドが無いと読むまで残る（ヘラルドの注記）。時間を通した量は、呼び出し側が何度か読んで並べる。
 - **出どころ（`provenance`）：** 読み取りのコマンドは、二つの一覧を読む前と後に `/h/status` を読む。`before`・`after` にヘラルドの `foldedThrough`（畳み込んだアーカイブの通し番号）・`events`（畳み込んだ記録の件数、`/h/events` の番号）・`lastSlot`・`alarms` を入れる。前後が同じなら `stable: true`（一覧はその畳み込みの時点のもの）、違えば `false`（一覧は二つの間のどこか）。`lastSlot` が確定（confirmed・finalized）した slot かどうかは、ヘラルドが示さないので `slotCommitment: 'not stated by the herald'` とだけ書く。ファイルから読んだときは `from: null`（出どころ不明）。どの記録からどの事実ができたかの一件ごとの対応は、ヘラルドの一覧が持たないので付けられない。⑮から2026-11-08 に出どころの要望があった。
