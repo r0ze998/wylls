@@ -3382,3 +3382,9 @@ workflow run が 16 のままであることは ④ が数えたもので、⑯ 
 - 未実行：柵のある世界の全画面、Holding の支払い、通行を許す・同盟の stance、封・署名・送信。
 - log：`logs/phase23/ws19-palisade-3c7c-2db2.txt`。
 - 全体の完了は宣言しない。
+
+**追記（④ b45bb806）。**
+- `b45bb806c3eff7b210a17fadb507724d2d5fbbb7` は 585e9fab と ⑲ 3c7c0929 の merge。
+- tree `9a03b8f2…` は 3c7c0929 の tree と同じで、merge-tree が出す tree とも一致する。だから、§29.31 の 3c7c0929 での実行（cargo 3/3、node 23/23）がそのまま当てはまる。
+- ⑲ の 2db2db4b（map-arrival の柵の試験）は、まだ取り込まれていない。
+- §29.31 の 3 点（RENT_TO、Holding の chain の頭、holding key の gen）は、取り込んだ後も残っている。
