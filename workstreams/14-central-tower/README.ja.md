@@ -71,7 +71,7 @@
 - **元のソース**：`proto/`（`geometry.mjs` 地図の計算、`model.mjs` 模型、`adapters.mjs` ①⑧⑮との接続点、`compare.mjs` 比較、`ui.mjs` と `index.html` 画面、`build.mjs` で1ファイルにまとめる）。
 - **ローカルの試験**（repo の根から）：
   ```sh
-  node --test workstreams/14-central-tower/proto/*.test.mjs workstreams/14-central-tower/game/*.test.mjs   # 35件。地図の計算をクライアントの fgeo.mjs に固定する試験、継続する世界の通し試験、⑮へ渡す事実の契約の試験を含む
+  node --test workstreams/14-central-tower/proto/*.test.mjs workstreams/14-central-tower/game/*.test.mjs   # 38件。地図の計算をクライアントの fgeo.mjs に固定する試験、継続する世界の通し試験、⑮へ渡す事実の契約の試験を含む
   node workstreams/14-central-tower/proto/batch.mjs 30             # results/RESULTS.json（約50秒）
   node workstreams/14-central-tower/proto/report.mjs               # results/RESULTS.ja.md
   node workstreams/14-central-tower/proto/build.mjs                # tower-proto.html
@@ -334,8 +334,10 @@ C の在庫の修正で、C の数字だけが少し変わった（5章は取り
 
 | 何を | どこに | 何に接続するか |
 |---|---|---|
-| 中央の事実の読み取り（`wylls.ws14.centre-facts/1`） | `game/centre.mjs`、`game/centre-cli.mjs`、試験 `game/centre.test.mjs`（8件） | 今のゲームのヘラルドの公開データ `h/caravans.json`・`h/structures.json`。大協約と6つの首都に建つ倉・建物、中央を通る隊商、中央の物見櫓の目撃を、`derived` の事実として数える。契約は CONTRACT 6章 |
+| 中央の事実の読み取り（`wylls.ws14.centre-facts/1`） | `game/centre.mjs`、`game/centre-cli.mjs`、試験 `game/centre.test.mjs`（11件） | 今のゲームのヘラルドの公開データ `h/caravans.json`・`h/structures.json`。大協約と6つの首都に建つ倉・建物、中央を通る隊商、中央の物見櫓の目撃を、`derived` の事実として数える。契約は CONTRACT 6章 |
 | 模型の事実の契約 v1（`wylls.ws14.tower-facts/1`） | `proto/contract.mjs`（13章） | ⑮の評価器。全件 `unverified` |
+
+出どころとして、ヘラルドの畳み込みの位置（`/h/status` の `foldedThrough`・`events`・`lastSlot`、一覧を読む前と後）を付ける（CONTRACT 6章）。
 
 中央の事実は、比較で問題にした点を、今のゲームの実データで測るためのものです。
 - 中央に物が集まるか（`cargoConcordShare`）。

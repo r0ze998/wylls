@@ -10,6 +10,12 @@
 //                 sightings}`, herald/src/structure.rs); optional
 //     observedAt  a label the caller gives the snapshot (a bell, a time);
 //                 the feeds are live snapshots and carry none of their own
+//     status      the herald's /h/status read before and after the feeds
+//                 (`{before, after}`), optional: where the herald's fold
+//                 stood (`foldedThrough` archive sequence, `events` records
+//                 folded, `lastSlot`). Same before and after → the feeds are
+//                 of that fold. The herald does not say whether `lastSlot`
+//                 is a confirmed or finalized slot, and neither does this.
 //
 // The facts are 'derived': the herald folds them from the chain's records,
 // and this module only selects and counts them (the vocabulary of ⑮'s
@@ -52,7 +58,7 @@ export function feedProblems({ caravans, structures }) {
 }
 
 /** The centre's facts and counts in one snapshot of the feeds. */
-export function centreFacts({ caravans, structures = null, observedAt = null }) {
+export function centreFacts({ caravans, structures = null, observedAt = null, status = null }) {
   const problems = feedProblems({ caravans, structures });
   if (problems.length) return { schema: SCHEMA, refused: problems };
   const facts = [];
@@ -100,6 +106,7 @@ export function centreFacts({ caravans, structures = null, observedAt = null }) 
     source: 'herald h/caravans.json and h/structures.json (S1 public feeds), a snapshot',
     world: { ends: false },
     observedAt,
+    provenance: provenanceOf(status),
     facts,
     summary: {
       moving,
@@ -115,5 +122,20 @@ export function centreFacts({ caravans, structures = null, observedAt = null }) 
       structuresInConcord: facts.filter(f => f.kind === 'centre.structure' && f.concord).length,
       byFaction,
     },
+  };
+}
+
+const FOLD = ['foldedThrough', 'events', 'lastSlot'];
+/** Where the herald's fold stood when the feeds were read; null fields when unknown, never guessed. */
+export function provenanceOf(status) {
+  const pick = st => (st && st.v === 1 ? { foldedThrough: st.foldedThrough ?? null, events: st.events ?? null, lastSlot: st.lastSlot ?? null, alarms: st.alarms ?? null } : null);
+  const before = pick(status?.before), after = pick(status?.after);
+  if (!before && !after) return { from: null, stable: null, why: 'no /h/status read with the feeds', slotCommitment: 'not stated by the herald' };
+  const stable = !!before && !!after && FOLD.every(k => JSON.stringify(before[k]) === JSON.stringify(after[k]));
+  return {
+    from: 'herald /h/status',
+    before, after, stable,
+    why: stable ? 'the fold did not move while the feeds were read' : before && after ? 'the fold moved while the feeds were read: the feeds are between the two' : 'only one /h/status was read',
+    slotCommitment: 'not stated by the herald',
   };
 }

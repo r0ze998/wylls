@@ -8,7 +8,9 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
-import { centreFacts, feedProblems, SCHEMA, VERIFIED } from './centre.mjs';
+import { createServer } from 'node:http';
+import { execFile } from 'node:child_process';
+import { centreFacts, feedProblems, provenanceOf, SCHEMA, VERIFIED } from './centre.mjs';
 
 const repo = fileURLToPath(new URL('../../../', import.meta.url));
 const place = (p, q, tile = 20, kind = 1) => ({ kind, p, q, at: 2, gen: 1, tile });
@@ -114,4 +116,45 @@ test('the command line reads saved feeds the same way', () => {
   const out = JSON.parse(execFileSync(process.execPath, [`${dir}centre-cli.mjs`, '--caravans', fs.c, '--structures', fs.s, '--at', 'bell 300'], { encoding: 'utf8' }));
   assert.deepEqual(out, centreFacts({ ...FEEDS, observedAt: 'bell 300' }));
   execFileSync('rm', ['-rf', tmp]);
+});
+
+const STATUS = (n, slot) => ({ v: 1, foldedThrough: n, events: String(n * 3), lastSlot: slot, live: null, provinces: 37, rings: [0, 1, 2, 3], alarms: { rewrites: 0, badRecords: 0, clashMismatch: 0, clashUnchecked: 0, writeErrors: 0 } });
+
+test('/h/status fields this reader uses are the ones the herald serves', () => {
+  const srv = readFileSync(`${repo}frontier-node/crates/herald/src/server.rs`, 'utf8');
+  for (const k of ['"v"', '"foldedThrough"', '"events"', '"lastSlot"', '"alarms"']) assert.ok(srv.includes(`${k}:`), `server.rs serves ${k}`);
+});
+
+test('provenance: where the herald\'s fold stood, never guessed', () => {
+  const still = provenanceOf({ before: STATUS(9, 77), after: STATUS(9, 77) });
+  assert.equal(still.stable, true);
+  assert.deepEqual([still.before.foldedThrough, still.before.events, still.before.lastSlot], [9, '27', 77]);
+  assert.equal(still.slotCommitment, 'not stated by the herald');
+  const moved = provenanceOf({ before: STATUS(9, 77), after: STATUS(10, 80) });
+  assert.equal(moved.stable, false);
+  assert.match(moved.why, /moved/);
+  const none = provenanceOf(null);
+  assert.equal(none.from, null); assert.equal(none.stable, null);
+  assert.equal(centreFacts(FEEDS).provenance.from, null);
+  assert.equal(provenanceOf({ before: { v: 2 }, after: null }).from, null);
+});
+
+test('the command line reads a herald by public GETs and records its fold', async () => {
+  const seen = [];
+  const server = createServer((req, res) => {
+    seen.push(`${req.method} ${req.url}`);
+    const body = req.url === '/h/caravans.json' ? FEEDS.caravans : req.url === '/h/structures.json' ? FEEDS.structures : req.url === '/h/status' ? STATUS(9, 77) : null;
+    res.writeHead(body ? 200 : 404, { 'content-type': 'application/json' });
+    res.end(JSON.stringify(body ?? { error: 'NotFound' }));
+  });
+  await new Promise(r => server.listen(0, '127.0.0.1', r));
+  const url = `http://127.0.0.1:${server.address().port}`;
+  const dir = fileURLToPath(new URL('.', import.meta.url));
+  const text = await new Promise((resolve, reject) => execFile(process.execPath, [`${dir}centre-cli.mjs`, '--herald', url, '--at', 'bell 300'], (e, out) => (e ? reject(e) : resolve(out))));
+  server.close();
+  const out = JSON.parse(text);
+  assert.deepEqual(seen, ['GET /h/status', 'GET /h/caravans.json', 'GET /h/structures.json', 'GET /h/status']);
+  assert.equal(out.provenance.stable, true);
+  assert.deepEqual(out.facts, centreFacts(FEEDS).facts);
+  assert.deepEqual(out.summary, centreFacts(FEEDS).summary);
 });

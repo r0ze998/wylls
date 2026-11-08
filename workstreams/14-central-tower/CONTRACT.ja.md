@@ -99,6 +99,7 @@
 ```
 { schema: 'wylls.ws14.centre-facts/1', source, world: { ends: false },
   observedAt,            // 呼び出し側が付ける印（ターン・時刻など）。ヘラルドの一覧は今の状態だけで時刻を持たない
+  provenance: { from, before, after, stable, why, slotCommitment },  // ヘラルドの畳み込みの位置（下）
   facts: [ { seq, kind, verified: 'derived', ... } ],
   summary: { moving, throughInner, throughConcord, innerShare, concordShare,
              cargoInnerShare, cargoConcordShare, vaultsAtCentre, vaultsInConcord,
@@ -115,6 +116,7 @@
 | `centre.sighting` | `bell, tower, towerFaction, what, faction` | 中央に立つ物見櫓が報告した目撃（S1 の目撃。⑭の塔の目撃ではない） |
 
 - 一覧は**今の状態**だけ。着いた隊商は `moving` から消える。閉じた倉は、ヘラルドが無いと読むまで残る（ヘラルドの注記）。時間を通した量は、呼び出し側が何度か読んで並べる。
+- **出どころ（`provenance`）：** 読み取りのコマンドは、二つの一覧を読む前と後に `/h/status` を読む。`before`・`after` にヘラルドの `foldedThrough`（畳み込んだアーカイブの通し番号）・`events`（畳み込んだ記録の件数、`/h/events` の番号）・`lastSlot`・`alarms` を入れる。前後が同じなら `stable: true`（一覧はその畳み込みの時点のもの）、違えば `false`（一覧は二つの間のどこか）。`lastSlot` が確定（confirmed・finalized）した slot かどうかは、ヘラルドが示さないので `slotCommitment: 'not stated by the herald'` とだけ書く。ファイルから読んだときは `from: null`（出どころ不明）。どの記録からどの事実ができたかの一件ごとの対応は、ヘラルドの一覧が持たないので付けられない。⑮から2026-11-08 に出どころの要望があった。
 - 読めない版・欄は推し量らずに断る（`refused`）。並びは一覧の順に依らない。
 - 欄の名前は、試験でヘラルドのソース（`herald/src/caravan.rs`・`structure.rs`）に固定した。
 - 試験の一覧は、ヘラルドのソースに書かれた形どおりに作った**合成の例**。本物のヘラルドの出力では、①の fixture（④の候補 `workstreams/01-national-strategy/test/fixtures/herald-caravans-ended.json`）を読めることだけ確かめた（中央に入る隊商はなかった）。動いているヘラルドからは読んでいない。
