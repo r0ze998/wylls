@@ -1139,3 +1139,58 @@ fn the_records_are_the_kernels() {
         assert!(m.contains("LOT_LOSS"), "{}: {m}", c.name);
     }
 }
+
+// ------------------------------------------------------------ adversarial
+
+#[test]
+fn a_lot_or_vault_off_its_address_is_a_mismatch() {
+    let k = keys(PROGRAM);
+    for c in cases() {
+        for (real, label) in [(k.lot_a, "lot"), (k.va, "vault")] {
+            if !c.accounts.contains(&real) {
+                continue;
+            }
+            let other: Key = [0x3C; 32];
+            let mut w = c.w.clone();
+            if let Some(d) = w.before.remove(&real) {
+                w.before.insert(other, d);
+            }
+            if let Some(d) = w.after.remove(&real) {
+                w.after.insert(other, d);
+            }
+            if w.closed.remove(&real) {
+                w.closed.insert(other);
+            }
+            let a: Vec<Key> = c
+                .accounts
+                .iter()
+                .map(|x| if *x == real { other } else { *x })
+                .collect();
+            let r = w.replay(&c.data, &a);
+            let Replayed::Mismatch(m) = &r else {
+                panic!("{} ({label}): {r:?}", c.name)
+            };
+            assert!(m.contains(label), "{} ({label}): {m}", c.name);
+        }
+    }
+}
+
+#[test]
+fn a_record_shown_twice_is_a_contradiction() {
+    for c in cases() {
+        for i in 0..c.w.records.len() {
+            if c.w.records[i].kind == CqKind::LOT_LOSS {
+                continue;
+            }
+            let mut w = c.w.clone();
+            let mut dup = w.records[i].clone();
+            dup.payload[15] ^= 0x01;
+            w.records.push(dup);
+            let r = w.replay(&c.data, &c.accounts);
+            let Replayed::Mismatch(m) = &r else {
+                panic!("{}: {r:?}", c.name)
+            };
+            assert!(m.contains("records for one instruction"), "{}: {m}", c.name);
+        }
+    }
+}

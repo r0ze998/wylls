@@ -184,7 +184,7 @@ fn history_fails(r: &verify_core::Report) -> Vec<(String, String)> {
 }
 
 #[test]
-fn the_kernels_own_history_passes_and_the_season_is_still_not_a_pass() {
+fn the_kernels_own_history_never_fails_and_a_return_stays_unverifiable() {
     let states: Vec<Vec<u8>> = kernel_states().iter().map(bytes).collect();
     for w in states.windows(2) {
         assert!(
@@ -196,9 +196,20 @@ fn the_kernels_own_history_passes_and_the_season_is_still_not_a_pass() {
     let (inp, sigs) = recorded(&states);
     let r = verify_core::verify(&inp);
     assert!(r.checks_run.contains(&"V26:custody-history"));
-    // One trace per recorded state, and nothing else: no history finding
-    // of any severity; custody UNVERIFIABLE.
+    // One trace per recorded state, no FAIL, and one UNVERIFIABLE note:
+    // the return of unused goods (state 5) lowers CONSUMED, which no record
+    // shows yet; custody UNVERIFIABLE.
     let mut want: Vec<_> = sigs.iter().map(|s| unverified_after(s)).collect();
+    want.push((
+        CUSTODY_HISTORY_UNEXPLAINED.to_string(),
+        false,
+        account(0xD1),
+        format!(
+            "CONSUMED fell by {}: a return of unused goods, which no record shows yet",
+            6 * MILLI
+        ),
+        sigs[5].clone(),
+    ));
     want.sort();
     assert_eq!(v26(&r), want, "{}", show(&r));
     assert_eq!(custody_verdict(&r), Verdict::Unverifiable);
@@ -624,4 +635,37 @@ fn composed_kernel_steps_never_fail() {
         "composed windows {windows}, unexplained (begun and settled inside one) {unexplained}"
     );
     assert!(windows >= 9_000);
+}
+
+/// A lowered CONSUMED (a return of unused goods: workstream 9's workshop
+/// claim through the kernel's `return_unused`) has no record kind yet, so
+/// it is never judged good: UNVERIFIABLE at the transaction that shows it,
+/// alone or after a use, never a FAIL and never a PASS.
+#[test]
+fn a_lowered_consumed_total_is_unverifiable_never_a_pass() {
+    let s = kernel_states();
+    let (used, returned) = (s[4], s[5]);
+    assert!(returned.consumed < used.consumed);
+    assert_eq!(
+        lot_transition_unexplained(&bytes(&used), &bytes(&returned)),
+        vec![format!(
+            "CONSUMED fell by {}: a return of unused goods, which no record shows yet",
+            used.consumed - returned.consumed
+        )]
+    );
+    assert!(lot_transition_findings(&bytes(&used), &bytes(&returned)).is_empty());
+    let (inp, sigs) = recorded(&[bytes(&used), bytes(&returned)]);
+    let r = verify_core::verify(&inp);
+    let notes: Vec<_> = v26(&r)
+        .into_iter()
+        .filter(|f| f.0 == CUSTODY_HISTORY_UNEXPLAINED)
+        .collect();
+    assert_eq!(notes.len(), 1, "{notes:?}");
+    assert!(!notes[0].1);
+    assert_eq!(notes[0].4, sigs[1]);
+    assert_eq!(custody_verdict(&r), Verdict::Unverifiable);
+    // The same lot without the return: no note.
+    let (inp, _) = recorded(&[bytes(&used), bytes(&used)]);
+    let r = verify_core::verify(&inp);
+    assert!(v26(&r).iter().all(|f| f.0 != CUSTODY_HISTORY_UNEXPLAINED));
 }

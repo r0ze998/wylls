@@ -255,7 +255,8 @@ pub const CUSTODY_RULE_UNDECIDED: &str = "CustodyRuleUndecided";
 pub const CUSTODY_HISTORY_BROKEN: &str = "CustodyHistoryBroken";
 /// V26 history: a Lot's recorded change whose cause the accounts do not
 /// show (IN_TOTAL grew beyond what the caravans settled since could
-/// deliver). UNVERIFIABLE, never PASS, until the instructions are replayed.
+/// deliver; CONSUMED fell, a return of unused goods no record shows yet).
+/// UNVERIFIABLE, never PASS.
 pub const CUSTODY_HISTORY_UNEXPLAINED: &str = "CustodyHistoryUnexplained";
 /// V26 replay (custody seasons): a landed custody instruction the kernel,
 /// run on the states recorded before it, refuses or writes otherwise than
