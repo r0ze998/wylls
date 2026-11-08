@@ -95,7 +95,9 @@ export async function world({ allowed = PATCHED ? ['transport'] : ['economy'], b
   };
   const page = {
     season: () => ({ v: 1, season: String(state.seasonId), bytes_b64: b64(v2('Season', { RULESET_HASH: hex(V2.ruleset_hash_v3), PROGRAM_VERSION: 4, GENESIS_TS: BigInt(fx.GENESIS), STATUS: 2 })), latestUnix: NOW }),
-    me: () => ({ v: 1, citizen: { bytes_b64: b64(v2('Citizen', { WALLET: keyBytes(o), FACTION: 2, HOLDINGS_N: 1, CARAVANS: state.caravans, CITIZEN_TAG: tag,
+    // The herald's /h/me record as frontier-node/crates/herald/src/views.rs me_json writes it: every field, always. This
+    // viewer has no hosts, transits, arrival slots or seals (empty), and the herald runs without a relay (quota null).
+    me: () => ({ v: 1, wallet: o, hosts: [], transits: [], slots: [], seals: [], quota: null, latestSlot: 1, citizen: { bytes_b64: b64(v2('Citizen', { WALLET: keyBytes(o), FACTION: 2, HOLDINGS_N: 1, CARAVANS: state.caravans, CITIZEN_TAG: tag,
       HOLDING: [{ P, Q, SITE, GEN: 1 }, { P: 0, Q: 0, SITE: 0, GEN: 255 }, { P: 0, Q: 0, SITE: 0, GEN: 255 }] })) },
     holdings: [{ bytes_b64: b64(v2('Holding', { P, Q, SITE, GEN: 1, TILE: VILLAGE_TILE, STATE: 2, OWNER_CITIZEN: keyBytes(citizen), FACTION: 2, ORDER: 1, STORES: state.stores.map(accrual) })) }] }),
     province: (p, q) => ({ v: 1, key: `pv:${p},${q}`, bell: 30, slot: 1, seq: '1',

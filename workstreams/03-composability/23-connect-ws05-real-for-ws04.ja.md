@@ -66,9 +66,31 @@ PDA の計算は今回から許されているが、③の試験は固定の定�
 | ④ `cargo test --test acts --test act_cli` | ④ `cf517b55` | 12/12 |
 | 一つの接続差分の木での③と⑤の試験 | §1 の木 | §3.1 |
 
-### 3.1 一つの接続差分の木
+### 3.1 一つの接続差分の木（GitHub の物だけで作り直せる）
 
-この節は、木を作った後に足す（下の追記）。
+```sh
+git fetch origin claude/gallant-ride-cunptv claude/ai-participation-provider-budget claude/modest-goldberg-c180fk
+git worktree add --detach W cf517b558d1303a84dba618550f40cb460b7ad99                 # ④ 最新候補
+git -C W show 10e749677d96301766c2930a8f903baf28cce0bc:workstreams/05-ai-participation/patches/on-ws04-6984acfa/  # 6 件
+# ⑤の 6 件を順に git am（⑤の branch から取り出して）
+git -C W checkout 6b5d1b7b3c53d29cd08ed0d88d041dccd211e6af -- workstreams/03-composability   # ③（純粋な追加、106 ファイル）
+git -C W commit -m '...'
+git -C W rev-parse HEAD^{tree}                      # dc4a62655bd923e174e9c7dcb59f7bb4563f6bf6
+git -C W rev-parse HEAD:permutation-gateway         # 800b70563b9e2134653548f5d26b0468d5db6c60
+git -C W rev-parse HEAD:workstreams/03-composability # d3bf7fab0e924d1be9788086ea5343cdebdfa0ec
+```
+
+- commit の SHA は、当てた人と日時で変わる。③の手元では `4f7cabadc480c9aed826aac8d74e24e8ca533ee0`。木は上の値になる。
+- ③の外の変更は、⑤の 12 ファイルだけ。③の分は、`workstreams/03-composability/` の追加だけ。
+- ④が 6984acfa の後に変えたファイルは、どれも変わらない。
+
+| 試験（この木で） | 結果 |
+|---|---|
+| ③ `run-guarded.sh`。財布はこの木の `permutation-gateway`。3 つのガード | 24/24 を 2 回 |
+| ⑤の財布の試験 4 本（⑤のガード） | 13/13 |
+| ④ `clients/acts.test.mjs`・`clients/runs.test.mjs`（⑤のガード。import は自分のファイルと node の組み込みだけ） | 8/8 |
+
+この木は、③の branch の上には置けない（履歴が④の候補の上にあり、③の branch に fast-forward できない）。③は、指定の branch の外に push していない。予備として bundle を利用者に渡す。
 
 ## 4. ⑥との調整（⑥の連絡への答え）
 
