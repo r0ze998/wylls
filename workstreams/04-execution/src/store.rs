@@ -265,8 +265,58 @@ impl Store {
         Ok(Store { conn })
     }
 
+    /// Opens an existing store for reading only: no file is created, no
+    /// schema statement runs, nothing is written (SQLite may still create
+    /// the `-shm` file it needs to read a WAL database). `Err`: the path
+    /// cannot be opened as a database (absent, unreadable, not a database)
+    /// or is not a run store (no `runs` table).
+    pub fn open_read_only(path: &Path) -> Result<Store, String> {
+        use rusqlite::OpenFlags;
+        let conn = sql(Connection::open_with_flags(
+            path,
+            OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_NO_MUTEX,
+        ))?;
+        sql(conn.busy_timeout(std::time::Duration::from_secs(10)))?;
+        let has_runs: bool = sql(conn.query_row(
+            "SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'runs')",
+            [],
+            |r| r.get(0),
+        ))?;
+        if !has_runs {
+            return Err(format!(
+                "{} is not a run store (no runs table)",
+                path.display()
+            ));
+        }
+        Ok(Store { conn })
+    }
+
+    /// Runs `f` inside one read transaction: every read in it sees the
+    /// same committed state (the WAL snapshot taken at the first read),
+    /// however many executors write beside it. Nothing is written; the
+    /// transaction ends on return, on `Err` too (the drop rolls it back).
+    /// Not for use inside another transaction on this connection.
+    pub fn read_snapshot<T>(
+        &self,
+        f: impl FnOnce(&Store) -> Result<T, String>,
+    ) -> Result<T, String> {
+        let tx = sql(rusqlite::Transaction::new_unchecked(
+            &self.conn,
+            TransactionBehavior::Deferred,
+        ))?;
+        let out = f(self)?;
+        sql(tx.commit())?;
+        Ok(out)
+    }
+
     /// Accepts a run, idempotently by `run_id`.
     pub fn accept(&self, spec: &RunSpec, now: u64) -> Result<Accept, String> {
+        self.accept_with(spec, now, &Detail::default())
+    }
+
+    /// [`Store::accept`] with the run's first detail (the intake's
+    /// authority). An existing run keeps its own.
+    pub fn accept_with(&self, spec: &RunSpec, now: u64, first: &Detail) -> Result<Accept, String> {
         let digest = spec.digest();
         let got: Option<(String, String)> = sql(self
             .conn
@@ -292,7 +342,7 @@ impl Store {
                 serde_json::to_string(spec).map_err(|e| e.to_string())?,
                 digest,
                 RunState::Accepted.name(),
-                serde_json::to_string(&Detail::default()).map_err(|e| e.to_string())?,
+                serde_json::to_string(first).map_err(|e| e.to_string())?,
                 now as i64,
                 spec.inbound.map(|k| k.text()),
                 spec.facility_key(),
@@ -301,7 +351,7 @@ impl Store {
         ))?;
         if n == 0 {
             // Lost a race with an identical insert.
-            return self.accept(spec, now);
+            return self.accept_with(spec, now, first);
         }
         Ok(Accept::Created)
     }

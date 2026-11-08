@@ -461,6 +461,11 @@ pub struct Detail {
     pub settle: Option<crate::ports::Settle>,
     /// The raid as observed.
     pub raid: Option<crate::ports::Raid>,
+    /// Who asked for the run, as the intake checked it against the pass
+    /// (`intake::check_requester`); `None` for a run accepted without the
+    /// check (`Executor::accept`, the in-process path).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub authority: Option<crate::intake::RunAuthority>,
 }
 
 /// What each state owns, reserves and can give back (the table the docs

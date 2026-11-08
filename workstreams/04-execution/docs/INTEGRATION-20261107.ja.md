@@ -161,3 +161,102 @@
 
 **⑲ の提案 (b)〜(d)**（PASS にしてよい条件と、ライブとアーカイブの扱いの一貫性）
 - 利用者の判断を待っています。
+
+## 9. 訂正：鍵の規則に反する試験を実行していた（④、2026-11-07）
+
+**何をしたか**
+- §7.4 と §8 で「鍵ペアの生成・導出なし、署名なし」として挙げた試験のうち、`cargo test -p fclient --lib`（94 件）は、規則に反していました。
+  - `fclient/src/beacon.rs` と `seal.rs` の試験は、試験用の beacon の鍵（`TestKey::new()`）を作り、署名します。
+  - `fclient/src/tx.rs` の試験は、固定 seed の鍵ペア（`Keypair::new_from_array([3; 32])`）で取引に署名します。
+  - ④は、2026-11-07 の回帰試験で、これを 5 回ほど実行しました。
+- `cargo test -p verify --test fixtures` の `march_fixture_is_fresh` も、規則に反していました。
+  - この試験は `verify_core::fixture::march::march()` を呼び、固定 seed の鍵ペアと試験用の beacon の鍵で署名します。
+  - ④は、これを 1 回実行しました。
+
+**原因**
+- ④の事前の確認は、試験のファイルそのものしか探していませんでした。fclient の lib の試験の module や、試験が呼ぶ src の関数（`fixture::march`）は、見ていませんでした。
+
+**影響**
+- この container の中の試験の process だけです。外への送信、公開、CI はありません。
+- 作られた鍵と署名は、試験の後に残っていません。
+
+**今後**
+- fclient の lib と、`verify --test fixtures` の `march_fixture_is_fresh` は実行しません（`record`、`tamper`、`coverage` も、これまでどおり実行しません）。
+- 事前の確認は、試験の module と、試験が呼ぶ src の関数まで辿ります。
+
+**確かめ直した結果**（鍵を使わないと分かったもの）
+- verify・findex・localnet・herald の lib の試験の module
+- findex の tests（ledger、ws04_*、coverage、no_hidden_gap、open_items、store_failure、ingest の鍵を使わない 4 件）
+- herald の ingest_health
+- verify の history、ledger_history、resident_ledger、ws04_scan_resident、new_bands、custody*、evidence
+- どれも、直接にも、呼び出し先の fixture の生成や tamper の注入を通しても、鍵の生成と署名がありません。
+
+**fixtures と evidence の失敗**（0012 の後）
+- `evidence` の `the_fixtures_have_nothing_for_v0e`、`fixtures` の `march_synth_passes` と `march_fixture_is_fresh` が FAIL しました。
+- ⑪ の報告では、85a48c7c でも同じで、地図の配置の変更（V11 の TicketPlacementMismatch）が原因です。④の差分の外です。
+
+## 10. 荷車の受付で、依頼者の権限を確かめる（④、2026-11-07）
+
+**以前の状態**
+- runexec の `accept(spec)` には、依頼者を表す欄がありませんでした。
+- 利用者の CC の受付 CLI（`preserve/cargo-cli-reviewed-20261107`、7d2fbe0d）にも、この確認はありませんでした。
+- そのため、譲渡後の元の所有者からの依頼を拒否できませんでした（CHAIN-FLOW §10.2）。
+
+**実装**（`src/intake.rs`、`Executor::accept_as`）
+- `accept_as(spec, requester, passes)` は、次の順で確かめてから受け付けます。
+  1. **run の Citizen のパスを読む**（`Passes`、chain の読取りの port）。無ければ拒否します（全プレイヤーにパスが必須）。
+  2. **link と policy**：link と policy は game program のものでなければなりません。link が指す Citizen の `citizen_tag` が、run の `owner` と一致しなければなりません。
+  3. **⑳ の `holder`**：asset が、束ねた collection の Core の asset であること、移転ガード（guard）があること、resident の記録が束ねたものであること。
+  4. **⑳ の `Holder::authority`**：
+     - 署名した世代が、今の世代であること（違えば StaleGeneration）。
+     - 依頼者が、今の所有者か、今の所有者がこの世代で設定した、期限内の session であること（違えば NotCurrentAuthority）。
+     - session を認めるのは、game の ResidentAct の SendCaravan（`player_as`、session_ok=true）と同じです。
+- 確かめるのは、store に書く前です。同じ `run_id` でも先に確かめるので、元の所有者は、run を足すことも、その run があるかを知ることもできません。
+- 受け付けた run には、確かめた結果を `Detail.authority` として残します（依頼者、asset、所有者、世代、owner か session か、時刻）。
+- 既存の `accept(spec)` はそのまま残しました（プロセス内の経路と、既存の試験）。外からの受付は `accept_as` を使う必要があります。
+
+**試験**（`tests/intake.rs`、6 件、鍵なし。key は固定の 32 byte で、asset と resident は ⑳ の配置の byte）
+
+| 場合 | 結果 |
+|---|---|
+| 所有者 | 受け付ける。確認の結果が run に残る |
+| 譲渡前の、所有者の session | 受け付ける（session として） |
+| 譲渡後の元の所有者（古い世代 0 で署名） | 拒否（StaleGeneration） |
+| 譲渡後の元の所有者（新しい世代 1 で署名） | 拒否（NotCurrentAuthority） |
+| 元の所有者の session（世代 0 と 1） | どちらも拒否 |
+| 新しい所有者が古い世代で署名 | 拒否 |
+| 新しい所有者 | すぐに受け付ける |
+| 譲渡後も残っている、元の所有者の session の記録 | 拒否 |
+| 新しい所有者の session | 受け付ける。期限が切れたら拒否 |
+| 元の所有者が同じ `run_id` を送り直す | 拒否。新しい所有者なら既存の run を返す |
+| パスが無い、link が別の Citizen を指す、link・policy が game program のものでない、guard が無い、asset が Core のものでない、resident の記録が違う | どれも拒否。何も書かない |
+
+- 変異で確かめました。authority の確認を外すと、譲渡に関わる 3 件が FAIL になります。
+- runexec の全試験も通りました（signing の bridge を使う gateway の 9 件は、もともと ignore）。
+
+**未決**（利用者の判断が要るもの）
+- **実行中の run と譲渡**：受け付けた後でパスが動いたとき、止めるか、続けるか、確かめ直すか。今は続けます。確認の結果が残るので、決まれば適用できます。
+- **session に荷車の依頼を任せてよいか**：game の SendCaravan と同じく、今は認めています。賞金の受取の session（U49）とは別の判断です。
+
+**この版でしていないこと**
+- 依頼の署名そのものの検証。依頼者の鍵は、呼び出し側（gateway の資格情報の層、③⑤）で認証済みとして受け取ります。
+- `Passes` の本物の chain の実装（link・policy の PDA を計算し、asset・resident を読む）。試験は、stand-in の chain で行いました。
+- 受付 CLI（7d2fbe0d）への接続。CLI は preserve の branch にあり、統合されていません。
+
+## 11. NFT譲渡後の荷車受付（所有者の決定 2026-11-07 に沿った実装）
+
+決定: 受付済みの荷車は譲渡後も完了まで続行。譲渡後の新規受付は、新しい所有者（またはその所有者が現世代で設定した期限内のセッション）だけを通す。
+
+| 部分 | 実装 | 試験（鍵なし） |
+|---|---|---|
+| 実チェーンからの所有者情報 | `src/intake_rpc.rs` `RpcPasses`: Citizen → link `["nft-citizen-link", season, asset]`・policy → asset・resident `["resident", asset]`・Clock を `getMultipleAccounts`（confirmed）で読む。最後の3つは1回で読み、所有者・世代・セッション・時刻が同じスロットのものになる | `tests/intake_chain.rs`（PDA上の口座を返すスタンドインノード `tests/common/passnode.rs`） |
+| 外部受付 → 権限確認 | `runexec run accept --requester <file> --rpc --program --season`。`intake::authorize` が拒否すれば exit 5 `NotAuthorized`、ストアを開く前（何も書かない）。通れば確認結果を初回detailに記録 | 同上 + `tests/run_cli.rs`（全acceptが依頼者付き） |
+| executor | `accept_as(spec, req, passes)` → `intake::accept_checked` | `tests/intake.rs`, `tests/intake_chain.rs` |
+| gateway → 依頼者の受け渡し | `clients/runs.mjs` `createRunsClient().accept(spec, {actor, generation, citizen, authenticatedBy})`。依頼者ファイルは0600で一時作成し、終了後に削除 | `clients/runs.test.mjs`（スタブと実バイナリ） |
+
+譲渡前と譲渡後は分けて試験しています。
+- 譲渡前: Aの依頼、およびAのセッションの依頼が受け付けられ、A→B譲渡（世代1）の後も Fulfilled まで続く。記録された権限は A・世代0 のまま。
+- 譲渡後: Aは世代0では StaleGeneration、世代1では NotCurrentAuthority で拒否。Aの残存セッションも、同じrun_idでの再依頼も、Bの世代0も拒否し、ストアには残らない。Bと、Bが世代1で設定したセッションは受付。期限切れのセッションは拒否。
+- CLI: 譲渡後のAは exit 5、Bは Created。依頼者なしは exit 2。
+
+**ここで試験していない部分:** 署名の検証そのもの（gatewayの認証層、③/⑤）は、試験に署名が要るため対象外です。`authenticatedBy` は、検証した層の名前を記録するだけです。実ノード（frontier-localnet）での読み取りも未実施です。
