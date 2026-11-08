@@ -1907,3 +1907,43 @@ Rust の側は 23.3 に書く。
   - wallet の account の切り替えで前の所有者が消えること、古い /h/me の答えが今の閲覧者を置き換えないことなど、閲覧者の初期化の試験を含む。
 - したがって、この試験は**鍵なしで動く**。⑯の未実行の一覧から外し、通過に数える。
 - CI の一覧から外すかどうかは、④の判断である。⑯は変更しない。
+
+# 第19期（2026-11-08）：⑤ 07fc6f64 を入れた後継 16576826
+
+## 24.1 対象と差分
+
+- ④ `claude/gallant-ride-cunptv` の HEAD: `16576826084a8ea7bd6b12b845d50b97f3d14904`、tree `7f6ff8b0fd1a3765fe00f4507ee87fdcd1ccdd71`（2026-11-08 16:43 UTC）。
+  - 7535a17e の上の 1 commit で、取得した時点の branch の先端。④ が後継として確定させるのを待つ。
+- 変わったのは `workstreams/05-ai-participation` の 4 ファイルだけ:
+  - RELAY-TREE-ATTESTATION-10.ja.md
+  - model-api/src/access-check.mjs
+  - model-api/test/relay-tree.mjs
+  - model-api/test/relay-tree.test.mjs
+- 4 ファイルとも、⑤ の `07fc6f64f7f8acfb6f86fb50ce44d9283ca8932d`（tree `d941f077…`、`claude/ai-participation-provider-budget`）と同じ blob。⑤ の directory は全体で `01582ec1` が一致した。
+- 変更の中身:
+  - `access-check.mjs`: 検証済みの relay tree に `52ccd7fc…`（7535a17e の permutation-gateway）を足した。
+  - `relay-tree.mjs`: 試験の pin を、disk の上の permutation-gateway の tree（node_modules の link は除く）にした。RELAY_TREE を指定するときは、disk の tree と一致しなければならない。
+  - permutation-gateway と workstreams/04-execution の subtree は、7535a17e と同じ（`52ccd7fc`、`a33e3b0a`）。
+
+## 24.2 この後継で流したもの（鍵なし）
+
+| 試験 | 結果 |
+|---|---|
+| ⑤ の鍵なしの 11 ファイル（HANDOFF-GITHUB の一覧どおり。厳しい mode の `P05_GUARD_DERIVE=1`。④ の実物の runexec と clients/acts.mjs を使用） | **61/61** |
+| ⑤ の gateway の 4 ファイル（agent-wallet の revoke-transfer、citizen-lane、sender-capability、run-facts。⑤ の guard、厳しい mode） | **13/13** |
+| 対照 A：permutation-gateway に、見直していないファイルを 1 つ足す | relay-tree が 1 件落ちる（"not a reviewed relay tree"） |
+| 対照 B：RELAY_TREE を別の tree（560f8659）にする | relay-tree が 1 件落ちる |
+| 対照の後に元へ戻す | relay-tree 2/2。worktree はきれいなまま |
+
+- runexec は、⑯ が 7535a17e から offline で build したもの（sha256 `4cb6634d…`）。workstreams/04-execution の subtree は後継と同じなので、後継の runexec そのものである。⑤ は代わりの runexec を使っていたが、この確認では実物を使った。
+- 最初に import を辿って選んだ autopilot、citizen、continuing、multiprocess-world の 4 ファイルは、ガードが `Keypair.generate` を拒否して落ちた（鍵は作られていない）。どれも ⑤ の鍵なしの一覧には入っていない。鍵を使う試験として扱い、数えない。
+
+## 24.3 引き継いだ結果（コードが変わっていないので）
+
+- 7535a17e の結果（§23.2〜23.4）は、7535a17e のものとして扱う。後継で流し直したことにはしない。
+- 後継で変わったのは ⑤ の directory だけで、frontier-node、permutation-*、workstreams/04・13、web は blob ごと同じである。そのため、長い Rust の一式は流し直していない。
+- 対象外のまま残るもの:
+  - 鍵を使う試験（§23.3 の一覧と同じ）
+  - 実チェーン
+  - probe を本物の relay に送ること（opt-in のまま）
+  - 本番の requester の認証層の判断

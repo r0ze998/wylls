@@ -1,0 +1,42 @@
+TAP version 13
+# Subtest: the relay tree the tests use is the permutation-gateway on disk, and one whose gate order was reviewed
+not ok 1 - the relay tree the tests use is the permutation-gateway on disk, and one whose gate order was reviewed
+  ---
+  duration_ms: 119.316792
+  type: 'test'
+  location: '/tmp/claude-0/-home-user-wylls/47a54b0f-427a-5cca-bc82-feb7c5056956/scratchpad/v27n/workstreams/05-ai-participation/model-api/test/relay-tree.test.mjs:13:1'
+  failureType: 'testCodeFailure'
+  error: |-
+    a stated RELAY_TREE must be the tree on disk
+    + actual - expected
+    
+    + '560f8659fdc091d6870c35539333acf59381acf8'
+    - '52ccd7fc13daba4d2e4af111a65b644b4f0e8ae2'
+    
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected: '52ccd7fc13daba4d2e4af111a65b644b4f0e8ae2'
+  actual: '560f8659fdc091d6870c35539333acf59381acf8'
+  operator: 'strictEqual'
+  stack: |-
+    TestContext.<anonymous> (file:///tmp/claude-0/-home-user-wylls/47a54b0f-427a-5cca-bc82-feb7c5056956/scratchpad/v27n/workstreams/05-ai-participation/model-api/test/relay-tree.test.mjs:15:10)
+    Test.runInAsyncScope (node:async_hooks:214:14)
+    Test.run (node:internal/test_runner/test:1047:25)
+    Test.start (node:internal/test_runner/test:944:17)
+    startSubtestAfterBootstrap (node:internal/test_runner/harness:296:17)
+  ...
+# Subtest: every attested entry is a full tree id with a description; known commits give the attested trees
+ok 2 - every attested entry is a full tree id with a description; known commits give the attested trees
+  ---
+  duration_ms: 12.713809
+  type: 'test'
+  ...
+1..2
+# tests 2
+# suites 0
+# pass 1
+# fail 1
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 573.707517

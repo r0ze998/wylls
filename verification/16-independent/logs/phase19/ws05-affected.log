@@ -1,0 +1,167 @@
+### ⑤ affected HEAD 16576826084a8ea7bd6b12b845d50b97f3d14904 tree 7f6ff8b0fd1a3765fe00f4507ee87fdcd1ccdd71 gateway 52ccd7fc13daba4d2e4af111a65b644b4f0e8ae2
+TAP version 13
+# Subtest: S1 the substitute port: ④'s next steps, ④'s error codes, and it says it is the substitute
+ok 1 - S1 the substitute port: ④'s next steps, ④'s error codes, and it says it is the substitute
+  ---
+  duration_ms: 179.307227
+  type: 'test'
+  ...
+# Subtest: S2 register before send: the record exists when agent_act is called; no record, no send
+ok 2 - S2 register before send: the record exists when agent_act is called; no record, no send
+  ---
+  duration_ms: 14.083273
+  type: 'test'
+  ...
+# Subtest: S3 result unknown is not "did not happen" after any amount of time: held for 30 days, nothing re-sent; a proved expiry then allows one new attempt
+ok 3 - S3 result unknown is not "did not happen" after any amount of time: held for 30 days, nothing re-sent; a proved expiry then allows one new attempt
+  ---
+  duration_ms: 60.233955
+  type: 'test'
+  ...
+# Subtest: S4 ③'s status from the registry: never registered, unreadable and result unknown are three answers
+ok 4 - S4 ③'s status from the registry: never registered, unreadable and result unknown are three answers
+  ---
+  duration_ms: 8.476197
+  type: 'test'
+  ...
+# Subtest: S5 with per-sender tokens, the autopilot refuses another sender's token before any model call (OtherSendersToken)
+ok 5 - S5 with per-sender tokens, the autopilot refuses another sender's token before any model call (OtherSendersToken)
+  ---
+  duration_ms: 6.146771
+  type: 'test'
+  ...
+# file:///tmp/claude-0/-home-user-wylls/47a54b0f-427a-5cca-bc82-feb7c5056956/scratchpad/v27n/workstreams/05-ai-participation/model-api/test/no-keys-guard.mjs:18
+# globalThis.__p05NoKeys = what => { throw Object.assign(new Error(`p05 no-keys guard: ${what} is forbidden in this run`), { code: 'NoKeysGuard' }); };
+#                                                        ^
+# Error: p05 no-keys guard: Keypair.generate is forbidden in this run
+#     at globalThis.__p05NoKeys (file:///tmp/claude-0/-home-user-wylls/47a54b0f-427a-5cca-bc82-feb7c5056956/scratchpad/v27n/workstreams/05-ai-participation/model-api/test/no-keys-guard.mjs:18:56)
+#     at Keypair.forbidden (file:///tmp/claude-0/-home-user-wylls/47a54b0f-427a-5cca-bc82-feb7c5056956/scratchpad/v27n/workstreams/05-ai-participation/model-api/test/no-keys-guard.mjs:19:58)
+#     at file:///tmp/claude-0/-home-user-wylls/47a54b0f-427a-5cca-bc82-feb7c5056956/scratchpad/v27n/permutation-gateway/test/gateway-fixtures.mjs:81:34
+#     at ModuleJob.run (node:internal/modules/esm/module_job:343:25)
+#     at async onImport.tracePromise.__proto__ (node:internal/modules/esm/loader:665:26)
+#     at async asyncRunEntryPointWithESMLoader (node:internal/modules/run_main:117:5) {
+#   code: 'NoKeysGuard'
+# }
+# Node.js v22.22.0
+# Subtest: test/autopilot.test.mjs
+not ok 2 - test/autopilot.test.mjs
+  ---
+  duration_ms: 667.275703
+  type: 'test'
+  location: '/tmp/claude-0/-home-user-wylls/47a54b0f-427a-5cca-bc82-feb7c5056956/scratchpad/v27n/workstreams/05-ai-participation/model-api/test/autopilot.test.mjs:1:1'
+  failureType: 'testCodeFailure'
+  exitCode: 1
+  signal: ~
+  error: 'test failed'
+  code: 'ERR_TEST_FAILURE'
+  ...
+# file:///tmp/claude-0/-home-user-wylls/47a54b0f-427a-5cca-bc82-feb7c5056956/scratchpad/v27n/workstreams/05-ai-participation/model-api/test/no-keys-guard.mjs:18
+# globalThis.__p05NoKeys = what => { throw Object.assign(new Error(`p05 no-keys guard: ${what} is forbidden in this run`), { code: 'NoKeysGuard' }); };
+#                                                        ^
+# Error: p05 no-keys guard: Keypair.generate is forbidden in this run
+#     at globalThis.__p05NoKeys (file:///tmp/claude-0/-home-user-wylls/47a54b0f-427a-5cca-bc82-feb7c5056956/scratchpad/v27n/workstreams/05-ai-participation/model-api/test/no-keys-guard.mjs:18:56)
+#     at Keypair.forbidden (file:///tmp/claude-0/-home-user-wylls/47a54b0f-427a-5cca-bc82-feb7c5056956/scratchpad/v27n/workstreams/05-ai-participation/model-api/test/no-keys-guard.mjs:19:58)
+#     at file:///tmp/claude-0/-home-user-wylls/47a54b0f-427a-5cca-bc82-feb7c5056956/scratchpad/v27n/permutation-gateway/test/gateway-fixtures.mjs:81:34
+#     at ModuleJob.run (node:internal/modules/esm/module_job:343:25)
+#     at async onImport.tracePromise.__proto__ (node:internal/modules/esm/loader:665:26)
+#     at async asyncRunEntryPointWithESMLoader (node:internal/modules/run_main:117:5) {
+#   code: 'NoKeysGuard'
+# }
+# Node.js v22.22.0
+# Subtest: test/citizen.test.mjs
+not ok 3 - test/citizen.test.mjs
+  ---
+  duration_ms: 667.952985
+  type: 'test'
+  location: '/tmp/claude-0/-home-user-wylls/47a54b0f-427a-5cca-bc82-feb7c5056956/scratchpad/v27n/workstreams/05-ai-participation/model-api/test/citizen.test.mjs:1:1'
+  failureType: 'testCodeFailure'
+  exitCode: 1
+  signal: ~
+  error: 'test failed'
+  code: 'ERR_TEST_FAILURE'
+  ...
+# file:///tmp/claude-0/-home-user-wylls/47a54b0f-427a-5cca-bc82-feb7c5056956/scratchpad/v27n/workstreams/05-ai-participation/model-api/test/no-keys-guard.mjs:18
+# globalThis.__p05NoKeys = what => { throw Object.assign(new Error(`p05 no-keys guard: ${what} is forbidden in this run`), { code: 'NoKeysGuard' }); };
+#                                                        ^
+# Error: p05 no-keys guard: Keypair.generate is forbidden in this run
+#     at globalThis.__p05NoKeys (file:///tmp/claude-0/-home-user-wylls/47a54b0f-427a-5cca-bc82-feb7c5056956/scratchpad/v27n/workstreams/05-ai-participation/model-api/test/no-keys-guard.mjs:18:56)
+#     at Keypair.forbidden (file:///tmp/claude-0/-home-user-wylls/47a54b0f-427a-5cca-bc82-feb7c5056956/scratchpad/v27n/workstreams/05-ai-participation/model-api/test/no-keys-guard.mjs:19:58)
+#     at file:///tmp/claude-0/-home-user-wylls/47a54b0f-427a-5cca-bc82-feb7c5056956/scratchpad/v27n/permutation-gateway/test/gateway-fixtures.mjs:81:34
+#     at ModuleJob.run (node:internal/modules/esm/module_job:343:25)
+#     at async onImport.tracePromise.__proto__ (node:internal/modules/esm/loader:665:26)
+#     at async asyncRunEntryPointWithESMLoader (node:internal/modules/run_main:117:5) {
+#   code: 'NoKeysGuard'
+# }
+# Node.js v22.22.0
+# Subtest: test/continuing.test.mjs
+not ok 4 - test/continuing.test.mjs
+  ---
+  duration_ms: 334.657438
+  type: 'test'
+  location: '/tmp/claude-0/-home-user-wylls/47a54b0f-427a-5cca-bc82-feb7c5056956/scratchpad/v27n/workstreams/05-ai-participation/model-api/test/continuing.test.mjs:1:1'
+  failureType: 'testCodeFailure'
+  exitCode: 1
+  signal: ~
+  error: 'test failed'
+  code: 'ERR_TEST_FAILURE'
+  ...
+# Subtest: P5 the autopilot over the shared ledger and lease: a tick end to end; another process cannot start it; after a takeover it stops with no model call
+not ok 9 - P5 the autopilot over the shared ledger and lease: a tick end to end; another process cannot start it; after a takeover it stops with no model call
+  ---
+  duration_ms: 184.679173
+  type: 'test'
+  location: '/tmp/claude-0/-home-user-wylls/47a54b0f-427a-5cca-bc82-feb7c5056956/scratchpad/v27n/workstreams/05-ai-participation/model-api/test/multiprocess-world.test.mjs:28:1'
+  failureType: 'testCodeFailure'
+  error: 'p05 no-keys guard: Keypair.generate is forbidden in this run'
+  code: 'NoKeysGuard'
+  stack: |-
+    globalThis.__p05NoKeys (file:///tmp/claude-0/-home-user-wylls/47a54b0f-427a-5cca-bc82-feb7c5056956/scratchpad/v27n/workstreams/05-ai-participation/model-api/test/no-keys-guard.mjs:18:56)
+    Keypair.forbidden (file:///tmp/claude-0/-home-user-wylls/47a54b0f-427a-5cca-bc82-feb7c5056956/scratchpad/v27n/workstreams/05-ai-participation/model-api/test/no-keys-guard.mjs:19:58)
+    file:///tmp/claude-0/-home-user-wylls/47a54b0f-427a-5cca-bc82-feb7c5056956/scratchpad/v27n/permutation-gateway/test/gateway-fixtures.mjs:81:34
+    ModuleJob.run (node:internal/modules/esm/module_job:343:25)
+    async onImport.tracePromise.__proto__ (node:internal/modules/esm/loader:665:26)
+    async TestContext.<anonymous> (file:///tmp/claude-0/-home-user-wylls/47a54b0f-427a-5cca-bc82-feb7c5056956/scratchpad/v27n/workstreams/05-ai-participation/model-api/test/multiprocess-world.test.mjs:29:50)
+    async Test.run (node:internal/test_runner/test:1054:7)
+    async startSubtestAfterBootstrap (node:internal/test_runner/harness:296:3)
+  ...
+# Subtest: P7 a takeover in the middle of a long tick: the model call is paid, but the act is not sent (LeaseLost before acting)
+not ok 10 - P7 a takeover in the middle of a long tick: the model call is paid, but the act is not sent (LeaseLost before acting)
+  ---
+  duration_ms: 0.495941
+  type: 'test'
+  location: '/tmp/claude-0/-home-user-wylls/47a54b0f-427a-5cca-bc82-feb7c5056956/scratchpad/v27n/workstreams/05-ai-participation/model-api/test/multiprocess-world.test.mjs:90:1'
+  failureType: 'testCodeFailure'
+  error: 'p05 no-keys guard: Keypair.generate is forbidden in this run'
+  code: 'NoKeysGuard'
+  stack: |-
+    globalThis.__p05NoKeys (file:///tmp/claude-0/-home-user-wylls/47a54b0f-427a-5cca-bc82-feb7c5056956/scratchpad/v27n/workstreams/05-ai-participation/model-api/test/no-keys-guard.mjs:18:56)
+    Keypair.forbidden (file:///tmp/claude-0/-home-user-wylls/47a54b0f-427a-5cca-bc82-feb7c5056956/scratchpad/v27n/workstreams/05-ai-participation/model-api/test/no-keys-guard.mjs:19:58)
+    file:///tmp/claude-0/-home-user-wylls/47a54b0f-427a-5cca-bc82-feb7c5056956/scratchpad/v27n/permutation-gateway/test/gateway-fixtures.mjs:81:34
+    ModuleJob.run (node:internal/modules/esm/module_job:343:25)
+    async onImport.tracePromise.__proto__ (node:internal/modules/esm/loader:665:26)
+    async TestContext.<anonymous> (file:///tmp/claude-0/-home-user-wylls/47a54b0f-427a-5cca-bc82-feb7c5056956/scratchpad/v27n/workstreams/05-ai-participation/model-api/test/multiprocess-world.test.mjs:29:50)
+    async Test.run (node:internal/test_runner/test:1054:7)
+    async startSubtestAfterBootstrap (node:internal/test_runner/harness:296:3)
+  ...
+# Subtest: the relay tree the tests use is the permutation-gateway on disk, and one whose gate order was reviewed
+ok 11 - the relay tree the tests use is the permutation-gateway on disk, and one whose gate order was reviewed
+  ---
+  duration_ms: 111.715643
+  type: 'test'
+  ...
+# Subtest: every attested entry is a full tree id with a description; known commits give the attested trees
+ok 12 - every attested entry is a full tree id with a description; known commits give the attested trees
+  ---
+  duration_ms: 12.384356
+  type: 'test'
+  ...
+1..12
+# tests 12
+# suites 0
+# pass 7
+# fail 5
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 2121.768647
+exit=1

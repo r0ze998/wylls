@@ -1,0 +1,378 @@
+### ⑤ key-free set (strict) HEAD 16576826084a8ea7bd6b12b845d50b97f3d14904 tree 7f6ff8b0fd1a3765fe00f4507ee87fdcd1ccdd71 runexec 4cb6634ddc601d3b
+TAP version 13
+# Subtest: A1 the fate read: seven states, three different "not decided" answers, and nothing malformed passes as an answer
+ok 1 - A1 the fate read: seven states, three different "not decided" answers, and nothing malformed passes as an answer
+  ---
+  duration_ms: 3.184862
+  type: 'test'
+  ...
+# Subtest: A2 run4Id is ④'s id for the same act (reference from sha256sum)
+ok 2 - A2 run4Id is ④'s id for the same act (reference from sha256sum)
+  ---
+  duration_ms: 0.777029
+  type: 'test'
+  ...
+# Subtest: A3 the registry by ④'s acts.rs rules
+ok 3 - A3 the registry by ④'s acts.rs rules
+  ---
+  duration_ms: 24.065593
+  type: 'test'
+  ...
+# Subtest: A4 the registry across processes: four processes register the same 30 acts at once; another run under a key is refused
+ok 4 - A4 the registry across processes: four processes register the same 30 acts at once; another run under a key is refused
+  ---
+  duration_ms: 836.689641
+  type: 'test'
+  ...
+# Subtest: A5 a relay `failed` that may have left is followed: held, counted, never a new requestId
+ok 5 - A5 a relay `failed` that may have left is followed: held, counted, never a new requestId
+  ---
+  duration_ms: 16.470605
+  type: 'test'
+  ...
+# Subtest: A6 verifyPending: GET /f/tx `expired` is held; the fate read keeps unknown and unqueryable apart; a proved expiry frees the act
+ok 6 - A6 verifyPending: GET /f/tx `expired` is held; the fate read keeps unknown and unqueryable apart; a proved expiry frees the act
+  ---
+  duration_ms: 1.880474
+  type: 'test'
+  ...
+# Subtest: A7 ③'s status answer from the fate read: ④'s states, validUntil and signedAt, run4Id; only proved ends are terminal
+ok 7 - A7 ③'s status answer from the fate read: ④'s states, validUntil and signedAt, run4Id; only proved ends are terminal
+  ---
+  duration_ms: 1.219632
+  type: 'test'
+  ...
+# Subtest: A8 the RunReceipt local adapter: GET /f/tx `expired` is not final; the fate read gives signedAt and cancel.until
+ok 8 - A8 the RunReceipt local adapter: GET /f/tx `expired` is not final; the fate read gives signedAt and cancel.until
+  ---
+  duration_ms: 1.223942
+  type: 'test'
+  ...
+# Subtest: S1 the substitute port: ④'s next steps, ④'s error codes, and it says it is the substitute
+ok 9 - S1 the substitute port: ④'s next steps, ④'s error codes, and it says it is the substitute
+  ---
+  duration_ms: 29.2776
+  type: 'test'
+  ...
+# Subtest: S2 register before send: the record exists when agent_act is called; no record, no send
+ok 10 - S2 register before send: the record exists when agent_act is called; no record, no send
+  ---
+  duration_ms: 37.758314
+  type: 'test'
+  ...
+# Subtest: S3 result unknown is not "did not happen" after any amount of time: held for 30 days, nothing re-sent; a proved expiry then allows one new attempt
+ok 11 - S3 result unknown is not "did not happen" after any amount of time: held for 30 days, nothing re-sent; a proved expiry then allows one new attempt
+  ---
+  duration_ms: 123.247371
+  type: 'test'
+  ...
+# Subtest: S4 ③'s status from the registry: never registered, unreadable and result unknown are three answers
+ok 12 - S4 ③'s status from the registry: never registered, unreadable and result unknown are three answers
+  ---
+  duration_ms: 11.45109
+  type: 'test'
+  ...
+# Subtest: S5 with per-sender tokens, the autopilot refuses another sender's token before any model call (OtherSendersToken)
+ok 13 - S5 with per-sender tokens, the autopilot refuses another sender's token before any model call (OtherSendersToken)
+  ---
+  duration_ms: 23.149915
+  type: 'test'
+  ...
+# Subtest: X1 ④'s binary: register / status / list, ④'s codes and next steps
+ok 14 - X1 ④'s binary: register / status / list, ④'s codes and next steps
+  ---
+  duration_ms: 130.003495
+  type: 'test'
+  ...
+# Subtest: X2 restart: every runexec call is its own process; the store answers across them, finals stay, conflicts are kept
+ok 15 - X2 restart: every runexec call is its own process; the store answers across them, finals stay, conflicts are kept
+  ---
+  duration_ms: 101.335065
+  type: 'test'
+  ...
+# Subtest: X3 several processes on one store at once: 4 register the same 15 acts while 2 read them — one row each, no store error
+ok 16 - X3 several processes on one store at once: 4 register the same 15 acts while 2 read them — one row each, no store error
+  ---
+  duration_ms: 643.327772
+  type: 'test'
+  ...
+# Subtest: X4 could not ask ≠ result unknown: closed port and 503 are unqueryable (facts kept); unknown holds; only proved expired allows a new attempt
+ok 17 - X4 could not ask ≠ result unknown: closed port and 503 are unqueryable (facts kept); unknown holds; only proved expired allows a new attempt
+  ---
+  duration_ms: 100.43281
+  type: 'test'
+  ...
+# Subtest: X5 the substitute and the real registry give the same answers for the same wallet script
+ok 18 - X5 the substitute and the real registry give the same answers for the same wallet script
+  ---
+  duration_ms: 107.473847
+  type: 'test'
+  ...
+# Subtest: X6 participate on the real registry, ⑤ restarted before every tick: registered before sending; result unknown never re-sent; a proved expiry → one new attempt
+ok 19 - X6 participate on the real registry, ⑤ restarted before every tick: registered before sending; result unknown never re-sent; a proved expiry → one new attempt
+  ---
+  duration_ms: 129.286314
+  type: 'test'
+  ...
+# Subtest: Claude over loopback HTTP: the request on the wire, the answer, the usage, the measured cost settled
+ok 20 - Claude over loopback HTTP: the request on the wire, the answer, the usage, the measured cost settled
+  ---
+  duration_ms: 57.766671
+  type: 'test'
+  ...
+# Subtest: Claude: a timeout after sending is undecided and not retried; the fixture saw exactly one request
+ok 21 - Claude: a timeout after sending is undecided and not retried; the fixture saw exactly one request
+  ---
+  duration_ms: 396.442422
+  type: 'test'
+  ...
+# Subtest: Claude: a connection lost before or during the answer is undecided, never zero
+ok 22 - Claude: a connection lost before or during the answer is undecided, never zero
+  ---
+  duration_ms: 20.621561
+  type: 'test'
+  ...
+# Subtest: Claude: rate limit and overload are held as unknown and not retried by default; retried only when allowed, each try a new reservation flagged as possible double billing
+ok 23 - Claude: rate limit and overload are held as unknown and not retried by default; retried only when allowed, each try a new reservation flagged as possible double billing
+  ---
+  duration_ms: 11.36295
+  type: 'test'
+  ...
+# Subtest: GPT over loopback HTTP: the request on the wire, the answer, the usage, the measured cost settled
+ok 24 - GPT over loopback HTTP: the request on the wire, the answer, the usage, the measured cost settled
+  ---
+  duration_ms: 5.694191
+  type: 'test'
+  ...
+# Subtest: GPT: a timeout after sending is undecided and not retried; the fixture saw exactly one request
+ok 25 - GPT: a timeout after sending is undecided and not retried; the fixture saw exactly one request
+  ---
+  duration_ms: 383.692118
+  type: 'test'
+  ...
+# Subtest: GPT: a connection lost before or during the answer is undecided, never zero
+ok 26 - GPT: a connection lost before or during the answer is undecided, never zero
+  ---
+  duration_ms: 15.200138
+  type: 'test'
+  ...
+# Subtest: GPT: rate limit and overload are held as unknown and not retried by default; retried only when allowed, each try a new reservation flagged as possible double billing
+ok 27 - GPT: rate limit and overload are held as unknown and not retried by default; retried only when allowed, each try a new reservation flagged as possible double billing
+  ---
+  duration_ms: 10.905024
+  type: 'test'
+  ...
+# Subtest: a connection refused before sending costs nothing and is the one failure retried by default (within maxAttempts)
+ok 28 - a connection refused before sending costs nothing and is the one failure retried by default (within maxAttempts)
+  ---
+  duration_ms: 3.513753
+  type: 'test'
+  ...
+# Subtest: GPT: a 429 that names a billing code is a billing stop, never retried even when retries are allowed
+ok 29 - GPT: a 429 that names a billing code is a billing stop, never retried even when retries are allowed
+  ---
+  duration_ms: 3.888207
+  type: 'test'
+  ...
+# Subtest: the same decision asked twice (a re-run tick, a concurrent caller) is one HTTP request and one reservation
+ok 30 - the same decision asked twice (a re-run tick, a concurrent caller) is one HTTP request and one reservation
+  ---
+  duration_ms: 36.41844
+  type: 'test'
+  ...
+# Subtest: the loopback transport refuses any outside host and any credential header
+ok 31 - the loopback transport refuses any outside host and any credential header
+  ---
+  duration_ms: 1.563465
+  type: 'test'
+  ...
+# Subtest: T5 long-running state: 60 days of calls compact to per-day sums with exact caps; undecided costs are never compacted; snapshots round-trip; memory stays bounded
+ok 32 - T5 long-running state: 60 days of calls compact to per-day sums with exact caps; undecided costs are never compacted; snapshots round-trip; memory stays bounded
+  ---
+  duration_ms: 8671.972559
+  type: 'test'
+  ...
+# Subtest: Claude and GPT behind one contract: the same request gives each its own wire shape, never a credential header
+ok 33 - Claude and GPT behind one contract: the same request gives each its own wire shape, never a credential header
+  ---
+  duration_ms: 1.932883
+  type: 'test'
+  ...
+# Subtest: a usage report is mapped apart: uncached input, cache reads, cache writes by TTL, output (reasoning inside it)
+ok 34 - a usage report is mapped apart: uncached input, cache reads, cache writes by TTL, output (reasoning inside it)
+  ---
+  duration_ms: 2.82915
+  type: 'test'
+  ...
+# Subtest: model names: the configured id, and the name the provider says it served (a self-report, not verification)
+ok 35 - model names: the configured id, and the name the provider says it served (a self-report, not verification)
+  ---
+  duration_ms: 0.339891
+  type: 'test'
+  ...
+# Subtest: the price book: never a production book; a quote is an upper bound; a cost never exceeds what was reserved
+ok 36 - the price book: never a production book; a quote is an upper bound; a cost never exceeds what was reserved
+  ---
+  duration_ms: 0.946688
+  type: 'test'
+  ...
+# Subtest: truncated and refused answers are billed by their usage; a refusal yields no text to act on
+ok 37 - truncated and refused answers are billed by their usage; a refusal yields no text to act on
+  ---
+  duration_ms: 1.732698
+  type: 'test'
+  ...
+# Subtest: a rate limit is not retried inside the decision by default (its cost is unreported, so it stays held); when allowed, each retry is a NEW reservation; billing stops never retry
+ok 38 - a rate limit is not retried inside the decision by default (its cost is unreported, so it stays held); when allowed, each retry is a NEW reservation; billing stops never retry
+  ---
+  duration_ms: 2.484092
+  type: 'test'
+  ...
+# Subtest: a timeout after sending is undecided: held, never released or made available, not retried by default
+ok 39 - a timeout after sending is undecided: held, never released or made available, not retried by default
+  ---
+  duration_ms: 1.541201
+  type: 'test'
+  ...
+# Subtest: a connection refused before sending is not billed and is retried; a server error is held as unknown, not retried by default, and when allowed its retries stay within the caps
+ok 40 - a connection refused before sending is not billed and is retried; a server error is held as unknown, not retried by default, and when allowed its retries stay within the caps
+  ---
+  duration_ms: 1.560331
+  type: 'test'
+  ...
+# Subtest: concurrent calls in one process cannot both take the last unit; a restart turns in-flight calls into undecided
+ok 41 - concurrent calls in one process cannot both take the last unit; a restart turns in-flight calls into undecided
+  ---
+  duration_ms: 8.958191
+  type: 'test'
+  ...
+# Subtest: preflight: the model is not called when the agent is stopped, not delegated, has nothing to do, or cannot pay for the call and the game action
+ok 42 - preflight: the model is not called when the agent is stopped, not delegated, has nothing to do, or cannot pay for the call and the game action
+  ---
+  duration_ms: 1.29866
+  type: 'test'
+  ...
+# Subtest: this build cannot call a model: no credential is read, no network module is used, a fixture refuses credential headers
+ok 43 - this build cannot call a model: no credential is read, no network module is used, a fixture refuses credential headers
+  ---
+  duration_ms: 2.537166
+  type: 'test'
+  ...
+# Subtest: P1 no double spend across processes: four processes race for a total cap of 50 calls — exactly 50 reserved, each key once
+ok 44 - P1 no double spend across processes: four processes race for a total cap of 50 calls — exactly 50 reserved, each key once
+  ---
+  duration_ms: 545.956297
+  type: 'test'
+  ...
+# Subtest: P2 one autopilot per agent across processes: of three processes taking the same lease at once, exactly one gets it
+ok 45 - P2 one autopilot per agent across processes: of three processes taking the same lease at once, exactly one gets it
+  ---
+  duration_ms: 839.058573
+  type: 'test'
+  ...
+# Subtest: P3 a crashed process: its call in flight becomes UNDECIDED (never released), its unsent reservation comes back; the next process takes over
+ok 46 - P3 a crashed process: its call in flight becomes UNDECIDED (never released), its unsent reservation comes back; the next process takes over
+  ---
+  duration_ms: 182.280746
+  type: 'test'
+  ...
+# Subtest: P4 a hung process: after its TTL another process takes the agent over; the hung one can no longer reserve or renew
+ok 47 - P4 a hung process: after its TTL another process takes the agent over; the hung one can no longer reserve or renew
+  ---
+  duration_ms: 876.061891
+  type: 'test'
+  ...
+# Subtest: P6 the status answer never claims more than the relay shows: expired is not Absent; refused and unknown are told apart
+ok 48 - P6 the status answer never claims more than the relay shows: expired is not Absent; refused and unknown are told apart
+  ---
+  duration_ms: 1.061234
+  type: 'test'
+  ...
+# Subtest: the guard blocks key generation and signing (and, in strict mode, address derivation); sha256 stays
+ok 49 - the guard blocks key generation and signing (and, in strict mode, address derivation); sha256 stays
+  ---
+  duration_ms: 157.733277
+  type: 'test'
+  ...
+# Subtest: the relay tree the tests use is the permutation-gateway on disk, and one whose gate order was reviewed
+ok 50 - the relay tree the tests use is the permutation-gateway on disk, and one whose gate order was reviewed
+  ---
+  duration_ms: 141.733555
+  type: 'test'
+  ...
+# Subtest: every attested entry is a full tree id with a description; known commits give the attested trees
+ok 51 - every attested entry is a full tree id with a description; known commits give the attested trees
+  ---
+  duration_ms: 11.316188
+  type: 'test'
+  ...
+# Subtest: E1 the relay's answer is lost after it executed: the next process replays the same requestId — 1 execution, 1 model call
+ok 52 - E1 the relay's answer is lost after it executed: the next process replays the same requestId — 1 execution, 1 model call
+  ---
+  duration_ms: 858.185356
+  type: 'test'
+  ...
+# Subtest: E2 the process dies inside the act (the relay executed, the answer never heard): restart replays — 1 execution
+ok 53 - E2 the process dies inside the act (the relay executed, the answer never heard): restart replays — 1 execution
+  ---
+  duration_ms: 825.146115
+  type: 'test'
+  ...
+# Subtest: E3 the process dies while the model call is in flight: restart keeps that cost UNDECIDED (not released, not 0); one execution
+ok 54 - E3 the process dies while the model call is in flight: restart keeps that cost UNDECIDED (not released, not 0); one execution
+  ---
+  duration_ms: 843.625171
+  type: 'test'
+  ...
+# Subtest: E4 the model's answer is lost (sent, no reply): UNDECIDED, nothing sent on it, kept through a restart
+ok 55 - E4 the model's answer is lost (sent, no reply): UNDECIDED, nothing sent on it, kept through a restart
+  ---
+  duration_ms: 800.963642
+  type: 'test'
+  ...
+# Subtest: E5 two processes start at once: one runs, the other is refused — 1 execution
+ok 56 - E5 two processes start at once: one runs, the other is refused — 1 execution
+  ---
+  duration_ms: 2433.74055
+  type: 'test'
+  ...
+# Subtest: E6 the owner stops between the model's answer and the act: nothing sent; resumed: 1 execution
+ok 57 - E6 the owner stops between the model's answer and the act: nothing sent; resumed: 1 execution
+  ---
+  duration_ms: 785.995555
+  type: 'test'
+  ...
+# Subtest: E7 an act whose answer was lost, then the owner stops and resumes: replayed by its requestId, never sent again
+ok 58 - E7 an act whose answer was lost, then the owner stops and resumes: replayed by its requestId, never sent again
+  ---
+  duration_ms: 1105.333906
+  type: 'test'
+  ...
+# Subtest: W1 stopped right after reserve (13's state not saved): the next open releases it; until then the caps count it once
+ok 59 - W1 stopped right after reserve (13's state not saved): the next open releases it; until then the caps count it once
+  ---
+  duration_ms: 231.633552
+  type: 'test'
+  ...
+# Subtest: W2 stopped after calling: UNDECIDED at the next open (never released, never 0), and still counted
+ok 60 - W2 stopped after calling: UNDECIDED at the next open (never released, never 0), and still counted
+  ---
+  duration_ms: 191.95804
+  type: 'test'
+  ...
+# Subtest: W3 a live other process holds the resident: the open is refused and nothing of its reservations is touched
+ok 61 - W3 a live other process holds the resident: the open is refused and nothing of its reservations is touched
+  ---
+  duration_ms: 4.745487
+  type: 'test'
+  ...
+1..61
+# tests 61
+# suites 0
+# pass 61
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 11146.401404
+exit=0

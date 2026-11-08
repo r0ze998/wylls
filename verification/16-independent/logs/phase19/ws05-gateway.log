@@ -1,0 +1,90 @@
+### ⑤ gateway files HEAD 16576826084a8ea7bd6b12b845d50b97f3d14904
+TAP version 13
+# Subtest: a lane runs one Citizen's work one at a time, in order; other Citizens go on; a failure frees the lane
+ok 1 - a lane runs one Citizen's work one at a time, in order; other Citizens go on; a failure frees the lane
+  ---
+  duration_ms: 9.371392
+  type: 'test'
+  ...
+# Subtest: submit goes through the owner's lane: two agents of one owner share it; another owner has its own
+ok 2 - submit goes through the owner's lane: two agents of one owner share it; another owner has its own
+  ---
+  duration_ms: 4.936434
+  type: 'test'
+  ...
+# Subtest: a SendCaravan Duplicate is recorded as failed with sent: null: followed by the earlier transaction's signature, held while unknown
+ok 3 - a SendCaravan Duplicate is recorded as failed with sent: null: followed by the earlier transaction's signature, held while unknown
+  ---
+  duration_ms: 0.370451
+  type: 'test'
+  ...
+# Subtest: a token revoked or replaced while its request waited in the lane: that request sends nothing (BadCapability)
+ok 4 - a token revoked or replaced while its request waited in the lane: that request sends nothing (BadCapability)
+  ---
+  duration_ms: 7.03991
+  type: 'test'
+  ...
+# Subtest: the general token can be revoked too; a sender's token goes on
+ok 5 - the general token can be revoked too; a sender's token goes on
+  ---
+  duration_ms: 1.748689
+  type: 'test'
+  ...
+# Subtest: after an NFT transfer (the resident's holder changed), a still-valid token sends nothing: refused before anything is built
+ok 6 - after an NFT transfer (the resident's holder changed), a still-valid token sends nothing: refused before anything is built
+  ---
+  duration_ms: 3.715133
+  type: 'test'
+  ...
+# Subtest: fateOf reports the commitment it saw; only finalized decides
+ok 7 - fateOf reports the commitment it saw; only finalized decides
+  ---
+  duration_ms: 2.108077
+  type: 'test'
+  ...
+# Subtest: fateOf separates "could not ask" from "cannot prove"
+ok 8 - fateOf separates "could not ask" from "cannot prove"
+  ---
+  duration_ms: 0.556222
+  type: 'test'
+  ...
+# Subtest: actionFateView: one state per record and answer
+ok 9 - actionFateView: one state per record and answer
+  ---
+  duration_ms: 0.472025
+  type: 'test'
+  ...
+# Subtest: AgentGateway\#actionFate: the latest kept entry by key, asked by the reconcile rule
+ok 10 - AgentGateway\#actionFate: the latest kept entry by key, asked by the reconcile rule
+  ---
+  duration_ms: 0.720905
+  type: 'test'
+  ...
+# Subtest: a token per sender: issued, used and revoked apart; the general token as before
+ok 11 - a token per sender: issued, used and revoked apart; the general token as before
+  ---
+  duration_ms: 7.285887
+  type: 'test'
+  ...
+# Subtest: restart: a sender's token still works after the ledger is read back; a record from before A1 still works
+ok 12 - restart: a sender's token still works after the ledger is read back; a record from before A1 still works
+  ---
+  duration_ms: 1.048287
+  type: 'test'
+  ...
+# Subtest: 0002b rebuilds no action that carries the Citizen's sequence number
+ok 13 - 0002b rebuilds no action that carries the Citizen's sequence number
+  ---
+  duration_ms: 0.111729
+  type: 'test'
+  ...
+1..13
+# tests 13
+# suites 0
+# pass 13
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 824.09705
+exit=0
