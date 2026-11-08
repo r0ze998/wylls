@@ -9,7 +9,7 @@
 | chapter-sabotage | 480 / n0 / — | 480 / n0 / 未達 | 480 / n0 / 未達 | stage_use, seized, seized |
 | coalition-exclusion | 480 / n0 / — | 480 / n0 / 達成@85 | 109＊ / n0 / 達成@85 | achieved |
 | coop-north-fort | 480 / n0 / — | 480 / n0 / 達成@120 | 144＊ / n0 / 達成@120 | achieved |
-| coop-with-tower | 480 / n0 / — | 480 / n0 / 達成@120 | 144＊ / n0 / 達成@120 | achieved |
+| coop-with-sighting | 480 / n0 / — | 480 / n0 / 達成@120 | 144＊ / n0 / 達成@120 | achieved |
 | double-spend | 480 / n0 / — | 480 / n0 / 達成@120 | 144＊ / n0 / 達成@120 | achieved |
 | late-arrival | 480 / n0 / — | 480 / n0 / 未達 | 480 / n0 / 未達 | stage_inputs, late, stage_completion, stage_use, after_close, after_close |
 | roles-midway | 480 / n0 / — | 480 / n0 / 未達 | 480 / n0 / 未達 | stage_use |

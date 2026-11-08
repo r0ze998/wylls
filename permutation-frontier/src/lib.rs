@@ -193,7 +193,7 @@ pub fn dispatch(
     {
         return nft_registration::dispatch(program_id, accounts, data);
     }
-    // Experimental wide land (provisional band 0xD6–0xDA): a default build
+    // Experimental wide land (provisional band 0xD6–0xDF): a default build
     // never reaches this arm and refuses the bytes as unknown tags below.
     #[cfg(feature = "wide-world-experimental")]
     if data

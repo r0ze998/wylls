@@ -325,7 +325,15 @@ pub fn lead_host(cands: &[(u8, u64, u32)]) -> Option<u8> {
     lead_pos(cands).map(|i| cands[i].0)
 }
 
-fn lead_pos(cands: &[(u8, u64, u32)]) -> Option<usize> {
+/// [`lead_host`] over any totally ordered host identity (the one rule:
+/// most troops, then the **lowest identity** under `I`'s order). For `u64`
+/// this is `lead_host`, comparison for comparison; a wide caller passes its
+/// full host reference, never a local index or a hash of it.
+pub fn lead_host_with<I: Ord>(cands: &[(u8, I, u32)]) -> Option<u8> {
+    lead_pos(cands).map(|i| cands[i].0)
+}
+
+fn lead_pos<I: Ord>(cands: &[(u8, I, u32)]) -> Option<usize> {
     let mut best: Option<usize> = None;
     for (i, c) in cands.iter().enumerate() {
         match best {
@@ -352,6 +360,21 @@ pub fn advance(
     r: KeepReport,
     prm: &KeepParams,
     capturers: &mut [(u8, u64, u32)],
+) -> Result<KeepEvent, KeepError> {
+    advance_with(k, b, r, prm, capturers)
+}
+
+/// [`advance`] over any totally ordered host identity: the same steps, the
+/// same arithmetic, the donor chosen by [`lead_host_with`] (most troops,
+/// then the lowest identity under `I`'s order). [`advance`] is this at
+/// `I = u64`; a wide caller passes its full host reference so the
+/// equal-troops tiebreak never reads a local index or a roster alias.
+pub fn advance_with<I: Ord>(
+    k: &mut Keep,
+    b: u32,
+    r: KeepReport,
+    prm: &KeepParams,
+    capturers: &mut [(u8, I, u32)],
 ) -> Result<KeepEvent, KeepError> {
     if k.troops > MAX_KEEP_TROOPS {
         return Err(KeepError::TroopsAboveCap);
@@ -412,12 +435,12 @@ fn clear(k: &mut Keep) {
     k.paused = false;
 }
 
-fn take(
+fn take<I: Ord>(
     k: &mut Keep,
     b: u32,
     f: u8,
     prm: &KeepParams,
-    capturers: &mut [(u8, u64, u32)],
+    capturers: &mut [(u8, I, u32)],
 ) -> Result<KeepEvent, KeepError> {
     if capturers.iter().any(|c| c.2 > MAX_HOST_TROOPS) {
         return Err(KeepError::TroopsAboveCap);
@@ -565,5 +588,85 @@ mod tests {
         assert_eq!(lead_host(&[]), None);
         assert_eq!(lead_host(&[(3, 9, 5), (1, 7, 5), (2, 8, 4)]), Some(1));
         assert_eq!(lead_host(&[(3, 9, 6), (1, 7, 5)]), Some(3));
+    }
+
+    /// The generic donor rule is the `u64` rule under the identity's own
+    /// order: a wrapper that reverses the order picks the other host at
+    /// equal troops, and the take's arithmetic is the same whatever `I`.
+    #[test]
+    fn advance_with_orders_the_donor_by_the_identity() {
+        #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+        struct Rev(u64);
+        impl PartialOrd for Rev {
+            fn partial_cmp(&self, o: &Rev) -> Option<core::cmp::Ordering> {
+                Some(self.cmp(o))
+            }
+        }
+        impl Ord for Rev {
+            fn cmp(&self, o: &Rev) -> core::cmp::Ordering {
+                o.0.cmp(&self.0)
+            }
+        }
+        let prm = KeepParams::DEFAULT;
+        let k0 = Keep {
+            tile: 20,
+            holder: 0,
+            contender: 1,
+            progress: prm.bells - 1,
+            required: prm.bells,
+            heartland_safe: false,
+            paused: false,
+            changes: 0,
+            troops: 100,
+            since_bell: 0,
+            consolidated_until_bell: 0,
+            contest_from_bell: 0,
+            gen: 0,
+            last_taken_from: NO_FACTION,
+        };
+        let r = KeepReport {
+            holders: 1 << 1,
+            defender_present: false,
+        };
+        // Equal troops: `u64` takes the lowest id (entry 7); the reversed
+        // order takes the highest (entry 3).
+        let (mut ka, mut ca) = (k0, [(3u8, 9u64, 5_000_000u32), (7, 4, 5_000_000)]);
+        let ev_a = advance(&mut ka, 500, r, &prm, &mut ca).unwrap();
+        let (mut kb, mut cb) = (k0, [(3u8, Rev(9), 5_000_000u32), (7, Rev(4), 5_000_000)]);
+        let ev_b = advance_with(&mut kb, 500, r, &prm, &mut cb).unwrap();
+        assert!(
+            matches!(ev_a, KeepEvent::Taken { donor: 7, .. }),
+            "{ev_a:?}"
+        );
+        assert!(
+            matches!(ev_b, KeepEvent::Taken { donor: 3, .. }),
+            "{ev_b:?}"
+        );
+        // Same keep afterwards (the donor's identity is not written to it),
+        // the same split of the donor's troops.
+        assert_eq!(ka, kb);
+        assert_eq!(ca[1].2, cb[0].2);
+        assert_eq!(ca[0].2, 5_000_000);
+        assert_eq!(cb[1].2, 5_000_000);
+        // Byte arrays order as the full-identity references do: the
+        // lexicographically lowest wins at equal troops.
+        let mut cc = [
+            (1u8, [0x10u8, 0, 0], 7_000u32),
+            (2, [0x0f, 0xff, 0xff], 7_000),
+        ];
+        let mut kc = k0;
+        let ev_c = advance_with(&mut kc, 500, r, &prm, &mut cc).unwrap();
+        assert!(
+            matches!(ev_c, KeepEvent::Taken { donor: 2, .. }),
+            "{ev_c:?}"
+        );
+        assert_eq!(
+            lead_host_with(&[(1u8, [0x10u8], 7u32), (2, [0x0f], 7)]),
+            Some(2)
+        );
+        assert_eq!(lead_host_with::<u64>(&[]), None);
+        // The `u64` instantiation is `lead_host`.
+        let c = [(3u8, 9u64, 5u32), (1, 7, 5), (2, 8, 4)];
+        assert_eq!(lead_host_with(&c), lead_host(&c));
     }
 }

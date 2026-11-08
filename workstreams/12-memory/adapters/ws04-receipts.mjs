@@ -89,14 +89,15 @@ export function receiptToFacts(r, ctx) {
   const P = ctx.partition;
   const caravan = { partition: P, sender: key.ownerHex, seq: key.seq };
   const src = kind => ({ chain: P, sig: `${kind}|${r.subject}`, ix: 0 });
-  const base = { bell, created_bell: ctx.observedBell, visibility: { scope: 'public' } };
+  // ctx.basis / ctx.aliasBasis: the caller's statement of where the store / the identity pairing were read (fact basis)
+  const base = { bell, created_bell: ctx.observedBell, visibility: { scope: 'public' }, ...(ctx.basis ? { basis: ctx.basis } : {}) };
   const facts = [];
   const alias = ctx.resolveOwner?.(key.ownerHex) ?? null;
   if (alias && typeof alias.principal === 'string' && typeof alias.source === 'string') {
     // The mapping does not depend on this receipt: in the continuous world the citizen address (hence the tag) is
     // derived from the world account and the wallet, fixed from the world's start. Its bell is therefore 0, not the
     // receipt's: otherwise every receipt would restate the same mapping with another body (a false collision).
-    facts.push({ kind: 'identity_alias', bell: 0, created_bell: ctx.observedBell, visibility: { scope: 'public' },
+    facts.push({ kind: 'identity_alias', bell: 0, created_bell: ctx.observedBell, visibility: { scope: 'public' }, ...(ctx.aliasBasis ? { basis: ctx.aliasBasis } : {}),
       source: { chain: 'resolver', sig: `${P}|${key.ownerHex}|${alias.principal}`, ix: 0 },
       data: { partition: P, tag: key.ownerHex, principal: alias.principal } });
   }

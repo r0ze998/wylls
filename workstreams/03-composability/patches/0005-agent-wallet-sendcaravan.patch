@@ -1,0 +1,206 @@
+diff --git a/permutation-gateway/src/frontier/agent/contract.mjs b/permutation-gateway/src/frontier/agent/contract.mjs
+index 95325cdc..fdf34406 100644
+--- a/permutation-gateway/src/frontier/agent/contract.mjs
++++ b/permutation-gateway/src/frontier/agent/contract.mjs
+@@ -32,6 +32,9 @@ export const ACTION_GROUPS = Object.freeze({
+   explore: Object.freeze(['Explore']),
+   military: Object.freeze(['Depart', 'Dissolve']),
+   vigil: Object.freeze(['SetVigil']),
++  // S1 (workstream 03 patch 0005): a caravan from the agent's village to another of the owner's places. The
++  // session key cannot send to another player (caravan.rs WalletRequired), so this never moves goods away.
++  transport: Object.freeze(['SendCaravan']),
+ });
+ export const AGENT_ACTIONS = Object.freeze(Object.values(ACTION_GROUPS).flat());
+ 
+@@ -113,8 +116,35 @@ export function parseActionRequest(r) {
+   if (!Array.isArray(a.holding) || a.holding.length !== 3 || !a.holding.every(Number.isInteger)) bad('action.holding must be [p, q, site]');
+   const fields = a.fields ?? {};
+   if (typeof fields !== 'object' || Array.isArray(fields)) bad('action.fields must be an object');
++  const route = a.route === undefined ? undefined : parseRoute(a.route, bad);
++  if (a.name === 'SendCaravan' && !route) bad('SendCaravan needs action.route {dst, provinces}');
+   return { agentId: r.agentId, source: r.source, idempotencyKey: r.idempotencyKey, policyVersion: r.policyVersion, modeEpoch: r.modeEpoch, reason: r.reason,
+-    action: { name: a.name, holding: [...a.holding], fields } };
++    action: { name: a.name, holding: [...a.holding], fields, ...(route ? { route } : {}) } };
++}
++
++/**
++ * A SendCaravan's accounts that its data does not name (workstream 03 patch
++ * 0005): the destination place `{kind: 'holding', p, q, site}` or
++ * `{kind: 'vault', p, q, tile}`, the path's Provinces `[{p, q}]` (1–4, the
++ * origin's first) and optionally the source: one of the owner's vaults
++ * `{kind: 'vault', p, q, tile}` (default: the agent's village). The program
++ * checks that the source is the owner's (NotOwner) and that a session key
++ * sends only between the owner's own places (WalletRequired).
++ */
++function parseRoute(x, bad) {
++  const int = v => Number.isInteger(v) && Math.abs(v) < 1 << 15;
++  if (!x || typeof x !== 'object') bad('action.route must be an object');
++  const place = (d, what) => {
++    if (!d || (d.kind !== 'holding' && d.kind !== 'vault') || !int(d.p) || !int(d.q)) bad(`action.route.${what} must be {kind: holding|vault, p, q, site|tile}`);
++    const at = d.kind === 'vault' ? d.tile : d.site;
++    if (!Number.isInteger(at) || at < 0 || at > 255) bad(`action.route.${what} needs its site (holding) or tile (vault)`);
++    return d.kind === 'vault' ? { kind: 'vault', p: d.p, q: d.q, tile: at } : { kind: 'holding', p: d.p, q: d.q, site: at };
++  };
++  const dst = place(x.dst, 'dst');
++  const src = x.src === undefined || x.src === null ? null : place(x.src, 'src');
++  if (src && src.kind !== 'vault') bad('action.route.src is one of the owner\'s vaults (the village is the default source)');
++  if (!Array.isArray(x.provinces) || x.provinces.length < 1 || x.provinces.length > 4 || !x.provinces.every(v => v && int(v.p) && int(v.q))) bad('action.route.provinces must be 1–4 {p, q}');
++  return { ...(src ? { src } : {}), dst, provinces: x.provinces.map(v => ({ p: v.p, q: v.q })) };
+ }
+ 
+ /**
+diff --git a/permutation-gateway/src/frontier/agent/gateway.mjs b/permutation-gateway/src/frontier/agent/gateway.mjs
+index 03e05945..03b72aae 100644
+--- a/permutation-gateway/src/frontier/agent/gateway.mjs
++++ b/permutation-gateway/src/frontier/agent/gateway.mjs
+@@ -28,6 +28,11 @@ import { createHash, randomBytes, randomUUID, timingSafeEqual } from 'node:crypt
+ import { encode as base58 } from '../../../client/src/base58.mjs';
+ import { fromBase64 } from '../../../client/src/bytes.mjs';
+ import { ixOf } from '../../../client/src/frontier/codec.mjs';
++import { citizenTag, seed } from '../../../client/src/frontier/addresses.mjs';
++import { LAYOUTS as LAYOUTS_V2 } from '../../../client/src/frontier/abi-v2-layouts.mjs';
++
++/** The S1 seed tags (the v2 layout table): Vault and Caravan for SendCaravan (workstream 03 patch 0005). */
++const S1_TAG = Object.fromEntries(LAYOUTS_V2.accounts.filter(a => ['Vault', 'Caravan'].includes(a.kind) && a.seed_tag).map(a => [a.kind, a.seed_tag]));
+ import { isV2, profileForSeason } from '../../../client/src/frontier/profile.mjs';
+ import { classify, shapeMessage } from '../../../client/src/frontier/shapes.mjs';
+ import { parseTransaction, wireTransaction } from '../../../client/src/solana-tx.mjs';
+@@ -64,7 +69,7 @@ const big = v => BigInt(v ?? 0);
+  * season's addresses (the mirror of the web client's fplay.accountsFor for
+  * the delegable actions; the fee payer is added by shapeMessage).
+  */
+-export function accountsFor(name, { addresses: A, actor, owner, holding: [p, q, site], fields = {}, profile = 1 }) {
++export function accountsFor(name, { addresses: A, actor, owner, holding: [p, q, site], fields = {}, route = null, profile = 1 }) {
+   // The conquest layouts (profile 2, MC) and S1 (profile 3, every MC rule kept) name the same accounts.
+   const cq = isV2(profile);
+   const base = { actor, season: A.season, citizen: A.citizen(owner) };
+@@ -76,6 +81,21 @@ export function accountsFor(name, { addresses: A, actor, owner, holding: [p, q,
+     case 'Build': return { ...base, holding, ...(cq || Number(fields.item) === ITEM_WALLS ? { province } : {}) };
+     case 'Muster': case 'Garrison': return { ...base, holding, province };
+     case 'Dissolve': case 'Explore': case 'Depart': return { ...base, holding, province, ...(cq ? { holding_province: province } : {}) };
++    case 'SendCaravan': {
++      // Workstream 03 patch 0005 (S1 only): from the agent's village to `route.dst`; the program re-checks the
++      // owner, the places, the path and the session rule (a send to another player needs the wallet).
++      if (profile < 3) throw new AgentError(ERR.ACTION_NOT_ALLOWED, 'SendCaravan exists in S1 seasons only', 403);
++      if (!route) throw new AgentError(ERR.BAD_REQUEST, 'SendCaravan needs action.route');
++      const d = route.dst;
++      const named = { dst_kind: d.kind === 'vault' ? 2 : 1, dst_p: d.p, dst_q: d.q, dst_at: d.kind === 'vault' ? d.tile : d.site };
++      for (const [k, v] of Object.entries(named)) if (Number(fields[k]) !== v) throw new AgentError(ERR.BAD_REQUEST, `SendCaravan: ${k} does not match action.route.dst`);
++      const from = route.src ?? { p, q };
++      if (route.provinces[0].p !== from.p || route.provinces[0].q !== from.q) throw new AgentError(ERR.BAD_REQUEST, 'SendCaravan: the first path Province is the source\'s');
++      const le = (v, n) => Array.from({ length: n }, (_, i) => Number((BigInt.asUintN(8 * n, BigInt(v)) >> BigInt(8 * i)) & 0xffn));
++      const place = x => (x.kind === 'vault' ? A.of(seed(S1_TAG.Vault, [...le(x.p, 4), ...le(x.q, 4), x.tile])) : A.holding(x.p, x.q, x.site));
++      const caravan = A.of(seed(S1_TAG.Caravan, [...le(citizenTag(base.citizen), 8), ...le(fields.seq, 4)]));
++      return { ...base, src: route.src ? place(route.src) : holding, dst: place(d), caravan, path_province: route.provinces.map(v => A.province(v.p, v.q)) };
++    }
+     default: throw new AgentError(ERR.ACTION_NOT_ALLOWED, `${name} is not an action an agent sends`, 403);
+   }
+ }
+@@ -482,7 +502,7 @@ export class AgentGateway {
+     if (!live) throw new AgentError(ERR.SESSION_NOT_DELEGATED, 'the agent\'s key is not the Citizen\'s unexpired session key (the owner sets it with SetSession)', 409, { agentKey: rec.agentKey, sessionExpiry: String(citizen.SESSION_EXPIRY) });
+     const profile = profileForSeason(season);
+     const fields = normaliseFields(r.action.name, r.action.fields, profile);
+-    const accounts = accountsFor(r.action.name, { addresses: ctx.addresses, actor: rec.agentKey, owner: rec.owner, holding: r.action.holding, fields, profile });
++    const accounts = accountsFor(r.action.name, { addresses: ctx.addresses, actor: rec.agentKey, owner: rec.owner, holding: r.action.holding, fields, route: r.action.route ?? null, profile });
+     const feePayer = ctx.pool.draw().publicKey.toBase58();
+     // Read before the blockhash: at or below any slot this transaction can land in (fate.mjs history coverage).
+     const slotFloor = await slotFloorOf(ctx.connection);
+diff --git a/permutation-gateway/test/agent-wallet-sendcaravan.test.mjs b/permutation-gateway/test/agent-wallet-sendcaravan.test.mjs
+new file mode 100644
+index 00000000..5511c81a
+--- /dev/null
++++ b/permutation-gateway/test/agent-wallet-sendcaravan.test.mjs
+@@ -0,0 +1,93 @@
++// Workstream 03 patch 0005: SendCaravan as an agent action (the `transport` group). The agent sends a caravan from
++// its own village to another of the owner's places through the same gateway checks as every other action; the
++// source is always the village, the destination and the path Provinces come in `action.route`, and the session
++// rule of the program (a send to another player needs the wallet) still holds on chain. Scripted chain, no network.
++import { test } from 'node:test';
++import assert from 'node:assert/strict';
++import { Keypair } from '@solana/web3.js';
++import { PRESETS as V2 } from '../client/src/frontier/abi-v2-presets.mjs';
++import { accountsFor as pageAccountsFor, placeData, cargoBytes } from '../../permutation-server/web/frontier/fplay.mjs';
++import { seasonAddresses } from '../../permutation-server/web/frontier/faddr.mjs';
++import { accountsFor } from '../src/frontier/agent/gateway.mjs';
++import { parseActionRequest } from '../src/frontier/agent/contract.mjs';
++import { normalisePolicy } from '../src/frontier/agent/policy.mjs';
++import { A, PROGRAM, SEASON_ID, VILLAGE, call, createAgent, delegate, ownerCommand, policy, relay, sound } from './agent-wallet-fixtures.mjs';
++
++const hexBytes = h => Uint8Array.from(h.match(/../g).map(x => parseInt(x, 16)));
++const S1 = { RULESET_HASH: hexBytes(V2.ruleset_hash_v3), LAYOUT_VERSION: 2, PROGRAM_VERSION: 4 };
++const [P, Q, SITE] = VILLAGE;
++const VAULT = { kind: 'vault', p: P, q: Q, tile: 20 };
++const route = { dst: VAULT, provinces: [{ p: P, q: Q }] };
++const fields = (seq = 0, dst = VAULT) => ({ seq, ...placeData({ ...dst, gen: 1 }), steps: 3, path: Array.from(new Uint8Array(12)), cargo: Array.from(cargoBytes([0, 100, 0, 0, 0, 0, 0, 0])), fee: '50000' });
++
++test('patch 0005: the transport group names SendCaravan; a policy may allow it', () => {
++  assert.deepEqual(normalisePolicy(policy(['transport'])).allowed, ['SendCaravan']);
++});
++
++test('patch 0005: SendCaravan\'s accounts are the page\'s (fplay.accountsFor), key for key', () => {
++  const owner = Keypair.generate().publicKey.toBase58();
++  const actor = Keypair.generate().publicKey.toBase58();
++  const f = fields(3);
++  const mine = accountsFor('SendCaravan', { addresses: A, actor, owner, holding: VILLAGE, fields: f, route, profile: 3 });
++  const W = seasonAddresses(PROGRAM, SEASON_ID);
++  const page = pageAccountsFor('SendCaravan', { addresses: W, wallet: owner, actor, profile: 3,
++    seq: 3, src: { kind: 'holding', p: P, q: Q, site: SITE, gen: 1 }, dst: { ...VAULT, gen: 1 }, provinces: route.provinces });
++  for (const k of ['actor', 'season', 'citizen', 'src', 'dst', 'caravan']) assert.equal(mine[k], page[k], k);
++  assert.deepEqual([mine.path_province].flat(), [page.path_province].flat());
++});
++
++test('patch 0005: the route is checked against the data and the village', () => {
++  const ok = { addresses: A, actor: 'x', owner: Keypair.generate().publicKey.toBase58(), holding: VILLAGE, fields: fields(), route, profile: 3 };
++  assert.throws(() => accountsFor('SendCaravan', { ...ok, profile: 2 }), /S1 seasons only/);
++  assert.throws(() => accountsFor('SendCaravan', { ...ok, route: null }), /needs action.route/);
++  assert.throws(() => accountsFor('SendCaravan', { ...ok, fields: { ...fields(), dst_at: 21 } }), /dst_at does not match/);
++  assert.throws(() => accountsFor('SendCaravan', { ...ok, route: { ...route, provinces: [{ p: P + 1, q: Q }] } }), /first path Province/);
++  // From one of the owner's vaults to the village: the source is the vault's account, its Province first.
++  const home = { kind: 'holding', p: P, q: Q, site: SITE };
++  const back = accountsFor('SendCaravan', { ...ok, fields: fields(0, home), route: { src: VAULT, dst: home, provinces: [{ p: P, q: Q }] } });
++  assert.equal(back.src, accountsFor('SendCaravan', ok).dst, 'the vault');
++  assert.equal(back.dst, A.holding(P, Q, SITE));
++  const req = a => parseActionRequest({ agentId: 'a', source: 'mcp', idempotencyKey: 'k', policyVersion: 1, action: a });
++  assert.throws(() => req({ name: 'SendCaravan', holding: VILLAGE, fields: {} }), /needs action.route/);
++  assert.throws(() => req({ name: 'SendCaravan', holding: VILLAGE, fields: {}, route: { dst: VAULT, provinces: [] } }), /1–4/);
++  assert.deepEqual(req({ name: 'SendCaravan', holding: VILLAGE, fields: {}, route }).action.route, route);
++  assert.throws(() => req({ name: 'SendCaravan', holding: VILLAGE, fields: {}, route: { ...route, src: { kind: 'holding', p: 1, q: 1, site: 1 } } }), /owner's vaults/);
++});
++
++async function ready(r, allowed = ['transport']) {
++  const owner = Keypair.generate();
++  const o = owner.publicKey.toBase58();
++  const made = await createAgent(r, owner, { policy: policy(allowed) });
++  delegate(r, o, made.agentKey);
++  await call(r.public, 'POST', '/f/agent/command', { body: ownerCommand(owner, 'mode', { agentId: made.agentId, params: { mode: 'auto' } }), ip: '127.0.0.1' });
++  return { owner, o, ...made };
++}
++
++const act = (r, a, { key = Keypair.generate().publicKey.toBase58().slice(0, 20), f = fields(), rt = route } = {}) =>
++  call(r.public, 'POST', '/f/agent/action', { body: { capability: a.capability, request: { agentId: a.agentId, source: 'mcp', idempotencyKey: key, policyVersion: 1, action: { name: 'SendCaravan', holding: VILLAGE, fields: f, route: rt } } }, ip: '127.0.0.1' });
++
++test('patch 0005: an allowed agent sends SendCaravan from its village; the relay\'s own shape check passes; a retry sends once', async () => {
++  const r = relay({ season: S1 });
++  const a = await ready(r);
++  const res = await act(r, a, { key: 'caravan-1' });
++  assert.equal(res.json.status, 'sent', JSON.stringify(res.json));
++  assert.equal(r.chain.sent.length, 1);
++  const tx = r.chain.sent[0];
++  const ix = tx.instructions.at(-1);
++  assert.equal(ix.data[0], 0xb1, 'SendCaravan');
++  assert.equal(ix.keys[0].pubkey, a.agentKey, 'the agent\'s key acts');
++  assert.equal(ix.keys[4].pubkey, A.holding(P, Q, SITE), 'from the village');
++  const again = await act(r, a, { key: 'caravan-1' });
++  assert.equal(again.json.replayed, true);
++  assert.equal(r.chain.sent.length, 1, 'sent once');
++  sound(r);
++});
++
++test('patch 0005: without the transport group, SendCaravan is ActionNotAllowed and nothing is sent', async () => {
++  const r = relay({ season: S1 });
++  const a = await ready(r, ['economy']);
++  const res = await act(r, a);
++  assert.equal(res.json.status, 'refused');
++  assert.equal(res.json.error.code, 'ActionNotAllowed');
++  assert.equal(r.chain.sent.length, 0);
++});

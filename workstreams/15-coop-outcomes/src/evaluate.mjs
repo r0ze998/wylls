@@ -114,6 +114,9 @@ export function evaluate(ruleset, input, { window = null, asOf = null, world = n
     },
     records: { conflicts: norm.notes.conflicts, rejected: norm.notes.rejected, gaps: norm.notes.gaps, refused: W.outcomes.filter(o => !o.ok).map(o => ({ id: o.id, kind: o.kind, code: o.code })) },
     window: win,
+    // Marks a model was asked to make (⑭'s period.boundary) that fall in this window: reported only.
+    // They are not evaluation windows or war periods; the window above comes from the input.
+    ...(W.modelBoundaries.length ? { modelBoundaries: { note: 'model marks, not evaluation windows or war periods: nothing closes at them', inWindow: W.modelBoundaries.filter(b => b.at >= w.opensAt && b.at < V.closeAt).map(b => ({ index: b.index, at: b.at })) } } : {}),
     world: {
       ends: false,
       note: '評価期間を閉じても世界は終わらない。荷・建物・移動中の隊商・未完成の計画・記録は次の評価期間に引き継がれる',
@@ -317,7 +320,11 @@ function optionsOf(W, ruleset, joint, national, personal, at) {
       const foreignBuilt = [...W.structures.values()].filter(s => s.nation !== n && s.seizedAt === null);
       const pg = id => ruleset.personal.find(g => g.kind === id);
       if (pg('cross_user') && foreignBuilt.length && !personal.some(p => p.goal === pg('cross_user').id && p.subject === a.id && p.status === 'achieved')) o.push({ kind: 'use-foreign-structure', category: 'personal', goal: pg('cross_user').id, structures: foreignBuilt.map(s => s.id).sort() });
-      if (pg('scout') && W.towerInput) o.push({ kind: 'report-sighting', category: 'personal', goal: pg('scout').id });
+      if (pg('scout') && W.sightings.size) o.push({ kind: 'report-sighting', category: 'personal', goal: pg('scout').id });
+      // ⑭'s notice board (model facts): answer another nation's open posted request. The option is real
+      // play in the model; reaching the goal on model facts alone stays model_only.
+      const openPosts = W.board.filter(b => b.posted && !b.fulfilled && b.posted.nation !== n && b.posted.actor !== a.id);
+      if (pg('board_helper') && openPosts.length) o.push({ kind: 'answer-board-request', category: 'personal', goal: pg('board_helper').id, requests: openPosts.map(b => b.req).sort(), basis: openPosts.some(b => b.posted.verified === 'model') ? 'model' : 'record' });
       o.push({ kind: 'move-nation', category: 'move', goal: null });
     }
     const independent = o.filter(x => x.category !== 'wait' && x.category !== 'follow');

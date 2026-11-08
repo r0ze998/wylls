@@ -1,0 +1,69 @@
+diff --git a/frontier-node/crates/verify/src/checks/v0_coverage.rs b/frontier-node/crates/verify/src/checks/v0_coverage.rs
+index 9a1ecc152c15c9f822030ece3a61391f4824328d..ff0dc7e88ae9b685102e7d522745d26b495e30c7 100644
+--- a/frontier-node/crates/verify/src/checks/v0_coverage.rs
++++ b/frontier-node/crates/verify/src/checks/v0_coverage.rs
+@@ -27,7 +27,8 @@
+ //!   FAIL names the band: a known program refuses it. Under a program
+ //!   version this verifier does not know, an allocated tag is
+ //!   `UnverifiedInstruction` instead (that program may run it, e.g. ②'s
+-//!   Grant), never a PASS and not a forgery claim.
++//!   Grant), never a PASS and not a forgery claim; likewise when the
++//!   archive does not show the program version at all.
+ //!
+ //! Failed transactions changed nothing and are not judged here.
+ 
+@@ -109,19 +110,25 @@ pub fn judge_outside_v2(
+             format!("tag 0x{tag:02x}, not in ABI v2, succeeded"),
+         ));
+     };
++    // Only a program version this verifier knows is evidence that the tag
++    // was refused. Without CreateSeason in the archive (`None`: a history
++    // that starts later) nothing says which program ran, so an allocated
++    // tag is not a forgery claim (⑪ r9, with ⑲'s history rule).
+     match pv {
+-        Some(v) if !known_version(v) => Some((
++        Some(v) if known_version(v) => Some((
++            Fail,
++            UNKNOWN_INSTRUCTION,
++            format!("tag 0x{tag:02x} is allocated to {band}, and program version {v} does not run it, yet it succeeded"),
++        )),
++        Some(v) => Some((
+             Unverifiable,
+             UNVERIFIED_INSTRUCTION,
+             format!("tag 0x{tag:02x} is allocated to {band}; program version {v} may run it, and no check of this verifier models it"),
+         )),
+-        _ => Some((
+-            Fail,
+-            UNKNOWN_INSTRUCTION,
+-            format!(
+-                "tag 0x{tag:02x} is allocated to {band}, and program version {} does not run it, yet it succeeded",
+-                pv.map_or("(unknown)".into(), |v| v.to_string())
+-            ),
++        None => Some((
++            Unverifiable,
++            UNVERIFIED_INSTRUCTION,
++            format!("tag 0x{tag:02x} is allocated to {band}; the archive does not show the Season's program version, which may run it"),
+         )),
+     }
+ }
+diff --git a/frontier-node/crates/verify/tests/new_bands.rs b/frontier-node/crates/verify/tests/new_bands.rs
+index 57af40f2eef5e59f06189bd2caabe9bdea94ca28..4ade7336dedc7861f5e76063d3ab04f33e7d53c2 100644
+--- a/frontier-node/crates/verify/tests/new_bands.rs
++++ b/frontier-node/crates/verify/tests/new_bands.rs
+@@ -359,10 +359,12 @@ fn tags_outside_abi_v2_are_told_apart() {
+             assert_eq!((r.0, r.1), (Fail, "UnknownInstruction"));
+             assert!(r.2.contains("workstream 2 "), "{}", r.2);
+         }
+-        assert_eq!(
+-            j(tag, &[tag], unknown),
+-            Some((Unverifiable, "UnverifiedInstruction"))
+-        );
++        for pv in [unknown, None] {
++            assert_eq!(
++                j(tag, &[tag], pv),
++                Some((Unverifiable, "UnverifiedInstruction"))
++            );
++        }
+     }
+     // Unallocated tags fail under every version.
+     for tag in [0xD6, 0xEE, 0xFE] {

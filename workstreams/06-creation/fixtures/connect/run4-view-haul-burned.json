@@ -1,0 +1,363 @@
+{
+  "attempts": [
+    {
+      "fee": 5000,
+      "request_key": "cv:77:0",
+      "sig": "b9315e828ab2d4bdc45e6c4442d984e594c47f1f",
+      "status": "landed",
+      "step": "ship",
+      "valid_until": 12
+    }
+  ],
+  "cancel_phase": null,
+  "cancel_requested": false,
+  "cargo_only": true,
+  "detail": {
+    "cancel": null,
+    "fac_attempts": 0,
+    "outcome": {
+      "cargo_logged": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "delivered": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "effects": [
+        "caravan_sent cv:77:0",
+        "caravan_raided cv:77:0",
+        "caravan_settled cv:77:0"
+      ],
+      "note": "burned in a raid (CARAVAN_RAIDED BURN for this caravan)",
+      "verification": "KnownZero"
+    },
+    "pending": null,
+    "port_errors": 0,
+    "raid": {
+      "choice": 1,
+      "key": {
+        "owner": 119,
+        "seq": 0
+      },
+      "raider": 85,
+      "slot": 4,
+      "taken": [
+        0,
+        4,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    },
+    "reason": "LostInTransit",
+    "sent_cargo": [
+      0,
+      4,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    "settle": {
+      "cargo": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "credited": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "dst": {
+        "at": 5,
+        "gen": 1,
+        "kind": 2,
+        "p": 1,
+        "q": 0
+      },
+      "key": {
+        "owner": 119,
+        "seq": 0
+      },
+      "outcome": 0,
+      "slot": 22
+    },
+    "ship_attempts": 1,
+    "ship_seq": 0,
+    "unresolved": 0
+  },
+  "effects": [
+    "caravan_sent",
+    "caravan_raided",
+    "caravan_settled"
+  ],
+  "fees": {
+    "charged": 5000,
+    "released": 0,
+    "reserved": 0,
+    "unconfirmed": 0
+  },
+  "held_reason": null,
+  "in_flight": false,
+  "next_check": 23,
+  "outcome": {
+    "cargo_logged": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    "delivered": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    "effects": [
+      "caravan_sent cv:77:0",
+      "caravan_raided cv:77:0",
+      "caravan_settled cv:77:0"
+    ],
+    "note": "burned in a raid (CARAVAN_RAIDED BURN for this caravan)",
+    "verification": "KnownZero"
+  },
+  "reason": "LostInTransit",
+  "receipts": [
+    {
+      "body": {
+        "cargo": [
+          0,
+          4,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "content_from": "event:b9315e828ab2d4bdc45e6c4442d984e594c47f1f:0",
+        "seq": 0
+      },
+      "kind": "caravan_sent",
+      "run_id": "ws06:10442184bb06d9953641c47f952500e0ba835d582005544b377d1c8db4fa073b:r1:haul",
+      "slot": 2,
+      "source": "sig:b9315e828ab2d4bdc45e6c4442d984e594c47f1f",
+      "subject": "cv:77:0"
+    },
+    {
+      "body": {
+        "choice": 1,
+        "key": {
+          "owner": 119,
+          "seq": 0
+        },
+        "raider": 85,
+        "slot": 4,
+        "taken": [
+          0,
+          4,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ]
+      },
+      "kind": "caravan_raided",
+      "run_id": "ws06:10442184bb06d9953641c47f952500e0ba835d582005544b377d1c8db4fa073b:r1:haul",
+      "slot": 4,
+      "source": "event:raid:cv:77:0:4",
+      "subject": "cv:77:0"
+    },
+    {
+      "body": {
+        "cargo": [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "credited": [
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0,
+          0
+        ],
+        "dst": {
+          "at": 5,
+          "gen": 1,
+          "kind": 2,
+          "p": 1,
+          "q": 0
+        },
+        "key": {
+          "owner": 119,
+          "seq": 0
+        },
+        "outcome": 0,
+        "slot": 22
+      },
+      "kind": "caravan_settled",
+      "run_id": "ws06:10442184bb06d9953641c47f952500e0ba835d582005544b377d1c8db4fa073b:r1:haul",
+      "slot": 22,
+      "source": "event:settle:cv:77:0",
+      "subject": "cv:77:0"
+    }
+  ],
+  "run_id": "ws06:10442184bb06d9953641c47f952500e0ba835d582005544b377d1c8db4fa073b:r1:haul",
+  "sent": true,
+  "settled": true,
+  "spec": {
+    "budget": {
+      "max_attempts": 3,
+      "max_fee": 200000,
+      "max_port_errors": 5
+    },
+    "deadline_slot": 400,
+    "inbound": null,
+    "inputs": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    "outputs": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    "owner": 119,
+    "rights_units": 0,
+    "run_id": "ws06:10442184bb06d9953641c47f952500e0ba835d582005544b377d1c8db4fa073b:r1:haul",
+    "ship": {
+      "cargo": [
+        0,
+        4,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ],
+      "dst": {
+        "at": 5,
+        "gen": 1,
+        "kind": 2,
+        "p": 1,
+        "q": 0
+      }
+    },
+    "stock": {
+      "at": 1,
+      "gen": 1,
+      "kind": 1,
+      "p": 0,
+      "q": 0
+    }
+  },
+  "spec_digest": "e881249239537cf13cdf4f85e441d25208590b30168aedbe2051c146e215e671",
+  "state": "Failed",
+  "terminal": true,
+  "transitions": [
+    {
+      "executor": "exec-a",
+      "from": "Accepted",
+      "reason": "cargo only: cargo reserved, no facility step",
+      "to": "FacilityConfirmed"
+    },
+    {
+      "executor": "exec-a",
+      "from": "FacilityConfirmed",
+      "reason": "SendCaravan signed, seq 0 pinned",
+      "to": "ShipRequested"
+    },
+    {
+      "executor": "exec-a",
+      "from": "ShipRequested",
+      "reason": "accepted by the execution path",
+      "to": "ShipSubmitted"
+    },
+    {
+      "executor": "exec-a",
+      "from": "ShipSubmitted",
+      "reason": "caravan cv:77:0 is ours (signature and content)",
+      "to": "InTransit"
+    },
+    {
+      "executor": "exec-a",
+      "from": "InTransit",
+      "reason": "raid seen (burn)",
+      "to": "InTransit"
+    },
+    {
+      "executor": "exec-a",
+      "from": "InTransit",
+      "reason": "settlement read",
+      "to": "Arrived"
+    },
+    {
+      "executor": "exec-a",
+      "from": "Arrived",
+      "reason": "burned (raid record)",
+      "to": "Failed"
+    }
+  ],
+  "version": 7,
+  "view_version": "p04-run/0.1"
+}

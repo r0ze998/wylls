@@ -176,14 +176,22 @@ const REFUSED_TEXT = Object.freeze({
  * the banner rule as well (a design, not a rule of the program: claims.mjs, claimsworld.mjs), or an object of its
  * script's options (`{threat: 'auto' | 'pole' | 'border' | 'none', deadline, afterRaise}`); off by default.
  */
-export function createLive({ viewer, stage = 'holding', territory = false, turn = LIVE.TURN_SECS, delay = LIVE.DELAY, landMs = LIVE.LAND_MS, wall = () => Date.now(), seed = LIVE.SEED, neighbours = true, paused = false, stores = null, opening = false, claims = false } = {}) {
+/** (workstream 07) The keyless sample world's fee payer: a 32-byte name made from no key. */
+export const KEYLESS_FEE_PAYER = toBase58(new Uint8Array(32).fill(0x5c));
+
+export function createLive({ viewer, stage = 'holding', territory = false, turn = LIVE.TURN_SECS, delay = LIVE.DELAY, landMs = LIVE.LAND_MS, wall = () => Date.now(), seed = LIVE.SEED, neighbours = true, paused = false, stores = null, opening = false, claims = false , keyless = false} = {}) {
   const K = kernel();
   const turnSecs = Math.max(0.2, Number(turn) || LIVE.TURN_SECS), rate = 600 / turnSecs;
   const T1 = bs(LIVE.TURN + 1);   // the first toll: turn 43 begins
   const START = Math.floor(T1 - Math.min(LIVE.MAX_LEAD, Math.max(1, delay * rate)));
   let t0 = null, base = START, frozen = !!paused;
   const now = () => (frozen || t0 === null ? base : base + ((wall() - t0) / 1000) * rate);
-  const fee = keyFromSeed(LIVE.FEE_SEED);
+  // (workstream 07, with workstream 18's tracing: the relay's fee payer key is made only when a transaction must be
+  // signed — sponsor —, never on start. `keyless` (startServer({keyless: true})): the fee payer is named by a constant
+  // made from no key, and a transaction to sign is refused instead of making one)
+  let feeKey = null;
+  const fee = () => (feeKey ??= keyFromSeed(LIVE.FEE_SEED));
+  const feePayerName = async () => (keyless ? KEYLESS_FEE_PAYER : (await fee()).publicKey);
   let land = stage === 'holding' || stage === 'provisional';
   let viewerSession = viewer?.session;
   let JOINED = null;
@@ -900,7 +908,8 @@ export function createLive({ viewer, stage = 'holding', territory = false, turn 
   const answer = r => ({ status: 200, body: r });
   /** POST /f/relay: the checks of the real relay that need no chain, then the instruction as the program runs it. */
   async function sponsor(body) {
-    const fk = await fee;
+    if (keyless) return answer({ ok: false, code: 'RelayRejected', error: 'relay refused: this keyless sample world signs nothing (workstream 07)' });
+    const fk = await fee();
     let tx, shape;
     try {
       const wire = fromBase64(String(body?.tx ?? ''));
@@ -1054,10 +1063,9 @@ export function createLive({ viewer, stage = 'holding', territory = false, turn 
     },
     /** The relay's answer `{status, body}`, or null for what this world does not play (the fixture's old refusal then). */
     async relay(method, path, body) {
-      const fk = await fee;
       settle();
       const quota = { left: st.quota.left, resetsAt: GENESIS_TS + (st.quota.day + 1) * R.DAY };
-      if (method === 'GET' && path === '/gw/f/relay') return answer({ feePayer: fk.publicKey, blockhash: '11111111111111111111111111111111', lastValidBlockHeight: 1000, programId: PROGRAM, quota });
+      if (method === 'GET' && path === '/gw/f/relay') return answer({ feePayer: await feePayerName(), blockhash: '11111111111111111111111111111111', lastValidBlockHeight: 1000, programId: PROGRAM, quota });
       if (method === 'GET' && path === '/gw/f/quota') return answer({ ...quota, lamportsLeft: '400000000' });
       if (proto && method === 'POST' && path === '/gw/f/proto/land') return answer(proto.route(body, Math.floor(now()), orders));
       if (method === 'GET' && path.startsWith('/gw/f/tx/')) {

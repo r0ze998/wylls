@@ -46,6 +46,23 @@ pub const MAX_HOST: u32 = 30_000;
 /// Wall-clock-free pacing: a march is planned to leave this many game
 /// seconds after the decision (the relay, the seal and one slot).
 pub const DEPART_SLACK_SECS: i64 = 60;
+/// Seconds after `T(arrive)`'s round time before an owner sends its reveal
+/// material (⑱; the web's `REVEAL_PUBLISH_MARGIN`).
+pub const REVEAL_PUBLISH_MARGIN_SECS: i64 = 5;
+
+/// Whether an owner may send its reveal material now (⑱, owner decision
+/// 2026-11-05): once drand has published `T(arrive)` (+ the margin) by the
+/// chain time the herald has observed, and no later than the bell after
+/// the arrival bell. Before, the material would reach the relay and the
+/// keeper while only the owner can open the seal.
+pub fn owner_reveal_open(
+    season: &crate::obs::SeasonView,
+    arrive: u32,
+    bell: u32,
+    seen: i64,
+) -> bool {
+    seen >= season.published_at(arrive) + REVEAL_PUBLISH_MARGIN_SECS && bell <= arrive + 1
+}
 
 /// How a march's seal is made.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -965,8 +982,14 @@ fn duties(obs: &Observation, cx: &Ctx, prof: &Profile, rng: &mut Rng, out: &mut 
         {
             out.push(Intent::Redepart { key: m.key });
         }
-        // Reveals: from the arrival bell's start, one bell long for owners.
-        let in_bell = bell >= m.arrive_bell && bell <= m.arrive_bell + 1;
+        // Reveals: owners from the publication of T(arrive) (⑱) to the end
+        // of the bell after the arrival bell, judged on observed chain time.
+        let in_bell = owner_reveal_open(
+            &obs.season,
+            m.arrive_bell,
+            bell,
+            obs.now.min(obs.season.latest_unix),
+        );
         let mut mr = Rng::fork(cx.seed, m.key.0 ^ (m.key.1 as u64) << 40);
         let wants = !mr.chance(prof.withhold);
         match persona {
@@ -1674,4 +1697,55 @@ pub fn future_addresses(obs: &Observation, t: Target, arrive: u32, faction: u8) 
 /// Whether a site of an overview record is free.
 pub fn site_free(state: u8) -> bool {
     state == site_state::FREE
+}
+
+#[cfg(test)]
+mod reveal_time_tests {
+    use super::*;
+    use crate::obs::SeasonView;
+
+    /// A season clock only (no Season account; the drand key field is
+    /// zero bytes: no key is generated, derived or used).
+    fn season() -> SeasonView {
+        SeasonView {
+            program: Address::new_from_array([1; 32]),
+            season_id: 1,
+            genesis_ts: 1_800_000_000,
+            bell_secs: 600,
+            w: 600,
+            delta: 60,
+            drand_pk: [0; 96],
+            drand_period: 3,
+            drand_genesis: 1_692_803_367,
+            r_max: 0,
+            rings: vec![],
+            tip_priority_milli: 0,
+            reveal_cu_limit: 0,
+            march_fee: 0,
+            seal_bond: 0,
+            latest_slot: 0,
+            latest_unix: 0,
+            season: None,
+        }
+    }
+
+    #[test]
+    fn owners_send_only_after_t_arrive_is_published() {
+        let s = season();
+        let arrive = 40u32;
+        let start = s.genesis_ts + 600 * arrive as i64;
+        let published = s.published_at(arrive);
+        // T(arrive) is the first round at or after the arrival bell's end.
+        assert!(published >= start + 600 && published < start + 603);
+        let open = |seen: i64| owner_reveal_open(&s, arrive, s.bell_at(seen), seen);
+        // The whole arrival bell, its last second, and T(arrive)'s round
+        // time itself: not yet.
+        for seen in [start, start + 30, start + 599, published, published + 4] {
+            assert!(!open(seen), "{seen}");
+        }
+        // From publication + the margin to the end of the next bell.
+        assert!(open(published + REVEAL_PUBLISH_MARGIN_SECS));
+        assert!(open(start + 600 + 599));
+        assert!(!open(start + 1_200), "the bell after next: too late");
+    }
 }

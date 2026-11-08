@@ -7,11 +7,11 @@ import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 
 const here = dirname(fileURLToPath(import.meta.url));
-const ORDER = ['geometry.mjs', 'adapters.mjs', 'model.mjs', 'compare.mjs', 'ui.mjs'];
+const ORDER = ['geometry.mjs', 'contract.mjs', 'adapters.mjs', 'model.mjs', 'compare.mjs', 'ui.mjs'];
 const seen = new Map();
 const parts = ORDER.map(name => {
   const src = readFileSync(join(here, name), 'utf8');
-  const body = src.split('\n').filter(l => !/^import .* from '\.\/.*\.mjs';$/.test(l)).map(l => l.replace(/^export (?=(const|function|let|async function) )/, '')).join('\n');
+  const body = src.split('\n').filter(l => !/^(import|export) .* from '\.\/.*\.mjs';$/.test(l)).map(l => l.replace(/^export (?=(const|function|let|async function) )/, '')).join('\n');
   for (const m of body.matchAll(/^(?:const|let|function|async function) ([A-Za-z_$][\w$]*)/gm)) {
     if (seen.has(m[1])) throw new Error(`${m[1]} declared in ${seen.get(m[1])} and ${name}`);
     seen.set(m[1], name);

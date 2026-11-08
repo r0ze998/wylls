@@ -117,6 +117,17 @@ pub struct LocalnetFeed<P: ChainPort> {
     scanned: Option<u64>,
     /// Whether the node said its ledger is synced before it serves it.
     durable: Option<bool>,
+    /// Over every read of this feed since it was made (not kept in the
+    /// cursor): `Some(true)` when each answered with the scan and each said
+    /// its ledger cannot be rewound under the same runId (synced before it is
+    /// served, or held only in memory: a memory ledger is lost whole with its
+    /// process and comes back under a new runId); `Some(false)` once one did
+    /// not say so; `None` once one answered without the scan. With the scan's
+    /// per-read check of the signature at the cursor, `Some(true)` means the
+    /// ledger's records read so far were not replaced under this feed while
+    /// it read them (`findex::ledger` and the verifier's history call this
+    /// the prefix identity of a live read).
+    rewind_safe: Option<bool>,
 }
 
 impl<P: ChainPort> LocalnetFeed<P> {
@@ -134,7 +145,20 @@ impl<P: ChainPort> LocalnetFeed<P> {
             refused: None,
             scanned: None,
             durable: None,
+            rewind_safe: Some(true),
         }
+    }
+
+    /// See the field: whether every read of this feed so far was scanned and
+    /// said its ledger cannot be rewound under the same runId.
+    pub fn rewind_safe(&self) -> Option<bool> {
+        self.rewind_safe
+    }
+
+    /// How far the node's ledger was scanned by the last pull (`None`: not
+    /// known).
+    pub fn scanned(&self) -> Option<u64> {
+        self.scanned
     }
 
     /// The node's ledger size now (`frontier_status.ledgerBytes`).
@@ -210,6 +234,10 @@ impl<P: ChainPort> LocalnetFeed<P> {
         if sc.durable.is_some() {
             self.durable = sc.durable;
         }
+        let safe = sc.durable == Some(true) || sc.ledger_bytes == Some(0);
+        if !safe {
+            self.rewind_safe = self.rewind_safe.map(|_| false);
+        }
         Ok(())
     }
 
@@ -264,7 +292,10 @@ impl<P: ChainPort> Source for LocalnetFeed<P> {
                         _ => Some(sc.scanned_through),
                     });
                 }
-                None => scanned = Some(None),
+                None => {
+                    scanned = Some(None);
+                    self.rewind_safe = None;
+                }
             }
             let Some(last) = got.last() else { break };
             for r in &got {
@@ -367,6 +398,11 @@ impl<P: ChainPort> Source for LocalnetFeed<P> {
             self.ledger_bytes = Some(self.ledger_bytes.map_or(b, |m| m.max(b)));
         }
         self.durable = v.get("ledger_durable").and_then(|x| x.as_bool());
+        // What earlier processes read is not known to have been read under
+        // one unbroken run of checked reads.
+        if a > 0 {
+            self.rewind_safe = None;
+        }
     }
     fn coverage(&self) -> Option<Value> {
         Some(json!({

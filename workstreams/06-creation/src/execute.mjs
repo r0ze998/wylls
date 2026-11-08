@@ -31,38 +31,52 @@
 
 import { CanonicalError, clone, contentHash, own, plain } from "./canonical.mjs";
 import { DOMAIN, signHash, verifyHash } from "./keys.mjs";
-import { EFFECTS } from "./catalog.mjs";
+import { EFFECTS, confirmedRev, effectRev } from "./catalog.mjs";
+import { RUN_REQUEST_DAYS } from "./adoption.mjs";
 import { finding } from "./codes.mjs";
 import { afterRefs, stepOrder } from "./manifest.mjs";
-import { resolve, verifyPlanSignature } from "./plan.mjs";
+import { LEGACY_PLAN_FORMAT, PLAN_FORMAT, resolve, revisedEffects, verifyPlanSignature } from "./plan.mjs";
 import { verifyEnvelope } from "./registry.mjs";
 import { validateDefinition } from "./validate.mjs";
 import { balanceOf, batchProblem, citizenOf, freeStock, grantProblem, place, useRunsLeft, workshopRunsLeft } from "./world.mjs";
 
 const yieldTurn = () => new Promise((ok) => setTimeout(ok, 0));
 
-export const RUN_FORMAT = "wylls.creation.run/0";
+export const RUN_FORMAT = "wylls.creation.run/1";
 
 /**
  * The user's request to run an adopted plan once: signed with the user's
- * key, naming the plan, a nonce never used before for it, and the batches
- * (rights to consume) this run spends. Without it nobody — not even someone
- * holding the signed plan — can make the plan spend the user's goods.
+ * key, naming the plan, a nonce never used before for it, the day it was
+ * signed and the batches (rights to consume) this run spends. Without it
+ * nobody — not even someone holding the signed plan — can make the plan
+ * spend the user's goods.
+ *
+ * A request is accepted only on the day it names or the next
+ * (RUN_REQUEST_DAYS), so the nonces kept against replay are those of the
+ * last two days, not of the world's whole life. Requests of the earlier
+ * format (run/0, no day) are refused as "old-format": a request is not an
+ * obligation, and the user signs a new one.
  */
-export async function requestRun(signedPlan, { batches = {}, nonce }, userKey) {
-  const request = { format: RUN_FORMAT, planHash: signedPlan.hash, nonce: String(nonce), inputs: { batches: { ...batches } } };
+export async function requestRun(signedPlan, { batches = {}, nonce, day }, userKey) {
+  if (!Number.isSafeInteger(day)) throw new TypeError("a run request names the day it is signed (an integer)");
+  const request = { format: RUN_FORMAT, planHash: signedPlan.hash, nonce: String(nonce), day, inputs: { batches: { ...batches } } };
   const hash = contentHash(request);
   return { request, hash, signature: await signHash(userKey, DOMAIN.run, hash) };
 }
 
-async function requestProblem(req, signed) {
+async function requestProblem(req, signed, today) {
   if (!req?.request) return { reason: "missing" };
   let hash;
   try { hash = contentHash(req.request); } catch { return { reason: "malformed" }; }
   if (hash !== req.hash) return { reason: "hash" };
+  if (req.request.format === "wylls.creation.run/0") return { reason: "old-format", detail: "sign a new request (run/1 names its day)" };
   if (req.request.format !== RUN_FORMAT || typeof req.request.nonce !== "string" || !req.request.nonce) return { reason: "malformed" };
   if (req.request.planHash !== signed.hash) return { reason: "other-plan" };
   if (!(await verifyHash(signed.plan.actor, DOMAIN.run, hash, req.signature))) return { reason: "not-the-user" };
+  const day = req.request.day;
+  if (!Number.isSafeInteger(day)) return { reason: "malformed", detail: "day" };
+  if (day > today) return { reason: "future", day, today };
+  if (today - day >= RUN_REQUEST_DAYS) return { reason: "stale", day, today, acceptedFor: RUN_REQUEST_DAYS };
   return null;
 }
 
@@ -78,6 +92,7 @@ export async function execute(signed, ctx, { request, raidAt = null } = {}) {
     if (e instanceof CanonicalError) return fail("SHAPE", { detail: "nested too deep" });
     throw e;
   }
+  if (plan.format !== PLAN_FORMAT && plan.format !== LEGACY_PLAN_FORMAT) return fail("SHAPE", { detail: "plan format" });
   const env = registry.getVersion(plan.manifest);
   if (!env?.manifest || env.hash !== plan.manifest.hash || (await verifyEnvelope(env)).length) return fail("HASH_MISMATCH", { pinned: plan.manifest });
   const m = plain(env.manifest);
@@ -85,17 +100,20 @@ export async function execute(signed, ctx, { request, raidAt = null } = {}) {
   const def = validateDefinition(m, { features: world.features, today });
   const blocking = def.findings.find((f) => f.severity === "error");
   if (blocking) return fail(blocking.code, { from: "the pinned definition in this world", ...strip(blocking) });
+  // the core changed the meaning of an effect since the user confirmed: held, not counted
+  const revised = revisedEffects(plan, m, world);
+  if (revised.length) return fail("EFFECT_REVISED", { effects: revised });
   const actor = citizenOf(world, plan.actor);
   if (!actor) return fail("ACTOR_UNKNOWN");
   // adoption, the request's nonce and the runs per day: re-checked and counted in one
   // synchronous block (no await between the last check and the count)
   const adoptionProblem = adoptions ? adoptions.problem(signed.hash) : "PLAN_NOT_ADOPTED";
   if (adoptionProblem) return fail(adoptionProblem);
-  const rp = await requestProblem(request, signed);
+  const rp = await requestProblem(request, signed, today);
   if (rp) return fail("RUN_REQUEST_INVALID", rp);
   const inputs = plain(request.request.inputs ?? {});
   if (adoptions.problem(signed.hash)) return fail(adoptions.problem(signed.hash));
-  if (!adoptions.useNonce(signed.hash, request.request.nonce)) return fail("RUN_REQUEST_INVALID", { reason: "replayed", nonce: request.request.nonce });
+  if (!adoptions.useNonce(signed.hash, request.request.nonce, request.request.day, today)) return fail("RUN_REQUEST_INVALID", { reason: "replayed", nonce: request.request.nonce });
   if (adoptions.runsOn(signed.hash, today) >= m.limits.runsPerDay) return fail("RUNS_PER_DAY_EXCEEDED", { max: m.limits.runsPerDay });
   adoptions.noteRun(signed.hash, today);
   // every run is distinct, so two runs of one plan on one day never share a record id
@@ -111,7 +129,7 @@ export async function execute(signed, ctx, { request, raidAt = null } = {}) {
     await yieldTurn(); // another execution, an end or a supersede may happen here: re-checked below
     const r = applyStep(s);
     if (!r.ok) {
-      receipts.push(ledger.record({ ...base, beneficiary: actor, step: s.id, ...ports(s), outcome: r.code === "RAIDED" ? "raided" : "failed", final: true, reason: r.code, at: r.at ?? null, goods: r.goods ?? null }));
+      receipts.push(ledger.record({ ...base, beneficiary: actor, step: s.id, effect: s.effect, rev: effectRev(world, s.effect), ...ports(s), outcome: r.code === "RAIDED" ? "raided" : "failed", final: true, reason: r.code, at: r.at ?? null, goods: r.goods ?? null }));
       log.push(`${s.id}: 止まった — ${r.code}`);
       adoptions.noteOutcome(signed.hash, base.day, false);
       return fail(r.code, r.detail, s.id);
@@ -134,6 +152,7 @@ export async function execute(signed, ctx, { request, raidAt = null } = {}) {
     // the plan and its pinned definition are re-checked at every step
     const ap = adoptions.problem(signed.hash);
     if (ap) return no(ap);
+    if (confirmedRev(plan, s.effect) !== effectRev(world, s.effect)) return no("EFFECT_REVISED", { effect: s.effect, confirmed: confirmedRev(plan, s.effect), now: effectRev(world, s.effect) });
     if (m.validUntilDay != null && today > m.validUntilDay) return no("MANIFEST_EXPIRED", { validUntilDay: m.validUntilDay, today });
     const consumes = afterRefs(s).filter((a) => a.use !== undefined);
     if (consumes.length && s.effect !== "workshop.run") return no("EFFECT_UNKNOWN", { effect: s.effect, detail: "only a step that uses goods may consume a batch" });
@@ -154,7 +173,7 @@ export async function execute(signed, ctx, { request, raidAt = null } = {}) {
       if (raidAt === s.id) return no("RAIDED", { detail: "mock raid on the way" }, { at: to, goods: cargo });
       credit(pt, cargo);
       const p = ports(s);
-      const ev = ledger.record({ ...base, beneficiary: pt.owner, step: s.id, ...p, outcome: "delivered", final: true, at: to, goods: cargo });
+      const ev = ledger.record({ ...base, beneficiary: pt.owner, step: s.id, effect: s.effect, rev: effectRev(world, s.effect), ...p, outcome: "delivered", final: true, at: to, goods: cargo });
       receipts.push(ev);
       const note = p.outputs.length && pt.kind === "vault" ? `、束 ${makeBatch(to, pt, cargo, ev.id, p.outputs)} として ${pt.owner} のために押さえた` : "";
       log.push(`${s.id}: 荷車 ${from} → ${to} ${fmt(cargo)}（模擬：すぐ着いた${note}）`);
@@ -214,7 +233,7 @@ export async function execute(signed, ctx, { request, raidAt = null } = {}) {
       h.useRuns = (h.useDay === today ? h.useRuns ?? 0 : 0) + runs;
       h.useDay = today;
       const p = ports(s);
-      const ev = ledger.record({ ...base, beneficiary: actor, step: s.id, ...p, outcome: "made", final: true, at: vault, goods: made });
+      const ev = ledger.record({ ...base, beneficiary: actor, step: s.id, effect: s.effect, rev: effectRev(world, s.effect), ...p, outcome: "made", final: true, at: vault, goods: made });
       receipts.push(ev);
       const note = p.outputs.length ? `、束 ${makeBatch(vault, pv, made, ev.id, p.outputs)}` : "";
       log.push(`${s.id}: ${shop} の工房を ${runs} 回（${vault} の中で ${fmt(need)} → ${fmt(made)}${batches.length ? `、束 ${batches.map((b) => b.id).join("・")} を使った` : ""}${note}、模擬）`);

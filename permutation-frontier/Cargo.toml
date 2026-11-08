@@ -20,6 +20,9 @@ default = ["program", "custom-heap"]
 # Instruction handlers, account initialisation, the prologue wrapper and the
 # entrypoint.
 program = []
+# Explicit opt-in for real native BLS math in unit tests only.
+# Non-test host libraries still fail closed; SBF never includes this adapter.
+native-crypto-tests = []
 no-entrypoint = []
 # Our own 256-KiB-aware bump allocator (heap.rs, I-50) instead of the
 # entrypoint's default one.
@@ -77,3 +80,6 @@ frontier-abi = { path = "../frontier-abi" }
 
 [lints.rust]
 unexpected_cfgs = { level = "warn", check-cfg = ['cfg(target_os, values("solana"))', 'cfg(feature, values("custom-panic"))'] }
+
+[target.'cfg(not(target_os = "solana"))'.dev-dependencies]
+solana-bls12-381-syscall = "=0.1.1"

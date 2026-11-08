@@ -99,7 +99,8 @@ test('the nation choice shows the nation\'s count, and says the count is not kno
   assert.doesNotMatch(unknown, /村を置ける場所があと約/);
   assert.match(unknown, /data-act="home-confirm"/, 'the choice itself is not blocked by an unknown count: the program decides the placement');
   // nothing chosen: no line either way
-  assert.doesNotMatch(String(renderNations({ ...base, season: blind, joinDraft: null })), /いまは分かりません|あと約/);
+  // (the count's own words only: the season's deadline line — workstream 07's seasonterms — may say 「あと約」 of time)
+  assert.doesNotMatch(String(renderNations({ ...base, season: blind, joinDraft: null })), /村を置ける場所の数は、いまは分かりません|村を置ける場所があと約/);
   setLang('en');
   assert.match(String(renderNations({ ...base, season: blind })), /is not known yet/);
   setLang('ja');

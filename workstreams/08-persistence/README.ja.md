@@ -45,6 +45,10 @@
 | 24 | [24-map-implementation.ja.md](24-map-implementation.ja.md) | 同国分散配置（placement 1）と継続拡張マップ（ExtendFrontier、上限まで）の最小実装。④への引き渡しのパッチは `handoff-04/` |
 | 25 | [25-map-live.ja.md](25-map-live.ja.md) | 分散配置と拡張を、ヘラルド・画面・キーパー・ローカルチェーンまで通した確認。見つけて直した不具合3件と、④の未決定事項。パッチは `handoff-04/live/` |
 | 26 | [26-continuous-world.ja.md](26-continuous-world.ja.md) | 継続世界への移行設計（⑧ → ④）：シーズン依存の調査、移行の方針、実装（継続の切替）、境界・再起動・長期の試験、残る判断。パッチは `handoff-04/continuous/` |
+| 27 | [27-continuous-verify.ja.md](27-continuous-verify.ja.md) | 継続世界の候補の検証：仮の番号、Reveal の照合（訂正済み）、ローカルチェーンでの隊商・倉・封印進軍、BeaconLog の再投稿、④への明示事項 |
+| 28 | [28-world-clock-period-contract.ja.md](28-world-clock-period-contract.ja.md) | 世界ID・時計・期間の契約（④と整理した候補、①⑫⑬⑮へ）。機械で読む形は `contract/world-clock-period.json` |
+| 29 | [29-on-04-latest.ja.md](29-on-04-latest.ja.md) | ④の最新（`8e96f24d`）への移植：地図拡張、継続世界の差、BeaconLog の再投稿の最小差分、保存・再起動・履歴の確認 |
+| 30 | [30-on-04-cf517.ja.md](30-on-04-cf517.ja.md) | ④の公開統合候補 `cf517b55` への統合（終了ベルの修正、BeaconLog、桁あふれ）、開拓と地図の成長のつながり（最初の本拠だけでは輪5で止まる）と画面の候補、広域座標の反復の段階ごとの現状と必要な決定 |
 | — | [sim/](sim/) | シミュレーター（Node.js、依存ライブラリなし） |
 | — | [results/](results/) | 生成された結果。`core`、`replication-seeds101-130`、`sensitivity`、`exploits`、`retention`、`placement/`（配置の比較。その中の各群と再現）、`coop/`（協力の検査器と再現） |
 | — | [repro/](repro/) | シーズン終了時の再現テスト（リポジトリの外で組み立てて実行）と、修正の草案 |

@@ -18,6 +18,10 @@ pub mod index;
 pub mod ingest;
 pub mod ledger;
 pub mod provenance;
+#[cfg(feature = "wide-records-experimental")]
+pub mod wide_index;
+#[cfg(feature = "wide-records-experimental")]
+pub mod wide_store;
 
 use std::path::{Path, PathBuf};
 

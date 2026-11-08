@@ -1,0 +1,186 @@
+From 87df100e4a1b5f0001ed24561643ee7a4205dc31 Mon Sep 17 00:00:00 2001
+From: ws07 <noreply@anthropic.com>
+Date: Fri, 30 Oct 2026 15:34:14 +0000
+Subject: [PATCH 09/18] Web client (S1): on a phone, a line says something
+ happened while away and opens the summary
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+A phone shows one notice over the map, the newest, so the away summary
+waited under this turn's card and only the list under その他 had it. While
+a summary of this scope is not confirmed, a line under the strip now says
+so (留守中の未確認の出来事 N 件) and opens that list at the summary, with
+its "seen" in focus. Pressing "seen" takes the line away; closing the
+notice with × does not, since × confirms nothing. Wide screens show the
+summary itself and draw no line. The order and the one-notice rule of the
+phone are unchanged. The screen tests that press the line come with 0010.
+Needs 0003.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01C5Nj2bNLFpFghsNM9fsQG5
+---
+ .../web-frontier-ws07-away-entry.test.mjs     | 45 +++++++++++++++++++
+ permutation-server/web/frontier/app.mjs       | 37 +++++++++++++++
+ permutation-server/web/frontier/frontier.css  |  8 ++++
+ .../web/lang/en-frontier-play.mjs             |  4 ++
+ 4 files changed, 94 insertions(+)
+ create mode 100644 permutation-gateway/test/web-frontier-ws07-away-entry.test.mjs
+
+diff --git a/permutation-gateway/test/web-frontier-ws07-away-entry.test.mjs b/permutation-gateway/test/web-frontier-ws07-away-entry.test.mjs
+new file mode 100644
+index 00000000..d701faa8
+--- /dev/null
++++ b/permutation-gateway/test/web-frontier-ws07-away-entry.test.mjs
+@@ -0,0 +1,45 @@
++// Workstream 07: the away summary's way in on a phone (app.mjs renderAwayEntry). A phone shows one notice over the
++// map, so the summary waited under this turn's card and only the list under その他 had it; a line under the strip now
++// says something is not yet seen and opens it. The screen tests (ws07-s1-page, ws07-s1-pure) press it in Chromium.
++import { test } from 'node:test';
++import assert from 'node:assert/strict';
++import { readFileSync } from 'node:fs';
++import enPlay from '../../permutation-server/web/lang/en-frontier-play.mjs';
++import { L, setLang } from '../../permutation-server/web/lang.mjs';
++
++const app = readFileSync(new URL('../../permutation-server/web/frontier/app.mjs', import.meta.url), 'utf8');
++const css = readFileSync(new URL('../../permutation-server/web/frontier/frontier.css', import.meta.url), 'utf8');
++
++test('the line is drawn with the notices, while a summary of this scope is not confirmed; "seen" takes it away, × does not', () => {
++  const feedFn = app.slice(app.indexOf('function renderFeed() {'), app.indexOf('/** How long a notice of how a fight ended'));
++  assert.match(feedFn, /renderAwayEntry\(\);\n\}/, 'renderFeed ends by drawing it');
++  const entry = app.slice(app.indexOf('function renderAwayEntry()'), app.indexOf('/** What the away reading found'));
++  assert.match(entry, /data(set)?\.act = 'away-open'/);
++  assert.match(app, /const awayHeadNow = \(\) => \{[^\n]*x\.scope === sc && !awayConfirmed\.has\(x\.id\)/, 'this scope only, until confirmed');
++  const seen = app.slice(app.indexOf("'away-seen': d => {"), app.indexOf("'feed-filter'"));
++  assert.match(seen, /awayConfirmed\.add\(x\.id\)/);
++  assert.ok(seen.indexOf('awayConfirmed.add') > seen.indexOf('if (!saved)'), 'only once the mark is saved');
++  const dismiss = app.slice(app.indexOf("'feed-dismiss': d =>"), app.indexOf('\n', app.indexOf("'feed-dismiss': d =>")));
++  assert.doesNotMatch(dismiss, /awayConfirmed/, '× does not confirm');
++});
++
++test('pressing it opens the list under その他 at the summary, with its "seen" in focus', () => {
++  const open = app.slice(app.indexOf("'away-open': () => {"), app.indexOf("'away-seen': d => {"));
++  assert.match(open, /HUD_ACTIONS\.tab\(\{ tab: 'more' \}\)/);
++  assert.match(open, /FS\.feedFilter = 'all'/);
++  assert.match(open, /\.feed-away[\s\S]*\[data-act="away-seen"\][\s\S]*focus/);
++});
++
++test('a phone draws the line under the strip and moves the notices down; a wide screen does not draw it', () => {
++  assert.match(css, /\.away-entry \{ display: none; \}\n@media \(max-width: 759px\) \{\n  body\[data-away-entry="1"\] \.away-entry:not\(\[hidden\]\) \{ display: inline-flex;/);
++  assert.match(css, /body\[data-away-entry="1"\] \.feed \{ top: calc\(var\(--strip\) \+ 34px \+ var\(--target\) \+ 6px\); \}/);
++});
++
++test('English words for the line', () => {
++  setLang('en');
++  try {
++    assert.equal(L`留守中の未確認の出来事 ${3} 件`, '3 events while you were away, not yet marked as seen');
++    assert.equal(L`留守中の未確認の出来事 ${1} 件`, '1 event while you were away, not yet marked as seen');
++  } finally { setLang('ja'); }
++  assert.ok(enPlay['留守中の記録に未確認があります'] && enPlay['{0}（押すと要約を開きます）']);
++});
+diff --git a/permutation-server/web/frontier/app.mjs b/permutation-server/web/frontier/app.mjs
+index 6efc9341..0ec04155 100644
+--- a/permutation-server/web/frontier/app.mjs
++++ b/permutation-server/web/frontier/app.mjs
+@@ -2317,6 +2317,29 @@ function awayPump() {
+     }).catch(() => {}).finally(() => { awayBusy = false; });
+   }
+ }
++/**
++ * The away summary's way in on a phone. A phone shows one notice over the map, the newest (frontier.css: one toast at a
++ * time), so the summary of what happened while away waited under this turn's card, and only the list under その他 had
++ * it. While a summary of this scope is not confirmed, a line under the strip says so and opens that list at it; it goes
++ * when "seen" is pressed (closing the notice with × does not confirm, so the line stays). Wide screens show the
++ * summary itself over the map, and the line is not drawn there (frontier.css).
++ */
++const awayConfirmed = new Set();
++const awayHeadNow = () => { const sc = awayScopeNow(); return sc === null ? null : (FS.feed ?? []).find(x => x.kind === 'away' && x.away?.summary && x.scope === sc && !awayConfirmed.has(x.id)) ?? null; };
++function renderAwayEntry() {
++  const doc = globalThis.document;
++  if (!doc?.body) return;
++  const head = FS.mode === 'play' ? awayHeadNow() : null;
++  let b = doc.getElementById('away-entry');
++  if (!head) { if (b) b.hidden = true; delete doc.body.dataset.awayEntry; return; }
++  if (!b) { b = doc.createElement('button'); b.type = 'button'; b.id = 'away-entry'; b.className = 'away-entry'; b.dataset.act = 'away-open'; doc.body.appendChild(b); }
++  const s = head.away.summary, n = (s.items?.length ?? 0) + (s.more ?? 0);
++  const text = n > 0 ? L`留守中の未確認の出来事 ${fmtNum(n)} 件` : L`留守中の記録に未確認があります`;
++  if (b.dataset.text !== text) { setHtml(b, html`${icon('bell')}<span>${text}</span>`); b.dataset.text = text; b.setAttribute('aria-label', L`${text}（押すと要約を開きます）`); }
++  b.dataset.id = head.id;
++  b.hidden = false;
++  doc.body.dataset.awayEntry = '1';
++}
+ /** What the away reading found since the last tick (and the next reading started). */
+ function awayTake() { const out = awayQueue.splice(0); awayPump(); return out; }
+ /** One item of the away summary as a notice; `awayOf` keeps the item so that a change of language words it again. */
+@@ -2454,6 +2477,7 @@ function renderFeed() {
+     ...feed.stackOrder(stripItem, toasts, { alarmsFirst: phone() })];
+   syncStack(el, items);
+   publishNoGo();
++  renderAwayEntry();
+ }
+ /** How long a notice of how a fight ended waits for that fight's battle to be told (ms), and the timer that shows it. */
+ const OUTCOME_BEAT_MS = 1500;
+@@ -3157,6 +3181,18 @@ export const HUD_ACTIONS = {
+   'turn-dismiss': () => { if (turnStrip) turnStrip.dismissed = true; renderFeed(); },
+   'feed-dismiss': d => { FS.feedDismissed = new Set([...(FS.feedDismissed ?? []), d.id]); renderFeed(); },
+   // the away summary's "seen": the player's own mark moves to the last record it told (closing it with × does not)
++  // the away summary's way in on a phone (renderAwayEntry): the list under その他, at the summary, its "seen" in focus
++  'away-open': () => {
++    if (FS.mode !== 'play') return;
++    FS.feedFilter = 'all';
++    if (drawerOf(FS)?.kind !== 'more') HUD_ACTIONS.tab({ tab: 'more' });
++    else invalidate('panel');
++    requestAnimationFrame(() => requestAnimationFrame(() => {
++      const row = globalThis.document?.querySelector('.panel .feed-away, .panel li.feed-away');
++      row?.scrollIntoView?.({ block: 'center' });
++      (row?.querySelector('[data-act="away-seen"]') ?? row)?.focus?.({ preventScroll: true });
++    }));
++  },
+   'away-seen': d => {
+     const x = (FS.feed ?? []).find(y => y.id === d.id);
+     // (only a summary of this scope whose reading has no gap moves the mark: returnsum.confirm; twice is harmless)
+@@ -3169,6 +3205,7 @@ export const HUD_ACTIONS = {
+       renderFeed();
+       return;
+     }
++    awayConfirmed.add(x.id);
+     FS.feedDismissed = new Set([...(FS.feedDismissed ?? []), ...(FS.feed ?? []).filter(y => y.scope === x.scope && (y.kind === 'away' || String(y.id).startsWith('aw:'))).map(y => y.id)]);
+     renderFeed();
+   },
+diff --git a/permutation-server/web/frontier/frontier.css b/permutation-server/web/frontier/frontier.css
+index dbe0b8d0..7db218a2 100644
+--- a/permutation-server/web/frontier/frontier.css
++++ b/permutation-server/web/frontier/frontier.css
+@@ -2333,6 +2333,14 @@ body[data-kind="wait"] .plate .plate-go[data-act="join-open"] { display: none; }
+ .ws07-status.tone-unknown { border-left-style: dashed; }
+ .ws07-coop { margin-top: var(--s2); }
+ 
++/* workstream 07: the away summary's way in on a phone (app.mjs renderAwayEntry). A phone shows one notice over the map;
++   while a summary of what happened while away is not confirmed, this line under the strip says so and opens it. The
++   notices move down by its height. Wide screens show the summary itself and not this line. */
++.away-entry { display: none; }
++@media (max-width: 759px) {
++  body[data-away-entry="1"] .away-entry:not([hidden]) { display: inline-flex; align-items: center; gap: 6px; position: fixed; z-index: 19; top: calc(var(--strip) + 34px); left: calc(var(--edge) + var(--target) + 8px); right: calc(var(--edge) + var(--target) + 8px); min-height: var(--target); padding: 4px 12px; border: 1px solid var(--brass-lo); border-radius: 8px; background: var(--plate-bg); color: var(--hud-ink); font-size: var(--t2); box-shadow: var(--shadow), var(--plate-edge); text-align: left; }
++  body[data-away-entry="1"] .feed { top: calc(var(--strip) + 34px + var(--target) + 6px); }
++}
+ /* ================================================================== the film's frame: a laptop's width (1280 × 720)
+    The demo is filmed with the page laid out at 1280 × 720 CSS px (device scale 1.5: a 1920 × 1080 picture). What stood
+    cut, covered or colliding at that size is set right here, under three conditions and no other: between 1100 and
+diff --git a/permutation-server/web/lang/en-frontier-play.mjs b/permutation-server/web/lang/en-frontier-play.mjs
+index 4817a38a..8d9d69f0 100644
+--- a/permutation-server/web/lang/en-frontier-play.mjs
++++ b/permutation-server/web/lang/en-frontier-play.mjs
+@@ -1400,6 +1400,10 @@ export default {
+   '全部入りました：{0}': 'All was taken in: {0}',
+   '送り出すときに物見櫓で {0}% 減っています（送った量はその後の量です）': 'Watchtowers wore it by {0}% at sending (what was sent is after that)',
+   '隊商が決着しました（ターン {0}）。{1}': 'Your caravan\'s journey ended (turn {0}). {1}',
++  // workstream 07: the away summary's way in on a phone (app.mjs renderAwayEntry)
++  '留守中の未確認の出来事 {0} 件': n => `${plural(Number(String(n).replace(/,/g, '')), '{0} event', '{0} events')} while you were away, not yet marked as seen`,
++  '留守中の記録に未確認があります': 'Records from while you were away are not yet marked as seen',
++  '{0}（押すと要約を開きます）': '{0} (opens the summary)',
+   '使える量（未確定の費用を最大で引いた見込み）：{0}': 'Usable (with unsettled costs taken at their most, an estimate): {0}',
+   '使える量（予約を引いたあと）：{0}': 'Usable (after reservations): {0}',
+   '使える量を出せません：{0}': 'Cannot say what is usable: {0}',
+-- 
+2.43.0
+

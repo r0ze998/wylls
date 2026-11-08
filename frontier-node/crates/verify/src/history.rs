@@ -12,7 +12,7 @@
 //! | source | basis | verdict |
 //! |---|---|---|
 //! | a fixture file without a `history` field | `as_given`: the file's claim (recorded runs, vouched for by the fixture tests) | unchanged |
-//! | the local node's live `frontier_feed` | `ledger_feed`: the node's own ledger, in order (detail `ledger <runId>`) | unchanged |
+//! | the local node's live `frontier_feed` | separate status and feed reads are not an atomic snapshot | never PASS |
 //! | per-program local-feed archives | numbers restored when consistent, but same-run rollback freshness remains unproven | never PASS |
 //! | public RPC (findex `RpcPoll`, live or as a findex archive), in **any** coverage state, `cross_checked` included | `unproven` | never PASS: `UNVERIFIABLE` with [`HISTORY_UNPROVEN`], or FAIL only on a [self-contained](self_contained) FAIL |
 //! | an archive or fixture whose source is not recorded or not readable | `unproven` | the same |
@@ -50,7 +50,8 @@ pub use crate::codes::HISTORY_UNPROVEN;
 /// - V28 (⑳, 2026-11-07): a ResidentAct's inner instruction, proof-account
 ///   flags, Season, canonical addresses, its pass's JoinResident (fetched)
 ///   and the Citizen's post-state, all inside fetched transactions; **not**
-///   `ResidentOldAuthority`, which rests on the resident program's feed.
+///   `ResidentOldAuthority` and `ResidentOwnerRequired`, which rest on the
+///   resident program's feed.
 ///
 /// Everything else (V1's chains and heads, V5, V7 and the other replays
 /// over earlier state) is not, until its owner says otherwise.
@@ -64,7 +65,10 @@ pub fn self_contained(f: &Finding) -> bool {
         && match f.check {
             "V0" => f.code != crate::codes::UNDECODABLE,
             "V27" => true,
-            "V28" => f.code != crate::codes::RESIDENT_OLD_AUTHORITY,
+            "V28" => {
+                f.code != crate::codes::RESIDENT_OLD_AUTHORITY
+                    && f.code != crate::codes::RESIDENT_OWNER_REQUIRED
+            }
             "V9" => f.entity == "RESIDENT_JOINED",
             _ => false,
         }
@@ -103,6 +107,58 @@ impl Source {
     }
 }
 
+/// What a local ledger's history could not show, each named (⑲,
+/// 2026-11-08). A `ledger_feed` history with any of these is `unproven`:
+/// a tail that matches the node, or a ledger that kept its id and size, does
+/// not alone make the read the ledger's whole history at one point.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+pub enum Gap {
+    /// An archive read without the node: a later rewind is not seen.
+    ArchiveOnly,
+    /// The archive's last records are not at their ledger numbers on the
+    /// node (rewound, rebuilt, another ledger), or the node could not say.
+    TailMismatch,
+    /// That the ledger's records up to the read are the same ones the node
+    /// holds was not shown: an archive (no node-side digest of the ledger's
+    /// records exists), or a live read not scanned throughout, or one whose
+    /// node could rewind under the same runId (not synced before serving).
+    PrefixIdentityUnverified,
+    /// That the history and the final states were read at one ledger point
+    /// was not shown (the ledger moved between them, or nobody compared).
+    PointInTimeUnverified,
+}
+
+impl Gap {
+    pub fn name(self) -> &'static str {
+        match self {
+            Gap::ArchiveOnly => "archive_only",
+            Gap::TailMismatch => "tail_mismatch",
+            Gap::PrefixIdentityUnverified => "prefix_identity_unverified",
+            Gap::PointInTimeUnverified => "point_in_time_unverified",
+        }
+    }
+    fn parse(s: &str) -> Option<Gap> {
+        Some(match s {
+            "archive_only" => Gap::ArchiveOnly,
+            "tail_mismatch" => Gap::TailMismatch,
+            "prefix_identity_unverified" => Gap::PrefixIdentityUnverified,
+            "point_in_time_unverified" => Gap::PointInTimeUnverified,
+            _ => return None,
+        })
+    }
+}
+
+/// The ledger point a history was read through: its id, how many ledger
+/// entries it covered (every one up to it was examined), and the ledger's
+/// size then. [`crate::input::seal_point_in_time`] compares it with the node
+/// once the final states are read.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct LedgerMark {
+    pub run_id: String,
+    pub ledger_len: u64,
+    pub ledger_bytes: Option<u64>,
+}
+
 /// The input's history: its source and, for RPC, findex's coverage report
 /// (`RpcPoll::coverage` or `findex::ingest::coverage_from_cursor`).
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
@@ -111,14 +167,18 @@ pub struct History {
     pub coverage: Option<Value>,
     /// What the source was (a URL, an archive directory), for the report.
     pub detail: String,
+    /// What it could not show ([`Gap`]); kept sorted, each once.
+    pub gaps: Vec<Gap>,
+    /// The ledger point it was read through, when known.
+    pub mark: Option<LedgerMark>,
 }
 
 impl History {
     pub fn ledger_feed(detail: impl Into<String>) -> History {
         History {
             source: Source::LedgerFeed,
-            coverage: None,
             detail: detail.into(),
+            ..History::default()
         }
     }
 
@@ -127,15 +187,40 @@ impl History {
             source: Source::Rpc,
             coverage: Some(coverage),
             detail: detail.into(),
+            ..History::default()
         }
     }
 
     pub fn unknown(detail: impl Into<String>) -> History {
         History {
             source: Source::Unknown,
-            coverage: None,
             detail: detail.into(),
+            ..History::default()
         }
+    }
+
+    /// Adds what it could not show (each once).
+    pub fn with_gaps(mut self, gaps: &[Gap]) -> History {
+        for g in gaps {
+            self.add_gap(*g);
+        }
+        self
+    }
+
+    pub fn add_gap(&mut self, g: Gap) {
+        if !self.gaps.contains(&g) {
+            self.gaps.push(g);
+            self.gaps.sort();
+        }
+    }
+
+    pub fn remove_gap(&mut self, g: Gap) {
+        self.gaps.retain(|x| *x != g);
+    }
+
+    pub fn with_mark(mut self, mark: Option<LedgerMark>) -> History {
+        self.mark = mark;
+        self
     }
 
     /// The history of a findex archive, from the cursor its manifest holds
@@ -174,6 +259,9 @@ impl History {
             // 2026-11-07: an archive the node could not confirm is never
             // whole; workstream 04 at integration, for 19's review).
             Source::LedgerFeed if self.detail.ends_with(crate::input::ARCHIVE_ONLY) => "unproven",
+            // ⑲ 2026-11-08: anything it could not show (a tail match alone,
+            // a live read not at the final states' point) keeps it unproven.
+            Source::LedgerFeed if !self.gaps.is_empty() => "unproven",
             Source::LedgerFeed => "ledger_feed",
             Source::Rpc | Source::Unknown => "unproven",
         }
@@ -200,6 +288,15 @@ impl History {
             "state": self.state(),
             "coverage": self.coverage,
             "detail": self.detail,
+            // What a local ledger's history could not show, by name.
+            "missing": self.gaps.iter().map(|g| g.name()).collect::<Vec<_>>(),
+            "mark": self.mark_json(),
+        })
+    }
+
+    fn mark_json(&self) -> Value {
+        self.mark.as_ref().map_or(Value::Null, |m| {
+            json!({"runId": m.run_id, "ledgerLen": m.ledger_len, "ledgerBytes": m.ledger_bytes})
         })
     }
 
@@ -207,7 +304,9 @@ impl History {
     /// fixture's own (absent) history.
     pub fn to_json(&self) -> Option<Value> {
         (self.source != Source::Fixture).then(|| {
-            json!({"source": self.source.name(), "coverage": self.coverage, "detail": self.detail})
+            json!({"source": self.source.name(), "coverage": self.coverage, "detail": self.detail,
+                   "gaps": self.gaps.iter().map(|g| g.name()).collect::<Vec<_>>(),
+                   "mark": self.mark_json()})
         })
     }
 
@@ -239,11 +338,46 @@ impl History {
             Source::Rpc if coverage.is_none() => {
                 History::unknown(format!("rpc history without its coverage: {detail}"))
             }
-            source => History {
-                source,
-                coverage,
-                detail,
-            },
+            source => {
+                // Recorded gaps stay; a ledger_feed saved before gaps were
+                // recorded is taken as having shown neither.
+                let mut gaps: Vec<Gap> = match v.get("gaps").and_then(|g| g.as_array()) {
+                    Some(a) => a
+                        .iter()
+                        .filter_map(|x| x.as_str())
+                        .filter_map(Gap::parse)
+                        .collect(),
+                    None if source == Source::LedgerFeed => {
+                        vec![Gap::PrefixIdentityUnverified, Gap::PointInTimeUnverified]
+                    }
+                    None => vec![],
+                };
+                gaps.sort();
+                gaps.dedup();
+                let unknown_gap = v
+                    .get("gaps")
+                    .and_then(|g| g.as_array())
+                    .is_some_and(|a| a.iter().any(|x| x.as_str().and_then(Gap::parse).is_none()));
+                if unknown_gap {
+                    return History::unknown(format!(
+                        "history with a gap this verifier does not know: {detail}"
+                    ));
+                }
+                let mark = v.get("mark").filter(|m| !m.is_null()).and_then(|m| {
+                    Some(LedgerMark {
+                        run_id: m.get("runId")?.as_str()?.to_string(),
+                        ledger_len: m.get("ledgerLen")?.as_u64()?,
+                        ledger_bytes: m.get("ledgerBytes").and_then(|x| x.as_u64()),
+                    })
+                });
+                History {
+                    source,
+                    coverage,
+                    detail,
+                    gaps,
+                    mark,
+                }
+            }
         }
     }
 
@@ -286,6 +420,16 @@ impl History {
             .filter(|&n| n > 0)
         {
             detail.push_str(&format!("; {n} newer signatures listed but not fetched"));
+        }
+        if !self.gaps.is_empty() {
+            detail.push_str(&format!(
+                "; not shown: {}",
+                self.gaps
+                    .iter()
+                    .map(|g| g.name())
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            ));
         }
         if self.state() == Some("cross_checked") {
             detail.push_str("; cross_checked is agreement of two RPC answers, not proof of completeness or finality");

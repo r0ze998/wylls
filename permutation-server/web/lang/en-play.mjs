@@ -183,6 +183,7 @@ export default {
   '馬のいる土地を都市が使うと+1': '+1 when a city works a tile with horses',
   '公開中': 'Revealing',
   '終了': 'Over',
+  '受付終了': 'No new orders',
   '締切で': 'At the deadline',
   '封印を閉じ、公開して全勢力を同時に解決': 'Seals close, are revealed, and every faction resolves at once',
   '締切{0}秒前': '{0} s before the deadline',

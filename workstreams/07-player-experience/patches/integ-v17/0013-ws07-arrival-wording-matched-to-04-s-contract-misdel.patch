@@ -1,0 +1,655 @@
+From c0188b549641bb686e2aa84c71e25e518f79e6f0 Mon Sep 17 00:00:00 2001
+From: ws07 <noreply@anthropic.com>
+Date: Thu, 5 Nov 2026 23:18:05 +0000
+Subject: [PATCH 13/18] ws07: arrival wording matched to 04's contract;
+ misdelivered and unread states
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+- A village's recorded intake is its lower bound: each resource "n 以上", all
+  zero "0 以上" (never "なし"); the units line says why (cargo_log drops under one).
+- A storehouse: "到着しましたが、入った量は確認できません（最大 n）" — arrived, the
+  intake unknown, at most the record (settle_caravan cuts at the cap).
+- Settled at another place than the send named with no take read: new state
+  `misdelivered`, "別の場所に着きました（原因を確認中）"; no raid named and nothing
+  counted. A take read after the send (`sent.taken`) keeps the raider's
+  intake-only state, whose text no longer gives a raid as an example.
+- A caravan that leaves the road's list while the page watches, with no end
+  read: new state `unread` ("状態不明"), cleared when the away reader reads its
+  settlement or raid; memory only, so a reload says nothing of it.
+- Overdue says "読み込んだ時点では" (what was read, not the world).
+- English words; tests: contracts, connect (misdelivered, taken, unread,
+  reload), away (entry line after "seen" and a reload), harness screen rows.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01C5Nj2bNLFpFghsNM9fsQG5
+---
+ .../screens/ws07-s1-card.screen.mjs           |  2 +-
+ .../screens/ws07-s1-page.screen.mjs           |  8 +--
+ .../screens/ws07-s1-pure.screen.mjs           |  8 +--
+ .../screens/ws07-s1.screen.mjs                |  8 +--
+ permutation-gateway/screens/ws07/s1-parts.mjs |  2 +-
+ .../test/web-frontier-ws07-away.test.mjs      | 24 +++++++++
+ .../test/web-frontier-ws07-connect.test.mjs   | 50 +++++++++++++++----
+ .../test/web-frontier-ws07-contracts.test.mjs | 34 ++++++++++---
+ permutation-server/web/frontier/app.mjs       |  9 +++-
+ .../web/frontier/hud/returnsum.mjs            |  6 ++-
+ .../web/frontier/hud/statussources.mjs        | 31 +++++++++++-
+ .../web/frontier/hud/statusview.mjs           | 44 +++++++++++++---
+ .../web/frontier/screens/s1.mjs               | 13 ++++-
+ .../web/lang/en-frontier-play.mjs             | 17 +++++--
+ 14 files changed, 208 insertions(+), 48 deletions(-)
+
+diff --git a/permutation-gateway/screens/ws07-s1-card.screen.mjs b/permutation-gateway/screens/ws07-s1-card.screen.mjs
+index 25489f70..66c316d0 100644
+--- a/permutation-gateway/screens/ws07-s1-card.screen.mjs
++++ b/permutation-gateway/screens/ws07-s1-card.screen.mjs
+@@ -54,7 +54,7 @@ for (const size of SIZES) {
+     assert.doesNotMatch(text, /到着済み|着きました/, 'past the turn is not arrived');
+     assert.match(text, /ターン 306 に到着/);
+     assert.equal(await page.locator('#card [data-key="arrival:overdue"]').count(), 1, 'one caravan is past its turn, one is still on the road');
+-    assert.match(await rows.filter({ hasText: '到着予定のターン' }).innerText(), /到着予定のターン 292 を過ぎました。まだ決着していません/);
++    assert.match(await rows.filter({ hasText: '到着予定のターン' }).innerText(), /到着予定のターン 292 を過ぎました。読み込んだ時点では、まだ決着していません/);
+     assert.equal(await page.locator('#card [data-key^="cancel:"], #card [data-key^="cost:"], #card [data-key="manual"], #card [data-act="coop-open"]').count(), 0, 'nothing registered: as before');
+     assert.ok(await noSideScroll(page));
+     await shot(page, `ws07-s1-card-plain-${size.name}`);
+diff --git a/permutation-gateway/screens/ws07-s1-page.screen.mjs b/permutation-gateway/screens/ws07-s1-page.screen.mjs
+index 84f3f5af..66c8345a 100644
+--- a/permutation-gateway/screens/ws07-s1-page.screen.mjs
++++ b/permutation-gateway/screens/ws07-s1-page.screen.mjs
+@@ -127,9 +127,9 @@ for (const size of SIZES) {
+     assert.equal(await s1On(page), true, 'the page plays the S1 rules');
+     const feedText = await page.evaluate(async () => { const { FS } = await import('/frontier/fstate.mjs'); return (FS.feed ?? []).filter(x => x.away || x.awayOf).map(x => x.text).join('\n'); });
+     assert.match(feedText, /直近 144 ターン/);
+-    assert.match(feedText, /送付記録の数量に対して一部が入りました：食料 352。送付記録の数量：食料 400。比べた基準は送付記録の数量です/, 'to a village: verified against the send record, said so');
+-    assert.match(feedText, /決着しました。入った量はまだ確かめられていません。倉庫は上限を超えた分を切り捨てます/, 'to a storehouse: not verified');
+-    assert.doesNotMatch(feedText, /全量が入りました：木材 300|村に入った量：木材 300|隊商が着きました：木材 300/);
++    assert.match(feedText, /送付記録の数量に対して一部が入りました：食料 352 以上。送付記録の数量：食料 400。比べた基準は送付記録の数量です/, 'to a village: verified against the send record, said so');
++    assert.match(feedText, /到着しましたが、入った量は確認できません（[^）]*最大 [0-9,]*）。倉庫は上限を超えた分を切り捨てます/, 'to a storehouse: not verified');
++    assert.doesNotMatch(feedText, /全量が入りました：木材 300|村に入った量：木材 300|全量が入りました：木材 300 以上|村に入った量：木材 300 以上|隊商が着きました：木材 300/);
+     await shot(page, `ws07-s1-page-away-${size.name}`);
+     // (a phone shows one notice over the map, the newest — here the turn's card —: the away summary waits under it, and
+     // a line under the strip says there is something not yet seen and opens the summary in the list under その他 —
+@@ -177,7 +177,7 @@ for (const size of SIZES) {
+     const card = page.locator('.s1-card');
+     await card.waitFor({ state: 'attached', timeout: 15000 });
+     assert.equal(await card.locator('[data-key="arrival:overdue"]').count(), 1);
+-    assert.match(await card.innerText(), /到着予定のターン \d+ を過ぎました。まだ決着していません/);
++    assert.match(await card.innerText(), /到着予定のターン \d+ を過ぎました。読み込んだ時点では、まだ決着していません/);
+     assert.doesNotMatch(await card.innerText(), /到着済み/, 'past the turn is not arrived');
+     assert.equal(await card.locator('[data-key^="cancel:"], [data-key^="cost:"], [data-key="manual"], [data-act="coop-open"]').count(), 0, 'nothing registered: nothing added');
+     await card.scrollIntoViewIfNeeded();
+diff --git a/permutation-gateway/screens/ws07-s1-pure.screen.mjs b/permutation-gateway/screens/ws07-s1-pure.screen.mjs
+index 117faa23..7af97fd0 100644
+--- a/permutation-gateway/screens/ws07-s1-pure.screen.mjs
++++ b/permutation-gateway/screens/ws07-s1-pure.screen.mjs
+@@ -143,9 +143,9 @@ for (const size of SIZES) {
+     assert.ok(layouts.provinces.length > 0 && layouts.provinces.every(l => l === 2), `provinces at layout 2: ${JSON.stringify(layouts.provinces)}`);
+     const feedText = await page.evaluate(async () => { const { FS } = await import('/frontier/fstate.mjs'); return (FS.feed ?? []).filter(x => x.away || x.awayOf).map(x => x.text).join('\n'); });
+     assert.match(feedText, /直近 144 ターン/);
+-    assert.match(feedText, /送付記録の数量に対して一部が入りました：食料 352。送付記録の数量：食料 400。比べた基準は送付記録の数量です/, 'to a village: verified against the send record, said so');
+-    assert.match(feedText, /決着しました。入った量はまだ確かめられていません。倉庫は上限を超えた分を切り捨てます/, 'to a storehouse: not verified');
+-    assert.doesNotMatch(feedText, /全量が入りました：木材 300|村に入った量：木材 300|隊商が着きました：木材 300/);
++    assert.match(feedText, /送付記録の数量に対して一部が入りました：食料 352 以上。送付記録の数量：食料 400。比べた基準は送付記録の数量です/, 'to a village: verified against the send record, said so');
++    assert.match(feedText, /到着しましたが、入った量は確認できません（[^）]*最大 [0-9,]*）。倉庫は上限を超えた分を切り捨てます/, 'to a storehouse: not verified');
++    assert.doesNotMatch(feedText, /全量が入りました：木材 300|村に入った量：木材 300|全量が入りました：木材 300 以上|村に入った量：木材 300 以上|隊商が着きました：木材 300/);
+     await shot(page, `ws07-s1-page-away-${size.name}`);
+     // (a phone shows one notice over the map, the newest — here the turn's card —: the away summary waits under it, and
+     // a line under the strip says there is something not yet seen and opens the summary in the list under その他 —
+@@ -193,7 +193,7 @@ for (const size of SIZES) {
+     const card = page.locator('.s1-card');
+     await card.waitFor({ state: 'attached', timeout: 15000 });
+     assert.equal(await card.locator('[data-key="arrival:overdue"]').count(), 1);
+-    assert.match(await card.innerText(), /到着予定のターン \d+ を過ぎました。まだ決着していません/);
++    assert.match(await card.innerText(), /到着予定のターン \d+ を過ぎました。読み込んだ時点では、まだ決着していません/);
+     assert.doesNotMatch(await card.innerText(), /到着済み/, 'past the turn is not arrived');
+     assert.equal(await card.locator('[data-key^="cancel:"], [data-key^="cost:"], [data-key="manual"], [data-act="coop-open"]').count(), 0, 'nothing registered: nothing added');
+     await card.scrollIntoViewIfNeeded();
+diff --git a/permutation-gateway/screens/ws07-s1.screen.mjs b/permutation-gateway/screens/ws07-s1.screen.mjs
+index cab6a527..d5b6e008 100644
+--- a/permutation-gateway/screens/ws07-s1.screen.mjs
++++ b/permutation-gateway/screens/ws07-s1.screen.mjs
+@@ -108,15 +108,15 @@ for (const size of SIZES) {
+     for (const l of ['ja', 'en']) {
+       const { c, page, errors } = await open(size, `s=first&lang=${l}`);
+       const rows = page.locator('#contract [role="status"]');
+-      assert.equal(await rows.count(), 14);
++      assert.equal(await rows.count(), 17);
+       const syms = await page.locator('#contract .ws07-sym').allInnerTexts();
+-      assert.deepEqual(syms, ['‖', '⌛', '■', '…', '?', '◐', '●', '✕', '◇', '◆', '◇?', '↺', '✋', '?']);
++      assert.deepEqual(syms, ['‖', '⌛', '■', '…', '?', '◐', '●', '✕', '→', '?', '○', '◇', '◆', '◇?', '↺', '✋', '?']);
+       const t = await page.locator('#contract').innerText();
+-      if (l === 'ja') { assert.match(t, /到着予定のターン 292 を過ぎました。まだ決着していません/); assert.match(t, /決着しました。入った量はまだ確かめられていません/); assert.match(t, /状態を受け取れていません/); }
++      if (l === 'ja') { assert.match(t, /到着予定のターン 292 を過ぎました。読み込んだ時点では、まだ決着していません/); assert.match(t, /到着しましたが、入った量は確認できません（食料 最大 400）/); assert.match(t, /別の場所に着きました（原因を確認中）/); assert.match(t, /状態不明：/); assert.match(t, /村に入った量：0 以上/); assert.doesNotMatch(t, /奪われた隊商など|：なし/); assert.match(t, /状態を受け取れていません/); }
+       else assert.doesNotMatch(t, /[぀-ヿ一-鿿]/, 'English words throughout');
+       // nothing by colour alone: the same rows in greyscale still carry their symbols and words
+       await page.emulateMedia({ forcedColors: 'active' });
+-      assert.equal((await page.locator('#contract .ws07-sym').allInnerTexts()).length, 14);
++      assert.equal((await page.locator('#contract .ws07-sym').allInnerTexts()).length, 17);
+       await shot(page, `ws07-s1-contract-${l}-${size.name}`);
+       assert.ok(await noSideScroll(page));
+       assert.deepEqual(errors, []);
+diff --git a/permutation-gateway/screens/ws07/s1-parts.mjs b/permutation-gateway/screens/ws07/s1-parts.mjs
+index be571087..516fe063 100644
+--- a/permutation-gateway/screens/ws07/s1-parts.mjs
++++ b/permutation-gateway/screens/ws07/s1-parts.mjs
+@@ -87,7 +87,7 @@ document.addEventListener('click', e => {
+ // the display contract's states (04, 05), each as the page words it
+ setHtml(document.getElementById('contract'), html`${[
+   SV.cancelView({ stage: 'stopNew' }), SV.cancelView({ stage: 'awaitSigned', signedPending: 2 }), SV.cancelView({ stage: 'cancelled', settled: [] }),
+-  SV.arrivalView({ state: 'overdue', bell: 292 }), SV.arrivalView({ state: 'settledUnverified', why: 'vault', recorded: [400, 0, 0, 0, 0, 0, 0, 0] }), SV.arrivalView({ state: 'verifiedPartial', basis: 'sentRecord', sent: [400, 0, 0, 0, 0, 0, 0, 0], arrived: [250, 0, 0, 0, 0, 0, 0, 0] }), SV.arrivalView({ state: 'verifiedFull', basis: 'sentRecord', sent: [400, 0, 0, 0, 0, 0, 0, 0], arrived: [400, 0, 0, 0, 0, 0, 0, 0] }), SV.arrivalView({ state: 'lost', recorded: [400, 0, 0, 0, 0, 0, 0, 0] }),
++  SV.arrivalView({ state: 'overdue', bell: 292 }), SV.arrivalView({ state: 'settledUnverified', why: 'vault', recorded: [400, 0, 0, 0, 0, 0, 0, 0] }), SV.arrivalView({ state: 'verifiedPartial', basis: 'sentRecord', sent: [400, 0, 0, 0, 0, 0, 0, 0], arrived: [250, 0, 0, 0, 0, 0, 0, 0] }), SV.arrivalView({ state: 'verifiedFull', basis: 'sentRecord', sent: [400, 0, 0, 0, 0, 0, 0, 0], arrived: [400, 0, 0, 0, 0, 0, 0, 0] }), SV.arrivalView({ state: 'lost', recorded: [400, 0, 0, 0, 0, 0, 0, 0] }), SV.arrivalView({ state: 'misdelivered', recorded: [400, 0, 0, 0, 0, 0, 0, 0] }), SV.arrivalView({ state: 'unread' }), SV.arrivalView({ state: 'verifiedIntake', intake: [0, 0, 0, 0, 0, 0, 0, 0], compare: 'sentUnknown' }),
+   SV.costView({ phase: 'reserved', amounts: [0, 50, 0, 0, 0, 0, 0, 0] }), SV.costView({ phase: 'committed', amounts: [0, 50, 0, 0, 0, 0, 0, 0] }), SV.costView({ phase: 'unsettled' }), SV.costView({ phase: 'released', amounts: [0, 50, 0, 0, 0, 0, 0, 0] }),
+   SV.manualView({ signedPending: 1 }), SV.cancelView({ stage: '?' }),
+ ].map(v => SV.renderStatus(v))}`);
+diff --git a/permutation-gateway/test/web-frontier-ws07-away.test.mjs b/permutation-gateway/test/web-frontier-ws07-away.test.mjs
+index f04cc333..6a39e33b 100644
+--- a/permutation-gateway/test/web-frontier-ws07-away.test.mjs
++++ b/permutation-gateway/test/web-frontier-ws07-away.test.mjs
+@@ -291,3 +291,27 @@ test('the page reads the away summary from its own reader, per scope, and "seen"
+   assert.match(seen, /confirm: x\.away\.summary\.confirm/);
+   assert.match(seen, /x\.scope !== awayScopeNow\(\)/);
+ });
++
++// ---------------------------------------------------------------- the phone's entry line after a reload (app.mjs awayPump, renderAwayEntry)
++test('after "seen" a reload queues no head notice, so the phone\'s entry line is not drawn again; after only ×, the same events come back', () => {
++  setLang('ja');
++  const app = readFileSync(new URL('../../permutation-server/web/frontier/app.mjs', import.meta.url), 'utf8');
++  // the reading queues a head notice (which the entry line is drawn from) unless there is nothing to tell
++  assert.match(app, /if \(!s\.items\.length && !s\.gap && !s\.failed && s\.windowFrom === null && s\.mode !== 'markAhead'\) return;/);
++  const quiet = s => !s.items.length && !s.gap && !s.failed && s.windowFrom === null && s.mode !== 'markAhead';
++  const st = storage();
++  RS.confirm(st, { seasonId: '7', wallet: 'W', confirm: { ok: true, toSeq: '100', toBell: 299, horizonBell: null, caravans: {} }, at: 1 });
++  const first = sum({ records: R, read: { after: '100', complete: true }, marks: RS.loadMarks(st, '7', 'W') });
++  assert.ok(first.items.length > 0 && !quiet(first), 'unseen events: the line is drawn');
++  // × only (no "seen"): nothing is saved; a reload reads the same events again and the line comes back
++  const again = sum({ records: R, read: { after: '100', complete: true }, marks: RS.loadMarks(st, '7', 'W') });
++  assert.deepEqual(again.items.map(i => i.seq), first.items.map(i => i.seq));
++  // "seen": the mark is saved on the device; a reload (the marks read back from storage) reads from it and finds nothing
++  RS.confirm(st, { seasonId: '7', wallet: 'W', confirm: first.confirm, at: 2 });
++  const reloaded = storage(); for (const [k, v] of st.m) reloaded.setItem(k, v); // (a new page: only what the device kept)
++  const back = RS.loadMarks(reloaded, '7', 'W');
++  assert.equal(back.confirmedSeq, first.confirm.toSeq);
++  const after = sum({ records: [], read: { after: back.confirmedSeq, complete: true }, marks: back });
++  assert.ok(quiet(after), 'nothing new after the mark: no head notice, no line');
++  assert.deepEqual(after.confirm, { ok: false, why: 'nothing' });
++});
+diff --git a/permutation-gateway/test/web-frontier-ws07-connect.test.mjs b/permutation-gateway/test/web-frontier-ws07-connect.test.mjs
+index 683e4843..42288a93 100644
+--- a/permutation-gateway/test/web-frontier-ws07-connect.test.mjs
++++ b/permutation-gateway/test/web-frontier-ws07-connect.test.mjs
+@@ -32,11 +32,37 @@ test('a caravan past its arrival turn and not settled yet: "overdue, not settled
+   assert.match(before, /ターン 292 に到着/);
+   assert.doesNotMatch(before, /data-key="arrival:/);
+   const after = card(world(300));
+-  assert.match(after, /role="status" data-key="arrival:overdue"[\s\S]*到着予定のターン 292 を過ぎました。まだ決着していません/);
++  assert.match(after, /role="status" data-key="arrival:overdue"[\s\S]*到着予定のターン 292 を過ぎました。読み込んだ時点では、まだ決着していません/);
+   assert.doesNotMatch(after, /到着済み|着きました|入りました/, 'past the turn is not arrived');
+   assert.deepEqual([SRC.arrivalOnRoad({ arriveBell: 292 }, 291), SRC.arrivalOnRoad({ arriveBell: 292 }, 292), SRC.arrivalOnRoad({ arriveBell: null }, 999)], [null, { state: 'overdue', bell: 292 }, null]);
+ });
+ 
++test('a caravan gone from the road\'s list with no end read: "state unknown", never arrived or lost; its end read clears it; a reload (a new page state) says nothing of it', () => {
++  setLang('ja');
++  const fs = world(300);
++  assert.doesNotMatch(card(fs), /data-key="arrival:unread"/, 'on the road: no unknown line');
++  fs.s1 = { ...fs.s1, caravans: { ...fs.s1.caravans, moving: [] } };
++  const gone = card(fs);
++  assert.match(gone, /role="status" data-key="arrival:unread"[\s\S]*状態不明：道中の一覧から外れましたが、終わりの記録をまだ読んでいません/);
++  assert.doesNotMatch(gone, /着きました|入りました|失われました|奪われました/, 'no state asserted without a record');
++  assert.match(card(fs), /data-key="arrival:unread"/, 'it stays while no end is read');
++  SCR.caravanWatchOf(fs).ended(RS.caravanKey({ owner_tag: 5, seq: 2 }));
++  assert.doesNotMatch(card(fs), /data-key="arrival:unread"/, 'its settlement read: the away summary says how it ended');
++  // a list not read (null) is not "gone"
++  const fs2 = world(300); card(fs2); fs2.s1 = { ...fs2.s1, caravans: null };
++  assert.doesNotMatch(card(fs2), /data-key="arrival:unread"/);
++  // a reload: a new page state never saw it, so nothing is said (memory only)
++  const fresh = world(300); fresh.s1 = { ...fresh.s1, caravans: { ...fresh.s1.caravans, moving: [] } };
++  assert.doesNotMatch(card(fresh), /data-key="arrival:unread"/);
++});
++
++test('a take read after the send marks the caravan taken: its settlement elsewhere is the raider\'s, not a misdelivery', () => {
++  const sn = RS.itemsSince([sent(101, F400), rec(102, 'CARAVAN_RAIDED', 290, { owner_tag: 5, seq: 2, p: 0, q: 0, bell: 289, choice: 0, by: 0, raider_tag: 0x77, taken: cargo(F400) })], me, new Map(), null, S1_RULES).sent;
++  assert.equal(sn.get(RS.caravanKey({ owner_tag: 5, seq: 2 })).taken, true);
++  assert.deepEqual(SRC.arrivalSettled({ outcome: 0, dst: at(1, 3), cargo: F400 }, sn.get('5:2'), S1_RULES), { state: 'verifiedIntake', intake: F400, compare: 'dstChanged' });
++  assert.deepEqual(SRC.arrivalSettled({ outcome: 0, dst: at(1, 3), cargo: F400 }, { ...sn.get('5:2'), taken: undefined }, S1_RULES), { state: 'misdelivered', recorded: F400 });
++});
++
+ test('04\'s own arrival, when 04 registers it, replaces the page\'s', () => {
+   const off = SRC.registerStatusSource('caravanArrival', () => ({ state: 'settledUnverified', why: 'dstUnknown' }));
+   try { assert.match(card(world(300)), /data-key="arrival:settledUnverified:dstUnknown"/); } finally { off(); }
+@@ -102,22 +128,26 @@ test('to a village (Holding::credit adds the record\'s cargo whole): the intake
+   const full = arrivalOf([sent(101, F400, 120), settled(102, at(1), F400)]);
+   assert.deepEqual(full, { state: 'verifiedFull', basis: 'sentRecord', sent: F400, arrived: F400, wornBps: 120 });
+   const fullText = RW.itemText(sum([sent(101, F400, 120), settled(102, at(1), F400)]).items.find(i => i.kind === 'CARAVAN_SETTLED'));
+-  assert.match(fullText, /送付記録の数量に対して全量が入りました：食料 400/);
++  assert.match(fullText, /送付記録の数量に対して全量が入りました：食料 400 以上/);
+   assert.match(fullText, /比べた基準は送付記録の数量です。送付記録の数量は経路の減少を引いたあとの量で、最初に積んだ量と経路の損失は、この記録からは確定しません/);
+   assert.match(fullText, /送付記録には経路の減少率 1\.2% が記されています/);
+-  assert.match(fullText, /数量は記録の単位です（1 未満は切り捨て）/);
++  assert.match(fullText, /記録の数は、入った量の下限です/);
+   assert.doesNotMatch(fullText, /(?<!送付記録の数量に対して)全量が入りました|全部入りました|無損失/, 'never "all arrived" without its basis');
+   const part = arrivalOf([sent(101, F400), settled(102, at(1), F352)]);
+   assert.deepEqual(part, { state: 'verifiedPartial', basis: 'sentRecord', sent: F400, arrived: F352, wornBps: 0 });
+-  assert.match(RW.itemText(sum([sent(101, F400), settled(102, at(1), F352)]).items.find(i => i.kind === 'CARAVAN_SETTLED')), /送付記録の数量に対して一部が入りました：食料 352。送付記録の数量：食料 400/);
++  assert.match(RW.itemText(sum([sent(101, F400), settled(102, at(1), F352)]).items.find(i => i.kind === 'CARAVAN_SETTLED')), /送付記録の数量に対して一部が入りました：食料 352 以上。送付記録の数量：食料 400/);
+ });
+ 
+ test('the intake known and the comparison possible are two judgements: no send read → intake only; a send to another place or generation → intake only', () => {
+   setLang('ja');
+   assert.deepEqual(heldSince([settled(102, at(1), F352)]), { state: 'verifiedIntake', intake: F352, compare: 'sentUnknown' });
+-  assert.match(RW.itemText(heldSince.item([settled(102, at(1), F352)])), /村に入った量：食料 352。送付記録を読めていないため、送った量の全部か一部かは比べられません/);
+-  // the village's generation changed between the send and the settlement (another village on that site): not compared
+-  assert.deepEqual(arrivalOf([sent(101, F400, 0, at(1, 1)), settled(102, at(1, 2), F400)]), { state: 'verifiedIntake', intake: F400, compare: 'dstChanged' });
++  assert.match(RW.itemText(heldSince.item([settled(102, at(1), F352)])), /村に入った量：食料 352 以上。送付記録を読めていないため、送った量の全部か一部かは比べられません/);
++  // the village's generation changed between the send and the settlement, with no take read: the cause is not known from
++  // the records — another place, nothing counted, no raid named (04 DestinationMismatch)
++  assert.deepEqual(arrivalOf([sent(101, F400, 0, at(1, 1)), settled(102, at(1, 2), F400)]), { state: 'misdelivered', recorded: F400 });
++  const mt = RW.itemText(sum([sent(101, F400, 0, at(1, 1)), settled(102, at(1, 2), F400)]).items.find(i => i.kind === 'CARAVAN_SETTLED'));
++  assert.match(mt, /^隊商（ターン 292）：別の場所に着きました（原因を確認中）/);
++  assert.doesNotMatch(mt, /奪|村に入った量|全量|一部が入りました/);
+   // neither the send nor a mark that holds it: who holds it is unknown, so no arrival is told as the viewer's at all
+   assert.equal(arrivalOf([settled(102, at(1), F352)]), undefined);
+   assert.equal(sum([settled(102, at(1), F352)]).items.find(i => i.kind === 'CARAVAN_SETTLED').tone, 'uncertain');
+@@ -134,8 +164,8 @@ test('to a storehouse (settle_caravan cuts at the vault\'s cap, the record keeps
+   setLang('ja');
+   assert.deepEqual(arrivalOf([sent(101, F400, 0, at(2)), settled(102, at(2), F400)]), { state: 'settledUnverified', why: 'vault', recorded: F400 });
+   const t = RW.itemText(sum([sent(101, F400, 0, at(2)), settled(102, at(2), F400)]).items.find(i => i.kind === 'CARAVAN_SETTLED'));
+-  assert.match(t, /^隊商（ターン 292）：決着しました。入った量はまだ確かめられていません。倉庫は上限を超えた分を切り捨てます/);
+-  assert.equal(t.split('決着しました').length - 1, 1, 'said once, not twice');
++  assert.match(t, /^隊商（ターン 292）：到着しましたが、入った量は確認できません（食料 最大 400）。倉庫は上限を超えた分を切り捨てます/);
++  assert.equal(t.split('到着しました').length - 1, 1, 'said once, not twice');
+   assert.doesNotMatch(t, /全量|一部が入りました|村に入った量/);
+   assert.deepEqual(heldSince([settled(102, 0n, F400)]), { state: 'settledUnverified', why: 'dstUnknown', recorded: F400 });
+ });
+@@ -173,7 +203,7 @@ test('English words for the connected states', () => {
+   const off = SRC.registerStatusSource('villageCosts', () => ({ costs: [{ phase: 'reserved', amounts: [100, 0, 0, 0, 0, 0, 0, 0] }], committedInHave: true }));
+   try {
+     const html = card(world(300)).replace(/<[^>]+>/g, ' ');
+-    assert.match(html, /Its arrival turn 292 has passed\. Its journey is not concluded yet/);
++    assert.match(html, /Its arrival turn 292 has passed\. When last read, its journey was not concluded yet/);
+     assert.match(html, /Usable \(after reservations\): Food 900/);
+   } finally { off(); setLang('ja'); }
+ });
+diff --git a/permutation-gateway/test/web-frontier-ws07-contracts.test.mjs b/permutation-gateway/test/web-frontier-ws07-contracts.test.mjs
+index a0e41669..a91720f5 100644
+--- a/permutation-gateway/test/web-frontier-ws07-contracts.test.mjs
++++ b/permutation-gateway/test/web-frontier-ws07-contracts.test.mjs
+@@ -31,21 +31,43 @@ test('a caravan\'s arrival in its states: overdue is not arrived, settled-unveri
+   setLang('ja');
+   const o = SV.arrivalView({ state: 'overdue', bell: 292 });
+   assert.deepEqual([o.key, o.symbol], ['arrival:overdue', '…']);
+-  assert.match(o.text, /到着予定のターン 292 を過ぎました。まだ決着していません/);
++  assert.match(o.text, /到着予定のターン 292 を過ぎました。読み込んだ時点では、まだ決着していません/);
+   assert.doesNotMatch([o.text, ...o.details].join(), /着きました|入りました/, 'past the turn is not arrived');
+   const v = SV.arrivalView({ state: 'settledUnverified', why: 'vault', recorded: C(400) });
+   assert.deepEqual([v.key, v.symbol], ['arrival:settledUnverified:vault', '?']);
+-  assert.match(v.text, /決着しました。入った量はまだ確かめられていません/);
++  assert.equal(v.text, '到着しましたが、入った量は確認できません（食料 最大 400）', 'a storehouse: arrived, the intake unknown, at most the record (04 DeliveredUnverified)');
+   assert.match(v.details.join(), /倉庫は上限を超えた分を切り捨てます。決着の記録には元の積荷（食料 400）が載る/);
++  assert.doesNotMatch([v.text, ...v.details].join(), /失われ|入りませんでした|0 以上/, 'never said lost or nothing');
++  assert.equal(SV.arrivalView({ state: 'settledUnverified', why: 'vault' }).text, '到着しましたが、入った量は確認できません', 'no record: no bound is made up');
++  assert.match(SV.arrivalView({ state: 'settledUnverified', why: 'dstUnknown', recorded: C(400) }).text, /決着しました。入った量はまだ確かめられていません/);
+   assert.match(SV.arrivalView({ state: 'settledUnverified', why: 'rulesUnknown', recorded: C(352) }).details.join(), /このシーズンのプログラムの版では、入った量の確かめ方を確認していません/);
+   const k = SV.arrivalView({ state: 'verifiedIntake', intake: C(352), compare: 'sentUnknown' });
+   assert.deepEqual([k.key, k.symbol], ['arrival:verifiedIntake:sentUnknown', '○']);
+-  assert.match([k.text, ...k.details].join(), /村に入った量：食料 352.*送付記録を読めていないため、送った量の全部か一部かは比べられません.*数量は記録の単位です/);
++  assert.match([k.text, ...k.details].join(), /村に入った量：食料 352 以上.*送付記録を読めていないため、送った量の全部か一部かは比べられません.*記録の数は、入った量の下限です/);
++  // a village's record is the LOWER bound of its intake (04, 01): all zero is "0 以上", never "なし" or a bare 0
++  const z = SV.arrivalView({ state: 'verifiedIntake', intake: C(0), compare: 'sentUnknown' });
++  assert.equal(z.text, '村に入った量：0 以上');
++  assert.doesNotMatch([z.text, ...z.details].join(), /なし|：0(?! 以上)/);
++  assert.equal(SV.arrivalView({ state: 'verifiedFull', basis: 'sentRecord', sent: C(0), arrived: C(0) }).text, '送付記録の数量に対して全量が入りました：0 以上');
++  assert.match(SV.atLeastText(C(352, 0, 7)), /^食料 352 以上・\S+ 7 以上$/, 'each resource its own lower bound; a zero resource is left out');
++  // the destination differs and no take was read: another place, the cause being checked — no raid, nothing counted (04 DestinationMismatch)
++  const md = SV.arrivalView({ state: 'misdelivered', recorded: C(400) });
++  assert.deepEqual([md.key, md.symbol, md.text], ['arrival:misdelivered', '→', '別の場所に着きました（原因を確認中）']);
++  assert.doesNotMatch([md.text, ...md.details].join(), /奪|略奪|入りました|食料 400/);
++  // a raider's arrival at its own place: told with no example of a cause
++  const dc = SV.arrivalView({ state: 'verifiedIntake', intake: C(400), compare: 'dstChanged' });
++  assert.doesNotMatch([dc.text, ...dc.details].join(), /奪われた隊商など|途中で奪/);
++  assert.match(dc.details.join(), /送付記録とは行き先が違うため、送付記録とは比べません/);
++  // gone from the road's list, no end read: the state is not asserted
++  const u = SV.arrivalView({ state: 'unread' });
++  assert.deepEqual([u.key, u.symbol], ['arrival:unread', '?']);
++  assert.match(u.text, /^状態不明：/);
++  assert.doesNotMatch([u.text, ...u.details].join(), /着きました|失われました|奪われました/);
+   assert.equal(SV.arrivalView({ state: 'verifiedIntake', intake: C(1) }).ok, false, 'an intake says why it is not compared');
+   assert.equal(SV.arrivalView({ state: 'settledUnverified' }).ok, false, 'an unverified arrival says why');
+   const p = SV.arrivalView({ state: 'verifiedPartial', basis: 'sentRecord', sent: C(400), arrived: C(100) });
+   assert.deepEqual([p.key, p.symbol], ['arrival:verifiedPartial', '◐']);
+-  assert.match(p.text, /送付記録の数量に対して一部が入りました：食料 100/);
++  assert.match(p.text, /送付記録の数量に対して一部が入りました：食料 100 以上/);
+   assert.match(p.details.join(), /送付記録の数量：食料 400.*差の理由は、記録で確かめるまで決めません/);
+   assert.equal(SV.arrivalView({ state: 'verifiedPartial', basis: 'sentRecord', arrived: C(100) }).ok, false, 'a partial arrival needs what was sent');
+   assert.equal(SV.arrivalView({ state: 'verifiedFull', sent: C(1), arrived: C(1) }).ok, false, 'full or partial only with its basis named');
+@@ -92,9 +114,9 @@ test('a status line says its state with a symbol and words (role=status), and ha
+   setLang('ja');
+   const out = String(SV.renderStatus(SV.arrivalView({ state: 'settledUnverified', why: 'vault' })));
+   assert.match(out, /role="status"/);
+-  assert.match(out, /aria-hidden="true">\?<\/span> <strong>決着しました。入った量はまだ確かめられていません/);
++  assert.match(out, /aria-hidden="true">\?<\/span> <strong>到着しましたが、入った量は確認できません/);
+   setLang('en');
+-  const all = [SV.cancelView({ stage: 'stopNew' }), SV.cancelView({ stage: 'awaitSigned', signedPending: 1 }), SV.cancelView({ stage: 'cancelled', settled: [] }), SV.arrivalView({ state: 'overdue', bell: 3 }),
++  const all = [SV.cancelView({ stage: 'stopNew' }), SV.cancelView({ stage: 'awaitSigned', signedPending: 1 }), SV.cancelView({ stage: 'cancelled', settled: [] }), SV.arrivalView({ state: 'overdue', bell: 3 }), SV.arrivalView({ state: 'misdelivered', recorded: C(2) }), SV.arrivalView({ state: 'unread' }), SV.arrivalView({ state: 'verifiedIntake', intake: C(0), compare: 'sentUnknown' }),
+     ...SV.UNVERIFIED_WHY.map(why => SV.arrivalView({ state: 'settledUnverified', why, recorded: C(2) })), SV.arrivalView({ state: 'lost', recorded: C(2) }),
+     SV.arrivalView({ state: 'verifiedPartial', basis: 'sentRecord', sent: C(4), arrived: C(1), wornBps: 100 }), SV.arrivalView({ state: 'verifiedFull', basis: 'sentRecord', sent: C(4), arrived: C(4) }), ...SV.COMPARE_WHY.map(compare => SV.arrivalView({ state: 'verifiedIntake', intake: C(2), compare })), ...SV.COST_PHASES.map(phase => SV.costView({ phase, amounts: C(1) })), SV.costView({ phase: 'unsettled' }),
+     SV.manualView({ signedPending: 2 }), SV.manualView({}), SV.manualView({ signedPending: 0 }), SV.cancelView({})];
+diff --git a/permutation-server/web/frontier/app.mjs b/permutation-server/web/frontier/app.mjs
+index fae749ef..2e9e18f6 100644
+--- a/permutation-server/web/frontier/app.mjs
++++ b/permutation-server/web/frontier/app.mjs
+@@ -51,6 +51,7 @@ import { html, setHtml } from '../util.mjs';
+ import * as returnSum from './hud/returnsum.mjs';
+ import * as returnWords from './hud/returnwords.mjs';
+ import * as returnRead from './hud/awayread.mjs';
++import { caravanWatchOf } from './screens/s1.mjs';
+ import { palisadeHexesOf, marchWearOf } from './s1walk.mjs';
+ import { ACTIONS, FORMS, bind, startPlay, wantProvince, wantKeepHistory, wantKeepReach, wantHostReach, refreshConquest, refreshPrize, ackHomeGrant, tolled, syncProto, wantPreview, wantPlaces, composeTick } from './controller.mjs';
+ import { mountProtoBoard } from './proto/board-mount.mjs';
+@@ -2284,17 +2285,19 @@ let awayBusy = false, awayBook = null, awaySent = null, awayQueue = [];
+ const awayWho = () => ({ season: String(FS.season?.seasonId ?? ''), wallet: FS.wallet?.address ?? '' });
+ const awayScopeNow = () => { const { season, wallet } = awayWho(); return season && wallet ? returnRead.awayScope({ herald: String(FS.season?.genesisTs ?? ''), seasonId: season, wallet }) : null; };
+ const S1_NEWS = new Set(['CARAVAN_RAIDED', 'RAID_OPENED', 'CARAVAN_SETTLED', 'VAULT_SEIZED', 'STRUCTURE_SEIZED', 'SIEGE_DECLARED', 'CAPTURE_SETTLED', 'NATION_DECIDED', 'NATION_PROPOSED']);
++/** The ends of caravans the away reader read: a caravan gone from the road's list is no longer "state unknown" once read. */
++const awayEnds = records => { for (const x of records ?? []) if (x.record?.name === 'CARAVAN_SETTLED' || x.record?.name === 'CARAVAN_RAIDED') { const k = returnSum.caravanKey(x.record); if (k) caravanWatchOf(FS).ended(k); } };
+ /** The away head notice's words: what the summary covers and what "seen" will do (or why it is not offered). */
+ const awayHeadText = (s, saved = undefined) => `${returnWords.headText(s)} ${saved === undefined ? returnWords.confirmText(s) : returnWords.confirmedText(saved)}`;
+ function awayPump() {
+   if (awayBusy || !heraldRef || !s1On()) return;
+   const sc = awayScopeNow();
+-  if (sc === null) { if (awayReader.scope !== null) { awayReader.reset(); awayBook = null; awayQueue = []; } return; }
++  if (sc === null) { if (awayReader.scope !== null) { awayReader.reset(); awayBook = null; awayQueue = []; caravanWatchOf(FS).reset(); } return; }
+   awayBusy = true;
+   if (sc !== awayReader.scope) {
+     // (a new wallet or season, or the first look: what another scope told goes, with its book)
+     FS.feed = (FS.feed ?? []).filter(x => !(x.away || x.awayOf) || x.scope === sc);
+-    awayBook = null; awayQueue = [];
++    awayBook = null; awayQueue = []; caravanWatchOf(FS).reset();
+     const { season, wallet } = awayWho(), st = awayStore();
+     const marks = returnSum.loadMarks(st, season, wallet);
+     const head = (() => { try { return FS.record?.headSeq === undefined ? null : BigInt(FS.record.headSeq); } catch { return null; } })();
+@@ -2302,6 +2305,7 @@ function awayPump() {
+     const from = usable ? marks.confirmedSeq : head === null ? '0' : String(head > BigInt(returnRead.AWAY_REACH) ? head - BigInt(returnRead.AWAY_REACH) : 0n);
+     awayReader.start({ scope: sc, from }).then(r => {
+       if (r.stale || r.scope !== awayScopeNow()) return;
++      awayEnds(r.records);
+       const s = returnSum.summarize({ records: r.records, read: { after: r.after, complete: r.complete, failed: r.failed }, marks: returnSum.loadMarks(awayStore(), season, wallet), last: returnSum.loadLast(awayStore()),
+         season, wallet, nowBell: FS.nowBell ?? 0, headSeq: head === null ? null : String(head), me: awayMe(), rules: { programVersion: FS.season?.programVersion } });
+       awayBook = s.book; awaySent = s.sent;
+@@ -2312,6 +2316,7 @@ function awayPump() {
+   } else {
+     awayReader.more().then(r => {
+       if (r.stale || r.scope !== awayScopeNow() || awayBook === null) return;
++      awayEnds(r.records);
+       const { items, book, sent } = returnSum.itemsSince(r.records, awayMe(), awayBook, awaySent, { programVersion: FS.season?.programVersion });
+       awayBook = book; awaySent = sent;
+       awayQueue.push(...items.filter(i => S1_NEWS.has(i.kind)).map(i => ({ ...awayItem(i), scope: sc })));
+diff --git a/permutation-server/web/frontier/hud/returnsum.mjs b/permutation-server/web/frontier/hud/returnsum.mjs
+index 2a6c51e9..6b36da49 100644
+--- a/permutation-server/web/frontier/hud/returnsum.mjs
++++ b/permutation-server/web/frontier/hud/returnsum.mjs
+@@ -238,14 +238,16 @@ export function itemsSince(records, me, book, sent = null, rules = {}) {
+ }
+ 
+ /**
+- * What each caravan was sent with, from CARAVAN_SENT (key → `{cargo, wornBps, dst}`: the cargo after the towers' wear,
+- * caravan.rs send), forgotten at its settlement. Not kept with the mark: a caravan whose send was not read is not
++ * What each caravan was sent with, from CARAVAN_SENT (key → `{cargo, wornBps, dst, taken?}`: the cargo after the towers'
++ * wear, caravan.rs send; `taken` once a take of it is read), forgotten at its settlement. Not kept with the mark: a caravan whose send was not read is not
+  * compared, and its arrival stays unverified.
+  */
+ function foldSent(sent, r) {
+   const key = caravanKey(r);
+   if (!key) return;
+   if (r.name === 'CARAVAN_SENT') { const c = cargoOf(r.cargo); if (c) sent.set(key, { cargo: c, wornBps: Number(r.worn_bps ?? 0), dst: r.dst ?? null }); }
++  // (a take read after the send: the raider holds it and may name another place — told apart from a misdelivery)
++  else if (r.name === 'CARAVAN_RAIDED' && r.choice !== 1 && sent.has(key)) sent.set(key, { ...sent.get(key), taken: true });
+   else if (r.name === 'CARAVAN_SETTLED') sent.delete(key);
+ }
+ /**
+diff --git a/permutation-server/web/frontier/hud/statussources.mjs b/permutation-server/web/frontier/hud/statussources.mjs
+index a97b33d7..4acb24fb 100644
+--- a/permutation-server/web/frontier/hud/statussources.mjs
++++ b/permutation-server/web/frontier/hud/statussources.mjs
+@@ -66,6 +66,31 @@ const DELIVERED = 0, LOST = 1;
+  */
+ export const S1_PROGRAM_VERSION = 4;
+ 
++/**
++ * The viewer's caravans that left the road's list (the caravans feed) while this page watched it, before any record of
++ * their end was read. Kept in memory only: a reload starts with nothing, and says nothing of caravans it never saw.
++ * `observe(moving)` takes the list as read (skip it when the list was not read) → the gone ones, `[{key, ownerTag, seq,
++ * arriveBell}]`, oldest first; `ended(key)` drops one once its settlement or a raid on it is read (returnsum.caravanKey
++ * form: "<owner tag>:<seq>"); `reset()` forgets all (another wallet or season).
++ */
++export function createCaravanWatch() {
++  const seen = new Map(), gone = new Map(), done = new Set();
++  const keyOf = c => { try { return `${BigInt(c.ownerTag)}:${c.seq}`; } catch { return null; } };
++  return {
++    observe(moving) {
++      const now = new Map();
++      for (const c of moving ?? []) { const k = keyOf(c); if (k !== null) now.set(k, c); }
++      for (const [k, c] of seen) if (!now.has(k) && !done.has(k)) gone.set(k, { key: k, ownerTag: c.ownerTag, seq: c.seq, arriveBell: c.arriveBell ?? null });
++      for (const k of now.keys()) gone.delete(k);
++      seen.clear();
++      for (const [k, c] of now) seen.set(k, c);
++      return [...gone.values()];
++    },
++    ended(key) { done.add(String(key)); gone.delete(String(key)); seen.delete(String(key)); },
++    reset() { seen.clear(); gone.clear(); done.clear(); },
++  };
++}
++
+ /** A caravan still on the road (the caravans feed): overdue once its arrival turn has come — not arrived —, else nothing yet. */
+ export function arrivalOnRoad(c, nowBell) {
+   const at = c?.arriveBell;
+@@ -86,6 +111,10 @@ export function arrivalOnRoad(c, nowBell) {
+  *             settlement names. The send's cargo is AFTER the towers' wear —
+  *             the first loaded amount and the road's loss are not in it, and
+  *             nothing is worked out for them.
++ * A settlement at another place than the send named: when a take of the caravan was read after its send (`sent.taken`),
++ * the holder is the raider, who chose the new place — the intake is told, not compared (dstChanged). With no take read,
++ * the cause is not known from these records: it is `misdelivered`, nothing is counted as this caravan's arrival, and no
++ * cause (a raid or anything else) is named. (04 HANDOFF §2 DestinationMismatch)
+  */
+ export function arrivalSettled(settled, sent, { programVersion } = {}) {
+   const ok = c => Array.isArray(c) && c.length === 8;
+@@ -98,7 +127,7 @@ export function arrivalSettled(settled, sent, { programVersion } = {}) {
+   if (Number(programVersion) !== S1_PROGRAM_VERSION) return { state: 'settledUnverified', why: 'rulesUnknown', recorded };
+   if (!ok(sent?.cargo)) return { state: 'verifiedIntake', intake: recorded, compare: 'sentUnknown' };
+   const samePlace = (() => { try { return sent.dst !== undefined && sent.dst !== null && BigInt(sent.dst) === BigInt(settled.dst); } catch { return false; } })();
+-  if (!samePlace) return { state: 'verifiedIntake', intake: recorded, compare: 'dstChanged' };
++  if (!samePlace) return sent.taken === true ? { state: 'verifiedIntake', intake: recorded, compare: 'dstChanged' } : { state: 'misdelivered', recorded };
+   const full = recorded.every((n, i) => n >= sent.cargo[i]);
+   const base = { basis: 'sentRecord', sent: sent.cargo, arrived: recorded, wornBps: sent.wornBps ?? 0 };
+   return full ? { state: 'verifiedFull', ...base } : { state: 'verifiedPartial', ...base };
+diff --git a/permutation-server/web/frontier/hud/statusview.mjs b/permutation-server/web/frontier/hud/statusview.mjs
+index 10524531..7c1652d6 100644
+--- a/permutation-server/web/frontier/hud/statusview.mjs
++++ b/permutation-server/web/frontier/hud/statusview.mjs
+@@ -32,7 +32,7 @@ export const CANCEL_STAGES = Object.freeze(['stopNew', 'awaitSigned', 'cancelled
+  * What is known of a caravan's arrival (workstream 07's five states; 04's own contract was not received, so its names
+  * are to be matched against these: REQUESTS.ja.md ④-4). Being past the arrival turn is never "arrived".
+  */
+-export const ARRIVAL_STATES = Object.freeze(['overdue', 'settledUnverified', 'verifiedIntake', 'verifiedPartial', 'verifiedFull', 'lost']);
++export const ARRIVAL_STATES = Object.freeze(['overdue', 'settledUnverified', 'misdelivered', 'unread', 'verifiedIntake', 'verifiedPartial', 'verifiedFull', 'lost']);
+ /**
+  * Why a settled arrival's intake is not verified: a storehouse (it cuts what is over its cap, and the record keeps the
+  * whole cargo), the destination not readable, a season whose program's rules were not checked, an outcome not read.
+@@ -46,6 +46,14 @@ export const COST_PHASES = Object.freeze(['reserved', 'committed', 'unsettled',
+ const count = n => (Number.isInteger(n) && n >= 0 ? n : null);
+ const isCargo = c => Array.isArray(c) && c.length === 8 && c.every(n => Number.isFinite(n) && n >= 0);
+ /** Eight whole amounts in the page's resource order, in words ("食料 400・木材 50", or "なし"). */
++/**
++ * A village's intake in words, as 04's and 01's contracts say it: the record's whole amounts are its LOWER bound
++ * (cargo_log drops what is under one, and Holding::credit adds the cargo whole), so each is "n 以上"; all zero is
++ * "0 以上", never "なし" (which would say nothing went in).
++ */
++export const atLeastText = c => c.map((n, i) => (n > 0 ? L`${RESOURCES[RESOURCE_ORDER[i]]} ${fmtNum(Math.floor(n))} 以上` : null)).filter(Boolean).join(L`・`) || L`0 以上`;
++/** A storehouse's intake bound in words: at most the record's whole amounts (settle_caravan cuts at the cap, never adds more). */
++export const atMostText = c => c.map((n, i) => (n > 0 ? L`${RESOURCES[RESOURCE_ORDER[i]]} 最大 ${fmtNum(Math.floor(n))}` : null)).filter(Boolean).join(L`・`) || L`最大 0`;
+ export const cargoText = c => c.map((n, i) => (n > 0 ? `${RESOURCES[RESOURCE_ORDER[i]]} ${fmtNum(Math.floor(n))}` : null)).filter(Boolean).join(L`・`) || L`なし`;
+ const notReceived = (key, errors) => ({ ok: false, key, symbol: '?', text: L`状態を受け取れていません`, details: [], tone: 'unknown', errors });
+ 
+@@ -79,6 +87,8 @@ export function cancelView(x) {
+  * A caravan's arrival. `x`:
+  *   {state: 'overdue', bell}                                    past turn `bell`, not concluded
+  *   {state: 'settledUnverified', why, recorded?}                concluded; what went in is not verified
++ *   {state: 'misdelivered', recorded?}                          concluded at another place than the send named, no take read
++ *   {state: 'unread'}                                           gone from the road's list; no end record read yet
+  *   {state: 'verifiedIntake', intake, compare}                  what went in is known; not compared with the send
+  *   {state: 'verifiedPartial', basis, sent, arrived, wornBps?}  a part of the SEND RECORD's amount went in
+  *   {state: 'verifiedFull', basis, sent, arrived, wornBps?}     all of the SEND RECORD's amount went in
+@@ -89,13 +99,13 @@ export function cancelView(x) {
+  */
+ export function arrivalView(x) {
+   if (!x || !ARRIVAL_STATES.includes(x.state)) return notReceived('arrival', [`state: ${x?.state ?? 'missing'}`]);
+-  const units = L`数量は記録の単位です（1 未満は切り捨て）`;
++  const units = L`記録の数は、入った量の下限です（記録は 1 未満を切り捨てるので、資源ごとに 1 未満多く入っていることがあります）`;
+   const basis = [L`比べた基準は送付記録の数量です。送付記録の数量は経路の減少を引いたあとの量で、最初に積んだ量と経路の損失は、この記録からは確定しません`,
+     ...(Number(x.wornBps) > 0 ? [L`送付記録には経路の減少率 ${fmtNum(Number(x.wornBps) / 100)}% が記されています`] : [])];
+   if (x.state === 'overdue') {
+     if (!Number.isFinite(x.bell)) return notReceived('arrival', ['bell: missing']);
+     return { ok: true, key: 'arrival:overdue', symbol: '…', tone: 'unknown', errors: [],
+-      text: L`到着予定のターン ${fmtNum(x.bell)} を過ぎました。まだ決着していません`,
++      text: L`到着予定のターン ${fmtNum(x.bell)} を過ぎました。読み込んだ時点では、まだ決着していません`,
+       details: [L`着いたかどうかは、決着の記録が出るまでわかりません`] };
+   }
+   if (x.state === 'settledUnverified') {
+@@ -107,27 +117,45 @@ export function arrivalView(x) {
+       rulesUnknown: [L`このシーズンのプログラムの版では、入った量の確かめ方を確認していません`],
+       outcomeUnknown: [L`決着の結果を記録から読めないため、入った量は確かめられません`],
+     }[x.why];
+-    return { ok: true, key: `arrival:settledUnverified:${x.why}`, symbol: '?', tone: 'unknown', errors: [], text: L`決着しました。入った量はまだ確かめられていません`, details };
++    // (a storehouse took the caravan in — it was delivered — and took at most the record's cargo: said with that bound,
++    // never as 0, a loss or a failure. 04 HANDOFF §2 DeliveredUnverified)
++    const text = x.why === 'vault' ? (isCargo(x.recorded) ? L`到着しましたが、入った量は確認できません（${atMostText(x.recorded)}）` : L`到着しましたが、入った量は確認できません`)
++      : L`決着しました。入った量はまだ確かめられていません`;
++    return { ok: true, key: `arrival:settledUnverified:${x.why}`, symbol: '?', tone: 'unknown', errors: [], text, details };
+   }
+   if (x.state === 'lost') {
+     const rec = isCargo(x.recorded) ? cargoText(x.recorded) : null;
+     return { ok: true, key: 'arrival:lost', symbol: '✕', tone: 'loss', errors: [], text: rec ? L`積荷は失われました：${rec}` : L`積荷は失われました`, details: [L`行き先が無くなっていたため、どこにも入っていません（確定）`] };
+   }
++  if (x.state === 'unread') {
++    // (the caravan left the road's list while this page watched, and no record of its end has been read: whether it
++    // arrived, was lost or was taken is not said until a record says it)
++    return { ok: true, key: 'arrival:unread', symbol: '?', tone: 'unknown', errors: [],
++      text: L`状態不明：道中の一覧から外れましたが、終わりの記録をまだ読んでいません`,
++      details: [L`着いたか、失われたか、奪われたかは、記録を読むまで言いません`] };
++  }
++  if (x.state === 'misdelivered') {
++    // (settled at another place than its send named, with no take read: the cause is not known, so no raid and no other
++    // party is named, and nothing is counted as this caravan's arrival. 04 HANDOFF §2 DestinationMismatch)
++    return { ok: true, key: 'arrival:misdelivered', symbol: '→', tone: 'unknown', errors: [],
++      text: L`別の場所に着きました（原因を確認中）`,
++      details: [L`送付記録の行き先と違う場所で決着しました。この隊商の到着としては、入った量を数えません`] };
++  }
+   if (x.state === 'verifiedIntake') {
+     if (!isCargo(x.intake) || !COMPARE_WHY.includes(x.compare)) return notReceived('arrival', [...(isCargo(x.intake) ? [] : ['intake: missing']), ...(COMPARE_WHY.includes(x.compare) ? [] : [`compare: ${x.compare ?? 'missing'}`])]);
+     return { ok: true, key: `arrival:verifiedIntake:${x.compare}`, symbol: '○', tone: 'result', errors: [],
+-      text: L`村に入った量：${cargoText(x.intake)}`,
+-      details: [x.compare === 'sentUnknown' ? L`送付記録を読めていないため、送った量の全部か一部かは比べられません` : L`送付記録の行き先と決着の行き先が違うため（途中で奪われた隊商など）、送付記録とは比べません`, units] };
++      text: L`村に入った量：${atLeastText(x.intake)}`,
++      details: [x.compare === 'sentUnknown' ? L`送付記録を読めていないため、送った量の全部か一部かは比べられません` : L`送付記録とは行き先が違うため、送付記録とは比べません`, units] };
+   }
+   const errors = [...(isCargo(x.arrived) ? [] : ['arrived: missing']), ...(isCargo(x.sent) ? [] : ['sent: missing']), ...(x.basis === 'sentRecord' ? [] : [`basis: ${x.basis ?? 'missing'}`])];
+   if (errors.length) return notReceived('arrival', errors);
+   if (x.state === 'verifiedPartial') {
+     return { ok: true, key: 'arrival:verifiedPartial', symbol: '◐', tone: 'loss', errors: [],
+-      text: L`送付記録の数量に対して一部が入りました：${cargoText(x.arrived)}`,
++      text: L`送付記録の数量に対して一部が入りました：${atLeastText(x.arrived)}`,
+       details: [L`送付記録の数量：${cargoText(x.sent)}`, ...basis, L`差の理由は、記録で確かめるまで決めません`, units] };
+   }
+   return { ok: true, key: 'arrival:verifiedFull', symbol: '●', tone: 'result', errors: [],
+-    text: L`送付記録の数量に対して全量が入りました：${cargoText(x.arrived)}`, details: [...basis, units] };
++    text: L`送付記録の数量に対して全量が入りました：${atLeastText(x.arrived)}`, details: [...basis, units] };
+ }
+ 
+ /** 05's cost. `x`: `{phase, amounts?: cargo}`; an unsettled cost may have no amount yet. */
+diff --git a/permutation-server/web/frontier/screens/s1.mjs b/permutation-server/web/frontier/screens/s1.mjs
+index 6b59918e..c49ab904 100644
+--- a/permutation-server/web/frontier/screens/s1.mjs
++++ b/permutation-server/web/frontier/screens/s1.mjs
+@@ -31,7 +31,7 @@ import { cardHead, chip, fold, label } from './parts.mjs';
+ import { swatch } from './shell.mjs';
+ import { renderCoopSlot } from '../hud/coopentry.mjs';
+ import { arrivalView, cancelView, costView, manualView, spendable, renderStatus, cargoText as spendText } from '../hud/statusview.mjs';
+-import { arrivalOnRoad, statusFrom } from '../hud/statussources.mjs';
++import { arrivalOnRoad, createCaravanWatch, statusFrom } from '../hud/statussources.mjs';
+ 
+ // ------------------------------------------------------------------ the rules the page offers by (structure.rs, caravan.rs, nation.rs)
+ /** structure::KIND_*. */
+@@ -436,6 +436,13 @@ export function renderS1Tile(FS, sel) {
+ }
+ 
+ /** The village's S1 card (screens/holding.mjs). */
++/**
++ * (workstream 07) The viewer's caravans that left the road's list while this page was open, with no end read yet
++ * (hud/statussources.mjs createCaravanWatch), one watch per page state. app.mjs tells it the ends it reads (the away
++ * reader's settlements and raids) and resets it with the away reader's scope.
++ */
++const watches = new WeakMap();
++export const caravanWatchOf = FS => { let w = watches.get(FS); if (!w) { w = createCaravanWatch(); watches.set(FS, w); } return w; };
+ export function renderS1Village(FS) {
+   const m = s1VillageModel(FS);
+   if (!m.holding) return '';
+@@ -447,7 +454,9 @@ export function renderS1Village(FS) {
+   // says it is not settled yet; 04's own arrival replaces it when 04 registers one — and 04's cancel when registered:
+   // hud/statussources.mjs, hud/statusview.mjs)
+   const caravanStatus = c => { const a = statusFrom('caravanArrival', FS, c) ?? arrivalOnRoad(c, bell), x = statusFrom('caravanCancel', FS, c); return html`${a ? renderStatus(arrivalView(a)) : ''}${x ? renderStatus(cancelView(x)) : ''}`; };
+-  const caravans = m.caravans.length ? html`${label(L`道中の隊商`)}<ul class="list">${m.caravans.map(c => html`<li>${icon('flag')}${c.raided ? S1_WORDS.raided() : S1_WORDS.caravan()} <span class="muted">${c.arriveBell !== null && c.arriveBell > bell ? L`ターン ${fmtNum(c.arriveBell)} に到着` : ''}</span>${caravanStatus(c)}</li>`)}</ul>` : '';
++  // (a caravan gone from the list is not said to have arrived: until its end is read, its state is unknown)
++  const gone = Array.isArray(FS.s1?.caravans?.moving) ? caravanWatchOf(FS).observe(m.caravans).filter(g => isMine(g.ownerTag, viewerTag(FS))) : [];
++  const caravans = m.caravans.length || gone.length ? html`${label(L`道中の隊商`)}<ul class="list">${m.caravans.map(c => html`<li>${icon('flag')}${c.raided ? S1_WORDS.raided() : S1_WORDS.caravan()} <span class="muted">${c.arriveBell !== null && c.arriveBell > bell ? L`ターン ${fmtNum(c.arriveBell)} に到着` : ''}</span>${caravanStatus(c)}</li>`)}${gone.map(() => html`<li>${icon('flag')}${S1_WORDS.caravan()}${renderStatus(arrivalView({ state: 'unread' }))}</li>`)}</ul>` : '';
+   // (05's costs of this village and its switch back to manual play, when 05 registers them; nothing otherwise)
+   const costs = statusFrom('villageCosts', FS, m.holding), manual = statusFrom('manualPlay', FS);
+   const free = costs ? spendable(m.have, costs.costs ?? [], { committedInHave: costs.committedInHave }) : null;
+diff --git a/permutation-server/web/lang/en-frontier-play.mjs b/permutation-server/web/lang/en-frontier-play.mjs
+index c8686b34..49b99dc1 100644
+--- a/permutation-server/web/lang/en-frontier-play.mjs
++++ b/permutation-server/web/lang/en-frontier-play.mjs
+@@ -1382,7 +1382,7 @@ export default {
+   // workstream 07: where the contract's states come from on the S1 page (hud/statussources.mjs)
+   '費用の状態': 'State of costs',
+   // workstream 07: a caravan's arrival in five states (hud/statusview.mjs arrivalView, hud/statussources.mjs)
+-  '到着予定のターン {0} を過ぎました。まだ決着していません': 'Its arrival turn {0} has passed. Its journey is not concluded yet',
++  '到着予定のターン {0} を過ぎました。読み込んだ時点では、まだ決着していません': 'Its arrival turn {0} has passed. When last read, its journey was not concluded yet',
+   '着いたかどうかは、決着の記録が出るまでわかりません': 'Whether it arrived is not known until the end of its journey is recorded',
+   '決着しました。入った量はまだ確かめられていません': 'Its journey is concluded. The amount taken in is not verified yet',
+   '倉庫は上限を超えた分を切り捨てます。決着の記録には元の積荷{0}が載るため、入った量は記録からはわかりません': 'A storehouse cuts what is over its cap, while the record of the journey\'s end keeps the whole cargo{0}; the amount taken in cannot be told from the records',
+@@ -1403,17 +1403,28 @@ export default {
+   '集計の方法は未決定です': 'How it is tallied is not decided',
+   '世界と戦期': 'The world and the war period',
+   // workstream 07: the basis of an arrival's comparison and the intake judged apart (hud/statusview.mjs, statussources.mjs)
+-  '数量は記録の単位です（1 未満は切り捨て）': 'Amounts are in the records\' units (anything under one is dropped)',
++  '記録の数は、入った量の下限です（記録は 1 未満を切り捨てるので、資源ごとに 1 未満多く入っていることがあります）': 'The recorded amounts are the least that went in (the records drop anything under one, so up to one more of each may have gone in)',
+   '比べた基準は送付記録の数量です。送付記録の数量は経路の減少を引いたあとの量で、最初に積んだ量と経路の損失は、この記録からは確定しません': 'The basis is the amount on the send record. That amount is after the loss on the road: what was first loaded and what the road took cannot be told from this record',
+   '送付記録には経路の減少率 {0}% が記されています': 'The send record states a loss on the road of {0}%',
+   'このシーズンのプログラムの版では、入った量の確かめ方を確認していません': 'How the intake can be verified has not been checked for this season\'s program version',
+   '決着の結果を記録から読めないため、入った量は確かめられません': 'The end of the journey cannot be read from the record, so the amount taken in cannot be verified',
+   '村に入った量：{0}': 'Taken into the village: {0}',
+   '送付記録を読めていないため、送った量の全部か一部かは比べられません': 'The send record was not read, so whether this is all of what was sent cannot be compared',
+-  '送付記録の行き先と決着の行き先が違うため（途中で奪われた隊商など）、送付記録とは比べません': 'The send record names another destination (a caravan taken on the way, for one), so it is not compared with the send record',
++  '送付記録とは行き先が違うため、送付記録とは比べません': 'It ended at another destination than the send record names, so it is not compared with the send record',
+   '送付記録の数量に対して一部が入りました：{0}': 'Part of the send record\'s amount was taken in: {0}',
+   '送付記録の数量：{0}': 'Amount on the send record: {0}',
+   '送付記録の数量に対して全量が入りました：{0}': 'All of the send record\'s amount was taken in: {0}',
++  // workstream 07: the arrival's bounds and the states 04's contract asks for (hud/statusview.mjs v7: atLeastText, atMostText)
++  '{0} {1} 以上': (r, n) => `at least ${n} ${r}`,
++  '0 以上': 'at least 0',
++  '{0} 最大 {1}': (r, n) => `at most ${n} ${r}`,
++  '最大 0': 'at most 0',
++  '到着しましたが、入った量は確認できません（{0}）': 'It arrived, but the amount taken in cannot be verified ({0})',
++  '到着しましたが、入った量は確認できません': 'It arrived, but the amount taken in cannot be verified',
++  '別の場所に着きました（原因を確認中）': 'It ended at another place (the cause is being checked)',
++  '送付記録の行き先と違う場所で決着しました。この隊商の到着としては、入った量を数えません': 'Its journey ended at another place than the send record names. Nothing is counted as taken in for this caravan',
++  '状態不明：道中の一覧から外れましたが、終わりの記録をまだ読んでいません': 'State unknown: it left the list of caravans on the road, and no record of its end has been read yet',
++  '着いたか、失われたか、奪われたかは、記録を読むまで言いません': 'Whether it arrived, was lost or was taken is not said until a record says so',
+   // workstream 07: the away summary's way in on a phone (app.mjs renderAwayEntry)
+   '留守中の未確認の出来事 {0} 件': n => `${plural(Number(String(n).replace(/,/g, '')), '{0} event', '{0} events')} while you were away, not yet marked as seen`,
+   '留守中の記録に未確認があります': 'Records from while you were away are not yet marked as seen',
+-- 
+2.43.0
+

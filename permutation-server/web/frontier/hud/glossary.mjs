@@ -5,6 +5,8 @@
 import { html } from '../../util.mjs';
 import { L } from '../../lang.mjs';
 import { icon } from './icons.mjs';
+import { turnLine } from '../seasonterms.mjs';
+import * as marchbook from '../marchbook.mjs';
 
 /**
  * The seal in ONE sentence, the same wherever it is said (UX design 11.13): the order card (hud/marchcard.mjs), the
@@ -13,16 +15,24 @@ import { icon } from './icons.mjs';
  * own device may reveal from the start of that turn, when the turn's arrivals and defenders are already fixed. So
  * the sentence speaks of who can OPEN the seal, never of "only you see it until the turn ends".
  */
+/** When this device opens its own seal, by the rule the page's march book carries (marchbook.mjs). */
+export const selfOpenLine = () => (typeof marchbook.REVEAL_PUBLISH_MARGIN === 'number'
+  ? L`到着のターンが終わって封を開ける鍵が出たあと、あなたの端末が自分の封を開けます。それより前には開けません。`
+  : L`到着のターンが始まると、あなたの端末が先に封を開けることがあります。そのときにはもう、そのターンの到着も守り手も変えられません。`);
 export const sealLine = () => L`行き先と構えは封印され、到着のターンが終わるまで、ほかの人には開けられません。`;
 
 export const TERMS = Object.freeze({
   // the one line that ties the bell to the turn (every number on the screen is a turn's; the bell is what tolls)
-  bell: { name: () => L`ターン`, text: () => L`10分ごとの区切りがターンです。同じターンに同じ州へ着いた軍勢の衝突は、まとめて一度に決まります。守り手に数えられるのは、ターンの始まりにそこにいた軍勢です。` },
+  // (the length from the clock, never typed: frontier/seasonterms.mjs — on a faster local clock the real time too)
+  bell: { name: () => L`ターン`, text: () => L`${turnLine()}ごとの区切りがターンです。同じターンに同じ州へ着いた軍勢の衝突は、まとめて一度に決まります。守り手に数えられるのは、ターンの始まりにそこにいた軍勢です。` },
   stance: { name: () => L`構え`, text: () => L`進軍の戦い方です。突撃は側撃に、側撃は迎撃に、迎撃は突撃に強く、待機の構えには相性がありません。` },
   retreat: { name: () => L`撤退の倍率`, text: () => L`守り手の兵が自軍のこの倍率を超えていたら、戦わずに引き返します（損失なし）。` },
-  seal: { name: () => L`封`, text: () => `${sealLine()}${L`ほかの人に見えるのは、出発したこと、出発地、兵の数、到着のターンです。到着のターンが始まると、あなたの端末が先に封を開けることがあります。そのときにはもう、そのターンの到着も守り手も変えられません。`}` },
+  // (workstream 07: when this device opens its own seal follows the march book's rule — workstream 18's change makes it
+  // wait for the publication of the round that opens the seal (REVEAL_PUBLISH_MARGIN after it); before that change the
+  // device may open it as the arrival turn begins. The words say whichever rule this page carries)
+  seal: { name: () => L`封`, text: () => `${sealLine()}${L`ほかの人に見えるのは、出発したこと、出発地、兵の数、到着のターンです。`}${selfOpenLine()}` },
   dormant: { name: () => L`休眠`, text: () => L`領主が長く何もしないと村は休眠し、さらに放っておくと手放されます。何か操作すれば延びます。` },
-  ring: { name: () => L`輪`, text: () => L`大協約を中心にした州の輪です。シーズンが進むと外側の輪がひらきます。` },
+  ring: { name: () => L`輪`, text: () => L`大協約を中心にした州の輪です。ターンが進むと外側の輪がひらきます。` },
   garrison: { name: () => L`守備隊`, text: () => L`村に残る守り手です。ターンの始まりにいた分が数えられ、攻め手に反撃します。城壁があると強くなります。` },
   vigil: { name: () => L`夜番`, text: () => L`毎日決まった時間、あなたが眠っている間も守りを固める時間帯です。` },
   shield: { name: () => L`保護`, text: () => L`村ができてしばらくは攻められません。保護が切れるまでの時間です。` },

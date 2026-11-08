@@ -45,7 +45,8 @@ const PERSONAL = Object.freeze([
   { id: 'P-cross-user', kind: 'cross_user', label: '他の国の人の建物を使った' },
   { id: 'P-founder', kind: 'founder', label: '開いた計画が、他の2人以上の材料で完成した', minOthers: 2 },
   { id: 'P-raider', kind: 'raider', label: '他の国の隊商から奪った（国内の襲撃は数えない）', minQty: { food: 100, wood: 100, stone: 100, ore: 100, arms: 10, gold: 20 } },
-  { id: 'P-scout', kind: 'scout', label: '塔で見たことが、他の人に使われた（⑭の塔の入力があるときだけ）' },
+  { id: 'P-scout', kind: 'scout', label: '物見櫓の目撃が、他の人に使われた（目撃の記録の出どころは今ない。⑭の塔は目撃をしない）' },
+  { id: 'P-board-helper', kind: 'board_helper', label: '他国の人の掲示の依頼に応え、交換が双方に届いた（⑭の塔の案 B。模型の事実だけなら数えない）' },
 ]);
 
 /** What carries on past any window's close, in every variant: the world has no end. */
@@ -54,7 +55,7 @@ const UNDECIDED = '戦期に何を集計するか、要塞や戦争の状態を�
 
 export const RULESETS = Object.freeze({
   A: Object.freeze({
-    id: 'A-baseline-competitive', version: 2, variant: 'A', status: 'legacy-compat',
+    id: 'A-baseline-competitive', version: 3, variant: 'A', status: 'legacy-compat',
     note: '現行コードの勝ち方だけ（旧経路の互換確認）。目標は判定しない',
     costs: S1_COSTS, prize: LEGACY_PRIZE,
     joint: [], national: null, personal: [],
@@ -63,7 +64,7 @@ export const RULESETS = Object.freeze({
     slotBy: 'cluster',
   }),
   B: Object.freeze({
-    id: 'B-separate-tracks', version: 2, variant: 'B', status: 'comparison-only',
+    id: 'B-separate-tracks', version: 3, variant: 'B', status: 'comparison-only',
     note: '共同・国・個人を別々に判定。共同達成では評価期間も世界も閉じない',
     costs: S1_COSTS, prize: null,
     joint: [JOINT_NORTH_FORT], national: NATIONAL, personal: PERSONAL,
@@ -73,7 +74,7 @@ export const RULESETS = Object.freeze({
     carryInputs: true,
   }),
   C: Object.freeze({
-    id: 'C-joint-window', version: 2, variant: 'C', status: 'comparison-only',
+    id: 'C-joint-window', version: 3, variant: 'C', status: 'comparison-only',
     note: '比較案（未採用）：共同達成（利用まで）が成立すると、予告の後にこの評価期間だけを閉じる。世界は閉じない',
     costs: S1_COSTS, prize: null,
     joint: [JOINT_NORTH_FORT], national: NATIONAL, personal: PERSONAL,
