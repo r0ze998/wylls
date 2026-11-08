@@ -81,7 +81,46 @@ fn cap_err(e: CapError) -> Error {
 }
 
 const POOL_SPACE: usize = cap::layout::pool::SIZE + fc::RENT_TO_LEN;
-const JOB_SPACE: usize = cap::layout::job::SIZE + fc::RENT_TO_LEN;
+/// A job account: the rules' record, its rent payer, then its [`Link`].
+const LINK_AT: usize = cap::layout::job::SIZE + fc::RENT_TO_LEN;
+const LINK_LEN: usize = 1 + 32 + 8 + 8 + 8;
+pub(crate) const JOB_SPACE: usize = LINK_AT + LINK_LEN;
+
+/// A job fed from another owner's lot (workstream 10): which lot, the ore
+/// taken from it, given back into it, and owed to it (taken back from the
+/// job but not yet in the lot: a sub-unit rest, or whole units a frozen or
+/// full lot could not take). The goods a lot lends a job are the lot's:
+/// what the job does not use goes back (the owner's decision of
+/// 2026-11-06), never to the user.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(crate) struct Link {
+    pub fed: bool,
+    pub lot: Key,
+    pub taken: i64,
+    pub returned: i64,
+    pub owed: i64,
+}
+
+pub(crate) fn link_of(d: &[u8]) -> R<Link> {
+    let r = Ro(d);
+    Ok(Link {
+        fed: r.u8(LINK_AT)? == 1,
+        lot: r.arr(LINK_AT + 1)?,
+        taken: r.i64(LINK_AT + 33)?,
+        returned: r.i64(LINK_AT + 41)?,
+        owed: r.i64(LINK_AT + 49)?,
+    })
+}
+
+fn put_link(ai: &AccountInfo, l: &Link) -> R<()> {
+    let mut d = ai.try_borrow_mut_data()?;
+    let mut w = Rw(&mut d);
+    w.set_u8(LINK_AT, l.fed as u8)?;
+    w.set_arr(LINK_AT + 1, &l.lot)?;
+    w.set_i64(LINK_AT + 33, l.taken)?;
+    w.set_i64(LINK_AT + 41, l.returned)?;
+    w.set_i64(LINK_AT + 49, l.owed)
+}
 
 /// Routes one capacity instruction.
 pub fn dispatch(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
@@ -605,16 +644,26 @@ pub fn reserve(p: &Pubkey, a: &[AccountInfo], x: CapData) -> R<()> {
 
 // ------------------------------------------------------------ 0xF6 / 0xF9
 
-/// 0xF6 DepositToJob: the user's goods from its vault in the facility's
-/// province into the job (before it starts).
+/// 0xF6 DepositToJob: goods into the job (before it starts), from the
+/// user's own vault in the facility's province, or (custody builds) from
+/// another owner's lot in a vault of that province under its use order
+/// for the user. A job takes each input from one source (workstream 09's
+/// MixedSource: the mixed case is undecided and refused, `NotImplemented`).
 pub fn deposit(p: &Pubkey, a: &[AccountInfo], x: CapData) -> R<()> {
-    check_accounts(CapIx::DepositToJob, a, None)?;
+    let n = a
+        .len()
+        .checked_sub(8)
+        .ok_or(FrontierError::TooManyAccounts)?;
+    check_accounts(CapIx::DepositToJob, a, Some(&[1, n as u8]))?;
     let CapData::DepositToJob {
         grant,
         job,
         deposit,
         resource,
         amount,
+        source,
+        slot,
+        order,
     } = x
     else {
         return Err(FrontierError::BadData.into());
@@ -623,7 +672,7 @@ pub fn deposit(p: &Pubkey, a: &[AccountInfo], x: CapData) -> R<()> {
         .get(resource as usize)
         .ok_or(FrontierError::BadData)?;
     let (pl, signer) = player(p, a)?;
-    let [_, _payer, _season, _citizen, holding, pool_ai, job_ai, vault] = a else {
+    let [_, _payer, _season, citizen, holding, pool_ai, job_ai, vault, lot @ ..] = a else {
         return Err(FrontierError::TooManyAccounts.into());
     };
     let sid = pl.pc.season.id;
@@ -632,6 +681,39 @@ pub fn deposit(p: &Pubkey, a: &[AccountInfo], x: CapData) -> R<()> {
     pool_of(&pool, &f)?;
     let view = f.view(pool.facility.gen, pl.pc.season.genesis_ts);
     let mut j = job_at(p, &pl.ctx, &pool, job_ai, grant, job)?;
+    let mut link = match j {
+        Some(_) => link_of(&job_ai.try_borrow_data()?)?,
+        None => Link::default(),
+    };
+    let ore = Resource::Ore;
+    if source == fc::SOURCE_LOT {
+        let [lot] = lot else {
+            return Err(FrontierError::TooManyAccounts.into());
+        };
+        return lots::deposit(
+            p,
+            &pl,
+            citizen,
+            &f,
+            &mut pool,
+            &view,
+            j.as_mut(),
+            &mut link,
+            (grant, job),
+            vault,
+            lot,
+            (deposit, resource, amount, slot, order),
+            pool_ai,
+            job_ai,
+        );
+    }
+    if !lot.is_empty() {
+        return Err(FrontierError::TooManyAccounts.into());
+    }
+    if link.fed && resource == ore {
+        // Own ore into a job fed from a lot: two sources (undecided).
+        return Err(FrontierError::NotImplemented.into());
+    }
     let mut v = user_vault(p, &pl.ctx, sid, vault, &signer, &f)?;
     let done = cap::deposit(
         &mut pool,
@@ -663,14 +745,26 @@ pub fn deposit(p: &Pubkey, a: &[AccountInfo], x: CapData) -> R<()> {
 }
 
 /// 0xF9 ClaimJob: what the job made and, once final, what it did not use,
-/// into the user's vault in the facility's province.
+/// into the user's vault in the facility's province. For a job fed from a
+/// lot (the lot and its vault listed after): the products and the user's
+/// wood go to the user, the ore it did not use back into the lot (whole
+/// units; the rest, or what a frozen or full lot cannot take, stays owed
+/// in the job and is paid by a later ClaimJob).
 pub fn claim(p: &Pubkey, a: &[AccountInfo], x: CapData) -> R<()> {
-    check_accounts(CapIx::ClaimJob, a, None)?;
+    let n = a
+        .len()
+        .checked_sub(8)
+        .ok_or(FrontierError::TooManyAccounts)?;
+    // The lot's pair `[lot_vault, lot]`, listed once or not at all.
+    if n % 2 != 0 {
+        return Err(FrontierError::TooManyAccounts.into());
+    }
+    check_accounts(CapIx::ClaimJob, a, Some(&[1, (n / 2) as u8]))?;
     let CapData::ClaimJob { grant, job } = x else {
         return Err(FrontierError::BadData.into());
     };
     let (pl, signer) = player(p, a)?;
-    let [_, _payer, _season, _citizen, holding, pool_ai, job_ai, vault] = a else {
+    let [_, _payer, _season, _citizen, holding, pool_ai, job_ai, vault, lot @ ..] = a else {
         return Err(FrontierError::TooManyAccounts.into());
     };
     let sid = pl.pc.season.id;
@@ -679,6 +773,10 @@ pub fn claim(p: &Pubkey, a: &[AccountInfo], x: CapData) -> R<()> {
     pool_of(&pool, &f)?;
     let view = f.view(pool.facility.gen, pl.pc.season.genesis_ts);
     let mut j = job_at(p, &pl.ctx, &pool, job_ai, grant, job)?;
+    let mut link = match j {
+        Some(_) => link_of(&job_ai.try_borrow_data()?)?,
+        None => Link::default(),
+    };
     let mut v = user_vault(p, &pl.ctx, sid, vault, &signer, &f)?;
     let done = cap::claim(
         &mut pool,
@@ -687,29 +785,45 @@ pub fn claim(p: &Pubkey, a: &[AccountInfo], x: CapData) -> R<()> {
         (grant, job),
         pl.now.ts,
         &signer,
-        false,
+        link.fed,
         false,
     )
     .map_err(cap_err)?;
-    let Some(ev) = events(done) else {
-        return Ok(());
-    };
+    let ev = events(done);
     let jj = j.as_ref().ok_or(BAD_ACCOUNT)?;
     let r = jj.recipe();
-    for e in &ev {
+    for e in ev.iter().flatten() {
         if let Event::Claimed { output, refund, .. } = *e {
             if output > 0 {
                 v.put(r.output, output)?;
             }
             for (i, (res, _)) in r.inputs.iter().enumerate() {
-                if refund[i] > 0 {
+                if refund[i] <= 0 {
+                    continue;
+                }
+                if link.fed && *res == Resource::Ore {
+                    // The lot's ore: owed to the lot until it is in it.
+                    link.owed = link
+                        .owed
+                        .checked_add(refund[i])
+                        .ok_or(cap_err(CapError::Overflow))?;
+                } else {
                     v.put(*res, refund[i])?;
                 }
             }
         }
     }
+    let paid = match lot {
+        [] => false,
+        [lv, l] if link.fed => lots::pay_owed(p, &pl.ctx, sid, lv, l, &mut link)?,
+        _ => return Err(FrontierError::TooManyAccounts.into()),
+    };
+    if ev.is_none() && !paid {
+        return Ok(());
+    }
     v.write(vault)?;
     put_job(job_ai, jj)?;
+    put_link(job_ai, &link)?;
     put_pool(pool_ai, &pool)
 }
 
@@ -854,6 +968,10 @@ pub fn retire(p: &Pubkey, a: &[AccountInfo], x: CapData) -> R<()> {
                 return Err(FrontierError::TooManyAccounts.into());
             };
             let j = job_at(p, &ctx, &pool, job_ai, grant, job)?;
+            if j.is_some() && link_of(&job_ai.try_borrow_data()?)?.owed != 0 {
+                // Ore still owed to a lot: the record keeps it.
+                return Err(cap_err(CapError::NotRetirable));
+            }
             let done = cap::retire(&mut pool, j.as_ref(), (grant, job)).map_err(cap_err)?;
             if events(done).is_some() {
                 if rent_to_of(job_ai, cap::layout::job::SIZE)? != key(rent_to) {
@@ -886,4 +1004,283 @@ pub fn retire(p: &Pubkey, a: &[AccountInfo], x: CapData) -> R<()> {
 fn bell(now: i64, a: &[AccountInfo]) -> R<u32> {
     let season = a.get(1).ok_or(FrontierError::TooManyAccounts)?;
     Ok(frontier_abi::prologue::bell_at(genesis_of(season)?, now).unwrap_or(u32::MAX))
+}
+
+// ------------------------------------------------------------ lots (workstream 10)
+
+/// Another owner's lot feeding a job (workstream 10's custody kernel,
+/// `permutation_rules::frontier::custody`): the use order's grantee
+/// consumes whole units (`consume`, logged `LOT_CONSUMED` on the lot's
+/// chain as ConsumeLot logs it), and what the job did not use is
+/// un-consumed back into the lot (`return_unused`). No record kind exists
+/// for a return yet (workstream 10's to allocate); the lot's state is
+/// written, its chain is not advanced. In a build without custody a lot
+/// source is unknown data.
+#[cfg(feature = "custody-preview")]
+mod lots {
+    use super::super::conquest::{cq, cqlog, Chained2};
+    use super::*;
+    use frontier_abi::v2::log::{CqKind, EntityKind as E2, LotKey};
+    use frontier_abi::v2::CqError;
+    use permutation_rules::frontier::custody::{self as kc, CustodyError, Lot, VaultView};
+
+    /// The kernel's refusals as program codes (as `proc::custody`'s).
+    fn cerr(e: CustodyError) -> Error {
+        use CustodyError as E;
+        match e {
+            E::NotAuthorized => FrontierError::NotOwner.into(),
+            E::WalletRequired => cq(CqError::WalletRequired),
+            E::Insufficient => FrontierError::Insufficient.into(),
+            E::Capacity => cq(CqError::CustodyCapacity),
+            E::NoSlot => cq(CqError::CustodyNoSlot),
+            E::Expired => cq(CqError::OrderExpired),
+            E::Forfeited => cq(CqError::LotForfeited),
+            E::NotEmpty => cq(CqError::LotNotEmpty),
+            E::InTransit => cq(CqError::CaravanEarly),
+            E::State => FrontierError::AlreadyDone.into(),
+            E::Overflow => crate::error::OVERFLOW,
+            E::Resource | E::Quantity | E::Order | E::Stale | E::SelfDealing => {
+                FrontierError::BadData.into()
+            }
+        }
+    }
+
+    fn vault_view(p: &Pubkey, ctx: &addr::AddrCtx, sid: u64, ai: &AccountInfo) -> R<VaultView> {
+        present_v2(ai, p, K2::Vault, sid)?;
+        let d = ai.try_borrow_data()?;
+        let r = Ro(&d);
+        let (vp, vq, tile) = (r.i16(VA::P)?, r.i16(VA::Q)?, r.u8(VA::TILE)?);
+        expect_key(
+            ai,
+            &frontier_abi::v2::addr::vault(ctx, vp as i32, vq as i32, tile),
+        )?;
+        let mut stores = [0i64; RESOURCES];
+        let mut quota = [0i64; RESOURCES];
+        for i in 0..RESOURCES {
+            stores[i] = r.i64(VA::store(i))?;
+            quota[i] = r.i64(VA::custody_quota(i))?;
+        }
+        Ok(VaultView {
+            p: vp,
+            q: vq,
+            tile,
+            gen: r.u8(VA::GEN)?,
+            live: r.u8(VA::STATE)? == VA::STATE_LIVE,
+            owner: r.arr(VA::OWNER_CITIZEN)?,
+            owner_tag: r.u64(VA::OWNER_TAG)?,
+            stores,
+            cap: r.i64(VA::CAP)?,
+            quota,
+            lots: r.u16(VA::CUSTODY_LOTS)?,
+        })
+    }
+
+    fn lot_key(l: &Lot) -> LotKey {
+        LotKey {
+            p: l.p,
+            q: l.q,
+            tile: l.tile,
+            gen: l.vault_gen,
+            owner_tag: l.owner_tag,
+            resource: l.resource,
+        }
+    }
+
+    /// A present lot at its canonical address, and its vault (canonical for
+    /// the lot's tile).
+    fn lot_and_vault(
+        p: &Pubkey,
+        ctx: &addr::AddrCtx,
+        sid: u64,
+        vault: &AccountInfo,
+        lot: &AccountInfo,
+    ) -> R<(Lot, VaultView)> {
+        present_v2(lot, p, K2::Lot, sid)?;
+        let l = Lot::decode(&lot.try_borrow_data()?).ok_or(BAD_ACCOUNT)?;
+        let k = lot_key(&l);
+        expect_key(
+            lot,
+            &frontier_abi::v2::addr::lot(ctx, k.p, k.q, k.tile, k.gen, k.owner_tag, k.resource),
+        )?;
+        expect_key(
+            vault,
+            &frontier_abi::v2::addr::vault(ctx, l.p as i32, l.q as i32, l.tile),
+        )?;
+        let v = vault_view(p, ctx, sid, vault)?;
+        Ok((l, v))
+    }
+
+    fn put_lot(ai: &AccountInfo, l: &Lot) -> R<()> {
+        l.encode(&mut ai.try_borrow_mut_data()?).ok_or(BAD_ACCOUNT)
+    }
+
+    /// DepositToJob from a lot.
+    #[allow(clippy::too_many_arguments)]
+    pub(super) fn deposit(
+        p: &Pubkey,
+        pl: &Player,
+        citizen: &AccountInfo,
+        f: &Fac,
+        pool: &mut cap::Pool,
+        view: &cap::Facility,
+        j: Option<&mut cap::Job>,
+        link: &mut Link,
+        job: (u32, u32),
+        vault: &AccountInfo,
+        lot_ai: &AccountInfo,
+        (deposit, resource, amount, slot, order): (u64, Resource, i64, u8, u32),
+        pool_ai: &AccountInfo,
+        job_ai: &AccountInfo,
+    ) -> R<()> {
+        let sid = pl.pc.season.id;
+        let (mut l, v) = lot_and_vault(p, &pl.ctx, sid, vault, lot_ai)?;
+        // Same province: used directly (the owner's decision of 2026-11-06;
+        // farther goods travel by caravan first).
+        if (l.p, l.q) != (f.p, f.q) {
+            return Err(FrontierError::BadAddress.into());
+        }
+        if l.resource != resource as u8 {
+            return Err(FrontierError::BadData.into());
+        }
+        let key = lot_ai.key.to_bytes();
+        let own_ore = j.as_ref().map_or(0, |j| j.hopper[0] - link.taken);
+        if (link.fed && link.lot != key) || own_ore != 0 {
+            // A second lot, or the user's own ore already in: two sources
+            // (undecided).
+            return Err(FrontierError::NotImplemented.into());
+        }
+        let signer = key_of(citizen);
+        let mut j = j;
+        let done = cap::deposit(
+            pool,
+            view,
+            j.as_deref_mut(),
+            job,
+            pl.now.ts,
+            &signer,
+            deposit,
+            resource,
+            amount,
+            u64::from_le_bytes(key[..8].try_into().map_err(|_| BAD_ACCOUNT)?),
+        )
+        .map_err(cap_err)?;
+        if events(done).is_none() {
+            return Ok(());
+        }
+        let actor = kc::Actor {
+            citizen: signer,
+            tag: pl.pc.citizen_tag,
+            by_session: pl.pc.by_session,
+        };
+        kc::consume(
+            &v,
+            &mut l,
+            &actor,
+            slot,
+            order,
+            amount,
+            fc::PURPOSE_WORKSHOP_ARMS,
+            pl.pc.now_bell,
+        )
+        .map_err(cerr)?;
+        put_lot(lot_ai, &l)?;
+        link.fed = true;
+        link.lot = key;
+        link.taken = link
+            .taken
+            .checked_add(amount)
+            .ok_or(cap_err(CapError::Overflow))?;
+        put_job(job_ai, j.as_deref().ok_or(BAD_ACCOUNT)?)?;
+        put_link(job_ai, link)?;
+        put_pool(pool_ai, pool)?;
+        let payload = crate::events::Buf::<22>::new()
+            .u32(order)
+            .u64(pl.pc.citizen_tag)
+            .i64(amount)
+            .u16(fc::PURPOSE_WORKSHOP_ARMS);
+        let mut ld = lot_ai.try_borrow_mut_data()?;
+        cqlog::emit(
+            CqKind::LOT_CONSUMED as u8,
+            pl.pc.now_bell,
+            &lot_key(&l).raw(),
+            payload.get()?,
+            &mut [Chained2 {
+                entity: E2::Lot,
+                data: &mut ld,
+            }],
+        )
+    }
+
+    /// Pays the whole units owed to the job's lot if it can take them now
+    /// (usable, room; workstream 10's `return_unused`). Returns whether it
+    /// paid.
+    pub(super) fn pay_owed(
+        p: &Pubkey,
+        ctx: &addr::AddrCtx,
+        sid: u64,
+        vault: &AccountInfo,
+        lot_ai: &AccountInfo,
+        link: &mut Link,
+    ) -> R<bool> {
+        if lot_ai.key.to_bytes() != link.lot {
+            return Err(BAD_ACCOUNT);
+        }
+        let due = link.owed / permutation_rules::fixed::MILLI * permutation_rules::fixed::MILLI;
+        if due == 0 {
+            return Ok(false);
+        }
+        let (mut l, v) = lot_and_vault(p, ctx, sid, vault, lot_ai)?;
+        match kc::return_unused(&v, &mut l, due) {
+            Ok(()) => {
+                put_lot(lot_ai, &l)?;
+                link.owed -= due;
+                link.returned += due;
+                Ok(true)
+            }
+            // Frozen (its vault seized) or full: it stays owed.
+            Err(CustodyError::Forfeited | CustodyError::Capacity) => Ok(false),
+            Err(e) => Err(cerr(e)),
+        }
+    }
+
+    fn key_of(ai: &AccountInfo) -> Key {
+        ai.key.to_bytes()
+    }
+}
+
+/// In a build without custody there is no lot to take from.
+#[cfg(not(feature = "custody-preview"))]
+mod lots {
+    use super::*;
+
+    #[allow(clippy::too_many_arguments)]
+    pub(super) fn deposit(
+        _p: &Pubkey,
+        _pl: &Player,
+        _citizen: &AccountInfo,
+        _f: &Fac,
+        _pool: &mut cap::Pool,
+        _view: &cap::Facility,
+        _j: Option<&mut cap::Job>,
+        _link: &mut Link,
+        _job: (u32, u32),
+        _vault: &AccountInfo,
+        _lot: &AccountInfo,
+        _x: (u64, Resource, i64, u8, u32),
+        _pool_ai: &AccountInfo,
+        _job_ai: &AccountInfo,
+    ) -> R<()> {
+        Err(FrontierError::BadData.into())
+    }
+
+    pub(super) fn pay_owed(
+        _p: &Pubkey,
+        _ctx: &addr::AddrCtx,
+        _sid: u64,
+        _vault: &AccountInfo,
+        _lot: &AccountInfo,
+        _link: &mut Link,
+    ) -> R<bool> {
+        Err(FrontierError::BadData.into())
+    }
 }

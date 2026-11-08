@@ -26,7 +26,7 @@
 //! | 0xF3 | GrantCapacity | P (owner) | `grant u32, user [u8;32], recipe u8, max_units u32, max_output i64, from i64, until i64` |
 //! | 0xF4 | RevokeCapacity | P (owner) | `grant u32` |
 //! | 0xF5 | ReserveCapacity | P (user) | `grant u32, job u32, units u32, start i64, end i64, max_output i64` |
-//! | 0xF6 | DepositToJob | P (user) | `grant u32, job u32, deposit u64, resource u8, amount i64` |
+//! | 0xF6 | DepositToJob | P (user) | `grant u32, job u32, deposit u64, resource u8, amount i64, source u8, slot u8, order u32` |
 //! | 0xF7 | SettleJob | N (anyone) | `grant u32, job u32` |
 //! | 0xF8 | CancelJob | P (user) | `grant u32, job u32` |
 //! | 0xF9 | ClaimJob | P (user) | `grant u32, job u32` |
@@ -34,6 +34,15 @@
 //! | 0xFB | RetireJob | N (anyone) | `grant u32, job u32` |
 //! | 0xFC | RetireGrant | N (anyone) | `grant u32` |
 //! | 0xFD | RetirePool | N (anyone) | — |
+//!
+//! DepositToJob's `source`: [`SOURCE_VAULT`] (the user's own vault in the
+//! facility's province; `slot` and `order` 0) or [`SOURCE_LOT`] (another
+//! owner's lot in a vault of that province, under its use order `(slot,
+//! order)` for the user with purpose [`PURPOSE_WORKSHOP_ARMS`];
+//! workstream 10's custody, `custody-preview` builds only). ClaimJob of a
+//! job fed from a lot lists that lot and its vault after the user's vault:
+//! the ore left unused goes back into the lot (the owner's decision of
+//! 2026-11-06).
 //!
 //! `user` in GrantCapacity is the user's **Citizen** key (the owner, a user
 //! and a captor are Citizens). Amounts are milli-units. Every encoding is
@@ -44,6 +53,7 @@ use crate::bytes::{Cursor, Writer};
 use crate::error::FrontierError;
 use crate::layout::AccountKind as K;
 use crate::prologue::{Acc, Group, Spec, Wr};
+use crate::v2::layout::AccountKind as K2;
 
 /// The bit a capacity build sets in its `PROGRAM_VERSION` (proposal;
 /// disjoint from the NFT build's `0x8000` and the wide build's `0x4000`).
@@ -163,6 +173,14 @@ pub fn tag_of(data: &[u8]) -> Result<CapIx, FrontierError> {
         .ok_or(FrontierError::BadData)
 }
 
+/// DepositToJob from the user's own vault.
+pub const SOURCE_VAULT: u8 = 0;
+/// DepositToJob from another owner's lot under a use order.
+pub const SOURCE_LOT: u8 = 1;
+/// The purpose a use order names for the workshop (workstream 4's rev 4:
+/// workstream 09's and 10's shared value, provisional).
+pub const PURPOSE_WORKSHOP_ARMS: u16 = 0x0901;
+
 // ------------------------------------------------------------ errors
 
 /// The program error of the kernel's refusal `code` (1–30): `109 + code`.
@@ -260,6 +278,9 @@ pub enum CapData {
         deposit: u64,
         resource: u8,
         amount: i64,
+        source: u8,
+        slot: u8,
+        order: u32,
     },
     SettleJob {
         grant: u32,
@@ -312,7 +333,7 @@ impl CapData {
             CapIx::GrantCapacity => 4 + 32 + 1 + 4 + 8 + 8 + 8,
             CapIx::RevokeCapacity | CapIx::RetireGrant => 4,
             CapIx::ReserveCapacity => 4 + 4 + 4 + 8 + 8 + 8,
-            CapIx::DepositToJob => 4 + 4 + 8 + 1 + 8,
+            CapIx::DepositToJob => 4 + 4 + 8 + 1 + 8 + 1 + 1 + 4,
             CapIx::SettleJob | CapIx::CancelJob | CapIx::ClaimJob | CapIx::RetireJob => 8,
             CapIx::RecordFacilityLoss | CapIx::RetirePool => 0,
         }
@@ -365,12 +386,22 @@ impl CapData {
             }
             CapIx::DepositToJob => {
                 let (grant, job) = gj(&mut c)?;
+                let (deposit, resource, amount) =
+                    (c.u64().ok_or(bad)?, c.u8().ok_or(bad)?, c.i64().ok_or(bad)?);
+                let (source, slot, order) =
+                    (c.u8().ok_or(bad)?, c.u8().ok_or(bad)?, c.u32().ok_or(bad)?);
+                if source > SOURCE_LOT || (source == SOURCE_VAULT && (slot, order) != (0, 0)) {
+                    return Err(bad);
+                }
                 CapData::DepositToJob {
                     grant,
                     job,
-                    deposit: c.u64().ok_or(bad)?,
-                    resource: c.u8().ok_or(bad)?,
-                    amount: c.i64().ok_or(bad)?,
+                    deposit,
+                    resource,
+                    amount,
+                    source,
+                    slot,
+                    order,
                 }
             }
             CapIx::SettleJob => {
@@ -451,8 +482,18 @@ impl CapData {
                 deposit,
                 resource,
                 amount,
+                source,
+                slot,
+                order,
             } => {
-                w.u32(grant).u32(job).u64(deposit).u8(resource).i64(amount);
+                w.u32(grant)
+                    .u32(job)
+                    .u64(deposit)
+                    .u8(resource)
+                    .i64(amount)
+                    .u8(source)
+                    .u8(slot)
+                    .u32(order);
             }
             CapData::SettleJob { grant, job }
             | CapData::CancelJob { grant, job }
@@ -532,11 +573,32 @@ pub const REVOKE: &[Group] = &[
 pub const RESERVE: &[Group] = &[one(&[
     ACTOR, PAYER, SEASON, CITIZEN, HOLDING_R, POOL_W, JOB_W, SYSTEM,
 ])];
-/// `[holding r] [pool w] [job w] [vault w]`: the user's vault in the
-/// facility's province, where the goods come from or go to.
+/// `[holding r] [pool w] [job w] [vault w]`: for DepositToJob the vault
+/// the goods come from (the user's own, or the lot's); for ClaimJob the
+/// user's own, where they go.
 pub const USER_VAULT: &[Group] = &[one(&[
     ACTOR, PAYER, SEASON, CITIZEN, HOLDING_R, POOL_W, JOB_W, VAULT_W,
 ])];
+/// DepositToJob: then `[lot w]` from a lot.
+pub const DEPOSIT: &[Group] = &[
+    one(&[
+        ACTOR, PAYER, SEASON, CITIZEN, HOLDING_R, POOL_W, JOB_W, VAULT_W,
+    ]),
+    upto(&[s("lot", Acc::KindV2(K2::Lot), false, Wr::W)], 1),
+];
+/// ClaimJob: then `[lot_vault r] [lot w]` for a job fed from a lot.
+pub const CLAIM: &[Group] = &[
+    one(&[
+        ACTOR, PAYER, SEASON, CITIZEN, HOLDING_R, POOL_W, JOB_W, VAULT_W,
+    ]),
+    upto(
+        &[
+            s("lot_vault", Acc::KindV2(K2::Vault), false, Wr::R),
+            s("lot", Acc::KindV2(K2::Lot), false, Wr::W),
+        ],
+        1,
+    ),
+];
 /// `[holding r] [pool w] [job w]`.
 pub const USER_JOB: &[Group] = &[one(&[
     ACTOR, PAYER, SEASON, CITIZEN, HOLDING_R, POOL_W, JOB_W,
@@ -566,7 +628,8 @@ pub const fn accounts_of(ix: CapIx) -> &'static [Group] {
         CapIx::GrantCapacity => OWNER_POOL,
         CapIx::RevokeCapacity => REVOKE,
         CapIx::ReserveCapacity => RESERVE,
-        CapIx::DepositToJob | CapIx::ClaimJob => USER_VAULT,
+        CapIx::DepositToJob => DEPOSIT,
+        CapIx::ClaimJob => CLAIM,
         CapIx::CancelJob => USER_JOB,
         CapIx::SettleJob => SETTLE,
         CapIx::RecordFacilityLoss => LOSS,
@@ -611,6 +674,32 @@ mod tests {
             assert_eq!(v & CAPACITY_PREVIEW_VERSION_BIT, 0, "{v:#x}");
         }
         assert_eq!(CAPACITY_PREVIEW_VERSION_BIT & (0x8000 | 0x4000), 0);
+    }
+
+    #[test]
+    fn a_vault_source_names_no_order() {
+        let mut b = CapData::DepositToJob {
+            grant: 1,
+            job: 1,
+            deposit: 1,
+            resource: 3,
+            amount: 1,
+            source: SOURCE_VAULT,
+            slot: 0,
+            order: 0,
+        }
+        .encode();
+        assert!(CapData::decode(&b).is_ok());
+        let n = b.len();
+        b[n - 1] = 1;
+        assert_eq!(CapData::decode(&b), Err(FrontierError::BadData));
+        b[n - 1] = 0;
+        b[n - 6] = 2;
+        assert_eq!(
+            CapData::decode(&b),
+            Err(FrontierError::BadData),
+            "no source 2"
+        );
     }
 
     #[test]
@@ -674,6 +763,9 @@ mod tests {
                 deposit: u64::MAX,
                 resource: 3,
                 amount: 40_000,
+                source: SOURCE_LOT,
+                slot: 1,
+                order: 9,
             },
             CapData::SettleJob { grant: 1, job: 2 },
             CapData::CancelJob { grant: 1, job: 2 },

@@ -28,7 +28,7 @@ use crate::layout::holding2 as H2;
 use crate::proc::holding::{read_holding, write_holding};
 
 const POOL_SPACE: usize = cap::layout::pool::SIZE + fc::RENT_TO_LEN;
-const JOB_SPACE: usize = cap::layout::job::SIZE + fc::RENT_TO_LEN;
+const JOB_SPACE: usize = crate::proc::capacity::JOB_SPACE;
 const VAULT_TILE: u8 = 22;
 
 fn err(code: cap::CapError) -> u32 {
@@ -254,6 +254,9 @@ impl Cap {
                 deposit,
                 resource: r as u8,
                 amount,
+                source: fc::SOURCE_VAULT,
+                slot: 0,
+                order: 0,
             }
             .encode(),
         )
@@ -599,4 +602,346 @@ impl Member {
             citizen: self.citizen.clone(),
         }
     }
+}
+
+// ------------------------------------------------------------ lots
+
+/// A job fed from another owner's lot (workstream 10's custody): M's ore in
+/// A's vault in the facility's province, a use order of 40 for B. B takes
+/// 31 ore from the lot (whole units, `LOT_CONSUMED` on the lot's chain) and
+/// its own wood; the job makes 15.25 arms, using 30.5 ore; B's arms and
+/// wood go to B, the 0.5 ore left goes back to the lot owed (a sub-unit
+/// rest), the job cannot retire while it owes; a second lot or B's own ore
+/// is two sources, refused (undecided).
+#[cfg(feature = "custody-preview")]
+#[test]
+fn capacity_lot_ore_feeds_a_job_and_what_it_does_not_use_goes_back() {
+    use permutation_rules::frontier::custody::{self as kc, Lot, OrderSpec, PlaceRef, VaultView};
+    let _g = begin();
+    let mut t = Cap::new();
+    let (a, b) = (t.a.clone_member(), t.b.clone_member());
+    let nation = a.faction;
+    let m = t.w.member(WALLET_S, nation);
+    assert_eq!(t.open(&a, [0, 0, 0]), Ok(()));
+    assert_eq!(t.lend(&a, 2, 0, true), Ok(()));
+    assert_eq!(t.grant(&a, 1, &b, GENESIS + 10 * 86_400), Ok(()));
+    let start = GENESIS + 7_200;
+    let job = (1, 1);
+    assert_eq!(
+        t.reserve(&b, 1, 1, 2, start, start + 3 * 3_600, 15_250),
+        Ok(())
+    );
+    // A's vault (the custodian) on another tile of the province, M's lot in
+    // it: 100 ore, a use order of 40 for B.
+    let c = t.c;
+    let tile = VAULT_TILE + 1;
+    let actor = |mm: &Member| kc::Actor {
+        citizen: mm.key,
+        tag: citizen_tag(&mm.key),
+        by_session: false,
+    };
+    let mut v = VaultView {
+        p: c.p as i16,
+        q: c.q as i16,
+        tile,
+        gen: 1,
+        live: true,
+        owner: a.key,
+        owner_tag: citizen_tag(&a.key),
+        stores: [0; 8],
+        cap: 500 * MILLI,
+        quota: [0; 8],
+        lots: 0,
+    };
+    let bell = 1;
+    let mut lot: Lot = kc::open(
+        &mut v,
+        &actor(&a),
+        (m.key, citizen_tag(&m.key)),
+        Resource::Ore as u8,
+        200 * MILLI,
+        bell,
+        PAYER,
+    )
+    .unwrap();
+    kc::begin_inbound(&v, &mut lot, (citizen_tag(&m.key), 1), 100 * MILLI).unwrap();
+    kc::finish_inbound(Some(&v), &mut lot, (citizen_tag(&m.key), 1), 100 * MILLI).unwrap();
+    let spec = OrderSpec {
+        kind: kc::ORDER_USE,
+        grantee: b.key,
+        qty: 40 * MILLI,
+        expires_bell: 1_000,
+        dst: PlaceRef::default(),
+        purpose: fc::PURPOSE_WORKSHOP_ARMS,
+    };
+    let nonce = lot.nonce;
+    let order = kc::set_order(&v, &mut lot, &actor(&m), 0, nonce, &spec, bell).unwrap();
+    let mut vd = vault_bytes(c, &a, 0, 0);
+    vd[VA::TILE] = tile;
+    for i in 0..8 {
+        put(&mut vd, VA::custody_quota(i), &v.quota[i].to_le_bytes());
+    }
+    put(&mut vd, VA::CUSTODY_LOTS, &v.lots.to_le_bytes());
+    let vkey = frontier_abi::v2::addr::vault(&t.w.ctx, c.p, c.q, tile);
+    let lot_vault = info(leak(vkey, PROGRAM, vd, 0, BIG), false, true);
+    let mut ld = vec![0u8; frontier_abi::v2::layout::s1::lot::SIZE];
+    assert!(write_header(&mut ld, K2::Lot, SEASON_ID));
+    lot.encode(&mut ld).unwrap();
+    let lkey = frontier_abi::v2::addr::lot(
+        &t.w.ctx,
+        lot.p,
+        lot.q,
+        lot.tile,
+        lot.vault_gen,
+        lot.owner_tag,
+        lot.resource,
+    );
+    let lot_ai = info(leak(lkey, PROGRAM, ld, 0, BIG), false, true);
+    let lot_now = |ai: &AccountInfo| Lot::decode(&ai.try_borrow_data().unwrap()).unwrap();
+
+    let jai = t.job(1, 1);
+    let from_lot = |t: &Cap,
+                    deposit: u64,
+                    amount: i64,
+                    lv: &AccountInfo<'static>,
+                    la: &AccountInfo<'static>| {
+        let a = t.as_player(
+            &b,
+            &[
+                with_writable(&t.holding, false),
+                t.pool.clone(),
+                jai.clone(),
+                lv.clone(),
+                la.clone(),
+            ],
+        );
+        run(
+            &a,
+            &CapData::DepositToJob {
+                grant: 1,
+                job: 1,
+                deposit,
+                resource: Resource::Ore as u8,
+                amount,
+                source: fc::SOURCE_LOT,
+                slot: 0,
+                order,
+            }
+            .encode(),
+        )
+    };
+    records();
+    // Not whole units: the lot refuses (workstream 10's kernel).
+    assert_eq!(
+        from_lot(&t, 1, 31_500, &lot_vault, &lot_ai),
+        Err(E::BadData as u32)
+    );
+    assert_eq!(from_lot(&t, 1, 31 * MILLI, &lot_vault, &lot_ai), Ok(()));
+    let l = lot_now(&lot_ai);
+    assert_eq!((l.held, l.consumed), (69 * MILLI, 31 * MILLI));
+    let recs = records();
+    assert_eq!(
+        kinds_of(&recs),
+        vec![AnyKind::Cq(CqKind::LOT_CONSUMED)],
+        "the lot's own record"
+    );
+    // A resend changes nothing (the lot is not consumed twice).
+    assert_eq!(from_lot(&t, 1, 31 * MILLI, &lot_vault, &lot_ai), Ok(()));
+    assert_eq!(lot_now(&lot_ai).consumed, 31 * MILLI);
+    // B's own ore into the same job: two sources, refused.
+    let vault = t.vault.clone();
+    assert_eq!(
+        t.deposit(&b, job, 2, Resource::Ore, MILLI, &vault),
+        Err(E::NotImplemented as u32)
+    );
+    // B's own wood is fine.
+    assert_eq!(
+        t.deposit(&b, job, 3, Resource::Wood, 20 * MILLI, &vault),
+        Ok(())
+    );
+    // After the window: 15.25 arms made, 30.5 ore and 15.25 wood used.
+    crate::prologue::set_test_clock(start + 4 * 3_600, 3_000);
+    let claim = |t: &mut Cap, extra: &[AccountInfo<'static>]| {
+        let j = t.job(1, 1);
+        let mut rest = vec![
+            with_writable(&t.holding, false),
+            t.pool.clone(),
+            j,
+            t.vault.clone(),
+        ];
+        rest.extend_from_slice(extra);
+        let a = t.as_player(&b, &rest);
+        run(&a, &CapData::ClaimJob { grant: 1, job: 1 }.encode())
+    };
+    let wood_before = t.vault_store(Resource::Wood);
+    assert_eq!(
+        claim(&mut t, &[with_writable(&lot_vault, false), lot_ai.clone()]),
+        Ok(())
+    );
+    assert_eq!(t.vault_store(ARMS), 15_250, "B's arms");
+    assert_eq!(
+        t.vault_store(Resource::Wood) - wood_before,
+        4_750,
+        "B's wood back"
+    );
+    assert_eq!(
+        t.vault_store(Resource::Ore),
+        120 * MILLI,
+        "none of the lot's ore to B"
+    );
+    let link = crate::proc::capacity::link_of(&t.job(1, 1).try_borrow_data().unwrap()).unwrap();
+    assert_eq!((link.taken, link.returned, link.owed), (31 * MILLI, 0, 500));
+    let l = lot_now(&lot_ai);
+    assert_eq!(l.consumed, 31 * MILLI, "a sub-unit rest cannot go back yet");
+    assert_eq!(l.in_total, l.held + l.out_total + l.consumed + l.forfeited);
+    // The job keeps what it owes: it cannot retire.
+    assert_eq!(t.retire(job), Err(err(cap::CapError::NotRetirable)));
+}
+
+/// The same with a whole unit to give back: 30 ore taken, 14.5 arms made
+/// (29 ore used), the one unit left goes back into the lot un-consumed and
+/// the job retires.
+#[cfg(feature = "custody-preview")]
+#[test]
+fn capacity_whole_units_go_back_into_the_lot_unconsumed() {
+    use permutation_rules::frontier::custody::{self as kc, Lot, OrderSpec, PlaceRef, VaultView};
+    let _g = begin();
+    let mut t = Cap::new();
+    let (a, b) = (t.a.clone_member(), t.b.clone_member());
+    let m = t.w.member(WALLET_S, a.faction);
+    assert_eq!(t.open(&a, [0, 0, 0]), Ok(()));
+    assert_eq!(t.lend(&a, 2, 0, true), Ok(()));
+    assert_eq!(t.grant(&a, 1, &b, GENESIS + 10 * 86_400), Ok(()));
+    let start = GENESIS + 7_200;
+    assert_eq!(
+        t.reserve(&b, 1, 1, 2, start, start + 3 * 3_600, 14_500),
+        Ok(())
+    );
+    let c = t.c;
+    let tile = VAULT_TILE + 1;
+    let actor = |mm: &Member| kc::Actor {
+        citizen: mm.key,
+        tag: citizen_tag(&mm.key),
+        by_session: false,
+    };
+    let mut v = VaultView {
+        p: c.p as i16,
+        q: c.q as i16,
+        tile,
+        gen: 1,
+        live: true,
+        owner: a.key,
+        owner_tag: citizen_tag(&a.key),
+        stores: [0; 8],
+        cap: 500 * MILLI,
+        quota: [0; 8],
+        lots: 0,
+    };
+    let mut lot: Lot = kc::open(
+        &mut v,
+        &actor(&a),
+        (m.key, citizen_tag(&m.key)),
+        Resource::Ore as u8,
+        200 * MILLI,
+        1,
+        PAYER,
+    )
+    .unwrap();
+    kc::begin_inbound(&v, &mut lot, (citizen_tag(&m.key), 1), 100 * MILLI).unwrap();
+    kc::finish_inbound(Some(&v), &mut lot, (citizen_tag(&m.key), 1), 100 * MILLI).unwrap();
+    let spec = OrderSpec {
+        kind: kc::ORDER_USE,
+        grantee: b.key,
+        qty: 40 * MILLI,
+        expires_bell: 1_000,
+        dst: PlaceRef::default(),
+        purpose: fc::PURPOSE_WORKSHOP_ARMS,
+    };
+    let nonce = lot.nonce;
+    let order = kc::set_order(&v, &mut lot, &actor(&m), 0, nonce, &spec, 1).unwrap();
+    let mut vd = vault_bytes(c, &a, 0, 0);
+    vd[VA::TILE] = tile;
+    for i in 0..8 {
+        put(&mut vd, VA::custody_quota(i), &v.quota[i].to_le_bytes());
+    }
+    put(&mut vd, VA::CUSTODY_LOTS, &v.lots.to_le_bytes());
+    let lot_vault = info(
+        leak(
+            frontier_abi::v2::addr::vault(&t.w.ctx, c.p, c.q, tile),
+            PROGRAM,
+            vd,
+            0,
+            BIG,
+        ),
+        false,
+        true,
+    );
+    let mut ld = vec![0u8; frontier_abi::v2::layout::s1::lot::SIZE];
+    assert!(write_header(&mut ld, K2::Lot, SEASON_ID));
+    lot.encode(&mut ld).unwrap();
+    let lkey = frontier_abi::v2::addr::lot(
+        &t.w.ctx,
+        lot.p,
+        lot.q,
+        lot.tile,
+        lot.vault_gen,
+        lot.owner_tag,
+        lot.resource,
+    );
+    let lot_ai = info(leak(lkey, PROGRAM, ld, 0, BIG), false, true);
+    let jai = t.job(1, 1);
+    let a1 = t.as_player(
+        &b,
+        &[
+            with_writable(&t.holding, false),
+            t.pool.clone(),
+            jai.clone(),
+            lot_vault.clone(),
+            lot_ai.clone(),
+        ],
+    );
+    let dep = CapData::DepositToJob {
+        grant: 1,
+        job: 1,
+        deposit: 1,
+        resource: Resource::Ore as u8,
+        amount: 30 * MILLI,
+        source: fc::SOURCE_LOT,
+        slot: 0,
+        order,
+    };
+    assert_eq!(run(&a1, &dep.encode()), Ok(()));
+    let vault = t.vault.clone();
+    assert_eq!(
+        t.deposit(&b, (1, 1), 2, Resource::Wood, 20 * MILLI, &vault),
+        Ok(())
+    );
+    crate::prologue::set_test_clock(start + 4 * 3_600, 3_000);
+    let a2 = t.as_player(
+        &b,
+        &[
+            with_writable(&t.holding, false),
+            t.pool.clone(),
+            jai.clone(),
+            t.vault.clone(),
+            with_writable(&lot_vault, false),
+            lot_ai.clone(),
+        ],
+    );
+    assert_eq!(
+        run(&a2, &CapData::ClaimJob { grant: 1, job: 1 }.encode()),
+        Ok(())
+    );
+    let l = Lot::decode(&lot_ai.try_borrow_data().unwrap()).unwrap();
+    assert_eq!(
+        (l.held, l.consumed, l.in_total),
+        (71 * MILLI, 29 * MILLI, 100 * MILLI)
+    );
+    let link = crate::proc::capacity::link_of(&jai.try_borrow_data().unwrap()).unwrap();
+    assert_eq!(
+        (link.taken, link.returned, link.owed),
+        (30 * MILLI, MILLI, 0)
+    );
+    assert_eq!(t.vault_store(ARMS), 14_500);
+    assert_eq!(t.retire((1, 1)), Ok(()));
 }
