@@ -37,6 +37,9 @@ const CLOCK: &str = "SysvarC1ock11111111111111111111111111111111";
 
 pub type Session = Option<([u8; 32], u32, [u8; 32], i64)>;
 
+/// The node's accounts: address → (owner program, data).
+type Accounts = HashMap<[u8; 32], ([u8; 32], Vec<u8>)>;
+
 pub fn b58(k: &[u8; 32]) -> String {
     Address::new_from_array(*k).to_string()
 }
@@ -112,7 +115,7 @@ pub fn resident_bytes(generation: u32, session: Session) -> Vec<u8> {
 /// The chain: address → (owner, data).
 #[derive(Clone, Default)]
 pub struct PassNode {
-    accounts: Arc<Mutex<HashMap<[u8; 32], ([u8; 32], Vec<u8>)>>>,
+    accounts: Arc<Mutex<Accounts>>,
     pub url: String,
 }
 
@@ -189,7 +192,7 @@ impl PassNode {
     }
 }
 
-fn serve(s: &mut std::net::TcpStream, accounts: &Mutex<HashMap<[u8; 32], ([u8; 32], Vec<u8>)>>) {
+fn serve(s: &mut std::net::TcpStream, accounts: &Mutex<Accounts>) {
     let mut buf = vec![];
     let mut chunk = [0u8; 4096];
     let body = loop {
