@@ -1,5 +1,7 @@
 # patches: 共有コアへの変更案
 
+> **r15（2026-11-08、②が見つけた穴）。** [0015](0015-verify-v0e-every-abi-v2-account-kind-on-cf517b55.patch) は、V0E が S1 の口座（MarchState、Vault、Caravan、Structure、Nation、Lot）の事後状態の欠落も UNVERIFIABLE にするもの。当て先は `cf517b55` で、0013 と 0014 とは別のファイルなので、順は問わない。SHA-256 は `68b6a039a048f7029f0ec599220d1cd710ac174f9562ec6baf4dc9da9e3dac1d`。`b2bd9711`＋0013＋0014＋0015 の tree は `60bd0044052fa192c86956027402b669cc6afdda`。
+
 > **r14（2026-11-08）。** 当てる順は 0013 → ⑳の `b2bd9711`（入れ替えてもよい）→ [0014](0014-verify-v0-resident-act-left-to-v28-after-ws20-b2bd9711.patch)。0014 の SHA-256 は `f8763979f44bcb20814f185dcaac7f2db092c22254db639f9a7a908ad123b10d`、当てた後の tree は `38e164a8a82b212f69e02f3ac341f1c35541933c`。中身: ResidentAct を V28 と内側の命令の検査に渡す。条件は、V28 が動き（s1）、act がその内側の命令を実行すること。詳細は [17](../17-verifier-r13.ja.md) §7。
 
 > **r13（2026-11-08）。** ④の公開統合候補 `cf517b55` へは [0013](0013-verify-v0-forgery-only-under-a-known-program-and-keyfree-coverage-on-cf517b55.patch) を当てる。SHA-256 は `84fdbe7b2b588f2516fa3eeb376af466fef72b5ab5f68a601c5aee18582eae35`、当てた後の tree は `9ab02b5a78f23f849c13847e0f44f1f86b5fff4b`。中身は 2 つ。V0 が偽造（FAIL）とするのは知っている版のプログラムのときだけにした。ABI の coverage の契約を、鍵なしで確かめる試験を足した。詳細は [17](../17-verifier-r13.ja.md)。
