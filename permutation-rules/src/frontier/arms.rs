@@ -402,6 +402,87 @@ mod tests {
     }
 
     #[test]
+    fn lent_workshops_leave_the_holding_as_if_never_built() {
+        // k of 3 workshops lent at T0 + 1 h: from then on the holding
+        // settles exactly as one with 3 − k workshops (stores, rates and
+        // the dry-out switch), whatever the inputs.
+        for (ore, wood, oph, wph) in [(500, 500, 0, 0), (40, 300, 6, 9), (0, 0, 30, 30)] {
+            for k in 0..=3u32 {
+                let lend_at = T0 + HOUR;
+                let end = T0 + 13 * HOUR + 77;
+                let mut lent = converting(ore, wood, oph, wph, 3);
+                lent.lend_workshops(lend_at, k).unwrap();
+                lent.settle(end).unwrap();
+                let mut fewer = converting(ore, wood, oph, wph, 3);
+                fewer.settle(lend_at).unwrap();
+                fewer.production[ARMS as usize] = (3 - k as i64) * WORKSHOP_DELTA;
+                fewer.touch_owner(lend_at).unwrap();
+                fewer.last_owner_action = lent.last_owner_action;
+                fewer.settle(end).unwrap();
+                assert_eq!(lent.stores, fewer.stores, "k {k} ore {ore} wood {wood}");
+                // The copies stay built: the next Build still pays copy 4.
+                assert_eq!(lent.workshops(), 3);
+                assert_eq!(workshops_built(&lent.production), 3);
+            }
+        }
+    }
+
+    #[test]
+    fn lending_is_path_independent_and_bounded() {
+        let end = T0 + 9 * HOUR + 5;
+        let mut once = converting(30, 40, 3, 5, 2);
+        once.lend_workshops(T0 + 600, 1).unwrap();
+        once.settle(end).unwrap();
+        let mut steps = converting(30, 40, 3, 5, 2);
+        steps.settle(T0 + 300).unwrap();
+        steps.lend_workshops(T0 + 600, 1).unwrap();
+        let mut t = T0 + 600;
+        while t < end {
+            t = (t + 777).min(end);
+            steps.settle(t).unwrap();
+        }
+        assert_eq!(once, steps);
+        assert_eq!(
+            once.clone().lend_workshops(end, 2),
+            Err(crate::frontier::holding::HoldingError::Insufficient),
+            "only 1 copy left to lend"
+        );
+        assert_eq!(
+            once.clone().reclaim_workshops(end, 2),
+            Err(crate::frontier::holding::HoldingError::Insufficient)
+        );
+        // With inputs to spare, lending and reclaiming move the arms rate
+        // by one copy each.
+        let mut back = converting(900, 900, 0, 0, 2);
+        back.lend_workshops(T0, 1).unwrap();
+        assert_eq!(back.stores[ARMS as usize].rate, WORKSHOP_DELTA);
+        assert_eq!(back.stores[Resource::Ore as usize].rate, -8 * MILLI);
+        back.reclaim_workshops(T0 + HOUR, 1).unwrap();
+        assert_eq!(back.lent_workshops, 0);
+        assert_eq!(back.stores[ARMS as usize].rate, 2 * WORKSHOP_DELTA);
+        assert_eq!(stock(&back, ARMS), 4 * MILLI);
+    }
+
+    #[test]
+    fn all_lent_makes_no_arms_and_uses_no_inputs() {
+        let mut h = converting(100, 100, 0, 0, 2);
+        h.lend_workshops(T0, 2).unwrap();
+        h.settle(T0 + 10 * HOUR).unwrap();
+        assert_eq!(stock(&h, ARMS), 0);
+        assert_eq!(stock(&h, Resource::Ore), 100 * MILLI);
+        assert_eq!(stock(&h, Resource::Wood), 100 * MILLI);
+        assert!(h.stores.iter().all(|s| s.rate == 0));
+    }
+
+    #[test]
+    fn a_capture_ends_the_lending() {
+        let mut h = converting(0, 0, 0, 0, 2);
+        h.lend_workshops(T0, 1).unwrap();
+        let e = crate::frontier::holding::capture_effects(&h, NEUTRAL);
+        assert_eq!(e.lent_workshops, 0);
+    }
+
+    #[test]
     fn the_workshop_is_build_item_8() {
         let (c, e, secs) = building(ITEM_WORKSHOP, 1, &NEUTRAL).unwrap();
         assert_eq!(c[Resource::Wood as usize], 120 * MILLI);

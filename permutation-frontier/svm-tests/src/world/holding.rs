@@ -184,7 +184,11 @@ pub fn write_kholding(d: &mut [u8], h: &KHolding) {
         &h.walls_committed_before.to_le_bytes(),
     );
     put(d, H::FOOD_SHORTFALL, &h.food_shortfall.to_le_bytes());
+    put(d, H2_LENT, &h.lent_workshops.to_le_bytes());
 }
+
+/// The lent workshop copies' offset (v2 Holding; workstream 09 proposal).
+const H2_LENT: usize = frontier_abi::v2::layout::player::holding::LENT_WORKSHOPS;
 
 /// Reads the kernel holding from Holding data (the program's codec).
 pub fn read_kholding(d: &[u8]) -> KHolding {
@@ -235,6 +239,7 @@ pub fn read_kholding(d: &[u8]) -> KHolding {
         walls: le(&d[H::WALLS..H::WALLS + 4]) as u32,
         walls_committed_before: i64_at(H::WALLS_COMMITTED_BEFORE),
         food_shortfall: i64_at(H::FOOD_SHORTFALL),
+        lent_workshops: u32_at(d, H2_LENT),
     }
 }
 

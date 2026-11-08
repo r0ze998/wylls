@@ -163,6 +163,7 @@ pub fn read(d: &[u8]) -> Result<KHolding, String> {
         walls: u32_at(d, H::WALLS)?,
         walls_committed_before: i64_at(d, H::WALLS_COMMITTED_BEFORE)?,
         food_shortfall: i64_at(d, H::FOOD_SHORTFALL)?,
+        lent_workshops: u32_at(d, frontier_abi::v2::layout::player::holding::LENT_WORKSHOPS)?,
     })
 }
 
@@ -223,6 +224,11 @@ pub fn write(d: &mut [u8], h: &KHolding, now: i64) -> Result<(), String> {
         &h.walls_committed_before.to_le_bytes(),
     )?;
     put(d, H::FOOD_SHORTFALL, &h.food_shortfall.to_le_bytes())?;
+    put(
+        d,
+        frontier_abi::v2::layout::player::holding::LENT_WORKSHOPS,
+        &h.lent_workshops.to_le_bytes(),
+    )?;
     let flags = u8_at(d, H::FLAGS)?;
     let dormant = if h.is_dormant(now) {
         H::FLAG_DORMANT_CACHE
