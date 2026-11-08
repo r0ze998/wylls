@@ -472,3 +472,86 @@ async fn the_s1_ring_4_to_5_growth_matches_the_golden_and_8s_contract() {
         "the herald's S1 answers changed: regenerate and review the golden"
     );
 }
+
+const GOLDEN_S1_PALISADE: &str = concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/tests/golden/ws19-map-growth-s1-palisade.json"
+);
+
+/// A separate case, beside the empty world (whose golden is unchanged): the
+/// grown S1 world, then one palisade of faction 2 on 8's route
+/// (cqfixture::growth::palisade_case). The structures feed the route
+/// planner reads, the nations feed its stance rule reads, and the
+/// Provinces either side.
+#[tokio::test]
+async fn the_s1_palisade_on_8s_route_is_in_the_structures_feed() {
+    use herald_fold::cqfixture::growth as gr;
+    let (p, q, tile) = gr::palisade_at();
+    assert!(gr::route_tiles().contains(&(p, q, tile)));
+    assert_ne!(
+        gr::route_tiles().last(),
+        Some(&(p, q, tile)),
+        "not the destination"
+    );
+    let paths: Vec<String> = [
+        "/h/season".to_string(),
+        "/h/structures.json".into(),
+        "/h/nations.json".into(),
+        format!("/h/province/{},{}/latest", gr::HOME.0, gr::HOME.1),
+        format!("/h/province/{},{}/latest", gr::TARGET.0, gr::TARGET.1),
+        format!("/h/me/{}", gr::wallet()),
+    ]
+    .into_iter()
+    .collect();
+    let (txs, ends) = gr::palisade_case();
+    let out = serve_stages(
+        txs,
+        &ends,
+        &["grown", "palisade"],
+        gr::program(),
+        gr::SEASON_ID,
+        &paths,
+    )
+    .await;
+    let g = json!({
+        "v": 1,
+        "note": "herald answers for cqfixture::growth::palisade_case: the grown S1 world, then one palisade of faction 2 on 8's route (tests/ws19_map_contract.rs); regenerate with WS19_GOLDEN_WRITE=1",
+        "wallet": gr::wallet().to_string(),
+        "program": gr::program().to_string(),
+        "season": gr::SEASON_ID.to_string(),
+        "host": gr::host().to_string(),
+        "palisade": {"p": p, "q": q, "tile": tile, "kind": 2, "faction": 2},
+        "stages": out,
+    });
+    if std::env::var("WS19_GOLDEN_WRITE").is_ok() {
+        std::fs::write(
+            GOLDEN_S1_PALISADE,
+            serde_json::to_string_pretty(&g).unwrap() + "\n",
+        )
+        .unwrap();
+    }
+    assert_eq!(
+        body(&g, "grown", "/h/structures.json")["structures"],
+        json!([])
+    );
+    let st = &body(&g, "palisade", "/h/structures.json")["structures"];
+    assert_eq!(st.as_array().map(|a| a.len()), Some(1), "{st}");
+    let s0 = &st[0];
+    assert_eq!(
+        (&s0["p"], &s0["q"], &s0["tile"], &s0["kind"], &s0["faction"]),
+        (&json!(p), &json!(q), &json!(tile), &json!(2), &json!(2)),
+        "{s0}"
+    );
+    for s in ["grown", "palisade"] {
+        assert_eq!(status(&g, s, "/h/nations.json"), 200, "{s}");
+    }
+    let want: Value = serde_json::from_str(
+        &std::fs::read_to_string(GOLDEN_S1_PALISADE)
+            .expect("the golden (WS19_GOLDEN_WRITE=1 writes it)"),
+    )
+    .unwrap();
+    assert_eq!(
+        g, want,
+        "the herald's palisade answers changed: regenerate and review the golden"
+    );
+}

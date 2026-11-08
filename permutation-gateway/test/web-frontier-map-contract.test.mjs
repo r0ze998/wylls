@@ -18,6 +18,7 @@ import { createHerald } from '../../permutation-server/web/frontier/herald.mjs';
 import * as W from '../../permutation-server/web/frontier/map/world.mjs';
 import { seasonAddresses } from '../../permutation-server/web/frontier/faddr.mjs';
 import { blockedHexes } from '../../permutation-server/web/frontier/s1walk.mjs';
+import { DIRECTIONS, tileHex } from '../../permutation-server/web/frontier/fgeo.mjs';
 
 const GOLDEN = JSON.parse(readFileSync(new URL('../../frontier-node/crates/herald/tests/golden/ws19-map-growth.json', import.meta.url), 'utf8'));
 // The S1 golden (ring 4 → 5; used from the wide test on and in the S1 section below).
@@ -258,5 +259,46 @@ test('S1: the structures feed is the router\'s real empty answer at every stage,
     assert.ok(asked.includes('/h/structures.json'), stage);
     // What the page's route planner is given as blocked hexes (s1walk.mjs blockedHexes → fmarch planRoute `blocked`).
     assert.deepEqual(blockedHexes(r.structures.structures, {}, 1, false), [], stage);
+  }
+});
+
+// ------------------------------------------------------------------ S1 with a palisade on 8's route (a separate case)
+// tests/golden/ws19-map-growth-s1-palisade.json: cqfixture::growth::palisade_case through the same router: the grown
+// world, then one BuildStructure(palisade) by the faction-2 Citizen on a hex of 8's route (4,0) t0 → (5,0) t0.
+// The empty-world golden above is unchanged; this one only adds the palisade.
+const S1P = JSON.parse(readFileSync(new URL('../../frontier-node/crates/herald/tests/golden/ws19-map-growth-s1-palisade.json', import.meta.url), 'utf8'));
+const ROUTE_DIRS = [0, 0, 0, 0, 1, 1, 0, 1, 1]; // 8's ROUTE.dirs (growth-route.mjs)
+
+function s1pHerald(stage) {
+  const answers = S1P.stages[stage];
+  const f = async url => {
+    const a = answers[new URL(url, 'http://h').pathname] ?? { status: 404, body: { ok: false, code: 'NotFound' } };
+    return new Response(JSON.stringify(a.body), { status: a.status });
+  };
+  return createHerald({ fetch: f, seasonId: S1P.season });
+}
+
+test('S1 palisade case: the router\'s structures and nations feeds give the page one blocked hex, on 8\'s route', async () => {
+  // 8's route as hexes, from (4,0) tile 0 (the page's fgeo).
+  let [hq, hr] = (() => { const h = tileHex(4, 0, 0); return [h.q, h.r]; })();
+  const routeHexes = ROUTE_DIRS.map(d => { hq += DIRECTIONS[d][0]; hr += DIRECTIONS[d][1]; return `${hq},${hr}`; });
+  const at = S1P.palisade;
+  const pal = tileHex(at.p, at.q, at.tile);
+  assert.ok(routeHexes.slice(0, -1).includes(`${pal.q},${pal.r}`), 'the palisade is on 8\'s route, not its destination');
+  for (const stage of ['grown', 'palisade']) {
+    const h = s1pHerald(stage);
+    const st = await h.structures();
+    assert.ok(st.ok, `${stage}: ${st.code}`);
+    const na = await h.nations();
+    assert.ok(na.ok, `${stage}: ${na.code}`);
+    const blocked = blockedHexes(st.structures.structures, na.nations.stances, 1, false);
+    if (stage === 'grown') { assert.deepEqual(blocked, [], 'no structure before the build'); continue; }
+    assert.equal(st.structures.structures.length, 1);
+    const s0 = st.structures.structures[0];
+    assert.deepEqual([s0.p, s0.q, s0.tile, s0.kind, s0.faction], [at.p, at.q, at.tile, 2, 2]);
+    // The faction-1 viewer's march must not be planned through it (stance war, read from the nations feed) …
+    assert.deepEqual(blocked.map(x => `${x.q},${x.r}`), [`${pal.q},${pal.r}`]);
+    // … and its own nation's (faction 2, not expelled) is not stopped: the existing rule, nothing new.
+    assert.deepEqual(blockedHexes(st.structures.structures, na.nations.stances, 2, false), []);
   }
 });
