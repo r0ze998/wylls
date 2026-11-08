@@ -198,7 +198,46 @@ pub struct Tx {
     pub loaded_limit: u32,
 }
 
+/// The player instruction a ResidentAct (⑳'s 0xE2) ran for an NFT Citizen:
+/// its data is the inner instruction and its accounts the act's own accounts
+/// without the four proof accounts `[policy, link, asset, resident]`, as
+/// `permutation-frontier` `proc::resident::act` hands them to that
+/// instruction. `None` for anything else, an inner tag the act does not run
+/// (`resident_wire::ACT_RUNS`; V28 fails a successful one), or fewer than
+/// 4 + 4 accounts.
+pub fn unwrap_resident(ix: &Ix) -> Option<Ix> {
+    use frontier_abi::resident_wire::{self as rw, Command};
+    if ix.tag() != Some(rw::RESIDENT_ACT) {
+        return None;
+    }
+    let Some(Command::Act { inner, .. }) = rw::decode(&ix.data) else {
+        return None;
+    };
+    let n = ix.accounts.len();
+    if !rw::act_runs(inner[0]) || n < 8 {
+        return None;
+    }
+    Some(Ix {
+        index: ix.index,
+        data: inner.to_vec(),
+        accounts: ix.accounts[..n - 4].to_vec(),
+    })
+}
+
 impl Tx {
+    /// Whether `ix` is the player instruction a ResidentAct of this
+    /// transaction ran ([`unwrap_resident`]): its actor is the pass's holder
+    /// or session, not the Citizen's wallet (an NFT Citizen has none); V28
+    /// judges that authority.
+    pub fn via_resident(&self, ix: &Ix) -> bool {
+        ix.tag() != Some(frontier_abi::resident_wire::RESIDENT_ACT)
+            && self.ixs.iter().any(|w| {
+                w.index == ix.index
+                    && unwrap_resident(w)
+                        .is_some_and(|u| u.data == ix.data && u.accounts == ix.accounts)
+            })
+    }
+
     pub fn post_data(&self, k: &Key) -> Option<&[u8]> {
         self.post
             .get(k)
@@ -339,7 +378,7 @@ impl World {
                         if pid.map(|p| p.to_bytes()) != Some(w.program) {
                             continue;
                         }
-                        tx.ixs.push(Ix {
+                        let ix = Ix {
                             index: n,
                             data: ci.data.clone(),
                             accounts: ci
@@ -347,7 +386,13 @@ impl World {
                                 .iter()
                                 .filter_map(|&a| tx.keys.get(a as usize).copied())
                                 .collect(),
-                        });
+                        };
+                        // ⑳ (2026-11-08): a ResidentAct is also listed as
+                        // the player instruction it ran, so the checks of
+                        // that instruction judge it (`Tx::via_resident`).
+                        let inner = unwrap_resident(&ix);
+                        tx.ixs.push(ix);
+                        tx.ixs.extend(inner);
                     }
                 }
                 Err(e) => w.problems.push(Problem {
