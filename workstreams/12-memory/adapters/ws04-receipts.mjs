@@ -65,15 +65,27 @@ const place = (p, partition) => ({ partition, kind: p.kind, p: p.p, q: p.q, at: 
  */
 export function receiptToFacts(r, ctx) {
   const held = why => ({ facts: [], held: { receipt: `${r?.run_id}|${r?.kind}|${r?.subject}|${r?.source}`, why } });
-  if (!r || typeof r.kind !== 'string' || typeof r.subject !== 'string' || !Number.isSafeInteger(r.slot)) return held('malformed');
+  if (!r || typeof r.kind !== 'string' || typeof r.subject !== 'string' || (!Number.isSafeInteger(r.slot) || r.slot < 0)) return held('malformed');
   if (r.kind === 'facility_used') return held('not_a_memory_input');
   if (!['caravan_sent', 'caravan_settled', 'caravan_raided'].includes(r.kind)) return held(`unknown_kind:${r.kind}`);
-  if (!Number.isSafeInteger(ctx.finalizedSlot) || r.slot > ctx.finalizedSlot) return held('not_finalized');
+  if (!Number.isSafeInteger(ctx.finalizedSlot) || ctx.finalizedSlot < 0 || r.slot > ctx.finalizedSlot) return held('not_finalized');
   const bell = ctx.bellOfSlot(r.slot);
-  if (!Number.isSafeInteger(bell)) return held('clock_unmapped');
+  if (!Number.isSafeInteger(bell) || bell < 0) return held('clock_unmapped');
+  if (!Number.isSafeInteger(ctx.observedBell) || ctx.observedBell < 0) return held('observed_clock_invalid');
   if (bell > ctx.observedBell) return held('observed_before_occurred');
   const key = parseSubject(r.subject);
   if (!key) return held('malformed_subject');
+  // Settle/Raid repeat the caravan identity and slot inside the body. Do not
+  // let a stale/corrupt envelope relabel another caravan or make an unfinalized
+  // event appear finalized. Check before resolving aliases or emitting facts.
+  if (r.kind !== 'caravan_sent') {
+    try {
+      const b = r.body;
+      if (tagHexOf(b?.key?.owner) !== key.ownerHex ||
+          !Number.isSafeInteger(b?.key?.seq) || b.key.seq !== key.seq) return held('body_key_mismatch');
+      if (!Number.isSafeInteger(b.slot) || b.slot !== r.slot) return held('body_slot_mismatch');
+    } catch (e) { return held(`malformed_body:${e.message}`.slice(0, 80)); }
+  }
   const P = ctx.partition;
   const caravan = { partition: P, sender: key.ownerHex, seq: key.seq };
   const src = kind => ({ chain: P, sig: `${kind}|${r.subject}`, ix: 0 });
@@ -92,7 +104,7 @@ export function receiptToFacts(r, ctx) {
     if (r.kind === 'caravan_sent') {
       const spec = ctx.runSpecs?.[r.run_id];
       if (!spec?.ship?.dst) return held('dst_unknown'); // the receipt has no destination; only the run's spec has it
-      if (Number(r.body?.seq) !== key.seq) return held('seq_mismatch');
+      if (!Number.isSafeInteger(r.body?.seq) || r.body.seq !== key.seq) return held('seq_mismatch');
       facts.push({ kind: 'caravan_sent', ...base, source: src('caravan_sent'), data: { caravan, dst: place(spec.ship.dst, P), cargo: res(r.body.cargo) } });
     } else if (r.kind === 'caravan_settled') {
       const b = r.body;

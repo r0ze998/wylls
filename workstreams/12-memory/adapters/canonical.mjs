@@ -22,6 +22,7 @@ import { DatabaseSync } from 'node:sqlite';
 import { worldConfig } from './ws08-world.mjs';
 import { parseJsonU64, ingestReceipts } from './ws04-receipts.mjs';
 import { memoryLines } from '../src/view.mjs';
+import { SEND_ROUTES } from '../src/records.mjs';
 
 // ------------------------------------------------------------------ base58 (bitcoin alphabet; encoding only)
 const B58 = '123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz';
@@ -87,6 +88,9 @@ export function clockFromHeraldEvents(rows) {
 
 /** A finality attestation as handed in by 4/8 (an RPC read at commitment 'finalized'); anything else is refused. */
 export function finalizedSlotFrom(att, world) {
+  // A cross-check (workstream 19's `cross_checked`: two readings agree) and a history report (`complete`, which 19
+  // never sets true) are not finality; an attestation that carries either is refused rather than half-believed.
+  if (att && (att.cross_checked !== undefined || att.proof === 'cross_checked' || att.state === 'cross_checked' || 'complete' in att)) return { slot: null, why: 'cross_check_is_not_finality' };
   if (!att || att.commitment !== 'finalized' || !Number.isSafeInteger(att.slot) || typeof att.source !== 'string' || !att.source) return { slot: null, why: 'no_finality_attestation' };
   if (world && att.world_id !== world.world_id) return { slot: null, why: 'finality_for_another_world' };
   return { slot: att.slot, why: null };
@@ -119,7 +123,7 @@ export function resolverFromIdentity(entries) {
   const conflicts = [...byTag].filter(([, l]) => new Set(l.map(e => e.principal)).size > 1).map(([t]) => t);
   const resolve = tag => { const l = byTag.get(tag); return l && new Set(l.map(e => e.principal)).size === 1 ? { principal: l[0].principal, source: l[0].source } : null; };
   const wallets = new Map();
-  for (const [, l] of byTag) if (new Set(l.map(e => e.principal)).size === 1) wallets.set(l[0].principal, { tag: l[0].tag, source: l[0].source });
+  for (const [, l] of byTag) if (new Set(l.map(e => e.principal)).size === 1) wallets.set(l[0].principal, { tag: l[0].tag, partition: l[0].partition, source: l[0].source });
   return { resolve, conflicts, walletKnown: w => wallets.get(w) ?? null };
 }
 
@@ -130,13 +134,17 @@ export function resolverFromIdentity(entries) {
  */
 export function readWs04Store(dbPath) {
   const db = new DatabaseSync(dbPath, { readOnly: true });
+  // One read transaction: the world, the receipts and the run specs come from ONE snapshot of the store (WAL), as
+  // 4's own `runexec view` reads (Store::read_snapshot). Without it an executor committing between the SELECTs could
+  // give receipts of one moment and specs of another.
+  db.exec('BEGIN');
   try {
     const w = db.prepare("SELECT value FROM meta WHERE name = 'world'").get();
     const receipts = db.prepare('SELECT run_id, kind, subject, source, slot, body FROM receipts ORDER BY slot, kind, subject, source').all()
       .map(r => ({ run_id: r.run_id, kind: r.kind, subject: r.subject, source: r.source, slot: Number(r.slot), body: parseJsonU64(r.body) }));
     const runSpecs = Object.fromEntries(db.prepare('SELECT run_id, spec FROM runs').all().map(r => [r.run_id, parseJsonU64(r.spec)]));
     return { world: w?.value ?? null, receipts, runSpecs };
-  } finally { db.close(); }
+  } finally { try { db.exec('COMMIT'); } catch { /* nothing written */ } db.close(); }
 }
 
 /**
@@ -165,8 +173,35 @@ export function storeWorldMismatch(storeWorld, decl, season) {
  * same call later (after a restart, or when finality, the clock or identity catches up) takes in only what is new.
  * The store is the pen: held receipts stay in 4's store and are read again; 12 keeps no second copy.
  */
-export function connectCanonical(memory, { season, events, me = [], store, binding, finality }) {
-  const out = { status: 'ok', reasons: [], identity: { known: 0, refused: [] }, ingest: null, held: [] };
+// Workstream 13's provenance parts (13 81a03cf5 resident/ports/ws12-canonical.mjs PROVENANCE_PARTS, basisCheck) and
+// where each comes from in this connection. The kinds are 13's words: 'chain' (read from the chain or its indexer,
+// with a source), 'integration-output' (made by the integrated build, e.g. 4's runexec over its simulated chain),
+// 'fixture' (made up for a test). 12 cannot tell them apart from the bytes: the CALLER states each input's kind, and
+// 12 only carries the statement, never upgrades it; an input without a statement gives that part null (13: unstated).
+const KINDS = new Set(['chain', 'integration-output', 'fixture']);
+const RANK = { fixture: 0, 'integration-output': 1, chain: 2 };
+const stated = d => (d && KINDS.has(d.kind) && typeof d.source === 'string' && d.source ? { kind: d.kind, source: d.source } : null);
+const weakest = (...ds) => (ds.every(Boolean) ? ds.reduce((a, b) => (RANK[b.kind] < RANK[a.kind] ? b : a)) : null);
+/**
+ * The provenance object 13's ws12CanonicalEvidence({provenance}) takes, from the caller's statements
+ * `sources = {season, events, me, store, finality}` (each {kind, source}). world <- season; clock <- season and
+ * events (the weaker); identity <- me; records <- store; finality <- the attestation's statement plus its
+ * {commitment, slot, world_id}. No part claims completeness: 12 decides absence per promise, from a coverage
+ * record (see coverageFromHistory), never from this object.
+ */
+export function provenanceOf(sources = {}, finality = null) {
+  const f = stated(sources.finality);
+  return Object.freeze({
+    world: stated(sources.season),
+    clock: weakest(stated(sources.season), stated(sources.events)),
+    finality: f && finality ? { ...f, commitment: finality.commitment ?? null, slot: finality.slot ?? null, world_id: finality.world_id ?? null } : null,
+    identity: stated(sources.me),
+    records: stated(sources.store),
+  });
+}
+
+export function connectCanonical(memory, { season, events, me = [], store, binding, finality, sources = {} }) {
+  const out = { status: 'ok', reasons: [], identity: { known: 0, refused: [] }, ingest: null, held: [], provenance: provenanceOf(sources, finality) };
   let world;
   try { world = worldFromSeason(season); } catch (e) { return { ...out, status: 'world_unverified', reasons: [e.message] }; }
   if (!world.world) out.reasons.push(...world.reasons);
@@ -174,6 +209,15 @@ export function connectCanonical(memory, { season, events, me = [], store, bindi
   const fin = finalizedSlotFrom(finality, world.world);
   const observedBell = currentBellFromSeason(season);
   const holdAll = why => ({ ...out, status: 'held', reasons: [...out.reasons, why], held: (store?.receipts ?? []).map(r => ({ receipt: `${r.run_id}|${r.kind}|${r.subject}|${r.source}`, why })) });
+  // A valid upstream world declaration is not permission to write another
+  // memory's world. Check both cluster and account identity before any append.
+  if (!world.world || !memory.world || memory.world.cluster !== world.world.cluster ||
+      memory.world.world_id !== world.world.world_id) return holdAll('memory_world_mismatch');
+  const registered = memory.partitions?.[world.partition];
+  const expected = world.partitions[world.partition];
+  if (!registered || registered.program !== expected.program || registered.season !== expected.season) {
+    return holdAll('memory_partition_mismatch');
+  }
   if (mm) return holdAll(mm);
   if (fin.why) return holdAll(fin.why);
   if (observedBell === null) return holdAll('observed_bell_unknown');
@@ -214,11 +258,58 @@ export function ws12EvidencePort(memory, { identity = null, worldBellOf = null }
       if (typeof memory.world?.cluster !== 'string' || typeof memory.world?.world_id !== 'string') return { status: 'world_unverified', lines: [] };
       if (typeof counterparty !== 'string' || !ADDRESS.test(counterparty)) return { status: 'identity_unverified', lines: [] };
       const known = identity?.walletKnown?.(counterparty) ?? null;
-      if (!known) return { status: 'identity_unverified', lines: [] };
+      if (!known || typeof known.partition !== 'string' ||
+          !Object.hasOwn(memory.partitions ?? {}, known.partition)) return { status: 'identity_unverified', lines: [] };
       const bell = typeof worldBellOf === 'function' ? worldBellOf(worldBell) : null;
       if (!Number.isSafeInteger(bell) || bell < 0) return { status: 'clock_unverified', lines: [] };
       const k = memory.knowledge(PUBLIC_VIEWER, bell, { observedBy: bell });
       return { status: 'ok', lines: memoryLines(k, [counterparty]).map(l => ({ about: l.about, epistemic: l.epistemic, text: l.text, sources: [...l.sources], identitySource: known.source })) };
     },
   });
+}
+
+// ------------------------------------------------------------------ coverage: what an index must state to prove absence
+/**
+ * The only way a coverage record (the input that can make a promise "not sent") may be built from an index read.
+ * `h` is what the index reports for ONE sender over ONE slot range, in workstream 19's words
+ * (docs/frontier/history-coverage.ja.md) plus the fields absence needs and nobody publishes yet:
+ *   {basis, state, complete, heldBack, range: {from_slot, to_slot}, routes, finality: {commitment, slot},
+ *    sender (tag hex), caravans: [{seq}], source}
+ * Every condition must be STATED, none inferred:
+ *   - basis 'ledger_feed' (19 §3: absence only from the node's own ledger; `unproven` and `as_given` never);
+ *   - complete === true (19 never sets it today: false when unproven, null otherwise -> refused);
+ *   - state not 'not_fetched' / 'gap' / 'unverifiable'; 'cross_checked' is NOT enough on its own (19 §1);
+ *   - heldBack === 0 (listed but not fetched means not done);
+ *   - every send route of 12 (records.mjs SEND_ROUTES) covered;
+ *   - finality {commitment 'finalized', slot >= range.to_slot};
+ *   - the slot range mapped to world bells by the caller's clock (slots without a bell: refused).
+ * Returns {coverage: args for memory.observe | null, why: [...]}. With today's published history every call returns
+ * null: no producer can yet state completeness, so 12 keeps every unseen send unconfirmed (never "not sent").
+ */
+export function coverageFromHistory(h, { world, partition, bellOfSlot, observedBell }) {
+  const why = [];
+  if (!h || typeof h !== 'object') return { coverage: null, why: ['no_history'] };
+  if (h.basis !== 'ledger_feed') why.push(`basis_${h.basis ?? 'missing'}_cannot_prove_absence`);
+  if (h.complete !== true) why.push(`history_not_complete:${h.complete === undefined ? 'unstated' : h.complete}`);
+  if (['not_fetched', 'gap', 'unverifiable'].includes(h.state)) why.push(`state_${h.state}_is_not_absence`);
+  else if (h.state !== 'cross_checked' && h.state !== 'complete') why.push(`state_${h.state ?? 'missing'}`);
+  if (h.heldBack !== 0) why.push(`held_back_${h.heldBack ?? 'unstated'}`);
+  const missing = SEND_ROUTES.filter(r => !(h.routes ?? []).includes(r));
+  if (missing.length) why.push(`routes_missing:${missing.join(',')}`);
+  const fr = h.range ?? {};
+  if (!Number.isSafeInteger(fr.from_slot) || !Number.isSafeInteger(fr.to_slot) || fr.to_slot < fr.from_slot) why.push('range_malformed');
+  if (h.finality?.commitment !== 'finalized' || !Number.isSafeInteger(h.finality?.slot) || h.finality.slot < fr.to_slot) why.push('range_not_finalized');
+  if (typeof h.sender !== 'string' || !/^[0-9a-f]{16}$/.test(h.sender)) why.push('sender_malformed');
+  if (!Array.isArray(h.caravans) || !h.caravans.every(c => Number.isSafeInteger(c?.seq) && c.seq >= 0)) why.push('caravans_malformed');
+  if (typeof h.source !== 'string' || !h.source) why.push('no_source');
+  const fromBell = why.length ? null : bellOfSlot(fr.from_slot), toBell = why.length ? null : bellOfSlot(fr.to_slot);
+  if (!why.length && (!Number.isSafeInteger(fromBell) || !Number.isSafeInteger(toBell))) why.push('range_clock_unmapped');
+  if (!why.length && !(Number.isSafeInteger(observedBell) && toBell <= observedBell)) why.push('observed_before_range_end');
+  if (why.length) return { coverage: null, why };
+  return { coverage: {
+    kind: 'coverage', bell: toBell, created_bell: observedBell, visibility: { scope: 'public' },
+    source: { chain: partition, sig: `coverage|${h.sender}|${fr.from_slot}|${fr.to_slot}|${h.source}`.slice(0, 200), ix: 0 },
+    data: { world, partition, sender: h.sender, from_bell: fromBell, to_bell: toBell, routes: [...SEND_ROUTES], finality: 'finalized',
+      completeness: { gapless: true, from_slot: fr.from_slot, to_slot: fr.to_slot }, caravans: h.caravans.map(c => ({ partition, sender: h.sender, seq: c.seq })) },
+  }, why: [] };
 }
