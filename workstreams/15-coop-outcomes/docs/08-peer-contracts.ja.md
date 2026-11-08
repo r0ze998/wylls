@@ -185,6 +185,36 @@
 - `test/contract-ws01-fold.test.mjs`（6 件）、`test/contract-ws04-runexec.test.mjs`（8 件）を足した。
 - 全体で `node --test` 113 件すべて通過。比較表は前と同じ。
 
+## 5e. ④の chain flow（実ゲームのコードを通った隊商）と⑫の事実の照合（2026-11-08）
+
+起点 `bf7f43fca3f4425160ab8a4c318fb45073261955`。④の公開統合候補 `cf517b558d1303a84dba618550f40cb460b7ad99`（その後 `5ee66869` も確認）の chain flow の出力を、バイト単位で写した：`scenarios/fixtures/ws04-chain-flow-cf517b55/`。
+- 段 A：ゲームのプログラム自身の JoinResident で NFT の通行証を参加させる。
+- 段 B：その Citizen の隊商を④の run executor が送る。
+- 段 C：⑫の adapter で読む。
+- 段 D：⑮の旧 b1a09a0b の adapter で読む。
+
+④の書き出しのとおり、時計（bell＝slot）、確定（すべての slot が確定）、国（RESIDENT_JOINED の faction の値）は代役。
+
+| 確かめたこと | 結果 |
+|---|---|
+| 送り | Citizen（tag `1973050754706772817`、2⁵³ を超える）が木材 4 を送る |
+| 到着 | 4 が届く。④の run の outcome は `Recorded`。§3 の案 B なので下限［4, 5）で、正確な量ではない |
+| ⑫との一致 | ⑫ の事実（c-memory）と、送り手の tag・seq・積荷・credited（whole_units）・鐘が一致する |
+| 確定 | `finalizedSlot` より後の記録は保留する。欠落にはしない。slot の順なので、確定が進んでも判定した記録の位置は動かない |
+| 時計 | 時計が鐘に置けない slot は欠落にする。鐘を推し量らない |
+| 判定の外 | 事実からは報酬枠も賞金も出ない。世界は続く |
+| 旧版との差 | 旧 adapter は送りを落とし、ship の id に `undefined` の seq を書いていた（④の d-outcome が記録している）。今の adapter では起きない |
+
+**④との境目**
+- ④の `tools/chain-flow/stages-cde.mjs` は、⑮の旧い呼び方 `(receipts, map, opts)` を使っている。⑮はその形も受け付ける。
+- ただし、⑮の新しい版を④に取り込むと、stage D を作り直したときに④の検査が 2 つ落ちる（「到着が chain で正確」を期待しているため）。
+- その直しを④向けの差分 `patches/ws04-chain-flow-stage-d-cf517b55.patch` にした。④の領域なので、当てるかは④が決める。当て方は [patches/README.ja.md](../patches/README.ja.md)。
+- この差分は、④の固定データから SQLite の store を作り直し、④の no-keys-guard の下で stage C・D・E を動かして確かめた。D は通る。C と E の出力はバイト単位で同じ。`check-fixtures.mjs` は 31/31。
+
+**試験**
+- `test/contract-ws04-chainflow.test.mjs`（7 件）。
+- 全体で 120 件。④の `scripts/ci/no-keys-guard.mjs` を先に読み込んだ実行でも 120 件すべて通過。
+
 ## 6. 残っていること
 
 1. 差分の基点 `32ad894d`・`1913625d` と、もとの候補 commit の本体（照合できていない）。

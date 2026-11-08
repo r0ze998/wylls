@@ -61,17 +61,26 @@ export function parseExact(text) {
 const u64 = v => (Number.isSafeInteger(v) && v >= 0 ? String(v) : typeof v === 'string' && /^\d{1,20}$/.test(v) && BigInt(v) < 2n ** 64n ? v : null);
 
 /**
- * `{receipts, runs}` from ④'s runexec dump as SQLite holds it (`receipts` rows
- * with `body_json`, `run_specs_json` by run id; workstream 12 committed the
- * dump: scenarios/fixtures/ws04-runexec-d0949fd4/). Bodies and specs are read
- * with parseExact. The dump has no run outcome: `outcomes[run_id]`, when the
- * caller has one, is added as ④'s Outcome.
+ * `{receipts, runs}` from ④'s store, in any of the forms it is handed out in:
+ *   - workstream 12's dump of runexec demo: `receipts[].body_json`, `run_specs_json[run_id]` (raw JSON text)
+ *   - ④'s chain-flow dump (tools/chain-flow/dump-store.mjs): `receipts[].body` and `runs[] {run_id, state,
+ *     spec, detail}` as raw JSON text; the run's outcome and reason are in `detail`
+ *   - workstream 12's `readWs04Store` (bodies already parsed, u64 owner/raider as decimal strings) with
+ *     `runSpecs[run_id]`, and optionally `details[run_id]`
+ * Raw text is read with parseExact. `outcomes[run_id]`, when given, overrides a run's outcome.
  */
 export function fromRunexecDump(dump, outcomes = {}) {
-  const receipts = (dump.receipts ?? []).map(r => ({ run_id: r.run_id, kind: r.kind, subject: r.subject, source: r.source, slot: r.slot,
-    body: typeof r.body_json === 'string' ? parseExact(r.body_json) : r.body }));
+  const parse = v => (typeof v === 'string' ? parseExact(v) : v ?? null);
+  const receipts = (dump.receipts ?? []).map(r => ({ run_id: r.run_id, kind: r.kind, subject: r.subject, source: r.source, slot: Number(r.slot),
+    body: parse(r.body_json ?? r.body) }));
   const runs = {};
-  for (const [id, spec] of Object.entries(dump.run_specs_json ?? {})) runs[id] = { spec: typeof spec === 'string' ? parseExact(spec) : spec, ...(outcomes[id] ? { outcome: outcomes[id] } : {}) };
+  const put = (id, spec, detail) => {
+    const d = parse(detail);
+    const outcome = outcomes[id] ?? d?.outcome ?? undefined;
+    runs[id] = { spec: parse(spec), ...(outcome ? { outcome } : {}), ...(d?.reason ? { reason: d.reason } : {}) };
+  };
+  for (const [id, spec] of Object.entries(dump.run_specs_json ?? dump.runSpecs ?? {})) put(id, spec, dump.details?.[id]);
+  for (const r of Array.isArray(dump.runs) ? dump.runs : []) put(r.run_id, r.spec, r.detail);
   return { receipts, runs };
 }
 
@@ -102,10 +111,21 @@ const samePlace = (a, b) => !!a && !!b && ['kind', 'p', 'q', 'at', 'gen'].every(
  * `{actor, project?}`. The sender's stock is not in ④'s receipts: sends
  * enter the cargo `fromOutside`.
  */
-export function fromRunReceipts(receipts, runs, map, { stream = 'ws04', epoch = null } = {}) {
+export function fromRunReceipts(receipts, runs, map, opts = {}) {
+  // The form before 5753626c, still called by ④'s tools/chain-flow/stages-cde.mjs: (receipts, map, opts), no runs.
+  if (typeof runs?.bellOfSlot === 'function') return fromRunReceipts(receipts, {}, runs, map ?? {});
+  const { stream = 'ws04', epoch = null, finalizedSlot = null } = opts;
   const ns = epoch === null ? '' : `${epoch}:`;
   const events = [];
   const skipped = [];
+  const held = [];
+  // Receipts after the finalized slot are held, not judged: they are the tail of the slot order, so the stream
+  // positions of what is judged do not move when finality advances and they come in.
+  if (finalizedSlot !== null) {
+    const keep = [];
+    for (const r of receipts) (Number(r.slot) > finalizedSlot ? held : keep).push(r);
+    receipts = keep;
+  }
   const keyOf = r => `${r.kind}|${r.subject}`;
   const sorted = [...receipts].map(r => ({ r, k: keyOf(r), c: canonical({ kind: r.kind, subject: r.subject, slot: r.slot, body: r.body }) }))
     .sort((a, b) => a.r.slot - b.r.slot || cmp(a.k, b.k) || cmp(a.c, b.c) || cmp(String(a.r.run_id), String(b.r.run_id)) || cmp(String(a.r.source), String(b.r.source)));
@@ -119,6 +139,8 @@ export function fromRunReceipts(receipts, runs, map, { stream = 'ws04', epoch = 
     if (!seqOf.has(k)) seqOf.set(k, seq++);
     const s = seqOf.get(k);
     const at = map.bellOfSlot(r.slot);
+    // A slot the clock cannot place (④'s herald rows disagree or are missing) is a gap, never a guessed bell.
+    if (!Number.isSafeInteger(at)) { skipped.push({ source: r.source, why: 'slot not placed in a bell by the clock: left as a gap' }); continue; }
     const b = r.body ?? {};
     const run = runs[r.run_id] ?? {};
     let sub = 0;
@@ -165,5 +187,5 @@ export function fromRunReceipts(receipts, runs, map, { stream = 'ws04', epoch = 
       if (!sub) emit('position', {}, 'chain');
     } else { skipped.push({ source: r.source, why: `${r.kind} not judged here` }); emit('position', {}, 'chain'); }
   }
-  return { events, skipped };
+  return { events, skipped, held: held.map(r => ({ source: r.source, slot: r.slot, why: 'after the finalized slot: held' })) };
 }
