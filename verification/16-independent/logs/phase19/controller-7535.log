@@ -1,0 +1,126 @@
+### controller HEAD 7535a17e135ff3b18f7ad1160599f1473b334794 tree 1960174902f4e90ac61a004264954757a528cd1e
+TAP version 13
+# Subtest: a slower latest response cannot roll a province back, including its holding generation
+ok 1 - a slower latest response cannot roll a province back, including its holding generation
+  ---
+  duration_ms: 1.625838
+  type: 'test'
+  ...
+# Subtest: the arrival stepper moves from the turn currently displayed after a draft has waited
+ok 2 - the arrival stepper moves from the turn currently displayed after a draft has waited
+  ---
+  duration_ms: 0.640533
+  type: 'test'
+  ...
+# Subtest: a composed march stays with its original holding across city selection, and rejects a replacement generation
+ok 3 - a composed march stays with its original holding across city selection, and rejects a replacement generation
+  ---
+  duration_ms: 0.376449
+  type: 'test'
+  ...
+# Subtest: an exploration draft is hidden in a different village and cannot use a replaced holding generation
+ok 4 - an exploration draft is hidden in a different village and cannot use a replaced holding generation
+  ---
+  duration_ms: 1.462884
+  type: 'test'
+  ...
+# Subtest: a selected quiet keep retains its actual protection after a newer world control snapshot
+ok 5 - a selected quiet keep retains its actual protection after a newer world control snapshot
+  ---
+  duration_ms: 7.129993
+  type: 'test'
+  ...
+# Subtest: outpost filing refreshes owned slots and stops if its nonrefundable cost increased since the displayed quote
+ok 6 - outpost filing refreshes owned slots and stops if its nonrefundable cost increased since the displayed quote
+  ---
+  duration_ms: 2.071554
+  type: 'test'
+  ...
+# Subtest: the chronicle starts near the head, the warnings judge at cavalry pace, the poll keeps a hidden cadence
+ok 7 - the chronicle starts near the head, the warnings judge at cavalry pace, the poll keeps a hidden cadence
+  ---
+  duration_ms: 0.640228
+  type: 'test'
+  ...
+# Subtest: SettleExplore names a present cache of round S of THE anchor, or the archive; never caches[0] blindly
+ok 8 - SettleExplore names a present cache of round S of THE anchor, or the archive; never caches[0] blindly
+  ---
+  duration_ms: 0.249356
+  type: 'test'
+  ...
+# Subtest: hosts elsewhere: /h/me hosts give the provinces to load (the home one excluded, each once)
+ok 9 - hosts elsewhere: /h/me hosts give the provinces to load (the home one excluded, each once)
+  ---
+  duration_ms: 0.448276
+  type: 'test'
+  ...
+# Subtest: a gated season shows the invite field before any refusal
+ok 10 - a gated season shows the invite field before any refusal
+  ---
+  duration_ms: 3.240636
+  type: 'test'
+  ...
+# Subtest: a send reported failed that landed anyway is revived by its live transit (not a seal mismatch)
+ok 11 - a send reported failed that landed anyway is revived by its live transit (not a seal mismatch)
+  ---
+  duration_ms: 0.509301
+  type: 'test'
+  ...
+# Subtest: herald client: a null holding in /h/me is skipped; /h/events reports a full page
+ok 12 - herald client: a null holding in /h/me is skipped; /h/events reports a full page
+  ---
+  duration_ms: 1.151974
+  type: 'test'
+  ...
+# Subtest: the garrison form offers increases only (the M1 program refuses delta ≤ 0)
+ok 13 - the garrison form offers increases only (the M1 program refuses delta ≤ 0)
+  ---
+  duration_ms: 1.096683
+  type: 'test'
+  ...
+# Subtest: refresh: remote host provinces, the invite flag, the explore seed and the chronicle from near the head
+ok 14 - refresh: remote host provinces, the invite flag, the explore seed and the chronicle from near the head
+  ---
+  duration_ms: 3.525556
+  type: 'test'
+  ...
+# Subtest: refresh maps /h/me found, missing and unavailable results to viewer state
+ok 15 - refresh maps /h/me found, missing and unavailable results to viewer state
+  ---
+  duration_ms: 0.770092
+  type: 'test'
+  ...
+# Subtest: an older /h/me answer cannot replace the current wallet viewer
+ok 16 - an older /h/me answer cannot replace the current wallet viewer
+  ---
+  duration_ms: 0.437575
+  type: 'test'
+  ...
+# Subtest: a wallet account switch clears the former owner before the next herald read
+ok 17 - a wallet account switch clears the former owner before the next herald read
+  ---
+  duration_ms: 0.442948
+  type: 'test'
+  ...
+# Subtest: an old viewer refresh cannot restore a former owner after an account switch during province read
+ok 18 - an old viewer refresh cannot restore a former owner after an account switch during province read
+  ---
+  duration_ms: 0.390002
+  type: 'test'
+  ...
+# Subtest: the Wallet Standard account-change event updates the play viewer and clears the former session
+ok 19 - the Wallet Standard account-change event updates the play viewer and clears the former session
+  ---
+  duration_ms: 1.527046
+  type: 'test'
+  ...
+1..19
+# tests 19
+# suites 0
+# pass 19
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 1421.483343
+exit=0

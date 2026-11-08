@@ -1887,3 +1887,23 @@ Rust の側は 23.3 に書く。
 - 本番の requester の認証層（③⑤。利用者の判断で、未決）
 
 ④ が試して取り下げた relay attestation と pin の修正は、⑤ の review 待ちで、新しい HEAD はまだ無い。
+
+## 23.4 訂正：web-frontier-controller.test.mjs（7535a17e）
+
+- 23.2 と 23.3 では、この試験を「鍵を使う試験の一覧に入っているので未実行」とした。この扱いを改め、確かめてから流した。
+- 一覧に入っている理由:
+  - `scripts/ci/node-key-tests.txt` の scan が、このファイルの stub の wallet に一致した。
+  - stub は Wallet Standard の feature 名 `solana:signTransaction`・`solana:signMessage` を持ち、どちらも空の配列を返すだけ。
+  - ファイルの中に、鍵の API の呼び出しは無い。seal の root も固定の hex である。
+- 呼び出し先の確認:
+  - この試験は controller.mjs と wallet.mjs を import する。
+  - web の `keyFromSeed` は、guard が止める pkcs8 の importKey の前に、純 JS で公開鍵を導く（`session.mjs publicKeyOf`）。
+  - そのため、repository の no-keys-guard だけでは「導出が無かった」とは言えない。
+- 確認の方法:
+  - ⑯は `scripts/v16-web-key-hook.mjs` を書いた。web の鍵の入口（publicKeyOf、keyFromSeed、importBackup、devWallet、enableDevWallet）を、load のときに「記録して throw する」形に書き換えるもの。
+  - これを no-keys-guard と一緒に preload した。
+  - 対照の実験（`scripts/v16-web-key-hook-control.mjs`）で、3 つの入口が拒否され、記録されることを確かめた（`logs/phase19/hookctl.log`）。
+- 結果（7535a17e、tree 19601749）: **19/19 通過**。hook の記録は 0 件、NoKeysGuard の発動も 0 回だった。
+  - wallet の account の切り替えで前の所有者が消えること、古い /h/me の答えが今の閲覧者を置き換えないことなど、閲覧者の初期化の試験を含む。
+- したがって、この試験は**鍵なしで動く**。⑯の未実行の一覧から外し、通過に数える。
+- CI の一覧から外すかどうかは、④の判断である。⑯は変更しない。
