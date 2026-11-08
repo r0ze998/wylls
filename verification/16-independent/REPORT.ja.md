@@ -3709,3 +3709,19 @@ workflow run が 16 のままであることは ④ が数えたもので、⑯ 
   - 手順の違反（一覧に載る file を手順の外で走らせたこと、自前の guard、自己試験）は確定している。
 
 **4. 判断待ちの点（ユーザー）。** この開示は hud の 13/13 の範囲を超えている。11 月 6 日と 8 日の、他の一覧の file（live、marches、people、s1、agent）の実行で、鍵の経路に入ったことが記録されている。⑯ は、これ以上の照合（その時点の source を読むだけの確認）を、ユーザーの指示があるまで始めない。新しい実行の保留は続ける。
+
+**追記（7 の一覧、part 1。7 の自己申告で、⑯ は静的な照合をまだしていない。ユーザーの判断待ち）。** hud の file を含む、以前の直接の実行の一覧である。7 は、HEAD を worktree の reflog から読んだ。どの実行も、guard は `--import <scratchpad>/guard/nokeys.mjs`（7 の自前）、NODE_OPTIONS は分からず、出力は絞った行だけ、git status と diff の記録は無い。
+
+| # | 時刻 | transcript の行 | cwd、HEAD | commit していない変更 | 残っている出力 |
+|---|---|---|---|---|---|
+| 1 | 11-06 00:18 | 6019 | integ、cd89bcfd | 分からない（直前に guard の file を書き換えた） | guard の自己試験 `generateKeyPairSync('ed25519')` が止められた。その後、44 file を 1 つずつ実行し、hud は 12/0。止めた記録は subtle.generateKey 1 回と importKey(pkcs8, sign) 16 回で、live、marches、people、s1 のもの（hud ではない） |
+| 2 | 11-06 00:32 | 6301 | integ、cd89bcfd | 後で reset と commit 7889f873 がある | files 44、pass 509、fail 1、blocked 0 |
+| 3 | 11-06 12:32 | 6770 | v17、788f0505 | 後で commit e0dfcdb6 がある | files 47、pass 525、fail 1。agent で createPrivateKey を止めた |
+| 4 | 11-06 12:35 | 6908 | v17、a8868191 | 分からない | files 47、pass 526、fail 1。agent で createPrivateKey を止めた |
+| 5 | 11-08 11:51 | 7291 | v18、d1c03583 | 同じ command で lang の file を sed で書き換えた。後で commit 48b77227 がある | NOKEYS_LOG=/dev/null（止めた記録が残らない）。hud は 12/0 |
+| 6 | 11-08 19:12 | 9973 | v18、95b0ab22 | 後で commit 9b547d9d がある | 13 file を 1 回で実行し、pass 166、fail 0。log は無い |
+| 7 | 11-08 19:28 | 10293 | v18、c4eae408 | 後で commit a8c9eccb がある | 15 file を 1 回で実行し、pass 174、fail 0。log は無い |
+
+- 1〜7 回目の hud について：鍵の生成、導出、署名があったかどうかは、確かめられていない。
+- 1 回目の自己試験と、他の file で止めた記録は、鍵の経路が実際に呼ばれたことを示す。止まる前の導出の有無は分からない。
+- 7 の「node_modules に解決される @noble の bare import」は、⑯ の確認では comment の中だけである（上の 2.）。
