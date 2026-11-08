@@ -52,17 +52,19 @@ export async function startServer({ port: listenPort = 0, bootstrap = false, key
   let stage = 'none';
   let live = null, liveOpts = {};
   let meWith = null;
-  // (workstream 07: `openRings(n)` — set only by a test that asks for it — opens the rings below n as map growth does:
-  // the season record lists their seeds (the fixture's own pattern, ring d's seed = byte d+1 repeated, as rings 0–2) and
-  // their overview and roster answer. null (the default): rings 0–2, exactly as before)
-  let ringsOpen = null;
+  // (workstream 07: map growth in this fixture, set only by a test that asks for it.
+  //  `openRings(n)`: the season record lists the seeds of rings below n — the fixture's own pattern, ring d's seed =
+  //  byte d+1 repeated, as rings 0–2. `seasonWith(f)`: the season record passed through f (e.g. workstream 08's
+  //  test/fixtures/frontier/growth-route.mjs withGrowth). A ring's overview and roster answer when the season record
+  //  lists its seed, as a herald's do once the ring is seeded. Neither set (the default): rings 0–2, exactly as before)
+  let ringsOpen = null, seasonWith = null;
   const seasonNow = () => {
-    const r = W.seasonRecord();
-    if (ringsOpen === null) return r;
-    const rings = Array.from({ length: ringsOpen }, (_, d) => r.rings.find(x => x.d === d) ?? { d, seed: (d + 1).toString(16).padStart(2, '0').repeat(32) });
-    return { ...r, rings };
+    let r = W.seasonRecord();
+    if (ringsOpen !== null) r = { ...r, rings: Array.from({ length: ringsOpen }, (_, d) => r.rings.find(x => x.d === d) ?? { d, seed: (d + 1).toString(16).padStart(2, '0').repeat(32) }) };
+    if (seasonWith) r = seasonWith(r);
+    return r;
   };
-  const ringOpen = d => d <= 2 || (ringsOpen !== null && d < ringsOpen);
+  const ringOpen = d => d < seasonNow().rings.length;
   const requests = [];
   const json = (res, code, body) => { res.writeHead(code, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' }); res.end(JSON.stringify(body)); return code; };
   const readJson = req => new Promise(resolve => { const parts = []; req.on('data', c => parts.push(c)); req.on('end', () => { try { resolve(JSON.parse(Buffer.concat(parts).toString() || '{}')); } catch { resolve(null); } }); req.on('error', () => resolve(null)); });
@@ -169,8 +171,10 @@ export async function startServer({ port: listenPort = 0, bootstrap = false, key
     advance: opts => live?.advance(opts) ?? null,
     // (workstream 07: a test's own rewrite of the viewer's /h/me record, `(record, stage) → record`; null removes it)
     meWith: f => { meWith = typeof f === 'function' ? f : null; },
-    // (workstream 07: map growth in this fixture — `n` rings open (n > 3), or null for the default 0–2)
+    // (workstream 07: map growth in this fixture — `n` rings open (n > 3), or null for the default 0–2; or the season
+    // record through `f`, or null)
     openRings: n => { ringsOpen = Number.isInteger(n) && n > 3 ? n : null; },
+    seasonWith: f => { seasonWith = typeof f === 'function' ? f : null; },
     pause: (on = true) => live?.pause(on) ?? null,
     world: () => live,
     requests,
