@@ -56,6 +56,20 @@ wide-world-experimental = [
     "frontier-abi/world-index-experimental",
     "permutation-rules/wide-terrain-experimental",
 ]
+# Local playable wide-economy demo (2026-11-08), host-only: adds a non-Solana,
+# feature-gated Clock source (`prologue::set_local_demo_clock`, unset =
+# fail closed, no wall clock, no environment) so the real
+# `permutation_frontier::dispatch` can run a wide Harvest/Build/Train in a
+# private in-memory sandbox (`examples/local_economy_demo`). While it is on,
+# `prologue::now` never calls `Clock::get`. Does not enable
+# `nft-experimental` (the fixtures carry program version 0x4004) and refuses
+# to build with it. Never deployable.
+local-economy-demo = ["wide-world-experimental"]
+
+[[example]]
+name = "local_economy_demo"
+path = "examples/local_economy_demo/main.rs"
+required-features = ["local-economy-demo"]
 
 # Dependency sections: owned by the integrator (M1 contract §3.4, I-55); the
 # set below is the one listed in docs/frontier/m1/W2-A-NOTES.md.

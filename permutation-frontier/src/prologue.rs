@@ -11,10 +11,7 @@
 
 use alloc::vec::Vec;
 
-use solana_program::{
-    account_info::AccountInfo, clock::Clock, instruction::get_stack_height, pubkey::Pubkey,
-    sysvar::Sysvar,
-};
+use solana_program::{account_info::AccountInfo, instruction::get_stack_height, pubkey::Pubkey};
 
 use frontier_abi::layout::AccountKind;
 use frontier_abi::prologue::{self as ap, Acc, AccountView, SeasonHdr, Spec, Wr};
@@ -48,17 +45,60 @@ pub fn set_test_clock(ts: i64, slot: u64) {
     TEST_NOW.with(|c| c.set(Some((ts, slot))));
 }
 
-/// Reads the Clock sysvar.
-pub fn now() -> R<Now> {
-    #[cfg(test)]
-    if let Some((ts, slot)) = TEST_NOW.with(|c| c.get()) {
-        return Ok(Now { ts, slot });
+// Local playable demo only (feature `local-economy-demo`, host-only; a
+// `compile_error!` in lib.rs refuses the Solana target). The host build cannot
+// read the Clock sysvar (`Clock::get` is `UnsupportedSysvar` off chain, with
+// no hook), so the demo sandbox sets the time it simulates here, on this
+// thread, immediately before each dispatch. Unset means fail closed: no wall
+// clock, no environment variable, no default.
+#[cfg(feature = "local-economy-demo")]
+std::thread_local! {
+    static DEMO_NOW: core::cell::Cell<Option<(i64, u64)>> = const { core::cell::Cell::new(None) };
+}
+
+/// Local demo only: the time [`now`] returns on this thread until
+/// [`clear_local_demo_clock`]. Separate from the test-only
+/// [`set_test_clock`], which stays `cfg(test)`.
+#[cfg(feature = "local-economy-demo")]
+pub fn set_local_demo_clock(ts: i64, slot: u64) {
+    DEMO_NOW.with(|c| c.set(Some((ts, slot))));
+}
+
+/// Local demo only: unsets the demo clock of this thread, so [`now`] fails
+/// closed (`UnsupportedSysvar`) until it is set again.
+#[cfg(feature = "local-economy-demo")]
+pub fn clear_local_demo_clock() {
+    DEMO_NOW.with(|c| c.set(None));
+}
+
+/// The demo clock, or `UnsupportedSysvar` when unset. Never `Clock::get`.
+#[cfg(feature = "local-economy-demo")]
+fn clock_source() -> R<Now> {
+    match DEMO_NOW.with(|c| c.get()) {
+        Some((ts, slot)) => Ok(Now { ts, slot }),
+        None => Err(solana_program::program_error::ProgramError::UnsupportedSysvar.into()),
     }
+}
+
+/// The Clock sysvar.
+#[cfg(not(feature = "local-economy-demo"))]
+fn clock_source() -> R<Now> {
+    use solana_program::{clock::Clock, sysvar::Sysvar};
     let c = Clock::get()?;
     Ok(Now {
         ts: c.unix_timestamp,
         slot: c.slot,
     })
+}
+
+/// Reads the Clock sysvar (a test clock first under `cfg(test)`; the local
+/// demo clock instead of the sysvar under `local-economy-demo`).
+pub fn now() -> R<Now> {
+    #[cfg(test)]
+    if let Some((ts, slot)) = TEST_NOW.with(|c| c.get()) {
+        return Ok(Now { ts, slot });
+    }
+    clock_source()
 }
 
 /// The 32 raw bytes of a key.

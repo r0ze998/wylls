@@ -1,0 +1,87 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="robots" content="noindex">
+<title>LOCAL SIMULATION · MOCK AUTH · ワイド経済デモ</title>
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Crect width='16' height='16' rx='3' fill='%233a1010'/%3E%3C/svg%3E">
+<link rel="stylesheet" href="/permutation-server/web/frontier/frontier.css">
+<link rel="stylesheet" href="/permutation-server/web/frontier/people/leaders.css">
+<link rel="stylesheet" href="/permutation-server/web/frontier/proto-hand.css">
+<link rel="stylesheet" href="/permutation-server/web/frontier/proto-board.css">
+<link rel="stylesheet" href="/permutation-server/web/frontier/conquest-hand.css">
+<link rel="stylesheet" href="/permutation-server/web/frontier/uplift.css">
+<link rel="stylesheet" href="/permutation-gateway/screens/wide-economy-local/local.css">
+</head>
+<body class="lx" data-mode="play" data-stage="final" data-drawer="open" data-doc="" data-sheet="full" data-local="wide-economy">
+<!-- Permanent notice: static markup, never rewritten by script. -->
+<header class="lx-banner" id="lx-banner" role="region" aria-label="ローカルシミュレーションの注意">
+  <p class="lx-banner-main"><strong>LOCAL SIMULATION · MOCK AUTH · NO WALLET / CHAIN / REAL TRANSACTION</strong></p>
+  <p class="lx-banner-sub">ローカルシミュレーション ・ モック認可（署名なし） ・ ウォレットなし ・ チェーンなし ・ 実トランザクションなし</p>
+</header>
+
+<div id="lx-root">
+  <section class="lx-play" aria-labelledby="lx-play-h">
+    <h2 id="lx-play-h">ローカル操作 <span class="lx-tag">LOCAL</span></h2>
+
+    <dl class="lx-status" id="lx-status" aria-live="polite">
+      <div><dt>状態</dt><dd id="lx-phase">読み込み中…</dd></div>
+      <div><dt>シミュレーション時刻</dt><dd id="lx-clock">—</dd></div>
+      <div><dt>リビジョン</dt><dd id="lx-rev">—</dd></div>
+      <div class="lx-wide"><dt>直近の結果</dt><dd id="lx-last">—</dd></div>
+    </dl>
+
+    <output class="lx-notice" id="lx-notice" role="status" aria-live="assertive"></output>
+
+    <fieldset class="lx-group" id="lx-actions">
+      <legend>行動</legend>
+      <div class="lx-row"><button type="button" class="lx-btn" id="lx-harvest" data-lx="harvest">収穫 (Harvest)</button></div>
+      <div class="lx-row">
+        <label class="lx-field">建設
+          <select id="lx-build-item"></select></label>
+        <button type="button" class="lx-btn" id="lx-build" data-lx="build">建設する</button>
+      </div>
+      <div class="lx-row">
+        <label class="lx-field">兵種
+          <select id="lx-train-unit"></select></label>
+        <label class="lx-field">数
+          <input id="lx-train-count" type="number" inputmode="numeric" min="1" max="1000" step="1" value="1"></label>
+        <button type="button" class="lx-btn" id="lx-train" data-lx="train">訓練する</button>
+      </div>
+    </fieldset>
+
+    <fieldset class="lx-group" id="lx-time">
+      <legend>時間を進める（時計のみ）</legend>
+      <div class="lx-row">
+        <button type="button" class="lx-btn" data-lx="advance" data-seconds="600">+10分</button>
+        <button type="button" class="lx-btn" data-lx="advance" data-seconds="3600">+1時間</button>
+        <button type="button" class="lx-btn" data-lx="advance" data-seconds="86400">+1日</button>
+      </div>
+      <p class="lx-hint" id="lx-queue-note">時間を進めても決済はされません。蓄積や建設の完了は、<strong>次の行動</strong>を実行したときに初めて反映されます。時計はボタンを押したときだけ動き、自動では進みません。</p>
+    </fieldset>
+
+    <fieldset class="lx-group" id="lx-admin">
+      <legend>ローカル状態</legend>
+      <div class="lx-row">
+        <button type="button" class="lx-btn lx-danger" id="lx-reset" data-lx="reset">ローカル状態をリセット</button>
+        <button type="button" class="lx-btn" id="lx-refresh" data-lx="refresh">状態を再取得 (GET)</button>
+      </div>
+      <p class="lx-hint">通信に失敗した場合、結果は不明です。表示は消え、自動の再送はしません。「状態を再取得」だけが復旧手段です。</p>
+    </fieldset>
+  </section>
+
+  <!-- The production village card. Read-only and inert: no link, form or button in it does anything. -->
+  <section class="panel lx-card" id="panel" data-drawer="open" data-kind="holding" data-doc="" data-sheet="full" aria-label="村カード（本番レンダラー・表示専用）">
+    <div class="panel-head"><h2 id="panel-title">村カード（本番レンダラー・表示専用）</h2></div>
+    <div id="panel-body"><p class="lx-hint">読み込み中…</p></div>
+  </section>
+
+  <section class="lx-info" aria-label="限界">
+    <p>上の村カードは本番の表示です。チェーン上の実カードと同じく読み取り専用で、実行ボタンは開きません。操作はこのページの「ローカル操作」だけです。</p>
+    <p>このデモにウォレット・署名・RPC・実トランザクションはありません。認可は<strong>モック</strong>（ホストが署名者フラグを立てるだけ）で、チェーン上の出どころやリプレイの証明ではありません。</p>
+  </section>
+</div>
+<script type="module" src="/permutation-gateway/screens/wide-economy-local/local.mjs"></script>
+</body>
+</html>

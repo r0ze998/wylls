@@ -49,6 +49,14 @@
 #[cfg(all(target_os = "solana", feature = "wide-world-experimental"))]
 compile_error!("wide-world-experimental is a host-only draft, not deployable");
 
+// The local demo clock is a host stand-in for the Clock sysvar: never on the
+// Solana target. Its recorded fixtures carry program version 0x4004 (the S1
+// version with the wide bit only), so it must not mix with the NFT bit.
+#[cfg(all(target_os = "solana", feature = "local-economy-demo"))]
+compile_error!("local-economy-demo is a host-only local demo clock, not deployable");
+#[cfg(all(feature = "local-economy-demo", feature = "nft-experimental"))]
+compile_error!("local-economy-demo requires program version 0x4004: do not enable nft-experimental with it");
+
 extern crate alloc;
 
 pub mod addr;
