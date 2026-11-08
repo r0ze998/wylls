@@ -1,0 +1,5 @@
+first append structure: ["","{\"torn\":{\"line\":3,\"sha25","{\"record\":{\"id\":\"2293eb7",""]
+{
+ "1st: inside marker#1 | 2nd: marker#1 w/o \\n": 94,
+ "1st: inside marker#1 | 2nd: inside marker#2": 8930
+}

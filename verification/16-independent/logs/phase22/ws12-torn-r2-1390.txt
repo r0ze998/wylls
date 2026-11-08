@@ -1,0 +1,45 @@
+TAP version 13
+# T2 {"reloads":123219,"firstAppendBytes":337,"failures":9024,"sample":[{"c1":2,"c2":96,"r":"journal: corrupt line 4"},{"c1":2,"c2":97,"r":"journal: corrupt line 4"},{"c1":2,"c2":98,"r":"journal: corrupt line 4"},{"c1":2,"c2":99,"r":"journal: corrupt line 4"},{"c1":2,"c2":100,"r":"journal: corrupt line 4"},{"c1":2,"c2":101,"r":"journal: corrupt line 4"}]}
+# T4 {"cuts":338,"failures":0,"sample":[]}
+# Subtest: T2 two crashes: every cut of the 1st append after a torn tail x every cut of the 2nd
+ok 1 - T2 two crashes: every cut of the 1st append after a torn tail x every cut of the 2nd
+  ---
+  duration_ms: 7606.986833
+  type: 'test'
+  ...
+# Subtest: T3 three crashes, each inside the marker block of the next append
+not ok 2 - T3 three crashes, each inside the marker block of the next append
+  ---
+  duration_ms: 0.907188
+  type: 'test'
+  location: '/home/user/wylls/verification/16-independent/probes/v16-ws12-torn-marker-r2.test.mjs:40:1'
+  failureType: 'testCodeFailure'
+  error: 'journal: corrupt line 4 in /tmp/v16-ws12r2-OzJdwf/m123564.jsonl'
+  code: 'ERR_TEST_FAILURE'
+  stack: |-
+    Journal.open (file:///tmp/claude-0/-home-user-wylls/47a54b0f-427a-5cca-bc82-feb7c5056956/scratchpad/v31-12/workstreams/12-memory/src/store.mjs:70:28)
+    createMemory (file:///tmp/claude-0/-home-user-wylls/47a54b0f-427a-5cca-bc82-feb7c5056956/scratchpad/v31-12/workstreams/12-memory/src/index.mjs:38:27)
+    nextAppend (file:///home/user/wylls/verification/16-independent/probes/v16-ws12-torn-marker-r2.test.mjs:17:76)
+    TestContext.<anonymous> (file:///home/user/wylls/verification/16-independent/probes/v16-ws12-torn-marker-r2.test.mjs:43:15)
+    Test.runInAsyncScope (node:async_hooks:214:14)
+    Test.run (node:internal/test_runner/test:1047:25)
+    Test.processPendingSubtests (node:internal/test_runner/test:744:18)
+    Test.postRun (node:internal/test_runner/test:1173:19)
+    Test.run (node:internal/test_runner/test:1101:12)
+    async startSubtestAfterBootstrap (node:internal/test_runner/harness:296:3)
+  ...
+# Subtest: T4 in-process partial writes (failed append, then retry), every cut, after a torn tail
+ok 3 - T4 in-process partial writes (failed append, then retry), every cut, after a torn tail
+  ---
+  duration_ms: 60.063018
+  type: 'test'
+  ...
+1..3
+# tests 3
+# suites 0
+# pass 2
+# fail 1
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 7748.916446

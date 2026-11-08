@@ -1,0 +1,90 @@
+TAP version 13
+# (node:25984) ExperimentalWarning: SQLite is an experimental feature and might change at any time
+# (Use `node --trace-warnings ...` to show where the warning was created)
+# Subtest: a torn last line: what is appended after the reload is kept, the torn bytes stay, and every later reload opens
+ok 1 - a torn last line: what is appended after the reload is kept, the torn bytes stay, and every later reload opens
+  ---
+  duration_ms: 7.944621
+  type: 'test'
+  ...
+# Subtest: an unreadable last line that ends in a newline is handled the same way; damage in the middle is still refused
+ok 2 - an unreadable last line that ends in a newline is handled the same way; damage in the middle is still refused
+  ---
+  duration_ms: 2.156791
+  type: 'test'
+  ...
+# Subtest: a failed write leaves memory unchanged; the same append can be retried and survives a restart
+ok 3 - a failed write leaves memory unchanged; the same append can be retried and survives a restart
+  ---
+  duration_ms: 0.527043
+  type: 'test'
+  ...
+# Subtest: a receipt the record rules refuse is held whole, with its reason; the rest of the feed is still taken in, once
+ok 4 - a receipt the record rules refuse is held whole, with its reason; the rest of the feed is still taken in, once
+  ---
+  duration_ms: 2.809276
+  type: 'test'
+  ...
+# Subtest: partial history: a coverage over part of the promise window leaves the promise unconfirmed, never not_sent
+ok 5 - partial history: a coverage over part of the promise window leaves the promise unconfirmed, never not_sent
+  ---
+  duration_ms: 3.42875
+  type: 'test'
+  ...
+# Subtest: malformed or missing provenance: never chain; a malformed basis is refused, a missing one is unstated
+ok 6 - malformed or missing provenance: never chain; a malformed basis is refused, a missing one is unstated
+  ---
+  duration_ms: 0.885145
+  type: 'test'
+  ...
+# Subtest: private facts decide only for their parties; public views show neither the decision nor the private records
+ok 7 - private facts decide only for their parties; public views show neither the decision nor the private records
+  ---
+  duration_ms: 2.447644
+  type: 'test'
+  ...
+# Subtest: a crash at ANY byte of the write that names a torn tail (and a third crash after that) still opens, keeps every record and loses none written later
+ok 8 - a crash at ANY byte of the write that names a torn tail (and a third crash after that) still opens, keeps every record and loses none written later
+  ---
+  duration_ms: 99.752081
+  type: 'test'
+  ...
+# Subtest: valid JSON that is not a journal row is refused as a corrupt line, not a crash
+ok 9 - valid JSON that is not a journal row is refused as a corrupt line, not a crash
+  ---
+  duration_ms: 1.368176
+  type: 'test'
+  ...
+# Subtest: a whole last record without its newline is kept, and the next record is not run onto it
+ok 10 - a whole last record without its newline is kept, and the next record is not run onto it
+  ---
+  duration_ms: 0.870084
+  type: 'test'
+  ...
+# Subtest: a write that fails part-way (with or without a torn tail before it): the retry keeps every record, at every cut
+ok 11 - a write that fails part-way (with or without a torn tail before it): the retry keeps every record, at every cut
+  ---
+  duration_ms: 116.30119
+  type: 'test'
+  ...
+# Subtest: markers: a repeated marker is harmless; a marker for other bytes or another line does not excuse damage
+ok 12 - markers: a repeated marker is harmless; a marker for other bytes or another line does not excuse damage
+  ---
+  duration_ms: 1.500566
+  type: 'test'
+  ...
+# Subtest: journals written by earlier versions open unchanged and take new records
+ok 13 - journals written by earlier versions open unchanged and take new records
+  ---
+  duration_ms: 1.099416
+  type: 'test'
+  ...
+1..13
+# tests 13
+# suites 0
+# pass 13
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 326.599607

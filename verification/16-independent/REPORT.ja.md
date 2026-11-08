@@ -2140,7 +2140,7 @@ Rust の側は 23.3 に書く。
     - 書いた note が黙って消える reload は 0 件。失敗はすべて「開けない」。
   - T3：3 回続けて marker の中で切る。2 回目の crash の後で開けなくなる（T2 と同じ形）。
   - T4：同じ process の中で、書き込みが途中で失敗して再試行する（338 通り）。失敗 0。memory にも reload 後にも n3 が 1 回だけある。
-- 開けない形は 1 種類だけ（`logs/phase22/ws12-t2-shape.log`）:
+- 開けない形は 1 種類だけ（`logs/phase22/ws12-t2-shape.txt`）:
   - 1 回目の crash が、1 個目の marker の途中で起きる。
     - 3 行目の torn の後に、marker の切れ端が 4 行目の読めない行として残る。
   - 次の reload は、3 行目と 4 行目の 2 行を torn tail にする。ここまでは正しい。

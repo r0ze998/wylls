@@ -1,0 +1,37 @@
+TAP version 13
+# J1 A opened: false (JournalLocked); B opened: true; lock file now holds pid {"pid":222,"start":null,"token":"a260c95c-16fc-4f2e-97e4-b6e5271b7183"}
+# J2 second open in the same pid: refused JournalLocked
+# J3 A.save after the takeover: refused JournalFenced; journal: {"who":"B","step":"sent"}; lock: {"pid":222,"start":null,"token":"48a8668f-0fb8-4117-8c89-1d17e11f3933"}
+# Subtest: J1 two restarts after a crash, interleaved: does more than one process hold the journal?
+ok 1 - J1 two restarts after a crash, interleaved: does more than one process hold the journal?
+  ---
+  duration_ms: 10.797708
+  type: 'test'
+  ...
+# Subtest: J2 the same process opens the journal twice: is the second open refused?
+ok 2 - J2 the same process opens the journal twice: is the second open refused?
+  ---
+  duration_ms: 3.445725
+  type: 'test'
+  ...
+# Subtest: J3 a writer whose lock was taken over keeps saving: is it fenced?
+ok 3 - J3 a writer whose lock was taken over keeps saving: is it fenced?
+  ---
+  duration_ms: 6.101133
+  type: 'test'
+  ...
+# Subtest: J4 control: a live holder in another process is refused (JournalLocked)
+ok 4 - J4 control: a live holder in another process is refused (JournalLocked)
+  ---
+  duration_ms: 3.091358
+  type: 'test'
+  ...
+1..4
+# tests 4
+# suites 0
+# pass 4
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 126.725646

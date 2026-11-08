@@ -1,0 +1,23 @@
+TAP version 13
+# T1 {
+#  "newline only": "opens (torn 1, n1,n2)",
+#  "inside the marker": "opens (torn 2, n1,n2)",
+#  "marker without its newline": "opens (torn 1, n1,n2)",
+#  "marker and newline": "opens (torn 1, n1,n2)",
+#  "inside the row": "opens (torn 2, n1,n2)"
+# }
+# Subtest: T1 a crash inside the marker append after a torn tail
+ok 1 - T1 a crash inside the marker append after a torn tail
+  ---
+  duration_ms: 5.789162
+  type: 'test'
+  ...
+1..1
+# tests 1
+# suites 0
+# pass 1
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 74.998015

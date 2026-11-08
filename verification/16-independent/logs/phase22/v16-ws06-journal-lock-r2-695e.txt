@@ -1,0 +1,26 @@
+TAP version 13
+# J5 A: refused JournalLocked; B: opened; lock pid 222
+# J5 wrote: B; journal: {"who":"B"}
+# J6 A.save inside the window: WROTE; journal: {"who":"A","step":"stale"}; lock pid 222
+# J6 A's next save: refused JournalFenced
+# Subtest: J5 two takers find the takeover mutex of a dead taker: does a loser ever write?
+ok 1 - J5 two takers find the takeover mutex of a dead taker: does a loser ever write?
+  ---
+  duration_ms: 14.796513
+  type: 'test'
+  ...
+# Subtest: J6 a takeover between save()'s fence check and its rename
+ok 2 - J6 a takeover between save()'s fence check and its rename
+  ---
+  duration_ms: 5.97567
+  type: 'test'
+  ...
+1..2
+# tests 2
+# suites 0
+# pass 2
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 111.614847
