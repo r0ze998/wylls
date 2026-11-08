@@ -730,3 +730,10 @@ fa822453 の上に載せた。各チームのサブツリーは、チームが�
 - `490407d8`：⑦ `9b547d9d` の merge（記録が読めない viewer を「未参加」として見せない）。
 - `8afe8426`（tree `94c56522`）：③ `d4b22c97` の重ね（試験の頑丈さ、registry busy の場合）。
 - どれも ⑯ の独立の review の途中。
+
+**後継（§17 の後、続き）と、利用者の判断を待つもの**
+- `dc9974e2`（⑦ 08928ea5）、`f2e63ff2`（④ passnode の型 alias、clippy）、`b9a4c0a2`（③ a24d6dbb）、`1398f44c`（key 一覧と ③ c029948a。commit の文は key 一覧だけを書いているが、③ の doc 24 §6 も含む）、`b381c2bb`（⑦ c4eae408）、`883b4be6`・`8c53176a`（⑦ a8c9eccb と key 一覧）、`6af321d2`（④ cancels_race_executors を開始の門で決定的に）、`7e6ef2b6`（⑦ 9cd15799）。HEAD は `7e6ef2b6`（tree `580c2614`）。
+- **回帰を fail で捕まえるのは `store_cold_open` だけ**。③ の cold-open.test.mjs は旧と修正後の両方を受け入れ、退行しても診断の branch が変わるだけで red にならない。同じ強さの regression gate ではない（利用者の訂正）。
+- **利用者の判断を待つもの：join と paidJoin の meStatus の確認**（⑯ §29.8 b）。controller の join と paidJoin は、今の記録の読みが成功したかを確かめずに送る。16576826 から変わっていない（この回の後退ではない）。⑯ の最小の案は、confirmHome と同じ確認を前に置くこと。送れる時を変えるので、⑦ も ④ も変えていない。
+  - ⑯ の静的な事実（§29.10、公開の source と、署名しない pure な probe だけ）：atomic の paidJoin は、Pay と Join を一つの取引に入れ、relay はその形だけを受け、送る前に署名済みの bytes を simulate する。Join は既存の Citizen に Err(AlreadyDone)、Pay は既存の Entry に Err(AlreadyPaid)。取引の原子性により、atomic の形では Join が失敗すれば Pay の送金と Entry も戻る。source の上では、手数料だけが取られることは無い。ネットワークの手数料は relay の fee payer が払い、着地して失敗したときだけかかる。残高が足りないときの faucet は別の取引で、Join が失敗しても戻らない（localnet だけ）。
+  - 確かめていないもの：SVM での実行（keypair を使う試験）。wallet が relay の外で Pay だけを自分で送る場合。
