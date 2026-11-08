@@ -1,0 +1,817 @@
+90 by the scan, 11 seen by the guard
+key-free run: 24 files in workstreams/15-coop-outcomes (0 left out, listed)
+TAP version 13
+# Subtest: ①: requests open one project; a caravan linked twice counts for the first request only
+ok 1 - ①: requests open one project; a caravan linked twice counts for the first request only
+  ---
+  duration_ms: 1.710342
+  type: 'test'
+  ...
+# Subtest: logged places decode (kind, signed p and q, tile)
+ok 2 - logged places decode (kind, signed p and q, tile)
+  ---
+  duration_ms: 2.614439
+  type: 'test'
+  ...
+# Subtest: records → events: one ship per resource, arrivals to a village as lower bounds, unmapped kinds hold their position
+ok 3 - records → events: one ship per resource, arrivals to a village as lower bounds, unmapped kinds hold their position
+  ---
+  duration_ms: 3.396623
+  type: 'test'
+  ...
+# Subtest: end to end: the adapted page plus ①'s board inputs judge the joint fort
+ok 4 - end to end: the adapted page plus ①'s board inputs judge the joint fort
+  ---
+  duration_ms: 51.598411
+  type: 'test'
+  ...
+# Subtest: two seasons of records, one world: tags, caravan numbers and bells restart per season, so the adapter needs the epoch
+ok 5 - two seasons of records, one world: tags, caravan numbers and bells restart per season, so the adapter needs the epoch
+  ---
+  duration_ms: 13.94495
+  type: 'test'
+  ...
+# Subtest: H3: one leading nation alone cannot end the period early in C
+ok 6 - H3: one leading nation alone cannot end the period early in C
+  ---
+  duration_ms: 45.163139
+  type: 'test'
+  ...
+# Subtest: H4 (shipped goods): goods n0 passes to client nations still count as n0's
+ok 7 - H4 (shipped goods): goods n0 passes to client nations still count as n0's
+  ---
+  duration_ms: 26.627523
+  type: 'test'
+  ...
+# Subtest: H4 (own goods, paid off in food): C cannot tell, and the leader ends the period while ahead (failure of C, as predicted)
+ok 8 - H4 (own goods, paid off in food): C cannot tell, and the leader ends the period while ahead (failure of C, as predicted)
+  ---
+  duration_ms: 26.246575
+  type: 'test'
+  ...
+# Subtest: H5: unlabelled alternate accounts pass the diversity check (not preventable on model data alone)
+ok 9 - H5: unlabelled alternate accounts pass the diversity check (not preventable on model data alone)
+  ---
+  duration_ms: 29.581781
+  type: 'test'
+  ...
+# Subtest: H7: obstruction by the losing nation moves the close (and the prize) in C, only the achievement in B
+ok 10 - H7: obstruction by the losing nation moves the close (and the prize) in C, only the achievement in B
+  ---
+  duration_ms: 41.802749
+  type: 'test'
+  ...
+# Subtest: fixed coalition: outsiders' late goods are surplus or arrive after completion; outsiders keep independent options
+ok 11 - fixed coalition: outsiders' late goods are surplus or arrive after completion; outsiders keep independent options
+  ---
+  duration_ms: 5.979112
+  type: 'test'
+  ...
+# Subtest: V1: sub-events of one record at different bells are set aside (a restart could split them)
+ok 12 - V1: sub-events of one record at different bells are set aside (a restart could split them)
+  ---
+  duration_ms: 2.401935
+  type: 'test'
+  ...
+# Subtest: V2: a structure built in W1 and first used by someone else in W2 counts for the nation in W2
+ok 13 - V2: a structure built in W1 and first used by someone else in W2 counts for the nation in W2
+  ---
+  duration_ms: 64.435116
+  type: 'test'
+  ...
+# Subtest: V3: merging goods does not reorder first-in-first-out or change origins
+ok 14 - V3: merging goods does not reorder first-in-first-out or change origins
+  ---
+  duration_ms: 1.43132
+  type: 'test'
+  ...
+# Subtest: V3b: a lot name can never spend more than was put under it, merged or not
+ok 15 - V3b: a lot name can never spend more than was put under it, merged or not
+  ---
+  duration_ms: 0.610672
+  type: 'test'
+  ...
+# Subtest: V4: events at exactly the close belong to the next window
+ok 16 - V4: events at exactly the close belong to the next window
+  ---
+  duration_ms: 20.908508
+  type: 'test'
+  ...
+# Subtest: V5: spans between windows are reported; an achievement reached in one is not hidden
+ok 17 - V5: spans between windows are reported; an achievement reached in one is not hidden
+  ---
+  duration_ms: 37.411898
+  type: 'test'
+  ...
+# Subtest: V6: duplicate window ids are refused
+ok 18 - V6: duplicate window ids are refused
+  ---
+  duration_ms: 1.788949
+  type: 'test'
+  ...
+# Subtest: judging does not change the world; later nations are not part of an earlier window; carryInputs is honoured
+ok 19 - judging does not change the world; later nations are not part of an earlier window; carryInputs is honoured
+  ---
+  duration_ms: 64.319339
+  type: 'test'
+  ...
+# Subtest: at the boundary: caravans in transit, the open project and all goods carry on; nothing is lost or made
+ok 20 - at the boundary: caravans in transit, the open project and all goods carry on; nothing is lost or made
+  ---
+  duration_ms: 60.012259
+  type: 'test'
+  ...
+# Subtest: a project begun in W1 and finished in W2 is achieved in W2, with W1's inputs, and only once
+ok 21 - a project begun in W1 and finished in W2 is achieved in W2, with W1's inputs, and only once
+  ---
+  duration_ms: 24.164444
+  type: 'test'
+  ...
+# Subtest: a later window does not re-award what an earlier one achieved
+ok 22 - a later window does not re-award what an earlier one achieved
+  ---
+  duration_ms: 36.112906
+  type: 'test'
+  ...
+# Subtest: the world does not depend on where windows fall; only the window an achievement is credited to does
+ok 23 - the world does not depend on where windows fall; only the window an achievement is credited to does
+  ---
+  duration_ms: 47.962189
+  type: 'test'
+  ...
+# Subtest: a series verdict equals the same window judged alone (no hidden state between windows)
+ok 24 - a series verdict equals the same window judged alone (no hidden state between windows)
+  ---
+  duration_ms: 35.115469
+  type: 'test'
+  ...
+# Subtest: restart at the boundary: resume from a saved snapshot, then the rest of the log, equals the full replay
+ok 25 - restart at the boundary: resume from a saved snapshot, then the rest of the log, equals the full replay
+  ---
+  duration_ms: 14.238015
+  type: 'test'
+  ...
+# Subtest: C closes only the evaluation window, never the world; the rest of the window is reported, not filled in
+ok 26 - C closes only the evaluation window, never the world; the rest of the window is reported, not filled in
+  ---
+  duration_ms: 61.270301
+  type: 'test'
+  ...
+# Subtest: the raid after the boundary on a caravan sent before it is credited to W2, once
+ok 27 - the raid after the boundary on a caravan sent before it is credited to W2, once
+  ---
+  duration_ms: 21.150902
+  type: 'test'
+  ...
+# Subtest: (a) ①'s ws01-board v1: requests as an array, links with their caravanKey; five projects, nothing refused or unresolved
+ok 28 - (a) ①'s ws01-board v1: requests as an array, links with their caravanKey; five projects, nothing refused or unresolved
+  ---
+  duration_ms: 42.205028
+  type: 'test'
+  ...
+# Subtest: quantities equal ①'s own count per resource: wood 209, stone 200 (lower bounds); 50 stone burned
+ok 29 - quantities equal ①'s own count per resource: wood 209, stone 200 (lower bounds); 50 stone burned
+  ---
+  duration_ms: 11.059929
+  type: 'test'
+  ...
+# Subtest: (c) settled at another village (r4, no raid): not the request's arrival — lost, cause unconfirmed, no amount named
+ok 30 - (c) settled at another village (r4, no raid): not the request's arrival — lost, cause unconfirmed, no amount named
+  ---
+  duration_ms: 16.468161
+  type: 'test'
+  ...
+# Subtest: (b) the context: another season's caravan with the same tag and seq is not this request's
+ok 31 - (b) the context: another season's caravan with the same tag and seq is not this request's
+  ---
+  duration_ms: 42.440898
+  type: 'test'
+  ...
+# Subtest: (d) a settle whose logged cargo rounds to 0 still ends the caravan: at least 0, not left in transit
+ok 32 - (d) a settle whose logged cargo rounds to 0 still ends the caravan: at least 0, not left in transit
+  ---
+  duration_ms: 7.376246
+  type: 'test'
+  ...
+# Subtest: (e) request states are open and cancelled; the same run read twice counts once
+ok 33 - (e) request states are open and cancelled; the same run read twice counts once
+  ---
+  duration_ms: 18.650288
+  type: 'test'
+  ...
+# Subtest: fold()'s own answer: 9 records kept; repeats, others' caravans, a closed request and another season refused by ①
+ok 34 - fold()'s own answer: 9 records kept; repeats, others' caravans, a closed request and another season refused by ①
+  ---
+  duration_ms: 1.276764
+  type: 'test'
+  ...
+# Subtest: u64: ①'s owner tags pass 2^53 and stay exact decimal strings through the adapter
+ok 35 - u64: ①'s owner tags pass 2^53 and stay exact decimal strings through the adapter
+  ---
+  duration_ms: 19.741404
+  type: 'test'
+  ...
+# Subtest: the board as ① folded it: two projects, three links, nothing the adapter has to refuse
+ok 36 - the board as ① folded it: two projects, three links, nothing the adapter has to refuse
+  ---
+  duration_ms: 16.395344
+  type: 'test'
+  ...
+# Subtest: quantities: village arrivals are lower bounds; the lost caravan brings nothing; only chain-log records count
+ok 37 - quantities: village arrivals are lower bounds; the lost caravan brings nothing; only chain-log records count
+  ---
+  duration_ms: 25.039915
+  type: 'test'
+  ...
+# Subtest: the same fold() output fed twice, or in another order, gives one count and one verdict
+ok 38 - the same fold() output fed twice, or in another order, gives one count and one verdict
+  ---
+  duration_ms: 24.447317
+  type: 'test'
+  ...
+# Subtest: the board carries no game fact: no award, score or prize comes from fold() alone
+ok 39 - the board carries no game fact: no award, score or prize comes from fold() alone
+  ---
+  duration_ms: 10.546896
+  type: 'test'
+  ...
+# Subtest: ①'s arrival records: the states ① produced, and which carry a quantity
+ok 40 - ①'s arrival records: the states ① produced, and which carry a quantity
+  ---
+  duration_ms: 1.441212
+  type: 'test'
+  ...
+# Subtest: only chain-log arrivals count: the village as a lower bound; herald-only and raided ones not at all
+ok 41 - only chain-log arrivals count: the village as a lower bound; herald-only and raided ones not at all
+  ---
+  duration_ms: 24.560882
+  type: 'test'
+  ...
+# Subtest: settled elsewhere: lost with the cause unconfirmed, no one named, no amount
+ok 42 - settled elsewhere: lost with the cause unconfirmed, no one named, no amount
+  ---
+  duration_ms: 18.586406
+  type: 'test'
+  ...
+# Subtest: a link made while the request was open stays valid after it is cancelled (①: the caravan still arrives)
+ok 43 - a link made while the request was open stays valid after it is cancelled (①: the caravan still arrives)
+  ---
+  duration_ms: 0.370874
+  type: 'test'
+  ...
+# Subtest: the same caravan fed twice (two adapters, two streams) is counted once
+ok 44 - the same caravan fed twice (two adapters, two streams) is counted once
+  ---
+  duration_ms: 10.625226
+  type: 'test'
+  ...
+# Subtest: the fixtures are ④'s bytes at cf517b55; the Citizen tag passes 2^53
+ok 45 - the fixtures are ④'s bytes at cf517b55; the Citizen tag passes 2^53
+  ---
+  duration_ms: 2.534593
+  type: 'test'
+  ...
+# Subtest: the Citizen sends 4 wood and 4 arrive; ④'s Recorded outcome is a lower bound [4, 5), not exact
+ok 46 - the Citizen sends 4 wood and 4 arrive; ④'s Recorded outcome is a lower bound [4, 5), not exact
+  ---
+  duration_ms: 21.375376
+  type: 'test'
+  ...
+# Subtest: ⑮ and ⑫ read the same caravan the same way: sender tag, seq, cargo, credited amount, bells
+ok 47 - ⑮ and ⑫ read the same caravan the same way: sender tag, seq, cargo, credited amount, bells
+  ---
+  duration_ms: 0.686524
+  type: 'test'
+  ...
+# Subtest: ④'s old stage D call and its proposed mapping still run, and no longer lose the send or name an undefined seq
+ok 48 - ④'s old stage D call and its proposed mapping still run, and no longer lose the send or name an undefined seq
+  ---
+  duration_ms: 1.12226
+  type: 'test'
+  ...
+# Subtest: finality: receipts after the finalized slot are held (not a gap); the slot order keeps the judged positions
+ok 49 - finality: receipts after the finalized slot are held (not a gap); the slot order keeps the judged positions
+  ---
+  duration_ms: 11.451862
+  type: 'test'
+  ...
+# Subtest: a slot the clock cannot place is a gap, never a guessed bell
+ok 50 - a slot the clock cannot place is a gap, never a guessed bell
+  ---
+  duration_ms: 13.49183
+  type: 'test'
+  ...
+# Subtest: the facts carry no outcome of their own: no award, no prize, the world goes on
+ok 51 - the facts carry no outcome of their own: no award, no prize, the world goes on
+  ---
+  duration_ms: 5.518096
+  type: 'test'
+  ...
+# Subtest: the fixtures are ④'s bytes (sha256 as recorded), from d0949fd4; the dump has no run outcome
+ok 52 - the fixtures are ④'s bytes (sha256 as recorded), from d0949fd4; the dump has no run outcome
+  ---
+  duration_ms: 5.931573
+  type: 'test'
+  ...
+# Subtest: the demo ships Science (slot 6), which the evaluator does not keep: reported, not counted, and no gap
+ok 53 - the demo ships Science (slot 6), which the evaluator does not keep: reported, not counted, and no gap
+  ---
+  duration_ms: 17.640319
+  type: 'test'
+  ...
+# Subtest: a storehouse with `credited` (④ §3 Recorded, case B) is a lower bound [b, b+1)
+ok 54 - a storehouse with `credited` (④ §3 Recorded, case B) is a lower bound [b, b+1)
+  ---
+  duration_ms: 19.261523
+  type: 'test'
+  ...
+# Subtest: without `credited` the amount is unknown [0, cargo+1); a run outcome KnownZero is zero; LOST is zero
+ok 55 - without `credited` the amount is unknown [0, cargo+1); a run outcome KnownZero is zero; LOST is zero
+  ---
+  duration_ms: 1.066374
+  type: 'test'
+  ...
+# Subtest: three runs report the same caravan (happy, crash, lost-response): read once, counted once
+ok 56 - three runs report the same caravan (happy, crash, lost-response): read once, counted once
+  ---
+  duration_ms: 20.115531
+  type: 'test'
+  ...
+# Subtest: the raid run: the take goes to the raider; mixing it with a settled world refuses the second end, never counts twice
+ok 57 - the raid run: the take goes to the raider; mixing it with a settled world refuses the second end, never counts twice
+  ---
+  duration_ms: 8.508255
+  type: 'test'
+  ...
+# Subtest: u64: owner 2^64-59 and raider 2^63+1 stay exact with parseExact; a rounded number is a gap, not someone else
+ok 58 - u64: owner 2^64-59 and raider 2^63+1 stay exact with parseExact; a rounded number is a gap, not someone else
+  ---
+  duration_ms: 0.997128
+  type: 'test'
+  ...
+# Subtest: a body whose key names another caravan than its subject is left as a gap
+ok 59 - a body whose key names another caravan than its subject is left as a gap
+  ---
+  duration_ms: 10.378479
+  type: 'test'
+  ...
+# Subtest: owners come from the subject's hex (exact); the JSON number is not exact above 2^53
+ok 60 - owners come from the subject's hex (exact); the JSON number is not exact above 2^53
+  ---
+  duration_ms: 3.763314
+  type: 'test'
+  ...
+# Subtest: RuleDerived (a village) is a lower bound; the same record from feed and history is read once
+ok 61 - RuleDerived (a village) is a lower bound; the same record from feed and history is read once
+  ---
+  duration_ms: 0.46984
+  type: 'test'
+  ...
+# Subtest: Unverifiable (a storehouse) is unknown; KnownZero by a burn record is a burn; DestinationMismatch names no one
+ok 62 - Unverifiable (a storehouse) is unknown; KnownZero by a burn record is a burn; DestinationMismatch names no one
+  ---
+  duration_ms: 0.382114
+  type: 'test'
+  ...
+# Subtest: a raider tag beyond 2^53 is left as a gap, not guessed
+ok 63 - a raider tag beyond 2^53 is left as a gap, not guessed
+  ---
+  duration_ms: 0.299817
+  type: 'test'
+  ...
+# Subtest: one kind and subject with other content: both kept under one id, set aside as a conflict
+ok 64 - one kind and subject with other content: both kept under one id, set aside as a conflict
+  ---
+  duration_ms: 2.239732
+  type: 'test'
+  ...
+# Subtest: ④ §3: quantities from a run outcome, or from the settle record alone
+ok 65 - ④ §3: quantities from a run outcome, or from the settle record alone
+  ---
+  duration_ms: 0.17897
+  type: 'test'
+  ...
+# Subtest: facility use is not a goal stage here: it holds its position only
+ok 66 - facility use is not a goal stage here: it holds its position only
+  ---
+  duration_ms: 0.382964
+  type: 'test'
+  ...
+# Subtest: a still fold is a snapshot; vaults, structures, transits and sightings are counted per kind
+ok 67 - a still fold is a snapshot; vaults, structures, transits and sightings are counted per kind
+  ---
+  duration_ms: 2.433233
+  type: 'test'
+  ...
+# Subtest: cargo summed over resources by the source is not used; the evaluator keeps resources apart
+ok 68 - cargo summed over resources by the source is not used; the evaluator keeps resources apart
+  ---
+  duration_ms: 1.009926
+  type: 'test'
+  ...
+# Subtest: u64 owner tags stay exact strings
+ok 69 - u64 owner tags stay exact strings
+  ---
+  duration_ms: 0.366175
+  type: 'test'
+  ...
+# Subtest: a moving fold is "between"; no /h/status is "source unknown": listed, not dated by a guess
+ok 70 - a moving fold is "between"; no /h/status is "source unknown": listed, not dated by a guess
+  ---
+  duration_ms: 0.578511
+  type: 'test'
+  ...
+# Subtest: a sighting names the tower's owner and its subject (u64 exact), and is credited to no one (undecided)
+ok 71 - a sighting names the tower's owner and its subject (u64 exact), and is credited to no one (undecided)
+  ---
+  duration_ms: 0.367727
+  type: 'test'
+  ...
+# Subtest: refusals: another version, another schema, an unknown kind, a fact not derived
+ok 72 - refusals: another version, another schema, an unknown kind, a fact not derived
+  ---
+  duration_ms: 0.402676
+  type: 'test'
+  ...
+# Subtest: ①'s real herald file has nothing at the centre; the tower-facts reader refuses centre facts
+ok 73 - ①'s real herald file has nothing at the centre; the tower-facts reader refuses centre facts
+  ---
+  duration_ms: 0.650968
+  type: 'test'
+  ...
+# Subtest: v1 fixtures are ⑭'s handoff bytes
+ok 74 - v1 fixtures are ⑭'s handoff bytes
+  ---
+  duration_ms: 3.611193
+  type: 'test'
+  ...
+# Subtest: v1 time and order: bells = hour × time.bellsPerHour (stated by ⑭), seq is the stream position
+ok 75 - v1 time and order: bells = hour × time.bellsPerHour (stated by ⑭), seq is the stream position
+  ---
+  duration_ms: 11.671738
+  type: 'test'
+  ...
+# Subtest: v1 posting and answering: a request, a send, an arrival; poster and responder named
+ok 76 - v1 posting and answering: a request, a send, an arrival; poster and responder named
+  ---
+  duration_ms: 134.55579
+  type: 'test'
+  ...
+# Subtest: the responder decides: a village that also took the request, but whose goods did not complete it, is not credited
+ok 77 - the responder decides: a village that also took the request, but whose goods did not complete it, is not credited
+  ---
+  duration_ms: 3.201545
+  type: 'test'
+  ...
+# Subtest: ⑭'s boundaries are reported, never made into windows; nothing closes at them
+ok 78 - ⑭'s boundaries are reported, never made into windows; nothing closes at them
+  ---
+  duration_ms: 67.455423
+  type: 'test'
+  ...
+# Subtest: facts of a boundary's hour come after it (⑭ records the mark first), as the evaluator's half-open windows would place them
+ok 79 - facts of a boundary's hour come after it (⑭ records the mark first), as the evaluator's half-open windows would place them
+  ---
+  duration_ms: 2.651942
+  type: 'test'
+  ...
+# Subtest: case A (landmark only) carries nothing to judge: positions and marks only
+ok 80 - case A (landmark only) carries nothing to judge: positions and marks only
+  ---
+  duration_ms: 3.07236
+  type: 'test'
+  ...
+# Subtest: relay swaps (case C) are not uses of a joint structure
+ok 81 - relay swaps (case C) are not uses of a joint structure
+  ---
+  duration_ms: 64.405171
+  type: 'test'
+  ...
+# Subtest: contract breaches: a fact claiming to be verified is left out (a gap); no bellsPerHour is refused; a wrong seq is a problem
+ok 82 - contract breaches: a fact claiming to be verified is left out (a gap); no bellsPerHour is refused; a wrong seq is a problem
+  ---
+  duration_ms: 121.738113
+  type: 'test'
+  ...
+# Subtest: v0 is still read by the same path (t → hour, array order → seq, the documented 6 named)
+ok 83 - v0 is still read by the same path (t → hour, array order → seq, the documented 6 named)
+  ---
+  duration_ms: 7.230263
+  type: 'test'
+  ...
+# Subtest: unknown villages are left out as gaps, not guessed
+ok 84 - unknown villages are left out as gaps, not guessed
+  ---
+  duration_ms: 3.020066
+  type: 'test'
+  ...
+# Subtest: round trips and self-trades: 12 trades and 1,600 wood delivered, 100 credited
+ok 85 - round trips and self-trades: 12 trades and 1,600 wood delivered, 100 credited
+  ---
+  duration_ms: 251.288824
+  type: 'test'
+  ...
+# Subtest: delivering is not contributing: a caravan that arrives but is never built into anything credits nothing
+ok 86 - delivering is not contributing: a caravan that arrives but is never built into anything credits nothing
+  ---
+  duration_ms: 16.362245
+  type: 'test'
+  ...
+# Subtest: resources are kept apart: surplus wood does not make up for missing stone
+ok 87 - resources are kept apart: surplus wood does not make up for missing stone
+  ---
+  duration_ms: 12.217459
+  type: 'test'
+  ...
+# Subtest: three stages are judged apart: inputs met, built, then used
+ok 88 - three stages are judged apart: inputs met, built, then used
+  ---
+  duration_ms: 16.780949
+  type: 'test'
+  ...
+# Subtest: every committed scenario equals its builder's output
+ok 89 - every committed scenario equals its builder's output
+  ---
+  duration_ms: 260.433526
+  type: 'test'
+  ...
+# Subtest: the same lot cannot be put in or sent twice
+ok 90 - the same lot cannot be put in or sent twice
+  ---
+  duration_ms: 25.005575
+  type: 'test'
+  ...
+# Subtest: one input counts for the joint goal, the nation and the person (legitimate), each once
+ok 91 - one input counts for the joint goal, the nation and the person (legitimate), each once
+  ---
+  duration_ms: 23.599166
+  type: 'test'
+  ...
+# Subtest: a second claim on one slot is refused; claims on different slots of one fact are not
+ok 92 - a second claim on one slot is refused; claims on different slots of one fact are not
+  ---
+  duration_ms: 15.746155
+  type: 'test'
+  ...
+# Subtest: one person with labelled alternate accounts gets one personal slot, not three
+ok 93 - one person with labelled alternate accounts gets one personal slot, not three
+  ---
+  duration_ms: 21.311717
+  type: 'test'
+  ...
+# Subtest: lower bounds that reach the requirement: met
+ok 94 - lower bounds that reach the requirement: met
+  ---
+  duration_ms: 1.210612
+  type: 'test'
+  ...
+# Subtest: ④ §4: Σb short of the requirement but Σb + n above it is undecided, not short
+ok 95 - ④ §4: Σb short of the requirement but Σb + n above it is undecided, not short
+  ---
+  duration_ms: 0.209761
+  type: 'test'
+  ...
+# Subtest: Σb + n at most the requirement is provably short (an open bound is never reached)
+ok 96 - Σb + n at most the requirement is provably short (an open bound is never reached)
+  ---
+  duration_ms: 0.168579
+  type: 'test'
+  ...
+# Subtest: zero is exactly nothing: it adds no upper bound (a logged 0 alone is not zero)
+ok 97 - zero is exactly nothing: it adds no upper bound (a logged 0 alone is not zero)
+  ---
+  duration_ms: 0.263411
+  type: 'test'
+  ...
+# Subtest: unknown is between 0 and cargo + 1: undecided if that could close the gap, short if not
+ok 98 - unknown is between 0 and cargo + 1: undecided if that could close the gap, short if not
+  ---
+  duration_ms: 0.603185
+  type: 'test'
+  ...
+# Subtest: through the world: a zero arrival creates no goods; an unknown one is never credited to the sender
+ok 99 - through the world: a zero arrival creates no goods; an unknown one is never credited to the sender
+  ---
+  duration_ms: 53.340955
+  type: 'test'
+  ...
+# Subtest: a lower-bound lot put in over several inputs carries its fraction once, not once per input
+ok 100 - a lower-bound lot put in over several inputs carries its fraction once, not once per input
+  ---
+  duration_ms: 16.973913
+  type: 'test'
+  ...
+# Subtest: through the world: a non-exact arrival that logs 0 keeps its fraction (undecided, not short); exact and zero do not
+ok 101 - through the world: a non-exact arrival that logs 0 keeps its fraction (undecided, not short); exact and zero do not
+  ---
+  duration_ms: 47.396006
+  type: 'test'
+  ...
+# Subtest: an arrival after the window closes does not count for it; the caravan is in transit at the close and carries on
+ok 102 - an arrival after the window closes does not count for it; the caravan is in transit at the close and carries on
+  ---
+  duration_ms: 40.639417
+  type: 'test'
+  ...
+# Subtest: unverified arrivals are not credited; a shortfall they could close is indeterminate
+ok 103 - unverified arrivals are not credited; a shortfall they could close is indeterminate
+  ---
+  duration_ms: 29.582577
+  type: 'test'
+  ...
+# Subtest: a record repeated with the same content is counted once; with other content, neither is used
+ok 104 - a record repeated with the same content is counted once; with other content, neither is used
+  ---
+  duration_ms: 24.77565
+  type: 'test'
+  ...
+# Subtest: a missing record makes the dependent verdicts indeterminate, not failed
+ok 105 - a missing record makes the dependent verdicts indeterminate, not failed
+  ---
+  duration_ms: 31.115299
+  type: 'test'
+  ...
+# Subtest: a gap in the stream that carries keeps makes the prize indeterminate
+ok 106 - a gap in the stream that carries keeps makes the prize indeterminate
+  ---
+  duration_ms: 26.665517
+  type: 'test'
+  ...
+# Subtest: impossible order (an arrival without its send, an input before its lot exists) is refused as causality
+ok 107 - impossible order (an arrival without its send, an input before its lot exists) is refused as causality
+  ---
+  duration_ms: 23.087989
+  type: 'test'
+  ...
+# Subtest: reordered and repeated input gives the same verdict hash, for each ruleset
+ok 108 - reordered and repeated input gives the same verdict hash, for each ruleset
+  ---
+  duration_ms: 161.46116
+  type: 'test'
+  ...
+# Subtest: the verdict names the ruleset version and the input it was made from
+ok 109 - the verdict names the ruleset version and the input it was made from
+  ---
+  duration_ms: 24.04477
+  type: 'test'
+  ...
+# Subtest: a replay of the stored verdict is byte-identical (no clock, no randomness)
+ok 110 - a replay of the stored verdict is byte-identical (no clock, no randomness)
+  ---
+  duration_ms: 11.135156
+  type: 'test'
+  ...
+# Subtest: R1: the missing record is the deciding one (the second use): indeterminate, not not_achieved
+ok 111 - R1: the missing record is the deciding one (the second use): indeterminate, not not_achieved
+  ---
+  duration_ms: 41.698541
+  type: 'test'
+  ...
+# Subtest: R2: a conflict at a sub-position leaves a gap even when a sibling survives
+ok 112 - R2: a conflict at a sub-position leaves a gap even when a sibling survives
+  ---
+  duration_ms: 11.092312
+  type: 'test'
+  ...
+# Subtest: R3: rejected records do not change the hash by repetition or order
+ok 113 - R3: rejected records do not change the hash by repetition or order
+  ---
+  duration_ms: 33.463539
+  type: 'test'
+  ...
+# Subtest: R4: an input recorded as unverified is not credited, whatever the lot
+ok 114 - R4: an input recorded as unverified is not credited, whatever the lot
+  ---
+  duration_ms: 7.469395
+  type: 'test'
+  ...
+# Subtest: R5/R6: the founder goal is undecided behind a gap, and own goods passed through others do not count
+ok 115 - R5/R6: the founder goal is undecided behind a gap, and own goods passed through others do not count
+  ---
+  duration_ms: 13.88475
+  type: 'test'
+  ...
+# Subtest: R7: in C, an undecided joint goal leaves the close and the prize undecided
+ok 116 - R7: in C, an undecided joint goal leaves the close and the prize undecided
+  ---
+  duration_ms: 13.646583
+  type: 'test'
+  ...
+# Subtest: R8: ①'s first link wins by link time across requests
+ok 117 - R8: ①'s first link wins by link time across requests
+  ---
+  duration_ms: 0.796514
+  type: 'test'
+  ...
+# Subtest: R9: ④ receipts with one key and different content become a conflict, in either order
+ok 118 - R9: ④ receipts with one key and different content become a conflict, in either order
+  ---
+  duration_ms: 1.145376
+  type: 'test'
+  ...
+# Subtest: R10: a completion of another kind of structure is refused
+ok 119 - R10: a completion of another kind of structure is refused
+  ---
+  duration_ms: 6.831824
+  type: 'test'
+  ...
+# Subtest: joint award slots are per participant (cluster), as personal ones
+ok 120 - joint award slots are per participant (cluster), as personal ones
+  ---
+  duration_ms: 23.634366
+  type: 'test'
+  ...
+# Subtest: A: every role has an independent option at bell 90
+ok 121 - A: every role has an independent option at bell 90
+  ---
+  duration_ms: 20.93147
+  type: 'test'
+  ...
+# Subtest: B: every role has an independent option at bell 90
+ok 122 - B: every role has an independent option at bell 90
+  ---
+  duration_ms: 18.465971
+  type: 'test'
+  ...
+# Subtest: C: every role has an independent option at bell 90
+ok 123 - C: every role has an independent option at bell 90
+  ---
+  duration_ms: 8.844344
+  type: 'test'
+  ...
+# Subtest: A has no goal behind any option (cooperation earns nothing there): the difference D6
+ok 124 - A has no goal behind any option (cooperation earns nothing there): the difference D6
+  ---
+  duration_ms: 6.369991
+  type: 'test'
+  ...
+# Subtest: the newcomer's only goods (50 food) fit no project, yet they are not left with wait
+ok 125 - the newcomer's only goods (50 food) fit no project, yet they are not left with wait
+  ---
+  duration_ms: 7.091772
+  type: 'test'
+  ...
+# Subtest: after a window has closed the world goes on: options do not shrink to waiting
+ok 126 - after a window has closed the world goes on: options do not shrink to waiting
+  ---
+  duration_ms: 7.326067
+  type: 'test'
+  ...
+# Subtest: S1 source positions, packed places and bytes remain exact
+ok 127 - S1 source positions, packed places and bytes remain exact
+  ---
+  duration_ms: 2.380604
+  type: 'test'
+  ...
+# Subtest: without sightings: the scout goal is not offered (no source), and no option mentions it
+ok 128 - without sightings: the scout goal is not offered (no source), and no option mentions it
+  ---
+  duration_ms: 26.217507
+  type: 'test'
+  ...
+# Subtest: with hypothetical sightings: the scout goal opens; the other verdicts are the same
+ok 129 - with hypothetical sightings: the scout goal opens; the other verdicts are the same
+  ---
+  duration_ms: 32.287218
+  type: 'test'
+  ...
+# Subtest: A judges no goal and mixes in no unadopted rule
+ok 130 - A judges no goal and mixes in no unadopted rule
+  ---
+  duration_ms: 326.129877
+  type: 'test'
+  ...
+# Subtest: no variant adds money; achievements never feed the prize
+ok 131 - no variant adds money; achievements never feed the prize
+  ---
+  duration_ms: 247.362296
+  type: 'test'
+  ...
+# Subtest: D1: B never changes who the prize names; C does exactly when its close moves
+ok 132 - D1: B never changes who the prize names; C does exactly when its close moves
+  ---
+  duration_ms: 236.45707
+  type: 'test'
+  ...
+# Subtest: D6: the cooperative fort is an achievement with reasons in B and C, nothing in A
+ok 133 - D6: the cooperative fort is an achievement with reasons in B and C, nothing in A
+  ---
+  duration_ms: 14.622811
+  type: 'test'
+  ...
+# Subtest: C names what ends and what continues at its close
+ok 134 - C names what ends and what continues at its close
+  ---
+  duration_ms: 12.748343
+  type: 'test'
+  ...
+1..134
+# tests 134
+# suites 0
+# pass 134
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 2886.39401
+exit=0

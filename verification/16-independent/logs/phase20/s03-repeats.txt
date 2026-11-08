@@ -1,0 +1,10 @@
+s03-rep-v27n-1.log: # tests 32 # pass 32 # fail 0 # skipped 0 
+s03-rep-v27n-2.log: # tests 32 # pass 32 # fail 0 # skipped 0 
+s03-rep-v27n-3.log: # tests 32 # pass 32 # fail 0 # skipped 0 
+s03-rep-v27n-4.log: # tests 32 # pass 32 # fail 0 # skipped 0 
+s03-rep-v27n-5.log: # tests 32 # pass 32 # fail 0 # skipped 0 
+s03-rep-v28b-1.log: # tests 27 # pass 27 # fail 0 # skipped 0 
+s03-rep-v28b-2.log: # tests 27 # pass 27 # fail 0 # skipped 0 
+s03-rep-v28b-3.log: # tests 27 # pass 27 # fail 0 # skipped 0 
+s03-rep-v28b-4.log: # tests 27 # pass 27 # fail 0 # skipped 0 
+s03-rep-v28b-5.log: # tests 27 # pass 27 # fail 0 # skipped 0 

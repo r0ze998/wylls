@@ -1,0 +1,38 @@
+TAP version 13
+# J1 A opened: true; B opened: true; lock file now holds pid 111
+# J1 both wrote; the journal holds {"who":"B"} (A's state was overwritten without A knowing)
+# J2 second open in the same pid: ACCEPTED (two writers in one process)
+# J3 A.save after the takeover: ACCEPTED; journal: {"who":"A","step":"stale"}; lock: 222
+# Subtest: J1 two restarts after a crash, interleaved: does more than one process hold the journal?
+ok 1 - J1 two restarts after a crash, interleaved: does more than one process hold the journal?
+  ---
+  duration_ms: 7.546182
+  type: 'test'
+  ...
+# Subtest: J2 the same process opens the journal twice: is the second open refused?
+ok 2 - J2 the same process opens the journal twice: is the second open refused?
+  ---
+  duration_ms: 2.431862
+  type: 'test'
+  ...
+# Subtest: J3 a writer whose lock was taken over keeps saving: is it fenced?
+ok 3 - J3 a writer whose lock was taken over keeps saving: is it fenced?
+  ---
+  duration_ms: 4.458055
+  type: 'test'
+  ...
+# Subtest: J4 control: a live holder in another process is refused (JournalLocked)
+ok 4 - J4 control: a live holder in another process is refused (JournalLocked)
+  ---
+  duration_ms: 1.74955
+  type: 'test'
+  ...
+1..4
+# tests 4
+# suites 0
+# pass 4
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 2069.707641

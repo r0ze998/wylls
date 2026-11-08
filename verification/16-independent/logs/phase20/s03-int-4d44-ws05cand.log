@@ -1,0 +1,40 @@
+TAP version 13
+# Subtest: the conflict, reproduced on the real wallet code: the global rotation stops the other holder's token
+ok 1 - the conflict, reproduced on the real wallet code: the global rotation stops the other holder's token
+  ---
+  duration_ms: 4.639112
+  type: 'test'
+  ...
+# Subtest: resolved with per-sender capabilities (0008): ③ asks for an mcp token; ⑤'s ai token survives ③'s connects; neither acts as the other
+ok 2 - resolved with per-sender capabilities (0008): ③ asks for an mcp token; ⑤'s ai token survives ③'s connects; neither acts as the other
+  ---
+  duration_ms: 40.717065
+  type: 'test'
+  ...
+# Subtest: ③ and ⑤ on one agent and one ④ registry: separate acts; neither unknown nor unqueryable is a new attempt
+ok 3 - ③ and ⑤ on one agent and one ④ registry: separate acts; neither unknown nor unqueryable is a new attempt
+  ---
+  duration_ms: 118.601731
+  type: 'test'
+  ...
+# Subtest: lost answer, a signed failure, an unproven and a proven expiry: only the proven end decides; nothing re-sent
+ok 4 - lost answer, a signed failure, an unproven and a proven expiry: only the proven end decides; nothing re-sent
+  ---
+  duration_ms: 155.61298
+  type: 'test'
+  ...
+# Subtest: a restart on the same stores and the owner's revocation: one registration, one send; ⑤'s token untouched
+ok 5 - a restart on the same stores and the owner's revocation: one registration, one send; ⑤'s token untouched
+  ---
+  duration_ms: 88.031014
+  type: 'test'
+  ...
+1..5
+# tests 5
+# suites 0
+# pass 5
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 992.2114

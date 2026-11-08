@@ -1953,3 +1953,74 @@ Rust の側は 23.3 に書く。
 - ④は、`16576826084a8ea7bd6b12b845d50b97f3d14904`（tree `7f6ff8b0…`）を確定した後継とした。⑯が流した版と同じである。
 - runexec の sha256 は、④ が `f039854a…`、⑯ が `4cb6634d…` で、一致しない。どちらも同じ workstreams/04-execution の subtree `a33e3b0a` から build したもので、build した場所の path がバイナリに入るため、ハッシュが違う。⑯の 61/61 は、⑯が build したバイナリでの結果である。
 - web-frontier-controller.test.mjs について、④は CI の鍵の一覧から外さない。一覧は scan が機械的に作るもので、手で例外を足すと、後で鍵に当たる経路が増えたときに見落とすため。この試験は、ガードを付けて手で流す試験として扱う。⑯もこれに同意する。
+
+# 第20期（2026-11-08）：④の後継 4d44f021（⑮③⑥① の差分）
+
+## 25.1 対象と差分の照合
+
+- HEAD は `4d44f021df1e9e6c37a072e81bcfc04f0c2e6d06`、tree は `131c6cb451bd597ccc037546bd96d2373ce9ffa0`。16576826 からの fast-forward で、4 commit（どれも [skip ci]）。
+- 変わったのは 19 ファイルで、4 つの directory の中だけ。各 directory は、元の担当の先端と byte 単位で同じだった。
+
+| directory | 候補 | 元の担当（branch） |
+|---|---|---|
+| workstreams/15-coop-outcomes | `79ae0102` | ⑮ `fb7bbdef`（claude/determined-maxwell-uhc6a3） |
+| workstreams/03-composability | `fb6072b2` | ③ `838338be`（claude/modest-goldberg-c180fk） |
+| workstreams/06-creation | `fbf70df9` | ⑥ `7232c86b`（claude/wylls-creation-publishing-reuse-31aiyj） |
+| workstreams/01-national-strategy | `f0e0d792` | ① `ca44e603`（ws/01-coop-s1） |
+
+- workstreams/04-execution（`a33e3b0a`）は変わっていない。runexec は、⑯ が 7535a17e から build したもの（sha256 `4cb6634d…`）を使った。
+
+## 25.2 見つけた欠陥：⑥ の journal の lock（journal の整合と、下流での再実行の問題）
+
+`probes/v16-ws06-journal-lock.test.mjs`（鍵なし。注入できる `fs` と `alive` で、二つの process の割り込みを決定的に再現する）:
+
+- **J1**：crash の後、二つの process が同時に再起動する。
+  - 両方とも、古い holder（pid 999）を読んで「死んでいる」と判断する。
+  - A が lock を unlink して作り直した後に、B が A の新しい lock を unlink して自分の lock を作る。
+  - その結果、**両方が開けてしまう**。lock のファイルには片方の pid しか残らず、もう片方の save が、知らせなしに上書きされる。
+- **J2**：同じ pid での二度目の open が受け付けられる（`holder === pid` を乗っ取りとして扱うため）。一つの process の中に writer が二つでき、`#busy` も instance ごとである。
+- **J3**：lock を乗っ取られた writer が、そのまま save し続けられる（fencing が無い）。新しい holder の "sent" の記録が、古い状態で上書きされた。
+- **J4**（対照）：別の process の生きている holder は JournalLocked で拒否され、close すると lock が消える（通過）。
+
+影響:
+
+- ⑥ の試験によると、run と request の id は、呼ぶ前に journal に固定されている。そのため、上書きされた後の再実行は、同じ id で下流に再送される（下流の冪等性に頼る）。
+- **二重送信を立証したものではなく、journal の整合の欠陥として扱う。**
+
+再現の方法:
+
+    V16_WS06_DISPATCH=<tree>/workstreams/06-creation/src/connect/dispatch.mjs \
+      node --import <tree>/scripts/ci/no-keys-guard.mjs --test verification/16-independent/probes/v16-ws06-journal-lock.test.mjs
+
+ログは `logs/phase20/v16-ws06-lock.log`。
+
+## 25.3 影響を受けた試験（4d44f021 で新しく流した。呼び出し先を監査してから流した）
+
+| 試験 | 結果 |
+|---|---|
+| ⑮ node-keyfree（test/*.test.mjs） | 134/134 |
+| ③ run-guarded.sh（no-keys と no-pda）、RUNEXEC_BIN なし | 25 通過、7 skip（RUNEXEC_BIN が要る） |
+| ③ run-guarded.sh、実物の runexec と ④ の clients/acts.mjs と候補の ⑤ を渡したもの | 1 回目：31 通過、**1 失敗**。その後の 5 回：32/32 |
+| ③ integration.test.mjs だけを流したもの | 候補で 2 回、⑤ 10e74967 で 1 回、基準 16576826 で 1 回。どれも 5/5 |
+| ⑥ ports・dispatch・connect・connect-live・intake | 29 通過、1 skip（WS06_RUN4_STORE が要る）。2 回とも同じ |
+| ① node-keyfree | 239/239 |
+| ① coop.browser.nokey | 10/10（中の check の数）。宛先の新しい 2 件を含む：読めない・空の ?to= では 0,0 の 0 番に依頼しない。宛先が合わないときは、送る・結び付けるを出さない |
+| gateway の web-frontier-ws07-coop と ws07-s1-pure（① の board.mjs を使う側） | 12/12 |
+
+③ の 1 回だけの失敗:
+
+- 落ちたのは integration.test の「③ and ⑤ on one agent and one ④ registry」。③ の `send_caravan` と、⑤ の登録・送信を同時に走らせる場面で、`r3.state` が undefined になった。
+- その後の 9 回の実行では、再現しなかった。基準の 16576826 でも、同じ並びで 5 回とも通過した。
+- 間欠的な失敗として ③ に記録を送る。③ の今回の変更による後退だとは断定しない。ログは `logs/phase20/s03-full.log` と `s03-repeats.txt`。
+
+鍵の扱い:
+
+- ⑥ の roles.test.mjs（`generateKey()` を呼ぶ）は、監査の段階で外し、流していない。
+- ① の browser の試験は、署名の確認を固定のバイト列の照合に差し替えている。したがって、これは画面の証拠であって、署名を検証した証拠ではない。
+
+## 25.4 ⑦ の画面の証拠の分け方（訂正）
+
+- ⑯ が 23.2 と 23.4 で数えた ⑦ の画面 46/46 は、どれも `WS07_CHROME=/opt/pw-browsers/chromium`（full の Chromium）で流した。ログに NoWasm や WebCrypto unavailable は無い。
+- ただし、8 本の画面の試験は、どれも WASM の march の操作を assert していない。見ているのは、join の画面の文、村のカード・引き出し・協力の板、chronicle の失敗の表示などである。
+- したがって、**46/46 は画面の部品と表示の証拠で、本来の WASM の march の操作の証拠ではない**。march の成功、署名、live には数えない。
+- ⑦ の NoWasm の訂正（headless shell で secure-origin が効かない）は、その設定で流した run だけに当てはまる。⑯ の run は、その設定ではない。

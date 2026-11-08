@@ -1,0 +1,82 @@
+TAP version 13
+# Subtest: pc [pure S1 fixture: every account at layout 2]: the page boots on an S1 season, tells what happened while away, and "seen" by keyboard holds over a reload
+ok 1 - pc [pure S1 fixture: every account at layout 2]: the page boots on an S1 season, tells what happened while away, and "seen" by keyboard holds over a reload
+  ---
+  duration_ms: 32912.788153
+  type: 'test'
+  ...
+# Subtest: pc [pure S1 fixture: every account at layout 2]: in the village drawer, the S1 card says a caravan past its turn is overdue, not arrived; with 04, 05 and 01 registered (mocks) their states too
+ok 2 - pc [pure S1 fixture: every account at layout 2]: in the village drawer, the S1 card says a caravan past its turn is overdue, not arrived; with 04, 05 and 01 registered (mocks) their states too
+  ---
+  duration_ms: 11391.151363
+  type: 'test'
+  ...
+# Subtest: phone [pure S1 fixture: every account at layout 2]: the page boots on an S1 season, tells what happened while away, and "seen" by keyboard holds over a reload
+ok 3 - phone [pure S1 fixture: every account at layout 2]: the page boots on an S1 season, tells what happened while away, and "seen" by keyboard holds over a reload
+  ---
+  duration_ms: 11900.654459
+  type: 'test'
+  ...
+# Subtest: phone [pure S1 fixture: every account at layout 2]: in the village drawer, the S1 card says a caravan past its turn is overdue, not arrived; with 04, 05 and 01 registered (mocks) their states too
+ok 4 - phone [pure S1 fixture: every account at layout 2]: in the village drawer, the S1 card says a caravan past its turn is overdue, not arrived; with 04, 05 and 01 registered (mocks) their states too
+  ---
+  duration_ms: 6791.740225
+  type: 'test'
+  ...
+# Subtest: pc [pure S1 fixture, through 01's real board]: the card's button opens 01's page for this village; closing it, pressing again, Enter and a reload behave
+ok 5 - pc [pure S1 fixture, through 01's real board]: the card's button opens 01's page for this village; closing it, pressing again, Enter and a reload behave
+  ---
+  duration_ms: 17537.030924
+  type: 'test'
+  ...
+# Subtest: pc [pure S1 fixture, through 01's real board]: a board config that cannot be read is said, and nothing opens
+ok 6 - pc [pure S1 fixture, through 01's real board]: a board config that cannot be read is said, and nothing opens
+  ---
+  duration_ms: 7461.764529
+  type: 'test'
+  ...
+# Subtest: phone [pure S1 fixture, through 01's real board]: the card's button opens 01's page for this village; closing it, pressing again, Enter and a reload behave
+ok 7 - phone [pure S1 fixture, through 01's real board]: the card's button opens 01's page for this village; closing it, pressing again, Enter and a reload behave
+  ---
+  duration_ms: 10588.304624
+  type: 'test'
+  ...
+# Subtest: phone [pure S1 fixture, through 01's real board]: a board config that cannot be read is said, and nothing opens
+ok 8 - phone [pure S1 fixture, through 01's real board]: a board config that cannot be read is said, and nothing opens
+  ---
+  duration_ms: 5475.950547
+  type: 'test'
+  ...
+# Subtest: reading the board: absent (404), not read (5xx, network, odd body), read
+ok 9 - reading the board: absent (404), not read (5xx, network, odd body), read
+  ---
+  duration_ms: 1.663693
+  type: 'test'
+  ...
+# Subtest: the slot: nothing without a board; a board not read or of another Season is said, disabled; this village opens it
+ok 10 - the slot: nothing without a board; a board not read or of another Season is said, disabled; this village opens it
+  ---
+  duration_ms: 30.225954
+  type: 'test'
+  ...
+# Subtest: the board may name its page on this origin; another origin is not followed
+ok 11 - the board may name its page on this origin; another origin is not followed
+  ---
+  duration_ms: 0.53027
+  type: 'test'
+  ...
+# Subtest: 01's real board: its /coop/config is read, its Season compared, and its page opened for this village
+ok 12 - 01's real board: its /coop/config is read, its Season compared, and its page opened for this village
+  ---
+  duration_ms: 33.283334
+  type: 'test'
+  ...
+1..12
+# tests 12
+# suites 0
+# pass 12
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 105445.609646

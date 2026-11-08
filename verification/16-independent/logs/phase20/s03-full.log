@@ -1,0 +1,231 @@
+TAP version 13
+# Subtest: issue: ③ asks for its own mcp token; ⑤'s ai token (⑤'s rotate-capability {source} form) keeps working; one whoami contract
+ok 1 - issue: ③ asks for its own mcp token; ⑤'s ai token (⑤'s rotate-capability {source} form) keeps working; one whoami contract
+  ---
+  duration_ms: 8.453408
+  type: 'test'
+  ...
+# Subtest: renew: a new connection replaces ③'s old token at the relay (the old one is refused there), ⑤'s untouched; the old link cannot send
+ok 2 - renew: a new connection replaces ③'s old token at the relay (the old one is refused there), ⑤'s untouched; the old link cannot send
+  ---
+  duration_ms: 73.508936
+  type: 'test'
+  ...
+# Subtest: revoke: dropping ③'s copy is not enough — the owner's revoke-capability {mcp} is forwarded and the relay no longer accepts the token
+ok 3 - revoke: dropping ③'s copy is not enough — the owner's revoke-capability {mcp} is forwarded and the relay no longer accepts the token
+  ---
+  duration_ms: 2.944524
+  type: 'test'
+  ...
+# Subtest: an older relay (one capability per agent): no write connection, nothing sent to the relay, ⑤'s token intact — and why
+ok 4 - an older relay (one capability per agent): no write connection, nothing sent to the relay, ⑤'s token intact — and why
+  ---
+  duration_ms: 2.12325
+  type: 'test'
+  ...
+# Subtest: a relay that answers a sender's request with the agent's one token: not kept, refused with the reason
+ok 5 - a relay that answers a sender's request with the agent's one token: not kept, refused with the reason
+  ---
+  duration_ms: 1.064533
+  type: 'test'
+  ...
+# Subtest: after an NFT transfer: neither the old holder's mcp nor ai token sends (the wallet's real submit refuses before building); the tokens themselves stay valid at the relay
+ok 6 - after an NFT transfer: neither the old holder's mcp nor ai token sends (the wallet's real submit refuses before building); the tokens themselves stay valid at the relay
+  ---
+  duration_ms: 44.042274
+  type: 'test'
+  ...
+# Subtest: prepare_caravan refuses malformed cargo by name — unknown resource, fraction, text, negative, too large, not an object — and plans nothing
+ok 7 - prepare_caravan refuses malformed cargo by name — unknown resource, fraction, text, negative, too large, not an object — and plans nothing
+  ---
+  duration_ms: 60.295956
+  type: 'test'
+  ...
+# Subtest: what ③ sends passes the wallet's own ActionRequest parser: vault → village and village → vault
+ok 8 - what ③ sends passes the wallet's own ActionRequest parser: vault → village and village → vault
+  ---
+  duration_ms: 34.33457
+  type: 'test'
+  ...
+# Subtest: a retry after a stop, answered 409 SendFailed (a saved request without a final response): held, its own signature taken, counted, never re-sent
+ok 9 - a retry after a stop, answered 409 SendFailed (a saved request without a final response): held, its own signature taken, counted, never re-sent
+  ---
+  duration_ms: 23.87492
+  type: 'test'
+  ...
+# Subtest: a retry answered 409 IdempotencyConflict (the key holds a different request): held, nothing of it taken as this request's, counted
+ok 10 - a retry answered 409 IdempotencyConflict (the key holds a different request): held, nothing of it taken as this request's, counted
+  ---
+  duration_ms: 18.93134
+  type: 'test'
+  ...
+# Subtest: a true first attempt refused before anything (409 AgentStopped) still fails cleanly and gives the hold back
+ok 11 - a true first attempt refused before anything (409 AgentStopped) still fails cleanly and gives the hold back
+  ---
+  duration_ms: 28.244939
+  type: 'test'
+  ...
+# Subtest: the harness's /h/me record has every field of the real me_json
+ok 12 - the harness's /h/me record has every field of the real me_json
+  ---
+  duration_ms: 6.378385
+  type: 'test'
+  ...
+# Subtest: the real herald client reads the harness's records: me (with its checks), and an events page
+ok 13 - the real herald client reads the harness's records: me (with its checks), and an events page
+  ---
+  duration_ms: 4.077602
+  type: 'test'
+  ...
+# Subtest: a tool error is reported as itself: the harness does not read past it
+ok 14 - a tool error is reported as itself: the harness does not read past it
+  ---
+  duration_ms: 5.583534
+  type: 'test'
+  ...
+# Subtest: the conflict, reproduced on the real wallet code: the global rotation stops the other holder's token
+ok 15 - the conflict, reproduced on the real wallet code: the global rotation stops the other holder's token
+  ---
+  duration_ms: 5.220359
+  type: 'test'
+  ...
+# Subtest: resolved with per-sender capabilities (0008): ③ asks for an mcp token; ⑤'s ai token survives ③'s connects; neither acts as the other
+ok 16 - resolved with per-sender capabilities (0008): ③ asks for an mcp token; ⑤'s ai token survives ③'s connects; neither acts as the other
+  ---
+  duration_ms: 63.266823
+  type: 'test'
+  ...
+# Subtest: ③ and ⑤ on one agent and one ④ registry: separate acts; neither unknown nor unqueryable is a new attempt
+not ok 17 - ③ and ⑤ on one agent and one ④ registry: separate acts; neither unknown nor unqueryable is a new attempt
+  ---
+  duration_ms: 562.706543
+  type: 'test'
+  location: '/tmp/claude-0/-home-user-wylls/47a54b0f-427a-5cca-bc82-feb7c5056956/scratchpad/v27n/workstreams/03-composability/mcp/test/keyfree/integration.test.mjs:74:1'
+  failureType: 'testCodeFailure'
+  error: |-
+    Expected values to be strictly deep-equal:
+    + actual - expected
+    
+      [
+    +   undefined,
+    -   'accepted',
+        true,
+        'real'
+      ]
+    
+  code: 'ERR_ASSERTION'
+  name: 'AssertionError'
+  expected:
+    0: 'accepted'
+    1: true
+    2: 'real'
+  actual:
+    1: true
+    2: 'real'
+  operator: 'deepStrictEqual'
+  stack: |-
+    TestContext.<anonymous> (file:///tmp/claude-0/-home-user-wylls/47a54b0f-427a-5cca-bc82-feb7c5056956/scratchpad/v27n/workstreams/03-composability/mcp/test/keyfree/integration.test.mjs:85:12)
+    process.processTicksAndRejections (node:internal/process/task_queues:105:5)
+    async Test.run (node:internal/test_runner/test:1054:7)
+    async Test.processPendingSubtests (node:internal/test_runner/test:744:7)
+  ...
+# Subtest: lost answer, a signed failure, an unproven and a proven expiry: only the proven end decides; nothing re-sent
+ok 18 - lost answer, a signed failure, an unproven and a proven expiry: only the proven end decides; nothing re-sent
+  ---
+  duration_ms: 278.411457
+  type: 'test'
+  ...
+# Subtest: a restart on the same stores and the owner's revocation: one registration, one send; ⑤'s token untouched
+ok 19 - a restart on the same stores and the owner's revocation: one registration, one send; ⑤'s token untouched
+  ---
+  duration_ms: 85.484728
+  type: 'test'
+  ...
+# Subtest: two sends of one ⑥ run: registered under the run in ④'s registry; get_run_status answers both, sending nothing
+ok 20 - two sends of one ⑥ run: registered under the run in ④'s registry; get_run_status answers both, sending nothing
+  ---
+  duration_ms: 879.832916
+  type: 'test'
+  ...
+# Subtest: a ⑥ run through a lost answer, a restart and the owner's revocation: one registration under the run, one send; unknown is held, not re-sent
+ok 21 - a ⑥ run through a lost answer, a restart and the owner's revocation: one registration under the run, one send; unknown is held, not re-sent
+  ---
+  duration_ms: 127.736393
+  type: 'test'
+  ...
+# Subtest: ③ (mcp, a ⑥ run) and ⑤ (ai, its autopilot run) on one agent and one registry, each with its own capability
+ok 22 - ③ (mcp, a ⑥ run) and ⑤ (ai, its autopilot run) on one agent and one registry, each with its own capability
+  ---
+  duration_ms: 81.391715
+  type: 'test'
+  ...
+# Subtest: ⑥'s calling pattern: plan errors send nothing (re-plan under the same ids); PlanUsed names the operation that used it; a reconnect never sends a requestId twice; ⑥ reads the run by key suffix
+ok 23 - ⑥'s calling pattern: plan errors send nothing (re-plan under the same ids); PlanUsed names the operation that used it; a reconnect never sends a requestId twice; ⑥ reads the run by key suffix
+  ---
+  duration_ms: 98.150927
+  type: 'test'
+  ...
+# Subtest: ⑤'s contract: ③ sends rotate-capability {source: mcp} only where the view lists senderCapabilities; ⑤'s ai token survives issue, renewal and ③'s revocation
+ok 24 - ⑤'s contract: ③ sends rotate-capability {source: mcp} only where the view lists senderCapabilities; ⑤'s ai token survives issue, renewal and ③'s revocation
+  ---
+  duration_ms: 8.222906
+  type: 'test'
+  ...
+# Subtest: Duplicate (failed, sent: null, the earlier send's signature): held and counted; never re-sent; the earlier signature is not adopted even when it lands; only its proven end decides
+ok 25 - Duplicate (failed, sent: null, the earlier send's signature): held and counted; never re-sent; the earlier signature is not adopted even when it lands; only its proven end decides
+  ---
+  duration_ms: 58.573123
+  type: 'test'
+  ...
+# Subtest: on ⑤'s relay ③ never sends 0008's issue-capability, and on an old relay it sends nothing
+ok 26 - on ⑤'s relay ③ never sends 0008's issue-capability, and on an old relay it sends nothing
+  ---
+  duration_ms: 1.583949
+  type: 'test'
+  ...
+# Subtest: a Duplicate of this server's own earlier operation: that operation carries the transaction; this one ends as its duplicate and gives its hold back (counted once)
+ok 27 - a Duplicate of this server's own earlier operation: that operation carries the transaction; this one ends as its duplicate and gives its hold back (counted once)
+  ---
+  duration_ms: 34.836915
+  type: 'test'
+  ...
+# Subtest: the mapped port is a MOCK that passes the port conformance; ④'s real adapter is still not in this build
+ok 28 - the mapped port is a MOCK that passes the port conformance; ④'s real adapter is still not in this build
+  ---
+  duration_ms: 3.034771
+  type: 'test'
+  ...
+# Subtest: states, held reasons and outcomes follow ④'s STATE-MACHINE for a ship-only run
+ok 29 - states, held reasons and outcomes follow ④'s STATE-MACHINE for a ship-only run
+  ---
+  duration_ms: 0.924234
+  type: 'test'
+  ...
+# Subtest: fees: released only on proven absence of this request's own signature; amounts null unless reported, never 0 for unknown
+ok 30 - fees: released only on proven absence of this request's own signature; amounts null unless reported, never 0 for unknown
+  ---
+  duration_ms: 0.329393
+  type: 'test'
+  ...
+# Subtest: cancel phases: StoppingNew → AwaitingSigned (until unknown here) → Completed{effects} / Ineffective
+ok 31 - cancel phases: StoppingNew → AwaitingSigned (until unknown here) → Completed{effects} / Ineffective
+  ---
+  duration_ms: 0.283953
+  type: 'test'
+  ...
+# Subtest: the vocabulary is ④'s own (against workstreams/04-execution/src at WS04_ROOT)
+ok 32 - the vocabulary is ④'s own (against workstreams/04-execution/src at WS04_ROOT)
+  ---
+  duration_ms: 0.888626
+  type: 'test'
+  ...
+1..32
+# tests 32
+# suites 0
+# pass 31
+# fail 1
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 3105.641562
+exit=1
