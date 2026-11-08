@@ -81,3 +81,43 @@ for (const vp of [{ width: 1440, height: 900, name: 'desktop' }, { width: 390, h
     await ctx.close();
   });
 }
+
+// The village's own province not read (/h/province/2,0 503): its hosts are read from that record, so "no Scout host"
+// is not known. The guide's next thing used to offer 斥候隊を編成する (Muster: a second Scout host from the reserve) as
+// if the village had none; now it offers no Train or Muster until the province is read. Read again: the Scout that
+// is there is offered to explore (探索する土地を選ぶ).
+for (const vp of [{ width: 1440, height: 900, name: 'desktop' }, { width: 390, height: 844, name: 'phone' }]) {
+  test(`the village's province not read @ ${vp.name}: no Train or Muster offered as if it had no Scout; read again: its Scout`, { timeout: 120_000 }, async () => {
+    const phone = vp.width < 760;
+    const ctx = await browser.newContext({ viewport: { width: vp.width, height: vp.height }, isMobile: phone, hasTouch: phone, locale: 'ja-JP', timezoneId: 'UTC' });
+    await NK.prepare(ctx, srv.viewer, { lang: 'ja' });
+    let fail = true;
+    await ctx.route(/\/h\/province\/2,0\//, r => (fail ? r.fulfill({ status: 503, contentType: 'application/json', body: '{"code":"Unavailable"}' }) : r.fallback()));
+    const page = await ctx.newPage();
+    const errors = [], posts = [];
+    page.on('pageerror', e => errors.push(e.message));
+    page.on('console', m => { if (m.type() === 'error' && !/status of 503/.test(m.text())) errors.push(m.text()); });
+    page.on('request', r => { if (r.method() !== 'GET' && r.method() !== 'HEAD') posts.push(`${r.method()} ${new URL(r.url()).pathname}`); });
+    await page.clock.setFixedTime(new Date(LATEST_UNIX * 1000 + 500));
+    await page.goto(`${base}/frontier/index.html`);
+    await page.waitForFunction(() => document.body.dataset.stage === 'final');
+    const offered = () => page.evaluate(() => [...document.querySelectorAll('[data-act]')].filter(e => e.offsetParent !== null).map(e => e.dataset.act)
+      .filter(a => ['home-scout-muster', 'home-scout-train', 'explore-open'].includes(a)));
+    // give the page its reads (the province is asked for and refused), then look
+    await page.waitForTimeout(2500);
+    assert.equal(await page.evaluate(async () => (await import('/frontier/fstate.mjs')).FS.provinces.has('2,0')), false, 'the province was not read');
+    assert.deepEqual(await offered(), [], 'no Train or Muster offered while the hosts are not known');
+
+    fail = false;
+    await page.evaluate(async () => { const c = await import('/frontier/controller.mjs'); await c.refresh(); });
+    await page.waitForFunction(async () => (await import('/frontier/fstate.mjs')).FS.provinces.has('2,0'));
+    await page.waitForFunction(() => [...document.querySelectorAll('[data-act="explore-open"]')].some(e => e.offsetParent !== null), null, { timeout: 15_000 });
+    const after = await offered();
+    assert.ok(after.includes('explore-open') && !after.includes('home-scout-muster') && !after.includes('home-scout-train'), `read: the Scout that is there (${after})`);
+
+    assert.deepEqual(posts, [], 'no request but reads');
+    assert.deepEqual(errors, [], 'no page error');
+    await NK.assertKeyless(ctx, assert);
+    await ctx.close();
+  });
+}
