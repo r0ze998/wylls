@@ -279,41 +279,49 @@ async fn a_resident_archive_not_the_ledgers_whole_feed_or_of_another_ledger_is_n
     );
 }
 
-/// The live read on a scanning node (workstream 4): `through` and `tip` are
-/// the extent the node's own answers give (the ledger's length, 6), not the
-/// game feed's last seq; a ledger that grows between the two reads is read
-/// through its new end, with the resident transaction that landed.
+/// The live read on a scanning node (workstream 4): the transactions the
+/// scan saw are kept, with the ledger's extent as `tip`, but no range is
+/// claimed whole (`through` 0, `unknown`): a live read is not accepted as the
+/// whole history while its conditions are undecided (2c8fbfa2). A ledger that
+/// grows between the reads is read through its new end; still never whole.
 #[tokio::test]
 async fn the_live_resident_feed_takes_its_extent_from_the_same_answers() {
     let (n, url) = node_with(&["run1"], &two_programs(), true).await;
     let (txs, h) = input::fetch_txs(&url, &prog(), true, None, None)
         .await
         .unwrap();
-    assert_eq!(h.detail, "ledger run1");
+    assert_eq!(h.source, Source::Unknown);
     let policy = Address::new_from_array([0x76; 32]);
     let rf = verify_core::resident_feed::fetch(&url, &other(), &policy, &txs)
         .await
         .unwrap();
-    assert_eq!(rf.history, h, "the same ledger, from the scan's runId");
-    assert_eq!((rf.through, rf.tip), (6, Some(6)));
+    assert_eq!(rf.history.source, Source::Unknown);
+    assert!(
+        rf.history
+            .detail
+            .contains("ledger run1 scanned through seq 6"),
+        "{}",
+        rf.history.detail
+    );
+    assert_eq!((rf.through, rf.tip), (0, Some(6)));
     assert_eq!(
         rf.txs.iter().map(|t| t.seq).collect::<Vec<_>>(),
         vec![2, 3, 5]
     );
     let w = World::parse(&prog(), &txs, BTreeMap::new(), 0);
-    assert!(rf.gaps_before(&w, &h, 7).is_empty());
+    assert!(!rf.gaps_before(&w, &h, 7).is_empty());
     assert!(!rf.gaps_before(&w, &h, 8).is_empty());
     // The ledger grows after the game read: a resident transaction lands at 7.
     n.ledger.lock().unwrap().push((17, other()));
     let rf = verify_core::resident_feed::fetch(&url, &other(), &policy, &txs)
         .await
         .unwrap();
-    assert_eq!((rf.through, rf.tip), (7, Some(7)));
+    assert_eq!((rf.through, rf.tip), (0, Some(7)));
     assert_eq!(
         rf.txs.iter().map(|t| t.seq).collect::<Vec<_>>(),
         vec![2, 3, 5, 7]
     );
-    assert!(rf.gaps_before(&w, &h, 8).is_empty());
+    assert!(!rf.gaps_before(&w, &h, 8).is_empty());
 }
 
 /// A node that does not scan (the plain array) or a read with no resident
