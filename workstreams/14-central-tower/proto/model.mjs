@@ -225,7 +225,7 @@ function arrive(sim, c) {
     }
     case 'pay': {
       const q = reqOf(sim, a.req), poster = sim.villages[q.poster], helper = sim.villages[q.helper];
-      if (ok && !helper.left) { add(helper.store, c.goods); q.state = 'done'; sim.stats.done++; poster.trades++; helper.trades++; if (poster.nation !== helper.nation) { poster.crossTrades++; helper.crossTrades++; } fact(sim, q.boardedAt !== undefined ? 'tower.board_fulfilled' : 'request.fulfilled', poster, { req: q.id, cross: poster.nation !== helper.nation }); }
+      if (ok && !helper.left) { add(helper.store, c.goods); q.state = 'done'; sim.stats.done++; poster.trades++; helper.trades++; if (poster.nation !== helper.nation) { poster.crossTrades++; helper.crossTrades++; } fact(sim, q.boardedAt !== undefined ? 'tower.board_fulfilled' : 'request.fulfilled', poster, { req: q.id, responder: helper.id, cross: poster.nation !== helper.nation }); }
       else { if (ok) sim.flow.lost += sum(c.goods); q.state = 'failed'; poster.lostGoods += sum(c.goods); fact(sim, 'caravan.lost', poster, { req: q.id }); }
       return;
     }
@@ -379,7 +379,7 @@ export function apply(sim, v, opt) {
       const q = reqOf(sim, opt.req), poster = sim.villages[q.poster];
       q.state = 'taken'; q.helper = v.id;
       const goods = { [q.want]: q.amount }; spend(v.store, goods);
-      fact(sim, q.boardedAt !== undefined ? 'tower.board_taken' : 'request.taken', v, { req: q.id, cross: poster.nation !== v.nation });
+      fact(sim, q.boardedAt !== undefined ? 'tower.board_taken' : 'request.taken', v, { req: q.id, poster: poster.id, cross: poster.nation !== v.nation });
       dispatch(sim, v, v.prov, poster.prov, goods, { kind: 'help', req: q.id, helper: v.id }, { publicNeed: q.scope === 'world' });
       break;
     }

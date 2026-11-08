@@ -1,10 +1,5 @@
-//! The verifier's view of a local node's ledger history (⑲, 2026-11-07):
-//! an archive of the node's feed is `ledger_feed` only when every record
-//! kept its ledger number from the ledger's start, one ledger named
-//! (`findex::ledger`); then its records carry the ledger number and its
-//! detail (`ledger <runId>`) is the same as a live read's, so an archive and
-//! a live read of one ledger can be told to be the same ledger. An archive
-//! from before, or a ledger that changed during the read, is unproven.
+//! Live feeds and archives retain ledger numbers but remain unproven:
+//! status/feed reads are not an atomic snapshot.
 //!
 //! Keyless: a JSON-RPC stand-in over a plain socket (`frontier_feed`,
 //! `frontier_status`), fixed byte-pattern signatures, opaque transactions;
@@ -223,9 +218,8 @@ async fn archive(url: &str, run: Option<&str>) -> std::path::PathBuf {
     d.join("archive")
 }
 
-/// A whole feed archive reads as the ledger's, with the ledger's numbers,
-/// and names the same ledger as a live read of that node: the two can be
-/// paired; the verdict the checks give stands.
+/// Ledger numbers survive, but neither live nor archived observations
+/// prove a complete snapshot.
 #[tokio::test]
 async fn a_whole_feed_archive_is_the_ledgers_and_pairs_with_a_live_read() {
     let (_n, url) = node(&["run1"], &ledger()).await;
@@ -255,7 +249,20 @@ async fn a_whole_feed_archive_is_the_ledgers_and_pairs_with_a_live_read() {
         live.iter().map(|t| t.seq).collect::<Vec<_>>(),
         vec![1, 4, 5]
     );
-    assert_eq!(lh.detail, "ledger run1");
+    // 2c8fbfa2's rule, with ⑲'s names (2026-11-08): this node answers
+    // without the scan, so neither the prefix nor the point is shown: never
+    // PASS, before or after the seal.
+    assert!(lh.unproven());
+    assert!(lh
+        .gaps
+        .contains(&verify_core::history::Gap::PrefixIdentityUnverified));
+    assert!(lh
+        .gaps
+        .contains(&verify_core::history::Gap::PointInTimeUnverified));
+    assert_eq!(apply(&lh, report()).verdict, Verdict::Unverifiable);
+    let mut sealed = lh.clone();
+    input::seal_point_in_time(&url, &mut sealed).await;
+    assert!(sealed.unproven(), "{sealed:?}");
     assert_ne!(
         lh, h,
         "an archive not checked against the node does not pair with a live read"
@@ -397,5 +404,50 @@ async fn successful_feed_with_unreadable_status_is_unproven() {
         assert_eq!(h.source, Source::Unknown);
         assert!(h.detail.contains("status unavailable"));
         assert_eq!(apply(&h, report()).verdict, Verdict::Unverifiable);
+    }
+}
+
+#[tokio::test]
+async fn matching_live_status_never_proves_completeness_or_hides_local_failures() {
+    for sizes in [vec![500, 500], vec![500, 900]] {
+        let (n, url) = node(&["run1"], &ledger()).await;
+        *n.bytes.lock().unwrap() = sizes;
+        let (txs, h) = input::fetch_txs(&url, &prog(), true, None, None)
+            .await
+            .unwrap();
+        assert_eq!(txs.len(), 3);
+        // A matching status alone (no scan here) never proves completeness:
+        // unproven with both named gaps, and still so after the seal.
+        assert!(h.unproven(), "{h:?}");
+        assert!(h
+            .gaps
+            .contains(&verify_core::history::Gap::PrefixIdentityUnverified));
+        let mut sealed = h.clone();
+        input::seal_point_in_time(&url, &mut sealed).await;
+        assert!(sealed.unproven(), "{sealed:?}");
+        assert_eq!(h.report()["complete"], false);
+        assert_eq!(apply(&h, report()).verdict, Verdict::Unverifiable);
+        for (check, code) in [
+            ("V0", "UnknownInstruction"),
+            ("V27", "ResidentJoinMismatch"),
+        ] {
+            let mut r = report();
+            r.verdict = Verdict::Fail;
+            r.findings.push(verify_core::Finding {
+                check,
+                code: code.into(),
+                severity: verify_core::Severity::Fail,
+                entity: "tx".into(),
+                bell: 0,
+                signature: String::new(),
+                detail: "literal finding".into(),
+            });
+            let out = apply(&h, r);
+            assert_eq!(out.verdict, Verdict::Fail);
+            assert!(out
+                .findings
+                .iter()
+                .any(|f| f.check == check && f.code == code));
+        }
     }
 }

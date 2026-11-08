@@ -1,0 +1,20 @@
+{
+ "what": "④'s runexec demo output: Run Receipts and run specs as SQLite holds them (body and spec as raw JSON text). Copied byte for byte; ⑮ wrote none of it.",
+ "producer": "workstream 4 runexec (workstreams/04-execution) at d0949fd417180b11704de5690ab0dfb6e5ef3148 (origin/integration/ws09-13-v16-d0949fd4), simulated canonical world (MOCK)",
+ "builtAndRunBy": "workstream 12 (tools/check-integration.sh --regen-ws04), committed at 4bc76d05e9d74cb61a968acc3edf59a231922c3c on origin/claude/trusting-allen-dox8j6",
+ "copiedFrom": "workstreams/12-memory/fixtures/ws04-receipts/{happy,crash,raid,lost-response}.json",
+ "gitBlobs": {
+  "crash.json": "6eb3236c3a08d6d30f431f5f81223f751690baf3",
+  "happy.json": "28f8efefe7329446ba4c9174022a1108e9f03938",
+  "lost-response.json": "cdd3d7ab39fbc98dfb7b05a963a586bfa8faca9b",
+  "raid.json": "7f19fcdc8a6452c47ed9daa49f8dc1be481c451a"
+ },
+ "sha256": {
+  "crash.json": "a84deeeffd1e8d3d4848242ced90909dfe2760b1ec92ddaf12a42801d56b5ac9",
+  "happy.json": "e41d3a980ef2ecc03f5332c212a26781720e4865d057f2c56e0e439deac14e02",
+  "lost-response.json": "2f3363e25f0ad35a623421f71fab0d69e69992c119583560617dab220ef5ed76",
+  "raid.json": "4d91be6cf580e937f193bc14559019971e2d607cfecc8c58b1feb238a3b224fb"
+ },
+ "currentWs04": "④'s newest commit is 8e96f24d (origin/claude/gallant-ride-cunptv). Between d0949fd4 and 8e96f24d the receipt writers are unchanged: git diff shows no change to src/executor.rs, store.rs, model.rs, ports.rs, sim.rs or docs/QUANTITY-CONTRACT.ja.md (only acts.rs, gateway.rs, lib.rs and main.rs, for agent acts). ⑮ did not build or run ④.",
+ "notInTheDump": "the run outcome (delivered, verification, cargo_logged) is not in these files; quantities follow the settle record (④ QUANTITY-CONTRACT §3)"
+}

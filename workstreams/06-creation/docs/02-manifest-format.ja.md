@@ -114,7 +114,7 @@
 
 - 公開：`{ manifest, hash, signature }`。署名は作者の鍵で `"wylls.creation.publish/0" ‖ 0x00 ‖ hash`。
 - 状態の変更（停止・取り下げ・再開）：作者の鍵で `"wylls.creation.status/0"`。署名する内容は `{ author, name, status, seq }` で、`seq` はその名前の状態の履歴の長さ。古い署名を後から出し直して、後の変更を取り消すことはできない。
-- 計画（利用者が準備するもの）：`{ format: "wylls.creation.plan/0", manifest: { author, name, version, hash }, actor: 利用者の公開鍵, bindings: { params, grants }, preparedDay, supersedes? }` を **利用者の鍵** で `"wylls.creation.plan/0"` に署名。作者の秘密鍵は使わない。`supersedes` は、更新を確認するときに置き換える自分の採用済みの計画のハッシュ。
+- 計画（利用者が準備するもの）：`{ format: "wylls.creation.plan/1", manifest: { author, name, version, hash }, actor: 利用者の公開鍵, bindings: { params, grants }, preparedDay, effects: { 効果: 意味の版 }, supersedes? }` を **利用者の鍵** で署名（署名の領域は `"wylls.creation.plan/0"` のまま）。`effects` のない旧形式 `plan/0` は rev 1 として読む（docs/10）。作者の秘密鍵は使わない。`supersedes` は、更新を確認するときに置き換える自分の採用済みの計画のハッシュ。
 - 採用：実行前の確認が通った計画を、利用者が「この版・この内容ハッシュで動かす」と確認した記録（`src/adoption.mjs`）。新しい採用は、定義が一覧に出ているときだけできる。
 - 実行の依頼：`{ format: "wylls.creation.run/0", planHash, nonce, inputs: { batches } }` を利用者の鍵で `"wylls.creation.run/0"` に署名。`nonce` は計画ごとに一度だけ。`batches` は、その回に C の依存が消費する束（記録ではなく、消費する権利）。束は計画に固定しない。
 - 利用者による停止：計画のハッシュを利用者の鍵で `"wylls.creation.adoption-end/0"` に署名。

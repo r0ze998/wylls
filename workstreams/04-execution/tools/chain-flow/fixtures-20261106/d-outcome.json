@@ -1,55 +1,45 @@
 {
   "stage": "D",
-  "reader": "workstreams/15-coop-outcomes/src/adapters/ws04.mjs fromRunReceipts and ledger.normalize, unchanged",
-  "as_is": {
-    "events": [
-      "ship.arrive"
-    ],
-    "skipped": [
-      {
-        "source": "sig:3a67518570b21763be7f6e5612a1a00516eb25f2",
-        "why": "unresolved (left as a gap)"
+  "reader": "workstreams/15-coop-outcomes/src/adapters/ws04.mjs fromRunReceipts (runs: spec and outcome from 4's store) and ledger.normalize, unchanged",
+  "events": [
+    {
+      "id": "ws04:0:0",
+      "stream": "ws04",
+      "seq": 0,
+      "sub": 0,
+      "at": 2,
+      "kind": "ship.send",
+      "verified": "chain",
+      "ship": "cv:7:1973050754706772817:0:wood",
+      "from": "nft:5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a",
+      "to": "nft:5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a",
+      "resource": "wood",
+      "qty": 4,
+      "fromOutside": true,
+      "src": {
+        "run": "chain-1",
+        "source": "sig:3a67518570b21763be7f6e5612a1a00516eb25f2"
       }
-    ],
-    "finding": "⑮'s adapter reads body.owner_tag, body.dst (sent) and body.verification (settled), which ④'s receipts do not carry: the send is skipped as unresolved and the arrival is counted as unverified"
-  },
-  "proposed_mapping": {
-    "by": "④ (proposal for ⑮; ⑮ decides)",
-    "events": [
-      {
-        "id": "ws04:0:0",
-        "stream": "ws04",
-        "seq": 0,
-        "sub": 0,
-        "at": 2,
-        "kind": "ship.send",
-        "verified": "chain",
-        "ship": "cv:7:1973050754706772817:0:wood",
-        "from": "nft:5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a",
-        "to": "nft:5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a",
-        "resource": "wood",
-        "qty": 4,
-        "src": {
-          "source": "sig:3a67518570b21763be7f6e5612a1a00516eb25f2"
-        }
-      },
-      {
-        "id": "ws04:1:0",
-        "stream": "ws04",
-        "seq": 1,
-        "sub": 0,
-        "at": 22,
-        "kind": "ship.arrive",
-        "verified": "chain",
-        "ship": "cv:7:1973050754706772817:undefined:wood",
-        "qty": 4,
-        "src": {
-          "source": "event:settle:cv:1b61af352e1d1351:0"
-        }
+    },
+    {
+      "id": "ws04:1:0",
+      "stream": "ws04",
+      "seq": 1,
+      "sub": 0,
+      "at": 22,
+      "kind": "ship.arrive",
+      "verified": "chain_lower_bound",
+      "ship": "cv:7:1973050754706772817:0:wood",
+      "qty": 4,
+      "qtyKind": "lower_bound",
+      "src": {
+        "run": "chain-1",
+        "source": "event:settle:cv:1b61af352e1d1351:0"
       }
-    ],
-    "skipped": []
-  },
+    }
+  ],
+  "skipped": [],
+  "held": [],
   "normalize": {
     "rejected": [],
     "conflicts": [],

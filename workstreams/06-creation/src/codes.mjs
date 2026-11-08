@@ -67,6 +67,7 @@ export const CODES = Object.freeze({
   PLAN_NOT_ADOPTED: { stage: "preflight", severity: "error", ja: "利用者が確認して採用した計画ではない" },
   PLAN_SUPERSEDED: { stage: "preflight", severity: "error", ja: "利用者が更新を確認したので、この計画は新しい計画に置き換わった" },
   PLAN_ENDED: { stage: "preflight", severity: "error", ja: "利用者がこの計画を止めた" },
+  EFFECT_REVISED: { stage: "preflight", severity: "error", ja: "計画を確認した後に、使う効果の意味（コアの規則の版）が変わった。新しい版で計画を確認し直す" },
   RUNS_PER_DAY_EXCEEDED: { stage: "preflight", severity: "error", ja: "この計画の今日の実行回数を使い切った" },
   ENTRY_DELISTED_PINNED: { stage: "preflight", severity: "info", ja: "定義は公開停止中。採用済みの固定版なので、この計画は続けられる" },
   DEPENDENCY_DELISTED_PINNED: { stage: "preflight", severity: "info", ja: "使う成果の定義は公開停止中。採用済みの計画なので続けられる（過去の出来事の証明は変わらない）" },

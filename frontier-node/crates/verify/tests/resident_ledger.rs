@@ -289,17 +289,20 @@ async fn a_resident_archive_not_the_ledgers_whole_feed_or_of_another_ledger_is_n
     );
 }
 
-/// The live read on a scanning node (workstream 4): `through` and `tip` are
-/// the extent the node's own answers give (the ledger's length, 6), not the
-/// game feed's last seq; a ledger that grows between the two reads is read
-/// through its new end, with the resident transaction that landed.
+/// The live read on a scanning node (workstream 4): the transactions the
+/// scan saw are kept, with the ledger's extent as `tip`. It is unproven
+/// (2c8fbfa2's rule) until both of what a live read must show are shown
+/// (⑲, 2026-11-08): every read scanned from a ledger that cannot rewind
+/// under its runId, and the node still at the read's point after the final
+/// states (sealed here); then its range is whole through the scan, not past
+/// it. A ledger that grows between the reads is read through its new end.
 #[tokio::test]
 async fn the_live_resident_feed_takes_its_extent_from_the_same_answers() {
     let (n, url) = node_with(&["run1"], &two_programs(), true).await;
     let (txs, h) = input::fetch_txs(&url, &prog(), true, None, None)
         .await
         .unwrap();
-    assert_eq!(h.detail, "ledger run1");
+    assert!(h.unproven(), "unproven until sealed");
     let policy = Address::new_from_array([0x76; 32]);
     let mut rf = verify_core::resident_feed::fetch(&url, &other(), &policy, &txs)
         .await
@@ -317,7 +320,11 @@ async fn the_live_resident_feed_takes_its_extent_from_the_same_answers() {
         vec![2, 3, 5]
     );
     let w = World::parse(&prog(), &txs, BTreeMap::new(), 0);
-    assert!(rf.gaps_before(&w, &h, 7).is_empty());
+    assert!(
+        rf.gaps_before(&w, &h, 7).is_empty(),
+        "{:?}",
+        rf.gaps_before(&w, &h, 7)
+    );
     assert!(!rf.gaps_before(&w, &h, 8).is_empty());
     // The ledger grows after the game read: a resident transaction lands at 7.
     n.ledger.lock().unwrap().push((17, other()));

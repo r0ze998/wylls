@@ -269,7 +269,10 @@ impl ResidentFeed {
 /// the feed, and nothing past it was read. No separate status call: the
 /// values come from the same answers as the records.
 ///
-/// `unknown` (never whole) when the node does not scan or name its ledger,
+/// Always `unknown` for now (2c8fbfa2, merged by workstream 04 on
+/// 2026-11-08): even a complete scan is not accepted as the whole history
+/// until the conditions for a live read are decided. The reasons kept in the
+/// detail: a complete scan of one ledger, or that the node does not scan or name its ledger,
 /// when the feed is empty (no proof of an empty history, as `fetch_txs`), or
 /// when the scan ends before the game feed's last seq (the two reads are then
 /// not in the order this needs).
@@ -295,15 +298,21 @@ pub async fn fetch(
     let scanned = c.get("feed_scanned").and_then(Value::as_u64);
     let ledger = c.get("ledger").and_then(Value::as_str).map(String::from);
     let last_game = frontier.iter().map(|t| t.seq).max().unwrap_or(0);
-    let (history, through) = match (scanned, ledger) {
+    // `kept`: how far the observed transactions are kept (findings on them
+    // are still made); `through`: the range claimed whole (none while live
+    // reads are not accepted).
+    let (history, through, kept) = match (scanned, ledger) {
         _ if txs.is_empty() => (
             History::unknown(format!(
                 "resident feed {url}: empty observation, not proof of no resident transaction"
             )),
             0,
+            0,
         ),
-        // ⑲ 2026-11-08: a live read names what it could not show (the prefix,
-        // the final states' point) like the game history's.
+        // ⑲ 2026-11-08: a complete scan of one ledger is the ledger's feed
+        // with what it could not show named (the prefix, the final states'
+        // point): unproven, so no range is whole (`gaps_before`), until both
+        // are shown (`input::seal_point_in_time` after the final states).
         (Some(sc), Some(id)) if sc >= last_game => (
             crate::input::live_assurance(
                 url,
@@ -313,17 +322,20 @@ pub async fn fetch(
             )
             .await,
             sc,
+            sc,
         ),
         (Some(sc), Some(_)) => (
             History::unknown(format!(
                 "resident feed {url}: scanned through seq {sc}, before the game feed's last seq {last_game}"
             )),
             0,
+            0,
         ),
         _ => (
             History::unknown(format!(
                 "resident feed {url}: the node did not say how far it scanned its ledger, or which ledger it is"
             )),
+            0,
             0,
         ),
     };
@@ -338,6 +350,10 @@ pub async fn fetch(
     };
     Ok(ResidentFeed {
         program: *resident_program,
+        // Live reads remain Unknown until the safety conditions for a
+        // direct node read are decided (2c8fbfa2; the owner's rule: an
+        // unproven history is never PASS). Even an empty observation does
+        // not prove no resident transaction.
         history,
         after: 0,
         through,
@@ -346,7 +362,7 @@ pub async fn fetch(
         tip: scanned,
         txs: txs
             .iter()
-            .filter(|t| t.seq <= through)
+            .filter(|t| t.seq <= kept)
             .map(ResidentTx::of)
             .collect(),
         policies: pol.into_iter().filter_map(|(k, a)| Some((k, a?))).collect(),
