@@ -23,6 +23,7 @@ function tree(files) {
   return dir;
 }
 const run = (dir, args = []) => spawnSync(process.execPath, [scan, ...args], { env: { ...process.env, WS04_SCAN_ROOT: dir }, encoding: 'utf8' });
+const digest = (dir, ...files) => run(dir, ['--digest', ...files]).stdout.trim();
 const listed = dir => readFileSync(path.join(dir, 'scripts/ci/node-key-tests.txt'), 'utf8').split('\n').filter(l => l && !l.startsWith('#'));
 
 test('a workstream test that names a key API, directly or through a helper in its test directory, is listed', () => {
@@ -97,14 +98,24 @@ test('a reviewed named target with its reason stays runnable; a direct hit or a 
     'workstreams/06-creation/test/direct.test.mjs': `${GEN});\n`,
     'scripts/ci/node-key-tests.txt': '',
   };
-  const dir = tree({ ...files, 'scripts/ci/node-key-reviewed.txt': 'workstreams/06-creation/test/reviewed.test.mjs  # calls resolve only\n' });
+  const dir = tree(files);
   try {
+    const rev = `workstreams/06-creation/test/reviewed.test.mjs  ${digest(dir, 'workstreams/06-creation/test/reviewed.test.mjs')}  # calls resolve only\n`;
+    writeFileSync(path.join(dir, 'scripts/ci/node-key-reviewed.txt'), rev);
     assert.equal(run(dir).status, 0);
     assert.deepEqual(listed(dir), ['workstreams/06-creation/test/direct.test.mjs']);
     writeFileSync(path.join(dir, 'scripts/ci/node-key-reviewed.txt'), 'workstreams/06-creation/test/reviewed.test.mjs\n');
     assert.equal(run(dir).status, 5, 'no reason');
-    writeFileSync(path.join(dir, 'scripts/ci/node-key-reviewed.txt'), 'workstreams/06-creation/test/direct.test.mjs  # no\n');
+    writeFileSync(path.join(dir, 'scripts/ci/node-key-reviewed.txt'), `workstreams/06-creation/test/direct.test.mjs  ${digest(dir, 'workstreams/06-creation/test/direct.test.mjs')}  # no\n`);
     assert.equal(run(dir).status, 5, 'a direct hit');
+    // stale (⑯'s S1-S3): a review pinned to its closure fails once a file it read changes, even with no key-API name
+    // in the changed text, until it is reviewed again
+    writeFileSync(path.join(dir, 'scripts/ci/node-key-reviewed.txt'), rev);
+    assert.equal(run(dir).status, 0);
+    writeFileSync(path.join(dir, 'workstreams/06-creation/src/plan.mjs'), `import './keys.mjs';\nimport { g } from './keys.mjs';\nexport const resolve = x => g();\n`);
+    const r = run(dir);
+    assert.equal(r.status, 5, 'a dependency now calls the key code: stale');
+    assert.match(r.stderr, /stale review/);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
@@ -123,9 +134,29 @@ test('a test that starts a child process or imports a computed path is unfollowe
     const text = readFileSync(path.join(dir, 'scripts/ci/node-key-tests.txt'), 'utf8');
     assert.deepEqual(listed(dir).sort(), ['workstreams/05-ai-participation/model-api/test/spawns.test.mjs', 'workstreams/12-memory/test/computed.test.mjs']);
     assert.ok(text.indexOf('spawns.test.mjs') > text.indexOf('# unfollowed'), 'in the unfollowed section');
-    writeFileSync(path.join(dir, 'scripts/ci/node-key-reviewed.txt'), 'workstreams/12-memory/test/computed.test.mjs  # its target names no key API\n');
+    writeFileSync(path.join(dir, 'workstreams/12-memory/x.mjs'), 'export const a = 1;\n');
+    writeFileSync(path.join(dir, 'scripts/ci/node-key-reviewed.txt'), `workstreams/12-memory/test/computed.test.mjs  ${digest(dir, 'workstreams/12-memory/test/computed.test.mjs', 'workstreams/12-memory/x.mjs')}  # its target names no key API\n`);
     assert.equal(run(dir).status, 0);
     assert.deepEqual(listed(dir), ['workstreams/05-ai-participation/model-api/test/spawns.test.mjs']);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('a review without its closure digest, or with a target that changed, fails the scan', () => {
+  const dir = tree({
+    'workstreams/12-memory/test/computed.test.mjs': `await import(new URL('../t.mjs', import.meta.url));\n`,
+    'workstreams/12-memory/t.mjs': 'export const a = 1;\n',
+    'scripts/ci/node-key-tests.txt': '',
+  });
+  try {
+    writeFileSync(path.join(dir, 'scripts/ci/node-key-reviewed.txt'), 'workstreams/12-memory/test/computed.test.mjs  # no digest\n');
+    assert.equal(run(dir).status, 5, 'no digest');
+    const d = digest(dir, 'workstreams/12-memory/test/computed.test.mjs', 'workstreams/12-memory/t.mjs');
+    writeFileSync(path.join(dir, 'scripts/ci/node-key-reviewed.txt'), `workstreams/12-memory/test/computed.test.mjs  ${d}  # target read\n`);
+    assert.equal(run(dir).status, 0);
+    writeFileSync(path.join(dir, 'workstreams/12-memory/t.mjs'), 'export const a = 2; // changed\n');
+    assert.equal(run(dir).status, 5, 'the target changed: stale');
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

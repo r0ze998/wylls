@@ -17,6 +17,7 @@
 //     own directory), never src/.
 import { readFileSync, writeFileSync, existsSync, readdirSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import { dirname, join, relative, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -139,15 +140,45 @@ function closureHit(file, seen = new Set()) {
   }
   return null;
 }
+// A review is pinned to what it read (⑯'s finding, 2026-11-08: a path and a reason alone go stale when a dependency
+// changes): `closure=` is sha256 over the sorted "path<TAB>sha256(bytes)" of every file in the literal-import closure of
+// the test and of each `targets=` file (what the review read behind a computed import or a spawn). Any change there,
+// a comment included, fails the scan (exit 5) until the file is reviewed again and the new digest written.
+function closureFiles(file, seen = new Set()) {
+  if (seen.has(file) || !existsSync(file)) return seen;
+  seen.add(file);
+  for (const spec of imports(readFileSync(file, 'utf8'))) {
+    const t = resolve(dirname(file), spec);
+    if (t.split(sep).includes('node_modules')) continue;
+    closureFiles(t, seen);
+  }
+  return seen;
+}
+export function reviewDigest(rel, targets = []) {
+  const all = new Set();
+  for (const f of [rel, ...targets]) closureFiles(join(root, f), all);
+  const rows = [...all].map(f => `${relative(root, f)}\t${createHash('sha256').update(readFileSync(f)).digest('hex')}`).sort();
+  return createHash('sha256').update(rows.join('\n')).digest('hex');
+}
+if (process.argv.includes('--digest')) {
+  const [rel, ...targets] = process.argv.slice(process.argv.indexOf('--digest') + 1);
+  console.log(`closure=${reviewDigest(rel, targets)}${targets.length ? `  targets=${targets.join(',')}` : ''}`);
+  process.exit(0);
+}
 const reviewedPath = join(root, 'scripts/ci/node-key-reviewed.txt');
 const reviewed = new Map();
 const reviewBad = [];
 if (existsSync(reviewedPath)) {
   for (const l of readFileSync(reviewedPath, 'utf8').split('\n')) {
     if (!l.trim() || l.startsWith('#')) continue;
-    const m = /^(\S+)\s+#\s*(\S.*)$/.exec(l);
-    if (!m) { reviewBad.push(`no reason: ${l}`); continue; }
-    reviewed.set(m[1], m[2]);
+    const m = /^(\S+)\s+closure=([0-9a-f]{64})(?:\s+targets=(\S+))?\s+#\s*(\S.*)$/.exec(l);
+    if (!m) { reviewBad.push(`needs '<path>  closure=<sha256>  [targets=a,b]  # why': ${l}`); continue; }
+    const targets = m[3] ? m[3].split(',') : [];
+    const missingT = targets.filter(t => !existsSync(join(root, t)));
+    if (missingT.length) { reviewBad.push(`target not found (${missingT.join(', ')}): ${m[1]}`); continue; }
+    const now = existsSync(join(root, m[1])) ? reviewDigest(m[1], targets) : null;
+    if (now !== m[2]) { reviewBad.push(`stale review (what it read changed; review again): ${m[1]}  closure=${now}`); continue; }
+    reviewed.set(m[1], m[4]);
   }
 }
 const viaSrc = [], unfollowed = [];
