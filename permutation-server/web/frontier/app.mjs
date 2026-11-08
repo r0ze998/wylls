@@ -137,6 +137,7 @@ import * as spectateScreen from './screens/spectate.mjs';
 import { FLAG, withFlag, restoreFlags } from './onboarding.mjs';
 import { useHerald, refresh as refreshPlay } from './controller.mjs';
 import { kernel as loadKernel } from './wasm.mjs';
+import { createRouteCache } from './map/routecache.mjs';
 import { scope } from './fchainio.mjs';
 import { hostParts } from './faddr.mjs';
 import { RETREAT_CHOICES, retreatBps, DEPART_STAMINA, departMargin, planRoute, earliestBell, arrivalWindow, marchCosts } from './fmarch.mjs';
@@ -899,27 +900,21 @@ const seedsNow = () => (FS.record?.rings ?? []).map(r => ({ ring: r.d, seed: r.s
  * arrive (fmarch.mjs planRoute, earliestBell, arrivalWindow): `{ok, hexes,
  * arriveBell}` or `{ok: false, code}`; null while the rules module loads.
  */
-const routeCache = new Map();
+const cachedRoute = createRouteCache(planRoute);
 function routeTo(A, to) {
   const k = wantKernel();
   if (!k || !A?.actor) return null;
-  const key = `${A.actor.id}|${A.origin.p},${A.origin.q},${A.origin.tile}|${to.p},${to.q},${to.tile}|${FS.nowBell ?? 0}|${palisadeHexesOf(FS).length}`;
-  if (routeCache.has(key)) return routeCache.get(key);
-  const r = planRoute(k, { from: A.origin, to, unit: A.actor.unit, seeds: seedsNow(), blocked: palisadeHexesOf(FS) });
-  let v;
-  if (!r.ok) v = { ok: false, code: r.code };
-  else {
-    const early = FS.clock ? earliestBell(k, { genesisTs: FS.clock.genesisTs, departTs: (FS.chain?.now?.() ?? 0) + departMargin(FS.chain?.rate), secs: r.route.secs }) : null;
-    v = { ok: true, hexes: marchCard.routeHexes({ route: r.route, origin: A.origin, host: { tile: A.origin.tile } }), arriveBell: FS.season ? arrivalWindow(FS.season, FS.nowBell ?? 0, early).min : null };
-  }
-  if (routeCache.size > 96) routeCache.clear();
-  routeCache.set(key, v);
-  return v;
+  const r = cachedRoute(k, { from: A.origin, to, unit: A.actor.unit, seeds: seedsNow(), blocked: palisadeHexesOf(FS) });
+  if (!r.ok) return { ok: false, code: r.code };
+  // Time keeps moving even within one turn. Only the path is cached; the
+  // arrival is recalculated from the current clock, rate and lead window.
+  const early = FS.clock ? earliestBell(k, { genesisTs: FS.clock.genesisTs, departTs: (FS.chain?.now?.() ?? 0) + departMargin(FS.chain?.rate), secs: r.route.secs }) : null;
+  return { ok: true, hexes: marchCard.routeHexes({ route: r.route, origin: A.origin, host: { tile: A.origin.tile } }), arriveBell: FS.season ? arrivalWindow(FS.season, FS.nowBell ?? 0, early).min : null };
 }
 
 /** The route to the lit tile under the pointer (the map draws it as a ribbon with its arrival turn). */
 let hoverRoute = null, hoverHit = null;
-function hoverPlan(hit) {
+function hoverPlan(hit, { redraw = true } = {}) {
   hoverHit = hit ?? null;
   // (tiles being picked for an order of the village are not a march: no route is drawn to them)
   const A0 = hit && Number.isInteger(hit.idx) ? actionsNow() : null, A = A0?.mode === 'pick' ? null : A0;
@@ -933,11 +928,10 @@ function hoverPlan(hit) {
     && !(FS.survey && !FS.survey.showAll && FS.survey.levelOf(hit.p, hit.q, hit.idx) === 0) ? { p: hit.p, q: hit.q, tile: hit.idx, hq: hit.tileQ, hr: hit.tileR, kind: 'move' } : null;
   const want = t && t.kind !== 'explore' && !(dest && dest.p === t.p && dest.q === t.q && dest.tile === t.tile) ? t : beyond;
   const key = want ? `${A.actor.id}|${want.hq},${want.hr}` : null;
-  if ((hoverRoute?.key ?? null) === key) return;
   const r = want ? routeTo(A, { p: want.p, q: want.q, tile: want.tile }) : null;
   // (while the rules module loads there is no answer yet: asked again when it has loaded)
   hoverRoute = r?.ok ? { key, q: want.hq, r: want.hr, hexes: r.hexes, arriveBell: r.arriveBell } : r ? { key, q: want.hq, r: want.hr, hexes: [], arriveBell: null } : null;
-  mapRef?.tick();
+  if (redraw) mapRef?.tick();
 }
 
 /** The map's own answer on a tile (a refusal never fails silently): drawn there for a moment, and said in the map's live line. */
@@ -3722,7 +3716,11 @@ export async function boot() {
     map = new FrontierMap(canvas, {
       source: () => {
         if (rosterRef) for (let d = 0; d < (FS.record?.rings?.length ?? 1); d++) rosterRef.ensure(d);
-        const own = ownNow();
+        const own = ownNow(), survey = surveyNow();
+        // A feed or clock can change while the pointer stays still. Refresh
+        // its ribbon from the same inputs as a tap, without scheduling a draw
+        // from inside this draw. The path cache keeps the planner work bounded.
+        hoverPlan(hoverHit, { redraw: false });
         return { overviews: FS.overviews, ringsOpen: FS.record?.rings?.length ?? 1, own, selected: FS.selected, terrainOf,
           // where the season's map ends (map/world.mjs: its border is drawn once it is near the open land)
           rMax: FS.world?.rMax ?? null,
@@ -3731,7 +3729,7 @@ export async function boot() {
           // heartland): the wait view's site marks, 「村を置ける場所」, stop there (map/waitview.mjs wedgeSites)
           homeRings: homeRingsOpen(FS.season, FS.record?.rings?.length ?? 1),
           // what this viewer has surveyed (map/survey.mjs): the one rule for the map, the minimap, tips, the inspector and search
-          survey: surveyNow(),
+          survey,
           // art mode: the decoded Province (holdings' tiers, hosts on tiles, camp), loaded on demand
           viewerFaction: FS.citizen?.faction ?? null,
           // who is looking, for the opening view (map/opening.mjs)
