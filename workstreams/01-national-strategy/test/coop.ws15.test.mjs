@@ -16,8 +16,23 @@ import { decodePage } from '../../../permutation-server/web/frontier/flog.mjs';
 const here = path.dirname(fileURLToPath(import.meta.url));
 const ws15 = path.resolve(here, '../../15-coop-outcomes');
 const has15 = fs.existsSync(path.join(ws15, 'src/adapters/ws01.mjs'));
-const skip = has15 ? false : '⑮のコード（workstreams/15-coop-outcomes）がこの木に無い';
 const load = rel => import(pathToFileURL(path.join(ws15, rel)).href);
+// ⑮の版は名前でなく振る舞いで見る（⑮の adapter に小さな板を入れる）：
+//   readsObject：fold() の requests（object）を読む（⑮ 5753626c 以後。b1a09a0b では TypeError）
+//   checksPlace：linkResolver が記録の場所を依頼の届け先と比べる（⑮ 2a3a0c94 以後。95f44cf3 では比べない）
+const probe = has15 ? await (async () => {
+  const { fromWs01Board } = await load('src/adapters/ws01.mjs');
+  const q = { id: 'q', goalId: 'g', requester: 'w', need: { wood: 1 }, to: { kind: 'holding', p: 1, q: 1, site: 1, gen: 1 }, at: 1, expiresAt: 9, state: 'open',
+    links: [{ responder: 'x', caravan: { ownerTag: '7', seq: 0, ctx: 'P/1' }, at: 2, n: 1 }] };
+  const map = { projectOf: () => ({ project: 'P', goal: 'g', structure: 'fort' }), actorOf: w => w, bellOf: t => t };
+  let readsObject = false, checksPlace = false;
+  try { fromWs01Board({ v: 1, requests: { q } }, map); readsObject = true; } catch { /* 古い版 */ }
+  try { const hit = fromWs01Board({ v: 1, requests: [q] }, map).linkResolver(() => null)({ kind: 1, p: 9, q: 9, site: 0, gen: 1 }, '7', 0); checksPlace = hit === null || hit?.mismatch === true; } catch { /* 古い版 */ }   // ⑮ 2a3a0c94 は { mismatch: true } を返す
+  return { readsObject, checksPlace };
+})() : null;
+const skip = !has15 ? '⑮のコード（workstreams/15-coop-outcomes）がこの木に無い' : false;
+const skipObject = skip || (!probe.readsObject && '⑮が fold() の requests（object）を読めない版（b1a09a0b など）');
+const skipPlace = skip || (!probe.checksPlace && '⑮の linkResolver が場所を見ない版（95f44cf3 以前）。⑮ 2a3a0c94 以後で走る');
 
 const ACTOR = { A: 'n0-0', B: 'n2-0', C: 'n1-0' };   // ⑮の模型の世界の参加者（国 0・2・1。①の台本の Citizen の国と同じ）
 
@@ -60,9 +75,9 @@ function run15(c, board, { placeCheck, page = c.page, twice = false } = {}) {
   return { w1, s1, v };
 }
 
-test('⑮の adapter は fold() の状態をそのまま読めない（requests が object）。①の boardForEvaluators（契約 ws01-board v1）なら読める', { skip }, async () => {
+test('⑮の adapter は fold() の状態（requests が object）も、①の boardForEvaluators（契約 ws01-board v1）も読める', { skip: skipObject }, async () => {
   const c = await connect();
-  assert.throws(() => c.fromWs01Board(c.r.board.state(), c.map('x')), TypeError);
+  assert.doesNotThrow(() => c.fromWs01Board(c.r.board.state(), c.map('x')));   // ⑮ 5753626c 以後（b1a09a0b では TypeError）
   const b = boardForEvaluators(c.r.board.state(), { contexts: c.r.board.contexts });
   assert.ok(Array.isArray(b.requests));
   assert.ok(b.requests.every(q => q.links.every(l => l.caravanKey === `${l.caravan.ctx}:${l.caravan.ownerTag}:${l.caravan.seq}`)));
@@ -72,26 +87,27 @@ test('⑮の adapter は fold() の状態をそのまま読めない（requests 
   assert.deepEqual(s1.unresolved, [], 'S1 の記録の持ち主・行き先・焼いた荷はすべて引き当てた');
 });
 
-test('量の接続：①が数えた下限と、⑮が届いた量（lowerBound）として数える量が、資源ごとに同じ（届け先の確かめを入れたとき）', { skip }, async () => {
+test('量の接続：①が数えた下限と、⑮が届いた量（lowerBound）として数える量が、資源ごとに同じ（届け先の確かめを入れたとき）', { skip: skipPlace }, async () => {
   const c = await connect();
   const b = boardForEvaluators(c.r.board.state());
   const one = countedBy1(c.r.after);
   assert.deepEqual(one, { wood: 209, stone: 200 });
-  const { v } = run15(c, b, { placeCheck: true });
+  const { v, s1 } = run15(c, b, { placeCheck: true });
   assert.equal(v.resources.wood.arrived.lowerBound, one.wood);
   assert.equal(v.resources.stone.arrived.lowerBound, one.stone);
   assert.equal(v.resources.wood.arrived.exact, 0);
-  // r4（別の村に確定）は、届け先を確かめると⑮では「未検証の到着」になる（数えない）。①も原因を確認中で数えない
-  assert.equal(v.resources.wood.arrived.unverified, 30);
+  // r4（別の村に確定、襲撃の記録なし）は、⑮では「失われた・原因は未確認」（量も人も述べない）。①も原因を確認中で数えない
+  assert.equal(v.resources.wood.arrived.unverified, 0);
+  assert.deepEqual(s1.events.filter(e => e.kind === 'ship.lost' && e.cause === 'unconfirmed').map(e => e.ship.split(':').pop()), ['wood']);
   assert.equal(v.resources.stone.raidedBurned, 50, '焼かれた石材 50 は⑮でも届いていない');
 });
 
-test('食い違い（⑮へ連絡）：⑮の linkResolver は場所を見ないので、別の村に確定した隊商（①は原因を確認中で数えない）を依頼の到着として数える', { skip }, async () => {
+test('届け先：⑮の linkResolver は場所を見る（⑮ 2026-11-08 以後）。別の村に確定した隊商（①は原因を確認中で数えない）は、①の確かめを入れなくても依頼の到着にならない', { skip: skipPlace }, async () => {
   const c = await connect();
   const b = boardForEvaluators(c.r.board.state());
   const { v } = run15(c, b, { placeCheck: false });
-  // ①の r4：木材 30 は ELSEWHERE に確定（襲撃の記録なし）。⑮の今の adapter は、それも依頼の到着にする
-  assert.equal(v.resources.wood.arrived.lowerBound, countedBy1(c.r.after).wood + 30);
+  // ①の r4：木材 30 は ELSEWHERE に確定（襲撃の記録なし）。⑮ b1a09a0b ではこれを依頼の到着にして 30 多かった
+  assert.equal(v.resources.wood.arrived.lowerBound, countedBy1(c.r.after).wood);
 });
 
 test('二重に数えない：同じ記録を二度入れても（再起動・読み直し）、⑮は重複として除き、量は同じ。①の再起動の後の状態でも同じ判定', { skip }, async () => {

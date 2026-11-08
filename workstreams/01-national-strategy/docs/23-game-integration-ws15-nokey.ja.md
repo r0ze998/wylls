@@ -98,3 +98,22 @@ guard（④ `525a623f` の `scripts/ci/no-keys-guard.mjs`）は node:crypto・We
 | ⑮の adapter の直し（23-2 の 1〜4） | ⑮の判断 | ⑮の版 |
 | 「判定できない」をなくす | ④・プログラムの担当 | P1 案 A（milli で正確な credited） |
 | 前の文脈の口座が閉じた後の証拠、文脈の正本 | ④⑧ | 20章 M1〜M4 |
+
+## 23-9. ⑮の返事と、⑮の新しい版での照合（2026-11-08 の後半）
+
+⑮は (a)〜(e) に対応し、`claude/determined-maxwell-uhc6a3` `2a3a0c946f5ec31911da51282937f04deca9abcb`（tree `c154f2cb…`、[skip ci]）に push した。⑮の変更は `workstreams/15-coop-outcomes` の中だけで、加えた import は node:fs・os・path だけ（鍵・署名・通信なし。試験のファイルは `createHash` だけ）。
+
+| 確かめたこと | 結果（cc の実行、検証待ち） |
+|---|---|
+| ④ `f7d3b70d` ＋ ① ＋ ⑮ `2a3a0c94` の merge（使い捨て、tree `b70d9564…`） | ぶつからない |
+| その木で①の `*.test.mjs`（guard） | 234／234 |
+| その木で⑮の `*.test.mjs`（guard） | 133／133 |
+| `coop.browser.nokey.mjs` | 8／8 |
+
+⑮から届いた①の試験の差分（`workstreams/15-coop-outcomes/patches/ws01-coop-ws15-test-48f34e77.patch`。⑮の新しい挙動に合わせた 3 か所）を当てた。そのうえで、⑮の版を名前ではなく振る舞いで見て、合わない版では理由つきで skip するようにした（④の候補には⑮ `95f44cf3` が入っており、それは requests の object は読むが、linkResolver が場所を見ない）：
+
+| ⑮の版 | `coop.ws15.test.mjs` |
+|---|---|
+| `2a3a0c94`（⑮の最新） | 5 通過 |
+| `95f44cf3`（④の候補 f7d3b70d の中） | 3 通過・2 skip（場所を見ない版） |
+| `b1a09a0b` | 2 通過・3 skip |
