@@ -184,14 +184,38 @@ impl Tx {
     }
 }
 
-fn season() -> Vec<u8> {
-    let b = MC_LOCAL_7D.base;
+/// The season's CreateSeason parameters: `MC_LOCAL_7D` (the S1 exit's
+/// preset) with 8's map (genesis ring 3, `r_max` 4, ceiling 6) and the S1
+/// program's version. The program refuses any other lead window, reveal
+/// window or schedule (`SeasonParamsV2::validate`: `min_lead` 2,
+/// `max_lead` 72, …), so nothing here is chosen by the fixture.
+pub fn season_params() -> frontier_abi::v2::presets::SeasonParamsV2 {
+    frontier_abi::v2::presets::SeasonParamsV2 {
+        base: frontier_abi::presets::SeasonParams {
+            genesis_ring: GENESIS_RING,
+            r_max: R_MAX,
+            program_version: frontier_abi::v2::presets::PROGRAM_VERSION_S1,
+            ..MC_LOCAL_7D.base
+        },
+        cq: params(),
+    }
+}
+
+/// The Season as CreateSeason writes it (permutation-frontier
+/// `proc/season.rs` `write_params`, field for field from
+/// [`season_params`]), then seeded and running. Not written: the
+/// authority, bump, bond and announce fields, `GENESIS_ROUND`, the payout
+/// hash (left zero; the map reads none of them).
+pub fn season_bytes_from(sp: &frontier_abi::v2::presets::SeasonParamsV2) -> Vec<u8> {
+    let p = sp.base;
     let mut s = vec![0u8; SE::SIZE];
     write_header(&mut s, AccountKind::Season, SEASON_ID);
     s[SE::STATUS] = SE::STATUS_RUNNING;
-    s[SE::REGIONS] = b.regions;
-    s[SE::GENESIS_RING] = GENESIS_RING;
-    put(&mut s, SE::R_MAX, &R_MAX.to_le_bytes());
+    s[SE::REGIONS] = p.regions;
+    s[SE::GENESIS_RING] = p.genesis_ring;
+    put(&mut s, SE::R_MAX, &p.r_max.to_le_bytes());
+    s[SE::OFFICE_TERMS_PER_WALLET] = p.office_terms_per_wallet;
+    s[SE::POSTURES_ENABLED] = p.postures_enabled;
     put(
         &mut s,
         SE::RULESET_HASH,
@@ -205,19 +229,101 @@ fn season() -> Vec<u8> {
     put(
         &mut s,
         SE::PROGRAM_VERSION,
-        &frontier_abi::v2::presets::PROGRAM_VERSION_S1.to_le_bytes(),
+        &p.program_version.to_le_bytes(),
     );
-    put(&mut s, SE::BELL_SECS, &600u32.to_le_bytes());
+    put(&mut s, SE::BELL_SECS, &p.bell_secs.to_le_bytes());
     put(&mut s, SE::GENESIS_TS, &GENESIS_TS.to_le_bytes());
+    put(&mut s, SE::CREATED_TS, &(GENESIS_TS - 3_600).to_le_bytes());
     put(
         &mut s,
         SE::JOIN_CLOSE_BELL,
-        &b.join_close_bell.to_le_bytes(),
+        &p.join_close_bell.to_le_bytes(),
     );
-    put(&mut s, SE::END_BELL, &b.end_bell.to_le_bytes());
+    put(&mut s, SE::END_BELL, &p.end_bell.to_le_bytes());
+    put(&mut s, SE::DRAND_GENESIS, &p.drand_genesis.to_le_bytes());
+    put(&mut s, SE::DRAND_PERIOD, &p.drand_period.to_le_bytes());
+    s[SE::NETWORK] = p.network;
+    put(&mut s, SE::QUICKNET_PK_HASH, &p.quicknet_pk_hash);
+    put(&mut s, SE::REVEAL_WINDOW, &p.reveal_window.to_le_bytes());
+    put(&mut s, SE::SEED_MARGIN, &p.seed_margin.to_le_bytes());
+    put(&mut s, SE::WINDOW_NEXT, &p.reveal_window.to_le_bytes());
+    put(&mut s, SE::WINDOW_FROM_BELL, &SE::WINDOW_NONE.to_le_bytes());
     put(&mut s, SE::GENESIS_SEED, &GENESIS_SEED);
-    put(&mut s, SE::CONQUEST_PARAMS, &params().to_bytes());
+    put(&mut s, SE::ARCHIVE_AFTER, &p.archive_after.to_le_bytes());
+    s[SE::MIN_LEAD] = p.min_lead;
+    s[SE::MAX_LEAD] = p.max_lead;
+    s[SE::TRANSIT_SLOTS] = p.transit_slots;
+    put(&mut s, SE::MARCH_FEE, &p.march_fee.to_le_bytes());
+    put(&mut s, SE::SEAL_BOND, &p.seal_bond.to_le_bytes());
+    put(
+        &mut s,
+        SE::MIN_REVEAL_PRIORITY_MILLI,
+        &p.min_reveal_priority_milli.to_le_bytes(),
+    );
+    put(
+        &mut s,
+        SE::REVEAL_CU_LIMIT,
+        &p.reveal_cu_limit.to_le_bytes(),
+    );
+    put(
+        &mut s,
+        SE::BUCKET_RATE_PER_H,
+        &p.bucket_rate_per_h.to_le_bytes(),
+    );
+    put(&mut s, SE::BUCKET_BURST, &p.bucket_burst.to_le_bytes());
+    put(
+        &mut s,
+        SE::DEFENCE_CAP_MILLI,
+        &p.defence_cap_milli.to_le_bytes(),
+    );
+    s[SE::LATENESS_SLOTS] = p.lateness_slots;
+    put(
+        &mut s,
+        SE::THETA_EARLY_BPS,
+        &p.theta_early_bps.to_le_bytes(),
+    );
+    put(&mut s, SE::THETA_LATE_BPS, &p.theta_late_bps.to_le_bytes());
+    put(
+        &mut s,
+        SE::THETA_SWITCH_SECS,
+        &p.theta_switch_secs.to_le_bytes(),
+    );
+    put(&mut s, SE::RESERVE_BPS, &p.reserve_bps.to_le_bytes());
+    put(&mut s, SE::EXTRA_FREE_BPS, &p.extra_free_bps.to_le_bytes());
+    put(
+        &mut s,
+        SE::CLASH_CLOSE_GRACE,
+        &p.clash_close_grace.to_le_bytes(),
+    );
+    put(
+        &mut s,
+        SE::CAMP_REGROW_BELLS,
+        &p.camp_regrow_bells.to_le_bytes(),
+    );
+    put(
+        &mut s,
+        SE::DORMANT_AFTER_SECS,
+        &p.dormant_after_secs.to_le_bytes(),
+    );
+    put(
+        &mut s,
+        SE::RELEASE_AFTER_SECS,
+        &p.release_after_secs.to_le_bytes(),
+    );
+    put(&mut s, SE::PFUND_INITIAL, &p.pfund_initial.to_le_bytes());
+    put(&mut s, SE::DPOOL_INITIAL, &p.dpool_initial.to_le_bytes());
+    put(
+        &mut s,
+        SE::REVEAL_LOADED_LIMIT,
+        &p.reveal_loaded_limit.to_le_bytes(),
+    );
+    put(&mut s, SE::JOIN_GATE, &p.join_gate);
+    put(&mut s, SE::CONQUEST_PARAMS, &sp.cq.to_bytes());
     s
+}
+
+fn season() -> Vec<u8> {
+    season_bytes_from(&season_params())
 }
 
 fn frontier(rings_opened: u16, r_max_ext: u16) -> Vec<u8> {

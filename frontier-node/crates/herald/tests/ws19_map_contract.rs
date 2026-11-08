@@ -322,6 +322,20 @@ async fn the_s1_ring_4_to_5_growth_matches_the_golden_and_8s_contract() {
         );
     }
 
+    // The Season is CreateSeason's write of a profile the program accepts
+    // (MC_LOCAL_7D with 8's map); the zero lead window it had before is one
+    // the program refuses.
+    let sp = gr::season_params();
+    assert_eq!(sp.validate(), Ok(()));
+    assert_eq!((sp.base.min_lead, sp.base.max_lead), (2, 72));
+    let mut zero = sp;
+    zero.base.min_lead = 0;
+    zero.base.max_lead = 0;
+    assert_eq!(zero.validate(), Err("min_lead"));
+    let se = fclient::decode::Season::decode(&gr::season_bytes_from(&sp)).unwrap();
+    assert_eq!((se.min_lead, se.max_lead), (2, 72));
+    assert_eq!(se.conquest.map(|c| c.r_max_ceiling), Some(gr::CEILING));
+
     let (txs, ends) = gr::map_growth();
     let out = serve_stages(
         txs,

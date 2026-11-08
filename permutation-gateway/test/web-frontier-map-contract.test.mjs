@@ -19,6 +19,8 @@ import * as W from '../../permutation-server/web/frontier/map/world.mjs';
 import { seasonAddresses } from '../../permutation-server/web/frontier/faddr.mjs';
 
 const GOLDEN = JSON.parse(readFileSync(new URL('../../frontier-node/crates/herald/tests/golden/ws19-map-growth.json', import.meta.url), 'utf8'));
+// The S1 golden (ring 4 → 5; used from the wide test on and in the S1 section below).
+const S1 = JSON.parse(readFileSync(new URL('../../frontier-node/crates/herald/tests/golden/ws19-map-growth-s1.json', import.meta.url), 'utf8'));
 const tick = () => new Promise(r => setTimeout(r, 0));
 
 /** The page's fetch over one stage of the golden; a path the golden has not is a 404 NotFound (as the router's fallback). */
@@ -116,20 +118,25 @@ test('me: the wallet\'s Citizen and its Holding at (1,0) site 0, checked against
 
 test('the wide world and the wide index: explicit unavailability on a herald built without them, never a dense fallback', async () => {
   const { h } = heraldAt('S2');
+  // The golden is the default build: both routes answer 503 with their own code (pinned, so no branch is skipped).
+  for (const [path, code] of [['/h/world/wide', 'WideWorldUnavailable'], ['/h/wide-index/status', 'WideIndexUnavailable']]) {
+    for (const g of [GOLDEN.stages.S2, S1.stages.grown]) {
+      assert.equal(g[path].status, 503, path);
+      assert.deepEqual(g[path].body, { ok: false, code }, path);
+    }
+  }
   const ww = await h.wideWorld();
-  const wantWide = GOLDEN.stages.S2['/h/world/wide'];
-  if (wantWide.status === 200) assert.ok(ww.ok, ww.code);
-  else { assert.equal(ww.ok, false); assert.equal(ww.code, 'WideWorldUnavailable'); }
+  assert.equal(ww.ok, false);
+  assert.equal(ww.code, 'WideWorldUnavailable');
   const wi = await h.wideIndexStatus();
-  const wantIx = GOLDEN.stages.S2['/h/wide-index/status'];
-  if (wantIx.status !== 200) { assert.equal(wi.ok, false); assert.match(wi.code, /^WideIndex|^[A-Za-z0-9]+$/); }
+  assert.equal(wi.ok, false);
+  assert.equal(wi.code, 'WideIndexUnavailable');
 });
 
 // ------------------------------------------------------------------ S1: ring 4 → 5 with ExtendFrontier (8's contract)
 // tests/golden/ws19-map-growth-s1.json: herald cqfixture::growth (layout 2, season 71, ceiling 6) through the same
 // router; workstream 8's stages and coordinates (permutation-gateway/test/fixtures/frontier/growth-route.mjs on
 // claude/festive-tesla-iwwc5t: before / extended / opened / grown, (4,0) → (5,0)).
-const S1 = JSON.parse(readFileSync(new URL('../../frontier-node/crates/herald/tests/golden/ws19-map-growth-s1.json', import.meta.url), 'utf8'));
 const S1_STAGES = ['before', 'extended', 'opened', 'grown'];
 const S1_PLACE = {
   before:   { '4,0': 'open', '5,0': 'extendable', '6,0': 'extendable', '7,0': 'beyondCeiling' },
