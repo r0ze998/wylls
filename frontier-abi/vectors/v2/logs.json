@@ -51,6 +51,10 @@
     {
       "code": 12,
       "account": "Nation"
+    },
+    {
+      "code": 13,
+      "account": "Lot"
     }
   ],
   "kinds": [
@@ -1526,6 +1530,528 @@
             "head": "2bcc26adf832f588bb8d517dc85c53d9bbb9e105f2e7d1a0625d48473021cace"
           }
         ]
+      }
+    },
+    {
+      "kind": 104,
+      "name": "FRONTIER_EXTENDED",
+      "key": [
+        {
+          "name": "d",
+          "len": 2
+        }
+      ],
+      "payload": [
+        {
+          "name": "from",
+          "len": 2
+        },
+        {
+          "name": "ceiling",
+          "len": 2
+        }
+      ],
+      "body_without_tail_len": 12,
+      "vector": {
+        "bell": 2104,
+        "body_without_tail": "016838080000213e6b886b88",
+        "body": "016838080000213e6b886b88010204000000000000000ecbf4f0a2553fa0c8ca066e0c0e3816e53a90573099bf9468f7a342b92f794e",
+        "decodes": true,
+        "chains": [
+          {
+            "entity": 2,
+            "who": "Base(Frontier)",
+            "prev_seq": 3,
+            "prev_head": "700888059424d2ad4f3ad59e549ad60e5c9202ee37c8362142d8175c4ce9ecb1",
+            "seq": 4,
+            "head": "0ecbf4f0a2553fa0c8ca066e0c0e3816e53a90573099bf9468f7a342b92f794e"
+          }
+        ]
+      }
+    },
+    {
+      "kind": 105,
+      "name": "LOT_OPENED",
+      "key": [
+        {
+          "name": "lot",
+          "len": 15
+        }
+      ],
+      "payload": [
+        {
+          "name": "custodian_tag",
+          "len": 8
+        },
+        {
+          "name": "quota",
+          "len": 8
+        }
+      ],
+      "body_without_tail_len": 37,
+      "vector": {
+        "bell": 2105,
+        "body_without_tail": "016939080000213e5b7895b2cfec092643607d9ab76b88a5c2dffc19366b88a5c2dffc1936",
+        "body": "016939080000213e5b7895b2cfec092643607d9ab76b88a5c2dffc19366b88a5c2dffc193603040400000000000000d347ed48af462bb2145cb124bf6e613571209917d7b7501b4f463220122c974509050000000000000072d3d84b66075622f24d58e79e6bd8a345d416b817911e558ecaa6f112f2b02e0d060000000000000005db3993886594671c38c3a00b437b684823a2f362b6d4f8baa73bfa39aa9371",
+        "decodes": true,
+        "chains": [
+          {
+            "entity": 4,
+            "who": "Base(Citizen(Tag8(3898424990439409771)))",
+            "prev_seq": 3,
+            "prev_head": "36c69ad150db8c113c6e4d924f6237ae8689edff9285c4b34a510e1580f23ec7",
+            "seq": 4,
+            "head": "d347ed48af462bb2145cb124bf6e613571209917d7b7501b4f463220122c9745"
+          },
+          {
+            "entity": 9,
+            "who": "Vault { p: 15905, q: 30811, tile: 149 }",
+            "prev_seq": 4,
+            "prev_head": "91ce6fbac27c0175a619eb0cb869ff161caa95feada30ff5c8929fd8d287108f",
+            "seq": 5,
+            "head": "72d3d84b66075622f24d58e79e6bd8a345d416b817911e558ecaa6f112f2b02e"
+          },
+          {
+            "entity": 13,
+            "who": "Lot(LotKey { p: 15905, q: 30811, tile: 149, gen: 178, owner_tag: 11132159695446994127, resource: 183 })",
+            "prev_seq": 5,
+            "prev_head": "8266186aee553eb36c0426d580a3ecc55bb561f35e5470592f59f7b8e601f148",
+            "seq": 6,
+            "head": "05db3993886594671c38c3a00b437b684823a2f362b6d4f8baa73bfa39aa9371"
+          }
+        ]
+      }
+    },
+    {
+      "kind": 106,
+      "name": "LOT_QUOTA",
+      "key": [
+        {
+          "name": "lot",
+          "len": 15
+        }
+      ],
+      "payload": [
+        {
+          "name": "quota",
+          "len": 8
+        }
+      ],
+      "body_without_tail_len": 29,
+      "vector": {
+        "bell": 2106,
+        "body_without_tail": "016a3a080000213e5b7895b2cfec092643607d9ab76b88a5c2dffc1936",
+        "body": "016a3a080000213e5b7895b2cfec092643607d9ab76b88a5c2dffc19360209040000000000000030d1a524f658bd61f796bd05eb44587ae7b3f982859e04a600d809293055daff0d050000000000000035b3ff1bc3a7e8b065ab45740cae1d8d9198d1388f30b0fd8ade8b401ba47c5b",
+        "decodes": true,
+        "chains": [
+          {
+            "entity": 9,
+            "who": "Vault { p: 15905, q: 30811, tile: 149 }",
+            "prev_seq": 3,
+            "prev_head": "c9f5d3a0121a52c3a8e1639dba97563bbc6f44e2942aa8b2e28daf32b01adf05",
+            "seq": 4,
+            "head": "30d1a524f658bd61f796bd05eb44587ae7b3f982859e04a600d809293055daff"
+          },
+          {
+            "entity": 13,
+            "who": "Lot(LotKey { p: 15905, q: 30811, tile: 149, gen: 178, owner_tag: 11132159695446994127, resource: 183 })",
+            "prev_seq": 4,
+            "prev_head": "a907487c0a9ffe0ba3e5f7f0365403d48ed7ae978c846723f40174721505b76a",
+            "seq": 5,
+            "head": "35b3ff1bc3a7e8b065ab45740cae1d8d9198d1388f30b0fd8ade8b401ba47c5b"
+          }
+        ]
+      }
+    },
+    {
+      "kind": 107,
+      "name": "LOT_INBOUND",
+      "key": [
+        {
+          "name": "owner_tag",
+          "len": 8
+        },
+        {
+          "name": "seq",
+          "len": 4
+        }
+      ],
+      "payload": [
+        {
+          "name": "lot",
+          "len": 15
+        },
+        {
+          "name": "sent",
+          "len": 8
+        },
+        {
+          "name": "worn",
+          "len": 8
+        },
+        {
+          "name": "from_lot",
+          "len": 1
+        }
+      ],
+      "body_without_tail_len": 50,
+      "vector": {
+        "bell": 2107,
+        "body_without_tail": "016b3b080000213e5b7895b2cfec213e5b786b88a5c2dffc193653708daac7e4016b88a5c2dffc19366b88a5c2dffc19366b",
+        "body": "016b3b080000213e5b7895b2cfec213e5b786b88a5c2dffc193653708daac7e4016b88a5c2dffc19366b88a5c2dffc19366b010d0400000000000000cdaa234127ab0107ae1108822807867bc909b3af8b3bdb3f714e151b0be0d79d",
+        "decodes": true,
+        "chains": [
+          {
+            "entity": 13,
+            "who": "Lot(LotKey { p: -30613, q: -15707, tile: 223, gen: 252, owner_tag: 16485332485464602137, resource: 1 })",
+            "prev_seq": 3,
+            "prev_head": "3fa27d9c936c690c7c2d45bea220be52808001398b5655e14a89e7ca0d0a48a1",
+            "seq": 4,
+            "head": "cdaa234127ab0107ae1108822807867bc909b3af8b3bdb3f714e151b0be0d79d"
+          }
+        ]
+      }
+    },
+    {
+      "kind": 108,
+      "name": "LOT_SHIPPED",
+      "key": [
+        {
+          "name": "owner_tag",
+          "len": 8
+        },
+        {
+          "name": "seq",
+          "len": 4
+        }
+      ],
+      "payload": [
+        {
+          "name": "lot",
+          "len": 15
+        },
+        {
+          "name": "sent",
+          "len": 8
+        },
+        {
+          "name": "worn",
+          "len": 8
+        },
+        {
+          "name": "to_lot",
+          "len": 1
+        },
+        {
+          "name": "order_id",
+          "len": 4
+        },
+        {
+          "name": "carrier_tag",
+          "len": 8
+        }
+      ],
+      "body_without_tail_len": 62,
+      "vector": {
+        "bell": 2108,
+        "body_without_tail": "016c3c080000213e5b7895b2cfec213e5b786b88a5c2dffc193653708daac7e4016b88a5c2dffc19366b88a5c2dffc19366b6b88a5c26b88a5c2dffc1936",
+        "body": "016c3c080000213e5b7895b2cfec213e5b786b88a5c2dffc193653708daac7e4016b88a5c2dffc19366b88a5c2dffc19366b6b88a5c26b88a5c2dffc1936010d040000000000000019e4ad0082ac36fb877eab26736d5ee8046ea4b59e16d0fa88e530dc7c9c66c6",
+        "decodes": true,
+        "chains": [
+          {
+            "entity": 13,
+            "who": "Lot(LotKey { p: -30613, q: -15707, tile: 223, gen: 252, owner_tag: 16485332485464602137, resource: 1 })",
+            "prev_seq": 3,
+            "prev_head": "d4928c290a7b0a2aadfda69e65656a01c1b7185ef7db8d70d540d39253a560a9",
+            "seq": 4,
+            "head": "19e4ad0082ac36fb877eab26736d5ee8046ea4b59e16d0fa88e530dc7c9c66c6"
+          }
+        ]
+      }
+    },
+    {
+      "kind": 109,
+      "name": "LOT_SETTLED",
+      "key": [
+        {
+          "name": "owner_tag",
+          "len": 8
+        },
+        {
+          "name": "seq",
+          "len": 4
+        }
+      ],
+      "payload": [
+        {
+          "name": "lot",
+          "len": 15
+        },
+        {
+          "name": "delivered",
+          "len": 8
+        },
+        {
+          "name": "burned",
+          "len": 8
+        },
+        {
+          "name": "dest_gone",
+          "len": 8
+        }
+      ],
+      "body_without_tail_len": 57,
+      "vector": {
+        "bell": 2109,
+        "body_without_tail": "016d3d080000213e5b7895b2cfec213e5b786b88a5c2dffc193653708daac7e4016b88a5c2dffc19366b88a5c2dffc19366b88a5c2dffc1936",
+        "body": "016d3d080000213e5b7895b2cfec213e5b786b88a5c2dffc193653708daac7e4016b88a5c2dffc19366b88a5c2dffc19366b88a5c2dffc1936010d0400000000000000f15a5287a5ec8a73cc2fa492ba461b23c1fb4adb2b2c885b8e0e4bf9594cbe33",
+        "decodes": true,
+        "chains": [
+          {
+            "entity": 13,
+            "who": "Lot(LotKey { p: -30613, q: -15707, tile: 223, gen: 252, owner_tag: 16485332485464602137, resource: 1 })",
+            "prev_seq": 3,
+            "prev_head": "d8952ee134636927b68826dfb18ef050274e14bd16ae683e36d2c436e48d3474",
+            "seq": 4,
+            "head": "f15a5287a5ec8a73cc2fa492ba461b23c1fb4adb2b2c885b8e0e4bf9594cbe33"
+          }
+        ]
+      }
+    },
+    {
+      "kind": 110,
+      "name": "LOT_ORDER",
+      "key": [
+        {
+          "name": "lot",
+          "len": 15
+        }
+      ],
+      "payload": [
+        {
+          "name": "slot",
+          "len": 1
+        },
+        {
+          "name": "id",
+          "len": 4
+        },
+        {
+          "name": "kind",
+          "len": 1
+        },
+        {
+          "name": "grantee_tag",
+          "len": 8
+        },
+        {
+          "name": "qty",
+          "len": 8
+        },
+        {
+          "name": "expires_bell",
+          "len": 4
+        },
+        {
+          "name": "dst",
+          "len": 8
+        },
+        {
+          "name": "purpose",
+          "len": 2
+        }
+      ],
+      "body_without_tail_len": 57,
+      "vector": {
+        "bell": 2110,
+        "body_without_tail": "016e3e080000213e5b7895b2cfec092643607d9ab76b6b88a5c26b6b88a5c2dffc19366b88a5c2dffc19366b88a5c26b88a5c2dffc19366b88",
+        "body": "016e3e080000213e5b7895b2cfec092643607d9ab76b6b88a5c26b6b88a5c2dffc19366b88a5c2dffc19366b88a5c26b88a5c2dffc19366b88010d040000000000000098771c1adff7bfd95ff89aef7e44e2cfc48f921893a81af2b636300fa3b29beb",
+        "decodes": true,
+        "chains": [
+          {
+            "entity": 13,
+            "who": "Lot(LotKey { p: 15905, q: 30811, tile: 149, gen: 178, owner_tag: 11132159695446994127, resource: 183 })",
+            "prev_seq": 3,
+            "prev_head": "f8e03545751fa390de8f79c2c1f3f7d3051cdfb38b89d070c90f4642ff9df81c",
+            "seq": 4,
+            "head": "98771c1adff7bfd95ff89aef7e44e2cfc48f921893a81af2b636300fa3b29beb"
+          }
+        ]
+      }
+    },
+    {
+      "kind": 111,
+      "name": "LOT_REVOKED",
+      "key": [
+        {
+          "name": "lot",
+          "len": 15
+        }
+      ],
+      "payload": [
+        {
+          "name": "slot",
+          "len": 1
+        },
+        {
+          "name": "id",
+          "len": 4
+        },
+        {
+          "name": "released",
+          "len": 8
+        }
+      ],
+      "body_without_tail_len": 34,
+      "vector": {
+        "bell": 2111,
+        "body_without_tail": "016f3f080000213e5b7895b2cfec092643607d9ab76b6b88a5c26b88a5c2dffc1936",
+        "body": "016f3f080000213e5b7895b2cfec092643607d9ab76b6b88a5c26b88a5c2dffc1936010d0400000000000000246d11e0c988eaec4d94b6f3bd4a1b20b634cc4f7f5d1d8ad856198da0c72d64",
+        "decodes": true,
+        "chains": [
+          {
+            "entity": 13,
+            "who": "Lot(LotKey { p: 15905, q: 30811, tile: 149, gen: 178, owner_tag: 11132159695446994127, resource: 183 })",
+            "prev_seq": 3,
+            "prev_head": "62c4570f0d9ca1567140b3f62037e790c82d47073926278b553bb7cd8ad7d9bd",
+            "seq": 4,
+            "head": "246d11e0c988eaec4d94b6f3bd4a1b20b634cc4f7f5d1d8ad856198da0c72d64"
+          }
+        ]
+      }
+    },
+    {
+      "kind": 112,
+      "name": "LOT_CONSUMED",
+      "key": [
+        {
+          "name": "lot",
+          "len": 15
+        }
+      ],
+      "payload": [
+        {
+          "name": "id",
+          "len": 4
+        },
+        {
+          "name": "user_tag",
+          "len": 8
+        },
+        {
+          "name": "qty",
+          "len": 8
+        },
+        {
+          "name": "purpose",
+          "len": 2
+        }
+      ],
+      "body_without_tail_len": 43,
+      "vector": {
+        "bell": 2112,
+        "body_without_tail": "017040080000213e5b7895b2cfec092643607d9ab76b88a5c26b88a5c2dffc19366b88a5c2dffc19366b88",
+        "body": "017040080000213e5b7895b2cfec092643607d9ab76b88a5c26b88a5c2dffc19366b88a5c2dffc19366b88010d04000000000000008d780d68310d4cdab6a71683c25ccdcbc09432e7d7103503cf0d23b388b8084e",
+        "decodes": true,
+        "chains": [
+          {
+            "entity": 13,
+            "who": "Lot(LotKey { p: 15905, q: 30811, tile: 149, gen: 178, owner_tag: 11132159695446994127, resource: 183 })",
+            "prev_seq": 3,
+            "prev_head": "3fdaafa5091acc38958d4077d974921280c0315bb2a57686b25850b2b714f806",
+            "seq": 4,
+            "head": "8d780d68310d4cdab6a71683c25ccdcbc09432e7d7103503cf0d23b388b8084e"
+          }
+        ]
+      }
+    },
+    {
+      "kind": 113,
+      "name": "LOT_LOSS",
+      "key": [
+        {
+          "name": "lot",
+          "len": 15
+        }
+      ],
+      "payload": [
+        {
+          "name": "cause",
+          "len": 1
+        },
+        {
+          "name": "qty",
+          "len": 8
+        },
+        {
+          "name": "to_tag",
+          "len": 8
+        },
+        {
+          "name": "caravan_tag",
+          "len": 8
+        },
+        {
+          "name": "caravan_seq",
+          "len": 4
+        }
+      ],
+      "body_without_tail_len": 50,
+      "vector": {
+        "bell": 2113,
+        "body_without_tail": "017141080000213e5b7895b2cfec092643607d9ab76b6b88a5c2dffc19366b88a5c2dffc19366b88a5c2dffc19366b88a5c2",
+        "body": "017141080000213e5b7895b2cfec092643607d9ab76b6b88a5c2dffc19366b88a5c2dffc19366b88a5c2dffc19366b88a5c2010d0400000000000000da6b4559730d6104f06828e128c9e7d72c764ba3e499a9d89554be7bd2a470fa",
+        "decodes": true,
+        "chains": [
+          {
+            "entity": 13,
+            "who": "Lot(LotKey { p: 15905, q: 30811, tile: 149, gen: 178, owner_tag: 11132159695446994127, resource: 183 })",
+            "prev_seq": 3,
+            "prev_head": "a3dfcc29e8ebf6e25388b01563069278c927efff51d9cd125e716007c37ca04d",
+            "seq": 4,
+            "head": "da6b4559730d6104f06828e128c9e7d72c764ba3e499a9d89554be7bd2a470fa"
+          }
+        ]
+      }
+    },
+    {
+      "kind": 130,
+      "name": "RESIDENT_JOINED",
+      "key": [
+        {
+          "name": "resident",
+          "len": 15
+        }
+      ],
+      "payload": [
+        {
+          "name": "asset",
+          "len": 32
+        },
+        {
+          "name": "faction",
+          "len": 1
+        },
+        {
+          "name": "shard",
+          "len": 1
+        },
+        {
+          "name": "generation",
+          "len": 4
+        },
+        {
+          "name": "join_bell",
+          "len": 4
+        }
+      ],
+      "body_without_tail_len": 63,
+      "vector": {
+        "bell": 2130,
+        "body_without_tail": "018252080000213e5b7895b2cfec092643607d9ab76b88a5c2dffc193653708daac7e4011e3b587592afcce90623405d7a97b4d1ee6b6b6b88a5c26b88a5c2",
+        "body": "018252080000213e5b7895b2cfec092643607d9ab76b88a5c2dffc193653708daac7e4011e3b587592afcce90623405d7a97b4d1ee6b6b6b88a5c26b88a5c200",
+        "decodes": true,
+        "chains": []
       }
     }
   ],

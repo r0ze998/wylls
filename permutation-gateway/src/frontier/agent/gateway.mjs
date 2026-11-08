@@ -14,6 +14,8 @@
 //     / DailyLimitReached; the price table is empty: existing actions stay
 //     free or resource-paid)
 //   → on chain, the Citizen's session key is the agent's key and unexpired
+//     (and, with `ctx.residents`, the resident's current holder set it in the
+//     current holder generation)
 //   → the transaction is built here (accountsFor), signed by the agent's
 //     key, and goes through the relay's own `sponsor()` (shape allowlist,
 //     quota, simulation, drain guard); `beforeSend` re-checks mode and
@@ -39,7 +41,7 @@ import { parseTransaction, wireTransaction } from '../../../client/src/solana-tx
 import { signatureOf, signedBy } from '../../cosign.mjs';
 import { simulateWatching } from '../chain.mjs';
 import { drainGuard } from '../shapes.mjs';
-import { citizenQuota, signAs } from '../routes/relay.mjs';
+import { citizenQuota, residentRefusal, signAs } from '../routes/relay.mjs';
 import { PublicKey } from '@solana/web3.js';
 import { RouteError } from '../../routes/errors.mjs';
 import { feeOf } from '../shapes.mjs';
@@ -125,6 +127,39 @@ export function normaliseFields(name, fields, profile = 1) {
 const resultOf = (rec, key, status, extra = {}) => ({
   ok: status === RESULT_STATUS.SENT, requestId: key, agentId: rec.agentId, status, policyVersion: rec.policy.version, modeEpoch: rec.modeEpoch, charges: [], ...extra,
 });
+
+/**
+ * What a caller needs to follow a signed transaction itself (workstream 04's
+ * run executor, workstream 05's RunReceipt): the signature and its lifetime,
+ * fixed when the bytes left (`beforeSend`). `sent: false` says no bytes left
+ * this process. Additive fields; older entries lack them (see actionFate).
+ */
+const sendFacts = signed => (signed
+  ? { sent: true, signature: signed.signature, lastValidBlockHeight: signed.lastValidBlockHeight, slotFloor: signed.slotFloor, signedAt: signed.signedAt }
+  : { sent: false });
+
+/**
+ * One state for a caller to act on, from an action's record and fate.mjs's
+ * answer (workstream 04):
+ *   not-sent     nothing left this process (refused, or failed before sending)
+ *   landed | failed | expired   final (fate.mjs: finalized, or proved never to land)
+ *   pending      not final yet (commitment says how far it got)
+ *   unknown      past its lifetime and this node cannot show it never landed (result unknown)
+ *   unqueryable  the node could not be asked (queryFailed), or the record is not retained
+ * Exported for tests; pure.
+ */
+export function actionFateView(entry, f = null) {
+  if (!entry) return { state: 'unqueryable', retained: false, why: 'no action under this key is retained here (never received, or dropped from the kept history)' };
+  const base = { retained: true, key: entry.key, status: entry.status, ...(entry.code ? { code: entry.code } : {}) };
+  if (!entry.signature) {
+    // Before workstream 04's change a failure after signing kept no signature: such an old entry proves nothing.
+    if (entry.status === RESULT_STATUS.FAILED && entry.sent !== false) return { ...base, state: 'unknown', why: 'failed without a recorded signature (an older record): it may have been sent' };
+    return { ...base, state: 'not-sent', sent: false, why: entry.status === RESULT_STATUS.REFUSED ? 'refused before signing' : 'failed before anything was sent' };
+  }
+  const facts = { sent: true, signature: entry.signature, lastValidBlockHeight: entry.lastValidBlockHeight ?? null, slotFloor: entry.slotFloor ?? null, signedAt: entry.signedAt ?? null };
+  if (!f) return { ...base, ...facts, state: 'unqueryable', why: 'no chain reading' };
+  return { ...base, ...facts, state: f.queryFailed ? 'unqueryable' : f.fate, fate: f.fate, commitment: f.commitment ?? null, queryFailed: f.queryFailed === true, why: f.why };
+}
 
 export class AgentGateway {
   /**
@@ -500,10 +535,10 @@ export class AgentGateway {
 
   async #run(rec, r, hash) {
     const key = r.idempotencyKey;
-    const refused = (e, status = RESULT_STATUS.REFUSED, charges = []) => {
+    const refused = (e, status = RESULT_STATUS.REFUSED, charges = [], facts = {}) => {
       const err = e instanceof RouteError ? { code: e.code, message: e.message, ...(e.extra ?? {}) } : { code: ERR.SEND_FAILED, message: String(e?.message ?? e) };
-      const res = resultOf(rec, key, status, { error: err, charges });
-      if (status !== RESULT_STATUS.REFUSED || charges.length) this.ledger.recordAction(rec.agentId, { name: r.action.name, key, source: r.source, status, code: err.code });
+      const res = resultOf(rec, key, status, { error: err, charges, ...facts });
+      if (status !== RESULT_STATUS.REFUSED || charges.length) this.ledger.recordAction(rec.agentId, { name: r.action.name, key, source: r.source, status, code: err.code, ...facts });
       return res;
     };
     let hold = null;
@@ -520,6 +555,7 @@ export class AgentGateway {
     const epoch = rec.modeEpoch;
     const charge = state => (big(hold.amount) > 0n ? [{ category: CATEGORIES.GAME, amount: hold.amount, state }] : []);
     let sending = false;
+    let signed = null;
     let res;
     try {
       const { shape, tx, wire, lastValidBlockHeight, slotFloor } = await this.#build(rec, r);
@@ -530,14 +566,16 @@ export class AgentGateway {
           if (rec.mode !== MODES.AUTO || rec.modeEpoch !== epoch) throw new AgentError(ERR.AGENT_STOPPED, 'the agent was stopped while this action was being prepared', 409);
           if (rec.policy.version !== r.policyVersion) throw new AgentError(ERR.STALE_POLICY, 'the policy changed while this action was being prepared', 409);
           this.ledger.markSending(rec.agentId, hold.id, signature, lvbh, slotFloor);
+          signed = { signature, lastValidBlockHeight: Number.isSafeInteger(lvbh) ? lvbh : null, slotFloor: Number.isSafeInteger(slotFloor) ? slotFloor : null, signedAt: this.ledger.now() };
           sending = true;
         },
         onSent: ({ signature, moved }) => this.ledger.recordNetwork(rec.agentId, { lamports: feeOf(shape) + BigInt(moved ?? 0), signature, key }),
       });
       // Sent. A priced action stays reserved until the chain's answer (reconcile); a free one has nothing to settle.
       if (big(hold.amount) === 0n) this.ledger.release(rec.agentId, hold.id, 'free');
-      this.ledger.recordAction(rec.agentId, { name: r.action.name, key, source: r.source, status: RESULT_STATUS.SENT, signature: sent.signature, holdId: big(hold.amount) > 0n ? hold.id : undefined, ...(r.reason ? { reason: r.reason } : {}) });
-      res = resultOf(rec, key, RESULT_STATUS.SENT, { signature: sent.signature, charges: charge('reserved') });
+      const facts = { ...sendFacts(signed), signature: sent.signature };
+      this.ledger.recordAction(rec.agentId, { name: r.action.name, key, source: r.source, status: RESULT_STATUS.SENT, ...facts, holdId: big(hold.amount) > 0n ? hold.id : undefined, ...(r.reason ? { reason: r.reason } : {}) });
+      res = resultOf(rec, key, RESULT_STATUS.SENT, { ...facts, charges: charge('reserved') });
       this.log(`agent wallet: ${rec.agentId} ${r.action.name} sent ${sent.signature} (${r.source}, key ${key})`);
     } catch (e) {
       if (this.ledger.actionWritesFailed) throw e;
@@ -545,12 +583,13 @@ export class AgentGateway {
         // Nothing left this process: the hold comes back whole.
         this.ledger.release(rec.agentId, hold.id, 'refused');
         // A refusal of the gateway's or the relay's (a RouteError) is 'refused'; an exception on the way (RPC down) is 'failed'.
-        res = refused(e, e instanceof RouteError ? RESULT_STATUS.REFUSED : RESULT_STATUS.FAILED);
+        res = refused(e, e instanceof RouteError ? RESULT_STATUS.REFUSED : RESULT_STATUS.FAILED, [], sendFacts(null));
         if (!(e instanceof RouteError)) this.log(`agent wallet: ${rec.agentId} ${r.action.name} failed before sending: ${e.message}`);
       } else {
         // The send threw after the signature was recorded: the outcome is the chain's (reconcile), the hold stays.
         if (big(hold.amount) === 0n) this.ledger.release(rec.agentId, hold.id, 'free');
-        res = refused(e, RESULT_STATUS.FAILED, charge('reserved'));
+        // The signature and its lifetime go back with the failure: the caller can follow the chain's answer (actionFate).
+        res = refused(e, RESULT_STATUS.FAILED, charge('reserved'), sendFacts(signed));
         this.log(`agent wallet: ${rec.agentId} ${r.action.name} send uncertain (${e.message}); reconcile decides`);
       }
     }
@@ -565,6 +604,10 @@ export class AgentGateway {
     if (!citizen) throw new AgentError(ERR.SESSION_NOT_DELEGATED, 'the owner has no Citizen this season', 409);
     const live = base58(citizen.SESSION) === rec.agentKey && BigInt(citizen.SESSION_EXPIRY) > BigInt(clock.unixTimestamp);
     if (!live) throw new AgentError(ERR.SESSION_NOT_DELEGATED, 'the agent\'s key is not the Citizen\'s unexpired session key (the owner sets it with SetSession)', 409, { agentKey: rec.agentKey, sessionExpiry: String(citizen.SESSION_EXPIRY) });
+    // NFT-bound residents: the agent's key must be the session the resident's current holder set in the
+    // current holder generation. A transfer ends every delegation of an earlier holder, also after a buy-back.
+    const resident = await residentRefusal(ctx, ctx.addresses.citizen(rec.owner), rec.agentKey);
+    if (resident) throw new AgentError(ERR.SESSION_NOT_DELEGATED, `the agent's key is not the current session of the resident's holder (${resident}); the holder delegates again`, 409, { agentKey: rec.agentKey, resident });
     const profile = profileForSeason(season);
     const fields = normaliseFields(r.action.name, r.action.fields, profile);
     const accounts = accountsFor(r.action.name, { addresses: ctx.addresses, actor: rec.agentKey, owner: rec.owner, holding: r.action.holding, fields, route: r.action.route ?? null, profile });
@@ -641,6 +684,22 @@ export class AgentGateway {
   }
 
   // ------------------------------------------------------------ reconcile
+
+  /**
+   * One action's state by its idempotency key (workstream 04, read-only):
+   * the kept history entry, and for a signed one the chain's answer by the
+   * same rule reconcile uses (fate.mjs). See actionFateView for the states.
+   * The history keeps the latest entries only: an answer `retained: false`
+   * is "not known here", never "not sent".
+   */
+  async actionFate(agentId, key) {
+    const rec = this.ledger.get(agentId);
+    const entry = [...rec.history].reverse().find(e => e.type === 'action' && e.key === key) ?? null;
+    if (!entry?.signature) return { agentId, ...actionFateView(entry) };
+    const x = { signature: entry.signature, lastValidBlockHeight: entry.lastValidBlockHeight ?? null, slotFloor: entry.slotFloor ?? null };
+    const f = this.custody ? await this.custody.fate(x.signature, x.lastValidBlockHeight, x.slotFloor) : await fateOf(this.ctx.connection, x, { fullHistory: this.fullHistory });
+    return { agentId, ...actionFateView(entry, f) };
+  }
 
   /**
    * Settles what the chain has decided: a `sending` hold whose transaction
@@ -747,7 +806,8 @@ export class AgentGateway {
     if (!citizen) return { citizen: false, delegated: false, session: null, expiry: null, now: clock.unixTimestamp };
     const session = base58(citizen.SESSION);
     const expiry = Number(citizen.SESSION_EXPIRY);
-    return { citizen: true, delegated: session === rec.agentKey && expiry > clock.unixTimestamp, session, expiry, now: clock.unixTimestamp };
+    const resident = await residentRefusal(this.ctx, this.ctx.addresses.citizen(rec.owner), rec.agentKey);
+    return { citizen: true, delegated: session === rec.agentKey && expiry > clock.unixTimestamp && !resident, session, expiry, now: clock.unixTimestamp, ...(resident ? { resident } : {}) };
   }
 
   /**

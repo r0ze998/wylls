@@ -57,12 +57,39 @@ pub mod caravan;
 pub mod citizen;
 pub mod clash;
 pub mod conquest;
+#[cfg(feature = "custody-preview")]
+pub mod custody;
 pub mod defence;
 pub mod holding;
 pub mod host;
 pub mod map;
 pub mod nation;
+pub mod resident;
 pub mod reveal;
 pub mod season;
 pub mod structure;
 pub mod transit;
+/// Experimental (`wide-world-experimental`): the draft wide land handlers
+/// on the provisional band 0xD6–0xDA; absent from every default build.
+#[cfg(feature = "wide-world-experimental")]
+pub mod wide;
+
+/// Who must sign for the Citizen of a player instruction (every handler that
+/// runs the player prologue has an `_as` form taking this; the plain handler
+/// is that form under [`Auth::Wallet`], so the dispatch and the handler
+/// signature of the module note are unchanged).
+#[cfg_attr(not(feature = "nft-experimental"), allow(dead_code))]
+pub(crate) enum Auth<'a, 'b> {
+    /// The Citizen's wallet or its unexpired Frontier session, at the
+    /// wallet-derived Citizen address (the player prologue, §5.6).
+    Wallet,
+    /// An NFT resident's Citizen (experimental, `resident::start`): the
+    /// actor is the asset's current Core owner, or the session the owner set
+    /// in the resident program in the current holder generation; `proof` is
+    /// `[policy, link, asset, resident]`, read-only; `generation` is the
+    /// holder generation the actor signed in the instruction data.
+    Resident {
+        proof: &'a [solana_program::account_info::AccountInfo<'b>],
+        generation: u32,
+    },
+}

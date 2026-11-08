@@ -30,7 +30,8 @@ pub fn season_json(f: &Fold, s: &SeasonStatic) -> Option<Value> {
     let c = f.account(&addr)?;
     let se = f.season.as_ref()?;
     let mut rings: std::collections::BTreeMap<u16, [u8; 32]> = f.st.ring_seeds.clone();
-    for d in 0..=se.r_max.min(128) {
+    let r_max = crate::world::r_max(f).unwrap_or(se.r_max);
+    for d in 0..=r_max.min(128) {
         if let Some(rc) = f.account(&f.ctx.ring_seed(d)) {
             // status 2 = seeded; the seed at 40.
             if rc.data.get(18) == Some(&2) {
@@ -69,7 +70,7 @@ pub fn season_json(f: &Fold, s: &SeasonStatic) -> Option<Value> {
             "genesis": s.drand.genesis_time,
         },
         "rulesetHash": hex::encode(se.ruleset_hash),
-        "rMax": se.r_max,
+        "rMax": r_max,
         "wedgeOpen": wedge_open,
         "wedgeOccupied": wedge_occupied,
         "rings": rings.iter().map(|(d, seed)| json!({"d": d, "seed": hex::encode(seed)})).collect::<Vec<_>>(),
@@ -95,6 +96,19 @@ pub fn season_json(f: &Fold, s: &SeasonStatic) -> Option<Value> {
     // Read from the captured Season bytes; an absent or inconsistent flag
     // never changes the page into a continuous-world view.
     v["continuous"] = json!(se.world_continues());
+    // Map growth and first-home placement (the same as the Season bytes say;
+    // spelled out for readers that do not decode them): the ceiling (0: none),
+    // the hard limit, the prize tally's last ring, the placement, the
+    // heartland rings and the genesis seed `home_nation` reads.
+    v["rMaxCeiling"] = json!(crate::world::r_max_ceiling(f));
+    v["rMaxHard"] = json!(permutation_rules::frontier::geometry::R_MAX_HARD);
+    v["prizeMaxRing"] = json!(crate::world::PRIZE_MAX_RING);
+    v["placement"] = json!(crate::world::placement(f));
+    v["heartlandMaxRing"] = se
+        .conquest
+        .as_ref()
+        .map_or(Value::Null, |c| json!(c.heartland_max_ring));
+    v["genesisSeed"] = json!(hex::encode(se.genesis_seed));
     Some(v)
 }
 
@@ -127,7 +141,7 @@ fn acct(f: &Fold, a: &[u8; 32]) -> Value {
 /// hosts wherever they stand, transit records, open ArrivalSlots, settled
 /// seal codes, and the relay quota (`quota`, fetched by the caller).
 pub fn me_json(f: &Fold, wallet: &Address, quota: Value) -> Value {
-    let ca = f.ctx.citizen(&wallet.to_bytes());
+    let ca = crate::conquest::me_citizen(f, &wallet.to_bytes());
     let citizen = f.account(&ca).and_then(|c| Citizen::decode(&c.data).ok());
     let mut holdings = vec![];
     let mut keys = vec![];

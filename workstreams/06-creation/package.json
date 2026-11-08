@@ -1,0 +1,13 @@
+{
+  "name": "wylls-06-creation",
+  "private": true,
+  "type": "module",
+  "description": "Workstream 06: typed creation manifests, their validator, and a local make / publish / use / copy prototype",
+  "scripts": {
+    "test": "node cli/fixtures.mjs --check && node --test test/*.test.mjs",
+    "demo": "node cli/demo.mjs",
+    "fixtures": "node cli/fixtures.mjs",
+    "proto": "node proto/serve.mjs",
+    "e2e": "node proto/e2e.mjs"
+  }
+}

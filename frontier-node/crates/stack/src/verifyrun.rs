@@ -77,7 +77,7 @@ pub async fn read_input(st: &Value) -> Result<Input, String> {
         .map_err(|_| "state: program is not base58")?;
     let season_id = st["season_id"].as_u64().ok_or("state: season_id")?;
     let (pk, so) = pins(st)?;
-    let txs = input::fetch_txs(&rpc, &program, true).await?;
+    let (txs, history) = input::fetch_txs(&rpc, &program, true, None, None).await?;
     let mut keys = input::written_keys(&txs);
     for k in input::program_accounts(&rpc, &program, season_id).await? {
         if !keys.contains(&k) {
@@ -85,6 +85,18 @@ pub async fn read_input(st: &Value) -> Result<Input, String> {
         }
     }
     let (finals, final_slot) = input::fetch_finals(&rpc, &keys).await?;
+    // ⑳: the NFT resident program, when the run has one, read after the
+    // Frontier transactions from the same node (one ledger order, V28).
+    let resident_feed = match st["resident_program"].as_str() {
+        Some(r) => {
+            let rp: Address = r
+                .parse()
+                .map_err(|_| "state: resident_program is not base58")?;
+            let policy = fclient::addr::resident_policy(&program);
+            Some(verify_core::resident_feed::fetch(&rpc, &rp, &policy, &txs).await?)
+        }
+        None => None,
+    };
     let program_hashes = match input::program_hash(&rpc, &program).await {
         Ok((slot, h)) => vec![(slot, h)],
         Err(e) => {
@@ -112,6 +124,8 @@ pub async fn read_input(st: &Value) -> Result<Input, String> {
             st["config"]["bots"]
         ),
         scenarios: vec![],
+        history,
+        resident_feed,
     })
 }
 

@@ -12,6 +12,11 @@
 //!          --out DIR                        report directory (default: verify-report)
 //!          --json                           print the JSON report instead of the Markdown
 //!          --save FILE                      also write the input read as a fixture (.gz: gzip)
+//!          --origin SIG | --witness URL     public RPC: findex's history checks (G1, G3);
+//!          --resident-program ID            the NFT resident program, for V28: its feed from
+//!                                           --resident-archive DIR (its findex archive) or
+//!                                           from --rpc URL --localnet (same node, one ledger order);
+//!                                           an RPC history is never PASS (history.rs)
 //!          --jobs N                         tamper: classes judged at a time (default: cores, ≤ 8)
 //!          --fallback-fixtures DIR          tamper: judge a class the run cannot express on the
 //!                                           committed fixtures in DIR instead (labelled)
@@ -38,7 +43,7 @@ fn usage(msg: &str) -> ! {
         include_str!("main.rs")
             .lines()
             .skip(4)
-            .take(14)
+            .take(16)
             .map(|l| {
                 l.strip_prefix("//! ")
                     .or_else(|| l.strip_prefix("//!"))
@@ -78,6 +83,10 @@ fn main() {
     let mut finals: Option<PathBuf> = None;
     let mut rpc: Option<String> = None;
     let mut localnet = false;
+    let mut origin: Option<fclient::ports::Signature> = None;
+    let mut witness: Option<String> = None;
+    let mut resident_program: Option<String> = None;
+    let mut resident_archive: Option<PathBuf> = None;
     let mut program: Option<String> = None;
     let mut season: Option<u64> = None;
     let mut pk: Option<[u8; 96]> = None;
@@ -98,6 +107,10 @@ fn main() {
             "--finals" => finals = Some(val().into()),
             "--rpc" => rpc = Some(val()),
             "--localnet" => localnet = true,
+            "--origin" => origin = Some(val().parse().unwrap_or_else(|_| usage("bad --origin"))),
+            "--witness" => witness = Some(val()),
+            "--resident-program" => resident_program = Some(val()),
+            "--resident-archive" => resident_archive = Some(val().into()),
             "--program" => program = Some(val()),
             "--season" => season = Some(val().parse().unwrap_or_else(|_| usage("bad --season"))),
             "--test-key" => pk = Some(fclient::beacon::TestKey::new().pk96),
@@ -128,10 +141,28 @@ fn main() {
             .enable_all()
             .build()
             .expect("runtime");
-        let txs = match (&archive, &rpc) {
-            (Some(d), _) => input::read_archive(d).unwrap_or_else(|e| usage(&e)),
+        let (txs, history) = match (&archive, &rpc) {
+            (Some(d), u) => {
+                let (txs, h) = input::read_archive(d).unwrap_or_else(|e| usage(&e));
+                // With a node, the archive is checked against its ledger now
+                // (a rewind under the same runId); alone, its history says
+                // that cannot be seen (`input::ARCHIVE_ONLY`).
+                let h = match u {
+                    Some(u) => rt
+                        .block_on(input::confirm_archive(d, u, h))
+                        .unwrap_or_else(|e| usage(&e)),
+                    None => h,
+                };
+                (txs, h)
+            }
             (None, Some(u)) => rt
-                .block_on(input::fetch_txs(u, &program, localnet))
+                .block_on(input::fetch_txs(
+                    u,
+                    &program,
+                    localnet,
+                    origin,
+                    witness.as_deref(),
+                ))
                 .unwrap_or_else(|e| usage(&e)),
             (None, None) => usage("--archive or --rpc is required"),
         };
@@ -178,6 +209,49 @@ fn main() {
             },
             None => vec![],
         };
+        // ⑳ V28: the resident program's feed, from the same local node, read
+        // after the Frontier transactions (one ledger order). Only a local
+        // node's feed gives that order; elsewhere V28's holder stays
+        // UNVERIFIABLE.
+        let resident_feed = match (&resident_program, &resident_archive, &rpc, localnet) {
+            (None, None, _, _) => None,
+            // The resident program's findex archive (⑲'s per-program
+            // archive): one ledger with the Frontier input when both carry
+            // `ledger <runId>`; the policy account from --rpc when given.
+            (Some(r), Some(d), _, _) => {
+                let rp = r
+                    .parse()
+                    .unwrap_or_else(|_| usage("bad --resident-program"));
+                let policy = fclient::addr::resident_policy(&program);
+                let policies = match &rpc {
+                    Some(u) => rt
+                        .block_on(input::fetch_finals(u, &[policy]))
+                        .map(|(m, _)| m.into_iter().filter_map(|(k, a)| Some((k, a?))).collect())
+                        .unwrap_or_default(),
+                    None => Default::default(),
+                };
+                let mut f = verify_core::resident_feed::ResidentFeed::from_archive(d, rp, policies)
+                    .unwrap_or_else(|e| usage(&e));
+                // ⑲: checked against the node's ledger when one is given.
+                if let Some(u) = &rpc {
+                    f.history = rt
+                        .block_on(input::confirm_archive(d, u, f.history))
+                        .unwrap_or_else(|e| usage(&e));
+                }
+                Some(f)
+            }
+            (Some(r), None, Some(u), true) => {
+                let rp = r
+                    .parse()
+                    .unwrap_or_else(|_| usage("bad --resident-program"));
+                let policy = fclient::addr::resident_policy(&program);
+                Some(
+                    rt.block_on(verify_core::resident_feed::fetch(u, &rp, &policy, &txs))
+                        .unwrap_or_else(|e| usage(&e)),
+                )
+            }
+            _ => usage("--resident-program needs --resident-archive DIR, or --rpc URL --localnet"),
+        };
         Input {
             cfg: Config {
                 program,
@@ -194,6 +268,8 @@ fn main() {
                 .map(|d| format!("archive {}", d.display()))
                 .unwrap_or_else(|| format!("rpc {}", rpc.clone().unwrap_or_default())),
             scenarios: vec![],
+            history,
+            resident_feed,
         }
     };
     // A fixture carries its own trust roots; say so when the operator did

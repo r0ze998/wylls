@@ -1,0 +1,21 @@
+[package]
+name = "wylls-custody-with-bridge10"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.89"
+publish = false
+license = "MIT"
+description = "Workstream 10: its one lot table driven by workstream 9's own bridge10 (pinned 06c817cc): returns, sub-unit rests, replays and restarts, checked on 10's side"
+
+# Own workspace. Workstream 9's crates (kernel, bridge10 at 06c817cc) are
+# NOT in this branch: ../run.sh extracts them from the pinned commit into a
+# temporary tree (checking their trees) and builds this crate there.
+[workspace]
+
+[dependencies]
+wylls-capacity = { path = "../../../09-capacity/kernel" }
+wylls-capacity-bridge10 = { path = "../../../09-capacity/bridge10" }
+wylls-custody = { path = "../../custody", default-features = false }
+wylls-custody-adapter-09 = { path = "..", features = ["nine-refused"] }
+permutation-rules = { path = "../../../../permutation-rules", features = ["std"] }
+borsh = { version = "=1.6.1", features = ["derive"] }

@@ -112,6 +112,29 @@ const REGION_DOMAIN = utf8('frontier/region');
 /** Beacon region of a province: sha256("frontier/region" ‖ le32 P ‖ le32 Q)[0] mod 16. */
 export const regionOf = (p, q) => sha256(REGION_DOMAIN, le32(p), le32(q))[0] % REGIONS;
 
+/** First-home placements (frontier-abi `cq_layout::PLACEMENT`). */
+export const PLACEMENT_WEDGE = 0, PLACEMENT_DISPERSED = 1;
+const PLACEMENT_DOMAIN = utf8('PSF-PLACEMENT-v1');
+/**
+ * The nation whose first homes a province takes (permutation-rules
+ * `geometry::home_nation`): the wedge, except under the dispersed placement
+ * in rings 2..=heartlandMaxRing, where it is (position in the ring +
+ * u64le(sha256(domain ‖ genesisSeed ‖ le16 ring)[..8]) mod 6) mod 6.
+ * `genesisSeed` is 32 bytes; null for the Concord.
+ */
+export function homeNation(p, q, { placement = PLACEMENT_WEDGE, heartlandMaxRing = 3, genesisSeed = null } = {}) {
+  const r = ringOf(p, q);
+  if (r === 0) return null;
+  if (![PLACEMENT_WEDGE, PLACEMENT_DISPERSED].includes(Number(placement))) return null;
+  if (Number(placement) === PLACEMENT_WEDGE) return wedgeOf(p, q);
+  if (!genesisSeed || genesisSeed.length !== 32) return null;
+  if (r < 2 || r > Number(heartlandMaxRing)) return wedgeOf(p, q);
+  const i = provinceIndex(p, q) - provincesWithin(r - 1);
+  const h = sha256(PLACEMENT_DOMAIN, Uint8Array.from(genesisSeed), Uint8Array.of(r & 255, r >> 8));
+  const o = Number(new DataView(h.buffer, h.byteOffset, 8).getBigUint64(0, true) % 6n);
+  return (i + o) % 6;
+}
+
 /** The provinces of ring d in index order. */
 export function ringProvinces(d) {
   const first = d === 0 ? 0 : provincesWithin(d - 1);

@@ -1,0 +1,246 @@
+//! Workstream 11 probe on the integration tip (exploration, not a patch):
+//! verdicts the verifier gives on evidence it cannot fully judge, one
+//! transaction or one account at a time, tallied.
+
+mod common;
+
+use std::collections::BTreeMap;
+
+use common::*;
+use verify_core::input::Input;
+
+type Tally = BTreeMap<String, BTreeMap<String, usize>>;
+
+fn verdict(inp: &Input) -> String {
+    let r = verify_core::verify(inp);
+    let mut codes: Vec<String> = r
+        .findings
+        .iter()
+        .filter(|f| f.severity != verify_core::Severity::Warn)
+        .map(|f| format!("{} {}", f.check, f.code))
+        .collect();
+    codes.sort();
+    codes.dedup();
+    codes.truncate(4);
+    format!("{:?} {:?}", r.verdict, codes)
+}
+
+fn print(name: &str, t: &Tally) {
+    for (k, v) in t {
+        println!("PROBE {name} {k}: {v:?}");
+    }
+}
+
+fn fixtures() -> Vec<(&'static str, Input)> {
+    vec![("land", land()), ("march_program", march_program())]
+}
+
+fn frontier_ix_tags(inp: &Input, t: usize) -> Option<Vec<u8>> {
+    let tx = fclient::tx::from_wire(&inp.txs[t].tx).ok()?;
+    let p = inp.cfg.program;
+    let keys = tx.message.account_keys.clone();
+    let tags: Vec<u8> = tx
+        .message
+        .instructions
+        .iter()
+        .filter(|c| keys[c.program_id_index as usize] == p)
+        .filter_map(|c| c.data.first().copied())
+        .collect();
+    (!tags.is_empty()).then_some(tags)
+}
+
+fn name(tags: &[u8]) -> String {
+    tags.iter()
+        .map(|t| {
+            frontier_abi::v2::Ix::from_tag(*t)
+                .map(|i| i.name().to_string())
+                .unwrap_or(format!("0x{t:02x}"))
+        })
+        .collect::<Vec<_>>()
+        .join("+")
+}
+
+#[test]
+fn probe_cpi() {
+    for (fx, base) in fixtures() {
+        let program = base.cfg.program;
+        let mut t_: Tally = BTreeMap::new();
+        for t in 0..base.txs.len() {
+            if base.txs[t].err.is_some() {
+                continue;
+            }
+            let Some(tags) = frontier_ix_tags(&base, t) else {
+                continue;
+            };
+            let Ok(mut tx) = fclient::tx::from_wire(&base.txs[t].tx) else {
+                continue;
+            };
+            let keys = tx.message.account_keys.clone();
+            let Some(other) = tx
+                .message
+                .instructions
+                .iter()
+                .map(|c| c.program_id_index as usize)
+                .find(|&i| keys[i] != program)
+            else {
+                continue;
+            };
+            let mut moved = false;
+            for c in tx.message.instructions.iter_mut() {
+                let ok = c
+                    .data
+                    .first()
+                    .and_then(|x| frontier_abi::v2::Ix::from_tag(*x))
+                    .is_some_and(|i| !i.top_level_only());
+                if keys[c.program_id_index as usize] == program && ok {
+                    c.program_id_index = other as u8;
+                    moved = true;
+                }
+            }
+            if !moved {
+                continue;
+            }
+            let mut inp = base.clone();
+            inp.txs[t].tx = fclient::tx::wire(&tx);
+            let wrapper = keys[other];
+            let top = format!("Program {program} invoke [1]");
+            let mut logs = vec![format!("Program {wrapper} invoke [1]")];
+            logs.extend(inp.txs[t].logs.iter().map(|l| {
+                if *l == top {
+                    format!("Program {program} invoke [2]")
+                } else {
+                    l.clone()
+                }
+            }));
+            logs.push(format!("Program {wrapper} success"));
+            inp.txs[t].logs = logs;
+            *t_.entry(format!("{fx} {}", name(&tags)))
+                .or_default()
+                .entry(verdict(&inp))
+                .or_default() += 1;
+        }
+        print("cpi", &t_);
+    }
+}
+
+#[test]
+fn probe_truncated_logs() {
+    for (fx, base) in fixtures() {
+        let mut t_: Tally = BTreeMap::new();
+        for t in 0..base.txs.len() {
+            if base.txs[t].err.is_some() || base.txs[t].logs.len() < 4 {
+                continue;
+            }
+            let Some(tags) = frontier_ix_tags(&base, t) else {
+                continue;
+            };
+            let has_data = base.txs[t]
+                .logs
+                .iter()
+                .any(|l| l.starts_with("Program data: "));
+            if !has_data {
+                continue;
+            }
+            let mut inp = base.clone();
+            // Solana stops logging past the limit and appends this line.
+            let keep = inp.txs[t].logs.len() / 2;
+            inp.txs[t].logs.truncate(keep);
+            inp.txs[t].logs.push("Log truncated".into());
+            *t_.entry(format!("{fx} {}", name(&tags)))
+                .or_default()
+                .entry(verdict(&inp))
+                .or_default() += 1;
+        }
+        print("truncated", &t_);
+    }
+}
+
+#[test]
+fn probe_no_logs_for_a_successful_tx() {
+    for (fx, base) in fixtures() {
+        let mut t_: Tally = BTreeMap::new();
+        for t in 0..base.txs.len() {
+            if base.txs[t].err.is_some() {
+                continue;
+            }
+            let Some(tags) = frontier_ix_tags(&base, t) else {
+                continue;
+            };
+            if !base.txs[t]
+                .logs
+                .iter()
+                .any(|l| l.starts_with("Program data: "))
+            {
+                continue;
+            }
+            let mut inp = base.clone();
+            inp.txs[t].logs.clear();
+            *t_.entry(format!("{fx} {}", name(&tags)))
+                .or_default()
+                .entry(verdict(&inp))
+                .or_default() += 1;
+        }
+        print("nologs", &t_);
+    }
+}
+
+fn kind(data: &[u8]) -> String {
+    data.get(..8)
+        .and_then(|m| frontier_abi::layout::AccountKind::from_magic(m.try_into().ok()?))
+        .map(|k| format!("{k:?}"))
+        .unwrap_or_else(|| "other".into())
+}
+
+#[test]
+fn probe_dropped_post_by_kind() {
+    for (fx, base) in fixtures() {
+        let mut t_: Tally = BTreeMap::new();
+        let mut seen: BTreeMap<String, usize> = BTreeMap::new();
+        for t in 0..base.txs.len() {
+            for (k, a) in base.txs[t].post.clone() {
+                let Some(a) = a else { continue };
+                let kd = kind(&a.data);
+                if kd == "Holding" {
+                    continue;
+                }
+                // At most 6 per kind and fixture (run time).
+                let n = seen.entry(kd.clone()).or_default();
+                if *n >= 6 {
+                    continue;
+                }
+                *n += 1;
+                let mut inp = base.clone();
+                inp.txs[t].post.retain(|(x, _)| *x != k);
+                *t_.entry(format!("{fx} {kd}"))
+                    .or_default()
+                    .entry(verdict(&inp))
+                    .or_default() += 1;
+            }
+        }
+        print("droppost", &t_);
+    }
+}
+
+#[test]
+fn probe_missing_final() {
+    for (fx, base) in fixtures() {
+        let mut t_: Tally = BTreeMap::new();
+        let mut seen: BTreeMap<String, usize> = BTreeMap::new();
+        for (k, a) in base.finals.clone() {
+            let Some(a) = a else { continue };
+            let kd = kind(&a.data);
+            let n = seen.entry(kd.clone()).or_default();
+            if *n >= 4 {
+                continue;
+            }
+            *n += 1;
+            let mut inp = base.clone();
+            inp.finals.remove(&k);
+            *t_.entry(format!("{fx} {kd}"))
+                .or_default()
+                .entry(verdict(&inp))
+                .or_default() += 1;
+        }
+        print("nofinal", &t_);
+    }
+}

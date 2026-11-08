@@ -10,7 +10,7 @@
 // `world.operator` and are never handed to a participant.
 import { createHash } from 'node:crypto';
 import { decode as base58decode } from '../../../permutation-gateway/client/src/base58.mjs';
-import { verifyRecord } from '../resident/keys.mjs';
+import { UNSIGNED, verifyRecord } from '../resident/keys.mjs';
 import {
   BELLS_PER_DAY, BUCKET, BUILD_BELLS, BUILDINGS, CARAVAN_FEE, HAMLET_CAP, MILLI, MOVABLE, RELAY_PER_DAY, RESOURCES,
   STARTER_KIT, caravanBells, prodPerBellMilli, resIndex,
@@ -31,8 +31,12 @@ export class WorldError extends Error {
 }
 
 export class TestWorld {
-  constructor(state = null) {
-    this.s = state ?? { v: 1, bell: 0, seq: 0, citizens: {}, byKey: {}, requests: {}, queue: [], caravans: [], events: [], raids: [], waste: {} };
+  /**
+   * `keyless`: a test world that does not check signatures (WS13_KEYLESS runs): the record must be marked unsigned,
+   * and the sender is who the port says (each participant only ever gets a port bound to its own address).
+   */
+  constructor(state = null, { keyless = false } = {}) {
+    this.s = state ?? { v: 1, bell: 0, seq: 0, citizens: {}, byKey: {}, requests: {}, queue: [], caravans: [], events: [], raids: [], waste: {}, keyless };
     this.operator = Object.freeze({
       tick: (n = 1) => { for (let i = 0; i < n; i++) this.#tick(); },
       raidRoute: (fromCitizen, toCitizen, { fromBell = 0, toBell = Infinity } = {}) => this.s.raids.push({ from: fromCitizen, to: toCitizen, fromBell, toBell: toBell === Infinity ? null : toBell }),
@@ -56,8 +60,7 @@ export class TestWorld {
    * The caller's kind is not asked for and not stored.
    */
   join({ body, sig }) {
-    const pub = base58decode(body.key);
-    if (!verifyRecord(JOIN_DOMAIN, body, sig, pub)) throw new WorldError('BadSignature', 'join record not signed by its key');
+    if (!this.#signed(JOIN_DOMAIN, body, sig, body.key)) throw new WorldError('BadSignature', 'join record not signed by its key');
     if (this.s.byKey[body.key]) throw new WorldError('AlreadyJoined', 'this key has a village');
     const id = `c${Object.keys(this.s.citizens).length + 1}`;
     this.s.citizens[id] = {
@@ -110,7 +113,7 @@ export class TestWorld {
   submit({ body, sig }) {
     const id = this.s.byKey[body.actor];
     if (!id) return { ok: false, status: 'refused', error: { code: 'UnknownCitizen', message: 'the signer has not joined' } };
-    if (!verifyRecord(ACTION_DOMAIN, body, sig, base58decode(body.actor))) return { ok: false, status: 'refused', error: { code: 'BadSignature', message: 'not signed by the actor' } };
+    if (!this.#signed(ACTION_DOMAIN, body, sig, body.actor)) return { ok: false, status: 'refused', error: { code: 'BadSignature', message: 'not signed by the actor' } };
     // Keys are the actor's own namespace: one participant cannot occupy or read another's key.
     const slot = `${id}:${body.key}`;
     const bodyHash = sha16(JSON.stringify(body));
@@ -168,6 +171,11 @@ export class TestWorld {
   }
 
   // ---------------------------------------------------------------- inside
+
+  /** A signed world checks the ed25519 signature; a keyless one accepts only records marked unsigned. */
+  #signed(domain, body, sig, address) {
+    return this.s.keyless ? sig === UNSIGNED : verifyRecord(domain, body, sig, base58decode(address));
+  }
 
   #day() { return Math.floor(this.s.bell / BELLS_PER_DAY); }
   #relayNow(c) { if (c.relay.day !== this.#day()) c.relay = { day: this.#day(), used: 0, lamports: 0 }; return c.relay; }

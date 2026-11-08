@@ -123,6 +123,33 @@ pub fn season_pda(program: &Address, id: u64) -> (Address, u8) {
     Address::find_program_address(&[b"season", &id.to_le_bytes()], program)
 }
 
+/// The NFT resident policy (`["nft-resident-policy"]` under the Frontier
+/// program; `permutation-frontier` `resident_binding`).
+pub fn resident_policy(program: &Address) -> Address {
+    Address::find_program_address(&[b"nft-resident-policy"], program).0
+}
+
+/// The per-Season link of an NFT (`["nft-citizen-link", season, asset]` under
+/// the Frontier program; one per world, U45).
+pub fn resident_link(program: &Address, season: &Address, asset: &Address) -> Address {
+    Address::find_program_address(
+        &[b"nft-citizen-link", season.as_ref(), asset.as_ref()],
+        program,
+    )
+    .0
+}
+
+/// The resident program's account of an asset (`["resident", asset]`).
+pub fn resident_account(resident_program: &Address, asset: &Address) -> Address {
+    Address::find_program_address(&[b"resident", asset.as_ref()], resident_program).0
+}
+
+/// The resident program's collection authority (`["collection-authority"]`):
+/// the transfer guard's delegate, the policy's `guard_authority`.
+pub fn resident_guard(resident_program: &Address) -> Address {
+    Address::find_program_address(&[b"collection-authority"], resident_program).0
+}
+
 /// The LoaderV3 ProgramData address of `program`.
 pub fn programdata(program: &Address) -> Address {
     Address::find_program_address(&[program.as_ref()], &address(abi::LOADER_V3)).0
@@ -356,6 +383,22 @@ impl Addresses {
     pub fn citizen(&self, wallet: &Address) -> Address {
         self.of(SeedKind::Citizen, &citizen_tag15(&wallet.to_bytes()))
     }
+    /// ⑳ (provisional): the NFT-resident Citizen of Core `asset` — the
+    /// same with-seed rule as [`Self::citizen`], keyed by the resident ID
+    /// `sha256("PSF-RES" ‖ asset)[0..15]` instead of the wallet's tag.
+    pub fn resident_citizen(&self, asset: &Address) -> Address {
+        self.of(
+            SeedKind::Citizen,
+            &frontier_abi::resident_citizen::resident_tag15(&asset.to_bytes()),
+        )
+    }
+    /// The address a Citizen's own bytes derive: the resident ID for a
+    /// resident-flagged Citizen, the wallet's tag otherwise (`None`: a
+    /// flagged Citizen without a resident asset, or short bytes).
+    pub fn citizen_of(&self, citizen: &[u8]) -> Option<Address> {
+        frontier_abi::resident_citizen::record_tag15(citizen)
+            .map(|t| self.of(SeedKind::Citizen, &t))
+    }
     pub fn holding(&self, p: i32, q: i32, site: u8) -> Address {
         self.of(SeedKind::Holding, &raw_holding(p, q, site))
     }
@@ -532,6 +575,63 @@ mod tests {
         );
     }
 
+    /// ⑳: literal addresses only (no key generation, derivation of a
+    /// keypair, or signing); the Season address and bump are written in.
+    fn literal_ctx() -> Addresses {
+        Addresses {
+            program: Address::new_from_array([0x11; 32]),
+            season_id: 7,
+            season: Address::new_from_array([0x22; 32]),
+            bump: 255,
+        }
+    }
+
+    fn citizen_bytes(wallet: [u8; 32]) -> Vec<u8> {
+        use frontier_abi::v2::layout::player::citizen as C;
+        let mut c = vec![0u8; C::SIZE];
+        c[C::WALLET..C::WALLET + 32].copy_from_slice(&wallet);
+        c
+    }
+
+    #[test]
+    fn resident_citizen_address_follows_the_resident_id() {
+        use frontier_abi::resident_citizen as rc;
+        let a = literal_ctx();
+        let asset = [0x5a; 32];
+        let wallet = [0x07; 32];
+        // A wallet Citizen keeps its address (the wallet's tag).
+        let w = citizen_bytes(wallet);
+        assert_eq!(
+            a.citizen_of(&w),
+            Some(a.citizen(&Address::new_from_array(wallet)))
+        );
+        // The NFT Citizen sits at the resident ID's address, the same one
+        // the program's `AddrCtx::citizen_by_tag15` gives.
+        let mut n = citizen_bytes([0; 32]);
+        assert!(rc::mark(&mut n, &asset));
+        let want = a.resident_citizen(&Address::new_from_array(asset));
+        assert_eq!(a.citizen_of(&n), Some(want));
+        let ctx = frontier_abi::addr::AddrCtx {
+            season: a.season.to_bytes(),
+            program: a.program.to_bytes(),
+        };
+        assert_eq!(
+            want.to_bytes(),
+            ctx.citizen_by_tag15(&rc::resident_tag15(&asset))
+        );
+        // Never the zero wallet's Citizen, and never the asset as a wallet.
+        assert_ne!(
+            Some(a.citizen(&Address::new_from_array([0; 32]))),
+            a.citizen_of(&n)
+        );
+        assert_ne!(want, a.citizen(&Address::new_from_array(asset)));
+        // A flagged Citizen that still carries a wallet derives nothing.
+        let mut bad = citizen_bytes(wallet);
+        bad[rc::RESIDENT_ASSET..rc::RESIDENT_ASSET + 32].copy_from_slice(&asset);
+        bad[rc::RESIDENT_FLAGS] = rc::FLAG_RESIDENT;
+        assert_eq!(a.citizen_of(&bad), None);
+    }
+
     #[test]
     fn seed_lengths_match_the_table() {
         let expect = [
@@ -626,5 +726,34 @@ mod tests {
         }
         assert!(host_id(129, 0, 0, 0, 0).is_err());
         assert!(host_parts(u64::MAX).is_err());
+    }
+
+    // PDAs of public program addresses (sha256 and the curve check only; no
+    // key pair, no signature). The values are the web client's
+    // (`permutation-gateway/client/src/frontier/resident.mjs`) for the same inputs.
+    #[test]
+    fn resident_pdas_match_the_web_client() {
+        let k = |b: u8| Address::new_from_array([b; 32]);
+        let s = |a: Address| a.to_string();
+        assert_eq!(
+            s(resident_policy(&k(0x11))),
+            "7CpPZYgFCzrktaTmHRYxhiTKGiyVTAUP3UU2xaKmXk3g"
+        );
+        assert_eq!(
+            s(resident_link(&k(0x11), &k(0x22), &k(0x5a))),
+            "2KorWrLVc1ChnryiZtSmoYGsdVBXrSYB6pVzNMEJjxUf"
+        );
+        assert_eq!(
+            s(resident_link(&k(0x11), &k(0x23), &k(0x5a))),
+            "Fo6RrVtU7rLfjUuouy3HXJg1jJdnTdFQRjrZX4qqPZeM"
+        );
+        assert_eq!(
+            s(resident_account(&k(0x44), &k(0x5a))),
+            "DPE8kc1CiobXC9s7YbSiN5na3cGi2CfYZhFWojRD8Vio"
+        );
+        assert_eq!(
+            s(resident_guard(&k(0x44))),
+            "C5Xh7XDydB6czwh6nqVeFd6MB7CZRZYfKAZ9Y8bn8Qff"
+        );
     }
 }

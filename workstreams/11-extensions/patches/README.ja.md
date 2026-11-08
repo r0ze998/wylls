@@ -1,4 +1,30 @@
-# patches: 共有コアへの変更案（すべて未適用）
+# patches: 共有コアへの変更案
+
+> **r8（2026-11-06）。** ④の候補 `4c65aaa2`（0004→0005→0007 を適用済み、⑳の RESIDENT_JOINED 入り）へは [0008](0008-verify-v0e-resident-joined-beside-its-join-on-ws04-4c65aaa2.patch) を当てる。SHA-256 は `e71b7892329ccbf44dda028026ce2de4cffd3d7c42b5514782ae08698e5cf98f`。kind 130 は、一致する JoinResident の横にあるときだけ判定される側に数え、それ以外は UNVERIFIABLE とする。詳細は [14](../14-verifier-r7.ja.md) §6。
+
+> **r7（2026-11-06）。** ④の現在版 `claude/gallant-ride-cunptv` @ `8e96f24d` へは **0006 だけ**を当てる（0004＋0005＋r7 の判定を 1 つにしたもの。`ef63544c` にも当たる）。0004・0005 を当て済みなら 0007 を足す。どちらの順でも tree は `d72a025c16a62650920a495f9f1a1a9e756e42a2`。詳細は [14](../14-verifier-r7.ja.md)。
+>
+> | パッチ | 当て先 | 状態 | SHA-256 |
+> |---|---|---|---|
+> | [0006-verify-v0e-evidence-and-records-on-ws04-8e96f24d.patch](0006-verify-v0e-evidence-and-records-on-ws04-8e96f24d.patch) | `8e96f24d` | 未適用。許された試験 50 件通過。新しい帯の命令・記録と記録の書き足しで PASS 0 | `81841f83b984ee8f340609db64bf055fe7323471fac7563af32a430e78d3f391` |
+> | [0007-verify-v0e-unverified-record-after-0005.patch](0007-verify-v0e-unverified-record-after-0005.patch) | 0004 → 0005 の後 | 未適用 | `0ee4510c4e8982d4f1364d173a5d789523c523e49d6ad335cd8048a793dd1aa5` |
+
+> **r6（2026-11-06）。** 統合候補の先端は `ef63544c`。④へは **0004 → 0005** の順（どちらも未適用）。0005 は 0004 が残した 2 つの PASS の経路（ログの無い CPI だけの取引、印なしに失われたログの末尾）を塞ぐ。⑯の P1 は統合候補に当たらず、その内容は⑱の V0＋0004＋0005 が覆う。詳細は [13](../13-verifier-r6.ja.md)。
+>
+> | パッチ | 当て先 | 状態 | SHA-256 |
+> |---|---|---|---|
+> | [0005-verify-v0e-cpi-only-and-lost-tail.patch](0005-verify-v0e-cpi-only-and-lost-tail.patch) | 0004 を当てた `ef63544c` | 未適用。当てた後、許された試験 45 件通過、証拠の欠けた 1,380 件で PASS 0（0004 までは 141 件が PASS） | `09beb7bce149c3628f516f1b6285c090e9f159ea1b7fb916fcd0e304f4067639` |
+
+> **r5（2026-11-05）の状態。** 統合の先端 `integration/ws09-13-v16-d0949fd4` では **0003 が適用済み**。**0001 は再適用しない**（知らないタグは⑱の V0 が FAIL とし、0001 の UNVERIFIABLE と食い違う。⑱を正とする。0001 の CPI の部分は 0004 が置き換える）。**0004 は新規・未適用**で、統合の先端に当たる。詳細は [12](../12-verifier-r5.ja.md)。
+>
+> | パッチ | 当て先 | 状態 | SHA-256 |
+> |---|---|---|---|
+> | [0004-verify-v0e-evidence-is-unverifiable.patch](0004-verify-v0e-evidence-is-unverifiable.patch) | 統合の先端 `d0949fd4`（V0 の後に V0E を足す。⑱の V0 は変えない） | 未適用。当てた後、検証器の試験 106 件通過、CPI・切れたログ・ログ無し・Holding 以外の post-state の欠落 902 件で PASS 0（前は 452 件 PASS） | `258ad75901a637c97f4df06655b2d01b4f744a255eff8bbeacfb6ff22dd21660` |
+> | 0001 | — | 取り下げ（再適用しない） | — |
+> | 0003 | — | 統合の先端に適用済み | — |
+>
+> 以下は r3 時点の記述（基準 `4cd901de` に対するもの）。
+
 
 | パッチ | 対象 | 種類 | 確認 |
 |---|---|---|---|

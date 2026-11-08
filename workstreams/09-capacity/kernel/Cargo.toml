@@ -16,6 +16,9 @@ description = "Workstream 09: lending a workshop's processing capacity to anothe
 # run.sh does it in a temporary worktree). Without it the owner side
 # emulates lending on the unpatched Holding (exact rates, see facility.rs).
 core-patch-0001 = []
+# Workstream 09's numbers as workstream 4 allocated them (provisional,
+# src/abi.rs): kept behind a feature until 4 fixes them.
+abi-04-provisional = []
 
 [dependencies]
 permutation-rules = { path = "../../../permutation-rules", features = ["std"] }

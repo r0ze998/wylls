@@ -18,7 +18,10 @@
 # A stack or nightly run (W5-B's frontier-stack) is saved as a fourth
 # fixture when NIGHTLY_ARGS names its source, e.g.
 #   NIGHTLY_ARGS="--program <id> --season <n> --rpc http://127.0.0.1:<port> --localnet"
-# (or "--archive <run>/findex --finals <file>"): the run is verified with
+# (or "--archive <run>/findex --finals <file> --rpc http://127.0.0.1:<port>
+# --localnet": an archive of the node's feed is whole only once checked against
+# the node that wrote it, 2026-11-07; without --rpc its history is unproven and
+# the run does not PASS, so nothing is saved): the run is verified with
 # the test key, saved to fixtures/verify/nightly.json.gz only if it PASSES,
 # and the tamper suite must detect every class on it.
 #

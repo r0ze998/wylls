@@ -1,0 +1,27 @@
+{
+  "keeper-a": {
+    "attempts": 5396,
+    "by_kind_status": {
+      "anchor-multi:landed": 84,
+      "beacon-log:landed": 464,
+      "extend-frontier:landed": 2,
+      "fold:landed": 87,
+      "genesis-seed:landed": 1,
+      "open-province:landed": 169,
+      "open-ring:landed": 8,
+      "payer-care:landed": 32,
+      "ring-seed:landed": 3,
+      "seed:landed": 432,
+      "settle-explore:landed": 7,
+      "skip:landed": 4107
+    },
+    "landed_more_than_once": {}
+  },
+  "keeper-b": {
+    "attempts": 32,
+    "by_kind_status": {
+      "payer-care:landed": 32
+    },
+    "landed_more_than_once": {}
+  }
+}

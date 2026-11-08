@@ -29,24 +29,25 @@ function args(argv) {
 }
 
 /** Opens (or reopens) every part of the run from `root`. */
-export function openAll(root, operator, { provider = 'goal', crash = null } = {}) {
+export function openAll(root, operator, { provider = 'goal', crash = null, wrapMemory = null, costFor = null, wire = null } = {}) {
   const w = openWorld(path.join(root, 'world'));
   const who = crash?.resident ?? 'asa';
-  const asa = openResident(path.join(root, 'asa'), { world: w.world, board: w.board, provider: fixtureProvider({ mode: provider }), crash: who === 'asa' ? crash : null });
-  const ren = openResident(path.join(root, 'ren'), { world: w.world, board: w.board, provider: fixtureProvider({ mode: provider }), crash: who === 'ren' ? crash : null });
+  const asa = openResident(path.join(root, 'asa'), { world: w.world, board: w.board, provider: fixtureProvider({ mode: provider }), crash: who === 'asa' ? crash : null, wrapMemory, costFor, wire });
+  const ren = openResident(path.join(root, 'ren'), { world: w.world, board: w.board, provider: fixtureProvider({ mode: provider }), crash: who === 'ren' ? crash : null, wrapMemory, costFor, wire });
   const ids = { asa: () => asa.state.citizen, ren: () => ren.state.citizen };
   const p = people(w.world, w.board, ids, root);
   return { ...w, asa, ren, ...p, operator };
 }
 
-export async function runDemo({ out, bells = 160, restartAt = null, crash = null, provider = 'goal', boundaries = [] }) {
+/** `wrapMemory(port, resident)`: see world/harness.mjs openResident; applied at every (re)open, crash reopens included. */
+export async function runDemo({ out, bells = 160, restartAt = null, crash = null, provider = 'goal', boundaries = [], wrapMemory = null, costFor = null, wire = null, each = null }) {
   assertNoApiKeys(process.env);
   rmSync(out, { recursive: true, force: true });
   mkdirSync(out, { recursive: true });
   const operator = makeOperator();
   writeCharters(out, operator);
   // --crash X stops Asa at X of its fourth decision; a test may pass {resident, at, turn?, key?} instead.
-  let all = openAll(out, operator, { provider, crash: typeof crash === 'string' ? { at: crash, turn: 4 } : crash });
+  let all = openAll(out, operator, { provider, crash: typeof crash === 'string' ? { at: crash, turn: 4 } : crash, wrapMemory, costFor, wire });
   all.asa.setSiblings([all.ren.address]);
   all.ren.setSiblings([all.asa.address]);
   all.asa.fund('mock-deposit-asa-1', '400000');
@@ -57,7 +58,7 @@ export async function runDemo({ out, bells = 160, restartAt = null, crash = null
   for (let b = 0; b < bells; b++) {
     if (restartAt !== null && b === restartAt) {
       all.save();
-      all = openAll(out, operator, { provider });
+      all = openAll(out, operator, { provider, wrapMemory, costFor, wire });
       restarts.push({ bell: all.world.bell, why: 'every object rebuilt from files' });
     }
     for (const p of [all.kou, all.mio]) await p.act(all.world.bell);
@@ -69,7 +70,7 @@ export async function runDemo({ out, bells = 160, restartAt = null, crash = null
         restarts.push({ bell: all.world.bell, resident: r.id, why: e.message });
         all.save();
         const dir = r.dir;
-        const again = openResident(dir, { world: all.world, board: all.board, provider: fixtureProvider({ mode: provider }) });
+        const again = openResident(dir, { world: all.world, board: all.board, provider: fixtureProvider({ mode: provider }), wrapMemory, costFor, wire });
         if (r === all.asa) all.asa = again; else all.ren = again;
         res = await again.step();
       }
@@ -77,6 +78,7 @@ export async function runDemo({ out, bells = 160, restartAt = null, crash = null
     }
     // A boundary marker (test fixture) is public before the bell's actions land, like any event of the bell.
     if (boundaries.includes(all.world.bell)) all.world.operator.markBoundary(`test-boundary-${all.world.bell}`);
+    if (each) await each(all); // a test's hook at the end of every bell (an operator's halt file, …)
     all.world.operator.tick();
     all.save();
   }

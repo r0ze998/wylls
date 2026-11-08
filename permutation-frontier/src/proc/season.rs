@@ -76,7 +76,7 @@ fn check_authority(season: &AccountInfo, authority: &AccountInfo) -> R<SeasonCor
 /// The upgrade authority of `program` (I-51): its LoaderV3 Program account
 /// names the ProgramData, which stores `Option<authority>` at offset 12.
 /// `Auth` when the program is immutable (no authority).
-fn upgrade_authority(
+pub(crate) fn upgrade_authority(
     program: &Pubkey,
     program_ai: &AccountInfo,
     pd_ai: &AccountInfo,

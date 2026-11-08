@@ -509,11 +509,19 @@ impl Bot {
         }
         if me.holdings.is_empty() {
             if let Some((_, cz)) = &me.citizen {
+                // The season's first-home placement (`home_nation`; the
+                // wedge for placement 0 or an unknown season), as
+                // `crate::home::plan_home` decides on what is read here.
+                let place = season.season.as_ref().and_then(|s| {
+                    s.conquest
+                        .as_ref()
+                        .map(|c| (c.placement, c.heartland_max_ring, s.genesis_seed))
+                });
                 for o in &overviews {
                     for r in &o.provinces {
                         let pc = ProvinceCoord::new(r.p as i32, r.q as i32);
                         if pc.ring() >= 2
-                            && pc.wedge() == Some(cz.faction % 6)
+                            && crate::home::home_nation_of(pc, place) == Some(cz.faction % 6)
                             && r.free_sites(12).next().is_some()
                         {
                             add((r.p, r.q), &mut want);

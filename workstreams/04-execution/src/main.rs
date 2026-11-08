@@ -8,15 +8,62 @@
 //! runexec show   --db <path> --run <id>
 //! runexec cancel --db <path> --run <id>
 //! runexec resume --db <path> --run <id>
+//!
+//! # Agent acts (workstreams 03, 05, 13): machine-readable, one JSON line on stdout
+//! runexec act register --db <path> --agent <id> --key <idempotencyKey> --source ai|mcp|browser|resident [--run <callerRunId>] [--slot <n>]
+//! runexec act status   --db <path> (--run4 <id> | --agent <id> --key <key>) [--gateway <loopback port> [--bridge]]
+//! runexec act list     --db <path> --run <callerRunId>
 //! ```
+//!
+//! `act` exit codes: 0 ok; 2 bad request; 3 no record (never registered);
+//! 4 conflict (the key is registered for another source or caller run);
+//! 1 store error. On failure stdout is `{"error": code, "message": …}`.
+//! `status` with `--gateway` reads the agent wallet's
+//! `GET /f/agent/fate` on 127.0.0.1 (`--bridge`: the test bridge's `/fate`)
+//! once and records it; without it, answers from the store. It never sends.
+//!
+//! ```text
+//! # Runs (workstream 06's cargo-only delivery, 13's execution port): one JSON line on stdout
+//! runexec run accept --db <path> --spec <file.json | -> --requester <file.json> \
+//!                    --rpc http://<host:port> --program <base58> --season <base58> [--slot <n>]
+//! runexec run view   --db <path> --run <id>
+//! ```
+//!
+//! `run accept` first checks who asks (workstream 04, 2026-11-07): the
+//! `--requester` the gateway authenticated must be the current holder of the
+//! pass behind the run's citizen, or its live session, at the generation it
+//! signed for, read from the chain at `--rpc` (`intake::RpcPasses`); else
+//! exit 5 `NotAuthorized`, nothing written. A run accepted before a transfer
+//! runs to its end; a request after it needs the new holder.
+//!
+//! `run accept` reads one `RunSpec` (`model.rs`; `-`: stdin), checks it as
+//! the executor's `accept` does, and stores it under its `run_id`:
+//! `accept` is `Created`, or `Existing` (`replayed: true`) for the same spec
+//! again, which writes nothing. The same id with another spec is exit 4
+//! `Conflict`. A malformed spec or option is refused before the store is
+//! opened. Accepting **stores a request**: nothing is signed or sent, and
+//! `sent` / `settled` in the answer are false until the executor confirms a
+//! send or a settlement canonically. `run view` prints the persisted run
+//! (state, held reason, cancel phase, spec, detail, outcome, fees,
+//! transitions, attempts, receipts), all read in one snapshot. It only
+//! reads: the store is opened read-only, never created, and no schema
+//! statement runs. Exit 3 `NoRecord` only when an opened run store holds
+//! no run of that id; exit 5 `StoreUnavailable` when there is no store at
+//! the path or it cannot be reached; exit 1 `StoreError` when a present
+//! store cannot be read or is not a run store. Neither 5 nor 1 says
+//! anything about the run: a caller must not take them for "never
+//! accepted" or "not sent" (no resend on them). `--spec` is read with a
+//! bound of 1 MiB. Exit codes 0–4 as `act`.
 
+use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
 use runexec::executor::{CrashPlan, Executor};
 use runexec::model::*;
 use runexec::sim::{SendFault, Sim, SimWorld};
-use runexec::store::Store;
+use runexec::store::{Accept, Store};
+use runexec::view::run_view;
 
 fn arg(args: &[String], name: &str) -> Option<String> {
     args.iter()
@@ -24,10 +71,485 @@ fn arg(args: &[String], name: &str) -> Option<String> {
         .and_then(|i| args.get(i + 1).cloned())
 }
 
+/// One `act` failure: (exit code, machine code, message).
+type ActErr = (u8, &'static str, String);
+
+fn act(args: &[String], db: &Path) -> Result<serde_json::Value, ActErr> {
+    use runexec::acts;
+    let bad = |m: &str| (2u8, "BadRequest", m.to_string());
+    let store = Store::open(db).map_err(|e| (1, "StoreError", e))?;
+    let need = |n: &str| arg(args, n).ok_or_else(|| bad(&format!("{n} is required")));
+    match args.get(2).map(String::as_str) {
+        Some("register") => {
+            let agent = need("--agent")?;
+            let key = need("--key")?;
+            let source = need("--source")?;
+            let run = arg(args, "--run");
+            let slot = arg(args, "--slot")
+                .and_then(|x| x.parse().ok())
+                .unwrap_or(0);
+            if !acts::SOURCES.contains(&source.as_str()) {
+                return Err(bad(&format!(
+                    "--source must be one of {}",
+                    acts::SOURCES.join(", ")
+                )));
+            }
+            let id = acts::register(&store, &agent, &key, &source, run.as_deref(), slot).map_err(
+                |e| {
+                    if e.contains("is registered for") {
+                        (4, "Conflict", e)
+                    } else {
+                        bad(&e)
+                    }
+                },
+            )?;
+            acts::receipt(&store, &id).map_err(|e| (1, "StoreError", e))
+        }
+        Some("status") => {
+            let id = match arg(args, "--run4") {
+                Some(i) => i,
+                None => acts::run4_id(&need("--agent")?, &need("--key")?),
+            };
+            if acts::get(&store, &id)
+                .map_err(|e| (1, "StoreError", e))?
+                .is_none()
+            {
+                return Err((3, "NoRecord", format!("no act {id} is registered")));
+            }
+            match arg(args, "--gateway") {
+                Some(p) => {
+                    let port: u16 = p
+                        .parse()
+                        .map_err(|_| bad("--gateway is a loopback port number"))?;
+                    let reader = acts::HttpFateReader {
+                        port,
+                        gateway_path: !args.iter().any(|a| a == "--bridge"),
+                    };
+                    acts::refresh(&store, &reader, &id).map_err(|e| (1, "StoreError", e))
+                }
+                None => acts::receipt(&store, &id).map_err(|e| (1, "StoreError", e)),
+            }
+        }
+        Some("list") => {
+            let run = need("--run")?;
+            let rows = acts::by_ext_run(&store, &run).map_err(|e| (1, "StoreError", e))?;
+            let out: Result<Vec<_>, _> = rows
+                .iter()
+                .map(|r| acts::receipt(&store, &r.run4_id))
+                .collect();
+            out.map(|v| serde_json::json!({ "runId": run, "acts": v }))
+                .map_err(|e| (1, "StoreError", e))
+        }
+        _ => Err(bad("act register | status | list")),
+    }
+}
+
+/// The most a `--spec` may be, in bytes (file or stdin), read with a
+/// bound so an oversized or endless input is refused before anything is
+/// kept in memory beyond this. A `RunSpec` is a few hundred bytes.
+const MAX_SPEC_BYTES: usize = 1 << 20;
+
+/// Reads at most [`MAX_SPEC_BYTES`] from `r` (one byte more, to tell
+/// "too large" from "exactly the limit"); refuses larger input and
+/// input that is not UTF-8.
+fn read_bounded(r: impl std::io::Read, what: &str) -> Result<String, String> {
+    use std::io::Read;
+    let mut buf = Vec::with_capacity(4096);
+    r.take(MAX_SPEC_BYTES as u64 + 1)
+        .read_to_end(&mut buf)
+        .map_err(|e| format!("cannot read --spec {what}: {e}"))?;
+    if buf.len() > MAX_SPEC_BYTES {
+        return Err(format!(
+            "--spec {what} is larger than {MAX_SPEC_BYTES} bytes (1 MiB)"
+        ));
+    }
+    String::from_utf8(buf).map_err(|e| format!("--spec {what} is not UTF-8: {e}"))
+}
+
+/// The `run` subcommand's options, read strictly: every token after the
+/// verb is one of `allowed`, followed by one value, given at most once.
+/// Nothing is read or written before this passes.
+fn run_opts(args: &[String], allowed: &[&str]) -> Result<BTreeMap<String, String>, String> {
+    let mut out = BTreeMap::new();
+    let mut i = 3;
+    while i < args.len() {
+        let k = &args[i];
+        if !allowed.contains(&k.as_str()) {
+            return Err(format!(
+                "unknown option {k}; the options are {}",
+                allowed.join(", ")
+            ));
+        }
+        let Some(v) = args.get(i + 1) else {
+            return Err(format!("{k} needs a value"));
+        };
+        if out.insert(k.clone(), v.clone()).is_some() {
+            return Err(format!("{k} is given twice"));
+        }
+        i += 2;
+    }
+    Ok(out)
+}
+
+/// The spec fields that are omitted from its JSON when absent
+/// (`skip_serializing_if` in `model.rs`), so an explicit `null` for them is
+/// the same spec. Only these may be null and missing from the round trip.
+const OMITTED_WHEN_ABSENT: [&str; 1] = ["facility"];
+
+/// The first key of `input` the spec has no field for, as a path (`ship.dst.x`).
+/// A misspelt `facility` would otherwise silently make a cargo-only run.
+/// A `null` is allowed only for [`OMITTED_WHEN_ABSENT`]; any other member
+/// the round trip does not have, null or not, at any depth, is unknown.
+fn unknown_key(input: &serde_json::Value, canon: &serde_json::Value, path: &str) -> Option<String> {
+    let (Some(i), Some(c)) = (input.as_object(), canon.as_object()) else {
+        return None;
+    };
+    for (k, v) in i {
+        let p = if path.is_empty() {
+            k.clone()
+        } else {
+            format!("{path}.{k}")
+        };
+        match c.get(k) {
+            None if v.is_null() && OMITTED_WHEN_ABSENT.contains(&p.as_str()) => {}
+            None => return Some(p),
+            Some(cv) => {
+                if let Some(x) = unknown_key(v, cv, &p) {
+                    return Some(x);
+                }
+            }
+        }
+    }
+    None
+}
+
+/// The first member name given twice in one JSON object, as a path.
+/// serde_json keeps the last of two members with one name, so
+/// `{"run_id": "a", …, "run_id": "b"}` would otherwise be accepted as run
+/// `b`. `text` is already known to be well-formed JSON; names are compared
+/// decoded (a name written with a JSON escape is the same name).
+fn duplicate_member(text: &str) -> Option<String> {
+    enum Frame {
+        Object {
+            seen: std::collections::BTreeSet<String>,
+            key: Option<String>,
+            expect_key: bool,
+        },
+        Array(usize),
+    }
+    let path = |stack: &[Frame], last: &str| -> String {
+        let mut parts: Vec<String> = stack
+            .iter()
+            .filter_map(|f| match f {
+                Frame::Object { key, .. } => key.clone(),
+                Frame::Array(n) => Some(format!("[{n}]")),
+            })
+            .collect();
+        parts.push(last.to_string());
+        parts.join(".")
+    };
+    let b = text.as_bytes();
+    let mut stack: Vec<Frame> = vec![];
+    let mut i = 0;
+    while i < b.len() {
+        match b[i] {
+            b'{' => stack.push(Frame::Object {
+                seen: Default::default(),
+                key: None,
+                expect_key: true,
+            }),
+            b'[' => stack.push(Frame::Array(0)),
+            b'}' | b']' => {
+                stack.pop();
+            }
+            b',' => match stack.last_mut() {
+                Some(Frame::Object { expect_key, .. }) => *expect_key = true,
+                Some(Frame::Array(n)) => *n += 1,
+                None => {}
+            },
+            b'"' => {
+                let start = i;
+                i += 1;
+                while i < b.len() && b[i] != b'"' {
+                    if b[i] == b'\\' {
+                        i += 1;
+                    }
+                    i += 1;
+                }
+                let raw = &text[start..(i + 1).min(b.len())];
+                let is_key = matches!(
+                    stack.last(),
+                    Some(Frame::Object {
+                        expect_key: true,
+                        ..
+                    })
+                );
+                if is_key {
+                    let name: String =
+                        serde_json::from_str(raw).unwrap_or_else(|_| raw.to_string());
+                    let parents = stack.len() - 1;
+                    let p = path(&stack[..parents], &name);
+                    if let Some(Frame::Object {
+                        seen,
+                        key,
+                        expect_key,
+                    }) = stack.last_mut()
+                    {
+                        if !seen.insert(name.clone()) {
+                            return Some(p);
+                        }
+                        *key = Some(name);
+                        *expect_key = false;
+                    }
+                }
+            }
+            _ => {}
+        }
+        i += 1;
+    }
+    None
+}
+
+/// Reads and checks a `RunSpec` from a file (`-`: stdin). Every refusal is a
+/// bad request; the store is not touched here.
+/// The requester as the gateway hands it over (workstream 04, 2026-11-07):
+/// `{"actor": <base58>, "generation": <u32>, "citizen": <base58>,
+/// "authenticatedBy": <text>}`: the key the gateway authenticated, the pass
+/// generation it signed for, the Citizen it acts for, and which credential
+/// layer authenticated it (kept for the record; not verified here).
+fn read_requester(path: &str) -> Result<runexec::intake::Requester, String> {
+    let f =
+        std::fs::File::open(path).map_err(|e| format!("cannot read --requester {path}: {e}"))?;
+    let text = read_bounded(f, path)?;
+    let v: serde_json::Value =
+        serde_json::from_str(&text).map_err(|e| format!("--requester is not JSON: {e}"))?;
+    let o = v.as_object().ok_or("--requester must be a JSON object")?;
+    for k in o.keys() {
+        if !["actor", "generation", "citizen", "authenticatedBy"].contains(&k.as_str()) {
+            return Err(format!("--requester has an unknown member {k}"));
+        }
+    }
+    let s = |k: &str| {
+        o.get(k)
+            .and_then(|x| x.as_str())
+            .ok_or_else(|| format!("--requester needs {k}"))
+    };
+    if s("authenticatedBy")?.is_empty() {
+        return Err(
+            "--requester needs authenticatedBy (the credential layer that authenticated it)".into(),
+        );
+    }
+    let generation = o
+        .get("generation")
+        .and_then(|x| x.as_u64())
+        .filter(|g| *g <= u32::MAX as u64)
+        .ok_or("--requester needs generation (0..=4294967295)")? as u32;
+    Ok(runexec::intake::Requester {
+        actor: runexec::intake_rpc::address(s("actor")?)?,
+        generation,
+        citizen: runexec::intake_rpc::address(s("citizen")?)?,
+    })
+}
+
+fn read_spec(path: &str) -> Result<RunSpec, String> {
+    let text = if path == "-" {
+        read_bounded(std::io::stdin().lock(), "from stdin")?
+    } else {
+        let f = std::fs::File::open(path).map_err(|e| format!("cannot read --spec {path}: {e}"))?;
+        read_bounded(f, path)?
+    };
+    let input: serde_json::Value =
+        serde_json::from_str(&text).map_err(|e| format!("--spec is not JSON: {e}"))?;
+    if !input.is_object() {
+        return Err("--spec must be a JSON object (a RunSpec)".into());
+    }
+    if let Some(k) = duplicate_member(&text) {
+        return Err(format!("--spec gives the member {k} twice"));
+    }
+    let spec: RunSpec = serde_json::from_value(input.clone())
+        .map_err(|e| format!("--spec is not a RunSpec: {e}"))?;
+    let canon = serde_json::to_value(&spec).map_err(|e| e.to_string())?;
+    if let Some(k) = unknown_key(&input, &canon, "") {
+        return Err(format!("--spec has a field no RunSpec has: {k}"));
+    }
+    if spec.run_id.is_empty() || spec.run_id.len() > 128 {
+        return Err("run_id (the idempotency key) must be 1..=128 bytes".into());
+    }
+    runexec::executor::validate_spec(&spec)?;
+    Ok(spec)
+}
+
+fn run(args: &[String]) -> Result<serde_json::Value, ActErr> {
+    let bad = |m: String| (2u8, "BadRequest", m);
+    let store_err = |m: String| (1u8, "StoreError", m);
+    let verb = args.get(2).map(String::as_str);
+    let allowed: &[&str] = match verb {
+        Some("accept") => &[
+            "--db",
+            "--spec",
+            "--slot",
+            "--requester",
+            "--rpc",
+            "--program",
+            "--season",
+        ][..],
+        Some("view") => &["--db", "--run"][..],
+        _ => return Err(bad("run accept | view".into())),
+    };
+    let opts = run_opts(args, allowed).map_err(bad)?;
+    let need = |n: &str| {
+        opts.get(n)
+            .cloned()
+            .ok_or_else(|| bad(format!("{n} is required")))
+    };
+    let db = PathBuf::from(need("--db")?);
+    match verb {
+        Some("accept") => {
+            // The store keeps slots in SQLite integers (i64): a larger
+            // value would be stored as another number.
+            let slot: u64 = match opts.get("--slot") {
+                None => 0,
+                Some(s) => s
+                    .parse()
+                    .ok()
+                    .filter(|n| *n <= i64::MAX as u64)
+                    .ok_or_else(|| bad(format!("--slot is a slot number 0..={}", i64::MAX)))?,
+            };
+            // Everything that can be wrong with the input is found before
+            // the store is opened or written.
+            let spec = read_spec(&need("--spec")?).map_err(bad)?;
+            // Who asks (workstream 04, 2026-11-07): the requester the gateway
+            // authenticated, checked against the pass on the chain before
+            // anything is stored (intake::accept_checked). Required: an
+            // external request without it is refused.
+            let req = read_requester(&need("--requester")?).map_err(bad)?;
+            let addr = |n: &str| -> Result<[u8; 32], ActErr> {
+                runexec::intake_rpc::address(&need(n)?).map_err(bad)
+            };
+            let passes = runexec::intake_rpc::RpcPasses::new(
+                &need("--rpc")?,
+                addr("--program")?,
+                addr("--season")?,
+            )
+            .map_err(bad)?;
+            // Refused: exit 5, before the store is opened (nothing written).
+            let authority = runexec::intake::authorize(&spec, &req, &passes)
+                .map_err(|e| (5u8, "NotAuthorized", e))?;
+            let store = Store::open(&db).map_err(store_err)?;
+            let checked = store
+                .accept_with(&spec, slot, &runexec::intake::first_detail(authority))
+                .map_err(store_err)?;
+            let (accept, replayed) = match checked {
+                Accept::Created => ("Created", false),
+                Accept::Existing(_) => ("Existing", true),
+                Accept::Conflict => {
+                    let stored = store
+                        .load(&spec.run_id)
+                        .map_err(store_err)?
+                        .map(|r| r.spec.digest())
+                        .unwrap_or_default();
+                    return Err((
+                        4,
+                        "Conflict",
+                        format!(
+                            "run {} is accepted with another spec (stored digest {stored}, this spec {}); another spec needs another run_id",
+                            spec.run_id,
+                            spec.digest()
+                        ),
+                    ));
+                }
+            };
+            let mut v = run_view(&store, &spec.run_id)
+                .map_err(store_err)?
+                .ok_or_else(|| store_err(format!("run {} was not recorded", spec.run_id)))?;
+            v["accept"] = serde_json::json!(accept);
+            v["replayed"] = serde_json::json!(replayed);
+            Ok(v)
+        }
+        Some("view") => {
+            let id = need("--run")?;
+            // Reading only: no store is created, no schema statement runs.
+            // A store that cannot be reached is no answer about the run: a
+            // deleted, unmounted or wrongly named store does not show that
+            // nothing was accepted (and maybe sent) there. `NoRecord` is
+            // said only by a run store that was opened and read.
+            match std::fs::metadata(&db) {
+                Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+                    return Err((
+                        5,
+                        "StoreUnavailable",
+                        format!(
+                            "there is no store at {}: nothing is known about run {id} (not evidence that it was never accepted or sent)",
+                            db.display()
+                        ),
+                    ));
+                }
+                Err(e) => {
+                    return Err((
+                        5,
+                        "StoreUnavailable",
+                        format!(
+                        "the store at {} cannot be reached ({e}): nothing is known about run {id}",
+                        db.display()
+                    ),
+                    ))
+                }
+                Ok(_) => {}
+            }
+            let store = Store::open_read_only(&db).map_err(store_err)?;
+            run_view(&store, &id).map_err(store_err)?.ok_or_else(|| {
+                (
+                    3,
+                    "NoRecord",
+                    format!("no run {id} is accepted in the store at {}", db.display()),
+                )
+            })
+        }
+        _ => unreachable!("verb checked above"),
+    }
+}
+
 fn main() -> ExitCode {
     let args: Vec<String> = std::env::args().collect();
+    if args.get(1).map(String::as_str) == Some("run") {
+        return match run(&args) {
+            Ok(v) => {
+                println!("{v}");
+                ExitCode::SUCCESS
+            }
+            Err((code, name, message)) => {
+                println!(
+                    "{}",
+                    serde_json::json!({ "error": name, "message": message })
+                );
+                ExitCode::from(code)
+            }
+        };
+    }
+    if args.get(1).map(String::as_str) == Some("act") {
+        let Some(db) = arg(&args, "--db").map(PathBuf::from) else {
+            println!(
+                "{}",
+                serde_json::json!({ "error": "BadRequest", "message": "--db <path> is required" })
+            );
+            return ExitCode::from(2);
+        };
+        return match act(&args, &db) {
+            Ok(v) => {
+                println!("{v}");
+                ExitCode::SUCCESS
+            }
+            Err((code, name, message)) => {
+                println!(
+                    "{}",
+                    serde_json::json!({ "error": name, "message": message })
+                );
+                ExitCode::from(code)
+            }
+        };
+    }
     let Some(cmd) = args.get(1).map(String::as_str) else {
-        eprintln!("usage: runexec demo|status|show|cancel|resume --db <path> [...]");
+        eprintln!("usage: runexec demo|status|show|cancel|resume --db <path> [...] | runexec act … | runexec run accept|view …");
         return ExitCode::from(2);
     };
     let Some(db) = arg(&args, "--db").map(PathBuf::from) else {
@@ -188,7 +710,7 @@ fn demo(db: &Path, scenario: &str) -> Result<(), String> {
         owner: 0x77,
         stock,
         inbound: None,
-        facility: fac,
+        facility: Some(fac),
         inputs: one(1, 5),
         outputs: one(6, 3),
         rights_units: 1,

@@ -156,6 +156,26 @@ fn render() -> String {
         ("SetShares", t::SET_SHARES),
         ("Claim", t::CLAIM),
         ("WithdrawOps", t::WITHDRAW_OPS),
+        (
+            "RecordNation (provisional, ws04/ws17 2026-11-06)",
+            t::RECORD_NATION,
+        ),
+    ] {
+        s.push_str(&format!("{v} {n}\n"));
+    }
+    s.push_str("\n[prize_entry_fields] # offset name (128 B Entry; 10-11 provisional)\n");
+    use permutation_prize::entry as en;
+    for (n, v) in [
+        ("magic", en::HDR_MAGIC),
+        ("bump", en::BUMP),
+        ("claimed", en::CLAIMED),
+        ("nation_recorded", en::NATION_RECORDED),
+        ("nation", en::NATION),
+        ("pool", en::POOL),
+        ("wallet", en::WALLET),
+        ("amount", en::AMOUNT),
+        ("paid_slot", en::PAID_SLOT),
+        ("claim_amount", en::CLAIM_AMOUNT),
     ] {
         s.push_str(&format!("{v} {n}\n"));
     }

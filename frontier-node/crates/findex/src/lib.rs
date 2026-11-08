@@ -16,6 +16,7 @@
 pub mod archive;
 pub mod index;
 pub mod ingest;
+pub mod ledger;
 pub mod provenance;
 
 use std::path::{Path, PathBuf};
@@ -33,12 +34,9 @@ pub use ingest::{Enriched, IngestError, LocalnetFeed, RpcPoll, Source};
 /// canonical per-kind lengths of `frontier-abi::log` (W1-F note 5: without
 /// them a payload byte could impersonate a tail).
 pub fn records(tx: &TxRecord, program: &Address) -> Result<Vec<Record>, LogError> {
-    let lens = |k: u8| {
-        frontier_abi::log::Kind::from_u8(k).map(|k| k.spec().key_len() + k.spec().payload_len())
-    };
     bodies_from_logs(&tx.logs, program)?
         .iter()
-        .map(|b| Record::decode_with(b, &lens))
+        .map(|b| Record::decode_v2(b))
         .collect()
 }
 
@@ -78,6 +76,7 @@ impl Findex {
             Archive::open(&dir.join("archive"), segment_bytes).map_err(|e| st(e.to_string()))?;
         let ctx = season_id.map(|id| addr_ctx(&program, id));
         let mut index = Index::open(&dir.join("index.sqlite"), program, ctx).map_err(st)?;
+        index.mark_incomplete().map_err(st)?;
         let mut behind = index.last_seq().map_err(st)?;
         if behind > archive.last_seq() {
             // The index is ahead of the durable archive: a crash inside the
@@ -103,6 +102,10 @@ impl Findex {
                 .map_err(|e| st(e.to_string()))?;
             index.add(&batch).map_err(st)?;
         }
+        if index.last_seq().map_err(st)? != archive.last_seq() {
+            return Err(st("index did not catch up with archive".into()));
+        }
+        index.mark_complete().map_err(st)?;
         Ok(Findex {
             dir: dir.into(),
             archive,
@@ -131,9 +134,18 @@ impl Findex {
         })
     }
 
-    /// Resumes `src` from the archived cursor.
+    /// Resumes `src` from the archived cursor. An archive that holds
+    /// records without a cursor hands the source a marker it cannot read
+    /// (`RpcPoll` then refuses to pull rather than start over, G2).
     pub fn resume<S: Source>(&self, src: &mut S) {
-        src.restore(self.archive.cursor());
+        let c = self.archive.cursor();
+        if c.is_null() && self.archive.last_seq() > 0 {
+            src.restore(
+                &serde_json::json!({ "cursor_missing_after_seq": self.archive.last_seq() }),
+            );
+        } else {
+            src.restore(c);
+        }
     }
 
     /// One pull: archive, then index. Returns the archived records.
@@ -143,15 +155,48 @@ impl Findex {
                 "findex store failed; reopen required".into(),
             ));
         }
+        let indexed = self.index.last_seq().map_err(IngestError::Store)?;
+        if indexed != self.archive.last_seq() {
+            self.index.mark_incomplete().map_err(IngestError::Store)?;
+            return Err(IngestError::Store("index is behind the archive; reopen and resolve the unreadable records before continuing".into()));
+        }
         let got = src.pull().await.map_err(IngestError::Port)?;
         if got.is_empty() {
             return Ok(vec![]);
         }
-        let stored = self.archive.append(&got, src.cursor()).map_err(|e| {
+        // The archive first (the source a reopen catches the index up
+        // from), then the index between its incomplete and complete marks.
+        // Every store write stops this ingester on failure (reopen
+        // required). A stop between the two leaves the index behind the
+        // archive, which open() and the check at the top of ingest() see.
+        let stored = if src.ledger_seq() {
+            self.archive.append_feed(&got, src.cursor())
+        } else {
+            self.archive.append(&got, src.cursor())
+        }
+        .map_err(|e| {
             self.poisoned = true;
             IngestError::Store(e.to_string())
         })?;
+        self.index.mark_incomplete().map_err(|e| {
+            self.poisoned = true;
+            IngestError::Store(e)
+        })?;
         self.index.add(&stored).map_err(|e| {
+            self.poisoned = true;
+            IngestError::Store(e)
+        })?;
+        let caught_up = self.index.last_seq().map_err(|e| {
+            self.poisoned = true;
+            IngestError::Store(e)
+        })?;
+        if caught_up != self.archive.last_seq() {
+            self.poisoned = true;
+            return Err(IngestError::Store(
+                "index did not catch up with archive".into(),
+            ));
+        }
+        self.index.mark_complete().map_err(|e| {
             self.poisoned = true;
             IngestError::Store(e)
         })?;

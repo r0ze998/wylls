@@ -1,0 +1,13 @@
+diff --git a/permutation-server/web/frontier/fcodec.mjs b/permutation-server/web/frontier/fcodec.mjs
+index 380e9ce..5d88ff0 100644
+--- a/permutation-server/web/frontier/fcodec.mjs
++++ b/permutation-server/web/frontier/fcodec.mjs
+@@ -35,7 +35,7 @@ function readField(bytes, dv, base, [, off, len, ty], records = RECORDS) {
+   if (SCALAR[ty]) return SCALAR[ty][1](dv, o);
+   let m = /^\[u8;(\d+)\]$/.exec(ty);
+   if (m) return bytes.slice(o, o + +m[1]);
+-  m = /^\[(u16|u32|u64|i64);(\d+)\]$/.exec(ty);
++  m = /^\[(u16|i16|u32|u64|i64);(\d+)\]$/.exec(ty);
+   if (m) {
+     const [w, rd] = SCALAR[m[1]];
+     return Array.from({ length: +m[2] }, (_, i) => rd(dv, o + i * w));

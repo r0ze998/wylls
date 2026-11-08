@@ -164,9 +164,26 @@ pub fn world(
     crate::ledger::Harness<crate::custody::MockCustody>,
     crate::model::FacilityId,
 ) {
+    world_with(
+        crate::custody::MockCustody::default(),
+        workshops,
+        lent,
+        max_units,
+        policies,
+    )
+}
+
+/// [`world`] over any custody (workstream 10's adapter, for one).
+pub fn world_with<C: Custody + Clone>(
+    custody: C,
+    workshops: u32,
+    lent: u32,
+    max_units: u32,
+    policies: crate::policy::Policies,
+) -> (crate::ledger::Harness<C>, crate::model::FacilityId) {
     use crate::ledger::{Harness, Op};
     use crate::model::GrantId;
-    let mut w = Harness::new(crate::custody::MockCustody::default());
+    let mut w = Harness::new(custody);
     w.add_facility(facility(workshops));
     let f = w.facilities[&SITE_A].id();
     w.apply(

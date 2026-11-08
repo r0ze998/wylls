@@ -1,0 +1,410 @@
+From 1624d14a7a1c9e0cc4fbb2bb3586e157dd5464df Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Fri, 6 Nov 2026 12:44:09 +0000
+Subject: [PATCH] Verifier V26: replay the lot's order bookkeeping from its
+ history
+
+V26:custody-history now also replays what a lot's own fields record of
+its orders, between two recorded states:
+- a new order's id lies in [old NONCE, new NONCE) and there are no more
+  new orders than NONCE moved (set_order gives id NONCE, then moves it);
+- with no order set in between (NONCE unchanged), CONSUMED grew by no
+  more than the use orders already there gave up (only a use order's
+  grantee consumes; returns only lower CONSUMED).
+A break is a FAIL (CustodyHistoryBroken). IN_TOTAL grown beyond what the
+caravans settled since could deliver is UNVERIFIABLE
+(CustodyHistoryUnexplained), not a FAIL: a caravan may have been begun
+and settled between two records. Instructions are still not replayed,
+so a custody season is never a PASS.
+
+tests/custody_history.rs: three forged bookkeepings fail; unexplained
+goods in are unverifiable and not a fail; 9,000 windows of 1-4 composed
+kernel steps never fail (184 are unexplained, as begun and settled
+inside one window). Mutations of the three rules are caught.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01C5Nj2cMNVbfXW4D5Pzsbxg
+---
+ .../crates/verify/src/checks/v26_custody.rs   | 100 ++++++++-
+ frontier-node/crates/verify/src/codes.rs      |   4 +
+ .../crates/verify/tests/custody_history.rs    | 202 +++++++++++++++++-
+ 3 files changed, 303 insertions(+), 3 deletions(-)
+
+diff --git a/frontier-node/crates/verify/src/checks/v26_custody.rs b/frontier-node/crates/verify/src/checks/v26_custody.rs
+index 71178f98..639b8a17 100644
+--- a/frontier-node/crates/verify/src/checks/v26_custody.rs
++++ b/frontier-node/crates/verify/src/checks/v26_custody.rs
+@@ -29,8 +29,9 @@ use frontier_abi::v2::Ix;
+ 
+ use super::{ent, Ctx};
+ use crate::codes::{
+-    CUSTODY_HISTORY_BROKEN, CUSTODY_IN_PROGRAM_WITHOUT_IT, CUSTODY_LOT_BROKEN,
+-    CUSTODY_OVER_CAPACITY, CUSTODY_RULE_UNDECIDED, CUSTODY_UNVERIFIED, CUSTODY_VAULT_COUNTS,
++    CUSTODY_HISTORY_BROKEN, CUSTODY_HISTORY_UNEXPLAINED, CUSTODY_IN_PROGRAM_WITHOUT_IT,
++    CUSTODY_LOT_BROKEN, CUSTODY_OVER_CAPACITY, CUSTODY_RULE_UNDECIDED, CUSTODY_UNVERIFIED,
++    CUSTODY_VAULT_COUNTS,
+ };
+ use crate::Severity;
+ 
+@@ -640,6 +641,56 @@ pub fn lot_transition_findings(prev: &[u8], cur: &[u8]) -> Vec<String> {
+             ));
+         }
+     }
++    // Order bookkeeping. `set_order` gives a new order the id NONCE and
++    // then moves NONCE on; so a new order's id lies in [old NONCE, new
++    // NONCE), and there are no more new orders than NONCE moved.
++    let new_orders: Vec<&K::Order> = b
++        .orders
++        .iter()
++        .zip(a.orders.iter())
++        .filter(|(y, x)| y.kind != K::ORDER_FREE && !(x.kind != K::ORDER_FREE && x.id == y.id))
++        .map(|(y, _)| y)
++        .collect();
++    for y in &new_orders {
++        if y.id < a.nonce || y.id >= b.nonce {
++            out.push(format!(
++                "a new order has id {} outside [{}, {})",
++                y.id, a.nonce, b.nonce
++            ));
++        }
++    }
++    if (new_orders.len() as u64) > (b.nonce as u64).saturating_sub(a.nonce as u64) {
++        out.push(format!(
++            "{} new orders but NONCE moved by {}",
++            new_orders.len(),
++            b.nonce.saturating_sub(a.nonce)
++        ));
++    }
++    // Only a use order's grantee consumes, from that order's remainder.
++    // With no order set in between (NONCE unchanged), what was consumed is
++    // at most what the use orders already there gave up (returns only
++    // lower CONSUMED, so the bound holds for the net change too).
++    if a.nonce == b.nonce {
++        let gave: i64 = a
++            .orders
++            .iter()
++            .zip(b.orders.iter())
++            .filter(|(x, _)| x.kind == K::ORDER_USE)
++            .map(|(x, y)| {
++                if y.kind == x.kind && y.id == x.id {
++                    (x.qty_left - y.qty_left).max(0)
++                } else {
++                    x.qty_left
++                }
++            })
++            .sum();
++        if b.consumed - a.consumed > gave {
++            out.push(format!(
++                "CONSUMED grew by {} with no new order; the use orders gave {gave}",
++                b.consumed - a.consumed
++            ));
++        }
++    }
+     for x in a.inbound.iter().filter(|i| i.live) {
+         if let Some(y) = b.inbound.iter().find(|y| y.is(x.caravan_tag, x.seq)) {
+             if y.qty != x.qty {
+@@ -653,6 +704,36 @@ pub fn lot_transition_findings(prev: &[u8], cur: &[u8]) -> Vec<String> {
+     out
+ }
+ 
++/// What the recorded change does not show the cause of, though no rule
++/// is broken: `IN_TOTAL` grew by more than the caravans expected before
++/// and gone after could deliver (a caravan delivers at most what it was
++/// expected with). The program may have begun and settled one between two
++/// records; without the instructions replayed this is UNVERIFIABLE, not a
++/// FAIL.
++pub fn lot_transition_unexplained(prev: &[u8], cur: &[u8]) -> Vec<String> {
++    use permutation_rules::frontier::custody as K;
++    let (Some(a), Some(b)) = (K::Lot::decode(prev), K::Lot::decode(cur)) else {
++        return vec![];
++    };
++    if a.state == K::LOT_NONE {
++        return vec![];
++    }
++    let settled: i64 = a
++        .inbound
++        .iter()
++        .filter(|x| x.live && !b.inbound.iter().any(|y| y.is(x.caravan_tag, x.seq)))
++        .map(|x| x.qty)
++        .sum();
++    let grew = b.in_total - a.in_total;
++    if grew > settled {
++        vec![format!(
++            "IN_TOTAL grew by {grew}; the caravans settled since could deliver {settled}"
++        )]
++    } else {
++        vec![]
++    }
++}
++
+ /// `V26:custody-history`: every Lot account's recorded states, in
+ /// transaction order (post-states), then the pinned slot, compared pairwise
+ /// by [`lot_transition_findings`]. A FAIL names the transaction that
+@@ -662,6 +743,7 @@ pub fn history(cx: &mut Ctx) {
+     let program = w.program;
+     let mut last: std::collections::BTreeMap<[u8; 32], Vec<u8>> = Default::default();
+     let mut found: Vec<(String, Option<usize>, String)> = vec![];
++    let mut unexplained: Vec<(String, Option<usize>, String)> = vec![];
+     let is_lot = |d: &[u8]| d.get(..8) == Some(&LT::MAGIC[..]);
+     for (t, tx) in w.txs.iter().enumerate() {
+         if !tx.ok {
+@@ -678,6 +760,9 @@ pub fn history(cx: &mut Ctx) {
+                 for what in lot_transition_findings(prev, &a.data) {
+                     found.push((ent("account", k), Some(t), what));
+                 }
++                for what in lot_transition_unexplained(prev, &a.data) {
++                    unexplained.push((ent("account", k), Some(t), what));
++                }
+             }
+             last.insert(*k, a.data.clone());
+         }
+@@ -698,6 +783,17 @@ pub fn history(cx: &mut Ctx) {
+             }
+         }
+     }
++    for (entity, tx, what) in unexplained.into_iter().take(LISTED) {
++        unverifiable(
++            cx,
++            V,
++            CUSTODY_HISTORY_UNEXPLAINED,
++            entity,
++            u32::MAX,
++            tx,
++            what,
++        );
++    }
+     let n = found.len();
+     for (i, (entity, tx, what)) in found.into_iter().enumerate() {
+         if i == LISTED {
+diff --git a/frontier-node/crates/verify/src/codes.rs b/frontier-node/crates/verify/src/codes.rs
+index 52e46925..9e10ef40 100644
+--- a/frontier-node/crates/verify/src/codes.rs
++++ b/frontier-node/crates/verify/src/codes.rs
+@@ -200,3 +200,7 @@ pub const CUSTODY_RULE_UNDECIDED: &str = "CustodyRuleUndecided";
+ /// what every custody step keeps (identity, the running totals that only
+ /// grow, the state's order, an order's terms and remainder).
+ pub const CUSTODY_HISTORY_BROKEN: &str = "CustodyHistoryBroken";
++/// V26 history: a Lot's recorded change whose cause the accounts do not
++/// show (IN_TOTAL grew beyond what the caravans settled since could
++/// deliver). UNVERIFIABLE, never PASS, until the instructions are replayed.
++pub const CUSTODY_HISTORY_UNEXPLAINED: &str = "CustodyHistoryUnexplained";
+diff --git a/frontier-node/crates/verify/tests/custody_history.rs b/frontier-node/crates/verify/tests/custody_history.rs
+index fd406391..13d1a273 100644
+--- a/frontier-node/crates/verify/tests/custody_history.rs
++++ b/frontier-node/crates/verify/tests/custody_history.rs
+@@ -9,7 +9,7 @@ use common::*;
+ use permutation_rules::fixed::MILLI;
+ use permutation_rules::frontier::custody as K;
+ use permutation_rules::frontier::holding::Resource;
+-use verify_core::checks::v26_custody::lot_transition_findings;
++use verify_core::checks::v26_custody::{lot_transition_findings, lot_transition_unexplained};
+ use verify_core::codes::*;
+ use verify_core::{Input, Verdict};
+ 
+@@ -363,3 +363,203 @@ fn random_kernel_histories_never_fail() {
+     }
+     assert!(pairs >= 18_000);
+ }
++
++#[test]
++fn order_bookkeeping_that_no_step_makes_fails() {
++    let s = kernel_states();
++    let prev = s[4]; // after the use: order id 0 set, NONCE 1
++    type Forge = fn(&mut K::Lot);
++    let cases: [(&str, Forge); 3] = [
++        ("a new order with an id from before", |l| {
++            l.orders[1] = l.orders[0];
++            l.orders[1].id = 0;
++            l.orders[1].qty_left = MILLI;
++            l.nonce += 1;
++        }),
++        ("two new orders, NONCE moved by one", |l| {
++            let o = K::Order {
++                kind: K::ORDER_USE,
++                id: 1,
++                qty_left: MILLI,
++                grantee: GRANTEE,
++                expires_bell: 500,
++                ..Default::default()
++            };
++            l.orders[1] = o;
++            l.orders[2] = K::Order { id: 2, ..o };
++            l.nonce += 1;
++        }),
++        ("goods used that no order gave", |l| {
++            l.consumed += 2 * MILLI;
++            l.held -= 2 * MILLI;
++        }),
++    ];
++    for (name, forge) in cases {
++        let mut cur = prev;
++        forge(&mut cur);
++        assert!(
++            !lot_transition_findings(&bytes(&prev), &bytes(&cur)).is_empty(),
++            "{name}"
++        );
++        let (inp, sigs) = recorded(&[bytes(&prev), bytes(&cur)]);
++        let r = verify_core::verify(&inp);
++        assert!(
++            history_fails(&r).iter().any(|(sig, _)| *sig == sigs[1]),
++            "{name}: {}",
++            show(&r)
++        );
++    }
++}
++
++#[test]
++fn goods_in_without_a_caravan_to_explain_them_are_unverifiable_not_fail() {
++    let s = kernel_states();
++    let prev = s[6];
++    let mut cur = prev;
++    cur.in_total += 3 * MILLI;
++    cur.held += 3 * MILLI;
++    assert!(lot_transition_findings(&bytes(&prev), &bytes(&cur)).is_empty());
++    assert_eq!(
++        lot_transition_unexplained(&bytes(&prev), &bytes(&cur)).len(),
++        1
++    );
++    let (inp, _) = recorded(&[bytes(&prev), bytes(&cur)]);
++    let r = verify_core::verify(&inp);
++    assert!(history_fails(&r).is_empty(), "{}", show(&r));
++    assert!(
++        r.findings
++            .iter()
++            .any(|f| f.code == CUSTODY_HISTORY_UNEXPLAINED && !f.fail()),
++        "{}",
++        show(&r)
++    );
++    assert_ne!(r.verdict, Verdict::Pass);
++}
++
++/// Several kernel steps between two recorded states (a transaction with
++/// many instructions, or states not recorded): the FAIL rules must still
++/// never fire on what the program writes.
++#[test]
++fn composed_kernel_steps_never_fail() {
++    let mut x: u64 = 0x2545_F491_4F6C_DD1D;
++    let mut rnd = |n: u64| {
++        x ^= x << 13;
++        x ^= x >> 7;
++        x ^= x << 17;
++        x % n
++    };
++    let (mut windows, mut unexplained) = (0u64, 0u64);
++    for _ in 0..300 {
++        let mut v = view();
++        let mut l = K::open(
++            &mut v,
++            &act(KEEPER),
++            (OWNER, 0xB2),
++            Resource::Ore as u8,
++            40 * MILLI,
++            0,
++            KEEPER,
++        )
++        .unwrap();
++        let (mut bell, mut seq) = (1u32, 1u32);
++        for _ in 0..30 {
++            let prev = bytes(&l);
++            for _ in 0..1 + rnd(4) {
++                bell += rnd(30) as u32;
++                let q = (1 + rnd(8) as i64) * MILLI;
++                let _ = match rnd(8) {
++                    0 => {
++                        seq += 1;
++                        K::begin_inbound(&v, &mut l, (0x70, seq), q)
++                    }
++                    1 => match l
++                        .inbound
++                        .iter()
++                        .find(|i| i.live)
++                        .map(|i| (i.caravan_tag, i.seq, i.qty))
++                    {
++                        Some((t, s, sent)) => K::finish_inbound(
++                            Some(&v),
++                            &mut l,
++                            (t, s),
++                            sent - (rnd(2) as i64 * MILLI).min(sent),
++                        )
++                        .map(|_| ()),
++                        None => Ok(()),
++                    },
++                    2 => {
++                        let spec = K::OrderSpec {
++                            kind: if rnd(3) == 0 {
++                                K::ORDER_SHIP
++                            } else {
++                                K::ORDER_USE
++                            },
++                            grantee: GRANTEE,
++                            qty: q,
++                            expires_bell: bell + 1 + rnd(200) as u32,
++                            dst: K::PlaceRef::vault(9, 9, 1, 1),
++                            purpose: 0,
++                        };
++                        let n = l.nonce;
++                        K::set_order(&v, &mut l, &act(OWNER), rnd(4) as u8, n, &spec, bell)
++                            .map(|_| ())
++                    }
++                    3 => {
++                        let s = rnd(4) as u8;
++                        let o = l.orders[s as usize];
++                        K::consume(
++                            &v,
++                            &mut l,
++                            &act(GRANTEE),
++                            s,
++                            o.id,
++                            q.min(o.qty_left.max(MILLI)),
++                            0,
++                            bell,
++                        )
++                    }
++                    4 => K::return_unused(&v, &mut l, q),
++                    5 => {
++                        let s = rnd(4) as u8;
++                        let o = l.orders[s as usize];
++                        K::revoke_order(&mut l, &act(OWNER), s, o.id, bell).map(|_| ())
++                    }
++                    6 => {
++                        let s = rnd(4) as u8;
++                        let o = l.orders[s as usize];
++                        K::spend_ship(
++                            &v,
++                            &mut l,
++                            &act(GRANTEE),
++                            K::By::Order { slot: s, id: o.id },
++                            q.min(o.qty_left.max(MILLI)),
++                            K::ShipTo::Lot(o.dst),
++                            bell,
++                        )
++                    }
++                    _ => K::spend_ship(
++                        &v,
++                        &mut l,
++                        &act(OWNER),
++                        K::By::Owner,
++                        q,
++                        K::ShipTo::OwnPlace(v.place()),
++                        bell,
++                    ),
++                };
++            }
++            let cur = bytes(&l);
++            assert!(
++                lot_transition_findings(&prev, &cur).is_empty(),
++                "{:?}",
++                lot_transition_findings(&prev, &cur)
++            );
++            unexplained += !lot_transition_unexplained(&prev, &cur).is_empty() as u64;
++            windows += 1;
++        }
++    }
++    println!(
++        "composed windows {windows}, unexplained (begun and settled inside one) {unexplained}"
++    );
++    assert!(windows >= 9_000);
++}
+-- 
+2.43.0
+

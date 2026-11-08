@@ -129,7 +129,7 @@ fn scene(name: &str, setup: Value) -> G {
         owner: OWNER,
         stock,
         inbound: None,
-        facility,
+        facility: Some(facility),
         inputs: r(1, 5),
         outputs: r(6, 3),
         rights_units: 1,
@@ -337,15 +337,17 @@ fn expired_permission_from_patch_0001_holds_the_run() {
     assert_eq!(g.bridge.sent(), 0);
 }
 
-/// The send left and landed, but the gateway's call failed afterwards: its
-/// answer (`failed`) names no signature. The caravan exists (the chain has
-/// it; the test lands it in the simulated world as the oracle of that
-/// chain), yet nothing ties it to the run: held as indeterminate, never a
-/// second send, never "in transit" by guess. This is the gap reported to
-/// workstreams 03 and 05 (return the signature on a failure after signing).
+/// The send left and landed, but the gateway's call failed afterwards. Since
+/// workstream 04's gateway change (2026-11-06) the `failed` answer and its
+/// history entry carry `sent: true` and the signature, so the run follows the
+/// chain's word through `GET /f/agent/fate` (the bridge's `/fate`): delivered
+/// once, never a second send, never "in transit" by guess. (Before the change
+/// this was held as indeterminate; `tests/gateway_facts.rs` keeps that case
+/// for an older gateway.) Not run in workstream 04's 2026-11-06 session: the
+/// bridge generates keys and signs.
 #[test]
 #[ignore = "needs node and permutation-gateway/node_modules; run with --ignored"]
-fn failure_after_signing_without_a_signature_is_held_not_guessed() {
+fn failure_after_signing_is_followed_by_its_signature() {
     let mut g = scene("gw-sendthrows", json!({}));
     g.advance_to_facility_confirmed();
     g.ex.chain.faults.lock().unwrap().push_back("sendThrows");
@@ -358,33 +360,16 @@ fn failure_after_signing_without_a_signature_is_held_not_guessed() {
         .iter()
         .rev()
         .find(|e| e["status"] == json!("failed"))
-        .cloned();
+        .cloned()
+        .expect("a failed entry");
+    assert_eq!(failed["sent"], json!(true), "the bytes left");
     assert!(
-        failed.is_some_and(|e| e["signature"].is_null()),
-        "the gateway records no signature"
+        failed["signature"].is_string(),
+        "the gateway records the signature"
     );
-    // The oracle: what the scripted chain holds, landed in the simulated world.
-    let o = g.bridge.call("GET", "/oracle/sent", json!({}));
-    for s in o["signatures"].as_array().unwrap() {
-        g.ex.chain.land_from_chain(s.as_str().unwrap()).unwrap();
-    }
-    g.sim.with(|w| {
-        assert_eq!(
-            w.caravans.len(),
-            1,
-            "the caravan exists on the (simulated) chain"
-        )
-    });
-    assert!(g.drive(40).is_none());
-    let row = g.run();
-    assert_eq!(
-        row.held.as_deref(),
-        Some("Indeterminate"),
-        "{:?}",
-        row.state
-    );
-    assert!(row.state.in_flight());
-    assert_eq!(g.bridge.sent(), 1, "no second send");
+    assert!(failed["lastValidBlockHeight"].is_u64(), "and its lifetime");
+    assert!(g.drive(60).is_none());
+    assert_shipped_once(&g);
 }
 
 /// The answer is lost and a cancel is requested: the run must not push the
@@ -453,7 +438,7 @@ fn source_other_than_the_village_is_refused_before_any_call() {
         owner: OWNER,
         stock,
         inbound: None,
-        facility,
+        facility: Some(facility),
         inputs: r(1, 5),
         outputs: r(6, 3),
         rights_units: 1,

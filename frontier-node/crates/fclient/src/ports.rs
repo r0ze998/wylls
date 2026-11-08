@@ -94,6 +94,29 @@ pub struct Status {
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct Cursor(pub u64);
 
+/// How far one feed read scanned its ledger, read in the same call as its
+/// records (`frontier_feed` with `{"scan": true}`, workstream 04,
+/// 2026-11-07).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct FeedScan {
+    /// Every ledger entry with `after < seq <= scanned_through` was examined.
+    pub scanned_through: u64,
+    /// The ledger's length at the read (less than `after`: the ledger is
+    /// shorter than the reader's cursor).
+    pub ledger_len: u64,
+    /// The signature of ledger entry `after` at the read (`None` for 0 or no
+    /// such entry).
+    pub at_after: Option<Signature>,
+    /// The ledger's id (`runId`), when the source says.
+    pub run_id: Option<String>,
+    /// The ledger's size in bytes (its write-ahead log; 0 for a ledger kept
+    /// only in memory), when the source says.
+    pub ledger_bytes: Option<u64>,
+    /// Whether every ledger record is synced before it is served (a power
+    /// loss cannot then take back what was read).
+    pub durable: Option<bool>,
+}
+
 /// One transaction of the program, failed ones included, in slot order.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct TxRecord {
@@ -195,6 +218,16 @@ pub trait ChainPort: Send + Sync {
     ) -> impl Future<Output = PortResult<Vec<Option<Status>>>> + Send;
     /// Program transactions (incl. failed) after `after`, in slot order.
     fn feed(&self, after: Cursor) -> impl Future<Output = PortResult<Vec<TxRecord>>> + Send;
+    /// [`ChainPort::feed`] and, from the same read, how far the source's
+    /// ledger was scanned for it ([`FeedScan`]); `None` when the source does
+    /// not say (then nothing past the records themselves is known to have
+    /// been scanned). Workstream 04, 2026-11-07.
+    fn feed_scan(
+        &self,
+        after: Cursor,
+    ) -> impl Future<Output = PortResult<(Vec<TxRecord>, Option<FeedScan>)>> + Send {
+        async move { Ok((self.feed(after).await?, None)) }
+    }
     fn blockhash(&self) -> impl Future<Output = PortResult<(Hash, u64)>> + Send;
 }
 

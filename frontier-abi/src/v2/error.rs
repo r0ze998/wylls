@@ -1,5 +1,6 @@
 //! ABI v2 error codes (MC contract §5.3), **stable forever**: 62–78 (MC)
-//! and 79–86 (S1, 1b), beside
+//! and 79–93 (S1), ⑳'s provisional 170–175 (NFT residents) and custody's
+//! provisional 100–104 (workstream 10; allocation rev 4), beside
 //! M1's 1–61 and 99 ([`crate::error::FrontierError`], unchanged).
 //!
 //! The program returns `ProgramError::Custom(code)` for either enum;
@@ -84,10 +85,40 @@ pub enum CqError {
     ProposalState = 93,
     /// A continuous world cannot be ended by EndSeason.
     ContinuousWorld = 94,
+    /// ⑳ (provisional, `nft-experimental` programs; workstream 4's
+    /// allocation 170–179): the six `resident_auth::Refusal`s.
+    /// The caller of an NFT-resident act did not sign.
+    ResidentNotSigned = 170,
+    /// The Core asset account is not the bound asset, or not a valid asset.
+    ResidentAsset = 171,
+    /// The resident account is not the asset's, or not valid.
+    ResidentAccount = 172,
+    /// The asset lacks the transfer guard (frozen + permanent transfer
+    /// delegate held by the resident program).
+    ResidentUnguarded = 173,
+    /// The signed generation is not the resident's current one (the NFT
+    /// moved since the instruction was signed).
+    ResidentStaleGeneration = 174,
+    /// The signer is neither the asset's current owner nor its current
+    /// session.
+    ResidentNotCurrentAuthority = 175,
+    /// Custody: the vault has no room for the quota, or the lot for the
+    /// caravan (room is reserved at departure).
+    CustodyCapacity = 100,
+    /// Custody: no free order or inbound slot in the lot.
+    CustodyNoSlot = 101,
+    /// Custody: the order has expired, or would run too long.
+    OrderExpired = 102,
+    /// Custody: the lot's vault was seized (another generation): only
+    /// ReconcileLot applies.
+    LotForfeited = 103,
+    /// Custody: the lot still holds goods, expects a caravan or has a live
+    /// order; or a quota below what it holds and expects.
+    LotNotEmpty = 104,
 }
 
 impl CqError {
-    pub const ALL: [CqError; 33] = {
+    pub const ALL: [CqError; 44] = {
         use CqError::*;
         [
             CapturePending,
@@ -123,6 +154,17 @@ impl CqError {
             NotVoter,
             ProposalState,
             ContinuousWorld,
+            CustodyCapacity,
+            CustodyNoSlot,
+            OrderExpired,
+            LotForfeited,
+            LotNotEmpty,
+            ResidentNotSigned,
+            ResidentAsset,
+            ResidentAccount,
+            ResidentUnguarded,
+            ResidentStaleGeneration,
+            ResidentNotCurrentAuthority,
         ]
     };
 
@@ -170,6 +212,17 @@ impl CqError {
             NotVoter => "NotVoter",
             ProposalState => "ProposalState",
             ContinuousWorld => "ContinuousWorld",
+            ResidentNotSigned => "ResidentNotSigned",
+            ResidentAsset => "ResidentAsset",
+            ResidentAccount => "ResidentAccount",
+            ResidentUnguarded => "ResidentUnguarded",
+            ResidentStaleGeneration => "ResidentStaleGeneration",
+            ResidentNotCurrentAuthority => "ResidentNotCurrentAuthority",
+            CustodyCapacity => "CustodyCapacity",
+            CustodyNoSlot => "CustodyNoSlot",
+            OrderExpired => "OrderExpired",
+            LotForfeited => "LotForfeited",
+            LotNotEmpty => "LotNotEmpty",
         }
     }
 
@@ -227,15 +280,17 @@ impl Code {
     }
 }
 
-/// Every v2 code in code order (M1's 1–61, MC's 62–78, S1's 79–90,
-/// then 99).
+/// Every v2 code in code order (M1's 1–61, MC's 62–78, S1's 79–93,
+/// then 99, then ⑳'s 170–175).
 pub fn all_codes() -> impl Iterator<Item = Code> {
     let v1 = FrontierError::ALL.iter().copied();
+    let cq = CqError::ALL.iter().copied();
     v1.clone()
         .filter(|e| e.code() < 99)
         .map(Code::V1)
-        .chain(CqError::ALL.iter().copied().map(Code::Cq))
+        .chain(cq.clone().filter(|e| e.code() < 99).map(Code::Cq))
         .chain(v1.filter(|e| e.code() >= 99).map(Code::V1))
+        .chain(cq.filter(|e| e.code() >= 99).map(Code::Cq))
 }
 
 #[cfg(test)]
@@ -255,24 +310,37 @@ mod tests {
 
     #[test]
     fn codes_are_the_contract_table() {
-        let mut expect = 62u32;
-        for e in CqError::ALL {
+        // 62–94 contiguous (94 ContinuousWorld), then custody's 100–104
+        // and ⑳'s 170–175 (workstream 4's allocation rev 4).
+        let want = (62u32..=94).chain(100..=104).chain(170..=175);
+        for (e, expect) in CqError::ALL.into_iter().zip(want) {
             assert_eq!(e.code(), expect, "{}", e.name());
             assert_eq!(CqError::from_code(expect), Some(e));
             assert_eq!(FrontierError::from_code(expect), None, "no M1 collision");
-            expect += 1;
         }
+        assert_eq!(CqError::ALL.len(), 33 + 5 + 6);
         assert_eq!(CqError::NotLead.code(), 78);
         let all: std::vec::Vec<u32> = all_codes().map(|c| c.code()).collect();
-        assert_eq!(all.len(), 62 + 33);
+        assert_eq!(all.len(), 62 + 33 + 6 + 5);
         assert_eq!(CqError::ContinuousWorld.code(), 94);
+        assert_eq!(CqError::CustodyCapacity.code(), 100);
+        assert_eq!(CqError::LotNotEmpty.code(), 104);
         assert_eq!(CqError::ProposalState.code(), 93);
         assert_eq!(CqError::NotOnTile.code(), 86);
         assert_eq!(CqError::StructureFull.code(), 89);
         assert!(all.windows(2).all(|w| w[0] < w[1]), "code order");
         assert_eq!(all[60], 61);
         assert_eq!(all[61], 62);
-        assert_eq!(*all.last().unwrap(), 99);
+        assert_eq!(all[all.len() - 12], 99);
+        assert_eq!(all[all.len() - 7], 104);
+        assert_eq!(*all.last().unwrap(), 175);
+        for c in (95..=98).chain(105..=169).chain(176..=179) {
+            assert_eq!(Code::from_code(c), None, "{c} is not allocated here");
+        }
+        assert_eq!(
+            Code::from_code(174),
+            Some(Code::Cq(CqError::ResidentStaleGeneration))
+        );
         assert_eq!(Code::from_code(66), Some(Code::Cq(CqError::SiegeCap)));
         assert_eq!(
             Code::from_code(52),
@@ -286,6 +354,10 @@ mod tests {
             Some(Code::Cq(CqError::ContinuousWorld))
         );
         assert_eq!(Code::from_code(95), None);
+        assert_eq!(
+            Code::from_code(104),
+            Some(Code::Cq(CqError::LotNotEmpty))
+        );
         assert_eq!(
             Code::Cq(CqError::FoldTooEarly).keeper_action(),
             KeeperAction::Wait

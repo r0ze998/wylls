@@ -24,7 +24,11 @@
 //! (between the end bell and EndSeason) did not exist at the end: it is
 //! counted with no area and no territory. A counted Province is never read
 //! again (bitmap), and Finalize closes the tally for good. The bitmap
-//! covers rings 0–17, so InitPool refuses a season with `r_max` > 17.
+//! covers rings 0–17, so InitPool refuses a season with `r_max` > 17,
+//! and (map growth) one whose conquest `r_max_ceiling` > 17
+//! (`CeilingPastTally`): ExtendFrontier may raise such a season's map past
+//! the bitmap, and the game program cannot see the pool. The limit stays
+//! 17; a ceiling of at most 17 keeps the whole map inside the tally.
 //!
 //! **Decided** (owner): the winner is the nation holding the most provinces
 //! at the end; 80% of each fee is prize, 20% the operator's. **Provisional**
@@ -46,6 +50,18 @@
 //! | 4 | SetShares(mode u8, total_points [u64;6], root 32, ledger_hash 32) | `[operator s] [pool w]` |
 //! | 5 | Claim(nation u8, points u64, n u8, proof 32×n) | `[wallet s] [pool w] [entry w] [citizen] [vault w] [wallet token w] [mint] [token]` |
 //! | 6 | WithdrawOps | `[operator s] [pool w] [vault w] [operator token w] [mint] [token]` |
+//! | 7 | RecordNation (candidate, workstream 04) | `[pool] [entry w] [citizen]` |
+//!
+//! **RecordNation** (candidate, 2026-11-06; changes no rule and no amount).
+//! A shares claim needs the wallet's nation, which the game keeps in its
+//! Citizen (written once, at Join, never changed). The game's cleanup may
+//! close that Citizen (CloseCitizen, anyone, `end + 72 h`) whether or not
+//! its wallet has claimed, and the claim would then be refused for good.
+//! RecordNation lets anyone copy the nation from the live Citizen into the
+//! wallet's own Entry (bytes 10–11, unused before); a later Claim reads the
+//! live Citizen as before and, only when that Citizen's address is empty,
+//! the recorded nation. Who may claim, how much and until when are
+//! unchanged. Entries without a record behave exactly as before.
 
 use solana_program::{
     account_info::AccountInfo,
@@ -93,6 +109,8 @@ pub mod tag {
     pub const SET_SHARES: u8 = 4;
     pub const CLAIM: u8 = 5;
     pub const WITHDRAW_OPS: u8 = 6;
+    /// Candidate (workstream 04): copy the Citizen's nation into the Entry.
+    pub const RECORD_NATION: u8 = 7;
 }
 
 /// Pool account (640 B, PDA `["pool", game program, le64(season id)]`).
@@ -155,6 +173,11 @@ pub mod entry {
     pub const HDR_MAGIC: usize = 0;
     pub const BUMP: usize = 8;
     pub const CLAIMED: usize = 9;
+    /// 1 once [`super::record_nation`] has copied the Citizen's nation; 0
+    /// on every Entry before it (Pay leaves bytes 10–15 zero).
+    pub const NATION_RECORDED: usize = 10;
+    /// The recorded nation (meaningful only when `NATION_RECORDED == 1`).
+    pub const NATION: usize = 11;
     pub const POOL: usize = 16;
     pub const WALLET: usize = 48;
     pub const AMOUNT: usize = 80;
@@ -185,6 +208,9 @@ pub enum PrizeError {
     /// InitPool: an existing continuous world never reaches Season Ended,
     /// so the old end-dependent prize pool has no safe settlement path.
     ContinuousSeason = 0x112,
+    /// InitPool: the season's `r_max_ceiling` lets ExtendFrontier grow the
+    /// map past [`MAX_RING`] (the tally bitmap's rings 0–17).
+    CeilingPastTally = 0x111,
 }
 
 impl From<PrizeError> for ProgramError {
@@ -442,9 +468,7 @@ fn init_pool(program: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
         }
         season_ends(&sd, solana_program::clock::Clock::get()?.unix_timestamp)?;
         // A map that may grow past the bitmap could never be tallied whole.
-        if u16_at(&sd, S::R_MAX)? > MAX_RING {
-            return Err(E::BadParams.into());
-        }
+        season_rings_fit(&sd)?;
         (u64_at(&sd, S::SEASON_ID)?, u32_at(&sd, S::END_BELL)?)
     };
     let (season_pda, _) =
@@ -815,22 +839,33 @@ fn claim(program: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
             u64_at(&pd, pool::COLLECTED)?,
         )
     } else {
-        // The wallet's Citizen of the game, in a winning nation.
+        // The wallet's Citizen of the game, in a winning nation: the live
+        // Citizen as before; only when its address is empty (closed by the
+        // game's cleanup), the nation recorded from it into the Entry.
         let game = key_at(&pd, pool::GAME_PROGRAM)?;
         let sid = u64_at(&pd, pool::SEASON_ID)?;
-        game_account(citizen, &game, &C::MAGIC, C::SIZE, sid)?;
         let ctx = AddrCtx {
             season: rd(&pd, pool::SEASON)?,
             program: game.to_bytes(),
         };
-        let cd = citizen.try_borrow_data()?;
-        if ctx.citizen(&wallet.key.to_bytes()) != citizen.key.to_bytes()
-            || key_at(&cd, C::WALLET)? != *wallet.key
-        {
+        if ctx.citizen(&wallet.key.to_bytes()) != citizen.key.to_bytes() {
             return Err(E::BadAccount.into());
         }
+        let faction = if is_empty(citizen) {
+            if ed[entry::NATION_RECORDED] != 1 {
+                return Err(E::BadAccount.into());
+            }
+            ed[entry::NATION]
+        } else {
+            game_account(citizen, &game, &C::MAGIC, C::SIZE, sid)?;
+            let cd = citizen.try_borrow_data()?;
+            if key_at(&cd, C::WALLET)? != *wallet.key {
+                return Err(E::BadAccount.into());
+            }
+            cd[C::FACTION]
+        };
         if nation as usize >= FACTIONS
-            || cd[C::FACTION] != nation
+            || faction != nation
             || pd[pool::WINNERS] & (1 << nation) == 0
         {
             return Err(E::NotWinner.into());
@@ -887,6 +922,66 @@ fn claim(program: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
     Ok(())
 }
 
+/// An address with nothing at it: no data, and owned by the System program
+/// or holding no lamports (a closed account).
+fn is_empty(ai: &AccountInfo) -> bool {
+    ai.data_is_empty() && (*ai.owner == SYSTEM_PROGRAM || ai.lamports() == 0)
+}
+
+/// 7 RecordNation (candidate): `[pool] [entry w] [citizen]`, no signer —
+/// anyone may run it, for any Entry, in any pool state. It copies the
+/// nation of the Entry's wallet from that wallet's live game Citizen (at
+/// its address, of the pool's game and season) into the Entry. The game
+/// writes a Citizen's nation once, at Join, so the copy is the value a
+/// Claim would read from the Citizen. Repeating it is a no-op; a different
+/// nation is refused (`BadAccount`). It moves no token and no lamport.
+fn record_nation(program: &Pubkey, a: &[AccountInfo]) -> R<()> {
+    let [pool_ai, entry_ai, citizen] = a else {
+        return Err(ProgramError::NotEnoughAccountKeys);
+    };
+    pool_of(program, pool_ai)?;
+    if entry_ai.owner != program {
+        return Err(E::BadAccount.into());
+    }
+    let pd = pool_ai.try_borrow_data()?;
+    let mut ed = entry_ai.try_borrow_mut_data()?;
+    if ed.len() != entry::SIZE
+        || ed[..8] != entry::MAGIC
+        || key_at(&ed, entry::POOL)? != *pool_ai.key
+    {
+        return Err(E::BadAccount.into());
+    }
+    let wallet = key_at(&ed, entry::WALLET)?;
+    if entry_address(program, pool_ai.key, &wallet).0 != *entry_ai.key {
+        return Err(E::BadAccount.into());
+    }
+    let game = key_at(&pd, pool::GAME_PROGRAM)?;
+    let sid = u64_at(&pd, pool::SEASON_ID)?;
+    let ctx = AddrCtx {
+        season: rd(&pd, pool::SEASON)?,
+        program: game.to_bytes(),
+    };
+    if ctx.citizen(&wallet.to_bytes()) != citizen.key.to_bytes() {
+        return Err(E::BadAccount.into());
+    }
+    game_account(citizen, &game, &C::MAGIC, C::SIZE, sid)?;
+    let cd = citizen.try_borrow_data()?;
+    if key_at(&cd, C::WALLET)? != wallet {
+        return Err(E::BadAccount.into());
+    }
+    let faction = cd[C::FACTION];
+    match ed[entry::NATION_RECORDED] {
+        0 => {
+            ed[entry::NATION_RECORDED] = 1;
+            ed[entry::NATION] = faction;
+        }
+        1 if ed[entry::NATION] == faction => {}
+        _ => return Err(E::BadAccount.into()),
+    }
+    msg!("PRIZE nation wallet={} nation={}", wallet, faction);
+    Ok(())
+}
+
 fn withdraw_ops(program: &Pubkey, a: &[AccountInfo]) -> R<()> {
     let [operator, pool_ai, vault, to, mint, token] = a else {
         return Err(ProgramError::NotEnoughAccountKeys);
@@ -940,6 +1035,7 @@ pub fn process_instruction(program: &Pubkey, a: &[AccountInfo], data: &[u8]) -> 
         tag::SET_SHARES => set_shares(program, a, d),
         tag::CLAIM => claim(program, a, d),
         tag::WITHDRAW_OPS if d.is_empty() => withdraw_ops(program, a),
+        tag::RECORD_NATION if d.is_empty() => record_nation(program, a),
         _ => Err(E::BadData.into()),
     }
 }
@@ -977,12 +1073,56 @@ fn season_ends(sd: &[u8], now_ts: i64) -> R<()> {
     Ok(())
 }
 
+/// InitPool's map check: the season's `r_max` (`BadParams` past
+/// [`MAX_RING`]) and, map growth, its conquest `r_max_ceiling` (0: no
+/// extension; `CeilingPastTally` past [`MAX_RING`]).
+fn season_rings_fit(sd: &[u8]) -> R<()> {
+    if u16_at(sd, S::R_MAX)? > MAX_RING {
+        return Err(E::BadParams.into());
+    }
+    let ceiling = u16_at(
+        sd,
+        frontier_abi::v2::presets::SEASON_CQ_OFFSET
+            + frontier_abi::v2::presets::cq_layout::R_MAX_CEILING,
+    )?;
+    if ceiling > MAX_RING {
+        return Err(E::CeilingPastTally.into());
+    }
+    Ok(())
+}
+
 #[cfg(not(feature = "no-entrypoint"))]
 solana_program::entrypoint!(process_instruction);
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Map growth: a ceiling past ring 17 is refused by name; up to 17 (or
+    /// none) is taken; `r_max` past 17 stays `BadParams`.
+    #[test]
+    fn the_map_must_fit_the_tally_ceiling_included() {
+        let at = frontier_abi::v2::presets::SEASON_CQ_OFFSET
+            + frontier_abi::v2::presets::cq_layout::R_MAX_CEILING;
+        let season = |r_max: u16, ceiling: u16| {
+            let mut d = vec![0u8; S::SIZE];
+            d[S::R_MAX..S::R_MAX + 2].copy_from_slice(&r_max.to_le_bytes());
+            d[at..at + 2].copy_from_slice(&ceiling.to_le_bytes());
+            d
+        };
+        assert_eq!(season_rings_fit(&season(16, 0)), Ok(()));
+        assert_eq!(season_rings_fit(&season(16, 17)), Ok(()));
+        assert_eq!(
+            season_rings_fit(&season(16, 18)),
+            Err(E::CeilingPastTally.into())
+        );
+        assert_eq!(
+            season_rings_fit(&season(16, 128)),
+            Err(E::CeilingPastTally.into())
+        );
+        assert_eq!(season_rings_fit(&season(18, 0)), Err(E::BadParams.into()));
+        assert_eq!(MAX_RING, 17);
+    }
 
     #[test]
     fn old_pool_needs_a_running_finite_world() {

@@ -51,6 +51,41 @@ pub struct RingState {
     pub size: usize,
 }
 
+/// The effective outermost ring: the Season's `r_max`, or the Frontier's
+/// `r_max_ext` once ExtendFrontier raised it (map growth).
+pub fn r_max(f: &Fold) -> Option<u16> {
+    let se = f.season.as_ref()?;
+    let ext = f
+        .account(&f.ctx.frontier())
+        .and_then(|c| Frontier::decode(&c.data).ok())
+        .map_or(0, |fr| fr.r_max_ext);
+    Some(se.r_max.max(ext))
+}
+
+/// The prize program's outermost ring (`permutation_prize::MAX_RING`): its
+/// tally covers rings 0–17 only, and its InitPool refuses a season whose
+/// map may reach beyond (a larger `r_max`, or an extension ceiling above 17).
+/// Shown, never changed, by the herald.
+pub const PRIZE_MAX_RING: u16 = 17;
+
+/// The season's map-growth ceiling (`r_max_ceiling`; 0: no extension, the
+/// map ends at the season's `r_max` as before map growth).
+pub fn r_max_ceiling(f: &Fold) -> u16 {
+    f.season
+        .as_ref()
+        .and_then(|s| s.conquest.as_ref())
+        .map_or(0, |c| c.r_max_ceiling)
+}
+
+/// The season's first-home placement (`placement`; 0: each nation in its
+/// own wedge, 1: dispersed small groups, `geometry::home_nation`).
+pub fn placement(f: &Fold) -> u8 {
+    f.season
+        .as_ref()
+        .and_then(|s| s.conquest.as_ref())
+        .map_or(0, |c| c.placement)
+}
+
 /// `Frontier.rings_opened`, or (before the Frontier is captured) one past
 /// the last seeded ring.
 pub fn rings_opened(f: &Fold) -> u16 {
@@ -94,8 +129,14 @@ pub fn world_json(f: &Fold) -> Option<Value> {
         "v": 1,
         "season": f.cfg.season_id.to_string(),
         "continuous": se.world_continues(),
-        "rMax": se.r_max,
+        "rMax": r_max(f).unwrap_or(se.r_max),
         "rMaxHard": R_MAX_HARD,
+        // map growth: the season's own r_max, the ceiling ExtendFrontier may raise it to (0: none) and the
+        // prize tally's last ring (a season with a prize pool never reaches past it)
+        "rMaxSeason": se.r_max,
+        "rMaxCeiling": r_max_ceiling(f),
+        "prizeMaxRing": PRIZE_MAX_RING,
+        "placement": placement(f),
         "genesisRing": se.genesis_ring,
         "ringsOpened": rings.len(),
         "provinces": f.provinces.len(),
@@ -114,6 +155,8 @@ pub fn world_json(f: &Fold) -> Option<Value> {
             "province": "/h/province/{P},{Q}/latest",
             "overview": "/h/overview2/{d}/latest.bin",
             "roster": "/h/roster/{d}/latest.bin",
+            // the recorded wide world (experimental, read-only; 503 WideWorldUnavailable unless the herald opted in)
+            "wide": "/h/world/wide",
         },
     }))
 }

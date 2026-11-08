@@ -34,7 +34,7 @@
 
 **⑧が先に入る場合の、衝突しない割り当ての一例**（④の参考。⑩は採用していない）：タグ 0xC2–0xCC、記録種別 105–113、エラーは上の (a)〜(c) のどれか。
 
-**適用の確認**：⑩の core パッチ 9 本は、⑱（`0bba3f31`）と②（`dc3bd3d9`）の先端には `git am -3` で全部当たる。⑧（`b519cd18`）には 0001 だけ当たり、0002 で ABI の表（error・tags・log・ix・budgets・prologue とベクタ）が衝突する（[results/apply-probe.log](results/apply-probe.log)）。⑱の `supported()` は `_ => false` なので、custody のタグは追加の分岐なしで「UnverifiedInstruction」になる（読んだだけ、組み合わせてのビルドはしていない）。
+**適用の確認**：⑩の core パッチ 9 本は、⑱（`0bba3f31`）と②（`dc3bd3d9`）の先端には `git am -3` で全部当たる。⑧（`b519cd18`）には 0001 だけ当たり、0002 で ABI の表（error・tags・log・ix・budgets・prologue とベクタ）が衝突する（[results/apply-probe.log](results/apply-probe.log)）。⑱の `supported()` は `_ => false` なので、custody のタグは追加の分岐なしで「UnverifiedInstruction」になる（読んだだけ、組み合わせてのビルドはしていない）。**2026-11-05 訂正**：⑱に当てると `Ctx::unverifiable` が二重定義になり、検証器はコンパイルできない（[09](09-v26-state.ja.md) §5.2）。「当たる」は「ビルドできる」ではなかった。
 
 ## 2. V4 rules とプログラムのハッシュ
 
@@ -49,7 +49,8 @@
 | 区分 | 内容 |
 |---|---|
 | 修正済み | `V26:custody-guard`（core パッチ 0006）：custody の痕跡（着地した custody 命令、`LOT_*` 記録、Lot の CLOSE、Lot・custody の数・custody 欄を持つ口座）は、custody のないシーズンで FAIL、custody シーズンで UNVERIFIABLE。修正前は偽の custody 命令が PASS だった。試験 6 件通過（本日再実行） |
-| 未解決 | V26 の本体（区画・注文・保管品の隊商をカーネルで再判定、改ざん分類）。期間をまたぐ区画の検証（[06](06-continuity.ja.md) C7） |
+| 2026-11-05 追加 | core 差分 0010：口座だけで決まる法則の再判定（`V26:custody-state`、[09](09-v26-state.ja.md)）。法則違反は FAIL、未決の規則は UNVERIFIABLE、シーズンは PASS にならない |
+| 未解決 | V26 の本体（命令の再生による再判定：署名・順序・予約 ≤ 保管・保管品の隊商、改ざん分類）。期間をまたぐ区画の検証（[06](06-continuity.ja.md) C7） |
 | 仕様判断待ち | ⑱の V0（UnverifiedInstruction・UnknownProgramVersion）と目的が重なる。両方残すか、⑩のガードを V0 に寄せるか。組み合わせると、custody のないシーズンで着地した custody 命令は ⑩ の FAIL ＋ ⑱ の Unverifiable で FAIL、custody シーズン（版 5）は ⑱ が UnknownProgramVersion で止める。「V26」という名前も仮 |
 
 ## 4. ⑨との接続（資源・容量予約）
@@ -57,5 +58,6 @@
 | 区分 | 内容 |
 |---|---|
 | 修正済み | 容量予約の範囲を固定した：倉の一般在庫を書くのは SendCaravan の引き落とし・上限つきの SettleCaravan・custody の書き戻しの 3 か所だけで、増えると試験が落ちる（`vault_stock_writers_are_the_listed_ones`）。予約の解放はちょうど一度（`tests/capacity.rs`） |
-| 未解決 | **⑨とは未接続**。⑨のブランチは origin にない。資源は鉱石だけ。加工中の物の状態、成果物の持ち主、他人が A の区画へ返す入口がない。⑨の成果物を倉へ入れる経路は、上の 3 か所と同じ上限処理が要る |
+| 2026-11-05 追加 | ⑨のトレイトを⑩の区画で実装したアダプターと契約試験（[08](08-adapter-09.ja.md)）。以下の「未接続」はオンチェーンについて |
+| 未解決 | **⑨とは未接続（オンチェーン）**。資源は鉱石だけ。加工中の物の状態、成果物の持ち主、他人が A の区画へ返す入口がない。⑨の成果物を倉へ入れる経路は、上の 3 か所と同じ上限処理が要る |
 | 仕様判断待ち | 成果物の持ち主。木材（1）・兵器（`Horses` の欄、4）を許すか（口座の形は変わらない、V4 は変わる）。押収時の区画の扱い（⑩の提案、決定ではない）。②の stock-swap（鉱石・木材と兵器の交換、預かり付き）は⑨・⑩の「利用」と重なるので、④がどちらを使うか決める（番号の衝突はない） |

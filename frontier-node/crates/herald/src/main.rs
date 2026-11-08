@@ -4,6 +4,7 @@
 //! ```text
 //! frontier-herald --data DIR --program B58 --season ID --rpc http://127.0.0.1:41010
 //!     [--listen 127.0.0.1:41040] [--source localnet|rpc] [--cluster localnet]
+//!     [--origin SIG] [--witness URL]   (rpc source: history coverage checks)
 //!     [--web DIR] [--relay 127.0.0.1:41033] [--test-key | --drand-info FILE]
 //!     [--checkpoint-slots 150] [--poll-ms 200] [--quotas JSON]
 //! frontier-herald --fixture conquest --data DIR --listen 127.0.0.1:PORT [--web DIR]
@@ -186,12 +187,39 @@ async fn main_inner() -> Result<(), String> {
     });
     let res = match a.get("source").map(String::as_str).unwrap_or("localnet") {
         "localnet" => {
-            let feed = LocalnetFeed::new(RpcPort::localnet(rpc.clone(), program));
+            // The ledger's id (`frontier_status.runId`): an archive of another
+            // ledger is refused instead of resumed (findex `LocalnetFeed`).
+            let mut feed =
+                LocalnetFeed::new(RpcPort::localnet(rpc.clone(), program)).with_program(program);
+            if let Ok(v) = fclient::rpc::RpcClient::new(rpc.clone())
+                .call("frontier_status", serde_json::json!([]))
+                .await
+            {
+                if let Some(id) = v.get("runId").and_then(|x| x.as_str()) {
+                    feed = feed.with_ledger(id);
+                }
+                // The ledger size now: a later check sees a ledger that shrank.
+                if let Some(b) = v.get("ledgerBytes").and_then(|x| x.as_u64()) {
+                    feed = feed.with_ledger_bytes(b);
+                }
+            }
             let clock = RpcPort::localnet(rpc.clone(), program);
             runner::run(ing, feed, Some(clock), poll, stop).await
         }
         "rpc" => {
-            let src = Enriched::new(RpcPoll::new(rpc.clone(), program), rpc.clone(), program);
+            // G1/G3 checks (findex `RpcPoll::coverage`): without them the
+            // archived range is reported unverifiable, not complete.
+            let mut rpc_poll = RpcPoll::new(rpc.clone(), program);
+            if let Some(o) = a.get("origin") {
+                rpc_poll = rpc_poll.with_origin(
+                    o.parse()
+                        .map_err(|_| format!("--origin {o}: a signature"))?,
+                );
+            }
+            if let Some(w) = a.get("witness") {
+                rpc_poll = rpc_poll.with_witness(w.clone());
+            }
+            let src = Enriched::new(rpc_poll, rpc.clone(), program);
             runner::run(ing, src, Some(RpcPort::new(rpc, program)), poll, stop).await
         }
         s => Err(format!("--source {s}: localnet or rpc")),

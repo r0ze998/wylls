@@ -1,0 +1,13 @@
+# 接続時の世界・partition照合
+
+⑫へ渡すSeasonが正しくても、書込み先memoryが別clusterのときに事実を5件追加できることを独立試験で再現した。また別partitionの本人対応をevidence portに渡してもokを返した。
+
+connectCanonicalはmemory.worldのcluster/world_idを入力世界と照合し、partitionの登録program/seasonも照合する。合わなければ全件保留し、一件もappendしない。resolverFromIdentityのwalletKnownはpartitionを返し、evidence portはmemoryに登録のないpartitionの本人対応をidentity_unverifiedとして拒否する。
+
+これは入力元の認証・RPCの真正性の証明ではない。呼出元のidentity取得・登録表・finality宣言の信頼条件は変えない。NFTの譲渡と過去の本人対応は今回の修正対象外で、確定仕様として扱わない。
+
+## 試験
+
+独立の負の対照2件が修正前失敗、正常対照1件成功。修正後は7件すべて成功（世界ID、partition未登録、program、season不一致を追加）。
+
+Receipt整合性試験20件、既存canonicalとws13-canonicalを合わせ、46件中45成功・1省略。省略は実runexec DB未指定。鍵生成・導出・署名は行っていない。ホスト・固定データのみで、実チェーンや既存ユーザーデータでの検証ではない。

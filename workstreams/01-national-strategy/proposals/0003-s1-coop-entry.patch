@@ -1,0 +1,29 @@
+diff --git a/permutation-server/web/frontier/screens/s1.mjs b/permutation-server/web/frontier/screens/s1.mjs
+index e1059cd..c7f5f8f 100644
+--- a/permutation-server/web/frontier/screens/s1.mjs
++++ b/permutation-server/web/frontier/screens/s1.mjs
+@@ -479,10 +479,24 @@ export function renderS1Village(FS) {
+     ${m.oreStarved ? html`<p class="blocked">${L`工房が鉱石をすべて使っていて、鉱石が増えていません。兵の訓練にも鉱石が要るので、鉱山を建てるまで訓練できなくなります。`}</p>` : ''}
+     ${caravans}${owned}
+     ${fold('s1-send', html`${icon('flag')}${L`隊商を送る`}`, send)}
++    ${coopEntry(m)}
+     ${fort ? fold('s1-fort', html`${icon('shield')}${L`要塞に兵を入れる`}`, fort) : ''}
+     ${nation ? fold('s1-nation', html`${icon('banner')}${L`国の議会`}`, nation) : ''}</section>`;
+ }
+ 
++/**
++ * ①の入口（提案）：国をまたぐ物資の依頼の画面へ、この村を届け先にして開く。依頼に応じても物は動かない。
++ * 物を送るのは上の「隊商を送る」（ほかの人あてはウォレットで署名）だけ。開く先は統合のときに決める（今は①の板の /ws01/）。
++ */
++export const COOP_PAGE = '/ws01/repo/workstreams/01-national-strategy/coop/';
++function coopEntry(m) {
++  const home = m.sources.find(s => s.kind === 'holding');
++  if (!home) return '';
++  const to = [home.p, home.q, home.site, home.gen ?? 0].join(',');
++  return fold('s1-coop', html`${icon('flag')}${L`国をまたぐ依頼`}`, html`<p class="muted">${L`ほかの人に物資を頼む・頼みに応じる画面を開きます。応じても物は自動では動かず、送る義務もありません。送るときは「隊商を送る」から、自分のウォレットで署名します。`}</p>
++    <div class="actions"><a class="btn" href="${COOP_PAGE}?to=${to}" target="_blank" rel="noopener">${L`依頼の画面を開く（この村を届け先に）`}</a></div>`);
++}
++
+ /** A proposal in words. */
+ export function proposalText(x) {
+   if (x.kind === 'stance') return L`${factionName(x.targetFaction)}への方針を「${stanceText(STANCES[x.value] ?? 'war')}」にする`;

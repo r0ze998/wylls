@@ -76,7 +76,9 @@ export class RecordError extends Error {
 }
 const fail = (code, msg) => { throw new RecordError(code, msg); };
 
-const isTag = s => typeof s === 'string' && /^[A-Za-z0-9_-]{1,32}$/.test(s);
+// A tag or principal: a chain citizen tag (16 hex digits) or a wallet address (base58, up to 44 characters; workstream
+// 13 names counterparties by wallet because the citizen tag is derived per Season account). 64 leaves room for both.
+const isTag = s => typeof s === 'string' && /^[A-Za-z0-9_-]{1,64}$/.test(s);
 export const isPartition = s => typeof s === 'string' && /^[A-Za-z0-9_.:-]{1,64}$/.test(s);
 const isBell = n => Number.isInteger(n) && n >= 0 && n < 2 ** 32;
 const isQty = n => Number.isInteger(n) && n > 0 && n < 2 ** 32;

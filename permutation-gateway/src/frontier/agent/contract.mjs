@@ -155,13 +155,19 @@ function parseRoute(x, bad) {
  * key, so a retry returns the same object with `replayed: true`):
  *
  *   { ok, requestId, agentId, status: 'sent'|'refused'|'failed',
- *     signature?, charges: [{category, amount, state}], error?: {code, message},
+ *     sent: boolean,                       // whether signed bytes left the relay (workstream 04)
+ *     signature?, lastValidBlockHeight?, slotFloor?, signedAt?,   // when sent: fixed as the bytes left
+ *     charges: [{category, amount, state}], error?: {code, message},
  *     balance: {available, reserved, spent, withdrawn, pendingWithdraw} }
  *
- * 'sent' means the relay accepted and sent the transaction (its on-chain
- * result is GET /f/tx/{signature}); 'refused' means nothing was sent and
- * nothing was charged; 'failed' means an attempt was made and any charge it
- * carries is listed.
+ * 'sent' means the relay accepted and sent the transaction; 'refused' means
+ * nothing was sent and nothing was charged; 'failed' means an attempt was
+ * made and any charge it carries is listed. A 'failed' with `sent: true`
+ * left the relay signed: it may still land, and its signature and lifetime
+ * are given so the caller can follow it. The chain's answer for either is
+ * GET /f/agent/fate?id=&key= (finalized-only fates, the commitment seen, and
+ * whether the node could be asked); GET /f/tx/{signature} is coarser
+ * (confirmed reads 'landed', and 'expired' is not a proof).
  */
 export const RESULT_STATUS = Object.freeze({ SENT: 'sent', REFUSED: 'refused', FAILED: 'failed' });
 

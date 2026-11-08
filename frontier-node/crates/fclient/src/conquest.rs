@@ -25,6 +25,16 @@ pub const SNAP_RING_HOURS: u32 = p2::SNAP_N as u32;
 /// typed fields.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum CqEvent {
+    /// ⑳ RESIDENT_JOINED (kind 130): an NFT-resident Citizen's start,
+    /// keyed by its resident ID (`sha256("PSF-RES" ‖ asset)[0..15]`).
+    ResidentJoined {
+        resident: [u8; 15],
+        asset: [u8; 32],
+        faction: u8,
+        shard: u8,
+        generation: u32,
+        join_bell: u32,
+    },
     SiegeDeclared {
         p: i32,
         q: i32,
@@ -237,6 +247,9 @@ pub enum CqEvent {
         spawns: u8,
         digest: [u8; 32],
     },
+    /// ExtendFrontier (map growth, kind 104): the season's outermost ring
+    /// raised from `from` to `d` (at most `ceiling`).
+    FrontierExtended { d: u16, from: u16, ceiling: u16 },
     /// A raid RaidDomestic opened (RaidCaravan or DefaultRaid settles it).
     RaidOpened {
         owner_tag: u64,
@@ -381,10 +394,12 @@ impl CqEvent {
             | StructureSeized { p, q, .. }
             | StructureClosed { p, q, .. } => Some((*p, *q)),
             MarchFold { .. }
+            | ResidentJoined { .. }
             | Retire { .. }
             | NationProposed { .. }
             | NationVoted { .. }
-            | NationDecided { .. } => None,
+            | NationDecided { .. }
+            | FrontierExtended { .. } => None,
             CaravanSent { src, .. } => Some((src.p as i32, src.q as i32)),
             CaravanSettled { dst, .. } => Some((dst.p as i32, dst.q as i32)),
         }
@@ -398,8 +413,8 @@ pub struct CqLog {
     pub event: CqEvent,
 }
 
-/// Parses a PS2 body of an MC kind (`None` for an M1 kind or a body that
-/// does not decode).
+/// Parses a PS2 body of an MC kind (`None` for an M1 kind, a custody kind
+/// or a body that does not decode).
 pub fn parse(body: &[u8]) -> Option<CqLog> {
     let r = l2::decode(body).ok()?;
     let AnyKind::Cq(k) = r.kind else {
@@ -421,6 +436,17 @@ pub fn parse(body: &[u8]) -> Option<CqLog> {
     let i = |name: &str| -> Option<i32> { u(name).map(|v| v as u32 as i32) };
     let b8 = |name: &str| -> Option<u8> { u(name).map(|v| v as u8) };
     let event = match k {
+        // Custody (workstream 10): not a conquest event; a custody reader
+        // decodes these records (`frontier_abi::v2::log`, kinds 105–113).
+        CqKind::LOT_OPENED
+        | CqKind::LOT_QUOTA
+        | CqKind::LOT_INBOUND
+        | CqKind::LOT_SHIPPED
+        | CqKind::LOT_SETTLED
+        | CqKind::LOT_ORDER
+        | CqKind::LOT_REVOKED
+        | CqKind::LOT_CONSUMED
+        | CqKind::LOT_LOSS => return None,
         CqKind::SIEGE_DECLARED => CqEvent::SiegeDeclared {
             p: i("p")?,
             q: i("q")?,
@@ -598,6 +624,14 @@ pub fn parse(body: &[u8]) -> Option<CqLog> {
             pend: u("pend")? as u16,
             holding_key: u("holding_key")?,
         },
+        CqKind::RESIDENT_JOINED => CqEvent::ResidentJoined {
+            resident: f("resident")?.try_into().ok()?,
+            asset: f("asset")?.try_into().ok()?,
+            faction: b8("faction")?,
+            shard: b8("shard")?,
+            generation: u("generation")? as u32,
+            join_bell: u("join_bell")? as u32,
+        },
         CqKind::REST => CqEvent::Rest {
             p: i("p")?,
             q: i("q")?,
@@ -607,6 +641,11 @@ pub fn parse(body: &[u8]) -> Option<CqLog> {
             territory: u("territory")? as u32,
             spawns: b8("spawns")?,
             digest: f("digest")?.try_into().ok()?,
+        },
+        CqKind::FRONTIER_EXTENDED => CqEvent::FrontierExtended {
+            d: u("d")? as u16,
+            from: u("from")? as u16,
+            ceiling: u("ceiling")? as u16,
         },
         CqKind::RAID_OPENED => CqEvent::RaidOpened {
             owner_tag: u("owner_tag")?,
@@ -907,6 +946,41 @@ pub fn fold_lag_hours(h: u32, now_bell: u32) -> u32 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// ⑳: a RESIDENT_JOINED body (literal bytes) parses to its fields.
+    #[test]
+    fn resident_joined_parses() {
+        use frontier_abi::v2::log::{write_body, AnyKind, CqKind};
+        let mut payload = [0x5au8; 32].to_vec();
+        payload.extend_from_slice(&[4, 3]);
+        payload.extend_from_slice(&2u32.to_le_bytes());
+        payload.extend_from_slice(&40u32.to_le_bytes());
+        let mut b = vec![0u8; 256];
+        let n = write_body(
+            AnyKind::Cq(CqKind::RESIDENT_JOINED),
+            40,
+            &[9; 15],
+            &payload,
+            &mut b,
+        )
+        .unwrap();
+        b.truncate(n);
+        b.push(0);
+        assert_eq!(
+            parse(&b),
+            Some(CqLog {
+                bell: 40,
+                event: CqEvent::ResidentJoined {
+                    resident: [9; 15],
+                    asset: [0x5a; 32],
+                    faction: 4,
+                    shard: 3,
+                    generation: 2,
+                    join_bell: 40,
+                },
+            })
+        );
+    }
     use frontier_abi::v2::layout::{write_header, AccountKind as K2};
 
     fn province(rn: u32, opened: u32) -> Vec<u8> {

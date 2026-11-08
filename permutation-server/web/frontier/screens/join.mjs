@@ -11,7 +11,8 @@ import { territoryEnabled } from '../territory.mjs';
 import { html, raw } from '../../util.mjs';
 import { L, Lh, fmtNum, lang } from '../../lang.mjs';
 import { factionName, DOCTRINE_NAMES, HOLDING_STATES, failureText } from '../fi18n.mjs';
-import { freeByWedge, ticketTimes, homeWedge } from '../fland.mjs';
+import { freeByNation, ticketTimes } from '../fland.mjs';
+import { homeRingsOpen, seasonPlace } from '../home.mjs';
 import { dueHtml } from './shell.mjs';
 import { leaderFigure, leaderHex, leaderSvg, DOCTRINE_PITCH } from '../people/leaders.mjs';
 import { placeName } from '../people/identity.mjs';
@@ -46,10 +47,18 @@ function renderWallets(FS) {
     ${walletButtons(FS)}</section>`;
 }
 
-/** The faction cards: name, colour, doctrine, free land of the home wedge (an upper bound from the overviews). */
+/**
+ * The faction cards: name, colour, doctrine, free land of the nation's home region (an upper bound from the
+ * overviews, under the season's first-home placement: fland.mjs freeByNation). `free` is null when the placement
+ * cannot be read (the dispersed placement without its seed): the count is unavailable, and the confirm line says so
+ * rather than a number of the wedge. The count stops at the rings a first village may be placed in (home.mjs
+ * homeRingsOpen: the open rings, no further than the heartland on a v2 Season), so land a grown map opened past the
+ * heartland is not counted as a place for a village; with no season record yet the overviews alone bound it.
+ */
 export function factionCards(FS) {
-  const free = freeByWedge(FS.overviews ?? new Map());
-  return FACTIONS.map(f => ({ faction: f, name: factionName(f), doctrine: DOCTRINE_NAMES[f], free: free[homeWedge(f)], chosen: FS.joinDraft?.faction === f }));
+  const open = FS.record?.rings?.length;
+  const free = freeByNation(FS.overviews ?? new Map(), seasonPlace(FS.season), { ringsOpen: Number.isInteger(open) ? homeRingsOpen(FS.season, open) : Infinity });
+  return FACTIONS.map(f => ({ faction: f, name: factionName(f), doctrine: DOCTRINE_NAMES[f], free: free ? free[f] : null, chosen: FS.joinDraft?.faction === f }));
 }
 
 /**
@@ -94,7 +103,7 @@ export function renderNations(FS) {
         : html`<div class="nc-wallet"><span class="nc-wallet-k">${L`始めるには、先にウォレットをつなぎます。`}</span>${walletButtons(FS)}</div>`}
     </div>
     ${instant && FS.homeChoice?.error ? html`<p class="notice error" role="alert">${FS.homeChoice.error.text ?? failureText(FS.homeChoice.error)}</p>` : ''}
-    <p class="nc-note">${territoryEnabled(FS) ? L`国を選ぶだけで始められます。この開発版の進行は、サーバーを再起動すると最初からになります。` : FS.wallet ? L`ウォレットが2回、確認を求めます。ゲーム内の鍵を作るための署名と、参加のための署名です。` : L`ウォレットを使うのは、参加の署名のときだけです。そのあとの操作はこの端末のゲーム内の鍵が署名し、手数料はゲーム側が立て替えます（テスト用の SOL で、価値はありません）。`}${pick ? html` ${L`この国の土地には、村を置ける場所があと約 ${fmtNum(pick.free)} あります。`}` : ''}</p>
+    <p class="nc-note">${territoryEnabled(FS) ? L`国を選ぶだけで始められます。この開発版の進行は、サーバーを再起動すると最初からになります。` : FS.wallet ? L`ウォレットが2回、確認を求めます。ゲーム内の鍵を作るための署名と、参加のための署名です。` : L`ウォレットを使うのは、参加の署名のときだけです。そのあとの操作はこの端末のゲーム内の鍵が署名し、手数料はゲーム側が立て替えます（テスト用の SOL で、価値はありません）。`}${pick ? html` ${pick.free === null ? L`この国の土地に村を置ける場所の数は、いまは分かりません。` : L`この国の土地には、村を置ける場所があと約 ${fmtNum(pick.free)} あります。`}` : ''}</p>
     ${FS.prize && !FS.citizen ? renderJoinTerms(FS) : ''}
   </div>`;
   return html`<section class="nations" aria-labelledby="join-faction">
@@ -314,16 +323,42 @@ function renderInstantPlacing(FS) {
   </section>`;
 }
 
+const shortKey = k => `${String(k).slice(0, 4)}…${String(k).slice(-4)}`;
+
+/**
+ * ⑳ (provisional): the wallet's resident NFTs — one NFT, one Citizen. A
+ * joined NFT is played at once; a new one joins the chosen nation first.
+ * While an NFT is played, the wallet signs every action (no in-game key).
+ */
+export function renderNfts(FS) {
+  if (FS.resident) {
+    return html`<section class="vcard" aria-labelledby="join-nft">${cardHead({ id: 'join-nft', ic: 'seal', title: L`NFTで遊んでいます` })}
+      <p>${L`住民NFT ${shortKey(FS.resident.asset)} の住民として遊んでいます。操作のたびにウォレットが署名を求めます。NFTを譲渡すると、この端末からは操作できなくなります。`}</p>
+      <div class="actions"><button type="button" class="btn" data-act="nft-logout">${L`ウォレットの住民に戻る`}</button></div></section>`;
+  }
+  const list = FS.nfts?.residents ?? [];
+  if (!FS.wallet || !list.length) return '';
+  const pick = Number.isInteger(FS.joinDraft?.faction);
+  return html`<section class="vcard" aria-labelledby="join-nft">${cardHead({ id: 'join-nft', ic: 'seal', title: L`住民NFTで入る` })}
+    <p class="muted">${L`1枚のNFTにつき1人の住民です。NFTを譲渡すると、住民を操作できるのは新しい持ち主だけになります。`}</p>
+    <ul class="wallet-list">${list.map(n => {
+      const ok = Number.isInteger(n.generation);
+      const label = !ok ? L`住民の記録がありません` : n.joined ? L`このNFTで遊ぶ` : pick ? L`このNFTで参加する` : L`国を選ぶと参加できます`;
+      return html`<li><button type="button" class="btn" data-act="nft-login" data-asset="${n.asset}" ${raw(ok && (n.joined || pick) ? '' : 'disabled')}>${label}</button> <span class="muted">${shortKey(n.asset)}</span></li>`;
+    })}</ul></section>`;
+}
+
 /** Keep the nation choice; newer seasons place its first final village immediately. */
 export function render(FS) {
   const stage = FS.land?.stage ?? 'none';
   const instant = Number(FS.season?.programVersion ?? 1) >= 2;
   if (instant && FS.homeGrant?.state === 2) return renderGrant(FS);
-  if (stage === 'none') return renderNations(FS);
+  if (stage === 'none') return html`${renderNfts(FS)}${renderNations(FS)}`;
   if (!FS.wallet) return renderWallets(FS);
   // The key is the owner's agent's (handed over on the agent page): say so, rather than "this device has no game key".
   if (FS.sessionProblem === 'SessionMismatch' && FS.delegation) return renderDelegated(FS.delegation);
-  if (!FS.session || FS.sessionProblem) return renderSessionFix(FS);
+  // ⑳: an NFT Citizen has no in-game key (its wallet signs); no key to fix.
+  if (!FS.resident && (!FS.session || FS.sessionProblem)) return renderSessionFix(FS);
   if (stage === 'ticket') return renderTicket(FS);
   if (stage === 'provisional') return renderProvisional(FS);
   if (stage === 'final') return html`<p>${L`村が確定しました。「村」から始めましょう。`}</p>`;

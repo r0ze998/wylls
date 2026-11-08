@@ -191,6 +191,13 @@ const ERROR_TEXT = {
   NotVoter: () => L`まだ投票や提案はできません（参加から2日たっていないか、国を追放されています）`,
   ProposalState: () => L`この議題には今それはできません（受付が終わった、まだ締め切り前、または対象が条件を満たしません）`,
   ContinuousWorld: () => L`この世界は終わりません。終わりを前提にした操作はできません`,
+  // ⑳ (provisional, NFT residents; codes 170–175)
+  ResidentNotSigned: () => L`住民NFTの持ち主（またはその接続）の署名がありません`,
+  ResidentAsset: () => L`この住民NFTは、この住民のものではないか、正しいNFTではありません`,
+  ResidentAccount: () => L`住民の記録が、このNFTのものではないか、正しくありません`,
+  ResidentUnguarded: () => L`この住民NFTには譲渡の保護がないため、操作できません`,
+  ResidentStaleGeneration: () => L`住民NFTが署名のあとに譲渡されました。今の持ち主として操作し直してください`,
+  ResidentNotCurrentAuthority: () => L`いまの住民NFTの持ち主（またはその接続）だけが操作できます`,
   NotImplemented: () => L`まだ実装されていません`,
 };
 
@@ -281,7 +288,15 @@ const CLIENT_TEXT = {
   WalletError: () => L`ウォレットのエラーです`,
   NoWallet: () => L`ウォレットが接続されていません`,
   NoSession: () => L`ゲーム内の鍵がありません。鍵を作ってください。`,
+  // ⑳ (provisional): NFT residents
+  NftNoSession: () => L`NFTの住民には、ゲーム内の鍵はまだ使えません。操作はウォレットが署名します。`,
+  NftNotHeld: () => L`この住民NFTは、いまこのウォレットにありません。`,
+  PickFaction: () => L`先に国を選んでください。`,
   SessionMismatch: () => L`このゲーム内の鍵は、登録されているものと違います`,
+  ResidentHolderChanged: () => L`この住民の NFT は、いまは別のウォレットが持っています。この鍵では操作できません。`,
+  ResidentSessionStale: () => L`この鍵は、住民の今の持ち主が今の世代で任せた鍵ではありません。持ち主が任せ直す必要があります。`,
+  ResidentSessionExpired: () => L`住民の操作を任せた鍵の期限が切れています。持ち主が任せ直す必要があります。`,
+  ResidentUnverified: () => L`住民の持ち主を確かめられなかったため、送りませんでした。あとでもう一度試してください。`,
   Expired: () => L`取引は期限までに記録されませんでした`,
   Unconfirmed: () => L`取引がまだ確認できません。あとで状態を確かめます。`,
   TransactionFailed: () => L`取引は記録されましたが失敗しました`,

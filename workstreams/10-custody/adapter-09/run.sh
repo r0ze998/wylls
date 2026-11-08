@@ -72,5 +72,76 @@ mutate "a user's move takes the fullest lot in the vault" $L "        let mut lo
         let mut lot = self.lot(v, owner, r).ok_or(CustodyError::Insufficient)?;
         L::spend_ship("
 mutate "a lot reachable from any facility" $L "        if (vault.p, vault.q) != (at.p, at.q) {" "        if false && (vault.p, vault.q) != (at.p, at.q) {"
+mutate "a use order releases twice for one deposit" $L "        if let Some(l) = self.uses.get(&(job, deposit)) {
+            let same" "        if let Some(l) = self.uses.get(&(job, deposit)).filter(|_| false) {
+            let same"
+mutate "a return is booked as a new arrival" $L "        if L::return_unused(&vault.view(), &mut lot, due).is_err() {
+            return 0;
+        }" "        let tr = (RETURN_TAG, TRANSIENT_SEQ - 1);
+        if L::begin_inbound(&vault.view(), &mut lot, tr, due)
+            .and_then(|_| L::finish_inbound(Some(&vault.view()), &mut lot, tr, due))
+            .is_err()
+        {
+            return 0;
+        }"
+mutate "owed goods drop out of the books" $L "        let owed: i64 = if r == Resource::Ore {
+            self.owed.values().sum()
+        } else {
+            0
+        };" "        let owed: i64 = 0;"
+mutate "more can come back than was taken" $L "            if back.checked_add(amount).is_none_or(|n| n > used) {" "            if back.checked_add(amount).is_none_or(|n| n > used + used) {"
 mutate "an actor's move may change the owner" $L "            By::Actor(a) if a != owner => return Err(CustodyError::Forbidden.into())," "            By::Actor(a) if a != owner && false => return Err(CustodyError::Forbidden.into()),"
+
+# ⑨'s own bridge10 at the pinned commit, on this adapter, in a temporary
+# tree (⑨'s code is not copied into this branch, nor patched): the one lot
+# table's returns, rests, replays and restarts, checked on ⑩'s side.
+echo "== ⑨ bridge10 (06c817cc) on this adapter" | tee "$out/with-bridge10.log"
+pin9=06c817cc2704f58b80475ec1f065463ede565aa9
+root="$(git -C "$here" rev-parse --show-toplevel)"
+git -C "$root" cat-file -e "$pin9^{commit}" 2>/dev/null || git -C "$root" fetch -q origin claude/elegant-bohr-co2uhr
+for want in "permutation-rules 9ffca167ec9284f5aeb320003839a12a268a95d5" \
+            "workstreams/09-capacity/kernel f2398a2cfa6458599f9b0b2634ac947d2a047609" \
+            "workstreams/09-capacity/bridge10 7d393b4319a2e4699b3526fe93adca3908ae588a"; do
+  set -- $want
+  [ "$(git -C "$root" rev-parse "$pin9:$1")" = "$2" ] || { echo "$1 tree mismatch at $pin9" | tee -a "$out/with-bridge10.log"; exit 1; }
+done
+dt="$(mktemp -d)"
+trap 'rm -rf "${dt:?}"' EXIT
+git -C "$root" archive "$pin9" permutation-rules workstreams/09-capacity/kernel workstreams/09-capacity/bridge10 | tar -x -C "$dt"
+mkdir -p "$dt/workstreams/10-custody/adapter-09"
+cp -r "$here/../custody" "$dt/workstreams/10-custody/"
+rm -rf "$dt/workstreams/10-custody/custody/target"
+cp -r "$here/Cargo.toml" "$here/Cargo.lock" "$here/rust-toolchain.toml" "$here/src" "$here/with-bridge10" "$dt/workstreams/10-custody/adapter-09/"
+tgt="$(cargo metadata --offline --format-version 1 --no-deps | python3 -c 'import json,sys; print(json.load(sys.stdin)["target_directory"])')"
+wb="$dt/workstreams/10-custody/adapter-09/with-bridge10"
+res="$(cd "$wb" && CARGO_TARGET_DIR="$tgt" BRIDGE_SEEDS="${BRIDGE_SEEDS:-1000}" cargo test --release -- --nocapture 2>&1 || true)"
+grep -E "^seeds|^test |test result: .* [1-9][0-9]* passed|FAILED|panicked" <<<"$res" | tee -a "$out/with-bridge10.log"
+grep -q "5 passed; 0 failed" <<<"$res" || exit 1
+# Mutations of the adapter that ⑨'s own bridge must expose.
+wmut() { # label old new
+  local f="$dt/workstreams/10-custody/adapter-09/src/lib.rs" bak
+  bak="$(mktemp)"; cp "$f" "$bak"
+  python3 - "$f" "$2" "$3" <<'EOF2'
+import sys
+p, o, n = sys.argv[1:4]; s = open(p).read()
+assert s.count(o) == 1, o
+open(p, "w").write(s.replace(o, n, 1))
+EOF2
+  local r
+  r="$(cd "$wb" && CARGO_TARGET_DIR="$tgt" cargo test --release 2>&1 || true)"
+  cp "$bak" "$f"; rm -f "$bak"
+  if grep -qE "FAILED|panicked" <<<"$r"; then echo "caught   $1 (through ⑨'s bridge)" | tee -a "$out/with-bridge10.log"
+  else echo "MISSED   $1 (through ⑨'s bridge)" | tee -a "$out/with-bridge10.log"; exit 1; fi
+}
+wmut "a return is booked as a new arrival" "        if L::return_unused(&vault.view(), &mut lot, due).is_err() {
+            return 0;
+        }" "        let tr = (RETURN_TAG, TRANSIENT_SEQ - 1);
+        if L::begin_inbound(&vault.view(), &mut lot, tr, due)
+            .and_then(|_| L::finish_inbound(Some(&vault.view()), &mut lot, tr, due))
+            .is_err()
+        {
+            return 0;
+        }"
+wmut "the rest is paid as if whole" "        let due = self.owed.get(&(v, owner)).copied().unwrap_or(0) / MILLI * MILLI;" "        let due = (self.owed.get(&(v, owner)).copied().unwrap_or(0) + MILLI - 1) / MILLI * MILLI;"
+wmut "a payment is not booked as returned" "        *self.returned_total.entry((v, owner)).or_default() += due;" ""
 echo "ok"

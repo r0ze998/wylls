@@ -17,6 +17,12 @@ pub const RULES_VERSION_FRONTIER_V2: u16 = 11;
 /// [`ruleset_hash_input_v3`] / [`ruleset_hash_v3`]. The M1 and MC hashes
 /// are unchanged.
 pub const RULES_VERSION_FRONTIER_V3: u16 = 12;
+/// Rules version of S1 with custody (workstream 10: 12 → 13), bound by
+/// [`ruleset_hash_input_v4`] / [`ruleset_hash_v4`]. The S1 hash
+/// (`RULESET_HASH_V3`) is unchanged; no program embeds the v4 hash yet
+/// (an integration decision: a program with the custody instructions
+/// should, under a new program version).
+pub const RULES_VERSION_FRONTIER_V4: u16 = 13;
 
 pub mod addr;
 pub mod arms;
@@ -26,6 +32,7 @@ pub mod caravan;
 pub mod catalog;
 pub mod clash;
 pub mod control;
+pub mod custody;
 pub mod doctrine;
 pub mod explore;
 pub mod fees;
@@ -423,4 +430,57 @@ pub fn ruleset_hash_input_v3() -> alloc::vec::Vec<u8> {
 /// `frontier-abi`'s `RULESET_HASH_V3` test).
 pub fn ruleset_hash_v3() -> [u8; 32] {
     crate::hash::sha256(&[&ruleset_hash_input_v3()])
+}
+
+// ====================================================================
+// S1 with custody (workstream 10, proposal)
+// ====================================================================
+
+/// Domain of the S1-with-custody ruleset hash input.
+pub const RULESET_DOMAIN_V4: &[u8] = b"PSF-RULESET-v4";
+
+/// The S1-with-custody kernel versions: [`KERNEL_VERSIONS_V3`] with the
+/// frontier at [`RULES_VERSION_FRONTIER_V4`], then `custody`.
+pub const KERNEL_VERSIONS_V4: [(&str, u16); 30] = {
+    let mut out = [("custody", custody::CUSTODY_VERSION); 30];
+    let mut i = 0;
+    while i < KERNEL_VERSIONS_V3.len() {
+        out[i] = KERNEL_VERSIONS_V3[i];
+        i += 1;
+    }
+    out[0] = ("frontier", RULES_VERSION_FRONTIER_V4);
+    out
+};
+
+/// Marks the custody tables appended to [`ruleset_hash_input_v4`].
+pub const RULESET_V4_TABLES_TAG: &[u8] = b"CUSTODY-TABLES-v1";
+
+/// The bytes `RULESET_HASH_V4` would be the sha256 of: exactly
+/// [`ruleset_hash_input_v3`] with [`RULESET_DOMAIN_V4`] and
+/// [`KERNEL_VERSIONS_V4`] in place of its domain and versions, then
+/// [`RULESET_V4_TABLES_TAG`] and the custody tables
+/// (`custody::write_tables`). The S1 input is not changed.
+pub fn ruleset_hash_input_v4() -> alloc::vec::Vec<u8> {
+    let v3 = ruleset_hash_input_v3();
+    let mut skip = RULESET_DOMAIN_V3.len() + 1;
+    for (name, _) in KERNEL_VERSIONS_V3 {
+        skip += 1 + name.len() + 2;
+    }
+    let mut out = alloc::vec::Vec::with_capacity(v3.len() + 64);
+    out.extend_from_slice(RULESET_DOMAIN_V4);
+    out.push(KERNEL_VERSIONS_V4.len() as u8);
+    for (name, v) in KERNEL_VERSIONS_V4 {
+        out.push(name.len() as u8);
+        out.extend_from_slice(name.as_bytes());
+        out.extend_from_slice(&v.to_le_bytes());
+    }
+    out.extend_from_slice(&v3[skip..]);
+    out.extend_from_slice(RULESET_V4_TABLES_TAG);
+    custody::write_tables(&mut out);
+    out
+}
+
+/// `sha256(ruleset_hash_input_v4())`.
+pub fn ruleset_hash_v4() -> [u8; 32] {
+    crate::hash::sha256(&[&ruleset_hash_input_v4()])
 }

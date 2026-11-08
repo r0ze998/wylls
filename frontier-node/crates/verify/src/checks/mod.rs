@@ -3,6 +3,7 @@
 //! build leaves check `n` out (the checks of the checks).
 
 pub mod v0_coverage;
+pub mod v0_evidence;
 pub mod v11_land;
 pub mod v12_explore;
 pub mod v13_payments;
@@ -17,6 +18,10 @@ pub mod v22_outposts;
 pub mod v23_caravans;
 pub mod v24_structures;
 pub mod v25_nations;
+pub mod v26_custody;
+pub mod v26_growth;
+pub mod v27_residents;
+pub mod v28_resident_acts;
 pub mod v2_program;
 pub mod v3_random;
 pub mod v4_windows;
@@ -198,6 +203,11 @@ pub fn run(input: &Input) -> Report {
     // instructions and program versions are never a PASS (V0).
     v0_coverage::run(&mut cx);
     ran.push("V0");
+    // The evidence those judgements need: logs present and whole, no
+    // program call the archive does not show, post-states of what was
+    // written (V0E, ⑪).
+    v0_evidence::run(&mut cx);
+    ran.push("V0E");
     macro_rules! check {
         ($feat:literal, $name:literal, $m:ident) => {
             if !cfg!(feature = $feat) {
@@ -256,6 +266,12 @@ pub fn run(input: &Input) -> Report {
         ran.push("V20:season-end");
         v22_outposts::run(&mut cx);
         ran.push("V22:outpost-filing");
+        // Map growth (a local candidate): every ExtendFrontier that stands
+        // alone in its transaction re-judged from the states before it, its
+        // Frontier post-state and its FRONTIER_EXTENDED record; a bundle
+        // with another Frontier writer is MissingData (`v26_growth::guard`).
+        v26_growth::run(&mut cx);
+        ran.push("V26:map-growth");
     }
     // S1 stages 1b, 1d and 1e: vaults, caravans, structures and nations, on
     // an S1 season only.
@@ -266,6 +282,18 @@ pub fn run(input: &Input) -> Report {
         ran.push("V24:structures");
         v25_nations::run(&mut cx);
         ran.push("V25:nations");
+        v27_residents::run(&mut cx);
+        ran.push("V27:residents");
+        v28_resident_acts::run(&mut cx);
+        ran.push("V28:resident-acts");
+    }
+    // Workstream 10: custody has no check yet; any trace of it is never a
+    // PASS (every season: a season without custody FAILs on it).
+    v26_custody::run(&mut cx);
+    ran.push("V26:custody-guard");
+    if v26_custody::custody_season(&cx) {
+        ran.push("V26:custody-state");
+        ran.push("V26:custody-history");
     }
     ran.push("V10");
     counts(&mut cx);
@@ -314,6 +342,7 @@ pub fn run(input: &Input) -> Report {
         liveness: cx.liveness,
         checks_run: ran,
         provenance: input.provenance.clone(),
+        history: None,
     }
 }
 

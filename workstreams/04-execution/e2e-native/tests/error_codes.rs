@@ -164,9 +164,14 @@ fn next_free_numbers() {
         "game program: highest in use {:?}; next free above 61: {next:?}",
         used.iter().filter(|c| **c < 99).max()
     );
+    // The next free number is one past the highest below 99 in use, with no
+    // gap left behind (a gap would mean a number was dropped or skipped).
+    // On base 4cd901de it was 94; ⑧'s ContinuousWorld took 94 in the
+    // integration, so it is 95 there. Adopting a number stays a decision.
+    let top = *used.iter().filter(|c| **c < 99).max().unwrap();
     assert_eq!(
         next.first(),
-        Some(&94),
-        "the base's next free game code (both ⑧ and ⑩ reported 94)"
+        Some(&(top + 1)),
+        "a gap below the highest code in use"
     );
 }

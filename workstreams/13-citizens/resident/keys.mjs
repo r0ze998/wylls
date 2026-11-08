@@ -48,3 +48,27 @@ export function signRecord(domain, body, kp) {
 export function verifyRecord(domain, body, sigB64, publicKey) {
   return verifyTalk(recordBytes(domain, body), Buffer.from(String(sigB64), 'base64'), publicKey);
 }
+
+/**
+ * An identity is what a participant acts as: `address`, and `sign(domain, body)` for its records. A keyed identity
+ * signs with its ed25519 key. A KEYLESS identity (tests only, WS13_KEYLESS=1) has no key at all: its address is the
+ * base58 text of a fixed 32-byte label (an encoding of the label, not a key, nothing derived) and its records are
+ * marked unsigned; only a test world created keyless accepts them (it trusts the port it handed the participant).
+ */
+export function keyIdentity(kp) {
+  return Object.freeze({ keyed: true, keypair: kp, address: addressOf(kp), sign: (domain, body) => signRecord(domain, body, kp) });
+}
+
+export const UNSIGNED = 'unsigned-test-record';
+const KEYLESS_PREFIX = 'ws13-test:';
+
+export function keylessIdentity(label) {
+  const text = `${KEYLESS_PREFIX}${label}`;
+  const bytes = Buffer.alloc(32);
+  if (Buffer.byteLength(text) > 32) throw new Error(`keyless label too long: ${label}`);
+  bytes.write(text);
+  return Object.freeze({ keyed: false, keypair: null, address: base58(bytes), sign: () => UNSIGNED });
+}
+
+/** A keypair or an identity, as an identity. */
+export const toIdentity = x => (typeof x?.sign === 'function' && 'address' in x ? x : keyIdentity(x));

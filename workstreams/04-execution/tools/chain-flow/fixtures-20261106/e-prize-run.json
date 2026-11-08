@@ -1,0 +1,12 @@
+{
+  "stage": "E",
+  "source": "workstreams/04-execution/e2e-native/tests/chain_prize.rs",
+  "nft_citizen": "6TUvpsqCubL6tRZoVuVW1sB9xUJgc8ypQDnU52uDhbgi",
+  "wallet_citizen_of_A": "63hC2n5Az6QsobR4cdV5hZMKqw6vFoxC2voYyiT2otki",
+  "vault_after": 25000000,
+  "claim_A_with_pass_citizen": "Custom(257)",
+  "claim_A_with_wallet_citizen": "Custom(257)",
+  "record_nation_with_pass_citizen": "Custom(257)",
+  "claim_B_after_transfer": "Custom(257)",
+  "prize_error_bad_account": 257
+}

@@ -131,9 +131,15 @@ pub(crate) fn mark_holding(holding: &mut [u8], owner_citizen: &[u8]) -> R<()> {
 /// 0xBB Propose(kind, target_faction, value): P + `[nation w] [target
 /// r|w] [system]` (1e contract §3.3).
 pub fn propose(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
+    propose_as(p, a, d, &super::Auth::Wallet)
+}
+
+/// [`propose`] for the Citizen's wallet or, through `Act`, an NFT
+/// resident's Citizen ([`super::Auth`]).
+pub(crate) fn propose_as(p: &Pubkey, a: &[AccountInfo], d: &[u8], auth: &super::Auth) -> R<()> {
     check_accounts_v2(Ix2::Propose, a, None)?;
     let x = ix2::Propose::decode(d)?;
-    let pl: Player = hold::player(p, a)?;
+    let pl: Player = hold::player_as(p, a, auth)?;
     let [_, payer, season_ai, citizen, nation, target, _system] = a else {
         return Err(FrontierError::TooManyAccounts.into());
     };
@@ -261,12 +267,18 @@ pub fn propose(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
 
 /// 0xBC Vote(slot, id, yes): P + `[nation w]` (1e contract §3.3).
 pub fn vote(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
+    vote_as(p, a, d, &super::Auth::Wallet)
+}
+
+/// [`vote`] for the Citizen's wallet or, through `Act`, an NFT
+/// resident's Citizen ([`super::Auth`]).
+pub(crate) fn vote_as(p: &Pubkey, a: &[AccountInfo], d: &[u8], auth: &super::Auth) -> R<()> {
     check_accounts_v2(Ix2::Vote, a, None)?;
     let x = ix2::Vote::decode(d)?;
     if x.yes > 1 {
         return Err(FrontierError::BadData.into());
     }
-    let pl: Player = hold::player(p, a)?;
+    let pl: Player = hold::player_as(p, a, auth)?;
     let [_, _payer, _season, citizen, nation] = a else {
         return Err(FrontierError::TooManyAccounts.into());
     };

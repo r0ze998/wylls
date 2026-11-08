@@ -30,7 +30,7 @@ use solana_address::Address;
 use fclient::abi::{status, tag, Class};
 use fclient::addr::citizen_tag_u64;
 use fclient::decode::{Citizen, Holding, Province};
-use fclient::ix::{self, Displaced, SeedSource, Site};
+use fclient::ix::{self, CitizenAt, DisplacedAt, SeedSource, Site};
 use fclient::land::{self, SiteOutcome, NO_TICKET};
 use fclient::ports::{ChainPort, PortResult};
 
@@ -48,7 +48,9 @@ pub fn ticket_key(citizen: &Address, ticket_bell: u32, k: u8) -> String {
 #[derive(Clone, Debug)]
 pub struct Candidate {
     pub citizen: Address,
-    pub wallet: Address,
+    /// The Citizen's JoinShard index (its own `JOIN_SHARD`; ⑳: an NFT
+    /// Citizen's comes from its asset, not from its zero wallet).
+    pub shard: u8,
     pub faction: u8,
     pub tag: u64,
     pub ticket_bell: u32,
@@ -225,7 +227,7 @@ impl TicketDuty {
             });
             ready.push(Candidate {
                 citizen: *addr,
-                wallet: c.wallet,
+                shard: c.join_shard,
                 faction: c.faction,
                 tag,
                 ticket_bell: c.ticket_bell,
@@ -380,14 +382,14 @@ impl TicketDuty {
                     // The displaced holder's wallet and faction, checked
                     // against the canonical address (never trusted from a
                     // feed record alone).
-                    let Some((wallet, faction)) =
+                    let Some((at, faction)) =
                         index.citizen_of(port, t.addrs, holder_citizen).await?
                     else {
                         continue;
                     };
-                    let d = Displaced {
+                    let d = DisplacedAt {
                         rent_payer: *holder_rent_payer,
-                        wallet,
+                        at,
                         faction,
                     };
                     self.displacing += 1;
@@ -403,12 +405,16 @@ impl TicketDuty {
         t: &Tick<'_>,
         engine: &mut Engine,
         c: &Candidate,
-        displaced: Option<Displaced>,
+        displaced: Option<DisplacedAt>,
         predicted: &'static str,
     ) {
         let key = ticket_key(&c.citizen, c.ticket_bell, c.k);
         let a = t.addrs.clone();
-        let (wallet, faction, k, tb, src) = (c.wallet, c.faction, c.k, c.ticket_bell, c.src);
+        let at = CitizenAt {
+            citizen: c.citizen,
+            shard: c.shard,
+        };
+        let (faction, k, tb, src) = (c.faction, c.k, c.ticket_bell, c.src);
         let site = Site {
             p: c.site.0,
             q: c.site.1,
@@ -428,10 +434,10 @@ impl TicketDuty {
                 bell: Some(c.ticket_bell),
                 region: Some(ix::region_of(c.site.0 as i32, c.site.1 as i32)),
                 build: Arc::new(move |b: &BuildCtx| {
-                    vec![ix::settle_ticket(
+                    vec![ix::settle_ticket_at(
                         &a,
                         b.payer,
-                        &wallet,
+                        at,
                         faction,
                         k,
                         site,
@@ -505,7 +511,7 @@ mod tests {
     fn cand(tag: u64, score: u64) -> Candidate {
         Candidate {
             citizen: Address::new_from_array([tag as u8; 32]),
-            wallet: Address::new_from_array([0; 32]),
+            shard: 0,
             faction: 0,
             tag,
             ticket_bell: 5,

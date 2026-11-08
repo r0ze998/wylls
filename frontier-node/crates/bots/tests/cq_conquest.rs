@@ -595,6 +595,7 @@ fn legal_homes(f: &CqFixture, faction: u8) -> Vec<(i16, i16, u8)> {
                 BELL,
                 cqfixture::RINGS as u16 + 1,
                 Some(hmr),
+                None,
             )
         })
         .map(|s| (s.p, s.q, s.site))

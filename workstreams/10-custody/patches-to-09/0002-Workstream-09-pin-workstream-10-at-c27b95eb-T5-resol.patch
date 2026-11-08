@@ -1,0 +1,69 @@
+From 1a3efb2ac5debe4904508a6a472aabbae6bda86f Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Fri, 6 Nov 2026 12:46:17 +0000
+Subject: [PATCH] Workstream 09: pin workstream 10 at c27b95eb (T5 resolved;
+ from 10)
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+A patch from workstream 10 for 06c817cc. Workstream 10's c27b95eb
+removed its connect stand-in (CONNECT-10 §6.2 T5) and moved its tests
+onto 09's own bridge10, pinned at 06c817cc: the one lot table's returns,
+sub-unit rests, replays and restarts, checked on 10's side. The adapter's
+API that bridge10 uses is unchanged; custody's tree is unchanged
+(b91cbfdd), adapter-09's is e6a4fbee.
+
+- run.sh: pin 10 at c27b95eb (trees b91cbfdd, e6a4fbee).
+- CONNECT-10: T5 resolved; §7's pin, which still named 52a43745, is
+  the run.sh pin, fetched from 10's branch.
+
+Nothing in 09's code changes. 09's run.sh --no-patch passes on it:
+kernel 43, bridge10 26 (fmt, clippy), 10's adapter 17 on this kernel
+with nine-refused.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01C5Nj2cMNVbfXW4D5Pzsbxg
+---
+ workstreams/09-capacity/CONNECT-10.ja.md | 4 ++--
+ workstreams/09-capacity/run.sh           | 4 ++--
+ 2 files changed, 4 insertions(+), 4 deletions(-)
+
+diff --git a/workstreams/09-capacity/CONNECT-10.ja.md b/workstreams/09-capacity/CONNECT-10.ja.md
+index 0f2eeb32..b8be7ddc 100644
+--- a/workstreams/09-capacity/CONNECT-10.ja.md
++++ b/workstreams/09-capacity/CONNECT-10.ja.md
+@@ -152,7 +152,7 @@
+ | T4 未返却の端数 | 1,000 milli 未満の端数、凍結・満杯で受けられない分は ⑩ の預かり（`owed`）に持ち、整数単位になれば ⑩ の `pay_owed` で入る。bridge の `owed()`・`returned()` は ⑩ の記録を読む | **解決** |
+ | T2 拒否の理由 | ⑩ のアダプターの `nine-refused` で、⑩ の理由を ⑨ の `CustodyError::Refused(u16)` に載せる。`run.sh` は ⑩ の試験をこの feature で回す | **解決**（⑩ の feature として） |
+ | B1・B2 | 通過用の置き場は ⑩ の `use_place`。bridge は ⑩ の `LotCustody` を前提にする | 解決（`a24defcf` から変わらず） |
+-| T5 ⑩ の `connect` と差分試験 | ⑩ の判断 | 残る |
++| T5 ⑩ の `connect` と差分試験 | ⑩ が `c27b95eb` で `connect` を削除し、試験を ⑨ の bridge10（`06c817cc` を pin で取り出し）の上へ移した。⑩ の単一の区画表の返却・端数・再送・再起動を ⑨ のコードで確認する（⑩ `adapter-09/with-bridge10`） | **解決** |
+ 
+ **未決のまま（このパッチも決めていない）：** `MixedSource`（一つの予約は鉱石を一つの出どころから）、木材・兵器を区画で扱うか。
+ 
+@@ -173,4 +173,4 @@
+ workstreams/09-capacity/run.sh --no-patch   # カーネル、デモ、bridge10、⑩ の adapter 試験（⑩は pin から一時取り出し）
+ ```
+ 
+-⑩ の pin は `52a43745b4c06ba184c26634cc9489211c0cc48e`（custody の tree `f11af919…`、adapter-09 の tree `f5784e40…`）。手元に無ければ、`run.sh` が `origin` の `integration/ws09-13-v16-d0949fd4` を取得します。
++⑩ の pin は `c27b95eb28f8ac3f093d84e7a8894affbcdbd556`（custody の tree `b91cbfdd…`、adapter-09 の tree `e6a4fbee…`）。手元に無ければ、`run.sh` が `origin` の `claude/great-babbage-3ogkqu`（⑩ の担当ブランチ）を取得します。
+diff --git a/workstreams/09-capacity/run.sh b/workstreams/09-capacity/run.sh
+index 10b2457c..fbfc591c 100755
+--- a/workstreams/09-capacity/run.sh
++++ b/workstreams/09-capacity/run.sh
+@@ -36,9 +36,9 @@ echo "== bridge10 (09 <-> 10, against workstream 10's pinned crates) =="
+ # under an order in one table (return_unused, owed rests), and their trees
+ # are checked (custody: the kernel; adapter-09: 09's Custody trait on 10's
+ # lots).
+-pin10=b237b581c7068f0f4b36bf9869c304205369a226
++pin10=c27b95eb28f8ac3f093d84e7a8894affbcdbd556
+ tree10=b91cbfdd0da956148cbbecc1f7d639a03999a58c
+-tree10a=b8b5984c06d91b6a6000e5eeb07c9871e64e0627
++tree10a=e6a4fbee376f7d3911899eaca9369574c010b4ae
+ if ! git -C "$root" cat-file -e "$pin10^{commit}" 2>/dev/null; then
+   git -C "$root" fetch -q origin claude/great-babbage-3ogkqu || true
+ fi
+-- 
+2.43.0
+

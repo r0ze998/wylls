@@ -13,6 +13,7 @@ import { ownTag } from './people/ui.mjs';
 import { updateLife } from './people/life.mjs';
 import * as io from './fchainio.mjs';
 import * as fsession from './fsession.mjs';
+import * as fresident from './fresident.mjs';
 import { AGENTS_REFRESH_MS, delegatedTo, loadAgents, refusalNote, takenBackNote } from './fdelegation.mjs';
 import * as book from './marchbook.mjs';
 import { submit, track, accountsFor, campMaskOf, campWinner } from './fplay.mjs';
@@ -26,10 +27,11 @@ import { toggleTile } from './screens/explore.mjs';
 import { composerArrival, composerMarch } from './screens/march.mjs';
 import { sealMarch, unpack, ctHash as ctHashOf, sealRoot as sealRootOf } from './seal.mjs';
 import { bellAt, bellStart, pipeline, archivePartOf, pollCap, roundTime, tlockRound } from './clock.mjs';
-import { regionOf, ringOf, ringProvinces, wedgeOf, hexDistance } from './fgeo.mjs';
+import { regionOf, ringOf, ringProvinces, homeNation, hexDistance } from './fgeo.mjs';
 import { hostParts, hostId } from './faddr.mjs';
 import { decodePage } from './flog.mjs';
 import { nextPoll, BELLS_PER_DAY } from './herald.mjs';
+import { applySeasonRecord, overviewTaken } from './map/world.mjs';
 import { kernel as loadKernel, UNITS } from './wasm.mjs';
 import { uiKey, uiStorage, loadUi, saveUi, landKey, loadLand, saveLand, LAND_DEFAULTS } from './fui.mjs';
 import * as wallet from '../wallet.mjs';
@@ -44,7 +46,7 @@ import { raidOffers, s1VillageModel, s1TileModel, siegeOffer, expelOffer, carava
 import { placeData, raidProvinces, cargoBytes, RAID_CHOICE } from './fplay.mjs';
 import { cachedReach, reachKey, reachableKeeps } from './fkeepreach.mjs';
 import * as fprize from './fprize.mjs';
-import { instantHomeEnabled, HOME_GRANTED, planHomes, homeSites, sameHome, homeKey, loadHome, saveHome, grantId } from './home.mjs';
+import { instantHomeEnabled, HOME_GRANTED, planHomes, homeSites, homeRingsOpen, seasonPlace, sameHome, homeKey, loadHome, saveHome, grantId } from './home.mjs';
 // the prototype rule "banners" (a design tried in the sample world, never sent to a chain): its routes and the reading of its records
 import * as protoIo from './proto/orders.mjs';
 import * as pm from './proto/hand-model.mjs';
@@ -57,10 +59,14 @@ const margin = () => departMargin(FS.chain?.rate);
 const scope = () => io.scope();
 /** Save UI preferences once a season is pinned (convenience only). */
 const saveUiPatch = patch => { const sc = scope(); if (sc) FS.ui = saveUi(uiStorage, uiKey(sc), patch); };
-/** The land record of this season and wallet (fui.mjs; the automatic site ticket's state). */
-const landKeyNow = () => (scope() && FS.wallet?.address ? landKey(scope(), FS.wallet.address) : null);
+/**
+ * The land record of this season and viewer (fui.mjs; the automatic site ticket's state), and the first home's record
+ * (home.mjs): per Citizen, so keyed by the viewer (⑳: the NFT played, else the wallet — `viewerKey`; one wallet may
+ * hold several NFTs, one Citizen each, and a pending PlaceHome or a chosen site of one is not another's).
+ */
+const landKeyNow = () => (scope() && FS.wallet?.address ? landKey(scope(), viewerKey()) : null);
 const readLand = () => { const k = landKeyNow(); FS.landRec = k ? loadLand(uiStorage, k) : (FS.landRec ?? { ...LAND_DEFAULTS }); return FS.landRec; };
-const homeKeyNow = () => scope() ? homeKey(scope(), FS.wallet?.address) : null;
+const homeKeyNow = () => scope() ? homeKey(scope(), viewerKey()) : null;
 const readHome = () => homeKeyNow() ? loadHome(uiStorage, homeKeyNow()) : { selected: null, pending: null, seen: null };
 const saveHomePatch = patch => homeKeyNow() ? saveHome(uiStorage, homeKeyNow(), patch) : null;
 const saveLandPatch = patch => { const k = landKeyNow(); FS.landRec = k ? saveLand(uiStorage, k, patch) : { ...(FS.landRec ?? LAND_DEFAULTS), ...patch }; return FS.landRec; };
@@ -105,7 +111,24 @@ async function refreshDelegation() {
 /** The addresses and signer context of a player action. */
 function ctx(extra = {}) {
   const pin = io.pinned();
-  return { addresses: pin.addresses, wallet: FS.wallet.address, actor: FS.session?.publicKey, faction: FS.citizen?.faction, profile: pin.profile, ...extra };
+  // ⑳: playing an NFT, the owner's wallet acts for the NFT's Citizen.
+  const nft = FS.resident ? fresident.actorContext(FS.resident, FS.wallet.address) : {};
+  return { addresses: pin.addresses, wallet: FS.wallet.address, actor: FS.session?.publicKey, faction: FS.citizen?.faction, profile: pin.profile, ...nft, ...extra };
+}
+
+/** The address `/h/me` and the quota are read for: the NFT played (⑳), else the wallet. */
+const viewerKey = () => FS.resident?.asset ?? FS.wallet?.address;
+const viewerCitizen = () => FS.resident?.citizen ?? io.pinned().addresses.of('Citizen', { wallet: FS.wallet.address });
+
+/** ⑳: the wallet's resident NFTs (GET /f/residents); none when the relay has no resident policy. */
+async function loadNfts() {
+  FS.nfts = null;
+  // Only a season of the nft-experimental program (its program version
+  // carries 0x8000) has residents; other seasons never ask.
+  if (!FS.wallet || !io.relay() || !(Number(FS.season?.programVersion ?? 0) & 0x8000)) return;
+  const r = await fresident.loadResidents(FS.wallet.address).catch(() => null);
+  if (r?.ok && r.policy) FS.nfts = { residents: r.residents, policy: r.policy };
+  invalidate('panel');
 }
 
 /** The send and the follow-up (fplay.mjs); tests put stand-ins here to play a relay and a chain. */
@@ -248,8 +271,18 @@ async function actOnce(name, { v, fields, signer, requester, label, after, onSen
   if (!io.pinned()) return early({ code: 'NoPin' });
   if (!FS.wallet) return early({ code: 'NoWallet' });
   let sign = null;
+  // ⑳: an NFT Citizen has no Frontier session; its owner's wallet signs, for
+  // the generation read fresh now (a transfer since the page loaded changes it).
+  let resident = null;
+  if (FS.resident && signer !== null && name !== 'JoinResident') {
+    if (name === 'SetSession') return early({ code: 'NftNoSession' });
+    const g = await fresident.currentGeneration(FS.wallet.address, FS.resident.asset);
+    if (g === null) return early({ code: 'NftNotHeld' });
+    FS.resident = { ...FS.resident, generation: g };
+    resident = { generation: g, proof: FS.resident.proof };
+  }
   if (signer !== null) {
-    if (name === 'Join' || name === 'SetSession' || signer === 'wallet') {
+    if (name === 'Join' || name === 'JoinResident' || name === 'SetSession' || signer === 'wallet' || resident) {
       const w = wallet.connected();
       if (!w) return early({ code: 'NoWallet' });
       sign = { wallet: w };
@@ -265,7 +298,7 @@ async function actOnce(name, { v, fields, signer, requester, label, after, onSen
   FS.inFlight = (FS.inFlight ?? 0) + 1;
   try {
     const accounts = typeof v === 'function' ? fp => accountsFor(name, v(fp)) : accountsFor(name, ctx(v));
-    const send = () => tx.submit({ name, accounts, fields, signer: sign, requester, citizen: requester ? io.pinned().addresses.of('Citizen', { wallet: FS.wallet.address }) : undefined, invite: v.invite });
+    const send = () => tx.submit({ name, accounts, fields, signer: sign, requester, citizen: requester ? viewerCitizen() : undefined, invite: v.invite, resident });
     let r = await send();
     // the transaction left this browser (a refusal before sending never reaches here)
     if (r.ok) { sent = true; onSent?.(r); fxEmit('action:sent', fxa); }
@@ -463,6 +496,9 @@ export function adoptConnectedWallet(next = wallet.connected()) {
   FS.isMine = () => false;
   FS.prize = null;
   FS.prizePayment = null;
+  // ⑳: a resident NFT chosen under the previous wallet is not this wallet's.
+  FS.resident = null;
+  FS.nfts = null;
   FS.notice = null;
   FS.meStatus = next ? 'loading' : 'ready';
   FS.meError = null;
@@ -486,6 +522,8 @@ async function syncConnectedWallet({ refreshUnchanged = false } = {}) {
       FS.session = restored;
     } catch (e) { console.error('frontier session restore:', e); }
   }
+  // ⑳: the new wallet's resident NFTs (none without a resident policy).
+  if (epoch === walletSyncEpoch) await loadNfts().catch(e => console.error('frontier residents:', e));
   if (epoch === walletSyncEpoch) await refresh();
 }
 
@@ -841,7 +879,10 @@ export function applyMeResult(me) {
     const shown = ['ticket', 'provisional', 'final'].includes(after) || (Number.isInteger(FS.landRec?.lastTicketBell) && Number(me.citizen?.ticketBell) === FS.landRec.lastTicketBell);
     if (FS.landRec?.ticketSeen === false && shown) saveLandPatch({ ticketSeen: true });
     if (me.record?.quota) FS.quota = me.record.quota;
-    if (FS.session && FS.citizen) {
+    // ⑳: an NFT Citizen has no Frontier session (its owner's wallet signs every action; SetSession is refused for
+    // it): there is no key to mend, and the wallet's own key is not held against it
+    if (FS.resident) FS.sessionProblem = null;
+    else if (FS.session && FS.citizen) {
       const m = fsession.matchesCitizen(FS.session, FS.citizen, now());
       FS.sessionProblem = m.ok ? null : m.code;
     }
@@ -872,7 +913,8 @@ export async function refresh() {
   if (FS.wallet) {
     const address = FS.wallet.address;
     const currentViewer = () => request === viewerRefresh && FS.wallet?.address === address;
-    const me = await herald.me(address).catch(e => ({ ok: false, code: e?.code ?? 'Unavailable' }));
+    // ⑳: herald's /h/me/{asset} answers an NFT's Citizen (the wallet's own Citizen first).
+    const me = await herald.me(viewerKey()).catch(e => ({ ok: false, code: e?.code ?? 'Unavailable' }));
     // A previous poll or wallet must not replace the viewer selected by a newer refresh.
     if (!currentViewer()) return;
     if (FS.proto) await refreshProto(me.ok ? me.record : undefined);
@@ -886,9 +928,10 @@ export async function refresh() {
       FS.autoNudgeBell = FS.nowBell;
       io.nudge(h.p, h.q, home.resolvedNext).then(r => { if (r.ok) refreshSoon(4000); }).catch(() => {});
     }
-    // (the prototype rule "banners": the provinces of the viewer's own wedge in ring 2, where a banner of another nation
-    // may be about to rise: their land records are read with the viewer's own, whether or not the map shows them)
-    if (FS.proto && Number.isInteger(FS.citizen?.faction)) for (const pq of ringProvinces(2)) { if (wedgeOf(pq.p, pq.q) === FS.citizen.faction && !(h && h.p === pq.p && h.q === pq.q)) { await loadEnvelope(pq.p, pq.q); if (!currentViewer()) return; } }
+    // (the prototype rule "banners": the provinces of the viewer's own nation in ring 2 (fgeo homeNation under the
+    // season's placement), where a banner of another nation may be about to rise: their land records are read with
+    // the viewer's own, whether or not the map shows them)
+    if (FS.proto && Number.isInteger(FS.citizen?.faction)) { const place = seasonPlace(FS.season); for (const pq of ringProvinces(2)) { if (homeNation(pq.p, pq.q, place) === FS.citizen.faction && !(h && h.p === pq.p && h.q === pq.q)) { await loadEnvelope(pq.p, pq.q); if (!currentViewer()) return; } } }
     // Hosts standing in other provinces (after a march that Stays): their
     // envelopes too, so the Hosts tab can show and command them.
     if (me.ok) for (const pq of hostProvinces(me.record, h ? { p: h.p, q: h.q } : null)) { await loadEnvelope(pq.p, pq.q); if (!currentViewer()) return; }
@@ -902,7 +945,7 @@ export async function refresh() {
     await refreshMarches();
     if (!currentViewer()) return;
     if (FS.citizen && io.pinned()) {
-      const q = await io.quota(io.pinned().addresses.of('Citizen', { wallet: FS.wallet.address }));
+      const q = await io.quota(viewerCitizen());
       if (!currentViewer()) return;
       if (q.ok) FS.quota = q;
     }
@@ -1126,7 +1169,8 @@ export async function refreshHomes({ force = false } = {}) {
   try {
     if (force) FS.overviewsBell = undefined;
     await refreshOverviews(nowBell());
-    const result = await planHomes({ overviews: FS.overviews, faction, nowBell: nowBell(), ringsOpen: conquestEnabled(FS.season) ? Math.min(FS.record?.rings?.length ?? 0, Number(FS.season.conquestParams?.heartlandMaxRing ?? FS.season.heartlandMaxRing ?? 3) + 1) : FS.record?.rings?.length ?? 0,
+    // (the rings a first village may be placed in: the open rings, no further than the heartland: home.mjs homeRingsOpen)
+    const result = await planHomes({ overviews: FS.overviews, faction, nowBell: nowBell(), place: seasonPlace(FS.season), ringsOpen: homeRingsOpen(FS.season, FS.record?.rings?.length ?? 0),
       seed: `${FS.wallet?.address ?? 'visitor'}|${old.rotation ?? 0}`, rotation: old.rotation ?? 0,
       read: async (p, q) => { const env = await loadEnvelope(p, q); return env?.province ?? null; } });
     if (request !== homesRefresh) return;
@@ -1197,20 +1241,31 @@ export async function confirmHome() {
       return error('WrongFaction', L`参加済みの国の土地を選んでください。`);
     }
     const env = await loadEnvelope(site.p, site.q);
-    if (!homeSites(env?.province, { faction: site.faction, nowBell: nowBell(), ringsOpen: FS.record?.rings?.length ?? 0 }).some(s => sameHome(s, site))) {
+    if (!homeSites(env?.province, { faction: site.faction, nowBell: nowBell(), ringsOpen: homeRingsOpen(FS.season, FS.record?.rings?.length ?? 0), place: seasonPlace(FS.season) }).some(s => sameHome(s, site))) {
       FS.homeChoice.selected = null; saveHomePatch({ selected: null });
       return error('SiteUnavailable', L`この土地は現在選べません。候補を更新して別の土地を選んでください。`);
     }
     saveHomePatch({ selected: site });
     if (!FS.citizen) {
-      pending('joining'); FS.joinDraft = { ...(FS.joinDraft ?? {}), faction: site.faction };
-      const joined = await ACTIONS.join();
-      if (!joined?.ok) return;
-      if (!await waitForOwn(() => !!FS.citizen)) return error('PendingHome', L`参加が記録されました。自分の情報の反映を待っています。`);
-      saveHomePatch({ pending: null });
+      pending('joining');
+      if (FS.resident) {
+        // ⑳: an NFT's Citizen is made by its first login (nft-login: JoinResident), never by the wallet Join; it is
+        // on its way from the herald
+        if (!await waitForOwn(() => !!FS.citizen)) return error('PendingHome', L`参加が記録されました。自分の情報の反映を待っています。`);
+      } else {
+        FS.joinDraft = { ...(FS.joinDraft ?? {}), faction: site.faction };
+        const joined = await ACTIONS.join();
+        if (!joined?.ok) return;
+        if (!await waitForOwn(() => !!FS.citizen)) return error('PendingHome', L`参加が記録されました。自分の情報の反映を待っています。`);
+        saveHomePatch({ pending: null });
+      }
+      if (FS.citizen.faction !== site.faction) { FS.homeChoice.selected = null; return error('WrongFaction', L`参加済みの国の土地を選んでください。`); }
     }
     if (FS.holdings?.length) { updateHomeGrant(); return; }
-    if (!FS.session || FS.sessionProblem) {
+    // ⑳: an NFT Citizen has no in-game key (its owner's wallet signs the PlaceHome, for the pass's current
+    // generation): the key step is a wallet Citizen's. (Found in the integration: the page asked the wallet for a key
+    // the program refuses to register for an NFT Citizen, SetSession → NftNoSession, and the village was never placed)
+    if (!FS.resident && (!FS.session || FS.sessionProblem)) {
       await ACTIONS.session(); await refresh();
       if (!FS.session || FS.sessionProblem) return;
     }
@@ -1243,7 +1298,8 @@ export async function autoTicket({ force = false } = {}) {
   if (needsHomeChoice()) { FS.autoTicket = null; return; }
   const stage = FS.land?.stage;
   if (stage !== 'joined' && stage !== 'refugee') { FS.autoTicket = null; return; }
-  if (!FS.session || FS.sessionProblem || !Number.isInteger(FS.citizen?.faction) || FS.autoTicketBusy) return;
+  // (⑳: an NFT Citizen files with its owner's wallet, it has no in-game key to wait for)
+  if ((!FS.resident && (!FS.session || FS.sessionProblem)) || !Number.isInteger(FS.citizen?.faction) || FS.autoTicketBusy) return;
   const b = nowBell();
   const rec = readLand();   // per wallet; another tab may have filed or be filing (review finding 6, re-check 4)
   const filed = rec.lastTicketBell;
@@ -1267,7 +1323,7 @@ export async function autoTicket({ force = false } = {}) {
   try {
     await refreshOverviews(b);
     for (const [k, at] of FS.autoFull ?? []) if (b - at >= AUTO_FULL_BELLS) FS.autoFull.delete(k);
-    const plan = await planTicket({ overviews: FS.overviews ?? new Map(), faction: FS.citizen.faction, ringsOpen: FS.record?.rings?.length ?? 1,
+    const plan = await planTicket({ overviews: FS.overviews ?? new Map(), place: seasonPlace(FS.season), faction: FS.citizen.faction, ringsOpen: FS.record?.rings?.length ?? 1,
       seed: `${FS.wallet?.address ?? ''}|${b}`, nowBell: b, read: (p, q) => readProvinceOnce(p, q, b), skip: new Set((FS.autoFull ?? new Map()).keys()),
       homeFull: homeWedgeFull(FS.record, FS.citizen.faction) });
     FS.autoFull ??= new Map();
@@ -1326,11 +1382,15 @@ async function refreshOverviews(b) {
   FS.overviewsBell = b;
   try {
     const r = await herald.season();
-    if (r?.ok && r.record) { FS.record = r.record; if (r.season) FS.season = r.season; }
+    // (the record, the world's extent and the ring lists move together: map/world.mjs applySeasonRecord. Setting
+    // FS.record alone left FS.world at the boot's copy, so a ring the herald had just put inside the map was still
+    // "outside" to the inspector and the border until the page's own poll)
+    if (r?.ok && r.record) { applySeasonRecord(FS, r.record, { herald, onRings: () => invalidate('map', 'panel') }); if (r.season) FS.season = r.season; }
   } catch { /* keep the last record */ }
   const rings = Math.max(1, FS.record?.rings?.length ?? 1);
   for (let d = FIRST_TICKET_RING; d < rings; d++) {   // rings 0–1 hold no ticket sites (re-check 3)
-    try { const o = await (conquestEnabled(FS.season) && herald.overview2 ? herald.overview2(d) : herald.overview(d)); if (o.ok) FS.overviews.set(d, o); } catch { /* keep the last overview */ }
+    const requestedWorld = FS.world;
+    try { const o = await (conquestEnabled(FS.season) && herald.overview2 ? herald.overview2(d) : herald.overview(d)); if (o.ok && overviewTaken(FS, d, requestedWorld)) { FS.overviews.set(d, o); } } catch { /* keep the last overview */ }
   }
 }
 
@@ -1743,6 +1803,29 @@ export const ACTIONS = {
     finally { connectingWallet = false; }
     await syncConnectedWallet({ refreshUnchanged: true });
   },
+  // ⑳ (provisional): play one of the wallet's resident NFTs — the first login
+  // (JoinResident) when its Citizen does not exist yet in this season.
+  'nft-login': async d => {
+    if (!FS.wallet) return failed({ code: 'NoWallet' });
+    const entry = (FS.nfts?.residents ?? []).find(x => x.asset === d.asset);
+    if (!entry || !FS.nfts.policy) return failed({ code: 'NftNotHeld' });
+    const pin = io.pinned();
+    const id = fresident.identityOf(entry, FS.nfts.policy, { addresses: pin.addresses, programId: pin.programId });
+    if (!Number.isInteger(id.generation)) return failed({ code: 'NftNotHeld' });
+    if (!id.joined) {
+      if (!Number.isInteger(FS.joinDraft?.faction)) return failed({ code: 'PickFaction' });
+      const gate = FS.season.joinGate.some(x => x !== 0) ? toBase58(FS.season.joinGate) : null;
+      const r = await act('JoinResident', {
+        v: { resident: fresident.joinAccounts(id, { addresses: pin.addresses, owner: FS.wallet.address }), joinGate: gate, invite: FS.joinDraft.invite },
+        fields: { generation: id.generation, faction: FS.joinDraft.faction },
+      });
+      if (!r?.ok) return r;
+    }
+    FS.resident = { ...id, joined: true };
+    invalidate('panel');
+    await refresh();
+  },
+  'nft-logout': async () => { FS.resident = null; invalidate('panel'); await refresh(); },
   'pick-faction': d => { FS.joinDraft = { ...(FS.joinDraft ?? {}), faction: num(d.f) }; invalidate('panel'); if (needsHomeChoice()) return refreshHomes({ force: true }); },
   join: async () => {
     const pin = io.pinned();

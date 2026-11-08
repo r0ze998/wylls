@@ -1,0 +1,28 @@
+== tests
+     Running unittests src/lib.rs (/home/user/wylls/permutation-chain/target/release/deps/wylls_custody_adapter_09-61b5e4e7dae36f1d)
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+     Running tests/contract.rs (/home/user/wylls/permutation-chain/target/release/deps/contract-7cbf69d3d8942cf5)
+test a_cancelled_job_returns_its_materials_into_the_lot_through_the_reservation ... ok
+test a_facility_loss_ends_each_reservation_exactly_once ... ok
+test a_fractional_refund_cannot_enter_a_lot_and_goes_elsewhere_without_a_leak ... ok
+test a_seized_vault_freezes_the_lot_and_the_return_goes_elsewhere ... ok
+test a_retired_job_cannot_be_replayed_into_custody ... ok
+test materials_from_a_lot_keep_their_return_room_until_used_up ... ok
+test nobody_but_the_owner_reaches_a_lot ... ok
+test return_room_holds_against_arrivals_and_quota_cuts ... ok
+test a_restart_at_every_step_gives_the_same_world ... ok
+test every_notification_twice_changes_nothing_the_second_time ... ok
+test result: ok. 10 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+     Running tests/interleave.rs (/home/user/wylls/permutation-chain/target/release/deps/interleave-e4de7136a26a5f79)
+test random_interleavings_keep_every_reservation_exact ... ok
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 5.26s
+     Running tests/primitives.rs (/home/user/wylls/permutation-chain/target/release/deps/primitives-57d0dcd3534aa291)
+test a_frozen_or_full_lot_keeps_it_owed ... ok
+test a_use_is_once_per_job_and_deposit ... ok
+test a_restart_keeps_uses_returns_and_what_is_owed ... ok
+test whole_units_come_back_un_consumed_and_the_rest_is_owed ... ok
+test never_more_back_than_was_taken_and_never_from_a_lot ... ok
+test result: ok. 5 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+seeds 2000: applied 105780 refused 415478 dups 189001 restarts 100611 reserved 7412 returned 2363 released(emptied) 4171 released(forgotten) 0 contended 7015
+test result: ok. 1 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 5.14s

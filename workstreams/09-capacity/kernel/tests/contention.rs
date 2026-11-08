@@ -69,7 +69,15 @@ fn check(w: &Harness<MockCustody>, f: FacilityId, now: i64) {
         used_ore += ARMS_RECIPE.used_for(j.settled)[0];
         let (_, out) = w.custody.balance(Place::Output(j.id), ARMS);
         let forfeited = p.lost_at.is_some();
+        // The job's accounts (workstream 10's law) match custody.
+        let a = j.accounts();
+        assert!(a.balanced(), "accounts of {:?}: {a:?}", j.id);
         if !forfeited {
+            assert_eq!(a.output.held, out);
+            assert_eq!(
+                a.inputs[0].held,
+                w.custody.balance(Place::Hopper(j.id), Resource::Ore).1
+            );
             assert_eq!(out, j.settled - j.claimed);
             let rest = if j.refunded { [0, 0] } else { j.rest() };
             assert_eq!(

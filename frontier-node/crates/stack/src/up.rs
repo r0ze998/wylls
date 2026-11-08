@@ -410,6 +410,11 @@ pub fn keeper_toml(
         } else {
             ""
         }
+        + if which == 'a' && cfg.keeper_extend {
+            "extend = true\n"
+        } else {
+            ""
+        }
 }
 
 pub struct Stack {
@@ -1130,6 +1135,8 @@ async fn run_all(st: &mut Stack) -> Result<(), String> {
             ring_theta_bps: st.cfg.ring_theta_bps,
             r_max: st.cfg.r_max,
             continuous: st.cfg.continuous,
+            r_max_ceiling: st.cfg.r_max_ceiling,
+            placement: st.cfg.placement,
         },
         st.prize.as_ref().map(|p| p.gate.pubkey().to_bytes()),
         st.cfg.season_end_bell(),

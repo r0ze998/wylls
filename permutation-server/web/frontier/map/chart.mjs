@@ -20,7 +20,8 @@
 // (tests) every function returns quietly.
 import { FLATTEN, RADIUS, hexPoints, project } from '../../map.mjs';
 import { L } from '../../lang.mjs';
-import { DIRECTIONS, ringOf, ringProvinces, tileHex, wedgeOf, PROVINCE_TILES, locate } from '../fgeo.mjs';
+import { DIRECTIONS, tileHex, PROVINCE_TILES, locate } from '../fgeo.mjs';
+import { homeRegion, homeRegionKeys, placeKey } from './homeland.mjs';
 import { NATION_LAND, YOURS_MARK, nationPale } from '../palette.mjs';
 import { L2, L3, REVEAL_MS, WORKED_RADIUS, hexKey, keyHex } from './survey.mjs';
 import { upright } from './tilt.mjs';
@@ -666,16 +667,23 @@ export function paintReveal(g, { reveals, byKey, res = 1, now = fxNow(), nameAt 
 
 // ------------------------------------------------------------------ marks of the stages
 const wedges = new Map();
-/** The home wedge of `faction` in the open rings: `{fill, edge}` paths (world px), or null. */
-export function wedgePaths(faction, ringsOpen) {
+/**
+ * The home region of `faction` in the open rings (map/homeland.mjs: the wedge, or under the dispersed placement its
+ * scattered provinces, with the wedge past the heartland): `{fill, edge}` paths (world px), or null (no region: a
+ * placement whose seed the page does not have draws nothing, never the wedge). `place`: home.mjs seasonPlace. The
+ * edge is every side of the region's tiles that faces a tile outside it: a dispersed region is outlined province
+ * by province. Kept per nation, rings open, placement and seed.
+ */
+export function wedgePaths(faction, ringsOpen, place = undefined) {
   if (typeof Path2D === 'undefined' || !Number.isInteger(faction)) return null;
-  const key = `${faction}|${ringsOpen}`;
+  const region = homeRegionKeys(faction, ringsOpen, place);
+  if (!region) return null;
+  const key = `${faction}|${ringsOpen}|${placeKey(place)}`;
   if (wedges.has(key)) return wedges.get(key);
-  const inside = (p, q) => wedgeOf(p, q) === faction;
+  const inside = (p, q) => region.has(`${p},${q}`);
   const fill = new Path2D(), edge = new Path2D();
   let any = false;
-  for (let d = 1; d < Math.max(2, ringsOpen); d++) for (const pr of ringProvinces(d)) {
-    if (!inside(pr.p, pr.q)) continue;
+  for (const pr of homeRegion(faction, ringsOpen, place)) {
     any = true;
     for (let i = 0; i < PROVINCE_TILES; i++) {
       const h = tileHex(pr.p, pr.q, i), c = project(h.q, h.r), pts = hexPoints(c.x, c.y, 0);
@@ -683,8 +691,7 @@ export function wedgePaths(faction, ringsOpen) {
       for (let k = 0; k < 6; k++) {
         const [dq, dr] = EDGE_OF[k], at = locate(h.q + dq, h.r + dr);
         if (at.p === pr.p && at.q === pr.q) continue;
-        const ring = ringOf(at.p, at.q);
-        if (inside(at.p, at.q) && ring >= 1 && ring < Math.max(2, ringsOpen)) continue;
+        if (inside(at.p, at.q)) continue;
         const a = pts[(k + 5) % 6], b = pts[k];
         edge.moveTo(a[0], a[1]); edge.lineTo(b[0], b[1]);
       }
@@ -697,9 +704,12 @@ export function wedgePaths(faction, ringsOpen) {
 
 /** The home wedge while its viewer waits for a village: the wash over all of it, the light about the standard, the lamp's pool at its foot (strengths). */
 export const WEDGE_WAIT = Object.freeze({ fill: 0.07, glow: 0.4, lamp: 0.55 });
-/** The viewer's home wedge, outlined in the nation's colour on the chart (a viewer who has joined and has no village yet). */
-export function paintWedge(g, faction, ringsOpen, zoom, { lit = false, wait = null } = {}) {
-  const w = wedgePaths(faction, ringsOpen);
+/**
+ * The viewer's home region, outlined in the nation's colour on the chart (a viewer who has joined and has no village
+ * yet). `place`: the season's placement (home.mjs seasonPlace); without a readable one nothing is painted.
+ */
+export function paintWedge(g, faction, ringsOpen, zoom, { lit = false, wait = null, place = undefined } = {}) {
+  const w = wedgePaths(faction, ringsOpen, place);
   if (!w || !g?.save) return;
   // `wait` {x, y, r}: the viewer waits for a village here (UX brief §13.6): the wedge is not an outline on bare chart
   // but land that is lit, softly, in the nation's colour, most about the standard that stands at (x, y) and fading

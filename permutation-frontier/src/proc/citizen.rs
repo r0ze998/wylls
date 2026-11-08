@@ -88,7 +88,7 @@ use frontier_abi::v2::ix::FileOutpost as V2FileOutpost;
 use frontier_abi::v2::Ix as V2Ix;
 use permutation_rules::frontier::beacon;
 use permutation_rules::frontier::clash::NEUTRAL;
-use permutation_rules::frontier::geometry::ProvinceCoord;
+use permutation_rules::frontier::geometry::{self, ProvinceCoord};
 use permutation_rules::frontier::holding::{
     duplicate_cost, may_found_outpost, Holding, OutpostCheck, OutpostRefusal, Resource, Tier,
     RESOURCES,
@@ -133,11 +133,22 @@ const COHORT_BELLS: u32 = PV::COHORT_BELLS;
 /// canonical address with `actor == wallet` (or the unexpired session when
 /// `session_ok`); the action bucket; `bell < end_bell`. The account flags
 /// were checked by `check_accounts`. Writes the Citizen's bucket.
-pub(crate) fn player(p: &Pubkey, a: &[AccountInfo], now: i64, session_ok: bool) -> R<PlayerCtx> {
+/// Under `auth`: the wallet prologue, or for an NFT resident's Citizen the
+/// resident checks (`super::resident`) in place of the wallet and Frontier
+/// session; the rest is the same.
+pub(crate) fn player_as(
+    p: &Pubkey,
+    a: &[AccountInfo],
+    now: i64,
+    session_ok: bool,
+    auth: &super::Auth,
+) -> R<PlayerCtx> {
     let [actor, payer, season_ai, citizen, ..] = a else {
         return Err(FrontierError::TooManyAccounts.into());
     };
-    let start = {
+    let start = if let Some((proof, generation)) = super::resident::proof_of(auth) {
+        super::resident::start(p, a, proof, generation, session_ok, now)?
+    } else {
         let sd = season_ai.try_borrow_data()?;
         let sv = view(season_ai, &sd);
         let s = ap::read_season(&sv, p.as_array(), now)?;
@@ -163,9 +174,11 @@ fn present_province(ai: &AccountInfo, expected: &[u8; 32], p: &Pubkey, season_id
     prologue::present_v2(ai, p, AccountKindV2::Province, season_id)
 }
 
+/// The key of the Citizen's own records: the wallet tag, or for an NFT
+/// resident's Citizen its resident id (`frontier_abi::resident_citizen`;
+/// provisional). A flagged Citizen that is not a valid NFT Citizen is refused.
 fn tag15_of(citizen: &[u8]) -> R<[u8; 15]> {
-    let wallet: [u8; 32] = Ro(citizen).arr(C::WALLET)?;
-    Ok(addr::citizen_tag15(&wallet))
+    frontier_abi::resident_citizen::record_tag15(citizen).ok_or(BAD_ACCOUNT)
 }
 
 // ------------------------------------------------------------ pure rules
@@ -355,7 +368,11 @@ pub fn join(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
         (
             r.arr::<32>(S::JOIN_GATE)?,
             r.u16(S::RESERVE_BPS)?,
-            r.u16(S::R_MAX)?,
+            // Map growth: a ring can still open up to the ceiling.
+            r.u16(S::R_MAX)?.max(
+                frontier_abi::v2::presets::ConquestParams::of_season(&sd)
+                    .map_or(0, |c| c.r_max_ceiling),
+            ),
         )
     };
     match gate {
@@ -394,8 +411,8 @@ pub fn join(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
         let open = r.u32(FR::OPEN_SITES)? as u64;
         let occupied = r.u32(FR::OCCUPIED_SITES)? as u64;
         let rings = r.u16(FR::RINGS_OPENED)?;
-        let free_ok = open.saturating_sub(occupied) * 10_000 >= reserve_bps as u64 * open;
-        if !free_ok && rings > r_max {
+        let r_max = r_max.max(r.u16(FR::R_MAX_EXT)?);
+        if !super::map::join_capacity_available(open, occupied, reserve_bps, rings, r_max) {
             return Err(FrontierError::Capacity.into());
         }
     }
@@ -466,10 +483,22 @@ pub fn join(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
 /// replace itself: `Auth`); data `session, expiry`, `expiry ≤ now + 30 d`
 /// (`BadData`). Log `SESSION`.
 pub fn set_session(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
+    set_session_as(p, a, d, &super::Auth::Wallet)
+}
+
+/// [`set_session`] for the Citizen's wallet or, through `Act`, an NFT
+/// resident's Citizen ([`super::Auth`]).
+pub(crate) fn set_session_as(p: &Pubkey, a: &[AccountInfo], d: &[u8], auth: &super::Auth) -> R<()> {
+    // An NFT resident's session is set in the resident program, by the
+    // current holder, for the current generation; the Frontier session of
+    // such a Citizen is never read, so it is never set either.
+    if super::resident::proof_of(auth).is_some() {
+        return Err(FrontierError::Auth.into());
+    }
     check_accounts(Ix::SetSession, a, None)?;
     let x = aix::SetSession::decode(d)?;
     let now = prologue::now()?;
-    let pc = player(p, a, now.ts, false)?;
+    let pc = player_as(p, a, now.ts, false, auth)?;
     if x.expiry > now.ts.saturating_add(MAX_SESSION_SECS) {
         return Err(FrontierError::BadData.into());
     }
@@ -500,10 +529,16 @@ pub fn set_session(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
 /// new window takes effect at `siege::change_effective_at(now)` = the
 /// first UTC midnight at or after `now + 24 h` (CL-09). Log `VIGIL`.
 pub fn set_vigil(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
+    set_vigil_as(p, a, d, &super::Auth::Wallet)
+}
+
+/// [`set_vigil`] for the Citizen's wallet or, through `Act`, an NFT
+/// resident's Citizen ([`super::Auth`]).
+pub(crate) fn set_vigil_as(p: &Pubkey, a: &[AccountInfo], d: &[u8], auth: &super::Auth) -> R<()> {
     check_accounts(Ix::SetVigil, a, None)?;
     let x = aix::SetVigil::decode(d)?;
     let now = prologue::now()?;
-    let pc = player(p, a, now.ts, true)?;
+    let pc = player_as(p, a, now.ts, true, auth)?;
     if x.start_min >= DAY_MINUTES {
         return Err(FrontierError::BadData.into());
     }
@@ -644,10 +679,21 @@ pub fn settler_cost(holdings_n: u8) -> R<permutation_rules::frontier::catalog::C
 /// `HARVEST` of the anchor (its stores after the payment; Citizen,
 /// Holding).
 pub fn file_outpost(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
+    file_outpost_as(p, a, d, &super::Auth::Wallet)
+}
+
+/// [`file_outpost`] for the Citizen's wallet or, through `Act`, an NFT
+/// resident's Citizen ([`super::Auth`]).
+pub(crate) fn file_outpost_as(
+    p: &Pubkey,
+    a: &[AccountInfo],
+    d: &[u8],
+    auth: &super::Auth,
+) -> R<()> {
     check_accounts(V2Ix::FileOutpost, a, None)?;
     let x = V2FileOutpost::decode(d)?;
     let now = prologue::now()?;
-    let pc = player(p, a, now.ts, true)?;
+    let pc = player_as(p, a, now.ts, true, auth)?;
     crate::heap::trace_checkpoint(0xA300);
     let [_actor, payer, season_ai, citizen, frontier, rest @ ..] = a else {
         return Err(FrontierError::TooManyAccounts.into());
@@ -750,13 +796,15 @@ pub fn file_outpost(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
     };
     crate::heap::trace_checkpoint(0xA302);
     present_at(frontier, &ctx.frontier(), p, AccountKind::Frontier, hdr.id)?;
-    let (rings_opened, open_sites, occupied) = {
+    let (rings_opened, open_sites, occupied, r_max) = {
         let fd = frontier.try_borrow_data()?;
         let r = Ro(&fd);
         (
             r.u16(FR::RINGS_OPENED)?,
             r.u32(FR::OPEN_SITES)? as u64,
             r.u32(FR::OCCUPIED_SITES)? as u64,
+            // Map growth: the effective outermost ring.
+            r_max.max(r.u16(FR::R_MAX_EXT)?),
         )
     };
     let base = OutpostCheck {
@@ -936,10 +984,16 @@ pub fn file_outpost(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
 /// a ticket settles only after its bell's seed, so no ticket can end in
 /// the bell it was filed.) Log `TICKET` (Citizen, the m Provinces).
 pub fn file_ticket(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
+    file_ticket_as(p, a, d, &super::Auth::Wallet)
+}
+
+/// [`file_ticket`] for the Citizen's wallet or, through `Act`, an NFT
+/// resident's Citizen ([`super::Auth`]).
+pub(crate) fn file_ticket_as(p: &Pubkey, a: &[AccountInfo], d: &[u8], auth: &super::Auth) -> R<()> {
     check_accounts(Ix::FileTicket, a, None)?;
     let x = aix::FileTicket::decode(d)?;
     let now = prologue::now()?;
-    let pc = player(p, a, now.ts, true)?;
+    let pc = player_as(p, a, now.ts, true, auth)?;
     crate::heap::trace_checkpoint(300);
     let [_actor, payer, season_ai, citizen, frontier, rest @ ..] = a else {
         return Err(FrontierError::TooManyAccounts.into());
@@ -981,9 +1035,15 @@ pub fn file_ticket(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
             r.u32(FR::WEDGE_OCCUPIED + 4 * faction as usize)?,
         )
     };
-    let r_max = {
+    let (r_max, placement, heartland_max_ring, genesis_seed) = {
         let sd = season_ai.try_borrow_data()?;
-        Ro(&sd).u16(S::R_MAX)?
+        let cq = season_cq(&sd)?;
+        (
+            super::map::effective_r_max(&sd, &frontier.try_borrow_data()?)?,
+            cq.placement,
+            cq.heartland_max_ring,
+            Ro(&sd).arr::<32>(S::GENESIS_SEED)?,
+        )
     };
     let n = x.n as usize;
     let mut sites = [(0i16, 0i16, 0u8); 3];
@@ -998,7 +1058,14 @@ pub fn file_ticket(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
             return Err(FrontierError::BadData.into());
         }
         let w = c.wedge().ok_or(FrontierError::BadData)?;
-        if !wedge_allowed(faction, w, ring, own_open, own_occ, rings_opened) {
+        if !ticket_nation_allowed(
+            c,
+            faction,
+            placement,
+            heartland_max_ring,
+            &genesis_seed,
+            wedge_allowed(faction, w, ring, own_open, own_occ, rings_opened),
+        ) {
             return Err(FrontierError::BadData.into());
         }
         let e = (s.p, s.q, s.site);
@@ -1146,12 +1213,20 @@ pub fn home_site(province: &[u8], site: u8, now_bell: u32) -> R<(u8, u8)> {
 /// 0x38 PlaceHome(P, Q, site): P + [frontier r, province w, holding w,
 /// joinshard w, system]. Program-version 3 seasons only. A sponsor funds
 /// the real Holding account; an unexpired session can place for its citizen.
-/// Legacy FileTicket/SettleTicket remains available and unchanged.
+/// Legacy FileTicket/SettleTicket remains available and unchanged. The
+/// JoinShard counts the home under the province's wedge ([`holding_wedge`],
+/// as SettleTicket does), which is the nation only under placement 0.
 pub fn place_home(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
+    place_home_as(p, a, d, &super::Auth::Wallet)
+}
+
+/// [`place_home`] for the Citizen's wallet or, through `Act`, an NFT
+/// resident's Citizen ([`super::Auth`]).
+pub(crate) fn place_home_as(p: &Pubkey, a: &[AccountInfo], d: &[u8], auth: &super::Auth) -> R<()> {
     check_accounts(V2Ix::PlaceHome, a, None)?;
     let x = aix::PlaceHome::decode(d)?;
     let now = prologue::now()?;
-    let pc = player(p, a, now.ts, true)?;
+    let pc = player_as(p, a, now.ts, true, auth)?;
     let [_, payer, season_ai, citizen, frontier, province, holding, shard, _system] = a else {
         return Err(FrontierError::TooManyAccounts.into());
     };
@@ -1167,13 +1242,19 @@ pub fn place_home(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
             r.u64(C::CITIZEN_TAG)?,
         )
     };
-    let (r_max, home_max_ring) = {
+    let (r_max, home_max_ring, placement, genesis_seed) = {
         let sd = season_ai.try_borrow_data()?;
         let r = Ro(&sd);
         if r.u16(S::PROGRAM_VERSION)? != crate::PROGRAM_VERSION {
             return Err(FrontierError::RulesetMismatch.into());
         }
-        (r.u16(S::R_MAX)?, season_cq(&sd)?.heartland_max_ring)
+        let cq = season_cq(&sd)?;
+        (
+            r.u16(S::R_MAX)?,
+            cq.heartland_max_ring,
+            cq.placement,
+            r.arr::<32>(S::GENESIS_SEED)?,
+        )
     };
     let coord = ProvinceCoord::checked(x.p as i32, x.q as i32, r_max)
         .map_err(|_| FrontierError::BadData)?;
@@ -1183,7 +1264,12 @@ pub fn place_home(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
     present_at(frontier, &ctx.frontier(), p, AccountKind::Frontier, hdr.id)?;
     {
         let fd = frontier.try_borrow_data()?;
-        if coord.ring() >= Ro(&fd).u16(FR::RINGS_OPENED)? as u32 || coord.wedge() != Some(faction) {
+        // The season's placement names the nation of a heartland province
+        // (`home_nation`: the wedge under the wedge placement).
+        if coord.ring() >= Ro(&fd).u16(FR::RINGS_OPENED)? as u32
+            || geometry::home_nation(coord, placement, home_max_ring, &genesis_seed)
+                != Some(faction)
+        {
             return Err(FrontierError::BadData.into());
         }
     }
@@ -1199,7 +1285,10 @@ pub fn place_home(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
     let (tile, gen) = {
         let pd = province.try_borrow_data()?;
         let r = Ro(&pd);
-        if r.i16(PV::P)? != x.p || r.i16(PV::Q)? != x.q || r.u8(PV::WEDGE)? != faction {
+        if r.i16(PV::P)? != x.p
+            || r.i16(PV::Q)? != x.q
+            || r.u8(PV::WEDGE)? != coord.wedge().unwrap_or(u8::MAX)
+        {
             return Err(BAD_ACCOUNT);
         }
         record_is_zero(&pd, x.site)?;
@@ -1298,7 +1387,9 @@ pub fn place_home(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
         .i64(now.ts)
         .bytes(payer.key.as_ref());
     let mut jd = shard.try_borrow_mut_data()?;
-    shard_holdings(&mut jd, faction, 1)?;
+    // The wedge counter is the province's wedge (as SettleTicket and the
+    // release), not the nation: they differ under the dispersed placement.
+    shard_holdings(&mut jd, holding_wedge(coord), 1)?;
     let mut cd = citizen.try_borrow_mut_data()?;
     let mut hd = holding.try_borrow_mut_data()?;
     let mut pd = province.try_borrow_mut_data()?;
@@ -1510,7 +1601,7 @@ fn write_holding_ref(citizen: &mut [u8], slot: u8, p: i16, q: i16, site: u8, gen
 }
 
 /// Empties the Citizen's holding entry of `slot` (`gen = 0xFF`).
-fn clear_holding_ref(citizen: &mut [u8], slot: u8) -> R<()> {
+pub(crate) fn clear_holding_ref(citizen: &mut [u8], slot: u8) -> R<()> {
     write_holding_ref(citizen, slot, 0, 0, 0, C2::EMPTY_GEN)
 }
 
@@ -1657,7 +1748,7 @@ pub fn settle_ticket(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
     let ctx = addr::ctx(&key(season_ai), &p.to_bytes());
     // The citizen and its ticket.
     prologue::present(citizen, p, AccountKind::Citizen, hdr.id)?;
-    let (tag15, faction, shard_i, ticket_bell, ticket_next, my_tag, escrow, funder, sites, n) = {
+    let (_tag15, faction, shard_i, ticket_bell, ticket_next, my_tag, escrow, funder, sites, n) = {
         let cd = citizen.try_borrow_data()?;
         let r = Ro(&cd);
         let (sites, n) = ticket_sites(&cd)?;
@@ -1674,7 +1765,10 @@ pub fn settle_ticket(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
             n,
         )
     };
-    expect_key(citizen, &ctx.citizen_by_tag15(&tag15))?;
+    {
+        let cd = citizen.try_borrow_data()?;
+        super::resident::expect_citizen_address(&ctx, citizen, &cd)?;
+    }
     if ticket_bell == C::NO_TICKET {
         return Err(FrontierError::NoTicket.into());
     }
@@ -1796,7 +1890,7 @@ pub fn settle_ticket(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
     let mut gen = 0u8;
     let mut displaced_tag = 0u64;
     let mut shield_until = 0i64;
-    let wedge = coord.wedge().unwrap_or(0);
+    let wedge = holding_wedge(coord);
     let rent_h = init::rent(H::SIZE)?;
     if won {
         let (tile, old_gen, ore) = {
@@ -2259,7 +2353,7 @@ pub fn release_dormant(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
         hdr.id,
     )?;
     let bell = log_bell(&hdr, now.ts);
-    let wedge = ProvinceCoord::new(pi, qi).wedge().unwrap_or(0);
+    let wedge = holding_wedge(ProvinceCoord::new(pi, qi));
     {
         let mut pd = province.try_borrow_mut_data()?;
         // MC S3: refused while the site's conquest record is live or owes a
@@ -2477,7 +2571,10 @@ pub fn close_citizen(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
             r.arr::<32>(C::TICKET_FUNDER)?,
         )
     };
-    expect_key(citizen, &ctx.citizen_by_tag15(&tag15))?;
+    {
+        let cd = citizen.try_borrow_data()?;
+        super::resident::expect_citizen_address(&ctx, citizen, &cd)?;
+    }
     expect_key(rent_payer, &c_payer)?;
     match (escrow > 0, funder) {
         (true, Some(f)) => {
@@ -2508,9 +2605,115 @@ pub fn close_citizen(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
     Ok(())
 }
 
+/// The JoinShard wedge counter (`holdings_by_wedge`) a first holding at
+/// `coord` lives in: the province's own wedge, the index `wedge_open` is
+/// folded by (one ProvinceFund per wedge) and the one SettleTicket and
+/// ReleaseDormant use. Never the citizen's nation: under the dispersed
+/// placement a nation's heartland province may lie in another wedge, and
+/// a counter bumped by nation would never be undone by the release.
+pub(crate) fn holding_wedge(coord: ProvinceCoord) -> u8 {
+    coord.wedge().unwrap_or(0)
+}
+
+/// Inside dispersed heartland, tickets use the same nation assignment as PlaceHome.
+/// Outside heartland the existing ticket/overflow rule remains unchanged.
+fn ticket_nation_allowed(
+    coord: ProvinceCoord,
+    faction: u8,
+    placement: u8,
+    heartland_max_ring: u8,
+    seed: &[u8; 32],
+    legacy_allowed: bool,
+) -> bool {
+    if placement == geometry::PLACEMENT_DISPERSED
+        && coord.ring() >= 2
+        && coord.ring() <= u32::from(heartland_max_ring)
+    {
+        geometry::home_nation(coord, placement, heartland_max_ring, seed) == Some(faction)
+    } else {
+        legacy_allowed
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn dispersed_tickets_match_home_nation_but_preserve_external_overflow() {
+        let seed = [1u8; 32];
+        for p in -3..=3 {
+            for q in -3..=3 {
+                let c = ProvinceCoord::new(p, q);
+                if c.ring() < 2 || c.ring() > 3 {
+                    continue;
+                }
+                let n = geometry::home_nation(c, 1, 3, &seed).unwrap();
+                for f in 0..6 {
+                    assert_eq!(ticket_nation_allowed(c, f, 1, 3, &seed, true), n == f);
+                    assert_eq!(ticket_nation_allowed(c, f, 1, 3, &seed, false), n == f);
+                }
+            }
+        }
+        let outside = ProvinceCoord::new(4, 0);
+        for allowed in [false, true] {
+            assert_eq!(
+                ticket_nation_allowed(outside, 2, 1, 3, &seed, allowed),
+                allowed
+            );
+            assert_eq!(
+                ticket_nation_allowed(ProvinceCoord::new(2, 0), 2, 0, 3, &seed, allowed),
+                allowed
+            );
+        }
+    }
+
+    /// Under the dispersed placement a nation's heartland province may lie
+    /// in another wedge. PlaceHome's shard counter is the province's wedge
+    /// (the index `wedge_open` is folded by and the one SettleTicket and
+    /// ReleaseDormant use), so a placed home and its later release touch
+    /// the same counter and the nation's index is never bumped by mistake.
+    #[test]
+    fn dispersed_first_home_counts_in_the_provinces_wedge_not_the_nation() {
+        let seed = [1u8; 32];
+        let mut off_wedge = 0;
+        for d in 2..=3u32 {
+            for c in geometry::ring_provinces(d) {
+                let nation = geometry::home_nation(c, geometry::PLACEMENT_DISPERSED, 3, &seed)
+                    .expect("a heartland province has a nation");
+                let wedge = c.wedge().expect("not the Concord");
+                assert_eq!(holding_wedge(c), wedge);
+                let mut js = alloc::vec![0u8; JS::SIZE];
+                let by =
+                    |d: &[u8], w: u8| Ro(d).u32(JS::HOLDINGS_BY_WEDGE + 4 * w as usize).unwrap();
+                // PlaceHome: the province's wedge, as SettleTicket.
+                shard_holdings(&mut js, holding_wedge(c), 1).unwrap();
+                assert_eq!(Ro(&js).u32(JS::HOLDINGS).unwrap(), 1);
+                assert_eq!(by(&js, wedge), 1);
+                if nation != wedge {
+                    off_wedge += 1;
+                    assert_eq!(by(&js, nation), 0, "{c:?}: the nation's index is untouched");
+                }
+                // ReleaseDormant undoes exactly what PlaceHome counted.
+                shard_holdings(&mut js, holding_wedge(c), -1).unwrap();
+                assert_eq!(Ro(&js).u32(JS::HOLDINGS).unwrap(), 0);
+                for w in 0..6u8 {
+                    assert_eq!(by(&js, w), 0, "{c:?}: wedge {w} back to zero");
+                }
+            }
+        }
+        assert!(
+            off_wedge > 0,
+            "the dispersed placement puts homes off their wedge"
+        );
+        // The wedge placement: the nation is the wedge, so nothing changes there.
+        for c in geometry::ring_provinces(2) {
+            assert_eq!(
+                Some(holding_wedge(c)),
+                geometry::home_nation(c, geometry::PLACEMENT_WEDGE, 3, &seed)
+            );
+        }
+    }
 
     #[test]
     fn displacement_order_is_score_then_lower_tag() {

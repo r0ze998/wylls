@@ -18,8 +18,14 @@
 import { sanitize } from '../../../../permutation-gateway/citizens/mind/sanitize.mjs';
 import { WHY_MAX_CODEPOINTS } from '../../../../permutation-gateway/citizens/mind/schema.mjs';
 
+/**
+ * A refusal, with what became of the call for the cost ledger (workstream 5's outcome classes, reduced):
+ *   outcome 'answered'  the provider answered (billed; `usage` is its report) but the answer was refused here
+ *           'unknown'   no answer: late, or lost after it may have reached the provider (whether billed is unknown)
+ *           or the provider's own class when it gives one ('rejected', 'billing', 'throttled', 'failed' …)
+ */
 export class ProviderRefusal extends Error {
-  constructor(code, message) { super(message); this.code = code; }
+  constructor(code, message, { outcome = null, usage = null } = {}) { super(message); this.code = code; this.outcome = outcome; this.usage = usage; }
 }
 
 /** The answer schema for one request: the choice is an enum of this request's candidate ids. */
@@ -46,20 +52,28 @@ export function validateResponse(req, res) {
     mem,
     usage: { inputTokens: Number(res.usage?.inputTokens) || 0, outputTokens: Number(res.usage?.outputTokens) || 0 },
     provider: String(res.provider ?? 'unknown'), model: String(res.model ?? 'unknown'),
+    // The provider's own usage report as given (workstream 5's shape when it comes from its adapters), for costing.
+    rawUsage: res.usage ?? null,
   };
 }
 
 /** Runs `provider.decide(req)` under the request's deadline and validates the answer. */
 export async function decideWithin(provider, req) {
   let timer;
-  const deadline = new Promise((_, reject) => { timer = setTimeout(() => reject(new ProviderRefusal('Late', `no answer within ${req.limits.deadlineMs} ms`)), req.limits.deadlineMs); });
+  const deadline = new Promise((_, reject) => { timer = setTimeout(() => reject(new ProviderRefusal('Late', `no answer within ${req.limits.deadlineMs} ms`, { outcome: 'unknown' })), req.limits.deadlineMs); });
+  let res;
   try {
-    const res = await Promise.race([provider.decide(req), deadline]);
+    res = await Promise.race([provider.decide(req), deadline]);
+  } catch (e) {
+    if (e instanceof ProviderRefusal) { e.outcome ??= 'unknown'; throw e; }
+    throw new ProviderRefusal('ProviderError', String(e?.message ?? e).slice(0, 120), { outcome: typeof e?.outcome === 'string' ? e.outcome : 'unknown', usage: e?.usage ?? null });
+  } finally { clearTimeout(timer); }
+  try {
     return validateResponse(req, res);
   } catch (e) {
-    if (e instanceof ProviderRefusal) throw e;
-    throw new ProviderRefusal('ProviderError', String(e?.message ?? e).slice(0, 120));
-  } finally { clearTimeout(timer); }
+    if (e instanceof ProviderRefusal) { e.outcome = 'answered'; e.usage = res?.usage ?? null; }
+    throw e;
+  }
 }
 
 const estimateTokens = s => Math.ceil(String(s).length / 4);
@@ -110,7 +124,7 @@ export function fromChatProvider(chat, { provider, model }) {
     async decide(req) {
       const out = await chat.complete({ system: req.system, user: req.user, schema: req.schema, maxOutputTokens: req.limits.maxOutputTokens });
       let parsed;
-      try { parsed = JSON.parse(out.text); } catch { throw new ProviderRefusal('Shape', 'the provider did not answer JSON'); }
+      try { parsed = JSON.parse(out.text); } catch { throw new ProviderRefusal('Shape', 'the provider did not answer JSON', { outcome: 'answered', usage: out.usage ?? null }); }
       return { ...parsed, usage: out.usage ?? {}, provider, model: out.model ?? model };
     },
   };

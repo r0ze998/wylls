@@ -1,8 +1,7 @@
-# 2026-10-31T00:13:53Z fc61a21fb730d69d117f7a0e070a00d7f22d9bb0 rustc 1.89.0 (29483883e 2025-08-04)
-    Checking wylls-ext-kernel v0.1.0 (/home/user/wylls/workstreams/11-extensions/ext-kernel)
-    Finished `dev` profile [unoptimized + debuginfo] target(s) in 2.56s
+# 2026-11-05T13:50:52Z 3a55a518799e7f243b4f5abad50f279c87158bcc rustc 1.89.0 (29483883e 2025-08-04)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.07s
    Compiling wylls-ext-kernel v0.1.0 (/home/user/wylls/workstreams/11-extensions/ext-kernel)
-    Finished `test` profile [unoptimized + debuginfo] target(s) in 6.11s
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 15.76s
      Running unittests src/lib.rs (/home/user/wylls/permutation-chain/target/debug/deps/wylls_ext_kernel-c5b73a01f61d62c2)
 
 running 0 tests
@@ -20,7 +19,7 @@ test b05_bytes_that_are_not_the_promised_content_never_register ... ok
 test b06_a_matching_hash_still_needs_a_valid_manifest ... ok
 test b07_bounds_and_ownership_of_a_buffer ... ok
 
-test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.02s
 
      Running tests/continuity.rs (/home/user/wylls/permutation-chain/target/debug/deps/continuity-ec67168f7207ef27)
 
@@ -46,7 +45,7 @@ test e05_a_replayed_exit_does_not_verify ... ok
 test e06_every_short_history_conserves_and_lets_the_user_out ... e06: 16807 histories, 29032 refused steps, 578 exits and 794 fulfils inside them; all conserved and recoverable
 ok
 
-test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.49s
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.73s
 
      Running tests/flow.rs (/home/user/wylls/permutation-chain/target/debug/deps/flow-14bf58850a2dbe12)
 
@@ -88,13 +87,13 @@ test result: ok. 3 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; fini
      Running tests/long_run.rs (/home/user/wylls/permutation-chain/target/debug/deps/long_run-dd329cb9896ebe64)
 
 running 4 tests
-test g01_twenty_thousand_calls_verify_window_by_window ... g01: 20,000 calls in 841.425464ms, 10 windows of 2,000 records verified in 807.115212ms
+test g01_twenty_thousand_calls_verify_window_by_window ... g01: 20,000 calls in 1.146531985s, 10 windows of 2,000 records verified in 1.050293858s
 ok
 test g02_a_full_counter_does_not_trap_the_escrow ... ok
 test g03_limits_refuse_instead_of_wrapping ... ok
 test g04_state_is_bounded_by_the_declared_number_of_owners ... ok
 
-test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 1.78s
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.39s
 
      Running tests/never_pass.rs (/home/user/wylls/permutation-chain/target/debug/deps/never_pass-de7dc1bfb5c78fbe)
 
@@ -104,7 +103,7 @@ n01 H2: 627 mutations (1 change nothing here), 611 FAIL, 15 UNVERIFIABLE, 0 PASS
 ok
 test n02_unknown_or_missing_is_unverifiable_not_fail ... ok
 
-test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.16s
+test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.31s
 
      Running tests/refusals.rs (/home/user/wylls/permutation-chain/target/debug/deps/refusals-0c9de124e0bcd772)
 
@@ -131,7 +130,7 @@ test v02_a_completion_that_did_not_happen_fails ... ok
 test v03_what_the_verifier_does_not_know_is_never_a_pass ... ok
 test v04_a_fail_outranks_an_unverifiable ... ok
 
-test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
 
    Doc-tests wylls_ext_kernel
 

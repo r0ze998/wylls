@@ -19,6 +19,7 @@ import { factionName } from '../fi18n.mjs';
 import { swatch } from './shell.mjs';
 import { cardHead, stepper } from './parts.mjs';
 import { provinceName } from '../hud/place.mjs';
+import { seasonPlace } from '../home.mjs';
 
 /** Recent clash links shown (newest first). */
 export const SPECTATE_REPORTS = 12;
@@ -89,7 +90,7 @@ export function render(FS, { ownerOf = null, standings = '' } = {}) {
   const f = Number.isInteger(w.faction) ? w.faction : null, b = Number.isInteger(w.bell) ? w.bell : null;
   const clashes = reportScreen.clashesFrom(FS.chronicle ?? [], 200)
     .filter(c => (b === null || c.bell === b) && (f === null || provinceFactions(FS.overviews, c.p, c.q).includes(f))).slice(0, SPECTATE_REPORTS);
-  const items = highlights(FS.chronicle, FS.overviews, FS.roster, { limit: 12, faction: f, bell: b, where: (p, q) => provinceName(FS, p, q) });
+  const items = highlights(FS.chronicle, FS.overviews, FS.roster, { limit: 12, faction: f, bell: b, where: (p, q) => provinceName(FS, p, q), place: seasonPlace(FS.season) });
   const scope = [f !== null ? factionName(f) : null, b !== null ? L`ターン ${fmtNum(b)}` : null].filter(Boolean).join(' · ');
   return [
     html`<p class="muted how-line">${icon('eye')}${L`ウォレットなしで、地図とターンの進み具合を見られます。`}</p>`,

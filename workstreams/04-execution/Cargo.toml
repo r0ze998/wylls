@@ -30,3 +30,7 @@ serde = { version = "=1.0.229", features = ["derive"] }
 serde_json = "=1.0.151"
 sha2 = "=0.10.9"
 hex = "=0.4.3"
+# The pass reader (intake::RpcPasses): public addresses and PDAs of the
+# resident accounts (no keypair), base58, and the RPC's base64 account data.
+solana-address = { version = "=2.6.1", features = ["curve25519", "sha2", "decode"] }
+base64 = "=0.22.1"

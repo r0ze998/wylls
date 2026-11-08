@@ -11,6 +11,33 @@
 | 4b | V2 の注記（`checks/v2_program.rs` 3–5 行）「the season lives under the program the verifier was told … every archived transaction invokes it」 | 最上位で Frontier を呼ばない取引は**警告だけ**（66–79 行）。CPI で Frontier を呼んだ取引は PASS になる（r3 で実行して確認） | 修正案 [patches/0001](patches/0001-verify-unknown-instruction-is-unverifiable.patch)（CPI を UNVERIFIABLE に。内側の命令の判定は③のパッチ 0002 が要る） |
 | 5 | ③ `01-existing-surface` §3「`permutation-gateway/client/README.md` と `GameClient` は旧版の API を説明」 | ③の発見（⑪は再確認していない） | ⑪は SDK を使っていない |
 
+## r5 で見つけたもの（2026-11-05）
+
+| # | 記述 | 事実 | 扱い |
+|---|---|---|---|
+| 6 | ⑪ の `describe` が資源の枠 4 を `Horses` と表示 | S1 ではこの枠に兵器（arms）が入る（`permutation_rules::frontier::arms::ARMS = Resource::Horses`）。⑥ も `arms` と呼ぶ | ⑪の表示を `Arms` に直した |
+| 7 | ④の `workstreams/04-execution/docs/CONTINUITY.ja.md`（`preserve/ws04-a967f5f1`）142 行「⑪ `fc61a21`」 | ⑪の最新は `3a55a518`（r4）、今回 r5 | ④への引渡しで最新の SHA を伝える必要 |
+| 8 | CI（`.github/workflows/ci.yml` の frontier-node の job）は Rust 1.95.0 で `cargo clippy --locked --workspace --all-targets -- -D warnings` を行う | 統合の先端 `d0949fd4` では `crates/keeper/src/journal.rs` 431・464 行が `clippy::type_complexity` で失敗する（ローカルで再現。⑪は触っていない） | 統合担当へ報告 |
+| 9 | ⑥ README「D 新しい世界効果 … コアの拡張（新しいシーズン）」、docs/04「新しいシーズンで出す」 | 2026-10-31 の方針訂正で世界は終わらない。規則の版の切替を戦期と結び付けない（④の CONTINUITY-DECISIONS §1.5、⑪の要件） | ⑥の文書の言い回し。⑪は変えていない |
+| 10 | 0001 の「知らないタグは UNVERIFIABLE」 | ⑱の V0 は FAIL（固定したプログラムは知らないタグを拒否するので、成功は別のプログラムの実行） | ⑱を正とし 0001 を取り下げた |
+
+## r6 で見つけたもの（2026-11-06）
+
+| # | 記述 | 事実 | 扱い |
+|---|---|---|---|
+| 11 | ⑯ `verification/16-independent/INVENTORY.ja.md` 39 行「⑪ `93f51b69` … 未取得」 | ⑪は `2aceaf47` から GitHub にある（r5）。今回 r6 | ⑯・④に最新の SHA を伝える必要 |
+| 12 | ⑯ `patches/README.ja.md`「各パッチは基点 `4cd901de` の tree に `git apply` できる」 | P1 は統合候補 `ef63544c` には当たらない（`codes.rs` が⑱の V0 と衝突） | 統合候補での扱いは [13](13-verifier-r6.ja.md) §1 |
+| 13 | ⑪ r5 の文書「統合の先端で clippy が通らない（keeper）」 | 統合候補の `4a5230b7`（Fix Rust 1.95 workspace Clippy warnings）で直っている | r5 の記録は当時の事実として残す |
+
+## r7 で見つけたもの（2026-11-06）
+
+| # | 記述 | 事実 | 扱い |
+|---|---|---|---|
+| 14 | ④ `ABI-ALLOCATION-20261106` は②に記録種別 114–119 を割り当てる | ②のコード（`dc3bd3d`）は記録を出さない（`rights.rs` に記録種別が無い） | 割当ては予約として扱った。検証器は ABI に無い種別を FAIL にする（[14](14-verifier-r7.ja.md) §2） |
+| 15 | ②・⑳の命令は「v2 の表の外」（`rights.rs`、`resident_wire.rs` の注記） | コアの `dispatch` は `Ix` の前にこれらを実行するが、⑱の V0 は `v2::Ix` に無いタグを「固定したプログラムは拒否する」として FAIL にする | ②・⑳を採用すると正しい取引が FAIL になる（PASS にはならない）。④・⑱への申し送り（[14](14-verifier-r7.ja.md) §2） |
+| 16 | ⑪ `patches/0002` の命令表 0xD0–0xD5 | ②の Grant と重なる。④の割当てでは⑪は 0xE8–0xED | 0002 に読替えの注記を足した（表は初版のまま） |
+| 17 | V13 の注記「DIVERT records of the same transaction」 | DIVERT は TRANSIT_SETTLED の中でしか判定されず、ほかの取引の DIVERT はどの検査も見ない（書き足しで PASS） | 0006 の V0E `UnverifiedRecord` |
+
 ## 他担当の要約との食い違い（参考）
 
 - ⑥の要約では「回数制限の正本」を補遺で「統合案（3 層）」に訂正している。⑪の契約では回数（`calls_left`）と seq は**チェーンが強制する層**に置いた（`Host::call` と検証器の両方）。⑥の 3 層のどれに当たるかは統合時に照合する（⑥への確認の往復はオーナーの指示で止めた）。ただし⑪の層は**ホストの試作の中**の強制で、チェーン上の強制は未実装（[08](08-host-vs-onchain.ja.md)）。

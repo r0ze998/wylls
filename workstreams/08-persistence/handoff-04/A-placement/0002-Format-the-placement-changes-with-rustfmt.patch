@@ -1,0 +1,274 @@
+From 4f628faf2960ee1b9981afec2ccad5efc339537f Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Fri, 30 Oct 2026 10:22:36 +0000
+Subject: [PATCH 2/2] Format the placement changes with rustfmt
+
+Only the hunks this branch added; the pre-existing unformatted parts of
+svm-tests/tests/conquest.rs are left as they were.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01C5Nj2bji8di3758qGdC2v1
+---
+ permutation-frontier/src/proc/citizen.rs      |  8 +-
+ permutation-frontier/src/proc/conquest.rs     |  5 +-
+ permutation-frontier/src/proc/map.rs          |  5 +-
+ .../svm-tests/tests/conquest.rs               |  7 +-
+ .../svm-tests/tests/placement.rs              | 79 +++++++++++++++----
+ permutation-rules/src/frontier/geometry.rs    | 25 +++++-
+ 6 files changed, 104 insertions(+), 25 deletions(-)
+
+diff --git a/permutation-frontier/src/proc/citizen.rs b/permutation-frontier/src/proc/citizen.rs
+index fbcdd569..91b9d26b 100644
+--- a/permutation-frontier/src/proc/citizen.rs
++++ b/permutation-frontier/src/proc/citizen.rs
+@@ -1192,7 +1192,8 @@ pub fn place_home(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
+         // The season's placement names the nation of a heartland province
+         // (`home_nation`: the wedge under the wedge placement).
+         if coord.ring() >= Ro(&fd).u16(FR::RINGS_OPENED)? as u32
+-            || geometry::home_nation(coord, placement, home_max_ring, &genesis_seed) != Some(faction)
++            || geometry::home_nation(coord, placement, home_max_ring, &genesis_seed)
++                != Some(faction)
+         {
+             return Err(FrontierError::BadData.into());
+         }
+@@ -1209,7 +1210,10 @@ pub fn place_home(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
+     let (tile, gen) = {
+         let pd = province.try_borrow_data()?;
+         let r = Ro(&pd);
+-        if r.i16(PV::P)? != x.p || r.i16(PV::Q)? != x.q || r.u8(PV::WEDGE)? != coord.wedge().unwrap_or(u8::MAX) {
++        if r.i16(PV::P)? != x.p
++            || r.i16(PV::Q)? != x.q
++            || r.u8(PV::WEDGE)? != coord.wedge().unwrap_or(u8::MAX)
++        {
+             return Err(BAD_ACCOUNT);
+         }
+         record_is_zero(&pd, x.site)?;
+diff --git a/permutation-frontier/src/proc/conquest.rs b/permutation-frontier/src/proc/conquest.rs
+index 37b263eb..a0e82b1f 100644
+--- a/permutation-frontier/src/proc/conquest.rs
++++ b/permutation-frontier/src/proc/conquest.rs
+@@ -773,7 +773,10 @@ pub fn declare_siege(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
+         // range) and the same refusal, still the last step, is made here.
+         let (placement, genesis_seed) = {
+             let sd = season_ai.try_borrow_data()?;
+-            (cq_u8(&sd, CQ::PLACEMENT)?, Ro(&sd).arr::<32>(crate::layout::season::GENESIS_SEED)?)
++            (
++                cq_u8(&sd, CQ::PLACEMENT)?,
++                Ro(&sd).arr::<32>(crate::layout::season::GENESIS_SEED)?,
++            )
+         };
+         if placement == geometry::PLACEMENT_WEDGE {
+             siege::may_besiege_v3(&check).map_err(refusal)?;
+diff --git a/permutation-frontier/src/proc/map.rs b/permutation-frontier/src/proc/map.rs
+index c339f4cf..fde4d39b 100644
+--- a/permutation-frontier/src/proc/map.rs
++++ b/permutation-frontier/src/proc/map.rs
+@@ -581,8 +581,9 @@ pub fn open_province(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
+         Some(w) if coord.ring() >= 2 => {
+             let tile = kkeep::keep_tile(&terrain, &terrain.sites, terrain.site_count, w)
+                 .unwrap_or(kkeep::NO_KEEP_TILE);
+-            let holder = geometry::home_nation(coord, cq.placement, cq.heartland_max_ring, &genesis_seed)
+-                .unwrap_or(w);
++            let holder =
++                geometry::home_nation(coord, cq.placement, cq.heartland_max_ring, &genesis_seed)
++                    .unwrap_or(w);
+             kkeep::try_open(
+                 coord,
+                 holder,
+diff --git a/permutation-frontier/svm-tests/tests/conquest.rs b/permutation-frontier/svm-tests/tests/conquest.rs
+index 48591a18..48db8ee2 100644
+--- a/permutation-frontier/svm-tests/tests/conquest.rs
++++ b/permutation-frontier/svm-tests/tests/conquest.rs
+@@ -680,7 +680,12 @@ fn cq_declare_siege_heartland_follows_the_dispersed_placement() {
+     let g = frontier_abi::layout::world::season::GENESIS_SEED;
+     let seed: [u8; 32] = sd[g..g + 32].try_into().unwrap();
+     let nation = |pq: (i16, i16)| {
+-        home_nation(ProvinceCoord::new(pq.0 as i32, pq.1 as i32), PLACEMENT_DISPERSED, prm.heartland_max_ring, &seed)
++        home_nation(
++            ProvinceCoord::new(pq.0 as i32, pq.1 as i32),
++            PLACEMENT_DISPERSED,
++            prm.heartland_max_ring,
++            &seed,
++        )
+     };
+     let wedge = |pq: (i16, i16)| ProvinceCoord::new(pq.0 as i32, pq.1 as i32).wedge();
+     // V (nation 1) in a ring-3 province assigned to nation 1 outside wedge 1: Heartland.
+diff --git a/permutation-frontier/svm-tests/tests/placement.rs b/permutation-frontier/svm-tests/tests/placement.rs
+index 4e483abd..d4b81ade 100644
+--- a/permutation-frontier/svm-tests/tests/placement.rs
++++ b/permutation-frontier/svm-tests/tests/placement.rs
+@@ -32,7 +32,13 @@ fn seed_of(c: &Chain, w: &World) -> [u8; 32] {
+ }
+ 
+ fn nation(seed: &[u8; 32], pq: (i16, i16)) -> u8 {
+-    home_nation(ProvinceCoord::new(pq.0 as i32, pq.1 as i32), PLACEMENT_DISPERSED, HMR, seed).unwrap()
++    home_nation(
++        ProvinceCoord::new(pq.0 as i32, pq.1 as i32),
++        PLACEMENT_DISPERSED,
++        HMR,
++        seed,
++    )
++    .unwrap()
+ }
+ 
+ fn place(c: &Chain, w: &World, who: &Citizen, s: Site) -> Instruction {
+@@ -54,7 +60,11 @@ fn setup() -> (Chain, World, [u8; 32], Vec<(i16, i16)>) {
+ fn placement_six_nations_place_homes_in_groups_spread_over_wedges() {
+     let (mut c, w, seed, v) = setup();
+     for f in 0..6u8 {
+-        let mine: Vec<_> = v.iter().copied().filter(|pq| nation(&seed, *pq) == f).collect();
++        let mine: Vec<_> = v
++            .iter()
++            .copied()
++            .filter(|pq| nation(&seed, *pq) == f)
++            .collect();
+         assert_eq!(mine.len(), 5, "2 provinces of ring 2 and 3 of ring 3");
+         let wedges: std::collections::BTreeSet<_> = mine
+             .iter()
+@@ -65,12 +75,22 @@ fn placement_six_nations_place_homes_in_groups_spread_over_wedges() {
+         for (i, pq) in mine.iter().enumerate() {
+             for k in 0..2u8 {
+                 let who = w.citizen(&mut c, &format!("n{f}-{i}-{k}"), f);
+-                let s = Site { p: pq.0, q: pq.1, site: k };
+-                expect_lands(c.send(&[place(&c, &w, &who, s)], &[&who.wallet]), "PlaceHome");
++                let s = Site {
++                    p: pq.0,
++                    q: pq.1,
++                    site: k,
++                };
++                expect_lands(
++                    c.send(&[place(&c, &w, &who, s)], &[&who.wallet]),
++                    "PlaceHome",
++                );
+                 let hd = c.data(&w.a.holding(pq.0 as i32, pq.1 as i32, k));
+                 assert_eq!(hd[H::STATE], H::STATE_FINAL);
+                 // shield: the season's first-holding shield, unchanged by the placement
+-                assert_eq!(rd_i64(&hd, H::SHIELD_UNTIL), c.now + w.params.cq.shield_secs as i64);
++                assert_eq!(
++                    rd_i64(&hd, H::SHIELD_UNTIL),
++                    c.now + w.params.cq.shield_secs as i64
++                );
+             }
+         }
+     }
+@@ -91,17 +111,32 @@ fn placement_refuses_another_nations_province_an_occupied_site_and_a_late_join()
+     let other = (owner + 1) % 6;
+     // Another nation's assigned province (even inside the joiner's own wedge).
+     let stranger = w.citizen(&mut c, "stranger", other);
+-    let s = Site { p: pq.0, q: pq.1, site: 0 };
+-    assert_code(c.send(&[place(&c, &w, &stranger, s)], &[&stranger.wallet]), E::BadData);
++    let s = Site {
++        p: pq.0,
++        q: pq.1,
++        site: 0,
++    };
++    assert_code(
++        c.send(&[place(&c, &w, &stranger, s)], &[&stranger.wallet]),
++        E::BadData,
++    );
+     let own_wedge_foreign = v
+         .iter()
+         .copied()
+         .find(|(p, q)| {
+-            ProvinceCoord::new(*p as i32, *q as i32).wedge() == Some(other) && nation(&seed, (*p, *q)) != other
++            ProvinceCoord::new(*p as i32, *q as i32).wedge() == Some(other)
++                && nation(&seed, (*p, *q)) != other
+         })
+         .expect("a province of the stranger's wedge assigned elsewhere");
+-    let s2 = Site { p: own_wedge_foreign.0, q: own_wedge_foreign.1, site: 0 };
+-    assert_code(c.send(&[place(&c, &w, &stranger, s2)], &[&stranger.wallet]), E::BadData);
++    let s2 = Site {
++        p: own_wedge_foreign.0,
++        q: own_wedge_foreign.1,
++        site: 0,
++    };
++    assert_code(
++        c.send(&[place(&c, &w, &stranger, s2)], &[&stranger.wallet]),
++        E::BadData,
++    );
+     // The site taken by one member cannot be taken by a second (no overlap).
+     let a = w.citizen(&mut c, "a", owner);
+     let b = w.citizen(&mut c, "b", owner);
+@@ -109,10 +144,20 @@ fn placement_refuses_another_nations_province_an_occupied_site_and_a_late_join()
+     let pd = c.data(&w.a.province(pq.0 as i32, pq.1 as i32));
+     assert_eq!(pd[P::site(0) + S::STATE], S::STATE_HOLDING);
+     c.next_slot();
+-    assert_code(c.send(&[place(&c, &w, &b, s)], &[&b.wallet]), E::TicketState);
++    assert_code(
++        c.send(&[place(&c, &w, &b, s)], &[&b.wallet]),
++        E::TicketState,
++    );
+     // ...but the next site of the same province is free for the second member.
+-    let s1 = Site { p: pq.0, q: pq.1, site: 1 };
+-    expect_lands(c.send(&[place(&c, &w, &b, s1)], &[&b.wallet]), "PlaceHome (site 1)");
++    let s1 = Site {
++        p: pq.0,
++        q: pq.1,
++        site: 1,
++    };
++    expect_lands(
++        c.send(&[place(&c, &w, &b, s1)], &[&b.wallet]),
++        "PlaceHome (site 1)",
++    );
+     // Join closes at join_close_bell as before.
+     let late = c.funded(b"late-joiner", 10);
+     let mut f = c.fork();
+@@ -126,8 +171,12 @@ fn placement_is_reproducible_from_the_genesis_seed() {
+     let (c2, w2, seed2, _) = setup();
+     assert_eq!(seed, seed2);
+     for pq in &v {
+-        let k1 = read_keep(&c.data(&w.a.province(pq.0 as i32, pq.1 as i32))).unwrap().unwrap();
+-        let k2 = read_keep(&c2.data(&w2.a.province(pq.0 as i32, pq.1 as i32))).unwrap().unwrap();
++        let k1 = read_keep(&c.data(&w.a.province(pq.0 as i32, pq.1 as i32)))
++            .unwrap()
++            .unwrap();
++        let k2 = read_keep(&c2.data(&w2.a.province(pq.0 as i32, pq.1 as i32)))
++            .unwrap()
++            .unwrap();
+         assert_eq!(k1.holder, k2.holder);
+     }
+ }
+diff --git a/permutation-rules/src/frontier/geometry.rs b/permutation-rules/src/frontier/geometry.rs
+index abbb3d30..03fa077e 100644
+--- a/permutation-rules/src/frontier/geometry.rs
++++ b/permutation-rules/src/frontier/geometry.rs
+@@ -615,15 +615,32 @@ mod tests {
+                     );
+                 }
+                 // outside the heartland: the wedge
+-                for p in ring_provinces(hmr as u32 + 1).into_iter().chain(ring_provinces(1)) {
++                for p in ring_provinces(hmr as u32 + 1)
++                    .into_iter()
++                    .chain(ring_provinces(1))
++                {
+                     assert_eq!(home_nation(p, PLACEMENT_DISPERSED, hmr, &seed), p.wedge());
+                 }
+             }
+         }
+-        assert_eq!(home_nation(ProvinceCoord::CONCORD, PLACEMENT_DISPERSED, 3, &[0; 32]), None);
++        assert_eq!(
++            home_nation(ProvinceCoord::CONCORD, PLACEMENT_DISPERSED, 3, &[0; 32]),
++            None
++        );
+         // different seeds rotate the map
+-        let a: Vec<_> = ring_provinces(2).iter().map(|p| home_nation(*p, 1, 3, &[1; 32])).collect();
+-        let b: Vec<_> = (0u8..32).map(|s| ring_provinces(2).iter().map(|p| home_nation(*p, 1, 3, &[s; 32])).collect::<Vec<_>>()).filter(|x| *x != a).collect();
++        let a: Vec<_> = ring_provinces(2)
++            .iter()
++            .map(|p| home_nation(*p, 1, 3, &[1; 32]))
++            .collect();
++        let b: Vec<_> = (0u8..32)
++            .map(|s| {
++                ring_provinces(2)
++                    .iter()
++                    .map(|p| home_nation(*p, 1, 3, &[s; 32]))
++                    .collect::<Vec<_>>()
++            })
++            .filter(|x| *x != a)
++            .collect();
+         assert!(!b.is_empty());
+     }
+ 
+-- 
+2.43.0
+

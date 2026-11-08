@@ -32,7 +32,16 @@ export const WORLD_V3 = Object.freeze({ cluster: 'localnet-fixture', program: PR
 const seedOf = tag => Buffer.alloc(32, tag.charCodeAt(0));
 const privOf = tag => createPrivateKey({ key: Buffer.concat([Buffer.from('302e020100300506032b657004220420', 'hex'), seedOf(tag)]), format: 'der', type: 'pkcs8' });
 const pubHex = tag => createPublicKey(privOf(tag)).export({ format: 'der', type: 'spki' }).subarray(12).toString('hex');
-export const KEYS = Object.freeze(Object.fromEntries(['A', 'B', 'C', 'D', 'E'].map(t => [t, pubHex(t)])));
+// Lazy: a key is derived only when a signed allocation is actually verified against it, so a test that signs
+// nothing derives nothing (tools/test-nokey.sh runs such tests with key operations disabled).
+const lazyKeys = principals => {
+  const o = {};
+  for (const t of principals) { let v; Object.defineProperty(o, t, { enumerable: true, get: () => (v ??= pubHex(t)) }); }
+  return Object.freeze(o);
+};
+export const KEYS = lazyKeys(['A', 'B', 'C', 'D', 'E']);
+/** Test-only keys for any principals (e.g. wallet-style addresses), same derivation as KEYS. */
+export const keysFor = principals => lazyKeys(principals);
 export const newMemory = (opts = {}) => createMemory({ world: WORLD, partitions: PARTITIONS, legacy: LEGACY, keys: KEYS, ...opts });
 
 /** The tag a principal has in a partition (the program derives it per Season account), and a caravan id. */

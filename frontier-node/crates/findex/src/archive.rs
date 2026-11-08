@@ -331,11 +331,33 @@ impl Archive {
     /// the frames of one segment are written through one handle and synced
     /// once, before the segment is sealed or a manifest names them.
     pub fn append(&mut self, recs: &[TxRecord], cursor: Value) -> io::Result<Vec<TxRecord>> {
+        self.append_inner(recs, cursor, false)
+    }
+
+    /// [`Archive::append`] for an ordered feed whose `seq` is the node's
+    /// ledger number (`LocalnetFeed`): each frame also keeps that number as
+    /// `feed_seq` ([`Archive::for_each_after_feed`]), since the archive
+    /// renumbers `seq` with its own sequence.
+    pub fn append_feed(&mut self, recs: &[TxRecord], cursor: Value) -> io::Result<Vec<TxRecord>> {
+        self.append_inner(recs, cursor, true)
+    }
+
+    fn append_inner(
+        &mut self,
+        recs: &[TxRecord],
+        cursor: Value,
+        keep_feed_seq: bool,
+    ) -> io::Result<Vec<TxRecord>> {
         let mut out = Vec::with_capacity(recs.len());
         for r in recs {
             let mut r = r.clone();
+            let feed_seq = r.seq;
             r.seq = self.manifest.next_seq;
-            let payload = serde_json::to_vec(&record_to_json(&r)).map_err(io_err)?;
+            let mut v = record_to_json(&r);
+            if keep_feed_seq {
+                v["feed_seq"] = json!(feed_seq);
+            }
+            let payload = serde_json::to_vec(&v).map_err(io_err)?;
             let fr = frame(&payload);
             let roll = match self.manifest.segments.last() {
                 None => true,
@@ -417,6 +439,16 @@ impl Archive {
         Ok(())
     }
 
+    /// Every record with `seq > after` and its `feed_seq`, in order.
+    pub fn read_after_feed(&self, after: u64) -> io::Result<Vec<(TxRecord, Option<u64>)>> {
+        let mut out = vec![];
+        self.for_each_after_feed(after, |r, f| {
+            out.push((r, f));
+            Ok(())
+        })?;
+        Ok(out)
+    }
+
     /// Every record with `seq > after`, in order.
     pub fn read_after(&self, after: u64) -> io::Result<Vec<TxRecord>> {
         let mut out = vec![];
@@ -431,22 +463,61 @@ impl Archive {
     /// memory at a time (a season's archive does not fit in memory as
     /// records; the herald's catch-up reads it this way). Returns the
     /// number of records given to `f`; an error of `f` stops the walk.
+    ///
+    /// A segment that does not read back as its manifest entry says (bytes,
+    /// record count, contiguous sequence from `first_seq`) is an error
+    /// naming it: a damaged or rewritten part of the archive must never read
+    /// as a shorter one (the herald's fold and the index would be short
+    /// with no sign of it). Sealing, compaction or checkpoints added later
+    /// keep this: a reader gets every record of its range or an error.
+    ///
+    /// This checks what the archive holds against its own manifest, nothing
+    /// more. Passing it does not make the history complete: transactions the
+    /// archive never received (a first pull, a missing or older cursor, a
+    /// range a node lacks in the middle) leave no damaged segment, so the
+    /// walk succeeds without them.
     pub fn for_each_after(
         &self,
         after: u64,
         mut f: impl FnMut(TxRecord) -> io::Result<()>,
+    ) -> io::Result<u64> {
+        self.for_each_after_feed(after, |r, _| f(r))
+    }
+
+    /// [`Archive::for_each_after`] with each record's `feed_seq` (the
+    /// node's ledger number, kept by [`Archive::append_feed`]; `None` for a
+    /// record appended without it, e.g. archived before it was kept).
+    pub fn for_each_after_feed(
+        &self,
+        after: u64,
+        mut f: impl FnMut(TxRecord, Option<u64>) -> io::Result<()>,
     ) -> io::Result<u64> {
         let mut n = 0;
         for s in &self.manifest.segments {
             if s.records == 0 || s.last_seq <= after {
                 continue;
             }
-            let (frames, _) = read_frames(&self.dir.join(&s.name), s.bytes)?;
-            for p in frames {
+            let (frames, good) = read_frames(&self.dir.join(&s.name), s.bytes)?;
+            if good != s.bytes || frames.len() as u64 != s.records {
+                return Err(io_err(format!(
+                    "{}: {good} of {} B and {} of {} records readable: the archive is damaged",
+                    s.name,
+                    s.bytes,
+                    frames.len(),
+                    s.records
+                )));
+            }
+            for (expect, p) in (s.first_seq..).zip(frames) {
                 let v: Value = serde_json::from_slice(&p).map_err(io_err)?;
                 let r = record_from_json(&v).map_err(io_err)?;
+                if r.seq != expect {
+                    return Err(io_err(format!(
+                        "{}: seq {}, expected {expect}: the archive is damaged",
+                        s.name, r.seq
+                    )));
+                }
                 if r.seq > after {
-                    f(r)?;
+                    f(r, v.get("feed_seq").and_then(|x| x.as_u64()))?;
                     n += 1;
                 }
             }

@@ -15,6 +15,7 @@
 //   POST /action  {request, fault?: 'drop'|'sendThrows'}   the gateway's POST /f/agent/action
 //   GET  /history                                          the agent's public view (GET /f/agent?id=)
 //   GET  /tx?sig=                                          a sent transaction: its SendCaravan data, source
+//   GET  /fate?key=                                        the gateway's GET /f/agent/fate for this agent and key
 //   POST /mode    {mode}                                   the owner's mode command (auto | manual)
 //   GET  /chain                                            how many transactions the chain received
 //   GET  /oracle/sent                                      test oracle: every signature the chain received
@@ -86,6 +87,10 @@ async function route(method, url, body) {
     return { status: 200, body: v.json };
   }
   if (method === 'GET' && u.pathname === '/tx') return { status: 200, body: tx(u.searchParams.get('sig')) };
+  if (method === 'GET' && u.pathname === '/fate') {
+    const v = await call(world.r.public, 'GET', `/f/agent/fate?id=${encodeURIComponent(world.agentId)}&key=${encodeURIComponent(u.searchParams.get('key') ?? '')}`, { ip: '127.0.0.1' });
+    return { status: v.status ?? 200, body: v.json };
+  }
   if (method === 'POST' && u.pathname === '/mode') {
     const r = await call(world.r.public, 'POST', '/f/agent/command', { body: ownerCommand(world.owner, 'mode', { agentId: world.agentId, params: { mode: body.mode } }), ip: '127.0.0.1' });
     return { status: 200, body: r.json };

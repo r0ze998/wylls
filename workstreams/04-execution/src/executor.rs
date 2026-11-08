@@ -237,6 +237,30 @@ struct Sent {
     source: String,
 }
 
+/// What acceptance checks of a spec before anything is stored: an empty
+/// cargo is refused, a send's two places differ, a cargo-only run carries
+/// no making parts, and the attempt budget is bounded. One function for
+/// [`Executor::accept`] and the `runexec run accept` command, so a spec the
+/// command takes is exactly one the executor takes (same digest, no
+/// conflict when the executor later sees it).
+pub fn validate_spec(spec: &RunSpec) -> Result<(), String> {
+    if res_is_zero(&spec.ship.cargo) {
+        return Err("empty cargo".into());
+    }
+    if spec.ship.dst.slot_key() == spec.stock.slot_key() {
+        return Err("a send's two places never share a tile".into());
+    }
+    if spec.cargo_only()
+        && (!res_is_zero(&spec.inputs) || !res_is_zero(&spec.outputs) || spec.rights_units != 0)
+    {
+        return Err("a cargo-only run has no inputs, outputs or right units".into());
+    }
+    if spec.budget.max_attempts == 0 || spec.budget.max_attempts > 16 {
+        return Err("max_attempts must be 1..=16".into());
+    }
+    Ok(())
+}
+
 impl<C: Chain, R: Rights> Executor<C, R> {
     pub fn new(id: &str, store: Store, chain: C, rights: R) -> Self {
         Executor {
@@ -266,17 +290,28 @@ impl<C: Chain, R: Rights> Executor<C, R> {
     /// Accepts a run (validated first: no step outside the allow-list can
     /// be expressed, and an empty cargo is refused).
     pub fn accept(&self, spec: &RunSpec) -> Result<crate::store::Accept, String> {
-        if res_is_zero(&spec.ship.cargo) {
-            return Err("empty cargo".into());
-        }
-        if spec.ship.dst.slot_key() == spec.stock.slot_key() {
-            return Err("a send's two places never share a tile".into());
-        }
-        if spec.budget.max_attempts == 0 || spec.budget.max_attempts > 16 {
-            return Err("max_attempts must be 1..=16".into());
-        }
+        validate_spec(spec)?;
         let now = self.chain.slot().map_err(|e| format!("{e:?}"))?;
         self.store.accept(spec, now)
+    }
+
+    /// A run asked for by `req` (workstream 04, 2026-11-07): admitted only
+    /// when `req` is the current holder of the pass behind the run's
+    /// citizen, or its live session, at the generation it signed for
+    /// ([`crate::intake::accept_checked`], workstream 20's definition).
+    /// Checked before anything is stored, also for a repeated `run_id`: a
+    /// previous owner or a previous owner's session cannot add a run, nor
+    /// learn whether one exists. The check is kept on a new run. A run
+    /// accepted before a transfer runs to its end (the owner's decision,
+    /// 2026-11-07).
+    pub fn accept_as(
+        &self,
+        spec: &RunSpec,
+        req: &crate::intake::Requester,
+        passes: &impl crate::intake::Passes,
+    ) -> Result<crate::store::Accept, String> {
+        let now = self.chain.slot().map_err(|e| format!("{e:?}"))?;
+        crate::intake::accept_checked(&self.store, spec, req, passes, now)
     }
 
     /// One pass: the feed, the due runs, then fee reconciliation.
@@ -579,13 +614,15 @@ impl<C: Chain, R: Rights> Executor<C, R> {
 
     fn rights_free(&self, row: &RunRow) -> Result<Result<(), Reason>, Fault> {
         let s = &row.spec;
-        let other = self.store.reserved_by_others(
-            ResKind::Rights,
-            &format!("{}:{:?}", s.owner, s.facility),
-            row.id(),
-        )?[0];
+        let (Some(facility), Some(place)) = (s.facility, s.rights_place()) else {
+            // A cargo-only run uses no right.
+            return Ok(Ok(()));
+        };
+        let other = self
+            .store
+            .reserved_by_others(ResKind::Rights, &place, row.id())?[0];
         Ok(
-            match self.rights.check(s.owner, &s.facility, s.rights_units)? {
+            match self.rights.check(s.owner, &facility, s.rights_units)? {
                 RightsVerdict::Allowed { remaining, .. } if remaining >= s.rights_units + other => {
                     Ok(())
                 }
@@ -635,13 +672,35 @@ impl<C: Chain, R: Rights> Executor<C, R> {
         if !v.live || v.owner != s.owner {
             return self.fail(row, now, Reason::InputShort);
         }
-        if !res_ge(&free, &s.inputs) {
+        // A cargo-only run needs its cargo at stock; a making run its inputs.
+        let need = if s.cargo_only() {
+            s.ship.cargo
+        } else {
+            s.inputs
+        };
+        if !res_ge(&free, &need) {
             // The materials have not arrived (or are spoken for): wait,
             // unless the caravan bringing them is known lost.
             if self.inbound_lost(row)? {
                 return self.fail(row, now, Reason::InputLost);
             }
             return Ok(Next::Wait(now + self.params.poll));
+        }
+        if s.cargo_only() {
+            // No facility step: the cargo is reserved and the run goes to
+            // the send, as a making run does once its facility use is read.
+            let mut c = change(
+                RunState::FacilityConfirmed,
+                row.detail.clone(),
+                now,
+                "cargo only: cargo reserved, no facility step",
+            );
+            c.ops = vec![Op::Reserve {
+                kind: ResKind::Stock,
+                place: s.stock.slot_key(),
+                amount: s.ship.cargo,
+            }];
+            return Ok(Next::Go(c));
         }
         if let Err(why) = self.rights_free(row)? {
             return self.fail(row, now, why);
@@ -662,7 +721,7 @@ impl<C: Chain, R: Rights> Executor<C, R> {
             },
             Op::Reserve {
                 kind: ResKind::Rights,
-                place: format!("{}:{:?}", s.owner, s.facility),
+                place: s.rights_place().unwrap_or_default(),
                 amount: units,
             },
         ];
@@ -693,8 +752,12 @@ impl<C: Chain, R: Rights> Executor<C, R> {
         if let Err(why) = self.rights_free(row)? {
             return self.fail(row, now, why);
         }
-        let fac = self.chain.place(&s.facility.place)?;
-        if !fac.is_some_and(|f| f.live && f.gen == s.facility.place.gen) {
+        let Some(facility) = s.facility else {
+            // Never reached: a cargo-only run leaves Accepted for the send.
+            return self.fail(row, now, Reason::FacilityGone);
+        };
+        let fac = self.chain.place(&facility.place)?;
+        if !fac.is_some_and(|f| f.live && f.gen == facility.place.gen) {
             return self.fail(row, now, Reason::FacilityGone);
         }
         let Some((_, free)) = self.free_stock(row, &s.stock)? else {
@@ -713,7 +776,7 @@ impl<C: Chain, R: Rights> Executor<C, R> {
         let req = Request::UseFacility {
             key: s.facility_key(),
             holder: s.owner,
-            facility: s.facility,
+            facility,
             stock: s.stock,
             inputs: s.inputs,
             outputs: s.outputs,

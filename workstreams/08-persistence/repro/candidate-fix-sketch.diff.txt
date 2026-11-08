@@ -1,0 +1,140 @@
+# DRAFT ONLY - NOT APPLIED. Against b553208 (= 4cd901d + workstream-08 docs).
+# Part A (S1, prevention): SendCaravan and the raid re-route refuse a schedule
+#   whose last bell is >= end_bell, mirroring host Depart (host.rs:652-659).
+# Part B (S1, escape hatch for caravans already stranded / DefaultRaid after end):
+#   SettleCaravan treats a slot's bells >= end_bell as unreachable once the
+#   Province has resolved every bell of the season (RESOLVED_NEXT >= end_bell)
+#   and bell(now) >= end_bell.
+# Part C (S2, sketch): a permissionless season-end close for Vault / Structure /
+#   Caravan on the CloseHolding model (Ended + 72 h, Aborted, or the Closed
+#   tombstone), rent (and a caravan's escrowed fee) to the stored RENT_TO.
+#   Needs a new v2 tag (0xBF is S1's reserved tag), an account-list spec,
+#   budgets, an fclient builder and G13 coverage - shown as code only.
+
+--- a/permutation-frontier/src/proc/caravan.rs
++++ b/permutation-frontier/src/proc/caravan.rs
+@@ fn send_caravan  (after the call to route(...), ~line 777)
+         &Owner::of(season_ai, citizen)?,
+         id,
+         provinces,
+     )?;
++    // W08-S1 (as host Depart step 4, W6T-1): every bell the caravan stands
++    // on must be a bell of the season (`< end_bell`). No GatherClash,
++    // ResolveFromInputs, SkipQuiet or FastForward passes `end_bell`
++    // (clash.rs in_season, rest_model::rest_limit), so a slot at or past it
++    // keeps SettleCaravan `CaravanEarly` for good. `last_bell` is 0 when the
++    // walk crosses no bell start (no slot): always accepted.
++    if last_bell >= pl.pc.season.end_bell {
++        return Err(FrontierError::ArrivalBell.into());
++    }
+     // The Caravan.
+     expect_key(
+         caravan,
+@@ struct RaidCtx
+     genesis_ts: i64,
+     now: i64,
+     bell: u32,
++    /// The Season's `end_bell` (a take's new walk must end its bells before it).
++    end_bell: u32,
+     season: &'b AccountInfo<'a>,
+@@ fn settle_raid  (after the take's route(...))
+             id,
+             new_route,
+         )?;
++        // W08-S1: the walk home must stand only on bells of the season.
++        // RaidCaravan (player-class) is refused; DefaultRaid after end_bell
++        // must pass `steps` 0 (a burn after RAID_BURN_AFTER_BELLS) or a walk
++        // that crosses no bell start. [Design choice: alternatively convert
++        // a BY_DEFAULT take into a burn here.]
++        if last_bell >= rc.end_bell {
++            return Err(FrontierError::ArrivalBell.into());
++        }
+@@ fn raid_caravan  (RaidCtx { ... })
+         now: pl.now.ts,
+         bell: pl.pc.now_bell,
++        end_bell: pl.pc.season.end_bell,
+         season: season_ai,
+@@ fn default_raid  (RaidCtx { ... })
+         now: now.ts,
+         bell,
++        end_bell: hdr.end_bell,
+         season: season_ai,
+@@ fn settle_caravan  (~line 951)
+-    // Every bell the caravan stood here is resolved and no raid is open.
++    // Every bell the caravan stood here is resolved and no raid is open.
++    // W08-S1: bells at or past `end_bell` are never resolved; once the
++    // season is over and this Province has resolved all of its bells, the
++    // slot's remaining bells can hold no clash and no raid: they count as
++    // passed (a caravan stranded by a schedule across end_bell settles).
++    let season_over = bell != NO_BELL && bell >= hdr.end_bell;
+     for ai in provinces {
+         present_v2(ai, p, K2::Province, sid)?;
+         let pd = ai.try_borrow_data()?;
+         if let Some((_, s)) = slot_of(&pd, id)? {
+-            if Ro(&pd).u32(P::RESOLVED_NEXT)? <= s.last_bell() {
++            let rn = Ro(&pd).u32(P::RESOLVED_NEXT)?;
++            if rn <= s.last_bell() && !(season_over && rn >= hdr.end_bell) {
+                 return Err(cq(CqError::CaravanEarly));
+             }
+             if s.raid_open() {
+                 return Err(cq(CqError::RaidState));
+             }
+         }
+     }
+
+--- a/permutation-frontier/src/proc/caravan.rs   (Part C, sketch: new handler)
++++ b/permutation-frontier/src/proc/caravan.rs
+@@ end of file
++// ------------------------------------------------------------ 0xBF CloseS1 (W08-S2, draft)
++
++/// 0xBF CloseS1(kind): `[any s] [season] [target w] [rent_to w]`, class N.
++/// Ended with `now >= end + 72 h`, Aborted, or the Closed tombstone (as
++/// CloseHolding, citizen.rs end_or_tombstone / map::season_end_close).
++/// `kind` 0 Vault, 1 Structure, 2 Caravan. The target (present, this
++/// season, canonical address from its own key fields) closes to its stored
++/// `RENT_TO`; a vault's stores and a caravan's cargo are forfeited (logged
++/// in CLOSE); a caravan's escrowed FEE goes with its rent to RENT_TO. No
++/// Province, Citizen or Holding is touched (they may be closed already).
++pub fn close_s1_after_end(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
++    check_accounts_v2(Ix2::CloseS1, a, None)?;
++    let x = ix2::CloseS1::decode(d)?;
++    let [_any, season_ai, target, rent_to] = a else {
++        return Err(FrontierError::TooManyAccounts.into());
++    };
++    let now = prologue::now()?;
++    let (sid, bell) = match super::season::float_tombstone(season_ai, p)? {
++        Some(id) => (id, frontier_abi::log::NO_BELL),
++        None => {
++            let hdr = super::map::season_end_close(season_ai, p, now.ts)?;
++            (hdr.id, super::map::log_bell(&hdr, now.ts))
++        }
++    };
++    let ctx = addr::ctx(&key(season_ai), &p.to_bytes());
++    let (kind, entity, expected, stored_rent_to, close_key) = match x.kind {
++        0 => { /* present_v2(target, p, K2::Vault, sid); key from VA::P/Q/TILE;
++                  RENT_TO = VA::RENT_TO; close_key_vault(..) */ todo!() }
++        1 => { /* K2::Structure; TW::P/Q/TILE; TW::RENT_TO; close_key_structure */ todo!() }
++        2 => { /* caravan_of(p, &ctx, sid, target); CV::RENT_TO; close_key_caravan */ todo!() }
++        _ => return Err(FrontierError::BadData.into()),
++    };
++    expect_key(target, &expected)?;
++    if key(rent_to) != stored_rent_to {
++        return Err(BAD_ACCOUNT);
++    }
++    // log CLOSE on the entity's chain (as close_caravan / close_vault), then
++    init::close_to(p, target, rent_to, &Sink::Never, bell)?;
++    Ok(())
++}
+
+--- a/frontier-abi/src/v2/tags.rs   (Part C)
++++ b/frontier-abi/src/v2/tags.rs
+-    RaidDomestic = 0xBE, P, false;
++    RaidDomestic = 0xBE, P, false;
++    CloseS1 = 0xBF, N, false;
+@@ is_reserved
+-    crate::tags::is_reserved(t) || matches!(t, 0xA4 | 0xA8..=0xAF | 0xBF)
++    crate::tags::is_reserved(t) || matches!(t, 0xA4 | 0xA8..=0xAF)
+# + Ix::ALL count 74 -> 75 (tags.rs test), account-list spec, v2::ix::CloseS1
+#   {kind: u8} decode, budgets::loaded_accounts(CloseS1), CU ceiling (G1),
+#   relay_settle_shape (optional), fclient builder, frontier-node keeper sweep
+#   after end+72h, svm-tests G13 coverage for every new code path.

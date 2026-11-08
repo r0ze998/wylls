@@ -8,6 +8,7 @@
 //! | `trace` | `PSF_TRACE_BUILD` |
 //! | `oracle` | `PSF_ORACLE_BUILD` |
 //! | `test-beacon` | `PSF_TEST_BEACON_BUILD` |
+//! | `custody-preview` | `PSF_CUSTODY_PREVIEW_BUILD` (workstream 10: not a test build, but not deployable until verified) |
 //!
 //! Each marker is passed through `core::hint::black_box` on a path every
 //! instruction (or every beacon verification) runs, so neither the
@@ -18,6 +19,7 @@
 pub const TRACE: &[u8] = b"PSF_TRACE_BUILD";
 pub const ORACLE: &[u8] = b"PSF_ORACLE_BUILD";
 pub const TEST_BEACON: &[u8] = b"PSF_TEST_BEACON_BUILD";
+pub const CUSTODY_PREVIEW: &[u8] = b"PSF_CUSTODY_PREVIEW_BUILD";
 
 /// Keeps the `trace` and `oracle` markers alive (called by `dispatch`).
 #[inline(always)]
@@ -26,6 +28,8 @@ pub fn touch() {
     core::hint::black_box(TRACE.as_ptr());
     #[cfg(feature = "oracle")]
     core::hint::black_box(ORACLE.as_ptr());
+    #[cfg(feature = "custody-preview")]
+    core::hint::black_box(CUSTODY_PREVIEW.as_ptr());
 }
 
 /// Keeps the `test-beacon` marker alive (called by every beacon
@@ -55,7 +59,7 @@ mod tests {
         }
         assert_ne!(TRACE, ORACLE);
         let script = include_str!("../../scripts/build-frontier.sh");
-        for m in [TRACE, ORACLE, TEST_BEACON] {
+        for m in [TRACE, ORACLE, TEST_BEACON, CUSTODY_PREVIEW] {
             assert!(
                 script.contains(core::str::from_utf8(m).unwrap()),
                 "build-frontier.sh checks {}",

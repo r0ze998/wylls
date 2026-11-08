@@ -108,7 +108,13 @@ export async function restore(scope, wallet) {
  * Whether a key is the one the Citizen registered (`Citizen.session`, 32
  * bytes, zero = none) and still valid at chain time `now` (s).
  */
-export function matchesCitizen(session, citizen, now) {
+export function matchesCitizen(session, citizen, now, resident = null) {
+  // NFT-bound residents (optional `resident`, as the gate reads it: holder, gen, session, sessionGen,
+  // sessionSetter): a key of a wallet that no longer holds the resident is `ResidentHolderChanged`, and a
+  // key the holder did not set in the current holder generation is `ResidentSessionStale`; neither is a
+  // key to regenerate silently.
+  if (resident?.holder && session?.wallet && resident.holder !== session.wallet) return { ok: false, code: 'ResidentHolderChanged', holder: resident.holder };
+  if (resident?.holder && (resident.session !== session?.publicKey || resident.sessionGen !== resident.gen || resident.sessionSetter !== resident.holder)) return { ok: false, code: 'ResidentSessionStale', gen: resident.gen };
   const reg = citizen?.session;
   if (!reg || reg.every?.(x => x === 0)) return { ok: false, code: 'NoSession' };
   if (toBase58(reg) !== session.publicKey) return { ok: false, code: 'SessionMismatch' };

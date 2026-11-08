@@ -118,7 +118,13 @@ pub struct RunSpec {
     pub stock: PlaceRef,
     /// The caravan bringing the inputs, if one is awaited.
     pub inbound: Option<CaravanKey>,
-    pub facility: FacilityRef,
+    /// The facility step. `None`: a cargo-only run (workstream 6's delivery
+    /// with no making step): it ships `ship.cargo` from `stock` as it is, and
+    /// then has no inputs, outputs or right units. A spec with a facility
+    /// serialises exactly as before (`Option` as its value), so its digest
+    /// is unchanged.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub facility: Option<FacilityRef>,
     pub inputs: Res,
     pub outputs: Res,
     /// Units of the use right one execution consumes.
@@ -136,6 +142,17 @@ impl RunSpec {
         use sha2::Digest;
         let j = serde_json::to_vec(self).expect("spec serialises");
         hex::encode(sha2::Sha256::digest(&j))
+    }
+
+    /// A cargo-only run (no facility step).
+    pub fn cargo_only(&self) -> bool {
+        self.facility.is_none()
+    }
+
+    /// The rights reservation's place: the owner and the facility, as the
+    /// store has always written it (`None` for a cargo-only run).
+    pub fn rights_place(&self) -> Option<String> {
+        self.facility.map(|f| format!("{}:{:?}", self.owner, f))
     }
 
     /// The facility request's key: one per run, fixed for every attempt.
@@ -252,6 +269,21 @@ impl RunState {
 
 /// The transition table. Self-loops (a detail update) are always allowed on
 /// a non-terminal state; nothing leaves a terminal state.
+/// [`allowed`] for this run: a cargo-only run (no facility step) goes from
+/// Accepted to FacilityConfirmed (the send) and never enters a facility
+/// state; a making run keeps the table as it is.
+pub fn allowed_for(spec: &RunSpec, from: RunState, to: RunState) -> bool {
+    if spec.cargo_only() {
+        if matches!(to, Reserved | FacilityRequested | FacilitySubmitted) {
+            return false;
+        }
+        if from == Accepted && to == FacilityConfirmed {
+            return true;
+        }
+    }
+    allowed(from, to)
+}
+
 pub fn allowed(from: RunState, to: RunState) -> bool {
     if from == to {
         return !from.terminal();
@@ -429,6 +461,11 @@ pub struct Detail {
     pub settle: Option<crate::ports::Settle>,
     /// The raid as observed.
     pub raid: Option<crate::ports::Raid>,
+    /// Who asked for the run, as the intake checked it against the pass
+    /// (`intake::check_requester`); `None` for a run accepted without the
+    /// check (`Executor::accept`, the in-process path).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub authority: Option<crate::intake::RunAuthority>,
 }
 
 /// What each state owns, reserves and can give back (the table the docs

@@ -71,6 +71,56 @@ pub struct FoldCfg {
     pub exact_post: bool,
 }
 
+/// Whether the ingest loop is keeping up (`/h/status`). A pull that keeps
+/// failing (a history gap, a transaction the client cannot read, an RPC
+/// error) leaves the published views where they were: readers must be able
+/// to see that they are not current.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct IngestHealth {
+    /// The last failed pull's error while pulls keep failing; `None` once a
+    /// pull succeeds.
+    pub error: Option<String>,
+    /// Consecutive failed pulls.
+    pub failures: u64,
+    /// Unix milliseconds of the first failure of this run of failures.
+    pub since_ms: u64,
+    /// The store failed (findex poisoned): ingest has stopped until the
+    /// herald reopens it.
+    pub stopped: bool,
+    /// What the archived history covers, as the source reports it
+    /// (findex `RpcPoll::coverage`: `gap`, `not_fetched`, `unverifiable`
+    /// or `cross_checked`); `None` for an ordered feed. Kept across
+    /// failures and successes alike.
+    pub coverage: Option<Value>,
+}
+
+impl IngestHealth {
+    pub fn ok(&mut self) {
+        *self = IngestHealth {
+            coverage: self.coverage.take(),
+            ..IngestHealth::default()
+        };
+    }
+
+    pub fn failed(&mut self, e: &str, now_ms: u64, stopped: bool) {
+        if self.failures == 0 {
+            self.since_ms = now_ms;
+        }
+        self.failures += 1;
+        self.error = Some(e.to_string());
+        self.stopped |= stopped;
+    }
+
+    pub fn json(&self) -> Value {
+        json!({
+            "state": if self.stopped { "stopped" } else if self.error.is_some() { "failing" } else { "ok" },
+            "error": self.error, "failures": self.failures,
+            "sinceMs": (self.failures > 0).then_some(self.since_ms),
+            "coverage": self.coverage,
+        })
+    }
+}
+
 /// One account's bytes as written by the transaction at archive `tx`.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Capture {
@@ -235,12 +285,21 @@ pub struct Fold {
     /// The chain's latest `(slot, Clock unix time)` as last observed by the
     /// ingest loop (live views only; never folded into files).
     pub live: Option<(u64, i64)>,
+    /// The ingest loop's health as last observed (live views only; never
+    /// folded into files or checkpoints).
+    pub ingest: IngestHealth,
     // MC hook: the conquest state (CONQUEST-CONTRACT §4.5, §8.4)
     pub cq: crate::conquest::Cq,
     // MC hook end
     /// Resting S1 Provinces projected past `resolved_next` (`crate::rest`;
     /// not checkpointed).
     pub rest: crate::rest::Rests,
+    /// The recorded wide world (`crate::wide`, feature
+    /// `wide-world-experimental`): derived from the captured Provinces like
+    /// `provinces`, moved only when one is first captured or closed; not
+    /// checkpointed (rebuilt by `with_state`).
+    #[cfg(feature = "wide-world-experimental")]
+    pub wide: Option<crate::wide::WideIndex>,
 }
 
 fn kind_of(d: &[u8]) -> Option<AccountKind> {
@@ -264,9 +323,13 @@ impl Fold {
     /// A fold resuming from a saved state (derived indexes rebuilt).
     pub fn with_state(cfg: FoldCfg, out: Out, st: State) -> Fold {
         let ctx = findex::addr_ctx(&cfg.program, cfg.season_id);
+        #[cfg(feature = "wide-world-experimental")]
+        let wide = crate::wide::WideIndex::for_ctx(&ctx);
         let mut f = Fold {
             cfg,
             ctx,
+            #[cfg(feature = "wide-world-experimental")]
+            wide,
             st,
             out,
             season: None,
@@ -277,6 +340,7 @@ impl Fold {
             diffs: vec![],
             version: 0,
             live: None,
+            ingest: IngestHealth::default(),
             // MC hook: the conquest state
             cq: Default::default(),
             // MC hook end
@@ -323,11 +387,17 @@ impl Fold {
                         .entry(pv.region)
                         .or_default()
                         .insert((pv.p, pv.q));
+                    // the recorded wide world: a no-op for a Province already recorded open from this bell
+                    #[cfg(feature = "wide-world-experimental")]
+                    if let Some(w) = self.wide.as_mut() {
+                        w.observe_open(pv.p, pv.q, first);
+                    }
                 }
             }
             Some(AccountKind::Citizen) => {
-                if let Some(w) = d.get(64..96) {
-                    self.wallet_of.insert(*k, w.try_into().unwrap_or_default());
+                // The `/h/me` key: the wallet, or a ⑳ NFT Citizen's asset.
+                if let Some(w) = crate::conquest::me_key(d) {
+                    self.wallet_of.insert(*k, w);
                 }
             }
             Some(AccountKind::Season) if *k == self.ctx.season => {
@@ -350,6 +420,14 @@ impl Fold {
                     }
                     if let Some(s) = self.regions.get_mut(&m.region) {
                         s.remove(&pq);
+                    }
+                }
+                // the recorded wide world: a closed account is a known closed record, not an unknown one
+                #[cfg(feature = "wide-world-experimental")]
+                {
+                    let at = self.st.last_slot;
+                    if let Some(w) = self.wide.as_mut() {
+                        w.observe_closed(pq.0, pq.1, at);
                     }
                 }
             }
@@ -384,9 +462,10 @@ impl Fold {
                 pq(64)
             }
             AccountKind::ArrivalSlot | AccountKind::ArrivalDay if d.len() >= 20 => pq(16),
-            AccountKind::Citizen if d.len() >= 96 => {
-                Scope::Wallet(d[64..96].try_into().unwrap_or_default())
-            }
+            AccountKind::Citizen if d.len() >= 96 => match crate::conquest::me_key(d) {
+                Some(w) => Scope::Wallet(w),
+                None => Scope::None,
+            },
             AccountKind::BellAnchor
             | AccountKind::SeedCache
             | AccountKind::AnchorArchive

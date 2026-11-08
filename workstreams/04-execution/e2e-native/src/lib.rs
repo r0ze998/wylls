@@ -11,15 +11,22 @@
 //!   (accounts are serialized as the BPF loader does and read back with
 //!   `solana_program::entrypoint::deserialize`, so `resize` and `assign` work
 //!   as on chain).
-//! - **MOCK**: the System program (CreateAccount, Transfer) and SPL Token
+//! - **MOCK**: the System program (CreateAccount, Transfer, Allocate, Assign,
+//!   AllocateWithSeed — the last three for the game's own account creation,
+//!   e.g. JoinResident under the `nft` feature) and SPL Token
 //!   (InitializeMint2, InitializeAccount3, MintTo, TransferChecked) are
 //!   re-implemented here; the Clock and Rent sysvars come from this host
 //!   (through the vendored `solana-get-sysvar` hook); signatures are a set of
 //!   keys said to have signed (no ed25519); no fees, compute budget,
 //!   transaction size or account-lock limits.
-//! - **Not run**: the game program. Game accounts (Season, Province,
-//!   ProvinceFund, Citizen) are written directly with frontier-abi layouts as
-//!   stand-ins, as `permutation-prize/svm-tests` does under LiteSVM.
+//! - **Optionally real, the game program** ([`Host::with_game`]): its own
+//!   `dispatch` (built for the host without its entrypoint) runs the
+//!   instructions sent to its id, e.g. CloseCitizen and CloseProvince in
+//!   `tests/claims_vs_closes.rs`. Its accounts are still
+//!   written directly with frontier-abi layouts (no CreateSeason or Join is
+//!   run: those need the drand and signature machinery this host does not
+//!   have). Without `with_game`, the game program is not run at all, as in
+//!   `permutation-prize/svm-tests` under LiteSVM.
 
 use std::collections::BTreeMap;
 use std::sync::Mutex;
@@ -57,14 +64,19 @@ static RUN: Mutex<()> = Mutex::new(());
 static CLOCK: Mutex<Option<Clock>> = Mutex::new(None);
 static CALLERS: Mutex<Vec<Pubkey>> = Mutex::new(Vec::new());
 static LOGS: Mutex<Vec<String>> = Mutex::new(Vec::new());
+static DATA: Mutex<Vec<Vec<Vec<u8>>>> = Mutex::new(Vec::new());
 
 /// The world: accounts, the prize program's id, the clock.
 pub struct Host {
     pub accounts: BTreeMap<Pubkey, Acct>,
     pub prize: Pubkey,
+    /// The game program's id when it runs here (`with_game`).
+    pub game: Option<Pubkey>,
     pub clock: Clock,
     /// Program logs of the last transaction.
     pub logs: Vec<String>,
+    /// `sol_log_data` calls of the last transaction (each one's fields).
+    pub data: Vec<Vec<Vec<u8>>>,
 }
 
 impl Host {
@@ -84,13 +96,31 @@ impl Host {
         Host {
             accounts,
             prize,
+            game: None,
             clock: Clock {
                 slot: 1,
                 unix_timestamp: 1_800_000_000,
                 ..Clock::default()
             },
             logs: vec![],
+            data: vec![],
         }
+    }
+
+    /// The same world with the game program `game` run for real.
+    pub fn with_game(prize: Pubkey, game: Pubkey) -> Host {
+        let mut h = Host::new(prize);
+        h.accounts.insert(
+            game,
+            Acct {
+                lamports: 1,
+                data: vec![],
+                owner: LOADER,
+                executable: true,
+            },
+        );
+        h.game = Some(game);
+        h
     }
 
     pub fn set(&mut self, key: Pubkey, a: Acct) {
@@ -117,6 +147,7 @@ impl Host {
         install();
         *CLOCK.lock().unwrap() = Some(self.clock.clone());
         LOGS.lock().unwrap().clear();
+        DATA.lock().unwrap().clear();
         let before = self.accounts.clone();
         let total =
             |m: &BTreeMap<Pubkey, Acct>| m.values().map(|a| a.lamports as u128).sum::<u128>();
@@ -132,6 +163,10 @@ impl Host {
             r = Err("UnbalancedInstruction (lamports created or destroyed)".into());
         }
         self.logs = std::mem::take(&mut *LOGS.lock().unwrap());
+        self.data = std::mem::take(&mut *DATA.lock().unwrap());
+        if r.is_err() {
+            self.data.clear();
+        }
         if r.is_err() {
             self.accounts = before;
         }
@@ -149,7 +184,7 @@ impl Host {
         // SAFETY: `buf` is in the loader's aligned input format, built just
         // above, and outlives every AccountInfo read from it.
         let (pid, infos, data) = unsafe { deserialize(buf.as_mut_ptr() as *mut u8) };
-        if let Err(e) = dispatch(pid, &infos, data, &self.prize) {
+        if let Err(e) = dispatch(pid, &infos, data, &self.prize, self.game.as_ref()) {
             return Err(err_text(&e));
         }
         let mut out = vec![];
@@ -229,8 +264,19 @@ fn serialize(accounts: &BTreeMap<Pubkey, Acct>, ix: &Instruction) -> Vec<u64> {
     out
 }
 
-fn dispatch(pid: &Pubkey, infos: &[AccountInfo], data: &[u8], prize: &Pubkey) -> ProgramResult {
-    if pid == prize {
+fn dispatch(
+    pid: &Pubkey,
+    infos: &[AccountInfo],
+    data: &[u8],
+    prize: &Pubkey,
+    game: Option<&Pubkey>,
+) -> ProgramResult {
+    if Some(pid) == game {
+        CALLERS.lock().unwrap().push(*pid);
+        let r = permutation_frontier::dispatch(pid, infos, data).map_err(ProgramError::from);
+        CALLERS.lock().unwrap().pop();
+        r
+    } else if pid == prize {
         CALLERS.lock().unwrap().push(*pid);
         let r = permutation_prize::process_instruction(pid, infos, data);
         CALLERS.lock().unwrap().pop();
@@ -251,6 +297,12 @@ struct Stubs;
 impl SyscallStubs for Stubs {
     fn sol_log(&self, message: &str) {
         LOGS.lock().unwrap().push(message.to_string());
+    }
+
+    fn sol_log_data(&self, fields: &[&[u8]]) {
+        DATA.lock()
+            .unwrap()
+            .push(fields.iter().map(|f| f.to_vec()).collect());
     }
 
     /// A CPI: signers are the caller's signers and the caller's PDAs from
@@ -366,10 +418,10 @@ fn system(a: &[AccountInfo], d: &[u8]) -> ProgramResult {
         .get(..4)
         .map(|b| u32::from_le_bytes(b.try_into().unwrap()))
         .ok_or(ProgramError::InvalidInstructionData)?;
-    let (from, to) = two(a)?;
     match tag {
         // CreateAccount { lamports, space, owner }
         0 => {
+            let (from, to) = two(a)?;
             if !from.is_signer || !to.is_signer {
                 return Err(ProgramError::MissingRequiredSignature);
             }
@@ -388,13 +440,75 @@ fn system(a: &[AccountInfo], d: &[u8]) -> ProgramResult {
         }
         // Transfer { lamports }
         2 => {
+            let (from, to) = two(a)?;
             if !from.is_signer {
                 return Err(ProgramError::MissingRequiredSignature);
             }
             transfer(from, to, u64_at(d, 4)?)
         }
+        // Allocate { space }: the account signs (a PDA through the caller's seeds).
+        8 => {
+            let to = a.first().ok_or(ProgramError::NotEnoughAccountKeys)?;
+            if !to.is_signer {
+                return Err(ProgramError::MissingRequiredSignature);
+            }
+            allocate(to, u64_at(d, 4)? as usize)
+        }
+        // Assign { owner }
+        1 => {
+            let to = a.first().ok_or(ProgramError::NotEnoughAccountKeys)?;
+            if !to.is_signer {
+                return Err(ProgramError::MissingRequiredSignature);
+            }
+            let owner = d.get(4..36).ok_or(ProgramError::InvalidInstructionData)?;
+            assign_system(to, &Pubkey::new_from_array(owner.try_into().unwrap()))
+        }
+        // AllocateWithSeed { base, seed, space, owner }: accounts [to, base];
+        // `to` must be `create_with_seed(base, seed, owner)` and `base` signs.
+        9 => {
+            let (to, base) = two(a)?;
+            let base_key = d.get(4..36).ok_or(ProgramError::InvalidInstructionData)?;
+            let n = u64_at(d, 36)? as usize;
+            let seed = d
+                .get(44..44 + n)
+                .ok_or(ProgramError::InvalidInstructionData)?;
+            let space = u64_at(d, 44 + n)? as usize;
+            let owner = d
+                .get(52 + n..84 + n)
+                .ok_or(ProgramError::InvalidInstructionData)?;
+            let owner = Pubkey::new_from_array(owner.try_into().unwrap());
+            let base_key = Pubkey::new_from_array(base_key.try_into().unwrap());
+            if *base.key != base_key || !base.is_signer {
+                return Err(ProgramError::MissingRequiredSignature);
+            }
+            let seed = core::str::from_utf8(seed).map_err(|_| ProgramError::InvalidSeeds)?;
+            let want = Pubkey::create_with_seed(&base_key, seed, &owner)
+                .map_err(|_| ProgramError::InvalidSeeds)?;
+            if *to.key != want {
+                return Err(ProgramError::InvalidSeeds);
+            }
+            allocate(to, space)?;
+            assign_system(to, &owner)
+        }
         _ => Err(ProgramError::InvalidInstructionData),
     }
+}
+
+/// System Allocate: only a System-owned account with no data.
+fn allocate(to: &AccountInfo, space: usize) -> ProgramResult {
+    if *to.owner != SYSTEM || !to.data_is_empty() {
+        return Err(ProgramError::Custom(0)); // AccountAlreadyInUse
+    }
+    to.resize(space)
+}
+
+/// System Assign: only a System-owned account.
+fn assign_system(to: &AccountInfo, owner: &Pubkey) -> ProgramResult {
+    if *to.owner != SYSTEM {
+        return Err(ProgramError::IllegalOwner);
+    }
+    to.assign(owner);
+    Ok(())
 }
 
 fn transfer(from: &AccountInfo, to: &AccountInfo, lamports: u64) -> ProgramResult {
