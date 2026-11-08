@@ -4046,3 +4046,34 @@ env -u NODE_OPTIONS -u WS04_SCAN_ROOT -u RUNEXEC_BIN -u RUNEXEC_VIEW_BIN bash sc
 - 残っているのは `String(…)` で source の text を読むことだけ（36〜42、81、89 行目）。fail-closed の試験は、guard の無い `/session.mjs` を import するが、その top-level は鍵の関数を呼ばない（§29.24 の審査）。
 - `srv.stage('holding')` は、live が null なので createLive に届かない。
 - 判定：**鍵の自己試験は取り除かれた。** ただし、browser の画面の実行は、§29.39 D の 4 つの点が満たされるまで、除外のままである。
+
+## 29.41 4 の ws07-guard の実行の一覧（読むだけ）と、7 の 5a5e5cf2（画面の始めの、source の text だけの前提の確認）
+
+### A. 4 の ws07-guard の実行（4 の自己申告。記録は 4 の scratchpad にあり、⑯ は読めない）
+
+- 2026-11-08 の UTC に 23 回。どれも int-merge で、`scripts/ci/no-keys-guard.mjs` と full Chromium の下で走った。
+- どの実行も、`NODE_OPTIONS=--use-openssl-ca` が設定されていた。また、int-merge の `permutation-gateway/node_modules` があったので、node の preload は `@solana` と `@noble` を読み込んでいた。
+- 1 回目（18:18）：fail-open の版（487e75e8）で、1/1 が合格。log は succ-logs/guard.log。
+- 2〜23 回目（18:42〜23:11）：84251e5a 以後の fail-closed の版で、どれも 2/2 が合格。
+  - 21 の log は TAP の要約だけで、拒否の一つずつの記録は無い。
+  - 19:20、19:26、19:30 の 3 回は、log の名前を後で上書きしたので、結果は transcript にだけ残る。
+- 落ちた実行も、記録の無い実行も無い（4 の申告）。
+- **判定（§29.38 A の区別のとおり）。**
+  - 23 回とも、試験の assertion が通っている。だから、page の realm での拒否（NK の置き換えによる）と、止められた試みにあたる。成功した鍵の処理ではない。
+  - ただし、拒否の中身は試験の assertion にだけ頼っていて、独立の監視は無い。
+  - 安全な実行の証拠からは除く。導出の証拠でもない。
+  - preload の環境（NODE_OPTIONS と node_modules）は、証拠の欠けとして記す。
+  - これで、ws07-guard の履歴の監査を有限に閉じる。
+
+### B. 7 の `5a5e5cf25567afe940c7b5280145ac9412cfe0c7`（tree `d24b9107…`、親 c3826129）。§29.39 D の 1 番目
+
+- `nokey-page.mjs` に `SENTINELS`（fetch した text と `String()` だけで確かめる、10 の確認）、`sentinelsOf`、`requireGuard`、`requireGuardOn` を加えた（+44）。
+- `requireGuard(ctx, base, assert)` は、`NK.prepare` の後、game の page を開く前に、同じ context の新しい page で `${base}/session.mjs`（text の document）を開く。そこで sentinel が `[true, true, [], 10]` であることを assert し、外れていれば throw して止まる。
+  - init script と route は context の全体に効く。だから、ここで確かめれば、後で開く game の page にも効いている。
+- `requireGuardOn(page, …)` は、game の page の goto の直後、どの押下よりも前に、同じ確認をする。grow-s1 では段ごとの goto の後に、conquest-s1 では 131 行目でする。
+- 残る点：game の page の boot の code（startPlay など）は、`requireGuardOn` より前に走る。ただし、それより前の `requireGuard` で、同じ context に guard が効いていることを確かめている。
+- **判定：§29.39 D の 1 番目は満たされた。** 2〜4 番目は、まだ開いている。
+  - 2：page の module の、読み込みの時点の審査。7 に、読むだけで行うよう頼む。
+  - 3：node の側の条件つきの経路。keyless の literal と、`srv.live` を呼ぶ箇所が 0 件であることの明示。
+  - 4：screens 用の runner（node_modules は playwright-core だけ、NODE_PATH は unset、完全な出力の保存）。4 に頼む。
+- 画面の実行は、まだ除外のまま。
