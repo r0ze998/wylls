@@ -1,0 +1,85 @@
+# 12. 計画 → Dispatch の接続：③⑤の route との入力契約（案、2026-11-08）
+
+**位置づけ：** 既存の権限と意図を変えない、技術的な接続の契約案です。新しい永続的な権限、署名の方式、利用者の経済的な約束は足しません。それらが要る点は §3 に選択肢と影響だけを書き、決めずに残します。
+
+**基点：** ④の公開版 `claude/gallant-ride-cunptv` = `20db3313adf25481b714798759b1fdd0cb917275`（⑥ `148bcebd` と③⑤の共有コアが入っている）。③ `c95287d51dff8e92a1a9db67163b37b35e6d94eb`。
+
+## 1. 役割（④ AUTH-ROUTES の推奨 A1＋B1 に沿う）
+
+| 誰 | すること | しないこと |
+|---|---|---|
+| gateway の route（③⑤の担当。**未作成**） | 依頼者を認証する（本人の財布・期限内のセッション・NFT パスの持ち主）。⑥の `intake` を呼ぶ。④の場所・Citizen を読む | ⑥の計画を書き換えない |
+| ⑥（`src/connect/intake.mjs`・`dispatch.mjs`・`ports.mjs`） | 採用済みの計画から実行 id・requestId を固定し、控えに書いてから④③を呼ぶ。状態を読むだけの照会を返す | 依頼者を認証しない。`authenticatedBy` を書かない。署名しない。鍵を持たない |
+| ④ `runexec run accept` | 依頼者がパスの今の持ち主かをチェーンで確かめる（違えば exit 5 `NotAuthorized`、何も書かない） | ― |
+| gateway（送り手ごとの capability、Citizen ごとの一列） | 唯一の署名者として送る（B1） | ― |
+
+## 2. 入力契約（route → ⑥ `intake`）
+
+```js
+intake({
+  dispatch,                       // ⑥ の Dispatch（控えは route の側が置く。§3 D2）
+  route: "run" | "act",           // run: ④ run accept/view。act: ③ MCP（AI の会話から）
+  adoption: (planHash) => null | problem,   // ⑥ の採用の記録（AdoptionBook.problem）
+  binding: (plan, requester) => null | problem,   // §3 D1。既定は無い（無ければ全部拒否）
+  request: {
+    plan, planHash, env, nonce,   // ⑥ の採用済みの計画、その版と内容ハッシュの固定、依頼の番号（≤16）
+    requester,                    // run のみ：gateway が認証した {actor, generation, citizen, authenticatedBy}。そのまま④へ
+    places, ownerTag,             // run：④③がチェーンから読んだ場所と Citizen の tag
+    view,                         // act：③ get_village_status の持ち主の場所
+    deadlineSlot, budget,         // §3 D3
+  },
+})
+```
+
+**保つ約束（どの route でも変えない）：**
+
+| 約束 | 実装 |
+|---|---|
+| 認証済みの依頼者だけ。⑥は作らない | `requesterProblem`：欠け・未知の欄・空の `authenticatedBy` は計画しない。④へはそのまま渡す |
+| 実行 id・requestId は計画から決まる | 実行 id `ws06:<計画のハッシュ>:<番号 ≤16>:<手順 ≤40>`（≤127）、requestId `ws06.<48桁>`。同じ依頼は同じ値 |
+| PlanUsed・別の接続での requestId の再利用は保留 | `ports.mjs` の DEFINITIVE3。計画も id も作り直さない |
+| 結果不明は再送しない | act の `unknown` は保留。再起動しても送らない |
+| `landed` は完了ではない | 完了は、④の Run がすべての段を「履行完了」と検証したときだけ |
+| 照会は読むだけ | `status(dispatch, key)` は控えを読むだけで、③④を呼ばない。④の `run view` も読むだけ |
+
+## 3. 決めていないこと（選択肢と影響。⑥は決めない）
+
+**D1：計画と認証済みの依頼者の結び付け（誰がその計画を動かせるか）**
+
+⑥の試作では、利用者が自分の鍵で計画に署名して採用し、実行の依頼にも署名していました（Ed25519、試作の固定の種）。ゲームの中の鍵は財布とセッション鍵で、⑥の鍵はありません。
+
+| 案 | 内容 | 影響 |
+|---|---|---|
+| D1-a 財布で採用に署名する | 採用（計画）に、本人の財布で署名する | 新しい署名の方式になる。財布の承認画面が増える。代理（AI）は採用できない |
+| D1-b 認証済みの依頼者の Citizen で結ぶ | 計画に Citizen を書き、route が認証した `requester.citizen` と一致すれば動かせる。署名は既存の gateway の認証だけ | 新しい署名は要らない。その Citizen のセッション（代理を含む）が、採用済みの計画を動かせる。それを許すかは権限の判断 |
+| D1-c 採用は財布、実行の依頼はセッション | 採用だけ D1-a、各回の実行は D1-b | 採用時に一度だけ署名が要る。各回は既存の認証のまま |
+
+`intake` には既定の `binding` がなく、渡されなければ `BINDING_UNDECIDED` ですべて拒否します。
+
+**D2：控え（ジャーナル）の置き場**
+
+| 案 | 影響 |
+|---|---|
+| route を持つサーバー（gateway）のファイル・DB | 再起動に耐える。利用者ごとの分け方と保持期間の決定が要る |
+| ④の run store に置く | ④の契約の変更になる（④は Run 側に欄を足さないと回答済み） |
+
+**D3：`deadlineSlot` と `budget` の出どころ**
+
+⑤の予算（`budget.max_fee` は手数料の上限）と結び付けるか、route が固定値を入れるか。利用者の支出の上限に関わるので、⑤と利用者の判断です。⑥は値を作りません。
+
+**D4：経済的な約束**
+
+⑥は、手数料・報酬・作者への支払いを何も足しません。荷車の手数料（50,000 lamports 以上）は③④の既存の命令の値のままです。
+
+**D5：route の担当**
+
+③（MCP の会話から）と⑤（自動運転・ブラウザ）のどちらが、どの `source` で `intake` を呼ぶか。④は③⑤と利用者に回しました。
+
+## 4. 実装の区分
+
+| 区分 | 中身 | 状態 |
+|---|---|---|
+| **部品（⑥の実装）** | `intake.mjs`・`dispatch.mjs`・`ports.mjs`・`caravan.mjs` | 実装済み。鍵なしの試験 20件（`intake` 2・`ports` 2・`dispatch` 6・`connect` 10） |
+| **代役（試験の偽物・stand-in）** | ④の run store と③の送信の偽物（冪等の振る舞いは実物に合わせた）、依頼者の stand-in（公開アドレスの形だけ）、③の `get_village_status` の形の場所 | 実物の代わり。実物と同じとは扱わない |
+| **実コード接続（実物で照合）** | ④ `cf517b55`（と同一の口の `20db3313`）の `clients/runs.mjs` と `runexec`：受付の拒否が保留になる、④自身のストアを `run view` で読む。③ `c95287d5` のソース：requestId・runId の規則、計画の答え、荷の名前 | `connect-live` 6件通過・1件未実行（gateway の npm 依存） |
+| **未実装** | ③⑤の route（依頼者の認証 → `intake`）。D1 の binding。控えの置き場（D2）。④の受付で依頼者が通る経路を⑥から通すこと（チェーンが要る） | **未完成**。⑥の部品だけでは、ゲームの中から計画は動かない |
