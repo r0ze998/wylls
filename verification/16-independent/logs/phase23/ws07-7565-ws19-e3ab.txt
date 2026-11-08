@@ -15,3 +15,9 @@ ok 16 - S1: the structures feed is the router's real empty answer at every stage
 ### ⑲ e3abbee1: cargo test -p herald --test ws19_map_contract (WS19_GOLDEN_WRITE unset; live router answers compared with the golden; worktree clean after)
 running 2 tests
 test result: ok. 2 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.25s
+### ⑦ adfdecaf9da81e8a9967e8ec887b5963ce5c1a08 (tree b161e1c2 = ④ 585e9fab's tree) ws07-grow-s1, full Chromium, repo no-keys-guard
+ok 1 - 19's S1 herald answers, 08's stages @ desktop: the host at (4,0) in hand, (5,0) refused until grown, then 08's route in the order card (not sealed)
+ok 2 - 19's S1 herald answers, 08's stages @ phone: the host at (4,0) in hand, (5,0) refused until grown, then 08's route in the order card (not sealed)
+# tests 2
+# pass 2
+# fail 0

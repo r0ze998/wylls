@@ -3283,3 +3283,8 @@ checkpoint の `95b0ab225ca9e9e626941b51981df2240198d91c`（tree `89a64830da3991
   - blocked：0。
   - 未実行：柵のある世界。封・署名・送信。
   - log：`logs/phase23/ws07-7565-ws19-e3ab.txt`。
+
+**追記（⑦ adfdecaf と ④ 585e9fab）。**
+- ⑯ は ⑦ `adfdecaf` の ws07-grow-s1 を、full Chromium と repo の no-keys-guard の下で走らせ、**2/2**。grown の段の feed の assertion（`read: true`、`n: 0`、`blocked: 0`）も通った。
+- ④ `585e9fab66390656eaf580aed73c72a9f51997e3` は c378c1ce と adfdecaf の merge。tree `b161e1c2…` は adfdecaf の tree と同じなので、この実行がそのまま当てはまる。
+- 集計：失敗 0、blocked 0。全体の完了は宣言しない。
