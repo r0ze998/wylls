@@ -2176,3 +2176,41 @@ Rust の側は 23.3 に書く。
   - 別の pid 名前空間（§8 の限界）。
   - Node 22.22.0 以外の版。
   - 実際の掃除の道具（tmp 掃除など）が、lock を消す頻度。
+
+### 27.4 ⑦ の browser の key guard（487e75e8 → e28d6b38）の監査と、届いた範囲
+
+- 対象：⑦ `claude/wylls-ui-ux-visual-oixhgs` の `e28d6b388e19c595b17bdc07d30f3a4fad44325b`（tree `ef7c58c45333b42d2bfca4a93da78893e619a6fe`）。16576826 からの fast-forward で、8 file。
+- **静的監査（Node 側）**：
+  - fixture の `world.mjs` の `viewer()` が `keyFromSeed(DEV_SEED / SESSION_SEED)` を呼ぶのは `keyless=false` のときだけ。
+  - `liveworld.mjs` の `keyFromSeed(FEE_SEED)` は live mode の中だけ。
+  - guard と march の試験は、どちらも `startServer({keyless:true})` と `stage('holding')` だけを使い、live にしない。
+  - JS の `publicKeyOf` は、Node 側からは呼ばれない。repo の guard は、pure JS の導出までは止めないので、これは監査で確かめた。
+- **静的監査（page 側、`ws07/nokey-page.mjs`）**:
+  - `session.mjs` を配るときに、`keyFromSeed` と `publicKeyOf` を拒否に置き換える。export の binding なので、`fsession.mjs`、`wallet.mjs`、`importBackup`、`restore` / `cached` → `sessionOf` を通る経路もすべて止まる。
+  - `session.mjs` の top level には、鍵の呼び出しがない。
+  - route の regex は `/frontier/session.mjs`（council/main.mjs が import する。その file は無い）にも当たる。
+  - WebCrypto の generateKey、deriveKey、deriveBits、sign、unwrapKey、秘密鍵の importKey は拒否される。
+  - test wallet は署名を拒否する。
+- **気づいた点（どれも低い）**:
+  - G1：`ws07-guard.screen.mjs`（installed proof）は、guard が入ったかを**先に確かめずに**、`keyFromSeed(zero)`、`publicKeyOf(zero)`、`generateKey(Ed25519)` を呼ぶ。
+    - 置き換えが黙って効かなかった場合、この試験自身が、固定の seed（zero）から公開鍵を導出し、鍵を生成してしまう（fail-open）。
+    - march の試験のように、呼ぶ前に `String(m.keyFromSeed).includes('key use blocked')` と subtle の各 method の置き換えを確かめ、入っていなければ中止するのがよい。
+    - ⑯ は、禁止の経路を guard に止めさせる試験になるので、この file を**流していない**。⑦ の結果（1/1）だけがある。
+  - G2：init script は Web Worker の中では動かない。`seal-worker.mjs`（BLS の timelock）の realm は guard の外にある。
+    - 今は worker の中に `subtle` の呼び出しがなく、march の試験は seal を押さないので、届いていない。
+    - seal を押す試験を作るときには、worker 側にも guard が要る（または inline mode を使う）。
+  - G3：guard は SubtleCrypto の instance を置き換えるので、`SubtleCrypto.prototype.*.call` を使えば迂回できる。web の code には、そうする箇所はない（grep で確認）。
+- **⑯ の独立の実行**：`ws07-march.screen.mjs`、full Chromium（channel 'chromium'）、repo の `no-keys-guard` の下で、**2/2**（desktop・phone）。`logs/phase22/ws07-march-e28d.txt`。
+  - ⑯ の web key hook は、registerHooks の link error（既知）で使えなかった。Node 側の根拠は、監査と repo の guard。
+  - **届いた範囲**：
+    - secure context。
+    - page 自身の WASM kernel で、通れる tile を選ぶ。
+    - order card の作成、変更、stance、取り消し、繰り返しの押下、refresh、戻る・進む、reload。
+    - 封印・署名・送信は**していない**（relay への request は無い。page の key 記録は空）。
+  - march の成功、seal、signed、live の証拠には**しない**。
+  - これは、以前の headless shell での run（NoWasm）とは別の、新しい証拠として扱う。
+- 流していないもの：ws07-guard（上の理由）、s1-page、s1-pure、coop の試験、interaction の keyless mode（⑦ の作業中）。
+
+### 27.5 c260c438 の verifier（以前から残っていた分）
+
+`cargo test --locked --offline -p verify`（lib と、custody・history・state・replay・replay_caravans・rights_replay・v16_v27_gate・v16_cpi_keyfree）：**128/128**、exit 0（`logs/phase22/verify-custody-c260.txt`）。

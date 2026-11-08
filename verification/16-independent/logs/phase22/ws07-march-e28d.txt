@@ -1,0 +1,22 @@
+TAP version 13
+# Subtest: the march order @ desktop: choose, change, stance, cancel, repeated presses, a refresh, back/forward and a reload — nothing sealed, signed or sent
+ok 1 - the march order @ desktop: choose, change, stance, cancel, repeated presses, a refresh, back/forward and a reload — nothing sealed, signed or sent
+  ---
+  duration_ms: 134995.556734
+  type: 'test'
+  ...
+# Subtest: the march order @ phone: choose, change, stance, cancel, repeated presses, a refresh, back/forward and a reload — nothing sealed, signed or sent
+ok 2 - the march order @ phone: choose, change, stance, cancel, repeated presses, a refresh, back/forward and a reload — nothing sealed, signed or sent
+  ---
+  duration_ms: 93575.552615
+  type: 'test'
+  ...
+1..2
+# tests 2
+# suites 0
+# pass 2
+# fail 0
+# cancelled 0
+# skipped 0
+# todo 0
+# duration_ms 229444.94173
