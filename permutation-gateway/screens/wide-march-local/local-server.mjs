@@ -1,14 +1,14 @@
-// Isolated local village-and-march server (protocol v2: economy and march on one holding, one revision, one clock).
-// Strict loopback Host/Origin, fixed subprocess, serial revisions.
-// Only /api/state, /api/action, /api/reset and exact browser dependencies are exposed.
+// Isolated local village-and-march server (protocol v3: economy, march and ring-129 land opening on one holding,
+// one revision, one clock). Strict loopback Host/Origin, fixed subprocess, serial revisions.
+// Only /api/state, /api/action, /api/reset, /api/open, /api/quote and exact browser dependencies are exposed.
 // Initial state is captured from the first validated local host reply, not a chain provenance pin.
 import { createServer } from 'node:http';
 import { realpath, stat, readFile } from 'node:fs/promises';
 import { dirname, join, resolve, sep, extname } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import {
-  PROTOCOL, commandFromBody, commandLine, parseReplyLine, validateState, checkTransition,
-  replyObject, LocalModelError,
+  PROTOCOL, commandFromBody, commandFromQuoteBody, commandLine, parseReplyLine, validateState,
+  checkTransition, checkQuote, replyObject, LocalModelError,
 } from './local-model.mjs';
 import { createChildBridge } from './host-bridge.mjs';
 
@@ -21,7 +21,7 @@ export const WEB_PREFIX = '/permutation-server/web/';
 export const INDEX_PATH = `${LOCAL_PREFIX}index.html`;
 /** Exact own browser files. README.md, the server, the bridge and the tests are never served. */
 export const LOCAL_FILES = Object.freeze(['index.html', 'local.mjs', 'local-client.mjs', 'local-model.mjs', 'local.css', 'local-map.mjs', 'local-evidence.mjs']);
-export const API = Object.freeze({ state: '/api/state', action: '/api/action', reset: '/api/reset' });
+export const API = Object.freeze({ state: '/api/state', action: '/api/action', reset: '/api/reset', open: '/api/open', quote: '/api/quote' });
 export const ACTION_HEADER = 'x-wylls-local-action';
 export const MAX_BODY_BYTES = 512;
 export const MAX_PENDING = 8;
@@ -179,7 +179,8 @@ export function createController({ bridge, initial, maxPending = MAX_PENDING }) 
         validateState(next, initial);
         const e = next.economy;
         if (next.status !== 'ok' || next.revision !== 0 || next.command !== 'get' || next.phase !== 'ready'
-          || e.usedThisInstant !== 0 || e.harvests !== 0 || e.farmBuilds !== 0 || e.trains !== 0) throw new LocalModelError('BadStart', 'first state is not an ok revision 0');
+          || e.usedThisInstant !== 0 || e.harvests !== 0 || e.farmBuilds !== 0 || e.trains !== 0
+          || next.land.opened !== 0) throw new LocalModelError('BadStart', 'first state is not an ok revision 0');
         initial = JSON.parse(JSON.stringify(next));
       } catch (e) { stop('start', e.code, 'get'); return { status: 502, body: { error: 'uncertain', view: view() } }; }
       last = next; phase = 'ready';
@@ -205,6 +206,23 @@ export function createController({ bridge, initial, maxPending = MAX_PENDING }) 
       lastResult = { command: label, outcome, code: next.error, revision: next.revision };
       return { status: 200, body: { outcome, view: view() } };
     }),
+    /** A non-mutating route quote: the host validates the chosen path; state, revision and the cached view are
+     * left exactly as they were. A bad/garbled reply makes the controller uncertain for good, like any host talk. */
+    quote: cmd => enqueue(async () => {
+      checkAlive();
+      if (phase !== 'ready') return { status: 503, body: { error: 'uncertain', view: view() } };
+      let next, routeQuote;
+      try {
+        next = await exchange(cmd);
+        validateState(next, initial);
+        routeQuote = checkQuote(last, next);
+      } catch (e) {
+        stop(e instanceof LocalModelError ? 'validate' : 'bridge', e.code, 'quote_route');
+        return { status: 502, body: { error: 'uncertain', view: view() } };
+      }
+      // `last` and the revision are unchanged: a quote is a read.
+      return { status: 200, body: { routeQuote, view: view() } };
+    }),
   });
 }
 
@@ -214,26 +232,27 @@ async function handle(req, res, ctx) {
   const path = cleanPath(req.url);
   if (expectedHost === null || !requestAllowed(req.headers, expectedHost, req.method, path)) return sendError(res, 403);
   if (path === null) return sendError(res, 400);
-  if (req.method === 'OPTIONS') return sendError(res, 405, { Allow: path === API.state ? 'GET' : path in { [API.action]: 1, [API.reset]: 1 } ? 'POST' : 'GET, HEAD' });
+  if (req.method === 'OPTIONS') return sendError(res, 405, { Allow: path === API.state ? 'GET' : path in { [API.action]: 1, [API.reset]: 1, [API.open]: 1, [API.quote]: 1 } ? 'POST' : 'GET, HEAD' });
 
   if (path === API.state) {
     if (req.method !== 'GET') return sendError(res, 405, { Allow: 'GET' });
     const r = controller.state();
     return sendJson(res, r.status, r.body);
   }
-  if (path === API.action || path === API.reset) {
+  if (path === API.action || path === API.reset || path === API.open || path === API.quote) {
     if (req.method !== 'POST') return sendError(res, 405, { Allow: 'POST' });
     const problem = mutationHeaderProblem(req.headers, expectedOrigin);
     if (problem) { req.resume(); return sendError(res, problem); }
     let cmd;
     try {
       const buf = await readBody(req);
-      cmd = commandFromBody(path.slice('/api/'.length), parseCanonicalJson(buf));
+      const body = parseCanonicalJson(buf);
+      cmd = path === API.quote ? commandFromQuoteBody(body) : commandFromBody(path.slice('/api/'.length), body);
     } catch (e) {
       if (e?.status) return sendError(res, e.status);
       return sendJson(res, 400, { error: 'bad-request', code: e instanceof LocalModelError ? e.code : 'BadBody' });
     }
-    const r = await controller.mutate(cmd);
+    const r = path === API.quote ? await controller.quote(cmd) : await controller.mutate(cmd);
     return sendJson(res, r.status, r.body);
   }
 

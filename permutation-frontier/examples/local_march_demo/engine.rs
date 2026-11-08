@@ -34,15 +34,20 @@
 //! burst is 20 actions and refills one per minute; eight economy actions
 //! plus the one player step at an instant always fit, and the phase steps
 //! between those instants are at least ten simulated minutes apart.
+use crate::land_bootstrap as land;
 use crate::runtime::{self, Image, Meta};
 use frontier_abi::entry::read_entry;
 use frontier_abi::prologue::bell_at;
 use frontier_abi::world_index::economy::{self as weco, Action, EconomyReceipt, Snapshots};
+use frontier_abi::world_index::index::{IndexEntry, IndexError, Lookup, ReportedState};
+use frontier_abi::world_index::tiles::{
+    verify_route, RouteBounds, RouteError, TileAddress, WideTile,
+};
 use frontier_abi::world_index::{
     arrival as wa, event as ev, march::wide_host_alias, wide_ix as wix,
 };
 use frontier_abi::world_index::{
-    MarchState, ProvinceKey, WideHolding, WideHostRef, WideProvince, WideTransit,
+    MarchState, ProvinceKey, WideCoord, WideHolding, WideHostRef, WideProvince, WideTransit,
 };
 use permutation_frontier::layout::{
     chain_of, citizen as C, header, holding as H, province as PV, Ro,
@@ -61,6 +66,40 @@ pub const FARM_ITEM: u8 = 0;
 pub const TRAIN_UNIT: u8 = 0;
 pub const TRAIN_COUNT: u32 = 10;
 pub const ECONOMY_COMMANDS: [&str; 3] = ["harvest", "build_farm", "train"];
+/// Longest chosen path a route quote accepts (the legacy march limit).
+pub const MAX_ROUTE_DIRS: usize = 32;
+/// A province exported with the initial fixture (origin, destination).
+pub const SOURCE_FIXTURE: &str = "fixture";
+/// A province the real WideOpenProvince opened in this session.
+pub const SOURCE_OPENED: &str = "opened";
+
+/// One wide province the sandbox holds, decoded from its own bytes.
+#[derive(Clone, Debug)]
+pub struct KnownProvince {
+    pub name: String,
+    pub source: &'static str,
+    pub province: WideProvince,
+    pub passable_mask: u64,
+    pub resolved_next: u32,
+    pub opened_bell: u32,
+}
+impl KnownProvince {
+    fn read(name: &str, source: &'static str, data: &[u8]) -> Result<Self, String> {
+        let province = WideProvince::read(data).map_err(|_| format!("PROVINCE:{name}"))?;
+        let r = Ro(data);
+        Ok(Self {
+            name: name.into(),
+            source,
+            province,
+            passable_mask: r.u64(PV::PASSABLE_MASK).map_err(|_| "MASK")?,
+            resolved_next: r.u32(PV::RESOLVED_NEXT).map_err(|_| "RESOLVED_NEXT")?,
+            opened_bell: r
+                .u32(frontier_abi::v2::layout::province::province::OPENED_BELL)
+                .map_err(|_| "OPENED_BELL")?,
+        })
+    }
+}
+const _: () = assert!(MAX_ROUTE_DIRS == RouteBounds::LEGACY.max_steps());
 const FARM: Action = Action::Build { item: FARM_ITEM };
 const TRAIN: Action = Action::Train {
     unit: TRAIN_UNIT,
@@ -198,7 +237,54 @@ impl Sandbox {
         {
             return Err("FIXTURE_HOLDING_OWNER".into());
         }
+        // The LOCAL land records (synthetic ring-129 seed, prototype candidate
+        // rules, local funds), admitted only after the golden re-opening of
+        // both exported provinces. Part of the baseline: Reset rebuilds it.
+        let mut x = x;
+        land::install(&mut x.images, &x.meta).map_err(|e| format!("LAND_INSTALL:{e}"))?;
         Ok(x)
+    }
+    /// Every wide province this sandbox holds, in a fixed order: the two
+    /// exported fixtures (origin, destination), then the provinces opened in
+    /// this session by the real WideOpenProvince, by name. Each with its
+    /// decoded identity and real passability mask.
+    pub fn provinces(&self) -> Result<Vec<KnownProvince>, String> {
+        let mut out = Vec::with_capacity(2 + land::MAX_EXTRA_PROVINCES);
+        for (name, source) in [("origin", SOURCE_FIXTURE), ("destination", SOURCE_FIXTURE)] {
+            out.push(KnownProvince::read(name, source, self.data(name)?)?);
+        }
+        for (name, im) in &self.images {
+            if name.starts_with(land::PROVINCE_PREFIX) {
+                out.push(KnownProvince::read(name, SOURCE_OPENED, &im.data)?);
+            }
+        }
+        if out.len() > 2 + land::MAX_EXTRA_PROVINCES {
+            return Err("LAND_BUDGET_EXCEEDED".into());
+        }
+        Ok(out)
+    }
+    /// Provinces opened in this session (beyond the two fixtures).
+    pub fn opened_count(&self) -> usize {
+        self.images
+            .keys()
+            .filter(|n| n.starts_with(land::PROVINCE_PREFIX))
+            .count()
+    }
+    /// Opens the ring-129 province `(p, q)` with the real WideOpenProvince at
+    /// this sandbox's simulated clock (`slot = 1000 + bell`), through the
+    /// land module's staged, judged, all-or-nothing path. It never moves the
+    /// clock, touches the holding, the citizen or the march, or emits a
+    /// receipt (the handler logs nothing). The demo budget of four is the
+    /// module's.
+    pub fn open_province(&mut self, p: i64, q: i64) -> Result<land::OpenedProvince, String> {
+        let mut next = self.clone();
+        next.records.clear();
+        next.instructions.clear();
+        let slot = 1000 + ((next.now - GENESIS) / 600) as u64;
+        let opened = land::open_province(&mut next.images, p, q, next.now, slot)?;
+        next.instructions.push("WideOpenProvince".into());
+        *self = next;
+        Ok(opened)
     }
     pub fn data(&self, n: &str) -> Result<&[u8], String> {
         Ok(&self
@@ -239,6 +325,9 @@ impl Sandbox {
         v.extend(self.next_step());
         if self.instant_used < ECONOMY_PER_INSTANT {
             v.extend(ECONOMY_COMMANDS);
+        }
+        if self.opened_count() < land::MAX_EXTRA_PROVINCES {
+            v.push("open_province");
         }
         v.push("reset");
         v
@@ -366,7 +455,8 @@ impl Sandbox {
         Ok(())
     }
     pub fn apply(&mut self, cmd: &str) -> Result<(), String> {
-        if cmd == "reset" {
+        // Reset and opening have their own entry points (opening needs P, Q).
+        if cmd == "reset" || cmd == "open_province" {
             return Err("BAD_PHASE".into());
         }
         if ECONOMY_COMMANDS.contains(&cmd) && self.instant_used >= ECONOMY_PER_INSTANT {
@@ -744,6 +834,179 @@ impl Sandbox {
         }
         self.standing_milli()
     }
+    /// A read-only validation of a player-chosen path over every province this
+    /// host holds (the two fixtures and any opened in this session by the real
+    /// WideOpenProvince), using the shared ABI route model
+    /// (`verify_route`) and the provinces' real passability bytes. It mutates
+    /// nothing: no account, clock, phase, revision or record, and emits no
+    /// receipt. It does **not** execute a march; the real march still follows
+    /// the recorded seal to the fixed destination. A step into a province
+    /// this host did not return is refused as unknown land (`UNKNOWN_PROVINCE`),
+    /// never treated as open ground; a step onto an impassable tile is
+    /// `IMPASSABLE`, read from that province's real mask; a step past the
+    /// ±2^62 world bound is `OFF_WORLD`.
+    pub fn quote_route(&self, dirs: &[u8]) -> Result<Quote, String> {
+        if dirs.len() > MAX_ROUTE_DIRS {
+            return Err("ROUTE_LEN".into());
+        }
+        // Every province this host holds: the two fixtures and every province
+        // opened in this session, each with its own real mask.
+        let known = self.provinces()?;
+        let origin = known[0].province;
+        let world = origin.world;
+        if known.iter().any(|k| k.province.world != world) {
+            return Err("WORLD".into());
+        }
+        let keys: Vec<ProvinceKey> = known
+            .iter()
+            .map(|k| ProvinceKey::new(world, k.province.coord))
+            .collect();
+        let origin_key = keys[0];
+        let start_tile = self.num("origin_tile")? as u8;
+        let start = WideTile::of(TileAddress::new(origin_key, start_tile).map_err(|_| "TILE")?);
+        let mask_of = |coord: WideCoord| -> Option<u64> {
+            known
+                .iter()
+                .find(|k| k.province.coord == coord)
+                .map(|k| k.passable_mask)
+        };
+        let passable = |coord: WideCoord, local: u8| -> Option<bool> {
+            mask_of(coord).map(|m| local < 64 && ((m >> local) & 1) == 1)
+        };
+        let mut steps: Vec<WideTile> = Vec::with_capacity(dirs.len());
+        let mut meta: Vec<QStep> = Vec::with_capacity(dirs.len());
+        let mut cur = start;
+        let start_meta = (origin.coord.p(), origin.coord.q(), start_tile);
+        for (i, &d) in dirs.iter().enumerate() {
+            if d >= 6 {
+                return Err("DIRECTION".into());
+            }
+            let Some(next) = cur.neighbors()[d as usize] else {
+                // The ±2^62 world bound, not infinity.
+                return Ok(Quote {
+                    start: start_meta,
+                    reachable: false,
+                    reason: Some("OFF_WORLD"),
+                    blocked_step: Some(i),
+                    steps: meta,
+                    end: None,
+                    provinces: vec![],
+                });
+            };
+            let coord = next.province_coord();
+            meta.push(QStep {
+                p: coord.p(),
+                q: coord.q(),
+                tile: next.local(),
+                known: mask_of(coord).is_some(),
+                passable: passable(coord, next.local()),
+            });
+            steps.push(next);
+            cur = next;
+        }
+        let src = |key: &ProvinceKey| -> Result<Lookup, IndexError> {
+            for &k in &keys {
+                if *key == k {
+                    return Ok(Lookup::Known(IndexEntry {
+                        key: k,
+                        revision: 1,
+                        state: ReportedState::Open,
+                        observed_at: 1,
+                    }));
+                }
+            }
+            Ok(Lookup::Unknown)
+        };
+        match verify_route(world, &start, &steps, RouteBounds::LEGACY, &src) {
+            Ok(route) => {
+                // verify_route checks structure, not terrain; an impassable tile
+                // (from the province's own mask) still makes the route unreachable.
+                // The invariant held here and checked by the browser: reachable
+                // iff there is an end and no reason.
+                let blocked = meta.iter().position(|m| m.passable == Some(false));
+                let reachable = blocked.is_none();
+                let end = if reachable {
+                    let c = route.end.key().coord();
+                    Some((c.p(), c.q(), route.end.local()))
+                } else {
+                    None
+                };
+                let provinces = if reachable {
+                    route
+                        .provinces
+                        .iter()
+                        .map(|k| (k.coord().p(), k.coord().q()))
+                        .collect()
+                } else {
+                    vec![]
+                };
+                Ok(Quote {
+                    start: start_meta,
+                    reachable,
+                    reason: if reachable { None } else { Some("IMPASSABLE") },
+                    blocked_step: blocked,
+                    steps: meta,
+                    end,
+                    provinces,
+                })
+            }
+            Err(e) => {
+                let (reason, blocked) = route_reason(&e, &meta);
+                Ok(Quote {
+                    start: start_meta,
+                    reachable: false,
+                    reason: Some(reason),
+                    blocked_step: blocked,
+                    steps: meta,
+                    end: None,
+                    provinces: vec![],
+                })
+            }
+        }
+    }
+}
+
+/// One step of a route quote: the province coordinate and local tile it
+/// enters, whether this host returned that province's bytes, and the tile's
+/// passability read from that province's real mask (`None` when unknown).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct QStep {
+    pub p: i64,
+    pub q: i64,
+    pub tile: u8,
+    pub known: bool,
+    pub passable: Option<bool>,
+}
+
+/// The read-only result of [`Sandbox::quote_route`]. Not a sent march: no
+/// account, clock, phase, revision or record changes to produce it.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Quote {
+    pub start: (i64, i64, u8),
+    pub reachable: bool,
+    pub reason: Option<&'static str>,
+    pub blocked_step: Option<usize>,
+    pub steps: Vec<QStep>,
+    pub end: Option<(i64, i64, u8)>,
+    pub provinces: Vec<(i64, i64)>,
+}
+
+/// A fixed token (and the step it concerns, when the model names one) for a
+/// route the shared model refused.
+fn route_reason(e: &RouteError, meta: &[QStep]) -> (&'static str, Option<usize>) {
+    let first_unknown = meta.iter().position(|m| !m.known);
+    match e {
+        RouteError::EmptyRoute => ("EMPTY", None),
+        RouteError::Bounds { .. } => ("BOUNDS", None),
+        RouteError::TooLong { .. } => ("TOO_LONG", None),
+        RouteError::WorldMismatch { .. } => ("WORLD", None),
+        RouteError::NotAdjacent { step } => ("NOT_ADJACENT", Some(*step as usize)),
+        RouteError::TooManyProvinces { step, .. } => ("TOO_MANY_PROVINCES", Some(*step as usize)),
+        RouteError::UnknownProvince { .. } => ("UNKNOWN_PROVINCE", first_unknown),
+        RouteError::ClosedProvince { .. } => ("CLOSED_PROVINCE", first_unknown),
+        RouteError::SourceKeyMismatch { .. } => ("SOURCE_MISMATCH", None),
+        RouteError::Source(_) => ("SOURCE", None),
+    }
 }
 
 /// Whether every differing byte lies in an allowed `(offset, len)` range.
@@ -970,5 +1233,216 @@ mod economy_judge_tests {
         assert!(judge_economy(pre, post, Action::Harvest, base.now, &bad).is_err());
         // and the base sandbox never changed
         assert_eq!(base.images, Sandbox::new().unwrap().images);
+    }
+}
+
+#[cfg(test)]
+mod route_quote_tests {
+    use super::*;
+    /// The recorded march's directions, hex-decoded from the fixture.
+    fn recorded(c: &Sandbox) -> Vec<u8> {
+        unhex(c.meta.get("directions").unwrap()).unwrap()
+    }
+    #[test]
+    fn the_recorded_directions_reach_the_opened_destination_and_nothing_mutates() {
+        let c = Sandbox::new().unwrap();
+        let before = c.images.clone();
+        let dirs = recorded(&c);
+        let q = c.quote_route(&dirs).unwrap();
+        // the fixture's own route ends at (129,-1, 34) on really-opened land
+        assert_eq!(q.end, Some((129, -1, 34)));
+        assert!(q.reachable, "reason {:?}", q.reason);
+        assert_eq!(q.reason, None);
+        assert_eq!(q.steps.len(), dirs.len());
+        assert!(q.steps.iter().all(|s| s.known && s.passable == Some(true)));
+        assert!(q.provinces.contains(&(129, -1)));
+        // a query mutates nothing
+        assert_eq!(c.images, before);
+        assert_eq!(c.phase, "ready");
+    }
+    #[test]
+    fn walking_past_the_two_known_provinces_is_refused_as_unknown_land() {
+        let c = Sandbox::new().unwrap();
+        // The recorded direction, continued exactly one step into the first
+        // province this host did not return. The index comes from the real
+        // fixture geometry (`first_unknown_step`), not from an assumed length.
+        let d = recorded(&c)[0];
+        let i = first_unknown_step(&c, d)
+            .expect("a straight line leaves two radius-4 provinces within 32 steps");
+        let q = c.quote_route(&vec![d; i + 1]).unwrap();
+        assert!(!q.reachable);
+        assert_eq!(q.end, None);
+        assert_eq!(q.reason, Some("UNKNOWN_PROVINCE"));
+        assert_eq!(q.blocked_step, Some(i));
+        assert!(q.provinces.is_empty());
+        assert!(q.steps[..i].iter().all(|s| s.known));
+        assert!(!q.steps[i].known && q.steps[i].passable.is_none());
+        // one step shorter stays on returned land: never refused as unknown
+        if i > 0 {
+            let short = c.quote_route(&vec![d; i]).unwrap();
+            assert_ne!(short.reason, Some("UNKNOWN_PROVINCE"));
+            assert!(short.steps.iter().all(|s| s.known));
+        }
+    }
+    #[test]
+    fn bounds_and_bad_directions_are_refused_without_a_quote() {
+        let c = Sandbox::new().unwrap();
+        assert_eq!(
+            c.quote_route(&[0u8; MAX_ROUTE_DIRS + 1]),
+            Err("ROUTE_LEN".into())
+        );
+        assert_eq!(c.quote_route(&[6]), Err("DIRECTION".into()));
+        assert_eq!(c.quote_route(&[0, 9]), Err("DIRECTION".into()));
+        // an empty path is the model's EmptyRoute, not a reachable destination
+        let q = c.quote_route(&[]).unwrap();
+        assert!(!q.reachable && q.reason == Some("EMPTY") && q.end.is_none());
+    }
+    #[test]
+    fn the_longest_accepted_path_is_refused_at_its_first_unknown_step() {
+        // NOT covered here: the OFF_WORLD branch (a step past the ±2^62 world
+        // bound). The fixture's provinces lie at ring 129, far from the bound,
+        // so no fixture test reaches it.
+        let c = Sandbox::new().unwrap();
+        let d = recorded(&c)[0];
+        let i = first_unknown_step(&c, d).unwrap();
+        let q = c.quote_route(&[d; MAX_ROUTE_DIRS]).unwrap();
+        assert_eq!(q.steps.len(), MAX_ROUTE_DIRS);
+        assert_eq!(q.reason, Some("UNKNOWN_PROVINCE"));
+        assert_eq!(q.blocked_step, Some(i));
+        assert_eq!(q.end, None);
+    }
+}
+
+/// Test-only: the 0-based index of the first step, walking `d` from the
+/// host's origin tile, whose province is none of those this host holds
+/// (`None` if none within the 32-step bound). Real geometry via the ABI.
+#[cfg(test)]
+pub(crate) fn first_unknown_step(c: &Sandbox, d: u8) -> Option<usize> {
+    first_unknown(c, d).map(|(i, _)| i)
+}
+
+/// Test-only: as [`first_unknown_step`], with that step's province.
+#[cfg(test)]
+pub(crate) fn first_unknown(c: &Sandbox, d: u8) -> Option<(usize, WideCoord)> {
+    let known: Vec<WideCoord> = c
+        .provinces()
+        .ok()?
+        .iter()
+        .map(|k| k.province.coord)
+        .collect();
+    let o = WideProvince::read(c.data("origin").ok()?).ok()?;
+    let tile = c.num("origin_tile").ok()? as u8;
+    let mut cur = WideTile::of(TileAddress::new(ProvinceKey::new(o.world, o.coord), tile).ok()?);
+    for i in 0..MAX_ROUTE_DIRS {
+        cur = cur.neighbors()[d as usize]?;
+        let p = cur.province_coord();
+        if !known.contains(&p) {
+            return Some((i, p));
+        }
+    }
+    None
+}
+
+#[cfg(test)]
+mod land_integration_tests {
+    use super::*;
+    fn recorded(c: &Sandbox) -> u8 {
+        unhex(c.meta.get("directions").unwrap()).unwrap()[0]
+    }
+    #[test]
+    fn the_baseline_carries_the_installed_land_records_and_reset_rebuilds_them() {
+        let a = Sandbox::new().unwrap();
+        for n in [land::RING_SEED_NAME, land::RULES_CONFIG_NAME] {
+            assert!(a.images.contains_key(n), "{n}");
+        }
+        for w in 0..6u8 {
+            assert!(a.images.contains_key(&land::fund_name(w)));
+        }
+        assert_eq!(a.opened_count(), 0);
+        assert_eq!(a.provinces().unwrap().len(), 2);
+        // a second construction is byte-identical (no clock or randomness)
+        assert_eq!(a.images, Sandbox::new().unwrap().images);
+    }
+    #[test]
+    fn opening_runs_the_real_handler_at_the_sandbox_clock_and_touches_nothing_else() {
+        let mut c = Sandbox::new().unwrap();
+        let before = c.clone();
+        let o = c.open_province(129, -2).unwrap();
+        assert_eq!((o.p, o.q, o.opened_bell), (129, -2, 6));
+        assert_eq!(o.provenance, land::PROVENANCE_OPENED);
+        assert_eq!(c.instructions, vec!["WideOpenProvince".to_string()]);
+        assert!(c.records.is_empty(), "the handler emits no receipt");
+        // the clock, phase, counters and the march/village images are untouched
+        assert_eq!(
+            (c.now, c.phase, c.instant_used),
+            (before.now, before.phase, 0)
+        );
+        for n in [
+            "holding",
+            "citizen",
+            "origin",
+            "destination",
+            "season",
+            "payer",
+        ] {
+            assert_eq!(c.images[n], before.images[n], "{n}");
+        }
+        assert_eq!(c.opened_count(), 1);
+        let ps = c.provinces().unwrap();
+        assert_eq!(ps.len(), 3);
+        assert_eq!(ps[2].source, SOURCE_OPENED);
+        assert_eq!(
+            (ps[2].province.coord.p(), ps[2].province.coord.q()),
+            (129, -2)
+        );
+        assert_eq!((ps[2].opened_bell, ps[2].resolved_next), (6, 6));
+        // the march still runs on the same sandbox afterwards
+        c.apply("depart").unwrap();
+        assert_eq!(c.phase, "departed");
+    }
+    #[test]
+    fn a_quote_into_a_newly_opened_province_is_no_longer_unknown_land() {
+        let mut c = Sandbox::new().unwrap();
+        let d = recorded(&c);
+        let (i, coord) = first_unknown(&c, d).expect("the line leaves the fixtures");
+        assert_eq!(
+            coord.ring(),
+            land::LAND_RING,
+            "the first unknown neighbour is ring 129"
+        );
+        let before = c.quote_route(&vec![d; i + 1]).unwrap();
+        assert_eq!(before.reason, Some("UNKNOWN_PROVINCE"));
+        c.open_province(coord.p(), coord.q()).unwrap();
+        let after = c.quote_route(&vec![d; i + 1]).unwrap();
+        // the step that was unknown now lies on host-returned land, with the
+        // opened province's own passability bit
+        assert!(after.steps[i].known);
+        assert!(after.steps[i].passable.is_some());
+        assert_ne!(after.reason, Some("UNKNOWN_PROVINCE"));
+        if after.reachable {
+            assert_eq!(after.end, Some((coord.p(), coord.q(), after.steps[i].tile)));
+            assert!(after.provinces.contains(&(coord.p(), coord.q())));
+        } else {
+            assert_eq!(after.reason, Some("IMPASSABLE"));
+        }
+        // and the first unknown step moved further along the line, if any
+        if let Some(j) = first_unknown_step(&c, d) {
+            assert!(j > i);
+        }
+    }
+    #[test]
+    fn failed_openings_change_nothing() {
+        let mut c = Sandbox::new().unwrap();
+        let before = c.images.clone();
+        for (p, q, want) in [
+            (128, 0, "LAND_NOT_RING_129"),
+            (130, 0, "LAND_NOT_RING_129"),
+            (129, 0, "LAND_DUPLICATE_OPEN"),
+            (129, -1, "LAND_DUPLICATE_OPEN"),
+            (i64::MAX, 0, "LAND_COORD_BOUNDS"),
+        ] {
+            assert_eq!(c.open_province(p, q).unwrap_err(), want);
+            assert_eq!(c.images, before);
+        }
     }
 }

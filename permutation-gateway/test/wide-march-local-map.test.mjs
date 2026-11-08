@@ -46,7 +46,7 @@ test('the camera view is bounded: at most 19 provinces and 1,159 hexes', () => {
 
 test('unknown land is labelled unknown: only host-returned provinces are known, nothing is generated', () => {
   const v = viewLayout({ camera: cameraAt('129', '0', 1), provinces: known, route, marker: { place: { p: '129', q: '0', tile: 2 }, text: 'x' } });
-  assert.deepEqual(v.counts, { known: 2, unknown: 5, outside: 0 });
+  assert.deepEqual(v.counts, { known: 2, opened: 0, unknown: 5, outside: 0 });
   const unknown = v.cells.filter(c => c.state === 'unknown');
   assert.ok(unknown.every(c => c.tiles.every(t => t.passable === null)), 'no terrain is invented for unknown land');
   const origin = v.cells.find(c => c.key === '129,0');
@@ -82,6 +82,37 @@ test('the coordinate bound is ±2^62, not infinity: no pan past it, cells beyond
   assert.ok(v.cells.some(c => c.p === '4611686018427387904' && c.state === 'unknown'), 'exact text of 2^62');
   const neg = cameraAt(`-${edge}`, edge, 0);
   assert.equal(panCamera(neg, 5, 1n), null, 'Q+1 past 2^62');
+});
+
+test('opened provinces are drawn from their returned mask, and only unknown ring-129 cells are openable', () => {
+  const withOpened = [...known, { p: '129', q: '-2', passableMask: '1', source: 'opened' }];
+  // Centred on the opened (129,-2): its ring-129 neighbours are (129,-1) (a fixture) and (129,-3) (unknown); the
+  // other four are rings 128 and 130. (Centred on (129,-1), both ring-129 neighbours are host provinces, so
+  // nothing there is openable.)
+  const v = viewLayout({ camera: cameraAt('129', '-2', 1), provinces: withOpened, route });
+  assert.equal(v.counts.opened, 1);
+  const opened = v.cells.find(c => c.key === '129,-2');
+  assert.equal(opened.state, 'opened');
+  assert.deepEqual(opened.tiles.slice(0, 2).map(t => t.passable), [true, false], 'the opened province\'s own mask');
+  // every openable cell is unknown and on ring 129; host provinces and other rings are never offered
+  for (const c of v.cells) {
+    const ring = (BigInt(c.p) < 0n ? -BigInt(c.p) : BigInt(c.p)) + (BigInt(c.q) < 0n ? -BigInt(c.q) : BigInt(c.q)) + ((BigInt(c.p) + BigInt(c.q)) < 0n ? -(BigInt(c.p) + BigInt(c.q)) : BigInt(c.p) + BigInt(c.q));
+    assert.equal(c.openable, c.state === 'unknown' && ring / 2n === 129n, c.key);
+  }
+  assert.deepEqual(v.openable.map(o => `${o.p},${o.q}`), ['129,-3']);
+  assert.deepEqual(viewLayout({ camera: cameraAt('129', '-1', 1), provinces: withOpened, route }).openable, []);
+  // far from ring 129 nothing is openable, and up to six host provinces are accepted, seven are not
+  assert.equal(viewLayout({ camera: cameraAt('1000', '0', 1), provinces: known }).openable.length, 0);
+  const six = [...known, ...['-2', '-3'].map(q => ({ p: '129', q, source: 'opened' })), { p: '128', q: '1', source: 'opened' }, { p: '127', q: '2', source: 'opened' }];
+  // the full input of six (2 fixtures + 4 opened) is accepted; counts are only what the radius-2 camera shows:
+  // (129,-3) is three provinces from (129,0), so 3 of the 4 opened provinces are visible
+  const sixView = viewLayout({ camera: cameraAt('129', '0', 2), provinces: six });
+  assert.equal(six.length, 6);
+  assert.equal(sixView.counts.known, 2);
+  assert.equal(sixView.counts.opened, 3);
+  assert.ok(!sixView.cells.some(c => c.key === '129,-3'), 'outside the radius-2 view');
+  // a seventh host province is refused whether or not it would be visible
+  assert.throws(() => viewLayout({ camera: cameraAt('129', '0', 2), provinces: [...six, { p: '126', q: '3', source: 'opened' }] }));
 });
 
 test('view-only jumps accept canonical decimals within the bound and refuse everything else', () => {

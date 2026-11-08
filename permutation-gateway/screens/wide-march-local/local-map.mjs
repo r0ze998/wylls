@@ -1,7 +1,7 @@
 // Display geometry only. No pathfinding, economy, combat, clock or lifecycle rules.
 // The camera is BigInt (production wide.mjs): a global coordinate never passes through Number. Only the small
 // offset of a province from the camera (|Δ| ≤ VIEW_RADIUS_MAX) and tile pixel positions are plain numbers.
-import { originAt, parseWideInt, relativeTo, formatCoord, WIDE_BOUND } from '../../../permutation-server/web/frontier/map/wide.mjs';
+import { originAt, parseWideInt, relativeTo, formatCoord, WIDE_BOUND, ringOfWide } from '../../../permutation-server/web/frontier/map/wide.mjs';
 import { TILE_OFFSETS, tileHex, provinceCentre, DIRECTIONS } from '../../../permutation-server/web/frontier/fgeo.mjs';
 
 /** The view is bounded: at most this province radius around the camera (19 provinces, 1,159 hexes). */
@@ -9,6 +9,10 @@ export const VIEW_RADIUS_MAX = 2;
 export const VIEW_PROVINCES_MAX = 1 + 3 * VIEW_RADIUS_MAX * (VIEW_RADIUS_MAX + 1);
 /** Pan step sizes in provinces (BigInt). */
 export const PAN_STEPS = Object.freeze([1n, 1000n, 1000000000n]);
+/** The host provinces a view can carry: the two fixtures plus the land budget of four. */
+export const MAX_HOST_PROVINCES = 6;
+/** The only ring the local land records can open. */
+export const OPENABLE_RING = 129n;
 /** The six axial directions, in production fgeo order, as display labels. */
 export const DIRECTION_LABELS = Object.freeze(['P+1', 'P+1 Q−1', 'Q−1', 'P−1', 'P−1 Q+1', 'Q+1']);
 const abs = x => (x < 0n ? -x : x);
@@ -63,13 +67,15 @@ export const jumpCamera = (pText, qText, radius = 1) => cameraAt(parseWideInt(pT
 
 /**
  * The bounded view around `camera`. Every province cell is one of:
- *   - `known`: one of the (at most two) provinces whose account bytes the local host returned, with its passability;
+ *   - `known`: an exported fixture province whose account bytes the local host returned, with its passability;
+ *   - `opened`: a province the real WideOpenProvince opened in this session (host-returned bytes, LOCAL synthetic
+ *     ring seed and prototype candidate rules), with its passability;
  *   - `unknown`: a lattice position with NO data in this session — not opened, not generated, not playable here;
  *   - `outside`: beyond the ±2^62 coordinate bound, where no province can exist.
  * The lattice geometry is mathematics; nothing about an unknown cell's terrain, owner or existence is implied.
  */
 export function viewLayout({ camera, provinces = [], route = [], marker = null }) {
-  if (!camera || !Array.isArray(provinces) || provinces.length > 2 || !Array.isArray(route) || route.length > 128) throw new Error('BadMap');
+  if (!camera || !Array.isArray(provinces) || provinces.length > MAX_HOST_PROVINCES || !Array.isArray(route) || route.length > 128) throw new Error('BadMap');
   const known = new Map();
   for (const k of provinces) {
     const key = `${parseWideInt(k.p)},${parseWideInt(k.q)}`;
@@ -82,12 +88,15 @@ export function viewLayout({ camera, provinces = [], route = [], marker = null }
       const P = camera.centre.p + BigInt(dp), Q = camera.centre.q + BigInt(dq), key = `${P},${Q}`;
       const outside = !inBound(P, Q);
       const k = outside ? undefined : known.get(key);
-      const state = outside ? 'outside' : k ? 'known' : 'unknown';
+      const state = outside ? 'outside' : k ? (k.source === 'opened' ? 'opened' : 'known') : 'unknown';
+      const hostLand = state === 'known' || state === 'opened';
       const tiles = TILE_OFFSETS.map((_, tile) => Object.freeze({
         tile, ...pixel(tileHex(dp, dq, tile)),
-        passable: state === 'known' && k.passableMask !== undefined ? !!(BigInt(k.passableMask) & (1n << BigInt(tile))) : null,
+        passable: hostLand && k.passableMask !== undefined ? !!(BigInt(k.passableMask) & (1n << BigInt(tile))) : null,
       }));
-      cells.push(Object.freeze({ p: P.toString(), q: Q.toString(), key, state, label: formatCoord(P, Q), centre: pixel(provinceCentre(dp, dq)), tiles: Object.freeze(tiles) }));
+      // only an unknown ring-129 lattice cell can be asked for: the host decides everything else
+      const openable = state === 'unknown' && ringOfWide(P, Q) === OPENABLE_RING;
+      cells.push(Object.freeze({ p: P.toString(), q: Q.toString(), key, state, openable, label: formatCoord(P, Q), centre: pixel(provinceCentre(dp, dq)), tiles: Object.freeze(tiles) }));
       if (!outside) visible.set(key, { dp, dq });
     }
   }
@@ -111,7 +120,8 @@ export function viewLayout({ camera, provinces = [], route = [], marker = null }
   return Object.freeze({
     cells: Object.freeze(cells), path, pathComplete: offRoute === 0, offRoute, markerPoint,
     markerOffCamera: !!marker?.place && !markerPoint,
-    counts: Object.freeze({ known: cells.filter(c => c.state === 'known').length, unknown: cells.filter(c => c.state === 'unknown').length, outside: cells.filter(c => c.state === 'outside').length }),
+    counts: Object.freeze({ known: cells.filter(c => c.state === 'known').length, opened: cells.filter(c => c.state === 'opened').length, unknown: cells.filter(c => c.state === 'unknown').length, outside: cells.filter(c => c.state === 'outside').length }),
+    openable: Object.freeze(cells.filter(c => c.openable).map(c => Object.freeze({ p: c.p, q: c.q, label: c.label }))),
     bounds: [minX - 1.5, minY - 1.5, Math.max(...xs) - minX + 3, Math.max(...ys) - minY + 3],
   });
 }
@@ -146,10 +156,13 @@ export function renderLocalMap(container, model, marker = null, camera = null) {
   const doc = container.ownerDocument, ns = 'http://www.w3.org/2000/svg';
   const node = (tag, attrs) => { const e = doc.createElementNS(ns, tag); for (const [k, v] of Object.entries(attrs)) e.setAttribute(k, String(v)); return e; };
   const titled = (el, text) => { const t = node('title', {}); t.textContent = text; el.append(t); return el; };
-  const svg = node('svg', { viewBox: layout.bounds.join(' '), role: 'img', 'aria-label': `カメラ中心 ${formatCoord(cam.centre.p, cam.centre.q)}。ホストが返した州 ${layout.counts.known}、データなしの未知の州 ${layout.counts.unknown}、座標範囲外 ${layout.counts.outside}。チェーンの地図ではありません。` });
+  const svg = node('svg', { viewBox: layout.bounds.join(' '), role: 'img', 'aria-label': `カメラ中心 ${formatCoord(cam.centre.p, cam.centre.q)}。ホストが返した固定州 ${layout.counts.known}、このセッションで開いた州 ${layout.counts.opened}、データなしの未知の州 ${layout.counts.unknown}、座標範囲外 ${layout.counts.outside}。チェーンの地図ではありません。` });
   for (const c of layout.cells) {
-    if (c.state === 'known') {
-      for (const t of c.tiles) svg.append(titled(node('polygon', { points: hexPoints(t, .94), fill: t.passable === false ? '#111a1d' : '#29464a', stroke: '#6d858e', 'stroke-width': .045 }), `${c.label} · tile ${t.tile}${t.passable === null ? '' : t.passable ? ' · passable' : ' · impassable'}`));
+    if (c.state === 'known' || c.state === 'opened') {
+      const opened = c.state === 'opened';
+      const fill = t => t.passable === false ? (opened ? '#1a1d10' : '#111a1d') : (opened ? '#3d4a24' : '#29464a');
+      const note = opened ? ' · このセッションで実ハンドラが開いた州（LOCAL合成シード・候補規則）' : ' · 固定fixtureの州';
+      for (const t of c.tiles) svg.append(titled(node('polygon', { points: hexPoints(t, .94), fill: fill(t), stroke: opened ? '#a8b86a' : '#6d858e', 'stroke-width': .045 }), `${c.label} · tile ${t.tile}${t.passable === null ? '' : t.passable ? ' · passable' : ' · impassable'}${note}`));
     } else {
       const g = titled(node('g', { class: `cell-${c.state}` }), c.state === 'unknown'
         ? `${c.label} · 未知（データなし）：このローカルホストはこの州を持たず、開かれた土地でも生成済みの土地でもありません。遊べません。`

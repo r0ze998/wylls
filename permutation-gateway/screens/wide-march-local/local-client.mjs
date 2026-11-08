@@ -6,16 +6,20 @@
 //     the only recovery is an explicit refresh, which is a GET of /api/state;
 //   - every state shown has passed the model (parser, identity, structure) and every POST answer also the transition check.
 import {
-  PROTOCOL, parseReplyObject, validateState, checkTransition, commandFromBody, LocalModelError,
+  PROTOCOL, parseReplyObject, validateState, checkTransition, commandFromBody,
+  commandFromQuoteBody, parseRouteQuote, LocalModelError,
 } from './local-model.mjs';
 
 export const ACTION_HEADER = 'X-Wylls-Local-Action';
-export const ROUTES = Object.freeze({ state: '/api/state', action: '/api/action', reset: '/api/reset' });
+export const ROUTES = Object.freeze({ state: '/api/state', action: '/api/action', reset: '/api/reset', open: '/api/open', quote: '/api/quote' });
 const MAX_TEXT = 1048576 + 8192;
 
 /** A UI intent → [route, body, command]. `expectedRevision` is always the revision currently shown. */
 export function bodyFor(intent, revision) {
-  return intent.kind === 'reset' ? ['reset', { expectedRevision: revision }] : ['action', { expectedRevision: revision, action: intent.kind }];
+  if (intent.kind === 'reset') return ['reset', { expectedRevision: revision }];
+  // opening carries only canonical coordinate strings; the host decides ring, budget and duplicates
+  if (intent.kind === 'open_province') return ['open', { expectedRevision: revision, p: intent.p, q: intent.q }];
+  return ['action', { expectedRevision: revision, action: intent.kind }];
 }
 
 export function createClient({ fetchFn, initial, onChange = () => {}, timeoutMs = 10000 }) {
@@ -23,9 +27,11 @@ export function createClient({ fetchFn, initial, onChange = () => {}, timeoutMs 
   let s = Object.freeze({
     phase: 'init',       // init | loading | ready | error | uncertain
     busy: false, state: null, parsed: null, lastResult: null, notice: null, error: null, reason: null,
+    quote: null, quoteDirs: null,   // the last host route quote (non-mutating), cleared whenever state changes
   });
   const set = patch => { s = Object.freeze({ ...s, ...patch }); try { onChange(s); } catch { /* a paint error must not break the client */ } };
-  const clear = patch => set({ state: null, parsed: null, ...patch });
+  const clear = patch => set({ state: null, parsed: null, quote: null, quoteDirs: null, ...patch });
+  const freshQuote = { quote: null, quoteDirs: null };
 
   // one fetch; resolves {status, json} or throws; a stale token is detected by the caller
   async function send(method, route, body) {
@@ -73,7 +79,7 @@ export function createClient({ fetchFn, initial, onChange = () => {}, timeoutMs 
       if (status !== 200) throw new LocalModelError('BadResponse', `HTTP ${status}`);
       const r = readView(json?.view);
       if (r.uncertain) { clear({ busy: false, phase: 'uncertain', reason: r.reason, lastResult: r.lastResult }); return { ok: false, reason: 'uncertain' }; }
-      set({ busy: false, phase: 'ready', state: r.state, parsed: r.parsed, lastResult: r.lastResult, error: null, reason: null });
+      set({ busy: false, phase: 'ready', state: r.state, parsed: r.parsed, lastResult: r.lastResult, error: null, reason: null, ...freshQuote });
       return { ok: true };
     } catch (e) {
       if (token !== seq) return { ok: false, reason: 'discarded' };
@@ -105,13 +111,13 @@ export function createClient({ fetchFn, initial, onChange = () => {}, timeoutMs 
         const r = readView(json?.view);
         if (r.uncertain) throw new LocalModelError('BadResponse', 'uncertain view with a normal status');
         if (status === 409) {
-          set({ busy: false, phase: 'ready', state: r.state, parsed: r.parsed, lastResult: r.lastResult, notice: { kind: 'stale' } });
+          set({ busy: false, phase: 'ready', state: r.state, parsed: r.parsed, lastResult: r.lastResult, notice: { kind: 'stale' }, ...freshQuote });
           return { ok: false, reason: 'stale' };
         }
         if (json.outcome !== 'ok' && json.outcome !== 'refused') throw new LocalModelError('BadResponse', 'outcome');
         const seen = checkTransition(prev, cmd, r.parsed, initial);
         if (seen !== json.outcome || (r.lastResult?.outcome !== seen)) throw new LocalModelError('BadResponse', 'outcome disagrees with the state');
-        set({ busy: false, phase: 'ready', state: r.state, parsed: r.parsed, lastResult: r.lastResult, notice: { kind: json.outcome, code: r.state.error } });
+        set({ busy: false, phase: 'ready', state: r.state, parsed: r.parsed, lastResult: r.lastResult, notice: { kind: json.outcome, code: r.state.error }, ...freshQuote });
         return { ok: json.outcome === 'ok', reason: json.outcome };
       }
       if (status === 502 || status === 503) {
@@ -129,5 +135,43 @@ export function createClient({ fetchFn, initial, onChange = () => {}, timeoutMs 
     }
   }
 
-  return Object.freeze({ refresh, submit, get snapshot() { return s; } });
+  // A non-mutating route quote: the host validates a chosen path over the really-opened provinces. It never changes
+  // the shown state or revision; a transport failure clears the view like any lost request, never a silent retry.
+  async function quote(dirs) {
+    if (s.busy) return { ok: false, reason: 'busy' };
+    if (s.phase !== 'ready' || !s.state) return { ok: false, reason: 'no-state' };
+    try { commandFromQuoteBody({ dirs }); } catch (e) { set({ notice: { kind: 'input', code: e.code ?? 'BadIntent' } }); return { ok: false, reason: 'input' }; }
+    const token = ++seq;
+    const ps = new Set(s.state.map.provinces.map(p => `${p.p},${p.q}`));
+    set({ busy: true, notice: null });
+    try {
+      const { status, json } = await send('POST', 'quote', { dirs });
+      if (token !== seq) return { ok: false, reason: 'discarded' };
+      if (status === 429 || status === 400 || status === 403 || status === 411 || status === 413 || status === 415) {
+        set({ busy: false, notice: { kind: 'not-sent', code: json?.error ?? `HTTP ${status}` } });
+        return { ok: false, reason: 'not-sent' };
+      }
+      if (status === 200) {
+        const r = readView(json?.view);
+        if (r.uncertain) throw new LocalModelError('BadResponse', 'uncertain view with a normal status');
+        if (r.state.revision !== s.state.revision) throw new LocalModelError('BadResponse', 'a quote changed the revision');
+        parseRouteQuote(json.routeQuote, ps);   // re-validate shape and the known-province cross-check in the browser
+        set({ busy: false, quote: json.routeQuote, quoteDirs: dirs, notice: { kind: 'quote', code: json.routeQuote.reachable ? 'REACHABLE' : json.routeQuote.reason } });
+        return { ok: true, quote: json.routeQuote };
+      }
+      if (status === 502 || status === 503) {
+        const r = readView(json?.view);
+        if (!r.uncertain) throw new LocalModelError('BadResponse', 'a host failure without the uncertain marker');
+        clear({ busy: false, phase: 'uncertain', reason: r.reason, lastResult: r.lastResult, notice: null });
+        return { ok: false, reason: 'uncertain' };
+      }
+      throw new LocalModelError('BadResponse', `HTTP ${status}`);
+    } catch (e) {
+      if (token !== seq) return { ok: false, reason: 'discarded' };
+      failClosed(e, 'quote');
+      return { ok: false, reason: 'unknown' };
+    }
+  }
+
+  return Object.freeze({ refresh, submit, quote, get snapshot() { return s; } });
 }

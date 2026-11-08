@@ -1,20 +1,75 @@
-//! Bounded stdio protocol `wylls-local-march-v2` (see
+//! Bounded stdio protocol `wylls-local-march-v3` (see
 //! `docs/frontier/map-growth/LOCAL-MARCH-DEMO-PROTOCOL-20261108.md`).
 //!
-//! v2 serves ONE session: the village economy (Harvest, Farm, Train) and the
-//! march lifecycle on the same holding bytes, under one revision and one
-//! simulated clock. Every mutation stages a complete copy of the sandbox,
-//! runs real handlers on it, renders and bounds the candidate response, and
-//! only then commits images, clock, counters and revision together.
+//! ONE session: the village economy (Harvest, Farm, Train), the march
+//! lifecycle on the same holding bytes, and (v3) opening further ring-129
+//! provinces with the real WideOpenProvince over the LOCAL land records,
+//! under one revision and one simulated clock. Every mutation stages a
+//! complete copy of the sandbox, runs real handlers on it, renders and bounds
+//! the candidate response, and only then commits images, clock, counters and
+//! revision together.
 use crate::engine::{
-    hex, Sandbox, ECONOMY_PER_INSTANT, FARM_ITEM, FINAL_BELL, GENESIS, TRAIN_COUNT, TRAIN_UNIT,
+    hex, Quote, Sandbox, ECONOMY_PER_INSTANT, FARM_ITEM, FINAL_BELL, GENESIS, MAX_ROUTE_DIRS,
+    TRAIN_COUNT, TRAIN_UNIT,
 };
-use frontier_abi::world_index::{WideHolding, WideProvince};
+use crate::land_bootstrap as land;
+use frontier_abi::world_index::{WideHolding, WideProvince, WideRingSeed};
 use permutation_frontier::layout::player::{accrual as AC, queue_item as QI};
 use permutation_frontier::layout::{holding as H, province as PV, Ro};
 use std::fmt::Write;
 
-pub const PROTOCOL: &str = "wylls-local-march-v2";
+pub const PROTOCOL: &str = "wylls-local-march-v3";
+/// Land-opening refusals decided before any dispatch: fixed tokens, nothing
+/// staged or committed.
+pub const LAND_REFUSALS: [&str; 7] = [
+    "LAND_COORD_BOUNDS",
+    "LAND_NOT_RING_129",
+    "LAND_DUPLICATE_OPEN",
+    "LAND_BUDGET",
+    "LAND_IMAGE_BOUND",
+    "LAND_RING_UNSEEDED",
+    "LAND_TIME_BEFORE_GENESIS",
+];
+/// The token of a land evidence label (`EVIDENCE_LABELS`, text before `:`).
+fn land_token(record: &str) -> &'static str {
+    land::EVIDENCE_LABELS
+        .iter()
+        .find(|(k, _)| *k == record)
+        .map(|(_, v)| v.split(':').next().unwrap_or("").trim())
+        .unwrap_or("MISSING_LABEL")
+}
+/// A canonical revision (0..=9999999, no leading zero).
+fn canonical_rev(rev: &str) -> bool {
+    !rev.is_empty()
+        && rev.len() <= 7
+        && !(rev.len() > 1 && rev.starts_with('0'))
+        && rev.bytes().all(|b| b.is_ascii_digit())
+}
+/// A canonical signed decimal coordinate (`0` or `-?[1-9][0-9]*`, ≤ 19
+/// digits) that parses as `i64`; the ±2^62 bound is `WideCoord::checked`'s.
+fn canonical_coord(s: &str) -> Option<i64> {
+    let digits = s.strip_prefix('-').unwrap_or(s);
+    if digits.is_empty()
+        || digits.len() > 19
+        || !digits.bytes().all(|b| b.is_ascii_digit())
+        || (digits.starts_with('0') && (digits.len() > 1 || s.starts_with('-')))
+    {
+        return None;
+    }
+    s.parse::<i64>().ok()
+}
+/// How a land-opening error is reported: status, fixed token, program code.
+fn classify_land(e: &str) -> (&'static str, &'static str, Option<u32>) {
+    if let Some(t) = LAND_REFUSALS.iter().find(|t| **t == e) {
+        return ("refused", *t, None);
+    }
+    if let Some(rest) = e.strip_prefix("LAND_OPEN_REFUSED:") {
+        if rest.starts_with("Refused_") {
+            return classify(rest);
+        }
+    }
+    ("fault", "EXECUTION_FAULT", None)
+}
 pub const SESSION: &str = "integrated-economy-march-same-holding";
 pub const REVISION_LIMIT: u64 = 1_000_000;
 /// Every mutating command token (each takes exactly one canonical REV).
@@ -65,7 +120,7 @@ impl Controller {
         })
     }
     pub fn reject(&self, error: &str) -> Result<String, String> {
-        self.render("refused", Some(error), None, "invalid", false)
+        self.render("refused", Some(error), None, "invalid", false, None)
     }
     pub fn exchange(&mut self, line: &str) -> Result<String, String> {
         self.exchange_with_limit(line, 1_048_576)
@@ -75,25 +130,64 @@ impl Controller {
             return self.reject("BAD_COMMAND");
         }
         if line == "get" {
-            return self.render("ok", None, None, "get", false);
+            return self.render("ok", None, None, "get", false, None);
+        }
+        // A non-mutating route quote: `quote_route DIRS`, DIRS a 1..=32 string
+        // of directions 0..5. It changes no account, clock, phase, revision or
+        // record; it validates a chosen path over the real opened-province
+        // bytes and never executes a march.
+        if let Some(arg) = line.strip_prefix("quote_route ") {
+            if arg.is_empty()
+                || arg.len() > MAX_ROUTE_DIRS
+                || !arg.bytes().all(|b| (b'0'..=b'5').contains(&b))
+            {
+                return self.reject("BAD_COMMAND");
+            }
+            let dirs: Vec<u8> = arg.bytes().map(|b| b - b'0').collect();
+            return match self.sandbox.quote_route(&dirs) {
+                Ok(q) => self.render("ok", None, None, "quote_route", false, Some(&q)),
+                Err(e) => {
+                    eprintln!("local_march_demo: quote_route: {e}");
+                    self.render(
+                        "fault",
+                        Some("EXECUTION_FAULT"),
+                        None,
+                        "quote_route",
+                        false,
+                        None,
+                    )
+                }
+            };
+        }
+        // Open a ring-129 province: `open_province REV P Q`, P and Q canonical
+        // signed decimals. Revisioned and atomic like every mutation: staged
+        // on a copy, the real handler judged by the land module, the reply
+        // rendered and bounded, then committed with revision + 1.
+        if let Some(rest) = line.strip_prefix("open_province ") {
+            let parts: Vec<&str> = rest.split(' ').collect();
+            let coords = match parts.as_slice() {
+                [rev, p, q] if canonical_rev(rev) => canonical_coord(p)
+                    .zip(canonical_coord(q))
+                    .map(|c| (*rev, c)),
+                _ => None,
+            };
+            let Some((rev, (p, q))) = coords else {
+                return self.reject("BAD_COMMAND");
+            };
+            return self.open(rev, p, q, limit);
         }
         let (cmd, rev) = match line.split_once(' ') {
             Some(v) => v,
             None => return self.reject("BAD_COMMAND"),
         };
-        if !COMMANDS.contains(&cmd)
-            || rev.is_empty()
-            || rev.len() > 7
-            || (rev.len() > 1 && rev.starts_with('0'))
-            || !rev.bytes().all(|b| b.is_ascii_digit())
-        {
+        if !COMMANDS.contains(&cmd) || !canonical_rev(rev) {
             return self.reject("BAD_COMMAND");
         }
         if rev.parse::<u64>().ok() != Some(self.revision) {
-            return self.render("refused", Some("STALE_REVISION"), None, cmd, false);
+            return self.render("refused", Some("STALE_REVISION"), None, cmd, false, None);
         }
         if self.revision >= REVISION_LIMIT {
-            return self.render("refused", Some("REVISION_LIMIT"), None, cmd, false);
+            return self.render("refused", Some("REVISION_LIMIT"), None, cmd, false, None);
         }
         let mut candidate = Self {
             sandbox: self.sandbox.clone(),
@@ -112,9 +206,9 @@ impl Controller {
         };
         match outcome {
             Ok(()) => {
-                let reply = candidate.render("ok", None, None, cmd, cmd != "reset")?;
+                let reply = candidate.render("ok", None, None, cmd, cmd != "reset", None)?;
                 if reply.len() > limit {
-                    return self.render("fault", Some("RESPONSE_LIMIT"), None, cmd, false);
+                    return self.render("fault", Some("RESPONSE_LIMIT"), None, cmd, false, None);
                 }
                 *self = candidate;
                 Ok(reply)
@@ -122,10 +216,43 @@ impl Controller {
             Err(e) => {
                 eprintln!("local_march_demo: {cmd}: {e}");
                 let (status, token, code) = classify(&e);
-                self.render(status, Some(token), code, cmd, false)
+                self.render(status, Some(token), code, cmd, false, None)
             }
         }
     }
+    /// `open_province REV P Q` (already syntax-checked): the revision gate,
+    /// then the land module's staged real opening on a candidate copy, the
+    /// reply rendered and bounded, and only then the commit. A refusal or a
+    /// fault leaves images, clock, counters and revision as they were.
+    fn open(&mut self, rev: &str, p: i64, q: i64, limit: usize) -> Result<String, String> {
+        const CMD: &str = "open_province";
+        if rev.parse::<u64>().ok() != Some(self.revision) {
+            return self.render("refused", Some("STALE_REVISION"), None, CMD, false, None);
+        }
+        if self.revision >= REVISION_LIMIT {
+            return self.render("refused", Some("REVISION_LIMIT"), None, CMD, false, None);
+        }
+        let mut candidate = Self {
+            sandbox: self.sandbox.clone(),
+            revision: self.revision + 1,
+        };
+        match candidate.sandbox.open_province(p, q) {
+            Ok(_) => {
+                let reply = candidate.render("ok", None, None, CMD, true, None)?;
+                if reply.len() > limit {
+                    return self.render("fault", Some("RESPONSE_LIMIT"), None, CMD, false, None);
+                }
+                *self = candidate;
+                Ok(reply)
+            }
+            Err(e) => {
+                eprintln!("local_march_demo: {CMD}: {e}");
+                let (status, token, code) = classify_land(&e);
+                self.render(status, Some(token), code, CMD, false, None)
+            }
+        }
+    }
+    #[allow(clippy::too_many_arguments)]
     fn render(
         &self,
         status: &str,
@@ -133,6 +260,7 @@ impl Controller {
         refusal: Option<u32>,
         command: &str,
         new_records: bool,
+        quote: Option<&Quote>,
     ) -> Result<String, String> {
         let s = &self.sandbox;
         let hd = s.data("holding")?;
@@ -176,6 +304,7 @@ impl Controller {
         )
         .unwrap();
         village(&mut out, hd)?;
+        land_json(&mut out, s)?;
         write!(
             out,
             ",\"map\":{{\"worldHex\":\"{}\",\"origin\":{{\"p\":\"{}\",\"q\":\"{}\"}},\"destination\":{{\"p\":\"{}\",\"q\":\"{}\"}},\"route\":[",
@@ -201,21 +330,25 @@ impl Controller {
             }
             write!(out, "{{\"p\":\"{a}\",\"q\":\"{b}\",\"tile\":{t}}}").unwrap()
         }
+        // Every province the host holds, each decoded from its own bytes:
+        // the two exported fixtures first, then those opened this session.
         out.push_str("],\"provinces\":[");
-        for (i, (n, p)) in [("origin", origin), ("destination", dest)]
-            .iter()
-            .enumerate()
-        {
+        for (i, k) in s.provinces()?.iter().enumerate() {
             if i > 0 {
                 out.push(',')
             }
             write!(
                 out,
-                "{{\"p\":\"{}\",\"q\":\"{}\",\"accountKeyHex\":\"{}\",\"passableMask\":\"{}\"}}",
-                p.coord.p(),
-                p.coord.q(),
-                hex(&s.images[*n].key),
-                Ro(s.data(n)?).u64(PV::PASSABLE_MASK).map_err(|_| "MASK")?
+                "{{\"p\":\"{}\",\"q\":\"{}\",\"accountKeyHex\":\"{}\",\"passableMask\":\"{}\",\"source\":\"{}\",\"openedBell\":{},\"resolvedNext\":{},\"wedge\":{},\"region\":{}}}",
+                k.province.coord.p(),
+                k.province.coord.q(),
+                hex(&s.images[&k.name].key),
+                k.passable_mask,
+                k.source,
+                k.opened_bell,
+                k.resolved_next,
+                k.province.wedge,
+                k.province.region
             )
             .unwrap()
         }
@@ -292,9 +425,113 @@ impl Controller {
             )
             .unwrap()
         }
-        out.push_str("]}}");
+        // close the accounts array and the evidence object
+        out.push_str("]}");
+        match quote {
+            Some(q) => render_quote(&mut out, q),
+            None => out.push_str(",\"routeQuote\":null"),
+        }
+        // close the root object
+        out.push('}');
         Ok(out)
     }
+}
+
+/// The LOCAL land records and the opening budget. Keys name accounts that
+/// are in `evidence.accounts`, so the browser re-reads every claimed number
+/// (ring, seed, round, provinces created, rule bytes, fund wedges) from the
+/// bytes. The provenance values are the land module's fixed evidence tokens.
+fn land_json(out: &mut String, s: &Sandbox) -> Result<(), String> {
+    let seed_im = s
+        .images
+        .get(land::RING_SEED_NAME)
+        .ok_or("LAND_RING_SEED_RECORD")?;
+    let seed = WideRingSeed::read(&seed_im.data).map_err(|_| "LAND_RING_SEED_RECORD")?;
+    let rules = s
+        .images
+        .get(land::RULES_CONFIG_NAME)
+        .ok_or("LAND_RULES_CONFIG")?;
+    write!(
+        out,
+        ",\"land\":{{\"ring\":{},\"budget\":{},\"opened\":{},\"provincesCreated\":{},\"ringSeedKeyHex\":\"{}\",\"rulesConfigKeyHex\":\"{}\",\"fundKeysHex\":[",
+        land::LAND_RING,
+        land::MAX_EXTRA_PROVINCES,
+        s.opened_count(),
+        seed.provinces_created,
+        hex(&seed_im.key),
+        hex(&rules.key)
+    )
+    .unwrap();
+    for w in 0..6u8 {
+        let f = s
+            .images
+            .get(&land::fund_name(w))
+            .ok_or("LAND_FUND_RECORD")?;
+        if w > 0 {
+            out.push(',')
+        }
+        write!(out, "\"{}\"", hex(&f.key)).unwrap();
+    }
+    write!(
+        out,
+        "],\"provenance\":{{\"ringSeed\":\"{}\",\"rules\":\"{}\",\"funds\":\"{}\",\"golden\":\"{}\",\"opened\":\"{}\",\"resolveHistory\":\"{}\",\"auth\":\"{}\",\"budget\":\"{}\"}}}}",
+        land_token("land_ring_seed_129"),
+        land_token("land_rules_config"),
+        land_token("land_fund_*"),
+        land_token("golden_gate"),
+        land_token("land_province_*"),
+        land_token("resolve_history"),
+        land_token("auth"),
+        land_token("budget")
+    )
+    .unwrap();
+    Ok(())
+}
+
+/// Renders the read-only route quote (`Sandbox::quote_route`). Every number
+/// is the host's own: start/end tiles, per-step province/tile/known/passable
+/// (passability from the real mask), the refusal reason and the provinces the
+/// route enters. The browser never computes these.
+fn render_quote(out: &mut String, q: &Quote) {
+    write!(
+        out,
+        ",\"routeQuote\":{{\"start\":{{\"p\":\"{}\",\"q\":\"{}\",\"tile\":{}}},\"reachable\":{},\"reason\":{},\"blockedStep\":{},\"steps\":[",
+        q.start.0,
+        q.start.1,
+        q.start.2,
+        q.reachable,
+        q.reason.map_or("null".into(), |r| format!("\"{r}\"")),
+        q.blocked_step.map_or("null".into(), |n| n.to_string())
+    )
+    .unwrap();
+    for (i, s) in q.steps.iter().enumerate() {
+        if i > 0 {
+            out.push(',')
+        }
+        write!(
+            out,
+            "{{\"p\":\"{}\",\"q\":\"{}\",\"tile\":{},\"known\":{},\"passable\":{}}}",
+            s.p,
+            s.q,
+            s.tile,
+            s.known,
+            s.passable.map_or("null".into(), |b| b.to_string())
+        )
+        .unwrap();
+    }
+    out.push_str("],\"end\":");
+    match q.end {
+        Some((p, qq, t)) => write!(out, "{{\"p\":\"{p}\",\"q\":\"{qq}\",\"tile\":{t}}}").unwrap(),
+        None => out.push_str("null"),
+    }
+    out.push_str(",\"provincesEntered\":[");
+    for (i, (p, qq)) in q.provinces.iter().enumerate() {
+        if i > 0 {
+            out.push(',')
+        }
+        write!(out, "{{\"p\":\"{p}\",\"q\":\"{qq}\"}}").unwrap();
+    }
+    out.push_str("]}");
 }
 
 /// The holding's village fields, read from its bytes as stored. Stores are
@@ -700,10 +937,17 @@ mod integrated_tests {
             assert_eq!(c.sandbox.images, pre);
             assert_eq!(c.revision, rev);
         }
-        assert_eq!(c.sandbox.allowed(), vec!["depart", "reset"]);
+        // opening land is not an economy command: it is outside this budget
+        assert_eq!(
+            c.sandbox.allowed(),
+            vec!["depart", "open_province", "reset"]
+        );
         // the action bucket still has room for the player's own step
         ok(&mut c, "depart");
-        assert_eq!(c.sandbox.allowed(), vec!["settle_departure", "reset"]);
+        assert_eq!(
+            c.sandbox.allowed(),
+            vec!["settle_departure", "open_province", "reset"]
+        );
         ok(&mut c, "settle_departure");
         assert!(c.sandbox.allowed().contains(&"harvest"));
         ok(&mut c, "harvest");
@@ -742,7 +986,7 @@ mod integrated_tests {
     fn reset_after_economy_and_march_restores_the_fixture_but_not_the_revision() {
         let mut c = Controller::new().unwrap();
         let fresh = Controller::new().unwrap();
-        let first = fresh.render("ok", None, None, "get", false).unwrap();
+        let first = fresh.render("ok", None, None, "get", false, None).unwrap();
         for cmd in [
             "harvest",
             "build_farm",
@@ -770,7 +1014,7 @@ mod integrated_tests {
             (0, 0, 0, 0)
         );
         // the reset state renders as the first state, revision aside
-        let now = c.render("ok", None, None, "get", false).unwrap();
+        let now = c.render("ok", None, None, "get", false, None).unwrap();
         let strip = |s: &str| {
             s.replacen(&format!("\"revision\":{},", c.revision), "", 1)
                 .replacen("\"revision\":0,", "", 1)
@@ -784,8 +1028,8 @@ mod integrated_tests {
     #[test]
     fn get_reports_village_bytes_and_the_honest_horizon() {
         let c = Controller::new().unwrap();
-        let g = c.render("ok", None, None, "get", false).unwrap();
-        assert!(g.starts_with("{\"protocol\":\"wylls-local-march-v2\""));
+        let g = c.render("ok", None, None, "get", false, None).unwrap();
+        assert!(g.starts_with("{\"protocol\":\"wylls-local-march-v3\""));
         assert!(g.contains("\"session\":\"integrated-economy-march-same-holding\""));
         assert!(g.contains("\"model\":\"PHASE_STEPS_ONLY\""));
         assert!(g.contains("\"destinationPreparedThroughBell\":19"));
@@ -809,6 +1053,8 @@ mod integrated_tests {
         assert!(g.contains(&format!(
             "\"originResolvedNext\":{o},\"destinationResolvedNext\":{d}"
         )));
+        // a non-quote response carries a null routeQuote
+        assert!(g.contains("\"routeQuote\":null}"));
         assert!(g.len() < 1_048_576);
     }
 
@@ -839,5 +1085,338 @@ mod integrated_tests {
             classify("Fault_RuntimeBoundary:Harvest"),
             ("fault", "EXECUTION_FAULT", None)
         );
+    }
+}
+
+#[cfg(test)]
+mod route_quote_protocol_tests {
+    use super::*;
+    /// The recorded directions as a digit string (`020202` hex -> "222").
+    fn recorded(c: &Controller) -> String {
+        crate::engine::unhex(c.sandbox.meta.get("directions").unwrap())
+            .unwrap()
+            .iter()
+            .map(|d| (b'0' + d) as char)
+            .collect()
+    }
+
+    #[test]
+    fn quote_route_validates_the_chosen_path_and_never_mutates() {
+        let mut c = Controller::new().unwrap();
+        let before = c.sandbox.images.clone();
+        let dirs = recorded(&c);
+        let r = c.exchange(&format!("quote_route {dirs}")).unwrap();
+        assert!(r.contains("\"status\":\"ok\""));
+        assert!(r.contains("\"command\":\"quote_route\""));
+        assert!(r.contains("\"revision\":0,"));
+        assert!(r.contains("\"routeQuote\":{"));
+        assert!(r.contains("\"reachable\":true"));
+        assert!(r.contains("\"reason\":null"));
+        assert!(r.contains("\"end\":{\"p\":\"129\",\"q\":\"-1\",\"tile\":34}"));
+        // verify_route lists every province a step enters in first-entered
+        // order; the first steps stay in the start's province (129,0), which
+        // therefore counts as entered, then (129,-1).
+        assert!(r.contains(
+            "\"provincesEntered\":[{\"p\":\"129\",\"q\":\"0\"},{\"p\":\"129\",\"q\":\"-1\"}]"
+        ));
+        // a query carries no new evidence and no record
+        assert!(r.contains("\"instructions\":[]") && r.contains("\"recordsHex\":[]"));
+        // nothing changed: images, revision, phase
+        assert_eq!(c.sandbox.images, before);
+        assert_eq!(c.revision, 0);
+        assert_eq!(c.sandbox.phase, "ready");
+        // the march still departs at the same revision afterwards
+        assert!(c
+            .exchange("depart 0")
+            .unwrap()
+            .contains("\"status\":\"ok\""));
+    }
+
+    #[test]
+    fn a_path_past_the_known_provinces_is_unreachable_unknown_land() {
+        let mut c = Controller::new().unwrap();
+        let d = recorded(&c).as_bytes()[0];
+        // exactly one step into the first province the host did not return,
+        // located from the real fixture geometry
+        let i = crate::engine::first_unknown_step(&c.sandbox, d - b'0').unwrap();
+        let far = (d as char).to_string().repeat(i + 1);
+        let r = c.exchange(&format!("quote_route {far}")).unwrap();
+        assert!(r.contains("\"status\":\"ok\""));
+        assert!(r.contains("\"revision\":0,"));
+        assert!(r.contains("\"reachable\":false"));
+        assert!(r.contains("\"end\":null"));
+        assert!(r.contains("\"reason\":\"UNKNOWN_PROVINCE\""));
+        assert!(r.contains(&format!("\"blockedStep\":{i},")));
+        assert_eq!(c.revision, 0);
+    }
+
+    #[test]
+    fn malformed_quote_commands_are_refused_without_a_quote() {
+        let mut c = Controller::new().unwrap();
+        let long = format!("quote_route {}", "2".repeat(MAX_ROUTE_DIRS + 1));
+        for bad in [
+            "quote_route ",
+            "quote_route 6",
+            "quote_route 2x",
+            "quote_route 29",
+            "quote_route -1",
+            long.as_str(),
+        ] {
+            let r = c.exchange(bad).unwrap();
+            assert!(r.contains("\"status\":\"refused\""), "{bad}");
+            assert!(r.contains("\"error\":\"BAD_COMMAND\""), "{bad}");
+            assert!(r.contains("\"routeQuote\":null"));
+        }
+        assert_eq!(c.revision, 0);
+    }
+}
+
+/// v3: opening ring-129 provinces with the real WideOpenProvince over the
+/// LOCAL land records, revisioned and atomic, at the controller's clock.
+#[cfg(test)]
+mod open_province_protocol_tests {
+    use super::*;
+    use crate::engine::{first_unknown, ECONOMY_COMMANDS, INITIAL};
+
+    fn reply(c: &mut Controller, line: &str) -> String {
+        c.exchange(line).unwrap()
+    }
+    fn recorded(c: &Controller) -> u8 {
+        crate::engine::unhex(c.sandbox.meta.get("directions").unwrap()).unwrap()[0]
+    }
+
+    #[test]
+    fn get_reports_the_installed_land_records_and_the_budget() {
+        let c = Controller::new().unwrap();
+        let g = c.render("ok", None, None, "get", false, None).unwrap();
+        assert!(
+            g.contains("\"land\":{\"ring\":129,\"budget\":4,\"opened\":0,\"provincesCreated\":3,")
+        );
+        for t in [
+            "\"ringSeed\":\"LOCAL_SYNTHETIC_RING_SEED\"",
+            "\"rules\":\"PROTOTYPE_CANDIDATE_RULES_V1\"",
+            "\"funds\":\"LOCAL_FIXTURE_FUNDS\"",
+            "\"golden\":\"GOLDEN_REOPEN_STATIC_FIELDS_MATCH\"",
+            "\"opened\":\"REAL_HANDLER_OUTPUT_AT_SUPPLIED_TIME\"",
+            "\"resolveHistory\":\"NO_RESOLVE_HISTORY\"",
+            "\"auth\":\"MOCK_PAYER_SIGNER_FLAG_NO_SIGNATURE\"",
+            "\"budget\":\"DEMO_BUDGET_4_EXTRA_PROVINCES\"",
+        ] {
+            assert!(g.contains(t), "{t}");
+        }
+        assert!(!g.contains("MISSING_LABEL"));
+        // the two exported provinces, labelled as fixtures
+        assert_eq!(g.matches("\"source\":\"fixture\"").count(), 2);
+        assert_eq!(g.matches("\"source\":\"opened\"").count(), 0);
+        assert!(
+            g.contains("\"open_province\""),
+            "allowed while the budget lasts"
+        );
+        // every land record named is in the returned account set
+        for n in [land::RING_SEED_NAME, land::RULES_CONFIG_NAME] {
+            let k = hex(&c.sandbox.images[n].key);
+            assert_eq!(g.matches(&format!("\"keyHex\":\"{k}\"")).count(), 1, "{n}");
+        }
+    }
+
+    #[test]
+    fn open_province_runs_the_real_handler_and_increments_the_revision_once() {
+        let mut c = Controller::new().unwrap();
+        let before = c.sandbox.clone();
+        let r = reply(&mut c, "open_province 0 129 -2");
+        assert!(r.contains("\"status\":\"ok\""), "{r:.300}");
+        assert!(r.contains("\"command\":\"open_province\""));
+        assert!(r.contains("\"revision\":1,"));
+        assert!(r.contains("\"instructions\":[\"WideOpenProvince\"]"));
+        assert!(r.contains("\"recordsHex\":[]"));
+        assert!(r.contains("\"opened\":1,\"provincesCreated\":4,"));
+        assert!(r.contains("{\"p\":\"129\",\"q\":\"-2\",\"accountKeyHex\":"));
+        assert_eq!(r.matches("\"source\":\"opened\"").count(), 1);
+        assert!(r.contains("\"source\":\"opened\",\"openedBell\":6,\"resolvedNext\":6,"));
+        // the clock, phase, economy and the march images did not move
+        assert_eq!(c.sandbox.now, INITIAL);
+        assert_eq!(c.sandbox.phase, "ready");
+        for n in ["holding", "citizen", "origin", "destination"] {
+            assert_eq!(c.sandbox.images[n], before.images[n], "{n}");
+        }
+        assert_eq!(c.sandbox.images.len(), before.images.len() + 1);
+        // the economy and the fixed march still run afterwards
+        assert!(reply(&mut c, "harvest 1").contains("\"status\":\"ok\""));
+        assert!(reply(&mut c, "depart 2").contains("\"status\":\"ok\""));
+    }
+
+    #[test]
+    fn stale_duplicate_and_malformed_openings_never_mutate() {
+        let mut c = Controller::new().unwrap();
+        assert!(reply(&mut c, "open_province 0 129 -2").contains("\"status\":\"ok\""));
+        let after = c.sandbox.images.clone();
+        // a replay of the same line is stale; the same coordinate again is a duplicate
+        for (line, err) in [
+            ("open_province 0 129 -2", "STALE_REVISION"),
+            ("open_province 1 129 -2", "LAND_DUPLICATE_OPEN"),
+            ("open_province 1 129 0", "LAND_DUPLICATE_OPEN"),
+            ("open_province 1 129 -1", "LAND_DUPLICATE_OPEN"),
+            ("open_province 1 128 0", "LAND_NOT_RING_129"),
+            ("open_province 1 130 0", "LAND_NOT_RING_129"),
+            ("open_province 1 4611686018427387905 0", "LAND_COORD_BOUNDS"),
+        ] {
+            let r = reply(&mut c, line);
+            assert!(r.contains("\"status\":\"refused\""), "{line}");
+            assert!(
+                r.contains(&format!("\"error\":\"{err}\"")),
+                "{line}: {r:.200}"
+            );
+            assert!(r.contains("\"recordsHex\":[]") && r.contains("\"instructions\":[]"));
+            assert_eq!(c.sandbox.images, after, "{line}");
+            assert_eq!(c.revision, 1, "{line}");
+        }
+        for bad in [
+            "open_province 1 129",
+            "open_province 1 129 -2 0",
+            "open_province 1 0129 -2",
+            "open_province 1 129 -02",
+            "open_province 1 -0 0",
+            "open_province 1 +129 0",
+            "open_province 01 129 -2",
+            "open_province 1 129  -2",
+            "open_province 1 12x -2",
+            "open_province 1 99999999999999999999 0",
+        ] {
+            let r = reply(&mut c, bad);
+            assert!(r.contains("\"error\":\"BAD_COMMAND\""), "{bad}");
+            assert_eq!(c.sandbox.images, after, "{bad}");
+            assert_eq!(c.revision, 1);
+        }
+    }
+
+    #[test]
+    fn the_budget_of_four_is_enforced_and_open_leaves_the_allowed_list() {
+        let mut c = Controller::new().unwrap();
+        for (i, (p, q)) in [(129, -2), (129, -3), (128, 1), (127, 2)]
+            .iter()
+            .enumerate()
+        {
+            let r = reply(&mut c, &format!("open_province {i} {p} {q}"));
+            assert!(r.contains("\"status\":\"ok\""), "{p},{q}");
+        }
+        assert_eq!(c.sandbox.opened_count(), 4);
+        assert!(!c.sandbox.allowed().contains(&"open_province"));
+        let after = c.sandbox.images.clone();
+        let r = reply(&mut c, "open_province 4 126 3");
+        assert!(r.contains("\"error\":\"LAND_BUDGET\""));
+        assert!(r.contains("\"opened\":4,\"provincesCreated\":7,"));
+        assert_eq!(c.sandbox.images, after);
+        assert_eq!(c.revision, 4);
+        // six provinces are reported, each once
+        let g = c.render("ok", None, None, "get", false, None).unwrap();
+        assert_eq!(g.matches("\"source\":\"opened\"").count(), 4);
+        assert_eq!(g.matches("\"source\":\"fixture\"").count(), 2);
+        assert!(g.len() < 1_048_576);
+    }
+
+    #[test]
+    fn an_unseeded_ring_or_tampered_record_refuses_without_mutation() {
+        let mut c = Controller::new().unwrap();
+        {
+            let ai = c.sandbox.images.get_mut(land::RING_SEED_NAME).unwrap();
+            let mut rec = WideRingSeed::read(&ai.data).unwrap();
+            rec.status = frontier_abi::world_index::SeedStatus::Requested;
+            rec.seed = [0; 32];
+            rec.write(&mut ai.data).unwrap();
+        }
+        let pre = c.sandbox.images.clone();
+        let r = reply(&mut c, "open_province 0 129 -2");
+        assert!(r.contains("\"error\":\"LAND_RING_UNSEEDED\""));
+        assert_eq!((c.sandbox.images == pre, c.revision), (true, 0));
+        // a changed rule byte in the config is a fault (the record is not
+        // the installed one), never a successful opening
+        let mut c = Controller::new().unwrap();
+        c.sandbox
+            .images
+            .get_mut(land::RULES_CONFIG_NAME)
+            .unwrap()
+            .data[18] ^= 1;
+        let pre = c.sandbox.images.clone();
+        let r = reply(&mut c, "open_province 0 129 -2");
+        assert!(r.contains("\"status\":\"fault\""), "{r:.200}");
+        assert!(r.contains("\"error\":\"EXECUTION_FAULT\""));
+        assert_eq!((c.sandbox.images == pre, c.revision), (true, 0));
+    }
+
+    #[test]
+    fn a_handler_refusal_is_reported_with_its_program_code() {
+        let mut c = Controller::new().unwrap();
+        // one lamport short of its own rent plus one province rent (the land
+        // module's boundary case): the handler itself refuses Insufficient
+        let coord = frontier_abi::world_index::WideCoord::checked(129, -2).unwrap();
+        let fund = land::fund_name(coord.wedge().unwrap());
+        let prov_rent = solana_program::rent::Rent::default()
+            .minimum_balance(frontier_abi::world_index::land::province::SIZE);
+        c.sandbox.images.get_mut(&fund).unwrap().lamports =
+            land::fund_lamports() - (land::MAX_EXTRA_PROVINCES as u64 - 1) * prov_rent - 1;
+        let pre = c.sandbox.images.clone();
+        let r = reply(&mut c, "open_province 0 129 -2");
+        assert!(r.contains("\"error\":\"HANDLER_REFUSED\""), "{r:.200}");
+        assert!(r.contains(&format!(
+            "\"refusalCode\":{}",
+            permutation_frontier::FrontierError::Insufficient.code()
+        )));
+        assert_eq!((c.sandbox.images == pre, c.revision), (true, 0));
+    }
+
+    #[test]
+    fn an_oversized_open_reply_commits_nothing() {
+        let mut c = Controller::new().unwrap();
+        let pre = c.sandbox.images.clone();
+        let r = c.exchange_with_limit("open_province 0 129 -2", 1).unwrap();
+        assert!(r.contains("RESPONSE_LIMIT"));
+        assert_eq!((c.sandbox.images == pre, c.revision), (true, 0));
+    }
+
+    #[test]
+    fn reset_after_openings_restores_the_installed_baseline() {
+        let mut c = Controller::new().unwrap();
+        let fresh = Controller::new().unwrap();
+        assert!(reply(&mut c, "open_province 0 129 -2").contains("\"status\":\"ok\""));
+        assert!(reply(&mut c, "harvest 1").contains("\"status\":\"ok\""));
+        let r = reply(&mut c, "reset 2");
+        assert!(r.contains("\"status\":\"ok\""));
+        assert_eq!(c.revision, 3);
+        assert_eq!(c.sandbox.images, fresh.sandbox.images);
+        assert_eq!(c.sandbox.opened_count(), 0);
+        assert!(r.contains("\"opened\":0,\"provincesCreated\":3,"));
+        // the old revision stays dead and the province can be opened again
+        assert!(reply(&mut c, "open_province 0 129 -2").contains("STALE_REVISION"));
+        assert!(reply(&mut c, "open_province 3 129 -2").contains("\"status\":\"ok\""));
+    }
+
+    #[test]
+    fn a_quote_into_the_newly_opened_province_uses_its_returned_bytes() {
+        let mut c = Controller::new().unwrap();
+        let d = recorded(&c);
+        let (i, coord) = first_unknown(&c.sandbox, d).unwrap();
+        assert_eq!(coord.ring(), 129);
+        let path = ((b'0' + d) as char).to_string().repeat(i + 1);
+        let before = reply(&mut c, &format!("quote_route {path}"));
+        assert!(before.contains("\"reason\":\"UNKNOWN_PROVINCE\""));
+        let open = format!("open_province 0 {} {}", coord.p(), coord.q());
+        assert!(reply(&mut c, &open).contains("\"status\":\"ok\""));
+        let after = reply(&mut c, &format!("quote_route {path}"));
+        assert!(after.contains("\"status\":\"ok\""));
+        assert!(after.contains("\"revision\":1,"));
+        assert!(!after.contains("\"reason\":\"UNKNOWN_PROVINCE\""));
+        let step = format!(
+            "{{\"p\":\"{}\",\"q\":\"{}\",\"tile\":",
+            coord.p(),
+            coord.q()
+        );
+        assert!(
+            after.contains(&step),
+            "the step is now on the opened province"
+        );
+        // economy commands are unaffected by land opening
+        for cmd in ECONOMY_COMMANDS {
+            assert!(c.sandbox.allowed().contains(&cmd));
+        }
     }
 }
