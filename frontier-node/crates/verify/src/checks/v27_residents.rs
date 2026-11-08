@@ -58,7 +58,10 @@ const RESIDENT: usize = 9;
 pub struct JoinCtx {
     pub addr: frontier_abi::addr::AddrCtx,
     pub season_id: u64,
-    pub genesis_ts: i64,
+    /// The Season's genesis time from its SEASON_CREATED record; `None` when
+    /// the archive does not carry that record (r17: then a join's bell is
+    /// UNVERIFIABLE, not a FAIL).
+    pub genesis_ts: Option<i64>,
     pub join_close_bell: u32,
     pub program: [u8; 32],
 }
@@ -152,6 +155,8 @@ fn citizen_problem(d: &[u8], jc: &JoinCtx, rec: &CqRec, addr: &[u8; 32]) -> Opti
 /// The findings for one successful transaction's JoinResidents.
 pub fn judge_tx(w: &World, jc: &JoinCtx, i: usize, t: &Tx, logs: &[String]) -> Vec<Found> {
     let mut out = vec![];
+    // Findings pushed while `fail` borrows `out` (r17).
+    let mut late: Vec<Found> = vec![];
     let program = solana_address::Address::new_from_array(jc.program).to_string();
     for ix in &t.ixs {
         if ix.tag() != Some(resident_wire::JOIN_RESIDENT) {
@@ -262,15 +267,28 @@ pub fn judge_tx(w: &World, jc: &JoinCtx, i: usize, t: &Tx, logs: &[String]) -> V
                 continue;
             }
         };
-        let now = frontier_abi::prologue::bell_at(jc.genesis_ts, t.time);
-        if now != Some(rec.bell) {
-            fail(
-                RESIDENT_JOIN_MISMATCH,
-                format!(
-                    "RESIDENT_JOINED bell {} is not the bell {now:?} of its transaction's time {}",
-                    rec.bell, t.time
-                ),
-            );
+        match jc.genesis_ts {
+            Some(g) => {
+                let now = frontier_abi::prologue::bell_at(g, t.time);
+                if now != Some(rec.bell) {
+                    fail(
+                        RESIDENT_JOIN_MISMATCH,
+                        format!(
+                            "RESIDENT_JOINED bell {} is not the bell {now:?} of its transaction's time {}",
+                            rec.bell, t.time
+                        ),
+                    );
+                }
+            }
+            // No SEASON_CREATED in the archive (CreateSeason's logs lost or
+            // outside the history): the genesis time is unknown, so the
+            // record's bell cannot be compared with the transaction's time.
+            None => late.push((
+                Severity::Unverifiable,
+                MISSING_DATA,
+                i,
+                "the Season's genesis time (SEASON_CREATED) is not in the archive: the join's bell is not compared with its transaction's time".into(),
+            )),
         }
         if rec.bell >= jc.join_close_bell {
             fail(
@@ -323,6 +341,7 @@ pub fn judge_tx(w: &World, jc: &JoinCtx, i: usize, t: &Tx, logs: &[String]) -> V
             )),
         }
     }
+    out.extend(late);
     out
 }
 
@@ -334,7 +353,7 @@ pub fn run(cx: &mut Ctx) {
     let jc = JoinCtx {
         addr: f.ctx,
         season_id: cx.cfg.season_id,
-        genesis_ts: f.genesis_ts,
+        genesis_ts: f.created_rec.map(|_| f.genesis_ts),
         join_close_bell: p.join_close_bell,
         program: w.program,
     };
@@ -419,7 +438,7 @@ mod tests {
                 program: [0x11; 32],
             },
             season_id: 7,
-            genesis_ts: GENESIS,
+            genesis_ts: Some(GENESIS),
             join_close_bell: 1_512,
             program: [0x11; 32],
         }
@@ -769,5 +788,20 @@ mod tests {
         let logs1 = logs.clone();
         let f = judge_tx(&w, &jc(), 1, &w.txs[1], &logs1);
         assert_eq!(f, vec![]);
+    }
+
+    #[test]
+    fn an_unknown_genesis_time_leaves_the_join_bell_unverifiable() {
+        // r17: CreateSeason present (its parameters) but its SEASON_CREATED
+        // lost: the honest join is not a FAIL, its bell is UNVERIFIABLE.
+        let (w, logs) = honest();
+        let mut j = jc();
+        j.genesis_ts = None;
+        let f = judge_tx(&w, &j, 0, &w.txs[0], &logs);
+        assert_eq!(
+            f.iter().map(|x| (x.0, x.1)).collect::<Vec<_>>(),
+            vec![(Severity::Unverifiable, MISSING_DATA)],
+            "{f:?}"
+        );
     }
 }
