@@ -249,8 +249,14 @@ async fn a_whole_feed_archive_is_the_ledgers_and_pairs_with_a_live_read() {
         live.iter().map(|t| t.seq).collect::<Vec<_>>(),
         vec![1, 4, 5]
     );
-    assert_eq!(lh.source, Source::Unknown);
-    assert!(lh.detail.contains("not an atomic ledger snapshot"));
+    // ⑲ 2026-11-08: a live read is unproven by its named gap until the
+    // final states are sealed at the same ledger point (not done here).
+    assert!(lh.unproven(), "{lh:?}");
+    assert!(
+        lh.gaps
+            .contains(&verify_core::history::Gap::PointInTimeUnverified),
+        "{lh:?}"
+    );
     assert_eq!(apply(&lh, report()).verdict, Verdict::Unverifiable);
     assert_ne!(
         lh, h,
@@ -405,7 +411,12 @@ async fn matching_live_status_never_proves_completeness_or_hides_local_failures(
             .await
             .unwrap();
         assert_eq!(txs.len(), 3);
-        assert_eq!(h.source, Source::Unknown);
+        assert!(h.unproven(), "{h:?}");
+        assert!(
+            h.gaps
+                .contains(&verify_core::history::Gap::PointInTimeUnverified),
+            "{h:?}"
+        );
         assert_eq!(h.report()["complete"], false);
         assert_eq!(apply(&h, report()).verdict, Verdict::Unverifiable);
         for (check, code) in [
