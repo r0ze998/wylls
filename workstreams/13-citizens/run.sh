@@ -4,10 +4,12 @@
 #   workstreams/13-citizens/run.sh              # KEYLESS (default): no key is generated, derived or used
 #   workstreams/13-citizens/run.sh --with-keys  # the signed mode (WS13_WITH_KEYS=1): every participant makes an ed25519 test key
 #
-# The keyless run preloads test/keyless-guard.mjs, which sets WS13_KEYLESS=1 and makes every node:crypto key,
-# signature and HMAC function throw, so shared set-up cannot make or use a key by accident; tests that sign or check
-# signatures skip. test/ws12-public-evidence.test.mjs (the integration branch's) imports workstream 12's fixture,
-# which derives keys from fixed seeds, and is left out of the keyless run.
+# The keyless run preloads test/keyless-guard.mjs: it sets WS13_KEYLESS=1 and makes every node:crypto key, signature
+# and HMAC function, every @solana/web3.js PDA, keypair and signing function, and the repository's own PDA helper
+# (client/src/solana-tx.mjs) throw, logging each attempt to $WS13_GUARD_LOG when set. So shared set-up cannot make,
+# derive or use a key, or derive a PDA, by accident; tests that sign or check signatures skip.
+# test/ws12-public-evidence.test.mjs (the integration branch's) imports an older workstream 12 fixture, which derived
+# keys from fixed seeds, and is left out of the keyless run.
 #
 # Needs Node 20+ and `npm ci --prefix permutation-gateway` (the residents import the gateway's modules, unchanged).
 # No chain, no model, no network, no API key; it refuses to run with a paid-API key in the environment. Writes

@@ -26,7 +26,7 @@ import { planTicket } from './fjoin.mjs';
 import { toggleTile } from './screens/explore.mjs';
 import { composerArrival, composerMarch } from './screens/march.mjs';
 import { sealMarch, unpack, ctHash as ctHashOf, sealRoot as sealRootOf } from './seal.mjs';
-import { bellAt, bellStart, pipeline, archivePartOf, pollCap } from './clock.mjs';
+import { bellAt, bellStart, pipeline, archivePartOf, pollCap, roundTime, tlockRound } from './clock.mjs';
 import { regionOf, ringOf, ringProvinces, homeNation, hexDistance } from './fgeo.mjs';
 import { hostParts, hostId } from './faddr.mjs';
 import { decodePage } from './flog.mjs';
@@ -41,6 +41,7 @@ import { L, fmtNum } from '../lang.mjs';
 import { emit as fxEmit } from './fx/bus.mjs';
 import { reachOrigins } from './screens/conquest.mjs';
 import { s1On } from './fs1.mjs';
+import { avoidingPalisades, watchOf, structuresIn, walkerOf, palisadeHexesOf } from './s1walk.mjs';
 import { fastestPath, pack, landsWanted, landOfProvince, CARAVAN_FEE, MAX_PATH_STEPS, MAX_PATH_PROVINCES } from './fcaravan.mjs';
 import { raidOffers, s1VillageModel, s1TileModel, siegeOffer, expelOffer, caravanProblem, KIND, PROPOSE_STANCE, PROPOSE_EXPEL, PROPOSE_READMIT } from './screens/s1.mjs';
 import { placeData, raidProvinces, cargoBytes, RAID_CHOICE } from './fplay.mjs';
@@ -70,7 +71,9 @@ const homeKeyNow = () => scope() ? homeKey(scope(), viewerKey()) : null;
 const readHome = () => homeKeyNow() ? loadHome(uiStorage, homeKeyNow()) : { selected: null, pending: null, seen: null };
 const saveHomePatch = patch => homeKeyNow() ? saveHome(uiStorage, homeKeyNow(), patch) : null;
 const saveLandPatch = patch => { const k = landKeyNow(); FS.landRec = k ? saveLand(uiStorage, k, patch) : { ...(FS.landRec ?? LAND_DEFAULTS), ...patch }; return FS.landRec; };
-const bookKey = () => (FS.wallet && scope() ? book.bookKey(scope(), FS.wallet.address) : null);
+// (workstream 07: an NFT resident (⑳) seals its own marches; its march book is kept apart from its wallet's Citizen's, or
+// the reconciliation against one Citizen's transits would write the other's entries off)
+export const bookKey = () => (FS.wallet && scope() ? book.bookKey(scope(), FS.resident?.asset ? `${FS.wallet.address}#nft:${FS.resident.asset}` : FS.wallet.address) : null);
 // Notices keep a thunk or the failure itself, so a language switch re-renders them in the new language.
 const setNotice = n => { FS.notice = n; invalidate('panel'); };
 const busy = text => setNotice({ busy: true, text });
@@ -121,12 +124,17 @@ const viewerKey = () => FS.resident?.asset ?? FS.wallet?.address;
 const viewerCitizen = () => FS.resident?.citizen ?? io.pinned().addresses.of('Citizen', { wallet: FS.wallet.address });
 
 /** ⑳: the wallet's resident NFTs (GET /f/residents); none when the relay has no resident policy. */
-async function loadNfts() {
-  FS.nfts = null;
+export async function loadNfts() {
+  FS.nfts = null; FS.nftsRead = null;
   // Only a season of the nft-experimental program (its program version
   // carries 0x8000) has residents; other seasons never ask.
   if (!FS.wallet || !io.relay() || !(Number(FS.season?.programVersion ?? 0) & 0x8000)) return;
-  const r = await fresident.loadResidents(FS.wallet.address).catch(() => null);
+  const address = FS.wallet.address;
+  const r = await fresident.loadResidents(address).catch(e => ({ ok: false, code: e?.code ?? 'network' }));
+  // (workstream 07: an answer for a wallet no longer connected is dropped; a list not read is said as such
+  // — FS.nftsRead —, never as "this wallet has no NFT")
+  if (FS.wallet?.address !== address) return;
+  FS.nftsRead = { ok: !!r?.ok, code: r?.ok ? null : String(r?.code ?? 'Unavailable') };
   if (r?.ok && r.policy) FS.nfts = { residents: r.residents, policy: r.policy };
   invalidate('panel');
 }
@@ -455,18 +463,13 @@ function refreshSoon(ms = 1500) {
   refreshTimer = setTimeout(() => refresh().catch(e => console.error('frontier refresh:', e)), ms);
 }
 
-/** A wallet event changes the viewer immediately; old /h/me replies may not restore the former owner. */
-export function adoptConnectedWallet(next = wallet.connected()) {
-  const address = next?.address ?? null;
-  if (address === (FS.wallet?.address ?? null)) { FS.wallet = next; return false; }
-  ++walletSyncEpoch;
-  ++viewerRefresh;
-  ++homesRefresh;
-  agentsReadAt = -Infinity;
-  prizeReadAt = 0;
-  FS.wallet = next;
-  FS.session = null;
-  FS.sessionProblem = null;
+/**
+ * Forget everything read for the viewer (workstream 07: shared by a wallet change and by a change between the wallet's
+ * own Citizen and one of its resident NFTs — each is another viewer: its Citizen, villages, marches and notices).
+ */
+function resetViewer({ wallet: walletChanged = true } = {}) {
+  if (walletChanged) FS.session = null;
+  if (walletChanged) FS.sessionProblem = null;
   FS.citizen = null;
   FS.holdings = [];
   FS.activeHolding = 0;
@@ -479,8 +482,8 @@ export function adoptConnectedWallet(next = wallet.connected()) {
   FS.orders = [];
   FS.departed = null;
   mySlots = [];
-  FS.delegation = null;
-  FS.agentWallet = undefined;
+  if (walletChanged) FS.delegation = null;
+  if (walletChanged) FS.agentWallet = undefined;
   FS.homeChoice = null;
   FS.homeGrant = null;
   FS.homeFocus = null;
@@ -494,12 +497,24 @@ export function adoptConnectedWallet(next = wallet.connected()) {
   FS.autoNudgeBell = null;
   FS.incoming = [];
   FS.isMine = () => false;
-  FS.prize = null;
-  FS.prizePayment = null;
-  // ⑳: a resident NFT chosen under the previous wallet is not this wallet's.
-  FS.resident = null;
-  FS.nfts = null;
+  if (walletChanged) FS.prize = null;
+  if (walletChanged) FS.prizePayment = null;
   FS.notice = null;
+  // (⑳: the NFT played and the wallet's NFT list belong to the wallet: a resident NFT chosen under the previous wallet is not this wallet's)
+  if (walletChanged) { FS.resident = null; FS.nfts = null; FS.nftsRead = null; }
+}
+
+/** A wallet event changes the viewer immediately; old /h/me replies may not restore the former owner. */
+export function adoptConnectedWallet(next = wallet.connected()) {
+  const address = next?.address ?? null;
+  if (address === (FS.wallet?.address ?? null)) { FS.wallet = next; return false; }
+  ++walletSyncEpoch;
+  ++viewerRefresh;
+  ++homesRefresh;
+  agentsReadAt = -Infinity;
+  prizeReadAt = 0;
+  FS.wallet = next;
+  resetViewer({ wallet: true });
   FS.meStatus = next ? 'loading' : 'ready';
   FS.meError = null;
   invalidate('panel', 'tabs', 'chips', 'map');
@@ -766,7 +781,10 @@ async function readMarches() {
     // (the entry as the book holds it NOW, after the waits above: its attempts decide whether a reveal goes out)
     let e = book.loadBook(store, key).find(x => sameMarch(x, first)) ?? first;
     // Self-reveal (§9.1): at the arrival bell's start + the drawn delay; once more after 60 s if no slot and the window is open.
-    const step = book.revealStep(e, { now: now(), bellStart: bellStart(FS.clock.genesisTs, e.arriveBell), windowOpen: pl.state === 'open' || pl.state === 'awaitingBeacon' || pl.state === 'revealing', slotPresent: seen });
+    // ⑱: never before T(arrive) is published (+ REVEAL_PUBLISH_MARGIN): until then the material stays in this browser.
+    // Judged on the chain time the herald has observed, not the extrapolated clock (the bots' contract, W6-C).
+    const tPub = roundTime(FS.clock.drand.genesis, FS.clock.drand.period, tlockRound(FS.clock.drand, FS.clock.genesisTs, e.arriveBell)) + book.REVEAL_PUBLISH_MARGIN;
+    const step = book.revealStep(e, { now: now(), bellStart: bellStart(FS.clock.genesisTs, e.arriveBell), notBefore: tPub, seen: Math.min(now(), FS.chain?.last?.unix ?? -Infinity), windowOpen: pl.state === 'open' || pl.state === 'awaitingBeacon' || pl.state === 'revealing', slotPresent: seen });
     if (step.action === 'send') {
       const r = await io.reveal(book.revealMaterial(e));
       // (the attempt goes into the book as it stands now: a march sealed while the keeper answered is kept)
@@ -805,9 +823,14 @@ async function readMarches() {
 
 async function refreshChronicle() {
   if (cursor === 0 && FS.record?.headSeq !== undefined) cursor = chronicleStart(FS.record.headSeq);
+  // (workstream 07: a page that could not be read is said as such — screens/chronicle.mjs chronicleState —, never as an
+  // empty record: FS.chronicle stays undefined until a page has been read, and FS.chronicleRead says how the last poll went)
+  let failed = null, pages = 0;
   for (let page = 0; page < CHRONICLE_PAGES; page++) {
-    const r = await herald.events(cursor);
-    if (!r.ok) break;
+    let r;
+    try { r = await herald.events(cursor); } catch (e) { r = { ok: false, code: e?.code ?? 'network' }; }
+    if (!r?.ok) { failed = String(r?.code ?? 'Unavailable'); break; }
+    pages++;
     const { records } = decodePage(r.events);
     // (the prototype's own records ride on the same pages, in a sample world that serves them)
     if (FS.proto) { const had = FS.proto.log, log = pm.mergeLog(had, pm.landRecords(r.events)); if (log.length !== had.length || log.at(-1)?.seq !== had.at(-1)?.seq) { FS.proto.log = log; FS.proto.rev = (FS.proto.rev ?? 0) + 1; } }
@@ -817,13 +840,15 @@ async function refreshChronicle() {
     if (r.next !== null && r.next !== undefined) cursor = r.next;
     if (!r.full) break;
   }
+  if (pages > 0 && FS.chronicle === undefined) FS.chronicle = [];
+  FS.chronicleRead = { ok: failed === null, code: failed, pages, bell: nowBell() };
   const own = FS.holdings ?? [];
   FS.isMine = rec => {
     if (rec.host_id !== undefined) { const h = hostParts(rec.host_id); return !!h && own.some(o => o.p === h.p && o.q === h.q && o.site === h.site); }
     return rec.p !== undefined && own.some(o => o.p === rec.p && o.q === rec.q && (rec.site === undefined || rec.site === o.site));
   };
   // Incoming (§7.7): public departures from other factions' holdings.
-  const departures = FS.chronicle.filter(x => x.record.name === 'DEPART').map(x => {
+  const departures = (FS.chronicle ?? []).filter(x => x.record.name === 'DEPART').map(x => {
     const h = hostParts(x.record.host_id);
     const ov = h && [...FS.overviews.values()].flatMap(o => o.provinces).find(pr => pr.p === h.p && pr.q === h.q);
     return { ...x.record, faction: ov && h ? ov.owners[h.site] : null };
@@ -1001,7 +1026,7 @@ export function wantKeepReach() {
   const { home, origins } = reachOrigins(FS);
   if (!origins.length) return false;
   const args = { keeps: cq.keeps, origins, home, faction: FS.citizen.faction, nowBell: FS.nowBell ?? 0, controlBell: cq.control.bell,
-    seeds: (FS.record?.rings ?? []).map(r => ({ ring: r.d, seed: r.seed })) };
+    seeds: (FS.record?.rings ?? []).map(r => ({ ring: r.d, seed: r.seed })), blocked: palisadeHexes(FS) };
   const key = reachKey(args);
   if (cq.reach?.key === key) return false;
   if (!FS.kernel) {
@@ -1029,7 +1054,7 @@ export function wantHostReach(hostId) {
   if (!r) return false;
   const origins = [{ p: r.p, q: r.q, tile: r.tile, unit: r.unit, host: String(r.id), troops: r.troops }];
   const args = { keeps: cq.keeps, origins, home: false, faction: FS.citizen.faction, nowBell: FS.nowBell ?? 0, controlBell: cq.control.bell,
-    seeds: (FS.record?.rings ?? []).map(x => ({ ring: x.d, seed: x.seed })) };
+    seeds: (FS.record?.rings ?? []).map(x => ({ ring: x.d, seed: x.seed })), blocked: palisadeHexes(FS) };
   const key = `h:${r.id}|${reachKey(args)}`;
   if (cq.hostReach?.key === key) return false;
   if (!FS.kernel) {
@@ -1408,7 +1433,7 @@ async function setDestination(dest) {
   const k = await kernelOrNull();
   if (!k) { c.routeError = FS.kernelError ?? 'NoKernel'; invalidate('panel'); return; }
   const seeds = (FS.record?.rings ?? []).map(r => ({ ring: r.d, seed: r.seed }));
-  const r = planRoute(k, { from: { p: c.origin.p, q: c.origin.q, tile: c.host.tile }, to: dest, unit: c.host.unit, seeds });
+  const r = planRoute(k, { from: { p: c.origin.p, q: c.origin.q, tile: c.host.tile }, to: dest, unit: c.host.unit, seeds, blocked: palisadeHexes(FS) });
   if (!r.ok) { c.routeError = r.code; invalidate('panel'); return; }
   c.route = r.route;
   c.earliest = earliestBell(k, { genesisTs: FS.clock.genesisTs, departTs: now() + margin(), secs: r.route.secs });
@@ -1596,8 +1621,12 @@ async function landsFor(a, b) {
     const prov = FS.provinces.get(key)?.province;
     if (prov) out.push(landOfProvince(prov));
   }
-  return out;
+  // (S1-1E-CONTRACT §2.5: a caravan's road through a palisade that stops it is refused `Path`; its callers plan round it)
+  const w = walkerOf(FS);
+  return w ? avoidingPalisades(out, (p, q) => watchOf(structuresIn(w.structures, p, q), w.stances, w.faction, w.expelled)) : out;
 }
+/** The hexes a march of the viewer must not plan through: the palisades that stop it (reveal.rs refuses such a walk). */
+export const palisadeHexes = (fs = FS) => palisadeHexesOf(fs);
 const s1Tile = d => ({ p: num(d.p), q: num(d.q), tile: num(d.tile) });
 function s1Build(name, kind, at) {
   const h = activeHolding(FS);
@@ -1820,11 +1849,15 @@ export const ACTIONS = {
       });
       if (!r?.ok) return r;
     }
+    // (workstream 07: another viewer — the NFT's Citizen —: what was read for the wallet's own Citizen goes)
+    ++viewerRefresh; ++homesRefresh;
+    resetViewer({ wallet: false });
     FS.resident = { ...id, joined: true };
-    invalidate('panel');
+    FS.meStatus = 'loading';
+    invalidate('panel', 'tabs', 'chips', 'map');
     await refresh();
   },
-  'nft-logout': async () => { FS.resident = null; invalidate('panel'); await refresh(); },
+  'nft-logout': async () => { ++viewerRefresh; ++homesRefresh; resetViewer({ wallet: false }); FS.resident = null; FS.meStatus = 'loading'; invalidate('panel', 'tabs', 'chips', 'map'); await refresh(); },
   'pick-faction': d => { FS.joinDraft = { ...(FS.joinDraft ?? {}), faction: num(d.f) }; invalidate('panel'); if (needsHomeChoice()) return refreshHomes({ force: true }); },
   join: async () => {
     const pin = io.pinned();

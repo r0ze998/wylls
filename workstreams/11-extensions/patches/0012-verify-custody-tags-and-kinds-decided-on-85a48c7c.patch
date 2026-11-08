@@ -1,0 +1,95 @@
+diff --git a/frontier-node/crates/verify/src/checks/v0_coverage.rs b/frontier-node/crates/verify/src/checks/v0_coverage.rs
+index 50c1a2bb44f175aab0f1d2d9e7434c391f86e434..98f0122e260ba0d9cc8eee8f8c57fa5b74f8bcd2 100644
+--- a/frontier-node/crates/verify/src/checks/v0_coverage.rs
++++ b/frontier-node/crates/verify/src/checks/v0_coverage.rs
+@@ -249,7 +249,28 @@ mod tests {
+             .filter(|ix| !supported(**ix, true, true))
+             .map(|ix| ix.name())
+             .collect();
+-        assert_eq!(unmodelled, ["CloseMarch", "FastForward"]);
++        // Workstream 10's custody instructions (0xC2–0xCC) are deliberately
++        // unmodelled: V0 reports them UnverifiedInstruction, and V26's
++        // custody guard makes any custody trace a FAIL or UNVERIFIABLE, until
++        // V26 replays custody (⑪, 2026-11-07).
++        assert_eq!(
++            unmodelled,
++            [
++                "CloseMarch",
++                "FastForward",
++                "OpenLot",
++                "SetLotQuota",
++                "DepositLot",
++                "SetLotOrder",
++                "RevokeLotOrder",
++                "ShipLot",
++                "SettleCustody",
++                "ConsumeLot",
++                "ReconcileLot",
++                "CloseLot",
++                "WithdrawLot",
++            ]
++        );
+         // M1 seasons: only M1's instructions are modelled.
+         assert!(supported(Ix::Depart, false, false));
+         assert!(!supported(Ix::DeclareSiege, false, false));
+diff --git a/frontier-node/crates/verify/src/checks/v0_evidence.rs b/frontier-node/crates/verify/src/checks/v0_evidence.rs
+index 8fc9f214d929b195d36523cbf64459434064235b..337bdacda18fea78d90a58fe465cee46bbe71b7d 100644
+--- a/frontier-node/crates/verify/src/checks/v0_evidence.rs
++++ b/frontier-node/crates/verify/src/checks/v0_evidence.rs
+@@ -68,6 +68,15 @@ pub const MODELLED_CQ_KINDS: &[u8] = &[
+ /// [`explained`]): ⑳'s RESIDENT_JOINED (130), emitted by JoinResident only.
+ pub const CONDITIONAL_CQ_KINDS: &[u8] = &[130];
+ 
++/// Conquest kinds the ABI knows that no check of this verifier models, and
++/// whose every record a guard keeps from a PASS: workstream 10's custody
++/// records (LOT_OPENED 105 … LOT_LOSS 113), which `V26:custody-guard` makes a
++/// FAIL in a program without custody and UNVERIFIABLE in a custody season,
++/// until V26 replays custody. Listing them here changes nothing V0E reports:
++/// each such record is still `UnverifiedRecord`. The list only answers the
++/// tripwire test that every conquest kind has been decided on (⑪, 2026-11-07).
++pub const GUARDED_CQ_KINDS: &[u8] = &[105, 106, 107, 108, 109, 110, 111, 112, 113];
++
+ /// Whether `c` (a kind of [`CONDITIONAL_CQ_KINDS`]) stands beside the
+ /// instruction that emits it: a top-level JoinResident of the same
+ /// transaction (`tag ‖ generation u32 ‖ faction u8`) with the record's
+diff --git a/frontier-node/crates/verify/tests/new_bands.rs b/frontier-node/crates/verify/tests/new_bands.rs
+index 4ade7336dedc7861f5e76063d3ab04f33e7d53c2..82b3f44065de0f1b5cc55082dbb3fa34402852e7 100644
+--- a/frontier-node/crates/verify/tests/new_bands.rs
++++ b/frontier-node/crates/verify/tests/new_bands.rs
+@@ -223,18 +223,33 @@ fn a_divert_outside_a_transit_settlement_is_unverifiable() {
+ /// records `UnverifiedRecord`.
+ #[test]
+ fn every_conquest_kind_the_abi_knows_is_modelled() {
+-    use verify_core::checks::v0_evidence::{CONDITIONAL_CQ_KINDS, MODELLED_CQ_KINDS};
++    use verify_core::checks::v0_evidence::{
++        CONDITIONAL_CQ_KINDS, GUARDED_CQ_KINDS, MODELLED_CQ_KINDS,
++    };
+     for k in 0..=255u8 {
+         if frontier_abi::v2::log::CqKind::from_u8(k).is_some() {
+             assert!(
+-                MODELLED_CQ_KINDS.contains(&k) || CONDITIONAL_CQ_KINDS.contains(&k),
++                MODELLED_CQ_KINDS.contains(&k)
++                    || CONDITIONAL_CQ_KINDS.contains(&k)
++                    || GUARDED_CQ_KINDS.contains(&k),
+                 "conquest kind {k} is not modelled"
+             );
+         }
+     }
+-    for &k in MODELLED_CQ_KINDS.iter().chain(CONDITIONAL_CQ_KINDS) {
++    for &k in MODELLED_CQ_KINDS
++        .iter()
++        .chain(CONDITIONAL_CQ_KINDS)
++        .chain(GUARDED_CQ_KINDS)
++    {
+         assert!(frontier_abi::v2::log::CqKind::from_u8(k).is_some(), "{k}");
+     }
++    // A guarded kind is never also modelled: V0E keeps reporting its records.
++    for k in GUARDED_CQ_KINDS {
++        assert!(
++            !MODELLED_CQ_KINDS.contains(k) && !CONDITIONAL_CQ_KINDS.contains(k),
++            "{k}"
++        );
++    }
+ }
+ 
+ /// A well-formed RESIDENT_JOINED (⑳, kind 130: key = the asset's resident

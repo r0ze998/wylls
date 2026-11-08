@@ -5,6 +5,7 @@ permutation-gateway/test/agent-join.test.mjs
 permutation-gateway/test/agent-wallet-billing.test.mjs
 permutation-gateway/test/agent-wallet-caps.test.mjs
 permutation-gateway/test/agent-wallet-decisions.test.mjs
+permutation-gateway/test/agent-wallet-duplicate-bytes.test.mjs
 permutation-gateway/test/agent-wallet-fate.test.mjs
 permutation-gateway/test/agent-wallet-gateway.test.mjs
 permutation-gateway/test/agent-wallet-mcp.test.mjs
@@ -16,6 +17,7 @@ permutation-gateway/test/agent-wallet-sendcaravan.test.mjs
 permutation-gateway/test/agent-wallet-server.test.mjs
 permutation-gateway/test/agent-wallet-staking-limits.test.mjs
 permutation-gateway/test/agent-wallet-triggers.test.mjs
+permutation-gateway/test/agent-wallet-whoami.test.mjs
 permutation-gateway/test/app.test.mjs
 permutation-gateway/test/base58.test.mjs
 permutation-gateway/test/chain.test.mjs

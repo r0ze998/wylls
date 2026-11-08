@@ -1,0 +1,262 @@
+From ae9f311bc195a06bec4fde92adf0cf5ef40c4395 Mon Sep 17 00:00:00 2001
+From: ws03 <ws03@invalid>
+Date: Fri, 6 Nov 2026 12:27:01 +0000
+Subject: [PATCH] =?UTF-8?q?agent=20wallet:=20one=20capability=20per=20send?=
+ =?UTF-8?q?er=20(=E2=91=A2=20patch=200008,=20=E2=91=A3=20AUTH-ROUTES=20A1)?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+issue-capability {source: mcp|ai} issues a token bound to one sender and
+replaces only that sender's previous token; revoke-capability {source}
+withdraws one. The unscoped token (create / rotate-capability) is
+unchanged, so existing clients keep working. A sender's token acts as
+that sender only (BadCapability otherwise). whoami names the bound
+source; the public view lists senders and versions, never a hash.
+Key-free test (fake keyring, fixed owner constant, whoami).
+---
+ .../src/frontier/agent/gateway.mjs            | 47 ++++++++++++---
+ .../src/frontier/agent/ledger.mjs             | 27 +++++++++
+ .../src/frontier/agent/owner-auth.mjs         |  2 +-
+ .../src/frontier/routes/agent.mjs             |  5 ++
+ ...gent-wallet-capability-per-source.test.mjs | 60 +++++++++++++++++++
+ 5 files changed, 133 insertions(+), 8 deletions(-)
+ create mode 100644 permutation-gateway/test/agent-wallet-capability-per-source.test.mjs
+
+diff --git a/permutation-gateway/src/frontier/agent/gateway.mjs b/permutation-gateway/src/frontier/agent/gateway.mjs
+index 55fa9bc8..6fd0a4f2 100644
+--- a/permutation-gateway/src/frontier/agent/gateway.mjs
++++ b/permutation-gateway/src/frontier/agent/gateway.mjs
+@@ -161,6 +161,9 @@ export function actionFateView(entry, f = null) {
+   return { ...base, ...facts, state: f.queryFailed ? 'unqueryable' : f.fate, fate: f.fate, commitment: f.commitment ?? null, queryFailed: f.queryFailed === true, why: f.why };
+ }
+ 
++/** The senders a capability can be issued to (patch 0008). `browser` acts with the owner's own signature. */
++export const CAPABILITY_SOURCES = Object.freeze(['mcp', 'ai']);
++
+ export class AgentGateway {
+   /**
+    * @param {object} o
+@@ -281,6 +284,27 @@ export class AgentGateway {
+     return { token, version };
+   }
+ 
++  /**
++   * A capability for one sender (owner command `issue-capability {source}`; workstream 03 patch 0008, ④ AUTH-ROUTES
++   * A1): the token is bound to `source` — an action it authenticates must carry that source — and replaces only that
++   * source's previous token. ③'s MCP (`mcp`) and ⑤'s autopilot (`ai`) then hold one each: issuing one never stops
++   * the other. Returned once, stored as a hash, like the unscoped token.
++   */
++  issueSourceCapability(agentId, owner, source) {
++    this.#own(agentId, owner);
++    if (!CAPABILITY_SOURCES.includes(source)) throw new AgentError(ERR.BAD_REQUEST, `source must be one of ${CAPABILITY_SOURCES.join(', ')}`);
++    const token = randomBytes(32).toString('base64url');
++    const version = this.ledger.setSourceCapability(agentId, source, sha256hex(token));
++    return { agent: this.view(agentId), capability: { token, version, source } };
++  }
++
++  /** Withdraws one sender's capability (owner command `revoke-capability {source}`); the other senders keep theirs. */
++  revokeSourceCapability(agentId, owner, source) {
++    this.#own(agentId, owner);
++    if (!CAPABILITY_SOURCES.includes(source)) throw new AgentError(ERR.BAD_REQUEST, `source must be one of ${CAPABILITY_SOURCES.join(', ')}`);
++    return { agent: this.view(agentId), revoked: this.ledger.revokeSourceCapability(agentId, source), source };
++  }
++
+   /** Replaces the capability token (owner command); the old one stops working at once. */
+   rotateCapability(agentId, owner) {
+     this.#own(agentId, owner);
+@@ -489,7 +513,9 @@ export class AgentGateway {
+     // Everything up to the hold inside #run happens before this function's first await: synchronous for concurrent callers.
+     const r = parseActionRequest(request);
+     const rec = this.ledger.get(r.agentId);
+-    this.#authenticate(rec, credential);
++    const bound = this.#authenticate(rec, credential);
++    // A sender's own capability acts as that sender only (patch 0008): the history's `source` is the token's.
++    if (bound && r.source !== bound) throw new AgentError(ERR.BAD_CAPABILITY, `this capability is issued for source ${bound}, not ${r.source}`, 401, { source: bound });
+     const hash = sha256hex(canonical({ action: r.action, policyVersion: r.policyVersion, modeEpoch: r.modeEpoch ?? null, source: r.source }));
+     if (this.ledger.actionWritesFailed) throw new AgentError(ERR.SEND_FAILED, 'action state could not be saved; restart and audit before another send', 503);
+     const flightKey = `${rec.agentId}\n${r.idempotencyKey}`;
+@@ -516,8 +542,9 @@ export class AgentGateway {
+    */
+   whoami(agentId, credential = {}) {
+     const rec = this.ledger.get(agentId);
+-    this.#authenticate(rec, credential);
+-    return { agentId: rec.agentId, owner: rec.owner, capabilityVersion: rec.capabilityVersion ?? null, mode: rec.mode, modeEpoch: rec.modeEpoch,
++    const bound = this.#authenticate(rec, credential);
++    return { agentId: rec.agentId, owner: rec.owner, capabilityVersion: rec.capabilityVersion ?? null, source: bound ?? null,
++      ...(bound ? { sourceCapabilityVersion: rec.capabilities[bound].version } : {}), mode: rec.mode, modeEpoch: rec.modeEpoch,
+       policyVersion: rec.policy.version, allowed: [...rec.policy.allowed], village: [...rec.village] };
+   }
+ 
+@@ -528,10 +555,16 @@ export class AgentGateway {
+       return;
+     }
+     const token = credential.capability;
+-    if (typeof token !== 'string' || !rec.capabilityHash) throw new AgentError(ERR.BAD_CAPABILITY, 'a valid capability token is required', 401);
++    const scoped = Object.entries(rec.capabilities ?? {});
++    if (typeof token !== 'string' || (!rec.capabilityHash && !scoped.length)) throw new AgentError(ERR.BAD_CAPABILITY, 'a valid capability token is required', 401);
+     const a = Buffer.from(sha256hex(token), 'hex');
+-    const b = Buffer.from(rec.capabilityHash, 'hex');
+-    if (a.length !== b.length || !timingSafeEqual(a, b)) throw new AgentError(ERR.BAD_CAPABILITY, 'the capability token is not this agent\'s current one', 401);
++    const same = h => { const b = Buffer.from(h, 'hex'); return a.length === b.length && timingSafeEqual(a, b); };
++    // Every stored hash is compared (no early exit on a match), so the time taken does not say which one matched.
++    let bound;
++    if (rec.capabilityHash && same(rec.capabilityHash)) bound = null;
++    for (const [source, c] of scoped) if (same(c.hash) && bound === undefined) bound = source;
++    if (bound === undefined) throw new AgentError(ERR.BAD_CAPABILITY, 'the capability token is not this agent\'s current one', 401);
++    return bound;
+   }
+ 
+   /** The synchronous gate every action passes before money moves; throws the refusal. */
+@@ -812,7 +845,7 @@ export class AgentGateway {
+     return {
+       agentId: rec.agentId, owner: rec.owner, payout: rec.payout, agentKey: rec.agentKey, citizen: this.ctx.addresses.citizen(rec.owner), village: [...rec.village],
+       mode: rec.mode, modeEpoch: rec.modeEpoch, policy: { ...rec.policy, allowed: [...rec.policy.allowed], budget: { ...rec.policy.budget } },
+-      capabilityVersion: rec.capabilityVersion, balance: this.ledger.balance(agentId), day: this.#dayOf(rec), holds, withdrawals,
++      capabilityVersion: rec.capabilityVersion, capabilities: Object.fromEntries(Object.entries(rec.capabilities ?? {}).map(([s, c]) => [s, { version: c.version }])), balance: this.ledger.balance(agentId), day: this.#dayOf(rec), holds, withdrawals,
+       history: rec.history.slice(-50), historySeq: Number.isInteger(rec.seq) ? rec.seq : rec.history.length, driver: this.#driverOf(rec), createdAt: rec.createdAt, testAssetsOnly: true,
+     };
+   }
+diff --git a/permutation-gateway/src/frontier/agent/ledger.mjs b/permutation-gateway/src/frontier/agent/ledger.mjs
+index 0a477823..e5f6b00b 100644
+--- a/permutation-gateway/src/frontier/agent/ledger.mjs
++++ b/permutation-gateway/src/frontier/agent/ledger.mjs
+@@ -536,6 +536,33 @@ export class AgentLedger {
+   }
+ 
+   /** The sha256 (hex) of the agent's current capability token; the token itself is never stored. */
++  /**
++   * A capability for one sender `source` (workstream 03 patch 0008, ④ AUTH-ROUTES A1): replaces that source's token
++   * only. The agent's other sources, and the unscoped token (setCapability), keep working.
++   */
++  setSourceCapability(agentId, source, hash) {
++    this.assertWritable();
++    const rec = this.get(agentId);
++    rec.capabilities ??= {};
++    const version = (rec.capabilities[source]?.version ?? 0) + 1;
++    rec.capabilities[source] = { hash, version, at: this.now() };
++    this.note(rec, { type: 'capability', source, version });
++    this.save();
++    return version;
++  }
++
++  /** Withdraws one source's capability; the others are untouched. False when it had none. */
++  revokeSourceCapability(agentId, source) {
++    this.assertWritable();
++    const rec = this.get(agentId);
++    if (!rec.capabilities?.[source]) return false;
++    const version = rec.capabilities[source].version;
++    delete rec.capabilities[source];
++    this.note(rec, { type: 'capability-revoked', source, version });
++    this.save();
++    return true;
++  }
++
+   setCapability(agentId, hash) {
+     this.assertWritable();
+     const rec = this.get(agentId);
+diff --git a/permutation-gateway/src/frontier/agent/owner-auth.mjs b/permutation-gateway/src/frontier/agent/owner-auth.mjs
+index 6fb0f0e3..d5ac06c9 100644
+--- a/permutation-gateway/src/frontier/agent/owner-auth.mjs
++++ b/permutation-gateway/src/frontier/agent/owner-auth.mjs
+@@ -16,7 +16,7 @@ import { signTalk, verifyTalk } from '../../../client/src/talk-node.mjs';
+ import { AgentError, ERR } from './contract.mjs';
+ 
+ export const OWNER_PREFIX = 'Wylls agent wallet command v1\n';
+-export const OWNER_OPS = Object.freeze(['create', 'policy', 'mode', 'withdraw', 'action', 'rotate-capability']);
++export const OWNER_OPS = Object.freeze(['create', 'policy', 'mode', 'withdraw', 'action', 'rotate-capability', 'issue-capability', 'revoke-capability']);
+ export const MAX_COMMAND_MS = 10 * 60_000;
+ 
+ /** Canonical JSON: object keys sorted at every level (so signer and verifier agree byte for byte). */
+diff --git a/permutation-gateway/src/frontier/routes/agent.mjs b/permutation-gateway/src/frontier/routes/agent.mjs
+index dd243640..1733f5f8 100644
+--- a/permutation-gateway/src/frontier/routes/agent.mjs
++++ b/permutation-gateway/src/frontier/routes/agent.mjs
+@@ -14,6 +14,9 @@
+ //          op withdraw           params {amount} | {all: true}                → {withdrawal, agent}
+ //          op action             params {idempotencyKey?, policyVersion, modeEpoch?, action}  → ActionResult (source 'browser')
+ //          op rotate-capability                                              → {agent, capability}
++//          op issue-capability  params {source: 'mcp'|'ai'}                  → {agent, capability: {token, version, source}}
++//                               a token for one sender only; the other senders' tokens keep working (patch 0008)
++//          op revoke-capability params {source}                              → {agent, revoked, source}
+ //   GET  /f/agent/by-owner?owner=            the owner's agents, briefly
+ //   POST /f/agent/deposit {agentId, signature}   credits a confirmed owner-signed deposit to the custody account
+ //   POST /f/agent/deposit {agentId, tx, lastValidBlockHeight?}
+@@ -102,6 +105,8 @@ export const agentRoutes = {
+       case 'mode': return { body: { ok: true, agent: g.setMode(agentId, owner, p.mode) } };
+       case 'withdraw': return { body: { ok: true, ...(await g.withdraw(agentId, owner, { amount: p.amount, all: p.all === true })) } };
+       case 'rotate-capability': return { body: { ok: true, ...g.rotateCapability(agentId, owner) } };
++      case 'issue-capability': return { body: { ok: true, ...g.issueSourceCapability(agentId, owner, p.source) } };
++      case 'revoke-capability': return { body: { ok: true, ...g.revokeSourceCapability(agentId, owner, p.source) } };
+       case 'action': {
+         const result = await g.submit({ agentId, source: 'browser', idempotencyKey: p.idempotencyKey ?? command.nonce, policyVersion: p.policyVersion, modeEpoch: p.modeEpoch, action: p.action }, { owner });
+         return { body: result };
+diff --git a/permutation-gateway/test/agent-wallet-capability-per-source.test.mjs b/permutation-gateway/test/agent-wallet-capability-per-source.test.mjs
+new file mode 100644
+index 00000000..e45f5922
+--- /dev/null
++++ b/permutation-gateway/test/agent-wallet-capability-per-source.test.mjs
+@@ -0,0 +1,60 @@
++// Workstream 03 patch 0008 (④ AUTH-ROUTES A1): one capability per sender. KEY-FREE: no key is made, derived or used
++// and nothing is signed — the keyring is a fake that hands out a fixed public key string and refuses to sign, the
++// owner is a fixed address constant, owner commands are called on the gateway directly (the route's signature check
++// is the existing, unchanged code), and acceptance is read through whoami (read-only: no record, no hold, no send).
++import { test } from 'node:test';
++import assert from 'node:assert/strict';
++import { AgentGateway, CAPABILITY_SOURCES } from '../src/frontier/agent/gateway.mjs';
++import { AgentLedger } from '../src/frontier/agent/ledger.mjs';
++import { OWNER_OPS } from '../src/frontier/agent/owner-auth.mjs';
++
++const OWNER = '11111111111111111111111111111112'; // a fixed address constant (not a key anyone holds)
++const AGENT_KEY = 'Agent1111111111111111111111111111111111111';
++const keyring = { create: () => AGENT_KEY, isAgentKey: k => k === AGENT_KEY, sign: () => { throw new Error('this test signs nothing'); } };
++const ctx = { addresses: { citizen: () => 'Citizen111111111111111111111111111111111111' }, log: () => {} };
++const policy = { allowed: ['economy'], budget: { total: '1000000', perDay: '1000000' } };
++
++function gateway() {
++  const g = new AgentGateway({ ctx, ledger: new AgentLedger(), keyring, log: () => {} });
++  const made = g.createAgent({ owner: OWNER, village: [0, 0, 1], policy });
++  return { g, agentId: made.agent.agentId, legacy: made.capability.token };
++}
++const who = (g, agentId, capability) => { try { return g.whoami(agentId, { capability }); } catch (e) { return { error: e.code }; } };
++const req = (agentId, source) => ({ agentId, source, idempotencyKey: `${source}:k1`, policyVersion: 1, action: { name: 'Rest', holding: [0, 0, 1], fields: {} } });
++
++test('issuing one sender\'s capability leaves the other sender\'s and the unscoped token working', () => {
++  const { g, agentId, legacy } = gateway();
++  assert.deepEqual([...CAPABILITY_SOURCES], ['mcp', 'ai']);
++  assert.ok(OWNER_OPS.includes('issue-capability') && OWNER_OPS.includes('revoke-capability'));
++  const ai = g.issueSourceCapability(agentId, OWNER, 'ai').capability;
++  const mcp = g.issueSourceCapability(agentId, OWNER, 'mcp').capability;
++  assert.deepEqual([who(g, agentId, ai.token).source, who(g, agentId, mcp.token).source, who(g, agentId, legacy).source], ['ai', 'mcp', null]);
++  // ③ reconnects: a new mcp token replaces the old mcp token only.
++  const mcp2 = g.issueSourceCapability(agentId, OWNER, 'mcp').capability;
++  assert.equal(who(g, agentId, mcp.token).error, 'BadCapability');
++  assert.deepEqual([who(g, agentId, mcp2.token).source, mcp2.version, who(g, agentId, ai.token).source], ['mcp', 2, 'ai'], '⑤\'s ai token still works');
++  // The old global rotation replaces the unscoped token only.
++  g.rotateCapability(agentId, OWNER);
++  assert.equal(who(g, agentId, legacy).error, 'BadCapability');
++  assert.deepEqual([who(g, agentId, mcp2.token).source, who(g, agentId, ai.token).source], ['mcp', 'ai']);
++  // The public view lists the senders and versions, never a hash or token.
++  const v = g.view(agentId);
++  assert.deepEqual(v.capabilities, { ai: { version: 1 }, mcp: { version: 2 } });
++  assert.ok(!JSON.stringify(v).includes(mcp2.token) && !JSON.stringify(v).includes('hash'));
++});
++
++test('a sender\'s token acts as that sender only; revoking one sender leaves the other', async () => {
++  const { g, agentId } = gateway();
++  const ai = g.issueSourceCapability(agentId, OWNER, 'ai').capability;
++  const mcp = g.issueSourceCapability(agentId, OWNER, 'mcp').capability;
++  // Refused at authentication, before anything is built or signed.
++  await assert.rejects(g.submit(req(agentId, 'ai'), { capability: mcp.token }), e => e.code === 'BadCapability' && /issued for source mcp/.test(e.message));
++  await assert.rejects(g.submit(req(agentId, 'mcp'), { capability: ai.token }), e => e.code === 'BadCapability');
++  assert.equal(g.ledger.get(agentId).history.filter(h => h.type === 'action').length, 0, 'nothing recorded');
++  assert.equal(g.revokeSourceCapability(agentId, OWNER, 'mcp').revoked, true);
++  assert.equal(who(g, agentId, mcp.token).error, 'BadCapability');
++  assert.equal(who(g, agentId, ai.token).source, 'ai');
++  assert.equal(g.revokeSourceCapability(agentId, OWNER, 'mcp').revoked, false);
++  assert.throws(() => g.issueSourceCapability(agentId, OWNER, 'browser'), e => e.code === 'BadRequest');
++  assert.throws(() => g.issueSourceCapability(agentId, '11111111111111111111111111111113', 'mcp'), e => e.code === 'NotOwner');
++});
+-- 
+2.43.0
+

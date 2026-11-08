@@ -235,13 +235,13 @@ export function pushFeed(feed, items, at = Date.now()) {
 }
 
 /** A mark per kind (hud/icons.mjs); the summary of a turn carries the bell. */
-export const KIND_ICON = Object.freeze({ battle: 'swords', march: 'banner', explore: 'scout', incoming: 'alert', build: 'hammer', holding: 'home', territory: 'banner', keep: 'flag', summary: 'bell', proto: 'flag' });
+export const KIND_ICON = Object.freeze({ battle: 'swords', march: 'banner', explore: 'scout', incoming: 'alert', build: 'hammer', holding: 'home', territory: 'banner', keep: 'flag', summary: 'bell', proto: 'flag', away: 'bell', s1: 'flag' });
 /** A notification's words in a list: a line of the prototype rule "banners" says 試作 first (its toast says so in its heading). */
 export const lineText = x => (x.proto ? L`試作：${x.text}` : x.text);
 /** The stamp of a notification: the turn it belongs to, with the bell beside it (UX design section 6, turn wording). */
 const stamp = x => (Number.isInteger(x.bell) && x.kind !== 'summary' ? html`<span class="toast-stamp">${icon('bell')}${L`ターン ${fmtNum(x.bell)}`}</span>` : '');
 // (`proto`: a line of the prototype rule "banners", which only a sample world that serves it writes: it says 試作 on itself)
-const KIND_TEXT = { battle: () => L`戦闘`, march: () => L`進軍`, explore: () => L`探索`, incoming: () => L`来襲`, build: () => L`建設`, holding: () => L`村`, territory: () => L`領地`, keep: () => L`砦`, summary: () => L`まとめ`, proto: () => L`旗（試作）` };
+const KIND_TEXT = { battle: () => L`戦闘`, march: () => L`進軍`, explore: () => L`探索`, incoming: () => L`来襲`, build: () => L`建設`, holding: () => L`村`, territory: () => L`領地`, keep: () => L`砦`, summary: () => L`まとめ`, proto: () => L`旗（試作）`, away: () => L`留守のあいだ`, s1: () => L`隊商と国` };
 /** The viewer's nation's part in a keep notification, as a tag after the text. */
 const sideTag = x => (SIDE_TEXT[x.side] ? html` <span class="tag feed-side-${x.side}">${SIDE_TEXT[x.side]()}</span>` : '');
 
@@ -255,6 +255,9 @@ function itemActions(x) {
     acts.push(html`<button type="button" class="btn small go" data-act="battle-play" data-p="${x.battle.p}" data-q="${x.battle.q}" data-bell="${x.battle.bell}">${L`見る`}${icon('chevron', 'go-ic')}</button>`);
     acts.push(html`<button type="button" class="btn small" data-act="report-open" data-p="${x.battle.p}" data-q="${x.battle.q}" data-bell="${x.battle.bell}">${L`報告`}</button>`);
   } else if (Number.isInteger(x.p)) acts.push(html`<button type="button" class="btn small go" data-act="feed-go" data-id="${x.id}">${L`見る`}${icon('chevron', 'go-ic')}</button>`);
+  // (the away summary: "seen" moves the player's own mark; closing it does not — hud/returnsum.mjs. With a gap in what
+  // was read, or nothing new, there is no "seen": the notice says why, and × only closes it)
+  if (x.kind === 'away' && x.away && x.away.ok !== false) acts.push(html`<button type="button" class="btn small primary" data-act="away-seen" data-id="${x.id}">${L`確認した`}</button>`);
   // (a banner of the viewer's under threat, prototype rule "banners": the answer is a march that wins the tile)
   if (x.send && Number.isInteger(x.send.tile)) acts.push(html`<button type="button" class="btn small primary" data-act="proto-send" data-p="${x.send.p}" data-q="${x.send.q}" data-tile="${x.send.tile}">${icon('march')}${L`軍勢を送る`}</button>`);
   return acts;

@@ -116,6 +116,29 @@ static SERIAL: Mutex<()> = Mutex::new(());
 #[cfg(feature = "wide-world-experimental")]
 #[path = "wide_land_runtime_tests.rs"]
 mod wide_land;
+// Workstream 09's capacity preview (`capacity-preview`) shares it too:
+// `map_growth_runtime_tests::capacity::`.
+#[cfg(feature = "capacity-preview")]
+#[path = "capacity_runtime_tests.rs"]
+mod capacity;
+
+// Workstream 02-rights (`rights-experimental`): the workshop-stock swap
+// Grant, through the same stubs, clock and serial lock
+// (`map_growth_runtime_tests::rights::`).
+#[cfg(feature = "rights-experimental")]
+#[path = "rights_runtime_tests.rs"]
+mod rights;
+
+/// Without `rights-experimental` the Grant's provisional tags 0xD0–0xD5
+/// are unknown tags (`BadData`), refused before any account is read.
+#[cfg(not(feature = "rights-experimental"))]
+#[test]
+fn map_growth_default_build_refuses_the_grant_tags() {
+    let _g = begin();
+    for t in 0xD0u8..=0xD5 {
+        assert_eq!(run(&[], &[t]), Err(E::BadData.code()), "{t:#x}");
+    }
+}
 
 /// Backing memory of every account created by a test: key → (data pointer,
 /// capacity, owner pointer). The stub resizes and reassigns through it.
@@ -123,6 +146,10 @@ type Memory = HashMap<[u8; 32], (usize, usize, usize)>;
 static MEMORY: Mutex<Option<Memory>> = Mutex::new(None);
 /// The PS2 records the program logged (`sol_log_data`).
 static LOGS: Mutex<Vec<Vec<u8>>> = Mutex::new(Vec::new());
+/// The wide records (`PSW1`, `world_index::event`) the experimental wide
+/// handlers logged; never a PS2 record, never read by the deployed tests.
+#[cfg(feature = "wide-world-experimental")]
+static WIDE_LOGS: Mutex<Vec<Vec<u8>>> = Mutex::new(Vec::new());
 
 const SYSTEM: [u8; 32] = crate::addr::ids::SYSTEM_PROGRAM;
 /// Literal addresses (no key behind any of them).
@@ -215,6 +242,11 @@ impl solana_program::program_stubs::SyscallStubs for Stubs {
     fn sol_log_data(&self, fields: &[&[u8]]) {
         if fields.len() == 2 && fields[0] == &frontier_abi::log::PREFIX[..] {
             LOGS.lock().unwrap().push(fields[1].to_vec());
+        }
+        #[cfg(feature = "wide-world-experimental")]
+        if fields.len() == 2 && fields[0] == &frontier_abi::world_index::event::WIDE_LOG_PREFIX[..]
+        {
+            WIDE_LOGS.lock().unwrap().push(fields[1].to_vec());
         }
     }
 
@@ -936,6 +968,8 @@ fn begin() -> MutexGuard<'static, ()> {
     let g = SERIAL.lock().unwrap_or_else(|e| e.into_inner());
     solana_program::program_stubs::set_syscall_stubs(Box::new(Stubs));
     LOGS.lock().unwrap().clear();
+    #[cfg(feature = "wide-world-experimental")]
+    WIDE_LOGS.lock().unwrap().clear();
     at_day(0);
     g
 }

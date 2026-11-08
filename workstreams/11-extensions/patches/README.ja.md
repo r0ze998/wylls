@@ -1,5 +1,17 @@
 # patches: 共有コアへの変更案
 
+> **r16（2026-11-08）。** [0016](0016-verify-v0-wide-tags-left-to-vw-on-ws04-4ecef1d9.patch) は、wide の build の Season で wide のタグを VW に任せる（UNVERIFIABLE `WideUnmodelled`）もの。当て先は `4ecef1d9`。SHA-256 は `7aaf442c911e41f5e570e09a90bfb20cf836531e6ec384c977c5b131b88a85ad`、tree は `689c264ef67f72caad0a8b8cb736561a02296e13`。0015 も重ねて当たる。
+
+> **r15（2026-11-08、②が見つけた穴）。** [0015](0015-verify-v0e-every-abi-v2-account-kind-on-cf517b55.patch) は、V0E が S1 の口座（MarchState、Vault、Caravan、Structure、Nation、Lot）の事後状態の欠落も UNVERIFIABLE にするもの。当て先は `cf517b55` で、0013 と 0014 とは別のファイルなので、順は問わない。SHA-256 は `68b6a039a048f7029f0ec599220d1cd710ac174f9562ec6baf4dc9da9e3dac1d`。`b2bd9711`＋0013＋0014＋0015 の tree は `60bd0044052fa192c86956027402b669cc6afdda`。
+
+> **r14（2026-11-08）。** 当てる順は 0013 → ⑳の `b2bd9711`（入れ替えてもよい）→ [0014](0014-verify-v0-resident-act-left-to-v28-after-ws20-b2bd9711.patch)。0014 の SHA-256 は `f8763979f44bcb20814f185dcaac7f2db092c22254db639f9a7a908ad123b10d`、当てた後の tree は `38e164a8a82b212f69e02f3ac341f1c35541933c`。中身: ResidentAct を V28 と内側の命令の検査に渡す。条件は、V28 が動き（s1）、act がその内側の命令を実行すること。詳細は [17](../17-verifier-r13.ja.md) §7。
+
+> **r13（2026-11-08）。** ④の公開統合候補 `cf517b55` へは [0013](0013-verify-v0-forgery-only-under-a-known-program-and-keyfree-coverage-on-cf517b55.patch) を当てる。SHA-256 は `84fdbe7b2b588f2516fa3eeb376af466fef72b5ab5f68a601c5aee18582eae35`、当てた後の tree は `9ab02b5a78f23f849c13847e0f44f1f86b5fff4b`。中身は 2 つ。V0 が偽造（FAIL）とするのは知っている版のプログラムのときだけにした。ABI の coverage の契約を、鍵なしで確かめる試験を足した。詳細は [17](../17-verifier-r13.ja.md)。
+
+> **r11（2026-11-06）。** 当てる順は 0010（`6984acfa` へ）→ ⑳の `4b233e4a`・`b2f7becc` → [0011](0011-verify-v27-resident-proof-accounts-canonical-after-ws20-b2f7becc.patch)（SHA-256 `f59e1ab5c870d8adb9147611481f19152d1e843d2df464767dd37425073f253c`）。0011 は V27 で JoinResident の policy、link、resident の正規アドレス（PDA）を照合する。tree は `9a9e49e0b1e38b516d29b9a6cff6afa386b7538a`。詳細は [16](../16-verifier-r11.ja.md)。
+
+> **r9（2026-11-06）。** ④の候補 `d0e96d53` へは、⑳の `45d95e31` を当ててから [0009](0009-verify-v27-join-resident-on-ws04-d0e96d53-after-ws20-45d95e31.patch) を当てる。0009 の SHA-256 は `39da19690fa070c019630e100c9535a2fe21f2d95bd5a3dc9bb3a7a2c4f2a823`、当てた後の tree は `1bec57a040640820c0032549470aab9c9300906c`。正しい JoinResident を検証する（V0 が NFT 版を知り、V27 で命令・記録・Citizen・link・時刻を照合する）。②の正当な命令（知らない版）と偽の命令は V0 で区別する。詳細は [15](../15-verifier-r9.ja.md)。
+
 > **r8（2026-11-06）。** ④の候補 `4c65aaa2`（0004→0005→0007 を適用済み、⑳の RESIDENT_JOINED 入り）へは [0008](0008-verify-v0e-resident-joined-beside-its-join-on-ws04-4c65aaa2.patch) を当てる。SHA-256 は `e71b7892329ccbf44dda028026ce2de4cffd3d7c42b5514782ae08698e5cf98f`。kind 130 は、一致する JoinResident の横にあるときだけ判定される側に数え、それ以外は UNVERIFIABLE とする。詳細は [14](../14-verifier-r7.ja.md) §6。
 
 > **r7（2026-11-06）。** ④の現在版 `claude/gallant-ride-cunptv` @ `8e96f24d` へは **0006 だけ**を当てる（0004＋0005＋r7 の判定を 1 つにしたもの。`ef63544c` にも当たる）。0004・0005 を当て済みなら 0007 を足す。どちらの順でも tree は `d72a025c16a62650920a495f9f1a1a9e756e42a2`。詳細は [14](../14-verifier-r7.ja.md)。

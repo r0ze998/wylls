@@ -1,0 +1,98 @@
+From a88681911a6a221dd85f32eff40885bf008d5e96 Mon Sep 17 00:00:00 2001
+From: ws07 <noreply@anthropic.com>
+Date: Fri, 6 Nov 2026 12:35:03 +0000
+Subject: [PATCH 18/18] Web client: an NFT resident's march book is not its
+ wallet's
+
+controller.mjs bookKey was the wallet's address alone, so with workstream
+20's NFT residents the sealed marches (and their self-reveal material) of
+an NFT resident and of the wallet's own Citizen went into one book, and
+reconciling it against one Citizen's transits could write the other's
+entries off. With an NFT played the key is `wallet#nft:asset`, as the away
+summary's marks. Also: the spectator screen test reloads while
+/h/events still fails (still "not read", never empty).
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01C5Nj2bNLFpFghsNM9fsQG5
+---
+ .../screens/ws07-spectate.screen.mjs          | 19 +++++++++++++++++++
+ .../test/web-frontier-ws07-nft.test.mjs       | 13 +++++++++++++
+ .../web/frontier/controller.mjs               |  4 +++-
+ 3 files changed, 35 insertions(+), 1 deletion(-)
+
+diff --git a/permutation-gateway/screens/ws07-spectate.screen.mjs b/permutation-gateway/screens/ws07-spectate.screen.mjs
+index 1df63dd5..6af0a4c5 100644
+--- a/permutation-gateway/screens/ws07-spectate.screen.mjs
++++ b/permutation-gateway/screens/ws07-spectate.screen.mjs
+@@ -77,3 +77,22 @@ for (const size of SIZES) {
+     } finally { await ctx.close(); }
+   });
+ }
++
++for (const size of SIZES) {
++  test(`${size.name}, a reload while events still fail: the new page says not read again, never empty; once back, the record shows`, async () => {
++    const { ctx, page, errors, state } = await open(size, 'down');
++    try {
++      await until(page, /record of events could not be loaded/);
++      await page.reload();
++      const t = await until(page, /record of events could not be loaded/);
++      assert.match(t, /This does not mean the record is empty/);
++      assert.doesNotMatch(t, /No clash yet|No highlights yet|Nothing recorded yet/);
++      state.mode = 'up';
++      await page.reload();
++      await page.locator('[data-act="report-open"]').first().waitFor({ timeout: 15000 });
++      assert.doesNotMatch(await panel(page), /record of events could not be loaded/);
++      assert.deepEqual(errors, []);
++      assert.deepEqual(await page.evaluate(() => window.__keyUses), []);
++    } finally { await ctx.close(); }
++  });
++}
+diff --git a/permutation-gateway/test/web-frontier-ws07-nft.test.mjs b/permutation-gateway/test/web-frontier-ws07-nft.test.mjs
+index 96fdd62f..5a1a41a2 100644
+--- a/permutation-gateway/test/web-frontier-ws07-nft.test.mjs
++++ b/permutation-gateway/test/web-frontier-ws07-nft.test.mjs
+@@ -11,6 +11,7 @@ import * as io from '../../permutation-server/web/frontier/fchainio.mjs';
+ import { FS } from '../../permutation-server/web/frontier/fstate.mjs';
+ import { renderNfts } from '../../permutation-server/web/frontier/screens/join.mjs';
+ import { setLang } from '../../permutation-server/web/lang.mjs';
++import { rulesetFor } from '../../permutation-server/web/sdk/frontier/profile.mjs';
+ 
+ const A = 'Wa11et1111111111111111111111111111111111111', B = 'Wa11et2222222222222222222222222222222222222';
+ const NFT = 'NFTasset11111111111111111111111111111111111';
+@@ -73,6 +74,18 @@ test('a wallet change forgets the NFT played and the list; NFT login and logout
+   });
+ });
+ 
++test('the march book of an NFT resident is not its wallet\'s (the sealed marches and their reveal material kept apart)', async () => {
++  await withFS({ wallet: { address: A }, resident: null }, async () => {
++    const V = JSON.parse(readFileSync(new URL('./fixtures/s1-addresses-v1.json', import.meta.url), 'utf8'));
++    io.setPin({ programId: V.program, cluster: 'localnet', seasonId: V.seasonId, rulesetHash: rulesetFor(3) });
++    const own = C.bookKey();
++    FS.resident = { asset: NFT };
++    const nft = C.bookKey();
++    assert.ok(own && nft && own !== nft, `${own} / ${nft}`);
++    assert.ok(nft.includes(NFT));
++  });
++});
++
+ test('the away summary keeps an NFT\'s marks apart from its wallet\'s (app.mjs awayWho); the words name the NFT too', () => {
+   const app = readFileSync(new URL('../../permutation-server/web/frontier/app.mjs', import.meta.url), 'utf8');
+   assert.match(app, /const awayWho = \(\) => \(\{[^\n]*FS\.resident\?\.asset \? `\$\{FS\.wallet\.address\}#nft:\$\{FS\.resident\.asset\}`/);
+diff --git a/permutation-server/web/frontier/controller.mjs b/permutation-server/web/frontier/controller.mjs
+index d97b0021..fa7db0cc 100644
+--- a/permutation-server/web/frontier/controller.mjs
++++ b/permutation-server/web/frontier/controller.mjs
+@@ -66,7 +66,9 @@ const homeKeyNow = () => scope() ? homeKey(scope(), FS.wallet?.address) : null;
+ const readHome = () => homeKeyNow() ? loadHome(uiStorage, homeKeyNow()) : { selected: null, pending: null, seen: null };
+ const saveHomePatch = patch => homeKeyNow() ? saveHome(uiStorage, homeKeyNow(), patch) : null;
+ const saveLandPatch = patch => { const k = landKeyNow(); FS.landRec = k ? saveLand(uiStorage, k, patch) : { ...(FS.landRec ?? LAND_DEFAULTS), ...patch }; return FS.landRec; };
+-const bookKey = () => (FS.wallet && scope() ? book.bookKey(scope(), FS.wallet.address) : null);
++// (workstream 07: an NFT resident (⑳) seals its own marches; its march book is kept apart from its wallet's Citizen's, or
++// the reconciliation against one Citizen's transits would write the other's entries off)
++export const bookKey = () => (FS.wallet && scope() ? book.bookKey(scope(), FS.resident?.asset ? `${FS.wallet.address}#nft:${FS.resident.asset}` : FS.wallet.address) : null);
+ // Notices keep a thunk or the failure itself, so a language switch re-renders them in the new language.
+ const setNotice = n => { FS.notice = n; invalidate('panel'); };
+ const busy = text => setNotice({ busy: true, text });
+-- 
+2.43.0
+

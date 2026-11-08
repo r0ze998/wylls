@@ -11,6 +11,18 @@
 - 理由の符号を足した：`replayed`、`earlier_window`（前の評価期間で達成済み）。共同目標の状態に `achieved_earlier` を足した。
 - 複数のシーズンにまたがるチェーンの記録は、adapter に `epoch`（と S1 では `worldBell`）を渡す。id と流れが期ごとに分かれ、tag は `actorOfTag(tag, epoch)` で同じ参加者に写す。
 
+## 0b. 版 1 への追加（2026-11-05、①・④・⑭の実出力との照合）
+
+- `verified: 'model'`：模型（⑭）の事実。ゲームの事実として数えない。
+- `ship.arrive` の `qtyKind`（`exact`／`lower_bound`／`zero`／`unknown`。④ 数量契約 §3）。省略すると `verified` から決める。`zero` は量 0 のときだけ。
+- `ship.send` の `fromOutside: true`：送り手の在庫が模型にない（①・④の出力）。積荷は送った時点で入る。
+- `ship.lost` の `cause: 'unconfirmed'`：別の場所に着き、襲撃の記録がない。誰の名前も出さない。
+- ⑭の掲示板：`tower.request.posted`／`taken`／`fulfilled`（`req`, `actor`, `cross`）、`tower.relay.swap`。
+- `model.boundary {index}`：模型の区切り（⑭の `period.boundary`）。報告するだけで、評価期間にも戦期にもしない。
+- ⑭の契約 v1（`wylls.ws14.tower-facts/1`：`seq`・`hour`・`time.bellsPerHour`・`poster`・`responder`）と v0 を、同じ adapter で読む。
+- 記録の流れの `kinds`：⑭の流れは上の種類と `position` だけ。⑭の事実の欠落は、塔の事実が決める判定だけを判定できなくする。
+- 詳しくは [08](08-peer-contracts.ja.md)。
+
 ## 1. 入力：`{state, events}`
 
 ### 1-1. state（戦期の始まりに固定するもの）
@@ -93,6 +105,6 @@
 
 | 相手 | ほしいもの | 今の扱い |
 |---|---|---|
-| ① | `fold()` の実物の形、`link` の caravan の `ownerTag` の表し方（10進の文字列か） | 伝え聞いた形で [adapters/ws01.mjs](../src/adapters/ws01.mjs) を書いた。量は①の到着の見え方ではなく S1 の記録から取る（二重に数えない） |
-| ④ | Run Receipt の `body` の欄、P1（`credited`）の採否 | [adapters/ws04.mjs](../src/adapters/ws04.mjs) は欄を仮定。村あての `RuleDerived` を正確な量とするか下限とするかは呼び出し側で選ぶ（既定は①の下限） |
+| ① | 板が受け付けた署名つきの記録の列 | `fold()` は①のコードで動かした（[08](08-peer-contracts.ja.md) §5d）。`ownerTag` は 10 進の文字列（2⁵³ を超える）。量は①の到着の記録のうち chain-log だけから取る（二重に数えない） |
+| ④ | run の outcome を含む書き出し、P1（`credited`）の採否 | ④の runexec の書き出し（⑫が d0949fd4 で作成）を `fromRunexecDump` で読む。body は JSON の文字列、u64 は `parseExact` で正確に読む |
 | ⑭ | `tower-facts/0` の各事実の欄 | [adapters/ws14.mjs](../src/adapters/ws14.mjs) は欄を仮定。塔は任意入力 |

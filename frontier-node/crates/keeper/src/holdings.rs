@@ -86,6 +86,9 @@ impl HoldingDuty {
         index: &mut LandIndex,
         provinces: &BTreeSet<(i32, i32)>,
     ) -> PortResult<()> {
+        if !index.feed.gate(engine, None)? {
+            return Ok(());
+        }
         let dormancy = t.cfg.has_role("dormancy");
         let sweep = t.cfg.has_role("sweep");
         let eff = t.season.effective_status(t.now);

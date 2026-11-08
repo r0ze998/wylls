@@ -218,3 +218,57 @@ async fn index_failure_requires_reopen_and_catches_up_from_the_archive() {
     drop(fx);
     std::fs::remove_dir_all(d).unwrap();
 }
+
+#[tokio::test]
+async fn unsupported_wide_log_is_archived_but_never_advances_legacy_index() {
+    // Literal prefix probes: old/current Muster and current close kinds 12–14.
+    for encoded_body in ["gQE=", "ggE=", "ggw=", "gg0=", "gg4="] {
+        let d = tmp("unsupported-wide");
+        let mut fx = open(&d, 1 << 20);
+        let mut src = VecSource::new(1);
+        let p = Address::new_from_array([23; 32]);
+        src.records[0].logs = vec![
+            format!("Program {p} invoke [1]"),
+            format!("Program data: UFNXMQ== {encoded_body}"),
+            format!("Program {p} success"),
+        ];
+        let err = fx.ingest(&mut src).await.unwrap_err().to_string();
+        assert!(err.contains("UnsupportedWideRecord"), "{err}");
+        assert!(fx.is_poisoned());
+        assert_eq!(fx.index.last_seq().unwrap(), 0);
+        assert_eq!(fx.archive.read_after(0).unwrap().len(), 1);
+        let pulls = src.pulls;
+        assert!(fx.ingest(&mut src).await.is_err());
+        assert_eq!(src.pulls, pulls);
+        drop(fx);
+        // Reopening must still refuse unsupported archived data, never mark it covered.
+        assert!(Findex::open(&d, p, None, 1 << 20).is_err());
+        std::fs::remove_dir_all(d).unwrap();
+    }
+}
+
+#[tokio::test]
+async fn legacy_reader_capability_cannot_claim_wide_coverage() {
+    let d = tmp("legacy-reader-capability");
+    let mut fx = open(&d, 1 << 20);
+    let mut src = VecSource::new(1);
+    fx.ingest(&mut src).await.unwrap();
+    fx.commit().unwrap();
+    fx.index
+        .conn
+        .execute(
+            "DELETE FROM meta WHERE k = ?1",
+            ["strict_ps2_v2_reject_psw1"],
+        )
+        .unwrap();
+    fx.index
+        .conn
+        .execute(
+            "INSERT OR REPLACE INTO meta(k,v) VALUES(?1,1)",
+            ["strict_ps2_v1"],
+        )
+        .unwrap();
+    drop(fx);
+    assert!(Findex::open(&d, Address::new_from_array([23; 32]), None, 1 << 20).is_err());
+    std::fs::remove_dir_all(d).unwrap();
+}

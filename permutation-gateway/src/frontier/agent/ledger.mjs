@@ -101,6 +101,8 @@ export class AgentLedger {
       agentId, owner, payout: owner, agentKey, village: [...village], createdAt: this.now(),
       mode: 'manual', modeEpoch: 0,
       capabilityHash: null, capabilityVersion: 0,
+      // Per-sender capabilities (workstream 04 AUTH-ROUTES A1): source → {hash, version}. The token is never stored.
+      capabilities: {},
       policy: { ...policy, version: 1 },
       bal: { deposited: ZERO, available: ZERO, reserved: ZERO, pendingWithdraw: ZERO, withdrawn: ZERO,
         spent: { [CATEGORIES.INFERENCE]: ZERO, [CATEGORIES.NETWORK]: ZERO, [CATEGORIES.GAME]: ZERO } },
@@ -535,15 +537,47 @@ export class AgentLedger {
     this.save();
   }
 
-  /** The sha256 (hex) of the agent's current capability token; the token itself is never stored. */
-  setCapability(agentId, hash) {
+  /**
+   * The sha256 (hex) of a capability token; the token itself is never stored. Without `source`: the agent's
+   * general token (any of ai | mcp), replaced as before. With `source`: that sender's own token only (A1); the
+   * general token and the other sender's are untouched.
+   */
+  setCapability(agentId, hash, source = null) {
     this.assertWritable();
     const rec = this.get(agentId);
+    if (source) {
+      rec.capabilities ??= {};
+      const version = (rec.capabilities[source]?.version ?? 0) + 1;
+      rec.capabilities[source] = { hash, version, issuedAt: this.now() };
+      this.note(rec, { type: 'capability', source, version });
+      this.save();
+      return version;
+    }
     rec.capabilityHash = hash;
     rec.capabilityVersion += 1;
     this.note(rec, { type: 'capability', version: rec.capabilityVersion });
     this.save();
     return rec.capabilityVersion;
+  }
+
+  /** Removes one sender's token (A1). Returns whether there was one. The general token is untouched. */
+  revokeCapability(agentId, source) {
+    this.assertWritable();
+    const rec = this.get(agentId);
+    if (source === 'any') {
+      // The general token: gone (its version moves on, so nothing let in by it is still current).
+      const had = !!rec.capabilityHash;
+      if (had) { rec.capabilityHash = null; rec.capabilityVersion += 1; this.note(rec, { type: 'capability-revoked', source: 'any', version: rec.capabilityVersion }); this.save(); }
+      return had;
+    }
+    const had = !!rec.capabilities?.[source];
+    if (had) {
+      const version = rec.capabilities[source].version;
+      delete rec.capabilities[source];
+      this.note(rec, { type: 'capability-revoked', source, version });
+      this.save();
+    }
+    return had;
   }
 
   // ------------------------------------------------------------ idempotency

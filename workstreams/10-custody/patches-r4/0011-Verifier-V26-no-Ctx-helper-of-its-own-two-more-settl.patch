@@ -1,0 +1,211 @@
+From aface4702cda54debba2a4f090d0060d97bc83a0 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Thu, 5 Nov 2026 23:26:30 +0000
+Subject: [PATCH 11/14] Verifier V26: no Ctx helper of its own; two more
+ settled lot laws
+
+Workstream 18's V0 adds Ctx::unverifiable with the same signature as the
+one patch 0006 added, so the two integrated did not compile. V26's
+UNVERIFIABLE helpers now live in v26_custody.rs (over Ctx::push) and Ctx
+gains nothing from custody.
+
+The state audit also fails a lot whose CONSUMED is above zero while its
+NONCE is 0 (only a use order's grantee consumes and every order moves
+NONCE on; workstream 9's workshop deposit is such a use), and an open
+lot that carries FORFEITED (only forfeit books it, and it leaves the lot
+forfeited). tests/custody_state.rs forges both.
+
+Ported to the integration candidate c1e8137e: here Ctx::unverifiable is
+workstream 18's (V0) and stays; only V26's fail_or_unverifiable leaves
+Ctx for v26_custody.rs.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01C5Nj2cMNVbfXW4D5Pzsbxg
+---
+ frontier-node/crates/verify/src/checks/mod.rs | 16 -----
+ .../crates/verify/src/checks/v26_custody.rs   | 69 +++++++++++++++++--
+ .../crates/verify/tests/custody_state.rs      | 18 ++++-
+ 3 files changed, 82 insertions(+), 21 deletions(-)
+
+diff --git a/frontier-node/crates/verify/src/checks/mod.rs b/frontier-node/crates/verify/src/checks/mod.rs
+index 6588f268..b2bd2bd9 100644
+--- a/frontier-node/crates/verify/src/checks/mod.rs
++++ b/frontier-node/crates/verify/src/checks/mod.rs
+@@ -149,22 +149,6 @@ impl Ctx<'_> {
+             detail.into(),
+         );
+     }
+-    /// A FAIL when `fail`, else UNVERIFIABLE (V26's state audit).
+-    pub fn fail_or_unverifiable(
+-        &mut self,
+-        check: &'static str,
+-        code: &str,
+-        fail: bool,
+-        entity: impl Into<String>,
+-        tx: Option<usize>,
+-        detail: impl Into<String>,
+-    ) {
+-        if fail {
+-            self.fail(check, code, entity, u32::MAX, tx, detail);
+-        } else {
+-            self.unverifiable(check, code, entity, u32::MAX, tx, detail);
+-        }
+-    }
+     /// Data the check needs is absent (UNVERIFIABLE unless a FAIL exists).
+     pub fn missing(
+         &mut self,
+diff --git a/frontier-node/crates/verify/src/checks/v26_custody.rs b/frontier-node/crates/verify/src/checks/v26_custody.rs
+index fafede3c..02fcbd30 100644
+--- a/frontier-node/crates/verify/src/checks/v26_custody.rs
++++ b/frontier-node/crates/verify/src/checks/v26_custody.rs
+@@ -32,8 +32,52 @@ use crate::codes::{
+     CUSTODY_IN_PROGRAM_WITHOUT_IT, CUSTODY_LOT_BROKEN, CUSTODY_OVER_CAPACITY,
+     CUSTODY_RULE_UNDECIDED, CUSTODY_UNVERIFIED, CUSTODY_VAULT_COUNTS,
+ };
++use crate::Severity;
+ 
+ const V: &str = "V26";
++
++// V26's own UNVERIFIABLE helpers, kept here rather than on `Ctx`:
++// workstream 18's V0 adds `Ctx::unverifiable` with the same signature, and
++// two definitions would not compile when both are integrated.
++
++/// What V26 found cannot be verified by this build (UNVERIFIABLE unless a
++/// FAIL exists), under its own code.
++fn unverifiable(
++    cx: &mut Ctx,
++    check: &'static str,
++    code: &str,
++    entity: impl Into<String>,
++    bell: u32,
++    tx: Option<usize>,
++    detail: impl Into<String>,
++) {
++    cx.push(
++        Severity::Unverifiable,
++        check,
++        code,
++        entity.into(),
++        bell,
++        tx,
++        detail.into(),
++    );
++}
++
++/// A FAIL when `fail`, else UNVERIFIABLE (the state audit).
++fn fail_or_unverifiable(
++    cx: &mut Ctx,
++    check: &'static str,
++    code: &str,
++    fail: bool,
++    entity: impl Into<String>,
++    tx: Option<usize>,
++    detail: impl Into<String>,
++) {
++    if fail {
++        cx.fail(check, code, entity, u32::MAX, tx, detail);
++    } else {
++        unverifiable(cx, check, code, entity, u32::MAX, tx, detail);
++    }
++}
+ /// Findings listed one by one before the rest is counted in one line.
+ const LISTED: usize = 16;
+ 
+@@ -154,7 +198,7 @@ pub fn run(cx: &mut Ctx) {
+         if i == LISTED {
+             let rest = format!("{} more custody traces", n - LISTED);
+             if custody {
+-                cx.unverifiable(V, CUSTODY_UNVERIFIED, "season", u32::MAX, None, rest);
++                unverifiable(cx, V, CUSTODY_UNVERIFIED, "season", u32::MAX, None, rest);
+             } else {
+                 cx.fail(
+                     V,
+@@ -168,7 +212,8 @@ pub fn run(cx: &mut Ctx) {
+             break;
+         }
+         if custody {
+-            cx.unverifiable(
++            unverifiable(
++                cx,
+                 V,
+                 CUSTODY_UNVERIFIED,
+                 entity,
+@@ -241,6 +286,21 @@ pub fn lot_findings(d: &[u8]) -> Vec<Found> {
+             l.in_total, l.held, l.out_total, l.consumed, l.forfeited
+         ));
+     }
++    // Only a use order's grantee consumes (`consume` spends an order), and
++    // every order is set at the lot's NONCE, which `set_order` then moves
++    // on: goods used from a lot that never had an order were not used by
++    // the program (workstream 9's workshop deposit is such a use).
++    if l.consumed > 0 && l.nonce == 0 {
++        broken(format!(
++            "CONSUMED {} with no order ever set (NONCE 0)",
++            l.consumed
++        ));
++    }
++    // Only `forfeit` books FORFEITED, and it leaves the lot forfeited (or
++    // closed after): an open lot cannot carry it.
++    if l.forfeited > 0 && l.state == K::LOT_OPEN {
++        broken(format!("an open lot with FORFEITED {}", l.forfeited));
++    }
+     if (l.resource as usize) >= permutation_rules::frontier::holding::RESOURCES
+         || K::ENABLED_RESOURCES & (1 << l.resource) == 0
+     {
+@@ -492,7 +552,8 @@ pub fn audit(cx: &mut Ctx) {
+     let n = found.len();
+     for (i, (entity, tx, (code, fail, what))) in found.into_iter().enumerate() {
+         if i == LISTED {
+-            cx.fail_or_unverifiable(
++            fail_or_unverifiable(
++                cx,
+                 V,
+                 code,
+                 fail,
+@@ -502,6 +563,6 @@ pub fn audit(cx: &mut Ctx) {
+             );
+             break;
+         }
+-        cx.fail_or_unverifiable(V, code, fail, entity, tx, what);
++        fail_or_unverifiable(cx, V, code, fail, entity, tx, what);
+     }
+ }
+diff --git a/frontier-node/crates/verify/tests/custody_state.rs b/frontier-node/crates/verify/tests/custody_state.rs
+index c3d76182..098ccbe5 100644
+--- a/frontier-node/crates/verify/tests/custody_state.rs
++++ b/frontier-node/crates/verify/tests/custody_state.rs
+@@ -174,7 +174,7 @@ fn a_lot_the_kernel_cannot_write_fails() {
+     let mut v = view();
+     let good = kernel_lot(&mut v);
+     type Forge = fn(&mut K::Lot);
+-    let cases: [(&str, Forge, &str); 12] = [
++    let cases: [(&str, Forge, &str); 14] = [
+         (
+             "goods from nowhere",
+             |l| l.held += MILLI,
+@@ -233,6 +233,22 @@ fn a_lot_the_kernel_cannot_write_fails() {
+             CUSTODY_OVER_CAPACITY,
+         ),
+         ("an unknown state", |l| l.state = 9, CUSTODY_LOT_BROKEN),
++        (
++            "used with no order ever set",
++            |l| {
++                l.nonce = 0;
++                l.orders = [K::Order::default(); 4];
++            },
++            CUSTODY_LOT_BROKEN,
++        ),
++        (
++            "an open lot with goods forfeited",
++            |l| {
++                l.forfeited = MILLI;
++                l.held -= MILLI;
++            },
++            CUSTODY_LOT_BROKEN,
++        ),
+     ];
+     for (name, forge, code) in cases {
+         let mut l = good;
+-- 
+2.43.0
+

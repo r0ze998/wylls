@@ -22,11 +22,18 @@
 //!   live session, such as a previous owner or a previous owner's session, is
 //!   a FAIL; with a gap it is UNVERIFIABLE (a SetSession may be missing).
 //!
-//! UNVERIFIABLE, never PASS: the inner instruction's own effects (no replay
-//! of an NFT Citizen's instruction yet: `ResidentInnerUnmodelled`); the
-//! holder without the resident program's record (`ResidentActUnproven`; a
-//! Frontier archive does not hold it); a pass with no JoinResident in the
-//! archive; post-states the archive lacks.
+//! **Inner instruction (2026-11-08):** the world lists a ResidentAct also as
+//! the player instruction it ran (`world::unwrap_resident`, the act's own
+//! accounts without the proof accounts), so the check that models that
+//! instruction for a wallet Citizen judges it; V23 hands a SendCaravan to
+//! another player to V28 as the owner's only (`Ctx::owner_required`), and
+//! CloseVault and CloseStructure are always the owner's only: a session
+//! accepted for them is `ResidentOwnerRequired` (with the record whole).
+//!
+//! UNVERIFIABLE, never PASS: an inner instruction no check models in this
+//! season (`v0_coverage::supported`: `ResidentInnerUnmodelled`); the
+//! holder without the resident program's record (`ResidentActUnproven`); a
+//! pass with no JoinResident in the archive; post-states the archive lacks.
 //!
 //! Not judged: the actor's signature (the runtime's, as for a wallet), the
 //! policy's address (the program checks it at join and act). Codes:
@@ -69,6 +76,43 @@ pub struct ActCtx<'a> {
     pub feed: Option<&'a ResidentFeed>,
     /// Where the Frontier transactions came from (⑲'s `history`).
     pub history: &'a crate::history::History,
+    /// The acts another check found to need the pass's owner itself (V23:
+    /// a SendCaravan to another player), as `(transaction, instruction)`.
+    pub owner_required: &'a std::collections::BTreeSet<(usize, usize)>,
+    /// The season's rules (`Ctx::v3`, `Ctx::s1`): which inner instructions
+    /// the verifier models (`v0_coverage::supported`).
+    pub v3: bool,
+    pub s1: bool,
+    /// Judge the wide world's WideResidentAct (0xDD) instead of the
+    /// deployed ResidentAct (0xE2): [`run_wide`].
+    pub wide: bool,
+}
+
+/// A successful WideResidentAct's generation, inner command and its name, as
+/// `permutation-frontier` `proc::wide::resident_act` runs it: the ABI's own
+/// decode, then the inner command one of WideClaimSite, WideDepart and the
+/// player Muster and Dissolve of 0xDA (`None`: the program refuses it).
+#[cfg(feature = "wide-world-experimental")]
+pub fn wide_act(d: &[u8]) -> Option<(u32, &[u8], &'static str)> {
+    use frontier_abi::world_index::wide_ix::{ResidentAct, WideCommand as W};
+    let x = ResidentAct::decode(d).ok()?;
+    let name = match x.command().ok()? {
+        W::ClaimSite(_) => "WideClaimSite",
+        W::Depart(_) => "WideDepart",
+        W::Muster(_) => "WideMuster",
+        W::Dissolve(_) => "WideDissolve",
+        _ => return None,
+    };
+    Some((x.generation, x.inner, name))
+}
+
+/// Whether the program lets only the pass's owner (not its session) run
+/// this inner instruction for an NFT Citizen in every case (CloseVault and
+/// CloseStructure need the wallet, `WalletRequired`, for an NFT Citizen the
+/// Core owner); a SendCaravan to another player is found by V23.
+fn owner_only_always(inner: Option<frontier_abi::v2::Ix>) -> bool {
+    use frontier_abi::v2::Ix::*;
+    matches!(inner, Some(CloseVault | CloseStructure))
 }
 
 /// The policy at `key`: from a successful CreateResidentPolicy in the
@@ -162,6 +206,7 @@ fn judge_holder(
     policy_key: &Key,
     actor: &Key,
     generation: u32,
+    owner_only: bool,
 ) -> Option<(Severity, &'static str, String)> {
     let unproven = |d: &str| {
         Some((
@@ -231,12 +276,29 @@ fn judge_holder(
             h.generation
         ));
     }
-    match h.authority(actor, generation, t.time, true) {
+    match h.authority(actor, generation, t.time, !owner_only) {
         Ok(_) if gaps.is_empty() => None,
         Ok(_) => unproven(&format!(
             "the recorded authority matches, but its current state is unproven: {}",
             gaps.join("; ")
         )),
+        Err(Refusal::NotCurrentAuthority)
+            if owner_only && h.authority(actor, generation, t.time, true).is_ok() =>
+        {
+            let (sev, code, d) = firm(
+                "the actor is the pass's live session; this act is the owner's only (the program refuses a session: WalletRequired)"
+                    .to_string(),
+            )?;
+            Some((
+                sev,
+                if sev == Severity::Fail {
+                    RESIDENT_OWNER_REQUIRED
+                } else {
+                    code
+                },
+                d,
+            ))
+        }
         Err(Refusal::NotCurrentAuthority) => {
             // Name what the actor was, for the report.
             let was_owner = feed
@@ -264,16 +326,37 @@ fn judge_holder(
 pub fn judge_tx(w: &World, ac: &ActCtx, i: usize, t: &Tx) -> Vec<Found> {
     let mut out = vec![];
     for ix in &t.ixs {
-        if ix.tag() != Some(resident_wire::RESIDENT_ACT) {
-            continue;
-        }
-        // V0 fails data that does not decode.
-        let Some(Command::Act { generation, inner }) = resident_wire::decode(&ix.data) else {
-            continue;
-        };
         let mut push = |sev, code, d: String| out.push((sev, code, i, d));
-        let inner_ix = frontier_abi::v2::Ix::from_tag(inner[0]);
-        if !resident_wire::act_runs(inner[0]) {
+        let (generation, inner, wide_name): (u32, &[u8], Option<&'static str>) = match ix.tag() {
+            Some(resident_wire::RESIDENT_ACT) if !ac.wide => {
+                // V0 fails data that does not decode.
+                let Some(Command::Act { generation, inner }) = resident_wire::decode(&ix.data)
+                else {
+                    continue;
+                };
+                (generation, inner, None)
+            }
+            #[cfg(feature = "wide-world-experimental")]
+            Some(frontier_abi::world_index::wide_ix::TAG_RESIDENT_ACT) if ac.wide => {
+                match wide_act(&ix.data) {
+                    Some((g, inner, name)) => (g, inner, Some(name)),
+                    None => {
+                        push(
+                            Severity::Fail,
+                            RESIDENT_ACT_MISMATCH,
+                            "WideResidentAct succeeded with data the program refuses (not a whole player command it runs: WideClaimSite, WideDepart, the player Muster or Dissolve)".into(),
+                        );
+                        continue;
+                    }
+                }
+            }
+            _ => continue,
+        };
+        let inner_ix = match wide_name {
+            None => frontier_abi::v2::Ix::from_tag(inner[0]),
+            Some(_) => None,
+        };
+        if wide_name.is_none() && !resident_wire::act_runs(inner[0]) {
             push(
                 Severity::Fail,
                 RESIDENT_ACT_MISMATCH,
@@ -399,25 +482,63 @@ pub fn judge_tx(w: &World, ac: &ActCtx, i: usize, t: &Tx) -> Vec<Found> {
             }
         }
         let binding = ra::Binding { asset, resident };
-        if let Some((sev, code, d)) = judge_holder(w, ac, t, &binding, &policy, &actor, generation)
+        // The wide commands take the owner or its live session alike
+        // (`wide::player_start_as`: session allowed).
+        let owner_only = wide_name.is_none()
+            && (owner_only_always(inner_ix) || ac.owner_required.contains(&(i, ix.index)));
+        if let Some((sev, code, d)) =
+            judge_holder(w, ac, t, &binding, &policy, &actor, generation, owner_only)
         {
             push(sev, code, d);
         }
-        push(
-            Severity::Unverifiable,
-            RESIDENT_INNER_UNMODELLED,
-            format!("the inner {inner_ix:?}'s own effects are not replayed for an NFT Citizen"),
-        );
+        // The inner instruction is listed in the transaction as itself
+        // (`world::unwrap_resident`): the check that models it for a wallet
+        // Citizen judges it. Only an inner instruction no check models
+        // stays UNVERIFIABLE here.
+        if let Some(name) = wide_name {
+            // The wide command is VW's (workstream 4): no model of it yet.
+            push(
+                Severity::Unverifiable,
+                RESIDENT_INNER_UNMODELLED,
+                format!("the inner {name} is the wide world's; VW does not model it yet (WideUnmodelled)"),
+            );
+        } else if !inner_ix.is_some_and(|x| super::v0_coverage::supported(x, ac.v3, ac.s1)) {
+            push(
+                Severity::Unverifiable,
+                RESIDENT_INNER_UNMODELLED,
+                format!(
+                    "the inner {inner_ix:?}: no check of this verifier models it for this season"
+                ),
+            );
+        }
     }
     out
 }
 
 /// V28 over the archive, with the resident program's feed when one is given.
 pub fn run_with(cx: &mut Ctx, feed: Option<&ResidentFeed>) {
+    run_acts(cx, feed, false)
+}
+
+/// V28 over the wide world's WideResidentAct (0xDD; experimental build,
+/// beside VW): the same holder, generation, session, accounts and result
+/// as a ResidentAct; the inner wide command is handed to VW.
+#[cfg(feature = "wide-world-experimental")]
+pub fn run_wide(cx: &mut Ctx) {
+    let input = cx.input;
+    run_acts(cx, input.resident_feed.as_ref(), true)
+}
+
+fn run_acts(cx: &mut Ctx, feed: Option<&ResidentFeed>, wide: bool) {
+    let owner_required = cx.owner_required.clone();
     let ac = ActCtx {
         addr: cx.f.ctx,
         feed,
         history: &cx.input.history,
+        owner_required: &owner_required,
+        v3: cx.v3,
+        s1: cx.s1,
+        wide,
     };
     let w = cx.w;
     let mut found = vec![];
@@ -675,10 +796,25 @@ mod tests {
         f: Option<&ResidentFeed>,
         history: &History,
     ) -> Vec<(usize, Severity, &'static str)> {
+        judge_with(w, f, history, &Default::default(), true)
+    }
+
+    /// An S1 season (`s1`) unless said otherwise, with V23's owner-only acts.
+    fn judge_with(
+        w: &World,
+        f: Option<&ResidentFeed>,
+        history: &History,
+        owner_required: &std::collections::BTreeSet<(usize, usize)>,
+        s1: bool,
+    ) -> Vec<(usize, Severity, &'static str)> {
         let ac = ActCtx {
             addr: addr_ctx(),
             feed: f,
             history,
+            owner_required,
+            v3: s1,
+            s1,
+            wide: false,
         };
         let mut out = vec![];
         for (i, t) in w.txs.iter().enumerate() {
@@ -734,15 +870,105 @@ mod tests {
         let (w, _) = honest_with(0, None);
         let f = feed(history());
         let v = judge(&w, Some(&f));
-        assert_eq!(fails(&v), vec![]);
-        // Each act is still UNVERIFIABLE for its inner instruction only.
-        for (_, sev, code) in &v {
+        // Whole record, canonical accounts, the holder or its live session:
+        // nothing left for V28 (the inner Harvest is judged as a Harvest,
+        // `world::unwrap_resident`).
+        assert_eq!(v, vec![]);
+    }
+
+    /// An act of `inner` (its tag only) by `actor` at `generation`.
+    fn act_of(actor: Key, generation: u32, inner: frontier_abi::v2::Ix) -> Ix {
+        let mut ix = act(actor, generation);
+        ix.data[5] = inner as u8;
+        ix
+    }
+
+    #[test]
+    fn owner_only_acts_refuse_the_session() {
+        use frontier_abi::v2::Ix as V;
+        let f = feed(history());
+        for inner in [V::CloseVault, V::CloseStructure] {
+            // A's live session at generation 0 (seq 5): refused; A itself: fine.
+            let (w, at) = honest_with(5, Some(act_of(SA, 0, inner)));
             assert_eq!(
-                (*sev, *code),
-                (Severity::Unverifiable, RESIDENT_INNER_UNMODELLED)
+                fails(&judge(&w, Some(&f))),
+                vec![(at, RESIDENT_OWNER_REQUIRED)],
+                "{inner:?}"
+            );
+            let (w, _) = honest_with(5, Some(act_of(A, 0, inner)));
+            assert_eq!(
+                fails(&judge(&w, Some(&f))),
+                vec![],
+                "{inner:?} by the owner"
             );
         }
-        assert_eq!(v.len(), 5);
+        // V23 marks a SendCaravan to another player: B's session at seq 9.
+        let (w, at) = honest_with(9, Some(act_of(SB, 1, V::SendCaravan)));
+        let marked = [(at, 0usize)].into_iter().collect();
+        let v = judge_with(&w, Some(&f), &History::default(), &marked, true);
+        assert_eq!(fails(&v), vec![(at, RESIDENT_OWNER_REQUIRED)]);
+        // Unmarked (a send to its own place): the session may.
+        let v = judge_with(&w, Some(&f), &History::default(), &Default::default(), true);
+        assert_eq!(fails(&v), vec![]);
+        // With a stale copy of the record, a session's owner-only act is not decided.
+        let (w, at) = honest_with(5, Some(act_of(SA, 0, V::CloseVault)));
+        let v = judge(&w, Some(&feed_through(history(), 3)));
+        assert_eq!(fails(&v), vec![]);
+        assert!(v.contains(&(at, Severity::Unverifiable, RESIDENT_ACT_UNPROVEN)));
+    }
+
+    #[test]
+    fn an_inner_instruction_no_check_models_stays_unverifiable() {
+        use frontier_abi::v2::Ix as V;
+        let f = feed(history());
+        // S1's SendCaravan in a season without S1's rules: no check models it.
+        let (w, at) = honest_with(4, Some(act_of(A, 0, V::SendCaravan)));
+        let v = judge_with(
+            &w,
+            Some(&f),
+            &History::default(),
+            &Default::default(),
+            false,
+        );
+        assert!(v.contains(&(at, Severity::Unverifiable, RESIDENT_INNER_UNMODELLED)));
+        // Harvest is modelled everywhere.
+        let (w, _) = honest_with(4, None);
+        let v = judge_with(
+            &w,
+            Some(&f),
+            &History::default(),
+            &Default::default(),
+            false,
+        );
+        assert!(!v.iter().any(|x| x.2 == RESIDENT_INNER_UNMODELLED));
+    }
+
+    #[test]
+    fn a_resident_act_is_listed_as_the_instruction_it_ran() {
+        let ix = act(A, 0);
+        let inner = crate::world::unwrap_resident(&ix).expect("a Harvest act unwraps");
+        assert_eq!(inner.data, vec![0x40]);
+        assert_eq!(
+            inner.accounts,
+            ix.accounts[..4].to_vec(),
+            "without the proof accounts"
+        );
+        assert_eq!(inner.index, ix.index);
+        let mut t = tx(4, vec![ix.clone(), inner.clone()], vec![]);
+        assert!(t.via_resident(&inner));
+        assert!(!t.via_resident(&ix), "the act itself is not");
+        // A plain Harvest of the same accounts in another instruction slot is not.
+        let mut plain = inner.clone();
+        plain.index = 1;
+        t.ixs.push(plain.clone());
+        assert!(!t.via_resident(&plain));
+        // Nothing for a refused inner tag or too few accounts.
+        let mut bad = act(A, 0);
+        bad.data[5] = frontier_abi::v2::Ix::SetSession as u8;
+        assert!(crate::world::unwrap_resident(&bad).is_none());
+        let mut short = act(A, 0);
+        short.accounts.truncate(7);
+        assert!(crate::world::unwrap_resident(&short).is_none());
     }
 
     #[test]
@@ -960,6 +1186,117 @@ mod tests {
                     && *code == RESIDENT_ACT_UNPROVEN)
                 .count(),
             5
+        );
+    }
+
+    /// A WideResidentAct (0xDD) of a WideClaimSite by `actor` at `generation`,
+    /// over the same accounts as [`act`].
+    #[cfg(feature = "wide-world-experimental")]
+    fn wide(actor: Key, generation: u32) -> Ix {
+        use frontier_abi::world_index::wide_ix::{ClaimSite, ResidentAct};
+        let inner = ClaimSite {
+            p: 3,
+            q: -2,
+            site: 1,
+            slot: 0,
+        }
+        .to_bytes();
+        let mut data = vec![0u8; ResidentAct::HEAD + inner.len()];
+        let n = ResidentAct {
+            generation,
+            inner: &inner,
+        }
+        .encode_into(&mut data)
+        .unwrap();
+        data.truncate(n);
+        Ix {
+            data,
+            ..act(actor, generation)
+        }
+    }
+
+    #[cfg(feature = "wide-world-experimental")]
+    fn judge_wide(w: &World, f: Option<&ResidentFeed>) -> Vec<(usize, Severity, &'static str)> {
+        let empty = Default::default();
+        let h = History::default();
+        let ac = ActCtx {
+            addr: addr_ctx(),
+            feed: f,
+            history: &h,
+            owner_required: &empty,
+            v3: true,
+            s1: true,
+            wide: true,
+        };
+        let mut out = vec![];
+        for (i, t) in w.txs.iter().enumerate() {
+            for (sev, code, j, _) in judge_tx(w, &ac, i, t) {
+                out.push((j, sev, code));
+            }
+        }
+        out
+    }
+
+    /// The wide world's NFT entry (0xDD) under the same holder contract:
+    /// the holder and its live session through A→B→A, an old owner, an old
+    /// session and a pre-transfer signature refused, the inner wide command
+    /// handed to VW (UNVERIFIABLE), refused data FAIL. Literal bytes only.
+    #[cfg(feature = "wide-world-experimental")]
+    #[test]
+    fn the_wide_resident_act_is_judged_by_the_same_holder_contract() {
+        let f = feed(history());
+        let acts = |sub: Option<(u64, Ix)>| {
+            let mut v = vec![
+                (4, wide(A, 0)),
+                (5, wide(SA, 0)),
+                (8, wide(B, 1)),
+                (9, wide(SB, 1)),
+                (11, wide(A, 2)),
+            ];
+            let mut at = 0;
+            if let Some((seq, ix)) = sub {
+                let p = v.iter().position(|a| a.0 == seq).unwrap();
+                v[p].1 = ix;
+                at = p + 1;
+            }
+            (season(v), at)
+        };
+        let (w, _) = acts(None);
+        let v = judge_wide(&w, Some(&f));
+        assert_eq!(fails(&v), vec![]);
+        assert_eq!(v.len(), 5, "{v:?}");
+        assert!(v
+            .iter()
+            .all(|x| x.1 == Severity::Unverifiable && x.2 == RESIDENT_INNER_UNMODELLED));
+        for (seq, ix, what) in [
+            (8, wide(A, 1), "A after the transfer"),
+            (8, wide(A, 0), "A's signature from before the transfer"),
+            (8, wide(SA, 1), "A's session after the transfer"),
+            (11, wide(SB, 2), "B's session after the buy-back"),
+        ] {
+            let (w, at) = acts(Some((seq, ix)));
+            assert_eq!(
+                fails(&judge_wide(&w, Some(&f))),
+                vec![(at, RESIDENT_OLD_AUTHORITY)],
+                "{what}"
+            );
+        }
+        // Refused data: an inner that is no player command of the band.
+        let mut bad = wide(A, 0);
+        bad.data[5] = frontier_abi::v2::Ix::Harvest as u8;
+        let (w, at) = acts(Some((4, bad)));
+        assert_eq!(
+            fails(&judge_wide(&w, Some(&f))),
+            vec![(at, RESIDENT_ACT_MISMATCH)]
+        );
+        // The two entries do not judge each other's acts.
+        let (w, _) = acts(None);
+        assert_eq!(judge(&w, Some(&f)), vec![], "0xDD is not V28's 0xE2 path");
+        let (w, _) = honest_with(0, None);
+        assert_eq!(
+            judge_wide(&w, Some(&f)),
+            vec![],
+            "0xE2 is not the wide path"
         );
     }
 }

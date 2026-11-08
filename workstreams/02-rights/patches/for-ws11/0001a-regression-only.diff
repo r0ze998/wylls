@@ -1,0 +1,63 @@
+diff --git a/frontier-node/crates/verify/tests/rights_replay.rs b/frontier-node/crates/verify/tests/rights_replay.rs
+index 232f737c..d01f5de5 100644
+--- a/frontier-node/crates/verify/tests/rights_replay.rs
++++ b/frontier-node/crates/verify/tests/rights_replay.rs
+@@ -1221,3 +1221,58 @@ fn post_states_short_of_the_writes_are_never_a_pass() {
+     }
+ }
+ 
++/// Regression for workstream 11's V0E (`MissingPostState`): a program
++/// account of an S1 kind (MarchState, Vault, Caravan, Structure, Nation),
++/// known to the archive by an earlier post-state, held writable by a later
++/// successful transaction whose post-states leave it out. Nothing judges
++/// what that transaction did to it, so V0E must say UNVERIFIABLE, as it
++/// does for a Citizen (the control). Unsigned placeholders only.
++#[test]
++fn v0e_asks_the_post_state_of_every_s1_kind() {
++    use frontier_abi::v2::layout::{write_header, AccountKind as K2};
++    let mut missed = vec![];
++    for k in [
++        K2::Citizen,
++        K2::MarchState,
++        K2::Vault,
++        K2::Caravan,
++        K2::Structure,
++        K2::Nation,
++    ] {
++        let b = base();
++        let (mut fl, _) = honest(&b);
++        let key: Key = [0x6B; 32];
++        let mut d = vec![0u8; k.size()];
++        assert!(write_header(&mut d, k, b.inp.cfg.season_id), "{k:?}");
++        fl.state.insert(
++            key,
++            Some(fclient::ports::Account {
++                lamports: 1,
++                data: d,
++                owner: fl.inp.cfg.program,
++                executable: false,
++            }),
++        );
++        let harvest = |b: &Base, fl: &Flow| Instruction {
++            program_id: fl.inp.cfg.program,
++            accounts: vec![meta(b.grantee_w, true, true), meta(key, false, true)],
++            data: vec![frontier_abi::tags::Ix::Harvest.tag()],
++        };
++        let t = fl.time();
++        let ix = harvest(&b, &fl);
++        fl.push(b.grantee_w, ix, vec![], &[key], t);
++        let ix = harvest(&b, &fl);
++        fl.push(b.grantee_w, ix, vec![], &[], t + 60);
++        let found = new_findings(&b.inp, &fl.inp);
++        if !of(&found, "V0E", verify_core::Severity::Unverifiable)
++            .iter()
++            .any(|l| l.contains(MISSING_POST_STATE))
++        {
++            missed.push(k);
++        }
++    }
++    assert!(
++        missed.is_empty(),
++        "V0E does not ask the post-state of {missed:?}"
++    );
++}

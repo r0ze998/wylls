@@ -28,6 +28,9 @@ pub mod addr;
 pub mod arms;
 pub mod beacon;
 pub mod camp;
+/// Workstream 09: lending a workshop's processing capacity (a preview).
+#[cfg(feature = "capacity-preview")]
+pub mod capacity;
 pub mod caravan;
 pub mod catalog;
 pub mod clash;

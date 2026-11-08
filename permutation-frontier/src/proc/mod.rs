@@ -53,6 +53,10 @@
 //! (`frontier_abi::v2::prologue::accounts_of`); a v1 tag keeps M1's list.
 
 pub mod beacon;
+/// Preview (`capacity-preview`): workstream 09's capacity instructions on
+/// the provisional band 0xF0–0xFD; absent from every default build.
+#[cfg(feature = "capacity-preview")]
+pub mod capacity;
 pub mod caravan;
 pub mod citizen;
 pub mod clash;
@@ -66,6 +70,8 @@ pub mod map;
 pub mod nation;
 pub mod resident;
 pub mod reveal;
+#[cfg(feature = "rights-experimental")]
+pub mod rights;
 pub mod season;
 pub mod structure;
 pub mod transit;

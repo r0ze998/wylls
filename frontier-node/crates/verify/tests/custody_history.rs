@@ -126,6 +126,55 @@ fn recorded(states: &[Vec<u8>]) -> (Input, Vec<String>) {
     (inp, sigs)
 }
 
+/// V26's own findings, sorted: (code, FAIL?, entity, detail, signature).
+/// The fixture (`march`) already FAILs elsewhere (V11: six bad placements),
+/// so the report's verdict says nothing about custody; these do.
+fn v26(r: &verify_core::Report) -> Vec<(String, bool, String, String, String)> {
+    let mut v: Vec<_> = r
+        .findings
+        .iter()
+        .filter(|f| f.check == "V26")
+        .map(|f| {
+            (
+                f.code.clone(),
+                f.fail(),
+                f.entity.clone(),
+                f.detail.clone(),
+                f.signature.clone(),
+            )
+        })
+        .collect();
+    v.sort();
+    v
+}
+
+/// The verdict custody alone would give (V26's findings only).
+fn custody_verdict(r: &verify_core::Report) -> Verdict {
+    let f = r.findings.iter().filter(|f| f.check == "V26");
+    if f.clone().any(|f| f.fail()) {
+        Verdict::Fail
+    } else if f.count() > 0 {
+        Verdict::Unverifiable
+    } else {
+        Verdict::Pass
+    }
+}
+
+fn account(k: u8) -> String {
+    format!("account:{}", fclient::Address::new_from_array([k; 32]))
+}
+
+/// The UNVERIFIABLE trace V26 gives a Lot in a transaction's post-state.
+fn unverified_after(sig: &str) -> (String, bool, String, String, String) {
+    (
+        CUSTODY_UNVERIFIED.to_string(),
+        false,
+        account(0xD1),
+        "a Lot account after it: custody is not verified (V26 does not replay the caravans' routes or the records yet)".to_string(),
+        sig.to_string(),
+    )
+}
+
 fn history_fails(r: &verify_core::Report) -> Vec<(String, String)> {
     r.findings
         .iter()
@@ -144,12 +193,15 @@ fn the_kernels_own_history_passes_and_the_season_is_still_not_a_pass() {
             lot_transition_findings(&w[0], &w[1])
         );
     }
-    let (inp, _) = recorded(&states);
+    let (inp, sigs) = recorded(&states);
     let r = verify_core::verify(&inp);
-    assert!(history_fails(&r).is_empty(), "{}", show(&r));
     assert!(r.checks_run.contains(&"V26:custody-history"));
-    assert_ne!(r.verdict, Verdict::Pass, "{}", show(&r));
-    assert!(r.findings.iter().any(|f| f.code == CUSTODY_UNVERIFIED));
+    // One trace per recorded state, and nothing else: no history finding
+    // of any severity; custody UNVERIFIABLE.
+    let mut want: Vec<_> = sigs.iter().map(|s| unverified_after(s)).collect();
+    want.sort();
+    assert_eq!(v26(&r), want, "{}", show(&r));
+    assert_eq!(custody_verdict(&r), Verdict::Unverifiable);
 }
 
 #[test]
@@ -423,17 +475,27 @@ fn goods_in_without_a_caravan_to_explain_them_are_unverifiable_not_fail() {
         lot_transition_unexplained(&bytes(&prev), &bytes(&cur)).len(),
         1
     );
-    let (inp, _) = recorded(&[bytes(&prev), bytes(&cur)]);
+    let (inp, sigs) = recorded(&[bytes(&prev), bytes(&cur)]);
     let r = verify_core::verify(&inp);
-    assert!(history_fails(&r).is_empty(), "{}", show(&r));
-    assert!(
-        r.findings
-            .iter()
-            .any(|f| f.code == CUSTODY_HISTORY_UNEXPLAINED && !f.fail()),
-        "{}",
-        show(&r)
-    );
-    assert_ne!(r.verdict, Verdict::Pass);
+    // The two traces and one unexplained change, at the transaction that
+    // recorded it, with its amounts; no FAIL; custody UNVERIFIABLE.
+    let mut want = vec![
+        unverified_after(&sigs[0]),
+        unverified_after(&sigs[1]),
+        (
+            CUSTODY_HISTORY_UNEXPLAINED.to_string(),
+            false,
+            account(0xD1),
+            format!(
+                "IN_TOTAL grew by {}; the caravans settled since could deliver 0",
+                3 * MILLI
+            ),
+            sigs[1].clone(),
+        ),
+    ];
+    want.sort();
+    assert_eq!(v26(&r), want, "{}", show(&r));
+    assert_eq!(custody_verdict(&r), Verdict::Unverifiable);
 }
 
 /// Several kernel steps between two recorded states (a transaction with

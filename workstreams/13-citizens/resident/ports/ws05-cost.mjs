@@ -1,6 +1,8 @@
 // The resident's cost port over workstream 5's cost ledger (e9d1551a, model-api/src: price-book.mjs TokenPriceBook,
-// cost-store.mjs FileCostLedger over run-cost.mjs RunCostMock, process-lease.mjs ProcessLease). Workstream 13 does not
-// import workstream 5: the caller hands in 5's book and ledger.
+// cost-store.mjs FileCostLedger over run-cost.mjs RunCostMock, process-lease.mjs ProcessLease). The methods used here
+// are the same at 10e74967 (5's cost API there only adds FileCostLedger.openFenced, a way to open the ledger that the
+// caller may use; this port does not call it). Workstream 13 does not import workstream 5: the caller hands in 5's
+// book and ledger.
 //
 // Two ledgers, one call each, never summed:
 //   - the agent wallet's AgentLedger (the resident's money: hold → running → settle | unresolved), as before;
@@ -16,7 +18,10 @@
 //   - a refusal before generating, a throttle or a billing stop: nothing billed: 5 releases, the resident charges 0;
 //   - outcome unknown, or a report without a billed count: UNDECIDED in both (5's undecided, the resident's
 //     unresolved). Nothing here releases or zeroes it; only 5's decide() with evidence does;
-//   - a stop while calling: undecided in both at the next start; a stop after reserving and before calling: released.
+//   - after a stop, recover(): 5's persistent item is read and is authoritative. A call the resident's write-ahead
+//     record shows was never made (`notCalled`) is released in 5 if 5 still holds it reserved or calling; one that may
+//     have been made is made undecided there. Whatever 5 then says (released, settled, undecided, absent) is returned,
+//     and the resident's wallet follows it (resident.mjs #costRestart). An undecided item is never released here.
 // Mock: 5's ledger is test-USDC base units of model inference, on one machine (5 says so itself). No model is called
 // here; whether a real provider's usage report can be matched to these keys is not verified (5's EVIDENCE list).
 import { priceBookCost } from './cost.mjs';
@@ -25,6 +30,13 @@ export function ws05LedgerCost({ book, ledger, provider, model }) {
   for (const m of ['reserve', 'calling', 'settle', 'release', 'undecided', 'classes']) if (typeof ledger?.[m] !== 'function') throw new TypeError(`workstream 5 cost ledger lacks ${m}()`);
   const base = priceBookCost(book, { provider, model });
   const log = [];
+  /** 5's persistent item for a key, re-read from its ledger: {state, amount, settled} or null (5 holds no such item). */
+  const itemOf = callKey => {
+    const items = ledger.items;
+    if (typeof items?.get !== 'function') return undefined;
+    const it = items.get(callKey);
+    return it ? { state: it.state, amount: it.amount, settled: it.settled ?? null } : null;
+  };
   return Object.freeze({
     ...base,
     kind: 'ws05-ledger',
@@ -40,9 +52,25 @@ export function ws05LedgerCost({ book, ledger, provider, model }) {
       ledger.settle(callKey, measured, `ws13 ${out.outcome}`);
       log.push(['settle', callKey, measured]);
     },
-    restarted(callKey, phase) {
-      if (phase === 'calling') { ledger.undecided(callKey, 'restart while calling'); log.push(['undecided', callKey, 'restart']); }
-      else { ledger.release(callKey, 'restart before calling'); log.push(['release', callKey, 'restart']); }
+    /**
+     * After a stop: 5's item for `callKey` as 5 persists it (after 5's own recovery, if it ran) is the answer.
+     *   - still `reserved` or `calling`: `notCalled` (the resident's record shows the model was never called) releases
+     *     it; otherwise it becomes undecided (it may have reached the provider);
+     *   - anything else is left exactly as 5 has it (released, settled, undecided: only 5's decide() moves undecided).
+     * Returns {state: 'released'|'settled'|'undecided'|'reserved'|'calling'|'absent'|'unknown', amount?, settled?}.
+     * `absent`: 5 holds no item under the key; `unknown`: this ledger cannot be read item by item.
+     */
+    recover(callKey, { notCalled = false } = {}) {
+      let it = itemOf(callKey);
+      if (it === undefined) return Object.freeze({ state: 'unknown' });
+      if (it && (it.state === 'reserved' || it.state === 'calling')) {
+        if (notCalled) { ledger.release(callKey, 'restart before calling'); log.push(['release', callKey, 'restart']); }
+        else { ledger.undecided(callKey, 'restart while calling'); log.push(['undecided', callKey, 'restart']); }
+        it = itemOf(callKey);
+      }
+      return Object.freeze(it ? { ...it } : { state: 'absent' });
     },
+    /** The earlier restart notice (phase only), kept for callers of the previous version; recover() supersedes it. */
+    restarted(callKey, phase) { return this.recover(callKey, { notCalled: phase !== 'calling' }); },
   });
 }

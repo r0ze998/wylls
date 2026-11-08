@@ -1,0 +1,2856 @@
+From 8ea3c047cd320156fdfc1b7ae9ed7e3aa6d50377 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Sun, 8 Nov 2026 12:12:01 +0000
+Subject: [PATCH 2/5] Rules: workstream 09's capacity kernel in the program's
+ shape (capacity-preview) [skip ci]
+
+permutation_rules::frontier::capacity, behind the new feature
+capacity-preview (off by default: no default build code, vector, hash
+input or budget changes): workstream 09's pools, grants and jobs as the
+program will hold them, one pool account per facility generation (its
+grants and an occupancy table, one row per job, so Reserve and Reclaim
+read the pool alone) and one account per job; the fourteen operations
+(OpenCapacityPool ... RetirePool, ClaimSplit as ClaimJob's split form),
+each returning its events for the caller to log and to move the goods
+they name; byte layouts with workstream 4's provisional AccountKind 25
+and 26 and the proposed magic PSF1CPOL and PSF1CJOB.
+
+workstreams/09-capacity/kernel/tests/rules_port.rs runs workstream 09's
+kernel (the reference) and these rules side by side, the caller's part
+(which job accounts, what a missing account means) written as the
+program's handlers will: 6,000 random runs of 120 operations of every
+kind, under all four policy mixes, captures and losses included, give
+the same outcome, the same events, the same pool, jobs and Holding after
+every step, and the accounts read back from their bytes. Two deliberate
+breakages are caught (a capacity check off by one, a loss refunding a
+refunded job); a third changed nothing because it is equivalent.
+
+Undecided and unchanged: mixing sources, which resources lots hold, what
+a seized vault's lots become; log kinds, magic and the build's version
+(workstream 4).
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01C5Nj2Y9wne2WBMdMysfzXe
+---
+ permutation-rules/Cargo.toml                  |    4 +
+ permutation-rules/src/frontier/capacity.rs    | 1883 +++++++++++++++++
+ permutation-rules/src/frontier/mod.rs         |    3 +
+ workstreams/09-capacity/kernel/Cargo.toml     |    5 +
+ .../09-capacity/kernel/tests/rules_port.rs    |  873 ++++++++
+ 5 files changed, 2768 insertions(+)
+ create mode 100644 permutation-rules/src/frontier/capacity.rs
+ create mode 100644 workstreams/09-capacity/kernel/tests/rules_port.rs
+
+diff --git a/permutation-rules/Cargo.toml b/permutation-rules/Cargo.toml
+index 22215662..82c0b48b 100644
+--- a/permutation-rules/Cargo.toml
++++ b/permutation-rules/Cargo.toml
+@@ -26,6 +26,10 @@ cu-trace = []
+ # ring 128, a versioned candidate noise path past it. Off by default: no
+ # default-build code, vector, hash input or budget changes; no new dependency.
+ wide-terrain-experimental = []
++# Workstream 09 (capacity lending), a preview: `frontier::capacity`, the
++# pool and job accounts and their operations. Off by default: no default
++# build code, vector, hash input or budget changes.
++capacity-preview = []
+ 
+ # On Solana, hash with the runtime's sol_sha256 syscall (bit-identical, far
+ # cheaper in compute units than hashing in SBF code).
+diff --git a/permutation-rules/src/frontier/capacity.rs b/permutation-rules/src/frontier/capacity.rs
+new file mode 100644
+index 00000000..556a7fa0
+--- /dev/null
++++ b/permutation-rules/src/frontier/capacity.rs
+@@ -0,0 +1,1883 @@
++//! Workstream 09: lending a workshop's processing capacity (feature
++//! `capacity-preview`; a preview, not in any ruleset hash yet).
++//!
++//! Owner A takes workshop copies out of a Holding's own continuous arms
++//! production (`Holding::lend_workshops`) and lends them as a **pool**;
++//! under A's **grant**, user B reserves copies for a window (a **job**),
++//! brings ore and wood, and the lent copies convert them at the workshop's
++//! real rate over real time; B claims the arms. A signs only the owner's
++//! operations; B's need only B's key; settling, a facility's loss and the
++//! retirements are anyone's.
++//!
++//! This is workstream 09's kernel (`workstreams/09-capacity/kernel`, the
++//! reference; its differential test `tests/rules_port.rs` runs both on the
++//! same operations) in the program's shape: one **pool account** per
++//! facility generation, holding its grants and an **occupancy table** (one
++//! row per job: units, window, effective end, budget), and one **job
++//! account** per reservation. The capacity checks (`Reserve`, `Reclaim`)
++//! read the pool alone; a job's operations read the pool and that job.
++//!
++//! Goods do not move here. Every operation returns its [`Event`]s, and the
++//! caller moves what they say between its places (the job account's own
++//! hopper and output, a vault, workstream 10's lots, the facility's
++//! stores): [`Event::Deposited`] in, [`Event::Claimed`] /
++//! [`Event::Refunded`] out to the user, [`Event::Forfeited`] out to the
++//! captor. What a job holds is [`Job::accounts`] (workstream 10's law,
++//! `IN = HELD + OUT + CONSUMED + FORFEITED`).
++//!
++//! **Path independence.** A job's output is a pure function of its fixed
++//! terms, its hopper (fixed at the start) and the time: settling at any
++//! times credits the same output. **No period.** Nothing here knows a
++//! season or a war period; numbers only increase, so a retired record's key
++//! is never reused (`Retired`).
++//!
++//! Undecided and not widened here: a job taking one input from several
++//! sources (workstream 09's `MixedSource`, the caller's), which resources
++//! lots hold (ore only, workstream 10's), what a seized vault's lots become.
++
++use alloc::vec::Vec;
++
++use super::arms;
++use super::holding::{Holding, Resource, DAY, HOUR};
++use crate::fixed::MILLI;
++
++/// A player: the Citizen key.
++pub type Key = [u8; 32];
++
++/// Jobs one pool holds [proposal, as workstream 09's kernel].
++pub const MAX_JOBS: usize = 16;
++/// Grants one pool holds.
++pub const MAX_GRANTS: usize = 8;
++/// Deposits one job takes.
++pub const MAX_DEPOSITS: usize = 8;
++/// Longest job window.
++pub const MAX_WINDOW: i64 = 7 * DAY;
++
++/// Refusals, with workstream 09's stable numbers (the program's error is
++/// `109 + code`, workstream 4's provisional band 110–149).
++#[derive(Clone, Copy, Debug, PartialEq, Eq)]
++#[repr(u16)]
++pub enum CapError {
++    NotOwner = 1,
++    NotUser = 2,
++    WrongGeneration = 3,
++    FacilityGone = 4,
++    NotEnoughWorkshops = 5,
++    CapacityExceeded = 6,
++    ReclaimBlocked = 7,
++    GrantUnitsExceeded = 8,
++    GrantOutputExceeded = 9,
++    OutsideGrantWindow = 10,
++    GrantRevoked = 11,
++    BadWindow = 12,
++    AlreadyStarted = 13,
++    AlreadyFinal = 14,
++    UnknownGrant = 15,
++    UnknownJob = 16,
++    Conflict = 17,
++    OwnerAway = 18,
++    WrongRecipe = 19,
++    WrongResource = 20,
++    TooMany = 21,
++    Custody = 22,
++    Overflow = 23,
++    TimeReversed = 24,
++    UnknownPool = 25,
++    FacilityLive = 26,
++    BadPlace = 27,
++    Retired = 28,
++    GenerationReused = 29,
++    NotRetirable = 30,
++}
++
++impl CapError {
++    pub const fn code(self) -> u16 {
++        self as u16
++    }
++}
++
++pub type R<T> = Result<T, CapError>;
++
++// ------------------------------------------------------------------ recipe
++
++/// The workshop's conversion (`arms`): 2 ore and 1 wood per arm, 4 arms an
++/// hour per copy.
++#[derive(Clone, Copy, Debug, PartialEq, Eq)]
++pub struct Recipe {
++    pub id: u8,
++    pub inputs: [(Resource, i64); 2],
++    pub output: Resource,
++    /// Output per copy per hour (milli).
++    pub rate: i64,
++}
++
++pub const RECIPE_ARMS: u8 = 1;
++
++pub const ARMS_RECIPE: Recipe = Recipe {
++    id: RECIPE_ARMS,
++    inputs: [
++        (Resource::Ore, arms::ORE_PER_ARM),
++        (Resource::Wood, arms::WOOD_PER_ARM),
++    ],
++    output: arms::ARMS,
++    rate: arms::WORKSHOP_DELTA,
++};
++const _: () = assert!(ARMS_RECIPE.rate == arms::WORKSHOP_ARMS_PER_HOUR * MILLI);
++
++pub fn recipe(id: u8) -> Option<&'static Recipe> {
++    (id == RECIPE_ARMS).then_some(&ARMS_RECIPE)
++}
++
++impl Recipe {
++    pub fn input_index(&self, r: Resource) -> Option<usize> {
++        self.inputs.iter().position(|(x, _)| *x == r)
++    }
++
++    /// Output `units` copies make in `secs` (floor, milli).
++    pub fn capacity_output(&self, units: u32, secs: i64) -> i64 {
++        let v = units as i128 * self.rate as i128 * secs.max(0) as i128 / HOUR as i128;
++        v.min(i64::MAX as i128) as i64
++    }
++
++    /// Seconds `units` copies need for `out` (ceil).
++    pub fn secs_for(&self, units: u32, out: i64) -> i64 {
++        if out <= 0 || units == 0 {
++            return 0;
++        }
++        let per = units as i128 * self.rate as i128;
++        let n = out as i128 * HOUR as i128;
++        ((n + per - 1) / per).min(i64::MAX as i128) as i64
++    }
++
++    /// The output a hopper can feed.
++    pub fn fed_by(&self, hopper: &[i64; 2]) -> i64 {
++        let mut m = i64::MAX;
++        for (i, (_, per)) in self.inputs.iter().enumerate() {
++            m = m.min(hopper[i].max(0) / per);
++        }
++        m
++    }
++
++    pub fn used_for(&self, out: i64) -> [i64; 2] {
++        core::array::from_fn(|i| out * self.inputs[i].1)
++    }
++}
++
++// ------------------------------------------------------------------ policies
++
++/// What a facility's loss does to the goods its jobs keep there.
++#[derive(Clone, Copy, Debug, PartialEq, Eq)]
++#[repr(u8)]
++pub enum LossPolicy {
++    CaptorTakesAll = 0,
++    UserKeepsAll = 1,
++    UserKeepsOutput = 2,
++}
++
++#[derive(Clone, Copy, Debug, PartialEq, Eq)]
++#[repr(u8)]
++pub enum DormancyPolicy {
++    Unaffected = 0,
++    RefuseNewWhenDormant = 1,
++}
++
++#[derive(Clone, Copy, Debug, PartialEq, Eq)]
++#[repr(u8)]
++pub enum RevokePolicy {
++    HonorBooked = 0,
++    CancelBooked = 1,
++}
++
++/// The pool's three policies (workstream 09's provisional choices;
++/// switchable per pool, none decided).
++#[derive(Clone, Copy, Debug, PartialEq, Eq)]
++pub struct Policies {
++    pub loss: LossPolicy,
++    pub dormancy: DormancyPolicy,
++    pub revoke: RevokePolicy,
++}
++
++impl Policies {
++    pub const PROVISIONAL: Policies = Policies {
++        loss: LossPolicy::CaptorTakesAll,
++        dormancy: DormancyPolicy::Unaffected,
++        revoke: RevokePolicy::HonorBooked,
++    };
++
++    pub const fn encode(&self) -> [u8; 3] {
++        [self.loss as u8, self.dormancy as u8, self.revoke as u8]
++    }
++
++    pub const fn decode(b: [u8; 3]) -> Option<Policies> {
++        let loss = match b[0] {
++            0 => LossPolicy::CaptorTakesAll,
++            1 => LossPolicy::UserKeepsAll,
++            2 => LossPolicy::UserKeepsOutput,
++            _ => return None,
++        };
++        let dormancy = match b[1] {
++            0 => DormancyPolicy::Unaffected,
++            1 => DormancyPolicy::RefuseNewWhenDormant,
++            _ => return None,
++        };
++        let revoke = match b[2] {
++            0 => RevokePolicy::HonorBooked,
++            1 => RevokePolicy::CancelBooked,
++            _ => return None,
++        };
++        Some(Policies {
++            loss,
++            dormancy,
++            revoke,
++        })
++    }
++}
++
++// ------------------------------------------------------------------ records
++
++/// A facility: a Holding's site and its generation (`Holding.GEN`).
++#[derive(Clone, Copy, Debug, PartialEq, Eq)]
++pub struct FacilityId {
++    pub p: i16,
++    pub q: i16,
++    pub site: u8,
++    pub gen: u8,
++}
++
++/// The facility as the caller reads it from its Holding: its current
++/// generation and owner, whether that generation number was used before (a
++/// wrapped u8), and how the pool's generation ended, if it did.
++#[derive(Clone, Copy, Debug, PartialEq, Eq)]
++pub struct Facility {
++    pub gen: u8,
++    pub owner: Key,
++    /// The current generation number met an earlier, ended one.
++    pub reused: bool,
++    /// The pool's generation ended at this time, taken by this captor (or
++    /// released, `None`).
++    pub end: Option<(i64, Option<Key>)>,
++}
++
++#[derive(Clone, Copy, Debug, PartialEq, Eq)]
++pub struct Grant {
++    pub seq: u32,
++    pub user: Key,
++    pub recipe: u8,
++    pub max_units: u32,
++    pub max_output: i64,
++    pub from: i64,
++    pub until: i64,
++    pub revoked_at: Option<i64>,
++    /// Output of this grant's retired jobs (still counted in `max_output`).
++    pub spent: i64,
++    pub last_job_seq: Option<u32>,
++}
++
++/// The pool's row for one job: what the capacity checks need.
++#[derive(Clone, Copy, Debug, PartialEq, Eq)]
++pub struct Occ {
++    pub grant: u32,
++    pub job: u32,
++    pub units: u32,
++    pub start: i64,
++    pub end: i64,
++    /// The job's effective end as of its last write ([`Job::end_eff`]).
++    pub end_eff: i64,
++    pub open: bool,
++    /// What it holds of its grant's output budget: its max output while
++    /// open, what it made once final.
++    pub budget: i64,
++}
++
++impl Occ {
++    /// The interval it holds capacity, as known at `now` (until it starts
++    /// its hopper may grow: the whole window).
++    pub fn occupies(&self, now: i64) -> (i64, i64) {
++        let end = if !self.open || now >= self.start {
++            self.end_eff
++        } else {
++            self.end
++        };
++        (self.start, end.max(self.start))
++    }
++}
++
++/// The owner's last Lend or Reclaim (for its replay).
++#[derive(Clone, Copy, Debug, PartialEq, Eq)]
++pub struct OwnerOp {
++    pub lend: bool,
++    pub units: u32,
++    pub seq: u32,
++}
++
++#[derive(Clone, Debug, PartialEq, Eq)]
++pub struct Pool {
++    pub facility: FacilityId,
++    pub owner: Key,
++    pub policies: Policies,
++    pub lent: u32,
++    pub owner_seq: u32,
++    pub last_owner_op: Option<OwnerOp>,
++    pub grants: Vec<Grant>,
++    pub occ: Vec<Occ>,
++    pub lost_at: Option<i64>,
++    pub captor: Option<Key>,
++    pub last_grant_seq: Option<u32>,
++    /// The next job uid (never reused: it scopes a job's custody keys).
++    pub next_uid: u64,
++}
++
++#[derive(Clone, Copy, Debug, PartialEq, Eq)]
++pub enum Fin {
++    Open,
++    Completed(i64),
++    Cancelled(i64),
++    Lost(i64),
++}
++
++/// One deposit: its id, the recipe input, the amount, and where it came
++/// from (the caller's tag of the source place).
++#[derive(Clone, Copy, Debug, PartialEq, Eq)]
++pub struct Deposit {
++    pub id: u64,
++    pub input: u8,
++    pub amount: i64,
++    pub src: u64,
++}
++
++#[derive(Clone, Debug, PartialEq, Eq)]
++pub struct Job {
++    pub grant: u32,
++    pub seq: u32,
++    pub uid: u64,
++    pub user: Key,
++    pub recipe: u8,
++    pub units: u32,
++    pub start: i64,
++    pub end: i64,
++    pub max_output: i64,
++    pub hopper: [i64; 2],
++    pub deposits: Vec<Deposit>,
++    pub fin: Fin,
++    pub settled: i64,
++    pub started_logged: bool,
++    pub claimed: i64,
++    pub refunded: bool,
++    pub returned: [i64; 2],
++    pub forfeited_in: [i64; 2],
++    pub forfeited_out: i64,
++}
++
++/// One resource of a job as an account (workstream 10's law).
++#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
++pub struct Account {
++    pub in_total: i64,
++    pub held: i64,
++    pub out_total: i64,
++    pub consumed: i64,
++    pub forfeited: i64,
++}
++
++impl Account {
++    pub fn balanced(&self) -> bool {
++        self.held >= 0
++            && self.out_total >= 0
++            && self.consumed >= 0
++            && self.forfeited >= 0
++            && self.in_total == self.held + self.out_total + self.consumed + self.forfeited
++    }
++}
++
++#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
++pub struct Accounts {
++    pub inputs: [Account; 2],
++    pub output: Account,
++}
++
++impl Job {
++    pub fn recipe(&self) -> &'static Recipe {
++        recipe(self.recipe).unwrap_or(&ARMS_RECIPE)
++    }
++
++    fn stop_at(&self) -> i64 {
++        match self.fin {
++            Fin::Cancelled(c) | Fin::Lost(c) => c.clamp(self.start, self.end),
++            _ => self.end,
++        }
++    }
++
++    /// The most the job makes: its max output, its hopper, its window.
++    pub fn limit(&self) -> i64 {
++        let r = self.recipe();
++        self.max_output
++            .min(r.fed_by(&self.hopper))
++            .min(r.capacity_output(self.units, self.end - self.start))
++    }
++
++    /// Output made by `t` (a pure function).
++    pub fn out_at(&self, t: i64) -> i64 {
++        let until = t.min(self.stop_at());
++        if until <= self.start {
++            return 0;
++        }
++        self.limit().min(
++            self.recipe()
++                .capacity_output(self.units, until - self.start),
++        )
++    }
++
++    /// When conversion ends: the limit reached, or the stop.
++    pub fn end_eff(&self) -> i64 {
++        let full = self.start + self.recipe().secs_for(self.units, self.limit());
++        full.min(self.stop_at())
++    }
++
++    /// What the hopper still holds.
++    pub fn rest(&self) -> [i64; 2] {
++        let used = self.recipe().used_for(self.settled);
++        [self.hopper[0] - used[0], self.hopper[1] - used[1]]
++    }
++
++    pub fn accounts(&self) -> Accounts {
++        let used = self.recipe().used_for(self.settled);
++        let inputs = core::array::from_fn(|i| Account {
++            in_total: self.hopper[i],
++            held: self.hopper[i] - used[i] - self.returned[i] - self.forfeited_in[i],
++            out_total: self.returned[i],
++            consumed: used[i],
++            forfeited: self.forfeited_in[i],
++        });
++        let output = Account {
++            in_total: self.settled,
++            held: self.settled - self.claimed,
++            out_total: self.claimed - self.forfeited_out,
++            consumed: 0,
++            forfeited: self.forfeited_out,
++        };
++        Accounts { inputs, output }
++    }
++
++    fn row(&self) -> Occ {
++        Occ {
++            grant: self.grant,
++            job: self.seq,
++            units: self.units,
++            start: self.start,
++            end: self.end,
++            end_eff: self.end_eff(),
++            open: self.fin == Fin::Open,
++            budget: if self.fin == Fin::Open {
++                self.max_output
++            } else {
++                self.settled
++            },
++        }
++    }
++}
++
++// ------------------------------------------------------------------ events
++
++/// What an operation did; the caller logs them and moves the goods they
++/// name. `job` is `(grant seq, job seq)` in the pool.
++#[derive(Clone, Debug, PartialEq, Eq)]
++pub enum Event {
++    PoolOpened {
++        owner: Key,
++    },
++    Lent {
++        units: u32,
++        lent: u32,
++        at: i64,
++    },
++    Reclaimed {
++        units: u32,
++        lent: u32,
++        at: i64,
++    },
++    Granted {
++        grant: u32,
++        user: Key,
++    },
++    Revoked {
++        grant: u32,
++        at: i64,
++        cancelled: u32,
++    },
++    Reserved {
++        job: (u32, u32),
++        units: u32,
++        start: i64,
++        end: i64,
++        max_output: i64,
++    },
++    /// `amount` of the job's input `resource` came in from `src`.
++    Deposited {
++        job: (u32, u32),
++        deposit: u64,
++        resource: Resource,
++        amount: i64,
++    },
++    Started {
++        job: (u32, u32),
++        at: i64,
++    },
++    /// `out` more made, `used` of the inputs consumed (within the job).
++    Settled {
++        job: (u32, u32),
++        out: i64,
++        used: [i64; 2],
++        total: i64,
++    },
++    Completed {
++        job: (u32, u32),
++        at: i64,
++        out: i64,
++    },
++    Cancelled {
++        job: (u32, u32),
++        at: i64,
++        out: i64,
++    },
++    Lost {
++        job: (u32, u32),
++        at: i64,
++        out: i64,
++    },
++    /// `output` and `refund` leave the job for the user (to the claim's
++    /// destination; split: see [`Event::Refunded`]).
++    Claimed {
++        job: (u32, u32),
++        output: i64,
++        refund: [i64; 2],
++    },
++    /// A split claim's refund: whole units to each input's place, the
++    /// sub-unit rest to the remainder's place.
++    Refunded {
++        job: (u32, u32),
++        whole: [i64; 2],
++        remainder: [i64; 2],
++    },
++    /// `output` and `refund` leave the job for `owner` (the captor), into
++    /// the facility's stores.
++    Forfeited {
++        job: (u32, u32),
++        output: i64,
++        refund: [i64; 2],
++        owner: Key,
++    },
++    FacilityLost {
++        at: i64,
++        captor: Option<Key>,
++    },
++    Retired {
++        job: (u32, u32),
++        uid: u64,
++        output: i64,
++    },
++    Receipt {
++        job: (u32, u32),
++        uid: u64,
++        accounts: Accounts,
++    },
++    GrantRetired {
++        grant: u32,
++    },
++    PoolRetired,
++}
++
++/// An operation's outcome: applied (with its events) or applied before
++/// (nothing changed).
++#[derive(Clone, Debug, PartialEq, Eq)]
++pub enum Done {
++    Applied(Vec<Event>),
++    Already,
++}
++
++// ------------------------------------------------------------------ pool
++
++impl Pool {
++    fn peak(&self, now: i64, from: i64, to: i64, keep: impl Fn(&Occ) -> bool) -> u32 {
++        let mut edges: Vec<(i64, i64)> = Vec::new();
++        for o in self.occ.iter().filter(|o| keep(o)) {
++            let (s, e) = o.occupies(now);
++            let (s, e) = (s.max(from), e.min(to));
++            if s < e {
++                edges.push((s, o.units as i64));
++                edges.push((e, -(o.units as i64)));
++            }
++        }
++        edges.sort();
++        let (mut cur, mut peak) = (0i64, 0i64);
++        for (_, d) in edges {
++            cur += d;
++            peak = peak.max(cur);
++        }
++        peak as u32
++    }
++
++    pub fn grant(&self, seq: u32) -> R<&Grant> {
++        match self.grants.iter().find(|g| g.seq == seq) {
++            Some(g) => Ok(g),
++            None if self.last_grant_seq.is_some_and(|l| seq <= l) => Err(CapError::Retired),
++            None => Err(CapError::UnknownGrant),
++        }
++    }
++
++    fn grant_mut(&mut self, seq: u32) -> R<&mut Grant> {
++        self.grant(seq)?;
++        Ok(self
++            .grants
++            .iter_mut()
++            .find(|g| g.seq == seq)
++            .expect("found"))
++    }
++
++    /// Why job `(grant, seq)` has no account: a number at or below the
++    /// grant's highest belongs to a retired job (or grant).
++    pub fn missing_job(&self, grant: u32, seq: u32) -> CapError {
++        match self.grant(grant) {
++            Err(e) => e,
++            Ok(g) if g.last_job_seq.is_some_and(|l| seq <= l) => CapError::Retired,
++            Ok(_) => CapError::UnknownJob,
++        }
++    }
++
++    fn row(&self, job: &Job) -> R<usize> {
++        self.occ
++            .iter()
++            .position(|o| (o.grant, o.job) == (job.grant, job.seq))
++            .ok_or(CapError::UnknownJob)
++    }
++
++    /// Writes the job's row (after any change to the job).
++    fn put(&mut self, job: &Job) -> R<()> {
++        let i = self.row(job)?;
++        self.occ[i] = job.row();
++        Ok(())
++    }
++
++    fn grant_output(&self, seq: u32) -> i64 {
++        let spent = self
++            .grants
++            .iter()
++            .find(|g| g.seq == seq)
++            .map_or(0, |g| g.spent);
++        spent
++            + self
++                .occ
++                .iter()
++                .filter(|o| o.grant == seq)
++                .map(|o| o.budget)
++                .sum::<i64>()
++    }
++}
++
++fn live(f: &Facility, gen: u8) -> R<()> {
++    if f.gen != gen {
++        return Err(CapError::WrongGeneration);
++    }
++    if f.reused {
++        return Err(CapError::GenerationReused);
++    }
++    Ok(())
++}
++
++fn pool_live(p: &Pool, f: &Facility) -> R<()> {
++    if p.lost_at.is_some() {
++        return Err(CapError::FacilityGone);
++    }
++    live(f, p.facility.gen)
++}
++
++/// The job is the pool's (its row exists and names it).
++fn check_job(p: &Pool, j: &Job) -> R<()> {
++    p.row(j).map(|_| ())
++}
++
++/// The job's account for `(grant, seq)`, or why there is none.
++fn need<'a>(p: &Pool, j: Option<&'a mut Job>, grant: u32, seq: u32) -> R<&'a mut Job> {
++    match j {
++        Some(j) if (j.grant, j.seq) == (grant, seq) => {
++            check_job(p, j)?;
++            Ok(j)
++        }
++        Some(_) => Err(CapError::UnknownJob),
++        None => Err(p.missing_job(grant, seq)),
++    }
++}
++
++// ------------------------------------------------------------------ operations
++
++/// OpenCapacityPool: the facility's owner opens its pool for generation
++/// `id.gen` (`existing`: the pool account already there, if any).
++pub fn open_pool(
++    existing: Option<&Pool>,
++    f: &Facility,
++    signer: &Key,
++    id: FacilityId,
++    policies: Policies,
++) -> R<(Option<Pool>, Done)> {
++    if let Some(p) = existing {
++        if p.lost_at.is_some() {
++            return Err(CapError::GenerationReused);
++        }
++        live(f, id.gen)?;
++        return if p.owner == *signer && p.policies == policies {
++            Ok((None, Done::Already))
++        } else {
++            Err(CapError::Conflict)
++        };
++    }
++    live(f, id.gen)?;
++    if f.owner != *signer {
++        return Err(CapError::NotOwner);
++    }
++    let pool = Pool {
++        facility: id,
++        owner: *signer,
++        policies,
++        lent: 0,
++        owner_seq: 0,
++        last_owner_op: None,
++        grants: Vec::new(),
++        occ: Vec::new(),
++        lost_at: None,
++        captor: None,
++        last_grant_seq: None,
++        next_uid: 0,
++    };
++    Ok((
++        Some(pool),
++        Done::Applied(alloc::vec![Event::PoolOpened { owner: *signer }]),
++    ))
++}
++
++/// LendCapacity (`lend`) or ReclaimCapacity: the owner moves `units`
++/// workshop copies between the Holding's own production and the pool.
++#[allow(clippy::too_many_arguments)]
++pub fn lend(
++    p: &mut Pool,
++    h: &mut Holding,
++    f: &Facility,
++    now: i64,
++    signer: &Key,
++    lend: bool,
++    units: u32,
++    seq: u32,
++) -> R<Done> {
++    pool_live(p, f)?;
++    if p.owner != *signer {
++        return Err(CapError::NotOwner);
++    }
++    let op = OwnerOp { lend, units, seq };
++    if seq != p.owner_seq {
++        return if seq.checked_add(1) == Some(p.owner_seq) && p.last_owner_op == Some(op) {
++            Ok(Done::Already)
++        } else {
++            Err(CapError::Conflict)
++        };
++    }
++    if units == 0 {
++        return Err(CapError::BadWindow);
++    }
++    let lent = if lend {
++        p.lent.checked_add(units).ok_or(CapError::Overflow)?
++    } else {
++        let left = p.lent.checked_sub(units).ok_or(CapError::ReclaimBlocked)?;
++        if p.peak(now, now, i64::MAX, |_| true) > left {
++            return Err(CapError::ReclaimBlocked);
++        }
++        left
++    };
++    h.touch_owner(now).map_err(|_| CapError::TimeReversed)?;
++    if lend {
++        h.lend_workshops(now, units)
++            .map_err(|_| CapError::NotEnoughWorkshops)?;
++    } else {
++        h.reclaim_workshops(now, units)
++            .map_err(|_| CapError::ReclaimBlocked)?;
++    }
++    p.lent = lent;
++    p.owner_seq += 1;
++    p.last_owner_op = Some(op);
++    Ok(Done::Applied(alloc::vec![if lend {
++        Event::Lent {
++            units,
++            lent,
++            at: now,
++        }
++    } else {
++        Event::Reclaimed {
++            units,
++            lent,
++            at: now,
++        }
++    }]))
++}
++
++/// GrantCapacity.
++pub fn grant(p: &mut Pool, f: &Facility, now: i64, signer: &Key, g: Grant) -> R<Done> {
++    pool_live(p, f)?;
++    if p.owner != *signer {
++        return Err(CapError::NotOwner);
++    }
++    let g = Grant {
++        revoked_at: None,
++        spent: 0,
++        last_job_seq: None,
++        ..g
++    };
++    if let Some(old) = p.grants.iter().find(|x| x.seq == g.seq) {
++        let terms = Grant {
++            revoked_at: None,
++            spent: 0,
++            last_job_seq: None,
++            ..*old
++        };
++        return if terms == g {
++            Ok(Done::Already)
++        } else {
++            Err(CapError::Conflict)
++        };
++    }
++    if recipe(g.recipe).is_none() {
++        return Err(CapError::WrongRecipe);
++    }
++    if g.max_units == 0 || g.max_output <= 0 || g.from >= g.until || g.until <= now {
++        return Err(CapError::BadWindow);
++    }
++    if p.last_grant_seq.is_some_and(|l| g.seq <= l) {
++        return Err(CapError::Retired);
++    }
++    if p.grants.len() >= MAX_GRANTS {
++        return Err(CapError::TooMany);
++    }
++    p.grants.push(g);
++    p.last_grant_seq = Some(g.seq);
++    Ok(Done::Applied(alloc::vec![Event::Granted {
++        grant: g.seq,
++        user: g.user
++    }]))
++}
++
++/// RevokeCapacity. Under `CancelBooked`, `booked` must be every job of the
++/// grant still open and not started at `now`, in the pool's order.
++pub fn revoke(
++    p: &mut Pool,
++    f: &Facility,
++    now: i64,
++    signer: &Key,
++    seq: u32,
++    booked: &mut [&mut Job],
++) -> R<Done> {
++    pool_live(p, f)?;
++    if p.owner != *signer {
++        return Err(CapError::NotOwner);
++    }
++    if p.grant(seq)?.revoked_at.is_some() {
++        return Ok(Done::Already);
++    }
++    let cancel = p.policies.revoke == RevokePolicy::CancelBooked;
++    let want: Vec<(u32, u32)> = if cancel {
++        p.occ
++            .iter()
++            .filter(|o| o.grant == seq && o.open && now < o.start)
++            .map(|o| (o.grant, o.job))
++            .collect()
++    } else {
++        Vec::new()
++    };
++    let given: Vec<(u32, u32)> = booked.iter().map(|j| (j.grant, j.seq)).collect();
++    if want != given {
++        return Err(CapError::UnknownJob);
++    }
++    p.grant_mut(seq)?.revoked_at = Some(now);
++    let mut ev = Vec::new();
++    let mut n = 0;
++    for j in booked.iter_mut() {
++        j.fin = Fin::Cancelled(now);
++        p.put(j)?;
++        n += 1;
++        ev.push(Event::Cancelled {
++            job: (j.grant, j.seq),
++            at: now,
++            out: 0,
++        });
++    }
++    ev.push(Event::Revoked {
++        grant: seq,
++        at: now,
++        cancelled: n,
++    });
++    Ok(Done::Applied(ev))
++}
++
++/// ReserveCapacity: the grant's user books `units` copies for
++/// `[start, end)`. `existing`: the job's account, if it is already there;
++/// `dormant`: the facility's owner is away at `now`.
++#[allow(clippy::too_many_arguments)]
++pub fn reserve(
++    p: &mut Pool,
++    f: &Facility,
++    dormant: bool,
++    existing: Option<&Job>,
++    now: i64,
++    signer: &Key,
++    grant: u32,
++    seq: u32,
++    units: u32,
++    start: i64,
++    end: i64,
++    max_output: i64,
++) -> R<(Option<Job>, Done)> {
++    pool_live(p, f)?;
++    let g = *p.grant(grant)?;
++    if g.user != *signer {
++        return Err(CapError::NotUser);
++    }
++    if let Some(j) = existing {
++        if (j.grant, j.seq) != (grant, seq) {
++            return Err(CapError::UnknownJob);
++        }
++        let same = (j.units, j.start, j.end, j.max_output) == (units, start, end, max_output);
++        return if same {
++            Ok((None, Done::Already))
++        } else {
++            Err(CapError::Conflict)
++        };
++    }
++    if g.last_job_seq.is_some_and(|l| seq <= l) {
++        return Err(CapError::Retired);
++    }
++    if g.revoked_at.is_some() {
++        return Err(CapError::GrantRevoked);
++    }
++    if units == 0 || max_output <= 0 || start >= end || start < now || end - start > MAX_WINDOW {
++        return Err(CapError::BadWindow);
++    }
++    if start < g.from || end > g.until {
++        return Err(CapError::OutsideGrantWindow);
++    }
++    if p.policies.dormancy == DormancyPolicy::RefuseNewWhenDormant && dormant {
++        return Err(CapError::OwnerAway);
++    }
++    let same_grant = p.peak(now, start, end, |o| o.grant == grant);
++    if same_grant + units > g.max_units {
++        return Err(CapError::GrantUnitsExceeded);
++    }
++    if p.grant_output(grant) + max_output > g.max_output {
++        return Err(CapError::GrantOutputExceeded);
++    }
++    if p.peak(now, start, end, |_| true) + units > p.lent {
++        return Err(CapError::CapacityExceeded);
++    }
++    if p.occ.len() >= MAX_JOBS {
++        return Err(CapError::TooMany);
++    }
++    let uid = p.next_uid;
++    let j = Job {
++        grant,
++        seq,
++        uid,
++        user: *signer,
++        recipe: g.recipe,
++        units,
++        start,
++        end,
++        max_output,
++        hopper: [0, 0],
++        deposits: Vec::new(),
++        fin: Fin::Open,
++        settled: 0,
++        started_logged: false,
++        claimed: 0,
++        refunded: false,
++        returned: [0, 0],
++        forfeited_in: [0, 0],
++        forfeited_out: 0,
++    };
++    p.next_uid = uid.checked_add(1).ok_or(CapError::Overflow)?;
++    p.occ.push(j.row());
++    p.grant_mut(grant)?.last_job_seq = Some(seq);
++    Ok((
++        Some(j),
++        Done::Applied(alloc::vec![Event::Reserved {
++            job: (grant, seq),
++            units,
++            start,
++            end,
++            max_output,
++        }]),
++    ))
++}
++
++/// DepositToJob: the job's user brings `amount` of `resource` from the
++/// place the caller tags `src` (the caller moves it on `Deposited`).
++#[allow(clippy::too_many_arguments)]
++pub fn deposit(
++    p: &mut Pool,
++    f: &Facility,
++    j: Option<&mut Job>,
++    job: (u32, u32),
++    now: i64,
++    signer: &Key,
++    id: u64,
++    resource: Resource,
++    amount: i64,
++    src: u64,
++) -> R<Done> {
++    pool_live(p, f)?;
++    let j = need(p, j, job.0, job.1)?;
++    if j.user != *signer {
++        return Err(CapError::NotUser);
++    }
++    let i = j
++        .recipe()
++        .input_index(resource)
++        .ok_or(CapError::WrongResource)?;
++    let d = Deposit {
++        id,
++        input: i as u8,
++        amount,
++        src,
++    };
++    if let Some(old) = j.deposits.iter().find(|x| x.id == id) {
++        return if *old == d {
++            Ok(Done::Already)
++        } else {
++            Err(CapError::Conflict)
++        };
++    }
++    if j.fin != Fin::Open {
++        return Err(CapError::AlreadyFinal);
++    }
++    if now >= j.start {
++        return Err(CapError::AlreadyStarted);
++    }
++    if amount <= 0 {
++        return Err(CapError::WrongResource);
++    }
++    if j.deposits.len() >= MAX_DEPOSITS {
++        return Err(CapError::TooMany);
++    }
++    j.hopper[i] = j.hopper[i].checked_add(amount).ok_or(CapError::Overflow)?;
++    j.deposits.push(d);
++    p.put(j)?;
++    Ok(Done::Applied(alloc::vec![Event::Deposited {
++        job: (j.grant, j.seq),
++        deposit: id,
++        resource,
++        amount,
++    }]))
++}
++
++/// Credit the output made by `now` and use its inputs; finalize a job
++/// whose conversion has ended.
++fn settle_job(p: &mut Pool, j: &mut Job, now: i64, ev: &mut Vec<Event>) -> R<()> {
++    let r = *j.recipe();
++    let id = (j.grant, j.seq);
++    if !j.started_logged && now >= j.start {
++        ev.push(Event::Started {
++            job: id,
++            at: j.start,
++        });
++    }
++    let out = j.out_at(now);
++    let delta = out - j.settled;
++    if delta > 0 {
++        ev.push(Event::Settled {
++            job: id,
++            out: delta,
++            used: r.used_for(delta),
++            total: out,
++        });
++    }
++    j.settled = out;
++    if now >= j.start {
++        j.started_logged = true;
++    }
++    if j.fin == Fin::Open && now >= j.start && now >= j.end_eff() {
++        let at = j.end_eff();
++        j.fin = Fin::Completed(at);
++        ev.push(Event::Completed { job: id, at, out });
++    }
++    p.put(j)
++}
++
++/// SettleJob (anyone).
++pub fn settle(
++    p: &mut Pool,
++    f: &Facility,
++    j: Option<&mut Job>,
++    job: (u32, u32),
++    now: i64,
++) -> R<Done> {
++    pool_live(p, f)?;
++    let j = need(p, j, job.0, job.1)?;
++    let mut ev = Vec::new();
++    settle_job(p, j, now, &mut ev)?;
++    Ok(if ev.is_empty() {
++        Done::Already
++    } else {
++        Done::Applied(ev)
++    })
++}
++
++/// CancelJob (the user).
++pub fn cancel(
++    p: &mut Pool,
++    f: &Facility,
++    j: Option<&mut Job>,
++    job: (u32, u32),
++    now: i64,
++    signer: &Key,
++) -> R<Done> {
++    pool_live(p, f)?;
++    let j = need(p, j, job.0, job.1)?;
++    if j.user != *signer {
++        return Err(CapError::NotUser);
++    }
++    if matches!(j.fin, Fin::Cancelled(_)) {
++        return Ok(Done::Already);
++    }
++    if j.fin != Fin::Open || now >= j.end_eff() && now >= j.start {
++        return Err(CapError::AlreadyFinal);
++    }
++    let mut ev = Vec::new();
++    settle_job(p, j, now, &mut ev)?;
++    j.fin = Fin::Cancelled(now);
++    let out = j.out_at(now);
++    p.put(j)?;
++    ev.push(Event::Cancelled {
++        job: (j.grant, j.seq),
++        at: now,
++        out,
++    });
++    Ok(Done::Applied(ev))
++}
++
++/// ClaimJob (the user): what the job made and, once final, what it did not
++/// use. `split`: the refund's whole units and sub-unit rest separately
++/// (workstream 10's lots take whole units). `to_job_place`: a destination
++/// is a job's own place (refused, `BadPlace`).
++#[allow(clippy::too_many_arguments)]
++pub fn claim(
++    p: &mut Pool,
++    f: &Facility,
++    j: Option<&mut Job>,
++    job: (u32, u32),
++    now: i64,
++    signer: &Key,
++    split: bool,
++    to_job_place: bool,
++) -> R<Done> {
++    let lost = p.lost_at.is_some();
++    if !lost {
++        pool_live(p, f)?;
++    }
++    let j = need(p, j, job.0, job.1)?;
++    if j.user != *signer {
++        return Err(CapError::NotUser);
++    }
++    if to_job_place {
++        return Err(CapError::BadPlace);
++    }
++    let mut ev = Vec::new();
++    if !lost {
++        settle_job(p, j, now, &mut ev)?;
++    }
++    let output = j.settled - j.claimed;
++    let refund = if j.fin != Fin::Open && !j.refunded {
++        j.rest()
++    } else {
++        [0, 0]
++    };
++    if output == 0 && refund == [0, 0] {
++        return Ok(if ev.is_empty() {
++            Done::Already
++        } else {
++            Done::Applied(ev)
++        });
++    }
++    let (whole, rest): ([i64; 2], [i64; 2]) = if split {
++        (
++            core::array::from_fn(|i| refund[i] / MILLI * MILLI),
++            core::array::from_fn(|i| refund[i] % MILLI),
++        )
++    } else {
++        (refund, [0, 0])
++    };
++    j.claimed = j.settled;
++    if j.fin != Fin::Open {
++        j.refunded = true;
++        for (i, x) in refund.iter().enumerate() {
++            j.returned[i] = j.returned[i].checked_add(*x).ok_or(CapError::Overflow)?;
++        }
++    }
++    p.put(j)?;
++    let id = (j.grant, j.seq);
++    ev.push(Event::Claimed {
++        job: id,
++        output,
++        refund,
++    });
++    if split && refund != [0, 0] {
++        ev.push(Event::Refunded {
++            job: id,
++            whole,
++            remainder: rest,
++        });
++    }
++    Ok(Done::Applied(ev))
++}
++
++/// RecordFacilityLoss (anyone): the pool's generation ended (`f.end`);
++/// every job stops then, the pool closes, and what the jobs keep follows
++/// the loss policy. `jobs` must be every job of the pool, in its order.
++pub fn lose(p: &mut Pool, f: &Facility, jobs: &mut [&mut Job]) -> R<Done> {
++    if p.lost_at.is_some() {
++        return Ok(Done::Already);
++    }
++    let (at, captor) = f.end.ok_or(CapError::FacilityLive)?;
++    let given: Vec<(u32, u32)> = jobs.iter().map(|j| (j.grant, j.seq)).collect();
++    let want: Vec<(u32, u32)> = p.occ.iter().map(|o| (o.grant, o.job)).collect();
++    if given != want {
++        return Err(CapError::UnknownJob);
++    }
++    let policy = p.policies.loss;
++    let mut ev = alloc::vec![Event::FacilityLost { at, captor }];
++    for j in jobs.iter_mut() {
++        let id = (j.grant, j.seq);
++        if j.fin == Fin::Open && at < j.end_eff().max(j.start) {
++            settle_job(p, j, at, &mut ev)?;
++            j.fin = Fin::Lost(at);
++            p.put(j)?;
++            ev.push(Event::Lost {
++                job: id,
++                at,
++                out: j.settled,
++            });
++        } else if j.fin == Fin::Open {
++            settle_job(p, j, at, &mut ev)?;
++        }
++        let output = j.settled - j.claimed;
++        let refund = if j.refunded { [0, 0] } else { j.rest() };
++        let (out_to, in_to) = match (policy, captor) {
++            (_, None) | (LossPolicy::UserKeepsAll, _) => (None, None),
++            (LossPolicy::CaptorTakesAll, Some(c)) => (Some(c), Some(c)),
++            (LossPolicy::UserKeepsOutput, Some(c)) => (None, Some(c)),
++        };
++        let mut fo = 0;
++        let mut fi = [0, 0];
++        if out_to.is_some() && output > 0 {
++            j.claimed = j.settled;
++            j.forfeited_out = j
++                .forfeited_out
++                .checked_add(output)
++                .ok_or(CapError::Overflow)?;
++            fo = output;
++        }
++        if in_to.is_some() && refund != [0, 0] {
++            j.refunded = true;
++            for (i, x) in refund.iter().enumerate() {
++                j.forfeited_in[i] = j.forfeited_in[i]
++                    .checked_add(*x)
++                    .ok_or(CapError::Overflow)?;
++            }
++            fi = refund;
++        }
++        p.put(j)?;
++        if let Some(c) = out_to.or(in_to) {
++            if fo > 0 || fi != [0, 0] {
++                ev.push(Event::Forfeited {
++                    job: id,
++                    output: fo,
++                    refund: fi,
++                    owner: c,
++                });
++            }
++        }
++    }
++    p.lost_at = Some(at);
++    p.captor = captor;
++    Ok(Done::Applied(ev))
++}
++
++/// RetireJob (anyone): close a final, fully handed-out job's record (the
++/// caller closes its account on `Retired`).
++pub fn retire(p: &mut Pool, j: Option<&Job>, job: (u32, u32)) -> R<Done> {
++    let j = match j {
++        Some(j) if (j.grant, j.seq) == job => {
++            check_job(p, j)?;
++            j
++        }
++        Some(_) => return Err(CapError::UnknownJob),
++        None => {
++            return match p.missing_job(job.0, job.1) {
++                CapError::Retired => Ok(Done::Already),
++                e => Err(e),
++            }
++        }
++    };
++    let handed_out = j.claimed == j.settled && (j.refunded || j.rest() == [0, 0]);
++    if j.fin == Fin::Open || !handed_out {
++        return Err(CapError::NotRetirable);
++    }
++    let id = (j.grant, j.seq);
++    p.occ.retain(|o| (o.grant, o.job) != id);
++    let g = p.grant_mut(j.grant)?;
++    g.spent = g.spent.checked_add(j.settled).ok_or(CapError::Overflow)?;
++    Ok(Done::Applied(alloc::vec![
++        Event::Receipt {
++            job: id,
++            uid: j.uid,
++            accounts: j.accounts(),
++        },
++        Event::Retired {
++            job: id,
++            uid: j.uid,
++            output: j.settled,
++        },
++    ]))
++}
++
++/// RetireGrant (anyone): close a revoked or expired grant with no job left.
++pub fn retire_grant(p: &mut Pool, now: i64, seq: u32) -> R<Done> {
++    let g = match p.grant(seq) {
++        Err(CapError::Retired) => return Ok(Done::Already),
++        r => *r?,
++    };
++    let over = g.revoked_at.is_some() || now >= g.until || p.lost_at.is_some();
++    if !over || p.occ.iter().any(|o| o.grant == seq) {
++        return Err(CapError::NotRetirable);
++    }
++    p.grants.retain(|g| g.seq != seq);
++    Ok(Done::Applied(alloc::vec![Event::GrantRetired {
++        grant: seq
++    }]))
++}
++
++/// RetirePool (anyone): close a lost generation's pool with no job left
++/// (the caller closes its account).
++pub fn retire_pool(p: &Pool) -> R<Done> {
++    if p.lost_at.is_none() || !p.occ.is_empty() {
++        return Err(CapError::NotRetirable);
++    }
++    Ok(Done::Applied(alloc::vec![Event::PoolRetired]))
++}
++
++// ------------------------------------------------------------------ layout
++
++/// The accounts' byte layouts (little endian), with magic and kind as
++/// workstream 4's provisional allocation (rev 3): AccountKind 25
++/// CapacityPool and 26 CapacityJob, seeds `cp` and `cj`; the magic values
++/// are workstream 09's proposal.
++pub mod layout {
++    use super::*;
++
++    // Within one small account each.
++    const _: () = assert!(pool::SIZE < 2_048 && job::SIZE < 512);
++
++    /// `Option<i64>` and `Option<u32>` are a flag byte and the value.
++    fn put(d: &mut [u8], o: &mut usize, b: &[u8]) {
++        d[*o..*o + b.len()].copy_from_slice(b);
++        *o += b.len();
++    }
++
++    fn take<'a>(d: &'a [u8], o: &mut usize, n: usize) -> Option<&'a [u8]> {
++        let b = d.get(*o..*o + n)?;
++        *o += n;
++        Some(b)
++    }
++
++    fn i64_(d: &[u8], o: &mut usize) -> Option<i64> {
++        Some(i64::from_le_bytes(take(d, o, 8)?.try_into().ok()?))
++    }
++
++    fn u64_(d: &[u8], o: &mut usize) -> Option<u64> {
++        Some(u64::from_le_bytes(take(d, o, 8)?.try_into().ok()?))
++    }
++
++    fn u32_(d: &[u8], o: &mut usize) -> Option<u32> {
++        Some(u32::from_le_bytes(take(d, o, 4)?.try_into().ok()?))
++    }
++
++    fn u8_(d: &[u8], o: &mut usize) -> Option<u8> {
++        Some(take(d, o, 1)?[0])
++    }
++
++    fn key(d: &[u8], o: &mut usize) -> Option<Key> {
++        take(d, o, 32)?.try_into().ok()
++    }
++
++    fn opt_i64(d: &[u8], o: &mut usize) -> Option<Option<i64>> {
++        let f = u8_(d, o)?;
++        let v = i64_(d, o)?;
++        match f {
++            0 => Some(None),
++            1 => Some(Some(v)),
++            _ => None,
++        }
++    }
++
++    fn opt_u32(d: &[u8], o: &mut usize) -> Option<Option<u32>> {
++        let f = u8_(d, o)?;
++        let v = u32_(d, o)?;
++        match f {
++            0 => Some(None),
++            1 => Some(Some(v)),
++            _ => None,
++        }
++    }
++
++    fn put_opt_i64(d: &mut [u8], o: &mut usize, v: Option<i64>) {
++        put(d, o, &[v.is_some() as u8]);
++        put(d, o, &v.unwrap_or(0).to_le_bytes());
++    }
++
++    fn put_opt_u32(d: &mut [u8], o: &mut usize, v: Option<u32>) {
++        put(d, o, &[v.is_some() as u8]);
++        put(d, o, &v.unwrap_or(0).to_le_bytes());
++    }
++
++    /// CapacityPool: `cp ‖ P ‖ Q ‖ site ‖ gen`.
++    pub mod pool {
++        pub const MAGIC: &[u8; 8] = b"PSF1CPOL";
++        pub const ACCOUNT_KIND: u8 = 25;
++        pub const SEED: &[u8; 2] = b"cp";
++        /// Header (magic 8, version 2, kind 1, pad 5) and the record.
++        pub const HEADER: usize = 16;
++        pub const GRANT: usize = 4 + 32 + 1 + 4 + 8 + 8 + 8 + 9 + 8 + 5;
++        pub const OCC: usize = 4 + 4 + 4 + 8 + 8 + 8 + 1 + 8;
++        pub const BODY: usize = 2 + 2 + 1 + 1 + 32 + 3 + 4 + 4 + 1 + 1 + 4 + 4 + 9 + 1 + 32 + 5 + 8;
++        pub const SIZE: usize =
++            HEADER + BODY + 1 + super::MAX_GRANTS * GRANT + 1 + super::MAX_JOBS * OCC;
++        pub const VERSION: u16 = 1;
++    }
++
++    /// CapacityJob: `cj ‖ pool ‖ grant seq ‖ job seq`.
++    pub mod job {
++        pub const MAGIC: &[u8; 8] = b"PSF1CJOB";
++        pub const ACCOUNT_KIND: u8 = 26;
++        pub const SEED: &[u8; 2] = b"cj";
++        pub const HEADER: usize = 16;
++        pub const DEPOSIT: usize = 8 + 1 + 8 + 8;
++        pub const BODY: usize =
++            4 + 4 + 8 + 32 + 1 + 4 + 8 + 8 + 8 + 16 + 9 + 8 + 1 + 8 + 1 + 16 + 16 + 8;
++        pub const SIZE: usize = HEADER + BODY + 1 + super::MAX_DEPOSITS * DEPOSIT;
++        pub const VERSION: u16 = 1;
++    }
++
++    fn header(d: &mut [u8], magic: &[u8; 8], version: u16, kind: u8) {
++        d[..8].copy_from_slice(magic);
++        d[8..10].copy_from_slice(&version.to_le_bytes());
++        d[10] = kind;
++        d[11..16].fill(0);
++    }
++
++    fn check_header(d: &[u8], magic: &[u8; 8], version: u16, kind: u8) -> Option<()> {
++        (d.get(..8)? == magic && d.get(8..10)? == version.to_le_bytes() && *d.get(10)? == kind)
++            .then_some(())
++    }
++
++    fn fin_code(f: Fin) -> (u8, i64) {
++        match f {
++            Fin::Open => (0, 0),
++            Fin::Completed(t) => (1, t),
++            Fin::Cancelled(t) => (2, t),
++            Fin::Lost(t) => (3, t),
++        }
++    }
++
++    impl Pool {
++        pub fn encode(&self, d: &mut [u8]) -> Option<()> {
++            if d.len() < pool::SIZE || self.grants.len() > MAX_GRANTS || self.occ.len() > MAX_JOBS {
++                return None;
++            }
++            d[..pool::SIZE].fill(0);
++            header(d, pool::MAGIC, pool::VERSION, pool::ACCOUNT_KIND);
++            let mut off = pool::HEADER;
++            let o = &mut off;
++            let f = self.facility;
++            put(d, o, &f.p.to_le_bytes());
++            put(d, o, &f.q.to_le_bytes());
++            put(d, o, &[f.site, f.gen]);
++            put(d, o, &self.owner);
++            put(d, o, &self.policies.encode());
++            put(d, o, &self.lent.to_le_bytes());
++            put(d, o, &self.owner_seq.to_le_bytes());
++            let op = self.last_owner_op;
++            put(
++                d,
++                o,
++                &[op.is_some() as u8, op.is_some_and(|x| x.lend) as u8],
++            );
++            put(d, o, &op.map_or(0, |x| x.units).to_le_bytes());
++            put(d, o, &op.map_or(0, |x| x.seq).to_le_bytes());
++            put_opt_i64(d, o, self.lost_at);
++            put(d, o, &[self.captor.is_some() as u8]);
++            put(d, o, &self.captor.unwrap_or([0; 32]));
++            put_opt_u32(d, o, self.last_grant_seq);
++            put(d, o, &self.next_uid.to_le_bytes());
++            put(d, o, &[self.grants.len() as u8]);
++            for i in 0..MAX_GRANTS {
++                let start = *o;
++                if let Some(g) = self.grants.get(i) {
++                    put(d, o, &g.seq.to_le_bytes());
++                    put(d, o, &g.user);
++                    put(d, o, &[g.recipe]);
++                    put(d, o, &g.max_units.to_le_bytes());
++                    put(d, o, &g.max_output.to_le_bytes());
++                    put(d, o, &g.from.to_le_bytes());
++                    put(d, o, &g.until.to_le_bytes());
++                    put_opt_i64(d, o, g.revoked_at);
++                    put(d, o, &g.spent.to_le_bytes());
++                    put_opt_u32(d, o, g.last_job_seq);
++                }
++                *o = start + pool::GRANT;
++            }
++            put(d, o, &[self.occ.len() as u8]);
++            for i in 0..MAX_JOBS {
++                let start = *o;
++                if let Some(r) = self.occ.get(i) {
++                    put(d, o, &r.grant.to_le_bytes());
++                    put(d, o, &r.job.to_le_bytes());
++                    put(d, o, &r.units.to_le_bytes());
++                    put(d, o, &r.start.to_le_bytes());
++                    put(d, o, &r.end.to_le_bytes());
++                    put(d, o, &r.end_eff.to_le_bytes());
++                    put(d, o, &[r.open as u8]);
++                    put(d, o, &r.budget.to_le_bytes());
++                }
++                *o = start + pool::OCC;
++            }
++            debug_assert_eq!(*o, pool::SIZE);
++            Some(())
++        }
++
++        pub fn decode(d: &[u8]) -> Option<Pool> {
++            if d.len() < pool::SIZE {
++                return None;
++            }
++            check_header(d, pool::MAGIC, pool::VERSION, pool::ACCOUNT_KIND)?;
++            let mut off = pool::HEADER;
++            let o = &mut off;
++            let p = i16::from_le_bytes(take(d, o, 2)?.try_into().ok()?);
++            let q = i16::from_le_bytes(take(d, o, 2)?.try_into().ok()?);
++            let site = u8_(d, o)?;
++            let gen = u8_(d, o)?;
++            let owner = key(d, o)?;
++            let policies = Policies::decode(take(d, o, 3)?.try_into().ok()?)?;
++            let lent = u32_(d, o)?;
++            let owner_seq = u32_(d, o)?;
++            let has = u8_(d, o)?;
++            let lend = u8_(d, o)? == 1;
++            let units = u32_(d, o)?;
++            let seq = u32_(d, o)?;
++            let last_owner_op = match has {
++                0 => None,
++                1 => Some(OwnerOp { lend, units, seq }),
++                _ => return None,
++            };
++            let lost_at = opt_i64(d, o)?;
++            let has_captor = u8_(d, o)?;
++            let c = key(d, o)?;
++            let captor = match has_captor {
++                0 => None,
++                1 => Some(c),
++                _ => return None,
++            };
++            let last_grant_seq = opt_u32(d, o)?;
++            let next_uid = u64_(d, o)?;
++            let ng = u8_(d, o)? as usize;
++            if ng > MAX_GRANTS {
++                return None;
++            }
++            let mut grants = Vec::with_capacity(ng);
++            for i in 0..MAX_GRANTS {
++                let start = *o;
++                if i < ng {
++                    grants.push(Grant {
++                        seq: u32_(d, o)?,
++                        user: key(d, o)?,
++                        recipe: u8_(d, o)?,
++                        max_units: u32_(d, o)?,
++                        max_output: i64_(d, o)?,
++                        from: i64_(d, o)?,
++                        until: i64_(d, o)?,
++                        revoked_at: opt_i64(d, o)?,
++                        spent: i64_(d, o)?,
++                        last_job_seq: opt_u32(d, o)?,
++                    });
++                }
++                *o = start + pool::GRANT;
++            }
++            let nj = u8_(d, o)? as usize;
++            if nj > MAX_JOBS {
++                return None;
++            }
++            let mut occ = Vec::with_capacity(nj);
++            for i in 0..MAX_JOBS {
++                let start = *o;
++                if i < nj {
++                    occ.push(Occ {
++                        grant: u32_(d, o)?,
++                        job: u32_(d, o)?,
++                        units: u32_(d, o)?,
++                        start: i64_(d, o)?,
++                        end: i64_(d, o)?,
++                        end_eff: i64_(d, o)?,
++                        open: match u8_(d, o)? {
++                            0 => false,
++                            1 => true,
++                            _ => return None,
++                        },
++                        budget: i64_(d, o)?,
++                    });
++                }
++                *o = start + pool::OCC;
++            }
++            Some(Pool {
++                facility: FacilityId { p, q, site, gen },
++                owner,
++                policies,
++                lent,
++                owner_seq,
++                last_owner_op,
++                grants,
++                occ,
++                lost_at,
++                captor,
++                last_grant_seq,
++                next_uid,
++            })
++        }
++    }
++
++    impl Job {
++        pub fn encode(&self, d: &mut [u8]) -> Option<()> {
++            if d.len() < job::SIZE || self.deposits.len() > MAX_DEPOSITS {
++                return None;
++            }
++            d[..job::SIZE].fill(0);
++            header(d, job::MAGIC, job::VERSION, job::ACCOUNT_KIND);
++            let mut off = job::HEADER;
++            let o = &mut off;
++            put(d, o, &self.grant.to_le_bytes());
++            put(d, o, &self.seq.to_le_bytes());
++            put(d, o, &self.uid.to_le_bytes());
++            put(d, o, &self.user);
++            put(d, o, &[self.recipe]);
++            put(d, o, &self.units.to_le_bytes());
++            put(d, o, &self.start.to_le_bytes());
++            put(d, o, &self.end.to_le_bytes());
++            put(d, o, &self.max_output.to_le_bytes());
++            for x in self.hopper {
++                put(d, o, &x.to_le_bytes());
++            }
++            let (fc, ft) = fin_code(self.fin);
++            put(d, o, &[fc]);
++            put(d, o, &ft.to_le_bytes());
++            put(d, o, &self.settled.to_le_bytes());
++            put(d, o, &[self.started_logged as u8]);
++            put(d, o, &self.claimed.to_le_bytes());
++            put(d, o, &[self.refunded as u8]);
++            for x in self.returned {
++                put(d, o, &x.to_le_bytes());
++            }
++            for x in self.forfeited_in {
++                put(d, o, &x.to_le_bytes());
++            }
++            put(d, o, &self.forfeited_out.to_le_bytes());
++            put(d, o, &[self.deposits.len() as u8]);
++            for x in &self.deposits {
++                put(d, o, &x.id.to_le_bytes());
++                put(d, o, &[x.input]);
++                put(d, o, &x.amount.to_le_bytes());
++                put(d, o, &x.src.to_le_bytes());
++            }
++            Some(())
++        }
++
++        pub fn decode(d: &[u8]) -> Option<Job> {
++            if d.len() < job::SIZE {
++                return None;
++            }
++            check_header(d, job::MAGIC, job::VERSION, job::ACCOUNT_KIND)?;
++            let mut off = job::HEADER;
++            let o = &mut off;
++            let grant = u32_(d, o)?;
++            let seq = u32_(d, o)?;
++            let uid = u64_(d, o)?;
++            let user = key(d, o)?;
++            let recipe_id = u8_(d, o)?;
++            recipe(recipe_id)?;
++            let units = u32_(d, o)?;
++            let start = i64_(d, o)?;
++            let end = i64_(d, o)?;
++            let max_output = i64_(d, o)?;
++            let hopper = [i64_(d, o)?, i64_(d, o)?];
++            let fc = u8_(d, o)?;
++            let ft = i64_(d, o)?;
++            let fin = match fc {
++                0 => Fin::Open,
++                1 => Fin::Completed(ft),
++                2 => Fin::Cancelled(ft),
++                3 => Fin::Lost(ft),
++                _ => return None,
++            };
++            let settled = i64_(d, o)?;
++            let started_logged = u8_(d, o)? == 1;
++            let claimed = i64_(d, o)?;
++            let refunded = u8_(d, o)? == 1;
++            let returned = [i64_(d, o)?, i64_(d, o)?];
++            let forfeited_in = [i64_(d, o)?, i64_(d, o)?];
++            let forfeited_out = i64_(d, o)?;
++            let n = u8_(d, o)? as usize;
++            if n > MAX_DEPOSITS {
++                return None;
++            }
++            let mut deposits = Vec::with_capacity(n);
++            for _ in 0..n {
++                deposits.push(Deposit {
++                    id: u64_(d, o)?,
++                    input: u8_(d, o)?,
++                    amount: i64_(d, o)?,
++                    src: u64_(d, o)?,
++                });
++            }
++            Some(Job {
++                grant,
++                seq,
++                uid,
++                user,
++                recipe: recipe_id,
++                units,
++                start,
++                end,
++                max_output,
++                hopper,
++                deposits,
++                fin,
++                settled,
++                started_logged,
++                claimed,
++                refunded,
++                returned,
++                forfeited_in,
++                forfeited_out,
++            })
++        }
++    }
++}
++
++#[cfg(test)]
++mod tests {
++    use super::*;
++
++    const A: Key = [0xA1; 32];
++    const B: Key = [0xB2; 32];
++
++    fn fac() -> Facility {
++        Facility {
++            gen: 1,
++            owner: A,
++            reused: false,
++            end: None,
++        }
++    }
++
++    fn id() -> FacilityId {
++        FacilityId {
++            p: 0,
++            q: 0,
++            site: 0,
++            gen: 1,
++        }
++    }
++
++    #[test]
++    fn layouts_round_trip_full_tables() {
++        let (p, _) = open_pool(None, &fac(), &A, id(), Policies::PROVISIONAL).unwrap();
++        let mut p = p.unwrap();
++        p.lent = 3;
++        p.last_owner_op = Some(OwnerOp {
++            lend: true,
++            units: 3,
++            seq: 0,
++        });
++        p.lost_at = Some(77);
++        p.captor = Some(B);
++        for s in 0..MAX_GRANTS as u32 {
++            p.grants.push(Grant {
++                seq: s,
++                user: B,
++                recipe: RECIPE_ARMS,
++                max_units: 2,
++                max_output: 9,
++                from: 1,
++                until: 2,
++                revoked_at: (s % 2 == 0).then_some(5),
++                spent: -1,
++                last_job_seq: Some(s),
++            });
++        }
++        for s in 0..MAX_JOBS as u32 {
++            p.occ.push(Occ {
++                grant: s,
++                job: s + 1,
++                units: 1,
++                start: -5,
++                end: 6,
++                end_eff: 4,
++                open: s % 3 == 0,
++                budget: i64::MAX,
++            });
++        }
++        let mut d = alloc::vec![0u8; layout::pool::SIZE];
++        p.encode(&mut d).unwrap();
++        assert_eq!(Pool::decode(&d), Some(p));
++        let j = Job {
++            grant: 1,
++            seq: 2,
++            uid: 3,
++            user: B,
++            recipe: RECIPE_ARMS,
++            units: 2,
++            start: 10,
++            end: 20,
++            max_output: 30,
++            hopper: [4, 5],
++            deposits: (0..MAX_DEPOSITS as u64)
++                .map(|i| Deposit {
++                    id: i,
++                    input: (i % 2) as u8,
++                    amount: 7,
++                    src: u64::MAX - i,
++                })
++                .collect(),
++            fin: Fin::Lost(15),
++            settled: 6,
++            started_logged: true,
++            claimed: 6,
++            refunded: true,
++            returned: [1, 2],
++            forfeited_in: [3, 4],
++            forfeited_out: 5,
++        };
++        let mut d = alloc::vec![0u8; layout::job::SIZE];
++        j.encode(&mut d).unwrap();
++        assert_eq!(Job::decode(&d), Some(j));
++        // A wrong magic is not a pool.
++        d[0] ^= 1;
++        assert_eq!(Job::decode(&d), None);
++    }
++
++    #[test]
++    fn sizes() {
++        assert_eq!(layout::pool::GRANT, 87);
++        assert_eq!(layout::pool::OCC, 45);
++        assert_eq!(layout::job::DEPOSIT, 25);
++        assert_eq!((layout::pool::SIZE, layout::job::SIZE), (1_548, 377));
++    }
++}
+diff --git a/permutation-rules/src/frontier/mod.rs b/permutation-rules/src/frontier/mod.rs
+index 0014699a..7f80b8b3 100644
+--- a/permutation-rules/src/frontier/mod.rs
++++ b/permutation-rules/src/frontier/mod.rs
+@@ -28,6 +28,9 @@ pub mod addr;
+ pub mod arms;
+ pub mod beacon;
+ pub mod camp;
++/// Workstream 09: lending a workshop's processing capacity (a preview).
++#[cfg(feature = "capacity-preview")]
++pub mod capacity;
+ pub mod caravan;
+ pub mod catalog;
+ pub mod clash;
+diff --git a/workstreams/09-capacity/kernel/Cargo.toml b/workstreams/09-capacity/kernel/Cargo.toml
+index 5a5e8182..597cd185 100644
+--- a/workstreams/09-capacity/kernel/Cargo.toml
++++ b/workstreams/09-capacity/kernel/Cargo.toml
+@@ -23,3 +23,8 @@ abi-04-provisional = []
+ [dependencies]
+ permutation-rules = { path = "../../../permutation-rules", features = ["std"] }
+ borsh = { version = "=1.6.1", features = ["derive"] }
++
++[dev-dependencies]
++# The program's rules for capacity (feature capacity-preview), compared with
++# this kernel by tests/rules_port.rs.
++permutation-rules = { path = "../../../permutation-rules", features = ["std", "capacity-preview"] }
+diff --git a/workstreams/09-capacity/kernel/tests/rules_port.rs b/workstreams/09-capacity/kernel/tests/rules_port.rs
+new file mode 100644
+index 00000000..ce35437d
+--- /dev/null
++++ b/workstreams/09-capacity/kernel/tests/rules_port.rs
+@@ -0,0 +1,873 @@
++//! The program's rules (`permutation_rules::frontier::capacity`, feature
++//! `capacity-preview`) against this kernel: the same operations from the
++//! same start, and after every one the same outcome (applied, applied
++//! before, or the same refusal), the same events, the same pool and jobs,
++//! and the same Holding.
++//!
++//! The rules keep the pool's grants and an occupancy table in one account
++//! and each job in its own; the kernel keeps whole jobs in the pool. The
++//! caller's part of the program (which job accounts an operation reads,
++//! what "no account" means) is `Port` below, as the program's handlers do
++//! it. Goods are not compared: the rules move none (their events say what
++//! the program moves); the kernel's custody here is funded so that no move
++//! fails.
++//!
++//! Needs `core-patch-0001` (the Holding lends its own copies, as the
++//! rules' `Holding::lend_workshops` does).
++#![cfg(feature = "core-patch-0001")]
++
++use std::collections::BTreeMap;
++
++use permutation_rules::fixed::MILLI;
++use permutation_rules::frontier::capacity as cap;
++use permutation_rules::frontier::holding::{Resource, HOUR};
++use wylls_capacity::custody::{Custody, Key};
++use wylls_capacity::event::Event;
++use wylls_capacity::facility::Facility;
++use wylls_capacity::ledger::{Fin, Harness, Job, Op, Outcome, Pool};
++use wylls_capacity::model::{Actor, FacilityId, GrantId, JobId, Place};
++use wylls_capacity::policy::{DormancyPolicy, LossPolicy, Policies, RevokePolicy};
++use wylls_capacity::testkit::{self, A, B, C, SITE_A, T0, X};
++use wylls_capacity::CapError;
++
++type Kernel = Harness<wylls_capacity::custody::MockCustody>;
++
++fn policies(p: Policies) -> cap::Policies {
++    cap::Policies {
++        loss: match p.loss {
++            LossPolicy::CaptorTakesAll => cap::LossPolicy::CaptorTakesAll,
++            LossPolicy::UserKeepsAll => cap::LossPolicy::UserKeepsAll,
++            LossPolicy::UserKeepsOutput => cap::LossPolicy::UserKeepsOutput,
++        },
++        dormancy: match p.dormancy {
++            DormancyPolicy::Unaffected => cap::DormancyPolicy::Unaffected,
++            DormancyPolicy::RefuseNewWhenDormant => cap::DormancyPolicy::RefuseNewWhenDormant,
++        },
++        revoke: match p.revoke {
++            RevokePolicy::HonorBooked => cap::RevokePolicy::HonorBooked,
++            RevokePolicy::CancelBooked => cap::RevokePolicy::CancelBooked,
++        },
++    }
++}
++
++fn fid(f: FacilityId) -> cap::FacilityId {
++    cap::FacilityId {
++        p: f.at.p,
++        q: f.at.q,
++        site: f.at.site,
++        gen: f.gen,
++    }
++}
++
++/// The source tag the program would give a place.
++fn src(p: Place) -> u64 {
++    match p {
++        Place::Caravan(x) => x,
++        Place::Vault(x) => x ^ 1 << 62,
++        Place::Holding(_) => 1 << 61,
++        Place::Hopper(_) | Place::Output(_) => 1 << 60,
++    }
++}
++
++/// The program's side: the pool account, the job accounts and the
++/// facility's Holding (with the loss records the core keeps).
++#[derive(Clone)]
++struct Port {
++    pool: Option<cap::Pool>,
++    jobs: BTreeMap<(u32, u32), cap::Job>,
++    fac: Facility,
++}
++
++impl Port {
++    fn view(&self, gen: u8) -> cap::Facility {
++        cap::Facility {
++            gen: self.fac.gen,
++            owner: self.fac.owner.0,
++            reused: self.fac.ended.iter().any(|(g, _, _)| *g == self.fac.gen),
++            end: self.fac.end_of(gen).map(|(t, c)| (t, c.map(|c| c.0))),
++        }
++    }
++
++    /// Run `op` as the program's handler would; on a refusal nothing
++    /// changes (a failed transaction).
++    fn apply(&mut self, now: i64, signer: Actor, op: &Op) -> cap::R<cap::Done> {
++        let saved = self.clone();
++        let r = self.run(now, signer, op);
++        if r.is_err() || r == Ok(cap::Done::Already) {
++            *self = saved;
++        }
++        r
++    }
++
++    fn run(&mut self, now: i64, signer: Actor, op: &Op) -> cap::R<cap::Done> {
++        let s = signer.0;
++        if let Op::OpenPool {
++            facility,
++            policies: pol,
++        } = *op
++        {
++            let f = self.view(facility.gen);
++            let (new, done) =
++                cap::open_pool(self.pool.as_ref(), &f, &s, fid(facility), policies(pol))?;
++            if let Some(p) = new {
++                self.pool = Some(p);
++            }
++            return Ok(done);
++        }
++        let Some(mut p) = self.pool.clone() else {
++            return Err(cap::CapError::UnknownPool);
++        };
++        let f = self.view(p.facility.gen);
++        let job_key = |j: JobId| (j.grant.seq, j.seq);
++        let r = match *op {
++            Op::OpenPool { .. } => unreachable!(),
++            Op::Lend { units, seq, .. } => {
++                cap::lend(&mut p, &mut self.fac.holding, &f, now, &s, true, units, seq)
++            }
++            Op::Reclaim { units, seq, .. } => cap::lend(
++                &mut p,
++                &mut self.fac.holding,
++                &f,
++                now,
++                &s,
++                false,
++                units,
++                seq,
++            ),
++            Op::Grant {
++                grant,
++                user,
++                recipe,
++                max_units,
++                max_output,
++                from,
++                until,
++            } => cap::grant(
++                &mut p,
++                &f,
++                now,
++                &s,
++                cap::Grant {
++                    seq: grant.seq,
++                    user: user.0,
++                    recipe: recipe.0,
++                    max_units,
++                    max_output,
++                    from,
++                    until,
++                    revoked_at: None,
++                    spent: 0,
++                    last_job_seq: None,
++                },
++            ),
++            Op::Revoke { grant } => {
++                // The accounts the handler takes: the grant's booked jobs.
++                let keys: Vec<(u32, u32)> = if p.policies.revoke == cap::RevokePolicy::CancelBooked
++                {
++                    p.occ
++                        .iter()
++                        .filter(|o| o.grant == grant.seq && o.open && now < o.start)
++                        .map(|o| (o.grant, o.job))
++                        .collect()
++                } else {
++                    Vec::new()
++                };
++                let mut taken: Vec<cap::Job> = keys.iter().map(|k| self.jobs[k].clone()).collect();
++                let mut refs: Vec<&mut cap::Job> = taken.iter_mut().collect();
++                let r = cap::revoke(&mut p, &f, now, &s, grant.seq, &mut refs);
++                for j in taken {
++                    self.jobs.insert((j.grant, j.seq), j);
++                }
++                r
++            }
++            Op::Reserve {
++                job,
++                units,
++                start,
++                end,
++                max_output,
++            } => {
++                let k = job_key(job);
++                let dormant = self.fac.holding.is_dormant(now);
++                let (new, done) = cap::reserve(
++                    &mut p,
++                    &f,
++                    dormant,
++                    self.jobs.get(&k),
++                    now,
++                    &s,
++                    k.0,
++                    k.1,
++                    units,
++                    start,
++                    end,
++                    max_output,
++                )?;
++                if let Some(j) = new {
++                    self.jobs.insert(k, j);
++                }
++                Ok(done)
++            }
++            Op::Deposit {
++                job,
++                deposit,
++                resource,
++                amount,
++                from,
++            } => {
++                let k = job_key(job);
++                cap::deposit(
++                    &mut p,
++                    &f,
++                    self.jobs.get_mut(&k),
++                    k,
++                    now,
++                    &s,
++                    deposit,
++                    resource,
++                    amount,
++                    src(from),
++                )
++            }
++            Op::Settle { job } => {
++                let k = job_key(job);
++                cap::settle(&mut p, &f, self.jobs.get_mut(&k), k, now)
++            }
++            Op::Cancel { job } => {
++                let k = job_key(job);
++                cap::cancel(&mut p, &f, self.jobs.get_mut(&k), k, now, &s)
++            }
++            Op::Claim { job, to } => {
++                let k = job_key(job);
++                cap::claim(
++                    &mut p,
++                    &f,
++                    self.jobs.get_mut(&k),
++                    k,
++                    now,
++                    &s,
++                    false,
++                    to.kernel_only(),
++                )
++            }
++            Op::ClaimSplit {
++                job,
++                output_to,
++                refund_to,
++                remainder_to,
++            } => {
++                let k = job_key(job);
++                let bad = [output_to, refund_to[0], refund_to[1], remainder_to]
++                    .iter()
++                    .any(|t| t.kernel_only());
++                cap::claim(&mut p, &f, self.jobs.get_mut(&k), k, now, &s, true, bad)
++            }
++            Op::FacilityLost { .. } => {
++                let keys: Vec<(u32, u32)> = p.occ.iter().map(|o| (o.grant, o.job)).collect();
++                let mut taken: Vec<cap::Job> = keys.iter().map(|k| self.jobs[k].clone()).collect();
++                let mut refs: Vec<&mut cap::Job> = taken.iter_mut().collect();
++                let r = cap::lose(&mut p, &f, &mut refs);
++                for j in taken {
++                    self.jobs.insert((j.grant, j.seq), j);
++                }
++                r
++            }
++            Op::Retire { job } => {
++                let k = job_key(job);
++                let r = cap::retire(&mut p, self.jobs.get(&k), k);
++                if let Ok(cap::Done::Applied(_)) = r {
++                    // The handler closes the job's account.
++                    self.jobs.remove(&k);
++                }
++                r
++            }
++            Op::RetireGrant { grant } => cap::retire_grant(&mut p, now, grant.seq),
++            Op::RetirePool { .. } => {
++                let r = cap::retire_pool(&p);
++                if let Ok(cap::Done::Applied(_)) = r {
++                    self.pool = None;
++                    return r;
++                }
++                r
++            }
++        };
++        if r.is_ok() {
++            self.pool = Some(p);
++        }
++        r
++    }
++}
++
++/// The kernel's events in the rules' terms (the pool implied, places the
++/// program's to fill in).
++fn events(ev: &[Event]) -> Vec<cap::Event> {
++    let k = |j: JobId| (j.grant.seq, j.seq);
++    ev.iter()
++        .map(|e| match e.clone() {
++            Event::PoolOpened { owner, .. } => cap::Event::PoolOpened { owner: owner.0 },
++            Event::Lent {
++                units, lent, at, ..
++            } => cap::Event::Lent { units, lent, at },
++            Event::Reclaimed {
++                units, lent, at, ..
++            } => cap::Event::Reclaimed { units, lent, at },
++            Event::Granted { grant, user } => cap::Event::Granted {
++                grant: grant.seq,
++                user: user.0,
++            },
++            Event::Revoked {
++                grant,
++                at,
++                cancelled,
++            } => cap::Event::Revoked {
++                grant: grant.seq,
++                at,
++                cancelled,
++            },
++            Event::Reserved {
++                job,
++                units,
++                start,
++                end,
++                max_output,
++            } => cap::Event::Reserved {
++                job: k(job),
++                units,
++                start,
++                end,
++                max_output,
++            },
++            Event::Deposited {
++                job,
++                deposit,
++                resource,
++                amount,
++            } => cap::Event::Deposited {
++                job: k(job),
++                deposit,
++                resource,
++                amount,
++            },
++            Event::Started { job, at } => cap::Event::Started { job: k(job), at },
++            Event::Settled {
++                job,
++                out,
++                used,
++                total,
++            } => cap::Event::Settled {
++                job: k(job),
++                out,
++                used,
++                total,
++            },
++            Event::Completed { job, at, out } => cap::Event::Completed {
++                job: k(job),
++                at,
++                out,
++            },
++            Event::Cancelled { job, at, out } => cap::Event::Cancelled {
++                job: k(job),
++                at,
++                out,
++            },
++            Event::Lost { job, at, out } => cap::Event::Lost {
++                job: k(job),
++                at,
++                out,
++            },
++            Event::Claimed {
++                job,
++                output,
++                refund,
++                ..
++            } => cap::Event::Claimed {
++                job: k(job),
++                output,
++                refund,
++            },
++            Event::Refunded {
++                job,
++                whole,
++                remainder,
++                ..
++            } => cap::Event::Refunded {
++                job: k(job),
++                whole,
++                remainder,
++            },
++            Event::Forfeited {
++                job,
++                output,
++                refund,
++                owner,
++                ..
++            } => cap::Event::Forfeited {
++                job: k(job),
++                output,
++                refund,
++                owner: owner.0,
++            },
++            Event::FacilityLost { at, captor, .. } => cap::Event::FacilityLost {
++                at,
++                captor: captor.map(|c| c.0),
++            },
++            Event::Retired { job, uid, output } => cap::Event::Retired {
++                job: k(job),
++                uid,
++                output,
++            },
++            Event::Receipt { job, uid, accounts } => cap::Event::Receipt {
++                job: k(job),
++                uid,
++                accounts: cap::Accounts {
++                    inputs: accounts.inputs.map(|a| cap::Account {
++                        in_total: a.in_total,
++                        held: a.held,
++                        out_total: a.out_total,
++                        consumed: a.consumed,
++                        forfeited: a.forfeited,
++                    }),
++                    output: cap::Account {
++                        in_total: accounts.output.in_total,
++                        held: accounts.output.held,
++                        out_total: accounts.output.out_total,
++                        consumed: accounts.output.consumed,
++                        forfeited: accounts.output.forfeited,
++                    },
++                },
++            },
++            Event::GrantRetired { grant } => cap::Event::GrantRetired { grant: grant.seq },
++            Event::PoolRetired { .. } => cap::Event::PoolRetired,
++        })
++        .collect()
++}
++
++#[derive(Debug, PartialEq, Eq)]
++enum Res {
++    Applied(Vec<cap::Event>),
++    Already,
++    Refused(u16),
++}
++
++fn from_kernel(r: Result<Outcome, CapError>) -> Res {
++    match r {
++        Ok(Outcome::Applied(ev)) => Res::Applied(events(&ev)),
++        Ok(Outcome::AlreadyApplied) => Res::Already,
++        Err(e) => Res::Refused(e.code()),
++    }
++}
++
++fn from_port(r: cap::R<cap::Done>) -> Res {
++    match r {
++        Ok(cap::Done::Applied(ev)) => Res::Applied(ev),
++        Ok(cap::Done::Already) => Res::Already,
++        Err(e) => Res::Refused(e.code()),
++    }
++}
++
++fn fin(f: Fin) -> cap::Fin {
++    match f {
++        Fin::Open => cap::Fin::Open,
++        Fin::Completed(t) => cap::Fin::Completed(t),
++        Fin::Cancelled(t) => cap::Fin::Cancelled(t),
++        Fin::Lost(t) => cap::Fin::Lost(t),
++    }
++}
++
++fn job(j: &Job) -> cap::Job {
++    cap::Job {
++        grant: j.id.grant.seq,
++        seq: j.id.seq,
++        uid: j.uid,
++        user: j.user.0,
++        recipe: j.recipe.0,
++        units: j.units,
++        start: j.start,
++        end: j.end,
++        max_output: j.max_output,
++        hopper: j.hopper,
++        deposits: j
++            .deposits
++            .iter()
++            .map(|d| cap::Deposit {
++                id: d.0,
++                input: d.1,
++                amount: d.2,
++                src: src(d.3),
++            })
++            .collect(),
++        fin: fin(j.fin),
++        settled: j.settled,
++        started_logged: j.started_logged,
++        claimed: j.claimed,
++        refunded: j.refunded,
++        returned: j.returned,
++        forfeited_in: j.forfeited_in,
++        forfeited_out: j.forfeited_out,
++    }
++}
++
++/// The kernel's pool as the rules keep it (the jobs' rows from the jobs).
++fn pool(p: &Pool, next_uid: u64) -> cap::Pool {
++    cap::Pool {
++        facility: fid(p.facility),
++        owner: p.owner.0,
++        policies: policies(p.policies),
++        lent: p.lent,
++        owner_seq: p.owner_seq,
++        last_owner_op: p.last_owner_op.as_ref().map(|o| match *o {
++            Op::Lend { units, seq, .. } => cap::OwnerOp {
++                lend: true,
++                units,
++                seq,
++            },
++            Op::Reclaim { units, seq, .. } => cap::OwnerOp {
++                lend: false,
++                units,
++                seq,
++            },
++            _ => unreachable!("only the owner's lend and reclaim"),
++        }),
++        grants: p
++            .grants
++            .iter()
++            .map(|g| cap::Grant {
++                seq: g.id.seq,
++                user: g.user.0,
++                recipe: g.recipe.0,
++                max_units: g.max_units,
++                max_output: g.max_output,
++                from: g.from,
++                until: g.until,
++                revoked_at: g.revoked_at,
++                spent: g.spent,
++                last_job_seq: g.last_job_seq,
++            })
++            .collect(),
++        occ: p
++            .jobs
++            .iter()
++            .map(|j| {
++                let r = job(j);
++                cap::Occ {
++                    grant: r.grant,
++                    job: r.seq,
++                    units: r.units,
++                    start: r.start,
++                    end: r.end,
++                    end_eff: r.end_eff(),
++                    open: r.fin == cap::Fin::Open,
++                    budget: if r.fin == cap::Fin::Open {
++                        r.max_output
++                    } else {
++                        r.settled
++                    },
++                }
++            })
++            .collect(),
++        lost_at: p.lost_at,
++        captor: p.captor.map(|c| c.0),
++        last_grant_seq: p.last_grant_seq,
++        next_uid,
++    }
++}
++
++fn same(k: &Kernel, port: &Port, f: FacilityId, ctx: &str) {
++    match (k.pool(f), &port.pool) {
++        (None, None) => {}
++        (Some(kp), Some(pp)) => {
++            assert_eq!(&pool(kp, k.ledger.next_uid), pp, "{ctx}: pool");
++            let kj: BTreeMap<(u32, u32), cap::Job> = kp
++                .jobs
++                .iter()
++                .map(|j| ((j.id.grant.seq, j.id.seq), job(j)))
++                .collect();
++            assert_eq!(kj, port.jobs, "{ctx}: jobs");
++            // The encoded accounts read back the same.
++            let mut d = vec![0u8; cap::layout::pool::SIZE];
++            pp.encode(&mut d).unwrap();
++            assert_eq!(
++                cap::Pool::decode(&d).as_ref(),
++                Some(pp),
++                "{ctx}: pool bytes"
++            );
++            for j in port.jobs.values() {
++                let mut d = vec![0u8; cap::layout::job::SIZE];
++                j.encode(&mut d).unwrap();
++                assert_eq!(cap::Job::decode(&d).as_ref(), Some(j), "{ctx}: job bytes");
++            }
++        }
++        (a, b) => panic!("{ctx}: pool {:?} vs {:?}", a.is_some(), b.is_some()),
++    }
++    assert_eq!(
++        k.facilities[&SITE_A].holding, port.fac.holding,
++        "{ctx}: holding"
++    );
++}
++
++struct Rng(u64);
++impl Rng {
++    fn below(&mut self, n: u64) -> u64 {
++        self.0 ^= self.0 << 13;
++        self.0 ^= self.0 >> 7;
++        self.0 ^= self.0 << 17;
++        self.0 % n.max(1)
++    }
++}
++
++fn fund(k: &mut Kernel, user: Actor, id: u64) {
++    for (n, r) in [(0, Resource::Ore), (1, Resource::Wood)] {
++        k.custody
++            .import(
++                Key {
++                    scope: id,
++                    kind: 100,
++                    n,
++                },
++                Place::Caravan(id),
++                user,
++                r,
++                1_000_000 * MILLI,
++            )
++            .unwrap();
++    }
++}
++
++const ALL_POLICIES: [Policies; 4] = [
++    Policies::PROVISIONAL,
++    Policies {
++        loss: LossPolicy::UserKeepsAll,
++        dormancy: DormancyPolicy::RefuseNewWhenDormant,
++        revoke: RevokePolicy::CancelBooked,
++    },
++    Policies {
++        loss: LossPolicy::UserKeepsOutput,
++        dormancy: DormancyPolicy::Unaffected,
++        revoke: RevokePolicy::CancelBooked,
++    },
++    Policies {
++        loss: LossPolicy::CaptorTakesAll,
++        dormancy: DormancyPolicy::RefuseNewWhenDormant,
++        revoke: RevokePolicy::HonorBooked,
++    },
++];
++
++#[test]
++fn the_rules_agree_with_the_kernel_step_by_step() {
++    let seeds: u64 = std::env::var("PORT_SEEDS")
++        .ok()
++        .and_then(|s| s.parse().ok())
++        .unwrap_or(600);
++    let mut kinds = [0u64; 16];
++    let mut applied = [0u64; 16];
++    let mut refused = BTreeMap::<u16, u64>::new();
++    for seed in 1..=seeds {
++        let mut rng = Rng(seed.wrapping_mul(0x9E37_79B9_7F4A_7C15) | 1);
++        let pol = ALL_POLICIES[(seed % 4) as usize];
++        let mut k: Kernel = Harness::new(Default::default());
++        k.add_facility(testkit::facility(3 + rng.below(3) as u32));
++        let f = k.facilities[&SITE_A].id();
++        let mut port = Port {
++            pool: None,
++            jobs: BTreeMap::new(),
++            fac: k.facilities[&SITE_A].clone(),
++        };
++        fund(&mut k, B, 77);
++        fund(&mut k, C, 78);
++        let mut now = T0;
++        let mut owner_seq = 0u32;
++        let mut next_grant = 1u32;
++        let mut jobs: Vec<JobId> = Vec::new();
++        let mut captured = false;
++        let user_of = |g: u32| if g % 2 == 1 { B } else { C };
++        for step in 0..120 {
++            now += rng.below(1_800) as i64;
++            let kind = match rng.below(16) as usize {
++                _ if step == 0 => 0,
++                // A loss or the pool's end is rarer, so runs reach the middle.
++                12 | 15 if rng.below(5) != 0 => 7 + rng.below(3) as usize,
++                0 if rng.below(3) != 0 => 5,
++                k => k,
++            };
++            kinds[kind] += 1;
++            let g = 1 + rng.below(next_grant as u64) as u32;
++            let gid = GrantId {
++                facility: f,
++                seq: g,
++            };
++            let pick = |rng: &mut Rng, jobs: &Vec<JobId>| {
++                if jobs.is_empty() || rng.below(10) == 0 {
++                    JobId {
++                        grant: gid,
++                        seq: 1 + rng.below(4) as u32,
++                    }
++                } else {
++                    jobs[rng.below(jobs.len() as u64) as usize]
++                }
++            };
++            let (signer, op) = match kind {
++                0 => (
++                    if rng.below(8) == 0 { B } else { A },
++                    Op::OpenPool {
++                        facility: f,
++                        policies: if rng.below(10) == 0 {
++                            ALL_POLICIES[((seed + 1) % 4) as usize]
++                        } else {
++                            pol
++                        },
++                    },
++                ),
++                1 | 2 => {
++                    // Lend or reclaim, sometimes a replay or a stale seq.
++                    let seq = match rng.below(6) {
++                        0 => owner_seq.saturating_sub(1),
++                        1 => owner_seq + 1,
++                        _ => owner_seq,
++                    };
++                    let units = rng.below(4) as u32;
++                    let op = if kind == 1 {
++                        Op::Lend {
++                            facility: f,
++                            units,
++                            seq,
++                        }
++                    } else {
++                        Op::Reclaim {
++                            facility: f,
++                            units,
++                            seq,
++                        }
++                    };
++                    (if rng.below(12) == 0 { B } else { A }, op)
++                }
++                3 => {
++                    let seq = if rng.below(4) == 0 { g } else { next_grant };
++                    let from = now - 600 + rng.below(3_600) as i64;
++                    (
++                        if rng.below(12) == 0 { C } else { A },
++                        Op::Grant {
++                            grant: GrantId { facility: f, seq },
++                            user: user_of(seq),
++                            recipe: wylls_capacity::recipe::RecipeId(
++                                1 + (rng.below(15) == 0) as u8,
++                            ),
++                            max_units: 1 + rng.below(3) as u32,
++                            max_output: (5 + rng.below(60) as i64) * MILLI,
++                            from,
++                            until: from + (6 + rng.below(40) as i64) * HOUR,
++                        },
++                    )
++                }
++                4 => (A, Op::Revoke { grant: gid }),
++                5 | 6 => {
++                    let seq = 1 + rng.below(5) as u32;
++                    let start = now + 60 + rng.below(4 * HOUR as u64) as i64;
++                    (
++                        user_of(g),
++                        Op::Reserve {
++                            job: JobId { grant: gid, seq },
++                            units: 1 + rng.below(2) as u32,
++                            start,
++                            end: start + (1 + rng.below(4) as i64) * HOUR,
++                            max_output: (1 + rng.below(16) as i64) * MILLI,
++                        },
++                    )
++                }
++                7 | 8 => {
++                    let j = pick(&mut rng, &jobs);
++                    let user = user_of(j.grant.seq);
++                    (
++                        if rng.below(15) == 0 { A } else { user },
++                        Op::Deposit {
++                            job: j,
++                            deposit: 1 + rng.below(4),
++                            resource: [Resource::Ore, Resource::Wood, Resource::Food]
++                                [rng.below(3) as usize],
++                            amount: (rng.below(30) as i64) * MILLI / 2,
++                            from: Place::Caravan(if user == B { 77 } else { 78 }),
++                        },
++                    )
++                }
++                9 => (
++                    X,
++                    Op::Settle {
++                        job: pick(&mut rng, &jobs),
++                    },
++                ),
++                10 => {
++                    let j = pick(&mut rng, &jobs);
++                    (user_of(j.grant.seq), Op::Cancel { job: j })
++                }
++                11 => {
++                    // The user's own places (a place holds one owner's goods).
++                    let j = pick(&mut rng, &jobs);
++                    let base = if user_of(j.grant.seq) == B { 90 } else { 190 };
++                    let to = match rng.below(12) {
++                        0 => Place::Hopper(j),
++                        _ => Place::Caravan(base),
++                    };
++                    let op = if rng.below(2) == 0 {
++                        Op::Claim { job: j, to }
++                    } else {
++                        Op::ClaimSplit {
++                            job: j,
++                            output_to: to,
++                            refund_to: [Place::Caravan(base + 1), Place::Caravan(base + 2)],
++                            remainder_to: Place::Caravan(base + 3),
++                        }
++                    };
++                    (user_of(j.grant.seq), op)
++                }
++                12 => {
++                    // The facility is captured (the core's), or the loss is
++                    // recorded.
++                    if !captured && rng.below(3) == 0 {
++                        k.facilities
++                            .get_mut(&SITE_A)
++                            .unwrap()
++                            .capture(now, X)
++                            .unwrap();
++                        // The program's Holding knows what it lent.
++                        port.fac.lent = port.fac.holding.lent_workshops;
++                        port.fac.capture(now, X).unwrap();
++                        captured = true;
++                        continue;
++                    }
++                    (X, Op::FacilityLost { facility: f })
++                }
++                13 => (
++                    X,
++                    Op::Retire {
++                        job: pick(&mut rng, &jobs),
++                    },
++                ),
++                14 => (X, Op::RetireGrant { grant: gid }),
++                _ => (X, Op::RetirePool { facility: f }),
++            };
++            let ctx = format!("seed {seed} step {step} {op:?}");
++            let rk = from_kernel(k.apply(now, signer, &op));
++            let rp = from_port(port.apply(now, signer, &op));
++            assert_eq!(rk, rp, "{ctx}: outcome");
++            match &rk {
++                Res::Applied(_) => {
++                    applied[kind] += 1;
++                    match op {
++                        Op::Lend { .. } | Op::Reclaim { .. } => owner_seq += 1,
++                        Op::Grant { grant, .. } if grant.seq == next_grant => next_grant += 1,
++                        Op::Reserve { job, .. } => jobs.push(job),
++                        _ => {}
++                    }
++                }
++                Res::Refused(c) => *refused.entry(*c).or_default() += 1,
++                Res::Already => {}
++            }
++            same(&k, &port, f, &ctx);
++        }
++    }
++    println!(
++        "rules port: ops by kind {kinds:?}; applied {applied:?}; refusals by code {refused:?}"
++    );
++    // Every kind of operation applied, and most refusals seen.
++    assert!(applied.iter().all(|n| *n > 0), "{applied:?}");
++    assert!(refused.len() >= 20, "{refused:?}");
++}
+-- 
+2.43.0
+

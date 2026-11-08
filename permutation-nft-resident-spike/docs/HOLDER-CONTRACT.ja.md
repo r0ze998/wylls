@@ -261,3 +261,56 @@ v0.17 の持ち主の定義への置き換え（`authorize` = `holder` + `author
 - 本物の `frontier-localnet` に住民プログラムを載せての読み取り（代替ノードだけ）。
 - 生の読み取りを完全とみなすかは利用者が確認中（④ の連絡）。⑳ の側は、確認されていない履歴を PASS にしない。V0 は ResidentAct を引き続き UNVERIFIABLE にし、内側の命令の効果は再生しない。
 - ④ が報告した c7b3c54c 由来の 2 件の FAIL（V0 の custody 命令 11 個の答え、conquest kind 105）は、⑪ の 0012 で扱われたと ④ の版の記述にあるが、⑳ は `verify --lib` 全体と `new_bands` を実行していない。
+
+### 実行してはいけない試験（④ の指摘、2026-11-07）
+
+鍵を作って署名するので、鍵なしの一覧に入れない：
+- `cargo test -p fclient --lib`（`beacon.rs`・`seal.rs` は `TestKey::new()`、`tx.rs` は `Keypair::new_from_array([3; 32])` で署名する）。⑳ が実行したのは `--exact addr::tests::resident_pdas_match_the_web_client` の 1 件だけ（鍵なし）。
+- `verify --test fixtures` の `march_fixture_is_fresh`（`fixture::march::march()` が固定 seed の鍵で署名する）。⑳ は実行していない。
+- 以前の `verify --lib -- … history::` の絞り込みは、一覧で確かめると試験に一つも当たっていない。⑳ が verify lib で実行したのは `resident_feed::tests`（2）と `checks::v28_resident_acts::tests`（7）だけ。
+
+## 12. ResidentAct の内側の命令の照合と、所有者だけができる行為（2026-11-08、v0.22）
+
+基点：④ の公開候補 cf517b55（⑳ cab0bcac、④ の受付で持ち主を確かめる e61ea4db を含む）を ⑳ の枝に merge した（0a1b5398）。
+
+### 実装
+
+| 項目 | 内容 |
+|---|---|
+| 内側の命令を命令として並べる | `verify::world::unwrap_resident`：ResidentAct（0xE2）を、それが走らせたプレイヤー命令（データは内側、アカウントは証明の 4 つを除いた act のもの）としても `Tx::ixs` に並べる。`Tx::via_resident` で見分ける。その命令を財布の Citizen について判定している検査が、そのまま NFT Citizen の命令も判定する（例：V7 の Harvest・Build・Train の再生は、同じ取引の記録と命令の数を合わせる。これまで NFT の Harvest は命令 0 に数えられていた） |
+| 財布を前提にした箇所 | 検査の中で、操作者と Citizen の財布を比べていたのは V23 の「他のプレイヤーへの送付は財布で」の 1 か所だけ。NFT Citizen（財布が 0）では、program と同じく「パスの今の Core 所有者（session ではない）」が要る。V23 はこれを `Ctx::owner_required` に入れて V28 に渡す |
+| 所有者だけの行為 | program で NFT Citizen に session を認めないもの：他のプレイヤーへの SendCaravan、CloseVault、CloseStructure（`by_session` → `WalletRequired`）。V28 は、住民プログラムの記録が欠けなく揃っていれば、生きた session が行ったこれらを `ResidentOwnerRequired`（FAIL）にする。揃っていなければ UNVERIFIABLE |
+| 内側の命令が未モデル | V0 の `supported(tag, v3, s1)` がその季節で判定しない内側の命令だけを `ResidentInnerUnmodelled`（UNVERIFIABLE）にする。これまでは全部 UNVERIFIABLE だった |
+| ⑲ の判定規則 | `ResidentOwnerRequired` も、住民プログラムの記録に依るので `self_contained` から外した |
+| V0 | 0xE2 そのものは引き続き `UnverifiedInstruction`（⑪ の扱い）。そのため NFT の操作がある季節は、まだ PASS にならない。内側の命令が判定されるようになったので、0xE2 を V28 に任せるかは ⑪ に提案する |
+
+### 実行した試験（鍵ペアの生成・導出・署名なし。呼出し先まで確認）
+
+| 試験 | 件数 |
+|---|---|
+| `verify` lib：V28（内側の命令の並べ方、所有者だけの行為を session が行うと FAIL・所有者なら可・V23 の印・記録が古いと UNVERIFIABLE、未モデルの内側の命令）・`resident_feed`・V23 | 10・2・2 |
+| `verify --test history`・`missing_state`・`open_items`・`evidence`・`camp_clear`・`unit` | 16・2・3・3・8・8 |
+
+`tests/common` を使う試験のうち、鍵を作る関数（`world`・`record`・`TestKey`・`Keypair`）を呼ばないものだけを実行した（記録済みの fixture を読むだけ）。
+
+### 未実行・未確認
+
+- `verify --test new_bands`（10 分の上限で終わらなかった。背景での実行は許可されなかった）と `--test tamper`。
+- `coverage`（固定のバイトから鍵を作る）、`record`・`fixtures`（鍵を作り署名する）は実行しない。
+- 本物の ResidentAct を含む記録済みの季節が無いので、内側の命令が V7・V23 などで判定されることは、記録の再生では確かめていない（単体試験だけ）。
+- wide のゲーム（所有者側の CC、`preserve/wide-*`）の NFT 用の入口 0xDD は、V28 も V0 も知らない（その版の検証器は c94a5df7 から分かれている）。
+
+## 13. wide の世界の WideResidentAct（0xDD）を V28 で（2026-11-08、v0.23）
+
+④ の分担（④ VW1 の鎖 → ⑪ wide の帯を VW へ → ⑳ 0xDD を V28 で）に従い、④ の 4ecef1d9（VW1）の上に作った。実験の build（`--features wide-world-experimental`）だけ。
+
+| 項目 | 内容 |
+|---|---|
+| 入口 | `v28_resident_acts::run_wide`。VW1 の直後に走る。0xE2 の経路（`run`）とは互いの命令を判定しない |
+| 解読 | ABI の `world_index::wide_ix::ResidentAct::decode` と `command()`。program（`proc::wide::resident_act`）と同じく、内側は WideClaimSite・WideDepart・0xDA のプレイヤーの Muster・Dissolve だけ。それ以外が成功していれば FAIL（`ResidentActMismatch`）。文書の表は ClaimSite・Depart の 2 つだけを挙げているが、program は 4 つを走らせる |
+| 同じ判定 | 証明の 4 アカウント（読み取り専用）、Citizen（書き込み可）、Season、正規の住所、参加時の link、実行後の Citizen（住民の asset、財布 0、`LAST_ACTION_TS`：4 つの handler はどれも書く）、持ち主・世代・session（共通の持ち主の定義、⑲ の履歴の規則） |
+| session | wide の 4 つの命令は所有者も生きた session も通す（`wide::player_start_as` の `session_ok = true`）。所有者だけの行為は無い |
+| 内側 | VW に渡す。VW はまだ命令を再生しないので、いつも `ResidentInnerUnmodelled`（UNVERIFIABLE）。wide の季節は PASS にならない |
+| 未決 | wide の 6 つの未決のルールには触れていない |
+
+試験（鍵ペアの生成・導出・署名なし）：feature あり lib（V28 11・resident_feed 2・V23 2・VW1 7）22、feature あり `--test history` 16・`resident_ledger` 4、feature なし lib 14。clippy は両方の build で合格。

@@ -397,6 +397,9 @@ impl ConquestDuty {
         citizens: &BTreeMap<Address, (Address, u8)>,
         opened: &BTreeSet<(i16, i16)>,
     ) -> PortResult<()> {
+        if !engine.feed_writes_allowed() {
+            return Ok(());
+        }
         if !t.season.is_v2() {
             return Ok(());
         }
@@ -442,6 +445,9 @@ impl ConquestDuty {
         port: &P,
         engine: &mut Engine,
     ) -> PortResult<()> {
+        if !engine.feed_writes_allowed() {
+            return Ok(());
+        }
         if !t.season.is_v2() || !t.cfg.has_role("close") || self.unsupported.contains("cmarch") {
             return Ok(());
         }

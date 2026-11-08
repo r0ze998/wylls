@@ -1,5 +1,5 @@
 import { territoryEnabled, territoryOf } from './territory.mjs';
-import { setS1, setOreExtraProvider } from './fs1.mjs';
+import { setS1, setOreExtraProvider, s1On } from './fs1.mjs';
 import { s1Marks } from './map/s1marks.mjs';
 import * as territoryScreen from './screens/territory.mjs';
 import * as conquestScreen from './screens/conquest.mjs';
@@ -19,6 +19,7 @@ import { conquestEnabled, kernelFile, outpostOffer } from './fconquest.mjs';
 import { config } from './config.mjs';
 import { FS, invalidate, registerRenderers } from './fstate.mjs';
 import { createHerald, nextPoll, staleness } from './herald.mjs';
+import { setTermsPace } from './seasonterms.mjs';
 import { setPin, setRelay } from './fchainio.mjs';
 import { checkBeacon } from './seal.mjs';
 import { ChainClock, bellChip, countdown, seasonClock, bellStart, pollCap } from './clock.mjs';
@@ -35,6 +36,8 @@ import { PLACE, PLACE_NOTE, applySeasonRecord, overviewRings, overviewTaken, pla
 import * as hand from './hud/hand.mjs';
 import * as turnlist from './hud/turnlist.mjs';
 import { createCamKeep } from './hud/camkeep.mjs';
+import { openCoop as coopEntryOpen } from './hud/coopentry.mjs';
+import { installCoopBoard } from './hud/coopboard.mjs';
 import { settled } from './hud/rulebook.mjs';
 import * as dialcard from './hud/dialcard.mjs';
 import { paintVillagePics } from './map/village.mjs';
@@ -46,6 +49,11 @@ import { SEASON_STATUS_TEXT, clientText, factionName, TIERS, BUILDINGS, FATES, u
 import { L, fmtNum, mountLangToggle, onLangChange, lang } from '../lang.mjs';
 import { toHex } from '../sdk/bytes.mjs';
 import { html, setHtml } from '../util.mjs';
+import * as returnSum from './hud/returnsum.mjs';
+import * as returnWords from './hud/returnwords.mjs';
+import * as returnRead from './hud/awayread.mjs';
+import { caravanWatchOf } from './screens/s1.mjs';
+import { palisadeHexesOf, marchWearOf } from './s1walk.mjs';
 import { ACTIONS, FORMS, bind, startPlay, wantProvince, wantKeepHistory, wantKeepReach, wantHostReach, refreshConquest, refreshPrize, ackHomeGrant, tolled, syncProto, wantPreview, wantPlaces, composeTick } from './controller.mjs';
 import { mountProtoBoard } from './proto/board-mount.mjs';
 import { mountKeepBoard, keepReachOf } from './map/keepmount.mjs';
@@ -150,7 +158,8 @@ import * as profile from './people/profile.mjs';
 import * as glossary from './hud/glossary.mjs';
 import * as milestones from './hud/milestones.mjs';
 import * as guide from './hud/guide.mjs';
-import { forecast, forecastKey, compareStances, compareKey } from './hud/forecast.mjs';
+import { forecast, forecastKey, compareStances, compareKey, COMPARE_RUNS } from './hud/forecast.mjs';
+import { modelForecast } from './hud/forecastmodel.mjs';
 import { keepForecast, forecastFor } from './hud/forecastbook.mjs';
 import { mountRadioKeys } from './hud/radiokeys.mjs';
 import { BUILD_ITEMS, UNIT_ORDER, SCOUT, SETTLER, ticketTimes, queueItem, queueBuildingItem } from './fland.mjs';
@@ -177,7 +186,8 @@ const setText = (id, text) => { const el = $(id); if (el && el.textContent !== t
 export function chipText(chip) {
   if (!chip || (chip.bell === null && !chip.beforeGenesis)) return L`ターン —`;
   if (chip.beforeGenesis) return L`開始まで ${countdown(chip.secondsLeft)}`;
-  if (chip.ended) return L`ターン ${fmtNum(chip.bell)} · 終了`;
+  // (past the program's end turn: this program takes no new order — said as that, not as the world being over)
+  if (chip.ended) return L`ターン ${fmtNum(chip.bell)} · 受付終了`;
   return L`ターン ${fmtNum(chip.bell)} · 残り ${countdown(chip.secondsLeft)}`;
 }
 
@@ -185,7 +195,7 @@ export function chipText(chip) {
 export function dialParts(chip) {
   if (!chip || (chip.bell === null && !chip.beforeGenesis)) return { label: L`ターン`, num: '—', left: '' };
   if (chip.beforeGenesis) return { label: L`開始まで`, num: countdown(chip.secondsLeft), left: '' };
-  return { label: L`ターン`, num: fmtNum(chip.bell), left: chip.ended ? L`終了` : countdown(chip.secondsLeft) };
+  return { label: L`ターン`, num: fmtNum(chip.bell), left: chip.ended ? L`受付終了` : countdown(chip.secondsLeft) };
 }
 
 /**
@@ -891,9 +901,9 @@ const routeCache = new Map();
 function routeTo(A, to) {
   const k = wantKernel();
   if (!k || !A?.actor) return null;
-  const key = `${A.actor.id}|${A.origin.p},${A.origin.q},${A.origin.tile}|${to.p},${to.q},${to.tile}|${FS.nowBell ?? 0}`;
+  const key = `${A.actor.id}|${A.origin.p},${A.origin.q},${A.origin.tile}|${to.p},${to.q},${to.tile}|${FS.nowBell ?? 0}|${palisadeHexesOf(FS).length}`;
   if (routeCache.has(key)) return routeCache.get(key);
-  const r = planRoute(k, { from: A.origin, to, unit: A.actor.unit, seeds: seedsNow() });
+  const r = planRoute(k, { from: A.origin, to, unit: A.actor.unit, seeds: seedsNow(), blocked: palisadeHexesOf(FS) });
   let v;
   if (!r.ok) v = { ok: false, code: r.code };
   else {
@@ -2037,13 +2047,21 @@ function updateForecast() {
   invalidate('panel');
   seasonKernel().then(k => {
     if (FS.compose !== c || forecastKey(c) !== key) return;
-    const prov = FS.provinces.get(`${c.dest.p},${c.dest.q}`)?.province ?? null;
+    const env = FS.provinces.get(`${c.dest.p},${c.dest.q}`) ?? null, prov = env?.province ?? null, faction = FS.citizen?.faction ?? 0;
+    // S1: the program's own clash model over the destination's bytes (the keep, the forts and the caravans are in it), the
+    // arrival worn by the towers its road crosses (hud/forecastmodel.mjs, workstream 07); else the page's own builder
+    const worn = s1On() && env?.provinceBytes ? marchWearOf(FS, { p: c.origin.p, q: c.origin.q, tile: c.host.tile }, c.route, c.host.unit) : null;
+    const model = !!worn && !worn.blocked;
+    const one = cc => (model ? modelForecast(k, cc, env.provinceBytes, faction, { wornBps: worn.bps }) : forecast(k, cc, prov, faction));
     let fc;
-    try { fc = forecast(k, c, prov, FS.citizen?.faction ?? 0); } catch (e) { fc = { ok: false, why: e?.code ?? 'Error' }; }
-    c.forecast = { key, ...fc };
+    try { fc = worn?.blocked ? { ok: false, why: 'PalisadeOnRoad' } : one(c); } catch (e) { fc = { ok: false, why: e?.code ?? 'Error' }; }
+    c.forecast = { key, ...fc, ...(model ? { model: true } : {}) };
     // the stances side by side (the card's comparison): once per destination, turn and retreat, not per stance chosen
     const ck = compareKey(c);
-    if (fc.ok && c.compare?.key !== ck) c.compare = { key: ck, rows: compareStances(k, c, prov, FS.citizen?.faction ?? 0) };
+    if (fc.ok && c.compare?.key !== ck) {
+      c.compare = { key: ck, rows: model ? [0, 1, 2, 3].map(s => { try { return { stance: s, ...modelForecast(k, { ...c, stance: s }, env.provinceBytes, faction, { wornBps: worn.bps, runs: COMPARE_RUNS }) }; } catch (e) { return { stance: s, ok: false, why: e?.code ?? 'Error' }; } })
+        : compareStances(k, c, prov, faction) };
+    }
   }).catch(() => { if (FS.compose === c) c.forecast = { key, ok: false, why: 'NoWasm' }; })
     .finally(() => { fcBusy = null; invalidate('panel'); });
 }
@@ -2257,12 +2275,96 @@ function renderSound() {
 
 // ------------------------------------------------------------------ notifications (hud/feed.mjs)
 let feedPrev = null;
+/** The player's own marks on this device (hud/returnsum.mjs): what they said they have seen, per season and wallet. */
+const awayStore = () => { try { return globalThis.localStorage ?? null; } catch { return null; } };
+const awayMe = () => ({ tag: (() => { try { return BigInt(ownTag(FS) ?? 0); } catch { return null; } })(), faction: FS.citizen?.faction, holdings: (FS.holdings ?? []).map(h => ({ p: h.p, q: h.q, site: h.site })),
+  hostOf: id => { try { const h = hostParts(id); return h ? (FS.holdings ?? []).find(o => o.p === h.p && o.q === h.q && o.site === h.site) ?? null : null; } catch { return null; } } });
+/**
+ * The away summary's reading (hud/awayread.mjs): from the player's own mark on this device, or from AWAY_REACH events
+ * behind the season's head on a first look, for one scope (herald, season, wallet). It runs on its own and tickFeed
+ * takes what it found: on the first reading one head notice ("seen" moves the mark over what was read, never over a
+ * gap) and one notice per item; after it, the S1 records read since, with the caravans' holders carried on.
+ */
+const awayReader = returnRead.createAwayReader({ events: a => (heraldRef ? heraldRef.events(a) : Promise.resolve({ ok: false })) });
+let awayBusy = false, awayBook = null, awaySent = null, awayQueue = [];
+// (workstream 07: an NFT resident (⑳) is another viewer than its wallet's own Citizen: its marks are kept apart)
+const awayWho = () => ({ season: String(FS.season?.seasonId ?? ''), wallet: FS.wallet?.address ? (FS.resident?.asset ? `${FS.wallet.address}#nft:${FS.resident.asset}` : FS.wallet.address) : '' });
+const awayScopeNow = () => { const { season, wallet } = awayWho(); return season && wallet ? returnRead.awayScope({ herald: String(FS.season?.genesisTs ?? ''), seasonId: season, wallet }) : null; };
+const S1_NEWS = new Set(['CARAVAN_RAIDED', 'RAID_OPENED', 'CARAVAN_SETTLED', 'VAULT_SEIZED', 'STRUCTURE_SEIZED', 'SIEGE_DECLARED', 'CAPTURE_SETTLED', 'NATION_DECIDED', 'NATION_PROPOSED']);
+/** The ends of caravans the away reader read: a caravan gone from the road's list is no longer "state unknown" once read. */
+const awayEnds = records => { for (const x of records ?? []) if (x.record?.name === 'CARAVAN_SETTLED' || x.record?.name === 'CARAVAN_RAIDED') { const k = returnSum.caravanKey(x.record); if (k) caravanWatchOf(FS).ended(k); } };
+/** The away head notice's words: what the summary covers and what "seen" will do (or why it is not offered). */
+const awayHeadText = (s, saved = undefined) => `${returnWords.headText(s)} ${saved === undefined ? returnWords.confirmText(s) : returnWords.confirmedText(saved)}`;
+function awayPump() {
+  if (awayBusy || !heraldRef || !s1On()) return;
+  const sc = awayScopeNow();
+  if (sc === null) { if (awayReader.scope !== null) { awayReader.reset(); awayBook = null; awayQueue = []; caravanWatchOf(FS).reset(); } return; }
+  awayBusy = true;
+  if (sc !== awayReader.scope) {
+    // (a new wallet or season, or the first look: what another scope told goes, with its book)
+    FS.feed = (FS.feed ?? []).filter(x => !(x.away || x.awayOf) || x.scope === sc);
+    awayBook = null; awayQueue = []; caravanWatchOf(FS).reset();
+    const { season, wallet } = awayWho(), st = awayStore();
+    const marks = returnSum.loadMarks(st, season, wallet);
+    const head = (() => { try { return FS.record?.headSeq === undefined ? null : BigInt(FS.record.headSeq); } catch { return null; } })();
+    const usable = marks && !(head !== null && BigInt(marks.confirmedSeq) > head);
+    const from = usable ? marks.confirmedSeq : head === null ? '0' : String(head > BigInt(returnRead.AWAY_REACH) ? head - BigInt(returnRead.AWAY_REACH) : 0n);
+    awayReader.start({ scope: sc, from }).then(r => {
+      if (r.stale || r.scope !== awayScopeNow()) return;
+      awayEnds(r.records);
+      const s = returnSum.summarize({ records: r.records, read: { after: r.after, complete: r.complete, failed: r.failed }, marks: returnSum.loadMarks(awayStore(), season, wallet), last: returnSum.loadLast(awayStore()),
+        season, wallet, nowBell: FS.nowBell ?? 0, headSeq: head === null ? null : String(head), me: awayMe(), rules: { programVersion: FS.season?.programVersion } });
+      awayBook = s.book; awaySent = s.sent;
+      if (!s.items.length && !s.gap && !s.failed && s.windowFrom === null && s.mode !== 'markAhead') return;
+      awayQueue.push({ id: `away:${sc}:${s.read.toSeq ?? r.after}`, kind: 'away', scope: sc, bell: FS.nowBell ?? null, text: awayHeadText(s), away: { ok: s.confirm.ok, summary: s } },
+        ...s.items.map(i => ({ ...awayItem(i), scope: sc })));
+    }).catch(() => {}).finally(() => { awayBusy = false; });
+  } else {
+    awayReader.more().then(r => {
+      if (r.stale || r.scope !== awayScopeNow() || awayBook === null) return;
+      awayEnds(r.records);
+      const { items, book, sent } = returnSum.itemsSince(r.records, awayMe(), awayBook, awaySent, { programVersion: FS.season?.programVersion });
+      awayBook = book; awaySent = sent;
+      awayQueue.push(...items.filter(i => S1_NEWS.has(i.kind)).map(i => ({ ...awayItem(i), scope: sc })));
+    }).catch(() => {}).finally(() => { awayBusy = false; });
+  }
+}
+/**
+ * The away summary's way in on a phone. A phone shows one notice over the map, the newest (frontier.css: one toast at a
+ * time), so the summary of what happened while away waited under this turn's card, and only the list under その他 had
+ * it. While a summary of this scope is not confirmed, a line under the strip says so and opens that list at it; it goes
+ * when "seen" is pressed (closing the notice with × does not confirm, so the line stays). Wide screens show the
+ * summary itself over the map, and the line is not drawn there (frontier.css).
+ */
+const awayConfirmed = new Set();
+const awayHeadNow = () => { const sc = awayScopeNow(); return sc === null ? null : (FS.feed ?? []).find(x => x.kind === 'away' && x.away?.summary && x.scope === sc && !awayConfirmed.has(x.id)) ?? null; };
+function renderAwayEntry() {
+  const doc = globalThis.document;
+  if (!doc?.body) return;
+  const head = FS.mode === 'play' ? awayHeadNow() : null;
+  let b = doc.getElementById('away-entry');
+  if (!head) { if (b) b.hidden = true; delete doc.body.dataset.awayEntry; return; }
+  if (!b) { b = doc.createElement('button'); b.type = 'button'; b.id = 'away-entry'; b.className = 'away-entry'; b.dataset.act = 'away-open'; doc.body.appendChild(b); }
+  const s = head.away.summary, n = (s.items?.length ?? 0) + (s.more ?? 0);
+  const text = n > 0 ? L`留守中の未確認の出来事 ${fmtNum(n)} 件` : L`留守中の記録に未確認があります`;
+  if (b.dataset.text !== text) { setHtml(b, html`${icon('bell')}<span>${text}</span>`); b.dataset.text = text; b.setAttribute('aria-label', L`${text}（押すと要約を開きます）`); }
+  b.dataset.id = head.id;
+  b.hidden = false;
+  doc.body.dataset.awayEntry = '1';
+}
+/** What the away reading found since the last tick (and the next reading started). */
+function awayTake() { const out = awayQueue.splice(0); awayPump(); return out; }
+/** One item of the away summary as a notice; `awayOf` keeps the item so that a change of language words it again. */
+const awayItem = i => ({ id: `aw:${i.seq}`, kind: i.battle ? 'battle' : 's1', bell: i.bell, text: returnWords.itemText(i), awayOf: i, ...(i.at ? { p: i.at.p, q: i.at.q, ...(Number.isInteger(i.at.tile) ? { tile: i.at.tile } : {}) } : {}), ...(i.battle ? { battle: i.battle } : {}) });
+/** The away notices in the page's language (they are kept as words; the language may change after they were told). */
+const reword = () => { if (FS.feed?.some(x => x.awayOf || x.away)) FS.feed = FS.feed.map(x => (x.awayOf ? { ...x, text: returnWords.itemText(x.awayOf) } : x.away?.summary ? { ...x, text: awayHeadText(x.away.summary, x.away.saved) } : x)); };
+onLangChange(() => { reword(); try { renderFeed(); } catch { /* before the page is built */ } });
 let feedBell = null;
 /** Compare what the page knows with the last tick's; new changes become notifications; a new bell folds the last one into a summary. */
 function tickFeed() {
   if (FS.mode !== 'play' || !FS.citizen || !FS.chronicle) return;
   const snap = feed.snapshot(FS, undefined, feedPrev);
-  let fresh = feed.diffFeed(feedPrev, snap);
+  let fresh = [...feed.diffFeed(feedPrev, snap), ...(!s1On() ? [] : awayTake())];
   feedPrev = snap;
   // (a battle in the viewer's province that is no march's of this browser: who fought there and on which tile is in
   // the clash's own report, which is read first — clashTold — and the line is told then, by what the report says)
@@ -2387,6 +2489,7 @@ function renderFeed() {
     ...feed.stackOrder(stripItem, toasts, { alarmsFirst: phone() })];
   syncStack(el, items);
   publishNoGo();
+  renderAwayEntry();
 }
 /** How long a notice of how a fight ended waits for that fight's battle to be told (ms), and the timer that shows it. */
 const OUTCOME_BEAT_MS = 1500;
@@ -2884,6 +2987,8 @@ function shutDrawer({ focus = false } = {}) {
 }
 
 export const HUD_ACTIONS = {
+  // nations' cooperation (hud/coopentry.mjs): the entry workstream 01 registers, pressed in the S1 village card
+  'coop-open': d => { if (coopEntryOpen(FS, d.id)) invalidate('panel'); },
   // ---- a conquest season (hud/keephand.mjs, hud/provstrip.mjs): a signature to the clipboard, the season-end card put away
   'kh-copy': async (d, el) => {
     let ok = false;
@@ -3087,6 +3192,35 @@ export const HUD_ACTIONS = {
   'turn-go': d => { const x = turnStrip?.items.find(y => y.id === d.id); if (x) goToItem({ p: x.p, q: x.q, tile: Number.isInteger(x.tile) ? x.tile : undefined, tab: 'map' }); },
   'turn-dismiss': () => { if (turnStrip) turnStrip.dismissed = true; renderFeed(); },
   'feed-dismiss': d => { FS.feedDismissed = new Set([...(FS.feedDismissed ?? []), d.id]); renderFeed(); },
+  // the away summary's "seen": the player's own mark moves to the last record it told (closing it with × does not)
+  // the away summary's way in on a phone (renderAwayEntry): the list under その他, at the summary, its "seen" in focus
+  'away-open': () => {
+    if (FS.mode !== 'play') return;
+    FS.feedFilter = 'all';
+    if (drawerOf(FS)?.kind !== 'more') HUD_ACTIONS.tab({ tab: 'more' });
+    else invalidate('panel');
+    requestAnimationFrame(() => requestAnimationFrame(() => {
+      const row = globalThis.document?.querySelector('.panel .feed-away, .panel li.feed-away');
+      row?.scrollIntoView?.({ block: 'center' });
+      (row?.querySelector('[data-act="away-seen"]') ?? row)?.focus?.({ preventScroll: true });
+    }));
+  },
+  'away-seen': d => {
+    const x = (FS.feed ?? []).find(y => y.id === d.id);
+    // (only a summary of this scope whose reading has no gap moves the mark: returnsum.confirm; twice is harmless)
+    if (!x?.away?.summary?.confirm?.ok || x.scope !== awayScopeNow()) return;
+    const { season, wallet } = awayWho();
+    const saved = returnSum.confirm(awayStore(), { seasonId: season, wallet, confirm: x.away.summary.confirm, at: FS.chain?.now?.() ?? 0 });
+    if (!saved) {
+      // (storage refused: the notice stays, says so, and the next look starts from the same place)
+      FS.feed = FS.feed.map(y => (y.id === x.id ? { ...y, text: awayHeadText(y.away.summary, null), away: { ...y.away, saved: null } } : y));
+      renderFeed();
+      return;
+    }
+    awayConfirmed.add(x.id);
+    FS.feedDismissed = new Set([...(FS.feedDismissed ?? []), ...(FS.feed ?? []).filter(y => y.scope === x.scope && (y.kind === 'away' || String(y.id).startsWith('aw:'))).map(y => y.id)]);
+    renderFeed();
+  },
   'feed-filter': d => { FS.feedFilter = feed.FEED_FILTERS.includes(d.f) ? d.f : 'all'; invalidate('panel'); },
   // the status at the map: put a refusal away, or send the refused action once more
   'notice-close': () => { FS.notice = null; renderFeed(); invalidate('panel'); },
@@ -3494,6 +3628,7 @@ async function loadSeason(herald) {
   // (after the boot's own load: boot awaits loadOverviews itself, so the opening view has them)
   if (FS.overviewsBooted) loadOverviews(herald).catch(() => {});
   setS1(season);
+  setTermsPace(() => (FS.chain?.accelerated ? FS.chain.rate : 1));
   FS.clock = seasonClock(season);
   // Only a localnet Clock runs accelerated (§8.7); every other cluster's rate is 1.
   FS.chain.setAccelerated(record.cluster === 'localnet');
@@ -3794,6 +3929,8 @@ export async function boot() {
     if (FS.mode === 'spectate') startSpectate(herald);
     if (FS.mode === 'play') {
       // the first answer about the viewer decides whether the join flow opens by itself (hud/drawer.mjs) and where the map opens (map/opening.mjs)
+      // (workstream 07: 01's cooperation board, when this server has one — hud/coopboard.mjs; nothing shown when not)
+      installCoopBoard({ changed: () => invalidate('panel') });
       startPlay({ herald, cfg }).catch(e => console.error('frontier play:', e)).then(() => { FS.playReady = true; FS.viewerMissed = !!FS.wallet && !FS.land; invalidate('panel', 'tabs', 'rail', 'chips'); }).finally(() => { viewerKnown = true; map?.invalidate(); });
       // the drawer starts closed: the tab of the last visit is not reopened over the map
       FS.tab = 'map';

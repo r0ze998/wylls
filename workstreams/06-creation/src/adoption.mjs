@@ -19,6 +19,9 @@ import { finding } from "./codes.mjs";
 import { DOMAIN, verifyHash } from "./keys.mjs";
 import { preflight, verifyPlanSignature } from "./plan.mjs";
 
+/** A run request is accepted on the day it names and the next: see execute.mjs. */
+export const RUN_REQUEST_DAYS = 2;
+
 function runKey(a) {
   return `${a.actor}|${a.manifest.author}/${a.manifest.name}`;
 }
@@ -99,13 +102,22 @@ export class AdoptionBook {
     return { ok: true, findings: [] };
   }
 
-  /** Spend a run request's nonce for a plan; false if it was used before. */
-  useNonce(planHash, nonce) {
+  /**
+   * Spend a run request's nonce for a plan; false if it was used before.
+   * Nonces are kept with the day their request names, and only while such
+   * a request could still be accepted (RUN_REQUEST_DAYS): what this keeps
+   * per plan is bounded by the days' runs, however long the world goes on.
+   * Older ones (and those of the dayless run/0 format, kept as `true`) are
+   * dropped: their requests are refused by their day before any nonce check.
+   */
+  useNonce(planHash, nonce, day, today) {
     const a = own(this.data.adoptions, planHash);
     if (!a) return false;
     a.nonces ??= {};
-    if (Object.hasOwn(a.nonces, nonce)) return false;
-    a.nonces[nonce] = true;
+    for (const [n, d] of Object.entries(a.nonces)) if (!Number.isSafeInteger(d) || today - d >= RUN_REQUEST_DAYS) delete a.nonces[n];
+    const key = `n:${nonce}`; // a prefix, so no nonce ("__proto__") names an inherited slot
+    if (Object.hasOwn(a.nonces, key)) return false;
+    a.nonces[key] = day;
     return true;
   }
 

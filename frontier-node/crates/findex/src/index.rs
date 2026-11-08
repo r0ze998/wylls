@@ -33,7 +33,8 @@ use frontier_abi::v2::log as v2log;
 pub const SCHEMA: i64 = 2;
 /// A separate marker: schema 2 alone was also used when unknown records were
 /// silently skipped and cannot establish complete indexing.
-const STRICT_RECORDS_KEY: &str = "strict_ps2_v1";
+// v1 silently ignored PSW1; never reuse its coverage as complete.
+const STRICT_RECORDS_KEY: &str = "strict_ps2_v2_reject_psw1";
 const BLOCKED_KEY: &str = "strict_ps2_blocked";
 
 fn require_readable(conn: &Connection) -> Result<(), String> {
@@ -185,7 +186,7 @@ impl Index {
             )
             .optional())?;
         if last.unwrap_or(0) > 0 && (schema.unwrap_or(1) < SCHEMA || strict != Some(1)) {
-            return Err("existing index may have skipped PS2 records; rebuild from the archive in a separate index before serving".into());
+            return Err("existing index may have skipped PS2 or PSW1 records; rebuild from the archive in a separate index before serving".into());
         }
         if schema.unwrap_or(1) < SCHEMA {
             sql(conn.execute_batch(

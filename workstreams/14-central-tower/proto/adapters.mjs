@@ -10,8 +10,9 @@
 //      places villages by a rule of ⑭'s own: 'compact' keeps them in the rings
 //      the S1_LOCAL_14D preset lets players settle (2..3, heartland_max_ring 3);
 //      'dispersed' spreads them over rings 2..8 as a placeholder for ⑧.
-//   ⑮ achievement and victory  ⑭ hands over facts only. `toFacts` is the
-//      export; it carries no winner, score or end of the world.
+//   ⑮ achievement and victory  ⑭ hands over facts only: `toFacts` in
+//      contract.mjs, every one marked unverified (a model, not the chain); no
+//      winner, score or end of the world. Period boundaries go with them.
 import { ringProvinces, sextant } from './geometry.mjs';
 
 /** What ⑭ needs from ①'s requests (a description, not code that ① must adopt). */
@@ -76,13 +77,5 @@ export function placeVillages(P, R) {
   return out;
 }
 
-/** The facts ⑭ hands to ⑮: tower state and actions, nothing decided. */
-export function toFacts(sim) {
-  return {
-    schema: 'wylls.ws14.tower-facts/0',
-    case: sim.case,
-    params: { ...sim.P, rules: undefined },
-    tower: sim.case === 'C' ? { stage: sim.tower.stage, dormant: sim.tower.dormant, stock: { ...sim.tower.stock }, completedAtHour: [...sim.tower.completedAt], lapses: sim.tower.lapses } : null,
-    events: sim.facts.filter(f => f.kind.startsWith('tower.') || f.kind.startsWith('centre.')),
-  };
-}
+// The facts ⑭ hands to ⑮ are in contract.mjs (`toFacts`, schema wylls.ws14.tower-facts/1).
+export { toFacts } from './contract.mjs';

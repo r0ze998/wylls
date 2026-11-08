@@ -110,7 +110,8 @@ export function renderForecast(fc) {
   const fates = Object.entries(fc.fates).sort((a, b) => b[1] - a[1]);
   return html`<div class="mc-fc"><p><strong>${fc.troops.min === fc.troops.max ? L`残る兵 ${fmtNum(fc.troops.min)}` : L`残る兵 ${fmtNum(fc.troops.min)}〜${fmtNum(fc.troops.max)}`}</strong> <span class="muted">${L`（出発時 ${fmtNum(fc.troops.start)}）`}</span></p>
     <ul class="mc-fates">${fates.map(([k, n]) => html`<li class="mc-fate-${k}">${bar(n, fc.runs)}<span>${FATE_SHORT[k]?.() ?? k}</span><span class="muted">${L`${fmtNum(n)}/${fmtNum(fc.runs)}回`}</span></li>`)}</ul>
-    <p class="muted">${L`ルールで${fmtNum(fc.runs)}回試した結果の幅です。ほかの軍勢の到着は封印中のため、数えていません。`}${fc.certain ? '' : html` ${L`このターンは野営地の見直しがあるため、守り手が変わるかもしれません。`}`}</p></div>`;
+    ${fc.worn?.bps ? html`<p>${L`道の途中で戦争中の国の物見櫓の見張りの中を歩くため、着く前に兵が ${fmtNum(fc.worn.before)} → ${fmtNum(fc.worn.after)}（${fmtNum(fc.worn.bps / 100)}%）に減ります。`}</p>` : ''}
+    <p class="muted">${L`ルールで${fmtNum(fc.runs)}回試した結果の幅です。ほかの軍勢の到着は封印中のため、数えていません。`}${fc.certain ? '' : html` ${L`このターンは野営地の見直しがあるため、守り手が変わるかもしれません。`}`}${fc.model ? html` ${L`砦・要塞の守備兵と物見櫓の減りは、いま立っているもので数えています。`}`: ''}</p></div>`;
 }
 
 /**
@@ -147,6 +148,7 @@ export function outlook({ w, awayLine, stam, nowB, def, odds, fc, sight }) {
   const fcCell = !def?.total ? '' : fc?.pending ? cell(html`<span class="state-tag state-forecast">${L`予測`}</span>`, L`計算中…`, '', 'mo-fc')
     : fc?.ok ? cell(html`<span class="state-tag state-forecast">${L`予測`}</span>`, L`残る兵 ${leftText(fc)}`, L`ルールで ${fmtNum(fc.runs)} 回試した幅`, 'mo-fc')
     : fc?.why === 'OutOfSight' ? cell(html`<span class="state-tag state-forecast">${L`予測`}</span>`, L`出しません`, L`見えていない土地です（ほかの軍勢がいるかわかりません）`, 'mo-fc')
+    : fc?.why === 'PalisadeOnRoad' ? cell(html`<span class="state-tag state-forecast">${L`予測`}</span>`, L`この道は通れません`, L`戦争中の国の柵が道にあります。封が開くときに進軍は認められません`, 'mo-fc')
     : fc ? cell(html`<span class="state-tag state-forecast">${L`予測`}</span>`, L`見込みはまだ出せません`, L`行き先の州の記録がそろうと出ます`, 'mo-fc') : '';
   return html`<div class="mc-outlook" role="group" aria-label="${L`この命令の見通し`}">
     ${w ? cell(L`到着`, L`ターン ${fmtNum(w.value)}`, awayLine) : ''}

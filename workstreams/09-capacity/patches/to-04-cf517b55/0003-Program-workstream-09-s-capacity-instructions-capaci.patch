@@ -1,0 +1,2505 @@
+From 101ee30f276a1fca280d62443bf2755c0ed79463 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Sun, 8 Nov 2026 12:31:10 +0000
+Subject: [PATCH 3/5] Program: workstream 09's capacity instructions
+ (capacity-preview) [skip ci]
+
+frontier_abi::capacity (feature capacity-preview): the fourteen
+instructions on workstream 4's provisional band 0xF0-0xFD, their exact
+encodings, their account lists, the with-seed addresses of the pool
+(`cp`) and job (`cj`) accounts off the Season, the program errors
+109 + code (110-139), and the proposed 0x2000 program-version bit.
+
+permutation-frontier (feature capacity-preview): proc::capacity, routed
+before the v2 tags as the wide preview is, so a default build refuses
+the bytes as before. Every check is the rules' (frontier::capacity);
+the handlers read the facility from its Holding (generation, owner, the
+capture's previous generation and bell), change the Holding's own
+production on LendCapacity and ReclaimCapacity (core patch 0001), take
+DepositToJob's goods from the user's vault in the facility's province
+and put ClaimJob's back there (refused whole past CAP - CUSTODY_QUOTA),
+credit a captor's share into the Holding's stores on
+RecordFacilityLoss, create and close the pool and job accounts (rent
+back to its payer). A Season of another build is refused. No PS2 record
+(workstream 09's record kinds are not allocated); a released generation
+or one that moved twice before the loss was recorded cannot be dated
+from the Holding, so RecordFacilityLoss refuses it (NotImplemented).
+
+Host tests through the real dispatch (map_growth_runtime_tests'
+world, no key generated, derived or signed; is_signer set by the
+test): the whole path from A's first home (PlaceHome) to B's claimed
+arms and the retired job, refusals that change nothing, resends, a
+capture where the captor takes what is at the facility, and a Season of
+another build. Two shared guards name the preview explicitly:
+ix.rs's list of vault-stock writers gains the capacity writer (it
+clamps to CAP - CUSTODY_QUOTA), and the rules' ruleset-binding test
+names the capacity module as an unbound preview (its version is
+workstream 4's to give). The previous commit left that rules test
+failing; this one fixes it.
+
+Tests: permutation-rules 513 (515 with the feature), frontier-abi 146
+(151), permutation-frontier 107 default, 111 capacity-preview, 108
+custody-preview, 112 both; clippy -D warnings and fmt on the changed
+files. SBF, LiteSVM and the verifier's tests are not run.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01C5Nj2Y9wne2WBMdMysfzXe
+---
+ frontier-abi/Cargo.toml                       |   4 +
+ frontier-abi/src/capacity.rs                  | 715 ++++++++++++++
+ frontier-abi/src/lib.rs                       |   3 +
+ permutation-frontier/Cargo.toml               |  10 +
+ .../src/capacity_runtime_tests.rs             | 602 ++++++++++++
+ permutation-frontier/src/ix.rs                |  21 +-
+ permutation-frontier/src/lib.rs               |  34 +-
+ .../src/map_growth_runtime_tests.rs           |   5 +
+ permutation-frontier/src/proc/capacity.rs     | 889 ++++++++++++++++++
+ permutation-frontier/src/proc/mod.rs          |   4 +
+ permutation-rules/tests/frontier_shared.rs    |  11 +
+ 11 files changed, 2294 insertions(+), 4 deletions(-)
+ create mode 100644 frontier-abi/src/capacity.rs
+ create mode 100644 permutation-frontier/src/capacity_runtime_tests.rs
+ create mode 100644 permutation-frontier/src/proc/capacity.rs
+
+diff --git a/frontier-abi/Cargo.toml b/frontier-abi/Cargo.toml
+index cfe04209..67aaf0fa 100644
+--- a/frontier-abi/Cargo.toml
++++ b/frontier-abi/Cargo.toml
+@@ -29,6 +29,10 @@ default = []
+ # program, the vectors and every hash are built exactly as before; it adds
+ # no dependency (I-03 holds).
+ world-index-experimental = []
++# Workstream 09 (capacity lending), a preview: `capacity`, the instruction
++# tags 0xF0-0xFD, their data, account lists and addresses. Off by default:
++# no vector, hash or default-build change; no new dependency.
++capacity-preview = []
+ 
+ [lints.rust]
+ unexpected_cfgs = { level = "warn", check-cfg = ['cfg(target_os, values("solana"))'] }
+diff --git a/frontier-abi/src/capacity.rs b/frontier-abi/src/capacity.rs
+new file mode 100644
+index 00000000..9dca0fa7
+--- /dev/null
++++ b/frontier-abi/src/capacity.rs
+@@ -0,0 +1,715 @@
++//! **Preview, opt-in** (`--features capacity-preview`): workstream 09's
++//! instructions (lending a workshop's processing capacity), their data,
++//! their account lists and their accounts' addresses.
++//!
++//! **Numbers.** The tags `0xF0..=0xFD` and the program errors `110..=139`
++//! are workstream 4's provisional allocation (`ABI-ALLOCATION-20261106.ja.md`
++//! rev 3–6: tags 0xF0–0xFD, errors 110–149, AccountKind 25 CapacityPool and
++//! 26 CapacityJob, seeds `cp` and `cj`). The magic values (`PSF1CPOL`,
++//! `PSF1CJOB`) and [`CAPACITY_PREVIEW_VERSION_BIT`] are workstream 09's
++//! proposals, not allocations. **No record kind is allocated** (workstream
++//! 09 has 20 kinds of record, workstream 4's band 120–129 holds 10): a
++//! capacity build logs no PS2 record for these instructions, and the
++//! verifier cannot judge them (they are unverifiable, as custody was before
++//! V26).
++//!
++//! A default build of the program never dispatches these bytes
++//! (`v2::ix::tag_of` refuses them); only a program built with
++//! `capacity-preview` routes them, and it carries the version bit so its
++//! Seasons never mix with production ones.
++//!
++//! | tag | instruction | class | data after the tag |
++//! |---|---|---|---|
++//! | 0xF0 | OpenCapacityPool | P (owner) | `policies [u8;3]` |
++//! | 0xF1 | LendCapacity | P (owner) | `units u32, seq u32` |
++//! | 0xF2 | ReclaimCapacity | P (owner) | `units u32, seq u32` |
++//! | 0xF3 | GrantCapacity | P (owner) | `grant u32, user [u8;32], recipe u8, max_units u32, max_output i64, from i64, until i64` |
++//! | 0xF4 | RevokeCapacity | P (owner) | `grant u32` |
++//! | 0xF5 | ReserveCapacity | P (user) | `grant u32, job u32, units u32, start i64, end i64, max_output i64` |
++//! | 0xF6 | DepositToJob | P (user) | `grant u32, job u32, deposit u64, resource u8, amount i64` |
++//! | 0xF7 | SettleJob | N (anyone) | `grant u32, job u32` |
++//! | 0xF8 | CancelJob | P (user) | `grant u32, job u32` |
++//! | 0xF9 | ClaimJob | P (user) | `grant u32, job u32` |
++//! | 0xFA | RecordFacilityLoss | N (anyone) | — |
++//! | 0xFB | RetireJob | N (anyone) | `grant u32, job u32` |
++//! | 0xFC | RetireGrant | N (anyone) | `grant u32` |
++//! | 0xFD | RetirePool | N (anyone) | — |
++//!
++//! `user` in GrantCapacity is the user's **Citizen** key (the owner, a user
++//! and a captor are Citizens). Amounts are milli-units. Every encoding is
++//! fixed width, little-endian, exact length.
++
++use crate::addr::{AddrCtx, Seed};
++use crate::bytes::{Cursor, Writer};
++use crate::error::FrontierError;
++use crate::layout::AccountKind as K;
++use crate::prologue::{Acc, Group, Spec, Wr};
++
++/// The bit a capacity build sets in its `PROGRAM_VERSION` (proposal;
++/// disjoint from the NFT build's `0x8000` and the wide build's `0x4000`).
++pub const CAPACITY_PREVIEW_VERSION_BIT: u16 = 0x2000;
++
++pub const TAG_FIRST: u8 = 0xF0;
++pub const TAG_LAST: u8 = 0xFD;
++
++/// Whether `t` is one of workstream 09's tags.
++pub const fn is_capacity_tag(t: u8) -> bool {
++    t >= TAG_FIRST && t <= TAG_LAST
++}
++
++/// The fourteen instructions.
++#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
++#[repr(u8)]
++pub enum CapIx {
++    OpenCapacityPool = 0xF0,
++    LendCapacity = 0xF1,
++    ReclaimCapacity = 0xF2,
++    GrantCapacity = 0xF3,
++    RevokeCapacity = 0xF4,
++    ReserveCapacity = 0xF5,
++    DepositToJob = 0xF6,
++    SettleJob = 0xF7,
++    CancelJob = 0xF8,
++    ClaimJob = 0xF9,
++    RecordFacilityLoss = 0xFA,
++    RetireJob = 0xFB,
++    RetireGrant = 0xFC,
++    RetirePool = 0xFD,
++}
++
++impl CapIx {
++    pub const ALL: [CapIx; 14] = [
++        CapIx::OpenCapacityPool,
++        CapIx::LendCapacity,
++        CapIx::ReclaimCapacity,
++        CapIx::GrantCapacity,
++        CapIx::RevokeCapacity,
++        CapIx::ReserveCapacity,
++        CapIx::DepositToJob,
++        CapIx::SettleJob,
++        CapIx::CancelJob,
++        CapIx::ClaimJob,
++        CapIx::RecordFacilityLoss,
++        CapIx::RetireJob,
++        CapIx::RetireGrant,
++        CapIx::RetirePool,
++    ];
++
++    pub const fn tag(self) -> u8 {
++        self as u8
++    }
++
++    pub const fn from_tag(t: u8) -> Option<CapIx> {
++        Some(match t {
++            0xF0 => CapIx::OpenCapacityPool,
++            0xF1 => CapIx::LendCapacity,
++            0xF2 => CapIx::ReclaimCapacity,
++            0xF3 => CapIx::GrantCapacity,
++            0xF4 => CapIx::RevokeCapacity,
++            0xF5 => CapIx::ReserveCapacity,
++            0xF6 => CapIx::DepositToJob,
++            0xF7 => CapIx::SettleJob,
++            0xF8 => CapIx::CancelJob,
++            0xF9 => CapIx::ClaimJob,
++            0xFA => CapIx::RecordFacilityLoss,
++            0xFB => CapIx::RetireJob,
++            0xFC => CapIx::RetireGrant,
++            0xFD => CapIx::RetirePool,
++            _ => return None,
++        })
++    }
++
++    pub const fn name(self) -> &'static str {
++        match self {
++            CapIx::OpenCapacityPool => "OpenCapacityPool",
++            CapIx::LendCapacity => "LendCapacity",
++            CapIx::ReclaimCapacity => "ReclaimCapacity",
++            CapIx::GrantCapacity => "GrantCapacity",
++            CapIx::RevokeCapacity => "RevokeCapacity",
++            CapIx::ReserveCapacity => "ReserveCapacity",
++            CapIx::DepositToJob => "DepositToJob",
++            CapIx::SettleJob => "SettleJob",
++            CapIx::CancelJob => "CancelJob",
++            CapIx::ClaimJob => "ClaimJob",
++            CapIx::RecordFacilityLoss => "RecordFacilityLoss",
++            CapIx::RetireJob => "RetireJob",
++            CapIx::RetireGrant => "RetireGrant",
++            CapIx::RetirePool => "RetirePool",
++        }
++    }
++
++    /// P: a player's (the owner's or the user's); N: anyone's.
++    pub const fn class(self) -> crate::tags::Class {
++        match self {
++            CapIx::SettleJob
++            | CapIx::RecordFacilityLoss
++            | CapIx::RetireJob
++            | CapIx::RetireGrant
++            | CapIx::RetirePool => crate::tags::Class::N,
++            _ => crate::tags::Class::P,
++        }
++    }
++
++    /// None refuses CPI (an external program may lend or reserve).
++    pub const fn top_level_only(self) -> bool {
++        false
++    }
++}
++
++/// The instruction of `data` (`BadData` for any other tag).
++pub fn tag_of(data: &[u8]) -> Result<CapIx, FrontierError> {
++    data.first()
++        .and_then(|t| CapIx::from_tag(*t))
++        .ok_or(FrontierError::BadData)
++}
++
++// ------------------------------------------------------------ errors
++
++/// The program error of the kernel's refusal `code` (1–30): `109 + code`.
++pub const ERROR_BASE: u32 = 109;
++
++pub const fn program_error(code: u16) -> u32 {
++    ERROR_BASE + code as u32
++}
++
++// ------------------------------------------------------------ addresses
++
++/// The CapacityPool seed tag (workstream 4's provisional `cp`).
++pub const POOL: [u8; 2] = *b"cp";
++/// The CapacityJob seed tag (`cj`).
++pub const JOB: [u8; 2] = *b"cj";
++pub const POOL_RAW_LEN: usize = 6;
++pub const JOB_RAW_LEN: usize = 14;
++
++fn pool_raw(p: i16, q: i16, site: u8, gen: u8) -> [u8; POOL_RAW_LEN] {
++    let mut r = [0u8; POOL_RAW_LEN];
++    r[..2].copy_from_slice(&p.to_le_bytes());
++    r[2..4].copy_from_slice(&q.to_le_bytes());
++    r[4] = site;
++    r[5] = gen;
++    r
++}
++
++/// `cp‖hex(le16 p ‖ le16 q ‖ site ‖ gen)`.
++pub fn pool_seed(p: i16, q: i16, site: u8, gen: u8) -> Seed {
++    Seed::new(POOL, &pool_raw(p, q, site, gen))
++}
++
++/// The pool of the facility at Holding `(p, q, site)`, generation `gen`.
++pub fn pool(ctx: &AddrCtx, p: i16, q: i16, site: u8, gen: u8) -> [u8; 32] {
++    ctx.of(&pool_seed(p, q, site, gen))
++}
++
++/// `cj‖hex(pool raw ‖ le32 grant ‖ le32 job)`.
++pub fn job_seed(p: i16, q: i16, site: u8, gen: u8, grant: u32, job: u32) -> Seed {
++    let mut r = [0u8; JOB_RAW_LEN];
++    r[..POOL_RAW_LEN].copy_from_slice(&pool_raw(p, q, site, gen));
++    r[6..10].copy_from_slice(&grant.to_le_bytes());
++    r[10..14].copy_from_slice(&job.to_le_bytes());
++    Seed::new(JOB, &r)
++}
++
++/// The account of job `(grant, job)` in that pool.
++pub fn job(ctx: &AddrCtx, p: i16, q: i16, site: u8, gen: u8, grant: u32, job: u32) -> [u8; 32] {
++    ctx.of(&job_seed(p, q, site, gen, grant, job))
++}
++
++/// Bytes after the rules' record in each account: the rent payer (32), to
++/// whom the account's rent goes back when it closes.
++pub const RENT_TO_LEN: usize = 32;
++
++// ------------------------------------------------------------ data
++
++/// The data of an instruction, decoded.
++#[derive(Clone, Copy, Debug, PartialEq, Eq)]
++pub enum CapData {
++    OpenCapacityPool {
++        policies: [u8; 3],
++    },
++    LendCapacity {
++        units: u32,
++        seq: u32,
++    },
++    ReclaimCapacity {
++        units: u32,
++        seq: u32,
++    },
++    GrantCapacity {
++        grant: u32,
++        user: [u8; 32],
++        recipe: u8,
++        max_units: u32,
++        max_output: i64,
++        from: i64,
++        until: i64,
++    },
++    RevokeCapacity {
++        grant: u32,
++    },
++    ReserveCapacity {
++        grant: u32,
++        job: u32,
++        units: u32,
++        start: i64,
++        end: i64,
++        max_output: i64,
++    },
++    DepositToJob {
++        grant: u32,
++        job: u32,
++        deposit: u64,
++        resource: u8,
++        amount: i64,
++    },
++    SettleJob {
++        grant: u32,
++        job: u32,
++    },
++    CancelJob {
++        grant: u32,
++        job: u32,
++    },
++    ClaimJob {
++        grant: u32,
++        job: u32,
++    },
++    RecordFacilityLoss,
++    RetireJob {
++        grant: u32,
++        job: u32,
++    },
++    RetireGrant {
++        grant: u32,
++    },
++    RetirePool,
++}
++
++impl CapData {
++    pub const fn ix(&self) -> CapIx {
++        match self {
++            CapData::OpenCapacityPool { .. } => CapIx::OpenCapacityPool,
++            CapData::LendCapacity { .. } => CapIx::LendCapacity,
++            CapData::ReclaimCapacity { .. } => CapIx::ReclaimCapacity,
++            CapData::GrantCapacity { .. } => CapIx::GrantCapacity,
++            CapData::RevokeCapacity { .. } => CapIx::RevokeCapacity,
++            CapData::ReserveCapacity { .. } => CapIx::ReserveCapacity,
++            CapData::DepositToJob { .. } => CapIx::DepositToJob,
++            CapData::SettleJob { .. } => CapIx::SettleJob,
++            CapData::CancelJob { .. } => CapIx::CancelJob,
++            CapData::ClaimJob { .. } => CapIx::ClaimJob,
++            CapData::RecordFacilityLoss => CapIx::RecordFacilityLoss,
++            CapData::RetireJob { .. } => CapIx::RetireJob,
++            CapData::RetireGrant { .. } => CapIx::RetireGrant,
++            CapData::RetirePool => CapIx::RetirePool,
++        }
++    }
++
++    /// The exact length of an instruction's data, tag included.
++    pub const fn len_of(ix: CapIx) -> usize {
++        1 + match ix {
++            CapIx::OpenCapacityPool => 3,
++            CapIx::LendCapacity | CapIx::ReclaimCapacity => 8,
++            CapIx::GrantCapacity => 4 + 32 + 1 + 4 + 8 + 8 + 8,
++            CapIx::RevokeCapacity | CapIx::RetireGrant => 4,
++            CapIx::ReserveCapacity => 4 + 4 + 4 + 8 + 8 + 8,
++            CapIx::DepositToJob => 4 + 4 + 8 + 1 + 8,
++            CapIx::SettleJob | CapIx::CancelJob | CapIx::ClaimJob | CapIx::RetireJob => 8,
++            CapIx::RecordFacilityLoss | CapIx::RetirePool => 0,
++        }
++    }
++
++    pub fn decode(d: &[u8]) -> Result<CapData, FrontierError> {
++        let ix = tag_of(d)?;
++        if d.len() != Self::len_of(ix) {
++            return Err(FrontierError::BadData);
++        }
++        let bad = FrontierError::BadData;
++        let mut c = Cursor::new(&d[1..]);
++        let gj = |c: &mut Cursor| -> Result<(u32, u32), FrontierError> {
++            Ok((c.u32().ok_or(bad)?, c.u32().ok_or(bad)?))
++        };
++        Ok(match ix {
++            CapIx::OpenCapacityPool => CapData::OpenCapacityPool {
++                policies: [c.u8().ok_or(bad)?, c.u8().ok_or(bad)?, c.u8().ok_or(bad)?],
++            },
++            CapIx::LendCapacity => CapData::LendCapacity {
++                units: c.u32().ok_or(bad)?,
++                seq: c.u32().ok_or(bad)?,
++            },
++            CapIx::ReclaimCapacity => CapData::ReclaimCapacity {
++                units: c.u32().ok_or(bad)?,
++                seq: c.u32().ok_or(bad)?,
++            },
++            CapIx::GrantCapacity => CapData::GrantCapacity {
++                grant: c.u32().ok_or(bad)?,
++                user: c.arr::<32>().ok_or(bad)?,
++                recipe: c.u8().ok_or(bad)?,
++                max_units: c.u32().ok_or(bad)?,
++                max_output: c.i64().ok_or(bad)?,
++                from: c.i64().ok_or(bad)?,
++                until: c.i64().ok_or(bad)?,
++            },
++            CapIx::RevokeCapacity => CapData::RevokeCapacity {
++                grant: c.u32().ok_or(bad)?,
++            },
++            CapIx::ReserveCapacity => {
++                let (grant, job) = gj(&mut c)?;
++                CapData::ReserveCapacity {
++                    grant,
++                    job,
++                    units: c.u32().ok_or(bad)?,
++                    start: c.i64().ok_or(bad)?,
++                    end: c.i64().ok_or(bad)?,
++                    max_output: c.i64().ok_or(bad)?,
++                }
++            }
++            CapIx::DepositToJob => {
++                let (grant, job) = gj(&mut c)?;
++                CapData::DepositToJob {
++                    grant,
++                    job,
++                    deposit: c.u64().ok_or(bad)?,
++                    resource: c.u8().ok_or(bad)?,
++                    amount: c.i64().ok_or(bad)?,
++                }
++            }
++            CapIx::SettleJob => {
++                let (grant, job) = gj(&mut c)?;
++                CapData::SettleJob { grant, job }
++            }
++            CapIx::CancelJob => {
++                let (grant, job) = gj(&mut c)?;
++                CapData::CancelJob { grant, job }
++            }
++            CapIx::ClaimJob => {
++                let (grant, job) = gj(&mut c)?;
++                CapData::ClaimJob { grant, job }
++            }
++            CapIx::RecordFacilityLoss => CapData::RecordFacilityLoss,
++            CapIx::RetireJob => {
++                let (grant, job) = gj(&mut c)?;
++                CapData::RetireJob { grant, job }
++            }
++            CapIx::RetireGrant => CapData::RetireGrant {
++                grant: c.u32().ok_or(bad)?,
++            },
++            CapIx::RetirePool => CapData::RetirePool,
++        })
++    }
++
++    /// The instruction's bytes (tag first).
++    pub fn encode(&self) -> alloc::vec::Vec<u8> {
++        let ix = self.ix();
++        let mut b = alloc::vec![0u8; Self::len_of(ix)];
++        let mut w = Writer::new(&mut b);
++        w.u8(ix.tag());
++        match *self {
++            CapData::OpenCapacityPool { policies } => {
++                w.u8(policies[0]).u8(policies[1]).u8(policies[2]);
++            }
++            CapData::LendCapacity { units, seq } | CapData::ReclaimCapacity { units, seq } => {
++                w.u32(units).u32(seq);
++            }
++            CapData::GrantCapacity {
++                grant,
++                user,
++                recipe,
++                max_units,
++                max_output,
++                from,
++                until,
++            } => {
++                w.u32(grant)
++                    .bytes(&user)
++                    .u8(recipe)
++                    .u32(max_units)
++                    .i64(max_output)
++                    .i64(from)
++                    .i64(until);
++            }
++            CapData::RevokeCapacity { grant } | CapData::RetireGrant { grant } => {
++                w.u32(grant);
++            }
++            CapData::ReserveCapacity {
++                grant,
++                job,
++                units,
++                start,
++                end,
++                max_output,
++            } => {
++                w.u32(grant)
++                    .u32(job)
++                    .u32(units)
++                    .i64(start)
++                    .i64(end)
++                    .i64(max_output);
++            }
++            CapData::DepositToJob {
++                grant,
++                job,
++                deposit,
++                resource,
++                amount,
++            } => {
++                w.u32(grant).u32(job).u64(deposit).u8(resource).i64(amount);
++            }
++            CapData::SettleJob { grant, job }
++            | CapData::CancelJob { grant, job }
++            | CapData::ClaimJob { grant, job }
++            | CapData::RetireJob { grant, job } => {
++                w.u32(grant).u32(job);
++            }
++            CapData::RecordFacilityLoss | CapData::RetirePool => {}
++        }
++        b
++    }
++}
++
++// ------------------------------------------------------------ accounts
++
++const fn s(name: &'static str, acc: Acc, signer: bool, wr: Wr) -> Spec {
++    Spec {
++        name,
++        acc,
++        signer,
++        wr,
++    }
++}
++
++const fn one(specs: &'static [Spec]) -> Group {
++    Group {
++        specs,
++        min: 1,
++        max: 1,
++    }
++}
++
++const fn upto(specs: &'static [Spec], max: u8) -> Group {
++    Group { specs, min: 0, max }
++}
++
++/// A capacity account (no `AccountKind` is allocated in the ABI yet): the
++/// flag check treats it as any account; the handler authenticates owner,
++/// address, magic and the record itself.
++const CAP: Acc = Acc::Any;
++/// A player's account the handler reads by its v2 layout (Holding, Vault):
++/// authenticated by the handler (owner, magic, season, address).
++const V2: Acc = Acc::Any;
++
++const ACTOR: Spec = s("actor", Acc::Wallet, true, Wr::R);
++const PAYER: Spec = s("payer", Acc::Wallet, true, Wr::W);
++const SEASON: Spec = s("season", Acc::Kind(K::Season), false, Wr::R);
++const CITIZEN: Spec = s("citizen", Acc::Kind(K::Citizen), false, Wr::W);
++const FEE_PAYER: Spec = s("fee_payer", Acc::Wallet, true, Wr::W);
++const SYSTEM: Spec = s("system", Acc::System, false, Wr::R);
++
++/// Most jobs RevokeCapacity and RecordFacilityLoss write (the pool's).
++pub const MAX_JOB_ACCOUNTS: u8 = 16;
++
++const POOL_W: Spec = s("pool", CAP, false, Wr::W);
++const JOB_W: Spec = s("job", CAP, false, Wr::W);
++const HOLDING_R: Spec = s("holding", V2, false, Wr::R);
++const HOLDING_W: Spec = s("holding", V2, false, Wr::W);
++const VAULT_W: Spec = s("vault", V2, false, Wr::W);
++const RENT_TO: Spec = s("rent_to", Acc::Wallet, false, Wr::W);
++
++/// `[holding r] [pool w] [system]` after the player prologue.
++pub const OPEN_POOL: &[Group] = &[one(&[
++    ACTOR, PAYER, SEASON, CITIZEN, HOLDING_R, POOL_W, SYSTEM,
++])];
++/// `[holding w] [pool w]`: the Holding's own production changes.
++pub const LEND: &[Group] = &[one(&[ACTOR, PAYER, SEASON, CITIZEN, HOLDING_W, POOL_W])];
++/// `[holding r] [pool w]`.
++pub const OWNER_POOL: &[Group] = &[one(&[ACTOR, PAYER, SEASON, CITIZEN, HOLDING_R, POOL_W])];
++/// `[holding r] [pool w] [job w ×0..16]` (the grant's booked jobs under
++/// CancelBooked).
++pub const REVOKE: &[Group] = &[
++    one(&[ACTOR, PAYER, SEASON, CITIZEN, HOLDING_R, POOL_W]),
++    upto(&[JOB_W], MAX_JOB_ACCOUNTS),
++];
++/// `[holding r] [pool w] [job w] [system]`.
++pub const RESERVE: &[Group] = &[one(&[
++    ACTOR, PAYER, SEASON, CITIZEN, HOLDING_R, POOL_W, JOB_W, SYSTEM,
++])];
++/// `[holding r] [pool w] [job w] [vault w]`: the user's vault in the
++/// facility's province, where the goods come from or go to.
++pub const USER_VAULT: &[Group] = &[one(&[
++    ACTOR, PAYER, SEASON, CITIZEN, HOLDING_R, POOL_W, JOB_W, VAULT_W,
++])];
++/// `[holding r] [pool w] [job w]`.
++pub const USER_JOB: &[Group] = &[one(&[
++    ACTOR, PAYER, SEASON, CITIZEN, HOLDING_R, POOL_W, JOB_W,
++])];
++/// `[fee_payer s,w] [season] [holding r] [pool w] [job w]`.
++pub const SETTLE: &[Group] = &[one(&[FEE_PAYER, SEASON, HOLDING_R, POOL_W, JOB_W])];
++/// `[fee_payer s,w] [season] [holding w] [pool w] [job w ×0..16]`: every
++/// job of the pool; what a captor takes goes into the Holding's stores.
++pub const LOSS: &[Group] = &[
++    one(&[FEE_PAYER, SEASON, HOLDING_W, POOL_W]),
++    upto(&[JOB_W], MAX_JOB_ACCOUNTS),
++];
++/// `[fee_payer s,w] [season] [pool w] [job w] [rent_to w]`.
++pub const RETIRE_JOB: &[Group] = &[one(&[FEE_PAYER, SEASON, POOL_W, JOB_W, RENT_TO])];
++/// `[fee_payer s,w] [season] [pool w]`.
++pub const RETIRE_GRANT: &[Group] = &[one(&[FEE_PAYER, SEASON, POOL_W])];
++/// `[fee_payer s,w] [season] [pool w] [rent_to w]`.
++pub const RETIRE_POOL: &[Group] = &[one(&[FEE_PAYER, SEASON, POOL_W, RENT_TO])];
++
++/// The account list of an instruction. The player prologue (`[actor s]
++/// [payer s,w] [season] [citizen w]`) for the owner's and the user's; the
++/// keeper prologue (`[fee_payer s,w] [season]`) for anyone's.
++pub const fn accounts_of(ix: CapIx) -> &'static [Group] {
++    match ix {
++        CapIx::OpenCapacityPool => OPEN_POOL,
++        CapIx::LendCapacity | CapIx::ReclaimCapacity => LEND,
++        CapIx::GrantCapacity => OWNER_POOL,
++        CapIx::RevokeCapacity => REVOKE,
++        CapIx::ReserveCapacity => RESERVE,
++        CapIx::DepositToJob | CapIx::ClaimJob => USER_VAULT,
++        CapIx::CancelJob => USER_JOB,
++        CapIx::SettleJob => SETTLE,
++        CapIx::RecordFacilityLoss => LOSS,
++        CapIx::RetireJob => RETIRE_JOB,
++        CapIx::RetireGrant => RETIRE_GRANT,
++        CapIx::RetirePool => RETIRE_POOL,
++    }
++}
++
++#[cfg(test)]
++mod tests {
++    use super::*;
++    use std::vec::Vec;
++
++    /// The band is workstream 4's for workstream 09, free of every v2 tag,
++    /// reserved tag and other workstream's band; the version bit is disjoint
++    /// from the NFT and wide builds' and from every production value.
++    #[test]
++    fn the_band_is_09s_and_the_version_bit_is_disjoint() {
++        for t in TAG_FIRST..=TAG_LAST {
++            assert!(is_capacity_tag(t));
++            assert!(crate::v2::Ix::from_tag(t).is_none(), "{t:#x} is a v2 tag");
++            assert!(
++                crate::tags::Ix::from_tag(t).is_none(),
++                "{t:#x} is an M1 tag"
++            );
++            assert!(!crate::v2::tags::is_reserved(t), "{t:#x} is reserved");
++            assert!(!crate::resident_wire::is_resident_tag(t), "{t:#x} is 20's");
++            assert!(CapIx::from_tag(t).is_some());
++            assert_eq!(crate::v2::ix::tag_of(&[t]).ok(), None);
++        }
++        for t in [0xEFu8, 0xFE, 0xFF, 0xD6, 0xC2] {
++            assert!(!is_capacity_tag(t));
++            assert_eq!(tag_of(&[t]), Err(FrontierError::BadData));
++        }
++        for (i, a) in CapIx::ALL.iter().enumerate() {
++            assert_eq!(CapIx::from_tag(a.tag()), Some(*a));
++            assert_eq!(a.tag(), TAG_FIRST + i as u8, "{}", a.name());
++        }
++        use crate::v2::presets::{PROGRAM_VERSION_S1, PROGRAM_VERSION_V2};
++        for v in [PROGRAM_VERSION_V2, PROGRAM_VERSION_S1, 5u16, 0x8004, 0x4004] {
++            assert_eq!(v & CAPACITY_PREVIEW_VERSION_BIT, 0, "{v:#x}");
++        }
++        assert_eq!(CAPACITY_PREVIEW_VERSION_BIT & (0x8000 | 0x4000), 0);
++    }
++
++    #[test]
++    fn errors_are_4s_band() {
++        assert_eq!(program_error(1), 110);
++        assert_eq!(program_error(30), 139);
++    }
++
++    #[test]
++    fn seeds_are_new_and_fit() {
++        let s = pool_seed(-1, 2, 3, 255);
++        assert_eq!(&s.as_bytes()[..2], b"cp");
++        assert_eq!(s.as_bytes(), b"cpffff020003ff");
++        assert!(job_seed(i16::MIN, i16::MAX, 255, 255, u32::MAX, u32::MAX).len() <= 32);
++        for t in [POOL, JOB] {
++            for k in crate::layout::AccountKind::ALL {
++                assert_ne!(crate::addr::tag_of(k), Some(t), "{}", k.name());
++            }
++            for k in crate::v2::layout::AccountKind::ALL {
++                assert_ne!(crate::v2::addr::tag_of(k), Some(t), "{}", k.name());
++            }
++        }
++        let ctx = AddrCtx {
++            season: [1; 32],
++            program: [2; 32],
++        };
++        assert_ne!(pool(&ctx, 0, 0, 0, 1), pool(&ctx, 0, 0, 0, 2));
++        assert_ne!(job(&ctx, 0, 0, 0, 1, 1, 1), job(&ctx, 0, 0, 0, 1, 1, 2));
++        assert_ne!(job(&ctx, 0, 0, 0, 1, 1, 2), job(&ctx, 0, 0, 0, 1, 2, 1));
++    }
++
++    #[test]
++    fn encodings_are_exact_and_round_trip() {
++        let all = [
++            CapData::OpenCapacityPool {
++                policies: [0, 1, 1],
++            },
++            CapData::LendCapacity { units: 2, seq: 0 },
++            CapData::ReclaimCapacity { units: 1, seq: 1 },
++            CapData::GrantCapacity {
++                grant: 1,
++                user: [7; 32],
++                recipe: 1,
++                max_units: 2,
++                max_output: 100_000,
++                from: -5,
++                until: i64::MAX,
++            },
++            CapData::RevokeCapacity { grant: 9 },
++            CapData::ReserveCapacity {
++                grant: 1,
++                job: 2,
++                units: 2,
++                start: 10,
++                end: 20,
++                max_output: 30,
++            },
++            CapData::DepositToJob {
++                grant: 1,
++                job: 2,
++                deposit: u64::MAX,
++                resource: 3,
++                amount: 40_000,
++            },
++            CapData::SettleJob { grant: 1, job: 2 },
++            CapData::CancelJob { grant: 1, job: 2 },
++            CapData::ClaimJob { grant: 1, job: 2 },
++            CapData::RecordFacilityLoss,
++            CapData::RetireJob { grant: 1, job: 2 },
++            CapData::RetireGrant { grant: 1 },
++            CapData::RetirePool,
++        ];
++        let tags: Vec<u8> = all.iter().map(|d| d.ix().tag()).collect();
++        let want: Vec<u8> = CapIx::ALL.iter().map(|i| i.tag()).collect();
++        assert_eq!(tags, want, "one of each");
++        for d in all {
++            let b = d.encode();
++            assert_eq!(b.len(), CapData::len_of(d.ix()));
++            assert_eq!(CapData::decode(&b), Ok(d));
++            assert_eq!(
++                CapData::decode(&b[..b.len() - 1]),
++                Err(FrontierError::BadData)
++            );
++            let mut long = b.clone();
++            long.push(0);
++            assert_eq!(CapData::decode(&long), Err(FrontierError::BadData));
++        }
++    }
++
++    #[test]
++    fn account_lists_resolve() {
++        use crate::prologue::bounds_in;
++        for ix in CapIx::ALL {
++            let (lo, hi) = bounds_in(accounts_of(ix));
++            assert!(
++                lo >= 3 && hi <= 4 + 4 + MAX_JOB_ACCOUNTS as usize,
++                "{}",
++                ix.name()
++            );
++        }
++    }
++}
+diff --git a/frontier-abi/src/lib.rs b/frontier-abi/src/lib.rs
+index a355874b..f39cfee8 100644
+--- a/frontier-abi/src/lib.rs
++++ b/frontier-abi/src/lib.rs
+@@ -38,6 +38,9 @@ extern crate std;
+ pub mod addr;
+ pub mod budgets;
+ pub mod bytes;
++/// Workstream 09's instructions (a preview, `capacity-preview`).
++#[cfg(feature = "capacity-preview")]
++pub mod capacity;
+ pub mod clash_model;
+ pub mod conquest_model;
+ pub mod entry;
+diff --git a/permutation-frontier/Cargo.toml b/permutation-frontier/Cargo.toml
+index e6531e6b..7a22ceea 100644
+--- a/permutation-frontier/Cargo.toml
++++ b/permutation-frontier/Cargo.toml
+@@ -43,6 +43,16 @@ nft-experimental = ["program"]
+ # PSF_CUSTODY_PREVIEW_BUILD; never deployable until LiteSVM tests, measured
+ # budgets and the verifier's V26 exist.
+ custody-preview = []
++# Workstream 09 (capacity lending), a preview: the capacity instructions
++# 0xF0–0xFD (`proc::capacity`, workstream 4's provisional band), dispatched
++# before the v2 tags; the build carries the `0x2000` program-version bit
++# (workstream 09's proposal) so its Seasons never mix with others. No PS2
++# record (the kinds are not allocated). Not deployable.
++capacity-preview = [
++    "program",
++    "frontier-abi/capacity-preview",
++    "permutation-rules/capacity-preview",
++]
+ # Local development only (2026-11-07): the draft wide land write path on the
+ # provisional band 0xD6–0xDA (`proc::wide`), the wide terrain kernel and the
+ # `world_index` identity models; the build carries the `0x4000` program
+diff --git a/permutation-frontier/src/capacity_runtime_tests.rs b/permutation-frontier/src/capacity_runtime_tests.rs
+new file mode 100644
+index 00000000..a02d357a
+--- /dev/null
++++ b/permutation-frontier/src/capacity_runtime_tests.rs
+@@ -0,0 +1,602 @@
++//! Key-free runtime harness of workstream 09's capacity preview
++//! (`capacity-preview`): the program's real `dispatch` over hand-built
++//! accounts, in `map_growth_runtime_tests`'s world (its Season, stubs,
++//! clock and serial lock; a child module, as `wide_land` is).
++//!
++//! A's first home (PlaceHome, the deployed instruction) is the facility;
++//! its production is set to three workshop copies (as finished Builds
++//! leave it). B is a Citizen with a Vault in the facility's province (the
++//! bytes BuildVault leaves). Then OpenCapacityPool, LendCapacity,
++//! GrantCapacity, ReserveCapacity, DepositToJob, SettleJob, ClaimJob,
++//! RetireJob, and the refusals, the resends and a capture.
++//!
++//! **No key is generated, derived or signed.** Every address is a literal
++//! or the with-seed address the program computes (`sha256`): the Season
++//! PDA, the Citizen, the Holding, the Vault, the pool and job accounts.
++//! `is_signer` is set by the test, as the runtime would after verifying a
++//! signature (the same limit as a LiteSVM run with `sigverify` off). This
++//! is the host build: no compute budget, no SBF loader.
++
++use super::*;
++use frontier_abi::capacity::{self as fc, CapData};
++use frontier_abi::v2::layout::s1::vault as VA;
++use permutation_rules::frontier::arms::{ARMS, WORKSHOP_DELTA};
++use permutation_rules::frontier::capacity as cap;
++use permutation_rules::frontier::holding::Resource;
++
++use crate::layout::holding2 as H2;
++use crate::proc::holding::{read_holding, write_holding};
++
++const POOL_SPACE: usize = cap::layout::pool::SIZE + fc::RENT_TO_LEN;
++const JOB_SPACE: usize = cap::layout::job::SIZE + fc::RENT_TO_LEN;
++const VAULT_TILE: u8 = 22;
++
++fn err(code: cap::CapError) -> u32 {
++    fc::program_error(code.code())
++}
++
++struct Cap {
++    w: World,
++    c: ProvinceCoord,
++    a: Member,
++    b: Member,
++    holding: AccountInfo<'static>,
++    pool: AccountInfo<'static>,
++    vault: AccountInfo<'static>,
++    jobs: HashMap<(u32, u32), AccountInfo<'static>>,
++}
++
++/// B's vault on a tile of `c`, holding `ore` and `wood` (milli).
++fn vault_bytes(c: ProvinceCoord, owner: &Member, ore: i64, wood: i64) -> Vec<u8> {
++    let mut d = vec![0u8; K2::Vault.size()];
++    assert!(write_header(&mut d, K2::Vault, SEASON_ID));
++    put(&mut d, VA::P, &(c.p as i16).to_le_bytes());
++    put(&mut d, VA::Q, &(c.q as i16).to_le_bytes());
++    d[VA::TILE] = VAULT_TILE;
++    d[VA::STATE] = VA::STATE_LIVE;
++    d[VA::GEN] = 1;
++    put(&mut d, VA::OWNER_CITIZEN, &owner.key);
++    put(
++        &mut d,
++        VA::OWNER_TAG,
++        &citizen_tag(&owner.key).to_le_bytes(),
++    );
++    put(&mut d, VA::CAP, &(500 * MILLI).to_le_bytes());
++    put(
++        &mut d,
++        VA::store(Resource::Ore as usize),
++        &ore.to_le_bytes(),
++    );
++    put(
++        &mut d,
++        VA::store(Resource::Wood as usize),
++        &wood.to_le_bytes(),
++    );
++    put(&mut d, VA::RENT_TO, &PAYER);
++    d
++}
++
++impl Cap {
++    /// A's home at an off-wedge province with three workshop copies, B a
++    /// citizen with a vault there (120 ore, 60 wood).
++    fn new() -> Cap {
++        let mut w = World::new();
++        let (c, nation) = off_wedge_province();
++        let a = w.member(WALLET_A, nation);
++        let b = w.member(WALLET_B, nation);
++        assert_eq!(w.place_home(&a, c, 0), Ok(()));
++        let holding = w.holding(c, 0);
++        {
++            let now = GENESIS + 600;
++            let mut d = holding.try_borrow_mut_data().unwrap();
++            let mut h = read_holding(&d).unwrap();
++            h.production[ARMS as usize] = 3 * WORKSHOP_DELTA;
++            write_holding(&mut d, &h, now).unwrap();
++        }
++        let gen = w.holding_data(c, 0)[H::GEN];
++        let pool_key = fc::pool(&w.ctx, c.p as i16, c.q as i16, 0, gen);
++        let pool = info(leak(pool_key, SYSTEM, vec![], POOL_SPACE, 0), false, true);
++        let vkey = frontier_abi::v2::addr::vault(&w.ctx, c.p, c.q, VAULT_TILE);
++        let vault = info(
++            leak(
++                vkey,
++                PROGRAM,
++                vault_bytes(c, &b, 120 * MILLI, 60 * MILLI),
++                0,
++                BIG,
++            ),
++            false,
++            true,
++        );
++        Cap {
++            w,
++            c,
++            a,
++            b,
++            holding,
++            pool,
++            vault,
++            jobs: HashMap::new(),
++        }
++    }
++
++    fn gen(&mut self) -> u8 {
++        self.w.holding_data(self.c, 0)[H::GEN]
++    }
++
++    fn job(&mut self, grant: u32, job: u32) -> AccountInfo<'static> {
++        let c = self.c;
++        let gen = self.pool_data().map_or(1, |p| p.facility.gen);
++        let key = fc::job(&self.w.ctx, c.p as i16, c.q as i16, 0, gen, grant, job);
++        self.jobs
++            .entry((grant, job))
++            .or_insert_with(|| info(leak(key, SYSTEM, vec![], JOB_SPACE, 0), false, true))
++            .clone()
++    }
++
++    /// The player prologue of `m`, then `rest`.
++    fn as_player(&self, m: &Member, rest: &[AccountInfo<'static>]) -> Vec<AccountInfo<'static>> {
++        let mut a = vec![
++            wallet(m.wallet, true, false, 0),
++            self.w.payer.clone(),
++            self.w.season.clone(),
++            m.citizen.clone(),
++        ];
++        a.extend_from_slice(rest);
++        a
++    }
++
++    /// The keeper prologue (anyone pays), then `rest`.
++    fn as_keeper(&self, rest: &[AccountInfo<'static>]) -> Vec<AccountInfo<'static>> {
++        let mut a = vec![wallet(ANYONE, true, true, BIG), self.w.season.clone()];
++        a.extend_from_slice(rest);
++        a
++    }
++
++    fn open(&self, m: &Member, policies: [u8; 3]) -> Result<(), u32> {
++        let a = self.as_player(
++            m,
++            &[
++                with_writable(&self.holding, false),
++                self.pool.clone(),
++                self.w.system.clone(),
++            ],
++        );
++        run(&a, &CapData::OpenCapacityPool { policies }.encode())
++    }
++
++    fn lend(&self, m: &Member, units: u32, seq: u32, lend: bool) -> Result<(), u32> {
++        let a = self.as_player(m, &[self.holding.clone(), self.pool.clone()]);
++        let x = if lend {
++            CapData::LendCapacity { units, seq }
++        } else {
++            CapData::ReclaimCapacity { units, seq }
++        };
++        run(&a, &x.encode())
++    }
++
++    fn grant(&self, m: &Member, grant: u32, user: &Member, until: i64) -> Result<(), u32> {
++        let a = self.as_player(m, &[with_writable(&self.holding, false), self.pool.clone()]);
++        run(
++            &a,
++            &CapData::GrantCapacity {
++                grant,
++                user: user.key,
++                recipe: cap::RECIPE_ARMS,
++                max_units: 2,
++                max_output: 100 * MILLI,
++                from: GENESIS,
++                until,
++            }
++            .encode(),
++        )
++    }
++
++    #[allow(clippy::too_many_arguments)]
++    fn reserve(
++        &mut self,
++        m: &Member,
++        grant: u32,
++        job: u32,
++        units: u32,
++        start: i64,
++        end: i64,
++        max_output: i64,
++    ) -> Result<(), u32> {
++        let j = self.job(grant, job);
++        let a = self.as_player(
++            m,
++            &[
++                with_writable(&self.holding, false),
++                self.pool.clone(),
++                j,
++                self.w.system.clone(),
++            ],
++        );
++        run(
++            &a,
++            &CapData::ReserveCapacity {
++                grant,
++                job,
++                units,
++                start,
++                end,
++                max_output,
++            }
++            .encode(),
++        )
++    }
++
++    fn deposit(
++        &mut self,
++        m: &Member,
++        job: (u32, u32),
++        deposit: u64,
++        r: Resource,
++        amount: i64,
++        vault: &AccountInfo<'static>,
++    ) -> Result<(), u32> {
++        let j = self.job(job.0, job.1);
++        let a = self.as_player(
++            m,
++            &[
++                with_writable(&self.holding, false),
++                self.pool.clone(),
++                j,
++                vault.clone(),
++            ],
++        );
++        run(
++            &a,
++            &CapData::DepositToJob {
++                grant: job.0,
++                job: job.1,
++                deposit,
++                resource: r as u8,
++                amount,
++            }
++            .encode(),
++        )
++    }
++
++    fn settle(&mut self, job: (u32, u32)) -> Result<(), u32> {
++        let j = self.job(job.0, job.1);
++        let a = self.as_keeper(&[with_writable(&self.holding, false), self.pool.clone(), j]);
++        run(
++            &a,
++            &CapData::SettleJob {
++                grant: job.0,
++                job: job.1,
++            }
++            .encode(),
++        )
++    }
++
++    fn claim(&mut self, m: &Member, job: (u32, u32)) -> Result<(), u32> {
++        let j = self.job(job.0, job.1);
++        let a = self.as_player(
++            m,
++            &[
++                with_writable(&self.holding, false),
++                self.pool.clone(),
++                j,
++                self.vault.clone(),
++            ],
++        );
++        run(
++            &a,
++            &CapData::ClaimJob {
++                grant: job.0,
++                job: job.1,
++            }
++            .encode(),
++        )
++    }
++
++    fn retire(&mut self, job: (u32, u32)) -> Result<(), u32> {
++        let j = self.job(job.0, job.1);
++        let a = self.as_keeper(&[self.pool.clone(), j, self.w.payer.clone()]);
++        run(
++            &a,
++            &CapData::RetireJob {
++                grant: job.0,
++                job: job.1,
++            }
++            .encode(),
++        )
++    }
++
++    fn lose(&mut self, jobs: &[(u32, u32)]) -> Result<(), u32> {
++        let mut rest = vec![self.holding.clone(), self.pool.clone()];
++        for k in jobs {
++            rest.push(self.job(k.0, k.1));
++        }
++        let a = self.as_keeper(&rest);
++        run(&a, &CapData::RecordFacilityLoss.encode())
++    }
++
++    fn pool_data(&self) -> Option<cap::Pool> {
++        cap::Pool::decode(&self.pool.try_borrow_data().ok()?)
++    }
++
++    fn job_data(&mut self, job: (u32, u32)) -> Option<cap::Job> {
++        let j = self.job(job.0, job.1);
++        let d = j.try_borrow_data().ok()?;
++        cap::Job::decode(&d)
++    }
++
++    fn vault_store(&self, r: Resource) -> i64 {
++        rd_i64(
++            &self.vault.try_borrow_data().unwrap(),
++            VA::store(r as usize),
++        )
++    }
++
++    fn lent_in_holding(&mut self) -> u32 {
++        rd_u32(&self.w.holding_data(self.c, 0), H2::LENT_WORKSHOPS)
++    }
++}
++
++/// The whole path: A opens a pool, lends two copies and grants them to B;
++/// B reserves both for three hours, brings 40 ore and 20 wood from its
++/// vault in the province, the copies make 20 arms over real time; B claims
++/// them and the unused materials back into its vault; the job is retired
++/// and its rent goes back.
++#[test]
++fn capacity_a_lent_workshop_makes_bs_arms_from_bs_goods() {
++    let _g = begin();
++    let mut t = Cap::new();
++    let (a, b) = (t.a.clone_member(), t.b.clone_member());
++    assert_eq!(t.open(&a, [0, 0, 0]), Ok(()));
++    let p = t.pool_data().expect("a pool");
++    assert_eq!((p.owner, p.lent, p.facility.gen), (a.key, 0, t.gen()));
++    assert_eq!(t.lend(&a, 2, 0, true), Ok(()));
++    assert_eq!(t.lent_in_holding(), 2, "the Holding runs one copy now");
++    assert_eq!(t.pool_data().unwrap().lent, 2);
++    let until = GENESIS + 10 * 86_400;
++    assert_eq!(t.grant(&a, 1, &b, until), Ok(()));
++    let start = GENESIS + 3_600 * 2;
++    let job = (1, 1);
++    assert_eq!(
++        t.reserve(&b, 1, 1, 2, start, start + 3 * 3_600, 20 * MILLI),
++        Ok(())
++    );
++    let vault = t.vault.clone();
++    assert_eq!(
++        t.deposit(&b, job, 1, Resource::Ore, 40 * MILLI, &vault),
++        Ok(())
++    );
++    assert_eq!(
++        t.deposit(&b, job, 2, Resource::Wood, 20 * MILLI, &vault),
++        Ok(())
++    );
++    assert_eq!(t.vault_store(Resource::Ore), 80 * MILLI);
++    assert_eq!(t.vault_store(Resource::Wood), 40 * MILLI);
++    // A resend of the same deposit changes nothing.
++    assert_eq!(
++        t.deposit(&b, job, 1, Resource::Ore, 40 * MILLI, &vault),
++        Ok(())
++    );
++    assert_eq!(t.vault_store(Resource::Ore), 80 * MILLI);
++    // Half way: 2 copies × 4 arms/h × 1.5 h = 12 arms.
++    crate::prologue::set_test_clock(start + 5_400, 2_000);
++    assert_eq!(t.settle(job), Ok(()));
++    assert_eq!(t.job_data(job).unwrap().settled, 12 * MILLI);
++    // After the window: the job made its 20 arms (2.5 h of 3).
++    crate::prologue::set_test_clock(start + 4 * 3_600, 3_000);
++    assert_eq!(t.claim(&b, job), Ok(()));
++    let j = t.job_data(job).unwrap();
++    assert_eq!(
++        (j.settled, j.claimed, j.refunded),
++        (20 * MILLI, 20 * MILLI, true)
++    );
++    assert!(j.accounts().inputs.iter().all(|x| x.balanced()));
++    assert_eq!(t.vault_store(ARMS), 20 * MILLI, "B's arms");
++    // 40 ore − 2×20 used, 20 wood − 20 used: nothing left to give back.
++    assert_eq!(t.vault_store(Resource::Ore), 80 * MILLI);
++    assert_eq!(t.vault_store(Resource::Wood), 40 * MILLI);
++    // A resent claim changes nothing.
++    assert_eq!(t.claim(&b, job), Ok(()));
++    assert_eq!(t.vault_store(ARMS), 20 * MILLI);
++    // Retired: the account closes, its rent goes back to the payer.
++    let payer_before = t.w.payer.lamports();
++    assert_eq!(t.retire(job), Ok(()));
++    assert!(t.job_data(job).is_none());
++    assert!(t.w.payer.lamports() > payer_before);
++    assert!(t.pool_data().unwrap().occ.is_empty());
++    // The retired number is spent.
++    assert_eq!(
++        t.reserve(&b, 1, 1, 1, start + 86_400, start + 86_400 + 3_600, MILLI),
++        Err(err(cap::CapError::Retired))
++    );
++}
++
++/// Refusals: a stranger lending, more copies than lent, someone else's
++/// deposit, a vault in another province, a deposit after the start, and a
++/// claim that does not fit the vault.
++#[test]
++fn capacity_refusals_change_nothing() {
++    let _g = begin();
++    let mut t = Cap::new();
++    let (a, b) = (t.a.clone_member(), t.b.clone_member());
++    assert_eq!(t.open(&b, [0, 0, 0]), Err(err(cap::CapError::NotOwner)));
++    assert_eq!(
++        t.open(&a, [3, 0, 0]),
++        Err(E::BadData as u32),
++        "no such policy"
++    );
++    assert_eq!(t.open(&a, [0, 0, 0]), Ok(()));
++    assert_eq!(t.open(&a, [0, 0, 0]), Ok(()), "a resend");
++    assert_eq!(t.open(&a, [1, 0, 0]), Err(err(cap::CapError::Conflict)));
++    assert_eq!(t.lend(&b, 1, 0, true), Err(err(cap::CapError::NotOwner)));
++    assert_eq!(
++        t.lend(&a, 4, 0, true),
++        Err(err(cap::CapError::NotEnoughWorkshops))
++    );
++    assert_eq!(t.lend(&a, 1, 0, true), Ok(()));
++    assert_eq!(t.lend(&a, 1, 0, true), Ok(()), "a resend of seq 0");
++    assert_eq!(t.pool_data().unwrap().lent, 1);
++    assert_eq!(t.grant(&a, 1, &b, GENESIS + 10 * 86_400), Ok(()));
++    let start = GENESIS + 7_200;
++    assert_eq!(
++        t.reserve(&b, 1, 1, 2, start, start + 3_600, 4 * MILLI),
++        Err(err(cap::CapError::CapacityExceeded))
++    );
++    assert_eq!(
++        t.reserve(&a, 1, 1, 1, start, start + 3_600, 4 * MILLI),
++        Err(err(cap::CapError::NotUser))
++    );
++    assert_eq!(
++        t.reserve(&b, 1, 1, 1, start, start + 3_600, 4 * MILLI),
++        Ok(())
++    );
++    let job = (1, 1);
++    let vault = t.vault.clone();
++    // A's attempt to deposit into B's job, from B's vault.
++    assert_eq!(
++        t.deposit(&a, job, 1, Resource::Ore, MILLI, &vault),
++        Err(E::NotOwner as u32),
++        "the vault is B's"
++    );
++    // B's vault in another province.
++    let far = ProvinceCoord::new(t.c.p + 1, t.c.q);
++    let fkey = frontier_abi::v2::addr::vault(&t.w.ctx, far.p, far.q, VAULT_TILE);
++    let fv = info(
++        leak(fkey, PROGRAM, vault_bytes(far, &b, 50 * MILLI, 0), 0, BIG),
++        false,
++        true,
++    );
++    assert_eq!(
++        t.deposit(&b, job, 1, Resource::Ore, MILLI, &fv),
++        Err(E::BadAddress as u32)
++    );
++    // More than the vault holds: refused whole.
++    assert_eq!(
++        t.deposit(&b, job, 1, Resource::Ore, 500 * MILLI, &vault),
++        Err(err(cap::CapError::Custody))
++    );
++    assert_eq!(t.vault_store(Resource::Ore), 120 * MILLI);
++    assert!(t.job_data(job).unwrap().deposits.is_empty());
++    // Reclaiming the copy the booked job holds is blocked.
++    assert_eq!(
++        t.lend(&a, 1, 1, false),
++        Err(err(cap::CapError::ReclaimBlocked))
++    );
++    // After the start a deposit is too late; the job, fed nothing, holds no
++    // copy any more, so the copy can be taken back.
++    crate::prologue::set_test_clock(start + 1, 2_000);
++    assert_eq!(
++        t.deposit(&b, job, 1, Resource::Ore, MILLI, &vault),
++        Err(err(cap::CapError::AlreadyStarted))
++    );
++    assert_eq!(t.lend(&a, 1, 1, false), Ok(()));
++    assert_eq!((t.pool_data().unwrap().lent, t.lent_in_holding()), (0, 0));
++}
++
++/// A capture of the facility (the core's SettleCapture leaves the Holding
++/// at the next generation, its previous one and the capture bell): the
++/// loss is recorded by anyone; the captor takes what is at the facility
++/// (the provisional CaptorTakesAll), into the Holding's stores; the user
++/// claims nothing; the pool takes no new work.
++#[test]
++fn capacity_a_captor_takes_what_is_at_the_facility() {
++    let _g = begin();
++    let mut t = Cap::new();
++    let (a, b) = (t.a.clone_member(), t.b.clone_member());
++    assert_eq!(t.open(&a, [0, 0, 0]), Ok(()));
++    assert_eq!(t.lend(&a, 2, 0, true), Ok(()));
++    assert_eq!(t.grant(&a, 1, &b, GENESIS + 10 * 86_400), Ok(()));
++    let start = GENESIS + 7_200;
++    let job = (1, 1);
++    assert_eq!(
++        t.reserve(&b, 1, 1, 2, start, start + 3 * 3_600, 20 * MILLI),
++        Ok(())
++    );
++    let vault = t.vault.clone();
++    assert_eq!(
++        t.deposit(&b, job, 1, Resource::Ore, 40 * MILLI, &vault),
++        Ok(())
++    );
++    assert_eq!(
++        t.deposit(&b, job, 2, Resource::Wood, 20 * MILLI, &vault),
++        Ok(())
++    );
++    // Captured one hour in, at the start of a bell, by X's citizen.
++    let bell = ((start + 3_600 - GENESIS) / 600) as u32;
++    let captor = [0x77u8; 32];
++    let gen = t.gen();
++    {
++        let mut d = t.holding.try_borrow_mut_data().unwrap();
++        d[H2::PREV_GEN] = gen;
++        d[H::GEN] = gen.wrapping_add(1);
++        put(&mut d, H2::CAPTURED_BELL, &bell.to_le_bytes());
++        put(&mut d, H::OWNER_CITIZEN, &captor);
++        put(&mut d, H2::LENT_WORKSHOPS, &0u32.to_le_bytes());
++    }
++    let at = GENESIS + 600 * bell as i64;
++    crate::prologue::set_test_clock(at + 900, 2_000);
++    // The captor's stores as they stand at the loss's own time (its
++    // workshops run meanwhile).
++    let ore_before = read_holding(&t.w.holding_data(t.c, 0))
++        .unwrap()
++        .stock_at(at + 900)[Resource::Ore as usize];
++    // A user claim before the loss is recorded is refused (the pool is of a
++    // past generation).
++    assert_eq!(t.claim(&b, job), Err(err(cap::CapError::WrongGeneration)));
++    // The loss needs every job of the pool.
++    assert_eq!(t.lose(&[]), Err(err(cap::CapError::UnknownJob)));
++    assert_eq!(t.lose(&[job]), Ok(()));
++    let p = t.pool_data().unwrap();
++    assert_eq!((p.lost_at, p.captor), (Some(at), Some(captor)));
++    let j = t.job_data(job).unwrap();
++    // One hour at 8 arms/h made 8 arms; 16 ore and 8 wood used.
++    assert_eq!((j.settled, j.forfeited_out), (8 * MILLI, 8 * MILLI));
++    assert_eq!(j.forfeited_in, [24 * MILLI, 12 * MILLI]);
++    let h = read_holding(&t.w.holding_data(t.c, 0)).unwrap();
++    assert_eq!(
++        h.stores[Resource::Ore as usize].value - ore_before,
++        24 * MILLI
++    );
++    // B claims nothing; a resent loss changes nothing.
++    assert_eq!(t.claim(&b, job), Ok(()));
++    assert_eq!(t.vault_store(ARMS), 0);
++    assert_eq!(t.lose(&[job]), Ok(()));
++    assert_eq!(
++        t.reserve(&b, 1, 2, 1, at + 86_400, at + 90_000, MILLI),
++        Err(err(cap::CapError::FacilityGone))
++    );
++}
++
++/// A default build never sees these bytes: only this preview dispatches
++/// them, and a Season of another build is refused.
++#[test]
++fn capacity_only_this_build_and_its_seasons() {
++    let _g = begin();
++    assert_eq!(
++        crate::PROGRAM_VERSION & fc::CAPACITY_PREVIEW_VERSION_BIT,
++        fc::CAPACITY_PREVIEW_VERSION_BIT
++    );
++    let t = Cap::new();
++    let a = t.a.clone_member();
++    {
++        let mut d = t.w.season.try_borrow_mut_data().unwrap();
++        put(
++            &mut d,
++            S::PROGRAM_VERSION,
++            &frontier_abi::v2::presets::PROGRAM_VERSION_S1.to_le_bytes(),
++        );
++    }
++    assert_eq!(t.open(&a, [0, 0, 0]), Err(E::RulesetMismatch as u32));
++}
++
++impl Member {
++    fn clone_member(&self) -> Member {
++        Member {
++            wallet: self.wallet,
++            faction: self.faction,
++            shard_i: self.shard_i,
++            key: self.key,
++            citizen: self.citizen.clone(),
++        }
++    }
++}
+diff --git a/permutation-frontier/src/ix.rs b/permutation-frontier/src/ix.rs
+index 8dcc3ddd..ea5ee5b4 100644
+--- a/permutation-frontier/src/ix.rs
++++ b/permutation-frontier/src/ix.rs
+@@ -160,7 +160,14 @@ mod tests {
+             crate::RULESET_HASH,
+             frontier_abi::v2::presets::RULESET_HASH_V3
+         );
+-        assert_eq!(crate::PROGRAM_VERSION, 4);
++        assert_eq!(
++            crate::PROGRAM_VERSION,
++            4 | if cfg!(feature = "capacity-preview") {
++                0x2000
++            } else {
++                0
++            }
++        );
+     }
+ 
+     #[cfg(feature = "custody-preview")]
+@@ -170,7 +177,14 @@ mod tests {
+             crate::RULESET_HASH,
+             frontier_abi::v2::presets::RULESET_HASH_V4
+         );
+-        assert_eq!(crate::PROGRAM_VERSION, 5);
++        assert_eq!(
++            crate::PROGRAM_VERSION,
++            5 | if cfg!(feature = "capacity-preview") {
++                0x2000
++            } else {
++                0
++            }
++        );
+         assert_eq!(crate::RULES_VERSION, 13);
+     }
+ 
+@@ -216,6 +230,9 @@ mod tests {
+             // Custody: the kernel's view written back (forfeiture within the
+             // lot's quota, a deposit's debit).
+             ("custody.rs", "w.set_i64(VA::store(i), v.stores[i])?;"),
++            // Capacity (workstream 09, `capacity-preview`): a deposit's
++            // debit, a claim's credit refused past `CAP − CUSTODY_QUOTA`.
++            ("capacity.rs", "w.set_i64(VA::store(i), self.stores[i])?;"),
+         ];
+         let want: Vec<(String, String)> = want
+             .iter()
+diff --git a/permutation-frontier/src/lib.rs b/permutation-frontier/src/lib.rs
+index f3856ecd..1f904b9d 100644
+--- a/permutation-frontier/src/lib.rs
++++ b/permutation-frontier/src/lib.rs
+@@ -145,11 +145,32 @@ pub const PROGRAM_VERSION: u16 = frontier_abi::v2::presets::PROGRAM_VERSION_S1
+         0x4000
+     } else {
+         0
+-    };
++    }
++    | capacity_bit();
+ /// Custody remains a separate preview. No version is allocated for its
+ /// combination with NFT residents or the host-only wide writer.
+ #[cfg(feature = "custody-preview")]
+-pub const PROGRAM_VERSION: u16 = frontier_abi::v2::presets::PROGRAM_VERSION_CUSTODY;
++pub const PROGRAM_VERSION: u16 =
++    frontier_abi::v2::presets::PROGRAM_VERSION_CUSTODY | capacity_bit();
++
++/// Workstream 09's capacity preview (`capacity-preview`): the `0x2000` bit
++/// (a proposal, `frontier_abi::capacity::CAPACITY_PREVIEW_VERSION_BIT`), so
++/// a capacity build's Seasons are its own; with custody it is the custody
++/// build's version with the bit (lots feed jobs there).
++const fn capacity_bit() -> u16 {
++    #[cfg(feature = "capacity-preview")]
++    {
++        frontier_abi::capacity::CAPACITY_PREVIEW_VERSION_BIT
++    }
++    #[cfg(not(feature = "capacity-preview"))]
++    {
++        0
++    }
++}
++#[cfg(all(feature = "capacity-preview", feature = "nft-experimental"))]
++compile_error!("capacity-preview and nft-experimental together: the program version is undecided (workstream 4)");
++#[cfg(all(feature = "capacity-preview", feature = "wide-world-experimental"))]
++compile_error!("capacity-preview and wide-world-experimental together: the program version is undecided (workstream 4)");
+ #[cfg(all(feature = "custody-preview", feature = "nft-experimental"))]
+ compile_error!("custody-preview and nft-experimental together: the program version is undecided (workstream 4)");
+ #[cfg(all(feature = "custody-preview", feature = "wide-world-experimental"))]
+@@ -181,6 +202,15 @@ pub fn dispatch(
+     {
+         return proc::wide::dispatch(program_id, accounts, data);
+     }
++    // Workstream 09's capacity preview (band 0xF0–0xFD): a default build
++    // never reaches this arm and refuses the bytes as unknown tags below.
++    #[cfg(feature = "capacity-preview")]
++    if data
++        .first()
++        .is_some_and(|t| frontier_abi::capacity::is_capacity_tag(*t))
++    {
++        return proc::capacity::dispatch(program_id, accounts, data);
++    }
+     use frontier_abi::v2::Ix;
+     use proc::*;
+     markers::touch();
+diff --git a/permutation-frontier/src/map_growth_runtime_tests.rs b/permutation-frontier/src/map_growth_runtime_tests.rs
+index c47efb93..ea7ae83a 100644
+--- a/permutation-frontier/src/map_growth_runtime_tests.rs
++++ b/permutation-frontier/src/map_growth_runtime_tests.rs
+@@ -116,6 +116,11 @@ static SERIAL: Mutex<()> = Mutex::new(());
+ #[cfg(feature = "wide-world-experimental")]
+ #[path = "wide_land_runtime_tests.rs"]
+ mod wide_land;
++// Workstream 09's capacity preview (`capacity-preview`) shares it too:
++// `map_growth_runtime_tests::capacity::`.
++#[cfg(feature = "capacity-preview")]
++#[path = "capacity_runtime_tests.rs"]
++mod capacity;
+ 
+ /// Backing memory of every account created by a test: key → (data pointer,
+ /// capacity, owner pointer). The stub resizes and reassigns through it.
+diff --git a/permutation-frontier/src/proc/capacity.rs b/permutation-frontier/src/proc/capacity.rs
+new file mode 100644
+index 00000000..fc3b1471
+--- /dev/null
++++ b/permutation-frontier/src/proc/capacity.rs
+@@ -0,0 +1,889 @@
++//! **Preview** (`capacity-preview`): workstream 09's instructions, lending
++//! a workshop's processing capacity (`frontier_abi::capacity`, tags
++//! 0xF0–0xFD, workstream 4's provisional allocation).
++//!
++//! | Tag | Instruction | Here |
++//! |---|---|---|
++//! | 0xF0 | OpenCapacityPool | [`open_pool`] |
++//! | 0xF1 / 0xF2 | LendCapacity / ReclaimCapacity | [`lend`] |
++//! | 0xF3 | GrantCapacity | [`grant`] |
++//! | 0xF4 | RevokeCapacity | [`revoke`] |
++//! | 0xF5 | ReserveCapacity | [`reserve`] |
++//! | 0xF6 | DepositToJob | [`deposit`] |
++//! | 0xF7 | SettleJob | [`settle`] |
++//! | 0xF8 | CancelJob | [`cancel`] |
++//! | 0xF9 | ClaimJob | [`claim`] |
++//! | 0xFA | RecordFacilityLoss | [`lose`] |
++//! | 0xFB / 0xFC / 0xFD | RetireJob / RetireGrant / RetirePool | [`retire`] |
++//!
++//! Every check is the rules' (`permutation_rules::frontier::capacity`,
++//! proven equal to workstream 09's kernel by its differential test), run
++//! once per instruction on the accounts as read; this file reads and
++//! writes the accounts and moves the goods the rules' events name:
++//!
++//! - **Holding** (the facility, the core's): its generation, owner and
++//!   capture record decide whether the pool is live and when its
++//!   generation ended; Lend and Reclaim change its own production
++//!   (`Holding::lend_workshops`, core patch 0001); a captor's share of a
++//!   loss goes into its stores.
++//! - **The user's Vault** in the facility's province (S1's): DepositToJob
++//!   takes the goods from its stores, ClaimJob puts the products and the
++//!   unused materials back (refused whole, `Custody`, if they do not fit).
++//!   Goods from another owner's lot (workstream 10's custody) are not wired
++//!   here yet.
++//! - **CapacityPool / CapacityJob** (this preview's accounts, with-seed
++//!   addresses off the Season as every v2 account): created by
++//!   OpenCapacityPool and ReserveCapacity, closed by RetireJob and
++//!   RetirePool, the rent back to who paid it.
++//!
++//! **Not here (undecided or unallocated).** No PS2 record: workstream 09's
++//! record kinds are not allocated, so a capacity build's Season is not
++//! verifiable for these instructions. The end of a released generation and
++//! of one that advanced twice before the loss was recorded cannot be read
++//! from the Holding: RecordFacilityLoss refuses them (`NotImplemented`).
++//! The owner's and the user's instructions run the deployed player
++//! prologue, which refuses them after the season's end bell (workstream
++//! 09's continuity note R1 asks workstream 4 not to).
++
++extern crate alloc;
++
++use alloc::vec::Vec;
++
++use solana_program::{account_info::AccountInfo, program_error::ProgramError, pubkey::Pubkey};
++
++use frontier_abi::capacity::{self as fc, CapData, CapIx};
++use frontier_abi::prologue::Group;
++use frontier_abi::v2::layout::s1::vault as VA;
++use frontier_abi::v2::layout::AccountKind as K2;
++use permutation_rules::frontier::capacity::{self as cap, CapError, Done, Event, Key};
++use permutation_rules::frontier::holding::{Holding as KHolding, Resource, RESOURCES};
++
++use super::conquest::present_v2;
++use super::holding::{self as hold, read_holding, write_holding, Player};
++use crate::error::{Error, BAD_ACCOUNT};
++use crate::init::{self, SeasonSigner, Sink};
++use crate::layout::{holding2 as H, season2 as S, Ro, Rw};
++use crate::prologue::{self, check_accounts, expect_key, key, IxTable};
++use crate::{addr, FrontierError, R};
++
++impl IxTable for CapIx {
++    fn groups(self) -> &'static [Group] {
++        fc::accounts_of(self)
++    }
++    fn top_level_only(self) -> bool {
++        CapIx::top_level_only(self)
++    }
++}
++
++/// A refusal of the rules as the program's error (`109 + code`).
++fn cap_err(e: CapError) -> Error {
++    Error::Program(ProgramError::Custom(fc::program_error(e.code())))
++}
++
++const POOL_SPACE: usize = cap::layout::pool::SIZE + fc::RENT_TO_LEN;
++const JOB_SPACE: usize = cap::layout::job::SIZE + fc::RENT_TO_LEN;
++
++/// Routes one capacity instruction.
++pub fn dispatch(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
++    let x = CapData::decode(d)?;
++    match x.ix() {
++        CapIx::OpenCapacityPool => open_pool(p, a, x),
++        CapIx::LendCapacity | CapIx::ReclaimCapacity => lend(p, a, x),
++        CapIx::GrantCapacity => grant(p, a, x),
++        CapIx::RevokeCapacity => revoke(p, a, x),
++        CapIx::ReserveCapacity => reserve(p, a, x),
++        CapIx::DepositToJob => deposit(p, a, x),
++        CapIx::SettleJob => settle(p, a, x),
++        CapIx::CancelJob => cancel(p, a, x),
++        CapIx::ClaimJob => claim(p, a, x),
++        CapIx::RecordFacilityLoss => lose(p, a),
++        CapIx::RetireJob | CapIx::RetireGrant | CapIx::RetirePool => retire(p, a, x),
++    }
++}
++
++// ------------------------------------------------------------ season
++
++/// A Season of another program version (another build's) is refused.
++fn this_build(season: &AccountInfo) -> R<()> {
++    let v = Ro(&season.try_borrow_data()?).u16(S::PROGRAM_VERSION)?;
++    if v != crate::PROGRAM_VERSION {
++        return Err(FrontierError::RulesetMismatch.into());
++    }
++    Ok(())
++}
++
++/// Anyone's instructions: the keeper prologue over a Running or Ended
++/// Season of this build.
++fn keeper(p: &Pubkey, a: &[AccountInfo]) -> R<(addr::AddrCtx, u64, i64)> {
++    let now = prologue::now()?;
++    let hdr = prologue::keeper(a, p, &[S::STATUS_RUNNING, S::STATUS_ENDED], now.ts)?;
++    let season = a.get(1).ok_or(FrontierError::TooManyAccounts)?;
++    this_build(season)?;
++    Ok((addr::ctx(&key(season), &p.to_bytes()), hdr.id, now.ts))
++}
++
++/// The owner's and the user's instructions: the deployed player prologue
++/// (wallet or session), then this build's Season. The signer is the
++/// Citizen.
++fn player(p: &Pubkey, a: &[AccountInfo]) -> R<(Player, Key)> {
++    let pl = hold::player_as(p, a, &super::Auth::Wallet)?;
++    let season = a.get(2).ok_or(FrontierError::TooManyAccounts)?;
++    this_build(season)?;
++    let citizen = a.get(3).ok_or(FrontierError::TooManyAccounts)?;
++    Ok((pl, key(citizen)))
++}
++
++// ------------------------------------------------------------ facility
++
++/// The facility as its Holding tells it.
++struct Fac {
++    p: i16,
++    q: i16,
++    site: u8,
++    gen: u8,
++    owner: Key,
++    prev_gen: u8,
++    captured_bell: u32,
++}
++
++impl Fac {
++    /// The rules' view for a pool of generation `gen` (`genesis_ts`: the
++    /// season clock, to date a capture by its bell).
++    fn view(&self, gen: u8, genesis_ts: i64) -> cap::Facility {
++        let end = if self.gen != gen && self.prev_gen == gen && self.captured_bell != 0 {
++            Some((
++                genesis_ts.saturating_add(600 * self.captured_bell as i64),
++                Some(self.owner),
++            ))
++        } else {
++            None
++        };
++        cap::Facility {
++            gen: self.gen,
++            owner: self.owner,
++            // A wrapped generation needs the facility's history, which no
++            // account keeps; a pool of the same number is refused once lost
++            // (`GenerationReused`, the rules' OpenCapacityPool).
++            reused: false,
++            end,
++        }
++    }
++
++    /// The end of generation `gen` is known (or it has not ended).
++    fn dated(&self, gen: u8) -> bool {
++        self.gen == gen || (self.prev_gen == gen && self.captured_bell != 0)
++    }
++}
++
++fn facility(p: &Pubkey, ctx: &addr::AddrCtx, sid: u64, ai: &AccountInfo) -> R<Fac> {
++    present_v2(ai, p, K2::Holding, sid)?;
++    let d = ai.try_borrow_data()?;
++    let r = Ro(&d);
++    let f = Fac {
++        p: r.i16(H::P)?,
++        q: r.i16(H::Q)?,
++        site: r.u8(H::SITE)?,
++        gen: r.u8(H::GEN)?,
++        owner: r.arr(H::OWNER_CITIZEN)?,
++        prev_gen: r.u8(H::PREV_GEN)?,
++        captured_bell: r.u32(H::CAPTURED_BELL)?,
++    };
++    expect_key(ai, &ctx.holding(f.p as i32, f.q as i32, f.site))?;
++    Ok(f)
++}
++
++fn genesis_of(season: &AccountInfo) -> R<i64> {
++    Ro(&season.try_borrow_data()?).i64(S::GENESIS_TS)
++}
++
++// ------------------------------------------------------------ accounts
++
++fn pool_at(p: &Pubkey, ctx: &addr::AddrCtx, ai: &AccountInfo) -> R<cap::Pool> {
++    if init::is_absent(ai) {
++        return Err(cap_err(CapError::UnknownPool));
++    }
++    if ai.owner != p {
++        return Err(BAD_ACCOUNT);
++    }
++    let pool = cap::Pool::decode(&ai.try_borrow_data()?).ok_or(BAD_ACCOUNT)?;
++    let f = pool.facility;
++    expect_key(ai, &fc::pool(ctx, f.p, f.q, f.site, f.gen))?;
++    Ok(pool)
++}
++
++/// The pool is this facility's (the Holding of its site).
++fn pool_of(pool: &cap::Pool, f: &Fac) -> R<()> {
++    let id = pool.facility;
++    if (id.p, id.q, id.site) != (f.p, f.q, f.site) {
++        return Err(BAD_ACCOUNT);
++    }
++    Ok(())
++}
++
++fn put_pool(ai: &AccountInfo, pool: &cap::Pool) -> R<()> {
++    pool.encode(&mut ai.try_borrow_mut_data()?)
++        .ok_or(BAD_ACCOUNT)
++}
++
++/// The job `(grant, job)` of `pool` at its address, or `None` when absent.
++fn job_at(
++    p: &Pubkey,
++    ctx: &addr::AddrCtx,
++    pool: &cap::Pool,
++    ai: &AccountInfo,
++    grant: u32,
++    job: u32,
++) -> R<Option<cap::Job>> {
++    let f = pool.facility;
++    expect_key(ai, &fc::job(ctx, f.p, f.q, f.site, f.gen, grant, job))?;
++    if init::is_absent(ai) {
++        return Ok(None);
++    }
++    if ai.owner != p {
++        return Err(BAD_ACCOUNT);
++    }
++    let j = cap::Job::decode(&ai.try_borrow_data()?).ok_or(BAD_ACCOUNT)?;
++    if (j.grant, j.seq) != (grant, job) {
++        return Err(BAD_ACCOUNT);
++    }
++    Ok(Some(j))
++}
++
++/// A present job account of `pool`, whichever it is (RevokeCapacity and
++/// RecordFacilityLoss list them; the rules check the set).
++fn any_job(p: &Pubkey, ctx: &addr::AddrCtx, pool: &cap::Pool, ai: &AccountInfo) -> R<cap::Job> {
++    if ai.owner != p || init::is_absent(ai) {
++        return Err(BAD_ACCOUNT);
++    }
++    let j = cap::Job::decode(&ai.try_borrow_data()?).ok_or(BAD_ACCOUNT)?;
++    job_at(p, ctx, pool, ai, j.grant, j.seq)?.ok_or(BAD_ACCOUNT)
++}
++
++fn put_job(ai: &AccountInfo, j: &cap::Job) -> R<()> {
++    j.encode(&mut ai.try_borrow_mut_data()?).ok_or(BAD_ACCOUNT)
++}
++
++fn rent_to_of(ai: &AccountInfo, size: usize) -> R<Key> {
++    Ro(&ai.try_borrow_data()?).arr(size)
++}
++
++fn set_rent_to(ai: &AccountInfo, size: usize, payer: &AccountInfo) -> R<()> {
++    let mut d = ai.try_borrow_mut_data()?;
++    d.get_mut(size..size + fc::RENT_TO_LEN)
++        .ok_or(BAD_ACCOUNT)?
++        .copy_from_slice(payer.key.as_ref());
++    Ok(())
++}
++
++/// Creates a capacity account at its with-seed address, paid by `payer`.
++#[allow(clippy::too_many_arguments)]
++fn create<'a>(
++    p: &Pubkey,
++    pl: &Player,
++    payer: &AccountInfo<'a>,
++    season: &AccountInfo<'a>,
++    target: &AccountInfo<'a>,
++    seed: &frontier_abi::addr::Seed,
++    space: usize,
++) -> R<()> {
++    let signer = SeasonSigner::new(pl.pc.season.id, pl.pc.season.bump);
++    let rent = init::rent(space)?;
++    init::init_with_seed(payer, target, season, &signer, seed, space, rent, p)
++}
++
++// ------------------------------------------------------------ the user's vault
++
++/// The user's vault in the facility's province: live, the user's
++/// (`NotOwner`), on a tile of that province (`BadAddress`).
++struct UserVault {
++    stores: [i64; RESOURCES],
++    quota: [i64; RESOURCES],
++    cap: i64,
++    tag: u64,
++}
++
++fn user_vault(
++    p: &Pubkey,
++    ctx: &addr::AddrCtx,
++    sid: u64,
++    ai: &AccountInfo,
++    user: &Key,
++    f: &Fac,
++) -> R<UserVault> {
++    present_v2(ai, p, K2::Vault, sid)?;
++    let d = ai.try_borrow_data()?;
++    let r = Ro(&d);
++    let (vp, vq, tile) = (r.i16(VA::P)?, r.i16(VA::Q)?, r.u8(VA::TILE)?);
++    expect_key(
++        ai,
++        &frontier_abi::v2::addr::vault(ctx, vp as i32, vq as i32, tile),
++    )?;
++    if r.u8(VA::STATE)? != VA::STATE_LIVE {
++        return Err(BAD_ACCOUNT);
++    }
++    if r.arr::<32>(VA::OWNER_CITIZEN)? != *user {
++        return Err(FrontierError::NotOwner.into());
++    }
++    if (vp, vq) != (f.p, f.q) {
++        return Err(FrontierError::BadAddress.into());
++    }
++    let mut v = UserVault {
++        stores: [0; RESOURCES],
++        quota: [0; RESOURCES],
++        cap: r.i64(VA::CAP)?,
++        tag: u64::from_le_bytes(ai.key.as_ref()[..8].try_into().map_err(|_| BAD_ACCOUNT)?),
++    };
++    for i in 0..RESOURCES {
++        v.stores[i] = r.i64(VA::store(i))?;
++        v.quota[i] = r.i64(VA::custody_quota(i))?;
++    }
++    Ok(v)
++}
++
++impl UserVault {
++    fn take(&mut self, r: Resource, amount: i64) -> R<()> {
++        let s = &mut self.stores[r as usize];
++        *s = s
++            .checked_sub(amount)
++            .filter(|x| *x >= 0)
++            .ok_or(cap_err(CapError::Custody))?;
++        Ok(())
++    }
++
++    /// `STORES + CUSTODY_QUOTA ≤ CAP` after the credit (`Custody`).
++    fn put(&mut self, r: Resource, amount: i64) -> R<()> {
++        let i = r as usize;
++        let next = self.stores[i]
++            .checked_add(amount)
++            .ok_or(cap_err(CapError::Overflow))?;
++        if next.saturating_add(self.quota[i]) > self.cap {
++            return Err(cap_err(CapError::Custody));
++        }
++        self.stores[i] = next;
++        Ok(())
++    }
++
++    fn write(&self, ai: &AccountInfo) -> R<()> {
++        let mut d = ai.try_borrow_mut_data()?;
++        let mut w = Rw(&mut d);
++        for i in 0..RESOURCES {
++            w.set_i64(VA::store(i), self.stores[i])?;
++        }
++        Ok(())
++    }
++}
++
++fn events(done: Done) -> Option<Vec<Event>> {
++    match done {
++        Done::Applied(ev) => Some(ev),
++        Done::Already => None,
++    }
++}
++
++// ------------------------------------------------------------ 0xF0
++
++/// 0xF0 OpenCapacityPool(policies): the Holding's owner opens the pool of
++/// its current generation.
++pub fn open_pool(p: &Pubkey, a: &[AccountInfo], x: CapData) -> R<()> {
++    check_accounts(CapIx::OpenCapacityPool, a, None)?;
++    let CapData::OpenCapacityPool { policies } = x else {
++        return Err(FrontierError::BadData.into());
++    };
++    let policies = cap::Policies::decode(policies).ok_or(FrontierError::BadData)?;
++    let (pl, signer) = player(p, a)?;
++    let [_, payer, season, _citizen, holding, pool_ai, _system] = a else {
++        return Err(FrontierError::TooManyAccounts.into());
++    };
++    let sid = pl.pc.season.id;
++    let f = facility(p, &pl.ctx, sid, holding)?;
++    let id = cap::FacilityId {
++        p: f.p,
++        q: f.q,
++        site: f.site,
++        gen: f.gen,
++    };
++    expect_key(pool_ai, &fc::pool(&pl.ctx, f.p, f.q, f.site, f.gen))?;
++    let existing = if init::is_absent(pool_ai) {
++        None
++    } else {
++        Some(pool_at(p, &pl.ctx, pool_ai)?)
++    };
++    let (new, _) = cap::open_pool(
++        existing.as_ref(),
++        &f.view(f.gen, pl.pc.season.genesis_ts),
++        &signer,
++        id,
++        policies,
++    )
++    .map_err(cap_err)?;
++    if let Some(pool) = new {
++        create(
++            p,
++            &pl,
++            payer,
++            season,
++            pool_ai,
++            &fc::pool_seed(f.p, f.q, f.site, f.gen),
++            POOL_SPACE,
++        )?;
++        put_pool(pool_ai, &pool)?;
++        set_rent_to(pool_ai, cap::layout::pool::SIZE, payer)?;
++    }
++    Ok(())
++}
++
++// ------------------------------------------------------------ 0xF1 / 0xF2
++
++/// 0xF1 LendCapacity / 0xF2 ReclaimCapacity(units, seq): the owner moves
++/// workshop copies between the Holding's own production and the pool.
++pub fn lend(p: &Pubkey, a: &[AccountInfo], x: CapData) -> R<()> {
++    let (lend, units, seq) = match x {
++        CapData::LendCapacity { units, seq } => (true, units, seq),
++        CapData::ReclaimCapacity { units, seq } => (false, units, seq),
++        _ => return Err(FrontierError::BadData.into()),
++    };
++    check_accounts(x.ix(), a, None)?;
++    let (pl, signer) = player(p, a)?;
++    let [_, _payer, _season, _citizen, holding, pool_ai] = a else {
++        return Err(FrontierError::TooManyAccounts.into());
++    };
++    let sid = pl.pc.season.id;
++    let f = facility(p, &pl.ctx, sid, holding)?;
++    let mut pool = pool_at(p, &pl.ctx, pool_ai)?;
++    pool_of(&pool, &f)?;
++    let now = pl.now.ts;
++    let mut h: KHolding = read_holding(&holding.try_borrow_data()?)?;
++    let view = f.view(pool.facility.gen, pl.pc.season.genesis_ts);
++    let done =
++        cap::lend(&mut pool, &mut h, &view, now, &signer, lend, units, seq).map_err(cap_err)?;
++    if events(done).is_some() {
++        write_holding(&mut holding.try_borrow_mut_data()?, &h, now)?;
++        put_pool(pool_ai, &pool)?;
++    }
++    Ok(())
++}
++
++// ------------------------------------------------------------ 0xF3 / 0xF4
++
++/// 0xF3 GrantCapacity: the owner grants a user (a Citizen) copies of the
++/// pool under a recipe, a window and caps.
++pub fn grant(p: &Pubkey, a: &[AccountInfo], x: CapData) -> R<()> {
++    check_accounts(CapIx::GrantCapacity, a, None)?;
++    let CapData::GrantCapacity {
++        grant,
++        user,
++        recipe,
++        max_units,
++        max_output,
++        from,
++        until,
++    } = x
++    else {
++        return Err(FrontierError::BadData.into());
++    };
++    let (pl, signer) = player(p, a)?;
++    let [_, _payer, _season, _citizen, holding, pool_ai] = a else {
++        return Err(FrontierError::TooManyAccounts.into());
++    };
++    let f = facility(p, &pl.ctx, pl.pc.season.id, holding)?;
++    let mut pool = pool_at(p, &pl.ctx, pool_ai)?;
++    pool_of(&pool, &f)?;
++    let view = f.view(pool.facility.gen, pl.pc.season.genesis_ts);
++    let g = cap::Grant {
++        seq: grant,
++        user,
++        recipe,
++        max_units,
++        max_output,
++        from,
++        until,
++        revoked_at: None,
++        spent: 0,
++        last_job_seq: None,
++    };
++    if events(cap::grant(&mut pool, &view, pl.now.ts, &signer, g).map_err(cap_err)?).is_some() {
++        put_pool(pool_ai, &pool)?;
++    }
++    Ok(())
++}
++
++/// 0xF4 RevokeCapacity(grant): under CancelBooked, the grant's booked jobs
++/// follow the pool's accounts, in the pool's order.
++pub fn revoke(p: &Pubkey, a: &[AccountInfo], x: CapData) -> R<()> {
++    let CapData::RevokeCapacity { grant } = x else {
++        return Err(FrontierError::BadData.into());
++    };
++    let n = a
++        .len()
++        .checked_sub(6)
++        .ok_or(FrontierError::TooManyAccounts)?;
++    check_accounts(CapIx::RevokeCapacity, a, Some(&[1, n as u8]))?;
++    let (pl, signer) = player(p, a)?;
++    let [_, _payer, _season, _citizen, holding, pool_ai, jobs @ ..] = a else {
++        return Err(FrontierError::TooManyAccounts.into());
++    };
++    let f = facility(p, &pl.ctx, pl.pc.season.id, holding)?;
++    let mut pool = pool_at(p, &pl.ctx, pool_ai)?;
++    pool_of(&pool, &f)?;
++    let view = f.view(pool.facility.gen, pl.pc.season.genesis_ts);
++    let mut js = jobs
++        .iter()
++        .map(|ai| any_job(p, &pl.ctx, &pool, ai))
++        .collect::<R<Vec<cap::Job>>>()?;
++    let mut refs: Vec<&mut cap::Job> = js.iter_mut().collect();
++    let done =
++        cap::revoke(&mut pool, &view, pl.now.ts, &signer, grant, &mut refs).map_err(cap_err)?;
++    if events(done).is_some() {
++        put_pool(pool_ai, &pool)?;
++        for (ai, j) in jobs.iter().zip(js.iter()) {
++            put_job(ai, j)?;
++        }
++    }
++    Ok(())
++}
++
++// ------------------------------------------------------------ 0xF5
++
++/// 0xF5 ReserveCapacity: the grant's user books copies for a window; the
++/// job's account is created, paid by the payer.
++pub fn reserve(p: &Pubkey, a: &[AccountInfo], x: CapData) -> R<()> {
++    check_accounts(CapIx::ReserveCapacity, a, None)?;
++    let CapData::ReserveCapacity {
++        grant,
++        job,
++        units,
++        start,
++        end,
++        max_output,
++    } = x
++    else {
++        return Err(FrontierError::BadData.into());
++    };
++    let (pl, signer) = player(p, a)?;
++    let [_, payer, season, _citizen, holding, pool_ai, job_ai, _system] = a else {
++        return Err(FrontierError::TooManyAccounts.into());
++    };
++    let f = facility(p, &pl.ctx, pl.pc.season.id, holding)?;
++    let mut pool = pool_at(p, &pl.ctx, pool_ai)?;
++    pool_of(&pool, &f)?;
++    let view = f.view(pool.facility.gen, pl.pc.season.genesis_ts);
++    let existing = job_at(p, &pl.ctx, &pool, job_ai, grant, job)?;
++    let now = pl.now.ts;
++    let dormant = read_holding(&holding.try_borrow_data()?)?.is_dormant(now);
++    let (new, _) = cap::reserve(
++        &mut pool,
++        &view,
++        dormant,
++        existing.as_ref(),
++        now,
++        &signer,
++        grant,
++        job,
++        units,
++        start,
++        end,
++        max_output,
++    )
++    .map_err(cap_err)?;
++    if let Some(j) = new {
++        let id = pool.facility;
++        create(
++            p,
++            &pl,
++            payer,
++            season,
++            job_ai,
++            &fc::job_seed(id.p, id.q, id.site, id.gen, grant, job),
++            JOB_SPACE,
++        )?;
++        put_job(job_ai, &j)?;
++        set_rent_to(job_ai, cap::layout::job::SIZE, payer)?;
++        put_pool(pool_ai, &pool)?;
++    }
++    Ok(())
++}
++
++// ------------------------------------------------------------ 0xF6 / 0xF9
++
++/// 0xF6 DepositToJob: the user's goods from its vault in the facility's
++/// province into the job (before it starts).
++pub fn deposit(p: &Pubkey, a: &[AccountInfo], x: CapData) -> R<()> {
++    check_accounts(CapIx::DepositToJob, a, None)?;
++    let CapData::DepositToJob {
++        grant,
++        job,
++        deposit,
++        resource,
++        amount,
++    } = x
++    else {
++        return Err(FrontierError::BadData.into());
++    };
++    let resource = *Resource::ALL
++        .get(resource as usize)
++        .ok_or(FrontierError::BadData)?;
++    let (pl, signer) = player(p, a)?;
++    let [_, _payer, _season, _citizen, holding, pool_ai, job_ai, vault] = a else {
++        return Err(FrontierError::TooManyAccounts.into());
++    };
++    let sid = pl.pc.season.id;
++    let f = facility(p, &pl.ctx, sid, holding)?;
++    let mut pool = pool_at(p, &pl.ctx, pool_ai)?;
++    pool_of(&pool, &f)?;
++    let view = f.view(pool.facility.gen, pl.pc.season.genesis_ts);
++    let mut j = job_at(p, &pl.ctx, &pool, job_ai, grant, job)?;
++    let mut v = user_vault(p, &pl.ctx, sid, vault, &signer, &f)?;
++    let done = cap::deposit(
++        &mut pool,
++        &view,
++        j.as_mut(),
++        (grant, job),
++        pl.now.ts,
++        &signer,
++        deposit,
++        resource,
++        amount,
++        v.tag,
++    )
++    .map_err(cap_err)?;
++    let Some(ev) = events(done) else {
++        return Ok(());
++    };
++    for e in &ev {
++        if let Event::Deposited {
++            resource, amount, ..
++        } = *e
++        {
++            v.take(resource, amount)?;
++        }
++    }
++    v.write(vault)?;
++    put_job(job_ai, j.as_ref().ok_or(BAD_ACCOUNT)?)?;
++    put_pool(pool_ai, &pool)
++}
++
++/// 0xF9 ClaimJob: what the job made and, once final, what it did not use,
++/// into the user's vault in the facility's province.
++pub fn claim(p: &Pubkey, a: &[AccountInfo], x: CapData) -> R<()> {
++    check_accounts(CapIx::ClaimJob, a, None)?;
++    let CapData::ClaimJob { grant, job } = x else {
++        return Err(FrontierError::BadData.into());
++    };
++    let (pl, signer) = player(p, a)?;
++    let [_, _payer, _season, _citizen, holding, pool_ai, job_ai, vault] = a else {
++        return Err(FrontierError::TooManyAccounts.into());
++    };
++    let sid = pl.pc.season.id;
++    let f = facility(p, &pl.ctx, sid, holding)?;
++    let mut pool = pool_at(p, &pl.ctx, pool_ai)?;
++    pool_of(&pool, &f)?;
++    let view = f.view(pool.facility.gen, pl.pc.season.genesis_ts);
++    let mut j = job_at(p, &pl.ctx, &pool, job_ai, grant, job)?;
++    let mut v = user_vault(p, &pl.ctx, sid, vault, &signer, &f)?;
++    let done = cap::claim(
++        &mut pool,
++        &view,
++        j.as_mut(),
++        (grant, job),
++        pl.now.ts,
++        &signer,
++        false,
++        false,
++    )
++    .map_err(cap_err)?;
++    let Some(ev) = events(done) else {
++        return Ok(());
++    };
++    let jj = j.as_ref().ok_or(BAD_ACCOUNT)?;
++    let r = jj.recipe();
++    for e in &ev {
++        if let Event::Claimed { output, refund, .. } = *e {
++            if output > 0 {
++                v.put(r.output, output)?;
++            }
++            for (i, (res, _)) in r.inputs.iter().enumerate() {
++                if refund[i] > 0 {
++                    v.put(*res, refund[i])?;
++                }
++            }
++        }
++    }
++    v.write(vault)?;
++    put_job(job_ai, jj)?;
++    put_pool(pool_ai, &pool)
++}
++
++// ------------------------------------------------------------ 0xF7 / 0xF8
++
++/// 0xF7 SettleJob (anyone): credit what the job made by now.
++pub fn settle(p: &Pubkey, a: &[AccountInfo], x: CapData) -> R<()> {
++    check_accounts(CapIx::SettleJob, a, None)?;
++    let CapData::SettleJob { grant, job } = x else {
++        return Err(FrontierError::BadData.into());
++    };
++    let (ctx, sid, now) = keeper(p, a)?;
++    let [_, season, holding, pool_ai, job_ai] = a else {
++        return Err(FrontierError::TooManyAccounts.into());
++    };
++    let f = facility(p, &ctx, sid, holding)?;
++    let mut pool = pool_at(p, &ctx, pool_ai)?;
++    pool_of(&pool, &f)?;
++    let view = f.view(pool.facility.gen, genesis_of(season)?);
++    let mut j = job_at(p, &ctx, &pool, job_ai, grant, job)?;
++    let done = cap::settle(&mut pool, &view, j.as_mut(), (grant, job), now).map_err(cap_err)?;
++    if events(done).is_some() {
++        put_job(job_ai, j.as_ref().ok_or(BAD_ACCOUNT)?)?;
++        put_pool(pool_ai, &pool)?;
++    }
++    Ok(())
++}
++
++/// 0xF8 CancelJob (the user).
++pub fn cancel(p: &Pubkey, a: &[AccountInfo], x: CapData) -> R<()> {
++    check_accounts(CapIx::CancelJob, a, None)?;
++    let CapData::CancelJob { grant, job } = x else {
++        return Err(FrontierError::BadData.into());
++    };
++    let (pl, signer) = player(p, a)?;
++    let [_, _payer, _season, _citizen, holding, pool_ai, job_ai] = a else {
++        return Err(FrontierError::TooManyAccounts.into());
++    };
++    let f = facility(p, &pl.ctx, pl.pc.season.id, holding)?;
++    let mut pool = pool_at(p, &pl.ctx, pool_ai)?;
++    pool_of(&pool, &f)?;
++    let view = f.view(pool.facility.gen, pl.pc.season.genesis_ts);
++    let mut j = job_at(p, &pl.ctx, &pool, job_ai, grant, job)?;
++    let done = cap::cancel(
++        &mut pool,
++        &view,
++        j.as_mut(),
++        (grant, job),
++        pl.now.ts,
++        &signer,
++    )
++    .map_err(cap_err)?;
++    if events(done).is_some() {
++        put_job(job_ai, j.as_ref().ok_or(BAD_ACCOUNT)?)?;
++        put_pool(pool_ai, &pool)?;
++    }
++    Ok(())
++}
++
++// ------------------------------------------------------------ 0xFA
++
++/// 0xFA RecordFacilityLoss (anyone): the pool's generation ended (read
++/// from the Holding); every job of the pool follows, in the pool's order;
++/// a captor's share goes into the Holding's stores.
++pub fn lose(p: &Pubkey, a: &[AccountInfo]) -> R<()> {
++    let n = a
++        .len()
++        .checked_sub(4)
++        .ok_or(FrontierError::TooManyAccounts)?;
++    check_accounts(CapIx::RecordFacilityLoss, a, Some(&[1, n as u8]))?;
++    let (ctx, sid, now) = keeper(p, a)?;
++    let [_, season, holding, pool_ai, jobs @ ..] = a else {
++        return Err(FrontierError::TooManyAccounts.into());
++    };
++    let f = facility(p, &ctx, sid, holding)?;
++    let mut pool = pool_at(p, &ctx, pool_ai)?;
++    pool_of(&pool, &f)?;
++    if pool.lost_at.is_none() && !f.dated(pool.facility.gen) {
++        // Released, or captured twice before anyone recorded the first
++        // loss: the Holding no longer tells when this generation ended.
++        return Err(FrontierError::NotImplemented.into());
++    }
++    let view = f.view(pool.facility.gen, genesis_of(season)?);
++    let mut js = jobs
++        .iter()
++        .map(|ai| any_job(p, &ctx, &pool, ai))
++        .collect::<R<Vec<cap::Job>>>()?;
++    let mut refs: Vec<&mut cap::Job> = js.iter_mut().collect();
++    let done = cap::lose(&mut pool, &view, &mut refs).map_err(cap_err)?;
++    let Some(ev) = events(done) else {
++        return Ok(());
++    };
++    let mut h: KHolding = read_holding(&holding.try_borrow_data()?)?;
++    let mut credited = false;
++    for e in &ev {
++        if let Event::Forfeited {
++            job,
++            output,
++            refund,
++            ..
++        } = *e
++        {
++            let r = js
++                .iter()
++                .find(|j| (j.grant, j.seq) == job)
++                .ok_or(BAD_ACCOUNT)?
++                .recipe();
++            let mut add = |res: Resource, amt: i64| -> R<()> {
++                if amt > 0 {
++                    h.credit(now, res, amt).map_err(hold::holding_err)?;
++                    credited = true;
++                }
++                Ok(())
++            };
++            add(r.output, output)?;
++            for (i, (res, _)) in r.inputs.iter().enumerate() {
++                add(*res, refund[i])?;
++            }
++        }
++    }
++    if credited {
++        write_holding(&mut holding.try_borrow_mut_data()?, &h, now)?;
++    }
++    for (ai, j) in jobs.iter().zip(js.iter()) {
++        put_job(ai, j)?;
++    }
++    put_pool(pool_ai, &pool)
++}
++
++// ------------------------------------------------------------ 0xFB–0xFD
++
++/// 0xFB RetireJob, 0xFC RetireGrant, 0xFD RetirePool (anyone): close a
++/// finished record; a closed account's rent goes back to who paid it.
++pub fn retire(p: &Pubkey, a: &[AccountInfo], x: CapData) -> R<()> {
++    check_accounts(x.ix(), a, None)?;
++    let (ctx, _sid, now) = keeper(p, a)?;
++    let pool_ai = a.get(2).ok_or(FrontierError::TooManyAccounts)?;
++    let mut pool = pool_at(p, &ctx, pool_ai)?;
++    match x {
++        CapData::RetireJob { grant, job } => {
++            let [_, _season, _pool, job_ai, rent_to] = a else {
++                return Err(FrontierError::TooManyAccounts.into());
++            };
++            let j = job_at(p, &ctx, &pool, job_ai, grant, job)?;
++            let done = cap::retire(&mut pool, j.as_ref(), (grant, job)).map_err(cap_err)?;
++            if events(done).is_some() {
++                if rent_to_of(job_ai, cap::layout::job::SIZE)? != key(rent_to) {
++                    return Err(BAD_ACCOUNT);
++                }
++                put_pool(pool_ai, &pool)?;
++                init::close_to(p, job_ai, rent_to, &Sink::Never, bell(now, a)?)?;
++            }
++        }
++        CapData::RetireGrant { grant } => {
++            if events(cap::retire_grant(&mut pool, now, grant).map_err(cap_err)?).is_some() {
++                put_pool(pool_ai, &pool)?;
++            }
++        }
++        CapData::RetirePool => {
++            let [_, _season, _pool, rent_to] = a else {
++                return Err(FrontierError::TooManyAccounts.into());
++            };
++            cap::retire_pool(&pool).map_err(cap_err)?;
++            if rent_to_of(pool_ai, cap::layout::pool::SIZE)? != key(rent_to) {
++                return Err(BAD_ACCOUNT);
++            }
++            init::close_to(p, pool_ai, rent_to, &Sink::Never, bell(now, a)?)?;
++        }
++        _ => return Err(FrontierError::BadData.into()),
++    }
++    Ok(())
++}
++
++fn bell(now: i64, a: &[AccountInfo]) -> R<u32> {
++    let season = a.get(1).ok_or(FrontierError::TooManyAccounts)?;
++    Ok(frontier_abi::prologue::bell_at(genesis_of(season)?, now).unwrap_or(u32::MAX))
++}
+diff --git a/permutation-frontier/src/proc/mod.rs b/permutation-frontier/src/proc/mod.rs
+index 65245b91..eccb166a 100644
+--- a/permutation-frontier/src/proc/mod.rs
++++ b/permutation-frontier/src/proc/mod.rs
+@@ -53,6 +53,10 @@
+ //! (`frontier_abi::v2::prologue::accounts_of`); a v1 tag keeps M1's list.
+ 
+ pub mod beacon;
++/// Preview (`capacity-preview`): workstream 09's capacity instructions on
++/// the provisional band 0xF0–0xFD; absent from every default build.
++#[cfg(feature = "capacity-preview")]
++pub mod capacity;
+ pub mod caravan;
+ pub mod citizen;
+ pub mod clash;
+diff --git a/permutation-rules/tests/frontier_shared.rs b/permutation-rules/tests/frontier_shared.rs
+index 21cd29e6..b90d72df 100644
+--- a/permutation-rules/tests/frontier_shared.rs
++++ b/permutation-rules/tests/frontier_shared.rs
+@@ -1312,17 +1312,28 @@ fn ruleset_hash_binds_versions_and_catalog() {
+     );
+     let src = include_str!("../src/frontier/mod.rs");
+     let mut modules = 0;
++    let mut previous = "";
+     for line in src.lines() {
+         if let Some(m) = line
+             .strip_prefix("pub mod ")
+             .and_then(|r| r.strip_suffix(';'))
+         {
++            // Workstream 09's capacity rules are a preview behind their
++            // feature, bound to no ruleset hash until workstream 4 gives a
++            // capacity build its version (named here, not hidden).
++            if previous == r#"#[cfg(feature = "capacity-preview")]"# {
++                assert_eq!(m, "capacity");
++                assert!(!names.contains(&m));
++                previous = line;
++                continue;
++            }
+             assert!(
+                 names.contains(&m),
+                 "module {m} has no KERNEL_VERSIONS entry"
+             );
+             modules += 1;
+         }
++        previous = line;
+     }
+     assert_eq!(modules + 1, names.len(), "one entry per module + frontier");
+     // Golden value: a change to any bound constant or table changes it on
+-- 
+2.43.0
+

@@ -28,6 +28,10 @@ pub const UNVERIFIED_INNER_INSTRUCTION: &str = "UnverifiedInnerInstruction";
 pub const MISSING_POST_STATE: &str = "MissingPostState";
 /// A record no check judges where it stands (UNVERIFIABLE, V0E).
 pub const UNVERIFIED_RECORD: &str = "UnverifiedRecord";
+/// A wide-world instruction (experimental band) that no check models yet:
+/// V0 leaves it to VW, which judges only the wide event chains
+/// (UNVERIFIABLE; shared by V0 and VW1).
+pub const WIDE_UNMODELLED: &str = "WideUnmodelled";
 /// A history no source showed to be complete (UNVERIFIABLE, V0; ⑲ `history`).
 pub const HISTORY_UNPROVEN: &str = "HistoryUnproven";
 /// A JoinResident and the Citizen, record or link it left disagree (FAIL, V27).
@@ -38,6 +42,10 @@ pub const RESIDENT_ACT_MISMATCH: &str = "ResidentActMismatch";
 /// pass's holder at the time: an earlier generation, a previous owner, a
 /// previous owner's session (FAIL, V28).
 pub const RESIDENT_OLD_AUTHORITY: &str = "ResidentOldAuthority";
+/// A ResidentAct the program allows only to the pass's owner (a send to
+/// another player, CloseVault, CloseStructure) accepted from its session
+/// (FAIL, V28).
+pub const RESIDENT_OWNER_REQUIRED: &str = "ResidentOwnerRequired";
 /// A ResidentAct whose holder or join the record cannot show (UNVERIFIABLE, V28).
 pub const RESIDENT_ACT_UNPROVEN: &str = "ResidentActUnproven";
 /// A ResidentAct's inner instruction, whose own effects no check replays yet (UNVERIFIABLE, V28).
@@ -206,6 +214,7 @@ pub const FAIL_CODES: &[&str] = &[
     CUSTODY_OVER_CAPACITY,
     CUSTODY_VAULT_COUNTS,
     CUSTODY_HISTORY_BROKEN,
+    CUSTODY_REPLAY_MISMATCH,
 ];
 
 /// Warning codes (PASS with a warning).
@@ -216,14 +225,15 @@ pub const WARN_CODES: &[&str] = &[
     CONSERVATION_GAP,
     PREFUNDED,
 ];
-// Custody (workstream 10): no V26 yet.
+// Custody (workstream 10): V26.
 /// A custody trace (a landed custody instruction, a custody record, a Lot
 /// account, custody fields in a Vault or Caravan) in a season whose program
 /// has no custody (ruleset up to `RULESET_HASH_V3`): that program refuses
 /// the tags, so the history is not its own.
 pub const CUSTODY_IN_PROGRAM_WITHOUT_IT: &str = "CustodyInProgramWithoutIt";
 /// A custody trace in a custody season (`RULESET_HASH_V4`): V26 does not
-/// exist, so the history cannot be verified (never PASS).
+/// replay the custody caravans and records, so the history cannot be
+/// verified (never PASS).
 pub const CUSTODY_UNVERIFIED: &str = "CustodyUnverified";
 /// V26 state audit (custody seasons): a Lot or Vault account breaks a law
 /// the custody kernel checks before every write (a lot's totals, its order
@@ -247,3 +257,28 @@ pub const CUSTODY_HISTORY_BROKEN: &str = "CustodyHistoryBroken";
 /// show (IN_TOTAL grew beyond what the caravans settled since could
 /// deliver). UNVERIFIABLE, never PASS, until the instructions are replayed.
 pub const CUSTODY_HISTORY_UNEXPLAINED: &str = "CustodyHistoryUnexplained";
+/// V26 replay (custody seasons): a landed custody instruction the kernel,
+/// run on the states recorded before it, refuses or writes otherwise than
+/// the transaction left the lot or the vault's custody counts.
+pub const CUSTODY_REPLAY_MISMATCH: &str = "CustodyReplayMismatch";
+/// V26 replay: a landed custody instruction it cannot replay (a state
+/// before or after it is not in the input, an instruction that moves a
+/// caravan, several custody instructions in one transaction).
+/// UNVERIFIABLE, never PASS.
+pub const CUSTODY_REPLAY_INCOMPLETE: &str = "CustodyReplayIncomplete";
+
+// VR — the workshop-stock swap Grant (02-rights, candidate; provisional).
+/// A Grant instruction whose data or account list does not decode.
+pub const RIGHTS_MALFORMED: &str = "RightsMalformed";
+/// A Grant instruction that logged no record of its kind.
+pub const RIGHTS_RECORD_MISSING: &str = "RightsRecordMissing";
+/// A Grant record without its instruction.
+pub const RIGHTS_RECORD_ORPHAN: &str = "RightsRecordOrphan";
+/// A Grant record the rules refuse (seq, quota, ratio, expiry, escrow).
+pub const RIGHTS_RULE: &str = "RightsRule";
+/// A Grant account that differs from the replay of its records.
+pub const RIGHTS_STATE_MISMATCH: &str = "RightsStateMismatch";
+/// A Grant account no record or instruction explains.
+pub const RIGHTS_UNEXPLAINED_ACCOUNT: &str = "RightsUnexplainedAccount";
+/// A program account of no kind the verifier knows.
+pub const UNKNOWN_ACCOUNT: &str = "UnknownAccount";

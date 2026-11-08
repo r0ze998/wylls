@@ -55,6 +55,7 @@ pub fn season_json(f: &Fold, s: &SeasonStatic) -> Option<Value> {
         "v": 1,
         "programId": f.cfg.program.to_string(),
         "cluster": s.cluster,
+        "sample": s.cluster.trim().eq_ignore_ascii_case("fixture"),
         "season": f.cfg.season_id.to_string(),
         "seasonAddress": Address::new_from_array(addr).to_string(),
         "genesisTs": se.genesis_ts,
@@ -234,6 +235,10 @@ pub fn me_json(f: &Fold, wallet: &Address, quota: Value) -> Value {
         "quota": quota,
         "latestSlot": f.st.last_slot,
     });
+    #[cfg(feature = "wide-world-experimental")]
+    {
+        v["wideHoldings"] = crate::wide::holdings_for_citizen(f, &ca);
+    }
     // MC (CQ2-E, §8.4): `alerts[]`, `sieges[]` and the caller's players
     // row; an M1 season's answer is unchanged.
     if let (Some((alerts, sieges, player)), Some(o)) = (

@@ -1,0 +1,84 @@
+From f16eaa784ab191afe04c441e65c1b546f264ab00 Mon Sep 17 00:00:00 2001
+From: ws03 <ws03@invalid>
+Date: Fri, 6 Nov 2026 14:54:14 +0000
+Subject: [PATCH] =?UTF-8?q?agent=20wallet:=20one=20whoami=20contract=20for?=
+ =?UTF-8?q?=20per-sender=20capabilities=20(=E2=91=A2=20patch=200008b)?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+whoami returns capabilitySource (the bound sender, null for the unscoped
+token) and capabilitySourceVersion, the names ⑤ 276a392b uses (as ④
+relayed them); 0008's 'source' / 'sourceCapabilityVersion' are dropped.
+rotate-capability with params.source (⑤'s form) issues that sender's
+token on this relay. On a relay without 0008 that form rotates the
+unscoped token, so senders check GET /f/agent 'capabilities' first; ③
+sends issue-capability, which an older relay refuses.
+---
+ permutation-gateway/src/frontier/agent/gateway.mjs    |  6 ++++--
+ permutation-gateway/src/frontier/routes/agent.mjs     |  5 ++++-
+ .../test/agent-wallet-capability-per-source.test.mjs  | 11 ++++++++++-
+ 3 files changed, 18 insertions(+), 4 deletions(-)
+
+diff --git a/permutation-gateway/src/frontier/agent/gateway.mjs b/permutation-gateway/src/frontier/agent/gateway.mjs
+index 4b687c49..ef5465e3 100644
+--- a/permutation-gateway/src/frontier/agent/gateway.mjs
++++ b/permutation-gateway/src/frontier/agent/gateway.mjs
+@@ -545,8 +545,10 @@ export class AgentGateway {
+   whoami(agentId, credential = {}) {
+     const rec = this.ledger.get(agentId);
+     const bound = this.#authenticate(rec, credential);
+-    return { agentId: rec.agentId, owner: rec.owner, capabilityVersion: rec.capabilityVersion ?? null, source: bound ?? null,
+-      ...(bound ? { sourceCapabilityVersion: rec.capabilities[bound].version } : {}), mode: rec.mode, modeEpoch: rec.modeEpoch,
++    // One contract for ③ and ⑤ (0008b): `capabilitySource` names the sender the token is bound to (null: the unscoped
++    // token), `capabilitySourceVersion` that sender's token version. `capabilityVersion` stays the unscoped token's.
++    return { agentId: rec.agentId, owner: rec.owner, capabilityVersion: rec.capabilityVersion ?? null, capabilitySource: bound ?? null,
++      capabilitySourceVersion: bound ? rec.capabilities[bound].version : null, mode: rec.mode, modeEpoch: rec.modeEpoch,
+       policyVersion: rec.policy.version, allowed: [...rec.policy.allowed], village: [...rec.village] };
+   }
+ 
+diff --git a/permutation-gateway/src/frontier/routes/agent.mjs b/permutation-gateway/src/frontier/routes/agent.mjs
+index 1733f5f8..b7a548a8 100644
+--- a/permutation-gateway/src/frontier/routes/agent.mjs
++++ b/permutation-gateway/src/frontier/routes/agent.mjs
+@@ -104,7 +104,10 @@ export const agentRoutes = {
+       case 'policy': return { body: { ok: true, agent: g.setPolicy(agentId, owner, p.policy) } };
+       case 'mode': return { body: { ok: true, agent: g.setMode(agentId, owner, p.mode) } };
+       case 'withdraw': return { body: { ok: true, ...(await g.withdraw(agentId, owner, { amount: p.amount, all: p.all === true })) } };
+-      case 'rotate-capability': return { body: { ok: true, ...g.rotateCapability(agentId, owner) } };
++      // ⑤'s form of a sender's token (rotate-capability with params.source) is the same as issue-capability here. On a
++      // relay without 0008 that form rotates the unscoped token (stopping every holder): senders must check
++      // GET /f/agent's `capabilities` first, and ③ sends issue-capability, which an older relay refuses outright.
++      case 'rotate-capability': return { body: { ok: true, ...(p.source === undefined ? g.rotateCapability(agentId, owner) : g.issueSourceCapability(agentId, owner, p.source)) } };
+       case 'issue-capability': return { body: { ok: true, ...g.issueSourceCapability(agentId, owner, p.source) } };
+       case 'revoke-capability': return { body: { ok: true, ...g.revokeSourceCapability(agentId, owner, p.source) } };
+       case 'action': {
+diff --git a/permutation-gateway/test/agent-wallet-capability-per-source.test.mjs b/permutation-gateway/test/agent-wallet-capability-per-source.test.mjs
+index e45f5922..c62f2d0f 100644
+--- a/permutation-gateway/test/agent-wallet-capability-per-source.test.mjs
++++ b/permutation-gateway/test/agent-wallet-capability-per-source.test.mjs
+@@ -19,7 +19,7 @@ function gateway() {
+   const made = g.createAgent({ owner: OWNER, village: [0, 0, 1], policy });
+   return { g, agentId: made.agent.agentId, legacy: made.capability.token };
+ }
+-const who = (g, agentId, capability) => { try { return g.whoami(agentId, { capability }); } catch (e) { return { error: e.code }; } };
++const who = (g, agentId, capability) => { try { const w = g.whoami(agentId, { capability }); return { ...w, source: w.capabilitySource }; } catch (e) { return { error: e.code }; } };
+ const req = (agentId, source) => ({ agentId, source, idempotencyKey: `${source}:k1`, policyVersion: 1, action: { name: 'Rest', holding: [0, 0, 1], fields: {} } });
+ 
+ test('issuing one sender\'s capability leaves the other sender\'s and the unscoped token working', () => {
+@@ -58,3 +58,12 @@ test('a sender\'s token acts as that sender only; revoking one sender leaves the
+   assert.throws(() => g.issueSourceCapability(agentId, OWNER, 'browser'), e => e.code === 'BadRequest');
+   assert.throws(() => g.issueSourceCapability(agentId, '11111111111111111111111111111113', 'mcp'), e => e.code === 'NotOwner');
+ });
++
++test('one whoami contract (0008b): capabilitySource and capabilitySourceVersion; the unscoped token answers null', () => {
++  const { g, agentId, legacy } = gateway();
++  const mcp = g.issueSourceCapability(agentId, OWNER, 'mcp').capability;
++  const a = g.whoami(agentId, { capability: mcp.token });
++  assert.deepEqual([a.capabilitySource, a.capabilitySourceVersion, 'source' in a], ['mcp', 1, false]);
++  const b = g.whoami(agentId, { capability: legacy });
++  assert.deepEqual([b.capabilitySource, b.capabilitySourceVersion, b.capabilityVersion], [null, null, 1]);
++});
+-- 
+2.43.0
+

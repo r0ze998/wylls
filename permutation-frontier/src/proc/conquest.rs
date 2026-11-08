@@ -378,8 +378,8 @@ pub mod cqlog {
     use crate::layout::{chain_of, set_chain};
 
     /// Highest kind code a v2 record carries: the program's
-    /// `events::MAX_KIND_V2` (134, for ⑳'s RESIDENT_JOINED = 130; 105–129
-    /// and 131–134 undefined).
+    /// `events::MAX_KIND_V2` (134, for ⑳'s RESIDENT_JOINED = 130; 02-rights'
+    /// proposal 114–119; 120–129 and 131–134 undefined).
     pub const MAX_KIND: usize = crate::events::MAX_KIND_V2;
 
     /// `(defined, key width, payload width)` per kind: M1's and MC's.
@@ -853,6 +853,15 @@ pub(crate) fn declare_siege_as(
     let mut cost = permutation_rules::frontier::arms::siege_cost();
     cost[GOLD] = (stake_gold as i64).checked_mul(MILLI).ok_or(OVERFLOW)?;
     h.pay(now, &cost).map_err(hold::holding_err)?;
+    // Experimental wide land: a pending wide ticket keeps its holding rent
+    // in its own record, not in this shared escrow, so it must not be
+    // counted here at the deployed rent; while one is pending no capture
+    // reservation is taken (`proc::wide`). Absent from every default build.
+    #[cfg(feature = "wide-world-experimental")]
+    if slot != 0 {
+        let cd = citizen.try_borrow_data()?;
+        super::wide::refuse_wide_ticket(&cd)?;
+    }
     let mut topped = 0u64;
     if slot != 0 {
         let ticket = cslots & C::SLOTS_TICKET_MASK;
@@ -1454,6 +1463,7 @@ pub fn settle_capture(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
         let doctrine = *of_faction(captor_faction).ok_or(BAD_ACCOUNT)?;
         let eff = capture_effects(&h, doctrine);
         h.walls = eff.walls;
+        h.lent_workshops = eff.lent_workshops;
         if !credited {
             for s in h.stores.iter_mut() {
                 s.value = 0;

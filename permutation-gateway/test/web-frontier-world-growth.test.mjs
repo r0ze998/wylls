@@ -61,7 +61,7 @@ test('applySeasonRecord: a grown map reaches the inspector on the next record, w
   W.applySeasonRecord(FS, boot);
   assert.equal(FS.record, boot);
   assert.equal(W.placeNow(FS, 7, 0), 'outside');
-  assert.match(String(inspect.render(FS, null)), /第7輪（このシーズンの地図の外）/);
+  assert.match(String(inspect.render(FS, null)), /第7輪（いまの地図の外）/);
 
   // ExtendFrontier(7) landed: the herald's rMax is 7. The controller's re-read used to set FS.record alone;
   // applySeasonRecord moves FS.world with it, so the inspector answers from the new extent at once.

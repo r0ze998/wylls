@@ -9,10 +9,11 @@ import os from 'node:os';
 import path from 'node:path';
 import http from 'node:http';
 import { fileURLToPath } from 'node:url';
-import { testSigner, signRecord, ownerTagOf, fold, verifySig, recordId } from '../coop/record.mjs';
+import { ownerTagOf, fold, recordId } from '../coop/record.mjs';
+import { fixedSigner, unsignedRecord, verifyUnsigned, createBoard } from './nokey.mjs';
 import { indexFeed, arrivalOf } from '../coop/arrival.mjs';
 import { GOALS } from '../coop/goal.mjs';
-import { createBoard, createServer, PAGE } from '../coop/board.mjs';
+import { createServer, PAGE } from '../coop/board.mjs';
 import * as P from '../../../permutation-server/web/frontier/fplay.mjs';
 import { seasonAddresses } from '../../../permutation-server/web/frontier/faddr.mjs';
 import { fakeChain as fakeChainOf } from './coop-chain.mjs';
@@ -27,7 +28,7 @@ const HOME_A = { kind: 'holding', p: 3, q: 0, site: 2, gen: 1 };      // 依頼�
 const dstOf = to => ({ kind: 1, p: to.p, q: to.q, at: to.site, gen: to.gen, tile: 20 });
 
 async function people() {
-  const mk = async n => testSigner(new Uint8Array(32).fill(n));
+  const mk = async n => fixedSigner(new Uint8Array(32).fill(n));
   return { a: await mk(11), b: await mk(22), c: await mk(33), d: await mk(44) };
 }
 
@@ -35,12 +36,13 @@ async function people() {
  * 偽のヘラルド：隊商の一覧を手で書き換える。`chain` を渡すと、同じ出来事をチェーン（隊商の口座と取引の記録）にも書く。
  * `heraldOnly` の出来事は、ヘラルドの一覧だけを書き換える（チェーンとの食い違いを作る）。
  */
-function fakeHerald({ ended = true, chain = null } = {}) {
+function fakeHerald({ ended = true, chain = null, onSend = () => {} } = {}) {
   const file = { v: 1, moving: [], vaults: [], ...(ended ? { ended: [] } : {}) };
   const ch = (f, ...a) => { if (chain) chain[f](...a); };
   return {
     file,
     send(owner, seq, cargo, to = HOME_A) {
+      onSend();   // 送信は応答より後（板の時計を進める。±TIMING_MARGIN 秒の境界を越える）
       ch('caravanSent', owner, ownerTagOf(season, owner.address), seq, to, cargo);
       file.moving.push({ ownerTag: ownerTagOf(season, owner.address), seq, faction: 2, src: { kind: 1, p: 4, q: 0, at: 5, gen: 1, tile: 11 }, dst: dstOf(to), steps: 3, cargo, arriveTs: 1, runs: [], raided: false, path: Array(12).fill(0), provinces: [[4, 0], [3, 0]] });
     },
@@ -69,17 +71,19 @@ const fakeChain = () => fakeChainOf(programId, '90');
 function standardChain(P) {
   const ch = fakeChain();
   for (const [w, f] of [[P.a, 0], [P.b, 2], [P.c, 4], [P.d, 5]]) ch.citizen(w, f);
+  ch.season();
   ch.holding(HOME_A, P.a, 0);
   return ch;
 }
 
 function setup({ ended = true, chain = null, dir = null, clockAt = 1_790_000_000 } = {}) {
   dir ??= fs.mkdtempSync(path.join(os.tmpdir(), 'ws01-coop-'));
-  const H = fakeHerald({ ended, chain });
   let t = clockAt;
   const clock = { now: () => t, tick: (s = 60) => { t += s; } };
+  const H = fakeHerald({ ended, chain, onSend: () => clock.tick(10) });
+  chain?.setClock?.(clock.now);
   const board = createBoard({ herald: null, programId, seasonId: '90', dataDir: dir, now: clock.now, fetchHerald: async () => ({ status: 200, json: structuredClone(H.file) }), reader: chain?.reader ?? null });
-  const put = async (who, rec) => { clock.tick(1); return board.submit(await signRecord(who, { v: 1, season, at: clock.now(), ...rec })); };
+  const put = async (who, rec) => { clock.tick(1); return board.submit(await unsignedRecord(who, { v: 1, season, at: clock.now(), ...rec })); };
   return { dir, H, clock, board, put, chain };
 }
 
@@ -146,7 +150,7 @@ test('一巡：依頼 → 応じる → 送り主のウォレットで署名し�
   assert.deepEqual(v.personal.myVerified, { wood: 196 });
   assert.equal(v.nation.nation, 2, 'b の国はチェーンの Citizen から');
   assert.equal(v.nation.deliveredFromNation, 1);
-  assert.equal(v.arrivals.find(x => x.responder === b.address).qtyKind, 'lower-bound');
+  assert.equal(v.arrivals.find(x => x.responder === b.address).verification, 'RuleDerived', '④の分類：村あての DELIVERED は規則から');
 });
 
 test('資源は合計しない：木材だけ400届いても、石材が0なら達成しない', async () => {
@@ -189,11 +193,13 @@ test('失敗：行き先がない・世代が違う（LOST）と、別の場所�
   H.settle(b, 0, 1, [0, 200, 0, 0, 0, 0, 0, 0]);
   const v = await board.view({});
   assert.equal(v.arrivals[0].state, 'lost');
-  assert.equal(v.arrivals[0].verifiedQty, null);
+  assert.equal(v.arrivals[0].verification, 'KnownZero', 'LOST は「0 と分かっている」（④ HANDOFF §2）');
+  assert.deepEqual(v.arrivals[0].delivered, { wood: 0, stone: 0 });
+  assert.equal(v.arrivals[0].counted, null);
   assert.equal(v.joint[0].progress[0].verified, 0);
 });
 
-test('略奪：奪われた（J2：奪った人の物）・焼かれた隊商は数えない。確定の記録がなくても、行き先が変われば奪われたとみる', async () => {
+test('略奪：奪われた（J2：奪った人の物）・焼かれた隊商は数えない。行き先が変わっただけでは奪われたとしない（原因を確認中）', async () => {
   const { a, b, c } = await people();
   const { H, board, put } = setup({ chain: standardChain(await people()) });
   const id = await request(put, a);
@@ -214,10 +220,11 @@ test('略奪：奪われた（J2：奪った人の物）・焼かれた隊商は
   v = await board.view({});
   assert.equal(v.joint[0].progress[0].verified, 0);
 
-  // ended のないヘラルドでも、行き先が変わった隊商は奪われたとみる
+  // 行き先が変わっただけ（襲撃の記録なし）は奪われたとしない：原因を確認中（④ QUANTITY-CONTRACT §3 R-1、§7 ①(d)。2026-11-06）
   const feed = indexFeed({ moving: [{ ownerTag: ownerTagOf(season, b.address), seq: 5, dst: { kind: 1, p: 9, q: 9, at: 0, gen: 1 }, cargo: [0, 1, 0, 0, 0, 0, 0, 0], raided: false }] });
   const x = arrivalOf({ id: 'r', need: { wood: 1 }, to: HOME_A }, { responder: b.address, caravan: { ownerTag: ownerTagOf(season, b.address), seq: 5 } }, feed);
-  assert.equal(x.state, 'raided-taken');
+  assert.equal(x.state, 'misdirected');
+  assert.equal(x.held, 'DestinationMismatch');
 });
 
 test('相手の退出：抜けた人の応答は取り下げになり、新しい結び付けはできない。抜ける前に送った隊商は届いて数える。別の相手に切り替えられる', async () => {
@@ -301,8 +308,10 @@ test('正本はチェーン：ヘラルドの写しだけの確定は数えず�
   H.settle(P.c, 0, 0, [0, 200, 0, 0, 0, 0, 0, 0], HOME_A, { heraldOnly: true });
   let v = await board.view({});
   const by = Object.fromEntries(v.arrivals.map(a => [a.responder, a]));
-  assert.equal(by[P.b.address].verifiedQty, null);
-  assert.match(by[P.b.address].note, /チェーンの取引の記録に、この隊商の確定・襲撃はまだない/);
+  assert.equal(by[P.b.address].delivered, null, 'ヘラルドの写しだけでは「分からない」');
+  assert.equal(by[P.b.address].verification, null);
+  assert.equal(by[P.b.address].state, 'moving', 'チェーンでは隊商はまだ輸送中（口座がある）');
+  assert.equal(by[P.b.address].heraldDisagrees, 'delivered', 'ヘラルドの写しとの食い違いを示す');
   assert.equal(by[P.c.address].state, 'lost');
   assert.equal(by[P.c.address].heraldDisagrees, 'delivered');
   assert.equal(v.joint[0].progress[0].verified, 0);
@@ -316,13 +325,14 @@ test('正本はチェーン：ヘラルドの写しだけの確定は数えず�
   chain.tx([addr], [['CARAVAN_SETTLED', fake]], { err: { InstructionError: [0, 'Custom'] } });
   chain.tx([addr], [], { foreign: [[b58(new Uint8Array(32).fill(8)), 'CARAVAN_SETTLED', fake]] });
   v = await board.view({});
-  assert.equal(v.arrivals.find(a => a.responder === P.b.address).verifiedQty, null);
+  assert.equal(v.arrivals.find(a => a.responder === P.b.address).delivered, null);
   // 本物の確定がチェーンに載ると数える
   chain.caravanSettled(tagB, 0, 0, HOME_A, [0, 196, 0, 0, 0, 0, 0, 0]);
   v = await board.view({});
   const b2 = v.arrivals.find(a => a.responder === P.b.address);
   assert.equal(b2.source, 'chain-log');
-  assert.deepEqual(b2.verifiedQty, { wood: 196, stone: 0 });
+  assert.deepEqual(b2.delivered, { wood: 196, stone: 0 });
+  assert.equal(b2.verification, 'RuleDerived');
   assert.equal(b2.heraldDisagrees, undefined, '状態は同じ（届いた）。量は写しの 200 ではなくチェーンの 196');
   assert.equal(v.joint[0].progress[0].verified, 196);
 });
@@ -341,25 +351,25 @@ test('結び付けの確かめ：持ち主でない人・行き先の違う隊�
   assert.match((await put(b, { kind: 'link', request: id, caravan: { ownerTag: ownerTagOf(season, b.address), seq: 2 } })).why, /資源を積んでいない/);
   { const r = await put(b, { kind: 'link', request: id, caravan: { ownerTag: ownerTagOf(season, b.address), seq: 0 } }); assert.ok(r.ok, r.why); }
   assert.match((await put(b, { kind: 'link', request: id, caravan: { ownerTag: ownerTagOf(season, b.address), seq: 0 } })).why, /もう結び付け/);
-  assert.match((await put(b, { kind: 'link', request: id, caravan: { ownerTag: ownerTagOf(season, b.address), seq: 9 } })).why, /口座がない/);
+  assert.match((await put(b, { kind: 'link', request: id, caravan: { ownerTag: ownerTagOf(season, b.address), seq: 9 } })).why, /送信の記録もない/);
 });
 
 test('記録の確かめ：署名の改ざん・時刻のずれ・自分の依頼への応答・依頼にない量・知らない目的は断る', async () => {
   const { a, b } = await people();
   const { board, put, clock } = setup({ chain: standardChain(await people()) });
   const id = await request(put, a);
-  const signed = await signRecord(b, { v: 1, season, at: clock.now(), kind: 'respond', request: id, answer: 'decline', nation: 2 });
-  assert.equal(await verifySig(signed), true);
-  assert.equal((await board.submit({ ...signed, answer: 'accept', offer: { wood: 1 } })).why, '署名が合わない');
+  const signed = await unsignedRecord(b, { v: 1, season, at: clock.now(), kind: 'respond', request: id, answer: 'decline', nation: 2 });
+  assert.equal(await verifyUnsigned(signed), true);
+  // 中身の改ざん（同じ署名で答えを変える）の確かめは、本物の署名（Ed25519）が要るので、この試験では行わない（鍵を作らない。2026-11-08）
   assert.equal((await board.submit({ ...signed, signer: a.address })).why, '署名が合わない', '別の人の名で出せない');
-  assert.match((await board.submit(await signRecord(b, { v: 1, season, at: clock.now() - 10000, kind: 'leave', goalId }))).why, /時刻/);
+  assert.match((await board.submit(await unsignedRecord(b, { v: 1, season, at: clock.now() - 10000, kind: 'leave', goalId }))).why, /時刻/);
   assert.match((await put(a, { kind: 'respond', request: id, answer: 'accept', offer: { wood: 1 }, nation: 0 })).why, /自分の依頼/);
   assert.match((await put(b, { kind: 'respond', request: id, answer: 'accept', offer: { ore: 5 }, nation: 2 })).why, /依頼にない量/);
   assert.match((await put(b, { kind: 'respond', request: id, answer: 'accept', offer: { wood: 999 }, nation: 2 })).why, /依頼にない量/);
   assert.match((await put(a, { kind: 'request', goalId: 'tower', need: { wood: 1 }, to: HOME_A, nation: 0, expiresAt: clock.now() + 100, nonce: 'x' })).why, /知らない目的/);
   assert.match((await put(a, { kind: 'request', goalId, need: { wood: 1 }, to: HOME_A, nation: 0, expiresAt: clock.now() + 100, nonce: 'n1' })).ok ? '' : 'x', /^$/, '同じ内容でも時刻が違えば別の依頼');
   // 同じ記録を二度
-  const once = await signRecord(b, { v: 1, season, at: clock.now(), kind: 'respond', request: id, answer: 'decline', nation: 2 });
+  const once = await unsignedRecord(b, { v: 1, season, at: clock.now(), kind: 'respond', request: id, answer: 'decline', nation: 2 });
   assert.ok((await board.submit(once)).ok);
   assert.match((await board.submit(once)).why, /二度/);
   // 物々交換・加工の貸出・到着時払いの記録の種類はない
@@ -416,12 +426,17 @@ test('HTTP：板の入口で、画面・記録・表示が出て、それ以外�
   const base = `http://127.0.0.1:${srv.address().port}`;
   try {
     assert.equal(await (await fetch(`${base}/frontier/frontier/`)).text(), 'herald:/frontier/frontier/');
+    // ⑦の入口（hud/coopboard.mjs）が読む /coop/config：season は object（seasonId は文字列）、page は同じ origin の道
+    const cfg = await (await fetch(`${base}/coop/config`)).json();
+    assert.deepEqual(cfg.season, { programId, seasonId: '90' });
+    assert.equal(cfg.page, PAGE);
+    assert.ok(cfg.page.startsWith('/') && !cfg.page.startsWith('//'));
     const page = await fetch(`${base}${PAGE}`);
     assert.match(await page.text(), /国をまたぐ依頼/);
     assert.equal((await fetch(`${base}/ws01/repo/permutation-server/web/sdk/bytes.mjs`)).status, 200);
     assert.equal((await fetch(`${base}/ws01/repo/frontier-node/Cargo.toml`)).status, 404, '決めた場所の外は出さない');
     assert.equal((await fetch(`${base}/ws01/repo/..%2F..%2Fetc/passwd`)).status, 404);
-    const rec = await signRecord(a, { v: 1, season, at: Math.floor(Date.now() / 1000), kind: 'request', goalId, need: { wood: 1 }, to: HOME_A, nation: 0, expiresAt: Math.floor(Date.now() / 1000) + 60, nonce: 'h' });
+    const rec = await unsignedRecord(a, { v: 1, season, at: Math.floor(Date.now() / 1000), kind: 'request', goalId, need: { wood: 1 }, to: HOME_A, nation: 0, expiresAt: Math.floor(Date.now() / 1000) + 60, nonce: 'h' });
     const r = await (await fetch(`${base}/coop/records`, { method: 'POST', body: JSON.stringify(rec) })).json();
     assert.ok(r.ok, r.why);
     const v = await (await fetch(`${base}/coop/view?nation=0`)).json();
@@ -446,13 +461,14 @@ async function linked(put, H, id, who, seq, cargo, nation = 2) {
   return put(who, { kind: 'link', request: id, caravan: { ownerTag: ownerTagOf(season, who.address), seq } });
 }
 
-test('入荷量：村あては記録の積荷を下限として証明でき、倉あては上限で減りうるので未検証。積荷と入荷量は別に返す', async () => {
+test('入荷量（④の分類）：村あては RuleDerived、倉あては Unverifiable（credited が無い）。記録の cargo は入荷量と別に返す', async () => {
   const village = creditedOf({ dst: { kind: 1 }, cargo: [0, 196, 0, 0, 0, 0, 0, 0] });
-  assert.equal(village.qtyKind, 'lower-bound');
+  assert.equal(village.verification, 'RuleDerived');
   assert.match(village.basis, /Holding::credit/);
+  assert.equal(creditedOf({ dst: { kind: 2 }, cargo: [0, 196, 0, 0, 0, 0, 0, 0] }).verification, 'Unverifiable');
   const vault = creditedOf({ dst: { kind: 2 }, cargo: [0, 196, 0, 0, 0, 0, 0, 0] });
   assert.equal(vault.qty, null);
-  assert.match(vault.why, /上限/);
+  assert.match(vault.why, /CAP/);
   assert.equal(creditedOf({ dst: { kind: 7 }, cargo: [] }).qty, null);
 
   // 依頼の届け先は村だけ（倉あての依頼は、入荷量を証明できないので受け付けない）
@@ -466,9 +482,9 @@ test('入荷量：村あては記録の積荷を下限として証明でき、�
   H.file.moving = [];
   H.file.ended.push({ ownerTag: tag, seq: 0, end: 'settled', outcome: 0, dst: { kind: 2, p: 3, q: 0, at: 40, gen: 1, tile: 40 }, cargo: [0, 200, 0, 0, 0, 0, 0, 0] });
   const v = await board.view({});
-  assert.equal(v.arrivals[0].state, 'misdelivered');
-  assert.deepEqual(v.arrivals[0].cargo, { wood: 200, stone: 0 });
-  assert.equal(v.arrivals[0].verifiedQty, null);
+  assert.equal(v.arrivals[0].state, 'moving', 'チェーンでは輸送中（ヘラルドの写しだけでは決めない）');
+  assert.equal(v.arrivals[0].heraldDisagrees, 'misdelivered');
+  assert.equal(v.arrivals[0].delivered, null, 'ヘラルドの写しだけ（チェーンに記録なし）は分からない');
   assert.equal(v.joint[0].progress[0].verified, 0);
 });
 
@@ -487,14 +503,14 @@ test('国籍：申告は使わず、チェーンの Citizen で確かめる。�
   assert.equal(j.done, false);
   assert.equal(j.progress[0].verified, 0, '届け先の村が依頼した人の物か確かめられない到着は数えない');
   // 村は確かめられるが、b の Citizen がない
-  const ch = fakeChain(); ch.citizen(P.a, 0); ch.holding(HOME_A, P.a, 0);
+  const ch = fakeChain(); ch.season(); ch.citizen(P.a, 0); ch.holding(HOME_A, P.a, 0);
   j = await run(ch);
   assert.equal(j.progress[0].verified, 200);
   assert.equal(j.done, false);
   assert.match(j.why, /国籍未検証/);
   assert.equal(j.otherNations.length, 0);
   // b の Citizen のウォレットが違う（別人の口座）
-  const ch2 = fakeChain(); ch2.citizen(P.a, 0); ch2.holding(HOME_A, P.a, 0); ch2.citizen(P.b, 2, { wallet: P.c.address });
+  const ch2 = fakeChain(); ch2.season(); ch2.citizen(P.a, 0); ch2.holding(HOME_A, P.a, 0); ch2.citizen(P.b, 2, { wallet: P.c.address });
   j = await run(ch2);
   assert.match(j.why, /国籍未検証/);
   // 確かめられた：申告（国1）ではなくチェーン（国3）で他国と数える
@@ -536,12 +552,12 @@ test('重複：同じ隊商は二つ目の依頼に結び付けられない（�
   assert.match((await link2()).why, /もう結び付け/);
   // 到着の後（一覧から消える）
   H.settle(P.b, 0, 0, [0, 200, 0, 0, 0, 0, 0, 0]);
-  assert.match((await link2()).why, /口座がない|もう結び付け/, '確定すると隊商の口座は閉じる');
+  assert.match((await link2()).why, /もう結び付け/, '確定して口座が閉じても、元の送信の記録で確かめたうえで、二重の結び付けは断る');
   // 再読込（板を作り直す）
   const again = createBoard({ herald: null, programId, seasonId: '90', dataDir: dir, now: clock.now, fetchHerald: async () => ({ status: 200, json: structuredClone(H.file) }), reader: chain.reader });
   H.send(P.b, 0, [0, 200, 0, 0, 0, 0, 0, 0]);   // たとえ一覧に戻って見えても
   clock.tick(1);
-  assert.match((await again.submit(await signRecord(P.b, { v: 1, season, at: clock.now(), kind: 'link', request: id2, caravan: { ownerTag: ownerTagOf(season, P.b.address), seq: 0 } }))).why, /もう結び付け/);
+  assert.match((await again.submit(await unsignedRecord(P.b, { v: 1, season, at: clock.now(), kind: 'link', request: id2, caravan: { ownerTag: ownerTagOf(season, P.b.address), seq: 0 } }))).why, /もう結び付け/);
   // 署名の再送（同じ記録をもう一度。再読込の後も）
   const first = again.records.find(r => r.kind === 'link');
   assert.match((await again.submit(first)).why, /二度/);
@@ -556,7 +572,7 @@ test('重複：同じ隊商は二つ目の依頼に結び付けられない（�
   for (const x of [x1, x2]) await put2(P.c, { kind: 'respond', request: x, answer: 'accept', offer: { wood: 200 }, nation: 4 });
   H2.send(P.c, 0, [0, 200, 0, 0, 0, 0, 0, 0]);
   const now = c2.now();
-  const recs = await Promise.all([x1, x2].map(x => signRecord(P.c, { v: 1, season, at: now, kind: 'link', request: x, caravan: { ownerTag: ownerTagOf(season, P.c.address), seq: 0 } })));
+  const recs = await Promise.all([x1, x2].map(x => unsignedRecord(P.c, { v: 1, season, at: now, kind: 'link', request: x, caravan: { ownerTag: ownerTagOf(season, P.c.address), seq: 0 } })));
   const out = await Promise.all(recs.map(r => b2.submit(r)));
   assert.equal(out.filter(o => o.ok).length, 1, out.map(o => o.why).join(' / '));
 });
@@ -566,33 +582,33 @@ test('重複：履歴が欠けた板が二つ目の結び付けを受けても�
   const { put, H, dir, chain } = setup({ chain: standardChain(P) });
   const id1 = await request(put, P.a);
   const id2 = (await put(P.a, { kind: 'request', goalId, need: { wood: 200 }, to: HOME_A, nation: 0, expiresAt: 1_790_000_000 + 86400, nonce: 'n2' })).id;
+  await put(P.b, { kind: 'respond', request: id2, answer: 'accept', offer: { wood: 200 }, nation: 2 });   // 両方に応じてから送る
   assert.ok((await linked(put, H, id1, P.b, 0, [0, 200, 0, 0, 0, 0, 0, 0])).ok);
-  await put(P.b, { kind: 'respond', request: id2, answer: 'accept', offer: { wood: 200 }, nation: 2 });
   // 履歴の欠落：板のファイルから id1 への結び付けの行が消えた
   const file = path.join(dir, 'records.jsonl');
   const lines = fs.readFileSync(file, 'utf8').trim().split('\n');
-  const linkLine = lines.find(l => JSON.parse(l).kind === 'link');
+  const linkLine = lines.find(l => (JSON.parse(l).rec ?? JSON.parse(l)).kind === 'link');
   fs.writeFileSync(file, `${lines.filter(l => l !== linkLine).join('\n')}\n`);
   let t = 1_790_000_000 + 100;
   const gap = createBoard({ herald: null, programId, seasonId: '90', dataDir: dir, now: () => t, fetchHerald: async () => ({ status: 200, json: structuredClone(H.file) }), reader: chain.reader });
   t += 1;
-  assert.ok((await gap.submit(await signRecord(P.b, { v: 1, season, at: t, kind: 'link', request: id2, caravan: { ownerTag: ownerTagOf(season, P.b.address), seq: 0 } }))).ok, '欠けた板は二つ目を受けてしまう');
+  assert.ok((await gap.submit(await unsignedRecord(P.b, { v: 1, season, at: t, kind: 'link', request: id2, caravan: { ownerTag: ownerTagOf(season, P.b.address), seq: 0 } }))).ok, '欠けた板は二つ目を受けてしまう');
   // 欠けた行が後から戻る（ファイルの末尾に）
   fs.appendFileSync(file, `${linkLine}\n`);
   H.settle(P.b, 0, 0, [0, 200, 0, 0, 0, 0, 0, 0]);
   const merged = createBoard({ herald: null, programId, seasonId: '90', dataDir: dir, now: () => t, fetchHerald: async () => ({ status: 200, json: structuredClone(H.file) }), reader: chain.reader });
   const v = await merged.view({});
-  assert.equal(v.arrivals.filter(a => a.state === 'delivered' && a.verifiedQty).length, 1, '数えるのは一つだけ');
+  assert.equal(v.arrivals.filter(a => a.counted).length, 1, '数えるのは一つだけ');
   assert.equal(v.joint[0].progress.find(p => p.resource === 'wood').verified, 200);
   assert.ok(v.rejected.some(r => r.kind === 'link' && /もう結び付け/.test(r.why)), '戻った行は、記録の順で後なので断られた扱い');
 
   // allocate そのもの：同じ隊商の二つの到着は、先の結び付けにだけ割り当てる
   const st = { requests: { r1: { id: 'r1', links: [{ caravan: { ownerTag: '5', seq: 0 }, n: 3 }] }, r2: { id: 'r2', links: [{ caravan: { ownerTag: '5', seq: 0 }, n: 1 }] } } };
-  const arr = [{ requestId: 'r1', caravanId: { ownerTag: '5', seq: 0 }, state: 'delivered', verifiedQty: { wood: 1 } }, { requestId: 'r2', caravanId: { ownerTag: '5', seq: 0 }, state: 'delivered', verifiedQty: { wood: 1 } }];
+  const arr = [{ requestId: 'r1', caravanId: { ownerTag: '5', seq: 0 }, state: 'delivered', delivered: { wood: 1 }, verification: 'RuleDerived' }, { requestId: 'r2', caravanId: { ownerTag: '5', seq: 0 }, state: 'delivered', delivered: { wood: 1 }, verification: 'RuleDerived' }];
   const al = allocate(arr, st);
   assert.equal(al.find(a => a.requestId === 'r2').duplicateOf, undefined);
   assert.equal(al.find(a => a.requestId === 'r1').duplicateOf, 'r2');
-  assert.equal(al.find(a => a.requestId === 'r1').verifiedQty, null);
+  assert.ok(al.find(a => a.requestId === 'r1').duplicateOf, '二つ目は割り当てない（数えるかは countOf が duplicateOf を見て決める）');
 });
 
 test('複数の評価への寄与は重複割当ではない：一つの到着が共同の目的・国の記録・個人の記録に一度ずつ出る', async () => {
@@ -622,7 +638,7 @@ test('再起動：依頼・応答・結び付け・重複防止は記録から�
   assert.equal(v.requests[0].links.length, 1);
   assert.equal(v.damaged.length, 1, '欠落は表示に出す');
   clock.tick(1);
-  assert.ok((await re.submit(await signRecord(P.c, { v: 1, season, at: clock.now(), kind: 'respond', request: id, answer: 'decline', nation: 4 }))).ok);
+  assert.ok((await re.submit(await unsignedRecord(P.c, { v: 1, season, at: clock.now(), kind: 'respond', request: id, answer: 'decline', nation: 4 }))).ok);
   const after = loadRecords(file);
   assert.equal(after.records.length, 4, '新しい記録は壊れた行に続けず、次の行に書かれた');
   assert.equal(after.damaged.length, 1);
@@ -647,4 +663,102 @@ test('再起動：観測の時刻（observed.json）が失われても、仮B �
   const j = (await re.view({ judgeId: 'arrivals-and-facility' })).joint[0];
   assert.equal(j.done, false, '再起動の後は、到着と貯蔵庫を同じ時刻に初めて見るので、前後が分からない');
   assert.match(j.judgeMeans, /使って建てた証拠ではない/);
+});
+
+// ------------------------------------------------------------------ 到着時の受取人と今の持ち主（2026-10-30）
+
+import { recipientOf } from '../coop/goal.mjs';
+
+/** b が a の依頼に応じ、隊商 seq を送って結び付けるまで。 */
+async function sentAndLinked(P, opts = {}) {
+  const env = setup({ chain: standardChain(P), ...opts });
+  const id = await request(env.put, P.a);
+  await env.put(P.b, { kind: 'respond', request: id, answer: 'accept', offer: { wood: 200 }, nation: 2 });
+  env.H.send(P.b, 0, [0, 200, 0, 0, 0, 0, 0, 0]);
+  const r = await env.put(P.b, { kind: 'link', request: id, caravan: { ownerTag: ownerTagOf(season, P.b.address), seq: 0 } });
+  assert.ok(r.ok, r.why);
+  return { ...env, id };
+}
+
+test('所有者の変更：発送の後・到着の前に村が占領されると、世代が変わり LOST（0 と分かっている）で、占領した人の物にもならない', async () => {
+  const P = await people();
+  const { H, chain, board } = await sentAndLinked(P);
+  chain.holding({ ...HOME_A, gen: 2 }, P.c, 4);   // 占領：世代 1 → 2、持ち主 c（conquest.rs：hgen + 1 == mgen）
+  // SettleCaravan は宛先の世代が違えば LOST（caravan.rs：pl.gen == dplace.gen でなければ live でない）
+  H.settle(P.b, 0, 1, [0, 200, 0, 0, 0, 0, 0, 0]);
+  const v = await board.view({});
+  const a = v.arrivals[0];
+  assert.equal(a.state, 'lost');
+  assert.equal(a.verification, 'KnownZero');
+  assert.equal(a.recipient, null, '届いていないので受取人はない');
+  assert.equal(v.joint[0].progress[0].verified, 0);
+});
+
+test('所有者の変更：到着の後に村が占領されると、到着時の受取人は今の口座から確定できず未検証で、数えない（今の持ち主は別に示す）', async () => {
+  const P = await people();
+  const { H, chain, board } = await sentAndLinked(P);
+  H.settle(P.b, 0, 0, [0, 200, 0, 0, 0, 0, 0, 0]);
+  let v = await board.view({});
+  assert.equal(v.arrivals[0].recipient.status, 'verified');
+  assert.equal(v.arrivals[0].recipient.isRequester, true);
+  assert.deepEqual(v.arrivals[0].counted, { wood: 200, stone: 0 });
+  assert.equal(v.joint[0].progress[0].verified, 200);
+  // 到着の後に占領（世代 2、持ち主 c）
+  chain.holding({ ...HOME_A, gen: 2 }, P.c, 4);
+  v = await board.view({});
+  const a = v.arrivals[0];
+  assert.equal(a.state, 'delivered');
+  assert.equal(a.verification, 'RuleDerived', '到着の事実と量の分類は変わらない');
+  assert.equal(a.recipient.status, 'unverified');
+  assert.match(a.recipient.why, /世代が変わった（到着時 1、今 2/);
+  assert.equal(a.counted, null, '推測で数えない');
+  assert.equal(a.currentOwner.gen, 2);
+  assert.equal(a.currentOwner.ownerCitizen, seasonAddresses(programId, '90').of('Citizen', { wallet: P.c.address }), '今の持ち主は c と別に示す');
+  assert.equal(v.joint[0].progress[0].verified, 0);
+  assert.match(v.joint[0].why, /到着時の受取人が未検証/);
+});
+
+test('所有者の変更：同じ世代のまま持ち主だけが違う口座（規則にない状態）は、受取人が依頼した人でないとして数えない', async () => {
+  const P = await people();
+  const { H, chain, board } = await sentAndLinked(P);
+  H.settle(P.b, 0, 0, [0, 200, 0, 0, 0, 0, 0, 0]);
+  chain.holding(HOME_A, P.d, 5);   // 世代 1 のまま持ち主 d（今のプログラムでは起きない）
+  const v = await board.view({});
+  assert.equal(v.arrivals[0].recipient.status, 'verified');
+  assert.equal(v.arrivals[0].recipient.isRequester, false);
+  assert.equal(v.arrivals[0].counted, null);
+  assert.equal(v.joint[0].progress[0].verified, 0);
+});
+
+test('所有者の変更：占領の決着待ちの村には確定できない（CapturePending）ので輸送中のまま。村の口座が読めなければ受取人は未検証', async () => {
+  const P = await people();
+  const { board, chain } = await sentAndLinked(P);
+  let v = await board.view({});
+  assert.equal(v.arrivals[0].state, 'moving', '確定の記録が無い間は輸送中');
+  assert.equal(v.arrivals[0].delivered, null);
+  // recipientOf そのもの
+  const arrival = { state: 'delivered', dstGen: 1 };
+  assert.equal(recipientOf(arrival, { status: 'unverified', why: '村の口座がない' }, 'X').status, 'unverified');
+  assert.equal(recipientOf(arrival, undefined, 'X').status, 'unverified');
+  assert.equal(recipientOf({ state: 'lost' }, null, 'X'), null);
+  void chain;
+});
+
+test('単位と精度：共同の目的の量は、到着の記録の整数（1件ずつ切り捨て）の合計で、underBy は数えた到着の件数（本当の量はそれ未満多いことがある）', async () => {
+  const P = await people();
+  const { H, board, put } = setup({ chain: standardChain(P) });
+  const id = await request(put, P.a);
+  for (const [w, f] of [[P.b, 2], [P.c, 4]]) {
+    await put(w, { kind: 'respond', request: id, answer: 'accept', offer: { wood: 200 }, nation: f });
+    H.send(w, 0, [0, 100, 0, 0, 0, 0, 0, 0]);
+    const r = await put(w, { kind: 'link', request: id, caravan: { ownerTag: ownerTagOf(season, w.address), seq: 0 } });
+    assert.ok(r.ok, r.why);
+    H.settle(w, 0, 0, [0, 100, 0, 0, 0, 0, 0, 0]);   // 本当は 100.6 単位（100600 ミリ）でも、記録は 100
+  }
+  const j = (await board.view({})).joint[0];
+  const wood = j.progress.find(p => p.resource === 'wood');
+  assert.equal(wood.verified, 200);
+  assert.equal(wood.unit, 'whole');
+  assert.equal(wood.underBy, 2, '2件：本当の量は 200 以上 202 未満');
+  assert.equal(j.progress.find(p => p.resource === 'stone').underBy, 0);
 });

@@ -196,7 +196,8 @@ test('canonical -> 13: the evidence port answers 13\'s read() only for herald-pa
   assert.equal(r.status, 'ok');
   assert.ok(r.lines.length >= 1);
   for (const l of r.lines) {
-    assert.deepEqual(Object.keys(l).sort(), ['about', 'epistemic', 'identitySource', 'sources', 'text']);
+    assert.deepEqual(Object.keys(l).filter(k => k !== 'evidence_basis').sort(), ['about', 'epistemic', 'identitySource', 'sources', 'text']);
+    if ('evidence_basis' in l) assert.ok(l.evidence_basis === null || ['chain', 'integration-output', 'fixture', 'unstated'].includes(l.evidence_basis.kind));
     assert.equal(l.identitySource, `herald:/h/me/${WALLET_B}@slot:30`);
     assert.ok(!l.text.includes('private aside'));
   }

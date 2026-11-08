@@ -282,15 +282,21 @@ const sleep = ms => new Promise(r => setTimeout(r, ms));
 
 /**
  * Follow a sent transaction: `{ok: true, state: 'landed', slot}` or
- * `{ok: false, state: 'failed'|'expired'|'unknown', code, programCode?}`.
+ * `{ok: false, state: 'failed'|'expired'|'unknown'|'unqueryable', code, programCode?}`.
+ * (workstream 07, 04's seven states — EXECUTION-CONTRACT-20261106 §1: `unknown` is GET /f/tx answering "not final, or
+ * not provable" — 04's pending and unknown, which this route does not tell apart —; `unqueryable` is no read answering at
+ * all (the route, the network or its 5xx). Neither is a failure: both may still land, and nothing is sent again.)
  */
-export async function track(signature, { tries = 40, every = 1500, wait = sleep } = {}) {
+export async function track(signature, { tries = 40, every = 1500, wait = sleep, read = io.txStatus } = {}) {
+  let answered = false;
   for (let i = 0; i < tries; i++) {
-    const r = await io.txStatus(signature);
+    let r;
+    try { r = await read(signature); } catch { r = { ok: false, code: 'network' }; }
+    if (r?.ok) answered = true;
     if (r.ok && r.state === 'landed') return { ok: true, state: 'landed', slot: r.slot };
     if (r.ok && r.state === 'failed') return { ok: false, state: 'failed', code: r.code ?? 'TransactionFailed', programCode: r.programCode };
     if (r.ok && r.state === 'expired') return { ok: false, state: 'expired', code: 'Expired' };
     if (i + 1 < tries) await wait(every);
   }
-  return { ok: false, state: 'unknown', code: 'Unconfirmed' };
+  return answered ? { ok: false, state: 'unknown', code: 'Unconfirmed' } : { ok: false, state: 'unqueryable', code: 'TxUnqueryable' };
 }

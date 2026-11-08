@@ -260,3 +260,126 @@
 - CLI: 譲渡後のAは exit 5、Bは Created。依頼者なしは exit 2。
 
 **ここで試験していない部分:** 署名の検証そのもの（gatewayの認証層、③/⑤）は、試験に署名が要るため対象外です。`authenticatedBy` は、検証した層の名前を記録するだけです。実ノード（frontier-localnet）での読み取りも未実施です。
+
+## 12. 2026-11-08 の統合（④）
+
+基点 cf517b55 の上に、次の順で載せた。各チームのサブツリーは、チームが申告した tree と一致することを確認した。
+
+| 順 | 取り込んだもの | commit | 確認（鍵なし） |
+|---|---|---|---|
+| 1 | live の台帳の読み取りを未証明のままにする（2c8fbfa2） | 8decc936 | verify：lib 47、history 16、ledger_history 7、resident_ledger 4、new_bands 7 |
+| 2 | ⑩ ed1e009e（custody の試験が V26 自身の所見で判定する） | 5ee66869 | custody 6、custody_state 8、custody_history 7 |
+| 3 | ⑭ 5f4c0b99、のちに d9c8b81d | edd091aa、4b13a7e3 | ⑭ 38 |
+| 4 | ゲーム画面の文：custody 100〜104、WideWorldUnavailable。node-key-tests.txt に1行追加（鍵を使うので除外） | 122039e1 | gateway・web 1779/0 |
+| 5 | ⑱ fc645596、⑮ 95f44cf3、⑫ 7b75122f、⑥ 59bc9565 | bd14dc81、40356ebb、1dd7b5e9、35ab0f1b | agents の reveal_time_tests 1、⑮ 120、⑫ 56（省略2）、⑥ ports・dispatch・connect・connect-live 17（省略7） |
+| 6 | registry.txt の 0xc1〜0xcc（ExtendFrontier と custody の lot） | f7d3b70d | e2e-native registry 1 |
+| 7 | wide 系列 0465adc5（preserve/wide-keeper-duties。capture-read・discovery・reader-guards と同じ patch を含む） | cd8b1756 | 下記 |
+| 8 | widemode の英語14文、WideIndexUnavailable | 9f68f123 | gateway・web 1790/0 |
+| 9 | ⑮ の chain-flow stage D の patch。⑫ の CI job memory12 | d491fd8d、aa20628a | check-fixtures 31/31、check-ci-keyfree ok |
+
+**行った衝突の解消**
+- verify/src/resident_feed.rs（2c8fbfa2 と ④ の scan）：安全側に倒した。scan で全体を読めても history は unknown、through は 0 とする。取得した取引は残し（所見は作る）、tip は報告する。試験の期待値は厳しい方向に変えた。
+- keeper/src/play.rs の plan_core（⑱ と wide）：wide の feed gate → load_owner_materials → take_shared → ⑱ の owner_tracks_from_chain、の順。
+
+**wide 系列の確認**（試験の呼び出し先を監査した。鍵ペアの生成・導出や署名はなく、engine は中身を見るだけで送信しない）
+- keeper：wide_duties 70、wide_discovery 14、wide_reveal 30、wide_snapshot_rpc 6、wide_feed_guard 12
+- frontier-abi：world_index 138
+- permutation-frontier：map_growth の実行時試験 17（wide-world-experimental）と 6（既定）
+- rules：frontier_clash_identity 4
+- findex：wide_typed_index 12、ws04_feed_scan 11
+- herald：wide 3、wide_capture 9、wide_index_read 1
+- 実行していないもの：native-crypto-tests の feature（公開の vector を検証するだけだが opt-in）、SBF、LiteSVM、ブラウザでの表示
+
+**wide の到達点と残り**（実装済みでも、まだ遊べる完成ではない）
+- **できていること**：ゲーム画面の地図に、記録された広い世界を読み取り専用で表示する（map/widemode.mjs、herald の /h/world/wide、型付きの索引、観測された履歴は「未検証」と表示）。wide の州の中では、開く → 招集 → 出発 → 開封 → 集合 → 決着 → 精算 → 帰還 → シーズン末の閉鎖までが、host の試験で本物の dispatcher を通る。keeper は、署名しない候補として作り、観測して照合するところまで。
+- **ルールの判断が要るので止めているもの**（docs/frontier/map-growth/PLAYABLE-WIDE-COMPATIBILITY.md）：
+  1. 一つの世界か、地域に分けるか
+  2. 128 環より外の国の配置の続け方
+  3. 環の乱数（seed）の証明
+  4. 賞の対象とする土地の範囲と集計（今の tally は 17 環まで）
+  5. 旧形式と wide の境目（移行）
+  6. 128 環をまたぐ行軍で、同点と押し出しの順番（二つの key の系統の間）
+- **技術上の閉鎖**（この判断の後に開ける）：DEPART_DEBIT_ENABLED は配備用の build では false。境目をまたぐ移動は拒否。feature は既定で無効で、SBF では使えない。
+
+**取り込んでいないもの**：⑬（別口）。⑤ の共有コア（③が担当）。⑦ は claude/wylls-ui-ux-visual-oixhgs を aa20628a へ積み直し中。⑰ は公開待ち（routes/prize.mjs をどちらにするかは利用者の判断）。⑳ d85c42da は文書1行のみ。②・① はまだ取得できない。
+
+## 13. 2026-11-08 の第2回の統合（④）
+
+fa822453 の上に載せた。各チームのサブツリーは、チームが申告した tree と一致することを確かめた。
+
+| 取り込んだもの | commit | 確認（鍵なし） |
+|---|---|---|
+| ⑦ 960ca258（22 commit）と ⑱ 6fefd3e6（marches の 4件、サンプル世界を鍵なしにする） | 821b23c5 | gateway・web 1882/0（192ファイル、鍵を使う97ファイルは除外） |
+| ⑭ 45da6d38、⑮ 2a3a0c94、① 099a462f、⑥ 148bcebd | fbdd3741、d437b22a、20f0c0d1、384e8e3d | ⑭ 40、⑮ 133、① 234 と browser の鍵なし 8、⑥ 18（省略 7） |
+| ⑫ fa4baf14（workstreams/12-memory だけ） | 5c324f91 | ⑫ 62（省略 1） |
+| ⑧ 2ad3f450、a8303465、6516a52f、9d2323b1、d6c17faa、0a716e02、46a5fd16（d1d07078 は製品の判断が要るので外した） | f3834d35〜ace22dc6 | map_growth 8（既定）と 19（wide） |
+| ⑲ 4dbbe4a3（名前を付けた欠け gaps と LedgerMark） | 7c78e191 | verify の一式（下記） |
+| ⑳ b2bd9711、⑪ 606910ba のディレクトリとパッチ 0013 | — | verify の一式 |
+| 利用者の integrate/ws13-on-ws04-20261108 5d178b77（⑬ 0e6df20e、⑫ fa4baf14、W1） | cd05ff57 | ⑬ 188件中 182 合格、0 失敗、6 省略（署名を伴うもの）。runexec と ⑤ 10e74967 は実物 |
+| ⑤ の 6 パッチ（10e74967、on-ws04-6984acfa）＋ ③ 6b5d1b7b のディレクトリ | 74b29df8 ほか | agent/、mcp/、routes/agent.mjs は ⑤ の e29ec011 と同じ。③ の方法どおりの木（dc4a6265）で ③ 24/24 |
+
+**衝突の解消**
+- ⑲ と 2c8fbfa2 と ④ の scan：⑲ の設計を採った。live は、欠けが無くなるまで unproven。2c8fbfa2 の live の試験 2件は、Unknown を見る代わりに unproven と point_in_time_unverified を見るようにした。判定は Unverifiable のままで、緩めていない。
+- ⑫ の版は、5d178b77 の中身と同じだった（6c72f320）。二重には当てていない。
+
+**この候補の verify**：lib 50、history 16、history_assurance 8、ledger_history 7、resident_ledger 4、ws04_scan_resident 4、evidence 8、camp_clear 3、unit 8、missing_state 2、open_items 3、custody 6・8・7、new_bands 10
+
+**この候補の keeper ほか**：⑱ の鍵なし 8件、wide_duties 70、wide_reveal 30、wide_feed_guard 12、agents の reveal_time_tests 1、frontier-abi の全部、runexec の全部（署名を伴う gateway の 9件と chain_caravan の 1件は ignored）、chain-flow の check-fixtures 31/31
+
+**残っていること**
+- ③ の試験は、この候補では 12/24 にとどまる。原因：③ の代わりのヘラルドの /h/me に `slots` が無い。本物のヘラルドはこれを出し、統合後の画面（ac16d39e）はこれを要る。手元で `slots: []` を足すと 24/24 になった（commit はしていない）。③ に直してもらうよう頼んだ。
+- ⑬ の 4種の SQLite を読む canonical の試験（WS04_DB）は、ここでは実行していない。
+- ⑰ は公開を待っている。routes/prize.mjs をどちらにするかは、利用者の判断。
+- ⑨ の割当て（記録の kind、ClaimSplit、RULESET_HASH）は保留にした。
+- 実チェーン、SBF・LiteSVM、ブラウザでの表示は、まだ確かめていない。
+
+## 14. 第3回・第4回の統合と VW1（④、2026-11-08）
+
+**第3回**（20db3313 の後）
+- ⑦ 8373ba63
+- ⑬ d9ac99ad：W1（5d178b77）と両方を保った。ファイルごとに確かめた。
+- ⑲ 668e9b66 の文書2か所：コードの部分は ⑳ の変更を戻すので取らない。
+- ⑪ の 0014（sha256 f8763979…）
+- ⑩ b91d2e52（V26 の命令の再生）
+- ② d0da1d02（rights-experimental）
+- ④ が直したもの：
+  - ② の分の v2/logs.json と web SDK（作り直し）
+  - プログラムの割当ての試験（kind 114〜119 と、版）
+  - 画面の試験の偽のヘラルドの形（539e6b89）
+
+**VW1**（4ecef1d9。verify/src/checks/vw_chains.rs。feature wide-world-experimental）
+- 確かめること：wide の event の chain。
+- 判定：
+  - chain の切れは FAIL。
+  - 最終の口座との不一致は、履歴が whole のときだけ FAIL。そうでなければ UNVERIFIABLE。
+  - wide の記録が1つでもあれば、必ず WideUnmodelled（UNVERIFIABLE）。
+- 鍵なしの試験：7件。
+- 分担：⑪ が V0 の振り分け、⑳ が 0xDD を受け持つ。
+
+**第4回**（c7836449）
+- ③ 6ee7c4d1：③ の試験は、この候補で 27/27。
+- ⑦ 24369382（協力の板の入口）、① c01c7418（/coop/config）
+- ⑬ 36376b3b、⑥ 7bcdfa24
+- ⑩ の 0002（a690a038）、⑪ の 0015（sha256 68b6a039…）
+- ⑨ dddef5b5（capacity-preview、コアのパッチ 0001）
+- **版のビットの衝突**：② と ⑨ が、どちらも仮の 0x2000 を出していた。④ の仮の割当てとして、② は 0x2000、⑨ は 0x1000 にした。rights と capacity を同時に build するのは compile_error。
+- ④ が直したもの：
+  - 統合の後の dispatch の閉じかっこ
+  - 版の試験を build ごとに
+  - quick.rs の試験だけで使うものが、clippy で落ちていた件
+  - BadConfig の文
+
+**この候補（c7836449）の確認**（鍵なし）
+- gateway・web 1885/0、⑬ 189/0（省略 6）、③ 27/27、① 234、⑥ 20（省略 7）
+- verify の一式と VW1 7件
+- permutation-frontier：既定 111、capacity 115、custody 112、capacity＋custody 118、rights 150、wide 128、no-default 44
+- clippy -D warnings：permutation-frontier と frontier-abi で通過
+- rules：既定と capacity。abi：既定と capacity
+- abi-vectors と web SDK：fresh
+- e2e-native：registry と error_codes
+
+**決めていないこと**
+- ⑨ の記録の kind（帯 120〜129、副種別の案）、AccountKind 25・26、KERNEL_VERSIONS、継続世界の R1、Holding の履歴
+- ⑩ の LOT_RETURNED
+- capacity と custody を組んだ版（今は仮に 5|0x1000）
+- NFT 賞金の候補 3090242a：利用者の Mac にしか無い。取得待ち。

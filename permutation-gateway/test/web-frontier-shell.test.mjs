@@ -63,7 +63,7 @@ test('the turn dial: one line of text in both languages, cut into the dial\'s th
   const textOf = chip => dialMarkup(chip).map(String).join('').replace(/<[^>]*>/g, '');
   setLang('en');
   assert.equal(chipText(run), 'Turn 1,034 · 6:12 left');
-  assert.equal(chipText({ bell: 1008, secondsLeft: 1, ended: true }), 'Turn 1,008 · ended');
+  assert.equal(chipText({ bell: 1008, secondsLeft: 1, ended: true }), 'Turn 1,008 · no new orders');
   // the dial's markup reads exactly as the one line (the glue between the places is visually hidden, not dropped)
   for (const lang of ['ja', 'en']) {
     setLang(lang);

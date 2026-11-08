@@ -144,13 +144,13 @@ test("runs per day (provisional): only accepted starts count; failures after acc
   // a preflight, a request signed by someone else, and a malformed request are not counted
   await preflight(plan, s);
   const { requestRun } = await import("./helpers.mjs");
-  await execute(plan, s, { request: await requestRun(plan, { nonce: "x1" }, s.keys.A) });
+  await execute(plan, s, { request: await requestRun(plan, { nonce: "x1", day: s.world.today }, s.keys.A) });
   await execute(plan, s, {});
   assert.deepEqual(s.adoptions.tally(plan.hash, day), { started: 0, succeeded: 0, failed: 0 });
   // accepted, then stopped at a step: one start, one failure, no success
   const saved = s.world.citizens.B.lamports;
   s.world.citizens.B.lamports = 0;
-  const req = await requestRun(plan, { nonce: "x2" }, s.keys.B);
+  const req = await requestRun(plan, { nonce: "x2", day: s.world.today }, s.keys.B);
   assert.equal((await execute(plan, s, { request: req })).failure.code, "BALANCE_SHORT");
   assert.deepEqual(s.adoptions.tally(plan.hash, day), { started: 1, succeeded: 0, failed: 1 });
   // the same request again is refused as replayed and not counted

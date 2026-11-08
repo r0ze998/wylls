@@ -145,13 +145,43 @@ pub const PROGRAM_VERSION: u16 = frontier_abi::v2::presets::PROGRAM_VERSION_S1
         0x4000
     } else {
         0
-    };
+    }
+    | if cfg!(feature = "rights-experimental") {
+        frontier_abi::v2::rights::RIGHTS_EXPERIMENTAL_VERSION_BIT
+    } else {
+        0
+    }
+    | capacity_bit();
 /// Custody remains a separate preview. No version is allocated for its
 /// combination with NFT residents or the host-only wide writer.
 #[cfg(feature = "custody-preview")]
-pub const PROGRAM_VERSION: u16 = frontier_abi::v2::presets::PROGRAM_VERSION_CUSTODY;
+pub const PROGRAM_VERSION: u16 =
+    frontier_abi::v2::presets::PROGRAM_VERSION_CUSTODY | capacity_bit();
+
+/// Workstream 09's capacity preview (`capacity-preview`): the `0x1000` bit (provisional, workstream 4; ② rights has 0x2000)
+/// (a proposal, `frontier_abi::capacity::CAPACITY_PREVIEW_VERSION_BIT`), so
+/// a capacity build's Seasons are its own; with custody it is the custody
+/// build's version with the bit (lots feed jobs there).
+const fn capacity_bit() -> u16 {
+    #[cfg(feature = "capacity-preview")]
+    {
+        frontier_abi::capacity::CAPACITY_PREVIEW_VERSION_BIT
+    }
+    #[cfg(not(feature = "capacity-preview"))]
+    {
+        0
+    }
+}
+#[cfg(all(feature = "capacity-preview", feature = "rights-experimental"))]
+compile_error!("capacity-preview and rights-experimental together: the program version is undecided (workstream 4)");
+#[cfg(all(feature = "capacity-preview", feature = "nft-experimental"))]
+compile_error!("capacity-preview and nft-experimental together: the program version is undecided (workstream 4)");
+#[cfg(all(feature = "capacity-preview", feature = "wide-world-experimental"))]
+compile_error!("capacity-preview and wide-world-experimental together: the program version is undecided (workstream 4)");
 #[cfg(all(feature = "custody-preview", feature = "nft-experimental"))]
 compile_error!("custody-preview and nft-experimental together: the program version is undecided (workstream 4)");
+#[cfg(all(feature = "custody-preview", feature = "rights-experimental"))]
+compile_error!("custody-preview and rights-experimental together: the ruleset and program version are undecided (workstream 4)");
 #[cfg(all(feature = "custody-preview", feature = "wide-world-experimental"))]
 compile_error!("custody-preview and wide-world-experimental together: the ruleset and program version are undecided");
 
@@ -172,7 +202,7 @@ pub fn dispatch(
     {
         return nft_registration::dispatch(program_id, accounts, data);
     }
-    // Experimental wide land (provisional band 0xD6–0xDA): a default build
+    // Experimental wide land (provisional band 0xD6–0xDF): a default build
     // never reaches this arm and refuses the bytes as unknown tags below.
     #[cfg(feature = "wide-world-experimental")]
     if data
@@ -180,6 +210,26 @@ pub fn dispatch(
         .is_some_and(|t| frontier_abi::world_index::wide_ix::is_draft_tag(*t))
     {
         return proc::wide::dispatch(program_id, accounts, data);
+    }
+    // Workstream 02-rights (proposal, `rights-experimental` only): the
+    // workshop-stock swap Grant on the provisional tags 0xD0–0xD5. A
+    // default build never reaches this arm and refuses the bytes as
+    // unknown tags below.
+    #[cfg(feature = "rights-experimental")]
+    if data
+        .first()
+        .is_some_and(|t| frontier_abi::v2::rights::is_rights_tag(*t))
+    {
+        return proc::rights::dispatch(program_id, accounts, data);
+    }
+    // Workstream 09's capacity preview (band 0xF0–0xFD): a default build
+    // never reaches this arm and refuses the bytes as unknown tags below.
+    #[cfg(feature = "capacity-preview")]
+    if data
+        .first()
+        .is_some_and(|t| frontier_abi::capacity::is_capacity_tag(*t))
+    {
+        return proc::capacity::dispatch(program_id, accounts, data);
     }
     use frontier_abi::v2::Ix;
     use proc::*;

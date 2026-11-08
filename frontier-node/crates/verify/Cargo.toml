@@ -30,6 +30,10 @@ mutate-v9 = []
 mutate-v11 = []
 mutate-v12 = []
 mutate-v13 = []
+# 02-rights (candidate): the Grant check.
+mutate-vr = []
+# The wide world's event chains (VW1, workstream 04; experimental, opt-in).
+wide-world-experimental = ["frontier-abi/world-index-experimental"]
 
 # Dependency sections belong to the integrator (contract §3.4, I-55); every
 # crate below is already a workspace dependency (W4-D notes, request R1).

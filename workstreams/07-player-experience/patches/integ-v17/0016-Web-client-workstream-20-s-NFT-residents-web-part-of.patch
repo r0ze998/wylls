@@ -1,0 +1,831 @@
+From 788f05059fbc764abf9fe2c1c7e983b67a9eb71e Mon Sep 17 00:00:00 2001
+From: ws07 <noreply@anthropic.com>
+Date: Fri, 6 Nov 2026 12:27:38 +0000
+Subject: [PATCH 16/18] Web client: workstream 20's NFT residents (web part of
+ dc55f159), on workstream 4's 8e96f24d
+
+Taken as it is from origin/claude/funny-wozniak-cy4n64 dc55f159
+(git diff 92142932 dc55f159 -- permutation-server/web), applied 3-way.
+Workstream 20's program, ABI crates, gateway routes and tests are not
+taken here. Conflicts resolved:
+- controller.mjs refresh: the viewer checks of ef63544c kept; /h/me and the
+  quota read for 20's viewerKey()/viewerCitizen().
+- controller.mjs connect: ef63544c's syncConnectedWallet kept; 20's
+  nft-login and nft-logout actions added (loading the NFTs on a wallet
+  change follows in workstream 07's next commit).
+- fi18n.mjs: both error tables (ContinuousWorld and 20's 170-175).
+- abi-v2-errors.mjs (generated): the union by code (ours plus 170-175).
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01C5Nj2bNLFpFghsNM9fsQG5
+---
+ .../web/frontier/controller.mjs               |  62 +++-
+ permutation-server/web/frontier/fchainio.mjs  |   3 +-
+ permutation-server/web/frontier/fi18n.mjs     |  15 +
+ permutation-server/web/frontier/fplay.mjs     |  40 ++-
+ permutation-server/web/frontier/fresident.mjs |  66 +++++
+ permutation-server/web/frontier/fsession.mjs  |   8 +-
+ .../web/frontier/screens/join.mjs             |  30 +-
+ permutation-server/web/lang/en-frontier.mjs   |  24 ++
+ .../web/sdk/frontier/abi-v2-errors.mjs        |   2 +-
+ .../web/sdk/frontier/abi-v2-logs.mjs          |   2 +-
+ .../web/sdk/frontier/resident.mjs             | 271 ++++++++++++++++++
+ .../web/sdk/frontier/shapes.mjs               |  10 +-
+ 12 files changed, 512 insertions(+), 21 deletions(-)
+ create mode 100644 permutation-server/web/frontier/fresident.mjs
+ create mode 100644 permutation-server/web/sdk/frontier/resident.mjs
+
+diff --git a/permutation-server/web/frontier/controller.mjs b/permutation-server/web/frontier/controller.mjs
+index e6cad5f6..3666fe07 100644
+--- a/permutation-server/web/frontier/controller.mjs
++++ b/permutation-server/web/frontier/controller.mjs
+@@ -13,6 +13,7 @@ import { ownTag } from './people/ui.mjs';
+ import { updateLife } from './people/life.mjs';
+ import * as io from './fchainio.mjs';
+ import * as fsession from './fsession.mjs';
++import * as fresident from './fresident.mjs';
+ import { AGENTS_REFRESH_MS, delegatedTo, loadAgents, refusalNote, takenBackNote } from './fdelegation.mjs';
+ import * as book from './marchbook.mjs';
+ import { submit, track, accountsFor, campMaskOf, campWinner } from './fplay.mjs';
+@@ -106,7 +107,24 @@ async function refreshDelegation() {
+ /** The addresses and signer context of a player action. */
+ function ctx(extra = {}) {
+   const pin = io.pinned();
+-  return { addresses: pin.addresses, wallet: FS.wallet.address, actor: FS.session?.publicKey, faction: FS.citizen?.faction, profile: pin.profile, ...extra };
++  // ⑳: playing an NFT, the owner's wallet acts for the NFT's Citizen.
++  const nft = FS.resident ? fresident.actorContext(FS.resident, FS.wallet.address) : {};
++  return { addresses: pin.addresses, wallet: FS.wallet.address, actor: FS.session?.publicKey, faction: FS.citizen?.faction, profile: pin.profile, ...nft, ...extra };
++}
++
++/** The address `/h/me` and the quota are read for: the NFT played (⑳), else the wallet. */
++const viewerKey = () => FS.resident?.asset ?? FS.wallet?.address;
++const viewerCitizen = () => FS.resident?.citizen ?? io.pinned().addresses.of('Citizen', { wallet: FS.wallet.address });
++
++/** ⑳: the wallet's resident NFTs (GET /f/residents); none when the relay has no resident policy. */
++async function loadNfts() {
++  FS.nfts = null;
++  // Only a season of the nft-experimental program (its program version
++  // carries 0x8000) has residents; other seasons never ask.
++  if (!FS.wallet || !io.relay() || !(Number(FS.season?.programVersion ?? 0) & 0x8000)) return;
++  const r = await fresident.loadResidents(FS.wallet.address).catch(() => null);
++  if (r?.ok && r.policy) FS.nfts = { residents: r.residents, policy: r.policy };
++  invalidate('panel');
+ }
+ 
+ /** The send and the follow-up (fplay.mjs); tests put stand-ins here to play a relay and a chain. */
+@@ -249,8 +267,18 @@ async function actOnce(name, { v, fields, signer, requester, label, after, onSen
+   if (!io.pinned()) return early({ code: 'NoPin' });
+   if (!FS.wallet) return early({ code: 'NoWallet' });
+   let sign = null;
++  // ⑳: an NFT Citizen has no Frontier session; its owner's wallet signs, for
++  // the generation read fresh now (a transfer since the page loaded changes it).
++  let resident = null;
++  if (FS.resident && signer !== null && name !== 'JoinResident') {
++    if (name === 'SetSession') return early({ code: 'NftNoSession' });
++    const g = await fresident.currentGeneration(FS.wallet.address, FS.resident.asset);
++    if (g === null) return early({ code: 'NftNotHeld' });
++    FS.resident = { ...FS.resident, generation: g };
++    resident = { generation: g, proof: FS.resident.proof };
++  }
+   if (signer !== null) {
+-    if (name === 'Join' || name === 'SetSession' || signer === 'wallet') {
++    if (name === 'Join' || name === 'JoinResident' || name === 'SetSession' || signer === 'wallet' || resident) {
+       const w = wallet.connected();
+       if (!w) return early({ code: 'NoWallet' });
+       sign = { wallet: w };
+@@ -266,7 +294,7 @@ async function actOnce(name, { v, fields, signer, requester, label, after, onSen
+   FS.inFlight = (FS.inFlight ?? 0) + 1;
+   try {
+     const accounts = typeof v === 'function' ? fp => accountsFor(name, v(fp)) : accountsFor(name, ctx(v));
+-    const send = () => tx.submit({ name, accounts, fields, signer: sign, requester, citizen: requester ? io.pinned().addresses.of('Citizen', { wallet: FS.wallet.address }) : undefined, invite: v.invite });
++    const send = () => tx.submit({ name, accounts, fields, signer: sign, requester, citizen: requester ? viewerCitizen() : undefined, invite: v.invite, resident });
+     let r = await send();
+     // the transaction left this browser (a refusal before sending never reaches here)
+     if (r.ok) { sent = true; onSent?.(r); fxEmit('action:sent', fxa); }
+@@ -877,7 +905,8 @@ export async function refresh() {
+   if (FS.wallet) {
+     const address = FS.wallet.address;
+     const currentViewer = () => request === viewerRefresh && FS.wallet?.address === address;
+-    const me = await herald.me(address).catch(e => ({ ok: false, code: e?.code ?? 'Unavailable' }));
++    // ⑳: herald's /h/me/{asset} answers an NFT's Citizen (the wallet's own Citizen first).
++    const me = await herald.me(viewerKey()).catch(e => ({ ok: false, code: e?.code ?? 'Unavailable' }));
+     // A previous poll or wallet must not replace the viewer selected by a newer refresh.
+     if (!currentViewer()) return;
+     if (FS.proto) await refreshProto(me.ok ? me.record : undefined);
+@@ -907,7 +936,7 @@ export async function refresh() {
+     await refreshMarches();
+     if (!currentViewer()) return;
+     if (FS.citizen && io.pinned()) {
+-      const q = await io.quota(io.pinned().addresses.of('Citizen', { wallet: FS.wallet.address }));
++      const q = await io.quota(viewerCitizen());
+       if (!currentViewer()) return;
+       if (q.ok) FS.quota = q;
+     }
+@@ -1752,6 +1781,29 @@ export const ACTIONS = {
+     finally { connectingWallet = false; }
+     await syncConnectedWallet({ refreshUnchanged: true });
+   },
++  // ⑳ (provisional): play one of the wallet's resident NFTs — the first login
++  // (JoinResident) when its Citizen does not exist yet in this season.
++  'nft-login': async d => {
++    if (!FS.wallet) return failed({ code: 'NoWallet' });
++    const entry = (FS.nfts?.residents ?? []).find(x => x.asset === d.asset);
++    if (!entry || !FS.nfts.policy) return failed({ code: 'NftNotHeld' });
++    const pin = io.pinned();
++    const id = fresident.identityOf(entry, FS.nfts.policy, { addresses: pin.addresses, programId: pin.programId });
++    if (!Number.isInteger(id.generation)) return failed({ code: 'NftNotHeld' });
++    if (!id.joined) {
++      if (!Number.isInteger(FS.joinDraft?.faction)) return failed({ code: 'PickFaction' });
++      const gate = FS.season.joinGate.some(x => x !== 0) ? toBase58(FS.season.joinGate) : null;
++      const r = await act('JoinResident', {
++        v: { resident: fresident.joinAccounts(id, { addresses: pin.addresses, owner: FS.wallet.address }), joinGate: gate, invite: FS.joinDraft.invite },
++        fields: { generation: id.generation, faction: FS.joinDraft.faction },
++      });
++      if (!r?.ok) return r;
++    }
++    FS.resident = { ...id, joined: true };
++    invalidate('panel');
++    await refresh();
++  },
++  'nft-logout': async () => { FS.resident = null; invalidate('panel'); await refresh(); },
+   'pick-faction': d => { FS.joinDraft = { ...(FS.joinDraft ?? {}), faction: num(d.f) }; invalidate('panel'); if (needsHomeChoice()) return refreshHomes({ force: true }); },
+   join: async () => {
+     const pin = io.pinned();
+diff --git a/permutation-server/web/frontier/fchainio.mjs b/permutation-server/web/frontier/fchainio.mjs
+index a8cd0e36..bbb7563c 100644
+--- a/permutation-server/web/frontier/fchainio.mjs
++++ b/permutation-server/web/frontier/fchainio.mjs
+@@ -14,6 +14,7 @@
+ // relay co-signs, the message must come back unchanged.
+ //
+ // Every call answers `{…body, ok, httpStatus, code, error}` and never rejects.
++import { isResidentTag } from '../sdk/frontier/resident.mjs';
+ import { equal, toBase64 } from '../sdk/bytes.mjs';
+ import { COMPUTE_BUDGET_PROGRAM, messageOf, parseMessage, pubkeyString } from '../sdk/solana-tx.mjs';
+ import { profileForHash } from '../sdk/frontier/profile.mjs';
+@@ -156,7 +157,7 @@ export function messageProblems(message, { feePayer, blockhash, tag, signers = [
+   else {
+     const t = f.data[0];
+     if (t === REVEAL_TAG) out.push('UseRevealRoute');
+-    else if (!PLAYER_TAGS.includes(t) && !SETTLE_TAGS.includes(t)) out.push(`tag 0x${t?.toString(16)} is not a player or settle shape`);
++    else if (!PLAYER_TAGS.includes(t) && !SETTLE_TAGS.includes(t) && !isResidentTag(t)) out.push(`tag 0x${t?.toString(16)} is not a player or settle shape`);
+     else if (tag !== undefined && t !== tag) out.push(`tag 0x${t.toString(16)} is not the expected 0x${tag.toString(16)}`);
+   }
+   for (const i of ix) if (i.programId !== COMPUTE_BUDGET_PROGRAM && i.programId !== pin.programId) out.push(`unexpected program ${i.programId}`);
+diff --git a/permutation-server/web/frontier/fi18n.mjs b/permutation-server/web/frontier/fi18n.mjs
+index 97195d30..6b8bf7ad 100644
+--- a/permutation-server/web/frontier/fi18n.mjs
++++ b/permutation-server/web/frontier/fi18n.mjs
+@@ -191,6 +191,13 @@ const ERROR_TEXT = {
+   NotVoter: () => L`まだ投票や提案はできません（参加から2日たっていないか、国を追放されています）`,
+   ProposalState: () => L`この議題には今それはできません（受付が終わった、まだ締め切り前、または対象が条件を満たしません）`,
+   ContinuousWorld: () => L`この世界は終わりません。終わりを前提にした操作はできません`,
++  // ⑳ (provisional, NFT residents; codes 170–175)
++  ResidentNotSigned: () => L`住民NFTの持ち主（またはその接続）の署名がありません`,
++  ResidentAsset: () => L`この住民NFTは、この住民のものではないか、正しいNFTではありません`,
++  ResidentAccount: () => L`住民の記録が、このNFTのものではないか、正しくありません`,
++  ResidentUnguarded: () => L`この住民NFTには譲渡の保護がないため、操作できません`,
++  ResidentStaleGeneration: () => L`住民NFTが署名のあとに譲渡されました。今の持ち主として操作し直してください`,
++  ResidentNotCurrentAuthority: () => L`いまの住民NFTの持ち主（またはその接続）だけが操作できます`,
+   NotImplemented: () => L`まだ実装されていません`,
+ };
+ 
+@@ -281,7 +288,15 @@ const CLIENT_TEXT = {
+   WalletError: () => L`ウォレットのエラーです`,
+   NoWallet: () => L`ウォレットが接続されていません`,
+   NoSession: () => L`ゲーム内の鍵がありません。鍵を作ってください。`,
++  // ⑳ (provisional): NFT residents
++  NftNoSession: () => L`NFTの住民には、ゲーム内の鍵はまだ使えません。操作はウォレットが署名します。`,
++  NftNotHeld: () => L`この住民NFTは、いまこのウォレットにありません。`,
++  PickFaction: () => L`先に国を選んでください。`,
+   SessionMismatch: () => L`このゲーム内の鍵は、登録されているものと違います`,
++  ResidentHolderChanged: () => L`この住民の NFT は、いまは別のウォレットが持っています。この鍵では操作できません。`,
++  ResidentSessionStale: () => L`この鍵は、住民の今の持ち主が今の世代で任せた鍵ではありません。持ち主が任せ直す必要があります。`,
++  ResidentSessionExpired: () => L`住民の操作を任せた鍵の期限が切れています。持ち主が任せ直す必要があります。`,
++  ResidentUnverified: () => L`住民の持ち主を確かめられなかったため、送りませんでした。あとでもう一度試してください。`,
+   Expired: () => L`取引は期限までに記録されませんでした`,
+   Unconfirmed: () => L`取引がまだ確認できません。あとで状態を確かめます。`,
+   // (workstream 07: no read of the transaction's state answered — not a failure, it may still land)
+diff --git a/permutation-server/web/frontier/fplay.mjs b/permutation-server/web/frontier/fplay.mjs
+index f5be778d..4fe05f3f 100644
+--- a/permutation-server/web/frontier/fplay.mjs
++++ b/permutation-server/web/frontier/fplay.mjs
+@@ -20,6 +20,7 @@ import { compileMessage, wireTransaction } from '../sdk/solana-tx.mjs';
+ import { decode as fromBase58 } from '../sdk/base58.mjs';
+ import { toBase64 } from '../sdk/bytes.mjs';
+ import { verify } from '../session.mjs';
++import { joinResidentIx, residentActIx, residentBudget } from '../sdk/frontier/resident.mjs';
+ import * as io from './fchainio.mjs';
+ import { joinShardOf, citizenTag } from './faddr.mjs';
+ 
+@@ -45,6 +46,8 @@ export const campWinner = (mask, faction, i, fate) => fate === 1 && mask !== 0 &
+ /** The shapes this page sends and who signs them. */
+ export const SIGNED_BY = Object.freeze({
+   Join: 'wallet', SetSession: 'wallet',
++  // ⑳ (provisional): an NFT's first login; the owner's wallet signs it.
++  JoinResident: 'wallet',
+   SetVigil: 'session', FileTicket: 'session', PlaceHome: 'session', Harvest: 'session', Build: 'session', Train: 'session', Muster: 'session',
+   DeclareSiege: 'session', FileOutpost: 'session', RetireHost: 'session', Dissolve: 'session', Garrison: 'session', Explore: 'session', Depart: 'session',
+   SettleExplore: 'none', SettleTransit: 'none',
+@@ -81,11 +84,16 @@ export function accountsFor(name, v) {
+   const A = v.addresses;
+   // MC and S1 (profile 2 and 3) share the ABI v2 account lists.
+   const cq = isV2(v.profile ?? io.pinned()?.profile);
+-  const citizen = A.of('Citizen', { wallet: v.wallet });
++  // ⑳: an NFT resident's Citizen is at its resident ID's address (`v.citizen`),
++  // and its JoinShard index comes from its asset (`v.shardKey`).
++  const citizen = v.citizen ?? A.of('Citizen', { wallet: v.wallet });
+   const base = { actor: v.actor, season: A.season, citizen };
+   const holding = () => A.of('Holding', v.holding);
+   const province = () => A.of('Province', v.province ?? v.holding);
+   switch (name) {
++    // ⑳: `v.resident` is fresident.joinAccounts(…) (the owner, the NFT Citizen, the proof accounts).
++    case 'JoinResident':
++      return { ...v.resident, ...(v.joinGate ? { joinGate: v.joinGate } : {}) };
+     case 'Join':
+       return { wallet: v.wallet, season: A.season, frontier: A.of('Frontier'), citizen,
+         joinshard: A.of('JoinShard', { faction: v.faction, shard: joinShardOf(v.wallet) }), ...(v.joinGate ? { join_gate: v.joinGate } : {}) };
+@@ -106,7 +114,7 @@ export function accountsFor(name, v) {
+         captured_holding: A.of('Holding', v.captured), home_holding: A.of('Holding', v.home) };
+     case 'PlaceHome':
+       return { ...base, frontier: A.of('Frontier'), province: province(), holding: holding(),
+-        joinshard: A.of('JoinShard', { faction: v.faction, shard: joinShardOf(v.wallet) }) };
++        joinshard: A.of('JoinShard', { faction: v.faction, shard: joinShardOf(v.shardKey ?? v.wallet) }) };
+     case 'Harvest': case 'Train':
+       return { ...base, holding: holding(), ...(cq ? { province: province() } : {}) };
+     case 'Build':
+@@ -187,12 +195,28 @@ export function cargoBytes(cargo) {
+  * signers}` for `feePayer` and `blockhash`. `signers` are the instruction's
+  * own signing keys besides the fee payer.
+  */
+-export function buildShape({ programId, name, accounts, fields, feePayer, blockhash, profile = 1 }) {
+-  const expected = frontierIx(programId, name, { ...accounts, payer: feePayer }, fields, profile);
+-  const message = compileMessage({ feePayer, recentBlockhash: blockhash, instructions: [...budgetPrefix(name, { profile }), expected] });
++export function buildShape({ programId, name, accounts, fields, feePayer, blockhash, profile = 1, resident = null }) {
++  let expected, budget, prefix;
++  if (name === 'JoinResident') {
++    // ⑳: an NFT's first login (owner, payer, season, frontier, citizen, policy, link, asset, resident, gate?).
++    expected = joinResidentIx({ programId, ...accounts, payer: feePayer, generation: fields.generation, faction: fields.faction });
++    budget = residentBudget('JoinResident', profile);
++    prefix = budgetPrefix('Join', { profile, cuLimit: budget.cuLimit, loadedLimit: budget.loadedLimit });
++  } else if (resident) {
++    // ⑳: the player instruction run for an NFT Citizen (ResidentAct), signed for its current generation.
++    const inner = frontierIx(programId, name, { ...accounts, payer: feePayer }, fields, profile);
++    expected = residentActIx(inner, { generation: resident.generation, ...resident.proof });
++    budget = residentBudget(name, profile);
++    prefix = budgetPrefix(name, { profile, cuLimit: budget.cuLimit, loadedLimit: budget.loadedLimit });
++  } else {
++    expected = frontierIx(programId, name, { ...accounts, payer: feePayer }, fields, profile);
++    budget = budgetOf(name, profile);
++    prefix = budgetPrefix(name, { profile });
++  }
++  const message = compileMessage({ feePayer, recentBlockhash: blockhash, instructions: [...prefix, expected] });
+   const signers = [];
+   for (const k of expected.keys) if (k.isSigner && k.pubkey !== feePayer && !signers.includes(k.pubkey)) signers.push(k.pubkey);
+-  return { message, expected, budget: budgetOf(name, profile), signers };
++  return { message, expected, budget, signers };
+ }
+ 
+ /**
+@@ -213,7 +237,7 @@ export async function submit(req) {
+     // A settle names the fee payer inside its accounts and data (its beneficiary): functions of it.
+     const accounts = typeof req.accounts === 'function' ? req.accounts(feePayer) : req.accounts;
+     const fields = typeof req.fields === 'function' ? req.fields(feePayer) : (req.fields ?? {});
+-    built = buildShape({ programId: pin.programId, name: req.name, accounts, fields, feePayer, blockhash, profile: pin.profile });
++    built = buildShape({ programId: pin.programId, name: req.name, accounts, fields, feePayer, blockhash, profile: pin.profile, resident: req.resident ?? null });
+   } catch (e) {
+     return fail('BuildFailed', String(e.message ?? e));
+   }
+@@ -242,7 +266,7 @@ export async function submit(req) {
+     return fail(e?.code ?? 'SignFailed', String(e?.message ?? e));
+   }
+   if (wire.length > budget.txCeiling) return fail('TooLarge', `${wire.length} B over the ${budget.txCeiling}-B ceiling of ${req.name}`);
+-  const r = req.name === 'Join'
++  const r = req.name === 'Join' || req.name === 'JoinResident'
+     ? await io.sendJoin(wire, req.invite ?? null, { extra: { lastValidBlockHeight } })
+     : await io.sendTx(wire, { extra: { ...extra, lastValidBlockHeight } });
+   if (!r.ok) return r;
+diff --git a/permutation-server/web/frontier/fresident.mjs b/permutation-server/web/frontier/fresident.mjs
+new file mode 100644
+index 00000000..77420f41
+--- /dev/null
++++ b/permutation-server/web/frontier/fresident.mjs
+@@ -0,0 +1,66 @@
++// ⑳ NFT residents on the page (provisional, nft-experimental programs):
++// the NFT choice of the first login and the identity an NFT Citizen plays as.
++//
++//   loadResidents(owner)     GET /f/residents?owner= → {ok, residents, policy}
++//   identityOf(entry, …)     the NFT Citizen's addresses: its Citizen (at the
++//                            resident ID's address), the four proof accounts,
++//                            the generation the owner signs
++//
++// One NFT, one Citizen: the page offers each NFT the connected wallet holds;
++// a joined one is played, a new one is joined first (JoinResident). The
++// program decides who may act on every instruction (the asset's current
++// owner, the transfer guard, the generation); the page only reads the
++// generation fresh before each send, so an action after a transfer is
++// signed for the new generation by the new owner's wallet.
++//
++// Limits (not implemented): an NFT resident has no in-game key yet (its
++// session lives in the resident program, which this page does not call), so
++// the wallet signs every action; SetSession is refused for an NFT Citizen.
++import { linkAddress, policyAddress, residentAddress, residentCitizen } from '../sdk/frontier/resident.mjs';
++import * as io from './fchainio.mjs';
++
++/** The NFTs `owner` holds that can be a resident here (the relay reads the chain). */
++export async function loadResidents(owner, { request = io.request } = {}) {
++  const r = await request('GET', `/f/residents?owner=${encodeURIComponent(owner)}`);
++  if (!r.ok) return r;
++  return { ok: true, residents: r.residents ?? [], policy: r.policy ?? null };
++}
++
++/**
++ * The identity an NFT plays as in the pinned season: `{asset, citizen,
++ * generation, joined, proof: {policy, link, asset, resident}}`. The proof
++ * addresses are recomputed here (never taken from the relay's answer).
++ */
++export function identityOf(entry, policy, { addresses, programId }) {
++  const asset = entry.asset;
++  return {
++    asset,
++    citizen: residentCitizen(addresses, asset),
++    generation: entry.generation,
++    joined: !!entry.joined,
++    proof: { policy: policyAddress(programId), link: linkAddress(programId, addresses.season, asset), asset, resident: residentAddress(policy.residentProgram, asset) },
++  };
++}
++
++/** The accounts of JoinResident for `id` (the relay's fee payer is added by fplay.submit). */
++export function joinAccounts(id, { addresses, owner, joinGate = null }) {
++  return {
++    owner, season: addresses.season, frontier: addresses.of('Frontier'), citizen: id.citizen,
++    policy: id.proof.policy, link: id.proof.link, asset: id.asset, resident: id.proof.resident,
++    ...(joinGate ? { joinGate } : {}),
++  };
++}
++
++/** The controller's account context for an NFT Citizen: the wallet (the owner) acts for the resident's Citizen. */
++export const actorContext = (id, owner) => ({ wallet: owner, actor: owner, citizen: id.citizen, shardKey: id.asset });
++
++/**
++ * The generation to sign now: the relay's fresh answer for `asset`, else
++ * null (the NFT left this wallet — the page then stops acting for it).
++ */
++export async function currentGeneration(owner, asset, opts) {
++  const r = await loadResidents(owner, opts);
++  if (!r.ok) return null;
++  const e = r.residents.find(x => x.asset === asset);
++  return e && Number.isInteger(e.generation) ? e.generation : null;
++}
+diff --git a/permutation-server/web/frontier/fsession.mjs b/permutation-server/web/frontier/fsession.mjs
+index 983181d5..19508346 100644
+--- a/permutation-server/web/frontier/fsession.mjs
++++ b/permutation-server/web/frontier/fsession.mjs
+@@ -108,7 +108,13 @@ export async function restore(scope, wallet) {
+  * Whether a key is the one the Citizen registered (`Citizen.session`, 32
+  * bytes, zero = none) and still valid at chain time `now` (s).
+  */
+-export function matchesCitizen(session, citizen, now) {
++export function matchesCitizen(session, citizen, now, resident = null) {
++  // NFT-bound residents (optional `resident`, as the gate reads it: holder, gen, session, sessionGen,
++  // sessionSetter): a key of a wallet that no longer holds the resident is `ResidentHolderChanged`, and a
++  // key the holder did not set in the current holder generation is `ResidentSessionStale`; neither is a
++  // key to regenerate silently.
++  if (resident?.holder && session?.wallet && resident.holder !== session.wallet) return { ok: false, code: 'ResidentHolderChanged', holder: resident.holder };
++  if (resident?.holder && (resident.session !== session?.publicKey || resident.sessionGen !== resident.gen || resident.sessionSetter !== resident.holder)) return { ok: false, code: 'ResidentSessionStale', gen: resident.gen };
+   const reg = citizen?.session;
+   if (!reg || reg.every?.(x => x === 0)) return { ok: false, code: 'NoSession' };
+   if (toBase58(reg) !== session.publicKey) return { ok: false, code: 'SessionMismatch' };
+diff --git a/permutation-server/web/frontier/screens/join.mjs b/permutation-server/web/frontier/screens/join.mjs
+index c469ea49..b21bffc1 100644
+--- a/permutation-server/web/frontier/screens/join.mjs
++++ b/permutation-server/web/frontier/screens/join.mjs
+@@ -321,16 +321,42 @@ function renderInstantPlacing(FS) {
+   </section>`;
+ }
+ 
++const shortKey = k => `${String(k).slice(0, 4)}…${String(k).slice(-4)}`;
++
++/**
++ * ⑳ (provisional): the wallet's resident NFTs — one NFT, one Citizen. A
++ * joined NFT is played at once; a new one joins the chosen nation first.
++ * While an NFT is played, the wallet signs every action (no in-game key).
++ */
++export function renderNfts(FS) {
++  if (FS.resident) {
++    return html`<section class="vcard" aria-labelledby="join-nft">${cardHead({ id: 'join-nft', ic: 'seal', title: L`NFTで遊んでいます` })}
++      <p>${L`住民NFT ${shortKey(FS.resident.asset)} の住民として遊んでいます。操作のたびにウォレットが署名を求めます。NFTを譲渡すると、この端末からは操作できなくなります。`}</p>
++      <div class="actions"><button type="button" class="btn" data-act="nft-logout">${L`ウォレットの住民に戻る`}</button></div></section>`;
++  }
++  const list = FS.nfts?.residents ?? [];
++  if (!FS.wallet || !list.length) return '';
++  const pick = Number.isInteger(FS.joinDraft?.faction);
++  return html`<section class="vcard" aria-labelledby="join-nft">${cardHead({ id: 'join-nft', ic: 'seal', title: L`住民NFTで入る` })}
++    <p class="muted">${L`1枚のNFTにつき1人の住民です。NFTを譲渡すると、住民を操作できるのは新しい持ち主だけになります。`}</p>
++    <ul class="wallet-list">${list.map(n => {
++      const ok = Number.isInteger(n.generation);
++      const label = !ok ? L`住民の記録がありません` : n.joined ? L`このNFTで遊ぶ` : pick ? L`このNFTで参加する` : L`国を選ぶと参加できます`;
++      return html`<li><button type="button" class="btn" data-act="nft-login" data-asset="${n.asset}" ${raw(ok && (n.joined || pick) ? '' : 'disabled')}>${label}</button> <span class="muted">${shortKey(n.asset)}</span></li>`;
++    })}</ul></section>`;
++}
++
+ /** Keep the nation choice; newer seasons place its first final village immediately. */
+ export function render(FS) {
+   const stage = FS.land?.stage ?? 'none';
+   const instant = Number(FS.season?.programVersion ?? 1) >= 2;
+   if (instant && FS.homeGrant?.state === 2) return renderGrant(FS);
+-  if (stage === 'none') return renderNations(FS);
++  if (stage === 'none') return html`${renderNfts(FS)}${renderNations(FS)}`;
+   if (!FS.wallet) return renderWallets(FS);
+   // The key is the owner's agent's (handed over on the agent page): say so, rather than "this device has no game key".
+   if (FS.sessionProblem === 'SessionMismatch' && FS.delegation) return renderDelegated(FS.delegation);
+-  if (!FS.session || FS.sessionProblem) return renderSessionFix(FS);
++  // ⑳: an NFT Citizen has no in-game key (its wallet signs); no key to fix.
++  if (!FS.resident && (!FS.session || FS.sessionProblem)) return renderSessionFix(FS);
+   if (stage === 'ticket') return renderTicket(FS);
+   if (stage === 'provisional') return renderProvisional(FS);
+   if (stage === 'final') return html`<p>${L`村が確定しました。「村」から始めましょう。`}</p>`;
+diff --git a/permutation-server/web/lang/en-frontier.mjs b/permutation-server/web/lang/en-frontier.mjs
+index 06083a23..d22f1ea2 100644
+--- a/permutation-server/web/lang/en-frontier.mjs
++++ b/permutation-server/web/lang/en-frontier.mjs
+@@ -496,6 +496,10 @@ export default {
+   '中継サーバーが別のプログラムを名乗っています': 'The relay names another program.',
+   'ゲーム内の鍵がありません。鍵を作ってください。': 'No in-game key. Create one.',
+   'このゲーム内の鍵は、登録されているものと違います': 'This in-game key is not the one registered for you.',
++  'この住民の NFT は、いまは別のウォレットが持っています。この鍵では操作できません。': 'This resident\'s NFT is now held by another wallet. This key cannot act for it.',
++  'この鍵は、住民の今の持ち主が今の世代で任せた鍵ではありません。持ち主が任せ直す必要があります。': 'This key was not delegated by the resident\'s current holder in the current generation. The holder must delegate again.',
++  '住民の操作を任せた鍵の期限が切れています。持ち主が任せ直す必要があります。': 'The key delegated to act for this resident has expired. The holder must delegate again.',
++  '住民の持ち主を確かめられなかったため、送りませんでした。あとでもう一度試してください。': 'The resident\'s holder could not be confirmed, so nothing was sent. Try again later.',
+   'この鍵は、このシーズンのどの参加者の鍵とも一致しません': 'This key does not match any player\'s key in this season.',
+   '取引がまだ確認できません。あとで状態を確かめます。': 'The transaction is not confirmed yet. It will be checked again later.',
+   '取引の状態を照会できませんでした。失敗したという意味ではなく、記録されている場合もあります。あとで状態を確かめます。': 'The transaction\'s state could not be queried. This does not mean it failed: it may have been recorded. It will be checked again later.',
+@@ -713,6 +717,26 @@ export default {
+   'この議題には今それはできません（受付が終わった、まだ締め切り前、または対象が条件を満たしません）': 'Not possible on this proposal now (voting has closed, it has not closed yet, or its target does not qualify).',
+   'この世界は終わりません。終わりを前提にした操作はできません': 'This world does not end; an action that needs it to end is not possible.',
+   'この包囲の先導者だけが行える操作です': 'Only the siege leader can perform this action.',
++  // ⑳ (provisional): NFT residents on the page.
++  '住民NFT {0} の住民として遊んでいます。操作のたびにウォレットが署名を求めます。NFTを譲渡すると、この端末からは操作できなくなります。': 'Playing as the resident of NFT {0}. The wallet asks to sign each action. Once the NFT is transferred, this device can no longer act for it.',
++  'NFTの住民には、ゲーム内の鍵はまだ使えません。操作はウォレットが署名します。': 'An NFT resident cannot use an in-game key yet; the wallet signs each action.',
++  'この住民NFTは、いまこのウォレットにありません。': 'This resident NFT is not in this wallet now.',
++  '先に国を選んでください。': 'Choose a nation first.',
++  'NFTで遊んでいます': 'Playing as an NFT',
++  'ウォレットの住民に戻る': 'Back to the wallet\'s resident',
++  '住民NFTで入る': 'Enter with a resident NFT',
++  '1枚のNFTにつき1人の住民です。NFTを譲渡すると、住民を操作できるのは新しい持ち主だけになります。': 'One NFT, one resident. When the NFT is transferred, only its new owner can act for the resident.',
++  '住民の記録がありません': 'No resident record',
++  'このNFTで遊ぶ': 'Play this NFT',
++  'このNFTで参加する': 'Join with this NFT',
++  '国を選ぶと参加できます': 'Choose a nation to join',
++  // ⑳ (provisional): NFT residents' refusals (codes 170–175).
++  '住民NFTの持ち主（またはその接続）の署名がありません': 'The resident NFT\'s owner (or its session) did not sign.',
++  'この住民NFTは、この住民のものではないか、正しいNFTではありません': 'This resident NFT is not this resident\'s, or is not a valid NFT.',
++  '住民の記録が、このNFTのものではないか、正しくありません': 'The resident record is not this NFT\'s, or is not valid.',
++  'この住民NFTには譲渡の保護がないため、操作できません': 'This resident NFT lacks its transfer guard, so it cannot act.',
++  '住民NFTが署名のあとに譲渡されました。今の持ち主として操作し直してください': 'The resident NFT moved after this was signed. Act again as its current owner.',
++  'いまの住民NFTの持ち主（またはその接続）だけが操作できます': 'Only the resident NFT\'s current owner (or its session) can act.',
+   // The village handed to the owner's agent (frontier/fdelegation.mjs).
+   '代理人に任せています': 'Handed to your agent',
+   'この村の操作は、いま代理人（自動）が行っています。この端末のゲーム内の鍵では送れません。': 'Your agent (auto) is playing this village now. This device\'s game key cannot send for it.',
+diff --git a/permutation-server/web/sdk/frontier/abi-v2-errors.mjs b/permutation-server/web/sdk/frontier/abi-v2-errors.mjs
+index fa197c8c..56b5515a 100644
+--- a/permutation-server/web/sdk/frontier/abi-v2-errors.mjs
++++ b/permutation-server/web/sdk/frontier/abi-v2-errors.mjs
+@@ -2,5 +2,5 @@
+ // generated by permutation-gateway/scripts/sync-web-sdk.mjs from frontier-abi/vectors/v2/errors.json — do not edit; run: node permutation-gateway/scripts/sync-web-sdk.mjs
+ // Data only (contract §3.3: JS gets the ABI's constants through generated files).
+ const freeze = o => { if (o && typeof o === 'object' && !Object.isFrozen(o)) { Object.freeze(o); for (const v of Object.values(o)) freeze(v); } return o; };
+-export const ERRORS = freeze({"abi_version":2,"contract":"docs/frontier/conquest/CONQUEST-CONTRACT.md v1.1","errors":[{"code":1,"name":"BadData","program":true,"mc":false,"keeper":"refused"},{"code":2,"name":"BadAccount","program":true,"mc":false,"keeper":"refused"},{"code":3,"name":"BadAddress","program":true,"mc":false,"keeper":"refused"},{"code":4,"name":"Auth","program":true,"mc":false,"keeper":"refused"},{"code":5,"name":"WrongStatus","program":true,"mc":false,"keeper":"refused"},{"code":6,"name":"RulesetMismatch","program":true,"mc":false,"keeper":"refused"},{"code":7,"name":"WrongRound","program":true,"mc":false,"keeper":"refused"},{"code":8,"name":"NoAnchor","program":true,"mc":false,"keeper":"wait"},{"code":9,"name":"Crypto","program":true,"mc":false,"keeper":"refused"},{"code":10,"name":"Capacity","program":true,"mc":false,"keeper":"refused"},{"code":11,"name":"SiteTaken","program":true,"mc":false,"keeper":"refused"},{"code":12,"name":"WindowClosed","program":true,"mc":false,"keeper":"stop"},{"code":13,"name":"TooEarly","program":true,"mc":false,"keeper":"wait"},{"code":14,"name":"Reserved14","program":false,"mc":false,"keeper":"refused"},{"code":15,"name":"Kernel","program":true,"mc":false,"keeper":"refused"},{"code":16,"name":"Archived","program":true,"mc":false,"keeper":"stop"},{"code":17,"name":"Bucket","program":true,"mc":false,"keeper":"refused"},{"code":18,"name":"NotTopLevel","program":true,"mc":false,"keeper":"refused"},{"code":19,"name":"Overflow","program":true,"mc":false,"keeper":"refused"},{"code":20,"name":"NotOwner","program":true,"mc":false,"keeper":"refused"},{"code":21,"name":"Insufficient","program":true,"mc":false,"keeper":"refused"},{"code":22,"name":"QueueFull","program":true,"mc":false,"keeper":"refused"},{"code":23,"name":"NoTicket","program":true,"mc":false,"keeper":"refused"},{"code":24,"name":"NotFinal","program":true,"mc":false,"keeper":"refused"},{"code":25,"name":"TooManyAccounts","program":true,"mc":false,"keeper":"refused"},{"code":26,"name":"NotResident","program":true,"mc":false,"keeper":"refused"},{"code":27,"name":"ProvinceFull","program":true,"mc":false,"keeper":"refused"},{"code":28,"name":"HostBusy","program":true,"mc":false,"keeper":"refused"},{"code":29,"name":"Cooldown","program":true,"mc":false,"keeper":"refused"},{"code":30,"name":"TransitState","program":true,"mc":false,"keeper":"refused"},{"code":31,"name":"ArrivalBell","program":true,"mc":false,"keeper":"refused"},{"code":32,"name":"Path","program":true,"mc":false,"keeper":"refused"},{"code":33,"name":"CommitMismatch","program":true,"mc":false,"keeper":"refused"},{"code":34,"name":"QuotaRefused","program":true,"mc":false,"keeper":"refused"},{"code":35,"name":"SlotMoved","program":true,"mc":false,"keeper":"retry-slots"},{"code":36,"name":"NeedArrivalDay","program":true,"mc":false,"keeper":"refused"},{"code":37,"name":"Shielded","program":true,"mc":false,"keeper":"refused"},{"code":38,"name":"DepartureUnsettled","program":true,"mc":false,"keeper":"wait"},{"code":39,"name":"NotGathered","program":true,"mc":false,"keeper":"wait"},{"code":40,"name":"OutOfOrder","program":true,"mc":false,"keeper":"refused"},{"code":41,"name":"NotQuiet","program":true,"mc":false,"keeper":"refused"},{"code":42,"name":"InputsOpen","program":true,"mc":false,"keeper":"refused"},{"code":43,"name":"NotEligible","program":true,"mc":false,"keeper":"refused"},{"code":44,"name":"FoldStale","program":true,"mc":false,"keeper":"refused"},{"code":45,"name":"TicketState","program":true,"mc":false,"keeper":"refused"},{"code":46,"name":"NotDormant","program":true,"mc":false,"keeper":"refused"},{"code":47,"name":"Explored","program":true,"mc":false,"keeper":"refused"},{"code":48,"name":"SessionExpired","program":true,"mc":false,"keeper":"refused"},{"code":49,"name":"WrongRegion","program":true,"mc":false,"keeper":"refused"},{"code":50,"name":"Aborted","program":true,"mc":false,"keeper":"refused"},{"code":51,"name":"TipTooLow","program":true,"mc":false,"keeper":"refused"},{"code":52,"name":"AlreadyDone","program":true,"mc":false,"keeper":"success"},{"code":53,"name":"LatchClosed","program":true,"mc":false,"keeper":"stop"},{"code":54,"name":"SeedNotReady","program":true,"mc":false,"keeper":"wait"},{"code":55,"name":"BadPlaintext","program":true,"mc":false,"keeper":"refused"},{"code":56,"name":"Announce","program":true,"mc":false,"keeper":"refused"},{"code":57,"name":"ReservedSite","program":true,"mc":false,"keeper":"refused"},{"code":58,"name":"HostInTransit","program":true,"mc":false,"keeper":"refused"},{"code":59,"name":"JoinGate","program":true,"mc":false,"keeper":"refused"},{"code":60,"name":"CohortFull","program":true,"mc":false,"keeper":"refused"},{"code":61,"name":"TipNotPreset","program":false,"mc":false,"keeper":"refused"},{"code":62,"name":"CapturePending","program":true,"mc":true,"keeper":"wait"},{"code":63,"name":"Immune","program":true,"mc":true,"keeper":"refused"},{"code":64,"name":"SiegeBusy","program":true,"mc":true,"keeper":"refused"},{"code":65,"name":"StakeUnsettled","program":true,"mc":true,"keeper":"refused"},{"code":66,"name":"SiegeCap","program":true,"mc":true,"keeper":"refused"},{"code":67,"name":"NotOnHex","program":true,"mc":true,"keeper":"refused"},{"code":68,"name":"TooLate","program":true,"mc":true,"keeper":"refused"},{"code":69,"name":"HoldingsFull","program":true,"mc":true,"keeper":"refused"},{"code":70,"name":"NotBesiegeable","program":true,"mc":true,"keeper":"refused"},{"code":71,"name":"Friendly","program":true,"mc":true,"keeper":"refused"},{"code":72,"name":"FrontierProtected","program":true,"mc":true,"keeper":"refused"},{"code":73,"name":"Heartland","program":true,"mc":true,"keeper":"refused"},{"code":74,"name":"NotDue","program":true,"mc":true,"keeper":"wait"},{"code":75,"name":"OutpostRule","program":true,"mc":true,"keeper":"refused"},{"code":76,"name":"FoldOutOfOrder","program":true,"mc":true,"keeper":"refused"},{"code":77,"name":"FoldTooEarly","program":true,"mc":true,"keeper":"wait"},{"code":78,"name":"NotLead","program":true,"mc":true,"keeper":"refused"},{"code":79,"name":"VaultSite","program":true,"mc":true,"keeper":"refused"},{"code":80,"name":"VaultLimit","program":true,"mc":true,"keeper":"refused"},{"code":81,"name":"WalletRequired","program":true,"mc":true,"keeper":"refused"},{"code":82,"name":"ProvinceBusy","program":true,"mc":true,"keeper":"refused"},{"code":83,"name":"CaravanEarly","program":true,"mc":true,"keeper":"wait"},{"code":84,"name":"RaidState","program":true,"mc":true,"keeper":"refused"},{"code":85,"name":"RaidWindow","program":true,"mc":true,"keeper":"wait"},{"code":86,"name":"NotOnTile","program":true,"mc":true,"keeper":"refused"},{"code":87,"name":"StructureSite","program":true,"mc":true,"keeper":"refused"},{"code":88,"name":"StructureLimit","program":true,"mc":true,"keeper":"refused"},{"code":89,"name":"StructureFull","program":true,"mc":true,"keeper":"refused"},{"code":90,"name":"FortManned","program":true,"mc":true,"keeper":"refused"},{"code":91,"name":"ProposalsFull","program":true,"mc":true,"keeper":"refused"},{"code":92,"name":"NotVoter","program":true,"mc":true,"keeper":"refused"},{"code":93,"name":"ProposalState","program":true,"mc":true,"keeper":"refused"},{"code":94,"name":"ContinuousWorld","program":true,"mc":true,"keeper":"refused"},{"code":99,"name":"NotImplemented","program":false,"mc":false,"keeper":"refused"}]});
++export const ERRORS = freeze({"abi_version":2,"contract":"docs/frontier/conquest/CONQUEST-CONTRACT.md v1.1","errors":[{"code":1,"name":"BadData","program":true,"mc":false,"keeper":"refused"},{"code":2,"name":"BadAccount","program":true,"mc":false,"keeper":"refused"},{"code":3,"name":"BadAddress","program":true,"mc":false,"keeper":"refused"},{"code":4,"name":"Auth","program":true,"mc":false,"keeper":"refused"},{"code":5,"name":"WrongStatus","program":true,"mc":false,"keeper":"refused"},{"code":6,"name":"RulesetMismatch","program":true,"mc":false,"keeper":"refused"},{"code":7,"name":"WrongRound","program":true,"mc":false,"keeper":"refused"},{"code":8,"name":"NoAnchor","program":true,"mc":false,"keeper":"wait"},{"code":9,"name":"Crypto","program":true,"mc":false,"keeper":"refused"},{"code":10,"name":"Capacity","program":true,"mc":false,"keeper":"refused"},{"code":11,"name":"SiteTaken","program":true,"mc":false,"keeper":"refused"},{"code":12,"name":"WindowClosed","program":true,"mc":false,"keeper":"stop"},{"code":13,"name":"TooEarly","program":true,"mc":false,"keeper":"wait"},{"code":14,"name":"Reserved14","program":false,"mc":false,"keeper":"refused"},{"code":15,"name":"Kernel","program":true,"mc":false,"keeper":"refused"},{"code":16,"name":"Archived","program":true,"mc":false,"keeper":"stop"},{"code":17,"name":"Bucket","program":true,"mc":false,"keeper":"refused"},{"code":18,"name":"NotTopLevel","program":true,"mc":false,"keeper":"refused"},{"code":19,"name":"Overflow","program":true,"mc":false,"keeper":"refused"},{"code":20,"name":"NotOwner","program":true,"mc":false,"keeper":"refused"},{"code":21,"name":"Insufficient","program":true,"mc":false,"keeper":"refused"},{"code":22,"name":"QueueFull","program":true,"mc":false,"keeper":"refused"},{"code":23,"name":"NoTicket","program":true,"mc":false,"keeper":"refused"},{"code":24,"name":"NotFinal","program":true,"mc":false,"keeper":"refused"},{"code":25,"name":"TooManyAccounts","program":true,"mc":false,"keeper":"refused"},{"code":26,"name":"NotResident","program":true,"mc":false,"keeper":"refused"},{"code":27,"name":"ProvinceFull","program":true,"mc":false,"keeper":"refused"},{"code":28,"name":"HostBusy","program":true,"mc":false,"keeper":"refused"},{"code":29,"name":"Cooldown","program":true,"mc":false,"keeper":"refused"},{"code":30,"name":"TransitState","program":true,"mc":false,"keeper":"refused"},{"code":31,"name":"ArrivalBell","program":true,"mc":false,"keeper":"refused"},{"code":32,"name":"Path","program":true,"mc":false,"keeper":"refused"},{"code":33,"name":"CommitMismatch","program":true,"mc":false,"keeper":"refused"},{"code":34,"name":"QuotaRefused","program":true,"mc":false,"keeper":"refused"},{"code":35,"name":"SlotMoved","program":true,"mc":false,"keeper":"retry-slots"},{"code":36,"name":"NeedArrivalDay","program":true,"mc":false,"keeper":"refused"},{"code":37,"name":"Shielded","program":true,"mc":false,"keeper":"refused"},{"code":38,"name":"DepartureUnsettled","program":true,"mc":false,"keeper":"wait"},{"code":39,"name":"NotGathered","program":true,"mc":false,"keeper":"wait"},{"code":40,"name":"OutOfOrder","program":true,"mc":false,"keeper":"refused"},{"code":41,"name":"NotQuiet","program":true,"mc":false,"keeper":"refused"},{"code":42,"name":"InputsOpen","program":true,"mc":false,"keeper":"refused"},{"code":43,"name":"NotEligible","program":true,"mc":false,"keeper":"refused"},{"code":44,"name":"FoldStale","program":true,"mc":false,"keeper":"refused"},{"code":45,"name":"TicketState","program":true,"mc":false,"keeper":"refused"},{"code":46,"name":"NotDormant","program":true,"mc":false,"keeper":"refused"},{"code":47,"name":"Explored","program":true,"mc":false,"keeper":"refused"},{"code":48,"name":"SessionExpired","program":true,"mc":false,"keeper":"refused"},{"code":49,"name":"WrongRegion","program":true,"mc":false,"keeper":"refused"},{"code":50,"name":"Aborted","program":true,"mc":false,"keeper":"refused"},{"code":51,"name":"TipTooLow","program":true,"mc":false,"keeper":"refused"},{"code":52,"name":"AlreadyDone","program":true,"mc":false,"keeper":"success"},{"code":53,"name":"LatchClosed","program":true,"mc":false,"keeper":"stop"},{"code":54,"name":"SeedNotReady","program":true,"mc":false,"keeper":"wait"},{"code":55,"name":"BadPlaintext","program":true,"mc":false,"keeper":"refused"},{"code":56,"name":"Announce","program":true,"mc":false,"keeper":"refused"},{"code":57,"name":"ReservedSite","program":true,"mc":false,"keeper":"refused"},{"code":58,"name":"HostInTransit","program":true,"mc":false,"keeper":"refused"},{"code":59,"name":"JoinGate","program":true,"mc":false,"keeper":"refused"},{"code":60,"name":"CohortFull","program":true,"mc":false,"keeper":"refused"},{"code":61,"name":"TipNotPreset","program":false,"mc":false,"keeper":"refused"},{"code":62,"name":"CapturePending","program":true,"mc":true,"keeper":"wait"},{"code":63,"name":"Immune","program":true,"mc":true,"keeper":"refused"},{"code":64,"name":"SiegeBusy","program":true,"mc":true,"keeper":"refused"},{"code":65,"name":"StakeUnsettled","program":true,"mc":true,"keeper":"refused"},{"code":66,"name":"SiegeCap","program":true,"mc":true,"keeper":"refused"},{"code":67,"name":"NotOnHex","program":true,"mc":true,"keeper":"refused"},{"code":68,"name":"TooLate","program":true,"mc":true,"keeper":"refused"},{"code":69,"name":"HoldingsFull","program":true,"mc":true,"keeper":"refused"},{"code":70,"name":"NotBesiegeable","program":true,"mc":true,"keeper":"refused"},{"code":71,"name":"Friendly","program":true,"mc":true,"keeper":"refused"},{"code":72,"name":"FrontierProtected","program":true,"mc":true,"keeper":"refused"},{"code":73,"name":"Heartland","program":true,"mc":true,"keeper":"refused"},{"code":74,"name":"NotDue","program":true,"mc":true,"keeper":"wait"},{"code":75,"name":"OutpostRule","program":true,"mc":true,"keeper":"refused"},{"code":76,"name":"FoldOutOfOrder","program":true,"mc":true,"keeper":"refused"},{"code":77,"name":"FoldTooEarly","program":true,"mc":true,"keeper":"wait"},{"code":78,"name":"NotLead","program":true,"mc":true,"keeper":"refused"},{"code":79,"name":"VaultSite","program":true,"mc":true,"keeper":"refused"},{"code":80,"name":"VaultLimit","program":true,"mc":true,"keeper":"refused"},{"code":81,"name":"WalletRequired","program":true,"mc":true,"keeper":"refused"},{"code":82,"name":"ProvinceBusy","program":true,"mc":true,"keeper":"refused"},{"code":83,"name":"CaravanEarly","program":true,"mc":true,"keeper":"wait"},{"code":84,"name":"RaidState","program":true,"mc":true,"keeper":"refused"},{"code":85,"name":"RaidWindow","program":true,"mc":true,"keeper":"wait"},{"code":86,"name":"NotOnTile","program":true,"mc":true,"keeper":"refused"},{"code":87,"name":"StructureSite","program":true,"mc":true,"keeper":"refused"},{"code":88,"name":"StructureLimit","program":true,"mc":true,"keeper":"refused"},{"code":89,"name":"StructureFull","program":true,"mc":true,"keeper":"refused"},{"code":90,"name":"FortManned","program":true,"mc":true,"keeper":"refused"},{"code":91,"name":"ProposalsFull","program":true,"mc":true,"keeper":"refused"},{"code":92,"name":"NotVoter","program":true,"mc":true,"keeper":"refused"},{"code":93,"name":"ProposalState","program":true,"mc":true,"keeper":"refused"},{"code":94,"name":"ContinuousWorld","program":true,"mc":true,"keeper":"refused"},{"code":99,"name":"NotImplemented","program":false,"mc":false,"keeper":"refused"},{"code":170,"name":"ResidentNotSigned","program":true,"mc":true,"keeper":"refused"},{"code":171,"name":"ResidentAsset","program":true,"mc":true,"keeper":"refused"},{"code":172,"name":"ResidentAccount","program":true,"mc":true,"keeper":"refused"},{"code":173,"name":"ResidentUnguarded","program":true,"mc":true,"keeper":"refused"},{"code":174,"name":"ResidentStaleGeneration","program":true,"mc":true,"keeper":"refused"},{"code":175,"name":"ResidentNotCurrentAuthority","program":true,"mc":true,"keeper":"refused"}]});
+ export default ERRORS;
+diff --git a/permutation-server/web/sdk/frontier/abi-v2-logs.mjs b/permutation-server/web/sdk/frontier/abi-v2-logs.mjs
+index 6c4778aa..9d755008 100644
+--- a/permutation-server/web/sdk/frontier/abi-v2-logs.mjs
++++ b/permutation-server/web/sdk/frontier/abi-v2-logs.mjs
+@@ -2,5 +2,5 @@
+ // generated by permutation-gateway/scripts/sync-web-sdk.mjs from frontier-abi/vectors/v2/logs.json — do not edit; run: node permutation-gateway/scripts/sync-web-sdk.mjs
+ // Data only (contract §3.3: JS gets the ABI's constants through generated files).
+ const freeze = o => { if (o && typeof o === 'object' && !Object.isFrozen(o)) { Object.freeze(o); for (const v of Object.values(o)) freeze(v); } return o; };
+-export const LOGS = freeze({"abi_version":2,"kinds":[{"kind":80,"name":"SIEGE_DECLARED","key":[{"name":"p","len":4},{"name":"q","len":4},{"name":"site","len":1}],"payload":[{"name":"attacker","len":1},{"name":"owner_faction","len":1},{"name":"target","len":1},{"name":"declarer_tag","len":8},{"name":"required","len":1},{"name":"vigil_start","len":2},{"name":"vigil_next","len":2},{"name":"vigil_from_day","len":2},{"name":"stake","len":4},{"name":"src_key","len":8},{"name":"owner_tag","len":8},{"name":"lead_host_id","len":8}],"body_without_tail_len":61,"vector":{"bell":2080,"body_without_tail":"01502008000005000000ffffffff036b6b6b6b88a5c2dffc19366b6b886b886b886b88a5c22a000000012301006b88a5c2dffc19366b88a5c2dffc1936","body":"01502008000005000000ffffffff036b6b6b6b88a5c2dffc19366b6b886b886b886b88a5c22a000000012301006b88a5c2dffc19366b88a5c2dffc1936030404000000000000001f4653a70c2e770f91da2ae5a1c2ddc9cce549fd0cf015000a831913f6361665050500000000000000ec81a76b5f2f2f822b86ffb10d1cf8d039f559daf355e6d692020a632a127576060600000000000000e0144c6a9a868bd208d8369e09ca5f299d8a951e964f4e792a77c9c9697e6cc4","decodes":true,"chains":[{"entity":4,"who":"Base(Citizen(Tag8(3898424990439409771)))","prev_seq":3,"prev_head":"d28b2b34131745ab5f1828fa9567a70d2a1f759a9eb727fef4009df81e84b7d4","seq":4,"head":"1f4653a70c2e770f91da2ae5a1c2ddc9cce549fd0cf015000a831913f6361665"},{"entity":5,"who":"Base(Holding { p: 2, q: -1, site: 3 })","prev_seq":4,"prev_head":"83f0006d26483b5a36b2fc44c42c094a222f85a370a888b5cb192714074fd1cb","seq":5,"head":"ec81a76b5f2f2f822b86ffb10d1cf8d039f559daf355e6d692020a632a127576"},{"entity":6,"who":"Base(Province { p: 5, q: -1 })","prev_seq":5,"prev_head":"df3822051bb1a1bdb97e7d60b1c7f46070fe93df14acbbfd64f899a109ab327d","seq":6,"head":"e0144c6a9a868bd208d8369e09ca5f299d8a951e964f4e792a77c9c9697e6cc4"}]}},{"kind":81,"name":"SIEGE_SETTLED","key":[{"name":"p","len":4},{"name":"q","len":4},{"name":"site","len":1}],"payload":[{"name":"reason","len":1},{"name":"recipient_key","len":8},{"name":"amount","len":4},{"name":"burned","len":4},{"name":"slot_released","len":1}],"body_without_tail_len":33,"vector":{"bell":2081,"body_without_tail":"01512108000005000000ffffffff03002a000000012301006b88a5c26b88a5c26b","body":"01512108000005000000ffffffff03002a000000012301006b88a5c26b88a5c26b01060400000000000000507ad3c9fbdc2d9f781ac0715075e619224716013c8afdcf2171cdeeccc03617","decodes":true,"chains":[{"entity":6,"who":"Base(Province { p: 5, q: -1 })","prev_seq":3,"prev_head":"281d0c1e9dabb7c8c0b9713d626468289be7db41e5acb1d2f8a9e5893c9cb74e","seq":4,"head":"507ad3c9fbdc2d9f781ac0715075e619224716013c8afdcf2171cdeeccc03617"},{"entity":5,"who":"Base(Holding { p: 2, q: -1, site: 3 })","optional":true}]}},{"kind":82,"name":"CONQUEST","key":[{"name":"p","len":4},{"name":"q","len":4},{"name":"bell","len":4}],"payload":[{"name":"n","len":1},{"name":"events","len":56},{"name":"records_digest","len":32},{"name":"keep_holder","len":1},{"name":"keep_contender","len":1},{"name":"keep_progress","len":1},{"name":"keep_troops","len":4},{"name":"donor_host_id","len":8},{"name":"snapshot_present","len":1},{"name":"weight","len":14}],"body_without_tail_len":137,"vector":{"bell":2082,"body_without_tail":"01522208000005000000ffffffff213e5b78026b88a5c2dffc193653708daac7e4011e3b587592afcce90623405d7a97b4d1ee0b2845627f9cb9d6f3102d4a6784a1bedbf815324f6c89a66b88a5c2dffc193653708daac7e4011e3b587592afcce90623405d7a97b4d1ee6b6b6b6b88a5c26b88a5c2dffc19366b6b88a5c2dffc193653708daac7e4","body":"01522208000005000000ffffffff213e5b78026b88a5c2dffc193653708daac7e4011e3b587592afcce90623405d7a97b4d1ee0b2845627f9cb9d6f3102d4a6784a1bedbf815324f6c89a66b88a5c2dffc193653708daac7e4011e3b587592afcce90623405d7a97b4d1ee6b6b6b6b88a5c26b88a5c2dffc19366b6b88a5c2dffc193653708daac7e4010604000000000000003b67ada7c5fdf1a7b019b3a4dd816954b72426177551d4d13b9ec0d4064dbba8","decodes":true,"chains":[{"entity":6,"who":"Base(Province { p: 5, q: -1 })","prev_seq":3,"prev_head":"2b3f805f375a82ba477c33a0a8cb0193a971107cc49cae25d4acd94ccde8679c","seq":4,"head":"3b67ada7c5fdf1a7b019b3a4dd816954b72426177551d4d13b9ec0d4064dbba8"}]}},{"kind":83,"name":"CAPTURE_SETTLED","key":[{"name":"p","len":4},{"name":"q","len":4},{"name":"site","len":1}],"payload":[{"name":"outcome","len":1},{"name":"credited","len":1},{"name":"captor_tag","len":8},{"name":"victim_tag","len":8},{"name":"new_gen","len":1},{"name":"slot","len":1},{"name":"rent_moved","len":8},{"name":"bonds_refunded","len":8},{"name":"walls_after","len":4}],"body_without_tail_len":55,"vector":{"bell":2083,"body_without_tail":"01532308000005000000ffffffff03006b6b88a5c2dffc19366b88a5c2dffc19366b6b6b88a5c2dffc19366b88a5c2dffc19366b88a5c2","body":"01532308000005000000ffffffff03006b6b88a5c2dffc19366b88a5c2dffc19366b6b6b88a5c2dffc19366b88a5c2dffc19366b88a5c2050304000000000000002d7c1e39690e97514ac34c0b74d0f39904f0ce55eb22ec7c63230908c2239c9d040500000000000000bfc315e89488eac867acd9ed4aab81d43284b523e431084e5f6344564fa558c80406000000000000006f18455db9ea8d5df1bfa2d269d9778374dc80b25e6a34957a8eca383c4845fa050700000000000000e76005aa70eb97a00297ae6809a402810affe8164364648a60c521ed21306fc00608000000000000003733249cec7f5dfe76b48e2dfd62defeb92924d09e848f5cf90aa750f5a7e6e4","decodes":true,"chains":[{"entity":3,"who":"Base(JoinShardOf(Tag8(3898424990439409771)))","prev_seq":3,"prev_head":"73b9c68efd5c830340a06f214ef2ee42859c0df9ccfa54a65c64f42191fdfbc6","seq":4,"head":"2d7c1e39690e97514ac34c0b74d0f39904f0ce55eb22ec7c63230908c2239c9d"},{"entity":4,"who":"Base(Citizen(Tag8(3898424990439409771)))","prev_seq":4,"prev_head":"98ec6a190367b440606f4fe2f4daeda43f208d9d6240a6265e1f2942b829f9d2","seq":5,"head":"bfc315e89488eac867acd9ed4aab81d43284b523e431084e5f6344564fa558c8"},{"entity":4,"who":"Base(Citizen(Tag8(3898424990439409771)))","prev_seq":5,"prev_head":"89506868ca328929832179050385f85b4cc197250c39e706f04cbd9146e85753","seq":6,"head":"6f18455db9ea8d5df1bfa2d269d9778374dc80b25e6a34957a8eca383c4845fa"},{"entity":5,"who":"Base(Holding { p: 5, q: -1, site: 3 })","prev_seq":6,"prev_head":"2ce1dd288178aac6fd744ca68eca640c295814dc3149f6891aabfdedd5718233","seq":7,"head":"e76005aa70eb97a00297ae6809a402810affe8164364648a60c521ed21306fc0"},{"entity":6,"who":"Base(Province { p: 5, q: -1 })","prev_seq":7,"prev_head":"32855fd64821d158f0437968b73737ff97372641363d2a22eff2ba79370f683f","seq":8,"head":"3733249cec7f5dfe76b48e2dfd62defeb92924d09e848f5cf90aa750f5a7e6e4"},{"entity":3,"who":"Base(JoinShardOf(Tag8(3898424990439409771)))","optional":true}]}},{"kind":84,"name":"KEEP","key":[{"name":"p","len":4},{"name":"q","len":4}],"payload":[{"name":"cause","len":1},{"name":"holder","len":1},{"name":"from","len":1},{"name":"troops","len":4},{"name":"consolidated_until","len":4},{"name":"gen","len":4}],"body_without_tail_len":29,"vector":{"bell":2084,"body_without_tail":"01542408000005000000ffffffff6b6b6b6b88a5c26b88a5c26b88a5c2","body":"01542408000005000000ffffffff6b6b6b6b88a5c26b88a5c26b88a5c20106040000000000000049167d321275b5e72eed6d87b42801ea0eea8e9d113b9ab423b466de2fa21a75","decodes":true,"chains":[{"entity":6,"who":"Base(Province { p: 5, q: -1 })","prev_seq":3,"prev_head":"eb8af8a5566d0680fde2d0f248e0d61e2fb4a697b7240c564ab6ccb45dfe2c7a","seq":4,"head":"49167d321275b5e72eed6d87b42801ea0eea8e9d113b9ab423b466de2fa21a75"}]}},{"kind":85,"name":"MARCH_FOLD","key":[{"name":"m","len":4},{"name":"n","len":4},{"name":"hour","len":4}],"payload":[{"name":"weight","len":28},{"name":"controller","len":1},{"name":"contested","len":1},{"name":"credit","len":1},{"name":"lost","len":1},{"name":"captures","len":12}],"body_without_tail_len":62,"vector":{"bell":2085,"body_without_tail":"0155250800000200000002000000213e5b786b88a5c2dffc193653708daac7e4011e3b587592afcce90623405d7a6b6b6b6b6b88a5c2dffc193653708daa","body":"0155250800000200000002000000213e5b786b88a5c2dffc193653708daac7e4011e3b587592afcce90623405d7a6b6b6b6b6b88a5c2dffc193653708daa010804000000000000000faa1b06b77a816674f1ae79daa3aac48e4fc2f5b4e17e3d2e73cfd083da4915","decodes":true,"chains":[{"entity":8,"who":"March { m: 2, n: 2 }","prev_seq":3,"prev_head":"eede49f978c040bd5391f9e98c5b7d299e918a87311efc7d526ae25df26be23f","seq":4,"head":"0faa1b06b77a816674f1ae79daa3aac48e4fc2f5b4e17e3d2e73cfd083da4915"}]}},{"kind":86,"name":"RETIRE","key":[{"name":"host_id","len":8}],"payload":[{"name":"troops","len":4},{"name":"home_key","len":8},{"name":"by","len":1}],"body_without_tail_len":27,"vector":{"bell":2086,"body_without_tail":"0156260800002a000000012301006b88a5c22a000000012301006b","body":"0156260800002a000000012301006b88a5c22a000000012301006b010604000000000000003036a5411bd5b5569778ac578c78c9abbacc26bdbf66d8756405c6cbbbad7757","decodes":true,"chains":[{"entity":6,"who":"Base(InTx)","prev_seq":3,"prev_head":"6d1a077d5d6f20161bd253966a9a535635ef9d416f3e55990c8e1ad0a9237fbf","seq":4,"head":"3036a5411bd5b5569778ac578c78c9abbacc26bdbf66d8756405c6cbbbad7757"}]}},{"kind":87,"name":"NEUTRAL","key":[{"name":"p","len":4},{"name":"q","len":4},{"name":"site","len":1}],"payload":[{"name":"kind","len":1},{"name":"garrison","len":4},{"name":"tier","len":1}],"body_without_tail_len":21,"vector":{"bell":2087,"body_without_tail":"01572708000005000000ffffffff036b6b88a5c26b","body":"01572708000005000000ffffffff036b6b88a5c26b01060400000000000000dccd9e8aef6129e3be33589027a8230632aa81b8b88c1a0cfccc49fa34334ce1","decodes":true,"chains":[{"entity":6,"who":"Base(Province { p: 5, q: -1 })","prev_seq":3,"prev_head":"b5cfbde72a9e03fc9af8e487d79bb91ec97d2c50517532e9af3c2cc5a52893d8","seq":4,"head":"dccd9e8aef6129e3be33589027a8230632aa81b8b88c1a0cfccc49fa34334ce1"}]}},{"kind":88,"name":"OUTPOST_SETTLED","key":[{"name":"p","len":4},{"name":"q","len":4},{"name":"site","len":1}],"payload":[{"name":"citizen_tag","len":8},{"name":"order","len":1},{"name":"gen","len":1},{"name":"shield_until","len":8},{"name":"anchor_key","len":8}],"body_without_tail_len":41,"vector":{"bell":2088,"body_without_tail":"01582808000005000000ffffffff036b88a5c2dffc19366b6b6b88a5c2dffc19362a00000001230100","body":"01582808000005000000ffffffff036b88a5c2dffc19366b6b6b88a5c2dffc19362a00000001230100040304000000000000003578c88bfb53862c422224614b6fb3603b78b7aa92b11a8b9070b7691be6c4120405000000000000008f887345b2c184904ddc7577ee1f5612dd7db39a8a01ab392246c31011e6406a050600000000000000307f74245b7a280784f458518f9166fceded696ea9d6924a50d55377aea684e7060700000000000000a062d10e273343a44a67177b2a8420d60dc61c141369bf14f60430d02ad67649","decodes":true,"chains":[{"entity":3,"who":"Base(JoinShardOf(Tag8(3898424990439409771)))","prev_seq":3,"prev_head":"4b0e74bbd16427c0b231630a3c42f8d6d9bab5d10fc3e7a426aabcd5cb0629db","seq":4,"head":"3578c88bfb53862c422224614b6fb3603b78b7aa92b11a8b9070b7691be6c412"},{"entity":4,"who":"Base(Citizen(Tag8(3898424990439409771)))","prev_seq":4,"prev_head":"d919c694f1a0958fabd98ccc52ccbdbcdc7c897c35de00993646b62a3e607f94","seq":5,"head":"8f887345b2c184904ddc7577ee1f5612dd7db39a8a01ab392246c31011e6406a"},{"entity":5,"who":"Base(Holding { p: 5, q: -1, site: 3 })","prev_seq":5,"prev_head":"39c9d29c4d650437ccb7c46754a63d0342709b04f28d8b5ffc3de0849e2f3179","seq":6,"head":"307f74245b7a280784f458518f9166fceded696ea9d6924a50d55377aea684e7"},{"entity":6,"who":"Base(Province { p: 5, q: -1 })","prev_seq":6,"prev_head":"496cad0c3b181002a56d492292f18d03bcca4f5484e4657d86eeea1be48de915","seq":7,"head":"a062d10e273343a44a67177b2a8420d60dc61c141369bf14f60430d02ad67649"}]}},{"kind":90,"name":"VAULT_BUILT","key":[{"name":"p","len":4},{"name":"q","len":4},{"name":"tile","len":1}],"payload":[{"name":"owner_tag","len":8},{"name":"faction","len":1},{"name":"gen","len":1},{"name":"holding_key","len":8},{"name":"cost_digest","len":32}],"body_without_tail_len":65,"vector":{"bell":2090,"body_without_tail":"015a2a08000005000000ffffffff216b88a5c2dffc19366b6b6b88a5c2dffc19366b88a5c2dffc193653708daac7e4011e3b587592afcce90623405d7a97b4d1ee","body":"015a2a08000005000000ffffffff216b88a5c2dffc19366b6b6b88a5c2dffc19366b88a5c2dffc193653708daac7e4011e3b587592afcce90623405d7a97b4d1ee00","decodes":true,"chains":[]}},{"kind":91,"name":"CARAVAN_SENT","key":[{"name":"owner_tag","len":8},{"name":"seq","len":4}],"payload":[{"name":"faction","len":1},{"name":"src","len":8},{"name":"dst","len":8},{"name":"steps","len":1},{"name":"cargo","len":32},{"name":"arrive_ts","len":8},{"name":"runs","len":36},{"name":"worn_bps","len":2},{"name":"path","len":12}],"body_without_tail_len":126,"vector":{"bell":2091,"body_without_tail":"015b2b080000213e5b7895b2cfec213e5b786b6b88a5c2dffc19366b88a5c2dffc19366b6b88a5c2dffc193653708daac7e4011e3b587592afcce90623405d7a97b4d1ee6b88a5c2dffc19366b88a5c2dffc193653708daac7e4011e3b587592afcce90623405d7a97b4d1ee0b2845626b886b88a5c2dffc193653708daa","body":"015b2b080000213e5b7895b2cfec213e5b786b6b88a5c2dffc19366b88a5c2dffc19366b6b88a5c2dffc193653708daac7e4011e3b587592afcce90623405d7a97b4d1ee6b88a5c2dffc19366b88a5c2dffc193653708daac7e4011e3b587592afcce90623405d7a97b4d1ee0b2845626b886b88a5c2dffc193653708daa00","decodes":true,"chains":[]}},{"kind":92,"name":"CARAVAN_SETTLED","key":[{"name":"owner_tag","len":8},{"name":"seq","len":4}],"payload":[{"name":"outcome","len":1},{"name":"dst","len":8},{"name":"cargo","len":32},{"name":"fee","len":8}],"body_without_tail_len":67,"vector":{"bell":2092,"body_without_tail":"015c2c080000213e5b7895b2cfec213e5b78006b88a5c2dffc19366b88a5c2dffc193653708daac7e4011e3b587592afcce90623405d7a97b4d1ee6b88a5c2dffc1936","body":"015c2c080000213e5b7895b2cfec213e5b78006b88a5c2dffc19366b88a5c2dffc193653708daac7e4011e3b587592afcce90623405d7a97b4d1ee6b88a5c2dffc193600","decodes":true,"chains":[]}},{"kind":93,"name":"CARAVAN_RAIDED","key":[{"name":"owner_tag","len":8},{"name":"seq","len":4}],"payload":[{"name":"p","len":4},{"name":"q","len":4},{"name":"bell","len":4},{"name":"choice","len":1},{"name":"by","len":1},{"name":"raider_tag","len":8},{"name":"taken","len":32},{"name":"dst","len":8},{"name":"cleared","len":17},{"name":"domestic","len":1}],"body_without_tail_len":98,"vector":{"bell":2093,"body_without_tail":"015d2d080000213e5b7895b2cfec213e5b7805000000ffffffff6b88a5c26b6b6b88a5c2dffc19366b88a5c2dffc193653708daac7e4011e3b587592afcce90623405d7a97b4d1ee6b88a5c2dffc19366b88a5c2dffc193653708daac7e4011e3b6b","body":"015d2d080000213e5b7895b2cfec213e5b7805000000ffffffff6b88a5c26b6b6b88a5c2dffc19366b88a5c2dffc193653708daac7e4011e3b587592afcce90623405d7a97b4d1ee6b88a5c2dffc19366b88a5c2dffc193653708daac7e4011e3b6b00","decodes":true,"chains":[]}},{"kind":94,"name":"VAULT_SEIZED","key":[{"name":"p","len":4},{"name":"q","len":4},{"name":"tile","len":1}],"payload":[{"name":"captor_tag","len":8},{"name":"prev_tag","len":8},{"name":"new_gen","len":1},{"name":"domestic","len":1},{"name":"host_id","len":8}],"body_without_tail_len":41,"vector":{"bell":2094,"body_without_tail":"015e2e08000005000000ffffffff216b88a5c2dffc19366b88a5c2dffc19366b6b2a00000001230100","body":"015e2e08000005000000ffffffff216b88a5c2dffc19366b88a5c2dffc19366b6b2a0000000123010003040400000000000000d7e01941b07f1b486ff65e8dc5b93e802b92689fa3be54c72d274b7d2c37baa5040500000000000000baf034311aac94fc514ec36c7ae48d2fd73d03ca8f23d5bcc1dc7c8b5f131f44090600000000000000c6c80207ab014ce54acb2ea22b24a7ad3c062eeca6cef63f9dc9a1ab4afb2902","decodes":true,"chains":[{"entity":4,"who":"Base(Citizen(Tag8(3898424990439409771)))","prev_seq":3,"prev_head":"fb64323c6ad382df049d1e798a8d7e92df2797115aa01238a7d52c05a31fffac","seq":4,"head":"d7e01941b07f1b486ff65e8dc5b93e802b92689fa3be54c72d274b7d2c37baa5"},{"entity":4,"who":"Base(Citizen(Tag8(3898424990439409771)))","prev_seq":4,"prev_head":"b31932d046ad11f7bc3f5d4c5b88f196375707ab872a5b83d66ca40969448936","seq":5,"head":"baf034311aac94fc514ec36c7ae48d2fd73d03ca8f23d5bcc1dc7c8b5f131f44"},{"entity":9,"who":"Vault { p: 5, q: -1, tile: 33 }","prev_seq":5,"prev_head":"fd973722d628e883ce9f61d74f327c21b98151c91c363425b4bc4ff470d1ca07","seq":6,"head":"c6c80207ab014ce54acb2ea22b24a7ad3c062eeca6cef63f9dc9a1ab4afb2902"}]}},{"kind":95,"name":"STRUCTURE_BUILT","key":[{"name":"p","len":4},{"name":"q","len":4},{"name":"tile","len":1}],"payload":[{"name":"owner_tag","len":8},{"name":"faction","len":1},{"name":"gen","len":1},{"name":"entry","len":1},{"name":"notify","len":1},{"name":"holding_key","len":8},{"name":"cost_digest","len":32},{"name":"kind","len":1}],"body_without_tail_len":68,"vector":{"bell":2095,"body_without_tail":"015f2f08000005000000ffffffff216b88a5c2dffc19366b6b6b6b6b88a5c2dffc19366b88a5c2dffc193653708daac7e4011e3b587592afcce90623405d7a97b4d1ee6b","body":"015f2f08000005000000ffffffff216b88a5c2dffc19366b6b6b6b6b88a5c2dffc19366b88a5c2dffc193653708daac7e4011e3b587592afcce90623405d7a97b4d1ee6b00","decodes":true,"chains":[]}},{"kind":96,"name":"STRUCTURE_SEIZED","key":[{"name":"p","len":4},{"name":"q","len":4},{"name":"tile","len":1}],"payload":[{"name":"captor_tag","len":8},{"name":"prev_tag","len":8},{"name":"new_gen","len":1},{"name":"faction","len":1},{"name":"domestic","len":1},{"name":"host_id","len":8},{"name":"kind","len":1}],"body_without_tail_len":43,"vector":{"bell":2096,"body_without_tail":"01603008000005000000ffffffff216b88a5c2dffc19366b88a5c2dffc19366b6b6b2a000000012301006b","body":"01603008000005000000ffffffff216b88a5c2dffc19366b88a5c2dffc19366b6b6b2a000000012301006b04040400000000000000236503d9f477641bd37c526a7d25b031677694ec12078498b07e615e93d629460405000000000000003dbd4dc0d5684bf8d4aef01729edc303143fb3a4fcd4ae1e903a8959bc0df2ca060600000000000000d0d64c6ef4833d0fd2f10a7f6db6d6290fa9465c07bcc39e694474937a67f8ab0b0700000000000000551726e2dcb950495061d86f61074251c6cee89b3e808d114ae8760265e76817","decodes":true,"chains":[{"entity":4,"who":"Base(Citizen(Tag8(3898424990439409771)))","prev_seq":3,"prev_head":"c64bbd035cbea56771d6fc55bf28fc455dce021a9cfa0635ecc83a0d925bd7ba","seq":4,"head":"236503d9f477641bd37c526a7d25b031677694ec12078498b07e615e93d62946"},{"entity":4,"who":"Base(Citizen(Tag8(3898424990439409771)))","prev_seq":4,"prev_head":"b0b68f4c9109503c7c2c34646b2f68950622c123919e0734ebeec6ac00b7d44d","seq":5,"head":"3dbd4dc0d5684bf8d4aef01729edc303143fb3a4fcd4ae1e903a8959bc0df2ca"},{"entity":6,"who":"Base(Province { p: 5, q: -1 })","prev_seq":5,"prev_head":"0c758e38544315d5ae64ba2127d8e1201e19d5a3434182a8d91b377e0c3622fb","seq":6,"head":"d0d64c6ef4833d0fd2f10a7f6db6d6290fa9465c07bcc39e694474937a67f8ab"},{"entity":11,"who":"Structure { p: 5, q: -1, tile: 33 }","prev_seq":6,"prev_head":"51000a6b25b3bf1c11e07a1cd1612850ace56061037dfaa765e9f0c4a224aca9","seq":7,"head":"551726e2dcb950495061d86f61074251c6cee89b3e808d114ae8760265e76817"}]}},{"kind":97,"name":"STRUCTURE_CLOSED","key":[{"name":"p","len":4},{"name":"q","len":4},{"name":"tile","len":1}],"payload":[{"name":"owner_tag","len":8},{"name":"entry","len":1},{"name":"kind","len":1}],"body_without_tail_len":25,"vector":{"bell":2097,"body_without_tail":"01613108000005000000ffffffff216b88a5c2dffc19366b6b","body":"01613108000005000000ffffffff216b88a5c2dffc19366b6b01060400000000000000b3f684940650fdc5e066853bf72678452d984d50d9f826596218f3ebba0038fd","decodes":true,"chains":[{"entity":6,"who":"Base(Province { p: 5, q: -1 })","prev_seq":3,"prev_head":"a7e4f8d9479aacecb8293a1aeb0a7735abcaf2f5ade0b54c63399eb638c1ad67","seq":4,"head":"b3f684940650fdc5e066853bf72678452d984d50d9f826596218f3ebba0038fd"}]}},{"kind":98,"name":"NATION_PROPOSED","key":[{"name":"faction","len":1},{"name":"id","len":4}],"payload":[{"name":"slot","len":1},{"name":"kind","len":1},{"name":"target_faction","len":1},{"name":"value","len":1},{"name":"proposer_tag","len":8},{"name":"target_tag","len":8},{"name":"close_bell","len":4}],"body_without_tail_len":35,"vector":{"bell":2098,"body_without_tail":"01623208000021213e5b786b6b6b6b6b88a5c2dffc19366b88a5c2dffc19366b88a5c2","body":"01623208000021213e5b786b6b6b6b6b88a5c2dffc19366b88a5c2dffc19366b88a5c20204040000000000000019a38332092a56328df15dcdabf5b1796ec05185a06001753075f1863ab7029c0c0500000000000000637e6286119b5c87fd0fe713789efe39c5b23b2d510d3453fe5ad931a13468f8","decodes":true,"chains":[{"entity":4,"who":"Base(Citizen(Tag8(3898424990439409771)))","prev_seq":3,"prev_head":"cedc9c5fb8d17596cde3fc1c9751bf607197b655c3f7fcaaa92cd44c3143248f","seq":4,"head":"19a38332092a56328df15dcdabf5b1796ec05185a06001753075f1863ab7029c"},{"entity":12,"who":"Nation { faction: 33 }","prev_seq":4,"prev_head":"905ba45c7059df4cf40645572dab7e25fbc09555235c575ac09feb52ad50c6f5","seq":5,"head":"637e6286119b5c87fd0fe713789efe39c5b23b2d510d3453fe5ad931a13468f8"}]}},{"kind":99,"name":"NATION_VOTED","key":[{"name":"faction","len":1},{"name":"id","len":4}],"payload":[{"name":"voter_tag","len":8},{"name":"yes","len":1},{"name":"yes_now","len":2},{"name":"no_now","len":2}],"body_without_tail_len":24,"vector":{"bell":2099,"body_without_tail":"01633308000021213e5b786b88a5c2dffc19366b6b886b88","body":"01633308000021213e5b786b88a5c2dffc19366b6b886b880204040000000000000061f8fbebf0501b62eef2bbea39cea5faa5f5ce41b0307aee7f492cf0fad273a90c05000000000000006088cc371b766daae10d2b9ad83ab63e59d033d2f1e832a811d75e26e98d9872","decodes":true,"chains":[{"entity":4,"who":"Base(Citizen(Tag8(3898424990439409771)))","prev_seq":3,"prev_head":"991ee73f02d7d3187045f574c12cc145ba75b39f16e74f29488c5a31762b1aba","seq":4,"head":"61f8fbebf0501b62eef2bbea39cea5faa5f5ce41b0307aee7f492cf0fad273a9"},{"entity":12,"who":"Nation { faction: 33 }","prev_seq":4,"prev_head":"1a02ca1f4c575185c25739b0af52d8b69d986175570bdf522695da35bf014f0f","seq":5,"head":"6088cc371b766daae10d2b9ad83ab63e59d033d2f1e832a811d75e26e98d9872"}]}},{"kind":100,"name":"NATION_DECIDED","key":[{"name":"faction","len":1},{"name":"id","len":4}],"payload":[{"name":"passed","len":1},{"name":"kind","len":1},{"name":"target_faction","len":1},{"name":"value","len":1},{"name":"target_tag","len":8},{"name":"yes","len":2},{"name":"no","len":2},{"name":"holdings","len":24}],"body_without_tail_len":51,"vector":{"bell":2100,"body_without_tail":"01643408000021213e5b786b6b6b6b6b88a5c2dffc19366b886b886b88a5c2dffc193653708daac7e4011e3b587592afcce906","body":"01643408000021213e5b786b6b6b6b6b88a5c2dffc19366b886b886b88a5c2dffc193653708daac7e4011e3b587592afcce90600","decodes":true,"chains":[]}},{"kind":101,"name":"RAID_OPENED","key":[{"name":"owner_tag","len":8},{"name":"seq","len":4}],"payload":[{"name":"p","len":4},{"name":"q","len":4},{"name":"bell","len":4},{"name":"raider_host","len":8},{"name":"raider_tag","len":8},{"name":"domestic","len":1}],"body_without_tail_len":47,"vector":{"bell":2101,"body_without_tail":"016535080000213e5b7895b2cfec213e5b7805000000ffffffff6b88a5c26b88a5c2dffc19366b88a5c2dffc19366b","body":"016535080000213e5b7895b2cfec213e5b7805000000ffffffff6b88a5c26b88a5c2dffc19366b88a5c2dffc19366b020404000000000000005809f52ad33c0ad3850ccdac716973cd7f248309cc1460385590a26749a8e4240605000000000000001e63b1d3ec616029867a9a9467db31bd407c08b374281f3613a72c4e8582cf8c","decodes":true,"chains":[{"entity":4,"who":"Base(Citizen(Tag8(3898424990439409771)))","prev_seq":3,"prev_head":"298f2c8bac01c38709d4c0ecaabbb77ae0c8799f833817760879f764f354d4f6","seq":4,"head":"5809f52ad33c0ad3850ccdac716973cd7f248309cc1460385590a26749a8e424"},{"entity":6,"who":"Base(Province { p: 5, q: -1 })","prev_seq":4,"prev_head":"e105af65fdc47a3a20561774b0a4ba730242a550a718ad09f22bf2e3ba9f1438","seq":5,"head":"1e63b1d3ec616029867a9a9467db31bd407c08b374281f3613a72c4e8582cf8c"}]}},{"kind":102,"name":"FORT_GARRISONED","key":[{"name":"p","len":4},{"name":"q","len":4},{"name":"tile","len":1}],"payload":[{"name":"owner_tag","len":8},{"name":"troops","len":4},{"name":"pend_bell","len":4},{"name":"pend","len":2},{"name":"holding_key","len":8}],"body_without_tail_len":41,"vector":{"bell":2102,"body_without_tail":"01663608000005000000ffffffff216b88a5c2dffc19366b88a5c26b88a5c26b886b88a5c2dffc1936","body":"01663608000005000000ffffffff216b88a5c2dffc19366b88a5c26b88a5c26b886b88a5c2dffc193600","decodes":true,"chains":[]}},{"kind":103,"name":"REST","key":[{"name":"p","len":4},{"name":"q","len":4},{"name":"from","len":4}],"payload":[{"name":"to","len":4},{"name":"holder","len":1},{"name":"territory","len":4},{"name":"spawns","len":1},{"name":"digest","len":32}],"body_without_tail_len":60,"vector":{"bell":2103,"body_without_tail":"01673708000005000000ffffffff213e5b786b88a5c26b6b88a5c26b6b88a5c2dffc193653708daac7e4011e3b587592afcce90623405d7a97b4d1ee","body":"01673708000005000000ffffffff213e5b786b88a5c26b6b88a5c26b6b88a5c2dffc193653708daac7e4011e3b587592afcce90623405d7a97b4d1ee010604000000000000002bcc26adf832f588bb8d517dc85c53d9bbb9e105f2e7d1a0625d48473021cace","decodes":true,"chains":[{"entity":6,"who":"Base(Province { p: 5, q: -1 })","prev_seq":3,"prev_head":"8aa5832421b4da8cbcea07ac0b29cd5db78e66958b7b5f041e2ebeff6709aa88","seq":4,"head":"2bcc26adf832f588bb8d517dc85c53d9bbb9e105f2e7d1a0625d48473021cace"}]}}]});
++export const LOGS = freeze({"abi_version":2,"kinds":[{"kind":80,"name":"SIEGE_DECLARED","key":[{"name":"p","len":4},{"name":"q","len":4},{"name":"site","len":1}],"payload":[{"name":"attacker","len":1},{"name":"owner_faction","len":1},{"name":"target","len":1},{"name":"declarer_tag","len":8},{"name":"required","len":1},{"name":"vigil_start","len":2},{"name":"vigil_next","len":2},{"name":"vigil_from_day","len":2},{"name":"stake","len":4},{"name":"src_key","len":8},{"name":"owner_tag","len":8},{"name":"lead_host_id","len":8}],"body_without_tail_len":61,"vector":{"bell":2080,"body_without_tail":"01502008000005000000ffffffff036b6b6b6b88a5c2dffc19366b6b886b886b886b88a5c22a000000012301006b88a5c2dffc19366b88a5c2dffc1936","body":"01502008000005000000ffffffff036b6b6b6b88a5c2dffc19366b6b886b886b886b88a5c22a000000012301006b88a5c2dffc19366b88a5c2dffc1936030404000000000000001f4653a70c2e770f91da2ae5a1c2ddc9cce549fd0cf015000a831913f6361665050500000000000000ec81a76b5f2f2f822b86ffb10d1cf8d039f559daf355e6d692020a632a127576060600000000000000e0144c6a9a868bd208d8369e09ca5f299d8a951e964f4e792a77c9c9697e6cc4","decodes":true,"chains":[{"entity":4,"who":"Base(Citizen(Tag8(3898424990439409771)))","prev_seq":3,"prev_head":"d28b2b34131745ab5f1828fa9567a70d2a1f759a9eb727fef4009df81e84b7d4","seq":4,"head":"1f4653a70c2e770f91da2ae5a1c2ddc9cce549fd0cf015000a831913f6361665"},{"entity":5,"who":"Base(Holding { p: 2, q: -1, site: 3 })","prev_seq":4,"prev_head":"83f0006d26483b5a36b2fc44c42c094a222f85a370a888b5cb192714074fd1cb","seq":5,"head":"ec81a76b5f2f2f822b86ffb10d1cf8d039f559daf355e6d692020a632a127576"},{"entity":6,"who":"Base(Province { p: 5, q: -1 })","prev_seq":5,"prev_head":"df3822051bb1a1bdb97e7d60b1c7f46070fe93df14acbbfd64f899a109ab327d","seq":6,"head":"e0144c6a9a868bd208d8369e09ca5f299d8a951e964f4e792a77c9c9697e6cc4"}]}},{"kind":81,"name":"SIEGE_SETTLED","key":[{"name":"p","len":4},{"name":"q","len":4},{"name":"site","len":1}],"payload":[{"name":"reason","len":1},{"name":"recipient_key","len":8},{"name":"amount","len":4},{"name":"burned","len":4},{"name":"slot_released","len":1}],"body_without_tail_len":33,"vector":{"bell":2081,"body_without_tail":"01512108000005000000ffffffff03002a000000012301006b88a5c26b88a5c26b","body":"01512108000005000000ffffffff03002a000000012301006b88a5c26b88a5c26b01060400000000000000507ad3c9fbdc2d9f781ac0715075e619224716013c8afdcf2171cdeeccc03617","decodes":true,"chains":[{"entity":6,"who":"Base(Province { p: 5, q: -1 })","prev_seq":3,"prev_head":"281d0c1e9dabb7c8c0b9713d626468289be7db41e5acb1d2f8a9e5893c9cb74e","seq":4,"head":"507ad3c9fbdc2d9f781ac0715075e619224716013c8afdcf2171cdeeccc03617"},{"entity":5,"who":"Base(Holding { p: 2, q: -1, site: 3 })","optional":true}]}},{"kind":82,"name":"CONQUEST","key":[{"name":"p","len":4},{"name":"q","len":4},{"name":"bell","len":4}],"payload":[{"name":"n","len":1},{"name":"events","len":56},{"name":"records_digest","len":32},{"name":"keep_holder","len":1},{"name":"keep_contender","len":1},{"name":"keep_progress","len":1},{"name":"keep_troops","len":4},{"name":"donor_host_id","len":8},{"name":"snapshot_present","len":1},{"name":"weight","len":14}],"body_without_tail_len":137,"vector":{"bell":2082,"body_without_tail":"01522208000005000000ffffffff213e5b78026b88a5c2dffc193653708daac7e4011e3b587592afcce90623405d7a97b4d1ee0b2845627f9cb9d6f3102d4a6784a1bedbf815324f6c89a66b88a5c2dffc193653708daac7e4011e3b587592afcce90623405d7a97b4d1ee6b6b6b6b88a5c26b88a5c2dffc19366b6b88a5c2dffc193653708daac7e4","body":"01522208000005000000ffffffff213e5b78026b88a5c2dffc193653708daac7e4011e3b587592afcce90623405d7a97b4d1ee0b2845627f9cb9d6f3102d4a6784a1bedbf815324f6c89a66b88a5c2dffc193653708daac7e4011e3b587592afcce90623405d7a97b4d1ee6b6b6b6b88a5c26b88a5c2dffc19366b6b88a5c2dffc193653708daac7e4010604000000000000003b67ada7c5fdf1a7b019b3a4dd816954b72426177551d4d13b9ec0d4064dbba8","decodes":true,"chains":[{"entity":6,"who":"Base(Province { p: 5, q: -1 })","prev_seq":3,"prev_head":"2b3f805f375a82ba477c33a0a8cb0193a971107cc49cae25d4acd94ccde8679c","seq":4,"head":"3b67ada7c5fdf1a7b019b3a4dd816954b72426177551d4d13b9ec0d4064dbba8"}]}},{"kind":83,"name":"CAPTURE_SETTLED","key":[{"name":"p","len":4},{"name":"q","len":4},{"name":"site","len":1}],"payload":[{"name":"outcome","len":1},{"name":"credited","len":1},{"name":"captor_tag","len":8},{"name":"victim_tag","len":8},{"name":"new_gen","len":1},{"name":"slot","len":1},{"name":"rent_moved","len":8},{"name":"bonds_refunded","len":8},{"name":"walls_after","len":4}],"body_without_tail_len":55,"vector":{"bell":2083,"body_without_tail":"01532308000005000000ffffffff03006b6b88a5c2dffc19366b88a5c2dffc19366b6b6b88a5c2dffc19366b88a5c2dffc19366b88a5c2","body":"01532308000005000000ffffffff03006b6b88a5c2dffc19366b88a5c2dffc19366b6b6b88a5c2dffc19366b88a5c2dffc19366b88a5c2050304000000000000002d7c1e39690e97514ac34c0b74d0f39904f0ce55eb22ec7c63230908c2239c9d040500000000000000bfc315e89488eac867acd9ed4aab81d43284b523e431084e5f6344564fa558c80406000000000000006f18455db9ea8d5df1bfa2d269d9778374dc80b25e6a34957a8eca383c4845fa050700000000000000e76005aa70eb97a00297ae6809a402810affe8164364648a60c521ed21306fc00608000000000000003733249cec7f5dfe76b48e2dfd62defeb92924d09e848f5cf90aa750f5a7e6e4","decodes":true,"chains":[{"entity":3,"who":"Base(JoinShardOf(Tag8(3898424990439409771)))","prev_seq":3,"prev_head":"73b9c68efd5c830340a06f214ef2ee42859c0df9ccfa54a65c64f42191fdfbc6","seq":4,"head":"2d7c1e39690e97514ac34c0b74d0f39904f0ce55eb22ec7c63230908c2239c9d"},{"entity":4,"who":"Base(Citizen(Tag8(3898424990439409771)))","prev_seq":4,"prev_head":"98ec6a190367b440606f4fe2f4daeda43f208d9d6240a6265e1f2942b829f9d2","seq":5,"head":"bfc315e89488eac867acd9ed4aab81d43284b523e431084e5f6344564fa558c8"},{"entity":4,"who":"Base(Citizen(Tag8(3898424990439409771)))","prev_seq":5,"prev_head":"89506868ca328929832179050385f85b4cc197250c39e706f04cbd9146e85753","seq":6,"head":"6f18455db9ea8d5df1bfa2d269d9778374dc80b25e6a34957a8eca383c4845fa"},{"entity":5,"who":"Base(Holding { p: 5, q: -1, site: 3 })","prev_seq":6,"prev_head":"2ce1dd288178aac6fd744ca68eca640c295814dc3149f6891aabfdedd5718233","seq":7,"head":"e76005aa70eb97a00297ae6809a402810affe8164364648a60c521ed21306fc0"},{"entity":6,"who":"Base(Province { p: 5, q: -1 })","prev_seq":7,"prev_head":"32855fd64821d158f0437968b73737ff97372641363d2a22eff2ba79370f683f","seq":8,"head":"3733249cec7f5dfe76b48e2dfd62defeb92924d09e848f5cf90aa750f5a7e6e4"},{"entity":3,"who":"Base(JoinShardOf(Tag8(3898424990439409771)))","optional":true}]}},{"kind":84,"name":"KEEP","key":[{"name":"p","len":4},{"name":"q","len":4}],"payload":[{"name":"cause","len":1},{"name":"holder","len":1},{"name":"from","len":1},{"name":"troops","len":4},{"name":"consolidated_until","len":4},{"name":"gen","len":4}],"body_without_tail_len":29,"vector":{"bell":2084,"body_without_tail":"01542408000005000000ffffffff6b6b6b6b88a5c26b88a5c26b88a5c2","body":"01542408000005000000ffffffff6b6b6b6b88a5c26b88a5c26b88a5c20106040000000000000049167d321275b5e72eed6d87b42801ea0eea8e9d113b9ab423b466de2fa21a75","decodes":true,"chains":[{"entity":6,"who":"Base(Province { p: 5, q: -1 })","prev_seq":3,"prev_head":"eb8af8a5566d0680fde2d0f248e0d61e2fb4a697b7240c564ab6ccb45dfe2c7a","seq":4,"head":"49167d321275b5e72eed6d87b42801ea0eea8e9d113b9ab423b466de2fa21a75"}]}},{"kind":85,"name":"MARCH_FOLD","key":[{"name":"m","len":4},{"name":"n","len":4},{"name":"hour","len":4}],"payload":[{"name":"weight","len":28},{"name":"controller","len":1},{"name":"contested","len":1},{"name":"credit","len":1},{"name":"lost","len":1},{"name":"captures","len":12}],"body_without_tail_len":62,"vector":{"bell":2085,"body_without_tail":"0155250800000200000002000000213e5b786b88a5c2dffc193653708daac7e4011e3b587592afcce90623405d7a6b6b6b6b6b88a5c2dffc193653708daa","body":"0155250800000200000002000000213e5b786b88a5c2dffc193653708daac7e4011e3b587592afcce90623405d7a6b6b6b6b6b88a5c2dffc193653708daa010804000000000000000faa1b06b77a816674f1ae79daa3aac48e4fc2f5b4e17e3d2e73cfd083da4915","decodes":true,"chains":[{"entity":8,"who":"March { m: 2, n: 2 }","prev_seq":3,"prev_head":"eede49f978c040bd5391f9e98c5b7d299e918a87311efc7d526ae25df26be23f","seq":4,"head":"0faa1b06b77a816674f1ae79daa3aac48e4fc2f5b4e17e3d2e73cfd083da4915"}]}},{"kind":86,"name":"RETIRE","key":[{"name":"host_id","len":8}],"payload":[{"name":"troops","len":4},{"name":"home_key","len":8},{"name":"by","len":1}],"body_without_tail_len":27,"vector":{"bell":2086,"body_without_tail":"0156260800002a000000012301006b88a5c22a000000012301006b","body":"0156260800002a000000012301006b88a5c22a000000012301006b010604000000000000003036a5411bd5b5569778ac578c78c9abbacc26bdbf66d8756405c6cbbbad7757","decodes":true,"chains":[{"entity":6,"who":"Base(InTx)","prev_seq":3,"prev_head":"6d1a077d5d6f20161bd253966a9a535635ef9d416f3e55990c8e1ad0a9237fbf","seq":4,"head":"3036a5411bd5b5569778ac578c78c9abbacc26bdbf66d8756405c6cbbbad7757"}]}},{"kind":87,"name":"NEUTRAL","key":[{"name":"p","len":4},{"name":"q","len":4},{"name":"site","len":1}],"payload":[{"name":"kind","len":1},{"name":"garrison","len":4},{"name":"tier","len":1}],"body_without_tail_len":21,"vector":{"bell":2087,"body_without_tail":"01572708000005000000ffffffff036b6b88a5c26b","body":"01572708000005000000ffffffff036b6b88a5c26b01060400000000000000dccd9e8aef6129e3be33589027a8230632aa81b8b88c1a0cfccc49fa34334ce1","decodes":true,"chains":[{"entity":6,"who":"Base(Province { p: 5, q: -1 })","prev_seq":3,"prev_head":"b5cfbde72a9e03fc9af8e487d79bb91ec97d2c50517532e9af3c2cc5a52893d8","seq":4,"head":"dccd9e8aef6129e3be33589027a8230632aa81b8b88c1a0cfccc49fa34334ce1"}]}},{"kind":88,"name":"OUTPOST_SETTLED","key":[{"name":"p","len":4},{"name":"q","len":4},{"name":"site","len":1}],"payload":[{"name":"citizen_tag","len":8},{"name":"order","len":1},{"name":"gen","len":1},{"name":"shield_until","len":8},{"name":"anchor_key","len":8}],"body_without_tail_len":41,"vector":{"bell":2088,"body_without_tail":"01582808000005000000ffffffff036b88a5c2dffc19366b6b6b88a5c2dffc19362a00000001230100","body":"01582808000005000000ffffffff036b88a5c2dffc19366b6b6b88a5c2dffc19362a00000001230100040304000000000000003578c88bfb53862c422224614b6fb3603b78b7aa92b11a8b9070b7691be6c4120405000000000000008f887345b2c184904ddc7577ee1f5612dd7db39a8a01ab392246c31011e6406a050600000000000000307f74245b7a280784f458518f9166fceded696ea9d6924a50d55377aea684e7060700000000000000a062d10e273343a44a67177b2a8420d60dc61c141369bf14f60430d02ad67649","decodes":true,"chains":[{"entity":3,"who":"Base(JoinShardOf(Tag8(3898424990439409771)))","prev_seq":3,"prev_head":"4b0e74bbd16427c0b231630a3c42f8d6d9bab5d10fc3e7a426aabcd5cb0629db","seq":4,"head":"3578c88bfb53862c422224614b6fb3603b78b7aa92b11a8b9070b7691be6c412"},{"entity":4,"who":"Base(Citizen(Tag8(3898424990439409771)))","prev_seq":4,"prev_head":"d919c694f1a0958fabd98ccc52ccbdbcdc7c897c35de00993646b62a3e607f94","seq":5,"head":"8f887345b2c184904ddc7577ee1f5612dd7db39a8a01ab392246c31011e6406a"},{"entity":5,"who":"Base(Holding { p: 5, q: -1, site: 3 })","prev_seq":5,"prev_head":"39c9d29c4d650437ccb7c46754a63d0342709b04f28d8b5ffc3de0849e2f3179","seq":6,"head":"307f74245b7a280784f458518f9166fceded696ea9d6924a50d55377aea684e7"},{"entity":6,"who":"Base(Province { p: 5, q: -1 })","prev_seq":6,"prev_head":"496cad0c3b181002a56d492292f18d03bcca4f5484e4657d86eeea1be48de915","seq":7,"head":"a062d10e273343a44a67177b2a8420d60dc61c141369bf14f60430d02ad67649"}]}},{"kind":90,"name":"VAULT_BUILT","key":[{"name":"p","len":4},{"name":"q","len":4},{"name":"tile","len":1}],"payload":[{"name":"owner_tag","len":8},{"name":"faction","len":1},{"name":"gen","len":1},{"name":"holding_key","len":8},{"name":"cost_digest","len":32}],"body_without_tail_len":65,"vector":{"bell":2090,"body_without_tail":"015a2a08000005000000ffffffff216b88a5c2dffc19366b6b6b88a5c2dffc19366b88a5c2dffc193653708daac7e4011e3b587592afcce90623405d7a97b4d1ee","body":"015a2a08000005000000ffffffff216b88a5c2dffc19366b6b6b88a5c2dffc19366b88a5c2dffc193653708daac7e4011e3b587592afcce90623405d7a97b4d1ee00","decodes":true,"chains":[]}},{"kind":91,"name":"CARAVAN_SENT","key":[{"name":"owner_tag","len":8},{"name":"seq","len":4}],"payload":[{"name":"faction","len":1},{"name":"src","len":8},{"name":"dst","len":8},{"name":"steps","len":1},{"name":"cargo","len":32},{"name":"arrive_ts","len":8},{"name":"runs","len":36},{"name":"worn_bps","len":2},{"name":"path","len":12}],"body_without_tail_len":126,"vector":{"bell":2091,"body_without_tail":"015b2b080000213e5b7895b2cfec213e5b786b6b88a5c2dffc19366b88a5c2dffc19366b6b88a5c2dffc193653708daac7e4011e3b587592afcce90623405d7a97b4d1ee6b88a5c2dffc19366b88a5c2dffc193653708daac7e4011e3b587592afcce90623405d7a97b4d1ee0b2845626b886b88a5c2dffc193653708daa","body":"015b2b080000213e5b7895b2cfec213e5b786b6b88a5c2dffc19366b88a5c2dffc19366b6b88a5c2dffc193653708daac7e4011e3b587592afcce90623405d7a97b4d1ee6b88a5c2dffc19366b88a5c2dffc193653708daac7e4011e3b587592afcce90623405d7a97b4d1ee0b2845626b886b88a5c2dffc193653708daa00","decodes":true,"chains":[]}},{"kind":92,"name":"CARAVAN_SETTLED","key":[{"name":"owner_tag","len":8},{"name":"seq","len":4}],"payload":[{"name":"outcome","len":1},{"name":"dst","len":8},{"name":"cargo","len":32},{"name":"fee","len":8}],"body_without_tail_len":67,"vector":{"bell":2092,"body_without_tail":"015c2c080000213e5b7895b2cfec213e5b78006b88a5c2dffc19366b88a5c2dffc193653708daac7e4011e3b587592afcce90623405d7a97b4d1ee6b88a5c2dffc1936","body":"015c2c080000213e5b7895b2cfec213e5b78006b88a5c2dffc19366b88a5c2dffc193653708daac7e4011e3b587592afcce90623405d7a97b4d1ee6b88a5c2dffc193600","decodes":true,"chains":[]}},{"kind":93,"name":"CARAVAN_RAIDED","key":[{"name":"owner_tag","len":8},{"name":"seq","len":4}],"payload":[{"name":"p","len":4},{"name":"q","len":4},{"name":"bell","len":4},{"name":"choice","len":1},{"name":"by","len":1},{"name":"raider_tag","len":8},{"name":"taken","len":32},{"name":"dst","len":8},{"name":"cleared","len":17},{"name":"domestic","len":1}],"body_without_tail_len":98,"vector":{"bell":2093,"body_without_tail":"015d2d080000213e5b7895b2cfec213e5b7805000000ffffffff6b88a5c26b6b6b88a5c2dffc19366b88a5c2dffc193653708daac7e4011e3b587592afcce90623405d7a97b4d1ee6b88a5c2dffc19366b88a5c2dffc193653708daac7e4011e3b6b","body":"015d2d080000213e5b7895b2cfec213e5b7805000000ffffffff6b88a5c26b6b6b88a5c2dffc19366b88a5c2dffc193653708daac7e4011e3b587592afcce90623405d7a97b4d1ee6b88a5c2dffc19366b88a5c2dffc193653708daac7e4011e3b6b00","decodes":true,"chains":[]}},{"kind":94,"name":"VAULT_SEIZED","key":[{"name":"p","len":4},{"name":"q","len":4},{"name":"tile","len":1}],"payload":[{"name":"captor_tag","len":8},{"name":"prev_tag","len":8},{"name":"new_gen","len":1},{"name":"domestic","len":1},{"name":"host_id","len":8}],"body_without_tail_len":41,"vector":{"bell":2094,"body_without_tail":"015e2e08000005000000ffffffff216b88a5c2dffc19366b88a5c2dffc19366b6b2a00000001230100","body":"015e2e08000005000000ffffffff216b88a5c2dffc19366b88a5c2dffc19366b6b2a0000000123010003040400000000000000d7e01941b07f1b486ff65e8dc5b93e802b92689fa3be54c72d274b7d2c37baa5040500000000000000baf034311aac94fc514ec36c7ae48d2fd73d03ca8f23d5bcc1dc7c8b5f131f44090600000000000000c6c80207ab014ce54acb2ea22b24a7ad3c062eeca6cef63f9dc9a1ab4afb2902","decodes":true,"chains":[{"entity":4,"who":"Base(Citizen(Tag8(3898424990439409771)))","prev_seq":3,"prev_head":"fb64323c6ad382df049d1e798a8d7e92df2797115aa01238a7d52c05a31fffac","seq":4,"head":"d7e01941b07f1b486ff65e8dc5b93e802b92689fa3be54c72d274b7d2c37baa5"},{"entity":4,"who":"Base(Citizen(Tag8(3898424990439409771)))","prev_seq":4,"prev_head":"b31932d046ad11f7bc3f5d4c5b88f196375707ab872a5b83d66ca40969448936","seq":5,"head":"baf034311aac94fc514ec36c7ae48d2fd73d03ca8f23d5bcc1dc7c8b5f131f44"},{"entity":9,"who":"Vault { p: 5, q: -1, tile: 33 }","prev_seq":5,"prev_head":"fd973722d628e883ce9f61d74f327c21b98151c91c363425b4bc4ff470d1ca07","seq":6,"head":"c6c80207ab014ce54acb2ea22b24a7ad3c062eeca6cef63f9dc9a1ab4afb2902"}]}},{"kind":95,"name":"STRUCTURE_BUILT","key":[{"name":"p","len":4},{"name":"q","len":4},{"name":"tile","len":1}],"payload":[{"name":"owner_tag","len":8},{"name":"faction","len":1},{"name":"gen","len":1},{"name":"entry","len":1},{"name":"notify","len":1},{"name":"holding_key","len":8},{"name":"cost_digest","len":32},{"name":"kind","len":1}],"body_without_tail_len":68,"vector":{"bell":2095,"body_without_tail":"015f2f08000005000000ffffffff216b88a5c2dffc19366b6b6b6b6b88a5c2dffc19366b88a5c2dffc193653708daac7e4011e3b587592afcce90623405d7a97b4d1ee6b","body":"015f2f08000005000000ffffffff216b88a5c2dffc19366b6b6b6b6b88a5c2dffc19366b88a5c2dffc193653708daac7e4011e3b587592afcce90623405d7a97b4d1ee6b00","decodes":true,"chains":[]}},{"kind":96,"name":"STRUCTURE_SEIZED","key":[{"name":"p","len":4},{"name":"q","len":4},{"name":"tile","len":1}],"payload":[{"name":"captor_tag","len":8},{"name":"prev_tag","len":8},{"name":"new_gen","len":1},{"name":"faction","len":1},{"name":"domestic","len":1},{"name":"host_id","len":8},{"name":"kind","len":1}],"body_without_tail_len":43,"vector":{"bell":2096,"body_without_tail":"01603008000005000000ffffffff216b88a5c2dffc19366b88a5c2dffc19366b6b6b2a000000012301006b","body":"01603008000005000000ffffffff216b88a5c2dffc19366b88a5c2dffc19366b6b6b2a000000012301006b04040400000000000000236503d9f477641bd37c526a7d25b031677694ec12078498b07e615e93d629460405000000000000003dbd4dc0d5684bf8d4aef01729edc303143fb3a4fcd4ae1e903a8959bc0df2ca060600000000000000d0d64c6ef4833d0fd2f10a7f6db6d6290fa9465c07bcc39e694474937a67f8ab0b0700000000000000551726e2dcb950495061d86f61074251c6cee89b3e808d114ae8760265e76817","decodes":true,"chains":[{"entity":4,"who":"Base(Citizen(Tag8(3898424990439409771)))","prev_seq":3,"prev_head":"c64bbd035cbea56771d6fc55bf28fc455dce021a9cfa0635ecc83a0d925bd7ba","seq":4,"head":"236503d9f477641bd37c526a7d25b031677694ec12078498b07e615e93d62946"},{"entity":4,"who":"Base(Citizen(Tag8(3898424990439409771)))","prev_seq":4,"prev_head":"b0b68f4c9109503c7c2c34646b2f68950622c123919e0734ebeec6ac00b7d44d","seq":5,"head":"3dbd4dc0d5684bf8d4aef01729edc303143fb3a4fcd4ae1e903a8959bc0df2ca"},{"entity":6,"who":"Base(Province { p: 5, q: -1 })","prev_seq":5,"prev_head":"0c758e38544315d5ae64ba2127d8e1201e19d5a3434182a8d91b377e0c3622fb","seq":6,"head":"d0d64c6ef4833d0fd2f10a7f6db6d6290fa9465c07bcc39e694474937a67f8ab"},{"entity":11,"who":"Structure { p: 5, q: -1, tile: 33 }","prev_seq":6,"prev_head":"51000a6b25b3bf1c11e07a1cd1612850ace56061037dfaa765e9f0c4a224aca9","seq":7,"head":"551726e2dcb950495061d86f61074251c6cee89b3e808d114ae8760265e76817"}]}},{"kind":97,"name":"STRUCTURE_CLOSED","key":[{"name":"p","len":4},{"name":"q","len":4},{"name":"tile","len":1}],"payload":[{"name":"owner_tag","len":8},{"name":"entry","len":1},{"name":"kind","len":1}],"body_without_tail_len":25,"vector":{"bell":2097,"body_without_tail":"01613108000005000000ffffffff216b88a5c2dffc19366b6b","body":"01613108000005000000ffffffff216b88a5c2dffc19366b6b01060400000000000000b3f684940650fdc5e066853bf72678452d984d50d9f826596218f3ebba0038fd","decodes":true,"chains":[{"entity":6,"who":"Base(Province { p: 5, q: -1 })","prev_seq":3,"prev_head":"a7e4f8d9479aacecb8293a1aeb0a7735abcaf2f5ade0b54c63399eb638c1ad67","seq":4,"head":"b3f684940650fdc5e066853bf72678452d984d50d9f826596218f3ebba0038fd"}]}},{"kind":98,"name":"NATION_PROPOSED","key":[{"name":"faction","len":1},{"name":"id","len":4}],"payload":[{"name":"slot","len":1},{"name":"kind","len":1},{"name":"target_faction","len":1},{"name":"value","len":1},{"name":"proposer_tag","len":8},{"name":"target_tag","len":8},{"name":"close_bell","len":4}],"body_without_tail_len":35,"vector":{"bell":2098,"body_without_tail":"01623208000021213e5b786b6b6b6b6b88a5c2dffc19366b88a5c2dffc19366b88a5c2","body":"01623208000021213e5b786b6b6b6b6b88a5c2dffc19366b88a5c2dffc19366b88a5c20204040000000000000019a38332092a56328df15dcdabf5b1796ec05185a06001753075f1863ab7029c0c0500000000000000637e6286119b5c87fd0fe713789efe39c5b23b2d510d3453fe5ad931a13468f8","decodes":true,"chains":[{"entity":4,"who":"Base(Citizen(Tag8(3898424990439409771)))","prev_seq":3,"prev_head":"cedc9c5fb8d17596cde3fc1c9751bf607197b655c3f7fcaaa92cd44c3143248f","seq":4,"head":"19a38332092a56328df15dcdabf5b1796ec05185a06001753075f1863ab7029c"},{"entity":12,"who":"Nation { faction: 33 }","prev_seq":4,"prev_head":"905ba45c7059df4cf40645572dab7e25fbc09555235c575ac09feb52ad50c6f5","seq":5,"head":"637e6286119b5c87fd0fe713789efe39c5b23b2d510d3453fe5ad931a13468f8"}]}},{"kind":99,"name":"NATION_VOTED","key":[{"name":"faction","len":1},{"name":"id","len":4}],"payload":[{"name":"voter_tag","len":8},{"name":"yes","len":1},{"name":"yes_now","len":2},{"name":"no_now","len":2}],"body_without_tail_len":24,"vector":{"bell":2099,"body_without_tail":"01633308000021213e5b786b88a5c2dffc19366b6b886b88","body":"01633308000021213e5b786b88a5c2dffc19366b6b886b880204040000000000000061f8fbebf0501b62eef2bbea39cea5faa5f5ce41b0307aee7f492cf0fad273a90c05000000000000006088cc371b766daae10d2b9ad83ab63e59d033d2f1e832a811d75e26e98d9872","decodes":true,"chains":[{"entity":4,"who":"Base(Citizen(Tag8(3898424990439409771)))","prev_seq":3,"prev_head":"991ee73f02d7d3187045f574c12cc145ba75b39f16e74f29488c5a31762b1aba","seq":4,"head":"61f8fbebf0501b62eef2bbea39cea5faa5f5ce41b0307aee7f492cf0fad273a9"},{"entity":12,"who":"Nation { faction: 33 }","prev_seq":4,"prev_head":"1a02ca1f4c575185c25739b0af52d8b69d986175570bdf522695da35bf014f0f","seq":5,"head":"6088cc371b766daae10d2b9ad83ab63e59d033d2f1e832a811d75e26e98d9872"}]}},{"kind":100,"name":"NATION_DECIDED","key":[{"name":"faction","len":1},{"name":"id","len":4}],"payload":[{"name":"passed","len":1},{"name":"kind","len":1},{"name":"target_faction","len":1},{"name":"value","len":1},{"name":"target_tag","len":8},{"name":"yes","len":2},{"name":"no","len":2},{"name":"holdings","len":24}],"body_without_tail_len":51,"vector":{"bell":2100,"body_without_tail":"01643408000021213e5b786b6b6b6b6b88a5c2dffc19366b886b886b88a5c2dffc193653708daac7e4011e3b587592afcce906","body":"01643408000021213e5b786b6b6b6b6b88a5c2dffc19366b886b886b88a5c2dffc193653708daac7e4011e3b587592afcce90600","decodes":true,"chains":[]}},{"kind":101,"name":"RAID_OPENED","key":[{"name":"owner_tag","len":8},{"name":"seq","len":4}],"payload":[{"name":"p","len":4},{"name":"q","len":4},{"name":"bell","len":4},{"name":"raider_host","len":8},{"name":"raider_tag","len":8},{"name":"domestic","len":1}],"body_without_tail_len":47,"vector":{"bell":2101,"body_without_tail":"016535080000213e5b7895b2cfec213e5b7805000000ffffffff6b88a5c26b88a5c2dffc19366b88a5c2dffc19366b","body":"016535080000213e5b7895b2cfec213e5b7805000000ffffffff6b88a5c26b88a5c2dffc19366b88a5c2dffc19366b020404000000000000005809f52ad33c0ad3850ccdac716973cd7f248309cc1460385590a26749a8e4240605000000000000001e63b1d3ec616029867a9a9467db31bd407c08b374281f3613a72c4e8582cf8c","decodes":true,"chains":[{"entity":4,"who":"Base(Citizen(Tag8(3898424990439409771)))","prev_seq":3,"prev_head":"298f2c8bac01c38709d4c0ecaabbb77ae0c8799f833817760879f764f354d4f6","seq":4,"head":"5809f52ad33c0ad3850ccdac716973cd7f248309cc1460385590a26749a8e424"},{"entity":6,"who":"Base(Province { p: 5, q: -1 })","prev_seq":4,"prev_head":"e105af65fdc47a3a20561774b0a4ba730242a550a718ad09f22bf2e3ba9f1438","seq":5,"head":"1e63b1d3ec616029867a9a9467db31bd407c08b374281f3613a72c4e8582cf8c"}]}},{"kind":102,"name":"FORT_GARRISONED","key":[{"name":"p","len":4},{"name":"q","len":4},{"name":"tile","len":1}],"payload":[{"name":"owner_tag","len":8},{"name":"troops","len":4},{"name":"pend_bell","len":4},{"name":"pend","len":2},{"name":"holding_key","len":8}],"body_without_tail_len":41,"vector":{"bell":2102,"body_without_tail":"01663608000005000000ffffffff216b88a5c2dffc19366b88a5c26b88a5c26b886b88a5c2dffc1936","body":"01663608000005000000ffffffff216b88a5c2dffc19366b88a5c26b88a5c26b886b88a5c2dffc193600","decodes":true,"chains":[]}},{"kind":103,"name":"REST","key":[{"name":"p","len":4},{"name":"q","len":4},{"name":"from","len":4}],"payload":[{"name":"to","len":4},{"name":"holder","len":1},{"name":"territory","len":4},{"name":"spawns","len":1},{"name":"digest","len":32}],"body_without_tail_len":60,"vector":{"bell":2103,"body_without_tail":"01673708000005000000ffffffff213e5b786b88a5c26b6b88a5c26b6b88a5c2dffc193653708daac7e4011e3b587592afcce90623405d7a97b4d1ee","body":"01673708000005000000ffffffff213e5b786b88a5c26b6b88a5c26b6b88a5c2dffc193653708daac7e4011e3b587592afcce90623405d7a97b4d1ee010604000000000000002bcc26adf832f588bb8d517dc85c53d9bbb9e105f2e7d1a0625d48473021cace","decodes":true,"chains":[{"entity":6,"who":"Base(Province { p: 5, q: -1 })","prev_seq":3,"prev_head":"8aa5832421b4da8cbcea07ac0b29cd5db78e66958b7b5f041e2ebeff6709aa88","seq":4,"head":"2bcc26adf832f588bb8d517dc85c53d9bbb9e105f2e7d1a0625d48473021cace"}]}},{"kind":130,"name":"RESIDENT_JOINED","key":[{"name":"resident","len":15}],"payload":[{"name":"asset","len":32},{"name":"faction","len":1},{"name":"shard","len":1},{"name":"generation","len":4},{"name":"join_bell","len":4}],"body_without_tail_len":63,"vector":{"bell":2130,"body_without_tail":"018252080000213e5b7895b2cfec092643607d9ab76b88a5c2dffc193653708daac7e4011e3b587592afcce90623405d7a97b4d1ee6b6b6b88a5c26b88a5c2","body":"018252080000213e5b7895b2cfec092643607d9ab76b88a5c2dffc193653708daac7e4011e3b587592afcce90623405d7a97b4d1ee6b6b6b88a5c26b88a5c200","decodes":true,"chains":[]}}]});
+ export default LOGS;
+diff --git a/permutation-server/web/sdk/frontier/resident.mjs b/permutation-server/web/sdk/frontier/resident.mjs
+new file mode 100644
+index 00000000..95d06ae1
+--- /dev/null
++++ b/permutation-server/web/sdk/frontier/resident.mjs
+@@ -0,0 +1,271 @@
++// generated by permutation-gateway/scripts/sync-web-sdk.mjs — edit permutation-gateway/client/src
++// NFT residents (workstream 20, provisional until integration): addresses,
++// instruction builders and the relay's classification of JoinResident
++// (0xE1) and ResidentAct (0xE2) — workstream 4's allocation of 2026-11-06.
++//
++//   JoinResident  [owner s] [payer s,w] [season] [frontier] [citizen w] [system]
++//                 [policy] [link w] [asset] [resident] [join_gate s?]
++//                 data: 0xE1 ‖ generation u32 ‖ faction u8
++//   ResidentAct   <the inner player instruction's accounts> [policy] [link] [asset] [resident]
++//                 data: 0xE2 ‖ generation u32 ‖ <the inner instruction's data>
++//
++// One link and one NFT Citizen per season: the same pass joins every world.
++// The NFT Citizen sits where a wallet Citizen would, keyed by the resident ID
++// `sha256("PSF-RES" ‖ asset)[0..15]` instead of the wallet's tag. The
++// `generation` is the resident program's holder generation the owner (or
++// the owner's resident-program session) signs: a transfer bumps it, so a
++// signature from before a transfer is refused (ResidentStaleGeneration).
++//
++// Budgets: the CU and loaded-data overheads below are NOT measured on the
++// SBF build (no runtime run was approved); they are provisional ceilings
++// the relay's simulation checks before anything is sent.
++import { budgetOf, budgetPrefix, PACKET_BYTES } from './budgets.mjs';
++import { seed, SEED_TAGS, SYSTEM_PROGRAM, withSeed } from './addresses.mjs';
++import { TAGS as TAGS_V2 } from './abi-v2-tags.mjs';
++import { concat, u32le, utf8 } from '../bytes.mjs';
++import { sha256 } from '../sha256.mjs';
++import { compileMessage, findProgramAddress, pubkeyBytes } from '../solana-tx.mjs';
++
++export const CREATE_RESIDENT_POLICY_TAG = 0xe0;
++export const JOIN_RESIDENT_TAG = 0xe1;
++export const RESIDENT_ACT_TAG = 0xe2;
++/** Workstream 20's tag band 0xE0–0xE7. */
++export const isResidentTag = t => t >= 0xe0 && t <= 0xe7;
++
++/** The instructions the program runs for an NFT Citizen inside ResidentAct (SetSession is refused there). */
++export const RESIDENT_ACT_NAMES = Object.freeze([
++  'Harvest', 'Build', 'Train', 'Explore', 'Muster', 'Dissolve', 'Garrison', 'Depart',
++  'BuildStructure', 'SeizeStructure', 'CloseStructure', 'FortGarrison', 'Propose', 'Vote',
++  'BuildVault', 'SendCaravan', 'RaidCaravan', 'RaidDomestic', 'SeizeVault', 'CloseVault',
++  'SetVigil', 'FileOutpost', 'FileTicket', 'PlaceHome', 'DeclareSiege', 'RetireHost',
++]);
++const tagOfName = new Map(TAGS_V2.instructions.map(i => [i.name, i.tag]));
++export const RESIDENT_ACT_TAGS = Object.freeze(RESIDENT_ACT_NAMES.map(n => tagOfName.get(n)).filter(t => t !== undefined));
++
++/** Provisional, unmeasured overheads (see the header). */
++export const RESIDENT_CU_OVERHEAD = 40_000;
++export const RESIDENT_LOADED_OVERHEAD = 4_096;
++/** Bytes ResidentAct adds to its inner transaction: 4 keys (32 B + 1 index each) and 5 data bytes. */
++export const RESIDENT_ACT_EXTRA_BYTES = 4 * 33 + 5;
++
++// ------------------------------------------------------------------ addresses
++
++/** The resident ID: `sha256("PSF-RES" ‖ asset)[0..15]`. */
++export const residentTag15 = asset => sha256(utf8('PSF-RES'), pubkeyBytes(asset)).slice(0, 15);
++/** The NFT Citizen of `asset` in the season of `addresses` (a FrontierAddresses). */
++export const residentCitizen = (addresses, asset) => withSeed(addresses.season, seed(SEED_TAGS.Citizen, residentTag15(asset)), addresses.programId);
++/** The Frontier program's resident policy (global). */
++export const policyAddress = programId => findProgramAddress([utf8('nft-resident-policy')], programId)[0];
++/** The link of `asset` in the season `season` (one per season and NFT: the same pass joins every world; SEASON-SCOPE.ja.md). */
++export const linkAddress = (programId, season, asset) => findProgramAddress([utf8('nft-citizen-link'), pubkeyBytes(season), pubkeyBytes(asset)], programId)[0];
++/** The resident program's record of `asset`. */
++export const residentAddress = (residentProgram, asset) => findProgramAddress([utf8('resident'), pubkeyBytes(asset)], residentProgram)[0];
++/** The four proof accounts every ResidentAct and JoinResident names (in the season `season`). */
++export const proofAccounts = ({ programId, season, residentProgram, asset }) => ({
++  policy: policyAddress(programId),
++  link: linkAddress(programId, season, asset),
++  asset: typeof asset === 'string' ? asset : null,
++  resident: residentAddress(residentProgram, asset),
++});
++
++// ------------------------------------------------------------------ account readers
++
++const u32At = (d, o) => d[o] | (d[o + 1] << 8) | (d[o + 2] << 16) | (d[o + 3] * 2 ** 24);
++const i64At = (d, o) => { let v = 0n; for (let i = 7; i >= 0; i--) v = (v << 8n) | BigInt(d[o + i]); return BigInt.asIntN(64, v); };
++
++/** The resident program's record (133 B): generation and session, or null. */
++export function decodeResident(d) {
++  const b = Uint8Array.from(d ?? []);
++  if (b.length !== 133 || b[0] !== 0xc2) return null;
++  return {
++    asset: b.slice(1, 33),
++    generation: u32At(b, 48) >>> 0,
++    session: b.slice(52, 84),
++    sessionExpiry: i64At(b, 84),
++    sessionGeneration: u32At(b, 92) >>> 0,
++    sessionSetter: b.slice(96, 128),
++  };
++}
++
++/** A Core AssetV1's owner (bytes 1..33) and collection (34..66), or null. */
++export function decodeAssetOwner(d) {
++  const b = Uint8Array.from(d ?? []);
++  if (b.length < 66 || b[0] !== 1 || b[33] !== 2) return null;
++  return { owner: b.slice(1, 33), collection: b.slice(34, 66) };
++}
++
++// ------------------------------------------------------------------ builders
++
++const ro = pubkey => ({ pubkey, isSigner: false, isWritable: false });
++
++/** JoinResident (the first login of an NFT): see the header for the accounts. */
++export function joinResidentIx({ programId, owner, payer, season, frontier, citizen, policy, link, asset, resident, joinGate = null, generation, faction }) {
++  const keys = [
++    { pubkey: owner, isSigner: true, isWritable: false },
++    { pubkey: payer, isSigner: true, isWritable: true },
++    ro(season), ro(frontier),
++    { pubkey: citizen, isSigner: false, isWritable: true },
++    ro(SYSTEM_PROGRAM), ro(policy),
++    { pubkey: link, isSigner: false, isWritable: true },
++    ro(asset), ro(resident),
++  ];
++  if (joinGate) keys.push({ pubkey: joinGate, isSigner: true, isWritable: false });
++  return { programId, keys, data: concat([JOIN_RESIDENT_TAG], u32le(generation), [faction]) };
++}
++
++/** ResidentAct around an inner player instruction (from `frontierIx`) whose actor is the owner or its session. */
++export function residentActIx(inner, { generation, policy, link, asset, resident }) {
++  const tag = inner.data[0];
++  if (!RESIDENT_ACT_TAGS.includes(tag)) throw new Error(`instruction 0x${tag.toString(16)} is not run for an NFT Citizen`);
++  return {
++    programId: inner.programId,
++    keys: [...inner.keys, ro(policy), ro(link), ro(asset), ro(resident)],
++    data: concat([RESIDENT_ACT_TAG], u32le(generation), inner.data),
++  };
++}
++
++/** The budget of a ResidentAct around `inner` (a tag or name) or of JoinResident (`'JoinResident'`). */
++export function residentBudget(inner, profile = 1) {
++  const b = budgetOf(inner === 'JoinResident' ? 'Join' : inner, profile);
++  if (!b) return null;
++  const extra = inner === 'JoinResident' ? RESIDENT_ACT_EXTRA_BYTES - 32 : RESIDENT_ACT_EXTRA_BYTES;
++  return {
++    ...b,
++    name: inner === 'JoinResident' ? 'JoinResident' : b.name,
++    cuLimit: b.cuLimit + RESIDENT_CU_OVERHEAD,
++    loadedLimit: b.loadedLimit + RESIDENT_LOADED_OVERHEAD,
++    txCeiling: Math.min(b.txCeiling + extra, PACKET_BYTES),
++  };
++}
++
++/** The sponsored message of a ResidentAct: the budget prefix at CU price 0, then the wrapped instruction. */
++export function residentActMessage({ inner, proof, generation, feePayer, recentBlockhash, profile = 1 }) {
++  const b = residentBudget(inner.data[0], profile);
++  return compileMessage({ feePayer, recentBlockhash, instructions: [
++    ...budgetPrefix(inner.data[0], { profile, cuLimit: b.cuLimit, loadedLimit: b.loadedLimit }),
++    residentActIx(inner, { generation, ...proof }),
++  ] });
++}
++
++/** The sponsored message of a JoinResident. */
++export function joinResidentMessage({ feePayer, recentBlockhash, profile = 1, ...fields }) {
++  const b = residentBudget('JoinResident', profile);
++  return compileMessage({ feePayer, recentBlockhash, instructions: [
++    ...budgetPrefix('Join', { profile, cuLimit: b.cuLimit, loadedLimit: b.loadedLimit }),
++    joinResidentIx({ ...fields, payer: fields.payer ?? feePayer }),
++  ] });
++}
++
++// ------------------------------------------------------------------ relay classification
++
++const refuse = (code, problem) => ({ ok: false, code, problem });
++
++const JOIN_RESIDENT_SPEC = Object.freeze([
++  { name: 'owner', signer: true, writable: false },
++  { name: 'payer', signer: true, writable: true },
++  { name: 'season', signer: false, writable: false },
++  { name: 'frontier', signer: false, writable: false },
++  { name: 'citizen', signer: false, writable: true },
++  { name: 'system', signer: false, writable: false, system: true },
++  { name: 'policy', signer: false, writable: false },
++  { name: 'link', signer: false, writable: true },
++  { name: 'asset', signer: false, writable: false },
++  { name: 'resident', signer: false, writable: false },
++]);
++const JOIN_GATE_SPEC = Object.freeze({ name: 'join_gate', signer: true, writable: false });
++
++/** The message's keys and flags are exactly the instruction's (as `classify` requires of every shape). */
++function exactMessage(tx, programId, keys, spec, feePayer, prefixPrograms) {
++  const want = new Map([[feePayer, true]]);
++  keys.forEach((k, i) => want.set(k.pubkey, (want.get(k.pubkey) ?? false) || !!spec[i].writable));
++  for (const prog of [...prefixPrograms, programId]) {
++    if (want.has(prog)) return `the shape may not pass a program id (${prog}) as an account`;
++    want.set(prog, false);
++  }
++  if (tx.accountKeys.length !== want.size || tx.accountKeys.some(k => !want.has(k))) return 'the message names account keys no instruction of the shape uses';
++  const { numRequiredSignatures: ns, numReadonlySignedAccounts: rs, numReadonlyUnsignedAccounts: ru } = tx.header;
++  const n = tx.accountKeys.length;
++  for (let i = 0; i < n; i++) {
++    const w = i < ns ? i < ns - rs : i - ns < n - ns - ru;
++    if (w !== want.get(tx.accountKeys[i])) return `account ${tx.accountKeys[i]} must be ${want.get(tx.accountKeys[i]) ? 'writable' : 'read-only'}`;
++  }
++  return null;
++}
++
++/**
++ * Classify a transaction whose fourth instruction is the Frontier program's
++ * with a resident tag. `classify` is shapes.mjs's classifier (the inner
++ * player shape of a ResidentAct is checked by it, with the wrapped budget).
++ * Returns the inner shape plus `resident: {generation, policy, link, asset,
++ * resident}` (ResidentAct) or a `JoinResident` shape (`kind: 'join'`).
++ */
++export function classifyResident(tx, { programId, wireBytes, profile = 1, prefix, prefixPrograms }, classify) {
++  const ix = tx.instructions[3];
++  const tag = ix.data[0];
++  if (tag === RESIDENT_ACT_TAG) {
++    if (ix.data.length < 6) return refuse('RelayRejected', 'ResidentAct: generation and an inner instruction');
++    const generation = u32At(ix.data, 1) >>> 0;
++    const inner = ix.data.slice(5);
++    if (!RESIDENT_ACT_TAGS.includes(inner[0])) return refuse('RelayRejected', `ResidentAct: instruction 0x${inner[0].toString(16)} is not run for an NFT Citizen`);
++    if (ix.keys.length < 5) return refuse('RelayRejected', 'ResidentAct: the inner accounts, then the four proof accounts');
++    const proof = ix.keys.slice(-4);
++    const innerKeys = ix.keys.slice(0, -4);
++    const proofKeys = proof.map(k => k.pubkey);
++    if (proof.some(k => k.isSigner || k.isWritable)) return refuse('RelayRejected', 'ResidentAct: the proof accounts are read-only and never sign');
++    if (new Set(proofKeys).size !== 4 || proofKeys.some(k => innerKeys.some(i => i.pubkey === k))) {
++      return refuse('RelayRejected', 'ResidentAct: four distinct proof accounts, none of them an inner account');
++    }
++    // The proof keys are read-only unsigned: the inner message is this one
++    // without them.
++    const { numRequiredSignatures: ns, numReadonlyUnsignedAccounts: ru } = tx.header;
++    const n = tx.accountKeys.length;
++    const at = proofKeys.map(k => tx.accountKeys.indexOf(k));
++    if (at.some(i => i < n - ru || i < ns)) return refuse('RelayRejected', 'ResidentAct: the proof accounts must be read-only and unsigned in the message');
++    const innerTx = {
++      ...tx,
++      instructions: [...tx.instructions.slice(0, 3), { programId, keys: innerKeys, data: inner }],
++      accountKeys: tx.accountKeys.filter(k => !proofKeys.includes(k)),
++      header: { ...tx.header, numReadonlyUnsignedAccounts: ru - 4 },
++    };
++    const budget = residentBudget(inner[0], profile);
++    if (wireBytes !== undefined && wireBytes > budget.txCeiling) return refuse('RelayRejected', `${wireBytes} bytes is over ResidentAct(${budget.name})'s ceiling of ${budget.txCeiling}`);
++    const shape = classify(innerTx, { programId, profile, budget });
++    if (!shape.ok) return shape;
++    if (shape.kind !== 'player') return refuse('RelayRejected', 'ResidentAct wraps a player shape only');
++    const [policy, link, asset, resident] = proofKeys;
++    return { ...shape, keys: ix.keys, wrapper: 'ResidentAct', resident: { generation, policy, link, asset, resident } };
++  }
++  if (tag === JOIN_RESIDENT_TAG) {
++    if (ix.data.length !== 6) return refuse('RelayRejected', 'JoinResident data: 0xE1, generation u32, faction u8');
++    const budget = residentBudget('JoinResident', profile);
++    const [limit, price, loaded] = prefix;
++    if (price !== 0n) return refuse('RelayRejected', 'SetComputeUnitPrice must be 0 on a sponsored shape');
++    if (limit !== budget.cuLimit) return refuse('RelayRejected', `SetComputeUnitLimit must be ${budget.cuLimit} for JoinResident`);
++    if (loaded !== budget.loadedLimit) return refuse('RelayRejected', `SetLoadedAccountsDataSizeLimit must be ${budget.loadedLimit} for JoinResident`);
++    const spec = ix.keys.length === 11 ? [...JOIN_RESIDENT_SPEC, JOIN_GATE_SPEC] : ix.keys.length === 10 ? JOIN_RESIDENT_SPEC : null;
++    if (!spec) return refuse('RelayRejected', `JoinResident does not take ${ix.keys.length} accounts`);
++    const accounts = {};
++    for (let i = 0; i < spec.length; i++) {
++      const want = spec[i], have = ix.keys[i];
++      if (want.signer !== have.isSigner) return refuse('RelayRejected', `JoinResident account ${i} (${want.name}) ${want.signer ? 'must' : 'may not'} sign`);
++      if (want.writable !== have.isWritable) return refuse('RelayRejected', `JoinResident account ${i} (${want.name}) must be ${want.writable ? 'writable' : 'read-only'}`);
++      if (want.system && have.pubkey !== SYSTEM_PROGRAM) return refuse('RelayRejected', 'JoinResident account 5 must be the system program');
++      accounts[want.name] = have.pubkey;
++    }
++    const feePayer = tx.signers[0];
++    if (accounts.payer !== feePayer) return refuse('RelayRejected', 'the instruction\'s payer account must be the fee payer');
++    if (accounts.owner === feePayer) return refuse('RelayRejected', 'the fee payer cannot also be the owner');
++    const problem = exactMessage(tx, programId, ix.keys, spec, feePayer, prefixPrograms);
++    if (problem) return refuse('RelayRejected', problem);
++    const wanted = [feePayer, accounts.owner, ...(accounts.join_gate ? [accounts.join_gate] : [])];
++    if (tx.signers.length !== wanted.length || wanted.some(k => !tx.signers.includes(k))) return refuse('RelayRejected', 'the fee payer, the owner (and the join gate) sign, nobody else');
++    if (wireBytes !== undefined && wireBytes > budget.txCeiling) return refuse('RelayRejected', `${wireBytes} bytes is over JoinResident's ceiling of ${budget.txCeiling}`);
++    return {
++      ok: true, kind: 'player', wrapper: 'JoinResident', tag: JOIN_RESIDENT_TAG, name: 'JoinResident', feePayer, authority: accounts.owner,
++      signers: tx.signers, accounts, keys: ix.keys,
++      data: { generation: u32At(ix.data, 1) >>> 0, faction: ix.data[5] }, budget,
++      resident: { generation: u32At(ix.data, 1) >>> 0, policy: accounts.policy, link: accounts.link, asset: accounts.asset, resident: accounts.resident },
++    };
++  }
++  return refuse('RelayRejected', `resident instruction 0x${tag.toString(16)} is not a sponsored shape`);
++}
+diff --git a/permutation-server/web/sdk/frontier/shapes.mjs b/permutation-server/web/sdk/frontier/shapes.mjs
+index 503a4784..7089c597 100644
+--- a/permutation-server/web/sdk/frontier/shapes.mjs
++++ b/permutation-server/web/sdk/frontier/shapes.mjs
+@@ -21,6 +21,7 @@ import { accountSpec, decodeIxData, encodeIxData, ixOf, TAGS } from './codec.mjs
+ import { TAGS as TAGS_V2 } from './abi-v2-tags.mjs';
+ import { SYSTEM_PROGRAM } from './addresses.mjs';
+ import { compileMessage } from '../solana-tx.mjs';
++import { classifyResident, isResidentTag } from './resident.mjs';
+ 
+ /** The tag of the instruction named `name` (ABI v2's tags extend M1's, same numbers). */
+ const tagOf = name => TAGS_V2.instructions.find(i => i.name === name).tag;
+@@ -54,7 +55,7 @@ const refuse = (code, problem) => ({ ok: false, code, problem });
+  * `{ok: true, kind: 'player'|'settle', tag, name, feePayer, authority, signers, accounts: {name → key}, keys, data, budget, cu}`
+  * or `{ok: false, code: 'UseRevealRoute'|'RelayRejected', problem}`.
+  */
+-export function classify(tx, { programId, wireBytes, profile = 1 } = {}) {
++export function classify(tx, { programId, wireBytes, profile = 1, budget: budgetOverride } = {}) {
+   const ixs = tx.instructions;
+   // A Reveal anywhere is refused first, whatever else the transaction holds.
+   if (ixs.some(ix => ix.programId === programId && ix.data[0] === REVEAL_TAG)) {
+@@ -67,12 +68,17 @@ export function classify(tx, { programId, wireBytes, profile = 1 } = {}) {
+   }
+   const ix = ixs[3];
+   if (ix.programId !== programId) return refuse('RelayRejected', 'the fourth instruction must be the Frontier program\'s');
++  // ⑳ (provisional): JoinResident and ResidentAct (resident.mjs); a
++  // ResidentAct's inner player shape comes back here with its budget.
++  if (budgetOverride === undefined && isResidentTag(ix.data[0])) {
++    return classifyResident(tx, { programId, wireBytes, profile, prefix: cb.map(x => x.value), prefixPrograms: [COMPUTE_BUDGET_PROGRAM] }, classify);
++  }
+   const tag = ix.data[0];
+   const row = ixOf(tag, profile);
+   const kind = row?.relay_player_shape ? 'player' : row?.relay_settle_shape ? 'settle' : null;
+   if (!kind) return refuse('RelayRejected', `instruction tag 0x${(tag ?? 0).toString(16)} is not a sponsored shape`);
+   const abi = ixOf(tag, profile);
+-  const budget = budgetOf(tag, profile);
++  const budget = budgetOverride ?? budgetOf(tag, profile);
+   const [limit, price, loaded] = cb.map(x => x.value);
+   if (price !== 0n) return refuse('RelayRejected', 'SetComputeUnitPrice must be 0 on a sponsored shape');
+   if (limit !== budget.cuLimit) return refuse('RelayRejected', `SetComputeUnitLimit must be ${budget.cuLimit} for ${abi.name} (the budgets table)`);
+-- 
+2.43.0
+

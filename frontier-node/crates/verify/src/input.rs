@@ -25,7 +25,7 @@ use fclient::rpc::{account_json, parse_account};
 use serde_json::{json, Value};
 use solana_address::Address;
 
-use crate::history::History;
+use crate::history::{Gap, History, LedgerMark};
 use crate::world::Key;
 
 /// Fixture file format tag.
@@ -306,9 +306,19 @@ pub fn read_archive(dir: &Path) -> Result<(Vec<TxRecord>, History), String> {
             t.seq = e.feed_seq;
         }
         let id = j.ledger.unwrap_or_default();
-        return Ok((txs, History::unknown(format!(
-            "archive {shown}: ledger {id} numbers restored, but same-run rollback freshness is not established"
-        ))));
+        // The ledger's numbers are restored, but an archive alone shows none
+        // of: that the node still holds it (a later rewind), that the
+        // ledger's records up to it are the node's (no ledger digest), that
+        // it is at the final states' point. Each is named; it is never whole.
+        let mark = archive_mark(&id, a.cursor());
+        let h = History::ledger_feed(format!("ledger {id}{ARCHIVE_ONLY}"))
+            .with_gaps(&[
+                Gap::ArchiveOnly,
+                Gap::PrefixIdentityUnverified,
+                Gap::PointInTimeUnverified,
+            ])
+            .with_mark(mark);
+        return Ok((txs, h));
     }
     let txs = a.read_after(0).map_err(|e| e.to_string())?;
     let h = History::of_archive(a.cursor(), !txs.is_empty(), &shown);
@@ -320,9 +330,24 @@ pub fn read_archive(dir: &Path) -> Result<(Vec<TxRecord>, History), String> {
 pub const ARCHIVE_ONLY: &str =
     " (archive only: not checked against the node; a later rewind of its ledger is not seen)";
 
+/// The ledger point an archive was scanned through (`feed_scanned`, the
+/// node's scan: every ledger entry up to it examined), if it was.
+fn archive_mark(id: &str, cursor: &Value) -> Option<LedgerMark> {
+    let len = cursor.get("feed_scanned").and_then(|x| x.as_u64())?;
+    (!id.is_empty()).then(|| LedgerMark {
+        run_id: id.to_string(),
+        ledger_len: len,
+        ledger_bytes: None,
+    })
+}
+
 /// Observational cross-check against the node: discrepancies are Unknown.
 /// Even a matching tail is not an atomic whole-ledger snapshot, so the
-/// returned history remains Unknown until that freshness contract exists.
+/// returned history remains unproven until that freshness contract exists:
+/// on a match, `ledger_feed` without `archive_only` but still with
+/// `prefix_identity_unverified` (no node-side digest of the ledger's
+/// records) and `point_in_time_unverified` until [`seal_point_in_time`]; on
+/// a mismatch, `unknown` with `tail_mismatch`.
 pub async fn confirm_archive(dir: &Path, url: &str, h: History) -> Result<History, String> {
     let a = findex::archive::Archive::open(dir, findex::archive::SEGMENT_BYTES)
         .map_err(|e| format!("{}: {e}", dir.display()))?;
@@ -341,12 +366,74 @@ pub async fn confirm_archive(dir: &Path, url: &str, h: History) -> Result<Histor
             "archive {}: not confirmed against the node {url}: {}",
             dir.display(),
             why.join("; ")
-        )));
+        ))
+        .with_gaps(&[Gap::TailMismatch]));
     }
-    Ok(History::unknown(format!(
-        "archive {}: node tail cross-check matched; not an atomic ledger snapshot, completeness remains unproven ({})",
-        dir.display(), h.detail
-    )))
+    let id = joined.ledger.unwrap_or_default();
+    let _ = h;
+    Ok(History::ledger_feed(format!("ledger {id}"))
+        .with_gaps(&[Gap::PrefixIdentityUnverified, Gap::PointInTimeUnverified])
+        .with_mark(archive_mark(&id, a.cursor())))
+}
+
+/// What a live `ledger_feed` read of the local node (findex `LocalnetFeed`)
+/// could not show: `prefix_identity_unverified` unless every read was scanned
+/// from a ledger that cannot rewind under its runId (`rewind_safe`), and
+/// `point_in_time_unverified` until [`seal_point_in_time`]. The ledger point
+/// is noted when the node, read now, is still where the last scan ended.
+pub async fn live_assurance(
+    url: &str,
+    h: History,
+    rewind_safe: Option<bool>,
+    scanned: Option<u64>,
+) -> History {
+    let st = findex::ledger::node_status(url).await.ok();
+    let mark = st.and_then(|st| {
+        let len = st.transactions?;
+        let run_id = st.run_id?;
+        (scanned == Some(len)).then_some(LedgerMark {
+            run_id,
+            ledger_len: len,
+            ledger_bytes: st.ledger_bytes,
+        })
+    });
+    let mut h = h.with_gaps(&[Gap::PointInTimeUnverified]).with_mark(mark);
+    if rewind_safe != Some(true) {
+        h.add_gap(Gap::PrefixIdentityUnverified);
+    }
+    h
+}
+
+/// Once the final states are read: the node still at the ledger point the
+/// history was read through (the same runId, the same number of ledger
+/// entries, the same size when it was noted) shows the two were read at one
+/// point, and `point_in_time_unverified` is dropped. Otherwise it stays, and
+/// why is added to the detail. Nothing else changes.
+pub async fn seal_point_in_time(url: &str, h: &mut History) {
+    if !h.gaps.contains(&Gap::PointInTimeUnverified) {
+        return;
+    }
+    let Some(m) = h.mark.clone() else {
+        h.detail
+            .push_str("; point in time: the history's ledger point is not known");
+        return;
+    };
+    match findex::ledger::node_status(url).await {
+        Ok(st)
+            if st.run_id.as_deref() == Some(m.run_id.as_str())
+                && st.transactions == Some(m.ledger_len)
+                && m.ledger_bytes.is_none_or(|b| st.ledger_bytes == Some(b)) =>
+        {
+            h.remove_gap(Gap::PointInTimeUnverified);
+        }
+        Ok(st) => h.detail.push_str(&format!(
+            "; point in time: read through ledger {} entry {} ({:?} B), the node is at ledger {:?} entry {:?} ({:?} B) after the final states",
+            m.run_id, m.ledger_len, m.ledger_bytes, st.run_id, st.transactions, st.ledger_bytes
+        )),
+        Err(e) => h
+            .detail
+            .push_str(&format!("; point in time: the node could not be read ({e})")),
+    }
 }
 
 /// The ledger a local node serves (`frontier_status.runId`), if it says.
@@ -524,6 +611,20 @@ pub async fn fetch_txs(
         let bytes =
             |s: &Option<findex::ledger::NodeStatus>| s.as_ref().and_then(|s| s.ledger_bytes);
         let shrank = bytes(&before).zip(bytes(&after)).filter(|(b, a)| a < b);
+        // Prefix identity of a live read: every read scanned, none from a
+        // ledger that could rewind under the same runId (findex
+        // `LocalnetFeed::rewind_safe`). The point: where the read ended, if
+        // the node's ledger had not moved past the last scan.
+        let prefix_ok = s.rewind_safe() == Some(true);
+        let mark = after.as_ref().and_then(|st| {
+            let len = st.transactions?;
+            let run_id = st.run_id.clone()?;
+            (s.scanned() == Some(len)).then_some(LedgerMark {
+                run_id,
+                ledger_len: len,
+                ledger_bytes: st.ledger_bytes,
+            })
+        });
         let history = if out.is_empty() {
             History::unknown(format!(
                 "local node feed {url}: empty observation, not proof of an empty season"
@@ -547,12 +648,17 @@ pub async fn fetch_txs(
                 "local node feed {url}: the ledger shrank while it was read ({b} to {a} bytes): rewound"
             ))
         } else {
-            match id(&after) {
+            let h = match id(&after) {
                 Some(id) => History::ledger_feed(format!("ledger {id}")),
                 None => {
                     History::ledger_feed(format!("local node feed {url} (ledger not reported)"))
                 }
+            };
+            let mut h = h.with_gaps(&[Gap::PointInTimeUnverified]).with_mark(mark);
+            if !prefix_ok {
+                h.add_gap(Gap::PrefixIdentityUnverified);
             }
+            h
         };
         return Ok((out, history));
     }

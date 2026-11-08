@@ -373,9 +373,11 @@ fn anchor_time(
     Ok(an.a)
 }
 
-/// The reveal window of `bell` has closed (`TooEarly` otherwise).
+/// The reveal window of `bell` has closed (`TooEarly` otherwise). Shared
+/// with the experimental wide resolve (`proc::wide`), which authenticates
+/// THE anchor of its province's stored region the same way.
 #[allow(clippy::too_many_arguments)]
-fn window_closed(
+pub(crate) fn window_closed(
     program: &Pubkey,
     ctx: &AddrCtx,
     sid: u64,

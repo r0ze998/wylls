@@ -52,13 +52,13 @@ check(C.ingest.held.length === 0 && C.again.added === 0, 'C: nothing held; re-in
 const alias = C.facts.find(f => f.kind === 'identity_alias');
 check(alias?.data?.tag === A.citizen_tag_hex, 'C: identity_alias ties the tag to the pass');
 
-// D: ⑮'s events (④'s mapping) are the Citizen's send and its arrival.
-const ev = D.proposed_mapping.events;
+// D: ⑮'s events are the Citizen's send and its arrival (a lower bound: Recorded, ④ QUANTITY-CONTRACT §3).
+const ev = D.events;
 const send = ev.find(e => e.kind === 'ship.send'), arrive = ev.find(e => e.kind === 'ship.arrive');
 check(send?.from === `nft:${A.asset}` && send.qty === 4, 'D: send by the pass, 4');
-check(arrive?.qty === 4 && arrive.verified === 'chain', 'D: arrival 4, chain');
-check(send.ship.includes(`:${A.citizen_tag}:`), 'D: ship id carries the citizen_tag');
-check(D.normalize.rejected.length === 0, 'D: ⑮ normalize rejects nothing');
+check(arrive?.qty === 4 && arrive.qtyKind === 'lower_bound' && arrive.verified === 'chain_lower_bound', 'D: arrival at least 4 (lower bound)');
+check(send.ship.includes(`:${A.citizen_tag}:`) && arrive.ship === send.ship, 'D: one ship id, carrying the citizen_tag');
+check(D.normalize.rejected.length === 0 && D.normalize.gaps.length === 0, 'D: ⑮ normalize rejects nothing, no gap');
 
 // E: the prize step's inputs are stage A's.
 check(E.inputs_available.citizen === A.citizen && E.inputs_available.citizen_tag === A.citizen_tag, 'E: prize inputs = stage A\'s Citizen');

@@ -403,6 +403,7 @@ pub fn read_holding(d: &[u8]) -> R<KHolding> {
         walls: r.u32(H::WALLS)?,
         walls_committed_before: r.i64(H::WALLS_COMMITTED_BEFORE)?,
         food_shortfall: r.i64(H::FOOD_SHORTFALL)?,
+        lent_workshops: r.u32(H2::LENT_WORKSHOPS)?,
     })
 }
 
@@ -469,6 +470,8 @@ pub fn write_holding(d: &mut [u8], h: &KHolding, now: i64) -> R<()> {
     b[w..w + 4].copy_from_slice(&h.walls.to_le_bytes());
     kb_put_i64(b, H::WALLS_COMMITTED_BEFORE, h.walls_committed_before);
     kb_put_i64(b, H::FOOD_SHORTFALL, h.food_shortfall);
+    let l = H2::LENT_WORKSHOPS - H::STORES;
+    b[l..l + 4].copy_from_slice(&h.lent_workshops.to_le_bytes());
     Ok(())
 }
 

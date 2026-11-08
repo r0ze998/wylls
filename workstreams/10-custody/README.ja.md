@@ -8,6 +8,8 @@
 
 > **2026-11-05 ⑨との接続と V26 の再判定**：[08-adapter-09.ja.md](08-adapter-09.ja.md)（⑨の `Custody` を⑩の区画で実装したアダプター `adapter-09/` と、⑨自身の `Harness` を動かす契約試験。⑨と⑩本体のコードは変えていない）と [09-v26-state.ja.md](09-v26-state.ja.md)（core 差分 0010：custody シーズンの口座の再判定。証拠不足は PASS にしない）。本体 `3aef9673`・core `96fe6abf` はそのまま保持し、このブランチ `workstream/10-custody-adapter` は④の統合候補 `d0949fd4` を基点にしている。
 
+> **2026-11-07**：core 0001–0013 を④の統合候補 `c1e8137e` の上で実際に当て、割当 rev 4 の番号（tag 0xC2–0xCC、記録 105–113、エラー 100–104）に合わせた [14-core-on-candidate-rev4.ja.md](14-core-on-candidate-rev4.ja.md)、差分 [patches-r4/](patches-r4/)（⑧との番号の衝突を解消。検証器の名前 V26 の重なりは④の判断）。
+
 > **2026-11-06（3）**：⑨ `06c817cc`（⑩の差分を取り込み済み）との T5 の解消 [13-t5-and-v26-replay.ja.md](13-t5-and-v26-replay.ja.md)：アダプターの `connect` を削除し、単一の区画表の試験を⑨自身の bridge10 の上へ（`adapter-09/with-bridge10`）。V26 は注文の帳簿の再生（core `1624d14a`、patch 0013。core は先端に適用せず別の親として保存）。⑨への差分 `patches-to-09/0002`（pin の更新だけ）。
 
 > **2026-11-06（2）**：⑨の最新 `a24defcf` との照合 [12-connect-09-a24defcf.ja.md](12-connect-09-a24defcf.ja.md)。本人の区画と利用注文の区画を一つの表に、使わなかった鉱石は `return_unused` で消費を戻す（入庫に二重に数えない）、端数は預かりの中の未返却、⑨への差分 [patches-to-09/](patches-to-09/)、V26 の履歴の検査（core `38a273a9`、patch 0012。core は担当ブランチの先端には適用せず、別の親として保存）。
@@ -52,6 +54,8 @@
 | [10-adapter-bridge.ja.md](10-adapter-bridge.ja.md) | **⑨ bridge10 との照合（2026-11-06）**：揃えた点・合わなかった点、差分試験、所有と押収の問い |
 | [12-connect-09-a24defcf.ja.md](12-connect-09-a24defcf.ja.md) | **⑨ `a24defcf` との照合（2026-11-06）**：一つの区画表、返却・端数・二重計上、⑨への差分、V26 の履歴 |
 | [13-t5-and-v26-replay.ja.md](13-t5-and-v26-replay.ja.md) | **T5 と V26 の再生（2026-11-06）**：`connect` の削除、⑨ bridge10 の上の試験、注文の帳簿の再生、⑨・④への差分 |
+| [14-core-on-candidate-rev4.ja.md](14-core-on-candidate-rev4.ja.md) | **core を統合候補と rev 4 へ（2026-11-07）**：適用順、試験、⑧との衝突、未決事項 |
+| [patches-r4/](patches-r4/) | ④の統合候補 `c1e8137e` に当てる core の差分 0001–0014 |
 | [patches-to-09/](patches-to-09/) | ⑨の `a24defcf` に当てる差分（`git am`）と、当てた上での⑨の `run.sh` のログ |
 | [11-abi-request-04.ja.md](11-abi-request-04.ja.md) | **④への依頼（2026-11-06）**：ABI 番号と版の衝突（統合候補でエラー 94 が埋まった）と決めてほしいこと |
 | [adapter-09/](adapter-09/) | crate `wylls-custody-adapter-09`（独立 workspace）：⑨の `Custody` の実装と契約試験 |

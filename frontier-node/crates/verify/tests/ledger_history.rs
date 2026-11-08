@@ -1,10 +1,5 @@
-//! The verifier's view of a local node's ledger history (⑲, 2026-11-07):
-//! an archive of the node's feed is `ledger_feed` only when every record
-//! kept its ledger number from the ledger's start, one ledger named
-//! (`findex::ledger`); then its records carry the ledger number and its
-//! detail (`ledger <runId>`) is the same as a live read's, so an archive and
-//! a live read of one ledger can be told to be the same ledger. An archive
-//! from before, or a ledger that changed during the read, is unproven.
+//! Live feeds and archives retain ledger numbers but remain unproven:
+//! status/feed reads are not an atomic snapshot.
 //!
 //! Keyless: a JSON-RPC stand-in over a plain socket (`frontier_feed`,
 //! `frontier_status`), fixed byte-pattern signatures, opaque transactions;
@@ -223,9 +218,8 @@ async fn archive(url: &str, run: Option<&str>) -> std::path::PathBuf {
     d.join("archive")
 }
 
-/// A whole feed archive reads as the ledger's, with the ledger's numbers,
-/// and names the same ledger as a live read of that node: the two can be
-/// paired; the verdict the checks give stands.
+/// Ledger numbers survive, but neither live nor archived observations
+/// prove a complete snapshot.
 #[tokio::test]
 async fn a_whole_feed_archive_is_the_ledgers_and_pairs_with_a_live_read() {
     let (_n, url) = node(&["run1"], &ledger()).await;
@@ -240,8 +234,14 @@ async fn a_whole_feed_archive_is_the_ledgers_and_pairs_with_a_live_read() {
         txs.iter().map(|t| t.signature).collect::<Vec<_>>(),
         vec![sig(11), sig(14), sig(15)]
     );
-    assert_eq!(h.source, Source::Unknown);
-    assert!(h.detail.contains("rollback"));
+    // ⑲ 2026-11-08: the ledger's feed, but an archive alone names what it
+    // cannot show; never whole.
+    assert_eq!(h.source, Source::LedgerFeed);
+    assert!(h.unproven());
+    assert!(
+        h.gaps.contains(&verify_core::history::Gap::ArchiveOnly),
+        "{h:?}"
+    );
     let (live, lh) = input::fetch_txs(&url, &prog(), true, None, None)
         .await
         .unwrap();
@@ -249,7 +249,15 @@ async fn a_whole_feed_archive_is_the_ledgers_and_pairs_with_a_live_read() {
         live.iter().map(|t| t.seq).collect::<Vec<_>>(),
         vec![1, 4, 5]
     );
-    assert_eq!(lh.detail, "ledger run1");
+    // ⑲ 2026-11-08: a live read is unproven by its named gap until the
+    // final states are sealed at the same ledger point (not done here).
+    assert!(lh.unproven(), "{lh:?}");
+    assert!(
+        lh.gaps
+            .contains(&verify_core::history::Gap::PointInTimeUnverified),
+        "{lh:?}"
+    );
+    assert_eq!(apply(&lh, report()).verdict, Verdict::Unverifiable);
     assert_ne!(
         lh, h,
         "an archive not checked against the node does not pair with a live read"
@@ -257,8 +265,13 @@ async fn a_whole_feed_archive_is_the_ledgers_and_pairs_with_a_live_read() {
     // Checked against the node: the same ledger, one detail.
     let dir = archive_dir.clone();
     let ch = input::confirm_archive(&dir, &url, h).await.unwrap();
-    assert_eq!(ch.source, Source::Unknown);
-    assert!(ch.detail.contains("cross-check matched"));
+    // A matching tail: no longer archive-only, but the ledger's records
+    // before it are not shown to be the node's (no digest): unproven.
+    assert_eq!(ch.source, Source::LedgerFeed);
+    assert!(!ch.gaps.contains(&verify_core::history::Gap::ArchiveOnly));
+    assert!(ch
+        .gaps
+        .contains(&verify_core::history::Gap::PrefixIdentityUnverified));
     assert_eq!(apply(&ch, report()).verdict, Verdict::Unverifiable);
 }
 
@@ -386,5 +399,47 @@ async fn successful_feed_with_unreadable_status_is_unproven() {
         assert_eq!(h.source, Source::Unknown);
         assert!(h.detail.contains("status unavailable"));
         assert_eq!(apply(&h, report()).verdict, Verdict::Unverifiable);
+    }
+}
+
+#[tokio::test]
+async fn matching_live_status_never_proves_completeness_or_hides_local_failures() {
+    for sizes in [vec![500, 500], vec![500, 900]] {
+        let (n, url) = node(&["run1"], &ledger()).await;
+        *n.bytes.lock().unwrap() = sizes;
+        let (txs, h) = input::fetch_txs(&url, &prog(), true, None, None)
+            .await
+            .unwrap();
+        assert_eq!(txs.len(), 3);
+        assert!(h.unproven(), "{h:?}");
+        assert!(
+            h.gaps
+                .contains(&verify_core::history::Gap::PointInTimeUnverified),
+            "{h:?}"
+        );
+        assert_eq!(h.report()["complete"], false);
+        assert_eq!(apply(&h, report()).verdict, Verdict::Unverifiable);
+        for (check, code) in [
+            ("V0", "UnknownInstruction"),
+            ("V27", "ResidentJoinMismatch"),
+        ] {
+            let mut r = report();
+            r.verdict = Verdict::Fail;
+            r.findings.push(verify_core::Finding {
+                check,
+                code: code.into(),
+                severity: verify_core::Severity::Fail,
+                entity: "tx".into(),
+                bell: 0,
+                signature: String::new(),
+                detail: "literal finding".into(),
+            });
+            let out = apply(&h, r);
+            assert_eq!(out.verdict, Verdict::Fail);
+            assert!(out
+                .findings
+                .iter()
+                .any(|f| f.check == check && f.code == code));
+        }
     }
 }

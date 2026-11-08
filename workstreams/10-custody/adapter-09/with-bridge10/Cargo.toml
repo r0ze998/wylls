@@ -5,9 +5,9 @@ edition = "2021"
 rust-version = "1.89"
 publish = false
 license = "MIT"
-description = "Workstream 10: its one lot table driven by workstream 9's own bridge10 (pinned 06c817cc): returns, sub-unit rests, replays and restarts, checked on 10's side"
+description = "Workstream 10: its one lot table driven by workstream 9's own bridge10 (pinned 872fe6a2): returns, sub-unit rests, replays and restarts, checked on 10's side"
 
-# Own workspace. Workstream 9's crates (kernel, bridge10 at 06c817cc) are
+# Own workspace. Workstream 9's crates (kernel, bridge10 at 872fe6a2) are
 # NOT in this branch: ../run.sh extracts them from the pinned commit into a
 # temporary tree (checking their trees) and builds this crate there.
 [workspace]

@@ -198,6 +198,12 @@ const ERROR_TEXT = {
   ResidentUnguarded: () => L`この住民NFTには譲渡の保護がないため、操作できません`,
   ResidentStaleGeneration: () => L`住民NFTが署名のあとに譲渡されました。今の持ち主として操作し直してください`,
   ResidentNotCurrentAuthority: () => L`いまの住民NFTの持ち主（またはその接続）だけが操作できます`,
+  // ⑩ custody (codes 100–104)
+  CustodyCapacity: () => L`保管庫に、この割り当てや隊商の荷を入れる空きがありません（空きは出発のときに確保します）`,
+  CustodyNoSlot: () => L`この保管枠には、空いている注文や受け入れの枠がありません`,
+  OrderExpired: () => L`この注文は期限が切れたか、期限を超えて続くことになります`,
+  LotForfeited: () => L`この保管枠の保管庫は差し押さえられました。いまできるのは、保管枠の整理（ReconcileLot）だけです`,
+  LotNotEmpty: () => L`この保管枠には、まだ品物・到着予定の隊商・有効な注文があります（または、割り当てが中身より少なすぎます）`,
   NotImplemented: () => L`まだ実装されていません`,
 };
 
@@ -215,6 +221,9 @@ export const ERROR_NAMES = Object.freeze(Object.keys(ERROR_TEXT));
 const CLIENT_TEXT = {
   network: () => L`通信できませんでした`,
   NotFound: () => L`まだ記録がありません`,
+  WideWorldUnavailable: () => L`この配信元は記録された世界を出していません（WideWorldUnavailable）。`,
+  WideIndexUnavailable: () => L`この配信元は世界の履歴の索引を出していません（WideIndexUnavailable）。`,
+  BadConfig: () => L`協力の板の設定を読めませんでした（BadConfig）。`,
   WrongSeason: () => L`別のシーズンの記録です`,
   WrongKey: () => L`頼んだものと違う記録が届きました`,
   NotQuicknet: () => L`このシーズンの公開乱数は quicknet ではありません`,
@@ -230,7 +239,7 @@ const CLIENT_TEXT = {
   RelayOutcomeUnknown: () => L`取引が送られた可能性があります。署名の結果を確認するまで再送しないでください。`,
   SendOutcomeUnknown: () => L`取引が送られた可能性があります。署名の結果を確認するまで再送しないでください。`,
   UseRevealRoute: () => L`開封は取引ではなく開封の材料として送ります`,
-  QuotaExceeded: () => L`今日送れる操作の回数を使い切りました。シーズンの日付が変わると、また送れます。`,
+  QuotaExceeded: () => L`今日送れる操作の回数を使い切りました。ゲーム内の日付が変わると、また送れます。`,
   InviteRequired: () => L`このシーズンに参加するには招待が必要です`,
   OperatorLowFunds: () => L`手数料を立て替える資金が足りません。しばらくしてから試してください。`,
   BadSignature: () => L`署名を確認できませんでした`,
@@ -299,6 +308,8 @@ const CLIENT_TEXT = {
   ResidentUnverified: () => L`住民の持ち主を確かめられなかったため、送りませんでした。あとでもう一度試してください。`,
   Expired: () => L`取引は期限までに記録されませんでした`,
   Unconfirmed: () => L`取引がまだ確認できません。あとで状態を確かめます。`,
+  // (workstream 07: no read of the transaction's state answered — not a failure, it may still land)
+  TxUnqueryable: () => L`取引の状態を照会できませんでした。失敗したという意味ではなく、記録されている場合もあります。あとで状態を確かめます。`,
   TransactionFailed: () => L`取引は記録されましたが失敗しました`,
   NotSaved: () => L`この端末に進軍の記録を保存できないため、送りませんでした`,
   BadName: () => L`名前は1〜24文字の文字・数字・空白・「-」「_」「.」で付けてください`,
