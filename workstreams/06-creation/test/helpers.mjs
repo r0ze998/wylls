@@ -80,7 +80,7 @@ let nonces = 0;
 /** Run a plan once (mock), with a run request signed by the plan's own user. */
 export async function exec(s, plan, { batches, raidAt, as } = {}) {
   const who = as ?? Object.keys(s.pubs).find((id) => s.pubs[id] === plan.plan.actor);
-  const request = await requestRun(plan, { batches: batches ?? runInputs.get(plan) ?? {}, nonce: `t${++nonces}` }, s.keys[who]);
+  const request = await requestRun(plan, { batches: batches ?? runInputs.get(plan) ?? {}, nonce: `t${++nonces}`, day: s.world.today }, s.keys[who]);
   return execute(plan, s, { request, raidAt });
 }
 

@@ -189,7 +189,7 @@ export function fixtures() {
     v: 1, wallet: WALLET, citizen: { address: A.of('Citizen', { wallet: WALLET }), bytes_b64: b64(citizenBytes()) },
     holdings: [{ address: A.of('Holding', { p: P, q: Q, site: 3 }), bytes_b64: b64(holdingBytes()) }], slots: [], quota: { left: 38, resetsAt: GENESIS_TS + 86_400 },
   });
-  json('events-0.json', { events: [{ seq: '1', slot: 10, sig: '1'.repeat(64), kind: 2, body_b64: 'AQI=' }, { seq: '2', slot: 11, sig: '2'.repeat(64), kind: 4, body_b64: 'AQQ=' }], next: '2' });
+  json('events-0.json', { v: 1, full: false, events: [{ seq: '1', slot: 10, sig: '1'.repeat(64), kind: 2, body_b64: 'AQI=' }, { seq: '2', slot: 11, sig: '2'.repeat(64), kind: 4, body_b64: 'AQQ=' }], next: '2' });
   return files;
 }
 

@@ -1,4 +1,5 @@
 // Reads node --test TAP on stdin and sorts each test into ran / needs-key / FAILED / skipped (see test-nokey.sh).
+// With NOKEY_STRICT=1 (the audited list) any needs-key is a failure: a listed test must never reach a key operation.
 import { readFileSync } from 'node:fs';
 const lines = readFileSync(0, 'utf8').split('\n');
 const out = { ran: [], 'needs-key': [], FAILED: [], skipped: [] };
@@ -18,4 +19,4 @@ for (let i = 0; i < lines.length; i++) {
 for (const k of ['ran', 'needs-key', 'skipped', 'FAILED']) console.log(`# ${k}: ${out[k].length}`);
 for (const k of ['needs-key', 'skipped', 'FAILED']) for (const n of out[k]) console.log(`${k}\t${n}`);
 if (process.env.NOKEY_LIST_RAN) for (const n of out.ran) console.log(`ran\t${n}`);
-process.exit(out.FAILED.length ? 1 : 0);
+process.exit(out.FAILED.length || (process.env.NOKEY_STRICT && out['needs-key'].length) ? 1 : 0);

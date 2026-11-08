@@ -1,4 +1,4 @@
-//! `frontier-keeper --config keeper.toml [--dev] [--peace-start f] [--init-seed] [--require-existing-journal]`
+//! `frontier-keeper --config keeper.toml [--dev] [--peace-start f] [--init-seed] [--require-existing-journal] [--observe-wide]`
 //!
 //! Loads `keeper.toml` (M1 contract §8.2), takes the process lock of its
 //! journal, reconciles in-flight attempts, then ticks once per slot against
@@ -23,7 +23,7 @@ use keeper_core::{api, Keeper};
 
 fn usage() -> ! {
     eprintln!(
-        "usage: frontier-keeper --config <keeper.toml> [--dev] [--peace-start <fraction>] [--init-seed] [--require-existing-journal]"
+        "usage: frontier-keeper --config <keeper.toml> [--dev] [--peace-start <fraction>] [--init-seed] [--require-existing-journal] [--observe-wide] [--follow-wide] [--review-wide <version_hex>:<ruleset_hash_hex>]"
     );
     std::process::exit(2);
 }
@@ -64,6 +64,16 @@ async fn main() {
     let args: Vec<String> = std::env::args().collect();
     let mut cfg_path = None;
     let (mut dev, mut init, mut require_existing_journal) = (false, false, false);
+    #[cfg(feature = "wide-world-experimental")]
+    let mut observe_wide = false;
+    // `--follow-wide`: the read-only observation follower after the legacy
+    // feed gate (needs `--observe-wide`). Off unless named.
+    #[cfg(feature = "wide-world-experimental")]
+    let mut follow_wide = false;
+    // `--review-wide <program_version_hex>:<ruleset_hash_hex>`: the pinned
+    // deployment of the read-only wide review (needs `--observe-wide`).
+    #[cfg(feature = "wide-world-experimental")]
+    let mut review_wide: Option<keeper_core::wideduty::Deployment> = None;
     let mut peace: Option<f64> = None;
     let mut i = 1;
     while i < args.len() {
@@ -73,6 +83,26 @@ async fn main() {
                 i += 1;
             }
             "--dev" => dev = true,
+            #[cfg(feature = "wide-world-experimental")]
+            "--observe-wide" => observe_wide = true,
+            #[cfg(feature = "wide-world-experimental")]
+            "--follow-wide" => follow_wide = true,
+            #[cfg(feature = "wide-world-experimental")]
+            "--review-wide" => {
+                let spec = args.get(i + 1).cloned().unwrap_or_else(|| usage());
+                let (v, h) = spec.split_once(':').unwrap_or_else(|| usage());
+                let program_version =
+                    u16::from_str_radix(v.trim_start_matches("0x"), 16).unwrap_or_else(|_| usage());
+                let ruleset_hash: [u8; 32] = hex::decode(h)
+                    .ok()
+                    .and_then(|b| b.try_into().ok())
+                    .unwrap_or_else(|| usage());
+                review_wide = Some(keeper_core::wideduty::Deployment {
+                    program_version,
+                    ruleset_hash,
+                });
+                i += 1;
+            }
             "--peace-start" => {
                 let f: f64 = args
                     .get(i + 1)
@@ -90,6 +120,11 @@ async fn main() {
     }
     let Some(cfg_path) = cfg_path else { usage() };
     if init && require_existing_journal {
+        usage();
+    }
+    #[cfg(feature = "wide-world-experimental")]
+    if follow_wide && !observe_wide {
+        eprintln!("--follow-wide needs --observe-wide");
         usage();
     }
     let text = std::fs::read_to_string(&cfg_path).unwrap_or_else(|e| {
@@ -203,6 +238,41 @@ async fn main() {
         eprintln!("{e}");
         std::process::exit(2)
     });
+    // Explicit read-only observation; this never relaxes the feed/write guards.
+    #[cfg(feature = "wide-world-experimental")]
+    if observe_wide {
+        k.enable_wide_observation(keeper_core::wideindex::Limits::default())
+            .unwrap_or_else(|e| {
+                eprintln!("wide observation: {e}");
+                std::process::exit(2)
+            });
+    }
+    // Read-only observation after the legacy feed gate blocks: the
+    // follower's own cursor, the same observer; no legacy cursor, gate,
+    // signature or completeness claim.
+    #[cfg(feature = "wide-world-experimental")]
+    if follow_wide {
+        k.enable_wide_follow().unwrap_or_else(|e| {
+            eprintln!("wide follow: {e}");
+            std::process::exit(2)
+        });
+    }
+    // Read-only review of the observer's candidates under the pinned
+    // deployment; plans and reviews only, never enqueues.
+    #[cfg(feature = "wide-world-experimental")]
+    if let Some(dep) = review_wide {
+        k.enable_wide_review(dep).unwrap_or_else(|e| {
+            eprintln!("wide review: {e}");
+            std::process::exit(2)
+        });
+        // The same-response snapshot through the keeper's own read port
+        // (the JSON-RPC port implements `SnapshotPort`): one
+        // getMultipleAccounts per reviewed plan, no second client.
+        k.enable_wide_snapshot_via_port().unwrap_or_else(|e| {
+            eprintln!("wide snapshot: {e}");
+            std::process::exit(2)
+        });
+    }
     if let Some(seed) = claim_seed {
         let kp = fclient::Keypair::new_from_array(seed);
         if let Err(e) = k.set_claim_key(kp) {

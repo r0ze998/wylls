@@ -98,14 +98,14 @@ test("only the plan's user can make it run, once per request", async () => {
   // holding the signed plan is not enough
   assert.equal((await execute(plan, s)).failure.reason, "missing");
   // a request signed by someone else (here the author A)
-  const byA = await requestRun(plan, { nonce: "n1" }, s.keys.A);
+  const byA = await requestRun(plan, { nonce: "n1", day: s.world.today }, s.keys.A);
   assert.equal((await execute(plan, s, { request: byA })).failure.reason, "not-the-user");
   // B's request for another plan
   const other = await adopt(s, "B", s.refs.A, { params: { ...BIND.params, receiver: "vault:B-work" } });
-  const forOther = await requestRun(other, { nonce: "n2" }, s.keys.B);
+  const forOther = await requestRun(other, { nonce: "n2", day: s.world.today }, s.keys.B);
   assert.equal((await execute(plan, s, { request: forOther })).failure.reason, "other-plan");
   // a valid request runs once; replayed, it is refused
-  const req = await requestRun(plan, { nonce: "n3" }, s.keys.B);
+  const req = await requestRun(plan, { nonce: "n3", day: s.world.today }, s.keys.B);
   assert.equal((await execute(plan, s, { request: req })).ok, true);
   s.world.today += 1;
   const again = await execute(plan, s, { request: req });

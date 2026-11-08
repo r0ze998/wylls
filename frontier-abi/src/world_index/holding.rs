@@ -162,7 +162,8 @@ pub enum HoldingError {
     /// An issued host, a transit or an explore record under an
     /// unallocated host identity: a debit nothing could settle.
     DebitWithoutIdentity,
-    /// The claim rule (placement texture) is undecided.
+    /// The claim rule is undecided (the program decides it by the deployed
+    /// outpost lottery at a wide settle; a test may pass `Undecided`).
     NotReady,
 }
 
@@ -321,7 +322,12 @@ pub mod wide_holding {
     pub const STATUS: usize = TRAILER + 2;
     pub const SLOT: usize = TRAILER + 3;
     pub const HOST_IDENTITY: usize = TRAILER + 4;
-    pub const RSV_6: usize = TRAILER + 6;
+    /// The wide transit records of this holding that are open (written by
+    /// a departure, closed by a transit settlement): a season-end close
+    /// refuses while any is, so an escrow is never paid out under an
+    /// unsettled march.
+    pub const OPEN_TRANSITS: usize = TRAILER + 6;
+    pub const RSV_7: usize = TRAILER + 7;
     pub const WORLD: usize = TRAILER + 8;
     pub const SORT_KEY: usize = TRAILER + 40;
     pub const RSV: usize = TRAILER + 57;
@@ -330,7 +336,7 @@ pub mod wide_holding {
     const _: () = {
         assert!(TRAILER == 1_280);
         assert!(SIZE == 1_344);
-        assert!(RSV_6 + 2 == WORLD);
+        assert!(OPEN_TRANSITS + 1 == RSV_7 && RSV_7 + 1 == WORLD);
         assert!(WORLD + 32 == SORT_KEY);
         assert!(SORT_KEY + 17 == RSV);
         assert!(RSV + RSV_LEN == SIZE);
@@ -364,12 +370,15 @@ pub struct WideHolding {
     pub owner_citizen: [u8; 32],
     /// The host identity version it was founded under.
     pub host_identity: u16,
+    /// Open wide transit records (`wide_holding::OPEN_TRANSITS`).
+    pub open_transits: u8,
 }
 
 impl WideHolding {
     /// The founding of `site` of `coord` for `owner` in `slot`, under the
     /// claim rule: refused [`HoldingError::NotReady`] while the rule is
-    /// undecided (what the program knows today); otherwise generation
+    /// undecided (the program passes `Decided` only from the wide settle,
+    /// after the deployed outpost lottery); otherwise generation
     /// `gen` (the site mirror's next generation, the deployed rule) under
     /// the unallocated host identity.
     #[allow(clippy::too_many_arguments)]
@@ -409,13 +418,41 @@ impl WideHolding {
             slot,
             owner_citizen,
             host_identity: HOST_IDENTITY_UNALLOCATED,
+            open_transits: 0,
         })
+    }
+
+    /// Allocates the full-reference host identity
+    /// (`march::HOST_IDENTITY_FULL_REF_V1`) on a record founded under the
+    /// unallocated one: the first wide Muster's write, once a closed
+    /// muster/resolve/dissolve/return path exists for the host it debits.
+    /// Refuses any other stored version (`Version`).
+    pub fn allocate_identity(d: &mut [u8]) -> Result<(), HoldingError> {
+        use wide_holding as L;
+        let t = HoldingError::Length {
+            expected: L::SIZE,
+            got: d.len(),
+        };
+        let got = rd_u16(d, L::HOST_IDENTITY).ok_or(t)?;
+        if got != HOST_IDENTITY_UNALLOCATED {
+            return Err(HoldingError::Version {
+                expected: HOST_IDENTITY_UNALLOCATED,
+                got,
+            });
+        }
+        if wr_u16(d, L::HOST_IDENTITY, super::march::HOST_IDENTITY_FULL_REF_V1) {
+            Ok(())
+        } else {
+            Err(t)
+        }
     }
 
     /// Decodes the identity of exactly `wide_holding::SIZE` bytes, and
     /// refuses a record that shows a debit no identity could settle: under
-    /// [`HOST_IDENTITY_UNALLOCATED`], `host_seq` must be 0, every transit
-    /// record free and the explore record free.
+    /// [`HOST_IDENTITY_UNALLOCATED`], `host_seq` must be 0; under it or
+    /// `HOST_IDENTITY_FULL_REF_V1` (the only allocated version, written by
+    /// [`WideHolding::allocate_identity`]), every transit record and the
+    /// explore record must be free.
     pub fn read(d: &[u8]) -> Result<WideHolding, HoldingError> {
         use wide_holding as L;
         if d.len() != L::SIZE {
@@ -449,8 +486,9 @@ impl WideHolding {
         if sb != L::STATUS_FOUNDED {
             return Err(HoldingError::Status(sb));
         }
-        land::zero(d, L::RSV_6, 2).map_err(|_| HoldingError::Reserved)?;
+        land::zero(d, L::RSV_7, 1).map_err(|_| HoldingError::Reserved)?;
         land::zero(d, L::RSV, L::RSV_LEN).map_err(|_| HoldingError::Reserved)?;
+        let open_transits = rd_u8(d, L::OPEN_TRANSITS).ok_or(t)?;
         if rd_i16(d, H2::P).ok_or(t)? != 0 || rd_i16(d, H2::Q).ok_or(t)? != 0 {
             return Err(HoldingError::LegacyIdentityInPrefix);
         }
@@ -474,18 +512,27 @@ impl WideHolding {
             });
         }
         let host_identity = rd_u16(d, L::HOST_IDENTITY).ok_or(t)?;
-        if host_identity != HOST_IDENTITY_UNALLOCATED {
+        if host_identity != HOST_IDENTITY_UNALLOCATED
+            && host_identity != super::march::HOST_IDENTITY_FULL_REF_V1
+        {
             return Err(HoldingError::Version {
-                expected: HOST_IDENTITY_UNALLOCATED,
+                expected: super::march::HOST_IDENTITY_FULL_REF_V1,
                 got: host_identity,
             });
         }
         {
+            // Under the unallocated identity no host was ever mustered
+            // (`host_seq` 0). Under either, no transit and no explore
+            // record is in use: no wide departure exists (the march stays
+            // refused at Depart), so a used slot is a debit nothing settles.
             let seq = rd_u32(d, H2::HOST_SEQ).ok_or(t)?;
             let any_transit = (0..H2::TRANSIT_N)
                 .any(|i| rd_u8(d, H2::transit(i) + T::STATE).unwrap_or(1) != T::STATE_FREE);
             let explore = rd_u8(d, H2::EXPLORE + X::STATE).ok_or(t)?;
-            if seq != 0 || any_transit || explore != X::STATE_FREE {
+            if (host_identity == HOST_IDENTITY_UNALLOCATED && (seq != 0 || open_transits != 0))
+                || any_transit
+                || explore != X::STATE_FREE
+            {
                 return Err(HoldingError::DebitWithoutIdentity);
             }
         }
@@ -498,6 +545,7 @@ impl WideHolding {
             slot,
             owner_citizen: rd_arr(d, H2::OWNER_CITIZEN).ok_or(t)?,
             host_identity,
+            open_transits,
         })
     }
 
@@ -529,7 +577,8 @@ impl WideHolding {
             & wr_u8(d, L::STATUS, L::STATUS_FOUNDED)
             & wr_u8(d, L::SLOT, self.slot)
             & wr_u16(d, L::HOST_IDENTITY, self.host_identity)
-            & wr_arr(d, L::RSV_6, &[0u8; 2])
+            & wr_u8(d, L::OPEN_TRANSITS, self.open_transits)
+            & wr_u8(d, L::RSV_7, 0)
             & wr_arr(d, L::WORLD, self.world.as_bytes())
             & wr_arr(d, L::SORT_KEY, &self.coord.sort_key())
             & wr_arr(d, L::RSV, &[0u8; L::RSV_LEN]);
@@ -958,14 +1007,45 @@ mod tests {
         );
         // Unknown identity versions cannot bypass the no-debit gate.
         let mut x = d.clone();
-        x[wide_holding::HOST_IDENTITY] = 1;
+        x[wide_holding::HOST_IDENTITY] = 2;
         x[H2::HOST_SEQ] = 1;
         assert_eq!(
             WideHolding::read(&x),
             Err(HoldingError::Version {
+                expected: 1,
+                got: 2
+            })
+        );
+        // The allocated full-reference identity (the first wide Muster's
+        // write): a mustered host (`host_seq` 1) reads; a transit or an
+        // explore in use is still a debit nothing settles.
+        let mut v1 = d.clone();
+        WideHolding::allocate_identity(&mut v1).unwrap();
+        assert_eq!(
+            WideHolding::allocate_identity(&mut v1),
+            Err(HoldingError::Version {
                 expected: 0,
                 got: 1
-            })
+            }),
+            "allocated once"
+        );
+        assert_eq!(
+            WideHolding::read(&v1).map(|h| h.host_identity),
+            Ok(super::super::march::HOST_IDENTITY_FULL_REF_V1)
+        );
+        v1[H2::HOST_SEQ] = 1;
+        assert!(WideHolding::read(&v1).is_ok(), "a mustered host under v1");
+        let mut t1 = v1.clone();
+        t1[H2::transit(0) + T::STATE] = T::STATE_DEPARTED;
+        assert_eq!(
+            WideHolding::read(&t1),
+            Err(HoldingError::DebitWithoutIdentity)
+        );
+        let mut x1 = v1.clone();
+        x1[H2::EXPLORE + X::STATE] = X::STATE_PENDING;
+        assert_eq!(
+            WideHolding::read(&x1),
+            Err(HoldingError::DebitWithoutIdentity)
         );
     }
     #[test]

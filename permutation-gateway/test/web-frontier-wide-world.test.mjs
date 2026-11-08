@@ -369,6 +369,9 @@ test('screen pins require a loaded, labelled non-sample game source', () => {
   const record = { season: '5', seasonAddress: SEASON_ADDR, programId: PROGRAM, cluster: 'localnet' };
   const pins = sourcePins(record);
   assert.equal(pins.cluster, 'localnet');
+  for (const cluster of ['fixture', ' FIXTURE ', 'sample', 'prototype', 'unknown', '', undefined]) {
+    refused(() => sourcePins({ ...record, cluster }), 'SampleWorld');
+  }
   assert.notEqual(pins.key, sourcePins({ ...record, season: '6' }).key);
   assert.notEqual(pins.key, sourcePins({ ...record, cluster: 'mainnet-beta' }).key);
   refused(() => sourcePins({ ...record, sample: { world: 'sample' } }), 'SampleWorld');
@@ -422,4 +425,138 @@ test('the screen refuses a source that changes during loading', async () => {
     resolve({ok:true,manifest:parseWideManifest(manifest())}); await flush();
     assert.equal(mode.state().phase,'error'); assert.equal(mode.state().code,'WorldChanged'); assert.equal(mode.state().walk,null);
   } finally { mode.unmount(); }
+});
+
+// Synthetic wire data only. These fixed bytes test the display contract,
+// not ABI authentication, live captures, event verification or gameplay.
+function capturedEntry(p = '9007199254740993') {
+  const capture = n => ({address: SEASON_ADDR, slot: '9007199254740994', archiveSequence: '12',
+    verification: 'captured-unverified', postState: 'at-or-after-transaction', bytes_b64: Buffer.alloc(n).toString('base64')});
+  return entry(p, 0, p, 0, 0, {legacy: null, wide: {world:WORLD,p,q:'0',region:3,openedBell:5,keepHolder:4,
+    capture:capture(4864), holdings:[{world:WORLD,p,q:'0',site:2,generation:1,inventorySlot:2,
+      ownerCitizen:SEASON_ADDR,capture:capture(1344)}]}});
+}
+test('captured wide land retains exact keys, bounded holdings and explicit unverified timing', () => {
+  const e = parseWidePage(page([capturedEntry()]), {world:WORLD}).entries[0];
+  assert.equal(e.p, 9007199254740993n);
+  assert.equal(e.legacy, null);
+  assert.equal(e.wide.keepHolder, 4);
+  assert.equal(e.wide.holdings[0].p, e.p);
+  assert.equal(e.wide.capture.slot, 9007199254740994n);
+  assert.equal(e.wide.capture.verification, 'captured-unverified');
+  assert.equal(e.wide.capture.postState, 'at-or-after-transaction');
+  for (const mutate of [
+    x => { x.wide.world = OTHER_WORLD; },
+    x => { x.wide.holdings[0].p = '129'; },
+    x => { x.wide.capture.verification = 'verified'; },
+    x => { x.wide.capture.bytes_b64 = 'AA=='; },
+    x => { x.wide.holdings.push({...x.wide.holdings[0]}); },
+    x => { x.wide.holdings[0].inventorySlot = 1; },
+    x => { x.state = 'closed'; },
+    x => { x.wide.keepHolder = 7; },
+  ]) { const bad = capturedEntry(); mutate(bad); refused(() => parseWidePage(page([bad]), {world:WORLD}), 'BadWideCapture'); }
+});
+test('the screen shows captured wide land past the legacy cap without aliasing it', async () => {
+  const client = {wideWorld:async()=>({ok:true,manifest:parseWideManifest(manifest({recorded:1}))}),
+    wideWorldPage:async()=>({ok:true,json:page([capturedEntry()])})};
+  const mode = modeHarness(client,()=>({season:'5',seasonAddress:SEASON_ADDR,programId:PROGRAM,cluster:'localnet'}));
+  try {
+    mode.open(); await flush();
+    assert.equal(mode.state().phase,'ready');
+    const row = mode.elements().sheet.querySelector('#wide-list').children[0].children[0];
+    assert.match(row.textContent,/9007199254740993/);
+    assert.match(row.textContent,/9007199254740994/);
+    assert.doesNotMatch(row.textContent,/捕捉なし/);
+    assert.equal(mode.state().walk.list()[0].wide.holdings.length,1);
+    mode.close(); mode.open(); await flush();
+    assert.equal(mode.state().walk.list().length,1);
+  } finally { mode.unmount(); }
+});
+
+test('an incomplete terminal page is not a successfully empty or complete recorded world', async () => {
+  const empty = new WideWalk(); empty.begin(parseWideManifest(manifest()));
+  assert.equal(empty.accept(page([])), 'IncompleteRecordedWorld');
+  assert.equal(empty.done, false); assert.equal(empty.entries.size, 0);
+  const short = new WideWalk({limit:2}); short.begin(parseWideManifest(manifest()));
+  assert.equal(short.accept(page(E.slice(0,2), {next:CURSOR,limit:2})), 'applied');
+  assert.equal(short.accept(page(E.slice(2,3), {after:CURSOR,limit:2})), 'IncompleteRecordedWorld');
+  assert.equal(short.entries.size,2, 'the refused partial terminal page is not applied');
+  const extra = new WideWalk(); extra.begin(parseWideManifest(manifest({recorded:3})));
+  assert.equal(extra.accept(page(E)), 'RecordedCountMismatch');
+  assert.equal(extra.entries.size,0);
+  const bad = await loadWide({wideWorld:async()=>({ok:true,manifest:parseWideManifest(manifest())}),
+    wideWorldPage:async()=>({ok:true,json:page([])})});
+  assert.equal(bad.ok,false); assert.equal(bad.code,'IncompleteRecordedWorld');
+});
+
+import { parseWideIndexStatus, parseWideIndexPage } from '../../permutation-server/web/frontier/map/widehistory.mjs';
+// Literal PSW1 RecordClosed wire shape; no live event or verified chain claim.
+const HISTORY_PINS = {seasonId:'5',seasonAddress:SEASON_ADDR,programId:PROGRAM};
+const historyStatus = (extra={}) => ({v:1,experimental:true,readOnly:true,program:PROGRAM,season:'5',seasonAddress:SEASON_ADDR,world:WORLD,
+  sourceCoverage:'unknown',captureVerification:'unverified',indexedThrough:'1',snapshot:STAMP,state:'observed',caughtUp:true,automaticWrites:false,...extra});
+function historyRow() {
+  const p='9007199254740993', rp=ringPosition(BigInt(p),0n);
+  const keyHex=`01${WORLD}${rp.ring.toString(16).padStart(16,'0')}${rp.wedge.toString(16).padStart(2,'0')}${rp.pos.toString(16).padStart(16,'0')}`;
+  const body=Buffer.alloc(104); body[0]=0x82;body[1]=12;Buffer.from(keyHex,'hex').copy(body,6);body[56]=2;
+  return {event:'1',archiveSequence:'1',ordinal:'0',format:'PSW1',kind:12,name:'WIDE_RECORD_CLOSED',body_b64:body.toString('base64'),
+    province:{world:WORLD,p,q:'0',keyHex},holding:null,host:null};
+}
+const historyPage = (extra={}) => ({...historyStatus(),after:'0',next:'1',more:false,limit:20,events:[historyRow()],...extra});
+test('typed history pins full identity and raw attribution while retaining unknown coverage', () => {
+  const status=parseWideIndexStatus(historyStatus(),HISTORY_PINS);assert.equal(status.state,'observed');assert.equal(status.sourceCoverage,'unknown');
+  const p=parseWideIndexPage(historyPage(),{pins:HISTORY_PINS,through:1n,snapshot:STAMP});assert.equal(p.rows[0].province.p,9007199254740993n);assert.equal(p.captureVerification,'unverified');
+  const edits=[
+    x=>{delete x.events;},x=>{x.next='0';},x=>{x.more=true;},x=>{x.sourceCoverage='complete';},x=>{x.captureVerification='verified';},
+    x=>{x.events[0].province.p='9007199254740992';},x=>{x.events[0].province.keyHex='01'+OTHER_WORLD+x.events[0].province.keyHex.slice(66);},
+    x=>{x.events[0].name='WIDE_MUSTER';},x=>{x.events[0].event='2';},x=>{x.events[0].archiveSequence='2';},x=>{x.events[0].body_b64='ggwAAAAAAA==';},
+    x=>{x.events[0].body_b64+='garbage';},x=>{const b=Buffer.from(x.events[0].body_b64,'base64');b[10]^=1;x.events[0].body_b64=b.toString('base64');},
+  ];
+  for(const edit of edits){const bad=historyPage();edit(bad);assert.throws(()=>parseWideIndexPage(bad,{pins:HISTORY_PINS,through:1n,snapshot:STAMP}));}
+  refused(()=>parseWideIndexPage(historyPage(),{pins:HISTORY_PINS,through:2n,snapshot:STAMP}),'WideIndexChanged');
+  refused(()=>parseWideIndexStatus(historyStatus({world:OTHER_WORLD}),HISTORY_PINS),'WorldMismatch');
+  assert.throws(()=>parseWideIndexStatus(historyStatus({state:'blocked',caughtUp:true}),HISTORY_PINS));
+});
+test('herald typed history client preserves blocked/unavailable errors and checks snapshots', async () => {
+  const off=createHerald({base:'http://h',fetch:fakeFetch({}),seasonId:5});assert.equal((await off.wideIndexStatus({pins:HISTORY_PINS})).code,'WideIndexUnavailable');
+  const f=fakeFetch({'/h/wide-index/status':{status:200,body:historyStatus()},'/h/wide-index/events':{status:200,body:historyPage()}});
+  const h=createHerald({base:'http://h',fetch:f,seasonId:5});assert.equal((await h.wideIndexStatus({pins:HISTORY_PINS})).status.through,1n);
+  const page=await h.wideIndexEvents({pins:HISTORY_PINS,through:1n,snapshot:STAMP});assert.equal(page.ok,true);assert.equal(page.page.rows.length,1);
+  assert.equal((await h.wideIndexEvents({pins:HISTORY_PINS,through:2n,snapshot:STAMP})).code,'WideIndexChanged');
+  const blocked=createHerald({base:'http://h',fetch:fakeFetch({'/h/wide-index/events':{status:503,body:{code:'WideIndexBlocked'}}})});
+  assert.equal((await blocked.wideIndexEvents({pins:HISTORY_PINS,through:1n,snapshot:STAMP})).code,'WideIndexBlocked');
+});
+test('history UI shows observations separately and never turns event coordinates into land', async () => {
+  let blocked=false;
+  const client={wideWorld:async()=>({ok:true,manifest:parseWideManifest(manifest())}),wideWorldPage:async()=>({ok:true,json:page(E)}),
+    wideIndexStatus:async()=>({ok:true,status:parseWideIndexStatus(historyStatus(blocked?{state:'blocked',caughtUp:false}:{}),HISTORY_PINS)}),
+    wideIndexEvents:async()=>({ok:true,page:parseWideIndexPage(historyPage(),{pins:HISTORY_PINS,through:1n,snapshot:STAMP})})};
+  const mode=modeHarness(client,()=>({season:'5',seasonAddress:SEASON_ADDR,programId:PROGRAM,cluster:'localnet'}));
+  try {mode.open();await flush();const sheet=mode.elements().sheet;assert.equal(mode.state().history.phase,'ready');
+    assert.equal(sheet.querySelector('#wide-history-list').children.length,1);assert.match(sheet.querySelector('#wide-history-list').children[0].textContent,/9007199254740993/);
+    assert.equal(mode.state().walk.list().length,4);assert.equal(mode.state().walk.entries.has('9007199254740993,0'),false);
+    blocked=true;mode.close();mode.open();await flush();assert.equal(mode.state().history.phase,'error');assert.equal(sheet.querySelector('#wide-history-list').children.length,0);assert.match(sheet.querySelector('#wide-history-status').textContent,/WideIndexBlocked/);
+  } finally {mode.unmount();}
+});
+
+test('invalid scope and reader errors clear old history, reject pending responses, and recover', async () => {
+  const valid={season:'5',seasonAddress:SEASON_ADDR,programId:PROGRAM,cluster:'localnet'};
+  let record=valid, failure=null, delay=false, resolvePending;
+  const parsed=()=>parseWideIndexPage(historyPage(),{pins:HISTORY_PINS,through:1n,snapshot:STAMP});
+  const client={wideWorld:async()=>failure?{ok:false,code:failure}:{ok:true,manifest:parseWideManifest(manifest())},wideWorldPage:async()=>({ok:true,json:page(E)}),
+    wideIndexStatus:async()=>({ok:true,status:parseWideIndexStatus(historyStatus(),HISTORY_PINS)}),
+    wideIndexEvents:()=>delay?new Promise(resolve=>{resolvePending=resolve;}):Promise.resolve({ok:true,page:parsed()})};
+  const mode=modeHarness(client,()=>record);
+  const rows=()=>mode.elements().sheet.querySelector('#wide-history-list').children.length;
+  const restart=async()=>{mode.close();mode.open();await flush();};
+  try {
+    mode.open();await flush();assert.equal(rows(),1);
+    record=null;await mode.poll();assert.equal(mode.state().phase,'error');assert.equal(rows(),0);assert.equal(mode.state().history.phase,'error');
+    record=valid;await restart();assert.equal(rows(),1);
+    failure='NoSeasonYet';await mode.poll();assert.equal(rows(),0);assert.equal(mode.state().history.code,'NoSeasonYet');
+    failure=null;await restart();assert.equal(rows(),1);
+    delay=true;await restart();assert.equal(mode.state().history.phase,'loading');
+    record={...valid,programId:'invalid'};await mode.poll();assert.equal(rows(),0);assert.equal(mode.state().history.phase,'error');
+    resolvePending({ok:true,page:parsed()});await flush();assert.equal(rows(),0);assert.equal(mode.state().history.phase,'error');
+    delay=false;record=valid;await restart();assert.equal(mode.state().history.phase,'ready');assert.equal(rows(),1);
+  } finally {mode.unmount();}
 });

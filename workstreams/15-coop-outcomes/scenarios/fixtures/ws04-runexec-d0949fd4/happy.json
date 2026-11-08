@@ -1,0 +1,39 @@
+{
+ "provenance": {
+  "producer": "workstream 4 runexec (workstreams/04-execution), simulated canonical world (MOCK)",
+  "branch": "origin/integration/ws09-13-v16-d0949fd4",
+  "commit": "d0949fd417180b11704de5690ab0dfb6e5ef3148",
+  "command": "cargo build --release --bin runexec && runexec demo --db <db> --scenario happy",
+  "read": "SELECT run_id,kind,subject,source,slot,body FROM receipts; SELECT run_id, spec FROM runs (raw JSON text kept: u64 exact)",
+  "note": "synthetic world of the simulator; no player data"
+ },
+ "receipts": [
+  {
+   "run_id": "demo-happy",
+   "kind": "facility_used",
+   "subject": "fac:demo-happy",
+   "source": "sig:b07227c82f0c08964ab608a5bc5f9bf3c96a8da4",
+   "slot": 2,
+   "body_json": "{\"consumed\":[0,5,0,0,0,0,0,0],\"key\":\"fac:demo-happy\",\"produced\":[0,0,0,0,0,0,3,0],\"rights_units\":1,\"sig\":\"b07227c82f0c08964ab608a5bc5f9bf3c96a8da4\",\"slot\":2}"
+  },
+  {
+   "run_id": "demo-happy",
+   "kind": "caravan_sent",
+   "subject": "cv:77:0",
+   "source": "sig:63353057c8fd663e6b7ddd6be05ddd1933e2f13a",
+   "slot": 4,
+   "body_json": "{\"cargo\":[0,0,0,0,0,0,3,0],\"content_from\":\"event:63353057c8fd663e6b7ddd6be05ddd1933e2f13a:0\",\"seq\":0}"
+  },
+  {
+   "run_id": "demo-happy",
+   "kind": "caravan_settled",
+   "subject": "cv:77:0",
+   "source": "event:settle:cv:77:0",
+   "slot": 24,
+   "body_json": "{\"cargo\":[0,0,0,0,0,0,3,0],\"credited\":[0,0,0,0,0,0,3,0],\"dst\":{\"at\":5,\"gen\":1,\"kind\":2,\"p\":1,\"q\":0},\"key\":{\"owner\":119,\"seq\":0},\"outcome\":0,\"slot\":24}"
+  }
+ ],
+ "run_specs_json": {
+  "demo-happy": "{\"run_id\":\"demo-happy\",\"owner\":119,\"stock\":{\"kind\":1,\"p\":0,\"q\":0,\"at\":1,\"gen\":1},\"inbound\":null,\"facility\":{\"place\":{\"kind\":1,\"p\":0,\"q\":1,\"at\":2,\"gen\":1},\"recipe\":1},\"inputs\":[0,5,0,0,0,0,0,0],\"outputs\":[0,0,0,0,0,0,3,0],\"rights_units\":1,\"ship\":{\"dst\":{\"kind\":2,\"p\":1,\"q\":0,\"at\":5,\"gen\":1},\"cargo\":[0,0,0,0,0,0,3,0]},\"deadline_slot\":400,\"budget\":{\"max_attempts\":3,\"max_fee\":200000,\"max_port_errors\":5}}"
+ }
+}

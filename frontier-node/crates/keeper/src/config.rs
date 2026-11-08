@@ -230,6 +230,10 @@ pub struct KeeperConfig {
     /// the bid rises / at the class cap (`engine::EngineParams`).
     pub d_resend_slots: u64,
     pub cap_resend_slots: u64,
+    /// W writes (Reveals): at most this many versions that can still land
+    /// at once (`engine::EngineParams::max_unknown_w_versions`; ⑱, owner
+    /// decision 2026-11-05). `0` keeps the every-slot ladder.
+    pub max_unknown_w_versions: u32,
     /// Land (W3-C): Holdings the feed named are re-read every this many
     /// slots (dormancy, sweeps).
     pub land_scan_slots: u64,
@@ -309,6 +313,7 @@ impl KeeperConfig {
             care_every_game_secs: 300,
             d_resend_slots: 2,
             cap_resend_slots: 16,
+            max_unknown_w_versions: 2,
             land_scan_slots: 8,
             stranded_scan_slots: 450,
             dev: false,
@@ -411,6 +416,7 @@ impl KeeperConfig {
         num!("care_every_game_secs", care_every_game_secs, u64);
         num!("d_resend_slots", d_resend_slots, u64);
         num!("cap_resend_slots", cap_resend_slots, u64);
+        num!("max_unknown_w_versions", max_unknown_w_versions, u32);
         num!("land_scan_slots", land_scan_slots, u64);
         num!("stranded_scan_slots", stranded_scan_slots, u64);
         num!("race_jitter_slots", race_jitter_slots, u64);
@@ -541,6 +547,24 @@ mod tests {
                 .unwrap();
         assert!(ext.extend && ext.extend_max_ring == 24);
         assert!(KeeperConfig::from_toml(&format!("{text}\nextend_max_ring = 129\n")).is_err());
+    }
+
+    #[test]
+    fn max_unknown_w_versions_defaults_to_2_and_parses() {
+        let p = Address::new_from_array([5; 32]);
+        let b = Address::new_from_array([6; 32]);
+        let base = format!("program = \"{p}\"\nseason = 1\nbeneficiary = \"{b}\"\n");
+        assert_eq!(
+            KeeperConfig::from_toml(&base)
+                .unwrap()
+                .max_unknown_w_versions,
+            2
+        );
+        for n in [0u32, 1, 5] {
+            let c =
+                KeeperConfig::from_toml(&format!("{base}max_unknown_w_versions = {n}\n")).unwrap();
+            assert_eq!(c.max_unknown_w_versions, n);
+        }
     }
 
     #[test]

@@ -2,8 +2,8 @@
 // code) and B (the NFT Citizen's cargo-only caravan, the run executor) left in CHAIN_OUT, and passes it on:
 //   C  ⑫ memory: 4's store read with ⑫'s own adapter (readWs04Store, ingestReceipts): facts about the caravan whose
 //      sender is the NFT Citizen's tag.
-//   D  ⑮ outcome: the same receipts through ⑮'s own adapter (fromRunReceipts) as it is, then through ④'s mapping
-//      (a proposal for ⑮: the fields ④'s receipts really carry) and ⑮'s normalize (its contract check).
+//   D  ⑮ outcome: the same receipts and runs through ⑮'s own adapter (fromRunReceipts) and ⑮'s normalize (its
+//      contract check).
 //   E  prize: not run (the owner's CC implements the NFT prize). What the prize step receives is written down.
 // Nothing here generates, derives or signs a key; tools/chain-flow/run.sh runs it under scripts/ci/no-keys-guard.mjs.
 // MOCK: the clock (bell = slot), finality (every slot of the simulated world is final) and the nation of the joined
@@ -88,34 +88,26 @@ const map = {
   destination: () => ({ actor }), // the Citizen's own vault (stage B ships to its own place)
   cargoSent: () => null,
 };
-// D1: ⑮'s adapter as it is, on 4's real receipts.
-const asIs = fromRunReceipts(store.receipts, map, { epoch: A.season_id });
-// D2: ④'s mapping (proposal for ⑮): the receipt bodies carry {seq, cargo} (sent) and {key{owner,seq}, dst, cargo,
-// credited, outcome} (settled); the owner is the subject's tag, the destination the run's spec, and the verification
-// the run's own outcome (detail.outcome.verification) — none of them is in the body ⑮ reads.
-const ownerOf = subject => BigInt(`0x${/^cv:([0-9a-f]+):/.exec(subject)[1]}`).toString();
-const mapped = store.receipts.map(r => {
-  const b = { ...r.body, owner_tag: ownerOf(r.subject) };
-  if (r.kind === 'caravan_sent') b.dst = store.runSpecs[r.run_id]?.ship?.dst;
-  if (r.kind === 'caravan_settled') b.verification = detailOf[r.run_id]?.outcome?.verification ?? 'Unverifiable';
-  return { ...r, body: b };
-});
-const proposed = fromRunReceipts(mapped, map, { epoch: A.season_id });
+// ⑮'s adapter (5753626c and later) reads the subject's tag, the run's spec (destination) and the run's own outcome
+// (detail.outcome.verification), which is what ④'s store carries: no mapping of the bodies is needed.
+const runs = Object.fromEntries(Object.entries(store.runSpecs).map(([id, spec]) => [id,
+  { spec, ...(detailOf[id]?.outcome ? { outcome: detailOf[id].outcome } : {}), ...(detailOf[id]?.reason ? { reason: detailOf[id].reason } : {}) }]));
+const read = fromRunReceipts(store.receipts, runs, map, { epoch: A.season_id, finalizedSlot: lastSlot });
 const join0 = { id: 'chain-a:0', stream: 'chain-a', seq: 0, at: 0, kind: 'actor.join', verified: 'chain', actor, nation,
   src: { record: 'RESIDENT_JOINED', key: A.resident_tag15 } };
-const norm = normalize([join0, ...proposed.events], {});
-const sends = proposed.events.filter(e => e.kind === 'ship.send');
-const arrives = proposed.events.filter(e => e.kind === 'ship.arrive');
+const norm = normalize([join0, ...read.events], {});
+const sends = read.events.filter(e => e.kind === 'ship.send');
+const arrives = read.events.filter(e => e.kind === 'ship.arrive');
 check(sends.length === 1 && sends[0].from === actor && sends[0].qty === 4 && sends[0].resource === 'wood',
   '⑮ sees the Citizen send 4 wood (slot 1)');
-check(arrives.length === 1 && arrives[0].qty === 4 && arrives[0].verified === 'chain', '⑮ sees 4 arrive, verified on chain');
-check(norm.notes.rejected.length === 0 && norm.notes.conflicts.length === 0, `⑮ normalize: ${JSON.stringify(norm.notes)}`);
-const asIsSends = asIs.events.filter(e => e.kind === 'ship.send').length;
+// ④ QUANTITY-CONTRACT §3: Recorded (credited, whole units, case B) is a lower bound [b, b+1), not an exact amount.
+check(arrives.length === 1 && arrives[0].qty === 4 && arrives[0].qtyKind === 'lower_bound' && arrives[0].verified === 'chain_lower_bound',
+  '⑮ sees at least 4 arrive (Recorded: lower bound)');
+check(read.skipped.length === 0 && read.held.length === 0, `⑮ skipped or held: ${JSON.stringify([read.skipped, read.held])}`);
+check(norm.notes.rejected.length === 0 && norm.notes.conflicts.length === 0 && norm.notes.gaps.length === 0, `⑮ normalize: ${JSON.stringify(norm.notes)}`);
 const D = {
-  stage: 'D', reader: 'workstreams/15-coop-outcomes/src/adapters/ws04.mjs fromRunReceipts and ledger.normalize, unchanged',
-  as_is: { events: asIs.events.map(e => e.kind), skipped: asIs.skipped,
-    finding: asIsSends === 0 ? '⑮\'s adapter reads body.owner_tag, body.dst (sent) and body.verification (settled), which ④\'s receipts do not carry: the send is skipped as unresolved and the arrival is counted as unverified' : null },
-  proposed_mapping: { by: '④ (proposal for ⑮; ⑮ decides)', events: proposed.events, skipped: proposed.skipped },
+  stage: 'D', reader: 'workstreams/15-coop-outcomes/src/adapters/ws04.mjs fromRunReceipts (runs: spec and outcome from 4\'s store) and ledger.normalize, unchanged',
+  events: read.events, skipped: read.skipped, held: read.held,
   normalize: { rejected: norm.notes.rejected, conflicts: norm.notes.conflicts, gaps: norm.notes.gaps },
   mock: ['bell = slot', `nation = faction byte of RESIDENT_JOINED (${nation})`, 'actor = the pass (nft:<asset>)'],
 };
@@ -132,7 +124,7 @@ const E = {
   run: ER,
   inputs_available: {
     season: A.season, season_id: A.season_id, citizen: A.citizen, citizen_tag: A.citizen_tag, asset: A.asset,
-    nation_stand_in: nation, outcome_events: proposed.events.length, owner_now: A.owner_after_transfer, generation: A.generation,
+    nation_stand_in: nation, outcome_events: read.events.length, owner_now: A.owner_after_transfer, generation: A.generation,
   },
   policy_given: 'every player holds an NFT pass; unclaimed prizes from before a transfer move with the pass to the new owner',
   what_the_chain_shows: [
@@ -150,5 +142,5 @@ const E = {
 writeFileSync(join(out, 'e-prize.json'), JSON.stringify(E, null, 2));
 
 console.log(JSON.stringify({ C: { added: C.ingest.added, held: C.ingest.held.length, facts: C.facts.map(f => f.kind) },
-  D: { as_is: D.as_is.events, as_is_skipped: D.as_is.skipped.length, proposed: proposed.events.map(e => `${e.kind}:${e.verified}`), rejected: D.normalize.rejected.length },
+  D: { events: D.events.map(e => `${e.kind}:${e.qtyKind ?? ''}:${e.verified}`), skipped: D.skipped.length, held: D.held.length, rejected: D.normalize.rejected.length },
   E: E.status }, null, 1));

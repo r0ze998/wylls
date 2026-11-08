@@ -75,6 +75,8 @@ pub struct App {
     pub diffs: broadcast::Sender<Arc<Diff>>,
     /// The findex index (for `/h/events`).
     pub index: Option<PathBuf>,
+    /// Explicit read-only path to the opt-in typed wide cache.
+    pub wide_index: Option<PathBuf>,
     pub events: Mutex<Option<findex::Reader>>,
     pub ws: WsCfg,
     pub ws_stats: Arc<WsStats>,
@@ -108,6 +110,7 @@ impl App {
             season,
             diffs,
             index: None,
+            wide_index: None,
             events: Mutex::new(None),
             ws: WsCfg::default(),
             ws_stats: Arc::new(WsStats::default()),
@@ -135,6 +138,8 @@ pub fn router(app: Shared) -> Router {
         .route("/h/bell/{bell}/region/{r}", get(bell_region))
         .route("/h/me/{wallet}", get(me))
         .route("/h/events", get(events))
+        .route("/h/wide-index/status", get(wide_index_status))
+        .route("/h/wide-index/events", get(wide_index_events))
         .route("/h/ws", get(ws_route))
         // MC hook: the conquest read paths (CONQUEST-CONTRACT §4.5, §8.4)
         .merge(crate::cqroutes::mount())
@@ -344,6 +349,9 @@ async fn world_ring(State(app): State<Shared>, Path(d): Path<String>) -> Respons
 /// `/h/world/wide` (`wide.rs`): the recorded wide world's manifest.
 #[cfg(feature = "wide-world-experimental")]
 async fn world_wide(State(app): State<Shared>) -> Response {
+    if app.season.cluster.trim().eq_ignore_ascii_case("fixture") {
+        return err(StatusCode::SERVICE_UNAVAILABLE, "FixtureWorldUnavailable");
+    }
     let f = read_fold(&app);
     match crate::wide::manifest_json(&f) {
         Ok(v) => json_answer(&v, "public, max-age=5"),
@@ -357,6 +365,9 @@ async fn world_wide_page(
     State(app): State<Shared>,
     Query(q): Query<std::collections::HashMap<String, String>>,
 ) -> Response {
+    if app.season.cluster.trim().eq_ignore_ascii_case("fixture") {
+        return err(StatusCode::SERVICE_UNAVAILABLE, "FixtureWorldUnavailable");
+    }
     let limit = match q.get("limit").map(|s| s.parse::<usize>()) {
         None => None,
         Some(Ok(n)) => Some(n),
@@ -859,4 +870,30 @@ async fn gw(
     }
     b.body(Body::from(r.body))
         .unwrap_or_else(|_| err(StatusCode::BAD_GATEWAY, "RelayAnswer"))
+}
+
+#[cfg(feature = "wide-index-read-experimental")]
+async fn wide_index_status(State(app): State<Shared>) -> Response {
+    match crate::wide_read::status_json(&app) {
+        Ok(v) => json_answer(&v, "no-store"),
+        Err((status, code)) => err(status, code),
+    }
+}
+#[cfg(feature = "wide-index-read-experimental")]
+async fn wide_index_events(
+    State(app): State<Shared>,
+    Query(q): Query<std::collections::HashMap<String, String>>,
+) -> Response {
+    match crate::wide_read::events_json(&app, &q) {
+        Ok(v) => json_answer(&v, "no-store"),
+        Err((status, code)) => err(status, code),
+    }
+}
+#[cfg(not(feature = "wide-index-read-experimental"))]
+async fn wide_index_status(State(_app): State<Shared>) -> Response {
+    err(StatusCode::SERVICE_UNAVAILABLE, "WideIndexUnavailable")
+}
+#[cfg(not(feature = "wide-index-read-experimental"))]
+async fn wide_index_events(State(_app): State<Shared>) -> Response {
+    err(StatusCode::SERVICE_UNAVAILABLE, "WideIndexUnavailable")
 }

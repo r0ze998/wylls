@@ -431,7 +431,7 @@ async function onAdopted(e) {
   if (btn.dataset.act === "run") {
     const { batches } = readBindings(box);
     nonce += 1;
-    const request = await requestRun(p, { batches, nonce: `ui-${nonce}` }, myKey(`${p.plan.manifest.name} の実行を依頼（${Object.keys(batches).length ? `束 ${Object.values(batches).join("・")}` : "束なし"}）`));
+    const request = await requestRun(p, { batches, nonce: `ui-${nonce}`, day: world.today }, myKey(`${p.plan.manifest.name} の実行を依頼（${Object.keys(batches).length ? `束 ${Object.values(batches).join("・")}` : "束なし"}）`));
     const r = await execute(p, ctx(), { request });
     state.runlog.unshift(`<li><span class="badge mock">模擬</span> ${esc(p.plan.manifest.name)}@${esc(p.plan.manifest.version)}：${r.ok ? "完了" : `止まった（${esc(r.failure.code)}${r.stoppedAt ? ` @ ${esc(r.stoppedAt)}` : ""}）`}<ul>${r.log.map((l) => `<li>${esc(l)}</li>`).join("")}${r.ok ? "" : `<li>${esc(r.failure.message)} <code>${esc(JSON.stringify(Object.fromEntries(Object.entries(r.failure).filter(([k]) => !["code", "severity", "stage", "path", "message"].includes(k)))))}</code></li>`}</ul></li>`);
     $("runlog").innerHTML = `<p>チェーンには何も送っていません。記録は模擬の台帳にだけ残ります。実行は、確認の結果ではなく、実行時点の権利・残高・物で決まります。</p><ol>${state.runlog.join("")}</ol>`;

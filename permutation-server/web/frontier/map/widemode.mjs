@@ -14,6 +14,7 @@
 //
 // Nothing here signs or sends anything.
 import { L, fmtNum, onLangChange } from '../../lang.mjs';
+import { FACTION_COLORS, factionName } from '../fi18n.mjs';
 import { provinceCorners, provincePixel } from './layers.mjs';
 import { loadWide, WideWalk, originAt, ORIGIN_CONCORD, layoutWide, nearestTo, formatCoord, describeWalk, ringOfWide, parseWideInt, WideError, sourcePins } from './wide.mjs';
 
@@ -60,7 +61,7 @@ const codeText = code => (CODE_TEXT[code] ?? (() => L`記録を読めません�
 
 /** The state the sheet renders (pure data; exported for tests). */
 export function modeState() {
-  return { open: false, phase: 'closed', code: null, walk: null, origin: ORIGIN_CONCORD, zoom: 1, pan: { x: 0, y: 0 }, selected: null, pointer: null };
+  return { open: false, phase: 'closed', code: null, walk: null, origin: ORIGIN_CONCORD, zoom: 1, pan: { x: 0, y: 0 }, selected: null, pointer: null, history: null };
 }
 
 /**
@@ -110,6 +111,8 @@ export function mountWideMode({ herald, canvas, doc = canvas?.ownerDocument ?? g
         <h3 id="wide-list-title"></h3>
         <ol class="wide-list" id="wide-list"></ol>
         <p class="wide-more" id="wide-more"></p><div><button type="button" id="wide-prev">←</button><button type="button" id="wide-next">→</button></div>
+        <h3 id="wide-history-title"></h3><p id="wide-history-status" role="status"></p>
+        <ol class="wide-list" id="wide-history-list"></ol><button type="button" id="wide-history-next"></button>
       </aside>
     </div>`;
   canvas.after(sheet);
@@ -130,6 +133,8 @@ export function mountWideMode({ herald, canvas, doc = canvas?.ownerDocument ?? g
     $('wide-recentre').textContent = TEXT.recentre(); $('wide-concord').textContent = TEXT.concord(); $('wide-reload').textContent = TEXT.reload();
     $('wide-k-origin').textContent = TEXT.origin(); $('wide-k-pointer').textContent = TEXT.pointer(); $('wide-k-selected').textContent = TEXT.selected();
     $('wide-list-title').textContent = TEXT.list();
+    $('wide-history-title').textContent = L`観測された履歴（未検証）`;
+    $('wide-history-next').textContent = L`次の履歴`;
     $('wide-prev').setAttribute('aria-label', L`前の記録`); $('wide-next').setAttribute('aria-label', L`次の記録`);
     wc.setAttribute('aria-label', L`記録された世界の地図：ドラッグで移動、ホイールと＋－で拡大縮小、矢印キーで移動、クリックで州を選択`);
     renderText();
@@ -156,10 +161,15 @@ export function mountWideMode({ herald, canvas, doc = canvas?.ownerDocument ?? g
     $('wide-pointer').textContent = S.pointer ? `${formatCoord(S.pointer.p, S.pointer.q)}${S.pointer.entry ? '' : ` ${TEXT.unknown()}`}` : TEXT.none();
     $('wide-selected').textContent = S.selected ? `${formatCoord(S.selected.p, S.selected.q)} ${entryLine(S.selected)}` : TEXT.none();
     renderList();
+    renderHistory();
   }
   const entryLine = e => {
     const st = e.state === 'open' ? L`開` : L`閉`;
     const ring = L`第${String(e.ring)}輪`;
+    if (e.wide) {
+      const timing = e.wide.capture.postState === 'transaction' ? L`取引直後` : L`取引以降`;
+      return `${st} / ${ring} / ${L`城砦 ${factionName(e.wide.keepHolder)}`} / ${L`保有地 ${e.wide.holdings.length} 件`} / ${L`取引スロット ${String(e.wide.capture.slot)}`} (${timing}) / ${L`履歴未検証`}`;
+    }
     const leg = e.legacy ? L`捕捉スロット ${e.legacy.slot === null ? '?' : fmtNum(e.legacy.slot)}・開始ターン ${e.legacy.openedBell === null ? '?' : fmtNum(e.legacy.openedBell)}` : L`捕捉なし`;
     return `${st} / ${ring} / ${leg}`;
   };
@@ -188,6 +198,50 @@ export function mountWideMode({ herald, canvas, doc = canvas?.ownerDocument ?? g
     $('wide-more').textContent = entries.length > LIST_ROWS ? L`ほか ${fmtNum(entries.length - LIST_ROWS)} 州（地図で選べます）` : '';
   }
 
+  function renderHistory() {
+    const h = S.history, list = $('wide-history-list');
+    list.textContent = '';
+    $('wide-history-next').disabled = !h?.page?.more || h.phase !== 'ready';
+    $('wide-history-status').textContent = !h ? L`履歴は未取得です。` : h.phase === 'loading' ? L`履歴を読み込んでいます…` : h.phase === 'error' ? L`履歴は利用できません（${h.code}）。空の履歴という意味ではありません。` : L`このページで ${h.page.rows.length} 件取得。取得元の完全性・アカウントとの一致は未検証です。土地やプレイ可能状態は示しません。`;
+    if (h?.phase !== 'ready') return;
+    for (const r of h.page.rows) {
+      const li = doc.createElement('li');
+      const location = r.province ? formatCoord(r.province.p, r.province.q) : L`旧形式`;
+      li.textContent = `${r.event} ${r.name} / ${location} / ${L`未検証`}`;
+      list.append(li);
+    }
+  }
+  async function loadHistory(reset = true) {
+    const c = controller, pins = S.source;
+    if (!c || !S.open || !pins) return;
+    const old = S.history;
+    S.history = { phase: 'loading' }; renderHistory();
+    const current = () => {
+      if (controller !== c || !S.open) return false;
+      try { return !isSample() && sourcePins(recordOf()).key === pins.key; } catch { return false; }
+    };
+    let status = reset ? null : old?.status;
+    if (!herald.wideIndexStatus || !herald.wideIndexEvents) { S.history = {phase:'error',code:'WideIndexUnavailable'}; renderHistory(); return; }
+    try {
+      if (!status) {
+        const r = await herald.wideIndexStatus({ signal:c.signal, pins });
+        if (!current()) return;
+        if (!r.ok) throw new WideError(r.code, r.code);
+        status = r.status;
+      }
+      if (status.state !== 'observed') throw new WideError(status.state === 'blocked' ? 'WideIndexBlocked' : 'WideIndexIncomplete');
+      const r = await herald.wideIndexEvents({ signal:c.signal, pins, through:status.through, snapshot:status.snapshot, after:reset ? 0n : old.page.next, limit:20 });
+      if (!current()) return;
+      if (!r.ok) throw new WideError(r.code, r.code);
+      S.history = {phase:'ready',status,page:r.page};
+    } catch (e) {
+      if (!current()) return;
+      S.history = {phase:'error',code:e.code ?? 'BadWideHistory'};
+    }
+    renderHistory();
+  }
+  $('wide-history-next').addEventListener('click', () => { if (S.history?.phase === 'ready' && S.history.page.more) loadHistory(false); });
+
   // ---- drawing (relative to the BigInt origin: provinceCorners takes the small integer offset only)
   function draw() {
     raf = null;
@@ -212,7 +266,7 @@ export function mountWideMode({ herald, canvas, doc = canvas?.ownerDocument ?? g
     for (const { entry, dp, dq } of near) {
       const pts = provinceCorners(dp, dq, 2);
       ctx.beginPath(); pts.forEach(([x, y], i) => (i ? ctx.lineTo(x, y) : ctx.moveTo(x, y))); ctx.closePath();
-      ctx.fillStyle = entry.state === 'open' ? 'rgba(201,162,74,.55)' : 'rgba(120,120,120,.35)';
+      ctx.fillStyle = entry.state === 'open' ? (FACTION_COLORS[entry.wide?.keepHolder] ?? 'rgba(201,162,74,.55)') : 'rgba(120,120,120,.35)';
       ctx.fill();
       ctx.strokeStyle = S.selected?.key === entry.key ? '#f0d48a' : 'rgba(244,239,224,.6)';
       ctx.lineWidth = (S.selected?.key === entry.key ? 3 : 1) / S.zoom;
@@ -244,8 +298,12 @@ export function mountWideMode({ herald, canvas, doc = canvas?.ownerDocument ?? g
   }
 
   // ---- state changes
-  function setPhase(phase, code = null) { S.phase = phase; S.code = code; renderText(); invalidate(); }
+  function setPhase(phase, code = null) {
+    if (phase === 'error' || phase === 'sample') { controller?.abort(); controller = null; S.history = {phase:'error',code:code ?? 'WideIndexUnavailable'}; }
+    S.phase = phase; S.code = code; renderText(); invalidate();
+  }
   async function load() {
+    S.history = null;
     controller?.abort();
     const c = new AbortController();
     controller = c;
@@ -265,6 +323,7 @@ export function mountWideMode({ herald, canvas, doc = canvas?.ownerDocument ?? g
       S.retries = 0;
       if (S.selected) S.selected = S.walk.entries.get(S.selected.key) ?? null;
       setPhase('ready');
+      loadHistory(true);
     } else if ((r.code === 'WorldChanged' || r.code === 'StaleSnapshot') && (S.retries = (S.retries ?? 0) + 1) <= 3) {
       // the index moved under the walk: nothing of that walk is kept; start over (at most three times in a row)
       S.walk = null;
@@ -375,6 +434,8 @@ export function mountWideMode({ herald, canvas, doc = canvas?.ownerDocument ?? g
 
   return {
     open, close, toggle,
+    /** Same read-only polling action as the interval, exposed for deterministic tests. */
+    poll,
     state: () => S,
     /** For the page's own tests: the sheet, the button and a forced redraw. */
     elements: () => ({ button, sheet, canvas: wc }),

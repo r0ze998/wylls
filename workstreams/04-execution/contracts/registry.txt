@@ -127,6 +127,18 @@ bell = u32 index of bell_secs seconds since genesis_ts
 0xbd SettleProposal D false
 0xbe RaidDomestic P false
 0xc0 FastForward D true
+0xc1 ExtendFrontier D false
+0xc2 OpenLot P false
+0xc3 SetLotQuota P false
+0xc4 DepositLot P false
+0xc5 SetLotOrder P false
+0xc6 RevokeLotOrder P false
+0xc7 ShipLot P false
+0xc8 SettleCustody D false
+0xc9 ConsumeLot P false
+0xca ReconcileLot D false
+0xcb CloseLot P false
+0xcc WithdrawLot P false
 
 [prize_program_ix] # legacy season pool (compatibility only)
 0 InitPool
