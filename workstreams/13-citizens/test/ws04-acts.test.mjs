@@ -14,6 +14,7 @@ import { pathToFileURL } from 'node:url';
 import { small, run } from './helpers.mjs';
 import { ws04ActsPort, fateOfReceipt, Unqueryable } from '../resident/ports/ws04-acts.mjs';
 import { assertPort } from '../resident/ports/execution.mjs';
+import { ws04Acts, clientFile } from './roots.mjs';
 
 const one = () => small({ residents: [{ id: 'ren', goal: 'village-first', pos: { q: 0, r: 0 } }] });
 const firstBuild = ren => Object.values(ren.state.journal).find(j => j.purpose?.type === 'build');
@@ -51,8 +52,8 @@ test('the port declares retention for good, registers before sending, and NoReco
 });
 
 // ---- the real registry -------------------------------------------------------------------------------------------
-const CLIENT = process.env.WS04_ACTS_CLIENT, BIN = process.env.RUNEXEC_BIN;
-const REAL = CLIENT && BIN ? false : 'set WS04_ACTS_CLIENT (workstream 4 clients/acts.mjs) and RUNEXEC_BIN (its runexec)';
+const CLIENT = clientFile(ws04Acts(), 'workstreams/04-execution/clients/acts.mjs'), BIN = process.env.RUNEXEC_BIN;
+const REAL = CLIENT && BIN ? false : `missing: ${[!CLIENT && 'workstream 4 clients/acts.mjs', !BIN && 'RUNEXEC_BIN (no tree carries the binary)'].filter(Boolean).join(', ')}`;
 
 /** A scripted GET /f/agent/fate: the test world's answer as workstream 4's wallet states, or `override(key)`. */
 function fateServer(world, actor, override) {

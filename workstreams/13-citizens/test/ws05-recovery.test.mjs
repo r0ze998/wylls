@@ -27,12 +27,13 @@ import { ws05LedgerCost } from '../resident/ports/ws05-cost.mjs';
 import { openResident } from '../world/harness.mjs';
 import { fixtureProvider } from '../resident/ports/provider.mjs';
 import { expectCommit } from './versions.mjs';
+import { ws05 } from './roots.mjs';
 
 // Workstream 5's tree: WS05_ROOT (or the older name WS05_E9D1551A). Its commit is recorded below; WS05_EXPECT=<sha>
 // makes the file fail unless the tree is that commit (e9d1551aa049f25c54fd6ebc24185d93a2d8ac4c for the original
 // package, 10e749677d96301766c2930a8f903baf28cce0bc for the public one).
-const ROOT = process.env.WS05_ROOT ?? process.env.WS05_E9D1551A;
-const skip5 = ROOT ? false : 'set WS05_ROOT (or WS05_E9D1551A) to a checkout of workstream 5 (e9d1551a or 10e74967)';
+const ROOT = ws05().root;
+const skip5 = ROOT ? false : 'workstream 5 (WS05_ROOT, or in this tree)';
 const WS05_COMMIT = ROOT ? expectCommit('WS05', ROOT) : null;
 const m5 = rel => import(pathToFileURL(path.join(ROOT, 'workstreams/05-ai-participation/model-api/src', rel)).href);
 test('workstream 5 under test (attribution)', { skip: skip5 }, async t => {

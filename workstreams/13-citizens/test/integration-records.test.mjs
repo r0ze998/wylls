@@ -19,9 +19,10 @@ import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { ws12CanonicalEvidence } from '../resident/ports/ws12-canonical.mjs';
 import { seasonClock } from '../resident/frame.mjs';
+import { ws12 } from './roots.mjs';
 
-const BIN = process.env.RUNEXEC_BIN, ROOT = process.env.WS12_ROOT;
-const skip = BIN && ROOT ? false : 'set RUNEXEC_BIN (workstream 4 runexec) and WS12_ROOT (workstream 12)';
+const BIN = process.env.RUNEXEC_BIN, ROOT = ws12('canonical').root;
+const skip = BIN && ROOT ? false : `${BIN ? '' : 'set RUNEXEC_BIN (workstream 4 runexec: no tree carries the binary)'}${BIN || ROOT ? '' : ' and '}${ROOT ? '' : 'workstream 12 (WS12_ROOT, or in this tree)'}`;
 const m12 = rel => import(pathToFileURL(path.join(ROOT, 'workstreams/12-memory', rel)).href);
 const SCENARIOS = ['happy', 'crash', 'raid', 'lost-response'];
 const FIXTURE = src => ({ kind: 'fixture', source: `ws13 test: ${src}` });

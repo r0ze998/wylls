@@ -103,8 +103,13 @@ pub(crate) struct Link {
 
 pub(crate) fn link_of(d: &[u8]) -> R<Link> {
     let r = Ro(d);
+    let fed = match r.u8(LINK_AT)? {
+        0 => false,
+        1 => true,
+        _ => return Err(BAD_ACCOUNT),
+    };
     Ok(Link {
-        fed: r.u8(LINK_AT)? == 1,
+        fed,
         lot: r.arr(LINK_AT + 1)?,
         taken: r.i64(LINK_AT + 33)?,
         returned: r.i64(LINK_AT + 41)?,

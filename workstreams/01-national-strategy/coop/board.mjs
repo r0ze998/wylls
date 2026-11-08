@@ -22,9 +22,9 @@ import net from 'node:net';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { createFolder, recordId, shapeProblem, verifySig, ownerTagOf, CLOCK_SKEW, RESOURCES, ctxKey } from './record.mjs';
+import { createFolder, stateAt, recordId, shapeProblem, verifySig, ownerTagOf, CLOCK_SKEW, RESOURCES, ctxKey } from './record.mjs';
 import { linkProblem } from './arrival.mjs';
-import { GOALS, JUDGES, coopView, timingOf } from './goal.mjs';
+import { GOALS, JUDGES, coopView, timingOf, destinationOf } from './goal.mjs';
 import { citizenOf, holdingNow, rpcReader, caravanAccount, caravanHistory, sendOutcome, seasonRules } from './chain.mjs';
 import { caravanKeyOf } from './arrival.mjs';
 import { pendingSendOf } from './pending.mjs';
@@ -184,7 +184,7 @@ export function createBoard({ herald, programId, seasonId, dataDir, judge = 'arr
    */
   async function checks(st, viewer) {
     const want = new Map([...(viewer ? [[`${ctxKey(season)}|${viewer}`, [viewer, season]]] : [])]);
-    const holdings = {}, ends = {}, sendings = {}, rules = {};
+    const holdings = {}, ends = {}, sendings = {}, rules = {}, destinations = {};
     const placeNow = new Map();   // 同じ村を一回の表示で何度も読まない
     for (const q of Object.values(st.requests)) {
       const ctx = q.ctx ?? season;
@@ -204,11 +204,12 @@ export function createBoard({ herald, programId, seasonId, dataDir, judge = 'arr
         ends[k] = e;
         if (e.settled) settledHere = true;
       }
-      if (settledHere) {
-        const pk = `${ctxKey(ctx)}|${q.to.p},${q.to.q},${q.to.site}`;
-        if (!placeNow.has(pk)) placeNow.set(pk, await holdingNow(reader, ctx, q.to));   // 今の口座。到着時の受取人は goal.mjs で世代と合わせて決める
-        holdings[q.id] = placeNow.get(pk);
-      }
+      const pk = `${ctxKey(ctx)}|${q.to.p},${q.to.q},${q.to.site}`;
+      const open = stateAt(q, now()) === 'open';
+      if ((settledHere || open) && !placeNow.has(pk)) placeNow.set(pk, await holdingNow(reader, ctx, q.to));   // 今の口座（同じ村は一回の表示で一度）
+      if (settledHere) holdings[q.id] = placeNow.get(pk);   // 到着時の受取人は goal.mjs で世代と合わせて決める
+      // 開いている依頼：届け先が、いま依頼した人の村（同じ世代）か。送る・結び付ける前に示す（受け取りでは断らない）
+      if (open) destinations[q.id] = destinationOf(placeNow.get(pk), q.to, addressesOf(ctx).of('Citizen', { wallet: q.requester }));
       for (const z of q.sendings ?? []) sendings[z.walletSig] = await sendingStatus(q, z);
       if (!rules[ctxKey(ctx)]) rules[ctxKey(ctx)] = await rulesOf(ctx);
     }
@@ -217,7 +218,7 @@ export function createBoard({ herald, programId, seasonId, dataDir, judge = 'arr
     const times = Object.fromEntries(receivedAt);
     if (!reader) return { citizens, holdings, caravans: undefined, times, rules: { status: 'unverified', why: 'チェーンを読めない（板に --rpc がない）' }, sendings: {} };
     if (!rules[ctxKey(season)]) rules[ctxKey(season)] = await rulesOf(season);
-    return { citizens, holdings, caravans: ends, times, rules, sendings };
+    return { citizens, holdings, caravans: ends, times, rules, sendings, destinations };
   }
 
   /** sending の記録の送信が、いまどうなったか（chain.mjs sendOutcome、依頼の文脈で）。終わったものは覚える。 */

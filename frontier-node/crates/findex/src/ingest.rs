@@ -252,6 +252,59 @@ impl<P: ChainPort> LocalnetFeed<P> {
     }
 }
 
+impl<P: ChainPort> LocalnetFeed<P> {
+    /// The pages of one pull (see `pull`): appends to `out`, moves `after`.
+    async fn pull_pages(
+        &mut self,
+        out: &mut Vec<TxRecord>,
+        scanned: &mut Option<Option<u64>>,
+    ) -> PortResult<()> {
+        loop {
+            let (got, scan) = self.port.feed_scan(self.after).await?;
+            match &scan {
+                Some(sc) => {
+                    let known = out.last().map(|r| (r.seq, r.signature)).or(self.last);
+                    if let Err(e) = self.check_scan(sc, known) {
+                        self.refused = Some(e.clone());
+                        return Err(PortError::Unavailable(e));
+                    }
+                    *scanned = Some(match *scanned {
+                        Some(None) => None,
+                        _ => Some(sc.scanned_through),
+                    });
+                }
+                None => {
+                    *scanned = Some(None);
+                    self.rewind_safe = None;
+                }
+            }
+            let Some(last) = got.last() else { break };
+            for r in &got {
+                if out.last().map_or(self.after.0, |p| p.seq) >= r.seq {
+                    return Err(PortError::Decode(format!(
+                        "feed: seq {} does not follow {}",
+                        r.seq,
+                        out.last().map_or(self.after.0, |p| p.seq)
+                    )));
+                }
+                if let Some(p) = &self.program {
+                    let mentions =
+                        fclient::tx::from_wire(&r.tx).map(|t| t.message.account_keys.contains(p));
+                    if mentions != Ok(true) {
+                        return Err(PortError::Decode(format!(
+                            "feed: seq {} ({}) does not mention the program {p}: the node did not filter the feed",
+                            r.seq, r.signature
+                        )));
+                    }
+                }
+                out.push(r.clone());
+            }
+            self.after = Cursor(last.seq);
+        }
+        Ok(())
+    }
+}
+
 impl<P: ChainPort> Source for LocalnetFeed<P> {
     async fn pull(&mut self) -> PortResult<Vec<TxRecord>> {
         if let Some(r) = &self.refused {
@@ -278,47 +331,17 @@ impl<P: ChainPort> Source for LocalnetFeed<P> {
         let mut out: Vec<TxRecord> = vec![];
         // The extent of this pull: known only when every read said it.
         let mut scanned: Option<Option<u64>> = None;
-        loop {
-            let (got, scan) = self.port.feed_scan(self.after).await?;
-            match &scan {
-                Some(sc) => {
-                    let known = out.last().map(|r| (r.seq, r.signature)).or(self.last);
-                    if let Err(e) = self.check_scan(sc, known) {
-                        self.refused = Some(e.clone());
-                        return Err(PortError::Unavailable(e));
-                    }
-                    scanned = Some(match scanned {
-                        Some(None) => None,
-                        _ => Some(sc.scanned_through),
-                    });
-                }
-                None => {
-                    scanned = Some(None);
-                    self.rewind_safe = None;
-                }
-            }
-            let Some(last) = got.last() else { break };
-            for r in &got {
-                if out.last().map_or(self.after.0, |p| p.seq) >= r.seq {
-                    return Err(PortError::Decode(format!(
-                        "feed: seq {} does not follow {}",
-                        r.seq,
-                        out.last().map_or(self.after.0, |p| p.seq)
-                    )));
-                }
-                if let Some(p) = &self.program {
-                    let mentions =
-                        fclient::tx::from_wire(&r.tx).map(|t| t.message.account_keys.contains(p));
-                    if mentions != Ok(true) {
-                        return Err(PortError::Decode(format!(
-                            "feed: seq {} ({}) does not mention the program {p}: the node did not filter the feed",
-                            r.seq, r.signature
-                        )));
-                    }
-                }
-                out.push(r.clone());
-            }
-            self.after = Cursor(last.seq);
+        // A pull reads pages and moves `after` past each; one that fails
+        // part-way (a page lost, repeated, out of order or not filtered)
+        // hands nothing back, so its cursor goes back to where it began: the
+        // next pull reads the same records again. Left past them, the caller
+        // (the herald's loop pulls again after an error) would archive the
+        // next records after a hole, and the archive's cursor would move
+        // past it for good (⑲, 2026-11-08).
+        let began = self.after;
+        if let Err(e) = self.pull_pages(&mut out, &mut scanned).await {
+            self.after = began;
+            return Err(e);
         }
         if let Some(r) = out.last() {
             self.last = Some((r.seq, r.signature));

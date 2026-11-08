@@ -22,7 +22,7 @@
 // - NOTHING IS INFERRED: no coverage ("not sent"), no owner interval, no lookup failure is synthesised from what the
 //   receipts lack; a feed gap proves nothing (4 and 19: findex absence is not evidence of absence). Identity aliases
 //   come only from the caller's resolver (4/8), with its source.
-import { RESOURCES } from '../src/records.mjs';
+import { RESOURCES, fact as checkFact } from '../src/records.mjs';
 
 const U64_KEYS = new Set(['owner', 'raider']);
 
@@ -133,6 +133,12 @@ export function ingestReceipts(memory, receipts, ctx) {
   for (const r of receipts) {
     const { facts, held } = receiptToFacts(r, ctx);
     if (held) { out.held.push(held); continue; }
+    // all of a receipt's facts are checked before any is appended: one that the memory's record rules refuse holds
+    // the whole receipt (with the reason) instead of leaving part of it written and stopping the rest of the feed
+    try { for (const f of facts) checkFact(f); } catch (e) {
+      out.held.push({ receipt: `${r?.run_id}|${r?.kind}|${r?.subject}|${r?.source}`, why: `malformed_fact:${e.message}`.slice(0, 80) });
+      continue;
+    }
     for (const f of facts) {
       const res2 = memory.observe(f);
       out[res2.status === 'added' ? 'added' : res2.status === 'duplicate' ? 'duplicate' : res2.status === 'collision' ? 'collision' : 'refused']++;

@@ -733,14 +733,23 @@ pub fn lot_transition_unexplained(prev: &[u8], cur: &[u8]) -> Vec<String> {
         .filter(|x| x.live && !b.inbound.iter().any(|y| y.is(x.caravan_tag, x.seq)))
         .map(|x| x.qty)
         .sum();
+    let mut out = vec![];
     let grew = b.in_total - a.in_total;
     if grew > settled {
-        vec![format!(
+        out.push(format!(
             "IN_TOTAL grew by {grew}; the caravans settled since could deliver {settled}"
-        )]
-    } else {
-        vec![]
+        ));
     }
+    // CONSUMED falls only by a return of unused goods (the kernel's
+    // `return_unused`, workstream 9's workshop claim), and no record kind
+    // shows a return yet (workstream 4's allocation): never a PASS.
+    if b.consumed < a.consumed {
+        out.push(format!(
+            "CONSUMED fell by {}: a return of unused goods, which no record shows yet",
+            a.consumed - b.consumed
+        ));
+    }
+    out
 }
 
 /// `V26:custody-history`: every Lot account's recorded states, in
@@ -953,6 +962,25 @@ fn actor_of(
     })
 }
 
+/// Whether `k` is the lot's own address (the program reads a Lot only at
+/// `addr::lot` of its key fields: a public `create_with_seed` derivation).
+fn at_lot_address(
+    ctx: &frontier_abi::addr::AddrCtx,
+    k: &[u8; 32],
+    l: &permutation_rules::frontier::custody::Lot,
+) -> bool {
+    *k == frontier_abi::v2::addr::lot(ctx, l.p, l.q, l.tile, l.vault_gen, l.owner_tag, l.resource)
+}
+
+/// Whether `k` is the vault's own address (`addr::vault` of its place).
+fn at_vault_address(
+    ctx: &frontier_abi::addr::AddrCtx,
+    k: &[u8; 32],
+    v: &permutation_rules::frontier::custody::VaultView,
+) -> bool {
+    *k == frontier_abi::v2::addr::vault(ctx, v.p as i32, v.q as i32, v.tile)
+}
+
 fn lot_summary(l: &permutation_rules::frontier::custody::Lot) -> String {
     format!(
         "state {}, quota {}, held {}, in {}, out {}, consumed {}, nonce {}",
@@ -1017,6 +1045,13 @@ pub fn replay_ix(c: &ReplayCase) -> Replayed {
         Ok(a) => a,
         Err(e) => return bad(e),
     };
+    let Some(season) = key(2) else {
+        return un("the instruction lacks its season account");
+    };
+    let ctx = frontier_abi::addr::AddrCtx {
+        season,
+        program: c.program,
+    };
     let milli = |u: u32| u as i64 * MILLI;
     let Some(lot_key) = key(lot_index(kind)) else {
         return un("the instruction lacks its lot account");
@@ -1031,7 +1066,8 @@ pub fn replay_ix(c: &ReplayCase) -> Replayed {
     };
     let mut v: Option<K::VaultView> = match vault_key.and_then(|k| (c.before)(&k)) {
         Some(d) => match vault_view_of(&d) {
-            Some(v) => Some(v),
+            Some(v) if vault_key.is_some_and(|k| at_vault_address(&ctx, &k, &v)) => Some(v),
+            Some(_) => return bad("its vault account is not at that vault's address".to_string()),
             None => return bad("its vault account is not a Vault".to_string()),
         },
         None => None,
@@ -1041,7 +1077,8 @@ pub fn replay_ix(c: &ReplayCase) -> Replayed {
     } else {
         match (c.before)(&lot_key) {
             Some(d) => match K::Lot::decode(&d) {
-                Some(l) => Some(l),
+                Some(l) if at_lot_address(&ctx, &lot_key, &l) => Some(l),
+                Some(_) => return bad("its lot account is not at that lot's address".to_string()),
                 None => return bad("its lot account is not a Lot".to_string()),
             },
             None => return un("the lot's state before the transaction is not in the input"),
@@ -1057,10 +1094,16 @@ pub fn replay_ix(c: &ReplayCase) -> Replayed {
     if needs_vault && v.is_none() {
         return un("the vault's state before the transaction is not in the input");
     }
+    if let (Some(l), Some(vk)) = (lot.as_ref(), vault_key) {
+        if vk != frontier_abi::v2::addr::vault(&ctx, l.p as i32, l.q as i32, l.tile) {
+            return bad("its vault account is not the lot's vault".to_string());
+        }
+    }
     if !needs_vault {
         v = None; // the program does not write it then
     }
     let bad_data = || bad("its data does not decode".to_string());
+    let mut released = 0i64;
     let result: Result<(), K::CustodyError> = match (kind, lot.as_mut(), v.as_mut()) {
         (Ix::OpenLot, None, Some(v)) => {
             let Ok(a) = x::OpenLot::decode(c.data) else {
@@ -1110,7 +1153,8 @@ pub fn replay_ix(c: &ReplayCase) -> Replayed {
                     None => return un(
                         "the destination vault's state before the transaction is not in the input",
                     ),
-                    Some(Some(dv)) if dv.live && dv.place() == dst => {}
+                    Some(Some(dv))
+                        if dv.live && dv.place() == dst && at_vault_address(&ctx, &dk, &dv) => {}
                     Some(_) => {
                         return bad("its destination is not a standing vault of that generation"
                             .to_string())
@@ -1131,7 +1175,7 @@ pub fn replay_ix(c: &ReplayCase) -> Replayed {
             let Ok(a) = x::RevokeLotOrder::decode(c.data) else {
                 return bad_data();
             };
-            K::revoke_order(l, &actor, a.slot, a.id, bell).map(|_| ())
+            K::revoke_order(l, &actor, a.slot, a.id, bell).map(|r| released = r)
         }
         (Ix::ConsumeLot, Some(l), Some(v)) => {
             let Ok(a) = x::ConsumeLot::decode(c.data) else {
@@ -1152,6 +1196,12 @@ pub fn replay_ix(c: &ReplayCase) -> Replayed {
     };
     if let Err(e) = result {
         return bad(format!("the kernel refuses it on the state before ({e:?})"));
+    }
+    if kind == Ix::OpenLot {
+        let new = lot.as_ref().expect("opened");
+        if !at_lot_address(&ctx, &lot_key, new) {
+            return bad("its lot account is not the new lot's address".to_string());
+        }
     }
     // The lot the transaction left.
     let gone = |d: &Option<Vec<u8>>| d.as_ref().is_none_or(|d| d.iter().all(|b| *b == 0));
@@ -1199,6 +1249,69 @@ pub fn replay_ix(c: &ReplayCase) -> Replayed {
                 }
                 None => return bad("it left no Vault at the vault account".to_string()),
             },
+        }
+    }
+    // The record it logged (frontier_abi::v2::log; CloseLot's CLOSE carries
+    // the lot's chain and lamports and is not compared here).
+    if let Some(l) = lot.as_ref().filter(|_| kind != Ix::CloseLot) {
+        let mut p: Vec<u8> = vec![];
+        let rk = match kind {
+            Ix::OpenLot => {
+                p.extend_from_slice(&actor.tag.to_le_bytes());
+                p.extend_from_slice(&l.quota.to_le_bytes());
+                CqKind::LOT_OPENED
+            }
+            Ix::SetLotQuota => {
+                p.extend_from_slice(&l.quota.to_le_bytes());
+                CqKind::LOT_QUOTA
+            }
+            Ix::SetLotOrder => {
+                let Ok(a) = x::SetLotOrder::decode(c.data) else {
+                    return bad_data();
+                };
+                let Some(gtag) = key(6)
+                    .and_then(|g| (c.before)(&g))
+                    .and_then(|d| citizen_tag(&d))
+                else {
+                    return un(
+                        "the grantee Citizen's state before the transaction is not in the input",
+                    );
+                };
+                let Some(o) = l.orders.get(a.slot as usize) else {
+                    return bad_data();
+                };
+                p.push(a.slot);
+                p.extend_from_slice(&o.id.to_le_bytes());
+                p.push(o.kind);
+                p.extend_from_slice(&gtag.to_le_bytes());
+                p.extend_from_slice(&o.qty_left.to_le_bytes());
+                p.extend_from_slice(&o.expires_bell.to_le_bytes());
+                p.extend_from_slice(&o.dst.encode());
+                p.extend_from_slice(&o.purpose.to_le_bytes());
+                CqKind::LOT_ORDER
+            }
+            Ix::RevokeLotOrder => {
+                let Ok(a) = x::RevokeLotOrder::decode(c.data) else {
+                    return bad_data();
+                };
+                p.push(a.slot);
+                p.extend_from_slice(&a.id.to_le_bytes());
+                p.extend_from_slice(&released.to_le_bytes());
+                CqKind::LOT_REVOKED
+            }
+            _ => {
+                let Ok(a) = x::ConsumeLot::decode(c.data) else {
+                    return bad_data();
+                };
+                p.extend_from_slice(&a.id.to_le_bytes());
+                p.extend_from_slice(&actor.tag.to_le_bytes());
+                p.extend_from_slice(&milli(a.qty).to_le_bytes());
+                p.extend_from_slice(&a.purpose.to_le_bytes());
+                CqKind::LOT_CONSUMED
+            }
+        };
+        if let Some(f) = records_match(c, kind, &[(rk, lot_raw(l).to_vec(), p)], lot_raw(l), &[]) {
+            return f;
         }
     }
     Replayed::Matches
@@ -1435,9 +1548,9 @@ fn loss(cause: u8, qty: i64, to: u64, ck: (u64, u32)) -> Option<Vec<u8>> {
 /// The records a caravan instruction logged against the kernel's: each
 /// `want` record (kind, key, payload) and exactly the `LOT_LOSS` records
 /// `losses` under the lot key `lot`. A record of the kind and key with
-/// another payload, or a loss record the kernel does not give, is a
-/// mismatch; a wanted record that is not among the records shown is not
-/// judged (the logs may be cut).
+/// another payload, two of them (the program logs one), or a loss record
+/// the kernel does not give, is a mismatch; a wanted record that is not
+/// among the records shown is not judged (the logs may be cut).
 fn records_match(
     c: &ReplayCase,
     kind: Ix,
@@ -1457,7 +1570,16 @@ fn records_match(
                 k.name()
             )));
         }
-        if !found.iter().any(|r| r.payload == *payload) {
+        // The program logs one record of each kind per instruction: two
+        // under the same key contradict each other, whatever they say.
+        if found.len() > 1 {
+            return Some(Replayed::Mismatch(format!(
+                "{kind:?} landed, but it shows {} {} records for one instruction",
+                found.len(),
+                k.name()
+            )));
+        }
+        if found[0].payload != *payload {
             return Some(Replayed::Mismatch(format!(
                 "{kind:?} landed, but its {} record is not the kernel's",
                 k.name()
@@ -1520,7 +1642,11 @@ fn replay_caravan(c: &ReplayCase, kind: Ix) -> Replayed {
     let milli = |u: u32| u as i64 * MILLI;
     let lot_of = |k: &[u8; 32]| -> Result<K::Lot, Replayed> {
         match (c.before)(k) {
-            Some(d) => K::Lot::decode(&d).ok_or_else(|| bad("its lot account is not a Lot".into())),
+            Some(d) => match K::Lot::decode(&d) {
+                Some(l) if at_lot_address(&ctx, k, &l) => Ok(l),
+                Some(_) => Err(bad("a lot account is not at that lot's address".into())),
+                None => Err(bad("its lot account is not a Lot".into())),
+            },
             None => Err(un(
                 "the lot's state before the transaction is not in the input",
             )),
@@ -1528,9 +1654,11 @@ fn replay_caravan(c: &ReplayCase, kind: Ix) -> Replayed {
     };
     let vault_of = |k: &[u8; 32]| -> Result<K::VaultView, Replayed> {
         match (c.before)(k) {
-            Some(d) => {
-                vault_view_of(&d).ok_or_else(|| bad("its vault account is not a Vault".into()))
-            }
+            Some(d) => match vault_view_of(&d) {
+                Some(v) if at_vault_address(&ctx, k, &v) => Ok(v),
+                Some(_) => Err(bad("a vault account is not at that vault's address".into())),
+                None => Err(bad("its vault account is not a Vault".into())),
+            },
             None => Err(un(
                 "the vault's state before the transaction is not in the input",
             )),
@@ -1642,6 +1770,9 @@ fn replay_caravan(c: &ReplayCase, kind: Ix) -> Replayed {
                         return un("the instruction lacks its source account");
                     };
                     if let Some(sb) = (c.before)(&sk).as_deref().and_then(vault_view_of) {
+                        if !at_vault_address(&ctx, &sk, &sb) {
+                            return bad("its source vault is not at that vault's address".into());
+                        }
                         match (c.after)(&sk).flatten().as_deref().and_then(vault_view_of) {
                             None => return un("the source vault's state after the transaction is not in the input"),
                             Some(sa) => {

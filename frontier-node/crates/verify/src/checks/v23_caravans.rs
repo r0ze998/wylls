@@ -196,7 +196,7 @@ fn land_of(pd: &[u8]) -> Result<Land, String> {
     })
 }
 
-fn slots_of(pd: &[u8]) -> Result<Vec<CaravanSlot>, String> {
+pub(crate) fn slots_of(pd: &[u8]) -> Result<Vec<CaravanSlot>, String> {
     (0..MAX_CARAVAN_SLOTS)
         .map(|i| {
             pd.get(CS::at(i)..CS::at(i) + CS::SIZE)
@@ -303,23 +303,27 @@ pub fn judge_build_vault(ix: &crate::world::Ix, s: &dyn States, at: At) -> Resul
 
 // ------------------------------------------------------------ SendCaravan
 
+/// Shared in the crate (④, 2026-11-08) so V26 can judge a custody send by the same
+/// walk the program's custody `send` runs (`proc::caravan::route`, the same arguments):
+/// visibility only, no change in meaning.
+///
 /// What a walk and its schedule must leave: the arrival, the last slot
 /// bell, the slots, per Province key, and the tower wear (1d: the seconds
 /// in the hostile coverage of the towers standing before the instruction).
-struct Routed {
-    arrive: i64,
-    last_bell: u32,
-    slots: Vec<(Key, CaravanSlot)>,
-    worn: u16,
+pub(crate) struct Routed {
+    pub(crate) arrive: i64,
+    pub(crate) last_bell: u32,
+    pub(crate) slots: Vec<(Key, CaravanSlot)>,
+    pub(crate) worn: u16,
 }
 
 /// `cargo` worn by `bps` (`tower::wear_i64` each).
-fn worn_cargo(cargo: &[i64; RES], bps: u16) -> [i64; RES] {
+pub(crate) fn worn_cargo(cargo: &[i64; RES], bps: u16) -> [i64; RES] {
     cargo.map(|c| permutation_rules::frontier::structure::wear_i64(c, bps))
 }
 
 #[allow(clippy::too_many_arguments)]
-fn route(
+pub(crate) fn route(
     s: &dyn States,
     provinces: &[Key],
     origin: (ProvinceCoord, u8),
@@ -405,7 +409,7 @@ fn route(
 
 /// The Caravan a send leaves, against the rules'.
 #[allow(clippy::too_many_arguments)]
-fn check_caravan(
+pub(crate) fn check_caravan(
     cd: &[u8],
     owner: &Key,
     seq: u32,
@@ -457,7 +461,7 @@ fn check_caravan(
     Ok(())
 }
 
-fn check_slots(s: &dyn States, r: &Routed) -> Result<(), Wrong> {
+pub(crate) fn check_slots(s: &dyn States, r: &Routed) -> Result<(), Wrong> {
     for (k, want) in &r.slots {
         let pd = s
             .after(k)

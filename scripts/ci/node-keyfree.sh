@@ -5,7 +5,9 @@
 #      derive or sign with a key: left out, never run here), and
 #   2. does not name a key API itself, and the list is current (the scan,
 #      scripts/ci/scan-node-key-tests.mjs, follows imports into test helpers;
-#      a new key-using file fails this script until the list is rewritten), and
+#      a new key-using file fails this script until the list is rewritten),
+#   3. the scan examined (`scan-node-key-tests.mjs --covers`: a file outside what the scan
+#      reads is refused, exit 4, instead of running unscanned), and
 # runs them with scripts/ci/no-keys-guard.mjs preloaded, so a key operation
 # reached through an import throws NoKeysGuard instead of using a key.
 set -euo pipefail
@@ -28,6 +30,9 @@ if [ ${#unlisted[@]} -gt 0 ]; then
   printf 'names a key API but is not in scripts/ci/node-key-tests.txt (not run):\n' >&2
   printf '  %s\n' "${unlisted[@]}" >&2
   exit 3
+fi
+if [ ${#run[@]} -gt 0 ]; then
+  node "$root/scripts/ci/scan-node-key-tests.mjs" --covers "${run[@]/#/$dir/}"
 fi
 echo "key-free run: ${#run[@]} files in $dir ($(grep -c "^$dir/" "$list" || true) left out, listed)"
 exec node --import "$root/scripts/ci/no-keys-guard.mjs" --test "${run[@]}"

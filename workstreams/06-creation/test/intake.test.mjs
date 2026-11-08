@@ -25,6 +25,10 @@ const counting = () => {
 
 test("no binding decided: nothing is planned; an adoption that is not active is refused", () => {
   const d = new Dispatch({ journal: mem(), run4: counting().port });
+  // no authenticated requester (as today: no route makes one): closed first, whatever else is given
+  for (const requester of [undefined, null]) {
+    assert.equal(intake({ dispatch: d, route: "run", adoption: () => null, binding: () => null, request: { ...relayRequest(), requester } }).findings[0].code, "NoAuthenticatedRequester");
+  }
   const request = { ...relayRequest(), requester: REQ };
   assert.equal(intake({ dispatch: d, route: "run", adoption: () => null, request }).findings[0].code, "BINDING_UNDECIDED");
   assert.equal(intake({ dispatch: d, route: "run", adoption: () => "PLAN_ENDED", binding: () => null, request }).findings[0].code, "PLAN_ENDED");
