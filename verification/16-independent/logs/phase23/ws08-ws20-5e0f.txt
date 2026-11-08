@@ -1,0 +1,33 @@
+### ⑧ 4eeb6c7f (on 5e7ac44c, fdac9b62): Season/Frontier bytes probe (probes/v16-ws08-season-bytes.mjs) and growth-route under repo guard + hook v2
+{
+ "seasonLen": 2048,
+ "frontierLen": 512,
+ "layout": 2,
+ "programVersion": 4,
+ "genesisRing": 3,
+ "rMax": 4,
+ "conquestFieldsInPreset": 34,
+ "conquestFieldsInLayout": 34,
+ "missingInLayout": [],
+ "differing": [],
+ "layoutFieldsNotInPreset": []
+}
+SDK profile 1 Season 2048 bytes
+SDK profile 1 Frontier 512 bytes
+SDK profile 2 Season 2048 bytes
+SDK profile 2 Frontier 512 bytes
+growth-route at 4eeb6c7f: # tests 5 # pass 5 # fail 0  hook lines 0
+
+### ⑳ 8443d12e7bcc0e72760ee037e337259ce4dd8e94 (tree 2c532ae0)
+scan --check at 8443d12e: exit 5 (stale review: connect-live; fcodec/herald/fwide are in its pinned closure)
+web-frontier-resident-me (runnable): # tests 5 # pass 5 # fail 0  hook lines 0
+ok 1 - the client reads the program's resident mark where frontier-abi puts it
+ok 2 - the client derives the Citizen address the herald serves, for a wallet and for an asset
+ok 3 - /h/me of an NFT: the program's NFT Citizen and its holding are the viewer's own
+ok 4 - /h/me of an NFT: another asset, another address, an invalid mark or a wrong owner is refused
+ok 5 - /h/me of an NFT: truncated, malformed or another season's bytes are refused by the codec
+wallet v2 Citizen decode, old vs new fcodec (probes/v16-ws20-wallet-citizen.mjs):
+== caeb1b74: {"size":384,"walletDecodeSha256":"e7e412fe98b6b9bb936865c6aa03d50f5da4b01dde0a42bb5fd83bba9109c3d5","hasResidentAsset":false,"walletWithFlagByte":"no residentAsset"}
+== 8443d12e: {"size":384,"walletDecodeSha256":"e7e412fe98b6b9bb936865c6aa03d50f5da4b01dde0a42bb5fd83bba9109c3d5","hasResidentAsset":false,"walletWithFlagByte":"\"residentAsset\":null"}
+
+### ④ 5e0f2ec2d6989108bf7cca80495f10b87f1c5724 (tree 8074f8ac): merges = ⑧ 4eeb6c7f and ⑳ 8443d12e files; digests re-pinned; scan --check exit 0

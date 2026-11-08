@@ -2871,3 +2871,43 @@ checkpoint の `95b0ab225ca9e9e626941b51981df2240198d91c`（tree `89a64830da3991
     - 届く tile は、page の kernel の `planRoute` を試験の側から呼んで選ぶ。
   - **`clear()`（3 回）は `FS.compose`・`selected`・`hand`・`mapNote`・`inspectOpen` を直接 null にする**。UI の操作ではなく状態を書き換えるので、取り消しや選び直しの画面の経路は、その箇所では確かめていない。取り消しの経路は、別の段（cancel、戻る・進む、reload）で UI から確かめている。
 - **⑯ の実行**：ws07-grow を full Chromium と repo の no-keys-guard の下で 1 回流し、**3/3**（`logs/phase23/ws07-grow-9c23.txt`）。範囲は封印前の order まで。
+
+## 29.15 ⑧ 5e7ac44c・fdac9b62・4eeb6c7f、⑳ 8443d12e、④ 5e0f2ec2
+
+### ⑧（S1 の Season と Frontier の bytes、genesis の seed の規則、review の理由）
+- 対象：⑧ `4eeb6c7f`（tree `47d4b300…`）。6507c519 の上に 3 commit。
+- **M1 と S1 の口座の混同**：
+  - ⑯ の probe（`probes/v16-ws08-season-bytes.mjs`）では、Season は 2048 bytes、Frontier は 512 bytes で、layout 2、program_version 4、genesis_ring 3、R_MAX 4 だった。
+  - **ただし SDK の encodeAccount は、profile 1（M1）でも profile 2 でも、Season 2048・Frontier 512 になる**。したがって、大きさの assert だけでは M1 と S1 を区別できない。
+  - 区別するのは layout_version 2、program_version 4、v3 の ruleset。test 5 はこれらも確かめているので、全体としては区別できている。大きさの assert を「M1 でない根拠」とは書かないほうがよい。
+- **`upper()` で項目が落ちるか**：落ちない。
+  - MC_LOCAL_7D の conquest の 34 項目（r_max_ceiling、placement、continuous の上書きを含む）と、SDK で decode した CONQUEST_PARAMS の 34 項目は 1 対 1 で一致した。欠け、余り、値の違いは無い。
+- **genesis の seed**：`sha256("PSF-RING" ‖ genesis_seed ‖ le16 d)` は、program の `proc/map.rs` genesis_ring_seed（`RS::GENESIS_RING_DOMAIN = b"PSF-RING"`）と同じ。
+- **review の理由**（fdac9b62）：Worker の経路と inline の `import('./seal-worker.mjs')` の両方を書くようになった。§29.13 の指摘は直った。
+- 実行：4eeb6c7f で scan の `--check` は exit 0、digest も一致した。growth-route は repo の guard と hook v2 の下で **5/5**、hook の記録は 0 件。
+- 固定値（terrain と route）に Rust との照合が無いことは変わらない（⑧ も同じ認識）。
+
+### ⑳ 8443d12e（NFT resident の /h/me）
+- 対象：⑳ `8443d12e7bcc0e72760ee037e337259ce4dd8e94`（tree `2c532ae0…`、親 caeb1b74）。
+- **mark が付いているのに無効な場合は、どこでも拒否されるか**：拒否される。
+  - fcodec は、flag があって wallet が 0 でない、または asset が 0 のとき、`residentAsset: null` にする。
+  - checkMe（herald.mjs）と parseWideInventory（fwide.mjs）は、どちらも null を WrongKey にする。
+  - ⑳ の試験 4 が、別の asset、別の address、無効な mark、別の持ち主を確かめる。
+- **wallet の経路は byte まで変わらないか**：変わらない。
+  - ⑯ の probe（`probes/v16-ws20-wallet-citizen.mjs`）で、SDK で作った wallet の v2 Citizen を、caeb1b74 と 8443d12e の fcodec で decode した。出力の sha256 は同じ（`e7e412fe…`）で、residentAsset は無い。
+  - 違いは 1 つだけ：wallet の Citizen の 380 番目の byte に flag が立っていると、新しい版では `residentAsset: null` になり、WrongKey で拒否される（前の版は読んだ）。program はそれを書かないので、壊れたデータに対して厳しくなっただけ。
+  - 新しい `BadLayout` の throw は、layout の RSV_348 の位置が frontier-abi と違うときだけ起きる（今の layout では起きない）。
+- **切れた bytes、壊れた bytes、別の season**：⑳ の試験 5 が、codec で拒否されることを確かめる。
+- **試験は鍵を作らないか**：作らない。web-frontier-resident-me に鍵の名前は 0 行。base58、with-seed、sha256 だけ。
+- ⑯ の実行：resident-me（流してよいもの）を repo の guard と hook v2 の下で **5/5**、hook の記録は 0 件。wide-holding-ui は保守的な除外なので流していない。
+- **⑳ の commit 単独での注意**：8443d12e では、scan の `--check` が **exit 5** になる。connect-live の review の閉包に、変わった fcodec・herald・fwide が入っているので、stale になる。この commit をそのまま CI に入れると、scan で止まる。
+
+### ④ 5e0f2ec2（⑧ と ⑳ の取り込み）
+- 対象：④ `5e0f2ec2d6989108bf7cca80495f10b87f1c5724`（tree `8074f8ac7ea33fe8f4c74172ed54be0fa6b6a0f1`）。5461e842 の上に ⑧ の 3 commit、⑳ の merge（ff831702）、review の再審査（5e0f2ec2）。
+- ⑧ の fixture と試験は 4eeb6c7f と一致する。⑳ の fcodec・fwide・herald・resident-me・vector は 8443d12e と一致する。
+- 5e0f2ec2 は、connect-live と growth-route を再審査して digest を付け直した。
+  - 新しく閉包に入った `sdk/frontier/resident.mjs` には、鍵の API の名前が無い（⑯ が確かめた）。
+  - 理由の文にも residentCitizen が書き足された。
+- scan の `--check` は exit 0。§27.8 の digest の仕組みが、設計どおり stale を捕まえ、再審査させた例になる。
+- 5461e842（⑦ 9c23282d の merge）：server.mjs と ws07-grow が 9c23282d と一致する（§29.14）。
+- 記録は `logs/phase23/ws08-ws20-5e0f.txt`。
