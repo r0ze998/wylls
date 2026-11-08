@@ -74,7 +74,7 @@ const mkBoard = () => createBoard({ herald: hurl, programId, seasonId: '90', dat
 let board = mkBoard();
 let srv = createServer(board, { herald: hurl });
 await new Promise(r => srv.listen(0, '127.0.0.1', r));
-const urlOf = s => `http://127.0.0.1:${s.address().port}${PAGE}?to=3,0,2,1&follow=2`;
+const urlOf = (s, q = 'to=3,0,2,1') => `http://127.0.0.1:${s.address().port}${PAGE}?${q}&follow=2`;
 
 const browser = await chromium.launch();
 const errors = [], results = [];
@@ -95,14 +95,14 @@ function walletScript({ address, fill }) {
   window.addEventListener('wallet-standard:app-ready', e => e.detail.register(wallet));
 }
 
-async function player(who, nation, server = srv) {
+async function player(who, nation, server = srv, query = undefined) {
   const ctx = await browser.newContext({ viewport: { width: 1280, height: 1000 } });
   await ctx.addInitScript(walletScript, { address: who.address, fill: who.fill });
   const page = await ctx.newPage();
   page.on('pageerror', e => errors.push(String(e)));
   page.on('dialog', d => d.accept());
   page.on('console', m => { if (m.type() === 'error') errors.push(m.text()); });
-  await page.goto(urlOf(server));
+  await page.goto(urlOf(server, query));
   await page.selectOption('#nation', String(nation));
   await page.waitForSelector('#wallet option:has-text("Test Wallet (no keys)")', { state: 'attached' });
   await page.selectOption('#wallet', { label: 'Test Wallet (no keys)' });
@@ -203,6 +203,38 @@ try {
     await pa2.waitForSelector('[data-testid=req-state]:has-text("取り消し：自分で進める")');
     assert.equal(board.state().requests[first.id].state, 'cancelled');
     await pa2.context().close();
+  });
+
+  await step('入口の届け先が読めない（?to= が壊れている）・空欄：届け先を入れるよう言い、村 (0,0) の 0 番には依頼しない', async () => {
+    const before = Object.keys(board.state().requests).length;
+    const pz = await player(A, 0, srv, 'to=3,0,x');
+    assert.match(await pz.textContent('[data-testid=entry-warn]'), /届け先（\?to=3,0,x）が読めない/, 'ウォレットを接続した後も残る');
+    assert.deepEqual(await Promise.all(['#toP', '#toQ', '#toSite', '#toGen'].map(k => pz.inputValue(k))), ['', '', '', '']);
+    await pz.click('#send');
+    await pz.waitForSelector('#msg .warn:has-text("届け先の村")');
+    assert.equal(Object.keys(board.state().requests).length, before, '依頼は出ていない');
+    await pz.context().close();
+  });
+
+  await step('届け先が依頼した人の村でない依頼：応じた人の画面は理由を出し、送る・結び付けるを出さない', async () => {
+    const pa3 = await player(A, 0, srv, 'to=4,0,5,1');   // B の村
+    await pa3.click('#send');
+    await pa3.waitForSelector('#msg .ok');
+    const q = Object.values(board.state().requests).sort((x, y) => y.at - x.at)[0];
+    assert.deepEqual(q.to, { kind: 'holding', p: 4, q: 0, site: 5, gen: 1 });
+    await pa3.context().close();
+    const pb3 = await player(B, 2, srv);
+    const row = pb3.locator(`[data-req="${q.id}"]`);
+    await row.locator('[data-testid=req-destination]').waitFor();
+    assert.match(await row.locator('[data-testid=req-destination]').textContent(), /今の持ち主が、依頼した人ではない/);
+    assert.equal(await row.locator('[data-testid=req-destination]').getAttribute('data-status'), 'mismatch');
+    await row.locator('[data-act=accept]').click();
+    await pb3.waitForSelector('#msg .ok');
+    await row.locator('[data-testid=req-destination]').waitFor();
+    assert.equal(await row.locator('[data-act=send]').count(), 0);
+    assert.equal(await row.locator('[data-act=link]').count(), 0);
+    assert.doesNotMatch(await row.textContent(), /ゲームの村の引き出し「交易と防備」からも送れる/);
+    await pb3.context().close();
   });
 
   await step('スマホの幅で横にはみ出さない', async () => {

@@ -137,23 +137,27 @@ function renderRequests() {
     const accepted = resp && resp.answer === 'accept' && !resp.withdrawn;
     const open = q.stateNow === 'open';
     const others = Object.entries(q.responses).map(([w, x]) => `${short(w)}（${nationName(x.nation)}）：${x.answer === 'accept' ? (x.withdrawn ? '取り下げ' : `送るつもり ${needText(x.offer)}`) : '断った'}`).join(' / ');
-    const cands = accepted && open ? myCaravansTo(q) : [];
+    // 届け先が、いま依頼した人の村（同じ世代）と確かめられないなら、送る・結び付けるを出さない（送っても数えられない）
+    const badDst = ['mismatch', 'unknown'].includes(q.destination?.status);
+    const cands = accepted && open && !badDst ? myCaravansTo(q) : [];
     return `<div class="req" data-req="${esc(q.id)}">
       <div><b>${esc(needText(q.need))}</b> → ${esc(short(q.requester))}（${esc(nationName(q.nation))}・申告。判定には使わない）の村 (${q.to.p},${q.to.q}) 村${q.to.site}
         <span class="tag" data-testid="req-state">${esc(REQ_JA[q.stateNow] ?? q.stateNow)}${q.cancel ? `：${esc(CANCEL_JA[q.cancel.reason] ?? q.cancel.reason)}` : ''}</span></div>
       <div class="note">応答：${esc(others || 'まだない')}</div>
+      ${open && q.destination?.status === 'mismatch' ? `<div class="warn" data-testid="req-destination" data-status="mismatch">届け先が、いま依頼した人の村ではない：${esc(q.destination.why)}。この依頼に送っても、届いた量は数えられない（送る・結び付けるは出さない）</div>` : ''}
+      ${open && q.destination?.status === 'unknown' ? `<div class="warn" data-testid="req-destination" data-status="unknown">届け先の村を今は確かめられない：${esc(q.destination.why)}。確かめられるまで、送る・結び付けるは出さない（読み直すと、また確かめる）</div>` : ''}
       <div class="note" data-testid="req-fulfilment" data-status="${esc(q.fulfilment?.status ?? '')}">依頼の充足：${esc(FULFILMENT_JA[q.fulfilment?.status] ?? '—')}${q.fulfilment && q.fulfilment.status !== 'none' ? `。数えた量の下限 ${esc(needText(q.fulfilment.lower))}${q.fulfilment.upperExclusive ? `、上限 ${esc(needText(q.fulfilment.upperExclusive))} 未満` : ''}${q.fulfilment.open ? `、終わっていない ${q.fulfilment.open} 本${q.fulfilment.held ? `（うち原因を確認中 ${q.fulfilment.held}）` : ''}` : ''}${q.fulfilment.unproven ? `、到着したが数えられない ${q.fulfilment.unproven} 本` : ''}${q.fulfilment.knownZero ? `、届かなかった ${q.fulfilment.knownZero} 本` : ''}` : ''}</div>
       <div class="row">
         ${mine && open ? `<button data-act="cancel-self" data-id="${esc(q.id)}">取り消す（自分で進める）</button><button data-act="cancel-other" data-id="${esc(q.id)}">取り消す（ほかの理由）</button>` : ''}
         ${!mine && open && !accepted ? `<button data-act="accept" data-id="${esc(q.id)}">応じる（送るつもり。義務はない）</button><button data-act="decline" data-id="${esc(q.id)}">断る</button>` : ''}
         ${!mine && accepted && open ? `<button data-act="withdraw" data-id="${esc(q.id)}">取り下げる（別の相手を選ぶ）</button>` : ''}
       </div>
-      ${!mine && accepted && open && cfg.relay && cfg.rpcProxy ? (blocking(q)
+      ${!mine && accepted && open && !badDst && cfg.relay && cfg.rpcProxy ? (blocking(q)
         ? (blocking(q).kind === 'landed-unlinked'
           ? `<div class="row"><button data-act="link" data-id="${esc(q.id)}" data-tag="${esc(blocking(q).sending.caravan.ownerTag)}" data-seq="${blocking(q).sending.caravan.seq}" data-testid="pending-link">着地した隊商 #${blocking(q).sending.caravan.seq} をこの依頼に結び付ける</button><span class="warn">結び付けるまで次は署名・送付しない（同じ物を二度送らない）</span></div>`
           : `<div class="row"><button data-act="send" data-id="${esc(q.id)}" data-testid="pending-send">前の送信（隊商 #${blocking(q).sending.caravan.seq}）の結果を確かめる</button><span class="warn">結果が分かるまで次は署名・送付しない</span></div>`)
         : `<div class="row"><button data-act="send" data-id="${esc(q.id)}">この画面から送る（${esc(needText(resp.offer))}。ウォレットで署名）</button></div>`) : ''}
-      ${!mine && accepted && open ? `<div class="note">ゲームの村の引き出し「交易と防備」からも送れる：行き先 (${q.to.p},${q.to.q}) 村${q.to.site}、荷 ${esc(needText(resp.offer))}。他の人の村へ送る隊商は、ウォレットで署名します。</div>
+      ${!mine && accepted && open && !badDst ? `<div class="note">ゲームの村の引き出し「交易と防備」からも送れる：行き先 (${q.to.p},${q.to.q}) 村${q.to.site}、荷 ${esc(needText(resp.offer))}。他の人の村へ送る隊商は、ウォレットで署名します。</div>
         <div class="row">${cands.length ? cands.map(m => `<button data-act="link" data-id="${esc(q.id)}" data-tag="${esc(m.ownerTag)}" data-seq="${m.seq}">隊商 #${m.seq}（${esc(needText(Object.fromEntries(RESOURCES.map((r, i) => [r, m.cargo[i]]).filter(([, v]) => v > 0))))}）をこの依頼に結び付ける</button>`).join('') : '<span class="note">この届け先へ向かう自分の隊商はまだ見えない</span>'}</div>` : ''}
     </div>`;
   }).join('') : '<div class="note">依頼はまだない</div>';
@@ -272,7 +276,10 @@ $('send').addEventListener('click', () => {
   if (wood > 0) need.wood = wood;
   if (stone > 0) need.stone = stone;
   const at = Math.floor(Date.now() / 1000);
-  const to = { kind: 'holding', p: Number($('toP').value), q: Number($('toQ').value), site: Number($('toSite').value), gen: Number($('toGen').value) };
+  // 届け先は入口（?to=）か手で入れた値だけ。空欄を 0 として送らない（村 (0,0) の 0 番・世代 0 に依頼してしまう）
+  const raw = ['toP', 'toQ', 'toSite', 'toGen'].map(k => $(k).value.trim());
+  if (raw.some(v => !/^-?\d+$/.test(v))) return say('届け先の村（P・Q・村の番号・世代）を入れてください。ゲームの村のカードから開くと入る', 'warn');
+  const to = { kind: 'holding', p: Number(raw[0]), q: Number(raw[1]), site: Number(raw[2]), gen: Number(raw[3]) };
   post({ kind: 'request', goalId, need, to, nation: myNation(), expiresAt: at + Math.round(Number($('hours').value) * 3600), nonce: Math.random().toString(36).slice(2) }, '依頼を出した（応じた人がいても、物は自動では動かない）');
 });
 $('leave').addEventListener('click', () => post({ kind: 'leave', goalId }, 'この目的から抜けた。自分の依頼は取り消し、応じた答えは取り下げた。送った隊商はそのまま届く'));
@@ -294,6 +301,7 @@ $('judge').addEventListener('change', refresh);
   if (cfg.store?.problems?.length) say(`板の記録の区間に問題がある：${cfg.store.problems.join('、')}`, 'bad');
   const to = new URLSearchParams(location.search).get('to');   // ⑦の入口：?to=p,q,site,gen
   if (to && /^-?\d+,-?\d+,\d+,\d+$/.test(to)) [$('toP').value, $('toQ').value, $('toSite').value, $('toGen').value] = to.split(',');
+  else if (to !== null) { $('entryWarn').textContent = `入口から渡された届け先（?to=${to.slice(0, 40)}）が読めない。届け先の村を入れてください`; $('entryWarn').hidden = false; }   // 接続などの知らせで消えない欄
   await refresh();
   setInterval(() => refresh().catch(() => {}), 4000);
 })().catch(e => say(`読み込めない：${e.message ?? e}`, 'bad'));
