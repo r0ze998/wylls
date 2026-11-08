@@ -20,13 +20,17 @@ import { mkdir } from 'node:fs/promises';
 import { join } from 'node:path';
 import { chromium } from 'playwright-core';
 import { startServer } from './server.mjs';
+import * as NK from './ws07/nokey-page.mjs';
+import { mkdtemp } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { createBoard, createServer as createBoardServer } from '../../workstreams/01-national-strategy/coop/board.mjs';
 import * as W from './world.mjs';
 import { decodeAccount, encodeAccount } from '../../permutation-server/web/sdk/frontier/codec.mjs';
 import { LOGS } from '../../permutation-server/web/sdk/frontier/abi-v2-logs.mjs';
 import { toBase64 } from '../../permutation-server/web/sdk/bytes.mjs';
 
 const SHOTS = process.env.WS07_SHOTS ?? null;
-let srv, relay, base, browser, viewerTag = null;
+let srv, relay, base, browser, viewerTag = null, boardSrv = null, boardBase = null;
 const feeds = { caravans: null, structures: { v: 1, structures: [], sightings: [] }, nations: { v: 1, stances: Array.from({ length: 6 }, () => Array(6).fill(0)), proposals: [], expelled: [], domesticRaids: [] } };
 let extra = [];
 
@@ -41,7 +45,7 @@ function body(name, bell, fields = {}) {
 const cargo = arr => { const b = new Uint8Array(32), v = new DataView(b.buffer); arr.forEach((n, i) => v.setUint32(i * 4, n, true)); return b; };
 
 before(async () => {
-  srv = await startServer();
+  srv = await startServer({ keyless: true });
   srv.stage('holding');
   const rec = W.seasonRecord();
   const s1Season = encodeAccount('Season', { ...decodeAccount('Season', Buffer.from(rec.bytes_b64, 'base64'), { profile: 1 }), PROGRAM_VERSION: 4, LAYOUT_VERSION: 2 }, { profile: 2 });
@@ -67,21 +71,29 @@ before(async () => {
     if (m && feeds[m[1]]) return json(res, feeds[m[1]]);
     if (path === '/h/events') {
       const after = BigInt(u.searchParams.get('after') ?? '0'), all = [...events, ...extra].filter(e => BigInt(e.seq) > after);
-      return json(res, { events: all, next: all.at(-1)?.seq ?? String(after), full: false });
+      return json(res, { v: 1, events: all, next: all.at(-1)?.seq ?? String(after), full: false });
     }
     const t = new URL(srv.url);
     const p = request({ host: t.hostname, port: t.port, path: req.url, method: req.method, headers: req.headers }, r => { res.writeHead(r.statusCode, r.headers); r.pipe(res); });
     req.pipe(p);
   });
   await new Promise(r => relay.listen(0, '127.0.0.1', r));
-  base = `http://127.0.0.1:${relay.address().port}`;
-  browser = await chromium.launch(process.env.WS07_CHROME ? { executablePath: process.env.WS07_CHROME } : {});
+  // (workstream 07: the keyless whole page — ws07/nokey-page.mjs: not a loopback host, a test wallet with no key)
+  base = NK.pageBase(relay.address().port);
+  // (workstream 01's REAL cooperation board — coop/board.mjs, not a made-up answer — in front of the same relay: it serves
+  // /coop/* and 01's page, and passes every other path on, as 01 runs it. Its data folder is a fresh temporary one)
+  const board = createBoard({ herald: `http://127.0.0.1:${relay.address().port}`, programId: W.PROGRAM, seasonId: W.SEASON_ID, dataDir: await mkdtemp(join(tmpdir(), 'ws07-board-')) });
+  boardSrv = createBoardServer(board, { herald: `http://127.0.0.1:${relay.address().port}` });
+  await new Promise(r => boardSrv.listen(0, '127.0.0.1', r));
+  boardBase = NK.pageBase(boardSrv.address().port);
+  browser = await chromium.launch({ args: NK.launchArgs(relay.address().port, boardSrv.address().port), ...(process.env.WS07_CHROME ? { executablePath: process.env.WS07_CHROME } : {}) });
   // the viewer's tag and village, as the page reads them (a first load with the feeds empty)
   const ctx = await context({ width: 1440, height: 900 });
   const page = await ctx.newPage();
   await page.goto(`${base}/frontier/`);
   await untilPage(page, fsReady);
   const who = await page.evaluate(async () => { const { FS } = await import('/frontier/fstate.mjs'); const { ownTag } = await import('/frontier/people/ui.mjs'); const h = FS.holdings[0]; return { tag: String(ownTag(FS)), bell: FS.nowBell, p: h.p, q: h.q, tile: h.tile, faction: FS.citizen.faction }; });
+  await NK.assertKeyless(ctx, assert);
   await ctx.close();
   viewerTag = who.tag;
   const place = (kind, tile) => ({ kind, p: who.p, q: who.q, at: 2, gen: 1, tile });
@@ -100,7 +112,7 @@ before(async () => {
   ];
   if (SHOTS) await mkdir(SHOTS, { recursive: true });
 });
-after(async () => { await browser?.close(); relay?.close(); await srv?.close(); });
+after(async () => { await browser?.close(); boardSrv?.close(); relay?.close(); await srv?.close(); });
 
 /** Wait until `check` (a page function: it reads the page's own modules, not the DOM) answers true. */
 async function untilPage(page, check, ms = 30000) {
@@ -115,7 +127,7 @@ const fsReady = async () => { const { FS } = await import('/frontier/fstate.mjs'
 const s1Feeds = async () => { const { FS } = await import('/frontier/fstate.mjs'); return (FS.s1?.caravans?.moving?.length ?? 0) > 0; };
 async function context(viewport) {
   const ctx = await browser.newContext({ viewport });
-  await ctx.addInitScript(s => { for (const [k, v] of Object.entries(s)) { try { localStorage.setItem(k, v); } catch { /* none */ } } }, W.storageFor(srv.viewer, { stage: 'holding', lang: 'ja' }));
+  await ctx.addInitScript(NK.init, NK.initArg(srv.viewer, { lang: 'ja' }));
   return ctx;
 }
 // (the drawer is drawn again when the feeds come in: a card caught between two drawings is taken again)
@@ -179,6 +191,7 @@ for (const size of SIZES) {
     assert.equal(await page.locator('[data-act="away-seen"]').count(), 0, 'nothing new after the mark: no summary');
     assert.equal(await page.locator('#away-entry:visible').count(), 0, 'and no line');
     assert.deepEqual(errors, []);
+    await NK.assertKeyless(ctx, assert);
     await ctx.close();
   });
 
@@ -217,6 +230,90 @@ for (const size of SIZES) {
     await card.scrollIntoViewIfNeeded();
     await shot(card, `ws07-s1-page-card-mock-${size.name}`);
     assert.deepEqual(errors, []);
+    await NK.assertKeyless(ctx, assert);
     await ctx.close();
+  });
+}
+
+// ---------------------------------------------------------------- the way to workstream 01's REAL cooperation board
+// The same pure S1 fixture, opened through 01's own coop/board.mjs (its /coop/config, its page, everything else passed
+// on): the village card's button (hud/coopboard.mjs in the card's slot) reads the board's real config. Opening, closing
+// the opened tab (the player turning back), pressing again, the keyboard, a reload and a board that cannot be read.
+// FIXTURE data, no chain; the test wallet has no key and signs nothing.
+const villageTo = page => page.evaluate(async () => { const { FS } = await import('/frontier/fstate.mjs'); const h = FS.holdings[FS.activeHolding ?? 0]; return [h.p, h.q, h.site, h.gen ?? 0].join(','); });
+async function openCard(page, url) {
+  await page.goto(`${url}/frontier/`);
+  await untilPage(page, s1Feeds);
+  await page.locator('[data-tab="holding"]').first().click();
+  await page.locator('.s1-card').waitFor({ state: 'attached', timeout: 15000 });
+}
+for (const size of SIZES) {
+  test(`${size.name} [pure S1 fixture, through 01's real board]: the card's button opens 01's page for this village; closing it, pressing again, Enter and a reload behave`, async () => {
+    const ctx = await context({ width: size.width, height: size.height });
+    const page = await ctx.newPage();
+    const errors = [];
+    page.on('pageerror', e => errors.push(String(e)));
+    try {
+      const cfg = await (await fetch(`http://127.0.0.1:${boardSrv.address().port}/coop/config`)).json();
+      assert.equal(typeof cfg.season?.seasonId, 'string', "01's real config names its Season as {programId, seasonId}");
+      await openCard(page, boardBase);
+      const btn = page.locator('.s1-card [data-act="coop-open"]');
+      await btn.waitFor({ timeout: 15000 });
+      assert.equal(await btn.innerText(), '国をまたぐ依頼を開く');
+      assert.equal(await btn.isDisabled(), false, "the board's Season and program are this page's");
+      await btn.scrollIntoViewIfNeeded();
+      await shot(btn, `ws07-s1-page-coop-${size.name}`);
+      const to = await villageTo(page);
+      const want = `${boardBase}${cfg.page}?to=${encodeURIComponent(to)}`;
+      // press: one tab, 01's page for this village, served by the board
+      const [tab] = await Promise.all([page.waitForEvent('popup'), btn.click()]);
+      await tab.waitForLoadState('domcontentloaded');
+      assert.equal(tab.url(), want);
+      assert.equal(await tab.evaluate(() => document.readyState !== 'loading' && !!document.body), true, "01's page is there");
+      // the player turns back: the tab closed, the game as it was (the card and its button)
+      await tab.close();
+      assert.equal(await btn.isDisabled(), false);
+      assert.equal(await page.locator('.s1-card').count(), 1);
+      // pressing again opens one more tab, no more
+      let popups = 0;
+      ctx.on('page', () => { popups++; });
+      const [tab2] = await Promise.all([page.waitForEvent('popup'), btn.click()]);
+      await tab2.waitForLoadState('domcontentloaded');
+      await page.waitForTimeout(500);
+      assert.equal(popups, 1, 'one press, one tab');
+      await tab2.close();
+      // by keyboard
+      await btn.focus();
+      const [tab3] = await Promise.all([page.waitForEvent('popup'), page.keyboard.press('Enter')]);
+      assert.equal(tab3.url(), want);
+      await tab3.close();
+      // a reload: the button again, read from the board again
+      await page.reload();
+      await untilPage(page, s1Feeds);
+      await page.locator('[data-tab="holding"]').first().click();
+      await page.locator('.s1-card [data-act="coop-open"]').waitFor({ timeout: 15000 });
+      assert.equal(await page.locator('.s1-card [data-act="coop-open"]').isDisabled(), false);
+      assert.deepEqual(errors, []);
+      await NK.assertKeyless(ctx, assert);
+    } finally { await ctx.close(); }
+  });
+
+  test(`${size.name} [pure S1 fixture, through 01's real board]: a board config that cannot be read is said, and nothing opens`, async () => {
+    const ctx = await context({ width: size.width, height: size.height });
+    const page = await ctx.newPage();
+    try {
+      await page.route('**/coop/config', r => r.fulfill({ status: 503, contentType: 'application/json', body: '{}' }));
+      await openCard(page, boardBase);
+      const btn = page.locator('.s1-card [data-act="coop-open"]');
+      await btn.waitFor({ timeout: 15000 });
+      assert.equal(await btn.isDisabled(), true);
+      assert.match(await page.locator('.s1-card .ws07-coop').innerText(), /国をまたぐ依頼の板を読み込めませんでした（HTTP503）/);
+      let popups = 0;
+      ctx.on('page', () => { popups++; });
+      await btn.click({ force: true }).catch(() => {});
+      await page.waitForTimeout(400);
+      assert.equal(popups, 0, 'a disabled button opens nothing');
+      await NK.assertKeyless(ctx, assert);
+    } finally { await ctx.close(); }
   });
 }
