@@ -12,8 +12,8 @@
 //     none at "grown" and exactly the palisade's hex at "palisade" (a foreign nation at war stops the walker);
 //   - the host on (4,0) tile 0 in hand; (5,0) tile 0 pressed: at "grown" the order card has 08's route to the step; at
 //     "palisade" the page's own planner (frontier-v3.wasm plan_path with that hex `blocked`) gives a route whose hexes
-//     (marchcard.routeHexes) never enter the palisade's hex — another route than 08's — or, if the rules find none,
-//     the press is refused and no card opens (reported as it is, never adjusted);
+//     (marchcard.routeHexes) never enter the palisade's hex: exactly 19's pinned answer (dirs [5,0,0,1,0,1,1,0,1,1],
+//     1320 s, (4,0) → (5,0); not NoPath);
 //   - the card's arrival inside the Season's lead window, "seal and depart" enabled, NEVER pressed;
 //   - cancel (やめる), then the host again and the destination again: the same route; a reload keeps the stage.
 // Not exercised: the builder's payment, a palisade of the viewer's own nation, stances other than war. Nothing is
@@ -32,6 +32,9 @@ import * as G from '../test/fixtures/frontier/growth-route.mjs';
 const GOLDEN = JSON.parse(readFileSync(new URL('../../frontier-node/crates/herald/tests/golden/ws19-map-growth-s1-palisade.json', import.meta.url)));
 const HOST_TILE = { p: 4, q: 0, tile: 0 }, TARGET = { p: 5, q: 0, tile: 0 };
 const PAL = GOLDEN.palisade;
+/** Workstream 19's expected planner answer at "palisade" (2db2db4b: frontier-v3.wasm plan_path, unit 0, the golden's
+ * seeds, blocked [tileHex(4,0,6)]): the way round, 10 steps, the same 1320 s. */
+const AROUND = Object.freeze({ dirs: [5, 0, 0, 1, 0, 1, 1, 0, 1, 1], secs: 1320, provinces: [{ p: 4, q: 0 }, { p: 5, q: 0 }] });
 
 let srv, relay, browser, base, stage = 'grown';
 before(async () => {
@@ -145,14 +148,12 @@ for (const vp of [{ width: 1440, height: 900, name: 'desktop' }, { width: 390, h
       results[st] = s;
       if (st === 'grown') {
         assert.deepEqual(s.compose?.route, { dirs: G.ROUTE.dirs, secs: G.ROUTE.secs, provinces: G.ROUTE.provinces }, 'grown: 08\'s route (no structure)');
-      } else if (s.compose?.route) {
+      } else {
+        // 19's pinned answer (2db2db4b, web-frontier-map-arrival): plan_path with the palisade's hex blocked
+        assert.deepEqual(s.compose?.route, AROUND, 'palisade: 19\'s expected route round the palisade (not NoPath)');
         const hit = s.compose.hexes.filter(h => want.some(b => b.q === h.q && b.r === h.r));
         assert.deepEqual(hit, [], 'palisade: the route never enters the palisade\'s hex');
-        assert.notDeepEqual(s.compose.route.dirs, G.ROUTE.dirs, 'palisade: another route than 08\'s');
         assert.deepEqual(s.compose.dest, [TARGET.p, TARGET.q, TARGET.tile]);
-      } else {
-        // the rules found no way round: refused, no card (reported, never adjusted)
-        assert.equal(s.compose?.route ?? null, null);
       }
       if (s.compose?.route) {
         await page.locator('#mc-title').waitFor({ state: 'attached' });
