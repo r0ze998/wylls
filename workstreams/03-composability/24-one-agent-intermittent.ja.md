@@ -5,7 +5,11 @@
 ## 0. 前提
 
 - 報告：④の 4d44f021 の上の並列の実行で、この試験が 1 回だけ失敗した。その後、candidate で 9 回、baseline（16576826）で 5 回実行し、再現しなかった。
-- ④の報告そのもの（失敗のログ、厳密な試験名、実行の条件）は、repository に無い。④に回収を依頼した（未着）。
+- ④から届いた⑯の記録（2026-11-08 19:07–19:08。⑯ `logs/phase20/s03-full.log` 98–130 行、branch claude/dreamy-ramanujan-ijj8qj）：
+  - 試験：`keyfree/integration.test.mjs` の test 17「③ and ⑤ on one agent and one ④ registry: …」（74 行）。run.test.mjs の方は通っていた（ok 22）。
+  - 85 行の `assert.deepEqual([r3.state, g5.ok, g5.connection], ['accepted', true, 'real'])` で、actual は `[undefined, true, 'real']`。ERR_ASSERTION（deepStrictEqual）、562.7 ms。
+  - 実行：run-guarded.sh、`--test-concurrency` の指定なし。runexec は ws04 a33e3b0a（sha256 4cb6634d…）、③の directory は 838338be。
+  - NODE_OPTIONS、機械の負荷、他の suite が同時に走っていたかは記録に無い。
 - この名前に当たる③の試験は 2 つある。
   - `keyfree/integration.test.mjs`「③ and ⑤ on one agent and one ④ registry: …」。③自身の記録（22 §3）でも 8 回中 1 回落ち、原因は未確定だった。
   - `keyfree/run.test.mjs`「③ (mcp, a ⑥ run) and ⑤ (ai, …) on one agent and one registry, …」
@@ -82,4 +86,48 @@
 | 2 つの「one agent」の試験（新しい setup）、6 並列で 48 回 | 失敗 0 |
 | 旧い setup の integration の試験、6 並列で 48 回 | 失敗 0（試験の単位では再現せず） |
 
-**状態：** 試験の単位での 4d44f021 の失敗は、**再現していない（inconclusive）**。そのうえで、試験がこの競合に偶然依存しないようにした。
+## 5. 決定的な再現（`keyfree/cold-open.test.mjs`）
+
+**静的に分かること：**
+
+- ⑤の側（`g5.ok`、`g5.connection`）は正しく、③の `r3.state` だけが無い。
+- この試験の中で③と⑤が共有するのは、新しい run store だけである。
+  - ⑤の `registerBeforeSend` は、登録簿にしか触れない。relay には触れない。
+  - ⑤の `loadFourActsPort` は client を作るだけで、store を開かない。旧い setup では、84 行まで store は誰にも開かれていない。
+- この試験では 409 を台本に書いていない（送信は既定の `sent`）。838338be の 409 の経路には入らない。
+- 並列で③だけが落ちる経路は、④の登録簿が③の登録に失敗を返した時の `RunRegistryUnavailable`（`state` 無し）しかない。
+
+**lock の状態の測定（④ 16576826 の runexec、`act register` 1 回）：**
+
+| 別の接続が持つもの | 新しいファイル | 1 回開いた store |
+|---|---|---|
+| rollback-journal の書き込み（`BEGIN IMMEDIATE`） | **0.00 秒で `StoreError: database is locked`** | （この状態にならない） |
+| WAL の読み取り | 登録できる | 登録できる |
+
+新しいファイルを WAL に切り替えている途中の process が、ちょうど 1 行目に当たる。busy timeout（10 秒）は待たずに、すぐに失敗する。
+
+**再現の試験：** 時間で狙わず、順序を強制する。
+
+- ③の登録の間だけ、SQLite の接続が「Store::open の途中の別の runexec」が持つ lock を持つ。
+  - 新しいファイルなら、WAL への切り替えの書き込み。
+  - 1 回開いた store なら、読み取りだけ。
+- ⑤の登録は、③の登録の答えの後に始まる（開き終える側）。
+
+**結果（鍵なし、PDA なし、③④のガード、16576826）：**
+
+| setup | 85 行と同じ assertion |
+|---|---|
+| 旧（新しい store を③と⑤が初めて同時に開く） | **10/10 で失敗**。actual `[undefined, true, 'real']`（4d44f021 と同じ値） |
+| 現在（`openRunStore`） | 10/10 で通る |
+
+- `cold-open.test.mjs` の 2 つの試験：
+  - 旧い setup では、この値と `RunRegistryUnavailable`（StoreError）になり、何も送らないことを確かめる。
+  - 現在の setup では、`accepted` になることを確かめる。
+- `run-guarded.sh`：16576826 で 35/35 を 2 回。
+
+**状態：** この機構は決定的に再現でき、4d44f021 と同じ assertion の同じ actual になる。並列性、共有状態、実行順で説明が付く。
+
+ただし、4d44f021 の 1 回が実際にこの順序だった直接の証拠（その時の r3 の中身）は、ログに無い。r3 は print されていない。
+
+- 判断は④に任せる：この再現で原因を確定とするか。
+- ④の `Store::open` の修正が入れば、`openRunStore` は無くても通るはずである。
