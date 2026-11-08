@@ -4087,3 +4087,25 @@ env -u NODE_OPTIONS -u WS04_SCAN_ROOT -u RUNEXEC_BIN -u RUNEXEC_VIEW_BIN bash sc
 - これで、ユーザーの条件（⑯ の証明と、4 の除外の理由が合うまで保留）は満たされた。
 - この 2 file は、§29.36 の C と D の条件のまま、553f7fe7 で実行してよい：reviewed の digest は viewer-own-citizen `c57b84cc…` と want-province `a623aab2…`、node_modules の無い worktree、preload の digest `b301d64b…`、NODE_OPTIONS と NODE_PATH は unset、1 file ずつ、完全な出力を保存。
 - 結果は、4 の報告を待つ。
+
+## 29.42 最後の記録（引継ぎの前。⑯ は何も走らせていない）
+
+**4 の 2 file の実行（4 の報告。記録は 4 の scratchpad の `runs/553-subset-2/` にあり、⑯ は読めない）**
+- 553f7fe7（tree dcbc1970）の、node_modules の無い worktree。status は実行の前後で空。preload の digest は b301d64b。NODE_OPTIONS と NODE_PATH は unset。node は v22.22.0。
+- viewer-own-citizen は exit 0、4/4。want-province は exit 0、4/4。stderr はどちらも空。
+- これで、⑯ が許可した 5 file は、すべて 553f7fe7 で 1 回ずつ走った：map-contract 17/17、map-arrival 5/5、growth-route 7/7、viewer-own-citizen 4/4、want-province 4/4。
+
+**19 の `c2acd3a92d8b2be2d86362bfab1c9ce806db7263`（tree `14ea625d…`。59f4a064 からの fast-forward）の静的な審査**
+- 変わった file は 4 つ：S1 の golden、柵の golden、`ws19_map_contract.rs`、`web-frontier-map-contract.test.mjs`。herald の `src/` には変更が無い（growth.rs は 59f4a064 のまま）。
+- a41d1cd2 と entry ごとに比べた（⑯ が計算した）。
+  - S1：最上位の field と、段と path の集合は同じ。変わったのは `/h/events`、`/h/keep/4,0.json`、`/h/province/{3,0, 3,1, 4,-1, 4,0, 5,0}/latest`、`/h/season` の `headSeq` だけ。
+  - 柵：変わったのは `/h/province/{4,0, 5,0}/latest` と `/h/season` の `headSeq` だけ。
+  - どれも、19 が宣言した範囲に、§29.40 A で受け入れた headSeq を加えた範囲の中にある。
+- **判定：** 比べる mode の run（`env -u RUSTFLAGS -u NODE_OPTIONS -u WS19_GOLDEN_WRITE CARGO_TARGET_DIR=<scratch>/target cargo test -p herald --offline --test ws19_map_contract`、新しい worktree、完全な出力を保存）は、静的には鍵が要らず、許可できる。ただし、引継ぎのため、⑯ はこの判定を 19 に送っていない。run は行われていない。
+- 変更された Node の `web-frontier-map-contract.test.mjs`（c2acd3a9 の版）の、鍵なしの実行は、まだ審査していない。
+
+**未実行のもの、除外のまま残るもの。** §29.36〜§29.41 のとおり。
+- browser の画面のすべて。§29.39 D の 2〜4 番目（page の module の読み込みの時点の審査、node の側の条件、screens 用の runner）が開いている。
+- web-frontier-hud（一覧に載る）、一覧に載るすべての file、key-tests の job。
+- c2acd3a9 での比べる mode の cargo の run。
+- 鍵ペアの生成、導出、署名、guard の自己試験、取引、CI。
