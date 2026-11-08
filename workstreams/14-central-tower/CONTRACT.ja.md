@@ -89,3 +89,32 @@
 ### 5.2 最新版 `cb87e30c` との照合（未実施）
 
 照合に要るもの（⑮の `cb87e30c`、前提コミットを明記した bundle か GitHub の push）：`workstreams/15-coop-outcomes/src/adapters/ws14.mjs`、`src/contract.mjs`、⑭の出力を使う試験と fixture。受け取ったら、⑭が渡した契約 v1 の fixture（`bde8d1c1` で作った A・B・C）を⑮の受け取り側に通して、時刻・掲示と応答の意味・`actor`・`unverified` の扱いを確かめる。
+
+## 6. 今のゲームの中央の事実（`wylls.ws14.centre-facts/1`、2026-11-08）
+
+コードの正本は [game/centre.mjs](game/centre.mjs)（`centreFacts`・`feedProblems`）、試験は [game/centre.test.mjs](game/centre.test.mjs)、読み取りのコマンドは [game/centre-cli.mjs](game/centre-cli.mjs)。
+
+**模型の事実（1〜5章、全件 `unverified`）とは別のスキーマです。** こちらは今のゲームのヘラルドの公開データ（S1 の `h/caravans.json` と `h/structures.json`）から読む事実で、`verified: 'derived'`（ヘラルドがチェーンの記録から畳み込んだものを、選んで数えただけ）。**ルールは足していない。** 中央塔の役割も決めていない。
+
+```
+{ schema: 'wylls.ws14.centre-facts/1', source, world: { ends: false },
+  observedAt,            // 呼び出し側が付ける印（ターン・時刻など）。ヘラルドの一覧は今の状態だけで時刻を持たない
+  facts: [ { seq, kind, verified: 'derived', ... } ],
+  summary: { moving, throughInner, throughConcord, innerShare, concordShare,
+             cargoInnerShare, cargoConcordShare, vaultsAtCentre, vaultsInConcord,
+             structuresAtCentre, structuresInConcord, byFaction } }
+```
+
+「中央」は輪0（大協約）と輪1（6つの首都）。
+
+| kind | 欄 | 意味 |
+|---|---|---|
+| `centre.vault` | `p, q, tile, ring, concord, faction, ownerTag, gen` | 中央に建っている倉（個人の物。今のコードでは大協約にも建てられる） |
+| `centre.structure` | `p, q, tile, ring, concord, structureKind, faction, ownerTag` | 中央に建っている S1 の建物（`tower`＝物見櫓・`palisade`・`fort`） |
+| `centre.transit` | `ownerTag, seqOfOwner, faction, throughConcord, innermostRing, provinces, cargo, raided` | 道中の隊商で、通る州（`provinces`）が中央に入るもの |
+| `centre.sighting` | `bell, tower, towerFaction, what, faction` | 中央に立つ物見櫓が報告した目撃（S1 の目撃。⑭の塔の目撃ではない） |
+
+- 一覧は**今の状態**だけ。着いた隊商は `moving` から消える。閉じた倉は、ヘラルドが無いと読むまで残る（ヘラルドの注記）。時間を通した量は、呼び出し側が何度か読んで並べる。
+- 読めない版・欄は推し量らずに断る（`refused`）。並びは一覧の順に依らない。
+- 欄の名前は、試験でヘラルドのソース（`herald/src/caravan.rs`・`structure.rs`）に固定した。
+- 試験の一覧は、ヘラルドのソースに書かれた形どおりに作った**合成の例**。本物のヘラルドの出力では、①の fixture（④の候補 `workstreams/01-national-strategy/test/fixtures/herald-caravans-ended.json`）を読めることだけ確かめた（中央に入る隊商はなかった）。動いているヘラルドからは読んでいない。

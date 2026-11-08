@@ -71,7 +71,7 @@
 - **元のソース**：`proto/`（`geometry.mjs` 地図の計算、`model.mjs` 模型、`adapters.mjs` ①⑧⑮との接続点、`compare.mjs` 比較、`ui.mjs` と `index.html` 画面、`build.mjs` で1ファイルにまとめる）。
 - **ローカルの試験**（repo の根から）：
   ```sh
-  node --test workstreams/14-central-tower/proto/*.test.mjs        # 27件。地図の計算をクライアントの fgeo.mjs に固定する試験、継続する世界の通し試験、⑮へ渡す事実の契約の試験を含む
+  node --test workstreams/14-central-tower/proto/*.test.mjs workstreams/14-central-tower/game/*.test.mjs   # 35件。地図の計算をクライアントの fgeo.mjs に固定する試験、継続する世界の通し試験、⑮へ渡す事実の契約の試験を含む
   node workstreams/14-central-tower/proto/batch.mjs 30             # results/RESULTS.json（約50秒）
   node workstreams/14-central-tower/proto/report.mjs               # results/RESULTS.ja.md
   node workstreams/14-central-tower/proto/build.mjs                # tower-proto.html
@@ -328,13 +328,45 @@ C の在庫の修正で、C の数字だけが少し変わった（5章は取り
 | 公開範囲 | 変わっていない（9.2）。国の卓の Q8（国の仲間だけ、推奨・未決定）も変わっていない |
 | B 案の前提 | ①の最新版に当たるのは `world_visible`。そこでは B は A と同じ。B が意味を持つのは、①が国をまたぐ依頼を自国にだけ見せると決めた場合だけ（決めるのは①とユーザー。⑭は決めない） |
 
+## 14. 2026-11-08：今のゲームへの接続と、提案との区別
+
+### 14.1 実装したもの（ルールは足していない）
+
+| 何を | どこに | 何に接続するか |
+|---|---|---|
+| 中央の事実の読み取り（`wylls.ws14.centre-facts/1`） | `game/centre.mjs`、`game/centre-cli.mjs`、試験 `game/centre.test.mjs`（8件） | 今のゲームのヘラルドの公開データ `h/caravans.json`・`h/structures.json`。大協約と6つの首都に建つ倉・建物、中央を通る隊商、中央の物見櫓の目撃を、`derived` の事実として数える。契約は CONTRACT 6章 |
+| 模型の事実の契約 v1（`wylls.ws14.tower-facts/1`） | `proto/contract.mjs`（13章） | ⑮の評価器。全件 `unverified` |
+
+中央の事実は、比較で問題にした点を、今のゲームの実データで測るためのものです。
+- 中央に物が集まるか（`cargoConcordShare`）。
+- 大協約に個人の倉や建物が建っているか（判断の4、「独占の入口」）。
+
+塔が無い今のゲームでも測れます。結果は「今のゲームでそうなっているか」の事実で、塔の案の採否を決めるものではありません。
+
+### 14.2 提案のまま（実装しない・採用していない）
+
+| 提案 | 状態 |
+|---|---|
+| A 目印のみ／B 掲示の塔／C 中継の倉 | 比較の候補。どれも採用していない。B は①の現行の板（依頼は全国に見える）では A と同じ（9.2・13.5） |
+| 塔の手数料・返金・期限・使える人・賞金との連動 | 決めていない |
+| 大協約に個人の倉や建物を建てられる今の状態を変えること | 決めていない（判断の4）。中央の事実で、今それが起きているかを測れるようにしただけ |
+| 鐘楼の呼び方、Engine の扱い | 決めていない |
+
+### 14.3 ④の統合候補への取り込み方
+
+- ④の `cf517b558d1303a84dba618550f40cb460b7ad99`（`claude/gallant-ride-cunptv`）には、⑭は `7d7f2143` まで入っている。
+- その後の⑭のコミットは `workstreams/14-central-tower/` だけを変える。共有コア（`permutation-*`、`frontier-*`、`permutation-server/web`）には触れていない。
+- ⑭のブランチ `claude/hopeful-cori-tql3le` の先端を④の候補に merge すればよい。衝突しないことは `git merge-tree` で確かめた（報告の版で）。
+- 試験：`node --test workstreams/14-central-tower/proto/*.test.mjs workstreams/14-central-tower/game/*.test.mjs`。鍵・署名・ネットワークは使わない。中央の事実の試験は、ヘラルドのソースのファイルを読む。
+
 ## 11. ファイル
 
 ```
 workstreams/14-central-tower/
   README.ja.md            この報告
   tower-proto.html        クリック可能な試作（1ファイル、build.mjs の出力）
-  CONTRACT.ja.md          ⑮へ渡す事実の契約（版1）
+  CONTRACT.ja.md          ⑮へ渡す事実の契約（版1）と、今のゲームの中央の事実（6章）
+  game/                   今のゲームのヘラルドの公開データから中央の事実を読む（centre.mjs、centre-cli.mjs、centre.test.mjs）
   proto/                  ソースと試験（model.test.mjs、continuity.test.mjs、contract.test.mjs）。check-ws15.mjs は⑮の受け取り側の照合
   results/RESULTS.json    batch.mjs 30 の出力
   results/RESULTS.ja.md   report.mjs が書いた全表
