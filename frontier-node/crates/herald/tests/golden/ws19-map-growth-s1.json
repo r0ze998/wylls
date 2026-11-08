@@ -265,6 +265,14 @@
         },
         "status": 200
       },
+      "/h/structures.json": {
+        "body": {
+          "sightings": [],
+          "structures": [],
+          "v": 1
+        },
+        "status": 200
+      },
       "/h/wide-index/status": {
         "body": {
           "code": "WideIndexUnavailable",
@@ -1094,6 +1102,14 @@
           ],
           "windowFromBell": 4294967295,
           "windowNext": 600
+        },
+        "status": 200
+      },
+      "/h/structures.json": {
+        "body": {
+          "sightings": [],
+          "structures": [],
+          "v": 1
         },
         "status": 200
       },
@@ -1937,6 +1953,14 @@
           ],
           "windowFromBell": 4294967295,
           "windowNext": 600
+        },
+        "status": 200
+      },
+      "/h/structures.json": {
+        "body": {
+          "sightings": [],
+          "structures": [],
+          "v": 1
         },
         "status": 200
       },
@@ -2990,6 +3014,14 @@
           ],
           "windowFromBell": 4294967295,
           "windowNext": 600
+        },
+        "status": 200
+      },
+      "/h/structures.json": {
+        "body": {
+          "sightings": [],
+          "structures": [],
+          "v": 1
         },
         "status": 200
       },
