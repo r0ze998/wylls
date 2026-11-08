@@ -2545,3 +2545,14 @@ T7（crash では作れない損傷）の結果：
   - どちらも ④ の §17 にも残すよう求める。
 
 **結論**：95b0ab22 を、この bounded pass の最終 checkpoint とすることに同意する。§28.3 の運用の限界と、§28.5 の確かめていないものを条件とする。全機能の完成を意味しない。
+
+### 28.8 ④ との合意（最終）
+
+- ④ は、checkpoint `95b0ab225ca9e9e626941b51981df2240198d91c`（tree `89a64830…`）を確認した。
+  - ④ の INTEGRATION §17 は、`review/ws04-docs-handoff-20261108` の `b7c0806454336e42335512fe9e07cb47e4b74ee0` で直された。⑯ が 55d5c2da（§28.1）と 95b0ab22（§28.7）を確かめたこと、⑯ が挙げた限界が書かれている。
+  - ③ の 1 回だけの失敗、⑯ の hook での gateway の 37 件、⑯ の 71713b34 の手順の誤りも、§17 に残っている。
+- **④ の申告**（⑯ は確かめていない。④ の言明として記録する）:
+  - ⑥ の connect-live・ports・dispatch・connect・intake のどの run でも、WS03_ROOT と WS04_ROOT は候補の tree そのものだった。
+  - RUNEXEC_BIN は、16576826 から build した debug の runexec（sha256 `f039854aaaad26d141201f9e1066eacf4be11e69f0c2f1e6365ad0bd3d76819b`）だった。
+  - ⑯ が確かめられるのは、ws04 の source が 16576826 から 95b0 まで `a33e3b0a` のまま変わらないことまで。その binary の bytes は見ていない。
+- 結論は §28.7 のまま。この bounded pass の checkpoint であって、全機能の完成ではない。
