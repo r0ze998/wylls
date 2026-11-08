@@ -11,15 +11,26 @@ import {
 } from './local-model.mjs';
 
 export const ACTION_HEADER = 'X-Wylls-Local-Action';
-export const ROUTES = Object.freeze({ state: '/api/state', action: '/api/action', reset: '/api/reset', open: '/api/open', quote: '/api/quote' });
+export const ROUTES = Object.freeze({ state: '/api/state', action: '/api/action', reset: '/api/reset', open: '/api/open', quote: '/api/quote', depart_route: '/api/depart_route' });
 const MAX_TEXT = 1048576 + 8192;
+const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
 
 /** A UI intent → [route, body, command]. `expectedRevision` is always the revision currently shown. */
 export function bodyFor(intent, revision) {
   if (intent.kind === 'reset') return ['reset', { expectedRevision: revision }];
   // opening carries only canonical coordinate strings; the host decides ring, budget and duplicates
   if (intent.kind === 'open_province') return ['open', { expectedRevision: revision, p: intent.p, q: intent.q }];
+  // a chosen march carries only the quoted directions; the host re-quotes them and binds what it walked
+  if (intent.kind === 'depart_route') return ['depart_route', { expectedRevision: revision, dirs: intent.dirs }];
   return ['action', { expectedRevision: revision, action: intent.kind }];
+}
+/** The host's binding must be exactly the quote the player sent from: directions, end province and tile, every
+ * step and the provinces entered. Anything else is not the march the player chose. */
+export function bindingMatchesQuote(binding, dirs, quote) {
+  return !!binding && binding.kind === 'chosen' && binding.directions === dirs && !!quote && quote.reachable === true
+    && same({ p: binding.destination.p, q: binding.destination.q, tile: binding.destination.tile }, quote.end)
+    && same(binding.steps, quote.steps.map(({ p, q, tile }) => ({ p, q, tile })))
+    && same(binding.provincesEntered, quote.provincesEntered);
 }
 
 export function createClient({ fetchFn, initial, onChange = () => {}, timeoutMs = 10000 }) {
@@ -88,9 +99,11 @@ export function createClient({ fetchFn, initial, onChange = () => {}, timeoutMs 
     }
   }
 
-  async function submit(intent) {
+  async function submit(intent, fromQuote = null) {
     if (s.busy) return { ok: false, reason: 'busy' };
     if (s.phase !== 'ready' || !s.state) return { ok: false, reason: 'no-state' };
+    // a chosen march is sent only from the current host quote (departRoute), never as a free intent
+    if (intent?.kind === 'depart_route' && fromQuote === null) { set({ notice: { kind: 'input', code: 'QuoteRequired' } }); return { ok: false, reason: 'input' }; }
     let route, body, cmd;
     try {
       [route, body] = bodyFor(intent, s.state.revision);
@@ -117,7 +130,13 @@ export function createClient({ fetchFn, initial, onChange = () => {}, timeoutMs 
         if (json.outcome !== 'ok' && json.outcome !== 'refused') throw new LocalModelError('BadResponse', 'outcome');
         const seen = checkTransition(prev, cmd, r.parsed, initial);
         if (seen !== json.outcome || (r.lastResult?.outcome !== seen)) throw new LocalModelError('BadResponse', 'outcome disagrees with the state');
-        set({ busy: false, phase: 'ready', state: r.state, parsed: r.parsed, lastResult: r.lastResult, notice: { kind: json.outcome, code: r.state.error }, ...freshQuote });
+        if (cmd.kind === 'depart_route' && seen === 'ok' && !bindingMatchesQuote(r.parsed.marchBinding, fromQuote.dirs, fromQuote.quote)) {
+          // the host bound something other than the quoted route: not the player's march; show nothing stale
+          throw new LocalModelError('BadResponse', 'the bound route is not the quoted route');
+        }
+        // a refusal as unreachable carries the host's read-only quote of the refused directions: shown, never re-sent
+        const refusedQuote = cmd.kind === 'depart_route' && seen === 'refused' && r.parsed.routeQuote ? { quote: r.parsed.routeQuote, quoteDirs: cmd.dirs } : freshQuote;
+        set({ busy: false, phase: 'ready', state: r.state, parsed: r.parsed, lastResult: r.lastResult, notice: { kind: json.outcome, code: r.state.error }, ...refusedQuote });
         return { ok: json.outcome === 'ok', reason: json.outcome };
       }
       if (status === 502 || status === 503) {
@@ -173,5 +192,17 @@ export function createClient({ fetchFn, initial, onChange = () => {}, timeoutMs 
     }
   }
 
-  return Object.freeze({ refresh, submit, quote, get snapshot() { return s; } });
+  // The one explicit chosen-march send: the current, reachable host quote's exact directions at the shown revision.
+  // No quote, an unreachable quote, or a stale one (quotes are cleared by every state change) sends nothing.
+  async function departRoute() {
+    if (s.busy) return { ok: false, reason: 'busy' };
+    if (s.phase !== 'ready' || !s.state) return { ok: false, reason: 'no-state' };
+    const q = s.quote, dirs = s.quoteDirs;
+    if (!q || q.reachable !== true || typeof dirs !== 'string' || !s.state.allowed.includes('depart_route')) {
+      set({ notice: { kind: 'input', code: 'NoReachableQuote' } }); return { ok: false, reason: 'input' };
+    }
+    return submit({ kind: 'depart_route', dirs }, { dirs, quote: q });
+  }
+
+  return Object.freeze({ refresh, submit, quote, departRoute, get snapshot() { return s; } });
 }

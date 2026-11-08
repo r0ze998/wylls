@@ -2,10 +2,16 @@
 //! keyless local sandbox (2026-11-08). See
 //! `docs/frontier/map-growth/LOCAL-DESTINATION-STAGE-20261108.md`.
 //!
-//! **Declared, not yet run, not called.** `main.rs` declares
-//! `mod destination_stage;` so it builds and its tests can run; nothing calls
-//! this module yet. It uses only `runtime`, `land_bootstrap` and
-//! `order_material` public items.
+//! **Called by protocol v4** (`chosen_march.rs`): `prepare_destination`
+//! at the chosen march's `post_reveal`, `arrival_plan` and
+//! `dispatch_sub_map` for every later arrival-phase instruction. Some items
+//! remain test-only (hence the `dead_code` allowance below). It uses only
+//! `runtime`, `land_bootstrap` and `order_material` public items.
+//!
+//! **v4 naming fix.** Default names of planned per-destination accounts are
+//! `march_dest_{p}_{q}_{role}` ([`default_name`]), no longer
+//! `{province}_{role}`: a persisted `land_province_…_roster` would have been
+//! taken for an opened province by the prefix-based land and engine code.
 //!
 //! **What it does.**
 //!
@@ -35,7 +41,7 @@
 //! or derivation, no signature, no new cryptographic material; no overwrite
 //! of any existing image; no edit of any rule or record type. Unknown,
 //! non-bootstrap or occupied targets fail closed.
-#![allow(dead_code)] // Declared but not called yet.
+#![allow(dead_code)] // Partly test-only (synthetic_pair evidence, stage_temporaries).
 
 use std::collections::BTreeMap;
 
@@ -80,6 +86,22 @@ pub const TEMPORARIES_PER_RESOLVE: usize = 5;
 const _: () = assert!(ARRIVE_BELL + 3 < wa::wide_arrival_day::BELLS);
 
 pub const PROVENANCE_PREPARED: &str = "REAL_RESOLVE_OVER_SYNTHETIC_NON_ARRIVAL_PAIRS";
+
+/// The image-name prefix of every per-destination account planned under a
+/// default name (v4 fix). It is deliberately **not** `land_province_`: the
+/// land module and the engine identify opened provinces by that prefix, so a
+/// persisted roster, day, slot or ClashInputs named `land_province_…_role`
+/// would be decoded as a province and counted against the opening budget.
+pub const ACCOUNT_PREFIX: &str = "march_dest_";
+
+/// The default image name of `role` at `dest`: `march_dest_{p}_{q}_{role}`.
+pub fn default_name(dest: &Destination, role: &str) -> String {
+    format!(
+        "{ACCOUNT_PREFIX}{}_{}_{role}",
+        dest.coord.p(),
+        dest.coord.q()
+    )
+}
 
 /// Labels the UI should show beside a prepared destination.
 pub const DESTINATION_EVIDENCE_LABELS: [(&str, &str); 5] = [
@@ -396,37 +418,36 @@ fn bell_accounts(
     bell: u32,
 ) -> Result<BellAccounts, String> {
     let pair = synthetic_pair(ctx, season_id, clock, bell, dest.region)?;
-    let n = &dest.name;
     let k = dest.key;
     Ok(BellAccounts {
         roster: plan_account(
             images,
             "roster".into(),
-            format!("{n}_roster"),
+            default_name(dest, "roster"),
             Expect::AnyAtKey(absent(wro::roster_address(ctx, k))),
         )?,
         day: plan_account(
             images,
             "day".into(),
-            format!("{n}_day"),
+            default_name(dest, "day"),
             Expect::AnyAtKey(absent(wa::arrival_day_address(ctx, k, wa::day_of(bell)))),
         )?,
         inputs: plan_account(
             images,
             format!("inputs_{bell}"),
-            format!("{n}_inputs_{bell}"),
+            default_name(dest, &format!("inputs_{bell}")),
             Expect::AnyAtKey(absent(wa::clash_inputs_address(ctx, k, bell))),
         )?,
         cache: plan_account(
             images,
             format!("cache_{bell}"),
-            format!("{n}_cache_{bell}"),
+            default_name(dest, &format!("cache_{bell}")),
             Expect::Exact(pair.cache.clone()),
         )?,
         anchor: plan_account(
             images,
             format!("anchor_{bell}"),
-            format!("{n}_anchor_{bell}"),
+            default_name(dest, &format!("anchor_{bell}")),
             Expect::Exact(pair.anchor.clone()),
         )?,
         pair,
@@ -445,49 +466,50 @@ pub fn arrival_plan(images: &Images, p: i64, q: i64) -> Result<Vec<PlannedAccoun
     let ctx_land = land::season_context(images)?;
     let clock = SeasonClock::read(&images["season"].data).map_err(|_| "DEST_STAGE_CLOCK")?;
     let ctx = ctx_of(ctx_land.season_key);
-    let (n, k, r, b) = (&dest.name, dest.key, dest.region, ARRIVE_BELL);
+    let (k, r, b) = (dest.key, dest.region, ARRIVE_BELL);
+    let n = |role: &str| default_name(&dest, role);
     let any = |key: [u8; 32]| Expect::AnyAtKey(absent(key));
     let mut plan = vec![
         plan_account(
             images,
             "arrival_anchor".into(),
-            format!("{n}_anchor_{b}"),
+            n(&format!("anchor_{b}")),
             any(ctx.bell_anchor(b, r)),
         )?,
         plan_account(
             images,
             "arrival_cache".into(),
-            format!("{n}_cache_{b}"),
+            n(&format!("cache_{b}")),
             any(ctx.seed_cache(b, r, 0)),
         )?,
         plan_account(
             images,
             "archive".into(),
-            format!("{n}_archive"),
+            n("archive"),
             any(ctx.anchor_archive(r, archive_part_of(b))),
         )?,
         plan_account(
             images,
             "beacon_log".into(),
-            format!("{n}_beacon_log"),
+            n("beacon_log"),
             Expect::AnyAtKey(beacon_log_fixture(&ctx, ctx_land.season_id, r)?),
         )?,
         plan_account(
             images,
             format!("inputs_{b}"),
-            format!("{n}_inputs_{b}"),
+            n(&format!("inputs_{b}")),
             any(wa::clash_inputs_address(&ctx, k, b)),
         )?,
         plan_account(
             images,
             "day".into(),
-            format!("{n}_day"),
+            n("day"),
             any(wa::arrival_day_address(&ctx, k, wa::day_of(b))),
         )?,
         plan_account(
             images,
             "roster".into(),
-            format!("{n}_roster"),
+            n("roster"),
             any(wro::roster_address(&ctx, k)),
         )?,
     ];
@@ -496,7 +518,7 @@ pub fn arrival_plan(images: &Images, p: i64, q: i64) -> Result<Vec<PlannedAccoun
             plan.push(plan_account(
                 images,
                 format!("slot_{f}_{i}"),
-                format!("{n}_slot_{f}_{i}"),
+                n(&format!("slot_{f}_{i}")),
                 any(wa::arrival_slot_address(&ctx, k, b, f, i)),
             )?);
         }
@@ -506,19 +528,19 @@ pub fn arrival_plan(images: &Images, p: i64, q: i64) -> Result<Vec<PlannedAccoun
         plan.push(plan_account(
             images,
             format!("inputs_{bell}"),
-            format!("{n}_inputs_{bell}"),
+            n(&format!("inputs_{bell}")),
             any(wa::clash_inputs_address(&ctx, k, bell)),
         )?);
         plan.push(plan_account(
             images,
             format!("cache_{bell}"),
-            format!("{n}_cache_{bell}"),
+            n(&format!("cache_{bell}")),
             Expect::Exact(pair.cache),
         )?);
         plan.push(plan_account(
             images,
             format!("anchor_{bell}"),
-            format!("{n}_anchor_{bell}"),
+            n(&format!("anchor_{bell}")),
             Expect::Exact(pair.anchor),
         )?);
     }
@@ -1289,7 +1311,8 @@ mod tests {
         assert_eq!(a, snap);
         // A planned name already taken by another key.
         let mut b = images.clone();
-        let taken = format!("{}_roster", dest.name);
+        let taken = default_name(&dest, "roster");
+        assert!(taken.starts_with(ACCOUNT_PREFIX) && !taken.starts_with(PROVINCE_PREFIX));
         b.insert(taken.clone(), images["payer"].clone());
         let snap = b.clone();
         assert_eq!(

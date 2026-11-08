@@ -1,4 +1,5 @@
-//! Private fixed-route sandbox (protocol v2). Initial images are explicit
+//! Private march sandbox (protocol v4; the recorded route since v2, a chosen
+//! one since v4). Initial images are explicit
 //! fixtures; every transition is a real dispatcher call on a staged copy.
 //! No network or keys.
 //!
@@ -34,6 +35,15 @@
 //! burst is 20 actions and refills one per minute; eight economy actions
 //! plus the one player step at an instant always fit, and the phase steps
 //! between those instants are at least ten simulated minutes apart.
+//!
+//! **v4: one march binding.** `depart` binds the recorded order to the
+//! recorded destination (unchanged handler path); `depart_route`
+//! (`chosen_march.rs`) binds an order rebuilt from public material to a
+//! chosen, session-opened province. The binding is separate from the map: the
+//! `destination` image and every fixture name keep their bytes and meaning.
+//! Every phase step after the departure follows the bound march. Receipt
+//! chains are walked for the holding and **every** wide province held.
+use crate::chosen_march::MarchBinding;
 use crate::land_bootstrap as land;
 use crate::runtime::{self, Image, Meta};
 use frontier_abi::entry::read_entry;
@@ -169,6 +179,8 @@ pub struct Sandbox {
     pub arrival_survivors: Option<u32>,
     pub engagements: u32,
     pub credited: u32,
+    /// v4: the departed march (recorded or chosen); `None` while ready.
+    pub march: Option<MarchBinding>,
 }
 impl Sandbox {
     pub fn new() -> Result<Self, String> {
@@ -215,6 +227,7 @@ impl Sandbox {
             arrival_survivors: None,
             engagements: 0,
             credited: 0,
+            march: None,
         };
         let host = x.host()?;
         let p = WideProvince::read(x.data("origin")?).map_err(|_| "FIXTURE_ORIGIN")?;
@@ -300,7 +313,7 @@ impl Sandbox {
             .parse()
             .map_err(|_| "FIXTURE_NUMBER".into())
     }
-    fn bytes<const N: usize>(&self, n: &str) -> Result<[u8; N], String> {
+    pub(crate) fn bytes<const N: usize>(&self, n: &str) -> Result<[u8; N], String> {
         unhex(self.meta.get(n).ok_or("MISSING_META")?)?
             .try_into()
             .map_err(|_| "FIXTURE_LENGTH".into())
@@ -321,8 +334,13 @@ impl Sandbox {
         }
     }
     pub fn allowed(&self) -> Vec<&'static str> {
-        let mut v = Vec::with_capacity(5);
+        let mut v = Vec::with_capacity(8);
         v.extend(self.next_step());
+        // v4: a chosen-route departure, while ready, once a province opened
+        // in this session exists (no other province can be its destination).
+        if self.phase == "ready" && self.opened_count() > 0 {
+            v.push("depart_route");
+        }
         if self.instant_used < ECONOMY_PER_INSTANT {
             v.extend(ECONOMY_COMMANDS);
         }
@@ -332,7 +350,7 @@ impl Sandbox {
         v.push("reset");
         v
     }
-    fn invoke(
+    pub(crate) fn invoke(
         &mut self,
         name: &str,
         accounts: Vec<Meta>,
@@ -372,23 +390,10 @@ impl Sandbox {
                 return Err("RECORD_KIND".into());
             }
         }
-        // Independent receipt chain walking for all three affected wide identities.
+        // Independent receipt chain walking (v4): the holding and every wide
+        // province the sandbox holds, opened ones included.
         let host = self.host()?;
-        for n in ["holding", "origin", "destination"] {
-            let pre = &before[n].data;
-            let post = self.data(n)?;
-            let target = if n == "holding" {
-                ev::WideTarget::Holding(host)
-            } else {
-                let p = WideProvince::read(pre).map_err(|_| "PROVINCE_IDENTITY")?;
-                ev::WideTarget::Province(ProvinceKey::new(p.world, p.coord))
-            };
-            let a = chain_of(pre).map_err(|_| "CHAIN_PRE")?;
-            let b = chain_of(post).map_err(|_| "CHAIN_POST")?;
-            if ev::verify_chain(target, a, recs.iter().map(|v| v.as_slice())) != Ok(b) {
-                return Err("CHAIN_MISMATCH".into());
-            }
-        }
+        verify_chains(host, &before, &self.images, &recs)?;
         if !beacon && recs.is_empty() {
             return Err("MISSING_RECEIPT".into());
         }
@@ -455,8 +460,9 @@ impl Sandbox {
         Ok(())
     }
     pub fn apply(&mut self, cmd: &str) -> Result<(), String> {
-        // Reset and opening have their own entry points (opening needs P, Q).
-        if cmd == "reset" || cmd == "open_province" {
+        // Reset, opening and the chosen departure have their own entry points
+        // (opening needs P, Q; `depart_route` needs DIRS).
+        if cmd == "reset" || cmd == "open_province" || cmd == "depart_route" {
             return Err("BAD_PHASE".into());
         }
         if ECONOMY_COMMANDS.contains(&cmd) && self.instant_used >= ECONOMY_PER_INSTANT {
@@ -478,11 +484,18 @@ impl Sandbox {
         *self = next;
         Ok(())
     }
-    fn step(&mut self, cmd: &str) -> Result<(), String> {
+    pub(crate) fn step(&mut self, cmd: &str) -> Result<(), String> {
         let host = self.host()?;
         let faction = self.num("faction")? as u8;
         let region = self.num("region")? as u8;
         match cmd {
+            // v4: a chosen march follows its own binding from here on
+            // (`chosen_march.rs`); settle_departure is the origin's alone and
+            // is shared. The recorded march keeps the arms below unchanged.
+            "post_reveal" if self.is_chosen() => self.chosen_post_reveal()?,
+            "resolve_arrival" if self.is_chosen() => self.chosen_resolve_arrival()?,
+            "settle_transit" if self.is_chosen() => self.chosen_settle_transit()?,
+            "dissolve_return" if self.is_chosen() => self.chosen_dissolve_return()?,
             "harvest" => {
                 self.economy("Harvest", Action::Harvest)?;
                 self.harvests = self.harvests.checked_add(1).ok_or("COUNTER")?;
@@ -496,6 +509,7 @@ impl Sandbox {
                 self.trains = self.trains.checked_add(1).ok_or("COUNTER")?;
             }
             "depart" => {
+                let departed = self.standing_milli()?;
                 let mut a = vec![
                     s("actor", false),
                     s("payer", true),
@@ -534,6 +548,9 @@ impl Sandbox {
                     return Err("DEPART_MISMATCH".into());
                 }
                 self.phase = "departed";
+                // v4: the recorded order to the recorded destination, bound
+                // explicitly (the map's `destination` is not repointed).
+                self.march = Some(self.recorded_binding(departed)?);
             }
             "settle_departure" => {
                 self.now = GENESIS + 8 * 600 + 60;
@@ -806,7 +823,13 @@ impl Sandbox {
     }
     pub fn standing_milli(&self) -> Result<u32, String> {
         let alias = wide_host_alias(&self.host()?);
-        for n in ["destination", "origin"] {
+        // The bound march's destination (v4: possibly a chosen province),
+        // else the recorded one, as before.
+        let dest = self
+            .march
+            .as_ref()
+            .map_or("destination", |m| m.dest_name.as_str());
+        for n in [dest, "origin"] {
             for i in 0..PV::ENTRIES_N {
                 let e = read_entry(self.data(n)?, i).map_err(|_| "ENTRY")?;
                 if e.id == alias && e.state != 0 {
@@ -839,8 +862,9 @@ impl Sandbox {
     /// WideOpenProvince), using the shared ABI route model
     /// (`verify_route`) and the provinces' real passability bytes. It mutates
     /// nothing: no account, clock, phase, revision or record, and emits no
-    /// receipt. It does **not** execute a march; the real march still follows
-    /// the recorded seal to the fixed destination. A step into a province
+    /// receipt. It does **not** execute a march: `depart` sends the recorded
+    /// order and `depart_route` (v4) recomputes this quote itself before it
+    /// sends a rebuilt one. A step into a province
     /// this host did not return is refused as unknown land (`UNKNOWN_PROVINCE`),
     /// never treated as open ground; a step onto an impassable tile is
     /// `IMPASSABLE`, read from that province's real mask; a step past the
@@ -1007,6 +1031,39 @@ fn route_reason(e: &RouteError, meta: &[QStep]) -> (&'static str, Option<usize>)
         RouteError::SourceKeyMismatch { .. } => ("SOURCE_MISMATCH", None),
         RouteError::Source(_) => ("SOURCE", None),
     }
+}
+
+/// Walks the receipt chain of the holding and of **every** wide province in
+/// `before` (the two fixtures and every province opened in this session), each
+/// from its bytes before to its bytes after, through `recs`
+/// (`event::verify_chain` takes exactly the records that concern that
+/// target). A chain that moved without its receipts, or a receipt whose link
+/// does not follow, is `CHAIN_MISMATCH`; a walked image missing after is
+/// `CHAIN_POST`. Images added by `recs`' instruction are not chained
+/// accounts (none of the march's created records carries a wide chain).
+pub(crate) fn verify_chains(
+    host: WideHostRef,
+    before: &BTreeMap<String, Image>,
+    after: &BTreeMap<String, Image>,
+    recs: &[Vec<u8>],
+) -> Result<(), String> {
+    for (n, pre) in before {
+        let target = if n == "holding" {
+            ev::WideTarget::Holding(host)
+        } else if n == "origin" || n == "destination" || n.starts_with(land::PROVINCE_PREFIX) {
+            let p = WideProvince::read(&pre.data).map_err(|_| "PROVINCE_IDENTITY")?;
+            ev::WideTarget::Province(ProvinceKey::new(p.world, p.coord))
+        } else {
+            continue;
+        };
+        let post = &after.get(n).ok_or("CHAIN_POST")?.data;
+        let a = chain_of(&pre.data).map_err(|_| "CHAIN_PRE")?;
+        let b = chain_of(post).map_err(|_| "CHAIN_POST")?;
+        if ev::verify_chain(target, a, recs.iter().map(|v| v.as_slice())) != Ok(b) {
+            return Err("CHAIN_MISMATCH".into());
+        }
+    }
+    Ok(())
 }
 
 /// Whether every differing byte lies in an allowed `(offset, len)` range.

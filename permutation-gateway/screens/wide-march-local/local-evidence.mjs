@@ -102,6 +102,47 @@ export function checkEvidence(r) {
     // an opened province was funded with exactly its own lamports
     if(p.source === 'opened') check(String(d.getBigUint64(PV.FUNDED,true)) === a.lamports);
   }
+  // v4: the bound march's destination cursor is that province's own RESOLVED_NEXT bytes
+  const mb = r.marchBinding;
+  if (mb) {
+    const { b } = raw(r, mb.destination.accountKeyHex);
+    check(b.length === PV.SIZE && new DataView(b.buffer).getUint32(PV.RESOLVED_NEXT, true) === r.horizon.selectedDestinationResolvedNext);
+  } else check(r.horizon.selectedDestinationResolvedNext === null);
+  checkTransit(r);
   // Host/combat/returned projections are intentionally not independently decoded here.
   return true;
+}
+
+/** The byte ranges of an opened province that no handler may change after its opening (land_bootstrap.rs
+ * `GATED`: header identity, prefix identity, opened bell, terrain, trailer). Everything else (event chain, resolve
+ * cursor, roads, site mirror, entries, camp, keep, score) may evolve under real resolves. */
+export const PROVINCE_GATED = Object.freeze([[0, 24], [64, 72], [76, 80], [128, 280], [4736, 4864]].map(r => Object.freeze(r)));
+/** Whether two province account images agree on every GATED range (and have the province size). */
+export function gatedEqual(aHex, bHex) {
+  if (aHex.length !== 2 * PV.SIZE || bHex.length !== 2 * PV.SIZE) return false;
+  return PROVINCE_GATED.every(([s, e]) => aHex.slice(2 * s, 2 * e) === bHex.slice(2 * s, 2 * e));
+}
+/** The wide transit record (world_index/march.rs `WideTransit`, 288 B, no magic): offsets of the fields read. */
+const TR = Object.freeze({ LEN: 288, VERSION: 0, STATE: 1, HAS_DEST: 7, HOST: 8, ORIGIN_KEY: 64, DEST_KEY: 116, ARRIVE_BELL: 172, SEAL_ROOT: 200 });
+/** Transit state per phase (layout/player.rs transit STATE_*, `MarchState::Gathered` = 4); null: no live record. */
+export const TRANSIT_STATE_BY_PHASE = Object.freeze({ ready: null, departed: 1, travelling: 2, revealed: 2, resolved: 4, settled: null, returned: null });
+const provinceKeyOf = (worldHex, p, q) => { const rp = ringPosition(BigInt(p), BigInt(q)); const be = v => v.toString(16).padStart(16, '0'); return `01${worldHex}${be(rp.ring)}${rp.wedge.toString(16).padStart(2, '0')}${be(rp.pos)}`; };
+/** The live transit of THIS host, found by its version byte, its exact length and the host reference at HOST. While
+ * a march is in flight there must be exactly one, program-owned, in the phase's state, from the origin, for bell 20,
+ * whose seal root is the binding's root (and, once gathered, whose destination is the bound destination's key).
+ * Outside a march there must be none (a settled transit is an emptied image). This is a layout read of the record
+ * the real Depart wrote; it does not open, decrypt or authenticate the sealed order. */
+function checkTransit(r) {
+  const mine = r.evidence.accounts.filter(a => a.dataHex.length === 2 * TR.LEN && a.dataHex.slice(0, 2) === '01'
+    && a.dataHex.slice(2 * TR.HOST, 2 * (TR.HOST + 56)) === r.host.refHex);
+  const want = TRANSIT_STATE_BY_PHASE[r.phase];
+  if (want === null) { check(mine.length === 0); return; }
+  const mb = r.marchBinding;
+  check(mine.length === 1 && mb && mine[0].ownerHex === owner);
+  const b = bytes(mine[0].dataHex), d = new DataView(b.buffer);
+  check(b[TR.STATE] === want && d.getUint32(TR.ARRIVE_BELL, true) === mb.arriveBell);
+  check(hex(b.slice(TR.SEAL_ROOT, TR.SEAL_ROOT + 32)) === mb.order.rootHex);
+  check(hex(b.slice(TR.ORIGIN_KEY, TR.ORIGIN_KEY + 50)) === provinceKeyOf(r.map.worldHex, r.map.origin.p, r.map.origin.q));
+  check(b[TR.HAS_DEST] === (want === 4 ? 1 : 0));
+  if (want === 4) check(hex(b.slice(TR.DEST_KEY, TR.DEST_KEY + 50)) === provinceKeyOf(r.map.worldHex, mb.destination.p, mb.destination.q));
 }

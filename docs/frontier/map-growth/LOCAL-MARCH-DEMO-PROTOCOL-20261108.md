@@ -1,4 +1,9 @@
-# Local village-and-march demo protocol v3
+# Local village-and-march demo protocol v3 (and the v4 delta)
+
+**v4 (`wylls-local-march-v4`, worktree `wylls-chosen-march-20261108`):**
+- **What it adds:** `depart_route REV DIRS`, a march to a chosen province opened in this session, through real handlers; `marchBinding`; `horizon.selectedDestinationResolvedNext`; `map.provinces[].history`; and the route error tokens.
+- **Status:** native host validated by the supervisor (91/91 exact-name tests, clippy clean, raw-host smokes). The browser side is in progress and not complete.
+- **Contract:** the commands, schema, mutation boundaries and browser contract are in `LOCAL-CHOSEN-MARCH-20261108.md`. Everything below remains the v3 contract, which v4 keeps except where that document says otherwise. The v3 browser refuses v4 replies until the separate browser pass.
 
 v3 adds `open_province`, the `land` object and the dynamic province list. The browser refuses v2 replies and the server refuses the v2 action header.
 

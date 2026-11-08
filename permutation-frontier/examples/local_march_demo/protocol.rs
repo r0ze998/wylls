@@ -1,24 +1,41 @@
-//! Bounded stdio protocol `wylls-local-march-v3` (see
-//! `docs/frontier/map-growth/LOCAL-MARCH-DEMO-PROTOCOL-20261108.md`).
+//! Bounded stdio protocol `wylls-local-march-v4` (see
+//! `docs/frontier/map-growth/LOCAL-MARCH-DEMO-PROTOCOL-20261108.md` and
+//! `LOCAL-CHOSEN-MARCH-20261108.md`).
 //!
 //! ONE session: the village economy (Harvest, Farm, Train), the march
-//! lifecycle on the same holding bytes, and (v3) opening further ring-129
-//! provinces with the real WideOpenProvince over the LOCAL land records,
-//! under one revision and one simulated clock. Every mutation stages a
-//! complete copy of the sandbox, runs real handlers on it, renders and bounds
-//! the candidate response, and only then commits images, clock, counters and
-//! revision together.
+//! lifecycle on the same holding bytes, (v3) opening further ring-129
+//! provinces with the real WideOpenProvince over the LOCAL land records, and
+//! (v4) `depart_route`, a march to a chosen opened province, under one
+//! revision and one simulated clock. Every mutation stages a complete copy of
+//! the sandbox, runs real handlers on it, renders and bounds the candidate
+//! response, and only then commits images, clock, counters and revision
+//! together.
+use crate::chosen_march::{MarchKind, ORDER_REBUILT, ORDER_RECORDED, ROUTE_REFUSALS};
+use crate::destination_stage::DESTINATION_EVIDENCE_LABELS;
 use crate::engine::{
     hex, Quote, Sandbox, ECONOMY_PER_INSTANT, FARM_ITEM, FINAL_BELL, GENESIS, MAX_ROUTE_DIRS,
-    TRAIN_COUNT, TRAIN_UNIT,
+    SOURCE_FIXTURE, SOURCE_OPENED, TRAIN_COUNT, TRAIN_UNIT,
 };
 use crate::land_bootstrap as land;
+use crate::order_material::{ARRIVE_BELL, ORDER_EVIDENCE_LABELS};
 use frontier_abi::world_index::{WideHolding, WideProvince, WideRingSeed};
 use permutation_frontier::layout::player::{accrual as AC, queue_item as QI};
 use permutation_frontier::layout::{holding as H, province as PV, Ro};
 use std::fmt::Write;
 
-pub const PROTOCOL: &str = "wylls-local-march-v3";
+pub const PROTOCOL: &str = "wylls-local-march-v4";
+/// `history` of a province in `map.provinces` (v4).
+pub const HISTORY_FIXTURE: &str = "FIXTURE_EXPORT";
+pub const HISTORY_NONE: &str = "NONE";
+pub const HISTORY_PREPARED: &str = "PREPARED_FOR_SELECTED_MARCH";
+/// A canonical direction string (1..=32 digits `0`..`5`).
+fn canonical_dirs(s: &str) -> bool {
+    !s.is_empty() && s.len() <= MAX_ROUTE_DIRS && s.bytes().all(|b| (b'0'..=b'5').contains(&b))
+}
+/// The token of an evidence label (text before `:`).
+fn token_of(label: &'static str) -> &'static str {
+    label.split(':').next().unwrap_or("").trim()
+}
 /// Land-opening refusals decided before any dispatch: fixed tokens, nothing
 /// staged or committed.
 pub const LAND_REFUSALS: [&str; 7] = [
@@ -91,12 +108,50 @@ pub struct Controller {
     pub revision: u64,
 }
 
+/// The runtime's own error inside the v4 wrappers: a sub-map dispatch
+/// (`SUBMAP_REFUSED:<runtime>`) and a preparation bell
+/// (`DEST_STAGE_REFUSED:<bell>:<runtime>`). Anything else is returned as is.
+fn unwrap_runtime(e: &str) -> &str {
+    if let Some(rest) = e.strip_prefix("SUBMAP_REFUSED:") {
+        return rest;
+    }
+    if let Some((_, rest)) = e
+        .strip_prefix("DEST_STAGE_REFUSED:")
+        .and_then(|r| r.split_once(':'))
+    {
+        return rest;
+    }
+    e
+}
+
+/// How a `depart_route` error is reported: the fixed route tokens, a
+/// handler refusal inside the rehearsal (`ROUTE_REHEARSAL_REFUSED` with its
+/// program code), otherwise as any sandbox error.
+fn classify_route(e: &str) -> (&'static str, &'static str, Option<u32>) {
+    if let Some(t) = ROUTE_REFUSALS.iter().find(|t| **t == e) {
+        return ("refused", *t, None);
+    }
+    if e == "ROUTE_LEN" || e == "DIRECTION" {
+        return ("refused", "BAD_COMMAND", None);
+    }
+    if let Some(inner) = e.strip_prefix("ROUTE_REHEARSAL_REFUSED:") {
+        return match classify(inner) {
+            ("refused", "HANDLER_REFUSED", code) => ("refused", "ROUTE_REHEARSAL_REFUSED", code),
+            _ => ("fault", "EXECUTION_FAULT", None),
+        };
+    }
+    classify(e)
+}
+
 /// How a sandbox error is reported: status, fixed token, program code.
 fn classify(e: &str) -> (&'static str, &'static str, Option<u32>) {
+    let e = unwrap_runtime(e);
     if e == "BAD_PHASE" {
         ("refused", "BAD_PHASE", None)
     } else if e == "INSTANT_BUDGET" {
         ("refused", "INSTANT_BUDGET", None)
+    } else if e == "ARRIVAL_FATE_UNSUPPORTED" {
+        ("refused", "ARRIVAL_FATE_UNSUPPORTED", None)
     } else if let Some(rest) = e.strip_prefix("Refused_") {
         // runtime: `Refused_<custom code>` or `Refused_Runtime`, then `:<handler>`
         let code = rest.split(':').next().and_then(|d| {
@@ -176,6 +231,18 @@ impl Controller {
             };
             return self.open(rev, p, q, limit);
         }
+        // v4: march to a chosen destination, `depart_route REV DIRS`, DIRS a
+        // 1..=32 string of directions 0..5. Revisioned and atomic.
+        if let Some(rest) = line.strip_prefix("depart_route ") {
+            let parsed = match rest.split(' ').collect::<Vec<_>>().as_slice() {
+                [rev, dirs] if canonical_rev(rev) && canonical_dirs(dirs) => Some((*rev, *dirs)),
+                _ => None,
+            };
+            let Some((rev, dirs)) = parsed else {
+                return self.reject("BAD_COMMAND");
+            };
+            return self.route(rev, dirs, limit);
+        }
         let (cmd, rev) = match line.split_once(' ') {
             Some(v) => v,
             None => return self.reject("BAD_COMMAND"),
@@ -252,6 +319,46 @@ impl Controller {
             }
         }
     }
+    /// `depart_route REV DIRS` (already syntax-checked): the revision gate,
+    /// then `Sandbox::depart_route` on a candidate copy (quote, destination
+    /// checks, rebuilt order, real Depart, rehearsed Reveal), the reply
+    /// rendered and bounded, and only then the commit. A refusal or fault
+    /// commits nothing; an unreachable route's reply carries the host's
+    /// (read-only) quote so the reason is shown, never a re-routed march.
+    fn route(&mut self, rev: &str, dirs: &str, limit: usize) -> Result<String, String> {
+        const CMD: &str = "depart_route";
+        if rev.parse::<u64>().ok() != Some(self.revision) {
+            return self.render("refused", Some("STALE_REVISION"), None, CMD, false, None);
+        }
+        if self.revision >= REVISION_LIMIT {
+            return self.render("refused", Some("REVISION_LIMIT"), None, CMD, false, None);
+        }
+        let d: Vec<u8> = dirs.bytes().map(|b| b - b'0').collect();
+        let mut candidate = Self {
+            sandbox: self.sandbox.clone(),
+            revision: self.revision + 1,
+        };
+        match candidate.sandbox.depart_route(&d) {
+            Ok(()) => {
+                let reply = candidate.render("ok", None, None, CMD, true, None)?;
+                if reply.len() > limit {
+                    return self.render("fault", Some("RESPONSE_LIMIT"), None, CMD, false, None);
+                }
+                *self = candidate;
+                Ok(reply)
+            }
+            Err(e) => {
+                eprintln!("local_march_demo: {CMD}: {e}");
+                let (status, token, code) = classify_route(&e);
+                let quote = if token == "ROUTE_UNREACHABLE" {
+                    self.sandbox.quote_route(&d).ok()
+                } else {
+                    None
+                };
+                self.render(status, Some(token), code, CMD, false, quote.as_ref())
+            }
+        }
+    }
     #[allow(clippy::too_many_arguments)]
     fn render(
         &self,
@@ -289,9 +396,18 @@ impl Controller {
         }
         let bell = (s.now - GENESIS) / 600;
         let prepared = s.num("arrive_bell")?.checked_sub(1).ok_or("ARRIVE_BELL")?;
+        // v4: the bound march's destination cursor, from its bytes (the
+        // recorded destination for `depart`, the chosen province otherwise).
+        let selected = match &s.march {
+            Some(m) => Ro(s.data(&m.dest_name)?)
+                .u32(PV::RESOLVED_NEXT)
+                .map_err(|_| "MARCH_DESTINATION")?
+                .to_string(),
+            None => "null".into(),
+        };
         write!(
             out,
-            "],\"clock\":{{\"unix\":\"{}\",\"bell\":{bell}}},\"horizon\":{{\"model\":\"PHASE_STEPS_ONLY\",\"finalBell\":{FINAL_BELL},\"destinationPreparedThroughBell\":{prepared},\"originResolvedNext\":{},\"destinationResolvedNext\":{}}}",
+            "],\"clock\":{{\"unix\":\"{}\",\"bell\":{bell}}},\"horizon\":{{\"model\":\"PHASE_STEPS_ONLY\",\"finalBell\":{FINAL_BELL},\"destinationPreparedThroughBell\":{prepared},\"originResolvedNext\":{},\"destinationResolvedNext\":{},\"selectedDestinationResolvedNext\":{selected}}}",
             s.now,
             Ro(od).u32(PV::RESOLVED_NEXT).map_err(|_| "ORIGIN")?,
             Ro(dd).u32(PV::RESOLVED_NEXT).map_err(|_| "DESTINATION")?
@@ -337,9 +453,20 @@ impl Controller {
             if i > 0 {
                 out.push(',')
             }
+            // v4: an opened province has resolve history only as the chosen
+            // march's destination once post_reveal prepared it.
+            let history = if k.source == SOURCE_FIXTURE {
+                HISTORY_FIXTURE
+            } else if s.march.as_ref().is_some_and(|m| {
+                m.kind == MarchKind::Chosen && m.preparation.is_some() && m.dest_name == k.name
+            }) {
+                HISTORY_PREPARED
+            } else {
+                HISTORY_NONE
+            };
             write!(
                 out,
-                "{{\"p\":\"{}\",\"q\":\"{}\",\"accountKeyHex\":\"{}\",\"passableMask\":\"{}\",\"source\":\"{}\",\"openedBell\":{},\"resolvedNext\":{},\"wedge\":{},\"region\":{}}}",
+                "{{\"p\":\"{}\",\"q\":\"{}\",\"accountKeyHex\":\"{}\",\"passableMask\":\"{}\",\"source\":\"{}\",\"openedBell\":{},\"resolvedNext\":{},\"wedge\":{},\"region\":{},\"history\":\"{history}\"}}",
                 k.province.coord.p(),
                 k.province.coord.q(),
                 hex(&s.images[&k.name].key),
@@ -384,15 +511,20 @@ impl Controller {
             h.open_transits
         )
         .unwrap();
+        // v4: no enemy is staged at a chosen (opened) destination; its combat
+        // is whatever the real handlers produced there, possibly none.
         write!(
             out,
-            ",\"combat\":{{\"engagements\":{},\"arrivalSurvivorMilli\":{},\"enemyFixture\":true}},\"returned\":{{\"creditedUnits\":{},\"creditedMilli\":{}}},\"evidence\":{{\"instructions\":[",
+            ",\"combat\":{{\"engagements\":{},\"arrivalSurvivorMilli\":{},\"enemyFixture\":{}}},\"returned\":{{\"creditedUnits\":{},\"creditedMilli\":{}}}",
             s.engagements,
             s.arrival_survivors.map_or("null".into(), |x| x.to_string()),
+            !s.is_chosen(),
             s.credited,
             s.credited * 1000
         )
         .unwrap();
+        march_json(&mut out, s)?;
+        out.push_str(",\"evidence\":{\"instructions\":[");
         if new_records {
             for (i, n) in s.instructions.iter().enumerate() {
                 if i > 0 {
@@ -435,6 +567,134 @@ impl Controller {
         out.push('}');
         Ok(out)
     }
+}
+
+/// v4 `marchBinding`: `null` while no march is bound, else the bound march
+/// (recorded or chosen): the destination with its account key and tile, the
+/// steps walked and provinces entered (the host's quote at the departure),
+/// the Reveal's path provinces by account key, the order (source, commit,
+/// seal root, labels), the preparation (chosen only, after post_reveal), the
+/// per-destination accounts the march created or wrote (role and key,
+/// first-touch order, at most 16) and the provenance trail. Every key named
+/// is one of `evidence.accounts`.
+fn march_json(out: &mut String, s: &Sandbox) -> Result<(), String> {
+    let Some(m) = &s.march else {
+        out.push_str(",\"marchBinding\":null");
+        return Ok(());
+    };
+    let key_of = |n: &str| -> Result<String, String> {
+        Ok(hex(&s.images.get(n).ok_or("MARCH_ACCOUNT")?.key))
+    };
+    let (p, q) = m.dest_pq();
+    let source = if m.dest_name.starts_with(land::PROVINCE_PREFIX) {
+        SOURCE_OPENED
+    } else {
+        SOURCE_FIXTURE
+    };
+    let dirs: String = m.directions.iter().map(|d| char::from(b'0' + d)).collect();
+    write!(
+        out,
+        ",\"marchBinding\":{{\"kind\":\"{}\",\"directions\":\"{dirs}\",\"arriveBell\":{ARRIVE_BELL},\"departedMilli\":{},\"destination\":{{\"p\":\"{p}\",\"q\":\"{q}\",\"tile\":{},\"accountKeyHex\":\"{}\",\"source\":\"{source}\"}},\"steps\":[",
+        m.kind.token(),
+        m.departed_milli,
+        m.dest_tile,
+        key_of(&m.dest_name)?
+    )
+    .unwrap();
+    for (i, (sp, sq, t)) in m.steps.iter().enumerate() {
+        if i > 0 {
+            out.push(',')
+        }
+        write!(out, "{{\"p\":\"{sp}\",\"q\":\"{sq}\",\"tile\":{t}}}").unwrap();
+    }
+    out.push_str("],\"provincesEntered\":[");
+    for (i, (ep, eq)) in m.entered.iter().enumerate() {
+        if i > 0 {
+            out.push(',')
+        }
+        write!(out, "{{\"p\":\"{ep}\",\"q\":\"{eq}\"}}").unwrap();
+    }
+    out.push_str("],\"pathProvinces\":[");
+    for (i, n) in m.path.iter().enumerate() {
+        let pv = WideProvince::read(s.data(n)?).map_err(|_| "MARCH_PATH")?;
+        if i > 0 {
+            out.push(',')
+        }
+        write!(
+            out,
+            "{{\"p\":\"{}\",\"q\":\"{}\",\"accountKeyHex\":\"{}\"}}",
+            pv.coord.p(),
+            pv.coord.q(),
+            key_of(n)?
+        )
+        .unwrap();
+    }
+    let (order_source, labels): (&str, Vec<&str>) = match m.kind {
+        MarchKind::Recorded => (ORDER_RECORDED, Vec::new()),
+        MarchKind::Chosen => (
+            ORDER_REBUILT,
+            ORDER_EVIDENCE_LABELS
+                .iter()
+                .map(|&(_, l)| token_of(l))
+                .collect(),
+        ),
+    };
+    write!(
+        out,
+        "],\"order\":{{\"source\":\"{order_source}\",\"commitHex\":\"{}\",\"rootHex\":\"{}\",\"labels\":[",
+        hex(&m.commit),
+        hex(&m.root)
+    )
+    .unwrap();
+    for (i, l) in labels.iter().enumerate() {
+        if i > 0 {
+            out.push(',')
+        }
+        write!(out, "\"{l}\"").unwrap();
+    }
+    out.push_str("]},\"preparation\":");
+    match &m.preparation {
+        None => out.push_str("null"),
+        Some(pr) => {
+            write!(
+                out,
+                "{{\"fromBell\":{},\"toBell\":{},\"resolvedNext\":{},\"scoreNextBell\":{},\"atUnix\":\"{}\",\"resolves\":{},\"region\":{},\"pairsAliased\":{},\"provenance\":\"{}\",\"labels\":[",
+                pr.from_bell,
+                pr.to_bell,
+                pr.resolved_next,
+                pr.score_next_bell,
+                pr.at,
+                pr.resolves,
+                pr.region,
+                pr.pairs_aliased,
+                pr.provenance
+            )
+            .unwrap();
+            for (i, &(_, l)) in DESTINATION_EVIDENCE_LABELS.iter().enumerate() {
+                if i > 0 {
+                    out.push(',')
+                }
+                write!(out, "\"{}\"", token_of(l)).unwrap();
+            }
+            out.push_str("]}");
+        }
+    }
+    out.push_str(",\"accounts\":[");
+    for (i, (r, n)) in m.accounts.iter().enumerate() {
+        if i > 0 {
+            out.push(',')
+        }
+        write!(out, "{{\"role\":\"{r}\",\"keyHex\":\"{}\"}}", key_of(n)?).unwrap();
+    }
+    out.push_str("],\"trail\":[");
+    for (i, t) in m.trail.iter().enumerate() {
+        if i > 0 {
+            out.push(',')
+        }
+        write!(out, "\"{t}\"").unwrap();
+    }
+    out.push_str("]}");
+    Ok(())
 }
 
 /// The LOCAL land records and the opening budget. Keys name accounts that
@@ -1029,7 +1289,10 @@ mod integrated_tests {
     fn get_reports_village_bytes_and_the_honest_horizon() {
         let c = Controller::new().unwrap();
         let g = c.render("ok", None, None, "get", false, None).unwrap();
-        assert!(g.starts_with("{\"protocol\":\"wylls-local-march-v3\""));
+        // v4 (chosen march); the v3 label is refused by the v4 browser.
+        assert!(g.starts_with("{\"protocol\":\"wylls-local-march-v4\""));
+        assert!(g.contains("\"selectedDestinationResolvedNext\":null"));
+        assert!(g.contains("\"marchBinding\":null"));
         assert!(g.contains("\"session\":\"integrated-economy-march-same-holding\""));
         assert!(g.contains("\"model\":\"PHASE_STEPS_ONLY\""));
         assert!(g.contains("\"destinationPreparedThroughBell\":19"));
@@ -1418,5 +1681,700 @@ mod open_province_protocol_tests {
         for cmd in ECONOMY_COMMANDS {
             assert!(c.sandbox.allowed().contains(&cmd));
         }
+    }
+}
+
+/// v4: `depart_route`, a march to a chosen province opened in this session,
+/// through the real handlers, revisioned and atomic. Committed public
+/// fixtures only; no signing code is called. The one geometric pin is the
+/// v3-observed one: twelve direction-2 steps end on (129,-2) tile 60.
+#[cfg(test)]
+mod chosen_march_protocol_tests {
+    use super::*;
+    use crate::chosen_march::MarchBinding;
+    use crate::engine::{first_unknown_step, unhex, ECONOMY_COMMANDS, INITIAL};
+    use crate::runtime::Image;
+    use frontier_abi::world_index::event::{WideKind, WideRecord};
+    use frontier_abi::world_index::tiles::{TileAddress, WideTile};
+    use frontier_abi::world_index::{ProvinceKey, WideCoord, WideTransit};
+    use std::collections::{BTreeMap, VecDeque};
+
+    const LONG: &str = "222222222222";
+    const SELECTED: &str = "land_province_129_-2";
+    const LIMIT: usize = 1_048_576;
+
+    fn reply(c: &mut Controller, line: &str) -> String {
+        c.exchange(line).unwrap()
+    }
+    /// One revisioned command that must succeed; its reply size and the
+    /// persistent image count are bounded (sizes go to stderr).
+    fn ok(c: &mut Controller, cmd: &str) -> String {
+        let r = c.exchange(&format!("{cmd} {}", c.revision)).unwrap();
+        eprintln!(
+            "v4 reply bytes {cmd}: {} (images {})",
+            r.len(),
+            c.sandbox.images.len()
+        );
+        assert!(
+            r.contains("\"status\":\"ok\""),
+            "{cmd} at {}: {r:.400}",
+            c.sandbox.phase
+        );
+        assert!(r.len() <= LIMIT);
+        assert!(c.sandbox.images.len() <= land::MAX_TOTAL_IMAGES);
+        r
+    }
+    fn route(c: &mut Controller, dirs: &str) -> String {
+        let r = c
+            .exchange(&format!("depart_route {} {dirs}", c.revision))
+            .unwrap();
+        eprintln!("v4 reply bytes depart_route {dirs}: {}", r.len());
+        assert!(r.len() <= LIMIT);
+        r
+    }
+    fn reserve0(c: &Controller) -> u32 {
+        Ro(&c.sandbox.images["holding"].data)
+            .u32(H::reserve(0))
+            .unwrap()
+    }
+    fn cursor(c: &Controller, n: &str) -> u32 {
+        Ro(&c.sandbox.images[n].data)
+            .u32(PV::RESOLVED_NEXT)
+            .unwrap()
+    }
+
+    /// Everything a refusal must leave exactly as it was.
+    #[derive(Debug, PartialEq)]
+    struct View {
+        images: BTreeMap<String, Image>,
+        revision: u64,
+        phase: &'static str,
+        now: i64,
+        march: Option<MarchBinding>,
+        used: u32,
+    }
+    fn view(c: &Controller) -> View {
+        View {
+            images: c.sandbox.images.clone(),
+            revision: c.revision,
+            phase: c.sandbox.phase,
+            now: c.sandbox.now,
+            march: c.sandbox.march.clone(),
+            used: c.sandbox.instant_used,
+        }
+    }
+    fn refused(c: &mut Controller, line: &str, err: &str) -> String {
+        let pre = view(c);
+        let r = reply(c, line);
+        assert!(r.contains("\"status\":\"refused\""), "{line}: {r:.300}");
+        assert!(
+            r.contains(&format!("\"error\":\"{err}\"")),
+            "{line}: {r:.300}"
+        );
+        assert!(
+            r.contains("\"instructions\":[]") && r.contains("\"recordsHex\":[]"),
+            "{line}"
+        );
+        assert_eq!(view(c), pre, "{line}");
+        r
+    }
+
+    /// Directions from the host's start tile, through passable tiles of
+    /// provinces the host holds, whose last step enters an impassable tile of
+    /// a held province: breadth-first over the real masks.
+    fn impassable_route(s: &Sandbox) -> Option<Vec<u8>> {
+        let known = s.provinces().ok()?;
+        let mask = |c: WideCoord| {
+            known
+                .iter()
+                .find(|k| k.province.coord == c)
+                .map(|k| k.passable_mask)
+        };
+        let o = WideProvince::read(s.data("origin").ok()?).ok()?;
+        let tile = u8::try_from(s.num("origin_tile").ok()?).ok()?;
+        let start = WideTile::of(TileAddress::new(ProvinceKey::new(o.world, o.coord), tile).ok()?);
+        let mut seen = vec![(o.coord, tile)];
+        let mut queue = VecDeque::from([(start, Vec::new())]);
+        while let Some((at, path)) = queue.pop_front() {
+            if path.len() >= MAX_ROUTE_DIRS {
+                continue;
+            }
+            for d in 0..6u8 {
+                let Some(next) = at.neighbors()[d as usize] else {
+                    continue;
+                };
+                let c = next.province_coord();
+                let Some(m) = mask(c) else {
+                    continue;
+                };
+                let mut p = path.clone();
+                p.push(d);
+                if (m >> next.local()) & 1 == 0 {
+                    return Some(p);
+                }
+                if !seen.contains(&(c, next.local())) {
+                    seen.push((c, next.local()));
+                    queue.push_back((next, p));
+                }
+            }
+        }
+        None
+    }
+    fn digits(d: &[u8]) -> String {
+        d.iter().map(|x| char::from(b'0' + x)).collect()
+    }
+
+    #[test]
+    fn v4_depart_route_marches_to_the_opened_province_and_returns_to_the_holding() {
+        let mut c = Controller::new().unwrap();
+        let fixture_dest = c.sandbox.images["destination"].clone();
+        let fixture_roster = c.sandbox.images["destination_roster"].clone();
+        assert!(!c.sandbox.allowed().contains(&"depart_route"));
+        assert!(reply(&mut c, "open_province 0 129 -2").contains("\"status\":\"ok\""));
+        assert!(c.sandbox.allowed().contains(&"depart_route"));
+        // the read-only quote over the opened bytes (the v3-observed end)
+        let q = reply(&mut c, &format!("quote_route {LONG}"));
+        assert!(q.contains("\"reachable\":true"), "{q:.300}");
+        assert!(q.contains("\"end\":{\"p\":\"129\",\"q\":\"-2\",\"tile\":60}"));
+        assert_eq!(c.revision, 1);
+        // the village first, at bell 6
+        ok(&mut c, "harvest");
+        ok(&mut c, "build_farm");
+        ok(&mut c, "train");
+        let r_trained = reserve0(&c);
+        // the chosen departure: one real Depart of the rebuilt order
+        let r = route(&mut c, LONG);
+        assert!(r.contains("\"status\":\"ok\""), "{r:.400}");
+        assert!(r.contains("\"command\":\"depart_route\",\"revision\":5,\"phase\":\"departed\""));
+        assert!(r.contains("\"instructions\":[\"Depart\"]"));
+        assert!(r.contains(
+            "\"marchBinding\":{\"kind\":\"chosen\",\"directions\":\"222222222222\",\"arriveBell\":20,"
+        ));
+        assert!(r.contains("\"destination\":{\"p\":\"129\",\"q\":\"-2\",\"tile\":60,"));
+        assert!(r.contains("\"preparation\":null"));
+        assert!(r.contains("\"order\":{\"source\":\"REBUILT_FROM_PUBLIC_MATERIAL_T20\""));
+        // the map's recorded destination is not repointed
+        assert!(r.contains("\"destination\":{\"p\":\"129\",\"q\":\"-1\"},\"route\":["));
+        assert!(r.contains("\"enemyFixture\":false"));
+        assert!(r.contains("\"routeQuote\":null}"));
+        assert_eq!(c.sandbox.now, INITIAL);
+        let m = c.sandbox.march.clone().unwrap();
+        assert_eq!(m.dest_name, SELECTED);
+        assert_ne!(m.commit.to_vec(), unhex(&c.sandbox.meta["commit"]).unwrap());
+        assert_ne!(m.directions, unhex(&c.sandbox.meta["directions"]).unwrap());
+        assert!(r.contains(&format!("\"commitHex\":\"{}\"", hex(&m.commit))));
+        // the same instant: the village still acts while departed
+        ok(&mut c, "train");
+        ok(&mut c, "settle_departure");
+        ok(&mut c, "harvest");
+        // post_reveal: 14 real Resolves of the selected province (bells 6 to
+        // 19, synthetic non-arrival pairs), the real PostAnchor, the Reveal
+        assert_eq!(cursor(&c, SELECTED), 6);
+        let r = ok(&mut c, "post_reveal");
+        let mut want = vec!["Resolve".to_string(); 14];
+        want.extend(["PostAnchor".to_string(), "Reveal".to_string()]);
+        assert_eq!(c.sandbox.instructions, want);
+        assert_eq!(c.sandbox.records.len(), 15);
+        for (body, bell) in c.sandbox.records[..14].iter().zip(6u32..) {
+            let rec = WideRecord::decode(body).unwrap();
+            assert_eq!(
+                (rec.kind, rec.bell, rec.province()),
+                (WideKind::Resolve, bell, Some(m.dest_key))
+            );
+        }
+        let reveal = WideRecord::decode(&c.sandbox.records[14]).unwrap();
+        assert_eq!(reveal.kind, WideKind::Revealed);
+        assert_eq!(reveal.standing(), Some(m.dest_key));
+        assert_eq!(cursor(&c, SELECTED), 20);
+        assert!(r.contains("\"preparation\":{\"fromBell\":6,\"toBell\":19,\"resolvedNext\":20,"));
+        assert!(r.contains(&format!("\"history\":\"{HISTORY_PREPARED}\"")));
+        assert!(r.contains("\"selectedDestinationResolvedNext\":20}"));
+        assert!(r.contains("\"SYNTHETIC_NON_ARRIVAL_BEACON_PAIRS\""));
+        assert_eq!(c.sandbox.images["destination"], fixture_dest);
+        // revealed: the village acts, then the arrival resolves
+        ok(&mut c, "harvest");
+        let r = ok(&mut c, "resolve_arrival");
+        assert_eq!(
+            c.sandbox.instructions,
+            vec!["PostSeed", "Gather", "Resolve"]
+        );
+        let survivors = c.sandbox.arrival_survivors.unwrap();
+        assert!(survivors > 0 && survivors <= 300_000, "{survivors}");
+        // the outcome is the handlers': no enemy was staged, and the
+        // engagements are the selected province's own summary (possibly 0)
+        let summary = Ro(&c.sandbox.images[SELECTED].data)
+            .u32(PV::RESOLVE_SUMMARY + frontier_abi::layout::province::summary::ENGAGEMENTS)
+            .unwrap();
+        assert_eq!(c.sandbox.engagements, summary);
+        assert!(r.contains(&format!("\"engagements\":{summary},")));
+        assert!(r.contains(&format!("\"arrivalSurvivorMilli\":{survivors},")));
+        assert_eq!(cursor(&c, SELECTED), 21);
+        ok(&mut c, "settle_transit");
+        let hb = c.sandbox.images["holding"].data.clone();
+        assert_eq!(Ro(&hb).u64(H::ESCROW).unwrap(), 0);
+        assert!(c.sandbox.images["transit_0"].data.is_empty());
+        // settled: the reserve changes again before the survivors return
+        ok(&mut c, "train");
+        let before_return = reserve0(&c);
+        assert_eq!(before_return, r_trained + 2 * TRAIN_COUNT);
+        let r = ok(&mut c, "dissolve_return");
+        assert!(r.contains("\"Dissolve\"") && r.contains("\"Return\""));
+        let credited = c.sandbox.credited;
+        assert_eq!(credited, c.sandbox.current_milli().unwrap() / 1000);
+        assert!(credited > 0 && credited <= 300, "{credited}");
+        assert_eq!(reserve0(&c), before_return + credited);
+        ok(&mut c, "harvest");
+        assert_eq!(c.sandbox.phase, "returned");
+        assert_eq!(c.revision, 15);
+        assert_eq!(cursor(&c, SELECTED), 24);
+        let h = WideHolding::read(&c.sandbox.images["holding"].data).unwrap();
+        assert_eq!(h.open_transits, 0);
+        assert_eq!(
+            Ro(&c.sandbox.images["holding"].data)
+                .u64(H::ESCROW)
+                .unwrap(),
+            0
+        );
+        // the recorded destination was only ever a read-only path province
+        assert_eq!(c.sandbox.images["destination"], fixture_dest);
+        assert_eq!(c.sandbox.images["destination_roster"], fixture_roster);
+        assert_eq!(cursor(&c, "destination"), 20);
+        // every per-destination account kept is named by the binding, once,
+        // and none of them looks like an opened province
+        let m = c.sandbox.march.clone().unwrap();
+        assert!(m.accounts.len() <= crate::chosen_march::MARCH_ACCOUNTS_MAX);
+        for n in c.sandbox.images.keys() {
+            if n.starts_with(crate::destination_stage::ACCOUNT_PREFIX) {
+                assert_eq!(m.accounts.iter().filter(|(_, x)| x == n).count(), 1, "{n}");
+            }
+        }
+        assert_eq!(c.sandbox.opened_count(), 1);
+        let g = c.render("ok", None, None, "get", false, None).unwrap();
+        for (_, n) in &m.accounts {
+            let k = hex(&c.sandbox.images[n].key);
+            assert_eq!(g.matches(&format!("\"keyHex\":\"{k}\"")).count(), 2, "{n}");
+        }
+        assert!(g.contains("\"trail\":[\"RECORDED_ORDER_REPRODUCED\","));
+        assert!(g.contains("\"REAL_RETURN\"]"));
+    }
+
+    /// A second destination through a bent route: the supervised raw-host
+    /// smoke's route to (129,-3), 21 steps, entering four provinces (origin,
+    /// recorded destination and (129,-2) as read-only path provinces). Real
+    /// handlers throughout; relations, not snapshots.
+    #[test]
+    fn v4_bent_route_to_a_second_opened_province_marches_and_returns() {
+        const BENT: &str = "222222222222222233332";
+        const SECOND: &str = "land_province_129_-3";
+        const UNRELATED: &str = "land_province_129_-4";
+        let mut c = Controller::new().unwrap();
+        for (p, q) in [(129, -2), (129, -3), (129, -4)] {
+            let line = format!("open_province {} {p} {q}", c.revision);
+            assert!(
+                reply(&mut c, &line).contains("\"status\":\"ok\""),
+                "{p},{q}"
+            );
+        }
+        // the quote: reachable, ends on the second province, enters four
+        let dirs: Vec<u8> = BENT.bytes().map(|b| b - b'0').collect();
+        let q = c.sandbox.quote_route(&dirs).unwrap();
+        assert!(q.reachable, "{:?}", q.reason);
+        let (ep, eq, tile) = q.end.unwrap();
+        assert_eq!((ep, eq), (129, -3));
+        assert_eq!(q.provinces, vec![(129, 0), (129, -1), (129, -2), (129, -3)]);
+        assert_eq!(q.steps.len(), BENT.len());
+        // what must stay byte-identical: the recorded destination and its
+        // roster, the path province (129,-2) (read only), the unrelated opened
+        // province (129,-4)
+        let kept: Vec<(&str, Image)> = ["destination", "destination_roster", SELECTED, UNRELATED]
+            .iter()
+            .map(|n| (*n, c.sandbox.images[*n].clone()))
+            .collect();
+        let r = route(&mut c, BENT);
+        assert!(r.contains("\"status\":\"ok\""), "{r:.400}");
+        let m = c.sandbox.march.clone().unwrap();
+        assert_eq!(m.dest_name, SECOND);
+        assert_eq!(m.dest_pq(), (129, -3));
+        assert_eq!(m.dest_tile, tile);
+        assert_eq!(m.directions, dirs);
+        assert_eq!(m.steps.len(), BENT.len());
+        assert_eq!(m.steps.last(), Some(&(129, -3, tile)));
+        assert_eq!(
+            m.path,
+            vec![
+                "origin".to_string(),
+                "destination".to_string(),
+                SELECTED.to_string()
+            ]
+        );
+        let t = WideTransit::from_bytes(&c.sandbox.images["transit_0"].data).unwrap();
+        assert_eq!(t.host, c.sandbox.host().unwrap());
+        assert_eq!((t.seal_root, t.arrive_bell), (m.root, 20));
+        assert!(r.contains(&format!("\"directions\":\"{BENT}\",\"arriveBell\":20,")));
+        assert!(r.contains(&format!(
+            "\"destination\":{{\"p\":\"129\",\"q\":\"-3\",\"tile\":{tile},"
+        )));
+        for cmd in [
+            "settle_departure",
+            "post_reveal",
+            "resolve_arrival",
+            "settle_transit",
+            "dissolve_return",
+        ] {
+            let before_return = reserve0(&c);
+            ok(&mut c, cmd);
+            for (n, im) in &kept {
+                assert_eq!(&c.sandbox.images[*n], im, "{cmd}: {n}");
+            }
+            assert_eq!(
+                (cursor(&c, SELECTED), cursor(&c, UNRELATED)),
+                (6, 6),
+                "{cmd}"
+            );
+            match cmd {
+                "post_reveal" => {
+                    assert_eq!(cursor(&c, SECOND), 20);
+                    let prepared = &c.sandbox.records[..14];
+                    for (body, bell) in prepared.iter().zip(6u32..) {
+                        let rec = WideRecord::decode(body).unwrap();
+                        assert_eq!(
+                            (rec.kind, rec.bell, rec.province()),
+                            (WideKind::Resolve, bell, Some(m.dest_key))
+                        );
+                    }
+                }
+                "resolve_arrival" => {
+                    assert_eq!(cursor(&c, SECOND), 21);
+                    let s = c.sandbox.arrival_survivors.unwrap();
+                    assert!((1..=m.departed_milli).contains(&s), "{s}");
+                }
+                "settle_transit" => {
+                    let hd = &c.sandbox.images["holding"].data;
+                    assert_eq!(Ro(hd).u64(H::ESCROW).unwrap(), 0);
+                    assert!(c.sandbox.images["transit_0"].data.is_empty());
+                }
+                "dissolve_return" => {
+                    assert_eq!(cursor(&c, SECOND), 24);
+                    let credited = c.sandbox.credited;
+                    assert!(credited > 0);
+                    assert_eq!(reserve0(&c), before_return + credited);
+                }
+                _ => {}
+            }
+        }
+        assert_eq!(c.sandbox.phase, "returned");
+        let hd = &c.sandbox.images["holding"].data;
+        assert_eq!(WideHolding::read(hd).unwrap().open_transits, 0);
+        assert_eq!(Ro(hd).u64(H::ESCROW).unwrap(), 0);
+        assert_eq!(cursor(&c, "destination"), 20);
+        assert!(c.sandbox.images.len() <= land::MAX_TOTAL_IMAGES);
+        // the binding is unchanged after departure except preparation,
+        // accounts and trail
+        let end = c.sandbox.march.clone().unwrap();
+        assert_eq!(
+            (
+                end.dest_name.as_str(),
+                end.dest_tile,
+                &end.path,
+                &end.steps,
+                end.root
+            ),
+            (SECOND, tile, &m.path, &m.steps, m.root)
+        );
+    }
+
+    #[test]
+    fn v4_chosen_march_with_the_full_opening_budget_stays_within_the_image_bound() {
+        let mut c = Controller::new().unwrap();
+        for (p, q) in [(129, -2), (129, -3), (128, 1), (127, 2)] {
+            let line = format!("open_province {} {p} {q}", c.revision);
+            let r = reply(&mut c, &line);
+            assert!(r.contains("\"status\":\"ok\""), "{p},{q}");
+        }
+        let base = c.sandbox.images.len();
+        let others: Vec<(String, Image)> = c
+            .sandbox
+            .images
+            .iter()
+            .filter(|(n, _)| n.starts_with(land::PROVINCE_PREFIX) && *n != SELECTED)
+            .map(|(n, im)| (n.clone(), im.clone()))
+            .collect();
+        assert_eq!(others.len(), 3);
+        assert!(!c.sandbox.allowed().contains(&"open_province"));
+        assert!(route(&mut c, LONG).contains("\"status\":\"ok\""));
+        let mut max = c.sandbox.images.len();
+        for cmd in [
+            "settle_departure",
+            "post_reveal",
+            "resolve_arrival",
+            "settle_transit",
+            "dissolve_return",
+        ] {
+            let r = ok(&mut c, cmd);
+            max = max.max(c.sandbox.images.len());
+            // the other opened provinces keep no history and their bytes; the
+            // selected one has history from post_reveal's preparation on
+            for (n, im) in &others {
+                assert_eq!(&c.sandbox.images[n], im, "{cmd}: {n}");
+            }
+            let (none, prepared) = if cmd == "settle_departure" {
+                (4, 0)
+            } else {
+                (3, 1)
+            };
+            assert_eq!(
+                r.matches(&format!("\"history\":\"{HISTORY_NONE}\""))
+                    .count(),
+                none,
+                "{cmd}"
+            );
+            assert_eq!(
+                r.matches(&format!("\"history\":\"{HISTORY_PREPARED}\""))
+                    .count(),
+                prepared,
+                "{cmd}"
+            );
+        }
+        eprintln!("v4 persistent images: base {base}, max {max}");
+        assert_eq!(c.sandbox.phase, "returned");
+        assert!(max <= land::MAX_TOTAL_IMAGES);
+        assert!(
+            max - base <= 6,
+            "only the records the handlers created persist"
+        );
+        assert_eq!(c.sandbox.opened_count(), 4);
+    }
+
+    #[test]
+    fn v4_depart_route_refusals_are_atomic_and_never_reroute() {
+        let mut c = Controller::new().unwrap();
+        // unknown land: the reply carries the host's read-only quote
+        let r = refused(
+            &mut c,
+            &format!("depart_route 0 {LONG}"),
+            "ROUTE_UNREACHABLE",
+        );
+        assert!(r.contains("\"reason\":\"UNKNOWN_PROVINCE\""));
+        assert!(r.contains("\"marchBinding\":null"));
+        // the origin and the recorded destination are not chosen destinations
+        refused(&mut c, "depart_route 0 2", "ROUTE_DESTINATION_ORIGIN");
+        refused(&mut c, "depart_route 0 222", "ROUTE_DESTINATION_FIXTURE");
+        assert!(reply(&mut c, "open_province 0 129 -2").contains("\"status\":\"ok\""));
+        // stale, malformed, bad length, bad direction
+        refused(&mut c, &format!("depart_route 0 {LONG}"), "STALE_REVISION");
+        let long = format!("depart_route 1 {}", "2".repeat(MAX_ROUTE_DIRS + 1));
+        for bad in [
+            "depart_route 1",
+            "depart_route 1 ",
+            "depart_route 1 6",
+            "depart_route 1 29",
+            "depart_route 1 2x",
+            "depart_route 1 -2",
+            "depart_route 01 2",
+            "depart_route 1 2 2",
+            "depart_route  1 2",
+            "depart_route 1 22 ",
+            long.as_str(),
+        ] {
+            refused(&mut c, bad, "BAD_COMMAND");
+        }
+        // an impassable step, from the real masks
+        let imp = impassable_route(&c.sandbox).expect("an impassable tile next to held land");
+        let r = refused(
+            &mut c,
+            &format!("depart_route 1 {}", digits(&imp)),
+            "ROUTE_UNREACHABLE",
+        );
+        assert!(r.contains("\"reason\":\"IMPASSABLE\""), "{r:.300}");
+        // past the opened province, into land the host did not return
+        if let Some(i) = first_unknown_step(&c.sandbox, 2) {
+            let far = "2".repeat(i + 1);
+            let r = refused(
+                &mut c,
+                &format!("depart_route 1 {far}"),
+                "ROUTE_UNREACHABLE",
+            );
+            assert!(r.contains("\"reason\":\"UNKNOWN_PROVINCE\""));
+        }
+        // success; a replay is stale; a second departure is the wrong phase
+        let line = format!("depart_route 1 {LONG}");
+        assert!(reply(&mut c, &line).contains("\"status\":\"ok\""));
+        refused(&mut c, &line, "STALE_REVISION");
+        refused(&mut c, &format!("depart_route 2 {LONG}"), "BAD_PHASE");
+        refused(&mut c, "depart 2", "BAD_PHASE");
+        // after the recorded departure, a chosen one is the wrong phase too
+        let mut d = Controller::new().unwrap();
+        assert!(reply(&mut d, "open_province 0 129 -2").contains("\"status\":\"ok\""));
+        assert!(reply(&mut d, "depart 1").contains("\"status\":\"ok\""));
+        refused(&mut d, &format!("depart_route 2 {LONG}"), "BAD_PHASE");
+    }
+
+    #[test]
+    fn v4_handler_and_rehearsal_refusals_commit_no_departure() {
+        // the real Depart refuses (the payer cannot fund the escrow)
+        let mut c = Controller::new().unwrap();
+        assert!(reply(&mut c, "open_province 0 129 -2").contains("\"status\":\"ok\""));
+        c.sandbox.images.get_mut("payer").unwrap().lamports = 0;
+        let r = refused(&mut c, &format!("depart_route 1 {LONG}"), "HANDLER_REFUSED");
+        assert!(r.contains(&format!(
+            "\"refusalCode\":{}",
+            permutation_frontier::FrontierError::Insufficient.code()
+        )));
+        // the rehearsed real handlers refuse (a foreign record at the chosen
+        // province's ArrivalDay key): the Depart itself is not kept
+        let mut c = Controller::new().unwrap();
+        assert!(reply(&mut c, "open_province 0 129 -2").contains("\"status\":\"ok\""));
+        let d = crate::destination_stage::destination(&c.sandbox.images, 129, -2).unwrap();
+        let ctx = frontier_abi::addr::AddrCtx {
+            season: c.sandbox.images["season"].key,
+            program: crate::runtime::PROGRAM,
+        };
+        c.sandbox.images.insert(
+            "intruder_day".into(),
+            Image {
+                key: frontier_abi::world_index::arrival::arrival_day_address(&ctx, d.key, 0),
+                owner: crate::runtime::PROGRAM,
+                lamports: 1,
+                data: vec![1; 8],
+            },
+        );
+        refused(
+            &mut c,
+            &format!("depart_route 1 {LONG}"),
+            "ROUTE_REHEARSAL_REFUSED",
+        );
+        // an oversized reply commits nothing either
+        let mut c = Controller::new().unwrap();
+        assert!(reply(&mut c, "open_province 0 129 -2").contains("\"status\":\"ok\""));
+        let pre = view(&c);
+        let r = c
+            .exchange_with_limit(&format!("depart_route 1 {LONG}"), 1)
+            .unwrap();
+        assert!(r.contains("\"error\":\"RESPONSE_LIMIT\""));
+        assert_eq!(view(&c), pre);
+    }
+
+    #[test]
+    fn v4_reset_clears_the_selected_route_and_the_opened_provinces() {
+        let mut c = Controller::new().unwrap();
+        let fresh = Controller::new().unwrap();
+        assert!(reply(&mut c, "open_province 0 129 -2").contains("\"status\":\"ok\""));
+        assert!(route(&mut c, LONG).contains("\"status\":\"ok\""));
+        ok(&mut c, "settle_departure");
+        ok(&mut c, "post_reveal");
+        assert!(c.sandbox.march.is_some());
+        let rev = c.revision;
+        let r = ok(&mut c, "reset");
+        assert!(r.contains("\"marchBinding\":null"));
+        assert!(r.contains("\"opened\":0,\"provincesCreated\":3,"));
+        assert!(r.contains("\"selectedDestinationResolvedNext\":null"));
+        assert_eq!(c.sandbox.images, fresh.sandbox.images);
+        assert!(c.sandbox.march.is_none());
+        assert_eq!((c.sandbox.phase, c.sandbox.now), ("ready", INITIAL));
+        assert_eq!(c.revision, rev + 1);
+        // the old line is dead; the route needs its province opened again
+        refused(
+            &mut c,
+            &format!("depart_route {rev} {LONG}"),
+            "STALE_REVISION",
+        );
+        let line = format!("depart_route {} {LONG}", c.revision);
+        refused(&mut c, &line, "ROUTE_UNREACHABLE");
+    }
+
+    #[test]
+    fn v4_recorded_march_reports_its_binding_and_keeps_the_v3_flow() {
+        let mut c = Controller::new().unwrap();
+        // an opened province changes nothing in the recorded march
+        assert!(reply(&mut c, "open_province 0 129 -2").contains("\"status\":\"ok\""));
+        let opened = c.sandbox.images[SELECTED].clone();
+        let r = ok(&mut c, "depart");
+        assert!(r.contains(
+            "\"marchBinding\":{\"kind\":\"recorded\",\"directions\":\"222\",\"arriveBell\":20,"
+        ));
+        assert!(r.contains("\"destination\":{\"p\":\"129\",\"q\":\"-1\",\"tile\":34,"));
+        assert!(r.contains("\"order\":{\"source\":\"RECORDED_FIXTURE_ORDER\""));
+        assert!(r.contains("\"enemyFixture\":true"));
+        let m = c.sandbox.march.clone().unwrap();
+        assert_eq!(m.dest_name, "destination");
+        assert_eq!(m.path, vec!["origin".to_string()]);
+        assert_eq!(m.commit.to_vec(), unhex(&c.sandbox.meta["commit"]).unwrap());
+        assert!(m.accounts.is_empty() && m.preparation.is_none());
+        for cmd in [
+            "train",
+            "settle_departure",
+            "post_reveal",
+            "resolve_arrival",
+            "settle_transit",
+            "dissolve_return",
+        ] {
+            ok(&mut c, cmd);
+        }
+        assert_eq!(c.sandbox.phase, "returned");
+        // the fixture enemy engaged, as in v3
+        assert!(c.sandbox.engagements > 0);
+        assert!(c.sandbox.arrival_survivors.unwrap() < 300_000);
+        assert_eq!(c.sandbox.images[SELECTED], opened);
+        let g = c.render("ok", None, None, "get", false, None).unwrap();
+        let d = cursor(&c, "destination");
+        assert!(g.contains(&format!(
+            "\"destinationResolvedNext\":{d},\"selectedDestinationResolvedNext\":{d}}}"
+        )));
+        assert!(g.contains(&format!("\"history\":\"{HISTORY_NONE}\"")));
+        for cmd in ECONOMY_COMMANDS {
+            assert!(c.sandbox.allowed().contains(&cmd));
+        }
+    }
+
+    #[test]
+    fn v4_quote_stays_read_only_during_a_chosen_march() {
+        let mut c = Controller::new().unwrap();
+        assert!(reply(&mut c, "open_province 0 129 -2").contains("\"status\":\"ok\""));
+        assert!(route(&mut c, LONG).contains("\"status\":\"ok\""));
+        let pre = view(&c);
+        let r = reply(&mut c, &format!("quote_route {LONG}"));
+        assert!(r.contains("\"status\":\"ok\"") && r.contains("\"routeQuote\":{"));
+        assert!(r.contains("\"marchBinding\":{\"kind\":\"chosen\""));
+        assert_eq!(view(&c), pre);
+    }
+
+    #[test]
+    fn v4_classify_route_maps_only_fixed_tokens() {
+        for t in ROUTE_REFUSALS {
+            assert_eq!(classify_route(t), ("refused", t, None));
+        }
+        assert_eq!(
+            classify_route("ROUTE_LEN"),
+            ("refused", "BAD_COMMAND", None)
+        );
+        assert_eq!(classify_route("BAD_PHASE"), ("refused", "BAD_PHASE", None));
+        assert_eq!(
+            classify_route("Refused_21:Depart"),
+            ("refused", "HANDLER_REFUSED", Some(21))
+        );
+        assert_eq!(
+            classify_route("ROUTE_REHEARSAL_REFUSED:DEST_STAGE_REFUSED:6:Refused_9"),
+            ("refused", "ROUTE_REHEARSAL_REFUSED", Some(9))
+        );
+        assert_eq!(
+            classify_route("ROUTE_REHEARSAL_REFUSED:SUBMAP_REFUSED:Refused_Runtime:Reveal"),
+            ("refused", "ROUTE_REHEARSAL_REFUSED", None)
+        );
+        assert_eq!(
+            classify_route("ROUTE_REHEARSAL_REFUSED:MARCH_FOREIGN_WRITE:origin"),
+            ("fault", "EXECUTION_FAULT", None)
+        );
+        assert_eq!(
+            classify("SUBMAP_REFUSED:Refused_17:Gather"),
+            ("refused", "HANDLER_REFUSED", Some(17))
+        );
+        assert_eq!(
+            classify("ARRIVAL_FATE_UNSUPPORTED"),
+            ("refused", "ARRIVAL_FATE_UNSUPPORTED", None)
+        );
+        assert_eq!(
+            classify("SUBMAP_REFUSED:Fault_RuntimeBoundary:Gather"),
+            ("fault", "EXECUTION_FAULT", None)
+        );
     }
 }

@@ -3,8 +3,56 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { mapLayout, localTilePoint, phaseMarker, viewLayout, cameraAt, panCamera, resizeCamera, jumpCamera, VIEW_RADIUS_MAX, VIEW_PROVINCES_MAX, PAN_STEPS } from '../screens/wide-march-local/local-map.mjs';
+import { mapLayout, localTilePoint, phaseMarker, marchRoute, boundDestination, viewLayout, cameraAt, panCamera, resizeCamera, jumpCamera, VIEW_RADIUS_MAX, VIEW_PROVINCES_MAX, PAN_STEPS } from '../screens/wide-march-local/local-map.mjs';
+import { walkDirections, provincesEntered, tileOf, tileAt, TILE_COORD_BOUND } from '../screens/wide-march-local/local-route.mjs';
 import { originAt, WIDE_BOUND } from '../../permutation-server/web/frontier/map/wide.mjs';
+import { locate, tileHex, TILE_OFFSETS } from '../../permutation-server/web/frontier/fgeo.mjs';
+
+test('route re-walk reproduces the host walks observed in v3 (recorded 222, and 12 × direction 2 into (129,-2) tile 60)', () => {
+  // v3 real host: the recorded route is (129,0)#2 → #1 → #0 → (129,-1)#34, the quote of "222" ending at tile 34
+  const rec = walkDirections({ p: '129', q: '0', tile: 2 }, '222');
+  assert.equal(rec.offWorld, null);
+  assert.deepEqual(rec.steps, [{ p: '129', q: '0', tile: 1 }, { p: '129', q: '0', tile: 0 }, { p: '129', q: '-1', tile: 34 }]);
+  assert.deepEqual(provincesEntered(rec.steps), [{ p: '129', q: '0' }, { p: '129', q: '-1' }], 'the start province counts once a step stands in it');
+  // v3 Chrome smoke: a 12-step direction-2 quote was reachable into (129,-2), tile 60
+  const long = walkDirections({ p: '129', q: '0', tile: 2 }, '2'.repeat(12));
+  assert.deepEqual(long.steps.at(-1), { p: '129', q: '-2', tile: 60 });
+  assert.ok(long.steps.every(s => s.p === '129' && ['0', '-1', '-2'].includes(s.q)));
+  for (const d of ['', '6', '2'.repeat(33), 2]) assert.throws(() => walkDirections({ p: '129', q: '0', tile: 2 }, d));
+});
+test('route geometry agrees with the production fgeo tables wherever Number is exact, and stays exact in BigInt beyond', () => {
+  for (const [p, q] of [[0, 0], [129, 0], [129, -1], [-7, 3], [1000, -999]]) for (const local of [0, 1, 30, 59, 60]) {
+    const t = tileOf(BigInt(p), BigInt(q), local), h = tileHex(p, q, local);
+    assert.deepEqual([Number(t.q), Number(t.r)], [h.q, h.r]);
+    const back = tileAt(t.q, t.r), l = locate(h.q, h.r);
+    assert.deepEqual([Number(back.p), Number(back.pq), back.local], [l.p, l.q, l.idx]);
+  }
+  // every neighbour of every tile of (129,0) is a tile one step away, in this province or the next
+  for (let local = 0; local < TILE_OFFSETS.length; local++) for (const d of '012345') {
+    const w = walkDirections({ p: '129', q: '0', tile: local }, d);
+    assert.equal(w.steps.length, 1);
+  }
+  // the world has an edge: past ±2^62 there is no tile, never a wrapped one
+  const edge = WIDE_BOUND.toString();
+  const off = walkDirections({ p: edge, q: edge, tile: 60 }, '0');
+  assert.ok(off.offWorld === 0 || off.steps.every(s => BigInt(s.p) <= WIDE_BOUND && BigInt(s.q) <= WIDE_BOUND));
+  assert.equal(tileAt(TILE_COORD_BOUND + 1n, 0n), null);
+  const far = walkDirections({ p: '9007199254740993', q: '0', tile: 30 }, '000');
+  assert.ok(far.steps.every(s => /^900719925474099[0-9]$/.test(s.p)), 'no precision is lost');
+});
+test('a chosen march draws its own host-walked route and marks its bound destination; otherwise the recorded fixture route', () => {
+  const s = { map: { origin: { p: '129', q: '0' }, destination: { p: '129', q: '-1' }, route: [{ p: '129', q: '0', tile: 2 }, { p: '129', q: '-1', tile: 34 }] }, host: { originTile: 2, destinationTile: 34 }, holding: { tile: 3 }, marchBinding: null };
+  assert.deepEqual(marchRoute(s), s.map.route);
+  assert.deepEqual(boundDestination(s), { p: '129', q: '-1', tile: 34 });
+  const chosen = { ...s, marchBinding: { kind: 'chosen', destination: { p: '129', q: '-2', tile: 60, accountKeyHex: 'x', source: 'opened' }, steps: [{ p: '129', q: '0', tile: 1 }, { p: '129', q: '-2', tile: 60 }] } };
+  assert.deepEqual(marchRoute(chosen), [{ p: '129', q: '0', tile: 2 }, { p: '129', q: '0', tile: 1 }, { p: '129', q: '-2', tile: 60 }]);
+  assert.deepEqual(phaseMarker({ ...chosen, phase: 'resolved' }).place, { p: '129', q: '-2', tile: 60 });
+  assert.deepEqual(phaseMarker({ ...chosen, phase: 'settled' }).place, { p: '129', q: '-2', tile: 60 });
+  assert.equal(phaseMarker({ ...chosen, phase: 'revealed' }).place, null, 'reveal never implies arrival');
+  assert.deepEqual(phaseMarker({ ...chosen, phase: 'returned' }).place, { p: '129', q: '0', tile: 3 });
+  const recorded = { ...s, marchBinding: { kind: 'recorded', destination: { p: '129', q: '-1', tile: 34 }, steps: [] } };
+  assert.deepEqual(marchRoute(recorded), s.map.route);
+});
 test('actual coordinates retain precision beyond Number safe integers', () => {
   const p = '9007199254740993';
   const a = localTilePoint(originAt(p, '0'), { p, q: '0', tile: 30 });

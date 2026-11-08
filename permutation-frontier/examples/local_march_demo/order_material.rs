@@ -1,9 +1,10 @@
 //! **Public march-order material reuse** for the keyless local sandbox
 //! (2026-11-08). See `docs/frontier/map-growth/LOCAL-ORDER-MATERIAL-20261108.md`.
 //!
-//! **Declared, not called.** `main.rs` declares `mod order_material;` so it
-//! builds and its tests can run, but nothing here is called by the engine,
-//! protocol or browser yet.
+//! **Called by protocol v4** (`chosen_march.rs`, `depart_route`):
+//! `OrderBinding::new`, `build_order` (first reproducing the recorded order
+//! byte for byte, then the chosen one) and `arrival_beacon`. Some items stay
+//! test-only (hence the `dead_code` allowance below). Unchanged otherwise.
 //!
 //! **What it does.** Packs a valid wide plaintext (`world_index::seal::
 //! WidePlain`) for a chosen host, destination, tile and direction list, and
@@ -28,7 +29,7 @@
 //! **Only arrival bell 20.** The reused header is sealed to quicknet round
 //! 32,551,361, which is `T(20)` under the fixture Season's genesis and drand
 //! clock (checked by [`OrderBinding::new`]). Any other bell is refused.
-#![allow(dead_code)] // Declared but not called yet.
+#![allow(dead_code)] // Partly test-only (replace_order, ORDER_EVIDENCE_LABELS text).
 
 use std::collections::BTreeMap;
 

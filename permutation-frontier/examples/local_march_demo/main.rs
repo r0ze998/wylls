@@ -1,5 +1,6 @@
 //! Keyless local march host. Fixed public fixtures, real in-memory handlers.
 //! This process only reads bounded stdin and writes bounded JSON stdout.
+mod chosen_march;
 mod destination_stage;
 mod engine;
 mod land_bootstrap;

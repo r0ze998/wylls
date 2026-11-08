@@ -1,5 +1,9 @@
 # Local destination preparation for a chosen-destination march (2026-11-08)
 
+**v4 update (worktree `wylls-chosen-march-20261108`; validated in the supervisor's 91/91 run):**
+- **Now called:** protocol v4 (`chosen_march.rs`) calls `prepare_destination` at a chosen march's `post_reveal`, and `arrival_plan` with `dispatch_sub_map` for every later arrival-phase instruction; see `LOCAL-CHOSEN-MARCH-20261108.md`.
+- **Naming fix:** default names of planned accounts are now `march_dest_{p}_{q}_{role}` (`default_name`, `ACCOUNT_PREFIX`). The old `{province}_{role}` names (for example `land_province_129_-2_roster`) would, once persisted, have been read as opened provinces by the prefix-based engine and land code. The names in the guidance below are the old ones. Behaviour is otherwise unchanged; one test line uses `default_name`.
+
 **Status: declared, not called.** One new file,
 `permutation-frontier/examples/local_march_demo/destination_stage.rs`,
 declared in `main.rs`. **Observed:** the supervisor compiled and ran all 73

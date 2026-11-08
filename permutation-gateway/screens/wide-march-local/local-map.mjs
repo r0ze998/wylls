@@ -126,10 +126,24 @@ export function viewLayout({ camera, provinces = [], route = [], marker = null }
   });
 }
 
+/** The route to draw: a chosen march's own host-walked steps from the origin tile; otherwise the recorded fixture
+ * route (`map.route`, also the recorded binding's). Taken from the reply, never inferred. */
+export function marchRoute(state) {
+  const b = state?.marchBinding;
+  if (b?.kind === 'chosen') return [{ ...state.map.origin, tile: state.host.originTile }, ...b.steps.map(({ p, q, tile }) => ({ p, q, tile }))];
+  return state.map.route;
+}
+/** The bound destination (the chosen binding's province and tile), else the recorded fixture destination. */
+export function boundDestination(state) {
+  const b = state?.marchBinding;
+  if (b) return { p: b.destination.p, q: b.destination.q, tile: b.destination.tile };
+  return { ...state.map.destination, tile: state.host.destinationTile };
+}
+
 export function phaseMarker(state) {
   if (!state) return null;
   const origin = { ...state.map.origin, tile: state.host.originTile };
-  const destination = { ...state.map.destination, tile: state.host.destinationTile };
+  const destination = boundDestination(state);
   switch (state.phase) {
     case 'ready': return { place: origin, text: '出発元の部隊表' };
     case 'departed': return { place: origin, text: '出発元の消費決済待ち' };

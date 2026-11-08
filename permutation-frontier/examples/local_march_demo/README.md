@@ -1,4 +1,11 @@
-# Private keyless village-and-march host (protocol v3)
+# Private keyless village-and-march host (protocol v4; v3 notes below)
+
+**v4 (this worktree; native host validated by the supervisor: 91/91 exact-name tests, clippy clean, raw-host smokes to (129,−2) and (129,−3); browser pass in progress; see `LOCAL-CHOSEN-MARCH-20261108.md`):** `depart_route REV DIRS` marches the host to a province opened in this session (ring 129, bell 20, a reachable route of 1..=32 steps). The recorded `depart REV` flow is unchanged.
+- **Departure:** `depart_route` re-quotes the route on the current bytes and rebuilds the order from published material (after reproducing the recorded order byte for byte). It runs the real Depart and rehearses the real Reveal on a copy it then drops. It commits only if all of that passes.
+- **Later phase steps:** they prepare the destination through bell 19 (real WideResolve over synthetic non-arrival pairs, at bell 21) and run PostAnchor/PostSeed over the public bell-20 signatures, Reveal, Gather, the arrival Resolve, SettleTransit, Resolves 21 to 23, Dissolve and Return to the same holding. Each runs over a bounded sub-map and is judged, chains included for every province held.
+- **Code:** in `chosen_march.rs`. The exact contract is in `docs/frontier/map-growth/LOCAL-CHOSEN-MARCH-20261108.md`.
+- **Helper fix:** planned per-destination accounts are now named `march_dest_*`, not `land_province_*_role`.
+- **Browser:** the v3 browser refuses v4 until its separate pass.
 
 This example executes the village economy, a fixed march and the opening of ring-129 provinces through the program's real host dispatcher, on private account images, in ONE serialized session. It never submits a transaction. Harvest, the fixed Farm Build (item 0) and the fixed Train (unit 0, 10 troops) act on the same holding and citizen bytes that Depart, SettleDeparture, SettleTransit, Dissolve and Return write, under one revision and one simulated clock. The separate `local_economy_demo` (Season 11 fixtures) is unchanged and remains its own baseline.
 

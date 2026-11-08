@@ -1,5 +1,7 @@
 # Local public march-order material reuse (2026-11-08)
 
+**v4 update (worktree `wylls-chosen-march-20261108`; validated in the supervisor's 91/91 run):** protocol v4's `depart_route` calls `OrderBinding::new`, then `build_order` for the recorded order, which must equal `metadata.tsv` byte for byte, then `build_order` for the chosen order, and `arrival_beacon` at PostAnchor/PostSeed. The module itself is unchanged apart from its doc comment. See `LOCAL-CHOSEN-MARCH-20261108.md`.
+
 **Status: written, declared, not yet compiled or run; not called.** One new
 file, `permutation-frontier/examples/local_march_demo/order_material.rs`. The
 only existing-file change is `mod order_material;` in `main.rs`, so the module

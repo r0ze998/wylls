@@ -1,6 +1,8 @@
-// Isolated local village-and-march server (protocol v3: economy, march and ring-129 land opening on one holding,
-// one revision, one clock). Strict loopback Host/Origin, fixed subprocess, serial revisions.
-// Only /api/state, /api/action, /api/reset, /api/open, /api/quote and exact browser dependencies are exposed.
+// Isolated local village-and-march server (protocol v4: economy, the recorded march, ring-129 land opening and a
+// march to a chosen opened province, on one holding, one revision, one clock). Strict loopback Host/Origin, fixed
+// subprocess, serial revisions.
+// Only /api/state, /api/action, /api/reset, /api/open, /api/quote, /api/depart_route and exact browser dependencies
+// are exposed.
 // Initial state is captured from the first validated local host reply, not a chain provenance pin.
 import { createServer } from 'node:http';
 import { realpath, stat, readFile } from 'node:fs/promises';
@@ -20,8 +22,9 @@ export const LOCAL_PREFIX = '/permutation-gateway/screens/wide-march-local/';
 export const WEB_PREFIX = '/permutation-server/web/';
 export const INDEX_PATH = `${LOCAL_PREFIX}index.html`;
 /** Exact own browser files. README.md, the server, the bridge and the tests are never served. */
-export const LOCAL_FILES = Object.freeze(['index.html', 'local.mjs', 'local-client.mjs', 'local-model.mjs', 'local.css', 'local-map.mjs', 'local-evidence.mjs']);
-export const API = Object.freeze({ state: '/api/state', action: '/api/action', reset: '/api/reset', open: '/api/open', quote: '/api/quote' });
+export const LOCAL_FILES = Object.freeze(['index.html', 'local.mjs', 'local-client.mjs', 'local-model.mjs', 'local.css', 'local-map.mjs', 'local-evidence.mjs', 'local-receipts.mjs', 'local-route.mjs']);
+export const API = Object.freeze({ state: '/api/state', action: '/api/action', reset: '/api/reset', open: '/api/open', quote: '/api/quote', departRoute: '/api/depart_route' });
+const MUTATION_PATHS = Object.freeze([API.action, API.reset, API.open, API.departRoute]);
 export const ACTION_HEADER = 'x-wylls-local-action';
 export const MAX_BODY_BYTES = 512;
 export const MAX_PENDING = 8;
@@ -232,14 +235,14 @@ async function handle(req, res, ctx) {
   const path = cleanPath(req.url);
   if (expectedHost === null || !requestAllowed(req.headers, expectedHost, req.method, path)) return sendError(res, 403);
   if (path === null) return sendError(res, 400);
-  if (req.method === 'OPTIONS') return sendError(res, 405, { Allow: path === API.state ? 'GET' : path in { [API.action]: 1, [API.reset]: 1, [API.open]: 1, [API.quote]: 1 } ? 'POST' : 'GET, HEAD' });
+  if (req.method === 'OPTIONS') return sendError(res, 405, { Allow: path === API.state ? 'GET' : MUTATION_PATHS.includes(path) || path === API.quote ? 'POST' : 'GET, HEAD' });
 
   if (path === API.state) {
     if (req.method !== 'GET') return sendError(res, 405, { Allow: 'GET' });
     const r = controller.state();
     return sendJson(res, r.status, r.body);
   }
-  if (path === API.action || path === API.reset || path === API.open || path === API.quote) {
+  if (MUTATION_PATHS.includes(path) || path === API.quote) {
     if (req.method !== 'POST') return sendError(res, 405, { Allow: 'POST' });
     const problem = mutationHeaderProblem(req.headers, expectedOrigin);
     if (problem) { req.resume(); return sendError(res, problem); }

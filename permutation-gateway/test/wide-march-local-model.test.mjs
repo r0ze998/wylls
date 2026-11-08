@@ -1,281 +1,166 @@
-// Synthetic structure-only test snapshots. Never used by the actual demo or a real-host claim.
+// SYNTHETIC structure-only snapshots (wide-march-local-synthetic.mjs). Never used by the actual demo or a real-host
+// claim: they show that the browser's checks are coherent and that each tampering is refused, nothing more.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { PROTOCOL, SESSION, parseReplyObject, commandFromBody, commandFromQuoteBody, commandLine, checkTransition, checkQuote, parseRouteQuote, routeDirsOk, MAX_ROUTE_DIRS, allowedFor } from '../screens/wide-march-local/local-model.mjs';
-import { createController, cleanPath, mutationHeaderProblem, parseCanonicalJson, requestAllowed } from '../screens/wide-march-local/local-server.mjs';
-import { createClient } from '../screens/wide-march-local/local-client.mjs';
-import { ringPosition } from '../../permutation-server/web/frontier/map/wide.mjs';
-const toHex = b => Buffer.from(b).toString('hex');
-const fromHex = s => Buffer.from(s, 'hex');
-function raw(n,magic,sortOffset,p,q) {
- const b=Buffer.alloc(n),d=new DataView(b.buffer,b.byteOffset,b.byteLength);b.write(magic);d.setUint16(16,3,true);
- const rp=ringPosition(BigInt(p),BigInt(q));d.setBigUint64(sortOffset,rp.ring,false);b[sortOffset+8]=rp.wedge;d.setBigUint64(sortOffset+9,rp.pos,false);
- const wide=n===1344?1280:4736;d.setUint16(wide,1,true);b[wide+2]=1; if(n===4864)b[4739]=15;
- b.fill(0x33,n===1344?1288:4740,n===1344?1320:4772);
- return b;
-}
-const acct=(key,b,lamports='0')=>({keyHex:key.repeat(32),ownerHex:'12'.repeat(32),lamports,dataHex:toHex(b)});
-const dv=b=>new DataView(b.buffer,b.byteOffset,b.byteLength);
-const SEED_ROUND=32547581n, PROVINCE_RENT='34744320', FUND_LAMPORTS='200000000';
-/** A wide province's bytes: identity, bells and the ring seed record's literal seed and round in the trailer. */
-function provinceBytes(p,q,{resolvedNext,openedBell,region,funded=0n}){
- const b=raw(4864,'PSFXWPV1',4772,p,q),d=dv(b);
- b[70]=ringPosition(BigInt(p),BigInt(q)).wedge;b[71]=region;d.setUint32(72,resolvedNext,true);d.setUint32(76,openedBell,true);
- d.setBigUint64(4792,SEED_ROUND,true);b.fill(0x81,4800,4832);d.setBigUint64(4832,funded,true);
- return b;
-}
-const PROVENANCE={ringSeed:'LOCAL_SYNTHETIC_RING_SEED',rules:'PROTOTYPE_CANDIDATE_RULES_V1',funds:'LOCAL_FIXTURE_FUNDS',golden:'GOLDEN_REOPEN_STATIC_FIELDS_MATCH',opened:'REAL_HANDLER_OUTPUT_AT_SUPPLIED_TIME',resolveHistory:'NO_RESOLVE_HISTORY',auth:'MOCK_PAYER_SIGNER_FLAG_NO_SIGNATURE',budget:'DEMO_BUDGET_4_EXTRA_PROVINCES'};
-const FUND_KEYS=['07','08','09','0a','0b','0c'];
-/** The LOCAL land records as bytes: ring seed 129 Seeded (literal seed and round), rules {1,2,2,1}, six funds. */
-function landAccounts(created=3n){
- const s=Buffer.alloc(192),sd=dv(s);s.write('PSFXWRS1');s[18]=2;sd.setBigUint64(20,129n,true);sd.setBigUint64(40,SEED_ROUND,true);s.fill(0x81,48,80);s.fill(0x33,80,112);sd.setBigUint64(112,created,true);
- const c=Buffer.alloc(96);c.write('PSFXWRC1');dv(c).setUint16(16,1,true);c.set([1,2,2,1],18);c.fill(0x33,24,56);c.fill(0xaa,56,88);
- const funds=FUND_KEYS.map((k,w)=>{const f=Buffer.alloc(128);f.write('PSF1PFND');f[16]=w;return acct(k,f,FUND_LAMPORTS);});
- return [acct('05',s),acct('06',c),...funds];
-}
-// Factories, never shared objects: every fixture() call and every store/queue entry is a fresh object, so a test
-// that mutates one snapshot can never leak into another (Array(n).fill(obj) would alias one object n times).
-const zeroStore=()=>({value:'0',rate:'0',cap:'0',t0:'0'});
-const freeSlot=()=>({doneAt:'0',kind:0,arg:0,delta:'0'});
-export function fixture() {
- const hb=raw(1344,'PSFXWHL1',1320,129,0),hd=dv(hb);
- hb.fill(0x04,72,104); // OWNER_CITIZEN: the village citizen account below
- hd.setBigInt64(152,1900000n,true);hd.setBigInt64(160,40000n,true);hd.setBigInt64(168,2000000n,true);hd.setBigInt64(176,1790447367n,true);
- hd.setBigInt64(472,40000n,true);hd.setUint32(720,600,true);
- const ob=provinceBytes(129,0,{resolvedNext:5,openedBell:1,region:8}),db=provinceBytes(129,-1,{resolvedNext:20,openedBell:1,region:6});
- const cb=Buffer.alloc(384);cb.write('PSF1CITZ');
- const h=acct('01',hb),a=acct('02',ob),b=acct('03',db),c=acct('04',cb);
- const fixtureProvince=(p,q,keyHex,resolvedNext,region)=>({p,q,accountKeyHex:keyHex,passableMask:'0',source:'fixture',openedBell:1,resolvedNext,wedge:ringPosition(BigInt(p),BigInt(q)).wedge,region});
- return {protocol:PROTOCOL,mode:'local-only',auth:'MOCK_AUTH_NO_SIGNATURE',beacon:'PUBLIC_FIXTURES_REAL_VERIFICATION',session:SESSION,status:'ok',error:null,refusalCode:null,command:'get',revision:0,phase:'ready',
-  allowed:['depart','harvest','build_farm','train','open_province','reset'],clock:{unix:'1790448507',bell:6},
-  horizon:{model:'PHASE_STEPS_ONLY',finalBell:25,destinationPreparedThroughBell:19,originResolvedNext:5,destinationResolvedNext:20},
-  economy:{perInstantBudget:8,usedThisInstant:0,harvests:0,farmBuilds:0,trains:0,farmItem:0,trainUnit:0,trainCount:10},
-  village:{tier:0,flags:0,lastOwnerAction:'0',stores:[{value:'1900000',rate:'40000',cap:'2000000',t0:'1790447367'},...Array.from({length:7},zeroStore)],production:['40000',...Array(7).fill('0')],queue:Array.from({length:4},freeSlot),reserve:[600,0,0,0,0,0,0,0]},
-  land:{ring:129,budget:4,opened:0,provincesCreated:3,ringSeedKeyHex:'05'.repeat(32),rulesConfigKeyHex:'06'.repeat(32),fundKeysHex:FUND_KEYS.map(k=>k.repeat(32)),provenance:{...PROVENANCE}},
-  map:{worldHex:'33'.repeat(32),origin:{p:'129',q:'0'},destination:{p:'129',q:'-1'},route:[{p:'129',q:'0',tile:0},{p:'129',q:'-1',tile:0}],provinces:[fixtureProvince('129','0',a.keyHex,5,8),fixtureProvince('129','-1',b.keyHex,20,6)]},
-  host:{refHex:'01'+'33'.repeat(32)+'0000000000000081000000000000000000'+'000000000000',originTile:0,destinationTile:0,initialMilli:300000,currentMilli:300000,transitState:'absent',fate:null},
-  holding:{accountKeyHex:h.keyHex,tile:0,reserveUnits:600,escrowLamports:'0',poolOwedLamports:'0',openTransits:0},
-  combat:{engagements:0,arrivalSurvivorMilli:null,enemyFixture:true},returned:{creditedUnits:0,creditedMilli:0},evidence:{instructions:[],recordsHex:[],accounts:[h,a,b,c,...landAccounts()]},routeQuote:null};
-}
-/** A consistent successful opening of ring-129 (p, q) on `prev`: the new province's bytes (opened now, no resolve
- * history, its own lamports as funded), the ring seed's count + 1, one wedge fund paying the rent with its two
- * opening counters + 1, the land summary + 1. `key` names the new account. */
-export function openStep(prev,p,q,{key='10',wedge=0,region=3}={}){
- const n=structuredClone(prev);Object.assign(n,{command:'open_province',revision:prev.revision+1});
- n.evidence.instructions=['WideOpenProvince'];n.evidence.recordsHex=[];
- const bell=n.clock.bell;
- n.evidence.accounts.push(acct(key,provinceBytes(p,q,{resolvedNext:bell,openedBell:bell,region,funded:BigInt(PROVINCE_RENT)}),PROVINCE_RENT));
- n.map.provinces.push({p,q,accountKeyHex:key.repeat(32),passableMask:'0',source:'opened',openedBell:bell,resolvedNext:bell,wedge:ringPosition(BigInt(p),BigInt(q)).wedge,region});
- n.land.opened++;n.land.provincesCreated++;
- editBytes(n,'05',(b,d)=>d.setBigUint64(112,d.getBigUint64(112,true)+1n,true));
- const f=n.evidence.accounts.find(a=>a.keyHex===FUND_KEYS[wedge].repeat(32));f.lamports=String(BigInt(f.lamports)-BigInt(PROVINCE_RENT));
- editBytes(n,FUND_KEYS[wedge],(b,d)=>{d.setUint32(20,d.getUint32(20,true)+1,true);d.setUint32(44,d.getUint32(44,true)+1,true);});
- n.allowed=allowedFor(n.phase,n.economy.usedThisInstant,n.land.opened);
- return n;
-}
-/** A well-formed route-quote reply over the fixture's two provinces: `command:'quote_route'`, revision unchanged, routeQuote present. */
-export function quoteReply(routeQuote) {
- const r = fixture(); Object.assign(r, { command: 'quote_route', routeQuote }); return r;
-}
-/** A reachable quote staying within the origin province (known, passable). */
-const reachableQuote = {
- start:{p:'129',q:'0',tile:2}, reachable:true, reason:null, blockedStep:null,
- steps:[{p:'129',q:'0',tile:1,known:true,passable:true},{p:'129',q:'-1',tile:34,known:true,passable:true}],
- end:{p:'129',q:'-1',tile:34}, provincesEntered:[{p:'129',q:'0'},{p:'129',q:'-1'}],
-};
-/** An unreachable quote that steps into a province the host did not return. */
-const unknownQuote = {
- start:{p:'129',q:'0',tile:2}, reachable:false, reason:'UNKNOWN_PROVINCE', blockedStep:1,
- steps:[{p:'129',q:'-1',tile:34,known:true,passable:true},{p:'129',q:'-2',tile:0,known:false,passable:null}],
- end:null, provincesEntered:[],
-};
-/** Edit one account's bytes in place (by key prefix byte). */
-function editBytes(r,key,fn){const a=r.evidence.accounts.find(x=>x.keyHex===key.repeat(32));const b=fromHex(a.dataHex);fn(b,dv(b));a.dataHex=toHex(b);}
-/** A consistent economy reply: bytes and the reported village moved together. */
-function economyStep(prev,kind,{reserveDelta=kind==='train'?10:0,storeValue='1890000'}={}){
- const n=structuredClone(prev);Object.assign(n,{command:kind,revision:prev.revision+1});
- n.economy.usedThisInstant++;n.economy[{harvest:'harvests',build_farm:'farmBuilds',train:'trains'}[kind]]++;
- n.allowed=allowedFor(n.phase,n.economy.usedThisInstant,n.land.opened);
- n.evidence.instructions=[{harvest:'Harvest',build_farm:'BuildFarm',train:'Train'}[kind]];n.evidence.recordsHex=['00'];
- editBytes(n,'01',(b,d)=>{d.setBigInt64(152,BigInt(storeValue),true);d.setUint32(720,d.getUint32(720,true)+reserveDelta,true);});
- editBytes(n,'04',b=>{b[160]^=1;});
- n.village.stores[0]={...n.village.stores[0],value:storeValue};n.village.reserve[0]+=reserveDelta;n.holding.reserveUnits+=reserveDelta;
- return n;
-}
+import { PROTOCOL, parseReplyObject, commandFromBody, commandFromQuoteBody, commandLine, checkTransition, checkQuote, parseRouteQuote, routeDirsOk, MAX_ROUTE_DIRS, allowedFor, MAX_ACCOUNTS, HISTORY } from '../screens/wide-march-local/local-model.mjs';
+import { createController, cleanPath, mutationHeaderProblem, parseCanonicalJson, requestAllowed, API, LOCAL_FILES } from '../screens/wide-march-local/local-server.mjs';
+import { createClient, bindingMatchesQuote } from '../screens/wide-march-local/local-client.mjs';
+import { decodeRecord, KIND, provinceKeyHex } from '../screens/wide-march-local/local-receipts.mjs';
+import {
+  fixture, openStep, economyStep, step, chosenFlow, recordedFlow, openedSession, editBytes, accountOf, setCursor, hostQuote, quoteReply, refused,
+  CHOSEN_DIRS, MARCH_STEPS, TRANSIT_KEY, FUND_KEYS, FUND_LAMPORTS, WORLD, PROGRAM, toHex, fromHex,
+} from './wide-march-local-synthetic.mjs';
+
+/** The refusal must be the one the case is about, not some earlier check failing by accident. */
+const code = c => e => { assert.equal(e?.code, c, e?.message); return true; };
+const CHOSEN_CMDS = ['depart_route', ...MARCH_STEPS];
+const cmdFor = (prev, kind) => kind === 'depart_route' ? { kind, rev: prev.revision, dirs: CHOSEN_DIRS } : { kind, rev: prev.revision };
+/** Transition i of a flow (1-based next index) with `edit` applied to a fresh copy of the reply. */
+function T(flow, cmds, i, edit = () => {}) { const n = structuredClone(flow[i]); edit(n); return () => checkTransition(flow[i - 1], cmdFor(flow[i - 1], cmds[i - 1]), n, fixture()); }
+const RECORDED_CMDS = ['depart', ...MARCH_STEPS];
+const reachableQuote = s => hostQuote(s, '222');
+
+// ------------------------------------------------------------------ v3 contract, on coherent v4 snapshots
 test('strict structure and byte correspondence reject forged summaries',()=>{
  assert.equal(parseReplyObject(fixture()).phase,'ready');
  for(const edit of [r=>r.holding.reserveUnits++,r=>r.holding.escrowLamports='2',r=>r.holding.openTransits++,r=>r.map.provinces[0].passableMask='1',r=>r.evidence.accounts[0].ownerHex='ff'.repeat(32),r=>r.evidence.accounts.push(r.evidence.accounts[0]),r=>r.extra=true,r=>r.host.refHex='ff',r=>r.allowed.push('train'),
-  r=>r.trained=false,r=>{r.protocol='wylls-local-march-v1';}]) { const r=fixture(); edit(r); assert.throws(()=>parseReplyObject(r)); }
+  r=>r.trained=false,r=>{r.protocol='wylls-local-march-v3';},r=>{delete r.marchBinding;},r=>{r.marchBinding={};},r=>{delete r.horizon.selectedDestinationResolvedNext;},r=>{delete r.map.provinces[0].history;}]) { const r=fixture(); edit(r); assert.throws(()=>parseReplyObject(r)); }
 });
 test('fixture isolation: no store, queue or account object is shared inside or across snapshots',()=>{
  const f=fixture();
  assert.equal(new Set(f.village.stores).size,8,'eight distinct store objects');
  assert.equal(new Set(f.village.queue).size,4,'four distinct queue objects');
  assert.equal(new Set(f.evidence.accounts).size,f.evidence.accounts.length);
- // mutating one snapshot deeply leaves the next snapshot intact and still byte-consistent
  f.village.stores[1].rate='1';f.village.stores[7].value='9';f.village.queue[1].kind=1;f.village.queue[3].delta='5';f.village.production[2]='7';f.village.reserve[4]=3;
  f.evidence.accounts[0].dataHex='00';f.horizon.originResolvedNext=99;f.economy.harvests=5;f.map.route[0].tile=9;
  const g=fixture();
  assert.equal(g.village.stores[1].rate,'0');assert.equal(g.village.stores[7].value,'0');assert.equal(g.village.queue[1].kind,0);assert.equal(g.village.queue[3].delta,'0');
- assert.equal(g.village.queue[0].kind,0,'a sibling slot never moves with another');assert.equal(g.village.stores[2].rate,'0');
  assert.equal(parseReplyObject(g).phase,'ready');
- assert.ok(g.village.stores.every(s=>!f.village.stores.includes(s)) && g.village.queue.every(q=>!f.village.queue.includes(q)));
- // within one snapshot, editing one slot never edits its siblings
- const h=fixture();h.village.queue[2].kind=4;assert.deepEqual(h.village.queue.map(q=>q.kind),[0,0,4,0]);
- h.village.stores[3].cap='1';assert.deepEqual(h.village.stores.map(s=>s.cap),['2000000','0','0','1','0','0','0','0']);
- // the step helper never edits its input
- const a=fixture(),before=JSON.stringify(a);for(const k of ['harvest','build_farm','train'])economyStep(a,k);assert.equal(JSON.stringify(a),before);
- assert.equal(parseReplyObject(fixture()).phase,'ready');
+ const a=fixture(),before=JSON.stringify(a);for(const k of ['harvest','build_farm','train'])economyStep(a,k);step(a,'depart');assert.equal(JSON.stringify(a),before,'the step helpers never edit their input');
 });
-/** The refusal must be the one the case is about, not some earlier check failing by accident. */
-const code = c => e => { assert.equal(e?.code, c); return true; };
 test('every village and horizon number must be the account bytes, never an invented stock',()=>{
- // schema-valid reports that disagree with the returned bytes: refused by the byte decoder
  for(const edit of [
   r=>{r.village.stores[0].value='2000000';},r=>{r.village.stores[1].rate='1';},r=>{r.village.stores[0].t0='1';},r=>{r.village.stores[5].cap='1';},r=>{r.village.production[0]='52000';},
   r=>{r.village.queue[0]={doneAt:'1',kind:1,arg:0,delta:'12000'};},r=>{r.village.queue[3].delta='1';},r=>{r.village.reserve[1]=1;},r=>{r.village.tier=1;},r=>{r.village.lastOwnerAction='5';},
   r=>{r.horizon.originResolvedNext=6;},r=>{r.horizon.destinationResolvedNext=19;},
-  r=>{r.evidence.accounts=r.evidence.accounts.filter(a=>a.keyHex!=='04'.repeat(32));}, // the holding's owner citizen account is missing
+  r=>{r.evidence.accounts=r.evidence.accounts.filter(a=>a.keyHex!=='04'.repeat(32));},
  ]) { const r=fixture(); edit(r); assert.throws(()=>parseReplyObject(r),code('EvidenceMismatch'),String(edit)); }
- // off-schema reports: refused before any byte is read
  for(const edit of [
   r=>{r.village.reserve[0]=610;},r=>{r.horizon.destinationPreparedThroughBell=20;},r=>{r.horizon.model='SYNCHRONIZED';},
   r=>{r.economy.perInstantBudget=9;},r=>{r.economy.trainCount=11;},r=>{r.economy.usedThisInstant=9;},r=>{r.refusalCode=21;},
   r=>{r.village.stores[0].value='01900000';},r=>{r.village.stores[0].value='-0';},r=>{r.village.stores.pop();},r=>{r.village.queue.push({doneAt:'0',kind:0,arg:0,delta:'0'});},
  ]) { const r=fixture(); edit(r); assert.throws(()=>parseReplyObject(r),code('BadReply'),String(edit)); }
- // the bytes and the report moving together is accepted
  const r=fixture();editBytes(r,'01',(b,d)=>d.setBigInt64(152,1234567n,true));r.village.stores[0].value='1234567';assert.equal(parseReplyObject(r).village.stores[0].value,'1234567');
- // a refusal code belongs to a handler refusal only
  const f=fixture();Object.assign(f,{status:'refused',error:'HANDLER_REFUSED',refusalCode:21});assert.equal(parseReplyObject(f).refusalCode,21);
  f.error='BAD_PHASE';assert.throws(()=>parseReplyObject(f));
 });
 test('commands have exact schemas and no caller supplied route/account/time/amount',()=>{
  assert.equal(commandLine(commandFromBody('action',{expectedRevision:1,action:'depart'})),'depart 1');
  for(const k of ['harvest','build_farm','train'])assert.equal(commandLine(commandFromBody('action',{expectedRevision:7,action:k})),`${k} 7`);
- for(const b of [{expectedRevision:0,action:'depart',p:'1'},{expectedRevision:-1,action:'train'},{expectedRevision:0,action:'advance'},{expectedRevision:0,action:'build'},{expectedRevision:0,action:'build_farm',item:6},{expectedRevision:0,action:'train',count:1000},{expectedRevision:0,action:'reset'}]) assert.throws(()=>commandFromBody('action',b));
+ for(const b of [{expectedRevision:0,action:'depart',p:'1'},{expectedRevision:-1,action:'train'},{expectedRevision:0,action:'advance'},{expectedRevision:0,action:'build'},{expectedRevision:0,action:'build_farm',item:6},{expectedRevision:0,action:'train',count:1000},{expectedRevision:0,action:'reset'},{expectedRevision:0,action:'depart_route'}]) assert.throws(()=>commandFromBody('action',b));
  assert.throws(()=>commandFromBody('reset',{expectedRevision:0,action:'harvest'}));
 });
-test('allowed list: phase step plus economy until the per-instant budget is spent',()=>{
+test('allowed list: phase step, depart_route while ready with an opened province, economy until the per-instant budget is spent',()=>{
  assert.deepEqual(allowedFor('ready',0),['depart','harvest','build_farm','train','open_province','reset']);
+ assert.deepEqual(allowedFor('ready',0,1),['depart','depart_route','harvest','build_farm','train','open_province','reset']);
  assert.deepEqual(allowedFor('ready',8),['depart','open_province','reset']);
+ assert.deepEqual(allowedFor('departed',0,1),['settle_departure','harvest','build_farm','train','open_province','reset'],'never during a march');
  assert.deepEqual(allowedFor('returned',3),['harvest','build_farm','train','open_province','reset']);
- // opening is bounded by the land budget, not by the per-instant economy budget
- assert.deepEqual(allowedFor('ready',8,4),['depart','reset']);
- assert.deepEqual(allowedFor('ready',0,3),['depart','harvest','build_farm','train','open_province','reset']);
+ assert.deepEqual(allowedFor('ready',8,4),['depart','depart_route','reset']);
 });
 test('route-quote command: a bounded directions string chosen by the player, nothing else',()=>{
  assert.equal(commandLine(commandFromQuoteBody({dirs:'222'})),'quote_route 222');
- assert.equal(commandLine({kind:'quote_route',dirs:'012345'}),'quote_route 012345');
  for(const d of ['222','0','5','0'.repeat(MAX_ROUTE_DIRS)]) assert.ok(routeDirsOk(d),d);
  for(const d of ['','6','2x','29','-1','0'.repeat(MAX_ROUTE_DIRS+1),'2 2',' 2',2,null]) assert.ok(!routeDirsOk(d),String(d));
  for(const b of [{},{dirs:''},{dirs:'6'},{dirs:'2',extra:1},{dir:'2'},{dirs:2}]) assert.throws(()=>commandFromQuoteBody(b),e=>e.code==='BadCommand');
- // a quote command never carries a revision, account, coordinate or amount
  assert.throws(()=>commandLine({kind:'quote_route',dirs:'2 extra'}));
 });
-test('a route quote is present exactly on a successful quote_route and never carries records',()=>{
- const ok=quoteReply(reachableQuote);assert.equal(parseReplyObject(ok).routeQuote.reachable,true);
- // a non-quote reply must carry a null quote
- const g=fixture();g.routeQuote=reachableQuote;assert.throws(()=>parseReplyObject(g),e=>e.code==='BadReply');
- // a quote_route reply must carry a quote (not null) when ok
- const empty=quoteReply(null);assert.throws(()=>parseReplyObject(empty),e=>e.code==='BadReply');
- // a quote reply with new records is refused
- const rec=quoteReply(reachableQuote);rec.evidence.recordsHex=['00'];assert.throws(()=>parseReplyObject(rec));
+test('a route quote is present exactly on a successful quote_route or a depart_route refused as unreachable, never with records',()=>{
+ const f=fixture();
+ assert.equal(parseReplyObject(quoteReply(f,reachableQuote(f))).routeQuote.reachable,true);
+ const g=fixture();g.routeQuote=reachableQuote(g);assert.throws(()=>parseReplyObject(g),code('BadReply'));
+ assert.throws(()=>parseReplyObject(quoteReply(f,null)),code('BadReply'));
+ const rec=quoteReply(f,reachableQuote(f));rec.evidence.recordsHex=['00'];assert.throws(()=>parseReplyObject(rec));
 });
 test('route-quote honesty: reachable iff an end and no reason, and only over known passable land',()=>{
- const ps=new Set(['129,0','129,-1']);
- assert.doesNotThrow(()=>parseRouteQuote(reachableQuote,ps));
- assert.doesNotThrow(()=>parseRouteQuote(unknownQuote,ps));
- const bad=[
-  q=>{q.reachable=false;},                               // reachable but reason null and end set -> inconsistent
-  q=>{q.end=null;},                                       // reachable but no end
-  q=>{q.reason='IMPASSABLE';},                            // reachable but a reason
-  q=>{q.steps[0].passable=false;},                        // reachable but an impassable step
-  q=>{q.steps[0].known=false;},                           // reachable but an unknown step
-  q=>{q.steps[0].p='130';},                               // a step whose province the host did not return, marked known
-  q=>{q.provincesEntered=[{p:'130',q:'0'}];},             // an entered province not among the host's
-  q=>{q.start.p='130';},                                  // the start is not one of the host's provinces
- ];
- for(const edit of bad){const q=structuredClone(reachableQuote);edit(q);assert.throws(()=>parseRouteQuote(q,ps),String(edit));}
- const badUnknown=[
-  q=>{q.end={p:'129',q:'-1',tile:0};},                    // unreachable but an end set
-  q=>{q.reason=null;},                                    // unreachable but no reason
-  q=>{q.steps[1].passable=true;},                         // an unknown step must have null passability
- ];
- for(const edit of badUnknown){const q=structuredClone(unknownQuote);edit(q);assert.throws(()=>parseRouteQuote(q,ps),String(edit));}
+ const ps=new Set(['129,0','129,-1']), ok=reachableQuote(fixture());
+ assert.doesNotThrow(()=>parseRouteQuote(ok,ps));
+ for(const edit of [q=>{q.reachable=false;},q=>{q.end=null;},q=>{q.reason='IMPASSABLE';},q=>{q.steps[0].passable=false;},q=>{q.steps[0].known=false;},q=>{q.steps[0].p='130';},q=>{q.provincesEntered=[{p:'130',q:'0'}];},q=>{q.start.p='130';}])
+  {const q=structuredClone(ok);edit(q);assert.throws(()=>parseRouteQuote(q,ps),String(edit));}
+ const unknown=hostQuote(fixture(),CHOSEN_DIRS);assert.equal(unknown.reason,'UNKNOWN_PROVINCE');assert.doesNotThrow(()=>parseRouteQuote(unknown,ps));
 });
-test('checkQuote accepts a non-mutating quote and rejects any state or revision drift',()=>{
+test('checkQuote accepts a non-mutating quote and rejects any state, binding or revision drift',()=>{
  const prev=fixture();
- const ok=quoteReply(reachableQuote);
- assert.equal(checkQuote(prev,ok).reachable,true);
- const drift=[
-  n=>{n.revision=1;},n=>{n.phase='departed';n.allowed=allowedFor('departed',0);},n=>{n.host.currentMilli--;},
-  n=>{n.command='depart';},n=>{n.status='refused';n.error='X';n.routeQuote=null;},n=>{n.village.reserve[0]=610;},
- ];
- for(const edit of drift){const n=quoteReply(reachableQuote);edit(n);assert.throws(()=>checkQuote(prev,n));}
+ assert.equal(checkQuote(prev,quoteReply(prev,reachableQuote(prev))).reachable,true);
+ for(const edit of [n=>{n.revision=1;},n=>{n.host.currentMilli--;},n=>{n.command='depart';},n=>{n.village.reserve[0]=610;}]){const n=quoteReply(prev,reachableQuote(prev));edit(n);assert.throws(()=>checkQuote(prev,n));}
+ // during a chosen march the quote is still a read
+ const F=chosenFlow();assert.equal(checkQuote(F[2],quoteReply(F[2],hostQuote(F[2],CHOSEN_DIRS))).reachable,true);
+ // a read-only quote reply carries no instructions or receipts (the host renders none for quote_route); one that
+ // still carries the previous mutation's evidence is refused, not accepted as a quote
+ const leftover=quoteReply(F[2],hostQuote(F[2],CHOSEN_DIRS));
+ assert.deepEqual([leftover.evidence.instructions,leftover.evidence.recordsHex],[[],[]]);
+ leftover.evidence.instructions=[...F[2].evidence.instructions];leftover.evidence.recordsHex=[...F[2].evidence.recordsHex];
+ assert.throws(()=>checkQuote(F[2],leftover),code('BadReply'));
 });
-test('economy transition: same phase and instant, counters by one, only the village accounts changed',()=>{
+test('economy transition: same phase and instant, counters by one, only the village accounts changed, one Economy receipt on the holding chain',()=>{
  const a=fixture();
  for(const kind of ['harvest','build_farm','train']) assert.equal(checkTransition(a,{kind,rev:0},economyStep(a,kind),a),'ok');
  const bad=[
-  ['BadClock',n=>{n.clock={unix:'1790448508',bell:6};}],['BadPhase',n=>{n.phase='departed';n.allowed=allowedFor('departed',1);}],['BadEconomy',n=>{n.economy.usedThisInstant--;n.allowed=allowedFor(n.phase,n.economy.usedThisInstant);}],
+  // (v4: a non-ready phase without a march binding is refused at parse, before the phase rule)
+  ['BadClock',n=>{n.clock={unix:String(BigInt(n.clock.unix)+1n),bell:6};}],['BadReply',n=>{n.phase='departed';n.allowed=allowedFor('departed',1);}],['BadEconomy',n=>{n.economy.usedThisInstant--;n.allowed=allowedFor(n.phase,n.economy.usedThisInstant);}],
   ['BadEconomy',n=>{n.economy.trains++;}],['BadEconomy',n=>{n.host.currentMilli--;}],['BadEconomy',n=>{n.evidence.instructions=['Train'];}],['BadEconomy',n=>{n.evidence.recordsHex=[];}],
-  ['BadEconomy',n=>editBytes(n,'03',b=>{b[100]^=1;})], // a destination byte moved under an economy command
-  ['BadEconomy',n=>{n.evidence.accounts[0].lamports='1';}],
+  ['BadEconomy',n=>editBytes(n,'03',b=>{b[100]^=1;})],['BadEconomy',n=>{n.evidence.accounts[0].lamports='1';}],
+  // the receipt itself: replayed (the one-receipt economy rule), tampered, or the holding header not advanced by it
+  ['BadEconomy',n=>{n.evidence.recordsHex.push(n.evidence.recordsHex[0]);}],
+  ['ReceiptChain',n=>{const h=n.evidence.recordsHex[0];n.evidence.recordsHex[0]=h.slice(0,160)+(h[160]==='0'?'1':'0')+h.slice(161);}],
+  ['ReceiptChainEnd',n=>editBytes(n,'01',b=>{b[40]^=1;})],
  ];
  for(const [want,edit] of bad){const n=economyStep(a,'harvest');edit(n);assert.throws(()=>checkTransition(a,{kind:'harvest',rev:0},n,a),code(want),String(edit));}
- // the train's reserve credit is its own fixed request count, compared, not computed
  assert.throws(()=>checkTransition(a,{kind:'train',rev:0},economyStep(a,'train',{reserveDelta:11}),a),code('BadEconomy'));
- assert.throws(()=>checkTransition(a,{kind:'harvest',rev:0},economyStep(a,'harvest',{reserveDelta:10}),a),code('BadEconomy'));
 });
 test('phase steps keep economy counters; a new instant resets the per-instant budget',()=>{
- const a=economyStep(fixture(),'harvest'),b=structuredClone(a);
- Object.assign(b,{command:'depart',revision:2,phase:'departed'});b.allowed=allowedFor('departed',1);b.evidence.instructions=['Depart'];b.evidence.recordsHex=['00'];
+ const a=economyStep(fixture(),'harvest'),b=step(a,'depart');
  assert.equal(checkTransition(a,{kind:'depart',rev:1},b,fixture()),'ok');
  const reset0=structuredClone(b);reset0.economy.usedThisInstant=0;reset0.allowed=allowedFor('departed',0);assert.throws(()=>checkTransition(a,{kind:'depart',rev:1},reset0,fixture()),code('BadEconomy'),'same instant keeps the budget used');
- const c=structuredClone(b);Object.assign(c,{command:'settle_departure',revision:3,phase:'travelling',clock:{unix:'1790449707',bell:8}});c.economy.usedThisInstant=0;c.allowed=allowedFor('travelling',0);c.evidence.instructions=['Resolve','Resolve','SettleDeparture'];
+ const c=step(b,'settle_departure');assert.equal(c.economy.usedThisInstant,0);
  assert.equal(checkTransition(b,{kind:'settle_departure',rev:2},c,fixture()),'ok');
  const stuck=structuredClone(c);stuck.economy.usedThisInstant=1;stuck.allowed=allowedFor('travelling',1);assert.throws(()=>checkTransition(b,{kind:'settle_departure',rev:2},stuck,fixture()),code('BadEconomy'));
  const counted=structuredClone(c);counted.economy.harvests=0;assert.throws(()=>checkTransition(b,{kind:'settle_departure',rev:2},counted,fixture()),code('BadEconomy'));
 });
-/** A phase step at `phase` on `prev`; `cursor` moves the origin (i=0, account '02') or destination (i=1, '03')
- * resolve cursor consistently in the bytes, the province summary and the horizon, as real Resolve does. */
-function phaseStep(prev,kind,phase,{cursor=null,clock=prev.clock}={}){
- const n=structuredClone(prev);Object.assign(n,{command:kind,revision:prev.revision+1,phase,clock:{...clock}});
- if(clock.unix!==prev.clock.unix)n.economy.usedThisInstant=0;
- n.allowed=allowedFor(phase,n.economy.usedThisInstant,n.land.opened);n.evidence.instructions=['Resolve'];n.evidence.recordsHex=['00'];
- if(cursor){const [i,v]=cursor;editBytes(n,i===0?'02':'03',(b,d)=>d.setUint32(72,v,true));n.map.provinces[i].resolvedNext=v;n.horizon[i===0?'originResolvedNext':'destinationResolvedNext']=v;}
- return n;
-}
-test('a phase step may only advance the fixtures\' resolve cursors; every other map field and every opened province stay exact',()=>{
- const a=fixture(),settle={unix:'1790449707',bell:8};
- const b=phaseStep(a,'depart','departed');assert.equal(checkTransition(a,{kind:'depart',rev:0},b,a),'ok');
- // real Resolve at settlement moves the origin cursor 5 -> 8: accepted (bytes, summary and horizon agree)
- const c=phaseStep(b,'settle_departure','travelling',{cursor:[0,8],clock:settle});
- assert.equal(checkTransition(b,{kind:'settle_departure',rev:1},c,a),'ok');
- const T=(n,want)=>assert.throws(()=>checkTransition(b,{kind:'settle_departure',rev:1},n,a),code(want));
+test('the recorded march: every phase step verifies, binding fixed, fixture cursors forward only, opened provinces untouched',()=>{
+ const F=recordedFlow();
+ F.slice(1).forEach((n,i)=>assert.equal(checkTransition(F[i],cmdFor(F[i],RECORDED_CMDS[i]),n,fixture()),'ok',RECORDED_CMDS[i]));
+ assert.equal(F[1].marchBinding.kind,'recorded');assert.deepEqual(F[1].marchBinding.trail,['RECORDED_FIXTURE_ORDER','REAL_DEPART']);
+ assert.equal(F[1].combat.enemyFixture,true);assert.equal(F[6].marchBinding.destination.q,'-1');
+ assert.equal(F[1].horizon.selectedDestinationResolvedNext,F[1].horizon.destinationResolvedNext,'for depart the selected cursor is the recorded destination\'s');
+ const t=(i,want,edit)=>assert.throws(T(F,RECORDED_CMDS,i,edit),code(want),String(edit));
  // a cursor never moves back, even when bytes, summary and horizon agree
- T(phaseStep(b,'settle_departure','travelling',{cursor:[0,4],clock:settle}),'CursorRegressed');
- T(phaseStep(b,'settle_departure','travelling',{cursor:[1,19],clock:settle}),'CursorRegressed');
+ t(2,'CursorRegressed',n=>setCursor(n,0,4));
+ t(5,'CursorRegressed',n=>setCursor(n,1,19));
  // a summary cursor that is not the account's bytes, or not the horizon, is refused before any transition rule
- const summaryOnly=phaseStep(b,'settle_departure','travelling',{clock:settle});summaryOnly.map.provinces[0].resolvedNext=8;summaryOnly.horizon.originResolvedNext=8;T(summaryOnly,'EvidenceMismatch');
- const noHorizon=phaseStep(b,'settle_departure','travelling',{cursor:[0,8],clock:settle});noHorizon.horizon.originResolvedNext=5;T(noHorizon,'EvidenceMismatch');
+ t(2,'EvidenceMismatch',n=>{n.map.provinces[0].resolvedNext=8;n.horizon.originResolvedNext=8;});
+ t(2,'EvidenceMismatch',n=>{n.horizon.originResolvedNext=5;});
  // anything else of a province changing under a phase step is an identity change (here its mask, consistently)
- const mask=phaseStep(b,'settle_departure','travelling',{cursor:[0,8],clock:settle});editBytes(mask,'02',(x,d)=>d.setBigUint64(264,1n,true));mask.map.provinces[0].passableMask='1';T(mask,'IdentityChanged');
- // the economy still may not move the map at all, not even a consistent cursor
- const e=economyStep(a,'harvest');editBytes(e,'02',(x,d)=>d.setUint32(72,6,true));e.map.provinces[0].resolvedNext=6;e.horizon.originResolvedNext=6;
+ // (a mask that keeps the recorded route's tiles passable, so the binding's own route check is not what refuses)
+ t(2,'IdentityChanged',n=>{const m=(1n<<60n)-1n;editBytes(n,'02',(x,d)=>d.setBigUint64(264,m,true));n.map.provinces[0].passableMask=m.toString();});
+ // the recorded binding never changes after depart; it adds no account
+ t(3,'BadBinding',n=>{n.marchBinding.departedMilli--;});
+ t(3,'AccountAdded',n=>{n.evidence.accounts.push({keyHex:'ef'.repeat(32),ownerHex:PROGRAM,lamports:'1',dataHex:'00'});});
+ // the economy may not move the map, not even a consistent cursor
+ const a=fixture(),e=economyStep(a,'harvest');setCursor(e,0,6);
  assert.throws(()=>checkTransition(a,{kind:'harvest',rev:0},e,a),code('IdentityChanged'));
- // an opened province is not on the fixed march: its account stays byte-identical through every phase step
+ // an opened province is not on the recorded march: its account stays byte-identical through every phase step
  const o=openStep(a,'129','-2');assert.equal(checkTransition(a,{kind:'open_province',rev:0,p:'129',q:'-2'},o,a),'ok');
- const od=phaseStep(o,'depart','departed');assert.equal(checkTransition(o,{kind:'depart',rev:1},od,a),'ok');
- const touched=phaseStep(o,'depart','departed');editBytes(touched,'10',x=>{x[1000]^=1;});
+ const od=step(o,'depart');assert.equal(checkTransition(o,{kind:'depart',rev:1},od,a),'ok');
+ const touched=step(o,'depart');editBytes(touched,'10',x=>{x[1000]^=1;});
  assert.throws(()=>checkTransition(o,{kind:'depart',rev:1},touched,a),code('IdentityChanged'));
- const paid=phaseStep(o,'depart','departed');paid.evidence.accounts.find(x=>x.keyHex==='10'.repeat(32)).lamports='1';
+ const paid=step(o,'depart');accountOf(paid,'10'.repeat(32)).lamports='1';
  assert.throws(()=>checkTransition(o,{kind:'depart',rev:1},paid,a));
 });
 test('phase, monotone clock and reset baseline are enforced',()=>{
- const a=fixture(),b=structuredClone(a);Object.assign(b,{command:'depart',revision:1,phase:'departed',allowed:['settle_departure','harvest','build_farm','train','open_province','reset']});b.evidence.instructions=['Depart'];b.evidence.recordsHex=['00'];
+ const a=fixture(),b=step(a,'depart');
  assert.equal(checkTransition(a,{kind:'depart',rev:0},b,a),'ok');
- const c=structuredClone(b);c.clock.unix='1';assert.throws(()=>checkTransition(a,{kind:'depart',rev:0},c,a),code('BadClock'));
+ const c=structuredClone(b);c.clock.unix='1';assert.throws(()=>checkTransition(a,{kind:'depart',rev:0},c,a));
  const reset=structuredClone(a);Object.assign(reset,{command:'reset',revision:2});assert.equal(checkTransition(b,{kind:'reset',rev:1},reset,a),'ok');
  reset.host.currentMilli++;assert.throws(()=>checkTransition(b,{kind:'reset',rev:1},reset,a),code('BadReset'));
  const villageReset=structuredClone(a);Object.assign(villageReset,{command:'reset',revision:2});villageReset.economy.harvests=1;assert.throws(()=>checkTransition(b,{kind:'reset',rev:1},villageReset,a),code('BadReset'));
@@ -287,10 +172,13 @@ test('controller stale duplicate never contacts host and malformed response is p
  assert.equal((await c.mutate({kind:'harvest',rev:0})).status,502);assert.equal(c.phase,'uncertain');assert.equal(c.view().reply,null);
  assert.equal((await c.mutate({kind:'depart',rev:0})).status,503);assert.equal(calls,2);assert.equal(closed,1);
 });
-test('controller refuses a first state that already carries economy history',async()=>{
+test('controller refuses a first state that already carries economy history, opened land or a march',async()=>{
  const used=fixture();used.economy.harvests=1;
  const c=createController({bridge:{alive:true,close(){},async exchange(){return JSON.stringify(used);}}});
  assert.equal((await c.start()).status,502);assert.equal(c.phase,'uncertain');
+ const opened=openedSession();Object.assign(opened,{command:'get',revision:0});opened.evidence.instructions=[];
+ const d=createController({bridge:{alive:true,close(){},async exchange(){return JSON.stringify(opened);}}});
+ assert.equal((await d.start()).status,502);
 });
 test('controller serializes economy commands and judges each against its predecessor',async()=>{
  const a=fixture(),b=economyStep(a,'harvest');let calls=[];
@@ -300,31 +188,25 @@ test('controller serializes economy commands and judges each against its predece
  assert.equal(one.status,200);assert.equal(one.body.outcome,'ok');assert.equal(two.status,409,'the duplicate is stale inside the queue');
  assert.deepEqual(calls,['get','harvest 0']);
 });
-test('controller route quote is a read: validated against the cached state, never mutating it',async()=>{
+test('controller route quote is a read; a drifting reply makes the session uncertain for good',async()=>{
  let calls=[];const initial=fixture();
- const bridge={alive:true,close(){},async exchange(line){calls.push(line);return JSON.stringify(line==='get'?initial:quoteReply(reachableQuote));}};
- const c=createController({bridge});await c.start();
+ const c=createController({bridge:{alive:true,close(){},async exchange(line){calls.push(line);return JSON.stringify(line==='get'?initial:quoteReply(initial,reachableQuote(initial)));}}});await c.start();
  const r=await c.quote({kind:'quote_route',dirs:'222'});
- assert.equal(r.status,200);assert.equal(r.body.routeQuote.reachable,true);
- assert.deepEqual(calls,['get','quote_route 222']);
- assert.equal(c.view().revision,0);assert.equal(c.phase,'ready');assert.ok(c.view().reply);
+ assert.equal(r.status,200);assert.equal(r.body.routeQuote.reachable,true);assert.deepEqual(calls,['get','quote_route 222']);assert.equal(c.view().revision,0);
+ const drift=quoteReply(initial,reachableQuote(initial));drift.revision=1;
+ const d=createController({bridge:{alive:true,close(){},async exchange(line){return JSON.stringify(line==='get'?initial:drift);}}});await d.start();
+ assert.equal((await d.quote({kind:'quote_route',dirs:'2'})).status,502);assert.equal(d.phase,'uncertain');
 });
-test('controller route quote: a drifting reply makes the session uncertain for good',async()=>{
- const initial=fixture();const drift=quoteReply(reachableQuote);drift.revision=1;
- const bridge={alive:true,close(){},async exchange(line){return JSON.stringify(line==='get'?initial:drift);}};
- const c=createController({bridge});await c.start();
- const r=await c.quote({kind:'quote_route',dirs:'2'});
- assert.equal(r.status,502);assert.equal(c.phase,'uncertain');assert.equal(c.view().reply,null);
-});
-test('HTTP boundary rejects escape routes, missing origin and noncanonical bodies',()=>{
+test('HTTP boundary rejects escape routes, missing origin and noncanonical bodies; depart_route is a mutation route',()=>{
  for(const s of ['/../a','/%2e/a','//a','/a?x=1','/a\\b'])assert.equal(cleanPath(s),null);
  assert.equal(mutationHeaderProblem({},'http://127.0.0.1:1'),403);
  assert.throws(()=>parseCanonicalJson(Buffer.from('{"a":1,"a":1}')));
  assert.throws(()=>parseCanonicalJson(Buffer.from('{ "a":1}')));
+ assert.equal(API.departRoute,'/api/depart_route');
+ for(const f of ['local-receipts.mjs','local-route.mjs'])assert.ok(LOCAL_FILES.includes(f),f);
 });
-
-test('refusal preserves all map, clock, village and account state',()=>{
- const a=fixture(),b=structuredClone(a);Object.assign(b,{status:'refused',error:'HANDLER_REFUSED',refusalCode:21,command:'build_farm'});
+test('refusal preserves all map, clock, village, binding and account state',()=>{
+ const a=fixture(),b=refused(a,'build_farm','HANDLER_REFUSED',{refusalCode:21});
  assert.equal(checkTransition(a,{kind:'build_farm',rev:0},b,a),'refused');
  const c=structuredClone(b);c.economy.farmBuilds=1;assert.throws(()=>checkTransition(a,{kind:'build_farm',rev:0},c,a),code('BadTransition'));
  b.host.currentMilli--;assert.throws(()=>checkTransition(a,{kind:'build_farm',rev:0},b,a),code('BadTransition'));
@@ -334,12 +216,13 @@ test('cross-origin/API reads and mutations rejected; top-level navigation only e
  assert.equal(requestAllowed({host:'localhost:55555'},host,'GET','/api/state'),false);
  const cross={host,'sec-fetch-site':'cross-site','sec-fetch-mode':'navigate','sec-fetch-dest':'document'};
  assert.equal(requestAllowed(cross,host,'GET','/api/state'),false);
+ assert.equal(requestAllowed(cross,host,'GET','/api/depart_route'),false);
  assert.equal(requestAllowed(cross,host,'GET','/permutation-gateway/screens/wide-march-local/index.html'),true);
  const h={host,origin:'http://'+host,'sec-fetch-site':'same-origin','x-wylls-local-action':PROTOCOL,'content-type':'application/json','content-length':'2'};
  assert.equal(mutationHeaderProblem(h,'http://'+host),0);
  assert.equal(mutationHeaderProblem({...h,origin:'https://evil.example'},'http://'+host),403);
  assert.equal(mutationHeaderProblem({...h,'sec-fetch-site':'cross-site'},'http://'+host),403);
- assert.equal(mutationHeaderProblem({...h,'x-wylls-local-action':'wylls-local-march-v1'},'http://'+host),403,'the old protocol label is not accepted');
+ assert.equal(mutationHeaderProblem({...h,'x-wylls-local-action':'wylls-local-march-v3'},'http://'+host),403,'the old protocol label is not accepted');
 });
 test('child death while idle clears cached view and blocks further mutations',async()=>{
  const bridge={alive:true,close(){},async exchange(){return JSON.stringify(fixture());}};
@@ -347,11 +230,14 @@ test('child death while idle clears cached view and blocks further mutations',as
  assert.equal(c.state().body.view.reply,null);assert.equal(c.phase,'uncertain');
  assert.equal((await c.mutate({kind:'harvest',rev:0})).status,503);
 });
-const response = r => ({status:200,text:async()=>JSON.stringify({view:{v:1,protocol:PROTOCOL,mode:'local-simulation',mockAuth:true,phase:'ready',uncertain:false,revision:r.revision,reply:r,lastResult:null}})});
+const view=(r,last=null)=>({v:1,protocol:PROTOCOL,mode:'local-simulation',mockAuth:true,phase:'ready',uncertain:false,revision:r.revision,reply:r,lastResult:last});
+const response = r => ({status:200,text:async()=>JSON.stringify({view:view(r)})});
+const posted = (r,outcome) => ({status:200,text:async()=>JSON.stringify({outcome,view:view(r,{command:r.command,outcome,code:r.error,revision:r.revision})})});
+const quoteResponse = (rq, state) => ({ status: 200, text: async () => JSON.stringify({ routeQuote: rq, view: view(state) }) });
 test('browser duplicate submit blocked, network failure clears map/state, no retry; explicit GET recovers',async()=>{
  let calls=[], rejectSend;const initial=fixture();
  const client=createClient({fetchFn:async(path,init)=>{calls.push([path,init.method]);if(init.method==='GET')return response(initial);return new Promise((_,reject)=>{rejectSend=reject;});}});
- await client.refresh();assert.equal(client.snapshot.phase,'ready');const pending=client.submit({kind:'harvest'});
+ await client.refresh();const pending=client.submit({kind:'harvest'});
  assert.equal((await client.submit({kind:'train'})).reason,'busy');assert.equal(calls.length,2);
  rejectSend(new Error('lost'));await pending;assert.equal(client.snapshot.state,null);assert.equal(client.snapshot.phase,'error');assert.equal(calls.length,2);
  await client.refresh();assert.equal(client.snapshot.phase,'ready');assert.deepEqual(calls.map(c=>c[1]),['GET','POST','GET']);
@@ -362,136 +248,270 @@ test('browser stale revision response updates without automatic replay',async()=
  await client.refresh();assert.equal((await client.submit({kind:'harvest'})).reason,'stale');assert.equal(calls,2);assert.equal(client.snapshot.state.revision,1);
 });
 test('browser accepts a judged economy reply and shows the host refusal code verbatim',async()=>{
- const a=fixture(),b=economyStep(a,'train');let n=0;
- const view=(r,last)=>({status:200,text:async()=>JSON.stringify({outcome:last.outcome,view:{v:1,protocol:PROTOCOL,mode:'local-simulation',mockAuth:true,phase:'ready',uncertain:false,revision:r.revision,reply:r,lastResult:last}})});
- const client=createClient({fetchFn:async(_p,init)=>{n++;if(init.method==='GET')return response(a);return view(b,{command:'train',outcome:'ok',code:null,revision:1});}});
- await client.refresh();const r=await client.submit({kind:'train'});assert.equal(r.ok,true);assert.equal(client.snapshot.state.village.reserve[0],610);
- const refused=structuredClone(b);Object.assign(refused,{status:'refused',error:'HANDLER_REFUSED',refusalCode:17,command:'train'});refused.evidence.instructions=[];refused.evidence.recordsHex=[];
- const client2=createClient({fetchFn:async(_p,init)=>init.method==='GET'?response(b):view(refused,{command:'train',outcome:'refused',code:'HANDLER_REFUSED',revision:1})});
+ const a=fixture(),b=economyStep(a,'train');
+ const client=createClient({fetchFn:async(_p,init)=>init.method==='GET'?response(a):posted(b,'ok')});
+ await client.refresh();assert.equal((await client.submit({kind:'train'})).ok,true);assert.equal(client.snapshot.state.village.reserve[0],610);
+ const client2=createClient({fetchFn:async(_p,init)=>init.method==='GET'?response(b):posted(refused(b,'train','HANDLER_REFUSED',{refusalCode:17}),'refused')});
  await client2.refresh();const r2=await client2.submit({kind:'train'});assert.equal(r2.reason,'refused');assert.equal(client2.snapshot.state.refusalCode,17);assert.equal(client2.snapshot.notice.code,'HANDLER_REFUSED');
- assert.ok(n>=2);
 });
-const quoteResponse = (rq, state) => ({ status: 200, text: async () => JSON.stringify({ routeQuote: rq, view: { v: 1, protocol: PROTOCOL, mode: 'local-simulation', mockAuth: true, phase: 'ready', uncertain: false, revision: state.revision, reply: state, lastResult: null } }) });
-test('browser route quote attaches a validated quote and never mutates the shown state',async()=>{
+test('browser route quote attaches a validated quote, never mutates, and a drifting reply fails closed',async()=>{
  const a=fixture();let calls=[];
- const client=createClient({fetchFn:async(path,init)=>{calls.push([path,init.method]);return init.method==='GET'?response(a):quoteResponse(reachableQuote,a);}});
+ const client=createClient({fetchFn:async(path,init)=>{calls.push([path,init.method]);return init.method==='GET'?response(a):quoteResponse(reachableQuote(a),a);}});
  await client.refresh();
- const r=await client.quote('222');
- assert.equal(r.ok,true);assert.equal(client.snapshot.quote.reachable,true);assert.equal(client.snapshot.quoteDirs,'222');
- assert.equal(client.snapshot.state.revision,0);assert.equal(client.snapshot.phase,'ready');
- assert.deepEqual(calls,[['/api/state','GET'],['/api/quote','POST']]);
- // an input the schema refuses never leaves the browser
+ assert.equal((await client.quote('222')).ok,true);assert.equal(client.snapshot.quote.reachable,true);assert.equal(client.snapshot.quoteDirs,'222');assert.equal(client.snapshot.state.revision,0);
  assert.equal((await client.quote('6')).reason,'input');assert.equal(calls.length,2);
- // a following refresh clears the stale quote
  await client.refresh();assert.equal(client.snapshot.quote,null);
+ const drift=structuredClone(a);drift.revision=1;
+ const c2=createClient({fetchFn:async(_p,init)=>init.method==='GET'?response(a):quoteResponse(reachableQuote(a),drift)});
+ await c2.refresh();assert.equal((await c2.quote('2')).reason,'unknown');assert.equal(c2.snapshot.state,null);
 });
-test('browser route quote: a reply that drifts from the shown revision fails closed',async()=>{
- const a=fixture(),drift=structuredClone(a);drift.revision=1;
- const client=createClient({fetchFn:async(_p,init)=>init.method==='GET'?response(a):quoteResponse(reachableQuote,drift)});
- await client.refresh();const r=await client.quote('2');
- assert.equal(r.reason,'unknown');assert.equal(client.snapshot.phase,'error');assert.equal(client.snapshot.state,null);
-});
-
-// ------------------------------------------------------------------ v3: LOCAL land records and openings
 test('the LOCAL land records are re-read from their bytes, never taken from the summary',()=>{
- assert.equal(parseReplyObject(fixture()).land.opened,0);
- const evidence=[
-  r=>editBytes(r,'05',b=>{b[48]^=1;}),                                   // ring seed is not the pinned literal
-  r=>editBytes(r,'05',(b,d)=>d.setBigUint64(40,1n,true)),                // ring seed round
-  r=>editBytes(r,'05',b=>{b[18]=1;}),                                    // ring seed not Seeded
-  r=>editBytes(r,'05',(b,d)=>d.setBigUint64(20,130n,true)),              // another ring
-  r=>editBytes(r,'05',(b,d)=>d.setBigUint64(112,4n,true)),               // provinces created disagrees
-  r=>editBytes(r,'06',b=>{b[19]=1;}),                                    // a rule byte
-  r=>editBytes(r,'06',b=>{b[56]^=1;}),                                   // the authority
-  r=>editBytes(r,'09',b=>{b[16]=5;}),                                    // a fund's wedge byte
-  r=>editBytes(r,'0a',(b,d)=>d.setUint32(20,1,true)),                    // a fund claims an opening
-  r=>editBytes(r,'02',b=>{b[4800]^=1;}),                                 // a province's seed is not the record's
-  r=>editBytes(r,'03',(b,d)=>d.setBigUint64(4792,7n,true)),              // a province's round
-  r=>editBytes(r,'02',b=>{b[70]^=1;}),                                   // the prefix wedge disagrees with the key
-  r=>editBytes(r,'03',b=>{b[71]^=1;}),                                   // the region byte
-  r=>editBytes(r,'02',(b,d)=>d.setUint32(76,2,true)),                    // the opened bell
-  r=>{r.land.ringSeedKeyHex='04'.repeat(32);},                           // a record key naming another account
- ];
- for(const edit of evidence){const r=fixture();edit(r);assert.throws(()=>parseReplyObject(r),code('EvidenceMismatch'),String(edit));}
- const schema=[
-  r=>{r.land.budget=5;},r=>{r.land.ring=130;},r=>{r.land.opened=1;},r=>{r.land.provenance.ringSeed='VERIFIED_BEACON';},
-  r=>{delete r.land.provenance.golden;},r=>{r.land.fundKeysHex[1]=r.land.fundKeysHex[0];},r=>{r.land.extra=1;},
-  r=>{r.map.provinces[0].source='opened';},r=>{r.map.provinces.reverse();},r=>{r.map.provinces[1].wedge=6;},
-  r=>{r.allowed=r.allowed.filter(k=>k!=='open_province');},
- ];
- for(const edit of schema){const r=fixture();edit(r);assert.throws(()=>parseReplyObject(r),code('BadReply'),String(edit));}
-});
-test('an opened province must be ring 129, opened now, with no resolve history',()=>{
- const ok=openStep(fixture(),'129','-2');
- assert.equal(parseReplyObject(ok).map.provinces.length,3);
  for(const edit of [
-  n=>{n.map.provinces[2].source='fixture';},n=>{n.map.provinces[2].resolvedNext=7;},n=>{n.map.provinces[2].openedBell=7;},
-  n=>{n.land.opened=0;},n=>{n.land.provincesCreated=3;},n=>{n.map.provinces[2].p='129';n.map.provinces[2].q='0';},
- ]){const n=openStep(fixture(),'129','-2');edit(n);assert.throws(()=>parseReplyObject(n),String(edit));}
- // a ring-130 "province" is refused before its bytes are read
- const far=openStep(fixture(),'130','0');assert.throws(()=>parseReplyObject(far),code('BadReply'));
- // an opened province's funded lamports are its own
+  r=>editBytes(r,'05',b=>{b[48]^=1;}),r=>editBytes(r,'05',(b,d)=>d.setBigUint64(40,1n,true)),r=>editBytes(r,'05',b=>{b[18]=1;}),r=>editBytes(r,'05',(b,d)=>d.setBigUint64(20,130n,true)),
+  r=>editBytes(r,'05',(b,d)=>d.setBigUint64(112,4n,true)),r=>editBytes(r,'06',b=>{b[19]=1;}),r=>editBytes(r,'06',b=>{b[56]^=1;}),r=>editBytes(r,'09',b=>{b[16]=5;}),
+  r=>editBytes(r,'0a',(b,d)=>d.setUint32(20,1,true)),r=>editBytes(r,'02',b=>{b[4800]^=1;}),r=>editBytes(r,'03',(b,d)=>d.setBigUint64(4792,7n,true)),r=>editBytes(r,'02',b=>{b[70]^=1;}),
+  r=>editBytes(r,'03',b=>{b[71]^=1;}),r=>editBytes(r,'02',(b,d)=>d.setUint32(76,2,true)),r=>{r.land.ringSeedKeyHex='04'.repeat(32);},
+ ]){const r=fixture();edit(r);assert.throws(()=>parseReplyObject(r),code('EvidenceMismatch'),String(edit));}
+ for(const edit of [
+  r=>{r.land.budget=5;},r=>{r.land.ring=130;},r=>{r.land.opened=1;},r=>{r.land.provenance.ringSeed='VERIFIED_BEACON';},r=>{delete r.land.provenance.golden;},r=>{r.land.fundKeysHex[1]=r.land.fundKeysHex[0];},r=>{r.land.extra=1;},
+  r=>{r.map.provinces[0].source='opened';},r=>{r.map.provinces.reverse();},r=>{r.map.provinces[1].wedge=6;},r=>{r.allowed=r.allowed.filter(k=>k!=='open_province');},r=>{r.map.provinces[0].history='NONE';},
+ ]){const r=fixture();edit(r);assert.throws(()=>parseReplyObject(r),code('BadReply'),String(edit));}
+});
+test('an opened province must be ring 129, opened now, with no resolve history unless it is the prepared chosen destination',()=>{
+ const ok=openStep(fixture(),'129','-2');
+ assert.equal(parseReplyObject(ok).map.provinces[2].history,HISTORY.NONE);
+ for(const edit of [n=>{n.map.provinces[2].source='fixture';},n=>{n.map.provinces[2].resolvedNext=7;},n=>{n.map.provinces[2].openedBell=7;},n=>{n.land.opened=0;},n=>{n.land.provincesCreated=3;},n=>{n.map.provinces[2].p='129';n.map.provinces[2].q='0';},
+  n=>{n.map.provinces[2].history=HISTORY.PREPARED;},n=>{n.map.provinces[2].history='SYNCHRONIZED';}]){const n=openStep(fixture(),'129','-2');edit(n);assert.throws(()=>parseReplyObject(n),String(edit));}
+ assert.throws(()=>parseReplyObject(openStep(fixture(),'130','0')),code('BadReply'));
  const f=openStep(fixture(),'129','-2');editBytes(f,'10',(b,d)=>d.setBigUint64(4832,1n,true));assert.throws(()=>parseReplyObject(f),code('EvidenceMismatch'));
 });
-test('open transition: exactly the asked province, the ring seed and one fund change; nothing of the village or march',()=>{
+test('open transition: exactly the asked province (fresh chain header), the ring seed and one fund change; nothing of the village or march',()=>{
  const a=fixture();
  assert.equal(checkTransition(a,{kind:'open_province',rev:0,p:'129',q:'-2'},openStep(a,'129','-2'),a),'ok');
- const bad=[
-  ['BadOpen',n=>{n.clock={unix:'1790448508',bell:6};}],
-  ['BadOpen',n=>{n.economy.harvests=1;}],
-  ['BadOpen',n=>{n.host.currentMilli--;}],
-  ['BadOpen',n=>editBytes(n,'01',b=>{b[540]^=1;})],                       // the holding moved under an opening (an upkeep byte no summary reports)
-  ['BadOpen',n=>editBytes(n,'08',b=>{b[100]^=1;})],                       // a second fund changed
-  ['BadOpen',n=>{n.evidence.accounts.find(x=>x.keyHex==='07'.repeat(32)).lamports=String(BigInt(FUND_LAMPORTS)-1n);}], // the fund paid the wrong amount
-  ['BadOpen',n=>{n.returned.creditedUnits=1;}],
- ];
- for(const [want,edit] of bad){const n=openStep(a,'129','-2');edit(n);assert.throws(()=>checkTransition(a,{kind:'open_province',rev:0,p:'129',q:'-2'},n,a),code(want),String(edit));}
- // a reply for another coordinate than the one asked
+ for(const [want,edit] of [['BadOpen',n=>{n.clock={unix:String(BigInt(n.clock.unix)+1n),bell:6};}],['BadOpen',n=>{n.economy.harvests=1;}],['BadOpen',n=>{n.host.currentMilli--;}],['BadOpen',n=>editBytes(n,'01',b=>{b[540]^=1;})],
+  ['BadOpen',n=>editBytes(n,'08',b=>{b[100]^=1;})],['BadOpen',n=>{accountOf(n,'07'.repeat(32)).lamports=String(BigInt(FUND_LAMPORTS)-1n);}],['BadOpen',n=>{n.returned.creditedUnits=1;}],
+  // a new province's chain header is the fresh one (seq 0, zero head): it starts with no receipt behind it
+  ['ReceiptChainEnd',n=>editBytes(n,'10',(b,d)=>d.setBigUint64(24,1n,true))],['ReceiptChainEnd',n=>editBytes(n,'10',b=>{b[40]=1;})],
+ ]){const n=openStep(a,'129','-2');edit(n);assert.throws(()=>checkTransition(a,{kind:'open_province',rev:0,p:'129',q:'-2'},n,a),code(want),String(edit));}
  assert.throws(()=>checkTransition(a,{kind:'open_province',rev:0,p:'129',q:'-3'},openStep(a,'129','-2'),a),code('BadOpen'));
- // a refused opening changes nothing at all
- const refused=structuredClone(a);Object.assign(refused,{status:'refused',error:'LAND_DUPLICATE_OPEN',command:'open_province'});
- assert.equal(checkTransition(a,{kind:'open_province',rev:0,p:'129',q:'0'},refused,a),'refused');
- const dirty=structuredClone(refused);dirty.land.opened=1;assert.throws(()=>checkTransition(a,{kind:'open_province',rev:0,p:'129',q:'0'},dirty,a));
- // economy and phase steps may not touch the land
- const step=economyStep(a,'harvest');step.land.provincesCreated=4;assert.throws(()=>checkTransition(a,{kind:'harvest',rev:0},step,a));
- // the budget: a fourth opening removes open_province from the allowed list, a fifth is not offered
+ const r=refused(a,'open_province','LAND_DUPLICATE_OPEN');assert.equal(checkTransition(a,{kind:'open_province',rev:0,p:'129',q:'0'},r,a),'refused');
  let s=a;for(const [i,[p,q]] of [['129','-2'],['129','-3'],['128','1'],['127','2']].entries()){const n=openStep(s,p,q,{key:`1${i}`,wedge:i});assert.equal(checkTransition(s,{kind:'open_province',rev:s.revision,p,q},n,a),'ok');s=n;}
  assert.ok(!s.allowed.includes('open_province'));
- assert.throws(()=>checkTransition(s,{kind:'open_province',rev:s.revision,p:'126',q:'3'},openStep(s,'126','3',{key:'15',wedge:4}),a));
- // reset back to the installed baseline
  const reset=structuredClone(a);Object.assign(reset,{command:'reset',revision:s.revision+1});assert.equal(checkTransition(s,{kind:'reset',rev:s.revision},reset,a),'ok');
 });
 test('open commands carry only the shown revision and canonical coordinate strings',()=>{
  assert.equal(commandLine(commandFromBody('open',{expectedRevision:3,p:'129',q:'-2'})),'open_province 3 129 -2');
- assert.equal(commandLine(commandFromBody('open',{expectedRevision:0,p:'-4611686018427387904',q:'4611686018427387904'})),'open_province 0 -4611686018427387904 4611686018427387904');
- for(const b of [{expectedRevision:0,p:129,q:'-2'},{expectedRevision:0,p:'0129',q:'-2'},{expectedRevision:0,p:'129',q:'-02'},{expectedRevision:0,p:'-0',q:'0'},
-  {expectedRevision:0,p:'129'},{expectedRevision:0,p:'129',q:'-2',ring:'129'},{expectedRevision:0,p:'4611686018427387905',q:'0'},{expectedRevision:-1,p:'129',q:'-2'},{p:'129',q:'-2'}])
+ for(const b of [{expectedRevision:0,p:129,q:'-2'},{expectedRevision:0,p:'0129',q:'-2'},{expectedRevision:0,p:'-0',q:'0'},{expectedRevision:0,p:'129'},{expectedRevision:0,p:'129',q:'-2',ring:'129'},{expectedRevision:0,p:'4611686018427387905',q:'0'},{p:'129',q:'-2'}])
   assert.throws(()=>commandFromBody('open',b),code('BadCommand'),JSON.stringify(b));
- assert.throws(()=>commandFromBody('action',{expectedRevision:0,action:'open_province'}),code('BadCommand'));
 });
 test('controller opening is serialized and judged; a stale duplicate never reaches the host',async()=>{
  const a=fixture(),b=openStep(a,'129','-2');let calls=[];
- const bridge={alive:true,close(){},async exchange(line){calls.push(line);return JSON.stringify(calls.length===1?a:b);}};
- const c=createController({bridge});await c.start();
+ const c=createController({bridge:{alive:true,close(){},async exchange(line){calls.push(line);return JSON.stringify(calls.length===1?a:b);}}});await c.start();
  const cmd=commandFromBody('open',{expectedRevision:0,p:'129',q:'-2'});
  const [one,two]=await Promise.all([c.mutate(cmd),c.mutate(cmd)]);
+ assert.equal(one.status,200);assert.equal(two.status,409);assert.deepEqual(calls,['get','open_province 0 129 -2']);
+});
+
+// ------------------------------------------------------------------ v4: the chosen march
+test('depart_route commands carry only the shown revision and the quoted directions',()=>{
+ assert.equal(commandLine(commandFromBody('depart_route',{expectedRevision:2,dirs:CHOSEN_DIRS})),`depart_route 2 ${CHOSEN_DIRS}`);
+ assert.ok(commandLine({kind:'depart_route',rev:1000000,dirs:'5'.repeat(32)}).length<=128);
+ for(const b of [{expectedRevision:0},{dirs:'2'},{expectedRevision:0,dirs:''},{expectedRevision:0,dirs:'6'},{expectedRevision:0,dirs:'2'.repeat(33)},{expectedRevision:0,dirs:'2 2'},{expectedRevision:-1,dirs:'2'},
+  {expectedRevision:0,dirs:'2',p:'129',q:'-2'},{expectedRevision:0,dirs:'2',tile:60},{expectedRevision:0,dirs:2},{expectedRevision:'0',dirs:'2'}])
+  assert.throws(()=>commandFromBody('depart_route',b),code('BadCommand'),JSON.stringify(b));
+ assert.throws(()=>commandLine({kind:'depart_route',rev:0,dirs:'2 extra'}));
+});
+test('the chosen march: every step verifies, the selection is not the fixed route, the recorded destination stays untouched',()=>{
+ const F=chosenFlow();
+ F.slice(1).forEach((n,i)=>assert.equal(checkTransition(F[i],cmdFor(F[i],CHOSEN_CMDS[i]),n,fixture()),'ok',CHOSEN_CMDS[i]));
+ const b=F[1].marchBinding;
+ assert.equal(b.kind,'chosen');assert.equal(b.directions,CHOSEN_DIRS);assert.deepEqual([b.destination.p,b.destination.q],['129','-2']);
+ assert.notDeepEqual({p:b.destination.p,q:b.destination.q},F[1].map.destination,'not the recorded destination');
+ assert.equal(F[1].combat.enemyFixture,false);
+ assert.deepEqual(F.slice(1).map(s=>s.horizon.selectedDestinationResolvedNext),[6,6,20,21,21,24]);
+ assert.equal(F[3].map.provinces[2].history,HISTORY.PREPARED);assert.equal(F[3].marchBinding.preparation.resolves,14);
+ // the recorded destination's account and summary are byte-identical from the opening to the return
+ assert.deepEqual(accountOf(F[6],F[0].map.provinces[1].accountKeyHex),accountOf(F[0],F[0].map.provinces[1].accountKeyHex));
+ assert.deepEqual(F[6].map.provinces[1],F[0].map.provinces[1]);
+ // the preparation receipts: 14 Resolves of bells 6..19 keyed by the chosen province, then the Revealed
+ const recs=F[3].evidence.recordsHex.map(decodeRecord),dest=provinceKeyHex(WORLD,'129','-2');
+ assert.deepEqual(recs.map(r=>r.kind),[...Array(14).fill(KIND.RESOLVE),KIND.REVEALED]);
+ assert.deepEqual(recs.slice(0,14).map(r=>r.bell),Array.from({length:14},(_,i)=>6+i));
+ assert.ok(recs.every(r=>r.provinceHex===dest));
+ // zero engagements and every departed troop staying are legitimate at an enemy-free province
+ assert.equal(F[4].combat.engagements,0);assert.equal(F[4].combat.arrivalSurvivorMilli,b.departedMilli);
+ assert.equal(F[6].holding.reserveUnits,F[5].holding.reserveUnits+F[6].returned.creditedUnits);
+});
+test('the economy interleaves with a chosen march without touching the map or the binding',()=>{
+ const F=chosenFlow();
+ const e=economyStep(F[1],'train');assert.equal(checkTransition(F[1],{kind:'train',rev:F[1].revision},e,fixture()),'ok');
+ const t=step(e,'settle_departure');assert.equal(checkTransition(e,{kind:'settle_departure',rev:e.revision},t,fixture()),'ok');
+ const bad=structuredClone(e);bad.marchBinding.departedMilli--;assert.throws(()=>checkTransition(F[1],{kind:'train',rev:F[1].revision},bad,fixture()),code('BadEconomy'));
+});
+test('chosen binding shape: route re-walked from the directions, provinces from the map, labels exact',()=>{
+ const F=chosenFlow(),p=i=>e=>{const n=structuredClone(F[i]);e(n);return ()=>parseReplyObject(n);};
+ for(const [want,i,e] of [
+  ['BadBindingRoute',1,n=>{n.marchBinding.destination.tile=(n.marchBinding.destination.tile+1)%61;}],
+  ['BadBindingRoute',1,n=>{n.marchBinding.steps[0].tile=3;}],
+  ['BadReply',1,n=>{n.marchBinding.directions='2'.repeat(11);}],
+  ['BadBindingRoute',1,n=>{n.marchBinding.directions='2'.repeat(11)+'3';}],
+  ['BadBindingRoute',1,n=>{n.marchBinding.provincesEntered.reverse();}],
+  ['BadBindingRoute',1,n=>{n.marchBinding.pathProvinces[0].accountKeyHex='03'.repeat(32);}],
+  ['BadBindingRoute',1,n=>{n.marchBinding.pathProvinces.pop();}],
+  ['BadBinding',1,n=>{n.marchBinding.order.labels.pop();}],
+  ['BadBinding',1,n=>{n.marchBinding.order.source='RECORDED_FIXTURE_ORDER';}],
+  ['BadBindingTrail',1,n=>{n.marchBinding.trail.push('REAL_REVEAL');}],
+  ['BadBindingTrail',3,n=>{n.marchBinding.trail.reverse();}],
+  ['BadBindingAccounts',3,n=>{n.marchBinding.accounts[0].keyHex='ee'.repeat(32);}],
+  ['BadBindingAccounts',3,n=>{n.marchBinding.accounts[1].keyHex=n.marchBinding.accounts[0].keyHex;}],
+  ['BadReply',3,n=>{n.marchBinding.accounts[0].role='payer';}],
+  ['BadPreparation',3,n=>{n.marchBinding.preparation.fromBell=7;}],
+  ['BadPreparation',3,n=>{n.marchBinding.preparation.resolves=13;}],
+  ['BadPreparation',3,n=>{n.marchBinding.preparation.labels.pop();}],
+  ['BadPreparation',3,n=>{n.marchBinding.preparation.provenance='BEACON_DERIVED';}],
+  ['BadPreparation',2,n=>{n.marchBinding.preparation=structuredClone(F[3].marchBinding.preparation);}],
+  ['BadReply',1,n=>{n.marchBinding.destination.source='fixture';}],
+  ['BadReply',1,n=>{n.combat.enemyFixture=true;}],
+  ['BadReply',1,n=>{n.horizon.selectedDestinationResolvedNext=7;}],
+  ['BadReply',0,n=>{n.marchBinding=structuredClone(F[1].marchBinding);}],
+  ['BadReply',1,n=>{n.marchBinding=null;}],
+  ['BadReply',1,n=>{n.marchBinding.arriveBell=21;}],
+ ]) assert.throws(p(i)(e),code(want),String(e));
+ // the selected cursor is the province's own bytes
+ assert.throws(p(3)(n=>{n.map.provinces[2].resolvedNext=21;n.horizon.selectedDestinationResolvedNext=21;}),code('EvidenceMismatch'));
+ // the recorded binding names the recorded route exactly
+ const R=recordedFlow();for(const e of [n=>{n.marchBinding.destination.tile=0;},n=>{n.marchBinding.trail=['REAL_DEPART'];},n=>{n.marchBinding.kind='chosen';}]){const n=structuredClone(R[1]);e(n);assert.throws(()=>parseReplyObject(n),String(e));}
+});
+test('the live transit record carries the binding\'s root, in the phase\'s state, and is emptied once settled',()=>{
+ const F=chosenFlow(),p=(i,e)=>{const n=structuredClone(F[i]);e(n);return ()=>parseReplyObject(n);};
+ const tr=n=>accountOf(n,TRANSIT_KEY);
+ const flip=(n,i)=>{const b=fromHex(tr(n).dataHex);b[i]^=1;tr(n).dataHex=toHex(b);};
+ for(const [i,e] of [[1,n=>flip(n,210)],[1,n=>flip(n,1)],[1,n=>flip(n,9)],[1,n=>flip(n,70)],[4,n=>flip(n,120)],[1,n=>flip(n,172)],
+  [2,n=>{Object.assign(tr(n),{ownerHex:'00'.repeat(32),lamports:'0',dataHex:''});}],[5,n=>{Object.assign(tr(n),structuredClone(tr(F[4])));}]])
+  assert.throws(p(i,e),code('EvidenceMismatch'),String(e));
+ assert.equal(fromHex(tr(F[1]).dataHex).subarray(200,232).toString('hex'),F[1].marchBinding.order.rootHex);
+});
+test('chosen phase steps: exact cursors, GATED bytes, recorded destination and other provinces unchanged, accounts append-only',()=>{
+ const F=chosenFlow(),t=(i,want,edit)=>assert.throws(T(F,CHOSEN_CMDS,i,edit),code(want),String(edit));
+ t(4,'BadCursor',n=>setCursor(n,2,22));
+ t(3,'GatedChanged',n=>editBytes(n,'10',b=>{b[130]^=1;}));
+ t(6,'GatedChanged',n=>editBytes(n,'10',b=>{b[4850]^=1;})); // a trailer byte no summary reports
+ t(2,'FixtureDestinationChanged',n=>editBytes(n,'03',b=>{b[1000]^=1;}));
+ t(3,'FixtureDestinationChanged',n=>setCursor(n,1,21));
+ t(2,'IdentityChanged',n=>editBytes(n,'10',b=>{b[1000]^=1;}));
+ t(5,'AccountRemoved',n=>{n.evidence.accounts=n.evidence.accounts.filter(a=>a.keyHex!==TRANSIT_KEY);});
+ t(2,'AccountAdded',n=>{n.evidence.accounts.push({keyHex:'ef'.repeat(32),ownerHex:PROGRAM,lamports:'1',dataHex:'00'});});
+ t(3,'AccountAdded',n=>{n.evidence.accounts.push({keyHex:'ef'.repeat(32),ownerHex:PROGRAM,lamports:'1',dataHex:'00'});});
+ t(2,'LandChanged',n=>editBytes(n,'06',b=>{b[90]^=1;}));
+ t(4,'BadArrival',n=>{n.combat.arrivalSurvivorMilli=n.marchBinding.departedMilli+1;n.host.currentMilli=n.combat.arrivalSurvivorMilli;});
+ t(2,'BadBinding',n=>{n.marchBinding.departedMilli--;});
+ t(5,'BadPreparation',n=>{n.marchBinding.preparation.scoreNextBell++;});
+ t(4,'BadBindingAccounts',n=>{const a=n.marchBinding.accounts;[a[0],a[1]]=[a[1],a[0]];});
+ t(6,'BadReturn',n=>{n.returned.creditedUnits++;n.returned.creditedMilli+=1000;});
+ // another opened province stays byte-identical through the chosen march
+ const s0=openStep(openedSession(),'129','-3',{key:'11',wedge:5}),d=step(s0,'depart_route',{dirs:CHOSEN_DIRS}),tr=step(d,'settle_departure');
+ assert.equal(checkTransition(s0,{kind:'depart_route',rev:s0.revision,dirs:CHOSEN_DIRS},d,fixture()),'ok');
+ const touched=structuredClone(tr);editBytes(touched,'11',b=>{b[1000]^=1;});
+ assert.throws(()=>checkTransition(d,{kind:'settle_departure',rev:d.revision},touched,fixture()),code('IdentityChanged'));
+});
+test('chosen receipts: exact kinds, bells and provinces; every chain from the previous headers to the next; tampering refused',()=>{
+ const F=chosenFlow(),t=(i,want,edit)=>assert.throws(T(F,CHOSEN_CMDS,i,edit),code(want),String(edit));
+ const flipHex=(h,i)=>h.slice(0,2*i)+((parseInt(h.slice(2*i,2*i+2),16)^1).toString(16).padStart(2,'0'))+h.slice(2*i+2);
+ t(3,'ReceiptKinds',n=>{n.evidence.recordsHex.shift();});
+ t(3,'ReceiptKinds',n=>{n.evidence.recordsHex.splice(13,0,n.evidence.recordsHex[13]);});
+ t(3,'BadInstructions',n=>{n.evidence.recordsHex.shift();n.evidence.instructions.shift();});
+ t(3,'ReceiptChain',n=>{const r=n.evidence.recordsHex;[r[0],r[1]]=[r[1],r[0]];});
+ t(3,'ReceiptChain',n=>{n.evidence.recordsHex[5]=flipHex(n.evidence.recordsHex[5],70);});
+ t(3,'ReceiptChainEnd',n=>editBytes(n,'10',b=>{b[40]^=1;}));
+ t(2,'ReceiptChainEnd',n=>editBytes(n,'01',b=>{b[40]^=1;}));
+ t(1,'BadInstructions',n=>{n.evidence.instructions=['Depart','Depart'];});
+ t(4,'BadInstructions',n=>{n.evidence.instructions=['Gather','PostSeed','Resolve'];});
+ // the step's receipts in another order: not the step's kind sequence
+ t(4,'ReceiptKinds',n=>{n.evidence.recordsHex.reverse();});
+ // the settle_transit receipt replaced by the recorded march's (keyed to the recorded destination). Both synthetic
+ // flows have identical holding histories before it, so its holding link recomputes (seq 3); but the holding then
+ // ends at seq 3 with a head that is not the account's (the account was advanced by the chosen receipt). The holding
+ // chain is walked first, so its end mismatch is the refusal.
+ t(5,'ReceiptChainEnd',n=>{n.evidence.recordsHex=[...recordedFlow()[5].evidence.recordsHex];});
+});
+test('depart_route transition: the binding is exactly the sent directions; a recorded command cannot bind a chosen march',()=>{
+ const F=chosenFlow();
+ assert.throws(()=>checkTransition(F[0],{kind:'depart_route',rev:F[0].revision,dirs:'2'.repeat(11)},F[1],fixture()),code('BadBinding'));
+ assert.throws(()=>checkTransition(F[0],{kind:'depart',rev:F[0].revision},F[1],fixture()),code('BadTransition'));
+ const late=structuredClone(F[1]);late.clock={unix:String(BigInt(late.clock.unix)+1n),bell:late.clock.bell};assert.throws(()=>checkTransition(F[0],{kind:'depart_route',rev:F[0].revision,dirs:CHOSEN_DIRS},late,fixture()),code('BadClock'),'a departure never moves the clock');
+ // opening another province during the chosen march leaves the binding as it is
+ const o=openStep(F[2],'129','-3',{key:'12',wedge:5});assert.equal(checkTransition(F[2],{kind:'open_province',rev:F[2].revision,p:'129',q:'-3'},o,fixture()),'ok');
+ const ob=structuredClone(o);ob.marchBinding.trail.push('X');assert.throws(()=>checkTransition(F[2],{kind:'open_province',rev:F[2].revision,p:'129',q:'-3'},ob,fixture()));
+});
+test('depart_route refusals change nothing; only an unreachable one carries the host quote, never a re-route',()=>{
+ const s=openedSession(),cmd={kind:'depart_route',rev:s.revision,dirs:'2'.repeat(32)};
+ const unreach=refused(s,'depart_route','ROUTE_UNREACHABLE',{routeQuote:hostQuote(s,'2'.repeat(32))});
+ assert.equal(checkTransition(s,cmd,unreach,fixture()),'refused');
+ assert.throws(()=>parseReplyObject(refused(s,'depart_route','ROUTE_UNREACHABLE')),code('BadReply'),'the host quote is required');
+ assert.throws(()=>parseReplyObject(refused(s,'depart_route','ROUTE_UNREACHABLE',{routeQuote:hostQuote(s,'222')})),code('BadReply'),'a reachable quote is no unreachable refusal');
+ for(const e of ['ROUTE_DESTINATION_ORIGIN','ROUTE_DESTINATION_FIXTURE','ROUTE_DESTINATION_UNSUPPORTED','STALE_REVISION','BAD_PHASE','ARRIVAL_FATE_UNSUPPORTED']){
+  assert.equal(checkTransition(s,cmd,refused(s,'depart_route',e),fixture()),'refused',e);
+  assert.throws(()=>parseReplyObject(refused(s,'depart_route',e,{routeQuote:hostQuote(s,'2'.repeat(32))})),code('BadReply'),e);
+ }
+ assert.equal(checkTransition(s,cmd,refused(s,'depart_route','ROUTE_REHEARSAL_REFUSED',{refusalCode:21}),fixture()),'refused');
+ assert.throws(()=>parseReplyObject(refused(s,'depart_route','ROUTE_DESTINATION_FIXTURE',{refusalCode:21})),code('BadReply'));
+ const drift=refused(s,'depart_route','ROUTE_DESTINATION_ORIGIN');drift.phase='departed';assert.throws(()=>checkTransition(s,cmd,drift,fixture()));
+ const bound=refused(s,'depart_route','ROUTE_UNREACHABLE',{routeQuote:hostQuote(s,'2'.repeat(32))});bound.marchBinding=null;bound.host.currentMilli--;assert.throws(()=>checkTransition(s,cmd,bound,fixture()),code('BadTransition'));
+});
+test('reset after a chosen march restores the fresh baseline: no binding, no opened province, no selected cursor',()=>{
+ const F=chosenFlow(),last=F.at(-1);
+ const reset=structuredClone(fixture());Object.assign(reset,{command:'reset',revision:last.revision+1});
+ assert.equal(checkTransition(last,{kind:'reset',rev:last.revision},reset,fixture()),'ok');
+ const kept=structuredClone(reset);kept.economy.harvests=1;assert.throws(()=>checkTransition(last,{kind:'reset',rev:last.revision},kept,fixture()),code('BadReset'));
+});
+test('at most 96 persistent images: the browser\'s bound is the host\'s',()=>{
+ assert.equal(MAX_ACCOUNTS,96);
+ const r=fixture();while(r.evidence.accounts.length<96)r.evidence.accounts.push({keyHex:(r.evidence.accounts.length).toString(16).padStart(2,'0').repeat(31)+'ff',ownerHex:'00'.repeat(32),lamports:'0',dataHex:''});
+ assert.equal(parseReplyObject(r).evidence.accounts.length,96);
+ r.evidence.accounts.push({keyHex:'fe'.repeat(32),ownerHex:'00'.repeat(32),lamports:'0',dataHex:''});
+ assert.throws(()=>parseReplyObject(r),code('BadReply'));
+});
+test('controller: a chosen departure is serialized and judged; a stale duplicate never reaches the host',async()=>{
+ const a=fixture(),o=openStep(a,'129','-2',{wedge:5}),d=step(o,'depart_route',{dirs:CHOSEN_DIRS});let calls=[];
+ const replies=[a,o,d];
+ const c=createController({bridge:{alive:true,close(){},async exchange(line){calls.push(line);return JSON.stringify(replies[calls.length-1]);}}});await c.start();
+ assert.equal((await c.mutate(commandFromBody('open',{expectedRevision:0,p:'129',q:'-2'}))).status,200);
+ const cmd=commandFromBody('depart_route',{expectedRevision:1,dirs:CHOSEN_DIRS});
+ const [one,two]=await Promise.all([c.mutate(cmd),c.mutate(cmd)]);
  assert.equal(one.status,200);assert.equal(one.body.outcome,'ok');assert.equal(two.status,409);
- assert.deepEqual(calls,['get','open_province 0 129 -2']);
- assert.equal(c.view().reply.land.opened,1);
+ assert.deepEqual(calls,['get','open_province 0 129 -2',`depart_route 1 ${CHOSEN_DIRS}`]);
+ assert.equal(c.view().reply.marchBinding.kind,'chosen');
 });
-test('controller refuses a first state that already carries opened land',async()=>{
- const opened=openStep(fixture(),'129','-2');Object.assign(opened,{command:'get',revision:0});opened.evidence.instructions=[];
- const c=createController({bridge:{alive:true,close(){},async exchange(){return JSON.stringify(opened);}}});
- assert.equal((await c.start()).status,502);assert.equal(c.phase,'uncertain');
-});
-test('browser open intent posts the coordinate to /api/open and adopts the judged opening',async()=>{
- const a=fixture(),b=openStep(a,'129','-2');let calls=[];
- const view=r=>({status:200,text:async()=>JSON.stringify({outcome:'ok',view:{v:1,protocol:PROTOCOL,mode:'local-simulation',mockAuth:true,phase:'ready',uncertain:false,revision:r.revision,reply:r,lastResult:{command:'open_province',outcome:'ok',code:null,revision:r.revision}}})});
- const client=createClient({fetchFn:async(path,init)=>{calls.push([path,init.method,init.body??null]);return init.method==='GET'?response(a):view(b);}});
+test('browser chosen send: only from the current reachable quote, its exact directions and revision; the binding must be that quote',async()=>{
+ const s=openedSession(),d=step(s,'depart_route',{dirs:CHOSEN_DIRS});let calls=[];
+ const mk=(postReply)=>createClient({fetchFn:async(path,init)=>{calls.push([path,init.method,init.body??null]);if(init.method==='GET')return response(s);if(path==='/api/quote')return quoteResponse(hostQuote(s,JSON.parse(init.body).dirs),s);return postReply();}});
+ const client=mk(()=>posted(d,'ok'));
  await client.refresh();
- const r=await client.submit({kind:'open_province',p:'129',q:'-2'});
- assert.equal(r.ok,true);assert.equal(client.snapshot.state.land.opened,1);
- assert.deepEqual(calls[1],['/api/open','POST','{"expectedRevision":0,"p":"129","q":"-2"}']);
- // a malformed coordinate never leaves the browser
- assert.equal((await client.submit({kind:'open_province',p:'1e3',q:'0'})).reason,'input');assert.equal(calls.length,2);
+ // no quote, or a direct submit, sends nothing
+ assert.equal((await client.departRoute()).reason,'input');
+ assert.equal((await client.submit({kind:'depart_route',dirs:CHOSEN_DIRS})).reason,'input');
+ assert.equal(calls.length,1);
+ // an unreachable quote is not sendable
+ await client.quote('2'.repeat(32));assert.equal(client.snapshot.quote.reachable,false);
+ assert.equal((await client.departRoute()).reason,'input');assert.equal(calls.length,2);
+ // a reachable quote: one POST of exactly {expectedRevision, dirs}, judged, bound to that quote
+ await client.quote(CHOSEN_DIRS);
+ const q=client.snapshot.quote;
+ const r=await client.departRoute();
+ assert.equal(r.ok,true);
+ assert.deepEqual(calls.at(-1),['/api/depart_route','POST',`{"expectedRevision":${s.revision},"dirs":"${CHOSEN_DIRS}"}`]);
+ assert.ok(bindingMatchesQuote(client.snapshot.state.marchBinding,CHOSEN_DIRS,q));
+ assert.equal(client.snapshot.quote,null,'the quote is consumed by the state change');
+ // a reply whose binding is not the quoted route fails closed (nothing stale shown, never retried)
+ const forged=hostQuote(s,CHOSEN_DIRS);forged.end={...forged.end,tile:(forged.end.tile+1)%61};forged.steps.at(-1).tile=forged.end.tile;
+ const c3=createClient({fetchFn:async(path,init)=>{if(init.method==='GET')return response(s);if(path==='/api/quote')return quoteResponse(forged,s);return posted(d,'ok');}});
+ await c3.refresh();await c3.quote(CHOSEN_DIRS);assert.equal((await c3.departRoute()).reason,'unknown');assert.equal(c3.snapshot.state,null);
+ // an unreachable refusal shows the host's quote of the refused directions; nothing else changes, nothing is re-sent
+ const unreach=refused(s,'depart_route','ROUTE_UNREACHABLE',{routeQuote:hostQuote(s,'2'.repeat(32))});
+ let posts=0;const c4=createClient({fetchFn:async(path,init)=>{if(init.method==='GET')return response(s);if(path==='/api/quote')return quoteResponse(hostQuote(s,CHOSEN_DIRS),s);posts++;return posted(unreach,'refused');}});
+ await c4.refresh();await c4.quote(CHOSEN_DIRS);const r4=await c4.departRoute();
+ assert.equal(r4.reason,'refused');assert.equal(posts,1);assert.equal(c4.snapshot.state.revision,s.revision);assert.equal(c4.snapshot.quote.reachable,false);assert.equal(c4.snapshot.notice.code,'ROUTE_UNREACHABLE');
+ // any other mutation invalidates the quote: the send is then refused locally
+ const h=economyStep(s,'harvest');const c5=createClient({fetchFn:async(path,init)=>{if(init.method==='GET')return response(s);if(path==='/api/quote')return quoteResponse(hostQuote(s,CHOSEN_DIRS),s);return posted(h,'ok');}});
+ await c5.refresh();await c5.quote(CHOSEN_DIRS);await c5.submit({kind:'harvest'});assert.equal(c5.snapshot.quote,null);assert.equal((await c5.departRoute()).reason,'input');
 });
