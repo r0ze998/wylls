@@ -40,8 +40,11 @@ async fn get(addr: SocketAddr, path: &str) -> (u16, Value) {
     let mut buf = vec![];
     s.read_to_end(&mut buf).await.unwrap();
     let a = fclient::http::parse_response(&buf).unwrap();
-    let body = serde_json::from_slice(&a.body)
-        .unwrap_or_else(|_| json!({"nonJson": String::from_utf8_lossy(&a.body)}));
+    // A binary answer (an overview) is kept whole, base64.
+    let body = serde_json::from_slice(&a.body).unwrap_or_else(|_| {
+        use base64::Engine;
+        json!({"b64": base64::engine::general_purpose::STANDARD.encode(&a.body)})
+    });
     (a.status, body)
 }
 
@@ -59,12 +62,19 @@ fn paths() -> Vec<String> {
     v
 }
 
-/// Reads every stage through one herald, growing as the chain does.
-async fn read_stages() -> Value {
-    let dir = tmp("ws19-map");
-    let (txs, ends) = growth::map_growth();
+/// Reads every stage through one herald, growing as the chain does:
+/// `ends[k]` is where stage `names[k]` ends in `txs`.
+async fn serve_stages(
+    txs: Vec<fclient::ports::TxRecord>,
+    ends: &[usize],
+    names: &[&str],
+    program: solana_address::Address,
+    season: u64,
+    paths: &[String],
+) -> Map<String, Value> {
+    let dir = tmp(&format!("ws19-map-{season}"));
     let (diffs, _) = broadcast::channel(64);
-    let cfg = IngestCfg::new(&dir, fixture::program(), fixture::SEASON_ID);
+    let cfg = IngestCfg::new(&dir, program, season);
     let mut ing = Ingest::open(cfg.clone(), diffs.clone()).unwrap();
     let app = App::new(
         ing.fold.clone(),
@@ -83,18 +93,32 @@ async fn read_stages() -> Value {
     tokio::spawn(server::serve(l, Arc::new(app)));
     let mut src = VecSource::new(txs, 1);
     let mut out = Map::new();
-    for (stage, end) in growth::STAGES.iter().zip(ends) {
+    for (stage, &end) in names.iter().zip(ends) {
         while src.pos < end {
             ing.step(&mut src).await.unwrap();
         }
         let mut answers = Map::new();
-        for p in paths() {
-            let (status, body) = get(addr, &p).await;
-            answers.insert(p, json!({"status": status, "body": body}));
+        for p in paths {
+            let (status, body) = get(addr, p).await;
+            answers.insert(p.clone(), json!({"status": status, "body": body}));
         }
         out.insert(stage.to_string(), Value::Object(answers));
     }
     let _ = std::fs::remove_dir_all(&dir);
+    out
+}
+
+async fn read_stages() -> Value {
+    let (txs, ends) = growth::map_growth();
+    let out = serve_stages(
+        txs,
+        &ends,
+        &growth::STAGES,
+        fixture::program(),
+        fixture::SEASON_ID,
+        &paths(),
+    )
+    .await;
     json!({
         "v": 1,
         "note": "herald answers for fixture::growth (tests/ws19_map_contract.rs); regenerate with WS19_GOLDEN_WRITE=1",
@@ -222,5 +246,170 @@ async fn the_map_growth_answers_match_the_golden_and_the_world_rules() {
     assert_eq!(
         g, want,
         "the herald's answers changed: regenerate and review the golden"
+    );
+}
+
+const GOLDEN_S1: &str = concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/tests/golden/ws19-map-growth-s1.json"
+);
+
+fn s1_paths() -> Vec<String> {
+    use herald_fold::cqfixture::growth as g;
+    let mut v = vec!["/h/season".to_string(), "/h/world".to_string()];
+    v.extend((0..=g::CEILING).map(|d| format!("/h/world/ring/{d}")));
+    for (p, q) in [g::HOME, g::TARGET, (6, 0)] {
+        v.push(format!("/h/province/{p},{q}/latest"));
+    }
+    v.push(format!("/h/me/{}", g::wallet()));
+    v.push(format!("/h/holding/{},{},0.json", g::HOME.0, g::HOME.1));
+    for d in 3..=5 {
+        v.push(format!("/h/overview/{d}/latest.bin"));
+        v.push(format!("/h/overview2/{d}/latest.bin"));
+    }
+    v.push("/h/wide-index/status".into());
+    v.push("/h/world/wide".into());
+    v
+}
+
+/// The S1 growth (workstream 8's ring 4 → 5 contract): the same router,
+/// a layout-2 world, four stages.
+#[tokio::test]
+async fn the_s1_ring_4_to_5_growth_matches_the_golden_and_8s_contract() {
+    use herald_fold::cqfixture::growth as gr;
+    use permutation_rules::frontier::geometry::ProvinceCoord;
+    use permutation_rules::frontier::terrain::generate_province;
+    use sha2::{Digest, Sha256};
+
+    // 8's GEOMETRY (growth-route.mjs) from the same rule the fixture writes.
+    for ((p, q), sites, mask, terrain) in [
+        (
+            (4, 0),
+            [4u8, 33, 49, 53, 0, 11, 13, 17, 26, 28, 38, 43],
+            2305843009188528127u64,
+            "de18bbc8320f96db3c9f0f222b91292d49d92b5f28789ab8c2e7536b69333f53",
+        ),
+        (
+            (5, 0),
+            [18, 28, 45, 30, 53, 1, 4, 17, 48, 12, 35, 50],
+            2305843009213693951,
+            "ab335170b74b22b6c14efb7864f645e721bc97e15617efb1fae788b55858bb51",
+        ),
+    ] {
+        let c = ProvinceCoord::new(p, q);
+        let t = generate_province(&gr::ring_seed(c.ring() as u16), c);
+        assert_eq!(t.sites, sites, "({p},{q}) sites");
+        let m = (0..61u8)
+            .filter(|&i| t.passable(i))
+            .fold(0u64, |m, i| m | 1 << i);
+        assert_eq!(m, mask, "({p},{q}) passable mask");
+        let bytes: Vec<u8> = t
+            .terrain
+            .iter()
+            .map(|x| {
+                frontier_abi::clash_model::TERRAINS
+                    .iter()
+                    .position(|y| y == x)
+                    .unwrap_or(0) as u8
+            })
+            .collect();
+        assert_eq!(
+            hex::encode(Sha256::digest(&bytes)),
+            terrain,
+            "({p},{q}) terrain"
+        );
+    }
+
+    let (txs, ends) = gr::map_growth();
+    let out = serve_stages(
+        txs,
+        &ends,
+        &gr::STAGES,
+        gr::program(),
+        gr::SEASON_ID,
+        &s1_paths(),
+    )
+    .await;
+    let g = json!({
+        "v": 1,
+        "note": "herald answers for cqfixture::growth, workstream 8's S1 ring 4 -> 5 contract (tests/ws19_map_contract.rs); regenerate with WS19_GOLDEN_WRITE=1",
+        "wallet": gr::wallet().to_string(),
+        "program": gr::program().to_string(),
+        "season": gr::SEASON_ID.to_string(),
+        "host": gr::host().to_string(),
+        "stages": out,
+    });
+    if std::env::var("WS19_GOLDEN_WRITE").is_ok() {
+        std::fs::write(GOLDEN_S1, serde_json::to_string_pretty(&g).unwrap() + "\n").unwrap();
+    }
+    let want = [
+        ("before", 4, 5, 5, vec![1, 6, 12, 18, 24]),
+        ("extended", 5, 5, 5, vec![1, 6, 12, 18, 24]),
+        ("opened", 5, 6, 5, vec![1, 6, 12, 18, 24, 0]),
+        ("grown", 5, 6, 6, vec![1, 6, 12, 18, 24, 30]),
+    ];
+    for (s, r_max, opened, seeded, counts) in want {
+        let se = body(&g, s, "/h/season");
+        let w = body(&g, s, "/h/world");
+        assert_eq!(se["rMax"], json!(r_max), "{s}");
+        assert_eq!(w["rMax"], json!(r_max), "{s}");
+        assert_eq!(se["ringsOpened"], json!(opened), "{s}");
+        assert_eq!(w["ringsOpened"], json!(opened), "{s}");
+        assert_eq!(se["ringProvinces"], json!(counts), "{s}");
+        assert_eq!(se["rMaxCeiling"], json!(gr::CEILING), "{s}");
+        assert_eq!(w["rMaxCeiling"], json!(gr::CEILING), "{s}");
+        assert_eq!(se["rMaxHard"], json!(128), "{s}");
+        assert_eq!(se["placement"], json!(0), "{s}");
+        assert_eq!(se["heartlandMaxRing"], json!(3), "{s}");
+        let rings: Vec<(u64, String)> = se["rings"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|r| (r["d"].as_u64().unwrap(), r["seed"].as_str().unwrap().into()))
+            .collect();
+        let expect: Vec<(u64, String)> = (0..seeded)
+            .map(|d| (d as u64, hex::encode(gr::ring_seed(d))))
+            .collect();
+        assert_eq!(rings, expect, "{s}: seeded rings with sha256(\"ring\" + d)");
+        assert_eq!(status(&g, s, "/h/province/4,0/latest"), 200, "{s}");
+        assert_eq!(
+            status(&g, s, "/h/province/5,0/latest"),
+            if s == "grown" { 200 } else { 404 },
+            "{s}"
+        );
+        assert_eq!(status(&g, s, "/h/province/6,0/latest"), 404, "{s}");
+        let me = body(&g, s, &format!("/h/me/{}", gr::wallet()));
+        assert_eq!(
+            me["holdings"].as_array().map(|a| a.len()),
+            Some(1),
+            "{s}: {me}"
+        );
+        let hosts = me["hosts"].as_array().cloned().unwrap_or_default();
+        assert!(
+            hosts
+                .iter()
+                .any(|h| h.to_string().contains(&gr::host().to_string())),
+            "{s}: the wallet's host on (4,0): {hosts:?}"
+        );
+    }
+    assert_eq!(status(&g, "extended", "/h/world/ring/5"), 404);
+    assert_eq!(
+        body(&g, "opened", "/h/world/ring/5")["seed"],
+        json!("requested")
+    );
+    assert_eq!(
+        body(&g, "grown", "/h/world/ring/5")["provinces"]
+            .as_array()
+            .map(|a| a.len()),
+        Some(30)
+    );
+
+    let want: Value = serde_json::from_str(
+        &std::fs::read_to_string(GOLDEN_S1).expect("the golden (WS19_GOLDEN_WRITE=1 writes it)"),
+    )
+    .unwrap();
+    assert_eq!(
+        g, want,
+        "the herald's S1 answers changed: regenerate and review the golden"
     );
 }

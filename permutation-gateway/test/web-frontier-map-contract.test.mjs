@@ -13,6 +13,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
+import { createHash } from 'node:crypto';
 import { createHerald } from '../../permutation-server/web/frontier/herald.mjs';
 import * as W from '../../permutation-server/web/frontier/map/world.mjs';
 import { seasonAddresses } from '../../permutation-server/web/frontier/faddr.mjs';
@@ -122,4 +123,91 @@ test('the wide world and the wide index: explicit unavailability on a herald bui
   const wi = await h.wideIndexStatus();
   const wantIx = GOLDEN.stages.S2['/h/wide-index/status'];
   if (wantIx.status !== 200) { assert.equal(wi.ok, false); assert.match(wi.code, /^WideIndex|^[A-Za-z0-9]+$/); }
+});
+
+// ------------------------------------------------------------------ S1: ring 4 → 5 with ExtendFrontier (8's contract)
+// tests/golden/ws19-map-growth-s1.json: herald cqfixture::growth (layout 2, season 71, ceiling 6) through the same
+// router; workstream 8's stages and coordinates (permutation-gateway/test/fixtures/frontier/growth-route.mjs on
+// claude/festive-tesla-iwwc5t: before / extended / opened / grown, (4,0) → (5,0)).
+const S1 = JSON.parse(readFileSync(new URL('../../frontier-node/crates/herald/tests/golden/ws19-map-growth-s1.json', import.meta.url), 'utf8'));
+const S1_STAGES = ['before', 'extended', 'opened', 'grown'];
+const S1_PLACE = {
+  before:   { '4,0': 'open', '5,0': 'extendable', '6,0': 'extendable', '7,0': 'beyondCeiling' },
+  extended: { '4,0': 'open', '5,0': 'unopened',   '6,0': 'extendable', '7,0': 'beyondCeiling' },
+  opened:   { '4,0': 'open', '5,0': 'pending',    '6,0': 'extendable', '7,0': 'beyondCeiling' },
+  grown:    { '4,0': 'open', '5,0': 'open',       '6,0': 'extendable', '7,0': 'beyondCeiling' },
+};
+// 8's GEOMETRY: what the rules give both sides of the old edge.
+const S1_GEOMETRY = {
+  '4,0': { sites: [4, 33, 49, 53, 0, 11, 13, 17, 26, 28, 38, 43], passable: 2305843009188528127n, terrainSha256: 'de18bbc8320f96db3c9f0f222b91292d49d92b5f28789ab8c2e7536b69333f53' },
+  '5,0': { sites: [18, 28, 45, 30, 53, 1, 4, 17, 48, 12, 35, 50], passable: 2305843009213693951n, terrainSha256: 'ab335170b74b22b6c14efb7864f645e721bc97e15617efb1fae788b55858bb51' },
+};
+
+function s1Herald(stage) {
+  const answers = S1.stages[stage];
+  const asked = [];
+  const f = async url => {
+    const path = new URL(url, 'http://h').pathname;
+    asked.push(path);
+    const a = answers[path] ?? { status: 404, body: { ok: false, code: 'NotFound' } };
+    const body = a.body?.b64 !== undefined ? Buffer.from(a.body.b64, 'base64') : JSON.stringify(a.body);
+    return new Response(body, { status: a.status, headers: { 'content-type': a.body?.b64 !== undefined ? 'application/octet-stream' : 'application/json' } });
+  };
+  const h = createHerald({ fetch: f, seasonId: S1.season });
+  h.pin(S1.season, seasonAddresses(S1.program, BigInt(S1.season)));
+  return { h, asked };
+}
+
+test('S1: the layout-2 Season decodes, and the page\'s world follows before → extended → opened → grown', async () => {
+  const FS = {};
+  for (const stage of S1_STAGES) {
+    const { h } = s1Herald(stage);
+    const s = await h.season();
+    assert.ok(s.ok, `${stage}: ${s.code} ${s.message ?? ''}`);
+    assert.equal(s.season.layoutVersion, 2, stage);
+    W.applySeasonRecord(FS, s.record, { herald: h });
+    await tick(); await tick();
+    assert.equal(FS.world.rMaxCeiling, 6, stage);
+    for (const [pq, want] of Object.entries(S1_PLACE[stage])) {
+      const [p, q] = pq.split(',').map(Number);
+      assert.equal(W.placeNow(FS, p, q), want, `${stage} (${pq})`);
+    }
+    const seed5 = s.record.rings.find(r => r.d === 5)?.seed ?? null;
+    assert.equal(seed5 !== null, stage === 'grown', `${stage}: ring 5's seed listed only once revealed`);
+    if (seed5) assert.equal(seed5, createHash('sha256').update('ring5').digest('hex'));
+  }
+});
+
+test('S1: Provinces (4,0) and (5,0) decode at layout 2 with 8\'s sites, passable mask and terrain', async () => {
+  for (const stage of S1_STAGES) {
+    const { h } = s1Herald(stage);
+    for (const key of ['4,0', '5,0']) {
+      const [p, q] = key.split(',').map(Number);
+      const r = await h.province(p, q);
+      if (key === '5,0' && stage !== 'grown') { assert.equal(r.code, 'NotFound', `${stage} ${key}`); continue; }
+      assert.ok(r.ok, `${stage} ${key}: ${r.code} ${r.message ?? ''}`);
+      const pv = r.province;
+      const want = S1_GEOMETRY[key];
+      assert.deepEqual([...pv.sites].slice(0, pv.siteCount ?? 12), want.sites, `${stage} ${key} sites`);
+      assert.equal(BigInt(pv.passableMask), want.passable, `${stage} ${key} passable`);
+      assert.equal(createHash('sha256').update(Uint8Array.from(pv.terrain)).digest('hex'), want.terrainSha256, `${stage} ${key} terrain`);
+    }
+  }
+});
+
+test('S1: me names the wallet\'s Holding at (4,0) and its host on tile 0; overviews of rings 3–5 decode', async () => {
+  for (const stage of S1_STAGES) {
+    const { h } = s1Herald(stage);
+    const me = await h.me(S1.wallet);
+    assert.ok(me.ok, `${stage}: ${me.code} ${me.message ?? ''}`);
+    assert.deepEqual([me.holdings[0].p, me.holdings[0].q, me.holdings[0].site], [4, 0, 0], stage);
+    const host = me.record.hosts.find(x => x.id === S1.host);
+    assert.ok(host, stage);
+    assert.deepEqual([host.province, host.tile], [[4, 0], 0], stage);
+    for (const d of [3, 4, 5]) {
+      const o = await h.overview2(d);
+      if (d === 5 && stage !== 'grown') { assert.equal(o.ok, false, `${stage}: ring ${d}`); continue; }
+      assert.ok(o.ok, `${stage} ring ${d}: ${o.code} ${o.message ?? ''}`);
+    }
+  }
 });
