@@ -2911,3 +2911,41 @@ checkpoint の `95b0ab225ca9e9e626941b51981df2240198d91c`（tree `89a64830da3991
 - scan の `--check` は exit 0。§27.8 の digest の仕組みが、設計どおり stale を捕まえ、再審査させた例になる。
 - 5461e842（⑦ 9c23282d の merge）：server.mjs と ws07-grow が 9c23282d と一致する（§29.14）。
 - 記録は `logs/phase23/ws08-ws20-5e0f.txt`。
+
+## 29.16 ⑦ 4f60a629（seasonWith、ws07-grow-r5）と ⑲ 15b4c0ae（map の契約の golden）
+
+### ⑦ 4f60a629
+- 対象：⑦ `4f60a629075bc20859a71e5413298d293187bc6b`（tree `e3dac524…`、親 d7dd5ffc = ⑧ 6507c519 の merge）。product の code の変更は無い。
+- **(a) 既定で byte が同じか**：成り立つ。
+  - `ringOpen(d)` は `d < seasonNow().rings.length` になった。既定では fixture の record の rings は 3 つなので、`d <= 2` と同じ。
+  - `seasonWith` が null なら、seasonNow は前と同じものを返す。`after()` で null に戻す。
+  - ⑯ の実行で、ws07-grow（既定の sha256 `8e00cf59…` を、未設定のときと、設定して外した後に確かめる）は **3/3**。
+  - 注意：`ringOpen` は rings の一覧が 0 から隙間なく並ぶことを前提にしている。⑧ の withGrowth はそうなっているので、今は問題ない。
+- **(b) 主張の範囲**：先頭の comment に、⑦ の言うとおりの範囲が書かれていて、誇張は無い。
+  - 確かめているのは、place、inspector の文、route だけ。
+  - owner と overview は合成のもので、⑲ の golden ではない。
+  - (4,0) の host と order card は無い。何も封印・署名・送信しない。
+- **⑯ の実行**（full Chromium、repo の no-keys-guard）:
+  - ws07-grow-r5：⑦ が commit したまま（⑧ 6507c519 の fixture）で **2/2**。
+  - **④ の今の fixture（⑧ 4eeb6c7f の growth-route.mjs。ring 0〜3 の seed が PSF-RING の規則になった）に一時的に差し替えても 2/2**。元に戻した。統合しても通る見込み。
+- 文書の注意：ws07-grow-r5 の先頭の「seed sha256("ring"+d)」は、⑧ 4eeb6c7f 以降、ring 4 以上についてだけ正しい。
+- 記録は `logs/phase23/ws07-ws19-4f60-15b4.txt`。
+
+### ⑲ 15b4c0ae
+- 対象：⑲ `15b4c0ae9b7114c567d76db6fa6017c0b3961016`（tree `a9931155…`、caeb1b74 の上の 2 commit。試験と fixture だけ）。
+- **鍵の経路を避けているか**：避けている。
+  - scan の `--check` は exit 0。Node の試験は list に載っておらず、`--covers` も通る。
+  - 試験は golden の上の stub の fetch、herald.mjs、map/world.mjs、faddr の公開の with-seed PDA だけを使う。
+  - ⑯ が repo の guard と hook v2 の下で流して **9/9**、hook の記録は 0 件。
+  - Rust の試験と 2 つの fixture に、鍵の API の名前は無い（grep）。⑯ は Rust を流していない。
+- **golden の assert が herald と画面の食い違いを隠していないか**：1 か所、空の assert がある。
+  - wide index の試験の `assert.match(wi.code, /^WideIndex|^[A-Za-z0-9]+$/)` は、2 つ目の選択肢がどんな英数字の code にも当たるので、何も確かめていない。
+  - herald の status を見るなら、golden の body.code と完全一致させるのがよい。
+  - Rust の側は、golden を既定で比べ、`WS19_GOLDEN_WRITE=1` のときだけ書き直す。黙って書き換わることはない。
+- **chain ではありえない状態**:
+  - ⑲ が書いているとおり、genesis の ring 0〜3 の seed が、program の `sha256("PSF-RING" ‖ genesis_seed ‖ le16 d)` ではなく `sha256("ring"+d)` になっている。
+  - **⑧ は 4eeb6c7f（④ に入った）でこれを program の規則に直したので、⑧ と ⑲ の fixture は ring 0〜3 で食い違うようになった**。ring 4〜5 の terrain と route は影響を受けない。
+- **⑧ の固定値との照合**:
+  - ⑲ の S1 の fixture は、Province の terrain・sites・passable mask を Rust の `permutation_rules::frontier::terrain::generate_province`（ring seed と座標から）で作る。
+  - Node の試験は、それを ⑧ の GEOMETRY（wasm の kernel から固定した値）と比べて一致した。
+  - したがって、§29.13 と §29.15 で「Rust との照合が無い」とした ⑧ の固定値は、⑲ のこの試験が入れば、Rust の規則と wasm の kernel の両方で確かめられることになる（ring 4 と 5 の (4,0) と (5,0) について）。
