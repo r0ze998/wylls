@@ -132,6 +132,13 @@ pub struct EngineParams {
     /// D and N writes with a version in flight: slots between versions at
     /// the class cap.
     pub cap_resend_slots: u64,
+    /// W writes: at most this many versions whose status is unknown and
+    /// whose blockhash can still land at once (⑱, owner decision
+    /// 2026-11-05). Versions of one write are alternatives: once one
+    /// lands, every other that lands later pays its fee for an
+    /// `AlreadyDone`. A new version waits until an older one settles or
+    /// expires. `0` keeps the old every-slot ladder.
+    pub max_unknown_w_versions: u32,
 }
 
 impl Default for EngineParams {
@@ -148,8 +155,21 @@ impl Default for EngineParams {
             max_versions: 64,
             d_resend_slots: 2,
             cap_resend_slots: 16,
+            // Off here (the engine's own tests keep the every-slot ladder);
+            // the keeper sets it from `keeper.toml` (default 2).
+            max_unknown_w_versions: 0,
         }
     }
+}
+
+/// Versions that can still land: status unknown and sent within the
+/// blockhash validity (`EXPIRY_SLOTS`) of `slot`. `versions` gives each
+/// version's `sent_slot` and whether its status is known.
+pub fn live_unknown_versions(versions: impl IntoIterator<Item = (u64, bool)>, slot: u64) -> usize {
+    versions
+        .into_iter()
+        .filter(|&(sent, settled)| !settled && slot <= sent.saturating_add(EXPIRY_SLOTS))
+        .count()
 }
 
 impl EngineParams {
@@ -289,6 +309,8 @@ pub struct KindStats {
 }
 
 pub struct Engine {
+    feed_block: Option<crate::feedguard::FeedBlock>,
+    feed_ready: bool,
     pending: BTreeMap<String, Pending>,
     backoff: HashMap<String, u64>,
     /// Consecutive program refusals per key (the backoff doubles with each).
@@ -357,6 +379,8 @@ pub const PAYER_CARE_KIND: &str = "payer-care";
 impl Engine {
     pub fn new(budgets: Budgets, params: EngineParams) -> Engine {
         Engine {
+            feed_block: None,
+            feed_ready: true,
             pending: BTreeMap::new(),
             backoff: HashMap::new(),
             failures: HashMap::new(),
@@ -376,6 +400,66 @@ impl Engine {
             last_send_chain_slot: None,
             care_settled_slot: None,
         }
+    }
+
+    /// A discovery failure pauses game writes, including already queued retries.
+    /// Outstanding signatures are still polled: pausing is not chain cancellation.
+    pub fn block_feed(&mut self, block: crate::feedguard::FeedBlock) {
+        if self.feed_block.is_none() {
+            self.feed_block = Some(block);
+        }
+    }
+
+    pub fn set_feed_ready(&mut self, ready: bool) {
+        self.feed_ready = ready;
+    }
+    pub fn feed_writes_allowed(&self) -> bool {
+        self.feed_block.is_none() && self.feed_ready
+    }
+    pub fn feed_block(&self) -> Option<&crate::feedguard::FeedBlock> {
+        self.feed_block.as_ref()
+    }
+
+    /// Only independent beacon publication and payer bookkeeping may continue.
+    /// This same predicate protects enqueue and send, so old retries cannot leak.
+    pub fn allows_write_kind(&self, kind: &str) -> bool {
+        self.feed_writes_allowed()
+            || matches!(
+                kind,
+                "anchor"
+                    | "anchor-multi"
+                    | "seed"
+                    | "beacon-log"
+                    | "genesis-seed"
+                    | PAYER_CARE_KIND
+            )
+    }
+
+    /// Feed/kind eligible queue entries; the send loop performs its usual
+    /// timing, budget and payer checks only after this fail-safe filter.
+    pub fn send_candidates(&self, kinds: Option<&[&str]>) -> Vec<String> {
+        self.pending
+            .iter()
+            .filter(|(_, p)| self.allows_write_kind(p.spec.kind))
+            .filter(|(_, p)| kinds.is_none_or(|ks| ks.contains(&p.spec.kind)))
+            .map(|(k, _)| k.clone())
+            .collect()
+    }
+
+    pub fn persist_feed_block(&self, journal: Option<&Journal>) -> Result<(), String> {
+        if let (Some(block), Some(j)) = (&self.feed_block, journal) {
+            block.save(j)?;
+        }
+        Ok(())
+    }
+
+    pub fn restore_feed_block(&mut self, journal: Option<&Journal>) -> Result<(), String> {
+        if let Some(j) = journal {
+            if let Some(block) = crate::feedguard::FeedBlock::restore(j)? {
+                self.block_feed(block);
+            }
+        }
+        Ok(())
     }
 
     /// An undecided care transfer blocks every new top-up and sweep. This
@@ -453,7 +537,8 @@ impl Engine {
     /// Adds a write unless it is already pending or in backoff. Returns
     /// whether it was added.
     pub fn ensure(&mut self, spec: WriteSpec, slot: u64) -> bool {
-        if self.pending.contains_key(&spec.key)
+        if !self.allows_write_kind(spec.kind)
+            || self.pending.contains_key(&spec.key)
             || self.backoff.get(&spec.key).is_some_and(|&s| slot < s)
             || self.held_replans.contains_key(&spec.key)
             || self.adopted_ambiguous.contains(&spec.key)
@@ -1011,12 +1096,20 @@ impl Engine {
         report: &mut StepReport,
         kinds: Option<&[&str]>,
     ) {
-        let keys: Vec<String> = self
-            .pending
-            .iter()
-            .filter(|(_, p)| kinds.is_none_or(|ks| ks.contains(&p.spec.kind)))
-            .map(|(k, _)| k.clone())
-            .collect();
+        // Library callers may skip Keeper::start; durable refusal still applies.
+        if let Err(reason) = self
+            .restore_feed_block(journal)
+            .and_then(|_| self.persist_feed_block(journal))
+        {
+            self.block_feed(crate::feedguard::FeedBlock {
+                seq: 0,
+                slot,
+                signature: String::new(),
+                reason,
+            });
+            return;
+        }
+        let keys = self.send_candidates(kinds);
         let mut blockhash: Option<Hash> = None;
         let mut last_valid_block_height: Option<u64> = None;
         let mut chain_slot: Option<u64> = None;
@@ -1134,6 +1227,21 @@ impl Engine {
             }
             let fees_out: u64 = p.versions.iter().map(|v| v.fee).sum();
             if p.versions.len() as u32 >= self.params.max_versions {
+                self.mark_contested(&k, slot, journal, report);
+                continue;
+            }
+            // ⑱: no new W version while `max_unknown_w_versions` older ones
+            // can still land (each would end `AlreadyDone`, fee paid).
+            let cap = self.params.max_unknown_w_versions;
+            if p.spec.class == Class::W
+                && cap > 0
+                && live_unknown_versions(
+                    p.versions
+                        .iter()
+                        .map(|v| (v.sent_slot, p.settled.contains(&v.sig))),
+                    slot,
+                ) >= cap as usize
+            {
                 self.mark_contested(&k, slot, journal, report);
                 continue;
             }
@@ -1361,6 +1469,30 @@ mod tests {
         Account, ClockSysvar, Cursor, PortError, PortResult, SimResult, TxRecord,
     };
     use std::sync::Mutex;
+
+    /// ⑱: the cap counts versions that can still land: status unknown and
+    /// within the blockhash validity. Pure data, no key and no signature.
+    #[test]
+    fn live_unknown_versions_counts_only_what_can_still_land() {
+        let at = 1_000u64;
+        assert_eq!(live_unknown_versions([], at), 0);
+        // Two unknown, recent: both can land.
+        assert_eq!(live_unknown_versions([(990, false), (999, false)], at), 2);
+        // A settled version never counts.
+        assert_eq!(live_unknown_versions([(990, true), (999, false)], at), 1);
+        // At the edge of validity it still counts; one slot past, it does not.
+        assert_eq!(live_unknown_versions([(at - EXPIRY_SLOTS, false)], at), 1);
+        assert_eq!(
+            live_unknown_versions([(at - EXPIRY_SLOTS - 1, false)], at),
+            0
+        );
+        // The keeper's default cap is 2 (`KeeperConfig`): two live unknown
+        // versions block a third. The engine's own default is off.
+        assert_eq!(EngineParams::default().max_unknown_w_versions, 0);
+        let cap = 2usize;
+        assert!(live_unknown_versions([(998, false), (999, false)], at) >= cap);
+        assert!(live_unknown_versions([(998, false), (999, true)], at) < cap);
+    }
 
     type Answer = Box<dyn FnMut(&fclient::Transaction) -> Option<Status> + Send>;
 

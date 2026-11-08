@@ -1,0 +1,120 @@
+[
+  {
+    "run_id": "ws06:10442184bb06d9953641c47f952500e0ba835d582005544b377d1c8db4fa073b:r1:haul",
+    "owner": 119,
+    "stock": {
+      "kind": 1,
+      "p": 0,
+      "q": 0,
+      "at": 1,
+      "gen": 1
+    },
+    "inbound": null,
+    "facility": null,
+    "inputs": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    "outputs": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    "rights_units": 0,
+    "ship": {
+      "dst": {
+        "kind": 2,
+        "p": 1,
+        "q": 0,
+        "at": 5,
+        "gen": 1
+      },
+      "cargo": [
+        0,
+        4,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    },
+    "deadline_slot": 400,
+    "budget": {
+      "max_attempts": 3,
+      "max_fee": 200000,
+      "max_port_errors": 5
+    }
+  },
+  {
+    "run_id": "ws06:10442184bb06d9953641c47f952500e0ba835d582005544b377d1c8db4fa073b:r1:forward",
+    "owner": 119,
+    "stock": {
+      "kind": 2,
+      "p": 1,
+      "q": 0,
+      "at": 5,
+      "gen": 1
+    },
+    "inbound": null,
+    "facility": null,
+    "inputs": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    "outputs": [
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0,
+      0
+    ],
+    "rights_units": 0,
+    "ship": {
+      "dst": {
+        "kind": 1,
+        "p": 1,
+        "q": 1,
+        "at": 3,
+        "gen": 1
+      },
+      "cargo": [
+        0,
+        4,
+        0,
+        0,
+        0,
+        0,
+        0,
+        0
+      ]
+    },
+    "deadline_slot": 400,
+    "budget": {
+      "max_attempts": 3,
+      "max_fee": 200000,
+      "max_port_errors": 5
+    }
+  }
+]

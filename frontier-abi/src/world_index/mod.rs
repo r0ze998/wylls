@@ -30,8 +30,15 @@
 //! | [`placement::mixed_home_nation`] | candidate mixed-nation rule (owner decision: outer lands mix nations, not six wedges): Concord neutral, ring-1 seats keep their wedges, every ring ≥ 2 a balanced cyclic six-nation order with a seed-derived per-ring offset; the legacy `home_nation` offset bit for bit for rings ≤ 65,535, a versioned domain past it; `u128` ring arithmetic; not a Season parameter, not wired into any legacy rule |
 //! | [`land::WideRingSeed`], [`land::WideProvince`] | **draft write-path records** (2026-11-07): a world-scoped `u64`-ring seed whose round is the kernel's `ring_seed_round` and whose seed is only ever a verified quicknet round's (no genesis path); and a wide province that is the **whole Province v2 layout** plus a world/coordinate/provenance trailer, openable only under decided keep-holder, Free City, camp and region rules ([`land::WideRules`], undecided today: `NotReady`); provisional magics and seed tags, reachable only by a program built with `wide-world-experimental` |
 //! | [`holding`] | ownership of a wide site under the **one inventory** rule: a wide holding takes one of the Citizen's three deployed slots (2 or 3) through an impossible marker ref every deployed writer reads as taken, and its record is the whole Holding v2 layout plus a trailer that refuses any host, transit or explore debit under the unallocated host identity |
-//! | [`march`] | the wide march record over `WideHostRef` with the legacy lifecycle's state table, whose departure is refused while no wider host identity is allocated |
-//! | [`wide_ix`] | the draft wire envelope: five fixed-width instructions in the unallocated band `0xD6..=0xDA`, their account lists, and the `0x4000` program-version bit of an experimental wide build |
+//! | [`march`] | the wide march record over `WideHostRef` with the legacy lifecycle's state table; the decided host identity version (the full reference as identity, a top-bit roster alias for lookup only, domain-separated wide formulas for slot, tie and clash seed, a with-seed transit record address), which no wide holding carries yet, so every departure is still refused |
+//! | [`rules`] | the explicit, versioned **experimental rules configuration** of a wide world (one record per Season, written by the Season's authority) and the **candidate** keep-holder, Free City, camp and region functions it selects; an unset byte refuses, so without the record an opening stays `NotReady`; nothing in it is an approved rule |
+//! | [`ticket`] | the **wide outpost ticket**: a world/coordinate-bound record (one per Citizen) that carries a wide claim through the deployed outpost lifecycle, the Citizen marker that reserves the one deployed ticket and the slot while it is pending (every deployed ticket path refuses), the isolated holding-rent escrow the record holds and retains between tickets under the deployed FileOutpost / SettleTicket / CloseCitizen escrow rules (`TicketStatus`, `WideTicket::{settle, refile}`), and the full-width versioned ticket score |
+//! | [`seal`] | the **wide march seal**: a 136-byte versioned plaintext committing to the full host reference and the full destination key (and the deployed path, bell, tile, stance, retreat), sealed in the deployed 128-byte tlock IBE block with the deployed keystream and opened by the deployed opener; a distinct length and commitment domain from the 37-byte legacy plaintext, which is untouched |
+//! | [`arrival`] | the wide per-bell clash records: an ArrivalSlot (288 B) and ClashInputs (3,008 B, 24 positions of 112 B) keyed by the full destination key and naming arrivals by full host reference and Citizen key, with the deployed quota, flags, fate codes and a kernel-fighter conversion; with-seed addresses under provisional tags |
+//! | [`roster`] | the wide roster side table (3,248 B): the full reference behind each of a wide province's 56 entry-table aliases, written only through the authenticated `claim` (every stored alias checked against its reference) and read only through `entry_matches` / `validate_paired`; synthetic garrison identities refused |
+//! | [`event`] | the **versioned wide event record** (`PSW1`, version 0x81, its own kinds, full-identity keys, a domain-separated chain rule, the resolve's input/output digests): what the experimental handlers log and how the wide accounts' chains advance; nothing of the deployed `PS2` format is reused, and a deployed reader refuses the version byte and sees the wide world as unknown |
+//! | [`resolve`] | the **one-bell wide resolve** over account bytes: the deployed build / apply / step / settle / finish with the three identity-bound rules replaced (the camp's daily check over the canonical coordinate, the clash under `WideCombatant` with the roster side table paired and kept in step, the keep donor's tiebreak over the full identity); no SkipQuiet; forts, caravans and conquest records refused; no handler calls it yet |
+//! | [`wide_ix`] | the draft wire envelope: nine instructions in the unallocated band `0xD6..=0xDE`, their account lists, and the `0x4000` program-version bit of an experimental wide build |
 //!
 //! **What it is not.** The index records what a caller *reports*. It does
 //! not authorise opening land, decide who may open it, prove that an
@@ -42,16 +49,23 @@
 //! `ProvinceCoord::index`, `host_id`, `travel::path_cost`, the control
 //! file or the prize bitmap, all of which keep their current meaning for
 //! the current ABI. The `land`, `holding` and `march` records are the
-//! versioned identity and transition models of the wide write path; the
-//! only writes a program makes through them today are the ring seed's
-//! request and verified consumption, and every land, claim and march
-//! entry point refuses at a named readiness gate until the owner's rule
-//! and the integrator's allocation exist. An unbounded live game needs,
+//! versioned identity and transition models of the wide write path. The
+//! experimental program writes through them the ring seed's request and
+//! verified consumption, a wide province (only under an explicit
+//! [`rules`] configuration, from the wedge fund, with the deployed
+//! terrain, keep, camp, Free City and fund bookkeeping), a wide outpost
+//! ticket under the deployed FileOutpost prerequisites and its settlement
+//! under the deployed SettleTicket lottery (the beacon draw, fresh,
+//! displace, taken, expired; a provisional wide holding and its lazy
+//! finality); the march entry point refuses at the host-identity gate. An
+//! unbounded live game needs,
 //! beyond this module, the decisions listed in
 //! `docs/frontier/map-growth/WIDE-WORLD-INDEX.md` and
 //! `docs/frontier/map-growth/WIDE-LAND-WRITER.md`.
 
+pub mod arrival;
 pub mod coord;
+pub mod event;
 pub mod holding;
 pub mod index;
 pub mod key;
@@ -60,10 +74,20 @@ pub mod legacy;
 pub mod march;
 pub mod movement;
 pub mod placement;
+pub mod resolve;
+pub mod roster;
+pub mod rules;
+pub mod seal;
+pub mod settle;
+pub mod ticket;
 pub mod tiles;
 pub mod wide_ix;
 
+pub use arrival::{ArrivalError, WideArrival, WideArrivalSlot, WideClashInputsHdr};
 pub use coord::{CoordError, RingPosition, WideCoord, SORT_KEY_LEN, WIDE_BOUND};
+pub use event::{
+    EventError, WideEntity, WideKind, WideLink, WideRecord, WideTarget, WIDE_LOG_PREFIX,
+};
 pub use holding::{HoldingError, SlotBinding, WideHolding, HOST_IDENTITY_UNALLOCATED};
 pub use index::{
     Cursor, CursorFault, IndexEntry, IndexError, Lookup, OpenedProvinceIndex, Page, ReportedState,
@@ -75,11 +99,31 @@ pub use land::{
     FIRST_WIDE_RING, WIDE_LAND_FAMILY_VERSION, WIDE_LAYOUT_VERSION,
 };
 pub use legacy::{legacy_of, wide_of, LegacyAdapter, LegacyError};
-pub use march::{MarchError, MarchEvent, MarchState, WideTransit};
+pub use march::{
+    claim_alias, resolve_wide_clash, transit_address, wide_clash_seed, wide_host_alias,
+    wide_plain_commit, wide_slot_key, wide_tie_key, AliasError, MarchError, MarchEvent, MarchState,
+    WideClashError, WideClashInput, WideClashOutcome, WideCombatant, WideFighter, WideGarrison,
+    WideTransit, HOST_IDENTITY_FULL_REF_V1,
+};
 pub use placement::{
     mixed_home_nation, ring_offset, ring_offset_domain, RingOffsetDomain, LEGACY_OFFSET_MAX_RING,
     MIXED_PLACEMENT_DOMAIN_WIDE, MIXED_PLACEMENT_VERSION,
 };
+pub use resolve::{
+    ResolveError, Unported, WideApplied, WideBellOutcome, WideBuilt, WideKeepEvent, WideKeepTaken,
+    WideStepOut, KEEP_SITE,
+};
+pub use roster::{RosterError, WideRoster};
+pub use settle::{
+    plan_settlement, wide_admit, wide_valid_outcome, PayTo, SettlementPlan, WideOutcome,
+    WideSlotDecision, WideSlotEntry,
+};
+pub use rules::{
+    CampRule, FreeCityRule, KeepHolderRule, RegionRule, RuleBytes, RulesError, WideRulesConfig,
+    WIDE_RULES_CONFIG_VERSION,
+};
+pub use seal::{WidePlain, WidePlainError, WIDE_PLAIN_LEN, WIDE_PLAIN_VERSION, WIDE_SEAL_LEN};
+pub use ticket::{wide_ticket_score, CitizenTicket, TicketError, TicketStatus, WideTicket};
 pub use tiles::{
     verify_route, ProvinceSource, RouteBounds, RouteError, TileAddress, TileError, VerifiedRoute,
     WideTile, TILE_COORD_BOUND,

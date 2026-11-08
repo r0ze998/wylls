@@ -1,0 +1,13 @@
+{
+ "what": "④'s chain flow (tools/chain-flow/run.sh): stage A joins an NFT pass with the game program's own JoinResident (e2e-native tests/chain_nft.rs); stage B ships that Citizen's cargo-only caravan with the run executor on the simulated world (tests/chain_caravan.rs); stage C reads it with ⑫'s adapters; stage D with ⑮ b1a09a0b's adapter. Copied byte for byte; ⑮ wrote none of it and ran none of it.",
+ "commit": "cf517b558d1303a84dba618550f40cb460b7ad99 (origin/claude/gallant-ride-cunptv, ④'s public integration candidate); the fixtures were last changed at 27651bed",
+ "copiedFrom": "workstreams/04-execution/tools/chain-flow/fixtures-20261106/",
+ "gitBlobs": { "a-join.json": "e3f24e0465087eae14456cc4c58beb40564d7410", "b-store-dump.json": "de45e27a35582effbf3463b0c4a8db2a4e978d11", "c-memory.json": "7620563fac32e9f868918d5a39ed646c9d35936c", "d-outcome.json": "c87f81976fee7e9473e6ab15e69000421febe890" },
+ "sha256": {
+  "a-join.json": "15a516fb73f65e76a9b31ad72938ea958761a49fd39bb3bd79452de907bc1d86",
+  "b-store-dump.json": "cbb7f6f70b860f6862e1df5627eb2cc7184c349f1ab08e0b4f78e7a4170f5e47",
+  "c-memory.json": "b5e9bf82a842e4ba0423e3ab0c13f6effb3c522a6c48fda213c54b3c59d25d18",
+  "d-outcome.json": "83ffc8bcc1e04d6c8ee20572b2fbdb3efc142e436be67f32a419e9c40d8bb21a"
+ },
+ "mock": "④'s own statement: bell = slot, every slot final, the nation of the pass is RESIDENT_JOINED's faction byte; System, SPL Token, Clock and Rent are stand-ins; no signature exists (a set of signers)"
+}

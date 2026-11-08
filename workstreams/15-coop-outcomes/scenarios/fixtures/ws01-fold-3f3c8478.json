@@ -1,0 +1,579 @@
+{
+ "source": {
+  "repo": "r0ze998/wylls",
+  "branch": "preserve/ws01-coop-s1-3f3c8478",
+  "commit": "3f3c8478b0a37a7ecfd6ca4641b8d47fb58aff52",
+  "code": "workstreams/01-national-strategy/coop/record.mjs fold, recordId, ownerTagOf; coop/goal.mjs GOALS; coop/arrival.mjs arrivalOf",
+  "note": "state is fold()'s return value, as ① produced it. Records carry sig \"unsigned\" (fold does not verify signatures). Wallets are fixed public addresses; no key was generated, derived or used. Chain ends are inputs in caravanEndFromChain's shape; no chain was read."
+ },
+ "season": {
+  "programId": "CktRuQ2mttgRGkXJtyksdKHjUdc2C4TgDzyB98oEzy8",
+  "seasonId": "90"
+ },
+ "wallets": {
+  "A": "29d2S7vB453rNYFdR5Ycwt7y9haRT5fwVwL9zTmBhfV2",
+  "B": "3JF3sEqM796hk5WFqA6EtmEwJQ9quALszsfJyvXNQKy3",
+  "C": "4Ss5JMkXAD9Z7cktFEdrqeMuT6jGMF1pVozTyPHZ6zT4",
+  "D": "5bV6jUfhDHCQVA1WfKBUnXUsboJgoKgkzkKcxr3joew5"
+ },
+ "ownerTags": {
+  "A": "4966552757870047464",
+  "B": "17278127443140898241",
+  "C": "11115163064950760592",
+  "D": "6144977454968629091"
+ },
+ "records": [
+  {
+   "name": "request A (nation 1)",
+   "id": "a722a2d73f5cbbbbca5833e6adb548861e7cc0bd2ebaa60fab8dcdf263e4bdb6",
+   "record": {
+    "v": 1,
+    "kind": "request",
+    "signer": "29d2S7vB453rNYFdR5Ycwt7y9haRT5fwVwL9zTmBhfV2",
+    "season": {
+     "programId": "CktRuQ2mttgRGkXJtyksdKHjUdc2C4TgDzyB98oEzy8",
+     "seasonId": "90"
+    },
+    "at": 1790000000,
+    "goalId": "crossing-storehouse-v1",
+    "nation": 1,
+    "need": {
+     "wood": 200,
+     "stone": 200
+    },
+    "to": {
+     "kind": "holding",
+     "p": 3,
+     "q": 0,
+     "site": 2,
+     "gen": 1
+    },
+    "expiresAt": 1790086400,
+    "nonce": "r1",
+    "sig": "unsigned"
+   }
+  },
+  {
+   "name": "request D (nation 4)",
+   "id": "9f3d3628fdfeba0fa8ebe2a62110d61475f540325c776c3b74222c95b402ed46",
+   "record": {
+    "v": 1,
+    "kind": "request",
+    "signer": "5bV6jUfhDHCQVA1WfKBUnXUsboJgoKgkzkKcxr3joew5",
+    "season": {
+     "programId": "CktRuQ2mttgRGkXJtyksdKHjUdc2C4TgDzyB98oEzy8",
+     "seasonId": "90"
+    },
+    "at": 1790000010,
+    "goalId": "crossing-storehouse-v1",
+    "nation": 4,
+    "need": {
+     "wood": 50
+    },
+    "to": {
+     "kind": "holding",
+     "p": 5,
+     "q": 0,
+     "site": 2,
+     "gen": 1
+    },
+    "expiresAt": 1790086400,
+    "nonce": "r2",
+    "sig": "unsigned"
+   }
+  },
+  {
+   "name": "B accepts wood",
+   "id": "7f4670c0d9d477ffbcc4d5805512d7ee389f9934da410dfa55c0d3eaa6856705",
+   "record": {
+    "v": 1,
+    "kind": "respond",
+    "signer": "3JF3sEqM796hk5WFqA6EtmEwJQ9quALszsfJyvXNQKy3",
+    "season": {
+     "programId": "CktRuQ2mttgRGkXJtyksdKHjUdc2C4TgDzyB98oEzy8",
+     "seasonId": "90"
+    },
+    "at": 1790000100,
+    "request": "a722a2d73f5cbbbbca5833e6adb548861e7cc0bd2ebaa60fab8dcdf263e4bdb6",
+    "answer": "accept",
+    "nation": 2,
+    "offer": {
+     "wood": 200
+    },
+    "sig": "unsigned"
+   }
+  },
+  {
+   "name": "C accepts stone",
+   "id": "1f65785b5aa35fcf1b5a23b6df068f1df9dae73589be9746154c2791374244da",
+   "record": {
+    "v": 1,
+    "kind": "respond",
+    "signer": "4Ss5JMkXAD9Z7cktFEdrqeMuT6jGMF1pVozTyPHZ6zT4",
+    "season": {
+     "programId": "CktRuQ2mttgRGkXJtyksdKHjUdc2C4TgDzyB98oEzy8",
+     "seasonId": "90"
+    },
+    "at": 1790000110,
+    "request": "a722a2d73f5cbbbbca5833e6adb548861e7cc0bd2ebaa60fab8dcdf263e4bdb6",
+    "answer": "accept",
+    "nation": 3,
+    "offer": {
+     "stone": 200
+    },
+    "sig": "unsigned"
+   }
+  },
+  {
+   "name": "A answers own request",
+   "id": "411f4a4a72959cb87e38bd36f1db66a5d2f29616d001510b1b3a946ca062b119",
+   "record": {
+    "v": 1,
+    "kind": "respond",
+    "signer": "29d2S7vB453rNYFdR5Ycwt7y9haRT5fwVwL9zTmBhfV2",
+    "season": {
+     "programId": "CktRuQ2mttgRGkXJtyksdKHjUdc2C4TgDzyB98oEzy8",
+     "seasonId": "90"
+    },
+    "at": 1790000120,
+    "request": "a722a2d73f5cbbbbca5833e6adb548861e7cc0bd2ebaa60fab8dcdf263e4bdb6",
+    "answer": "accept",
+    "nation": 1,
+    "offer": {
+     "wood": 10
+    },
+    "sig": "unsigned"
+   }
+  },
+  {
+   "name": "B accepts D",
+   "id": "fac53863ffaa88dc295d8b616bc9da44a0b063756482cad66f595978407a2284",
+   "record": {
+    "v": 1,
+    "kind": "respond",
+    "signer": "3JF3sEqM796hk5WFqA6EtmEwJQ9quALszsfJyvXNQKy3",
+    "season": {
+     "programId": "CktRuQ2mttgRGkXJtyksdKHjUdc2C4TgDzyB98oEzy8",
+     "seasonId": "90"
+    },
+    "at": 1790000130,
+    "request": "9f3d3628fdfeba0fa8ebe2a62110d61475f540325c776c3b74222c95b402ed46",
+    "answer": "accept",
+    "nation": 2,
+    "offer": {
+     "wood": 50
+    },
+    "sig": "unsigned"
+   }
+  },
+  {
+   "name": "B links own caravan 0",
+   "id": "8ca026c0a3b1f1507a9129b558178441cd69a6721aaffd436baa823fafeadf6b",
+   "record": {
+    "v": 1,
+    "kind": "link",
+    "signer": "3JF3sEqM796hk5WFqA6EtmEwJQ9quALszsfJyvXNQKy3",
+    "season": {
+     "programId": "CktRuQ2mttgRGkXJtyksdKHjUdc2C4TgDzyB98oEzy8",
+     "seasonId": "90"
+    },
+    "at": 1790000300,
+    "request": "a722a2d73f5cbbbbca5833e6adb548861e7cc0bd2ebaa60fab8dcdf263e4bdb6",
+    "caravan": {
+     "ownerTag": "17278127443140898241",
+     "seq": 0
+    },
+    "sig": "unsigned"
+   }
+  },
+  {
+   "name": "the same link record again",
+   "id": "8ca026c0a3b1f1507a9129b558178441cd69a6721aaffd436baa823fafeadf6b",
+   "record": {
+    "v": 1,
+    "kind": "link",
+    "signer": "3JF3sEqM796hk5WFqA6EtmEwJQ9quALszsfJyvXNQKy3",
+    "season": {
+     "programId": "CktRuQ2mttgRGkXJtyksdKHjUdc2C4TgDzyB98oEzy8",
+     "seasonId": "90"
+    },
+    "at": 1790000300,
+    "request": "a722a2d73f5cbbbbca5833e6adb548861e7cc0bd2ebaa60fab8dcdf263e4bdb6",
+    "caravan": {
+     "ownerTag": "17278127443140898241",
+     "seq": 0
+    },
+    "sig": "unsigned"
+   }
+  },
+  {
+   "name": "C links B's caravan",
+   "id": "9d0abe7666d68cb2475191bbfb1a3a0b9f9ada62256cc4d106f750b50a48dd18",
+   "record": {
+    "v": 1,
+    "kind": "link",
+    "signer": "4Ss5JMkXAD9Z7cktFEdrqeMuT6jGMF1pVozTyPHZ6zT4",
+    "season": {
+     "programId": "CktRuQ2mttgRGkXJtyksdKHjUdc2C4TgDzyB98oEzy8",
+     "seasonId": "90"
+    },
+    "at": 1790000310,
+    "request": "a722a2d73f5cbbbbca5833e6adb548861e7cc0bd2ebaa60fab8dcdf263e4bdb6",
+    "caravan": {
+     "ownerTag": "17278127443140898241",
+     "seq": 1
+    },
+    "sig": "unsigned"
+   }
+  },
+  {
+   "name": "C links own caravan 0",
+   "id": "ed5f3867cb2b6bffef7cbb16a3f6c15d04b6b80c7ce75d99e6907d1426858733",
+   "record": {
+    "v": 1,
+    "kind": "link",
+    "signer": "4Ss5JMkXAD9Z7cktFEdrqeMuT6jGMF1pVozTyPHZ6zT4",
+    "season": {
+     "programId": "CktRuQ2mttgRGkXJtyksdKHjUdc2C4TgDzyB98oEzy8",
+     "seasonId": "90"
+    },
+    "at": 1790000320,
+    "request": "a722a2d73f5cbbbbca5833e6adb548861e7cc0bd2ebaa60fab8dcdf263e4bdb6",
+    "caravan": {
+     "ownerTag": "11115163064950760592",
+     "seq": 0
+    },
+    "sig": "unsigned"
+   }
+  },
+  {
+   "name": "B links caravan 0 again (another record)",
+   "id": "4cf7392bfaa7c6d943ce7f33b8664d2b0b78a788cd860d498e1a1a6a2e485050",
+   "record": {
+    "v": 1,
+    "kind": "link",
+    "signer": "3JF3sEqM796hk5WFqA6EtmEwJQ9quALszsfJyvXNQKy3",
+    "season": {
+     "programId": "CktRuQ2mttgRGkXJtyksdKHjUdc2C4TgDzyB98oEzy8",
+     "seasonId": "90"
+    },
+    "at": 1790000330,
+    "request": "a722a2d73f5cbbbbca5833e6adb548861e7cc0bd2ebaa60fab8dcdf263e4bdb6",
+    "caravan": {
+     "ownerTag": "17278127443140898241",
+     "seq": 0
+    },
+    "sig": "unsigned"
+   }
+  },
+  {
+   "name": "B links caravan 2",
+   "id": "21149436a9ad6945b57847ec0a6674867890a7c3c734815f9a0cbbdd794ecf02",
+   "record": {
+    "v": 1,
+    "kind": "link",
+    "signer": "3JF3sEqM796hk5WFqA6EtmEwJQ9quALszsfJyvXNQKy3",
+    "season": {
+     "programId": "CktRuQ2mttgRGkXJtyksdKHjUdc2C4TgDzyB98oEzy8",
+     "seasonId": "90"
+    },
+    "at": 1790000340,
+    "request": "a722a2d73f5cbbbbca5833e6adb548861e7cc0bd2ebaa60fab8dcdf263e4bdb6",
+    "caravan": {
+     "ownerTag": "17278127443140898241",
+     "seq": 2
+    },
+    "sig": "unsigned"
+   }
+  },
+  {
+   "name": "D cancels",
+   "id": "ff3b786878a1a1059f7906ddef182a5ba2bde0f175c095d5bed446c4c9f4d5f8",
+   "record": {
+    "v": 1,
+    "kind": "cancel",
+    "signer": "5bV6jUfhDHCQVA1WfKBUnXUsboJgoKgkzkKcxr3joew5",
+    "season": {
+     "programId": "CktRuQ2mttgRGkXJtyksdKHjUdc2C4TgDzyB98oEzy8",
+     "seasonId": "90"
+    },
+    "at": 1790000400,
+    "request": "9f3d3628fdfeba0fa8ebe2a62110d61475f540325c776c3b74222c95b402ed46",
+    "reason": "self",
+    "sig": "unsigned"
+   }
+  },
+  {
+   "name": "B links to cancelled request",
+   "id": "c57f0db21079343409dd8daf9a2fd044a0603f9f3cde35b731da1fe46a3f85d5",
+   "record": {
+    "v": 1,
+    "kind": "link",
+    "signer": "3JF3sEqM796hk5WFqA6EtmEwJQ9quALszsfJyvXNQKy3",
+    "season": {
+     "programId": "CktRuQ2mttgRGkXJtyksdKHjUdc2C4TgDzyB98oEzy8",
+     "seasonId": "90"
+    },
+    "at": 1790000410,
+    "request": "9f3d3628fdfeba0fa8ebe2a62110d61475f540325c776c3b74222c95b402ed46",
+    "caravan": {
+     "ownerTag": "17278127443140898241",
+     "seq": 3
+    },
+    "sig": "unsigned"
+   }
+  },
+  {
+   "name": "record of another season",
+   "id": "6baa9cba01adf947a9198683278fd201480b099b87680b7ee9a71302d139f81b",
+   "record": {
+    "v": 1,
+    "kind": "respond",
+    "signer": "4Ss5JMkXAD9Z7cktFEdrqeMuT6jGMF1pVozTyPHZ6zT4",
+    "season": {
+     "programId": "CktRuQ2mttgRGkXJtyksdKHjUdc2C4TgDzyB98oEzy8",
+     "seasonId": "91"
+    },
+    "at": 1790000420,
+    "request": "a722a2d73f5cbbbbca5833e6adb548861e7cc0bd2ebaa60fab8dcdf263e4bdb6",
+    "answer": "decline",
+    "nation": 3,
+    "sig": "unsigned"
+   }
+  }
+ ],
+ "state": {
+  "requests": {
+   "a722a2d73f5cbbbbca5833e6adb548861e7cc0bd2ebaa60fab8dcdf263e4bdb6": {
+    "id": "a722a2d73f5cbbbbca5833e6adb548861e7cc0bd2ebaa60fab8dcdf263e4bdb6",
+    "goalId": "crossing-storehouse-v1",
+    "requester": "29d2S7vB453rNYFdR5Ycwt7y9haRT5fwVwL9zTmBhfV2",
+    "nation": 1,
+    "need": {
+     "wood": 200,
+     "stone": 200
+    },
+    "to": {
+     "kind": "holding",
+     "p": 3,
+     "q": 0,
+     "site": 2,
+     "gen": 1
+    },
+    "at": 1790000000,
+    "expiresAt": 1790086400,
+    "state": "open",
+    "cancel": null,
+    "responses": {
+     "3JF3sEqM796hk5WFqA6EtmEwJQ9quALszsfJyvXNQKy3": {
+      "answer": "accept",
+      "offer": {
+       "wood": 200
+      },
+      "nation": 2,
+      "at": 1790000100,
+      "withdrawn": false
+     },
+     "4Ss5JMkXAD9Z7cktFEdrqeMuT6jGMF1pVozTyPHZ6zT4": {
+      "answer": "accept",
+      "offer": {
+       "stone": 200
+      },
+      "nation": 3,
+      "at": 1790000110,
+      "withdrawn": false
+     }
+    },
+    "links": [
+     {
+      "responder": "3JF3sEqM796hk5WFqA6EtmEwJQ9quALszsfJyvXNQKy3",
+      "claimedNation": 2,
+      "caravan": {
+       "ownerTag": "17278127443140898241",
+       "seq": 0
+      },
+      "at": 1790000300,
+      "n": 6
+     },
+     {
+      "responder": "4Ss5JMkXAD9Z7cktFEdrqeMuT6jGMF1pVozTyPHZ6zT4",
+      "claimedNation": 3,
+      "caravan": {
+       "ownerTag": "11115163064950760592",
+       "seq": 0
+      },
+      "at": 1790000320,
+      "n": 9
+     },
+     {
+      "responder": "3JF3sEqM796hk5WFqA6EtmEwJQ9quALszsfJyvXNQKy3",
+      "claimedNation": 2,
+      "caravan": {
+       "ownerTag": "17278127443140898241",
+       "seq": 2
+      },
+      "at": 1790000340,
+      "n": 11
+     }
+    ]
+   },
+   "9f3d3628fdfeba0fa8ebe2a62110d61475f540325c776c3b74222c95b402ed46": {
+    "id": "9f3d3628fdfeba0fa8ebe2a62110d61475f540325c776c3b74222c95b402ed46",
+    "goalId": "crossing-storehouse-v1",
+    "requester": "5bV6jUfhDHCQVA1WfKBUnXUsboJgoKgkzkKcxr3joew5",
+    "nation": 4,
+    "need": {
+     "wood": 50
+    },
+    "to": {
+     "kind": "holding",
+     "p": 5,
+     "q": 0,
+     "site": 2,
+     "gen": 1
+    },
+    "at": 1790000010,
+    "expiresAt": 1790086400,
+    "state": "cancelled",
+    "cancel": {
+     "reason": "self",
+     "at": 1790000400
+    },
+    "responses": {
+     "3JF3sEqM796hk5WFqA6EtmEwJQ9quALszsfJyvXNQKy3": {
+      "answer": "accept",
+      "offer": {
+       "wood": 50
+      },
+      "nation": 2,
+      "at": 1790000130,
+      "withdrawn": false
+     }
+    },
+    "links": []
+   }
+  },
+  "left": {},
+  "rejected": [
+   {
+    "id": "411f4a4a72959cb87e38bd36f1db66a5d2f29616d001510b1b3a946ca062b119",
+    "kind": "respond",
+    "signer": "29d2S7vB453rNYFdR5Ycwt7y9haRT5fwVwL9zTmBhfV2",
+    "why": "自分の依頼には応答できない"
+   },
+   {
+    "id": "8ca026c0a3b1f1507a9129b558178441cd69a6721aaffd436baa823fafeadf6b",
+    "kind": "link",
+    "signer": "3JF3sEqM796hk5WFqA6EtmEwJQ9quALszsfJyvXNQKy3",
+    "why": "同じ記録が二度"
+   },
+   {
+    "id": "9d0abe7666d68cb2475191bbfb1a3a0b9f9ada62256cc4d106f750b50a48dd18",
+    "kind": "link",
+    "signer": "4Ss5JMkXAD9Z7cktFEdrqeMuT6jGMF1pVozTyPHZ6zT4",
+    "why": "隊商の持ち主がこの署名の人ではない"
+   },
+   {
+    "id": "4cf7392bfaa7c6d943ce7f33b8664d2b0b78a788cd860d498e1a1a6a2e485050",
+    "kind": "link",
+    "signer": "3JF3sEqM796hk5WFqA6EtmEwJQ9quALszsfJyvXNQKy3",
+    "why": "この隊商はもう結び付けられている"
+   },
+   {
+    "id": "c57f0db21079343409dd8daf9a2fd044a0603f9f3cde35b731da1fe46a3f85d5",
+    "kind": "link",
+    "signer": "3JF3sEqM796hk5WFqA6EtmEwJQ9quALszsfJyvXNQKy3",
+    "why": "依頼が開いていない（取消・期限切れの後は結び付けない。隊商はそのまま届く）"
+   },
+   {
+    "id": "6baa9cba01adf947a9198683278fd201480b099b87680b7ee9a71302d139f81b",
+    "kind": "respond",
+    "signer": "4Ss5JMkXAD9Z7cktFEdrqeMuT6jGMF1pVozTyPHZ6zT4",
+    "why": "別のシーズンの記録"
+   }
+  ],
+  "accepted": [
+   "a722a2d73f5cbbbbca5833e6adb548861e7cc0bd2ebaa60fab8dcdf263e4bdb6",
+   "9f3d3628fdfeba0fa8ebe2a62110d61475f540325c776c3b74222c95b402ed46",
+   "7f4670c0d9d477ffbcc4d5805512d7ee389f9934da410dfa55c0d3eaa6856705",
+   "1f65785b5aa35fcf1b5a23b6df068f1df9dae73589be9746154c2791374244da",
+   "fac53863ffaa88dc295d8b616bc9da44a0b063756482cad66f595978407a2284",
+   "8ca026c0a3b1f1507a9129b558178441cd69a6721aaffd436baa823fafeadf6b",
+   "ed5f3867cb2b6bffef7cbb16a3f6c15d04b6b80c7ce75d99e6907d1426858733",
+   "21149436a9ad6945b57847ec0a6674867890a7c3c734815f9a0cbbdd794ecf02",
+   "ff3b786878a1a1059f7906ddef182a5ba2bde0f175c095d5bed446c4c9f4d5f8"
+  ]
+ },
+ "arrivals": [
+  {
+   "requestId": "a722a2d73f5cbbbbca5833e6adb548861e7cc0bd2ebaa60fab8dcdf263e4bdb6",
+   "caravanId": {
+    "ownerTag": "17278127443140898241",
+    "seq": 0
+   },
+   "owner": {
+    "ownerTag": "17278127443140898241"
+   },
+   "responder": "3JF3sEqM796hk5WFqA6EtmEwJQ9quALszsfJyvXNQKy3",
+   "source": "chain-log",
+   "state": "delivered",
+   "cargo": {
+    "wood": 180,
+    "stone": 0
+   },
+   "verifiedQty": {
+    "wood": 180,
+    "stone": 0
+   },
+   "qtyKind": "lower-bound",
+   "basis": "CARAVAN_SETTLED の積荷（切り捨て）＋ Holding::credit は上限なしで全部加算（holding.rs:296-300, 774-783）",
+   "signature": "chain-sig-1",
+   "note": "村あて：チェーンの CARAVAN_SETTLED の積荷を、実入荷量の下限として数える"
+  },
+  {
+   "requestId": "a722a2d73f5cbbbbca5833e6adb548861e7cc0bd2ebaa60fab8dcdf263e4bdb6",
+   "caravanId": {
+    "ownerTag": "11115163064950760592",
+    "seq": 0
+   },
+   "owner": {
+    "ownerTag": "11115163064950760592"
+   },
+   "responder": "4Ss5JMkXAD9Z7cktFEdrqeMuT6jGMF1pVozTyPHZ6zT4",
+   "source": "chain-log",
+   "state": "delivered",
+   "cargo": {
+    "wood": 0,
+    "stone": 200
+   },
+   "verifiedQty": {
+    "wood": 0,
+    "stone": 200
+   },
+   "qtyKind": "lower-bound",
+   "basis": "CARAVAN_SETTLED の積荷（切り捨て）＋ Holding::credit は上限なしで全部加算（holding.rs:296-300, 774-783）",
+   "signature": "chain-sig-2",
+   "note": "村あて：チェーンの CARAVAN_SETTLED の積荷を、実入荷量の下限として数える"
+  },
+  {
+   "requestId": "a722a2d73f5cbbbbca5833e6adb548861e7cc0bd2ebaa60fab8dcdf263e4bdb6",
+   "caravanId": {
+    "ownerTag": "17278127443140898241",
+    "seq": 2
+   },
+   "owner": {
+    "ownerTag": "17278127443140898241"
+   },
+   "responder": "3JF3sEqM796hk5WFqA6EtmEwJQ9quALszsfJyvXNQKy3",
+   "source": "chain-log",
+   "state": "lost",
+   "cargo": {
+    "wood": 20,
+    "stone": 0
+   },
+   "verifiedQty": null,
+   "signature": "chain-sig-3",
+   "note": "行き先がない・世代が違うので失われた（CARAVAN_SETTLED の LOST）"
+  }
+ ]
+}

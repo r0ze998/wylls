@@ -163,6 +163,9 @@ impl TicketDuty {
         seeds: &mut SeedFinder,
         anchors: &BTreeMap<(u32, u8), AnchorInfo>,
     ) -> PortResult<()> {
+        if !index.feed.gate(engine, None)? {
+            return Ok(());
+        }
         let s = t.season;
         if !t.cfg.has_role("tickets") || s.effective_status(t.now) != status::RUNNING {
             return Ok(());

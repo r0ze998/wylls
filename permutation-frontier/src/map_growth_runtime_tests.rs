@@ -123,6 +123,10 @@ type Memory = HashMap<[u8; 32], (usize, usize, usize)>;
 static MEMORY: Mutex<Option<Memory>> = Mutex::new(None);
 /// The PS2 records the program logged (`sol_log_data`).
 static LOGS: Mutex<Vec<Vec<u8>>> = Mutex::new(Vec::new());
+/// The wide records (`PSW1`, `world_index::event`) the experimental wide
+/// handlers logged; never a PS2 record, never read by the deployed tests.
+#[cfg(feature = "wide-world-experimental")]
+static WIDE_LOGS: Mutex<Vec<Vec<u8>>> = Mutex::new(Vec::new());
 
 const SYSTEM: [u8; 32] = crate::addr::ids::SYSTEM_PROGRAM;
 /// Literal addresses (no key behind any of them).
@@ -215,6 +219,11 @@ impl solana_program::program_stubs::SyscallStubs for Stubs {
     fn sol_log_data(&self, fields: &[&[u8]]) {
         if fields.len() == 2 && fields[0] == &frontier_abi::log::PREFIX[..] {
             LOGS.lock().unwrap().push(fields[1].to_vec());
+        }
+        #[cfg(feature = "wide-world-experimental")]
+        if fields.len() == 2 && fields[0] == &frontier_abi::world_index::event::WIDE_LOG_PREFIX[..]
+        {
+            WIDE_LOGS.lock().unwrap().push(fields[1].to_vec());
         }
     }
 
@@ -936,6 +945,8 @@ fn begin() -> MutexGuard<'static, ()> {
     let g = SERIAL.lock().unwrap_or_else(|e| e.into_inner());
     solana_program::program_stubs::set_syscall_stubs(Box::new(Stubs));
     LOGS.lock().unwrap().clear();
+    #[cfg(feature = "wide-world-experimental")]
+    WIDE_LOGS.lock().unwrap().clear();
     at_day(0);
     g
 }

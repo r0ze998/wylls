@@ -198,6 +198,12 @@ const ERROR_TEXT = {
   ResidentUnguarded: () => L`この住民NFTには譲渡の保護がないため、操作できません`,
   ResidentStaleGeneration: () => L`住民NFTが署名のあとに譲渡されました。今の持ち主として操作し直してください`,
   ResidentNotCurrentAuthority: () => L`いまの住民NFTの持ち主（またはその接続）だけが操作できます`,
+  // ⑩ custody (codes 100–104)
+  CustodyCapacity: () => L`保管庫に、この割り当てや隊商の荷を入れる空きがありません（空きは出発のときに確保します）`,
+  CustodyNoSlot: () => L`この保管枠には、空いている注文や受け入れの枠がありません`,
+  OrderExpired: () => L`この注文は期限が切れたか、期限を超えて続くことになります`,
+  LotForfeited: () => L`この保管枠の保管庫は差し押さえられました。いまできるのは、保管枠の整理（ReconcileLot）だけです`,
+  LotNotEmpty: () => L`この保管枠には、まだ品物・到着予定の隊商・有効な注文があります（または、割り当てが中身より少なすぎます）`,
   NotImplemented: () => L`まだ実装されていません`,
 };
 
@@ -215,6 +221,8 @@ export const ERROR_NAMES = Object.freeze(Object.keys(ERROR_TEXT));
 const CLIENT_TEXT = {
   network: () => L`通信できませんでした`,
   NotFound: () => L`まだ記録がありません`,
+  WideWorldUnavailable: () => L`この配信元は記録された世界を出していません（WideWorldUnavailable）。`,
+  WideIndexUnavailable: () => L`この配信元は世界の履歴の索引を出していません（WideIndexUnavailable）。`,
   WrongSeason: () => L`別のシーズンの記録です`,
   WrongKey: () => L`頼んだものと違う記録が届きました`,
   NotQuicknet: () => L`このシーズンの公開乱数は quicknet ではありません`,

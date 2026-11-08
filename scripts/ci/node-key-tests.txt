@@ -79,6 +79,7 @@ permutation-gateway/test/web-frontier-fx.test.mjs
 permutation-gateway/test/web-frontier-people.test.mjs
 permutation-gateway/test/web-frontier-prize.test.mjs
 permutation-gateway/test/web-frontier-relay.test.mjs
+permutation-gateway/test/web-frontier-resident-home.test.mjs
 permutation-gateway/test/web-frontier-session.test.mjs
 permutation-gateway/test/web-session.test.mjs
 permutation-gateway/test/web-wallet.test.mjs

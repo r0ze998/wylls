@@ -1,0 +1,85 @@
+{
+  "doc": "Wide SettleTransit return branches - expectations shared by the program host dispatcher tests (permutation-frontier/src/wide_land_runtime_tests.rs, native-crypto-tests build) and the keeper planner tests (frontier-node/crates/keeper/tests/wide_reveal.rs). World-independent rules only - each test derives its own literal world and checks these fields against what it observed (dispatcher) or predicted (planner). Not executable-chain evidence. No key material. Values are strings - one field per line.",
+  "version": 1,
+  "cases": [
+    {
+      "name": "bounce_unranked_roster_entry",
+      "outcome_code": "6",
+      "in_final_set": "false",
+      "dep_mass_milli": "101000",
+      "troops_home_milli": "101000",
+      "stamina_rule": "transit_after",
+      "stamina_bell_rule": "effective_depart",
+      "tip_to": "rent_payer",
+      "fee_to": "resolver",
+      "bond_to": "rent_payer",
+      "home": "roster_entry",
+      "credited_milli": "101000",
+      "reserve_delta_units": "0",
+      "slot": "none",
+      "records": "2",
+      "holding_chain_delta": "2",
+      "home_chain_delta": "1",
+      "dest_chain_delta": "1"
+    },
+    {
+      "name": "routed_reserve_fallback_rounding",
+      "outcome_code": "7",
+      "in_final_set": "false",
+      "dep_mass_milli": "401000",
+      "troops_home_milli": "200500",
+      "stamina_rule": "zero",
+      "stamina_bell_rule": "now_bell",
+      "tip_to": "pool_owed",
+      "fee_to": "resolver",
+      "bond_to": "rent_payer",
+      "home": "reserve",
+      "home_reason": "faction_cap_8",
+      "credited_milli": "200000",
+      "reserve_delta_units": "200",
+      "slot": "none",
+      "records": "2",
+      "holding_chain_delta": "2",
+      "home_chain_delta": "1",
+      "dest_chain_delta": "1"
+    },
+    {
+      "name": "bounced_final_set_roster_entry",
+      "outcome_code": "3",
+      "in_final_set": "true",
+      "dep_mass_milli": "300000",
+      "troops_home_milli": "300000",
+      "stamina_rule": "record",
+      "stamina_bell_rule": "arrive",
+      "tip_to": "slot_beneficiary",
+      "fee_to": "resolver",
+      "bond_to": "rent_payer",
+      "home": "roster_entry",
+      "credited_milli": "300000",
+      "reserve_delta_units": "0",
+      "slot": "closed_to_rent_to",
+      "records": "2",
+      "holding_chain_delta": "2",
+      "home_chain_delta": "1",
+      "dest_chain_delta": "1"
+    },
+    {
+      "name": "refusal_historical_generation",
+      "program_error": "NotImplemented",
+      "keeper_block": "HistoricalGeneration",
+      "writes": "none"
+    },
+    {
+      "name": "refusal_home_not_canonical",
+      "program_error": "BadAddress",
+      "keeper_block": "not_reproducible_the_planner_derives_the_address",
+      "writes": "none"
+    },
+    {
+      "name": "refusal_home_roster_unpaired",
+      "program_error": "BadAccount",
+      "keeper_block": "RosterUnpaired",
+      "writes": "none"
+    }
+  ]
+}

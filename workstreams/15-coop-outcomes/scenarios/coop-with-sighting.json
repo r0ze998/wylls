@@ -1,5 +1,5 @@
 {
- "description": "⑭の塔の入力つき。協力の基本形に、n4-0 の塔の目撃と、それを n1-1 が使った記録を足す",
+ "description": "仮の目撃の入力つき（出どころは未定：S1 の物見櫓は目撃を記録せず、⑭の中央塔に目撃の働きはない）。協力の基本形に、n4-0 の目撃と、それを n1-1 が使った記録を足す",
  "events": [
   {
    "at": 20,
@@ -256,7 +256,7 @@
    "verified": "derived"
   }
  ],
- "name": "coop-with-tower",
+ "name": "coop-with-sighting",
  "state": {
   "actors": [
    {
