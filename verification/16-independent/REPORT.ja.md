@@ -2998,3 +2998,16 @@ checkpoint の `95b0ab225ca9e9e626941b51981df2240198d91c`（tree `89a64830da3991
 - `ws07-grow.screen.mjs` は ⑦ b1142259 と一致する（⑯ が §29.17 で 3/3 を確かめた版）。
 - scan の `--check` は exit 0（119 / 209 / 23 / 9）。
 - ⑯ は 233731c5 の上で流し直していない。2 file とも、⑯ が実行で確かめた版と blob が同じ。Rust の ws19_map_contract は、④ の dd7f8735 での 2/2 だけがある。
+
+## 29.21 ④ fc6b923b（⑲ 5ff7ad50：S1 の Season の bytes と map-arrival の試験）
+
+- 対象：④ `fc6b923bcfc4c5c601686764f4d19b5a3b191dfa`（tree `36824be3e322b673dcb28fbda9437eff3b8c1abf`）= 233731c5 に ⑲ 5ff7ad50 を merge したもの。5 file、+261 −50。
+- ⑲ の cqfixture/growth.rs、S1 の golden、ws19_map_contract.rs、web-frontier-map-arrival.test.mjs は、⑲ 5ff7ad50 と一致する。
+- **新しい reviewed の行（map-arrival）**：成り立つ。
+  - `--digest` は記された `closure=bc7c1370…` と一致し、scan の `--check` は exit 0（119 / 209 / 23 / 10）。
+  - 試験が呼ぶのは fmarch の `checkMarch`（147 行）、`arrivalWindow`（82 行）、`tipOptions`（71 行）、`RETREAT_CHOICES` だけ。
+    - ⑯ が 3 つの関数を読んだ。seal・sign・key・Worker・動的な import を使う行は無い。「seal」は手数料の `sealBond` の field 名としてだけ出る。
+  - ほかの import は herald の createHerald（golden の上の stub の fetch）、faddr の seasonAddresses、⑧ の ROUTE。
+  - 鍵の API の名前は、⑧ の growth-route と同じく、vendor の BLS にしかない（seal-worker の経路で、封印のときだけ）。
+- ⑯ の実行：map-arrival、map-contract、growth-route を repo の guard と hook v2 の下で **20/20**、hook の記録は 0 件（`logs/phase23/fc6b-map-arrival.txt`）。
+- ⑯ が流していないもの：Rust の ws19_map_contract（④ の fc6b923b での 2/2 がある）。S1 の Season の bytes が MC_LOCAL_7D の write_params と同じになったことは、Rust の側の主張で、⑯ は確かめていない。

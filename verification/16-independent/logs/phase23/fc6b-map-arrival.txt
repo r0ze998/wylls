@@ -1,0 +1,3 @@
+### ④ fc6b923bcfc4c5c601686764f4d19b5a3b191dfa (tree 36824be3): map-arrival + map-contract + growth-route, repo guard + hook v2
+scan --check exit 0 (119/209/23/10); map-arrival --digest = closure=bc7c1370… (as listed); covers ok
+# tests 20 # pass 20 # fail 0  hook lines 0
