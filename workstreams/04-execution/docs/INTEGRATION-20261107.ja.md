@@ -704,3 +704,11 @@ fa822453 の上に載せた。各チームのサブツリーは、チームが�
 - **⑯ の hook の下で結論が出ていない gateway の試験 37 件**（hook と module の link が合わない）。候補の欠陥ではないが、確かめてもいない。
 - **④ の run が使った外の root と binary**（⑯ の問い）：⑥ connect-live・ports などの run では、`WS03_ROOT`・`WS04_ROOT` はどちらもこの候補の木（int-merge の作業木の root）。`RUNEXEC_BIN` は 16576826 から build した debug の runexec（sha256 `f039854aaaad26d141201f9e1066eacf4be11e69f0c2f1e6365ad0bd3d76819b`）。`workstreams/04-execution/src` は 16576826 から変わっていない。95b0ab22 からは、この binary を `RUNEXEC_BIN_SHA256` で名指さないと流れない。
 - ⑯ の手順の誤り：`71713b34` の広い add -f（⑯ の §27.9 で監査済み、untrack 済み、履歴には残る）。
+
+**§17 の訂正（⑯ の REPORT §28.1・§28.7、0dc6107b）**
+- 上に「55d5c2da と 95b0ab22 は ⑯ がまだ確かめていない」と書いたのは、もう当たらない。⑯ は両方を確かめた（55d5c2da は §28.1、95b0ab22 は §28.7）。**16576826 からの後継で、commit の単位で ⑯ が確かめていないものは無い。**
+- 95b0ab22 についての ⑯ の確認（静的な読みと、どの file にも当たらない glob での無害な run）：外の `WS04_ROOT` は 6、このチェックアウトへの symlink は 0、`WS03_GATEWAY_ROOT=/tmp` は 6、sha の無い・違う `RUNEXEC_BIN` は 6、正しい sha は 0、何も設定しなければ 0 で、node --test は始まらない。
+- ⑯ が挙げた限界：`_SHA256` は bytes を確かめるだけ。「このチェックアウトの監査した build」は実行する人の申告で、確かめてから使うまでの間は原子的でない。⑯ は ④ の build（`f039854a…`）の bytes を見ていない。確かめたのは、ws04 が 16576826 から 95b0ab22 まで `a33e3b0a` のままで、その Rust の source に鍵の API の呼び出しが無いこと。
+- ⑯ が自分で流していないもの：keeper と、②⑨⑱⑲⑳ の Rust の一式（④ の結果だけ）、ws07-guard（④ の 2/2 だけ）、保守的な除外。
+- 未解決のまま残すもの：③ の再現しない 1 回の失敗、⑯ の hook の下で結論の出ない gateway の 37 件。合意した限界（fix とは別）：⑥ の J7、digest と実行元の範囲、Worker の realm。
+- 結論：この bounded pass の checkpoint で、「すべての機能が完成した」ではない。
