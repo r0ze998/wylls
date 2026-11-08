@@ -2772,3 +2772,38 @@ checkpoint の `95b0ab225ca9e9e626941b51981df2240198d91c`（tree `89a64830da3991
 - relay を通さずに、wallet が自分で Pay だけを送る場合。program の Pay は単独でも呼べる。その場合は、入場料と Entry ができて Join の無い状態があり得て、後で settled の Join が受け付けられる。ただし、これは paidJoin の外の、利用者自身の別の transaction。
 - `RelayOutcomeUnknown`（送った結果が分からない）とき。client は失敗として扱うが、transaction は Pay と Join を一緒に含んだまま着地するかもしれない。結果が分からないということで、入場料だけが引かれるということではない。
 - 表示の鮮度や Join の gating の方針は変えていない（§29.8 (b) は未決のまま）。
+
+## 29.11 継続分の集約：④ 8c53176a → 6af321d2 → 7e6ef2b6（cancel の試験の同期化）
+
+- **review 済みの HEAD**：④ `7e6ef2b62132e05944454229d7e094c48a6ec5db`（tree `580c2614bb929b1b26c0f9dc7d81034688b7d435`）。基準は 16576826、pass の checkpoint は 95b0ab22 のまま。
+  - `6af321d2`（④）：変わったのは `workstreams/04-execution/tests/concurrency.rs` だけ（+31 −6）。production の code は変わらない。
+  - `7e6ef2b6`：⑦ 9cd15799 の merge。onboarding.mjs と ws07-unread.test.mjs が 9cd15799 と一致（§29.9 の probe で確認した marchObjective の修正）。
+- **6af321d2 の静的な読み（④ の主張との照合）**:
+  - 一致する点:
+    - production の cancel と executor の code、試験の assertion、再試行、timeout は変わっていない。
+    - executor と clock の**両方**が gate で待つ。
+    - 最初の cancel だけが gate より前に出て、その run がまだ終わっていないことを確かめる。2 回目以降の cancel は、前と同じ乱数の待ち（0〜4 ms）で、動いている executor と競う。
+    - cancel が無いときは gate が最初から開いているので、many_executors_many_runs は前と同じ。
+  - **④ の「何も弱めていない」と食い違う点（低い）**：最後の `assert!(cancelled > 0 && fulfilled > 0, "the race was not exercised")` は文字の上では同じだが、意味が変わった。
+    - 最初の cancel は、executor が動き出す前の run（Accepted）に当たるので、`cancelled > 0` は競合が無くても満たされる。
+    - 動いている run との競合を示すのは、印刷される `after the facility` の数だけで、これは assert されていない。
+    - ⑯ の 5 回では 1〜8 で、競合はいつも起きていた。案：`cancelled >= 2` か `after the facility > 0` を assert する。後者は再び非決定になりうるので、どうするかは ④ が決める。
+  - **新しい欠陥（試験の失敗の仕方）**：canceller の thread が `go` を立てる前に panic すると、clock の `while !go.load(...)` が止まらず、試験は**失敗せずに hang** する。
+    - panic の原因になりうるのは、最初の cancel の新しい assertion か、`Store::open`・`request_cancel` の unwrap。
+    - ⑯ は scratch の写しで、最初の assertion を一時的に必ず外れる形に変えて確かめた（commit していない。後で元に戻した）。panic の文（`s01: the first cancel finds its run in flight (Some(Accepted))`）が出た後、180 秒で timeout に殺された（exit 124）。
+    - cargo test には既定の timeout が無いので、CI では止まったままになりうる。
+    - 案：`go.store(true)` を drop guard に入れる、あるいは clock の待ちで canceller の thread が終わったか（is_finished）も見る。
+- **⑯ の実行**（`logs/phase23/ws04-concurrency-gate-6af3.txt`。concurrency は Sim と SQLite だけで、鍵の API は無い）:
+  - 7e6ef2b6 の concurrency：5 回とも 8/8。cancelled は 10〜17、after the facility は 1〜8、fulfilled は 19〜26。
+  - ④ の「2 秒遅らせた canceller」での旧版と新版の比較は、⑯ は再現していない（④ の結果だけ）。
+- **この継続分で確かめた範囲の全体（§29.5〜29.11）**:
+  - ④ の cold open の修正：再現で 42/400 → 0/400。store_cold_open は 2/2。③ の強制した順序で、旧版は失敗の値が 3/3、新版は 3/3。
+  - ③ の試験：33/33 を 3 回、cold-open 2/2 を 3 回ずつ。
+  - ⑦ の 9b547d9d・a8c9eccb・08928ea5・c4eae408・9cd15799：純粋な関数の probe と静的な読み。⑦ の画面と unit は流していない。
+  - paidJoin：静的な事実（§29.10）。
+  - 各 merge の file は、元の commit と一致した。scan の `--check` は、確かめたどの HEAD でも exit 0。
+- **cold open の門について**：厳密に退行を止めるのは、④ の `store_cold_open` だけ。③ の cold-open.test.mjs は、旧と新の両方を通す診断であって、門ではない（④ の訂正と同じ）。
+- **残る制限**:
+  - ⑦ の画面と unit、gateway.rs・signed.rs（署名を使う）、保守的に除外したもの（via-src 209、unfollowed 23）は流していない。
+  - §29.8 (b)（join と paidJoin の meStatus）は、持ち主が決めること。
+  - 4d44f021 の元の run の順序は、確かめられていない。

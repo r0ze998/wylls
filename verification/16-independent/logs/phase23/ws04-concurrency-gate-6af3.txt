@@ -1,0 +1,13 @@
+### ④ 6af321d2 (in 7e6ef2b62132e05944454229d7e094c48a6ec5db) tests/concurrency.rs — ⑯ build cache target-v41
+== 6af321d2 concurrency:
+  1: cancelled 15 (after the facility: 1), fulfilled 21 | 8 passed; 0 failed
+  2: cancelled 16 (after the facility: 6), fulfilled 20 | 8 passed; 0 failed
+  3: cancelled 17 (after the facility: 8), fulfilled 19 | 8 passed; 0 failed
+  4: cancelled 16 (after the facility: 6), fulfilled 20 | 8 passed; 0 failed
+  5: cancelled 10 (after the facility: 6), fulfilled 26 | 8 passed; 0 failed
+
+### forced failure of the first-cancel assertion (local scratch edit only: 'at.is_some_and(|s| s.terminal()) && false', restored after)
+cargo test --test concurrency cancels_race_executors, timeout 180 s → exit 124 (killed by the timeout: the test hung)
+running 1 test
+thread '<unnamed>' panicked at tests/concurrency.rs:219:21:
+s01: the first cancel finds its run in flight (Some(Accepted))
