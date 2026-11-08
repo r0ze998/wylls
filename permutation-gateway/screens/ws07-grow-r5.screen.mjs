@@ -2,8 +2,8 @@
 // on the WHOLE game page, as a connected player with no key (screens/ws07/nokey-page.mjs), on a phone and a desktop.
 //
 // The fixture server's season record goes through 08's `withGrowth(record, stage)` (srv.seasonWith, opt-in): the
-// growth fields of one of four stages (before · extended · opened · grown: rMax, the seeded rings with seed
-// sha256("ring"+d), ringsOpened, ringProvinces, ceiling 6, hard 128). Its other fields (the screens world's M1 Season
+// growth fields of one of four stages (before · extended · opened · grown: rMax, the seeded rings — ring 4 and beyond
+// seeded sha256("ring"+d), the genesis rings 0–3 by the program's own rule since 08's 4eeb6c7f —, ringsOpened, ringProvinces, ceiling 6, hard 128). Its other fields (the screens world's M1 Season
 // bytes, clock, ids) are the fixture's own; a ring's overview answers once the record lists its seed (the screens
 // fixture's synthetic overview: owners are not 19's golden yet). At each stage, after a reload, the page:
 //   - says what (4,0) … (7,0) are (map/world.mjs placeNow) exactly as 08's EXPECT: (5,0) extendable · unopened ·
