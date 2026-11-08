@@ -215,12 +215,50 @@
 - `test/contract-ws04-chainflow.test.mjs`（7 件）。
 - 全体で 120 件。④の `scripts/ci/no-keys-guard.mjs` を先に読み込んだ実行でも 120 件すべて通過。
 
-## 6. 残っていること
+## 5f. ⑭の中央の事実（centre-facts/1）、⑫・⑬との名前の揃え、①の待ち（2026-11-08）
 
-1. 差分の基点 `32ad894d`・`1913625d` と、もとの候補 commit の本体（照合できていない）。
-2. ④の実出力は⑫が d0949fd4 で書き出したもの（§5d）。④自身の 8e96f24d での書き出しと、run の outcome（delivered・verification）を含む出力は未受領。u64 を JSON で文字列にするかは④の判断（⑮はどちらでも正確に読む）。demo の積荷が Science だけで、資源の量はまだ④のバイトそのものでは試せていない。
-3. ①の `fold()` は署名なしで動かした（§5d）。①の板が受け付けた本物の（署名つきの）記録の列と、チェーンから読んだ隊商の確定（`caravanEndFromChain` の実際の返り値）は未受領。
-4. ⑭の `toFacts()` が `period.boundary` を渡さない件。⑭が直すか、⑮が `sim.facts` から受け取る今の形を続けるか。
-5. 目撃の個人目標の出どころ（S1 の物見櫓に記録を足すか、目標をやめるか）。
-6. （直した。§5b）
-7. 本物のチェーンでの確認。
+**⑭ `wylls.ws14.centre-facts/1`（`d9c8b81d09fac0a0eeb9ef471e1dc7cb2c20fbd1`、`origin/claude/hopeful-cori-tql3le`）**
+- `gen-ws14-centre.mjs` が⑭の `game/centre.mjs` の `centreFacts` をそのまま動かし、その返り値を `scenarios/fixtures/ws14-centre-d9c8b81d.json` に置いた。入力は二つ。
+  - ①が commit したヘラルドのファイル。本物のヘラルドの出力で、中央には何もない。
+  - ⑮がヘラルドの形で書いた一覧（⑭の試験と同じ形）。
+- 読むのは `src/adapters/ws14-centre.mjs` の `readCentreFacts`。**事実の集計として報告するだけで、評価器の event にはしない。** 目標・報酬枠・得点・賞金は読まない。中央の倉・建物・通行が何に値するかの規則がないため。
+- `verified: 'derived'`：ヘラルドがチェーンの記録から畳み込んだもの。⑭の模型の事実（`unverified`）とは別の schema として扱う。tower-facts の adapter は centre-facts を断る。
+- 時点の扱い：⑭の provenance を写す。
+  - 前後の `/h/status` が同じ → `snapshot`
+  - 違う → `between`
+  - 読んでいない → `source_unknown`
+  - どれでも事実は並べるが、時刻を推し量らない。
+- **使わない欄：** `centre.transit.cargo` は資源をまたいだ合計（⑭の `sumCargo`。例：木材30＋石材50＝80）。summary の積荷の割合もその合計から作られている。⑮は資源を合計しないので、どちらも使わない。数は事実から数え直す。
+- 目撃（`centre.sighting`）には、物見櫓の持ち主も、見られたものも入っていない。だから誰の手柄にもしない（`creditedTo: null`）。
+
+**目撃の出どころ（以前の記述の補足）**
+- S1 のチェーンには目撃の記録がない。ヘラルドは公開の記録（DEPART・REVEAL など）から目撃を計算して `h/structures.json` の `sightings` に出している（`frontier-node/crates/herald/src/structure.rs`）。
+- よって、目撃そのものの出どころはヘラルドの派生の事実としてある。ない記録は、目撃を別の人が**使った**ことのほう。P-scout の判定は変えていない（`no_sighting_source` のまま。理由の文は [06](06-conflicts-decisions.ja.md) の食い違い 15）。
+
+**⑫・⑬との名前の揃え**
+- 実際のゲームの参加者は、⑫ の identity（`identity_alias`：Citizen の tag → wallet、または NFT の通行証）で名付ける。⑬の住民も相手を wallet で覚える。
+- chain flow の試験（§5e）では、⑫の `identity_alias` の principal を⑮の actor にした。
+- ⑬の住民の隊商は④の run を通るので、⑮には④の receipt として届く。⑬の住民が実際に送った隊商の receipt は、まだ commit されていない（読むものがない）。
+
+**①**
+- ①の最新とされる `a110411bb98cabd8ab1f3521cfc1b7d954a27d76` は GitHub にない（fetch すると "not our ref"）。①に push を依頼した（2026-11-08）。
+- 届くまで、⑮は 3f3c8478 の `fold()`（§5d）で照合している。requests は id をキーにしたオブジェクト。記録の season は `{programId, seasonId}` で、fold は season の違う記録を拒む。
+- `fold()` の返り値自体は season を持たない。そのため、どの program・season の板かは呼び出し側が⑫の `worldFromSeason` と揃えて渡すしかない。これを①への確認点にした。
+
+**試験**：`test/contract-ws14-centre.test.mjs`（7 件）。全体で 127 件。
+
+## 6. 残っていること（2026-11-08 時点）
+
+**依存待ち（相手の成果物が要る）**
+1. ①の `a110411b`（GitHub にない）。届いたら、`fold()` の requests の形と season の文脈を照合する。①の板が受け付けた本物の（署名つきの）記録の列と、チェーンから読んだ隊商の確定（`caravanEndFromChain` の実際の返り値）も未受領。
+2. ④が⑮の更新を取り込むかどうかと、stage D の差分（`patches/ws04-chain-flow-stage-d-cf517b55.patch`）を当てるかどうか（④の判断）。④の cargo の stage A・B は鍵を作る試験を含むので、⑮では動かしていない。固定データだけで確かめた。
+3. ⑬の住民が実際に送った隊商の、④の store（receipt と run）。
+4. ⑭の centre-facts の積荷を資源ごとに出す欄、目撃の持ち主と subject（⑮から要求はしていない。使うかどうかは規則の判断）。
+5. 差分の基点 `32ad894d`・`1913625d` と、もとの候補 commit の本体（照合できていない）。
+
+**持ち主の判断（未決のまま）**
+6. 勝利条件、評価期間（戦期の口座）、報酬の配分、P-scout をどうするか（目撃を使った記録を足すか、目標をやめるか）、中央の倉・建物・通行に何かを与えるか。⑮は決めていない。
+
+**未確認**
+7. 動いているヘラルドと本物のチェーンからの読み取り。⑮が読んだのはすべて固定データ：④の chain flow（模擬の時計・確定・国）、④の runexec の demo（模擬の世界）、⑭の centreFacts の出力。
+8. ⑭の `toFacts()` が `period.boundary` を渡さない件（⑭は今の形を続けると連絡済み）。

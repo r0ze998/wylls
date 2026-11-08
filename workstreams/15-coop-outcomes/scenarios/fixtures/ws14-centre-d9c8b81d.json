@@ -1,0 +1,460 @@
+{
+ "source": {
+  "repo": "r0ze998/wylls",
+  "branch": "claude/hopeful-cori-tql3le",
+  "commit": "d9c8b81d09fac0a0eeb9ef471e1dc7cb2c20fbd1",
+  "code": "workstreams/14-central-tower/game/centre.mjs centreFacts",
+  "note": "Each output is what ⑭'s centreFacts returned. \"herald\" reads ①'s committed herald file (3f3c8478 test/fixtures/herald-caravans-ended.json); \"still\" and \"moving\" read a feed ⑮ wrote in the herald's shape. No running herald was read."
+ },
+ "outputs": {
+  "herald": {
+   "schema": "wylls.ws14.centre-facts/1",
+   "source": "herald h/caravans.json and h/structures.json (S1 public feeds), a snapshot",
+   "world": {
+    "ends": false
+   },
+   "observedAt": "fixture",
+   "provenance": {
+    "from": null,
+    "stable": null,
+    "why": "no /h/status read with the feeds",
+    "slotCommitment": "not stated by the herald"
+   },
+   "facts": [],
+   "summary": {
+    "moving": 2,
+    "throughInner": 0,
+    "throughConcord": 0,
+    "innerShare": 0,
+    "concordShare": 0,
+    "cargoInnerShare": 0,
+    "cargoConcordShare": 0,
+    "vaultsAtCentre": 0,
+    "vaultsInConcord": 0,
+    "structuresAtCentre": 0,
+    "structuresInConcord": 0,
+    "byFaction": {}
+   }
+  },
+  "still": {
+   "schema": "wylls.ws14.centre-facts/1",
+   "source": "herald h/caravans.json and h/structures.json (S1 public feeds), a snapshot",
+   "world": {
+    "ends": false
+   },
+   "observedAt": "turn 1",
+   "provenance": {
+    "from": "herald /h/status",
+    "before": {
+     "foldedThrough": 4,
+     "events": 900,
+     "lastSlot": 5000,
+     "alarms": []
+    },
+    "after": {
+     "foldedThrough": 4,
+     "events": 900,
+     "lastSlot": 5000,
+     "alarms": []
+    },
+    "stable": true,
+    "why": "the fold did not move while the feeds were read",
+    "slotCommitment": "not stated by the herald"
+   },
+   "facts": [
+    {
+     "p": 0,
+     "q": 0,
+     "tile": 40,
+     "ring": 0,
+     "concord": true,
+     "faction": 0,
+     "ownerTag": "21",
+     "gen": 1,
+     "seq": 0,
+     "kind": "centre.vault",
+     "verified": "derived"
+    },
+    {
+     "p": 1,
+     "q": 0,
+     "tile": 3,
+     "ring": 1,
+     "concord": false,
+     "faction": 3,
+     "ownerTag": "22",
+     "gen": 1,
+     "seq": 1,
+     "kind": "centre.vault",
+     "verified": "derived"
+    },
+    {
+     "p": 0,
+     "q": 0,
+     "tile": 30,
+     "ring": 0,
+     "concord": true,
+     "structureKind": "tower",
+     "faction": 2,
+     "ownerTag": "31",
+     "seq": 2,
+     "kind": "centre.structure",
+     "verified": "derived"
+    },
+    {
+     "ownerTag": "12",
+     "seqOfOwner": 0,
+     "faction": 1,
+     "throughConcord": false,
+     "innermostRing": 1,
+     "provinces": 2,
+     "cargo": 80,
+     "raided": false,
+     "seq": 3,
+     "kind": "centre.transit",
+     "verified": "derived"
+    },
+    {
+     "ownerTag": "17278127443140898241",
+     "seqOfOwner": 0,
+     "faction": 0,
+     "throughConcord": true,
+     "innermostRing": 0,
+     "provinces": 5,
+     "cargo": 100,
+     "raided": false,
+     "seq": 4,
+     "kind": "centre.transit",
+     "verified": "derived"
+    },
+    {
+     "bell": 290,
+     "tower": {
+      "p": 0,
+      "q": 0,
+      "tile": 30
+     },
+     "towerFaction": 2,
+     "what": "caravan",
+     "faction": 0,
+     "seq": 5,
+     "kind": "centre.sighting",
+     "verified": "derived"
+    }
+   ],
+   "summary": {
+    "moving": 3,
+    "throughInner": 2,
+    "throughConcord": 1,
+    "innerShare": 0.6666666666666666,
+    "concordShare": 0.3333333333333333,
+    "cargoInnerShare": 0.6428571428571429,
+    "cargoConcordShare": 0.35714285714285715,
+    "vaultsAtCentre": 2,
+    "vaultsInConcord": 1,
+    "structuresAtCentre": 1,
+    "structuresInConcord": 1,
+    "byFaction": {
+     "0": {
+      "vaults": 1,
+      "structures": 0,
+      "transits": 1
+     },
+     "1": {
+      "vaults": 0,
+      "structures": 0,
+      "transits": 1
+     },
+     "2": {
+      "vaults": 0,
+      "structures": 1,
+      "transits": 0
+     },
+     "3": {
+      "vaults": 1,
+      "structures": 0,
+      "transits": 0
+     }
+    }
+   }
+  },
+  "moving": {
+   "schema": "wylls.ws14.centre-facts/1",
+   "source": "herald h/caravans.json and h/structures.json (S1 public feeds), a snapshot",
+   "world": {
+    "ends": false
+   },
+   "observedAt": "turn 2",
+   "provenance": {
+    "from": "herald /h/status",
+    "before": {
+     "foldedThrough": 4,
+     "events": 900,
+     "lastSlot": 5000,
+     "alarms": []
+    },
+    "after": {
+     "foldedThrough": 4,
+     "events": 905,
+     "lastSlot": 5012,
+     "alarms": []
+    },
+    "stable": false,
+    "why": "the fold moved while the feeds were read: the feeds are between the two",
+    "slotCommitment": "not stated by the herald"
+   },
+   "facts": [
+    {
+     "p": 0,
+     "q": 0,
+     "tile": 40,
+     "ring": 0,
+     "concord": true,
+     "faction": 0,
+     "ownerTag": "21",
+     "gen": 1,
+     "seq": 0,
+     "kind": "centre.vault",
+     "verified": "derived"
+    },
+    {
+     "p": 1,
+     "q": 0,
+     "tile": 3,
+     "ring": 1,
+     "concord": false,
+     "faction": 3,
+     "ownerTag": "22",
+     "gen": 1,
+     "seq": 1,
+     "kind": "centre.vault",
+     "verified": "derived"
+    },
+    {
+     "p": 0,
+     "q": 0,
+     "tile": 30,
+     "ring": 0,
+     "concord": true,
+     "structureKind": "tower",
+     "faction": 2,
+     "ownerTag": "31",
+     "seq": 2,
+     "kind": "centre.structure",
+     "verified": "derived"
+    },
+    {
+     "ownerTag": "12",
+     "seqOfOwner": 0,
+     "faction": 1,
+     "throughConcord": false,
+     "innermostRing": 1,
+     "provinces": 2,
+     "cargo": 80,
+     "raided": false,
+     "seq": 3,
+     "kind": "centre.transit",
+     "verified": "derived"
+    },
+    {
+     "ownerTag": "17278127443140898241",
+     "seqOfOwner": 0,
+     "faction": 0,
+     "throughConcord": true,
+     "innermostRing": 0,
+     "provinces": 5,
+     "cargo": 100,
+     "raided": false,
+     "seq": 4,
+     "kind": "centre.transit",
+     "verified": "derived"
+    },
+    {
+     "bell": 290,
+     "tower": {
+      "p": 0,
+      "q": 0,
+      "tile": 30
+     },
+     "towerFaction": 2,
+     "what": "caravan",
+     "faction": 0,
+     "seq": 5,
+     "kind": "centre.sighting",
+     "verified": "derived"
+    }
+   ],
+   "summary": {
+    "moving": 3,
+    "throughInner": 2,
+    "throughConcord": 1,
+    "innerShare": 0.6666666666666666,
+    "concordShare": 0.3333333333333333,
+    "cargoInnerShare": 0.6428571428571429,
+    "cargoConcordShare": 0.35714285714285715,
+    "vaultsAtCentre": 2,
+    "vaultsInConcord": 1,
+    "structuresAtCentre": 1,
+    "structuresInConcord": 1,
+    "byFaction": {
+     "0": {
+      "vaults": 1,
+      "structures": 0,
+      "transits": 1
+     },
+     "1": {
+      "vaults": 0,
+      "structures": 0,
+      "transits": 1
+     },
+     "2": {
+      "vaults": 0,
+      "structures": 1,
+      "transits": 0
+     },
+     "3": {
+      "vaults": 1,
+      "structures": 0,
+      "transits": 0
+     }
+    }
+   }
+  },
+  "file": {
+   "schema": "wylls.ws14.centre-facts/1",
+   "source": "herald h/caravans.json and h/structures.json (S1 public feeds), a snapshot",
+   "world": {
+    "ends": false
+   },
+   "observedAt": null,
+   "provenance": {
+    "from": null,
+    "stable": null,
+    "why": "no /h/status read with the feeds",
+    "slotCommitment": "not stated by the herald"
+   },
+   "facts": [
+    {
+     "p": 0,
+     "q": 0,
+     "tile": 40,
+     "ring": 0,
+     "concord": true,
+     "faction": 0,
+     "ownerTag": "21",
+     "gen": 1,
+     "seq": 0,
+     "kind": "centre.vault",
+     "verified": "derived"
+    },
+    {
+     "p": 1,
+     "q": 0,
+     "tile": 3,
+     "ring": 1,
+     "concord": false,
+     "faction": 3,
+     "ownerTag": "22",
+     "gen": 1,
+     "seq": 1,
+     "kind": "centre.vault",
+     "verified": "derived"
+    },
+    {
+     "p": 0,
+     "q": 0,
+     "tile": 30,
+     "ring": 0,
+     "concord": true,
+     "structureKind": "tower",
+     "faction": 2,
+     "ownerTag": "31",
+     "seq": 2,
+     "kind": "centre.structure",
+     "verified": "derived"
+    },
+    {
+     "ownerTag": "12",
+     "seqOfOwner": 0,
+     "faction": 1,
+     "throughConcord": false,
+     "innermostRing": 1,
+     "provinces": 2,
+     "cargo": 80,
+     "raided": false,
+     "seq": 3,
+     "kind": "centre.transit",
+     "verified": "derived"
+    },
+    {
+     "ownerTag": "17278127443140898241",
+     "seqOfOwner": 0,
+     "faction": 0,
+     "throughConcord": true,
+     "innermostRing": 0,
+     "provinces": 5,
+     "cargo": 100,
+     "raided": false,
+     "seq": 4,
+     "kind": "centre.transit",
+     "verified": "derived"
+    },
+    {
+     "bell": 290,
+     "tower": {
+      "p": 0,
+      "q": 0,
+      "tile": 30
+     },
+     "towerFaction": 2,
+     "what": "caravan",
+     "faction": 0,
+     "seq": 5,
+     "kind": "centre.sighting",
+     "verified": "derived"
+    }
+   ],
+   "summary": {
+    "moving": 3,
+    "throughInner": 2,
+    "throughConcord": 1,
+    "innerShare": 0.6666666666666666,
+    "concordShare": 0.3333333333333333,
+    "cargoInnerShare": 0.6428571428571429,
+    "cargoConcordShare": 0.35714285714285715,
+    "vaultsAtCentre": 2,
+    "vaultsInConcord": 1,
+    "structuresAtCentre": 1,
+    "structuresInConcord": 1,
+    "byFaction": {
+     "0": {
+      "vaults": 1,
+      "structures": 0,
+      "transits": 1
+     },
+     "1": {
+      "vaults": 0,
+      "structures": 0,
+      "transits": 1
+     },
+     "2": {
+      "vaults": 0,
+      "structures": 1,
+      "transits": 0
+     },
+     "3": {
+      "vaults": 1,
+      "structures": 0,
+      "transits": 0
+     }
+    }
+   }
+  },
+  "badVersion": {
+   "schema": "wylls.ws14.centre-facts/1",
+   "refused": [
+    "h/caravans.json: version 2, expected 1"
+   ]
+  }
+ }
+}
