@@ -773,7 +773,10 @@ export default {
   '{0}方面・第{1}輪の州': '{0} side, ring {1}',
   // ---- the seal in one sentence (hud/glossary.mjs sealLine): the order card, the legend, the help, the guide
   '行き先と構えは封印され、到着のターンが終わるまで、ほかの人には開けられません。': 'The destination and the stance are sealed: nobody else can open the seal until the arrival turn ends.',
-  'ほかの人に見えるのは、出発したこと、出発地、兵の数、到着のターンです。到着のターンが始まると、あなたの端末が先に封を開けることがあります。そのときにはもう、そのターンの到着も守り手も変えられません。': ' Others see that the march set out, where from, how many troops and its arrival turn. Once the arrival turn begins, your own device may open the seal first; by then nobody can change that turn\'s arrivals or its defenders.',
+  'ほかの人に見えるのは、出発したこと、出発地、兵の数、到着のターンです。': ' Others see that the march set out, where from, how many troops and its arrival turn. ',
+  // workstream 07: when this device opens its own seal, by the march book's rule (hud/glossary.mjs selfOpenLine)
+  '到着のターンが始まると、あなたの端末が先に封を開けることがあります。そのときにはもう、そのターンの到着も守り手も変えられません。': 'Once the arrival turn begins, your own device may open the seal first; by then nobody can change that turn\'s arrivals or its defenders.',
+  '到着のターンが終わって封を開ける鍵が出たあと、あなたの端末が自分の封を開けます。それより前には開けません。': 'Once the arrival turn has ended and the key that opens seals is out, your own device opens your seal; never before.',
   '届く範囲の蛮族の野営地へ、封をした進軍を送ります。': 'Send a sealed march to a barbarian camp within reach. ',
   'このタブを閉じても、封は自動で開けられます。': ' If you close this tab, the seal is still opened automatically.',
   // ---- the help (hud/glossary.mjs)
