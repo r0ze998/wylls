@@ -108,3 +108,11 @@
 | 1 | ⑨の命令の中で `custody::consume`・`return_unused` を呼んでよいか、共有の補助関数はあるか | カーネルの関数（`permutation_rules::frontier::custody`）はそのまま呼べる。プログラムの `proc/custody.rs` の読み書き・倉の検査（`vault_view`・`vault_of_lot`・`lot_of`・`put_lot`・`put_vault`・`actor`）は**モジュールの中だけ**（`pub` でない）。⑩が `pub(crate)` にする差分を出せる（⑩の領域、判定は変わらない）。同じ配置を⑨が別に書くと二重になるので、こちらを勧める |
 | 2 | V26 は⑨の命令（0xF6・0xF9）が区画を動かすことをどう扱うか | 今の V26 では FAIL にならない：区画の口座の変化は履歴の検査で、「利用注文の減った量の範囲で CONSUMED が増える」「CONSUMED は減ってよい（返却）」として通る。⑨の命令は custody の命令ではないので再生されず、区画は痕跡として UNVERIFIABLE のまま。**⑨の命令を再生して検証するには、V26 が⑨の tag と口座の順を知る必要がある**（⑨の命令が確定した後に⑩が足す）。記録：`consume` には `LOT_CONSUMED`（112）があるが、返却の記録の種類は ABI にない（番号は④の割当） |
 | 3 | 凍結した区画 | ⑩のカーネルも、押収された倉の区画には `consume`・`return_unused` を拒む（`usable`）。未返却のまま残すのは⑩のアダプターと同じ。没収の扱いは未決のまま（所有者の判断） |
+
+### 7.1 ⑨ `dff001ee`（⑨の HEAD `857a04f4`）の後の 3 点
+
+| # | ⑨の依頼 | ⑩がしたこと／判断 |
+|---|---|---|
+| 1 | 返却の記録の種類（`LOT_RETURNED` のようなもの） | **⑩は番号を決めない**（記録の種類の番号は④の割当。今の custody は 105–113 で、`MAX_KIND_V2` は 134）。④に「返却の記録（key：区画 15 B、payload：job か deposit の id・user_tag・qty）を 1 つ」と依頼した。それまで V26 は、記録のない `CONSUMED` の減少を履歴の検査で通す（返却として許す）が、記録との照合はしない（UNVERIFIABLE のまま） |
+| 2 | 端数の未返却を区画の側で持つか | **今は⑨の Job の口座のままを勧める**。区画の側で持つには Lot の配置に欄を足す必要があり（`RSV` を使う）、配置と `RULESET_HASH_V4` が変わる。これは④の割当と所有者の判断。adapter-09 の `owed` は預かりの中の帳簿で、口座の配置ではない |
+| 3 | `proc::custody` の読み書きの関数を公開 | **した**：`patches-candidate/0002`（`vault_view`・`vault_of_lot`・`put_vault`・`lot_key`・`lot_address`・`lot_of`・`put_lot`・`actor`・`milli`・`cerr`・`kind`・`lot_raw`・`emit_lot` を `pub(crate)`。挙動は変わらない）。5ee66869 の上の commit `82119a677185995733481de9897a3effc4d51ed8`（tree `53c267be…`、0001 の後）。`cf517b55` にも `git apply --check` で当たる（`proc/custody.rs` は cf517b55・5ee66869・fa822453 で同じ blob）。試験：permutation-frontier の check（既定・`custody-preview`・`nft-experimental`）、試験（既定 107、`custody-preview` 108）、stable の clippy（`custody-preview`、`-D warnings`。rules の他チームのファイルにある `manual_is_multiple_of` だけ許した）、rustfmt |
