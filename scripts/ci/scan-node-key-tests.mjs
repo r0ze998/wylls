@@ -104,21 +104,63 @@ for (const rel of tracked().filter(f => !inSets(f)).sort()) {
   examined.add(rel);
   if (keyedIn(join(root, rel), join(root, testRoot(rel)))) out.push(rel);
 }
+// Through src/ (2026-11-08, ④): every relative import, src/ and other packages included (not node_modules). A test
+// whose import closure reaches a file that names a key API is a CONSERVATIVE exclusion: the closure names one, a call is
+// not proven (definitions and mentions count too). A test shown by a static call-path review not to call it stays
+// runnable only when named in scripts/ci/node-key-reviewed.txt with its reason (`<path>  # <why>`); a direct or helper
+// hit above can never be reviewed away.
+function closureHit(file, seen = new Set()) {
+  if (seen.has(file)) return null;
+  seen.add(file);
+  const src = readFileSync(file, 'utf8');
+  if (PAT.test(src)) return file;
+  for (const spec of imports(src)) {
+    const t = resolve(dirname(file), spec);
+    if (!existsSync(t) || t.split(sep).includes('node_modules')) continue;
+    const hit = closureHit(t, seen);
+    if (hit) return hit;
+  }
+  return null;
+}
+const reviewedPath = join(root, 'scripts/ci/node-key-reviewed.txt');
+const reviewed = new Map();
+const reviewBad = [];
+if (existsSync(reviewedPath)) {
+  for (const l of readFileSync(reviewedPath, 'utf8').split('\n')) {
+    if (!l.trim() || l.startsWith('#')) continue;
+    const m = /^(\S+)\s+#\s*(\S.*)$/.exec(l);
+    if (!m) { reviewBad.push(`no reason: ${l}`); continue; }
+    reviewed.set(m[1], m[2]);
+  }
+}
+const viaSrc = [];
+for (const f of [...examined].sort()) {
+  if (out.includes(f)) { if (reviewed.has(f)) reviewBad.push(`a direct or helper hit cannot be reviewed away: ${f}`); continue; }
+  const hit = closureHit(join(root, f));
+  if (!hit) { if (reviewed.has(f)) reviewBad.push(`reviewed but its closure names no key API (remove it): ${f}`); continue; }
+  if (!reviewed.has(f)) viaSrc.push(f);
+}
+for (const f of reviewed.keys()) if (!examined.has(f)) reviewBad.push(`reviewed but not examined: ${f}`);
+if (reviewBad.length) { console.error(`scripts/ci/node-key-reviewed.txt:\n${reviewBad.map(x => `  ${x}`).join('\n')}`); process.exit(5); }
 if (process.argv.includes('--covers')) {
   const asked = process.argv.slice(process.argv.indexOf('--covers') + 1);
   const missing = asked.filter(f => !examined.has(f));
   if (missing.length) { console.error(`not examined by scripts/ci/scan-node-key-tests.mjs (not run):\n${missing.map(f => `  ${f}`).join('\n')}`); process.exit(4); }
   process.exit(0);
 }
+const guardOnly = seenByGuard.filter(l => !out.includes(l) && !viaSrc.includes(l));
 const body = [
   '# Node test files that generate, derive or sign with a key: never run by the key-free CI jobs,',
   '# only by the manual key-tests job. Written by scripts/ci/scan-node-key-tests.mjs (the file itself',
   '# or a test helper it imports names a key API).',
   ...out,
+  '# by the scan through src/ (conservative: its import closure reaches a file that names a key API; a call is not',
+  '# proven. A file a static call-path review clears goes in scripts/ci/node-key-reviewed.txt, with its reason)',
+  ...viaSrc,
   '# seen by the guard (they reach a key API in src/ at run time; added by hand)',
-  ...seenByGuard.filter(l => !out.includes(l)),
+  ...guardOnly,
 ].join('\n') + '\n';
 if (process.argv.includes('--check')) {
   if (body !== old) { console.error('scripts/ci/node-key-tests.txt is not current: run node scripts/ci/scan-node-key-tests.mjs'); process.exit(3); }
 } else writeFileSync(join(root, 'scripts/ci/node-key-tests.txt'), body);
-console.log(`${out.length} by the scan, ${seenByGuard.filter(l => !out.includes(l)).length} seen by the guard`);
+console.log(`${out.length} by the scan, ${viaSrc.length} through src/ (conservative), ${reviewed.size} reviewed and runnable, ${guardOnly.length} seen by the guard`);

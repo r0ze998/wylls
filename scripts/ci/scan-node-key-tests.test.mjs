@@ -33,7 +33,7 @@ test('a workstream test that names a key API, directly or through a helper in it
     'workstreams/06-creation/test/via-helper.test.mjs': `import { k } from './helpers.mjs';\n`,
     'workstreams/03-composability/mcp/test/keyfree/deep.test.mjs': `import '../util/h.mjs';\n`,
     'workstreams/03-composability/mcp/test/util/h.mjs': `${GEN});\n`,
-    // reached only in src/: left to the run-time guard, as for the SETS packages
+    // reached only through src/: a conservative exclusion (the closure names a key API; no call is proven)
     'workstreams/06-creation/test/via-src.test.mjs': `import '../src/keys.mjs';\n`,
     'workstreams/06-creation/src/keys.mjs': `export const g = () => ${GEN});\n`,
     'workstreams/06-creation/test/clean.test.mjs': `import assert from 'node:assert';\n`,
@@ -46,7 +46,10 @@ test('a workstream test that names a key API, directly or through a helper in it
       'workstreams/03-composability/mcp/test/keyfree/deep.test.mjs',
       'workstreams/06-creation/test/roles.test.mjs',
       'workstreams/06-creation/test/via-helper.test.mjs',
+      'workstreams/06-creation/test/via-src.test.mjs',
     ]);
+    const text = readFileSync(path.join(dir, 'scripts/ci/node-key-tests.txt'), 'utf8');
+    assert.ok(text.indexOf('via-src.test.mjs') > text.indexOf('through src/'), 'the src-only case is in the conservative section');
     // the list is now current; adding a key-using test makes --check fail until it is rewritten
     assert.equal(run(dir, ['--check']).status, 0);
   } catch (e) {
@@ -84,4 +87,25 @@ test('the repository list names workstream 06 roles.test.mjs and is current', ()
   const out = execFileSync(process.execPath, [scan, '--check'], { cwd: repo, encoding: 'utf8', env: { ...process.env, WS04_SCAN_ROOT: '' } });
   assert.match(out, /by the scan/);
   assert.ok(readFileSync(path.join(repo, 'scripts/ci/node-key-tests.txt'), 'utf8').split('\n').includes('workstreams/06-creation/test/roles.test.mjs'));
+});
+
+test('a reviewed named target with its reason stays runnable; a direct hit or a missing reason cannot be reviewed', () => {
+  const files = {
+    'workstreams/06-creation/test/reviewed.test.mjs': `import '../src/plan.mjs';\n`,
+    'workstreams/06-creation/src/plan.mjs': `import './keys.mjs';\nexport const resolve = x => x;\n`,
+    'workstreams/06-creation/src/keys.mjs': `export const g = () => ${GEN});\n`,
+    'workstreams/06-creation/test/direct.test.mjs': `${GEN});\n`,
+    'scripts/ci/node-key-tests.txt': '',
+  };
+  const dir = tree({ ...files, 'scripts/ci/node-key-reviewed.txt': 'workstreams/06-creation/test/reviewed.test.mjs  # calls resolve only\n' });
+  try {
+    assert.equal(run(dir).status, 0);
+    assert.deepEqual(listed(dir), ['workstreams/06-creation/test/direct.test.mjs']);
+    writeFileSync(path.join(dir, 'scripts/ci/node-key-reviewed.txt'), 'workstreams/06-creation/test/reviewed.test.mjs\n');
+    assert.equal(run(dir).status, 5, 'no reason');
+    writeFileSync(path.join(dir, 'scripts/ci/node-key-reviewed.txt'), 'workstreams/06-creation/test/direct.test.mjs  # no\n');
+    assert.equal(run(dir).status, 5, 'a direct hit');
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
 });
