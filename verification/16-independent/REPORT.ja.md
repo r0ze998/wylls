@@ -2329,3 +2329,36 @@ T7（crash では作れない損傷）の結果：
 - ⑦ 780acac7（d415e013 に入った）：5 file が 780acac7 と一致する。
   - web の差分は表示の順番、css、締め切りの行だけ。鍵・署名・session・wallet の経路の変更はない（文言の行は既存の表示のまま）。
   - browser は、④ が G1 の修正まで止めているので、流していない。
+
+### 27.9 誤って force-add した file の監査（71713b34）
+
+- **何が起きたか**：`git add -f verification/16-independent` を使ったため、`.gitignore` で外していた、または追跡していなかった、⑯ の過去の受け渡しパッケージとログが、必要な 4 file と一緒に commit され、push された。
+  - 入った commit：`71713b3492704053fd3ef942a058d8081bb699a4`（親 `eb78357b…`）。`origin/claude/dreamy-ramanujan-ijj8qj` に push 済み。
+  - 不要だった file：61 件、618,468 byte。
+  - 追跡を外した commit：
+    - `925e6f891c7425015049a6d6be65eb79b5027db5`：60 件。
+    - 次の commit：`dist/wylls-verify16-20261031T001910Z/REPORT.ja.md` の 1 件。925e6f89 での filter に漏れていた。
+  - **追跡を外しても、公開済みの履歴からは消えない。** 履歴の書き換えも force-push もしていない。
+- 監査の範囲（`logs/phase22/audit-71713b34.txt` に、全 path、blob SHA、byte 数を記録）:
+  - 61 file を、push した commit から取り出した。
+  - 2 つの tar.gz は空のディレクトリに展開し、114 個の member を調べた。
+  - 3 つの bundle は、head と前提 commit を確かめた。
+  - それぞれの blob が、71713b34 より前の公開履歴にあったかを、`git hash-object` と照合した。
+  - text の 151 file について、pattern で走査した:
+    - PEM の秘密鍵、64 byte の keypair の JSON、base58 で 87〜88 文字の値、128 桁の hex。
+    - session の backup にある `Key:` の行、secret・seed・token・password の代入、cloud の token。
+    - 認証の header、proxy の設定、e-mail。
+    - NFT、artwork、未公開、景品、賞品などの語。
+- 結果:
+  - 61 件のうち 15 件（REPORT・INVENTORY・INVARIANTS・README と patches P1〜P10）は、71713b34 より前にすでに公開されていた。
+  - 新しく公開された 46 件の内訳:
+    - 試験の実行ログ。
+    - パッケージの照合用 file（HEAD.sha、HEAD.tree、PREREQUISITE.sha、SHA256SUMS、RESTORE.ja.md）。
+    - tar.gz とその sha256。
+  - bundle の head（`fc8e8ec3…`、`1da3238d…`）は、どちらもすでに公開されている branch に含まれる。
+  - tar の member で新しいものは、ログと照合用 file だけ。パッケージは当時から `inbox/` を除いていた。
+  - pattern の hit：鍵・seed・token・認証・e-mail は 0。base58 の長い値は 3 種類あり、どれも試験の出力の中の取引の**署名**（`"signature":`、`settled transaction`）。署名は秘密ではない。
+  - 賞品の素材を示す語は 0。「prize」は、公開済みの prize program の code と試験の名前としてだけ出る。
+- **判断**：秘密や未公開の賞品素材を含むものは見つからなかった。公開を止める必要がある、疑わしいものはない。
+  - 限界：pattern による走査と、公開済みの blob との照合による判断。全ログを人の目で全文読んだわけではない。
+- 今後は、明示した必要な path だけを stage する。広い `add -f` と履歴の書き換えはしない。

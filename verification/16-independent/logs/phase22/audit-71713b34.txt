@@ -1,0 +1,174 @@
+# ⑯ audit of the files force-added by mistake in 71713b3492704053fd3ef942a058d8081bb699a4 (pushed to origin/claude/dreamy-ramanujan-ijj8qj)
+# untracked in 925e6f891c7425015049a6d6be65eb79b5027db5 (60 files) and in the next commit (1 file: dist/wylls-verify16-20261031T001910Z/REPORT.ja.md); both remain in the published history
+# columns: blob sha1 | bytes | already published before 71713b34 (PUB) or first published by it (NEW) | path
+ba25222485965f348f5aeb38247b2e87b43e4dd1	186011	NEW	verification/16-independent/dist/wylls-verify16-1da3238d-20261105.tar.gz
+e19fdae463bc02bd2b58618e791ffd0b52de7cc9	156	NEW	verification/16-independent/dist/wylls-verify16-1da3238d-20261105.tar.gz.sha256
+7e7883c7fe87810052e1210c2d32564b7b9f5cec	131443	NEW	verification/16-independent/dist/wylls-verify16-20261031T001910Z.tar.gz
+c5a8155fd205107899b7a99c51ecb86486f5dc49	155	NEW	verification/16-independent/dist/wylls-verify16-20261031T001910Z.tar.gz.sha256
+4f244e1f5a5fa6a47b095dfd7788ecf04ea8a827	41	NEW	verification/16-independent/dist/wylls-verify16-20261031T001910Z/HEAD.sha
+e3e6ca17a023cc077de558c89e54c741a4a61e61	41	NEW	verification/16-independent/dist/wylls-verify16-20261031T001910Z/HEAD.tree
+c34f79d2eac89a50299dd19076876a244550515a	12574	PUB	verification/16-independent/dist/wylls-verify16-20261031T001910Z/INVARIANTS.ja.md
+4724b83a162e4754ec5526fb4bbc2a201a4b8f5e	7295	PUB	verification/16-independent/dist/wylls-verify16-20261031T001910Z/INVENTORY.ja.md
+b1d2c86887e7d9e22798685e00805fbf5d8a5648	4564	PUB	verification/16-independent/dist/wylls-verify16-20261031T001910Z/README.ja.md
+46b187e8594f48e1939513579c3a9344460d5b6d	41335	PUB	verification/16-independent/dist/wylls-verify16-20261031T001910Z/REPORT.ja.md
+becf3bfff8d26ec7e33385d089a2cb597baa53c0	708	NEW	verification/16-independent/dist/wylls-verify16-20261031T001910Z/RESTORE.ja.md
+1f33e33b88f81c20a0f3d4f7132478cdb4ac15c3	3546	NEW	verification/16-independent/dist/wylls-verify16-20261031T001910Z/SHA256SUMS
+e0f9df12d2d669153454eac4d85599511aadca13	1012	NEW	verification/16-independent/dist/wylls-verify16-20261031T001910Z/logs/base-abi-period-boundary.log
+c88595650dba8a7cc9166b3f1ec5682d079d973b	205	NEW	verification/16-independent/dist/wylls-verify16-20261031T001910Z/logs/base-gateway-npm-test.log
+59b2461e1cfbd737e10753d2b1f6ef54ef6079bf	796	NEW	verification/16-independent/dist/wylls-verify16-20261031T001910Z/logs/base-herald-v16.log
+ea62d295667ddbd17fc4bf5a4c7d89b3b6c9b3ea	7301	NEW	verification/16-independent/dist/wylls-verify16-20261031T001910Z/logs/base-node-phase2.log
+323b4fefd5d86e17b112396459724bf0e668f4b0	6451	NEW	verification/16-independent/dist/wylls-verify16-20261031T001910Z/logs/base-node-v16.log
+25eb7e125423e690d6232bbd9d3720773fedde4a	4769	NEW	verification/16-independent/dist/wylls-verify16-20261031T001910Z/logs/base-root-workspace-cargo-test.log
+26b31d64c4ace204664459ff52af615f4158be06	1198	NEW	verification/16-independent/dist/wylls-verify16-20261031T001910Z/logs/base-verify-v16-x2c.log
+0fe524e07898deff1f1723659969095aa94b7a0e	1279	NEW	verification/16-independent/dist/wylls-verify16-20261031T001910Z/logs/base-verify-v16.log
+8e38602156920c5b38ac1b38ec9969a641a61ab3	212	NEW	verification/16-independent/dist/wylls-verify16-20261031T001910Z/logs/mutation-M1-global-idempotency.log
+c0eed53eeaed49558a7291df2c81d9bad6616f40	2298	NEW	verification/16-independent/dist/wylls-verify16-20261031T001910Z/logs/patched-herald-suite.log
+3ccd425da42650635b918af6fe6dc30ffabc09dc	265	NEW	verification/16-independent/dist/wylls-verify16-20261031T001910Z/logs/patched-node-full.log
+e60427dcf8d8286983e2934f681285437f65ff98	30	NEW	verification/16-independent/dist/wylls-verify16-20261031T001910Z/logs/patched-node-p5-lang.log
+d9c3284b2043beab238365f80a0e023cef7aea99	7712	NEW	verification/16-independent/dist/wylls-verify16-20261031T001910Z/logs/patched-node-phase2.log
+662e5537557999822df5780beecfa926d7aaac32	3063	NEW	verification/16-independent/dist/wylls-verify16-20261031T001910Z/logs/patched-node-v16.log
+b9caa9188f5e4d54ee407640a0b5364404be98f0	5943	NEW	verification/16-independent/dist/wylls-verify16-20261031T001910Z/logs/patched-verify-suite-p1b.log
+e98747cc6208bb7dd06660786e65b6b45fa185de	6734	NEW	verification/16-independent/dist/wylls-verify16-20261031T001910Z/logs/patched-verify-suite.log
+7ea5ced1d5f1054105f6ff3906671098daa051ee	462	NEW	verification/16-independent/dist/wylls-verify16-20261031T001910Z/logs/ws03-relay-check-on-base.log
+b82fce4181681ae287f9caa5c5d7326bd5460cc1	5248	PUB	verification/16-independent/dist/wylls-verify16-20261031T001910Z/patches/P1-verify-unknown-tag-and-cpi-shape.patch
+5d5fbd0d97507edd25fe41258f46c5866c8f7578	2211	PUB	verification/16-independent/dist/wylls-verify16-20261031T001910Z/patches/P10-docs-reveal-timing-wording.patch
+98e505d071aae81de9901004515ca2b039020b2c	3332	PUB	verification/16-independent/dist/wylls-verify16-20261031T001910Z/patches/P2-herald-caravan-holder-and-wear.patch
+31e0a98d4792ae6f8a3d707123f38d6615597e00	5096	PUB	verification/16-independent/dist/wylls-verify16-20261031T001910Z/patches/P3-web-caravan-holder.patch
+b6148d98eb2e330a54ca40a87f5535241fea9d64	1245	PUB	verification/16-independent/dist/wylls-verify16-20261031T001910Z/patches/P4-gateway-idempotency-keep-sent.patch
+a1e14052ea3c3f20ee6a548ff6933ed86dc7d4d1	9358	PUB	verification/16-independent/dist/wylls-verify16-20261031T001910Z/patches/P5-web-foreign-session-key.patch
+e5634396a815924b12cab0d05bdce8d351097196	1576	PUB	verification/16-independent/dist/wylls-verify16-20261031T001910Z/patches/P6-web-wallet-switch-follows.patch
+9faf03a319f29fc5dc930ddead00ffa461f56a1d	6959	PUB	verification/16-independent/dist/wylls-verify16-20261031T001910Z/patches/P7-x402-lost-response-recovery.patch
+360389a04fa175f8ec5e8365ea73e7d42e7536a7	362	PUB	verification/16-independent/dist/wylls-verify16-20261031T001910Z/patches/P8-claim-amount-unknown-not-zero.NOTE.md
+ea10c2f43dfa195fb5fc876650aa330e629377ce	1937	PUB	verification/16-independent/dist/wylls-verify16-20261031T001910Z/patches/P9-prototype-crank-undelegation-order.patch
+b381ea501d758b6faa8bdc683affed17bb76c0b6	6110	PUB	verification/16-independent/dist/wylls-verify16-20261031T001910Z/patches/README.ja.md
+3b6a10f3c6669ab97a55c545cc2df9969fef8d75	72857	NEW	verification/16-independent/dist/wylls-verify16-20261031T001910Z/verify16.bundle
+e0f9df12d2d669153454eac4d85599511aadca13	1012	NEW	verification/16-independent/logs/base-abi-period-boundary.log
+c88595650dba8a7cc9166b3f1ec5682d079d973b	205	NEW	verification/16-independent/logs/base-gateway-npm-test.log
+59b2461e1cfbd737e10753d2b1f6ef54ef6079bf	796	NEW	verification/16-independent/logs/base-herald-v16.log
+5195fb1a461cb0f713fe475765a832c3b8dd99e8	2269	NEW	verification/16-independent/logs/base-keeper-v16.log
+ea62d295667ddbd17fc4bf5a4c7d89b3b6c9b3ea	7301	NEW	verification/16-independent/logs/base-node-phase2.log
+323b4fefd5d86e17b112396459724bf0e668f4b0	6451	NEW	verification/16-independent/logs/base-node-v16.log
+25eb7e125423e690d6232bbd9d3720773fedde4a	4769	NEW	verification/16-independent/logs/base-root-workspace-cargo-test.log
+26b31d64c4ace204664459ff52af615f4158be06	1198	NEW	verification/16-independent/logs/base-verify-v16-x2c.log
+0fe524e07898deff1f1723659969095aa94b7a0e	1279	NEW	verification/16-independent/logs/base-verify-v16.log
+8e38602156920c5b38ac1b38ec9969a641a61ab3	212	NEW	verification/16-independent/logs/mutation-M1-global-idempotency.log
+c0eed53eeaed49558a7291df2c81d9bad6616f40	2298	NEW	verification/16-independent/logs/patched-herald-suite.log
+f1f822bd9995a39b02579cf60cd3a43cc3a047cb	6283	NEW	verification/16-independent/logs/patched-keeper-p11.log
+231140fceb1528e3205c9aa77ce9f96ec42f06f3	6296	NEW	verification/16-independent/logs/patched-keeper-p12.log
+3ccd425da42650635b918af6fe6dc30ffabc09dc	265	NEW	verification/16-independent/logs/patched-node-full.log
+e60427dcf8d8286983e2934f681285437f65ff98	30	NEW	verification/16-independent/logs/patched-node-p5-lang.log
+d9c3284b2043beab238365f80a0e023cef7aea99	7712	NEW	verification/16-independent/logs/patched-node-phase2.log
+662e5537557999822df5780beecfa926d7aaac32	3063	NEW	verification/16-independent/logs/patched-node-v16.log
+b9caa9188f5e4d54ee407640a0b5364404be98f0	5943	NEW	verification/16-independent/logs/patched-verify-suite-p1b.log
+e98747cc6208bb7dd06660786e65b6b45fa185de	6734	NEW	verification/16-independent/logs/patched-verify-suite.log
+7ea5ced1d5f1054105f6ff3906671098daa051ee	462	NEW	verification/16-independent/logs/ws03-relay-check-on-base.log
+
+# tarball members (two .tar.gz above), classified the same way by git hash-object:
+NEW wylls-verify16-1da3238d-20261105/HEAD.sha
+NEW wylls-verify16-1da3238d-20261105/HEAD.tree
+NEW wylls-verify16-1da3238d-20261105/PREREQUISITE.sha
+NEW wylls-verify16-1da3238d-20261105/RESTORE.ja.md
+NEW wylls-verify16-1da3238d-20261105/SHA256SUMS
+NEW wylls-verify16-1da3238d-20261105/logs-not-in-commit/base-abi-period-boundary.log
+NEW wylls-verify16-1da3238d-20261105/logs-not-in-commit/base-gateway-npm-test.log
+NEW wylls-verify16-1da3238d-20261105/logs-not-in-commit/base-herald-v16.log
+NEW wylls-verify16-1da3238d-20261105/logs-not-in-commit/base-keeper-v16.log
+NEW wylls-verify16-1da3238d-20261105/logs-not-in-commit/base-node-phase2.log
+NEW wylls-verify16-1da3238d-20261105/logs-not-in-commit/base-node-v16.log
+NEW wylls-verify16-1da3238d-20261105/logs-not-in-commit/base-root-workspace-cargo-test.log
+NEW wylls-verify16-1da3238d-20261105/logs-not-in-commit/base-verify-v16-x2c.log
+NEW wylls-verify16-1da3238d-20261105/logs-not-in-commit/base-verify-v16.log
+NEW wylls-verify16-1da3238d-20261105/logs-not-in-commit/mutation-M1-global-idempotency.log
+NEW wylls-verify16-1da3238d-20261105/logs-not-in-commit/patched-herald-suite.log
+NEW wylls-verify16-1da3238d-20261105/logs-not-in-commit/patched-keeper-p11.log
+NEW wylls-verify16-1da3238d-20261105/logs-not-in-commit/patched-keeper-p12.log
+NEW wylls-verify16-1da3238d-20261105/logs-not-in-commit/patched-node-full.log
+NEW wylls-verify16-1da3238d-20261105/logs-not-in-commit/patched-node-p5-lang.log
+NEW wylls-verify16-1da3238d-20261105/logs-not-in-commit/patched-node-phase2.log
+NEW wylls-verify16-1da3238d-20261105/logs-not-in-commit/patched-node-v16.log
+NEW wylls-verify16-1da3238d-20261105/logs-not-in-commit/patched-verify-suite-p1b.log
+NEW wylls-verify16-1da3238d-20261105/logs-not-in-commit/patched-verify-suite.log
+NEW wylls-verify16-1da3238d-20261105/logs-not-in-commit/ws03-relay-check-on-base.log
+NEW wylls-verify16-20261031T001910Z/HEAD.sha
+NEW wylls-verify16-20261031T001910Z/HEAD.tree
+NEW wylls-verify16-20261031T001910Z/RESTORE.ja.md
+NEW wylls-verify16-20261031T001910Z/SHA256SUMS
+NEW wylls-verify16-20261031T001910Z/logs/base-abi-period-boundary.log
+NEW wylls-verify16-20261031T001910Z/logs/base-gateway-npm-test.log
+NEW wylls-verify16-20261031T001910Z/logs/base-herald-v16.log
+NEW wylls-verify16-20261031T001910Z/logs/base-node-phase2.log
+NEW wylls-verify16-20261031T001910Z/logs/base-node-v16.log
+NEW wylls-verify16-20261031T001910Z/logs/base-root-workspace-cargo-test.log
+NEW wylls-verify16-20261031T001910Z/logs/base-verify-v16-x2c.log
+NEW wylls-verify16-20261031T001910Z/logs/base-verify-v16.log
+NEW wylls-verify16-20261031T001910Z/logs/mutation-M1-global-idempotency.log
+NEW wylls-verify16-20261031T001910Z/logs/patched-herald-suite.log
+NEW wylls-verify16-20261031T001910Z/logs/patched-node-full.log
+NEW wylls-verify16-20261031T001910Z/logs/patched-node-p5-lang.log
+NEW wylls-verify16-20261031T001910Z/logs/patched-node-phase2.log
+NEW wylls-verify16-20261031T001910Z/logs/patched-node-v16.log
+NEW wylls-verify16-20261031T001910Z/logs/patched-verify-suite-p1b.log
+NEW wylls-verify16-20261031T001910Z/logs/patched-verify-suite.log
+NEW wylls-verify16-20261031T001910Z/logs/ws03-relay-check-on-base.log
+PUB tar-members-public.txt
+PUB wylls-verify16-1da3238d-20261105/tests/frontier-abi/tests/v16_period_boundary.rs
+PUB wylls-verify16-1da3238d-20261105/tests/frontier-node/crates/herald/tests/v16_caravan_holder.rs
+PUB wylls-verify16-1da3238d-20261105/tests/frontier-node/crates/keeper/tests/v16_early_reveal.rs
+PUB wylls-verify16-1da3238d-20261105/tests/frontier-node/crates/keeper/tests/v16_reveal_versions_fees.rs
+PUB wylls-verify16-1da3238d-20261105/tests/frontier-node/crates/verify/tests/v16_unknown_tag.rs
+PUB wylls-verify16-1da3238d-20261105/tests/permutation-gateway/test/v16-agent-wallet-contention.test.mjs
+PUB wylls-verify16-1da3238d-20261105/tests/permutation-gateway/test/v16-agent-wallet-replay.test.mjs
+PUB wylls-verify16-1da3238d-20261105/tests/permutation-gateway/test/v16-public-ops.test.mjs
+PUB wylls-verify16-1da3238d-20261105/tests/permutation-gateway/test/v16-web-caravan-holder.test.mjs
+PUB wylls-verify16-1da3238d-20261105/tests/permutation-gateway/test/v16-web-wallet-switch.test.mjs
+PUB wylls-verify16-1da3238d-20261105/tests/permutation-gateway/test/v16-x402-settlement.test.mjs
+PUB wylls-verify16-1da3238d-20261105/verify16/.gitignore
+PUB wylls-verify16-1da3238d-20261105/verify16/CHECKLIST-INTAKE.ja.md
+PUB wylls-verify16-1da3238d-20261105/verify16/INVARIANTS.ja.md
+PUB wylls-verify16-1da3238d-20261105/verify16/INVENTORY.ja.md
+PUB wylls-verify16-1da3238d-20261105/verify16/README.ja.md
+PUB wylls-verify16-1da3238d-20261105/verify16/REPORT.ja.md
+PUB wylls-verify16-1da3238d-20261105/verify16/intake-ws04.sh
+PUB wylls-verify16-1da3238d-20261105/verify16/make-package.sh
+PUB wylls-verify16-1da3238d-20261105/verify16/patches/P1-verify-unknown-tag-and-cpi-shape.patch
+PUB wylls-verify16-1da3238d-20261105/verify16/patches/P10-docs-reveal-timing-wording.patch
+PUB wylls-verify16-1da3238d-20261105/verify16/patches/P11-keeper-no-reveal-before-arrival-turn.patch
+PUB wylls-verify16-1da3238d-20261105/verify16/patches/P12-keeper-count-every-landed-version-fee.patch
+PUB wylls-verify16-1da3238d-20261105/verify16/patches/P2-herald-caravan-holder-and-wear.patch
+PUB wylls-verify16-1da3238d-20261105/verify16/patches/P3-web-caravan-holder.patch
+PUB wylls-verify16-1da3238d-20261105/verify16/patches/P4-gateway-idempotency-keep-sent.patch
+PUB wylls-verify16-1da3238d-20261105/verify16/patches/P5-web-foreign-session-key.patch
+PUB wylls-verify16-1da3238d-20261105/verify16/patches/P6-web-wallet-switch-follows.patch
+PUB wylls-verify16-1da3238d-20261105/verify16/patches/P7-x402-lost-response-recovery.patch
+PUB wylls-verify16-1da3238d-20261105/verify16/patches/P8-claim-amount-unknown-not-zero.NOTE.md
+PUB wylls-verify16-1da3238d-20261105/verify16/patches/P9-prototype-crank-undelegation-order.patch
+PUB wylls-verify16-1da3238d-20261105/verify16/patches/README.ja.md
+PUB wylls-verify16-20261031T001910Z/INVARIANTS.ja.md
+PUB wylls-verify16-20261031T001910Z/INVENTORY.ja.md
+PUB wylls-verify16-20261031T001910Z/README.ja.md
+PUB wylls-verify16-20261031T001910Z/REPORT.ja.md
+PUB wylls-verify16-20261031T001910Z/patches/P1-verify-unknown-tag-and-cpi-shape.patch
+PUB wylls-verify16-20261031T001910Z/patches/P10-docs-reveal-timing-wording.patch
+PUB wylls-verify16-20261031T001910Z/patches/P2-herald-caravan-holder-and-wear.patch
+PUB wylls-verify16-20261031T001910Z/patches/P3-web-caravan-holder.patch
+PUB wylls-verify16-20261031T001910Z/patches/P4-gateway-idempotency-keep-sent.patch
+PUB wylls-verify16-20261031T001910Z/patches/P5-web-foreign-session-key.patch
+PUB wylls-verify16-20261031T001910Z/patches/P6-web-wallet-switch-follows.patch
+PUB wylls-verify16-20261031T001910Z/patches/P7-x402-lost-response-recovery.patch
+PUB wylls-verify16-20261031T001910Z/patches/P8-claim-amount-unknown-not-zero.NOTE.md
+PUB wylls-verify16-20261031T001910Z/patches/P9-prototype-crank-undelegation-order.patch
+PUB wylls-verify16-20261031T001910Z/patches/README.ja.md
+
+# bundles: heads fc8e8ec3c9cda422e73a7506b384ea6e083c1cf5 and 1da3238d03fcb50b3da168fb3618fd4d694e2e05, prerequisite 921429322d5aecd1a3df0dd8d82c405c87dd985a; both heads are contained in public remote refs (already published)
+
+# pattern scan over 151 text files (the 61 and every tarball member; bundles and .gz checked as above):
+text files scanned: 151; non-text: ['blobs/verification/16-independent/dist/wylls-verify16-1da3238d-20261105.tar.gz', 'blobs/verification/16-independent/dist/wylls-verify16-20261031T001910Z.tar.gz', 'blobs/verification/16-independent/dist/wylls-verify16-20261031T001910Z/verify16.bundle', 'tar-wylls-verify16-1da3238d-20261105/wylls-verify16-1da3238d-20261105/verify16-1da3238d.bundle', 'tar-wylls-verify16-20261031T001910Z/wylls-verify16-20261031T001910Z/verify16.bundle']
+pem_private: 0
+keypair_json_64: 0
+base58_87_88: 12
+hex128: 0
+secret_assign: 0
+cloud_tokens: 0
+prize_terms: 0
+#   base58_87_88: 3 distinct values, each a transaction signature in a test run's output ("signature":, "settled transaction"); signatures are not secrets
+#   credential / proxy / e-mail patterns: 0
