@@ -26,10 +26,17 @@
 import { randomBytes } from 'node:crypto';
 import { tool } from '../../src/participate.mjs';
 
-/** permutation-gateway trees whose submit/gate/checkAllowed order was read and tested for the probe. */
+/**
+ * permutation-gateway trees (the whole subtree, `git rev-parse <commit>:permutation-gateway`) whose submit/gate/
+ * checkAllowed order was read and tested for the probe. An entry attests the probe's preconditions at that exact tree;
+ * it does not enable the probe (that stays the operator's opt-in, `probe.enabled`), and a relay serving agent_whoami is
+ * checked by that read instead. Review evidence for each entry: RELAY-TREE-ATTESTATION-10.ja.md.
+ */
 export const VERIFIED_RELAY_TREES = Object.freeze({
   '560f8659fdc091d6870c35539333acf59381acf8': 'base (4cd901de = ba3c180b = ④ 2e536b6b = ③ acdcd0bf)',
   '98f52eb2bfdf153e4c2c0761e6a4387a28bbef3e': 'base + ③ 0005 + ⑤ 0002b + 0001 + 0003 (the integration candidate)',
+  '477c5685ad2390c2b8a627936187f8f546423a0e': '④ 6984acfa + ⑤ 0002c, 0003, 0004b, 0005, 0006, 0007 (⑤ hand-off e29ec011); order re-read with the lane and the credential re-check',
+  '52ccd7fc13daba4d2e4af111a65b644b4f0e8ae2': '④ integration candidate 7535a17e: src/ identical to 477c5685; the agent wallet\'s ABI entries (17 names, profiles 1 and 3) identical; other changes are screens and tests',
 });
 export const PROBE_LIMIT = Object.freeze({ perDay: 3 });
 const PROBE_ACTION = 'SetSession'; // NEVER_DELEGATED: refused by checkAllowed whatever the policy says
