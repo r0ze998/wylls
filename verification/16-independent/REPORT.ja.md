@@ -3878,3 +3878,60 @@ env -u NODE_OPTIONS -u WS04_SCAN_ROOT -u RUNEXEC_BIN -u RUNEXEC_VIEW_BIN bash sc
   - stdout、stderr、終了の status を絞らずに保存する。
   - broad な cargo の実行と、他の test target には広げない。
 - browser の画面は、まだ解除しない。
+
+## 29.38 browser の鍵の自己試験（ws07-guard）、19 の golden の書き直しの分岐、4 の新しい subset との突き合わせ（何も走らせていない）
+
+### A. ws07-guard.screen.mjs の鍵の自己試験（4 が繰り返し実行したもの）
+
+**⑯ の実行の有無。** ⑯ は ws07-guard を一度も走らせていない。⑯ の transcript で、この file を `--test` に渡す command は 0 件（§29.15、§29.19 の記録とも一致する）。⑯ が走らせた画面（ws07-grow、grow-s1、grow-palisade、grow-r5、wide）の text には、`keyFromSeed(`、`publicKeyOf(`、`generateKey(`、`deriveBits(`、`subtle.sign(`、`importKey(`、`generateKeyPair` が 0 件。`NK.assertKeyless` は localStorage の記録を読むだけで、鍵の関数を呼ばない（nokey-page.mjs 88〜95 行目）。
+
+**この file が呼ぶもの。** この file は 2 つの版しかない（全部の ref で）。
+- **487e75e8**（2026-11-08 18:15Z）。fail-open だった版。
+  - page の中で、guard が入ったかを先に確かめずに、次を呼ぶ：`S.keyFromSeed(zero)`、`S.publicKeyOf(zero)`（`/session.mjs` から）、`crypto.subtle.generateKey(Ed25519)`、`deriveBits`、`sign`、`importKey('pkcs8')`。
+  - その前に `subtle.digest` を数える包みを入れ、`digestsBySession === 0` を assert する（64 行目）。
+- **84251e5a**（18:39Z）以後、553f7fe7 まで。fail-closed の版。
+  - page の中で 10 の sentinel を確かめ直し、一つでも外れれば何も呼ばずに `aborted` を返す（81 行目）。
+  - 当たっていれば、上と同じ 6 つの呼び出しをする。
+- どちらの版も、`/session.mjs` は route で配られ、末尾に `keyFromSeed = async () => throw`、`publicKeyOf = async () => throw` が加えられる（nokey-page.mjs 61〜63、71〜78 行目）。その束縛は、module を評価し終えたときに置き換わる。
+
+**区別（記録と静的な到達性だけ。再実行はしない）。**
+- **試験が通った実行。** どちらの版でも、assertion から次のことが言える。
+  - `keyFromSeed` と `publicKeyOf` は `'key use blocked: …'` を返し、`digestsBySession` は 0 だった。本物の `publicKeyOf` は最初に `subtle.digest('SHA-512', seed)` を呼ぶので、JS だけの導出は始まっていない。
+  - subtle の 4 つも、`'key use blocked'` で拒まれた。
+  - これは、page の中の数え方に頼った間接の証拠で、独立の監視ではない。
+  - 判定：**止められた試み（禁止された自己試験）であって、成功した鍵の処理ではない。**
+- **試験が落ちた、または出力が残っていない実行。**
+  - 487e75e8 では、guard が入っていなければ、本物の導出（zero の seed からの公開鍵）や、本物の `generateKey` が走りえた。
+  - 84251e5a 以後では、sentinel が外れていれば何も呼ばない。sentinel が当たったまま落ちた場合、どこまで呼ばれたかは出力が無いと分からない。
+  - 判定：**分からない。**
+- 4 の実行の一覧（日時、版、結果、残っている出力）は、⑯ には無い。4 に、読むだけの抜き出しを頼む。
+- **扱い。**
+  - ws07-guard の結果（「2/2」などすべて）は、安全な実行の証拠から除く。
+  - 止められた試みと、成功した鍵の処理を混ぜない。
+  - これ以上は再実行で確かめない。この節で有限に閉じる。
+
+### B. 19 の 59f4a064：`WS19_GOLDEN_WRITE=1` の分岐（静的）
+
+- `tests/ws19_map_contract.rs` の中で、環境変数を読むのは `WS19_GOLDEN_WRITE` だけ（145、406、623 行目）。
+- どれも `std::fs::write` で golden の JSON を書くだけ（M1：145〜148 行目、create_dir_all を含む。S1：406〜408 行目。柵：623〜629 行目）。書く先は `CARGO_MANIFEST_DIR/tests/golden/` の 3 つ（33、257、575 行目）。
+- 書く内容 `g` は、比べる mode と同じ計算で、分岐はその後にある。だから、到達する経路は §29.37 と同じで、鍵は要らない。
+- ほかの file の操作は、110 行目の `remove_dir_all(&dir)`（common の tmp の下）だけ。
+- 書き直しの run の後には、M1 の golden も同じ内容で書き直される。`git status` で中身の差が出ないことを確かめる。
+- **判定。** ユーザーの取り決め（⑯ が鍵不要を確かめれば、real-router の書き直しを 1 回だけ許す）に従い、19 に、59f4a064 での書き直しの 1 回を許すと伝える。条件は §29.37 のとおり：
+  - 新しい worktree、`--offline`、`CARGO_TARGET_DIR` の明示、`RUSTFLAGS` は unset。
+  - 版と、完全な出力と、終了の status を保存する。
+  - 終わった後、変わってよいのは S1 と柵の golden だけ。M1 が変われば止める。
+  - その後の commit、⑯ の審査、比べる mode の run は別の手順。
+
+### C. 4 の新しい subset と、⑯ の 5 file の許可（§29.36 C）との突き合わせ
+
+- 4 は、want-province と viewer-own-citizen を、最初の subset から外した。理由は、閉包に `session.mjs` があり、経路が FS の状態に依存すること。
+- ⑯ の根拠をもう一度確かめた。試験が呼ぶ関数（`applyMeResult`、`useHerald`、`wantProvince`）から先で、FS の状態によって分かれる先は次のとおり。
+  - `fsession.matchesCitizen`：純粋な比較（fsession.mjs 111〜123 行目）。
+  - `refreshDelegation` → `loadAgents`：`io.request` の GET だけ（fdelegation.mjs 43〜47 行目）。
+  - `fwide`、`landState`、`readLand`、`saveLandPatch`、`loadEnvelope` → herald。
+  - 鍵の入口の呼び出し元（`syncConnectedWallet`、ACTIONS の `join` と `session`、`startPlay`。controller.mjs 578、1931、1947、2147、2163 行目）は、この中に無い。
+  - だから、⑯ の読みでは、FS がどの状態でも、鍵の入口には届かない。
+- ただし、4 の除外はより保守的な線引きで、事実の食い違いではない。ユーザーの指示どおり、この 2 file は、4 と ⑯ が合意するまで保留にする。
+- 残りの 3 file（map-contract、map-arrival、growth-route）は、両者の線引きで重なる。
+- 4 の新しい subset は、exact な差分（SHA、file、command、閉包と guard の preload の照合）を ⑯ が審査した後でだけ、最小の実行ができる。まだ受け取っていない。
