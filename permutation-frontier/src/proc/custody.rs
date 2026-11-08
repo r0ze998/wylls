@@ -53,12 +53,17 @@ use crate::layout::{citizen2 as C, province2 as P, season2 as S, Ro, Rw};
 use crate::prologue::{self, expect_key, key};
 use crate::{addr, FrontierError, R};
 
-fn kind(k: CqKind) -> u8 {
+// The account helpers below are `pub(crate)` so that other instructions of
+// the program that move a lot (workstream 9's capacity jobs, under
+// `capacity-preview`) read and write lots and vaults as these handlers do,
+// rather than keeping copies of the layout and the checks.
+
+pub(crate) fn kind(k: CqKind) -> u8 {
     k as u8
 }
 
 /// The kernel's refusals as program codes (`02-contract.ja.md` §9).
-fn cerr(e: CustodyError) -> Error {
+pub(crate) fn cerr(e: CustodyError) -> Error {
     use CustodyError as E;
     match e {
         E::NotAuthorized => FrontierError::NotOwner.into(),
@@ -81,7 +86,12 @@ fn cerr(e: CustodyError) -> Error {
 // ------------------------------------------------------------ views
 
 /// The kernel's view of a present, canonical Vault.
-fn vault_view(p: &Pubkey, ctx: &addr::AddrCtx, sid: u64, ai: &AccountInfo) -> R<VaultView> {
+pub(crate) fn vault_view(
+    p: &Pubkey,
+    ctx: &addr::AddrCtx,
+    sid: u64,
+    ai: &AccountInfo,
+) -> R<VaultView> {
     present_v2(ai, p, K2::Vault, sid)?;
     let d = ai.try_borrow_data()?;
     let r = Ro(&d);
@@ -113,7 +123,7 @@ fn vault_view(p: &Pubkey, ctx: &addr::AddrCtx, sid: u64, ai: &AccountInfo) -> R<
 
 /// The vault at `ai` if present (canonical for the lot's tile), `None`
 /// when closed.
-fn vault_of_lot(
+pub(crate) fn vault_of_lot(
     p: &Pubkey,
     ctx: &addr::AddrCtx,
     sid: u64,
@@ -131,7 +141,7 @@ fn vault_of_lot(
 }
 
 /// Writes what the kernel may change of a vault: stores, quota, lots.
-fn put_vault(ai: &AccountInfo, v: &VaultView) -> R<()> {
+pub(crate) fn put_vault(ai: &AccountInfo, v: &VaultView) -> R<()> {
     let mut d = ai.try_borrow_mut_data()?;
     let mut w = Rw(&mut d);
     for i in 0..RESOURCES {
@@ -141,7 +151,7 @@ fn put_vault(ai: &AccountInfo, v: &VaultView) -> R<()> {
     w.set_u16(VA::CUSTODY_LOTS, v.lots)
 }
 
-fn lot_key(l: &Lot) -> LotKey {
+pub(crate) fn lot_key(l: &Lot) -> LotKey {
     LotKey {
         p: l.p,
         q: l.q,
@@ -152,24 +162,24 @@ fn lot_key(l: &Lot) -> LotKey {
     }
 }
 
-fn lot_address(ctx: &addr::AddrCtx, k: &LotKey) -> [u8; 32] {
+pub(crate) fn lot_address(ctx: &addr::AddrCtx, k: &LotKey) -> [u8; 32] {
     frontier_abi::v2::addr::lot(ctx, k.p, k.q, k.tile, k.gen, k.owner_tag, k.resource)
 }
 
 /// A present Lot at its canonical address.
-fn lot_of(p: &Pubkey, ctx: &addr::AddrCtx, sid: u64, ai: &AccountInfo) -> R<Lot> {
+pub(crate) fn lot_of(p: &Pubkey, ctx: &addr::AddrCtx, sid: u64, ai: &AccountInfo) -> R<Lot> {
     present_v2(ai, p, K2::Lot, sid)?;
     let l = Lot::decode(&ai.try_borrow_data()?).ok_or(BAD_ACCOUNT)?;
     expect_key(ai, &lot_address(ctx, &lot_key(&l)))?;
     Ok(l)
 }
 
-fn put_lot(ai: &AccountInfo, l: &Lot) -> R<()> {
+pub(crate) fn put_lot(ai: &AccountInfo, l: &Lot) -> R<()> {
     let mut d = ai.try_borrow_mut_data()?;
     l.encode(&mut d).ok_or(BAD_ACCOUNT)
 }
 
-fn actor(pl: &Player, citizen: &AccountInfo) -> Actor {
+pub(crate) fn actor(pl: &Player, citizen: &AccountInfo) -> Actor {
     Actor {
         citizen: citizen.key.to_bytes(),
         tag: pl.pc.citizen_tag,
@@ -178,7 +188,7 @@ fn actor(pl: &Player, citizen: &AccountInfo) -> Actor {
 }
 
 /// Whole units (instruction data) as milli.
-fn milli(units: u32) -> R<i64> {
+pub(crate) fn milli(units: u32) -> R<i64> {
     (units as i64).checked_mul(MILLI).ok_or(OVERFLOW)
 }
 
@@ -195,12 +205,18 @@ fn vault_place(l: &Lot) -> Place {
     }
 }
 
-fn lot_raw(l: &Lot) -> [u8; 15] {
+pub(crate) fn lot_raw(l: &Lot) -> [u8; 15] {
     lot_key(l).raw()
 }
 
 /// Emits one record chained to the lot alone.
-fn emit_lot(k: CqKind, bell: u32, key: &[u8], payload: &[u8], lot: &AccountInfo) -> R<()> {
+pub(crate) fn emit_lot(
+    k: CqKind,
+    bell: u32,
+    key: &[u8],
+    payload: &[u8],
+    lot: &AccountInfo,
+) -> R<()> {
     let mut ld = lot.try_borrow_mut_data()?;
     cqlog::emit(
         kind(k),
