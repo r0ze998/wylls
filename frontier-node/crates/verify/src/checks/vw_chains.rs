@@ -12,7 +12,10 @@
 //! - for every province and holding a record concerns, each record's link
 //!   is exactly `advance(previous link, body without tail)` (else FAIL
 //!   [`WIDE_CHAIN_BROKEN`]); a chain whose first observed link is `seq 1`
-//!   must start from `(0, 0³²)`;
+//!   must start from `(0, 0³²)`; a jump in the sequence (records missing
+//!   from the input) is FAIL only when the history is whole, else
+//!   UNVERIFIABLE [`WIDE_CHAIN_UNPROVEN`] (⑯'s finding: a gap in an unproven
+//!   history is not a contradiction);
 //! - the last link equals the account's final header (`event_seq`,
 //!   `event_head`): a difference is FAIL [`WIDE_CHAIN_FINAL_MISMATCH`] when
 //!   the history is whole, else UNVERIFIABLE; an account the input does not
@@ -118,13 +121,30 @@ pub struct Step<'a> {
     pub body_without_tail: &'a [u8],
 }
 
-/// Walks one target's steps: every link after the first is `advance` of the
-/// one before; a first link at `seq 1` must come from `(0, 0³²)`. The last
-/// link, or the first failure.
-pub fn walk(entity: WideEntity, steps: &[Step<'_>]) -> Result<Option<WideLink>, (usize, String)> {
-    let mut prev: Option<WideLink> = None;
+/// What one target's walk saw.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct Walked {
+    /// The last link observed.
+    pub last: Option<WideLink>,
+    /// Sequence jumps between observed records: `(tx, from seq, to seq)`.
+    /// Records missing from the input (an honest gap unless the history is
+    /// whole), re-anchored at the later link; not a contradiction by itself.
+    pub gaps: Vec<(usize, u64, u64)>,
+}
+
+/// Walks one target's steps: every link at the next sequence number is
+/// `advance` of the one before (else a contradiction, `Err`: no missing
+/// record makes a wrong head at a consecutive number); a link further on is
+/// a gap ([`Walked::gaps`]), re-anchored there; a first link at `seq 1` must
+/// come from `(0, 0³²)`.
+pub fn walk(entity: WideEntity, steps: &[Step<'_>]) -> Result<Walked, (usize, String)> {
+    let mut w = Walked::default();
     for s in steps {
-        let from = match prev {
+        let from = match w.last {
+            Some(p) if s.link.seq > p.seq.saturating_add(1) => {
+                w.gaps.push((s.tx, p.seq, s.link.seq));
+                None
+            }
             Some(p) => Some((p.seq, p.head)),
             None if s.link.seq == 1 => Some((0, [0u8; 32])),
             None => None,
@@ -141,9 +161,9 @@ pub fn walk(entity: WideEntity, steps: &[Step<'_>]) -> Result<Option<WideLink>, 
                 ));
             }
         }
-        prev = Some(s.link);
+        w.last = Some(s.link);
     }
-    Ok(prev)
+    Ok(w)
 }
 
 /// The chain a wide account's bytes end at, with the target it is.
@@ -252,10 +272,40 @@ pub fn judge(
     for (at, t) in order.iter().enumerate() {
         let name = target_name(t);
         let s = steps.get(&at).map(Vec::as_slice).unwrap_or(&[]);
-        match walk(t.entity(), s) {
-            Err((tx, why)) => out.push(Judgement::Fail { code: WIDE_CHAIN_BROKEN, tx: Some(tx), entity: name, detail: why }),
-            Ok(None) => {}
-            Ok(Some(last)) => match ends.get(&name) {
+        let walked = match walk(t.entity(), s) {
+            Err((tx, why)) => {
+                out.push(Judgement::Fail {
+                    code: WIDE_CHAIN_BROKEN,
+                    tx: Some(tx),
+                    entity: name,
+                    detail: why,
+                });
+                continue;
+            }
+            Ok(w) => w,
+        };
+        for &(tx, from, to) in &walked.gaps {
+            let detail =
+                format!("the records between seq {from} and seq {to} are not in the input");
+            if whole {
+                out.push(Judgement::Fail {
+                    code: WIDE_CHAIN_BROKEN,
+                    tx: Some(tx),
+                    entity: name.clone(),
+                    detail: format!("{detail}, though the history is shown whole"),
+                });
+            } else {
+                out.push(Judgement::Unverifiable {
+                    code: WIDE_CHAIN_UNPROVEN,
+                    tx: Some(tx),
+                    entity: name.clone(),
+                    detail: format!("{detail}; the history is not shown whole"),
+                });
+            }
+        }
+        match walked.last {
+            None => {}
+            Some(last) => match ends.get(&name) {
                 None => out.push(Judgement::Unverifiable {
                     code: WIDE_CHAIN_UNPROVEN,
                     tx: None,
@@ -359,7 +409,7 @@ mod tests {
     #[test]
     fn a_chain_from_genesis_walks_to_its_last_link() {
         let s = steps_of(WideEntity::Province, &[b"a", b"b", b"c"], (0, [0; 32]));
-        assert_eq!(walk(WideEntity::Province, &s).unwrap().unwrap().seq, 3);
+        assert_eq!(walk(WideEntity::Province, &s).unwrap().last.unwrap().seq, 3);
     }
 
     #[test]
@@ -384,7 +434,10 @@ mod tests {
     #[test]
     fn a_chain_observed_from_its_middle_is_taken_from_its_first_link() {
         let s = steps_of(WideEntity::Province, &[b"x", b"y"], (41, [9; 32]));
-        assert_eq!(walk(WideEntity::Province, &s).unwrap().unwrap().seq, 43);
+        assert_eq!(
+            walk(WideEntity::Province, &s).unwrap().last.unwrap().seq,
+            43
+        );
     }
 
     #[test]
@@ -449,6 +502,11 @@ mod tests {
     /// Real PSW1 bodies (two Resolve records of one wide province, built
     /// with the ABI's own encoder) in program frames.
     fn resolve_logs(tamper: bool) -> Vec<String> {
+        resolve_logs_of(&[20, 21], tamper, None)
+    }
+
+    /// Resolve records at `bells`, the one at `skip` left out of the logs.
+    fn resolve_logs_of(bells: &[u32], tamper: bool, skip: Option<u32>) -> Vec<String> {
         use frontier_abi::world_index::coord::WideCoord;
         use frontier_abi::world_index::event::{encode, write_body, WideKind, MAX_BODY};
         use frontier_abi::world_index::key::WorldId;
@@ -460,7 +518,7 @@ mod tests {
         .to_bytes();
         let (mut seq, mut head) = (0u64, [0u8; 32]);
         let mut logs = vec![];
-        for bell in [20u32, 21] {
+        for &bell in bells {
             let payload = vec![bell as u8; WideKind::Resolve.payload_len()];
             let mut buf = vec![0u8; MAX_BODY];
             let n = write_body(WideKind::Resolve, bell, &key, &payload, &mut buf).unwrap();
@@ -470,6 +528,9 @@ mod tests {
                 l.head[0] ^= 1;
             }
             let rec = encode(WideKind::Resolve, bell, &key, &payload, &[l]).unwrap();
+            if skip == Some(bell) {
+                continue;
+            }
             logs.push("Program P invoke [1]".to_string());
             logs.push(format!(
                 "Program data: {} {}",
@@ -516,6 +577,47 @@ mod tests {
                 Judgement::Fail {
                     code: WIDE_CHAIN_BROKEN,
                     tx: Some(4),
+                    ..
+                }
+            )),
+            "{j:?}"
+        );
+    }
+
+    /// ⑯'s case (v16_vw_unknown w3): a record missing from the middle of a
+    /// chain is a gap in the input, not a contradiction, unless the history
+    /// is shown whole.
+    #[test]
+    fn a_missing_middle_record_is_unverifiable_unless_the_history_is_whole() {
+        let logs = resolve_logs_of(&[20, 21, 22], false, Some(21));
+        let j = judge("P", &[(0, true, &logs)], &[], false);
+        assert!(
+            j.iter().all(|x| !matches!(x, Judgement::Fail { .. })),
+            "{j:?}"
+        );
+        assert!(
+            j.iter().any(|x| matches!(x, Judgement::Unverifiable { code: WIDE_CHAIN_UNPROVEN, detail, .. } if detail.contains("between seq 1 and seq 3"))),
+            "{j:?}"
+        );
+        let j = judge("P", &[(0, true, &logs)], &[], true);
+        assert!(
+            j.iter().any(|x| matches!(
+                x,
+                Judgement::Fail {
+                    code: WIDE_CHAIN_BROKEN,
+                    ..
+                }
+            )),
+            "{j:?}"
+        );
+        // A wrong head at the next number stays a contradiction either way.
+        let logs = resolve_logs(true);
+        let j = judge("P", &[(0, true, &logs)], &[], false);
+        assert!(
+            j.iter().any(|x| matches!(
+                x,
+                Judgement::Fail {
+                    code: WIDE_CHAIN_BROKEN,
                     ..
                 }
             )),
