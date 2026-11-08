@@ -168,6 +168,13 @@ export function marchObjective(FS) {
   return { act: 'tab', data: { tab: 'holding' }, label: L`村で兵を準備する` };
 }
 
+/**
+ * (workstream 07) The village's own province not read yet: its hosts are read from that record (screens/host.mjs
+ * hostRows), so "no Scout host" is not known — the guide offers no Train or Muster then. A failed read used to look
+ * like "no scouts" and the guide's one button mustered a second Scout host from the reserve.
+ */
+const homeUnread = (FS, h) => !!h && !FS.provinces?.has?.(`${h.p},${h.q}`);
+
 function scoutObjective(FS) {
   const h = activeHolding(FS);
   if (FS.inFlight > 0 || FS.homeActionBusy) return { act: 'guide-open', data: {}, label: L`命令の結果を確認しています。` };
@@ -175,6 +182,7 @@ function scoutObjective(FS) {
     ? { act: 'settle-explore', data: {}, label: L`探索の結果を受け取る` }
     : { act: 'guide-open', data: {}, label: L`斥候隊を見る` };
   if (Number(FS.citizen?.explores ?? 0) > 0) return { act: 'ob-seen', data: { flag: 'exploreResult' }, label: L`探索の結果を確認した` };
+  if (homeUnread(FS, h)) return { act: 'guide-open', data: {}, label: L`記録を読み込んでいます…` };
   const rows = hostRows(FS).filter(r => r.unit === SCOUT);
   const bell = FS.nowBell ?? 0;
   const ready = rows.find(r => r.state === 1 && !r.pending && !r.inTransit && r.readyBell <= bell
@@ -252,6 +260,7 @@ export function renderScoutAction(FS) {
     return html`<p class="home-status" role="status">${L`斥候が周囲を調べています。結果が届くと、ここで受け取れます。`}</p><p class="muted">${L`探索の解決を待つ間も、村の建設を進められます。`}</p><button type="button" class="btn" data-act="tab" data-tab="holding">${L`村を見る`}</button>`;
   }
   if (Number(FS.citizen?.explores ?? 0) > 0) return html`<p>${L`最初の探索が終わりました。見つけた土地を地図で確認し、次の行き先を考えましょう。`}</p><button type="button" class="btn primary" data-act="ob-seen" data-flag="exploreResult">${L`探索の結果を確認した`}</button>`;
+  if (homeUnread(FS, h)) return html`<p class="home-status" role="status">${L`記録を読み込んでいます…`}</p>`;
   const bell = FS.nowBell ?? 0;
   const rows = hostRows(FS).filter(r => r.unit === SCOUT);
   const ready = rows.find(r => r.state === 1 && !r.pending && !r.inTransit && r.readyBell <= bell);

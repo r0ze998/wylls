@@ -11,7 +11,10 @@ import { setLang } from '../../permutation-server/web/lang.mjs';
 afterEach(() => setLang('ja'));
 const site = { p: 2, q: 0, site: 2, gen: 0, tile: 20, faction: 0 };
 const h = (extra = {}) => ({ ...site, state: 2, tier: 0, flags: 0, production: baseProduction(0), reserve: Array(8).fill(0), queue: [], transit: [], explore: { state: 0 }, ...extra });
-const fs = (extra = {}) => ({ mode: 'play', season: { programVersion: 2 }, meStatus: 'ready', citizen: null, holdings: [], provinces: new Map(), nowBell: 10, chain: { now: () => 1000 }, land: { stage: 'none' }, ui: { dismissed: [] }, homeChoice: { candidates: [site], selected: site }, ...extra });
+// (workstream 07: the village's province read, with no host in it — "no Scout host" is known only from a read record;
+// an unread province is checked on its own below)
+const readHome = () => new Map([['2,0', { province: { p: 2, q: 0, resolvedNext: 10, entries: [] } }]]);
+const fs = (extra = {}) => ({ mode: 'play', season: { programVersion: 2 }, meStatus: 'ready', citizen: null, holdings: [], provinces: readHome(), nowBell: 10, chain: { now: () => 1000 }, land: { stage: 'none' }, ui: { dismissed: [] }, homeChoice: { candidates: [site], selected: site }, ...extra });
 const plain = s => String(s).replace(/<[^>]*>/g, ' ');
 
 test('new seasons retain six nation banners before connecting, and confirm the selected nation with immediate placement', () => {
@@ -105,6 +108,11 @@ test('the scout guide follows training, muster, ready turn, send, receipt, and a
   assert.equal(factsOf(training).scoutHost, false);
   const reserve = Array(8).fill(0); reserve[6] = 100;
   assert.match(String(renderScoutAction(fs({ holdings: [h({ reserve })] }))), /home-scout-muster/);
+  // (workstream 07) the village's province not read: no Train or Muster is offered, the guide says it is reading
+  const unread = String(renderScoutAction(fs({ holdings: [h({ reserve })], provinces: new Map() })));
+  assert.doesNotMatch(unread, /home-scout-muster|home-scout-train/);
+  assert.match(unread, /記録を読み込んでいます…/);
+  assert.doesNotMatch(String(renderScoutAction(fs({ holdings: [h()], provinces: new Map() }))), /home-scout-train/);
   const forming = String(renderScoutAction(scoutState(entry({ state: 2, readyBell: 11 }))));
   assert.match(forming, /編成の反映を待っています/);
   assert.doesNotMatch(forming, /data-act="explore-open"/);
