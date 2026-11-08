@@ -1,0 +1,15 @@
+
+// ⑯ probe (appended to frontier-node/crates/verify/tests/custody_replay_caravans.rs in ⑯'s worktree only): the same
+// landed send with its account list cut (a) after the system account, so no path Province is listed, and (b) before
+// the vault. The program refuses a send with no path Province (proc::custody `send`: provinces.first() or
+// TooManyAccounts), so a landed send always lists one; a record without it lacks accounts. RECORDS what V26 says.
+#[test]
+fn v16_probe_short_account_list() {
+    for (name, first) in [("DepositLot", 9usize), ("ShipLot", 10), ("WithdrawLot", 9)] {
+        let c = get(name);
+        let full = c.w.replay(&c.data, &c.accounts);
+        let no_path = c.w.replay(&c.data, &c.accounts[..first]);
+        let no_vault = c.w.replay(&c.data, &c.accounts[..4]);
+        eprintln!("V16 {name}: full = {full:?}\nV16 {name}: without path Provinces = {no_path:?}\nV16 {name}: cut before the vault = {no_vault:?}");
+    }
+}

@@ -2362,3 +2362,27 @@ T7（crash では作れない損傷）の結果：
 - **判断**：秘密や未公開の賞品素材を含むものは見つからなかった。公開を止める必要がある、疑わしいものはない。
   - 限界：pattern による走査と、公開済みの blob との照合による判断。全ログを人の目で全文読んだわけではない。
 - 今後は、明示した必要な path だけを stage する。広い `add -f` と履歴の書き換えはしない。
+
+### 27.10 ④ 02be5f41（⑩ 3fd1db24、patch 0006）：V26 が custody の送り出しの経路を判定する
+
+- 対象：`02be5f41be115150801b868d00a9ba240cacc7b8`（tree `92cdd2eb762a534c6f6fa433707b304bb6853be5`、親 d415e013）。`cherry picked from 3fd1db24dc51b028945cbe78b32c54977bd6e95c` で、差分は ⑩ の 3fd1db24 と**同じ**（`git diff` を比べた）。
+- 静的監査:
+  - 追加された行に、鍵の API はない。
+  - verify crate のうち、固定の seed の Keypair を使う code は `src/tamper.rs`、`src/fixture/{mod,march}.rs`、`tests/common/mod.rs` の `world()` にある。
+  - lib の unit test 55 件と、下の 6 file の試験は、どれもそこへ届かない（test module は fixture・tamper・common::world を呼ばない）。
+    - custody_replay と custody_replay_caravans は、その file の中だけの `World`（in-memory の map）を使う。
+    - rights_replay は `verify_core::world::World::parse` を使う。
+  - c260c438 で流した同じ対象にも、この監査が当てはまる。
+- 実行（`cargo test --locked --offline`。target は c260 のものを使い回した）：lib 55、custody 6、custody_history 9、custody_replay 14、custody_replay_caravans 13、custody_state 7、rights_replay 19。**123/123**、exit 0（`logs/phase22/verify-02be.txt`）。
+- **見つけた点（低い）：account の並びが短い記録を FAIL にする**
+  - `provinces: c.accounts.get(first..).unwrap_or_default()` のため、path Province の account が並びに無いと空になる。
+  - send_route は、Season の有無を確かめる**前に**、`wrong("it lists no path Province")` を返す。
+  - ⑯ の probe（`probes/v16_v26_short_accounts.rs.part`。⑯ の worktree の試験 file に一時的に足して流し、元に戻した。`logs/phase22/v16-short-accounts-02be.txt`）で、DepositLot・ShipLot・WithdrawLot のどれも次のとおりになった:
+    - 完全な並び：Partial（Season が input に無い）。
+    - path Province を外した並び：**Mismatch「landed, but it lists no path Province」**。
+    - vault より前で切った並び：Unreplayed「the instruction lacks its accounts」。
+  - program（`permutation-frontier/src/proc/custody.rs` 428 行の `send`、574 行の holding の分岐）は、path Province の無い送り出しを `TooManyAccounts` で拒否する。したがって、landed した送り出しには必ず path Province がある。
+    - ④ のメモにある「program は Province なしの 0 歩も受け付ける」は、この code と食い違う。
+  - path Province の無い記録は「account が欠けた入力」なので、同じ file の慣例（account が欠ければ UNVERIFIABLE）に合わせるのがよい。
+  - 案：`get(first..)` が None か空のときは Partial「the instruction lacks its path Province accounts」にする。どうするかは ⑩ の判断。
+  - 実害：landed した本物の記録では起きない。切れた記録や偽の記録で、UNVERIFIABLE の代わりに FAIL になるだけ。
