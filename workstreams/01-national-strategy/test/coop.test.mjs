@@ -426,6 +426,11 @@ test('HTTP：板の入口で、画面・記録・表示が出て、それ以外�
   const base = `http://127.0.0.1:${srv.address().port}`;
   try {
     assert.equal(await (await fetch(`${base}/frontier/frontier/`)).text(), 'herald:/frontier/frontier/');
+    // ⑦の入口（hud/coopboard.mjs）が読む /coop/config：season は object（seasonId は文字列）、page は同じ origin の道
+    const cfg = await (await fetch(`${base}/coop/config`)).json();
+    assert.deepEqual(cfg.season, { programId, seasonId: '90' });
+    assert.equal(cfg.page, PAGE);
+    assert.ok(cfg.page.startsWith('/') && !cfg.page.startsWith('//'));
     const page = await fetch(`${base}${PAGE}`);
     assert.match(await page.text(), /国をまたぐ依頼/);
     assert.equal((await fetch(`${base}/ws01/repo/permutation-server/web/sdk/bytes.mjs`)).status, 200);
