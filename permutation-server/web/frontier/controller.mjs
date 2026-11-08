@@ -122,12 +122,17 @@ const viewerKey = () => FS.resident?.asset ?? FS.wallet?.address;
 const viewerCitizen = () => FS.resident?.citizen ?? io.pinned().addresses.of('Citizen', { wallet: FS.wallet.address });
 
 /** ⑳: the wallet's resident NFTs (GET /f/residents); none when the relay has no resident policy. */
-async function loadNfts() {
-  FS.nfts = null;
+export async function loadNfts() {
+  FS.nfts = null; FS.nftsRead = null;
   // Only a season of the nft-experimental program (its program version
   // carries 0x8000) has residents; other seasons never ask.
   if (!FS.wallet || !io.relay() || !(Number(FS.season?.programVersion ?? 0) & 0x8000)) return;
-  const r = await fresident.loadResidents(FS.wallet.address).catch(() => null);
+  const address = FS.wallet.address;
+  const r = await fresident.loadResidents(address).catch(e => ({ ok: false, code: e?.code ?? 'network' }));
+  // (workstream 07: an answer for a wallet no longer connected is dropped; a list not read is said as such
+  // — FS.nftsRead —, never as "this wallet has no NFT")
+  if (FS.wallet?.address !== address) return;
+  FS.nftsRead = { ok: !!r?.ok, code: r?.ok ? null : String(r?.code ?? 'Unavailable') };
   if (r?.ok && r.policy) FS.nfts = { residents: r.residents, policy: r.policy };
   invalidate('panel');
 }
@@ -456,18 +461,13 @@ function refreshSoon(ms = 1500) {
   refreshTimer = setTimeout(() => refresh().catch(e => console.error('frontier refresh:', e)), ms);
 }
 
-/** A wallet event changes the viewer immediately; old /h/me replies may not restore the former owner. */
-export function adoptConnectedWallet(next = wallet.connected()) {
-  const address = next?.address ?? null;
-  if (address === (FS.wallet?.address ?? null)) { FS.wallet = next; return false; }
-  ++walletSyncEpoch;
-  ++viewerRefresh;
-  ++homesRefresh;
-  agentsReadAt = -Infinity;
-  prizeReadAt = 0;
-  FS.wallet = next;
-  FS.session = null;
-  FS.sessionProblem = null;
+/**
+ * Forget everything read for the viewer (workstream 07: shared by a wallet change and by a change between the wallet's
+ * own Citizen and one of its resident NFTs — each is another viewer: its Citizen, villages, marches and notices).
+ */
+function resetViewer({ wallet: walletChanged = true } = {}) {
+  if (walletChanged) FS.session = null;
+  if (walletChanged) FS.sessionProblem = null;
   FS.citizen = null;
   FS.holdings = [];
   FS.activeHolding = 0;
@@ -480,8 +480,8 @@ export function adoptConnectedWallet(next = wallet.connected()) {
   FS.orders = [];
   FS.departed = null;
   mySlots = [];
-  FS.delegation = null;
-  FS.agentWallet = undefined;
+  if (walletChanged) FS.delegation = null;
+  if (walletChanged) FS.agentWallet = undefined;
   FS.homeChoice = null;
   FS.homeGrant = null;
   FS.homeFocus = null;
@@ -495,12 +495,24 @@ export function adoptConnectedWallet(next = wallet.connected()) {
   FS.autoNudgeBell = null;
   FS.incoming = [];
   FS.isMine = () => false;
-  FS.prize = null;
-  FS.prizePayment = null;
-  // ⑳: a resident NFT chosen under the previous wallet is not this wallet's.
-  FS.resident = null;
-  FS.nfts = null;
+  if (walletChanged) FS.prize = null;
+  if (walletChanged) FS.prizePayment = null;
   FS.notice = null;
+  // (⑳: the NFT played and the wallet's NFT list belong to the wallet: a resident NFT chosen under the previous wallet is not this wallet's)
+  if (walletChanged) { FS.resident = null; FS.nfts = null; FS.nftsRead = null; }
+}
+
+/** A wallet event changes the viewer immediately; old /h/me replies may not restore the former owner. */
+export function adoptConnectedWallet(next = wallet.connected()) {
+  const address = next?.address ?? null;
+  if (address === (FS.wallet?.address ?? null)) { FS.wallet = next; return false; }
+  ++walletSyncEpoch;
+  ++viewerRefresh;
+  ++homesRefresh;
+  agentsReadAt = -Infinity;
+  prizeReadAt = 0;
+  FS.wallet = next;
+  resetViewer({ wallet: true });
   FS.meStatus = next ? 'loading' : 'ready';
   FS.meError = null;
   invalidate('panel', 'tabs', 'chips', 'map');
@@ -1830,11 +1842,15 @@ export const ACTIONS = {
       });
       if (!r?.ok) return r;
     }
+    // (workstream 07: another viewer — the NFT's Citizen —: what was read for the wallet's own Citizen goes)
+    ++viewerRefresh; ++homesRefresh;
+    resetViewer({ wallet: false });
     FS.resident = { ...id, joined: true };
-    invalidate('panel');
+    FS.meStatus = 'loading';
+    invalidate('panel', 'tabs', 'chips', 'map');
     await refresh();
   },
-  'nft-logout': async () => { FS.resident = null; invalidate('panel'); await refresh(); },
+  'nft-logout': async () => { ++viewerRefresh; ++homesRefresh; resetViewer({ wallet: false }); FS.resident = null; FS.meStatus = 'loading'; invalidate('panel', 'tabs', 'chips', 'map'); await refresh(); },
   'pick-faction': d => { FS.joinDraft = { ...(FS.joinDraft ?? {}), faction: num(d.f) }; invalidate('panel'); if (needsHomeChoice()) return refreshHomes({ force: true }); },
   join: async () => {
     const pin = io.pinned();

@@ -1001,7 +1001,7 @@ export default {
   '新しい記録はありません。': 'No new records.',
   'あなたが確認したのは第{0}ターンまでです。': 'You marked up to turn {0} as seen.',
   'この端末では、このシーズンとウォレットで確認した記録がありません（初めてか、別の端末か、ブラウザの記録が消えた場合）。直近 {0} ターンだけを見ています。': 'This device holds no "seen" mark for this season and wallet (a first visit, another device, or cleared browser data). Only the last {0} turns are shown.',
-  'この端末で前に使ったウォレットとは別です。そのウォレットの記録は使いません。直近 {0} ターンだけを見ています。': 'This is not the wallet last used on this device; its marks are not used. Only the last {0} turns are shown.',
+  'この端末で前に使ったウォレット（または住民NFT）とは別です。その記録は使いません。直近 {0} ターンだけを見ています。': 'This is not the wallet (or resident NFT) last used on this device; its record is not used. Only the last {0} turns are looked at.',
   '前に見ていたものとは別のシーズン記録（ID が違う記録）です。前の記録の出来事は、ここには含めていません。': 'This is another season record (a different ID) from the one seen before. Events of that record are not included here.',
   '確認した位置のあとの記録の一部を読めていません。欠けた分の出来事は推測しません。': 'Some records after your mark could not be read; nothing is guessed for them.',
   'この端末に残っていた確認の位置は、いまのシーズンの記録より先を指していたため使いません。直近 {0} ターンだけを見ています。': 'The mark kept on this device points past this season\'s records, so it is not used. Only the last {0} turns are shown.',

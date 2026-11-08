@@ -343,6 +343,9 @@ export function renderNfts(FS) {
       <p>${L`住民NFT ${shortKey(FS.resident.asset)} の住民として遊んでいます。操作のたびにウォレットが署名を求めます。NFTを譲渡すると、この端末からは操作できなくなります。`}</p>
       <div class="actions"><button type="button" class="btn" data-act="nft-logout">${L`ウォレットの住民に戻る`}</button></div></section>`;
   }
+  // (workstream 07: a list that could not be read is not an empty one: say so, and offer nothing from it)
+  if (FS.wallet && FS.nftsRead && !FS.nftsRead.ok) return html`<section class="vcard" aria-labelledby="join-nft">${cardHead({ id: 'join-nft', ic: 'seal', title: L`住民NFTで入る` })}
+    <p class="blocked" role="status" data-read="unread">${L`このウォレットの住民NFTを読み込めませんでした（${FS.nftsRead.code ?? '?'}）。NFTが無いという意味ではありません。もう一度読み込むと、また確かめます`}</p></section>`;
   const list = FS.nfts?.residents ?? [];
   if (!FS.wallet || !list.length) return '';
   const pick = Number.isInteger(FS.joinDraft?.faction);
