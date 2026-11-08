@@ -88,6 +88,30 @@ interaction の既定の実行（鍵を使う）は、この環境では走ら�
 - 封・署名・送信・チェーンでの実行は確かめていない。interaction の送信の試験 12 件は、鍵なしでは走らせていない。
 - 決めていない：自己公開の方針、⑮、31 章の残りの決定。保留中の local demo の機能は有効にしていない。
 
+### 0m.8 ⑯ の監査 G1・G2 への対応（fail-closed にした）
+- **G1（ws07-guard が fail-open だった）**
+  - 前の版は、guard が入ったかを確かめる前に、鍵の関数を呼んでいた。
+  - ④ が前の版を一度流した結果では、各呼び出しの時点で guard は入っていた。その一度の実行で何かが導出・生成・署名されたことはない。
+  - 今の版は、まず外から証明する。ここでは鍵の形の関数を一つも呼ばない。
+    - 配信された session.mjs の本文が `NK.SESSION_GUARD` で終わる。
+    - `keyFromSeed`・`publicKeyOf` の source が拒否の本体で、本物（`subtle()` を含む）ではない。
+    - `generateKey`・`deriveKey`・`deriveBits`・`sign`・`unwrapKey`・`importKey` の source が拒否の本体で、`[native code]` ではない。
+    - `Worker` が拒否の本体である。
+  - 10 の sentinel の一つでも欠ければ、試験はそこで止まる。何も呼ばない。
+  - 拒否を呼ぶ page の関数も、呼ぶ前に同じ sentinel を確かめ直し、欠けていれば何も呼ばない。
+  - 試験用ウォレットの 2 つの署名関数も、呼ぶ前に source を確かめる。
+  - 否定の試験を加えた。guard がないとき 10 件、init script だけで route がないとき 3 件の sentinel が欠けることを確かめる。
+    - どちらも鍵の形の関数を呼ばない。
+    - 文書は /session.mjs そのもので、ゲームのコードは動かない。
+- **G2（Worker の realm は guard の外）**
+  - Worker の中の guard は作っていない。Seal と worker には触れていない。
+  - 代わりに、ページでの `Worker`・`SharedWorker` の作成を拒否して記録する（NK.init）。
+  - ページが Worker を作るのは注文を封じるとき（frontier/seal.mjs）だけで、鍵なしの試験はそれをしない（静的に確かめた）。
+- **範囲**：Node（tools/nokeys.mjs、試験の process と fixture のサーバー）、ブラウザのページの realm（NK.init と route）、Worker（作成の拒否だけ）を分けて扱う。
+- **G3**（prototype.call による迂回）：web の code にその箇所はない。対応していない。
+- **結果**（Node の guard は 0 件）：ws07-guard 2/2、ws07-march 2/2（Worker の拒否を足した後に流し直した）。
+- **今後の実行**：web-frontier 全体の再実行で、既知の鍵の試験 20 件を guard に止めさせることはしない。鍵の経路は先に静的に除外し、対象のファイルを限って流す。
+
 ## 0l. ① の本物の板での確認と、ページ全体の画面テストを鍵なしにしたこと
 
 ### 0l.1 ④ の候補との関係
