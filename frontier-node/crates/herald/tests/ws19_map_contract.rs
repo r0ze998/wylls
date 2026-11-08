@@ -469,10 +469,12 @@ async fn the_s1_ring_4_to_5_growth_matches_the_golden_and_8s_contract() {
     // router's 200 for an open ring or a Province on chain, except roster 5
     // before its Provinces exist, the router's 404 NoSuchRing (kept as it is).
     for (s, records) in [
-        ("before", 67),
-        ("extended", 68),
-        ("opened", 69),
-        ("grown", 100),
+        // 67 / 68 / 69 / 100 records plus one KEEP (PLACED) per Province
+        // with a keep: +54 for rings 2-4, +30 more once ring 5 is created.
+        ("before", 121),
+        ("extended", 122),
+        ("opened", 123),
+        ("grown", 184),
     ] {
         let mut want200: Vec<String> = vec![
             "/h/events".into(),
@@ -512,10 +514,10 @@ async fn the_s1_ring_4_to_5_growth_matches_the_golden_and_8s_contract() {
     // The last four reads, as the router answers them in this world (no
     // bell resolved, no hour folded): the day's conquest feed is live and
     // empty; control and standings are not written yet (404 NotYet). The keep
-    // of (4,0) is 404 NoSuchKeep here because this fixture does not emit the
-    // KEEP (PLACED) record the program's OpenProvince emits for a Province
-    // with a keep (proc/map.rs), so it is the router's answer for this
-    // archive, not evidence that (4,0) has no keep.
+    // of (4,0) is the herald's keep index entry, filled from the KEEP
+    // (PLACED) record OpenProvince emits (proc/map.rs; resolved bells would
+    // add to it, none here): holder 0 (the wedge), tile 1, the 100-troop
+    // home guard, no contest or capture.
     for s in gr::STAGES {
         assert_eq!(status(&g, s, "/h/conquest/0.json"), 200, "{s}");
         assert_eq!(
@@ -526,7 +528,6 @@ async fn the_s1_ring_4_to_5_growth_matches_the_golden_and_8s_contract() {
         for (path, code) in [
             ("/h/control/latest.bin", "NotYet"),
             ("/h/standings/latest.json", "NotYet"),
-            ("/h/keep/4,0.json", "NoSuchKeep"),
         ] {
             assert_eq!(status(&g, s, path), 404, "{s} {path}");
             assert_eq!(
@@ -535,6 +536,15 @@ async fn the_s1_ring_4_to_5_growth_matches_the_golden_and_8s_contract() {
                 "{s} {path}"
             );
         }
+        assert_eq!(status(&g, s, "/h/keep/4,0.json"), 200, "{s}");
+        assert_eq!(
+            body(&g, s, "/h/keep/4,0.json"),
+            &json!({"v": 1, "p": 4, "q": 0, "tile": 1, "holder": 0, "since": 0,
+                    "troops": 100, "gen": 0, "heartland": false,
+                    "holders": [{"holder": 0, "since": 0}],
+                    "contests": [], "captures": []}),
+            "{s}"
+        );
     }
     // The structures feed the route planner reads: the S1 herald serves it
     // from the start (conquest.rs seed_s1), and this world has no

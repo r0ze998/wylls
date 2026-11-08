@@ -321,7 +321,8 @@ test('S1 palisade case: the stance is read from the nations feed, not defaulted 
 // ------------------------------------------------------------------ the reads the golden lacked (4's §19, 7's ABSENT list)
 // The router's own answers for the record feed, the rosters of rings 0–5, the inner overviews, the Provinces round the
 // origin and the two other S1 feeds, read with the page's own decoders. A 404 the router gives stays a 404.
-const S1_RECORDS = { before: 67, extended: 68, opened: 69, grown: 100 };
+// 67 / 68 / 69 / 100 records plus one KEEP (PLACED) per Province with a keep (+54 for rings 2–4, +30 for ring 5).
+const S1_RECORDS = { before: 121, extended: 122, opened: 123, grown: 184 };
 
 test('S1 golden-absent reads: the record feed, as herald.mjs events() reads it', async () => {
   for (const stage of S1_STAGES) {
@@ -392,7 +393,7 @@ function stageFetch2(stage) {
   return { f };
 }
 
-test('S1 last four reads: conquest day 0 is the router\'s live empty feed; control, standings and keep are its own 404s', async () => {
+test('S1 last four reads: conquest day 0 is the router\'s live empty feed; control and standings are its own 404s; the keep is read', async () => {
   for (const stage of S1_STAGES) {
     const { h, asked } = s1Herald(stage);
     const c = await h.conquestDay(0);
@@ -401,7 +402,6 @@ test('S1 last four reads: conquest day 0 is the router\'s live empty feed; contr
     for (const [call, path, code] of [
       [() => h.control(), '/h/control/latest.bin', 'NotYet'],
       [() => h.standings(), '/h/standings/latest.json', 'NotYet'],
-      [() => h.keep(4, 0), '/h/keep/4,0.json', 'NoSuchKeep'],
     ]) {
       // The golden holds the router's own 404 with its code …
       assert.deepEqual(S1.stages[stage][path], { status: 404, body: { ok: false, code } }, `${stage} ${path}`);
@@ -411,5 +411,11 @@ test('S1 last four reads: conquest day 0 is the router\'s live empty feed; contr
       assert.equal(r.code, 'NotFound', `${stage} ${path}`);
       assert.ok(asked.includes(path), `${stage} ${path} was asked`);
     }
+    // The keep of (4,0), from OpenProvince's KEEP (PLACED) record: what app.mjs puts in the report (open.keep).
+    const k = await h.keep(4, 0);
+    assert.ok(k.ok, `${stage}: ${k.code}`);
+    assert.deepEqual([k.keep.p, k.keep.q, k.keep.tile, k.keep.holder, k.keep.troops], [4, 0, 1, 0, 100], stage);
+    assert.deepEqual(k.keep.contests, [], stage);
+    assert.deepEqual(k.keep.captures, [], stage);
   }
 });
