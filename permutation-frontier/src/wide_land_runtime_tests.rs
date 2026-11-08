@@ -5951,7 +5951,7 @@ fn wide_land_native_settles_a_real_wide_seal_and_confiscates_a_bad_one() {
 ))]
 #[test]
 fn wide_land_native_departs_posts_the_beacon_and_settles_for_real() {
-    native_real_depart_round_trip(false);
+    native_real_depart_round_trip(false, false);
 }
 
 /// Real departures, an economic action while both of A's transits are
@@ -5967,7 +5967,23 @@ fn wide_land_native_departs_posts_the_beacon_and_settles_for_real() {
 ))]
 #[test]
 fn wide_land_native_real_depart_train_resolve_and_return_share_one_holding() {
-    native_real_depart_round_trip(true);
+    native_real_depart_round_trip(true, false);
+}
+
+/// The real-depart/Train round trip with an enemy on A's arrival hex.
+/// The enemy is an explicitly staged resident, not another real departure;
+/// its Hold doctrine multiplier is staged too. Resolve must report an
+/// engagement and casualties on both sides. A's surviving milli-troops,
+/// not its original 300 troops, determine the eventual reserve return.
+/// Public beacon signatures and all player departure effects remain real.
+#[cfg(all(
+    feature = "native-crypto-tests",
+    not(feature = "test-beacon"),
+    not(target_os = "solana")
+))]
+#[test]
+fn wide_land_native_real_depart_train_hostile_combat_and_survivor_return() {
+    native_real_depart_round_trip(true, true);
 }
 
 #[cfg(all(
@@ -5975,7 +5991,7 @@ fn wide_land_native_real_depart_train_resolve_and_return_share_one_holding() {
     not(feature = "test-beacon"),
     not(target_os = "solana")
 ))]
-fn native_real_depart_round_trip(train_during_transit: bool) {
+fn native_real_depart_round_trip(train_during_transit: bool, hostile_resident: bool) {
     use crate::crypto::quick;
     use crate::crypto::seal::tests::{cases, get, hex};
     use crate::crypto::sys;
@@ -6737,14 +6753,82 @@ fn native_real_depart_round_trip(train_during_transit: bool) {
     let mut ts = vec![w.w.system.clone(); 24];
     ts[k0] = w.transit(coord, site, 0);
     ts[k0 + 1] = w.transit(coord, site_b, 0);
+    // A settled resident fixture, inserted only after the destination's
+    // earlier bells have resolved. No casualty, fate or outcome is staged.
+    const ENEMY_MILLI: u32 = 10_000;
+    let enemy_host = if hostile_resident {
+        let enemy_faction = (a.faction + 1) % 6;
+        let enemy = WideHostRef::new(dkey, 0, 1, 900).unwrap();
+        let i = w.stage_resident(dest, enemy, enemy_faction, dest_tile_a, ENEMY_MILLI);
+        let pa = w.province(dest);
+        let mut pd = pa.try_borrow_mut_data().unwrap();
+        let mut entry = read_entry(&pd, i).unwrap();
+        // stage_resident's generic default is zero; use the actual
+        // faction's defensive Hold multiplier so retaliation is real.
+        entry.dealt_bps = of_faction_v3(enemy_faction).unwrap()
+            .dealt_bps(Posture::Stance(Stance::Hold), false) as u16;
+        assert!(entry.dealt_bps > 0);
+        write_entry(&mut pd, i, &entry).unwrap();
+        assert_eq!((0..PV::ENTRIES_N)
+            .filter(|&j| read_entry(&pd, j).unwrap().state != EN::STATE_FREE).count(), 1,
+            "the staged enemy is the only pre-arrival resident");
+        Some((enemy, i))
+    } else {
+        None
+    };
     assert_eq!(code(w.gather(dest, arrive, 0, 24, &ts)), Ok(()));
     assert_eq!(code(w.resolve_gathered_as(dest, arrive, PAYER3)), Ok(()));
+    let arrival_survivors = {
+        let cd = w.inputs(dest, arrive).try_borrow_data().unwrap().to_vec();
+        let arrival = wa::WideArrival::read_at(&cd, k0).unwrap().unwrap();
+        assert_eq!((arrival.host, arrival.present, arrival.fate),
+            (host_a, true, wa::wide_arrival::FATE_STAYS));
+        if let Some((enemy, enemy_i)) = enemy_host {
+            let pd = w.province_data(dest);
+            assert!(rd_u32(&pd, PV::RESOLVE_SUMMARY + SU::ENGAGEMENTS) > 0,
+                "real Resolve reports hostile engagement");
+            assert!(arrival.troops_after > 0 && arrival.troops_after < 300_000,
+                "A survives with real casualties, not a fixture loss");
+            let rd = w.roster(dest).try_borrow_data().unwrap().to_vec();
+            let roster = WideRoster::read(&rd).unwrap();
+            let enemy_after = read_entry(&pd, enemy_i).unwrap();
+            if roster.ref_at(&rd, enemy_i).unwrap() == Some(enemy) {
+                assert_eq!(enemy_after.id, wide_host_alias(&enemy));
+                assert_ne!(enemy_after.state, EN::STATE_FREE);
+                assert!(enemy_after.troops < ENEMY_MILLI,
+                    "the exact staged enemy takes real damage too");
+            } else {
+                assert!(roster.table(&rd).unwrap().iter().all(|(_, _, host)| *host != enemy),
+                    "the destroyed enemy's exact reference is released, not relocated");
+                assert_ne!(enemy_after.id, wide_host_alias(&enemy),
+                    "the staged enemy's slot is cleared or reused by an arrival");
+                let other_arrival = wa::WideArrival::read_at(&cd, k0 + 1).unwrap().unwrap();
+                assert_eq!((other_arrival.host, other_arrival.present, other_arrival.fate),
+                    (host_b, true, wa::wide_arrival::FATE_STAYS));
+                assert_eq!(pd[PV::RESOLVE_SUMMARY + SU::ARRIVALS], 2);
+                assert_eq!(pd[PV::RESOLVE_SUMMARY + SU::DESTROYED], 1,
+                    "both arrivals stayed, so the sole destroyed fighter is the staged enemy");
+                assert_eq!(pd[PV::RESOLVE_SUMMARY + SU::BOUNCED], 0,
+                    "the enemy was not bounced or retreated");
+            }
+        } else {
+            assert_eq!(arrival.troops_after, 300_000);
+        }
+        arrival.troops_after
+    };
     assert_eq!(code(w.resolve(other_dest, arrive)), Ok(()));
-    take_wide();
+    let combat_records = take_wide();
+    if hostile_resident {
+        let resolve = combat_records.iter().map(|b| WideRecord::decode(b).unwrap())
+            .find(|r| r.kind == WideKind::Resolve && r.province() == Some(dkey)
+                && r.bell == arrive).expect("destination's real Resolve receipt");
+        assert!(u32::from_le_bytes(resolve.payload[64..68].try_into().unwrap()) > 0);
+    }
     let (i_a, i_b) = {
         let pd = w.province_data(dest);
         let (ia, ib) = (entry_of(&pd, &host_a), entry_of(&pd, &host_b));
         assert_eq!(read_entry(&pd, ia).unwrap().state, EN::STATE_ROSTER);
+        assert_eq!(read_entry(&pd, ia).unwrap().troops, arrival_survivors);
         assert_eq!(read_entry(&pd, ib).unwrap().state, EN::STATE_ROSTER);
         (ia, ib)
     };
@@ -6877,6 +6961,8 @@ fn native_real_depart_round_trip(train_during_transit: bool) {
             &r.payload[..3],
             &[0, wa::wide_arrival::FATE_STAYS, seal_code::VALID]
         );
+        assert_eq!(&r.payload[3..7], &arrival_survivors.to_le_bytes(),
+            "transit settlement reports the real clash survivors");
         assert_eq!(&r.payload[7..15], &tip.to_le_bytes());
         assert_eq!(&r.payload[15..23], &fee.to_le_bytes());
         assert_eq!(&r.payload[23..31], &bond.to_le_bytes());
@@ -6983,6 +7069,12 @@ fn native_real_depart_round_trip(train_during_transit: bool) {
     assert_eq!(code(w.resolve(dest, 21)), Ok(()));
     let standing = w.province(dest);
     let roster_d = w.roster(dest);
+    let troops_at_dissolve = read_entry(&w.province_data(dest), i_a).unwrap().troops;
+    assert!(troops_at_dissolve > 0 && troops_at_dissolve <= arrival_survivors,
+        "later resolves cannot restore battle casualties");
+    if !hostile_resident {
+        assert_eq!(troops_at_dissolve, 300_000);
+    }
     assert_eq!(
         code(w.dissolve_at(&a, WALLET_A, host_a, standing.clone(), roster_d.clone())),
         Ok(())
@@ -6999,6 +7091,17 @@ fn native_real_depart_round_trip(train_during_transit: bool) {
         read_entry(&w.province_data(dest), i_a).unwrap().state,
         EN::STATE_DEPARTED
     );
+    let leaving = read_entry(&w.province_data(dest), i_a).unwrap();
+    assert_eq!(leaving.troops, troops_at_dissolve,
+        "the Leave carries the surviving troops through its resolving bell");
+    let return_units = leaving.troops / MILLI as u32;
+    let return_milli = return_units * MILLI as u32;
+    assert_eq!(leaving.troops - return_milli, leaving.troops % MILLI as u32,
+        "only the fractional remainder is uncredited");
+    if hostile_resident {
+        assert!(return_units > 0 && return_units < 300,
+            "a real casualty reduces the credited reserve");
+    }
     take_wide();
     let own = w.holding(coord, site);
     let own_province = w.province(coord);
@@ -7021,8 +7124,8 @@ fn native_real_depart_round_trip(train_during_transit: bool) {
     );
     assert_eq!(
         rd_u32(&w.holding_data(coord, site), H::reserve(0)),
-        reserve_before + 300,
-        "A's whole troops back into the reserve"
+        reserve_before + return_units,
+        "whole surviving troops add to the already-trained reserve"
     );
     assert_eq!(
         (
@@ -7041,7 +7144,10 @@ fn native_real_depart_round_trip(train_during_transit: bool) {
         let r = WideRecord::decode(&wr[0]).unwrap();
         assert_eq!(r.kind, WideKind::Return);
         assert_eq!((r.standing(), r.home_of()), (Some(dkey), Some(key)));
-        assert_eq!(&r.payload[..4], &300_000u32.to_le_bytes());
+        assert_eq!(&r.payload[..4], &return_milli.to_le_bytes(),
+            "Return records floor(surviving milli / 1000) * 1000");
+        assert_eq!(r.payload[4], leaving.unit);
+        assert_eq!(r.payload[5], i_a as u8);
     }
     let mut replay_accounts = vec![
         payer.clone(),
@@ -7099,6 +7205,9 @@ fn native_real_depart_round_trip(train_during_transit: bool) {
         );
         assert_eq!(Ro(&final_holding).u64(H::ESCROW).unwrap(), 0);
         assert_eq!(Ro(&final_holding).u64(H::POOL_OWED).unwrap(), 0);
+        assert_eq!(rd_u32(&final_holding, H::reserve(0)),
+            reserve_before_train + 10 + return_units,
+            "Train credit and survivor return coexist in the original holding");
         let trace = trace.borrow();
         let kinds: Vec<_> = trace
             .iter()
