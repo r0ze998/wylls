@@ -420,6 +420,45 @@ test("journal lock, live holder: another process cannot take it; a previous run'
   void a;
 });
 
+test("journal lock, 16's probe shape: pids absent from the process table, liveness from an injected alive()", () => {
+  const none = () => null; // no /proc entry for any of these pids
+  // J2: the same pid twice is refused although the process table does not know it
+  const p2 = lockDir();
+  const j1 = fileJournal(p2, fs, { pid: 111, alive: () => true, startOf: none });
+  assert.throws(() => fileJournal(p2, fs, { pid: 111, alive: () => true, startOf: none }), (e) => e.code === "JournalLocked");
+  assert.throws(() => fileJournal(p2, fs, { pid: 111, alive: () => false, startOf: none }), (e) => e.code === "JournalLocked", "this process even if alive() says no");
+  j1.close();
+  // J4: alive() is honoured: a live holder in another process is refused, close() releases
+  const p4 = lockDir();
+  const a4 = fileJournal(p4, fs, { pid: 111, alive: () => true, startOf: none });
+  assert.throws(() => fileJournal(p4, fs, { pid: 222, alive: () => true, startOf: none }), (e) => e.code === "JournalLocked");
+  a4.close();
+  assert.equal(fs.existsSync(`${p4}.lock`), false);
+  // J1: two restarts after a crash, interleaved: one wins
+  const p1 = lockDir();
+  fs.writeFileSync(`${p1}.lock`, "999\n"); // a crashed holder, old lock format
+  const dead999 = (p) => p !== 999;
+  let b = null, once = false;
+  const aFs = { ...fs, readFileSync: (f, o) => {
+    const v = fs.readFileSync(f, o);
+    if (!once && String(f) === `${p1}.lock`) { once = true; b = fileJournal(p1, fs, { pid: 222, alive: dead999, startOf: none }); }
+    return v;
+  } };
+  assert.throws(() => fileJournal(p1, aFs, { pid: 111, alive: dead999, startOf: none }), (e) => e.code === "JournalLocked");
+  b.save({ who: "B" });
+  assert.deepEqual(JSON.parse(readFileSync(p1, "utf8")), { who: "B" });
+  // J3: a writer whose lock was taken over is fenced
+  const p3 = lockDir();
+  const a3 = fileJournal(p3, fs, { pid: 111, alive: () => true, startOf: none });
+  const b3 = fileJournal(p3, fs, { pid: 222, alive: (p) => p === 222, startOf: none });
+  b3.save({ who: "B", step: "sent" });
+  assert.throws(() => a3.save({ who: "A", step: "stale" }), (e) => e.code === "JournalFenced");
+  assert.deepEqual(JSON.parse(readFileSync(p3, "utf8")), { who: "B", step: "sent" });
+  a3.close();
+  assert.equal(fs.existsSync(`${p3}.lock`), true, "the fenced writer's close leaves B's lock");
+  b3.close();
+});
+
 test("journal lock, takeover race: two openers that judged the same lock stale cannot both win", () => {
   const path = lockDir();
   fileJournal(path, fs, { pid: 900, startOf: procs([[900, "s900"]]) }); // dies without close

@@ -184,7 +184,7 @@ D1〜D5 は未決のまま。`intake` は閉じたまま（依頼者が無けれ
 
 ## 8. 控えのロックの修正（⑯の指摘、2026-11-08、④ `4d44f021` 上）
 
-⑯が⑥ `7232c86b` のロックに3点を再現した。控えの上書きと、同じ実行 id・requestId の再実行の問題で、実際の二重送信まで確かめたという意味ではない。⑯の probe とログの本体は、このセッションからは受け取れていない（GitHub にまだ無い。④経由で依頼した）。⑥は同じ3点を自分で再現し、直した。
+⑯が⑥ `7232c86b` のロックに3点を再現した。控えの上書きと、同じ実行 id・requestId の再実行の問題で、実際の二重送信まで確かめたという意味ではない。⑯の probe とログは当初受け取れなかったため、⑥は同じ3点を自分で再現し、直した（`1360ce51`）。その後に届いた⑯の probe で確かめ直した結果は §8.1。
 
 | # | 不具合（⑥ `7232c86b`） | 再現（`handoff/ws16-probe/journal-lock-probe.mjs`、鍵なし、④の guard 付き） | 修正 |
 |---|---|---|---|
@@ -206,3 +206,29 @@ D1〜D5 は未決のまま。`intake` は閉じたまま（依頼者が無けれ
 - 変異の確認：同じ pid を古いと見る、読み直しを外す、mutex を外す、save の柵を外す、close が誰の lock でも外す、開始時刻を無視する、の6つは、どれも試験が失敗する。
 
 **静的 import の監査：** `src/connect/dispatch.mjs` が読み込むのは⑥の `src/` の13ファイル（`keys.mjs` は `plan.mjs` 経由の import だけで、`fileJournal` の経路からは呼ばれない）と `node:crypto`（`randomUUID`。token のためで、鍵ではない）・`node:fs`。外部のパッケージは無い。
+
+### 8.1 ⑯の probe での確かめ直し
+
+⑯の probe（`claude/dreamy-ramanujan-ijj8qj` `36ec6937` の `verification/16-independent/probes/v16-ws06-journal-lock.test.mjs`、ログ `verification/16-independent/logs/phase20/v16-ws06-lock.log`）を静的に確かめた。import は `node:test`・`node:assert`・`node:fs`・`node:os`・`node:path` と、`V16_WS06_DISPATCH` で指す `dispatch.mjs` だけで、鍵・ネットワーク・子プロセスは使わない。これを④の guard 付きで流した。
+
+probe は、この機械に無い pid（111・222・999）と、注入する `alive` を使う。`1360ce51` では、次の2点が残っていた。
+
+| # | `1360ce51` での結果 | 原因 | 修正 |
+|---|---|---|---|
+| J2 | 同じ pid の二回目の open を受け付けた | 「自分の処理か」を `/proc` だけで判断していた。処理の表に無い pid は死んだとみなされ、奪われた | lock の pid と開始時刻がこの open と同じなら、この処理とみなして拒否する（処理の表を見る前に判断） |
+| J4（対照） | 生きている持ち主が奪われた | `alive` の注入を黙って無視していた（`startOf` だけを読んでいた） | `alive(pid)` が渡されたら、pid があるかどうかはそれで答える。開始時刻は今までどおり `startOf` から読む |
+
+J1（奪い合い）と J3（柵）は、`1360ce51` ですでに直っていた（A は JournalLocked、A.save は JournalFenced）。
+
+**結果：**
+| ⑥ | J1 | J2 | J3 | J4 |
+|---|---|---|---|---|
+| `7232c86b`（④ `4d44f021` に入ったもの） | 両方が開く、A の状態が消える | 受け付ける | 古い状態で上書き | 通過 |
+| `1360ce51` | A は JournalLocked | 受け付ける | JournalFenced | **失敗** |
+| この修正 | A は JournalLocked | JournalLocked | JournalFenced、控えは B のまま | 通過 |
+
+- ⑯の probe は Node 22.22.0・20.20.0 で 4通過。⑥の probe は 3件とも ok。
+- `dispatch` は 15件。⑯の probe と同じ形（処理の表に無い pid、注入した `alive`）で J1〜J4 を確かめる試験を1件足した。
+- オフライン合計 29件が Node 22・20 で通過。`connect-live` は④ `16576826` の `runexec` で 6通過・1省略（ゲートウェイの確認。④の環境で通過済み）。
+- 変異の確認：足した2つの守り（この処理の判断、`alive` の注入）は、どちらも外すと試験が失敗する。
+- ⑯が監査で外した `roles.test.mjs`（`generateKey()` を呼ぶ）は、⑥もこの確認では流していない。

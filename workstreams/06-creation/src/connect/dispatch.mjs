@@ -274,22 +274,33 @@ export function requesterProblem(r) {
  *     a writer that lost the lock is refused (JournalFenced) and writes nothing.
  *   - close() removes the lock only if it is still this open's.
  *
+ * A holder with this open's pid and start time is this process and is never
+ * taken over, even when the process table has no entry for it. `alive(pid)`,
+ * when given (tests, probes), answers whether a pid exists in place of the
+ * process table; start times still come from `startOf`.
+ *
  * Limits: the holder check reads the local process table, so writers on
  * other machines or pid namespaces sharing the file are not told apart.
  */
-export function fileJournal(path, fs, { pid = process.pid, startOf = procStart, token = randomToken() } = {}) {
+export function fileJournal(path, fs, { pid = process.pid, alive, startOf = procStart, token = randomToken() } = {}) {
   const lock = `${path}.lock`;
   const mutex = `${lock}.takeover`;
   const mine = { pid, start: startOf(pid), token };
   const body = JSON.stringify(mine);
   const readLock = () => { try { return String(fs.readFileSync(lock, "utf8")); } catch (e) { if (e.code === "ENOENT") return null; throw e; } };
   const parse = (text) => { try { const v = JSON.parse(text); return v && typeof v === "object" ? v : null; } catch { return null; } };
-  /** Whether the holder a lock names is a running process (the same pid with another start time is not). */
+  const known = (s) => s !== null && s !== undefined;
+  /**
+   * Whether the holder a lock names is a running process (the same pid with another start time is not).
+   * A holder with this pid and this start time is this process, whatever the process table says.
+   * `alive(pid)`, when given, answers whether a pid exists in place of the process table.
+   */
   const running = (h) => {
     if (!h || !Number.isSafeInteger(h.pid) || h.pid <= 0) return false;
+    if (h.pid === pid && (h.start === mine.start || (!known(h.start) && !known(mine.start)))) return true;
     const now = startOf(h.pid);
-    if (now === null) return false; // no such process
-    return h.start === null || h.start === undefined || now === undefined || h.start === now;
+    if (alive ? alive(h.pid) !== true : now === null) return false; // no such process
+    return !known(h.start) || !known(now) || h.start === now;
   };
   const create = (file, text) => { const fd = fs.openSync(file, "wx"); try { fs.writeSync(fd, `${text}\n`); fs.fsyncSync(fd); } finally { fs.closeSync(fd); } };
   const refuse = (h) => Object.assign(new Error(`journal ${path} is held by process ${h?.pid ?? "?"}${h?.pid === pid ? " (this process: another open)" : ""}`), { code: "JournalLocked" });
