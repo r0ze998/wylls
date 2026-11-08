@@ -1809,3 +1809,41 @@ gateway・web の鍵なしの一式（CI と同じ `scripts/ci/node-keyfree.sh p
   - wide は読み取り専用。
 
 ログ: `logs/phase17/`
+
+# 第18期（2026-11-08）：b3d08978 の verifier と、最終候補 7535a17e
+
+## 23.1 b3d08978 の verifier（完了）
+
+- HEAD は `b3d0897869add543985c3f7a6c7aa8b7991f9bf1`、tree は `2e378f3a9fb60e82d504e9b2de410acea9ae132b`。
+- 1 回目は、ディスクが満杯になって出力を失った。不要になった build 出力を消して、流し直した。
+
+| 対象 | 結果 |
+|---|---|
+| 既定の一式 | exit 0。lib 50、camp_clear 3、custody 6、custody_history 8、custody_replay 10、custody_replay_caravans 11、custody_state 7、evidence 9、history 16、history_assurance 8、ledger_history 7、missing_state 2、new_bands 10、open_items 3、resident_ledger 4、rights_replay 18、unit 8、ws04_scan_resident 4、⑯の v16_cpi_keyfree 6・v16_v27_gate 3 |
+| fixtures（`march_fixture_is_fresh` を除外） | 8 |
+| wide の build | lib 59、history 16、new_bands 10（1037.8 秒）、⑯の v16_vw_unknown w1〜w5 の 5 件 |
+
+**④の VW1 の修正を確認した。** unproven の履歴で途中が欠けた場合は、FAIL ではなく WideChainUnproven になる。whole の履歴で途中が欠けた場合と、head を書き換えた場合は、FAIL のままである。
+
+wide の new_bands が長くかかった件の調べ:
+
+- process は 598 秒の時点で CPU 99％、CPU 時間は 9 分 52 秒だった。計算が進んでいる状態で、止まってはいなかった。
+- af41e617 では、同じ試験に 1045.5 秒かかっていた。
+- 最後まで走らせ、10/10 で通過した。
+
+## 23.2 最終候補 7535a17e（照合済み。Node の側）
+
+- HEAD は `7535a17e135ff3b18f7ad1160599f1473b334794`、tree は `1960174902f4e90ac61a004264954757a528cd1e`。b3d08978 の上に 20 commit を足したもの。
+  - 中身: chosen-march の core と村の UI の 10 件、⑦ aac14551、⑤⑥⑧、7535a17e での viewer の初期化と wide の消去。
+  - ⑦ の screens の server・world・liveworld は 24369382 と同じ。
+- gateway・web の鍵なしの一式（194 ファイル。鍵を使う 97 ファイルは除外）: 1909 件のうち、1908 件通過、0 件失敗、1 件 skip。NoKeysGuard の発動は 0 回で、④の申告 1908/0 と一致した。
+- ⑦の画面 8 本（spectate、game、s1、s1-card、v17、coop、s1-page、s1-pure）: 46/46。
+  - s1-page と s1-pure は、⑦ の nokey-page.mjs で開く。鍵の無い test wallet を使い、ブラウザの WebCrypto の鍵の操作を止める。
+  - ページが import するモジュールを辿ると、純 JS で鍵を導く箇所が 2 つある（`publicKeyOf`）。一つは `keyFromSeed` の中で、もう一つは `importBackup` の中である。
+    - `keyFromSeed` では、その直後の pkcs8 の importKey がガードで止まり、数えられる。
+    - `importBackup` は、利用者が backup を読み込んだときだけ動き、画面の試験は触れない。
+- 閲覧者の初期化（resetViewer と clearWide、adoptResident）は、`web-frontier-wide-holding-ui.test.mjs` が確かめ、鍵なしで流した。
+  - 確かめたこと: NFT の login・logout、Citizen・world・source の切り替え、遅れて届いた別の閲覧者の答えで、wide の選択とデータが消えること。
+  - `web-frontier-controller.test.mjs` は鍵を使う試験の一覧に入っているので、流していない（未実行）。
+
+Rust の側は 23.3 に書く。
