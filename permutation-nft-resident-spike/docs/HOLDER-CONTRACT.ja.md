@@ -419,3 +419,10 @@ v0.24 で「鍵なし」として走らせた 103 file には、鍵を作る試�
 v0.25 の監視の下で、実際に鍵の API が呼ばれたのは上の 4 file だけで、他は 0 回だった。それでも、一覧に載る file を鍵なしの扱いで走らせたこと自体が、この repo の決まりに反する。
 
 今後、鍵なしで走らせるのは `scripts/ci/node-keyfree.sh` と、この一覧に無い file だけにする。この節の回帰のうち、`web-frontier-resident-me`（一覧に無い）は鍵なしの CI で走る。controller の 2 file の回帰は、一覧に載るので key-tests job の側になる。
+
+### 試験の記録の訂正（確定）
+
+- **無効**：§14 の「web-frontier・frontier-resident の 103 file・1014 件が鍵なしで合格」と、§15 の「残りの 101 file も鍵の呼び出しは 0」。どちらも鍵なしの成功として扱わない。103 file の実行には、固定の seed からの鍵の導出と署名が入っていた。今回の広い実行では、`subtle.importKey('pkcs8')` が 26 回 guard に止められた。どちらも適格でない実行である。
+- **適格な実行**：`scripts/ci/node-keyfree.sh permutation-gateway test/web-frontier-resident-me.test.mjs` を 1da4a517 で 1 回。scan の check が通り、1 file だけを repo の guard の下で走らせた（"0 seen by the guard"）。5/5 が合格。
+- **適格でない実行**：今回、監視の下で鍵の API の呼び出しが 0 だった focused な試験の file のうち、`web-frontier-wide-holding-ui`・`web-frontier-resident-home`・`web-frontier-ws07-nft`・`web-frontier-ws07-me-answered`・`web-frontier-herald` は `node-key-tests.txt` に載り、reviewed の一覧（`node-key-reviewed.txt`）にも無い。だから、呼び出しが 0 でも鍵なしの証拠にはならない。controller の修正（5ee5fa35）の旧で落ち・新で通るという結果も、この扱いになる。
+- 以後、広い一括実行と grep だけでの除外はしない。走らせるのは、reviewed の一覧と、変更に要る最小の名指しの試験だけにする。その試験も、到達する call path・import・subprocess を先に審査したものに限る。
