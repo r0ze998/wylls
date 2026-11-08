@@ -22,6 +22,11 @@ test('no false state at load: the page says what it knows about the viewer, and 
   assert.equal(viewerState({ mode: 'play', playReady: true, wallet: { address: 'W' }, viewerMissed: true }), 'unreachable', 'asked, and no answer came');
   assert.equal(viewerState({ mode: 'play', playReady: true, wallet: { address: 'W' }, viewerMissed: true, land: { stage: 'joined' } }), 'known', 'a later answer mends it');
   assert.equal(viewerState({ mode: 'play', error: { code: 'X' } }), 'unreachable', 'the season itself did not come');
+  // (workstream 07: a failed read of the viewer's record is not "not joined", though FS.land is set)
+  assert.equal(viewerState({ mode: 'play', playReady: true, wallet: { address: 'W' }, land: { stage: 'none' }, meStatus: 'error' }), 'unreachable', 'the record did not come: never the nation choice');
+  assert.equal(joinOpen({ mode: 'play', playReady: true, wallet: { address: 'W' }, land: { stage: 'none' }, meStatus: 'error' }), false);
+  assert.equal(viewerState({ mode: 'play', playReady: true, wallet: { address: 'W' }, land: { stage: 'final' }, citizen: { faction: 0 }, holdings: [{}], meStatus: 'error' }), 'known', 'read before and failing now: what was shown stays');
+  assert.equal(viewerState({ mode: 'play', playReady: true, wallet: { address: 'W' }, land: { stage: 'none' }, meStatus: 'ready' }), 'known', 'answered: not joined');
   assert.equal(viewerState({ mode: 'play', error: { code: 'X' }, record: {} }), 'pending', 'an error beside a season that did come is not this');
   assert.equal(viewerState({ mode: 'spectate' }), 'known');
   assert.equal(viewerState({ mode: 'practice' }), 'known');
