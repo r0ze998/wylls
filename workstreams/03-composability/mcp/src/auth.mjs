@@ -426,6 +426,8 @@ export class Auth {
   }
 
   link(linkId) { return this.db.links[linkId] ?? null; }
+  /** Every link (revoked ones included) of an owner. */
+  linksOf(owner) { return Object.values(this.db.links).filter(l => l.owner === owner); }
 
   /**
    * The owner's signed query `{owner, at, signature}` for their own operations, with or without a live connection

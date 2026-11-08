@@ -156,6 +156,14 @@ export function createWyllsMcp({ auth, game, store, now = Date.now, log = () => 
     return single(opId, async () => {
       // A retry of a decision already taken: the same operation, never a second send.
       const prior = store.operation(opId);
+      if (!prior) {
+        // A requestId the same owner already used for this agent on another connection (a reconnect, a revoked link):
+        // that operation may have sent. Never a second send under a new connection: refused, nothing sent, the
+        // earlier operation named (its state: get_run_status on its run, or the owner's view).
+        const others = auth.linksOf(principal.owner).filter(l => l.agentId === principal.agentId && l.linkId !== principal.linkId).map(l => l.linkId);
+        const used = others.length ? store.operationsWithRequestId(others, requestId) : [];
+        if (used.length) return fail('RequestIdUsedOnAnotherConnection', 'this requestId was already used for this agent on another connection: nothing was sent; that operation is the one to follow (a new decision needs a new requestId)', { operationId: used[0] });
+      }
       if (prior) {
         if (prior.planId !== planId) return fail('IdempotencyConflict', 'this requestId was used for another plan: use a new requestId', { operationId: opId });
         if ((prior.runId ?? null) !== runId) return fail('IdempotencyConflict', 'this requestId was sent under another runId: the run is fixed for the requestId', { operationId: opId, runId: prior.runId ?? null });
@@ -698,7 +706,17 @@ export function createWyllsMcp({ auth, game, store, now = Date.now, log = () => 
     for (const op of ops) operations.push(receiptOf(await track(op, principal)));
     let registry = null;
     if (acts) {
-      try { const l = await acts.list(runId); registry = { read: true, acts: l.acts ?? [] }; }
+      try {
+        const l = await acts.list(runId);
+        // ④'s list answers as last recorded; a row not final yet is read again (④'s status reads the wallet's fate,
+        // read only), so that a run's state does not depend on which connection asks (a reconnect, another sender).
+        const rows = [];
+        for (const a of (l.acts ?? []).slice(0, 50)) {
+          if (a.final === true) { rows.push(a); continue; }
+          try { rows.push(await acts.status({ run4Id: a.run4Id })); } catch (e) { rows.push({ ...a, readError: `${e?.code ?? 'Error'}: ${scrub(e?.message)}` }); }
+        }
+        registry = { read: true, acts: rows, ...((l.acts ?? []).length > 50 ? { truncated: true } : {}) };
+      }
       catch (e) { registry = { read: false, error: `${e?.code ?? 'Error'}: ${scrub(e?.message)}` }; }
     }
     return ok({ runId, operations, registry, notes: ['Read only: nothing is sent. The registry lists every act registered under this run (other senders\' included, each with its source).'] });

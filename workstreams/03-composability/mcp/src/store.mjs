@@ -76,6 +76,14 @@ export class JsonStore {
   }
 
   /** The newest operations of these links, main and archived together (main wins a duplicate), at most `limit`. */
+  /** Operations (main store and archive) of these links sent with `requestId`: one id each, newest first. */
+  operationsWithRequestId(linkIds, requestId) {
+    const ids = new Set(linkIds);
+    const hot = Object.values(this.state.operations).filter(o => ids.has(o.linkId) && o.requestId === requestId).map(o => o.id);
+    const cold = [...this.archived].filter(([id, x]) => ids.has(x.linkId) && x.requestId === requestId && !hot.includes(id)).map(([id]) => id);
+    return [...hot, ...cold];
+  }
+
   operationsOf(linkIds, limit) {
     const ids = new Set(linkIds);
     const hot = Object.values(this.state.operations).filter(o => ids.has(o.linkId));
