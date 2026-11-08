@@ -129,9 +129,23 @@ intake({
 - **③のサーバーを動かすこと：** 財布の木と⑤の依存が要る。③の規則はソースで照合し、③の振る舞いは偽物で再現しただけ。③自身の鍵なし試験（27/27、③の報告）は⑥では回していない。
 - **控えの置き場（D2）と、期限・予算（D3）：** 未決。試験はメモリと一時ファイルだけ。
 
-### 5.1 未実行の1件：④の gateway の要求検査（`connect-live` 2）
+### 5.1 ④の gateway の要求検査（`connect-live` 2）：④の環境で通過（2026-11-08）
 
-**未実行のまま。** 通過とは扱わない。
+**結果（④が④の統合の環境で実行し、⑥が版と同一性を確かめた）：**
+- ⑥の木：`96ffd72e5327b99bf362d140070e798f5f46161e`。④は `workstreams/06-creation` だけを sparse で checkout した。
+- WS04_ROOT・WS03_ROOT：④の統合候補 `b3d0897869add543985c3f7a6c7aa8b7991f9bf1`（tree `2e378f3a9fb60e82d504e9b2de410acea9ae132b`）。
+- 依存：`permutation-gateway` は `npm ci --ignore-scripts` 済み。`@solana/web3.js` 1.99.0、`@magicblock-labs/ephemeral-rollups-sdk` 0.17.2。
+- 実行：node v22.22.0、`node --import <WS04_ROOT>/scripts/ci/no-keys-guard.mjs --test --test-name-pattern "gateway accepts" workstreams/06-creation/test/connect-live.test.mjs`。RUNEXEC_BIN は候補の runexec。
+- 結果：`ok 1 - ④'s gateway accepts the action ③ would build from 06's call; the key fits`。1件中1件通過、失敗 0、省略 0。guard で止まったものは無い。呼び出し先は `parseActionRequest` だけで、署名も送信もしていない（④の報告）。
+
+**⑥が GitHub 上で確かめたこと：**
+- `contract.mjs`・`routes/errors.mjs`・`client/src/{chain,codec,pda}.mjs`・`package-lock.json` は、`20db3313` と `b3d08978` で同一。lockfile の sha256 `95f3f6b3…19e6b` も一致。
+- `workstreams/03-composability` は `6ee7c4d1` と同一。
+- `permutation-server/web/frontier/fplay.mjs` は `6ee7c4d1` から変わっているが、試験が呼ぶ `placeData`・`cargoBytes`・`PLACE_KIND` は同一。
+
+**数え方：** `connect-live` の7件は、6件がこの環境（④ `20db3313`・③ `6ee7c4d1`）、1件が④の環境（④ `b3d08978`）で通過した。一つの環境で7件を通したものではない。
+
+### 5.1 の以前の記録（未実行だった理由）
 
 - **試験の中身：** ④の `permutation-gateway/src/frontier/agent/contract.mjs` の `parseActionRequest` に、③が組み立てる形の SendCaravan の要求（⑥の requestId・runId 入り）を通し、受け付けること、`source: "ws06"` は拒否されることを確かめる。形の検査だけで、署名も送信もしない。
 - **止めているもの（2026-11-08、④ `20db3313` の `permutation-gateway/package-lock.json`、sha256 `95f3f6b3ee4f24882368198423befb9d1c53612b8c9a81495d7afa35db119e6b`）：**
