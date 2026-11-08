@@ -159,3 +159,25 @@ intake({
 WS03_ROOT=<③ 6ee7c4d1> WS04_ROOT=<④ 20db3313（npm ci --ignore-scripts 済みの permutation-gateway）> RUNEXEC_BIN=<20db3313 の runexec> \
   node --import <WS04_ROOT>/scripts/ci/no-keys-guard.mjs --test --test-name-pattern "gateway accepts" workstreams/06-creation/test/connect-live.test.mjs
 ```
+
+## 7. ローカルの状態の扱いの修正（2026-11-08、④ 公開 `16576826084a8ea7bd6b12b845d50b97f3d14904` の上で）
+
+D1〜D5 は未決のまま。`intake` は閉じたまま（依頼者が無ければ `NoAuthenticatedRequester`。⑬ `resident/ports/ws04-run.mjs` と同じ名前）。
+
+| # | 不具合 | 起きること | 直したこと | 試験（鍵なし） |
+|---|---|---|---|---|
+| 1 | 結果不明（`unknown`）で保留にした送信を、その後読まなかった | ④がのちに `landed`・`failed` に決めても、⑥は「保留」のままで変わらない | 結果不明による保留だけは、④の状態を読み続ける（送らない）。確定した状態が来たら保留を解く。拒否による保留は読まない | `dispatch`：再起動をまたいで unknown→landed、送信は1回、完了にはしない。拒否の保留は読まない |
+| 2 | 一つの控えのファイルに、二つの処理が書けた | それぞれが手元の写しで上書きし、後に書いた方だけが残る（計画済みの依頼や進んだ状態が消える） | `fileJournal` が `<path>.lock` を排他的に作って持つ。二つ目は `JournalLocked` で拒否。持ち主の pid が動いていなければ引き継ぐ。`close()` で外す | `dispatch`：二つ目の拒否、死んだ持ち主の引き継ぎ、close で外れる |
+| 3 | 同じ依頼に `advance` を同時に二回呼べた | 同じ受付・送信を二度出しうる（③④は冪等なので二重には動かないが、⑥がそれに頼っていた） | 同じ鍵の `advance` は一つの処理の中で一度に一回。二回目は状態だけを返す（`busy: true`） | `dispatch`：受付は1回。ガードを外すと試験が失敗する |
+| 4 | 名前の付け替えの後に、ディレクトリを fsync していなかった | 電源が落ちると、控えが古い版に戻りうる | 付け替えの後にディレクトリを fsync する | `dispatch`：ディレクトリの fd が fsync されたこと |
+
+**変異の確認：** 1〜4 の修正をそれぞれ外すと、どれも試験が失敗する（3 は、ガードを外すと待ち続けるので 500 ms で失敗させる）。
+
+**結果：**
+- オフライン 23件（`intake` 2・`ports` 2・`dispatch` 9・`connect` 10）が Node 22.22.0・20.20.0 で通過。
+- `connect-live` は④ `16576826` から作り直した `runexec`（sha256 `9df87c7133d082121e96d37e5f0b97b017240d4bdf83ab62c34989ef64af5d00`）で 6件通過・1件省略。省略の1件は gateway の要求検査で、④の環境で通過済み（§5.1）。
+- scratch の④の実行器の確認 3件通過（④には残していない）。
+
+**確かめたこと：** `16576826` までに④の依存（`permutation-rules`・`frontier-abi`）が変わったが、`Resource` の順と `ARMS = Resource::Horses` は同じ。変わったファイルに鍵の生成・導出・署名の呼び出しは無い。
+
+**判断が要るので直していないもの：** なし。この回の4件は、どれも新しい権限・規則を要しない。

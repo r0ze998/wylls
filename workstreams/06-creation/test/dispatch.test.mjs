@@ -100,7 +100,10 @@ test("run route: ids fixed in the journal before any call; a lost accept answer 
   assert.equal(four.runs.size, 1, "the second step waits: it is not accepted before the first is on the road");
   assert.ok(four.requesters.every((r) => JSON.stringify(r) === JSON.stringify(REQ)), "④ got the upstream requester unchanged");
   // no requester, or one 06 would have to complete: not planned
-  for (const bad of [undefined, { ...REQ, authenticatedBy: "" }, { ...REQ, authenticatedBy: undefined }, { ...REQ, extra: 1 }, { ...REQ, actor: "x" }]) {
+  for (const none of [undefined, null]) {
+    assert.equal(new Dispatch({ journal: memJournal(), run4: four }).plan({ route: "run", ...relayRequest(), requester: none }).findings[0].code, "NoAuthenticatedRequester");
+  }
+  for (const bad of [{ ...REQ, authenticatedBy: "" }, { ...REQ, authenticatedBy: undefined }, { ...REQ, extra: 1 }, { ...REQ, actor: "x" }]) {
     assert.equal(new Dispatch({ journal: memJournal(), run4: four }).plan({ route: "run", ...relayRequest(), requester: bad }).findings[0].code, "REQUESTER");
   }
 });
@@ -332,4 +335,73 @@ test("act route: PlanUsed (another requestId sent the plan) and a requestId reus
     assert.equal(t.prepares, 1, `${code}: no new plan`);
     assert.equal(t.sends, 0);
   }
+});
+
+test("act route: a send held on unknown keeps being read, never sent; a later final fate ends the hold (still not complete)", async () => {
+  const j = memJournal(), t = fakeAct();
+  let d = new Dispatch({ journal: j, act: t });
+  const p = d.plan({ route: "act", ...actRequest("k1") });
+  await d.advance(p.key);
+  const [s0] = p.steps;
+  t.fate(s0.runId, s0.requestId, "unknown");
+  let st = await d.advance(p.key);
+  assert.equal(st.steps[0].state, "held");
+  d = new Dispatch({ journal: j, act: t }); // restart while held
+  st = await d.advance(p.key);
+  assert.equal(st.steps[0].state, "held", "still unknown: still held");
+  t.fate(s0.runId, s0.requestId, "landed");
+  st = await d.advance(p.key);
+  assert.equal(st.steps[0].final, true);
+  assert.equal(st.steps[0].state, "sent-requested");
+  assert.equal(st.held, false);
+  assert.equal(st.complete, false, "landed is the send, not the arrival");
+  assert.equal(t.sends, 1, "never sent again");
+  // a hold on a refusal is not read at all
+  const t2 = fakeAct(), d2 = new Dispatch({ journal: memJournal(), act: t2 });
+  const p2 = d2.plan({ route: "act", ...actRequest("k2") });
+  t2.send = async () => { throw Object.assign(new Error("PlanUsed"), { code: "PlanUsed", definitive: true }); };
+  await d2.advance(p2.key);
+  let reads = 0;
+  t2.status = async () => { reads++; return null; };
+  await d2.advance(p2.key);
+  assert.equal(reads, 0);
+});
+
+test("two passes over one request at once in one process: one goes out, the other returns the state", async () => {
+  const four = fake4();
+  let release;
+  const gate = new Promise((ok) => { release = ok; });
+  const slow = { ...four, accept: async (spec, req) => { await gate; return four.accept(spec, req); }, view: (id) => four.view(id) };
+  const d = new Dispatch({ journal: memJournal(), run4: slow });
+  const p = d.plan({ route: "run", ...relayRequest(), requester: REQ, nonce: "c1" });
+  const a = d.advance(p.key);
+  // without the guard the second pass would wait on the same accept: fail fast instead of hanging
+  const b = await Promise.race([d.advance(p.key), new Promise((ok) => setTimeout(() => ok({ timedOut: true }), 500))]);
+  assert.equal(b.busy, true, JSON.stringify(b));
+  release();
+  await a;
+  assert.equal(four.accepts, 1, "one accept, not two");
+});
+
+test("the file journal has one writer: a second opener is refused, a dead holder's lock is taken over; the directory is fsynced", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "ws06-lock-"));
+  const path = join(dir, "dispatch.json");
+  const j1 = fileJournal(path, fs, { pid: 111, alive: (pid) => pid === 111 });
+  assert.throws(() => fileJournal(path, fs, { pid: 222, alive: (pid) => pid === 111 }), (e) => e.code === "JournalLocked");
+  j1.close();
+  const j2 = fileJournal(path, fs, { pid: 222, alive: () => true });
+  j2.close();
+  // a holder that died without closing
+  fileJournal(path, fs, { pid: 333, alive: () => true });
+  const j3 = fileJournal(path, fs, { pid: 444, alive: (pid) => pid === 444 });
+  // the saved journal survives; the rename is followed by an fsync of the directory
+  const dirFds = new Set(), syncedDirs = [];
+  const spy = { ...fs, fsyncSync: (fd) => { if (dirFds.has(fd)) syncedDirs.push(fd); return fs.fsyncSync(fd); }, openSync: (...a) => { const fd = fs.openSync(...a); if (a[0] === dir) dirFds.add(fd); return fd; } };
+  j3.close();
+  const j4 = fileJournal(path, spy, { pid: 555, alive: () => false });
+  new Dispatch({ journal: j4, run4: fake4() }).plan({ route: "run", ...relayRequest(), requester: REQ, nonce: "f1" });
+  assert.ok(syncedDirs.length > 0, "the directory was fsynced after the rename");
+  assert.equal(JSON.parse(readFileSync(path, "utf8")).format, "wylls.creation.dispatch/0");
+  j4.close();
+  assert.equal(fs.existsSync(`${path}.lock`), false);
 });

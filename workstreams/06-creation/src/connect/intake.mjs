@@ -23,6 +23,10 @@
  */
 
 export function intake({ dispatch, route, adoption, binding, request }) {
+  // no route authenticates a requester today (docs/12 §3): closed before anything else is looked at
+  if (route === "run" && (request?.requester === undefined || request?.requester === null)) {
+    return { ok: false, findings: [{ code: "NoAuthenticatedRequester", detail: "no authenticated requester; 06 never makes one" }] };
+  }
   if (typeof binding !== "function") {
     return { ok: false, findings: [{ code: "BINDING_UNDECIDED", detail: "who may run a plan for an authenticated requester is not decided (docs/12 §3 D1); nothing is planned" }] };
   }
