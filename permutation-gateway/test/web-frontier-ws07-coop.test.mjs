@@ -17,11 +17,22 @@ const text = h => String(h).replace(/<[^>]+>/g, ' ');
 
 test('reading the board: absent (404), not read (5xx, network, odd body), read', async () => {
   assert.deepEqual(await CB.probeBoard({ fetch: answer(404, {}) }), { read: 'absent' });
+  assert.deepEqual(await CB.probeBoard({ fetch: async () => new Response(null, { status: 204 }) }), { read: 'absent' }, '204: no board, without a 404 in the console');
   assert.deepEqual(await CB.probeBoard({ fetch: answer(502, {}) }), { read: 'unread', code: 'HTTP502' });
   assert.deepEqual(await CB.probeBoard({ fetch: async () => { throw new TypeError('down'); } }), { read: 'unread', code: 'network' });
   assert.deepEqual(await CB.probeBoard({ fetch: answer(200, { nope: 1 }) }), { read: 'unread', code: 'BadConfig' });
   assert.deepEqual(await CB.probeBoard({ fetch: answer(200, { season: '7' }) }), { read: 'unread', code: 'BadConfig' }, '01 names its context as {programId, seasonId}');
   assert.equal((await CB.probeBoard({ fetch: answer(200, cfg('7')) })).read, 'ok');
+});
+
+test('a server with no board is asked once; a board not read is asked again', async () => {
+  for (const [status, again] of [[404, false], [503, true], [200, true]]) {
+    const timers = { n: 0, setTimeout() { this.n++; return 1; }, clearTimeout() {} };
+    const off = CB.installCoopBoard({ fetch: answer(status, cfg('7')), timers });
+    await new Promise(r => setTimeout(r, 0)); await new Promise(r => setTimeout(r, 0));
+    assert.equal(timers.n, again ? 1 : 0, `HTTP ${status}`);
+    off();
+  }
 });
 
 test('the slot: nothing without a board; a board not read or of another Season is said, disabled; this village opens it', async () => {

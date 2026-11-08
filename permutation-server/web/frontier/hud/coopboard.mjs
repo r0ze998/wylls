@@ -5,8 +5,9 @@
 // that was made for it.
 //
 // 01's board (coop/board.mjs) serves its page and /coop/* and passes every other path on to the herald, so a game
-// reached through the board finds /coop/config on its own origin. A game served by the herald alone gets a 404 there:
-// the board is not on this server, and the slot shows nothing. A board that cannot be read now is said as such
+// reached through the board finds /coop/config on its own origin. A game served by the herald alone gets a 404 there
+// (a server may also say 204, no content, which a browser does not log as an error): the board is not on this
+// server, the slot shows nothing, and it is not asked again until the page is loaded again. A board that cannot be read now is said as such
 // (disabled, with why); a board for another Season is not offered (its requests are not this world's).
 import { L } from '../../lang.mjs';
 import { registerCoopEntry } from './coopentry.mjs';
@@ -17,13 +18,13 @@ import { pinned } from '../fchainio.mjs';
 export const BOARD_PAGE = '/ws01/repo/workstreams/01-national-strategy/coop/';
 
 /**
- * Read the board's config: `{read: 'ok', config}` | `{read: 'absent'}` (no board on this server: 404) |
+ * Read the board's config: `{read: 'ok', config}` | `{read: 'absent'}` (no board on this server: 404 or 204) |
  * `{read: 'unread', code}` (it did not answer, or answered something else).
  */
 export async function probeBoard({ fetch: f = (...a) => globalThis.fetch(...a), base = '' } = {}) {
   let r;
   try { r = await f(`${base}/coop/config`, { cache: 'no-store' }); } catch { return { read: 'unread', code: 'network' }; }
-  if (r.status === 404) return { read: 'absent' };
+  if (r.status === 404 || r.status === 204) return { read: 'absent' };
   if (!r.ok) return { read: 'unread', code: `HTTP${r.status}` };
   let j;
   try { j = await r.json(); } catch { return { read: 'unread', code: 'BadBody' }; }
@@ -61,8 +62,9 @@ export function boardHref(FS, b) {
 }
 
 /**
- * Register the entry and read the board now and every `every` ms. `changed()` is called after each read (the page
- * draws the card again). → a function that stops it and removes the entry.
+ * Register the entry and read the board now and every `every` ms while it is there or could not be read; a server
+ * that says it has no board is not asked again (each ask would be one more 404 in the console every minute).
+ * `changed()` is called after each read (the page draws the card again). → a function that stops it and removes the entry.
  */
 export function installCoopBoard({ fetch, base = '', every = 60_000, changed = () => {}, open = href => globalThis.open?.(href, '_blank', 'noopener'), timers = globalThis } = {}) {
   let board = null, stopped = false, timer = null;
@@ -71,7 +73,7 @@ export function installCoopBoard({ fetch, base = '', every = 60_000, changed = (
     if (stopped) return;
     board = b;
     changed();
-    timer = timers.setTimeout?.(read, b.read === 'absent' ? every * 5 : every) ?? null;
+    if (b.read !== 'absent') timer = timers.setTimeout?.(read, every) ?? null;
   };
   const off = registerCoopEntry({
     id: 'ws01-coop',
