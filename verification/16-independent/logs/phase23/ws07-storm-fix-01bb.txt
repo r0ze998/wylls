@@ -65,3 +65,8 @@ not ok 2 - 19's S1 herald answers, 08's stages @ phone: the host at (4,0) in han
 # fail 2
 no Province asked for more than 20 times in this run ([["/h/province/4,0/latest",15],["/h/province/4,-1/latest",332],["/h/province/3,0/latest",4],["/h/province/3,1/latest",4]]
 no Province asked for more than 20 times in this run ([["/h/province/4,0/latest",10],["/h/province/4,-1/latest",525],["/h/province/3,0/latest",5],["/h/province/3,1/latest",5]]
+### 4 553f7fe79f904415e8f42482ba06b4caef90f650 (tree dcbc1970): node-keyfree want-province + viewer-own-citizen + map-contract + map-arrival + growth-route
+key-free run: 5 files in permutation-gateway (221 left out, listed)
+# tests 37
+# pass 37
+# fail 0

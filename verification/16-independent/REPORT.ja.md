@@ -3515,3 +3515,25 @@ workflow run が 16 のままであることは ④ が数えたもので、⑯ 
   - 新しい controller：**2/2**。
   - 古い controller：**0/2**。どちらも上限の assertion で落ちた。(4,-1) への要求はデスクトップで 332 件、スマホで 525 件。7 の数（287 件、508 件）と、桁が一致する。
 - 7 は、4 に ⑯ の want-province の差分（付け直しを含む）を取り込むよう頼んだ。7 自身は付け直していない。
+
+### 4 の統合：fe7a810a と 553f7fe7
+
+- **A `fe7a810ad8654fe63635988ab242e74570154c9e`**（tree `a56e56c5…`）。
+  - `f9be57bf` は 7 の 01bb323f の merge で、tree は merge-tree が出す tree と同じ。
+  - `872ec015` は、4 による viewer-own-citizen の付け直し（`c57b84cc`）。
+  - `fe7a810a` は、⑯ の want-province の試験と reviewed の行。
+- **B `553f7fe79f904415e8f42482ba06b4caef90f650`**（tree `dcbc1970…`）は、A と 7 の 4532651d の merge で、tree は merge-tree が出す tree と同じ。4532651d は、19 の f001c9c3 と、7 の 41a52e19・3c7e8cb4 も含む。
+- **最後の統合の差分の確かめ。** `git diff 4532651d 553f7fe7` で 7 の head と比べると、差は `web-frontier-want-province.test.mjs`（+68）と `node-key-reviewed.txt` の 2 行だけ。
+  - 試験の file は、⑯ の差分（`patches/v16-want-province-on-01bb323f.patch`）と一字一句同じ。
+  - reviewed の行は viewer-own-citizen `c57b84cc` と want-province `a623aab2`。
+  - 553f7fe7 の木で計算し直した digest は、viewer-own-citizen、want-province、map-arrival（`61acfc1b`）、growth-route（`6af13991`）の 4 つすべてが、登録された値と一致した。
+  - `--check` は exit 0（12 file が reviewed）。
+- **⑯ の実行**（553f7fe7）：`node-keyfree.sh` で want-province、viewer-own-citizen、map-contract、map-arrival、growth-route が **37/37**。
+- **画面の扱い。** B の画面は、⑯ は走らせ直していない。ws07-grow-s1 の file は 7 の 4532651d と同じで、⑯ はそこで新しい controller 2/2、古い controller 0/2 を得ている。
+- 4 が数えた CI の run は 16 のまま。⑯ は確かめていない。
+- **集計（§29.33 全体）。**
+  - 通過：新しいコードの試験と画面のすべて。
+  - 落ちたもの：古いコードの対照だけで、期待どおり（want-province 3/4、ws07-grow-palisade 0/2、ws07-grow-s1 0/2）。
+  - blocked：0。
+  - 未実行：web-frontier-hud（一覧に載る）、封・署名・送信。
+  - 全体の完了は宣言しない。
