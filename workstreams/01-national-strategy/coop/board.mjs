@@ -237,7 +237,8 @@ export function createBoard({ herald, programId, seasonId, dataDir, judge = 'arr
     return { ...v, heraldFeed: file ? { moving: (file.moving ?? []).length, ended: Array.isArray(file.ended) ? file.ended.length : null } : null, chain: !!reader, damaged, contexts, store: { segments: segments.length, problems: storeProblems } };
   }
 
-  const config = () => ({ season, contexts, cluster, goals: GOALS, judges: Object.values(JUDGES).map(j => ({ id: j.id, label: j.label, means: j.means })), judge, herald, chain: !!reader, damaged, relay, rpcProxy: !!rpc, store: { segments, problems: storeProblems } });
+  // season：今の文脈 {programId, seasonId}（object。⑦の入口 hud/coopboard.mjs は season.seasonId を今のシーズンと比べる）。page：この板の画面の道（同じ origin）
+  const config = () => ({ season, contexts, cluster, page: PAGE, goals: GOALS, judges: Object.values(JUDGES).map(j => ({ id: j.id, label: j.label, means: j.means })), judge, herald, chain: !!reader, damaged, relay, rpcProxy: !!rpc, store: { segments, problems: storeProblems } });
   return { submit, view, config, records, caravans, season, contexts, rpc, state };
 }
 
