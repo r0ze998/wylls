@@ -88,10 +88,17 @@ pub struct ActCtx<'a> {
     pub wide: bool,
 }
 
+/// The inner commands `permutation-frontier` `proc::wide::resident_act`
+/// runs for an NFT Citizen, by their `WideCommand` variant: WideClaimSite,
+/// WideDepart, 0xDA's player Muster and Dissolve, and the wide economy's
+/// Harvest/Build/Train (0xDA op 3). A test keeps this list equal to the
+/// program's dispatch (`wide_act_runs_exactly_the_programs_dispatch`).
+#[cfg(feature = "wide-world-experimental")]
+pub const WIDE_ACT_COMMANDS: [&str; 5] = ["ClaimSite", "Depart", "Muster", "Dissolve", "Economy"];
+
 /// A successful WideResidentAct's generation, inner command and its name, as
-/// `permutation-frontier` `proc::wide::resident_act` runs it: the ABI's own
-/// decode, then the inner command one of WideClaimSite, WideDepart and the
-/// player Muster and Dissolve of 0xDA (`None`: the program refuses it).
+/// `proc::wide::resident_act` runs it: the ABI's own decode, then one of
+/// [`WIDE_ACT_COMMANDS`] (`None`: the program refuses it).
 #[cfg(feature = "wide-world-experimental")]
 pub fn wide_act(d: &[u8]) -> Option<(u32, &[u8], &'static str)> {
     use frontier_abi::world_index::wide_ix::{ResidentAct, WideCommand as W};
@@ -101,6 +108,7 @@ pub fn wide_act(d: &[u8]) -> Option<(u32, &[u8], &'static str)> {
         W::Depart(_) => "WideDepart",
         W::Muster(_) => "WideMuster",
         W::Dissolve(_) => "WideDissolve",
+        W::Economy(_) => "WideEconomy",
         _ => return None,
     };
     Some((x.generation, x.inner, name))
@@ -1297,6 +1305,68 @@ mod tests {
             judge_wide(&w, Some(&f)),
             vec![],
             "0xE2 is not the wide path"
+        );
+    }
+
+    /// The program's dispatch, read as text (no build of the program): the
+    /// `C::<Variant>(..) =>` arms of `proc::wide::resident_act`.
+    #[cfg(feature = "wide-world-experimental")]
+    #[test]
+    fn wide_act_runs_exactly_the_programs_dispatch() {
+        let src = include_str!("../../../../../permutation-frontier/src/proc/wide.rs");
+        let start = src.find("pub fn resident_act(").expect("resident_act");
+        let body = &src[start..];
+        let body = &body[..body.find("\n}\n").expect("end of resident_act")];
+        let mut arms: Vec<&str> = body
+            .lines()
+            .filter_map(|l| l.trim().strip_prefix("C::"))
+            .filter_map(|l| l.split('(').next())
+            .collect();
+        arms.sort();
+        let mut want = WIDE_ACT_COMMANDS.to_vec();
+        want.sort();
+        assert_eq!(
+            arms, want,
+            "V28's WideResidentAct list drifted from the program"
+        );
+    }
+
+    /// The wide economy through 0xDD (Harvest, op 3): judged like the other
+    /// four (no FAIL for the holder; the inner is VW's), a stale owner refused.
+    #[cfg(feature = "wide-world-experimental")]
+    #[test]
+    fn a_wide_economy_act_is_accepted_like_the_other_commands() {
+        use frontier_abi::world_index::economy::Action;
+        use frontier_abi::world_index::wide_ix::{Economy, ResidentAct};
+        let econ = |actor: Key, generation: u32| {
+            // The ABI's own canonical envelope of a Harvest (0xDA op 3).
+            let inner = Economy {
+                action: Action::Harvest,
+            }
+            .to_bytes()
+            .unwrap();
+            let mut data = vec![0u8; ResidentAct::HEAD + inner.len()];
+            let n = ResidentAct {
+                generation,
+                inner: &inner,
+            }
+            .encode_into(&mut data)
+            .unwrap();
+            data.truncate(n);
+            Ix {
+                data,
+                ..act(actor, generation)
+            }
+        };
+        let f = feed(history());
+        let w = season(vec![(4, econ(A, 0))]);
+        let v = judge_wide(&w, Some(&f));
+        assert_eq!(fails(&v), vec![], "{v:?}");
+        assert!(v.contains(&(1, Severity::Unverifiable, RESIDENT_INNER_UNMODELLED)));
+        let w = season(vec![(8, econ(A, 1))]);
+        assert_eq!(
+            fails(&judge_wide(&w, Some(&f))),
+            vec![(1, RESIDENT_OLD_AUTHORITY)]
         );
     }
 }
