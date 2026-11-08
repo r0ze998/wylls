@@ -19,6 +19,7 @@ import { RESOURCES, UNITS, TIERS, BUILDINGS, HOLDING_STATES } from '../fi18n.mjs
 import { UNIT_ORDER, HOLDING_STATE, queueBuildingItem, BUILD_ITEMS } from '../fland.mjs';
 import { icon, RESOURCE_ICON } from '../hud/icons.mjs';
 import { cardHead, stamp, chip, fold } from './parts.mjs';
+import { lamports } from './shell.mjs';
 import { selectedWide, wideSlots } from '../fwide.mjs';
 
 /** An exact amount of stored milli-units as "123.456" (never a Number: 2^53 and above survive). */
@@ -63,7 +64,7 @@ export function wideModel(FS) {
 const queueLabel = q => (q.item === 7 ? L`村の昇格` : q.item !== null && q.item !== undefined ? BUILDINGS[BUILD_ITEMS[q.item]?.resource] ?? L`建物` : L`維持費の変更`);
 
 /** The read-only notice every wide card stands under. */
-export const noExecutionNote = () => html`<p class="blocked wide-noexec">${icon('alert')}${L`読み取り専用：この村には命令を送れません（収穫・建設・訓練・編成・進軍・隊商・追いつかせる のどれも）。表示は捕捉された口座の記録から読んだもので、現在の状態でも所有の証明でもありません。`}</p>`;
+export const noExecutionNote = () => html`<p class="blocked wide-noexec">${icon('alert')}${L`読み取り専用：この村には命令を送れません（収穫・建設・訓練・編成・進軍・隊商・追いつかせる のどれも）。表示は捕捉された村の記録から読んだもので、現在の状態でも所有の証明でもありません。`}</p>`;
 
 export function render(FS) {
   const m = wideModel(FS);
@@ -84,7 +85,7 @@ export function render(FS) {
   const h = m.holding, x = h.economy, c = m.currentness;
   const state = HOLDING_STATE[x.state] ?? 'none';
   const head = html`<section class="vcard village-head wide-village" aria-labelledby="wide-v-title">
-    ${cardHead({ id: 'wide-v-title', ic: 'home', title: m.title, sub: `${coordText(h.p, h.q)} · ${L`区画 ${fmtNum(h.site)} · 世代 ${fmtNum(h.generation)}`}`, side: stamp(L`捕捉・未検証`, 'warn') })}
+    ${cardHead({ id: 'wide-v-title', ic: 'home', title: m.title, sub: `${coordText(h.p, h.q)} · ${L`村の場所 ${fmtNum(h.site)} · 世代 ${fmtNum(h.generation)}`}`, side: stamp(L`捕捉・未検証`, 'warn') })}
     <ul class="fact-chips">
       <li>${chip(L`読み取り専用`, 'info', 'eye')}</li>
       <li>${chip(L`現在性：未確認`, 'warn', 'hourglass')}</li>
@@ -98,8 +99,8 @@ export function render(FS) {
       ${fact(L`場所（正確な座標）`, coordText(h.p, h.q))}
       ${fact(L`世界`, html`<code title="${h.world}">${h.world.slice(0, 16)}…</code>`)}
       ${fact(L`シーズン`, h.season)}
-      ${fact(L`所有者（市民の口座）`, html`<code>${h.ownerCitizen}</code>`)}
-      ${fact(L`口座`, html`<code>${h.capture.address}</code>`)}
+      ${fact(L`所有者（市民）`, html`<code>${h.ownerCitizen}</code>`)}
+      ${fact(L`記録の場所`, html`<code>${h.capture.address}</code>`)}
       ${fact(L`捕捉スロット`, String(c.capturedSlot))}
       ${fact(L`配信元の最新スロット`, String(c.latestSlot))}
       ${fact(L`スロット差`, L`${String(c.slotsBehind)} スロット（時間ではありません）`)}
@@ -141,7 +142,7 @@ export function render(FS) {
       ${fact(L`最後の所有者の操作（記録上の時刻）`, recordedTime(x.lastOwnerAction))}
       ${fact(L`保護の期限（記録上の時刻）`, recordedTime(x.shieldUntil))}
       ${fact(L`確定（記録上の時刻）`, recordedTime(x.finalTs))}
-      ${fact(L`預かり（ランポート）`, x.escrow)}
+      ${fact(L`預かり`, lamports(x.escrow))}
       ${fact(L`生産（記録上の毎時）`, x.production.map((v, i) => `${RESOURCES[x.stores[i].resource]} ${formatMilli(v)}`).join(' · '))}
       ${fact(L`維持費（記録上の毎時）`, x.upkeep.map((v, i) => `${RESOURCES[x.stores[i].resource]} ${formatMilli(v)}`).join(' · '))}
     </dl>`)}</section>`;

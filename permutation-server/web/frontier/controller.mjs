@@ -140,10 +140,13 @@ function viewerCitizenPin() {
  * The legacy fields follow the refresh the caller runs next, as before.
  */
 export function adoptResident(next) {
+  // (workstream 07: another viewer — the NFT's Citizen, or the wallet's own again —: what was read for the former
+  // viewer goes, the wide inventory and the wide village included via resetViewer, before the read)
+  ++viewerRefresh; ++homesRefresh;
+  resetViewer({ wallet: false });
   FS.resident = next;
-  ++viewerRefresh;
-  fwide.clearWide(FS);
-  invalidate('panel', 'tabs', 'rail');
+  FS.meStatus = 'loading';
+  invalidate('panel', 'tabs', 'chips', 'map', 'rail');
 }
 
 /** ⑳: the wallet's resident NFTs (GET /f/residents); none when the relay has no resident policy. */
@@ -1895,15 +1898,11 @@ export const ACTIONS = {
       });
       if (!r?.ok) return r;
     }
-    // (workstream 07: another viewer — the NFT's Citizen —: what was read for the wallet's own Citizen goes)
-    ++viewerRefresh; ++homesRefresh;
-    resetViewer({ wallet: false });
-    FS.resident = { ...id, joined: true };
-    FS.meStatus = 'loading';
-    invalidate('panel', 'tabs', 'chips', 'map');
+    // (the viewer changes here, before the read: the former viewer's state, wide inventory and selection leave at once)
+    adoptResident({ ...id, joined: true });
     await refresh();
   },
-  'nft-logout': async () => { ++viewerRefresh; ++homesRefresh; resetViewer({ wallet: false }); FS.resident = null; FS.meStatus = 'loading'; invalidate('panel', 'tabs', 'chips', 'map'); await refresh(); },
+  'nft-logout': async () => { adoptResident(null); await refresh(); },
   'pick-faction': d => { FS.joinDraft = { ...(FS.joinDraft ?? {}), faction: num(d.f) }; invalidate('panel'); if (needsHomeChoice()) return refreshHomes({ force: true }); },
   join: async () => {
     const pin = io.pinned();

@@ -383,3 +383,48 @@ fa822453 の上に載せた。各チームのサブツリーは、チームが�
 - ⑩ の LOT_RETURNED
 - capacity と custody を組んだ版（今は仮に 5|0x1000）
 - NFT 賞金の候補 3090242a：利用者の Mac にしか無い。取得待ち。
+
+## 15. chosen-march の review 系列（④、2026-11-08）
+
+- 取得：GitHub の review/chosen-march-7702251-20261108 → refs/review/chosen-march-20261108。HEAD は 7702251c64b91ba76ad5a86aab18bd04bafa337a、tree は dfc01fd1cbd19326c3910ccbb017c8c25e361c8a（一致を確かめた）。
+- 列の形：0465adc5（候補にある wide 系列）の上の 17 commit。内部の merge は 12740235 と 298fdc91。
+
+**取り込んだもの（4b34fd67 を merge、11cc2f2b）**
+
+| commit | 中身 |
+|---|---|
+| d584424d | wide の命令を、全体の識別子で見直す（実行はしない） |
+| 391aa666 | 既存の村の画面に、捕捉した wide の村を読み取り専用で出す |
+| 17b8ffaa | 同じものを、鍵なしのブラウザの fixture で確かめる |
+| 62f27eb2 | wide の Holding の経済の preview（S1 の規則は変えない） |
+| 8c36b961 | 同じ経済の、host での実行。verify に feature wide-economy-experimental を足す |
+| bf8bd8a6 | 退却と帰還の境目の試験 |
+| 12740235 | 内部の merge |
+| 74752b54 | wide の移動中に訓練し、安全に帰る試験 |
+| 2eb916aa | 実際の wide の出発と帰還の間に、訓練を挟む試験 |
+| 4b34fd67 | 敵対する wide の戦闘と、生き残りの帰還の試験 |
+
+**保留（別の demo の画面と examples。利用者の方針「別の技術デモは作らない」による。⑧ と照合中）**
+
+| commit | 中身 |
+|---|---|
+| 64f7cd15 | screens/wide-economy-fixture |
+| 86b293e8 | examples/local_economy_demo、screens/wide-economy-local（prologue.rs と lib.rs も変える） |
+| 298fdc91 | demo の worktree への merge（keeper の 17 ファイル） |
+| f9b0f60b、26769fa1、07ae3f0d、7702251c | examples/local_march_demo、screens/wide-march-local（crypto、init.rs、proc も変える） |
+
+**統合で直したもの**
+- verify の Cargo.toml：両方の feature を残した。
+- controller.mjs：
+  - ⑦ の resetViewer（wallet が変わったときだけ消すもの）を残し、wide の表示を消す処理を足した。
+  - adoptResident に、⑦ の viewer の初期化を入れた。NFT の login と logout は adoptResident を通る。
+- wideholding.mjs と en-frontier：遊ぶ画面の語の規則に合わせた。口座・区画・ランポートを出さない（ランポートは shell の lamports() を通す）。英語の settlement も直した。試験の期待する文も、それに合わせた。
+
+**この木での確認（鍵なし。呼び出し先を監査した）**
+- gateway・web：1908/0
+- ⑦ の画面全体：12/12
+- frontier-abi（world-index-experimental）：254 ほか
+- permutation-frontier：wide 168、既定 112。clippy も通過
+- verify：wide-economy lib 60 と wide_economy 6、wide lib 59、既定の一式
+- keeper の wide：70・33・14・6・12
+- herald の wide：3・10・1

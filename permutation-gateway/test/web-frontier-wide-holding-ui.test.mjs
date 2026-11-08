@@ -486,7 +486,7 @@ test('selecting a wide slot swaps the village screen for read-only cards with no
   assert.doesNotMatch(out, /data-form=|<form|<input|<select|type="submit"/, 'no form at all');
   assert.match(out, /data-act="wide-close"/);
   assert.match(out, /P 9007199254740993, Q -130/);
-  assert.match(out, /区画 3 · 世代 1/);
+  assert.match(out, /村の場所 3 · 世代 1/);
   assert.match(out, new RegExp(wideHoldingAddress(SEASON_ADDR, PROGRAM, FAR.p, FAR.q, 3)));
   assert.match(out, new RegExp(CITIZEN));
   assert.match(out, /<dt>捕捉スロット<\/dt><dd>1000<\/dd>/); assert.match(out, /<dt>配信元の最新スロット<\/dt><dd>2000<\/dd>/);
