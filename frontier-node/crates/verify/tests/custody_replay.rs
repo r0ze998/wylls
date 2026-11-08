@@ -130,6 +130,7 @@ impl World {
             after: &after,
             closed_before: &|_| false,
             program: [0x9F; 32],
+            records: &[],
         })
     }
 }
@@ -505,6 +506,7 @@ fn missing_evidence_is_not_replayed_and_not_a_fail() {
             after: &after,
             closed_before: &|_| false,
             program: [0x9F; 32],
+            records: &[],
         });
         assert!(matches!(r, Replayed::Unreplayed(_)), "{}", c.name);
     }
