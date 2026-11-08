@@ -126,6 +126,8 @@ export async function startServer({ port: listenPort = 0, bootstrap = false, key
         res.writeHead(200, { 'Content-Type': 'text/javascript; charset=utf-8', 'Cache-Control': 'no-store' });
         res.end(`const values=${JSON.stringify(storage)};for(const [k,v] of Object.entries(values))if(localStorage.getItem(k)===null)localStorage.setItem(k,v);location.replace('/frontier/index.html');`); code = 200;
       } else if (path === '/favicon.ico') { res.writeHead(204); res.end(); code = 204; }
+      // (workstream 07: no cooperation board on this server — hud/coopboard.mjs; 204 says so without a 404 in the console)
+      else if (path === '/coop/config') { res.writeHead(204, { 'Cache-Control': 'no-store' }); res.end(); code = 204; }
       else if (path.startsWith('/h/')) {
         // the live world answers the files it keeps (the clock, the provinces of its rings, the viewer, the log,
         // its clashes); everything else is the still fixture's
