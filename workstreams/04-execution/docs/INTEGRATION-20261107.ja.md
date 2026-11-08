@@ -530,7 +530,15 @@ fa822453 の上に載せた。各チームのサブツリーは、チームが�
 
 **この記録での分け方**
 - 画面の部品の試験の成功と、WASM を動かした march の操作の成功は、別のものとして書く。
-- §16 の「画面 46/46」（⑯、7535a17e）、「web 63/63」（⑧、7535a17e）、`web-frontier-controller.test.mjs` の 19/19 は、画面の部品の試験の結果として扱う。march の操作を確かめたものではない。
+- ⑦ の訂正が及ぶのは、問題のあった run（既定の headless shell で、NoWasm になったもの）の限界。ほかの run の証拠まで一律に無効にするものではない（利用者の明確化、2026-11-08）。
+- そこで run ごとに、使った browser と、どこまで届いたかを分けて書く：
+
+| run | browser | 届いた範囲 | 届いていない範囲 |
+|---|---|---|---|
+| ⑯ 画面 46/46（7535a17e） | 記録に browser の種類なし（⑯ に確認中） | 画面の部品 | march の操作（WASM）は、⑦ の新しい結果まで確かめていない |
+| ⑧ web 63/63（7535a17e） | 同上（⑧ に確認を依頼済み） | 画面の部品 | 同上 |
+| `web-frontier-controller.test.mjs` 19/19（④・⑯） | browser を使わない（Node） | controller の部品 | march の操作 |
+| ④ S1 8/8（4d44f021） | full Chromium（`chromium-1243/chrome-linux64/chrome`） | S1 の村のカード、① の板への入口 | march（試験の範囲に入っていない） |
 - **march の操作は、⑦ の新しい結果が届くまで「確かめていない」とする。** 検証済みとは書かない。
 
 **④ の S1 の画面の試験（4d44f021、`screens/ws07-s1-pure.screen.mjs` の 8/8）について**
@@ -539,7 +547,8 @@ fa822453 の上に載せた。各チームのサブツリーは、チームが�
 - ページ内のガード（`screens/ws07/nokey-page.mjs`）が止めるのは、WebCrypto の generateKey・deriveKey・deriveBits・sign・unwrapKey と、pkcs8 などの importKey。
   - `keyFromSeed` は、公開鍵の計算（`publicKeyOf`、JS で seed から計算する）の後に、pkcs8 の importKey を呼ぶ。記録が 0 件なので、`keyFromSeed` は最後まで呼ばれていない。
   - ただし、`publicKeyOf` だけを呼ぶ経路（`importBackup`）は、このガードでは止まらない。この試験はバックアップを読み込まないので、通らない。
-  - 「導出がなかった」の根拠は、記録とコードの読みによるもので、入れたガードが証明したものではない。⑦ のガードが入るまで、④ はブラウザの画面の試験をこれ以上流さない。
+  - 「導出がなかった」の根拠は、記録とコードの読みによるもので、入れたガードが証明したものではない。
+  - これからのブラウザの試験は、page が鍵の経路（`keyFromSeed`、`publicKeyOf`、dev wallet、① の `testSigner` など）に届かないことを、呼び出し元と import 先の静的な監査で示せたものだけを流す。ガードは最後の守りで、事前の監査の代わりにはしない。7c7fe932 と c260c438 では、ブラウザの試験は流していない。
 - 最初の 1 回は、playwright-core のリンク先の誤り（`ERR_MODULE_NOT_FOUND`）で失敗した。これは ④ の手順の誤りで、ページの不具合ではない。
 - 今、ほかに失敗している S1 の試験の記録は見つかっていない。⑦ の新しい結果を受け取ってから、この訂正に照らして原因を分ける。
 
@@ -550,3 +559,28 @@ fa822453 の上に載せた。各チームのサブツリーは、チームが�
 - 検証済みの基準は 16576826 のまま。4d44f021 は ⑯ が差分の範囲を確かめている途中。
 - ④ が流したもの（すべて no-keys-guard の下）：⑮ 134/134、③ 25 通過・7 省略、⑥ 29 通過・1 省略（2 回）、① 239/239 と coop.browser.nokey 10/10、gateway の ws07-coop 4/4、S1 の画面 8/8（§16.2 のとおり、画面の部品の試験）。
 - ⑥ の package 全体を guard の script で流すと、`test/roles.test.mjs`（`generateKey()` を呼ぶ）が鍵の一覧に無いため、exit 3 で止まる。このファイルは変わっておらず、実行していない。scan が ⑥ の directory を見ていないことによる、もとからの欠け。直していない。
+
+### 16.4 後継 7c7fe932・c260c438 と、証拠の分け方（④、2026-11-08）
+
+- `claude/gallant-ride-cunptv` @ `c260c4386ad8fe02417bb491941bff18c788e111`（tree `4c7302251ad553831d2c48ea6a01a8f9017eba24`）。4d44f021 の早送り。どれも `[skip ci]`、この枝の CI の数は 16 のまま。
+  - ④ `9781d04e`：鍵の試験の scan の範囲の欠け（下）
+  - ① `9dcb1e88` → `42b1f393`、⑫ `5370d0fe` → `720ab60b`、⑬ `a420f924` → `5133f3c7`（directory の重ね）
+  - merge：⑱ `0bf02548`、⑳ `8c328cbc`、② `626a5cc8`、⑲ `5b7a0fda`、⑨ `b1157847`、⑩ `0075d356`
+  - ④ `7c7fe932`：⑱ の試験の clippy（clone_on_copy）。動作は変えない
+  - ④ `c260c438`：V23 の送りの道の関数を crate 内で共有（見える範囲だけ。意味は変えない）
+- 検証済みの基準は 16576826 のまま。⑯ が差分の範囲を確かめている途中。
+
+**鍵の試験の scan の欠けと直し（9781d04e）**
+- 欠け：scan が gateway と receipt spike しか読まず、⑥ の `roles.test.mjs`（`generateKey()`）が一覧に無かった。CI が node-keyfree.sh で流す `workstreams/12-memory` も scan の外だった。
+- 直し：git が追う `*.test.mjs` をすべて読む。`import './x'` も追う。scan が読んでいない file は node-keyfree.sh が流さない（`--covers`、exit 4）。もとの 93 行は同じ。
+- 確かめ方：静的な fixture（file を文字として書くだけで、import も実行もしない）。3/3。直す前の scan では 0/3。
+
+**証拠の三つの分け方**
+- (a) 実行したもの：静的な監査（呼び出し元と import 先）で鍵に届かないと示した、名前を挙げた試験だけ。結果は ⑯ への連絡のとおり（① 161、⑫ 69＋省略 1、⑥ 29＋省略 1、Rust の各 target、clippy・fmt）。
+- (b) ガードが止めた試み（繰り返さない）：scan の直しの途中で、⑥ の 11 file を一度ガードの下で流し、鍵に届く file を探した。どれも最初の鍵の呼び出し（private key の `importKey`、`generateKey`）でガードが拒否した。⑥ の `src/keys.mjs` を読むと、その前に seed から何かを導く処理は無い。鍵は作られず、導かれず、署名にも使われていない。利用者の指示により、今後はこうした探し方をしない。
+- (c) 流していないもの：import の閉包が鍵の処理に届く file（⑬ の 29、① の 9 と browser の試験、⑥ の roles など）。これらは各担当の報告だけがある。
+
+**⑩ と V23 の共有（c260c438）**
+- program の custody の `send` は、SendCaravan と同じ `proc::caravan::route` を同じ引数で呼ぶ。そこで V23 の `route`・`check_caravan`・`check_slots`・`slots_of` を V26 から使えるようにした。
+- 共有で賄えないもの（V26 では UNVERIFIABLE のまま）：SettleCustody の道の Province の解決（`RESOLVED_NEXT`）と raid の状態、手数料と rent。DepositLot の holding からの引き落とし。V23 の `judge_settle_caravan` も、これらは確かめていない。
+- V26 の実装は ⑩ の担当。⑩ に案を送った。PASS への格上げはしていない。
