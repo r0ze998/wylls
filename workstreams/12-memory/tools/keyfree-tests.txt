@@ -12,3 +12,4 @@ test/receipt-integrity-keyfree.test.mjs
 test/citizens-characterization.test.mjs
 test/provenance-coverage.test.mjs
 test/evidence-basis.test.mjs
+test/persistence-keyfree.test.mjs
