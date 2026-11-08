@@ -125,7 +125,9 @@ export async function keyfreeWorld({ relay = 'current' } = {}) {
   const v2 = (kind, values) => encodeAccount(kind, { SEASON_ID, LAYOUT_VERSION: 2, ...values }, { profile: 2 });
   const herald = {
     season: () => ({ v: 1, season: String(SEASON_ID), bytes_b64: b64(v2('Season', { RULESET_HASH: hex(V2.ruleset_hash_v3), PROGRAM_VERSION: 4, GENESIS_TS: BigInt(GENESIS), STATUS: 2 })), latestUnix: NOW }),
-    me: () => ({ v: 1, citizen: { bytes_b64: b64(v2('Citizen', { WALLET: keyBytes(OWNER), FACTION: 2, HOLDINGS_N: 1, CARAVANS: state.caravans, CITIZEN_TAG: tag,
+    // The herald's /h/me record as frontier-node/crates/herald/src/views.rs me_json writes it: every field, always. This
+    // viewer has no hosts, transits, arrival slots or seals (empty), and the herald runs without a relay (quota null).
+    me: () => ({ v: 1, wallet: OWNER, hosts: [], transits: [], slots: [], seals: [], quota: null, latestSlot: 1, citizen: { bytes_b64: b64(v2('Citizen', { WALLET: keyBytes(OWNER), FACTION: 2, HOLDINGS_N: 1, CARAVANS: state.caravans, CITIZEN_TAG: tag,
       HOLDING: [{ P, Q, SITE, GEN: 1 }, { P: 0, Q: 0, SITE: 0, GEN: 255 }, { P: 0, Q: 0, SITE: 0, GEN: 255 }] })) },
     holdings: [{ bytes_b64: b64(v2('Holding', { P, Q, SITE, GEN: 1, TILE: VILLAGE_TILE, STATE: 2, OWNER_CITIZEN: keyBytes(citizen), FACTION: 2, ORDER: 1, STORES: state.stores.map(accrual) })) }] }),
     province: (p, q) => ({ v: 1, key: `pv:${p},${q}`, bell: 30, slot: 1, seq: '1',
@@ -246,7 +248,7 @@ export async function keyfreeWorld({ relay = 'current' } = {}) {
     srv.listen(0, '127.0.0.1', () => resolve(srv));
   });
 
-  return { g, agentId, legacyToken: made.capability.token, citizen, tag, node, state, script, history, fetch, fatePort, transferNft: () => { nft.transferred = true; } };
+  return { herald, g, agentId, legacyToken: made.capability.token, citizen, tag, node, state, script, history, fetch, fatePort, transferNft: () => { nft.transferred = true; } };
 }
 
 /**
@@ -282,9 +284,11 @@ export function mcpServer(w, { storeFile = null, acts = null, clock = { t: NOW *
     store.save();
     return linkId;
   }
+  // A tool's error answer is reported as that error, never read past (a missing field would hide its code).
+  const ok = (name, r) => { if (r?.error) throw Object.assign(new Error(`${name}: ${r.error.code}: ${r.error.message}`), { code: r.error.code }); return r; };
   const plan = async (linkId, n = 10) => {
-    const st = await tool(linkId, 'get_village_status');
-    return tool(linkId, 'prepare_caravan', { from: st.storehouses[0].placeId, to: st.village.placeId, cargo: { Stone: n } });
+    const st = ok('get_village_status', await tool(linkId, 'get_village_status'));
+    return ok('prepare_caravan', await tool(linkId, 'prepare_caravan', { from: st.storehouses[0].placeId, to: st.village.placeId, cargo: { Stone: n } }));
   };
-  return { auth, mcp, store, game, tool, connectAs, connectViaRelay, plan, clock };
+  return { auth, mcp, store, game, tool, connectAs, connectViaRelay, plan, clock, herald: w.herald };
 }
