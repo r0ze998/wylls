@@ -3175,3 +3175,19 @@ checkpoint の `95b0ab225ca9e9e626941b51981df2240198d91c`（tree `89a64830da3991
 - blocked：0。
 - 未実行：一覧に載る file すべて（wide-holding-ui、resident-home、herald など）。⑯ の木の外での CI。
 - 全体の完了は宣言しない。
+
+### 29.26a 試験への 1 件の追加（⑳ の静的な確認を受けて）と、④ 5cdc4cac の上での再実行
+
+⑳ が試験の場面を静的に確かめた。意図と合っているとのこと。⑳ は何も走らせていない。
+
+⑳ の提案で、財布の viewer が拒む Citizen に `flagged_zero_asset` を 1 つ加えた。`flagged_with_wallet` と同じ null の分岐を通る。
+
+④ `5cdc4cac44cdbd75082d7673ed898d9c50da3e1c`（tree `0ad68c8c…`）の上で：
+- digest は `closure=87c87356c018d1e54c1b88e738afa47381f0a1ca3ab113552a50b1bb6fa59da0` に変わった。閉包の file は ff749ed2 から変わっていない。
+- `--check` は exit 0（11 file が reviewed）。
+- `node-keyfree.sh`：**4/4**。
+- repo の guard と hook v2（active check を含む）：**5/5**、hook の記録は 0 行。
+
+差分：`patches/v16-viewer-own-citizen-on-5cdc4cac.patch`。ff749ed2 版の差分は、記録のために残す。
+
+変異の対照（修正を戻すと拒否の 2 試験が落ちる）は、ff749ed2 版の試験で得た結果である。追加した場合は、そのとき既に落ちていた試験の中にあるので、v2 では対照を取り直していない。
