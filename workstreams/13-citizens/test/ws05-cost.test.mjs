@@ -4,7 +4,7 @@
 //   processes, fenced by 5's ProcessLease) reserves, settles, releases or holds undecided; the agent wallet's
 //   AgentLedger keeps the resident's own money as before. The two must agree call by call, and an unknown cost must
 //   stay undecided in both, through a restart and a stop in the middle of a model call.
-// Set WS05_E9D1551A to a checkout of workstream 5 at e9d1551a (restored from its delivery bundle); skipped otherwise.
+// Set WS05_ROOT to a checkout of workstream 5 (e9d1551a was restored from its delivery bundle); skipped otherwise.
 // No model is called (fixture providers), nothing is signed, no key is made.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
@@ -15,9 +15,14 @@ import { runDemo } from '../demo/run-demo.mjs';
 import { small, run, tmp } from './helpers.mjs';
 import { ws05LedgerCost } from '../resident/ports/ws05-cost.mjs';
 import { decisionsOf } from '../demo/report.mjs';
+import { expectCommit } from './versions.mjs';
 
-const ROOT = process.env.WS05_E9D1551A;
-const skip = ROOT ? false : 'set WS05_E9D1551A to workstream 5 at e9d1551a';
+// Workstream 5's tree: WS05_ROOT (or the older name WS05_E9D1551A). The commit it is at is printed by every test and,
+// with WS05_EXPECT set, must match: a pass on one version of 5 is never a pass on another.
+const ROOT = process.env.WS05_ROOT ?? process.env.WS05_E9D1551A;
+const skip = ROOT ? false : 'set WS05_ROOT to a checkout of workstream 5';
+const WS05_COMMIT = ROOT ? expectCommit('WS05', ROOT) : null;
+test('workstream 5 version these tests ran against', { skip }, t => { t.diagnostic(`workstream 5 at ${WS05_COMMIT}`); });
 const m5 = rel => import(pathToFileURL(path.join(ROOT, 'workstreams/05-ai-participation/model-api/src', rel)).href);
 const PROVIDER = 'anthropic', MODEL = 'claude-fixture-model'; // an entry of 5's FIXTURE_BOOK (invented numbers)
 const files = dir => readdirSync(dir).flatMap(f => { const p = path.join(dir, f); return statSync(p).isDirectory() ? files(p) : [p]; });
@@ -191,7 +196,9 @@ test("a stop in the middle of a model call, without 5's own recovery: the reside
   const und = items.filter(i => i.state === 'undecided');
   assert.deepEqual(und.map(i => i.why), ['restart while calling']);
   assert.equal(w.unresolvedHolds.length, 1);
-  assert.equal(r.all.ren.state.costCalls && Object.keys(r.all.ren.state.costCalls).length, 0, 'told once, then forgotten');
+  // Undecided in 5: the record stays on file (with 5's state) until 5 decides it with evidence; the wallet keeps it unresolved.
+  const kept = Object.entries(r.all.ren.state.costCalls ?? {});
+  assert.deepEqual(kept.map(([k, c]) => [k, c.costState]), [[und[0].key, 'undecided']], 'kept on file, undecided, under the same key');
 });
 
 // ---- together with workstreams 4 and 12 (each only when its tree is given) ------------------------------------------
@@ -243,3 +250,32 @@ test("5's ledger with 4's real registry: a send whose result is unknown is never
   assert.equal(Object.values(ren.state.journal).find(j => j.key === first).state, 'sent', 'held, not taken as not-done');
   agree(ren, f.ledgerOf('ren'));
 });
+
+// ---- a stop between 5's reservation and the resident's own save ------------------------------------------------------
+for (const at of ['before-cost-reserve', 'after-cost-reserve']) {
+  for (const recover of [true, false]) {
+    test(`a stop ${at.replace('-cost-reserve', " 5's reservation")} (5's own recovery ${recover ? 'on' : 'off'}): released in both ledgers, no cost twice, no send twice`, { skip, timeout: 120_000 }, async t => {
+      const out = tmp();
+      const f = await ws05Factory(out, { recover });
+      const submits = [];
+      const wire = r => { const p = r.ports.execution; r.ports.execution = { ...p, async submit(req) { submits.push([r.id, req.idempotencyKey]); return p.submit(req); } }; };
+      const r = await runDemo({ out, bells: 120, costFor: f.costFor, wire, crash: { resident: 'ren', at, turn: 3 } });
+      assert.equal(r.summary.mechanical.restarts.length, 1, 'the stop happened');
+      for (const id of ['asa', 'ren']) {
+        const { items, c } = agree(r.all[id], f.ledgerOf(id));
+        assert.equal(BigInt(c.undecided), 0n, `${id}: nothing undecided (no call was made by the cut-off turn)`);
+        if (id === 'ren') {
+          const released = items.filter(i => i.state === 'released');
+          // before: 5 never reserved it (nothing to release); after: the reservation is released once
+          assert.equal(released.length, at === 'after-cost-reserve' ? 1 : 0, `released: ${released.map(i => i.reason)}`);
+          if (released.length) assert.match(released[0].reason, /restart before calling|gone before calling/);
+          const holds = Object.values(r.all.ren.ledger.get('ren').holds).filter(h => h.category === 'inference');
+          assert.equal(holds.filter(h => ['held', 'running'].includes(h.state)).length, 0, 'no wallet hold left open');
+          t.diagnostic(`ren: ${items.length} calls in 5; released ${released.length}; wallet holds ${holds.length} (${[...new Set(holds.map(h => h.state))]})`);
+        }
+      }
+      const keys = submits.map(([id, k]) => `${id}|${k}`);
+      assert.equal(new Set(keys).size, keys.length, 'every action key submitted once');
+    });
+  }
+}

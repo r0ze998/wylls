@@ -54,3 +54,19 @@ test('the demo runs keyless end to end, with a restart and a crash, and writes n
   assert.deepEqual(files(out).filter(f => f.endsWith('.key')), []);
   assert.ok(r.summary.mechanical.residents.asa.decisions > 5);
 });
+
+test('the guard also blocks PDA derivation, web3 keypairs and signing, and the repository\'s own PDA helper', { skip: GUARDED }, async () => {
+  const { createRequire } = await import('node:module');
+  const web3 = createRequire(new URL('../../../permutation-gateway/package.json', import.meta.url))('@solana/web3.js');
+  const prog = new web3.PublicKey('11111111111111111111111111111111');
+  const before = globalThis.__WS13_GUARD_ATTEMPTS__.length;
+  assert.throws(() => web3.PublicKey.findProgramAddressSync([Buffer.from('season')], prog), /keyless guard/);
+  assert.throws(() => web3.PublicKey.createProgramAddressSync([Buffer.from('season')], prog), /keyless guard/);
+  assert.throws(() => web3.Keypair.generate(), /keyless guard/);
+  assert.throws(() => web3.Keypair.fromSeed(new Uint8Array(32)), /keyless guard/);
+  const tx = await import('../../../permutation-gateway/client/src/solana-tx.mjs');
+  assert.throws(() => tx.findProgramAddress([new Uint8Array([1])], prog.toBase58()), /PDA derivation/);
+  assert.throws(() => tx.createProgramAddress([new Uint8Array([1])], prog.toBase58()), /PDA derivation/);
+  assert.equal(globalThis.__WS13_GUARD_ATTEMPTS__.length - before, 6, 'each blocked attempt is recorded');
+  assert.equal(new web3.PublicKey(prog.toBytes()).toBase58(), prog.toBase58(), 'reading an address is not blocked');
+});

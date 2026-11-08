@@ -22,13 +22,14 @@ const TOOK_EFFECT = new Set(['InTransit', 'Arrived', 'Fulfilled', 'Partial', 'De
 const PENDING = new Set(['Accepted', 'Reserved', 'FacilityRequested', 'FacilitySubmitted', 'FacilityConfirmed', 'ShipRequested', 'ShipSubmitted']);
 
 /**
- * @param run  null (no run with this id: never accepted) or {state, held_reason?, outcome?: {effects?: []}}
+ * @param run  null (no run with this id: never accepted) or {state, held_reason?, effects?: [] (p04-run/0.1), outcome?: {effects?: []}}
  * @returns    null, or {ok, status: 'sent', fate: 'pending'|'landed'|'failed'|'cancelled'|'unknown', fateError?, ws04State, partial?, unverified?}
  */
 export function fateOfRun(run) {
   if (run === null || run === undefined) return null;
   const base = { ok: true, status: 'sent', ws04State: run.state };
-  const effects = run.outcome?.effects ?? [];
+  // p04-run/0.1 (cf517b55 src/view.rs) lists the receipt kinds as `effects` at the top; older views under `outcome`.
+  const effects = run.effects ?? run.outcome?.effects ?? [];
   if (!WS04_STATES.includes(run.state)) return { ...base, fate: 'unknown', why: `unknown workstream 4 state ${run.state}` };
   if (run.held_reason) return { ...base, fate: 'unknown', why: `held: ${run.held_reason}` };
   if (TOOK_EFFECT.has(run.state)) return { ...base, fate: 'landed', ...(run.state === 'Partial' ? { partial: true } : {}), ...(run.state === 'DeliveredUnverified' ? { unverified: true } : {}) };
@@ -40,27 +41,79 @@ export function fateOfRun(run) {
 }
 
 /**
- * The execution port over workstream 4. `client.accept(spec)` → {kind: 'accepted'|'existing'|'conflict', run?};
- * `client.run(runId)` → run view | null, and throws when workstream 4 cannot answer (the resident treats that as
- * unknown). `specOf(request)` builds the RunSpec with `run_id = idempotencyKey`.
+ * The execution port over workstream 4's runs.
+ *
+ * `client.accept(spec, requester)`: workstream 4's run intake (clients/runs.mjs `createRunsClient`, cf517b55:
+ * `runexec run accept --requester`). It answers the run view with `accept: 'Created' | 'Existing'`, and refuses by
+ * throwing `{code}`: BadRequest, NotAuthorized (the requester is not the pass's current holder; exit 5, nothing
+ * written), Conflict (another spec under this run_id), StoreError, Spawn. An older fake answering
+ * `{kind: 'accepted'|'existing'|'conflict'}` is still read.
+ *
+ * `requesterOf(request)`: who asks, as the gateway's credential layer (workstreams 3 and 5) authenticated it:
+ * `{actor, generation, citizen, authenticatedBy}`. This port never signs or verifies anything and never makes up a
+ * generation: without `requesterOf`, or when it gives no requester, nothing is handed to workstream 4
+ * (`NoAuthenticatedRequester`, nothing sent; accept is not called).
+ *
+ * `client.view(runId)` (or the older `client.run(runId)`): the run view (`runexec run view`, p04-run/0.1), or a
+ * refusal: `NoRecord` alone means "never accepted here" (null); `StoreUnavailable` and anything else is no answer
+ * (thrown: the resident reads again, never as "not sent").
+ *
+ * Definite refusals (nothing written: BadRequest, NotAuthorized, Conflict, NoAuthenticatedRequester) come back as
+ * `refused`; the resident does not retry them under a new key (they are not transient). StoreError and Spawn may
+ * have happened after the store was written: thrown, so the resident keeps the key and reads the run back.
+ * Whether a resident should stop altogether once its pass has moved (NotAuthorized) is not decided here.
  */
-export function ws04ExecutionPort(client, { specOf }) {
-  if (typeof client?.accept !== 'function' || typeof client?.run !== 'function') throw new TypeError('workstream 4 client with accept() and run()');
+export const DEFINITE_REFUSALS = Object.freeze(['BadRequest', 'NotAuthorized', 'Conflict', 'NoAuthenticatedRequester']);
+
+export function ws04ExecutionPort(client, { specOf, requesterOf = null }) {
+  if (typeof client?.accept !== 'function' || (typeof client?.view !== 'function' && typeof client?.run !== 'function')) throw new TypeError('workstream 4 client with accept() and view() (or run())');
   if (typeof specOf !== 'function') throw new TypeError('specOf(request) → RunSpec is required');
+  const view = id => (typeof client.view === 'function' ? client.view(id) : client.run(id));
   return {
     kind: 'workstream 4 executor',
     // store.rs never deletes a run: keys are kept for good.
     retentionBells: Infinity,
     async submit(req) {
       const spec = { ...specOf(req), run_id: req.idempotencyKey };
-      const a = await client.accept(spec);
-      if (a.kind === 'conflict') return { ok: false, status: 'refused', error: { code: 'IdempotencyConflict', message: 'workstream 4 has another spec under this run_id' } };
-      return { ok: true, status: 'sent', signature: `run:${spec.run_id}`, ...(a.kind === 'existing' ? { replayed: true } : {}) };
+      // No credential layer (requesterOf absent) or no requester from it: nothing is handed to workstream 4.
+      const requester = typeof requesterOf === 'function' ? requesterOf(req) : null;
+      if (!requester) return { ok: false, status: 'refused', error: { code: 'NoAuthenticatedRequester', message: 'no requester authenticated by the credential layer: not handed to workstream 4' } };
+      let a;
+      try { a = await client.accept(spec, requester); } catch (e) {
+        const code = e?.code === 'Conflict' ? 'IdempotencyConflict' : e?.code;
+        if (DEFINITE_REFUSALS.includes(e?.code)) return { ok: false, status: 'refused', error: { code, message: String(e.message ?? e).slice(0, 200) } };
+        throw e; // StoreError, Spawn, anything else: maybe written; the resident reads it back under the same key
+      }
+      if (a?.kind === 'conflict') return { ok: false, status: 'refused', error: { code: 'IdempotencyConflict', message: 'workstream 4 has another spec under this run_id' } };
+      const replayed = a?.accept === 'Existing' || a?.kind === 'existing';
+      return { ok: true, status: 'sent', signature: `run:${spec.run_id}`, ...(replayed ? { replayed: true } : {}) };
     },
-    async status(key) { return fateOfRun(await client.run(key)); },
+    async status(key) {
+      let v;
+      try { v = await view(key); } catch (e) { if (e?.code === 'NoRecord') return null; throw e; }
+      return fateOfRun(v);
+    },
     async cancel(key) {
       if (typeof client.cancel !== 'function') return { cancelled: false, reason: 'NotSupported' };
       return client.cancel(key);
     },
   };
+}
+
+/**
+ * `runexec run view` for the port's `view` (workstream 4's clients/runs.mjs has `accept` only). Read-only; no shell.
+ * Throws `{code}` from runexec's JSON (NoRecord, StoreUnavailable, StoreError, BadRequest) or Spawn.
+ */
+export function runViewClient({ bin, db, timeoutMs = 15_000, execFile }) {
+  if (!bin || !db || typeof execFile !== 'function') throw new TypeError('bin, db and execFile (node:child_process) are required');
+  return id => new Promise((resolve, reject) => {
+    execFile(bin, ['run', 'view', '--db', db, '--run', id], { timeout: timeoutMs, maxBuffer: 1 << 22, shell: false }, (err, stdout) => {
+      const line = String(stdout ?? '').trim().split('\n').at(-1) ?? '';
+      let v = null;
+      try { v = line ? JSON.parse(line) : null; } catch { v = null; }
+      if (!err && v && !v.error) return resolve(v);
+      if (v?.error) return reject(Object.assign(new Error(v.message ?? v.error), { code: v.error }));
+      reject(Object.assign(new Error(String(err?.message ?? 'runexec printed no JSON')), { code: 'Spawn' }));
+    });
+  });
 }
