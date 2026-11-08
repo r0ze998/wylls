@@ -145,6 +145,11 @@ pub const PROGRAM_VERSION: u16 = frontier_abi::v2::presets::PROGRAM_VERSION_S1
         0x4000
     } else {
         0
+    }
+    | if cfg!(feature = "rights-experimental") {
+        frontier_abi::v2::rights::RIGHTS_EXPERIMENTAL_VERSION_BIT
+    } else {
+        0
     };
 /// Custody remains a separate preview. No version is allocated for its
 /// combination with NFT residents or the host-only wide writer.
@@ -152,6 +157,8 @@ pub const PROGRAM_VERSION: u16 = frontier_abi::v2::presets::PROGRAM_VERSION_S1
 pub const PROGRAM_VERSION: u16 = frontier_abi::v2::presets::PROGRAM_VERSION_CUSTODY;
 #[cfg(all(feature = "custody-preview", feature = "nft-experimental"))]
 compile_error!("custody-preview and nft-experimental together: the program version is undecided (workstream 4)");
+#[cfg(all(feature = "custody-preview", feature = "rights-experimental"))]
+compile_error!("custody-preview and rights-experimental together: the ruleset and program version are undecided (workstream 4)");
 #[cfg(all(feature = "custody-preview", feature = "wide-world-experimental"))]
 compile_error!("custody-preview and wide-world-experimental together: the ruleset and program version are undecided");
 
@@ -180,6 +187,17 @@ pub fn dispatch(
         .is_some_and(|t| frontier_abi::world_index::wide_ix::is_draft_tag(*t))
     {
         return proc::wide::dispatch(program_id, accounts, data);
+    }
+    // Workstream 02-rights (proposal, `rights-experimental` only): the
+    // workshop-stock swap Grant on the provisional tags 0xD0–0xD5. A
+    // default build never reaches this arm and refuses the bytes as
+    // unknown tags below.
+    #[cfg(feature = "rights-experimental")]
+    if data
+        .first()
+        .is_some_and(|t| frontier_abi::v2::rights::is_rights_tag(*t))
+    {
+        return proc::rights::dispatch(program_id, accounts, data);
     }
     use frontier_abi::v2::Ix;
     use proc::*;

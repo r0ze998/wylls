@@ -262,3 +262,19 @@ pub const CUSTODY_REPLAY_MISMATCH: &str = "CustodyReplayMismatch";
 /// caravan, several custody instructions in one transaction).
 /// UNVERIFIABLE, never PASS.
 pub const CUSTODY_REPLAY_INCOMPLETE: &str = "CustodyReplayIncomplete";
+
+// VR — the workshop-stock swap Grant (02-rights, candidate; provisional).
+/// A Grant instruction whose data or account list does not decode.
+pub const RIGHTS_MALFORMED: &str = "RightsMalformed";
+/// A Grant instruction that logged no record of its kind.
+pub const RIGHTS_RECORD_MISSING: &str = "RightsRecordMissing";
+/// A Grant record without its instruction.
+pub const RIGHTS_RECORD_ORPHAN: &str = "RightsRecordOrphan";
+/// A Grant record the rules refuse (seq, quota, ratio, expiry, escrow).
+pub const RIGHTS_RULE: &str = "RightsRule";
+/// A Grant account that differs from the replay of its records.
+pub const RIGHTS_STATE_MISMATCH: &str = "RightsStateMismatch";
+/// A Grant account no record or instruction explains.
+pub const RIGHTS_UNEXPLAINED_ACCOUNT: &str = "RightsUnexplainedAccount";
+/// A program account of no kind the verifier knows.
+pub const UNKNOWN_ACCOUNT: &str = "UnknownAccount";

@@ -66,6 +66,8 @@ pub mod map;
 pub mod nation;
 pub mod resident;
 pub mod reveal;
+#[cfg(feature = "rights-experimental")]
+pub mod rights;
 pub mod season;
 pub mod structure;
 pub mod transit;

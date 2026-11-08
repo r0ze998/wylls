@@ -54,7 +54,9 @@ pub const PROGRAM_VERSION_NFT_S1: u16 = 0x8000 | PROGRAM_VERSION_S1;
 
 /// Whether this verifier implements `pv`'s rules.
 pub fn known_version(pv: u16) -> bool {
-    KNOWN_PROGRAM_VERSIONS.contains(&pv) || pv == PROGRAM_VERSION_NFT_S1
+    KNOWN_PROGRAM_VERSIONS.contains(&pv)
+        || pv == PROGRAM_VERSION_NFT_S1
+        || pv == frontier_abi::v2::rights::PROGRAM_VERSION_RIGHTS_S1
 }
 
 /// The workstream a tag outside ABI v2 is allocated to (workstream 4's
@@ -116,6 +118,25 @@ pub fn judge_outside_v2(
                 UNVERIFIED_INSTRUCTION,
                 format!("resident instruction 0x{tag:02x} succeeded, and no check of this verifier models it"),
             )),
+        };
+    }
+    // Workstream 02-rights (proposal): a Grant instruction of a
+    // `rights-experimental` build (the S1 rules with the provisional rights
+    // bit) is VR's to judge in a season whose S1 checks run; VR does not
+    // run otherwise, so it is `Unverifiable`, never left unjudged. Under any
+    // other program version the band rule below applies (a known version
+    // that does not run it: `Fail`).
+    if frontier_abi::v2::rights::is_rights_tag(tag)
+        && pv.is_some_and(frontier_abi::v2::rights::runs_grants)
+    {
+        return if s1 {
+            None
+        } else {
+            Some((
+                Unverifiable,
+                UNVERIFIED_INSTRUCTION,
+                format!("Grant instruction 0x{tag:02x} in a season whose S1 checks did not run (VR did not judge it)"),
+            ))
         };
     }
     let Some(band) = allocated_band(tag) else {
@@ -199,7 +220,7 @@ pub fn run(cx: &mut Ctx) {
                 0,
                 None,
                 format!(
-                    "program_version {pv} is not one this verifier implements ({KNOWN_PROGRAM_VERSIONS:?}, {PROGRAM_VERSION_NFT_S1:#06x})"
+                    "program_version {pv} is not one this verifier implements ({KNOWN_PROGRAM_VERSIONS:?}, {PROGRAM_VERSION_NFT_S1:#06x}, {:#06x})", frontier_abi::v2::rights::PROGRAM_VERSION_RIGHTS_S1
                 ),
             );
         }

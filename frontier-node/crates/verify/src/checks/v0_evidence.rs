@@ -65,8 +65,10 @@ pub const MODELLED_CQ_KINDS: &[u8] = &[
 ];
 
 /// Conquest kinds judged only beside the instruction that emits them (see
-/// [`explained`]): ⑳'s RESIDENT_JOINED (130), emitted by JoinResident only.
-pub const CONDITIONAL_CQ_KINDS: &[u8] = &[130];
+/// [`explained`]): ⑳'s RESIDENT_JOINED (130), emitted by JoinResident only;
+/// workstream 02-rights' Grant records (114–119, proposal), which VR pairs
+/// with the top-level Grant instruction of their transaction.
+pub const CONDITIONAL_CQ_KINDS: &[u8] = &[114, 115, 116, 117, 118, 119, 130];
 
 /// Conquest kinds the ABI knows that no check of this verifier models, and
 /// whose every record a guard keeps from a PASS: workstream 10's custody
@@ -82,6 +84,19 @@ pub const GUARDED_CQ_KINDS: &[u8] = &[105, 106, 107, 108, 109, 110, 111, 112, 11
 /// transaction (`tag ‖ generation u32 ‖ faction u8`) with the record's
 /// generation and faction.
 fn explained(w: &crate::world::World, c: &crate::world::CqRec) -> bool {
+    // 02-rights (proposal): a Grant record beside a top-level Grant
+    // instruction of its transaction is VR's (it checks the record's kind,
+    // Grant and amounts against that instruction and the accounts). One
+    // with no such instruction (an orphan, or logged inside a CPI) stays
+    // `UnverifiedRecord` here and is VR's FAIL or UNVERIFIABLE too.
+    if frontier_abi::v2::rights::record::is_rights(c.kind) {
+        return w.txs.get(c.tx).is_some_and(|t| {
+            t.ixs.iter().any(|ix| {
+                ix.tag()
+                    .is_some_and(frontier_abi::v2::rights::is_rights_tag)
+            })
+        });
+    }
     if c.kind as u8 != 130 {
         return false;
     }

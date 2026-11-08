@@ -30,6 +30,7 @@ pub mod v6_quotas;
 pub mod v7_replay;
 pub mod v8_lag;
 pub mod v9_addresses;
+pub mod vr_rights;
 
 use crate::facts::{Facts, SigCache};
 use crate::input::{Config, Input};
@@ -302,6 +303,10 @@ pub fn run(input: &Input) -> Report {
         ran.push("V26:custody-history");
         ran.push("V26:custody-replay");
     }
+    // 02-rights (candidate): the Grant's instructions, records and
+    // accounts; on every season (outside S1 the program refuses them, so
+    // any is a FAIL of its own).
+    check!("mutate-vr", "VR:rights", vr_rights);
     ran.push("V10");
     counts(&mut cx);
     let verdict = if cx.findings.iter().any(|x| x.severity == Severity::Fail) {

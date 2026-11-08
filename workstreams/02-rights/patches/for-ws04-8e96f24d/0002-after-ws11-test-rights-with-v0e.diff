@@ -1,0 +1,65 @@
+diff --git a/frontier-node/crates/verify/tests/rights_replay.rs b/frontier-node/crates/verify/tests/rights_replay.rs
+index ce443a54..3eb11473 100644
+--- a/frontier-node/crates/verify/tests/rights_replay.rs
++++ b/frontier-node/crates/verify/tests/rights_replay.rs
+@@ -1144,3 +1144,60 @@ fn post_states_short_of_the_writes_are_never_a_pass() {
+         }
+     }
+ }
++
++/// With workstream 11's V0E (patches 0004–0005) in the verifier: each
++/// lost-evidence case above also carries V0E's own finding, so the
++/// verdict does not rest on VR alone; VR and V7 do not contradict it (no
++/// FAIL from them on lost logs). V0E does not know the Grant's magic (it
++/// reads `AccountKind`), so a missing Grant post-state is VR's alone.
++/// This test exists only where V0E does (`patches/v3/after-ws11`).
++#[test]
++fn with_v0e_each_lost_evidence_case_has_its_own_finding() {
++    use verify_core::Severity::{Fail, Unverifiable};
++    let b = base();
++    let (fl, grant) = honest(&b);
++    let t = fl.inp.txs.len() - 5;
++    let head = fl.inp.txs[t].logs[..1].to_vec();
++    let mut cut = head.clone();
++    cut.push("Log truncated".into());
++    let v0e = |inp: &Input, code: &str| {
++        let found = new_findings(&b.inp, inp);
++        of(&found, "V0E", Unverifiable)
++            .iter()
++            .any(|l| l.contains(code))
++    };
++    for (name, logs, code) in [
++        ("cut", cut, TRUNCATED_LOGS),
++        ("tail lost", head, INCOMPLETE_LOGS),
++        ("no logs", vec![], MISSING_LOGS),
++    ] {
++        let mut inp = fl.inp.clone();
++        inp.txs[t].logs = logs;
++        assert!(v0e(&inp, code), "{name}");
++        let found = new_findings(&b.inp, &inp);
++        assert!(of(&found, "VR", Fail).is_empty(), "{name}: {found:#?}");
++        assert!(of(&found, "V7", Fail).is_empty(), "{name}: {found:#?}");
++    }
++    let mut inp = fl.inp.clone();
++    as_cpi(&mut inp, t, true);
++    assert!(v0e(&inp, UNVERIFIED_INNER_INSTRUCTION));
++    let mut inp = fl.inp.clone();
++    as_cpi(&mut inp, t, false);
++    assert!(v0e(&inp, MISSING_LOGS));
++    let gc = Address::new_from_array(b.grantee_c);
++    let mut inp = fl.inp.clone();
++    inp.txs[t].post.retain(|(k, _)| *k != gc);
++    assert!(v0e(&inp, MISSING_POST_STATE));
++    // The Grant's own post-state: V0E is silent, VR is not.
++    let g = Address::new_from_array(grant);
++    let mut inp = fl.inp.clone();
++    inp.txs[t].post.retain(|(k, _)| *k != g);
++    let found = new_findings(&b.inp, &inp);
++    assert!(of(&found, "V0E", Unverifiable).is_empty(), "{found:#?}");
++    assert!(
++        of(&found, "VR", Unverifiable)
++            .iter()
++            .any(|l| l.contains(MISSING_DATA)),
++        "{found:#?}"
++    );
++}
