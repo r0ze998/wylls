@@ -237,6 +237,7 @@ permutation-gateway/test/web-frontier-ws07-s1walk.test.mjs
 permutation-gateway/test/web-frontier-ws07-sendstates.test.mjs
 permutation-gateway/test/web-frontier-ws07-spectate.test.mjs
 permutation-gateway/test/web-frontier-ws07-terms.test.mjs
+permutation-gateway/test/web-frontier-ws07-unread.test.mjs
 permutation-gateway/test/web-lang.test.mjs
 permutation-gateway/test/web-play.test.mjs
 permutation-gateway/test/web-views.test.mjs
