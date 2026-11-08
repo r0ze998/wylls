@@ -1,5 +1,7 @@
 # patches: 共有コアへの変更案
 
+> **r16（2026-11-08）。** [0016](0016-verify-v0-wide-tags-left-to-vw-on-ws04-4ecef1d9.patch) は、wide の build の Season で wide のタグを VW に任せる（UNVERIFIABLE `WideUnmodelled`）もの。当て先は `4ecef1d9`。SHA-256 は `7aaf442c911e41f5e570e09a90bfb20cf836531e6ec384c977c5b131b88a85ad`、tree は `689c264ef67f72caad0a8b8cb736561a02296e13`。0015 も重ねて当たる。
+
 > **r15（2026-11-08、②が見つけた穴）。** [0015](0015-verify-v0e-every-abi-v2-account-kind-on-cf517b55.patch) は、V0E が S1 の口座（MarchState、Vault、Caravan、Structure、Nation、Lot）の事後状態の欠落も UNVERIFIABLE にするもの。当て先は `cf517b55` で、0013 と 0014 とは別のファイルなので、順は問わない。SHA-256 は `68b6a039a048f7029f0ec599220d1cd710ac174f9562ec6baf4dc9da9e3dac1d`。`b2bd9711`＋0013＋0014＋0015 の tree は `60bd0044052fa192c86956027402b669cc6afdda`。
 
 > **r14（2026-11-08）。** 当てる順は 0013 → ⑳の `b2bd9711`（入れ替えてもよい）→ [0014](0014-verify-v0-resident-act-left-to-v28-after-ws20-b2bd9711.patch)。0014 の SHA-256 は `f8763979f44bcb20814f185dcaac7f2db092c22254db639f9a7a908ad123b10d`、当てた後の tree は `38e164a8a82b212f69e02f3ac341f1c35541933c`。中身: ResidentAct を V28 と内側の命令の検査に渡す。条件は、V28 が動き（s1）、act がその内側の命令を実行すること。詳細は [17](../17-verifier-r13.ja.md) §7。

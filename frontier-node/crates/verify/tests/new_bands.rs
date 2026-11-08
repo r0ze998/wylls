@@ -402,14 +402,28 @@ fn tags_outside_abi_v2_are_told_apart() {
             );
         }
     }
-    // Unallocated tags (the wide-world draft 0xD6–0xDA included) fail under
+    // Unallocated tags (the wide-world draft 0xD6–0xDF and 0xEE included) fail under
     // every version this verifier knows; under another, or none shown, they
     // are UNVERIFIABLE (r13): only a known program is evidence of refusal.
-    for tag in [0xD6, 0xDA, 0xEE, 0xFE] {
-        for pv in [unknown, None, Some(0x4004)] {
+    for tag in [0xD6, 0xDA, 0xDD, 0xDF, 0xEE, 0xFE] {
+        for pv in [unknown, None] {
             assert_eq!(
                 j(tag, &[tag], pv),
                 Some((Unverifiable, "UnverifiedInstruction")),
+                "{tag:#x} {pv:?}"
+            );
+        }
+        // r16: in the wide build's seasons (version bit 0x4000), its own
+        // tags are left to VW (`WideUnmodelled`); other tags are not its.
+        let want = if verify_core::checks::v0_coverage::is_wide_tag(tag) {
+            "WideUnmodelled"
+        } else {
+            "UnverifiedInstruction"
+        };
+        for pv in [Some(0x4004), Some(0xC004)] {
+            assert_eq!(
+                j(tag, &[tag], pv),
+                Some((Unverifiable, want)),
                 "{tag:#x} {pv:?}"
             );
         }
@@ -558,5 +572,22 @@ fn no_tag_or_an_unknown_tag_under_a_known_program_fails() {
             "{d:?}: {}",
             show(&r)
         );
+    }
+}
+
+/// r16: V0's literals for the wide build equal the wide ABI's own constants
+/// (only buildable with the experimental feature).
+#[cfg(feature = "wide-world-experimental")]
+#[test]
+fn v0_wide_literals_are_the_wide_abi() {
+    use frontier_abi::world_index::wide_ix as w;
+    use verify_core::checks::v0_coverage::{is_wide_tag, WIDE_EXPERIMENTAL_VERSION_BIT};
+    assert_eq!(
+        WIDE_EXPERIMENTAL_VERSION_BIT,
+        w::WIDE_EXPERIMENTAL_VERSION_BIT
+    );
+    for t in 0..=255u8 {
+        let abi = (w::DRAFT_TAG_FIRST..=w::DRAFT_TAG_LAST).contains(&t) || t == w::TAG_REVEAL;
+        assert_eq!(is_wide_tag(t), abi, "{t:#x}");
     }
 }

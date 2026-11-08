@@ -59,6 +59,20 @@ pub fn known_version(pv: u16) -> bool {
         || pv == frontier_abi::v2::rights::PROGRAM_VERSION_RIGHTS_S1
 }
 
+/// The version bit of the experimental wide-world build
+/// (`frontier_abi::world_index::wide_ix::WIDE_EXPERIMENTAL_VERSION_BIT`,
+/// behind `world-index-experimental`; provisional, not an allocation). Its
+/// seasons are not a known version (no wide rule is modelled), so they are
+/// never a PASS (`UnknownProgramVersion`).
+pub const WIDE_EXPERIMENTAL_VERSION_BIT: u16 = 0x4000;
+
+/// The wide build's provisional tags: the draft band `0xD6..=0xDF`
+/// (`wide_ix::DRAFT_TAG_FIRST..=DRAFT_TAG_LAST`) and WideReveal `0xEE`
+/// (`wide_ix::TAG_REVEAL`). Not an allocation.
+pub fn is_wide_tag(tag: u8) -> bool {
+    (0xD6..=0xDF).contains(&tag) || tag == 0xEE
+}
+
 /// The workstream a tag outside ABI v2 is allocated to (workstream 4's
 /// `ABI-ALLOCATION-20261106`, provisional).
 pub fn allocated_band(tag: u8) -> Option<&'static str> {
@@ -138,6 +152,16 @@ pub fn judge_outside_v2(
                 format!("Grant instruction 0x{tag:02x} in a season whose S1 checks did not run (VR did not judge it)"),
             ))
         };
+    }
+    // The wide build's own tags, in its own seasons: left to VW (r16), which
+    // judges the wide event chains and nothing of the wide rules, so they
+    // stay UNVERIFIABLE (`WideUnmodelled`), never a PASS.
+    if is_wide_tag(tag) && pv.is_some_and(|v| v & WIDE_EXPERIMENTAL_VERSION_BIT != 0) {
+        return Some((
+            Unverifiable,
+            WIDE_UNMODELLED,
+            format!("wide instruction 0x{tag:02x} in a wide-world season: left to VW (its event chains); no wide rule is modelled"),
+        ));
     }
     let Some(band) = allocated_band(tag) else {
         // Only a program version this verifier knows refuses the tag: that is

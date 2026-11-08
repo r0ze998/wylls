@@ -42,7 +42,7 @@ pub const WIDE_RECORD_UNDECODABLE: &str = "WideRecordUndecodable";
 pub const WIDE_CHAIN_BROKEN: &str = "WideChainBroken";
 pub const WIDE_CHAIN_FINAL_MISMATCH: &str = "WideChainFinalMismatch";
 pub const WIDE_CHAIN_UNPROVEN: &str = "WideChainUnproven";
-pub const WIDE_UNMODELLED: &str = "WideUnmodelled";
+pub use crate::codes::WIDE_UNMODELLED;
 
 /// What VW1 found, before it becomes findings (testable without a `Ctx`).
 #[derive(Clone, Debug, PartialEq, Eq)]

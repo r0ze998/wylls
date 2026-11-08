@@ -28,6 +28,10 @@ pub const UNVERIFIED_INNER_INSTRUCTION: &str = "UnverifiedInnerInstruction";
 pub const MISSING_POST_STATE: &str = "MissingPostState";
 /// A record no check judges where it stands (UNVERIFIABLE, V0E).
 pub const UNVERIFIED_RECORD: &str = "UnverifiedRecord";
+/// A wide-world instruction (experimental band) that no check models yet:
+/// V0 leaves it to VW, which judges only the wide event chains
+/// (UNVERIFIABLE; shared by V0 and VW1).
+pub const WIDE_UNMODELLED: &str = "WideUnmodelled";
 /// A history no source showed to be complete (UNVERIFIABLE, V0; ⑲ `history`).
 pub const HISTORY_UNPROVEN: &str = "HistoryUnproven";
 /// A JoinResident and the Citizen, record or link it left disagree (FAIL, V27).
