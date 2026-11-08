@@ -34,6 +34,16 @@ const SECONDS_PER_BELL = 600;
 const requestsOf = board => (Array.isArray(board?.requests) ? board.requests : Object.values(board?.requests ?? {}));
 
 /**
+ * ①'s caravan key (ws01-board v1, coop/export.mjs): '<programId>/<seasonId>:<ownerTag>:<seq>' when the link names its
+ * context, else '<ownerTag>:<seq>' (fold() before contexts, or a board without them).
+ */
+export const caravanKeyOfLink = l => l.caravanKey ?? (l.caravan?.ctx ? `${l.caravan.ctx}:${l.caravan.ownerTag}:${l.caravan.seq}` : `${l.caravan.ownerTag}:${l.caravan.seq}`);
+const caravanKeyOfArrival = a => (a.caravanId?.ctx ? `${a.caravanId.ctx}:${a.caravanId.ownerTag}:${a.caravanId.seq}` : `${a.caravanId.ownerTag}:${a.caravanId.seq}`);
+
+/** ①'s isRequestDestination (coop/export.mjs): the request's own village, same generation. */
+export const isRequestDestination = (to, place) => Number(place?.kind) === 1 && Number(place.p) === Number(to.p) && Number(place.q) === Number(to.q) && Number(place.site) === Number(to.site) && Number(place.gen) === Number(to.gen);
+
+/**
  * `{events, linkResolver, rejected}` from ①'s folded board. `map.projectOf(request)`
  * → `{project, goal, structure, steward}` or null; `map.actorOf(wallet)` → actor id;
  * `map.bellOf(seconds)` → world bell.
@@ -42,8 +52,11 @@ export function fromWs01Board(board, map, { stream = 'ws01' } = {}) {
   const events = [];
   const rejected = [];
   const opened = new Set();
+  const byTagSeq = new Map();
   const byCaravan = new Map();
   let seq = 0;
+  if (board?.v !== undefined && board.v !== 1) throw new Error(`ws01-board v${board.v}: this adapter reads v1`);
+  const hasContexts = (board?.contexts ?? []).length > 0;
   const requests = [...requestsOf(board)].sort((a, b) => a.at - b.at || (a.id < b.id ? -1 : 1));
   const links = [];
   for (const r of requests) {
@@ -61,16 +74,27 @@ export function fromWs01Board(board, map, { stream = 'ws01' } = {}) {
   // ①'s record order (`n`) decides; the link time and request break ties for feeds without `n`.
   links.sort((x, y) => (x.l.n ?? Infinity) - (y.l.n ?? Infinity) || x.l.at - y.l.at || x.r.at - y.r.at || (x.r.id < y.r.id ? -1 : x.r.id > y.r.id ? 1 : 0));
   for (const { l, r, p, steward } of links) {
-    const key = `${l.caravan.ownerTag}:${l.caravan.seq}`;
+    const key = caravanKeyOfLink(l);
     if (byCaravan.has(key)) { rejected.push({ request: r.id, caravan: key, why: 'duplicateOf', of: byCaravan.get(key).request }); continue; }
-    byCaravan.set(key, { request: r.id, project: p.project, steward, responder: map.actorOf(l.responder) });
+    byCaravan.set(key, { request: r.id, project: p.project, steward, responder: map.actorOf(l.responder), to: r.to });
+    const ts = `${l.caravan.ownerTag}:${l.caravan.seq}`;
+    byTagSeq.set(ts, [...(byTagSeq.get(ts) ?? []), byCaravan.get(key)]);
   }
-  /** For s1-chain.mjs: a caravan linked to a request goes to that request's project. */
-  const linkResolver = (fallback = () => null) => (place, ownerTag, s) => {
-    const hit = byCaravan.get(`${ownerTag}:${s}`);
-    if (!hit) return fallback(place, ownerTag, s);
-    // ①: requests name a village (kind 1); arrivals there count the logged cargo as a lower bound.
-    return { actor: hit.steward, project: hit.project, kind: place.kind === 2 ? 'storehouse' : 'village' };
+  /**
+   * For s1-chain.mjs: a caravan linked to a request goes to that request's project, but only to the request's own
+   * destination (①'s isRequestDestination: a village, kind 1, at the request's p, q, site, gen). Settled anywhere
+   * else it is not the request's arrival: `mismatch` (the cause is unconfirmed; ① does not count it). `context` is
+   * '<programId>/<seasonId>' (s1-chain's option): with it, only links made in that context match.
+   */
+  const linkResolver = (fallback = () => null) => (place, ownerTag, s, context = null) => {
+    // Without a context, a tag and seq match only when exactly one link carries them (one context on the board);
+    // two contexts with the same tag:seq are two caravans, and neither is guessed.
+    const loose = byTagSeq.get(`${ownerTag}:${s}`) ?? [];
+    const hit = context ? byCaravan.get(`${context}:${ownerTag}:${s}`) ?? (!hasContexts ? byCaravan.get(`${ownerTag}:${s}`) : undefined)
+      : byCaravan.get(`${ownerTag}:${s}`) ?? (loose.length === 1 ? loose[0] : undefined);
+    if (!hit) return fallback(place, ownerTag, s, context);
+    const atDestination = !hit.to || isRequestDestination(hit.to, place);
+    return { actor: hit.steward, project: hit.project, kind: place.kind === 2 ? 'storehouse' : 'village', ...(atDestination ? {} : { mismatch: true }) };
   };
   return { events, linkResolver, rejected, links: byCaravan };
 }
@@ -88,8 +112,8 @@ export function fromWs01Arrivals(arrivals, links, map, { stream = 'ws01-arrival'
   let seq = 0;
   const sorted = [...arrivals].sort((a, b) => (`${a.caravanId.ownerTag}:${a.caravanId.seq}` < `${b.caravanId.ownerTag}:${b.caravanId.seq}` ? -1 : 1));
   for (const a of sorted) {
-    const key = `${a.caravanId.ownerTag}:${a.caravanId.seq}`;
-    const link = links.get(key);
+    const key = caravanKeyOfArrival(a);
+    const link = links.get(key) ?? links.get(`${a.caravanId.ownerTag}:${a.caravanId.seq}`);
     if (!link || a.source !== 'chain-log' || !['delivered', 'lost', 'misdelivered'].includes(a.state) || !a.cargo) {
       pending.push({ caravan: key, state: a.state, source: a.source, why: !link ? 'not linked' : a.source !== 'chain-log' ? 'herald only: not counted' : 'nothing reaches the project' });
       continue;
