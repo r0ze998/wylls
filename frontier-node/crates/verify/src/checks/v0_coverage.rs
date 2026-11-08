@@ -20,8 +20,10 @@
 //! - ⑪ r9: workstream 20's `nft-experimental` program
 //!   ([`PROGRAM_VERSION_NFT_S1`], S1's rules plus the resident tags
 //!   0xE0–0xE7) is a known version. In its seasons JoinResident (0xE1) is
-//!   judged (V27, with ⑳'s V9 and facts); CreateResidentPolicy and
-//!   ResidentAct decode but are `UnverifiedInstruction`. Elsewhere, and for
+//!   judged (V27, with ⑳'s V9 and facts), and so is a ResidentAct whose inner
+//!   instruction the act runs (r14: V28 and the inner instruction's own check,
+//!   with S1's checks on); CreateResidentPolicy decodes but is
+//!   `UnverifiedInstruction`. Elsewhere, and for
 //!   every tag workstream 4 allocated to a workstream (see
 //!   [`allocated_band`]) that a known program version does not run, the
 //!   FAIL names the band: a known program refuses it. Under a program
@@ -96,6 +98,18 @@ pub fn judge_outside_v2(
                 Unverifiable,
                 UNVERIFIED_INSTRUCTION,
                 "JoinResident in a season whose S1 checks did not run (V27 did not judge it)".into(),
+            )),
+            // ⑳'s ResidentAct (r14): the world lists its inner player
+            // instruction as an instruction of its own (`world::unwrap_resident`),
+            // which V0 and the check that models it judge like a wallet
+            // Citizen's; V28 judges the rest (holder, owner-only acts, proof
+            // accounts, the join, the Citizen after). So it is left to them
+            // only where V28 runs (`s1`) and the act can run the inner tag.
+            Some(Command::Act { inner, .. }) if s1 && rw::act_runs(inner[0]) => None,
+            Some(Command::Act { .. }) => Some((
+                Unverifiable,
+                UNVERIFIED_INSTRUCTION,
+                format!("ResidentAct 0x{tag:02x} whose inner instruction the act does not run, or in a season whose S1 checks (V28) did not run"),
             )),
             Some(_) => Some((
                 Unverifiable,

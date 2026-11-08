@@ -354,9 +354,30 @@ fn tags_outside_abi_v2_are_told_apart() {
         Some((Unverifiable, "UnverifiedInstruction"))
     );
     assert_eq!(j(0xE1, &join[..5], nft), Some((Fail, "Undecodable")));
+    // ResidentAct (r14): an inner instruction the act runs (Harvest 0x40) is
+    // left to V28 and the inner check where V28 runs (s1); not where it
+    // does not, nor for an inner tag the act refuses (CreateSeason 0x01,
+    // SetSession 0x31).
     assert_eq!(
         j(0xE2, &[0xE2, 0, 0, 0, 0, 0x01], nft),
         Some((Unverifiable, "UnverifiedInstruction"))
+    );
+    assert_eq!(
+        j(0xE2, &[0xE2, 0, 0, 0, 0, 0x31], nft),
+        Some((Unverifiable, "UnverifiedInstruction"))
+    );
+    assert_eq!(
+        judge_outside_v2(0xE2, &[0xE2, 0, 0, 0, 0, 0x40], nft, true),
+        None
+    );
+    assert!(matches!(
+        judge_outside_v2(0xE2, &[0xE2, 0, 0, 0, 0, 0x40], nft, false),
+        Some((Unverifiable, "UnverifiedInstruction", _))
+    ));
+    // Outside the NFT program's seasons, a known program refuses it.
+    assert_eq!(
+        j(0xE2, &[0xE2, 0, 0, 0, 0, 0x40], s1).map(|x| x.0),
+        Some(Fail)
     );
     assert_eq!(
         j(0xE0, &[0xE0; 129], nft),

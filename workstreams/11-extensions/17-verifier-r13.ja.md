@@ -76,3 +76,36 @@
 | wide の帯 0xD6–0xDA の割当てと、その版の扱い | ④（割当て）・wide の担当 |
 | 合成 march の作り直し（署名が要る） | ④・オーナーの承認 |
 | `coverage.rs` を鍵なしにすること（`with_ix` を、記録済みの取引の書き換えにする） | ⑱。⑪は同等の鍵なしの試験を new_bands に置いた |
+
+## 7. r14: ResidentAct（0xE2）を V28 に渡す（2026-11-08、パッチ 0014、⑳の提案を採用）
+
+**⑳の `b2bd9711`（`cf517b55` の上）。**
+- `world::unwrap_resident` は、成功した ResidentAct の内側のプレイヤー命令を、別の命令として `Tx::ixs` に並べる。口座は act の口座から証明口座 4 つを除いたもので、プログラムの `proc::resident::act` が内側の命令に渡す `accounts[..n-4]` と同じ。
+- V28 は残りを判定する。所有者、所有者だけの命令、証明口座、正規アドレス、join、後の Citizen。
+
+**⑪の確認。**
+- 検査はどれも、Citizen を口座の位置で読む。actor の wallet で Citizen を引く検査は無い（`ctx.citizen(`、`key(0)` での照合が無い）。wallet と actor を比べるのは V23 の 1 か所だけで、⑳はそこを NFT 用に直した。
+- なので、内側の命令は wallet の Citizen と同じ検査で判定される。
+- 所有者の判定は、resident の feed（Input の欄）が未決のあいだ UNVERIFIABLE のまま（④の割当て rev 6）。**NFT の Citizen が操作した Season は、まだ PASS にならない。**
+
+**0014。** `judge_outside_v2` で、0xE2 を「判定の対象」（`None`）にする。条件は 2 つで、両方を満たすときだけ。
+- V28 が動く（`s1`）。
+- 内側のタグを act が実行する（`resident_wire::act_runs`）。
+
+それ以外は UNVERIFIABLE。たとえば内側が CreateSeason や SetSession のとき、または `s1` でないとき。NFT 版の外では、知っている版が拒否するので FAIL。内側の命令そのものは、V0 が自分の命令として判定する（長さ、`supported`）。
+
+| パッチ | 当て先 | SHA-256 | tree |
+|---|---|---|---|
+| `patches/0014-verify-v0-resident-act-left-to-v28-after-ws20-b2bd9711.patch` | ⑳ `b2bd9711`（`cf517b55` の上）に 0013 を当てた後 | `f8763979f44bcb20814f185dcaac7f2db092c22254db639f9a7a908ad123b10d` | `b2bd9711`＋0013＋0014 で `38e164a8a82b212f69e02f3ac341f1c35541933c`（試験した木と一致） |
+
+**試験**（`results/verify-after-r14.log`）。
+- `b2bd9711`＋0013＋0014 で **92 件通過**。内訳は lib 50（⑳の V28 を含む）、camp_clear 3、evidence 8、missing_state 2、new_bands 10、open_items 3、unit 8、fixtures 8（6 件の固定を含む）。
+- fmt と clippy も通った。
+- lib と結合試験に、鍵ペアと署名が無いことを確かめた（⑳の新しい試験を含む）。
+- 新しい場合（`tags_outside_abi_v2_are_told_apart`）:
+  - Harvest を内側に持ち `s1` → `None`
+  - Harvest を内側に持つが `s1` でない → UNVERIFIABLE
+  - 内側が SetSession か CreateSeason → UNVERIFIABLE
+  - S1 版 → FAIL
+
+**未確認。** NFT の Citizen が操作する Season を丸ごと `verify()` に通すこと（記録済みの fixture が無い。作るには署名が要る）。
