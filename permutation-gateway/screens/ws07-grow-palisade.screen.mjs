@@ -107,6 +107,10 @@ for (const vp of [{ width: 1440, height: 900, name: 'desktop' }, { width: 390, h
     page.on('console', m => { if (m.type() === 'error' && !/status of 404/.test(m.text())) errors.push(m.text()); });
     page.on('request', r => { if (r.method() !== 'GET' && r.method() !== 'HEAD') posts.push(`${r.method()} ${new URL(r.url()).pathname}`); });
     page.on('response', r => { if (r.status() === 404) notFound.add(new URL(r.url()).pathname); });
+    // (a Province the herald does not have is asked for again only after the refresh interval, never in a storm: 16's
+    // §29.32 measured 300+ requests a path in 2 minutes before controller.wantProvince waited for failed reads too)
+    const provinceAsks = new Map();
+    page.on('request', r => { const path = new URL(r.url()).pathname; if (/^\/h\/province\//.test(path)) provinceAsks.set(path, (provinceAsks.get(path) ?? 0) + 1); });
     const seasonRec = GOLDEN.stages.grown['/h/season'].body;
     await page.clock.setFixedTime(new Date(Number(seasonRec.latestUnix) * 1000 + 500));
     const url = `${base}/frontier/index.html?at=${HOST_TILE.p},${HOST_TILE.q},${HOST_TILE.tile},${phone ? '0.55' : '1.0'}`;
@@ -114,7 +118,8 @@ for (const vp of [{ width: 1440, height: 900, name: 'desktop' }, { width: 390, h
       for (let i = 0; i < 12; i++) {
         const p = await tileAt(page, at), w = vp.width;
         const top = 40 + await page.evaluate(() => Math.max(150, ...[...document.querySelectorAll('.banner.error')].map(e => e.getBoundingClientRect()).filter(r => r.height > 0).map(r => r.bottom)));
-        const bottom = await page.evaluate(() => Math.min(innerHeight, document.getElementById('hand')?.getBoundingClientRect().top ?? innerHeight)) - 40;
+        // (above the action bar and above the drawer or phone sheet where it stands: a tile under them takes no press)
+        const bottom = await page.evaluate(() => Math.min(innerHeight, ...['hand', 'panel'].map(id => document.getElementById(id)).filter(e => e && !e.hidden).map(e => e.getBoundingClientRect()).filter(r => r.height > 0 && r.width > innerWidth * 0.6).map(r => r.top))) - 40;
         if (p.x > 40 && p.x < w - 40 && p.y > top && p.y < bottom) return;
         await page.locator('#frontier-map').focus();
         const key = p.x >= w - 40 ? 'ArrowRight' : p.x <= 40 ? 'ArrowLeft' : p.y <= top ? 'ArrowUp' : 'ArrowDown';
@@ -125,8 +130,9 @@ for (const vp of [{ width: 1440, height: 900, name: 'desktop' }, { width: 390, h
     const inHand = () => page.evaluate(async id => { const { FS } = await import('/frontier/fstate.mjs'); const s = (await import('/frontier/hud/hand.mjs')).subjectOf(FS); return s?.kind === 'host' && String(s.host.id) === id; }, String(GOLDEN.host));
     /** The host in hand and (5,0) tile 0 pressed: the card, or the map's answer. (A first press may meet the planner loading.) */
     const order = async () => {
-      for (let i = 0; i < 3 && !(await inHand()); i++) { await tap(HOST_TILE); await page.waitForTimeout(600); }
-      assert.equal(await inHand(), true, `${stage}: the host at (4,0) tile 0 in hand`);
+      // (the host's tile in view first: a phone's first view need not be centred on ?at — the sheet may stand half up)
+      for (let i = 0; i < 3 && !(await inHand()); i++) { await bringIntoView(HOST_TILE); await tap(HOST_TILE); await page.waitForTimeout(600); }
+      assert.equal(await inHand(), true, `${stage}: the host at (4,0) tile 0 in hand (${JSON.stringify(await page.evaluate(async () => { const { FS } = await import('/frontier/fstate.mjs'); const { subjectOf, ownHosts } = await import('/frontier/hud/hand.mjs'); const s = subjectOf(FS); return { sel: FS.selected, who: s ? s.kind : null, hosts: ownHosts(FS).length, provinces: [...FS.provinces.keys()], note: FS.mapNote?.text ?? null }; }))})`);
       await page.locator('#hand [data-hand="march"]').first().waitFor();
       await bringIntoView(TARGET);
       await tap(TARGET);
@@ -175,6 +181,8 @@ for (const vp of [{ width: 1440, height: 900, name: 'desktop' }, { width: 390, h
     }
 
     assert.deepEqual([...notFound].filter(p => !p.startsWith('/h/')), [], 'no 404 for the page\'s own files');
+    const storm = [...provinceAsks].filter(([, n]) => n > 20);
+    assert.deepEqual(storm, [], `no Province asked for more than 20 times in this run (${JSON.stringify([...provinceAsks])})`);
     assert.deepEqual(posts, [], 'no request but reads');
     assert.deepEqual(errors, [], 'no page error, and no console error but the 404s of golden-absent herald paths');
     await NK.assertKeyless(ctx, assert);

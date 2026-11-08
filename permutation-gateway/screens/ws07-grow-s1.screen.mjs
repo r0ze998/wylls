@@ -129,6 +129,10 @@ for (const vp of [{ width: 1440, height: 900, name: 'desktop' }, { width: 390, h
     // every 404 the page meets: under /h/ and on the documented list (never one of the page's own files)
     const notFound = new Set();
     page.on('response', r => { if (r.status() === 404) notFound.add(new URL(r.url()).pathname); });
+    // (a Province the herald does not have is asked for again only after the refresh interval, never in a storm: 16's
+    // §29.32 measured 300+ requests a path in 2 minutes before controller.wantProvince waited for failed reads too)
+    const provinceAsks = new Map();
+    page.on('request', r => { const path = new URL(r.url()).pathname; if (/^\/h\/province\//.test(path)) provinceAsks.set(path, (provinceAsks.get(path) ?? 0) + 1); });
     const seasonRec = GOLDEN.stages.before['/h/season'].body;
     await page.clock.setFixedTime(new Date(Number(seasonRec.latestUnix) * 1000 + 500));
     const url = `${base}/frontier/index.html?at=${HOST_TILE.p},${HOST_TILE.q},${HOST_TILE.tile},${phone ? '0.55' : '1.0'}`;
@@ -207,6 +211,8 @@ for (const vp of [{ width: 1440, height: 900, name: 'desktop' }, { width: 390, h
 
     assert.deepEqual([...notFound].filter(p => !p.startsWith('/h/')), [], 'no 404 for the page\'s own files');
     assert.deepEqual([...notFound].filter(p => !ABSENT.has(p)).sort(), [], 'every 404 is a documented golden-absent herald path');
+    const storm = [...provinceAsks].filter(([, n]) => n > 20);
+    assert.deepEqual(storm, [], `no Province asked for more than 20 times in this run (${JSON.stringify([...provinceAsks])})`);
     assert.deepEqual(posts, [], 'no request but reads');
     assert.deepEqual(errors, [], 'no page error, and no console error but the router\'s 404s');
     await NK.assertKeyless(ctx, assert);
