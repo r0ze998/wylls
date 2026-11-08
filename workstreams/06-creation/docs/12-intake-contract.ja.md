@@ -109,7 +109,7 @@ intake({
 - 実チェーンは読まない。④の受付は、届かないノード（127.0.0.1:9）を指す。
 
 **結果（鍵なし。Node 22.22.0 と 20.20.0）：**
-- `connect-live` 7件のうち6件通過・1件未実行（④の gateway の要求検査。npm の依存が未導入）。
+- `connect-live` 7件のうち6件通過・1件未実行（④の gateway の要求検査。npm の依存が未導入。下の「未実行の1件」）。
 - 鍵なしのオフライン試験 20件（`intake` 2・`ports` 2・`dispatch` 6・`connect` 10）通過。
 - scratch の④の試験 `ws06_check`（`20db3313` の実行器、④には残していない）3件通過。
 
@@ -128,3 +128,34 @@ intake({
 - **④の受付が依頼者を通すこと：** チェーン（パスの PDA の口座）が要る。⑥からは拒否の側だけを試した。通る側は④の `tests/intake_chain.rs` が確かめている。
 - **③のサーバーを動かすこと：** 財布の木と⑤の依存が要る。③の規則はソースで照合し、③の振る舞いは偽物で再現しただけ。③自身の鍵なし試験（27/27、③の報告）は⑥では回していない。
 - **控えの置き場（D2）と、期限・予算（D3）：** 未決。試験はメモリと一時ファイルだけ。
+
+### 5.1 ④の gateway の要求検査（`connect-live` 2）：④の環境で通過（2026-11-08）
+
+**結果（④が④の統合の環境で実行し、⑥が版と同一性を確かめた）：**
+- ⑥の木：`96ffd72e5327b99bf362d140070e798f5f46161e`。④は `workstreams/06-creation` だけを sparse で checkout した。
+- WS04_ROOT・WS03_ROOT：④の統合候補 `b3d0897869add543985c3f7a6c7aa8b7991f9bf1`（tree `2e378f3a9fb60e82d504e9b2de410acea9ae132b`）。
+- 依存：`permutation-gateway` は `npm ci --ignore-scripts` 済み。`@solana/web3.js` 1.99.0、`@magicblock-labs/ephemeral-rollups-sdk` 0.17.2。
+- 実行：node v22.22.0、`node --import <WS04_ROOT>/scripts/ci/no-keys-guard.mjs --test --test-name-pattern "gateway accepts" workstreams/06-creation/test/connect-live.test.mjs`。RUNEXEC_BIN は候補の runexec。
+- 結果：`ok 1 - ④'s gateway accepts the action ③ would build from 06's call; the key fits`。1件中1件通過、失敗 0、省略 0。guard で止まったものは無い。呼び出し先は `parseActionRequest` だけで、署名も送信もしていない（④の報告）。
+
+**⑥が GitHub 上で確かめたこと：**
+- `contract.mjs`・`routes/errors.mjs`・`client/src/{chain,codec,pda}.mjs`・`package-lock.json` は、`20db3313` と `b3d08978` で同一。lockfile の sha256 `95f3f6b3…19e6b` も一致。
+- `workstreams/03-composability` は `6ee7c4d1` と同一。
+- `permutation-server/web/frontier/fplay.mjs` は `6ee7c4d1` から変わっているが、試験が呼ぶ `placeData`・`cargoBytes`・`PLACE_KIND` は同一。
+
+**数え方：** `connect-live` の7件は、6件がこの環境（④ `20db3313`・③ `6ee7c4d1`）、1件が④の環境（④ `b3d08978`）で通過した。一つの環境で7件を通したものではない。
+
+### 5.1 の以前の記録（未実行だった理由）
+
+- **試験の中身：** ④の `permutation-gateway/src/frontier/agent/contract.mjs` の `parseActionRequest` に、③が組み立てる形の SendCaravan の要求（⑥の requestId・runId 入り）を通し、受け付けること、`source: "ws06"` は拒否されることを確かめる。形の検査だけで、署名も送信もしない。
+- **止めているもの（2026-11-08、④ `20db3313` の `permutation-gateway/package-lock.json`、sha256 `95f3f6b3ee4f24882368198423befb9d1c53612b8c9a81495d7afa35db119e6b`）：**
+  - `contract.mjs` は `routes/errors.mjs` → `client/src/chain.mjs` を経て、外部の `@solana/web3.js` 1.99.0 と `@magicblock-labs/ephemeral-rollups-sdk` 0.17.2 を読み込む（ローカルのファイル8つ）。
+  - どちらもこの環境に無い。全体を探した（`node_modules` も npm のキャッシュも無い）。グローバルにも無い。
+  - この回はソフトを入れないので、`npm ci` はしていない。
+- **呼び出し経路の監査：** `parseActionRequest` は形の検査だけ。読み込み時に動くのは④の `client/src/pda.mjs` の PDA の算出（許可の範囲）。鍵の生成・導出・署名は無い。実行するときは④の `scripts/ci/no-keys-guard.mjs` を前に読み込み、鍵の API が呼ばれたら止める。
+- **④に依頼したこと：** 依存の入った④の統合の環境で、この1件だけを guard 付きで回してもらう。手順は次のとおり。
+
+```
+WS03_ROOT=<③ 6ee7c4d1> WS04_ROOT=<④ 20db3313（npm ci --ignore-scripts 済みの permutation-gateway）> RUNEXEC_BIN=<20db3313 の runexec> \
+  node --import <WS04_ROOT>/scripts/ci/no-keys-guard.mjs --test --test-name-pattern "gateway accepts" workstreams/06-creation/test/connect-live.test.mjs
+```
