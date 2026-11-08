@@ -2214,3 +2214,35 @@ Rust の側は 23.3 に書く。
 ### 27.5 c260c438 の verifier（以前から残っていた分）
 
 `cargo test --locked --offline -p verify`（lib と、custody・history・state・replay・replay_caravans・rights_replay・v16_v27_gate・v16_cpi_keyfree）：**128/128**、exit 0（`logs/phase22/verify-custody-c260.txt`）。
+
+### 27.6 ④ 11bc9698：⑦ の取り込みと、src を通る scan
+
+- 対象：`11bc9698e7ac6526e60bdf930df0476b9b573521`（tree `8141858b50b368ba033e1006ab06afaf4e87ee9d`）= 695e1d83 + `a23f02bb`（⑦ e28d6b38 の merge）+ `11bc9698`（scan）。
+- ⑦ 由来の path（`permutation-gateway/screens`、`test/web-frontier-ws07-coop.test.mjs`、`hud/coopboard.mjs`）は、e28d6b38 と**一致**。§27.4 の監査と march 2/2 は、そのまま当てはまる。G1（installed proof の fail-open）は残っている。
+- scan：`--check` は exit 0（119 直接 / 205 src を通る / 5 review 済み）。作り直した `node-key-tests.txt` は byte まで同じ。scan の fixture 試験は 4/4。どれも file を読むだけで、試験は流していない。
+- ⑥ の review 済みの 5 件：
+  - 閉包の中で `keys.mjs` を import するのは plan.mjs・registry.mjs・validate.mjs で、どれも caravan.mjs → plan.mjs から入る。
+  - caravan が使うのは `resolve` だけ。`resolve` は own() だけを使う純粋な関数（plan.mjs 92〜107 行）。
+  - plan.mjs と keys.mjs の top level には、呼び出しがない。
+  - **review の結論は正しい。** ただし理由の文の「plan.mjs の import だけで届く」は不正確で、registry.mjs と validate.mjs も keys.mjs を import する（どちらも plan.mjs の先）。
+- **scan の見落とし（新規）**：
+  - scan がたどるのは、文字列で書かれた相対 import だけ。
+  - list に載らない（＝流してよいとされる）試験 164 件のうち 26 件は、scan がたどれない経路で code を動かす：子 process の spawn・exec、`import(new URL(…))`、`import(変数)`（`logs/phase22/scan-unfollowed-runnable-11bc.txt`）。
+  - その先を ⑯ が scan の PAT でたどると、2 件で鍵の API の名前に届いた:
+    - `workstreams/05-ai-participation/model-api/test/safety-e2e.test.mjs` → spawn `test/procs/autopilot-worker.mjs` → `permutation-gateway/src/frontier/agent/gateway.mjs`（`.sign(`）。
+    - `workstreams/12-memory/test/adapters-ws13-real.test.mjs` → `import(new URL('demo/run-demo.mjs', WS13))` → `workstreams/13-citizens/world/harness.mjs`（`.sign(`）。
+  - 今の CI には影響しない。⑫ の list は adapters-ws13-real を手で外しており、⑤ の model-api には CI の job がない。
+  - ただし、scan の「list に無い＝鍵を使わない」という判定は、この 2 件では誤り。`node-keyfree.sh --covers` も通してしまう。
+  - そのほかに、⑯ が行き先をたどったもの:
+    - gateway の citizens-* の spawn 先 7 件。
+    - web-sdk の sdk / frontier の 9 module。
+    - 12-memory の ws13 の frame・ws12-canonical・public-evidence。
+    - ⑤ の ledger-worker。
+    - いずれも、鍵の API の名前はない。
+  - たどっていないもの:
+    - ⑬ integration-records の `RUNEXEC_BIN`（Rust の binary）。
+    - gateway の ac10a の 2 件（一時的に作る変異 module を import する）。
+    - connect-live の `load(root, rel)`（③・④ の tree を読む。subtle の鍵の method は、試験が自分で置き換える）。
+- 案：
+  - 上の 2 件を、保守的な除外として list に載せる。
+  - spawn や計算した import を持つ試験は「たどれない」として印を付け、review を要るものにする。
