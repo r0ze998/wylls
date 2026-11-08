@@ -332,3 +332,54 @@ fa822453 の上に載せた。各チームのサブツリーは、チームが�
 - ⑰ は公開を待っている。routes/prize.mjs をどちらにするかは、利用者の判断。
 - ⑨ の割当て（記録の kind、ClaimSplit、RULESET_HASH）は保留にした。
 - 実チェーン、SBF・LiteSVM、ブラウザでの表示は、まだ確かめていない。
+
+## 14. 第3回・第4回の統合と VW1（④、2026-11-08）
+
+**第3回**（20db3313 の後）
+- ⑦ 8373ba63
+- ⑬ d9ac99ad：W1（5d178b77）と両方を保った。ファイルごとに確かめた。
+- ⑲ 668e9b66 の文書2か所：コードの部分は ⑳ の変更を戻すので取らない。
+- ⑪ の 0014（sha256 f8763979…）
+- ⑩ b91d2e52（V26 の命令の再生）
+- ② d0da1d02（rights-experimental）
+- ④ が直したもの：
+  - ② の分の v2/logs.json と web SDK（作り直し）
+  - プログラムの割当ての試験（kind 114〜119 と、版）
+  - 画面の試験の偽のヘラルドの形（539e6b89）
+
+**VW1**（4ecef1d9。verify/src/checks/vw_chains.rs。feature wide-world-experimental）
+- 確かめること：wide の event の chain。
+- 判定：
+  - chain の切れは FAIL。
+  - 最終の口座との不一致は、履歴が whole のときだけ FAIL。そうでなければ UNVERIFIABLE。
+  - wide の記録が1つでもあれば、必ず WideUnmodelled（UNVERIFIABLE）。
+- 鍵なしの試験：7件。
+- 分担：⑪ が V0 の振り分け、⑳ が 0xDD を受け持つ。
+
+**第4回**（c7836449）
+- ③ 6ee7c4d1：③ の試験は、この候補で 27/27。
+- ⑦ 24369382（協力の板の入口）、① c01c7418（/coop/config）
+- ⑬ 36376b3b、⑥ 7bcdfa24
+- ⑩ の 0002（a690a038）、⑪ の 0015（sha256 68b6a039…）
+- ⑨ dddef5b5（capacity-preview、コアのパッチ 0001）
+- **版のビットの衝突**：② と ⑨ が、どちらも仮の 0x2000 を出していた。④ の仮の割当てとして、② は 0x2000、⑨ は 0x1000 にした。rights と capacity を同時に build するのは compile_error。
+- ④ が直したもの：
+  - 統合の後の dispatch の閉じかっこ
+  - 版の試験を build ごとに
+  - quick.rs の試験だけで使うものが、clippy で落ちていた件
+  - BadConfig の文
+
+**この候補（c7836449）の確認**（鍵なし）
+- gateway・web 1885/0、⑬ 189/0（省略 6）、③ 27/27、① 234、⑥ 20（省略 7）
+- verify の一式と VW1 7件
+- permutation-frontier：既定 111、capacity 115、custody 112、capacity＋custody 118、rights 150、wide 128、no-default 44
+- clippy -D warnings：permutation-frontier と frontier-abi で通過
+- rules：既定と capacity。abi：既定と capacity
+- abi-vectors と web SDK：fresh
+- e2e-native：registry と error_codes
+
+**決めていないこと**
+- ⑨ の記録の kind（帯 120〜129、副種別の案）、AccountKind 25・26、KERNEL_VERSIONS、継続世界の R1、Holding の履歴
+- ⑩ の LOT_RETURNED
+- capacity と custody を組んだ版（今は仮に 5|0x1000）
+- NFT 賞金の候補 3090242a：利用者の Mac にしか無い。取得待ち。
