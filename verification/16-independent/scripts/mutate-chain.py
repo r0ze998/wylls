@@ -8,7 +8,8 @@ muts = {
   'M1-a-tag+1':        ('a-join.json',    lambda j: j.__setitem__('citizen_tag', OTHER_TAG)),
   'M2-b-other-citizen':('b-caravan.json', lambda j: j.__setitem__('citizen_tag', OTHER_TAG)),
   'M3-c-fact-tag':     ('c-memory.json',  lambda j: j['facts'][0]['data'].__setitem__('tag', '1b61af352e1d1352')),
-  'M4-d-ship-tag':     ('d-outcome.json', lambda j: j['proposed_mapping']['events'][0].__setitem__('ship', j['proposed_mapping']['events'][0]['ship'].replace('1973050754706772817', str(OTHER_TAG)))),
+  # d-outcome.json: `proposed_mapping.events` until ⑮'s stage-D patch (d491fd8d), `events` from then on.
+  'M4-d-ship-tag':     ('d-outcome.json', lambda j: (lambda ev: ev[0].__setitem__('ship', ev[0]['ship'].replace('1973050754706772817', str(OTHER_TAG))))(j['proposed_mapping']['events'] if 'proposed_mapping' in j else j['events'])),
   'M5-e-other-citizen':('e-prize-run.json', lambda j: j.__setitem__('nft_citizen', '6TUvpsqCubL6tRZoVuVW1sB9xUJgc8ypQDnU52uDhbgj')),
   'M6-a-no-transfer':  ('a-join.json',    lambda j: j.__setitem__('generation', 0)),
   'M7-e-claim-paid':   ('e-prize-run.json', lambda j: j.__setitem__('claim_A_with_pass_citizen', 'Ok')),
