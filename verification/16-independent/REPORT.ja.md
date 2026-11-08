@@ -3935,3 +3935,74 @@ env -u NODE_OPTIONS -u WS04_SCAN_ROOT -u RUNEXEC_BIN -u RUNEXEC_VIEW_BIN bash sc
 - ただし、4 の除外はより保守的な線引きで、事実の食い違いではない。ユーザーの指示どおり、この 2 file は、4 と ⑯ が合意するまで保留にする。
 - 残りの 3 file（map-contract、map-arrival、growth-route）は、両者の線引きで重なる。
 - 4 の新しい subset は、exact な差分（SHA、file、command、閉包と guard の preload の照合）を ⑯ が審査した後でだけ、最小の実行ができる。まだ受け取っていない。
+
+## 29.39 4 の 3 file の実行、4 の過去の環境の申告、2 file の除外の理由との照合、7 の画面の候補（⑯ は何も走らせていない）
+
+### A. 4 の実行（ユーザーの許可による。4 の報告で、記録は 4 の scratchpad にあり、⑯ は読めない）
+
+- 新しい detached の worktree の 553f7fe7（tree dcbc1970）。実行の前後とも、`git status --porcelain=v1 -uall` は空だった。
+- `node_modules` は、cwd からすべての祖先、`$HOME/.node_modules`、`$HOME/.node_libraries`、`/opt/node22/lib/node` に無かった。
+- preload の 15 file の digest は `b301d64baeaea253` で、⑯ の値と一致した。
+- `env -u NODE_OPTIONS -u NODE_PATH -u WS04_SCAN_ROOT -u RUNEXEC_BIN -u RUNEXEC_VIEW_BIN` の下で、node は `/opt/node22/bin/node` v22.22.0。
+- 結果。どれも `bash scripts/ci/node-keyfree.sh permutation-gateway test/web-frontier-<name>.test.mjs` を 1 回ずつ走らせた。
+
+| file | exit | 合格 | stderr |
+|---|---|---|---|
+| map-contract | 0 | 17/17 | 空 |
+| map-arrival | 0 | 5/5 | 空 |
+| growth-route | 0 | 7/7 | 空 |
+
+- 記録：`<4 の scratchpad>/runs/553-subset-1/`（14 file と、その sha256）。
+- これは §29.36 の C と D の条件どおりである。⑯ は記録を直接は確かめていない。
+
+### B. 4 の過去の環境の申告（証拠の欠け。鍵の処理の証拠ではない）
+
+- 4 の shell では、この session の間ずっと `NODE_OPTIONS=--use-openssl-ca`（CA の設定で、preload ではない）と、`NODE_PATH=/usr/local/lib/node_modules_global` が設定されていた。
+- 4 の統合の worktree（int-merge）には `permutation-gateway/node_modules`（@noble などを含む）があった。だから、そこで走らせた `node-keyfree.sh` と画面の実行では、guard の preload が、審査していない `@solana/web3.js` と `@noble/curves` の bytes を読み込んでいた。
+- 4 は、これを以前の証拠の欠けとして記録する。⑯ も同じ扱いにする。
+- ⑯ 自身の以前の実行も、scratchpad の worktree の多くで、playwright-core の symlink だけを持つ `node_modules` を作っていた。web3 と noble の package は無かったはずだが、それぞれの時点では確かめていない。これも同じく欠けとして記す。
+
+### C. want-province と viewer-own-citizen：4 の除外の理由（「経路が FS の状態に依存する」）との照合
+
+4 の除外の理由に答えるため、FS の状態によらない呼び出しの図を、静的に閉じた。
+- 試験が呼ぶ入口は `applyMeResult`、`useHerald`、`wantProvince` の 3 つ。
+- その先の関数は、どの FS の状態でも次の集合の中に収まる：
+  - controller.mjs の中：`viewerOwnCitizen`、`viewerCitizenPin`、`viewerKey`、`readLand`、`saveLandPatch`、`nowBell`、`now`、`refreshDelegation`（→ `loadAgents`、`delegatedTo`、`invalidate`）、`loadEnvelope`（→ herald の `province`、`latestEnvelope`、`protoLand`、`keepFromProvince`）
+  - 閉包に session、wallet、fsession を含まない module の関数：fwide、fland、fui、fstate、fdelegation、fconquest
+  - `fsession.matchesCitizen`：本体は純粋な比較で、session.mjs の関数を呼ばない。
+- 鍵の入口の呼び出し元は、この集合の外にある：
+  - `syncConnectedWallet`（578 行目）
+  - ACTIONS の `join`（1931 行目）と `session`（1947 行目）
+  - `startPlay`（2147、2163 行目）
+- 分岐（FS の値）が変えるのは、この集合の中のどの関数を通るかだけで、集合の外へ出る辺は無い。
+- **判定（⑯）。** session.mjs は閉包に入る（import される）が、これらの試験の呼び出しの図から、その関数は呼ばれない。FS の状態にはよらない。
+- ただし、ユーザーは、4 の除外の理由と合う結論が出るまで、この 2 file を除外したままにすると決めた。⑯ はこの照合を 4 に送る。2 file は保留のまま。
+
+### D. 7 の画面の候補 5f8e68b1（ws07-conquest-s1、ws07-grow-s1）と、page の realm の到達性の議論
+
+7 の議論の要点：
+- page の realm で鍵の入口を呼ぶのは、`enableDevWallet`（cfg.dev が偽なので届かない）、`restore`（storage に `ps-fsession:*` が無いので届かない）、`derive`（join や session を押したときだけ）、`sealMarch`（march-send を押したときだけ）。
+- `importBackup`、`preflight`、`publicKeyOf` は、frontier の中に呼び出し元が無い。
+- `autoTicket` は、`FS.session` が無いと先に戻る。
+
+⑯ の見方：
+- page の realm の JS だけの導出の入口は、`session.mjs` の `keyFromSeed` と `publicKeyOf` に集まっている。fsession と wallet の呼び出しは、ESM の live binding でこれを指す。
+- NK の route は、session.mjs の末尾にこの 2 つを拒む代入を加える（nokey-page.mjs 61〜63、71〜78 行目）。ESM は依存を先に評価するので、session.mjs を import する module の top-level が動くときには、もう置き換わっている。だから、route が確かに効いていれば、到達しても導出の前に throw する。
+- **残る穴（だから今は除外のまま）。**
+  1. route と init script が効いたことを、画面の試験は**呼ぶ前に**確かめていない。終わりの `assertKeyless` は、数えた記録を見る後からの確認である。
+  2. page が読み込む module すべての、読み込みの時点の code を審査していない（7 も認めている）。
+  3. node の側：`world.viewer` の keyless の分岐と、liveworld の遅延の `fee()` は、条件つきで届かない。
+  4. 7 の提案の command は、cwd（screens）の `node_modules` から web3 と noble を解決しうる。
+- **⑯ の提案（解除は今はしない）。**
+  - 各画面の始めに、鍵の入口を呼ばずに source の text だけで route と init の置き換えを確かめ、外れていれば何もしないで止める、fail-closed の前提の確認を加える。
+  - `node_modules` は playwright-core の link だけにし、NODE_PATH を unset にする。
+  - 完全な出力を保存する runner を使う。
+  - そのうえで、page の module の読み込みの時点の審査を行う。
+  - そろったら、もう一度審査する。それまで browser は除外のまま。
+
+### E. 4 の subset の guard（bc5ad528、手元だけで、走らせていない）
+
+4 は、⑯ の経路（node-keyfree.sh と repo の guard を、node_modules の無い worktree で使う）があるので、これは要らないとしている。⑯ の静的な所見は記録に留める（使う提案ではない）。
+- package を読み込まず、置き換えを読み直して、効かなければ失敗する。これは今の guard の「黙ってあきらめる」問題に答えている。
+- resolve の hook は、static と dynamic の ESM import に効く。ただし、node:test の内部の module は hook を通らない。だから `node:vm` などを拒んでも、試験の runner は壊れない見込みである。これは実行して確かめていない。
+- `--test` の子の process は、親の `--import` を execArgv で受け継ぐ（⑯ の以前の hook v2 の active check で見た挙動）。
