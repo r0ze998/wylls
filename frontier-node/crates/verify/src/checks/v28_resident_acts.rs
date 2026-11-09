@@ -46,9 +46,9 @@ use frontier_abi::resident_auth::{self as ra, Refusal};
 use frontier_abi::resident_wire::{self, Command};
 
 use super::Ctx;
+use crate::Severity;
 use crate::codes::*;
 use crate::world::{Ix, Key, Tx, World};
-use crate::Severity;
 
 const V: &str = "V28";
 
@@ -91,10 +91,17 @@ pub struct ActCtx<'a> {
 /// The inner commands `permutation-frontier` `proc::wide::resident_act`
 /// runs for an NFT Citizen, by their `WideCommand` variant: WideClaimSite,
 /// WideDepart, 0xDA's player Muster and Dissolve, and the wide economy's
-/// Harvest/Build/Train (0xDA op 3). A test keeps this list equal to the
+/// Harvest/Build/Train (0xDA op 3) and Garrison (op 4). A test keeps this list equal to the
 /// program's dispatch (`wide_act_runs_exactly_the_programs_dispatch`).
 #[cfg(feature = "wide-world-experimental")]
-pub const WIDE_ACT_COMMANDS: [&str; 5] = ["ClaimSite", "Depart", "Muster", "Dissolve", "Economy"];
+pub const WIDE_ACT_COMMANDS: [&str; 6] = [
+    "ClaimSite",
+    "Depart",
+    "Muster",
+    "Dissolve",
+    "Economy",
+    "Garrison",
+];
 
 /// A successful WideResidentAct's generation, inner command and its name, as
 /// `proc::wide::resident_act` runs it: the ABI's own decode, then one of
@@ -109,6 +116,7 @@ pub fn wide_act(d: &[u8]) -> Option<(u32, &[u8], &'static str)> {
         W::Muster(_) => "WideMuster",
         W::Dissolve(_) => "WideDissolve",
         W::Economy(_) => "WideEconomy",
+        W::Garrison(_) => "WideGarrison",
         _ => return None,
     };
     Some((x.generation, x.inner, name))
@@ -264,7 +272,7 @@ fn judge_holder(
         Err(r) => {
             return firm(format!(
                 "the pass before the act is not one the program accepts ({r:?})"
-            ))
+            ));
         }
     };
     // The generation only grows (every change of holder adds one).
@@ -508,7 +516,9 @@ pub fn judge_tx(w: &World, ac: &ActCtx, i: usize, t: &Tx) -> Vec<Found> {
             push(
                 Severity::Unverifiable,
                 RESIDENT_INNER_UNMODELLED,
-                format!("the inner {name} is the wide world's; VW does not model it yet (WideUnmodelled)"),
+                format!(
+                    "the inner {name} is the wide world's; VW does not model it yet (WideUnmodelled)"
+                ),
             );
         } else if !inner_ix.is_some_and(|x| super::v0_coverage::supported(x, ac.v3, ac.s1)) {
             push(
@@ -1273,9 +1283,10 @@ mod tests {
         let v = judge_wide(&w, Some(&f));
         assert_eq!(fails(&v), vec![]);
         assert_eq!(v.len(), 5, "{v:?}");
-        assert!(v
-            .iter()
-            .all(|x| x.1 == Severity::Unverifiable && x.2 == RESIDENT_INNER_UNMODELLED));
+        assert!(
+            v.iter()
+                .all(|x| x.1 == Severity::Unverifiable && x.2 == RESIDENT_INNER_UNMODELLED)
+        );
         for (seq, ix, what) in [
             (8, wide(A, 1), "A after the transfer"),
             (8, wide(A, 0), "A's signature from before the transfer"),
@@ -1329,6 +1340,33 @@ mod tests {
             arms, want,
             "V28's WideResidentAct list drifted from the program"
         );
+    }
+
+    /// Literal canonical Garrison envelope; no account replay or key operations.
+    #[cfg(feature = "wide-world-experimental")]
+    #[test]
+    fn wide_garrison_act_is_classified_without_economy_alias() {
+        use frontier_abi::world_index::wide_ix::ResidentAct;
+        let mut inner = vec![0xDA, 0xFF, 1, 4];
+        inner.extend_from_slice(&123i64.to_le_bytes());
+        let mut data = vec![0; ResidentAct::HEAD + inner.len()];
+        let n = ResidentAct {
+            generation: 7,
+            inner: &inner,
+        }
+        .encode_into(&mut data)
+        .unwrap();
+        data.truncate(n);
+        assert_eq!(wide_act(&data), Some((7, inner.as_slice(), "WideGarrison")));
+        inner[3] = 3;
+        let n = ResidentAct {
+            generation: 7,
+            inner: &inner,
+        }
+        .encode_into(&mut data)
+        .unwrap();
+        data.truncate(n);
+        assert_eq!(wide_act(&data), None, "Garrison bytes are not economy");
     }
 
     /// The wide economy through 0xDD (Harvest, op 3): judged like the other

@@ -49,6 +49,16 @@ function widePresentation() {
     return {archiveSequence:'1',ordinal:'0',format:'PSW1',kind:body[1],name:body[1]===16?'WIDE_ECONOMY_MIRROR':'WIDE_ECONOMY',
       province,holding,host:null,body_b64:body.toString('base64')};
   });
+  // Provisional Garrison presentation row only: explicitly synthetic receipt
+  // and links, never claimed to be an authenticated host-dispatch vector.
+  const garrison=Buffer.alloc(227),base=Buffer.from(rows[0].body_b64,'base64');
+  garrison[0]=0x82;garrison[1]=17;garrison.writeUInt32LE(10,2);
+  base.copy(garrison,6,6,62);
+  garrison[62]=1;garrison.writeBigInt64LE(10n,63);garrison.writeBigInt64LE(1800433800n,71);
+  garrison.fill(0x31,80,112);garrison.fill(0x32,112,144);
+  garrison[144]=2;garrison[145]=1;garrison.writeBigUInt64LE(2n,146);
+  garrison[186]=2;garrison.writeBigUInt64LE(3n,187);
+  rows.push({...rows[0],kind:17,name:'WIDE_GARRISON',body_b64:garrison.toString('base64')});
   // A separately labelled synthetic map capture, not a live province. Copy
   // the unchanged host output and rebind public season/world identity only.
   const copy=name=>Buffer.from(readFileSync(new URL(`../../frontier-node/crates/verify/tests/fixtures/wide_economy/harvest/${name}_post.bin`,import.meta.url)));
@@ -102,7 +112,7 @@ async function serve() {
         const mode=historyMode,after=Number(url.searchParams.get('after')),limit=Number(url.searchParams.get('limit'));
         if(url.searchParams.get('through')!==wide.scope.indexedThrough||url.searchParams.get('snapshot')!==wide.scope.snapshot||limit!==20||![0,20].includes(after)) return json(400,{code:'WrongHistoryRequest'});
         if(historyGate) await historyGate;
-        const events=Array.from({length:Math.min(limit,25-after)},(_,i)=>({...wide.rows[(after+i)%5],event:String(after+i+1),archiveSequence:String(after+i+1)}));
+        const events=Array.from({length:Math.min(limit,25-after)},(_,i)=>({...wide.rows[(after+i)%wide.rows.length],event:String(after+i+1),archiveSequence:String(after+i+1)}));
         if(mode==='malformed') events[0]={...events[0],host:events[0].holding};
         return json(200,{...wide.scope,after:String(after),limit,events,next:String(after+events.length),more:after===0});
       }
@@ -193,7 +203,8 @@ async function wideEconomy(page,srv,vp,outDir) {
   assert.equal(await page.locator('#wide-origin').textContent(),'P 129, Q 0');
   assert.match(await page.locator('#wide-history-status').textContent(),/土地やプレイ可能状態は示しません/);
   const first=await rows.allTextContents();
-  for(const word of ['収穫','建設','訓練','WIDE_ECONOMY_MIRROR']) assert.ok(first.some(x=>x.includes(word)),word);
+  for(const word of ['収穫','建設','訓練','WIDE_ECONOMY_MIRROR','WIDE_GARRISON']) assert.ok(first.some(x=>x.includes(word)),word);
+  assert.ok(first.some(x=>x.includes('WIDE_GARRISON') && /10/.test(x) && x.includes('追加予約')),'garrison history describes queued troops, not an active defence');
   assert.equal(await rows.locator('button').count(),0,'a holding receipt is never a host action');
   assert.equal(await page.locator('#wide-action-review').textContent(),'');
   const layout=await sheet.evaluate(s=>{

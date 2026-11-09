@@ -120,6 +120,9 @@ mod wide_economy;
 #[path = "wide_return_atomicity_tests.rs"]
 mod wide_return_atomicity;
 
+#[path = "wide_garrison_runtime_tests.rs"]
+mod wide_garrison;
+
 /// The literal seed the legacy RingSeed of ring 128 carries in the
 /// pre-state (as OpenRing(128) and ConsumeRingSeed left it).
 const RING128_SEED: [u8; 32] = [0x80; 32];

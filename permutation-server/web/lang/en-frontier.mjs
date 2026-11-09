@@ -828,6 +828,7 @@ export default {
   '不定': 'Ambiguous',
   '同じ枠に複数の捕捉記録が一致しました。どれも表示しません。': 'Several captured records match the same slot. None of them is shown.',
   '村の場所 {0} · 世代 {1}': 'Site {0} · generation {1}',
+  '守備兵を {0} 人追加予約（観測）': 'Queued {0} garrison troops (observed)',
   '捕捉・未検証': 'Captured, unverified',
   '現在性：未確認': 'Currentness: unverified',
   '経過時間：不明': 'Age: unknown',

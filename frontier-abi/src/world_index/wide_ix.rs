@@ -62,6 +62,7 @@
 //! | 0xDA | P | 1 | WideMuster | `unit u8, troops u32, tile u8` | [`MUSTER`] |
 //! | 0xDA | P | 2 | WideDissolve | `host ref 56` | [`DISSOLVE`] (12: the four transit records) |
 //! | 0xDA | P | 3 | WideEconomy | `action 6` (`economy::Action`: Harvest / Build item / Train unit, n; canonical, exact) | [`ECONOMY`] (6), or [`ECONOMY_MIRROR`] for walls and the tier-up (the province writable): selected by the **decoded action** |
+//! | 0xDA | P | 4 | WideGarrison | `delta i64` (positive whole troops, at most u32::MAX) | [`GARRISON`] (6) |
 //! | 0xDC | D, top-level | 1 | WideResolve | `bell u32, beneficiary 32` | [`RESOLVE`] (9: the arrival evidence and System) |
 //! | 0xDC | D | 2 | WideReturn | (none) | [`RETURN`] (9: the four transit records; the holding's own province optional) |
 //! | 0xDC | D | 3 | WideSettleDeparture | `host ref 56, transit_slot u8` | [`SETTLE_DEPARTURE`] |
@@ -561,6 +562,8 @@ pub const OP_DISSOLVE: u8 = 2;
 /// 0xDA op 3: the S1 owner action over a wide holding (module doc, "the
 /// economy op"; `world_index::economy`).
 pub const OP_ECONOMY: u8 = 3;
+/// Provisional class-P sub-operation, not a new allocated tag.
+pub const OP_GARRISON: u8 = 4;
 pub const OP_RESOLVE: u8 = 1;
 pub const OP_RETURN: u8 = 2;
 /// 0xDC op 3: the origin side of a march after its departure bell (the
@@ -703,6 +706,38 @@ pub struct Dissolve {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Economy {
     pub action: Action,
+}
+
+/// 0xDA op 4: positive whole Spearman troops moved from reserve into
+/// the pending site garrison. Experimental, unallocated; no new rules.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Garrison {
+    pub delta: i64,
+}
+
+impl Garrison {
+    pub const IX: WideIx = WideIx::Depart;
+    pub const OP: u8 = OP_GARRISON;
+    pub const LEN: usize = ENVELOPE_HEAD + 8;
+
+    pub fn to_bytes(&self) -> Option<[u8; Self::LEN]> {
+        if self.delta <= 0 || self.delta > u32::MAX as i64 {
+            return None;
+        }
+        let mut b = [0; Self::LEN];
+        head(&mut b, Self::IX.tag(), Self::OP);
+        b[ENVELOPE_HEAD..].copy_from_slice(&self.delta.to_le_bytes());
+        Some(b)
+    }
+
+    pub fn decode(d: &[u8]) -> Result<Self, FrontierError> {
+        let mut c = envelope(d, Self::IX.tag(), Self::OP, Self::LEN)?;
+        let delta = c.i64().ok_or(FrontierError::BadData)?;
+        if delta <= 0 || delta > u32::MAX as i64 {
+            return Err(FrontierError::BadData);
+        }
+        Ok(Self { delta })
+    }
 }
 
 /// 0xDC op 1: the deployed ResolveFromInputs' data (`bell u32,
@@ -873,8 +908,8 @@ impl CloseRoster {
     }
 }
 
-/// Every command of the band, fully decoded: the ten legacy-shaped
-/// instructions and the five envelope sub-operations. The one parser the
+/// Every command of the band, fully decoded: legacy-shaped instructions
+/// and versioned envelope sub-operations. The one parser the
 /// dispatcher runs ([`WideCommand::decode`]); class, top-level rule,
 /// account table and the act's whitelist are read off the command.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -892,6 +927,7 @@ pub enum WideCommand<'a> {
     Muster(Muster),
     Dissolve(Dissolve),
     Economy(Economy),
+    Garrison(Garrison),
     Resolve(Resolve),
     Return(Return),
     CloseRoster(CloseRoster),
@@ -937,6 +973,7 @@ impl<'a> WideCommand<'a> {
         match (ix, d[3]) {
             (WideIx::Depart, OP_MUSTER) => Muster::decode(d).map(WideCommand::Muster),
             (WideIx::Depart, OP_DISSOLVE) => Dissolve::decode(d).map(WideCommand::Dissolve),
+            (WideIx::Depart, OP_GARRISON) => Garrison::decode(d).map(WideCommand::Garrison),
             (WideIx::Depart, OP_ECONOMY) => Economy::decode(d).map(WideCommand::Economy),
             (WideIx::SettleTicket, OP_RESOLVE) => Resolve::decode(d).map(WideCommand::Resolve),
             (WideIx::SettleTicket, OP_RETURN) => Return::decode(d).map(WideCommand::Return),
@@ -964,7 +1001,8 @@ impl<'a> WideCommand<'a> {
             WideCommand::Depart(_)
             | WideCommand::Muster(_)
             | WideCommand::Dissolve(_)
-            | WideCommand::Economy(_) => WideIx::Depart,
+            | WideCommand::Economy(_)
+            | WideCommand::Garrison(_) => WideIx::Depart,
             WideCommand::SetRules(_) => WideIx::SetRules,
             WideCommand::SettleTicket(_)
             | WideCommand::Resolve(_)
@@ -984,6 +1022,7 @@ impl<'a> WideCommand<'a> {
             WideCommand::Muster(_) => "WideMuster",
             WideCommand::Dissolve(_) => "WideDissolve",
             WideCommand::Economy(_) => "WideEconomy",
+            WideCommand::Garrison(_) => "WideGarrison",
             WideCommand::Resolve(_) => "WideResolve",
             WideCommand::Return(_) => "WideReturn",
             WideCommand::CloseRoster(_) => "WideCloseRoster",
@@ -1029,6 +1068,7 @@ impl<'a> WideCommand<'a> {
                 | WideCommand::Muster(_)
                 | WideCommand::Dissolve(_)
                 | WideCommand::Economy(_)
+                | WideCommand::Garrison(_)
         )
     }
 
@@ -1040,6 +1080,7 @@ impl<'a> WideCommand<'a> {
         match self {
             WideCommand::Muster(_) => MUSTER,
             WideCommand::Dissolve(_) => DISSOLVE,
+            WideCommand::Garrison(_) => GARRISON,
             WideCommand::Economy(e) => {
                 if e.action.mirror_write() {
                     ECONOMY_MIRROR
@@ -1067,7 +1108,7 @@ impl<'a> WideCommand<'a> {
 
 /// 0xDD: `generation u32 ‖ inner`, the inner a whole player command of
 /// this band ([`WideCommand::is_player`]: WideClaimSite, WideDepart,
-/// WideMuster, WideDissolve, WideEconomy; the shape of the deployed
+/// WideMuster, WideDissolve, WideEconomy, WideGarrison; the shape of the deployed
 /// `ResidentAct`, `resident_wire::Command::Act`). The act's four proof
 /// accounts and its holder-generation check are the same for every inner
 /// command; admitting WideEconomy adds no authorisation path.
@@ -1547,6 +1588,12 @@ pub const ECONOMY_MIRROR: &[Group] = &[one(&[
     s("holding", WIDE, false, Wr::W),
     s("province", WIDE, false, Wr::W),
 ])];
+
+/// WideGarrison: the same six-account player shape as a mirror write.
+/// The holding and its own province are both writable; no roster account.
+pub const GARRISON: &[Group] = ECONOMY_MIRROR;
+pub const GARRISON_HOLDING: usize = 4;
+pub const GARRISON_PROVINCE: usize = 5;
 
 /// The position of the wide holding in [`ECONOMY`] and [`ECONOMY_MIRROR`].
 pub const ECONOMY_HOLDING: usize = 4;

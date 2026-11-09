@@ -454,7 +454,7 @@ struct Decoded<'a> {
 
 fn decode(body: &[u8]) -> Result<Decoded<'_>, Refusal> {
     let record = WideRecord::decode(body).map_err(|e| Refusal::Record(format!("{e:?}")))?;
-    if !record.kind.holding_keyed() {
+    if !matches!(record.kind, WideKind::Economy | WideKind::EconomyMirror) {
         return Err(Refusal::Record(format!(
             "kind {} ({}) is not an economy receipt; only Economy (15) and EconomyMirror (16) are verified here",
             record.kind as u8,
@@ -915,6 +915,42 @@ pub fn verify_transition(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Fixed wire bytes only: no snapshot builders, replay or key operations.
+    #[test]
+    fn garrison_is_explicitly_not_an_economy_receipt() {
+        use frontier_abi::world_index::{WideCoord, WorldId};
+        let world = WorldId::new([7; 32]).unwrap();
+        let province = ProvinceKey::new(world, WideCoord::checked(129, 0).unwrap());
+        let holding = WideHostRef::new(province, 3, 1, 0).unwrap();
+        let payload = event::garrison_payload(&event::GarrisonReceipt {
+            delta: 123,
+            now_ts: 100,
+            became_final: false,
+            input_digest: [1; 32],
+            output_digest: [2; 32],
+        })
+        .unwrap();
+        let links = [
+            WideLink {
+                entity: WideEntity::Province,
+                seq: 1,
+                head: [3; 32],
+            },
+            WideLink {
+                entity: WideEntity::Holding,
+                seq: 1,
+                head: [4; 32],
+            },
+        ];
+        let body =
+            event::encode(WideKind::Garrison, 9, &holding.to_bytes(), &payload, &links).unwrap();
+        match decode(&body) {
+            Err(Refusal::Record(reason)) => assert_eq!(reason,
+                "kind 17 (WIDE_GARRISON) is not an economy receipt; only Economy (15) and EconomyMirror (16) are verified here"),
+            _ => panic!("Garrison must be explicitly refused, never economy-verified"),
+        }
+    }
     use frontier_abi::bytes::wr_u16;
     use frontier_abi::layout::player::accrual;
     use frontier_abi::v2::layout::province::province as PV2;

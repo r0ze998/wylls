@@ -4,12 +4,12 @@
 
 use base64::Engine;
 use fclient::{
-    ports::{PortResult, Signature, TxRecord},
     Address,
+    ports::{PortResult, Signature, TxRecord},
 };
-use findex::{wide_index::WideIndex, wide_store::WideFindex, Source};
-use frontier_abi::world_index::{event as e, ProvinceKey, WideCoord, WideHostRef, WorldId};
-use serde_json::{json, Value};
+use findex::{Source, wide_index::WideIndex, wide_store::WideFindex};
+use frontier_abi::world_index::{ProvinceKey, WideCoord, WideHostRef, WorldId, event as e};
+use serde_json::{Value, json};
 use std::{
     collections::BTreeMap,
     path::{Path, PathBuf},
@@ -178,10 +178,11 @@ fn mixed_records_preserve_full_id_and_chains_without_legacy_tables_or_verificati
             .seq,
         1
     );
-    assert!(i
-        .chain(e::WideTarget::Province(key(129)))
-        .unwrap()
-        .is_none());
+    assert!(
+        i.chain(e::WideTarget::Province(key(129)))
+            .unwrap()
+            .is_none()
+    );
     assert_eq!(
         i.chain(e::WideTarget::Holding(host()))
             .unwrap()
@@ -207,7 +208,7 @@ fn every_kind_has_a_separate_wide_record_and_canonical_attribution() {
     let p = key(9_007_199_254_740_993);
     let mut c = Chains::default();
     // Zero payloads test codec widths, not gameplay semantics or valid
-    // outcomes; the holding-keyed economy kinds need a canonical receipt.
+    // outcomes; the holding-keyed kinds need their own canonical receipts.
     // `ProvinceClosed` is the terminal record of a province chain, so it
     // is generated last whatever `ALL_KINDS`' code order says (the
     // terminal rule is not weakened for the enumeration).
@@ -217,7 +218,7 @@ fn every_kind_has_a_separate_wide_record_and_canonical_attribution() {
         .filter(|k| *k != e::WideKind::ProvinceClosed)
         .collect();
     kinds.push(e::WideKind::ProvinceClosed);
-    assert_eq!(kinds.len(), 16);
+    assert_eq!(kinds.len(), 17);
     let mut lines = Vec::new();
     for kind in kinds {
         let kb = if kind.host_keyed() {
@@ -227,7 +228,17 @@ fn every_kind_has_a_separate_wide_record_and_canonical_attribution() {
         } else {
             p.to_bytes().to_vec()
         };
-        let payload = if kind.holding_keyed() {
+        let payload = if kind == e::WideKind::Garrison {
+            e::garrison_payload(&e::GarrisonReceipt {
+                delta: 1,
+                now_ts: 100,
+                became_final: false,
+                input_digest: [1; 32],
+                output_digest: [2; 32],
+            })
+            .unwrap()
+            .to_vec()
+        } else if kind.holding_keyed() {
             economy_payload(kind)
         } else {
             let mut payload = vec![0; kind.payload_len()];
@@ -241,16 +252,16 @@ fn every_kind_has_a_separate_wide_record_and_canonical_attribution() {
     i.add(&[tx(1, lines)]).unwrap();
     i.mark_caught_up(1).unwrap();
     let page = i.events(0, 256).unwrap();
-    assert_eq!(page.events.len(), 16);
+    assert_eq!(page.events.len(), 17);
     assert!(
         i.chain(e::WideTarget::Province(p))
             .unwrap()
             .unwrap()
             .terminal
     );
-    // The economy receipts are attributed to the holding's own province
+    // Holding-only receipts are attributed to the holding's own province
     // (`host().key()`, not the standing `p`), name the holding and no host;
-    // the mirror receipt alone chains that province.
+    // EconomyMirror and Garrison chain that province.
     let own = host().key();
     let economy: Vec<_> = page
         .events
@@ -258,9 +269,10 @@ fn every_kind_has_a_separate_wide_record_and_canonical_attribution() {
         .filter(|ev| {
             ev.body[1] == e::WideKind::Economy as u8
                 || ev.body[1] == e::WideKind::EconomyMirror as u8
+                || ev.body[1] == e::WideKind::Garrison as u8
         })
         .collect();
-    assert_eq!(economy.len(), 2);
+    assert_eq!(economy.len(), 3);
     for ev in &economy {
         assert_eq!(ev.province, Some(own.to_bytes().to_vec()));
         assert_eq!(ev.holding, Some(host().holding_ref().to_bytes().to_vec()));
@@ -268,16 +280,16 @@ fn every_kind_has_a_separate_wide_record_and_canonical_attribution() {
     }
     assert_eq!(
         i.chain(e::WideTarget::Province(own)).unwrap().unwrap().seq,
-        1
+        2
     );
     // Muster, Dissolve, Return, Departed, TransitSettled, DepartureSettled,
-    // Economy, EconomyMirror chain the holding: eight.
+    // Economy, EconomyMirror, Garrison chain the holding: nine.
     assert_eq!(
         i.chain(e::WideTarget::Holding(host()))
             .unwrap()
             .unwrap()
             .seq,
-        8
+        9
     );
     drop(i);
     std::fs::remove_file(path).unwrap();
@@ -290,12 +302,13 @@ fn bad_head_rolls_back_the_whole_batch_and_durable_block_refuses_later_reads() {
     let first = c.muster(key(900));
     let mut second = c.muster(key(900));
     *second.last_mut().unwrap() ^= 1;
-    assert!(i
-        .add(&[
+    assert!(
+        i.add(&[
             tx(1, vec![line(b"PSW1", &first)]),
             tx(2, vec![line(b"PSW1", &second)])
         ])
-        .is_err());
+        .is_err()
+    );
     assert_eq!(i.status().unwrap().last_seq, 0);
     assert!(i.status().unwrap().blocked.is_some());
     assert_eq!(raw_count(&path, "wide_event"), 0);

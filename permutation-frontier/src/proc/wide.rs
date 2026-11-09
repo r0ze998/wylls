@@ -24,6 +24,7 @@
 //! | 0xDC op 1 | [`resolve`] | **writes**: the bell over the residents **and** the gathered arrivals (a present, fully gathered ClashInputs), the arrivals' fates written back, the `WIDE_RESOLVE` record binding the gathered bytes |
 //! | 0xDC op 5 | [`settle_transit`] | **writes**: the deployed SettleTransit over the wide records: the proof (THE anchor's signature decompressed by the chain's BLS syscall — a failure there is the instruction error `Crypto`; the opener after it judges the seal's own points and a failure there is a seal code, as deployed), the deployed outcome and payment table as a pure plan ([`plan_settlement`]), the forfeit, the home re-entry through the home roster, the slot, the transit record closed to its immutable rent recipient, the `WIDE_TRANSIT_SETTLED` and `WIDE_RETURN` records |
 //! | 0xDA op 3 | `economy_exec` (private child, phase B of the host-only wide economy) | **writes**: the S1 Harvest, Build or Train over a wide holding under the deployed player prologue (wallet, session or NFT resident through [`resident_act`]), the holding and its own province canonical and the Citizen's, the slot wide-bound; the body is the `wide_economy` preview over copies under pins derived from the authenticated records and the real clock; the Citizen's bucket on a copy; the `WIDE_ECONOMY` (holding-chained) or `WIDE_ECONOMY_MIRROR` (walls, tier-up: province and holding) receipt committing the complete input and output state; every chain and length decided before the first live write, the record logged after the last |
+//! | 0xDA op 4 | `garrison_exec` (private child) | **writes**: deployed positive Spearman-reserve reinforcement into the holding's pending garrison, under the same player authorization and own-province checks; all Citizen/holding/province bytes and both chains staged before commit; distinct holding-keyed `WIDE_GARRISON` receipt. Host-only and provisional, not production allocation |
 //!
 //! **The wide ticket and the deployed paths.** While a wide ticket is
 //! pending the Citizen carries the marker of `world_index::ticket`
@@ -219,6 +220,7 @@ pub fn dispatch(p: &Pubkey, a: &[AccountInfo], data: &[u8]) -> R<()> {
         C::Muster(x) => muster_as(p, a, &x, &Auth::Wallet),
         C::Dissolve(x) => dissolve_as(p, a, &x, &Auth::Wallet),
         C::Economy(x) => economy_exec::economy_as(p, a, &x, &Auth::Wallet),
+        C::Garrison(x) => garrison_exec::garrison_as(p, a, &x, &Auth::Wallet),
         C::Resolve(x) => resolve(p, a, &x),
         C::Return(_) => settle_return(p, a),
         C::CloseRoster(_) => close_roster(p, a),
@@ -2655,6 +2657,7 @@ pub fn resident_act(p: &Pubkey, accounts: &[AccountInfo], d: &[u8]) -> R<()> {
         C::Muster(m) => muster_as(p, a, &m, &auth),
         C::Dissolve(d) => dissolve_as(p, a, &d, &auth),
         C::Economy(e) => economy_exec::economy_as(p, a, &e, &auth),
+        C::Garrison(x) => garrison_exec::garrison_as(p, a, &x, &auth),
         _ => Err(FrontierError::BadData.into()),
     }
 }
@@ -2667,6 +2670,12 @@ pub fn resident_act(p: &Pubkey, accounts: &[AccountInfo], d: &[u8]) -> R<()> {
 /// [`resident_act`] under the NFT resident proof.
 #[path = "wide_economy_exec.rs"]
 mod economy_exec;
+
+/// Host-only WideGarrison (0xDA op 4): the deployed positive unit-0
+/// reserve reinforcement under wallet/session or resident authorization.
+/// Citizen, holding, province and both receipt chains commit atomically.
+#[path = "wide_garrison_exec.rs"]
+mod garrison_exec;
 
 // ------------------------------------------------------------ the host lifecycle
 

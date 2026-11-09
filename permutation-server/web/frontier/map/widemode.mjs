@@ -230,7 +230,13 @@ export function mountWideMode({ herald, canvas, doc = canvas?.ownerDocument ?? g
         details.textContent = `${economyLine(r.economy)} / ${L`村の場所 ${String(r.holding.site)} · 世代 ${String(r.holding.generation)}`} / ${L`時刻`} ${String(r.economy.nowTs)}`;
         li.append(details);
       }
+      if (r.garrison) {
+        const details = doc.createElement('p');
+        details.textContent = `${L`守備兵を ${String(r.garrison.delta)} 人追加予約（観測）`} / ${L`村の場所 ${String(r.holding.site)} · 世代 ${String(r.holding.generation)}`} / ${L`時刻`} ${String(r.garrison.nowTs)}`;
+        li.append(details);
+      }
       if (r.host) {
+        // Holding-only Garrison receipts never enter host action review.
         const review = doc.createElement('button'); review.type = 'button';
         review.textContent = L`完全な識別子で操作を確認`;
         review.addEventListener('click', () => {

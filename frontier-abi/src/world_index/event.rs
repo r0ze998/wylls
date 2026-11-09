@@ -43,6 +43,12 @@
 //! | 15 `Economy` | holding ref (56, sequence 0) | `economy::EconomyReceipt` (80: version 1, action 6, now_ts i64, became_final u8, input [32], output [32]) | Holding |
 //! | 16 `EconomyMirror` | holding ref (56, sequence 0) | the same receipt, its action a walls or tier-up Build | Province, Holding |
 //!
+//! | 17 `Garrison` | holding ref (56, sequence 0) | `GarrisonReceipt` (82: version1, delta i64 whole troops, now_ts i64, became_final u8, input [32], output [32]) | Province, Holding |
+//!
+//! Kind 17 and 0xDA op4 are experimental, provisional identifiers only,
+//! not an integrator allocation. Garrison uses the same holding attribution
+//! and exact link rules as EconomyMirror, with a separate receipt format.
+//!
 //! **The economy receipts** (kinds 15 and 16, `super::economy`, phase A
 //! of the host-only wide economy) are keyed by the **holding reference**
 //! alone: the 56-byte `WideHostRef` with sequence 0, which names a
@@ -181,6 +187,146 @@ pub const HOST_KEY_LEN: usize = HOST_REF_LEN + PROVINCE_KEY_LEN;
 pub const HOLDING_KEY_LEN: usize = HOST_REF_LEN;
 /// The economy receipt payload width (`economy::RECEIPT_LEN`).
 pub const ECONOMY_PAYLOAD_LEN: usize = economy::RECEIPT_LEN;
+/// Provisional garrison receipt format. Separate from economy actions.
+pub const GARRISON_RECEIPT_VERSION: u8 = 1;
+pub const GARRISON_PAYLOAD_LEN: usize = 1 + 8 + 8 + 1 + 32 + 32;
+
+/// A garrison transition receipt, not proof of authority or provenance.
+/// `delta` is positive whole troops; the record bell is the pending bell.
+/// Digests must bind authenticated snapshots in a garrison-specific domain.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct GarrisonReceipt {
+    pub delta: i64,
+    pub now_ts: i64,
+    pub became_final: bool,
+    pub input_digest: [u8; 32],
+    pub output_digest: [u8; 32],
+}
+
+impl GarrisonReceipt {
+    pub fn to_bytes(&self) -> Option<[u8; GARRISON_PAYLOAD_LEN]> {
+        if self.delta <= 0 || self.delta > u32::MAX as i64 {
+            return None;
+        }
+        let mut b = [0; GARRISON_PAYLOAD_LEN];
+        Writer::new(&mut b)
+            .u8(GARRISON_RECEIPT_VERSION)
+            .i64(self.delta)
+            .i64(self.now_ts)
+            .u8(u8::from(self.became_final))
+            .bytes(&self.input_digest)
+            .bytes(&self.output_digest);
+        Some(b)
+    }
+
+    pub fn decode(d: &[u8]) -> Result<Self, EventError> {
+        let bad = EventError::Payload;
+        if d.len() != GARRISON_PAYLOAD_LEN {
+            return Err(bad);
+        }
+        let mut c = Cursor::new(d);
+        if c.u8() != Some(GARRISON_RECEIPT_VERSION) {
+            return Err(bad);
+        }
+        let delta = c.i64().ok_or(bad)?;
+        if delta <= 0 || delta > u32::MAX as i64 {
+            return Err(bad);
+        }
+        let now_ts = c.i64().ok_or(bad)?;
+        let became_final = match c.u8() {
+            Some(0) => false,
+            Some(1) => true,
+            _ => return Err(bad),
+        };
+        Ok(Self {
+            delta,
+            now_ts,
+            became_final,
+            input_digest: c.arr().ok_or(bad)?,
+            output_digest: c.arr().ok_or(bad)?,
+        })
+    }
+}
+
+pub fn garrison_payload(receipt: &GarrisonReceipt) -> Option<[u8; GARRISON_PAYLOAD_LEN]> {
+    receipt.to_bytes()
+}
+
+/// Garrison-specific receipt commitment domains. Never economy domains.
+pub const GARRISON_INPUT_DOMAIN: &[u8] = b"PSF-WIDE-GARRISON-INPUT-v1";
+pub const GARRISON_OUTPUT_DOMAIN: &[u8] = b"PSF-WIDE-GARRISON-OUTPUT-v1";
+
+fn garrison_snapshot_key(
+    holding: &WideHostRef,
+    delta: i64,
+    snapshots: &economy::Snapshots<'_>,
+) -> Result<[u8; HOST_REF_LEN], EventError> {
+    if delta <= 0 || delta > u32::MAX as i64 {
+        return Err(EventError::Payload);
+    }
+    let key = economy::economy_key(holding).map_err(|_| EventError::Key)?;
+    economy::check_snapshots(holding, snapshots).map_err(|_| EventError::Payload)?;
+    Ok(key)
+}
+
+/// Commits full authenticated Season and raw Citizen/Holding/Province
+/// snapshots, each prefixed by its u64 byte length, after the domain,
+/// holding reference, delta i64 and now_ts i64. Structural validation
+/// proves neither ownership nor provenance; the caller authenticates.
+pub fn garrison_input_digest(
+    holding: &WideHostRef,
+    delta: i64,
+    now_ts: i64,
+    season: &[u8],
+    before: &economy::Snapshots<'_>,
+) -> Result<[u8; 32], EventError> {
+    let key = garrison_snapshot_key(holding, delta, before)?;
+    Ok(sha256(&[
+        GARRISON_INPUT_DOMAIN,
+        &key,
+        &delta.to_le_bytes(),
+        &now_ts.to_le_bytes(),
+        &(season.len() as u64).to_le_bytes(),
+        season,
+        &(before.citizen.len() as u64).to_le_bytes(),
+        before.citizen,
+        &(before.holding.len() as u64).to_le_bytes(),
+        before.holding,
+        &(before.province.len() as u64).to_le_bytes(),
+        before.province,
+    ]))
+}
+
+/// Commits domain, holding reference, delta, now_ts, canonical finality
+/// bool, then length-delimited complete Citizen/Holding/Province output.
+/// Only holding/province event chain fields are normalized to zero,
+/// removing dependence on this receipt's own chain links. Season is
+/// committed in the input, as with the established economy receipt.
+pub fn garrison_output_digest(
+    holding: &WideHostRef,
+    delta: i64,
+    now_ts: i64,
+    became_final: bool,
+    after: &economy::Snapshots<'_>,
+) -> Result<[u8; 32], EventError> {
+    let key = garrison_snapshot_key(holding, delta, after)?;
+    let h = normalize_chained(after.holding);
+    let p = normalize_chained(after.province);
+    Ok(sha256(&[
+        GARRISON_OUTPUT_DOMAIN,
+        &key,
+        &delta.to_le_bytes(),
+        &now_ts.to_le_bytes(),
+        &[u8::from(became_final)],
+        &(after.citizen.len() as u64).to_le_bytes(),
+        after.citizen,
+        &(h.len() as u64).to_le_bytes(),
+        &h,
+        &(p.len() as u64).to_le_bytes(),
+        &p,
+    ]))
+}
+
 /// The Departed payload width (`WideKind::payload_len`, the builder
 /// [`departed_payload`]).
 pub const DEPARTED_PAYLOAD_LEN: usize = 1 + 4 + 4 + 4 + 2 + 8 + 8 + 8 + 32;
@@ -267,10 +413,12 @@ pub enum WideKind {
     /// An owner action that also writes the province's site mirror
     /// (walls, the tier-up).
     EconomyMirror = 16,
+    /// Provisional holding-keyed reserve-to-garrison receipt.
+    Garrison = 17,
 }
 
 /// Every kind, in code order.
-pub const ALL_KINDS: [WideKind; 16] = [
+pub const ALL_KINDS: [WideKind; 17] = [
     WideKind::Muster,
     WideKind::Dissolve,
     WideKind::Resolve,
@@ -287,6 +435,7 @@ pub const ALL_KINDS: [WideKind; 16] = [
     WideKind::ProvinceClosed,
     WideKind::Economy,
     WideKind::EconomyMirror,
+    WideKind::Garrison,
 ];
 
 /// The `Return.entry` of a host whose troops went into the holding's
@@ -318,6 +467,7 @@ impl WideKind {
             14 => Some(WideKind::ProvinceClosed),
             15 => Some(WideKind::Economy),
             16 => Some(WideKind::EconomyMirror),
+            17 => Some(WideKind::Garrison),
             _ => None,
         }
     }
@@ -351,6 +501,7 @@ impl WideKind {
             WideKind::TransitClosed => 1 + 32 + 8,
             WideKind::ProvinceClosed => 32 + 8,
             WideKind::Economy | WideKind::EconomyMirror => ECONOMY_PAYLOAD_LEN,
+            WideKind::Garrison => GARRISON_PAYLOAD_LEN,
         }
     }
 
@@ -363,7 +514,8 @@ impl WideKind {
             | WideKind::Departed
             | WideKind::TransitSettled
             | WideKind::DepartureSettled
-            | WideKind::EconomyMirror => PROVINCE_AND_HOLDING,
+            | WideKind::EconomyMirror
+            | WideKind::Garrison => PROVINCE_AND_HOLDING,
             WideKind::Resolve | WideKind::Stranded | WideKind::ProvinceClosed => PROVINCE_ONLY,
             WideKind::Economy => HOLDING_ONLY,
             WideKind::RosterClosed
@@ -386,13 +538,17 @@ impl WideKind {
                 | WideKind::ProvinceClosed
                 | WideKind::Economy
                 | WideKind::EconomyMirror
+                | WideKind::Garrison
         )
     }
 
     /// A holding-keyed kind (the key is the 56-byte holding reference,
     /// sequence 0): the economy receipts. Never host-keyed.
     pub const fn holding_keyed(self) -> bool {
-        matches!(self, WideKind::Economy | WideKind::EconomyMirror)
+        matches!(
+            self,
+            WideKind::Economy | WideKind::EconomyMirror | WideKind::Garrison
+        )
     }
 
     pub const fn name(self) -> &'static str {
@@ -413,6 +569,7 @@ impl WideKind {
             WideKind::ProvinceClosed => "WIDE_PROVINCE_CLOSED",
             WideKind::Economy => "WIDE_ECONOMY",
             WideKind::EconomyMirror => "WIDE_ECONOMY_MIRROR",
+            WideKind::Garrison => "WIDE_GARRISON",
         }
     }
 }
@@ -506,7 +663,9 @@ pub fn write_body(
     }
     if kind.holding_keyed() {
         economy::decode_key(key).ok()?;
-        if EconomyReceipt::decode(payload).ok()?.kind() != kind {
+        if kind == WideKind::Garrison {
+            GarrisonReceipt::decode(payload).ok()?;
+        } else if EconomyReceipt::decode(payload).ok()?.kind() != kind {
             return None;
         }
     }
@@ -592,9 +751,13 @@ impl<'a> WideRecord<'a> {
             // position is no economy key. The payload is a receipt whose
             // action places it under exactly this kind.
             economy::decode_key(key).map_err(|_| EventError::Key)?;
-            let receipt = EconomyReceipt::decode(payload).map_err(|_| EventError::Payload)?;
-            if receipt.kind() != kind {
-                return Err(EventError::Payload);
+            if kind == WideKind::Garrison {
+                GarrisonReceipt::decode(payload)?;
+            } else {
+                let receipt = EconomyReceipt::decode(payload).map_err(|_| EventError::Payload)?;
+                if receipt.kind() != kind {
+                    return Err(EventError::Payload);
+                }
             }
         } else {
             ProvinceKey::from_bytes(key).map_err(|_| EventError::Key)?;
@@ -679,11 +842,21 @@ impl<'a> WideRecord<'a> {
         }
     }
 
-    /// The receipt of a holding-keyed record (canonical and of this kind
-    /// by [`WideRecord::decode`]); `None` for any other kind.
+    /// The economy receipt of an Economy or EconomyMirror record
+    /// (canonical and of this kind by [`WideRecord::decode`]).
+    /// `None` for every other kind, including Garrison.
     pub fn receipt(&self) -> Option<EconomyReceipt> {
-        if self.kind.holding_keyed() {
+        if matches!(self.kind, WideKind::Economy | WideKind::EconomyMirror) {
             EconomyReceipt::decode(self.payload).ok()
+        } else {
+            None
+        }
+    }
+
+    /// The canonical garrison receipt of a Garrison record only.
+    pub fn garrison_receipt(&self) -> Option<GarrisonReceipt> {
+        if self.kind == WideKind::Garrison {
+            GarrisonReceipt::decode(self.payload).ok()
         } else {
             None
         }
@@ -1277,8 +1450,8 @@ mod tests {
             "out of the deployed versions"
         );
         let mut x = body.clone();
-        x[1] = 17;
-        assert_eq!(WideRecord::decode(&x), Err(EventError::UnknownKind(17)));
+        x[1] = 18;
+        assert_eq!(WideRecord::decode(&x), Err(EventError::UnknownKind(18)));
         let mut x = body.clone();
         x[HEAD_LEN] = 9;
         assert_eq!(WideRecord::decode(&x), Err(EventError::Key));
@@ -1317,7 +1490,8 @@ mod tests {
         }
         assert_eq!(WideKind::from_u8(15), Some(WideKind::Economy));
         assert_eq!(WideKind::from_u8(16), Some(WideKind::EconomyMirror));
-        assert_eq!(WideKind::from_u8(17), None);
+        assert_eq!(WideKind::from_u8(17), Some(WideKind::Garrison));
+        assert_eq!(WideKind::from_u8(18), None);
         assert_eq!(WideKind::from_u8(0), None);
         // the close kinds: one province-keyed, one host-keyed, neither
         // chained; the province close chained on the province alone
@@ -1547,7 +1721,15 @@ mod tests {
         };
         let plain = economy_payload(&receipt(Action::Harvest)).unwrap();
         let mirror = economy_payload(&receipt(Action::Build { item: 6 })).unwrap();
-        let widths: [(WideKind, usize); 16] = [
+        let garrison = garrison_payload(&GarrisonReceipt {
+            delta: 1,
+            now_ts: 1,
+            became_final: false,
+            input_digest: [1; 32],
+            output_digest: [2; 32],
+        })
+        .unwrap();
+        let widths: [(WideKind, usize); 17] = [
             (WideKind::Muster, muster_payload(0, 1, 1, 0, 0).len()),
             (WideKind::Dissolve, dissolve_payload(1, 1, 0).len()),
             (
@@ -1594,6 +1776,7 @@ mod tests {
             ),
             (WideKind::Economy, plain.len()),
             (WideKind::EconomyMirror, mirror.len()),
+            (WideKind::Garrison, garrison.len()),
         ];
         assert_eq!(widths.len(), ALL_KINDS.len(), "every kind has a builder");
         for (k, built) in widths {
@@ -1611,6 +1794,7 @@ mod tests {
             let payload: Vec<u8> = match k {
                 WideKind::Economy => plain.to_vec(),
                 WideKind::EconomyMirror => mirror.to_vec(),
+                WideKind::Garrison => garrison.to_vec(),
                 _ => vec![0u8; built],
             };
             let at = write_body(k, 1, &key, &payload, &mut buf).unwrap();

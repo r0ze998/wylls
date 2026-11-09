@@ -2,7 +2,7 @@
 // authority, account authentication or a proof of complete event history.
 import { fromBase64, toBase64, toHex } from '../../sdk/bytes.mjs';
 import { parseWideInt, ringPosition, worldIdOf, WideError } from './wide.mjs';
-const NAMES = ['','WIDE_MUSTER','WIDE_DISSOLVE','WIDE_RESOLVE','WIDE_RETURN','WIDE_STRANDED','WIDE_ROSTER_CLOSED','WIDE_DEPARTED','WIDE_TRANSIT_SETTLED','WIDE_DEPARTURE_SETTLED','WIDE_REVEALED','WIDE_GATHERED','WIDE_RECORD_CLOSED','WIDE_TRANSIT_CLOSED','WIDE_PROVINCE_CLOSED','WIDE_ECONOMY','WIDE_ECONOMY_MIRROR'];
+const NAMES = ['','WIDE_MUSTER','WIDE_DISSOLVE','WIDE_RESOLVE','WIDE_RETURN','WIDE_STRANDED','WIDE_ROSTER_CLOSED','WIDE_DEPARTED','WIDE_TRANSIT_SETTLED','WIDE_DEPARTURE_SETTLED','WIDE_REVEALED','WIDE_GATHERED','WIDE_RECORD_CLOSED','WIDE_TRANSIT_CLOSED','WIDE_PROVINCE_CLOSED','WIDE_ECONOMY','WIDE_ECONOMY_MIRROR','WIDE_GARRISON'];
 const fail = (ok, code = 'BadWideHistory') => { if (!ok) throw new WideError(code, code); };
 const uint = s => { fail(typeof s === 'string' && /^(0|[1-9][0-9]*)$/.test(s)); const n = BigInt(s); fail(n <= 0xffffffffffffffffn); return n; };
 function scope(v, pins) {
@@ -70,6 +70,24 @@ function economyOf(body, kind) {
   });
 }
 
+// Kind 17 has a distinct 82-byte receipt. Never decode it as economy.
+function garrisonOf(body) {
+  const payload = 62, tail = payload + 82;
+  fail(body.length === tail + 1 + 2 * 41);
+  fail(body[payload] === 1 && body[tail] === 2);
+  const dv = new DataView(body.buffer, body.byteOffset, body.byteLength);
+  const delta = dv.getBigInt64(payload + 1, true);
+  fail(delta > 0n && delta <= 0xffffffffn);
+  fail(body[payload + 17] === 0 || body[payload + 17] === 1);
+  const links = [1, 2].map((entity, i) => {
+    const at = tail + 1 + i * 41;
+    fail(body[at] === entity);
+    return Object.freeze({ entity, sequence: dv.getBigUint64(at + 1, true), head: toHex(body.slice(at + 9, at + 41)) });
+  });
+  return Object.freeze({ delta, nowTs: dv.getBigInt64(payload + 9, true), becameFinal: body[payload + 17] === 1,
+    inputDigest: toHex(body.slice(payload + 18, payload + 50)), outputDigest: toHex(body.slice(payload + 50, tail)), links: Object.freeze(links) });
+}
+
 export function parseWideIndexPage(v, { pins, through, snapshot, after = 0n, limit = 20 } = {}) {
   const s = scope(v, pins);
   fail(s.through === BigInt(through) && s.snapshot === snapshot, 'WideIndexChanged');
@@ -84,19 +102,20 @@ export function parseWideIndexPage(v, { pins, through, snapshot, after = 0n, lim
     fail(typeof r.body_b64 === 'string' && r.body_b64.length > 0 && r.body_b64.length <= 16384);
     const body = fromBase64(r.body_b64); fail(body.length > 6 && body.length <= 8192 && toBase64(body) === r.body_b64);
     fail(Number.isInteger(r.kind) && body[1] === r.kind && typeof r.name === 'string' && /^[A-Z0-9_]{1,40}$/.test(r.name));
-    let province = null, holding = null, host = null, economy = null;
+    let province = null, holding = null, host = null, economy = null, garrison = null;
     if (r.format === 'PSW1') {
-      fail(body[0] === 0x82 && r.kind >= 1 && r.kind <= 16 && r.name === NAMES[r.kind]);
+      fail(body[0] === 0x82 && r.kind >= 1 && r.kind <= 17 && r.name === NAMES[r.kind]);
       province = wideHistoryIdentity(r.province, s.world);
       if (r.holding !== null) { holding = wideHistoryIdentity(r.holding, s.world, true); fail(holding.hostSequence === 0); }
       if (r.host !== null) host = wideHistoryIdentity(r.host, s.world, true);
-      if (r.kind === 15 || r.kind === 16) {
-        // An economy key names a holding, never a phantom sequence-zero
+      if (r.kind === 15 || r.kind === 16 || r.kind === 17) {
+        // A receipt key names a holding, never a phantom sequence-zero
         // host. Its own province is the attribution, not a second key.
         fail(host === null && holding !== null && holding.generation >= 1 && holding.generation <= 254);
         fail(ringPosition(holding.p, holding.q).ring >= 129n);
         fail(holding.keyHex.slice(0, 100) === province.keyHex && toHex(body.slice(6, 62)) === holding.keyHex);
-        economy = economyOf(body, r.kind);
+        if (r.kind === 17) garrison = garrisonOf(body);
+        else economy = economyOf(body, r.kind);
       } else {
         const hostKeyed = ![3,6,11,12,14].includes(r.kind);
         fail(Boolean(host) === Boolean(holding) && Boolean(host) === hostKeyed);
@@ -108,7 +127,7 @@ export function parseWideIndexPage(v, { pins, through, snapshot, after = 0n, lim
     } else {
       fail(body[0] === 1 && r.name === 'PS2' && r.province === null && r.holding === null && r.host === null);
     }
-    return { event, archiveSequence, ordinal, format: r.format, kind: r.kind, name: r.name, province, holding, host, economy, body };
+    return { event, archiveSequence, ordinal, format: r.format, kind: r.kind, name: r.name, province, holding, host, economy, garrison, body };
   });
   fail(uint(v.next) === previous && (!v.more || rows.length === limit));
   return { ...s, rows, next: previous, more: v.more, sourceCoverage: 'unknown', captureVerification: 'unverified' };

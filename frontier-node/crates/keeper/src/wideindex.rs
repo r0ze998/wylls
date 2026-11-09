@@ -78,13 +78,13 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use frontier_abi::addr::AddrCtx;
 use frontier_abi::world_index::event::{
-    advance, EventError, WideEntity, WideKind, WideRecord, WideTarget, MAX_BODY,
+    EventError, MAX_BODY, WideEntity, WideKind, WideRecord, WideTarget, advance,
 };
 use frontier_abi::world_index::{
-    arrival as wa, holding as wh, land as wl, march as wm, roster as wro, ProvinceKey, WideHostRef,
-    WorldId,
+    ProvinceKey, WideHostRef, WorldId, arrival as wa, holding as wh, land as wl, march as wm,
+    roster as wro,
 };
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 use solana_address::Address;
 
@@ -610,12 +610,12 @@ enum Ev {
         province: ProvinceKey,
         close: CloseInfo,
     },
-    /// An economy receipt (kind 15 `Economy` or 16 `EconomyMirror`): keyed
+    /// A holding-only receipt (Economy, EconomyMirror or Garrison): keyed
     /// by the 56-byte holding reference (sequence 0), attributed to the
     /// holding's own province, with a canonical receipt payload. It names
     /// no host and plans no duty: the model counts it on the province and
     /// stamps the holding's `last_seq`, nothing else.
-    Economy {
+    HoldingReceipt {
         holding: WideHostRef,
         province: ProvinceKey,
         kind: WideKind,
@@ -815,15 +815,20 @@ fn parse(r: &WideRecord<'_>, seq: u64, world: WorldId) -> Result<Ev, Option<[u8;
             province: province()?,
             close: close_at(0).ok_or(None)?,
         },
-        WideKind::Economy | WideKind::EconomyMirror => {
+        WideKind::Economy | WideKind::EconomyMirror | WideKind::Garrison => {
             // The holding reference (sequence 0, the codec's own check),
             // of this world, and a canonical receipt: nothing of the
             // receipt's content is interpreted here (no digest is checked,
             // no economy is replayed), and no host is derived from the key.
             let holding = r.holding().ok_or(None)?;
             let province = same(holding.key())?;
-            r.receipt().ok_or(None)?;
-            Ev::Economy {
+            // Garrison has its own 82-byte schema, never an economy alias.
+            if r.kind != WideKind::Garrison {
+                r.receipt().ok_or(None)?;
+            } else {
+                frontier_abi::world_index::event::GarrisonReceipt::decode(p).map_err(|_| None)?;
+            }
+            Ev::HoldingReceipt {
                 holding,
                 province,
                 kind: r.kind,
@@ -1662,7 +1667,7 @@ impl WideDiscovery {
                     p.closed = Some(close);
                 }
             }
-            Ev::Economy {
+            Ev::HoldingReceipt {
                 holding,
                 province,
                 kind,
@@ -1882,7 +1887,7 @@ pub fn observe_tx(
     tx: &fclient::ports::TxRecord,
     program: &Address,
 ) -> Result<TxObservation, fclient::typed_log::DecodeError> {
-    use fclient::typed_log::{decode_transaction, ProgramRecord, TransactionRecords};
+    use fclient::typed_log::{ProgramRecord, TransactionRecords, decode_transaction};
     match decode_transaction(tx, program)? {
         TransactionRecords::RolledBack => Ok(TxObservation::RolledBack),
         TransactionRecords::Committed(records) => {
