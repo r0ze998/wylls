@@ -179,41 +179,15 @@ pub fn me_json(f: &Fold, wallet: &Address, quota: Value) -> Value {
     let mut hosts = vec![];
     let mut slots = vec![];
     if !keys.is_empty() {
-        for c in f.st.accounts.values() {
-            match c
-                .data
-                .get(..8)
-                .and_then(|m| AccountKind::from_magic(m.try_into().ok()?))
-            {
-                Some(AccountKind::Province) => {
-                    let Ok(pv) = Province::decode(&c.data) else {
-                        continue;
-                    };
-                    for e in pv.entries.iter().filter(|e| e.state != 0) {
-                        if keys.contains(&holding_key_of_host(e.id)) {
-                            hosts.push(json!({
-                                "id": e.id.to_string(), "province": [pv.p, pv.q], "state": e.state,
-                                "faction": e.faction, "unit": e.unit, "tile": e.tile, "troops": e.troops,
-                                "readyBell": e.ready_bell, "fromBell": e.from_bell,
-                            }));
-                        }
-                    }
+        hosts = f.player_hosts.hosts(&keys);
+        if let Some(ci) = &citizen {
+            for address in f.player_hosts.arrivals(ci.citizen_tag) {
+                if let Some(c) = f.account(address) {
+                    let key = crate::records::account_key(AccountKind::ArrivalSlot, &c.data, "");
+                    slots.push(
+                        json!({"key": key, "slot": c.slot, "bytes_b64": B64.encode(&c.data)}),
+                    );
                 }
-                Some(AccountKind::ArrivalSlot) => {
-                    let tag = citizen.as_ref().map(|c| c.citizen_tag);
-                    let st = c
-                        .data
-                        .get(40..48)
-                        .map(|b| u64::from_le_bytes(b.try_into().unwrap_or_default()));
-                    if tag.is_some() && st == tag {
-                        let key =
-                            crate::records::account_key(AccountKind::ArrivalSlot, &c.data, "");
-                        slots.push(
-                            json!({"key": key, "slot": c.slot, "bytes_b64": B64.encode(&c.data)}),
-                        );
-                    }
-                }
-                _ => {}
             }
         }
     }

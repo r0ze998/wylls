@@ -58,6 +58,9 @@ use crate::overview;
 use crate::records::{self, B64};
 use crate::roster;
 
+#[path = "player_host_index.rs"]
+mod player_host_index;
+
 /// What the fold needs to know besides the records.
 #[derive(Clone)]
 pub struct FoldCfg {
@@ -278,6 +281,9 @@ pub struct Fold {
     pub regions: BTreeMap<u8, BTreeSet<(i16, i16)>>,
     /// Citizen address → wallet.
     pub wallet_of: BTreeMap<[u8; 32], [u8; 32]>,
+    /// Derived from captures, never checkpointed. Update through the capture
+    /// lifecycle (or rebuild with `with_state`), not direct account-map edits.
+    pub(crate) player_hosts: player_host_index::PlayerHostIndex,
     /// Diffs produced since the last [`Fold::take_diffs`].
     pub diffs: Vec<Diff>,
     /// Bumped by every applied transaction (cache key of live views).
@@ -337,6 +343,7 @@ impl Fold {
             rings: BTreeMap::new(),
             regions: BTreeMap::new(),
             wallet_of: BTreeMap::new(),
+            player_hosts: Default::default(),
             diffs: vec![],
             version: 0,
             live: None,
@@ -367,6 +374,7 @@ impl Fold {
     }
 
     fn index_account(&mut self, k: &[u8; 32], d: &[u8]) {
+        self.player_hosts.replace(k, d);
         #[cfg(feature = "wide-world-experimental")]
         if crate::wide::index_capture(self, k, d) {
             return;
@@ -412,6 +420,7 @@ impl Fold {
     }
 
     fn unindex_account(&mut self, k: &[u8; 32], d: &[u8]) {
+        self.player_hosts.remove(k);
         match kind_of(d) {
             Some(AccountKind::Province) => {
                 let pq = (
@@ -440,6 +449,26 @@ impl Fold {
             }
             _ => {}
         }
+    }
+
+    #[cfg(feature = "wide-world-experimental")]
+    fn capture_wide_post(
+        &mut self,
+        key: &[u8; 32],
+        account: Option<&fclient::ports::Account>,
+        tx: &TxRecord,
+    ) -> bool {
+        if !crate::wide::capture_post(self, key, account, tx) {
+            return false;
+        }
+        // Wide handling can replace an old legacy record, or refuse a
+        // replacement and retain it. Index the surviving capture, never the
+        // proposed post-state. Kept separate from apply's event/file output.
+        match self.st.accounts.get(key) {
+            Some(c) => self.player_hosts.replace(key, &c.data),
+            None => self.player_hosts.remove(key),
+        }
+        true
     }
 
     fn scope_of_account(&self, kind: AccountKind, d: &[u8]) -> Scope {
@@ -512,7 +541,7 @@ impl Fold {
         for (k, a) in &tx.post {
             let key = k.to_bytes();
             #[cfg(feature = "wide-world-experimental")]
-            if crate::wide::capture_post(self, &key, a.as_ref(), tx) {
+            if self.capture_wide_post(&key, a.as_ref(), tx) {
                 continue;
             }
             let new = a.as_ref().and_then(|a| {
@@ -1323,3 +1352,7 @@ impl Fold {
         self.cap(a)
     }
 }
+
+#[cfg(test)]
+#[path = "player_host_index_tests.rs"]
+mod player_host_index_tests;
