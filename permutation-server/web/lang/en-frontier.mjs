@@ -906,4 +906,7 @@ export default {
   "保有地と名簿全体の帰還処理です。選択ホスト一体への命令ではありません。アカウント一覧と署名は未構築で、実行できません。": "This return operation applies to the holding and roster, not one selected host. Account lists and signatures have not been constructed; it cannot be executed.",
   "操作を確認できません（{0}）。": "Unable to review the operation ({0}).",
   "表は横にスクロールできます": "This table scrolls sideways",
+  "記録の地図で場所を見る（未検証・読み取り専用）": "Locate on recorded map (unverified, read-only)",
+  "州の記録は未確認": "Province record not yet checked",
+  "未検証・読み取り専用": "Unverified, read-only",
 };

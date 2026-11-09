@@ -17,7 +17,7 @@ import { wideActionReview } from './wideactions.mjs';
 import { L, fmtNum, onLangChange } from '../../lang.mjs';
 import { FACTION_COLORS, factionName, BUILDINGS, unitCount } from '../fi18n.mjs';
 import { provinceCorners, provincePixel } from './layers.mjs';
-import { loadWide, WideWalk, originAt, ORIGIN_CONCORD, layoutWide, nearestTo, formatCoord, describeWalk, ringOfWide, parseWideInt, WideError, sourcePins } from './wide.mjs';
+import { loadWide, WideWalk, originAt, ORIGIN_CONCORD, layoutWide, nearestTo, formatCoord, describeWalk, ringOfWide, parseWideInt, WideError, sourcePins, worldIdOf } from './wide.mjs';
 
 /** Seconds between manifest polls while the mode is open (a new snapshot reloads the walk). */
 export const WIDE_POLL_S = 30;
@@ -74,7 +74,7 @@ const codeText = code => (CODE_TEXT[code] ?? (() => L`記録を読めません�
 
 /** The state the sheet renders (pure data; exported for tests). */
 export function modeState() {
-  return { open: false, phase: 'closed', code: null, walk: null, origin: ORIGIN_CONCORD, zoom: 1, pan: { x: 0, y: 0 }, selected: null, pointer: null, history: null };
+  return { open: false, phase: 'closed', code: null, walk: null, origin: ORIGIN_CONCORD, zoom: 1, pan: { x: 0, y: 0 }, selected: null, pointer: null, history: null, focus: null };
 }
 
 /**
@@ -173,7 +173,7 @@ export function mountWideMode({ herald, canvas, doc = canvas?.ownerDocument ?? g
     $('wide-status').textContent = statusText();
     $('wide-origin').textContent = formatCoord(S.origin.p, S.origin.q);
     $('wide-pointer').textContent = S.pointer ? `${formatCoord(S.pointer.p, S.pointer.q)}${S.pointer.entry ? '' : ` ${TEXT.unknown()}`}` : TEXT.none();
-    $('wide-selected').textContent = S.selected ? `${formatCoord(S.selected.p, S.selected.q)} ${entryLine(S.selected)}` : TEXT.none();
+    $('wide-selected').textContent = S.selected ? `${formatCoord(S.selected.p, S.selected.q)} ${entryLine(S.selected)}` : S.focus ? `${formatCoord(S.focus.p, S.focus.q)} ${S.phase === 'ready' ? TEXT.unknown() : L`州の記録は未確認`} / ${L`未検証・読み取り専用`}` : TEXT.none();
     renderList();
     renderHistory();
   }
@@ -274,6 +274,7 @@ export function mountWideMode({ herald, canvas, doc = canvas?.ownerDocument ?? g
     S.history = { phase: 'loading' }; renderHistory();
     const current = () => {
       if (controller !== c || !S.open) return false;
+      if (!validateFocus()) return false;
       try { return !isSample() && sourcePins(recordOf()).key === pins.key; } catch { return false; }
     };
     let status = reset ? null : old?.status;
@@ -355,11 +356,14 @@ export function mountWideMode({ herald, canvas, doc = canvas?.ownerDocument ?? g
 
   // ---- state changes
   function setPhase(phase, code = null) {
-    if (phase === 'error' || phase === 'sample') { controller?.abort(); controller = null; S.history = {phase:'error',code:code ?? 'WideIndexUnavailable'}; }
+    if (phase === 'error' || phase === 'sample') { controller?.abort(); controller = null; S.walk = null; S.selected = null; S.pointer = null; S.focus = null; S.origin = ORIGIN_CONCORD; S.pan = { x: 0, y: 0 }; S.history = {phase:'error',code:code ?? 'WideIndexUnavailable'}; }
     S.phase = phase; S.code = code; renderText(); invalidate();
   }
   async function load() {
+    const selectedKey = S.selected?.key;
+    const previousSource = S.source?.key;
     S.history = null;
+    S.selected = null; S.pointer = null;
     controller?.abort();
     const c = new AbortController();
     controller = c;
@@ -367,37 +371,47 @@ export function mountWideMode({ herald, canvas, doc = canvas?.ownerDocument ?? g
     const rec = recordOf();
     let pins;
     try { pins = sourcePins(rec); } catch (e) { S.walk = null; setPhase('error', e.code ?? 'NoSeasonYet'); return; }
-    if (S.source?.key !== pins.key) { S.walk = null; S.selected = null; }
+    if (S.source?.key !== pins.key) { S.walk = null; S.selected = null; S.pointer = null; S.origin = ORIGIN_CONCORD; S.pan = { x: 0, y: 0 }; }
+    if (S.focus && S.focus.sourceKey !== pins.key) S.focus = null;
+    if (S.focus) S.origin = originAt(S.focus.p, S.focus.q);
     S.source = pins;
     setPhase(S.walk ? 'reloading' : 'loading');
-    const r = await loadWide(herald, { walk: new WideWalk(), signal: c.signal, pins, onPage: () => { if (controller === c) invalidate(); } });
+    let r;
+    try { r = await loadWide(herald, { walk: new WideWalk(), signal: c.signal, pins, onPage: () => { if (controller === c) invalidate(); } }); }
+    catch (e) { r = { ok: false, code: e.code ?? 'network' }; }
     if (controller !== c || !S.open) return;
+    if (!validateFocus()) return;
     try { if (isSample() || sourcePins(recordOf()).key !== pins.key) { S.walk = null; setPhase('error', 'WorldChanged'); return; } }
     catch (e) { S.walk = null; setPhase('error', e.code ?? 'NoSeasonYet'); return; }
     if (r.ok) {
       S.walk = r.walk;
       S.retries = 0;
-      if (S.selected) S.selected = S.walk.entries.get(S.selected.key) ?? null;
+      if (S.focus) S.selected = S.walk.entries.get(`${S.focus.p},${S.focus.q}`) ?? null;
+      else if (previousSource === pins.key && selectedKey) S.selected = S.walk.entries.get(selectedKey) ?? null;
       setPhase('ready');
       loadHistory(true);
     } else if ((r.code === 'WorldChanged' || r.code === 'StaleSnapshot') && (S.retries = (S.retries ?? 0) + 1) <= 3) {
       // the index moved under the walk: nothing of that walk is kept; start over (at most three times in a row)
       S.walk = null;
-      setPhase('error', r.code);
+      // Source and viewer were checked above. Retain only the requested
+      // location across this retry, never a province from the failed walk.
+      setPhase('loading', r.code);
       load();
-    } else if (r.code !== 'Aborted') {
+    } else {
       S.walk = null;
       setPhase('error', r.code);
     }
   }
   async function poll() {
     if (!S.open || S.phase !== 'ready' || !S.walk) return;
+    if (!validateFocus()) return;
     const current = controller;
     let pins;
     try { pins = sourcePins(recordOf()); } catch (e) { S.walk = null; setPhase('error', e.code ?? 'NoSeasonYet'); return; }
     if (isSample() || pins.key !== S.source?.key) { S.walk = null; load(); return; }
     const m = await herald.wideWorld({ signal: current?.signal, pins });
     if (!S.open || controller !== current) return;
+    if (!validateFocus()) return;
     try { if (isSample() || sourcePins(recordOf()).key !== pins.key) { S.walk = null; load(); return; } }
     catch { S.walk = null; setPhase('error', 'NoSeasonYet'); return; }
     if (!m.ok) { if (m.code !== 'Aborted' && m.code !== 'network') { S.walk = null; setPhase('error', m.code); } return; }
@@ -419,6 +433,8 @@ export function mountWideMode({ herald, canvas, doc = canvas?.ownerDocument ?? g
     S.open = false;
     controller?.abort();
     controller = null;
+    S.focus = null; S.selected = null; S.pointer = null; S.history = null;
+    S.walk = null; S.origin = ORIGIN_CONCORD; S.pan = { x: 0, y: 0 }; S.phase = 'closed';
     if (pollTimer) { clearInterval(pollTimer); pollTimer = null; }
     sheet.hidden = true;
     label();
@@ -426,7 +442,37 @@ export function mountWideMode({ herald, canvas, doc = canvas?.ownerDocument ?? g
   }
   const toggle = () => (S.open ? close() : open());
 
-  function select(entry) { S.selected = entry; renderText(); invalidate(); }
+  /** Navigation only: a captured holding supplies a location, never a province or live ownership. */
+  function focusHolding(holding, { isCurrent = () => true } = {}) {
+    try {
+      if (isSample()) throw new WideError('SampleWorld');
+      const pins = sourcePins(recordOf());
+      if (!holding || holding.world !== worldIdOf(pins.seasonAddress, pins.programId)) throw new WideError('WorldMismatch');
+      if (holding.season !== pins.seasonId) throw new WideError('WrongSeason');
+      const at = originAt(holding.p, holding.q);
+      if (!isCurrent()) throw new WideError('WideSelectionChanged');
+      S.focus = { ...at, sourceKey: pins.key, isCurrent };
+      S.selected = null; S.pointer = null; S.pan = { x: 0, y: 0 }; S.retries = 0;
+      if (S.open) load(); else open();
+      wc.focus?.();
+      return true;
+    } catch (e) {
+      setPhase('error', e.code ?? 'BadCoord');
+      return false;
+    }
+  }
+
+  /** The app calls this on inventory renders as well as checking pending replies. */
+  function validateFocus() {
+    if (!S.focus) return true;
+    try {
+      if (isSample() || sourcePins(recordOf()).key !== S.focus.sourceKey) throw new WideError('WorldChanged');
+      if (!S.focus.isCurrent()) throw new WideError('WideSelectionChanged');
+      return true;
+    } catch (e) { setPhase('error', e.code ?? 'WideSelectionChanged'); return false; }
+  }
+
+  function select(entry) { S.focus = null; S.selected = entry; renderText(); invalidate(); }
   function recentre(p, q) {
     try { S.origin = originAt(p, q); } catch (e) { if (!(e instanceof WideError)) throw e; return; }
     S.pan = { x: 0, y: 0 };
@@ -489,7 +535,7 @@ export function mountWideMode({ herald, canvas, doc = canvas?.ownerDocument ?? g
   label();
 
   return {
-    open, close, toggle,
+    open, close, toggle, focusHolding, validateFocus,
     /** Same read-only polling action as the interval, exposed for deterministic tests. */
     poll,
     state: () => S,

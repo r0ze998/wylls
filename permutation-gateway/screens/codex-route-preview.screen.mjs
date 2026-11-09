@@ -74,10 +74,36 @@ function widePresentation() {
   const capture=(bytes,address)=>({address,slot:'3001',archiveSequence:'1',postState:'transaction',verification:'captured-unverified',bytes_b64:bytes.toString('base64')});
   const provinceAddress=address('wp','PSF-WIDE-PROVINCE-SEED-v1',pd.subarray(4772,4789));
   const holdingAddress=address('wh','PSF-WIDE-HOLDING-SEED-v1',Buffer.concat([hd.subarray(1320,1337),hd.subarray(68,69)]));
+  // Opt-in viewer inventory: copy the golden public Citizen, change only its
+  // second inventory binding, and bind the copied capture to that public owner.
+  // No wallet/session material is created; legacy holding bytes stay untouched.
+  const me=structuredClone(GOLDEN.stages.grown[`/h/me/${GOLDEN.wallet}`]);
+  const citizen=Buffer.from(me.body.citizen.bytes_b64,'base64');
+  assert.equal(citizen.length,384);assert.equal(citizen.subarray(0,8).toString(),'PSF1CITZ');
+  assert.equal(citizen[179],255,'golden slot two must start empty');
+  citizen.fill(0,174,180);citizen[178]=12;citizen[138]=2;
+  me.body.citizen.bytes_b64=citizen.toString('base64');
+  const inventoryBytes=Buffer.from(hd);
+  Buffer.from(fromB58(me.body.citizen.address)).copy(inventoryBytes,72);
+  assert.equal(hd[1283],2);
+  me.body.wideContext={v:1,readOnly:true,executable:false,verification:'captured-unverified',world,worldDomain:WORLD_DOMAIN,
+    season:s.season,citizen:me.body.citizen.address,latestSlot:'3102',foldedThrough:'25',postState:'transaction',
+    // The old golden's first ref has generation zero. The strict wide parser
+    // calls that binding malformed; preserve the golden bytes and say so.
+    inventory:['malformed','wide','empty'].map((binding,i)=>({inventorySlot:i+1,binding}))};
+  me.body.wideHoldings=[{inventorySlot:2,status:'captured-unverified',holding:{
+    world,p:'129',q:'0',ring:'129',site:hd[68],generation:hd[69],inventorySlot:2,season:s.season,
+    ownerCitizen:me.body.citizen.address,hostIdentity:hd.readUInt16LE(1284),openTransits:hd[1286],capture:capture(inventoryBytes,holdingAddress)}}];
+  // Exact coordinate outside Number's safe range, still a copied capture.
+  // Only its public sort key/address changes; no Province is fabricated for it.
+  const farMe=structuredClone(me),farBytes=Buffer.from(inventoryBytes),far=farMe.body.wideHoldings[0].holding;
+  farBytes.writeBigUInt64BE(9007199254740993n,1320);
+  far.p=far.ring='9007199254740993';
+  far.capture=capture(farBytes,address('wh','PSF-WIDE-HOLDING-SEED-v1',Buffer.concat([farBytes.subarray(1320,1337),farBytes.subarray(68,69)])));
   const entry={p:'129',q:'0',ring:'129',wedge:0,pos:'0',state:'open',revision:'1',observedAt:'3001',legacy:null,
     wide:{world,p:'129',q:'0',openedBell:pd.readUInt32LE(76),region:pd[71],keepHolder:pd[4481],capture:capture(pd,provinceAddress),
       holdings:[{world,p:'129',q:'0',site:hd[68],generation:hd[69],inventorySlot:hd[1283],ownerCitizen:toB58(hd.subarray(72,104)),capture:capture(hd,holdingAddress)}]}};
-  return {scope,rows,entry,
+  return {scope,rows,entry,me,farMe,
     manifest:{v:1,experimental:true,readOnly:true,completeness:'captured',world,worldDomain:WORLD_DOMAIN,
       season:s.season,seasonAddress:s.seasonAddress,program:s.programId,snapshot:{epoch:'1',stamp:snapshot,foldedThrough:'25',lastSlot:'3102'},recorded:1,refused:0,
       legacy:{rMax:5,rMaxHard:128,ringsOpened:6,provinces:0},page:{path:'/h/world/wide/page',max:256,default:64}}};
@@ -88,7 +114,7 @@ async function serve() {
   let held = true, active = 0, peak = 0;
   const overviewGate = new Promise(r => { releaseOverviews = r; });
   const wide=widePresentation();
-  let historyMode='ready',historyGate=null,releaseHistory=null,captureMode='ready';
+  let historyMode='ready',historyGate=null,releaseHistory=null,captureMode='ready',inventoryMode='off';
   const requests = [], writes = [];
   const server = createServer(async (req, res) => {
     const url = new URL(req.url, 'http://localhost'),path=url.pathname;
@@ -101,11 +127,17 @@ async function serve() {
       if (held) await overviewGate;
     }
     if (path.startsWith('/h/')) {
-      if(path==='/h/world/wide') return json(200,wide.manifest);
+      if(path===`/h/me/${GOLDEN.wallet}` && inventoryMode!=='off') {
+        const me=structuredClone(inventoryMode==='far'?wide.farMe:wide.me);
+        if(inventoryMode==='malformed') me.body.wideHoldings[0].holding.capture.bytes_b64=Buffer.alloc(1344).toString('base64');
+        if(inventoryMode==='source-changed') me.body.wideContext.world='cd'.repeat(32);
+        return json(me.status,me.body);
+      }
+      if(path==='/h/world/wide') return json(200,{...wide.manifest,recorded:captureMode==='missing'?0:1});
       if(path==='/h/world/wide/page') {
         const entry=structuredClone(wide.entry);
         if(captureMode==='malformed') entry.wide.capture.bytes_b64=Buffer.alloc(4864).toString('base64');
-        return json(200,{v:1,world:wide.scope.world,snapshot:wide.manifest.snapshot,after:null,entries:[entry],next:null});
+        return json(200,{v:1,world:wide.scope.world,snapshot:wide.manifest.snapshot,after:null,entries:captureMode==='missing'?[]:[entry],next:null});
       }
       if(path==='/h/wide-index/status') return json(200,{...wide.scope,state:'observed',caughtUp:true,automaticWrites:false});
       if(path==='/h/wide-index/events') {
@@ -142,6 +174,7 @@ async function serve() {
   return { base: `http://127.0.0.1:${server.address().port}`, requests, writes, obstacle: v => { obstacle = v; },
     history: mode => {historyMode=mode;}, holdHistory:()=>{historyGate=new Promise(r=>{releaseHistory=r;});},
     capture: mode=>{captureMode=mode;},
+    inventory: mode=>{inventoryMode=mode;},
     releaseHistory:()=>{releaseHistory?.();historyGate=null;},
     overviewStats: () => ({active,peak,held}), release: () => { held = false; releaseOverviews(); },
     close: () => new Promise(r => { held = false; releaseOverviews(); releaseHistory?.(); server.closeAllConnections(); server.close(r); }) };
@@ -248,6 +281,95 @@ async function wideEconomy(page,srv,vp,outDir) {
   assert.equal((await snapshot(page)).session,false);
   assert.equal(await page.evaluate(async()=>(await import('/frontier/fstate.mjs')).FS.world.ringsOpen),6);
   console.log(JSON.stringify({viewport:vp.name,wideEconomy:{presentationOnly:true,canonicalWorldUnchanged:true,pageRows:[20,5],actions:0,reopen:true,abortedStaleResponse:true,malformedRejected:true,capture129Navigated:true,contradictoryCaptureRejected:true}}));
+}
+
+// The actual player rail -> captured village -> recorded map path. Only the
+// fixture's GET replies change: no replacement FS.world, camera, controller,
+// wallet, clock or source. Capture/inventory mutations are synthetic UI cases.
+async function wideVillageNavigation(page,srv,vp,outDir) {
+  const press=loc=>vp.width<760?loc.tap():loc.click();
+  const pip=page.locator('[data-act="wide-select"][data-slot="2"]:visible');
+  const map=page.locator('[data-act="wide-map"]:visible'),sheet=page.locator('#wide-world');
+  const refresh=()=>page.evaluate(async()=>{await (await import('/frontier/controller.mjs')).refresh();});
+  const state=()=>page.evaluate(async()=>{
+    const {FS}=await import('/frontier/fstate.mjs');
+    return {rings:FS.world.ringsOpen,holdings:FS.holdings.map(h=>[h.p,h.q,h.site]),
+      wideStatus:FS.wideStatus,selected:FS.wideSelect?.inventorySlot??null,session:!!FS.session,compose:!!FS.compose};
+  });
+  const before=await state();
+  const card=async(p='129')=>{
+    // Phone pips live in the resting sheet, not the desktop rail. Close the
+    // current drawer through its normal control before selecting that pip.
+    if(vp.width<760 && !await pip.isVisible()) {
+      const drawerClose=page.locator('#panel [data-act="drawer-close"]:visible');
+      if(await drawerClose.count()) await press(drawerClose);
+    }
+    await press(pip);
+    if(vp.width<760 && await page.locator('#panel').getAttribute('data-sheet')==='peek') await page.locator('#panel [data-sheet-handle]').tap();
+    await map.waitFor({state:'visible'});
+    assert.ok((await page.locator('#panel').textContent()).includes(`P ${p}, Q 0`));
+    assert.match(await page.locator('#panel').textContent(),/捕捉・未検証/);
+    assert.match(await map.textContent(),/読み取り専用/);
+  };
+  const open=async()=>{await press(map);await sheet.waitFor({state:'visible'});};
+  const close=async()=>{await press(page.locator('#wide-close'));await sheet.waitFor({state:'hidden'});};
+  const focused=()=>page.waitForFunction(()=>document.getElementById('wide-origin').textContent==='P 129, Q 0' && document.querySelectorAll('#wide-list .wide-row').length===1);
+  srv.inventory('ready');await refresh();
+  assert.equal((await state()).wideStatus,'ready','synthetic captured inventory passes the real parser');
+  for(let repeat=0;repeat<2;repeat++) {
+    await card();await open();await focused();
+    assert.match(await page.locator('#wide-selected').textContent(),/P 129, Q 0/);
+    assert.doesNotMatch(await page.locator('#wide-selected').textContent(),/不明/);
+    assert.equal(await page.locator('#wide-list .wide-row[data-p="129"][data-q="0"]').count(),1);
+    assert.equal(await page.locator('#wide-action-review').textContent(),'');
+    await refresh();await focused();
+    assert.match(await page.locator('#wide-selected').textContent(),/P 129, Q 0/,'equivalent refreshed inventory preserves focus');
+    await page.screenshot({path:`${outDir}/${vp.name}-wide-village-map.png`});
+    await close();
+  }
+  // The inventory capture alone must never invent a captured Province.
+  srv.capture('missing');await card();await open();
+  await page.waitForFunction(()=>document.getElementById('wide-selected').textContent.includes('不明'));
+  assert.equal(await page.locator('#wide-origin').textContent(),'P 129, Q 0');
+  assert.match(await page.locator('#wide-selected').textContent(),/P 129, Q 0.*不明/);
+  assert.equal(await page.locator('#wide-list .wide-row').count(),0);
+  await page.screenshot({path:`${outDir}/${vp.name}-wide-village-unknown.png`});await close();
+  srv.inventory('far');await refresh();await card('9007199254740993');await open();
+  await page.waitForFunction(()=>document.getElementById('wide-selected').textContent.includes('不明'));
+  assert.equal(await page.locator('#wide-origin').textContent(),'P 9007199254740993, Q 0');
+  assert.match(await page.locator('#wide-selected').textContent(),/P 9007199254740993, Q 0.*不明/);
+  assert.equal(await page.locator('#wide-list .wide-row').count(),0);
+  await page.screenshot({path:`${outDir}/${vp.name}-wide-village-exact-far.png`});await close();
+  srv.inventory('ready');await refresh();
+  srv.capture('malformed');await card();await open();
+  await page.waitForFunction(()=>document.getElementById('wide-status').textContent.includes('BadWideCapture'));
+  assert.equal(await page.locator('#wide-list .wide-row').count(),0);
+  await close();srv.capture('ready');
+  // Inventory changes flow through the normal controller refresh. A refused
+  // reply cannot retain the old village or its navigation button.
+  for(const mode of ['malformed','source-changed']) {
+    srv.inventory('ready');await refresh();await card();await open();await focused();
+    srv.inventory(mode);await refresh();
+    await page.waitForFunction(async()=>!(await import('/frontier/fstate.mjs')).FS.wideSelect);
+    await map.waitFor({state:'hidden'});await pip.waitFor({state:'hidden'});
+    assert.equal(await map.count(),0);assert.equal(await pip.count(),0);
+    assert.equal(await page.locator('#panel .wide-village').count(),0);
+    assert.equal((await state()).wideStatus,'error');
+    await page.waitForFunction(()=>document.getElementById('wide-status').textContent.includes('WideSelectionChanged'));
+    assert.equal(await page.locator('#wide-list .wide-row').count(),0);
+    assert.doesNotMatch(await page.locator('#wide-selected').textContent(),/129/);
+    assert.equal(await page.locator('#wide-history-list > li').count(),0);
+    await close();
+  }
+  srv.inventory('ready');await refresh();await card();await open();await focused();await close();
+  await press(page.locator('[data-act="wide-close"]:visible'));
+  assert.equal((await state()).selected,null,'return restores legacy village');
+  srv.inventory('off');await refresh();
+  const after=await state();
+  assert.deepEqual(after.holdings,before.holdings,'legacy holdings remain unchanged');
+  assert.equal(after.rings,before.rings);assert.equal(after.rings,6);
+  assert.equal(after.session,false);assert.equal(after.compose,false);
+  console.log(JSON.stringify({viewport:vp.name,wideVillageNavigation:{pip:'W2',exactCoordinates:[['129','0'],['9007199254740993','0']],repeated:true,equivalentRefreshPreservesFocus:true,unknownNotLand:true,malformedCaptureRejected:true,malformedInventoryCleared:true,changedWorldCleared:true,canonicalWorldUnchanged:true}}));
 }
 
 // Max-supported-radius renderer stress on the original page. Only the map's
@@ -502,6 +624,7 @@ for (const vp of [{width:1440,height:900,name:'desktop'}, {width:390,height:844,
       assert.equal((await snapshot(page)).compose,null,'reload does not restore a stale order card');
       assert.equal((await snapshot(page)).session,false,'reload does not create a session');
       await wideEconomy(page,srv,vp,outDir);
+      await wideVillageNavigation(page,srv,vp,outDir);
       // The original spectator page intentionally sees public world state.
       // This validates a visible city without changing the player's survey.
       await page.goto(`${srv.base}/frontier/spectate.html?devWallet=off&at=4,0,43,${phone?'0.55':'1.0'}`);

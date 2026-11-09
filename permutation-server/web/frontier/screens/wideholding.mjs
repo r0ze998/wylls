@@ -91,7 +91,7 @@ export function render(FS) {
       <li>${chip(L`現在性：未確認`, 'warn', 'hourglass')}</li>
       <li>${chip(L`経過時間：不明`, '', 'moon')}</li>
     </ul>
-    ${noExecutionNote()}${back}</section>`;
+    ${noExecutionNote()}<div class="actions"><button type="button" class="btn" data-act="wide-map">${L`記録の地図で場所を見る（未検証・読み取り専用）`}</button></div>${back}</section>`;
 
   const provenance = html`<section class="vcard wide-village" aria-labelledby="wide-v-prov">
     ${cardHead({ id: 'wide-v-prov', ic: 'scroll', title: L`出どころ` })}

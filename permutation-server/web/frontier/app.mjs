@@ -18,7 +18,7 @@ import { conquestEnabled, kernelFile, outpostOffer } from './fconquest.mjs';
 // and onboarding.mjs, the actions below only move state and call them.
 import { config } from './config.mjs';
 import { FS, invalidate, registerRenderers } from './fstate.mjs';
-import { clearWideSelect } from './fwide.mjs';
+import { clearWideSelect, selectedWide } from './fwide.mjs';
 import { createHerald, nextPoll, staleness } from './herald.mjs';
 import { setTermsPace } from './seasonterms.mjs';
 import { setPin, setRelay } from './fchainio.mjs';
@@ -547,6 +547,7 @@ function renderDrawer(markupOf) {
 }
 
 function renderPlay() {
+  wideModeRef?.validateFocus();
   // (the stage mark of the page follows the same answer as the plate, in the same render: never a village's plate over a waiting dock)
   renderChips();
   const d = renderDrawer(dd => panelMarkup(FS, dd));
@@ -570,6 +571,7 @@ function renderMode() {
 
 // ------------------------------------------------------------------ the HUD (hud/hud.mjs)
 let mapRef = null;
+let wideModeRef = null;
 let terrainRef = null;
 /** Who holds each site (people/roster.mjs): names and faces for tags, the rail, the inspector, reports. */
 let rosterRef = null;
@@ -2988,6 +2990,17 @@ function shutDrawer({ focus = false } = {}) {
 }
 
 export const HUD_ACTIONS = {
+  // Resolve the current inventory at click time. DOM coordinates/world are never navigation pins.
+  'wide-map': () => {
+    const e = FS.mode === 'play' ? selectedWide(FS) : null;
+    const holding = e?.status === 'captured-unverified' ? e.holding : null;
+    return wideModeRef?.focusHolding(holding, { isCurrent: () => {
+      const current = selectedWide(FS);
+      return FS.mode === 'play' && !!holding && current?.status === 'captured-unverified'
+        && current.inventorySlot === e.inventorySlot && current.holding?.key === holding.key
+        && current.holding?.ownerCitizen === holding.ownerCitizen;
+    } });
+  },
   // nations' cooperation (hud/coopentry.mjs): the entry workstream 01 registers, pressed in the S1 village card
   'coop-open': d => { if (coopEntryOpen(FS, d.id)) invalidate('panel'); },
   // ---- a conquest season (hud/keephand.mjs, hud/provstrip.mjs): a signature to the clipboard, the season-end card put away
@@ -3847,7 +3860,7 @@ export async function boot() {
     // the recorded wide world (read-only, experimental): refused on a sample world, explicit when the herald has
     // none; it reads the season record's pins (season, Season address, program) so a manifest of another season or
     // namespace is never shown
-    try { mountWideMode({ herald, canvas, isSample: () => !!FS.sample, recordOf: () => FS.record ?? null }); } catch (e) { console.error('frontier wide world:', e); }
+    try { wideModeRef = mountWideMode({ herald, canvas, isSample: () => !!FS.sample, recordOf: () => FS.record ?? null }); } catch (e) { console.error('frontier wide world:', e); }
     // >>> proto-board: the banner rule's PROTOTYPE (a design, not in the program; the sample world serves its records only when
     // it was started with claims=1). The page's one reading of its records (FS.proto) reaches the map here and nowhere
     // else: proto/board-mount.mjs builds the board's model from it each time the page has drawn itself (renderProto)
