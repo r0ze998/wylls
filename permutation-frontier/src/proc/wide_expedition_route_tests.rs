@@ -3,6 +3,7 @@
 use super::*;
 use alloc::boxed::Box;
 use frontier_abi::v2::layout::write_header;
+use frontier_abi::world_index::expedition_transport::OWNED_BRIDGE_LEN;
 use permutation_rules::frontier::geometry::ProvinceCoord;
 
 const PROGRAM: [u8; 32] = [0x12; 32];
@@ -118,7 +119,7 @@ fn fixture() -> Fixture {
         .unwrap();
     w.set_i64(S::GENESIS_TS, GENESIS).unwrap();
     w.set_u32(S::END_BELL, 1000).unwrap();
-    let bridge = BridgeTransit::new(
+    let bridge = OwnedBridgeTransit::new(
         &ctx,
         0,
         WideTransit::depart(
@@ -139,11 +140,12 @@ fn fixture() -> Fixture {
             [0xa1; 32],
         )
         .unwrap(),
+        [0x71; 32],
     )
     .unwrap();
     let marker = BridgeMarker::new(
         &ctx,
-        &bridge,
+        bridge.common(),
         2500,
         T::FLAG_FEE_ESCROWED | T::FLAG_BOND_ESCROWED,
     )
@@ -153,6 +155,7 @@ fn fixture() -> Fixture {
     Rw(&mut hd).set_i16(H::P, 128).unwrap();
     hd[H::GEN] = 1;
     hd[H::STATE] = H::STATE_FINAL;
+    hd[H::OWNER_CITIZEN..H::OWNER_CITIZEN + 32].copy_from_slice(&bridge.original_owner());
     Rw(&mut hd).set_u32(H::HOST_SEQ, 1).unwrap();
     hd[H::transit(0)..H::transit(0) + MARKER_LEN].copy_from_slice(&marker.to_bytes());
     let hk = resolver.holding_address(&host).unwrap();
@@ -201,6 +204,83 @@ fn fixture() -> Fixture {
         steps,
         keys,
     }
+}
+
+fn route_slot(
+    ctx: &AddrCtx,
+    f: &Fixture,
+    bridge: &OwnedBridgeTransit,
+) -> frontier_abi::world_index::expedition_transport::ExpeditionArrivalSlot {
+    use frontier_abi::world_index::{
+        arrival::WideArrivalSlot, expedition_transport::ExpeditionArrivalSlot,
+    };
+    let t = bridge.transit();
+    ExpeditionArrivalSlot::new(
+        ctx,
+        WideArrivalSlot {
+            season_id: SID,
+            dest: f.plain.dest,
+            bell: t.arrive_bell,
+            faction: t.faction,
+            i: 0,
+            transit_slot: bridge.slot(),
+            host: t.host,
+            citizen: bridge.original_owner(),
+            unit: t.unit,
+            stance: f.plain.stance,
+            tile: f.plain.dest_tile,
+            retreat_bps: f.plain.retreat_bps,
+            dealt_bps: t.dealt_bps,
+            dep_mass: t.dep_mass,
+            flags: 0,
+            beneficiary: [0x81; 32],
+            rent_to: [0x82; 32],
+            ev_slot: 0,
+            ev_price: 0,
+            ev_limit: 0,
+            ev_loaded: 0,
+            claimed: false,
+        },
+        0,
+    )
+    .unwrap()
+}
+
+#[test]
+fn route_rejects_ownerless_v1_without_guessing_current_owner() {
+    let mut f = fixture();
+    let ctx = addr::ctx(&key(&f.season), &PROGRAM);
+    let bridge =
+        OwnedBridgeTransit::from_bytes(&ctx, &f.external.try_borrow_data().unwrap()).unwrap();
+    f.external = ai(
+        key(&f.external),
+        PROGRAM,
+        bridge.common().to_bytes().to_vec(),
+    );
+    let before = f.snapshot();
+    assert_eq!(f.inspect(), Err(BAD_ACCOUNT));
+    assert_eq!(f.snapshot(), before);
+}
+
+#[test]
+fn captured_route_preserves_original_owner_and_legacy_eligibility() {
+    let f = fixture();
+    let ctx = addr::ctx(&key(&f.season), &PROGRAM);
+    {
+        let mut hd = f.holding.try_borrow_mut_data().unwrap();
+        hd[H::GEN] = 2;
+        hd[frontier_abi::v2::layout::player::holding::PREV_GEN] = 1;
+        hd[H::OWNER_CITIZEN..H::OWNER_CITIZEN + 32].fill(0x55);
+        Rw(&mut hd).set_u32(H::HOST_SEQ, 0).unwrap();
+        hd[H::transit(0) + T::FLAGS] &= !T::FLAG_BOND_ESCROWED;
+    }
+    let before = f.snapshot();
+    assert!(f.inspect().is_ok());
+    let bridge =
+        OwnedBridgeTransit::from_bytes(&ctx, &f.external.try_borrow_data().unwrap()).unwrap();
+    assert_eq!(bridge.original_owner(), [0x71; 32]);
+    assert_ne!(bridge.original_owner(), [0x55; 32]);
+    assert_eq!(f.snapshot(), before);
 }
 
 #[test]
@@ -324,7 +404,7 @@ fn wrong_family_order_owner_writability_and_extra_accounts_fail_closed() {
                 let d = f.provinces[0].try_borrow_data().unwrap().to_vec();
                 f.provinces[0] = ai(k, [0x77; 32], d);
             }
-            _ => f.external = ai(key(&f.external), PROGRAM, vec![0; 304]),
+            _ => f.external = ai(key(&f.external), PROGRAM, vec![0; OWNED_BRIDGE_LEN]),
         }
         let before = f.snapshot();
         assert!(f.inspect().is_err());
@@ -385,31 +465,17 @@ fn route_stage_keeps_legacy_reveal_lifecycle_eligibility() {
         let f = fixture();
         let ctx = addr::ctx(&key(&f.season), &PROGRAM);
         let initial =
-            BridgeTransit::from_bytes(&ctx, &f.external.try_borrow_data().unwrap()).unwrap();
+            OwnedBridgeTransit::from_bytes(&ctx, &f.external.try_borrow_data().unwrap()).unwrap();
         let next = match state {
             0 => initial,
             1 => initial
-                .step(
-                    &ctx,
-                    MarchEvent::SettleDeparture { destroyed: false },
-                    Some((200_000, 40, 1)),
-                )
+                .settle_origin(&ctx, false, Some((200_000, 40, 1)))
                 .unwrap(),
-            2 => initial
-                .step(
-                    &ctx,
-                    MarchEvent::SettleDeparture { destroyed: true },
-                    Some((0, 0, 1)),
-                )
-                .unwrap(),
+            2 => initial.settle_origin(&ctx, true, Some((0, 0, 1))).unwrap(),
             _ => initial
-                .step(
-                    &ctx,
-                    MarchEvent::SettleDeparture { destroyed: false },
-                    Some((200_000, 40, 1)),
-                )
+                .settle_origin(&ctx, false, Some((200_000, 40, 1)))
                 .unwrap()
-                .step(&ctx, MarchEvent::Gather { dest: f.plain.dest }, None)
+                .gather_worn(&ctx, &route_slot(&ctx, &f, &initial))
                 .unwrap(),
         };
         f.external

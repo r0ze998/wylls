@@ -5,10 +5,9 @@
 use super::*;
 use frontier_abi::entry::{find_entry, read_entry, write_entry, Entry};
 use frontier_abi::world_index::expedition::AccountResolver;
-use frontier_abi::world_index::expedition_bridge::{
-    authenticate_pair, BridgeMarker, BridgeTransit, BRIDGE_LEN, MARKER_LEN,
-};
+use frontier_abi::world_index::expedition_bridge::{authenticate_pair, BridgeMarker, MARKER_LEN};
 use frontier_abi::world_index::expedition_event as receipt;
+use frontier_abi::world_index::expedition_transport::{OwnedBridgeTransit, OWNED_BRIDGE_LEN};
 
 #[derive(Clone)]
 struct Snapshot {
@@ -156,7 +155,7 @@ pub(super) fn prepare_depart(
     let before = snapshots(a)?;
     let mut after = before.clone();
     let ctx = addr::ctx(&key(&a[2]), &p.to_bytes());
-    let transit = BridgeTransit::from_bytes(&ctx, &plan.bridge)
+    let transit = OwnedBridgeTransit::from_bytes(&ctx, &plan.bridge)
         .map_err(|_| BAD_ACCOUNT)?
         .transit();
     let identity = receipt::Identity {
@@ -220,7 +219,7 @@ pub(super) fn prepare_origin(p: &Pubkey, a: &[AccountInfo], slot: u8) -> R<Recei
     let before = snapshots(a)?;
     let mut after = before.clone();
     let ctx = addr::ctx(&key(&a[1]), &p.to_bytes());
-    let transit = BridgeTransit::from_bytes(&ctx, &plan.bridge)
+    let transit = OwnedBridgeTransit::from_bytes(&ctx, &plan.bridge)
         .map_err(|_| BAD_ACCOUNT)?
         .transit();
     let identity = receipt::Identity {
@@ -314,8 +313,8 @@ pub(super) fn execute_depart(
         season,
         &signer,
         &wm::transit_seed(&key(holding), x.transit_slot),
-        BRIDGE_LEN,
-        init::rent(BRIDGE_LEN)?,
+        OWNED_BRIDGE_LEN,
+        init::rent(OWNED_BRIDGE_LEN)?,
         p,
     )?;
     // Acquire every distinct mutable borrow and verify lengths/balances before
@@ -328,7 +327,7 @@ pub(super) fn execute_depart(
     if cd.len() != plan.after[3].data.len()
         || hd.len() != plan.after[4].data.len()
         || pd.len() != plan.after[5].data.len()
-        || td.len() != BRIDGE_LEN
+        || td.len() != OWNED_BRIDGE_LEN
         || payer.lamports() != plan.after[1].lamports
         || holding.lamports() != plan.after[4].lamports
         || external.lamports() != plan.after[8].lamports
@@ -371,7 +370,7 @@ pub(super) struct DepartPlan {
     pub citizen: Vec<u8>,
     pub holding: Vec<u8>,
     pub province: Vec<u8>,
-    pub bridge: [u8; BRIDGE_LEN],
+    pub bridge: [u8; OWNED_BRIDGE_LEN],
     pub escrow: u64,
     pub rent: u64,
     pub became_final: bool,
@@ -518,7 +517,7 @@ pub(super) fn stage_depart(
         .checked_add(fee)
         .and_then(|n| n.checked_add(bond))
         .ok_or(OVERFLOW)?;
-    let rent = init::rent(BRIDGE_LEN)?;
+    let rent = init::rent(OWNED_BRIDGE_LEN)?;
     let rent_paid = rent.saturating_sub(external.lamports());
     if payer.lamports() < escrow.checked_add(rent_paid).ok_or(OVERFLOW)? {
         return Err(FrontierError::Insufficient.into());
@@ -551,10 +550,13 @@ pub(super) fn stage_depart(
         key(payer),
     )
     .map_err(march_err)?;
-    let bridge = BridgeTransit::new(&ctx, x.transit_slot, transit).map_err(|_| BAD_ACCOUNT)?;
+    // player_start_as authenticated this Citizen and check_holding matched its
+    // full address against OWNER_CITIZEN. Retain it even after later capture.
+    let bridge = OwnedBridgeTransit::new(&ctx, x.transit_slot, transit, key(citizen))
+        .map_err(|_| BAD_ACCOUNT)?;
     let marker = BridgeMarker::new(
         &ctx,
-        &bridge,
+        bridge.common(),
         x.tip,
         T::FLAG_FEE_ESCROWED | T::FLAG_BOND_ESCROWED,
     )
@@ -583,7 +585,7 @@ pub(super) fn stage_depart(
 /// current capture-cleared financial flags) are deliberately unchanged.
 pub(super) struct OriginPlan {
     pub province: Vec<u8>,
-    pub bridge: [u8; BRIDGE_LEN],
+    pub bridge: [u8; OWNED_BRIDGE_LEN],
 }
 
 /// Permissionless, read-only preparation, with the legacy SettleDeparture
@@ -626,10 +628,17 @@ pub(super) fn stage_origin(p: &Pubkey, a: &[AccountInfo], slot: u8) -> R<OriginP
     let off = H::transit(slot as usize);
     let marker =
         BridgeMarker::from_bytes(&ctx, &hd[off..off + MARKER_LEN]).map_err(|_| BAD_ACCOUNT)?;
-    let bridge =
-        BridgeTransit::from_bytes(&ctx, &external.try_borrow_data()?).map_err(|_| BAD_ACCOUNT)?;
-    authenticate_pair(&ctx, &key(holding), slot, &key(external), &marker, &bridge)
+    let bridge = OwnedBridgeTransit::from_bytes(&ctx, &external.try_borrow_data()?)
         .map_err(|_| BAD_ACCOUNT)?;
+    authenticate_pair(
+        &ctx,
+        &key(holding),
+        slot,
+        &key(external),
+        &marker,
+        bridge.common(),
+    )
+    .map_err(|_| BAD_ACCOUNT)?;
     let t = bridge.transit();
     if t.state != wm::MarchState::Departed {
         return Err(FrontierError::AlreadyDone.into());
@@ -689,11 +698,7 @@ pub(super) fn stage_origin(p: &Pubkey, a: &[AccountInfo], slot: u8) -> R<OriginP
         .saturating_sub(t.depart_bell)
         .min(u16::MAX as u32) as u16;
     let next = bridge
-        .step(
-            &ctx,
-            wm::MarchEvent::SettleDeparture { destroyed },
-            Some((troops, stamina, ready)),
-        )
+        .settle_origin(&ctx, destroyed, Some((troops, stamina, ready)))
         .map_err(|_| BAD_ACCOUNT)?;
     write_entry(&mut pd, index, &Entry::FREE).map_err(|_| BAD_ACCOUNT)?;
     let n = Ro(&pd)

@@ -35,7 +35,10 @@ fn actual_legacy_resolve_hands_survivors_to_bridge_exactly_once() {
         // This prior-state fixture has already resolved bells 0..9. Conquest
         // scoring must have the same cursor, even for a province with no keep.
         Rw(&mut pd)
-            .set_u32(frontier_abi::v2::layout::province::province::SCORE_NEXT_BELL, 10)
+            .set_u32(
+                frontier_abi::v2::layout::province::province::SCORE_NEXT_BELL,
+                10,
+            )
             .unwrap();
         Rw(&mut pd)
             .set_u64(PV::PASSABLE_MASK, (1u64 << 61) - 1)
@@ -119,8 +122,12 @@ fn actual_legacy_resolve_hands_survivors_to_bridge_exactly_once() {
         let settled = model::settle_bell(&mut pd, 10).expect("settle_bell fixture");
         let params = cq::StepParams::of_season(&a[2].try_borrow_data().unwrap()).unwrap();
         let step = cq::step(&mut pd, 10, &report, &params).expect("conquest step fixture");
-        model::finish_bell(&mut pd, 10, applied.changed() || settled || step.roster_changed)
-            .expect("finish_bell fixture");
+        model::finish_bell(
+            &mut pd,
+            10,
+            applied.changed() || settled || step.roster_changed,
+        )
+        .expect("finish_bell fixture");
     }
     crate::proc::clash::resolve_from_inputs(&p, &resolve_accounts, &resolve.to_bytes()).unwrap();
     let survivor = read_entry(&province.try_borrow_data().unwrap(), 0).unwrap();
@@ -153,7 +160,7 @@ fn actual_legacy_resolve_hands_survivors_to_bridge_exactly_once() {
     ];
     let before = snapshot(&origin);
     execute_origin(&p, &origin, 0).unwrap();
-    let t = BridgeTransit::from_bytes(&ctx, &origin[5].try_borrow_data().unwrap())
+    let t = OwnedBridgeTransit::from_bytes(&ctx, &origin[5].try_borrow_data().unwrap())
         .unwrap()
         .transit();
     assert_eq!(t.troops_after, survivor.troops);

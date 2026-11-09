@@ -206,6 +206,22 @@ fn legacy_departure_stages_spend_without_mutation_or_reissue() {
     assert_eq!(e.state, E::STATE_ROSTER);
     assert_eq!(Ro(&plan.holding).u32(H::HOST_SEQ).unwrap(), 1);
     assert_eq!(e.troops, 200_000);
+    let ctx = addr::ctx(&key(&a[2]), &PROGRAM);
+    let bridge = OwnedBridgeTransit::from_bytes(&ctx, &plan.bridge).unwrap();
+    assert_eq!(bridge.original_owner(), key(&a[3]));
+    assert_eq!(plan.bridge.len(), 336);
+}
+
+#[test]
+fn departure_rejects_a_different_original_holding_owner() {
+    let (a, x) = fixture();
+    a[4].try_borrow_mut_data().unwrap()[H::OWNER_CITIZEN..H::OWNER_CITIZEN + 32].fill(0x55);
+    let before = snapshot(&a);
+    assert_eq!(
+        stage_depart(&Pubkey::new_from_array(PROGRAM), &a, &x, &Auth::Wallet).err(),
+        Some(FrontierError::NotOwner.into())
+    );
+    assert_eq!(snapshot(&a), before);
 }
 
 #[test]
@@ -276,7 +292,7 @@ fn origin_uses_only_post_combat_survivors_and_replay_refuses() {
     let plan = stage_origin(&p, &a, 0).unwrap();
     assert_eq!(snapshot(&a), before);
     let ctx = addr::ctx(&key(&a[1]), &PROGRAM);
-    let bridge = BridgeTransit::from_bytes(&ctx, &plan.bridge)
+    let bridge = OwnedBridgeTransit::from_bytes(&ctx, &plan.bridge)
         .unwrap()
         .transit();
     assert_eq!(bridge.troops_after, 123_000);
@@ -299,6 +315,10 @@ fn origin_uses_only_post_combat_survivors_and_replay_refuses() {
 #[test]
 fn captured_origin_preserves_current_bond_flag_and_never_credits_captor() {
     let a = resolved_fixture(123_000);
+    let ctx = addr::ctx(&key(&a[1]), &PROGRAM);
+    let original = OwnedBridgeTransit::from_bytes(&ctx, &a[5].try_borrow_data().unwrap())
+        .unwrap()
+        .original_owner();
     {
         let mut hd = a[3].try_borrow_mut_data().unwrap();
         hd[H::GEN] = 2;
@@ -311,11 +331,54 @@ fn captured_origin_preserves_current_bond_flag_and_never_credits_captor() {
     let before = snapshot(&a);
     let plan = stage_origin(&Pubkey::new_from_array(PROGRAM), &a, 0).unwrap();
     assert_eq!(snapshot(&a), before);
-    assert_eq!(plan.bridge.len(), BRIDGE_LEN);
+    assert_eq!(plan.bridge.len(), OWNED_BRIDGE_LEN);
+    let settled = OwnedBridgeTransit::from_bytes(&ctx, &plan.bridge).unwrap();
+    assert_eq!(settled.original_owner(), original);
+    assert_ne!(settled.original_owner(), [0x55; 32]);
     assert_eq!(
         a[3].try_borrow_data().unwrap()[H::transit(0) + T::FLAGS],
         T::FLAG_FEE_ESCROWED
     );
+}
+
+#[test]
+fn origin_rejects_ownerless_v1_without_promoting_it() {
+    let mut a = resolved_fixture(123_000);
+    let ctx = addr::ctx(&key(&a[1]), &PROGRAM);
+    let bridge = OwnedBridgeTransit::from_bytes(&ctx, &a[5].try_borrow_data().unwrap()).unwrap();
+    a[5] = ai(
+        key(&a[5]),
+        PROGRAM,
+        bridge.common().to_bytes().to_vec(),
+        false,
+        true,
+    );
+    let before = snapshot(&a);
+    assert_eq!(
+        stage_origin(&Pubkey::new_from_array(PROGRAM), &a, 0).err(),
+        Some(BAD_ACCOUNT)
+    );
+    assert_eq!(snapshot(&a), before);
+}
+
+#[test]
+fn origin_receipt_binds_every_original_owner_byte() {
+    use frontier_abi::world_index::expedition_transport::ORIGINAL_OWNER_OFFSET;
+    let a = resolved_fixture(123_000);
+    let p = Pubkey::new_from_array(PROGRAM);
+    let ctx = addr::ctx(&key(&a[1]), &PROGRAM);
+    let base = prepare_origin(&p, &a, 0).unwrap();
+    let base = receipt::Record::decode(&ctx, &base.body).unwrap();
+    for offset in ORIGINAL_OWNER_OFFSET..OWNED_BRIDGE_LEN {
+        // Mutate isolated prior-state bytes solely to test full manifest binding,
+        // not to claim that a caller may rewrite an authenticated departure.
+        a[5].try_borrow_mut_data().unwrap()[offset] ^= 1;
+        let changed = prepare_origin(&p, &a, 0).unwrap();
+        let changed = receipt::Record::decode(&ctx, &changed.body).unwrap();
+        assert_ne!(changed.source.receipt.input, base.source.receipt.input);
+        assert_ne!(changed.source.receipt.output, base.source.receipt.output);
+        a[5].try_borrow_mut_data().unwrap()[offset] ^= 1;
+    }
 }
 
 #[test]
@@ -325,7 +388,7 @@ fn origin_destroyed_and_refusal_snapshots() {
     let before = snapshot(&a);
     let plan = stage_origin(&p, &a, 0).unwrap();
     let ctx = addr::ctx(&key(&a[1]), &PROGRAM);
-    let t = BridgeTransit::from_bytes(&ctx, &plan.bridge)
+    let t = OwnedBridgeTransit::from_bytes(&ctx, &plan.bridge)
         .unwrap()
         .transit();
     assert_eq!(t.state, MarchState::DestroyedAtOrigin);
@@ -368,7 +431,7 @@ fn staged_departure_receipt_binds_original_chains_and_prefunded_rent() {
     assert_eq!(plan.after[1].lamports, before[1].0 - x.tip);
     assert_eq!(plan.after[8].lamports, before[8].0);
     assert_eq!(plan.after[5].data, plan.after[7].data);
-    let t = BridgeTransit::from_bytes(&ctx, &plan.after[8].data)
+    let t = OwnedBridgeTransit::from_bytes(&ctx, &plan.after[8].data)
         .unwrap()
         .transit();
     assert_eq!(t.rent_to, key(&a[1]));

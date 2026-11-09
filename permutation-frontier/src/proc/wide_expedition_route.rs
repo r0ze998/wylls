@@ -5,9 +5,8 @@
 use super::*;
 use frontier_abi::v2::layout::{province::structure_entry as TE, AccountKind as K2};
 use frontier_abi::world_index::expedition::{AccountFamily, AccountResolver};
-use frontier_abi::world_index::expedition_bridge::{
-    authenticate_pair, BridgeMarker, BridgeTransit, MARKER_LEN,
-};
+use frontier_abi::world_index::expedition_bridge::{authenticate_pair, BridgeMarker, MARKER_LEN};
+use frontier_abi::world_index::expedition_transport::OwnedBridgeTransit;
 use permutation_rules::frontier::structure::{self as structures, Watch};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -195,13 +194,20 @@ pub(super) fn inspect(
     if external.owner != p {
         return Err(BAD_ACCOUNT);
     }
-    let bridge =
-        BridgeTransit::from_bytes(&ctx, &external.try_borrow_data()?).map_err(|_| BAD_ACCOUNT)?;
+    let bridge = OwnedBridgeTransit::from_bytes(&ctx, &external.try_borrow_data()?)
+        .map_err(|_| BAD_ACCOUNT)?;
     let off = H::transit(slot as usize);
     let marker =
         BridgeMarker::from_bytes(&ctx, &hd[off..off + MARKER_LEN]).map_err(|_| BAD_ACCOUNT)?;
-    authenticate_pair(&ctx, &key(holding), slot, &key(external), &marker, &bridge)
-        .map_err(|_| BAD_ACCOUNT)?;
+    authenticate_pair(
+        &ctx,
+        &key(holding),
+        slot,
+        &key(external),
+        &marker,
+        bridge.common(),
+    )
+    .map_err(|_| BAD_ACCOUNT)?;
     let t = bridge.transit();
     wseal::validate(plain, &t.host, t.arrive_bell).map_err(|_| FrontierError::BadPlaintext)?;
     if resolver.family(plain.dest).map_err(|_| BAD_ACCOUNT)? != AccountFamily::Wide {
