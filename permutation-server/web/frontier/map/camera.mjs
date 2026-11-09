@@ -180,6 +180,15 @@ export function fitView(ringsOpen, size, { inset = null, cap = FAR_CAP, floor = 
   return centreOn({ x: 0, y: 0 }, zoom, size, inset);
 }
 
+/** Keep the old near-world minimum, but never let it crop the fitted chart,
+ * including the free area above a phone sheet. No gameplay radius changes. */
+export function chartZoomMin(ringsOpen, size, { inset = null, floor = 0.02 } = {}) {
+  if (!(size.width > 0) || !(size.height > 0)) return floor;
+  const full = fitView(ringsOpen, size).zoom;
+  const free = fitView(ringsOpen, size, { inset }).zoom;
+  return Math.min(Math.max(floor, full * 0.8), free * 0.8);
+}
+
 /** The part of the canvas nothing covers: {x, y (its centre, px from the canvas centre), width, height}. */
 export function freeBox(size, inset = null) {
   const t = inset?.top ?? 0, r = inset?.right ?? 0, b = inset?.bottom ?? 0, l = inset?.left ?? 0;

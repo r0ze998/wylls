@@ -32,7 +32,8 @@ import { regionOf, ringOf, ringProvinces, homeNation, hexDistance } from './fgeo
 import { hostParts, hostId } from './faddr.mjs';
 import { decodePage } from './flog.mjs';
 import { nextPoll, BELLS_PER_DAY } from './herald.mjs';
-import { applySeasonRecord, overviewTaken } from './map/world.mjs';
+import { applySeasonRecord } from './map/world.mjs';
+import { readOverviews } from './map/overviews.mjs';
 import { kernel as loadKernel, UNITS } from './wasm.mjs';
 import { uiKey, uiStorage, loadUi, saveUi, landKey, loadLand, saveLand, LAND_DEFAULTS } from './fui.mjs';
 import * as wallet from '../wallet.mjs';
@@ -1468,21 +1469,50 @@ function homeWedgeFull(record, faction) {
  * The season record's open rings and their overviews, re-read once a bell while a ticket
  * is being planned: new rings and freed sites show up (review finding 3).
  */
-async function refreshOverviews(b) {
-  if (FS.overviewsBell === b) return;
-  FS.overviewsBell = b;
-  try {
-    const r = await herald.season();
-    // (the record, the world's extent and the ring lists move together: map/world.mjs applySeasonRecord. Setting
-    // FS.record alone left FS.world at the boot's copy, so a ring the herald had just put inside the map was still
-    // "outside" to the inspector and the border until the page's own poll)
-    if (r?.ok && r.record) { applySeasonRecord(FS, r.record, { herald, onRings: () => invalidate('map', 'panel') }); if (r.season) FS.season = r.season; }
-  } catch { /* keep the last record */ }
-  const rings = Math.max(1, FS.record?.rings?.length ?? 1);
-  for (let d = FIRST_TICKET_RING; d < rings; d++) {   // rings 0–1 hold no ticket sites (re-check 3)
-    const requestedWorld = FS.world;
-    try { const o = await (conquestEnabled(FS.season) && herald.overview2 ? herald.overview2(d) : herald.overview(d)); if (o.ok && overviewTaken(FS, d, requestedWorld)) { FS.overviews.set(d, o); } } catch { /* keep the last overview */ }
-  }
+let overviewRefresh = null, overviewSource = null;
+function refreshOverviews(b) {
+  if (overviewRefresh?.bell === b && overviewRefresh.herald === herald) return overviewRefresh.promise;
+  if (FS.overviewsBell === b && overviewSource === herald) return Promise.resolve();
+  const request = { bell: b, herald, promise: null };
+  overviewRefresh = request;
+  request.promise = (async () => {
+    try {
+      try {
+        const r = await request.herald.season();
+        if (herald !== request.herald) return;
+        // A later bell's read owns the season record; the older caller joins it.
+        if (overviewRefresh !== request) return overviewRefresh?.promise;
+        // The record, the world's extent and the ring lists move together. Setting
+        // FS.record alone left FS.world behind the ticket planner's latest read.
+        if (r?.ok && r.record) {
+          applySeasonRecord(FS, r.record, { herald, onRings: () => invalidate('map', 'panel') });
+          if (r.season) FS.season = r.season;
+        }
+      } catch { /* keep the last record */ }
+      if (herald !== request.herald) return;
+      if (overviewRefresh !== request) return overviewRefresh?.promise;
+      const count = Math.max(1, FS.record?.rings?.length ?? 1);
+      // Also refresh rings 0–1 as map summaries: a newer season read may supersede
+      // their queued boot reads. Ticket candidate rules still start at FIRST_TICKET_RING.
+      const rings = Array.from({ length: count }, (_, i) => i);
+      // The same four-request queue serves boot and refresh; PSFOV2 cannot be
+      // overwritten by a delayed legacy boot response. Ticket planning still awaits all.
+      const results = await readOverviews(FS, { herald, rings, v2: conquestEnabled(FS.season),
+        onChange: () => invalidate('map', 'panel'),
+      });
+      if (herald !== request.herald) return;
+      if (overviewRefresh !== request) return overviewRefresh?.promise;
+      // A partial/failed read remains retryable; a superseded caller cannot mark
+      // the replacement client's or newer bell's refresh complete.
+      if (results.every(Boolean)) {
+        FS.overviewsBell = b;
+        overviewSource = herald;
+      }
+    } finally {
+      if (overviewRefresh === request) overviewRefresh = null;
+    }
+  })();
+  return request.promise;
 }
 
 // ------------------------------------------------------------------ the composer

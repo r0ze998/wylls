@@ -34,7 +34,7 @@ import { inverseHex } from '../../map.mjs';
 import { L, onLangChange, fmtNum } from '../../lang.mjs';
 import { s1On } from '../fs1.mjs';
 import { locate, ringOf, hexDistance, tileHex } from '../fgeo.mjs';
-import { fogLevel, paintProvince, paintSigil, paintTiles, paintVeil, provincePixel } from './layers.mjs';
+import { FOG, UNOPENED_FILL, PROVINCE_CIRCUMRADIUS, provinceCorners, provinceFill, fogLevel, paintProvince, paintSigil, paintTiles, paintVeil, provincePixel } from './layers.mjs';
 import { FACTION_COLORS } from '../fi18n.mjs';
 import { NATION_ON } from '../palette.mjs';
 import { createTerrain } from './terrain.mjs';
@@ -44,11 +44,11 @@ import { INERT_CTX, SpriteArt, artSize, farRes, terrainLookup } from './sprites.
 import { paintSheet, paintTable, sheetOf, tableShows } from './table.mjs';
 import { CloudSea, DRIFT_SPEED, SEA_BAKES, seaField, seaRes } from './cloudsea.mjs';
 import { project, RADIUS, FLATTEN } from '../../map.mjs';
-import { Camera, EASE, FAR_CAP, MOVE_MS, ZOOM_GIVE, centreReach, clampCentre, fitView, freeBox, reducedMotion } from './camera.mjs';
+import { Camera, EASE, FAR_CAP, MOVE_MS, ZOOM_GIVE, centreReach, chartZoomMin, clampCentre, fitView, freeBox, reducedMotion } from './camera.mjs';
 import { OPEN_FROM, OPEN_WAIT_MS, heroZoom, lookPoint, openingPlan, placePoint } from './opening.mjs';
 import { nearness, paintDressing } from './dressing.mjs';
 import { PROBE } from './probe.mjs';
-import { L2, L3, openSurvey } from './survey.mjs';
+import { L2, L3, keyHex, openSurvey } from './survey.mjs';
 import { edgeNear, edgeSegments, paintEdge } from './world.mjs';
 import { CHART, YOURS, fxNow, paintCandidates, paintWedge } from './chart.mjs';
 import { wedgeBox } from './opening.mjs';
@@ -113,9 +113,97 @@ export const MAP_TOOLS = Object.freeze([
 
 /** Zoom thresholds (screen px per world px) with hysteresis between levels. */
 export const LOD_EDGES = Object.freeze({ provinceIn: 0.14, provinceOut: 0.12, tileIn: 0.5, tileOut: 0.45 });
-/** The absolute zoom limits. The map itself never goes further out than a little past the far view (zoomMin). */
+/** Legacy helper floor; the live camera's minimum follows the fitted world (zoomMin). */
 export const ZOOM_MIN = 0.02;
 export const ZOOM_MAX = 2.2;
+/** Below eight CSS pixels across a province, draw the chart as batched cells,
+ * not 61 terrain tiles and a bitmap per province. Near-world art is unchanged. */
+export const COARSE_CHART_PX = 8;
+/** Bound each canvas path: one whole-world fill can contain hundreds of
+ * thousands of vertices and stall rasterization despite its low call count. */
+export const CHART_BATCH_CELLS = 256;
+export const coarseChart = (lod, zoom) => lod === 'world' && 2 * PROVINCE_CIRCUMRADIUS * zoom <= COARSE_CHART_PX;
+
+/** Same province max visibility as survey.province, without building tile/rim
+ * signatures for every cell in a whole-world chart. Survey tiles are public
+ * presentation state, never a new source of information. */
+export function chartSurveyLevels(survey) {
+  const levels = new Map();
+  if (!survey.showAll) for (const [key, level] of survey.tiles ?? []) {
+    const h = keyHex(key), at = locate(h.q, h.r), pk = `${at.p},${at.q}`;
+    levels.set(pk, Math.max(levels.get(pk) ?? 1, level));
+  }
+  return levels;
+}
+
+/** Presentation-only keep filter for tiny chart cells. Full records, capture
+ * bookkeeping and public territory colours remain on the original board.
+ * Avoid KeepBoard.visible's tile geometry for every keep in the season. */
+export function chartKeepView(board, src, survey, fx) {
+  const keys = new Set();
+  const add = at => { if (Number.isInteger(at?.p) && Number.isInteger(at?.q)) keys.add(`${at.p},${at.q}`); };
+  add(src.selected);
+  for (const at of src.own ?? []) add(at);
+  for (const at of survey.villages ?? []) add(at);
+  for (const at of survey.board?.hosts ?? []) add(at);
+  for (const [key, at] of board.lit ?? []) if (at.reachable || at.hot) keys.add(key);
+  for (const [key, cap] of board.captures) {
+    // Expire even aggregated captures, just as their original painter does.
+    if (board.capturing(key, fx) && (cap.mine || cap.lost)) keys.add(key);
+  }
+  if (board.note) keys.add(board.note.key);
+  const rows = [...keys].map(key => board.rows.get(key)).filter(Boolean);
+  const visible = (F, pad = PROVINCE_CIRCUMRADIUS) => rows.filter(row => {
+    const c = provincePixel(row.p, row.q), s = F.seen;
+    return !s || (c.x > s.x0 - pad && c.x < s.x1 + pad && c.y > s.y0 - pad && c.y < s.y1 + pad);
+  });
+  // Writes by existing painters (e.g. expiring a refusal) still reach the real
+  // board. Only their visible row iteration changes, never rows or hit state.
+  return new Proxy(board, { get(target, key, receiver) { return key === 'visible' ? visible : Reflect.get(target, key, receiver); } });
+}
+
+/** Batched original province colours, fog and public keep-control wash. The
+ * subpixel terrain, boundaries and realm labels are intentionally absent.
+ * Picking remains the original inverse projection; own markers are separate. */
+export function paintChartCells(ctx, cells, zoom, lens = 'realm') {
+  const corners = provinceCorners(0, 0), batches = [new Map(), new Map(), new Map()];
+  const add = (pass, colour, alpha, c) => {
+    const key = `${colour}|${alpha}`;
+    let b = batches[pass].get(key);
+    if (!b) batches[pass].set(key, b = { colour, alpha, cells: [] });
+    b.cells.push(c);
+  };
+  for (const e of cells) {
+    const c = provincePixel(e.p, e.q);
+    add(0, e.fog === 'unopened' ? UNOPENED_FILL : provinceFill(e.rec), 1, c);
+    if (e.fog !== 'unopened' && FOG[e.fog] > 0) add(1, '#e9e5d8', FOG[e.fog], c);
+    if (e.fog !== 'unopened' && Number.isInteger(e.control) && e.control >= 0 && e.control < 6) {
+      add(2, FACTION_COLORS[e.control], 0.46 * (lens === 'realm' ? 1 : 0.4), c);
+    }
+  }
+  ctx.save();
+  let fills = 0;
+  for (const pass of batches) for (const b of pass.values()) {
+    ctx.fillStyle = b.colour; ctx.globalAlpha = b.alpha;
+    for (let start = 0; start < b.cells.length; start += CHART_BATCH_CELLS) {
+      ctx.beginPath();
+      for (let i = start; i < Math.min(start + CHART_BATCH_CELLS, b.cells.length); i++) {
+        const c = b.cells[i];
+        corners.forEach(([x, y], j) => j ? ctx.lineTo(c.x + x, c.y + y) : ctx.moveTo(c.x + x, c.y + y));
+        ctx.closePath();
+      }
+      ctx.fill(); fills++;
+    }
+  }
+  ctx.globalAlpha = 1;
+  for (const e of cells) if (e.selected) {
+    ctx.beginPath();
+    provinceCorners(e.p, e.q).forEach(([x, y], i) => i ? ctx.lineTo(x, y) : ctx.moveTo(x, y));
+    ctx.closePath(); ctx.strokeStyle = '#f4efe0'; ctx.lineWidth = 2.6 / zoom; ctx.stroke();
+  }
+  ctx.restore();
+  return { cells: cells.length, fills };
+}
 /** Home's zoom on a dpr-1 screen (opening.mjs heroZoom): tile detail, the holding and the hosts beside it in view. */
 export const HOME_ZOOM = 1.15;
 /**
@@ -613,7 +701,7 @@ export class FrontierMap {
   /** The far view's zoom on a canvas of `size` with nothing covering it: there the board lies flat. */
   flatZoom(size = this.size()) {
     const key = `${this.ringsNow()}|${size.width}x${size.height}`;
-    if (this.flatKey !== key) { this.flatKey = key; this.flatAt = size.width > 0 && size.height > 0 ? fitView(this.ringsNow(), size, { cap: FAR_ZOOM_CAP, floor: ZOOM_MIN }).zoom : 0; }
+    if (this.flatKey !== key) { this.flatKey = key; this.flatAt = size.width > 0 && size.height > 0 ? fitView(this.ringsNow(), size, { cap: FAR_ZOOM_CAP }).zoom : 0; }
     return this.flatAt;
   }
   /** The edges between the levels of detail on this canvas (lodEdges). */
@@ -876,7 +964,7 @@ export class FrontierMap {
   /** The furthest the map zooms out: a little past the far view. */
   zoomMin(size = this.size()) {
     if (!(size.width > 0) || !(size.height > 0)) return ZOOM_MIN;
-    return Math.max(ZOOM_MIN, fitView(this.ringsNow(), size, { cap: FAR_ZOOM_CAP, floor: ZOOM_MIN }).zoom * 0.8);
+    return chartZoomMin(this.ringsNow(), size, { inset: this.inset(), floor: ZOOM_MIN });
   }
   clampZoom(zoom, size = this.size()) { return Math.min(ZOOM_MAX, Math.max(this.zoomMin(size), zoom)); }
   /** The camera's limits: the zoom range always; the opened world plus a margin for a pan a person makes (`clamp`). */
@@ -1023,7 +1111,7 @@ export class FrontierMap {
 
   /** The far view of this canvas: the opened world above the sheet, at world LOD. */
   farView(src = this.source?.(), size = this.size()) {
-    return fitView(Math.max(1, src?.ringsOpen ?? 1), size, { inset: this.inset(), cap: FAR_ZOOM_CAP, floor: ZOOM_MIN });
+    return fitView(Math.max(1, src?.ringsOpen ?? 1), size, { inset: this.inset(), cap: FAR_ZOOM_CAP });
   }
 
   /** Jump to the far view, unless a person already moved the camera. */
@@ -1041,14 +1129,17 @@ export class FrontierMap {
     if (this.chartOn()) {
       const b = this.back;
       this.back = null;
-      this.setView(b, { ms: flightMs(this.cam.drawn, b, size), kind: 'fly' });
+      this.setView(b, { ms: flightMs(this.cam.drawn, b, size), kind: 'fly', real: coarseChart('world', this.cam.drawn.zoom) || coarseChart('world', b.zoom) });
       return;
     }
     // already looking at the world without a way back: the button leads home
     if (this.lod === 'world') { this.home(); return; }
     const far = this.farView();
     this.back = { ...this.cam.view };
-    this.setView(far, { ms: Math.max(MOVE_MS.far, flightMs(this.cam.drawn, far, size)), kind: 'fly' });
+    // Whole-world frames can be expensive: keep this trip on wall-clock time,
+    // rather than stretching each 50ms animation step across a slow frame.
+    // Ordinary near-world chart flights keep their existing frame-paced ease.
+    this.setView(far, { ms: Math.max(MOVE_MS.far, flightMs(this.cam.drawn, far, size)), kind: 'fly', real: coarseChart('world', this.cam.drawn.zoom) || coarseChart('world', far.zoom) });
   }
 
   /** Zoom by `factor` about the middle of the uncovered canvas (the buttons, + and −): eased. */
@@ -1318,7 +1409,10 @@ export class FrontierMap {
     if (!this.keeps.on || !Number.isFinite(clientX) || !Number.isFinite(clientY)) return null;
     const z = this.cam.drawn.zoom, coarse = !!globalThis.matchMedia?.('(pointer: coarse)')?.matches, min = coarse ? 22 : 12;
     let best = null, bd = Infinity;
-    for (const row of this.keeps.rows.values()) {
+    // Tiny chart cells have aggregated territory, not a hidden 12/22px keep
+    // target on every province. Keep hits follow the marks actually drawn.
+    const rows = coarseChart('world', z) ? this.chartKeeps?.visible({}) ?? [] : this.keeps.rows.values();
+    for (const row of rows) {
       const P = this.keeps.place(row, z);
       if (!P) continue;
       const k = this.standAt(P.x, P.y)?.k ?? 1, at = this.project(P.x, P.y), s = P.u * z * k;
@@ -1946,7 +2040,7 @@ export class FrontierMap {
   waitView(size = this.size(), inset = this.inset()) {
     const sh = sheetOf(this.rings ?? 1), f = freeBox(size, inset), g = tiltGeo(size, this.tiltMax, this.persp);
     const lean = g.flat ? 1 : Math.cos((g.deg * Math.PI) / 180);
-    const zoom = Math.max(ZOOM_MIN, Math.min((WAIT_VIEW.wide * f.width) / (2 * sh.x), (WAIT_VIEW.high * f.height) / (2 * sh.y * lean)));
+    const zoom = Math.max(Math.min(ZOOM_MIN, this.zoomMin(size)), Math.min((WAIT_VIEW.wide * f.width) / (2 * sh.x), (WAIT_VIEW.high * f.height) / (2 * sh.y * lean)));
     const s = g.toStage(size.width / 2 + f.x, size.height / 2 + f.y + WAIT_VIEW.drop * f.height);
     return { x: -(s.x - size.width / 2) / zoom, y: -(s.y - size.height / 2) / zoom, zoom };
   }
@@ -2179,6 +2273,7 @@ export class FrontierMap {
     // the art's own, the ground bitmaps, the relief, the pieces of the sea; no picture of the canvas is kept or
     // copied. `rush`: the opening is on screen: more of what is new is made a frame)
     const { width, height } = size, z = view.zoom;
+    const coarse = coarseChart(lod, z), chartCells = [];
     const world = [dpr * z, 0, 0, dpr * z, dpr * (width / 2 - view.x * z), dpr * (height / 2 - view.y * z)];
     // what lies under the art: the table, and the provinces drawn as plain cells (no terrain yet, or no art);
     // painted onto the canvas, or once into the ground layer of a resting tile view
@@ -2217,6 +2312,7 @@ export class FrontierMap {
     // viewer (the spectator, practice, a test) gives none: every open tile is in sight
     const survey = src.survey ?? (this.openSv?.ringsOpen === ringsOpen ? this.openSv : (this.openSv = openSurvey(ringsOpen)));
     const limited = !survey.showAll;
+    const chartLevels = coarse ? chartSurveyLevels(survey) : null;
     // the fog of a province, in the names the province-level painters know: its ring is not open; the survey
     // is off (clear); some of it is in sight; some of it is surveyed (known); else the chart (distant)
     const fogOf = (p, q) => { const sv = survey.province(p, q); return fogLevel({ ringOpen: ringOf(p, q) < ringsOpen, showAll: survey.showAll, known: sv.max >= L2, sightDistance: sv.max === L3 ? 0 : Infinity }); };
@@ -2236,6 +2332,16 @@ export class FrontierMap {
     };
     for (const pr of visibleProvinces(view, size, maxRing, quad)) {
       const key = `${pr.p},${pr.q}`;
+      if (coarse) {
+        const open = ringOf(pr.p, pr.q) < ringsOpen;
+        const lv = survey.showAll ? L3 : chartLevels.get(key) ?? 1;
+        const rec = open && lv >= L2 ? recs.get(key) : null;
+        const held = src.territoryEnabled ? null : recs.get(key)?.control;
+        const shown = !src.territoryEnabled && this.keeps.on && this.keeps.rows.has(key) ? this.keeps.farHolder(key) : null;
+        chartCells.push({ ...pr, rec, fog: fogLevel({ ringOpen: open, showAll: survey.showAll, known: lv >= L2, sightDistance: lv === L3 ? 0 : Infinity }),
+          control: Number.isInteger(shown) ? shown : held, selected: src.selected?.p === pr.p && src.selected?.q === pr.q && !Number.isInteger(src.selected?.idx) });
+        continue;
+      }
       const fog = fogOf(pr.p, pr.q);
       // (a selected tile has its own ring: only a province chosen as a whole is framed)
       const selProv = !!src.selected && src.selected.p === pr.p && src.selected.q === pr.q;
@@ -2276,6 +2382,7 @@ export class FrontierMap {
       }
       plain.push(g => paintProvince(g, { ...pr, rec, fog, selected, scale: z }));
     }
+    if (coarse) plain.push(g => paintChartCells(g, chartCells, z, src.lens ?? 'realm'));
     // the season's border (map/world.mjs): beyond ring rMax there is never land this season. Drawn once it is within
     // reach of the open land, over the cloud's edge, so "not open yet" and "outside the map" never look alike
     if (edgeNear(src.rMax, ringsOpen)) { const segs = edgeSegments(src.rMax); plain.push(g => paintEdge(g, segs, z)); }
@@ -2293,7 +2400,9 @@ export class FrontierMap {
       KB.frame(recs, { events: feed?.events ?? null, viewer: feed?.viewer ?? src.viewerFaction ?? null, bell: feed?.bell ?? src.bell ?? null }, { fx: F.fx, still: F.still });
       // (a capture that is the viewer's nation's own, won or lost: the camera comes to it when the player is not busy)
       if (KB.want) { if (!prep) this.arrivalWant = { ...KB.want, at: F.fx, moment: true }; KB.want = null; }
+      if (coarse) F.KB = chartKeepView(KB, src, survey, F.fx);
     }
+    this.chartKeeps = coarse && KB ? F.KB : null;
     // a resting tile view: the still layers (the table is in the ground layer), then the animated ones
     // (`between`: on the ground, under what stands on it: the viewer's land and the lit tiles, then the effects engine's ground pass)
     // the cloud sea: its still part (the bank and the puffs) and the light and shade that drift over it
@@ -2307,6 +2416,7 @@ export class FrontierMap {
     const diving = !!this.dive && !this.dive.calm && (!!prep || this.cam.moving);
     const seaZoom = diving ? this.cam.view.zoom * DIVE.sea0 : this.cam.moving ? Math.min(this.cam.tween?.from?.zoom ?? z, this.cam.view.zoom) : z;
     const sea = (g, part) => {
+      if (coarse) return { pending: 0, rough: 0, seen: false };
       // (cloud is soft: it is made for the screen's own pixels, not for the finer ground canvas of a screen of one device px per px)
       const r = this.sea.paint(g, { box: seen, res: seaRes(seaZoom * Math.min(dpr, this.dpr())), ringsOpen, sheet, now: fxNow(), still: reducedMotion(), part, bakes: rush ? SEA_BAKES * 3 : SEA_BAKES, budget: prep === 'ask' ? -1 : prep ? DIVE.sea : null });
       if (r.pending) { pending += r.pending; this.dirty = true; }

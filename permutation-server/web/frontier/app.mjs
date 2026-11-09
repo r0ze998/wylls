@@ -33,7 +33,8 @@ import { fxNow } from './map/chart.mjs';   // (milliseconds on the effects clock
 import { reducedMotion } from './map/camera.mjs';
 import { renderSurveyHelp } from './map/legend.mjs';
 import { NOTE_TEXT, createActions, actorsAt } from './map/actions.mjs';
-import { PLACE, PLACE_NOTE, applySeasonRecord, overviewRings, overviewTaken, placeNow } from './map/world.mjs';
+import { PLACE, PLACE_NOTE, applySeasonRecord, overviewRings, hexAtPixel, placeNow } from './map/world.mjs';
+import { readOverviews } from './map/overviews.mjs';
 import * as hand from './hud/hand.mjs';
 import * as turnlist from './hud/turnlist.mjs';
 import { createCamKeep } from './hud/camkeep.mjs';
@@ -171,7 +172,7 @@ import * as pins from './hud/pins.mjs';
 import { battleScene, startBattle, battleLive, BATTLE_SPEEDS, PHASE } from './people/battle.mjs';
 import { decode as decodeAccount } from './fcodec.mjs';
 import { fromBase64 } from '../sdk/bytes.mjs';
-import { tileHex, ringProvinces, homeNation } from './fgeo.mjs';
+import { tileHex, ringProvinces, homeNation, locate } from './fgeo.mjs';
 import { project, RADIUS } from '../map.mjs';
 import { identityOf, displayName, withProfile, tagKey } from './people/identity.mjs';
 import { lifeAt, lordLine } from './people/life.mjs';
@@ -3628,7 +3629,7 @@ async function loadSeason(herald) {
   // poll, no reload
   applySeasonRecord(FS, record, { herald, onRings: () => invalidate('map', 'panel') });
   // a ring opened since the overviews were taken, or one whose Provinces are still being created, wants its overview
-  // (after the boot's own load: boot awaits loadOverviews itself, so the opening view has them)
+  // (boot also streams them progressively through the shared bounded queue)
   if (FS.overviewsBooted) loadOverviews(herald).catch(() => {});
   setS1(season);
   setTermsPace(() => (FS.chain?.accelerated ? FS.chain.rate : 1));
@@ -3654,15 +3655,16 @@ async function loadSeason(herald) {
  * the rings open then, so a ring opened later had land (its seed was in the record) but no records on it until the
  * page was reloaded; now the season poll calls it after each record.
  */
-async function loadOverviews(herald, rings = overviewRings(FS.world, FS.overviewTaken)) {
-  let changed = false;
-  const requestedWorld = FS.world;
-  for (const d of rings) {
-    if (FS.world !== requestedWorld) break;
-    const r = await herald.overview(d);
-    if (r.ok && overviewTaken(FS, d, requestedWorld)) { FS.overviews.set(d, r); changed = true; }
-  }
-  if (changed || !FS.overviewsBooted) invalidate('map');
+function loadOverviews(herald, rings = overviewRings(FS.world, FS.overviewTaken)) {
+  return readOverviews(FS, { herald, rings, v2: conquestEnabled(FS.season),
+    focus: () => {
+      const view = mapRef?.view;
+      if (!view) return null;
+      const h = hexAtPixel(view.x, view.y);
+      return locate(h.q, h.r);
+    },
+    onChange: () => invalidate('map', 'panel'),
+  });
 }
 
 /** Start the page. */
@@ -3930,7 +3932,8 @@ export async function boot() {
   invalidate('chip', 'status', 'panel', 'chips');
   if (title.shouldOpen({ storage: globalThis.localStorage, search: globalThis.location?.search ?? '' })) openIntro();
   if (await loadSeason(herald)) {
-    await loadOverviews(herald);
+    // Ring summaries stream in while viewer setup starts; no whole-world boot barrier.
+    loadOverviews(herald).catch(e => console.error('frontier overviews:', e));
     // Practice runs without a season too (the kernel only needs its own ruleset); a season pins it and keeps its flags.
     if (FS.mode === 'practice') { FS.ui = loadUi(uiStorage, uiKey(scope())); invalidate('panel'); }
     if (FS.mode === 'spectate') startSpectate(herald);

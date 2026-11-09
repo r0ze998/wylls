@@ -25,13 +25,20 @@ const CITY = { p:4, q:0, tile:43 }; // canonical site11, beyond this fixture's c
 const AROUND = [5,0,0,1,0,1,1,0,1,1];
 
 async function serve() {
-  let obstacle = null;
+  let obstacle = null, releaseOverviews;
+  let held = true, active = 0, peak = 0;
+  const overviewGate = new Promise(r => { releaseOverviews = r; });
   const requests = [], writes = [];
   const server = createServer(async (req, res) => {
     const path = new URL(req.url, 'http://localhost').pathname;
     requests.push(path);
     const json = (status, body) => { res.writeHead(status, { 'content-type': 'application/json', 'cache-control': 'no-store' }); res.end(JSON.stringify(body)); };
     if (req.method !== 'GET' && req.method !== 'HEAD') { writes.push(`${req.method} ${path}`); return json(405, { ok: false, code: 'ReadOnlyFixture' }); }
+    if (/^\/h\/overview2?\//.test(path)) {
+      active++; peak = Math.max(peak, active);
+      res.once('close', () => { active--; });
+      if (held) await overviewGate;
+    }
     if (path.startsWith('/h/')) {
       let a = GOLDEN.stages.grown[path];
       if (path === '/h/structures.json' && obstacle !== null) {
@@ -57,7 +64,8 @@ async function serve() {
   });
   await new Promise(r => server.listen(0, '127.0.0.1', r));
   return { base: `http://127.0.0.1:${server.address().port}`, requests, writes, obstacle: v => { obstacle = v; },
-    close: () => new Promise(r => { server.closeAllConnections(); server.close(r); }) };
+    overviewStats: () => ({active,peak,held}), release: () => { held = false; releaseOverviews(); },
+    close: () => new Promise(r => { held = false; releaseOverviews(); server.closeAllConnections(); server.close(r); }) };
 }
 
 const snapshot = page => page.evaluate(async () => {
@@ -96,6 +104,80 @@ async function bring(page, at, width) {
   throw new Error(`tile not visible: ${JSON.stringify(await snapshot(page))}`);
 }
 
+// Max-supported-radius renderer stress on the original page. Only the map's
+// supplied presentation source is expanded; FS.world, actual herald records,
+// clock, wallet and controller state stay at the canonical six-ring fixture.
+// This is not a chain-growth or wide-gameplay claim. Every callback remains
+// the original audited read-only presentation path; no new kernel export.
+async function largeChart(page, vp, outDir) {
+  await page.locator('#panel [data-act="drawer-close"]').click();
+  await page.waitForFunction(()=>!window.__wyllsMap.cam.moving);
+  await page.evaluate(async()=>{
+    const m=window.__wyllsMap,{ringProvinces}=await import('/frontier/fgeo.mjs');
+    const {buildSurvey}=await import('/frontier/map/survey.mjs');
+    const source=m.source, original=source(), overviews=new Map(), sites=Array(12).fill(0), owners=Array(12).fill(255);
+    for(let d=0;d<=128;d++) overviews.set(d,{ok:true,ring:d,bell:0,provinces:ringProvinces(d).map(pr=>({...pr,sites,owners,control:d%6,keepTile:d>=2?30:null,keepTroops:0,contender:null,contestProgress:0,contestRequired:72,heartland:false}))});
+    // Preserve canonical home/keep data at its real coordinates.
+    for(const [d,ov] of original.overviews) overviews.set(d,ov);
+    const metrics={terrain:0,province:0,frames:[],fillMs:0,strokeMs:0,backdropMs:0,keepFrameMs:0}, draw=m.draw;
+    const restore=[];
+    const time=(object,key,total)=>{const original=object[key];object[key]=function(...a){const t=performance.now();try{return original.apply(this,a);}finally{metrics[total]+=performance.now()-t;}};restore.push(()=>{object[key]=original;});};
+    time(CanvasRenderingContext2D.prototype,'fill','fillMs');
+    time(CanvasRenderingContext2D.prototype,'stroke','strokeMs');
+    time(m,'backdrop','backdropMs');time(m.keeps,'frame','keepFrameMs');
+    const sv=buildSurvey({ringsOpen:129,showAll:true});
+    window.__largeChart={source,draw,metrics,restore,originalView:{...m.view},worldRings:(await import('/frontier/fstate.mjs')).FS.world.ringsOpen};
+    m.source=()=>({...source(),ringsOpen:129,rMax:128,rMaxCeiling:128,overviews,survey:sv,
+      terrainOf:(...a)=>{metrics.terrain++;return original.terrainOf?.(...a);},
+      provinceOf:(...a)=>{metrics.province++;return original.provinceOf?.(...a);}});
+    m.draw=function(...a){const t=performance.now();const result=draw.apply(this,a);if(!this.cam.moving&&this.lod==='world') metrics.frames.push(performance.now()-t);return result;};
+    m.invalidate();
+  });
+  await page.waitForFunction(()=>window.__wyllsMap.rings===129);
+  await page.locator('#frontier-map').focus();
+  await page.keyboard.press('m');
+  await page.waitForFunction(()=>window.__wyllsMap.chartOn()&&!window.__wyllsMap.cam.moving,null,{timeout:30000});
+  const check=async()=>page.evaluate(async()=>{
+    const m=window.__wyllsMap,{landBox,freeBox}=await import('/frontier/map/camera.mjs');
+    const b=landBox(129),s=m.size(),f=freeBox(s,m.inset()),v=m.view;
+    const {provincePixel}=await import('/frontier/map/layers.mjs');
+    const {pick}=await import('/frontier/map/fmap.mjs');
+    const c=provincePixel(125,-40),p=m.project(c.x,c.y,{box:true});
+    const picked=pick(v,s,p.x,p.y);
+    return {zoom:v.zoom,min:m.zoomMin(),lod:m.lod,chart:m.chartOn(),
+      fitsX:2*b.x*v.zoom<=f.width*.7+1e-7,fitsY:2*b.y*v.zoom<=f.height*.7+1e-7,
+      picked:[picked.p,picked.q],worldRings:(await import('/frontier/fstate.mjs')).FS.world.ringsOpen};
+  });
+  let result=await check();
+  assert.ok(result.zoom<.02);assert.ok(result.min<result.zoom);assert.equal(result.lod,'world');
+  assert.ok(result.fitsX&&result.fitsY);assert.deepEqual(result.picked,[125,-40]);assert.equal(result.worldRings,6);
+  await page.evaluate(()=>{const x=window.__largeChart;x.metrics.terrain=0;x.metrics.province=0;x.metrics.frames=[];x.metrics.fillMs=0;x.metrics.strokeMs=0;x.metrics.backdropMs=0;x.metrics.keepFrameMs=0;});
+  for(let i=0;i<8;i++) await page.evaluate(()=>new Promise(r=>requestAnimationFrame(()=>{window.__wyllsMap.draw();r();})));
+  const measured=await page.evaluate(()=>window.__largeChart.metrics);
+  assert.equal(measured.province,0,'coarse chart does not hydrate provinces');
+  // Existing own markers can read their small original local terrain set.
+  assert.ok(measured.terrain<100,'no whole-world terrain generation');
+  await page.screenshot({path:`${outDir}/${vp.name}-radius128-chart.png`});
+  await page.keyboard.press('m');
+  await page.waitForFunction(()=>!window.__wyllsMap.cam.moving);
+  const returned=await page.evaluate(()=>({view:window.__wyllsMap.view,want:window.__largeChart.originalView,back:window.__wyllsMap.back}));
+  assert.deepEqual(returned.view,returned.want);assert.equal(returned.back,null);
+  // A real viewport resize uses the original canvas observer and camera fit.
+  await page.setViewportSize({width:vp.width===390?320:1180,height:vp.height===844?568:760});
+  await page.locator('#frontier-map').focus();await page.keyboard.press('m');
+  await page.waitForFunction(()=>window.__wyllsMap.chartOn()&&!window.__wyllsMap.cam.moving);
+  const resized=await check();assert.ok(resized.fitsX&&resized.fitsY);assert.deepEqual(resized.picked,[125,-40]);
+  await page.keyboard.press('m');await page.waitForFunction(()=>!window.__wyllsMap.cam.moving);
+  await page.evaluate(()=>{const m=window.__wyllsMap,x=window.__largeChart;m.source=x.source;m.draw=x.draw;x.restore.forEach(f=>f());m.invalidate();});
+  await page.setViewportSize({width:vp.width,height:vp.height});
+  await page.waitForFunction(()=>window.__wyllsMap.rings===6);
+  const times=measured.frames.sort((a,b)=>a-b);
+  const report={syntheticRadius:128,canonicalWorldUnchanged:true,view:result,resized,
+    samples:times.length,drawMedianMs:times[Math.floor(times.length/2)],drawMaxMs:times.at(-1),terrainCalls:measured.terrain,provinceCalls:measured.province,totals:{fillMs:measured.fillMs,strokeMs:measured.strokeMs,backdropMs:measured.backdropMs,keepFrameMs:measured.keepFrameMs}};
+  console.log(JSON.stringify({viewport:vp.name,largeChart:report}));
+  await writeFile(`${outDir}/${vp.name}-large-chart.json`,JSON.stringify(report,null,2));
+}
+
 for (const vp of [{width:1440,height:900,name:'desktop'}, {width:390,height:844,name:'phone'}]) {
   test(`original map route preview @ ${vp.name}`, { timeout: 180_000 }, async () => {
     const srv = await serve();
@@ -117,6 +199,18 @@ for (const vp of [{width:1440,height:900,name:'desktop'}, {width:390,height:844,
       await page.clock.setFixedTime(new Date(Number(GOLDEN.stages.grown['/h/season'].body.latestUnix)*1000+500));
       const url = `${srv.base}/frontier/index.html?devWallet=off&at=4,0,0,${phone?'0.55':'1.0'}`;
       await page.goto(url);
+      // Keep all summary responses pending. Viewer identity must still start:
+      // previously boot awaited every ring before calling startPlay at all.
+      await page.waitForFunction(async()=>{
+        const {FS}=await import('/frontier/fstate.mjs');
+        return FS.meStatus==='ready' && FS.holdings.length>0;
+      },null,{timeout:30000});
+      assert.equal(srv.overviewStats().held,true);
+      assert.ok(srv.overviewStats().active>0);
+      assert.ok(srv.overviewStats().peak<=4,'boot/controller share one request bound');
+      assert.equal(await page.evaluate(async()=>(await import('/frontier/fstate.mjs')).FS.overviews.size),0);
+      console.log(JSON.stringify({viewport:vp.name,viewerReadyWhileOverviewBlocked:true,overviews:srv.overviewStats()}));
+      srv.release();
       await page.waitForFunction(async () => { const {FS}=await import('/frontier/fstate.mjs'); return FS.playReady && FS.meStatus==='ready' && FS.holdings.length && !!FS.kernel && !!FS.s1?.structures; }, null, { timeout:30000 });
       assert.equal(await page.evaluate(() => isSecureContext && !!crypto.subtle), true, 'native secure localhost, no insecure-origin override');
       assert.equal((await snapshot(page)).session, false);
@@ -286,6 +380,8 @@ for (const vp of [{width:1440,height:900,name:'desktop'}, {width:390,height:844,
       assert.equal(await cityPanel.locator('[data-act="cq-outpost"]').count(),0);
       await cityPanel.getByText('自由都市',{exact:true}).first().scrollIntoViewIfNeeded();
       await page.screenshot({path:`${outDir}/${vp.name}-free-city-spectator.png`});
+      await largeChart(page, vp, outDir);
+      assert.ok(srv.overviewStats().peak<=4,'overview bound remains four after reloads');
       assert.deepEqual(keyCalls,[],'Node runner made no key operation');
       assert.deepEqual(srv.writes,[],'server received no writes');
       assert.deepEqual(requests.filter(r=>!['GET','HEAD'].includes(r.method)),[],'browser made no writes');
@@ -294,7 +390,7 @@ for (const vp of [{width:1440,height:900,name:'desktop'}, {width:390,height:844,
       assert.deepEqual(failures.filter(x=>!x.reason.includes('ERR_ABORTED')),[],'no failed asset or worker requests');
     } catch (error) {
       if (page && !page.isClosed()) {
-        console.log(JSON.stringify({viewport:vp.name,failedSnapshot:await snapshot(page),errors,failures,
+        console.log(JSON.stringify({viewport:vp.name,error:String(error.stack??error),failedSnapshot:await snapshot(page),errors,failures,
           pointer:await page.evaluate(()=>{const m=window.__wyllsMap;return {mouse:m?.mouse,hover:m?.hover,view:m?.cam.drawn,hand:document.getElementById('hand')?.getBoundingClientRect().toJSON()};})}));
         await page.screenshot({path:`${outDir}/${vp.name}-failure.png`});
       }

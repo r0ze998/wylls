@@ -545,7 +545,9 @@ export class KeepBoard {
   }
   visible(F, pad = PROVINCE_CIRCUMRADIUS) {
     const s = F.seen;
-    return [...this.rows.values()].filter(r => { const g = provinceGeo(r.p, r.q); return !s || (g.c.x > s.x0 - pad && g.c.x < s.x1 + pad && g.c.y > s.y0 - pad && g.c.y < s.y1 + pad); });
+    // provinceGeo.c is exactly provincePixel. Cull on that cheap centre before
+    // any painter builds the 61 tile shapes and border segments of a province.
+    return [...this.rows.values()].filter(r => { const c = provincePixel(r.p, r.q); return !s || (c.x > s.x0 - pad && c.x < s.x1 + pad && c.y > s.y0 - pad && c.y < s.y1 + pad); });
   }
   /**
    * The keep whose fortress or tile is at world point (wx, wy) seen at `zoom` on a board where a standing thing
@@ -759,7 +761,7 @@ export class KeepBoard {
     if (!g?.save) return;
     const { z, fx, still, lod } = F, me = this.viewer, dpr = F.dpr ?? 1;
     for (const row of this.visible(F)) {
-      const key = row.key, P = this.place(row, z), cap = this.capturing(key, fx), geo = provinceGeo(row.p, row.q);
+      const key = row.key, P = this.place(row, z), cap = this.capturing(key, fx), geo = cap ? provinceGeo(row.p, row.q) : null;
       if (!P) continue;
       // a capture seen from afar: the new holder's colour opens from the keep over the whole province
       if (cap && geo.fill) {

@@ -113,7 +113,8 @@ for (const rel of tracked().filter(f => !inSets(f)).sort()) {
 // Code a test runs that the literal-import walk cannot follow: a child process (node:child_process), a worker
 // (node:worker_threads), or an import() whose argument is not a string literal (⑯'s finding, 2026-11-08). A test whose
 // closure does any of these is UNFOLLOWED: a conservative exclusion until a review names it with its reason.
-const UNFOLLOWED = /['"](?:node:)?(?:child_process|worker_threads)['"]|\bimport\(\s*(?!['"`]\.?[^'"`]*['"`]\s*\))[^)\s]/;
+// A new Function body can also execute source read outside the import closure; its review must pin that source in targets=.
+const UNFOLLOWED = /\bnew\s+Function\s*\(|['"](?:node:)?(?:child_process|worker_threads)['"]|\bimport\(\s*(?!['"`]\.?[^'"`]*['"`]\s*\))[^)\s]/;
 function closureUnfollowed(file, seen = new Set()) {
   if (seen.has(file)) return null;
   seen.add(file);
