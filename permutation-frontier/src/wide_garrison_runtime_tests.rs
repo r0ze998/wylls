@@ -5,6 +5,13 @@ use crate::FrontierError;
 use frontier_abi::layout::header;
 use frontier_abi::world_index::economy::{Action, Snapshots};
 
+#[path = "wide_garrison_combat_runtime_tests.rs"]
+mod wide_garrison_combat;
+#[path = "wide_garrison_nft_runtime_tests.rs"]
+mod wide_garrison_nft;
+#[path = "wide_garrison_resolve_atomicity_tests.rs"]
+mod wide_garrison_resolve_atomicity;
+
 fn fixture() -> Vec<AccountInfo<'static>> {
     let bump = season_bump(SEASON_ID);
     let sk = crate::addr::season_pda(SEASON_ID, bump, &PROGRAM);

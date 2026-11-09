@@ -16,7 +16,7 @@
 //! | 0xDC | [`settle_ticket`] | **the deployed SettleTicket over the wide ticket**: expired, or the beacon seed of the ticket's bell and the province's region, the full-width score, fresh (a **provisional** wide holding from the record's escrow), displace (the record's escrow pays the loser's funder, the loser's slot is unbound, the holding is rewritten at `gen + 1`) or taken; the ticket ends, the cohort settles, the record stays **Settled** holding the escrow a win did not consume (the deployed retention: nothing is refunded) |
 //! | 0xDF | [`finalize`] | the deployed lazy provisional → final flip of a wide holding, callable by anyone: `now ≥ final_ts` **and** the ticket's cohort closed, else `TooEarly` |
 //! | 0xDE | [`close`] | season end (Ended + 72 h, Aborted, the tombstone): a wide ticket record closes as CloseCitizen closes a Citizen: the escrow to its funder (listed exactly when non-zero), the rest whole to its immutable rent payer; pending, the Citizen's marker clears (before CloseCitizen, which refuses the marker); Settled, before or after CloseCitizen (the Citizen position then the absent account at its address); a wide holding closes to its rent payer after its `pool_owed` is swept to the DefencePool |
-//! | 0xDD | [`resident_act`] | WideClaimSite or WideDepart for an NFT resident's Citizen under the deployed resident check (current Core owner or session, the signed holder generation) |
+//! | 0xDD | [`resident_act`] | canonical wide player commands (ClaimSite, Depart, Muster, Dissolve, Economy, Garrison) for an NFT resident's Citizen under the deployed resident check (current Core owner or session, the signed holder generation) |
 //! | 0xDA | [`depart`] | **the wide march's departure**: the deployed Depart's checks in the deployed shape (the issuing holding's own province and the **standing** province the host's roster is in, as distinct accounts): the holding canonical and the caller's at the reference's generation, its province's capture lock, the standing province a wide province of this world (a deployed Province there is the legacy/wide boundary: `NotImplemented` before any debit), final, resident, the seal's syntax, the identity gate (`NotImplemented` for a holding that never mustered), the entry paired with the standing roster, the kernel's departure, the window, the tip, the slot's transit record absent, the funds; **writes** the entry's `Spend`, the escrow into the holding, the wide transit record from the payer, the `WIDE_DEPARTED` record |
 //! | 0xDC op 3 | [`settle_departure`] | **writes**: the deployed SettleDeparture over the wide transit record and the origin's roster (the entry freed and released, the record stepped to state 2 or 3), the `WIDE_DEPARTURE_SETTLED` record |
 //! | 0xEE | [`reveal`] | **writes** (class W, the one tag outside the band): the deployed Reveal over the wide records (the commitment, never a decryption; the window, the latch, the wide walk, the shield, the full-identity quota), the wide ArrivalSlot from the fee payer, the `WIDE_REVEALED` record |
@@ -2626,8 +2626,9 @@ pub fn finalize(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
 /// 0xDD WideResidentAct(generation, inner): the band's own `ResidentAct`
 /// for an NFT resident's Citizen. `accounts` is the inner instruction's
 /// list followed by the four read-only proof accounts `[policy, link,
-/// asset, resident]`; `inner` is a whole draft instruction whose tag is in
-/// `WideIx::ACT_RUNS` (WideClaimSite, WideDepart; `BadData` otherwise:
+/// asset, resident]`; `inner` is a whole draft instruction whose decoded
+/// `WideCommand::is_player` is true (ClaimSite, Depart, Muster, Dissolve,
+/// Economy or Garrison; `BadData` otherwise:
 /// never a v2 tag, never a non-player draft tag, never itself). The inner
 /// handler runs under [`Auth::Resident`]: the deployed `resident::start`
 /// checks the policy, the link, the asset's current Core owner (or its
@@ -2648,8 +2649,8 @@ pub fn resident_act(p: &Pubkey, accounts: &[AccountInfo], d: &[u8]) -> R<()> {
         generation: x.generation,
     };
     // The whitelist is the decoded command's class (`is_player`), never
-    // the inner tag alone: 0xDA carries the player Muster and Dissolve and
-    // nothing of class D or N.
+    // the inner tag alone: 0xDA also carries Muster, Dissolve, Economy and
+    // Garrison. Nothing of class D or N is accepted.
     use wix::WideCommand as C;
     match x.command()? {
         C::ClaimSite(_) => claim_site_as(p, a, x.inner, &auth),
@@ -3421,8 +3422,26 @@ pub fn resolve(p: &Pubkey, a: &[AccountInfo], x: &wix::Resolve) -> R<()> {
             return Err(BAD_ACCOUNT);
         }
     }
-    // ---- effects: the roster's creation (the CPI) first, then the staged
-    // bytes, whole; then the record ----
+    // The receipt and its chain can still refuse (notably at sequence
+    // overflow). Finish them on scratch before allocation or live writes.
+    let (record, record_len) = prepare_wide(
+        WideKind::Resolve,
+        x.bell,
+        &pkey.to_bytes(),
+        &wev::resolve_payload(
+            &input,
+            &output,
+            out.clash.engagements,
+            out.applied.destroyed,
+            out.applied.bounced,
+            out.settled,
+        ),
+        &mut [(WideEntity::Province, &mut pd_s[..])],
+    )?;
+    // ---- effects: optional roster allocation, then one byte commit ----
+    // System allocation keeps its runtime transaction-rollback boundary.
+    // With existing accounts, every mutable borrow and length is checked
+    // before the first copy, and no fallible operation follows that copy.
     if create_roster {
         init::init_with_seed(
             fee_payer,
@@ -3437,40 +3456,32 @@ pub fn resolve(p: &Pubkey, a: &[AccountInfo], x: &wix::Resolve) -> R<()> {
     }
     {
         let mut pd = province.try_borrow_mut_data()?;
-        if pd.len() != pd_s.len() {
+        let mut rd = if present || create_roster {
+            Some(roster_ai.try_borrow_mut_data()?)
+        } else {
+            None
+        };
+        let mut cd = if cd_s.is_empty() {
+            None
+        } else {
+            Some(inputs_ai.try_borrow_mut_data()?)
+        };
+        if pd.len() != pd_s.len()
+            || rd.as_ref().is_some_and(|d| d.len() != rd_s.len())
+            || cd.as_ref().is_some_and(|d| d.len() != cd_s.len())
+        {
             return Err(BAD_ACCOUNT);
         }
         pd.copy_from_slice(&pd_s);
-    }
-    if present || create_roster {
-        let mut rd = roster_ai.try_borrow_mut_data()?;
-        if rd.len() != rd_s.len() {
-            return Err(BAD_ACCOUNT);
+        if let Some(rd) = rd.as_mut() {
+            rd.copy_from_slice(&rd_s);
         }
-        rd.copy_from_slice(&rd_s);
-    }
-    if !cd_s.is_empty() {
-        let mut cd = inputs_ai.try_borrow_mut_data()?;
-        if cd.len() != cd_s.len() {
-            return Err(BAD_ACCOUNT);
+        if let Some(cd) = cd.as_mut() {
+            cd.copy_from_slice(&cd_s);
         }
-        cd.copy_from_slice(&cd_s);
     }
-    let mut pd = province.try_borrow_mut_data()?;
-    emit_wide(
-        WideKind::Resolve,
-        x.bell,
-        &pkey.to_bytes(),
-        &wev::resolve_payload(
-            &input,
-            &output,
-            out.clash.engagements,
-            out.applied.destroyed,
-            out.applied.bounced,
-            out.settled,
-        ),
-        &mut [(WideEntity::Province, &mut pd[..])],
-    )
+    solana_program::log::sol_log_data(&[wev::WIDE_LOG_PREFIX, &record[..record_len]]);
+    Ok(())
 }
 
 /// WideReturn (0xDC, op 2): `[payer s,w] [season r] [province w] [roster
