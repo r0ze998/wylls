@@ -23,6 +23,7 @@
 //! | [`conquest`] | MC (CQ2-D): contested bells, fold-driven skips, SettleCapture, SettleSiege, FoldMarch, the horn watcher, the season-end flush, CloseMarch |
 //! | [`api`] | the loopback API (`/v1/*`, `/metrics`) |
 //! | `wideindex` (feature `wide-world-experimental`) | **read-only** discovery of the wide world from explicitly supplied, authenticated PSW1 bodies: provinces, full holding and host references, transit slots, reveals, settlements, closes; read-account plans only, no duty, no write |
+//! | `wideclaim` (feature `wide-world-experimental`) | **read-only, unsigned** WideClaimDefence planning from selected full slot identities and pinned account reads; shared caps, rent shortfall and payment predictions, with a sealed-snapshot entry point; no admission, signing or send |
 //! | `wideproof` (feature `wide-world-experimental`) | **read-only**: the Depart commitment and 264-byte seal of a committed WideDepart, taken from a feed record's wire and bound to the `Departed` record inside the same instruction's log frame; unavailable on any CPI, rollback or mismatch; no signature verified, no key |
 //! | `wideduty` (feature `wide-world-experimental`) | **read-only, unsigned**: WideSettleDeparture, WideReturn, WideGather and WideResolve instructions planned from current account reads with the dispatcher's tables and refusals (the gather's arrival evidence is the wide ArrivalDay account, never the absence of feed events; the resolve replays the ABI's `resolve_bell` on scratch bytes; WideSettleTransit is not planned); explicit block reasons; never signed, simulated, sent or queued |
 //! | `widereveal` (feature `wide-world-experimental`) | **read-only, unsigned**: a WideReveal candidate planned from a `wideproof::DepartProof`, a caller-supplied seal opening and current account reads; the handler's timing, latch, path, shield, quota and ArrivalDay rules replayed; a matching commitment is never called a cryptographic verification |
@@ -70,6 +71,8 @@ pub mod seeds;
 pub(crate) mod testkit;
 pub mod tickets;
 #[cfg(feature = "wide-world-experimental")]
+pub mod wideclaim;
+#[cfg(feature = "wide-world-experimental")]
 pub mod wideduty;
 #[cfg(feature = "wide-world-experimental")]
 pub mod widefees;
@@ -84,9 +87,9 @@ pub mod widereconcile;
 #[cfg(feature = "wide-world-experimental")]
 pub mod widereveal;
 #[cfg(feature = "wide-world-experimental")]
-pub mod widesettle;
-#[cfg(feature = "wide-world-experimental")]
 pub mod widereview;
+#[cfg(feature = "wide-world-experimental")]
+pub mod widesettle;
 #[cfg(feature = "wide-world-experimental")]
 pub mod widesnapshot;
 #[cfg(feature = "wide-world-experimental")]

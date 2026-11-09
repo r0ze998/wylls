@@ -2110,6 +2110,51 @@ pub(crate) fn inputs_close_due(
     }
 }
 
+/// Closes an authenticated arrival record whole to its immutable rent
+/// recipient. The caller has already checked identity and eligibility;
+/// `identity` is `(what, record bell, faction, index)` for the receipt.
+/// Stage the zero-link receipt and Sink::Never payment, then probe every
+/// eventual mutable borrow before close_to can resize or assign anything.
+/// This guards predictable direct-host failures, not runtime rollback.
+fn close_record_to_rent<'a>(
+    p: &Pubkey,
+    target: &AccountInfo<'a>,
+    rent_to: &AccountInfo<'a>,
+    bell_log: u32,
+    dest: ProvinceKey,
+    identity: (u8, u32, u8, u8),
+) -> R<()> {
+    let lamports = target.try_lamports()?;
+    if target.key == rent_to.key {
+        return Err(BAD_ACCOUNT);
+    }
+    if lamports != 0 {
+        let after = rent_to
+            .try_lamports()?
+            .checked_add(lamports)
+            .ok_or(OVERFLOW)?;
+        if rent_to.owner != p && after < init::rent(rent_to.try_borrow_data()?.len())? {
+            return Err(BAD_ACCOUNT);
+        }
+    }
+    let (what, record_bell, faction, i) = identity;
+    let (record, record_len) = prepare_wide(
+        WideKind::RecordClosed,
+        bell_log,
+        &dest.to_bytes(),
+        &wev::record_closed_payload(what, record_bell, faction, i, &key(rent_to), lamports),
+        &mut [],
+    )?;
+    {
+        let _data = target.try_borrow_mut_data()?;
+        let _source_lamports = target.try_borrow_mut_lamports()?;
+        let _recipient_lamports = rent_to.try_borrow_mut_lamports()?;
+    }
+    init::close_to(p, target, rent_to, &Sink::Never, bell_log)?;
+    solana_program::log::sol_log_data(&[wev::WIDE_LOG_PREFIX, &record[..record_len]]);
+    Ok(())
+}
+
 /// WideClose(2): the deployed CloseArrivalSlot over a wide ArrivalSlot
 /// (`[any s] [season r] [slot w] [rent_to w] ([anchor r])`). The slot
 /// program-owned, this season's and world's, at the canonical address of
@@ -2177,44 +2222,14 @@ fn close_slot(p: &Pubkey, a: &[AccountInfo]) -> R<()> {
     if !slot_close_due(rules_apply, settled, s.claimed, anchor_close, now.ts) {
         return Err(FrontierError::TooEarly.into());
     }
-    let lamports = slot.try_lamports()?;
-    // close_to shrinks/assigns before paying. Decide its fallible payment
-    // arithmetic and acquire every eventual mutable borrow first, so a
-    // predictable refusal cannot leave a half-closed direct-host account.
-    if slot.key == rent_to.key {
-        return Err(BAD_ACCOUNT);
-    }
-    if lamports != 0 {
-        let after = rent_to
-            .try_lamports()?
-            .checked_add(lamports)
-            .ok_or(OVERFLOW)?;
-        if rent_to.owner != p && after < init::rent(rent_to.try_borrow_data()?.len())? {
-            return Err(BAD_ACCOUNT);
-        }
-    }
-    let (record, record_len) = prepare_wide(
-        WideKind::RecordClosed,
+    close_record_to_rent(
+        p,
+        slot,
+        rent_to,
         bell_log,
-        &s.dest.to_bytes(),
-        &wev::record_closed_payload(
-            wix::CLOSE_WHAT_SLOT,
-            s.bell,
-            s.faction,
-            s.i,
-            &s.rent_to,
-            lamports,
-        ),
-        &mut [],
-    )?;
-    {
-        let _sd = slot.try_borrow_mut_data()?;
-        let _sl = slot.try_borrow_mut_lamports()?;
-        let _rl = rent_to.try_borrow_mut_lamports()?;
-    }
-    init::close_to(p, slot, rent_to, &Sink::Never, bell_log)?;
-    solana_program::log::sol_log_data(&[wev::WIDE_LOG_PREFIX, &record[..record_len]]);
-    Ok(())
+        s.dest,
+        (wix::CLOSE_WHAT_SLOT, s.bell, s.faction, s.i),
+    )
 }
 
 /// WideClose(3): the deployed CloseArrivalDay over a wide ArrivalDay
@@ -2260,21 +2275,18 @@ fn close_day(p: &Pubkey, a: &[AccountInfo]) -> R<()> {
             return Err(FrontierError::TooEarly.into());
         }
     }
-    let lamports = day_ai.lamports();
-    init::close_to(p, day_ai, rent_to, &Sink::Never, bell_log)?;
-    emit_wide(
-        WideKind::RecordClosed,
+    close_record_to_rent(
+        p,
+        day_ai,
+        rent_to,
         bell_log,
-        &d.dest.to_bytes(),
-        &wev::record_closed_payload(
+        d.dest,
+        (
             wix::CLOSE_WHAT_DAY,
             d.day.saturating_mul(wa::wide_arrival_day::BELLS),
             0,
             0,
-            &d.rent_to,
-            lamports,
         ),
-        &mut [],
     )
 }
 
@@ -2337,14 +2349,13 @@ fn close_inputs(p: &Pubkey, a: &[AccountInfo]) -> R<()> {
             return Err(FrontierError::InputsOpen.into());
         }
     }
-    let lamports = inputs.lamports();
-    init::close_to(p, inputs, rent_to, &Sink::Never, bell_log)?;
-    emit_wide(
-        WideKind::RecordClosed,
+    close_record_to_rent(
+        p,
+        inputs,
+        rent_to,
         bell_log,
-        &ih.dest.to_bytes(),
-        &wev::record_closed_payload(wix::CLOSE_WHAT_INPUTS, ih.bell, 0, 0, &ih.rent_to, lamports),
-        &mut [],
+        ih.dest,
+        (wix::CLOSE_WHAT_INPUTS, ih.bell, 0, 0),
     )
 }
 
