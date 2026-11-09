@@ -11,6 +11,36 @@ use frontier_abi::world_index::expedition_resident_event as receipt;
 
 use frontier_abi::world_index::expedition_resident_ix::{DISSOLVE, RETURN};
 
+/// Decode only the existing isolated resident draft, never a public command.
+/// The runtime program and exact Season role determine the scope; callers
+/// cannot supply a decoded host, authorization, result or receipt context.
+/// Generic WideCommand/v2/ResidentAct admission remains unchanged and closed.
+/// The authenticated handlers below retain their 56-byte host receipt input.
+pub(super) fn execute_draft(p: &Pubkey, a: &[AccountInfo], data: &[u8]) -> R<()> {
+    use frontier_abi::world_index::expedition_resident_ix as ix;
+    if data.len() != ix::DRAFT_LEN {
+        return Err(FrontierError::BadData.into());
+    }
+    let (season_index, table) = match data[..4] {
+        [wix::TAG_DEPART, wix::ENVELOPE_ESCAPE, wix::ENVELOPE_VERSION, ix::DISSOLVE_OP] => {
+            (2, DISSOLVE)
+        }
+        [wix::TAG_SETTLE_TICKET, wix::ENVELOPE_ESCAPE, wix::ENVELOPE_VERSION, ix::RETURN_OP] => {
+            (1, RETURN)
+        }
+        _ => return Err(FrontierError::BadData.into()),
+    };
+    // Validate the exact role count and minimum privileges before accessing
+    // the Season. The selected handler repeats its own complete admission.
+    check_accounts(Shape(table), a, None)?;
+    let ctx = addr::ctx(&key(&a[season_index]), &p.to_bytes());
+    let command = ix::DraftCommand::decode(&ctx, data)?;
+    match command.action() {
+        ix::Action::Dissolve => execute_dissolve(p, a, command.host()),
+        ix::Action::Return => execute_return(p, a, command.host()),
+    }
+}
+
 #[derive(Clone)]
 struct Snapshot {
     address: [u8; 32],

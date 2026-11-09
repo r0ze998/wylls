@@ -266,7 +266,8 @@ impl World {
             &'buffer Pubkey,
             &'borrow [AccountInfo<'buffer>],
             &'buffer [u8],
-        ) -> Result<(), solana_program::program_error::ProgramError>,
+        )
+            -> Result<(), solana_program::program_error::ProgramError>,
     {
         let observed_clock = prologue::now().unwrap();
         let privileges = roles
@@ -355,8 +356,105 @@ impl World {
         }
         self.run_with_data(roles, data, |p, a, wire| {
             let command = wix::WideCommand::decode(wire).map_err(crate::Error::from)?;
-            crate::proc::wide::dispatch_expedition_command(p, a, command)
-                .map_err(Into::into)
+            crate::proc::wide::dispatch_expedition_command(p, a, command).map_err(Into::into)
+        })
+    }
+    /// Exercise the existing isolated 60-byte resident contract without adding
+    /// generic parser admission. Receipt inputs remain the decoded host bytes.
+    #[track_caller]
+    fn run_resident_draft(
+        &mut self,
+        roles: &[([u8; 32], bool, bool)],
+        data: &[u8],
+    ) -> rt::system_cpi::Output {
+        use crate::proc::wide::expedition_resident;
+        use frontier_abi::world_index::expedition_resident_ix as ix;
+        assert_eq!(data.len(), ix::DRAFT_LEN);
+        assert!(!expedition_exec::EXPEDITION_ENABLED);
+        assert!(!ix::PUBLIC_DISPATCH_AVAILABLE);
+        assert!(wix::WideCommand::decode(data).is_err());
+        assert!(frontier_abi::v2::ix::tag_of(data).is_err());
+        let mut wrapped = [0; 65];
+        let n = wix::ResidentAct {
+            generation: 1,
+            inner: data,
+        }
+        .encode_into(&mut wrapped)
+        .unwrap();
+        assert!(wix::ResidentAct::decode(&wrapped[..n]).is_err());
+        let mut probe = self.clone();
+        let refused = probe.run_with_data(roles, data, |p, a, wire| {
+            assert_eq!(
+                crate::dispatch(p, a, wire),
+                Err(FrontierError::BadData.into())
+            );
+            Ok(())
+        });
+        assert!(refused.logs.is_empty() && refused.cpis.is_empty());
+        assert_eq!(probe.0, self.0);
+        let mut malformed: Vec<Vec<u8>> = (0..data.len()).map(|n| data[..n].to_vec()).collect();
+        let mut extended = data.to_vec();
+        extended.push(0);
+        malformed.push(extended);
+        // Envelope tag/escape/version/op, host version, and world binding.
+        for i in [0, 1, 2, 3, 4, 5] {
+            let mut bytes = data.to_vec();
+            bytes[i] ^= 0x80;
+            malformed.push(bytes);
+        }
+        let mut other_action = data.to_vec();
+        if data[0] == wix::TAG_DEPART {
+            other_action[0] = wix::TAG_SETTLE_TICKET;
+            other_action[3] = ix::RETURN_OP;
+        } else {
+            other_action[0] = wix::TAG_DEPART;
+            other_action[3] = ix::DISSOLVE_OP;
+        }
+        malformed.push(other_action); // Valid command, wrong exact role count.
+        let host = WideHostRef::from_bytes(&data[4..]).unwrap();
+        let wrong_family = WideHostRef::new(
+            ProvinceKey::new(host.key().world(), WideCoord::checked(129, 0).unwrap()),
+            host.site(),
+            host.gen(),
+            host.seq(),
+        )
+        .unwrap();
+        let mut wrong_host = data.to_vec();
+        wrong_host[4..].copy_from_slice(&wrong_family.to_bytes());
+        malformed.push(wrong_host);
+        for bytes in malformed {
+            let mut bad = self.clone();
+            let out = bad.run_with_data(roles, &bytes, |p, a, wire| {
+                assert!(expedition_resident::execute_draft(p, a, wire).is_err());
+                Ok(())
+            });
+            assert!(out.logs.is_empty() && out.cpis.is_empty());
+            assert_eq!(bad.0, self.0);
+        }
+        let season_index = if data[0] == wix::TAG_DEPART { 2 } else { 1 };
+        let mut wrong_season = roles.to_vec();
+        wrong_season[season_index] = *roles.last().unwrap();
+        let mut extra_role = roles.to_vec();
+        extra_role.push(*roles.last().unwrap());
+        for wrong_roles in [roles[..roles.len() - 1].to_vec(), extra_role, wrong_season] {
+            let mut bad = self.clone();
+            let out = bad.run_with_data(&wrong_roles, data, |p, a, wire| {
+                assert!(expedition_resident::execute_draft(p, a, wire).is_err());
+                Ok(())
+            });
+            assert!(out.logs.is_empty() && out.cpis.is_empty());
+            assert_eq!(bad.0, self.0);
+        }
+        let mut bad_program = self.clone();
+        let out = bad_program.run_with_data(roles, data, |p, a, wire| {
+            assert_ne!(p, a[season_index].key);
+            assert!(expedition_resident::execute_draft(a[season_index].key, a, wire).is_err());
+            Ok(())
+        });
+        assert!(out.logs.is_empty() && out.cpis.is_empty());
+        assert_eq!(bad_program.0, self.0);
+        self.run_with_data(roles, data, |p, a, wire| {
+            expedition_resident::execute_draft(p, a, wire).map_err(Into::into)
         })
     }
 }
@@ -1288,6 +1386,7 @@ fn resident_return_continuation(
 ) {
     use crate::proc::wide::{conquest_exec, expedition_resident};
     use frontier_abi::world_index::conquest as wc;
+    use frontier_abi::world_index::expedition_resident_ix as resident_ix;
     let target = wh::holding_address(ctx, dest.coord(), 0);
     let captured_holding = world.get(target).clone();
     let original_home = world.get(home).clone();
@@ -1318,19 +1417,26 @@ fn resident_return_continuation(
             .iter()
             .map(|(k, s, w)| InstructionAccount::new(world.index(*k) as u16, *s, *w))
             .collect();
+        let command = resident_ix::DraftCommand::new(
+            ctx,
+            if dissolve {
+                resident_ix::Action::Dissolve
+            } else {
+                resident_ix::Action::Return
+            },
+            tested_host,
+        )
+        .unwrap()
+        .to_bytes();
         // SAFETY: same fixed original-family handlers, official backing, no CPI.
         let result = unsafe {
             rt::system_cpi::run(
                 world.0.clone(),
                 world.index(PROGRAM) as u16,
                 privileges,
-                vec![],
-                |p, a, _| {
-                    let refusal = if dissolve {
-                        expedition_resident::execute_dissolve(p, a, tested_host)
-                    } else {
-                        expedition_resident::execute_return(p, a, tested_host)
-                    };
+                command.to_vec(),
+                |p, a, wire| {
+                    let refusal = expedition_resident::execute_draft(p, a, wire);
                     assert!(refusal.is_err());
                     // Permit official writeback after the expected refusal.
                     // This detects partial effects instead of discarding them.
@@ -1364,9 +1470,12 @@ fn resident_return_continuation(
     reject(&locked, &dissolve_roles, true, host);
     let before_dissolve = world.clone();
     let dissolve_now = prologue::now().unwrap();
-    let dissolved = world.run(&dissolve_roles, |p, a, _| {
-        expedition_resident::execute_dissolve(p, a, host).map_err(Into::into)
-    });
+    let dissolved = world.run_resident_draft(
+        &dissolve_roles,
+        &resident_ix::DraftCommand::new(ctx, resident_ix::Action::Dissolve, host)
+            .unwrap()
+            .to_bytes(),
+    );
     verify_resident_receipts(
         ctx,
         &before_dissolve,
@@ -1496,9 +1605,12 @@ fn resident_return_continuation(
     reject(&retired, &return_roles, false, host);
     let before_return = world.clone();
     let return_now = prologue::now().unwrap();
-    let returned = world.run(&return_roles, |p, a, _| {
-        expedition_resident::execute_return(p, a, host).map_err(Into::into)
-    });
+    let returned = world.run_resident_draft(
+        &return_roles,
+        &resident_ix::DraftCommand::new(ctx, resident_ix::Action::Return, host)
+            .unwrap()
+            .to_bytes(),
+    );
     verify_resident_receipts(
         ctx,
         &before_return,
