@@ -1,6 +1,9 @@
 //! Direct-dispatch, literal/codec-written fixtures only. No lifecycle
 //! setup, rollback executor, signing, native crypto, exporter or network.
 use super::*;
+
+#[path = "wide_stranded_runtime_tests.rs"]
+mod wide_stranded;
 use crate::FrontierError;
 use frontier_abi::layout::header;
 use frontier_abi::world_index::economy::{Action, Snapshots};

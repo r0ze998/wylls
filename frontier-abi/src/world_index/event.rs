@@ -30,7 +30,7 @@
 //! | 2 `Dissolve` | host ref ‖ standing | `pend_bell u32, troops u32 (milli), entry u8` | Province, Holding |
 //! | 3 `Resolve` | province key | `input_digest [32], output_digest [32], engagements u32, destroyed u8, bounced u8, settled u8` | Province |
 //! | 4 `Return` | host ref ‖ standing | `credited u32 (milli, once), unit u8, entry u8` | Province, Holding |
-//! | 5 `Stranded` | host ref ‖ standing | `troops_lost u32 (milli), entry u8` | Province |
+//! | 5 `Stranded` | host ref ‖ standing | `troops_at_issue u32 (milli), entry u8` | Province |
 //! | 6 `RosterClosed` | province key | `rent_to [32], lamports u64` | none |
 //! | 7 `Departed` | host ref ‖ origin (standing) | `transit_slot u8, depart_bell u32, arrive_bell u32, dep_mass u32 (milli), march_stamina u16, tip u64, fee u64, bond u64, seal_root [32]` | Province, Holding |
 //! | 8 `TransitSettled` | host ref ‖ destination (the home when the destination is absent) | `transit_slot u8, outcome u8, seal_code u8, troops u32 (milli), tip u64, fee u64, bond u64, home_credited u8, sealed_dest [50]` | Province, Holding |
@@ -44,6 +44,12 @@
 //! | 16 `EconomyMirror` | holding ref (56, sequence 0) | the same receipt, its action a walls or tier-up Build | Province, Holding |
 //!
 //! | 17 `Garrison` | holding ref (56, sequence 0) | `GarrisonReceipt` (82: version1, delta i64 whole troops, now_ts i64, became_final u8, input [32], output [32]) | Province, Holding |
+//!
+//! `Stranded` also announces a WideDisbandStranded Forfeit queued at the
+//! record bell. Resident troops still participate until that bell resolves.
+//! Its amount is the troops at issue, not verified post-clash casualties;
+//! this record alone cannot distinguish pending from immediate removal.
+//! Existing no-credit Return records use the same kind and wire unchanged.
 //!
 //! Kind 17 and 0xDA op4 are experimental, provisional identifiers only,
 //! not an integrator allocation. Garrison uses the same holding attribution

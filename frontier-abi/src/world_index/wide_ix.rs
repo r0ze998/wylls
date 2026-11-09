@@ -70,6 +70,7 @@
 //! | 0xDC | D | 5 | WideSettleTransit | `transit_slot u8, commit 32, seal 264, beneficiary 32` | [`SETTLE_TRANSIT`] (17 fixed, the owner Citizen optional) |
 //! | 0xDC | D | 6 | WideClaimDefence | `day u32, n u8` (1–6) | [`CLAIM_DEFENCE`] (5 fixed, then n wide slot/live anchor pairs) |
 //! | 0xDE | N | 1 | WideCloseRoster | (none) | [`CLOSE_ROSTER`] (5: the province position at its canonical address, present or already closed) |
+//! | 0xDE | N | 2 | WideDisbandStranded | `entry u8` (0–55, checked by the handler) | [`DISBAND_STRANDED`] (9: the holding position, present or absent, and four transit records; restricted to closed marches) |
 //!
 //! **The march stages** (ops 3–5 of 0xDC) are the class-D stages of the
 //! deployed march (SettleDeparture, GatherClash, SettleTransit) over the
@@ -579,6 +580,8 @@ pub const OP_SETTLE_TRANSIT: u8 = 5;
 /// Provisional class-D sub-operation; final allocation remains with the integrator.
 pub const OP_CLAIM_DEFENCE: u8 = 6;
 pub const OP_CLOSE_ROSTER: u8 = 1;
+/// Provisional class-N sub-operation, not a stable ABI allocation.
+pub const OP_DISBAND_STRANDED: u8 = 2;
 
 /// 0xDC op 6: the deployed defence claim, sharing its pool and daily claim.
 /// No new receipt allocation or full-season wide verification is implied.
@@ -798,6 +801,14 @@ pub struct Return;
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct CloseRoster;
 
+/// 0xDE op 2: the deployed DisbandStranded's entry index over a wide
+/// province and roster. As in the deployed codec, decoding checks the wire
+/// only; the handler enforces the entry range 0–55 and stranded state.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct DisbandStranded {
+    pub entry: u8,
+}
+
 /// An envelope datum of `tag` and `op` with exactly `len` bytes:
 /// the cursor over its payload.
 fn envelope<'a>(d: &'a [u8], tag: u8, op: u8, len: usize) -> Result<Cursor<'a>, FrontierError> {
@@ -949,6 +960,26 @@ impl CloseRoster {
     }
 }
 
+impl DisbandStranded {
+    pub const IX: WideIx = WideIx::Close;
+    pub const OP: u8 = OP_DISBAND_STRANDED;
+    pub const LEN: usize = ENVELOPE_HEAD + 1;
+
+    pub fn to_bytes(&self) -> [u8; Self::LEN] {
+        let mut b = [0u8; Self::LEN];
+        head(&mut b, Self::IX.tag(), Self::OP);
+        b[ENVELOPE_HEAD] = self.entry;
+        b
+    }
+
+    pub fn decode(d: &[u8]) -> Result<Self, FrontierError> {
+        let mut c = envelope(d, Self::IX.tag(), Self::OP, Self::LEN)?;
+        Ok(Self {
+            entry: c.u8().ok_or(FrontierError::BadData)?,
+        })
+    }
+}
+
 /// Every command of the band, fully decoded: legacy-shaped instructions
 /// and versioned envelope sub-operations. The one parser the
 /// dispatcher runs ([`WideCommand::decode`]); class, top-level rule,
@@ -972,6 +1003,7 @@ pub enum WideCommand<'a> {
     Resolve(Resolve),
     Return(Return),
     CloseRoster(CloseRoster),
+    DisbandStranded(DisbandStranded),
     SettleDeparture(SettleDeparture),
     Gather(Gather),
     SettleTransit(SettleTransit),
@@ -1032,6 +1064,9 @@ impl<'a> WideCommand<'a> {
             (WideIx::Close, OP_CLOSE_ROSTER) => {
                 CloseRoster::decode(d).map(WideCommand::CloseRoster)
             }
+            (WideIx::Close, OP_DISBAND_STRANDED) => {
+                DisbandStranded::decode(d).map(WideCommand::DisbandStranded)
+            }
             _ => Err(bad),
         }
     }
@@ -1057,7 +1092,9 @@ impl<'a> WideCommand<'a> {
             | WideCommand::SettleTransit(_)
             | WideCommand::ClaimDefence(_) => WideIx::SettleTicket,
             WideCommand::ResidentAct(_) => WideIx::ResidentAct,
-            WideCommand::Close(_) | WideCommand::CloseRoster(_) => WideIx::Close,
+            WideCommand::Close(_)
+            | WideCommand::CloseRoster(_)
+            | WideCommand::DisbandStranded(_) => WideIx::Close,
             WideCommand::Finalize(_) => WideIx::Finalize,
             WideCommand::Reveal(_) => WideIx::Reveal,
         }
@@ -1072,6 +1109,7 @@ impl<'a> WideCommand<'a> {
             WideCommand::Resolve(_) => "WideResolve",
             WideCommand::Return(_) => "WideReturn",
             WideCommand::CloseRoster(_) => "WideCloseRoster",
+            WideCommand::DisbandStranded(_) => "WideDisbandStranded",
             WideCommand::SettleDeparture(_) => "WideSettleDeparture",
             WideCommand::Gather(_) => "WideGather",
             WideCommand::SettleTransit(_) => "WideSettleTransit",
@@ -1138,6 +1176,7 @@ impl<'a> WideCommand<'a> {
             WideCommand::Resolve(_) => RESOLVE,
             WideCommand::Return(_) => RETURN,
             WideCommand::CloseRoster(_) => CLOSE_ROSTER,
+            WideCommand::DisbandStranded(_) => DISBAND_STRANDED,
             WideCommand::SettleDeparture(_) => SETTLE_DEPARTURE,
             WideCommand::Gather(_) => GATHER,
             WideCommand::SettleTransit(_) => SETTLE_TRANSIT,
@@ -1861,6 +1900,28 @@ pub const CLOSE_ROSTER: &[Group] = &[one(&[
     s("rent_to", Acc::Wallet, false, Wr::W),
     s("province", WIDE, false, Wr::R),
 ])];
+
+/// WideDisbandStranded: `[any s] [season r] [province w] [roster w]
+/// [holding r] [t0 r] [t1 r] [t2 r] [t3 r]`. The holding position is always
+/// supplied at its canonical wide address, including when absent; identity,
+/// absence and the stranded-state proof are checked by the handler. This
+/// restricted host-only path requires all four canonical transit positions
+/// to prove the host has no open march; it does not settle transits or claim
+/// unrestricted legacy parity.
+pub const DISBAND_STRANDED: &[Group] = &[one(&[
+    s("any", Acc::Wallet, true, Wr::R),
+    s("season", Acc::Kind(K::Season), false, Wr::R),
+    s("province", WIDE, false, Wr::W),
+    s("roster", WIDE, false, Wr::W),
+    s("holding", WIDE, false, Wr::R),
+    s("transit", WIDE, false, Wr::R),
+    s("transit", WIDE, false, Wr::R),
+    s("transit", WIDE, false, Wr::R),
+    s("transit", WIDE, false, Wr::R),
+])];
+
+/// The first of the four required canonical transit positions.
+pub const DISBAND_STRANDED_TRANSIT0: usize = 5;
 
 /// The account list of a draft instruction (WideClose's is its ticket
 /// shape; the handler checks [`CLOSE_HOLDING`] for `what = 1`). The

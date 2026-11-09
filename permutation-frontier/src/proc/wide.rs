@@ -226,6 +226,7 @@ pub fn dispatch(p: &Pubkey, a: &[AccountInfo], data: &[u8]) -> R<()> {
         C::Resolve(x) => resolve(p, a, &x),
         C::Return(_) => settle_return(p, a),
         C::CloseRoster(_) => close_roster(p, a),
+        C::DisbandStranded(x) => stranded_exec::disband_stranded(p, a, &x),
         C::SettleDeparture(x) => settle_departure(p, a, &x),
         C::Gather(x) => gather(p, a, &x),
         C::SettleTransit(x) => settle_transit(p, a, &x),
@@ -6170,3 +6171,6 @@ pub fn settle_transit(p: &Pubkey, a: &[AccountInfo], x: &wix::SettleTransit) -> 
     }
     Ok(())
 }
+
+#[path = "wide_stranded_exec.rs"]
+mod stranded_exec;

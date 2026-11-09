@@ -286,9 +286,17 @@ pub enum Presence {
         credited_milli: u32,
         entry: u8,
     },
+    /// A Stranded notification, not proof that the host was removed. It
+    /// may announce a pending Forfeit or an immediate removal; even a
+    /// later Resolve does not authenticate this host's account state.
     Stranded {
+        observed_bell: u32,
+        /// The receipt amount (troops at issue for a pending Forfeit),
+        /// not independently verified post-clash casualties.
         troops_lost_milli: u32,
         entry: u8,
+        /// Always true for this event-only model, which reads no account.
+        removal_unverified: bool,
     },
 }
 
@@ -557,6 +565,7 @@ enum Ev {
     Stranded {
         host: WideHostRef,
         standing: ProvinceKey,
+        observed_bell: u32,
         troops_lost: u32,
         entry: u8,
     },
@@ -703,6 +712,7 @@ fn parse(r: &WideRecord<'_>, seq: u64, world: WorldId) -> Result<Ev, Option<[u8;
             Ev::Stranded {
                 host,
                 standing,
+                observed_bell: r.bell,
                 troops_lost: u32_at(p, 0).ok_or(None)?,
                 entry: u8_at(p, 4).ok_or(None)?,
             }
@@ -1371,13 +1381,16 @@ impl WideDiscovery {
             Ev::Stranded {
                 host,
                 standing,
+                observed_bell,
                 troops_lost,
                 entry,
             } => {
                 self.touch(standing, seq, WideKind::Stranded, applied);
                 self.host_mut(host, standing, seq, applied).presence = Presence::Stranded {
+                    observed_bell,
                     troops_lost_milli: troops_lost,
                     entry,
+                    removal_unverified: true,
                 };
             }
             Ev::RosterClosed { province, close } => {
