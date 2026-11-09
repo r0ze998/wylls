@@ -223,7 +223,8 @@ impl WideConquestEntry {
         if let Some(src) = self.source {
             if src.key().world() != world
                 || src.seq() != 0
-                || src.key().coord().ring() < super::land::FIRST_WIDE_RING
+                || (src.key().coord().ring() < super::land::FIRST_WIDE_RING
+                    && super::LegacyAdapter::new(world).host_id(&src).is_err())
                 || src.gen() == 0
                 || src.gen() == u8::MAX
             {

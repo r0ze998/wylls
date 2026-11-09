@@ -1,5 +1,74 @@
 # 共有 ABI の番号の割当（④、2026-11-06、**仮**、改訂 3：全担当との照合）
 
+## 2026-11-09 integration supplement: closed legacy expedition
+
+Integration provisionally reserves **DA FF 01 06** (class P,
+`ExpeditionDepart`) and **DC FF 01 0A** (class D,
+`ExpeditionSettleOrigin`) and PS2 kind **146** for the original-issued-troop
+boundary experiment. These are unfinalized experimental reservations, not
+production allocation changes. The current `wide_ix` opcode constants and
+dispatch tables, legacy/v2/resident event schemas, this allocation inventory
+and repository proposal/patch text were scanned. DA currently uses operations
+1–5; DC uses 1–6, 8 and 9. No existing kind146 definition was found.
+Reservations120–145 are preserved, including the separate conquest-only145.
+
+Departure is the four-byte envelope followed by the existing Depart field
+encoding (host56, slot1, arrival4, tip8, commit32, seal264):369 bytes.
+Origin settlement is the four-byte envelope plus slot1:5 bytes. Neither
+reinterprets an existing opcode. Ordered accounts are respectively:
+actor, payer, Season, Citizen, original Holding, legacy origin Province,
+System, legacy issuer Province, external BridgeTransit; and payer, Season,
+legacy origin Province, original Holding, legacy issuer Province, external
+BridgeTransit. No account kinds, seeds or financial authority are added here.
+
+Kind146 has PS2 header6, expedition version/action/slot/reserved4, full issued
+host56, Citizen32 (zero for settlement), original Holding32, origin key50,
+original Province32, external address32 and operation receipt100:344 pre-tail
+bytes. Exactly ordered PS2 tails are Citizen4/Holding5/Province6 for departure
+(468 total) and Holding5/Province6 for settlement (427 total). Every tail uses
+the original `log::advance` algorithm and prior original sequence/head. The
+external account is unchained. The344-byte body is an explicit experimental
+exception to the128-byte advisory policy; both forms fit the800-byte program
+buffer. Existing strict PS2/v2/fclient readers reject146; do not widen their
+accepted set without explicit bounded dispatch, same-chain history coverage,
+exact buffer tests and replay/provenance validation. PSW1 parsing is not valid.
+
+Versioned expedition-only hash domains commit ordered full pre/post manifests,
+role indices, public addresses, owners, presence, observed signer/writable
+flags, lamports, whole account bytes, exact command, clock/bell, whole Season,
+operation evidence and fixed-width outcomes. Output normalization removes only
+original touched chain headers, including any alias of the same account;
+external bridge and all other bytes remain intact. Escrow/rent, departure mass
+and stamina, origin survivors/stamina/readiness/destruction and lazy finality
+are explicit outcomes. Commitments do not prove authentication, original
+issuance, conservation, transaction completeness or replay by themselves.
+All public lifecycle, depart-debit, mixed, SBF and autosend gates remain closed.
+
+## 2026-11-09 integration supplement: experimental legacy source receipt
+
+Integration provisionally reserves PS2 record kind **145** for the closed
+legacy-to-wide conquest source receipt (`world_index::legacy_source_event`).
+This is **experimental and unfinalized**, not a deployed allocation or a
+compatibility promise. The actual integration-tree kind enums, allocation
+tables and proposal text were checked for conflicts; reservations 120–144
+remain unchanged. No instruction tag, account layout or chain entity is added.
+
+The body retains PS2 version 1 and adds bridge version 1, Debit/Credit and two
+zero reserved bytes, the full legacy-disk source host reference, the canonical
+original Holding address and the existing 100-byte conquest operation receipt.
+Exactly one ordinary PS2 entity-5 tail continues the original source chain.
+The 198-byte pre-tail body is a provisional soft-size exception; the complete
+record is exactly 240 bytes. Debit pairs with DECLARE; Credit pairs only with
+LAPSE or CAPTURE. FAILED/TABLE_CLOSE/ESCROW_CLOSE never imply source credit.
+
+This reservation enables no emission. The existing program buffer is 800 bytes,
+but its v2 width table stops at 134; old ABI/fclient readers reject kind 145.
+Before runtime integration, explicitly wire a bounded bridge emitter, same-chain
+header updates, reader dispatch, transaction pairing and complete mixed-history
+verification, and verify their buffers. Never use PSW1 hashes for legacy headers.
+All public/runtime gates remain closed. No production ABI registry is widened.
+
+
 統合の担当（④）が、命令 tag・記録の kind・Citizen の予約領域を、担当どうしで重ならないように割り当てる。**仮の割当**で、統合候補に入るときに確定し、`contracts/registry.txt`（`e2e-native/tests/registry.rs` が生成）とエラー番号の照合（`error_codes.rs`）で検査する。番号を使うコードは、確定まで各担当の feature（例：⑳の `nft-experimental`）の内側に置く。
 
 基準：統合候補 `ef63544c727490fc6801d30affd11c5b7106c480`。

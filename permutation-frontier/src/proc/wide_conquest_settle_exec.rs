@@ -26,6 +26,27 @@ struct Stage {
     after: Vec<State>,
 }
 impl Stage {
+    fn source_event(
+        &mut self,
+        ctx: &AddrCtx,
+        source: WideHostRef,
+        bell: u32,
+        receipt: &receipt::Receipt,
+        i: usize,
+    ) -> R<conquest_exec::SourceEvent> {
+        let mut data = self.after[i].data.clone();
+        let event = conquest_exec::prepare_source(
+            ctx,
+            source,
+            self.keys[i],
+            bell,
+            &receipt.encode(),
+            &mut data,
+            false,
+        )?;
+        self.bytes(i, data);
+        Ok(event)
+    }
     fn new(a: &[AccountInfo]) -> R<Self> {
         let mut before = Vec::new();
         let mut keys = Vec::new();
@@ -309,18 +330,10 @@ fn credit(
     now: i64,
     gold: u32,
 ) -> R<(u64, u64, bool)> {
-    expect_key(
-        &a[i],
-        &wh::holding_address(ctx, source.key().coord(), source.site()),
-    )?;
     let milli = (gold as i64).checked_mul(MILLI).ok_or(OVERFLOW)?;
-    let Some(h) = holding_at(&a[i], p, sid)? else {
+    let Some(h) = conquest_exec::source_at(&a[i], p, ctx, sid, source)? else {
         return Ok((0, milli as u64, false));
     };
-    if h.world != source.key().world() || h.coord != source.key().coord() || h.site != source.site()
-    {
-        return Err(BAD_ACCOUNT);
-    }
     let mut d = stage.after[i].data.clone();
     if h.gen != source.gen()
         || !matches!(Ro(&d).u8(H::STATE)?, H::STATE_PROVISIONAL | H::STATE_FINAL)
@@ -463,13 +476,7 @@ fn settle_siege_inner(p: &Pubkey, a: &[AccountInfo], x: &wix::SettleSiege) -> R<
     )?;
     let body = stage.event(WideKind::ConquestSettled, bell, &k.to_bytes(), &r, &[2])?;
     let source_body = if paid {
-        Some(stage.event(
-            WideKind::ConquestCredited,
-            bell,
-            &entry.source.ok_or(BAD_ACCOUNT)?.to_bytes(),
-            &r,
-            &[7],
-        )?)
+        Some(stage.source_event(&ctx, entry.source.ok_or(BAD_ACCOUNT)?, bell, &r, 7)?)
     } else {
         None
     };
@@ -477,7 +484,7 @@ fn settle_siege_inner(p: &Pubkey, a: &[AccountInfo], x: &wix::SettleSiege) -> R<
     stage.commit(a)?;
     log(&body);
     if let Some(body) = source_body {
-        log(&body);
+        body.log();
     }
     Ok(())
 }
@@ -567,9 +574,13 @@ fn settle_capture_inner(p: &Pubkey, a: &[AccountInfo], x: &wix::SettleCapture) -
         }
     }
     let source_ref = entry.source.ok_or(BAD_ACCOUNT)?;
+    let resolver = frontier_abi::world_index::expedition::AccountResolver::for_season(&ctx)
+        .map_err(|_| BAD_ACCOUNT)?;
     expect_key(
         source,
-        &wh::holding_address(&ctx, source_ref.key().coord(), source_ref.site()),
+        &resolver
+            .holding_address(&source_ref)
+            .map_err(|_| BAD_ACCOUNT)?,
     )?;
     let cq = season_cq(&stage.before[1].data)?;
     let bell = hdr.bell(now.ts).unwrap_or(frontier_abi::log::NO_BELL);
@@ -669,13 +680,7 @@ fn settle_capture_inner(p: &Pubkey, a: &[AccountInfo], x: &wix::SettleCapture) -
         &[2, 7],
     )?;
     let source_body = if paid {
-        Some(stage.event(
-            WideKind::ConquestCredited,
-            bell,
-            &source_ref.to_bytes(),
-            &r,
-            &[8],
-        )?)
+        Some(stage.source_event(&ctx, source_ref, bell, &r, 8)?)
     } else {
         None
     };
@@ -695,7 +700,7 @@ fn settle_capture_inner(p: &Pubkey, a: &[AccountInfo], x: &wix::SettleCapture) -
     stage.commit(a)?;
     log(&target_body);
     if let Some(body) = source_body {
-        log(&body);
+        body.log();
     }
     Ok(())
 }

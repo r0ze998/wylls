@@ -79,7 +79,9 @@ use solana_program::{account_info::AccountInfo, pubkey::Pubkey};
 
 use frontier_abi::addr::{citizen_seed, holding_seed};
 use frontier_abi::ix as aix;
-use frontier_abi::layout::player::{ticket_site as TS, transit as T};
+use frontier_abi::layout::player::ticket_site as TS;
+#[cfg(not(feature = "wide-world-experimental"))]
+use frontier_abi::layout::player::transit as T;
 use frontier_abi::layout::AccountKind;
 use frontier_abi::log::{divert_reason, settle_outcome, EntityKind, Kind};
 use frontier_abi::prologue::{self as ap, PlayerCtx};
@@ -2327,6 +2329,13 @@ pub fn release_dormant(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
         let r = Ro(&hd);
         let mut transit = false;
         for i in 0..H::TRANSIT_N {
+            #[cfg(feature = "wide-world-experimental")]
+            {
+                use frontier_abi::prologue::{transit_occupancy, TransitOccupancy};
+                transit |=
+                    transit_occupancy(&ctx, &key(holding), &hd, i)? != TransitOccupancy::Free;
+            }
+            #[cfg(not(feature = "wide-world-experimental"))]
             if T::in_transit(r.u8(H::transit(i) + T::STATE)?) {
                 transit = true;
             }

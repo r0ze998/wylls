@@ -1383,6 +1383,13 @@ pub fn settle_capture(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
     } else {
         // 3. The captured Holding and its victim.
         present_v2(holding, p, K2::Holding, sid)?;
+        // Reject malformed later slots before any refund or account mutation.
+        #[cfg(feature = "wide-world-experimental")]
+        let occupancy = frontier_abi::prologue::holding_transit_occupancy(
+            &ctx,
+            &key(holding),
+            &holding.try_borrow_data()?,
+        )?;
         let (hgen, horder, owner_key, rent_payer) = {
             let hd = holding.try_borrow_data()?;
             let r = Ro(&hd);
@@ -1422,13 +1429,20 @@ pub fn settle_capture(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
         // The victim's escrowed seal bonds, refunded at once (§3.6).
         for i in 0..H::TRANSIT_N {
             let o = H::transit(i);
-            let (st, fl) = {
+            let (occupied, fl) = {
                 let hd = holding.try_borrow_data()?;
                 let r = Ro(&hd);
-                (r.u8(o)?, r.u8(o + crate::layout::transit::FLAGS)?)
+                #[cfg(feature = "wide-world-experimental")]
+                let occupied = {
+                    use frontier_abi::prologue::TransitOccupancy;
+                    occupancy[i] != TransitOccupancy::Free
+                };
+                #[cfg(not(feature = "wide-world-experimental"))]
+                let occupied = crate::layout::transit::in_transit(r.u8(o)?);
+                (occupied, r.u8(o + crate::layout::transit::FLAGS)?)
             };
             let bonded = fl & crate::layout::transit::FLAG_BOND_ESCROWED != 0;
-            if !crate::layout::transit::in_transit(st) || !bonded {
+            if !occupied || !bonded {
                 continue;
             }
             {

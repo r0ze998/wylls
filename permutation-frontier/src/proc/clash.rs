@@ -582,8 +582,21 @@ fn gather_position(
     if !live || !gathers_gen(&hd, parts.gen) {
         return Ok(true);
     }
+    // Preflight every slot before a matching legacy slot can return early.
+    #[cfg(feature = "wide-world-experimental")]
+    let occupancy =
+        frontier_abi::prologue::holding_transit_occupancy(ctx, &holding.key.to_bytes(), &hd)?;
     for t in 0..H::TRANSIT_N {
         let o = H::transit(t);
+        // A bridge has no legacy arrival result or destination to stamp.
+        // Validate before any host/bell filtering: malformed is never SETTLED.
+        #[cfg(feature = "wide-world-experimental")]
+        {
+            use frontier_abi::prologue::TransitOccupancy;
+            if matches!(occupancy[t], TransitOccupancy::Bridge(_)) {
+                continue;
+            }
+        }
         let tr: &[u8; T::SIZE] = hd
             .get(o..o + T::SIZE)
             .and_then(|x| x.try_into().ok())

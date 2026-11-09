@@ -1256,6 +1256,79 @@ pub fn host_in_transit(holding: &[u8], host_id: u64) -> bool {
     })
 }
 
+/// Closed experimental occupancy classification. This is NOT legacy reveal
+/// eligibility. Callers authenticate the Holding account before using it.
+#[cfg(feature = "world-index-experimental")]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum TransitOccupancy {
+    Free,
+    Legacy,
+    Bridge(crate::world_index::expedition_bridge::BridgeMarker),
+}
+
+/// Decode a slot and bind a bridge's full original ID to its source Holding.
+/// No external account is required, including during opponent capture.
+#[cfg(feature = "world-index-experimental")]
+pub fn transit_occupancy(
+    ctx: &AddrCtx,
+    holding_key: &[u8; 32],
+    holding: &[u8],
+    slot: usize,
+) -> Result<TransitOccupancy, FrontierError> {
+    use crate::world_index::expedition_bridge::{BridgeMarker, MARKER_STATE};
+    let bad = FrontierError::BadData;
+    if slot >= H::TRANSIT_N {
+        return Err(bad);
+    }
+    let o = H::transit(slot);
+    let tr = holding.get(o..o + T::SIZE).ok_or(bad)?;
+    match tr[T::STATE] {
+        T::STATE_FREE => Ok(TransitOccupancy::Free),
+        state if T::in_transit(state) => Ok(TransitOccupancy::Legacy),
+        MARKER_STATE => {
+            let marker = BridgeMarker::from_bytes(ctx, tr).map_err(|_| bad)?;
+            let id = rd_u64(tr, T::HOST_ID).ok_or(bad)?;
+            if ctx.holding_of_host(id).as_ref() != Some(holding_key) {
+                return Err(bad);
+            }
+            Ok(TransitOccupancy::Bridge(marker))
+        }
+        _ => Err(bad),
+    }
+}
+
+/// Validate all slots before a consumer can return early or mutate accounts.
+#[cfg(feature = "world-index-experimental")]
+pub fn holding_transit_occupancy(
+    ctx: &AddrCtx,
+    holding_key: &[u8; 32],
+    holding: &[u8],
+) -> Result<[TransitOccupancy; H::TRANSIT_N], FrontierError> {
+    let mut slots = [TransitOccupancy::Free; H::TRANSIT_N];
+    for (slot, occupancy) in slots.iter_mut().enumerate() {
+        *occupancy = transit_occupancy(ctx, holding_key, holding, slot)?;
+    }
+    Ok(slots)
+}
+
+/// Host lock with bridge occupancy, kept separate from legacy admission.
+/// Inspect every slot so malformed records cannot become an unlocked host.
+#[cfg(feature = "world-index-experimental")]
+pub fn host_in_transit_with_bridge(
+    ctx: &AddrCtx,
+    holding_key: &[u8; 32],
+    holding: &[u8],
+    host_id: u64,
+) -> Result<bool, FrontierError> {
+    let mut occupied = false;
+    let slots = holding_transit_occupancy(ctx, holding_key, holding)?;
+    for (slot, state) in slots.into_iter().enumerate() {
+        occupied |= state != TransitOccupancy::Free
+            && rd_u64(holding, H::transit(slot) + T::HOST_ID) == Some(host_id);
+    }
+    Ok(occupied)
+}
+
 /// Resident actions at bell `b` need the province resolved through `b − 2`
 /// (§5.1): `resolved_next + 1 ≥ b`.
 pub const fn resident_ok(resolved_next: u32, b: u32) -> bool {

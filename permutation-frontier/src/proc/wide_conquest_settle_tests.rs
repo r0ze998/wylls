@@ -24,7 +24,223 @@ const BIG: u64 = 10_000_000_000;
 static SERIAL: Mutex<()> = Mutex::new(());
 static LOGS: Mutex<Vec<(Vec<u8>, Vec<u8>)>> = Mutex::new(Vec::new());
 
+/// Source is pre-positioned as a paired resident: this proves conquest source
+/// handling only, not the still-closed boundary departure/arrival lifecycle.
+#[test]
+fn legacy_origin_resident_captures_without_replacing_home_or_chain() {
+    use super::super::conquest_exec::tests as declaration;
+    use frontier_abi::world_index::{expedition::AccountResolver, legacy_source_event as le};
+    let _serial = SERIAL.lock().unwrap();
+    let _stub = install();
+    let a = declaration::legacy_fixture();
+    let ctx = addr::ctx(&key(&a[2]), &PROGRAM);
+    let resolver = AccountResolver::for_season(&ctx).unwrap();
+    let home = wh::binding_of(&a[3].try_borrow_data().unwrap(), 1).unwrap();
+    let initial = chain_of(&a[4].try_borrow_data().unwrap()).unwrap();
+    {
+        let mut pd = a[5].try_borrow_mut_data().unwrap();
+        pd[PV2::KEEP + frontier_abi::v2::layout::province::keep::TILE] =
+            frontier_abi::v2::layout::province::keep::NO_TILE;
+        Rw(&mut pd).set_u32(PV2::SCORE_NEXT_BELL, 10).unwrap();
+        Rw(&mut pd)
+            .set_u32(PV::CAMP + CP::NEXT_CHECK_DAY, 1)
+            .unwrap();
+    }
+    declaration::execute(&a).unwrap();
+    let required = Record::read(&a[5].try_borrow_data().unwrap(), 1)
+        .unwrap()
+        .required as u32;
+    for bell in 10..=10 + required {
+        let ra = declaration::resolve_fixture(&a, bell);
+        let x = wix::ResolveWithConquest {
+            bell,
+            beneficiary: PAYER,
+        };
+        crate::proc::wide::resolve_inner(
+            &program(),
+            &ra,
+            &wix::Resolve {
+                bell,
+                beneficiary: PAYER,
+            },
+            Some(&x),
+        )
+        .unwrap();
+    }
+    assert_eq!(
+        Record::read(&a[5].try_borrow_data().unwrap(), 1)
+            .unwrap()
+            .kind,
+        CR::KIND_CAPTURE_DUE
+    );
+    let mut js = vec![0; K2::JoinShard.size()];
+    assert!(write_header(&mut js, K2::JoinShard, SID));
+    let shard = account(ctx.join_shard(0, 0), PROGRAM, js, BIG, false, true);
+    let mut target = a[8].clone();
+    target.is_writable = true;
+    let capture = vec![
+        a[1].clone(),
+        a[2].clone(),
+        a[5].clone(),
+        a[9].clone(),
+        a[3].clone(),
+        shard.clone(),
+        a[10].clone(),
+        target,
+        a[4].clone(),
+        a[11].clone(),
+    ];
+    let now = prologue::now().unwrap().ts;
+    let d = a[4].try_borrow_data().unwrap().to_vec();
+    let mut expected = hold::read_holding(&d).unwrap();
+    hold::settle_tiered(&mut expected, now, hold::terrain_ore(&d).unwrap()).unwrap();
+    crate::proc::conquest::credit_capped(&mut expected, FRONTIER_7.siege_stake_gold as i64 * MILLI);
+    settle_capture_inner(&program(), &capture, &wix::SettleCapture { site: 1 }).unwrap();
+    refused(&capture, || {
+        settle_capture_inner(&program(), &capture, &wix::SettleCapture { site: 1 })
+    });
+    assert_eq!(a[4].data_len(), K2::Holding.size());
+    let mut expected_bytes = d;
+    hold::write_holding(&mut expected_bytes, &expected, now).unwrap();
+    let actual = a[4].try_borrow_data().unwrap().to_vec();
+    let terminal = chain_of(&actual).unwrap();
+    set_chain(&mut expected_bytes, terminal.0, &terminal.1).unwrap();
+    assert_eq!(actual, expected_bytes);
+    assert_eq!(Ro(&actual).u32(H::HOST_SEQ).unwrap(), 1);
+    let cd = a[3].try_borrow_data().unwrap();
+    assert_eq!(wh::binding_of(&cd, 1).unwrap(), home);
+    assert_eq!(wh::binding_of(&cd, 2).unwrap(), SlotBinding::Wide);
+    assert_eq!(cd[C::HOLDINGS_N], 2);
+    assert_eq!(wc::wide_reservations(cd[C::SLOTS]).unwrap(), 0);
+    assert_eq!(
+        WideHolding::read(&a[8].try_borrow_data().unwrap())
+            .unwrap()
+            .slot,
+        2
+    );
+    assert_eq!(
+        Ro(&shard.try_borrow_data().unwrap())
+            .u32(JS2::EXTRA_HOLDINGS)
+            .unwrap(),
+        1
+    );
+    let logs = LOGS.lock().unwrap();
+    let legacy: Vec<_> = logs
+        .iter()
+        .filter(|(prefix, _)| prefix == le::PREFIX)
+        .collect();
+    assert_eq!(legacy.len(), 2);
+    let mut previous = initial;
+    for (index, (_, body)) in legacy.iter().enumerate() {
+        assert_eq!(body.len(), le::BODY_LEN);
+        let record = le::Record::decode(&resolver, body).unwrap();
+        record
+            .verify_previous(&resolver, previous.0, &previous.1)
+            .unwrap();
+        assert_eq!(record.source.source_address, key(&a[4]));
+        assert_eq!(
+            record.source.direction,
+            if index == 0 {
+                le::Direction::Debit
+            } else {
+                le::Direction::Credit
+            }
+        );
+        let target_kind = if index == 0 {
+            WideKind::ConquestDeclared
+        } else {
+            WideKind::ConquestCaptured
+        };
+        let target = logs
+            .iter()
+            .filter(|(p, _)| p == wev::WIDE_LOG_PREFIX)
+            .map(|(_, b)| wev::WideRecord::decode(b).unwrap())
+            .find(|r| r.kind == target_kind)
+            .unwrap();
+        assert_eq!(target.payload, record.source.receipt.encode());
+        previous = (record.link.seq, record.link.head);
+    }
+    assert_eq!(previous, terminal);
+}
+
 struct Stubs;
+
+#[test]
+fn legacy_origin_lapse_credits_live_only_and_rejects_malformed_source() {
+    use super::super::conquest_exec::tests as declaration;
+    use frontier_abi::world_index::legacy_source_event as le;
+    let _serial = SERIAL.lock().unwrap();
+    let _stub = install();
+    for case in 0..4 {
+        let a = declaration::legacy_fixture();
+        declaration::execute(&a).unwrap();
+        time(1000);
+        Rw(&mut a[5].try_borrow_mut_data().unwrap())
+            .set_u32(PV::RESOLVED_NEXT, 1000)
+            .unwrap();
+        let mut source = a[4].clone();
+        match case {
+            0 => {
+                let mut d = source.try_borrow_mut_data().unwrap();
+                let mut h = hold::read_holding(&d).unwrap();
+                let gold = permutation_rules::frontier::holding::Resource::Gold as usize;
+                h.stores[gold].value = h.stores[gold].cap - 2 * MILLI;
+                h.stores[gold].rate = 0;
+                h.production[gold] = 0;
+                hold::write_holding(&mut d, &h, GENESIS + 600_000).unwrap();
+            }
+            1 => source.try_borrow_mut_data().unwrap()[H::GEN] = 2,
+            2 => {
+                source = declaration::ai(
+                    key(&source),
+                    prologue::ids::SYSTEM_PROGRAM,
+                    vec![],
+                    17,
+                    false,
+                    true,
+                )
+            }
+            _ => source.try_borrow_mut_data().unwrap()[0] ^= 1,
+        }
+        let s = vec![
+            a[0].clone(),
+            a[2].clone(),
+            a[5].clone(),
+            a[9].clone(),
+            a[3].clone(),
+            a[10].clone(),
+            a[1].clone(),
+            source.clone(),
+        ];
+        if case == 3 {
+            refused(&s, || {
+                settle_siege_inner(&program(), &s, &wix::SettleSiege { site: 1 })
+            });
+            continue;
+        }
+        let old = source.try_borrow_data().unwrap().to_vec();
+        let logs = LOGS.lock().unwrap().len();
+        settle_siege_inner(&program(), &s, &wix::SettleSiege { site: 1 }).unwrap();
+        refused(&s, || {
+            settle_siege_inner(&program(), &s, &wix::SettleSiege { site: 1 })
+        });
+        if case == 0 {
+            let gold = permutation_rules::frontier::holding::Resource::Gold as usize;
+            let after = source.try_borrow_data().unwrap();
+            assert_eq!(
+                hold::read_holding(&after).unwrap().stores[gold].value
+                    - hold::read_holding(&old).unwrap().stores[gold].value,
+                2 * MILLI
+            );
+            let logs = LOGS.lock().unwrap();
+            assert_eq!(logs.last().unwrap().0, le::PREFIX);
+        } else {
+            assert_eq!(source.try_borrow_data().unwrap().as_ref(), old.as_slice());
+            assert_eq!(LOGS.lock().unwrap().len() - logs, 1);
+        }
+    }
+}
+
 impl solana_program::program_stubs::SyscallStubs for Stubs {
     fn sol_log(&self, _: &str) {}
     fn sol_log_data(&self, fields: &[&[u8]]) {

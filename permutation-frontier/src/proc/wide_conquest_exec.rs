@@ -10,6 +10,139 @@ use frontier_abi::world_index::conquest::{
     self as wc, CaptureBinding, WideCaptureEscrow, WideConquest, WideConquestEntry,
 };
 use frontier_abi::world_index::event::conquest as receipts;
+use frontier_abi::world_index::expedition::{AccountFamily, AccountResolver};
+use frontier_abi::world_index::legacy_source_event as legacy_event;
+
+/// Family is selected from the authenticated full reference before parsing.
+/// Legacy accounts never pass through the WideHolding trailer codec.
+pub(super) struct SourceHolding {
+    pub family: AccountFamily,
+    pub coord: WideCoord,
+    pub site: u8,
+    pub gen: u8,
+    pub slot: u8,
+    pub owner_citizen: [u8; 32],
+    pub host_identity: u16,
+}
+
+pub(super) fn source_at(
+    ai: &AccountInfo,
+    p: &Pubkey,
+    ctx: &AddrCtx,
+    sid: u64,
+    source: WideHostRef,
+) -> R<Option<SourceHolding>> {
+    let resolver = AccountResolver::for_season(ctx).map_err(|_| BAD_ACCOUNT)?;
+    let family = resolver.family(source.key()).map_err(|_| BAD_ACCOUNT)?;
+    expect_key(
+        ai,
+        &resolver.holding_address(&source).map_err(|_| BAD_ACCOUNT)?,
+    )?;
+    if init::is_absent(ai) {
+        return Ok(None);
+    }
+    let h = match family {
+        AccountFamily::Wide => {
+            let h = holding_at(ai, p, sid)?.ok_or(BAD_ACCOUNT)?;
+            if h.world != source.key().world() {
+                return Err(BAD_ACCOUNT);
+            }
+            SourceHolding {
+                family,
+                coord: h.coord,
+                site: h.site,
+                gen: h.gen,
+                slot: h.slot,
+                owner_citizen: h.owner_citizen,
+                host_identity: h.host_identity,
+            }
+        }
+        AccountFamily::Legacy => {
+            prologue::present_v2(ai, p, frontier_abi::v2::layout::AccountKind::Holding, sid)?;
+            let d = ai.try_borrow_data()?;
+            let r = Ro(&d);
+            let coord = WideCoord::checked(r.i16(H::P)? as i64, r.i16(H::Q)? as i64)
+                .map_err(|_| BAD_ACCOUNT)?;
+            SourceHolding {
+                family,
+                coord,
+                site: r.u8(H::SITE)?,
+                gen: r.u8(H::GEN)?,
+                slot: r.u8(H::ORDER)?,
+                owner_citizen: r.arr(H::OWNER_CITIZEN)?,
+                host_identity: 0,
+            }
+        }
+    };
+    if h.coord != source.key().coord() || h.site != source.site() {
+        return Err(BAD_ACCOUNT);
+    }
+    Ok(Some(h))
+}
+
+pub(super) struct SourceEvent {
+    prefix: &'static [u8],
+    body: Vec<u8>,
+}
+impl SourceEvent {
+    pub(super) fn log(&self) {
+        solana_program::log::sol_log_data(&[self.prefix, &self.body]);
+    }
+}
+
+/// Stage the original family's chain using an explicitly bounded codec.
+pub(super) fn prepare_source(
+    ctx: &AddrCtx,
+    source: WideHostRef,
+    address: [u8; 32],
+    bell: u32,
+    payload: &[u8; 100],
+    data: &mut [u8],
+    debit: bool,
+) -> R<SourceEvent> {
+    let resolver = AccountResolver::for_season(ctx).map_err(|_| BAD_ACCOUNT)?;
+    match resolver.family(source.key()).map_err(|_| BAD_ACCOUNT)? {
+        AccountFamily::Wide => {
+            let (body, n) = prepare_wide(
+                if debit {
+                    WideKind::ConquestDebited
+                } else {
+                    WideKind::ConquestCredited
+                },
+                bell,
+                &source.to_bytes(),
+                payload,
+                &mut [(WideEntity::Holding, data)],
+            )?;
+            Ok(SourceEvent {
+                prefix: wev::WIDE_LOG_PREFIX,
+                body: body[..n].to_vec(),
+            })
+        }
+        AccountFamily::Legacy => {
+            let (seq, head) = crate::layout::chain_of(data)?;
+            let event = legacy_event::SourceReceipt {
+                direction: if debit {
+                    legacy_event::Direction::Debit
+                } else {
+                    legacy_event::Direction::Credit
+                },
+                bell,
+                source,
+                source_address: address,
+                receipt: receipts::Receipt::decode(payload).map_err(|_| BAD_ACCOUNT)?,
+            };
+            let (body, link) = event
+                .prepare(&resolver, seq, &head)
+                .map_err(|_| BAD_ACCOUNT)?;
+            crate::layout::set_chain(data, link.seq, &link.head)?;
+            Ok(SourceEvent {
+                prefix: legacy_event::PREFIX,
+                body: body.to_vec(),
+            })
+        }
+    }
+}
 
 /// Owned full-state manifest. Roles are the one-based command account index.
 /// Every role is present, including absent canonical account positions.
@@ -257,17 +390,40 @@ fn declare_siege_context(
     let world = world_of(&ctx)?;
     let prov = canonical_province(province, p, &ctx, hdr.id, world)?;
     let pkey = ProvinceKey::new(world, prov.coord);
-    let source_h = holding_at(source, p, hdr.id)?.ok_or(BAD_ACCOUNT)?;
-    expect_key(
-        source,
-        &wh::holding_address(&ctx, source_h.coord, source_h.site),
-    )?;
-    if source_h.world != world || source_h.owner_citizen != key(citizen) {
+    expect_key(roster_ai, &wro::roster_address(&ctx, pkey))?;
+    let roster = roster_at(roster_ai, p, hdr.id, pkey)?.ok_or(BAD_ACCOUNT)?;
+    let chosen_ref = roster
+        .ref_at(&roster_ai.try_borrow_data()?, x.entry as usize)
+        .map_err(|_| BAD_ACCOUNT)?
+        .ok_or(cq(CqError::NotOnHex))?;
+    let source_h = source_at(source, p, &ctx, hdr.id, chosen_ref)?.ok_or(BAD_ACCOUNT)?;
+    if source_h.owner_citizen != key(citizen) {
         return Err(FrontierError::NotOwner.into());
     }
-    let sp = canonical_province(source_province, p, &ctx, hdr.id, world)?;
-    if sp.coord != source_h.coord {
-        return Err(BAD_ACCOUNT);
+    match source_h.family {
+        AccountFamily::Wide => {
+            let sp = canonical_province(source_province, p, &ctx, hdr.id, world)?;
+            if sp.coord != source_h.coord {
+                return Err(BAD_ACCOUNT);
+            }
+        }
+        AccountFamily::Legacy => {
+            check_source_province(p, &ctx, hdr.id, source, source_province)?;
+            let pd = source_province.try_borrow_data()?;
+            if WideCoord::checked(Ro(&pd).i16(PV::P)? as i64, Ro(&pd).i16(PV::Q)? as i64)
+                .map_err(|_| BAD_ACCOUNT)?
+                != source_h.coord
+            {
+                return Err(BAD_ACCOUNT);
+            }
+            let resolver = AccountResolver::for_season(&ctx).map_err(|_| BAD_ACCOUNT)?;
+            let id = resolver
+                .legacy_host_id(&chosen_ref)
+                .map_err(|_| BAD_ACCOUNT)?;
+            if resolver.legacy_host_ref(id).map_err(|_| BAD_ACCOUNT)? != chosen_ref {
+                return Err(BAD_ACCOUNT);
+            }
+        }
     }
     // Only the two Province roles may alias. Actor/payer alias is normal.
     for i in 2..a.len() {
@@ -286,7 +442,16 @@ fn declare_siege_context(
     let hd = &before[4].data;
     let pd = &before[5].data;
     capture_lock_of(&before[7].data, hd)?;
-    if wh::binding_of(cd, source_h.slot).map_err(holding_err)? != SlotBinding::Wide {
+    let expected_binding = match source_h.family {
+        AccountFamily::Wide => SlotBinding::Wide,
+        AccountFamily::Legacy => SlotBinding::Legacy(wh::HoldingRef {
+            p: Ro(hd).i16(H::P)?,
+            q: Ro(hd).i16(H::Q)?,
+            site: source_h.site,
+            gen: source_h.gen,
+        }),
+    };
+    if wh::binding_of(cd, source_h.slot).map_err(holding_err)? != expected_binding {
         return Err(BAD_ACCOUNT);
     }
     let (state, due) = if source_h.coord == prov.coord {
@@ -325,18 +490,13 @@ fn declare_siege_context(
     if !ap::resident_ok(r.u32(PV::RESOLVED_NEXT)?, bell) {
         return Err(FrontierError::NotResident.into());
     }
-    expect_key(roster_ai, &wro::roster_address(&ctx, pkey))?;
-    let roster = roster_at(roster_ai, p, hdr.id, pkey)?.ok_or(BAD_ACCOUNT)?;
     let faction = Ro(cd).u8(C::FACTION)?;
     let tile = r.u8(PV::SITES + site)?;
     let chosen = read_entry(pd, x.entry as usize).map_err(|_| cq(CqError::NotOnHex))?;
-    let chosen_ref = roster
-        .ref_at(&before[6].data, x.entry as usize)
-        .map_err(|_| BAD_ACCOUNT)?
-        .ok_or(cq(CqError::NotOnHex))?;
     // Muster issues the current counter (including first host zero), then
     // increments it. HOST_SEQ is the next unissued sequence, not the last one.
-    if source_h.host_identity != wm::HOST_IDENTITY_FULL_REF_V1
+    if (source_h.family == AccountFamily::Wide
+        && source_h.host_identity != wm::HOST_IDENTITY_FULL_REF_V1)
         || chosen_ref.seq() >= Ro(hd).u32(H::HOST_SEQ)?
     {
         return Err(cq(CqError::NotOnHex));
@@ -546,12 +706,14 @@ fn declare_siege_context(
         &payload,
         &mut [(WideEntity::Province, &mut after[5].data)],
     )?;
-    let (debit, hn) = prepare_wide(
-        WideKind::ConquestDebited,
+    let debit = prepare_source(
+        &ctx,
+        source_ref,
+        key(source),
         bell,
-        &source_ref.to_bytes(),
         &payload,
-        &mut [(WideEntity::Holding, &mut after[4].data)],
+        &mut after[4].data,
+        true,
     )?;
     // All predictable borrow conflicts before the first CPI. Dynamic syscall
     // failures still require the normal transaction rollback boundary.
@@ -612,7 +774,7 @@ fn declare_siege_context(
         ed.copy_from_slice(&after[10].data);
     }
     solana_program::log::sol_log_data(&[wev::WIDE_LOG_PREFIX, &declaration[..dn]]);
-    solana_program::log::sol_log_data(&[wev::WIDE_LOG_PREFIX, &debit[..hn]]);
+    debit.log();
     Ok(())
 }
 

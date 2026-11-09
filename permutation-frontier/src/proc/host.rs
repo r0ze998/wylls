@@ -141,7 +141,11 @@ pub(crate) fn resident_host(
     caller_host(hh, host_id)?;
     {
         let hd = holding.try_borrow_data()?;
-        if ap::host_in_transit(&hd, host_id) {
+        #[cfg(feature = "wide-world-experimental")]
+        let in_transit = ap::host_in_transit_with_bridge(&pl.ctx, &key(holding), &hd, host_id)?;
+        #[cfg(not(feature = "wide-world-experimental"))]
+        let in_transit = ap::host_in_transit(&hd, host_id);
+        if in_transit {
             return Err(FrontierError::HostInTransit.into());
         }
     }
@@ -665,7 +669,11 @@ pub(crate) fn depart_as(p: &Pubkey, a: &[AccountInfo], d: &[u8], auth: &super::A
     }
     {
         let hd = holding.try_borrow_data()?;
-        if ap::host_in_transit(&hd, x.host_id) {
+        #[cfg(feature = "wide-world-experimental")]
+        let in_transit = ap::host_in_transit_with_bridge(&pl.ctx, &key(holding), &hd, x.host_id)?;
+        #[cfg(not(feature = "wide-world-experimental"))]
+        let in_transit = ap::host_in_transit(&hd, x.host_id);
+        if in_transit {
             return Err(FrontierError::HostInTransit.into());
         }
     }

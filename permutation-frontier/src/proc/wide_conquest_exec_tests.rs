@@ -262,6 +262,156 @@ fn snapshot(a: &[AccountInfo]) -> Vec<(u64, Vec<u8>, Pubkey)> {
         .collect()
 }
 
+/// Already resident on the wide target. This does not simulate or authorize
+/// a boundary departure, arrival, or roster admission.
+pub(in crate::proc::wide) fn legacy_fixture() -> Vec<AccountInfo<'static>> {
+    let mut a = fixture();
+    let ctx = addr::ctx(&key(&a[2]), &PROGRAM);
+    let world = world_of(&ctx).unwrap();
+    let coord = WideCoord::checked(1, 0).unwrap();
+    let host = WideHostRef::new(ProvinceKey::new(world, coord), 0, 1, 0).unwrap();
+    let resolver = AccountResolver::for_season(&ctx).unwrap();
+    assert_eq!(
+        resolver
+            .legacy_host_ref(resolver.legacy_host_id(&host).unwrap())
+            .unwrap(),
+        host
+    );
+    let mut empty_province = vec![0; K2::Province.size()];
+    empty_province[PV::SITE_COUNT] = 1;
+    let (_, generation) = cz::home_site(&empty_province, 0, 10).unwrap();
+    assert_eq!(generation, 1);
+    let mut hd = vec![0; K2::Holding.size()];
+    assert!(write_header(&mut hd, K2::Holding, SID));
+    let mut economy = cz::founded_holding(NOW, addr::day_of(10), 0).unwrap();
+    // Mature stocked home, using the original founding codec and layout.
+    for s in &mut economy.stores {
+        s.value = 1_000_000 * MILLI;
+        s.cap = 2_000_000 * MILLI;
+    }
+    write_founding(
+        &mut hd,
+        &Founding {
+            p: 1,
+            q: 0,
+            site: 0,
+            gen: generation,
+            tile: 0,
+            owner: key(&a[3]),
+            score: 0,
+            faction: 0,
+            ticket_bell: C::NO_TICKET,
+            rent_payer: PAYER,
+            final_ts: NOW,
+            pool_owed: 0,
+            shield_until: NOW,
+            terrain_ore: 0,
+        },
+        &economy,
+    )
+    .unwrap();
+    Rw(&mut hd).set_u8(H::STATE, H::STATE_FINAL).unwrap();
+    Rw(&mut hd).set_u32(H::HOST_SEQ, 1).unwrap();
+    // Continue a nonzero original PS2 chain, never replace it with PSW1.
+    crate::layout::set_chain(&mut hd, 7, &[0x6a; 32]).unwrap();
+    a[4] = ai(
+        resolver.holding_address(&host).unwrap(),
+        PROGRAM,
+        hd,
+        a[4].lamports(),
+        false,
+        true,
+    );
+    let mut sp = vec![0; K2::Province.size()];
+    assert!(write_header(&mut sp, K2::Province, SID));
+    Rw(&mut sp).set_i16(PV::P, 1).unwrap();
+    Rw(&mut sp).set_i16(PV::Q, 0).unwrap();
+    sp[PV::SITE_COUNT] = 1;
+    sp[PV::site(0) + SM::STATE] = SM::STATE_HOLDING;
+    sp[PV::site(0) + SM::GEN] = 1;
+    sp[PV::site(0) + SM::ORDER] = 1;
+    a[7] = ai(
+        resolver.province_address(host.key()).unwrap(),
+        PROGRAM,
+        sp,
+        1_000_000_000,
+        false,
+        false,
+    );
+    {
+        let mut cd = a[3].try_borrow_mut_data().unwrap();
+        wh::unbind(&mut cd, 2).unwrap();
+        let o = C2::holding_of_slot(1);
+        cd[o..o + 6].copy_from_slice(&[1, 0, 0, 0, 0, 1]);
+        cd[C2::HOLDINGS_N] = 1;
+        cd[C::FLAGS] |= C::FLAG_HOME_GRANTED | C::FLAG_FIRST_HOLDING_FINAL;
+    }
+    {
+        let mut rd = a[6].try_borrow_mut_data().unwrap();
+        let roster = WideRoster::read(&rd).unwrap();
+        let old = roster.ref_at(&rd, 0).unwrap().unwrap();
+        assert_eq!(roster.release(&mut rd, 0).unwrap(), Some(old));
+        let alias = roster.claim(&mut rd, 0, &host).unwrap();
+        let mut pd = a[5].try_borrow_mut_data().unwrap();
+        let mut e = read_entry(&pd, 0).unwrap();
+        e.id = alias;
+        write_entry(&mut pd, 0, &e).unwrap();
+        roster
+            .validate_paired(&rd, &wres::live_ids(&pd).unwrap())
+            .unwrap();
+    }
+    a
+}
+
+#[test]
+fn legacy_home_declaration_preserves_home_and_refuses_invalid_source_before_effects() {
+    let a = legacy_fixture();
+    let home = wh::binding_of(&a[3].try_borrow_data().unwrap(), 1).unwrap();
+    let source_province = a[7].try_borrow_data().unwrap().to_vec();
+    execute(&a).unwrap();
+    assert_eq!(a[4].data_len(), K2::Holding.size());
+    assert_eq!(
+        wh::binding_of(&a[3].try_borrow_data().unwrap(), 1).unwrap(),
+        home
+    );
+    assert_eq!(
+        a[7].try_borrow_data().unwrap().as_ref(),
+        source_province.as_slice()
+    );
+    assert_eq!(
+        Ro(&a[4].try_borrow_data().unwrap())
+            .u32(H::HOST_SEQ)
+            .unwrap(),
+        1
+    );
+    assert_eq!(
+        crate::layout::chain_of(&a[4].try_borrow_data().unwrap())
+            .unwrap()
+            .0,
+        8
+    );
+    for case in 0..7 {
+        let mut a = legacy_fixture();
+        match case {
+            0 => a[4].try_borrow_mut_data().unwrap()[H::STATE] = H::STATE_PROVISIONAL,
+            1 => Rw(&mut a[4].try_borrow_mut_data().unwrap())
+                .set_u32(H::HOST_SEQ, 0)
+                .unwrap(),
+            2 => a[4].try_borrow_mut_data().unwrap()[H::GEN] = 2,
+            3 => a[7].try_borrow_mut_data().unwrap()[PV::site(0) + SM::GEN] = 2,
+            4 => a[3].try_borrow_mut_data().unwrap()[C2::holding_of_slot(1) + 5] = 2,
+            5 => a[4].try_borrow_mut_data().unwrap()[0] ^= 1,
+            _ => {
+                let d = a[4].try_borrow_data().unwrap().to_vec();
+                a[4] = ai(key(&a[4]), [0x55; 32], d, a[4].lamports(), false, true);
+            }
+        }
+        let before = snapshot(&a);
+        assert!(execute(&a).is_err(), "case {case}");
+        assert_eq!(snapshot(&a), before, "case {case}");
+    }
+}
+
 pub(in crate::proc::wide) fn execute(a: &[AccountInfo]) -> R<()> {
     declare_siege_inner(
         &Pubkey::new_from_array(PROGRAM),
