@@ -47,6 +47,9 @@ pub mod report;
 pub mod resident_feed;
 pub mod skip;
 pub mod tamper;
+/// Supplied-state WideClaimDefence consistency only; not authenticated replay.
+#[cfg(feature = "wide-economy-experimental")]
+pub mod wide_defence;
 /// Experimental, opt-in (`wide-economy-experimental`): the independent
 /// state-transition replay of one wide S1 economy receipt (event kinds 15
 /// and 16) over caller-supplied snapshots. Not a check of [`verify`]; it
