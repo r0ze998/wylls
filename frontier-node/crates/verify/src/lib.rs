@@ -47,6 +47,9 @@ pub mod report;
 pub mod resident_feed;
 pub mod skip;
 pub mod tamper;
+/// Detached invocation-scoped conditional siege settlement proof only.
+#[cfg(feature = "wide-economy-experimental")]
+pub mod wide_conquest_settle;
 /// Supplied-state WideClaimDefence consistency only; not authenticated replay.
 #[cfg(feature = "wide-economy-experimental")]
 pub mod wide_defence;
