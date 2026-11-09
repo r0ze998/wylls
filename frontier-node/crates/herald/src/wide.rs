@@ -41,7 +41,7 @@ use base64::Engine;
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
 use solana_address::Address;
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use frontier_abi::addr::AddrCtx;
 use frontier_abi::world_index::{
@@ -72,6 +72,13 @@ pub struct WideIndex {
     refused: u64,
     provinces: BTreeMap<WideCoord, [u8; 32]>,
     holdings: BTreeMap<(WideCoord, u8), [u8; 32]>,
+    // Derived from authenticated capture bytes only, not ownership authority.
+    inventory: BTreeMap<([u8; 32], u8), BTreeSet<[u8; 32]>>,
+    inventory_of: BTreeMap<[u8; 32], ([u8; 32], u8)>,
+    #[cfg(test)]
+    inventory_reads: std::sync::atomic::AtomicUsize,
+    #[cfg(test)]
+    inventory_serializations: std::sync::atomic::AtomicUsize,
 }
 
 impl WideIndex {
@@ -86,7 +93,34 @@ impl WideIndex {
             refused: 0,
             provinces: BTreeMap::new(),
             holdings: BTreeMap::new(),
+            inventory: BTreeMap::new(),
+            inventory_of: BTreeMap::new(),
+            #[cfg(test)]
+            inventory_reads: std::sync::atomic::AtomicUsize::new(0),
+            #[cfg(test)]
+            inventory_serializations: std::sync::atomic::AtomicUsize::new(0),
         })
+    }
+
+    fn remove_inventory(&mut self, key: &[u8; 32]) {
+        if let Some(binding) = self.inventory_of.remove(key) {
+            if let Some(keys) = self.inventory.get_mut(&binding) {
+                keys.remove(key);
+                if keys.is_empty() {
+                    self.inventory.remove(&binding);
+                }
+            }
+        }
+    }
+
+    fn index_inventory(&mut self, key: [u8; 32], h: &holding::WideHolding) {
+        let binding = (h.owner_citizen, h.slot);
+        if self.inventory_of.get(&key) == Some(&binding) {
+            return;
+        }
+        self.remove_inventory(&key);
+        self.inventory.entry(binding).or_default().insert(key);
+        self.inventory_of.insert(key, binding);
     }
 
     pub fn world(&self) -> WorldId {
@@ -442,6 +476,7 @@ pub(crate) fn index_capture(f: &mut Fold, key: &[u8; 32], d: &[u8]) -> bool {
         }
         Some(CapturedWide::Holding(h)) => {
             w.holdings.insert((h.coord, h.site), *key);
+            w.index_inventory(*key, &h);
             if w.provinces.contains_key(&h.coord) {
                 w.report_key(
                     ProvinceKey::new(h.world, h.coord),
@@ -503,6 +538,7 @@ pub(crate) fn capture_post(
                 }
                 Some(CapturedWide::Holding(h)) => {
                     w.holdings.remove(&(h.coord, h.site));
+                    w.remove_inventory(key);
                     if w.provinces.contains_key(&h.coord) {
                         w.report_key(
                             ProvinceKey::new(h.world, h.coord),
@@ -603,6 +639,9 @@ pub fn context_for_citizen(f: &Fold, citizen: &[u8; 32]) -> Value {
 
 /// Wide slots stay distinct from legacy holdings. A missing capture is explicit,
 /// never a synthetic holding at (0,0) or a silently empty inventory slot.
+/// The derived owner/slot index seeks each slot without traversing the world:
+/// at most two captured records per slot are decoded to establish ambiguity.
+/// Only a unique match is serialized; the capture remains unverified.
 pub fn holdings_for_citizen(f: &Fold, citizen: &[u8; 32]) -> Value {
     let Some(c) = f.account(citizen) else {
         return json!([]);
@@ -615,18 +654,33 @@ pub fn holdings_for_citizen(f: &Fold, citizen: &[u8; 32]) -> Value {
         if holding::binding_of(&c.data, slot) != Ok(holding::SlotBinding::Wide) {
             continue;
         }
-        let matches: Vec<Value> = w
-            .holdings
-            .values()
+        // Seek only this captured owner/slot. At most two valid candidates
+        // establish ambiguity; do not serialize candidates we will discard.
+        let mut matches = w
+            .inventory
+            .get(&(*citizen, slot))
+            .into_iter()
+            .flatten()
             .filter_map(|key| {
+                #[cfg(test)]
+                w.inventory_reads
+                    .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
                 let h = holding::WideHolding::read(&f.account(key)?.data).ok()?;
-                (h.owner_citizen == *citizen && h.slot == slot)
-                    .then(|| wide_holding_json(f, key, &h))
-            })
-            .collect();
-        out.push(json!({ "inventorySlot": slot,
-            "status": if matches.len() == 1 { "captured-unverified" } else if matches.is_empty() { "not-captured" } else { "ambiguous" },
-            "holding": if matches.len() == 1 { matches[0].clone() } else { Value::Null } }));
+                (h.owner_citizen == *citizen && h.slot == slot).then_some((key, h))
+            });
+        let first = matches.next();
+        let ambiguous = first.is_some() && matches.next().is_some();
+        let (status, value) = match first {
+            None => ("not-captured", Value::Null),
+            Some(_) if ambiguous => ("ambiguous", Value::Null),
+            Some((key, h)) => {
+                #[cfg(test)]
+                w.inventory_serializations
+                    .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                ("captured-unverified", wide_holding_json(f, key, &h))
+            }
+        };
+        out.push(json!({ "inventorySlot": slot, "status": status, "holding": value }));
     }
     json!(out)
 }
@@ -795,3 +849,7 @@ mod tests {
         assert_eq!(WideFault::StaleSnapshot.code(), "StaleSnapshot");
     }
 }
+
+#[cfg(test)]
+#[path = "wide_inventory_index.rs"]
+mod wide_inventory_index;
