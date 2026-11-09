@@ -81,6 +81,8 @@ pub mod wideduty;
 #[cfg(feature = "wide-world-experimental")]
 pub mod wideexpedition;
 #[cfg(feature = "wide-world-experimental")]
+pub mod wideexpedition_preview;
+#[cfg(feature = "wide-world-experimental")]
 pub mod widefees;
 #[cfg(feature = "wide-world-experimental")]
 pub mod widefollow;

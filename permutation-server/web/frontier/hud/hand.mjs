@@ -41,6 +41,7 @@ import * as proto from './proto.mjs';
 import { handNote } from '../fdelegation.mjs';
 import { previewOf } from '../proto/hand-model.mjs';
 import { conquestOn, renderKeepsPop, waitOf, holdTurns } from './keephand.mjs';
+import { EXPEDITION_POP, inspectionVersion } from '../fexpedition.mjs';
 
 const int = Number.isInteger;
 const nowOf = FS => FS.chain?.now?.() ?? 0;
@@ -57,6 +58,7 @@ export const POPS = Object.freeze(['build', 'train', 'muster', 'promote', 'explo
 export const PROTO_POPS = Object.freeze(['banner']);
 /** The card of a conquest season (program version 3; hud/keephand.mjs): the keeps the host can reach. It can open only on such a season. */
 export const CONQUEST_POPS = Object.freeze(['keeps']);
+export const INSPECTION_POPS = Object.freeze([EXPEDITION_POP]);
 
 export { ownHostsAt, ownHosts, marchCheck, exploreCheck, dissolveCheck, canAct, subjectOf, popOf } from './subject.mjs';
 import { ownHosts, marchCheck, exploreCheck, dissolveCheck, canAct, subjectOf, popOf } from './subject.mjs';
@@ -111,6 +113,10 @@ function villageModel(FS, sub) {
       : { id: 'promote', icon: 'tierup', word: L`昇格`, act: 'hand-pop', data: { pop: 'promote' }, figure: '', why: whyText('TopTier') },
   ];
   const name = holdingName(sub.holding);
+  if (!FS.sample && !FS.proto && inspectionVersion(FS.season?.programVersion)) buttons.push({
+    id: EXPEDITION_POP, icon: 'search', word: L`遠征を確認`, act: 'hand-pop', data: { pop: EXPEDITION_POP },
+    figure: L`読み取り専用`, quiet: true, hint: L`この村が発行した軍勢の番号で確認します。現在地や生存を意味しません。`,
+  });
   // (the rank under the name, unless the name says it already: 「ラマールの町」 over 「町」)
   const rank = TIERS[tier] ?? '', said = !!rank && String(name).toLowerCase().includes(String(rank).toLowerCase());
   return { kind: 'village', key: `v:${sub.holding.p},${sub.holding.q},${sub.holding.site}`, name, label: L`${name}の行動`, icon: 'home',
@@ -133,7 +139,7 @@ function hostModel(FS, sub) {
   const at = all.findIndex(x => x.id === r.id);
   const pop = popOf(FS, sub);
   // (the board is armed for a march as soon as a host that can march is selected: its reach is lit and a tap is the order)
-  const armed = mc.ok && pop !== 'explore' && pop !== 'dissolve';
+  const armed = mc.ok && pop !== 'explore' && pop !== 'dissolve' && pop !== EXPEDITION_POP;
   const from = tileHex(r.p, r.q, r.tile), home = h ? tileHex(h.p, h.q, h.tile) : null;
   const away = hexDist(from, home);
   const name = unitCount(UNIT_ORDER[r.unit], r.troops);
@@ -158,6 +164,11 @@ function hostModel(FS, sub) {
   // the prototype rule "banners" (hud/proto.mjs; only while the sample world serves it): what this host can do with a banner where it stands, first on the bar
   const flag = FS.proto ? proto.bannerButton(FS, r, pop) : null;
   if (flag) buttons.unshift(flag);
+  if (!FS.sample && !FS.proto && inspectionVersion(FS.season?.programVersion)) buttons.push({
+    id: EXPEDITION_POP, icon: 'search', word: L`遠征を確認`, act: 'hand-pop', data: { pop: EXPEDITION_POP },
+    figure: L`読み取り専用`, pressed: pop === EXPEDITION_POP, quiet: true,
+    hint: L`この軍勢を P,Q で確認します。移動や命令は行いません。`,
+  });
   // (one reason that keeps two or more of the bar's buttons from being pressed — the host is forming up, it is short of
   // stamina, the province has not caught up with the turn — is said once, on the bar's own line under the host's name,
   // and those buttons keep their figures: the same sentence stood on three buttons in two lines each, the bar grew wider
@@ -405,6 +416,7 @@ function marchPop(FS, model) {
  */
 export function renderPop(FS, model) {
   if (!model?.pop) return '';
+  if (model.pop === EXPEDITION_POP) return expeditionPop(FS, model);
   if (model.kind === 'village') {
     if (model.pop === 'build') return buildFan(model);
     if (model.pop === 'train') return trainPop(FS, model);
@@ -418,6 +430,31 @@ export function renderPop(FS, model) {
   if (model.pop === 'march') return marchPop(FS, model);
   if (model.pop === 'keeps' && conquestOn(FS)) return renderKeepsPop(FS, model, { head: popHead });
   return '';
+}
+
+/** The entered coordinate is an inspection query, never a destination or a claimed current location. */
+function expeditionPop(FS, model) {
+  const state = FS.expeditionPreview ?? {}, report = state.report, source = report?.source;
+  const unavailable = FS.resident ? L`NFT の軍勢はこの確認に対応していません。` : !FS.wallet?.address ? L`接続したウォレットが必要です。` : FS.meStatus !== 'ready' ? L`自分の記録を読み込んでから確認してください。` : null;
+  return html`${popHead(L`この軍勢を P,Q で確認`)}
+    <p class="pop-line">${L`読み取り専用です。P,Q は確認する場所であり、行き先でも現在地の証明でもありません。`}</p>
+    ${model.kind === 'village' ? html`<p class="pop-line">${L`この村が発行した軍勢の番号を入力してください。番号 0 も有効です。これは現在地や生存の証明ではありません。`}</p>
+      <label class="pop-line">${L`軍勢の発行番号`} <input type="text" inputmode="numeric" autocomplete="off" maxlength="10" data-bind="expedition-sequence" value="${state.sequence ?? ''}"></label>` : html`<p class="pop-line">${L`選択した軍勢`}: ${model.host.id}</p>`}
+    <div class="pop-line"><label>P <input type="text" inputmode="text" autocomplete="off" maxlength="20" data-bind="expedition-p" value="${state.p ?? ''}" aria-label="P"></label>
+      <label>Q <input type="text" inputmode="text" autocomplete="off" maxlength="20" data-bind="expedition-q" value="${state.q ?? ''}" aria-label="Q"></label></div>
+    <p class="pop-line">${L`リング 128 より外の整数を、先頭のゼロや空白なしで入力してください。`}</p>
+    <p class="pop-line">${L`接続したウォレットを支払者の候補として表示するだけです。署名・支払い・送信は行いません。`}</p>
+    <div class="pop-foot"><button type="button" class="btn primary" data-act="expedition-inspect" ${raw(unavailable ? 'aria-disabled="true"' : '')}>${state.status === 'loading' ? L`もう一度確認` : L`確認する`}</button></div>
+    ${unavailable ? html`<p class="pop-line pop-why">${unavailable}</p>` : ''}
+    <div aria-live="polite">${state.status === 'loading' ? html`<p class="pop-line">${L`読み取り中…`}</p>` : ''}
+      ${state.error ? html`<p class="pop-line pop-why">${L`確認できません`}: ${state.error}</p>` : ''}
+      ${report ? html`<p class="pop-line">${L`確認結果`}: ${report.status} · ${report.stage}</p>
+        ${report.blocker ? html`<p class="pop-line pop-why">${report.blocker.code}</p>` : ''}
+        <p class="pop-line">${L`記録のスロット`}: ${source.context_slot ?? '?'} · ${L`鮮度は不明です。権限や完了を証明する結果ではありません。`}</p>
+        ${report.facts?.next_prerequisite ? html`<p class="pop-line">${L`次に必要な確認`}: ${report.facts.next_prerequisite}</p>` : ''}
+        ${report.draft ? html`<details><summary>${L`実行できない役割案`}: ${report.draft.action}</summary><ul>${report.draft.roles.map(r => html`<li>${r.name}: ${r.address} · ${r.signer ? L`署名が必要` : L`署名不要`} · ${r.writable ? L`書き込み役割` : L`読み取り役割`}</li>`)}</ul></details>` : ''}
+        ${report.draft_blocker ? html`<p class="pop-line">${report.draft_blocker}</p>` : ''}` : ''}</div>
+    <p class="pop-line pop-rule">${L`公開の実行経路は閉じたままです。帰還済みとは判定せず、地図や行軍記録も変更しません。`}</p>`;
 }
 
 /** The tiles a new host may form up on: every passable tile of the village's own province with room for a host (six to a tile). */

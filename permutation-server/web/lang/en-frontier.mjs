@@ -5,6 +5,35 @@
 import { plural, cap, inText, atPlace } from './helpers.mjs';
 
 export default {
+  // Original-host expedition inspection: reads and proposed roles only.
+  '遠征を確認': 'Inspect expedition',
+  '読み取り専用': 'Read only',
+  'この軍勢を P,Q で確認します。移動や命令は行いません。': 'Check this host at P,Q. No movement or orders.',
+  'この村が発行した軍勢の番号で確認します。現在地や生存を意味しません。': 'Inspect an issued host reference from this village. It does not claim the host is alive or at a location.',
+  'この軍勢を P,Q で確認': 'Check this host at P,Q',
+  '読み取り専用です。P,Q は確認する場所であり、行き先でも現在地の証明でもありません。': 'Read only. P,Q is the place to check, not a destination or proof of the current location.',
+  'この村が発行した軍勢の番号を入力してください。番号 0 も有効です。これは現在地や生存の証明ではありません。': 'Enter a host sequence issued by this village. Sequence 0 is valid. This is not proof of location or survival.',
+  '軍勢の発行番号': 'Issued host sequence',
+  '選択した軍勢': 'Selected host',
+  'リング 128 より外の整数を、先頭のゼロや空白なしで入力してください。': 'Enter integers beyond ring 128, without leading zeros or spaces.',
+  '接続したウォレットを支払者の候補として表示するだけです。署名・支払い・送信は行いません。': 'The connected wallet is only a proposed payer. Nothing is signed, paid or sent as an order.',
+  'NFT の軍勢はこの確認に対応していません。': 'NFT resident inspection is not supported here.',
+  '接続したウォレットが必要です。': 'A connected wallet is required.',
+  '自分の記録を読み込んでから確認してください。': 'Load your viewer record before inspecting.',
+  'もう一度確認': 'Check again',
+  '確認する': 'Check',
+  '読み取り中…': 'Reading…',
+  '確認できません': 'Inspection unavailable',
+  '確認結果': 'Inspection result',
+  '記録のスロット': 'Snapshot slot',
+  '鮮度は不明です。権限や完了を証明する結果ではありません。': 'Freshness is unknown. Server observations do not prove authority or completion.',
+  '次に必要な確認': 'Next prerequisite',
+  '実行できない役割案': 'Non-executable role proposal',
+  '署名が必要': 'Signature required',
+  '署名不要': 'No signature required',
+  '書き込み役割': 'Writable role',
+  '読み取り役割': 'Read-only role',
+  '公開の実行経路は閉じたままです。帰還済みとは判定せず、地図や行軍記録も変更しません。': 'Public dispatch remains closed. This does not mark the host as returned or change the map or march history.',
   // ---- wave 3, the HUD's finish (UX design section 12, items 3, 5 and 6): the plate while the viewer's record is
   // being read, the wait for the village, the last words. (Kept at the head of the file: other tracks add at its foot.)
   '記録を読み込んでいます…': 'Reading the record…',

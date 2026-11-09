@@ -31,6 +31,7 @@ export const FS = {
   wideStatus: 'loading', // loading | ready | unavailable | error: an unread inventory is never "no wide villages"
   wideError: null,
   wideSelect: null,      // {inventorySlot, key} of the wide village the village screen shows, or null (the legacy one)
+  expeditionPreview: null, // isolated read-only original-host inspection; never a map location, order or history
   conquest: null,        // v3 territory controls and authoritative nation score
   homeFocus: null,       // one-shot camera request; no ownership is inferred from it
   book: [],              // marchbook entries

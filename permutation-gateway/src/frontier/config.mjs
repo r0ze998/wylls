@@ -9,6 +9,7 @@ import path from 'node:path';
 import { Keypair, PublicKey } from '@solana/web3.js';
 import { LOCAL_DIR } from '../config.mjs';
 import { decode as fromBase58 } from '../../client/src/base58.mjs';
+import { expeditionPreviewConfigProblems } from './expedition-preview.mjs';
 
 export const FRONTIER_DIR = path.join(LOCAL_DIR, 'frontier');
 
@@ -31,6 +32,11 @@ export const FRONTIER_DEFAULTS = Object.freeze({
   heraldUrl: 'http://127.0.0.1:41040',
   keeperUrl: 'http://127.0.0.1:41050',
   keeperTokenFile: null,
+  /** Optional keyless inspection transport. All four are explicit; never inherit the relay RPC. */
+  expeditionPreviewBin: null,
+  expeditionPreviewRpc: null,
+  expeditionPreviewProgramVersion: null,
+  expeditionPreviewRulesetHash: null,
   /** Relay payer pool: 150 keys derived from the master seed, `pool_id = "relay"` (I-49 scheme). */
   poolSize: 150,
   masterSeedFile: path.join(FRONTIER_DIR, 'relay-master.seed'),
@@ -137,6 +143,10 @@ export function loadFrontierConfig(argv = [], env = {}) {
     heraldUrl: pick('herald', 'FRONTIER_HERALD_URL', d.heraldUrl),
     keeperUrl: pick('keeper', 'FRONTIER_KEEPER_URL', d.keeperUrl),
     keeperTokenFile: pick('keeper-token-file', 'FRONTIER_KEEPER_TOKEN_FILE', d.keeperTokenFile),
+    expeditionPreviewBin: pick('expedition-preview-bin', 'FRONTIER_EXPEDITION_PREVIEW_BIN', d.expeditionPreviewBin),
+    expeditionPreviewRpc: pick('expedition-preview-rpc', 'FRONTIER_EXPEDITION_PREVIEW_RPC', d.expeditionPreviewRpc),
+    expeditionPreviewProgramVersion: pick('expedition-preview-program-version', 'FRONTIER_EXPEDITION_PREVIEW_PROGRAM_VERSION', d.expeditionPreviewProgramVersion),
+    expeditionPreviewRulesetHash: pick('expedition-preview-ruleset-hash', 'FRONTIER_EXPEDITION_PREVIEW_RULESET_HASH', d.expeditionPreviewRulesetHash),
     poolSize: int(pick('pool-size', 'FRONTIER_RELAY_POOL', d.poolSize), '--pool-size'),
     masterSeedFile: pick('master-seed-file', 'FRONTIER_RELAY_SEED_FILE', d.masterSeedFile),
     gateKeyFile: pick('gate-key-file', 'FRONTIER_GATE_KEY_FILE', d.gateKeyFile),
@@ -176,7 +186,7 @@ export function loadFrontierConfig(argv = [], env = {}) {
 
 /** Problems with a configuration (empty when it may run). */
 export function checkFrontierConfig(cfg) {
-  const out = [];
+  const out = expeditionPreviewConfigProblems(cfg);
   for (const [p, what] of [[cfg.port, '--port'], [cfg.publicPort, '--public-port']]) {
     const e = portProblem(p, what);
     if (e) out.push(e);

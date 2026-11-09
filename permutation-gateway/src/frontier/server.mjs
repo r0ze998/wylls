@@ -105,7 +105,7 @@ export async function startFrontierRelay(cfg, { connection = new Connection(cfg.
   }
   log(`frontier relay: program ${cfg.programId} season ${cfg.seasonId} (${apps.ctx.addresses.season}); pool ${pool.size} payers; `
     + `operator 127.0.0.1:${ports.operator}${pub ? `, public ${cfg.publicHost}:${ports.public}` : ''}${gateKey ? `; join gate ${gateKey.publicKey.toBase58()}` : ''}`);
-  const close = () => { agents?.stop(); return Promise.all([operator, pub].filter(Boolean).map(s => new Promise(r => s.close(r)))); };
+  const close = () => { agents?.stop(); apps.ctx.expeditionPreview?.close(); return Promise.all([operator, pub].filter(Boolean).map(s => new Promise(r => s.close(r)))); };
   return { ctx: apps.ctx, servers: { operator, public: pub }, ports, close, agents };
 }
 

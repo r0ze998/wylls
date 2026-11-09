@@ -19,6 +19,11 @@ name = "frontier-wide-claim-preview"
 path = "src/bin/wide_claim_preview.rs"
 required-features = ["wide-world-experimental"]
 
+[[bin]]
+name = "frontier-original-expedition-preview"
+path = "src/bin/wide_expedition_preview.rs"
+required-features = ["wide-world-experimental"]
+
 [dependencies]
 fclient.workspace = true
 frontier-abi.workspace = true

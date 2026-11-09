@@ -19,6 +19,8 @@ import { conquestEnabled, kernelFile, outpostOffer } from './fconquest.mjs';
 import { config } from './config.mjs';
 import { FS, invalidate, registerRenderers } from './fstate.mjs';
 import { clearWideSelect, selectedWide } from './fwide.mjs';
+import { EXPEDITION_POP, clearInspection } from './fexpedition.mjs';
+import { inspectOriginalExpedition, reconcileExpedition } from './controller.mjs';
 import { createHerald, nextPoll, staleness } from './herald.mjs';
 import { setTermsPace } from './seasonterms.mjs';
 import { setPin, setRelay } from './fchainio.mjs';
@@ -871,6 +873,7 @@ const buildSecsOf = q => (Number(q.secs) > 0 ? Number(q.secs) : 3_600);
 const actionsOf = createActions({ passableOf: (p, q) => terrainRef?.(p, q)?.passable ?? null });
 function actionsNow() {
   if (FS.mode !== 'play') return null;
+  if (FS.hand?.pop === EXPEDITION_POP) return null;
   // a tile is being picked for an order of the village (where a new host forms up): those tiles are what is lit
   const pick = !FS.compose ? FS.hand?.pick ?? null : null;
   if (pick && !pick.external) return FS.view.lod === 'tile' ? pickModel(pick) : null;
@@ -1095,7 +1098,7 @@ let keepLit = '', keepHot = null, keepHotTimer = null;
  * the host leaves the hand or an order card takes the screen.
  */
 function syncKeepLights(model) {
-  const host = model?.kind === 'host' && keephand.conquestOn(FS) && model.host && model.host.unit !== SCOUT && model.host.unit !== SETTLER ? model.host : null;
+  const host = model?.kind === 'host' && model.pop !== EXPEDITION_POP && keephand.conquestOn(FS) && model.host && model.host.unit !== SCOUT && model.host.unit !== SETTLER ? model.host : null;
   const open = !!host && model.pop === 'keeps';
   if (host) { try { if (wantHostReach(host.id)) invalidate('rail'); } catch (e) { console.error('frontier keeps:', e); } }
   let list = null;
@@ -1131,6 +1134,7 @@ function hotKeepRow(key) {
 }
 function renderHand() {
   if (!handEl) return;
+  reconcileExpedition();
   const model = handNow();
   syncRaisePreview(model);
   keepMarchBest(model);
@@ -1141,6 +1145,7 @@ function renderHand() {
   if ((body.dataset.hand ?? '') !== kind) { body.dataset.hand = kind; for (const ms of [0, 130, 260, 420]) setTimeout(() => { measureHand(); mapRef?.tick(); publishNoGo(); }, ms); }
   if (handEl.hidden !== !model) handEl.hidden = !model;
   if (!model) {
+    clearInspection(FS);
     // nothing of the viewer's is selected: what the hand was doing goes with it (a tile being picked, a card)
     if (FS.hand && !FS.compose) { endPick(); FS.hand = null; }
     // (a card's kept view: gone back to when the selection simply went; forgotten when an order card took over)
@@ -1218,8 +1223,9 @@ function placeHandPop(model = handNow()) {
 /** Open a card of the bar (null closes it); the board is asked for a tile when the card needs one. */
 function setPop(pop) {
   const sub = hand.subjectOf(FS);
+  clearInspection(FS);
   endPick();
-  const next = pop && (hand.POPS.includes(pop) || (FS.proto && hand.PROTO_POPS.includes(pop)) || (keephand.conquestOn(FS) && hand.CONQUEST_POPS.includes(pop))) ? pop : null;
+  const next = pop && (hand.POPS.includes(pop) || (FS.proto && hand.PROTO_POPS.includes(pop)) || (keephand.conquestOn(FS) && hand.CONQUEST_POPS.includes(pop)) || (hand.INSPECTION_POPS.includes(pop) && hand.popOf({ ...FS, hand: { ...FS.hand, pop } }, sub) === pop)) ? pop : null;
   FS.hand = { ...(FS.hand ?? {}), pop: next, unit: undefined, n: undefined, troops: undefined, tile: undefined, pick: null, strike: undefined, widen: undefined, more: undefined, protoWhy: undefined };
   FS.mapNote = null;
   if (next !== 'explore' && FS.explore) FS.explore = null;
@@ -1293,6 +1299,7 @@ function clearOfCard(at) {
 }
 /** A host standing on the selected tile takes the hand (null: the village there does). */
 function handHost(id) {
+  clearInspection(FS);
   endPick();
   FS.hand = { host: id ?? null, pop: null };
   FS.explore = null; FS.mapNote = null; FS.actor = null;
@@ -1301,6 +1308,7 @@ function handHost(id) {
 /** Select one of the viewer's hosts wherever it stands: its tile is the selection and it has the hand. `fly`: bring it into view. */
 function selectHost(row, { fly = false } = {}) {
   if (!row) return false;
+  clearInspection(FS);
   endPick();
   if (Number.isInteger(row.holdingIndex) && row.holdingIndex >= 0 && row.holdingIndex !== (FS.activeHolding ?? 0)) FS.activeHolding = row.holdingIndex;
   FS.selected = { kind: 'tile', p: row.p, q: row.q, idx: row.tile };
@@ -1321,6 +1329,7 @@ function selectHost(row, { fly = false } = {}) {
 function selectVillage(i, pop = null) {
   const h = (FS.holdings ?? [])[i >= 0 ? i : FS.activeHolding ?? 0];
   if (!h || !Number.isInteger(h.tile)) return false;
+  clearInspection(FS);
   endPick();
   clearWideSelect(FS);   // (a legacy village chosen: the wide card leaves the village screen)
   FS.activeHolding = FS.holdings.indexOf(h);
@@ -2967,6 +2976,7 @@ function goToItem(x) {
 function cycleHost(dir) { nextHost(dir); }
 /** The next or previous holding (Civ's "next city"). */
 function cycleHolding(dir) {
+  clearInspection(FS);
   const hs = FS.holdings ?? [];
   if (!hs.length) return;
   const i = (((FS.activeHolding ?? 0) + dir) % hs.length + hs.length) % hs.length;
@@ -2977,6 +2987,7 @@ function cycleHolding(dir) {
 
 /** Close the drawer ("Map", the drawer's ×, Escape): back to the world. */
 function shutDrawer({ focus = false } = {}) {
+  clearInspection(FS);
   // the details of what the hand holds were open: they close, the hand keeps its thing
   if (FS.mode === 'play' && FS.inspectOpen && drawerOf(FS)?.kind === 'inspect' && hand.subjectOf(FS)) { FS.inspectOpen = false; invalidate('map', 'panel', 'tabs', 'rail'); if (focus) handEl?.querySelector('.hand-btn')?.focus?.({ preventScroll: true }); return; }
   endPick();
@@ -2990,6 +3001,8 @@ function shutDrawer({ focus = false } = {}) {
 }
 
 export const HUD_ACTIONS = {
+  // A read only. No handOrder, ACTIONS, SENT classification or accepted-order effects.
+  'expedition-inspect': () => inspectOriginalExpedition(),
   // Resolve the current inventory at click time. DOM coordinates/world are never navigation pins.
   'wide-map': () => {
     const e = FS.mode === 'play' ? selectedWide(FS) : null;
@@ -3065,8 +3078,8 @@ export const HUD_ACTIONS = {
   'hand-unit': d => { FS.hand = { ...(FS.hand ?? {}), unit: num(d.unit), n: undefined, troops: undefined }; invalidate('panel'); },
   'hand-n': d => { FS.hand = { ...(FS.hand ?? {}), n: num(d.n) }; invalidate('panel'); },
   'hand-troops': d => { FS.hand = { ...(FS.hand ?? {}), troops: num(d.n) }; invalidate('panel'); },
-  'hand-info': () => { endPick(); FS.inspectOpen = true; FS.hand = { ...(FS.hand ?? {}), pop: null }; FS.tab = 'map'; invalidate('map', 'panel', 'tabs', 'rail'); },
-  'hand-close': () => { endPick(); FS.selected = null; FS.hand = null; FS.inspectOpen = false; FS.actor = null; FS.mapNote = null; FS.explore = null; invalidate('map', 'panel', 'tabs', 'rail'); $('frontier-map')?.focus?.({ preventScroll: true }); },
+  'hand-info': () => { clearInspection(FS); endPick(); FS.inspectOpen = true; FS.hand = { ...(FS.hand ?? {}), pop: null }; FS.tab = 'map'; invalidate('map', 'panel', 'tabs', 'rail'); },
+  'hand-close': () => { clearInspection(FS); endPick(); FS.selected = null; FS.hand = null; FS.inspectOpen = false; FS.actor = null; FS.mapNote = null; FS.explore = null; invalidate('map', 'panel', 'tabs', 'rail'); $('frontier-map')?.focus?.({ preventScroll: true }); },
   'hand-turn': () => { FS.dialOpen = true; closeTermPop(); renderDialPop(); $('dial-pop')?.querySelector('button')?.focus?.({ preventScroll: true }); },
   'hand-far': d => farChoice(d.how),
   // the orders of the bar and its cards: the controller's own, and the card closes once the order is accepted
@@ -3158,7 +3171,7 @@ export const HUD_ACTIONS = {
     setSearch(false, { focus: false });
     // a host that can march has the hand: what was searched for is where it may go (the camera goes there, the host stays in hand)
     const sub = FS.mode === 'play' && !FS.compose ? hand.subjectOf(FS) : null;
-    if (sub?.kind === 'host' && hand.marchCheck(FS, sub.host).ok) {
+    if (sub?.kind === 'host' && FS.hand?.pop !== EXPEDITION_POP && hand.marchCheck(FS, sub.host).ok) {
       const A = actionsNow(), h = Number.isInteger(x.tile) ? tileHex(x.p, x.q, x.tile) : null;
       if (A && h) { orderMarch(A, { p: x.p, q: x.q, idx: x.tile, tileQ: h.q, tileR: h.r }).catch(() => {}); return; }
       goFar();
@@ -3559,6 +3572,7 @@ function delegate(doc) {
     if (el.tagName !== 'INPUT') e.preventDefault();
     // a control that cannot be pressed now stays reachable and says why (`aria-disabled`): it does nothing else
     if (el.getAttribute('aria-disabled') === 'true') { refuseInPlace(el); return; }
+    if (FS.hand?.pop === EXPEDITION_POP && el.dataset.act !== 'expedition-inspect') clearInspection(FS);
     const sends = play && SENDS.has(el.dataset.act) && ACTIONS[el.dataset.act];
     if (sends) FS.lastAct = { kind: 'act', name: el.dataset.act, data: { ...el.dataset } };
     run(fn(el.dataset, el), sends ? { act: el.dataset.act, data: { ...el.dataset } } : null);
@@ -3573,6 +3587,8 @@ function delegate(doc) {
     run(fn(f), sends ? { form: f.dataset.form } : null);
   });
   doc.addEventListener('input', e => {
+    const inspection = e.target.closest?.('[data-bind^="expedition-"]');
+    if (inspection && play) { bind(inspection.dataset.bind, inspection.value); return; }
     const form = e.target.closest?.('form[data-form="train"]');
     if (!form) return;
     FS.trainingDraft = { unit: Number(form.elements.unit.value), n: Number(form.elements.n.value) };
@@ -3623,11 +3639,12 @@ function startSpectate(herald) {
 
 async function loadSeason(herald) {
   const r = await herald.season();
-  if (!r.ok) { FS.error = { code: r.code, text: clientText(r.code) }; invalidate('status'); return false; }
+  if (!r.ok) { clearInspection(FS); FS.error = { code: r.code, text: clientText(r.code) }; invalidate('status'); return false; }
   const { record, season } = r;
   try {
     FS.pin = setPin({ programId: record.programId, cluster: record.cluster, seasonId: record.season, seasonAddress: record.seasonAddress ?? null, rulesetHash: toHex(season.rulesetHash) });
   } catch (e) {
+    clearInspection(FS);
     FS.error = { code: e.code, text: e.message };
     invalidate('status');
     return false;
@@ -3636,6 +3653,7 @@ async function loadSeason(herald) {
   FS.beacon = checkBeacon({ drand: record.drand, seasonPkHash: season.quicknetPkHash, cluster: record.cluster, seasonNetwork: season.network });
   if (!FS.beacon.ok) FS.error = { code: FS.beacon.code, text: clientText(FS.beacon.code) };
   FS.season = season;
+  reconcileExpedition();
   // the world's extent (map/world.mjs): which rings are open, pending or beyond the season's map; a ring only partly on
   // chain is asked for its list (again with each season record, until it is whole). The record, the world and the
   // ring lists move together (applySeasonRecord), on every poll: a map that grew on chain is on the page by the next
@@ -3805,14 +3823,14 @@ export async function boot() {
         if (pressed && hand.subjectOf(FS)?.host?.id !== pressed.id) { selectHost(pressed); return; }
         // from afar, with a host that can march in the hand: the tap chooses where to look for its destination (the
         // camera goes there at tile detail and the host stays in hand: the next tap, on a tile, is the order)
-        if (FS.mode === 'play' && !FS.compose && !Number.isInteger(hit.idx)) {
+        if (FS.mode === 'play' && !FS.compose && FS.hand?.pop !== EXPEDITION_POP && !Number.isInteger(hit.idx)) {
           const sub = hand.subjectOf(FS);
           if (sub?.kind === 'host' && !FS.hand?.pick && hand.marchCheck(FS, sub.host).ok) { goFar(); map.flyTo({ p: hit.p, q: hit.q, zoom: 1.0 }); summary(() => L`行き先のマスを押してください`); return; }
         }
         // a conquest season, a fighting host in the hand: the press was on a keep of the lit reach (the board says so:
         // `hit.keep`, map/fmap.mjs). A keep in reach is the order for it, the same as its row of the card 砦へ進軍; a keep
         // out of reach is answered on the board with the reason (map/keeps.mjs `tapped`) and no order card opens
-        if (hit0?.keep && FS.mode === 'play' && !FS.compose && !FS.hand?.pick) {
+        if (hit0?.keep && FS.mode === 'play' && !FS.compose && FS.hand?.pop !== EXPEDITION_POP && !FS.hand?.pick) {
           const sub = hand.subjectOf(FS);
           if (sub?.kind === 'host' && keephand.conquestOn(FS)) {
             if (hit0.keep.reachable && !keephand.waitOf(FS, sub.host)) Promise.resolve(ACTIONS['cq-march']({ host: sub.host.id, p: hit0.keep.p, q: hit0.keep.q, tile: hit0.idx })).catch(() => {});
@@ -3821,6 +3839,7 @@ export async function boot() {
         }
         // the hand holds something: the tap is its order, or the map answers it (map/actions.mjs)
         if (mapTap(hit)) return;
+        clearInspection(FS);
         FS.selected = hit;
         FS.actor = null; FS.mapNote = null; FS.hand = null; FS.inspectOpen = false;
         // (an exploration being picked on the map belongs to its Scout's tile: another selection lets it go)

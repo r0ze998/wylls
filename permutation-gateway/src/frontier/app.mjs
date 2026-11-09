@@ -32,8 +32,10 @@ import { agentRoutes } from './routes/agent.mjs';
 import { relayRoutes } from './routes/relay.mjs';
 import { seasonRoutes } from './routes/season.mjs';
 import { residentRoutes } from './routes/residents.mjs';
+import { createExpeditionPreview, EXPEDITION_MAX_REQUEST_BYTES, EXPEDITION_PREVIEW_ROUTE, EXPEDITION_TIMEOUT_MS } from './expedition-preview.mjs';
+import { expeditionPreviewRoutes } from './routes/expedition-preview.mjs';
 
-export const FRONTIER_ROUTES = Object.freeze({ ...seasonRoutes, ...relayRoutes, ...keeperRoutes, ...operatorRoutes, ...prizeRoutes, ...agentRoutes, ...residentRoutes });
+export const FRONTIER_ROUTES = Object.freeze({ ...seasonRoutes, ...relayRoutes, ...keeperRoutes, ...operatorRoutes, ...prizeRoutes, ...agentRoutes, ...residentRoutes, ...expeditionPreviewRoutes });
 
 /** What the public listener serves ('GET /f/tx/' is a prefix: /f/tx/{signature}). */
 export const FRONTIER_PUBLIC_ROUTES = Object.freeze([
@@ -44,6 +46,8 @@ export const FRONTIER_PUBLIC_ROUTES = Object.freeze([
   'GET /f/agent', 'GET /f/agent/terms', 'GET /f/agent/session-terms', 'GET /f/agent/fate', 'GET /f/agent/by-owner', 'POST /f/agent/command', 'POST /f/agent/deposit', 'POST /f/agent/action', 'POST /f/agent/whoami',
   // ⑳ (provisional): the NFT choice of the first login.
   'GET /f/residents',
+  // Inspection only, disabled unless the operator supplies the separate keyless CLI and deployment pins.
+  EXPEDITION_PREVIEW_ROUTE,
 ]);
 
 /** Routes that make the relay pool pay: paused (503 OperatorLowFunds) while the pool is below its minimum. */
@@ -51,6 +55,7 @@ export const FRONTIER_FUNDED_ROUTES = Object.freeze(['POST /f/relay', 'POST /f/j
 
 /** Per client address on the public listener (burst, then a steady rate; §8.3). */
 export const FRONTIER_IP_LIMITS = Object.freeze({
+  [EXPEDITION_PREVIEW_ROUTE]: { burst: 4, perSecond: 0.2 },
   'POST /f/relay': { burst: 40, perSecond: 2 },
   'POST /f/join': { burst: 10, perSecond: 0.2 },
   'POST /f/reveal': { burst: 40, perSecond: 2 },
@@ -95,18 +100,28 @@ export function clientAddress(req, { heraldPeer }) {
   return isIP(last) ? last : peer;
 }
 
-function readJson(req, limit) {
+function readJson(req, limit, signal) {
   return new Promise((resolve, reject) => {
     const chunks = [];
     let size = 0;
+    const cancel = () => reject(signal?.reason === 'ExpeditionPreviewTimeout'
+      ? new RouteError(504, 'request timed out', 'RequestTimeout') : new RouteError(499, 'request cancelled', 'RequestAborted'));
+    const cleanup = () => signal?.removeEventListener('abort', cancel);
+    if (signal?.aborted) { cancel(); return; }
+    signal?.addEventListener('abort', cancel, { once: true });
+    if (/^\d+$/.test(req.headers?.['content-length'] ?? '') && BigInt(req.headers['content-length']) > BigInt(limit)) {
+      cleanup(); reject(new RouteError(413, 'request body too large', 'BodyTooLarge')); return;
+    }
     req.on('data', c => {
-      if (size > limit) return;
+      if (size > limit || signal?.aborted) return;
       size += c.length;
-      if (size > limit) { reject(new RouteError(413, 'request body too large', 'BodyTooLarge')); return; }
+      if (size > limit) { cleanup(); reject(new RouteError(413, 'request body too large', 'BodyTooLarge')); return; }
       chunks.push(c);
     });
-    req.on('error', reject);
+    req.on('error', error => { cleanup(); reject(error); });
+    req.on('aborted', () => { cleanup(); cancel(); });
     req.on('end', () => {
+      cleanup();
       const text = Buffer.concat(chunks).toString('utf8');
       try {
         const v = text ? JSON.parse(text) : {};
@@ -131,10 +146,11 @@ function readJson(req, limit) {
  * @param {object} [o.store]     `{state, save()}` for quotas and used invites
  */
 export function createFrontierContext({ cfg, connection, pool, keeper = null, invites = null, gateKey = null, faucetKey = null, store = { state: {}, save() {} }, now = Date.now,
-  log = console.log, limiter, funds, blockhashes }) {
+  log = console.log, limiter, funds, blockhashes, expeditionPreview }) {
   const addresses = new FrontierAddresses({ programId: cfg.programId, seasonId: BigInt(cfg.seasonId) });
   return {
     cfg, connection, pool, keeper, invites, gateKey, faucetKey, store, log, now, addresses,
+    expeditionPreview: expeditionPreview === undefined ? createExpeditionPreview({ cfg, season: addresses.season }) : expeditionPreview,
     /** The season's prize pool `{program, pool, vault, mint}`, or null (no pool configured). */
     prize: cfg.prizeProgram ? prizeAddresses({ prizeProgram: cfg.prizeProgram, gameProgram: addresses.programId, seasonId: BigInt(cfg.seasonId), mint: cfg.prizeMint }) : null,
     programId: addresses.programId,
@@ -178,8 +194,15 @@ export function createFrontierHandler(ctx, { surface = 'operator', routes = FRON
       return res.end(toJson({ error: 'bad request URL', code: 'BadRequest' }));
     }
     const ip = clientAddress(req, { heraldPeer: ctx.cfg.heraldPeer });
+    const preview = `${req.method} ${url.pathname}` === EXPEDITION_PREVIEW_ROUTE;
+    const controller = preview ? new AbortController() : null;
+    const abort = () => controller?.abort();
+    const disconnect = () => { if (!res.writableEnded) abort(); };
+    if (preview) { req.once('aborted', abort); res.once('close', disconnect); }
+    const deadline = preview ? setTimeout(() => controller.abort('ExpeditionPreviewTimeout'), EXPEDITION_TIMEOUT_MS) : null;
     let body;
-    const request = { method: req.method, url, headers: req.headers, surface, ip, json: () => (body ??= readJson(req, FRONTIER_MAX_BODY_BYTES)) };
+    const request = { method: req.method, url, headers: req.headers, surface, ip, signal: controller?.signal,
+      json: () => (body ??= readJson(req, preview ? EXPEDITION_MAX_REQUEST_BYTES : FRONTIER_MAX_BODY_BYTES, controller?.signal)) };
     let out;
     try {
       const [key, route] = findRoute(routes, req.method, url.pathname);
@@ -191,7 +214,10 @@ export function createFrontierHandler(ctx, { surface = 'operator', routes = FRON
       const r = errorResponse(e);
       if (r.log) ctx.log(`${req.method} ${url.pathname}: ${e.message}`);
       out = r;
+    } finally {
+      if (preview) { clearTimeout(deadline); req.off('aborted', abort); res.off('close', disconnect); }
     }
+    if (preview && (res.destroyed || req.aborted)) return;
     const headers = { 'Content-Type': 'application/json', 'Cache-Control': 'no-store', ...(pub ? { 'X-Content-Type-Options': 'nosniff' } : {}), ...(out.headers ?? {}) };
     res.writeHead(out.status ?? 200, headers);
     res.end(toJson(out.body));
