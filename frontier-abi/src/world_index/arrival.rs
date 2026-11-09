@@ -551,6 +551,16 @@ pub struct WideArrivalSlot {
 }
 
 impl WideArrivalSlot {
+    /// Refund evidence recorded by Reveal, including its day-creation write.
+    pub const fn evidence(&self) -> permutation_rules::frontier::fees::Evidence {
+        permutation_rules::frontier::fees::Evidence {
+            price_micro: self.ev_price,
+            limit: self.ev_limit,
+            loaded: self.ev_loaded,
+            created_day: self.flags & wide_arrival_slot::FLAG_CREATED_DAY != 0,
+        }
+    }
+
     /// Every typed field in range and the host of the destination's world.
     fn check(&self) -> Result<(), ArrivalError> {
         if self.faction >= 6 || self.i as usize >= FACTION_ARRIVAL_SLOTS {

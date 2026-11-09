@@ -23,6 +23,7 @@
 //! | 0xDC op 4 | [`gather`] | **writes**: the deployed GatherClash over the wide slots and transit records into the wide ClashInputs (created from the fee payer), every first-gathered transit stamped, the `WIDE_GATHERED` record; no ArrivalDay exists: a resolve needs every position scanned |
 //! | 0xDC op 1 | [`resolve`] | **writes**: the bell over the residents **and** the gathered arrivals (a present, fully gathered ClashInputs), the arrivals' fates written back, the `WIDE_RESOLVE` record binding the gathered bytes |
 //! | 0xDC op 5 | [`settle_transit`] | **writes**: the deployed SettleTransit over the wide records: the proof (THE anchor's signature decompressed by the chain's BLS syscall — a failure there is the instruction error `Crypto`; the opener after it judges the seal's own points and a failure there is a seal code, as deployed), the deployed outcome and payment table as a pure plan ([`plan_settlement`]), the forfeit, the home re-entry through the home roster, the slot, the transit record closed to its immutable rent recipient, the `WIDE_TRANSIT_SETTLED` and `WIDE_RETURN` records |
+//! | 0xDC op 6 | `defence_exec` (private child) | **writes**: a defence refund for 1–6 canonical wide slots using THE live anchors and the deployed shared pool and keeper-day claim; caps, counters, payout and claimed bits are staged; the deployed `DEFENCE_CLAIM` payment record is emitted, without a new wide receipt allocation |
 //! | 0xDA op 3 | `economy_exec` (private child, phase B of the host-only wide economy) | **writes**: the S1 Harvest, Build or Train over a wide holding under the deployed player prologue (wallet, session or NFT resident through [`resident_act`]), the holding and its own province canonical and the Citizen's, the slot wide-bound; the body is the `wide_economy` preview over copies under pins derived from the authenticated records and the real clock; the Citizen's bucket on a copy; the `WIDE_ECONOMY` (holding-chained) or `WIDE_ECONOMY_MIRROR` (walls, tier-up: province and holding) receipt committing the complete input and output state; every chain and length decided before the first live write, the record logged after the last |
 //! | 0xDA op 4 | `garrison_exec` (private child) | **writes**: deployed positive Spearman-reserve reinforcement into the holding's pending garrison, under the same player authorization and own-province checks; all Citizen/holding/province bytes and both chains staged before commit; distinct holding-keyed `WIDE_GARRISON` receipt. Host-only and provisional, not production allocation |
 //!
@@ -77,6 +78,7 @@
 //! headers), which a deployed reader refuses as an unknown version and
 //! never misreads. The deployed records a wide handler emits are deployed
 //! ones on deployed accounts: the anchor's `HARVEST` for the settler cost,
+//! the shared pool/claim's `DEFENCE_CLAIM` payment,
 //! and a `DIVERT` when a refund or a settlement payment would leave its
 //! recipient below rent exemption or names a program account. Readers see
 //! the anchor's stores, the fund's and the JoinShard's counters move and
@@ -153,7 +155,7 @@ use permutation_rules::fixed::{MilliTroops, MILLI};
 use permutation_rules::frontier::catalog;
 use permutation_rules::frontier::clash::{frontier_ruleset, SlotRefusal, NEUTRAL};
 use permutation_rules::frontier::doctrine::of_faction_v3;
-use permutation_rules::frontier::fees::{self, DefenceParams, Evidence as FeeEvidence};
+use permutation_rules::frontier::fees::{self, DefenceParams};
 use permutation_rules::frontier::geometry::{R_MAX_HARD, SITES_PER_PROVINCE};
 use permutation_rules::frontier::holding::{may_found_outpost, OutpostCheck, Tier};
 use permutation_rules::frontier::host::{effective_bell, Host, Stamina, DESTROYED_BELOW};
@@ -227,6 +229,7 @@ pub fn dispatch(p: &Pubkey, a: &[AccountInfo], data: &[u8]) -> R<()> {
         C::SettleDeparture(x) => settle_departure(p, a, &x),
         C::Gather(x) => gather(p, a, &x),
         C::SettleTransit(x) => settle_transit(p, a, &x),
+        C::ClaimDefence(x) => defence_exec::claim_defence(p, a, &x),
         C::Reveal(x) => reveal(p, a, &x),
     }
 }
@@ -2174,9 +2177,23 @@ fn close_slot(p: &Pubkey, a: &[AccountInfo]) -> R<()> {
     if !slot_close_due(rules_apply, settled, s.claimed, anchor_close, now.ts) {
         return Err(FrontierError::TooEarly.into());
     }
-    let lamports = slot.lamports();
-    init::close_to(p, slot, rent_to, &Sink::Never, bell_log)?;
-    emit_wide(
+    let lamports = slot.try_lamports()?;
+    // close_to shrinks/assigns before paying. Decide its fallible payment
+    // arithmetic and acquire every eventual mutable borrow first, so a
+    // predictable refusal cannot leave a half-closed direct-host account.
+    if slot.key == rent_to.key {
+        return Err(BAD_ACCOUNT);
+    }
+    if lamports != 0 {
+        let after = rent_to
+            .try_lamports()?
+            .checked_add(lamports)
+            .ok_or(OVERFLOW)?;
+        if rent_to.owner != p && after < init::rent(rent_to.try_borrow_data()?.len())? {
+            return Err(BAD_ACCOUNT);
+        }
+    }
+    let (record, record_len) = prepare_wide(
         WideKind::RecordClosed,
         bell_log,
         &s.dest.to_bytes(),
@@ -2189,7 +2206,15 @@ fn close_slot(p: &Pubkey, a: &[AccountInfo]) -> R<()> {
             lamports,
         ),
         &mut [],
-    )
+    )?;
+    {
+        let _sd = slot.try_borrow_mut_data()?;
+        let _sl = slot.try_borrow_mut_lamports()?;
+        let _rl = rent_to.try_borrow_mut_lamports()?;
+    }
+    init::close_to(p, slot, rent_to, &Sink::Never, bell_log)?;
+    solana_program::log::sol_log_data(&[wev::WIDE_LOG_PREFIX, &record[..record_len]]);
+    Ok(())
 }
 
 /// WideClose(3): the deployed CloseArrivalDay over a wide ArrivalDay
@@ -2677,6 +2702,11 @@ mod economy_exec;
 /// Citizen, holding, province and both receipt chains commit atomically.
 #[path = "wide_garrison_exec.rs"]
 mod garrison_exec;
+
+/// Host-only claim over wide arrival evidence. The deployed pool and
+/// keeper-day claim are shared with narrow-world claims.
+#[path = "wide_defence_exec.rs"]
+mod defence_exec;
 
 // ------------------------------------------------------------ the host lifecycle
 
@@ -5504,9 +5534,9 @@ fn stage_return_home(
 /// The deployed claim eligibility (I-52) over a wide slot: THE anchor
 /// present, the slot unclaimed, the claim grace running, the reveal late
 /// by the Season's lateness and a defence refund above zero. A settle
-/// keeps such a slot open, as deployed; the wide defence claim that would
-/// consume it and the season-end slot close are not written yet (module
-/// doc of the settle).
+/// keeps such a slot open, as deployed, for WideClaimDefence. Claiming marks
+/// the evidence consumed; the separately gated close path retains the
+/// immutable rent recipient.
 pub(crate) fn wide_claim_eligible(
     s: &WideArrivalSlot,
     anchor_slot: Option<u64>,
@@ -5530,13 +5560,15 @@ pub(crate) fn wide_claim_eligible(
     if s.ev_slot.saturating_sub(anchor_slot) < lateness as u64 {
         return Ok(false);
     }
-    let ev = FeeEvidence {
-        price_micro: s.ev_price,
-        limit: s.ev_limit,
-        loaded: s.ev_loaded,
-        created_day: false,
-    };
-    Ok(super::defence::refund(&ev, params) > 0)
+    Ok(super::defence::refund(&s.evidence(), params) > 0)
+}
+
+/// Every retained own slot records settlement, including evidence kept for a
+/// defence claim. This is the deployed transit handler's retained-slot rule:
+/// it permits a later claim then CloseArrivalSlot without a second transit.
+pub(crate) fn retained_slot_after_settle(mut s: WideArrivalSlot) -> WideArrivalSlot {
+    s.flags |= wa::wide_arrival_slot::FLAG_SETTLED;
+    s
 }
 
 /// WideSettleTransit (0xDC, op 5): `[payer s,w] [season r] [holding w]
@@ -5590,9 +5622,8 @@ pub(crate) fn wide_claim_eligible(
 /// roster), a staying host logged, a returning host re-entered at home
 /// ([`stage_return_home`]: the home province present, its roster paired
 /// or absent); the settled bit of its final-set position; its own slot
-/// kept untouched when claim-eligible ([`wide_claim_eligible`], the
-/// deployed rule; the wide defence claim and the season-end slot close
-/// that would end such a slot are not written yet), else closed whole to
+/// retained and flagged settled when claim-eligible ([`wide_claim_eligible`],
+/// for WideClaimDefence followed by WideClose(2), else closed whole to
 /// its `rent_to` when that is a listed wallet (payer, slot beneficiary,
 /// resolver, rent payer, settle beneficiary, transit rent recipient), else
 /// flagged settled; the transit record closed whole to its immutable
@@ -5976,8 +6007,8 @@ pub fn settle_transit(p: &Pubkey, a: &[AccountInfo], x: &wix::SettleTransit) -> 
         reserve[unit_i] = reserve_unit;
         home_stage = Some((pd_s, roster_s, reserve, entry, credited));
     }
-    // The slot: kept for a claim (the deployed rule, I-52), else closed to
-    // a listed rent recipient, else flagged settled.
+    // The slot: retained for a claim, else closed to a listed rent recipient.
+    // Every retained slot is flagged settled, as in the deployed handler.
     let keep = match &own_slot {
         Some(s) => wide_claim_eligible(s, src.anchor_slot, lateness, &defence, now.ts, close)?,
         None => false,
@@ -6050,17 +6081,12 @@ pub fn settle_transit(p: &Pubkey, a: &[AccountInfo], x: &wix::SettleTransit) -> 
     }
     if let Some(s) = own_slot {
         match (keep, slot_close) {
-            // Kept for a claim: untouched, as deployed (the wide defence
-            // claim and the season-end slot close are not written yet;
-            // module doc).
-            (true, _) => {}
             (false, Some(to_ai)) => {
                 init::close_to(p, slot, to_ai, &Sink::Never, now_bell)?;
             }
-            (false, None) => {
+            (true, _) | (false, None) => {
                 let mut sd = slot.try_borrow_mut_data()?;
-                let mut s2 = s;
-                s2.flags |= wa::wide_arrival_slot::FLAG_SETTLED;
+                let s2 = retained_slot_after_settle(s);
                 s2.write(&mut sd).map_err(|_| BAD_ACCOUNT)?;
             }
         }

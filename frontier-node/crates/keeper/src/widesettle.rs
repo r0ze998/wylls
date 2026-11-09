@@ -135,9 +135,7 @@ use frontier_abi::world_index::{
 };
 use permutation_rules::fixed::MILLI;
 use permutation_rules::frontier::doctrine::of_faction_v3;
-use permutation_rules::frontier::fees::{
-    defence_refund, min_tip_lamports, DefenceParams, Evidence,
-};
+use permutation_rules::frontier::fees::{defence_refund, min_tip_lamports, DefenceParams};
 use permutation_rules::frontier::host::{effective_bell, Host, Stamina};
 use permutation_rules::frontier::stance::{Posture, Stance};
 use serde_json::{json, Value};
@@ -254,7 +252,8 @@ pub struct PayeeShape {
 /// What the handler would do with the host's own slot.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum SlotDisposition {
-    /// `wide_claim_eligible`: untouched, kept for a defence claim.
+    /// `wide_claim_eligible`: kept for a defence claim and flagged settled,
+    /// as every retained own slot is by the deployed transit rule.
     KeptForClaim,
     /// Closed whole to its `rent_to`, found at `position` among the six
     /// listed accounts; `lamports` the slot's whole balance as read.
@@ -317,6 +316,30 @@ pub struct ClaimRule {
     pub grace_end: i64,
     pub refund: u64,
     pub eligible: bool,
+}
+
+/// The retention verdict only, after the caller authenticates the slot and
+/// anchor. Archives still report the nominal refund but cannot retain a slot
+/// for a claim. Neither this verdict nor the refund reserves defence-pool funds.
+fn claim_refund_and_eligibility(
+    slot: Option<&WideArrivalSlot>,
+    anchor_slot: Option<u64>,
+    params: &DefenceParams,
+    now: i64,
+    grace_end: i64,
+    lateness_slots: u8,
+) -> (u64, bool) {
+    let Some(slot) = slot else {
+        return (0, false);
+    };
+    let refund = defence_refund(&slot.evidence(), params);
+    let eligible = anchor_slot.is_some_and(|anchor_slot| {
+        !slot.claimed
+            && now < grace_end
+            && slot.ev_slot.saturating_sub(anchor_slot) >= lateness_slots as u64
+            && refund > 0
+    });
+    (refund, eligible)
 }
 
 /// What a WideSettleTransit plan established from the reads and the
@@ -599,7 +622,7 @@ impl SettleTransitFacts {
             "payer_is_payee": self.payer_is_payee,
             "payer_note": "a fee payer among the payees is read BEFORE the transaction fee it pays; its routes and balance are conditional on the pre-fee shape; no execution outcome is guaranteed",
             "slot_disposition": match self.slot_disposition {
-                SlotDisposition::KeptForClaim => json!({"kept_for_claim": true}),
+                SlotDisposition::KeptForClaim => json!({"kept_for_claim": true, "flagged_settled": true}),
                 SlotDisposition::ClosedTo { position, lamports } => json!({"closed_to_position": position, "lamports": lamports}),
                 SlotDisposition::FlaggedSettled => json!({"flagged_settled": true}),
                 SlotDisposition::NotOwn => json!({"not_own": true}),
@@ -1329,37 +1352,14 @@ pub fn plan_settle_transit(
         .checked_add(CLAIM_GRACE_BELLS as i64 * 600)
         .ok_or(Block::Overflow("claim grace")));
     // The claim rule over the host's own slot; no slot, no claim.
-    let (refund, eligible) = match (&own_slot, an.anchor_slot) {
-        (Some((s, _)), Some(anchor_slot)) => {
-            let refund = defence_refund(
-                &Evidence {
-                    price_micro: s.ev_price,
-                    limit: s.ev_limit,
-                    loaded: s.ev_loaded,
-                    created_day: false,
-                },
-                &params,
-            );
-            let eligible = !s.claimed
-                && now.unix_timestamp < grace_end
-                && s.ev_slot.saturating_sub(anchor_slot) >= season.lateness_slots as u64
-                && refund > 0;
-            (refund, eligible)
-        }
-        (Some((s, _)), None) => (
-            defence_refund(
-                &Evidence {
-                    price_micro: s.ev_price,
-                    limit: s.ev_limit,
-                    loaded: s.ev_loaded,
-                    created_day: false,
-                },
-                &params,
-            ),
-            false,
-        ),
-        (None, _) => (0, false),
-    };
+    let (refund, eligible) = claim_refund_and_eligibility(
+        own_slot.as_ref().map(|(slot, _)| slot),
+        an.anchor_slot,
+        &params,
+        now.unix_timestamp,
+        grace_end,
+        season.lateness_slots,
+    );
     let claim = ClaimRule {
         anchor_slot: an.anchor_slot,
         lateness_slots: season.lateness_slots,
@@ -1686,4 +1686,99 @@ pub async fn settle_transit_via<P: fclient::ports::ChainPort>(
 /// in function form, for callers that drive reads themselves).
 pub fn still_missing(reads: &Reads, want: &[Address]) -> Vec<Address> {
     missing(reads, want)
+}
+
+#[cfg(test)]
+mod claim_evidence_tests {
+    use super::*;
+    use frontier_abi::world_index::coord::WideCoord;
+
+    // Literal public identifiers and integer evidence only. No localnet,
+    // account-address derivation, crypto, signing, network, or filesystem.
+    fn slot(flags: u8) -> WideArrivalSlot {
+        let dest = ProvinceKey::new(WorldId::new([1; 32]).unwrap(), WideCoord::CONCORD);
+        WideArrivalSlot {
+            season_id: 1,
+            dest,
+            bell: 0,
+            faction: 0,
+            i: 0,
+            transit_slot: 0,
+            host: WideHostRef::new(dest, 0, 0, 1).unwrap(),
+            citizen: [2; 32],
+            unit: 0,
+            stance: 0,
+            tile: 0,
+            retreat_bps: 0,
+            dealt_bps: 0,
+            dep_mass: 1_000,
+            flags,
+            beneficiary: [3; 32],
+            rent_to: [4; 32],
+            ev_slot: 110,
+            ev_price: 2_000_000,
+            ev_limit: 26_000,
+            ev_loaded: 32_768,
+            claimed: false,
+        }
+    }
+
+    const PARAMS: DefenceParams = DefenceParams {
+        defence_cap_milli: 1_000,
+        tip_min: 27_328,
+    };
+
+    #[test]
+    fn created_day_changes_refund_and_retention() {
+        // Without the extra write: cost=27,328, capped spend=24,828,
+        // tip contribution=24,828, refund=0. Creating the day adds 300.
+        let ordinary = slot(0);
+        let created = slot(wa::wide_arrival_slot::FLAG_CREATED_DAY);
+        assert_eq!(
+            claim_refund_and_eligibility(Some(&ordinary), Some(100), &PARAMS, 3_599, 3_600, 10),
+            (0, false)
+        );
+        assert_eq!(
+            claim_refund_and_eligibility(Some(&created), Some(100), &PARAMS, 3_599, 3_600, 10),
+            (300, true)
+        );
+        // An archive has no live landing slot: the nominal refund still
+        // includes the day write, but no claim retention is possible.
+        assert_eq!(
+            claim_refund_and_eligibility(Some(&created), None, &PARAMS, 3_599, 3_600, 10),
+            (300, false)
+        );
+        let settled = slot(wa::wide_arrival_slot::FLAG_SETTLED);
+        assert_eq!(
+            claim_refund_and_eligibility(Some(&settled), Some(100), &PARAMS, 3_599, 3_600, 10),
+            (0, false)
+        );
+    }
+
+    #[test]
+    fn created_day_preserves_claim_retention_gates() {
+        let mut created = slot(wa::wide_arrival_slot::FLAG_CREATED_DAY);
+        // Grace ends exclusively; lateness starts inclusively at 10 slots.
+        assert_eq!(
+            claim_refund_and_eligibility(Some(&created), Some(100), &PARAMS, 3_600, 3_600, 10),
+            (300, false)
+        );
+        assert_eq!(
+            claim_refund_and_eligibility(Some(&created), Some(101), &PARAMS, 3_599, 3_600, 10),
+            (300, false)
+        );
+        assert_eq!(
+            claim_refund_and_eligibility(Some(&created), Some(111), &PARAMS, 3_599, 3_600, 10),
+            (300, false)
+        );
+        created.claimed = true;
+        assert_eq!(
+            claim_refund_and_eligibility(Some(&created), Some(100), &PARAMS, 3_599, 3_600, 10),
+            (300, false)
+        );
+        assert_eq!(
+            claim_refund_and_eligibility(None, Some(100), &PARAMS, 3_599, 3_600, 10),
+            (0, false)
+        );
+    }
 }

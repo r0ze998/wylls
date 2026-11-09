@@ -5,6 +5,9 @@ use crate::FrontierError;
 use frontier_abi::layout::header;
 use frontier_abi::world_index::economy::{Action, Snapshots};
 
+#[path = "wide_defence_runtime_tests.rs"]
+mod wide_defence_runtime_tests;
+
 #[path = "wide_garrison_allocation_runtime_tests.rs"]
 mod wide_garrison_allocation;
 #[path = "wide_garrison_combat_runtime_tests.rs"]

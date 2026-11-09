@@ -68,6 +68,7 @@
 //! | 0xDC | D | 3 | WideSettleDeparture | `host ref 56, transit_slot u8` | [`SETTLE_DEPARTURE`] |
 //! | 0xDC | D, top-level | 4 | WideGather | `bell u32, start u8, n u8` | [`GATHER`] |
 //! | 0xDC | D | 5 | WideSettleTransit | `transit_slot u8, commit 32, seal 264, beneficiary 32` | [`SETTLE_TRANSIT`] (17 fixed, the owner Citizen optional) |
+//! | 0xDC | D | 6 | WideClaimDefence | `day u32, n u8` (1–6) | [`CLAIM_DEFENCE`] (5 fixed, then n wide slot/live anchor pairs) |
 //! | 0xDE | N | 1 | WideCloseRoster | (none) | [`CLOSE_ROSTER`] (5: the province position at its canonical address, present or already closed) |
 //!
 //! **The march stages** (ops 3–5 of 0xDC) are the class-D stages of the
@@ -575,7 +576,47 @@ pub const OP_GATHER: u8 = 4;
 /// 0xDC op 5: the destination side of a march after its arrival bell (the
 /// deployed SettleTransit, class D).
 pub const OP_SETTLE_TRANSIT: u8 = 5;
+/// Provisional class-D sub-operation; final allocation remains with the integrator.
+pub const OP_CLAIM_DEFENCE: u8 = 6;
 pub const OP_CLOSE_ROSTER: u8 = 1;
+
+/// 0xDC op 6: the deployed defence claim, sharing its pool and daily claim.
+/// No new receipt allocation or full-season wide verification is implied.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ClaimDefence {
+    pub day: u32,
+    pub n: u8,
+}
+
+impl ClaimDefence {
+    pub const IX: WideIx = WideIx::SettleTicket;
+    pub const OP: u8 = OP_CLAIM_DEFENCE;
+    pub const LEN: usize = ENVELOPE_HEAD + 4 + 1;
+    pub const MAX_SLOTS: u8 = crate::layout::beacon::defence_claim::MAX_SLOTS as u8;
+
+    pub fn to_bytes(&self) -> Option<[u8; Self::LEN]> {
+        if self.n == 0 || self.n > Self::MAX_SLOTS {
+            return None;
+        }
+        let mut b = [0u8; Self::LEN];
+        head(&mut b, Self::IX.tag(), Self::OP);
+        Writer::new(&mut b[ENVELOPE_HEAD..])
+            .u32(self.day)
+            .u8(self.n);
+        Some(b)
+    }
+
+    pub fn decode(d: &[u8]) -> Result<Self, FrontierError> {
+        let bad = FrontierError::BadData;
+        let mut c = envelope(d, Self::IX.tag(), Self::OP, Self::LEN)?;
+        let day = c.u32().ok_or(bad)?;
+        let n = c.u8().ok_or(bad)?;
+        if n == 0 || n > Self::MAX_SLOTS {
+            return Err(bad);
+        }
+        Ok(Self { day, n })
+    }
+}
 
 /// 0xDC op 3: `host ref 56, transit_slot u8`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -934,6 +975,7 @@ pub enum WideCommand<'a> {
     SettleDeparture(SettleDeparture),
     Gather(Gather),
     SettleTransit(SettleTransit),
+    ClaimDefence(ClaimDefence),
     Reveal(Reveal),
 }
 
@@ -984,6 +1026,9 @@ impl<'a> WideCommand<'a> {
             (WideIx::SettleTicket, OP_SETTLE_TRANSIT) => {
                 SettleTransit::decode(d).map(WideCommand::SettleTransit)
             }
+            (WideIx::SettleTicket, OP_CLAIM_DEFENCE) => {
+                ClaimDefence::decode(d).map(WideCommand::ClaimDefence)
+            }
             (WideIx::Close, OP_CLOSE_ROSTER) => {
                 CloseRoster::decode(d).map(WideCommand::CloseRoster)
             }
@@ -1009,7 +1054,8 @@ impl<'a> WideCommand<'a> {
             | WideCommand::Return(_)
             | WideCommand::SettleDeparture(_)
             | WideCommand::Gather(_)
-            | WideCommand::SettleTransit(_) => WideIx::SettleTicket,
+            | WideCommand::SettleTransit(_)
+            | WideCommand::ClaimDefence(_) => WideIx::SettleTicket,
             WideCommand::ResidentAct(_) => WideIx::ResidentAct,
             WideCommand::Close(_) | WideCommand::CloseRoster(_) => WideIx::Close,
             WideCommand::Finalize(_) => WideIx::Finalize,
@@ -1029,6 +1075,7 @@ impl<'a> WideCommand<'a> {
             WideCommand::SettleDeparture(_) => "WideSettleDeparture",
             WideCommand::Gather(_) => "WideGather",
             WideCommand::SettleTransit(_) => "WideSettleTransit",
+            WideCommand::ClaimDefence(_) => "WideClaimDefence",
             _ => self.ix().name(),
         }
     }
@@ -1094,6 +1141,7 @@ impl<'a> WideCommand<'a> {
             WideCommand::SettleDeparture(_) => SETTLE_DEPARTURE,
             WideCommand::Gather(_) => GATHER,
             WideCommand::SettleTransit(_) => SETTLE_TRANSIT,
+            WideCommand::ClaimDefence(_) => CLAIM_DEFENCE,
             WideCommand::Reveal(_) => REVEAL,
             WideCommand::Close(c) if c.what == CLOSE_WHAT_HOLDING => CLOSE_HOLDING,
             WideCommand::Close(c) if c.what == CLOSE_WHAT_SLOT => CLOSE_SLOT,
@@ -1666,6 +1714,27 @@ pub const SETTLE_DEPARTURE: &[Group] = &[one(&[
 
 /// Positions of a gather or a final set: 6 factions × 4 slots.
 pub const GATHER_POSITIONS: u8 = 24;
+
+/// Shared deployed pool and keeper-day claim, then exactly `n` wide
+/// ArrivalSlot/live BellAnchor pairs. The handler binds the count to `n`.
+/// Wide slot magic/address checks remain the handler's responsibility.
+pub const CLAIM_DEFENCE: &[Group] = &[
+    one(&[
+        s("keeper", Acc::Wallet, true, Wr::W),
+        s("season", Acc::Kind(K::Season), false, Wr::R),
+        s("dpool", Acc::Kind(K::DefencePool), false, Wr::W),
+        s("claim", Acc::Kind(K::DefenceClaim), false, Wr::W),
+        s("system", Acc::System, false, Wr::R),
+    ]),
+    Group {
+        specs: &[
+            s("slot", WIDE, false, Wr::W),
+            s("anchor", Acc::Kind(K::BellAnchor), false, Wr::R),
+        ],
+        min: 1,
+        max: ClaimDefence::MAX_SLOTS,
+    },
+];
 
 /// WideGather: the deployed GatherClash's `[fee_payer s,w] [season r]
 /// [province r] [anchor|archive r] [inputs w] [arrivalday r] [ix_sysvar r]
