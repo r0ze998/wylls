@@ -250,3 +250,13 @@ pub(super) fn execute(p: &Pubkey, a: &[AccountInfo], x: &wix::ExpeditionGather) 
 #[cfg(test)]
 #[path = "wide_expedition_gather_exec_tests.rs"]
 mod tests;
+
+#[cfg(all(
+    test,
+    feature = "runtime-contract-tests",
+    feature = "system-cpi-tests",
+    feature = "public-proof-tests",
+    not(target_os = "solana")
+))]
+#[path = "wide_expedition_lifecycle_tests.rs"]
+mod lifecycle_tests;

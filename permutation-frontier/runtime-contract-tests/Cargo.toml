@@ -1,0 +1,53 @@
+[package]
+name = "permutation-frontier-runtime-contract-tests"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.95"
+publish = false
+autotests = false
+autobins = false
+autoexamples = false
+autobenches = false
+
+[workspace]
+members = ["support"]
+resolver = "2"
+
+# Compile the actual program source as a test crate, including private helpers.
+# No copied implementation and no additional production public API.
+[lib]
+path = "../src/lib.rs"
+crate-type = ["rlib"]
+doctest = false
+
+[features]
+default = ["program", "custom-heap", "wide-world-experimental", "runtime-contract-tests"]
+program = []
+custom-heap = []
+no-entrypoint = []
+runtime-contract-tests = []
+system-cpi-tests = ["runtime-contract-support/system-cpi"]
+public-proof-tests = []
+trace = []
+nft-experimental = ["program"]
+custody-preview = []
+rights-experimental = ["program"]
+capacity-preview = ["program", "frontier-abi/capacity-preview", "permutation-rules/capacity-preview"]
+wide-world-experimental = ["program", "frontier-abi/world-index-experimental", "permutation-rules/wide-terrain-experimental"]
+# Deliberately no native-crypto-tests, test-beacon, or oracle features.
+
+[dependencies]
+solana-program = "=4.0.0"
+ark-ff = { version = "=0.5.0", default-features = false }
+ark-ec = { version = "=0.5.0", default-features = false }
+ark-bls12-381 = { version = "=0.5.0", default-features = false, features = ["curve"] }
+borsh = { version = "=1.6.1", default-features = false }
+permutation-rules = { path = "../../permutation-rules" }
+frontier-abi = { path = "../../frontier-abi" }
+
+[dev-dependencies]
+runtime-contract-support = { path = "support" }
+solana-bls12-381-syscall = "=0.1.1"
+
+[lints.rust]
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(target_os, values("solana"))', 'cfg(feature, values("custom-panic", "native-crypto-tests", "test-beacon", "oracle"))'] }

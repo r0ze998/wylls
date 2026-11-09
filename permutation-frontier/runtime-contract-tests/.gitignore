@@ -1,0 +1,9 @@
+/target/
+/metadata.json
+/metadata.stderr
+/RESOLVED-CLOSURE.json
+/PRE-EXECUTION-AUDIT.md
+/OFFLINE-RESOLUTION-AUDIT.md
+
+/system-cpi-metadata.json
+/system-cpi-build.log

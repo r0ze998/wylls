@@ -492,3 +492,12 @@ pub(super) fn settle(
 #[cfg(test)]
 #[path = "wide_expedition_settlement_tests.rs"]
 mod tests;
+
+#[cfg(all(
+    test,
+    feature = "runtime-contract-tests",
+    feature = "public-proof-tests",
+    not(target_os = "solana")
+))]
+#[path = "wide_expedition_runtime_contract_tests.rs"]
+mod runtime_contract_tests;

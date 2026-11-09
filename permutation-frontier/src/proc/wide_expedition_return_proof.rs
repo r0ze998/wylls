@@ -123,3 +123,22 @@ mod settlement;
 #[cfg(all(test, feature = "public-proof-tests", not(target_os = "solana")))]
 #[path = "wide_expedition_return_proof_tests.rs"]
 mod tests;
+
+// Isolated unsigned test adapter only. No production API, dispatch or proof bypass.
+#[cfg(all(
+    test,
+    feature = "runtime-contract-tests",
+    feature = "public-proof-tests",
+    feature = "system-cpi-tests",
+    not(target_os = "solana")
+))]
+pub(super) fn runtime_settle(
+    p: &Pubkey,
+    a: &[AccountInfo],
+    base: usize,
+    slot: u8,
+    commit: &[u8; 32],
+    seal: &[u8; wseal::WIDE_SEAL_LEN],
+) -> R<()> {
+    settlement::settle(p, a, base, slot, commit, seal)
+}

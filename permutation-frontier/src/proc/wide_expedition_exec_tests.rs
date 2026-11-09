@@ -547,3 +547,7 @@ fn departure_borrow_refusals_happen_before_any_cpi() {
 
 #[path = "wide_expedition_combat_tests.rs"]
 mod combat_handoff;
+
+#[cfg(all(feature = "runtime-contract-tests", feature = "system-cpi-tests"))]
+#[path = "wide_expedition_system_cpi_tests.rs"]
+mod system_cpi_tests;
