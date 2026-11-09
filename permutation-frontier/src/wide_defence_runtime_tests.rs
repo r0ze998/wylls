@@ -9,6 +9,9 @@ mod wide_defence_close;
 #[path = "wide_defence_shared_runtime_tests.rs"]
 mod wide_defence_shared;
 
+#[path = "wide_defence_parity_runtime_tests.rs"]
+mod wide_defence_parity;
+
 fn command(n: u8) -> Vec<u8> {
     wix::ClaimDefence { day: 0, n }.to_bytes().unwrap().to_vec()
 }
