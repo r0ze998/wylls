@@ -5,10 +5,14 @@ use crate::FrontierError;
 use frontier_abi::layout::header;
 use frontier_abi::world_index::economy::{Action, Snapshots};
 
+#[path = "wide_garrison_allocation_runtime_tests.rs"]
+mod wide_garrison_allocation;
 #[path = "wide_garrison_combat_runtime_tests.rs"]
 mod wide_garrison_combat;
 #[path = "wide_garrison_nft_runtime_tests.rs"]
 mod wide_garrison_nft;
+#[path = "wide_garrison_replay_anchor_tests.rs"]
+mod wide_garrison_replay_anchor;
 #[path = "wide_garrison_resolve_atomicity_tests.rs"]
 mod wide_garrison_resolve_atomicity;
 
@@ -270,6 +274,57 @@ fn chain_overflow_and_late_borrows_are_atomic() {
         let guard = a[i].try_borrow_data().unwrap();
         assert_eq!(refused(&a, 1), ProgramError::AccountBorrowFailed);
         drop(guard);
+    }
+}
+
+#[test]
+fn unrepresentable_garrison_room_refuses_without_writes() {
+    let _g = begin();
+    let a = fixture();
+    {
+        let mut pd = a[5].try_borrow_mut_data().unwrap();
+        put(&mut pd, PV::site(0) + SM::PEND0_BELL, &11u32.to_le_bytes());
+        put(
+            &mut pd,
+            PV::site(0) + SM::PEND0_DELTA,
+            &i64::MIN.to_le_bytes(),
+        );
+    }
+    assert_eq!(
+        refused(&a, 1),
+        ProgramError::Custom(FrontierError::BadAccount as u32)
+    );
+}
+
+#[test]
+fn range_preflight_preserves_settled_slot_order_and_due_clamps() {
+    let _g = begin();
+    for past in [2_000i64, i64::MIN] {
+        let a = fixture();
+        {
+            let mut pd = a[5].try_borrow_mut_data().unwrap();
+            put(&mut pd, PV::site(0) + SM::GARRISON, &1_000u32.to_le_bytes());
+            put(&mut pd, PV::site(0) + SM::PEND0_BELL, &9u32.to_le_bytes());
+            put(&mut pd, PV::site(0) + SM::PEND0_DELTA, &past.to_le_bytes());
+            put(&mut pd, PV::site(0) + SM::PEND1_BELL, &10u32.to_le_bytes());
+            put(
+                &mut pd,
+                PV::site(0) + SM::PEND1_DELTA,
+                &3_000i64.to_le_bytes(),
+            );
+        }
+        exec(&a, &data(1)).unwrap();
+        let pd = a[5].try_borrow_data().unwrap();
+        let r = Ro(&pd);
+        let so = PV::site(0);
+        assert_eq!(
+            r.u32(so + SM::GARRISON).unwrap(),
+            if past > 0 { 3_000 } else { 0 }
+        );
+        assert_eq!(r.u32(so + SM::PEND0_BELL).unwrap(), SM::NO_BELL);
+        assert_eq!(r.i64(so + SM::PEND0_DELTA).unwrap(), 0);
+        assert_eq!(r.u32(so + SM::PEND1_BELL).unwrap(), 10);
+        assert_eq!(r.i64(so + SM::PEND1_DELTA).unwrap(), 4_000);
     }
 }
 

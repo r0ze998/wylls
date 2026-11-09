@@ -21,7 +21,7 @@ use frontier_abi::world_index::land as wl;
 use frontier_abi::world_index::wide_ix as wix;
 use frontier_abi::world_index::{ProvinceKey, WideHostRef};
 use permutation_rules::fixed::MILLI;
-use permutation_rules::frontier::host::GarrisonState;
+use permutation_rules::frontier::host::{GarrisonState, MAX_HOST_TROOPS};
 use solana_program::{account_info::AccountInfo, pubkey::Pubkey};
 
 pub(super) fn garrison_as(p: &Pubkey, a: &[AccountInfo], x: &wix::Garrison, auth: &Auth) -> R<()> {
@@ -107,6 +107,22 @@ pub(super) fn garrison_as(p: &Pubkey, a: &[AccountInfo], x: &wix::Garrison, auth
     let delta_milli = x.delta.checked_mul(MILLI).ok_or(OVERFLOW)?;
     let site = site_of(&province_in, &hh)?;
     let mut g = garrison_of(&province_in, site)?;
+    // The deployed room arithmetic subtracts the projected pending total
+    // in i64. Reject an unrepresentable stored state before calling it.
+    // Settle on this copy first, exactly as change does, so an already-due
+    // extreme delta that the kernel safely clamps is not falsely rejected.
+    let mut range_check = g;
+    range_check.settle(rn);
+    let projected = range_check
+        .pending
+        .iter()
+        .flatten()
+        .fold(range_check.troops as i64, |n, (_, delta)| {
+            n.saturating_add(*delta)
+        });
+    if (MAX_HOST_TROOPS as i64).checked_sub(projected).is_none() {
+        return Err(BAD_ACCOUNT);
+    }
     g.change(now_bell, delta_milli, rn)
         .map_err(|e| host_err(e, FrontierError::NotResident))?;
     put_garrison(&mut province_out, site, &g)?;

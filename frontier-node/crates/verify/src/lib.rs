@@ -53,6 +53,9 @@ pub mod tamper;
 /// produces no season verdict.
 #[cfg(feature = "wide-economy-experimental")]
 pub mod wide_economy;
+/// One-transition kind-17 replay only; never a whole-season verdict.
+#[cfg(feature = "wide-economy-experimental")]
+pub mod wide_garrison;
 pub mod world;
 
 use serde_json::Value;

@@ -3411,7 +3411,10 @@ pub fn resolve(p: &Pubkey, a: &[AccountInfo], x: &wix::Resolve) -> R<()> {
     let create_roster = !present && rd_s != rd_initial;
     let rent_r = init::rent(wro::wide_roster::SIZE)?;
     if create_roster {
-        if !roster_ai.is_writable || fee_payer.lamports() < rent_r {
+        // As init::top_up, prefunding belongs to the target and only the
+        // remaining shortfall must be covered by this payer.
+        let need = rent_r.saturating_sub(roster_ai.lamports());
+        if !roster_ai.is_writable || fee_payer.lamports() < need {
             return Err(FrontierError::Insufficient.into());
         }
         if wres::live_ids(&pd_s)
@@ -3439,10 +3442,28 @@ pub fn resolve(p: &Pubkey, a: &[AccountInfo], x: &wix::Resolve) -> R<()> {
         &mut [(WideEntity::Province, &mut pd_s[..])],
     )?;
     // ---- effects: optional roster allocation, then one byte commit ----
-    // System allocation keeps its runtime transaction-rollback boundary.
-    // With existing accounts, every mutable borrow and length is checked
-    // before the first copy, and no fallible operation follows that copy.
+    // Predictable borrow conflicts in the eventual commit or System CPIs
+    // must not first surface after the payer has funded the new roster.
+    // Release these probes before CPI, which needs the same accounts.
+    // Allocation itself keeps its runtime transaction-rollback boundary.
     if create_roster {
+        {
+            let pd = province.try_borrow_mut_data()?;
+            let rd = roster_ai.try_borrow_mut_data()?;
+            let cd = if cd_s.is_empty() {
+                None
+            } else {
+                Some(inputs_ai.try_borrow_mut_data()?)
+            };
+            let _payer_lamports = fee_payer.try_borrow_mut_lamports()?;
+            let _roster_lamports = roster_ai.try_borrow_mut_lamports()?;
+            if pd.len() != pd_s.len()
+                || !rd.is_empty()
+                || cd.as_ref().is_some_and(|d| d.len() != cd_s.len())
+            {
+                return Err(BAD_ACCOUNT);
+            }
+        }
         init::init_with_seed(
             fee_payer,
             roster_ai,
@@ -3454,6 +3475,8 @@ pub fn resolve(p: &Pubkey, a: &[AccountInfo], x: &wix::Resolve) -> R<()> {
             p,
         )?;
     }
+    // Every live borrow and post-allocation length before the first copy;
+    // no fallible operation follows that copy.
     {
         let mut pd = province.try_borrow_mut_data()?;
         let mut rd = if present || create_roster {
