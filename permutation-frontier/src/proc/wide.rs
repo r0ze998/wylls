@@ -2758,6 +2758,10 @@ mod garrison_exec;
 #[path = "wide_expedition_exec.rs"]
 mod expedition_exec;
 
+/// Read-only mixed route stage; no dispatch or admission is enabled.
+#[path = "wide_expedition_route.rs"]
+mod expedition_route;
+
 /// Closed until authenticated dispatch, receipts and replay are verified as
 /// one lifecycle. There is deliberately no configuration or argument override.
 pub const CONQUEST_LIFECYCLE_ENABLED: bool = false;
