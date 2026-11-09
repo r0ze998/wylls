@@ -46,6 +46,7 @@ serde_json.workspace = true
 wide-world-experimental = [
     "frontier-abi/world-index-experimental",
     "fclient/wide-records-experimental",
+    "fclient/snapshot",
 ]
 
 [dev-dependencies]

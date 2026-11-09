@@ -38,6 +38,8 @@ pub mod play;
 pub mod ports;
 pub mod rpc;
 pub mod seal;
+#[cfg(feature = "snapshot")]
+pub mod snapshot;
 pub mod tx;
 #[cfg(feature = "wide-records-experimental")]
 pub mod typed_log;

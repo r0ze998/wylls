@@ -36,6 +36,8 @@ tokio.workspace = true
 
 [features]
 default = []
+# Shared read-only same-response account snapshots; no startup or new dependencies.
+snapshot = []
 # Separate typed PS2/PSW1 reader. Never changes the legacy PS2 parser.
 wide-records-experimental = ["frontier-abi/world-index-experimental"]
 
