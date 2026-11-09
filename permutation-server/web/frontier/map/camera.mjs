@@ -139,8 +139,23 @@ export function landBox(ringsOpen) {
   const d = Math.max(1, ringsOpen ?? 1);
   if (boxes.has(d)) return boxes.get(d);
   let x = 0, y = 0;
-  const provinces = [{ p: 0, q: 0 }];
-  for (let r = 1; r < d; r++) provinces.push(...ringProvinces(r));
+  let provinces;
+  if (Number.isInteger(d) && d <= 129) {
+    // Province centres form a convex hexagon. For each fixed tile offset,
+    // project(tileHex(...)) is linear in the province coordinates, so both
+    // absolute coordinate maxima occur at a vertex. Keep the tile projection
+    // arithmetic unchanged (rather than adding separately rounded extents).
+    // At ring 128 this is 366 projections instead of 3,021,757.
+    const r = d - 1;
+    provinces = r === 0 ? [{ p: 0, q: 0 }] : [
+      { p: r, q: 0 }, { p: r, q: -r }, { p: 0, q: -r },
+      { p: -r, q: 0 }, { p: -r, q: r }, { p: 0, q: r },
+    ];
+  } else {
+    // Preserve the existing behavior outside the season's integer ring range.
+    provinces = [{ p: 0, q: 0 }];
+    for (let r = 1; r < d; r++) provinces.push(...ringProvinces(r));
+  }
   for (const pr of provinces) for (let i = 0; i < PROVINCE_TILES; i++) { const h = tileHex(pr.p, pr.q, i), c = project(h.q, h.r); x = Math.max(x, Math.abs(c.x)); y = Math.max(y, Math.abs(c.y)); }
   const v = Object.freeze({ x: x + RADIUS * Math.sqrt(3) / 2, y: y + RADIUS * FLATTEN });
   if (boxes.size > 12) boxes.clear();

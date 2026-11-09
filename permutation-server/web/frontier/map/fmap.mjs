@@ -33,11 +33,13 @@ import { paintPins } from '../hud/pins.mjs';
 import { inverseHex } from '../../map.mjs';
 import { L, onLangChange, fmtNum } from '../../lang.mjs';
 import { s1On } from '../fs1.mjs';
-import { locate, ringOf, ringProvinces, hexDistance, tileHex } from '../fgeo.mjs';
-import { fogLevel, paintProvince, paintSigil, paintTiles, paintVeil, provincePixel, PROVINCE_CIRCUMRADIUS } from './layers.mjs';
+import { locate, ringOf, hexDistance, tileHex } from '../fgeo.mjs';
+import { fogLevel, paintProvince, paintSigil, paintTiles, paintVeil, provincePixel } from './layers.mjs';
 import { FACTION_COLORS } from '../fi18n.mjs';
 import { NATION_ON } from '../palette.mjs';
 import { createTerrain } from './terrain.mjs';
+import { visibleProvinces } from './viewport.mjs';
+export { visibleProvinces } from './viewport.mjs';
 import { INERT_CTX, SpriteArt, artSize, farRes, terrainLookup } from './sprites.mjs';
 import { paintSheet, paintTable, sheetOf, tableShows } from './table.mjs';
 import { CloudSea, DRIFT_SPEED, SEA_BAKES, seaField, seaRes } from './cloudsea.mjs';
@@ -63,7 +65,7 @@ import { emit as fxEmit } from '../fx/bus.mjs';
 import { createLabelPass, rectOf, tileKeyOf } from './labelpass.mjs';
 import { paintWaitCharacter } from '../people/onboard.mjs';
 import { leaderWords, paintCandidateLabels, paintHomeTag, paintSiteMarks, paintSurveyLines, paintWaitStandard, standardBox, waitLine, waitSpotAt, wedgeSites } from './waitview.mjs';
-import { TILT, armUpright, disarmUpright, groundBox, groundView, nearQuad, perspFromQuery, standing, tiltAt, tiltFromQuery, tiltGeo, tiltNear, upright } from './tilt.mjs';
+import { TILT, armUpright, disarmUpright, groundBox, groundView, perspFromQuery, standing, tiltAt, tiltFromQuery, tiltGeo, tiltNear, upright } from './tilt.mjs';
 import { marchShare, watchOf } from './board.mjs';
 import { paintHostRing, MARKER_PX, awayText, awaitKeyText, exploreFlagText, formingText, marchTagText, paintBellTag, paintMarkerDisc, paintSealedMarch, paintSurveyFlag, paintWatch, paintWatchTop, watchTop, LAND_WORDS } from './hostmarks.mjs';
 import { PICK_KINDS, pickModel, pickPalette, pickStep } from './picktile.mjs';
@@ -248,24 +250,6 @@ export function lodFor(zoom, current = 'world', e = LOD_EDGES) {
 /** view = {x, y (world px at the screen centre), zoom}. */
 export const worldToScreen = (view, size, x, y) => ({ x: (x - view.x) * view.zoom + size.width / 2, y: (y - view.y) * view.zoom + size.height / 2 });
 export const screenToWorld = (view, size, sx, sy) => ({ x: (sx - size.width / 2) / view.zoom + view.x, y: (sy - size.height / 2) / view.zoom + view.y });
-
-/**
- * The provinces of rings 0..maxRing whose cell intersects the viewport, nearest the centre first.
- * `quad` (four world points in order): the part of the ground seen through a tilted board, a
- * trapezoid inside the canvas; provinces in the canvas's unseen corners are left out.
- */
-export function visibleProvinces(view, size, maxRing, quad = null) {
-  const a = screenToWorld(view, size, 0, 0), b = screenToWorld(view, size, size.width, size.height);
-  const m = PROVINCE_CIRCUMRADIUS;
-  const out = [];
-  for (let d = 0; d <= maxRing; d++) {
-    for (const pr of ringProvinces(d)) {
-      const c = provincePixel(pr.p, pr.q);
-      if (c.x >= a.x - m && c.x <= b.x + m && c.y >= a.y - m && c.y <= b.y + m && nearQuad(quad, c.x, c.y, m)) out.push({ ...pr, dist: Math.hypot(c.x - view.x, c.y - view.y) });
-    }
-  }
-  return out.sort((x, y) => x.dist - y.dist).map(({ p, q }) => ({ p, q }));
-}
 
 /** The tile and province under a screen point: {tileQ, tileR, p, q, idx}. */
 export function pick(view, size, sx, sy) {
