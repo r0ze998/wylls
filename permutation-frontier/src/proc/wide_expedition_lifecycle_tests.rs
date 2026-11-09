@@ -371,7 +371,11 @@ fn add_anchor_seed(
     );
 }
 
-fn lifecycle(retreat_bps: u16) {
+fn lifecycle(retreat_bps: u16, capture_after: bool) {
+    lifecycle_with_resident_return(retreat_bps, capture_after, false);
+}
+
+fn lifecycle_with_resident_return(retreat_bps: u16, capture_after: bool, return_after: bool) {
     let (accounts, mut departure) = initial_fixture();
     let sk = key(&accounts[2]);
     let citizen = key(&accounts[3]);
@@ -439,6 +443,25 @@ fn lifecycle(retreat_bps: u16) {
         write_no_keep(&mut pd).unwrap();
         world.get_mut(home).set_data_from_slice(&pd);
     }
+    if capture_after {
+        // Original home stock/cap are synthetic initial economic state.
+        let mut hd = world.get(hk).data().to_vec();
+        for i in 0..permutation_rules::frontier::holding::RESOURCES {
+            Rw(&mut hd)
+                .set_i64(
+                    H::store(i) + frontier_abi::layout::player::accrual::VALUE,
+                    1_000_000 * MILLI,
+                )
+                .unwrap();
+            Rw(&mut hd)
+                .set_i64(
+                    H::store(i) + frontier_abi::layout::player::accrual::CAP,
+                    2_000_000 * MILLI,
+                )
+                .unwrap();
+        }
+        world.get_mut(hk).set_data_from_slice(&hd);
+    }
     let clock = SeasonClock::read(world.get(sk).data()).unwrap();
     assert_eq!(clock.tlock_round(ARRIVE), FIXTURE_ROUND);
     let region = permutation_rules::frontier::geometry::region_of(
@@ -488,6 +511,12 @@ fn lifecycle(retreat_bps: u16) {
     d.set_u64(PV::PASSABLE_MASK, (1u64 << 61) - 1).unwrap();
     d.set_u32(PV::CAMP + CP::NEXT_CHECK_DAY, 1000).unwrap();
     write_no_keep(&mut dp).unwrap();
+    if capture_after {
+        dp[PV::SITE_COUNT] = 1;
+        dp[PV::SITES] = target.local();
+        dp[PV::site(0) + SM::STATE] = SM2::STATE_FREE_CITY;
+        dp[PV::site(0) + SM::FACTION] = NEUTRAL;
+    }
     let roster = WideRoster::new(SID, dest, PAYER);
     let mut rd = vec![0; wro::wide_roster::SIZE];
     roster.write_header(&mut rd).unwrap();
@@ -539,6 +568,43 @@ fn lifecycle(retreat_bps: u16) {
     world.add(log, program, 1_000_000_000, &ld);
     world.add([90; 32], init::SYSTEM, 1_000_000_000, &[]);
     world.add([91; 32], init::SYSTEM, 1_000_000_000, &[]);
+    if capture_after {
+        use frontier_abi::world_index::conquest as wc;
+        world.add(wc::conquest_address(&ctx, dest), init::SYSTEM, 0, &[]);
+        world.add(
+            wc::capture_escrow_address(&ctx, &citizen),
+            init::SYSTEM,
+            0,
+            &[],
+        );
+        world.add(
+            wh::holding_address(&ctx, dest.coord(), 0),
+            init::SYSTEM,
+            0,
+            &[],
+        );
+        let mut shard = vec![0; K2::JoinShard.size()];
+        assert!(write_header(&mut shard, K2::JoinShard, SID));
+        world.add(ctx.join_shard(0, 0), program, 1_000_000_000, &shard);
+        // Immutable future beacon inputs are explicit prior state, all present
+        // before departure. Every intervening conquest bell runs its handler.
+        for bell in 13..=64 {
+            add_anchor_seed(
+                &mut world,
+                &ctx,
+                &clock,
+                bell,
+                0,
+                GENESIS + (bell as i64 + 1) * 600,
+            );
+            world.add(
+                wa::clash_inputs_address(&ctx, dest, bell),
+                init::SYSTEM,
+                0,
+                &[],
+            );
+        }
+    }
     // No initial-world account bytes or balances are edited after this point.
     let initial_citizen = world.get(citizen).data().to_vec();
     let initial_holding_balance = world.get(hk).lamports();
@@ -848,15 +914,595 @@ fn lifecycle(retreat_bps: u16) {
     };
     assert!(matches!(replay, Err(rt::RunError::Helper(_))));
     assert_eq!(world.0, settled_snapshot);
+    if capture_after {
+        capture_continuation(
+            &mut world, &ctx, &clock, sk, citizen, hk, home, dest, dest_key, roster_key, day, host,
+        );
+        if return_after {
+            resident_return_continuation(
+                &mut world, &ctx, &clock, sk, citizen, hk, home, dest, dest_key, roster_key, day,
+                host,
+            );
+        }
+    }
     assert!(!expedition_exec::EXPEDITION_ENABLED);
 }
 
 #[test]
 fn contiguous_departure_boundary_combat_and_stays_settlement() {
-    lifecycle(0);
+    lifecycle(0, false);
 }
 
 #[test]
 fn contiguous_departure_boundary_retreat_and_original_home_return() {
-    lifecycle(1);
+    lifecycle(1, false);
+}
+
+/// Starts with the actual arrived/staying host, then runs every declaration,
+/// siege bell and allocation. No roster admission or capture mirror injection.
+#[allow(clippy::too_many_arguments)]
+fn capture_continuation(
+    world: &mut World,
+    ctx: &AddrCtx,
+    clock: &SeasonClock,
+    sk: [u8; 32],
+    citizen: [u8; 32],
+    source: [u8; 32],
+    home: [u8; 32],
+    dest: ProvinceKey,
+    province: [u8; 32],
+    roster_key: [u8; 32],
+    day: [u8; 32],
+    host: WideHostRef,
+) {
+    use crate::proc::wide::{conquest_exec, conquest_settle_exec};
+    use frontier_abi::conquest_model::Record;
+    use frontier_abi::v2::layout::province::conquest as CR;
+    use frontier_abi::world_index::{conquest as wc, legacy_source_event as le};
+    let table = wc::conquest_address(ctx, dest);
+    let escrow = wc::capture_escrow_address(ctx, &citizen);
+    let target = wh::holding_address(ctx, dest.coord(), 0);
+    let shard = ctx.join_shard(0, 0);
+    let home_binding = wh::binding_of(world.get(citizen).data(), 1).unwrap();
+    let source_chain = crate::layout::chain_of(world.get(source).data()).unwrap();
+    let declared_bell = clock.bell_at(prologue::now().unwrap().ts).unwrap();
+    // Catch up the actual province before declaring. A prior bell must not be
+    // skipped by inserting a current-bell siege into its historical state.
+    let cursor = Ro(world.get(province).data())
+        .u32(PV::RESOLVED_NEXT)
+        .unwrap();
+    for bell in cursor..declared_bell {
+        let out = world.run(
+            &[
+                payer(),
+                r(sk),
+                w(province),
+                w(roster_key),
+                r(ctx.seed_cache(bell, 0, 0)),
+                r(ctx.bell_anchor(bell, 0)),
+                w(wa::clash_inputs_address(ctx, dest, bell)),
+                r(day),
+                r([0; 32]),
+            ],
+            |p, a, _| {
+                crate::proc::wide::resolve(
+                    p,
+                    a,
+                    &wix::Resolve {
+                        bell,
+                        beneficiary: PAYER,
+                    },
+                )
+                .map_err(Into::into)
+            },
+        );
+        assert!(out.cpis.is_empty());
+    }
+    let roster = WideRoster::read(world.get(roster_key).data()).unwrap();
+    let (index, _, found) = roster
+        .table(world.get(roster_key).data())
+        .unwrap()
+        .into_iter()
+        .find(|(_, _, h)| *h == host)
+        .unwrap();
+    assert_eq!(found, host);
+    let declared = world.run(
+        &[
+            (WALLET, true, false),
+            payer(),
+            r(sk),
+            w(citizen),
+            w(source),
+            w(province),
+            r(roster_key),
+            r(home),
+            r(target),
+            w(table),
+            w(escrow),
+            r([0; 32]),
+        ],
+        |p, a, _| {
+            conquest_exec::runtime_declare(
+                p,
+                a,
+                &wix::DeclareSiege {
+                    site: 0,
+                    entry: index as u8,
+                },
+            )
+            .map_err(Into::into)
+        },
+    );
+    assert_eq!(declared.cpis.len(), 5);
+    let required = Record::read(world.get(province).data(), 0)
+        .unwrap()
+        .required as u32;
+    assert_eq!(
+        required,
+        permutation_rules::frontier::siege::required_bells(0, 0)
+    );
+    assert_eq!(world.get(table).owner().to_bytes(), PROGRAM);
+    assert_eq!(world.get(escrow).owner().to_bytes(), PROGRAM);
+    assert_eq!(
+        wc::WideCaptureEscrow::read(world.get(escrow).data(), SID, dest.world(), citizen)
+            .unwrap()
+            .active_mask(),
+        C2::reserved_bit(2)
+    );
+    assert_eq!(world.get(target).owner(), &init::SYSTEM);
+    let start = Ro(world.get(province).data())
+        .u32(PV::RESOLVED_NEXT)
+        .unwrap();
+    for bell in start..=declared_bell + required {
+        let landed = GENESIS + (bell as i64 + 1) * 600;
+        prologue::set_test_clock(
+            clock.round_time(clock.seed_round(bell, landed)),
+            6000 + bell as u64,
+        );
+        let out = world.run(
+            &[
+                payer(),
+                r(sk),
+                w(province),
+                w(roster_key),
+                r(ctx.seed_cache(bell, 0, 0)),
+                r(ctx.bell_anchor(bell, 0)),
+                w(wa::clash_inputs_address(ctx, dest, bell)),
+                r(day),
+                r([0; 32]),
+                w(table),
+            ],
+            |p, a, _| {
+                let result = conquest_exec::runtime_resolve(
+                    p,
+                    a,
+                    &wix::ResolveWithConquest {
+                        bell,
+                        beneficiary: PAYER,
+                    },
+                );
+                assert!(result.is_ok(), "siege resolve bell {bell}: {result:?}");
+                result.map_err(Into::into)
+            },
+        );
+        assert!(out.cpis.is_empty());
+        assert_eq!(
+            Ro(world.get(province).data())
+                .u32(PV::RESOLVED_NEXT)
+                .unwrap(),
+            bell + 1
+        );
+    }
+    let due = Record::read(world.get(province).data(), 0).unwrap();
+    assert_eq!(due.kind, CR::KIND_CAPTURE_DUE);
+    assert_eq!(due.bell, declared_bell + required);
+    let capture_roles = [
+        payer(),
+        r(sk),
+        w(province),
+        w(table),
+        w(citizen),
+        w(shard),
+        w(escrow),
+        w(target),
+        w(source),
+        r([0; 32]),
+    ];
+    let captured = world.run(&capture_roles, |p, a, _| {
+        conquest_settle_exec::runtime_capture(p, a, &wix::SettleCapture { site: 0 })
+            .map_err(Into::into)
+    });
+    assert_eq!(captured.cpis.len(), 1);
+    assert_eq!(
+        u32::from_le_bytes(captured.cpis[0].data[..4].try_into().unwrap()),
+        9
+    );
+    let h = WideHolding::read(world.get(target).data()).unwrap();
+    assert_eq!(
+        (h.owner_citizen, h.coord, h.site, h.gen, h.slot),
+        (citizen, dest.coord(), 0, 1, 2)
+    );
+    assert_eq!(
+        world.get(target).lamports(),
+        init::rent(wh::wide_holding::SIZE).unwrap()
+    );
+    assert_eq!(
+        wh::binding_of(world.get(citizen).data(), 1).unwrap(),
+        home_binding
+    );
+    assert_eq!(
+        wh::binding_of(world.get(citizen).data(), 2).unwrap(),
+        wh::SlotBinding::Wide
+    );
+    assert_eq!(world.get(citizen).data()[C2::HOLDINGS_N], 2);
+    assert_eq!(
+        wc::wide_reservations(world.get(citizen).data()[C2::SLOTS]).unwrap(),
+        0
+    );
+    assert_eq!(
+        Ro(world.get(shard).data())
+            .u32(JS2::EXTRA_HOLDINGS)
+            .unwrap(),
+        1
+    );
+    assert_eq!(world.get(source).data().len(), K2::Holding.size());
+    assert_eq!(Ro(world.get(source).data()).u32(H::HOST_SEQ).unwrap(), 1);
+    let resolver = AccountResolver::for_season(ctx).unwrap();
+    let mut previous = source_chain;
+    for (output, direction) in [
+        (&declared, le::Direction::Debit),
+        (&captured, le::Direction::Credit),
+    ] {
+        let record = output
+            .logs
+            .iter()
+            .find(|fields| fields[0] == le::PREFIX)
+            .unwrap();
+        let record = le::Record::decode(&resolver, &record[1]).unwrap();
+        record
+            .verify_previous(&resolver, previous.0, &previous.1)
+            .unwrap();
+        assert_eq!(record.source.direction, direction);
+        assert_eq!(record.source.source_address, source);
+        previous = (record.link.seq, record.link.head);
+    }
+    assert_eq!(
+        crate::layout::chain_of(world.get(source).data()).unwrap(),
+        previous
+    );
+    let before = world.0.clone();
+    let privileges = capture_roles
+        .iter()
+        .map(|(k, s, w)| InstructionAccount::new(world.index(*k) as u16, *s, *w))
+        .collect();
+    // SAFETY: same bounded real handler and official serializer as above.
+    let repeated = unsafe {
+        rt::system_cpi::run(
+            world.0.clone(),
+            world.index(PROGRAM) as u16,
+            privileges,
+            vec![],
+            |p, a, _| {
+                conquest_settle_exec::runtime_capture(p, a, &wix::SettleCapture { site: 0 })
+                    .map_err(Into::into)
+            },
+        )
+    };
+    assert!(matches!(repeated, Err(rt::RunError::Helper(_))));
+    assert_eq!(world.0, before);
+    assert!(!crate::proc::wide::CONQUEST_LIFECYCLE_ENABLED);
+}
+
+#[test]
+fn contiguous_original_departure_boundary_combat_and_free_city_capture() {
+    lifecycle(0, true);
+}
+
+/// Capture is already settled and the same original host is resident wide.
+/// Dissolve and the following real Resolve produce the returnable Leave row.
+#[allow(clippy::too_many_arguments)]
+fn resident_return_continuation(
+    world: &mut World,
+    ctx: &AddrCtx,
+    clock: &SeasonClock,
+    sk: [u8; 32],
+    citizen: [u8; 32],
+    source: [u8; 32],
+    home: [u8; 32],
+    dest: ProvinceKey,
+    province: [u8; 32],
+    roster_key: [u8; 32],
+    day: [u8; 32],
+    host: WideHostRef,
+) {
+    use crate::proc::wide::{conquest_exec, expedition_resident};
+    use frontier_abi::world_index::conquest as wc;
+    let target = wh::holding_address(ctx, dest.coord(), 0);
+    let captured_holding = world.get(target).clone();
+    let original_home = world.get(home).clone();
+    let bell = clock.bell_at(prologue::now().unwrap().ts).unwrap();
+    let dissolve_roles = [
+        (WALLET, true, false),
+        payer(),
+        r(sk),
+        w(citizen),
+        w(source),
+        w(province),
+        r(roster_key),
+        r(home),
+    ];
+    let return_roles = [
+        payer(),
+        r(sk),
+        w(province),
+        w(roster_key),
+        w(source),
+        r(home),
+    ];
+    let reject = |world: &World,
+                  roles: &[([u8; 32], bool, bool)],
+                  dissolve: bool,
+                  tested_host: WideHostRef| {
+        let privileges = roles
+            .iter()
+            .map(|(k, s, w)| InstructionAccount::new(world.index(*k) as u16, *s, *w))
+            .collect();
+        // SAFETY: same fixed original-family handlers, official backing, no CPI.
+        let result = unsafe {
+            rt::system_cpi::run(
+                world.0.clone(),
+                world.index(PROGRAM) as u16,
+                privileges,
+                vec![],
+                |p, a, _| {
+                    let refusal = if dissolve {
+                        expedition_resident::execute_dissolve(p, a, tested_host)
+                    } else {
+                        expedition_resident::execute_return(p, a, tested_host)
+                    };
+                    assert!(refusal.is_err());
+                    // Permit official writeback after the expected refusal.
+                    // This detects partial effects instead of discarding them.
+                    Ok(())
+                },
+            )
+        }
+        .unwrap();
+        assert!(result.logs.is_empty());
+        assert!(result.cpis.is_empty());
+        assert_eq!(
+            result.accounts,
+            world.0.iter().map(|(_, a)| a.clone()).collect::<Vec<_>>()
+        );
+    };
+    reject(world, &return_roles, false, host); // A resident cannot return before Leave.
+    let mut bad_signer = dissolve_roles;
+    bad_signer[0].1 = false;
+    reject(world, &bad_signer, true, host);
+    let mut readonly_source = dissolve_roles;
+    readonly_source[4].2 = false;
+    reject(world, &readonly_source, true, host);
+    let wrong_generation =
+        WideHostRef::new(host.key(), host.site(), host.gen() + 1, host.seq()).unwrap();
+    reject(world, &dissolve_roles, true, wrong_generation);
+    let mut locked = world.clone();
+    let mut locked_home = locked.get(home).data().to_vec();
+    locked_home[PV::site(host.site() as usize) + SM::STATE] = SM::STATE_HOLDING;
+    locked_home[PV::site(host.site() as usize) + SM::GEN] = host.gen() + 1;
+    locked.get_mut(home).set_data_from_slice(&locked_home);
+    reject(&locked, &dissolve_roles, true, host);
+    let before_dissolve = world.clone();
+    let dissolved = world.run(&dissolve_roles, |p, a, _| {
+        expedition_resident::execute_dissolve(p, a, host).map_err(Into::into)
+    });
+    verify_resident_receipts(
+        ctx,
+        &before_dissolve,
+        world,
+        &dissolved,
+        frontier_abi::world_index::expedition_resident_event::Action::Dissolve,
+        host,
+    );
+    assert!(dissolved.cpis.is_empty());
+    assert_eq!(dissolved.logs.len(), 2);
+    reject(world, &dissolve_roles, true, host); // One pending operation per host.
+    reject(world, &return_roles, false, host); // Actual clash still has to resolve.
+    let roster = WideRoster::read(world.get(roster_key).data()).unwrap();
+    let (index, _, _) = roster
+        .table(world.get(roster_key).data())
+        .unwrap()
+        .into_iter()
+        .find(|(_, _, h)| *h == host)
+        .unwrap();
+    let pending = read_entry(world.get(province).data(), index).unwrap();
+    assert!(matches!(pending.op, EntryOp::Leave));
+    assert_eq!((pending.state, pending.pend_bell), (E::STATE_ROSTER, bell));
+    let cursor = Ro(world.get(province).data())
+        .u32(PV::RESOLVED_NEXT)
+        .unwrap();
+    for resolved in cursor..=bell {
+        let landed = GENESIS + (resolved as i64 + 1) * 600;
+        prologue::set_test_clock(
+            clock.round_time(clock.seed_round(resolved, landed)),
+            7000 + resolved as u64,
+        );
+        let output = world.run(
+            &[
+                payer(),
+                r(sk),
+                w(province),
+                w(roster_key),
+                r(ctx.seed_cache(resolved, 0, 0)),
+                r(ctx.bell_anchor(resolved, 0)),
+                w(wa::clash_inputs_address(ctx, dest, resolved)),
+                r(day),
+                r([0; 32]),
+                w(wc::conquest_address(ctx, dest)),
+            ],
+            |p, a, _| {
+                conquest_exec::runtime_resolve(
+                    p,
+                    a,
+                    &wix::ResolveWithConquest {
+                        bell: resolved,
+                        beneficiary: PAYER,
+                    },
+                )
+                .map_err(Into::into)
+            },
+        );
+        assert!(output.cpis.is_empty());
+    }
+    let departed = read_entry(world.get(province).data(), index).unwrap();
+    assert_eq!(departed.state, E::STATE_DEPARTED);
+    assert!(matches!(departed.op, EntryOp::Leave));
+    assert!(departed.troops > 0);
+    let old_reserve = Ro(world.get(source).data())
+        .u32(H::reserve(departed.unit as usize))
+        .unwrap();
+    let citizen_before_return = world.get(citizen).clone();
+    // Adversarial overflow is isolated to a rejected clone, never fed back
+    // into the contiguous successful world or used as an outcome.
+    let mut overflowing = world.clone();
+    let mut overflow_source = overflowing.get(source).data().to_vec();
+    Rw(&mut overflow_source)
+        .set_u32(H::reserve(departed.unit as usize), u32::MAX)
+        .unwrap();
+    overflowing
+        .get_mut(source)
+        .set_data_from_slice(&overflow_source);
+    reject(&overflowing, &return_roles, false, host);
+    reject(world, &return_roles, false, wrong_generation);
+    let mut return_locked = world.clone();
+    return_locked
+        .get_mut(home)
+        .set_data_from_slice(&locked_home);
+    reject(&return_locked, &return_roles, false, host);
+    // Generic Entry decoding omits raw retire/donor payload. A bounded
+    // voluntary-return candidate must refuse every such payload component.
+    for offset in [E::OP_A, E::OP_B, E::OP_TROOPS, E::OP_REF] {
+        let mut redirected = world.clone();
+        let mut redirected_province = redirected.get(province).data().to_vec();
+        redirected_province[PV::entry(index) + offset] = 1;
+        redirected
+            .get_mut(province)
+            .set_data_from_slice(&redirected_province);
+        reject(&redirected, &return_roles, false, host);
+    }
+    let mut retired = world.clone();
+    let mut retired_province = retired.get(province).data().to_vec();
+    let raw = PV::entry(index);
+    retired_province[raw + E::OP_A] = frontier_abi::v2::entry::RETIRE_OP_A;
+    let home_ref = (frontier_abi::addr::host_id(127, 0, 0, 1, 0).unwrap() >> 32) as u32;
+    Rw(&mut retired_province)
+        .set_u32(raw + E::OP_REF, home_ref)
+        .unwrap();
+    assert!(
+        crate::proc::host::return_target(
+            frontier_abi::world_index::expedition::AccountResolver::for_season(ctx)
+                .unwrap()
+                .legacy_host_id(&host)
+                .unwrap(),
+            frontier_abi::v2::entry::RETIRE_OP_A,
+            home_ref,
+        )
+        .bound
+    );
+    retired
+        .get_mut(province)
+        .set_data_from_slice(&retired_province);
+    reject(&retired, &return_roles, false, host);
+    let before_return = world.clone();
+    let returned = world.run(&return_roles, |p, a, _| {
+        expedition_resident::execute_return(p, a, host).map_err(Into::into)
+    });
+    verify_resident_receipts(
+        ctx,
+        &before_return,
+        world,
+        &returned,
+        frontier_abi::world_index::expedition_resident_event::Action::Return,
+        host,
+    );
+    assert!(returned.cpis.is_empty());
+    assert_eq!(returned.logs.len(), 2);
+    assert_eq!(
+        Ro(world.get(source).data())
+            .u32(H::reserve(departed.unit as usize))
+            .unwrap(),
+        old_reserve + departed.troops / MILLI as u32
+    );
+    assert_eq!(
+        read_entry(world.get(province).data(), index).unwrap(),
+        Entry::FREE
+    );
+    assert!(roster
+        .ref_at(world.get(roster_key).data(), index)
+        .unwrap()
+        .is_none());
+    assert_eq!(Ro(world.get(source).data()).u32(H::HOST_SEQ).unwrap(), 1);
+    assert_eq!(world.get(target), &captured_holding);
+    assert_eq!(world.get(home), &original_home);
+    assert_eq!(world.get(citizen), &citizen_before_return);
+    reject(world, &return_roles, false, host);
+}
+
+#[test]
+fn contiguous_original_boundary_capture_and_resident_home_return() {
+    lifecycle_with_resident_return(0, true, true);
+}
+
+fn verify_resident_receipts(
+    ctx: &AddrCtx,
+    before: &World,
+    after: &World,
+    output: &rt::system_cpi::Output,
+    action: frontier_abi::world_index::expedition_resident_event::Action,
+    host: WideHostRef,
+) {
+    use frontier_abi::world_index::expedition_resident_event as re;
+    assert_eq!(output.logs.len(), 2);
+    assert_eq!(output.logs[0][0], frontier_abi::log::PREFIX);
+    assert_eq!(output.logs[1][0], wev::WIDE_LOG_PREFIX);
+    let original = re::Record::decode(ctx, &output.logs[0][1]).unwrap();
+    let wide = re::Record::decode(ctx, &output.logs[1][1]).unwrap();
+    original.pair(&wide).unwrap();
+    assert_eq!(original.action, action);
+    assert_eq!(original.identity.host, host);
+    let targets = original.identity.original_targets(action);
+    let previous: Vec<_> = targets
+        .iter()
+        .map(|(entity, key)| {
+            let (seq, head) = crate::layout::chain_of(before.get(*key).data()).unwrap();
+            frontier_abi::log::Link {
+                entity: *entity,
+                seq,
+                head,
+            }
+        })
+        .collect();
+    original.verify_previous(ctx, &previous, None).unwrap();
+    for ((_, key), link) in targets.iter().zip(&original.original_links) {
+        assert_eq!(
+            crate::layout::chain_of(after.get(*key).data()).unwrap(),
+            (link.seq, link.head)
+        );
+    }
+    let province = original.identity.province;
+    let (seq, head) = crate::layout::chain_of(before.get(province).data()).unwrap();
+    wide.verify_previous(
+        ctx,
+        &[],
+        Some(wev::WideLink {
+            entity: wev::WideEntity::Province,
+            seq,
+            head,
+        }),
+    )
+    .unwrap();
+    let link = wide.wide_link.unwrap();
+    assert_eq!(
+        crate::layout::chain_of(after.get(province).data()).unwrap(),
+        (link.seq, link.head)
+    );
 }

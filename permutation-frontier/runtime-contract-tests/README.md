@@ -72,13 +72,19 @@ and serially, never the unrestricted library suite:
 - `proc::wide::expedition_exec::tests::system_cpi_tests::`
 - `proc::wide::expedition_return::proof::settlement::runtime_contract_tests::`
 
-The reviewed contiguous producer/combat/return child passed two functions:
+The reviewed contiguous producer/combat/capture/return child passed four functions:
 `proc::wide::expedition_gather::exec::lifecycle_tests::`. See
-`../../docs/integration/CODEX-BOUNDARY-LIFECYCLE-20261109.md` for exact scope.
-The configuration-only filter `proc::wide::public_proof_config_tests::` passed
-one function. Across these four disjoint final selections, eight functions
-passed; none is a real transaction or a whole-repository test pass. No test feature
-is added to the production manifest and no public gameplay gate is enabled.
+`../../docs/integration/CODEX-BOUNDARY-LIFECYCLE-20261109.md` and
+`../../docs/integration/CODEX-BOUNDARY-CAPTURE-RETURN-20261109.md` for exact scope.
+The original-origin resident return is a private Dissolve-to-reserve candidate,
+not a reverse sealed march or a newly enabled public instruction.
+The separate cursor regression `proc::wide::conquest_exec::cursor_runtime_tests::`
+passed one function. The configuration-only filter
+`proc::wide::public_proof_config_tests::` passed one function. Across these five
+disjoint final native selections, eleven functions passed. Nine pure ABI
+resident-receipt tests also passed through the ABI's own manifest. None is a real
+transaction or a whole-repository test pass. No test feature is added to the
+production manifest and no public gameplay gate is enabled.
 
 Root checks used a clean environment with fixed
 Cargo/rustc/clang/ar paths, offline mode and two build jobs.

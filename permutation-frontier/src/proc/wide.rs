@@ -2762,6 +2762,11 @@ mod garrison_exec;
 #[path = "wide_expedition_exec.rs"]
 mod expedition_exec;
 
+/// Closed mixed resident dissolve/return candidate. No public dispatcher.
+#[allow(dead_code)]
+#[path = "wide_expedition_resident.rs"]
+mod expedition_resident;
+
 /// Read-only mixed route stage; no dispatch or admission is enabled.
 #[path = "wide_expedition_route.rs"]
 mod expedition_route;

@@ -487,7 +487,12 @@ fn declare_siege_context(
     if !init::is_absent(target) {
         return Err(BAD_ACCOUNT);
     }
-    if !ap::resident_ok(r.u32(PV::RESOLVED_NEXT)?, bell) {
+    // A declaration writes its current-bell sidecar immediately. The resolver
+    // cannot consume that sidecar while catching up an older bell: its strict
+    // conquest validator rejects declarations from the future. Unlike ordinary
+    // pending host orders, declaration therefore needs every earlier bell done.
+    // Refuse before any live write/CPI instead of stranding the province cursor.
+    if r.u32(PV::RESOLVED_NEXT)? < bell {
         return Err(FrontierError::NotResident.into());
     }
     let faction = Ro(cd).u8(C::FACTION)?;
@@ -781,3 +786,44 @@ fn declare_siege_context(
 #[cfg(test)]
 #[path = "wide_conquest_exec_tests.rs"]
 pub(super) mod tests;
+
+// Isolated native integration only; production dispatch gates remain closed.
+#[cfg(all(
+    test,
+    feature = "runtime-contract-tests",
+    feature = "public-proof-tests",
+    feature = "system-cpi-tests",
+    not(target_os = "solana")
+))]
+pub(super) fn runtime_declare(p: &Pubkey, a: &[AccountInfo], x: &wix::DeclareSiege) -> R<()> {
+    declare_siege_inner(p, a, x, &Auth::Wallet)
+}
+#[cfg(all(
+    test,
+    feature = "runtime-contract-tests",
+    feature = "public-proof-tests",
+    feature = "system-cpi-tests",
+    not(target_os = "solana")
+))]
+pub(super) fn runtime_resolve(p: &Pubkey, a: &[AccountInfo], x: &wix::ResolveWithConquest) -> R<()> {
+    check_accounts(TopLevelShape(wix::RESOLVE_WITH_CONQUEST), a, None)?;
+    prologue::top_level(TopLevelShape(wix::RESOLVE_WITH_CONQUEST))?;
+    super::resolve_inner(
+        p,
+        a,
+        &wix::Resolve {
+            bell: x.bell,
+            beneficiary: x.beneficiary,
+        },
+        Some(x),
+    )
+}
+
+#[cfg(all(
+    test,
+    feature = "runtime-contract-tests",
+    feature = "system-cpi-tests",
+    not(target_os = "solana")
+))]
+#[path = "wide_conquest_cursor_runtime_tests.rs"]
+mod cursor_runtime_tests;
