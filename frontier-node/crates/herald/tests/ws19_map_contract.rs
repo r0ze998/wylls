@@ -470,11 +470,12 @@ async fn the_s1_ring_4_to_5_growth_matches_the_golden_and_8s_contract() {
     // before its Provinces exist, the router's 404 NoSuchRing (kept as it is).
     for (s, records) in [
         // 67 / 68 / 69 / 100 records plus one KEEP (PLACED) per Province
-        // with a keep: +54 for rings 2-4, +30 more once ring 5 is created.
-        ("before", 121),
-        ("extended", 122),
-        ("opened", 123),
-        ("grown", 184),
+        // with a keep: +54 for rings 2-4, +30 more once ring 5 is created;
+        // plus NEUTRAL for each genesis Free City: +24 in ring 4, +30 in ring 5.
+        ("before", 145),
+        ("extended", 146),
+        ("opened", 147),
+        ("grown", 238),
     ] {
         let mut want200: Vec<String> = vec![
             "/h/events".into(),
@@ -513,17 +514,32 @@ async fn the_s1_ring_4_to_5_growth_matches_the_golden_and_8s_contract() {
     }
     // The last four reads, as the router answers them in this world (no
     // bell resolved, no hour folded): the day's conquest feed is live and
-    // empty; control and standings are not written yet (404 NotYet). The keep
+    // populated by genesis Free Cities; control and standings are not written yet (404 NotYet). The keep
     // of (4,0) is the herald's keep index entry, filled from the KEEP
     // (PLACED) record OpenProvince emits (proc/map.rs; resolved bells would
     // add to it, none here): holder 0 (the wedge), tile 1, the 100-troop
     // home guard, no contest or capture.
     for s in gr::STAGES {
         assert_eq!(status(&g, s, "/h/conquest/0.json"), 200, "{s}");
-        assert_eq!(
-            body(&g, s, "/h/conquest/0.json"),
-            &json!({"v": 1, "day": 0, "events": []}),
-            "{s}"
+        let day = body(&g, s, "/h/conquest/0.json");
+        assert_eq!(day["day"], 0, "{s}");
+        let cities = day["events"].as_array().expect("conquest events");
+        assert_eq!(cities.len(), if s == "grown" { 54 } else { 24 }, "{s}");
+        for city in cities {
+            assert_eq!(city["kind"], "free_city", "{s}");
+            assert_eq!(city["bell"], 0, "{s}");
+            assert_eq!(city["to"], 6, "{s}");
+            assert_eq!(
+                city["detail"],
+                json!({"neutralKind": 0, "garrison": 300, "tier": 0}),
+                "{s}"
+            );
+        }
+        assert!(
+            cities
+                .iter()
+                .any(|e| e["p"] == 4 && e["q"] == 0 && e["site"] == 11),
+            "{s}: HOME city"
         );
         for (path, code) in [
             ("/h/control/latest.bin", "NotYet"),

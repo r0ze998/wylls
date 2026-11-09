@@ -403,6 +403,9 @@ function sharedEdge(a, b) {
   return out.length === 2 ? out : null;
 }
 
+/** The overview's site identity, including PSFOV2 kinds (its legacy prefix cannot encode a Free City). */
+export const overviewArtKey = rec => rec ? `${rec.control ?? ''}:${rec.owners.join('')}${rec.sites.join('')}|${rec.siteKinds?.join('') ?? ''}` : '';
+
 export class SpriteArt {
   /** `onLoad`: something still changed (art arrived): repaint all. `onTick`: an animation frame is due. */
   constructor({ onLoad = () => {}, onTick = onLoad, base = BASE } = {}) {
@@ -694,7 +697,7 @@ export class SpriteArt {
     const canPaint = () => !(passing && stale) && now() - t0 < budget;
     // nearest the centre of the view first, so what the eye is on is painted first
     for (const e of entries.slice().sort((a, b) => (a.dist ?? 0) - (b.dist ?? 0))) {
-      const state = e.rec ? `${e.rec.control ?? ''}:${e.rec.owners.join('')}${e.rec.sites.join('')}` + (e.prov ? (e.prov.siteMirror ?? []).map(m => `${m.state}${m.tier}`).join('') : (e.tiers ?? []).join('')) : '';
+      const state = e.rec ? overviewArtKey(e.rec) + (e.prov ? (e.prov.siteMirror ?? []).map(m => `${m.state}${m.tier}`).join('') : (e.tiers ?? []).join('')) : '';
       stale = !!this.farStale(e);
       // (the cloud sea is pale from the first frame: while its sprites are on their way the table must not show through as a dark hole)
       if (e.fog === 'unopened') { const o = this.outline(e.p, e.q); if (o?.fill) { ctx.fillStyle = '#dfe4e3'; ctx.fill(o.fill); } }
@@ -754,7 +757,7 @@ export class SpriteArt {
    * a stronghold). Cached until the drawn provinces' holdings change.
    */
   paintRealms(ctx, entries, { zoom, lod, lens = 'realm', levelAt = null, rev = 0, own = null }) {
-    const key = entries.map(e => (e.rec ? `${e.p},${e.q}:${e.rec.control ?? ''}:${e.rec.owners.join('')}${e.rec.sites.join('')}${e.prov ? (e.prov.siteMirror ?? []).map(m => m.tier).join('') : (e.tiers ?? []).join('')}` : '')).join('|');
+    const key = entries.map(e => (e.rec ? `${e.p},${e.q}:${overviewArtKey(e.rec)}${e.prov ? (e.prov.siteMirror ?? []).map(m => m.tier).join('') : (e.tiers ?? []).join('')}` : '')).join('|');
     const territoryKey = entries.map(e => e.territoryMode ? `${e.p},${e.q}:${e.territory?.owners?.join(',') ?? '?'}` : '').join('|');
     const rk = `${lod}|${rev}|${key}|${territoryKey}`;
     if (this.realmKey !== rk) { this.realm = buildRealms(entries, { grow: 1, levelAt, own }); this.realmKey = rk; }
@@ -860,7 +863,7 @@ export class SpriteArt {
 
   model(entries, { demoRoads = false, relics = [], waystones = [], demoSpecials = false, rivers = [], demoRivers = false, ringsOpen = null, alliedPairs = [], stamp = undefined, survey = null }) {
     const sig = [stamp, survey, survey?.board?.work?.tier ?? -1, demoRoads, demoSpecials, demoRivers, ringsOpen, alliedPairs.join('|'), relics.length ? relics : 0, waystones.length ? waystones : 0, rivers.length ? rivers : 0];
-    for (const e of entries) sig.push(e.p, e.q, e.fog, e.terrain, e.sites, e.names, e.rec, e.prov, e.clash, e.tiers, e.territoryMode, e.territory);
+    for (const e of entries) sig.push(e.p, e.q, e.fog, e.terrain, e.sites, e.names, e.rec, overviewArtKey(e.rec), e.prov, e.clash, e.tiers, e.territoryMode, e.territory);
     const old = this.modelSig;
     if (old && old.length === sig.length && sig.every((x, i) => x === old[i])) return this.modelNow;
     const allied = new Set(alliedPairs.map(([a, b]) => `${Math.min(a, b)}-${Math.max(a, b)}`));
@@ -884,7 +887,7 @@ export class SpriteArt {
         const j = lv >= L2 ? siteOf.get(i) : undefined;
         const m = j === undefined ? null : e.prov?.siteMirror?.[j] ?? null;
         const t = { q: h.q, r: h.r, x, y, name, cloud, lv, fog: cloud ? e.fog : survey?.showAll || !survey ? e.fog : FOG_OF_LEVEL[lv], v: artVariant(h.q, h.r), p: e.p, pq: e.q, pk, idx: i, site: j,
-          state: j === undefined ? undefined : m ? (m.state === 3 ? 5 : m.state === 4 ? 0 : m.state) : e.rec?.sites?.[j],
+          state: j === undefined ? undefined : m ? (m.state === 3 || m.state === 4 ? 0 : m.state) : e.rec?.siteKinds?.[j] === 2 ? 5 : e.rec?.sites?.[j],
           owner: j === undefined ? undefined : m ? m.faction : e.rec?.owners?.[j],
           // (the viewer's own village is drawn at its Holding's tier: the program writes a promotion to the Holding
           // alone and never rewrites the site's mirror in the Province, so the mirror would keep the old picture)

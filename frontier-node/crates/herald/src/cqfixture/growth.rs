@@ -50,8 +50,11 @@ use frontier_abi::v2::layout::world::season as SE;
 use frontier_abi::v2::layout::{write_header, AccountKind};
 use frontier_abi::v2::log::{self as v2log, AnyKind, CqKind, EntityKind, Link};
 use frontier_abi::v2::presets::{ConquestParams, MC_LOCAL_7D};
+use permutation_rules::fixed::MILLI;
+use permutation_rules::frontier::clash::NEUTRAL;
 use permutation_rules::frontier::geometry::{region_of, ring_provinces, ProvinceCoord};
-use permutation_rules::frontier::terrain::generate_province;
+use permutation_rules::frontier::holding::Tier;
+use permutation_rules::frontier::terrain::{free_city_site, generate_province};
 
 pub const SEASON_ID: u64 = 71;
 pub const GENESIS_TS: i64 = 1_800_000_000;
@@ -360,7 +363,7 @@ fn ring_seed_account(d: u16, status: u8, seed: [u8; 32]) -> Vec<u8> {
 }
 
 /// A Province v2 as OpenProvince writes it (terrain, sites, passable mask
-/// and keep from the ring seed), the wallet's holding and host at HOME.
+/// and keep/Free City from the ring seed), the wallet's holding and host at HOME.
 fn province(c: ProvinceCoord) -> Vec<u8> {
     let seed = ring_seed(c.ring() as u16);
     let t = generate_province(&seed, c);
@@ -393,6 +396,25 @@ fn province(c: ProvinceCoord) -> Vec<u8> {
         let o = P::site(s);
         put(&mut pd, o + SM::PEND0_BELL, &SM::NO_BELL.to_le_bytes());
         put(&mut pd, o + SM::PEND1_BELL, &SM::NO_BELL.to_le_bytes());
+    }
+    // OpenProvince's genesis Free City, using the same public terrain rule.
+    let cq = params();
+    if cq.free_city_min_ring != 0 && c.ring() >= cq.free_city_min_ring as u32 && t.site_count > 0 {
+        let fc = free_city_site(&seed, c, t.site_count);
+        assert!(
+            (c.p, c.q) != HOME || fc > 1,
+            "Free City must not replace fixture holdings"
+        );
+        let o = P::site(fc as usize);
+        pd[o + SM::STATE] = SM::STATE_FREE_CITY;
+        pd[o + SM::FACTION] = NEUTRAL;
+        pd[o + SM::TIER] = Tier::Hamlet as u8;
+        // Order, generation and held-since-hour remain zero at genesis.
+        let milli = cq
+            .free_city_garrison
+            .checked_mul(MILLI as u32)
+            .expect("Free City garrison");
+        put(&mut pd, o + SM::GARRISON, &milli.to_le_bytes());
     }
     let camp = cm::Camp {
         tile: 0,
@@ -554,6 +576,26 @@ fn growth_tx() -> (Tx, [usize; 4]) {
                     AnyKind::Cq(CqKind::KEEP),
                     &key,
                     &kp,
+                    &mut [(EntityKind::Province, &mut pd)],
+                ));
+            }
+            // OpenProvince emits NEUTRAL after KEEP. Genesis is at bell 0,
+            // so the real day-0 conquest feed includes these city discoveries.
+            for site in 0..pd[P::SITE_COUNT] {
+                let o = P::site(site as usize);
+                if pd[o + SM::STATE] != SM::STATE_FREE_CITY {
+                    continue;
+                }
+                let mut nk = key.clone();
+                nk.push(site);
+                let mut np = vec![v2log::neutral_kind::GENESIS_FREE_CITY];
+                np.extend(params().free_city_garrison.to_le_bytes());
+                np.push(Tier::Hamlet as u8);
+                bodies.push(rec_at(
+                    AnyKind::Cq(CqKind::NEUTRAL),
+                    0,
+                    &nk,
+                    &np,
                     &mut [(EntityKind::Province, &mut pd)],
                 ));
             }

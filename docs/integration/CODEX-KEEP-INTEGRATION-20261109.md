@@ -73,9 +73,9 @@ Local logs and order/keep screenshots are under
 boundaries. This run adds only UI-state handlers (`hand-info`, `drawer-close`,
 `mountSheet`) and same-turn clock arithmetic to that audit.
 
-## Not established
+## Limits at the original 0d252f0f checkpoint
 
-**Rust comparison was not run on this Mac.** Its runtime fixture → ingest →
+**At that checkpoint, Rust comparison had not been run on this Mac.** Its runtime fixture → ingest →
 fold → loopback router path was reviewed, but a fresh build is needed here.
 Herald's development dependencies pull in LiteSVM/Solana and many build
 scripts/procedural macros. Their exact feature/host closure and every
@@ -92,7 +92,17 @@ env -u WS19_GOLDEN_WRITE cargo test -p herald --offline --locked --test ws19_map
 `WS19_GOLDEN_WRITE` must be absent: setting it to `0` still enables rewriting.
 Do not regenerate merely to make a comparison pass.
 
-The fixture still omits genesis Free City / NEUTRAL records. It uses synthetic
+At that checkpoint, the fixture omitted genesis Free City / NEUTRAL records. It uses synthetic
 transactions with fixed public byte patterns and NO_BELL records, not a real
 executed OpenProvince transaction. This is map/read-path and pre-send UI
 verification, not full-game, sealing, transaction, landing or CI completion.
+
+## Follow-up closed on 2026-11-09
+
+The exact offline Rust build closure was subsequently audited, and the original
+three map-contract tests passed before any Free City fixture edits. Canonical
+Free City mirrors and NEUTRAL records were then added, regenerated through the
+real router, reviewed semantically, and compared successfully with writes
+unset. See [Free City integration](CODEX-FREE-CITY-INTEGRATION-20261109.md) and
+[the Rust source audit](CODEX-RUST-MAP-AUDIT-20261109.md). The real-transaction,
+sealing, landing and full-game limits still apply.

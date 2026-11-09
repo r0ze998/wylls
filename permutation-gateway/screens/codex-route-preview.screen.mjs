@@ -21,6 +21,7 @@ const GOLDEN = JSON.parse(readFileSync(new URL('../../frontier-node/crates/heral
 const PAL = JSON.parse(readFileSync(new URL('../../frontier-node/crates/herald/tests/golden/ws19-map-growth-s1-palisade.json', import.meta.url)));
 const TYPES = { '.html': 'text/html', '.mjs': 'text/javascript', '.js': 'text/javascript', '.css': 'text/css', '.json': 'application/json', '.wasm': 'application/wasm', '.svg': 'image/svg+xml', '.png': 'image/png', '.webp': 'image/webp', '.woff2': 'font/woff2' };
 const HOST = { p: 4, q: 0, tile: 0 }, TARGET = { p: 5, q: 0, tile: 0 };
+const CITY = { p:4, q:0, tile:43 }; // canonical site11, beyond this fixture's current sight
 const AROUND = [5,0,0,1,0,1,1,0,1,1];
 
 async function serve() {
@@ -214,10 +215,77 @@ for (const vp of [{width:1440,height:900,name:'desktop'}, {width:390,height:844,
         if(phone) await close.tap(); else await close.click();
         await page.waitForFunction(async()=>!(await import('/frontier/fstate.mjs')).FS.compose);
       }
+      // The real Free City is outside this player's sight. Fetching the
+      // Province must not expose its identity, defenders or attack action.
+      await selectHost();
+      const release=page.locator('#hand [data-act="hand-close"]');
+      if(phone) await release.tap(); else await release.click();
+      await tap(CITY);
+      if(phone && await page.locator('#panel').getAttribute('data-sheet')==='peek') await page.locator('#panel [data-sheet-handle]').tap();
+      const hiddenCity=await page.evaluate(async()=>{
+        const {FS}=await import('/frontier/fstate.mjs'),{inspectModel}=await import('/frontier/hud/inspect.mjs'),{tileName}=await import('/frontier/hud/place.mjs');
+        const m=inspectModel(FS,FS.terrainOf),pv=FS.provinces.get('4,0').province;
+        return {selected:[FS.selected.p,FS.selected.q,FS.selected.idx],level:FS.survey.levelOf(4,0,43),
+          canonicalState:pv.siteMirror[11].state,canonicalGarrison:pv.siteMirror[11].garrison,
+          site:m.tile.site,name:tileName(FS,4,0,43),session:!!FS.session};
+      });
+      assert.deepEqual(hiddenCity.selected,[4,0,43]);
+      assert.deepEqual([hiddenCity.canonicalState,hiddenCity.canonicalGarrison],[5,300000]);
+      assert.equal(hiddenCity.level,1,'own village and host cannot see the city');
+      assert.equal(hiddenCity.site,null,'inspector preserves fog');
+      assert.notEqual(hiddenCity.name,'自由都市','destination naming preserves fog');
+      assert.equal(hiddenCity.session,false);
+      assert.doesNotMatch(await page.locator('#panel').textContent(),/守備隊 300|自由都市/);
+      await page.screenshot({path:`${outDir}/${vp.name}-free-city-fog.png`});
+      const cityClose=page.locator('#panel [data-act="drawer-close"]');
+      if(phone) await cityClose.tap(); else await cityClose.click();
+      await selectHost();
+      const cityAction=await page.evaluate(async()=>{
+        const {tileHex}=await import('/frontier/fgeo.mjs'),h=tileHex(4,0,43),a=window.__wyllsMap.source().actions;
+        const {FS}=await import('/frontier/fstate.mjs'),{kindOf}=await import('/frontier/map/actions.mjs');
+        return {marker:a?.byHex.get(`${h.q},${h.r}`)?.kind,kind:kindOf(FS.provinces.get('4,0').province,43,{faction:FS.citizen.faction,level:FS.survey.levelOf(4,0,43)})};
+      });
+      assert.ok(cityAction.marker===undefined || cityAction.marker==='move','unsurveyed city does not leak an attack marker');
+      assert.equal(cityAction.kind,'move','real survey keeps the target unknown');
+      await tap(CITY);
+      await page.waitForFunction(async()=>!!(await import('/frontier/fstate.mjs')).FS.compose?.route);
+      const cityOrder=await snapshot(page);
+      assert.equal(cityOrder.session,false);
+      assert.deepEqual([cityOrder.compose.dest.p,cityOrder.compose.dest.q,cityOrder.compose.dest.tile],[4,0,43]);
+      assert.doesNotMatch(await page.locator('.mc-dest-name:visible, .order-sum .os-dest:visible').first().textContent(),/自由都市/);
+      await page.screenshot({path:`${outDir}/${vp.name}-free-city-order.png`});
+      const cancelCity=page.locator('[data-act="compose-close"]:visible').first();
+      if(phone) await cancelCity.tap(); else await cancelCity.click();
+      await page.waitForFunction(async()=>!(await import('/frontier/fstate.mjs')).FS.compose);
       await page.reload();
       await page.waitForFunction(async()=>{const {FS}=await import('/frontier/fstate.mjs');return FS.playReady&&FS.meStatus==='ready'&&!!FS.s1?.structures;});
       assert.equal((await snapshot(page)).compose,null,'reload does not restore a stale order card');
       assert.equal((await snapshot(page)).session,false,'reload does not create a session');
+      // The original spectator page intentionally sees public world state.
+      // This validates a visible city without changing the player's survey.
+      await page.goto(`${srv.base}/frontier/spectate.html?devWallet=off&at=4,0,43,${phone?'0.55':'1.0'}`);
+      await page.waitForFunction(async()=>{
+        const {FS}=await import('/frontier/fstate.mjs');
+        return FS.mode==='spectate'&&FS.overviewsBooted&&FS.conquest?.status==='ready'&&FS.survey?.showAll&&!!window.__wyllsMap;
+      },null,{timeout:30000});
+      await tap(CITY);
+      await page.waitForFunction(async()=>{
+        const {FS}=await import('/frontier/fstate.mjs');
+        return FS.selected?.p===4&&FS.selected?.q===0&&FS.selected?.idx===43&&FS.provinces.get('4,0')?.province?.siteMirror?.[11]?.state===5;
+      });
+      if(phone && await page.locator('#panel').getAttribute('data-sheet')==='peek') await page.locator('#panel [data-sheet-handle]').tap();
+      const observed=await page.evaluate(async()=>{
+        const {FS}=await import('/frontier/fstate.mjs'),{inspectModel}=await import('/frontier/hud/inspect.mjs');
+        const m=inspectModel(FS,FS.terrainOf);
+        return {mode:FS.mode,level:m.level,state:m.tile.site.state,garrison:m.tile.site.garrison,wallet:FS.wallet,session:FS.session,compose:!!FS.compose};
+      });
+      assert.deepEqual(observed,{mode:'spectate',level:3,state:'freeCity',garrison:300,wallet:null,session:null,compose:false});
+      const cityPanel=page.locator('#panel');
+      assert.match(await cityPanel.textContent(),/自由都市/);
+      assert.match(await cityPanel.textContent(),/守備隊 300/);
+      assert.equal(await cityPanel.locator('[data-act="cq-outpost"]').count(),0);
+      await cityPanel.getByText('自由都市',{exact:true}).first().scrollIntoViewIfNeeded();
+      await page.screenshot({path:`${outDir}/${vp.name}-free-city-spectator.png`});
       assert.deepEqual(keyCalls,[],'Node runner made no key operation');
       assert.deepEqual(srv.writes,[],'server received no writes');
       assert.deepEqual(requests.filter(r=>!['GET','HEAD'].includes(r.method)),[],'browser made no writes');

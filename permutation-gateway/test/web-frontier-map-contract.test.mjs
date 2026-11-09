@@ -222,6 +222,29 @@ test('S1: me names the wallet\'s Holding at (4,0) and its host on tile 0; overvi
   }
 });
 
+test('S1: canonical Free Cities agree across Province, PSFOV2 and NEUTRAL conquest records', async () => {
+  for (const stage of S1_STAGES) {
+    const {h}=s1Herald(stage);
+    const day=await h.conquestDay(0);
+    assert.ok(day.ok,stage);
+    for (const [p,q,site,tile] of [[4,0,11,43], ...(stage==='grown'?[[5,0,8,48]]:[])]) {
+      const result=await h.province(p,q);
+      assert.ok(result.ok,stage);
+      const pv=result.province, m=pv.siteMirror[site];
+      assert.equal(pv.sites[site],tile,stage);
+      assert.deepEqual([m.state,m.faction,m.tier,m.garrison],[5,6,0,300000],stage);
+      assert.equal(pv.siteMirror.filter(x=>x.state===5).length,1,stage);
+      const ov=await h.overview2(p);
+      assert.ok(ov.ok,stage);
+      const rec=ov.provinces.find(x=>x.p===p&&x.q===q);
+      assert.equal(rec.siteKinds[site],2,`${stage}: PSFOV2 Free City kind`);
+      const event=day.day.events.find(x=>x.p===p&&x.q===q);
+      assert.equal(event.site,site,stage);
+      assert.deepEqual(event.detail,{neutralKind:0,garrison:300,tier:0},stage);
+    }
+  }
+});
+
 test('S1: the router\'s seeds and growth fields are 8\'s (growth-route.mjs ringSeed, growthFields) at every stage', async () => {
   const G = await import('./fixtures/frontier/growth-route.mjs');
   for (const stage of S1_STAGES) {
@@ -322,7 +345,8 @@ test('S1 palisade case: the stance is read from the nations feed, not defaulted 
 // The router's own answers for the record feed, the rosters of rings 0–5, the inner overviews, the Provinces round the
 // origin and the two other S1 feeds, read with the page's own decoders. A 404 the router gives stays a 404.
 // 67 / 68 / 69 / 100 records plus one KEEP (PLACED) per Province with a keep (+54 for rings 2–4, +30 for ring 5).
-const S1_RECORDS = { before: 121, extended: 122, opened: 123, grown: 184 };
+// Plus NEUTRAL genesis Free Cities: +24 in ring 4 and +30 in ring 5.
+const S1_RECORDS = { before: 145, extended: 146, opened: 147, grown: 238 };
 
 test('S1 golden-absent reads: the record feed, as herald.mjs events() reads it', async () => {
   for (const stage of S1_STAGES) {
@@ -393,12 +417,16 @@ function stageFetch2(stage) {
   return { f };
 }
 
-test('S1 last four reads: conquest day 0 is the router\'s live empty feed; control and standings are its own 404s; the keep is read', async () => {
+test('S1 last four reads: conquest day 0 contains genesis Free Cities; control and standings are its own 404s; the keep is read', async () => {
   for (const stage of S1_STAGES) {
     const { h, asked } = s1Herald(stage);
     const c = await h.conquestDay(0);
     assert.ok(c.ok, `${stage}: ${c.code} ${c.message ?? ''}`);
-    assert.deepEqual(c.day.events, [], `${stage}: no keep contest or capture yet`);
+    assert.equal(c.day.events.length, stage === 'grown' ? 54 : 24, stage);
+    assert.ok(c.day.events.every(e => e.kind === 'free_city' && e.bell === 0 && e.to === 6), stage);
+    const home = c.day.events.find(e => e.p === 4 && e.q === 0);
+    assert.equal(home.site, 11, stage);
+    assert.deepEqual(home.detail, {neutralKind:0,garrison:300,tier:0}, stage);
     for (const [call, path, code] of [
       [() => h.control(), '/h/control/latest.bin', 'NotYet'],
       [() => h.standings(), '/h/standings/latest.json', 'NotYet'],

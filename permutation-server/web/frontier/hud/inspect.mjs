@@ -80,7 +80,7 @@ export function inspectModel(FS, terrainOf) {
   if (j >= 0 && here >= 2) {
     const m = here === 3 ? prov?.siteMirror?.[j] : null;
     // (the v2 mirror: 3 is a released site, free again; 5 a genesis Free City, `site::STATE_FREE_CITY`)
-    const state = m ? (m.state === 5 ? 'freeCity' : ['free', 'holding', 'camp', 'free', 'reserved'][m.state] ?? 'free') : ['free', 'holding', 'camp', 'reserved'][rec?.sites?.[j] ?? 0];
+    const state = m ? (m.state === 5 ? 'freeCity' : ['free', 'holding', 'camp', 'free', 'reserved'][m.state] ?? 'free') : rec?.siteKinds?.[j] === 2 ? 'freeCity' : ['free', 'holding', 'camp', 'reserved'][rec?.sites?.[j] ?? 0];
     const faction = m ? m.faction : rec?.owners?.[j];
     const mine = (FS.holdings ?? []).find(h => h.p === s.p && h.q === s.q && h.site === j) ?? null;
     const holder = state === 'holding' ? FS.roster?.ownerOf(s.p, s.q, j) ?? null : null;
@@ -203,7 +203,7 @@ export function render(FS, terrainOf, activities = null) {
   const side = site?.mine ? chip(L`あなたの村`, 'you') : held ? chip(html`${raw(leaderHex(site.faction, { size: 30 }))}${swatch(site.faction)}${factionName(site.faction)}`) : t?.camp ? chip(L`${fmtNum(t.camp.troops)} 兵`, 'bad')
     : s1 ? (s1.own ? chip(L`あなたのもの`, 'you') : chip(html`${swatch(s1.faction)}${factionName(s1.faction)}`)) : '';
   const chips = [];
-  if (held && site.garrison !== null) chips.push(chip(L`守備隊 ${fmtNum(site.garrison)}`, '', 'shield'));
+  if ((held || site?.state === 'freeCity') && site.garrison !== null) chips.push(chip(L`守備隊 ${fmtNum(site.garrison)}`, '', 'shield'));
   if (site?.shield) chips.push(html`${chip(L`保護中（攻撃されません）`, 'info', 'shield')}`);
   if (m.clash) chips.push(chip(L`このターンに衝突あり`, 'bad', 'swords'));
   // every chip explains itself (UX design 12.6; the second check: the viewer's own village carried 「シンダー 敵対」 with
@@ -240,7 +240,7 @@ export function render(FS, terrainOf, activities = null) {
     ${hosts}${doing}
     ${s1On() && FS.mode === 'play' && t && (m.level === 3 || ownHostsOn(FS, m.p, m.q, t.idx).length || raidOffers(FS).some(r => r.p === m.p && r.q === m.q && r.tile === t.idx)) ? renderS1Tile(FS, { p: m.p, q: m.q, idx: t.idx }) : ''}
     ${keepVisible && m.ring >= 2 ? renderKeep(FS, keep) : ''}
-    ${site && ['free', 'freeCity'].includes(site.state) && m.level === 3 && !territoryEnabled(FS) ? renderOutpost(FS, { p: m.p, q: m.q, site: site.index }) : ''}
+    ${site?.state === 'free' && m.level === 3 && !territoryEnabled(FS) ? renderOutpost(FS, { p: m.p, q: m.q, site: site.index }) : ''}
     ${!m.loaded && m.opened ? html`<p class="muted">${L`この州のようすを読み込んでいます…`}</p>` : ''}
     ${fold('i-more', L`くわしく`, html`<dl class="facts">${facts}</dl>${pin ? html`<div class="actions">${html`<button type="button" class="btn small" data-act="${pin.act}" ${dataAttrs(pin.data)}>${icon('pin')}${pin.text}</button>`}</div>` : ''}`)}
   </section>`;

@@ -70,7 +70,7 @@ const calm = (relations, a, b) => a === b || bit(relations, (a % 8) * 8 + (b % 8
 
 /**
  * What a reached tile is, for the viewer: 'home' (one of the viewer's own
- * villages), 'attack' (a camp, a hostile nation's village that is not under
+ * villages), 'attack' (a Free City, a camp, a hostile nation's village that is not under
  * protection, a hostile host), else 'move'. `level` is the survey's for the
  * tile: below 2 the map draws nothing there, so the tile is a plain move; at
  * 2 it draws villages only.
@@ -79,6 +79,8 @@ export function kindOf(prov, idx, { faction = null, level = 3, own = null, nowBe
   if (!prov || level < 2) return 'move';
   const j = Array.from(prov.sites ?? []).indexOf(idx);
   const m = j >= 0 ? prov.siteMirror?.[j] : null;
+  // Neutral Free Cities are siege targets before player diplomacy or holding protection (siege.rs).
+  if (m?.state === 5) return 'attack';
   if (m && m.state === 1) {
     if (own?.has(`${prov.p},${prov.q},${idx}`)) return 'home';
     const shielded = m.shieldUntilBell > nowBell && m.shieldUntilBell !== NO_BELL;
