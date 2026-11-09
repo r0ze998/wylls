@@ -23,7 +23,7 @@ impl WideFindex {
         world: WorldId,
         segment_bytes: u64,
     ) -> Result<Self, IngestError> {
-        Self::open_scoped(dir, program, world, segment_bytes, None)
+        Self::open_scoped(dir, program, world, segment_bytes, None, false)
     }
     /// Scoped resident observations only, not keeper authorization/history.
     pub fn open_with_resident(
@@ -33,7 +33,16 @@ impl WideFindex {
         segment_bytes: u64,
         ctx: frontier_abi::addr::AddrCtx,
     ) -> Result<Self, IngestError> {
-        Self::open_scoped(dir, program, world, segment_bytes, Some(ctx))
+        Self::open_scoped(dir, program, world, segment_bytes, Some(ctx), false)
+    }
+    pub fn open_with_expedition(
+        dir: &Path,
+        program: Address,
+        world: WorldId,
+        segment_bytes: u64,
+        ctx: frontier_abi::addr::AddrCtx,
+    ) -> Result<Self, IngestError> {
+        Self::open_scoped(dir, program, world, segment_bytes, Some(ctx), true)
     }
     fn open_scoped(
         dir: &Path,
@@ -41,6 +50,7 @@ impl WideFindex {
         world: WorldId,
         segment_bytes: u64,
         resident: Option<frontier_abi::addr::AddrCtx>,
+        expedition: bool,
     ) -> Result<Self, IngestError> {
         let st = IngestError::Store;
         std::fs::create_dir_all(dir).map_err(|e| st(e.to_string()))?;
@@ -48,6 +58,7 @@ impl WideFindex {
             Archive::open(&dir.join("archive"), segment_bytes).map_err(|e| st(e.to_string()))?;
         let path = dir.join("wide-index.sqlite");
         let mut index = match resident {
+            Some(ctx) if expedition => WideIndex::open_with_expedition(&path, program, world, ctx),
             Some(ctx) => WideIndex::open_with_resident(&path, program, world, ctx),
             None => WideIndex::open(&path, program, world),
         }

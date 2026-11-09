@@ -1,5 +1,5 @@
 //! Closed candidate for an original-origin host that is already resident wide.
-//! No wire instruction or public dispatcher calls these handlers. They retain
+//! The isolated draft codec is not publicly recognized or dispatched. These retain
 //! original ownership/issuance/capture/transit checks and stage paired receipts
 //! before effects. Current-generation live source only: captured previous
 //! generations, stranded cleanup and reverse sealed marches remain unsupported.
@@ -9,40 +9,7 @@ use frontier_abi::entry::{find_entry, read_entry, unit_from_u8, write_entry, Ent
 use frontier_abi::world_index::expedition::AccountResolver;
 use frontier_abi::world_index::expedition_resident_event as receipt;
 
-const fn spec(name: &'static str, signer: bool, wr: ap::Wr) -> ap::Spec {
-    ap::Spec {
-        name,
-        acc: ap::Acc::Any,
-        signer,
-        wr,
-    }
-}
-const DISSOLVE: &[ap::Group] = &[ap::Group {
-    specs: &[
-        spec("actor", true, ap::Wr::R),
-        spec("payer", true, ap::Wr::W),
-        spec("season", false, ap::Wr::R),
-        spec("citizen", false, ap::Wr::W),
-        spec("holding", false, ap::Wr::W),
-        spec("standing", false, ap::Wr::W),
-        spec("roster", false, ap::Wr::R),
-        spec("home", false, ap::Wr::R),
-    ],
-    min: 1,
-    max: 1,
-}];
-const RETURN: &[ap::Group] = &[ap::Group {
-    specs: &[
-        spec("payer", true, ap::Wr::W),
-        spec("season", false, ap::Wr::R),
-        spec("standing", false, ap::Wr::W),
-        spec("roster", false, ap::Wr::W),
-        spec("holding", false, ap::Wr::W),
-        spec("home", false, ap::Wr::R),
-    ],
-    min: 1,
-    max: 1,
-}];
+use frontier_abi::world_index::expedition_resident_ix::{DISSOLVE, RETURN};
 
 #[derive(Clone)]
 struct Snapshot {

@@ -1,5 +1,6 @@
 // Read-only observations from the separate typed index. Never terrain, game
 // authority, account authentication or a proof of complete event history.
+import { isExpeditionKind, expeditionOf, expeditionPairs } from './wideexpeditionhistory.mjs';
 import { isResidentKind, residentOf, residentPairs } from './wideresident.mjs';
 import { fromBase64, toBase64, toHex } from '../../sdk/bytes.mjs';
 import { parseWideInt, ringPosition, worldIdOf, WideError } from './wide.mjs';
@@ -99,12 +100,17 @@ export function parseWideIndexPage(v, { pins, through, snapshot, after = 0n, lim
     const event = uint(r?.event), archiveSequence = uint(r.archiveSequence), ordinal = uint(r.ordinal);
     fail(event === previous + 1n && archiveSequence > 0n && archiveSequence <= s.through);
     previous = event;
-    fail(r.format === 'PS2' || r.format === 'PSW1');
+    fail(r.format === 'PS2' || r.format === 'PSW1' || r.format === 'PSWC');
     fail(typeof r.body_b64 === 'string' && r.body_b64.length > 0 && r.body_b64.length <= 16384);
     const body = fromBase64(r.body_b64); fail(body.length > 6 && body.length <= 8192 && toBase64(body) === r.body_b64);
-    fail(Number.isInteger(r.kind) && body[1] === r.kind && typeof r.name === 'string' && /^[A-Z0-9_]{1,40}$/.test(r.name));
-    let province = null, holding = null, host = null, economy = null, garrison = null, resident = null;
-    if (isResidentKind(r.format, r.kind)) {
+    fail((r.format === 'PSWC' ? r.kind === null : Number.isInteger(r.kind) && body[1] === r.kind) && typeof r.name === 'string' && /^[A-Z0-9_]{1,40}$/.test(r.name));
+    let province = null, holding = null, host = null, economy = null, garrison = null, resident = null, expedition = null;
+    if (isExpeditionKind(r.format, r.kind)) {
+      province = r.province === null ? null : wideHistoryIdentity(r.province, s.world);
+      host = r.host === null ? null : wideHistoryIdentity(r.host, s.world, true);
+      holding = r.holding === null ? null : wideHistoryIdentity(r.holding, s.world, true);
+      expedition = expeditionOf(body, { ...r, province, host, holding }, pins);
+    } else if (isResidentKind(r.format, r.kind)) {
       province = wideHistoryIdentity(r.province, s.world);
       host = wideHistoryIdentity(r.host, s.world, true);
       fail(r.holding === null);
@@ -133,9 +139,10 @@ export function parseWideIndexPage(v, { pins, through, snapshot, after = 0n, lim
     } else {
       fail(body[0] === 1 && r.name === 'PS2' && r.province === null && r.holding === null && r.host === null);
     }
-    return { event, archiveSequence, ordinal, format: r.format, kind: r.kind, name: r.name, province, holding, host, economy, garrison, resident, body };
+    return { event, archiveSequence, ordinal, format: r.format, kind: r.kind, name: r.name, province, holding, host, economy, garrison, resident, expedition, body };
   });
-  const paired = residentPairs(rows);
+  const paired = residentPairs(rows), expeditionPaired = expeditionPairs(rows);
+  for (const row of rows) if (row.expedition) row.expeditionPairEvent = expeditionPaired.get(row.event) ?? null;
   for (const row of rows) if (row.resident) row.residentPairEvent = paired.get(row.event) ?? null;
   fail(uint(v.next) === previous && (!v.more || rows.length === limit));
   return { ...s, rows, next: previous, more: v.more, sourceCoverage: 'unknown', captureVerification: 'unverified' };

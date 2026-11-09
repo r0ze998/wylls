@@ -199,10 +199,13 @@ fn literal(owner: Pubkey, balance: u64, data: &[u8]) -> AccountSharedData {
     a
 }
 #[derive(Clone)]
-struct World(Vec<(Pubkey, AccountSharedData)>);
+struct World(
+    Vec<(Pubkey, AccountSharedData)>,
+    Vec<(i64, u64, Vec<Vec<Vec<u8>>>)>,
+);
 impl World {
     fn from_infos(infos: &[AccountInfo]) -> Self {
-        let mut world = Self(vec![]);
+        let mut world = Self(vec![], vec![]);
         for a in infos {
             if !world.0.iter().any(|(k, _)| k == a.key) {
                 world.add(
@@ -249,6 +252,7 @@ impl World {
         )
             -> Result<(), solana_program::program_error::ProgramError>,
     {
+        let observed_clock = prologue::now().unwrap();
         let privileges = roles
             .iter()
             .map(|(k, s, w)| InstructionAccount::new(self.index(*k) as u16, *s, *w))
@@ -281,6 +285,8 @@ impl World {
         for ((_, prior), next) in self.0.iter_mut().zip(&out.accounts) {
             *prior = next.clone();
         }
+        self.1
+            .push((observed_clock.ts, observed_clock.slot, out.logs.clone()));
         out
     }
 }
@@ -923,6 +929,7 @@ fn lifecycle_with_resident_return(retreat_bps: u16, capture_after: bool, return_
                 &mut world, &ctx, &clock, sk, citizen, hk, home, dest, dest_key, roster_key, day,
                 host,
             );
+            anchor_boundary_trace(&world, sk);
         }
     }
     assert!(!expedition_exec::EXPEDITION_ENABLED);
@@ -1512,9 +1519,9 @@ fn anchor_resident_fixture(
         for (address, signer, writable) in roles {
             // The official adapter rejects conflicting duplicate privileges.
             // These are consequently the effective AccountInfo flags as well.
-            assert!(roles.iter().all(|(other, s, w)| {
-                other != address || (s == signer && w == writable)
-            }));
+            assert!(roles
+                .iter()
+                .all(|(other, s, w)| { other != address || (s == signer && w == writable) }));
             let account = world.get(*address);
             bytes.extend_from_slice(address);
             bytes.extend_from_slice(&account.owner().to_bytes());
@@ -1600,5 +1607,38 @@ fn verify_resident_receipts(
     assert_eq!(
         crate::layout::chain_of(after.get(province).data()).unwrap(),
         (link.seq, link.head)
+    );
+}
+
+/// Actual successful invocation log-data from the continuous synthetic native
+/// lifecycle. Clock metadata is a fixture claim, not a transaction signature,
+/// RPC observation or authenticated ledger. No failed/rejected call is included.
+fn anchor_boundary_trace(world: &World, season: [u8; 32]) {
+    assert!(world.1.len() <= 256);
+    let mut bytes = b"BTRCv001".to_vec();
+    bytes.extend_from_slice(&PROGRAM);
+    bytes.extend_from_slice(&season);
+    bytes.extend_from_slice(&u32::try_from(world.1.len()).unwrap().to_le_bytes());
+    for (timestamp, slot, logs) in &world.1 {
+        bytes.extend_from_slice(&timestamp.to_le_bytes());
+        bytes.extend_from_slice(&slot.to_le_bytes());
+        assert!(logs.len() <= 32);
+        bytes.extend_from_slice(&u16::try_from(logs.len()).unwrap().to_le_bytes());
+        for fields in logs {
+            assert_eq!(fields.len(), 2);
+            for field in fields {
+                assert!(field.len() <= 800);
+                bytes.extend_from_slice(&u32::try_from(field.len()).unwrap().to_le_bytes());
+                bytes.extend_from_slice(field);
+            }
+        }
+    }
+    // Captured once from these actual successful native handler outputs. This
+    // immutable assertion has no writer, update mode or environment bypass.
+    assert_eq!(
+        bytes.as_slice(),
+        include_bytes!(
+            "../../../frontier-node/crates/fclient/tests/fixtures/original_boundary_v1.bin"
+        )
     );
 }

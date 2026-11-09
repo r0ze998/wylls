@@ -598,9 +598,9 @@ impl<P: ChainPort, D: DrandPort> Keeper<P, D> {
     /// cursors and every write gate are untouched; the observer's status
     /// always reports `automatic_writes: false` and `source_complete:
     /// false`. Starts empty on every process start (no journal).
-    /// Includes separately decoded, paired PS2/149 + PSW1/26 resident receipts
-    /// for this Season; their original-chain history remains unverified. Older
-    /// unsupported expedition receipts still block rather than being skipped.
+    /// Includes scoped original-expedition and paired resident receipts, plus
+    /// lifecycle commitments in an observation-only lane outside discovery.
+    /// Original history, semantic replay and completion remain unverified.
     #[cfg(feature = "wide-world-experimental")]
     pub fn enable_wide_observation(&mut self, limits: wideindex::Limits) -> Result<(), String> {
         let world = frontier_abi::world_index::WorldId::derive_legacy_season(
@@ -608,7 +608,7 @@ impl<P: ChainPort, D: DrandPort> Keeper<P, D> {
             &self.addrs.program.to_bytes(),
         )
         .map_err(|e| format!("{e:?}"))?;
-        self.wide_observer = Some(wideindex::WideObserver::new_with_resident(
+        self.wide_observer = Some(wideindex::WideObserver::new_with_expedition(
             wideindex::Scope {
                 program: self.addrs.program,
                 season: self.addrs.season,

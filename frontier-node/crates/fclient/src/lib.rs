@@ -44,6 +44,9 @@ pub mod tx;
 #[cfg(feature = "wide-records-experimental")]
 pub mod typed_log;
 pub mod vectors;
+/// Closed resident account/byte proposals, never an executable instruction.
+#[cfg(feature = "wide-records-experimental")]
+pub mod wide_resident_draft;
 
 pub use solana_address::Address;
 pub use solana_hash::Hash;

@@ -246,7 +246,25 @@ export function mountWideMode({ herald, canvas, doc = canvas?.ownerDocument ?? g
         caution.textContent = L`元の村を出た兵団の記録です。対応関係は履歴の真正性・現在の残高を証明しません。公開の実行経路は未接続で、署名・送信は行いません。`;
         li.append(caution);
       }
-      if (r.host && !r.resident) {
+      if (r.expedition) {
+        const x = r.expedition, details = doc.createElement('p');
+        details.textContent = `${L`境界移動・征服の記録（観測）`} / ${L`鐘`} ${String(x.bell)} / ${r.format}`;
+        li.append(details);
+        if (r.host) {
+          const identity = doc.createElement('p');
+          identity.textContent = `${x.sourceReference ? L`出資元の識別子（兵団の存在を示しません）` : L`出身`} ${formatCoord(r.host.p, r.host.q)} / ${L`村の場所 ${String(r.host.site)} · 世代 ${String(r.host.generation)}`} / ${L`識別子の連番`} ${String(r.host.hostSequence)}`;
+          li.append(identity);
+        }
+        if (x.pairClass) {
+          const pair = doc.createElement('p');
+          pair.textContent = r.expeditionPairEvent === null ? L`対応する記録はこのページにありません。` : L`このページ内で対応する記録：${String(r.expeditionPairEvent)}`;
+          li.append(pair);
+        }
+        const caution = doc.createElement('p');
+        caution.textContent = L`記録のハッシュ一致は、履歴の真正性・経済計算・現在の所有権を証明しません。ここから命令の構築・署名・送信は行いません。`;
+        li.append(caution);
+      }
+      if (r.host && !r.resident && !r.expedition) {
         // Holding-only Garrison receipts never enter host action review.
         const review = doc.createElement('button'); review.type = 'button';
         review.textContent = L`完全な識別子で操作を確認`;

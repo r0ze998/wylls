@@ -75,6 +75,7 @@ pub mod expedition_event;
 pub mod expedition_producer_event;
 pub mod expedition_settlement_event;
 pub mod expedition_resident_event;
+pub mod expedition_resident_ix;
 pub mod expedition_transport;
 pub mod holding;
 pub mod index;

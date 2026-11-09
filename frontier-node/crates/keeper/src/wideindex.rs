@@ -74,10 +74,10 @@
 //! duty planner reads them. The receipt's digests are not checked and its
 //! economy is not replayed here (that is the verifier's `wide_economy`).
 //!
-//! Lifecycle kinds 18–24 are deliberately unsupported until semantic replay
-//! and operation pairing exist. They block the whole batch before staging.
-//! Citizen-only PSWC sidecars likewise block the transaction adapter; neither
-//! is silently treated as an old Resolve, a legacy transaction or a no-op.
+//! Generic discovery refuses lifecycle kinds 18–24 and PSWC. The explicit
+//! expedition observer keeps these as commitment observations only, outside
+//! discovery: no replay, ownership, Resolve or completion inference. PSWC is
+//! Season-scoped and never advances a Province chain.
 //!
 //! `WideObserver::new_with_resident` separately accepts one paired original-host
 //! resident operation (PS2/149 + PSW1/26) per transaction. It advances only the
@@ -85,6 +85,9 @@
 //! pairing without authenticating original history or completion. Mixed
 //! receipt/ordinary batches and older unsupported expedition records still
 //! block. It never casts the resident receipt into an ordinary wide host event.
+//! `new_with_expedition` additionally preserves original 145/146/147/148/25 receipts
+//! in ordered mixed batches, staged atomically; zero-link producers advance no
+//! chain, and only real wide links continue the shared Province chain.
 
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -1938,6 +1941,8 @@ pub enum TxObservation {
     /// Dedicated, scoped original-host resident receipt pair. Never an
     /// ordinary wide lifecycle event or a source-authentication claim.
     Resident(WideBatch),
+    /// Ordered, scoped receipts; observation only, separate from discovery.
+    Expedition(Vec<fclient::typed_log::ProgramRecord>),
 }
 
 /// Frame-checked decoding of one feed transaction (`fclient::typed_log`,
@@ -1948,24 +1953,37 @@ pub fn observe_tx(
     tx: &fclient::ports::TxRecord,
     program: &Address,
 ) -> Result<TxObservation, fclient::typed_log::DecodeError> {
-    observe_tx_inner(tx, program, None)
+    observe_tx_inner(tx, program, None, false)
 }
 
 fn observe_tx_inner(
     tx: &fclient::ports::TxRecord,
     program: &Address,
     resident_ctx: Option<&AddrCtx>,
+    expedition: bool,
 ) -> Result<TxObservation, fclient::typed_log::DecodeError> {
     use fclient::typed_log::{
         decode_transaction, decode_transaction_with_resident, ProgramRecord, TransactionRecords,
     };
     let decoded = match resident_ctx {
+        Some(ctx) if expedition => {
+            fclient::typed_log::decode_transaction_with_expedition(tx, program, ctx)
+        }
         Some(ctx) => decode_transaction_with_resident(tx, program, ctx),
         None => decode_transaction(tx, program),
     }?;
     match decoded {
         TransactionRecords::RolledBack => Ok(TxObservation::RolledBack),
         TransactionRecords::Committed(records) => {
+            if expedition {
+                if records
+                    .iter()
+                    .all(|r| matches!(r, ProgramRecord::Ps2 { .. }))
+                {
+                    return Ok(TxObservation::Legacy);
+                }
+                return Ok(TxObservation::Expedition(records));
+            }
             if records
                 .iter()
                 .any(|r| matches!(r, ProgramRecord::Pswc { .. }))
@@ -2008,6 +2026,10 @@ fn observe_tx_inner(
                     ProgramRecord::Psw1 { body } => Some(body),
                     ProgramRecord::Ps2 { .. } => None,
                     ProgramRecord::Pswc { .. } => unreachable!("sidecar refused above"),
+                    ProgramRecord::ExpeditionOriginal { .. }
+                    | ProgramRecord::ExpeditionWide { .. } => {
+                        unreachable!("scoped decoder required")
+                    }
                     ProgramRecord::ResidentOriginal { .. } | ProgramRecord::ResidentWide { .. } => {
                         unreachable!("resident receipt refused above")
                     }
@@ -2034,6 +2056,7 @@ fn observe_tx_inner(
 /// shown the pages again from the legacy cursor's replay. While the legacy
 /// indexes are blocked no page is pulled, so the observer sees nothing
 /// new either (`source_complete` is `false` for that reason among others).
+#[derive(Clone)]
 pub struct WideObserver {
     pub model: WideDiscovery,
     pub rolled_back_txs: u64,
@@ -2073,6 +2096,12 @@ pub struct WideObserver {
     /// Explicit additive mode. Generic `new` remains fail-closed.
     resident_ctx: Option<AddrCtx>,
     resident_txs: u64,
+    expedition_enabled: bool,
+    expedition_records: u64,
+    lifecycle_records: u64,
+    sidecar_records: u64,
+    last_lifecycle: Option<fclient::typed_log::ProgramRecord>,
+    last_expedition: Option<fclient::typed_log::ExpeditionRecord>,
     /// At most one latest observation, not an unbounded history or duty hint.
     last_resident: Option<(
         u64,
@@ -2127,6 +2156,12 @@ impl WideObserver {
             chain_verified: 0,
             resident_ctx: None,
             resident_txs: 0,
+            expedition_enabled: false,
+            expedition_records: 0,
+            lifecycle_records: 0,
+            sidecar_records: 0,
+            last_lifecycle: None,
+            last_expedition: None,
             last_resident: None,
         }
     }
@@ -2147,6 +2182,187 @@ impl WideObserver {
         let mut out = Self::new(scope, limits);
         out.resident_ctx = Some(ctx);
         Ok(out)
+    }
+
+    /// Explicit scoped original-expedition observation, never semantic replay.
+    pub fn new_with_expedition(scope: Scope, limits: Limits) -> Result<Self, String> {
+        let mut out = Self::new_with_resident(scope, limits)?;
+        out.expedition_enabled = true;
+        Ok(out)
+    }
+
+    /// Retained exact typed identity, not a duty or evidence of completion.
+    pub fn expedition_receipt(&self) -> Option<&fclient::typed_log::ExpeditionRecord> {
+        self.last_expedition.as_ref()
+    }
+
+    fn apply_expedition(
+        &mut self,
+        tx: &fclient::ports::TxRecord,
+        records: &[fclient::typed_log::ProgramRecord],
+    ) -> Result<(), String> {
+        use fclient::typed_log::{ExpeditionRecord as E, ProgramRecord as P};
+        let limits = &self.model.limits;
+        if records.len() > limits.max_bodies_per_batch
+            || records.iter().any(|r| {
+                r.body().len()
+                    > frontier_abi::world_index::expedition_settlement_event::MAX_RECORD_LEN
+            })
+            || records
+                .iter()
+                .map(|r| r.body().len())
+                .fold(0usize, usize::saturating_add)
+                > limits.max_batch_bytes
+        {
+            return Err("expedition receipt input cap".into());
+        }
+        let ctx = self
+            .resident_ctx
+            .clone()
+            .ok_or("expedition scope missing")?;
+        let mut staged = self.clone();
+        let mut ordinary = WideBatch {
+            seq: tx.seq,
+            slot: tx.slot,
+            signature: tx.signature.to_string(),
+            bodies: vec![],
+        };
+        for r in records {
+            match r {
+                P::ExpeditionOriginal { .. } | P::ExpeditionWide { .. } => {
+                    let decoded = r
+                        .expedition(&ctx)
+                        .map_err(|e| format!("expedition: {e:?}"))?
+                        .ok_or("missing expedition receipt")?;
+                    if decoded.province().world() != staged.model.scope.world {
+                        return Err("expedition world mismatch".into());
+                    }
+                    if let E::Settlement(settlement) = &decoded {
+                        if let Some(link) = settlement.wide_link {
+                            let key = (
+                                WideEntity::Province as u8,
+                                settlement.identity.destination.to_bytes().to_vec(),
+                            );
+                            let previous = staged.chains.get(&key).copied();
+                            if previous.is_some_and(|h| h.terminal) {
+                                return Err("settlement follows ProvinceClosed".into());
+                            }
+                            if previous.is_none() && staged.chains.len() >= MAX_CHAIN_KEYS {
+                                return Err("expedition chain cap".into());
+                            }
+                            if link.seq == 0 {
+                                return Err("zero settlement chain sequence".into());
+                            }
+                            let genesis = previous.map_or(link.seq == 1, |h| h.from_genesis);
+                            if previous.is_some() || link.seq == 1 {
+                                let prior = previous.map_or(
+                                    frontier_abi::world_index::event::WideLink {
+                                        entity: WideEntity::Province,
+                                        seq: 0,
+                                        head: [0; 32],
+                                    },
+                                    |h| frontier_abi::world_index::event::WideLink {
+                                        entity: WideEntity::Province,
+                                        seq: h.seq,
+                                        head: h.head,
+                                    },
+                                );
+                                settlement
+                                    .verify_previous(&ctx, &[], Some(prior))
+                                    .map_err(|e| format!("settlement chain: {e:?}"))?;
+                            }
+                            staged.chains.insert(
+                                key,
+                                ChainHead {
+                                    seq: link.seq,
+                                    head: link.head,
+                                    slot: tx.slot,
+                                    terminal: false,
+                                    from_genesis: genesis,
+                                },
+                            );
+                            match previous {
+                                Some(_) => staged.chain_verified += 1,
+                                None if genesis => staged.chain_anchored_from_genesis += 1,
+                                None => staged.chain_anchored_unverified += 1,
+                            }
+                        }
+                    }
+                    staged.expedition_records += 1;
+                    staged.last_expedition = Some(decoded);
+                }
+                P::ResidentOriginal { .. } => {} // Paired by scoped decoder; applied at wide log position.
+                P::ResidentWide { body } => {
+                    let wide =
+                        frontier_abi::world_index::expedition_resident_event::Record::decode(
+                            &ctx, body,
+                        )
+                        .map_err(|e| format!("resident: {e:?}"))?;
+                    let original = records.iter().find_map(|r| match r {
+                        P::ResidentOriginal { body } => frontier_abi::world_index::expedition_resident_event::Record::decode(&ctx, body).ok().filter(|o| wide.pair(o).is_ok()).map(|_| body.clone()),
+                        _ => None,
+                    }).ok_or("resident pair missing")?;
+                    staged.apply_resident(&WideBatch {
+                        bodies: vec![original, body.clone()],
+                        ..ordinary.clone()
+                    })?;
+                }
+                P::Psw1 { body } => {
+                    let one = WideBatch {
+                        bodies: vec![body.clone()],
+                        ..ordinary.clone()
+                    };
+                    staged.input_caps(&one)?;
+                    let (heads, (genesis, unverified, verified)) = staged.chain_plan(&one)?;
+                    for (k, h) in heads {
+                        staged.chains.insert(k, h);
+                    }
+                    staged.chain_anchored_from_genesis += genesis;
+                    staged.chain_anchored_unverified += unverified;
+                    staged.chain_verified += verified;
+                    let decoded = WideRecord::decode(body).map_err(|e| format!("wide: {e:?}"))?;
+                    if decoded
+                        .province_of()
+                        .is_some_and(|p| p.world() != staged.model.scope.world)
+                    {
+                        return Err("lifecycle world mismatch".into());
+                    }
+                    if decoded.kind.conquest() {
+                        // Commitment observation ONLY: never synthesize a Resolve,
+                        // ownership change, host presence or terminal lifecycle state.
+                        staged.lifecycle_records += 1;
+                        staged.last_lifecycle = Some(r.clone());
+                    } else {
+                        ordinary.bodies.push(body.clone());
+                    }
+                }
+                P::Ps2 { .. } => {}
+                P::Pswc { body } => {
+                    let sidecar =
+                        frontier_abi::world_index::event::conquest::SidecarClose::decode(body)
+                            .map_err(|e| format!("sidecar: {e:?}"))?;
+                    if sidecar.season != ctx.season {
+                        return Err("sidecar season mismatch".into());
+                    }
+                    staged.sidecar_records += 1;
+                    staged.last_lifecycle = Some(r.clone());
+                }
+            }
+        }
+        if !ordinary.bodies.is_empty() {
+            staged
+                .model
+                .apply(&ordinary)
+                .map_err(|e| format!("wide model: {e:?}"))?;
+            staged.wide_txs += 1;
+        }
+        // apply_resident validates each pair at its actual wide log position;
+        // this public counter counts transactions, not pairs within one tx.
+        if staged.resident_txs != self.resident_txs {
+            staged.resident_txs = self.resident_txs + 1;
+        }
+        *self = staged;
+        Ok(())
     }
 
     /// Latest paired receipt's exact identity as a read selection only. The
@@ -2489,7 +2705,22 @@ impl WideObserver {
             {
                 self.gaps += 1;
             }
-            match observe_tx_inner(tx, program, self.resident_ctx.as_ref()) {
+            match observe_tx_inner(
+                tx,
+                program,
+                self.resident_ctx.as_ref(),
+                self.expedition_enabled,
+            ) {
+                Ok(TxObservation::Expedition(records)) => match self.apply_expedition(tx, &records)
+                {
+                    Ok(()) => applied += 1,
+                    Err(reason) => self.model.block_external(
+                        tx.seq,
+                        tx.slot,
+                        &tx.signature.to_string(),
+                        reason,
+                    ),
+                },
                 Ok(TxObservation::Legacy) => self.legacy_txs += 1,
                 Ok(TxObservation::RolledBack) => self.rolled_back_txs += 1,
                 Ok(TxObservation::Resident(batch)) => match self.apply_resident(&batch) {
@@ -2579,6 +2810,23 @@ impl WideObserver {
             "rolled_back_txs": self.rolled_back_txs,
             "replayed_txs": self.replayed_txs,
             "decode_failures": self.decode_failures,
+            "lifecycle_commitments": {
+                "enabled": self.expedition_enabled, "records": self.lifecycle_records,
+                "citizen_sidecars": self.sidecar_records,
+                "semantic_replay_verified": false, "completion_proven": false,
+                "source_authenticated": false, "original_history_verified": false,
+                "discovery_effects": false, "automatic_writes": false,
+                "latest_kind": self.last_lifecycle.as_ref().map(|r| if r.format() == "PSWC" { "PSWC".into() } else { format!("PSW1/{}", r.body()[1]) }),
+            },
+            "expedition_receipts": {
+                "enabled": self.expedition_enabled, "records": self.expedition_records,
+                "original_history_verified": false, "source_authenticated": false,
+                "completion_proven": false, "semantic_replay_verified": false,
+                "dispatch_available": false, "automatic_writes": false,
+                "producer_advances_chain": false,
+                "latest_identity_reference": self.last_expedition.as_ref().and_then(|r| r.host()).map(|h| hex::encode(h.to_bytes())),
+                "latest_province": self.last_expedition.as_ref().map(|r| hex::encode(r.province().to_bytes())),
+            },
             "resident_receipts": {
                 "enabled": self.resident_ctx.is_some(), "transactions": self.resident_txs,
                 "max_record_bytes": frontier_abi::world_index::expedition_resident_event::MAX_RECORD_LEN,

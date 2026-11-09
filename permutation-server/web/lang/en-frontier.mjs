@@ -919,4 +919,8 @@ export default {
   '対応する記録はこのページにありません。': 'The matching receipt is not on this page.',
   'このページ内で対応する記録：{0}': 'Matching receipt on this page: {0}',
   '元の村を出た兵団の記録です。対応関係は履歴の真正性・現在の残高を証明しません。公開の実行経路は未接続で、署名・送信は行いません。': 'This records a host from the original village. Matching receipts do not prove authentic history or current balances. Public execution is not connected; nothing is signed or submitted.',
+  '境界移動・征服の記録（観測）': 'Boundary movement and conquest record (observed)',
+  '出資元の識別子（兵団の存在を示しません）': 'Source identity reference (not proof of a host)',
+  '識別子の連番': 'Identity sequence',
+  '記録のハッシュ一致は、履歴の真正性・経済計算・現在の所有権を証明しません。ここから命令の構築・署名・送信は行いません。': 'Matching hashes do not prove authentic history, economic replay or current ownership. No instruction is constructed, signed or submitted here.',
 };
