@@ -34,6 +34,7 @@
 //! are no-ops.
 
 use std::collections::{BTreeMap, BTreeSet};
+use std::ops::Bound::{Excluded, Unbounded};
 use std::sync::Arc;
 
 use base64::Engine;
@@ -270,7 +271,19 @@ pub struct ProvMeta {
 /// Bells one transaction may close at most (a SkipQuiet skips ≤ 24).
 const MAX_CLOSE: u32 = 4_096;
 
+#[cfg(test)]
+#[derive(Default)]
+struct RebuildCopy {
+    current: usize,
+    peak: usize,
+    records: usize,
+    total: usize,
+}
+
 pub struct Fold {
+    // Logical temporary source-payload bytes only, not allocator/RSS or indexes.
+    #[cfg(test)]
+    rebuild_copy: RebuildCopy,
     pub cfg: FoldCfg,
     pub ctx: AddrCtx,
     pub st: State,
@@ -332,6 +345,8 @@ impl Fold {
         #[cfg(feature = "wide-world-experimental")]
         let wide = crate::wide::WideIndex::for_ctx(&ctx);
         let mut f = Fold {
+            #[cfg(test)]
+            rebuild_copy: RebuildCopy::default(),
             cfg,
             ctx,
             #[cfg(feature = "wide-world-experimental")]
@@ -353,13 +368,35 @@ impl Fold {
             // MC hook end
             rest: Default::default(),
         };
-        let all: Vec<([u8; 32], Vec<u8>)> =
-            f.st.accounts
-                .iter()
-                .map(|(k, c)| (*k, c.data.clone()))
-                .collect();
-        for (k, d) in all {
+        // Keep every capture available: wide index replay reads its slot from
+        // State. The index hooks must not mutate accounts. Seek strictly after
+        // the last address, retaining the old sorted order even at [255; 32].
+        // This trades O(N) traversal for O(N log N) seeks, but only one source
+        // payload is copied at a time (O(max payload), not O(total payload)).
+        // State, decoder allocations and growing derived indexes still exist.
+        let mut after = None;
+        loop {
+            let next = match after {
+                None => f.st.accounts.first_key_value(),
+                Some(k) => f.st.accounts.range((Excluded(k), Unbounded)).next(),
+            }
+            .map(|(k, c)| (*k, c.data.clone()));
+            let Some((k, d)) = next else { break };
+            #[cfg(test)]
+            {
+                f.rebuild_copy.current += d.len();
+                f.rebuild_copy.peak = f.rebuild_copy.peak.max(f.rebuild_copy.current);
+                f.rebuild_copy.records += 1;
+                f.rebuild_copy.total += d.len();
+            }
             f.index_account(&k, &d);
+            after = Some(k);
+            // Drop before the next seek/clone, including in instrumented tests.
+            drop(d);
+            #[cfg(test)]
+            {
+                f.rebuild_copy.current = 0;
+            }
         }
         f
     }
@@ -1356,3 +1393,7 @@ impl Fold {
 #[cfg(test)]
 #[path = "player_host_index_tests.rs"]
 mod player_host_index_tests;
+
+#[cfg(test)]
+#[path = "rebuild_capture_tests.rs"]
+mod rebuild_capture_tests;
