@@ -31,7 +31,9 @@ use std::collections::BTreeMap;
 use base64::Engine;
 use frontier_abi::layout::header;
 use frontier_abi::world_index::event::{
-    advance, WideEntity, WideLink, WideRecord, WideTarget, WIDE_LOG_PREFIX,
+    advance,
+    conquest::{SidecarClose, SIDECAR_LOG_PREFIX},
+    WideEntity, WideLink, WideRecord, WideTarget, WIDE_LOG_PREFIX,
 };
 use frontier_abi::world_index::holding::WideHolding;
 use frontier_abi::world_index::key::{ProvinceKey, WideHostRef};
@@ -69,9 +71,23 @@ pub enum Judgement {
 /// Decode only after rollback filtering: malformed rolled-back data is no
 /// committed record. Foreign and unframed data remain outside this check.
 /// Invocation depth, matching exits and complete logs are required when a
-/// retained target-frame PSW1 tag identifies relevant wide data. Other
+/// retained target-frame PSW1/PSWC tag identifies relevant wide data. Other
 /// transactions cannot acquire a wide finding from their frame shape alone.
 pub fn psw1_bodies(logs: &[String], program: &str) -> Result<Vec<Vec<u8>>, &'static str> {
+    wide_bodies(logs, program)?
+        .into_iter()
+        .map(|(sidecar, body)| {
+            if sidecar {
+                Err("PSWC requires sidecar-aware judgement")
+            } else {
+                Ok(body)
+            }
+        })
+        .collect()
+}
+
+/// Preserve the distinct sidecar format through the same frame/rollback filter.
+fn wide_bodies(logs: &[String], program: &str) -> Result<Vec<(bool, Vec<u8>)>, &'static str> {
     let b64 = base64::engine::general_purpose::STANDARD;
     let mut stack: Vec<(&str, usize)> = vec![];
     let mut pending = vec![];
@@ -140,7 +156,9 @@ pub fn psw1_bodies(logs: &[String], program: &str) -> Result<Vec<Vec<u8>>, &'sta
         raw.split_whitespace()
             .next()
             .and_then(|tag| b64.decode(tag).ok())
-            .is_some_and(|tag| tag.as_slice() == &WIDE_LOG_PREFIX[..])
+            .is_some_and(|tag| {
+                tag.as_slice() == &WIDE_LOG_PREFIX[..] || tag.as_slice() == SIDECAR_LOG_PREFIX
+            })
     });
     if !has_wide {
         return Ok(vec![]);
@@ -154,14 +172,15 @@ pub fn psw1_bodies(logs: &[String], program: &str) -> Result<Vec<Vec<u8>>, &'sta
         let tag = b64
             .decode(parts.next().ok_or("missing tag")?)
             .map_err(|_| "base64 tag")?;
-        if tag.as_slice() != &WIDE_LOG_PREFIX[..] {
+        let sidecar = tag.as_slice() == SIDECAR_LOG_PREFIX;
+        if tag.as_slice() != &WIDE_LOG_PREFIX[..] && !sidecar {
             continue;
         }
-        let body = parts.next().ok_or("missing PSW1 body")?;
+        let body = parts.next().ok_or("missing PSW1/PSWC body")?;
         if parts.next().is_some() {
-            return Err("extra PSW1 data");
+            return Err("extra PSW1/PSWC data");
         }
-        out.push(b64.decode(body).map_err(|_| "base64 body")?);
+        out.push((sidecar, b64.decode(body).map_err(|_| "base64 body")?));
     }
     Ok(out)
 }
@@ -285,13 +304,42 @@ pub fn judge(
         if !ok {
             continue;
         }
-        match psw1_bodies(logs, program) {
-            Ok(bs) => bodies.extend(bs.into_iter().map(|b| (*i, b))),
+        match wide_bodies(logs, program) {
+            Ok(bs) => {
+                for (sidecar, body) in bs {
+                    if sidecar {
+                        match SidecarClose::decode(&body) {
+                            Ok(receipt) => out.push(Judgement::Unverifiable {
+                                code: WIDE_UNMODELLED,
+                                tx: Some(*i),
+                                entity: format!(
+                                    "Citizen {} season {}",
+                                    hex::encode(receipt.citizen),
+                                    hex::encode(receipt.season)
+                                ),
+                                detail: concat!(
+                                    "PSWC sidecar is format-checked only; ",
+                                    "lifecycle replay and operation pairing are unsupported"
+                                )
+                                .into(),
+                            }),
+                            Err(e) => out.push(Judgement::Fail {
+                                code: WIDE_RECORD_UNDECODABLE,
+                                tx: Some(*i),
+                                entity: "transaction".into(),
+                                detail: format!("a PSWC body does not decode ({e:?})"),
+                            }),
+                        }
+                    } else {
+                        bodies.push((*i, body));
+                    }
+                }
+            }
             Err(why) => out.push(Judgement::Fail {
                 code: WIDE_RECORD_UNDECODABLE,
                 tx: Some(*i),
                 entity: "transaction".into(),
-                detail: format!("a PSW1 line does not decode ({why})"),
+                detail: format!("a PSW1/PSWC line does not decode ({why})"),
             }),
         }
     }

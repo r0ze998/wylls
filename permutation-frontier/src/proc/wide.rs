@@ -6,6 +6,12 @@
 //! bit, so its Seasons never mix with production Seasons, and every
 //! handler refuses a Season of another version (`RulesetMismatch`).
 //!
+//! Initial-Free-City conquest has authenticated declaration, shared Resolve,
+//! settlement and terminal-close implementations below, but every new public
+//! command remains behind `CONQUEST_LIFECYCLE_ENABLED = false`. Private host
+//! tests are not evidence that public gameplay, receipt replay or the broader
+//! original-game surface is enabled. Existing Resolve stays conquest-strict.
+//!
 //! | tag | handler | today |
 //! |---|---|---|
 //! | 0xD6 | [`request_ring_seed`] | **writes**: the wide ring seed of ring `d ≥ 129`, its round fixed by the kernel's `ring_seed_round`, after the deployed OpenRing gates, paid by the payer as a legacy RingSeed is |
@@ -223,6 +229,12 @@ pub fn dispatch(p: &Pubkey, a: &[AccountInfo], data: &[u8]) -> R<()> {
         C::Dissolve(x) => dissolve_as(p, a, &x, &Auth::Wallet),
         C::Economy(x) => economy_exec::economy_as(p, a, &x, &Auth::Wallet),
         C::Garrison(x) => garrison_exec::garrison_as(p, a, &x, &Auth::Wallet),
+        C::DeclareSiege(x) => conquest_exec::declare_siege_as(p, a, &x, &Auth::Wallet),
+        C::SettleSiege(x) => conquest_settle_exec::settle_siege(p, a, &x),
+        C::SettleCapture(x) => conquest_settle_exec::settle_capture(p, a, &x),
+        C::ResolveWithConquest(x) => resolve_with_conquest(p, a, &x),
+        C::CloseConquest(x) => conquest_settle_exec::close_conquest(p, a, &x),
+        C::CloseCaptureEscrow(_) => conquest_settle_exec::close_capture_escrow(p, a),
         C::Resolve(x) => resolve(p, a, &x),
         C::Return(_) => settle_return(p, a),
         C::CloseRoster(_) => close_roster(p, a),
@@ -2709,6 +2721,7 @@ pub fn resident_act(p: &Pubkey, accounts: &[AccountInfo], d: &[u8]) -> R<()> {
         C::Dissolve(d) => dissolve_as(p, a, &d, &auth),
         C::Economy(e) => economy_exec::economy_as(p, a, &e, &auth),
         C::Garrison(x) => garrison_exec::garrison_as(p, a, &x, &auth),
+        C::DeclareSiege(_) => conquest_exec::declare_siege_resident(p, accounts, d),
         _ => Err(FrontierError::BadData.into()),
     }
 }
@@ -2727,6 +2740,23 @@ mod economy_exec;
 /// Citizen, holding, province and both receipt chains commit atomically.
 #[path = "wide_garrison_exec.rs"]
 mod garrison_exec;
+
+/// Closed until authenticated dispatch, receipts and replay are verified as
+/// one lifecycle. There is deliberately no configuration or argument override.
+pub const CONQUEST_LIFECYCLE_ENABLED: bool = false;
+
+fn require_conquest_lifecycle() -> R<()> {
+    if !CONQUEST_LIFECYCLE_ENABLED {
+        return Err(FrontierError::NotImplemented.into());
+    }
+    Ok(())
+}
+
+#[path = "wide_conquest_exec.rs"]
+mod conquest_exec;
+
+#[path = "wide_conquest_settle_exec.rs"]
+mod conquest_settle_exec;
 
 /// Host-only claim over wide arrival evidence. The deployed pool and
 /// keeper-day claim are shared with narrow-world claims.
@@ -3311,8 +3341,35 @@ pub(crate) fn dissolve_as(p: &Pubkey, a: &[AccountInfo], x: &wix::Dissolve, auth
 pub fn resolve(p: &Pubkey, a: &[AccountInfo], x: &wix::Resolve) -> R<()> {
     check_accounts(TopLevelShape(wix::RESOLVE), a, None)?;
     prologue::top_level(TopLevelShape(wix::RESOLVE))?;
+    resolve_inner(p, a, x, None)
+}
+
+pub fn resolve_with_conquest(p: &Pubkey, a: &[AccountInfo], x: &wix::ResolveWithConquest) -> R<()> {
+    require_conquest_lifecycle()?;
+    check_accounts(TopLevelShape(wix::RESOLVE_WITH_CONQUEST), a, None)?;
+    prologue::top_level(TopLevelShape(wix::RESOLVE_WITH_CONQUEST))?;
+    resolve_inner(
+        p,
+        a,
+        &wix::Resolve {
+            bell: x.bell,
+            beneficiary: x.beneficiary,
+        },
+        Some(x),
+    )
+}
+
+/// One authenticated window/seed/arrival preparation and writeback path.
+/// The optional typed command selects only the model/receipt/table branch;
+/// it is private and never overrides the lifecycle dispatch gate.
+fn resolve_inner(
+    p: &Pubkey,
+    a: &[AccountInfo],
+    x: &wix::Resolve,
+    conquest: Option<&wix::ResolveWithConquest>,
+) -> R<()> {
     let [fee_payer, season_ai, province, roster_ai, seed_ai, anchor_ai, inputs_ai, day_ai, _system] =
-        a
+        a.get(..9).ok_or(FrontierError::TooManyAccounts)?
     else {
         return Err(FrontierError::TooManyAccounts.into());
     };
@@ -3323,6 +3380,25 @@ pub fn resolve(p: &Pubkey, a: &[AccountInfo], x: &wix::Resolve) -> R<()> {
     let world = world_of(&ctx)?;
     let prov = canonical_province(province, p, &ctx, hdr.id, world)?;
     let pkey = ProvinceKey::new(world, prov.coord);
+    let conquest_ai = if conquest.is_some() {
+        Some(a.get(9).ok_or(BAD_ACCOUNT)?)
+    } else {
+        None
+    };
+    let table_before = if let Some(ai) = conquest_ai {
+        // Resolve never creates or reconstructs a lost table. In particular
+        // an absent table cannot erase an outstanding nonzero prefix.
+        let table = conquest_exec::table_at(ai, p, &ctx, hdr.id, pkey)?.ok_or(BAD_ACCOUNT)?;
+        conquest_exec::paired(&table, &province.try_borrow_data()?)?;
+        Some(table.to_bytes().to_vec())
+    } else {
+        None
+    };
+    let manifest_before = if conquest.is_some() {
+        Some(conquest_exec::states(a, &[2])?)
+    } else {
+        None
+    };
     let rn = {
         let pd = province.try_borrow_data()?;
         Ro(&pd).u32(PV::RESOLVED_NEXT)?
@@ -3418,17 +3494,36 @@ pub fn resolve(p: &Pubkey, a: &[AccountInfo], x: &wix::Resolve) -> R<()> {
         wev::resolve_input_digest(pkey, x.bell, &seed, &sd, &pd_s, &rd_s, &cd_before)
     };
     let mut cd_s = cd_before;
-    let out = wres::resolve_bell(
-        &mut pd_s,
-        &roster,
-        &mut rd_s,
-        (!cd_s.is_empty()).then_some(&cd_s[..]),
-        x.bell,
-        &seed,
-        &frontier_ruleset(),
-        &prm,
-    )
-    .map_err(resolve_err)?;
+    let (out, table_after) = if let Some(table) = table_before.as_ref() {
+        let out = wres::resolve_bell_with_conquest(
+            &mut pd_s,
+            &roster,
+            &mut rd_s,
+            table,
+            (!cd_s.is_empty()).then_some(&cd_s[..]),
+            x.bell,
+            &seed,
+            &frontier_ruleset(),
+            &prm,
+        )
+        .map_err(resolve_err)?;
+        (out.bell, Some(out.conquest.to_bytes().to_vec()))
+    } else {
+        (
+            wres::resolve_bell(
+                &mut pd_s,
+                &roster,
+                &mut rd_s,
+                (!cd_s.is_empty()).then_some(&cd_s[..]),
+                x.bell,
+                &seed,
+                &frontier_ruleset(),
+                &prm,
+            )
+            .map_err(resolve_err)?,
+            None,
+        )
+    };
     // The gathered record takes the fates and the troops after of every
     // present arrival, the camp mask, the resolved flag, the resolver and
     // the resolve time (the deployed ResolveFromInputs' writes; no fee
@@ -3482,18 +3577,65 @@ pub fn resolve(p: &Pubkey, a: &[AccountInfo], x: &wix::Resolve) -> R<()> {
     }
     // The receipt and its chain can still refuse (notably at sequence
     // overflow). Finish them on scratch before allocation or live writes.
+    let old_payload = wev::resolve_payload(
+        &input,
+        &output,
+        out.clash.engagements,
+        out.applied.destroyed,
+        out.applied.bounced,
+        out.settled,
+    );
+    let conquest_payload = if let (Some(command), Some(before), Some(table)) =
+        (conquest, manifest_before.as_ref(), table_after.as_ref())
+    {
+        let mut after = before.clone();
+        after[2].data = pd_s.clone();
+        if present || create_roster {
+            after[3].data = rd_s.clone();
+            after[3].owner = p.to_bytes();
+            after[3].present = true;
+        }
+        if create_roster {
+            let need = rent_r.saturating_sub(before[3].lamports);
+            after[0].lamports = after[0]
+                .lamports
+                .checked_sub(need)
+                .ok_or(FrontierError::Insufficient)?;
+            after[3].lamports = after[3].lamports.checked_add(need).ok_or(OVERFLOW)?;
+        }
+        if !cd_s.is_empty() {
+            after[6].data = cd_s.clone();
+        }
+        after[9].data = table.clone();
+        for i in [0, 2, 3, 6, 9] {
+            let state = after[i].clone();
+            conquest_exec::replace(&mut after, i, state);
+        }
+        Some(conquest_exec::receipt(
+            2,
+            &command.to_bytes(),
+            now.ts,
+            x.bell,
+            &before[1].data,
+            &seed,
+            before,
+            &after,
+            &out.clash.digest(),
+        )?)
+    } else {
+        None
+    };
     let (record, record_len) = prepare_wide(
-        WideKind::Resolve,
+        if conquest.is_some() {
+            WideKind::ConquestResolved
+        } else {
+            WideKind::Resolve
+        },
         x.bell,
         &pkey.to_bytes(),
-        &wev::resolve_payload(
-            &input,
-            &output,
-            out.clash.engagements,
-            out.applied.destroyed,
-            out.applied.bounced,
-            out.settled,
-        ),
+        conquest_payload
+            .as_ref()
+            .map_or(&old_payload[..], |p| &p[..]),
         &mut [(WideEntity::Province, &mut pd_s[..])],
     )?;
     // ---- effects: optional roster allocation, then one byte commit ----
@@ -3512,9 +3654,14 @@ pub fn resolve(p: &Pubkey, a: &[AccountInfo], x: &wix::Resolve) -> R<()> {
             };
             let _payer_lamports = fee_payer.try_borrow_mut_lamports()?;
             let _roster_lamports = roster_ai.try_borrow_mut_lamports()?;
+            let td = conquest_ai.map(|ai| ai.try_borrow_mut_data()).transpose()?;
             if pd.len() != pd_s.len()
                 || !rd.is_empty()
                 || cd.as_ref().is_some_and(|d| d.len() != cd_s.len())
+                || td
+                    .as_ref()
+                    .zip(table_after.as_ref())
+                    .is_some_and(|(d, s)| d.len() != s.len())
             {
                 return Err(BAD_ACCOUNT);
             }
@@ -3544,9 +3691,14 @@ pub fn resolve(p: &Pubkey, a: &[AccountInfo], x: &wix::Resolve) -> R<()> {
         } else {
             Some(inputs_ai.try_borrow_mut_data()?)
         };
+        let mut td = conquest_ai.map(|ai| ai.try_borrow_mut_data()).transpose()?;
         if pd.len() != pd_s.len()
             || rd.as_ref().is_some_and(|d| d.len() != rd_s.len())
             || cd.as_ref().is_some_and(|d| d.len() != cd_s.len())
+            || td
+                .as_ref()
+                .zip(table_after.as_ref())
+                .is_some_and(|(d, s)| d.len() != s.len())
         {
             return Err(BAD_ACCOUNT);
         }
@@ -3556,6 +3708,9 @@ pub fn resolve(p: &Pubkey, a: &[AccountInfo], x: &wix::Resolve) -> R<()> {
         }
         if let Some(cd) = cd.as_mut() {
             cd.copy_from_slice(&cd_s);
+        }
+        if let (Some(td), Some(table)) = (td.as_mut(), table_after.as_ref()) {
+            td.copy_from_slice(table);
         }
     }
     solana_program::log::sol_log_data(&[wev::WIDE_LOG_PREFIX, &record[..record_len]]);

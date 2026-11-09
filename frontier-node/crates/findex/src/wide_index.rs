@@ -1,7 +1,9 @@
-//! Separate opt-in index for frame-attributed PS2 and PSW1 observations.
+//! Separate opt-in index for frame-attributed PS2, PSW1 and PSWC observations.
 //! This never writes the legacy tables or calls their coverage complete.
 //! Chain continuity is checked from zero; source coverage, signatures,
 //! gameplay validity and capture/account agreement remain unverified.
+//! PSWC is retained by its original tag/body, scoped by the public season/program
+//! world digest, without any invented Province, Holding, host or chain link.
 
 use sha2::{Digest, Sha256};
 use std::path::Path;
@@ -264,6 +266,17 @@ impl WideIndex {
         ))?;
         if let TransactionRecords::Committed(records) = decoded {
             for (ordinal, record) in records.iter().enumerate() {
+                if let Some(sidecar) = record
+                    .sidecar()
+                    .map_err(|e| format!("sidecar decode: {e:?}"))?
+                {
+                    let world =
+                        WorldId::derive_legacy_season(&sidecar.season, &self.program.to_bytes())
+                            .map_err(|e| format!("sidecar world: {e:?}"))?;
+                    if world != self.world {
+                        return Err("sidecar belongs to another world".into());
+                    }
+                }
                 let ordinal = i64::try_from(ordinal).map_err(|_| "too many records")?;
                 let wide = record.wide().map_err(|e| format!("wide decode: {e:?}"))?;
                 let (province, holding, host) = if let Some(w) = &wide {

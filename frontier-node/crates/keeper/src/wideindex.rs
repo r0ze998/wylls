@@ -73,18 +73,23 @@
 //! derives no host from the key, creates no host or transit entry, and no
 //! duty planner reads them. The receipt's digests are not checked and its
 //! economy is not replayed here (that is the verifier's `wide_economy`).
+//!
+//! Lifecycle kinds 18–24 are deliberately unsupported until semantic replay
+//! and operation pairing exist. They block the whole batch before staging.
+//! Citizen-only PSWC sidecars likewise block the transaction adapter; neither
+//! is silently treated as an old Resolve, a legacy transaction or a no-op.
 
 use std::collections::{BTreeMap, BTreeSet};
 
 use frontier_abi::addr::AddrCtx;
 use frontier_abi::world_index::event::{
-    EventError, MAX_BODY, WideEntity, WideKind, WideRecord, WideTarget, advance,
+    advance, EventError, WideEntity, WideKind, WideRecord, WideTarget, MAX_BODY,
 };
 use frontier_abi::world_index::{
-    ProvinceKey, WideHostRef, WorldId, arrival as wa, holding as wh, land as wl, march as wm,
-    roster as wro,
+    arrival as wa, holding as wh, land as wl, march as wm, roster as wro, ProvinceKey, WideHostRef,
+    WorldId,
 };
-use serde_json::{Value, json};
+use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
 use solana_address::Address;
 
@@ -202,6 +207,13 @@ pub enum Refusal {
         seq: u64,
         body: usize,
         error: EventError,
+    },
+    /// A canonical lifecycle receipt without semantic replay/operation pairing
+    /// support in this model (*blocks*). `body` is the zero-based body index.
+    UnsupportedKind {
+        seq: u64,
+        body: usize,
+        kind: WideKind,
     },
     /// A horizon below the cursor (nothing recorded).
     HorizonBehind { through_seq: u64, cursor: u64 },
@@ -647,11 +659,19 @@ fn u8_at(p: &[u8], o: usize) -> Option<u8> {
     p.get(o).copied()
 }
 
-/// Parses one decoded record into an event of the world `world`, or the
-/// reason it is refused: another world (`Err(Some(found))`) or a payload
-/// the kind's width does not explain (`Err(None)`, impossible after
-/// `decode` but never assumed).
-fn parse(r: &WideRecord<'_>, seq: u64, world: WorldId) -> Result<Ev, Option<[u8; 32]>> {
+enum ParseError {
+    Invalid(Option<[u8; 32]>),
+    Unsupported(WideKind),
+}
+impl From<Option<[u8; 32]>> for ParseError {
+    fn from(value: Option<[u8; 32]>) -> Self {
+        Self::Invalid(value)
+    }
+}
+
+/// Parse supported bodies only; lifecycle receipts are explicitly refused.
+/// Invalid bodies retain the existing wrong-world/short-payload distinction.
+fn parse(r: &WideRecord<'_>, seq: u64, world: WorldId) -> Result<Ev, ParseError> {
     let p = r.payload;
     let same = |k: ProvinceKey| -> Result<ProvinceKey, Option<[u8; 32]>> {
         if k.world() == world {
@@ -675,6 +695,13 @@ fn parse(r: &WideRecord<'_>, seq: u64, world: WorldId) -> Result<Ev, Option<[u8;
         })
     };
     Ok(match r.kind {
+        WideKind::ConquestDeclared
+        | WideKind::ConquestDebited
+        | WideKind::ConquestResolved
+        | WideKind::ConquestSettled
+        | WideKind::ConquestCaptured
+        | WideKind::ConquestCredited
+        | WideKind::ConquestTableClosed => return Err(ParseError::Unsupported(r.kind)),
         WideKind::Muster => {
             let (host, standing) = host_and_standing()?;
             // `alias u64` at offset 7 is deliberately not read.
@@ -1115,7 +1142,18 @@ impl WideDiscovery {
             };
             match parse(&r, batch.seq, self.scope.world) {
                 Ok(ev) => events.push(ev),
-                Err(Some(found)) => {
+                Err(ParseError::Unsupported(kind)) => {
+                    self.block(batch, Some(i), format!(
+                        "unsupported lifecycle kind {} ({kind:?}): semantic replay and operation pairing required",
+                        kind as u8
+                    ));
+                    return Err(Refusal::UnsupportedKind {
+                        seq: batch.seq,
+                        body: i,
+                        kind,
+                    });
+                }
+                Err(ParseError::Invalid(Some(found))) => {
                     self.block(batch, Some(i), "a key of another world".into());
                     return Err(Refusal::WrongWorld {
                         seq: batch.seq,
@@ -1123,7 +1161,7 @@ impl WideDiscovery {
                         found,
                     });
                 }
-                Err(None) => {
+                Err(ParseError::Invalid(None)) => {
                     self.block(batch, Some(i), "payload shorter than its kind".into());
                     return Err(Refusal::Malformed {
                         seq: batch.seq,
@@ -1900,15 +1938,24 @@ pub fn observe_tx(
     tx: &fclient::ports::TxRecord,
     program: &Address,
 ) -> Result<TxObservation, fclient::typed_log::DecodeError> {
-    use fclient::typed_log::{ProgramRecord, TransactionRecords, decode_transaction};
+    use fclient::typed_log::{decode_transaction, ProgramRecord, TransactionRecords};
     match decode_transaction(tx, program)? {
         TransactionRecords::RolledBack => Ok(TxObservation::RolledBack),
         TransactionRecords::Committed(records) => {
+            if records
+                .iter()
+                .any(|r| matches!(r, ProgramRecord::Pswc { .. }))
+            {
+                // Refuse the whole transaction before collecting any PSW1
+                // bodies. A Citizen sidecar is not a legacy/no-op record.
+                return Err(fclient::typed_log::DecodeError::UnsupportedSidecar);
+            }
             let bodies: Vec<Vec<u8>> = records
                 .into_iter()
                 .filter_map(|r| match r {
                     ProgramRecord::Psw1 { body } => Some(body),
                     ProgramRecord::Ps2 { .. } => None,
+                    ProgramRecord::Pswc { .. } => unreachable!("sidecar refused above"),
                 })
                 .collect();
             if bodies.is_empty() {

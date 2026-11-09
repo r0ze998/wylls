@@ -4,12 +4,12 @@
 
 use base64::Engine;
 use fclient::{
-    Address,
     ports::{PortResult, Signature, TxRecord},
+    Address,
 };
-use findex::{Source, wide_index::WideIndex, wide_store::WideFindex};
-use frontier_abi::world_index::{ProvinceKey, WideCoord, WideHostRef, WorldId, event as e};
-use serde_json::{Value, json};
+use findex::{wide_index::WideIndex, wide_store::WideFindex, Source};
+use frontier_abi::world_index::{event as e, ProvinceKey, WideCoord, WideHostRef, WorldId};
+use serde_json::{json, Value};
 use std::{
     collections::BTreeMap,
     path::{Path, PathBuf},
@@ -178,11 +178,10 @@ fn mixed_records_preserve_full_id_and_chains_without_legacy_tables_or_verificati
             .seq,
         1
     );
-    assert!(
-        i.chain(e::WideTarget::Province(key(129)))
-            .unwrap()
-            .is_none()
-    );
+    assert!(i
+        .chain(e::WideTarget::Province(key(129)))
+        .unwrap()
+        .is_none());
     assert_eq!(
         i.chain(e::WideTarget::Holding(host()))
             .unwrap()
@@ -218,7 +217,7 @@ fn every_kind_has_a_separate_wide_record_and_canonical_attribution() {
         .filter(|k| *k != e::WideKind::ProvinceClosed)
         .collect();
     kinds.push(e::WideKind::ProvinceClosed);
-    assert_eq!(kinds.len(), 17);
+    assert_eq!(kinds.len(), 24);
     let mut lines = Vec::new();
     for kind in kinds {
         let kb = if kind.host_keyed() {
@@ -228,7 +227,21 @@ fn every_kind_has_a_separate_wide_record_and_canonical_attribution() {
         } else {
             p.to_bytes().to_vec()
         };
-        let payload = if kind == e::WideKind::Garrison {
+        let payload = if kind.conquest() {
+            use e::conquest as c;
+            let action = match kind {
+                e::WideKind::ConquestDeclared | e::WideKind::ConquestDebited => c::DECLARE,
+                e::WideKind::ConquestResolved => c::RESOLVE,
+                e::WideKind::ConquestSettled => c::FAILED,
+                e::WideKind::ConquestCaptured | e::WideKind::ConquestCredited => c::CAPTURE,
+                e::WideKind::ConquestTableClosed => c::TABLE_CLOSE,
+                _ => unreachable!(),
+            };
+            c::Receipt::new(action, 0, [1; 32], [2; 32])
+                .unwrap()
+                .encode()
+                .to_vec()
+        } else if kind == e::WideKind::Garrison {
             e::garrison_payload(&e::GarrisonReceipt {
                 delta: 1,
                 now_ts: 100,
@@ -252,7 +265,16 @@ fn every_kind_has_a_separate_wide_record_and_canonical_attribution() {
     i.add(&[tx(1, lines)]).unwrap();
     i.mark_caught_up(1).unwrap();
     let page = i.events(0, 256).unwrap();
-    assert_eq!(page.events.len(), 17);
+    assert_eq!(page.events.len(), 24);
+    assert_eq!(i.status().unwrap().capture_verification, "unverified");
+    for ev in &page.events {
+        let record = e::WideRecord::decode(&ev.body).unwrap();
+        assert_eq!(ev.format, "PSW1");
+        if record.kind.conquest() && !record.kind.holding_keyed() {
+            assert_eq!(ev.province, Some(p.to_bytes().to_vec()));
+            assert!(ev.holding.is_none() && ev.host.is_none());
+        }
+    }
     assert!(
         i.chain(e::WideTarget::Province(p))
             .unwrap()
@@ -261,7 +283,7 @@ fn every_kind_has_a_separate_wide_record_and_canonical_attribution() {
     );
     // Holding-only receipts are attributed to the holding's own province
     // (`host().key()`, not the standing `p`), name the holding and no host;
-    // EconomyMirror and Garrison chain that province.
+    // EconomyMirror, Garrison and ConquestCaptured chain that province.
     let own = host().key();
     let economy: Vec<_> = page
         .events
@@ -270,9 +292,12 @@ fn every_kind_has_a_separate_wide_record_and_canonical_attribution() {
             ev.body[1] == e::WideKind::Economy as u8
                 || ev.body[1] == e::WideKind::EconomyMirror as u8
                 || ev.body[1] == e::WideKind::Garrison as u8
+                || ev.body[1] == e::WideKind::ConquestDebited as u8
+                || ev.body[1] == e::WideKind::ConquestCaptured as u8
+                || ev.body[1] == e::WideKind::ConquestCredited as u8
         })
         .collect();
-    assert_eq!(economy.len(), 3);
+    assert_eq!(economy.len(), 6);
     for ev in &economy {
         assert_eq!(ev.province, Some(own.to_bytes().to_vec()));
         assert_eq!(ev.holding, Some(host().holding_ref().to_bytes().to_vec()));
@@ -280,19 +305,68 @@ fn every_kind_has_a_separate_wide_record_and_canonical_attribution() {
     }
     assert_eq!(
         i.chain(e::WideTarget::Province(own)).unwrap().unwrap().seq,
-        2
+        3
     );
     // Muster, Dissolve, Return, Departed, TransitSettled, DepartureSettled,
-    // Economy, EconomyMirror, Garrison chain the holding: nine.
+    // Economy, EconomyMirror, Garrison and three holding-keyed lifecycle
+    // receipts chain the holding: twelve. This proves no semantic replay.
     assert_eq!(
         i.chain(e::WideTarget::Holding(host()))
             .unwrap()
             .unwrap()
             .seq,
-        9
+        12
     );
     drop(i);
     std::fs::remove_file(path).unwrap();
+}
+
+#[test]
+fn sidecar_is_preserved_without_chain_attribution_and_wrong_world_blocks_atomically() {
+    use e::conquest as c;
+    let season = [24; 32];
+    let world = WorldId::derive_legacy_season(&season, &program().to_bytes()).unwrap();
+    let body = c::SidecarClose {
+        season,
+        citizen: [25; 32],
+        bell: 9,
+        receipt: c::Receipt::new(c::ESCROW_CLOSE, 0, [1; 32], [2; 32]).unwrap(),
+    }
+    .encode()
+    .unwrap();
+    for valid_world in [true, false] {
+        let path = tmp();
+        let configured = if valid_world {
+            world
+        } else {
+            WorldId::new([8; 32]).unwrap()
+        };
+        let mut i = WideIndex::open(&path, program(), configured).unwrap();
+        let result = i.add(&[tx(1, vec![line(b"PS2", &ps2()), line(b"PSWC", &body)])]);
+        if valid_world {
+            result.unwrap();
+            i.mark_caught_up(1).unwrap();
+            let page = i.events(0, 256).unwrap();
+            assert_eq!(page.events.len(), 2);
+            let ev = &page.events[1];
+            assert_eq!(ev.format, "PSWC");
+            assert_eq!(ev.body, body);
+            assert!(ev.province.is_none() && ev.holding.is_none() && ev.host.is_none());
+            assert_eq!(i.status().unwrap().capture_verification, "unverified");
+        } else {
+            assert!(result
+                .unwrap_err()
+                .contains("sidecar belongs to another world"));
+            assert_eq!(i.status().unwrap().last_seq, 0);
+            assert!(i.status().unwrap().blocked.is_some());
+            assert_eq!(raw_count(&path, "wide_event"), 0);
+            assert!(i.add(&[tx(1, vec![line(b"PS2", &ps2())])]).is_err());
+        }
+        assert_eq!(raw_count(&path, "wide_chain"), 0);
+        assert_eq!(raw_count(&path, "wide_link"), 0);
+        drop(i);
+        std::fs::remove_file(path).unwrap();
+    }
 }
 #[test]
 fn bad_head_rolls_back_the_whole_batch_and_durable_block_refuses_later_reads() {
@@ -302,13 +376,12 @@ fn bad_head_rolls_back_the_whole_batch_and_durable_block_refuses_later_reads() {
     let first = c.muster(key(900));
     let mut second = c.muster(key(900));
     *second.last_mut().unwrap() ^= 1;
-    assert!(
-        i.add(&[
+    assert!(i
+        .add(&[
             tx(1, vec![line(b"PSW1", &first)]),
             tx(2, vec![line(b"PSW1", &second)])
         ])
-        .is_err()
-    );
+        .is_err());
     assert_eq!(i.status().unwrap().last_seq, 0);
     assert!(i.status().unwrap().blocked.is_some());
     assert_eq!(raw_count(&path, "wide_event"), 0);

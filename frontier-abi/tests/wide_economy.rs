@@ -957,8 +957,8 @@ fn economy_records_are_holding_keyed_with_full_identity_and_no_phantom_host() {
     assert_eq!(WideKind::EconomyMirror as u8, 16);
     assert_eq!(WideKind::from_u8(15), Some(WideKind::Economy));
     assert_eq!(WideKind::from_u8(16), Some(WideKind::EconomyMirror));
-    assert_eq!(WideKind::from_u8(18), None);
-    assert_eq!(ALL_KINDS.len(), 17);
+    assert_eq!(WideKind::from_u8(250), None);
+    assert_eq!(ALL_KINDS.len(), 24);
     assert!(ALL_KINDS.contains(&WideKind::Economy));
     assert!(ALL_KINDS.contains(&WideKind::EconomyMirror));
     for k in [WideKind::Economy, WideKind::EconomyMirror] {

@@ -1,9 +1,9 @@
-//! Opt-in, frame-attributed PS2/PSW1 decoding. This checks supplied runtime
+//! Opt-in, frame-attributed PS2/PSW1/PSWC decoding. This checks supplied runtime
 //! log structure, not the authenticity/completeness of an RPC/archive source.
 //! Legacy `log::bodies_from_logs` still refuses every PSW1 record.
 
 use base64::Engine;
-use frontier_abi::world_index::event::{EventError, WideRecord};
+use frontier_abi::world_index::event::{conquest::SidecarClose, EventError, WideRecord};
 use solana_address::Address;
 
 use crate::{log::Record, ports::TxRecord};
@@ -19,35 +19,59 @@ pub enum DecodeError {
     UnknownTag(Vec<u8>),
     Ps2(crate::log::LogError),
     Psw1(EventError),
+    Pswc(EventError),
+    /// The caller cannot semantically consume Citizen sidecar receipts.
+    UnsupportedSidecar,
 }
 
 /// Validated bytes retained with a distinct format tag. No short legacy key
 /// or host alias is substituted for a wide identity.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ProgramRecord {
-    Ps2 { body: Vec<u8>, record: Record },
-    Psw1 { body: Vec<u8> },
+    Ps2 {
+        body: Vec<u8>,
+        record: Record,
+    },
+    Psw1 {
+        body: Vec<u8>,
+    },
+    /// Citizen-address sidecar, never a Province/Holding chain record.
+    Pswc {
+        body: Vec<u8>,
+    },
 }
 
 impl ProgramRecord {
     pub fn body(&self) -> &[u8] {
         match self {
-            Self::Ps2 { body, .. } | Self::Psw1 { body } => body,
+            Self::Ps2 { body, .. } | Self::Psw1 { body } | Self::Pswc { body } => body,
         }
     }
     pub fn format(&self) -> &'static str {
         match self {
             Self::Ps2 { .. } => "PS2",
             Self::Psw1 { .. } => "PSW1",
+            Self::Pswc { .. } => "PSWC",
         }
     }
     /// Revalidates even if a library caller constructed the public enum.
     pub fn wide(&self) -> Result<Option<WideRecord<'_>>, DecodeError> {
         match self {
             Self::Ps2 { .. } => Ok(None),
+            Self::Pswc { body } => SidecarClose::decode(body)
+                .map(|_| None)
+                .map_err(DecodeError::Pswc),
             Self::Psw1 { body } => WideRecord::decode(body)
                 .map(Some)
                 .map_err(DecodeError::Psw1),
+        }
+    }
+    pub fn sidecar(&self) -> Result<Option<SidecarClose>, DecodeError> {
+        match self {
+            Self::Pswc { body } => SidecarClose::decode(body)
+                .map(Some)
+                .map_err(DecodeError::Pswc),
+            _ => Ok(None),
         }
     }
 }
@@ -76,6 +100,10 @@ fn decode_data(data: &str) -> Result<ProgramRecord, DecodeError> {
         b"PSW1" => {
             WideRecord::decode(&body).map_err(DecodeError::Psw1)?;
             Ok(ProgramRecord::Psw1 { body })
+        }
+        b"PSWC" => {
+            SidecarClose::decode(&body).map_err(DecodeError::Pswc)?;
+            Ok(ProgramRecord::Pswc { body })
         }
         _ => Err(DecodeError::UnknownTag(tag)),
     }

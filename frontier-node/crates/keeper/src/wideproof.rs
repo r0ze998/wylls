@@ -74,7 +74,7 @@
 use base64::Engine as _;
 use fclient::ports::TxRecord;
 use fclient::tx;
-use fclient::typed_log::{decode_transaction, TransactionRecords};
+use fclient::typed_log::{decode_transaction, ProgramRecord, TransactionRecords};
 use frontier_abi::addr::AddrCtx;
 use frontier_abi::prologue::{Acc, Wr};
 use frontier_abi::world_index::event::{WideKind, WideRecord, MAX_BODY, WIDE_LOG_PREFIX};
@@ -682,7 +682,16 @@ pub fn depart_proof(rec: &TxRecord, scope: &ProofScope) -> Result<DepartProof, U
     // malformed `PS2` or `PSW1` line anywhere in the program's frames (the
     // Depart's or another's) refuses the whole transaction.
     match decode_transaction(rec, &scope.program) {
-        Ok(TransactionRecords::Committed(_)) => {}
+        Ok(TransactionRecords::Committed(records)) => {
+            if records
+                .iter()
+                .any(|r| matches!(r, ProgramRecord::Pswc { .. }))
+            {
+                return Err(Unavailable::Records(
+                    "PSWC lifecycle sidecar is unsupported by departure proofs".into(),
+                ));
+            }
+        }
         Ok(TransactionRecords::RolledBack) => return Err(Unavailable::RolledBack),
         Err(fclient::typed_log::DecodeError::Truncated) => return Err(Unavailable::Truncated),
         Err(e) => return Err(Unavailable::Records(format!("{e:?}"))),

@@ -45,6 +45,14 @@
 //!
 //! | 17 `Garrison` | holding ref (56, sequence 0) | `GarrisonReceipt` (82: version1, delta i64 whole troops, now_ts i64, became_final u8, input [32], output [32]) | Province, Holding |
 //!
+//! Provisional lifecycle kinds 18..24 use `conquest::Receipt`: declaration
+//! (Province), source debit (Holding), Resolve (Province), failed/lapsed
+//! settlement (Province), capture (target Province + Holding), source credit
+//! (Holding), and table close (Province identity, no chain), respectively.
+//! Paired records share one operation id and complete input/output digests.
+//! Citizen-only escrow close uses separate `PSWC`, never a fictitious Province.
+//! These are internal experiments, not external allocations or replay proof.
+//!
 //! `Stranded` also announces a WideDisbandStranded Forfeit queued at the
 //! record bell. Resident troops still participate until that bell resolves.
 //! Its amount is the troops at issue, not verified post-clash casualties;
@@ -155,6 +163,10 @@
 //! digest). A verifier replaying the bell hashes the account bytes it
 //! read, normalized, and the bytes the model left plus the resolve
 //! summary, normalized, before any record of its own.
+
+/// Provisional full-state conquest commitments and Citizen-keyed close logs.
+#[path = "conquest_event.rs"]
+pub mod conquest;
 
 use super::economy::{self, EconomyReceipt};
 use super::key::{ProvinceKey, WideHostRef, HOST_REF_LEN, PROVINCE_KEY_LEN};
@@ -421,10 +433,17 @@ pub enum WideKind {
     EconomyMirror = 16,
     /// Provisional holding-keyed reserve-to-garrison receipt.
     Garrison = 17,
+    ConquestDeclared = 18,
+    ConquestDebited = 19,
+    ConquestResolved = 20,
+    ConquestSettled = 21,
+    ConquestCaptured = 22,
+    ConquestCredited = 23,
+    ConquestTableClosed = 24,
 }
 
 /// Every kind, in code order.
-pub const ALL_KINDS: [WideKind; 17] = [
+pub const ALL_KINDS: [WideKind; 24] = [
     WideKind::Muster,
     WideKind::Dissolve,
     WideKind::Resolve,
@@ -442,6 +461,13 @@ pub const ALL_KINDS: [WideKind; 17] = [
     WideKind::Economy,
     WideKind::EconomyMirror,
     WideKind::Garrison,
+    WideKind::ConquestDeclared,
+    WideKind::ConquestDebited,
+    WideKind::ConquestResolved,
+    WideKind::ConquestSettled,
+    WideKind::ConquestCaptured,
+    WideKind::ConquestCredited,
+    WideKind::ConquestTableClosed,
 ];
 
 /// The `Return.entry` of a host whose troops went into the holding's
@@ -474,6 +500,14 @@ impl WideKind {
             15 => Some(WideKind::Economy),
             16 => Some(WideKind::EconomyMirror),
             17 => Some(WideKind::Garrison),
+            18 => Some(WideKind::ConquestDeclared),
+            19 => Some(WideKind::ConquestDebited),
+            20 => Some(WideKind::ConquestResolved),
+            21 => Some(WideKind::ConquestSettled),
+            22 => Some(WideKind::ConquestCaptured),
+            23 => Some(WideKind::ConquestCredited),
+            24 => Some(WideKind::ConquestTableClosed),
+
             _ => None,
         }
     }
@@ -508,6 +542,13 @@ impl WideKind {
             WideKind::ProvinceClosed => 32 + 8,
             WideKind::Economy | WideKind::EconomyMirror => ECONOMY_PAYLOAD_LEN,
             WideKind::Garrison => GARRISON_PAYLOAD_LEN,
+            WideKind::ConquestDeclared
+            | WideKind::ConquestDebited
+            | WideKind::ConquestResolved
+            | WideKind::ConquestSettled
+            | WideKind::ConquestCaptured
+            | WideKind::ConquestCredited
+            | WideKind::ConquestTableClosed => conquest::RECEIPT_LEN,
         }
     }
 
@@ -521,14 +562,23 @@ impl WideKind {
             | WideKind::TransitSettled
             | WideKind::DepartureSettled
             | WideKind::EconomyMirror
-            | WideKind::Garrison => PROVINCE_AND_HOLDING,
-            WideKind::Resolve | WideKind::Stranded | WideKind::ProvinceClosed => PROVINCE_ONLY,
-            WideKind::Economy => HOLDING_ONLY,
+            | WideKind::Garrison
+            | WideKind::ConquestCaptured => PROVINCE_AND_HOLDING,
+            WideKind::Resolve
+            | WideKind::Stranded
+            | WideKind::ProvinceClosed
+            | WideKind::ConquestDeclared
+            | WideKind::ConquestResolved
+            | WideKind::ConquestSettled => PROVINCE_ONLY,
+            WideKind::Economy | WideKind::ConquestDebited | WideKind::ConquestCredited => {
+                HOLDING_ONLY
+            }
             WideKind::RosterClosed
             | WideKind::Revealed
             | WideKind::Gathered
             | WideKind::RecordClosed
-            | WideKind::TransitClosed => NO_LINKS,
+            | WideKind::TransitClosed
+            | WideKind::ConquestTableClosed => NO_LINKS,
         }
     }
 
@@ -545,6 +595,13 @@ impl WideKind {
                 | WideKind::Economy
                 | WideKind::EconomyMirror
                 | WideKind::Garrison
+                | WideKind::ConquestDeclared
+                | WideKind::ConquestDebited
+                | WideKind::ConquestResolved
+                | WideKind::ConquestSettled
+                | WideKind::ConquestCaptured
+                | WideKind::ConquestCredited
+                | WideKind::ConquestTableClosed
         )
     }
 
@@ -553,8 +610,17 @@ impl WideKind {
     pub const fn holding_keyed(self) -> bool {
         matches!(
             self,
-            WideKind::Economy | WideKind::EconomyMirror | WideKind::Garrison
+            WideKind::Economy
+                | WideKind::EconomyMirror
+                | WideKind::Garrison
+                | WideKind::ConquestDebited
+                | WideKind::ConquestCaptured
+                | WideKind::ConquestCredited
         )
+    }
+
+    pub const fn conquest(self) -> bool {
+        (self as u8) >= 18 && (self as u8) <= 24
     }
 
     pub const fn name(self) -> &'static str {
@@ -576,6 +642,13 @@ impl WideKind {
             WideKind::Economy => "WIDE_ECONOMY",
             WideKind::EconomyMirror => "WIDE_ECONOMY_MIRROR",
             WideKind::Garrison => "WIDE_GARRISON",
+            WideKind::ConquestDeclared => "WIDE_CONQUEST_DECLARED",
+            WideKind::ConquestDebited => "WIDE_CONQUEST_DEBITED",
+            WideKind::ConquestResolved => "WIDE_CONQUEST_RESOLVED",
+            WideKind::ConquestSettled => "WIDE_CONQUEST_SETTLED",
+            WideKind::ConquestCaptured => "WIDE_CONQUEST_CAPTURED",
+            WideKind::ConquestCredited => "WIDE_CONQUEST_CREDITED",
+            WideKind::ConquestTableClosed => "WIDE_CONQUEST_TABLE_CLOSED",
         }
     }
 }
@@ -667,11 +740,20 @@ pub fn write_body(
     if key.len() != kind.key_len() || payload.len() != kind.payload_len() {
         return None;
     }
+    if kind.conquest() {
+        conquest::Receipt::decode(payload)
+            .ok()?
+            .validate_kind(kind)
+            .ok()?;
+        if !kind.holding_keyed() {
+            ProvinceKey::from_bytes(key).ok()?;
+        }
+    }
     if kind.holding_keyed() {
         economy::decode_key(key).ok()?;
         if kind == WideKind::Garrison {
             GarrisonReceipt::decode(payload).ok()?;
-        } else if EconomyReceipt::decode(payload).ok()?.kind() != kind {
+        } else if !kind.conquest() && EconomyReceipt::decode(payload).ok()?.kind() != kind {
             return None;
         }
     }
@@ -759,7 +841,7 @@ impl<'a> WideRecord<'a> {
             economy::decode_key(key).map_err(|_| EventError::Key)?;
             if kind == WideKind::Garrison {
                 GarrisonReceipt::decode(payload)?;
-            } else {
+            } else if !kind.conquest() {
                 let receipt = EconomyReceipt::decode(payload).map_err(|_| EventError::Payload)?;
                 if receipt.kind() != kind {
                     return Err(EventError::Payload);
@@ -767,6 +849,9 @@ impl<'a> WideRecord<'a> {
             }
         } else {
             ProvinceKey::from_bytes(key).map_err(|_| EventError::Key)?;
+        }
+        if kind.conquest() {
+            conquest::Receipt::decode(payload)?.validate_kind(kind)?;
         }
         let n = c.u8().ok_or(EventError::Short)?;
         if n as usize > MAX_LINKS {
@@ -1456,8 +1541,8 @@ mod tests {
             "out of the deployed versions"
         );
         let mut x = body.clone();
-        x[1] = 18;
-        assert_eq!(WideRecord::decode(&x), Err(EventError::UnknownKind(18)));
+        x[1] = 250;
+        assert_eq!(WideRecord::decode(&x), Err(EventError::UnknownKind(250)));
         let mut x = body.clone();
         x[HEAD_LEN] = 9;
         assert_eq!(WideRecord::decode(&x), Err(EventError::Key));
@@ -1497,7 +1582,7 @@ mod tests {
         assert_eq!(WideKind::from_u8(15), Some(WideKind::Economy));
         assert_eq!(WideKind::from_u8(16), Some(WideKind::EconomyMirror));
         assert_eq!(WideKind::from_u8(17), Some(WideKind::Garrison));
-        assert_eq!(WideKind::from_u8(18), None);
+        assert_eq!(WideKind::from_u8(250), None);
         assert_eq!(WideKind::from_u8(0), None);
         // the close kinds: one province-keyed, one host-keyed, neither
         // chained; the province close chained on the province alone
@@ -1735,7 +1820,7 @@ mod tests {
             output_digest: [2; 32],
         })
         .unwrap();
-        let widths: [(WideKind, usize); 17] = [
+        let widths: [(WideKind, usize); 24] = [
             (WideKind::Muster, muster_payload(0, 1, 1, 0, 0).len()),
             (WideKind::Dissolve, dissolve_payload(1, 1, 0).len()),
             (
@@ -1783,6 +1868,55 @@ mod tests {
             (WideKind::Economy, plain.len()),
             (WideKind::EconomyMirror, mirror.len()),
             (WideKind::Garrison, garrison.len()),
+            (
+                WideKind::ConquestDeclared,
+                conquest::Receipt::new(1, 0, [1; 32], [2; 32])
+                    .unwrap()
+                    .encode()
+                    .len(),
+            ),
+            (
+                WideKind::ConquestDebited,
+                conquest::Receipt::new(1, 0, [1; 32], [2; 32])
+                    .unwrap()
+                    .encode()
+                    .len(),
+            ),
+            (
+                WideKind::ConquestResolved,
+                conquest::Receipt::new(2, 0, [1; 32], [2; 32])
+                    .unwrap()
+                    .encode()
+                    .len(),
+            ),
+            (
+                WideKind::ConquestSettled,
+                conquest::Receipt::new(3, 0, [1; 32], [2; 32])
+                    .unwrap()
+                    .encode()
+                    .len(),
+            ),
+            (
+                WideKind::ConquestCaptured,
+                conquest::Receipt::new(5, 0, [1; 32], [2; 32])
+                    .unwrap()
+                    .encode()
+                    .len(),
+            ),
+            (
+                WideKind::ConquestCredited,
+                conquest::Receipt::new(5, 0, [1; 32], [2; 32])
+                    .unwrap()
+                    .encode()
+                    .len(),
+            ),
+            (
+                WideKind::ConquestTableClosed,
+                conquest::Receipt::new(6, 0, [1; 32], [2; 32])
+                    .unwrap()
+                    .encode()
+                    .len(),
+            ),
         ];
         assert_eq!(widths.len(), ALL_KINDS.len(), "every kind has a builder");
         for (k, built) in widths {
@@ -1801,6 +1935,35 @@ mod tests {
                 WideKind::Economy => plain.to_vec(),
                 WideKind::EconomyMirror => mirror.to_vec(),
                 WideKind::Garrison => garrison.to_vec(),
+                WideKind::ConquestDeclared => conquest::Receipt::new(1, 0, [1; 32], [2; 32])
+                    .unwrap()
+                    .encode()
+                    .to_vec(),
+                WideKind::ConquestDebited => conquest::Receipt::new(1, 0, [1; 32], [2; 32])
+                    .unwrap()
+                    .encode()
+                    .to_vec(),
+                WideKind::ConquestResolved => conquest::Receipt::new(2, 0, [1; 32], [2; 32])
+                    .unwrap()
+                    .encode()
+                    .to_vec(),
+                WideKind::ConquestSettled => conquest::Receipt::new(3, 0, [1; 32], [2; 32])
+                    .unwrap()
+                    .encode()
+                    .to_vec(),
+                WideKind::ConquestCaptured => conquest::Receipt::new(5, 0, [1; 32], [2; 32])
+                    .unwrap()
+                    .encode()
+                    .to_vec(),
+                WideKind::ConquestCredited => conquest::Receipt::new(5, 0, [1; 32], [2; 32])
+                    .unwrap()
+                    .encode()
+                    .to_vec(),
+                WideKind::ConquestTableClosed => conquest::Receipt::new(6, 0, [1; 32], [2; 32])
+                    .unwrap()
+                    .encode()
+                    .to_vec(),
+
                 _ => vec![0u8; built],
             };
             let at = write_body(k, 1, &key, &payload, &mut buf).unwrap();

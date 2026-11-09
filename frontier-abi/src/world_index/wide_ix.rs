@@ -71,6 +71,19 @@
 //! | 0xDC | D | 6 | WideClaimDefence | `day u32, n u8` (1–6) | [`CLAIM_DEFENCE`] (5 fixed, then n wide slot/live anchor pairs) |
 //! | 0xDE | N | 1 | WideCloseRoster | (none) | [`CLOSE_ROSTER`] (5: the province position at its canonical address, present or already closed) |
 //! | 0xDE | N | 2 | WideDisbandStranded | `entry u8` (0–55, checked by the handler) | [`DISBAND_STRANDED`] (9: the holding position, present or absent, and four transit records; restricted to closed marches) |
+//! | 0xDA | P | 5 | WideDeclareSiege | `site u8, entry u8` | [`DECLARE_SIEGE`] |
+//! | 0xDE | N | 5 | WideSettleSiege | `site u8` | [`SETTLE_SIEGE`] |
+//! | 0xDC | D | 8 | WideSettleCapture | `site u8` | [`SETTLE_CAPTURE`] |
+//! | 0xDC | D, top-level | 9 | WideResolveWithConquest | `bell u32, beneficiary 32` | [`RESOLVE_WITH_CONQUEST`] |
+//! | 0xDE | N | 3 | WideCloseConquest | `p i64, q i64` | [`CLOSE_CONQUEST`] |
+//! | 0xDE | N | 4 | WideCloseCaptureEscrow | (none) | [`CLOSE_CAPTURE_ESCROW`] |
+//!
+//! These six Free City lifecycle codecs are provisional, not external ABI
+//! allocations. Their wire recognition and NFT wrapper shape do not activate
+//! runtime execution: all six require the closed lifecycle dispatch gate.
+//! Bare two-byte Close(3) and Close(4) retain their existing meanings.
+//! Site and entry ranges and coordinate validity are handler checks; the
+//! codecs enforce exact byte shape, as the existing lifecycle codecs do.
 //!
 //! **The march stages** (ops 3–5 of 0xDC) are the class-D stages of the
 //! deployed march (SettleDeparture, GatherClash, SettleTransit) over the
@@ -583,6 +596,147 @@ pub const OP_CLOSE_ROSTER: u8 = 1;
 /// Provisional class-N sub-operation, not a stable ABI allocation.
 pub const OP_DISBAND_STRANDED: u8 = 2;
 
+// Provisional Free City lifecycle envelopes. No external ABI allocation or
+// activation: runtime acceptance remains behind the full lifecycle gate.
+pub const OP_DECLARE_SIEGE: u8 = 5;
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct DeclareSiege {
+    pub site: u8,
+    pub entry: u8,
+}
+impl DeclareSiege {
+    pub const IX: WideIx = WideIx::Depart;
+    pub const OP: u8 = OP_DECLARE_SIEGE;
+    pub const LEN: usize = 6;
+    pub fn to_bytes(&self) -> [u8; Self::LEN] {
+        let mut b = [0; Self::LEN];
+        head(&mut b, Self::IX.tag(), Self::OP);
+        Writer::new(&mut b[ENVELOPE_HEAD..])
+            .u8(self.site)
+            .u8(self.entry);
+        b
+    }
+    pub fn decode(d: &[u8]) -> Result<Self, FrontierError> {
+        let mut c = envelope(d, Self::IX.tag(), Self::OP, Self::LEN)?;
+        Ok(Self {
+            site: c.u8().ok_or(FrontierError::BadData)?,
+            entry: c.u8().ok_or(FrontierError::BadData)?,
+        })
+    }
+}
+/// Class N like the deployed SettleSiege; 0xDC op 7 remains unassigned.
+pub const OP_SETTLE_SIEGE: u8 = 5;
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct SettleSiege {
+    pub site: u8,
+}
+impl SettleSiege {
+    pub const IX: WideIx = WideIx::Close;
+    pub const OP: u8 = OP_SETTLE_SIEGE;
+    pub const LEN: usize = 5;
+    pub fn to_bytes(&self) -> [u8; Self::LEN] {
+        let mut b = [0; Self::LEN];
+        head(&mut b, Self::IX.tag(), Self::OP);
+        Writer::new(&mut b[ENVELOPE_HEAD..]).u8(self.site);
+        b
+    }
+    pub fn decode(d: &[u8]) -> Result<Self, FrontierError> {
+        let mut c = envelope(d, Self::IX.tag(), Self::OP, Self::LEN)?;
+        Ok(Self {
+            site: c.u8().ok_or(FrontierError::BadData)?,
+        })
+    }
+}
+pub const OP_SETTLE_CAPTURE: u8 = 8;
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct SettleCapture {
+    pub site: u8,
+}
+impl SettleCapture {
+    pub const IX: WideIx = WideIx::SettleTicket;
+    pub const OP: u8 = OP_SETTLE_CAPTURE;
+    pub const LEN: usize = 5;
+    pub fn to_bytes(&self) -> [u8; Self::LEN] {
+        let mut b = [0; Self::LEN];
+        head(&mut b, Self::IX.tag(), Self::OP);
+        Writer::new(&mut b[ENVELOPE_HEAD..]).u8(self.site);
+        b
+    }
+    pub fn decode(d: &[u8]) -> Result<Self, FrontierError> {
+        let mut c = envelope(d, Self::IX.tag(), Self::OP, Self::LEN)?;
+        Ok(Self {
+            site: c.u8().ok_or(FrontierError::BadData)?,
+        })
+    }
+}
+pub const OP_RESOLVE_WITH_CONQUEST: u8 = 9;
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ResolveWithConquest {
+    pub bell: u32,
+    pub beneficiary: [u8; 32],
+}
+impl ResolveWithConquest {
+    pub const IX: WideIx = WideIx::SettleTicket;
+    pub const OP: u8 = OP_RESOLVE_WITH_CONQUEST;
+    pub const LEN: usize = 40;
+    pub fn to_bytes(&self) -> [u8; Self::LEN] {
+        let mut b = [0; Self::LEN];
+        head(&mut b, Self::IX.tag(), Self::OP);
+        Writer::new(&mut b[ENVELOPE_HEAD..])
+            .u32(self.bell)
+            .bytes(&self.beneficiary);
+        b
+    }
+    pub fn decode(d: &[u8]) -> Result<Self, FrontierError> {
+        let mut c = envelope(d, Self::IX.tag(), Self::OP, Self::LEN)?;
+        Ok(Self {
+            bell: c.u32().ok_or(FrontierError::BadData)?,
+            beneficiary: c.arr().ok_or(FrontierError::BadData)?,
+        })
+    }
+}
+pub const OP_CLOSE_CONQUEST: u8 = 3;
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct CloseConquest {
+    pub p: i64,
+    pub q: i64,
+}
+impl CloseConquest {
+    pub const IX: WideIx = WideIx::Close;
+    pub const OP: u8 = OP_CLOSE_CONQUEST;
+    pub const LEN: usize = 20;
+    pub fn to_bytes(&self) -> [u8; Self::LEN] {
+        let mut b = [0; Self::LEN];
+        head(&mut b, Self::IX.tag(), Self::OP);
+        Writer::new(&mut b[ENVELOPE_HEAD..]).i64(self.p).i64(self.q);
+        b
+    }
+    pub fn decode(d: &[u8]) -> Result<Self, FrontierError> {
+        let mut c = envelope(d, Self::IX.tag(), Self::OP, Self::LEN)?;
+        Ok(Self {
+            p: c.i64().ok_or(FrontierError::BadData)?,
+            q: c.i64().ok_or(FrontierError::BadData)?,
+        })
+    }
+}
+pub const OP_CLOSE_CAPTURE_ESCROW: u8 = 4;
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct CloseCaptureEscrow;
+impl CloseCaptureEscrow {
+    pub const IX: WideIx = WideIx::Close;
+    pub const OP: u8 = OP_CLOSE_CAPTURE_ESCROW;
+    pub const LEN: usize = 4;
+    pub fn to_bytes(&self) -> [u8; Self::LEN] {
+        let mut b = [0; Self::LEN];
+        head(&mut b, Self::IX.tag(), Self::OP);
+        b
+    }
+    pub fn decode(d: &[u8]) -> Result<Self, FrontierError> {
+        envelope(d, Self::IX.tag(), Self::OP, Self::LEN)?;
+        Ok(Self)
+    }
+}
+
 /// 0xDC op 6: the deployed defence claim, sharing its pool and daily claim.
 /// No new receipt allocation or full-season wide verification is implied.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -1009,6 +1163,12 @@ pub enum WideCommand<'a> {
     SettleTransit(SettleTransit),
     ClaimDefence(ClaimDefence),
     Reveal(Reveal),
+    DeclareSiege(DeclareSiege),
+    SettleSiege(SettleSiege),
+    SettleCapture(SettleCapture),
+    ResolveWithConquest(ResolveWithConquest),
+    CloseConquest(CloseConquest),
+    CloseCaptureEscrow(CloseCaptureEscrow),
 }
 
 impl<'a> WideCommand<'a> {
@@ -1045,6 +1205,24 @@ impl<'a> WideCommand<'a> {
             return Err(bad);
         }
         match (ix, d[3]) {
+            (WideIx::Depart, OP_DECLARE_SIEGE) => {
+                DeclareSiege::decode(d).map(WideCommand::DeclareSiege)
+            }
+            (WideIx::Close, OP_SETTLE_SIEGE) => {
+                SettleSiege::decode(d).map(WideCommand::SettleSiege)
+            }
+            (WideIx::SettleTicket, OP_SETTLE_CAPTURE) => {
+                SettleCapture::decode(d).map(WideCommand::SettleCapture)
+            }
+            (WideIx::SettleTicket, OP_RESOLVE_WITH_CONQUEST) => {
+                ResolveWithConquest::decode(d).map(WideCommand::ResolveWithConquest)
+            }
+            (WideIx::Close, OP_CLOSE_CONQUEST) => {
+                CloseConquest::decode(d).map(WideCommand::CloseConquest)
+            }
+            (WideIx::Close, OP_CLOSE_CAPTURE_ESCROW) => {
+                CloseCaptureEscrow::decode(d).map(WideCommand::CloseCaptureEscrow)
+            }
             (WideIx::Depart, OP_MUSTER) => Muster::decode(d).map(WideCommand::Muster),
             (WideIx::Depart, OP_DISSOLVE) => Dissolve::decode(d).map(WideCommand::Dissolve),
             (WideIx::Depart, OP_GARRISON) => Garrison::decode(d).map(WideCommand::Garrison),
@@ -1074,6 +1252,12 @@ impl<'a> WideCommand<'a> {
     /// The tag the command is carried under.
     pub const fn ix(&self) -> WideIx {
         match self {
+            WideCommand::DeclareSiege(_) => WideIx::Depart,
+            WideCommand::SettleSiege(_) => WideIx::Close,
+            WideCommand::SettleCapture(_) => WideIx::SettleTicket,
+            WideCommand::ResolveWithConquest(_) => WideIx::SettleTicket,
+            WideCommand::CloseConquest(_) => WideIx::Close,
+            WideCommand::CloseCaptureEscrow(_) => WideIx::Close,
             WideCommand::RequestRingSeed(_) => WideIx::RequestRingSeed,
             WideCommand::ConsumeRingSeed(_) => WideIx::ConsumeRingSeed,
             WideCommand::OpenProvince(_) => WideIx::OpenProvince,
@@ -1102,6 +1286,12 @@ impl<'a> WideCommand<'a> {
 
     pub const fn name(&self) -> &'static str {
         match self {
+            WideCommand::DeclareSiege(_) => "WideDeclareSiege",
+            WideCommand::SettleSiege(_) => "WideSettleSiege",
+            WideCommand::SettleCapture(_) => "WideSettleCapture",
+            WideCommand::ResolveWithConquest(_) => "WideResolveWithConquest",
+            WideCommand::CloseConquest(_) => "WideCloseConquest",
+            WideCommand::CloseCaptureEscrow(_) => "WideCloseCaptureEscrow",
             WideCommand::Muster(_) => "WideMuster",
             WideCommand::Dissolve(_) => "WideDissolve",
             WideCommand::Economy(_) => "WideEconomy",
@@ -1126,8 +1316,10 @@ impl<'a> WideCommand<'a> {
     /// Refuses CPI: the tag's rule, WideResolve and WideGather (the
     /// deployed resolves and gathers are top-level).
     pub const fn top_level_only(&self) -> bool {
-        matches!(self, WideCommand::Resolve(_) | WideCommand::Gather(_))
-            || self.ix().top_level_only()
+        matches!(
+            self,
+            WideCommand::Resolve(_) | WideCommand::ResolveWithConquest(_) | WideCommand::Gather(_)
+        ) || self.ix().top_level_only()
     }
 
     /// A stage of the march after the departure (module doc, "the march
@@ -1154,6 +1346,7 @@ impl<'a> WideCommand<'a> {
                 | WideCommand::Dissolve(_)
                 | WideCommand::Economy(_)
                 | WideCommand::Garrison(_)
+                | WideCommand::DeclareSiege(_)
         )
     }
 
@@ -1163,6 +1356,12 @@ impl<'a> WideCommand<'a> {
     /// for walls and the tier-up).
     pub const fn accounts(&self) -> &'static [Group] {
         match self {
+            WideCommand::DeclareSiege(_) => DECLARE_SIEGE,
+            WideCommand::SettleSiege(_) => SETTLE_SIEGE,
+            WideCommand::SettleCapture(_) => SETTLE_CAPTURE,
+            WideCommand::ResolveWithConquest(_) => RESOLVE_WITH_CONQUEST,
+            WideCommand::CloseConquest(_) => CLOSE_CONQUEST,
+            WideCommand::CloseCaptureEscrow(_) => CLOSE_CAPTURE_ESCROW,
             WideCommand::Muster(_) => MUSTER,
             WideCommand::Dissolve(_) => DISSOLVE,
             WideCommand::Garrison(_) => GARRISON,
@@ -1195,7 +1394,7 @@ impl<'a> WideCommand<'a> {
 
 /// 0xDD: `generation u32 ‖ inner`, the inner a whole player command of
 /// this band ([`WideCommand::is_player`]: WideClaimSite, WideDepart,
-/// WideMuster, WideDissolve, WideEconomy, WideGarrison; the shape of the deployed
+/// WideMuster, WideDissolve, WideEconomy, WideGarrison, WideDeclareSiege; the shape of the deployed
 /// `ResidentAct`, `resident_wire::Command::Act`). The act's four proof
 /// accounts and its holder-generation check are the same for every inner
 /// command; admitting WideEconomy adds no authorisation path.
@@ -1922,6 +2121,80 @@ pub const DISBAND_STRANDED: &[Group] = &[one(&[
 
 /// The first of the four required canonical transit positions.
 pub const DISBAND_STRANDED_TRANSIT0: usize = 5;
+
+/// Provisional Free City lifecycle account shapes. Canonical positions may be
+/// absent; the handler must check address, owner and exact layout.
+/// source_province may alias target_province in DECLARE_SIEGE.
+pub const DECLARE_SIEGE: &[Group] = &[one(&[
+    s("actor", Acc::Wallet, true, Wr::R),
+    s("payer", Acc::Wallet, true, Wr::W),
+    s("season", Acc::Kind(K::Season), false, Wr::R),
+    s("citizen", Acc::Kind(K::Citizen), false, Wr::W),
+    s("source_holding", Acc::Any, false, Wr::W),
+    s("target_province", Acc::Any, false, Wr::W),
+    s("target_roster", Acc::Any, false, Wr::R),
+    s("source_province", Acc::Any, false, Wr::R),
+    s("target_holding_position", Acc::Any, false, Wr::R),
+    s("conquest", Acc::Any, false, Wr::W),
+    s("capture_escrow", Acc::Any, false, Wr::W),
+    s("system", Acc::System, false, Wr::R),
+])];
+/// The terminal source-less record uses exactly seven positions. A record
+/// retaining its source requires the eighth, canonical holding position,
+/// live or absent. The handler checks the count against authenticated state.
+pub const SETTLE_SIEGE: &[Group] = &[
+    one(&[
+        s("any", Acc::Wallet, true, Wr::R),
+        s("season", Acc::Kind(K::Season), false, Wr::R),
+        s("target_province", Acc::Any, false, Wr::W),
+        s("conquest", Acc::Any, false, Wr::W),
+        s("citizen", Acc::Kind(K::Citizen), false, Wr::W),
+        s("capture_escrow", Acc::Any, false, Wr::W),
+        s("escrow_funder", Acc::Wallet, false, Wr::W),
+    ]),
+    opt(&[s("source_holding_position", Acc::Any, false, Wr::W)]),
+];
+pub const SETTLE_CAPTURE: &[Group] = &[one(&[
+    s("payer", Acc::Wallet, true, Wr::W),
+    s("season", Acc::Kind(K::Season), false, Wr::R),
+    s("target_province", Acc::Any, false, Wr::W),
+    s("conquest", Acc::Any, false, Wr::W),
+    s("citizen", Acc::Kind(K::Citizen), false, Wr::W),
+    s("join_shard", Acc::Kind(K::JoinShard), false, Wr::W),
+    s("capture_escrow", Acc::Any, false, Wr::W),
+    s("target_holding", Acc::Any, false, Wr::W),
+    s("source_holding_position", Acc::Any, false, Wr::W),
+    s("system", Acc::System, false, Wr::R),
+])];
+pub const CLOSE_CONQUEST: &[Group] = &[one(&[
+    s("any", Acc::Wallet, true, Wr::R),
+    s("season", Acc::Any, false, Wr::R),
+    s("conquest", Acc::Any, false, Wr::W),
+    s("immutable_rentpayer", Acc::Wallet, false, Wr::W),
+])];
+pub const CLOSE_CAPTURE_ESCROW: &[Group] = &[
+    one(&[
+        s("any", Acc::Wallet, true, Wr::R),
+        s("season", Acc::Any, false, Wr::R),
+        s("citizen_position", Acc::Any, false, Wr::W),
+        s("capture_escrow", Acc::Any, false, Wr::W),
+        s("immutable_rentpayer", Acc::Wallet, false, Wr::W),
+    ]),
+    // Present exactly when retained escrow is nonzero; checked by handler.
+    opt(&[s("current_funder", Acc::Wallet, false, Wr::W)]),
+];
+pub const RESOLVE_WITH_CONQUEST: &[Group] = &[one(&[
+    s("fee_payer", Acc::Wallet, true, Wr::W),
+    s("season", Acc::Kind(K::Season), false, Wr::R),
+    s("province", WIDE, false, Wr::W),
+    s("roster", WIDE, false, Wr::W),
+    s("seed", Acc::Any, false, Wr::R),
+    s("anchor", Acc::Any, false, Wr::R),
+    s("clash_inputs", Acc::Any, false, Wr::Either),
+    s("arrivalday", Acc::Any, false, Wr::R),
+    s("system", Acc::System, false, Wr::R),
+    s("conquest", Acc::Any, false, Wr::W),
+])];
 
 /// The account list of a draft instruction (WideClose's is its ticket
 /// shape; the handler checks [`CLOSE_HOLDING`] for `what = 1`). The

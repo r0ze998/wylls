@@ -356,7 +356,7 @@ const GOLD: usize = Resource::Gold as usize;
 
 /// Credits `amount` milli-Gold to a settled kernel holding, up to the
 /// store cap: returns `(credited, burned)` (§5.5 SettleSiege).
-fn credit_capped(h: &mut KHolding, amount: i64) -> (i64, i64) {
+pub(crate) fn credit_capped(h: &mut KHolding, amount: i64) -> (i64, i64) {
     let s = &mut h.stores[GOLD];
     let room = (s.cap - s.value).max(0);
     let add = amount.min(room).max(0);
