@@ -600,6 +600,85 @@ pub const OP_DISBAND_STRANDED: u8 = 2;
 /// Distinct from WideDepart and excluded from ResidentAct admission.
 pub const OP_EXPEDITION_DEPART: u8 = 6;
 pub const OP_EXPEDITION_SETTLE_ORIGIN: u8 = 10;
+/// Closed mixed-input producers, provisional reservation 2026-11-09.
+pub const OP_EXPEDITION_REVEAL: u8 = 1;
+pub const OP_EXPEDITION_GATHER: u8 = 11;
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ExpeditionReveal {
+    pub transit_slot: u8,
+    pub target_i: u8,
+    pub plain: [u8; WIDE_PLAIN_LEN],
+    pub salt: [u8; 32],
+    pub ct_hash: [u8; 32],
+    pub beneficiary: [u8; 32],
+}
+impl ExpeditionReveal {
+    pub const IX: WideIx = WideIx::Reveal;
+    pub const OP: u8 = OP_EXPEDITION_REVEAL;
+    pub const LEN: usize = ENVELOPE_HEAD + 2 + WIDE_PLAIN_LEN + 96;
+    pub fn to_bytes(&self) -> [u8; Self::LEN] {
+        let mut out = [0; Self::LEN];
+        head(&mut out, Self::IX.tag(), Self::OP);
+        Writer::new(&mut out[ENVELOPE_HEAD..])
+            .u8(self.transit_slot)
+            .u8(self.target_i)
+            .bytes(&self.plain)
+            .bytes(&self.salt)
+            .bytes(&self.ct_hash)
+            .bytes(&self.beneficiary);
+        out
+    }
+    pub fn decode(d: &[u8]) -> Result<Self, FrontierError> {
+        let bad = FrontierError::BadData;
+        let mut c = envelope(d, Self::IX.tag(), Self::OP, Self::LEN)?;
+        let value = Self {
+            transit_slot: c.u8().ok_or(bad)?,
+            target_i: c.u8().ok_or(bad)?,
+            plain: c.arr().ok_or(bad)?,
+            salt: c.arr().ok_or(bad)?,
+            ct_hash: c.arr().ok_or(bad)?,
+            beneficiary: c.arr().ok_or(bad)?,
+        };
+        if value.transit_slot >= 4 || value.target_i >= 4 {
+            return Err(bad);
+        }
+        Ok(value)
+    }
+}
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ExpeditionGather {
+    pub bell: u32,
+    pub start: u8,
+    pub n: u8,
+}
+impl ExpeditionGather {
+    pub const IX: WideIx = WideIx::SettleTicket;
+    pub const OP: u8 = OP_EXPEDITION_GATHER;
+    pub const LEN: usize = ENVELOPE_HEAD + 6;
+    pub fn to_bytes(&self) -> [u8; Self::LEN] {
+        let mut out = [0; Self::LEN];
+        head(&mut out, Self::IX.tag(), Self::OP);
+        Writer::new(&mut out[ENVELOPE_HEAD..])
+            .u32(self.bell)
+            .u8(self.start)
+            .u8(self.n);
+        out
+    }
+    pub fn decode(d: &[u8]) -> Result<Self, FrontierError> {
+        let bad = FrontierError::BadData;
+        let mut c = envelope(d, Self::IX.tag(), Self::OP, Self::LEN)?;
+        let value = Self {
+            bell: c.u32().ok_or(bad)?,
+            start: c.u8().ok_or(bad)?,
+            n: c.u8().ok_or(bad)?,
+        };
+        if value.n == 0 || value.start as usize + value.n as usize > 24 {
+            return Err(bad);
+        }
+        Ok(value)
+    }
+}
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct ExpeditionDepart {
@@ -1212,6 +1291,8 @@ impl DisbandStranded {
 /// account table and the act's whitelist are read off the command.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum WideCommand<'a> {
+    ExpeditionReveal(ExpeditionReveal),
+    ExpeditionGather(ExpeditionGather),
     ExpeditionDepart(ExpeditionDepart),
     ExpeditionSettleOrigin(ExpeditionSettleOrigin),
     RequestRingSeed(RequestRingSeed),
@@ -1279,6 +1360,12 @@ impl<'a> WideCommand<'a> {
             return Err(bad);
         }
         match (ix, d[3]) {
+            (WideIx::Reveal, OP_EXPEDITION_REVEAL) => {
+                ExpeditionReveal::decode(d).map(WideCommand::ExpeditionReveal)
+            }
+            (WideIx::SettleTicket, OP_EXPEDITION_GATHER) => {
+                ExpeditionGather::decode(d).map(WideCommand::ExpeditionGather)
+            }
             (WideIx::Depart, OP_EXPEDITION_DEPART) => {
                 ExpeditionDepart::decode(d).map(WideCommand::ExpeditionDepart)
             }
@@ -1332,6 +1419,8 @@ impl<'a> WideCommand<'a> {
     /// The tag the command is carried under.
     pub const fn ix(&self) -> WideIx {
         match self {
+            WideCommand::ExpeditionReveal(_) => WideIx::Reveal,
+            WideCommand::ExpeditionGather(_) => WideIx::SettleTicket,
             WideCommand::ExpeditionDepart(_) => WideIx::Depart,
             WideCommand::ExpeditionSettleOrigin(_) => WideIx::SettleTicket,
             WideCommand::DeclareSiege(_) => WideIx::Depart,
@@ -1368,6 +1457,8 @@ impl<'a> WideCommand<'a> {
 
     pub const fn name(&self) -> &'static str {
         match self {
+            WideCommand::ExpeditionReveal(_) => "ExpeditionReveal",
+            WideCommand::ExpeditionGather(_) => "ExpeditionGather",
             WideCommand::ExpeditionDepart(_) => "ExpeditionDepart",
             WideCommand::ExpeditionSettleOrigin(_) => "ExpeditionSettleOrigin",
             WideCommand::DeclareSiege(_) => "WideDeclareSiege",
@@ -1402,7 +1493,11 @@ impl<'a> WideCommand<'a> {
     pub const fn top_level_only(&self) -> bool {
         matches!(
             self,
-            WideCommand::Resolve(_) | WideCommand::ResolveWithConquest(_) | WideCommand::Gather(_)
+            WideCommand::ExpeditionReveal(_)
+                | WideCommand::ExpeditionGather(_)
+                | WideCommand::Resolve(_)
+                | WideCommand::ResolveWithConquest(_)
+                | WideCommand::Gather(_)
         ) || self.ix().top_level_only()
     }
 
@@ -1413,6 +1508,8 @@ impl<'a> WideCommand<'a> {
         matches!(
             self,
             WideCommand::SettleDeparture(_)
+                | WideCommand::ExpeditionReveal(_)
+                | WideCommand::ExpeditionGather(_)
                 | WideCommand::ExpeditionSettleOrigin(_)
                 | WideCommand::Gather(_)
                 | WideCommand::SettleTransit(_)
@@ -1441,6 +1538,8 @@ impl<'a> WideCommand<'a> {
     /// for walls and the tier-up).
     pub const fn accounts(&self) -> &'static [Group] {
         match self {
+            WideCommand::ExpeditionReveal(_) => EXPEDITION_REVEAL,
+            WideCommand::ExpeditionGather(_) => EXPEDITION_GATHER,
             WideCommand::ExpeditionDepart(_) => EXPEDITION_DEPART,
             WideCommand::ExpeditionSettleOrigin(_) => EXPEDITION_SETTLE_ORIGIN,
             WideCommand::DeclareSiege(_) => DECLARE_SIEGE,
@@ -2169,6 +2268,23 @@ pub const REVEAL_FIXED: usize = 16;
 pub const REVEAL_DAY: usize = 9;
 /// The position of the first of the four slots in [`REVEAL`].
 pub const REVEAL_SLOT0: usize = 10;
+
+/// Dedicated command, same ordered role/privilege shape; family/provenance
+/// authentication is the expedition handler's responsibility, never WideReveal.
+pub const EXPEDITION_REVEAL: &[Group] = REVEAL;
+/// Deliberately distinct triples, never the native Gather's pairs.
+pub const EXPEDITION_GATHER: &[Group] = &[
+    GATHER[0],
+    Group {
+        specs: &[
+            s("slot", Acc::Any, false, Wr::R),
+            s("original_holding", Acc::Any, false, Wr::R),
+            s("owned_bridge", Acc::Any, false, Wr::Either),
+        ],
+        min: 0,
+        max: GATHER_POSITIONS,
+    },
+];
 
 /// WideSettleTransit: the deployed SettleTransit's shape over the wide
 /// records: `[payer s,w] [season r] [holding w] [dest_province w] [inputs

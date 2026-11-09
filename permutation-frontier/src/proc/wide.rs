@@ -255,6 +255,10 @@ pub fn dispatch(p: &Pubkey, a: &[AccountInfo], data: &[u8]) -> R<()> {
             }
             expedition_exec::execute_origin(p, a, x.transit_slot)
         }
+        // Provisional mixed producers remain unconditionally closed.
+        C::ExpeditionReveal(_) | C::ExpeditionGather(_) => {
+            Err(FrontierError::NotImplemented.into())
+        }
         C::Reveal(x) => reveal(p, a, &x),
     }
 }
@@ -2761,6 +2765,18 @@ mod expedition_exec;
 /// Read-only mixed route stage; no dispatch or admission is enabled.
 #[path = "wide_expedition_route.rs"]
 mod expedition_route;
+
+/// Private boundary arrival producer; public dispatch remains closed.
+#[path = "wide_expedition_reveal.rs"]
+mod expedition_reveal;
+
+/// Proof-pending read-only return snapshots; no settlement or public dispatch.
+#[path = "wide_expedition_return.rs"]
+mod expedition_return;
+
+/// Private mixed Gather staging and producer; public dispatch remains closed.
+#[path = "wide_expedition_gather.rs"]
+mod expedition_gather;
 
 /// Closed until authenticated dispatch, receipts and replay are verified as
 /// one lifecycle. There is deliberately no configuration or argument override.

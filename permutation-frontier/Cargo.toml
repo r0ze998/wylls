@@ -10,6 +10,13 @@ license = "MIT"
 [lib]
 crate-type = ["cdylib", "lib"]
 
+# This target imports production crypto sources with a real host adapter.
+# Its main runs only the public-fixture proof, never the imported unit tests.
+[[test]]
+name = "public_seal_verification"
+path = "tests/public_seal_verification.rs"
+harness = false
+
 # M1 contract §3.2: the crate builds, clippies and tests on the host with the
 # default features (the entrypoint and the custom heap are
 # `cfg(target_os = "solana")`-gated); `--no-default-features` leaves the
