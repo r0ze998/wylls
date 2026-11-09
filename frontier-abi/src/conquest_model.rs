@@ -951,7 +951,12 @@ fn step_site(
     Ok(())
 }
 
-fn apply_capture(pd: &mut [u8], s: usize, captor: u8, capture: SiteCaptureEffect) -> R<()> {
+pub(crate) fn apply_capture(
+    pd: &mut [u8],
+    s: usize,
+    captor: u8,
+    capture: SiteCaptureEffect,
+) -> R<()> {
     let o = P::site(s);
     put(wr_u8(pd, o + SM::STATE, SM::STATE_HOLDING)
         & wr_u8(pd, o + SM::FACTION, captor)

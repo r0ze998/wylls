@@ -50,6 +50,7 @@
 use super::arrival::{
     fate_byte, wide_clash_inputs as WCI, ArrivalError, WideArrival, WideClashInputsHdr,
 };
+use super::conquest::{ConquestError, WideConquest};
 use super::key::{KeyError, ProvinceKey, WideHostRef};
 use super::land::{LandError, WideProvince};
 use super::march::{
@@ -64,7 +65,8 @@ use crate::clash_model::{
     settle_bell, sub, terrain_of, Camp, ModelError, CAMP_SITE, DAY_BELLS,
 };
 use crate::conquest_model::{
-    active_count, read_keep, score_territory, write_keep, write_snapshot, StepParams, HOUR_BELLS,
+    active_count, apply_capture, read_keep, score_territory, write_keep, write_snapshot, Record,
+    SiteReport, SiteTransitionMirror, StepParams, HOUR_BELLS,
 };
 use crate::entry::{unit_from_u8, unit_to_u8, write_entry, Entry, EntryOp};
 use crate::layout::province::{camp as CP, entry as E, province as P, site as SM};
@@ -95,7 +97,7 @@ pub enum Unported {
     Fort,
     /// A caravan in a slot.
     Caravan,
-    /// A conquest record of this kind on a site.
+    /// A conquest record of this kind on a site (including kind-zero obligations).
     ConquestRecord(u8),
     /// An unported packed-identity split or merge operation.
     PendingOp(u8),
@@ -112,6 +114,7 @@ pub enum ResolveError {
     Key(KeyError),
     Clash(WideClashError),
     Keep(KeepError),
+    Conquest(ConquestError),
     /// A live entry whose `id` is a dense legacy id: a legacy host in a
     /// wide province (no mixing).
     LegacyEntry(usize),
@@ -152,6 +155,7 @@ from_err! {
     KeyError => Key;
     WideClashError => Clash;
     KeepError => Keep;
+    ConquestError => Conquest;
     Unported => Unported;
 }
 
@@ -291,9 +295,22 @@ pub fn refuse_unported(pd: &[u8], b: u32) -> R<()> {
         return Err(Unported::Caravan.into());
     }
     for s in 0..P2::SITES_N {
-        let k = *pd.get(P2::record(s) + CR::KIND).ok_or(BAD)?;
-        if k != CR::KIND_NONE {
-            return Err(Unported::ConquestRecord(k).into());
+        let r = Record::read(pd, s)?;
+        // Kind zero is not necessarily empty: failed wide sieges still owe a
+        // slot. Only canonical no-obligation immunity can use the old APIs.
+        if r.kind != CR::KIND_NONE
+            || !(r.faction < NEUTRAL || r.faction == CR::BARRED_ALL || r.faction == CR::BARRED_NONE)
+            || r.flags != 0
+            || r.progress != 0
+            || r.required != 0
+            || r.target != 0
+            || r.vigil_start != 0
+            || r.vigil_next != 0
+            || r.vigil_from_day != 0
+            || r.actor != 0
+            || r.src != 0
+        {
+            return Err(Unported::ConquestRecord(r.kind).into());
         }
     }
     Ok(())
@@ -408,6 +425,18 @@ pub fn build(
     inputs: Option<&[u8]>,
     b: u32,
 ) -> R<WideBuilt> {
+    refuse_unported(pd, b)?;
+    build_supported(pd, roster, rd, inputs, b)
+}
+
+// Only the strict wrapper and the fully validated conquest bell call this.
+fn build_supported(
+    pd: &[u8],
+    roster: &WideRoster,
+    rd: &[u8],
+    inputs: Option<&[u8]>,
+    b: u32,
+) -> R<WideBuilt> {
     let id = WideProvince::read(pd)?;
     let province = ProvinceKey::new(id.world, id.coord);
     if roster.province != province || roster.season_id != id.season_id {
@@ -415,7 +444,6 @@ pub fn build(
     }
     let terrain = terrain_of(pd)?;
     let keep = read_keep(pd)?;
-    refuse_unported(pd, b)?;
     let (camp, camp_checked) = match camp_check(pd, &id, &terrain, b, keep.map(|k| k.tile))? {
         Some((c, spawned)) => (c, Some(spawned)),
         None => (Camp::read(pd)?, None),
@@ -951,6 +979,18 @@ pub fn step(
 ) -> R<WideStepOut> {
     refuse_unported(pd, b)?;
     score_territory(pd, b, prm.end_bell)?;
+    step_keep_snapshot(pd, roster, rd, b, report, prm)
+}
+
+// The conquest adapter has already scored starting ownership and advanced sites.
+fn step_keep_snapshot(
+    pd: &mut [u8],
+    roster: &WideRoster,
+    rd: &mut [u8],
+    b: u32,
+    report: Option<KeepReport>,
+    prm: &StepParams,
+) -> R<WideStepOut> {
     let mut out = WideStepOut::default();
     if let Some(before) = read_keep(pd)? {
         let kr = report.ok_or(ResolveError::MissingKeepReport)?;
@@ -1050,6 +1090,220 @@ pub struct WideBellOutcome {
     pub applied: WideApplied,
     pub step: WideStepOut,
     pub settled: bool,
+}
+
+/// Opt-in model result, deliberately separate from existing Resolve receipts.
+/// Future event commitments must bind the full table as well as `bell`.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct WideConquestBellOutcome {
+    pub conquest: WideConquest,
+    pub bell: WideBellOutcome,
+    pub site_reports: [SiteReport; P::SITES_N],
+    pub site_events: Vec<crate::v2::log::Event>,
+    pub records_changed: bool,
+    pub mirrors_changed: bool,
+}
+
+fn site_mirror(pd: &[u8], s: usize) -> R<SiteTransitionMirror> {
+    let m = mirror(pd, s)?;
+    Ok(SiteTransitionMirror {
+        state: m[SM::STATE],
+        gen: m[SM::GEN],
+        order: m[SM::ORDER],
+        held_since_hour: rd_u16(m, SM2::HELD_SINCE_HOUR).ok_or(BAD)?,
+        walls_committed: m32(m, SM::WALLS_COMMITTED),
+    })
+}
+
+// Validate every position, not just currently active sieges. This is the only
+// admission to build_supported other than the strict no-conquest wrapper.
+fn validate_conquest(pd: &[u8], table: &[u8], b: u32) -> R<WideConquest> {
+    let id = WideProvince::read(pd)?;
+    let key = ProvinceKey::new(id.world, id.coord);
+    let conquest = WideConquest::read(table, id.season_id, key)?;
+    if !forts_at(pd, b)?.is_empty() {
+        return Err(Unported::Fort.into());
+    }
+    if caravan_slots(pd)?.iter().any(|s| s.id != 0) {
+        return Err(Unported::Caravan.into());
+    }
+    let n = *pd.get(P::SITE_COUNT).ok_or(BAD)? as usize;
+    if n > P::SITES_N {
+        return Err(BAD);
+    }
+    for s in 0..P::SITES_N {
+        let r = Record::read(pd, s)?;
+        conquest.validate_paired(s as u8, r)?;
+        let entry = conquest.entry(s as u8)?;
+        if s >= n {
+            if entry.is_some() || r != Record::ZERO {
+                return Err(ConquestError::State.into());
+            }
+            continue;
+        }
+        let m = site_mirror(pd, s)?;
+        let faction = mirror(pd, s)?[SM::FACTION];
+        let canonical = match m.state {
+            SM2::STATE_FREE_CITY => m.gen == 0 && m.order == 0 && faction == NEUTRAL,
+            SM::STATE_HOLDING => {
+                (1..=254).contains(&m.gen) && (1..=3).contains(&m.order) && faction < NEUTRAL
+            }
+            SM::STATE_FREE => m.gen == 0 && m.order == 0 && faction == NEUTRAL,
+            SM::STATE_RELEASED_FREE => m.gen != 255 && faction == NEUTRAL,
+            _ => false,
+        };
+        if !canonical {
+            return Err(ConquestError::State.into());
+        }
+        if let Some(e) = entry {
+            if e.declaration_bell > b || e.original_target_gen != 0 {
+                return Err(ConquestError::State.into());
+            }
+            let matches = match e.rules.kind {
+                CR::KIND_SIEGE | CR::KIND_NONE => {
+                    m.state == SM2::STATE_FREE_CITY && m.gen == e.original_target_gen
+                }
+                CR::KIND_CAPTURE_DUE => {
+                    m.state == SM::STATE_HOLDING
+                        && m.gen == e.original_target_gen + 1
+                        && m.order == e.reserved_slot
+                        && faction == e.rules.faction
+                        && e.rules.bell < b
+                }
+                _ => false,
+            };
+            if !matches {
+                return Err(ConquestError::State.into());
+            }
+        }
+    }
+    Ok(conquest)
+}
+
+fn site_reports(built: &WideBuilt, out: &WideClashOutcome) -> R<[SiteReport; P::SITES_N]> {
+    let mut reports = [SiteReport::default(); P::SITES_N];
+    for (g, &s) in built.garrisons.iter().zip(&built.gar_site) {
+        if s == CAMP_SITE || s == KEEP_SITE {
+            continue;
+        }
+        let gr = out
+            .garrisons
+            .iter()
+            .find(|r| r.id == g.id)
+            .ok_or(ResolveError::OutcomeMismatch)?;
+        *reports.get_mut(s as usize).ok_or(BAD)? = SiteReport {
+            holders: gr.holders,
+            defender_present: gr.defender_present,
+        };
+    }
+    Ok(reports)
+}
+
+/// Explicit opt-in, model-only Free City conquest bell. No command calls this.
+/// The caller authenticates account owners/addresses, season parameters and the
+/// seed/window; future escrow settlement and event dispatch remain its duties.
+/// This authenticates table contents against the full province/Season identity,
+/// prefix records, mirrors and exact bell cursor. It resolves the real wide
+/// clash, never supplied/fabricated site reports. All writes use scratch copies:
+/// on ANY error neither caller buffer changes; on success commit both buffers
+/// and the returned table atomically. `table` itself is never modified.
+/// Existing build/step/resolve_bell retain their strict conquest refusal.
+#[allow(clippy::too_many_arguments)]
+pub fn resolve_bell_with_conquest(
+    pd: &mut [u8],
+    roster: &WideRoster,
+    rd: &mut [u8],
+    table: &[u8],
+    inputs: Option<&[u8]>,
+    b: u32,
+    seed: &Seed,
+    rules: &Ruleset,
+    prm: &StepParams,
+) -> R<WideConquestBellOutcome> {
+    let next = rd_u32(pd, P::RESOLVED_NEXT).ok_or(BAD)?;
+    if next != b {
+        return Err(ResolveError::NotDue { next, bell: b });
+    }
+    if b >= prm.end_bell {
+        return Err(ConquestError::TooEarly.into());
+    }
+    let mut conquest = validate_conquest(pd, table, b)?;
+    let built = build_supported(pd, roster, rd, inputs, b)?;
+    let mut scratch = pd.to_vec();
+    let mut refs = rd.to_vec();
+    let clash = resolve(rules, &built, seed)?;
+    let applied = apply(&mut scratch, roster, &mut refs, &built, &clash)?;
+    let reports = site_reports(&built, &clash)?;
+    let keep = keep_report(&built, &clash)?;
+    let settled = settle(&mut scratch, roster, &mut refs, b)?;
+    // Original order: clash, reports, settle, score starting ownership, sites,
+    // keep, hourly snapshot. Neither clash nor settle changes keep ownership.
+    score_territory(&mut scratch, b, prm.end_bell)?;
+    let mut site_events = Vec::new();
+    let mut records_changed = false;
+    let mut mirrors_changed = false;
+    for (s, report) in reports.iter().enumerate() {
+        if let Some(e) = conquest.entry(s as u8)? {
+            let plan = conquest.step(
+                s as u8,
+                Record::read(&scratch, s)?,
+                e,
+                site_mirror(&scratch, s)?,
+                b,
+                *report,
+                prm,
+            )?;
+            if let Some(t) = plan.transition {
+                if let Some(capture) = t.capture {
+                    apply_capture(&mut scratch, s, t.record.faction, capture)?;
+                    mirrors_changed = true;
+                }
+                plan.prefix.write(&mut scratch, s)?;
+                records_changed = true;
+                if let Some((code, faction, progress)) = t.event {
+                    site_events.push(crate::v2::log::Event {
+                        site: s as u8,
+                        code,
+                        faction,
+                        progress,
+                    });
+                }
+            }
+            conquest = plan.conquest;
+        }
+    }
+    let step = step_keep_snapshot(&mut scratch, roster, &mut refs, b, keep, prm)?;
+    finish_bell(
+        &mut scratch,
+        b,
+        applied.changed
+            || applied.keep_changed
+            || step.roster_changed
+            || settled
+            || mirrors_changed,
+    )?;
+    validate_live_entries(&scratch, roster, &refs)?;
+    // Recheck the paired result at its new cursor, including capture mirrors.
+    validate_conquest(
+        &scratch,
+        &conquest.to_bytes(),
+        b.checked_add(1).ok_or(ResolveError::Overflow)?,
+    )?;
+    pd.copy_from_slice(&scratch);
+    rd.copy_from_slice(&refs);
+    Ok(WideConquestBellOutcome {
+        conquest,
+        bell: WideBellOutcome {
+            clash,
+            applied,
+            step,
+            settled,
+        },
+        site_reports: reports,
+        site_events,
+        records_changed,
+        mirrors_changed,
+    })
 }
 
 /// The whole bell `b` of a wide province: due (`resolved_next == b`),

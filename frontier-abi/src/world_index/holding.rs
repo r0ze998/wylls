@@ -165,6 +165,16 @@ pub enum HoldingError {
     /// The claim rule is undecided (the program decides it by the deployed
     /// outpost lottery at a wide settle; a test may pass `Undecided`).
     NotReady,
+    /// Captured Free City tier is outside the deployed 0..=3 encoding.
+    CaptureTier(u8),
+    /// Tile cannot be resolved by the deployed terrain-ore rule.
+    CaptureTile(u8),
+    /// Citizen faction is outside the existing six-nation domain.
+    CaptureFaction(u8),
+    /// Timestamp cannot represent the kernel's dormancy boundary.
+    CaptureTime,
+    /// The deployed holding kernel refused initialization.
+    CaptureKernel,
 }
 
 impl From<KeyError> for HoldingError {
@@ -374,7 +384,133 @@ pub struct WideHolding {
     pub open_transits: u8,
 }
 
+/// Authenticated settlement inputs, not proof that a capture is due.
+/// The caller must authenticate the province/site mirror, Citizen, conquest
+/// record, and the isolated wide capture escrow before using these inputs.
+/// In particular, the owner identity must match the Citizen account and its
+/// canonical tag; this serializer deliberately does not derive addresses/tags.
+/// No legacy ticket escrow, placement decision, or address derivation is used.
+#[derive(Clone, Copy, Debug)]
+pub struct CapturedFreeCity {
+    pub world: WorldId,
+    pub season_id: u64,
+    pub coord: WideCoord,
+    pub site: u8,
+    /// Final generation already committed by the capture bell transition.
+    pub gen: u8,
+    pub slot: u8,
+    pub owner_citizen: [u8; 32],
+    pub tile: u8,
+    pub tier: u8,
+    pub captured_bell: u32,
+    /// Current season bell, or None before genesis (legacy day-zero fallback).
+    pub current_bell: Option<u32>,
+    pub now: i64,
+    /// Current funder of the isolated WideCaptureEscrow, not TICKET_FUNDER.
+    pub rent_payer: [u8; 32],
+}
+
 impl WideHolding {
+    /// Initializes a fresh final captured Free City with the deployed
+    /// SettleCapture economy and metadata. Does not settle a conquest, transfer
+    /// rent, bind inventory, authenticate accounts, or enable a command.
+    /// Citizen supplies faction and expelled state; there is no separate nation
+    /// field in Holding. Terrain/resource bytes use the deployed ore decoder,
+    /// including its treatment of unrecognized terrain/resource bytes.
+    pub fn captured_free_city(
+        input: CapturedFreeCity,
+        citizen: &[u8],
+        terrain: &[u8; 61],
+        resource: &[u8; 61],
+    ) -> Result<[u8; wide_holding::SIZE], HoldingError> {
+        use crate::bytes::{rd_i64, wr_i64, wr_u32};
+        use crate::layout::player::accrual as A;
+        use permutation_rules::frontier::holding::{Holding, Resource, Tier, DORMANT_AFTER};
+
+        let identity = Self {
+            season_id: input.season_id,
+            world: input.world,
+            coord: input.coord,
+            site: input.site,
+            gen: input.gen,
+            slot: input.slot,
+            owner_citizen: input.owner_citizen,
+            host_identity: HOST_IDENTITY_UNALLOCATED,
+            open_transits: 0,
+        };
+        let mut d = [0u8; wide_holding::SIZE];
+        identity.write_identity(&mut d)?;
+        // The canonical decoder checks ring, site, generation, and slot without
+        // pretending capture was approved by the placement lottery.
+        Self::read(&d)?;
+        if citizen.len() != C2::SIZE {
+            return Err(HoldingError::Citizen);
+        }
+        let faction = rd_u8(citizen, C2::FACTION).ok_or(HoldingError::Citizen)?;
+        if faction >= permutation_rules::frontier::geometry::FACTIONS {
+            return Err(HoldingError::CaptureFaction(faction));
+        }
+        let expelled = rd_i64(citizen, C2::EXPELLED_SINCE).ok_or(HoldingError::Citizen)? != 0;
+        let tier = match input.tier {
+            0 => Tier::Hamlet,
+            1 => Tier::Town,
+            2 => Tier::City,
+            3 => Tier::Stronghold,
+            x => return Err(HoldingError::CaptureTier(x)),
+        };
+        let ore = permutation_rules::frontier::arms::terrain_ore_per_hour_bytes(
+            terrain, resource, input.tile,
+        )
+        .ok_or(HoldingError::CaptureTile(input.tile))?;
+        input
+            .now
+            .checked_add(DORMANT_AFTER)
+            .ok_or(HoldingError::CaptureTime)?;
+        let day = crate::addr::day_of(input.current_bell.unwrap_or(0));
+        let mut h = Holding::found(input.now, day, input.slot);
+        h.tier = tier;
+        for store in &mut h.stores {
+            store.cap = tier.storage_cap();
+        }
+        h.production = permutation_rules::frontier::arms::base_production(tier, ore);
+        h.set_upkeep(input.now, Resource::Food, 0)
+            .map_err(|_| HoldingError::CaptureKernel)?;
+
+        // Zero initialization supplies free queues/transits/explore, empty
+        // reserve/stores, no previous owner/home, and zero shield and escrow.
+        wr_u8(&mut d, H2::TILE, input.tile);
+        wr_u8(&mut d, H2::STATE, H2::STATE_FINAL);
+        wr_u8(&mut d, H2::FACTION, faction);
+        wr_arr(&mut d, H2::RENT_PAYER, &input.rent_payer);
+        wr_i64(&mut d, H2::FINAL_TS, input.now);
+        wr_u8(&mut d, H2::PREV_GEN, input.gen - 1);
+        wr_u8(&mut d, H2::CAPTURE_FLAGS, H2::CAPTURE_FLAG_CAPTURED);
+        wr_u32(&mut d, H2::CAPTURED_BELL, input.captured_bell);
+        wr_i64(&mut d, H2::TERRAIN_ORE, ore);
+        wr_u8(&mut d, H2::TIER, input.tier);
+        wr_u8(&mut d, H2::ORDER, h.order);
+        wr_i64(&mut d, H2::FOUNDED_TS, h.founded_ts);
+        wr_u32(&mut d, H2::FOUNDED_DAY, h.founded_day);
+        wr_i64(&mut d, H2::LAST_OWNER_ACTION, h.last_owner_action);
+        wr_u8(
+            &mut d,
+            H2::FLAGS,
+            if expelled { H2::FLAG_EXPELLED } else { 0 },
+        );
+        for (i, store) in h.stores.iter().enumerate() {
+            let o = H2::store(i);
+            wr_i64(&mut d, o + A::VALUE, store.value);
+            wr_i64(&mut d, o + A::RATE, store.rate);
+            wr_i64(&mut d, o + A::CAP, store.cap);
+            wr_i64(&mut d, o + A::T0, store.t0);
+            wr_i64(&mut d, o + A::FRAC, store.frac);
+            wr_i64(&mut d, H2::PRODUCTION + 8 * i, h.production[i]);
+            wr_i64(&mut d, H2::UPKEEP + 8 * i, h.upkeep[i]);
+        }
+        wr_i64(&mut d, H2::WALLS_COMMITTED_BEFORE, h.walls_committed_before);
+        Ok(d)
+    }
+
     /// The founding of `site` of `coord` for `owner` in `slot`, under the
     /// claim rule: refused [`HoldingError::NotReady`] while the rule is
     /// undecided (the program passes `Decided` only from the wide settle,

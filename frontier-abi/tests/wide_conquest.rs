@@ -68,6 +68,178 @@ fn binding() -> CaptureBinding {
     }
 }
 
+fn inventory_citizen() -> [u8; C::SIZE] {
+    let mut c = [0xa5; C::SIZE];
+    c[C::SLOTS] = 0;
+    for slot in 2..=3 {
+        c[C::holding_of_slot(slot) + 5] = C::EMPTY_GEN;
+    }
+    c[C::TICKET_BELL..C::TICKET_BELL + 4].copy_from_slice(&C::NO_TICKET.to_le_bytes());
+    c[C::CITIZEN_TAG..C::CITIZEN_TAG + 8]
+        .copy_from_slice(&frontier_abi::addr::citizen_tag(&[8; 32]).to_le_bytes());
+    c
+}
+
+#[test]
+fn empty_inventory_requires_exact_context_and_no_orphan_markers() {
+    let escrow = WideCaptureEscrow::new(3, world(), [8; 32], [2; 32]).unwrap();
+    let c = inventory_citizen();
+    assert_eq!(escrow.validate_inventory(3, world(), [8; 32], &c), Ok(()));
+    assert_eq!(escrow.terminal_citizen_plan(3, world(), [8; 32], &c), Ok(c));
+    for (season, w, citizen) in [
+        (4, world(), [8; 32]),
+        (3, WorldId::new([9; 32]).unwrap(), [8; 32]),
+        (3, world(), [9; 32]),
+    ] {
+        assert_eq!(
+            escrow.validate_inventory(season, w, citizen, &c),
+            Err(ConquestError::Identity)
+        );
+        assert_eq!(
+            escrow.terminal_citizen_plan(season, w, citizen, &c),
+            Err(ConquestError::Identity)
+        );
+    }
+    let mut wrong_tag = c;
+    wrong_tag[C::CITIZEN_TAG] ^= 1;
+    assert_eq!(
+        escrow.validate_inventory(3, world(), [8; 32], &wrong_tag),
+        Err(ConquestError::Identity)
+    );
+    for short in [&c[..C::SIZE - 1], &c[..0]] {
+        assert_eq!(
+            escrow.terminal_citizen_plan(3, world(), [8; 32], short),
+            Err(ConquestError::Length)
+        );
+    }
+    for slots in [16, 32, 16 | 4, 32 | 8, 16 | 32 | 4 | 8] {
+        let mut orphan = c;
+        orphan[C::SLOTS] = slots;
+        assert_eq!(
+            escrow.validate_inventory(3, world(), [8; 32], &orphan),
+            Err(ConquestError::Marker)
+        );
+    }
+    // Empty escrow does not claim or clear legacy reservations or holdings.
+    let mut legacy = c;
+    legacy[C::SLOTS] = 4 | 8;
+    legacy[C::holding_of_slot(2) + 5] = 1;
+    assert_eq!(
+        escrow.validate_inventory(3, world(), [8; 32], &legacy),
+        Ok(())
+    );
+    assert_eq!(
+        escrow.terminal_citizen_plan(3, world(), [8; 32], &legacy),
+        Ok(legacy)
+    );
+}
+
+#[test]
+fn terminal_inventory_clears_only_owned_pairs_without_a_table() {
+    let initial = WideCaptureEscrow::new(3, world(), [8; 32], [2; 32]).unwrap();
+    let (one, _) = initial.reserve(2, binding(), 100, [3; 32]).unwrap();
+    let (both, _) = one
+        .reserve(
+            3,
+            CaptureBinding {
+                site: 1,
+                ..binding()
+            },
+            100,
+            [4; 32],
+        )
+        .unwrap();
+    for escrow in [&one, &both] {
+        let mut c = inventory_citizen();
+        // Preserve unrelated bits, legacy reservation, ticket and all data.
+        c[C::SLOTS] = 0xc0 | 1 | if escrow.active_mask() == 4 { 8 } else { 0 };
+        c[C::TICKET_BELL..C::TICKET_BELL + 4].copy_from_slice(&2u32.to_le_bytes());
+        let expected = c;
+        for slot in 2..=3 {
+            if escrow.active_mask() & C::reserved_bit(slot) != 0 {
+                mark(&mut c, slot).unwrap();
+            }
+        }
+        let before = c;
+        let raw = escrow.to_bytes();
+        assert_eq!(escrow.validate_inventory(3, world(), [8; 32], &c), Ok(()));
+        assert_eq!(
+            escrow.terminal_citizen_plan(3, world(), [8; 32], &c),
+            Ok(expected)
+        );
+        assert_eq!(c, before);
+        assert_eq!(escrow.to_bytes(), raw);
+    }
+}
+
+#[test]
+fn inventory_rejects_occupied_missing_and_ticket_overlaps_without_partial_clear() {
+    let empty = WideCaptureEscrow::new(3, world(), [8; 32], [2; 32]).unwrap();
+    let (one, _) = empty.reserve(2, binding(), 100, [3; 32]).unwrap();
+    let (both, _) = one
+        .reserve(
+            3,
+            CaptureBinding {
+                site: 1,
+                ..binding()
+            },
+            100,
+            [3; 32],
+        )
+        .unwrap();
+    let mut valid = inventory_citizen();
+    mark(&mut valid, 2).unwrap();
+    mark(&mut valid, 3).unwrap();
+    for slot in 2..=3 {
+        // Malformed ref, ordinary legacy holding, and exact wide marker.
+        for reference in [[0, 0, 0, 0, 0, 0], [0, 0, 0, 0, 0, 1], [0, 0, 0, 0, 12, 0]] {
+            let mut bad = valid;
+            let start = C::holding_of_slot(slot);
+            bad[start..start + 6].copy_from_slice(&reference);
+            let before = bad;
+            assert_eq!(
+                both.terminal_citizen_plan(3, world(), [8; 32], &bad),
+                Err(ConquestError::Marker)
+            );
+            assert_eq!(bad, before);
+        }
+        let mut missing = valid;
+        clear(&mut missing, slot).unwrap();
+        assert_eq!(
+            both.validate_inventory(3, world(), [8; 32], &missing),
+            Err(ConquestError::Marker)
+        );
+        let mut ticket = valid;
+        ticket[C::SLOTS] |= slot;
+        ticket[C::TICKET_BELL..C::TICKET_BELL + 4].copy_from_slice(&2u32.to_le_bytes());
+        assert_eq!(
+            both.validate_inventory(3, world(), [8; 32], &ticket),
+            Err(ConquestError::Marker)
+        );
+    }
+    // Pending WideTicket is rejected even on a different slot or before the
+    // first capture reservation. Malformed ticket markers also fail closed.
+    for escrow in [&empty, &one] {
+        for ticket_slot in [0, 3] {
+            let mut c = inventory_citizen();
+            if escrow.active_mask() != 0 {
+                mark(&mut c, 2).unwrap();
+            }
+            c[C::SLOTS] |= ticket_slot;
+            c[C::TICKET_BELL..C::TICKET_BELL + 4].copy_from_slice(&2u32.to_le_bytes());
+            c[C::TICKET_SITES..C::TICKET_NEXT].fill(0);
+            assert_eq!(
+                escrow.validate_inventory(3, world(), [8; 32], &c),
+                Err(ConquestError::Marker)
+            );
+            assert_eq!(
+                escrow.terminal_citizen_plan(3, world(), [8; 32], &c),
+                Err(ConquestError::Marker)
+            );
+        }
+    }
+}
+
 #[test]
 fn codec_exact_identity_reserved_and_source() {
     let p = declared();

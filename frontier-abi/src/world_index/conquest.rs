@@ -598,8 +598,8 @@ pub struct WideCaptureEscrow {
 }
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct EscrowClose {
-    /// Citizen reservation pairs to authenticate and clear atomically, if the
-    /// Citizen still exists. Terminal close does not need province/source data.
+    /// Citizen reservation pairs to authenticate and clear atomically. Active
+    /// bindings require a present Citizen. No province/source data is needed.
     pub active_slots: u8,
     pub funder: [u8; 32],
     pub refund: u64,
@@ -708,9 +708,9 @@ impl WideCaptureEscrow {
     /// Funds split only, not close eligibility. The caller must first pass the
     /// authenticated existing season-end close guard (including its grace period,
     /// abort or tombstone rules). No gold compensation is created here.
-    /// Active bindings do not block terminal cleanup: authenticate and clear
-    /// their Citizen markers when present in the same transaction as account
-    /// closure. This never returns resource stake or requires a live province.
+    /// Active bindings require a present authenticated Citizen and its checked
+    /// `terminal_citizen_plan` applied in the same transaction as account closure.
+    /// This never returns resource stake or requires a live province.
     pub fn close_refund_plan(&self, lamports: u64) -> R<EscrowClose> {
         Ok(EscrowClose {
             active_slots: self.active_mask(),
@@ -721,6 +721,74 @@ impl WideCaptureEscrow {
                 .checked_sub(self.escrow)
                 .ok_or(ConquestError::Escrow)?,
         })
+    }
+    /// Check the complete escrow-owned Citizen inventory without a province
+    /// table, including an empty escrow before its first reservation. Expected
+    /// season/world/key must come from authenticated caller context; this pure
+    /// helper does not authenticate account owner/address or Citizen headers.
+    /// Legacy reservations and unrelated holdings remain independent.
+    pub fn validate_inventory(
+        &self,
+        season_id: u64,
+        world: WorldId,
+        citizen_key: [u8; 32],
+        citizen: &[u8],
+    ) -> R<()> {
+        if citizen.len() != C::SIZE {
+            return Err(ConquestError::Length);
+        }
+        if self.season_id != season_id
+            || self.world != world
+            || self.citizen != citizen_key
+            || u64_at(citizen, C::CITIZEN_TAG) != crate::addr::citizen_tag(&citizen_key)
+        {
+            return Err(ConquestError::Identity);
+        }
+        let slots = citizen[C::SLOTS];
+        let active_mask = self.active_mask();
+        if wide_reservations(slots)? != active_mask
+            || matches!(
+                super::ticket::pending(citizen),
+                Ok(super::ticket::CitizenTicket::Wide { .. }) | Err(_)
+            )
+        {
+            return Err(ConquestError::Marker);
+        }
+        for slot in 2..=3 {
+            if active_mask & C::reserved_bit(slot) != 0
+                && (slots & C::SLOTS_TICKET_MASK == slot
+                    || !matches!(
+                        super::holding::binding_of(citizen, slot),
+                        Ok(super::holding::SlotBinding::Empty)
+                    ))
+            {
+                return Err(ConquestError::Marker);
+            }
+        }
+        Ok(())
+    }
+    /// Return scratch bytes clearing only this escrow's reservation pairs.
+    /// No input, escrow state, or lamports are changed, even on failure. Caller
+    /// must authenticate account owner/address and terminal eligibility
+    /// (Ended + 72h, Aborted, or tombstone) and atomically apply this with closure.
+    /// Active bindings require a present authenticated Citizen; the empty-escrow
+    /// absent-Citizen case belongs to the handler, never placeholder identities.
+    pub fn terminal_citizen_plan(
+        &self,
+        season_id: u64,
+        world: WorldId,
+        citizen_key: [u8; 32],
+        citizen: &[u8],
+    ) -> R<[u8; C::SIZE]> {
+        self.validate_inventory(season_id, world, citizen_key, citizen)?;
+        let mut next = [0; C::SIZE];
+        next.copy_from_slice(citizen);
+        for slot in 2..=3 {
+            if self.active_mask() & C::reserved_bit(slot) != 0 {
+                clear(&mut next, slot)?;
+            }
+        }
+        Ok(next)
     }
     /// Three-way identity check before any external effect. The caller must
     /// authenticate the supplied Citizen account address/owner separately.
@@ -737,45 +805,16 @@ impl WideCaptureEscrow {
     ) -> R<()> {
         conquest.validate_paired(site, prefix)?;
         let entry = conquest.entry(site)?.ok_or(ConquestError::Stale)?;
-        if citizen.len() != C::SIZE {
-            return Err(ConquestError::Length);
-        }
-        if self.season_id != conquest.season_id
-            || self.world != conquest.key.world()
-            || self.citizen != citizen_key
-            || entry.citizen != citizen_key
-            || u64_at(citizen, C::CITIZEN_TAG) != entry.actor_tag
-        {
+        self.validate_inventory(
+            conquest.season_id,
+            conquest.key.world(),
+            citizen_key,
+            citizen,
+        )?;
+        if entry.citizen != citizen_key {
             return Err(ConquestError::Identity);
         }
         let slot = entry.reserved_slot;
-        if wide_reservations(citizen[C::SLOTS])? != self.active_mask() {
-            return Err(ConquestError::Marker);
-        }
-        for active in 2..=3 {
-            if self.active_mask() & C::reserved_bit(active) != 0
-                && (citizen[C::SLOTS] & C::SLOTS_TICKET_MASK == active
-                    || !matches!(
-                        super::holding::binding_of(citizen, active),
-                        Ok(super::holding::SlotBinding::Empty)
-                    ))
-            {
-                return Err(ConquestError::Marker);
-            }
-        }
-        if wide_reservations(citizen[C::SLOTS])? & C::reserved_bit(slot) == 0
-            || citizen[C::SLOTS] & C::SLOTS_TICKET_MASK == slot
-            || !matches!(
-                super::holding::binding_of(citizen, slot),
-                Ok(super::holding::SlotBinding::Empty)
-            )
-            || matches!(
-                super::ticket::pending(citizen),
-                Ok(super::ticket::CitizenTicket::Wide { .. }) | Err(_)
-            )
-        {
-            return Err(ConquestError::Marker);
-        }
         let expected = CaptureBinding {
             key: conquest.key,
             site,
