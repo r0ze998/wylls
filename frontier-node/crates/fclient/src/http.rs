@@ -19,7 +19,7 @@
 
 use std::time::Duration;
 
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use tokio::io::{AsyncRead, AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
 
 use crate::ports::PortError;
@@ -72,6 +72,26 @@ pub async fn post_json(url: &str, body: &serde_json::Value) -> Result<Response, 
     .await
 }
 
+/// JSON POST with a cap on response wire bytes, including headers and
+/// chunk framing. One extra byte is read to detect overflow before parsing.
+/// Like [`post_json`], HTTPS POSTs are unsupported and the timeout is 20 s.
+pub async fn post_json_bounded(
+    url: &str,
+    body: &serde_json::Value,
+    max_response_bytes: usize,
+) -> Result<Response, PortError> {
+    if url.starts_with("https://") {
+        return Err(PortError::Unsupported("https:// is GET only (live drand)"));
+    }
+    let body = serde_json::to_vec(body).map_err(|e| PortError::Decode(e.to_string()))?;
+    tokio::time::timeout(
+        TIMEOUT,
+        request_inner("POST", url, Some(body), &[], Some(max_response_bytes)),
+    )
+    .await
+    .map_err(|_| PortError::Io(format!("timeout: POST {url}")))?
+}
+
 pub async fn request(
     method: &str,
     url: &str,
@@ -83,7 +103,7 @@ pub async fn request(
         }
         return curl_get(url).await;
     }
-    tokio::time::timeout(TIMEOUT, request_inner(method, url, body, &[]))
+    tokio::time::timeout(TIMEOUT, request_inner(method, url, body, &[], None))
         .await
         .map_err(|_| PortError::Io(format!("timeout: {method} {url}")))?
 }
@@ -94,7 +114,7 @@ pub async fn get_with_headers(url: &str, headers: &[(&str, &str)]) -> Result<Res
     if url.starts_with("https://") {
         return Err(PortError::Unsupported("https:// takes no extra headers"));
     }
-    tokio::time::timeout(TIMEOUT, request_inner("GET", url, None, headers))
+    tokio::time::timeout(TIMEOUT, request_inner("GET", url, None, headers, None))
         .await
         .map_err(|_| PortError::Io(format!("timeout: GET {url}")))?
 }
@@ -104,6 +124,7 @@ async fn request_inner(
     url: &str,
     body: Option<Vec<u8>>,
     headers: &[(&str, &str)],
+    max_response_bytes: Option<usize>,
 ) -> Result<Response, PortError> {
     let (hp, path) = split_url(url)?;
     let mut s = TcpStream::connect(&hp)
@@ -132,10 +153,33 @@ async fn request_inner(
             .await
             .map_err(|e| PortError::Io(e.to_string()))?;
     }
-    let mut buf = Vec::with_capacity(4096);
-    s.read_to_end(&mut buf)
-        .await
-        .map_err(|e| PortError::Io(e.to_string()))?;
+    read_response(&mut s, max_response_bytes).await
+}
+
+async fn read_response<R: AsyncRead + Unpin>(
+    reader: &mut R,
+    max_response_bytes: Option<usize>,
+) -> Result<Response, PortError> {
+    let mut buf = Vec::with_capacity(max_response_bytes.map_or(4096, |n| n.min(4096)));
+    if let Some(max_response_bytes) = max_response_bytes {
+        // Saturation avoids wrapping a caller-supplied usize::MAX cap.
+        let read_limit = (max_response_bytes as u64).saturating_add(1);
+        reader
+            .take(read_limit)
+            .read_to_end(&mut buf)
+            .await
+            .map_err(|e| PortError::Io(e.to_string()))?;
+        if buf.len() > max_response_bytes {
+            return Err(PortError::Decode(format!(
+                "HTTP response exceeds {max_response_bytes} wire bytes"
+            )));
+        }
+    } else {
+        reader
+            .read_to_end(&mut buf)
+            .await
+            .map_err(|e| PortError::Io(e.to_string()))?;
+    }
     parse_response(&buf)
 }
 
@@ -416,6 +460,90 @@ fn dechunk(mut raw: &[u8]) -> Result<Vec<u8>, PortError> {
         raw = raw
             .get(n + 2..)
             .ok_or_else(|| PortError::Decode("chunk end".into()))?;
+    }
+}
+
+#[cfg(test)]
+mod bounded_response_tests {
+    use super::*;
+
+    // A byte slice is an in-memory AsyncRead. This runtime has no I/O or
+    // time drivers, and none of these tests calls a request or curl path.
+    fn read_bounded(raw: &[u8], cap: usize) -> (Result<Response, PortError>, usize) {
+        let rt = tokio::runtime::Builder::new_current_thread()
+            .build()
+            .unwrap();
+        let mut reader = raw;
+        let result = rt.block_on(read_response(&mut reader, Some(cap)));
+        (result, raw.len() - reader.len())
+    }
+
+    fn assert_limit_error(result: Result<Response, PortError>, cap: usize) {
+        assert!(matches!(
+            result,
+            Err(PortError::Decode(message))
+                if message == format!("HTTP response exceeds {cap} wire bytes")
+        ));
+    }
+
+    #[test]
+    fn exact_wire_cap_is_accepted() {
+        let raw = b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\nhi";
+        let (result, consumed) = read_bounded(raw, raw.len());
+        let response = result.unwrap();
+        assert_eq!(response.status, 200);
+        assert_eq!(response.body, b"hi");
+        assert_eq!(consumed, raw.len());
+    }
+
+    #[test]
+    fn over_cap_stops_after_one_extra_byte_before_parsing() {
+        let raw = b"not HTTP, and more bytes must remain unread";
+        let cap = 8;
+        let (result, consumed) = read_bounded(raw, cap);
+        assert_limit_error(result, cap);
+        assert_eq!(consumed, cap + 1);
+    }
+
+    #[test]
+    fn chunk_framing_counts_toward_wire_cap() {
+        let raw =
+            b"HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n1\r\na\r\n1\r\nb\r\n0\r\n\r\n";
+        let (result, consumed) = read_bounded(raw, raw.len());
+        assert_eq!(result.unwrap().body, b"ab");
+        assert_eq!(consumed, raw.len());
+
+        let cap = raw.len() - 1;
+        let (result, consumed) = read_bounded(raw, cap);
+        assert_limit_error(result, cap);
+        assert_eq!(consumed, cap + 1);
+    }
+
+    #[test]
+    fn headers_consume_wire_budget_even_without_a_body() {
+        let raw = b"HTTP/1.1 200 OK\r\nContent-Length: 0\r\nX-Padding: abcdefghijklmnopqrstuvwxyz\r\n\r\n";
+        let cap = 32;
+        let (result, consumed) = read_bounded(raw, cap);
+        assert_limit_error(result, cap);
+        assert_eq!(consumed, cap + 1);
+    }
+
+    #[test]
+    fn advertised_content_length_does_not_control_allocation() {
+        let raw = format!(
+            "HTTP/1.1 200 OK\r\nContent-Length: {}\r\n\r\nhi",
+            usize::MAX
+        );
+        let (result, consumed) = read_bounded(raw.as_bytes(), raw.len());
+        assert!(matches!(result, Err(PortError::Decode(message)) if message == "short body"));
+        assert_eq!(consumed, raw.len());
+    }
+
+    #[test]
+    fn zero_cap_rejects_the_first_wire_byte() {
+        let (result, consumed) = read_bounded(b"HTTP/1.1 200 OK\r\n\r\n", 0);
+        assert_limit_error(result, 0);
+        assert_eq!(consumed, 1);
     }
 }
 

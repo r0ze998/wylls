@@ -22,6 +22,7 @@ const B64: base64::engine::GeneralPurpose = base64::engine::general_purpose::STA
 pub struct RpcClient {
     pub url: String,
     id: AtomicU64,
+    max_response_bytes: Option<usize>,
 }
 
 impl RpcClient {
@@ -29,18 +30,36 @@ impl RpcClient {
         RpcClient {
             url: url.into(),
             id: AtomicU64::new(1),
+            max_response_bytes: None,
+        }
+    }
+
+    /// Opt-in cap on each response's HTTP wire bytes (headers and body).
+    /// Replies must also have a matching JSON-RPC 2.0 response envelope.
+    /// Construction stores configuration only; it performs no I/O.
+    pub fn new_with_response_limit(url: impl Into<String>, max_bytes: usize) -> RpcClient {
+        RpcClient {
+            url: url.into(),
+            id: AtomicU64::new(1),
+            max_response_bytes: Some(max_bytes),
         }
     }
 
     pub async fn call(&self, method: &str, params: Value) -> PortResult<Value> {
         let id = self.id.fetch_add(1, Ordering::Relaxed);
         let req = json!({"jsonrpc": "2.0", "id": id, "method": method, "params": params});
-        let resp = crate::http::post_json(&self.url, &req).await?;
+        let resp = match self.max_response_bytes {
+            Some(max_bytes) => crate::http::post_json_bounded(&self.url, &req, max_bytes).await?,
+            None => crate::http::post_json(&self.url, &req).await?,
+        };
         if resp.status != 200 {
             return Err(PortError::Http(resp.status));
         }
         let v: Value =
             serde_json::from_slice(&resp.body).map_err(|e| PortError::Decode(e.to_string()))?;
+        if self.max_response_bytes.is_some() {
+            return parse_bounded_response(&v, id);
+        }
         if let Some(e) = v.get("error") {
             return Err(PortError::Rpc {
                 code: e.get("code").and_then(|c| c.as_i64()).unwrap_or(0),
@@ -120,6 +139,45 @@ impl RpcClient {
             }
         }
         Ok(out)
+    }
+}
+
+/// Bind an opt-in bounded response to its request before exposing its result.
+/// Legacy unlimited clients deliberately keep their existing parsing behavior.
+fn parse_bounded_response(v: &Value, expected_id: u64) -> PortResult<Value> {
+    let response = v
+        .as_object()
+        .ok_or_else(|| PortError::Decode("RPC response must be an object".into()))?;
+    if response.get("jsonrpc").and_then(Value::as_str) != Some("2.0") {
+        return Err(PortError::Decode("RPC response jsonrpc must be 2.0".into()));
+    }
+    if response.get("id").and_then(Value::as_u64) != Some(expected_id) {
+        return Err(PortError::Decode(
+            "RPC response id must match request".into(),
+        ));
+    }
+    match (response.get("result"), response.get("error")) {
+        (Some(result), None) => Ok(result.clone()),
+        (None, Some(error)) => {
+            let error = error
+                .as_object()
+                .ok_or_else(|| PortError::Decode("RPC error must be an object".into()))?;
+            let code = error
+                .get("code")
+                .and_then(Value::as_i64)
+                .ok_or_else(|| PortError::Decode("RPC error code must be an i64".into()))?;
+            let message = error
+                .get("message")
+                .and_then(Value::as_str)
+                .ok_or_else(|| PortError::Decode("RPC error message must be a string".into()))?;
+            Err(PortError::Rpc {
+                code,
+                message: message.into(),
+            })
+        }
+        _ => Err(PortError::Decode(
+            "RPC response must contain exactly one of result or error".into(),
+        )),
     }
 }
 
@@ -379,6 +437,21 @@ impl RpcPort {
             localnet: false,
         }
     }
+
+    /// An RPC port with a per-response HTTP wire-byte cap and no localnet feed.
+    /// Construction stores configuration only; it performs no I/O.
+    pub fn new_with_response_limit(
+        url: impl Into<String>,
+        program: Address,
+        max_bytes: usize,
+    ) -> RpcPort {
+        RpcPort {
+            rpc: RpcClient::new_with_response_limit(url, max_bytes),
+            program,
+            localnet: false,
+        }
+    }
+
     pub fn localnet(url: impl Into<String>, program: Address) -> RpcPort {
         RpcPort {
             rpc: RpcClient::new(url),
@@ -615,6 +688,145 @@ impl ChainPort for RpcPort {
             .call("getLatestBlockhash", json!([{"commitment": "confirmed"}]))
             .await?;
         parse_latest_blockhash_result(&v)
+    }
+}
+
+#[cfg(test)]
+mod bounded_response_tests {
+    use super::*;
+
+    #[test]
+    fn accepts_matching_result_including_null() {
+        for result in [json!({"value": 9}), Value::Null] {
+            let response = json!({"jsonrpc": "2.0", "id": 7, "result": result});
+            assert_eq!(parse_bounded_response(&response, 7).unwrap(), result);
+        }
+    }
+
+    #[test]
+    fn rejects_non_object_envelopes() {
+        for response in [Value::Null, json!(true), json!(7), json!("2.0"), json!([])] {
+            assert!(matches!(
+                parse_bounded_response(&response, 7),
+                Err(PortError::Decode(_))
+            ));
+        }
+    }
+
+    #[test]
+    fn rejects_missing_or_wrong_jsonrpc_version() {
+        for response in [
+            json!({"id": 7, "result": null}),
+            json!({"jsonrpc": "1.0", "id": 7, "result": null}),
+            json!({"jsonrpc": 2.0, "id": 7, "result": null}),
+            json!({"jsonrpc": null, "id": 7, "result": null}),
+        ] {
+            assert!(matches!(
+                parse_bounded_response(&response, 7),
+                Err(PortError::Decode(_))
+            ));
+        }
+    }
+
+    #[test]
+    fn rejects_missing_mismatched_or_non_u64_ids() {
+        assert!(matches!(
+            parse_bounded_response(&json!({"jsonrpc": "2.0", "result": null}), 7),
+            Err(PortError::Decode(_))
+        ));
+        for id in [
+            Value::Null,
+            json!(8),
+            json!("7"),
+            json!(-1),
+            json!(7.0),
+            json!(true),
+            json!([]),
+            json!({}),
+        ] {
+            let response = json!({"jsonrpc": "2.0", "id": id, "result": null});
+            assert!(matches!(
+                parse_bounded_response(&response, 7),
+                Err(PortError::Decode(_))
+            ));
+        }
+    }
+
+    #[test]
+    fn requires_exactly_one_result_or_error() {
+        for response in [
+            json!({"jsonrpc": "2.0", "id": 7}),
+            json!({"jsonrpc": "2.0", "id": 7, "result": null, "error": null}),
+            json!({"jsonrpc": "2.0", "id": 7, "result": 9,
+                "error": {"code": -32602, "message": "invalid params"}}),
+        ] {
+            assert!(matches!(
+                parse_bounded_response(&response, 7),
+                Err(PortError::Decode(_))
+            ));
+        }
+    }
+
+    #[test]
+    fn accepts_well_formed_rpc_error() {
+        let response = json!({"jsonrpc": "2.0", "id": 7,
+            "error": {"code": -32602, "message": "invalid params", "data": null}});
+        assert!(matches!(
+            parse_bounded_response(&response, 7),
+            Err(PortError::Rpc { code: -32602, message }) if message == "invalid params"
+        ));
+    }
+
+    #[test]
+    fn rejects_malformed_rpc_errors() {
+        for error in [
+            Value::Null,
+            json!([]),
+            json!("invalid params"),
+            json!(true),
+            json!({}),
+            json!({"code": -32602}),
+            json!({"message": "invalid params"}),
+            json!({"code": "-32602", "message": "invalid params"}),
+            json!({"code": -32602.5, "message": "invalid params"}),
+            json!({"code": -32602, "message": 5}),
+        ] {
+            let response = json!({"jsonrpc": "2.0", "id": 7, "error": error});
+            assert!(matches!(
+                parse_bounded_response(&response, 7),
+                Err(PortError::Decode(_))
+            ));
+        }
+    }
+
+    #[test]
+    fn constructors_only_store_configuration_and_keep_existing_defaults() {
+        let url = "configuration-only";
+        let client = RpcClient::new(url);
+        assert_eq!(client.url, url);
+        assert_eq!(client.id.load(Ordering::Relaxed), 1);
+        assert_eq!(client.max_response_bytes, None);
+
+        let client = RpcClient::new_with_response_limit(url, 123);
+        assert_eq!(client.url, url);
+        assert_eq!(client.id.load(Ordering::Relaxed), 1);
+        assert_eq!(client.max_response_bytes, Some(123));
+
+        // A literal public program address, not a keypair or derived key.
+        let program = Address::new_from_array([7; 32]);
+        let port = RpcPort::new(url, program);
+        assert_eq!(port.rpc.max_response_bytes, None);
+        assert!(!port.localnet);
+
+        let localnet = RpcPort::localnet(url, program);
+        assert_eq!(localnet.rpc.max_response_bytes, None);
+        assert!(localnet.localnet);
+
+        let port = RpcPort::new_with_response_limit(url, program, 456);
+        assert_eq!(port.rpc.url, url);
+        assert_eq!(port.rpc.max_response_bytes, Some(456));
+        assert_eq!(port.program, program);
+        assert!(!port.localnet);
     }
 }
 
