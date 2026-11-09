@@ -38,7 +38,7 @@ function row({ b, format, archiveSequence = '1', ordinal = '0' }, i = 0) {
   if (format === 'PSWC') { r.name = 'WIDE_CONQUEST_SIDECAR_CLOSED'; r.action = 7; }
   else if (r.kind === 146) { r.name = b[7] === 1 ? 'ORIGINAL_EXPEDITION_DEPART' : 'ORIGINAL_EXPEDITION_SETTLE_ORIGIN'; r.province = key(130); r.host = key(10, true); }
   else if (r.kind === 147) { r.name = b[7] === 1 ? 'ORIGINAL_EXPEDITION_REVEAL' : 'ORIGINAL_EXPEDITION_GATHER'; r.province = key(10); if (b[7] === 1) r.host = key(60, true); }
-  else if ([148, 25].includes(r.kind)) { r.name = `${r.kind === 25 ? 'WIDE_' : ''}ORIGINAL_EXPEDITION_SETTLE_MEMBER`; r.province = key(162); r.host = key(10, true); }
+  else if ([148, 25].includes(r.kind)) { r.name = `${r.kind === 25 ? 'WIDE_' : ''}ORIGINAL_EXPEDITION_SETTLE_${b[6] === 2 ? 'CAMP' : 'MEMBER'}`; r.province = key(162); r.host = key(10, true); }
   else if ([149, 26].includes(r.kind)) { r.name = `${r.kind === 26 ? 'WIDE_' : ''}ORIGINAL_RESIDENT_${b[7] === 1 ? 'DISSOLVE' : 'RETURN'}`; r.province = key(130); r.host = key(10, true); }
   else if (r.kind === 145) { r.name = b[7] === 1 ? 'ORIGINAL_CONQUEST_DEBIT' : 'ORIGINAL_CONQUEST_CREDIT'; r.province = key(10); r.host = key(10, true); }
   else if (format === 'PSW1') {
@@ -99,6 +99,62 @@ test('settlement and conquest pairs are page-local and transaction-local, with e
     refused(()=>parse([a,{...clone(a),event:'2',ordinal:'19'}]));
     refused(()=>parse([a,{...b,ordinal:a.ordinal}]));
     refused(()=>parse([a,mutated(b, bb=>{bb[2]^=1;})].map((r,i)=>({...r,event:String(i+1)}))));
+  }
+});
+
+// Synthetic camp-v2 wire observations from public identity bytes only. These
+// tails are shape fixtures, not verified native chain heads or reward evidence.
+function campRows() {
+  const source = Buffer.from(nativeRows.find(r => r.kind === 148).body_b64, 'base64').subarray(0, 454);
+  return [false, true].map((isWide, ordinal) => {
+    const entities = isWide ? [1] : [5, 4], b = Buffer.alloc(455 + entities.length * 41);
+    source.copy(b); b[0] = isWide ? 0x82 : 1; b[1] = isWide ? 25 : 148;
+    b[6] = 2; b[7] = 4; b.fill(0, 244, 326); b.copy(b, 326, 66, 98);
+    b.set(sha256('PSF-BOUNDARY-CAMP-SETTLEMENT-OP-v2', b.subarray(390, 422), b.subarray(422, 454)), 358);
+    b[454] = entities.length;
+    entities.forEach((entity, i) => { b[455 + i * 41] = entity; b.writeBigUInt64LE(1n, 456 + i * 41); });
+    return row({ b, format: isWide ? 'PSW1' : 'PS2', archiveSequence: '1', ordinal: String(ordinal) }, ordinal);
+  });
+}
+
+test('camp-v2 pairs retain explicit version and Citizen without becoming member-v1 or reward authority', () => {
+  const rows = campRows(), parsed = parse(rows).rows;
+  assert.deepEqual(parsed.map(r => Buffer.from(r.body)), rows.map(r => Buffer.from(r.body_b64, 'base64')));
+  assert.deepEqual(parsed.map(r => r.expeditionPairEvent), [2n, 1n]);
+  for (const r of parsed) {
+    const x = r.expedition;
+    assert.equal(x.stage, 'settle_camp'); assert.equal(x.receiptVersion, 2);
+    assert.equal(x.pairClass, 'camp_settlement'); assert.equal(x.citizen, encode(r.body.subarray(66, 98)));
+    assert.equal(x.executable, false); assert.equal(x.receiptVerification, 'unverified');
+    assert.equal(x.originalChainVerification, 'unverified'); assert.equal(x.sourceVerification, 'unverified');
+    assert.equal(x.works, undefined); assert.equal(r.holding, null);
+    assert.deepEqual(x.links.map(l => l.entity), r.format === 'PS2' ? [5, 4] : [1]);
+  }
+  assert.equal(parse([rows[0]]).rows[0].expeditionPairEvent, null);
+  assert.equal(parse([rows[0], { ...rows[1], archiveSequence: '2' }]).rows[0].expeditionPairEvent, null);
+  refused(() => parse([rows[0], { ...rows[0], event: '2', ordinal: '1' }]));
+  refused(() => parse([rows[0], { ...rows[1], ordinal: '0' }]));
+  const member = isolated(nativeRows.find(r => r.kind === 25));
+  assert.equal(parse([rows[0], { ...member, event: '2', archiveSequence: '1', ordinal: '1' }]).rows[0].expeditionPairEvent, null);
+});
+
+test('camp-v2 rejects wrong version labels domains flags Citizen aliases tails and malformed lengths', () => {
+  for (const r of campRows()) {
+    const b = Buffer.from(r.body_b64, 'base64');
+    for (let n = 0; n < b.length; n++) refused(() => parse([{ ...isolated(r), body_b64: b.subarray(0, n).toString('base64') }]));
+    refused(() => parse([{ ...isolated(r), body_b64: Buffer.concat([b, Buffer.from([0])]).toString('base64') }]));
+    for (const version of [0, 1, 3, 255]) refused(() => parse([mutated(r, bb => { bb[6] = version; })]));
+    for (const flags of [0, 1, 2, 3, 5, 6, 7, 8]) refused(() => parse([mutated(r, bb => { bb[7] = flags; })]));
+    for (const offset of [9, 244, 294, 326, 358, 390, 422, 454, 455]) refused(() => parse([mutated(r, bb => { bb[offset] ^= 1; })]));
+    refused(() => parse([mutated(r, (bb, rr) => { rr.name = rr.name.replace('CAMP', 'MEMBER'); })]));
+    refused(() => parse([mutated(r, bb => { bb.set(sha256('PSF-BOUNDARY-SETTLEMENT-OP-v1', bb.subarray(390, 422), bb.subarray(422, 454)), 358); })]));
+    refused(() => parse([mutated(r, bb => { bb.copy(bb, 66, 98, 130); bb.copy(bb, 326, 98, 130); })]));
+    refused(() => parse([mutated(r, bb => { bb.writeBigUInt64LE(0n, 456); })]));
+  }
+  for (const r of nativeRows.filter(r => [148, 25].includes(r.kind))) {
+    assert.equal(parse([isolated(r)]).rows[0].expedition.stage, 'settle_member');
+    refused(() => parse([mutated(r, (bb, rr) => { rr.name = rr.name.replace('MEMBER', 'CAMP'); })]));
+    refused(() => parse([mutated(r, bb => { bb[6] = 2; })]));
   }
 });
 
@@ -176,4 +232,20 @@ test('original UI displays native boundary and conquest pages without actions or
     assert.equal(mode.state().history.phase,'ready');assert.equal(mode.state().history.page.rows[0].event,1n);
     assert.ok(requests.every(r=>r.method==='GET'));
   } finally {mode.unmount();setLang(old);}
+});
+
+test('original history displays camp-v2 observations without gameplay actions or balances', async () => {
+  const old = lang(), { mode, requests } = harness(campRows());
+  try {
+    setLang('en'); mode.open(); await flush();
+    const list = mode.elements().sheet.querySelector('#wide-history-list');
+    assert.equal(mode.state().history.phase, 'ready'); assert.equal(list.children.length, 2);
+    assert.match(list.textContent, /ORIGINAL_EXPEDITION_SETTLE_CAMP/);
+    assert.match(list.textContent, /WIDE_ORIGINAL_EXPEDITION_SETTLE_CAMP/);
+    assert.match(list.textContent, /No instruction is constructed, signed or submitted/);
+    assert.ok(list.children.every(li => li.children.every(x => x.tagName === 'p')));
+    assert.equal(mode.elements().sheet.querySelector('#wide-action-review').children.length, 0);
+    assert.equal(mode.state().walk.entries.size, 0);
+    assert.ok(requests.every(r => r.method === 'GET'));
+  } finally { mode.unmount(); setLang(old); }
 });

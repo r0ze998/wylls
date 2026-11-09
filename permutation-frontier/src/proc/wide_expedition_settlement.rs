@@ -209,7 +209,38 @@ fn prepare(
     commit: &[u8; 32],
     seal: &[u8; wseal::WIDE_SEAL_LEN],
 ) -> R<Prepared> {
-    if !matches!(base, 8 | 9) || a.len() != base + 6 {
+    prepare_contract(p, a, base, slot_index, commit, seal, false)
+}
+
+/// Camp-v2 is an explicit separate entry, never an inferred optional suffix.
+fn prepare_camp_v2(
+    p: &Pubkey,
+    a: &[AccountInfo],
+    base: usize,
+    slot_index: u8,
+    commit: &[u8; 32],
+    seal: &[u8; wseal::WIDE_SEAL_LEN],
+) -> R<Prepared> {
+    prepare_contract(p, a, base, slot_index, commit, seal, true)
+}
+
+fn prepare_contract(
+    p: &Pubkey,
+    a: &[AccountInfo],
+    base: usize,
+    slot_index: u8,
+    commit: &[u8; 32],
+    seal: &[u8; wseal::WIDE_SEAL_LEN],
+    camp_v2: bool,
+) -> R<Prepared> {
+    if !matches!(base, 8 | 9) || a.len() != base + 6 + usize::from(camp_v2) {
+        return Err(BAD_ACCOUNT);
+    }
+    // The camp Citizen is a distinct structural role. Existing prefix payee
+    // aliases retain their exact v1 semantics and shared-storage checks.
+    // A Citizen that is itself a payee/refund recipient is deliberately not
+    // supported by this bounded contract, rather than silently widening v1.
+    if camp_v2 && a[..base + 6].iter().any(|ai| ai.key == a[base + 6].key) {
         return Err(BAD_ACCOUNT);
     }
     let before = snapshots(a, base)?;
@@ -235,19 +266,45 @@ fn prepare(
         WideOutcome::Fate(f) => f,
         _ => return Err(BAD_ACCOUNT),
     };
-    // Camp loot needs its original Citizen Works and chain as one operation.
-    // It is deliberately refused before effects until that path is complete.
-    if fate == wa::wide_arrival::FATE_STAYS
+    let camp_winner = fate == wa::wide_arrival::FATE_STAYS
         && ih.camp_mask != 0
-        && ih.camp_mask.trailing_zeros() as usize == pending.arrival_position
-    {
+        && ih.camp_mask.trailing_zeros() as usize == pending.arrival_position;
+    if camp_winner && !camp_v2 {
         return Err(FrontierError::NotImplemented.into());
+    }
+    if camp_v2 && !camp_winner {
+        return Err(BAD_ACCOUNT);
     }
     if plan.forfeit || plan.reward.0 != 0 {
         return Err(BAD_ACCOUNT);
     }
     expect_key(&a[base + 4], &pending.holding_rent_payer)?;
     let mut after = before.clone();
+    if camp_v2 {
+        let citizen = &a[base + 6];
+        expect_key(citizen, &bridge.original_owner())?;
+        prologue::present_v2(
+            citizen,
+            p,
+            frontier_abi::v2::layout::AccountKind::Citizen,
+            hdr.id,
+        )?;
+        crate::proc::resident::expect_citizen_address(&ctx, citizen, &before[base + 6].data)?;
+        // Creation stores this address tag; on captured paths it also equals
+        // PREV_OWNER_TAG already authenticated by the full-owner member stage.
+        if Ro(&before[base + 6].data).u64(C::CITIZEN_TAG)?
+            != addr::citizen_tag(&bridge.original_owner())
+        {
+            return Err(FrontierError::BadAddress.into());
+        }
+        let mut next = after[base + 6].clone();
+        let works = Ro(&next.data)
+            .u64(C::WORKS)?
+            .checked_add(permutation_rules::frontier::camp::loot() as u64)
+            .ok_or(OVERFLOW)?;
+        Rw(&mut next.data).set_u64(C::WORKS, works)?;
+        replace(&mut after, base + 6, next);
+    }
     let mut holding = after[1].clone();
     holding.data = pending.holding;
     replace(&mut after, 1, holding);
@@ -348,6 +405,9 @@ fn prepare(
         .filter(|x| x.diverted)
         .try_fold(0u64, |n, x| n.checked_add(x.amount).ok_or(OVERFLOW))?;
     let mut command = Vec::new();
+    if camp_v2 {
+        command.push(receipt::camp_v2::VERSION);
+    }
     command.push(slot_index);
     command.extend_from_slice(commit);
     command.extend_from_slice(seal);
@@ -361,7 +421,7 @@ fn prepare(
         province: key(&a[4]),
         changed_home,
         changed_previous_home,
-        citizen: None,
+        citizen: camp_v2.then_some(bridge.original_owner()),
     };
     let context = receipt::Context {
         command: &command,
@@ -381,7 +441,12 @@ fn prepare(
         slot_rent_to,
         slot_retained,
     };
-    let receipts = receipt::prepare(
+    let prepare_receipt = if camp_v2 {
+        receipt::camp_v2::prepare
+    } else {
+        receipt::prepare
+    };
+    let receipts = prepare_receipt(
         &ctx,
         identity,
         &context,
@@ -396,6 +461,9 @@ fn prepare(
     }
     if changed_previous_home.is_some() {
         original_indices.push(8);
+    }
+    if camp_v2 {
+        original_indices.push(base + 6);
     }
     for (link, i) in receipts.original_links.iter().zip(original_indices) {
         let mut next = after[i].clone();
@@ -430,6 +498,25 @@ pub(super) fn settle(
     seal: &[u8; wseal::WIDE_SEAL_LEN],
 ) -> R<()> {
     let prepared = prepare(p, a, base, slot_index, commit, seal)?;
+    commit_prepared(p, a, prepared)
+}
+
+/// Private camp-only v2 entry. It reopens the real seal and authenticates all
+/// accounts in this invocation; no caller-supplied outcome/Works is accepted.
+/// No public dispatch or member-v1 forwarding accepts this extra Citizen role.
+pub(super) fn settle_camp_v2(
+    p: &Pubkey,
+    a: &[AccountInfo],
+    base: usize,
+    slot_index: u8,
+    commit: &[u8; 32],
+    seal: &[u8; wseal::WIDE_SEAL_LEN],
+) -> R<()> {
+    let prepared = prepare_camp_v2(p, a, base, slot_index, commit, seal)?;
+    commit_prepared(p, a, prepared)
+}
+
+fn commit_prepared(p: &Pubkey, a: &[AccountInfo], prepared: Prepared) -> R<()> {
     let mut data = Vec::new();
     let mut balances = Vec::new();
     let mut closed = Vec::new();
@@ -492,6 +579,10 @@ pub(super) fn settle(
 #[cfg(test)]
 #[path = "wide_expedition_settlement_tests.rs"]
 mod tests;
+
+#[cfg(all(test, feature = "public-proof-tests", not(target_os = "solana")))]
+#[path = "wide_expedition_camp_settlement_tests.rs"]
+mod camp_v2_tests;
 
 #[cfg(all(
     test,

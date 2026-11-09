@@ -52,6 +52,10 @@ pub mod wide_resident_draft;
 #[cfg(feature = "wide-records-experimental")]
 pub mod original_expedition_depart_draft;
 
+/// Closed original resolved-member settlement account and byte proposals.
+#[cfg(feature = "wide-records-experimental")]
+pub mod original_expedition_settlement_draft;
+
 pub use solana_address::Address;
 pub use solana_hash::Hash;
 pub use solana_instruction::{AccountMeta, Instruction};

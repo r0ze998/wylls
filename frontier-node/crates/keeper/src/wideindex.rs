@@ -2201,7 +2201,7 @@ impl WideObserver {
         tx: &fclient::ports::TxRecord,
         records: &[fclient::typed_log::ProgramRecord],
     ) -> Result<(), String> {
-        use fclient::typed_log::{ExpeditionRecord as E, ProgramRecord as P};
+        use fclient::typed_log::ProgramRecord as P;
         let limits = &self.model.limits;
         if records.len() > limits.max_bodies_per_batch
             || records.iter().any(|r| {
@@ -2237,55 +2237,53 @@ impl WideObserver {
                     if decoded.province().world() != staged.model.scope.world {
                         return Err("expedition world mismatch".into());
                     }
-                    if let E::Settlement(settlement) = &decoded {
-                        if let Some(link) = settlement.wide_link {
-                            let key = (
-                                WideEntity::Province as u8,
-                                settlement.identity.destination.to_bytes().to_vec(),
-                            );
-                            let previous = staged.chains.get(&key).copied();
-                            if previous.is_some_and(|h| h.terminal) {
-                                return Err("settlement follows ProvinceClosed".into());
-                            }
-                            if previous.is_none() && staged.chains.len() >= MAX_CHAIN_KEYS {
-                                return Err("expedition chain cap".into());
-                            }
-                            if link.seq == 0 {
-                                return Err("zero settlement chain sequence".into());
-                            }
-                            let genesis = previous.map_or(link.seq == 1, |h| h.from_genesis);
-                            if previous.is_some() || link.seq == 1 {
-                                let prior = previous.map_or(
-                                    frontier_abi::world_index::event::WideLink {
-                                        entity: WideEntity::Province,
-                                        seq: 0,
-                                        head: [0; 32],
-                                    },
-                                    |h| frontier_abi::world_index::event::WideLink {
-                                        entity: WideEntity::Province,
-                                        seq: h.seq,
-                                        head: h.head,
-                                    },
-                                );
-                                settlement
-                                    .verify_previous(&ctx, &[], Some(prior))
-                                    .map_err(|e| format!("settlement chain: {e:?}"))?;
-                            }
-                            staged.chains.insert(
-                                key,
-                                ChainHead {
-                                    seq: link.seq,
-                                    head: link.head,
-                                    slot: tx.slot,
-                                    terminal: false,
-                                    from_genesis: genesis,
+                    if let Some(link) = decoded.settlement_wide_link() {
+                        let key = (
+                            WideEntity::Province as u8,
+                            decoded.province().to_bytes().to_vec(),
+                        );
+                        let previous = staged.chains.get(&key).copied();
+                        if previous.is_some_and(|h| h.terminal) {
+                            return Err("settlement follows ProvinceClosed".into());
+                        }
+                        if previous.is_none() && staged.chains.len() >= MAX_CHAIN_KEYS {
+                            return Err("expedition chain cap".into());
+                        }
+                        if link.seq == 0 {
+                            return Err("zero settlement chain sequence".into());
+                        }
+                        let genesis = previous.map_or(link.seq == 1, |h| h.from_genesis);
+                        if previous.is_some() || link.seq == 1 {
+                            let prior = previous.map_or(
+                                frontier_abi::world_index::event::WideLink {
+                                    entity: WideEntity::Province,
+                                    seq: 0,
+                                    head: [0; 32],
+                                },
+                                |h| frontier_abi::world_index::event::WideLink {
+                                    entity: WideEntity::Province,
+                                    seq: h.seq,
+                                    head: h.head,
                                 },
                             );
-                            match previous {
-                                Some(_) => staged.chain_verified += 1,
-                                None if genesis => staged.chain_anchored_from_genesis += 1,
-                                None => staged.chain_anchored_unverified += 1,
-                            }
+                            decoded
+                                .verify_settlement_wide_previous(&ctx, prior)
+                                .map_err(|e| format!("settlement chain: {e:?}"))?;
+                        }
+                        staged.chains.insert(
+                            key,
+                            ChainHead {
+                                seq: link.seq,
+                                head: link.head,
+                                slot: tx.slot,
+                                terminal: false,
+                                from_genesis: genesis,
+                            },
+                        );
+                        match previous {
+                            Some(_) => staged.chain_verified += 1,
+                            None if genesis => staged.chain_anchored_from_genesis += 1,
+                            None => staged.chain_anchored_unverified += 1,
                         }
                     }
                     staged.expedition_records += 1;

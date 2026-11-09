@@ -13,7 +13,7 @@ use fclient::{
     ports::TxRecord,
     typed_log::{
         decode_transaction, decode_transaction_with_expedition, decode_transaction_with_resident,
-        ExpeditionRecord, TransactionRecords,
+        TransactionRecords,
     },
 };
 use frontier_abi::world_index::{
@@ -389,9 +389,9 @@ impl WideIndex {
                     (None, None, None)
                 };
                 sql(self.conn.execute("INSERT INTO wide_event(archive_seq,ordinal,format,body,province,holding,host) VALUES(?1,?2,?3,?4,?5,?6,?7)",params![seq_i64(tx.seq)?,ordinal,record.format(),record.body(),province,holding,host]))?;
-                if let Some(ExpeditionRecord::Settlement(r)) = expedition {
-                    if let Some(link) = r.wide_link {
-                        let full_key = r.identity.destination.to_bytes().to_vec();
+                if let Some(r) = expedition {
+                    if let Some(link) = r.settlement_wide_link() {
+                        let full_key = r.province().to_bytes().to_vec();
                         let old = self.chain_raw(WideEntity::Province, &full_key)?.unwrap_or(
                             ChainState {
                                 seq: 0,
@@ -402,16 +402,15 @@ impl WideIndex {
                         if old.terminal {
                             return Err("settlement chain continues after ProvinceClosed".into());
                         }
-                        r.verify_previous(
+                        r.verify_settlement_wide_previous(
                             self.resident_ctx
                                 .as_ref()
                                 .ok_or("expedition scope missing")?,
-                            &[],
-                            Some(event::WideLink {
+                            event::WideLink {
                                 entity: WideEntity::Province,
                                 seq: old.seq,
                                 head: old.head,
-                            }),
+                            },
                         )
                         .map_err(|e| format!("settlement chain mismatch: {e:?}"))?;
                         sql(self.conn.execute("INSERT INTO wide_chain(entity,full_key,seq,head,terminal) VALUES(?1,?2,?3,?4,0) ON CONFLICT(entity,full_key) DO UPDATE SET seq=excluded.seq,head=excluded.head",params![link.entity as u8,full_key,link.seq.to_be_bytes().as_slice(),link.head.as_slice()]))?;

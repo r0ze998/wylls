@@ -237,6 +237,13 @@ export default {
   '{0}が終わります（あと {1}）': '{0} is finished ({1} left)',
 
   // ---- the map's answers while an order is placed (app.mjs)
+  '地図の破線のマスを押すと一歩追加します。道の形だけで、地形・移動時間は未検証です。': 'Press an outlined map tile to add one step. This is geometry only; terrain and travel time are unverified.',
+  '拡大した地図で、終点に隣り合う破線のマスを押してください。': 'On the zoomed-in map, press an outlined tile next to the endpoint.',
+  '道に一歩追加しました。地形・移動時間は未検証です。': 'Added one step. Terrain and travel time remain unverified.',
+  '出発点の情報が変わりました。境界への道を開き直してください。': 'The source information changed. Reopen the boundary route to start again.',
+  '道の形は 32 マス・4 州までです。': 'The geometric route is limited to 32 steps and 4 entered provinces.',
+  '終点に隣り合う破線のマスを押してください。軍勢の選択は変わりません。': 'Press an outlined tile next to the endpoint. Your selected host stays unchanged.',
+  '道の形だけ · 地形・移動時間は未検証': 'Geometry only · terrain and travel time unverified',
   '遠すぎます（1 回の進軍は {0} マス・4 州まで）': 'Too far (one march covers at most {0} tiles and 4 provinces)',
   '山や水のマスには進めません': 'A host cannot march onto mountains or water',
   '道がありません（山や水にふさがれています）': 'No road leads there (mountains or water are in the way)',

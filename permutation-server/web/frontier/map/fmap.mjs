@@ -84,6 +84,7 @@ import { setProtoLegend } from './legend.mjs';
 // the keeps of a conquest season (the program's version 3): map/keeps.mjs
 import { KeepBoard } from './keeps.mjs';
 import { paintS1Marks, caravanTagText } from './s1marks.mjs';
+import { paintOutboundRoute } from './outboundroute.mjs';
 
 /** The zoom below which a lit set is not framed on a narrow screen: neighbouring tiles stand about 44 px apart there (a tile's width is RADIUS × √3 world px, flattened by the tilt). */
 export const TOUCH_TILE_ZOOM = 0.87;
@@ -1251,7 +1252,7 @@ export class FrontierMap {
       if (this.cam.halt()) { this.cam.userMoved = true; this.sync(); }
       const p = at(e);
       this.pointers.set(e.pointerId, p);
-      this.drag = { x: p.x, y: p.y, moved: false, track: [{ t: e.timeStamp, x: p.x, y: p.y }] };
+      this.drag = { x: p.x, y: p.y, moved: false, track: [{ t: e.timeStamp, x: p.x, y: p.y }], outbound: this.source?.()?.outboundInput ?? null };
     });
     c.addEventListener('pointermove', e => {
       const prev = this.pointers.get(e.pointerId), p = at(e);
@@ -1293,7 +1294,13 @@ export class FrontierMap {
       this.pointers.delete(e.pointerId);
       if (this.pointers.size === 0) this.drag = null;
       if (!d) return;
-      if (!d.moved) { if (e.type === 'pointerup') this.tap(pick(this.cam.drawn, this.size(), p.x, p.y), e); return; }
+      if (!d.moved) {
+        // Never reinterpret an old press after close/reopen, an edit or a
+        // source/clock invalidation as a new draft step or a legacy order.
+        if (d.outbound !== (this.source?.()?.outboundInput ?? null)) return;
+        if (e.type === 'pointerup') this.tap(pick(this.cam.drawn, this.size(), p.x, p.y), e);
+        return;
+      }
       if (this.pointers.size > 0) return;
       // released: the land glides on and settles inside the world's edge
       const tr = d.track, a = tr[0], b = tr[tr.length - 1];
@@ -1318,7 +1325,7 @@ export class FrontierMap {
       this.touchedAt = clock();
       if (shut()) return;
       // a tile is being picked: the arrows step through the lit tiles, Enter or Space takes one, Escape lets go
-      if (this.pick && this.pickKey(e)) return;
+      if (!this.source?.()?.outboundInput && this.pick && this.pickKey(e)) return;
       const v = this.cam.view, step = 80 / v.zoom;
       const k = { ArrowLeft: [-step, 0], ArrowRight: [step, 0], ArrowUp: [0, -step], ArrowDown: [0, step] }[e.key];
       if (k) { e.preventDefault(); this.setView({ x: v.x + k[0], y: v.y + k[1] }, { clamp: true, give: this.pastLimit(), ms: MOVE_MS.pan }); return; }
@@ -1358,6 +1365,9 @@ export class FrontierMap {
    * may then choose that host as the one that acts).
    */
   tap(hit, e = null) {
+    // A geometry draft uses the actual ground tile, not a figure/keep's offset
+    // hit area. The page alone validates/appends it; no secondary handler.
+    if (this.source?.()?.outboundInput) { this.onSelect(hit); return; }
     if (this.pick) { this.pickTap(hit); return; }
     const host = e && Number.isFinite(e.clientX) && this.lod === 'tile' ? this.hostAt(e.clientX, e.clientY) : null;
     if (host && Number.isInteger(host.tile)) {
@@ -2633,7 +2643,7 @@ export class FrontierMap {
       else if (lat) this.tellLanding(lat, src);
     }
     // the guide's target (on the world chart the beacon already marks the viewer's village: no ring is laid over it)
-    const g0 = src.guide && !src.route ? src.guide : null;
+    const g0 = src.guide && !src.route && !src.outboundInput ? src.guide : null;
     const guide = g0 && !(lod === 'world' && villages.some(v => v.p === g0.p && v.q === g0.q && v.tile === g0.tile)) ? g0 : null;
     let ownedLands = null;
     const lands = () => {
@@ -2952,7 +2962,8 @@ export class FrontierMap {
   watchAge(w, fx) { const t0 = this.boardSeen?.watch.get(w.key); const age = t0 === undefined ? null : fx - t0; return age !== null && age < WATCH_ON_MS ? Math.max(0, age) : null; }
   /** Whether the player is doing something the camera must not be taken from: a finger on the map, an order being placed, a set piece, a recent move of their own. */
   busy(now = clock()) {
-    return !!this.drag || this.pointers.size > 0 || !!this.pick || this.piece || !!this.source?.()?.route || now - (this.touchedAt ?? -Infinity) < BUSY_MS;
+    const src = this.source?.();
+    return !!this.drag || this.pointers.size > 0 || !!this.pick || this.piece || !!src?.route || !!src?.outboundInput || now - (this.touchedAt ?? -Infinity) < BUSY_MS;
   }
   /** An arrival the records showed (`boardChanged`): the camera eases until its tile is in the picture, when the player is not busy (called by the frame loop, never inside a draw). */
   arrivalEase(now = clock()) {
@@ -2960,7 +2971,7 @@ export class FrontierMap {
     if (!a) return;
     this.arrivalWant = null;
     // (a moment the player's own press brought: only a finger on the map, a pick, a set piece or an order being placed keeps the camera)
-    if (a.moment) { if (!!this.drag || this.pointers.size > 0 || !!this.pick || this.piece || !!this.source?.()?.route || this.lod !== 'tile') return; }
+    if (a.moment) { const src = this.source?.(); if (!!this.drag || this.pointers.size > 0 || !!this.pick || this.piece || !!src?.route || !!src?.outboundInput || this.lod !== 'tile') return; }
     else if (this.busy(now) || this.lod !== 'tile') return;
     const pt = placePoint(a), size = this.size(), f = freeBox(size, this.inset());
     const p = this.project(pt.x, pt.y, { logical: true, box: true }), cx = size.width / 2 + f.x, cy = size.height / 2 + f.y;
@@ -3153,6 +3164,7 @@ export class FrontierMap {
     }
     // the march being composed (this browser only), and the route to the lit tile under the pointer
     if (src.route?.hexes?.length > 1) { paintRoute(ctx, src.route, z, { now: fx, still, faction: F.faction }); F.live = true; }
+    if (src.outboundRoute) paintOutboundRoute(ctx, src.outboundRoute, z, { tiles: F.lod === 'tile' });
     const hr = this.hoverRoute(F);
     if (hr) { paintRibbon(ctx, hr.hexes, { zoom: z, faction: F.faction, proposal: true, now: fx, still }); F.live = true; }
     if (F.lod === 'tile') {
@@ -3210,6 +3222,10 @@ export class FrontierMap {
     // (at the tile view a provisional village's plate carries 仮: map/plates.mjs)
     if (F.lod === 'province') for (const land of F.lands()) paintProvisionalTag(ctx, land, { zoom: z });
     if (F.lod !== 'tile') return;
+    if (src.outboundRoute) {
+      const route = src.outboundRoute, end = route.hexes.at(-1), d = project(end.q, end.r);
+      paintTag(ctx, d.x, d.y, L`道の形だけ · 地形・移動時間は未検証`, { zoom: z, tone: 'warn', place: 'above', gap: 12, anchor: d, pass });
+    }
     const A = F.A;
     const hid = hex => { const at = hex ? locate(hex.q, hex.r) : null; return !!at && !!pass?.hiddenAt(`${at.p},${at.q},${at.idx}`); };
     this.boardOver(ctx, F, hid);

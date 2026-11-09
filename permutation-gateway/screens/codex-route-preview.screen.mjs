@@ -203,10 +203,13 @@ async function bring(page, at, width) {
     await page.waitForTimeout(100);
     if(await page.evaluate(()=>window.__wyllsMap.cam.moving)) continue;
     const p = await point(page, at);
-    const box = await page.evaluate(() => ({
-      top: 40 + Math.max(150, ...[...document.querySelectorAll('.banner.error')].map(e => e.getBoundingClientRect()).filter(r => r.height).map(r => r.bottom)),
-      bottom: Math.min(innerHeight, ...['hand','panel'].map(id => document.getElementById(id)).filter(e => e && !e.hidden).map(e => e.getBoundingClientRect()).filter(r => r.height && r.width > innerWidth * 0.6).map(r => r.top)) - 40,
-    }));
+    const box = await page.evaluate(() => {
+      const boundary = document.querySelector('#hand-pop[data-pop="expedition-compose"]:not([hidden])');
+      return {
+        top: 40 + Math.max(150, ...[...document.querySelectorAll(boundary ? '.banner.error, #feed > *' : '.banner.error')].map(e => e.getBoundingClientRect()).filter(r => r.height).map(r => r.bottom)),
+        bottom: Math.min(innerHeight, ...['hand','panel',...(boundary ? ['hand-pop'] : [])].map(id => document.getElementById(id)).filter(e => e && !e.hidden).map(e => e.getBoundingClientRect()).filter(r => r.height && r.width > innerWidth * 0.6).map(r => r.top)) - 40,
+      };
+    });
     if (p.x > 40 && p.x < width - 40 && p.y > box.top && p.y < box.bottom) return p;
     await page.locator('#frontier-map').focus();
     const key = p.x >= width - 40 ? 'ArrowRight' : p.x <= 40 ? 'ArrowLeft' : p.y <= box.top ? 'ArrowUp' : 'ArrowDown';
@@ -444,6 +447,153 @@ async function largeChart(page, vp, outDir) {
     samples:times.length,drawMedianMs:times[Math.floor(times.length/2)],drawMaxMs:times.at(-1),terrainCalls:measured.terrain,provinceCalls:measured.province,totals:{fillMs:measured.fillMs,strokeMs:measured.strokeMs,backdropMs:measured.backdropMs,keepFrameMs:measured.keepFrameMs}};
   console.log(JSON.stringify({viewport:vp.name,largeChart:report}));
   await writeFile(`${outDir}/${vp.name}-large-chart.json`,JSON.stringify(report,null,2));
+}
+
+// Playwright's default timeout does not bound evaluate. Diagnostic reads must
+// time out too, so an unresponsive renderer cannot prevent browser cleanup.
+async function inspectPage(page, callback) {
+  let timer;
+  try {
+    return await Promise.race([page.evaluate(callback), new Promise((_, reject) => {
+      timer = setTimeout(() => reject(new Error('Browser inspection timed out')), 5000);
+    })]);
+  } finally { clearTimeout(timer); }
+}
+
+// A deliberately synthetic boundary observation, on the original app. Only
+// public account bytes are constructed. No claim that a host travelled here.
+async function boundaryObservation(page) {
+  return page.evaluate(async () => {
+    const { FS, invalidate } = await import('/frontier/fstate.mjs');
+    const { encodeAccount } = await import('/sdk/frontier/codec.mjs');
+    const { decode } = await import('/frontier/fcodec.mjs');
+    const { decode: fromB58 } = await import('/sdk/base58.mjs');
+    const { hostId } = await import('/frontier/faddr.mjs');
+    const { pinned } = await import('/frontier/fchainio.mjs');
+    const pin = pinned(), season = FS.season.seasonId;
+    const account = (kind, fields) => decode(kind, encodeAccount(kind, { SEASON_ID: season, ...fields }));
+    const id = hostId({ p:128, q:0, site:3, gen:1, seq:0 }).toString();
+    const owner = pin.addresses.of('Citizen', { wallet:FS.wallet.address });
+    const holding = account('Holding', { P:128, Q:0, SITE:3, GEN:1, TILE:60, STATE:2, FACTION:0, TIER:1,
+      HOST_SEQ:1, OWNER_CITIZEN:fromB58(owner), RESERVE:[400,0,0,0,0,0,100,0] });
+    const province = account('Province', { P:128, Q:0, RESOLVED_NEXT:1,
+      ENTRIES:[{ ID:BigInt(id), FACTION:0, UNIT:0, TILE:60, STATE:1, TROOPS:600000, STAMINA_VALUE:120, STAMINA_BELL:0 }] });
+    FS.citizen = account('Citizen', { WALLET:fromB58(FS.wallet.address), FACTION:0, FLAGS:5, TICKET_BELL:0xffffffff,
+      HOLDING:[{ P:128,Q:0,SITE:3,GEN:1 },{ GEN:255 },{ GEN:255 }] });
+    FS.season = { ...FS.season, programVersion:16388 };
+    FS.record = { ...FS.record, rMax:128, ringsOpened:129,
+      rings:Array.from({length:129},(_,d)=>({d,seed:FS.record.rings[0].seed})) };
+    FS.world = { ...FS.world, ringsOpen:129, ringsOpened:129, rMax:128 };
+    FS.holdings = [holding]; FS.activeHolding = 0; FS.wideSelect = null;
+    FS.land = { stage:'final' }; FS.homeChoice = null; FS.homeGrant = null;
+    FS.provinces = new Map([['128,0',{ province, bell:0 }]]);
+    FS.selected = { kind:'tile', p:128, q:0, idx:60 };
+    FS.hand = { host:id, pop:null }; FS.inspectOpen = false;
+    FS.compose = null; FS.report = null; FS.practice = null;
+    FS.marches = []; FS.book = []; FS.orders = [];
+    invalidate('map','panel','rail','tabs');
+    window.__wyllsMap.flyTo({ p:128,q:0,tile:60,zoom:1 });
+    return id;
+  });
+}
+
+for (const vp of [{width:1440,height:900,name:'desktop'}, {width:390,height:844,name:'phone'}]) {
+  test(`original boundary map interaction @ ${vp.name}`, { timeout:90000 }, async () => {
+    const srv = await serve(), phone = vp.width < 760;
+    const errors = [], requests = [], outDir = process.env.WYLLS_SCREEN_OUT ?? '/tmp/wylls-boundary-browser-20261109';
+    let browser, ctx, page, releaseReads;
+    try {
+      browser = await chromium.launch({channel:'chromium',chromiumSandbox:true});
+      ctx = await browser.newContext({viewport:{width:vp.width,height:vp.height},isMobile:phone,hasTouch:phone,locale:'ja-JP',timezoneId:'UTC',serviceWorkers:'block'});
+      await NK.prepare(ctx,{wallet:GOLDEN.wallet},{lang:'ja'});
+      await ctx.route('**/seal-worker.mjs',route=>route.abort('blockedbyclient'));
+      page = await ctx.newPage(); page.setDefaultTimeout(15000);
+      page.on('pageerror',e=>errors.push(e.message));
+      page.on('request',r=>requests.push({method:r.method(),url:r.url()}));
+      await mkdir(outDir,{recursive:true}); srv.release();
+      await page.clock.setFixedTime(new Date(Number(GOLDEN.stages.grown['/h/season'].body.latestUnix)*1000+500));
+      await page.goto(`${srv.base}/frontier/index.html?devWallet=off&at=4,0,0,1`);
+      await page.evaluate(async()=>{window.__boundaryFS=(await import('/frontier/fstate.mjs')).FS;});
+      await page.waitForFunction(()=>{const FS=window.__boundaryFS;return FS.playReady&&FS.meStatus==='ready'&&FS.meAnswered&&FS.overviewsBooted&&!!FS.s1?.structures;});
+      // Hold later reads while inspecting one synthetic snapshot. The real
+      // renderer/controller/event handlers continue unchanged. Reload below
+      // returns to the untouched fixture feed and discards this observation.
+      const held = new Promise(r=>{releaseReads=r;});
+      await page.route('**/h/**',async route=>{await held;await route.continue().catch(()=>{});});
+      const host = await boundaryObservation(page);
+      const press = loc => phone ? loc.tap() : loc.click();
+      const open = page.locator('#hand [data-pop="expedition-compose"]');
+      await press(open);
+      await page.waitForFunction(()=>!!window.__boundaryFS.expeditionCompose?.map);
+      await page.waitForFunction(()=>!window.__wyllsMap.cam.moving);
+      const state = () => page.evaluate(async()=>{
+        const {FS}=await import('/frontier/fstate.mjs'), s=FS.expeditionCompose;
+        return {host:FS.hand.host,pop:FS.hand.pop,directions:s?.directions,error:s?.error,endpoint:s?.map?.endpoint,
+          selected:FS.selected,compose:!!FS.compose,session:!!FS.session,executable:s?.executable,admitted:s?.admitted};
+      });
+      const tapNext = async direction => {
+        const at = await page.evaluate(async direction=>{
+          const {FS}=await import('/frontier/fstate.mjs');
+          return FS.expeditionCompose.map.next.find(c=>c.direction===direction).tile;
+        },direction);
+        const p = await bring(page,{p:Number(at.p),q:Number(at.q),tile:at.tile},vp.width);
+        const hit = await page.evaluate(p=>document.elementFromPoint(p.x,p.y)?.id,p);
+        assert.equal(hit,'frontier-map','next boundary tile must be exposed above the card');
+        if(phone) await page.touchscreen.tap(p.x,p.y); else await page.mouse.click(p.x,p.y);
+      };
+      await tapNext(0);
+      await page.waitForFunction(()=>window.__boundaryFS.expeditionCompose.directions.length===1);
+      let s = await state(); assert.equal(s.endpoint.p,'129'); assert.equal(s.host,host);
+      assert.deepEqual(s.directions,[0]); assert.equal(s.compose,false);
+      await page.screenshot({path:`${outDir}/${vp.name}-boundary-route.png`});
+      await tapNext(1);
+      await page.waitForFunction(()=>window.__boundaryFS.expeditionCompose.directions.length===2);
+      await press(page.locator('[data-act="outbound-undo"]'));
+      assert.deepEqual((await state()).directions,[0]);
+      await press(page.locator('[data-act="outbound-reset"]'));
+      assert.deepEqual((await state()).directions,[]);
+      await press(page.locator('[data-act="outbound-step"][data-direction="0"]'));
+      assert.deepEqual((await state()).directions,[0]);
+      await press(page.locator('details[data-fold="outbound-details"] > summary'));
+      await page.locator('[data-bind="outbound-arriveBell"]').fill('2');
+      s = await state(); assert.equal(s.session,false); assert.equal(s.executable,false); assert.equal(s.admitted,false);
+      await page.locator('[data-bind="outbound-arriveBell"]').press('Escape');
+      await page.waitForFunction(()=>!window.__boundaryFS.hand.pop);
+      assert.equal(await page.locator('#hand .hand-acts').isVisible(),true,'closing restores the host orders');
+      await press(open);
+      assert.deepEqual((await state()).directions,[],'reopening never restores an old boundary draft');
+      await page.evaluate(async()=>{const {FS,invalidate}=await import('/frontier/fstate.mjs');FS.nowBell++;invalidate('map','panel');});
+      await page.waitForFunction(()=>window.__boundaryFS.expeditionCompose.error==='SourceChanged');
+      assert.equal(await page.locator('#hand-pop > [role="status"]').isVisible(),true,'stale source explanation stays outside folded details');
+      assert.equal(await page.evaluate(()=>window.__wyllsMap.source().outboundRoute),null);
+      releaseReads(); await page.unroute('**/h/**'); await page.reload();
+      await page.evaluate(async()=>{window.__boundaryFS=(await import('/frontier/fstate.mjs')).FS;});
+      await page.waitForFunction(()=>{const FS=window.__boundaryFS;return FS.playReady&&FS.meStatus==='ready'&&FS.meAnswered;});
+      assert.equal(await page.evaluate(()=>window.__boundaryFS.expeditionCompose?.map??null),null);
+      assert.deepEqual(errors,[]);
+      console.log(JSON.stringify({viewport:vp.name,boundary:{syntheticObservation:true,originalCanvas:true,touch:phone,ring129:true,undo:true,reset:true,reopen:true,clockInvalidates:true,reloadClears:true,executable:false}}));
+    } catch(error) {
+      if(page&&!page.isClosed()) {
+        console.log(JSON.stringify({viewport:vp.name,error:String(error.stack??error),errors,
+          boundary:await inspectPage(page,async()=>{const {FS}=await import('/frontier/fstate.mjs'),s=FS.expeditionCompose;return {draft:{error:s?.error,directions:s?.directions,endpoint:s?.map?.endpoint},hand:FS.hand,selected:FS.selected,view:window.__wyllsMap?.view,card:document.getElementById('hand-pop')?.getBoundingClientRect().toJSON()};}).catch(e=>({inspectionError:String(e)}))}));
+        await page.screenshot({path:`${outDir}/${vp.name}-failure.png`,timeout:5000}).catch(()=>{});
+      }
+      throw error;
+    } finally {
+      try {
+        if(ctx) {
+          assert.ok(page&&!page.isClosed()); assert.equal(ctx.pages().length,1);
+          const safety=await inspectPage(page,async()=>({uses:window.__keyUses,storedUses:JSON.parse(localStorage.getItem('ws07:keyUses')??'[]'),
+            seeds:Object.keys(localStorage).filter(k=>k==='ps-dev-wallet'||k.startsWith('ps-fsession:')),session:!!(await import('/frontier/fstate.mjs')).FS.session}));
+          assert.deepEqual(safety,{uses:[],storedUses:[],seeds:[],session:false});
+          console.log(JSON.stringify({viewport:vp.name,safety,nodeKeyCalls:keyCalls,serverWrites:srv.writes}));
+        }
+        assert.deepEqual(keyCalls,[]); assert.deepEqual(srv.writes,[]);
+        assert.deepEqual(requests.filter(r=>!['GET','HEAD'].includes(r.method)),[]);
+        assert.deepEqual(requests.filter(r=>!r.url.startsWith(srv.base)),[]);
+      } finally { releaseReads?.(); await Promise.all([ctx?.close(),browser?.close(),srv.close()]); }
+    }
+  });
 }
 
 for (const vp of [{width:1440,height:900,name:'desktop'}, {width:390,height:844,name:'phone'}]) {

@@ -359,6 +359,89 @@ impl World {
             crate::proc::wide::dispatch_expedition_command(p, a, command).map_err(Into::into)
         })
     }
+    /// Execute the isolated member wire through the real same-call proof and
+    /// settlement. No public command admission or supplied proof verdict.
+    #[track_caller]
+    fn run_settlement_draft(
+        &mut self,
+        roles: &[([u8; 32], bool, bool)],
+        data: &[u8],
+    ) -> rt::system_cpi::Output {
+        use crate::proc::wide::expedition_return;
+        use frontier_abi::world_index::expedition_settlement_ix as ix;
+        assert_eq!(data.len(), ix::DRAFT_LEN);
+        assert!(!expedition_exec::EXPEDITION_ENABLED);
+        assert!(!ix::PUBLIC_DISPATCH_AVAILABLE);
+        assert!(wix::WideCommand::decode(data).is_err());
+        assert!(frontier_abi::v2::ix::tag_of(data).is_err());
+        let mut wrapped = [0; ix::DRAFT_LEN + 5];
+        let n = wix::ResidentAct {
+            generation: 1,
+            inner: data,
+        }
+        .encode_into(&mut wrapped)
+        .unwrap();
+        assert!(wix::ResidentAct::decode(&wrapped[..n]).is_err());
+        let mut probe = self.clone();
+        let refused = probe.run_with_data(roles, data, |p, a, wire| {
+            assert_eq!(
+                crate::dispatch(p, a, wire),
+                Err(FrontierError::BadData.into())
+            );
+            Ok(())
+        });
+        assert!(refused.logs.is_empty() && refused.cpis.is_empty());
+        assert_eq!(probe.0, self.0);
+        let mut malformed: Vec<Vec<u8>> = [0, 1, 3, 4, 5, 36, 37, ix::DRAFT_LEN - 1]
+            .into_iter()
+            .map(|n| data[..n].to_vec())
+            .collect();
+        let mut extended = data.to_vec();
+        extended.push(0);
+        malformed.push(extended);
+        // Prefix, out-of-range slot, committed root mismatch, ciphertext mismatch.
+        for i in [0, 1, 2, 3, 4, 5, 37] {
+            let mut bytes = data.to_vec();
+            bytes[i] ^= 0x80;
+            malformed.push(bytes);
+        }
+        let mut wrong_live_slot = data.to_vec();
+        wrong_live_slot[4] = (data[4] + 1) % 4;
+        malformed.push(wrong_live_slot); // In range, but not this authenticated marker.
+        for bytes in malformed {
+            let mut bad = self.clone();
+            let out = bad.run_with_data(roles, &bytes, |p, a, wire| {
+                assert!(expedition_return::settle_draft(p, a, wire).is_err());
+                Ok(())
+            });
+            assert!(out.logs.is_empty() && out.cpis.is_empty());
+            assert_eq!(bad.0, self.0);
+        }
+        let mut wrong_season = roles.to_vec();
+        wrong_season[0] = roles[3];
+        let mut extra_roles = roles.to_vec();
+        extra_roles.extend_from_slice(&[*roles.last().unwrap(); 2]);
+        for wrong_roles in [roles[..roles.len() - 1].to_vec(), extra_roles, wrong_season] {
+            let mut bad = self.clone();
+            let out = bad.run_with_data(&wrong_roles, data, |p, a, wire| {
+                assert!(expedition_return::settle_draft(p, a, wire).is_err());
+                Ok(())
+            });
+            assert!(out.logs.is_empty() && out.cpis.is_empty());
+            assert_eq!(bad.0, self.0);
+        }
+        let mut bad_program = self.clone();
+        let out = bad_program.run_with_data(roles, data, |p, a, wire| {
+            assert_ne!(p, a[0].key);
+            assert!(expedition_return::settle_draft(a[0].key, a, wire).is_err());
+            Ok(())
+        });
+        assert!(out.logs.is_empty() && out.cpis.is_empty());
+        assert_eq!(bad_program.0, self.0);
+        self.run_with_data(roles, data, |p, a, wire| {
+            expedition_return::settle_draft(p, a, wire).map_err(Into::into)
+        })
+    }
     /// Exercise the existing isolated 60-byte resident contract without adding
     /// generic parser admission. Receipt inputs remain the decoded host bytes.
     #[track_caller]
@@ -550,6 +633,11 @@ fn lifecycle(retreat_bps: u16, capture_after: bool) {
 }
 
 fn lifecycle_with_resident_return(retreat_bps: u16, capture_after: bool, return_after: bool) {
+    lifecycle_options(retreat_bps, capture_after, return_after, false);
+}
+
+fn lifecycle_options(retreat_bps: u16, capture_after: bool, return_after: bool, camp_loot: bool) {
+    assert!(!camp_loot || (retreat_bps == 0 && !capture_after && !return_after));
     let (accounts, mut departure) = initial_fixture();
     let sk = key(&accounts[2]);
     let citizen = key(&accounts[3]);
@@ -685,6 +773,20 @@ fn lifecycle_with_resident_return(retreat_bps: u16, capture_after: bool, return_
     d.set_u64(PV::PASSABLE_MASK, (1u64 << 61) - 1).unwrap();
     d.set_u32(PV::CAMP + CP::NEXT_CHECK_DAY, 1000).unwrap();
     write_no_keep(&mut dp).unwrap();
+    if camp_loot {
+        // Initial camp only. The real Resolve below must defeat it and set
+        // camp_mask; no arrival, verdict or mask is inserted after departure.
+        assert_ne!(target.local(), 0);
+        let mut d = Rw(&mut dp);
+        d.set_u8(PV::CAMP + CP::STATE, CP::STATE_PRESENT).unwrap();
+        d.set_u8(PV::CAMP + CP::TILE, target.local()).unwrap();
+        d.set_u32(
+            PV::CAMP + CP::TROOPS,
+            permutation_rules::frontier::camp::CAMP_TROOPS_MIN,
+        )
+        .unwrap();
+        d.set_u32(PV::CAMP + CP::GEN, 1).unwrap();
+    }
     if capture_after {
         dp[PV::SITE_COUNT] = 1;
         dp[PV::SITES] = target.local();
@@ -995,12 +1097,22 @@ fn lifecycle_with_resident_return(retreat_bps: u16, capture_after: bool, return_
     let live = roster.table(world.get(roster_key).data()).unwrap();
     assert_eq!(live.iter().any(|(_, _, h)| *h == host), retreat_bps == 0);
     assert_eq!(live.iter().any(|(_, _, h)| *h == enemy), retreat_bps != 0);
+    let resolved_camp = WideClashInputsHdr::read(world.get(inputs).data())
+        .unwrap()
+        .camp_mask;
+    assert_eq!(resolved_camp, if camp_loot { 1 } else { 0 });
+    if camp_loot {
+        assert_eq!(
+            world.get(dest_key).data()[PV::CAMP + CP::STATE],
+            CP::STATE_NONE
+        );
+    }
     let home_before_return = world.get(home).data().to_vec();
     prologue::set_test_clock(
         clock.reveal_close(ARRIVE, LANDED) + crate::proc::transit::SETTLE_AFTER_CLOSE_SECS,
         5000,
     );
-    let settlement_roles = [
+    let mut settlement_roles = vec![
         r(sk),
         w(hk),
         w(external),
@@ -1016,10 +1128,28 @@ fn lifecycle_with_resident_return(retreat_bps: u16, capture_after: bool, return_
         w(WALLET),
         w([91; 32]),
     ];
-    let settled = world.run(&settlement_roles, |p, a, _| {
-        crate::proc::wide::expedition_return::runtime_settle(p, a, 8, 0, &commit, &seal)
-            .map_err(Into::into)
-    });
+    let settlement_wire =
+        frontier_abi::world_index::expedition_settlement_ix::DraftCommand::new(0, commit, seal)
+            .unwrap()
+            .to_bytes();
+    let before_settlement = world.clone();
+    let settled = if camp_loot {
+        settlement_roles.push(w(citizen));
+        // Appending Citizen does not widen member-v1: that old route refuses.
+        let mut refused_world = world.clone();
+        let out = refused_world.run_with_data(&settlement_roles, &settlement_wire, |p, a, wire| {
+            assert!(crate::proc::wide::expedition_return::settle_draft(p, a, wire).is_err());
+            Ok(())
+        });
+        assert!(out.logs.is_empty() && out.cpis.is_empty());
+        assert_eq!(refused_world.0, world.0);
+        world.run(&settlement_roles, |p, a, _| {
+            crate::proc::wide::expedition_return::runtime_settle_camp_v2(p, a, 8, 0, &commit, &seal)
+                .map_err(Into::into)
+        })
+    } else {
+        world.run_settlement_draft(&settlement_roles, &settlement_wire)
+    };
     assert!(settled.cpis.is_empty());
     assert_eq!(Ro(world.get(hk).data()).u64(H::ESCROW).unwrap(), 0);
     assert!(
@@ -1041,17 +1171,55 @@ fn lifecycle_with_resident_return(retreat_bps: u16, capture_after: bool, return_
     assert_eq!(world.get(slot).lamports(), 0);
     assert!(world.get(slot).data().is_empty());
     assert_eq!(settled.logs.len(), 2);
-    let original = frontier_abi::world_index::expedition_settlement_event::Record::decode(
-        &ctx,
-        &settled.logs[0][1],
-    )
-    .unwrap();
-    let wide = frontier_abi::world_index::expedition_settlement_event::Record::decode(
-        &ctx,
-        &settled.logs[1][1],
-    )
-    .unwrap();
-    original.pair(&wide).unwrap();
+    if camp_loot {
+        use frontier_abi::world_index::expedition_settlement_event::{camp_v2::CampRecord, Record};
+        assert!(Record::decode(&ctx, &settled.logs[0][1]).is_err());
+        assert!(Record::decode(&ctx, &settled.logs[1][1]).is_err());
+        let original = CampRecord::decode(&ctx, &settled.logs[0][1]).unwrap();
+        let wide = CampRecord::decode(&ctx, &settled.logs[1][1]).unwrap();
+        original.pair(&wide).unwrap();
+        assert_eq!(
+            Ro(world.get(citizen).data()).u64(C::WORKS).unwrap(),
+            Ro(before_settlement.get(citizen).data())
+                .u64(C::WORKS)
+                .unwrap()
+                + permutation_rules::frontier::camp::loot() as u64,
+        );
+        let previous: Vec<_> = [
+            (frontier_abi::log::EntityKind::Holding, hk),
+            (frontier_abi::log::EntityKind::Citizen, citizen),
+        ]
+        .into_iter()
+        .map(|(entity, key)| {
+            let (seq, head) = crate::layout::chain_of(before_settlement.get(key).data()).unwrap();
+            frontier_abi::log::Link { entity, seq, head }
+        })
+        .collect();
+        original.verify_previous(&ctx, &previous, None).unwrap();
+        let (seq, head) = crate::layout::chain_of(before_settlement.get(dest_key).data()).unwrap();
+        wide.verify_previous(
+            &ctx,
+            &[],
+            Some(frontier_abi::world_index::event::WideLink {
+                entity: frontier_abi::world_index::event::WideEntity::Province,
+                seq,
+                head,
+            }),
+        )
+        .unwrap();
+    } else {
+        let original = frontier_abi::world_index::expedition_settlement_event::Record::decode(
+            &ctx,
+            &settled.logs[0][1],
+        )
+        .unwrap();
+        let wide = frontier_abi::world_index::expedition_settlement_event::Record::decode(
+            &ctx,
+            &settled.logs[1][1],
+        )
+        .unwrap();
+        original.pair(&wide).unwrap();
+    }
     if retreat_bps == 0 {
         assert_eq!(world.get(home).data(), home_before_return);
     } else {
@@ -1073,14 +1241,29 @@ fn lifecycle_with_resident_return(retreat_bps: u16, capture_after: bool, return_
             world.0.clone(),
             world.index(PROGRAM) as u16,
             privileges,
-            vec![],
-            |p, a, _| {
-                crate::proc::wide::expedition_return::runtime_settle(p, a, 8, 0, &commit, &seal)
-                    .map_err(Into::into)
+            settlement_wire.to_vec(),
+            |p, a, wire| {
+                let refused = if camp_loot {
+                    crate::proc::wide::expedition_return::runtime_settle_camp_v2(
+                        p, a, 8, 0, &commit, &seal,
+                    )
+                } else {
+                    crate::proc::wide::expedition_return::settle_draft(p, a, wire)
+                };
+                assert!(refused.is_err());
+                Ok(())
             },
         )
-    };
-    assert!(matches!(replay, Err(rt::RunError::Helper(_))));
+    }
+    .unwrap();
+    assert!(replay.logs.is_empty() && replay.cpis.is_empty());
+    assert_eq!(
+        replay.accounts,
+        settled_snapshot
+            .iter()
+            .map(|(_, account)| account.clone())
+            .collect::<Vec<_>>()
+    );
     assert_eq!(world.0, settled_snapshot);
     if capture_after {
         capture_continuation(
@@ -1095,6 +1278,11 @@ fn lifecycle_with_resident_return(retreat_bps: u16, capture_after: bool, return_
         }
     }
     assert!(!expedition_exec::EXPEDITION_ENABLED);
+}
+
+#[test]
+fn contiguous_original_boundary_camp_loot_settlement() {
+    lifecycle_options(0, false, false, true);
 }
 
 #[test]

@@ -127,6 +127,16 @@ impl Input {
             &'buffer [u8],
         ) -> Result<(), ProgramError>,
     {
+        self.run_with_data(&[], helper)
+    }
+    fn run_with_data<F>(&self, data: &[u8], helper: F) -> Result<Vec<AccountSharedData>, RunError>
+    where
+        F: for<'buffer, 'borrow> FnOnce(
+            &'buffer Pubkey,
+            &'borrow [AccountInfo<'buffer>],
+            &'buffer [u8],
+        ) -> Result<(), ProgramError>,
+    {
         let mut accounts = self.accounts.clone();
         let program_index = accounts.len() as u16;
         let mut program = literal(solana_program::bpf_loader::id(), 1, &[]);
@@ -134,11 +144,28 @@ impl Input {
         accounts.push((Pubkey::new_from_array(PROGRAM), program));
         // SAFETY: only official serializer bytes reach SDK deserialize. Every
         // caller below confines AccountInfo values and guards to this closure.
-        unsafe { rt::run(accounts, program_index, self.roles.clone(), vec![], helper) }
+        unsafe {
+            rt::run(
+                accounts,
+                program_index,
+                self.roles.clone(),
+                data.to_vec(),
+                helper,
+            )
+        }
+    }
+    fn wire(&self) -> [u8; frontier_abi::world_index::expedition_settlement_ix::DRAFT_LEN] {
+        frontier_abi::world_index::expedition_settlement_ix::DraftCommand::new(
+            SLOT,
+            self.commit,
+            self.seal,
+        )
+        .unwrap()
+        .to_bytes()
     }
     fn settle(&self) -> Result<Vec<AccountSharedData>, RunError> {
-        self.run(|p, a, _| {
-            settle(p, a, self.base, SLOT, &self.commit, &self.seal).map_err(Into::into)
+        self.run_with_data(&self.wire(), |p, a, wire| {
+            crate::proc::wide::expedition_return::settle_draft(p, a, wire).map_err(Into::into)
         })
     }
 }
@@ -148,7 +175,7 @@ fn checked_settlement(f: &Input, hook: &Hook) -> Vec<AccountSharedData> {
     let mut expected_logs = Vec::new();
     let mut expected_accounts = Vec::new();
     let result = f
-        .run(|p, a, _| {
+        .run_with_data(&f.wire(), |p, a, wire| {
             let expected =
                 prepare(p, a, f.base, SLOT, &f.commit, &f.seal).map_err(ProgramError::from)?;
             for record in &expected.diversions {
@@ -163,7 +190,8 @@ fn checked_settlement(f: &Input, hook: &Hook) -> Vec<AccountSharedData> {
                 expected.receipts.wide.clone(),
             ]);
             // Actual writer repeats the proof; the prepared plan is not passed in.
-            settle(p, a, f.base, SLOT, &f.commit, &f.seal).map_err(ProgramError::from)?;
+            crate::proc::wide::expedition_return::settle_draft(p, a, wire)
+                .map_err(ProgramError::from)?;
             for (actual, expected) in a.iter().zip(&expected.after) {
                 assert_eq!(actual.try_lamports()?, expected.lamports);
                 assert_eq!(actual.owner.to_bytes(), expected.owner);

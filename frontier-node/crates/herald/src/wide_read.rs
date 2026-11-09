@@ -132,6 +132,12 @@ fn event(
                 } else {
                     "ORIGINAL_EXPEDITION_SETTLE_MEMBER"
                 },
+            ExpeditionRecord::CampSettlement(r) =>
+                if r.record.wide_link.is_some() {
+                    "WIDE_ORIGINAL_EXPEDITION_SETTLE_CAMP"
+                } else {
+                    "ORIGINAL_EXPEDITION_SETTLE_CAMP"
+                },
         });
         v["expedition"] = json!({"observationOnly":true,"receiptVerification":"unverified","sourceVerification":"unverified","originalChainVerification":"unverified"});
         v["originalHost"] = r
@@ -439,5 +445,58 @@ mod expedition_tests {
         let mut bad = row;
         bad.body[1] ^= 1;
         assert!(event(bad, &hex::encode(world.as_bytes()), 1, &c).is_err());
+    }
+}
+
+#[cfg(test)]
+#[path = "../../fclient/tests/fixtures/camp_observation.rs"]
+mod camp_fixture;
+#[cfg(test)]
+mod camp_tests {
+    use super::*;
+    #[test]
+    fn camp_rows_keep_exact_version_citizen_and_unverified_metadata() {
+        use frontier_abi::world_index::expedition_settlement_event::camp_v2::CampRecord;
+        let ctx = camp_fixture::ctx();
+        let (a, b, _) = camp_fixture::pair(camp_fixture::zero());
+        let world = hex::encode(camp_fixture::province().world().as_bytes());
+        for (format, body, name) in [
+            ("PS2", a, "ORIGINAL_EXPEDITION_SETTLE_CAMP"),
+            ("PSW1", b, "WIDE_ORIGINAL_EXPEDITION_SETTLE_CAMP"),
+        ] {
+            let r = CampRecord::decode(&ctx, &body).unwrap().record;
+            let row = ObservedEvent {
+                event: 1,
+                archive_seq: 1,
+                ordinal: 0,
+                format: format.into(),
+                body,
+                province: Some(r.identity.destination.to_bytes().to_vec()),
+                holding: None,
+                host: Some(r.identity.host.to_bytes().to_vec()),
+            };
+            let v = event(row.clone(), &world, 1, &ctx).unwrap();
+            assert_eq!(v["name"], name);
+            assert_eq!(v["expedition"]["observationOnly"], true);
+            for field in [
+                "receiptVerification",
+                "sourceVerification",
+                "originalChainVerification",
+            ] {
+                assert_eq!(v["expedition"][field], "unverified");
+            }
+            assert_eq!(
+                v["body_b64"],
+                base64::engine::general_purpose::STANDARD.encode(&row.body)
+            );
+            assert_eq!(r.identity.citizen, Some([7; 32]));
+            assert!(v["holding"].is_null());
+            let mut bad = row.clone();
+            bad.holding = bad.host.clone();
+            assert!(event(bad, &world, 1, &ctx).is_err());
+            let mut bad = row;
+            bad.body[6] = 1;
+            assert!(event(bad, &world, 1, &ctx).is_err());
+        }
     }
 }

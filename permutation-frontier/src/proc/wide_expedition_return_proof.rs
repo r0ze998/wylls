@@ -1,5 +1,6 @@
-//! Private, read-only proof bridge for resolved original-to-wide members.
-//! This is a child of `expedition_return`, not an instruction or effect API.
+//! Private proof bridge for resolved original-to-wide members. Its stage is
+//! read-only; its isolated draft consumer invokes same-call settlement.
+//! This is a child of `expedition_return`, never a public instruction API.
 //! It uses the production anchor/archive selection, clock grace and wide
 //! opener, then the original-owner return staging. Bad seals and nonmembers
 //! remain refused: this does not implement forfeiture or routed settlement.
@@ -120,6 +121,32 @@ pub(super) fn stage(
 #[path = "wide_expedition_settlement.rs"]
 mod settlement;
 
+/// Consume the isolated draft, not a decoded outcome or retained proof plan.
+/// Account count determines the only possible split. The existing consumer
+/// performs real seal/anchor proof, history authentication and staging again
+/// in this call; its receipt command remains slot + commitment + seal.
+pub(super) fn settle_draft(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
+    use frontier_abi::world_index::expedition_settlement_ix::{AccountLayout, DraftCommand};
+    let command = DraftCommand::decode(d)?;
+    let layout = AccountLayout::from_count(a.len())?;
+    for (i, account) in a.iter().enumerate() {
+        let spec = layout.spec(i).ok_or(BAD_ACCOUNT)?;
+        if (spec.signer && !account.is_signer)
+            || (spec.wr == frontier_abi::prologue::Wr::W && !account.is_writable)
+        {
+            return Err(BAD_ACCOUNT);
+        }
+    }
+    settlement::settle(
+        p,
+        a,
+        layout.base(),
+        command.slot(),
+        command.commit(),
+        command.seal(),
+    )
+}
+
 #[cfg(all(test, feature = "public-proof-tests", not(target_os = "solana")))]
 #[path = "wide_expedition_return_proof_tests.rs"]
 mod tests;
@@ -141,4 +168,23 @@ pub(super) fn runtime_settle(
     seal: &[u8; wseal::WIDE_SEAL_LEN],
 ) -> R<()> {
     settlement::settle(p, a, base, slot, commit, seal)
+}
+
+// Same-call camp proof, staging and consumption. No supplied verdict or plan.
+#[cfg(all(
+    test,
+    feature = "runtime-contract-tests",
+    feature = "public-proof-tests",
+    feature = "system-cpi-tests",
+    not(target_os = "solana")
+))]
+pub(super) fn runtime_settle_camp_v2(
+    p: &Pubkey,
+    a: &[AccountInfo],
+    base: usize,
+    slot: u8,
+    commit: &[u8; 32],
+    seal: &[u8; wseal::WIDE_SEAL_LEN],
+) -> R<()> {
+    settlement::settle_camp_v2(p, a, base, slot, commit, seal)
 }

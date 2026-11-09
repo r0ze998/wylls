@@ -9,6 +9,7 @@ import { prepareOriginalOutboundPlain, traceWideDirections } from './fexpedition
 import { RETREAT_CHOICES, retreatBps, tipOptions } from './fmarch.mjs';
 import { canonicalOutboundRoles } from './fexpedition-depart.mjs';
 import { DIRECTIONS } from './fgeo.mjs';
+import { outboundHitDirection, outboundMapGeometry } from './map/outboundroute.mjs';
 
 export const OUTBOUND_POP = 'expedition-compose';
 export const OUTBOUND_CLOSED = Object.freeze({ dispatch_available: false, executable: false, admitted: false,
@@ -22,7 +23,7 @@ const publicAddress = x => {
 };
 const snapshots = new WeakMap();
 const empty = () => ({ directions: [], arriveBell: '', stance: 0, retreat: 'never', ratio: '', tip: 'standard',
-  status: 'idle', source: null, trace: null, review: null, error: null, ...OUTBOUND_CLOSED });
+  status: 'idle', source: null, trace: null, map: null, review: null, error: null, ...OUTBOUND_CLOSED });
 
 /** Resolve a currently observed, owned original resident, never an inferred village sequence. */
 export function outboundSource(fs, { pin } = {}) {
@@ -85,9 +86,10 @@ export function reconcileOutbound(fs, ctx) {
 }
 function rebuild(fs, ctx) {
   const s = fs.expeditionCompose;
-  s.review = null; s.trace = null; s.error = null; s.status = 'preparing';
+  s.review = null; s.trace = null; s.map = null; s.error = null; s.status = 'preparing';
   try {
     const snap = capture(fs, ctx); snapshots.set(fs, snap); s.source = snap.source;
+    s.map = outboundMapGeometry(s.source, s.directions);
     if (!s.directions.length) { s.error = 'ChooseSteps'; return; }
     s.trace = traceWideDirections({ world: s.source.world, origin: s.source.origin, directions: s.directions });
     check(ringPosition(BigInt(s.trace.endpoint.p), BigInt(s.trace.endpoint.q)).ring > 128n, 'WideDestinationRequired');
@@ -113,7 +115,8 @@ export function editOutbound(fs, ctx, action, value) {
   const s = fs.expeditionCompose;
   if (!s?.source) return false;
   if (action === 'step') {
-    if (!/^[0-5]$/.test(String(value)) || s.directions.length >= 32) return false;
+    if (!/^[0-5]$/.test(String(value))) return false;
+    if (s.directions.length >= 32) { s.error = 'PathTooLong'; return false; }
     const directions = [...s.directions, Number(value)];
     // Refuse a fifth entered province without replacing the last sound geometric route.
     try { traceWideDirections({ world: s.source.world, origin: s.source.origin, directions }); }
@@ -128,6 +131,27 @@ export function editOutbound(fs, ctx, action, value) {
   else if (action === 'tip' && ['standard', 'decisive', 'maximum'].includes(value)) s.tip = value;
   else return false;
   rebuild(fs, ctx); return true;
+}
+/** The real canvas owns every tap while this card is open, including refusals.
+ * It must not change the selected source, pick another host or fall into March. */
+export function tapOutbound(fs, ctx, hit) {
+  if (fs.hand?.pop !== OUTBOUND_POP) return { handled: false, changed: false, code: null };
+  if (!reconcileOutbound(fs, ctx) || !fs.expeditionCompose?.source) return { handled: true, changed: false, code: 'SourceChanged' };
+  const s = fs.expeditionCompose;
+  try {
+    const direction = outboundHitDirection(s.source, s.directions, hit);
+    if (direction === null) return { handled: true, changed: false, code: 'EndpointSelected' };
+    const changed = editOutbound(fs, ctx, 'step', direction);
+    return { handled: true, changed, code: changed ? null : s.error ?? 'RouteGeometry' };
+  } catch (e) {
+    s.error = e.code ?? 'MapTileRequired';
+    return { handled: true, changed: false, code: s.error };
+  }
+}
+/** Revalidate before exposing cached presentation, including clock/source swaps. */
+export function readOutboundMap(fs, ctx) {
+  if (fs.hand?.pop !== OUTBOUND_POP || !reconcileOutbound(fs, ctx)) return null;
+  return fs.expeditionCompose?.map ?? null;
 }
 /** Relative local coordinates only: at most 32 steps, never narrow world coordinates. */
 export function outboundSketch(directions) {

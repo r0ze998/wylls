@@ -2464,3 +2464,21 @@ body[data-kind="wait"] .plate .plate-go[data-act="join-open"] { display: none; }
   .panel[data-doc="wide"] .report.doc .versus-band { margin-bottom: var(--s2); padding: var(--s2) var(--s3); }
   .panel[data-doc="wide"] .report.doc .report-keep { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; margin: 0 0 var(--s1); }
 }
+
+/* Boundary editing needs the original canvas and its next-step tiles in view. */
+.hand-pop[data-pop="expedition-compose"][data-mode="card"] {
+  width: min(600px, calc(100vw - 2 * var(--edge)));
+  max-height: min(300px, calc(var(--vvh) * .35));
+}
+.hand-pop[data-pop="expedition-compose"] .outbound-help { font-size: var(--t1); }
+.hand-pop[data-pop="expedition-compose"] .pop-foot { flex-wrap: wrap; }
+.hand-pop[data-pop="expedition-compose"] details { margin-top: 8px; }
+.hand-pop[data-pop="expedition-compose"] summary { cursor: pointer; color: var(--brass-hi); }
+@media (max-width: 759px) {
+  .hand-pop[data-pop="expedition-compose"][data-mode="card"] { width: auto; max-height: min(260px, calc(var(--vvh) * .31)); }
+  .hand-pop[data-pop="expedition-compose"] .outbound-directions { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 4px; }
+  .hand-pop[data-pop="expedition-compose"] .outbound-directions .btn { padding-inline: 2px; }
+  /* Keep the selected host's identity and close control; its other orders
+     return as soon as the route card closes. */
+  body:has(#hand-pop[data-pop="expedition-compose"]:not([hidden])) #hand .hand-acts { display: none; }
+}

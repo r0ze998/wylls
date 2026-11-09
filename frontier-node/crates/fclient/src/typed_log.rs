@@ -8,7 +8,9 @@ use frontier_abi::world_index::{
     event::{conquest, WideKind},
     expedition::AccountResolver,
     expedition_event as source, expedition_producer_event as producer,
-    expedition_settlement_event as settlement, legacy_source_event as legacy_source,
+    expedition_settlement_event as settlement,
+    expedition_settlement_event::camp_v2 as camp,
+    legacy_source_event as legacy_source,
 };
 use frontier_abi::{addr::AddrCtx, world_index::expedition_resident_event as resident};
 use solana_address::Address;
@@ -19,6 +21,8 @@ pub enum ExpeditionRecord {
     Source(source::Record),
     Producer(producer::Record),
     Settlement(settlement::Record),
+    /// Explicit camp-v2 semantics, never downgraded to member-v1.
+    CampSettlement(camp::CampRecord),
 }
 
 use crate::{log::Record, ports::TxRecord};
@@ -30,6 +34,7 @@ impl ExpeditionRecord {
             Self::Source(r) => r.source.identity.origin,
             Self::Producer(r) => r.target.destination(),
             Self::Settlement(r) => r.identity.destination,
+            Self::CampSettlement(r) => r.record.identity.destination,
         }
     }
     pub fn host(&self) -> Option<frontier_abi::world_index::WideHostRef> {
@@ -41,6 +46,29 @@ impl ExpeditionRecord {
                 producer::Target::Gather { .. } => None,
             },
             Self::Settlement(r) => Some(r.identity.host),
+            Self::CampSettlement(r) => Some(r.record.identity.host),
+        }
+    }
+
+    pub fn settlement_wide_link(&self) -> Option<frontier_abi::world_index::event::WideLink> {
+        match self {
+            Self::Settlement(r) => r.wide_link,
+            Self::CampSettlement(r) => r.record.wide_link,
+            _ => None,
+        }
+    }
+
+    /// Recompute the wide chain with the exact receipt version and domain.
+    /// This does not authenticate the source or original Citizen/Holding chains.
+    pub fn verify_settlement_wide_previous(
+        &self,
+        ctx: &AddrCtx,
+        previous: frontier_abi::world_index::event::WideLink,
+    ) -> Result<(), settlement::Error> {
+        match self {
+            Self::Settlement(r) => r.verify_previous(ctx, &[], Some(previous)),
+            Self::CampSettlement(r) => r.verify_previous(ctx, &[], Some(previous)),
+            _ => Err(settlement::Error::Shape),
         }
     }
 }
@@ -176,10 +204,16 @@ impl ProgramRecord {
             }
             (Self::ExpeditionOriginal { body }, Some(settlement::ORIGINAL_KIND))
             | (Self::ExpeditionWide { body }, Some(settlement::WIDE_KIND)) => {
-                ExpeditionRecord::Settlement(
-                    settlement::Record::decode(ctx, body)
-                        .map_err(DecodeError::ExpeditionSettlement)?,
-                )
+                match body.get(6).copied() {
+                    Some(camp::VERSION) => ExpeditionRecord::CampSettlement(
+                        camp::CampRecord::decode(ctx, body)
+                            .map_err(DecodeError::ExpeditionSettlement)?,
+                    ),
+                    _ => ExpeditionRecord::Settlement(
+                        settlement::Record::decode(ctx, body)
+                            .map_err(DecodeError::ExpeditionSettlement)?,
+                    ),
+                }
             }
             (Self::ExpeditionOriginal { .. } | Self::ExpeditionWide { .. }, _) => {
                 return Err(DecodeError::UnsupportedExpedition)
@@ -415,16 +449,35 @@ fn decode_transaction_inner(
         }
         validate_conquest_pairs(&records, ctx)?;
         let mut pairs = std::collections::BTreeMap::<[u8; 32], Vec<settlement::Record>>::new();
+        let mut camp_pairs = std::collections::BTreeMap::<[u8; 32], Vec<camp::CampRecord>>::new();
         for record in &records {
-            if let Some(ExpeditionRecord::Settlement(r)) = record.expedition(ctx)? {
-                let parts = pairs.entry(r.receipt.operation_id).or_default();
-                if parts.len() == 2 {
-                    return Err(DecodeError::ExpeditionPair);
+            match record.expedition(ctx)? {
+                Some(ExpeditionRecord::Settlement(r)) => {
+                    let parts = pairs.entry(r.receipt.operation_id).or_default();
+                    if parts.len() == 2 {
+                        return Err(DecodeError::ExpeditionPair);
+                    }
+                    parts.push(r);
                 }
-                parts.push(r);
+                Some(ExpeditionRecord::CampSettlement(r)) => {
+                    let parts = camp_pairs.entry(r.record.receipt.operation_id).or_default();
+                    if parts.len() == 2 {
+                        return Err(DecodeError::ExpeditionPair);
+                    }
+                    parts.push(r);
+                }
+                _ => {}
             }
         }
         for parts in pairs.values() {
+            if parts.len() != 2 {
+                return Err(DecodeError::ExpeditionPair);
+            }
+            parts[0]
+                .pair(&parts[1])
+                .map_err(|_| DecodeError::ExpeditionPair)?;
+        }
+        for parts in camp_pairs.values() {
             if parts.len() != 2 {
                 return Err(DecodeError::ExpeditionPair);
             }

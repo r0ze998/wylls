@@ -69,9 +69,12 @@ export function expeditionOf(b, r, pins) {
       } else fail(host === null);
       out = { ...receipt(b, at, 'PSF-EXPEDITION-PRODUCER-OP-v1', [b[7]]), stage, bell, family: 'original', links: links(b, at + 100, []) };
     } else if (kind === 148 || kind === 25) {
-      const isWide = kind === 25, flags = b[7], slot = b[8];
-      fail(format === (isWide ? 'PSW1' : 'PS2') && b[6] === 1 && (flags & ~7) === 0 && (flags & 3) !== 3 && slot < 4 && b[9] === 0);
-      fail(name === `${isWide ? 'WIDE_' : ''}ORIGINAL_EXPEDITION_SETTLE_MEMBER` && holding === null);
+      const isWide = kind === 25, camp = b[6] === 2, flags = b[7], slot = b[8];
+      fail(format === (isWide ? 'PSW1' : 'PS2') && (b[6] === 1 || camp) && (flags & ~7) === 0 && (flags & 3) !== 3 && slot < 4 && b[9] === 0);
+      // Camp-v2 binds exactly the original Citizen, with no home/previous-home
+      // credit. Its version, label and operation domain are inseparable.
+      fail(!camp || flags === 4);
+      fail(name === `${isWide ? 'WIDE_' : ''}ORIGINAL_EXPEDITION_SETTLE_${camp ? 'CAMP' : 'MEMBER'}` && holding === null);
       fail(original(host) && wide(province) && hex(b, 10, 56) === host.keyHex && hex(b, 162, 50) === province.keyHex && !zero(b.subarray(66, 98)));
       fail(addr(b, 98) === derived(pins, 'Holding', host) && addr(b, 130) === bridge(pins, b, 98, slot) && addr(b, 212) === provinceAddress(pins, province));
       fail(flags & 1 ? hex(b, 244, 50) === host.keyHex.slice(0, 100) : zero(b.subarray(244, 294)));
@@ -80,9 +83,10 @@ export function expeditionOf(b, r, pins) {
       const addresses = [addr(b, 98), addr(b, 130), addr(b, 212), ...(flags & 1 ? [derived(pins, 'Province', host)] : []), ...(flags & 2 ? [addr(b, 294)] : []), ...(flags & 4 ? [addr(b, 326)] : [])];
       fail(new Set(addresses).size === addresses.length && [98, 130, 212].every(at => !zero(b.subarray(at, at + 32))));
       const operationId = hex(b, 358, 32);
-      fail(operationId === toHex(sha256('PSF-BOUNDARY-SETTLEMENT-OP-v1', b.subarray(390, 422), b.subarray(422, 454))));
-      out = { stage: 'settle_member', bell, slot, operationId, inputDigest: hex(b, 390, 32), outputDigest: hex(b, 422, 32), family: isWide ? 'wide' : 'original',
-        pairClass: 'settlement', pairRole: isWide ? 'wide' : 'original', pairBody: hex(b, 2, 452), links: links(b, 454, isWide ? [1] : [5, ...(flags & 1 ? [6] : []), ...(flags & 2 ? [5] : []), ...(flags & 4 ? [4] : [])]) };
+      fail(operationId === toHex(sha256(camp ? 'PSF-BOUNDARY-CAMP-SETTLEMENT-OP-v2' : 'PSF-BOUNDARY-SETTLEMENT-OP-v1', b.subarray(390, 422), b.subarray(422, 454))));
+      out = { stage: camp ? 'settle_camp' : 'settle_member', bell, slot, operationId, inputDigest: hex(b, 390, 32), outputDigest: hex(b, 422, 32), family: isWide ? 'wide' : 'original',
+        ...(camp ? { receiptVersion: 2, citizen: addr(b, 326) } : {}),
+        pairClass: camp ? 'camp_settlement' : 'settlement', pairRole: isWide ? 'wide' : 'original', pairBody: hex(b, 2, 452), links: links(b, 454, isWide ? [1] : [5, ...(flags & 1 ? [6] : []), ...(flags & 2 ? [5] : []), ...(flags & 4 ? [4] : [])]) };
     } else if (kind === 145) {
       fail(format === 'PS2' && b[6] === 1 && [1, 2].includes(b[7]) && b[8] === 0 && b[9] === 0 && holding === null);
       fail(original(host) && original(province) && hex(b, 10, 56) === host.keyHex && host.keyHex.slice(0, 100) === province.keyHex && addr(b, 66) === derived(pins, 'Holding', host));

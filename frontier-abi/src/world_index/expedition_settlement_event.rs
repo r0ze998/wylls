@@ -285,6 +285,11 @@ fn body(wide: bool, bell: u32, id: Identity, r: Receipt) -> Vec<u8> {
     }
     b
 }
+fn body_version(wide: bool, bell: u32, id: Identity, r: Receipt, version: u8) -> Vec<u8> {
+    let mut b = body(wide, bell, id, r);
+    b[6] = version;
+    b
+}
 fn tail(b: &mut Vec<u8>, entity: u8, seq: u64, head: &[u8; 32]) {
     b.push(entity);
     b.extend_from_slice(&seq.to_le_bytes());
@@ -867,9 +872,17 @@ pub struct Record {
 }
 impl Record {
     pub fn decode(ctx: &AddrCtx, b: &[u8]) -> Result<Self, Error> {
+        Self::decode_version(ctx, b, VERSION, Receipt::new)
+    }
+    fn decode_version(
+        ctx: &AddrCtx,
+        b: &[u8],
+        version: u8,
+        receipt_of: fn([u8; 32], [u8; 32]) -> Receipt,
+    ) -> Result<Self, Error> {
         if b.len() < BODY_LEN + 1
             || b.len() > MAX_RECORD_LEN
-            || b[6] != VERSION
+            || b[6] != version
             || b[7] & !7 != 0
             || b[9] != 0
         {
@@ -934,7 +947,7 @@ impl Record {
         let operation_id = take(b, &mut at);
         let input = take(b, &mut at);
         let output = take(b, &mut at);
-        let receipt = Receipt::new(input, output);
+        let receipt = receipt_of(input, output);
         if operation_id != receipt.operation_id {
             return Err(Error::Receipt);
         }
@@ -1000,10 +1013,20 @@ impl Record {
         original: &[Link],
         wide: Option<event::WideLink>,
     ) -> Result<(), Error> {
+        self.verify_previous_version(ctx, original, wide, VERSION, Receipt::new)
+    }
+    fn verify_previous_version(
+        &self,
+        ctx: &AddrCtx,
+        original: &[Link],
+        wide: Option<event::WideLink>,
+        version: u8,
+        receipt_of: fn([u8; 32], [u8; 32]) -> Receipt,
+    ) -> Result<(), Error> {
         // Public fields are not a decoded-record capability. Revalidate shape,
         // identity and checksum even when the caller never used decode.
         self.identity.validate(ctx)?;
-        if self.receipt != Receipt::new(self.receipt.input, self.receipt.output) {
+        if self.receipt != receipt_of(self.receipt.input, self.receipt.output) {
             return Err(Error::Receipt);
         }
         let targets = self.identity.original_targets(ctx)?;
@@ -1020,11 +1043,12 @@ impl Record {
         {
             return Err(Error::Chain);
         }
-        let b = body(
+        let b = body_version(
             self.wide_link.is_some(),
             self.bell,
             self.identity,
             self.receipt,
+            version,
         );
         if let Some(actual) = self.wide_link {
             if !original.is_empty() {
@@ -1049,3 +1073,7 @@ impl Record {
         Ok(())
     }
 }
+
+/// A separate, explicitly versioned camp contract. Member-v1 stays exact.
+#[path = "expedition_camp_settlement_event.rs"]
+pub mod camp_v2;

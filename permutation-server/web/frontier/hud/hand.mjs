@@ -455,22 +455,25 @@ function outboundPop(FS, model) {
     : s.error === 'SourceChanged' ? L`軍勢・所有者・接続情報が変わりました。カードを開き直してください。`
     : s.error ? L`この準備は利用できません` : null;
   return html`${popHead(L`境界への道を準備`)}
-    <p class="pop-line">${L`道の形だけを準備します。地形・通行・移動時間・時刻の整合性は未検証です。実行可能な経路ではありません。`}</p>
-    <p class="pop-line">${L`選択した軍勢`}: ${model.host.id}</p>
-    ${source ? html`<p class="pop-line">${L`観測した出発点`}: ${source.origin.p},${source.origin.q} · ${L`マス`} ${source.origin.tile}</p>` : ''}
-    <div class="pop-foot" role="group" aria-label="${L`一歩進む方向`}">${DIR_TEXT.map((name, direction) => html`<button type="button" class="btn small" data-act="outbound-step" data-direction="${direction}" ${raw(!source || directions.length >= 32 ? 'aria-disabled="true"' : '')}>${name()}</button>`)}</div>
+    <p class="pop-line outbound-help">${L`地図の破線のマスを押すと一歩追加します。道の形だけで、地形・移動時間は未検証です。`}</p>
+    ${s.error === 'SourceChanged' ? html`<p class="pop-line pop-why" role="status">${reason}</p>` : ''}
+    <div class="pop-foot outbound-directions" role="group" aria-label="${L`一歩進む方向`}">${DIR_TEXT.map((name, direction) => html`<button type="button" class="btn small" data-act="outbound-step" data-direction="${direction}" ${raw(!source || directions.length >= 32 ? 'aria-disabled="true"' : '')}>${name()}</button>`)}</div>
     <div class="pop-foot"><span>${directions.length}/32 · ${s.trace?.accountKeys.length ?? 0}/4 ${L`入る州`}</span>
       <button type="button" class="btn small" data-act="outbound-undo" ${raw(!directions.length ? 'aria-disabled="true"' : '')}>${L`一歩戻す`}</button>
       <button type="button" class="btn small" data-act="outbound-reset">${L`道を消す`}</button></div>
+    ${endpoint ? html`<p class="pop-line">${L`道から決まる終点`}: ${endpoint.p},${endpoint.q} · ${L`マス`} ${endpoint.tile}</p>` : ''}
+    <details data-fold="outbound-details"><summary>${L`詳細`}</summary>
+    <p class="pop-line">${L`道の形だけを準備します。地形・通行・移動時間・時刻の整合性は未検証です。実行可能な経路ではありません。`}</p>
+    <p class="pop-line">${L`選択した軍勢`}: ${model.host.id}</p>
+    ${source ? html`<p class="pop-line">${L`観測した出発点`}: ${source.origin.p},${source.origin.q} · ${L`マス`} ${source.origin.tile}</p>` : ''}
     ${directions.length ? html`<svg role="img" aria-label="${L`出発点からの相対的な道の形`}" viewBox="${left} ${top} ${width} ${height}" width="100%" height="96"><polyline points="${points.map(p => `${p.x},${p.y}`).join(' ')}" fill="none" stroke="currentColor" stroke-width="0.12"/><circle cx="0" cy="0" r="0.2" fill="currentColor"/><circle cx="${points.at(-1).x}" cy="${points.at(-1).y}" r="0.25" fill="none" stroke="currentColor" stroke-width="0.1"/></svg>
       <p class="pop-line">${directions.map(d => DIR_TEXT[d]()).join(' → ')}</p>` : ''}
-    ${endpoint ? html`<p class="pop-line">${L`道から決まる終点`}: ${endpoint.p},${endpoint.q} · ${L`マス`} ${endpoint.tile}</p>` : ''}
     <div class="pop-line"><label>${L`到着ターンの候補`} <input type="text" inputmode="numeric" autocomplete="off" maxlength="10" data-bind="outbound-arriveBell" value="${s.arriveBell ?? ''}"></label></div>
     <div class="pop-line"><label>${L`構え`} <select data-bind="outbound-stance">${choices.stances.map(x => html`<option value="${x.value}" ${raw(s.stance === x.value ? 'selected' : '')}>${x.text}</option>`)}</select></label></div>
     <div class="pop-line"><label>${L`撤退`} <select data-bind="outbound-retreat">${choices.retreat.map(x => html`<option value="${x.id}" ${raw(s.retreat === x.id ? 'selected' : '')}>${x.text}</option>`)}</select></label>
       ${s.retreat === 'custom' ? html`<label>${L`倍率`} <input type="text" inputmode="decimal" maxlength="12" data-bind="outbound-ratio" value="${s.ratio ?? ''}"></label>` : ''}</div>
     <div class="pop-line"><label>${L`チップの候補`} <select data-bind="outbound-tip">${choices.tips.map(x => html`<option value="${x.id}" ${raw(s.tip === x.id ? 'selected' : '')}>${x.text} · ${x.lamports.toString()} lamports</option>`)}</select></label></div>
-    <div aria-live="polite">${reason ? html`<p class="pop-line pop-why">${reason}${!['ChooseSteps', 'WideDestinationRequired', 'ArrivalRequired', 'SourceChanged'].includes(s.error) ? ` (${s.error})` : ''}</p>` : ''}
+    <div aria-live="polite">${reason && s.error !== 'SourceChanged' ? html`<p class="pop-line pop-why">${reason}${!['ChooseSteps', 'WideDestinationRequired', 'ArrivalRequired'].includes(s.error) ? ` (${s.error})` : ''}</p>` : ''}
     ${review ? html`<p class="pop-line">${L`136 バイトの平文案です。封印・署名・送信は行っていません。`}</p>
       <details><summary>${L`平文の全バイトを確認`}</summary><p class="pop-line" style="overflow-wrap:anywhere">${review.plainHex}</p></details>
       <details><summary>${L`出発点・軍勢・州の識別子`}</summary><p class="pop-line" style="overflow-wrap:anywhere">${L`軍勢`}: ${review.host}</p>
@@ -478,7 +481,7 @@ function outboundPop(FS, model) {
         <ol>${review.accountKeys.map(key => html`<li style="overflow-wrap:anywhere">${key}</li>`)}</ol></details>
       ${review.roles ? html`<p class="pop-line">${L`観測した空き行軍枠の候補`}: ${review.transitSlot} · ${L`現在も使えるとは確認できていません。`}</p><details><summary>${L`実行できない役割案`}</summary><ul>${review.roles.map(r => html`<li style="overflow-wrap:anywhere">${r.name}: ${r.address} · ${r.signer ? L`署名が必要` : L`署名不要`} · ${r.writable ? L`書き込み役割` : L`読み取り役割`}</li>`)}</ul></details>` : html`<p class="pop-line pop-why">${L`正規の役割案はまだ利用できません。`}</p>`}
       <p class="pop-line pop-why">${L`土地と時刻の一貫した記録、出発条件、到着可能時刻、署名者の承認を確認する必要があります。公開実行は閉じています。`}</p>` : ''}</div>
-    <p class="pop-line pop-rule">${L`封印・署名・送信はすべて無効です。地図・行軍記録・通常の行軍案は変更しません。`}</p>`;
+    <p class="pop-line pop-rule">${L`封印・署名・送信はすべて無効です。地図・行軍記録・通常の行軍案は変更しません。`}</p></details>`;
 }
 
 /** The entered coordinate is an inspection query, never a destination or a claimed current location. */

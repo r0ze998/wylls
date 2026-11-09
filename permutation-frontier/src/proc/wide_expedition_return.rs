@@ -1,8 +1,8 @@
-//! Private candidate child of `wide`. No instruction, writer or proof stub.
+//! Private candidate child of `wide`. No public instruction or proof stub.
 //! These snapshots are deliberately NOT executable settlement authorization.
-//! Resolved/gathered accounts do not prove a seal valid. A future reviewed
-//! consumer must perform the real proof, timing and claim checks, re-read all
-//! accounts, stage payments/diversion and atomically commit paired cleanup with
+//! Resolved/gathered accounts do not prove a seal valid. The private draft
+//! consumer performs the real proof, timing and claim checks, re-reads all
+//! accounts, stages payments/diversion and commits paired cleanup with
 //! original PS2 and destination PSW1 receipts. No event identifiers allocated.
 //! Only strict owned bridge-v2 is accepted. Both final-set and retained-slot
 //! Citizen bind to its immutable original owner; PREV_OWNER_TAG remains only
@@ -471,6 +471,13 @@ pub(super) fn stage_terminal(p: &Pubkey, a: &[AccountInfo], slot_index: u8) -> R
 #[path = "wide_expedition_return_proof.rs"]
 mod proof;
 
+/// Private draft-wire route only. No public command parser or dispatcher
+/// admits this operation. The proof child consumes exact roles and reopens
+/// the original stored commitment before the existing settlement can write.
+pub(super) fn settle_draft(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
+    proof::settle_draft(p, a, d)
+}
+
 #[cfg(test)]
 #[path = "wide_expedition_return_tests.rs"]
 mod tests;
@@ -492,4 +499,24 @@ pub(super) fn runtime_settle(
     seal: &[u8; wseal::WIDE_SEAL_LEN],
 ) -> R<()> {
     proof::runtime_settle(p, a, base, slot, commit, seal)
+}
+
+// Separate camp-v2 native adapter: actual accounts and opaque seal only.
+// The isolated member wire and all public dispatch gates remain unchanged.
+#[cfg(all(
+    test,
+    feature = "runtime-contract-tests",
+    feature = "public-proof-tests",
+    feature = "system-cpi-tests",
+    not(target_os = "solana")
+))]
+pub(super) fn runtime_settle_camp_v2(
+    p: &Pubkey,
+    a: &[AccountInfo],
+    base: usize,
+    slot: u8,
+    commit: &[u8; 32],
+    seal: &[u8; wseal::WIDE_SEAL_LEN],
+) -> R<()> {
+    proof::runtime_settle_camp_v2(p, a, base, slot, commit, seal)
 }

@@ -912,8 +912,10 @@ export const expeditionContext = () => ({ pin: io.pinned(), relay: io.relay(), s
 export const inspectOriginalExpedition = () => expedition.inspectExpedition(FS, { context: expeditionContext, changed: () => invalidate('panel') });
 export const reconcileExpedition = () => { outbound.reconcileOutbound(FS, expeditionContext()); return expedition.reconcileInspection(FS, expeditionContext()); };
 /** Local geometry/plaintext preparation, deliberately outside ACTIONS and FORMS. */
-export const openOriginalOutbound = () => { outbound.openOutbound(FS, expeditionContext()); invalidate('panel'); };
-export const editOriginalOutbound = (action, value) => { const ok = outbound.editOutbound(FS, expeditionContext(), action, value); invalidate('panel'); return ok; };
+export const openOriginalOutbound = () => { outbound.openOutbound(FS, expeditionContext()); invalidate('map', 'panel'); };
+export const editOriginalOutbound = (action, value) => { const ok = outbound.editOutbound(FS, expeditionContext(), action, value); invalidate('map', 'panel'); return ok; };
+export const tapOriginalOutbound = hit => { const result = outbound.tapOutbound(FS, expeditionContext(), hit); if (result.handled) invalidate('map', 'panel'); return result; };
+export const originalOutboundMap = () => outbound.readOutboundMap(FS, expeditionContext());
 
 /**
  * Load the latest envelope of a province the map draws at tile detail, the

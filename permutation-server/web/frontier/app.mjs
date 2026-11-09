@@ -21,7 +21,7 @@ import { FS, invalidate, registerRenderers } from './fstate.mjs';
 import { clearWideSelect, selectedWide } from './fwide.mjs';
 import { EXPEDITION_POP, clearInspection } from './fexpedition.mjs';
 import { OUTBOUND_POP, clearOutbound } from './fexpedition-compose.mjs';
-import { inspectOriginalExpedition, reconcileExpedition, openOriginalOutbound, editOriginalOutbound } from './controller.mjs';
+import { inspectOriginalExpedition, reconcileExpedition, openOriginalOutbound, editOriginalOutbound, tapOriginalOutbound, originalOutboundMap } from './controller.mjs';
 import { createHerald, nextPoll, staleness } from './herald.mjs';
 import { setTermsPace } from './seasonterms.mjs';
 import { setPin, setRelay } from './fchainio.mjs';
@@ -1170,7 +1170,7 @@ function renderHand() {
   } else handLast.reserve = null;
   handLast.key = model.key;
   // (the view kept for the new host's card: gone back to once that card no longer stands)
-  if (!(model.kind === 'village' && CARDS_OVER_BOARD.includes(model.pop)) && FS.hand?.pick?.kind !== 'dress' && model.pop !== 'keeps') camKeep.back('pop', { ms: calm() ? 0 : 260 });
+  if (!(model.kind === 'village' && CARDS_OVER_BOARD.includes(model.pop)) && FS.hand?.pick?.kind !== 'dress' && model.pop !== 'keeps' && model.pop !== OUTBOUND_POP) camKeep.back('pop', { ms: calm() ? 0 : 260 });
   const pop = model.pop ? String(hand.renderPop(FS, model)) : '';
   if (handPopEl.hidden !== !pop) handPopEl.hidden = !pop;
   if ((handPopEl.dataset.pop ?? '') !== (model.pop ?? '')) handPopEl.dataset.pop = model.pop ?? '';
@@ -1178,6 +1178,7 @@ function renderHand() {
   { const pk = FS.hand?.pick?.kind === 'dress' ? 'dress' : ''; if ((handPopEl.dataset.pick ?? '') !== pk) handPopEl.dataset.pick = pk; }
   if (pop !== handLast.pop) { keepState(handPopEl, () => setHtml(handPopEl, pop ? hand.renderPop(FS, model) : '')); handLast.pop = pop; if (pop) handPopEl.setAttribute('aria-label', model.label); }
   placeHandPop(model);
+  measureHand();
   publishNoGo();
 }
 /** Where the bar stands, told to the stylesheet (`--hand-h`, `--hand-l`, `--hand-t` on the body): the cards stand above it, and the dock tucks behind its top left corner. */
@@ -1230,6 +1231,16 @@ function setPop(pop) {
   const next = pop && (hand.POPS.includes(pop) || (FS.proto && hand.PROTO_POPS.includes(pop)) || (keephand.conquestOn(FS) && hand.CONQUEST_POPS.includes(pop)) || ([...hand.INSPECTION_POPS, OUTBOUND_POP].includes(pop) && hand.popOf({ ...FS, hand: { ...FS.hand, pop } }, sub) === pop)) ? pop : null;
   FS.hand = { ...(FS.hand ?? {}), pop: next, unit: undefined, n: undefined, troops: undefined, tile: undefined, pick: null, strike: undefined, widen: undefined, more: undefined, protoWhy: undefined };
   if (next === OUTBOUND_POP) openOriginalOutbound();
+  if (next === OUTBOUND_POP && sub?.kind === 'host') {
+    camKeep.keep('pop');
+    // Measure the newly rendered card before framing the editable tiles.
+    requestAnimationFrame(() => {
+      if (FS.hand?.pop !== OUTBOUND_POP || !originalOutboundMap() || !mapRef) return;
+      mapRef.tick();
+      mapRef.flyTo({ p: sub.host.p, q: sub.host.q, tile: sub.host.tile, zoom: Math.max(mapRef.view.zoom, 1.0) }, null, { auto: true });
+    });
+    summary(() => L`地図の破線のマスを押すと一歩追加します。道の形だけで、地形・移動時間は未検証です。`);
+  }
   FS.mapNote = null;
   if (next !== 'explore' && FS.explore) FS.explore = null;
   // the card of a new host is used with the board: the camera is kept, and the village's province comes into the part
@@ -2775,7 +2786,7 @@ const feedAnnounces = (p, q, bell) => !!FS.citizen && ((FS.holdings ?? []).some(
   || (FS.marches ?? []).some(m => m.dest && m.dest.p === p && m.dest.q === q && (m.entry?.arriveBell ?? m.transit?.arriveBell) === bell));
 
 // ------------------------------------------------------------------ the minimap and the lenses (hud/minimap.mjs)
-let miniQueued = false, miniPulse = null;
+let miniQueued = false, miniPulse = null, miniOverview = null;
 function renderMinimap() {
   if (miniQueued) return;
   miniQueued = true;
@@ -2785,10 +2796,18 @@ function renderMinimap() {
     if (!cv || !mapRef || !cv.getContext) return;
     const px = minimap.MINIMAP_PX, dpr = Math.min(globalThis.devicePixelRatio || 1, 2);
     if (cv.width !== px * dpr) { cv.width = px * dpr; cv.height = px * dpr; }
-    const recs = new Map();
-    for (const ov of FS.overviews.values()) for (const r of ov.provinces) recs.set(`${r.p},${r.q}`, r);
+    // Herald adoption replaces overview envelopes. Camera movement and the
+    // home pip keep the same envelopes and can reuse their flattened map.
+    const entries = [...FS.overviews];
+    if (!miniOverview || entries.length !== miniOverview.entries.length ||
+        entries.some(([key, value], i) => key !== miniOverview.entries[i][0] || value !== miniOverview.entries[i][1])) {
+      const recs = new Map();
+      for (const [, ov] of entries) for (const r of ov.provinces) recs.set(`${r.p},${r.q}`, r);
+      miniOverview = { entries, recs };
+    }
+    const recs = miniOverview.recs;
     const sv = FS.survey ?? null, pulse = !!sv?.home && !sv.showAll && !reducedMotion();
-    minimap.paintMinimap(cv.getContext('2d'), { recs, rings: Math.max(1, (FS.record?.rings?.length ?? 1)), own: (FS.holdings ?? []).map(h => ({ p: h.p, q: h.q })),
+    minimap.paintMinimap(cv.getContext('2d'), { recs, revision: miniOverview, rings: Math.max(1, (FS.record?.rings?.length ?? 1)), own: (FS.holdings ?? []).map(h => ({ p: h.p, q: h.q })),
       view: mapRef.shown ?? mapRef.view, size: mapRef.size(), quad: mapRef.viewQuad?.() ?? null, px, dpr, lens: FS.view.lens ?? 'realm', pins: FS.pins ?? [], survey: sv, now: fxNow() });
     // the viewer's pip breathes: a few small repaints a second while it shows
     if (pulse && !miniPulse) miniPulse = setTimeout(() => { miniPulse = null; renderMinimap(); }, 110);
@@ -3801,6 +3820,8 @@ export async function boot() {
           // what the selected host can do, lit on the map (map/actions.mjs); the route under the pointer; the map's own answer to a tap
           actions: actionsNow(),
           hoverRoute,
+          outboundRoute: originalOutboundMap(),
+          outboundInput: FS.hand?.pop === OUTBOUND_POP ? FS.expeditionCompose?.map ?? FS.expeditionCompose : null,
           note: FS.mapNote ?? null,
           // a village this device sees land for the first time (map/landing.mjs)
           landing: landingNow(), landingSoon: landingSoon(),
@@ -3826,6 +3847,20 @@ export async function boot() {
       onSelect: hit0 => {
         // a tap selects what the zoom shows: a province from afar, a tile up close
         const hit = FS.view.lod === 'tile' ? hit0 : { kind: 'province', p: hit0.p, q: hit0.q };
+        // Boundary preparation owns the gesture before host/keep/legacy routing.
+        // A refused/repeated tap keeps the original observed host in the hand.
+        const outbound = tapOriginalOutbound(hit);
+        if (outbound.handled) {
+          lastPress = null;
+          if (outbound.code === 'SourceChanged') summary(() => L`出発点の情報が変わりました。境界への道を開き直してください。`);
+          else if (!Number.isInteger(hit.idx)) {
+            map.flyTo({ p: hit.p, q: hit.q, zoom: 1.0 });
+            summary(() => L`拡大した地図で、終点に隣り合う破線のマスを押してください。`);
+          } else if (outbound.changed) summary(() => L`道に一歩追加しました。地形・移動時間は未検証です。`);
+          else if (outbound.code === 'PathTooLong' || outbound.code === 'PathProvinces') summary(() => L`道の形は 32 マス・4 州までです。`);
+          else summary(() => L`終点に隣り合う破線のマスを押してください。軍勢の選択は変わりません。`);
+          return;
+        }
         // the press was on the figures or the token of one of the viewer's hosts (the board says so: map.hostAt): that host takes the hand
         const pressed = FS.mode === 'play' && !FS.compose && !FS.hand?.pick && FS.view.lod === 'tile' ? hostUnderPress() : null;
         lastPress = null;
