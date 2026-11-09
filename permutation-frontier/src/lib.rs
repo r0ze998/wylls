@@ -49,6 +49,20 @@
 #[cfg(all(target_os = "solana", feature = "wide-world-experimental"))]
 compile_error!("wide-world-experimental is a host-only draft, not deployable");
 
+// Public-fixture proof arithmetic is confined to host unit tests. It must
+// never enable the separate native gameplay experiment or another beacon.
+#[cfg(all(target_os = "solana", feature = "public-proof-tests"))]
+compile_error!("public-proof-tests is host-test-only, not deployable");
+#[cfg(all(
+    feature = "public-proof-tests",
+    any(
+        feature = "native-crypto-tests",
+        feature = "test-beacon",
+        feature = "oracle"
+    )
+))]
+compile_error!("public-proof-tests cannot combine with native-crypto-tests, test-beacon or oracle");
+
 extern crate alloc;
 
 pub mod addr;

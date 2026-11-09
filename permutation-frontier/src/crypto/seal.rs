@@ -551,7 +551,9 @@ pub(crate) mod tests {
         }
     }
 
-    #[cfg(not(feature = "native-crypto-tests"))]
+    // A real proof adapter must decompress these valid public signatures.
+    // Keep this ordinary-stub expectation in every build without an adapter.
+    #[cfg(not(any(feature = "native-crypto-tests", feature = "public-proof-tests")))]
     #[test]
     fn ordinary_host_refuses_even_public_valid_ibe() {
         for c in cases() {

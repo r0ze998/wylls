@@ -468,6 +468,9 @@ pub(super) fn stage_terminal(p: &Pubkey, a: &[AccountInfo], slot_index: u8) -> R
     })
 }
 
+#[path = "wide_expedition_return_proof.rs"]
+mod proof;
+
 #[cfg(test)]
 #[path = "wide_expedition_return_tests.rs"]
 mod tests;

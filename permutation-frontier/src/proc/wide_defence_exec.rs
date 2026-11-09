@@ -5,8 +5,56 @@ use super::*;
 use crate::layout::{defence_claim as DC, defence_pool as DP, init_header};
 use crate::proc::defence::{refund, Caps};
 use frontier_abi::addr::{day_of, defence_claim_seed, keeper_tag8};
+use frontier_abi::world_index::expedition_transport::ExpeditionArrivalSlot;
+
+/// This is a private semantic choice, never inferred from incoming wire bytes.
+/// The existing native command retains its strict v1 reader. The expedition
+/// counterpart has no dispatcher, wire allocation or public admission.
+#[derive(Clone, Copy)]
+enum SlotPolicy {
+    NativeV1,
+    ExpeditionV2,
+}
+
+impl SlotPolicy {
+    fn read(self, ctx: &AddrCtx, bytes: &[u8]) -> R<WideArrivalSlot> {
+        match self {
+            Self::NativeV1 => WideArrivalSlot::read(bytes).map_err(|_| BAD_ACCOUNT),
+            Self::ExpeditionV2 => ExpeditionArrivalSlot::read(ctx, bytes)
+                .map(|slot| *slot.common())
+                .map_err(|_| BAD_ACCOUNT),
+        }
+    }
+}
 
 pub(super) fn claim_defence(p: &Pubkey, a: &[AccountInfo], x: &wix::ClaimDefence) -> R<()> {
+    claim_with_policy(p, a, x, SlotPolicy::NativeV1)
+}
+
+/// Private, opt-in counterpart for original-to-wide v2 arrival evidence only.
+/// The existing command type supplies shared day/count semantics, not a wire
+/// route. Native v1 records are deliberately refused by this entry point.
+pub(super) fn claim_expedition_defence(
+    p: &Pubkey,
+    a: &[AccountInfo],
+    x: &wix::ClaimDefence,
+) -> R<()> {
+    // The common prologue constructs views using infallible lamport reads.
+    // This private v2 path reports existing exclusive borrows as errors before
+    // those reads; the native entry point and its behavior stay unchanged.
+    for account in a {
+        let _balance = account.try_borrow_lamports()?;
+        let _data = account.try_borrow_data()?;
+    }
+    claim_with_policy(p, a, x, SlotPolicy::ExpeditionV2)
+}
+
+fn claim_with_policy(
+    p: &Pubkey,
+    a: &[AccountInfo],
+    x: &wix::ClaimDefence,
+    policy: SlotPolicy,
+) -> R<()> {
     if x.n == 0 || x.n as usize > DC::MAX_SLOTS {
         return Err(FrontierError::BadData.into());
     }
@@ -75,7 +123,7 @@ pub(super) fn claim_defence(p: &Pubkey, a: &[AccountInfo], x: &wix::ClaimDefence
             return Err(BAD_ACCOUNT);
         }
         let mut d = slot.try_borrow_data()?.to_vec();
-        let mut s = WideArrivalSlot::read(&d).map_err(|_| BAD_ACCOUNT)?;
+        let mut s = policy.read(&ctx, &d)?;
         if s.season_id != hdr.id || s.dest.world() != world {
             return Err(BAD_ACCOUNT);
         }
@@ -118,8 +166,19 @@ pub(super) fn claim_defence(p: &Pubkey, a: &[AccountInfo], x: &wix::ClaimDefence
         total = total
             .checked_add(caps.admit(s.bell, region, amount, region_cap))
             .ok_or(OVERFLOW)?;
-        s.claimed = true;
-        s.write(&mut d).map_err(|_| BAD_ACCOUNT)?;
+        match policy {
+            SlotPolicy::NativeV1 => {
+                // Retain the existing native serializer and behavior exactly.
+                s.claimed = true;
+                s.write(&mut d).map_err(|_| BAD_ACCOUNT)?;
+            }
+            SlotPolicy::ExpeditionV2 => {
+                // The strict v2 reader validated this offset and canonical
+                // false value above. Change only this byte, preserving v2,
+                // full original owner, wear and every other retained byte.
+                d[wa::wide_arrival_slot::CLAIMED] = 1;
+            }
+        }
         slots.push(d);
     }
     let capped = total.min(day_cap.saturating_sub(claimed));
@@ -211,3 +270,7 @@ pub(super) fn claim_defence(p: &Pubkey, a: &[AccountInfo], x: &wix::ClaimDefence
     solana_program::log::sol_log_data(&[frontier_abi::log::PREFIX, &record[..record_len]]);
     Ok(())
 }
+
+#[cfg(test)]
+#[path = "wide_expedition_defence_tests.rs"]
+mod expedition_defence_tests;

@@ -17,6 +17,14 @@ name = "public_seal_verification"
 path = "tests/public_seal_verification.rs"
 harness = false
 
+# Synthetic wide body over a published IBE block, memory-only and never a
+# production sealer. The original legacy verification target stays separate.
+[[test]]
+name = "public_wide_seal_verification"
+path = "tests/public_wide_seal_verification.rs"
+harness = false
+required-features = ["wide-world-experimental"]
+
 # M1 contract §3.2: the crate builds, clippies and tests on the host with the
 # default features (the entrypoint and the custom heap are
 # `cfg(target_os = "solana")`-gated); `--no-default-features` leaves the
@@ -30,6 +38,10 @@ program = []
 # Explicit opt-in for real native BLS math in unit tests only.
 # Non-test host libraries still fail closed; SBF never includes this adapter.
 native-crypto-tests = []
+# Public-fixture proof tests only: real native BLS math in cfg(test),
+# without enabling any gameplay gate. Linked host libraries stay closed;
+# lib.rs refuses SBF and native-crypto-tests/test-beacon/oracle combinations.
+public-proof-tests = []
 no-entrypoint = []
 # Our own 256-KiB-aware bump allocator (heap.rs, I-50) instead of the
 # entrypoint's default one.
