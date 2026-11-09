@@ -66,6 +66,7 @@
 
 pub mod arrival;
 pub mod coord;
+pub mod conquest;
 pub mod economy;
 pub mod event;
 pub mod holding;
@@ -87,6 +88,7 @@ pub mod wide_ix;
 
 pub use arrival::{ArrivalError, WideArrival, WideArrivalSlot, WideClashInputsHdr};
 pub use coord::{CoordError, RingPosition, WideCoord, SORT_KEY_LEN, WIDE_BOUND};
+pub use conquest::{ConquestError, WideCaptureEscrow, WideConquest, WideConquestEntry};
 pub use economy::{Action as EconomyAction, EconomyError, EconomyReceipt};
 pub use event::{
     EventError, WideEntity, WideKind, WideLink, WideRecord, WideTarget, WIDE_LOG_PREFIX,

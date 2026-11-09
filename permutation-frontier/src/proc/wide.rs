@@ -916,6 +916,18 @@ pub(crate) fn refuse_wide_ticket(citizen: &[u8]) -> R<()> {
     }
 }
 
+/// Active wide capture reservations have independent rent and full target
+/// bindings. Their cleanup must precede CloseCitizen. Pending WideTicket and
+/// wide captures also remain an unsupported combination in both directions.
+pub(crate) fn refuse_wide_capture(citizen: &[u8]) -> R<()> {
+    let slots = Ro(citizen).u8(C2::SLOTS)?;
+    match frontier_abi::world_index::conquest::has_wide_reservations(slots) {
+        Ok(false) => Ok(()),
+        Ok(true) => Err(FrontierError::TicketState.into()),
+        Err(_) => Err(BAD_ACCOUNT),
+    }
+}
+
 /// A ticket-model refusal as a program code (the deployed counterparts').
 fn ticket_err(e: TicketError) -> crate::Error {
     match e {
@@ -1216,6 +1228,7 @@ pub(crate) fn claim_site_as(p: &Pubkey, a: &[AccountInfo], d: &[u8], auth: &Auth
     // 3. the Citizen and its one ticket and inventory
     let (faction, holdings_n, slots, flags, bindings, gen2, gen3) = {
         let cd = citizen.try_borrow_data()?;
+        refuse_wide_capture(&cd)?;
         let r = Ro(&cd);
         if matches!(
             wt::pending(&cd).map_err(|_| BAD_ACCOUNT)?,
@@ -6174,3 +6187,25 @@ pub fn settle_transit(p: &Pubkey, a: &[AccountInfo], x: &wix::SettleTransit) -> 
 
 #[path = "wide_stranded_exec.rs"]
 mod stranded_exec;
+
+#[cfg(test)]
+mod wide_capture_guard_tests {
+    use super::*;
+    use frontier_abi::world_index::conquest as wc;
+
+    #[test]
+    fn close_and_wide_ticket_guard_refuses_active_or_orphaned_capture_markers() {
+        let mut cd = alloc::vec![0xa5; C2::SIZE];
+        cd[C2::SLOTS] = 0;
+        assert!(refuse_wide_capture(&cd).is_ok());
+        cd[C2::SLOTS] = 2 | C2::SLOTS_RESERVED_3;
+        assert!(refuse_wide_capture(&cd).is_ok());
+        cd[C2::SLOTS] |= wc::wide_reserved_bit(3);
+        let before = cd.clone();
+        assert!(refuse_wide_capture(&cd).is_err());
+        assert_eq!(cd, before);
+        cd[C2::SLOTS] = wc::wide_reserved_bit(2);
+        assert!(refuse_wide_capture(&cd).is_err());
+        assert!(refuse_wide_capture(&[]).is_err());
+    }
+}

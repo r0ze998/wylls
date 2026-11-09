@@ -869,9 +869,12 @@ pub(crate) fn declare_siege_as(
         // Any open ticket (slot 1 included) holds one rent in the escrow:
         // FileTicket sizes it `rent × (1 + reservations)` and SettleTicket
         // takes one rent when the ticket wins (W2R2-C1).
-        let n = (ticket != 0) as u64
-            + (reserved & C::SLOTS_RESERVED_2 != 0) as u64
-            + (reserved & C::SLOTS_RESERVED_3 != 0) as u64;
+        #[cfg(feature = "wide-world-experimental")]
+        let legacy = frontier_abi::world_index::conquest::legacy_reservations(reserved)
+            .map_err(|_| BAD_ACCOUNT)?;
+        #[cfg(not(feature = "wide-world-experimental"))]
+        let legacy = reserved & (C::SLOTS_RESERVED_2 | C::SLOTS_RESERVED_3);
+        let n = (ticket != 0) as u64 + legacy.count_ones() as u64;
         let want = init::rent(H::SIZE)?.checked_mul(n).ok_or(OVERFLOW)?;
         topped = want.saturating_sub(cescrow);
         if topped > payer.lamports() {
@@ -1074,6 +1077,15 @@ pub fn settle_siege(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
     let (stake, slot, after) = settle_plan(&rec, (pp, pq, x.site), ended)?;
     if stake.is_none() && slot.is_none() {
         return Err(FrontierError::AlreadyDone.into());
+    }
+    // Refuse a wide-owned reservation before any stake credit or other write.
+    // Its rent, binding and recipient belong to the wide escrow record.
+    #[cfg(feature = "wide-world-experimental")]
+    if let Some((s, _)) = slot {
+        let cd = slot_citizen.try_borrow_data()?;
+        let slots = Ro(&cd).u8(C::SLOTS)?;
+        frontier_abi::world_index::conquest::ensure_legacy_slot(slots, s)
+            .map_err(|_| BAD_ACCOUNT)?;
     }
     // The stake: to the recipient Holding at the owed generation, or
     // burned.
@@ -1297,6 +1309,9 @@ pub fn settle_capture(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
             r.arr::<32>(C::TICKET_FUNDER)?,
         )
     };
+    #[cfg(feature = "wide-world-experimental")]
+    frontier_abi::world_index::conquest::ensure_legacy_slot(cslots, slot)
+        .map_err(|_| BAD_ACCOUNT)?;
     if cslots & C::reserved_bit(slot) == 0 {
         return Err(kernel(sub::CAPTURE_RULE));
     }

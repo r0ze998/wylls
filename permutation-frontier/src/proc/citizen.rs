@@ -1660,11 +1660,19 @@ fn set_ticket_slot(citizen: &mut [u8], slot: u8) -> R<()> {
 }
 
 /// The Holding-rent escrow a Citizen must hold with one ticket open (MC
-/// K-25): `rent(1,280) × (1 + capture reservations)`.
+/// K-25): `rent(1,280) × (1 + legacy capture reservations)`. Experimental
+/// wide reservations retain the common slot lock but fund their own larger rent.
 fn escrow_need(slots: u8, rent_h: u64) -> R<u64> {
+    // Wide captures keep the larger Holding rent in their own record. The
+    // shared Citizen escrow pays only its ticket and legacy reservations.
+    #[cfg(feature = "wide-world-experimental")]
     let reserved =
-        ((slots & C2::SLOTS_RESERVED_2 != 0) as u64) + ((slots & C2::SLOTS_RESERVED_3 != 0) as u64);
-    rent_h.checked_mul(1 + reserved).ok_or(OVERFLOW)
+        frontier_abi::world_index::conquest::legacy_reservations(slots).map_err(|_| BAD_ACCOUNT)?;
+    #[cfg(not(feature = "wide-world-experimental"))]
+    let reserved = slots & (C2::SLOTS_RESERVED_2 | C2::SLOTS_RESERVED_3);
+    rent_h
+        .checked_mul(1 + reserved.count_ones() as u64)
+        .ok_or(OVERFLOW)
 }
 
 /// The site's conquest record is all zero (S1), else `SiegeBusy`.
@@ -2574,13 +2582,15 @@ pub fn close_citizen(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
     };
     let ctx = addr::ctx(&key(season_ai), &p.to_bytes());
     prologue::present(citizen, p, AccountKind::Citizen, sid)?;
-    // Experimental wide land: a pending wide ticket holds its own record
-    // and rent; WideCloseTicket must return them first (`proc::wide`), or
-    // this close would orphan them. Absent from every default build.
+    // Experimental wide land: pending wide tickets and capture reservations
+    // hold independent records/rent. Their cleanup must clear the Citizen's
+    // markers before this close, or their live bindings would be orphaned.
+    // Absent from every default build.
     #[cfg(feature = "wide-world-experimental")]
     {
         let cd = citizen.try_borrow_data()?;
         super::wide::refuse_wide_ticket(&cd)?;
+        super::wide::refuse_wide_capture(&cd)?;
     }
     let (tag15, c_payer, escrow, c_funder) = {
         let cd = citizen.try_borrow_data()?;
@@ -2822,5 +2832,44 @@ mod tests {
         assert_eq!(h.production[Resource::Ore as usize], 7_000);
         let stock = h.stock_at(1_000_000);
         assert_eq!(stock, catalog::starter_kit());
+    }
+}
+
+// No account dispatch or cryptographic setup: focused shared-escrow arithmetic.
+#[cfg(all(test, feature = "wide-world-experimental"))]
+mod wide_capture_guard_tests {
+    use super::*;
+    use frontier_abi::world_index::conquest as wc;
+
+    #[test]
+    fn legacy_ticket_rent_excludes_only_wide_owned_reservations() {
+        for ticket in 0..=3u8 {
+            for legacy in [0, C2::SLOTS_RESERVED_2, C2::SLOTS_RESERVED_3] {
+                for wide in [0, 2, 3] {
+                    if wide != 0 && legacy & C2::reserved_bit(wide) != 0 {
+                        continue;
+                    }
+                    let slots =
+                        ticket | legacy | C2::reserved_bit(wide) | wc::wide_reserved_bit(wide);
+                    let want = 1_280 * (1 + legacy.count_ones() as u64);
+                    assert_eq!(escrow_need(slots, 1_280), Ok(want));
+                }
+            }
+        }
+        let both = C2::SLOTS_RESERVED_2 | C2::SLOTS_RESERVED_3;
+        assert_eq!(escrow_need(both, 1_280), Ok(3_840));
+        assert_eq!(
+            escrow_need(
+                both | wc::wide_reserved_bit(2) | wc::wide_reserved_bit(3),
+                1_280
+            ),
+            Ok(1_280)
+        );
+        assert!(escrow_need(wc::wide_reserved_bit(2), 1_280).is_err());
+        assert!(escrow_need(C2::SLOTS_RESERVED_2, u64::MAX).is_err());
+        assert_eq!(
+            escrow_need(C2::SLOTS_RESERVED_2 | wc::wide_reserved_bit(2), u64::MAX),
+            Ok(u64::MAX)
+        );
     }
 }
