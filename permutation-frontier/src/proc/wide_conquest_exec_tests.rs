@@ -156,7 +156,7 @@ pub(in crate::proc::wide) fn fixture() -> Vec<AccountInfo<'static>> {
     let roster = WideRoster::new(SID, pkey, PAYER);
     let mut rd = vec![0; wro::wide_roster::SIZE];
     roster.write_header(&mut rd).unwrap();
-    let host = WideHostRef::new(pkey, 0, 1, 1).unwrap();
+    let host = WideHostRef::new(pkey, 0, 1, 0).unwrap();
     let alias = roster.claim(&mut rd, 0, &host).unwrap();
     write_entry(
         &mut pd,
@@ -386,6 +386,64 @@ fn lead_uses_full_identity_and_refuses_unpaired_or_ineligible_hosts() {
     e.id ^= 1;
     write_entry(&mut pd, 1, &e).unwrap();
     assert!(lead(&pd, &roster, &rd, 1, 0, 10).is_err());
+}
+
+#[test]
+fn declaration_accepts_exactly_already_issued_sequences_including_zero() {
+    // Both legacy host::muster and wide::muster_as issue HOST_SEQ, then
+    // checked-add one. No source counter is incremented by declaration.
+    for (sequence, next_unissued, allowed) in [
+        (0, 0, false),
+        (0, 1, true),
+        (1, 1, false),
+        (1, 2, true),
+        (u32::MAX - 1, u32::MAX, true),
+        (u32::MAX, u32::MAX, false),
+    ] {
+        let a = fixture();
+        Rw(&mut a[4].try_borrow_mut_data().unwrap())
+            .set_u32(H::HOST_SEQ, next_unissued)
+            .unwrap();
+        let host = {
+            let mut rd = a[6].try_borrow_mut_data().unwrap();
+            let roster = WideRoster::read(&rd).unwrap();
+            let prior = roster.release(&mut rd, 0).unwrap().unwrap();
+            let host = WideHostRef::new(prior.key(), prior.site(), prior.gen(), sequence).unwrap();
+            let alias = roster.claim(&mut rd, 0, &host).unwrap();
+            let mut pd = a[5].try_borrow_mut_data().unwrap();
+            let mut e = read_entry(&pd, 0).unwrap();
+            e.id = alias;
+            write_entry(&mut pd, 0, &e).unwrap();
+            roster
+                .validate_paired(&rd, &wres::live_ids(&pd).unwrap())
+                .unwrap();
+            host
+        };
+        let before = snapshot(&a);
+        let result = execute(&a);
+        if allowed {
+            result.unwrap();
+            assert_eq!(
+                Ro(&a[4].try_borrow_data().unwrap())
+                    .u32(H::HOST_SEQ)
+                    .unwrap(),
+                next_unissued
+            );
+            let table =
+                WideConquest::read(&a[9].try_borrow_data().unwrap(), SID, host.key()).unwrap();
+            assert_eq!(
+                table.entry(1).unwrap().unwrap().source,
+                Some(host.holding_ref())
+            );
+        } else {
+            assert_eq!(result, Err(cq(CqError::NotOnHex)));
+            assert_eq!(
+                snapshot(&a),
+                before,
+                "unissued sequence {sequence} at count {next_unissued}"
+            );
+        }
+    }
 }
 
 #[test]

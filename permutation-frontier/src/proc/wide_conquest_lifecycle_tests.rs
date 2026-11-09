@@ -234,7 +234,7 @@ fn continuous(fresh_sidecars: bool, overprefunded: bool) {
         GENESIS + 6000,
         10,
         &season_before,
-        &WideHostRef::new(k, 0, 1, 1).unwrap().to_bytes(),
+        &WideHostRef::new(k, 0, 1, 0).unwrap().to_bytes(),
         &declaration_before,
         &declaration_after,
         &declaration_total.to_le_bytes(),

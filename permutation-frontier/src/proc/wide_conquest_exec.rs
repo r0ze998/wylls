@@ -334,9 +334,10 @@ fn declare_siege_context(
         .ref_at(&before[6].data, x.entry as usize)
         .map_err(|_| BAD_ACCOUNT)?
         .ok_or(cq(CqError::NotOnHex))?;
+    // Muster issues the current counter (including first host zero), then
+    // increments it. HOST_SEQ is the next unissued sequence, not the last one.
     if source_h.host_identity != wm::HOST_IDENTITY_FULL_REF_V1
-        || chosen_ref.seq() == 0
-        || chosen_ref.seq() > Ro(hd).u32(H::HOST_SEQ)?
+        || chosen_ref.seq() >= Ro(hd).u32(H::HOST_SEQ)?
     {
         return Err(cq(CqError::NotOnHex));
     }
