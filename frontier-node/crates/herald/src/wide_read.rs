@@ -73,13 +73,38 @@ fn host(bytes: &[u8]) -> Result<Value, Fault> {
     v["hostSequence"] = json!(h.seq());
     Ok(v)
 }
-fn event(row: ObservedEvent, world: &str, through: u64) -> Result<Value, Fault> {
+fn event(
+    row: ObservedEvent,
+    world: &str,
+    through: u64,
+    ctx: &frontier_abi::addr::AddrCtx,
+) -> Result<Value, Fault> {
     if row.archive_seq == 0 || row.archive_seq > through || row.ordinal > i64::MAX as u64 {
         return Err(fault("WideIndexCorrupt"));
     }
     // Revalidate the stored body and attribution instead of trusting a corrupt cache.
     let mut v = json!({"event":row.event.to_string(),"archiveSequence":row.archive_seq.to_string(),"ordinal":row.ordinal.to_string(),"format":row.format,"body_b64":base64::engine::general_purpose::STANDARD.encode(&row.body)});
-    if row.format == "PSW1" {
+    if (row.format == "PS2" && row.body.get(1) == Some(&149))
+        || (row.format == "PSW1" && row.body.get(1) == Some(&26))
+    {
+        use frontier_abi::world_index::expedition_resident_event::{Action, Record};
+        let r = Record::decode(ctx, &row.body).map_err(|_| fault("WideIndexCorrupt"))?;
+        if (row.format == "PSW1") != r.wide_link.is_some()
+            || row.province != Some(r.identity.standing.to_bytes().to_vec())
+            || row.host != Some(r.identity.host.to_bytes().to_vec())
+            || row.holding.is_some()
+            || hex::encode(r.identity.standing.world().as_bytes()) != world
+        {
+            return Err(fault("WideIndexCorrupt"));
+        }
+        v["kind"] = json!(row.body[1]);
+        v["name"] = json!(match (r.wide_link.is_some(), r.action) {
+            (false, Action::Dissolve) => "ORIGINAL_RESIDENT_DISSOLVE",
+            (false, Action::Return) => "ORIGINAL_RESIDENT_RETURN",
+            (true, Action::Dissolve) => "WIDE_ORIGINAL_RESIDENT_DISSOLVE",
+            (true, Action::Return) => "WIDE_ORIGINAL_RESIDENT_RETURN",
+        });
+    } else if row.format == "PSW1" {
         let r = frontier_abi::world_index::event::WideRecord::decode(&row.body)
             .map_err(|_| fault("WideIndexCorrupt"))?;
         if row.province != r.province_of().map(|p| p.to_bytes().to_vec())
@@ -165,10 +190,15 @@ pub fn events_json(app: &App, q: &HashMap<String, String>) -> Result<Value, Faul
     v["next"] = json!(page.next.to_string());
     v["more"] = json!(page.more);
     v["limit"] = json!(limit);
+    let ctx = app
+        .fold
+        .read()
+        .map_err(|_| fault("WideIndexUnavailable"))?
+        .ctx;
     v["events"] = Value::Array(
         page.events
             .into_iter()
-            .map(|row| event(row, v["world"].as_str().unwrap_or(""), through))
+            .map(|row| event(row, v["world"].as_str().unwrap_or(""), through, &ctx))
             .collect::<Result<Vec<_>, _>>()?,
     );
     Ok(v)
@@ -202,4 +232,50 @@ pub fn load_read_only_fold(cfg: &IngestCfg) -> Result<Arc<RwLock<Fold>>, String>
     f.ingest.stopped = true;
     f.ingest.coverage = Some(json!({"state":"unknown","mode":"checkpoint-read-only"}));
     Ok(Arc::new(RwLock::new(f)))
+}
+
+#[cfg(test)]
+#[path = "../../fclient/tests/fixtures/resident.rs"]
+mod resident_fixture;
+#[cfg(test)]
+mod resident_tests {
+    use super::*;
+    #[test]
+    fn resident_rows_are_raw_scoped_and_never_wide_holdings() {
+        use frontier_abi::world_index::expedition_resident_event::{Action, Record};
+        let ctx = resident_fixture::ctx();
+        for action in [Action::Dissolve, Action::Return] {
+            let (a, b) = resident_fixture::pair(action, resident_fixture::zero());
+            for (format, body) in [("PS2", a), ("PSW1", b)] {
+                let r = Record::decode(&ctx, &body).unwrap();
+                let world = hex::encode(r.identity.standing.world().as_bytes());
+                let row = ObservedEvent {
+                    event: 1,
+                    archive_seq: 1,
+                    ordinal: 0,
+                    format: format.into(),
+                    body,
+                    province: Some(r.identity.standing.to_bytes().to_vec()),
+                    holding: None,
+                    host: Some(r.identity.host.to_bytes().to_vec()),
+                };
+                let value = event(row.clone(), &world, 1, &ctx).unwrap();
+                assert!(value["name"]
+                    .as_str()
+                    .unwrap()
+                    .contains("ORIGINAL_RESIDENT_"));
+                assert!(value["holding"].is_null());
+                assert_eq!(
+                    value["host"]["keyHex"],
+                    hex::encode(r.identity.host.to_bytes())
+                );
+                let mut bad = row.clone();
+                bad.holding = bad.host.clone();
+                assert!(event(bad, &world, 1, &ctx).is_err());
+                let mut bad = row;
+                bad.body[8] = 1;
+                assert!(event(bad, &world, 1, &ctx).is_err());
+            }
+        }
+    }
 }

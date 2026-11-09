@@ -1292,6 +1292,7 @@ fn resident_return_continuation(
     locked.get_mut(home).set_data_from_slice(&locked_home);
     reject(&locked, &dissolve_roles, true, host);
     let before_dissolve = world.clone();
+    let dissolve_now = prologue::now().unwrap();
     let dissolved = world.run(&dissolve_roles, |p, a, _| {
         expedition_resident::execute_dissolve(p, a, host).map_err(Into::into)
     });
@@ -1302,6 +1303,16 @@ fn resident_return_continuation(
         &dissolved,
         frontier_abi::world_index::expedition_resident_event::Action::Dissolve,
         host,
+    );
+    anchor_resident_fixture(
+        &before_dissolve,
+        world,
+        &dissolve_roles,
+        &dissolved,
+        frontier_abi::world_index::expedition_resident_event::Action::Dissolve,
+        sk,
+        host,
+        dissolve_now,
     );
     assert!(dissolved.cpis.is_empty());
     assert_eq!(dissolved.logs.len(), 2);
@@ -1413,6 +1424,7 @@ fn resident_return_continuation(
         .set_data_from_slice(&retired_province);
     reject(&retired, &return_roles, false, host);
     let before_return = world.clone();
+    let return_now = prologue::now().unwrap();
     let returned = world.run(&return_roles, |p, a, _| {
         expedition_resident::execute_return(p, a, host).map_err(Into::into)
     });
@@ -1423,6 +1435,16 @@ fn resident_return_continuation(
         &returned,
         frontier_abi::world_index::expedition_resident_event::Action::Return,
         host,
+    );
+    anchor_resident_fixture(
+        &before_return,
+        world,
+        &return_roles,
+        &returned,
+        frontier_abi::world_index::expedition_resident_event::Action::Return,
+        sk,
+        host,
+        return_now,
     );
     assert!(returned.cpis.is_empty());
     assert_eq!(returned.logs.len(), 2);
@@ -1450,6 +1472,80 @@ fn resident_return_continuation(
 #[test]
 fn contiguous_original_boundary_capture_and_resident_home_return() {
     lifecycle_with_resident_return(0, true, true);
+}
+
+/// Byte-exact native provenance for the independent verifier's immutable input.
+/// BRESv001, action, program, season, host, pre-handler timestamp/slot, role count,
+/// all before roles, all after roles, then the two actual emitted receipt bodies.
+/// Each role carries address/owner/presence/signer/writable/executable, lamports,
+/// and u32-length-prefixed data. Integer fields are little-endian.
+#[allow(clippy::too_many_arguments)]
+fn anchor_resident_fixture(
+    before: &World,
+    after: &World,
+    roles: &[([u8; 32], bool, bool)],
+    output: &rt::system_cpi::Output,
+    action: frontier_abi::world_index::expedition_resident_event::Action,
+    season: [u8; 32],
+    host: WideHostRef,
+    now: prologue::Now,
+) {
+    use frontier_abi::world_index::expedition_resident_event as re;
+    assert!(output.cpis.is_empty());
+    assert_eq!(output.logs.len(), 2);
+    assert_eq!(output.logs[0].len(), 2);
+    assert_eq!(output.logs[1].len(), 2);
+    assert_eq!(output.logs[0][0], frontier_abi::log::PREFIX);
+    assert_eq!(output.logs[1][0], wev::WIDE_LOG_PREFIX);
+    let mut bytes = b"BRESv001".to_vec();
+    bytes.push(match action {
+        re::Action::Dissolve => 1,
+        re::Action::Return => 2,
+    });
+    bytes.extend_from_slice(&PROGRAM);
+    bytes.extend_from_slice(&season);
+    bytes.extend_from_slice(&host.to_bytes());
+    bytes.extend_from_slice(&now.ts.to_le_bytes());
+    bytes.extend_from_slice(&now.slot.to_le_bytes());
+    bytes.push(u8::try_from(roles.len()).unwrap());
+    for world in [before, after] {
+        for (address, signer, writable) in roles {
+            // The official adapter rejects conflicting duplicate privileges.
+            // These are consequently the effective AccountInfo flags as well.
+            assert!(roles.iter().all(|(other, s, w)| {
+                other != address || (s == signer && w == writable)
+            }));
+            let account = world.get(*address);
+            bytes.extend_from_slice(address);
+            bytes.extend_from_slice(&account.owner().to_bytes());
+            bytes.push(u8::from(
+                !(account.owner() == &init::SYSTEM && account.data().is_empty()),
+            ));
+            bytes.push(u8::from(*signer));
+            bytes.push(u8::from(*writable));
+            bytes.push(u8::from(account.executable()));
+            bytes.extend_from_slice(&account.lamports().to_le_bytes());
+            bytes.extend_from_slice(&u32::try_from(account.data().len()).unwrap().to_le_bytes());
+            bytes.extend_from_slice(account.data());
+        }
+    }
+    bytes.push(2);
+    for fields in &output.logs {
+        bytes.extend_from_slice(&u32::try_from(fields[1].len()).unwrap().to_le_bytes());
+        bytes.extend_from_slice(&fields[1]);
+    }
+    // Captured once from this continuous native lifecycle, never regenerated
+    // by the replay verifier. Every subsequent run must match every byte.
+    // No file writer, update mode, or environment-controlled bypass remains.
+    let fixture: &[u8] = match action {
+        re::Action::Dissolve => include_bytes!(
+            "../../../frontier-node/crates/verify/tests/fixtures/wide_expedition_resident/dissolve_v1.bin"
+        ),
+        re::Action::Return => include_bytes!(
+            "../../../frontier-node/crates/verify/tests/fixtures/wide_expedition_resident/return_v1.bin"
+        ),
+    };
+    assert_eq!(bytes.as_slice(), fixture);
 }
 
 fn verify_resident_receipts(

@@ -62,6 +62,9 @@ pub mod wide_economy;
 /// One-transition kind-17 replay only; never a whole-season verdict.
 #[cfg(feature = "wide-economy-experimental")]
 pub mod wide_garrison;
+/// Detached original-origin resident transition replay; never a season verdict.
+#[cfg(feature = "wide-economy-experimental")]
+pub mod wide_expedition_resident;
 pub mod world;
 
 use serde_json::Value;

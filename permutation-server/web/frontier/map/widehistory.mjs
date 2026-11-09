@@ -1,5 +1,6 @@
 // Read-only observations from the separate typed index. Never terrain, game
 // authority, account authentication or a proof of complete event history.
+import { isResidentKind, residentOf, residentPairs } from './wideresident.mjs';
 import { fromBase64, toBase64, toHex } from '../../sdk/bytes.mjs';
 import { parseWideInt, ringPosition, worldIdOf, WideError } from './wide.mjs';
 const NAMES = ['','WIDE_MUSTER','WIDE_DISSOLVE','WIDE_RESOLVE','WIDE_RETURN','WIDE_STRANDED','WIDE_ROSTER_CLOSED','WIDE_DEPARTED','WIDE_TRANSIT_SETTLED','WIDE_DEPARTURE_SETTLED','WIDE_REVEALED','WIDE_GATHERED','WIDE_RECORD_CLOSED','WIDE_TRANSIT_CLOSED','WIDE_PROVINCE_CLOSED','WIDE_ECONOMY','WIDE_ECONOMY_MIRROR','WIDE_GARRISON'];
@@ -102,8 +103,13 @@ export function parseWideIndexPage(v, { pins, through, snapshot, after = 0n, lim
     fail(typeof r.body_b64 === 'string' && r.body_b64.length > 0 && r.body_b64.length <= 16384);
     const body = fromBase64(r.body_b64); fail(body.length > 6 && body.length <= 8192 && toBase64(body) === r.body_b64);
     fail(Number.isInteger(r.kind) && body[1] === r.kind && typeof r.name === 'string' && /^[A-Z0-9_]{1,40}$/.test(r.name));
-    let province = null, holding = null, host = null, economy = null, garrison = null;
-    if (r.format === 'PSW1') {
+    let province = null, holding = null, host = null, economy = null, garrison = null, resident = null;
+    if (isResidentKind(r.format, r.kind)) {
+      province = wideHistoryIdentity(r.province, s.world);
+      host = wideHistoryIdentity(r.host, s.world, true);
+      fail(r.holding === null);
+      resident = residentOf(body, { format: r.format, name: r.name, host, province, holding: null }, pins);
+    } else if (r.format === 'PSW1') {
       fail(body[0] === 0x82 && r.kind >= 1 && r.kind <= 17 && r.name === NAMES[r.kind]);
       province = wideHistoryIdentity(r.province, s.world);
       if (r.holding !== null) { holding = wideHistoryIdentity(r.holding, s.world, true); fail(holding.hostSequence === 0); }
@@ -127,8 +133,10 @@ export function parseWideIndexPage(v, { pins, through, snapshot, after = 0n, lim
     } else {
       fail(body[0] === 1 && r.name === 'PS2' && r.province === null && r.holding === null && r.host === null);
     }
-    return { event, archiveSequence, ordinal, format: r.format, kind: r.kind, name: r.name, province, holding, host, economy, garrison, body };
+    return { event, archiveSequence, ordinal, format: r.format, kind: r.kind, name: r.name, province, holding, host, economy, garrison, resident, body };
   });
+  const paired = residentPairs(rows);
+  for (const row of rows) if (row.resident) row.residentPairEvent = paired.get(row.event) ?? null;
   fail(uint(v.next) === previous && (!v.more || rows.length === limit));
   return { ...s, rows, next: previous, more: v.more, sourceCoverage: 'unknown', captureVerification: 'unverified' };
 }

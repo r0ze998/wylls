@@ -27,6 +27,7 @@
 //! | `wideclaim_preview` (feature `wide-world-experimental`) | bounded, one-shot keyless claim-preview input and JSON facts over one coherent snapshot; separate opt-in executable, no keeper startup, transaction output or send |
 //! | `wideproof` (feature `wide-world-experimental`) | **read-only**: the Depart commitment and 264-byte seal of a committed WideDepart, taken from a feed record's wire and bound to the `Departed` record inside the same instruction's log frame; unavailable on any CPI, rollback or mismatch; no signature verified, no key |
 //! | `wideduty` (feature `wide-world-experimental`) | **read-only, unsigned**: WideSettleDeparture, WideReturn, WideGather and WideResolve instructions planned from current account reads with the dispatcher's tables and refusals (the gather's arrival evidence is the wide ArrivalDay account, never the absence of feed events; the resolve replays the ABI's `resolve_bell` on scratch bytes; WideSettleTransit is not planned); explicit block reasons; never signed, simulated, sent or queued |
+//! | `wideexpedition` (feature `wide-world-experimental`) | **read-only, non-executable** original-host bridge and wide resident next-step inspection; canonical original Holding/home, owned bridge v2, current-generation voluntary Leave and original reserve prediction; same-response snapshot and explicit missing-dispatch/provenance denials, never an instruction |
 //! | `widereveal` (feature `wide-world-experimental`) | **read-only, unsigned**: a WideReveal candidate planned from a `wideproof::DepartProof`, a caller-supplied seal opening and current account reads; the handler's timing, latch, path, shield, quota and ArrivalDay rules replayed; a matching commitment is never called a cryptographic verification |
 //! | `widesettle` (feature `wide-world-experimental`) | **read-only, unsigned**: the WideSettleTransit candidate of a march whose seal opens under the anchor's own public round signature and whose host is in the resolved final set with a fate that does not come home; the outcome and payments from the shared `frontier_abi::world_index::settle` functions the program calls; bad seals, absent destinations, bounces, routs, returns home and camp loot refused, not planned; no tick wiring yet |
 //! | `widereview` (feature `wide-world-experimental`) | **read-only** admission review of a wide candidate against the engine's public state: a typed full-identity key, kind, tag, class and concrete denials; never a `WriteSpec`, never `ensure`/`poll`/`send` |
@@ -77,6 +78,8 @@ pub mod wideclaim;
 pub mod wideclaim_preview;
 #[cfg(feature = "wide-world-experimental")]
 pub mod wideduty;
+#[cfg(feature = "wide-world-experimental")]
+pub mod wideexpedition;
 #[cfg(feature = "wide-world-experimental")]
 pub mod widefees;
 #[cfg(feature = "wide-world-experimental")]
@@ -595,6 +598,9 @@ impl<P: ChainPort, D: DrandPort> Keeper<P, D> {
     /// cursors and every write gate are untouched; the observer's status
     /// always reports `automatic_writes: false` and `source_complete:
     /// false`. Starts empty on every process start (no journal).
+    /// Includes separately decoded, paired PS2/149 + PSW1/26 resident receipts
+    /// for this Season; their original-chain history remains unverified. Older
+    /// unsupported expedition receipts still block rather than being skipped.
     #[cfg(feature = "wide-world-experimental")]
     pub fn enable_wide_observation(&mut self, limits: wideindex::Limits) -> Result<(), String> {
         let world = frontier_abi::world_index::WorldId::derive_legacy_season(
@@ -602,7 +608,7 @@ impl<P: ChainPort, D: DrandPort> Keeper<P, D> {
             &self.addrs.program.to_bytes(),
         )
         .map_err(|e| format!("{e:?}"))?;
-        self.wide_observer = Some(wideindex::WideObserver::new(
+        self.wide_observer = Some(wideindex::WideObserver::new_with_resident(
             wideindex::Scope {
                 program: self.addrs.program,
                 season: self.addrs.season,
@@ -611,7 +617,7 @@ impl<P: ChainPort, D: DrandPort> Keeper<P, D> {
                     .into(),
             },
             limits,
-        ));
+        )?);
         Ok(())
     }
 

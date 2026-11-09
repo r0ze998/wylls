@@ -262,6 +262,46 @@ fn same_except(a: &[u8], b: &[u8], ranges: &[core::ops::Range<usize>]) -> bool {
             .all(|(i, (x, y))| x == y || ranges.iter().any(|r| r.contains(&i)))
 }
 
+fn context_digest(ctx: &AddrCtx, id: Identity, action: Action, c: &Context<'_>) -> [u8; 32] {
+    let mut identity = Vec::new();
+    id.write(&mut identity);
+    sha256(&[
+        b"PSF-BOUNDARY-RESIDENT-CONTEXT-v1",
+        &ctx.program,
+        &ctx.season,
+        &[VERSION, action as u8],
+        &identity,
+        &c.now_ts.to_le_bytes(),
+        &c.now_slot.to_le_bytes(),
+        &c.bell.to_le_bytes(),
+        &(c.command.len() as u64).to_le_bytes(),
+        c.command,
+        &(c.season.len() as u64).to_le_bytes(),
+        c.season,
+    ])
+}
+
+/// Raw pre-state commitment for detached readers before effect replay. This
+/// computes the receipt definition only; it establishes no authentication,
+/// canonical state provenance or handler admission. No economic code runs.
+pub fn input_digest(
+    ctx: &AddrCtx,
+    id: Identity,
+    action: Action,
+    c: &Context<'_>,
+    before: &[AccountSnapshot<'_>],
+) -> Result<[u8; 32], Error> {
+    id.validate(ctx)?;
+    if c.command != id.host.to_bytes() {
+        return Err(Error::Command);
+    }
+    Ok(sha256(&[
+        b"PSF-BOUNDARY-RESIDENT-INPUT-v1",
+        &context_digest(ctx, id, action, c),
+        &manifest(before, &[])?,
+    ]))
+}
+
 /// Exact private account shapes. Dissolve: actor, payer, Season, Citizen,
 /// original Holding, wide standing Province, readonly WideRoster, original
 /// home Province. Return: payer, Season, wide Province, WideRoster, original
@@ -475,29 +515,10 @@ pub fn prepare(
         return Err(Error::Effects);
     }
 
-    let mut identity = Vec::new();
-    id.write(&mut identity);
-    let context = sha256(&[
-        b"PSF-BOUNDARY-RESIDENT-CONTEXT-v1",
-        &ctx.program,
-        &ctx.season,
-        &[VERSION, action as u8],
-        &identity,
-        &c.now_ts.to_le_bytes(),
-        &c.now_slot.to_le_bytes(),
-        &c.bell.to_le_bytes(),
-        &(c.command.len() as u64).to_le_bytes(),
-        c.command,
-        &(c.season.len() as u64).to_le_bytes(),
-        c.season,
-    ]);
+    let context = context_digest(ctx, id, action, c);
     let mut outcome = Vec::new();
     o.write(&mut outcome);
-    let input = sha256(&[
-        b"PSF-BOUNDARY-RESIDENT-INPUT-v1",
-        &context,
-        &manifest(before, &[])?,
-    ]);
+    let input = input_digest(ctx, id, action, c, before)?;
     let output = sha256(&[
         b"PSF-BOUNDARY-RESIDENT-OUTPUT-v1",
         &context,
@@ -1218,6 +1239,10 @@ mod tests {
         let command = f.id.host.to_bytes();
         let c = f.context(&command);
         let first = Record::decode(&f.ctx, &f.prepare().unwrap().original).unwrap();
+        assert_eq!(
+            input_digest(&f.ctx, f.id, f.action, &c, &f.snapshots(&f.before)).unwrap(),
+            first.receipt.input
+        );
         let later = prepare(
             &f.ctx,
             f.id,

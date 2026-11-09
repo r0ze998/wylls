@@ -23,12 +23,35 @@ impl WideFindex {
         world: WorldId,
         segment_bytes: u64,
     ) -> Result<Self, IngestError> {
+        Self::open_scoped(dir, program, world, segment_bytes, None)
+    }
+    /// Scoped resident observations only, not keeper authorization/history.
+    pub fn open_with_resident(
+        dir: &Path,
+        program: Address,
+        world: WorldId,
+        segment_bytes: u64,
+        ctx: frontier_abi::addr::AddrCtx,
+    ) -> Result<Self, IngestError> {
+        Self::open_scoped(dir, program, world, segment_bytes, Some(ctx))
+    }
+    fn open_scoped(
+        dir: &Path,
+        program: Address,
+        world: WorldId,
+        segment_bytes: u64,
+        resident: Option<frontier_abi::addr::AddrCtx>,
+    ) -> Result<Self, IngestError> {
         let st = IngestError::Store;
         std::fs::create_dir_all(dir).map_err(|e| st(e.to_string()))?;
         let archive =
             Archive::open(&dir.join("archive"), segment_bytes).map_err(|e| st(e.to_string()))?;
-        let mut index =
-            WideIndex::open(&dir.join("wide-index.sqlite"), program, world).map_err(st)?;
+        let path = dir.join("wide-index.sqlite");
+        let mut index = match resident {
+            Some(ctx) => WideIndex::open_with_resident(&path, program, world, ctx),
+            None => WideIndex::open(&path, program, world),
+        }
+        .map_err(st)?;
         let status = index.status().map_err(st)?;
         if let Some(block) = status.blocked {
             return Err(st(format!("wide index blocked: {block}; retain archive and explicitly rebuild with a compatible reader")));

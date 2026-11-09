@@ -235,7 +235,18 @@ export function mountWideMode({ herald, canvas, doc = canvas?.ownerDocument ?? g
         details.textContent = `${L`守備兵を ${String(r.garrison.delta)} 人追加予約（観測）`} / ${L`村の場所 ${String(r.holding.site)} · 世代 ${String(r.holding.generation)}`} / ${L`時刻`} ${String(r.garrison.nowTs)}`;
         li.append(details);
       }
-      if (r.host) {
+      if (r.resident) {
+        const x = r.resident, details = doc.createElement('p');
+        details.textContent = `${x.action === 'dissolve' ? L`元の村への帰還を予約（観測）` : L`元の村へ帰還（観測）`} / ${L`出身`} ${formatCoord(r.host.p, r.host.q)} / ${L`村の場所 ${String(r.host.site)} · 世代 ${String(r.host.generation)}`} / ${L`兵団番号`} ${String(r.host.hostSequence)} / ${L`鐘`} ${String(x.bell)}`;
+        li.append(details);
+        const outcome = doc.createElement('p');
+        outcome.textContent = `${L`兵数（1/1000人単位）`} ${String(x.troopsMilli)} / ${L`帰還予備兵（記録値）`} ${String(x.creditedUnits)} / ${x.family === 'original' ? 'PS2' : 'PSW1'} / ${r.residentPairEvent === null ? L`対応する記録はこのページにありません。` : L`このページ内で対応する記録：${String(r.residentPairEvent)}`}`;
+        li.append(outcome);
+        const caution = doc.createElement('p');
+        caution.textContent = L`元の村を出た兵団の記録です。対応関係は履歴の真正性・現在の残高を証明しません。公開の実行経路は未接続で、署名・送信は行いません。`;
+        li.append(caution);
+      }
+      if (r.host && !r.resident) {
         // Holding-only Garrison receipts never enter host action review.
         const review = doc.createElement('button'); review.type = 'button';
         review.textContent = L`完全な識別子で操作を確認`;

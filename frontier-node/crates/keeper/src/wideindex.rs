@@ -78,6 +78,13 @@
 //! and operation pairing exist. They block the whole batch before staging.
 //! Citizen-only PSWC sidecars likewise block the transaction adapter; neither
 //! is silently treated as an old Resolve, a legacy transaction or a no-op.
+//!
+//! `WideObserver::new_with_resident` separately accepts one paired original-host
+//! resident operation (PS2/149 + PSW1/26) per transaction. It advances only the
+//! shared wide Province chain, retains one latest read selection, and reports
+//! pairing without authenticating original history or completion. Mixed
+//! receipt/ordinary batches and older unsupported expedition records still
+//! block. It never casts the resident receipt into an ordinary wide host event.
 
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -1928,6 +1935,9 @@ pub enum TxObservation {
     /// Committed `PSW1` bodies attributed to the program, frame-checked
     /// (failed CPI subtrees removed), as a batch at the feed sequence.
     Wide(WideBatch),
+    /// Dedicated, scoped original-host resident receipt pair. Never an
+    /// ordinary wide lifecycle event or a source-authentication claim.
+    Resident(WideBatch),
 }
 
 /// Frame-checked decoding of one feed transaction (`fclient::typed_log`,
@@ -1938,8 +1948,22 @@ pub fn observe_tx(
     tx: &fclient::ports::TxRecord,
     program: &Address,
 ) -> Result<TxObservation, fclient::typed_log::DecodeError> {
-    use fclient::typed_log::{decode_transaction, ProgramRecord, TransactionRecords};
-    match decode_transaction(tx, program)? {
+    observe_tx_inner(tx, program, None)
+}
+
+fn observe_tx_inner(
+    tx: &fclient::ports::TxRecord,
+    program: &Address,
+    resident_ctx: Option<&AddrCtx>,
+) -> Result<TxObservation, fclient::typed_log::DecodeError> {
+    use fclient::typed_log::{
+        decode_transaction, decode_transaction_with_resident, ProgramRecord, TransactionRecords,
+    };
+    let decoded = match resident_ctx {
+        Some(ctx) => decode_transaction_with_resident(tx, program, ctx),
+        None => decode_transaction(tx, program),
+    }?;
+    match decoded {
         TransactionRecords::RolledBack => Ok(TxObservation::RolledBack),
         TransactionRecords::Committed(records) => {
             if records
@@ -1950,12 +1974,43 @@ pub fn observe_tx(
                 // bodies. A Citizen sidecar is not a legacy/no-op record.
                 return Err(fclient::typed_log::DecodeError::UnsupportedSidecar);
             }
+            if records.iter().any(|r| {
+                matches!(
+                    r,
+                    ProgramRecord::ResidentOriginal { .. } | ProgramRecord::ResidentWide { .. }
+                )
+            }) {
+                // This bounded observer supports one receipt-only operation.
+                // Mixed ordinary events are refused atomically, never skipped
+                // while a receipt advances a Province's shared chain.
+                if resident_ctx.is_none()
+                    || records.len() != 2
+                    || records.iter().any(|r| {
+                        !matches!(
+                            r,
+                            ProgramRecord::ResidentOriginal { .. }
+                                | ProgramRecord::ResidentWide { .. }
+                        )
+                    })
+                {
+                    return Err(fclient::typed_log::DecodeError::UnsupportedResident);
+                }
+                return Ok(TxObservation::Resident(WideBatch {
+                    seq: tx.seq,
+                    slot: tx.slot,
+                    signature: tx.signature.to_string(),
+                    bodies: records.into_iter().map(|r| r.body().to_vec()).collect(),
+                }));
+            }
             let bodies: Vec<Vec<u8>> = records
                 .into_iter()
                 .filter_map(|r| match r {
                     ProgramRecord::Psw1 { body } => Some(body),
                     ProgramRecord::Ps2 { .. } => None,
                     ProgramRecord::Pswc { .. } => unreachable!("sidecar refused above"),
+                    ProgramRecord::ResidentOriginal { .. } | ProgramRecord::ResidentWide { .. } => {
+                        unreachable!("resident receipt refused above")
+                    }
                 })
                 .collect();
             if bodies.is_empty() {
@@ -2015,6 +2070,15 @@ pub struct WideObserver {
     pub chain_anchored_unverified: u64,
     /// Links verified against the previous observed head.
     pub chain_verified: u64,
+    /// Explicit additive mode. Generic `new` remains fail-closed.
+    resident_ctx: Option<AddrCtx>,
+    resident_txs: u64,
+    /// At most one latest observation, not an unbounded history or duty hint.
+    last_resident: Option<(
+        u64,
+        u64,
+        frontier_abi::world_index::expedition_resident_event::Record,
+    )>,
 }
 
 /// Chain keys the observer keeps; one more blocks it (a bound, never a
@@ -2061,7 +2125,135 @@ impl WideObserver {
             chain_anchored_from_genesis: 0,
             chain_anchored_unverified: 0,
             chain_verified: 0,
+            resident_ctx: None,
+            resident_txs: 0,
+            last_resident: None,
         }
+    }
+
+    /// Opt in to dedicated PS2/149 + PSW1/26 pair observation scoped to this
+    /// configured Season. Public guards, discovery semantics and sends stay
+    /// unchanged. Original-chain history is explicitly not verified here.
+    pub fn new_with_resident(scope: Scope, limits: Limits) -> Result<Self, String> {
+        let ctx = AddrCtx {
+            season: scope.season.to_bytes(),
+            program: scope.program.to_bytes(),
+        };
+        if WorldId::derive_legacy_season(&ctx.season, &ctx.program).map_err(|e| format!("{e:?}"))?
+            != scope.world
+        {
+            return Err("resident observer scope mismatch".into());
+        }
+        let mut out = Self::new(scope, limits);
+        out.resident_ctx = Some(ctx);
+        Ok(out)
+    }
+
+    /// Latest paired receipt's exact identity as a read selection only. The
+    /// account planner must reread it; Return receipt != proven completion.
+    pub fn resident_selection(&self) -> Option<crate::wideexpedition::Selection> {
+        let (_, _, r) = self.last_resident.as_ref()?;
+        Some(crate::wideexpedition::Selection {
+            host: r.identity.host,
+            standing: r.identity.standing,
+            original_owner: Address::new_from_array(r.identity.original_owner),
+        })
+    }
+
+    fn apply_resident(&mut self, batch: &WideBatch) -> Result<(), String> {
+        use frontier_abi::world_index::expedition_resident_event::Record;
+        // Dedicated records have a 405-byte ceiling, larger than generic
+        // WideRecord's MAX_BODY (277). Keep that generic limit unchanged;
+        // count and aggregate limits still apply to this distinct format.
+        let cap = frontier_abi::world_index::expedition_resident_event::MAX_RECORD_LEN;
+        if batch.bodies.len() != 2
+            || batch.bodies.len() > self.model.limits.max_bodies_per_batch
+            || batch.bodies.iter().any(|body| body.len() > cap)
+            || batch.bodies.iter().map(Vec::len).sum::<usize>() > self.model.limits.max_batch_bytes
+        {
+            return Err("resident receipt input cap".into());
+        }
+        let ctx = self
+            .resident_ctx
+            .as_ref()
+            .ok_or("resident observation not enabled")?;
+        if batch.bodies.len() != 2 {
+            return Err("one resident receipt pair required".into());
+        }
+        let left = Record::decode(ctx, &batch.bodies[0]).map_err(|e| format!("resident: {e:?}"))?;
+        let right =
+            Record::decode(ctx, &batch.bodies[1]).map_err(|e| format!("resident: {e:?}"))?;
+        left.pair(&right)
+            .map_err(|e| format!("resident pair: {e:?}"))?;
+        let r = if left.wide_link.is_some() {
+            left
+        } else {
+            right
+        };
+        let link = r.wide_link.ok_or("resident wide link required")?;
+        if r.identity.standing.world() != self.model.scope.world {
+            return Err("resident world mismatch".into());
+        }
+        let key = (
+            WideEntity::Province as u8,
+            r.identity.standing.to_bytes().to_vec(),
+        );
+        let prior = self.chains.get(&key).copied();
+        if prior.is_none() && self.chains.len() >= MAX_CHAIN_KEYS {
+            return Err("resident chain cap".into());
+        }
+        let from_genesis = match prior {
+            Some(h) => {
+                if h.terminal {
+                    return Err("resident chain continues after ProvinceClosed".into());
+                }
+                r.verify_previous(
+                    ctx,
+                    &[],
+                    Some(frontier_abi::world_index::event::WideLink {
+                        entity: WideEntity::Province,
+                        seq: h.seq,
+                        head: h.head,
+                    }),
+                )
+                .map_err(|e| format!("resident chain mismatch: {e:?}"))?;
+                h.from_genesis
+            }
+            None if link.seq == 1 => {
+                r.verify_previous(
+                    ctx,
+                    &[],
+                    Some(frontier_abi::world_index::event::WideLink {
+                        entity: WideEntity::Province,
+                        seq: 0,
+                        head: [0; 32],
+                    }),
+                )
+                .map_err(|e| format!("resident genesis chain mismatch: {e:?}"))?;
+                true
+            }
+            None => false,
+        };
+        // All validation above, all mutations below. Do not create a fake
+        // WideDiscovery resident, holding, march, arrival or return event.
+        self.chains.insert(
+            key,
+            ChainHead {
+                seq: link.seq,
+                head: link.head,
+                slot: batch.slot,
+                terminal: false,
+                from_genesis,
+            },
+        );
+        match prior {
+            Some(_) => self.chain_verified += 1,
+            None if from_genesis => self.chain_anchored_from_genesis += 1,
+            None => self.chain_anchored_unverified += 1,
+        }
+        self.resident_txs += 1;
+        self.last_resident = Some((batch.seq, batch.slot, r));
+        Ok(())
     }
 
     /// The observed chain head of a province or holding of this world, by
@@ -2297,9 +2489,18 @@ impl WideObserver {
             {
                 self.gaps += 1;
             }
-            match observe_tx(tx, program) {
+            match observe_tx_inner(tx, program, self.resident_ctx.as_ref()) {
                 Ok(TxObservation::Legacy) => self.legacy_txs += 1,
                 Ok(TxObservation::RolledBack) => self.rolled_back_txs += 1,
+                Ok(TxObservation::Resident(batch)) => match self.apply_resident(&batch) {
+                    Ok(()) => applied += 1,
+                    Err(reason) => self.model.block_external(
+                        tx.seq,
+                        tx.slot,
+                        &tx.signature.to_string(),
+                        reason,
+                    ),
+                },
                 // The model's input caps first — before any chain work, so
                 // an oversized batch costs no further decode and moves
                 // nothing — then the chain links (the typed index's rule),
@@ -2378,6 +2579,19 @@ impl WideObserver {
             "rolled_back_txs": self.rolled_back_txs,
             "replayed_txs": self.replayed_txs,
             "decode_failures": self.decode_failures,
+            "resident_receipts": {
+                "enabled": self.resident_ctx.is_some(), "transactions": self.resident_txs,
+                "max_record_bytes": frontier_abi::world_index::expedition_resident_event::MAX_RECORD_LEN,
+                "paired_only": true, "original_history_verified": false,
+                "source_authenticated": false, "completion_proven": false,
+                "dispatch_available": false, "automatic_writes": false,
+                "latest": self.last_resident.as_ref().map(|(seq, slot, r)| json!({
+                    "seq": seq.to_string(), "slot": slot.to_string(), "action": format!("{:?}", r.action),
+                    "host": hex::encode(r.identity.host.to_bytes()), "original_owner": Address::new_from_array(r.identity.original_owner).to_string(),
+                    "original_holding": Address::new_from_array(r.identity.holding).to_string(), "wide_standing": Address::new_from_array(r.identity.province).to_string(),
+                    "operation_id": hex::encode(r.receipt.operation_id), "credited_units": r.outcomes.credited_units.to_string(),
+                })),
+            },
             "gaps": self.gaps,
             "chain": {
                 "keys": self.chains.len(),

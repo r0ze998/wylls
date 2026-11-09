@@ -4,6 +4,7 @@
 
 use base64::Engine;
 use frontier_abi::world_index::event::{conquest::SidecarClose, EventError, WideRecord};
+use frontier_abi::{addr::AddrCtx, world_index::expedition_resident_event as resident};
 use solana_address::Address;
 
 use crate::{log::Record, ports::TxRecord};
@@ -22,12 +23,21 @@ pub enum DecodeError {
     Pswc(EventError),
     /// The caller cannot semantically consume Citizen sidecar receipts.
     UnsupportedSidecar,
+    UnsupportedResident,
+    Resident(resident::Error),
+    ResidentPair,
 }
 
 /// Validated bytes retained with a distinct format tag. No short legacy key
 /// or host alias is substituted for a wide identity.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ProgramRecord {
+    ResidentOriginal {
+        body: Vec<u8>,
+    },
+    ResidentWide {
+        body: Vec<u8>,
+    },
     Ps2 {
         body: Vec<u8>,
         record: Record,
@@ -44,13 +54,17 @@ pub enum ProgramRecord {
 impl ProgramRecord {
     pub fn body(&self) -> &[u8] {
         match self {
-            Self::Ps2 { body, .. } | Self::Psw1 { body } | Self::Pswc { body } => body,
+            Self::Ps2 { body, .. }
+            | Self::Psw1 { body }
+            | Self::Pswc { body }
+            | Self::ResidentOriginal { body }
+            | Self::ResidentWide { body } => body,
         }
     }
     pub fn format(&self) -> &'static str {
         match self {
-            Self::Ps2 { .. } => "PS2",
-            Self::Psw1 { .. } => "PSW1",
+            Self::Ps2 { .. } | Self::ResidentOriginal { .. } => "PS2",
+            Self::Psw1 { .. } | Self::ResidentWide { .. } => "PSW1",
             Self::Pswc { .. } => "PSWC",
         }
     }
@@ -58,6 +72,9 @@ impl ProgramRecord {
     pub fn wide(&self) -> Result<Option<WideRecord<'_>>, DecodeError> {
         match self {
             Self::Ps2 { .. } => Ok(None),
+            Self::ResidentOriginal { .. } | Self::ResidentWide { .. } => {
+                Err(DecodeError::UnsupportedResident)
+            }
             Self::Pswc { body } => SidecarClose::decode(body)
                 .map(|_| None)
                 .map_err(DecodeError::Pswc),
@@ -65,6 +82,20 @@ impl ProgramRecord {
                 .map(Some)
                 .map_err(DecodeError::Psw1),
         }
+    }
+    /// Dedicated canonical decoder; never substitutes generic legacy semantics.
+    pub fn resident(&self, ctx: &AddrCtx) -> Result<Option<resident::Record>, DecodeError> {
+        let expected = match self {
+            Self::ResidentOriginal { .. } => resident::ORIGINAL_KIND,
+            Self::ResidentWide { .. } => resident::WIDE_KIND,
+            _ => return Ok(None),
+        };
+        if self.body().get(1) != Some(&expected) {
+            return Err(DecodeError::Resident(resident::Error::Shape));
+        }
+        resident::Record::decode(ctx, self.body())
+            .map(Some)
+            .map_err(DecodeError::Resident)
     }
     pub fn sidecar(&self) -> Result<Option<SidecarClose>, DecodeError> {
         match self {
@@ -84,7 +115,7 @@ pub enum TransactionRecords {
     RolledBack,
 }
 
-fn decode_data(data: &str) -> Result<ProgramRecord, DecodeError> {
+fn decode_data(data: &str, ctx: Option<&AddrCtx>) -> Result<ProgramRecord, DecodeError> {
     let parts: Vec<_> = data.split_whitespace().collect();
     if parts.len() != 2 {
         return Err(DecodeError::DataShape);
@@ -92,6 +123,18 @@ fn decode_data(data: &str) -> Result<ProgramRecord, DecodeError> {
     let b64 = base64::engine::general_purpose::STANDARD;
     let tag = b64.decode(parts[0]).map_err(|_| DecodeError::Base64)?;
     let body = b64.decode(parts[1]).map_err(|_| DecodeError::Base64)?;
+    if (tag == b"PS2" && body.get(1) == Some(&resident::ORIGINAL_KIND))
+        || (tag == b"PSW1" && body.get(1) == Some(&resident::WIDE_KIND))
+    {
+        let ctx = ctx.ok_or(DecodeError::UnsupportedResident)?;
+        let record = match (tag.as_slice(), body.get(1).copied()) {
+            (b"PS2", Some(resident::ORIGINAL_KIND)) => ProgramRecord::ResidentOriginal { body },
+            (b"PSW1", Some(resident::WIDE_KIND)) => ProgramRecord::ResidentWide { body },
+            _ => return Err(DecodeError::Resident(resident::Error::Shape)),
+        };
+        record.resident(ctx)?;
+        return Ok(record);
+    }
     match tag.as_slice() {
         b"PS2" => {
             let record = Record::decode_v2(&body).map_err(DecodeError::Ps2)?;
@@ -117,6 +160,26 @@ fn decode_data(data: &str) -> Result<ProgramRecord, DecodeError> {
 pub fn decode_transaction(
     tx: &TxRecord,
     program: &Address,
+) -> Result<TransactionRecords, DecodeError> {
+    decode_transaction_inner(tx, program, None)
+}
+
+/// Explicit scoped opt-in. Every resident operation must contain exactly one
+/// canonical original part and one matching wide part in the same committed tx.
+pub fn decode_transaction_with_resident(
+    tx: &TxRecord,
+    program: &Address,
+    ctx: &AddrCtx,
+) -> Result<TransactionRecords, DecodeError> {
+    if ctx.program != program.to_bytes() {
+        return Err(DecodeError::Resident(resident::Error::Identity));
+    }
+    decode_transaction_inner(tx, program, Some(ctx))
+}
+fn decode_transaction_inner(
+    tx: &TxRecord,
+    program: &Address,
+    ctx: Option<&AddrCtx>,
 ) -> Result<TransactionRecords, DecodeError> {
     if tx.err.is_some() {
         return Ok(TransactionRecords::RolledBack);
@@ -182,9 +245,29 @@ pub fn decode_transaction(
     if !saw_program {
         return Err(DecodeError::MissingProgramFrame);
     }
-    Ok(TransactionRecords::Committed(
-        data.into_iter()
-            .map(decode_data)
-            .collect::<Result<_, _>>()?,
-    ))
+    let records = data
+        .into_iter()
+        .map(|d| decode_data(d, ctx))
+        .collect::<Result<Vec<_>, _>>()?;
+    if let Some(ctx) = ctx {
+        let mut pairs = std::collections::BTreeMap::<[u8; 32], Vec<resident::Record>>::new();
+        for record in &records {
+            if let Some(r) = record.resident(ctx)? {
+                let parts = pairs.entry(r.receipt.operation_id).or_default();
+                if parts.len() == 2 {
+                    return Err(DecodeError::ResidentPair);
+                }
+                parts.push(r);
+            }
+        }
+        for parts in pairs.values() {
+            if parts.len() != 2 {
+                return Err(DecodeError::ResidentPair);
+            }
+            parts[0]
+                .pair(&parts[1])
+                .map_err(|_| DecodeError::ResidentPair)?;
+        }
+    }
+    Ok(TransactionRecords::Committed(records))
 }

@@ -5,12 +5,13 @@
 //! PSWC is retained by its original tag/body, scoped by the public season/program
 //! world digest, without any invented Province, Holding, host or chain link.
 
+use frontier_abi::addr::AddrCtx;
 use sha2::{Digest, Sha256};
 use std::path::Path;
 
 use fclient::{
     ports::TxRecord,
-    typed_log::{decode_transaction, TransactionRecords},
+    typed_log::{decode_transaction, decode_transaction_with_resident, TransactionRecords},
 };
 use frontier_abi::world_index::{
     event::{self, WideEntity, WideKind, WideTarget},
@@ -19,7 +20,7 @@ use frontier_abi::world_index::{
 use rusqlite::{params, Connection, OptionalExtension};
 use solana_address::Address;
 
-const SCHEMA: i64 = 2;
+const SCHEMA: i64 = 3;
 pub const MAX_PAGE: usize = 256;
 
 fn sql<T>(r: rusqlite::Result<T>) -> Result<T, String> {
@@ -83,17 +84,41 @@ pub struct WideIndex {
     conn: Connection,
     program: Address,
     world: WorldId,
+    resident_ctx: Option<AddrCtx>,
 }
 
 impl WideIndex {
     pub fn open(path: &Path, program: Address, world: WorldId) -> Result<Self, String> {
+        Self::open_scoped(path, program, world, None)
+    }
+    pub fn open_with_resident(
+        path: &Path,
+        program: Address,
+        world: WorldId,
+        ctx: AddrCtx,
+    ) -> Result<Self, String> {
+        if ctx.program != program.to_bytes()
+            || WorldId::derive_legacy_season(&ctx.season, &ctx.program)
+                .map_err(|e| format!("{e:?}"))?
+                != world
+        {
+            return Err("resident scope mismatch".into());
+        }
+        Self::open_scoped(path, program, world, Some(ctx))
+    }
+    fn open_scoped(
+        path: &Path,
+        program: Address,
+        world: WorldId,
+        resident_ctx: Option<AddrCtx>,
+    ) -> Result<Self, String> {
         let conn = sql(Connection::open(path))?;
         sql(conn.execute_batch(
             "PRAGMA foreign_keys=ON;
           CREATE TABLE IF NOT EXISTS wide_meta (
             id INTEGER PRIMARY KEY CHECK(id=1), schema INTEGER NOT NULL,
             program BLOB NOT NULL, world BLOB NOT NULL,
-            last_seq INTEGER NOT NULL, caught_up INTEGER NOT NULL, block TEXT, snapshot BLOB NOT NULL);
+            last_seq INTEGER NOT NULL, caught_up INTEGER NOT NULL, block TEXT, snapshot BLOB NOT NULL, resident_season BLOB);
           CREATE TABLE IF NOT EXISTS wide_tx (
             seq INTEGER PRIMARY KEY, slot BLOB NOT NULL, signature BLOB UNIQUE NOT NULL,
             rolled_back INTEGER NOT NULL);
@@ -112,16 +137,19 @@ impl WideIndex {
             PRIMARY KEY(archive_seq,ordinal,entity),
             FOREIGN KEY(archive_seq,ordinal) REFERENCES wide_event(archive_seq,ordinal));",
         ))?;
-        let meta: Option<(i64, Vec<u8>, Vec<u8>)> = sql(conn
+        let meta: Option<(i64, Vec<u8>, Vec<u8>, Option<Vec<u8>>)> = sql(conn
             .query_row(
-                "SELECT schema,program,world FROM wide_meta WHERE id=1",
+                "SELECT schema,program,world,resident_season FROM wide_meta WHERE id=1",
                 [],
-                |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+                |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)),
             )
             .optional())?;
         match meta {
-            Some((schema, p, w))
-                if schema == SCHEMA && p == program.to_bytes() && w == world.as_bytes() => {}
+            Some((schema, p, w, season))
+                if schema == SCHEMA
+                    && p == program.to_bytes()
+                    && w == world.as_bytes()
+                    && season == resident_ctx.map(|c| c.season.to_vec()) => {}
             Some(_) => return Err("wide index schema/program/world mismatch".into()),
             None => {
                 let rows: i64 = sql(conn.query_row("SELECT (SELECT COUNT(*) FROM wide_tx)+(SELECT COUNT(*) FROM wide_event)+(SELECT COUNT(*) FROM wide_chain)+(SELECT COUNT(*) FROM wide_link)", [], |r|r.get(0)))?;
@@ -129,11 +157,12 @@ impl WideIndex {
                     return Err("missing wide index identity".into());
                 }
                 sql(conn.execute(
-                    "INSERT INTO wide_meta VALUES(1,?1,?2,?3,0,0,NULL,zeroblob(32))",
+                    "INSERT INTO wide_meta VALUES(1,?1,?2,?3,0,0,NULL,zeroblob(32),?4)",
                     params![
                         SCHEMA,
                         program.to_bytes().as_slice(),
-                        world.as_bytes().as_slice()
+                        world.as_bytes().as_slice(),
+                        resident_ctx.map(|c| c.season.to_vec())
                     ],
                 ))?;
             }
@@ -142,6 +171,7 @@ impl WideIndex {
             conn,
             program,
             world,
+            resident_ctx,
         })
     }
     pub fn status(&self) -> Result<IndexStatus, String> {
@@ -252,8 +282,11 @@ impl WideIndex {
                 return Err("archive slot regression; rollback/reorg not accepted".into());
             }
         }
-        let decoded = decode_transaction(tx, &self.program)
-            .map_err(|e| format!("transaction {}: {e:?}", tx.seq))?;
+        let decoded = match &self.resident_ctx {
+            Some(ctx) => decode_transaction_with_resident(tx, &self.program, ctx),
+            None => decode_transaction(tx, &self.program),
+        }
+        .map_err(|e| format!("transaction {}: {e:?}", tx.seq))?;
         let rolled_back = matches!(decoded, TransactionRecords::RolledBack);
         sql(self.conn.execute(
             "INSERT INTO wide_tx(seq,slot,signature,rolled_back) VALUES(?1,?2,?3,?4)",
@@ -278,7 +311,18 @@ impl WideIndex {
                     }
                 }
                 let ordinal = i64::try_from(ordinal).map_err(|_| "too many records")?;
-                let wide = record.wide().map_err(|e| format!("wide decode: {e:?}"))?;
+                let resident = self
+                    .resident_ctx
+                    .as_ref()
+                    .map(|ctx| record.resident(ctx))
+                    .transpose()
+                    .map_err(|e| format!("resident decode: {e:?}"))?
+                    .flatten();
+                let wide = if resident.is_some() {
+                    None
+                } else {
+                    record.wide().map_err(|e| format!("wide decode: {e:?}"))?
+                };
                 let (province, holding, host) = if let Some(w) = &wide {
                     let p = w.province_of().ok_or("wide province missing")?;
                     if p.world() != self.world {
@@ -289,10 +333,56 @@ impl WideIndex {
                         w.holding_of().map(|h| h.to_bytes().to_vec()),
                         w.host().map(|h| h.to_bytes().to_vec()),
                     )
+                } else if let Some(r) = &resident {
+                    if r.identity.standing.world() != self.world {
+                        return Err("resident world mismatch".into());
+                    }
+                    (
+                        Some(r.identity.standing.to_bytes().to_vec()),
+                        None,
+                        Some(r.identity.host.to_bytes().to_vec()),
+                    )
                 } else {
                     (None, None, None)
                 };
                 sql(self.conn.execute("INSERT INTO wide_event(archive_seq,ordinal,format,body,province,holding,host) VALUES(?1,?2,?3,?4,?5,?6,?7)",params![seq_i64(tx.seq)?,ordinal,record.format(),record.body(),province,holding,host]))?;
+                if let Some(r) = resident {
+                    if let Some(link) = r.wide_link {
+                        let full_key = r.identity.standing.to_bytes().to_vec();
+                        let old = self.chain_raw(WideEntity::Province, &full_key)?.unwrap_or(
+                            ChainState {
+                                seq: 0,
+                                head: [0; 32],
+                                terminal: false,
+                            },
+                        );
+                        if old.terminal {
+                            return Err("resident chain continues after ProvinceClosed".into());
+                        }
+                        r.verify_previous(
+                            self.resident_ctx.as_ref().ok_or("resident scope missing")?,
+                            &[],
+                            Some(event::WideLink {
+                                entity: WideEntity::Province,
+                                seq: old.seq,
+                                head: old.head,
+                            }),
+                        )
+                        .map_err(|e| format!("resident chain mismatch: {e:?}"))?;
+                        sql(self.conn.execute("INSERT INTO wide_chain(entity,full_key,seq,head,terminal) VALUES(?1,?2,?3,?4,0) ON CONFLICT(entity,full_key) DO UPDATE SET seq=excluded.seq,head=excluded.head",params![link.entity as u8,full_key,link.seq.to_be_bytes().as_slice(),link.head.as_slice()]))?;
+                        sql(self.conn.execute(
+                            "INSERT INTO wide_link VALUES(?1,?2,?3,?4,?5,?6)",
+                            params![
+                                seq_i64(tx.seq)?,
+                                ordinal,
+                                link.entity as u8,
+                                full_key,
+                                link.seq.to_be_bytes().as_slice(),
+                                link.head.as_slice()
+                            ],
+                        ))?;
+                    }
+                }
                 if let Some(w) = wide {
                     for link in w.links.iter().flatten() {
                         let full_key = match link.entity {
@@ -452,6 +542,7 @@ impl WideReader {
                 conn,
                 program,
                 world,
+                resident_ctx: None,
             },
         })
     }
