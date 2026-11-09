@@ -243,6 +243,18 @@ pub fn dispatch(p: &Pubkey, a: &[AccountInfo], data: &[u8]) -> R<()> {
         C::Gather(x) => gather(p, a, &x),
         C::SettleTransit(x) => settle_transit(p, a, &x),
         C::ClaimDefence(x) => defence_exec::claim_defence(p, a, &x),
+        C::ExpeditionDepart(x) => {
+            if !expedition_exec::EXPEDITION_ENABLED {
+                return Err(FrontierError::NotImplemented.into());
+            }
+            expedition_exec::execute_depart(p, a, &x, &Auth::Wallet)
+        }
+        C::ExpeditionSettleOrigin(x) => {
+            if !expedition_exec::EXPEDITION_ENABLED {
+                return Err(FrontierError::NotImplemented.into());
+            }
+            expedition_exec::execute_origin(p, a, x.transit_slot)
+        }
         C::Reveal(x) => reveal(p, a, &x),
     }
 }
@@ -2740,6 +2752,11 @@ mod economy_exec;
 /// Citizen, holding, province and both receipt chains commit atomically.
 #[path = "wide_garrison_exec.rs"]
 mod garrison_exec;
+
+/// Original legacy departure/Spend and paired origin settlement candidates.
+/// The public gate is unconditionally false; ResidentAct does not admit them.
+#[path = "wide_expedition_exec.rs"]
+mod expedition_exec;
 
 /// Closed until authenticated dispatch, receipts and replay are verified as
 /// one lifecycle. There is deliberately no configuration or argument override.

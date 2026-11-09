@@ -71,6 +71,7 @@ pub mod economy;
 pub mod event;
 pub mod expedition;
 pub mod expedition_bridge;
+pub mod expedition_event;
 pub mod holding;
 pub mod index;
 pub mod key;

@@ -596,6 +596,78 @@ pub const OP_CLOSE_ROSTER: u8 = 1;
 /// Provisional class-N sub-operation, not a stable ABI allocation.
 pub const OP_DISBAND_STRANDED: u8 = 2;
 
+/// Closed original-issued-troop experiment, provisionally reserved 2026-11-09.
+/// Distinct from WideDepart and excluded from ResidentAct admission.
+pub const OP_EXPEDITION_DEPART: u8 = 6;
+pub const OP_EXPEDITION_SETTLE_ORIGIN: u8 = 10;
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ExpeditionDepart {
+    pub host: [u8; HOST_REF_LEN],
+    pub transit_slot: u8,
+    pub arrive_bell: u32,
+    pub tip: u64,
+    pub commit: [u8; 32],
+    pub seal: [u8; WIDE_SEAL_LEN],
+}
+impl ExpeditionDepart {
+    pub const IX: WideIx = WideIx::Depart;
+    pub const OP: u8 = OP_EXPEDITION_DEPART;
+    pub const LEN: usize = ENVELOPE_HEAD + HOST_REF_LEN + 1 + 4 + 8 + 32 + WIDE_SEAL_LEN;
+    pub fn to_bytes(&self) -> [u8; Self::LEN] {
+        let mut b = [0; Self::LEN];
+        head(&mut b, Self::IX.tag(), Self::OP);
+        Writer::new(&mut b[ENVELOPE_HEAD..])
+            .bytes(&self.host)
+            .u8(self.transit_slot)
+            .u32(self.arrive_bell)
+            .u64(self.tip)
+            .bytes(&self.commit)
+            .bytes(&self.seal);
+        b
+    }
+    pub fn decode(d: &[u8]) -> Result<Self, FrontierError> {
+        let bad = FrontierError::BadData;
+        let mut c = envelope(d, Self::IX.tag(), Self::OP, Self::LEN)?;
+        let value = Self {
+            host: c.arr().ok_or(bad)?,
+            transit_slot: c.u8().ok_or(bad)?,
+            arrive_bell: c.u32().ok_or(bad)?,
+            tip: c.u64().ok_or(bad)?,
+            commit: c.arr().ok_or(bad)?,
+            seal: c.arr().ok_or(bad)?,
+        };
+        if value.transit_slot >= 4 {
+            return Err(bad);
+        }
+        Ok(value)
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ExpeditionSettleOrigin {
+    pub transit_slot: u8,
+}
+impl ExpeditionSettleOrigin {
+    pub const IX: WideIx = WideIx::SettleTicket;
+    pub const OP: u8 = OP_EXPEDITION_SETTLE_ORIGIN;
+    pub const LEN: usize = ENVELOPE_HEAD + 1;
+    pub fn to_bytes(&self) -> [u8; Self::LEN] {
+        let mut b = [0; Self::LEN];
+        head(&mut b, Self::IX.tag(), Self::OP);
+        b[ENVELOPE_HEAD] = self.transit_slot;
+        b
+    }
+    pub fn decode(d: &[u8]) -> Result<Self, FrontierError> {
+        let mut c = envelope(d, Self::IX.tag(), Self::OP, Self::LEN)?;
+        let transit_slot = c.u8().ok_or(FrontierError::BadData)?;
+        if transit_slot >= 4 {
+            return Err(FrontierError::BadData);
+        }
+        Ok(Self { transit_slot })
+    }
+}
+
 // Provisional Free City lifecycle envelopes. No external ABI allocation or
 // activation: runtime acceptance remains behind the full lifecycle gate.
 pub const OP_DECLARE_SIEGE: u8 = 5;
@@ -1140,6 +1212,8 @@ impl DisbandStranded {
 /// account table and the act's whitelist are read off the command.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum WideCommand<'a> {
+    ExpeditionDepart(ExpeditionDepart),
+    ExpeditionSettleOrigin(ExpeditionSettleOrigin),
     RequestRingSeed(RequestRingSeed),
     ConsumeRingSeed(ConsumeRingSeed),
     OpenProvince(OpenProvince),
@@ -1205,6 +1279,12 @@ impl<'a> WideCommand<'a> {
             return Err(bad);
         }
         match (ix, d[3]) {
+            (WideIx::Depart, OP_EXPEDITION_DEPART) => {
+                ExpeditionDepart::decode(d).map(WideCommand::ExpeditionDepart)
+            }
+            (WideIx::SettleTicket, OP_EXPEDITION_SETTLE_ORIGIN) => {
+                ExpeditionSettleOrigin::decode(d).map(WideCommand::ExpeditionSettleOrigin)
+            }
             (WideIx::Depart, OP_DECLARE_SIEGE) => {
                 DeclareSiege::decode(d).map(WideCommand::DeclareSiege)
             }
@@ -1252,6 +1332,8 @@ impl<'a> WideCommand<'a> {
     /// The tag the command is carried under.
     pub const fn ix(&self) -> WideIx {
         match self {
+            WideCommand::ExpeditionDepart(_) => WideIx::Depart,
+            WideCommand::ExpeditionSettleOrigin(_) => WideIx::SettleTicket,
             WideCommand::DeclareSiege(_) => WideIx::Depart,
             WideCommand::SettleSiege(_) => WideIx::Close,
             WideCommand::SettleCapture(_) => WideIx::SettleTicket,
@@ -1286,6 +1368,8 @@ impl<'a> WideCommand<'a> {
 
     pub const fn name(&self) -> &'static str {
         match self {
+            WideCommand::ExpeditionDepart(_) => "ExpeditionDepart",
+            WideCommand::ExpeditionSettleOrigin(_) => "ExpeditionSettleOrigin",
             WideCommand::DeclareSiege(_) => "WideDeclareSiege",
             WideCommand::SettleSiege(_) => "WideSettleSiege",
             WideCommand::SettleCapture(_) => "WideSettleCapture",
@@ -1329,6 +1413,7 @@ impl<'a> WideCommand<'a> {
         matches!(
             self,
             WideCommand::SettleDeparture(_)
+                | WideCommand::ExpeditionSettleOrigin(_)
                 | WideCommand::Gather(_)
                 | WideCommand::SettleTransit(_)
                 | WideCommand::Reveal(_)
@@ -1356,6 +1441,8 @@ impl<'a> WideCommand<'a> {
     /// for walls and the tier-up).
     pub const fn accounts(&self) -> &'static [Group] {
         match self {
+            WideCommand::ExpeditionDepart(_) => EXPEDITION_DEPART,
+            WideCommand::ExpeditionSettleOrigin(_) => EXPEDITION_SETTLE_ORIGIN,
             WideCommand::DeclareSiege(_) => DECLARE_SIEGE,
             WideCommand::SettleSiege(_) => SETTLE_SIEGE,
             WideCommand::SettleCapture(_) => SETTLE_CAPTURE,
@@ -1578,6 +1665,39 @@ const fn opt(specs: &'static [Spec]) -> Group {
 /// owner, size, magic, season and address itself, and refuses a writable
 /// flag on a read-only wide position.
 const WIDE: Acc = Acc::Any;
+
+/// Original legacy accounts, selected external bridge only. Embedded slots
+/// remain the sole occupancy/escrow authority. Runtime authenticates identity.
+pub const EXPEDITION_DEPART: &[Group] = &[one(&[
+    s("actor", Acc::Wallet, true, Wr::R),
+    s("payer", Acc::Wallet, true, Wr::W),
+    s("season", Acc::Kind(K::Season), false, Wr::R),
+    s("citizen", Acc::Kind(K::Citizen), false, Wr::W),
+    s("holding", Acc::Kind(K::Holding), false, Wr::W),
+    s("province", Acc::Kind(K::Province), false, Wr::W),
+    s("system", Acc::System, false, Wr::R),
+    // May alias the writable standing Province, as in the legacy prologue.
+    s(
+        "holding_province",
+        Acc::Kind(K::Province),
+        false,
+        Wr::Either,
+    ),
+    s("transit", WIDE, false, Wr::W),
+])];
+pub const EXPEDITION_SETTLE_ORIGIN: &[Group] = &[one(&[
+    s("payer", Acc::Wallet, true, Wr::W),
+    s("season", Acc::Kind(K::Season), false, Wr::R),
+    s("origin_province", Acc::Kind(K::Province), false, Wr::W),
+    s("holding", Acc::Kind(K::Holding), false, Wr::W),
+    s(
+        "holding_province",
+        Acc::Kind(K::Province),
+        false,
+        Wr::Either,
+    ),
+    s("transit", WIDE, false, Wr::W),
+])];
 
 /// `[payer s,w] [season r] [frontier r] [previous r] [wide_ringseed w]
 /// [pfund × 6 r] [system]`: the deployed OpenRing list with the previous
