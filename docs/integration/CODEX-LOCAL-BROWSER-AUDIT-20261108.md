@@ -139,3 +139,12 @@ requires fresh static review before execution. No broad test script, guard
 self-test, recorder WIP, chain transaction or CI job is authorized by this
 verification record. Zero guard counts are runtime evidence for the audited
 path, not proof about every cryptographic operation in Chromium internals.
+
+## Subsequent fixture integration
+
+`CODEX-KEEP-INTEGRATION-20261109.md` records the later KEEP golden integration,
+the real desktop/phone keep inspector checks, and the same-turn arrival
+assertion. It also records the unresolved Rust compile-time audit separately
+from the passing Node/browser checks. The same-turn assertion changes Date
+by 350 seconds without advancing timers and verifies the actual ChainClock
+is still in turn zero; it does not permit crossing into an auto-nudge turn.

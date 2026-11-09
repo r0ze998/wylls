@@ -67,7 +67,7 @@ const snapshot = page => page.evaluate(async () => {
   return { who: s?.kind === 'host' ? String(s.host.id) : s?.kind, selected: FS.selected, note: FS.mapNote?.text,
     compose: FS.compose ? { dest: FS.compose.dest, dirs: FS.compose.route?.dirs, secs: FS.compose.route?.secs, error: FS.compose.routeError, bell: FS.compose.arriveBell } : null,
     hover: hover ? { key: hover.key, hexes: hover.hexes, bell: hover.arriveBell } : null,
-    structures: FS.s1?.structures?.structures, nowBell: FS.nowBell, session: !!FS.session, kernelError: FS.kernelError };
+    structures: FS.s1?.structures?.structures, nowBell: FS.nowBell, chainBell: FS.clock ? Math.floor((FS.chain.now()-FS.clock.genesisTs)/600) : null, session: !!FS.session, kernelError: FS.kernelError };
 });
 async function point(page, at) {
   return page.evaluate(async at => {
@@ -152,9 +152,55 @@ for (const vp of [{width:1440,height:900,name:'desktop'}, {width:390,height:844,
         assert.equal(perf.extraPlans,0,'stationary redraws reuse geometry');
         console.log(JSON.stringify({viewport:vp.name,performance:perf}));
         await writeFile(`${outDir}/${vp.name}-performance.json`,JSON.stringify(perf,null,2));
+        // Advance only the wall-clock Date, not timers or a turn boundary.
+        // ChainClock's audited rate is one and the fixture starts 102 seconds
+        // into turn zero, so +350 stays in the same turn (no auto-nudge path).
+        const plansBeforeClock=await page.evaluate(async()=>{
+          const {FS}=await import('/frontier/fstate.mjs');
+          if(FS.chain.rate!==1) throw new Error('clock test requires the audited one-timescale fixture');
+          return window.__plans.length;
+        });
+        await page.clock.setFixedTime(new Date(Number(GOLDEN.stages.grown['/h/season'].body.latestUnix)*1000+350500));
+        const later=await snapshot(page);
+        assert.equal(later.nowBell,0,'displayed turn remains unchanged');
+        assert.equal(later.chainBell,0,'actual chain clock stays within the original turn');
+        assert.deepEqual(later.hover.hexes,moved.hover.hexes,'wall time does not change route geometry');
+        assert.ok(later.hover.bell>moved.hover.bell,'arrival updates within the same turn without a pointer event');
+        assert.equal(await page.evaluate(()=>window.__plans.length),plansBeforeClock,'clock update reuses planned geometry');
       }
       srv.obstacle(6);
       await page.evaluate(async()=>{await (await import('/frontier/controller.mjs')).refresh();});
+      await selectHost();
+      // Read the original inspector, not the keep tile (which would compose
+      // a march with this host in hand). hand-info and drawer-close only
+      // change UI state; refreshConquest supplies the read-only history.
+      for(let repeat=0;repeat<2;repeat++) {
+        const info=page.locator('#hand [data-act="hand-info"]');
+        if(phone) await info.tap(); else await info.click();
+        // The real phone inspector starts as a small sheet; its read-only
+        // handle expands it before the keep details become visible.
+        if(phone && await page.locator('#panel').getAttribute('data-sheet')==='peek') await page.locator('#panel [data-sheet-handle]').tap();
+        const keep=page.locator('#panel .conquest-keep.kp');
+        await keep.waitFor();
+        assert.equal(await keep.getAttribute('aria-label'),'この州の砦 · マス 2');
+        assert.equal((await keep.locator('.kp-def .num').textContent()).trim(),'100');
+        assert.match(await keep.locator('.kp-holder').textContent(),/アステルが保持/);
+        await page.waitForFunction(async()=>!!(await import('/frontier/fstate.mjs')).FS.conquest?.history?.get('4,0')?.holders);
+        const details=await page.evaluate(async()=>{
+          const {FS}=await import('/frontier/fstate.mjs'),h=FS.conquest.history.get('4,0');
+          return {selected:[FS.selected.p,FS.selected.q],inspect:FS.inspectOpen,compose:FS.compose,session:!!FS.session,
+            keep:{holder:h.holder,tile:h.tile,troops:h.troops,holders:h.holders,captures:h.captures,contests:h.contests}};
+        });
+        assert.deepEqual(details,{selected:[4,0],inspect:true,compose:null,session:false,
+          keep:{holder:0,tile:1,troops:100,holders:[{holder:0,since:0}],captures:[],contests:[]}});
+        await keep.locator('.kp-history .kp-h-held').waitFor();
+        await keep.scrollIntoViewIfNeeded();
+        await page.screenshot({path:`${outDir}/${vp.name}-keep-panel.png`});
+        const close=page.locator('#panel [data-act="drawer-close"]');
+        if(phone) await close.tap(); else await close.click();
+        await page.waitForFunction(async()=>!(await import('/frontier/fstate.mjs')).FS.inspectOpen);
+        await keep.waitFor({state:'hidden'});
+      }
       for(let repeat=0;repeat<2;repeat++) {
         await selectHost(); await tap(TARGET);
         if ((await snapshot(page)).note==='ルールを読み込んでいます') { await page.waitForTimeout(700); await tap(TARGET); }
