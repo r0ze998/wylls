@@ -20,6 +20,7 @@ import { createHerald } from '../../permutation-server/web/frontier/herald.mjs';
 import { sha256 } from '../../permutation-server/web/sdk/sha256.mjs';
 import { encode as toB58 } from '../../permutation-server/web/sdk/base58.mjs';
 import { toHex } from '../../permutation-server/web/sdk/bytes.mjs';
+import { syntheticWideEntry } from './fixtures/wide-map-capture.mjs';
 
 // ------------------------------------------------------------------ fixed data (the herald's fixture season: program 0x5E…, a Season PDA stands in as fixed bytes)
 const PROGRAM = toB58(new Uint8Array(32).fill(0x5e));
@@ -27,7 +28,7 @@ const SEASON_ADDR = toB58(new Uint8Array(32).fill(3));
 const WORLD = worldIdOf(SEASON_ADDR, PROGRAM);
 const OTHER_WORLD = worldIdOf(toB58(new Uint8Array(32).fill(4)), PROGRAM);
 const STAMP = 'ab'.repeat(32);
-const SNAP = { epoch: '4', stamp: STAMP };
+const SNAP = { epoch: '4', stamp: STAMP, lastSlot: '9007199254740994', foldedThrough: '12' };
 const CURSOR = '0c'.repeat(106);
 const CURSOR2 = '0d'.repeat(106);
 
@@ -430,14 +431,11 @@ test('the screen refuses a source that changes during loading', async () => {
 // Synthetic wire data only. These fixed bytes test the display contract,
 // not ABI authentication, live captures, event verification or gameplay.
 function capturedEntry(p = '9007199254740993') {
-  const capture = n => ({address: SEASON_ADDR, slot: '9007199254740994', archiveSequence: '12',
-    verification: 'captured-unverified', postState: 'at-or-after-transaction', bytes_b64: Buffer.alloc(n).toString('base64')});
-  return entry(p, 0, p, 0, 0, {legacy: null, wide: {world:WORLD,p,q:'0',region:3,openedBell:5,keepHolder:4,
-    capture:capture(4864), holdings:[{world:WORLD,p,q:'0',site:2,generation:1,inventorySlot:2,
-      ownerCitizen:SEASON_ADDR,capture:capture(1344)}]}});
+  return syntheticWideEntry({ seasonAddress: SEASON_ADDR, program: PROGRAM, p });
 }
 test('captured wide land retains exact keys, bounded holdings and explicit unverified timing', () => {
-  const e = parseWidePage(page([capturedEntry()]), {world:WORLD}).entries[0];
+  const pins = {world:WORLD, manifest:parseWideManifest(manifest())};
+  const e = parseWidePage(page([capturedEntry()]), pins).entries[0];
   assert.equal(e.p, 9007199254740993n);
   assert.equal(e.legacy, null);
   assert.equal(e.wide.keepHolder, 4);
@@ -454,7 +452,7 @@ test('captured wide land retains exact keys, bounded holdings and explicit unver
     x => { x.wide.holdings[0].inventorySlot = 1; },
     x => { x.state = 'closed'; },
     x => { x.wide.keepHolder = 7; },
-  ]) { const bad = capturedEntry(); mutate(bad); refused(() => parseWidePage(page([bad]), {world:WORLD}), 'BadWideCapture'); }
+  ]) { const bad = capturedEntry(); mutate(bad); refused(() => parseWidePage(page([bad]), pins), 'BadWideCapture'); }
 });
 test('the screen shows captured wide land past the legacy cap without aliasing it', async () => {
   const client = {wideWorld:async()=>({ok:true,manifest:parseWideManifest(manifest({recorded:1}))}),

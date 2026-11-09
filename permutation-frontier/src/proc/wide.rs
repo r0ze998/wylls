@@ -155,9 +155,7 @@ use permutation_rules::frontier::doctrine::of_faction_v3;
 use permutation_rules::frontier::fees::{self, DefenceParams, Evidence as FeeEvidence};
 use permutation_rules::frontier::geometry::{R_MAX_HARD, SITES_PER_PROVINCE};
 use permutation_rules::frontier::holding::{may_found_outpost, OutpostCheck, Tier};
-use permutation_rules::frontier::host::{
-    effective_bell, Host, Stamina, DESTROYED_BELOW,
-};
+use permutation_rules::frontier::host::{effective_bell, Host, Stamina, DESTROYED_BELOW};
 use permutation_rules::frontier::seal as ks;
 use permutation_rules::frontier::siege;
 use permutation_rules::frontier::stance::{Posture, Stance};
@@ -2697,6 +2695,21 @@ fn emit_wide(
     payload: &[u8],
     chained: &mut [(WideEntity, &mut [u8])],
 ) -> R<()> {
+    let (out, len) = prepare_wide(kind, bell, key, payload, chained)?;
+    solana_program::log::sol_log_data(&[wev::WIDE_LOG_PREFIX, &out[..len]]);
+    Ok(())
+}
+
+/// Build a record and advance the supplied headers without logging it.
+/// Callers staging several transitions pass scratch images and publish
+/// these bytes only after every live account has been committed.
+fn prepare_wide(
+    kind: WideKind,
+    bell: u32,
+    key: &[u8],
+    payload: &[u8],
+    chained: &mut [(WideEntity, &mut [u8])],
+) -> R<([u8; wev::MAX_BODY], usize)> {
     if chained.len() > wev::MAX_LINKS || chained.len() != kind.links().len() {
         return Err(BAD_ACCOUNT);
     }
@@ -2718,8 +2731,7 @@ fn emit_wide(
     for (link, (_, data)) in links[..chained.len()].iter().zip(chained.iter_mut()) {
         crate::layout::set_chain(data, link.seq, &link.head)?;
     }
-    solana_program::log::sol_log_data(&[wev::WIDE_LOG_PREFIX, &out[..m]]);
-    Ok(())
+    Ok((out, m))
 }
 
 impl IxTable for TopLevelShape {
@@ -3593,48 +3605,72 @@ pub fn settle_return(p: &Pubkey, a: &[AccountInfo]) -> R<()> {
             credited[k] = whole;
         }
     }
-    // ---- effects ----
-    {
-        let mut pd = province.try_borrow_mut_data()?;
-        pd.copy_from_slice(&pd_s);
-    }
-    {
-        let mut rd = roster_ai.try_borrow_mut_data()?;
-        rd.copy_from_slice(&rd_s);
-    }
-    if live.is_some() {
-        let mut hd = holding.try_borrow_mut_data()?;
-        let mut w = Rw(&mut hd);
+    let mut hd_s = if live.is_some() {
+        Some(holding.try_borrow_data()?.to_vec())
+    } else {
+        None
+    };
+    if let Some(hd) = hd_s.as_mut() {
+        let mut w = Rw(hd);
         for (u, v) in reserve.iter().enumerate() {
             w.set_u32(H::reserve(u), *v)?;
         }
     }
-    // The records: one per entry, each the credited milli-troops (whole
-    // troops × 1,000, the amount the reserve took, once) or the loss.
+    // Stage every record and chain advance before any live write. Even
+    // an overflow on the last entry must leave no partial return or log.
+    let mut logs = Vec::with_capacity(n_picked);
     for (k, &(i, credit, e, r)) in picked[..n_picked].iter().enumerate() {
         let r = r.ok_or(BAD_ACCOUNT)?;
-        let mut pd = province.try_borrow_mut_data()?;
-        if credit {
-            let mut hd = holding.try_borrow_mut_data()?;
-            emit_wide(
+        let record = if credit {
+            let hd = hd_s.as_mut().ok_or(BAD_ACCOUNT)?;
+            prepare_wide(
                 WideKind::Return,
                 bell_log,
                 &wev::host_key(&r, pkey),
                 &wev::return_payload(credited[k].saturating_mul(MILLI as u32), e.unit, i as u8),
                 &mut [
-                    (WideEntity::Province, &mut pd[..]),
+                    (WideEntity::Province, &mut pd_s[..]),
                     (WideEntity::Holding, &mut hd[..]),
                 ],
-            )?;
+            )?
         } else {
-            emit_wide(
+            prepare_wide(
                 WideKind::Stranded,
                 bell_log,
                 &wev::host_key(&r, pkey),
                 &wev::stranded_payload(e.troops, i as u8),
-                &mut [(WideEntity::Province, &mut pd[..])],
-            )?;
+                &mut [(WideEntity::Province, &mut pd_s[..])],
+            )?
+        };
+        logs.push(record.0[..record.1].to_vec());
+    }
+    // Acquire all mutable borrows and check all lengths first. Nothing
+    // fallible follows the first copy; receipts follow the complete commit.
+    {
+        let mut pd = province.try_borrow_mut_data()?;
+        let mut rd = roster_ai.try_borrow_mut_data()?;
+        let mut hd = if hd_s.is_some() {
+            Some(holding.try_borrow_mut_data()?)
+        } else {
+            None
+        };
+        if pd.len() != pd_s.len()
+            || rd.len() != rd_s.len()
+            || hd
+                .as_ref()
+                .zip(hd_s.as_ref())
+                .is_some_and(|(d, s)| d.len() != s.len())
+        {
+            return Err(BAD_ACCOUNT);
         }
+        pd.copy_from_slice(&pd_s);
+        rd.copy_from_slice(&rd_s);
+        if let (Some(hd), Some(staged)) = (hd.as_mut(), hd_s.as_ref()) {
+            hd.copy_from_slice(staged);
+        }
+    }
+    for record in logs {
+        solana_program::log::sol_log_data(&[wev::WIDE_LOG_PREFIX, &record]);
     }
     Ok(())
 }

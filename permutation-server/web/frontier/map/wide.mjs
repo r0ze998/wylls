@@ -8,7 +8,7 @@
 // through its lossless legacy adapter as (world, P, Q) with P and Q as
 // decimal strings. It is never a proof of completeness (a place not listed
 // is UNKNOWN: neither open nor closed), never new land (every entry is a
-// captured legacy record), and never trusted for anything the page would
+// captured legacy or experimental wide record), and never trusted for anything the page would
 // sign (nothing here is signed or sent).
 //
 // Precision: a coordinate is a BigInt from the moment it is read; nothing
@@ -18,6 +18,7 @@
 import { sha256 } from '../../sdk/sha256.mjs';
 import { decode as fromB58 } from '../../sdk/base58.mjs';
 import { toHex } from '../../sdk/bytes.mjs';
+import { checkCapturedBytes } from './widecapture.mjs';
 
 /** |P|, |Q| ≤ 2⁶² (frontier-abi world_index WIDE_BOUND). */
 export const WIDE_BOUND = 1n << 62n;
@@ -141,12 +142,17 @@ export function parseWideManifest(j, { seasonId, seasonAddress, programId } = {}
   if (seasonAddress) check(address === String(seasonAddress), 'WrongSeason', 'another Season account');
   if (programId) check(program === String(programId), 'WrongSeason', 'another program');
   const snapshot = snapshotOf(j, 'BadManifest');
+  // Herald emits these on the manifest, not on each page. Keep them separate
+  // from the index cursor identity, which may outlive ordinary legacy polling.
+  const hasBounds = j.snapshot.lastSlot !== undefined || j.snapshot.foldedThrough !== undefined;
+  const captureBounds = hasBounds ? Object.freeze({ lastSlot: parseU64(j.snapshot.lastSlot, 'BadManifest'),
+    foldedThrough: parseU64(j.snapshot.foldedThrough, 'BadManifest') }) : null;
   const count = k => { check(Number.isSafeInteger(j[k]) && j[k] >= 0, 'BadManifest', `${k}`); return j[k]; };
   const legacy = isObj(j.legacy) ? j.legacy : {};
   const page = isObj(j.page) ? j.page : {};
   const max = Number.isInteger(page.max) && page.max >= 1 ? Math.min(page.max, PAGE_MAX) : PAGE_MAX;
   return Object.freeze({
-    world, season, program, seasonAddress: address, snapshot,
+    world, season, program, seasonAddress: address, snapshot, captureBounds,
     recorded: count('recorded'), refused: count('refused'),
     legacy: Object.freeze({
       rMax: Number.isInteger(legacy.rMax) ? legacy.rMax : null,
@@ -159,7 +165,7 @@ export function parseWideManifest(j, { seasonId, seasonAddress, programId } = {}
 }
 
 // ------------------------------------------------------------------ a page
-function entryOf(e, i, world) {
+function entryOf(e, i, world, manifest) {
   const at = `entries[${i}]`;
   check(isObj(e), 'BadPage', `${at}: not an object`);
   const p = parseWideInt(e.p), q = parseWideInt(e.q);
@@ -189,15 +195,21 @@ function entryOf(e, i, world) {
       address: typeof l.address === 'string' ? l.address : null,
     });
   }
-  const wide = capturedWide(e.wide, { world, p, q, ring: rp.ring, state: e.state, legacy });
+  const wide = capturedWide(e.wide, { world, p, q, ...rp, state: e.state, legacy, manifest });
   return Object.freeze({ p, q, key: coordKey(p, q), ring: rp.ring, wedge: rp.wedge, pos: rp.pos, state: e.state, revision, observedAt, legacy, wide });
 }
 
 // Captured wide accounts are explicit, bounded and never reinterpreted as legacy
 // P/Q fields. These are server-reported captures, not client-verified event history.
-function capturedWide(j, { world, p, q, ring, state, legacy }) {
+function capturedWide(j, expected) {
   if (j === null || j === undefined) return null;
+  const { world, p, q, ring, state, legacy } = expected;
   const valid = (yes, why) => check(yes, 'BadWideCapture', why);
+  const checked = (kind, summary, value) => {
+    try { checkCapturedBytes(kind, summary, value, expected); }
+    catch (e) { throw new WideError('BadWideCapture', e.message); }
+    return value;
+  };
   const identity = h => {
     valid(isObj(h) && h.world === world, 'capture world');
     valid(parseWideInt(h.p) === p && parseWideInt(h.q) === q, 'capture coordinate');
@@ -231,10 +243,10 @@ function capturedWide(j, { world, p, q, ring, state, legacy }) {
     valid(Number.isInteger(h.generation) && h.generation >= 1 && h.generation < 255, 'holding generation');
     valid(h.inventorySlot === 2 || h.inventorySlot === 3, 'holding slot');
     return Object.freeze({ world, p, q, site: h.site, generation: h.generation,
-      inventorySlot: h.inventorySlot, ownerCitizen: address(h.ownerCitizen), capture: capture(h.capture, 1344) });
+      inventorySlot: h.inventorySlot, ownerCitizen: address(h.ownerCitizen), capture: checked('holding', h, capture(h.capture, 1344)) });
   });
   return Object.freeze({ world, p, q, openedBell: j.openedBell, region: j.region,
-    keepHolder: j.keepHolder, capture: capture(j.capture, 4864), holdings: Object.freeze(holdings) });
+    keepHolder: j.keepHolder, capture: checked('province', j, capture(j.capture, 4864)), holdings: Object.freeze(holdings) });
 }
 
 /**
@@ -243,8 +255,10 @@ function capturedWide(j, { world, p, q, ring, state, legacy }) {
  * snapshot (`StaleSnapshot`), the cursor the page was asked after (`WrongPage`), at most `limit` entries in strictly
  * ascending ring order with no repeat (`OutOfOrder`, `DuplicateEntry`), every ring recomputed, a cursor only after a
  * full page (`BadCursor`), and `previous` (the last entry of the page before) before every entry of this page.
+ * Wide captures additionally require the parsed `manifest`: raw ABI identities, summaries, canonical public
+ * addresses and capture fold bounds are checked. This is consistency only, never event-chain verification.
  */
-export function parseWidePage(j, { world, snapshot, after = null, limit = PAGE_DEFAULT, previous = null } = {}) {
+export function parseWidePage(j, { world, snapshot, after = null, limit = PAGE_DEFAULT, previous = null, manifest = null } = {}) {
   check(isObj(j), 'BadPage', 'not an object');
   check(!('sample' in j) && !('proto' in j), 'SampleWorld', 'a sample world has no recorded wide world');
   check(j.v === 1, 'BadPage', `v ${j.v}`);
@@ -252,10 +266,14 @@ export function parseWidePage(j, { world, snapshot, after = null, limit = PAGE_D
   if (world !== undefined && world !== null) check(w === world, 'WorldChanged', 'a page of another world');
   const snap = snapshotOf(j, 'BadPage');
   if (snapshot) check(sameSnapshot(snap, snapshot), 'StaleSnapshot', 'a page of another snapshot of the index');
+  if (manifest) {
+    check(w === manifest.world, 'WorldChanged', 'a page of another manifest world');
+    check(sameSnapshot(snap, manifest.snapshot), 'StaleSnapshot', 'a page of another manifest snapshot');
+  }
   check((j.after ?? null) === after, 'WrongPage', `asked after ${after}, got a page after ${j.after ?? null}`);
   check(Array.isArray(j.entries), 'BadPage', 'entries');
   check(j.entries.length <= limit, 'BadPage', `${j.entries.length} entries for a limit of ${limit}`);
-  const entries = j.entries.map((e, i) => entryOf(e, i, w));
+  const entries = j.entries.map((e, i) => entryOf(e, i, w, manifest));
   let last = previous;
   for (const e of entries) {
     if (last) {
@@ -318,7 +336,7 @@ export class WideWalk {
     if (!this.open) return this.fault ?? 'done';
     let page;
     try {
-      page = parseWidePage(json, { world: this.world, snapshot: this.snapshot, after: this.after, limit: this.limit, previous: this.last });
+      page = parseWidePage(json, { world: this.world, snapshot: this.snapshot, after: this.after, limit: this.limit, previous: this.last, manifest: this.manifest });
     } catch (e) {
       this.fault = e instanceof WideError ? e.code : 'BadPage';
       return this.fault;

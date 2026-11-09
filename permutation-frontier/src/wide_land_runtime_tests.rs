@@ -117,6 +117,9 @@ use crate::CqError as CE;
 #[path = "wide_economy_runtime_tests.rs"]
 mod wide_economy;
 
+#[path = "wide_return_atomicity_tests.rs"]
+mod wide_return_atomicity;
+
 /// The literal seed the legacy RingSeed of ring 128 carries in the
 /// pre-state (as OpenRing(128) and ConsumeRingSeed left it).
 const RING128_SEED: [u8; 32] = [0x80; 32];

@@ -11,6 +11,8 @@ import { extname, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import * as NK from './ws07/nokey-page.mjs';
 import { worldIdOf, WORLD_DOMAIN } from '../../permutation-server/web/frontier/map/wide.mjs';
+import { sha256 } from '../../permutation-server/web/sdk/sha256.mjs';
+import { encode as toB58, decode as fromB58 } from '../../permutation-server/web/sdk/base58.mjs';
 
 // Imported only after the built-in guard above. The audited 1.58.2 launch path
 // creates no certificate: no proxy, clientCertificates or remote browser.
@@ -47,9 +49,27 @@ function widePresentation() {
     return {archiveSequence:'1',ordinal:'0',format:'PSW1',kind:body[1],name:body[1]===16?'WIDE_ECONOMY_MIRROR':'WIDE_ECONOMY',
       province,holding,host:null,body_b64:body.toString('base64')};
   });
-  return {scope,rows,
+  // A separately labelled synthetic map capture, not a live province. Copy
+  // the unchanged host output and rebind public season/world identity only.
+  const copy=name=>Buffer.from(readFileSync(new URL(`../../frontier-node/crates/verify/tests/fixtures/wide_economy/harvest/${name}_post.bin`,import.meta.url)));
+  const pd=copy('province'),hd=copy('holding');
+  assert.equal(pd.length,4864);assert.equal(pd.subarray(0,8).toString(),'PSFXWPV1');
+  assert.equal(hd.length,1344);assert.equal(hd.subarray(0,8).toString(),'PSFXWHL1');
+  pd.writeBigUInt64LE(BigInt(s.season),8);hd.writeBigUInt64LE(BigInt(s.season),8);
+  Buffer.from(world,'hex').copy(pd,4740);Buffer.from(world,'hex').copy(hd,1288);
+  const address=(tag,domain,key)=>{
+    const seed=tag+Buffer.from(sha256(domain,key)).subarray(0,15).toString('hex');
+    return toB58(sha256(fromB58(s.seasonAddress),seed,fromB58(s.programId)));
+  };
+  const capture=(bytes,address)=>({address,slot:'3001',archiveSequence:'1',postState:'transaction',verification:'captured-unverified',bytes_b64:bytes.toString('base64')});
+  const provinceAddress=address('wp','PSF-WIDE-PROVINCE-SEED-v1',pd.subarray(4772,4789));
+  const holdingAddress=address('wh','PSF-WIDE-HOLDING-SEED-v1',Buffer.concat([hd.subarray(1320,1337),hd.subarray(68,69)]));
+  const entry={p:'129',q:'0',ring:'129',wedge:0,pos:'0',state:'open',revision:'1',observedAt:'3001',legacy:null,
+    wide:{world,p:'129',q:'0',openedBell:pd.readUInt32LE(76),region:pd[71],keepHolder:pd[4481],capture:capture(pd,provinceAddress),
+      holdings:[{world,p:'129',q:'0',site:hd[68],generation:hd[69],inventorySlot:hd[1283],ownerCitizen:toB58(hd.subarray(72,104)),capture:capture(hd,holdingAddress)}]}};
+  return {scope,rows,entry,
     manifest:{v:1,experimental:true,readOnly:true,completeness:'captured',world,worldDomain:WORLD_DOMAIN,
-      season:s.season,seasonAddress:s.seasonAddress,program:s.programId,snapshot:{epoch:'1',stamp:snapshot},recorded:0,refused:0,
+      season:s.season,seasonAddress:s.seasonAddress,program:s.programId,snapshot:{epoch:'1',stamp:snapshot,foldedThrough:'25',lastSlot:'3102'},recorded:1,refused:0,
       legacy:{rMax:5,rMaxHard:128,ringsOpened:6,provinces:0},page:{path:'/h/world/wide/page',max:256,default:64}}};
 }
 
@@ -58,7 +78,7 @@ async function serve() {
   let held = true, active = 0, peak = 0;
   const overviewGate = new Promise(r => { releaseOverviews = r; });
   const wide=widePresentation();
-  let historyMode='ready',historyGate=null,releaseHistory=null;
+  let historyMode='ready',historyGate=null,releaseHistory=null,captureMode='ready';
   const requests = [], writes = [];
   const server = createServer(async (req, res) => {
     const url = new URL(req.url, 'http://localhost'),path=url.pathname;
@@ -72,7 +92,11 @@ async function serve() {
     }
     if (path.startsWith('/h/')) {
       if(path==='/h/world/wide') return json(200,wide.manifest);
-      if(path==='/h/world/wide/page') return json(200,{v:1,world:wide.scope.world,snapshot:wide.manifest.snapshot,after:null,entries:[],next:null});
+      if(path==='/h/world/wide/page') {
+        const entry=structuredClone(wide.entry);
+        if(captureMode==='malformed') entry.wide.capture.bytes_b64=Buffer.alloc(4864).toString('base64');
+        return json(200,{v:1,world:wide.scope.world,snapshot:wide.manifest.snapshot,after:null,entries:[entry],next:null});
+      }
       if(path==='/h/wide-index/status') return json(200,{...wide.scope,state:'observed',caughtUp:true,automaticWrites:false});
       if(path==='/h/wide-index/events') {
         const mode=historyMode,after=Number(url.searchParams.get('after')),limit=Number(url.searchParams.get('limit'));
@@ -107,6 +131,7 @@ async function serve() {
   await new Promise(r => server.listen(0, '127.0.0.1', r));
   return { base: `http://127.0.0.1:${server.address().port}`, requests, writes, obstacle: v => { obstacle = v; },
     history: mode => {historyMode=mode;}, holdHistory:()=>{historyGate=new Promise(r=>{releaseHistory=r;});},
+    capture: mode=>{captureMode=mode;},
     releaseHistory:()=>{releaseHistory?.();historyGate=null;},
     overviewStats: () => ({active,peak,held}), release: () => { held = false; releaseOverviews(); },
     close: () => new Promise(r => { held = false; releaseOverviews(); releaseHistory?.(); server.closeAllConnections(); server.close(r); }) };
@@ -159,7 +184,13 @@ async function wideEconomy(page,srv,vp,outDir) {
   const close=async()=>{await press(page.locator('#wide-close'));await sheet.waitFor({state:'hidden'});};
   await open();await ready(20);
   assert.match(await sheet.textContent(),/読み取り専用/);
-  assert.match(await page.locator('#wide-status').textContent(),/記録 0 州/);
+  assert.match(await page.locator('#wide-status').textContent(),/記録 1 州/);
+  const province=page.locator('#wide-list .wide-row[data-p="129"][data-q="0"]');
+  await press(province);
+  assert.match(await page.locator('#wide-selected').textContent(),/P 129, Q 0/);
+  assert.match(await province.textContent(),/保有地 1 件/);
+  await press(page.locator('#wide-recentre'));
+  assert.equal(await page.locator('#wide-origin').textContent(),'P 129, Q 0');
   assert.match(await page.locator('#wide-history-status').textContent(),/土地やプレイ可能状態は示しません/);
   const first=await rows.allTextContents();
   for(const word of ['収穫','建設','訓練','WIDE_ECONOMY_MIRROR']) assert.ok(first.some(x=>x.includes(word)),word);
@@ -197,9 +228,15 @@ async function wideEconomy(page,srv,vp,outDir) {
   assert.equal(await page.locator('#wide-history-next').isDisabled(),true);
   await close();srv.history('ready');await open();await ready(20);
   await close();
+  srv.capture('malformed');await open();
+  await page.waitForFunction(()=>document.getElementById('wide-status').textContent.includes('BadWideCapture'));
+  assert.equal(await page.locator('#wide-list .wide-row').count(),0,'contradictory raw bytes cannot leave previous land visible');
+  assert.equal(await rows.count(),0,'invalid capture source does not retain history');
+  await close();srv.capture('ready');await open();await ready(20);
+  assert.equal(await province.count(),1);await close();
   assert.equal((await snapshot(page)).session,false);
   assert.equal(await page.evaluate(async()=>(await import('/frontier/fstate.mjs')).FS.world.ringsOpen),6);
-  console.log(JSON.stringify({viewport:vp.name,wideEconomy:{presentationOnly:true,canonicalWorldUnchanged:true,pageRows:[20,5],actions:0,reopen:true,abortedStaleResponse:true,malformedRejected:true}}));
+  console.log(JSON.stringify({viewport:vp.name,wideEconomy:{presentationOnly:true,canonicalWorldUnchanged:true,pageRows:[20,5],actions:0,reopen:true,abortedStaleResponse:true,malformedRejected:true,capture129Navigated:true,contradictoryCaptureRejected:true}}));
 }
 
 // Max-supported-radius renderer stress on the original page. Only the map's
