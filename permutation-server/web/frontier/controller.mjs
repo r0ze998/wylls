@@ -10,6 +10,7 @@ import { conquestEnabled, kernelFile, territoryStandings, keepFromProvince, appl
 import { holdingByRef } from './fland.mjs';
 import * as fwide from './fwide.mjs';
 import * as expedition from './fexpedition.mjs';
+import * as outbound from './fexpedition-compose.mjs';
 import { FS, invalidate, activeHolding } from './fstate.mjs';
 import { ownTag } from './people/ui.mjs';
 import { updateLife } from './people/life.mjs';
@@ -507,7 +508,7 @@ function refreshSoon(ms = 1500) {
  * own Citizen and one of its resident NFTs — each is another viewer: its Citizen, villages, marches and notices).
  */
 function resetViewer({ wallet: walletChanged = true } = {}) {
-  expedition.clearInspection(FS);
+  expedition.clearInspection(FS); outbound.clearOutbound(FS);
   // (workstream 07: the former viewer's answer is not this viewer's: hud/drawer.mjs viewerState keeps an answered
   // record's view across a failed refresh only for the viewer and world it answered for. A reply still in flight for
   // the former viewer is dropped by refresh's currentViewer check, before applyMeResult.)
@@ -904,12 +905,15 @@ async function refreshChronicle() {
 }
 
 /** The herald client this controller reads (startPlay sets it; tests pass a fake). */
-export function useHerald(h) { expedition.clearInspection(FS); herald = h; cursor = 0; mySlots = []; conquestRefresh += 1; homesRefresh += 1; viewerRefresh += 1; fwide.clearWide(FS); FS.meAnswered = false; }
+export function useHerald(h) { expedition.clearInspection(FS); outbound.clearOutbound(FS); herald = h; cursor = 0; mySlots = []; conquestRefresh += 1; homesRefresh += 1; viewerRefresh += 1; fwide.clearWide(FS); FS.meAnswered = false; }
 
 /** A read-only request: deliberately outside ACTIONS, FORMS and the order lifecycle. */
 export const expeditionContext = () => ({ pin: io.pinned(), relay: io.relay(), source: herald });
 export const inspectOriginalExpedition = () => expedition.inspectExpedition(FS, { context: expeditionContext, changed: () => invalidate('panel') });
-export const reconcileExpedition = () => expedition.reconcileInspection(FS, expeditionContext());
+export const reconcileExpedition = () => { outbound.reconcileOutbound(FS, expeditionContext()); return expedition.reconcileInspection(FS, expeditionContext()); };
+/** Local geometry/plaintext preparation, deliberately outside ACTIONS and FORMS. */
+export const openOriginalOutbound = () => { outbound.openOutbound(FS, expeditionContext()); invalidate('panel'); };
+export const editOriginalOutbound = (action, value) => { const ok = outbound.editOutbound(FS, expeditionContext(), action, value); invalidate('panel'); return ok; };
 
 /**
  * Load the latest envelope of a province the map draws at tile detail, the
@@ -989,7 +993,7 @@ export function applyMeResult(me) {
     reconcileExpedition();
     return 'found';
   }
-  expedition.clearInspection(FS, { keepInputs: true });
+  expedition.clearInspection(FS, { keepInputs: true }); outbound.clearOutbound(FS);
   if (me.code === 'NotFound') {
     FS.meStatus = 'ready'; FS.meError = null; FS.meAnswered = true;
     FS.citizen = null; FS.holdings = []; FS.land = landState(null);
@@ -2141,6 +2145,7 @@ fwide.guardLegacy(FORMS, fwide.GUARDED_FORMS, { FS, refuse: failed });
 
 /** Bound inputs (data-bind) of the composer and the join draft. */
 export function bind(name, value) {
+  if (name.startsWith('outbound-')) { editOriginalOutbound(name.slice(9), value); return; }
   if (expedition.inspectionInput(FS, name, value)) { invalidate('panel'); return; }
   if (name === 'invite') { FS.joinDraft = { ...(FS.joinDraft ?? {}), invite: String(value).trim() }; return; }
   const c = FS.compose;

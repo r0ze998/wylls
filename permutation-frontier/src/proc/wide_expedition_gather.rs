@@ -404,6 +404,17 @@ mod tests;
 #[path = "wide_expedition_destination_tests.rs"]
 mod destination_tests;
 
-/// Dedicated private writer; no public dispatch admission.
+/// The authenticated producer's exact table, staging, receipt and allocator
+/// are retained. Production calls arrive only through the closed expedition
+/// dispatch gate; this forwarding function does not admit any instruction.
+pub(super) fn execute_producer(
+    p: &Pubkey,
+    a: &[AccountInfo],
+    x: &wix::ExpeditionGather,
+) -> R<()> {
+    exec::execute(p, a, x)
+}
+
+/// Dedicated writer behind the closed expedition dispatch gate.
 #[path = "wide_expedition_gather_exec.rs"]
 mod exec;

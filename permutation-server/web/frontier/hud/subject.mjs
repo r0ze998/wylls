@@ -117,6 +117,6 @@ export function popOf(FS, sub = subjectOf(FS)) {
   // (the card 旗 belongs to the prototype rule "banners": it exists only while the sample world serves it)
   // (the card 砦へ進軍 belongs to a conquest season, program version 3: hud/keephand.mjs)
   const mine = sub.kind === 'village' ? ['build', 'train', 'muster', 'promote'] : ['explore', 'dissolve', 'march', ...(FS.proto ? ['banner'] : []), ...(Number(FS.season?.programVersion ?? 0) >= 3 && !FS.sample ? ['keeps'] : [])];
-  if (!FS.sample && !FS.proto && Number.isInteger(FS.season?.programVersion) && FS.season.programVersion >= 0 && FS.season.programVersion <= 65535 && (FS.season.programVersion & 0x4000)) mine.push('expedition-inspect');
+  if (!FS.sample && !FS.proto && Number.isInteger(FS.season?.programVersion) && FS.season.programVersion >= 0 && FS.season.programVersion <= 65535 && (FS.season.programVersion & 0x4000)) { mine.push('expedition-inspect'); if (sub.kind === 'host') mine.push('expedition-compose'); }
   return mine.includes(pop) ? pop : null;
 }

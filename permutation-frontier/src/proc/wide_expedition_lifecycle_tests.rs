@@ -8,7 +8,7 @@ use super::*;
 use crate::crypto::quick::tests::{decode, FIXTURE_HINTS_HEX, FIXTURE_ROUND, FIXTURE_SIG_HEX};
 use crate::crypto::{quick, xmd};
 use crate::layout::{bell_anchor as BA, clash_inputs as CI, seed_cache as SC};
-use crate::proc::wide::{expedition_exec, expedition_reveal};
+use crate::proc::wide::expedition_exec;
 use alloc::boxed::Box;
 use frontier_abi::entry::{read_entry, write_entry, Entry};
 use frontier_abi::v2::layout::{write_header, AccountKind as K2};
@@ -252,6 +252,22 @@ impl World {
         )
             -> Result<(), solana_program::program_error::ProgramError>,
     {
+        self.run_with_data(roles, &[], helper)
+    }
+    #[track_caller]
+    fn run_with_data<F>(
+        &mut self,
+        roles: &[([u8; 32], bool, bool)],
+        data: &[u8],
+        helper: F,
+    ) -> rt::system_cpi::Output
+    where
+        F: for<'buffer, 'borrow> FnOnce(
+            &'buffer Pubkey,
+            &'borrow [AccountInfo<'buffer>],
+            &'buffer [u8],
+        ) -> Result<(), solana_program::program_error::ProgramError>,
+    {
         let observed_clock = prologue::now().unwrap();
         let privileges = roles
             .iter()
@@ -269,7 +285,7 @@ impl World {
                 self.0.clone(),
                 self.index(PROGRAM) as u16,
                 privileges,
-                vec![],
+                data.to_vec(),
                 helper,
             )
         }
@@ -288,6 +304,60 @@ impl World {
         self.1
             .push((observed_clock.ts, observed_clock.slot, out.logs.clone()));
         out
+    }
+    /// Feed the actual command bytes through the official serializer. Public
+    /// dispatch must refuse without effects; only the private routing function
+    /// is then exercised in this isolated unsigned harness. Probe contexts are
+    /// disposable clones and are not successful gameplay calls in the trace.
+    #[track_caller]
+    fn run_expedition(
+        &mut self,
+        roles: &[([u8; 32], bool, bool)],
+        data: &[u8],
+    ) -> rt::system_cpi::Output {
+        assert!(!expedition_exec::EXPEDITION_ENABLED);
+        let mut probe = self.clone();
+        let refused = probe.run_with_data(roles, data, |p, a, wire| {
+            assert_eq!(
+                crate::dispatch(p, a, wire),
+                Err(FrontierError::NotImplemented.into()),
+            );
+            // Successful official writeback detects partial writes even when
+            // the production handler returned an error.
+            Ok(())
+        });
+        assert!(refused.logs.is_empty() && refused.cpis.is_empty());
+        assert_eq!(probe.0, self.0);
+        let mut extended = data.to_vec();
+        extended.push(0);
+        for malformed in [
+            data[..data.len() - 1].to_vec(),
+            extended,
+            vec![
+                wix::TAG_SETTLE_TICKET,
+                wix::ENVELOPE_ESCAPE,
+                wix::ENVELOPE_VERSION,
+                wix::OP_RETURN,
+            ],
+        ] {
+            let mut bad = self.clone();
+            let out = bad.run_with_data(roles, &malformed, |p, a, wire| {
+                let result = wix::WideCommand::decode(wire)
+                    .map_err(crate::Error::from)
+                    .and_then(|command| {
+                        crate::proc::wide::dispatch_expedition_command(p, a, command)
+                    });
+                assert!(result.is_err());
+                Ok(())
+            });
+            assert!(out.logs.is_empty() && out.cpis.is_empty());
+            assert_eq!(bad.0, self.0);
+        }
+        self.run_with_data(roles, data, |p, a, wire| {
+            let command = wix::WideCommand::decode(wire).map_err(crate::Error::from)?;
+            crate::proc::wide::dispatch_expedition_command(p, a, command)
+                .map_err(Into::into)
+        })
     }
 }
 fn r(k: [u8; 32]) -> ([u8; 32], bool, bool) {
@@ -615,7 +685,7 @@ fn lifecycle_with_resident_return(retreat_bps: u16, capture_after: bool, return_
     let initial_citizen = world.get(citizen).data().to_vec();
     let initial_holding_balance = world.get(hk).lamports();
     prologue::set_test_clock(NOW, 1);
-    let departed = world.run(
+    let departed = world.run_expedition(
         &[
             (WALLET, true, false),
             payer(),
@@ -627,9 +697,7 @@ fn lifecycle_with_resident_return(retreat_bps: u16, capture_after: bool, return_
             w(home),
             w(external),
         ],
-        |p, a, _| {
-            expedition_exec::execute_depart(p, a, &departure, &Auth::Wallet).map_err(Into::into)
-        },
+        &departure.to_bytes(),
     );
     assert_eq!(departed.cpis.len(), 3);
     assert_eq!(
@@ -677,9 +745,9 @@ fn lifecycle_with_resident_return(retreat_bps: u16, capture_after: bool, return_
     let survivor = read_entry(world.get(home).data(), 0).unwrap();
     assert_eq!(survivor.state, E::STATE_DEPARTED);
     assert!(survivor.troops > 0 && survivor.troops < 200_000);
-    let origin_done = world.run(
+    let origin_done = world.run_expedition(
         &[payer(), r(sk), w(home), w(hk), w(home), w(external)],
-        |p, a, _| expedition_exec::execute_origin(p, a, 0).map_err(Into::into),
+        &wix::ExpeditionSettleOrigin { transit_slot: 0 }.to_bytes(),
     );
     assert!(origin_done.cpis.is_empty());
     assert_eq!(read_entry(world.get(home).data(), 0).unwrap(), Entry::FREE);
@@ -698,7 +766,7 @@ fn lifecycle_with_resident_return(retreat_bps: u16, capture_after: bool, return_
         ct_hash: wseal::ct_hash(&seal),
         beneficiary: PAYER,
     };
-    let revealed = world.run(
+    let revealed = world.run_expedition(
         &[
             payer(),
             r(sk),
@@ -718,7 +786,7 @@ fn lifecycle_with_resident_return(retreat_bps: u16, capture_after: bool, return_
             r([0; 32]),
             r(home),
         ],
-        |p, a, _| expedition_reveal::execute_producer(p, a, &reveal).map_err(Into::into),
+        &reveal.to_bytes(),
     );
     assert_eq!(revealed.cpis.len(), 4);
     assert_eq!(world.get(day).owner(), &program);
@@ -755,9 +823,7 @@ fn lifecycle_with_resident_return(retreat_bps: u16, capture_after: bool, return_
         start: 0,
         n: wa::wide_clash_inputs::POSITIONS as u8,
     };
-    let gathered = world.run(&gather_roles, |p, a, _| {
-        execute(p, a, &gather).map_err(Into::into)
-    });
+    let gathered = world.run_expedition(&gather_roles, &gather.to_bytes());
     assert_eq!(gathered.cpis.len(), 2);
     assert_eq!(world.get(inputs).owner(), &program);
     let header = WideClashInputsHdr::read(world.get(inputs).data()).unwrap();
@@ -781,9 +847,7 @@ fn lifecycle_with_resident_return(retreat_bps: u16, capture_after: bool, return_
         MarchState::Gathered
     );
     let before_repeat = world.0.clone();
-    let repeat = world.run(&gather_roles, |p, a, _| {
-        execute(p, a, &gather).map_err(Into::into)
-    });
+    let repeat = world.run_expedition(&gather_roles, &gather.to_bytes());
     assert!(repeat.cpis.is_empty());
     assert_eq!(world.0, before_repeat);
     let combat = world.run(

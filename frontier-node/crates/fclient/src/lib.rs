@@ -48,6 +48,10 @@ pub mod vectors;
 #[cfg(feature = "wide-records-experimental")]
 pub mod wide_resident_draft;
 
+/// Closed original-host outbound account and byte proposals only.
+#[cfg(feature = "wide-records-experimental")]
+pub mod original_expedition_depart_draft;
+
 pub use solana_address::Address;
 pub use solana_hash::Hash;
 pub use solana_instruction::{AccountMeta, Instruction};

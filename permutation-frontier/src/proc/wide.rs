@@ -243,23 +243,38 @@ pub fn dispatch(p: &Pubkey, a: &[AccountInfo], data: &[u8]) -> R<()> {
         C::Gather(x) => gather(p, a, &x),
         C::SettleTransit(x) => settle_transit(p, a, &x),
         C::ClaimDefence(x) => defence_exec::claim_defence(p, a, &x),
-        C::ExpeditionDepart(x) => {
+        command @ (C::ExpeditionDepart(_)
+        | C::ExpeditionSettleOrigin(_)
+        | C::ExpeditionReveal(_)
+        | C::ExpeditionGather(_)) => {
+            // One closed activation boundary covers every outbound stage.
+            // No feature, instruction field or runtime setting opens it.
             if !expedition_exec::EXPEDITION_ENABLED {
                 return Err(FrontierError::NotImplemented.into());
             }
-            expedition_exec::execute_depart(p, a, &x, &Auth::Wallet)
-        }
-        C::ExpeditionSettleOrigin(x) => {
-            if !expedition_exec::EXPEDITION_ENABLED {
-                return Err(FrontierError::NotImplemented.into());
-            }
-            expedition_exec::execute_origin(p, a, x.transit_slot)
-        }
-        // Provisional mixed producers remain unconditionally closed.
-        C::ExpeditionReveal(_) | C::ExpeditionGather(_) => {
-            Err(FrontierError::NotImplemented.into())
+            dispatch_expedition_command(p, a, command)
         }
         C::Reveal(x) => reveal(p, a, &x),
+    }
+}
+
+/// Existing authenticated outbound handlers behind the single activation gate
+/// above. The unsigned native harness exercises this same routing function
+/// after separately proving public refusal and successful no-effect writeback.
+/// This is private, accepts no authorization/verdict override, and does not
+/// add any route for original-resident return or reverse sealed movement.
+fn dispatch_expedition_command(
+    p: &Pubkey,
+    a: &[AccountInfo],
+    command: wix::WideCommand<'_>,
+) -> R<()> {
+    use wix::WideCommand as C;
+    match command {
+        C::ExpeditionDepart(x) => expedition_exec::execute_depart(p, a, &x, &Auth::Wallet),
+        C::ExpeditionSettleOrigin(x) => expedition_exec::execute_origin(p, a, x.transit_slot),
+        C::ExpeditionReveal(x) => expedition_reveal::execute_producer(p, a, &x),
+        C::ExpeditionGather(x) => expedition_gather::execute_producer(p, a, &x),
+        _ => Err(FrontierError::BadData.into()),
     }
 }
 
