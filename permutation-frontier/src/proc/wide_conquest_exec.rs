@@ -617,4 +617,4 @@ fn declare_siege_context(
 
 #[cfg(test)]
 #[path = "wide_conquest_exec_tests.rs"]
-mod tests;
+pub(super) mod tests;

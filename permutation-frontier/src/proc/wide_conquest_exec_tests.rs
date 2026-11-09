@@ -16,7 +16,7 @@ const SID: u64 = 11;
 const GENESIS: i64 = 1_800_000_000;
 const NOW: i64 = GENESIS + 6_000;
 
-fn ai(
+pub(in crate::proc::wide) fn ai(
     address: [u8; 32],
     owner: [u8; 32],
     bytes: Vec<u8>,
@@ -24,18 +24,31 @@ fn ai(
     signer: bool,
     writable: bool,
 ) -> AccountInfo<'static> {
+    // Runtime-compatible backing also permits this fixture's same canonical
+    // target/table/escrow accounts to be allocated or closed by later handlers.
+    let len = bytes.len();
+    let mut key_bytes = vec![0u8; 36];
+    key_bytes[..4].copy_from_slice(&(len as u32).to_le_bytes());
+    key_bytes[4..].copy_from_slice(&address);
+    let key_bytes = Box::leak(key_bytes.into_boxed_slice());
+    // SAFETY: Pubkey alignment is one; the preceding u32 is original_data_len.
+    let key = unsafe { &*(key_bytes.as_ptr().add(4) as *const Pubkey) };
+    let mut data = vec![0u8; 8 + len.max(wh::wide_holding::SIZE).max(wc::CONQUEST_SIZE)];
+    data[..8].copy_from_slice(&(len as u64).to_le_bytes());
+    data[8..8 + len].copy_from_slice(&bytes);
+    let data = Box::leak(data.into_boxed_slice());
     AccountInfo::new(
-        Box::leak(Box::new(Pubkey::new_from_array(address))),
+        key,
         signer,
         writable,
         Box::leak(Box::new(lamports)),
-        Box::leak(bytes.into_boxed_slice()),
+        &mut data[8..8 + len],
         Box::leak(Box::new(Pubkey::new_from_array(owner))),
         false,
     )
 }
 
-fn fixture() -> Vec<AccountInfo<'static>> {
+pub(in crate::proc::wide) fn fixture() -> Vec<AccountInfo<'static>> {
     let p = Pubkey::new_from_array(PROGRAM);
     let bump = Pubkey::find_program_address(
         &[
@@ -63,6 +76,13 @@ fn fixture() -> Vec<AccountInfo<'static>> {
     w.set_u32(S::END_BELL, 1000).unwrap();
     w.set_u16(S::BUCKET_RATE_PER_H, 60).unwrap();
     w.set_u16(S::BUCKET_BURST, 20).unwrap();
+    // Clock evidence is fixed before declaration and never silently rewritten
+    // between the operation's receipt and subsequent bell receipts.
+    w.set_i64(S::DRAND_GENESIS, GENESIS - 100).unwrap();
+    w.set_u32(S::DRAND_PERIOD, 3).unwrap();
+    w.set_u32(S::REVEAL_WINDOW, 60).unwrap();
+    w.set_u32(S::WINDOW_NEXT, 60).unwrap();
+    w.set_u32(S::SEED_MARGIN, 60).unwrap();
     w.set_arr(SEASON_CQ_OFFSET, &FRONTIER_7.to_bytes()).unwrap();
     let mut cd = vec![0; C2::SIZE];
     assert!(write_header(&mut cd, K2::Citizen, SID));
@@ -242,7 +262,7 @@ fn snapshot(a: &[AccountInfo]) -> Vec<(u64, Vec<u8>, Pubkey)> {
         .collect()
 }
 
-fn execute(a: &[AccountInfo]) -> R<()> {
+pub(in crate::proc::wide) fn execute(a: &[AccountInfo]) -> R<()> {
     declare_siege_inner(
         &Pubkey::new_from_array(PROGRAM),
         a,
@@ -466,20 +486,13 @@ fn resident_receipt_context_preserves_outer_generation_and_all_proof_roles() {
     assert!(resident_context(&a, &bad).is_err());
 }
 
-fn resolve_fixture(a: &[AccountInfo<'static>], bell: u32) -> Vec<AccountInfo<'static>> {
+pub(in crate::proc::wide) fn resolve_fixture(
+    a: &[AccountInfo<'static>],
+    bell: u32,
+) -> Vec<AccountInfo<'static>> {
     use crate::layout::{bell_anchor as BA, seed_cache as SC};
     let ctx = addr::ctx(&key(&a[2]), &PROGRAM);
     let pkey = ProvinceKey::new(world_of(&ctx).unwrap(), WideCoord::checked(129, 0).unwrap());
-    {
-        let mut sd = a[2].try_borrow_mut_data().unwrap();
-        Rw(&mut sd)
-            .set_i64(S::DRAND_GENESIS, GENESIS - 100)
-            .unwrap();
-        Rw(&mut sd).set_u32(S::DRAND_PERIOD, 3).unwrap();
-        Rw(&mut sd).set_u32(S::REVEAL_WINDOW, 60).unwrap();
-        Rw(&mut sd).set_u32(S::WINDOW_NEXT, 60).unwrap();
-        Rw(&mut sd).set_u32(S::SEED_MARGIN, 60).unwrap();
-    }
     let clock = SeasonClock::read(&a[2].try_borrow_data().unwrap()).unwrap();
     let landed = GENESIS + (bell as i64 + 1) * 600;
     let anchor_key = ctx.bell_anchor(bell, 0);

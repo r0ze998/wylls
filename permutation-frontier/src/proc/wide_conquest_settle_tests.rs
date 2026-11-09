@@ -3,6 +3,9 @@
 //! No signing, private derivation, native crypto, exporter or network. Tests
 //! call private handler bodies because dispatch intentionally remains closed.
 //! The System stub accepts only the one authenticated AllocateWithSeed CPI.
+#[path = "wide_conquest_lifecycle_tests.rs"]
+mod lifecycle;
+
 use super::*;
 use frontier_abi::conquest_model::{SiteRecordRules, SiteReport, SiteTransitionMirror};
 use frontier_abi::v2::layout::{write_header, AccountKind as K2};
