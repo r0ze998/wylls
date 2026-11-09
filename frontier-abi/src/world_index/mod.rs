@@ -69,6 +69,7 @@ pub mod coord;
 pub mod conquest;
 pub mod economy;
 pub mod event;
+pub mod expedition;
 pub mod holding;
 pub mod index;
 pub mod key;
