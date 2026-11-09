@@ -45,6 +45,14 @@ use crate::cqfmt::{
 use crate::fold::{Diff, Fold, Scope};
 use crate::OVERVIEW_RECORD;
 
+#[path = "player_siege_index.rs"]
+mod player_siege_index;
+pub use player_siege_index::SiegeHistories;
+
+#[cfg(test)]
+#[path = "player_siege_index_tests.rs"]
+mod player_siege_index_tests;
+
 /// Alerts kept per wallet for `/h/me` (newest last).
 pub const ALERTS_PER_WALLET: usize = 32;
 /// Control bells a day file waits after its last bell, so that MARCH_FOLD
@@ -160,7 +168,7 @@ pub struct Cq {
     /// Events of the days not yet written (and of later ones).
     pub days: BTreeMap<u32, Vec<ConquestEvent>>,
     /// Every siege of the season.
-    pub sieges: BTreeMap<(i16, i16, u8, u32), SiegeHistory>,
+    pub sieges: SiegeHistories,
     /// The latest siege declared on a site.
     pub site_siege: BTreeMap<(i16, i16, u8), u32>,
     pub keeps: BTreeMap<(i16, i16), KeepHistory>,
@@ -391,6 +399,12 @@ impl Cq {
     fn track_mut(&mut self, p: i16, q: i16, site: u8) -> Option<&mut SiegeHistory> {
         let d = *self.site_siege.get(&(p, q, site))?;
         self.sieges.get_mut(&(p, q, site, d))
+    }
+
+    fn end_siege(&mut self, p: i16, q: i16, site: u8, end: SiegeEnd) {
+        if let Some(&d) = self.site_siege.get(&(p, q, site)) {
+            self.sieges.end((p, q, site, d), end);
+        }
     }
 }
 
@@ -1009,16 +1023,17 @@ fn conquest_event(
                 ),
                 wt,
             );
-            if let Some(t) = cq.track_mut(p16, q16, site) {
-                if t.end.is_none() {
-                    t.end = Some(SiegeEnd {
-                        bell: b,
-                        outcome: SiegeOutcome::Failed,
-                        broken_by_defender: detail_bit,
-                        credited: None,
-                    });
-                }
-            }
+            cq.end_siege(
+                p16,
+                q16,
+                site,
+                SiegeEnd {
+                    bell: b,
+                    outcome: SiegeOutcome::Failed,
+                    broken_by_defender: detail_bit,
+                    credited: None,
+                },
+            );
         }
         event::OCCUPIED => {
             cq.contest.sieges_completed += 1;
@@ -1042,16 +1057,17 @@ fn conquest_event(
                 ),
                 wt,
             );
-            if let Some(t) = cq.track_mut(p16, q16, site) {
-                if t.end.is_none() {
-                    t.end = Some(SiegeEnd {
-                        bell: b,
-                        outcome: SiegeOutcome::Occupied,
-                        broken_by_defender: false,
-                        credited: None,
-                    });
-                }
-            }
+            cq.end_siege(
+                p16,
+                q16,
+                site,
+                SiegeEnd {
+                    bell: b,
+                    outcome: SiegeOutcome::Occupied,
+                    broken_by_defender: false,
+                    credited: None,
+                },
+            );
             let a = json!({"v": 1, "kind": "occupied", "bell": b, "p": p, "q": q, "site": site,
                 "faction": e.faction, "seq": seq.to_string(), "sig": sig});
             cq.alert(f, owner, a, tx.slot);
@@ -1088,16 +1104,17 @@ fn conquest_event(
                 ),
                 wt,
             );
-            if let Some(t) = cq.track_mut(p16, q16, site) {
-                if t.end.is_none() {
-                    t.end = Some(SiegeEnd {
-                        bell: b,
-                        outcome: SiegeOutcome::CaptureDue,
-                        broken_by_defender: false,
-                        credited: Some(detail_bit),
-                    });
-                }
-            }
+            cq.end_siege(
+                p16,
+                q16,
+                site,
+                SiegeEnd {
+                    bell: b,
+                    outcome: SiegeOutcome::CaptureDue,
+                    broken_by_defender: false,
+                    credited: Some(detail_bit),
+                },
+            );
             let a = json!({"v": 1, "kind": "captured", "bell": b, "p": p, "q": q, "site": site,
                 "faction": e.faction, "seq": seq.to_string(), "sig": sig});
             cq.alert(f, owner, a, tx.slot);
@@ -2441,16 +2458,15 @@ fn final_file(cq: &mut Cq, f: &mut Fold, si: Option<&SeasonInfo>) {
     // every siege's history (lapsed sieges end at end_bell)
     let keys: Vec<(i16, i16, u8, u32)> = cq.sieges.keys().copied().collect();
     for k in keys {
-        if let Some(t) = cq.sieges.get_mut(&k) {
-            if t.end.is_none() {
-                t.end = Some(SiegeEnd {
-                    bell: end,
-                    outcome: SiegeOutcome::Lapsed,
-                    broken_by_defender: false,
-                    credited: None,
-                });
-            }
-        }
+        cq.sieges.end(
+            k,
+            SiegeEnd {
+                bell: end,
+                outcome: SiegeOutcome::Lapsed,
+                broken_by_defender: false,
+                credited: None,
+            },
+        );
         if let Some(t) = cq.sieges.get(&k) {
             if let Ok(j) = t.to_json() {
                 let rel = format!("h/siege/{},{},{}/{}.json", k.0, k.1, k.2, k.3);
@@ -2533,7 +2549,7 @@ pub fn me_additions(f: &Fold, wallet: &[u8; 32]) -> Option<(Value, Value, Value)
         .and_then(|c| rd_u64(&c.data, C::CITIZEN_TAG));
     let mut sieges = vec![];
     if let Some(tag) = tag {
-        for t in f.cq.sieges.values().filter(|t| t.end.is_none()) {
+        for t in f.cq.sieges.active_for(tag) {
             let role = if t.owner == Some(tag) {
                 "owner"
             } else if t.attacker == tag {
@@ -2910,7 +2926,7 @@ pub fn status_json(f: &Fold) -> Value {
     let a = c.alarms;
     json!({
         "v": 1, "conquest": c.on, "controlNext": c.ct_next, "dayNext": c.day_next,
-        "sieges": c.sieges.values().filter(|s| s.end.is_none()).count(),
+        "sieges": c.sieges.active_count(),
         "keepsContested": c.keeps.values().filter(|k| k.contests.last().is_some_and(|x| x.outcome == ContestOutcome::Running)).count(),
         "standingsHours": c.series.as_ref().map_or(0, |s| s.hours.len()),
         "final": c.final_done,
