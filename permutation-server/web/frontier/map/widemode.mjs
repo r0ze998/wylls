@@ -15,7 +15,7 @@
 // Nothing here signs or sends anything.
 import { wideActionReview } from './wideactions.mjs';
 import { L, fmtNum, onLangChange } from '../../lang.mjs';
-import { FACTION_COLORS, factionName } from '../fi18n.mjs';
+import { FACTION_COLORS, factionName, BUILDINGS, unitCount } from '../fi18n.mjs';
 import { provinceCorners, provincePixel } from './layers.mjs';
 import { loadWide, WideWalk, originAt, ORIGIN_CONCORD, layoutWide, nearestTo, formatCoord, describeWalk, ringOfWide, parseWideInt, WideError, sourcePins } from './wide.mjs';
 
@@ -24,6 +24,18 @@ export const WIDE_POLL_S = 30;
 /** Rows the sheet's list shows at once. */
 export const LIST_ROWS = 48;
 const ZOOM_MIN = 0.02, ZOOM_MAX = 6;
+
+// Display names only, in the existing S1 catalog order. No economic
+// simulation or order builder belongs in this read-only history.
+const ECONOMY_BUILDINGS = ['Food', 'Wood', 'Stone', 'Ore', 'Gold', 'Science', 'Walls'];
+const ECONOMY_UNITS = ['Spearman', 'Archer', 'Horseman', 'Pikeman', 'Crossbowman', 'Knight', 'Scout'];
+function economyLine(receipt) {
+  const a = receipt.action;
+  if (a.kind === 'harvest') return L`収穫`;
+  if (a.kind === 'train') return `${L`訓練`} ${unitCount(ECONOMY_UNITS[a.unit], a.n)}`;
+  const item = a.item === 7 ? L`村の昇格` : a.item === 8 ? BUILDINGS.Horses : BUILDINGS[ECONOMY_BUILDINGS[a.item]];
+  return `${L`建設`} ${item}`;
+}
 
 const TEXT = {
   title: () => L`記録された世界（読み取り専用・実験中）`,
@@ -211,6 +223,13 @@ export function mountWideMode({ herald, canvas, doc = canvas?.ownerDocument ?? g
       const li = doc.createElement('li');
       const location = r.province ? formatCoord(r.province.p, r.province.q) : L`旧形式`;
       li.textContent = `${r.event} ${r.name} / ${location} / ${L`未検証`}`;
+      if (r.economy) {
+        // Receipt time stays an exact signed integer, not a live clock or
+        // countdown. The holding is historical attribution, not ownership.
+        const details = doc.createElement('p');
+        details.textContent = `${economyLine(r.economy)} / ${L`村の場所 ${String(r.holding.site)} · 世代 ${String(r.holding.generation)}`} / ${L`時刻`} ${String(r.economy.nowTs)}`;
+        li.append(details);
+      }
       if (r.host) {
         const review = doc.createElement('button'); review.type = 'button';
         review.textContent = L`完全な識別子で操作を確認`;

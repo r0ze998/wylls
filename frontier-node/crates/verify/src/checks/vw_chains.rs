@@ -64,24 +64,25 @@ pub enum Judgement {
     },
 }
 
-/// The `PSW1` bodies of the game program's own frames (another program's
-/// lines, and lines outside any frame, are ignored, as `bodies_from_logs`).
+/// The committed `PSW1` bodies of the game program's own frames. A failed
+/// CPI discards its entire subtree, including successful grandchildren.
+/// Decode only after rollback filtering: malformed rolled-back data is no
+/// committed record. Foreign and unframed data remain outside this check.
+/// Invocation depth, matching exits and complete logs are required when a
+/// retained target-frame PSW1 tag identifies relevant wide data. Other
+/// transactions cannot acquire a wide finding from their frame shape alone.
 pub fn psw1_bodies(logs: &[String], program: &str) -> Result<Vec<Vec<u8>>, &'static str> {
     let b64 = base64::engine::general_purpose::STANDARD;
-    let mut stack: Vec<&str> = vec![];
-    let mut out = vec![];
+    let mut stack: Vec<(&str, usize)> = vec![];
+    let mut pending = vec![];
+    let mut frame_error = None;
     for l in logs {
-        if let Some(rest) = l.strip_prefix("Program data: ") {
-            if stack.last() != Some(&program) {
-                continue;
-            }
-            let mut parts = rest.split(' ');
-            let (Some(a), Some(b)) = (parts.next(), parts.next()) else {
-                continue;
-            };
-            let tag = b64.decode(a).map_err(|_| "base64 tag")?;
-            if tag.as_slice() == &WIDE_LOG_PREFIX[..] {
-                out.push(b64.decode(b).map_err(|_| "base64 body")?);
+        if l.contains("Log truncated") {
+            frame_error.get_or_insert("truncated logs");
+        }
+        if let Some(rest) = l.strip_prefix("Program data:") {
+            if stack.last().is_some_and(|(who, _)| *who == program) {
+                pending.push(rest);
             }
             continue;
         }
@@ -91,23 +92,103 @@ pub fn psw1_bodies(logs: &[String], program: &str) -> Result<Vec<Vec<u8>>, &'sta
         let Some((who, tail)) = rest.split_once(' ') else {
             continue;
         };
-        if tail.starts_with("invoke [") {
-            stack.push(who);
-        } else if (tail == "success" || tail.starts_with("failed")) && stack.last() == Some(&who) {
-            stack.pop();
+        if let Some(depth) = tail.strip_prefix("invoke [") {
+            let depth = depth
+                .strip_suffix(']')
+                .and_then(|s| s.parse::<usize>().ok());
+            if depth != Some(stack.len() + 1) {
+                frame_error.get_or_insert("invocation depth");
+            }
+            // Retain claimed attribution only to decide whether a frame
+            // error concerns wide data. It cannot pass validation below.
+            stack.push((who, pending.len()));
+        } else if tail == "success" || tail.starts_with("failed:") {
+            let Some((active, start)) = stack.pop() else {
+                frame_error.get_or_insert("unmatched exit");
+                continue;
+            };
+            if active != who {
+                frame_error.get_or_insert("mismatched exit");
+                continue;
+            }
+            if tail.starts_with("failed:") {
+                if stack.is_empty() {
+                    // `judge` has already excluded failed transactions.
+                    frame_error.get_or_insert("failed top-level frame in successful transaction");
+                } else {
+                    pending.truncate(start);
+                }
+            }
+        } else if tail.starts_with("invoke")
+            || tail.starts_with("success")
+            || tail.starts_with("failed")
+        {
+            frame_error.get_or_insert("malformed frame");
+            if tail.starts_with("invoke") {
+                stack.push((who, pending.len()));
+            }
         }
+    }
+    if !stack.is_empty() {
+        frame_error.get_or_insert("unfinished frame");
+    }
+    // This check runs on every transaction, including legacy-only ones.
+    // An unknown/malformed tag cannot by itself establish a wide record;
+    // ordinary log/coverage checks own that input. Failed subtrees have
+    // already been removed, so their PSW1 tags do not widen the scope.
+    let has_wide = pending.iter().any(|raw| {
+        raw.split_whitespace()
+            .next()
+            .and_then(|tag| b64.decode(tag).ok())
+            .is_some_and(|tag| tag.as_slice() == &WIDE_LOG_PREFIX[..])
+    });
+    if !has_wide {
+        return Ok(vec![]);
+    }
+    if let Some(why) = frame_error {
+        return Err(why);
+    }
+    let mut out = vec![];
+    for raw in pending {
+        let mut parts = raw.split_whitespace();
+        let tag = b64
+            .decode(parts.next().ok_or("missing tag")?)
+            .map_err(|_| "base64 tag")?;
+        if tag.as_slice() != &WIDE_LOG_PREFIX[..] {
+            continue;
+        }
+        let body = parts.next().ok_or("missing PSW1 body")?;
+        if parts.next().is_some() {
+            return Err("extra PSW1 data");
+        }
+        out.push(b64.decode(body).map_err(|_| "base64 body")?);
     }
     Ok(out)
 }
 
+/// Display labels are not keys: coordinates repeat in every world.
+/// Include the entity tag and the complete canonical identity bytes.
+fn target_key(t: &WideTarget) -> (u8, Vec<u8>) {
+    let bytes = match t {
+        WideTarget::Province(k) => k.to_bytes().to_vec(),
+        WideTarget::Holding(h) => h.to_bytes().to_vec(),
+    };
+    (t.entity() as u8, bytes)
+}
+
 fn target_name(t: &WideTarget) -> String {
     match t {
-        WideTarget::Province(k) => format!("wide province {:?}", k.coord()),
+        WideTarget::Province(k) => format!(
+            "wide province {:?} world {}",
+            k.coord(),
+            hex::encode(k.world().as_bytes())
+        ),
         WideTarget::Holding(h) => format!(
-            "wide holding {:?} site {} gen {}",
+            "wide holding {:?} site {} gen {} world {}",
             h.key().coord(),
             h.site(),
-            h.gen()
+            h.gen(),
+            hex::encode(h.key().world().as_bytes())
         ),
     }
 }
@@ -264,10 +345,10 @@ pub fn judge(
             });
         }
     }
-    let ends: BTreeMap<String, (u64, [u8; 32])> = finals
+    let ends: BTreeMap<_, (u64, [u8; 32])> = finals
         .iter()
         .filter_map(|d| account_chain(d))
-        .map(|(t, c)| (target_name(&t), c))
+        .map(|(t, c)| (target_key(&t), c))
         .collect();
     for (at, t) in order.iter().enumerate() {
         let name = target_name(t);
@@ -305,7 +386,7 @@ pub fn judge(
         }
         match walked.last {
             None => {}
-            Some(last) => match ends.get(&name) {
+            Some(last) => match ends.get(&target_key(t)) {
                 None => out.push(Judgement::Unverifiable {
                     code: WIDE_CHAIN_UNPROVEN,
                     tx: None,
@@ -385,6 +466,15 @@ pub fn run(cx: &mut Ctx) {
 mod tests {
     use super::*;
 
+    fn psw1_line(body: &[u8]) -> String {
+        let b64 = base64::engine::general_purpose::STANDARD;
+        format!(
+            "Program data: {} {}",
+            b64.encode(WIDE_LOG_PREFIX),
+            b64.encode(body)
+        )
+    }
+
     fn steps_of(
         entity: WideEntity,
         bodies: &[&'static [u8]],
@@ -458,6 +548,276 @@ mod tests {
             "Program P success".into(),
         ];
         assert_eq!(psw1_bodies(&logs, "P").unwrap(), vec![b"body".to_vec()]);
+    }
+
+    #[test]
+    fn failed_cpi_subtrees_are_discarded_before_decoding() {
+        let logs = vec![
+            "Program P invoke [1]".into(),
+            psw1_line(b"before"),
+            "Program Q invoke [2]".into(),
+            "Program P invoke [3]".into(),
+            // Even a successful grandchild rolls back when Q fails. Its
+            // malformed bytes must not prevent the committed data decoding.
+            "Program data: !!! !!!".into(),
+            "Program P success".into(),
+            "Program Q failed: custom program error: 0x1".into(),
+            "Program P invoke [2]".into(),
+            psw1_line(b"rolled back"),
+            "Program P failed: custom program error: 0x2".into(),
+            psw1_line(b"after"),
+            "Program P success".into(),
+        ];
+        assert_eq!(
+            psw1_bodies(&logs, "P").unwrap(),
+            vec![b"before".to_vec(), b"after".to_vec()]
+        );
+    }
+
+    #[test]
+    fn rolled_back_wide_links_never_enter_the_chain_judgement() {
+        let committed = resolve_logs_of(&[20], false, None);
+        let line = committed[1].clone();
+        let logs = vec![
+            "Program P invoke [1]".into(),
+            "Program Q invoke [2]".into(),
+            "Program P invoke [3]".into(),
+            line.clone(),
+            "Program P success".into(),
+            "Program Q failed: custom program error: 0x1".into(),
+            line,
+            "Program P success".into(),
+        ];
+        // Keeping the grandchild's rolled-back seq 1 would produce two
+        // seq-1 links and a false WideChainBroken finding.
+        assert_eq!(
+            judge("P", &[(0, true, &logs)], &[], true),
+            judge("P", &[(0, true, &committed)], &[], true)
+        );
+        let rolled_back_only = &logs[..logs.len() - 2];
+        let mut logs = rolled_back_only.to_vec();
+        logs.push("Program P success".into());
+        assert!(judge("P", &[(0, true, &logs)], &[], true).is_empty());
+    }
+
+    #[test]
+    fn committed_wide_data_requires_complete_matching_frames() {
+        let line = psw1_line(b"body");
+        let cases = [
+            vec!["Program P invoke [1]".into(), line.clone()],
+            vec![
+                "Program P invoke [1]".into(),
+                line.clone(),
+                "Program Q success".into(),
+            ],
+            vec![
+                "Program P invoke [2]".into(),
+                line.clone(),
+                "Program P success".into(),
+            ],
+            vec![
+                "Program P invoke [1]".into(),
+                line.clone(),
+                "Program P success extra".into(),
+            ],
+            vec![
+                "Program P invoke [1]".into(),
+                line.clone(),
+                "Program P failed: custom program error: 0x1".into(),
+            ],
+            vec![
+                "Program P invoke [1]".into(),
+                line,
+                "Log truncated".into(),
+                "Program P success".into(),
+            ],
+            vec![
+                "Program P invoke [1]".into(),
+                psw1_line(b"body"),
+                "Program P success".into(),
+                "Program P success".into(),
+            ],
+        ];
+        for logs in cases {
+            assert!(psw1_bodies(&logs, "P").is_err(), "{logs:?}");
+            assert!(judge("P", &[(0, true, &logs)], &[], true)
+                .iter()
+                .any(|j| matches!(
+                    j,
+                    Judgement::Fail {
+                        code: WIDE_RECORD_UNDECODABLE,
+                        ..
+                    }
+                )));
+            // A transaction known to have failed never contributes effects,
+            // even when its retained logs are incomplete or malformed.
+            assert!(judge("P", &[(0, false, &logs)], &[], true).is_empty());
+        }
+    }
+
+    #[test]
+    fn malformed_committed_psw1_data_is_not_silently_skipped() {
+        for line in [
+            "Program data: UFNXMQ==".to_string(),
+            "Program data: UFNXMQ== !!!".to_string(),
+            format!("{} extra", psw1_line(b"body")),
+            "Program data: !!! !!!".to_string(),
+        ] {
+            let logs = vec![
+                "Program P invoke [1]".into(),
+                psw1_line(b"known wide scope"),
+                line,
+                "Program P success".into(),
+            ];
+            assert!(psw1_bodies(&logs, "P").is_err(), "{logs:?}");
+        }
+    }
+
+    #[test]
+    fn nonwide_or_rolled_back_data_cannot_create_wide_findings_from_frame_errors() {
+        let b64 = base64::engine::general_purpose::STANDARD;
+        let ps2 = format!(
+            "Program data: {} {}",
+            b64.encode(b"PS2"),
+            b64.encode(b"legacy")
+        );
+        let cases = [
+            // Empty, foreign, unframed and legacy-only logs remain outside
+            // VW1, even when other checks may find their framing invalid.
+            vec!["Program P success".into()],
+            vec!["Program Q invoke [1]".into(), psw1_line(b"foreign")],
+            vec![psw1_line(b"unframed"), "Log truncated".into()],
+            vec!["Program P invoke [1]".into(), ps2],
+            vec![
+                "Program P invoke [1]".into(),
+                "Program data: !!! !!!".into(),
+            ],
+            // Only the failed subtree was wide. A truncated outer frame
+            // cannot turn that rolled-back observation into a wide season.
+            vec![
+                "Program Q invoke [1]".into(),
+                "Program P invoke [2]".into(),
+                psw1_line(b"rolled back"),
+                "Program P failed: custom program error: 0x1".into(),
+                "Log truncated".into(),
+            ],
+        ];
+        for logs in cases {
+            assert_eq!(psw1_bodies(&logs, "P"), Ok(vec![]), "{logs:?}");
+            assert!(
+                judge("P", &[(0, true, &logs)], &[], true).is_empty(),
+                "{logs:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn final_chains_are_matched_by_the_full_world_scoped_identity() {
+        use frontier_abi::world_index::holding::wide_holding;
+        use frontier_abi::world_index::land::province;
+
+        // Existing immutable real host-dispatch outputs, not regenerated.
+        // They carry simulated signer flags and establish no provenance.
+        let record = include_bytes!("../../tests/fixtures/wide_economy/wall/record.bin");
+        let holding = include_bytes!("../../tests/fixtures/wide_economy/wall/holding_post.bin");
+        let province = include_bytes!("../../tests/fixtures/wide_economy/wall/province_post.bin");
+        let logs = vec![
+            "Program P invoke [1]".into(),
+            psw1_line(record),
+            "Program P success".into(),
+        ];
+        let mut other_holding = holding.to_vec();
+        let mut other_province = province.to_vec();
+        // Same coordinates/site/generation and even the same world prefix;
+        // only its last byte differs. Preserve every chain byte initially.
+        other_holding[wide_holding::WORLD + 31] ^= 1;
+        other_province[province::WORLD + 31] ^= 1;
+        assert!(WideHolding::read(&other_holding).is_ok());
+        assert!(WideProvince::read(&other_province).is_ok());
+        let canonical = [holding.as_slice(), province.as_slice()];
+        let j = judge("P", &[(0, true, &logs)], &canonical, true);
+        assert!(
+            matches!(
+                j.as_slice(),
+                [Judgement::Unverifiable {
+                    code: WIDE_UNMODELLED,
+                    ..
+                }]
+            ),
+            "{j:?}"
+        );
+        let foreign = [other_holding.as_slice(), other_province.as_slice()];
+        let j = judge("P", &[(0, true, &logs)], &foreign, true);
+        assert_eq!(
+            j.iter()
+                .filter(|j| matches!(
+                    j,
+                    Judgement::Unverifiable {
+                        code: WIDE_CHAIN_UNPROVEN,
+                        ..
+                    }
+                ))
+                .count(),
+            2,
+            "a foreign final must not satisfy either chain: {j:?}"
+        );
+        assert!(!j.iter().any(|j| matches!(j, Judgement::Fail { .. })));
+
+        // A foreign final must not shadow the real final, irrespective of
+        // input order, even when its header contradicts this world's chain.
+        other_holding[header::EVENT_HEAD] ^= 1;
+        other_province[header::EVENT_HEAD] ^= 1;
+        let mixed = [
+            holding.as_slice(),
+            province.as_slice(),
+            other_holding.as_slice(),
+            other_province.as_slice(),
+        ];
+        let reversed = mixed.iter().copied().rev().collect::<Vec<_>>();
+        for finals in [mixed.as_slice(), reversed.as_slice()] {
+            let j = judge("P", &[(0, true, &logs)], finals, true);
+            assert!(
+                matches!(
+                    j.as_slice(),
+                    [Judgement::Unverifiable {
+                        code: WIDE_UNMODELLED,
+                        ..
+                    }]
+                ),
+                "{j:?}"
+            );
+        }
+        let (own, _) = account_chain(holding).unwrap();
+        let (foreign, _) = account_chain(&other_holding).unwrap();
+        assert_ne!(target_key(&own), target_key(&foreign));
+        assert_ne!(target_name(&own), target_name(&foreign));
+
+        // A contradictory final of the same identity still fails for whole
+        // history, and stays unproven for history that is not complete.
+        let mut changed = holding.to_vec();
+        changed[header::EVENT_HEAD] ^= 1;
+        let finals = [changed.as_slice(), province.as_slice()];
+        for (whole, fail) in [(true, true), (false, false)] {
+            let j = judge("P", &[(0, true, &logs)], &finals, whole);
+            assert_eq!(
+                j.iter().any(|j| matches!(
+                    j,
+                    Judgement::Fail {
+                        code: WIDE_CHAIN_FINAL_MISMATCH,
+                        ..
+                    }
+                )),
+                fail,
+                "{j:?}"
+            );
+            assert!(matches!(
+                j.last(),
+                Some(Judgement::Unverifiable {
+                    code: WIDE_UNMODELLED,
+                    ..
+                })
+            ));
+        }
     }
 
     #[test]

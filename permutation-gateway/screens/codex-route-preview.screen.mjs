@@ -10,6 +10,7 @@ import { readFileSync } from 'node:fs';
 import { extname, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import * as NK from './ws07/nokey-page.mjs';
+import { worldIdOf, WORLD_DOMAIN } from '../../permutation-server/web/frontier/map/wide.mjs';
 
 // Imported only after the built-in guard above. The audited 1.58.2 launch path
 // creates no certificate: no proxy, clientCertificates or remote browser.
@@ -24,13 +25,43 @@ const HOST = { p: 4, q: 0, tile: 0 }, TARGET = { p: 5, q: 0, tile: 0 };
 const CITY = { p:4, q:0, tile:43 }; // canonical site11, beyond this fixture's current sight
 const AROUND = [5,0,0,1,0,1,1,0,1,1];
 
+// UI-only observations: retain each immutable host-dispatch receipt payload,
+// but rebind a COPY of its public identity to this page's existing season.
+// These are deliberately not canonical chain records or authenticated captures.
+// The separate Node regression reads the original binary vectors unchanged.
+function widePresentation() {
+  const s = GOLDEN.stages.grown['/h/season'].body;
+  const world = worldIdOf(s.seasonAddress, s.programId), snapshot = 'ab'.repeat(32);
+  const scope = {v:1,experimental:true,readOnly:true,sourceCoverage:'unknown',captureVerification:'unverified',
+    world,season:s.season,seasonAddress:s.seasonAddress,program:s.programId,indexedThrough:'25',snapshot};
+  const rows = ['harvest','building','wall','tier','train'].map(name => {
+    const body = Buffer.from(readFileSync(new URL(`../../frontier-node/crates/verify/tests/fixtures/wide_economy/${name}/record.bin`,import.meta.url)));
+    assert.ok(body[0]===0x82 && [15,16].includes(body[1]));
+    Buffer.from(world,'hex').copy(body,7);
+    const keyHex=body.subarray(6,62).toString('hex');
+    const ring=body.readBigUInt64BE(39),wedge=body[47],pos=body.readBigUInt64BE(48);
+    let p=ring-pos,q=pos;
+    for(let i=0;i<wedge;i++) [p,q]=[-q,p+q];
+    const province={world,p:String(p),q:String(q),keyHex:keyHex.slice(0,100)};
+    const holding={...province,keyHex,site:body[56],generation:body[57],hostSequence:0};
+    return {archiveSequence:'1',ordinal:'0',format:'PSW1',kind:body[1],name:body[1]===16?'WIDE_ECONOMY_MIRROR':'WIDE_ECONOMY',
+      province,holding,host:null,body_b64:body.toString('base64')};
+  });
+  return {scope,rows,
+    manifest:{v:1,experimental:true,readOnly:true,completeness:'captured',world,worldDomain:WORLD_DOMAIN,
+      season:s.season,seasonAddress:s.seasonAddress,program:s.programId,snapshot:{epoch:'1',stamp:snapshot},recorded:0,refused:0,
+      legacy:{rMax:5,rMaxHard:128,ringsOpened:6,provinces:0},page:{path:'/h/world/wide/page',max:256,default:64}}};
+}
+
 async function serve() {
   let obstacle = null, releaseOverviews;
   let held = true, active = 0, peak = 0;
   const overviewGate = new Promise(r => { releaseOverviews = r; });
+  const wide=widePresentation();
+  let historyMode='ready',historyGate=null,releaseHistory=null;
   const requests = [], writes = [];
   const server = createServer(async (req, res) => {
-    const path = new URL(req.url, 'http://localhost').pathname;
+    const url = new URL(req.url, 'http://localhost'),path=url.pathname;
     requests.push(path);
     const json = (status, body) => { res.writeHead(status, { 'content-type': 'application/json', 'cache-control': 'no-store' }); res.end(JSON.stringify(body)); };
     if (req.method !== 'GET' && req.method !== 'HEAD') { writes.push(`${req.method} ${path}`); return json(405, { ok: false, code: 'ReadOnlyFixture' }); }
@@ -40,6 +71,17 @@ async function serve() {
       if (held) await overviewGate;
     }
     if (path.startsWith('/h/')) {
+      if(path==='/h/world/wide') return json(200,wide.manifest);
+      if(path==='/h/world/wide/page') return json(200,{v:1,world:wide.scope.world,snapshot:wide.manifest.snapshot,after:null,entries:[],next:null});
+      if(path==='/h/wide-index/status') return json(200,{...wide.scope,state:'observed',caughtUp:true,automaticWrites:false});
+      if(path==='/h/wide-index/events') {
+        const mode=historyMode,after=Number(url.searchParams.get('after')),limit=Number(url.searchParams.get('limit'));
+        if(url.searchParams.get('through')!==wide.scope.indexedThrough||url.searchParams.get('snapshot')!==wide.scope.snapshot||limit!==20||![0,20].includes(after)) return json(400,{code:'WrongHistoryRequest'});
+        if(historyGate) await historyGate;
+        const events=Array.from({length:Math.min(limit,25-after)},(_,i)=>({...wide.rows[(after+i)%5],event:String(after+i+1),archiveSequence:String(after+i+1)}));
+        if(mode==='malformed') events[0]={...events[0],host:events[0].holding};
+        return json(200,{...wide.scope,after:String(after),limit,events,next:String(after+events.length),more:after===0});
+      }
       let a = GOLDEN.stages.grown[path];
       if (path === '/h/structures.json' && obstacle !== null) {
         a = structuredClone(PAL.stages.palisade[path]);
@@ -64,8 +106,10 @@ async function serve() {
   });
   await new Promise(r => server.listen(0, '127.0.0.1', r));
   return { base: `http://127.0.0.1:${server.address().port}`, requests, writes, obstacle: v => { obstacle = v; },
+    history: mode => {historyMode=mode;}, holdHistory:()=>{historyGate=new Promise(r=>{releaseHistory=r;});},
+    releaseHistory:()=>{releaseHistory?.();historyGate=null;},
     overviewStats: () => ({active,peak,held}), release: () => { held = false; releaseOverviews(); },
-    close: () => new Promise(r => { held = false; releaseOverviews(); server.closeAllConnections(); server.close(r); }) };
+    close: () => new Promise(r => { held = false; releaseOverviews(); releaseHistory?.(); server.closeAllConnections(); server.close(r); }) };
 }
 
 const snapshot = page => page.evaluate(async () => {
@@ -102,6 +146,60 @@ async function bring(page, at, width) {
     await page.waitForTimeout(350);
   }
   throw new Error(`tile not visible: ${JSON.stringify(await snapshot(page))}`);
+}
+
+// Use the real recorded-world button, client, parser and sheet on the original
+// player page. No controller/source replacement and no write or action review.
+async function wideEconomy(page,srv,vp,outDir) {
+  const press=loc=>vp.width<760?loc.tap():loc.click();
+  const toggle=page.locator('[data-map="wide"]'),sheet=page.locator('#wide-world');
+  const rows=page.locator('#wide-history-list > li');
+  const ready=async n=>page.waitForFunction(n=>document.querySelectorAll('#wide-history-list > li').length===n,n);
+  const open=async()=>{await press(toggle);await sheet.waitFor({state:'visible'});};
+  const close=async()=>{await press(page.locator('#wide-close'));await sheet.waitFor({state:'hidden'});};
+  await open();await ready(20);
+  assert.match(await sheet.textContent(),/読み取り専用/);
+  assert.match(await page.locator('#wide-status').textContent(),/記録 0 州/);
+  assert.match(await page.locator('#wide-history-status').textContent(),/土地やプレイ可能状態は示しません/);
+  const first=await rows.allTextContents();
+  for(const word of ['収穫','建設','訓練','WIDE_ECONOMY_MIRROR']) assert.ok(first.some(x=>x.includes(word)),word);
+  assert.equal(await rows.locator('button').count(),0,'a holding receipt is never a host action');
+  assert.equal(await page.locator('#wide-action-review').textContent(),'');
+  const layout=await sheet.evaluate(s=>{
+    const close=s.querySelector('#wide-close'),r=close.getBoundingClientRect(),side=s.querySelector('.wide-side').getBoundingClientRect();
+    const style=getComputedStyle(s),hit=document.elementFromPoint(r.x+r.width/2,r.y+r.height/2);
+    return {closeUncovered:close.contains(hit),background:style.backgroundColor,color:style.color,sideHeight:side.height,width:s.getBoundingClientRect().width};
+  });
+  assert.equal(layout.closeUncovered,true,'the ordinary drawer cannot cover the Close control');
+  assert.deepEqual([layout.background,layout.color],['rgb(16, 34, 31)','rgb(244, 239, 224)'],'readable ink on opaque metal');
+  assert.ok(layout.sideHeight>140,'history retains a usable scroll area');
+  assert.ok(layout.width<=vp.width,'no horizontal overflow');
+  await rows.first().scrollIntoViewIfNeeded();
+  await page.screenshot({path:`${outDir}/${vp.name}-wide-economy.png`});
+  await press(page.locator('#wide-history-next'));await ready(5);
+  assert.match(await rows.first().textContent(),/^21 WIDE_ECONOMY/);
+  assert.equal(await page.locator('#wide-history-next').isDisabled(),true);
+  await close();await open();await ready(20);
+  assert.match(await rows.first().textContent(),/^1 WIDE_ECONOMY/,'reopen starts a fresh pinned page');
+  await close();
+
+  // An in-flight stale response may not populate a closed or newer sheet.
+  srv.holdHistory();srv.history('ready');
+  const count=srv.requests.filter(p=>p==='/h/wide-index/events').length;
+  await open();
+  await page.waitForFunction(()=>document.getElementById('wide-history-status').textContent.includes('履歴を読み込んでいます'));
+  for(let i=0;i<50&&srv.requests.filter(p=>p==='/h/wide-index/events').length===count;i++) await page.waitForTimeout(20);
+  assert.ok(srv.requests.filter(p=>p==='/h/wide-index/events').length>count);
+  await close();srv.history('malformed');srv.releaseHistory();await open();
+  await page.waitForFunction(()=>document.getElementById('wide-history-status').textContent.includes('BadWideHistory'));
+  assert.equal(await rows.count(),0,'malformed current history cannot inherit an older page');
+  assert.match(await page.locator('#wide-history-status').textContent(),/空の履歴という意味ではありません/);
+  assert.equal(await page.locator('#wide-history-next').isDisabled(),true);
+  await close();srv.history('ready');await open();await ready(20);
+  await close();
+  assert.equal((await snapshot(page)).session,false);
+  assert.equal(await page.evaluate(async()=>(await import('/frontier/fstate.mjs')).FS.world.ringsOpen),6);
+  console.log(JSON.stringify({viewport:vp.name,wideEconomy:{presentationOnly:true,canonicalWorldUnchanged:true,pageRows:[20,5],actions:0,reopen:true,abortedStaleResponse:true,malformedRejected:true}}));
 }
 
 // Max-supported-radius renderer stress on the original page. Only the map's
@@ -355,6 +453,7 @@ for (const vp of [{width:1440,height:900,name:'desktop'}, {width:390,height:844,
       await page.waitForFunction(async()=>{const {FS}=await import('/frontier/fstate.mjs');return FS.playReady&&FS.meStatus==='ready'&&!!FS.s1?.structures;});
       assert.equal((await snapshot(page)).compose,null,'reload does not restore a stale order card');
       assert.equal((await snapshot(page)).session,false,'reload does not create a session');
+      await wideEconomy(page,srv,vp,outDir);
       // The original spectator page intentionally sees public world state.
       // This validates a visible city without changing the player's survey.
       await page.goto(`${srv.base}/frontier/spectate.html?devWallet=off&at=4,0,43,${phone?'0.55':'1.0'}`);
