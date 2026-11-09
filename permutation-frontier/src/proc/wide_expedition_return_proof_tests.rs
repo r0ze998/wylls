@@ -71,12 +71,12 @@ fn synthetic(plain: &wseal::WidePlain) -> ([u8; 32], [u8; wseal::WIDE_SEAL_LEN])
     (wseal::commit(&packed, &salt), seal)
 }
 
-struct Fixture {
-    a: Vec<AccountInfo<'static>>,
-    anchor: AccountInfo<'static>,
+pub(super) struct Fixture {
+    pub(super) a: Vec<AccountInfo<'static>>,
+    pub(super) anchor: AccountInfo<'static>,
     plain: wseal::WidePlain,
-    commit: [u8; 32],
-    seal: [u8; wseal::WIDE_SEAL_LEN],
+    pub(super) commit: [u8; 32],
+    pub(super) seal: [u8; wseal::WIDE_SEAL_LEN],
     settle_at: i64,
 }
 
@@ -137,7 +137,7 @@ impl Fixture {
     }
 }
 
-fn fixture() -> Fixture {
+pub(super) fn fixture() -> Fixture {
     let p = Pubkey::new_from_array(PROGRAM);
     let bump =
         Pubkey::find_program_address(&[addr::SEASON_PREFIX, &addr::season_seed_id(SID)], &p).1;

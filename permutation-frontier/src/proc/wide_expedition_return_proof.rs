@@ -117,6 +117,9 @@ pub(super) fn stage(
     })
 }
 
+#[path = "wide_expedition_settlement.rs"]
+mod settlement;
+
 #[cfg(all(test, feature = "public-proof-tests", not(target_os = "solana")))]
 #[path = "wide_expedition_return_proof_tests.rs"]
 mod tests;

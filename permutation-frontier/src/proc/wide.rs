@@ -6380,6 +6380,9 @@ pub fn settle_transit(p: &Pubkey, a: &[AccountInfo], x: &wix::SettleTransit) -> 
 #[path = "wide_stranded_exec.rs"]
 mod stranded_exec;
 
+#[path = "wide_expedition_close.rs"]
+mod expedition_close;
+
 #[cfg(all(test, feature = "public-proof-tests", not(target_os = "solana")))]
 #[path = "wide_public_proof_config_tests.rs"]
 mod public_proof_config_tests;
