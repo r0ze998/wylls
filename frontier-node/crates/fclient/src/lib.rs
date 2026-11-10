@@ -52,6 +52,10 @@ pub mod wide_resident_draft;
 #[cfg(feature = "wide-records-experimental")]
 pub mod original_expedition_depart_draft;
 
+/// Read-only original source/route/Clock context, never execution admission.
+#[cfg(all(feature = "snapshot", feature = "wide-records-experimental"))]
+pub mod original_outbound_snapshot;
+
 /// Closed original resolved-member settlement account and byte proposals.
 #[cfg(feature = "wide-records-experimental")]
 pub mod original_expedition_settlement_draft;

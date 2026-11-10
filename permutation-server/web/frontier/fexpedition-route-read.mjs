@@ -19,7 +19,7 @@ export function outboundRoutePlaces(source, directions) {
   });
 }
 
-function addressOf(source, at) {
+export function outboundRouteAddress(source, at) {
   const { ring, wedge, pos } = ringPosition(BigInt(at.p), BigInt(at.q));
   if (ring <= 128n) return seasonAddresses(source.program, source.seasonId).of('Province', { p: Number(at.p), q: Number(at.q) });
   const sort = new Uint8Array(17), v = new DataView(sort.buffer);
@@ -43,7 +43,7 @@ export function parseOutboundRouteCaptures(json, { source, places }) {
     }
     const c = row.capture;
     check(c && c.verification === 'captured-unverified' && ['transaction', 'at-or-after-transaction'].includes(c.postState), 'RouteCapture');
-    check(c.address === addressOf(source, at), 'RouteCaptureAddress');
+    check(c.address === outboundRouteAddress(source, at), 'RouteCaptureAddress');
     const slot = parseU64(c.slot, 'RouteCapture'), sequence = parseU64(c.archiveSequence, 'RouteCapture');
     check(slot <= manifest.captureBounds.lastSlot && sequence <= manifest.captureBounds.foldedThrough, 'RouteCaptureAhead');
     const wide = ringPosition(BigInt(at.p), BigInt(at.q)).ring > 128n, len = wide ? 4864 : 4736;

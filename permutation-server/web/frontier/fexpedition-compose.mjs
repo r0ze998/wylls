@@ -12,6 +12,8 @@ import { DIRECTIONS } from './fgeo.mjs';
 import { outboundHitDirection, outboundMapGeometry } from './map/outboundroute.mjs';
 import { loadOutboundRouteCaptures } from './fexpedition-route-read.mjs';
 import { evaluateOutboundRoute } from './fexpedition-route.mjs';
+import { readOutboundSnapshot } from './fexpedition-context.mjs';
+import { evaluateOriginalOutboundReady } from './fexpedition-ready.mjs';
 
 export const OUTBOUND_POP = 'expedition-compose';
 export const OUTBOUND_CLOSED = Object.freeze({ dispatch_available: false, executable: false, admitted: false,
@@ -25,9 +27,10 @@ const publicAddress = x => {
 };
 const snapshots = new WeakMap();
 const routeReads = new WeakMap();
-const cancelRouteRead = fs => { routeReads.get(fs)?.abort(); routeReads.delete(fs); };
+const contextReads = new WeakMap();
+const cancelRouteRead = fs => { for (const reads of [routeReads, contextReads]) { reads.get(fs)?.abort(); reads.delete(fs); } };
 const empty = () => ({ directions: [], arriveBell: '', stance: 0, retreat: 'never', ratio: '', tip: 'standard',
-  status: 'idle', source: null, trace: null, map: null, review: null, routeCheck: null, error: null, ...OUTBOUND_CLOSED });
+  status: 'idle', source: null, trace: null, map: null, review: null, routeCheck: null, contextCheck: null, error: null, ...OUTBOUND_CLOSED });
 
 /** Resolve a currently observed, owned original resident, never an inferred village sequence. */
 export function outboundSource(fs, { pin } = {}) {
@@ -94,6 +97,7 @@ function rebuild(fs, ctx) {
   cancelRouteRead(fs);
   const s = fs.expeditionCompose;
   s.routeCheck = null;
+  s.contextCheck = null;
   s.review = null; s.trace = null; s.map = null; s.error = null; s.status = 'preparing';
   try {
     const snap = capture(fs, ctx); snapshots.set(fs, snap); s.source = snap.source;
@@ -171,6 +175,7 @@ export async function inspectOutboundRoute(fs, { context, changed = () => {} } =
   const s = fs.expeditionCompose;
   if (!s?.source || !s.directions.length) return;
   cancelRouteRead(fs);
+  s.contextCheck = null;
   const controller = new AbortController(); routeReads.set(fs, controller);
   const source = s.source, directions = [...s.directions];
   const season = fs.season;
@@ -200,6 +205,45 @@ export async function inspectOutboundRoute(fs, { context, changed = () => {} } =
   } finally {
     clearTimeout(timer);
     if (routeReads.get(fs) === controller) { routeReads.delete(fs); controller.abort(); changed(); }
+  }
+}
+
+/** Read source, terrain and Clock together through the existing optional
+ * keyless inspector. This does not enable a signer, seal or public command. */
+export async function inspectOutboundContext(fs, { context, read, changed = () => {} } = {}) {
+  const ctx = context();
+  if (fs.hand?.pop !== OUTBOUND_POP || !reconcileOutbound(fs, ctx)) return;
+  const s = fs.expeditionCompose;
+  if (!s?.source || !s.directions.length) return;
+  cancelRouteRead(fs); s.routeCheck = null;
+  const controller = new AbortController(); contextReads.set(fs, controller);
+  const source = s.source, directions = [...s.directions];
+  s.contextCheck = { status: 'loading' }; changed();
+  const current = () => {
+    if (contextReads.get(fs) !== controller || fs.expeditionCompose !== s || controller.signal.aborted) return false;
+    if (!reconcileOutbound(fs, context())) { changed(); return false; }
+    return true;
+  };
+  try {
+    const observedSlot = fs.chain?.last?.slot ?? 0;
+    check(typeof observedSlot !== 'number' || (Number.isSafeInteger(observedSlot) && observedSlot >= 0), 'RouteClockUnavailable');
+    const minSlot = parseU64(String(observedSlot)).toString();
+    const data = await readOutboundSnapshot(source, directions, { relay: ctx.relay, signal: controller.signal, isCurrent: current, minSlot, read });
+    if (!current()) return;
+    if (data.status === 'blocked') { s.contextCheck = { status: 'error', code: data.code }; return; }
+    const departTs = data.clock.unixTimestamp + BigInt(Math.ceil(departMargin(fs.chain?.rate)));
+    const arriveBell = /^(0|[1-9][0-9]{0,9})$/.test(s.arriveBell) ? Number(s.arriveBell) : null;
+    const tip = tipOptions(data.season).find(x => x.id === s.tip)?.lamports;
+    const ready = evaluateOriginalOutboundReady({ ...data, holding: data.holdingBytes, arriveBell, tip });
+    const report = evaluateOutboundRoute({ source: data.source, directions, lands: data.lands, season: data.season, departTs, arriveBell });
+    s.contextCheck = { status: 'read', ready, report, contextSlot: data.contextSlot, digest: data.digest,
+      departTs: departTs.toString(), coherent: data.coherent, contentConsistent: data.contentConsistent,
+      observationOnly: true, authorityVerified: false, freshness: 'unknown', ...OUTBOUND_CLOSED };
+  } catch (e) {
+    if (!current()) return;
+    s.contextCheck = { status: 'error', code: e.code ?? 'OutboundSnapshotUnavailable' };
+  } finally {
+    if (contextReads.get(fs) === controller) { contextReads.delete(fs); controller.abort(); changed(); }
   }
 }
 /** Relative local coordinates only: at most 32 steps, never narrow world coordinates. */

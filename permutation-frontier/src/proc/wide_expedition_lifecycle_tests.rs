@@ -773,6 +773,19 @@ fn lifecycle_with_resident_return(retreat_bps: u16, capture_after: bool, return_
 }
 
 fn lifecycle_options(retreat_bps: u16, capture_after: bool, return_after: bool, camp_loot: bool) {
+    lifecycle_failure_options(retreat_bps, capture_after, return_after, camp_loot, false);
+}
+
+fn lifecycle_failure_options(
+    retreat_bps: u16,
+    capture_after: bool,
+    return_after: bool,
+    camp_loot: bool,
+    terminal_destroyed: bool,
+) {
+    assert!(
+        !terminal_destroyed || (retreat_bps == 0 && !capture_after && !return_after && !camp_loot)
+    );
     assert!(!camp_loot || (retreat_bps == 0 && !capture_after && !return_after));
     let (accounts, mut departure) = initial_fixture();
     let sk = key(&accounts[2]);
@@ -823,6 +836,9 @@ fn lifecycle_options(retreat_bps: u16, capture_after: bool, return_after: bool, 
         s.set_u32(S::WINDOW_NEXT, 60).unwrap();
         s.set_u32(S::SEED_MARGIN, 60).unwrap();
         s.set_arr(SEASON_CQ_OFFSET, &FRONTIER_7.to_bytes()).unwrap();
+        if terminal_destroyed {
+            s.set_u32(S::END_BELL, 13).unwrap();
+        }
         world.get_mut(sk).set_data_from_slice(&sd);
         let mut pd = world.get(home).data().to_vec();
         let mut e = read_entry(&pd, 0).unwrap();
@@ -830,7 +846,11 @@ fn lifecycle_options(retreat_bps: u16, capture_after: bool, return_after: bool, 
         write_entry(&mut pd, 0, &e).unwrap();
         e.id = addr::host_id(128, 0, 1, 1, 0).unwrap();
         e.faction = 1;
-        e.troops = 100_000;
+        e.troops = if terminal_destroyed {
+            permutation_rules::frontier::host::MAX_HOST_TROOPS as u32
+        } else {
+            100_000
+        };
         write_entry(&mut pd, 1, &e).unwrap();
         let mut p = Rw(&mut pd);
         p.set_u8(PV::N_ENTRIES, 2).unwrap();
@@ -1080,7 +1100,11 @@ fn lifecycle_options(retreat_bps: u16, capture_after: bool, return_after: bool, 
     assert!(resolved.cpis.is_empty());
     let survivor = read_entry(world.get(home).data(), 0).unwrap();
     assert_eq!(survivor.state, E::STATE_DEPARTED);
-    assert!(survivor.troops > 0 && survivor.troops < 200_000);
+    if terminal_destroyed {
+        assert_eq!(survivor.troops, 0);
+    } else {
+        assert!(survivor.troops > 0 && survivor.troops < 200_000);
+    }
     let origin_done = world.run_expedition(
         &[payer(), r(sk), w(home), w(hk), w(home), w(external)],
         &wix::ExpeditionSettleOrigin { transit_slot: 0 }.to_bytes(),
@@ -1090,6 +1114,12 @@ fn lifecycle_options(retreat_bps: u16, capture_after: bool, return_after: bool, 
     let bridge = OwnedBridgeTransit::from_bytes(&ctx, world.get(external).data()).unwrap();
     assert_eq!(bridge.transit().troops_after, survivor.troops);
     assert_eq!(bridge.original_owner(), citizen);
+    if terminal_destroyed {
+        assert_eq!(bridge.transit().state, MarchState::DestroyedAtOrigin);
+        assert_eq!(bridge.transit().stamina_after, 0);
+        terminal_destroyed_continuation(&mut world, &ctx, sk, hk, home, external);
+        return;
+    }
     assert_eq!(bridge.transit().state, MarchState::Settled);
 
     prologue::set_test_clock(LANDED + 1, 3000);
@@ -1416,6 +1446,80 @@ fn lifecycle_options(retreat_bps: u16, capture_after: bool, return_after: bool, 
         }
     }
     assert!(!expedition_exec::EXPEDITION_ENABLED);
+}
+
+/// Failure state and Season finality are real handler outputs. The seal body
+/// is exactly the already-used retreat=0 public fixture, not a new crypto case.
+fn terminal_destroyed_continuation(
+    world: &mut World,
+    ctx: &AddrCtx,
+    season: [u8; 32],
+    holding: [u8; 32],
+    home: [u8; 32],
+    external: [u8; 32],
+) {
+    use crate::proc::wide::expedition_return::close_terminal_draft;
+    use frontier_abi::world_index::{
+        expedition_terminal_event as event, expedition_terminal_ix as ix,
+    };
+    let roles = [r(season), w(holding), w(external), w(PAYER)];
+    let wire = ix::DraftCommand::new(0).unwrap().to_bytes();
+    let refuse = |world: &mut World| {
+        let before = world.0.clone();
+        let out = world.run_with_data(&roles, &wire, |p, a, d| {
+            assert!(close_terminal_draft(p, a, d).is_err());
+            Ok(())
+        });
+        assert!(out.logs.is_empty() && out.cpis.is_empty());
+        assert_eq!(world.0, before);
+    };
+    refuse(world); // Running is not finality, even for a destroyed original host.
+    prologue::set_test_clock(GENESIS + 13 * 600, 6000);
+    let ended = world.run_with_data(
+        &[payer(), w(season)],
+        &frontier_abi::ix::EndSeason {}.to_bytes(),
+        |p, a, d| crate::proc::season::end_season(p, a, d).map_err(Into::into),
+    );
+    assert!(ended.cpis.is_empty());
+    assert_eq!(
+        Ro(world.get(season).data()).u8(S::STATUS).unwrap(),
+        S::STATUS_ENDED
+    );
+    let deadline = GENESIS + 13 * 600 + crate::proc::map::END_GRACE_SECS;
+    prologue::set_test_clock(deadline - 1, 6001);
+    refuse(world);
+    prologue::set_test_clock(deadline, 6002);
+    let before = world.clone();
+    let out = world.run_with_data(&roles, &wire, |p, a, d| {
+        close_terminal_draft(p, a, d).map_err(Into::into)
+    });
+    assert!(out.cpis.is_empty());
+    assert_eq!(out.logs.len(), 1);
+    assert_eq!(out.logs[0][0], event::PREFIX);
+    let record = event::Receipt::decode(ctx, &out.logs[0][1]).unwrap();
+    assert!(record.holding_present);
+    assert_eq!(record.rent, before.get(external).lamports());
+    let mut hd = before.get(holding).data().to_vec();
+    hd[H::transit(0)..H::transit(0) + MARKER_LEN].fill(0);
+    assert_eq!(world.get(holding).data(), hd);
+    assert_eq!(
+        world.get(holding).lamports(),
+        before.get(holding).lamports()
+    );
+    assert_eq!(world.get(home), before.get(home));
+    assert_eq!(
+        world.get(PAYER).lamports(),
+        before.get(PAYER).lamports() + record.rent
+    );
+    assert!(world.get(external).data().is_empty());
+    assert_eq!(world.get(external).lamports(), 0);
+    assert_eq!(*world.get(external).owner(), init::SYSTEM);
+    refuse(world); // Replay is rejected through successful unchanged writeback.
+}
+
+#[test]
+fn contiguous_original_destroyed_departure_and_terminal_rent_cleanup() {
+    lifecycle_failure_options(0, false, false, false, true);
 }
 
 #[test]

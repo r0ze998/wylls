@@ -21,7 +21,7 @@ import { FS, invalidate, registerRenderers } from './fstate.mjs';
 import { clearWideSelect, selectedWide } from './fwide.mjs';
 import { EXPEDITION_POP, clearInspection } from './fexpedition.mjs';
 import { OUTBOUND_POP, clearOutbound } from './fexpedition-compose.mjs';
-import { inspectOriginalExpedition, reconcileExpedition, openOriginalOutbound, editOriginalOutbound, tapOriginalOutbound, originalOutboundMap, inspectOriginalOutboundRoute } from './controller.mjs';
+import { inspectOriginalExpedition, reconcileExpedition, openOriginalOutbound, editOriginalOutbound, tapOriginalOutbound, originalOutboundMap, inspectOriginalOutboundRoute, inspectOriginalOutboundContext } from './controller.mjs';
 import { createHerald, nextPoll, staleness } from './herald.mjs';
 import { setTermsPace } from './seasonterms.mjs';
 import { setPin, setRelay } from './fchainio.mjs';
@@ -3029,6 +3029,7 @@ export const HUD_ACTIONS = {
   'outbound-undo': () => editOriginalOutbound('undo'),
   'outbound-reset': () => editOriginalOutbound('reset'),
   'outbound-route-read': () => inspectOriginalOutboundRoute(),
+  'outbound-context-read': () => inspectOriginalOutboundContext(),
   // Resolve the current inventory at click time. DOM coordinates/world are never navigation pins.
   'wide-map': () => {
     const e = FS.mode === 'play' ? selectedWide(FS) : null;
@@ -3599,7 +3600,7 @@ function delegate(doc) {
     // a control that cannot be pressed now stays reachable and says why (`aria-disabled`): it does nothing else
     if (el.getAttribute('aria-disabled') === 'true') { refuseInPlace(el); return; }
     if (FS.hand?.pop === EXPEDITION_POP && el.dataset.act !== 'expedition-inspect') clearInspection(FS);
-    if (FS.hand?.pop === OUTBOUND_POP && !['outbound-step', 'outbound-undo', 'outbound-reset', 'outbound-route-read'].includes(el.dataset.act)) clearOutbound(FS);
+    if (FS.hand?.pop === OUTBOUND_POP && !['outbound-step', 'outbound-undo', 'outbound-reset', 'outbound-route-read', 'outbound-context-read'].includes(el.dataset.act)) clearOutbound(FS);
     const sends = play && SENDS.has(el.dataset.act) && ACTIONS[el.dataset.act];
     if (sends) FS.lastAct = { kind: 'act', name: el.dataset.act, data: { ...el.dataset } };
     run(fn(el.dataset, el), sends ? { act: el.dataset.act, data: { ...el.dataset } } : null);

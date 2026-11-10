@@ -5,6 +5,7 @@ import { createHash } from 'node:crypto';
 import path from 'node:path';
 import { decode as fromBase58, encode as toBase58 } from '../../client/src/base58.mjs';
 import { canonicalExpeditionAccounts, canonicalExpeditionRoles } from '../../../permutation-server/web/frontier/fexpedition-identity.mjs';
+import { OUTBOUND_SNAPSHOT_REQUEST_SCHEMA, outboundSnapshotRequest, outboundSnapshotReport } from './outbound-snapshot.mjs';
 
 export const EXPEDITION_REQUEST_SCHEMA = 'frontier-original-expedition-request-v1';
 export const EXPEDITION_REPORT_SCHEMA = 'frontier-original-expedition-preview-v1';
@@ -216,7 +217,10 @@ export function createExpeditionPreview({ cfg, season, spawn = nodeSpawn, setTim
     async inspect(input, { signal } = {}) {
       if (closedAdapter) fail('ExpeditionPreviewUnavailable');
       if (signal?.aborted) fail(signal.reason === 'ExpeditionPreviewTimeout' ? 'ExpeditionPreviewTimeout' : 'ExpeditionPreviewAborted');
-      const request = expeditionRequest(input);
+      const outbound = input?.schema === OUTBOUND_SNAPSHOT_REQUEST_SCHEMA;
+      let request;
+      try { request = outbound ? outboundSnapshotRequest(input) : expeditionRequest(input); }
+      catch { fail('ExpeditionPreviewInvalidRequest'); }
       if (request.cluster !== pins.cluster || request.program !== pins.program || request.season !== pins.season
           || request.deployment.program_version !== pins.program_version || request.deployment.ruleset_hash !== pins.ruleset_hash) fail('ExpeditionPreviewScopeMismatch');
       const payload = JSON.stringify(request);
@@ -242,15 +246,15 @@ export function createExpeditionPreview({ cfg, season, spawn = nodeSpawn, setTim
         const token = { stop };
         active.add(token);
         try {
-          child = spawn(binary, ['--rpc-url', rpc], { shell: false, cwd: '/', env: {}, stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true });
+          child = spawn(binary, [...(outbound ? ['--outbound-snapshot'] : []), '--rpc-url', rpc], { shell: false, cwd: '/', env: {}, stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true });
           child.once('error', () => stop('ExpeditionPreviewUnavailable'));
           child.once('close', (exitCode, exitSignal) => {
             active.delete(token);
             if (finished) return;
             if (exitSignal || ![0, 2].includes(exitCode)) return finish(new ExpeditionPreviewError('ExpeditionPreviewUnavailable'));
             try {
-              const report = expeditionReport(JSON.parse(Buffer.concat(chunks).toString('utf8')), request);
-              if ((exitCode === 0) !== (report.status === 'preview')) fail('ExpeditionPreviewInvalidReport');
+              const report = (outbound ? outboundSnapshotReport : expeditionReport)(JSON.parse(Buffer.concat(chunks).toString('utf8')), request);
+              if ((exitCode === 0) !== (report.status === (outbound ? 'snapshot' : 'preview'))) fail('ExpeditionPreviewInvalidReport');
               finish(null, report);
             } catch { finish(new ExpeditionPreviewError('ExpeditionPreviewInvalidReport')); }
           });

@@ -38,6 +38,9 @@ fn run() -> Result<Report, Report> {
     }))
 }
 fn main() {
+    if std::env::args_os().nth(1).as_deref() == Some(std::ffi::OsStr::new("--outbound-snapshot")) {
+        outbound_main();
+    }
     let report = match run() {
         Ok(r) | Err(r) => r,
     };
@@ -47,6 +50,49 @@ fn main() {
         || out.write_all(b"\n").is_err()
         || out.flush().is_err()
     {
+        std::process::exit(1);
+    }
+    std::process::exit(exit);
+}
+
+// Separate closed operation in the same explicitly configured one-shot binary.
+// It shares the bounded RPC reader and never enters keeper/relay startup.
+fn outbound_main() -> ! {
+    use fclient::original_outbound_snapshot as outbound;
+    use std::io::Read;
+    let run = || -> Result<serde_json::Value, &'static str> {
+        let url = options(std::env::args_os().skip(2)).map_err(|_| "Arguments")?;
+        let mut bytes = Vec::new();
+        std::io::stdin()
+            .lock()
+            .take((outbound::MAX_REQUEST_BYTES + 1) as u64)
+            .read_to_end(&mut bytes)
+            .map_err(|_| "InputRead")?;
+        let request = outbound::parse_request(&bytes)?;
+        let source = RpcPort::new_with_response_limit(
+            url,
+            request.program(),
+            preview::MAX_RPC_RESPONSE_BYTES,
+        );
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_io()
+            .enable_time()
+            .build()
+            .map_err(|_| "RuntimeUnavailable")?;
+        Ok(runtime.block_on(async {
+            match tokio::time::timeout(Duration::from_secs(25), outbound::read(&request, &source))
+                .await
+            {
+                Ok(r) => r,
+                Err(_) => outbound::failure(Some(&request), "SnapshotTimeout"),
+            }
+        }))
+    };
+    let report = run().unwrap_or_else(|code| outbound::failure(None, code));
+    let exit = if report["status"] == "snapshot" { 0 } else { 2 };
+    let bytes = serde_json::to_vec(&report).unwrap_or_default();
+    let mut out = std::io::stdout().lock();
+    if out.write_all(&bytes).is_err() || out.write_all(b"\n").is_err() || out.flush().is_err() {
         std::process::exit(1);
     }
     std::process::exit(exit);

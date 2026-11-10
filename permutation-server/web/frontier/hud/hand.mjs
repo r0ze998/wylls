@@ -460,6 +460,21 @@ function outboundRouteReport(check) {
   </div>`;
 }
 
+function outboundContextReport(check) {
+  if (!check) return '';
+  if (check.status === 'loading') return html`<p class="pop-line" role="status">${L`軍勢・村・地形・時刻をまとめて読み込んでいます…`}</p>`;
+  if (check.status === 'error') return html`<p class="pop-line pop-why" role="status">${check.code === 'ExpeditionPreviewDisabled'
+    ? L`この接続では出発条件の読み取りを利用できません。` : L`出発条件を読めませんでした。情報を更新して、もう一度確認してください。`} (${check.code})</p>`;
+  return html`<div class="outbound-context-report" role="status">
+    <p class="pop-line">${L`軍勢・村・地形・時刻を同じ読取時点で確認しました。最新状態や出発の成功を保証するものではありません。`}</p>
+    <p class="pop-line${check.ready.ok ? '' : ' pop-why'}">${check.ready.ok
+      ? L`この読取時点では、軍勢と村の出発条件を満たしています。`
+      : L`この読取時点では、軍勢と村の出発条件を満たしていません。`}${check.ready.ok ? '' : ` (${check.ready.code})`}</p>
+    ${outboundRouteReport(check)}
+    <p class="pop-line pop-why">${L`出発の送信はまだ利用できません。`}</p>
+  </div>`;
+}
+
 function outboundPop(FS, model) {
   const s = FS.expeditionCompose ?? {}, review = s.review, source = s.source, directions = s.directions ?? [];
   let choices = { stances: [], retreat: [], tips: [] };
@@ -481,8 +496,10 @@ function outboundPop(FS, model) {
       <button type="button" class="btn small" data-act="outbound-undo" ${raw(!directions.length ? 'aria-disabled="true"' : '')}>${L`一歩戻す`}</button>
       <button type="button" class="btn small" data-act="outbound-reset">${L`道を消す`}</button></div>
     ${endpoint ? html`<p class="pop-line">${L`道から決まる終点`}: ${endpoint.p},${endpoint.q} · ${L`マス`} ${endpoint.tile}</p>` : ''}
-    <div class="pop-foot"><button type="button" class="btn small" data-act="outbound-route-read" ${raw(!source || !directions.length || s.routeCheck?.status === 'loading' ? 'aria-disabled="true"' : '')}>${L`地形・時間を確認`}</button></div>
+    <div class="pop-foot"><button type="button" class="btn small" data-act="outbound-route-read" ${raw(!source || !directions.length || s.routeCheck?.status === 'loading' ? 'aria-disabled="true"' : '')}>${L`地形・時間を確認`}</button>
+      <button type="button" class="btn small" data-act="outbound-context-read" ${raw(!source || !directions.length || s.contextCheck?.status === 'loading' ? 'aria-disabled="true"' : '')}>${L`出発条件を確認`}</button></div>
     ${outboundRouteReport(s.routeCheck)}
+    ${outboundContextReport(s.contextCheck)}
     <details data-fold="outbound-details"><summary>${L`詳細`}</summary>
     <p class="pop-line">${L`記録上の地形と推定時刻から道を準備します。現在の通行条件と出発の成功は未確認です。`}</p>
     <p class="pop-line">${L`選択した軍勢`}: ${model.host.id}</p>

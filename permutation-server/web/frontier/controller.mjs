@@ -917,6 +917,7 @@ export const editOriginalOutbound = (action, value) => { const ok = outbound.edi
 export const tapOriginalOutbound = hit => { const result = outbound.tapOutbound(FS, expeditionContext(), hit); if (result.handled) invalidate('map', 'panel'); return result; };
 export const originalOutboundMap = () => outbound.readOutboundMap(FS, expeditionContext());
 export const inspectOriginalOutboundRoute = () => outbound.inspectOutboundRoute(FS, { context: expeditionContext, changed: () => invalidate('panel') });
+export const inspectOriginalOutboundContext = () => outbound.inspectOutboundContext(FS, { context: expeditionContext, changed: () => invalidate('panel') });
 
 /**
  * Load the latest envelope of a province the map draws at tile detail, the

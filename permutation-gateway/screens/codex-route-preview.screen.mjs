@@ -13,6 +13,9 @@ import * as NK from './ws07/nokey-page.mjs';
 import { worldIdOf, WORLD_DOMAIN } from '../../permutation-server/web/frontier/map/wide.mjs';
 import { sha256 } from '../../permutation-server/web/sdk/sha256.mjs';
 import { encode as toB58, decode as fromB58 } from '../../permutation-server/web/sdk/base58.mjs';
+import { syntheticOutboundSnapshot } from './codex/outbound-context-observation.mjs';
+import { outboundSnapshotRequest, outboundSnapshotReport } from '../src/frontier/outbound-snapshot.mjs';
+import { expeditionPreviewRoutes } from '../src/frontier/routes/expedition-preview.mjs';
 
 // Imported only after the built-in guard above. The audited 1.58.2 launch path
 // creates no certificate: no proxy, clientCertificates or remote browser.
@@ -115,11 +118,27 @@ async function serve() {
   const overviewGate = new Promise(r => { releaseOverviews = r; });
   const wide=widePresentation();
   let historyMode='ready',historyGate=null,releaseHistory=null,captureMode='ready',inventoryMode='off';
-  const requests = [], writes = [];
+  const requests = [], writes = [], snapshotReads = [];
+  let snapshotMode = 'ready';
   const server = createServer(async (req, res) => {
     const url = new URL(req.url, 'http://localhost'),path=url.pathname;
     requests.push(path);
     const json = (status, body) => { res.writeHead(status, { 'content-type': 'application/json', 'cache-control': 'no-store' }); res.end(JSON.stringify(body)); };
+    if(req.method==='POST' && path==='/gw/f/expedition/preview') {
+      // Read-only POST, actual HTTP route and strict server parser. Account
+      // provider is explicitly synthetic; it does not call a chain or sign.
+      try {
+        let body=''; for await(const part of req) { body+=part.toString('utf8'); if(Buffer.byteLength(body)>8192) return json(413,{code:'BodyTooLarge'}); }
+        const input=outboundSnapshotRequest(JSON.parse(body)); snapshotReads.push(input.schema);
+        const result=await expeditionPreviewRoutes['POST /f/expedition/preview']({expeditionPreview:{inspect:async request=>{
+          const season=GOLDEN.stages.grown['/h/season'].body;
+          const report=syntheticOutboundSnapshot(request,{genesis:BigInt(season.genesisTs),unixTimestamp:BigInt(season.latestUnix),
+            stamina:snapshotMode==='tired'?73:120,wideBytes:Buffer.from(wide.entry.wide.capture.bytes_b64,'base64')});
+          return outboundSnapshotReport(report,request);
+        }}},{json:async()=>input});
+        return json(result.status??200,result.body);
+      } catch { return json(400,{code:'ExpeditionPreviewInvalidRequest'}); }
+    }
     if (req.method !== 'GET' && req.method !== 'HEAD') { writes.push(`${req.method} ${path}`); return json(405, { ok: false, code: 'ReadOnlyFixture' }); }
     if (/^\/h\/overview2?\//.test(path)) {
       active++; peak = Math.max(peak, active);
@@ -177,7 +196,7 @@ async function serve() {
     } catch { json(404, { ok: false, code: 'NotFound' }); }
   });
   await new Promise(r => server.listen(0, '127.0.0.1', r));
-  return { base: `http://127.0.0.1:${server.address().port}`, requests, writes, obstacle: v => { obstacle = v; },
+  return { base: `http://127.0.0.1:${server.address().port}`, requests, writes, snapshotReads, snapshot: mode=>{snapshotMode=mode;}, obstacle: v => { obstacle = v; },
     history: mode => {historyMode=mode;}, holdHistory:()=>{historyGate=new Promise(r=>{releaseHistory=r;});},
     capture: mode=>{captureMode=mode;},
     inventory: mode=>{inventoryMode=mode;},
@@ -540,7 +559,9 @@ for (const vp of [{width:1440,height:900,name:'desktop'}, {width:390,height:844,
         return {host:FS.hand.host,pop:FS.hand.pop,directions:s?.directions,error:s?.error,endpoint:s?.map?.endpoint,
           selected:FS.selected,compose:!!FS.compose,session:!!FS.session,executable:s?.executable,admitted:s?.admitted,
           routeCheck:s?.routeCheck?{status:s.routeCheck.status,code:s.routeCheck.code??s.routeCheck.report?.code,
-            ok:s.routeCheck.report?.ok,travelSecs:s.routeCheck.report?.travelSecs,executable:s.routeCheck.executable}:null};
+            ok:s.routeCheck.report?.ok,travelSecs:s.routeCheck.report?.travelSecs,executable:s.routeCheck.executable}:null,
+          contextCheck:s?.contextCheck?{status:s.contextCheck.status,code:s.contextCheck.code??s.contextCheck.ready?.code,
+            ready:s.contextCheck.ready?.ok,route:s.contextCheck.report?.ok,coherent:s.contextCheck.coherent,executable:s.contextCheck.executable}:null};
       });
       const tapNext = async direction => {
         const at = await page.evaluate(async direction=>{
@@ -583,6 +604,19 @@ for (const vp of [{width:1440,height:900,name:'desktop'}, {width:390,height:844,
       assert.match(await page.locator('.outbound-route-report').textContent(),/まだ読み取れていない州/);
       srv.capture('ready');
       assert.equal(srv.requests.filter(p=>p==='/h/world/wide/route').length,3);
+      const readContext=async()=>{
+        await press(page.locator('[data-act="outbound-context-read"]'));
+        await page.waitForFunction(()=>window.__boundaryFS.expeditionCompose.contextCheck?.status==='read');
+        return (await state()).contextCheck;
+      };
+      const sameTime=await readContext();
+      assert.deepEqual(sameTime,{status:'read',code:null,ready:true,route:true,coherent:true,executable:false});
+      assert.equal((await state()).routeCheck,null,'snapshot result replaces the older separate captures');
+      assert.match(await page.locator('.outbound-context-report').textContent(),/同じ読取時点/);
+      assert.match(await page.locator('.outbound-context-report').textContent(),/出発の送信はまだ利用できません/);
+      await page.screenshot({path:`${outDir}/${vp.name}-boundary-context.png`});
+      srv.snapshot('tired');const tired=await readContext();assert.equal(tired.ready,false);assert.equal(tired.code,'Cooldown');
+      assert.equal(tired.executable,false);assert.equal(srv.snapshotReads.length,2);
       await page.locator('[data-bind="outbound-arriveBell"]').press('Escape');
       await page.waitForFunction(()=>!window.__boundaryFS.hand.pop);
       assert.equal(await page.locator('#hand .hand-acts').isVisible(),true,'closing restores the host orders');
@@ -597,7 +631,7 @@ for (const vp of [{width:1440,height:900,name:'desktop'}, {width:390,height:844,
       await page.waitForFunction(()=>{const FS=window.__boundaryFS;return FS.playReady&&FS.meStatus==='ready'&&FS.meAnswered;});
       assert.equal(await page.evaluate(()=>window.__boundaryFS.expeditionCompose?.map??null),null);
       assert.deepEqual(errors,[]);
-      console.log(JSON.stringify({viewport:vp.name,boundary:{syntheticObservation:true,originalCanvas:true,touch:phone,ring129:true,capturedTravelSecs:120,missingLandRefused:true,undo:true,reset:true,reopen:true,clockInvalidates:true,reloadClears:true,executable:false}}));
+      console.log(JSON.stringify({viewport:vp.name,boundary:{syntheticObservation:true,originalCanvas:true,touch:phone,ring129:true,capturedTravelSecs:120,missingLandRefused:true,snapshotReads:srv.snapshotReads.length,sameContext:true,staminaRefused:true,undo:true,reset:true,reopen:true,clockInvalidates:true,reloadClears:true,executable:false}}));
     } catch(error) {
       if(page&&!page.isClosed()) {
         console.log(JSON.stringify({viewport:vp.name,error:String(error.stack??error),errors,
@@ -615,7 +649,7 @@ for (const vp of [{width:1440,height:900,name:'desktop'}, {width:390,height:844,
           console.log(JSON.stringify({viewport:vp.name,safety,nodeKeyCalls:keyCalls,serverWrites:srv.writes}));
         }
         assert.deepEqual(keyCalls,[]); assert.deepEqual(srv.writes,[]);
-        assert.deepEqual(requests.filter(r=>!['GET','HEAD'].includes(r.method)),[]);
+        assert.deepEqual(requests.filter(r=>!['GET','HEAD'].includes(r.method) && !(r.method==='POST' && r.url===`${srv.base}/gw/f/expedition/preview`)),[]);
         assert.deepEqual(requests.filter(r=>!r.url.startsWith(srv.base)),[]);
       } finally { releaseReads?.(); await Promise.all([ctx?.close(),browser?.close(),srv.close()]); }
     }

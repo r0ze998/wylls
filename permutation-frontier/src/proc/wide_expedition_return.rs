@@ -483,6 +483,15 @@ pub(super) fn settle_camp_draft(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()
     proof::settle_camp_draft(p, a, d)
 }
 
+#[path = "wide_expedition_terminal.rs"]
+mod terminal;
+
+/// Closed season-terminal rent-only cleanup. No live failure settlement,
+/// seal verdict, forfeiture, escrow payout or public dispatch is implied.
+pub(super) fn close_terminal_draft(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
+    terminal::execute_draft(p, a, d)
+}
+
 #[cfg(test)]
 #[path = "wide_expedition_return_tests.rs"]
 mod tests;
