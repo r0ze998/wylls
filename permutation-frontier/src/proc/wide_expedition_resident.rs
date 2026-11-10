@@ -1,5 +1,6 @@
-//! Closed candidate for an original-origin host that is already resident wide.
-//! The isolated draft codec is not publicly recognized or dispatched. These retain
+//! Consumer for an original-origin host that is already resident wide.
+//! Raw/default dispatch stays closed; a separate host-only versioned wrapper
+//! may route the isolated draft after its exact Season checks. These retain
 //! original ownership/issuance/capture/transit checks and stage paired receipts
 //! before effects. Current-generation live source only: captured previous
 //! generations, stranded cleanup and reverse sealed marches remain unsupported.
@@ -104,7 +105,7 @@ fn manifest(s: &[Snapshot]) -> Vec<receipt::AccountSnapshot<'_>> {
 /// Source address, family, current generation, issuance and original capture
 /// lock are re-read in each call. A stale captured generation never credits a
 /// captor's reserve. Embedded original transit/bridge markers remain authority.
-fn source(
+pub(super) fn source(
     p: &Pubkey,
     ctx: &AddrCtx,
     sid: u64,
@@ -152,7 +153,7 @@ fn source(
     Ok((citizen, id))
 }
 
-fn resident(
+pub(super) fn resident(
     p: &Pubkey,
     ctx: &AddrCtx,
     sid: u64,

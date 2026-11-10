@@ -49,6 +49,12 @@
 #[cfg(all(target_os = "solana", feature = "wide-world-experimental"))]
 compile_error!("wide-world-experimental is a host-only draft, not deployable");
 
+#[cfg(all(feature = "expedition-dispatch-experimental", any(
+    feature = "nft-experimental", feature = "rights-experimental",
+    feature = "capacity-preview", feature = "custody-preview"
+)))]
+compile_error!("expedition-dispatch-experimental has an isolated host-only program version");
+
 // Public-fixture proof arithmetic is confined to host unit tests. It must
 // never enable the separate native gameplay experiment or another beacon.
 #[cfg(all(target_os = "solana", feature = "public-proof-tests"))]
@@ -148,7 +154,7 @@ pub const QUICKNET_PK_HASH: [u8; 32] = crypto::quick::PK_HASH;
 /// with every deployable change. Version 3 integrates first homes and
 /// authoritative province-time scoring on the conquest layout (version 2);
 /// version 4 is the S1 program (the arms economy on the same layout).
-#[cfg(not(feature = "custody-preview"))]
+#[cfg(all(not(feature = "custody-preview"), not(feature = "expedition-dispatch-experimental")))]
 pub const PROGRAM_VERSION: u16 = frontier_abi::v2::presets::PROGRAM_VERSION_S1
     | if cfg!(feature = "nft-experimental") {
         0x8000
@@ -166,6 +172,8 @@ pub const PROGRAM_VERSION: u16 = frontier_abi::v2::presets::PROGRAM_VERSION_S1
         0
     }
     | capacity_bit();
+#[cfg(feature = "expedition-dispatch-experimental")]
+pub const PROGRAM_VERSION: u16 = frontier_abi::world_index::expedition_dispatch_ix::PROGRAM_VERSION;
 /// Custody remains a separate preview. No version is allocated for its
 /// combination with NFT residents or the host-only wide writer.
 #[cfg(feature = "custody-preview")]
@@ -176,6 +184,7 @@ pub const PROGRAM_VERSION: u16 =
 /// (a proposal, `frontier_abi::capacity::CAPACITY_PREVIEW_VERSION_BIT`), so
 /// a capacity build's Seasons are its own; with custody it is the custody
 /// build's version with the bit (lots feed jobs there).
+#[cfg(not(feature = "expedition-dispatch-experimental"))]
 const fn capacity_bit() -> u16 {
     #[cfg(feature = "capacity-preview")]
     {

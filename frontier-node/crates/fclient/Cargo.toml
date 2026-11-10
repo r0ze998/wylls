@@ -40,5 +40,8 @@ default = []
 snapshot = []
 # Separate typed PS2/PSW1 reader. Never changes the legacy PS2 parser.
 wide-records-experimental = ["frontier-abi/world-index-experimental"]
+# Explicit unsigned message construction for the separate host-only dispatch
+# revision. No signing, admission, relay activation or deployed program claim.
+expedition-dispatch-experimental = ["wide-records-experimental"]
 
 [dev-dependencies]

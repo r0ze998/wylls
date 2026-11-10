@@ -478,6 +478,10 @@ pub(super) fn settle_forfeit_draft(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R
     proof::settle_forfeit_draft(p, a, d)
 }
 
+pub(super) fn settle_retained_failure_draft(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
+    proof::settle_retained_failure_draft(p, a, d)
+}
+
 pub(super) fn settle_failure_draft(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
     proof::settle_failure_draft(p, a, d)
 }
@@ -502,7 +506,7 @@ pub(super) fn close_terminal_draft(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R
 
 #[cfg(test)]
 #[path = "wide_expedition_return_tests.rs"]
-mod tests;
+pub(in crate::proc::wide) mod tests;
 
 // Isolated unsigned test adapter only. No production API, dispatch or proof bypass.
 #[cfg(all(

@@ -714,4 +714,4 @@ pub(super) fn stage_origin(p: &Pubkey, a: &[AccountInfo], slot: u8) -> R<OriginP
 
 #[cfg(test)]
 #[path = "wide_expedition_exec_tests.rs"]
-mod tests;
+pub(in crate::proc::wide) mod tests;

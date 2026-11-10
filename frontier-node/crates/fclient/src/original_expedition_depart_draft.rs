@@ -47,9 +47,10 @@ pub struct Role {
     pub writable: bool,
 }
 
-/// Immutable data proposal with no conversion to a Solana Instruction, Message
-/// or Transaction. The ABI decoder recognizes these bytes; closed dispatch
-/// still refuses the operation. This type cannot establish live readiness.
+/// Immutable data proposal. This module has no Instruction/Message conversion;
+/// the separately enabled experimental_expedition_message adapter wraps it in
+/// a distinct host-only execution version. The original bytes remain closed.
+/// This type cannot establish live readiness or admit a transaction.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Draft {
     program: Address,

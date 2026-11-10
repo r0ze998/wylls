@@ -214,7 +214,14 @@ impl IxTable for WideIx {
 /// own data again; the envelope handlers take the decoded command.
 pub fn dispatch(p: &Pubkey, a: &[AccountInfo], data: &[u8]) -> R<()> {
     use wix::WideCommand as C;
-    match C::decode(data)? {
+    // Legacy exact-length payloads can themselves begin ff02 (e.g. ring 767).
+    // Preserve the existing parser's priority before considering a v2 wrapper.
+    let decoded = C::decode(data);
+    #[cfg(feature = "expedition-dispatch-experimental")]
+    if decoded.is_err() && data.get(1..3) == Some(&[wix::ENVELOPE_ESCAPE, frontier_abi::world_index::expedition_dispatch_ix::VERSION]) {
+        return expedition_dispatch::execute(p, a, data);
+    }
+    match decoded? {
         C::RequestRingSeed(_) => request_ring_seed(p, a, data),
         C::ConsumeRingSeed(_) => consume_ring_seed(p, a, data),
         C::OpenProvince(_) => open_province(p, a, data),
@@ -2774,11 +2781,19 @@ mod economy_exec;
 mod garrison_exec;
 
 /// Original legacy departure/Spend and paired origin settlement candidates.
-/// The public gate is unconditionally false; ResidentAct does not admit them.
+/// The original public gate remains false; ResidentAct does not admit them.
+/// A separate host-only versioned wrapper may route to these consumers.
 #[path = "wide_expedition_exec.rs"]
 mod expedition_exec;
+#[cfg(feature = "expedition-dispatch-experimental")]
+#[path = "wide_expedition_dispatch.rs"]
+mod expedition_dispatch;
+#[cfg(all(test, feature = "runtime-contract-tests", not(target_os = "solana")))]
+#[path = "wide_expedition_dispatch_tests.rs"]
+mod expedition_dispatch_tests;
 
-/// Closed mixed resident dissolve/return candidate. No public dispatcher.
+/// Original resident dissolve/return consumer. Raw/default dispatch is closed;
+/// the separate host-only experimental wrapper checks its exact Season version.
 #[allow(dead_code)]
 #[path = "wide_expedition_resident.rs"]
 mod expedition_resident;
@@ -6438,6 +6453,15 @@ mod stranded_exec;
 
 #[path = "wide_expedition_close.rs"]
 mod expedition_close;
+
+#[path = "wide_expedition_reverse.rs"]
+pub(super) mod expedition_reverse;
+
+#[path = "wide_expedition_reverse_arrival.rs"]
+mod expedition_reverse_arrival;
+
+#[path = "wide_expedition_reverse_reveal.rs"]
+mod expedition_reverse_reveal;
 
 #[cfg(all(test, feature = "public-proof-tests", not(target_os = "solana")))]
 #[path = "wide_public_proof_config_tests.rs"]

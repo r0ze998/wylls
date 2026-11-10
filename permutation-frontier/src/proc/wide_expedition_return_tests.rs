@@ -262,7 +262,7 @@ fn account(address: [u8; 32], owner: [u8; 32], data: Vec<u8>) -> AccountInfo<'st
     )
 }
 
-pub(super) fn terminal_fixture() -> Vec<AccountInfo<'static>> {
+pub(in crate::proc::wide) fn terminal_fixture() -> Vec<AccountInfo<'static>> {
     const PROGRAM: [u8; 32] = [12; 32];
     let p = Pubkey::new_from_array(PROGRAM);
     let bump = Pubkey::find_program_address(

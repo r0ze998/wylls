@@ -47,6 +47,9 @@ pub mod snapshot;
 pub mod tx;
 /// Keyless legacy-message shape and external blockhash observation checks.
 pub mod unsigned_message_preflight;
+/// Explicit unsigned messages for the separate host-only execution revision.
+#[cfg(feature = "expedition-dispatch-experimental")]
+pub mod experimental_expedition_message;
 #[cfg(feature = "wide-records-experimental")]
 pub mod typed_log;
 pub mod vectors;

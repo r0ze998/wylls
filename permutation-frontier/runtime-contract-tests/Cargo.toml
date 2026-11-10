@@ -34,6 +34,7 @@ custody-preview = []
 rights-experimental = ["program"]
 capacity-preview = ["program", "frontier-abi/capacity-preview", "permutation-rules/capacity-preview"]
 wide-world-experimental = ["program", "frontier-abi/world-index-experimental", "permutation-rules/wide-terrain-experimental"]
+expedition-dispatch-experimental = ["wide-world-experimental"]
 # Deliberately no native-crypto-tests, test-beacon, or oracle features.
 
 [dependencies]

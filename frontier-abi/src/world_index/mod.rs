@@ -80,6 +80,8 @@ pub mod expedition_terminal_event;
 pub mod expedition_resident_event;
 pub mod expedition_resident_ix;
 pub mod expedition_transport;
+pub mod expedition_reverse_transport;
+pub mod expedition_reverse_ix;
 pub mod holding;
 pub mod index;
 pub mod key;
@@ -222,3 +224,9 @@ pub mod expedition_failure_event;
 
 pub mod expedition_forfeit_ix;
 pub mod expedition_forfeit_event;
+
+pub mod expedition_retained_failure_ix;
+pub mod expedition_retained_failure_event;
+
+pub mod expedition_reverse_reveal;
+pub mod expedition_dispatch_ix;

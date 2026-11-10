@@ -94,6 +94,8 @@ wide-world-experimental = [
     "frontier-abi/world-index-experimental",
     "permutation-rules/wide-terrain-experimental",
 ]
+# Host-only executable expedition revision; exact separate Season version.
+expedition-dispatch-experimental = ["wide-world-experimental"]
 
 # Dependency sections: owned by the integrator (M1 contract §3.4, I-55); the
 # set below is the one listed in docs/frontier/m1/W2-A-NOTES.md.

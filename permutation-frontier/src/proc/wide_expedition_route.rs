@@ -1,4 +1,4 @@
-//! Unreferenced, read-only candidate for boundary Reveal's route stage.
+//! Read-only mixed-family route checks for private boundary Reveal producers.
 //! This does not authorize admission: commitment, reveal window, latch, shield,
 //! quota and receipts remain the enclosing Reveal's responsibility. No gate,
 //! account writer, dispatch, cryptographic verification or CPI is added here.
@@ -256,3 +256,67 @@ pub(super) fn inspect(
 #[cfg(test)]
 #[path = "wide_expedition_route_tests.rs"]
 mod tests;
+
+/// Reverse route uses the same canonical mixed-family land reader and step
+/// costs. The enclosing Reveal authenticates marker/holding/commitment before
+/// calling this helper; this function independently enforces both families.
+pub(super) fn inspect_reverse(
+    p: &Pubkey,
+    season: &AccountInfo,
+    holding: &AccountInfo,
+    reverse: &frontier_abi::world_index::expedition_reverse_transport::ReverseTransit,
+    plain: &WidePlain,
+    provinces: &[AccountInfo],
+) -> R<RouteCost> {
+    let now = prologue::now()?;
+    let hdr = settle_season(season, p, now.ts)?;
+    let ctx = addr::ctx(&key(season), &p.to_bytes());
+    let resolver = AccountResolver::for_season(&ctx).map_err(|_| BAD_ACCOUNT)?;
+    let t = reverse.transit();
+    wseal::validate(plain, &t.host, t.arrive_bell).map_err(|_| FrontierError::BadPlaintext)?;
+    if season.is_writable
+        || holding.is_writable
+        || plain.dest != reverse.destination()
+        || resolver.family(plain.dest).map_err(|_| BAD_ACCOUNT)? != AccountFamily::Legacy
+        || resolver.family(t.origin.key()).map_err(|_| BAD_ACCOUNT)? != AccountFamily::Wide
+    {
+        return Err(FrontierError::Path.into());
+    }
+    let (steps, keys) = path_tiles(plain, t.origin)?;
+    if keys.len() != provinces.len() {
+        return Err(FrontierError::Path.into());
+    }
+    let stances = super::super::structure::stances_of(&season.try_borrow_data()?);
+    let expelled = Ro(&holding.try_borrow_data()?).u8(H::FLAGS)?
+        & frontier_abi::v2::layout::player::holding::FLAG_EXPELLED
+        != 0;
+    let mut lands = Vec::with_capacity(keys.len());
+    for (key_, ai) in keys.into_iter().zip(provinces) {
+        lands.push(land(
+            p,
+            &ctx,
+            hdr.id,
+            key_,
+            ai,
+            &stances,
+            t.faction,
+            expelled,
+            t.arrive_bell,
+        )?);
+    }
+    let (raw_secs, watched_secs) = walk(
+        &steps,
+        &lands,
+        is_cavalry(unit_from_u8(t.unit).ok_or(BAD_ACCOUNT)?),
+    )?;
+    let doctrine = of_faction_v3(t.faction).ok_or(BAD_ACCOUNT)?;
+    let travel_secs = u32::try_from(doctrine.travel_secs(raw_secs as u64)).map_err(|_| OVERFLOW)?;
+    check_arrival_bell(hdr.genesis_ts, t.depart_ts, travel_secs, t.arrive_bell)
+        .map_err(|_| FrontierError::ArrivalBell)?;
+    Ok(RouteCost {
+        raw_secs,
+        watched_secs,
+        travel_secs,
+        wear_bps: structures::wear_bps(watched_secs),
+    })
+}

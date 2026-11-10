@@ -42,8 +42,9 @@ pub struct Role {
     pub writable: bool,
 }
 
-/// Immutable, deliberately non-executable draft. There is no Instruction,
-/// Message, Transaction, signer, wire-send or admission conversion API.
+/// Immutable proposal with no conversion API in this module. The separately
+/// enabled experimental_expedition_message adapter wraps it in a distinct
+/// host-only execution version; it still provides no signing/send/admission.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Draft {
     program: Address,

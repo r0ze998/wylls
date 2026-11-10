@@ -350,3 +350,6 @@ fn forfeit_wire_scope_roster_proof_and_late_refusals_are_inert() {
         assert!(hook.take().is_empty());
     }
 }
+
+#[path = "wide_expedition_retained_failure_tests.rs"]
+mod retained;

@@ -609,3 +609,6 @@ pub(super) mod failure;
 
 #[path = "wide_expedition_forfeit.rs"]
 pub(super) mod forfeit;
+
+#[path = "wide_expedition_retained_failure.rs"]
+pub(super) mod retained_failure;

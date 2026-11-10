@@ -214,6 +214,47 @@ fn stage_bad_member(
     Ok((pending, opened.code))
 }
 
+/// Separate present-slot contract; v1/v2 keep rejecting retained evidence.
+fn stage_bad_retained(
+    p: &Pubkey,
+    a: &[AccountInfo],
+    anchor: &AccountInfo,
+    slot: u8,
+    commit: &[u8; 32],
+    seal: &[u8; wseal::WIDE_SEAL_LEN],
+) -> R<(PendingResolvedReturn, u8, AnchorSource)> {
+    let opened = open_member_seal(p, a, anchor, slot, commit, seal)?;
+    if !matches!(
+        opened.code,
+        seal_code::FO_FAILED
+            | seal_code::BAD_POINT
+            | seal_code::COMMIT_MISMATCH
+            | seal_code::BAD_PLAINTEXT
+    ) {
+        return Err(FrontierError::NotImplemented.into());
+    }
+    let pending = stage_resolved_return(p, a, slot)?;
+    if !matches!(
+        pending.payments_if_valid.outcome,
+        WideOutcome::Fate(
+            wa::wide_arrival::FATE_DESTROYED
+                | wa::wide_arrival::FATE_STAYS
+                | wa::wide_arrival::FATE_WITHDREW
+        )
+    ) || !matches!(pending.retained_slot, Some(ArrivalSlot::Expedition(_)))
+        || pending.home.is_some()
+        || pending.previous_home.is_some()
+        || pending.credited_milli != 0
+    {
+        return Err(FrontierError::NotImplemented.into());
+    }
+    Ok((pending, opened.code, opened.anchor))
+}
+
+pub(super) fn settle_retained_failure_draft(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
+    settlement::retained_failure::execute_draft(p, a, d)
+}
+
 pub(super) fn settle_failure_draft(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
     settlement::failure::execute_draft(p, a, d)
 }

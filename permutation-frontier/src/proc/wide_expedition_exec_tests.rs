@@ -30,7 +30,7 @@ fn ai(
     )
 }
 
-fn fixture() -> (Vec<AccountInfo<'static>>, wix::ExpeditionDepart) {
+pub(in crate::proc::wide) fn fixture() -> (Vec<AccountInfo<'static>>, wix::ExpeditionDepart) {
     prologue::set_test_clock(NOW, 1);
     let p = Pubkey::new_from_array(PROGRAM);
     let bump = Pubkey::find_program_address(
