@@ -162,6 +162,29 @@ fn stage_bad_destroyed(
     commit: &[u8; 32],
     seal: &[u8; wseal::WIDE_SEAL_LEN],
 ) -> R<(PendingResolvedReturn, u8)> {
+    stage_bad_member(p, a, anchor, slot, commit, seal, false)
+}
+
+fn stage_bad_forfeit(
+    p: &Pubkey,
+    a: &[AccountInfo],
+    anchor: &AccountInfo,
+    slot: u8,
+    commit: &[u8; 32],
+    seal: &[u8; wseal::WIDE_SEAL_LEN],
+) -> R<(PendingResolvedReturn, u8)> {
+    stage_bad_member(p, a, anchor, slot, commit, seal, true)
+}
+
+fn stage_bad_member(
+    p: &Pubkey,
+    a: &[AccountInfo],
+    anchor: &AccountInfo,
+    slot: u8,
+    commit: &[u8; 32],
+    seal: &[u8; wseal::WIDE_SEAL_LEN],
+    forfeit: bool,
+) -> R<(PendingResolvedReturn, u8)> {
     let opened = open_member_seal(p, a, anchor, slot, commit, seal)?;
     if !matches!(
         opened.code,
@@ -173,7 +196,14 @@ fn stage_bad_destroyed(
         return Err(FrontierError::NotImplemented.into());
     }
     let pending = stage_resolved_return(p, a, slot)?;
-    if pending.payments_if_valid.outcome != WideOutcome::Fate(wa::wide_arrival::FATE_DESTROYED)
+    let supported = match pending.payments_if_valid.outcome {
+        WideOutcome::Fate(wa::wide_arrival::FATE_DESTROYED) => !forfeit,
+        WideOutcome::Fate(wa::wide_arrival::FATE_STAYS | wa::wide_arrival::FATE_WITHDREW) => {
+            forfeit
+        }
+        _ => false,
+    };
+    if !supported
         || pending.retained_slot.is_some()
         || pending.home.is_some()
         || pending.previous_home.is_some()
@@ -186,6 +216,10 @@ fn stage_bad_destroyed(
 
 pub(super) fn settle_failure_draft(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
     settlement::failure::execute_draft(p, a, d)
+}
+
+pub(super) fn settle_forfeit_draft(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
+    settlement::forfeit::execute_draft(p, a, d)
 }
 
 #[path = "wide_expedition_settlement.rs"]

@@ -477,3 +477,6 @@ fn bad_destroyed_unsupported_proofs_roles_and_late_failures_are_inert() {
         assert!(hook.take().is_empty());
     }
 }
+
+#[path = "wide_expedition_forfeit_tests.rs"]
+mod forfeiture;

@@ -5,6 +5,9 @@
 //! the real native SIMD-0388 implementation. Non-test host code stays closed.
 //! `public-proof-tests` selects only that arithmetic, never a gameplay gate.
 
+#[path = "pairing_contract.rs"]
+mod pairing_contract;
+
 #[cfg(target_os = "solana")]
 extern "C" {
     fn sol_curve_group_op(
@@ -179,17 +182,24 @@ pub fn bls_g2_mul(scalar: &[u8; 32], p: &[u8; 192]) -> Option<[u8; 192]> {
     not(target_os = "solana")
 )))]
 pub fn bls_pairing(g1: &[u8], g2: &[u8], n: u64, out: &mut [u8; 576]) -> Result<(), SysError> {
-    let n_us = n as usize;
-    if g1.len() < 96 * n_us || g2.len() < 192 * n_us {
-        return Err(SysError::BadPoint);
-    }
+    pairing_contract::input_lengths(n, g1.len(), g2.len()).ok_or(SysError::BadPoint)?;
+    // Publish output only after success, matching the native adapter. A
+    // rejected request or failing syscall leaves the caller's buffer intact.
+    let mut result = [0; 576];
     // SAFETY: the lengths were checked above for `n` pairs; `out` is 576 B.
     let rc = unsafe {
-        sol_curve_pairing_map(BLS12_381_BE, n, g1.as_ptr(), g2.as_ptr(), out.as_mut_ptr())
+        sol_curve_pairing_map(
+            BLS12_381_BE,
+            n,
+            g1.as_ptr(),
+            g2.as_ptr(),
+            result.as_mut_ptr(),
+        )
     };
     if rc != 0 {
         return Err(SysError::BadPoint);
     }
+    *out = result;
     Ok(())
 }
 

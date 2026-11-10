@@ -606,3 +606,6 @@ mod runtime_contract_tests;
 
 #[path = "wide_expedition_failure.rs"]
 pub(super) mod failure;
+
+#[path = "wide_expedition_forfeit.rs"]
+pub(super) mod forfeit;

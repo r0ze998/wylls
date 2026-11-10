@@ -4573,6 +4573,41 @@ fn host_entry(
     Ok(Some((i, e)))
 }
 
+/// Existing bad-seal forfeiture rule, staged without writes. Full roster
+/// pairing is required before following an alias. Missing/already-busy hosts
+/// preserve the existing no-op behavior; no caller-selected host is inferred.
+fn stage_roster_forfeit(
+    p: &Pubkey,
+    ctx: &AddrCtx,
+    season_id: u64,
+    dest_ai: &AccountInfo,
+    dest_roster: &AccountInfo,
+    dkey: ProvinceKey,
+    host: &WideHostRef,
+    now_bell: u32,
+) -> R<Option<Vec<u8>>> {
+    expect_key(dest_roster, &wro::roster_address(ctx, dkey))?;
+    if let Some(roster) = roster_at(dest_roster, p, season_id, dkey)? {
+        let mut pd_s = dest_ai.try_borrow_data()?.to_vec();
+        let rd = dest_roster.try_borrow_data()?;
+        roster
+            .validate_paired(&rd, &wres::live_ids(&pd_s).map_err(resolve_err)?)
+            .map_err(|_| BAD_ACCOUNT)?;
+        if let Some((i, mut e)) = host_entry(&pd_s, &roster, &rd, host)? {
+            if e.state == E::STATE_ROSTER && !e.busy() {
+                e.op = EntryOp::Forfeit;
+                e.pend_bell = now_bell;
+                write_entry(&mut pd_s, i, &e).map_err(|_| BAD_ACCOUNT)?;
+                let mut w = Rw(&mut pd_s);
+                let ep = w.u32(PV::ROSTER_EPOCH)?.wrapping_add(1);
+                w.set_u32(PV::ROSTER_EPOCH, ep)?;
+                return Ok(Some(pd_s));
+            }
+        }
+    }
+    Ok(None)
+}
+
 /// The record bell of a settlement (`NO_BELL` before genesis).
 fn bell_log(hdr: &ap::SeasonHdr, ts: i64) -> u32 {
     hdr.bell(ts).unwrap_or(frontier_abi::log::NO_BELL)
@@ -6181,25 +6216,16 @@ pub fn settle_transit(p: &Pubkey, a: &[AccountInfo], x: &wix::SettleTransit) -> 
     );
     let mut home_stage: Option<HomeStage> = None;
     if plan.forfeit {
-        expect_key(dest_roster, &wro::roster_address(&ctx, dkey))?;
-        if let Some(roster) = roster_at(dest_roster, p, hdr.id, dkey)? {
-            let mut pd_s = dest_ai.try_borrow_data()?.to_vec();
-            let rd = dest_roster.try_borrow_data()?;
-            roster
-                .validate_paired(&rd, &wres::live_ids(&pd_s).map_err(resolve_err)?)
-                .map_err(|_| BAD_ACCOUNT)?;
-            if let Some((i, mut e)) = host_entry(&pd_s, &roster, &rd, &t.host)? {
-                if e.state == E::STATE_ROSTER && !e.busy() {
-                    e.op = EntryOp::Forfeit;
-                    e.pend_bell = now_bell;
-                    write_entry(&mut pd_s, i, &e).map_err(|_| BAD_ACCOUNT)?;
-                    let mut w = Rw(&mut pd_s);
-                    let ep = w.u32(PV::ROSTER_EPOCH)?.wrapping_add(1);
-                    w.set_u32(PV::ROSTER_EPOCH, ep)?;
-                    dest_stage = Some(pd_s);
-                }
-            }
-        }
+        dest_stage = stage_roster_forfeit(
+            p,
+            &ctx,
+            hdr.id,
+            dest_ai,
+            dest_roster,
+            dkey,
+            &t.host,
+            now_bell,
+        )?;
     } else if plan.stays {
         troops_logged = rec.map_or(0, |r| r.troops_after);
     } else if let Some((troops, stamina, routed)) = plan.returns {

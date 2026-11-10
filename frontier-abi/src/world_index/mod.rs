@@ -219,3 +219,6 @@ mod tests {
 
 pub mod expedition_failure_ix;
 pub mod expedition_failure_event;
+
+pub mod expedition_forfeit_ix;
+pub mod expedition_forfeit_event;

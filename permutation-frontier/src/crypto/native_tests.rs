@@ -3,6 +3,11 @@
 use super::SysError;
 use solana_bls12_381_syscall::{self as bls, Endianness::BE, Version::V0};
 
+// Also included directly by the separate public-fixture harnesses; do not
+// depend on their parent module exposing production-private helpers.
+#[path = "pairing_contract.rs"]
+mod pairing_contract;
+
 pub fn bls_g1_add(a: &[u8; 96], b: &[u8; 96]) -> Result<[u8; 96], SysError> {
     bls::bls12_381_g1_addition_unchecked(V0, &bls::PodG1Point(*a), &bls::PodG1Point(*b), BE)
         .map(|p| p.0)
@@ -21,15 +26,13 @@ pub fn bls_g2_mul(scalar: &[u8; 32], p: &[u8; 192]) -> Option<[u8; 192]> {
         .map(|p| p.0)
 }
 pub fn bls_pairing(g1: &[u8], g2: &[u8], n: u64, out: &mut [u8; 576]) -> Result<(), SysError> {
-    // SIMD-0388 permits at most eight pairs. Bound before converting lengths.
-    if n > 8 || g1.len() < 96 * n as usize || g2.len() < 192 * n as usize {
-        return Err(SysError::BadPoint);
-    }
-    let p1: alloc::vec::Vec<_> = g1[..96 * n as usize]
+    let (g1_len, g2_len) =
+        pairing_contract::input_lengths(n, g1.len(), g2.len()).ok_or(SysError::BadPoint)?;
+    let p1: alloc::vec::Vec<_> = g1[..g1_len]
         .chunks_exact(96)
         .map(|b| bls::PodG1Point(b.try_into().unwrap()))
         .collect();
-    let p2: alloc::vec::Vec<_> = g2[..192 * n as usize]
+    let p2: alloc::vec::Vec<_> = g2[..g2_len]
         .chunks_exact(192)
         .map(|b| bls::PodG2Point(b.try_into().unwrap()))
         .collect();

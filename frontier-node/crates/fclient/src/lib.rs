@@ -24,6 +24,8 @@ pub mod abi;
 pub mod addr;
 pub mod beacon;
 pub mod budgets;
+/// Bounded public blockhash reads; no signing or transaction admission.
+pub mod blockhash_preflight;
 pub mod clash_model;
 pub mod clock;
 pub mod conquest;
@@ -37,10 +39,14 @@ pub mod payers;
 pub mod play;
 pub mod ports;
 pub mod rpc;
+/// Opt-in bounded HTTPS transport restricted to public read-only RPC methods.
+pub mod readonly_https_rpc;
 pub mod seal;
 #[cfg(feature = "snapshot")]
 pub mod snapshot;
 pub mod tx;
+/// Keyless legacy-message shape and external blockhash observation checks.
+pub mod unsigned_message_preflight;
 #[cfg(feature = "wide-records-experimental")]
 pub mod typed_log;
 pub mod vectors;
