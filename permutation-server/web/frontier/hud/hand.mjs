@@ -21,7 +21,7 @@
 // through the map's own projection, and turns `data-act` into orders
 // (controller.mjs). Every number comes from hud/rulebook.mjs.
 import { html, raw } from '../../util.mjs';
-import { L, fmtNum } from '../../lang.mjs';
+import { L, t, fmtNum } from '../../lang.mjs';
 import { RESOURCES, RESOURCE_ORDER, UNITS, TIERS, BUILDINGS, unitCount } from '../fi18n.mjs';
 import { UNIT_ORDER, SCOUT, SETTLER, buildItemOf } from '../fland.mjs';
 import { RULES, DEPART_STAMINA } from '../fmarch.mjs';
@@ -42,6 +42,7 @@ import { handNote } from '../fdelegation.mjs';
 import { previewOf } from '../proto/hand-model.mjs';
 import { conquestOn, renderKeepsPop, waitOf, holdTurns } from './keephand.mjs';
 import { EXPEDITION_POP, inspectionVersion } from '../fexpedition.mjs';
+import { originalReturnModel } from '../fexpedition-return.mjs';
 import { OUTBOUND_POP, outboundSketch } from '../fexpedition-compose.mjs';
 import { composerChoices } from '../screens/march.mjs';
 
@@ -525,6 +526,10 @@ function outboundPop(FS, model) {
 /** The entered coordinate is an inspection query, never a destination or a claimed current location. */
 function expeditionPop(FS, model) {
   const state = FS.expeditionPreview ?? {}, report = state.report, source = report?.source;
+  let returning = null, returnError = false;
+  if (report && state.request) {
+    try { returning = originalReturnModel(report, state.request); } catch { returnError = true; }
+  }
   const unavailable = FS.resident ? L`NFT の軍勢はこの確認に対応していません。` : !FS.wallet?.address ? L`接続したウォレットが必要です。` : FS.meStatus !== 'ready' ? L`自分の記録を読み込んでから確認してください。` : null;
   return html`${popHead(L`この軍勢を P,Q で確認`)}
     <p class="pop-line">${L`読み取り専用です。P,Q は確認する場所であり、行き先でも現在地の証明でもありません。`}</p>
@@ -541,8 +546,16 @@ function expeditionPop(FS, model) {
       ${report ? html`<p class="pop-line">${L`確認結果`}: ${report.status} · ${report.stage}</p>
         ${report.blocker ? html`<p class="pop-line pop-why">${report.blocker.code}</p>` : ''}
         <p class="pop-line">${L`記録のスロット`}: ${source.context_slot ?? '?'} · ${L`鮮度は不明です。権限や完了を証明する結果ではありません。`}</p>
-        ${report.facts?.next_prerequisite ? html`<p class="pop-line">${L`次に必要な確認`}: ${report.facts.next_prerequisite}</p>` : ''}
-        ${report.draft ? html`<details><summary>${L`実行できない役割案`}: ${report.draft.action}</summary><ul>${report.draft.roles.map(r => html`<li>${r.name}: ${r.address} · ${r.signer ? L`署名が必要` : L`署名不要`} · ${r.writable ? L`書き込み役割` : L`読み取り役割`}</li>`)}</ul></details>` : ''}
+        ${returnError ? html`<p class="pop-line pop-why">${L`帰還の手順を確認できませんでした。もう一度読み取ってください。`}</p>` : ''}
+        ${returning ? html`<section class="expedition-return" data-return-phase="${returning.phase}" aria-label="${L`帰還の手順`}">
+          <p class="pop-line"><strong>${t(returning.titleJa)}</strong></p>
+          <p class="pop-line">${t(returning.detailJa)}</p>
+          ${returning.steps.length ? html`<ol>${returning.steps.map(step=>html`<li data-return-step="${step.id}" data-step-state="${step.status}">${step.status==='proposal' ? html`<strong>${t(step.labelJa)}</strong>` : t(step.labelJa)}</li>`)}</ol>` : ''}
+          ${returning.returnUnits !== null ? html`<p class="pop-line">${L`予備兵に戻す人数の候補: ${fmtNum(returning.returnUnits)}人`}</p>
+            <p class="pop-line">${L`処理後の予備兵の見込み: ${fmtNum(returning.reserveAfter)}人`}</p>` : ''}
+          <p class="pop-line pop-why">${L`帰還の送信はまだ利用できません。予備兵への加算も行っていません。`}</p>
+        </section>` : ''}
+        ${returning?.proposal ? html`<details><summary>${L`実行できない役割案`}: ${returning.proposal.action}</summary><ul>${returning.proposal.roles.map(r => html`<li>${r.name}: ${r.address} · ${r.signer ? L`署名が必要` : L`署名不要`} · ${r.writable ? L`書き込み役割` : L`読み取り役割`}</li>`)}</ul></details>` : ''}
         ${report.draft_blocker ? html`<p class="pop-line">${report.draft_blocker}</p>` : ''}` : ''}</div>
     <p class="pop-line pop-rule">${L`公開の実行経路は閉じたままです。帰還済みとは判定せず、地図や行軍記録も変更しません。`}</p>`;
 }

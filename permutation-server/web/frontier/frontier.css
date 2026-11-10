@@ -2475,6 +2475,12 @@ body .hand-pop[data-pop="expedition-compose"][data-mode="card"] {
 .hand-pop[data-pop="expedition-compose"] details { margin-top: 8px; }
 .hand-pop[data-pop="expedition-compose"] summary { cursor: pointer; color: var(--brass-hi); }
 @media (max-width: 759px) {
+  /* Experimental expedition controls add two choices to the normal bar.
+     Keep readable targets and let the row scroll instead of squeezing text. */
+  .hand-acts:has(.hand-expedition-inspect) { overflow-x: auto; padding-bottom: 4px; touch-action: pan-x; overscroll-behavior-x: contain; }
+  .hand-acts:has(.hand-expedition-inspect) .hand-btn { flex: 0 0 104px; }
+  .hand-acts:has(.hand-expedition-inspect) .hand-word { white-space: normal; }
+  body:has(#hand-pop[data-pop="expedition-inspect"]:not([hidden])) #hand .hand-acts { display: none; }
   body .hand-pop[data-pop="expedition-compose"][data-mode="card"] { width: auto; max-height: min(260px, calc(var(--vvh) * .31)); }
   .hand-pop[data-pop="expedition-compose"] .outbound-directions { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 4px; }
   .hand-pop[data-pop="expedition-compose"] .outbound-directions .btn { padding-inline: 2px; }

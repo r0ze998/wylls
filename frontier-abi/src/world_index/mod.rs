@@ -216,3 +216,6 @@ mod tests {
         assert_eq!(permutation_rules::frontier::addr::ADDR_VERSION, 1);
     }
 }
+
+pub mod expedition_failure_ix;
+pub mod expedition_failure_event;

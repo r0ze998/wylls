@@ -474,6 +474,10 @@ mod proof;
 /// Private draft-wire route only. No public command parser or dispatcher
 /// admits this operation. The proof child consumes exact roles and reopens
 /// the original stored commitment before the existing settlement can write.
+pub(super) fn settle_failure_draft(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
+    proof::settle_failure_draft(p, a, d)
+}
+
 pub(super) fn settle_draft(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
     proof::settle_draft(p, a, d)
 }

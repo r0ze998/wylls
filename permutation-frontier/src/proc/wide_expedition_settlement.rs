@@ -517,6 +517,24 @@ pub(super) fn settle_camp_v2(
 }
 
 fn commit_prepared(p: &Pubkey, a: &[AccountInfo], prepared: Prepared) -> R<()> {
+    commit_snapshots(p, a, &prepared.before, &prepared.after)?;
+    for record in &prepared.diversions {
+        solana_program::log::sol_log_data(&[frontier_abi::log::PREFIX, record]);
+    }
+    solana_program::log::sol_log_data(&[
+        frontier_abi::world_index::expedition_event::PREFIX,
+        &prepared.receipts.original,
+    ]);
+    solana_program::log::sol_log_data(&[wev::WIDE_LOG_PREFIX, &prepared.receipts.wide]);
+    Ok(())
+}
+
+fn commit_snapshots(
+    p: &Pubkey,
+    a: &[AccountInfo],
+    before: &[Snapshot],
+    after: &[Snapshot],
+) -> R<()> {
     let mut data = Vec::new();
     let mut balances = Vec::new();
     let mut closed = Vec::new();
@@ -524,8 +542,8 @@ fn commit_prepared(p: &Pubkey, a: &[AccountInfo], prepared: Prepared) -> R<()> {
         if a[..i].iter().any(|x| x.key == a[i].key) {
             continue;
         }
-        let before = &prepared.before[i];
-        let after = &prepared.after[i];
+        let before = &before[i];
+        let after = &after[i];
         if before.data != after.data || before.owner != after.owner {
             if !a[i].is_writable || a[i].owner != p {
                 return Err(BAD_ACCOUNT);
@@ -559,20 +577,13 @@ fn commit_prepared(p: &Pubkey, a: &[AccountInfo], prepared: Prepared) -> R<()> {
     }
     for (i, mut guard) in data {
         if let Some(ref mut bytes) = guard {
-            bytes.copy_from_slice(&prepared.after[i].data);
+            bytes.copy_from_slice(&after[i].data);
         }
     }
     for (i, mut lamports) in balances {
-        **lamports = prepared.after[i].lamports;
+        **lamports = after[i].lamports;
     }
-    for record in &prepared.diversions {
-        solana_program::log::sol_log_data(&[frontier_abi::log::PREFIX, record]);
-    }
-    solana_program::log::sol_log_data(&[
-        frontier_abi::world_index::expedition_event::PREFIX,
-        &prepared.receipts.original,
-    ]);
-    solana_program::log::sol_log_data(&[wev::WIDE_LOG_PREFIX, &prepared.receipts.wide]);
+
     Ok(())
 }
 
@@ -592,3 +603,6 @@ mod camp_v2_tests;
 ))]
 #[path = "wide_expedition_runtime_contract_tests.rs"]
 mod runtime_contract_tests;
+
+#[path = "wide_expedition_failure.rs"]
+pub(super) mod failure;

@@ -16,6 +16,8 @@ import { encode as toB58, decode as fromB58 } from '../../permutation-server/web
 import { syntheticOutboundSnapshot } from './codex/outbound-context-observation.mjs';
 import { outboundSnapshotRequest, outboundSnapshotReport } from '../src/frontier/outbound-snapshot.mjs';
 import { expeditionPreviewRoutes } from '../src/frontier/routes/expedition-preview.mjs';
+import { expeditionRequest, expeditionReport } from '../src/frontier/expedition-preview.mjs';
+import { syntheticReturnInspection } from './codex/return-observation.mjs';
 
 // Imported only after the built-in guard above. The audited 1.58.2 launch path
 // creates no certificate: no proxy, clientCertificates or remote browser.
@@ -118,8 +120,8 @@ async function serve() {
   const overviewGate = new Promise(r => { releaseOverviews = r; });
   const wide=widePresentation();
   let historyMode='ready',historyGate=null,releaseHistory=null,captureMode='ready',inventoryMode='off';
-  const requests = [], writes = [], snapshotReads = [];
-  let snapshotMode = 'ready';
+  const requests = [], writes = [], snapshotReads = [], returnReads = [];
+  let snapshotMode = 'ready', returnMode = 'dissolve';
   const server = createServer(async (req, res) => {
     const url = new URL(req.url, 'http://localhost'),path=url.pathname;
     requests.push(path);
@@ -129,8 +131,11 @@ async function serve() {
       // provider is explicitly synthetic; it does not call a chain or sign.
       try {
         let body=''; for await(const part of req) { body+=part.toString('utf8'); if(Buffer.byteLength(body)>8192) return json(413,{code:'BodyTooLarge'}); }
-        const input=outboundSnapshotRequest(JSON.parse(body)); snapshotReads.push(input.schema);
+        const raw=JSON.parse(body), returning=raw.schema==='frontier-original-expedition-request-v1';
+        const input=returning?expeditionRequest(raw):outboundSnapshotRequest(raw);
+        (returning?returnReads:snapshotReads).push(input.schema);
         const result=await expeditionPreviewRoutes['POST /f/expedition/preview']({expeditionPreview:{inspect:async request=>{
+          if(returning) return expeditionReport(syntheticReturnInspection(request,{phase:returnMode}),request);
           const season=GOLDEN.stages.grown['/h/season'].body;
           const report=syntheticOutboundSnapshot(request,{genesis:BigInt(season.genesisTs),unixTimestamp:BigInt(season.latestUnix),
             stamina:snapshotMode==='tired'?73:120,wideBytes:Buffer.from(wide.entry.wide.capture.bytes_b64,'base64')});
@@ -196,7 +201,8 @@ async function serve() {
     } catch { json(404, { ok: false, code: 'NotFound' }); }
   });
   await new Promise(r => server.listen(0, '127.0.0.1', r));
-  return { base: `http://127.0.0.1:${server.address().port}`, requests, writes, snapshotReads, snapshot: mode=>{snapshotMode=mode;}, obstacle: v => { obstacle = v; },
+  return { base: `http://127.0.0.1:${server.address().port}`, requests, writes, snapshotReads, returnReads,
+    returning:mode=>{returnMode=mode;}, snapshot: mode=>{snapshotMode=mode;}, obstacle: v => { obstacle = v; },
     history: mode => {historyMode=mode;}, holdHistory:()=>{historyGate=new Promise(r=>{releaseHistory=r;});},
     capture: mode=>{captureMode=mode;},
     inventory: mode=>{inventoryMode=mode;},
@@ -652,6 +658,88 @@ for (const vp of [{width:1440,height:900,name:'desktop'}, {width:390,height:844,
         assert.deepEqual(requests.filter(r=>!['GET','HEAD'].includes(r.method) && !(r.method==='POST' && r.url===`${srv.base}/gw/f/expedition/preview`)),[]);
         assert.deepEqual(requests.filter(r=>!r.url.startsWith(srv.base)),[]);
       } finally { releaseReads?.(); await Promise.all([ctx?.close(),browser?.close(),srv.close()]); }
+    }
+  });
+}
+
+for (const vp of [{width:1440,height:900,name:'desktop'}, {width:390,height:844,name:'phone'}]) {
+  test(`original return inspection @ ${vp.name}`, { timeout:90000 }, async () => {
+    const srv=await serve(), phone=vp.width<760, errors=[], requests=[];
+    const outDir=process.env.WYLLS_SCREEN_OUT??'/tmp/wylls-return-browser-20261110';
+    let browser,ctx,page,releaseReads;
+    try {
+      browser=await chromium.launch({channel:'chromium',chromiumSandbox:true});
+      ctx=await browser.newContext({viewport:{width:vp.width,height:vp.height},isMobile:phone,hasTouch:phone,
+        locale:'ja-JP',timezoneId:'UTC',serviceWorkers:'block'});
+      await NK.prepare(ctx,{wallet:GOLDEN.wallet},{lang:'ja'});
+      await ctx.route('**/seal-worker.mjs',route=>route.abort('blockedbyclient'));
+      page=await ctx.newPage();page.setDefaultTimeout(15000);
+      page.on('pageerror',e=>errors.push(e.message));page.on('request',r=>requests.push({method:r.method(),url:r.url()}));
+      await mkdir(outDir,{recursive:true});srv.release();
+      await page.clock.setFixedTime(new Date(Number(GOLDEN.stages.grown['/h/season'].body.latestUnix)*1000+500));
+      await page.goto(`${srv.base}/frontier/index.html?devWallet=off&at=4,0,0,1`);
+      await page.evaluate(async()=>{window.__returnFS=(await import('/frontier/fstate.mjs')).FS;});
+      await page.waitForFunction(()=>{const FS=window.__returnFS;return FS.playReady&&FS.meStatus==='ready'
+        &&FS.meAnswered&&FS.overviewsBooted&&!!FS.wallet?.address&&!!FS.citizen&&FS.holdings.length>0&&!!FS.s1?.structures;});
+      const held=new Promise(r=>{releaseReads=r;});
+      await page.route('**/h/**',async route=>{await held;await route.continue().catch(()=>{});});
+      await boundaryObservation(page);
+      const press=loc=>phone?loc.tap():loc.click();
+      const ordinary=()=>page.evaluate(async()=>{const {FS}=await import('/frontier/fstate.mjs');return {
+        reserve:[...FS.holdings[0].reserve],selected:FS.selected,compose:!!FS.compose,session:!!FS.session,marches:FS.marches.length,book:FS.book.length};});
+      const before=await ordinary();
+      const open=page.locator('#hand [data-pop="expedition-inspect"]');
+      if(phone) {
+        const readable=await page.locator('#hand .hand-acts').evaluate(row=>({scroll:row.scrollWidth>row.clientWidth,
+          fits:[...row.querySelectorAll('.hand-btn')].every(button=>{const b=button.getBoundingClientRect(),t=button.querySelector('.hand-word').getBoundingClientRect();return b.width>=100&&t.left>=b.left&&t.right<=b.right;})}));
+        assert.deepEqual(readable,{scroll:true,fits:true},'extra controls scroll with legible labels instead of overlapping');
+      }
+      await press(open);
+      await page.locator('[data-bind="expedition-p"]').fill('129');
+      await page.locator('[data-bind="expedition-q"]').fill('0');
+      const observations=[];
+      for(const [phase,modelPhase,action] of [['dissolve','resident','Dissolve'],['resolving','leave-pending',null],['return','return-pending','Return']]) {
+        srv.returning(phase);
+        const control=page.locator('[data-act="expedition-inspect"]');
+        assert.notEqual(await control.getAttribute('aria-disabled'),'true',JSON.stringify(await inspectPage(page,async()=>{
+          const {FS}=await import('/frontier/fstate.mjs');return {meStatus:FS.meStatus,meError:FS.meError,wallet:!!FS.wallet?.address,
+            resident:!!FS.resident,pop:FS.hand?.pop,text:document.getElementById('hand-pop')?.textContent};})));
+        await press(control);
+        await page.locator(`.expedition-return[data-return-phase="${modelPhase}"]`).waitFor({state:'visible'});
+        const model=await page.evaluate(async()=>{const {FS}=await import('/frontier/fstate.mjs'),{originalReturnModel}=await import('/frontier/fexpedition-return.mjs');
+          return originalReturnModel(FS.expeditionPreview.report,FS.expeditionPreview.request);});
+        assert.equal(model.proposal?.action??null,action);
+        if(action) {assert.equal(model.proposal.bytes_hex.length,120);assert.equal(model.proposal.executable,false);}
+        assert.equal(await page.locator('.expedition-return button').count(),0,'observed steps cannot submit a transaction');
+        assert.match(await page.locator('.expedition-return').textContent(),/予備兵への加算も行っていません/);
+        observations.push({phase:model.phase,action,bytes:action?60:0});
+      }
+      assert.deepEqual(await ordinary(),before,'no reserve, map, march, session or normal draft mutation');
+      await page.locator('.expedition-return').scrollIntoViewIfNeeded();
+      await page.screenshot({path:`${outDir}/${vp.name}-return.png`});
+      await page.locator('[data-bind="expedition-p"]').fill('130');
+      assert.equal(await page.locator('.expedition-return').count(),0,'editing clears the completed observation and proposal');
+      await press(page.locator('#hand-pop .pop-x'));await press(open);
+      assert.equal(await page.locator('.expedition-return').count(),0,'reopening never restores a stale proposal');
+      assert.equal(await page.locator('[data-bind="expedition-p"]').inputValue(),'');
+      assert.equal(srv.returnReads.length,3);assert.deepEqual(errors,[]);
+      console.log(JSON.stringify({viewport:vp.name,returnInspection:{syntheticObservation:true,originalPage:true,observations,
+        readonlyPosts:3,ordinaryStateUnchanged:true,editClears:true,reopenClears:true,executable:false}}));
+    } catch(error) {
+      if(page&&!page.isClosed()) await page.screenshot({path:`${outDir}/${vp.name}-return-failure.png`,timeout:5000}).catch(()=>{});
+      throw error;
+    } finally {
+      try {
+        if(page&&!page.isClosed()) {
+          assert.equal(ctx.pages().length,1);
+          const safety=await inspectPage(page,async()=>({uses:window.__keyUses,storedUses:JSON.parse(localStorage.getItem('ws07:keyUses')??'[]'),
+            seeds:Object.keys(localStorage).filter(k=>k==='ps-dev-wallet'||k.startsWith('ps-fsession:')),session:!!(await import('/frontier/fstate.mjs')).FS.session}));
+          assert.deepEqual(safety,{uses:[],storedUses:[],seeds:[],session:false});
+        }
+        assert.deepEqual(keyCalls,[]);assert.deepEqual(srv.writes,[]);
+        assert.deepEqual(requests.filter(r=>!['GET','HEAD'].includes(r.method)&&!(r.method==='POST'&&r.url===`${srv.base}/gw/f/expedition/preview`)),[]);
+        assert.deepEqual(requests.filter(r=>!r.url.startsWith(srv.base)),[]);
+      } finally {releaseReads?.();await Promise.all([ctx?.close(),browser?.close(),srv.close()]);}
     }
   });
 }

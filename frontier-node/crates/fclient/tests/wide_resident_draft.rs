@@ -14,6 +14,8 @@ use frontier_abi::{
         wide_ix, ProvinceKey, WideCoord, WideHostRef,
     },
 };
+use serde_json::{json, Value};
+const SHARED: &[u8] = include_bytes!("fixtures/original_resident_draft_v1.json");
 const DISSOLVE: &[u8] =
     include_bytes!("../../verify/tests/fixtures/wide_expedition_resident/dissolve_v1.bin");
 const RETURN: &[u8] =
@@ -117,6 +119,48 @@ fn proposed_roles_and_host_match_both_actual_native_invocations() {
         record.pair(&Record::decode(&ctx, &other).unwrap()).unwrap();
         assert_eq!(record.action, action);
         assert_eq!(record.identity.host, host);
+        // The shared web vectors are extracted independently from these
+        // immutable before-account snapshots, not from Draft's output.
+        let vectors: Value = serde_json::from_slice(SHARED).unwrap();
+        let id = if action == Action::Dissolve {
+            "native_dissolve"
+        } else {
+            "native_return"
+        };
+        let vector = vectors["cases"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|v| v["id"] == id)
+            .unwrap();
+        assert_eq!(vector["provenance"]["sha256"], digest);
+        assert_eq!(
+            vector["request"]["program"],
+            Address::new_from_array(program).to_string()
+        );
+        assert_eq!(
+            vector["request"]["season"],
+            Address::new_from_array(season).to_string()
+        );
+        assert_eq!(vector["request"]["host"], hex::encode(host.to_bytes()));
+        assert_eq!(
+            vector["request"]["original_owner"],
+            Address::new_from_array(record.identity.original_owner).to_string()
+        );
+        assert_eq!(
+            vector["expected"]["standing_key"],
+            hex::encode(record.identity.standing.to_bytes())
+        );
+        for (v, (key, signer, writable, _)) in vector["expected"]["roles"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .zip(&before)
+        {
+            assert_eq!(v["address"], key.to_string());
+            assert_eq!(v["signer"], *signer);
+            assert_eq!(v["writable"], *writable);
+        }
         let draft = match action {
             Action::Dissolve => Draft::for_wallet(
                 &ctx,
@@ -145,6 +189,97 @@ fn proposed_roles_and_host_match_both_actual_native_invocations() {
         assert!(!draft.public_dispatch_available());
         assert!(!draft.admitted());
     }
+}
+
+#[test]
+fn independent_shared_web_vectors_pin_bytes_roles_and_complete_content_digest() {
+    let v: Value = serde_json::from_slice(SHARED).unwrap();
+    assert_eq!(v["schema"], "frontier-original-resident-draft-v1");
+    assert_eq!(v["cases"].as_array().unwrap().len(), 4);
+    assert_eq!(
+        v["digest_domain"],
+        std::str::from_utf8(fclient::wide_resident_draft::CONTENT_DIGEST_DOMAIN).unwrap()
+    );
+    for case in v["cases"].as_array().unwrap() {
+        let (r, expected) = (&case["request"], &case["expected"]);
+        let program: Address = r["program"].as_str().unwrap().parse().unwrap();
+        let season: Address = r["season"].as_str().unwrap().parse().unwrap();
+        let ctx = AddrCtx {
+            program: program.to_bytes(),
+            season: season.to_bytes(),
+        };
+        let host =
+            WideHostRef::from_bytes(&hex::decode(r["host"].as_str().unwrap()).unwrap()).unwrap();
+        let standing = ProvinceKey::new(
+            host.key().world(),
+            WideCoord::checked(
+                r["standing"]["p"].as_str().unwrap().parse().unwrap(),
+                r["standing"]["q"].as_str().unwrap().parse().unwrap(),
+            )
+            .unwrap(),
+        );
+        let payer: Address = r["payer"].as_str().unwrap().parse().unwrap();
+        let draft = match case["action"].as_str().unwrap() {
+            "Dissolve" => Draft::for_wallet(
+                &ctx,
+                host,
+                standing,
+                r["wallet"].as_str().unwrap().parse().unwrap(),
+                payer,
+            ),
+            "Return" => {
+                assert!(r["wallet"].is_null());
+                Draft::return_home(&ctx, host, standing, payer)
+            }
+            _ => panic!("unexpected shared action"),
+        }
+        .unwrap();
+        assert_eq!(
+            hex::encode(draft.proposed_bytes()),
+            expected["bytes_hex"],
+            "{}",
+            case["id"]
+        );
+        assert_eq!(
+            hex::encode(draft.standing().to_bytes()),
+            expected["standing_key"]
+        );
+        let roles = draft.roles().iter().map(|a| json!({"name":a.name,"address":a.address.to_string(),"signer":a.signer,"writable":a.writable})).collect::<Vec<_>>();
+        assert_eq!(json!(roles), expected["roles"], "{}", case["id"]);
+        assert_eq!(
+            hex::encode(draft.content_digest()),
+            expected["content_digest"],
+            "{}",
+            case["id"]
+        );
+        assert!(!draft.public_dispatch_available() && !draft.admitted());
+        assert!(wide_ix::WideCommand::decode(&draft.proposed_bytes()).is_err());
+    }
+}
+
+#[test]
+fn content_digest_binds_scope_and_roles_that_the_wire_does_not_contain() {
+    let ctx = context();
+    let (host, standing) = selection(&ctx);
+    let base = Draft::return_home(&ctx, host, standing, address(9)).unwrap();
+    let far = ProvinceKey::new(
+        standing.world(),
+        WideCoord::checked((1i64 << 53) + 1, -2).unwrap(),
+    );
+    for changed in [
+        Draft::return_home(&ctx, host, far, address(9)).unwrap(),
+        Draft::return_home(&ctx, host, standing, address(10)).unwrap(),
+    ] {
+        assert_eq!(base.proposed_bytes(), changed.proposed_bytes());
+        assert_ne!(base.content_digest(), changed.content_digest());
+    }
+    let actor = Draft::for_wallet(&ctx, host, standing, address(7), address(8)).unwrap();
+    let alias = Draft::for_wallet(&ctx, host, standing, address(7), address(7)).unwrap();
+    let other_wallet = Draft::for_wallet(&ctx, host, standing, address(6), address(8)).unwrap();
+    assert_eq!(actor.proposed_bytes(), alias.proposed_bytes());
+    assert_eq!(actor.proposed_bytes(), other_wallet.proposed_bytes());
+    assert_ne!(actor.content_digest(), alias.content_digest());
+    assert_ne!(actor.content_digest(), other_wallet.content_digest());
 }
 #[test]
 fn wallet_citizen_and_minimum_privileges_keep_return_permissionless() {

@@ -3,7 +3,8 @@
 //! This is a child of `expedition_return`, never a public instruction API.
 //! It uses the production anchor/archive selection, clock grace and wide
 //! opener, then the original-owner return staging. Bad seals and nonmembers
-//! remain refused: this does not implement forfeiture or routed settlement.
+//! remain refused by member/camp consumers. A separate failure draft supports
+//! only already-destroyed members, without forfeiture or routed settlement.
 use super::*;
 
 /// An opaque observation, NOT a reusable settlement capability. No fields,
@@ -26,14 +27,22 @@ pub(super) struct PendingVerifiedResolvedReturn {
 /// Neither a plaintext, signature, outcome nor a validity verdict is accepted
 /// from the caller. The only proof input is the actual committed wide seal.
 /// No account data, lamports, events or external state is changed on any path.
-pub(super) fn stage(
+struct OpenedMemberSeal {
+    code: u8,
+    plain: Option<wseal::WidePlain>,
+    anchor: AnchorSource,
+    settle_at: i64,
+    destination: ProvinceKey,
+}
+
+fn open_member_seal(
     p: &Pubkey,
     a: &[AccountInfo],
     anchor: &AccountInfo,
     slot_index: u8,
     commit: &[u8; 32],
     seal: &[u8; wseal::WIDE_SEAL_LEN],
-) -> R<PendingVerifiedResolvedReturn> {
+) -> R<OpenedMemberSeal> {
     let [season, holding, external, _home, dest, _inputs, _slot, _rent_to, tail @ ..] = a else {
         return Err(FrontierError::TooManyAccounts.into());
     };
@@ -97,6 +106,30 @@ pub(super) fn stage(
     let s_aff = sys::bls_g1_decompress(&src.sig48)
         .map_err(|_| crypto(crate::error::crypto_sub::BAD_POINT))?;
     let (code, plain) = cseal::judge_wide(&s_aff, seal, commit, &t.host, t.arrive_bell);
+    Ok(OpenedMemberSeal {
+        code,
+        plain,
+        anchor: src,
+        settle_at,
+        destination: dkey,
+    })
+}
+
+pub(super) fn stage(
+    p: &Pubkey,
+    a: &[AccountInfo],
+    anchor: &AccountInfo,
+    slot_index: u8,
+    commit: &[u8; 32],
+    seal: &[u8; wseal::WIDE_SEAL_LEN],
+) -> R<PendingVerifiedResolvedReturn> {
+    let OpenedMemberSeal {
+        code,
+        plain,
+        anchor: src,
+        settle_at,
+        destination: dkey,
+    } = open_member_seal(p, a, anchor, slot_index, commit, seal)?;
     if code != seal_code::VALID {
         // No invented forfeiture or fee treatment for unsupported bad seals.
         return Err(FrontierError::NotImplemented.into());
@@ -116,6 +149,43 @@ pub(super) fn stage(
         anchor: src,
         settle_at,
     })
+}
+
+/// Narrow failure contract: the same authenticated final-set member is already
+/// destroyed. No caller verdict, no survivor return, no destination forfeiture.
+/// All other fates and nonmembers remain unsupported by this consumer.
+fn stage_bad_destroyed(
+    p: &Pubkey,
+    a: &[AccountInfo],
+    anchor: &AccountInfo,
+    slot: u8,
+    commit: &[u8; 32],
+    seal: &[u8; wseal::WIDE_SEAL_LEN],
+) -> R<(PendingResolvedReturn, u8)> {
+    let opened = open_member_seal(p, a, anchor, slot, commit, seal)?;
+    if !matches!(
+        opened.code,
+        seal_code::FO_FAILED
+            | seal_code::BAD_POINT
+            | seal_code::COMMIT_MISMATCH
+            | seal_code::BAD_PLAINTEXT
+    ) {
+        return Err(FrontierError::NotImplemented.into());
+    }
+    let pending = stage_resolved_return(p, a, slot)?;
+    if pending.payments_if_valid.outcome != WideOutcome::Fate(wa::wide_arrival::FATE_DESTROYED)
+        || pending.retained_slot.is_some()
+        || pending.home.is_some()
+        || pending.previous_home.is_some()
+        || pending.credited_milli != 0
+    {
+        return Err(FrontierError::NotImplemented.into());
+    }
+    Ok((pending, opened.code))
+}
+
+pub(super) fn settle_failure_draft(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
+    settlement::failure::execute_draft(p, a, d)
 }
 
 #[path = "wide_expedition_settlement.rs"]

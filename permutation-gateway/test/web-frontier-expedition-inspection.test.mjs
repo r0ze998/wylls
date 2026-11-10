@@ -14,6 +14,7 @@ import * as hand from '../../permutation-server/web/frontier/hud/hand.mjs';
 import * as CTRL from '../../permutation-server/web/frontier/controller.mjs';
 import * as io from '../../permutation-server/web/frontier/fchainio.mjs';
 import { FS as STORE } from '../../permutation-server/web/frontier/fstate.mjs';
+import { syntheticReturnInspection } from '../screens/codex/return-observation.mjs';
 import { canonicalExpeditionAccounts, canonicalExpeditionRoles } from '../../permutation-server/web/frontier/fexpedition-identity.mjs';
 import { EXPEDITION_POP, REQUEST_SCHEMA, REPORT_SCHEMA, REPORT_MAX, originalHostRef, inspectionRequest, requestDigest, inspectionReport,
   clearInspection, inspectionInput, inspectExpedition, reconcileInspection, readInspection } from '../../permutation-server/web/frontier/fexpedition.mjs';
@@ -290,6 +291,30 @@ test('rendering keeps exact draft text, input edits remove prior output, and clo
   clearInspection(fs); fs.hand.pop = null; fs.hand.pop = EXPEDITION_POP;
   assert.deepEqual([fs.expeditionPreview.p, fs.expeditionPreview.q, fs.expeditionPreview.sequence], ['', '', '']);
   assert.equal(fs.expeditionPreview.report, null);
+});
+
+test('original return card retains the accepted request, renders three observed stages and clears both on edits', async () => {
+  const { fs, ctx } = world();
+  try {
+    for (const [phase, modelPhase] of [['dissolve','resident'], ['resolving','leave-pending'], ['return','return-pending']]) {
+      await inspectExpedition(fs, { context: () => ctx, read: async r => syntheticReturnInspection(r, { phase }) });
+      assert.equal(fs.expeditionPreview.status, 'preview');
+      assert.deepEqual(fs.expeditionPreview.request, inspectionRequest(fs, ctx));
+      assert.ok(Object.isFrozen(fs.expeditionPreview.request));
+      for (const lang of ['ja','en']) {
+        setLang(lang);
+        const markup = String(hand.renderPop(fs, hand.handModel(fs)));
+        assert.match(markup, new RegExp(`data-return-phase="${modelPhase}"`));
+        assert.equal((markup.match(/data-return-step=/g) ?? []).length, 3);
+        assert.match(markup, lang === 'ja' ? /予備兵への加算も行っていません/ : /No troops have been added to reserves/);
+        assert.doesNotMatch(markup, /data-act="(?:march-send|dissolve|hand-return)"/);
+        if (phase === 'return') assert.match(markup, lang === 'ja' ? /予備兵に戻す人数の候補: 600人/ : /Proposed troops to return to reserves: 600/);
+      }
+    }
+    inspectionInput(fs, 'expedition-p', '130');
+    assert.equal(fs.expeditionPreview.request, null); assert.equal(fs.expeditionPreview.report, null);
+    assert.doesNotMatch(String(hand.renderPop(fs, hand.handModel(fs))), /data-return-phase/);
+  } finally { setLang('ja'); }
 });
 
 test('integration guards map shortcuts, lifecycle changes and input edits; preview never uses order handlers', () => {

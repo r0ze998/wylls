@@ -177,7 +177,7 @@ const runOf = fs => { if (!runs.has(fs)) runs.set(fs, { generation: 0, abort: nu
 export function clearInspection(fs, { keepInputs = false } = {}) {
   const run = runOf(fs); ++run.generation; run.abort?.abort(); run.abort = null; run.capture = null;
   const old = fs.expeditionPreview;
-  fs.expeditionPreview = { p: keepInputs ? old?.p ?? '' : '', q: keepInputs ? old?.q ?? '' : '', sequence: keepInputs ? old?.sequence ?? '' : '', status: 'idle', report: null, error: null };
+  fs.expeditionPreview = { p: keepInputs ? old?.p ?? '' : '', q: keepInputs ? old?.q ?? '' : '', sequence: keepInputs ? old?.sequence ?? '' : '', status: 'idle', request: null, report: null, error: null };
 }
 export function inspectionInput(fs, name, value) {
   if (!['expedition-p', 'expedition-q', 'expedition-sequence'].includes(name)) return false;
@@ -255,6 +255,7 @@ export async function inspectExpedition(fs, { context, read = readInspection, ch
     if (!isCurrent()) { if (generation === run.generation) { clearInspection(fs, { keepInputs: true }); changed(); } return; }
     const report = inspectionReport(answer, snap.request);
     if (!isCurrent()) return;
+    fs.expeditionPreview.request = snap.request;
     fs.expeditionPreview.report = report; fs.expeditionPreview.status = report.status;
   } catch (e) {
     if (!isCurrent()) { if (generation === run.generation) { clearInspection(fs, { keepInputs: true }); changed(); } return; }

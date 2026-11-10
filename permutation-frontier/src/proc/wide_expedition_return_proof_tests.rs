@@ -138,6 +138,27 @@ impl Fixture {
 }
 
 pub(super) fn fixture() -> Fixture {
+    fixture_with_ciphertext(None)
+}
+
+/// Invalid public ciphertext only: no key recovery, body_xor or assembly.
+/// The public anchor signature is genuinely verified, independently of sealing.
+pub(super) fn bad_point_fixture() -> Fixture {
+    use crate::crypto::seal::tests::{cases, get};
+    let hints = decode::<{ 2 * quick::HINT_LEN }>(FIXTURE_HINTS_HEX);
+    quick::verify(FIXTURE_ROUND, &public_signature(), &hints).unwrap();
+    let case = cases()
+        .into_iter()
+        .find(|c| get(c, "name") == "valid_spv2_32551361")
+        .unwrap();
+    let public = decode::<{ cseal::SEAL_LEN }>(get(&case, "seal"));
+    let mut corrupt = [0; wseal::WIDE_SEAL_LEN];
+    corrupt[..public.len()].copy_from_slice(&public);
+    corrupt[..96].fill(0); // invalid compressed point, deliberately not a seal
+    fixture_with_ciphertext(Some(([0x31; 32], corrupt)))
+}
+
+fn fixture_with_ciphertext(ciphertext: Option<([u8; 32], [u8; wseal::WIDE_SEAL_LEN])>) -> Fixture {
     let p = Pubkey::new_from_array(PROGRAM);
     let bump =
         Pubkey::find_program_address(&[addr::SEASON_PREFIX, &addr::season_seed_id(SID)], &p).1;
@@ -170,7 +191,7 @@ pub(super) fn fixture() -> Fixture {
         path: [0; ks::PATH_BYTES],
         reserved: [0; wseal::WIDE_RESERVED_BYTES],
     };
-    let (commit, seal) = synthetic(&plain);
+    let (commit, seal) = ciphertext.unwrap_or_else(|| synthetic(&plain));
     let round_ts = beacon::round_time(beacon::QUICKNET.genesis, 3, FIXTURE_ROUND);
     let genesis = round_ts - (ARRIVE as i64 + 1) * 600;
     let landed = round_ts + 7;

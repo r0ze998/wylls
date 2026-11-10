@@ -14,6 +14,9 @@ use frontier_abi::world_index::{
 };
 use solana_address::Address;
 
+/// Content/scope identity only, never a signature or execution/readiness proof.
+pub const CONTENT_DIGEST_DOMAIN: &[u8] = b"PSF-ORIGINAL-RESIDENT-DRAFT-v1";
+
 pub const NOT_PROVEN: &[&str] = &[
     "program deployment and canonical Season account",
     "current account ownership, generation, issuance and full roster pairing",
@@ -179,6 +182,30 @@ impl Draft {
     }
     pub fn roles(&self) -> &[Role] {
         &self.roles
+    }
+    /// Bind the full proposal, including standing and payers absent from the
+    /// 60-byte command. Encoding: domain, program32, season32, standing50,
+    /// LE32 command length + command, LE32 role count, then each ordered role's
+    /// LE32 UTF-8 name length + name, address32, signer byte and writable byte.
+    /// Required signer flags remain proposals, not verified signatures. Source
+    /// observations and their provenance require a separate snapshot binding.
+    pub fn content_digest(&self) -> [u8; 32] {
+        let command = self.proposed_bytes();
+        let mut b = Vec::new();
+        b.extend_from_slice(CONTENT_DIGEST_DOMAIN);
+        b.extend_from_slice(&self.program.to_bytes());
+        b.extend_from_slice(&self.season.to_bytes());
+        b.extend_from_slice(&self.standing.to_bytes());
+        b.extend_from_slice(&(command.len() as u32).to_le_bytes());
+        b.extend_from_slice(&command);
+        b.extend_from_slice(&(self.roles.len() as u32).to_le_bytes());
+        for role in &self.roles {
+            b.extend_from_slice(&(role.name.len() as u32).to_le_bytes());
+            b.extend_from_slice(role.name.as_bytes());
+            b.extend_from_slice(&role.address.to_bytes());
+            b.extend_from_slice(&[role.signer as u8, role.writable as u8]);
+        }
+        permutation_rules::hash::sha256(&[&b])
     }
     pub const fn public_dispatch_available(&self) -> bool {
         false
