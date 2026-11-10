@@ -273,7 +273,7 @@ test('app connects one early handler and overlay without widening legacy selecti
 
 test('new boundary-map guidance and unverified labels have exact English translations', () => {
   const app = source('app.mjs'), renderer = source('map/fmap.mjs');
-  const keys = ['地図の破線のマスを押すと一歩追加します。道の形だけで、地形・移動時間は未検証です。',
+  const keys = ['地図の破線のマスを押すと一歩追加します。「地形・時間を確認」で道の記録を読み取れます。',
     '拡大した地図で、終点に隣り合う破線のマスを押してください。', '道に一歩追加しました。地形・移動時間は未検証です。',
     '出発点の情報が変わりました。境界への道を開き直してください。', '道の形は 32 マス・4 州までです。',
     '終点に隣り合う破線のマスを押してください。軍勢の選択は変わりません。', '道の形だけ · 地形・移動時間は未検証'];

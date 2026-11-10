@@ -1,4 +1,4 @@
-// Preparatory geometry only. No planner, sealing worker, signer or transport.
+// Original boundary draft and captured-land observations. No sealing, signing or send.
 import { subjectOf } from './hud/subject.mjs';
 import { hostParts, hostId, seasonAddresses } from './faddr.mjs';
 import { parseU64, ringPosition, worldIdOf } from './map/wide.mjs';
@@ -6,10 +6,12 @@ import { encode, decode } from '../sdk/base58.mjs';
 import { toHex } from '../sdk/bytes.mjs';
 import { inspectionVersion, originalHostRef } from './fexpedition.mjs';
 import { prepareOriginalOutboundPlain, traceWideDirections } from './fexpedition-seal.mjs';
-import { RETREAT_CHOICES, retreatBps, tipOptions } from './fmarch.mjs';
+import { RETREAT_CHOICES, retreatBps, tipOptions, departMargin } from './fmarch.mjs';
 import { canonicalOutboundRoles } from './fexpedition-depart.mjs';
 import { DIRECTIONS } from './fgeo.mjs';
 import { outboundHitDirection, outboundMapGeometry } from './map/outboundroute.mjs';
+import { loadOutboundRouteCaptures } from './fexpedition-route-read.mjs';
+import { evaluateOutboundRoute } from './fexpedition-route.mjs';
 
 export const OUTBOUND_POP = 'expedition-compose';
 export const OUTBOUND_CLOSED = Object.freeze({ dispatch_available: false, executable: false, admitted: false,
@@ -22,8 +24,10 @@ const publicAddress = x => {
   check(b.length === 32 && b.some(x => x !== 0) && encode(b) === x, 'DeploymentPinMissing'); return x;
 };
 const snapshots = new WeakMap();
+const routeReads = new WeakMap();
+const cancelRouteRead = fs => { routeReads.get(fs)?.abort(); routeReads.delete(fs); };
 const empty = () => ({ directions: [], arriveBell: '', stance: 0, retreat: 'never', ratio: '', tip: 'standard',
-  status: 'idle', source: null, trace: null, map: null, review: null, error: null, ...OUTBOUND_CLOSED });
+  status: 'idle', source: null, trace: null, map: null, review: null, routeCheck: null, error: null, ...OUTBOUND_CLOSED });
 
 /** Resolve a currently observed, owned original resident, never an inferred village sequence. */
 export function outboundSource(fs, { pin } = {}) {
@@ -59,7 +63,8 @@ export function outboundSource(fs, { pin } = {}) {
   check(r.state === 1 && !r.pending && !r.inTransit && r.province.entries.includes(r.entry), 'ResidentHostRequired');
   check(Number.isInteger(r.p) && Number.isInteger(r.q) && ringPosition(BigInt(r.p), BigInt(r.q)).ring <= 128n, 'OriginalOriginRequired');
   const world = worldIdOf(season, program);
-  return { program, season, cluster: pin.cluster, wallet, payer: wallet, original_owner: owner, world,
+  return { program, season, seasonId, cluster: pin.cluster, wallet, payer: wallet, original_owner: owner, world,
+    unit: r.unit, faction: r.entry.faction, holdingFlags: h.flags,
     host: originalHostRef(world, r.id), hostId: r.id, origin: { p: String(r.p), q: String(r.q), tile: r.tile },
     home: { p: String(h.p), q: String(h.q), site: h.site, gen: h.gen, seq: parts.seq },
     holding: addresses.of('Holding', h), issuance: h.hostSeq, programVersion: fs.season.programVersion, ruleset,
@@ -68,14 +73,15 @@ export function outboundSource(fs, { pin } = {}) {
     transitSlot: Array.isArray(h.transit) && h.transit.length === 4 && h.transit.every(t => Number.isInteger(t.state) && t.state >= 0 && t.state <= 3)
       ? (h.transit.findIndex(t => t.state === 0) < 0 ? null : h.transit.findIndex(t => t.state === 0)) : null,
     seasonFacts: stable(['genesisTs', 'endBell', 'minRevealPriorityMilli', 'revealCuLimit', 'revealLoadedLimit', 'marchFee', 'sealBond',
-      'drandGenesis', 'drandPeriod', 'seedMargin', 'revealWindow', 'windowFromBell', 'windowNext', 'quicknetPkHash'].map(k => fs.season[k])),
+      'drandGenesis', 'drandPeriod', 'seedMargin', 'revealWindow', 'windowFromBell', 'windowNext', 'quicknetPkHash',
+      'status', 'minLead', 'maxLead', 'stances'].map(k => fs.season[k])),
     clockFacts: stable({ nowBell: fs.nowBell ?? null, clock: fs.clock ?? null,
       rate: fs.chain?.rate ?? null, accelerated: fs.chain?.accelerated ?? null, declared: fs.chain?.declared ?? null, last: fs.chain?.last ? { slot: fs.chain.last.slot, unix: fs.chain.last.unix } : null }) };
 }
 const identities = (fs, ctx) => [fs.wallet, fs.resident, fs.session, fs.session?.publicKey, fs.chain, ctx.source, ctx.relay,
   fs.mode, fs.selected?.p, fs.selected?.q, fs.selected?.idx, fs.hand?.host, fs.activeHolding ?? 0];
 const capture = (fs, ctx) => ({ source: outboundSource(fs, ctx), identities: identities(fs, ctx) });
-export function clearOutbound(fs) { snapshots.delete(fs); fs.expeditionCompose = empty(); }
+export function clearOutbound(fs) { cancelRouteRead(fs); snapshots.delete(fs); fs.expeditionCompose = empty(); }
 export function reconcileOutbound(fs, ctx) {
   const before = snapshots.get(fs); if (!before) return true;
   try {
@@ -85,7 +91,9 @@ export function reconcileOutbound(fs, ctx) {
   clearOutbound(fs); fs.expeditionCompose.error = 'SourceChanged'; return false;
 }
 function rebuild(fs, ctx) {
+  cancelRouteRead(fs);
   const s = fs.expeditionCompose;
+  s.routeCheck = null;
   s.review = null; s.trace = null; s.map = null; s.error = null; s.status = 'preparing';
   try {
     const snap = capture(fs, ctx); snapshots.set(fs, snap); s.source = snap.source;
@@ -152,6 +160,47 @@ export function tapOutbound(fs, ctx, hit) {
 export function readOutboundMap(fs, ctx) {
   if (fs.hand?.pop !== OUTBOUND_POP || !reconcileOutbound(fs, ctx)) return null;
   return fs.expeditionCompose?.map ?? null;
+}
+
+/** Read actual captured account bytes for this draft, without changing world
+ * state or promoting an observation into an executable route. Every edit,
+ * source change, close and repeated request cancels the old result. */
+export async function inspectOutboundRoute(fs, { context, changed = () => {} } = {}) {
+  const ctx = context();
+  if (fs.hand?.pop !== OUTBOUND_POP || !reconcileOutbound(fs, ctx)) return;
+  const s = fs.expeditionCompose;
+  if (!s?.source || !s.directions.length) return;
+  cancelRouteRead(fs);
+  const controller = new AbortController(); routeReads.set(fs, controller);
+  const source = s.source, directions = [...s.directions];
+  const season = fs.season;
+  s.routeCheck = { status: 'loading' }; changed();
+  let timer;
+  const current = () => {
+    if (routeReads.get(fs) !== controller || fs.expeditionCompose !== s || controller.signal.aborted) return false;
+    if (!reconcileOutbound(fs, context())) { changed(); return false; }
+    return true;
+  };
+  try {
+    const data = await Promise.race([
+      loadOutboundRouteCaptures(ctx.source, source, directions, controller.signal),
+      new Promise((_, reject) => { timer = setTimeout(() => reject(Object.assign(new Error('RouteReadTimeout'), { code: 'RouteReadTimeout' })), 12_000); }),
+    ]);
+    if (!current()) return;
+    const now = fs.chain?.now?.();
+    check(typeof now === 'number' && Number.isFinite(now) && Number.isSafeInteger(Math.floor(now)) && now >= 0, 'RouteClockUnavailable');
+    const departTs = Math.floor(now) + departMargin(fs.chain?.rate);
+    const report = evaluateOutboundRoute({ source, directions, lands: data.lands, season, departTs,
+      arriveBell: /^(0|[1-9][0-9]{0,9})$/.test(s.arriveBell) ? Number(s.arriveBell) : null });
+    s.routeCheck = { status: 'read', report, captures: data.captures, unavailable: data.unavailable,
+      departTs, snapshot: data.snapshot, observationOnly: true, coherentSnapshotVerified: false, provenanceVerified: false, ...OUTBOUND_CLOSED };
+  } catch (e) {
+    if (!current()) return;
+    s.routeCheck = { status: 'error', code: e.code ?? 'RouteReadUnavailable' };
+  } finally {
+    clearTimeout(timer);
+    if (routeReads.get(fs) === controller) { routeReads.delete(fs); controller.abort(); changed(); }
+  }
 }
 /** Relative local coordinates only: at most 32 steps, never narrow world coordinates. */
 export function outboundSketch(directions) {

@@ -441,6 +441,25 @@ export function renderPop(FS, model) {
 }
 
 /** Local preparatory card. Its controls have no order form or executable action. */
+function outboundRouteReport(check) {
+  if (!check) return '';
+  if (check.status === 'loading') return html`<p class="pop-line" role="status">${L`道の州の記録を読み込んでいます…`}</p>`;
+  if (check.status === 'error') return html`<p class="pop-line pop-why" role="status">${L`道の記録を読めませんでした。もう一度確認してください。`} (${check.code})</p>`;
+  const r = check.report;
+  const why = r.code === 'RouteLandMissing' ? L`道の途中に、まだ読み取れていない州があります。`
+    : r.code === 'RouteImpassable' ? L`山や水のマスには進めません`
+    : r.code === 'RoutePalisade' ? L`道の途中の柵を通れません。`
+    : r.code === 'ArrivalRequired' ? L`詳細で到着ターンの候補を入力し、もう一度確認してください。`
+    : ['ArrivalTooEarly', 'ArrivalTooLate', 'ArrivalAfterSeason', 'ArrivalWindowEmpty'].includes(r.code) ? L`到着ターンの候補が、記録から計算した範囲に入りません。`
+    : r.code ? L`この記録では経路を計算できません。` : null;
+  return html`<div class="outbound-route-report" role="status">
+    ${r.travelSecs !== null ? html`<p class="pop-line">${L`記録上の移動時間 ${r.travelSecs} 秒・塔の消耗 ${r.wearBps} bps`}</p>` : ''}
+    ${r.min !== null && r.max !== null && r.min <= r.max ? html`<p class="pop-line">${L`到着候補：ターン ${r.min}〜${r.max}`}</p>` : ''}
+    ${why ? html`<p class="pop-line pop-why">${why}${r.stepIndex !== null ? ` (${r.stepIndex + 1})` : ''}</p>` : ''}
+    <p class="pop-line">${L`取得した記録と推定出発時刻での計算です。現在の通行・到着や出発の成功は未確認です。`}</p>
+  </div>`;
+}
+
 function outboundPop(FS, model) {
   const s = FS.expeditionCompose ?? {}, review = s.review, source = s.source, directions = s.directions ?? [];
   let choices = { stances: [], retreat: [], tips: [] };
@@ -451,19 +470,21 @@ function outboundPop(FS, model) {
   const left = Math.min(...xs) - 1, top = Math.min(...ys) - 1, width = Math.max(...xs) - left + 1, height = Math.max(...ys) - top + 1;
   const reason = s.error === 'ChooseSteps' ? L`六方向から一歩ずつ選んでください。`
     : s.error === 'WideDestinationRequired' ? L`終点はまだリング 128 の内側です。境界の外まで道を続けてください。`
-    : s.error === 'ArrivalRequired' ? L`到着ターンの候補を入力してください。移動時間の検証は行いません。`
+    : s.error === 'ArrivalRequired' ? L`到着ターンの候補を入力し、地形・時間を確認してください。`
     : s.error === 'SourceChanged' ? L`軍勢・所有者・接続情報が変わりました。カードを開き直してください。`
     : s.error ? L`この準備は利用できません` : null;
   return html`${popHead(L`境界への道を準備`)}
-    <p class="pop-line outbound-help">${L`地図の破線のマスを押すと一歩追加します。道の形だけで、地形・移動時間は未検証です。`}</p>
+    <p class="pop-line outbound-help">${L`地図の破線のマスを押すと一歩追加します。「地形・時間を確認」で道の記録を読み取れます。`}</p>
     ${s.error === 'SourceChanged' ? html`<p class="pop-line pop-why" role="status">${reason}</p>` : ''}
     <div class="pop-foot outbound-directions" role="group" aria-label="${L`一歩進む方向`}">${DIR_TEXT.map((name, direction) => html`<button type="button" class="btn small" data-act="outbound-step" data-direction="${direction}" ${raw(!source || directions.length >= 32 ? 'aria-disabled="true"' : '')}>${name()}</button>`)}</div>
     <div class="pop-foot"><span>${directions.length}/32 · ${s.trace?.accountKeys.length ?? 0}/4 ${L`入る州`}</span>
       <button type="button" class="btn small" data-act="outbound-undo" ${raw(!directions.length ? 'aria-disabled="true"' : '')}>${L`一歩戻す`}</button>
       <button type="button" class="btn small" data-act="outbound-reset">${L`道を消す`}</button></div>
     ${endpoint ? html`<p class="pop-line">${L`道から決まる終点`}: ${endpoint.p},${endpoint.q} · ${L`マス`} ${endpoint.tile}</p>` : ''}
+    <div class="pop-foot"><button type="button" class="btn small" data-act="outbound-route-read" ${raw(!source || !directions.length || s.routeCheck?.status === 'loading' ? 'aria-disabled="true"' : '')}>${L`地形・時間を確認`}</button></div>
+    ${outboundRouteReport(s.routeCheck)}
     <details data-fold="outbound-details"><summary>${L`詳細`}</summary>
-    <p class="pop-line">${L`道の形だけを準備します。地形・通行・移動時間・時刻の整合性は未検証です。実行可能な経路ではありません。`}</p>
+    <p class="pop-line">${L`記録上の地形と推定時刻から道を準備します。現在の通行条件と出発の成功は未確認です。`}</p>
     <p class="pop-line">${L`選択した軍勢`}: ${model.host.id}</p>
     ${source ? html`<p class="pop-line">${L`観測した出発点`}: ${source.origin.p},${source.origin.q} · ${L`マス`} ${source.origin.tile}</p>` : ''}
     ${directions.length ? html`<svg role="img" aria-label="${L`出発点からの相対的な道の形`}" viewBox="${left} ${top} ${width} ${height}" width="100%" height="96"><polyline points="${points.map(p => `${p.x},${p.y}`).join(' ')}" fill="none" stroke="currentColor" stroke-width="0.12"/><circle cx="0" cy="0" r="0.2" fill="currentColor"/><circle cx="${points.at(-1).x}" cy="${points.at(-1).y}" r="0.25" fill="none" stroke="currentColor" stroke-width="0.1"/></svg>

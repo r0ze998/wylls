@@ -444,6 +444,12 @@ mod runtime {
                     a.is_writable,
                 ));
             }
+            let wire =
+                frontier_abi::world_index::expedition_settlement_ix::camp_v2::DraftCommand::new(
+                    SLOT, f.commit, f.seal,
+                )
+                .unwrap()
+                .to_bytes();
             let prior_total: u128 = accounts.iter().map(|(_, a)| a.lamports() as u128).sum();
             let program_index = accounts.len() as u16;
             let mut program = AccountSharedData::new(1, 0, &solana_program::bpf_loader::id());
@@ -465,10 +471,10 @@ mod runtime {
                     overflow.clone(),
                     program_index,
                     roles.clone(),
-                    vec![],
-                    |p, a, _| {
+                    wire.to_vec(),
+                    |p, a, d| {
                         assert_eq!(
-                            settle_camp_v2(p, a, f.base, SLOT, &f.commit, &f.seal),
+                            super::super::super::settle_camp_draft(p, a, d),
                             Err(OVERFLOW)
                         );
                         Ok(())
@@ -485,9 +491,13 @@ mod runtime {
             // SAFETY: official serializer backing is consumed only inside this
             // closure. No AccountInfo, pointer, guard or clone escapes it.
             let result = unsafe {
-                rt::run(accounts, program_index, roles.clone(), vec![], |p, a, _| {
-                    settle_camp_v2(p, a, f.base, SLOT, &f.commit, &f.seal).map_err(Into::into)
-                })
+                rt::run(
+                    accounts,
+                    program_index,
+                    roles.clone(),
+                    wire.to_vec(),
+                    |p, a, d| super::super::super::settle_camp_draft(p, a, d).map_err(Into::into),
+                )
             }
             .unwrap();
             for (role, staged) in roles.iter().zip(&expected.after) {
@@ -526,10 +536,16 @@ mod runtime {
             // replay before effects; successful writeback independently proves
             // all supplied account state stayed unchanged on this refusal.
             let unchanged = unsafe {
-                rt::run(replay.clone(), program_index, roles, vec![], |p, a, _| {
-                    assert!(settle_camp_v2(p, a, f.base, SLOT, &f.commit, &f.seal).is_err());
-                    Ok(())
-                })
+                rt::run(
+                    replay.clone(),
+                    program_index,
+                    roles,
+                    wire.to_vec(),
+                    |p, a, d| {
+                        assert!(super::super::super::settle_camp_draft(p, a, d).is_err());
+                        Ok(())
+                    },
+                )
             }
             .unwrap();
             for (actual, (_, before)) in unchanged.iter().zip(&replay) {

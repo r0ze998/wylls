@@ -9,6 +9,10 @@ use super::wide_ix::{ENVELOPE_ESCAPE, ENVELOPE_VERSION, TAG_SETTLE_TICKET};
 use crate::error::FrontierError;
 use crate::prologue::{Acc, Group, Spec, Wr};
 
+/// Separate camp schema, not an operation in the member/v1 envelope.
+#[path = "expedition_camp_settlement_ix.rs"]
+pub mod camp_v2;
+
 pub const SETTLE_MEMBER_OP: u8 = 13;
 pub const PAYLOAD_LEN: usize = 1 + 32 + WIDE_SEAL_LEN;
 pub const DRAFT_LEN: usize = 4 + PAYLOAD_LEN;

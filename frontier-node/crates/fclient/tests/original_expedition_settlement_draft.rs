@@ -274,3 +274,91 @@ fn member_draft_rejects_structural_aliases_and_invalid_payees() {
         Err(Error::PreviousHome)
     );
 }
+
+#[test]
+fn camp_draft_preserves_public_roles_and_uses_only_the_disjoint_camp_schema() {
+    use fclient::original_expedition_settlement_draft::CampDraft;
+    use frontier_abi::world_index::expedition_settlement_ix::camp_v2;
+    let ctx = context();
+    for previous in [false, true] {
+        for archive in [false, true] {
+            let mut s = selection(&ctx);
+            if previous {
+                s.previous_home = Some(
+                    AccountResolver::for_season(&ctx)
+                        .unwrap()
+                        .legacy_host_ref(frontier_abi::addr::host_id(127, 0, 0, 1, 0).unwrap())
+                        .unwrap(),
+                );
+            }
+            let e = if archive {
+                Evidence::Archive { region: 3 }
+            } else {
+                Evidence::Anchor { region: 3 }
+            };
+            let member = build(&ctx, s, e, recipients()).unwrap();
+            let camp =
+                CampDraft::for_camp(&ctx, s, e, recipients(), address(42), [17; 32], [29; 264])
+                    .unwrap();
+            assert_eq!(&camp.roles()[..member.roles().len()], member.roles());
+            assert_eq!(camp.program(), member.program());
+            assert_eq!(camp.season(), member.season());
+            assert_eq!(camp.selection(), s);
+            assert_eq!(camp.layout().count(), if previous { 16 } else { 15 });
+            let citizen = camp.roles().last().unwrap();
+            assert_eq!(citizen.name, "original_citizen");
+            assert_eq!(citizen.address, address(42));
+            assert!(citizen.writable && !citizen.signer);
+            assert_eq!(
+                camp_v2::DraftCommand::decode(&camp.proposed_bytes()).unwrap(),
+                camp.command()
+            );
+            assert_eq!(&camp.proposed_bytes()[..5], &[0xff, b'C', b'S', 2, 2]);
+            assert_eq!(&camp.proposed_bytes()[4..], &member.proposed_bytes()[4..]);
+            assert!(DraftCommand::decode(&camp.proposed_bytes()).is_err());
+            assert!(camp_v2::DraftCommand::decode(&member.proposed_bytes()).is_err());
+            assert!(WideCommand::decode(&camp.proposed_bytes()).is_err());
+            assert!(frontier_abi::v2::ix::tag_of(&camp.proposed_bytes()).is_err());
+            assert!(!camp.admitted() && !camp.public_dispatch_available() && !camp.seal_verified());
+            assert_eq!(camp.not_proven(), member.not_proven());
+        }
+    }
+}
+#[test]
+fn camp_draft_refuses_every_citizen_alias_and_keeps_payee_privilege_union() {
+    use fclient::original_expedition_settlement_draft::CampDraft;
+    let ctx = context();
+    let s = selection(&ctx);
+    let e = Evidence::Anchor { region: 0 };
+    let member = build(&ctx, s, e, recipients()).unwrap();
+    for role in member.roles() {
+        assert_eq!(
+            CampDraft::for_camp(&ctx, s, e, recipients(), role.address, [17; 32], [29; 264]),
+            Err(Error::Alias)
+        );
+    }
+    for bad in [Address::default(), address(4)] {
+        assert_eq!(
+            CampDraft::for_camp(&ctx, s, e, recipients(), bad, [17; 32], [29; 264]),
+            Err(Error::ZeroOrProgramRecipient)
+        );
+    }
+    let mut r = recipients();
+    r.external_rent_to = r.payer;
+    r.slot_beneficiary = r.payer;
+    r.resolver = r.payer;
+    r.holding_rent_payer = r.payer;
+    r.settle_beneficiary = r.payer;
+    let camp = CampDraft::for_camp(&ctx, s, e, r, address(42), [0; 32], [0; 264]).unwrap();
+    for role in camp.roles().iter().filter(|role| role.address == r.payer) {
+        assert!(role.signer && role.writable);
+    }
+    assert!(!camp.roles().last().unwrap().signer);
+    assert!(!camp.seal_verified());
+    let mut bad = s;
+    bad.destination = s.host.key();
+    assert_eq!(
+        CampDraft::for_camp(&ctx, bad, e, r, address(42), [17; 32], [29; 264]),
+        Err(Error::Destination)
+    );
+}

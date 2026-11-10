@@ -9,6 +9,7 @@
 //! |---|---|---|
 //! | `/h/world/wide` | the manifest: world namespace, snapshot identity, counts | `max-age=5` |
 //! | `/h/world/wide/page?limit=&after=` | one page of recorded Provinces in ring order | `max-age=5` |
+//! | `/h/world/wide/route?at=P,Q;P,Q` | at most four exact Province captures in request order | `no-store` |
 //!
 //! **What it is.** The same captured Province accounts `/h/world/ring/{d}`
 //! lists, plus captured experimental wide Province accounts, keyed by
@@ -56,6 +57,8 @@ use frontier_abi::world_index::{holding, land};
 
 /// Entries per page when the query names none.
 pub const DEFAULT_LIMIT: usize = 64;
+/// Maximum distinct Province captures in one route observation.
+pub const MAX_ROUTE_COORDS: usize = 4;
 /// Domain of the snapshot stamp.
 pub const STAMP_DOMAIN: &[u8] = b"PSF-WIDE-STAMP-v1";
 /// The manifest's `worldDomain` (how `world` was derived).
@@ -262,6 +265,8 @@ pub enum WideFault {
     BadLimit,
     /// `after` is not the hex of a cursor of this world's layout.
     BadCursor,
+    /// `at` is not one to four distinct canonical exact coordinate pairs.
+    BadRoute,
     /// A cursor of another world.
     WorldMismatch,
     /// A cursor of an earlier snapshot (the index moved since).
@@ -274,6 +279,7 @@ impl WideFault {
             WideFault::NoSeasonYet => "NoSeasonYet",
             WideFault::BadLimit => "BadLimit",
             WideFault::BadCursor => "BadCursor",
+            WideFault::BadRoute => "BadRoute",
             WideFault::WorldMismatch => "WorldMismatch",
             WideFault::StaleSnapshot => "StaleSnapshot",
         }
@@ -282,7 +288,7 @@ impl WideFault {
     pub fn status(self) -> u16 {
         match self {
             WideFault::NoSeasonYet => 503,
-            WideFault::BadLimit | WideFault::BadCursor => 400,
+            WideFault::BadLimit | WideFault::BadCursor | WideFault::BadRoute => 400,
             WideFault::WorldMismatch | WideFault::StaleSnapshot => 409,
         }
     }
@@ -424,6 +430,126 @@ pub fn page_json(f: &Fold, after: Option<&str>, limit: Option<usize>) -> Result<
         "entries": page.entries.iter().map(|e| entry_json(f, w, e)).collect::<Vec<_>>(),
         "next": page.next.as_ref().map(cursor_text),
     }))
+}
+
+/// The route grammar is deliberately exact: no rounding, aliases such as
+/// `-0`/`+1`/`01`, whitespace, duplicate coordinates or unbounded lists.
+pub fn parse_route(at: &str) -> Result<Vec<WideCoord>, WideFault> {
+    // Each signed component in [-2^62, 2^62] is at most 20 bytes.
+    if at.is_empty() || at.len() > MAX_ROUTE_COORDS * 42 - 1 {
+        return Err(WideFault::BadRoute);
+    }
+    fn component(s: &str) -> Result<i64, WideFault> {
+        let n = s.parse::<i64>().map_err(|_| WideFault::BadRoute)?;
+        if n.to_string() != s {
+            return Err(WideFault::BadRoute);
+        }
+        Ok(n)
+    }
+    let mut coords = Vec::with_capacity(MAX_ROUTE_COORDS);
+    for pair in at.split(';') {
+        if coords.len() == MAX_ROUTE_COORDS {
+            return Err(WideFault::BadRoute);
+        }
+        let (p, q) = pair.split_once(',').ok_or(WideFault::BadRoute)?;
+        let c =
+            WideCoord::checked(component(p)?, component(q)?).map_err(|_| WideFault::BadRoute)?;
+        if coords.contains(&c) {
+            return Err(WideFault::BadRoute);
+        }
+        coords.push(c);
+    }
+    Ok(coords)
+}
+
+/// A canonical original v2 or wide Province capture. The fold admitted its
+/// owner on ingest; recheck the stored identity before exposing raw bytes.
+/// This is still a captured observation, not current-state authentication.
+fn route_capture(f: &Fold, w: &WideIndex, coord: WideCoord) -> Value {
+    if coord.ring() > R_MAX_HARD as u64 {
+        let Some(key) = w.provinces.get(&coord) else {
+            return Value::Null;
+        };
+        let Some(c) = f.account(key) else {
+            return Value::Null;
+        };
+        return match authenticate(f, key, &c.data) {
+            Some(CapturedWide::Province(p)) if p.coord == coord => capture_json(f, key),
+            _ => Value::Null,
+        };
+    }
+    let (Ok(p), Ok(q)) = (i16::try_from(coord.p()), i16::try_from(coord.q())) else {
+        return Value::Null;
+    };
+    let Some(meta) = f.provinces.get(&(p, q)) else {
+        return Value::Null;
+    };
+    let expected = f.ctx.province(p as i32, q as i32);
+    if meta.addr != expected {
+        return Value::Null;
+    }
+    let Some(c) = f.account(&expected) else {
+        return Value::Null;
+    };
+    if c.data.len() != frontier_abi::v2::layout::province::province::SIZE {
+        return Value::Null;
+    }
+    let Ok(pv) = fclient::decode::Province::decode(&c.data) else {
+        return Value::Null;
+    };
+    if pv.h.layout_version != 2
+        || pv.h.season_id != f.cfg.season_id
+        || (pv.p, pv.q) != (p, q)
+        || u64::from(pv.ring) != coord.ring()
+        || pv.wedge != coord.wedge().unwrap_or(0)
+    {
+        return Value::Null;
+    }
+    capture_json(f, &expected)
+}
+
+/// `GET /h/world/wide/route?at=P,Q;P,Q`: bounded exact lookups under the
+/// caller's single Fold read-lock. The manifest's index stamp is not a
+/// commitment to mutable captures; each capture keeps its own slot/sequence.
+pub fn route_json(f: &Fold, coords: &[WideCoord]) -> Result<Value, WideFault> {
+    if coords.is_empty()
+        || coords.len() > MAX_ROUTE_COORDS
+        || coords
+            .iter()
+            .enumerate()
+            .any(|(i, c)| coords[..i].contains(c))
+    {
+        return Err(WideFault::BadRoute);
+    }
+    let w = wide_of(f)?;
+    let mut v = manifest_json(f)?;
+    v["route"] = Value::Array(
+        coords
+            .iter()
+            .map(|&coord| {
+                let (state, capture) = match w.index.lookup(&ProvinceKey::new(w.world(), coord)) {
+                    Ok(Lookup::Known(e)) if e.state == ReportedState::Closed => {
+                        ("closed", Value::Null)
+                    }
+                    Ok(Lookup::Known(_)) => {
+                        let capture = route_capture(f, w, coord);
+                        (
+                            if capture.is_null() {
+                                "unknown"
+                            } else {
+                                "captured"
+                            },
+                            capture,
+                        )
+                    }
+                    _ => ("unknown", Value::Null),
+                };
+                json!({ "p": coord.p().to_string(), "q": coord.q().to_string(),
+                    "state": state, "capture": capture })
+            })
+            .collect(),
+    );
+    Ok(v)
 }
 
 // Wide records never pass through the legacy P/Q prefix (both are zero).
@@ -853,3 +979,7 @@ mod tests {
 #[cfg(test)]
 #[path = "wide_inventory_index.rs"]
 mod wide_inventory_index;
+
+#[cfg(test)]
+#[path = "wide_route_tests.rs"]
+mod wide_route_tests;

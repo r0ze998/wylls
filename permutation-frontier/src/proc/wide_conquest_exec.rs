@@ -318,17 +318,12 @@ fn lead(
     Ok(best.map(|(i, h, _)| (i, h)))
 }
 
-pub(super) fn declare_siege_as(
+pub(super) fn declare_siege_inner(
     p: &Pubkey,
     a: &[AccountInfo],
     x: &wix::DeclareSiege,
     auth: &Auth,
 ) -> R<()> {
-    require_conquest_lifecycle()?;
-    declare_siege_inner(p, a, x, auth)
-}
-
-fn declare_siege_inner(p: &Pubkey, a: &[AccountInfo], x: &wix::DeclareSiege, auth: &Auth) -> R<()> {
     // A resident must use the outer-wire entry below. Never silently emit a
     // wallet-shaped receipt for an authenticated resident action.
     if !matches!(auth, Auth::Wallet) {
@@ -786,38 +781,6 @@ fn declare_siege_context(
 #[cfg(test)]
 #[path = "wide_conquest_exec_tests.rs"]
 pub(super) mod tests;
-
-// Isolated native integration only; production dispatch gates remain closed.
-#[cfg(all(
-    test,
-    feature = "runtime-contract-tests",
-    feature = "public-proof-tests",
-    feature = "system-cpi-tests",
-    not(target_os = "solana")
-))]
-pub(super) fn runtime_declare(p: &Pubkey, a: &[AccountInfo], x: &wix::DeclareSiege) -> R<()> {
-    declare_siege_inner(p, a, x, &Auth::Wallet)
-}
-#[cfg(all(
-    test,
-    feature = "runtime-contract-tests",
-    feature = "public-proof-tests",
-    feature = "system-cpi-tests",
-    not(target_os = "solana")
-))]
-pub(super) fn runtime_resolve(p: &Pubkey, a: &[AccountInfo], x: &wix::ResolveWithConquest) -> R<()> {
-    check_accounts(TopLevelShape(wix::RESOLVE_WITH_CONQUEST), a, None)?;
-    prologue::top_level(TopLevelShape(wix::RESOLVE_WITH_CONQUEST))?;
-    super::resolve_inner(
-        p,
-        a,
-        &wix::Resolve {
-            bell: x.bell,
-            beneficiary: x.beneficiary,
-        },
-        Some(x),
-    )
-}
 
 #[cfg(all(
     test,

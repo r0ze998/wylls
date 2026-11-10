@@ -229,10 +229,11 @@ pub fn dispatch(p: &Pubkey, a: &[AccountInfo], data: &[u8]) -> R<()> {
         C::Dissolve(x) => dissolve_as(p, a, &x, &Auth::Wallet),
         C::Economy(x) => economy_exec::economy_as(p, a, &x, &Auth::Wallet),
         C::Garrison(x) => garrison_exec::garrison_as(p, a, &x, &Auth::Wallet),
-        C::DeclareSiege(x) => conquest_exec::declare_siege_as(p, a, &x, &Auth::Wallet),
+        command @ (C::DeclareSiege(_) | C::SettleCapture(_) | C::ResolveWithConquest(_)) => {
+            require_conquest_lifecycle()?;
+            conquest_draft::execute_command(p, a, command)
+        }
         C::SettleSiege(x) => conquest_settle_exec::settle_siege(p, a, &x),
-        C::SettleCapture(x) => conquest_settle_exec::settle_capture(p, a, &x),
-        C::ResolveWithConquest(x) => resolve_with_conquest(p, a, &x),
         C::CloseConquest(x) => conquest_settle_exec::close_conquest(p, a, &x),
         C::CloseCaptureEscrow(_) => conquest_settle_exec::close_capture_escrow(p, a),
         C::Resolve(x) => resolve(p, a, &x),
@@ -2815,6 +2816,9 @@ mod conquest_exec;
 #[path = "wide_conquest_settle_exec.rs"]
 mod conquest_settle_exec;
 
+#[path = "wide_conquest_draft.rs"]
+mod conquest_draft;
+
 /// Host-only claim over wide arrival evidence. The deployed pool and
 /// keeper-day claim are shared with narrow-world claims.
 #[path = "wide_defence_exec.rs"]
@@ -3403,6 +3407,12 @@ pub fn resolve(p: &Pubkey, a: &[AccountInfo], x: &wix::Resolve) -> R<()> {
 
 pub fn resolve_with_conquest(p: &Pubkey, a: &[AccountInfo], x: &wix::ResolveWithConquest) -> R<()> {
     require_conquest_lifecycle()?;
+    execute_resolve_with_conquest(p, a, x)
+}
+
+/// One authenticated implementation shared by the gated public route and
+/// private byte consumer. This does not admit a public instruction.
+fn execute_resolve_with_conquest(p: &Pubkey, a: &[AccountInfo], x: &wix::ResolveWithConquest) -> R<()> {
     check_accounts(TopLevelShape(wix::RESOLVE_WITH_CONQUEST), a, None)?;
     prologue::top_level(TopLevelShape(wix::RESOLVE_WITH_CONQUEST))?;
     resolve_inner(

@@ -478,6 +478,11 @@ pub(super) fn settle_draft(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
     proof::settle_draft(p, a, d)
 }
 
+/// Camp-v2's isolated bytes route. Public dispatch remains closed.
+pub(super) fn settle_camp_draft(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
+    proof::settle_camp_draft(p, a, d)
+}
+
 #[cfg(test)]
 #[path = "wide_expedition_return_tests.rs"]
 mod tests;
@@ -499,24 +504,4 @@ pub(super) fn runtime_settle(
     seal: &[u8; wseal::WIDE_SEAL_LEN],
 ) -> R<()> {
     proof::runtime_settle(p, a, base, slot, commit, seal)
-}
-
-// Separate camp-v2 native adapter: actual accounts and opaque seal only.
-// The isolated member wire and all public dispatch gates remain unchanged.
-#[cfg(all(
-    test,
-    feature = "runtime-contract-tests",
-    feature = "public-proof-tests",
-    feature = "system-cpi-tests",
-    not(target_os = "solana")
-))]
-pub(super) fn runtime_settle_camp_v2(
-    p: &Pubkey,
-    a: &[AccountInfo],
-    base: usize,
-    slot: u8,
-    commit: &[u8; 32],
-    seal: &[u8; wseal::WIDE_SEAL_LEN],
-) -> R<()> {
-    proof::runtime_settle_camp_v2(p, a, base, slot, commit, seal)
 }

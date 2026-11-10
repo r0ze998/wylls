@@ -206,7 +206,7 @@ test('direct hand model/render has directions, full plaintext, local sketch and 
     const w = world(); ready(w); const model = hand.handModel(w.fs), markup = String(hand.renderPop(w.fs, model));
     assert.equal(model.pop, OUTBOUND_POP); assert.equal(model.armed, false);
     assert.equal((markup.match(/data-act="outbound-step"/g) ?? []).length, 6);
-    assert.match(markup, /Prepare a boundary route/); assert.match(markup, /This is not an executable route/); assert.match(markup, /136-byte/);
+    assert.match(markup, /Prepare a boundary route/); assert.match(markup, /Sealing, signing and sending are all disabled/); assert.match(markup, /136-byte/);
     assert.ok(markup.includes(w.fs.expeditionCompose.review.plainHex)); assert.match(markup, /<svg/);
     assert.doesNotMatch(markup, /<form|data-act="(?:march-send|dissolve|hand-return|seal|send)"/);
     w.fs.expeditionCompose.arriveBell = '"><img src=x onerror=x>'; w.fs.expeditionCompose.error = '<script>oops</script>';

@@ -261,3 +261,104 @@ impl Draft {
         NOT_PROVEN
     }
 }
+
+/// Separate camp-v2 proposal. The supplied original Citizen is an explicit
+/// public address claim, not inferred from the current holder or a short tag.
+/// Runtime must authenticate its stored wallet/resident identity and the
+/// transport's original owner before crediting the actual camp winner.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct CampDraft {
+    member: Draft,
+    command: frontier_abi::world_index::expedition_settlement_ix::camp_v2::DraftCommand,
+    roles: Vec<Role>,
+}
+impl CampDraft {
+    pub fn for_camp(
+        ctx: &AddrCtx,
+        selection: Selection,
+        evidence: Evidence,
+        recipients: Recipients,
+        original_citizen: Address,
+        public_commit: [u8; 32],
+        public_seal: [u8; WIDE_SEAL_LEN],
+    ) -> Result<Self, Error> {
+        use frontier_abi::world_index::expedition_settlement_ix::camp_v2 as camp;
+        let member = Draft::for_member(
+            ctx,
+            selection,
+            evidence,
+            recipients,
+            public_commit,
+            public_seal,
+        )?;
+        if original_citizen == Address::default() || original_citizen == member.program {
+            return Err(Error::ZeroOrProgramRecipient);
+        }
+        if member
+            .roles
+            .iter()
+            .any(|role| role.address == original_citizen)
+        {
+            return Err(Error::Alias);
+        }
+        let command = camp::DraftCommand::new(selection.transit_slot, public_commit, public_seal)
+            .map_err(|_| Error::Position)?;
+        let mut roles = member.roles.clone();
+        let layout =
+            camp::AccountLayout::from_count(roles.len() + 1).map_err(|_| Error::PreviousHome)?;
+        let spec = layout
+            .spec(layout.citizen())
+            .expect("exact camp role count");
+        roles.push(Role {
+            name: spec.name,
+            address: original_citizen,
+            signer: spec.signer,
+            writable: spec.wr == Wr::W,
+        });
+        Ok(Self {
+            member,
+            command,
+            roles,
+        })
+    }
+    pub fn program(&self) -> Address {
+        self.member.program()
+    }
+    pub fn season(&self) -> Address {
+        self.member.season()
+    }
+    pub fn selection(&self) -> Selection {
+        self.member.selection()
+    }
+    pub fn command(
+        &self,
+    ) -> frontier_abi::world_index::expedition_settlement_ix::camp_v2::DraftCommand {
+        self.command
+    }
+    pub fn layout(
+        &self,
+    ) -> frontier_abi::world_index::expedition_settlement_ix::camp_v2::AccountLayout {
+        frontier_abi::world_index::expedition_settlement_ix::camp_v2::AccountLayout::from_count(
+            self.roles.len(),
+        )
+        .expect("immutable camp roles")
+    }
+    pub fn roles(&self) -> &[Role] {
+        &self.roles
+    }
+    pub fn proposed_bytes(&self) -> [u8; DRAFT_LEN] {
+        self.command.to_bytes()
+    }
+    pub const fn public_dispatch_available(&self) -> bool {
+        false
+    }
+    pub const fn admitted(&self) -> bool {
+        false
+    }
+    pub const fn seal_verified(&self) -> bool {
+        false
+    }
+    pub const fn not_proven(&self) -> &'static [&'static str] {
+        NOT_PROVEN
+    }
+}

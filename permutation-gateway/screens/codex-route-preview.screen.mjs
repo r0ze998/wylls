@@ -134,6 +134,12 @@ async function serve() {
         return json(me.status,me.body);
       }
       if(path==='/h/world/wide') return json(200,{...wide.manifest,recorded:captureMode==='missing'?0:1});
+      if(path==='/h/world/wide/route') {
+        const requested=(url.searchParams.get('at')??'').split(';');
+        if(requested.length!==1 || requested[0]!=='129,0') return json(400,{code:'BadRoute'});
+        return json(200,{...wide.manifest,route:[{p:'129',q:'0',state:captureMode==='missing'?'unknown':'captured',
+          capture:captureMode==='missing'?null:wide.entry.wide.capture}]});
+      }
       if(path==='/h/world/wide/page') {
         const entry=structuredClone(wide.entry);
         if(captureMode==='malformed') entry.wide.capture.bytes_b64=Buffer.alloc(4864).toString('base64');
@@ -207,7 +213,7 @@ async function bring(page, at, width) {
       const boundary = document.querySelector('#hand-pop[data-pop="expedition-compose"]:not([hidden])');
       return {
         top: 40 + Math.max(150, ...[...document.querySelectorAll(boundary ? '.banner.error, #feed > *' : '.banner.error')].map(e => e.getBoundingClientRect()).filter(r => r.height).map(r => r.bottom)),
-        bottom: Math.min(innerHeight, ...['hand','panel',...(boundary ? ['hand-pop'] : [])].map(id => document.getElementById(id)).filter(e => e && !e.hidden).map(e => e.getBoundingClientRect()).filter(r => r.height && r.width > innerWidth * 0.6).map(r => r.top)) - 40,
+        bottom: Math.min(innerHeight, ...['hand','panel',...(boundary ? ['hand-pop'] : [])].map(id => document.getElementById(id)).filter(e => e && !e.hidden && (e.id==='hand-pop' || e.getBoundingClientRect().width > innerWidth * 0.6)).map(e => e.getBoundingClientRect()).filter(r => r.height).map(r => r.top)) - 40,
       };
     });
     if (p.x > 40 && p.x < width - 40 && p.y > box.top && p.y < box.bottom) return p;
@@ -500,7 +506,7 @@ async function boundaryObservation(page) {
 for (const vp of [{width:1440,height:900,name:'desktop'}, {width:390,height:844,name:'phone'}]) {
   test(`original boundary map interaction @ ${vp.name}`, { timeout:90000 }, async () => {
     const srv = await serve(), phone = vp.width < 760;
-    const errors = [], requests = [], outDir = process.env.WYLLS_SCREEN_OUT ?? '/tmp/wylls-boundary-browser-20261109';
+    const errors = [], requests = [], outDir = process.env.WYLLS_SCREEN_OUT ?? '/tmp/wylls-boundary-browser-20261110';
     let browser, ctx, page, releaseReads;
     try {
       browser = await chromium.launch({channel:'chromium',chromiumSandbox:true});
@@ -519,7 +525,10 @@ for (const vp of [{width:1440,height:900,name:'desktop'}, {width:390,height:844,
       // renderer/controller/event handlers continue unchanged. Reload below
       // returns to the untouched fixture feed and discards this observation.
       const held = new Promise(r=>{releaseReads=r;});
-      await page.route('**/h/**',async route=>{await held;await route.continue().catch(()=>{});});
+      await page.route('**/h/**',async route=>{
+        if(new URL(route.request().url()).pathname!=='/h/world/wide/route') await held;
+        await route.continue().catch(()=>{});
+      });
       const host = await boundaryObservation(page);
       const press = loc => phone ? loc.tap() : loc.click();
       const open = page.locator('#hand [data-pop="expedition-compose"]');
@@ -529,7 +538,9 @@ for (const vp of [{width:1440,height:900,name:'desktop'}, {width:390,height:844,
       const state = () => page.evaluate(async()=>{
         const {FS}=await import('/frontier/fstate.mjs'), s=FS.expeditionCompose;
         return {host:FS.hand.host,pop:FS.hand.pop,directions:s?.directions,error:s?.error,endpoint:s?.map?.endpoint,
-          selected:FS.selected,compose:!!FS.compose,session:!!FS.session,executable:s?.executable,admitted:s?.admitted};
+          selected:FS.selected,compose:!!FS.compose,session:!!FS.session,executable:s?.executable,admitted:s?.admitted,
+          routeCheck:s?.routeCheck?{status:s.routeCheck.status,code:s.routeCheck.code??s.routeCheck.report?.code,
+            ok:s.routeCheck.report?.ok,travelSecs:s.routeCheck.report?.travelSecs,executable:s.routeCheck.executable}:null};
       });
       const tapNext = async direction => {
         const at = await page.evaluate(async direction=>{
@@ -545,9 +556,18 @@ for (const vp of [{width:1440,height:900,name:'desktop'}, {width:390,height:844,
       await page.waitForFunction(()=>window.__boundaryFS.expeditionCompose.directions.length===1);
       let s = await state(); assert.equal(s.endpoint.p,'129'); assert.equal(s.host,host);
       assert.deepEqual(s.directions,[0]); assert.equal(s.compose,false);
-      await page.screenshot({path:`${outDir}/${vp.name}-boundary-route.png`});
+      const read=async()=>{
+        await press(page.locator('[data-act="outbound-route-read"]'));
+        await page.waitForFunction(()=>window.__boundaryFS.expeditionCompose.routeCheck?.status==='read');
+        return (await state()).routeCheck;
+      };
+      let observed=await read();
+      assert.equal(observed.travelSecs,120);assert.equal(observed.code,'ArrivalRequired');assert.equal(observed.executable,false);
+      assert.ok(await page.locator('#hand-pop').evaluate((e,max)=>e.getBoundingClientRect().height<=max,phone?260:300),'route card stays compact after results');
+      assert.match(await page.locator('.outbound-route-report').textContent(),/記録上の移動時間 120 秒/);
       await tapNext(1);
       await page.waitForFunction(()=>window.__boundaryFS.expeditionCompose.directions.length===2);
+      assert.equal((await state()).routeCheck,null,'editing clears the captured route calculation');
       await press(page.locator('[data-act="outbound-undo"]'));
       assert.deepEqual((await state()).directions,[0]);
       await press(page.locator('[data-act="outbound-reset"]'));
@@ -557,6 +577,12 @@ for (const vp of [{width:1440,height:900,name:'desktop'}, {width:390,height:844,
       await press(page.locator('details[data-fold="outbound-details"] > summary'));
       await page.locator('[data-bind="outbound-arriveBell"]').fill('2');
       s = await state(); assert.equal(s.session,false); assert.equal(s.executable,false); assert.equal(s.admitted,false);
+      observed=await read();assert.equal(observed.ok,true);assert.equal(observed.executable,false);
+      await page.screenshot({path:`${outDir}/${vp.name}-boundary-route.png`});
+      srv.capture('missing'); observed=await read();assert.equal(observed.code,'RouteLandMissing');
+      assert.match(await page.locator('.outbound-route-report').textContent(),/まだ読み取れていない州/);
+      srv.capture('ready');
+      assert.equal(srv.requests.filter(p=>p==='/h/world/wide/route').length,3);
       await page.locator('[data-bind="outbound-arriveBell"]').press('Escape');
       await page.waitForFunction(()=>!window.__boundaryFS.hand.pop);
       assert.equal(await page.locator('#hand .hand-acts').isVisible(),true,'closing restores the host orders');
@@ -571,7 +597,7 @@ for (const vp of [{width:1440,height:900,name:'desktop'}, {width:390,height:844,
       await page.waitForFunction(()=>{const FS=window.__boundaryFS;return FS.playReady&&FS.meStatus==='ready'&&FS.meAnswered;});
       assert.equal(await page.evaluate(()=>window.__boundaryFS.expeditionCompose?.map??null),null);
       assert.deepEqual(errors,[]);
-      console.log(JSON.stringify({viewport:vp.name,boundary:{syntheticObservation:true,originalCanvas:true,touch:phone,ring129:true,undo:true,reset:true,reopen:true,clockInvalidates:true,reloadClears:true,executable:false}}));
+      console.log(JSON.stringify({viewport:vp.name,boundary:{syntheticObservation:true,originalCanvas:true,touch:phone,ring129:true,capturedTravelSecs:120,missingLandRefused:true,undo:true,reset:true,reopen:true,clockInvalidates:true,reloadClears:true,executable:false}}));
     } catch(error) {
       if(page&&!page.isClosed()) {
         console.log(JSON.stringify({viewport:vp.name,error:String(error.stack??error),errors,

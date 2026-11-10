@@ -131,6 +131,7 @@ pub fn router(app: Shared) -> Router {
         // the recorded wide world (`wide.rs`; feature `wide-world-experimental`, else 503 WideWorldUnavailable)
         .route("/h/world/wide", get(world_wide))
         .route("/h/world/wide/page", get(world_wide_page))
+        .route("/h/world/wide/route", get(world_wide_route))
         .route("/h/overview/{ring}/{file}", get(overview))
         .route("/h/roster/{ring}/latest.bin", get(roster))
         .route("/h/province/{pq}/{bell}", get(province))
@@ -386,6 +387,32 @@ fn wide_status(e: crate::wide::WideFault) -> StatusCode {
     StatusCode::from_u16(e.status()).unwrap_or(StatusCode::BAD_REQUEST)
 }
 
+/// At most four exact captures, observed together under one Fold read-lock.
+#[cfg(feature = "wide-world-experimental")]
+async fn world_wide_route(
+    State(app): State<Shared>,
+    Query(q): Query<Vec<(String, String)>>,
+) -> Response {
+    if app.season.cluster.trim().eq_ignore_ascii_case("fixture") {
+        return err(StatusCode::SERVICE_UNAVAILABLE, "FixtureWorldUnavailable");
+    }
+    let [(name, at)] = q.as_slice() else {
+        return err(StatusCode::BAD_REQUEST, "BadRoute");
+    };
+    if name != "at" {
+        return err(StatusCode::BAD_REQUEST, "BadRoute");
+    }
+    let coords = match crate::wide::parse_route(at) {
+        Ok(coords) => coords,
+        Err(e) => return err(wide_status(e), e.code()),
+    };
+    let f = read_fold(&app);
+    match crate::wide::route_json(&f, &coords) {
+        Ok(v) => json_answer(&v, "no-store"),
+        Err(e) => err(wide_status(e), e.code()),
+    }
+}
+
 /// Without the feature the recorded wide world is explicitly unavailable
 /// (never a dense fallback dressed as one).
 #[cfg(not(feature = "wide-world-experimental"))]
@@ -395,6 +422,11 @@ async fn world_wide(State(_app): State<Shared>) -> Response {
 
 #[cfg(not(feature = "wide-world-experimental"))]
 async fn world_wide_page(State(_app): State<Shared>) -> Response {
+    err(StatusCode::SERVICE_UNAVAILABLE, "WideWorldUnavailable")
+}
+
+#[cfg(not(feature = "wide-world-experimental"))]
+async fn world_wide_route(State(_app): State<Shared>) -> Response {
     err(StatusCode::SERVICE_UNAVAILABLE, "WideWorldUnavailable")
 }
 
@@ -897,3 +929,7 @@ async fn wide_index_status(State(_app): State<Shared>) -> Response {
 async fn wide_index_events(State(_app): State<Shared>) -> Response {
     err(StatusCode::SERVICE_UNAVAILABLE, "WideIndexUnavailable")
 }
+
+#[cfg(test)]
+#[path = "wide_route_http_tests.rs"]
+mod wide_route_http_tests;

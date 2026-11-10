@@ -494,7 +494,7 @@ pub(super) fn settle_capture(p: &Pubkey, a: &[AccountInfo], x: &wix::SettleCaptu
     settle_capture_inner(p, a, x)
 }
 
-fn settle_capture_inner(p: &Pubkey, a: &[AccountInfo], x: &wix::SettleCapture) -> R<()> {
+pub(super) fn settle_capture_inner(p: &Pubkey, a: &[AccountInfo], x: &wix::SettleCapture) -> R<()> {
     check_accounts(
         Shape(wix::WideCommand::SettleCapture(*x).accounts()),
         a,
@@ -817,15 +817,3 @@ fn close_capture_escrow_inner(p: &Pubkey, a: &[AccountInfo]) -> R<()> {
 #[cfg(test)]
 #[path = "wide_conquest_settle_tests.rs"]
 mod tests;
-
-// Isolated native integration only; no production dispatch or authorization override.
-#[cfg(all(
-    test,
-    feature = "runtime-contract-tests",
-    feature = "public-proof-tests",
-    feature = "system-cpi-tests",
-    not(target_os = "solana")
-))]
-pub(super) fn runtime_capture(p: &Pubkey, a: &[AccountInfo], x: &wix::SettleCapture) -> R<()> {
-    settle_capture_inner(p, a, x)
-}

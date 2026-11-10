@@ -359,7 +359,90 @@ impl World {
             crate::proc::wide::dispatch_expedition_command(p, a, command).map_err(Into::into)
         })
     }
-    /// Execute the isolated member wire through the real same-call proof and
+    /// Existing conquest bytes, through the same authenticated command consumer
+    /// as public dispatch, with the public gate independently proven closed.
+    #[track_caller]
+    fn run_conquest_draft(
+        &mut self,
+        roles: &[([u8; 32], bool, bool)],
+        data: &[u8],
+    ) -> rt::system_cpi::Output {
+        use crate::proc::wide::conquest_draft;
+        assert!(!crate::proc::wide::CONQUEST_LIFECYCLE_ENABLED);
+        let mut probe = self.clone();
+        let out = probe.run_with_data(roles, data, |p, a, wire| {
+            assert_eq!(
+                crate::dispatch(p, a, wire),
+                Err(FrontierError::NotImplemented.into())
+            );
+            Ok(())
+        });
+        assert!(out.logs.is_empty() && out.cpis.is_empty());
+        assert_eq!(probe.0, self.0);
+        let mut malformed: Vec<Vec<u8>> = (0..4)
+            .chain(core::iter::once(data.len() - 1))
+            .map(|n| data[..n].to_vec())
+            .collect();
+        let mut extra = data.to_vec();
+        extra.push(0);
+        malformed.push(extra);
+        for i in 0..3 {
+            let mut bad = data.to_vec();
+            bad[i] ^= 0x80;
+            malformed.push(bad);
+        }
+        malformed.push(wix::Return.to_bytes().to_vec());
+        malformed.push(wix::SettleSiege { site: 0 }.to_bytes().to_vec());
+        malformed.push(
+            wix::Resolve {
+                bell: 0,
+                beneficiary: PAYER,
+            }
+            .to_bytes()
+            .to_vec(),
+        );
+        for wire in malformed {
+            let mut bad = self.clone();
+            let out = bad.run_with_data(roles, &wire, |p, a, d| {
+                assert!(conquest_draft::execute_draft(p, a, d).is_err());
+                Ok(())
+            });
+            assert!(out.logs.is_empty() && out.cpis.is_empty());
+            assert_eq!(bad.0, self.0);
+        }
+        let mut extra_roles = roles.to_vec();
+        extra_roles.push(*roles.last().unwrap());
+        let mut wrong_roles = vec![roles[..roles.len() - 1].to_vec(), extra_roles];
+        // Required privileges are independently rejected before any effects.
+        let command = wix::WideCommand::decode(data).unwrap();
+        let specs = command.accounts()[0].specs;
+        assert_eq!(specs.len(), roles.len());
+        for (i, spec) in specs.iter().enumerate() {
+            if spec.signer {
+                let mut bad = roles.to_vec();
+                bad[i].1 = false;
+                wrong_roles.push(bad);
+            }
+            if spec.wr == frontier_abi::prologue::Wr::W {
+                let mut bad = roles.to_vec();
+                bad[i].2 = false;
+                wrong_roles.push(bad);
+            }
+        }
+        for roles in wrong_roles {
+            let mut bad = self.clone();
+            let out = bad.run_with_data(&roles, data, |p, a, wire| {
+                assert!(conquest_draft::execute_draft(p, a, wire).is_err());
+                Ok(())
+            });
+            assert!(out.logs.is_empty() && out.cpis.is_empty());
+            assert_eq!(bad.0, self.0);
+        }
+        self.run_with_data(roles, data, |p, a, wire| {
+            conquest_draft::execute_draft(p, a, wire).map_err(Into::into)
+        })
+    }
+    /// Execute the isolated member or camp wire through the real same-call proof and
     /// settlement. No public command admission or supplied proof verdict.
     #[track_caller]
     fn run_settlement_draft(
@@ -369,7 +452,18 @@ impl World {
     ) -> rt::system_cpi::Output {
         use crate::proc::wide::expedition_return;
         use frontier_abi::world_index::expedition_settlement_ix as ix;
+        let camp = ix::camp_v2::DraftCommand::decode(data).is_ok();
+        let execute = |p: &solana_program::pubkey::Pubkey,
+                       a: &[solana_program::account_info::AccountInfo],
+                       wire: &[u8]| {
+            if camp {
+                expedition_return::settle_camp_draft(p, a, wire)
+            } else {
+                expedition_return::settle_draft(p, a, wire)
+            }
+        };
         assert_eq!(data.len(), ix::DRAFT_LEN);
+        assert!(!ix::camp_v2::PUBLIC_DISPATCH_AVAILABLE);
         assert!(!expedition_exec::EXPEDITION_ENABLED);
         assert!(!ix::PUBLIC_DISPATCH_AVAILABLE);
         assert!(wix::WideCommand::decode(data).is_err());
@@ -408,10 +502,17 @@ impl World {
         let mut wrong_live_slot = data.to_vec();
         wrong_live_slot[4] = (data[4] + 1) % 4;
         malformed.push(wrong_live_slot); // In range, but not this authenticated marker.
+        let mut other_schema = data.to_vec();
+        other_schema[..4].copy_from_slice(if camp {
+            &[0xdc, 0xff, 1, 13]
+        } else {
+            &ix::camp_v2::MAGIC
+        });
+        malformed.push(other_schema);
         for bytes in malformed {
             let mut bad = self.clone();
             let out = bad.run_with_data(roles, &bytes, |p, a, wire| {
-                assert!(expedition_return::settle_draft(p, a, wire).is_err());
+                assert!(execute(p, a, wire).is_err());
                 Ok(())
             });
             assert!(out.logs.is_empty() && out.cpis.is_empty());
@@ -424,7 +525,42 @@ impl World {
         for wrong_roles in [roles[..roles.len() - 1].to_vec(), extra_roles, wrong_season] {
             let mut bad = self.clone();
             let out = bad.run_with_data(&wrong_roles, data, |p, a, wire| {
-                assert!(expedition_return::settle_draft(p, a, wire).is_err());
+                assert!(execute(p, a, wire).is_err());
+                Ok(())
+            });
+            assert!(out.logs.is_empty() && out.cpis.is_empty());
+            assert_eq!(bad.0, self.0);
+        }
+        if camp {
+            for i in [1, roles.len() - 1] {
+                let mut wrong_roles = roles.to_vec();
+                wrong_roles[i].2 = false;
+                let mut bad = self.clone();
+                let out = bad.run_with_data(&wrong_roles, data, |p, a, wire| {
+                    assert!(execute(p, a, wire).is_err());
+                    Ok(())
+                });
+                assert!(out.logs.is_empty() && out.cpis.is_empty());
+                assert_eq!(bad.0, self.0);
+            }
+            let mut wrong_roles = roles.to_vec();
+            let payer = ix::camp_v2::AccountLayout::from_count(roles.len())
+                .unwrap()
+                .base()
+                + 1;
+            wrong_roles[payer].1 = false;
+            let mut bad = self.clone();
+            let out = bad.run_with_data(&wrong_roles, data, |p, a, wire| {
+                assert!(execute(p, a, wire).is_err());
+                Ok(())
+            });
+            assert!(out.logs.is_empty() && out.cpis.is_empty());
+            assert_eq!(bad.0, self.0);
+            let mut wrong_roles = roles.to_vec();
+            *wrong_roles.last_mut().unwrap() = roles[7];
+            let mut bad = self.clone();
+            let out = bad.run_with_data(&wrong_roles, data, |p, a, wire| {
+                assert!(execute(p, a, wire).is_err());
                 Ok(())
             });
             assert!(out.logs.is_empty() && out.cpis.is_empty());
@@ -433,13 +569,13 @@ impl World {
         let mut bad_program = self.clone();
         let out = bad_program.run_with_data(roles, data, |p, a, wire| {
             assert_ne!(p, a[0].key);
-            assert!(expedition_return::settle_draft(a[0].key, a, wire).is_err());
+            assert!(execute(a[0].key, a, wire).is_err());
             Ok(())
         });
         assert!(out.logs.is_empty() && out.cpis.is_empty());
         assert_eq!(bad_program.0, self.0);
         self.run_with_data(roles, data, |p, a, wire| {
-            expedition_return::settle_draft(p, a, wire).map_err(Into::into)
+            execute(p, a, wire).map_err(Into::into)
         })
     }
     /// Exercise the existing isolated 60-byte resident contract without adding
@@ -1128,28 +1264,32 @@ fn lifecycle_options(retreat_bps: u16, capture_after: bool, return_after: bool, 
         w(WALLET),
         w([91; 32]),
     ];
-    let settlement_wire =
+    let member_wire =
         frontier_abi::world_index::expedition_settlement_ix::DraftCommand::new(0, commit, seal)
             .unwrap()
             .to_bytes();
+    let settlement_wire = if camp_loot {
+        frontier_abi::world_index::expedition_settlement_ix::camp_v2::DraftCommand::new(
+            0, commit, seal,
+        )
+        .unwrap()
+        .to_bytes()
+    } else {
+        member_wire
+    };
     let before_settlement = world.clone();
-    let settled = if camp_loot {
+    if camp_loot {
         settlement_roles.push(w(citizen));
         // Appending Citizen does not widen member-v1: that old route refuses.
         let mut refused_world = world.clone();
-        let out = refused_world.run_with_data(&settlement_roles, &settlement_wire, |p, a, wire| {
+        let out = refused_world.run_with_data(&settlement_roles, &member_wire, |p, a, wire| {
             assert!(crate::proc::wide::expedition_return::settle_draft(p, a, wire).is_err());
             Ok(())
         });
         assert!(out.logs.is_empty() && out.cpis.is_empty());
         assert_eq!(refused_world.0, world.0);
-        world.run(&settlement_roles, |p, a, _| {
-            crate::proc::wide::expedition_return::runtime_settle_camp_v2(p, a, 8, 0, &commit, &seal)
-                .map_err(Into::into)
-        })
-    } else {
-        world.run_settlement_draft(&settlement_roles, &settlement_wire)
-    };
+    }
+    let settled = world.run_settlement_draft(&settlement_roles, &settlement_wire);
     assert!(settled.cpis.is_empty());
     assert_eq!(Ro(world.get(hk).data()).u64(H::ESCROW).unwrap(), 0);
     assert!(
@@ -1244,9 +1384,7 @@ fn lifecycle_options(retreat_bps: u16, capture_after: bool, return_after: bool, 
             settlement_wire.to_vec(),
             |p, a, wire| {
                 let refused = if camp_loot {
-                    crate::proc::wide::expedition_return::runtime_settle_camp_v2(
-                        p, a, 8, 0, &commit, &seal,
-                    )
+                    crate::proc::wide::expedition_return::settle_camp_draft(p, a, wire)
                 } else {
                     crate::proc::wide::expedition_return::settle_draft(p, a, wire)
                 };
@@ -1312,7 +1450,7 @@ fn capture_continuation(
     day: [u8; 32],
     host: WideHostRef,
 ) {
-    use crate::proc::wide::{conquest_exec, conquest_settle_exec};
+    use crate::proc::wide::conquest_draft;
     use frontier_abi::conquest_model::Record;
     use frontier_abi::v2::layout::province::conquest as CR;
     use frontier_abi::world_index::{conquest as wc, legacy_source_event as le};
@@ -1363,7 +1501,7 @@ fn capture_continuation(
         .find(|(_, _, h)| *h == host)
         .unwrap();
     assert_eq!(found, host);
-    let declared = world.run(
+    let declared = world.run_conquest_draft(
         &[
             (WALLET, true, false),
             payer(),
@@ -1378,17 +1516,11 @@ fn capture_continuation(
             w(escrow),
             r([0; 32]),
         ],
-        |p, a, _| {
-            conquest_exec::runtime_declare(
-                p,
-                a,
-                &wix::DeclareSiege {
-                    site: 0,
-                    entry: index as u8,
-                },
-            )
-            .map_err(Into::into)
-        },
+        &wix::DeclareSiege {
+            site: 0,
+            entry: index as u8,
+        }
+        .to_bytes(),
     );
     assert_eq!(declared.cpis.len(), 5);
     let required = Record::read(world.get(province).data(), 0)
@@ -1416,7 +1548,7 @@ fn capture_continuation(
             clock.round_time(clock.seed_round(bell, landed)),
             6000 + bell as u64,
         );
-        let out = world.run(
+        let out = world.run_conquest_draft(
             &[
                 payer(),
                 r(sk),
@@ -1429,18 +1561,11 @@ fn capture_continuation(
                 r([0; 32]),
                 w(table),
             ],
-            |p, a, _| {
-                let result = conquest_exec::runtime_resolve(
-                    p,
-                    a,
-                    &wix::ResolveWithConquest {
-                        bell,
-                        beneficiary: PAYER,
-                    },
-                );
-                assert!(result.is_ok(), "siege resolve bell {bell}: {result:?}");
-                result.map_err(Into::into)
-            },
+            &wix::ResolveWithConquest {
+                bell,
+                beneficiary: PAYER,
+            }
+            .to_bytes(),
         );
         assert!(out.cpis.is_empty());
         assert_eq!(
@@ -1465,10 +1590,8 @@ fn capture_continuation(
         w(source),
         r([0; 32]),
     ];
-    let captured = world.run(&capture_roles, |p, a, _| {
-        conquest_settle_exec::runtime_capture(p, a, &wix::SettleCapture { site: 0 })
-            .map_err(Into::into)
-    });
+    let capture_wire = wix::SettleCapture { site: 0 }.to_bytes();
+    let captured = world.run_conquest_draft(&capture_roles, &capture_wire);
     assert_eq!(captured.cpis.len(), 1);
     assert_eq!(
         u32::from_le_bytes(captured.cpis[0].data[..4].try_into().unwrap()),
@@ -1538,14 +1661,19 @@ fn capture_continuation(
             world.0.clone(),
             world.index(PROGRAM) as u16,
             privileges,
-            vec![],
-            |p, a, _| {
-                conquest_settle_exec::runtime_capture(p, a, &wix::SettleCapture { site: 0 })
-                    .map_err(Into::into)
+            capture_wire.to_vec(),
+            |p, a, wire| {
+                assert!(conquest_draft::execute_draft(p, a, wire).is_err());
+                Ok(())
             },
         )
     };
-    assert!(matches!(repeated, Err(rt::RunError::Helper(_))));
+    let repeated = repeated.unwrap();
+    assert!(repeated.logs.is_empty() && repeated.cpis.is_empty());
+    assert_eq!(
+        repeated.accounts,
+        before.iter().map(|(_, a)| a.clone()).collect::<Vec<_>>()
+    );
     assert_eq!(world.0, before);
     assert!(!crate::proc::wide::CONQUEST_LIFECYCLE_ENABLED);
 }
@@ -1572,7 +1700,7 @@ fn resident_return_continuation(
     day: [u8; 32],
     host: WideHostRef,
 ) {
-    use crate::proc::wide::{conquest_exec, expedition_resident};
+    use crate::proc::wide::expedition_resident;
     use frontier_abi::world_index::conquest as wc;
     use frontier_abi::world_index::expedition_resident_ix as resident_ix;
     let target = wh::holding_address(ctx, dest.coord(), 0);
@@ -1705,7 +1833,7 @@ fn resident_return_continuation(
             clock.round_time(clock.seed_round(resolved, landed)),
             7000 + resolved as u64,
         );
-        let output = world.run(
+        let output = world.run_conquest_draft(
             &[
                 payer(),
                 r(sk),
@@ -1718,17 +1846,11 @@ fn resident_return_continuation(
                 r([0; 32]),
                 w(wc::conquest_address(ctx, dest)),
             ],
-            |p, a, _| {
-                conquest_exec::runtime_resolve(
-                    p,
-                    a,
-                    &wix::ResolveWithConquest {
-                        bell: resolved,
-                        beneficiary: PAYER,
-                    },
-                )
-                .map_err(Into::into)
-            },
+            &wix::ResolveWithConquest {
+                bell: resolved,
+                beneficiary: PAYER,
+            }
+            .to_bytes(),
         );
         assert!(output.cpis.is_empty());
     }

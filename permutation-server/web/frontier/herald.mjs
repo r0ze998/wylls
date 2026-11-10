@@ -17,7 +17,7 @@ import { residentCitizen } from '../sdk/frontier/resident.mjs';
 import { parseTerritory } from './territory.mjs';
 import { provincesWithin, provinceFromIndex, provinceIndex, cellOf, provinceCentre, ringOf } from './fgeo.mjs';
 import { parseWideIndexStatus, parseWideIndexPage } from './map/widehistory.mjs';
-import { parseWideManifest, parseWidePage, PAGE_DEFAULT as WIDE_PAGE_DEFAULT } from './map/wide.mjs';
+import { parseWideManifest, parseWidePage, parseWideInt, PAGE_DEFAULT as WIDE_PAGE_DEFAULT } from './map/wide.mjs';
 
 // ------------------------------------------------------------------ HTTP
 /** A failed read (never thrown). */
@@ -43,7 +43,7 @@ async function get(f, url, { binary = false, timeoutMs = 12_000 } = {}) {
  * `WideWorldUnavailable` is that, never `HTTP503`), a missing route is `NotFound`, an abort is `Aborted`. The
  * caller's `signal` wins over the timeout. Used by the recorded wide world only (`get` above is unchanged).
  */
-async function getCoded(f, url, { signal = null, timeoutMs = 12_000 } = {}) {
+async function getCoded(f, url, { signal = null, timeoutMs = 12_000, maxBytes = null } = {}) {
   let r;
   try {
     r = await f(url, { cache: 'no-store', signal: signal ?? AbortSignal.timeout?.(timeoutMs) });
@@ -51,7 +51,31 @@ async function getCoded(f, url, { signal = null, timeoutMs = 12_000 } = {}) {
     return fail(signal?.aborted || e?.name === 'AbortError' ? 'Aborted' : 'network');
   }
   let json = null;
-  try { json = await r.json(); } catch { json = null; }
+  try {
+    if (maxBytes === null) json = await r.json();
+    else {
+      if (Number(r.headers?.get?.('content-length') ?? 0) > maxBytes) { await r.body?.cancel?.(); return fail('ResponseTooLarge'); }
+      const reader = r.body?.getReader?.();
+      if (reader) {
+        let n = 0; const chunks = [];
+        try {
+          for (;;) {
+            const { done, value } = await reader.read(); if (done) break;
+            n += value.byteLength;
+            if (n > maxBytes) { await reader.cancel(); return fail('ResponseTooLarge'); }
+            chunks.push(value);
+          }
+        } finally { reader.releaseLock(); }
+        const bytes = new Uint8Array(n); let at = 0;
+        for (const chunk of chunks) { bytes.set(chunk, at); at += chunk.byteLength; }
+        json = JSON.parse(new TextDecoder().decode(bytes));
+      } else {
+        const text = await r.text();
+        if (new TextEncoder().encode(text).length > maxBytes) return fail('ResponseTooLarge');
+        json = JSON.parse(text);
+      }
+    }
+  } catch { json = null; }
   if (!r.ok) {
     const code = typeof json?.code === 'string' && /^[A-Za-z0-9]{1,40}$/.test(json.code) ? json.code : r.status === 404 ? 'NotFound' : `HTTP${r.status}`;
     return fail(code, `HTTP ${r.status}`, r.status);
@@ -393,6 +417,15 @@ export function createHerald({ base = '', fetch: f = (...a) => globalThis.fetch(
       const r = await getCoded(f, `${root}/h/world/wide/page?${q}`, { signal });
       if (!r.ok) return r.code === 'NotFound' ? fail('WideWorldUnavailable', 'this herald serves no recorded wide world', r.httpStatus) : r;
       return { ok: true, json: r.json };
+    },
+    /** One bounded captured snapshot for the exact route provinces. */
+    async wideRoute({ places, signal = null } = {}) {
+      try {
+        if (!Array.isArray(places) || places.length < 1 || places.length > 4) return fail('RoutePlaces');
+        const coords = places.map(at => `${parseWideInt(at.p)},${parseWideInt(at.q)}`);
+        if (new Set(coords).size !== coords.length) return fail('RoutePlaces');
+        return await getCoded(f, `${root}/h/world/wide/route?at=${encodeURIComponent(coords.join(';'))}`, { signal, maxBytes: 64 * 1024 });
+      } catch { return fail('RoutePlaces'); }
     },
     /** Separate read-only index observations. Never a map/capture verification. */
     async wideIndexStatus({ signal = null, pins = {} } = {}) {
