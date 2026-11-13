@@ -262,6 +262,55 @@ pub fn stand_action(entry: Option<(u8, u8, u32)>, resolved_next: u32, bell_now: 
     if resolved_next < bell_now { StandAction::Drive } else { StandAction::Wait }
 }
 
+/// After this many steps in a row in which the village's own work kept the world phase waiting, it goes first once.
+pub const WORLD_STARVE_LIMIT: u32 = 8;
+/// The world phase's transactions per step (bounded; each awaited; after the village's own work). A natural turn (600 s)
+/// needs about 5 world transactions for ~31 provinces in 16 regions (3 PostAnchorMulti of 7 regions, ~2 FastForward of
+/// 16 turns); the keeper ticks every 10 s, so one per step sustains the natural clock but not a compressed one.
+pub const WORLD_TX_PER_STEP: usize = 4;
+/// The world phase's verified-round cache bound (turns).
+pub const WORLD_ROUND_CACHE: usize = 64;
+pub fn world_first(skipped: u32) -> bool { skipped >= WORLD_STARVE_LIMIT }
+
+/// The world phase's decision for one province (pure): a missing anchor first; else, with its closed range
+/// `resolved_next..end`, nothing while no window has closed (`end <= resolved_next`), else FastForward's simulation
+/// decides — accepted → `FastForward(end)` (sent: `resolved_next` moves, so the next anchors and turns follow); NotQuiet
+/// → `Resolve` (real resolution through `destination_bell`); any other refusal → `Stop` (fail-closed).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum WorldPlan { PostAnchor(u32), Wait, FastForward(u32), Resolve, Stop }
+pub fn world_plan(early_anchor: Option<u32>, resolved_next: u32, end: u32, sim_ok: bool, code: Option<u32>) -> WorldPlan {
+    if let Some(x) = early_anchor { return WorldPlan::PostAnchor(x); }
+    if end <= resolved_next { return WorldPlan::Wait; }
+    match (sim_ok, code) {
+        (true, _) => WorldPlan::FastForward(end),
+        (false, Some(c)) if c == lk::NOT_QUIET => WorldPlan::Resolve,
+        _ => WorldPlan::Stop,
+    }
+}
+
+/// The order the world phase visits `n` provinces, starting at `cursor` (round-robin: every province is reached before
+/// any is visited twice; the cursor moves past the one that last sent a transaction).
+pub fn world_order(cursor: usize, n: usize) -> impl Iterator<Item = usize> {
+    (0..n).map(move |k| (cursor % n.max(1) + k) % n.max(1))
+}
+
+/// The program-owned Provinces of the opened rings (`rings_opened` from the Frontier), in ring then (p, q) order.
+pub fn opened_provinces(c: &Chain, a: &Addresses) -> Vec<(i32, i32)> {
+    use frontier_abi::layout::world::frontier as FR;
+    let Some(fd) = c.account(&a.frontier()).filter(|acc| acc.owner == a.program).map(|acc| acc.data) else { return vec![] };
+    let Some(rings) = fd.get(FR::RINGS_OPENED..FR::RINGS_OPENED + 2).map(|b| u16::from_le_bytes([b[0], b[1]]) as i32) else { return vec![] };
+    let mut out = vec![];
+    for r in 0..rings {
+        for p in -r..=r {
+            for q in -r..=r {
+                if permutation_rules::frontier::geometry::ProvinceCoord::new(p, q).ring() as i32 != r { continue; }
+                if c.account(&a.province(p, q)).is_some_and(|acc| acc.owner == a.program) { out.push((p, q)); }
+            }
+        }
+    }
+    out
+}
+
 /// The next past anchor of an untouched destination to post EARLY (review of the page march trial: catching up one
 /// bell at a time cost one whole reveal window per lagging bell): the first bell in `[b, b + MAX_FAST_FORWARD_BELLS)`
 /// that has ended (`< bell_now`), comes before the arrival (`< arrive`; THE arrival anchor is the keeper's) and has no
@@ -313,6 +362,19 @@ pub struct LegacyMarchDriver {
     /// driver's): their turns are this driver's to resolve while the host is there, and its return home is settled
     /// here (`stand_action`). Learned from this driver's own landed SettleTransit.
     pub stands: Vec<((i32, i32), u64)>,
+    /// The world phase (`world_step`): the round-robin position over the other opened provinces, whether it runs, and
+    /// how many steps in a row this village's own work kept it waiting (`world_first`: bounded, never starved).
+    world_cursor: usize,
+    pub world_crank: bool,
+    world_skipped: u32,
+    /// The verified rounds the world phase already fetched, by turn (every region's anchor of a turn uses the same
+    /// round): fetched and verified once, then reused; the oldest are dropped past WORLD_ROUND_CACHE.
+    world_rounds: std::collections::BTreeMap<u32, lk::RoundProvenance>,
+    /// How many world-phase transactions LANDED (measurement; `world_counts` are the planned choices, sends or not).
+    pub world_sent: u64,
+    /// The world phase's PLANNED choices by kind (PostAnchorMulti / FastForward / Resolve / Wait / Stop): every plan
+    /// counts, whether or not it was sent or landed (`world_sent` counts what landed).
+    pub world_counts: std::collections::BTreeMap<&'static str, u64>,
 }
 
 impl LegacyMarchDriver {
@@ -320,7 +382,7 @@ impl LegacyMarchDriver {
     pub fn new(href: HoldingRef, payer: Keypair, stop: tokio::sync::watch::Receiver<bool>) -> LegacyMarchDriver {
         let a = Addresses::new(Address::new_from_array(crate::expedition_play::PROGRAM), crate::expedition_play::SEASON_ID);
         let holding = href.address(&a);
-        LegacyMarchDriver { a, holding, href, payer, stop, land_timeout: crate::keeper_loop::LAND_TIMEOUT, known: Default::default(), terminal: None, log: vec![], stands: vec![] }
+        LegacyMarchDriver { a, holding, href, payer, stop, land_timeout: crate::keeper_loop::LAND_TIMEOUT, known: Default::default(), terminal: None, log: vec![], stands: vec![], world_cursor: 0, world_crank: true, world_skipped: 0, world_rounds: Default::default(), world_sent: 0, world_counts: Default::default() }
     }
 
     pub fn terminal(&self) -> Option<&Step> {
@@ -378,20 +440,136 @@ impl LegacyMarchDriver {
             }
         };
         let v2 = season.is_v2();
+        let home = (h.p as i32, h.q as i32);
+        // (bounded fairness: after WORLD_STARVE_LIMIT steps in which this village's own work kept the world phase
+        //  waiting, the world phase goes first once — the village's work is then next)
+        if self.world_crank && world_first(self.world_skipped) {
+            let s = self.world_step(state, &clock, &season, home).await;
+            self.world_skipped = 0;
+            if !matches!(s, Step::Wait(_)) { return s; }
+        }
         let transits = live_transits(&h);
         let mut first_wait: Option<String> = None;
         for (slot, t) in transits {
             let s = self.transit_step(state, &h, v2, &clock, slot, t).await;
             if let Some(answer) = fold_step(&mut first_wait, s) {
+                self.world_skipped = self.world_skipped.saturating_add(1);
                 return answer;
             }
         }
         // then the provinces where a settled host stands (a march's own steps always come first)
         let s = self.stand_step(state, v2, &clock, &season).await;
         if let Some(answer) = fold_step(&mut first_wait, s) {
+            self.world_skipped = self.world_skipped.saturating_add(1);
             return answer;
         }
+        // last, when nothing of this village's own is due: the world's other opened provinces
+        if self.world_crank {
+            let s = self.world_step(state, &clock, &season, home).await;
+            self.world_skipped = 0;
+            if let Some(answer) = fold_step(&mut first_wait, s) {
+                return answer;
+            }
+        }
         Step::Wait(first_wait.unwrap_or_else(|| "no march of this village".into()))
+    }
+
+    /// The world phase: what the OTHER opened provinces need so that every opened province is resolved OR provably
+    /// quiet through each turn (the herald's `complete_through` takes the least of every opened province's resolved
+    /// or quiet-projected turn — rest.rs: a turn projects as quiet once its region's anchor window has closed — and only
+    /// then writes that turn's control snapshot, which the page's keeps and their holders read). So, per province, the
+    /// least that is safe:
+    ///   1. its region's missing anchors, posted early and bounded below `end_bell` (`anchor_to_post`);
+    ///   2. once their windows have closed, FastForward over the closed range is simulated and, when accepted, SENT: the
+    ///      province's `resolved_next` must move, or its anchor search (which starts there, 16 turns ahead) would stop
+    ///      after 16 turns and the herald's completeness would stall again; NotQuiet → the province goes through
+    ///      `destination_bell` (FastForward of the quiet prefix only when simulated, the not-quiet turn gathered,
+    ///      seeded and resolved for real). `world_plan` is the pure decision.
+    /// At most `WORLD_TX_PER_STEP` (4) transactions per step, each awaited and each decided on a fresh read, provinces in
+    /// round-robin order (`world_order`; a step may come back to a province it already served). An unknown outcome or a
+    /// refusal is returned as it is: the driver stops (fail-closed), nothing is resent. No account is written directly.
+    async fn world_step(&mut self, state: &Shared, clock: &fclient::clock::SeasonClock, season: &Season, home: (i32, i32)) -> Step {
+        // a bounded budget per step (WORLD_TX_PER_STEP): each transaction is awaited before the next; a wait, an
+        // unknown outcome or a refusal ends the step at once (fail-closed; nothing resent)
+        let mut last = Step::Wait("the world's provinces are current".into());
+        // (the budget: at most WORLD_TX_PER_STEP transactions — fewer when there are fewer opened provinces; this is a
+        //  count of transactions, not a one-pass limit: each call rescans from the cursor)
+        let provinces = { let c = lock(state); opened_provinces(&c, &self.a).len() }.max(1);
+        for _ in 0..WORLD_TX_PER_STEP.min(provinces) {
+            match self.world_step_once(state, clock, season, home).await {
+                Step::Landed(l, sig) => { self.world_sent = self.world_sent.saturating_add(1); last = Step::Landed(l, sig); }
+                s @ Step::Wait(_) => return if matches!(last, Step::Landed(..)) { last } else { s },
+                other => return other,
+            }
+        }
+        last
+    }
+
+    async fn world_step_once(&mut self, state: &Shared, clock: &fclient::clock::SeasonClock, season: &Season, home: (i32, i32)) -> Step {
+        let me = self.payer.pubkey();
+        let provinces = { let c = lock(state); opened_provinces(&c, &self.a) };
+        let skip: Vec<(i32, i32)> = std::iter::once(home).chain(self.stands.iter().map(|s| s.0)).collect();
+        let cands: Vec<(i32, i32)> = provinces.into_iter().filter(|p| !skip.contains(p)).collect();
+        let mut first_wait: Option<String> = None;
+        for i in world_order(self.world_cursor, cands.len()) {
+            let dest = cands[i];
+            let (dv, now) = { let c = lock(state); (lk::view(&c, &self.a, dest.0 as i16, dest.1 as i16), c.unix_timestamp()) };
+            let dv = match dv { Ok(v) => v, Err(e) => return Step::Stopped(format!("world {},{}: {e}", dest.0, dest.1)) };
+            if !(dv.resolved_next < dv.bell_now && SeasonGate::of(season.status, season.genesis_ts, season.end_bell, now, dv.resolved_next).drive) { continue; }
+            let tag = |label: String| format!("world {},{}: {label}", dest.0, dest.1);
+            // the plan: 1. the region's missing anchor, 2. the closed range fast-forwarded (quiet) or resolved (not quiet)
+            let early = { let c = lock(state); anchor_to_post(dv.resolved_next, season.end_bell, dv.bell_now, |x| !matches!(lk::anchor_landed(&c, &self.a, x, dv.region), Ok(None))) };
+            let end = if early.is_some() { dv.resolved_next } else {
+                let e = { let c = lock(state); lk::closed_through(&c, &self.a, dv.region, dv.resolved_next, season.end_bell.min(dv.bell_now).min(dv.resolved_next + lk::MAX_FAST_FORWARD_BELLS)) };
+                match e { Ok(e) => e, Err(e) => return Step::Stopped(tag(e)) }
+            };
+            let ff = if early.is_none() && end > dv.resolved_next { match lk::fast_forward_ix(&self.a, &me, dest.0 as i16, dest.1 as i16, &dv, end) { Ok(ix) => Some(ix), Err(e) => return Step::Stopped(tag(e)) } } else { None };
+            let sim = ff.as_ref().map(|ix| { let c = lock(state); lk::simulate_ix(&c, &self.payer, ix) });
+            let (ok, code) = match &sim { Some(Ok(x)) => (x.err.is_none(), x.code), _ => (false, None) };
+            let plan = world_plan(early, dv.resolved_next, end, ok, code);
+            *self.world_counts.entry(match plan { WorldPlan::PostAnchor(_) => "PostAnchorMulti", WorldPlan::Wait => "Wait", WorldPlan::FastForward(_) => "FastForward", WorldPlan::Resolve => "Resolve", WorldPlan::Stop => "Stop" }).or_default() += 1;
+            match plan {
+                WorldPlan::PostAnchor(x) => {
+                    let r = match self.world_rounds.get(&x).cloned() {
+                        Some(r) => r,
+                        None => {
+                            let rounds = tokio::select! {
+                                r = lk::fetch_rounds(clock, x..x + 1) => r,
+                                _ = crate::keeper_loop::stopped(&mut self.stop) => return Step::Stopped("stopped by request".into()),
+                            };
+                            let r = match rounds { Ok(r) if r.len() == 1 => r.into_iter().next().expect("one"), Ok(_) => { first_wait.get_or_insert(tag(format!("anchor round of bell {x}"))); continue; } Err(e) => { first_wait.get_or_insert(tag(e)); continue; } };
+                            self.world_rounds.insert(x, r.clone());
+                            while self.world_rounds.len() > WORLD_ROUND_CACHE { let k = *self.world_rounds.keys().next().expect("non-empty"); self.world_rounds.remove(&k); }
+                            r
+                        }
+                    };
+                    // every region of the opened provinces still without the anchor of turn x, in one PostAnchorMulti (at
+                    // most MULTI_REGIONS regions; each region re-read with the anchor identity check)
+                    let regions: Vec<u8> = { let c = lock(state); let mut rg: Vec<u8> = cands.iter().filter_map(|d| lk::view(&c, &self.a, d.0 as i16, d.1 as i16).ok().map(|v| v.region)).collect(); rg.sort_unstable(); rg.dedup(); rg };
+                    let absent: Result<Vec<u8>, String> = { let c = lock(state); regions.into_iter().filter_map(|rg| match lk::anchor_landed(&c, &self.a, x, rg) { Ok(None) => Some(Ok(rg)), Ok(Some(_)) => None, Err(e) => Some(Err(e)) }).collect() };
+                    let absent = match absent { Ok(v) => v, Err(e) => return Step::Stopped(tag(e)) };
+                    let mask = lk::region_masks(absent.into_iter()).into_iter().next().unwrap_or(1u16 << dv.region);
+                    let ix = match lk::post_anchor_multi_ix(&self.a, &me, mask, &r) { Ok(ix) => ix, Err(e) => return Step::Stopped(tag(e)) };
+                    self.world_cursor = (i + 1) % cands.len();
+                    return self.checked(state, ix, &tag(format!("PostAnchorMulti(bell {x}, mask {mask:#06x})"))).await;
+                }
+                WorldPlan::Wait => { first_wait.get_or_insert(tag(format!("the reveal window of turn {} is open", dv.resolved_next))); continue; }
+                WorldPlan::FastForward(to) => {
+                    self.world_cursor = (i + 1) % cands.len();
+                    return self.checked(state, ff.expect("simulated"), &tag(format!("FastForward(world {} → {to})", dv.resolved_next))).await;
+                }
+                WorldPlan::Resolve => {
+                    self.world_cursor = (i + 1) % cands.len();
+                    return match self.destination_bell(state, clock, dest, &dv, dv.resolved_next, season.end_bell).await {
+                        Step::Landed(label, sig) => Step::Landed(tag(label), sig),
+                        Step::Wait(w) => Step::Wait(tag(w)),
+                        other => other,
+                    };
+                }
+                WorldPlan::Stop => return Step::Stopped(tag(format!("FastForward({} → {end}) simulation: {sim:?}", dv.resolved_next))),
+            }
+        }
+        Step::Wait(first_wait.unwrap_or_else(|| "the world's provinces are current".into()))
     }
 
     /// One step for the provinces where this village's settled hosts stand: resolve their turns (the same
@@ -760,6 +938,63 @@ mod tests {
         let b = settle_args(HoldingRef { p: 2, q: 0, site: 11 }, 2, &d, &t, 0, (3, 0), Address::new_from_array([1; 32]), Address::new_from_array([2; 32]), None, None, true, me);
         assert_eq!((b.slot_i, b.slot_beneficiary), (0, me), "no slot: the canonical absent index, this keeper");
         assert!(slot_of(&[None, None, None, None], 77).is_none());
+    }
+}
+
+#[cfg(test)]
+mod world {
+    use super::{anchor_to_post, world_first, world_order, world_plan, WorldPlan, WORLD_STARVE_LIMIT};
+    use crate::local_keeper::{MAX_FAST_FORWARD_BELLS, NOT_QUIET};
+    #[test]
+    fn round_robin_reaches_every_province_once_from_the_cursor() {
+        assert_eq!(world_order(0, 4).collect::<Vec<_>>(), vec![0, 1, 2, 3]);
+        assert_eq!(world_order(2, 4).collect::<Vec<_>>(), vec![2, 3, 0, 1]);
+        assert_eq!(world_order(9, 4).collect::<Vec<_>>(), vec![1, 2, 3, 0], "a stale cursor wraps");
+        assert_eq!(world_order(0, 0).count(), 0, "no province, nothing");
+    }
+    #[test]
+    fn the_plan_anchor_first_then_wait_fast_forward_resolve_or_stop() {
+        assert_eq!(world_plan(Some(7), 5, 5, false, None), WorldPlan::PostAnchor(7));
+        assert_eq!(world_plan(None, 5, 5, true, None), WorldPlan::Wait, "no window closed yet");
+        assert_eq!(world_plan(None, 5, 9, true, None), WorldPlan::FastForward(9), "quiet: sent, resolved_next moves");
+        assert_eq!(world_plan(None, 5, 9, false, Some(NOT_QUIET)), WorldPlan::Resolve);
+        assert_eq!(world_plan(None, 5, 9, false, Some(1)), WorldPlan::Stop);
+        assert_eq!(world_plan(None, 5, 9, false, None), WorldPlan::Stop);
+    }
+
+    /// Two quiet-only provinces in two regions, 50 turns: each step posts the next missing anchor or fast-forwards the
+    /// closed range (windows close one step after the anchor lands, as on chain). Both provinces pass 16 turns and reach
+    /// the current turn, and the herald's completeness — the least turn every opened province is resolved through —
+    /// keeps advancing (the review's stall: rn fixed, anchors 0..15, then Quiet for ever).
+    #[test]
+    fn quiet_only_regions_advance_past_sixteen_turns_and_completeness_follows() {
+        let (bell_now, end_bell) = (50u32, 1_000u32);
+        let mut rn = [0u32, 0u32];
+        let mut anchors: [std::collections::BTreeMap<u32, u32>; 2] = Default::default(); // turn → step it landed
+        let mut completeness = vec![];
+        for step in 0..400u32 {
+            let k = (step % 2) as usize; // round-robin over the two provinces
+            let landed = |x: u32| anchors[k].contains_key(&x);
+            let early = anchor_to_post(rn[k], end_bell, bell_now, landed);
+            // a window is closed once its anchor landed at an earlier step
+            let mut end = rn[k];
+            while end < bell_now.min(rn[k] + MAX_FAST_FORWARD_BELLS) && anchors[k].get(&end).is_some_and(|s| *s < step) { end += 1; }
+            match world_plan(early, rn[k], end, true, None) {
+                WorldPlan::PostAnchor(x) => { anchors[k].insert(x, step); }
+                WorldPlan::FastForward(to) => { assert!(to > rn[k]); rn[k] = to; }
+                WorldPlan::Wait => {}
+                other => panic!("{other:?}"),
+            }
+            completeness.push(rn[0].min(rn[1]));
+        }
+        assert_eq!(rn, [bell_now, bell_now], "both quiet-only provinces reach the current turn, far past 16");
+        assert!(completeness.windows(2).all(|w| w[1] >= w[0]) && *completeness.last().unwrap() == bell_now, "completeness never stalls");
+        assert!(completeness.iter().any(|c| *c > MAX_FAST_FORWARD_BELLS), "past the first 16 turns");
+    }
+    #[test]
+    fn the_world_phase_is_never_starved_and_never_starves_the_village() {
+        assert!(!world_first(0) && !world_first(WORLD_STARVE_LIMIT - 1), "the village's own work first");
+        assert!(world_first(WORLD_STARVE_LIMIT), "after the bound, the world goes first once");
     }
 }
 
@@ -1285,6 +1520,38 @@ mod real_legacy {
             }
             assert!(!pv.entries.iter().any(|e| e.id == host), "the donor's entry is freed in the keep's province");
             assert!(removed || seen.iter().any(|s| s.contains("\"SettleReturn(")), "SettleReturn landed");
+            // the world phase on the REAL program: every opened province (quiet-only regions included) resolved close to
+            // the current turn — far past 16 turns — so the herald's completeness (the least turn every opened province is
+            // resolved or quiet through) is not stuck. Small clock steps; no stand is left, so the world phase runs each tick.
+            let mut world_min = 0u32;
+            let mut now_bell = 0u32;
+            let mut start_min: Option<u32> = None;
+            let sent0 = pilot.legacy.as_ref().map_or(0, |d| d.world_sent);
+            let mut ticks = 0u32;
+            for _ in 0..900 {
+                assert!(pilot.tick(&state).await, "the keeper stopped: {:?}", pilot.keeper.status);
+                ticks += 1;
+                assert!(pilot.keeper.status.unknown_signature.is_none(), "an unknown outcome: {:?}", pilot.keeper.status);
+                if let Some(t) = pilot.legacy.as_ref().and_then(|d| d.terminal()) { panic!("the legacy driver stopped during the world catch-up: {t:?}"); }
+                let (m, nb, n) = {
+                    let c = lock(&state);
+                    let ps = super::opened_provinces(&c, &a);
+                    let nb = lk::season_clock(&c, &a).unwrap().bell_at(c.unix_timestamp()).unwrap();
+                    (ps.iter().map(|p| lk::view(&c, &a, p.0 as i16, p.1 as i16).unwrap().resolved_next).min().unwrap_or(0), nb, ps.len())
+                };
+                (world_min, now_bell) = (m, nb);
+                start_min.get_or_insert(m);
+                if m + 3 >= nb { eprintln!("WORLD: all {n} opened provinces resolved through ≥ {m} (current turn {nb})"); break; }
+                let t = lock(&state).unix_timestamp();
+                crate::destination_real::advance(&state, t + 20);
+            }
+            {
+                let d = pilot.legacy.as_ref().expect("legacy");
+                eprintln!("WORLD-MEASURE: catch-up ticks {ticks} (clock +20 s each = {:.1} turns); least resolved_next {:?} → {world_min}, current turn {now_bell}; world transactions in catch-up {}; decisions so far {:?}",
+                    ticks as f64 * 20.0 / 600.0, start_min, d.world_sent - sent0, d.world_counts);
+            }
+            assert!(world_min + 3 >= now_bell, "the world phase keeps every opened province near the current turn: least {world_min}, now {now_bell}");
+            assert!(world_min > lk::MAX_FAST_FORWARD_BELLS, "past the first 16 turns: least {world_min}");
             if removed {
                 eprintln!("RESULT (NO RETURN: the whole host joined the garrison): keep {tgt:?} taken by nation {faction} from {}; garrison {} = ⌊{t} / 1,000⌋; consolidated until {}", keep0.holder, kt.troops, kt.consolidated_until_bell);
             } else {
