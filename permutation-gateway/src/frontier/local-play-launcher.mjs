@@ -762,6 +762,9 @@ export const USAGE = `local-play launcher (this machine only)
     [--march-trial local-march-trial-v1: TEST-ONLY, natural preset only: the relay's march capability says trial
        and the page is addressed with march=trial; only both together let an approved live trial of the ordinary
        march open it on that page. No game rule changes; no conquest gate opens]
+    [--capture-demo capture-demo-v1 --demo-scale <10-60>: TEST-ONLY, both or neither, natural preset with
+       --march-trial only: after the player's home, that world's clock runs <scale> times faster and test
+       participants open the next ring; the page says so all session. Never the natural preset's behaviour]
     [--world-ttl-minutes <whole minutes, decimal>: each world's automatic end, counted from its own start; without it
        two hours. Set here only (never over HTTP); fixed once per world and told to its page as its expiry]
     [--port 41920] [--world-port 41924]

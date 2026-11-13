@@ -62,3 +62,7 @@ test('the runner\'s first line must state exactly this launcher\'s demo (mode, s
   const src = readFileSync(new URL('../src/frontier/local-play-launcher.mjs', import.meta.url), 'utf8');
   assert.match(src, /if \(!runnerDemoAgrees\(meta, demo\)\) throw fault\('RunnerNotReady', 503\);/, 'a disagreement fails the start like any unready runner (its processes are stopped by the same path)');
 });
+
+test('the usage text names the demo words, test-only, with the march trial', () => {
+  assert.match(L.USAGE, /\[--capture-demo capture-demo-v1 --demo-scale <10-60>: TEST-ONLY, both or neither, natural preset with\n\s+--march-trial only:/);
+});
