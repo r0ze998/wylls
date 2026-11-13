@@ -41,7 +41,7 @@ import { costChips, costWords, shortWords, took, unitGood, unitStrength, whyText
 import * as proto from './proto.mjs';
 import { handNote } from '../fdelegation.mjs';
 import { previewOf } from '../proto/hand-model.mjs';
-import { conquestOn, renderKeepsPop, waitOf, holdTurns } from './keephand.mjs';
+import { conquestOn, noContestableKeep, renderKeepsPop, waitOf, holdTurns } from './keephand.mjs';
 import { EXPEDITION_POP, inspectionVersion } from '../fexpedition.mjs';
 import { originalReturnModel } from '../fexpedition-return.mjs';
 import { OUTBOUND_POP, outboundSketch, outboundArrivalCandidate } from '../fexpedition-compose.mjs';
@@ -165,7 +165,8 @@ function hostModel(FS, sub) {
       hint: L`行き先のマスを押します。体力を ${fmtNum(DEPART_STAMINA)} 使い、着くのは 2 ターン先からです` },
     // a conquest season: the keeps this host can reach, as a list (hud/keephand.mjs). A host that cannot depart yet may still
     // open it: the list then says from which turn it can go (never a dead end)
-    ...(conquestOn(FS) && r.unit !== SCOUT && r.unit !== SETTLER ? [{ id: 'keeps', icon: 'flag', word: L`砦へ進軍`, act: 'hand-pop', data: { pop: 'keeps' }, figure: L`${fmtNum(holdTurns(FS))} ターンで奪取`, pressed: pop === 'keeps',
+    // (not offered where no keep can be taken: a world opened only to the heartlands — noContestableKeep)
+    ...(conquestOn(FS) && !noContestableKeep(FS) && r.unit !== SCOUT && r.unit !== SETTLER ? [{ id: 'keeps', icon: 'flag', word: L`砦へ進軍`, act: 'hand-pop', data: { pop: 'keeps' }, figure: L`${fmtNum(holdTurns(FS))} ターンで奪取`, pressed: pop === 'keeps',
       why: r.inTransit ? mc.text : null, tone: waitOf(FS, r) ? 'warn' : '', hint: L`この軍勢が届く他国の砦を一覧にします。行を選ぶと、その砦への命令の紙が開きます` }] : []),
     ...(ex ? [{ id: 'explore', icon: 'scout', word: L`探索`, act: 'hand-pop', data: { pop: 'explore' }, figure: ex.ok ? L`${fmtNum(ex.targets.length)} マス` : '', pressed: pop === 'explore', why: ex.ok ? null : ex.text,
       hint: L`となりのマスを 2 つまで調べます` }] : []),

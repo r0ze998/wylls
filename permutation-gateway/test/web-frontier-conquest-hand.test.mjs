@@ -341,3 +341,46 @@ test('the sample world draws what it drew: no keeps card, no strip, no report ca
   assert.equal(P.seasonEndModel({ ...s, nowBell: 96, prize: POOL_FINAL }), null);
   assert.equal(conquestGuide(s), null);
 });
+
+// ------------------------------------------------------------------ a world with nothing to take (2026-11-13)
+test('no fort march and no capture guide where no keep can be taken (only heartland or own keeps); unchanged otherwise', () => {
+  const heartlandOnly = new Map([['-2,0', { p: -2, q: 0, tile: 30, holder: 3, troops: 100, heartland: true, consolidatedUntil: 0, contender: 255, progress: 0, requiredBells: 72, asOfBell: 10 }],
+    ['2,0', { p: 2, q: 0, tile: 12, holder: 0, troops: 100, heartland: true, consolidatedUntil: 0, contender: 255, progress: 0, requiredBells: 72, asOfBell: 10 }],
+    ['1,1', { p: 1, q: 1, tile: 8, holder: 0, troops: 100, heartland: false, consolidatedUntil: 0, contender: 255, progress: 0, requiredBells: 72, asOfBell: 10 }]]);
+  const s = fs();
+  s.selected = { p: 2, q: 0, idx: 20 }; s.hand = { host: String(entry().id) };
+  s.conquest.keeps = heartlandOnly;
+  assert.equal(K.noContestableKeep(s), true);
+  assert.ok(!handModel(s).buttons.some(b => b.id === 'keeps'), 'no "砦へ進軍 · 72 ターンで奪取" on a heartland-only world');
+  assert.ok(handModel(s).buttons.some(b => b.id === 'march'), 'the ordinary march stays');
+  // the guide: hidden only when EVERY keep is in a heartland (here the own keep 1,1 is not: the guide stays)
+  assert.notEqual(conquestGuide(s), null);
+  const pure = fs(); pure.conquest.keeps = new Map([...heartlandOnly].filter(([k]) => k !== '1,1'));
+  assert.equal(K.heartlandOnlyKeeps(pure), true); assert.equal(conquestGuide(pure), null, 'no guide to a capture that cannot happen');
+  // the keeps not read yet: nothing changes (the button and the guide as before)
+  const unread = fs(); unread.selected = s.selected; unread.hand = s.hand; unread.conquest.keeps = undefined;
+  assert.equal(K.noContestableKeep(unread), false);
+  assert.ok(handModel(unread).buttons.some(b => b.id === 'keeps'));
+  // one foreign keep outside a heartland: offered again, guide again
+  heartlandOnly.set('0,4', { p: 0, q: 4, tile: 26, holder: 1, troops: 100, heartland: false, consolidatedUntil: 0, contender: 255, progress: 0, requiredBells: 72, asOfBell: 10 });
+  assert.equal(K.noContestableKeep(s), false);
+  assert.ok(handModel(s).buttons.some(b => b.id === 'keeps'));
+  assert.notEqual(conquestGuide(s), null);
+  // an empty map (nothing known) and an unknown turn hide nothing
+  const empty = fs(); empty.conquest.keeps = new Map(); assert.equal(K.noContestableKeep(empty), false); assert.equal(K.heartlandOnlyKeeps(empty), false);
+  const noTurn = fs(); noTurn.conquest.keeps = heartlandOnly; noTurn.nowBell = undefined; assert.equal(K.noContestableKeep(noTurn), false);
+});
+
+test('a foreign keep under its post-capture protection: no fort march while protected, offered again once the protection ends', () => {
+  const guarded = new Map([['0,4', { p: 0, q: 4, tile: 26, holder: 1, troops: 50, heartland: false, consolidatedUntil: 20, contender: 255, progress: 0, requiredBells: 72, asOfBell: 10 }],
+    ['2,0', { p: 2, q: 0, tile: 12, holder: 0, troops: 100, heartland: true, consolidatedUntil: 0, contender: 255, progress: 0, requiredBells: 72, asOfBell: 10 }]]);
+  const during = fs({ bell: 10 }); during.selected = { p: 2, q: 0, idx: 20 }; during.hand = { host: String(entry({ staminaBell: 10, readyBell: 10, fromBell: 10 }).id) };
+  during.conquest.keeps = guarded;
+  assert.equal(K.noContestableKeep(during), true, 'turn 10 < 20: protected');
+  assert.ok(!handModel(during).buttons.some(b => b.id === 'keeps'));
+  assert.notEqual(conquestGuide(during), null, 'the guide stays: the world has a keep to take once its protection ends');
+  const after = fs({ bell: 25 }); after.selected = during.selected; after.hand = during.hand; after.conquest.keeps = guarded;
+  assert.equal(K.noContestableKeep(after), false, 'turn 25 ≥ 20: protection over (was hidden for good with a fixed turn 0)');
+  assert.ok(handModel(after).buttons.some(b => b.id === 'keeps'));
+  assert.notEqual(conquestGuide(after), null);
+});

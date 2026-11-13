@@ -19,7 +19,7 @@ import { hostRows } from '../../permutation-server/web/frontier/screens/host.mjs
 
 afterEach(() => setLang('ja'));
 const CJK = /[぀-ヿ㐀-鿿]/;
-// (the local-march contract's reasons, in its order: docs/integration/CLAUDE-LOCAL-MARCH-OPEN-CONTRACT-20261113.md, flocalplay-march.mjs
+// (the local-march contract's reasons, in its order: docs/integration/CLAUDE-LOCAL-MARCH-CONTRACT-SPEC-20261113.md, flocalplay-march.mjs
 // LOCAL_MARCH_REASONS. Written out here so this test runs where that module is not merged yet)
 const LOCAL_MARCH_REASONS = Object.freeze(['LocalMarchNoCapability', 'LocalMarchNotReady', 'LocalMarchGate', 'LocalMarchWideHolding', 'LocalMarchHeld', 'open']);
 // (the play screen's banned machinery words: web-frontier-cards.test.mjs BANNED_EN)

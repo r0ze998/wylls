@@ -16,7 +16,7 @@ import { pipeline, countdown } from '../clock.mjs';
 /**
  * Can this page send a march? A world on a chain (not local play): yes, as before. Local play: only when the march
  * lane's answer says so — `FS.localMarch` = flocalplay-march.mjs `localMarchOpen(...)` → `{open, reason, capability,
- * ready, held}` (docs/integration/CLAUDE-LOCAL-MARCH-OPEN-CONTRACT-20261113.md). Anything else, including no answer
+ * ready, held}` (docs/integration/CLAUDE-LOCAL-MARCH-CONTRACT-SPEC-20261113.md). Anything else, including no answer
  * yet, is closed. Never read from the economy command list.
  */
 export const marchOpenFor = FS => (FS?.localPlay ? FS?.localMarch?.open === true : true);

@@ -33,11 +33,35 @@ import { provinceName, provinceCoords } from './place.mjs';
 import { whyText } from './orderparts.mjs';
 import { keepArrival, ROUGH_TERRAIN } from './rulebook.mjs';
 import { formingLine } from './firststeps.mjs';
+import { contestableKeeps } from '../fkeepreach.mjs';
 
 const int = Number.isInteger;
 const nation = f => int(f) && f >= 0 && f <= 5;
 /** A conquest season on a chain: program version 3 or more, and not the sample world (which draws exactly what it drew: no keep is offered there). */
 export const conquestOn = FS => Number(FS?.season?.programVersion ?? 0) >= 3 && !FS?.sample;
+/**
+ * Whether the world's keeps have been read and NONE is one the viewer's nation could take (`contestableKeeps`, the reach
+ * list's own rule at the page's turn: another nation's, not in a heartland — a heartland keep never counts —, not under
+ * its post-capture protection). Then the
+ * fort march and its "N turns to take" are not offered: a world opened only to the heartlands has nothing to take.
+ * Before the keeps are read nothing changes.
+ */
+export const noContestableKeep = FS => {
+  const keeps = FS?.conquest?.keeps;
+  // (nothing read yet, or the page's turn unknown: nothing is hidden. The turn is the one the reach list is asked with,
+  //  `FS.nowBell`: a keep under its post-capture protection counts again once that turn passes)
+  if (!(keeps instanceof Map) || keeps.size === 0 || !Number.isInteger(FS?.nowBell)) return false;
+  return contestableKeeps([...keeps.values()], { faction: FS?.citizen?.faction, nowBell: FS.nowBell }).length === 0;
+};
+/**
+ * Whether the world's keeps have been read and EVERY one stands in a heartland (where a keep never counts): a world opened
+ * only to the heartlands, with nothing to take at all — the capture guide is not shown there. A keep outside a heartland
+ * (taken, protected or contestable) keeps the guide. An empty or unread map hides nothing.
+ */
+export const heartlandOnlyKeeps = FS => {
+  const keeps = FS?.conquest?.keeps;
+  return keeps instanceof Map && keeps.size > 0 && [...keeps.values()].every(k => !!k?.heartland);
+};
 /** The turns a hostile host must hold a keep's tile (the season's parameter; the record's own figure where a keep carries one). */
 export const holdTurns = (FS, keep = null) => {
   const k = Number(keep?.requiredBells ?? keep?.required), s = Number(FS?.season?.conquestParams?.keepBells);

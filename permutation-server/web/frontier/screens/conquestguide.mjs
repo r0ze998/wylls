@@ -22,7 +22,7 @@ import { activeHolding } from '../fstate.mjs';
 import { SCOUT, SETTLER, UNIT_ORDER } from '../fland.mjs';
 import { factsOf, hasBuilt } from '../onboarding.mjs';
 import { icon } from '../hud/icons.mjs';
-import { conquestOn, holdTurns, hostWaits, waitOf, waitText, keepsModel, arrivalOdds, roughAt } from '../hud/keephand.mjs';
+import { conquestOn, heartlandOnlyKeeps, holdTurns, hostWaits, waitOf, waitText, keepsModel, arrivalOdds, roughAt } from '../hud/keephand.mjs';
 import { keepArrival } from '../hud/rulebook.mjs';
 import { provinceName } from '../hud/place.mjs';
 import { hostRows } from './host.mjs';
@@ -127,7 +127,8 @@ const TITLE = {
  * facts}`. A later step that the records already show is ticked whatever came before it (a capture is a capture).
  */
 export function conquestGuide(FS) {
-  if (!conquestOn(FS)) return null;
+  // (no guide to a capture in a world opened only to the heartlands, where no keep can ever be taken — heartlandOnlyKeeps)
+  if (!conquestOn(FS) || heartlandOnlyKeeps(FS)) return null;
   const x = conquestFacts(FS), hold = holdTurns(FS);
   const captured = !!x.captured;
   const done = { village: x.village, build: x.built || x.trained || x.host, train: x.trained || x.host, muster: x.stood || x.marched, march: x.marched, hold: captured, capture: captured };
