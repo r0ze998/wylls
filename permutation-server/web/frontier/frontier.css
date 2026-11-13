@@ -483,8 +483,8 @@ body[data-stage="none"] :is(.lenses, .map-btn[data-map="home"]) { display: none;
   background: var(--tex-paper, none) 0 0 / 256px 256px, var(--paper-sheet); background-clip: padding-box, padding-box; color: var(--ink); font-variant-numeric: tabular-nums; }
 /* inside: no cards. Each part a screen renders is a passage of the one sheet; an ink rule with a small ornament divides them. */
 :where(#panel-body) > * { position: relative; margin: 0; padding: 4px 2px 6px; max-width: 100%; }
-:where(.panel[data-drawer="open"] #panel-body) > * + * { margin-top: 27px; }
-:where(.panel[data-drawer="open"] #panel-body) > * + *::before { content: ""; position: absolute; left: 4px; right: 4px; top: -20px; height: 13px; pointer-events: none;
+:where(.panel[data-drawer="open"] #panel-body, body:is([data-mode="spectate"], [data-mode="practice"]) #panel-body) > * + * { margin-top: 27px; }
+:where(.panel[data-drawer="open"] #panel-body, body:is([data-mode="spectate"], [data-mode="practice"]) #panel-body) > * + *::before { content: ""; position: absolute; left: 4px; right: 4px; top: -20px; height: 13px; pointer-events: none;
   background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 52 13'%3E%3Cg fill='none' stroke='%23574119' stroke-opacity='.62' stroke-width='1.1' stroke-linecap='round'%3E%3Cpath d='M26 2.2l4.3 4.3-4.3 4.3-4.3-4.3z'/%3E%3Cpath d='M14 6.5c2.2-2.6 4.4-2.6 6.4 0M38 6.5c-2.2 2.6-4.4 2.6-6.4 0'/%3E%3C/g%3E%3Ccircle cx='26' cy='6.5' r='1.3' fill='%23574119' fill-opacity='.7'/%3E%3Ccircle cx='10' cy='6.5' r='1' fill='%23574119' fill-opacity='.55'/%3E%3Ccircle cx='42' cy='6.5' r='1' fill='%23574119' fill-opacity='.55'/%3E%3C/svg%3E") center / 52px 13px no-repeat,
     linear-gradient(90deg, rgba(64,48,18,0), var(--ink-rule) 18%, var(--ink-rule)) left center / calc(50% - 32px) 1px no-repeat,
     linear-gradient(270deg, rgba(64,48,18,0), var(--ink-rule) 18%, var(--ink-rule)) right center / calc(50% - 32px) 1px no-repeat; }
@@ -1258,7 +1258,10 @@ p.fact-chips { display: flex; flex-wrap: wrap; gap: var(--s1); margin: var(--s2)
 .banner-pick[aria-pressed="true"] .bn-rim { padding: 3px; background: linear-gradient(180deg, #fff0bf, var(--brass-hi) 20%, var(--brass) 60%, var(--brass-lo)); }
 .banners:has([aria-pressed="true"]) .banner-pick[aria-pressed="false"]:not(:hover):not(:focus-visible) { filter: drop-shadow(0 6px 8px rgba(0,0,0,.45)) saturate(.7) brightness(.8); }
 /* one confirm line: the looked-at (else the chosen) nation's leader and creed, in full; then the one button */
-.nation-confirm { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 2px var(--s4); margin: 8px auto 0; padding: 8px var(--s4) 8px; max-width: 960px; border: 1px solid var(--brass-lo); border-radius: 12px; background: var(--tex-metal, none), var(--plate-bg); box-shadow: var(--shadow), var(--plate-edge); }
+/* (the action column was `auto`: with no wallet connected it took the max-content width of the wallet list — three
+   wallets and two long "not supported" reasons asked 755 of 960 px — and left the words 67 px, one character a line.
+   The words keep 22rem; the actions take what is left, at most their own width, and wrap inside it) */
+.nation-confirm { display: grid; grid-template-columns: minmax(22rem, 1fr) minmax(0, auto); align-items: center; gap: 2px var(--s4); margin: 8px auto 0; padding: 8px var(--s4) 8px; max-width: 960px; border: 1px solid var(--brass-lo); border-radius: 12px; background: var(--tex-metal, none), var(--plate-bg); box-shadow: var(--shadow), var(--plate-edge); }
 .nc-what { min-width: 0; min-height: 46px; display: grid; align-items: center; }
 .nc-item { display: none; align-items: center; gap: var(--s3); min-width: 0; }
 .nc-item.nc-def { display: flex; }
@@ -1285,7 +1288,14 @@ p.fact-chips { display: flex; flex-wrap: wrap; gap: var(--s1); margin: var(--s2)
 .nc-wallet { display: grid; gap: 4px; justify-items: end; }
 .nc-wallet-k { font-size: var(--t1); color: var(--hud-ink-2); }
 .wallet-list { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: 6px; }
-.nc-wallet .muted { color: var(--hud-ink-2); }
+.nc-wallet .muted { color: var(--hud-ink-2); overflow-wrap: anywhere; }
+/* the wallets wrap inside the action column (never wider than it), each reason under or beside its own button */
+.nc-go { min-width: 0; }
+.nc-wallet { grid-template-columns: minmax(0, 1fr); min-width: 0; max-width: 100%; }
+.nc-wallet .wallet-list { justify-content: flex-end; min-width: 0; max-width: 100%; }
+.nc-wallet .wallet-list li { min-width: 0; max-width: 100%; }
+/* a refusal is a line of its own across the plaque, not a cell of the words' column */
+.nation-confirm > .notice { grid-column: 1 / -1; min-width: 0; }
 @media (min-width: 760px) {
   /* the banners stand along the foot of the map, above the dock, in the lower half of the screen: the chart above them is the map's (the wedge it lights) */
   .panel[data-doc="stage"] { left: var(--edge); right: var(--edge); top: auto; bottom: calc(var(--dock-h) + 2 * var(--edge)); width: auto; max-height: calc(100dvh - var(--strip) - var(--dock-h) - 4 * var(--edge)); overflow: visible; border: 0; background: none; box-shadow: none; filter: none; }
@@ -1298,7 +1308,7 @@ p.fact-chips { display: flex; flex-wrap: wrap; gap: var(--s1); margin: var(--s2)
   /* a shade rises from the foot only as far as the banners stand */
   body[data-doc="stage"] main::before { content: ""; position: absolute; inset: 0; z-index: 24; pointer-events: none; background: linear-gradient(180deg, rgba(6,14,12,0) 46%, rgba(6,14,12,.45) 62%, rgba(6,14,12,.82)); }
 }
-@media (min-width: 760px) and (max-width: 1099px) { .bn-name { font-size: var(--t2); letter-spacing: .02em; } .banners { gap: 6px; } .nation-confirm { grid-template-columns: 1fr; } .nc-go { justify-content: flex-start; } }
+@media (min-width: 760px) and (max-width: 1099px) { .bn-name { font-size: var(--t2); letter-spacing: .02em; } .banners { gap: 6px; } .nation-confirm { grid-template-columns: minmax(0, 1fr); } .nc-go { justify-content: flex-start; } .nc-wallet { justify-items: start; } .nc-wallet .wallet-list { justify-content: flex-start; } }
 /* a low window: the banners go without portraits rather than climb over the chart */
 @media (min-width: 760px) and (max-height: 799px) { .bn-face { display: none; } .bn-field { padding-top: 26px; } .bn-cloth { grid-template-rows: 1fr; } }
 @media (max-width: 759px) {
@@ -1320,7 +1330,7 @@ p.fact-chips { display: flex; flex-wrap: wrap; gap: var(--s1); margin: var(--s2)
   .banner-pick:hover, .banner-pick:focus-visible { transform: translateY(-2px); }
   .banner-pick[aria-pressed="true"] { transform: translateY(-4px); }
   /* the confirm line holds to the foot of the sheet: opaque, and the banners end above it */
-  .nation-confirm { position: sticky; bottom: 0; z-index: 2; grid-template-columns: 1fr; gap: 6px; margin: 12px -10px 0; padding: 8px 12px calc(10px + env(safe-area-inset-bottom)); border-width: 1px 0 0; border-radius: 0; background: #12241f; box-shadow: 0 -6px 12px rgba(0,0,0,.35), inset 0 1px 0 rgba(240,212,138,.25); }
+  .nation-confirm { position: sticky; bottom: 0; z-index: 2; grid-template-columns: minmax(0, 1fr); gap: 6px; margin: 12px -10px 0; padding: 8px 12px calc(10px + env(safe-area-inset-bottom)); border-width: 1px 0 0; border-radius: 0; background: #12241f; box-shadow: 0 -6px 12px rgba(0,0,0,.35), inset 0 1px 0 rgba(240,212,138,.25); }
   .nc-what { min-height: 78px; align-items: start; }
   .nc-pitch { font-size: var(--t1); line-height: 1.5; }
   .nc-note { display: none; }
@@ -1328,7 +1338,11 @@ p.fact-chips { display: flex; flex-wrap: wrap; gap: var(--s1); margin: var(--s2)
   .nc-note.nc-deadline { display: block; }
   .nc-deadline-in { display: none; }
   .nc-go { justify-content: stretch; } .nc-go .nc-btn { flex: 1 1 auto; min-height: 48px; }
-  .nc-wallet { justify-items: start; }
+  .nc-wallet { justify-items: start; } .nc-wallet .wallet-list { justify-content: flex-start; }
+  /* (no wallet connected: the line carries the wallet list and its reasons, as tall as the sheet's lower half. Held to
+     the foot it stood over the banners — a tap on a banner landed on the wallets — so it lies in the sheet's flow and
+     is reached by scrolling; the short line of a connected wallet, the one button, stays held to the foot) */
+  .nation-confirm:has(.nc-wallet) { position: static; }
 }
 /* the wait for the village: who was joined and the state in one line; one clock; a refusal as one clear state; the candidate places; practice offered */
 .wait-who { min-width: 0; display: grid; gap: 3px; }
@@ -2394,6 +2408,204 @@ body[data-kind="wait"] .plate .plate-go[data-act="join-open"] { display: none; }
   body[data-away-entry="1"] .away-entry:not([hidden]) { display: inline-flex; align-items: center; gap: 6px; position: fixed; z-index: 19; top: calc(var(--strip) + 34px); left: calc(var(--edge) + var(--target) + 8px); right: calc(var(--edge) + var(--target) + 8px); min-height: var(--target); padding: 4px 12px; border: 1px solid var(--brass-lo); border-radius: 8px; background: var(--plate-bg); color: var(--hud-ink); font-size: var(--t2); box-shadow: var(--shadow), var(--plate-edge); text-align: left; }
   body[data-away-entry="1"] .feed { top: calc(var(--strip) + 34px + var(--target) + 6px); }
 }
+/* ================================================================== the instruments pass (2026-11-10)
+   A pass over the whole HUD against real screens (1440 x 900, 1920 x 1080, 390 x 844; English first, Japanese kept).
+   It changes where pieces stand and how they read, never what they do: no rule, order, record or number of the game is
+   touched, and nothing that was on screen is taken away. Each block says what was wrong in the picture it mends.
+   (It stands here, before the film's frame, on purpose: that block and what follows it — the boundary editing's
+   cards — are the stylesheet's tail and stay byte for byte as they were; their rules still have the last word.) */
+
+/* ---- bottom right: one cluster. The map's keys were a column of four, as tall as the minimap; the recorded world's
+   key made five, and the top key (zoom in) lay under the lens chips in both languages: it could not be pressed. Zoom
+   and home now stand in one column beside the minimap; the two keys that say their name (the world chart, the recorded
+   world) stand beside that column's foot. A phone keeps its own column (the rules above). */
+@media (min-width: 760px) {
+  .map-tools { display: grid; grid-template-columns: auto 36px; grid-template-rows: repeat(3, 36px); gap: 8px; align-items: center; justify-items: end; }
+  .map-tools > [data-map="in"] { grid-area: 1 / 2; }
+  .map-tools > [data-map="out"] { grid-area: 2 / 2; }
+  .map-tools > [data-map="home"] { grid-area: 3 / 2; }
+  .map-tools > [data-map="chart"] { grid-area: 2 / 1; }
+  .map-tools > [data-map="wide"] { grid-area: 3 / 1; }
+  /* (a page without the recorded world's key: the world chart stands at the foot) */
+  .map-tools:not(:has([data-map="wide"])) > [data-map="chart"] { grid-area: 3 / 1; }
+  /* (before joining there is no home key: the zoom keys stand at the foot) */
+  body[data-stage="none"] .map-tools > [data-map="in"] { grid-area: 2 / 2; }
+  body[data-stage="none"] .map-tools > [data-map="out"] { grid-area: 3 / 2; }
+}
+
+/* ---- a phone's sheet on the spectator's and the practice page: put away, it still shows the head of its paper. It
+   was drawn as the play page's resting sheet (bell metal, for the village plate), so the paper's ink stood on dark
+   metal and the first lines could not be read. These two pages have no plate: their sheet is paper at every height. */
+@media (max-width: 759px) {
+  body:is([data-mode="spectate"], [data-mode="practice"]) .panel[data-drawer="closed"] #panel-body { margin: 0 4px; padding: 10px 6px 4px; border: 10px solid transparent; border-image-source: var(--tex-deckle, none); border-image-slice: 20; border-image-width: 10px; border-image-repeat: round;
+    background: var(--tex-paper, none) 0 0 / 256px 256px, var(--paper-sheet); background-clip: padding-box, padding-box; color: var(--ink); }
+  body:is([data-mode="spectate"], [data-mode="practice"]) .panel[data-drawer="closed"] #panel-body :focus-visible { outline-color: var(--focus); }
+}
+
+/* ---- the drawer's paper: a passage that is one paragraph. `.panel p` (its 8 px) outranked the passages' own distance,
+   so a lone paragraph stood 8 px under the passage before it while its ornament was still drawn 20 px above it: over
+   that passage's last row (the rule ran through 「ターンのしくみ」 and through the chronicle's last line). */
+.panel[data-drawer="open"] #panel-body > * + p, body:is([data-mode="spectate"], [data-mode="practice"]) #panel-body > * + p { margin-top: 27px; margin-bottom: 0; }
+/* the spectator's sheet: a quiet line that only closes the passage before it (no clash yet; the turn the world is shown
+   at) hangs under that passage as its note. It stood alone between two ornaments, a passage of four words. */
+/* (not the sheet's own first line, which follows the selection's card when a place is chosen: that one opens a passage) */
+body[data-mode="spectate"] #panel-body > * + p:is(.muted, .as-of):not(.how-line) { margin-top: 10px; padding-top: 0; }
+body[data-mode="spectate"] #panel-body > * + p:is(.muted, .as-of):not(.how-line)::before { content: none; }
+/* a turn's state begins with a capital in English: the sentence loses its leading word (「受付中：」) and began "this turn's …" */
+.bell-what::first-letter { text-transform: uppercase; }
+.bell-until { display: block; }
+.bell-until::first-letter { text-transform: uppercase; }
+
+/* ---- the spectator's nation filter: seven keys in a wrapping row broke as four and three, the second row ending in a
+   hole. 「すべて」 is the key that stands for the six, so it stands beside them, and the six stand as a table. Two
+   columns hold the longest name in either language at every width (「フィヨルダル」 with its mark needs 119 px: a
+   phone 360 px wide leaves 127); English on a desktop, whose names are shorter, takes three. A name is never cut and
+   a mark never squeezed: the mark keeps its size, and a name too long for its cell would break, not be clipped. */
+.watch .choice-col .seg { display: grid; grid-template-columns: auto repeat(2, minmax(0, 1fr)); width: 100%; }
+.watch .choice-col .seg-btn { display: flex; align-items: center; justify-content: flex-start; gap: 6px; min-width: 0; padding: 4px 8px; border: 0; border-left: 1px solid rgba(60,48,20,.22); border-top: 1px solid rgba(60,48,20,.22); line-height: 1.25; text-align: left; overflow-wrap: anywhere; }
+.watch .choice-col .seg-btn > .swatch { flex: none; margin-right: 0; }
+.watch .choice-col .seg-btn:first-child { grid-row: 1 / span 3; justify-content: center; padding: 4px 10px; border-left: 0; border-top: 0; white-space: nowrap; }
+.watch .choice-col .seg-btn:nth-child(-n + 3) { border-top: 0; }
+@media (min-width: 760px) {
+  :lang(en) .watch .choice-col .seg { grid-template-columns: auto repeat(3, minmax(0, 1fr)); }
+  :lang(en) .watch .choice-col .seg-btn:first-child { grid-row: 1 / span 2; padding: 4px 14px; }
+  :lang(en) .watch .choice-col .seg-btn:nth-child(-n + 4) { border-top: 0; }
+}
+
+/* the notifications' filter (four keys, "More") breaks to a second row in the drawer, and its first row ended in a hole
+   beside 「進軍と来襲」. The keys of a row share that row's width; a hairline divides the rows. */
+.seg:has(> [data-act="feed-filter"]) { display: flex; }
+.seg:has(> [data-act="feed-filter"]) > .seg-btn { flex: 1 1 auto; margin-top: -1px; border-top: 1px solid rgba(60,48,20,.22); }
+/* a row of choices clips what lies outside it (`.seg { overflow: hidden }`): the keyboard's ring stood outside each key and
+   was cut — on 「すべて」, an ink-teal ring on an ink-teal key, nothing of it was left. The ring stands inside the key; on
+   the chosen key it is pale. */
+.seg-btn:focus-visible { outline-offset: -3px; }
+.seg-btn[aria-pressed="true"]:focus-visible { outline-color: #fff8e6; }
+
+/* ---- the turn dial: the last line (the time and 「残り」 / "left") reached into the ring at its two ends. The three
+   lines stand a little closer and a little higher, where the face is wider. */
+@media (min-width: 760px) {
+  .dial-text { padding-bottom: 5px; }
+  .dial-label { font-size: 11px; letter-spacing: .14em; }
+  .dial-num { margin-top: 2px; }
+  .dial-left { margin-top: 2px; }
+  .dial-text:has(.dial-word) .dial-left { font-size: 12px; }
+  .dial-word { margin-top: 2px; font-size: 8px; }
+}
+
+/* ---- the map's search: an empty answer is two lines on bell metal — that nothing was found, and what the box finds */
+.search-none { display: grid; gap: 2px; margin: 6px 8px 7px; line-height: 1.45; }
+.search-none strong { font-weight: 650; color: var(--hud-ink); }
+.search-hint { color: var(--hud-ink-2); }
+
+/* ---- the map's own focus ring: a neatline. It was one 3 px brass frame round the whole picture, the same shape and
+   nearly the same colour as the amber frame that warns of the turn's end while an order is written (main::after):
+   two different things said the same way. The keyboard's place is now a chart's double line on a dark band, which
+   reads on grass, on parchment and on cloud; the warning stays the one solid band, and both can stand together. */
+#frontier-map:focus-visible { outline: 6px double var(--brass-hi); outline-offset: -7px; box-shadow: inset 0 0 0 8px rgba(8,18,16,.5); }
+
+/* ---- the title scene: its one key came last, 3.2 s after the picture, and was whole at 4.4 s. The same order
+   (the name, the line, the sentence, the six, the season's line, the key), in two and a half seconds. */
+.intro-title { animation-duration: 1.2s; animation-delay: .15s; }
+.intro-tagline { animation-duration: 1.1s; animation-delay: .4s; }
+.intro-lore { animation-duration: 1s; animation-delay: .65s; }
+.intro-leader { animation-duration: .7s; }
+.intro-leader-0 { animation-delay: .85s; } .intro-leader-1 { animation-delay: .93s; } .intro-leader-2 { animation-delay: 1.01s; }
+.intro-leader-3 { animation-delay: 1.09s; } .intro-leader-4 { animation-delay: 1.17s; } .intro-leader-5 { animation-delay: 1.25s; }
+.intro-live { animation-duration: .8s; animation-delay: 1.4s; }
+.btn.primary.intro-go { animation-duration: .8s; animation-delay: 1.6s; }
+
+/* ---- a refusal on bell metal (the nation choice's plate): the paper's notice — dark red ink on a pale wash — stood
+   on dark metal, where the wash turned grey and the words could not be read. On metal it is an ember plate with pale
+   words and a cut corner (the shape of "refused, nothing changed": the states of a decision, above). */
+.nation-confirm .notice.error { padding-left: 13px; border: 1px solid #ff8a70; border-radius: 3px; background: linear-gradient(180deg, #5a1d16, #47150f); color: #ffe9e4; font-weight: 600; clip-path: polygon(0 0, calc(100% - 10px) 0, 100% 10px, 100% 100%, 0 100%); box-shadow: inset 3px 0 0 #ff8a70; }
+
+/* ---- the recorded world (map/widemode.mjs): the sheet of another reading of the world, in the HUD's own hand. Its
+   foot lay under the dock; its title was the page's sans, its three small keys were the browser's own grey buttons, and
+   its plus and minus were letters. Nothing it says or does is changed. */
+/* (the sheet is a place of its own while it stands open: the dock, which lies above everything in the map's layer,
+   waits behind it — it stood over the sheet's foot, on the chart's caption. The sheet's close key and Escape lead back.) */
+@media (min-width: 760px) { body:has(#wide-world:not([hidden])) .tabs { visibility: hidden; } }
+/* (what the sheet covers is put away with it, at every width: the keyboard's Tab went on from the sheet's own keys into
+   the map's keys, the lens chips, the search key and the drawer under it — a focus on something nobody can see — and
+   Shift+Tab into the map itself; on a phone the map's keys stood half out above the sheet's top edge. They are back
+   the moment the sheet closes; the top strip, which the sheet does not cover, stays.) */
+body:has(#wide-world:not([hidden])) :is(.hud-tl, .map-tools, .minimap, .rail, .panel, .feed, .home-pointer, #frontier-map) { visibility: hidden; }
+.wide-world { gap: 8px; padding: 12px 14px 14px; background: var(--tex-metal, none), var(--plate-bg); box-shadow: var(--shadow), var(--plate-edge); }
+.wide-head { min-height: 36px; padding-bottom: 8px; border-bottom: 1px solid rgba(201,162,74,.35); }
+.wide-head h2 { font: 700 var(--t3)/1.3 var(--display); letter-spacing: .04em; color: var(--ivory); }
+.wide-flag { letter-spacing: .04em; white-space: nowrap; }
+.wide-status { font-size: var(--t2); line-height: 1.45; }
+.wide-facts { line-height: 1.5; max-width: 86ch; }
+.wide-stage { background: #0c1b18; box-shadow: inset 0 0 0 1px rgba(0,0,0,.4), inset 0 12px 28px rgba(0,0,0,.25); }
+.wide-tools { align-items: flex-end; }
+.wide-tools .map-btn { font: 600 20px/1 var(--ui); }
+.wide-tools .btn.small + .btn.small { margin-left: 0; }
+.wide-side { padding-right: 2px; line-height: 1.5; color: var(--hud-ink); scrollbar-width: thin; scrollbar-color: rgba(201,162,74,.45) transparent; }
+.wide-coords { padding-bottom: 8px; border-bottom: 1px solid rgba(240,212,138,.14); }
+.wide-side h3 { margin: 10px 0 4px; font: 650 var(--t1)/1.4 var(--ui); letter-spacing: .06em; color: var(--brass-hi); }
+.wide-side :is(#wide-prev, #wide-next, #wide-history-next) { min-width: 32px; min-height: 28px; margin: 4px 6px 0 0; padding: 2px 10px; border: 1px solid rgba(201,162,74,.6); border-radius: 7px; background: linear-gradient(180deg, #24463e, #152b26); color: var(--ivory); font: 650 var(--t1)/1.2 var(--ui); cursor: pointer; box-shadow: inset 0 1px 0 rgba(240,212,138,.2); transition: border-color var(--out), color var(--out), transform var(--press); }
+.wide-side :is(#wide-prev, #wide-next, #wide-history-next):hover:not([disabled]) { border-color: var(--brass-hi); color: var(--brass-hi); }
+.wide-side :is(#wide-prev, #wide-next, #wide-history-next):active:not([disabled]) { transform: translateY(1px); }
+.wide-side :is(#wide-prev, #wide-next, #wide-history-next)[disabled] { border-style: dashed; border-color: rgba(169,184,177,.4); background: none; color: var(--hud-ink-2); box-shadow: none; cursor: default; }
+.wide-side :is(#wide-prev, #wide-next, #wide-history-next):focus-visible, .wide-world :focus-visible { outline-color: var(--brass-hi); }
+.wide-side :is(#wide-prev, #wide-next, #wide-history-next)[hidden] { display: none; }
+
+/* ---- English titles: the display face is tracked for Japanese (.06em to .14em between mincho characters reads as
+   air). The same tracking between Latin letters and across word spaces pulled English titles apart ("Turn  by  turn",
+   "C h o o s e  a  n a t i o n"). In English the titles stand a little closer; Japanese is untouched. */
+:lang(en) #panel-title { letter-spacing: .045em; }
+:lang(en) .c-head h3 { letter-spacing: .02em; }
+:lang(en) .nations-head h3 { letter-spacing: .07em; }
+:lang(en) .bn-name { letter-spacing: .05em; }
+:lang(en) .brand-name { letter-spacing: .035em; }
+
+/* ---- the selection's card (hud/inspect.mjs) in a drawer 384 px wide: the nation's chip beside the title carried the
+   nation's character, the same face that stands in the lord's line right under it, and left the name two lines
+   ("Hamlet of / Istead"). The chip says the nation by its mark and name; the face is the lord's line's. */
+.inspect > .c-head .c-side .chip > .leader { display: none; }
+.inspect > .c-head .c-side .chip { gap: 5px; padding: 2px 8px; }
+.inspect > .c-head h3 { overflow-wrap: break-word; text-wrap: balance; }
+
+/* ---- the spectator's standings on the rail: what is so now comes first (when the season ends, the scores or that they
+   are being read, the key that reads them again), and the rule that explains the score closes the card as its small
+   print. It began with that rule, four lines of it, and the one figure of the card stood under them. */
+.plate-watch .conquest-standings { display: flex; flex-direction: column; }
+.plate-watch .conquest-standings > :is(.conquest-season-clock, .conquest-result) { order: 1; margin-bottom: 4px; font-weight: 600; }
+.plate-watch .conquest-standings > .conquest-scores { order: 2; }
+.plate-watch .conquest-standings > .conquest-scores + p { order: 2; }
+.plate-watch .conquest-standings > p.muted { order: 2; }
+.plate-watch .conquest-standings > .btn { order: 3; align-self: flex-start; margin: 2px 0 8px; }
+.plate-watch .conquest-standings > p:first-of-type { order: 4; margin: 0; padding-top: 7px; border-top: 1px solid rgba(201,162,74,.22); }
+.plate-watch .plate-note { margin-top: -2px; line-height: 1.45; }
+
+/* ---- what a read answers with (2026-11-11, on the page with slow and failing reads) ---- */
+/* a line that says how a read stands (being read, could not be read, older than now: screens/chronicle.mjs readLine and
+   its like): its mark is a block, so it stood on a line of its own above the sentence it belongs to. Mark and sentence
+   are one line, the sentence wrapping beside the mark. */
+.read-state { display: grid; grid-template-columns: auto minmax(0, 1fr); column-gap: 7px; align-items: start; }
+.read-state > .ic { width: 15px; height: 15px; margin-top: 2px; }
+/* the spectator's standings before anything is read (hud/hud.mjs renderRail): the same line on bell metal */
+.plate-watch > .read-state { margin: 0; font-size: var(--t2); line-height: 1.45; color: var(--hud-ink); }
+.plate-watch > .read-state > .ic { color: var(--brass-hi); }
+.plate-watch > .read-state[data-read="unread"] > .ic { color: #ffb4a4; }
+.plate-watch > .read-state .read-more { display: block; margin-top: 2px; font-size: var(--t1); color: var(--hud-ink-2); }
+/* the season's word in the spectator's bar: with nothing to say (the season could not be read: the banner says so) it is not there */
+#season-status:empty { display: none !important; }
+
+/* ---- a phone whose map carries three keys at its right edge (home, the world chart, the recorded world: the
+   spectator's and the practice page, and a play page whose plate has no way home). The notices and the page's own
+   banners were laid out for two rows of keys: a refusal lay under the third key (its 「やり直す」 could not be pressed
+   whole), and the banner of a failed read lay across the world chart's and the recorded world's keys. With three rows
+   they start under the third; a banner then takes the screen's width, and the notices stand under the banners. */
+@media (max-width: 759px) {
+  body:not([data-stage="none"]):not(:has(.plate-main[data-act="home"])) .feed { top: calc(var(--strip) + 8px + 3 * var(--target) + 20px); }
+  body:not([data-stage="none"]):not(:has(.plate-main[data-act="home"])) .banner { top: calc(var(--strip) + 8px + 3 * var(--target) + 20px); max-width: calc(100% - 2 * var(--edge)); }
+  body:not([data-stage="none"]):not(:has(.plate-main[data-act="home"])):has(#stale-banner:not([hidden])) .banner.error { top: calc(var(--strip) + 8px + 3 * var(--target) + 20px + 48px); }
+  body:not([data-stage="none"]):not(:has(.plate-main[data-act="home"])):has(.banner:not([hidden])) .feed { top: calc(var(--strip) + 8px + 3 * var(--target) + 20px + 48px); }
+  body:not([data-stage="none"]):not(:has(.plate-main[data-act="home"])):has(#stale-banner:not([hidden])):has(#error-line:not([hidden])) .feed { top: calc(var(--strip) + 8px + 3 * var(--target) + 20px + 96px); }
+}
+
 /* ================================================================== the film's frame: a laptop's width (1280 × 720)
    The demo is filmed with the page laid out at 1280 × 720 CSS px (device scale 1.5: a 1920 × 1080 picture). What stood
    cut, covered or colliding at that size is set right here, under three conditions and no other: between 1100 and

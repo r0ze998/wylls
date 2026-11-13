@@ -34,7 +34,7 @@ export function orderText(FS, o, now = FS.chain?.now?.() ?? 0) {
     case 'walls': return L`城壁を工事中（${left}）`;
     case 'promote': return L`${TIERS[o.to] ?? ''}へ昇格中（${left}）`;
     case 'train': return L`${who} を訓練しました`;
-    case 'muster': return L`${who} を編成 — 次のターンに整列します`;
+    case 'muster': return L`${who} を編成 — このターンの決着のあとに整列します`;
     case 'garrison': return L`守備隊を ${fmtNum(o.n ?? 0)} 増やしました`;
     case 'dissolve': return L`${who} を解散 — このターンの決着のあと控えに戻ります`;
     case 'explore': return L`斥候を探索に出しました（${fmtNum((o.tiles ?? []).length)} マス）— ${exploreResultWords(Number.isInteger(o.resultTurn) ? o.resultTurn : null)}`;

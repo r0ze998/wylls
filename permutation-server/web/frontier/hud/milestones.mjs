@@ -8,10 +8,14 @@
 import { html, raw } from '../../util.mjs';
 import { icon } from './icons.mjs';
 import { L, fmtNum } from '../../lang.mjs';
-import { factionName } from '../fi18n.mjs';
+import { factionName, unitCount } from '../fi18n.mjs';
 import { leaderFigure } from '../people/leaders.mjs';
 import { holdingName } from '../people/ui.mjs';
 import { provinceName } from './place.mjs';
+import { UNIT_ORDER } from '../fland.mjs';
+import { hostRows } from '../screens/host.mjs';
+import { keepTarget } from '../screens/conquestguide.mjs';
+import { stoodHosts, firstHostNext, firstHostNextLine, marchOpenFor } from './firststeps.mjs';
 
 export const MILESTONE_KEY = 'ps-fmile:';
 export const BANNER_MS = 12_000;
@@ -22,6 +26,7 @@ const nameOf = x => holdingName({ p: x.p, q: x.q, site: x.site }, x.tier ?? 0);
 const TEXT = {
   'first-holding': { title: x => L`最初の村：${nameOf(x)}`, line: () => L`旗は立った。ここが我らの始まりの地だ。` },
   confirmed: { title: x => L`村が確定：${nameOf(x)}`, line: () => L`もう誰にも奪わせはしない。この地は我らが守り抜く。` },
+  'first-host': { title: () => L`最初の軍勢が立った`, line: () => L`旗のもとに兵が並んだ。この軍勢が、我らの最初の力だ。` },
   'first-march': { title: () => L`最初の出陣`, line: () => L`封は閉じた。行き先を知るのは我らだけだ。` },
   'first-win': { title: x => L`最初の勝利：${provinceName(null, x.p, x.q)}`, line: () => L`見事な勝利だ。辺境は勇む者の手に渡る。` },
   'tier-up': { title: x => L`${nameOf(x)}になった`, line: () => L`民が増え、壁が伸びる。次のターンも手を休めまい。` },
@@ -37,7 +42,21 @@ export function reachedMilestones(FS) {
   if (fin) out.push({ id: 'confirmed', kind: 'confirmed', p: fin.p, q: fin.q, site: fin.site, tier: Number(fin.tier ?? 0) });
   for (const h of hs) for (let t = 1; t <= Number(h.tier ?? 0); t++) out.push({ id: `tier:${h.p},${h.q},${h.site}:${t}`, kind: 'tier-up', p: h.p, q: h.q, site: h.site, tier: t });
   const ms = FS.marches ?? [];
-  if (ms.length || hs.some(h => (h.transit ?? []).some(t => t.state >= 1))) out.push({ id: 'first-march', kind: 'first-march' });
+  const marched = ms.length > 0 || hs.some(h => (h.transit ?? []).some(t => t.state >= 1));
+  // the first host that STANDS in the record (state 1, formed; a host still forming does not count), once: the seen
+  // record keeps its id, and a page's first load records what is already reached without a banner. A viewer who has
+  // already marched is past it (no late banner for old news)
+  if (!marched) {
+    let stood = [];
+    try { stood = stoodHosts(hostRows(FS)).filter(r => r.state === 1 && !r.inTransit); } catch { stood = []; }
+    if (stood.length) {
+      const r = stood[0], troops = Math.floor(Number(r.troops)) || 0;
+      let need = null;
+      try { need = keepTarget(FS)?.need ?? null; } catch { need = null; }
+      out.push({ id: 'first-host', kind: 'first-host', unit: r.unit, troops, need, next: firstHostNext({ troops, need, marchOpen: marchOpenFor(FS) }) });
+    }
+  }
+  if (marched) out.push({ id: 'first-march', kind: 'first-march' });
   const won = ms.find(m => (m.facts?.settled?.outcome ?? m.transit?.outcome) === 'Stays' && m.dest);
   if (won) out.push({ id: 'first-win', kind: 'first-win', p: won.dest.p, q: won.dest.q });
   const rings = FS.record?.rings?.length ?? 0;
@@ -74,7 +93,7 @@ export function renderBanner(m, faction) {
   const f = Number.isInteger(faction) ? faction : 0;
   return html`<div class="mile-inner"><span class="mile-fig">${raw(leaderFigure(f))}</span><div class="mile-text">
     <strong class="mile-title">${t.title(m)}</strong>
-    <q class="mile-line">${t.line()}</q> <span class="muted">— ${factionName(f)}</span></div>
+    <q class="mile-line">${t.line()}</q> <span class="muted">— ${factionName(f)}</span>${m.kind === 'first-host' && Number.isInteger(m.unit) ? html`<br><span class="mile-next">${unitCount(UNIT_ORDER[m.unit], m.troops)}${m.next ? html` · ${firstHostNextLine(m.next, { unit: m.unit, need: m.need })}` : ''}</span>` : ''}</div>
     <button type="button" class="btn small" data-act="mile-close" aria-label="${L`閉じる`}">${icon('close')}</button></div>`;
 }
 

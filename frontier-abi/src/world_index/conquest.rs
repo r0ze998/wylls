@@ -11,10 +11,39 @@ use crate::v2::layout::{
     player::citizen as C,
     province::{conquest as CR, site as SM},
 };
+use alloc::vec::Vec;
 use permutation_rules::hash::sha256;
 
-pub const CONQUEST_SIZE: usize = 1664;
+/// Header and 12 site entries (1664 bytes, unchanged), then the siege
+/// reservation region: `RESERVATIONS_N` records of 128 bytes
+/// (`CLAUDE-CONQUEST-RESERVATION-SPEC-20261112.md` §4.1).
+///
+/// ISOLATION: the reservation region exists ONLY with `conquest-dispatch-experimental` (the conquest lane). Without
+/// it the table codec is the original one byte for byte: 1664 bytes, table version 1, header bytes 120..128 zero,
+/// no reservation records (`RESERVATIONS_N` = 0). With it the table is a DIFFERENT, version-2 layout of 2688 bytes;
+/// a version-1 table is refused there (no migration), so the two never mix.
+pub const CONQUEST_SIZE: usize = 1664 + RESERVATIONS_N * RESERVATION_LEN;
+#[cfg(feature = "conquest-dispatch-experimental")]
+pub const RESERVATIONS_N: usize = 8;
+#[cfg(not(feature = "conquest-dispatch-experimental"))]
+pub const RESERVATIONS_N: usize = 0;
+/// The conquest TABLE's layout version: 2 with the reservation region, the original 1 without it.
+#[cfg(feature = "conquest-dispatch-experimental")]
+const TABLE_VERSION: u16 = 2;
+#[cfg(not(feature = "conquest-dispatch-experimental"))]
+const TABLE_VERSION: u16 = 1;
+pub const RESERVATION_LEN: usize = 128;
+const RESERVATION_OFF: usize = 1664;
 pub const CAPTURE_ESCROW_SIZE: usize = 320;
+/// Reservation status: waiting for its bell.
+pub const RES_PENDING: u8 = 1;
+/// Reservation status: did not apply; its full return is owed.
+pub const RES_NOT_APPLIED: u8 = 2;
+/// NOT_APPLIED part done: every recorded resource credited in full.
+pub const RES_RESOURCES_RETURNED: u8 = 1 << 0;
+/// NOT_APPLIED part done: escrow binding refunded and Citizen slot cleared.
+pub const RES_SLOT_RENT_RELEASED: u8 = 1 << 1;
+const RES_DONE_ALL: u8 = RES_RESOURCES_RETURNED | RES_SLOT_RENT_RELEASED;
 const VERSION: u16 = 1;
 const MAGIC: &[u8; 8] = b"PSFXWCQ1";
 const ESCROW_MAGIC: &[u8; 8] = b"PSFXWCE1";
@@ -34,6 +63,13 @@ pub enum ConquestError {
     Overflow,
     Escrow,
     Rules,
+    /// Every reservation record of the province is in use.
+    Full,
+    /// No remaining part of a not-applied reservation's return can be made
+    /// now; nothing changes and the return stays owed.
+    Blocked,
+    /// The reservation (by seq) does not exist (already fully returned).
+    Absent,
 }
 type R<T> = Result<T, ConquestError>;
 fn slot_index(slot: u8) -> R<usize> {
@@ -183,21 +219,27 @@ fn zero(b: &[u8]) -> R<()> {
     }
 }
 fn header(b: &[u8], size: usize, magic: &[u8; 8]) -> R<()> {
+    header_v(b, size, magic, VERSION)
+}
+fn header_v(b: &[u8], size: usize, magic: &[u8; 8], version: u16) -> R<()> {
     if b.len() != size {
         return Err(ConquestError::Length);
     }
     if &b[..8] != magic {
         return Err(ConquestError::Magic);
     }
-    if u16_at(b, 16) != VERSION {
+    if u16_at(b, 16) != version {
         return Err(ConquestError::Version);
     }
     zero(&b[18..32])
 }
 fn write_header(b: &mut [u8], magic: &[u8; 8], season: u64) {
+    write_header_v(b, magic, season, VERSION)
+}
+fn write_header_v(b: &mut [u8], magic: &[u8; 8], season: u64, version: u16) {
     b[..8].copy_from_slice(magic);
     b[8..16].copy_from_slice(&season.to_le_bytes());
-    b[16..18].copy_from_slice(&VERSION.to_le_bytes());
+    b[16..18].copy_from_slice(&version.to_le_bytes());
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -317,12 +359,140 @@ impl WideConquestEntry {
     }
 }
 
+/// A siege declaration signed before its province resolved through the
+/// declaring bell. It applies (becomes the site entry an immediate
+/// declaration would have written) or does not apply when the resolver
+/// reaches `bell`. Everything collected at signature is recorded here so a
+/// not-applied reservation returns it exactly, never capped or burnt.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Reservation {
+    pub status: u8,
+    pub site: u8,
+    /// The roster entry index named at signature.
+    pub entry: u8,
+    pub reserved_slot: u8,
+    pub faction: u8,
+    /// NOT_APPLIED return parts already done (`RES_*` bits).
+    pub done: u8,
+    /// The declaration bell it applies at.
+    pub bell: u32,
+    /// Reservation order (per-table counter).
+    pub seq: u32,
+    pub citizen: [u8; 32],
+    /// The full host reference named at signature.
+    pub host: WideHostRef,
+    pub actor_tag: u64,
+    pub gold_milli: u64,
+    pub arms_milli: u64,
+}
+impl Reservation {
+    /// The source Holding the collected resources came from.
+    pub fn source(&self) -> WideHostRef {
+        self.host.holding_ref()
+    }
+    /// The escrow binding: the one an immediate declaration at `bell` creates.
+    pub fn binding(&self, key: ProvinceKey) -> CaptureBinding {
+        CaptureBinding {
+            key,
+            site: self.site,
+            gen: 0,
+            declaration_bell: self.bell,
+        }
+    }
+    /// Whether the Citizen slot and its escrow binding are still held.
+    pub fn holds_slot(&self) -> bool {
+        self.status == RES_PENDING || self.done & RES_SLOT_RENT_RELEASED == 0
+    }
+    fn validate(&self, world: WorldId) -> R<()> {
+        slot_index(self.reserved_slot)?;
+        if self.citizen == [0; 32] || self.actor_tag != crate::addr::citizen_tag(&self.citizen) {
+            return Err(ConquestError::Identity);
+        }
+        let h = self.host;
+        if h.key().world() != world
+            || h.gen() == 0
+            || h.gen() == u8::MAX
+            || (h.key().coord().ring() < super::land::FIRST_WIDE_RING
+                && super::LegacyAdapter::new(world).host_id(&h).is_err())
+        {
+            return Err(ConquestError::Identity);
+        }
+        let done_ok = match self.status {
+            RES_PENDING => self.done == 0,
+            RES_NOT_APPLIED => self.done & !RES_DONE_ALL == 0 && self.done != RES_DONE_ALL,
+            _ => false,
+        };
+        if !done_ok || self.site as usize >= 12 || self.faction >= 6 || self.bell == 0 {
+            return Err(ConquestError::State);
+        }
+        Ok(())
+    }
+    fn write(&self, b: &mut [u8]) {
+        b[..6].copy_from_slice(&[
+            self.status,
+            self.site,
+            self.entry,
+            self.reserved_slot,
+            self.faction,
+            self.done,
+        ]);
+        b[8..12].copy_from_slice(&self.bell.to_le_bytes());
+        b[12..16].copy_from_slice(&self.seq.to_le_bytes());
+        b[16..48].copy_from_slice(&self.citizen);
+        b[48..104].copy_from_slice(&self.host.to_bytes());
+        b[104..112].copy_from_slice(&self.actor_tag.to_le_bytes());
+        b[112..120].copy_from_slice(&self.gold_milli.to_le_bytes());
+        b[120..128].copy_from_slice(&self.arms_milli.to_le_bytes());
+    }
+    fn read(b: &[u8], world: WorldId) -> R<Self> {
+        zero(&b[6..8])?;
+        let r = Self {
+            status: b[0],
+            site: b[1],
+            entry: b[2],
+            reserved_slot: b[3],
+            faction: b[4],
+            done: b[5],
+            bell: u32_at(b, 8),
+            seq: u32_at(b, 12),
+            citizen: b[16..48].try_into().unwrap(),
+            host: WideHostRef::from_bytes(&b[48..104]).map_err(|_| ConquestError::Identity)?,
+            actor_tag: u64_at(b, 104),
+            gold_milli: u64_at(b, 112),
+            arms_milli: u64_at(b, 120),
+        };
+        r.validate(world)?;
+        Ok(r)
+    }
+}
+
+/// What one SettleReservation call does (all-or-nothing per part).
+#[cfg(feature = "conquest-dispatch-experimental")]
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ReservationSettle {
+    pub conquest: WideConquest,
+    pub reservation: Reservation,
+    /// Credit every recorded resource in full in this transaction.
+    pub return_resources: bool,
+    /// Refund the escrow binding and clear the Citizen slot in this transaction.
+    pub release_slot_rent: bool,
+    /// Both parts are now done and the record is freed.
+    pub freed: bool,
+    /// A PENDING reservation became NOT_APPLIED by the season's end or
+    /// abort (the caller recomputes the site's PENDING flag if the province
+    /// is still present). A lapse alone, with no part doable, still records
+    /// the owed return.
+    pub lapsed: bool,
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct WideConquest {
     season_id: u64,
     key: ProvinceKey,
     rent_payer: [u8; 32],
     entries: [Option<WideConquestEntry>; 12],
+    next_seq: u32,
+    reservations: [Option<Reservation>; RESERVATIONS_N],
 }
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ConquestPlan {
@@ -341,6 +511,214 @@ impl WideConquest {
             key,
             rent_payer,
             entries: [None; 12],
+            next_seq: 0,
+            reservations: [None; RESERVATIONS_N],
+        })
+    }
+    pub fn reservations(&self) -> &[Option<Reservation>; RESERVATIONS_N] {
+        &self.reservations
+    }
+    pub fn next_seq(&self) -> u32 {
+        self.next_seq
+    }
+    /// Whether the table holds no entry and no reservation record.
+    pub fn is_empty(&self) -> bool {
+        self.entries.iter().all(Option::is_none) && self.reservations.iter().all(Option::is_none)
+    }
+    pub fn reservation(&self, seq: u32) -> Option<(usize, Reservation)> {
+        self.reservations
+            .iter()
+            .enumerate()
+            .find_map(|(i, r)| r.filter(|r| r.seq == seq).map(|r| (i, r)))
+    }
+    /// Whether a PENDING reservation names `site`.
+    pub fn has_pending(&self, site: u8) -> bool {
+        self.reservations
+            .iter()
+            .flatten()
+            .any(|r| r.status == RES_PENDING && r.site == site)
+    }
+    /// Whether any PENDING reservation is older than bell `b`.
+    pub fn stale_pending(&self, b: u32) -> bool {
+        self.reservations
+            .iter()
+            .flatten()
+            .any(|r| r.status == RES_PENDING && r.bell < b)
+    }
+    /// The PENDING reservations of (site, bell) in reservation order.
+    pub fn pending_at(&self, site: u8, bell: u32) -> Vec<(usize, Reservation)> {
+        let mut v: Vec<(usize, Reservation)> = self
+            .reservations
+            .iter()
+            .enumerate()
+            .filter_map(|(i, r)| {
+                r.filter(|r| r.status == RES_PENDING && r.site == site && r.bell == bell)
+                    .map(|r| (i, r))
+            })
+            .collect();
+        v.sort_by_key(|(_, r)| r.seq);
+        v
+    }
+    /// Whether (citizen, slot) is held by an entry or a slot-holding record.
+    fn slot_taken(&self, citizen: &[u8; 32], slot: u8) -> bool {
+        self.entries
+            .iter()
+            .flatten()
+            .any(|e| e.citizen == *citizen && e.reserved_slot == slot)
+            || self
+                .reservations
+                .iter()
+                .flatten()
+                .any(|r| r.holds_slot() && r.citizen == *citizen && r.reserved_slot == slot)
+    }
+    /// The canonical kind-zero prefix of an entry-less site with its
+    /// PENDING flag recomputed from this table.
+    pub fn idle_prefix(&self, site: u8, current: Record) -> R<Record> {
+        if self.entry(site)?.is_some() || current.kind != CR::KIND_NONE {
+            return Err(ConquestError::State);
+        }
+        let mut p = current;
+        p.flags = if self.has_pending(site) {
+            CR::FLAG_PENDING
+        } else {
+            0
+        };
+        Ok(p)
+    }
+    /// Record a reservation. Collection (stake, cost, cap, slot mark, escrow
+    /// binding and rents) and every signature-time check remain the caller's,
+    /// in the same transaction. `r.seq` is assigned here.
+    #[cfg(feature = "conquest-dispatch-experimental")]
+    pub fn reserve(&self, expected: Record, mut r: Reservation) -> R<(Self, Record, Reservation)> {
+        self.validate_paired(r.site, expected)?;
+        if r.status != RES_PENDING || r.done != 0 {
+            return Err(ConquestError::State);
+        }
+        if self.entry(r.site)?.is_some()
+            || expected.kind != CR::KIND_NONE
+            || expected.flags & CR::OWED_MASK != 0
+            || self.slot_taken(&r.citizen, r.reserved_slot)
+        {
+            return Err(ConquestError::State);
+        }
+        let i = self
+            .reservations
+            .iter()
+            .position(Option::is_none)
+            .ok_or(ConquestError::Full)?;
+        r.seq = self.next_seq;
+        r.validate(self.key.world())?;
+        let mut next = self.clone();
+        next.next_seq = self.next_seq.checked_add(1).ok_or(ConquestError::Overflow)?;
+        next.reservations[i] = Some(r);
+        let prefix = next.idle_prefix(r.site, expected)?;
+        Ok((next, prefix, r))
+    }
+    /// Apply PENDING reservation record `i` as the site entry `e` (exactly
+    /// the entry an immediate declaration at its bell writes). The caller has
+    /// re-checked every state condition at that bell. The slot, escrow
+    /// binding and collected stake carry over unchanged to the entry.
+    #[cfg(feature = "conquest-dispatch-experimental")]
+    pub fn apply_reservation(&self, i: usize, e: WideConquestEntry) -> R<ConquestPlan> {
+        let r = self
+            .reservations
+            .get(i)
+            .copied()
+            .flatten()
+            .ok_or(ConquestError::Absent)?;
+        if r.status != RES_PENDING
+            || self.entry(r.site)?.is_some()
+            || e.rules.kind != CR::KIND_SIEGE
+            || e.rules.progress != 0
+            || e.citizen != r.citizen
+            || e.actor_tag != r.actor_tag
+            || e.reserved_slot != r.reserved_slot
+            || e.declaration_bell != r.bell
+            || e.rules.bell != r.bell
+            || e.rules.faction != r.faction
+            || e.rules.target != CR::target(CR::TARGET_FREE_CITY, r.reserved_slot)
+            || e.source != Some(r.source())
+            || e.original_target_gen != 0
+        {
+            return Err(ConquestError::State);
+        }
+        e.validate(self.key.world())?;
+        let mut conquest = self.clone();
+        conquest.reservations[i] = None;
+        conquest.entries[r.site as usize] = Some(e);
+        Ok(ConquestPlan {
+            conquest,
+            prefix: e.prefix(),
+            transition: None,
+            return_stake_to: None,
+        })
+    }
+    /// PENDING record `i` does not apply: its full return becomes owed.
+    #[cfg(feature = "conquest-dispatch-experimental")]
+    pub fn not_apply(&self, i: usize) -> R<Self> {
+        let mut r = self
+            .reservations
+            .get(i)
+            .copied()
+            .flatten()
+            .ok_or(ConquestError::Absent)?;
+        if r.status != RES_PENDING {
+            return Err(ConquestError::State);
+        }
+        r.status = RES_NOT_APPLIED;
+        let mut next = self.clone();
+        next.reservations[i] = Some(r);
+        Ok(next)
+    }
+    /// Plan the parts of a NOT_APPLIED reservation's return that can be done
+    /// now. `resources_ok`: the caller verified every recorded amount fits the
+    /// present, same-generation source Holding in full. `slot_rent_ok`: the
+    /// caller authenticated the Citizen and the escrow binding. A part already
+    /// done is never planned again; nothing doable is `Blocked`.
+    ///
+    /// `terminal_lapse`: the caller authenticated that this reservation can
+    /// never be applied any more (the season Aborted or tombstoned, or Ended
+    /// with the province closed), so a PENDING reservation does not apply,
+    /// by the season's end or abort. Never an early cancellation: otherwise a
+    /// PENDING reservation is `TooEarly`.
+    #[cfg(feature = "conquest-dispatch-experimental")]
+    pub fn settle_reservation(
+        &self,
+        seq: u32,
+        resources_ok: bool,
+        slot_rent_ok: bool,
+        terminal_lapse: bool,
+    ) -> R<ReservationSettle> {
+        let (i, mut r) = self.reservation(seq).ok_or(ConquestError::Absent)?;
+        let lapsed = r.status == RES_PENDING && terminal_lapse;
+        if lapsed {
+            r.status = RES_NOT_APPLIED;
+        }
+        if r.status != RES_NOT_APPLIED {
+            return Err(ConquestError::TooEarly);
+        }
+        let return_resources = r.done & RES_RESOURCES_RETURNED == 0 && resources_ok;
+        let release_slot_rent = r.done & RES_SLOT_RENT_RELEASED == 0 && slot_rent_ok;
+        if !return_resources && !release_slot_rent && !lapsed {
+            return Err(ConquestError::Blocked);
+        }
+        let mut next_r = r;
+        if return_resources {
+            next_r.done |= RES_RESOURCES_RETURNED;
+        }
+        if release_slot_rent {
+            next_r.done |= RES_SLOT_RENT_RELEASED;
+        }
+        let freed = next_r.done == RES_DONE_ALL;
+        let mut conquest = self.clone();
+        conquest.reservations[i] = if freed { None } else { Some(next_r) };
+        Ok(ReservationSettle {
+            conquest,
+            reservation: r,
+            return_resources,
+            release_slot_rent,
+            freed,
+            lapsed,
         })
     }
     pub fn key(&self) -> ProvinceKey {
@@ -357,7 +735,7 @@ impl WideConquest {
     }
     pub fn to_bytes(&self) -> [u8; CONQUEST_SIZE] {
         let mut b = [0; CONQUEST_SIZE];
-        write_header(&mut b, MAGIC, self.season_id);
+        write_header_v(&mut b, MAGIC, self.season_id, TABLE_VERSION);
         b[32..82].copy_from_slice(&self.key.to_bytes());
         b[88..120].copy_from_slice(&self.rent_payer);
         for (i, e) in self.entries.iter().enumerate() {
@@ -365,12 +743,25 @@ impl WideConquest {
                 e.write(&mut b[128 + i * 128..256 + i * 128]);
             }
         }
+        // the reservation counter exists only in the version-2 (conquest lane) layout; v1 keeps 120..128 zero
+        #[cfg(feature = "conquest-dispatch-experimental")]
+        b[120..124].copy_from_slice(&self.next_seq.to_le_bytes());
+        for (i, r) in self.reservations.iter().enumerate() {
+            if let Some(r) = r {
+                let o = RESERVATION_OFF + i * RESERVATION_LEN;
+                r.write(&mut b[o..o + RESERVATION_LEN]);
+            }
+        }
         b
     }
     pub fn read(b: &[u8], season_id: u64, key: ProvinceKey) -> R<Self> {
-        header(b, CONQUEST_SIZE, MAGIC)?;
+        header_v(b, CONQUEST_SIZE, MAGIC, TABLE_VERSION)?;
         zero(&b[82..88])?;
+        // v1 (no conquest lane): the original rule, 120..128 all zero. v2: 120..124 is the reservation counter.
+        #[cfg(not(feature = "conquest-dispatch-experimental"))]
         zero(&b[120..128])?;
+        #[cfg(feature = "conquest-dispatch-experimental")]
+        zero(&b[124..128])?;
         if u64_at(b, 8) != season_id
             || ProvinceKey::from_bytes(&b[32..82]).map_err(|_| ConquestError::Identity)? != key
         {
@@ -392,16 +783,42 @@ impl WideConquest {
                 out.entries[i] = Some(entry);
             }
         }
+        #[cfg(feature = "conquest-dispatch-experimental")]
+        {
+            out.next_seq = u32_at(b, 120);
+        }
+        for i in 0..RESERVATIONS_N {
+            let o = RESERVATION_OFF + i * RESERVATION_LEN;
+            let d = &b[o..o + RESERVATION_LEN];
+            if d.iter().any(|x| *x != 0) {
+                let r = Reservation::read(d, key.world())?;
+                if r.seq >= out.next_seq
+                    || out.reservations.iter().flatten().any(|o| o.seq == r.seq)
+                    || (r.holds_slot() && out.slot_taken(&r.citizen, r.reserved_slot))
+                {
+                    return Err(ConquestError::State);
+                }
+                out.reservations[i] = Some(r);
+            }
+        }
         Ok(out)
     }
+    /// An entry-less site's prefix carries the PENDING flag exactly while a
+    /// PENDING reservation names the site. A site entry's prefix is the
+    /// entry's own (reservations for a later bell may still wait on it).
     pub fn validate_paired(&self, site: u8, p: Record) -> R<()> {
+        let idle_flags = if self.has_pending(site) {
+            CR::FLAG_PENDING
+        } else {
+            0
+        };
         match self.entry(site)? {
             Some(e) if e.prefix() == p => Ok(()),
             None if p.kind == CR::KIND_NONE
                 && (p.faction < 6
                     || p.faction == CR::BARRED_ALL
                     || p.faction == CR::BARRED_NONE)
-                && p.flags == 0
+                && p.flags == idle_flags
                 && p.progress == 0
                 && p.required == 0
                 && p.target == 0
@@ -435,7 +852,11 @@ impl WideConquest {
         {
             return Err(ConquestError::State);
         }
+        // A pending reservation on the site precedes any immediate declaration
+        // (reservation order); the caller must reserve instead.
         if self.entry(site)?.is_some()
+            || self.has_pending(site)
+            || self.slot_taken(&e.citizen, e.reserved_slot)
             || e.rules.kind != CR::KIND_SIEGE
             || e.rules.progress != 0
             || mirror.state != SM::STATE_FREE_CITY
@@ -542,6 +963,11 @@ impl WideConquest {
         };
         let mut conquest = self.clone();
         conquest.entries[site as usize] = None;
+        // Reservations for a later bell of this site keep it flagged, so a
+        // plain resolve still cannot skip their application.
+        if conquest.has_pending(site) {
+            next.flags = CR::FLAG_PENDING;
+        }
         Ok(ConquestPlan {
             conquest,
             prefix: next,
@@ -806,37 +1232,91 @@ impl WideCaptureEscrow {
     ) -> R<()> {
         conquest.validate_paired(site, prefix)?;
         let entry = conquest.entry(site)?.ok_or(ConquestError::Stale)?;
-        self.validate_inventory(
-            conquest.season_id,
-            conquest.key.world(),
-            citizen_key,
-            citizen,
-        )?;
         if entry.citizen != citizen_key {
             return Err(ConquestError::Identity);
         }
-        let slot = entry.reserved_slot;
         let expected = CaptureBinding {
             key: conquest.key,
             site,
             gen: entry.original_target_gen,
             declaration_bell: entry.declaration_bell,
         };
+        self.validate_all_paired(conquest, citizen_key, citizen, entry.reserved_slot, expected)
+    }
+    /// The same three-way check for a slot-holding reservation (by seq):
+    /// its binding is the one an immediate declaration at its bell creates.
+    pub fn validate_paired_reservation(
+        &self,
+        conquest: &WideConquest,
+        seq: u32,
+        citizen_key: [u8; 32],
+        citizen: &[u8],
+    ) -> R<()> {
+        let (_, r) = conquest.reservation(seq).ok_or(ConquestError::Absent)?;
+        if r.citizen != citizen_key {
+            return Err(ConquestError::Identity);
+        }
+        if !r.holds_slot() {
+            self.validate_inventory(conquest.season_id, conquest.key.world(), citizen_key, citizen)?;
+            return self.validate_bindings_of(conquest);
+        }
+        self.validate_all_paired(
+            conquest,
+            citizen_key,
+            citizen,
+            r.reserved_slot,
+            r.binding(conquest.key),
+        )
+    }
+    fn validate_all_paired(
+        &self,
+        conquest: &WideConquest,
+        citizen_key: [u8; 32],
+        citizen: &[u8],
+        slot: u8,
+        expected: CaptureBinding,
+    ) -> R<()> {
+        self.validate_inventory(
+            conquest.season_id,
+            conquest.key.world(),
+            citizen_key,
+            citizen,
+        )?;
         if self.binding(slot)? != Some(expected) {
             return Err(ConquestError::Stale);
         }
+        self.validate_bindings_of(conquest)
+    }
+    /// Every binding of this escrow to `conquest`'s province pairs with an
+    /// entry or a slot-holding reservation of this Citizen, and back.
+    fn validate_bindings_of(&self, conquest: &WideConquest) -> R<()> {
         for other_slot in 2..=3 {
             if let Some(binding) = self.binding(other_slot)? {
                 if binding.key == conquest.key {
-                    let other = conquest.entry(binding.site)?.ok_or(ConquestError::Stale)?;
-                    if other.citizen != self.citizen
-                        || other.reserved_slot != other_slot
-                        || other.original_target_gen != binding.gen
-                        || other.declaration_bell != binding.declaration_bell
-                    {
+                    let by_entry = conquest.entry(binding.site)?.is_some_and(|other| {
+                        other.citizen == self.citizen
+                            && other.reserved_slot == other_slot
+                            && other.original_target_gen == binding.gen
+                            && other.declaration_bell == binding.declaration_bell
+                    });
+                    let by_reservation = conquest.reservations.iter().flatten().any(|r| {
+                        r.holds_slot()
+                            && r.citizen == self.citizen
+                            && r.reserved_slot == other_slot
+                            && r.binding(conquest.key) == binding
+                    });
+                    if !by_entry && !by_reservation {
                         return Err(ConquestError::Stale);
                     }
                 }
+            }
+        }
+        for r in conquest.reservations.iter().flatten() {
+            if r.holds_slot()
+                && r.citizen == self.citizen
+                && self.binding(r.reserved_slot)? != Some(r.binding(conquest.key))
+            {
+                return Err(ConquestError::Stale);
             }
         }
         // Pair both directions: an entry cannot outlive its escrow binding
@@ -907,3 +1387,90 @@ impl WideCaptureEscrow {
         Ok(out)
     }
 }
+
+#[cfg(all(test, feature = "conquest-dispatch-experimental"))]
+#[path = "conquest_reservation_tests.rs"]
+mod reservation_tests;
+
+/// The table codec WITHOUT the conquest lane is the original one: version 1, 1664 bytes, header 120..128 zero, no
+/// reservation region; a version-2 table is refused.
+#[cfg(all(test, not(feature = "conquest-dispatch-experimental")))]
+mod v1_codec_isolation_tests {
+    use super::*;
+    use crate::world_index::{WideCoord, WorldId};
+    fn key() -> ProvinceKey {
+        ProvinceKey::new(WorldId::new([0x77; 32]).unwrap(), WideCoord::checked(129, 0).unwrap())
+    }
+    #[test]
+    fn without_the_conquest_lane_the_table_is_the_original_v1_codec() {
+        assert_eq!(CONQUEST_SIZE, 1664);
+        assert_eq!(RESERVATIONS_N, 0);
+        let t = WideConquest::new(11, key(), [9; 32]).unwrap();
+        let b = t.to_bytes();
+        assert_eq!(b.len(), 1664);
+        assert_eq!(u16_at(&b, 16), 1, "table layout version 1");
+        assert!(b[120..128].iter().all(|x| *x == 0), "the original reserved header bytes stay zero");
+        assert_eq!(WideConquest::read(&b, 11, key()).unwrap(), t);
+        // a nonzero byte in the old reserved range is refused (no reservation counter in v1)
+        let mut bad = b;
+        bad[120] = 1;
+        assert!(WideConquest::read(&bad, 11, key()).is_err());
+        // a version-2 header is refused (no mixing, no migration)
+        let mut v2 = b;
+        v2[16..18].copy_from_slice(&2u16.to_le_bytes());
+        assert_eq!(WideConquest::read(&v2, 11, key()), Err(ConquestError::Version));
+        // a 2688-byte buffer is refused by length
+        assert_eq!(WideConquest::read(&[0u8; 2688], 11, key()), Err(ConquestError::Length));
+        // no pending state can exist: the original kind-zero prefix rule (flags must be 0) holds
+        let mut p = Record::ZERO;
+        p.faction = CR::BARRED_NONE;
+        t.validate_paired(4, p).unwrap();
+        p.flags = CR::FLAG_PENDING;
+        assert!(t.validate_paired(4, p).is_err());
+    }
+
+    /// Existing-data preservation, independent of the codec's own writer: a v1 table with ALL 12 site entries is
+    /// assembled by hand from the documented layout, decoded, and re-encoded byte for byte.
+    #[test]
+    fn a_full_v1_table_assembled_by_hand_round_trips_byte_for_byte() {
+        let k = key();
+        let mut b = [0u8; 1664];
+        b[..8].copy_from_slice(b"PSFXWCQ1");
+        b[8..16].copy_from_slice(&11u64.to_le_bytes());
+        b[16..18].copy_from_slice(&1u16.to_le_bytes());
+        b[32..82].copy_from_slice(&k.to_bytes());
+        b[88..120].copy_from_slice(&[9u8; 32]);
+        let home = ProvinceKey::new(k.world(), WideCoord::checked(130, 0).unwrap());
+        for i in 0..12usize {
+            let citizen = [0x10 + i as u8; 32];
+            let o = 128 + i * 128;
+            let e = &mut b[o..o + 128];
+            let slot = 2 + (i % 2) as u8;
+            if i % 3 == 0 {
+                // kind NONE: a failed siege still owing its slot
+                e[..6].copy_from_slice(&[CR::KIND_NONE, CR::BARRED_NONE, CR::FLAG_SLOT_OWED, 0, slot, 0]);
+            } else {
+                // kind SIEGE: an active siege declared at bell 20 + i, source host kept
+                e[..6].copy_from_slice(&[CR::KIND_SIEGE, (i % 6) as u8, CR::FLAG_HELD | CR::FLAG_NEUTRAL, 1, 36, CR::target(CR::TARGET_FREE_CITY, slot)]);
+                e[12..16].copy_from_slice(&(20 + i as u32).to_le_bytes());
+                e[48..104].copy_from_slice(&WideHostRef::new(home, 0, 1, 0).unwrap().to_bytes());
+                e[114..118].copy_from_slice(&(20 + i as u32).to_le_bytes());
+            }
+            e[16..48].copy_from_slice(&citizen);
+            e[104..112].copy_from_slice(&crate::addr::citizen_tag(&citizen).to_le_bytes());
+            e[112] = slot;
+        }
+        let t = WideConquest::read(&b, 11, k).expect("the hand-assembled full v1 table is accepted");
+        for i in 0..12u8 {
+            let e = t.entry(i).unwrap().expect("every site entry decoded");
+            assert_eq!(e.citizen, [0x10 + i; 32]);
+        }
+        assert_eq!(t.to_bytes(), b, "decode -> encode is byte-identical for a full v1 table");
+    }
+}
+
+/// Test-only read-path vectors for the map (written only with
+/// `WYLLS_WRITE_VECTORS=<path>`).
+#[cfg(all(test, feature = "conquest-dispatch-experimental"))]
+#[path = "conquest_reservation_vectors_tests.rs"]
+mod reservation_vectors_tests;

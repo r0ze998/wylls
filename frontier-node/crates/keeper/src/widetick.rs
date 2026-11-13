@@ -147,6 +147,8 @@ pub const REVEAL_REFRESH_SLOTS: u64 = 8;
 pub const MAX_TRANSIENT_RETRIES: u32 = 8;
 /// Review ledger entries kept.
 pub const MAX_LEDGER: usize = 256;
+/// Explicit original-host selections share the normal per-tick review budget.
+pub const MAX_ORIGINAL_EXPEDITIONS: usize = 64;
 /// Departure proofs kept (oldest sequence dropped).
 pub const MAX_PROOFS: usize = 64;
 /// Records of one feed page offered to the proof extractor; the rest are
@@ -571,6 +573,7 @@ pub struct WideReview {
     /// The departure proofs the reveal review may plan from.
     pub proofs: ProofStore,
     ledger: BTreeMap<String, Entry>,
+    original_expeditions: BTreeMap<String, crate::wideexpedition::Selection>,
     cursor: usize,
     pub ticks: u64,
     pub plans: u64,
@@ -642,6 +645,19 @@ pub struct WideReview {
 }
 
 impl WideReview {
+    /// Add a public identity hint to the existing bounded review loop. It is
+    /// re-read through the keeper snapshot source; nothing enters Engine's
+    /// executable pending queue and no key/payer is drawn.
+    pub fn supply_original_expedition(&mut self, selected: crate::wideexpedition::Selection) -> bool {
+        let id = format!("original-expedition:{}:{}:{}", hex::encode(selected.host.to_bytes()),
+            hex::encode(selected.standing.to_bytes()), selected.original_owner);
+        if !self.original_expeditions.contains_key(&id) && self.original_expeditions.len() >= MAX_ORIGINAL_EXPEDITIONS {
+            return false;
+        }
+        self.original_expeditions.insert(id, selected);
+        true
+    }
+
     pub fn new(deployment: Deployment) -> WideReview {
         WideReview {
             deployment,
@@ -649,6 +665,7 @@ impl WideReview {
             review_payer: None,
             proofs: ProofStore::default(),
             ledger: BTreeMap::new(),
+            original_expeditions: BTreeMap::new(),
             cursor: 0,
             ticks: 0,
             plans: 0,
@@ -856,6 +873,8 @@ impl WideReview {
                     )
                 }),
         );
+        v.extend(self.original_expeditions.iter().map(|(id, selected)|
+            (id.clone(), Hint::OriginalExpedition(*selected))));
         // The model's gather hints and the resolve plans' follow-ups, once
         // each.
         let mut gathers: BTreeSet<(ProvinceKey, u32)> =
@@ -987,6 +1006,24 @@ impl WideReview {
             made += 1;
             self.plans += 1;
             let entry = match hint {
+                Hint::OriginalExpedition(selected) => {
+                    let summary = match snapshot {
+                        None => json!({"hint":id,"slot":slot,"outcome":"blocked","block":"CoherentSnapshotRequired"}),
+                        Some(source) => match crate::wideexpedition::inspect(source, &scope, *selected, slot).await {
+                            Ok(mut report) => {
+                                report.engine = Some(crate::wideexpedition::EngineFacts {
+                                    feed_writes_allowed: engine.feed_writes_allowed(),
+                                    kind_allowed: engine.allows_write_kind(crate::wideexpedition::KIND),
+                                    already_pending: engine.is_pending(&report.key()),
+                                    care_unresolved: engine.care_unresolved(),
+                                });
+                                json!({"hint":id,"slot":slot,"outcome":"observation","review":report.describe()})
+                            }
+                            Err(_) => json!({"hint":id,"slot":slot,"outcome":"blocked","block":"OriginalExpeditionInspectionRefused"}),
+                        },
+                    };
+                    Entry { slot, next:slot.saturating_add(REFRESH_SLOTS), transient:0, proof_seq:None, summary }
+                }
                 Hint::Settle(h, s) => {
                     let planned = match snapshot {
                         Some(src) => snapshot_plan_with(port, src, slot, false, &extra, |r| {
@@ -1661,6 +1698,8 @@ impl WideReview {
             },
             "candidates_per_tick": self.cap(),
             "hard_cap": CANDIDATES_PER_TICK,
+            "original_expedition_hints": self.original_expeditions.len(),
+            "original_expedition_hint_limit": MAX_ORIGINAL_EXPEDITIONS,
             "refresh_slots": REFRESH_SLOTS,
             "reveal_refresh_slots": REVEAL_REFRESH_SLOTS,
             "max_transient_retries": MAX_TRANSIENT_RETRIES,
@@ -1761,6 +1800,7 @@ struct RevealMeta {
 
 #[derive(Clone, Copy, Debug)]
 enum Hint {
+    OriginalExpedition(crate::wideexpedition::Selection),
     Settle(WideHostRef, u8),
     Return(ProvinceKey, WideHostRef),
     /// A destination and arrival bell with a revealed open march.

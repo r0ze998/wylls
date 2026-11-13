@@ -307,6 +307,12 @@ pub struct Chain {
     pub svm: LiteSVM,
     cfg: Config,
     run_id: [u8; 16],
+    /// Runtime-only identity of this running chain instance, fresh from OS
+    /// entropy at every open and every restore. Never persisted or hashed
+    /// (not in Snapshot, WAL, state_hash, genesis or blockhashes); served in
+    /// the `getSignatureStatuses` context so a client can tell a "null" of
+    /// the same instance from one after a restart or rewind.
+    status_instance: [u8; 32],
     slot: u64,
     /// Game time in milliseconds (the Clock shows its floor in seconds).
     game_ms: i64,
@@ -361,6 +367,24 @@ fn new_run_id() -> [u8; 16] {
         &std::process::id().to_le_bytes(),
     ]);
     h[..16].try_into().expect("16")
+}
+
+/// 32 bytes of OS entropy for [`Chain::status_instance`]. Fail-closed: any
+/// I/O error, and an all-zero result, is an error. No time/PID fallback.
+fn os_entropy32() -> Result<[u8; 32], String> {
+    use std::io::Read;
+    let mut b = [0u8; 32];
+    std::fs::File::open("/dev/urandom")
+        .and_then(|mut f| f.read_exact(&mut b))
+        .map_err(|e| format!("runner instance entropy unavailable: {e}"))?;
+    checked_instance(b)
+}
+
+fn checked_instance(b: [u8; 32]) -> Result<[u8; 32], String> {
+    if b == [0u8; 32] {
+        return Err("runner instance entropy is all zero".into());
+    }
+    Ok(b)
 }
 
 fn genesis_blockhash(g0: i64, slot0: u64) -> Hash {
@@ -422,7 +446,7 @@ impl Chain {
         Chain::open(cfg).unwrap_or_else(|e| panic!("frontier-localnet: {e}"))
     }
 
-    fn fresh(cfg: Config, run_id: [u8; 16]) -> Chain {
+    fn fresh(cfg: Config, run_id: [u8; 16], status_instance: [u8; 32]) -> Chain {
         let mut svm = LiteSVM::new()
             .with_blockhash_check(false)
             .with_log_bytes_limit(Some(200_000))
@@ -447,6 +471,7 @@ impl Chain {
         let mut c = Chain {
             svm,
             run_id,
+            status_instance,
             slot: cfg.slot0,
             game_ms: cfg.g0 * 1_000,
             scale: cfg.scale,
@@ -479,9 +504,19 @@ impl Chain {
     /// otherwise the recovered chain (newest valid snapshot + the ledger
     /// re-executed after it; the header's g0, slot0 and scale win over
     /// `cfg`'s).
-    pub fn open(mut cfg: Config) -> Result<Chain, String> {
+    pub fn open(cfg: Config) -> Result<Chain, String> {
+        Chain::open_with(cfg, os_entropy32)
+    }
+
+    /// [`Chain::open`] with an injected entropy source (tests). The instance
+    /// is taken first, so an entropy failure opens nothing.
+    fn open_with(
+        mut cfg: Config,
+        entropy: impl FnOnce() -> Result<[u8; 32], String>,
+    ) -> Result<Chain, String> {
+        let instance = checked_instance(entropy()?)?;
         let Some(dir) = cfg.data_dir.clone() else {
-            return Ok(Chain::fresh(cfg, new_run_id()));
+            return Ok(Chain::fresh(cfg, new_run_id(), instance));
         };
         std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
         let writer_lock = std::fs::OpenOptions::new()
@@ -504,7 +539,7 @@ impl Chain {
                 scale: cfg.scale,
             };
             let wal = Wal::create(&dir, header, cfg.fsync)?;
-            let mut c = Chain::fresh(cfg, run_id);
+            let mut c = Chain::fresh(cfg, run_id, instance);
             c.writer_lock = Some(WriterLock(writer_lock));
             c.wal = Some(wal);
             return Ok(c);
@@ -514,7 +549,7 @@ impl Chain {
         cfg.slot0 = h.slot0;
         cfg.scale = h.scale;
         let fsync = cfg.fsync;
-        let mut c = Chain::fresh(cfg, h.run_id);
+        let mut c = Chain::fresh(cfg, h.run_id, instance);
         c.writer_lock = Some(WriterLock(writer_lock));
         let snap = persist::snapshots_in(&dir).into_iter().find_map(|(_, p)| {
             Snapshot::read(&p)
@@ -570,6 +605,10 @@ impl Chain {
     }
     pub fn run_id(&self) -> [u8; 16] {
         self.run_id
+    }
+    /// This running instance's runtime-only identity (see the field).
+    pub fn status_instance(&self) -> [u8; 32] {
+        self.status_instance
     }
     pub fn slot(&self) -> u64 {
         self.slot
@@ -1452,6 +1491,19 @@ impl Chain {
     /// state, the history and the ledger go back to the snapshot's point;
     /// the mempool, holds and later snapshots are discarded.
     pub fn restore(&mut self, path: &Path) -> Result<SnapInfo, String> {
+        self.restore_with(path, os_entropy32)
+    }
+
+    /// [`Chain::restore`] with an injected entropy source (tests). Every
+    /// validation, the snapshot's application to a temporary chain and the
+    /// entropy come first, so their failures change nothing; the fresh
+    /// instance is set immediately before the first state swap, so a later
+    /// failure (e.g. the WAL truncate) already reports the new instance.
+    fn restore_with(
+        &mut self,
+        path: &Path,
+        entropy: impl FnOnce() -> Result<[u8; 32], String>,
+    ) -> Result<SnapInfo, String> {
         let s = Snapshot::read(path)?;
         if s.run_id != self.run_id {
             return Err("snapshot of another run".into());
@@ -1463,8 +1515,10 @@ impl Chain {
         if !same_timeline || s.wal_offset > self.wal_offset() {
             return Err("snapshot is not on this chain's timeline".into());
         }
-        let mut fresh = Chain::fresh(self.cfg.clone(), self.run_id);
+        let mut fresh = Chain::fresh(self.cfg.clone(), self.run_id, self.status_instance);
         fresh.apply_snapshot(&s)?;
+        let next_instance = checked_instance(entropy()?)?;
+        self.status_instance = next_instance;
         std::mem::swap(&mut self.svm, &mut fresh.svm);
         self.slot = s.slot;
         self.game_ms = s.game_ms;
@@ -1778,5 +1832,166 @@ mod feed_scan_tests {
             s.scanned_through < 7,
             "the reader sees its cursor is past the ledger"
         );
+    }
+}
+
+/// F2: the runtime-only runner instance (`status_instance`).
+#[cfg(test)]
+mod status_instance_tests {
+    use super::*;
+
+    const A: [u8; 32] = [7; 32];
+    const B: [u8; 32] = [9; 32];
+
+    /// A NEW directory this test owns (create_dir refuses an existing path);
+    /// only it is removed afterwards.
+    fn scratch(name: &str) -> PathBuf {
+        let nanos = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        for n in 0..1000u32 {
+            let d = std::env::temp_dir().join(format!(
+                "localnet-instance-{}-{name}-{nanos}-{n}",
+                std::process::id()
+            ));
+            if std::fs::create_dir(&d).is_ok() {
+                return d;
+            }
+        }
+        panic!("no fresh scratch directory")
+    }
+    fn disk(d: &Path) -> Config {
+        Config {
+            data_dir: Some(d.to_path_buf()),
+            fsync: false,
+            snapshot_every_secs: 1_000_000,
+            ..Config::default()
+        }
+    }
+    fn err_of(r: Result<Chain, String>) -> String {
+        match r {
+            Err(e) => e,
+            Ok(_) => panic!("expected an error"),
+        }
+    }
+    fn fail() -> Result<[u8; 32], String> {
+        Err("no entropy".into())
+    }
+    fn zero() -> Result<[u8; 32], String> {
+        Ok([0; 32])
+    }
+    fn bump(c: &mut Chain, k: u8) {
+        c.airdrop(&Address::new_from_array([k; 32]), 5).unwrap();
+        c.produce_block();
+    }
+
+    #[test]
+    fn real_entropy_gives_distinct_nonzero_instances() {
+        let (a, b) = (Chain::new(Config::default()), Chain::new(Config::default()));
+        assert_ne!(a.status_instance(), [0; 32]);
+        assert_ne!(a.status_instance(), b.status_instance());
+    }
+
+    #[test]
+    fn open_refuses_failing_or_zero_entropy_on_every_path() {
+        // memory-only
+        assert!(err_of(Chain::open_with(Config::default(), fail)).contains("no entropy"));
+        assert!(err_of(Chain::open_with(Config::default(), zero)).contains("all zero"));
+        // new ledger: nothing is created
+        let root = scratch("open");
+        let d = root.join("ledger");
+        assert!(err_of(Chain::open_with(disk(&d), fail)).contains("no entropy"));
+        assert!(!d.exists(), "no ledger directory was created");
+        // recovered ledger: refused, the ledger stays intact and reopens
+        let mut c = Chain::open_with(disk(&d), || Ok(A)).unwrap();
+        bump(&mut c, 1);
+        let h = c.state_hash();
+        drop(c);
+        assert!(err_of(Chain::open_with(disk(&d), zero)).contains("all zero"));
+        let c = Chain::open_with(disk(&d), || Ok(B)).unwrap();
+        assert_eq!(c.state_hash(), h);
+        assert_eq!(c.status_instance(), B);
+        drop(c);
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn the_instance_never_enters_persisted_or_hashed_identity() {
+        let a = Chain::open_with(Config::default(), || Ok(A)).unwrap();
+        let b = Chain::open_with(Config::default(), || Ok(B)).unwrap();
+        assert_eq!((a.status_instance(), b.status_instance()), (A, B));
+        assert_eq!(a.state_hash(), b.state_hash());
+        assert_eq!(a.latest_blockhash(), b.latest_blockhash());
+        // Snapshot bytes do not depend on the instance: two chains with the
+        // SAME run id (set before any byte is produced; test-only use of the
+        // private constructor) and different instances, same history, give
+        // byte-identical snapshots. The production encoder is unchanged.
+        let root = scratch("snapbytes");
+        let run = [3u8; 16];
+        let mut a = Chain::fresh(Config::default(), run, A);
+        let mut b = Chain::fresh(Config::default(), run, B);
+        bump(&mut a, 1);
+        bump(&mut b, 1);
+        let (pa, pb) = (root.join("a.bin"), root.join("b.bin"));
+        a.snapshot(Some(&pa)).unwrap();
+        b.snapshot(Some(&pb)).unwrap();
+        let (ba, bb) = (std::fs::read(&pa).unwrap(), std::fs::read(&pb).unwrap());
+        let short = |v: &[u8]| hex::encode(&persist::sha256(&[v])[..8]);
+        let first_diff = ba.iter().zip(&bb).position(|(x, y)| x != y);
+        assert!(
+            ba.len() == bb.len() && first_diff.is_none(),
+            "snapshot bytes differ: len {} vs {}, sha256[..8] {} vs {}, first differing offset {:?}",
+            ba.len(),
+            bb.len(),
+            short(&ba),
+            short(&bb),
+            first_diff
+        );
+        assert!(!ba.windows(32).any(|w| w == A) && !bb.windows(32).any(|w| w == B), "instance bytes absent");
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn restore_failures_before_the_swap_change_nothing() {
+        let root = scratch("restore-a");
+        let mut c = Chain::open_with(Config::default(), || Ok(A)).unwrap();
+        bump(&mut c, 1);
+        let p = root.join("s.bin");
+        let snap = c.snapshot(Some(&p)).unwrap();
+        bump(&mut c, 2);
+        let (h, n) = (c.state_hash(), c.transaction_count());
+        // a snapshot of another run
+        let mut other = Chain::open_with(Config::default(), || Ok(B)).unwrap();
+        let q = root.join("other.bin");
+        other.snapshot(Some(&q)).unwrap();
+        assert!(c.restore_with(&q, || Ok(B)).is_err());
+        // failing and all-zero entropy
+        assert!(c.restore_with(&p, fail).unwrap_err().contains("no entropy"));
+        assert!(c.restore_with(&p, zero).unwrap_err().contains("all zero"));
+        assert_eq!((c.status_instance(), c.state_hash(), c.transaction_count()), (A, h, n));
+        // success: new instance, the snapshot's state, the same run id
+        let run = c.run_id();
+        let r = c.restore_with(&p, || Ok(B)).unwrap();
+        assert_eq!(r.state_hash, snap.state_hash);
+        assert_eq!((c.status_instance(), c.run_id()), (B, run));
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn a_failing_wal_truncate_after_the_swap_reports_the_new_instance() {
+        let root = scratch("restore-b");
+        let d = root.join("ledger");
+        let mut c = Chain::open_with(disk(&d), || Ok(A)).unwrap();
+        bump(&mut c, 1);
+        let snap = c.snapshot(None).unwrap();
+        bump(&mut c, 2);
+        c.wal.as_mut().unwrap().fail_next_truncate = true;
+        let e = c.restore_with(&snap.path, || Ok(B)).unwrap_err();
+        assert!(e.contains("test fault: WAL truncate"), "{e}");
+        assert_eq!(c.status_instance(), B, "updated before the first swap");
+        assert_eq!(c.state_hash(), snap.state_hash, "the state was already swapped");
+        drop(c);
+        let _ = std::fs::remove_dir_all(&root);
     }
 }

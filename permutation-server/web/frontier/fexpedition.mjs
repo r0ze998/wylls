@@ -1,6 +1,7 @@
 // Read-only inspection of an ORIGINAL host at an explicitly supplied wide
 // coordinate. No movement, signing, session, relay-payer or history API belongs
 // here. A proposal in the report never authorizes an action or proves return.
+import { clearPreparation } from './fexpedition-prepare.mjs';
 import { subjectOf } from './hud/subject.mjs';
 import { hostParts, hostId, seasonAddresses } from './faddr.mjs';
 import { parseWideInt, parseU64, ringPosition, worldIdOf } from './map/wide.mjs';
@@ -175,6 +176,7 @@ const runs = new WeakMap();
 const runOf = fs => { if (!runs.has(fs)) runs.set(fs, { generation: 0, abort: null, capture: null }); return runs.get(fs); };
 /** Invalidate BEFORE changing any viewer, source, selection, input or open card. */
 export function clearInspection(fs, { keepInputs = false } = {}) {
+  clearPreparation(fs);
   const run = runOf(fs); ++run.generation; run.abort?.abort(); run.abort = null; run.capture = null;
   const old = fs.expeditionPreview;
   fs.expeditionPreview = { p: keepInputs ? old?.p ?? '' : '', q: keepInputs ? old?.q ?? '' : '', sequence: keepInputs ? old?.sequence ?? '' : '', status: 'idle', request: null, report: null, error: null };
@@ -200,7 +202,8 @@ export function reconcileInspection(fs, context) {
 }
 
 /** One bounded, abortable read. No relay-info, action admission or transaction path. */
-export async function readInspection(request, { relay, signal, isCurrent = () => true, fetch: fetcher = (...a) => globalThis.fetch(...a), timeoutMs = INSPECTION_TIMEOUT_MS } = {}) {
+export async function readInspection(request, { relay, signal, isCurrent = () => true, fetch: fetcher = (...a) => globalThis.fetch(...a), timeoutMs = INSPECTION_TIMEOUT_MS, path = '/f/expedition/preview' } = {}) {
+  check(['/f/expedition/preview', '/f/expedition/prepare'].includes(path), 'BadInspectionPath');
   check(typeof relay === 'string' && !!relay, 'NoRelay');
   check(Number.isInteger(timeoutMs) && timeoutMs > 0 && timeoutMs <= INSPECTION_TIMEOUT_MS, 'BadInspectionTimeout');
   const abort = new AbortController(); let timedOut = false, reader = null, completed = false;
@@ -212,7 +215,7 @@ export async function readInspection(request, { relay, signal, isCurrent = () =>
   const timer = setTimeout(() => { timedOut = true; abort.abort(); rejectDeadline(Object.assign(new Error('InspectionTimeout'), { code: 'InspectionTimeout' })); }, timeoutMs);
   try {
     alive();
-    const response = await Promise.race([fetcher(`${relay.replace(/\/+$/, '')}/f/expedition/preview`, {
+    const response = await Promise.race([fetcher(`${relay.replace(/\/+$/, '')}${path}`, {
       method: 'POST', cache: 'no-store', signal: abort.signal, headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(request),
     }), deadline]);
     alive();

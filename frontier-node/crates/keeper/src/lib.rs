@@ -82,6 +82,13 @@ pub mod wideduty;
 pub mod wideexpedition;
 #[cfg(feature = "wide-world-experimental")]
 pub mod wideexpedition_preview;
+#[cfg(feature = "expedition-dispatch-experimental")]
+pub mod experimental_expedition_prepare;
+#[cfg(feature = "expedition-dispatch-experimental")]
+pub mod experimental_expedition_depart_prepare;
+/// Bounded one-shot preparation of the wallet-signed wide DeclareSiege (conquest lane).
+#[cfg(feature = "expedition-dispatch-experimental")]
+pub mod experimental_conquest_prepare;
 #[cfg(feature = "wide-world-experimental")]
 pub mod widefees;
 #[cfg(feature = "wide-world-experimental")]

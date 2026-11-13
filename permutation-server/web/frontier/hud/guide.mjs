@@ -45,7 +45,9 @@ export function guideTarget(FS) {
   if (conquestOn(FS) && !territoryEnabled(FS)) {
     let o = null;
     try { o = conquestObjective(FS); } catch { return null; }
-    const kind = o?.id === 'build' ? 'build' : o?.id === 'train' || o?.id === 'muster' ? o.id : null;
+    // (the step's own press says where: while the first host forms, the muster step points at training or building)
+    const pop = o?.go?.act === 'cg-go' ? o.go.data?.pop : null;
+    const kind = ['build', 'train', 'muster'].includes(o?.id) && ['build', 'train', 'muster'].includes(pop) ? pop : null;
     return kind ? { step: kind, kind, p: h.p, q: h.q, tile: h.tile } : null;
   }
   if (territoryEnabled(FS)) {

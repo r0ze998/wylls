@@ -47,5 +47,40 @@ pub(super) fn execute(p: &Pubkey, a: &[AccountInfo], data: &[u8]) -> R<()> {
         Kind::SettleRetainedFailure => {
             expedition_return::settle_retained_failure_draft(p, a, command.inner())
         }
+        // Host/localnet conquest kinds: the SAME consumers the private native
+        // route (`conquest_draft`) and the gated raw dispatch reach, each with
+        // its unchanged role table, wallet policy, proofs and receipts. The raw
+        // `CONQUEST_LIFECYCLE_ENABLED = false` gate is not touched or bypassed
+        // for raw bytes; only this versioned, Season-version-checked wrapper
+        // reaches the bodies.
+        #[cfg(feature = "conquest-dispatch-experimental")]
+        Kind::DeclareSiege
+        | Kind::ResolveWithConquest
+        | Kind::SettleCapture
+        | Kind::SettleSiege
+        | Kind::CloseConquest
+        | Kind::CloseCaptureEscrow => conquest_kind(p, a, wix::WideCommand::decode(command.inner())?),
+        // A new codec, deliberately not a WideCommand: only this route.
+        #[cfg(feature = "conquest-dispatch-experimental")]
+        Kind::SettleReservation => conquest_settle_exec::settle_reservation_inner(
+            p,
+            a,
+            &wix::SettleReservation::decode(command.inner())?,
+        ),
+    }
+}
+
+/// The exact decoded conquest command of a conquest kind (the wrapper's
+/// validation already pinned the codec to the kind).
+#[cfg(feature = "conquest-dispatch-experimental")]
+fn conquest_kind(p: &Pubkey, a: &[AccountInfo], command: wix::WideCommand<'_>) -> R<()> {
+    match command {
+        wix::WideCommand::DeclareSiege(_)
+        | wix::WideCommand::ResolveWithConquest(_)
+        | wix::WideCommand::SettleCapture(_) => conquest_draft::execute_command(p, a, command),
+        wix::WideCommand::SettleSiege(x) => conquest_settle_exec::settle_siege_inner(p, a, &x),
+        wix::WideCommand::CloseConquest(x) => conquest_settle_exec::close_conquest_inner(p, a, &x),
+        wix::WideCommand::CloseCaptureEscrow(_) => conquest_settle_exec::close_capture_escrow_inner(p, a),
+        _ => Err(FrontierError::BadData.into()),
     }
 }

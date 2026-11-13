@@ -515,9 +515,11 @@ export class SpriteArt {
       return { cv, g };
     };
     if (sv?.kind === 'chart') {
-      const { cv, g } = sheet();
+      // (counted from before the sheet: its chart reads the neighbours' terrain, and one that waits for the next
+      // frame, terrainLookup's `onWait`, is a miss like a sprite on its way: the bitmap is shown, not kept)
       const had = this.misses;
       this.misses = 0;
+      const { cv, g } = sheet();
       this.paint(g, [e], { zoom: res, dpr: 1, terrainAt, fogAt, alliedPairs, far: 'props', survey });   // the Engine, where this is the Concord
       const v = { cv, ...box, px: size * size };
       if (this.misses === 0) keep(k, v);
@@ -553,9 +555,11 @@ export class SpriteArt {
       // the survey over a copy of the painted province
       const cv = canvas(), g = cv.getContext('2d');
       g.drawImage(rawBitmap.cv, 0, 0);
+      // (the two sheets read the neighbours' terrain too: a copy made while one of them waits is not kept either)
+      const before = this.misses;
       applySurvey(g, { box, res, survey, sig: sv.sig, chart: sheet().cv, plain: sheet(false).cv });
       v = { cv, ...box, px: size * size };
-      if (rawBitmap.whole !== false) keep(k, v);
+      if (rawBitmap.whole !== false && this.misses === before) keep(k, v);
     }
     this.farLast.set(`${e.p},${e.q}`, v);
     return v;
@@ -1244,11 +1248,16 @@ export class SpriteArt {
           const box = { x: c.x - B.left, y: c.y - B.top, w: B.left + B.right, h: B.top + B.bottom };
           if (chartOnly) {
             // nothing of this province is surveyed: its ground is the chart
+            // (its chart reads the neighbours' terrain: one that waits for the next frame, terrainLookup's `onWait`,
+            // is a miss; the bitmap painted across it is shown in this frame and not kept, as a sprite on its way)
+            const before = this.misses;
             paintChart(gg, list, { res, nameAt: chartName, own: true });
             const v = { cv, x: box.x, y: box.y, w: box.w, h: box.h, px: cv.width * cv.height, pass };
-            this.groundCache.set(key, v);
-            this.groundPixels += v.px;
-            this.trimGround(pass);
+            if (this.misses === before) {
+              this.groundCache.set(key, v);
+              this.groundPixels += v.px;
+              this.trimGround(pass);
+            }
             return v;
           }
           const had = this.misses;
@@ -1745,11 +1754,17 @@ export class SpriteArt {
   }
 }
 
-/** A `terrainAt(q, r)` for tiles outside the drawn entries, from the page's terrainOf(p, q). */
-export function terrainLookup(terrainOf) {
+/**
+ * A `terrainAt(q, r)` for tiles outside the drawn entries, from the page's terrainOf(p, q).
+ * `onWait()` is called when a tile has no answer only because the map's frame had made its share of new terrain
+ * (map/terrain.mjs `waited`): the land is there, and a picture painted without it must not be kept as the final one.
+ */
+export function terrainLookup(terrainOf, onWait = null) {
   return (q, r) => {
     const at = locate(q, r);
+    const before = onWait ? terrainOf?.waited?.() ?? 0 : 0;
     const t = terrainOf?.(at.p, at.q);
+    if (!t && onWait && (terrainOf?.waited?.() ?? 0) !== before) onWait();
     return t ? TERRAIN_KEY[t.names?.[t.terrain[at.idx]]] ?? null : null;
   };
 }

@@ -9,6 +9,8 @@
 //! | `oracle` | `PSF_ORACLE_BUILD` |
 //! | `test-beacon` | `PSF_TEST_BEACON_BUILD` |
 //! | `custody-preview` | `PSF_CUSTODY_PREVIEW_BUILD` (workstream 10: not a test build, but not deployable until verified) |
+//! | `localnet-expedition-sbf` | `PSF_LOCALNET_EXPEDITION_SBF_BUILD` (isolated localnet lane, never deployable) |
+//! | `localnet-conquest-sbf` | `PSF_LOCALNET_CONQUEST_SBF_BUILD`, in addition to the expedition lane's marker (isolated localnet conquest lane, never deployable) |
 //!
 //! Each marker is passed through `core::hint::black_box` on a path every
 //! instruction (or every beacon verification) runs, so neither the
@@ -20,6 +22,8 @@ pub const TRACE: &[u8] = b"PSF_TRACE_BUILD";
 pub const ORACLE: &[u8] = b"PSF_ORACLE_BUILD";
 pub const TEST_BEACON: &[u8] = b"PSF_TEST_BEACON_BUILD";
 pub const CUSTODY_PREVIEW: &[u8] = b"PSF_CUSTODY_PREVIEW_BUILD";
+pub const LOCALNET_EXPEDITION_SBF: &[u8] = b"PSF_LOCALNET_EXPEDITION_SBF_BUILD";
+pub const LOCALNET_CONQUEST_SBF: &[u8] = b"PSF_LOCALNET_CONQUEST_SBF_BUILD";
 
 /// Keeps the `trace` and `oracle` markers alive (called by `dispatch`).
 #[inline(always)]
@@ -30,6 +34,16 @@ pub fn touch() {
     core::hint::black_box(ORACLE.as_ptr());
     #[cfg(feature = "custody-preview")]
     core::hint::black_box(CUSTODY_PREVIEW.as_ptr());
+}
+
+/// Keeps the `localnet-expedition-sbf` marker alive (called by the lane's
+/// program-id check at the top of `dispatch`).
+#[inline(always)]
+pub fn touch_localnet_expedition_sbf() {
+    #[cfg(feature = "localnet-expedition-sbf")]
+    core::hint::black_box(LOCALNET_EXPEDITION_SBF.as_ptr());
+    #[cfg(feature = "localnet-conquest-sbf")]
+    core::hint::black_box(LOCALNET_CONQUEST_SBF.as_ptr());
 }
 
 /// Keeps the `test-beacon` marker alive (called by every beacon
@@ -59,7 +73,8 @@ mod tests {
         }
         assert_ne!(TRACE, ORACLE);
         let script = include_str!("../../scripts/build-frontier.sh");
-        for m in [TRACE, ORACLE, TEST_BEACON, CUSTODY_PREVIEW] {
+        assert_ne!(LOCALNET_EXPEDITION_SBF, LOCALNET_CONQUEST_SBF);
+        for m in [TRACE, ORACLE, TEST_BEACON, CUSTODY_PREVIEW, LOCALNET_EXPEDITION_SBF, LOCALNET_CONQUEST_SBF] {
             assert!(
                 script.contains(core::str::from_utf8(m).unwrap()),
                 "build-frontier.sh checks {}",
@@ -67,5 +82,25 @@ mod tests {
             );
         }
         let _ = active();
+    }
+
+    /// Negative feature combinations stay closed: the expedition lane does
+    /// not include the conquest kinds, an SBF build with the conquest kinds
+    /// but without the conquest lane is a compile error, and only the
+    /// conquest lane's own script/marker pair builds it.
+    #[test]
+    fn the_expedition_artefact_can_never_accept_the_conquest_kinds() {
+        let cargo = include_str!("../Cargo.toml");
+        let line = |name: &str| cargo.lines().find(|l| l.starts_with(&format!("{name} = "))).unwrap_or_else(|| panic!("{name} feature"));
+        assert_eq!(line("localnet-expedition-sbf"), r#"localnet-expedition-sbf = ["expedition-dispatch-experimental"]"#);
+        assert!(!line("expedition-dispatch-experimental").contains("conquest"));
+        assert!(line("localnet-conquest-sbf").contains(r#""localnet-expedition-sbf""#) && line("localnet-conquest-sbf").contains(r#""conquest-dispatch-experimental""#));
+        let lib = include_str!("lib.rs");
+        assert!(lib.contains("feature = \"conquest-dispatch-experimental\",\n    not(feature = \"localnet-conquest-sbf\")"), "SBF guard present");
+        let script = include_str!("../../scripts/build-frontier.sh");
+        assert!(script.contains("localnet-conquest-sbf:PSF_LOCALNET_EXPEDITION_SBF_BUILD|localnet-conquest-sbf:PSF_LOCALNET_CONQUEST_SBF_BUILD"));
+        // the expedition lane wants only its own marker, so a conquest marker in it is refused
+        assert!(!script.contains("localnet-expedition-sbf:PSF_LOCALNET_CONQUEST_SBF_BUILD"));
+        assert!(script.contains("PSF_LOCALNET_CONQUEST_SBF_LANE"));
     }
 }

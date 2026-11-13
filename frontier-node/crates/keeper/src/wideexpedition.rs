@@ -38,6 +38,9 @@ use crate::widesnapshot::{SnapshotError, SnapshotPort, SnapshotSource};
 
 pub const KIND: &str = "original-expedition-review";
 
+#[path = "wideexpedition_reverse.rs"]
+pub mod reverse;
+
 /// Full, explicit selection. `original_owner` is the departure Citizen account,
 /// never a wallet, short owner tag, mutable captor or a claim of provenance.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -195,6 +198,7 @@ impl ReadPlan {
 /// Prerequisite only, not a declaration that its handler would execute.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Next {
+    Reverse(reverse::Next),
     OriginalDepartureResolution,
     OriginalDepartureSettlement,
     RevealOrGatherEvidence,
@@ -207,6 +211,7 @@ pub enum Next {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Observed {
+    Reverse(reverse::Facts),
     Bridge {
         slot: u8,
         state: MarchState,
@@ -261,6 +266,9 @@ impl Report {
     /// Admission is unconditionally denied, independent of mutable report
     /// fields or engine state. A nonexistent wire tag is JSON null, never 0xDC.
     pub fn describe(&self) -> Value {
+        if let Observed::Reverse(facts) = &self.observed {
+            return reverse::describe(self, facts);
+        }
         let mut denials = vec![
             "OriginalHostDispatchUnavailable",
             "SourceProvenanceUnverified",
@@ -292,6 +300,7 @@ impl Report {
             }
         }
         let observed = match &self.observed {
+            Observed::Reverse(_) => unreachable!("reverse has its own report schema"),
             Observed::Bridge {
                 slot,
                 state,
@@ -370,7 +379,17 @@ fn original<'a>(
 /// Pure inspection over existing keeper read types. It never fills missing
 /// snapshot keys from another response and never trusts a copied snapshot seal.
 pub fn plan(scope: &Scope, selected: Selection, reads: &Reads) -> Result<Report, Refusal> {
-    let keys = ReadPlan::new(scope, selected)?;
+    plan_inner(scope, selected, reads, false)
+}
+
+/// Opt-in inspection used by the existing Keeper review API and bounded tick.
+/// The v1 preview continues to call `plan` and refuses reverse records.
+pub fn plan_with_reverse(scope: &Scope, selected: Selection, reads: &Reads) -> Result<Report, Refusal> {
+    plan_inner(scope, selected, reads, true)
+}
+
+fn plan_inner(scope: &Scope, selected: Selection, reads: &Reads, allow_reverse: bool) -> Result<Report, Refusal> {
+    let mut keys = ReadPlan::new(scope, selected)?;
     let missing = wideduty::missing(reads, keys.keys());
     if !missing.is_empty() {
         return Err(Refusal::MissingReads(missing));
@@ -430,6 +449,19 @@ pub fn plan(scope: &Scope, selected: Selection, reads: &Reads) -> Result<Report,
         return Err(Refusal::DuplicateTransit);
     }
     let (next, observed) = if let Some(&(slot, occupancy)) = matches.first() {
+        if let TransitOccupancy::Reverse(marker) = occupancy {
+            if !allow_reverse { return Err(Refusal::OwnedBridgeRequired); }
+            let facts = reverse::plan(scope, selected, reads, &keys, &season, &holding, hd, slot as u8, marker)?;
+            for key in &facts.required_reads {
+                if !keys.keys.contains(key) { keys.keys.push(*key); }
+            }
+            return Ok(Report {
+                selected, accounts: keys, next: Next::Reverse(facts.next), observed: Observed::Reverse(facts),
+                min_slot: reads.min_slot, context_slot: reads.coherent_snapshot().map(|m| m.context_slot()),
+                clock_slot: now.slot, clock_timestamp: now.unix_timestamp, bell,
+                status_promoted_by_clock: promoted, engine: None,
+            });
+        }
         let TransitOccupancy::Bridge(marker) = occupancy else {
             return Err(Refusal::OrdinaryTransitOpen);
         };
@@ -645,8 +677,9 @@ pub fn plan(scope: &Scope, selected: Selection, reads: &Reads) -> Result<Report,
     })
 }
 
-/// One bounded read of ten canonical accounts plus Clock. The reader capability
-/// cannot sign/send; a failed or incomplete response is never patched or retried.
+/// One base snapshot, and at most one complete expanded snapshot for reverse
+/// destination/history accounts. Discovery bytes are never merged into the
+/// final response. A changing key set refuses rather than retrying indefinitely.
 pub async fn inspect(
     source: &(impl SnapshotSource + ?Sized),
     scope: &Scope,
@@ -658,12 +691,27 @@ pub async fn inspect(
         .snapshot_boxed(keys.keys(), false, min_slot)
         .await
         .map_err(Refusal::Snapshot)?;
-    if snapshot.meta().min_slot() != min_slot || snapshot.accounts().len() != keys.keys().len() {
+    if snapshot.meta().min_slot() != min_slot || snapshot.accounts().len() != keys.keys().len()
+        || keys.keys().iter().any(|k| !snapshot.accounts().contains_key(k)) {
         return Err(Refusal::Snapshot(SnapshotError::Malformed(
             "expedition request binding",
         )));
     }
-    plan(scope, selected, &snapshot.reads())
+    match plan_with_reverse(scope, selected, &snapshot.reads()) {
+        Err(Refusal::MissingReads(extra)) => {
+            let mut all = keys.keys().to_vec();
+            for key in extra { if !all.contains(&key) { all.push(key); } }
+            if all.len() > reverse::MAX_READS { return Err(Refusal::OriginalAccount("reverse read cap")); }
+            let lower = min_slot.max(snapshot.meta().context_slot());
+            let final_snapshot = source.snapshot_boxed(&all, false, lower).await.map_err(Refusal::Snapshot)?;
+            if final_snapshot.meta().min_slot() != lower || final_snapshot.accounts().len() != all.len()
+                || all.iter().any(|k| !final_snapshot.accounts().contains_key(k)) {
+                return Err(Refusal::Snapshot(SnapshotError::Malformed("reverse request binding")));
+            }
+            plan_with_reverse(scope, selected, &final_snapshot.reads())
+        }
+        result => result,
+    }
 }
 
 impl<P: ChainPort + SnapshotPort + Send + Sync, D: DrandPort> crate::Keeper<P, D> {

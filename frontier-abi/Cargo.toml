@@ -29,6 +29,10 @@ default = []
 # program, the vectors and every hash are built exactly as before; it adds
 # no dependency (I-03 holds).
 world-index-experimental = []
+# Host/localnet-only: the expedition dispatch wrapper's provisional conquest
+# kinds 12–17 (`world_index::expedition_dispatch_ix`). Off by default, so the
+# default decoder keeps refusing them; never a deployed allocation.
+conquest-dispatch-experimental = ["world-index-experimental"]
 # Workstream 09 (capacity lending), a preview: `capacity`, the instruction
 # tags 0xF0-0xFD, their data, account lists and addresses. Off by default:
 # no vector, hash or default-build change; no new dependency.

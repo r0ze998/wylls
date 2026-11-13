@@ -78,8 +78,8 @@ impl SourceReceipt {
         }
         conquest::Receipt::decode(&self.receipt.encode()).map_err(|_| Error::Receipt)?;
         let valid = match self.direction {
-            Direction::Debit => self.receipt.action == conquest::DECLARE,
-            Direction::Credit => matches!(self.receipt.action, conquest::LAPSE | conquest::CAPTURE),
+            Direction::Debit => conquest::debit_action(self.receipt.action),
+            Direction::Credit => conquest::credit_action(self.receipt.action),
         };
         if !valid {
             return Err(Error::Receipt);
@@ -138,10 +138,13 @@ impl SourceReceipt {
         if WideRecord::decode(&encoded).map_err(|_| Error::Pair)? != *target {
             return Err(Error::Pair);
         }
-        let expected = match (self.direction, self.receipt.action) {
-            (Direction::Debit, conquest::DECLARE) => WideKind::ConquestDeclared,
-            (Direction::Credit, conquest::LAPSE) => WideKind::ConquestSettled,
-            (Direction::Credit, conquest::CAPTURE) => WideKind::ConquestCaptured,
+        let a = self.receipt.action;
+        let expected = match self.direction {
+            // DECLARE, and the experimental RESERVE, pair with ConquestDeclared.
+            Direction::Debit if conquest::debit_action(a) => WideKind::ConquestDeclared,
+            Direction::Credit if a == conquest::CAPTURE => WideKind::ConquestCaptured,
+            // LAPSE, and the experimental RESERVATION_REFUND, pair with ConquestSettled.
+            Direction::Credit if conquest::credit_action(a) => WideKind::ConquestSettled,
             _ => return Err(Error::Pair),
         };
         let key = target.province_of().ok_or(Error::Pair)?;

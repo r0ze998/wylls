@@ -89,8 +89,16 @@ export function chronicleRows(records, mine = () => false, limit = 60, FS = null
 /** How many turns of the chronicle stand in sight before the fold. */
 export const TURNS_SHOWN = 2;
 
+/** The log's mark for a record written before the season's first turn began (frontier-abi log.rs: `bell u32`, `u32::MAX` before genesis). */
+export const NO_TURN = 0xffffffff;
+/**
+ * A block's stamp: its turn, or that it stands before the first one. (The mark was printed as a number: the lands opened
+ * before the season began stood under 「ターン 4,294,967,295」.)
+ */
+export const stampOf = bell => (Number(bell) >= NO_TURN ? L`最初のターンの前` : L`ターン ${fmtNum(bell)}`);
+
 function turnBlock(bell, rows) {
-  return html`<li class="chron-turn"><h4 class="chron-stamp">${icon('bell')}${L`ターン ${fmtNum(bell)}`}</h4>
+  return html`<li class="chron-turn"><h4 class="chron-stamp">${icon('bell')}${stampOf(bell)}</h4>
     <ol class="chron-lines">${rows.map(r => html`<li class="${r.mine ? 'mine' : ''}"><span class="chron-text">${r.text}${r.mine ? html` <span class="mine-mark">${r.keep ? L`（あなたの国）` : L`（あなた）`}</span>` : ''}</span>${r.at ? (r.clash
       ? html`<button type="button" class="btn small quiet chron-go" data-act="report-open" data-p="${r.at.p}" data-q="${r.at.q}" data-bell="${r.bell}">${L`報告`}</button>`
       : html`<button type="button" class="btn small quiet chron-go" data-act="goto" data-p="${r.at.p}" data-q="${r.at.q}">${L`見る`}</button>`) : ''}</li>`)}</ol></li>`;
@@ -107,6 +115,9 @@ function turnBlock(bell, rows) {
  */
 export function chronicleState(FS) {
   const r = FS?.chronicleRead, have = Array.isArray(FS?.chronicle);
+  // (the season itself could not be read: the record's pages were never asked for and will not be, and the line stood at
+  // 「読み込んでいます」 for good. Nothing is known of the record: it is unread, with the code the season's read gave)
+  if (!r && !have && FS?.error && !FS?.season) return { state: 'unread', code: FS.error.code ?? null };
   if (!r) return { state: have ? 'ok' : 'waiting', code: null };
   if (r.ok) return { state: 'ok', code: null };
   return { state: have ? 'stale' : 'unread', code: r.code ?? null };

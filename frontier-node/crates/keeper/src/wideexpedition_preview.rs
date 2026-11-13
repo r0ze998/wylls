@@ -41,6 +41,10 @@ pub struct Request {
     digest: String,
 }
 impl Request {
+    pub(crate) fn scope(&self) -> &Scope { &self.scope }
+    pub(crate) fn selected(&self) -> Selection { self.selected }
+    pub(crate) fn wallet(&self) -> Option<Address> { self.wallet }
+    pub(crate) fn payer(&self) -> Option<Address> { self.payer }
     pub fn program(&self) -> Address {
         self.scope.program
     }

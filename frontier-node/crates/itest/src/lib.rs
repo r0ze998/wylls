@@ -31,6 +31,37 @@
 //! actions and marches happen before W4-A/W4-C land, and the conditions
 //! that need the missing units are reported `PENDING`, never `PASS`.
 
+#[cfg(feature = "localnet-expedition-play")]
+pub mod expedition_play;
+#[cfg(feature = "localnet-expedition-play")]
+pub mod local_keeper;
+#[cfg(feature = "localnet-expedition-play")]
+pub mod keeper_loop;
+#[cfg(feature = "localnet-expedition-play")]
+pub mod origin_driver;
+// the ordinary (legacy) march of a legacy village: SettleDeparture, Decrypt, Reveal, the destination's bells, SettleTransit
+#[cfg(feature = "localnet-expedition-play")]
+pub mod legacy_march;
+// the keeper's holding and home on a natural world, from one landed PlaceHome (pure)
+#[cfg(feature = "localnet-expedition-play")]
+pub mod natural_home;
+// the natural world: a new Season by its own instructions, the player's real Join and PlaceHome, then the keeper
+#[cfg(feature = "localnet-expedition-play")]
+pub mod natural_play;
+#[cfg(feature = "localnet-expedition-play")]
+pub mod wide_destination;
+#[cfg(feature = "localnet-expedition-play")]
+pub mod destination_driver;
+#[cfg(all(test, feature = "localnet-expedition-play"))]
+mod destination_real;
+#[cfg(feature = "localnet-expedition-play")]
+pub mod resident_bells;
+#[cfg(feature = "localnet-conquest-play")]
+pub mod conquest_crank;
+#[cfg(feature = "localnet-conquest-play")]
+pub mod conquest_world;
+#[cfg(all(test, feature = "localnet-conquest-play"))]
+mod conquest_real;
 pub mod checks;
 pub mod day;
 pub mod direct;

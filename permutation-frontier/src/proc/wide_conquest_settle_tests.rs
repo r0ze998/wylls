@@ -5,6 +5,9 @@
 //! The System stub accepts only the one authenticated AllocateWithSeed CPI.
 #[path = "wide_conquest_lifecycle_tests.rs"]
 mod lifecycle;
+#[cfg(all(test, feature = "conquest-dispatch-experimental"))]
+#[path = "wide_conquest_reservation_tests.rs"]
+mod reservation;
 
 use super::*;
 use frontier_abi::conquest_model::{SiteRecordRules, SiteReport, SiteTransitionMirror};
@@ -22,6 +25,31 @@ const SID: u64 = 11;
 const GENESIS: i64 = 1_800_000_000;
 const BIG: u64 = 10_000_000_000;
 static SERIAL: Mutex<()> = Mutex::new(());
+
+/// The settle/close consumer under test on these exact accounts: the private
+/// body, or, with `conquest-dispatch-experimental`, the SAME body reached
+/// through the versioned wrapper's exact outer bytes and the program's own
+/// `dispatch` (Season-version check, carrier tag, top-level check). Every
+/// refusal and success below holds for both.
+fn via(a: &[AccountInfo], inner: &[u8]) -> R<()> {
+    #[cfg(feature = "conquest-dispatch-experimental")]
+    {
+        use frontier_abi::world_index::expedition_dispatch_ix as dx;
+        let kind = dx::Kind::of_conquest(inner).expect("a conquest command");
+        let wire = dx::encode(kind, inner).expect("a conquest wire");
+        // raw bytes stay closed on the same accounts
+        assert_eq!(crate::dispatch(&program(), a, inner), Err(FrontierError::NotImplemented.into()));
+        crate::dispatch(&program(), a, &wire)
+    }
+    #[cfg(not(feature = "conquest-dispatch-experimental"))]
+    match wix::WideCommand::decode(inner).expect("a conquest command") {
+        wix::WideCommand::SettleSiege(x) => settle_siege_inner(&program(), a, &x),
+        wix::WideCommand::SettleCapture(x) => settle_capture_inner(&program(), a, &x),
+        wix::WideCommand::CloseConquest(x) => close_conquest_inner(&program(), a, &x),
+        wix::WideCommand::CloseCaptureEscrow(_) => close_capture_escrow_inner(&program(), a),
+        _ => panic!("not a settle/close conquest command"),
+    }
+}
 static LOGS: Mutex<Vec<(Vec<u8>, Vec<u8>)>> = Mutex::new(Vec::new());
 
 /// Source is pre-positioned as a paired resident: this proves conquest source
@@ -95,9 +123,9 @@ fn legacy_origin_resident_captures_without_replacing_home_or_chain() {
     let mut expected = hold::read_holding(&d).unwrap();
     hold::settle_tiered(&mut expected, now, hold::terrain_ore(&d).unwrap()).unwrap();
     crate::proc::conquest::credit_capped(&mut expected, FRONTIER_7.siege_stake_gold as i64 * MILLI);
-    settle_capture_inner(&program(), &capture, &wix::SettleCapture { site: 1 }).unwrap();
+    via(&capture, &wix::SettleCapture { site: 1 }.to_bytes()).unwrap();
     refused(&capture, || {
-        settle_capture_inner(&program(), &capture, &wix::SettleCapture { site: 1 })
+        via(&capture, &wix::SettleCapture { site: 1 }.to_bytes())
     });
     assert_eq!(a[4].data_len(), K2::Holding.size());
     let mut expected_bytes = d;
@@ -214,15 +242,15 @@ fn legacy_origin_lapse_credits_live_only_and_rejects_malformed_source() {
         ];
         if case == 3 {
             refused(&s, || {
-                settle_siege_inner(&program(), &s, &wix::SettleSiege { site: 1 })
+                via(&s, &wix::SettleSiege { site: 1 }.to_bytes())
             });
             continue;
         }
         let old = source.try_borrow_data().unwrap().to_vec();
         let logs = LOGS.lock().unwrap().len();
-        settle_siege_inner(&program(), &s, &wix::SettleSiege { site: 1 }).unwrap();
+        via(&s, &wix::SettleSiege { site: 1 }.to_bytes()).unwrap();
         refused(&s, || {
-            settle_siege_inner(&program(), &s, &wix::SettleSiege { site: 1 })
+            via(&s, &wix::SettleSiege { site: 1 }.to_bytes())
         });
         if case == 0 {
             let gold = permutation_rules::frontier::holding::Resource::Gold as usize;
@@ -605,7 +633,7 @@ fn failed_refund_clears_exact_obligation_and_retry_is_unchanged() {
     let a = f.siege(false);
     let source_before = snapshot(&[f.a[8].clone()]);
     let rent = init::rent(wh::wide_holding::SIZE).unwrap();
-    settle_siege_inner(&program(), &a, &wix::SettleSiege { site: 0 }).unwrap();
+    via(&a, &wix::SettleSiege { site: 0 }.to_bytes()).unwrap();
     assert_eq!(f.funder.lamports(), BIG + rent);
     assert_eq!(
         Ro(&a[4].try_borrow_data().unwrap()).u8(C::SLOTS).unwrap() & (4 | 16),
@@ -624,7 +652,7 @@ fn failed_refund_clears_exact_obligation_and_retry_is_unchanged() {
     .unwrap()
     .is_none());
     refused(&a, || {
-        settle_siege_inner(&program(), &a, &wix::SettleSiege { site: 0 })
+        via(&a, &wix::SettleSiege { site: 0 }.to_bytes())
     });
     assert_eq!(LOGS.lock().unwrap().len(), 1);
 }
@@ -651,14 +679,14 @@ fn failed_refund_negatives_are_directly_atomic() {
             _ => a[3].is_writable = false,
         }
         refused(&a, || {
-            settle_siege_inner(&program(), &a, &wix::SettleSiege { site: 0 })
+            via(&a, &wix::SettleSiege { site: 0 }.to_bytes())
         });
     }
     let f = Fixture::new(CR::KIND_NONE, 0);
     let a = f.siege(false);
     let _borrow = a[6].try_borrow_lamports().unwrap();
     refused(&a, || {
-        settle_siege_inner(&program(), &a, &wix::SettleSiege { site: 0 })
+        via(&a, &wix::SettleSiege { site: 0 }.to_bytes())
     });
 }
 
@@ -670,7 +698,7 @@ fn active_lapse_waits_for_final_bell_then_burns_missing_source() {
     let mut a = f.siege(true);
     time(100);
     refused(&a, || {
-        settle_siege_inner(&program(), &a, &wix::SettleSiege { site: 0 })
+        via(&a, &wix::SettleSiege { site: 0 }.to_bytes())
     });
     put(
         &mut a[2].try_borrow_mut_data().unwrap(),
@@ -678,7 +706,7 @@ fn active_lapse_waits_for_final_bell_then_burns_missing_source() {
         &100u32.to_le_bytes(),
     );
     a[7] = wallet(key(&a[7]), false, true, 0);
-    settle_siege_inner(&program(), &a, &wix::SettleSiege { site: 0 }).unwrap();
+    via(&a, &wix::SettleSiege { site: 0 }.to_bytes()).unwrap();
     assert_eq!(a[7].data_len(), 0);
     assert_eq!(LOGS.lock().unwrap().len(), 1);
 }
@@ -702,7 +730,7 @@ fn active_lapse_rejects_mirror_contradictions_before_any_effect() {
         pd[off] = value;
         drop(pd);
         refused(&a, || {
-            settle_siege_inner(&program(), &a, &wix::SettleSiege { site: 0 })
+            via(&a, &wix::SettleSiege { site: 0 }.to_bytes())
         });
     }
 }
@@ -715,7 +743,7 @@ fn failed_refund_checks_site_bounds_but_not_later_target_ownership() {
     let a = f.siege(false);
     a[2].try_borrow_mut_data().unwrap()[PV::SITE_COUNT] = 0;
     refused(&a, || {
-        settle_siege_inner(&program(), &a, &wix::SettleSiege { site: 0 })
+        via(&a, &wix::SettleSiege { site: 0 }.to_bytes())
     });
     let mut pd = a[2].try_borrow_mut_data().unwrap();
     pd[PV::SITE_COUNT] = 2;
@@ -726,7 +754,7 @@ fn failed_refund_checks_site_bounds_but_not_later_target_ownership() {
     pd[off + SM::FACTION] = 4;
     let mirror_before = pd[off..off + SM::SIZE].to_vec();
     drop(pd);
-    settle_siege_inner(&program(), &a, &wix::SettleSiege { site: 0 }).unwrap();
+    via(&a, &wix::SettleSiege { site: 0 }.to_bytes()).unwrap();
     assert_eq!(
         &a[2].try_borrow_data().unwrap()[off..off + SM::SIZE],
         &mirror_before
@@ -810,7 +838,7 @@ fn active_lapse_credits_exact_legacy_cap_and_stale_generation_burns() {
             hold::write_holding(&mut expected, &economic, GENESIS + 60_000).unwrap();
         }
         let logs_before = LOGS.lock().unwrap().len();
-        settle_siege_inner(&program(), &a, &wix::SettleSiege { site: 0 }).unwrap();
+        via(&a, &wix::SettleSiege { site: 0 }.to_bytes()).unwrap();
         let mut got = a[7].try_borrow_data().unwrap().to_vec();
         // Compare the entire economic/identity output independently of receipt
         // chain fields, which the handler alone advances on a live credit.
@@ -834,7 +862,7 @@ fn capture_due_cannot_use_failed_settlement_and_wrong_source_never_burns_silentl
     let f = Fixture::new(CR::KIND_CAPTURE_DUE, 0);
     let a = f.siege(true);
     refused(&a, || {
-        settle_siege_inner(&program(), &a, &wix::SettleSiege { site: 0 })
+        via(&a, &wix::SettleSiege { site: 0 }.to_bytes())
     });
     let f = Fixture::new(CR::KIND_SIEGE, 0);
     let mut a = f.siege(true);
@@ -846,7 +874,7 @@ fn capture_due_cannot_use_failed_settlement_and_wrong_source_never_burns_silentl
     );
     a[7] = wallet([0xee; 32], false, true, 0);
     refused(&a, || {
-        settle_siege_inner(&program(), &a, &wix::SettleSiege { site: 0 })
+        via(&a, &wix::SettleSiege { site: 0 }.to_bytes())
     });
 }
 
@@ -893,7 +921,7 @@ fn terminal_escrow_clears_markers_without_table_or_source() {
     let a = f.close_escrow();
     let refund = init::rent(wh::wide_holding::SIZE).unwrap();
     let remainder = a[3].lamports() - refund;
-    close_capture_escrow_inner(&program(), &a).unwrap();
+    via(&a, &wix::CloseCaptureEscrow.to_bytes()).unwrap();
     assert!(init::is_absent(&a[3]));
     assert_eq!(a[4].lamports(), BIG + remainder);
     assert_eq!(a[5].lamports(), BIG + refund);
@@ -902,7 +930,7 @@ fn terminal_escrow_clears_markers_without_table_or_source() {
         0
     );
     assert_eq!(LOGS.lock().unwrap()[0].0, receipt::SIDECAR_LOG_PREFIX);
-    refused(&a, || close_capture_escrow_inner(&program(), &a));
+    refused(&a, || via(&a, &wix::CloseCaptureEscrow.to_bytes()));
 }
 
 #[test]
@@ -928,9 +956,9 @@ fn terminal_alias_credits_are_aggregated_and_overflow_refuses() {
         let total = a[3].lamports();
         if overflow {
             **a[4].try_borrow_mut_lamports().unwrap() = u64::MAX - rent;
-            refused(&a, || close_capture_escrow_inner(&program(), &a));
+            refused(&a, || via(&a, &wix::CloseCaptureEscrow.to_bytes()));
         } else {
-            close_capture_escrow_inner(&program(), &a).unwrap();
+            via(&a, &wix::CloseCaptureEscrow.to_bytes()).unwrap();
             assert_eq!(a[4].lamports(), BIG + total);
             assert!(init::is_absent(&a[3]));
         }
@@ -945,13 +973,13 @@ fn terminal_requires_present_active_citizen_but_empty_escrow_can_follow_citizen_
     f.abort();
     let mut a = f.close_escrow();
     a[2] = wallet(key(&a[2]), false, true, 0);
-    refused(&a, || close_capture_escrow_inner(&program(), &a));
+    refused(&a, || via(&a, &wix::CloseCaptureEscrow.to_bytes()));
     let empty = WideCaptureEscrow::new(SID, f.k.world(), key(&a[2]), RENT_PAYER).unwrap();
     a[3].try_borrow_mut_data()
         .unwrap()
         .copy_from_slice(&empty.to_bytes());
     a.pop();
-    close_capture_escrow_inner(&program(), &a).unwrap();
+    via(&a, &wix::CloseCaptureEscrow.to_bytes()).unwrap();
     assert!(init::is_absent(&a[3]));
 }
 
@@ -968,10 +996,10 @@ fn terminal_table_close_needs_only_its_immutable_payer_and_season() {
         f.rent_payer.clone(),
     ];
     let x = wix::CloseConquest { p: 129, q: 0 };
-    close_conquest_inner(&program(), &a, &x).unwrap();
+    via(&a, &x.to_bytes()).unwrap();
     assert!(init::is_absent(&a[2]));
     assert_eq!(a[3].lamports(), BIG * 2);
-    refused(&a, || close_conquest_inner(&program(), &a, &x));
+    refused(&a, || via(&a, &x.to_bytes()));
     // Escrow obligations can still be terminally cleared after the table is gone.
     close_capture_escrow_inner(&program(), &f.close_escrow()).unwrap();
 }
@@ -984,17 +1012,28 @@ fn terminal_close_preserves_ended_grace_and_accepts_canonical_tombstone() {
     let a = f.close_escrow();
     a[1].try_borrow_mut_data().unwrap()[S::STATUS] = S::STATUS_ENDED;
     time(100);
-    refused(&a, || close_capture_escrow_inner(&program(), &a));
+    refused(&a, || via(&a, &wix::CloseCaptureEscrow.to_bytes()));
     // 72 hours are 432 ten-minute bells. Just before remains refused.
     time(531);
-    refused(&a, || close_capture_escrow_inner(&program(), &a));
+    refused(&a, || via(&a, &wix::CloseCaptureEscrow.to_bytes()));
     time(532);
-    close_capture_escrow_inner(&program(), &a).unwrap();
+    via(&a, &wix::CloseCaptureEscrow.to_bytes()).unwrap();
     let f = Fixture::new(CR::KIND_SIEGE, 0);
     let mut a = f.close_escrow();
     let mut tomb = a[1].try_borrow_data().unwrap()[..S::TOMBSTONE_SIZE].to_vec();
     tomb[S::STATUS] = S::STATUS_CLOSED;
     a[1] = account(key(&a[1]), PROGRAM, tomb, BIG, false, false);
+    // A canonical tombstone cannot prove the versioned wrapper's Season
+    // revision (full Seasons only, as for kind 10): the wrapper refuses it
+    // without effects and the post-tombstone cleanup stays the body's own.
+    #[cfg(feature = "conquest-dispatch-experimental")]
+    {
+        use frontier_abi::world_index::expedition_dispatch_ix as dx;
+        let inner = wix::CloseCaptureEscrow.to_bytes();
+        let wire = dx::encode(dx::Kind::CloseCaptureEscrow, &inner).unwrap();
+        refused(&a, || crate::dispatch(&program(), &a, &wire));
+        assert_eq!(crate::dispatch(&program(), &a, &wire), Err(FrontierError::BadAccount.into()));
+    }
     close_capture_escrow_inner(&program(), &a).unwrap();
 }
 
@@ -1016,12 +1055,12 @@ fn terminal_self_recipient_and_borrow_conflict_refuse_before_resize() {
         .unwrap()
         .copy_from_slice(&self_paid.to_bytes());
     a[4] = a[3].clone();
-    refused(&a, || close_capture_escrow_inner(&program(), &a));
+    refused(&a, || via(&a, &wix::CloseCaptureEscrow.to_bytes()));
     let f = Fixture::new(CR::KIND_SIEGE, 0);
     f.abort();
     let a = f.close_escrow();
     let _borrow = a[2].try_borrow_data().unwrap();
-    refused(&a, || close_capture_escrow_inner(&program(), &a));
+    refused(&a, || via(&a, &wix::CloseCaptureEscrow.to_bytes()));
 }
 
 #[test]

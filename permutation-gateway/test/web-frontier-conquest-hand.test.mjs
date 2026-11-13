@@ -63,7 +63,7 @@ test('the keep panel and the reach list never end in "no host is ready" while a 
   const forming = fs({ bell: 9, entries: [entry({ state: 2, fromBell: 11 })] });
   const k = forming.conquest.keeps.get('4,-1');
   const panel = plain(renderKeep(forming, k));
-  assert.match(panel, /槍兵 500 は編成中です。ターン 11 から出発できます。/);
+  assert.match(panel, /槍兵 500 は編成中です。編成したターンが決着すると整列します。/);
   assert.doesNotMatch(panel, /出発できる戦闘部隊がいません/);
   assert.match(String(renderKeep(forming, k)), /data-act="tab" data-tab="hosts"/, 'the way to the host: not a dead end');
   const late = fs({ bell: 12, resolvedNext: 10 });
@@ -74,13 +74,13 @@ test('the keep panel and the reach list never end in "no host is ready" while a 
   const both = fs({ bell: 9, resolvedNext: 9, entries: [entry({ readyBell: 0, fromBell: 3 }), entry({ id: hostId({ p: 2, q: 0, site: 2, gen: 0, seq: 2 }), state: 2, fromBell: 11, troops: 700000 })] });
   const bothPanel = String(renderKeep(both, both.conquest.keeps.get('4,-1')));
   assert.match(bothPanel, /data-act="cq-march"/);
-  assert.match(plain(bothPanel), /槍兵 700 は編成中です。ターン 11 から出発できます。/);
+  assert.match(plain(bothPanel), /槍兵 700 は編成中です。編成したターンが決着すると整列します。/);
   // nobody at all: the old sentence, and the way to the village
   const none = fs({ entries: [] });
   assert.match(plain(renderKeep(none, none.conquest.keeps.get('4,-1'))), /出発できる戦闘部隊がいません。兵を訓練し、軍勢を編成してください。/);
   // the reach list measured from the village names the waiting host too
   forming.conquest.reach = { key: 'k', ok: true, home: true, rows: [], unreachable: [] };
-  assert.match(plain(renderReach(forming)), /槍兵 500 は編成中です。ターン 11 から出発できます。 そのあいだは、村からの道のりで調べています。/);
+  assert.match(plain(renderReach(forming)), /槍兵 500 は編成中です。編成したターンが決着すると整列します。 そのあいだは、村からの道のりで調べています。/);
 });
 
 // ------------------------------------------------------------------ the keep's panel from a real record
@@ -147,7 +147,7 @@ test('"March on a keep" on the host\'s bar: only on a conquest season; the list 
   forming.conquest.hostReach = { ...s.conquest.hostReach };
   const fm = handModel(forming);
   assert.match(String(renderPop(forming, fm)), /class="kh-row kh-n5 off"[^>]*aria-disabled="true"/);
-  assert.match(plain(renderPop(forming, fm)), /forming up\. This host can depart from turn 11\./);
+  assert.match(plain(renderPop(forming, fm)), /Forming up: 500 Spearmen\. It stands once the turn it was formed in is resolved\./);
 });
 
 test('the order card names the keep, its recorded defenders and what holding its tile brings', () => {
@@ -261,9 +261,11 @@ test('the guide on a conquest season: seven steps to a province, each from the r
   const withHost = fs();
   assert.equal(conquestGuide(withHost).current, 'march');
   assert.deepEqual(conquestObjective(withHost).go, { act: 'cg-go', data: { pop: 'keeps', host: String(entry().id) }, label: conquestObjective(withHost).go.label });
-  // a host that is forming: the step says the truth of the moment, and leads to the hosts
+  // a host that is forming: the muster step stays current until it stands (the first-session review of 2026-11-13)
+  // and says the truth of the moment — here without the herald's facts of its turn, so no phase and no countdown
   const forming = fs({ bell: 9, entries: [entry({ state: 2, fromBell: 11 })] });
-  assert.match(conquestObjective(forming).text, /編成中です。ターン 11 から出発できます。/);
+  assert.equal(conquestGuide(forming).current, 'muster');
+  assert.match(conquestObjective(forming).text, /は編成中です。編成したターンが決着すると整列します。/);
   // the viewer's own host holds the keep's tile: the count is the keep's record
   const holding = fs({ bell: 52 });
   const kt = holding.conquest.keeps.get('4,-1').tile;

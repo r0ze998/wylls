@@ -155,15 +155,25 @@ test('semantically unchanged decoded account polling preserves route and irrelev
   assert.equal(reconcileOutbound(w.fs, w.ctx), true); assert.equal(w.fs.expeditionCompose.review, review);
 });
 
-test('clock observations and meaningful clock settings invalidate old arrival proposals, equal copies preserve them', () => {
-  const changes = [w => { w.fs.nowBell++; }, w => { w.fs.chain = { now: () => 1000 }; },
-    w => { w.fs.chain.rate = 2; }, w => { w.fs.chain.accelerated = true; }, w => { w.fs.chain.declared = 0; },
-    w => { w.fs.chain.last = { slot: 11, unix: 1001 }; }, w => { w.fs.clock = { genesisTs: 2 }; },
+test('clock settings and other sources drop the draft; the clock running on keeps the steps and fields and works the review out again; equal copies change nothing', () => {
+  // hard: another chain object, another clock policy, another season schedule or beacon setting is another source
+  const hard = [w => { w.fs.chain = { now: () => 1000 }; }, w => { w.fs.chain.accelerated = true; }, w => { w.fs.chain.declared = 0; }, w => { w.fs.clock = { genesisTs: 2 }; },
     w => { w.fs.season.drandGenesis = 2; }, w => { w.fs.season.drandPeriod = Number(w.fs.season.drandPeriod ?? 0) + 1; },
     w => { w.fs.season.seedMargin = Number(w.fs.season.seedMargin ?? 0) + 1; }, w => { w.fs.season.revealWindow = Number(w.fs.season.revealWindow ?? 0) + 1; },
     w => { w.fs.season.windowFromBell = Number(w.fs.season.windowFromBell ?? 0) + 1; },
     w => { w.fs.season.windowNext = Number(w.fs.season.windowNext ?? 0) + 1; }, w => { w.fs.season.quicknetPkHash = new Uint8Array(32).fill(3); }];
-  for (const change of changes) { const w = world(); ready(w); change(w); assert.equal(reconcileOutbound(w.fs, w.ctx), false); assert.equal(w.fs.expeditionCompose.review, null); }
+  for (const change of hard) { const w = world(); ready(w); change(w); assert.equal(reconcileOutbound(w.fs, w.ctx), false); assert.equal(w.fs.expeditionCompose.review, null); assert.equal(w.fs.expeditionCompose.error, 'SourceChanged'); assert.deepEqual(w.fs.expeditionCompose.directions, []); }
+  // freshness: the turn, the last slot and its time, the measured rate. Forward: the draft stands, the review is another one
+  const forward = [w => { w.fs.nowBell++; }, w => { w.fs.chain.last = { slot: 11, unix: 1001 }; }, w => { w.fs.chain.rate = 2; }];
+  for (const change of forward) {
+    const w = world(), before = ready(w), review = before.review, directions = [...before.directions], arriveBell = before.arriveBell;
+    change(w);
+    assert.equal(reconcileOutbound(w.fs, w.ctx), true);
+    const s = w.fs.expeditionCompose;
+    assert.equal(s, before, 'the same draft'); assert.deepEqual(s.directions, directions); assert.equal(s.arriveBell, arriveBell); assert.equal(s.error, null); assert.equal(s.status, 'review');
+    assert.notEqual(s.review, review, 'worked out again'); assert.deepEqual({ ...s.review }, { ...review }, 'from the same source and fields: the same content');
+    const again = s.review; assert.equal(reconcileOutbound(w.fs, w.ctx), true); assert.equal(s.review, again, 'once for a move of the clock, not on every look');
+  }
   const w = world(); w.fs.chain.last = { slot: 10, unix: 1000 }; w.fs.clock = { genesisTs: 0 };
   const review = ready(w).review; w.fs.chain.last = { slot: 10, unix: 1000, at: 99999 }; w.fs.clock = { genesisTs: 0 };
   assert.equal(reconcileOutbound(w.fs, w.ctx), true); assert.equal(w.fs.expeditionCompose.review, review);

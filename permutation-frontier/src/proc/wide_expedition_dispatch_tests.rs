@@ -121,6 +121,44 @@ fn expedition_wire_is_exact_and_keeps_legacy_parsers_closed() {
     assert!(!expedition_exec::EXPEDITION_ENABLED);
 }
 
+/// Kinds 12–17 through the actual dispatcher with no accounts: refused as
+/// unknown (`BadData`) unless the host conquest kinds are built in, then
+/// routed (here refused for the missing Season, never `BadData` /
+/// `NotImplemented`); the raw conquest bytes stay closed either way.
+#[test]
+fn conquest_kinds_12_to_17_route_only_with_the_host_conquest_feature() {
+    let p = Pubkey::new_from_array([12; 32]);
+    let inners: [(u8, Vec<u8>); 6] = [
+        (12, wix::DeclareSiege { site: 1, entry: 2 }.to_bytes().to_vec()),
+        (13, wix::ResolveWithConquest { bell: 20, beneficiary: [7; 32] }.to_bytes().to_vec()),
+        (14, wix::SettleCapture { site: 1 }.to_bytes().to_vec()),
+        (15, wix::SettleSiege { site: 1 }.to_bytes().to_vec()),
+        (16, wix::CloseConquest { p: 129, q: 0 }.to_bytes().to_vec()),
+        (17, wix::CloseCaptureEscrow.to_bytes().to_vec()),
+    ];
+    assert!(!CONQUEST_LIFECYCLE_ENABLED);
+    for (k, inner) in inners {
+        let mut d = vec![inner[0], 0xff, 2, k];
+        d.extend_from_slice(&inner);
+        assert!(wix::WideCommand::decode(&d).is_err(), "kind {k} is no existing command");
+        assert_eq!(crate::dispatch(&p, &[], &inner), Err(FrontierError::NotImplemented.into()), "raw kind {k} stays closed");
+        let got = crate::dispatch(&p, &[], &d);
+        #[cfg(feature = "conquest-dispatch-experimental")]
+        {
+            assert_eq!(ix::Command::decode(&d).unwrap().kind() as u8, k);
+            assert_eq!(got, Err(FrontierError::TooManyAccounts.into()), "kind {k} routed to the Season check");
+        }
+        #[cfg(not(feature = "conquest-dispatch-experimental"))]
+        {
+            assert!(ix::Command::decode(&d).is_err());
+            #[cfg(feature = "expedition-dispatch-experimental")]
+            assert_eq!(got, Err(FrontierError::BadData.into()), "kind {k} unknown without the feature");
+            #[cfg(not(feature = "expedition-dispatch-experimental"))]
+            assert!(got.is_err());
+        }
+    }
+}
+
 #[test]
 fn expedition_wrapper_does_not_steal_legacy_ff02_payloads() {
     let p = Pubkey::new_from_array([12; 32]);
@@ -387,35 +425,8 @@ fn expedition_version2_resident_dissolve_and_return_reach_real_consumers() {
 ))]
 #[test]
 fn expedition_version2_actual_departure_passes_prologue_and_native_system_writeback() {
-    let (fixture, command) = expedition_exec::tests::fixture();
-    let mut accounts: Accounts = Vec::new();
-    let mut roles = Vec::new();
-    for ai in &fixture {
-        let index = accounts
-            .iter()
-            .position(|(k, _)| k == ai.key)
-            .unwrap_or_else(|| {
-                let mut value = AccountSharedData::new(ai.lamports(), ai.data_len(), ai.owner);
-                value.set_data_from_slice(&ai.try_borrow_data().unwrap());
-                accounts.push((*ai.key, value));
-                accounts.len() - 1
-            });
-        roles.push(InstructionAccount::new(
-            index as u16,
-            ai.is_signer,
-            ai.is_writable,
-        ));
-    }
+    let (accounts, roles, program_index, command) = departure_accounts();
     let at = |role: usize| roles[role].index_in_transaction as usize;
-    let system = &mut accounts[at(6)].1;
-    system.set_owner(Pubkey::from_str_const(
-        "NativeLoader1111111111111111111111111111111",
-    ));
-    system.set_executable(true);
-    let program_index = accounts.len() as u16;
-    let mut program = AccountSharedData::new(1, 0, &solana_program::bpf_loader::id());
-    program.set_executable(true);
-    accounts.push((Pubkey::new_from_array([0x12; 32]), program));
     let wire = ix::encode(ix::Kind::Depart, &command.to_bytes()).unwrap();
     // SAFETY: literal public accounts, official serializer and existing native
     // System processor. Signer flags are fixtures, not wallet signatures.
@@ -485,3 +496,53 @@ fn expedition_version2_actual_departure_passes_prologue_and_native_system_writeb
         );
     }
 }
+
+/// The existing original-host departure fixture
+/// (`expedition_exec::tests::fixture`) as runtime accounts: one transaction
+/// account per distinct key (the standing/home alias shares one index), its
+/// fixture role privileges, the native System loader and the program account
+/// last. Returns the accounts, role privileges, program index and command.
+#[cfg(all(
+    feature = "expedition-dispatch-experimental",
+    feature = "system-cpi-tests"
+))]
+pub(super) fn departure_accounts() -> (Accounts, Vec<InstructionAccount>, u16, wix::ExpeditionDepart) {
+    let (fixture, command) = expedition_exec::tests::fixture();
+    let mut accounts: Accounts = Vec::new();
+    let mut roles = Vec::new();
+    for ai in &fixture {
+        let index = accounts
+            .iter()
+            .position(|(k, _)| k == ai.key)
+            .unwrap_or_else(|| {
+                let mut value = AccountSharedData::new(ai.lamports(), ai.data_len(), ai.owner);
+                value.set_data_from_slice(&ai.try_borrow_data().unwrap());
+                accounts.push((*ai.key, value));
+                accounts.len() - 1
+            });
+        roles.push(InstructionAccount::new(
+            index as u16,
+            ai.is_signer,
+            ai.is_writable,
+        ));
+    }
+    let at = |role: usize| roles[role].index_in_transaction as usize;
+    let system = &mut accounts[at(6)].1;
+    system.set_owner(Pubkey::from_str_const(
+        "NativeLoader1111111111111111111111111111111",
+    ));
+    system.set_executable(true);
+    let program_index = accounts.len() as u16;
+    let mut program = AccountSharedData::new(1, 0, &solana_program::bpf_loader::id());
+    program.set_executable(true);
+    accounts.push((Pubkey::new_from_array([0x12; 32]), program));
+    (accounts, roles, program_index, command)
+}
+
+/// The keeper's real unsigned Depart Message through this departure fixture.
+#[cfg(all(
+    feature = "expedition-dispatch-experimental",
+    feature = "system-cpi-tests"
+))]
+#[path = "wide_expedition_depart_message_tests.rs"]
+mod depart_message;

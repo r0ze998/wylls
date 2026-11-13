@@ -16,14 +16,18 @@ import { hostParts } from '../faddr.mjs';
 import { boardRecords, isStanding } from './board.mjs';
 import { hostOfHolding, hostsIn } from '../fland.mjs';
 import { activeHolding } from '../fstate.mjs';
+import { worldOf } from './world.mjs';
 
 const int = Number.isInteger;
 
 /** The survey's input for `fs` (the page state): see survey.mjs createSurveyor. */
 export function surveyInput(fs, { terrainOf = null, ready = true, scope = null } = {}) {
   const mode = fs?.mode ?? 'play';
-  const ringsOpen = fs?.record?.rings?.length ?? 1;
-  if (mode !== 'play') return { mode, ringsOpen };
+  // The world's own extent and, for a sparse world, its seeded rings (map/world.mjs): never the length of the
+  // record's `rings`, which is 1 for a world that seeds ring 128 alone.
+  const world = fs?.world ?? worldOf(fs?.record);
+  const ringsOpen = world.ringsOpen, sparse = world.seeded ? { seeded: world.seeded } : {};
+  if (mode !== 'play') return { mode, ringsOpen, ...sparse };
   const holdings = (fs.holdings ?? []).filter(h => h && int(h.p) && int(h.q) && int(h.tile));
   const villages = holdings.map(h => ({ p: h.p, q: h.q, tile: h.tile, tier: h.tier ?? 0, state: h.state ?? null }));
   const hosts = [], hostIds = [];
@@ -74,7 +78,7 @@ export function surveyInput(fs, { terrainOf = null, ready = true, scope = null }
   }
   const routes = board?.routes ?? [];
   const dedupe = list => [...new Map(list.map(o => [`${o.p},${o.q},${o.tile},${o.unit ?? ''}`, o])).values()];
-  return { mode, ringsOpen, ready, scope, wallet: fs.wallet?.address ?? null, stage, faction: int(fs.citizen?.faction) ? fs.citizen.faction : null,
+  return { mode, ringsOpen, ...sparse, ready, scope, wallet: fs.wallet?.address ?? null, stage, faction: int(fs.citizen?.faction) ? fs.citizen.faction : null,
     villages, hosts: dedupe(hosts), candidates, explored: dedupe(explored), destinations: dedupe(destinations), hostIds: [...new Set(hostIds)].sort(),
     home: a && int(a.tile) ? { p: a.p, q: a.q, tile: a.tile, state: a.state ?? null, tier: a.tier ?? 0 } : null,
     routes: dedupe(routes), board, genesisTs: fs.clock?.genesisTs ?? null, chainNow: () => fs.chain?.now?.() ?? 0 };

@@ -24,6 +24,21 @@ name = "frontier-original-expedition-preview"
 path = "src/bin/wide_expedition_preview.rs"
 required-features = ["wide-world-experimental"]
 
+[[bin]]
+name = "frontier-experimental-expedition-prepare"
+path = "src/bin/experimental_expedition_prepare.rs"
+required-features = ["expedition-dispatch-experimental"]
+
+[[bin]]
+name = "frontier-experimental-expedition-depart-prepare"
+path = "src/bin/experimental_expedition_depart_prepare.rs"
+required-features = ["expedition-dispatch-experimental"]
+
+[[bin]]
+name = "frontier-experimental-conquest-prepare"
+path = "src/bin/experimental_conquest_prepare.rs"
+required-features = ["expedition-dispatch-experimental"]
+
 [dependencies]
 fclient.workspace = true
 frontier-abi.workspace = true
@@ -53,6 +68,10 @@ wide-world-experimental = [
     "fclient/wide-records-experimental",
     "fclient/snapshot",
 ]
+expedition-dispatch-experimental = ["wide-world-experimental", "fclient/expedition-dispatch-experimental"]
+# The wrapped DeclareSiege (kind 12) of the conquest lane. Without it the conquest prepare CLI
+# still reads and checks, and answers the closed blocker DispatchKindUnavailable.
+conquest-dispatch-experimental = ["expedition-dispatch-experimental", "fclient/conquest-dispatch-experimental"]
 
 [dev-dependencies]
 localnet.workspace = true

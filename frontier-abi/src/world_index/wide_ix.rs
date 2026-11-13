@@ -798,6 +798,35 @@ impl SettleSiege {
         })
     }
 }
+/// Experimental conquest lane only (v2 dispatch kind 18). Deliberately NOT a
+/// `WideCommand`: no existing parser accepts these bytes, so only the
+/// versioned dispatch wrapper reaches its handler.
+#[cfg(feature = "conquest-dispatch-experimental")]
+pub const OP_SETTLE_RESERVATION: u8 = 0x40;
+/// The full return of one NOT_APPLIED siege reservation, by its seq.
+#[cfg(feature = "conquest-dispatch-experimental")]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct SettleReservation {
+    pub seq: u32,
+}
+#[cfg(feature = "conquest-dispatch-experimental")]
+impl SettleReservation {
+    pub const TAG: u8 = TAG_CLOSE;
+    pub const OP: u8 = OP_SETTLE_RESERVATION;
+    pub const LEN: usize = ENVELOPE_HEAD + 4;
+    pub fn to_bytes(&self) -> [u8; Self::LEN] {
+        let mut b = [0; Self::LEN];
+        head(&mut b, Self::TAG, Self::OP);
+        Writer::new(&mut b[ENVELOPE_HEAD..]).u32(self.seq);
+        b
+    }
+    pub fn decode(d: &[u8]) -> Result<Self, FrontierError> {
+        let mut c = envelope(d, Self::TAG, Self::OP, Self::LEN)?;
+        Ok(Self {
+            seq: c.u32().ok_or(FrontierError::BadData)?,
+        })
+    }
+}
 pub const OP_SETTLE_CAPTURE: u8 = 8;
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct SettleCapture {
@@ -2390,6 +2419,23 @@ pub const SETTLE_SIEGE: &[Group] = &[
     ]),
     opt(&[s("source_holding_position", Acc::Any, false, Wr::W)]),
 ];
+/// SettleReservation: permissionless like SettleSiege. The source Holding
+/// position is always present (live or absent); the handler authenticates it
+/// against the reservation and refuses (debt kept) when it cannot credit.
+#[cfg(feature = "conquest-dispatch-experimental")]
+pub const SETTLE_RESERVATION: &[Group] = &[one(&[
+    s("any", Acc::Wallet, true, Wr::R),
+    // A full Season or its Closed tombstone (handler: existing end rules).
+    s("season", Acc::Any, false, Wr::R),
+    // Live or, after the existing season-end close, canonically absent.
+    s("target_province", Acc::Any, false, Wr::W),
+    s("conquest", Acc::Any, false, Wr::W),
+    // The reservation's own Citizen key: live, or absent after CloseCitizen.
+    s("citizen", Acc::Any, false, Wr::W),
+    s("capture_escrow", Acc::Any, false, Wr::W),
+    s("escrow_funder", Acc::Wallet, false, Wr::W),
+    s("source_holding_position", Acc::Any, false, Wr::W),
+])];
 pub const SETTLE_CAPTURE: &[Group] = &[one(&[
     s("payer", Acc::Wallet, true, Wr::W),
     s("season", Acc::Kind(K::Season), false, Wr::R),

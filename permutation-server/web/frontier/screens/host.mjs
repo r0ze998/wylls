@@ -90,7 +90,7 @@ export function render(FS) {
         ${r.unit === SCOUT ? html`<button type="button" class="btn small" data-act="explore-open" data-host="${String(r.id)}" ${raw(locked || actionBlocks('Explore', ctx(r)).length ? 'disabled' : '')}>${icon('scout')}${L`探索`}</button>` : ''}
         <button type="button" class="btn small quiet" data-act="dissolve" data-host="${String(r.id)}" aria-label="${L`${name}を解散する`}" ${raw(locked || actionBlocks('Dissolve', ctx(r)).length ? 'disabled' : '')}>${L`解散`}</button>
       </div>
-      ${r.inTransit ? html`<p class="locked-note" role="note">${lockedText()}</p>` : blocks.length ? html`<p class="blocked">${blocks.map(errorText).join(' / ')}${blocks.includes('NotResident') ? html` <button type="button" class="btn small" data-act="nudge" data-p="${r.p}" data-q="${r.q}" ${raw(locked ? 'disabled' : '')}>${L`追いつかせる`}</button>` : ''}</p>` : ''}
+      ${r.inTransit ? html`<p class="locked-note" role="note">${lockedText()}</p>` : blocks.length ? html`<p class="blocked">${blocks.map(errorText).join(' / ')}${blocks.includes('NotResident') && !FS.localPlay ? html` <button type="button" class="btn small" data-act="nudge" data-p="${r.p}" data-q="${r.q}" ${raw(locked ? 'disabled' : '')}>${L`追いつかせる`}</button>` : ''}</p>` : ''}
     </li>`;
   })}</ul>
   <p class="foot-note">${L`出発には行き先にかかわらず体力 ${DEPART_STAMINA} を使います（道のりは封の中にあるため）。`}</p></section>`;

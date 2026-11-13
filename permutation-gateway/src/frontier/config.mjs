@@ -10,6 +10,8 @@ import { Keypair, PublicKey } from '@solana/web3.js';
 import { LOCAL_DIR } from '../config.mjs';
 import { decode as fromBase58 } from '../../client/src/base58.mjs';
 import { expeditionPreviewConfigProblems } from './expedition-preview.mjs';
+import { expeditionPrepareConfigProblems } from './expedition-prepare.mjs';
+import { expeditionDepartPrepareConfigProblems } from './expedition-depart-prepare.mjs';
 
 export const FRONTIER_DIR = path.join(LOCAL_DIR, 'frontier');
 
@@ -37,6 +39,20 @@ export const FRONTIER_DEFAULTS = Object.freeze({
   expeditionPreviewRpc: null,
   expeditionPreviewProgramVersion: null,
   expeditionPreviewRulesetHash: null,
+  /** Optional unsigned-only CLI. Public payer and budget are explicit pins. */
+  expeditionPrepareBin: null,
+  expeditionPrepareRpc: null,
+  expeditionPrepareFeePayer: null,
+  expeditionPrepareRulesetHash: null,
+  expeditionPrepareCuLimit: null,
+  expeditionPrepareLoadedLimit: null,
+  /** Optional unsigned-only Depart CLI: its own opt-in, never inherited from the resident one above. Off by default. */
+  expeditionDepartPrepareBin: null,
+  expeditionDepartPrepareRpc: null,
+  expeditionDepartPrepareFeePayer: null,
+  expeditionDepartPrepareRulesetHash: null,
+  expeditionDepartPrepareCuLimit: null,
+  expeditionDepartPrepareLoadedLimit: null,
   /** Relay payer pool: 150 keys derived from the master seed, `pool_id = "relay"` (I-49 scheme). */
   poolSize: 150,
   masterSeedFile: path.join(FRONTIER_DIR, 'relay-master.seed'),
@@ -147,6 +163,18 @@ export function loadFrontierConfig(argv = [], env = {}) {
     expeditionPreviewRpc: pick('expedition-preview-rpc', 'FRONTIER_EXPEDITION_PREVIEW_RPC', d.expeditionPreviewRpc),
     expeditionPreviewProgramVersion: pick('expedition-preview-program-version', 'FRONTIER_EXPEDITION_PREVIEW_PROGRAM_VERSION', d.expeditionPreviewProgramVersion),
     expeditionPreviewRulesetHash: pick('expedition-preview-ruleset-hash', 'FRONTIER_EXPEDITION_PREVIEW_RULESET_HASH', d.expeditionPreviewRulesetHash),
+    expeditionPrepareBin: pick('expedition-prepare-bin', 'FRONTIER_EXPEDITION_PREPARE_BIN', d.expeditionPrepareBin),
+    expeditionPrepareRpc: pick('expedition-prepare-rpc', 'FRONTIER_EXPEDITION_PREPARE_RPC', d.expeditionPrepareRpc),
+    expeditionPrepareFeePayer: pick('expedition-prepare-fee-payer', 'FRONTIER_EXPEDITION_PREPARE_FEE_PAYER', d.expeditionPrepareFeePayer),
+    expeditionPrepareRulesetHash: pick('expedition-prepare-ruleset-hash', 'FRONTIER_EXPEDITION_PREPARE_RULESET_HASH', d.expeditionPrepareRulesetHash),
+    expeditionPrepareCuLimit: pick('expedition-prepare-cu-limit', 'FRONTIER_EXPEDITION_PREPARE_CU_LIMIT', d.expeditionPrepareCuLimit),
+    expeditionPrepareLoadedLimit: pick('expedition-prepare-loaded-limit', 'FRONTIER_EXPEDITION_PREPARE_LOADED_LIMIT', d.expeditionPrepareLoadedLimit),
+    expeditionDepartPrepareBin: pick('expedition-depart-prepare-bin', 'FRONTIER_EXPEDITION_DEPART_PREPARE_BIN', d.expeditionDepartPrepareBin),
+    expeditionDepartPrepareRpc: pick('expedition-depart-prepare-rpc', 'FRONTIER_EXPEDITION_DEPART_PREPARE_RPC', d.expeditionDepartPrepareRpc),
+    expeditionDepartPrepareFeePayer: pick('expedition-depart-prepare-fee-payer', 'FRONTIER_EXPEDITION_DEPART_PREPARE_FEE_PAYER', d.expeditionDepartPrepareFeePayer),
+    expeditionDepartPrepareRulesetHash: pick('expedition-depart-prepare-ruleset-hash', 'FRONTIER_EXPEDITION_DEPART_PREPARE_RULESET_HASH', d.expeditionDepartPrepareRulesetHash),
+    expeditionDepartPrepareCuLimit: pick('expedition-depart-prepare-cu-limit', 'FRONTIER_EXPEDITION_DEPART_PREPARE_CU_LIMIT', d.expeditionDepartPrepareCuLimit),
+    expeditionDepartPrepareLoadedLimit: pick('expedition-depart-prepare-loaded-limit', 'FRONTIER_EXPEDITION_DEPART_PREPARE_LOADED_LIMIT', d.expeditionDepartPrepareLoadedLimit),
     poolSize: int(pick('pool-size', 'FRONTIER_RELAY_POOL', d.poolSize), '--pool-size'),
     masterSeedFile: pick('master-seed-file', 'FRONTIER_RELAY_SEED_FILE', d.masterSeedFile),
     gateKeyFile: pick('gate-key-file', 'FRONTIER_GATE_KEY_FILE', d.gateKeyFile),
@@ -186,7 +214,7 @@ export function loadFrontierConfig(argv = [], env = {}) {
 
 /** Problems with a configuration (empty when it may run). */
 export function checkFrontierConfig(cfg) {
-  const out = expeditionPreviewConfigProblems(cfg);
+  const out = [...expeditionPreviewConfigProblems(cfg), ...expeditionPrepareConfigProblems(cfg), ...expeditionDepartPrepareConfigProblems(cfg)];
   for (const [p, what] of [[cfg.port, '--port'], [cfg.publicPort, '--public-port']]) {
     const e = portProblem(p, what);
     if (e) out.push(e);

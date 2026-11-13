@@ -27,6 +27,9 @@ import { keepArrival } from '../hud/rulebook.mjs';
 import { provinceName } from '../hud/place.mjs';
 import { hostRows } from './host.mjs';
 import { cardHead } from './parts.mjs';
+import { holdingModel } from './holding.mjs';
+import { maxTrain } from '../hud/rulebook.mjs';
+import { marchOpenFor, marchClosedText, formingHosts, stoodHosts, formingLine, whileWaiting, whileWaitingLine } from '../hud/firststeps.mjs';
 
 export const CONQUEST_STEPS = Object.freeze(['village', 'build', 'train', 'muster', 'march', 'hold', 'capture']);
 const int = Number.isInteger;
@@ -71,6 +74,8 @@ export function conquestFacts(FS) {
   const gain = (FS.conquest?.events ?? []).filter(e => e.kind === 'keep_taken' && e.to === f).at(-1) ?? null;
   const target = contest ?? standing ?? revealed ?? sealed ?? null;
   return { village: !!h, built: !!h && (hasBuilt(h, now) || (h.queue ?? []).some(q => q && q.kind === 1)), trained: !!base.trainedCombat, host: !!base.ownCombatHost || rows.length > 0,
+    // (a host that stands in the record — formed, or out on a march: the muster step is done only then, not while it forms)
+    stood: stoodHosts(rows).length > 0, forming: formingHosts(rows)[0] ?? null,
     marched: !!(standing || revealed || sealed || contest || gain),
     holding: contest ? { p: contest.p, q: contest.q, progress: Math.max(0, Number(contest.progress ?? 0)), required: holdTurns(FS, contest) } : null,
     captured: gain ? { p: gain.p, q: gain.q, turn: gain.bell } : null, target: target ? { p: target.p, q: target.q } : gain ? { p: gain.p, q: gain.q } : null,
@@ -125,12 +130,27 @@ export function conquestGuide(FS) {
   if (!conquestOn(FS)) return null;
   const x = conquestFacts(FS), hold = holdTurns(FS);
   const captured = !!x.captured;
-  const done = { village: x.village, build: x.built || x.trained || x.host, train: x.trained || x.host, muster: x.host || x.marched, march: x.marched, hold: captured, capture: captured };
+  const done = { village: x.village, build: x.built || x.trained || x.host, train: x.trained || x.host, muster: x.stood || x.marched, march: x.marched, hold: captured, capture: captured };
   // the step that is next is the one after the furthest the records show (a player who has marched is not sent back to
   // "build" because the village's queue is empty): what lies before it and is not in the records now reads as passed
   const reach = CONQUEST_STEPS.reduce((a, id, i) => (done[id] ? i : a), -1);
   const current = CONQUEST_STEPS.find((id, i) => i > reach && !done[id]) ?? 'done';
   return { steps: CONQUEST_STEPS.map((id, i) => ({ id, title: TITLE[id](hold), status: done[id] || i < reach ? 'done' : id === current ? 'current' : 'todo' })), current, n: Math.max(0, reach + 1), total: CONQUEST_STEPS.length, facts: x };
+}
+
+/**
+ * What to suggest while host row `r` forms (hud/firststeps.mjs whileWaiting), from the active village's stores and
+ * queue and the usual keep `t` (keepTarget): troops toward its need, or a free building slot. Null for nothing.
+ */
+function waitingSuggestion(FS, r, t) {
+  let m = null;
+  try { m = holdingModel(FS); } catch { m = null; }
+  if (!m) return null;
+  const reserve = Number(activeHolding(FS)?.reserve?.[r.unit] ?? 0);
+  let canTrain = 0;
+  try { canTrain = maxTrain(r.unit, m.have ?? [], FS.season?.programVersion); } catch { canTrain = 0; }
+  return whileWaiting({ need: t?.need ?? null, troops: Number(r.troops) || 0, reserve, canTrain: m.blocks?.Train?.length ? 0 : canTrain,
+    freeSlots: Math.max(0, (m.slots ?? 0) - (m.queue?.length ?? 0)), buildBlocked: !!m.blocks?.Build?.length });
 }
 
 /** The current step as the one "next thing": `{id, n, total, title, text, go: {act, data, label} | null}`; null when every step is done. */
@@ -148,14 +168,37 @@ export function conquestObjective(FS) {
     const t = keepTarget(FS);
     const aim = t?.need ? L`砦を攻めるなら、${unitCount(UNIT_ORDER[0], t.need)} 以上を一つの軍勢にまとめると、守備兵 ${fmtNum(t.troops)} の砦に着いたターンに勝てる見込みです。` : '';
     if (id === 'train') { text = L`「訓練」で兵を雇います。訓練はすぐに終わり、兵は村の控えに入ります。${aim}`; go = { act: 'cg-go', data: { pop: 'train' }, label: L`訓練する兵を選ぶ` }; }
-    else { text = L`「編成」で控えの兵を軍勢にします。軍勢は、記録に現れたターンから動かせます。${aim}`; go = { act: 'cg-go', data: { pop: 'muster' }, label: L`軍勢を編成する` }; }
+    else if (x.forming) {
+      // the host is forming: where its muster turn really is, and one thing worth doing meanwhile (the first-session
+      // review of 2026-11-13: the guide said nothing for the ~18 minutes between the muster and the formed host)
+      const r = x.forming, s = waitingSuggestion(FS, r, t);
+      text = [formingLine(FS, r), whileWaitingLine(s, r.unit)].filter(Boolean).join(' ');
+      go = s?.kind === 'train' ? { act: 'cg-go', data: { pop: 'train' }, label: L`兵を足す` }
+        : s?.kind === 'build' ? { act: 'cg-go', data: { pop: 'build' }, label: L`建設をひらく` }
+        : { act: 'tab', data: { tab: 'hosts' }, label: L`軍勢の準備を確かめる` };
+    } else { text = L`「編成」で控えの兵を軍勢にします。軍勢は、記録に現れたターンから動かせます。${aim}`; go = { act: 'cg-go', data: { pop: 'muster' }, label: L`軍勢を編成する` }; }
   } else if (id === 'march') {
     let rows = [];
     try { rows = hostRows(FS).filter(r => r.unit !== SCOUT && r.unit !== SETTLER); } catch { rows = []; }
     const ready = rows.find(r => !waitOf(FS, r)) ?? null, wait = ready ? null : hostWaits(FS)[0] ?? null;
     const back = x.repelled ? L`前の進軍は${provinceName(FS, x.repelled.p, x.repelled.q, { own: false })}の砦のマスに残れず、村へ押し戻されました。` : '';
     const best = ready ? bestOdds(FS, ready) : null;
-    if (ready && best && best.odds !== 'good') {
+    if (ready && !marchOpenFor(FS)) {
+      // this page cannot send a march in this world (hud/firststeps.mjs marchOpenFor): never point at a press that
+      // cannot work. Say so plainly, without promising when, and set a goal the page can take: troops toward the keep
+      const t = keepTarget(FS), troops = Math.floor(Number(ready.troops)) || 0;
+      const who = unitCount(UNIT_ORDER[ready.unit], troops), closed = marchClosedText(FS);
+      if (t?.need && troops < t.need) {
+        text = L`${back}${who}の軍勢が立ちました。${closed}届く砦（守備兵 ${fmtNum(t.troops)}）に勝てる見込みの ${unitCount(UNIT_ORDER[ready.unit], t.need)} まで、兵を足しておけます。`;
+        go = { act: 'cg-go', data: { pop: 'train' }, label: L`兵を足す` };
+      } else if (t?.need) {
+        text = L`${back}${who}の軍勢は、届く砦（守備兵 ${fmtNum(t.troops)}）に勝てる見込みの兵数です。${closed}`;
+        go = { act: 'cg-go', data: { pop: 'keeps', host: String(ready.id) }, label: L`届く砦を見る` };
+      } else {
+        text = L`${back}${who}の軍勢が立ちました。${closed}`;
+        go = { act: 'tab', data: { tab: 'hosts' }, label: L`軍勢の準備を確かめる` };
+      }
+    } else if (ready && best && best.odds !== 'good') {
       // the host as it stands would most likely be turned back: say so, and how many it takes, before it goes
       const who = unitCount(UNIT_ORDER[ready.unit], Math.floor(Number(ready.troops)));
       const chance = best.odds === 'even' ? L`勝ち目は五分です。` : L`勝ち目は低いです。`;
@@ -164,7 +207,7 @@ export function conquestObjective(FS) {
       go = { act: 'cg-go', data: { pop: 'train' }, label: L`兵を足す` };
     } else {
       text = ready ? L`${back}軍勢を選び、「砦へ進軍」で届く他国の砦を選びます。勝ち目の欄が「十分」の砦を選ぶと、着いたターンに砦のマスに残れる見込みです。命令に封をして出発すると、到着のターンに戦いが決まります。`
-        : wait ? back + waitText(wait) : L`${back}軍勢を選び、「砦へ進軍」で届く他国の砦を選びます。`;
+        : wait ? back + waitText(wait, FS) : L`${back}軍勢を選び、「砦へ進軍」で届く他国の砦を選びます。`;
       go = ready ? { act: 'cg-go', data: { pop: 'keeps', host: String(ready.id) }, label: L`届く砦を見る` } : { act: 'tab', data: { tab: 'hosts' }, label: L`軍勢の準備を確かめる` };
     }
   } else {

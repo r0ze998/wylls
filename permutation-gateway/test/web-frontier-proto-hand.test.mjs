@@ -163,7 +163,7 @@ test('off: the hand, the plate, this turn\'s list and the notices are as they we
   FS.orders = [{ id: 'o1', kind: 'muster', turn: 42, unit: 0, troops: 300, tile: { p: 2, q: 0, tile: 31 }, state: 'accepted' }];
   FS.feed = [{ id: 'bd:1', kind: 'build', bell: 42, p: 2, q: 0, text: '伐採場が完成しました' }];
   const list = turnlist.turnModel(FS, { next: protoHud.turnItems(FS) });
-  assert.deepEqual(list.orders.map(o => o.text), ['槍兵 300 を編成 — 次のターンに整列します']);
+  assert.deepEqual(list.orders.map(o => o.text), ['槍兵 300 を編成 — このターンの決着のあとに整列します']);
   assert.deepEqual(list.happened.map(o => o.text), ['伐採場が完成しました']);
   assert.doesNotMatch(flat(turnlist.renderTurnList(list)), /proto|試作|軍勢を送る/);
   assert.doesNotMatch(flat(feed.renderToast(FS.feed[0])), /proto-send|試作/);

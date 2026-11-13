@@ -125,8 +125,21 @@ impl Stage {
             wix::WideCommand::CloseCaptureEscrow(x) => x.to_bytes().to_vec(),
             _ => return Err(BAD_ACCOUNT),
         };
+        self.receipt_bytes(a, &command_bytes, now, bell, action, outcomes)
+    }
+    /// The same receipt over raw command bytes (a command that is not a
+    /// `WideCommand`, such as the experimental SettleReservation).
+    fn receipt_bytes(
+        &self,
+        a: &[AccountInfo],
+        command_bytes: &[u8],
+        now: i64,
+        bell: u32,
+        action: u8,
+        outcomes: &[u8],
+    ) -> R<receipt::Receipt> {
         let context = receipt::Context {
-            command: &command_bytes,
+            command: command_bytes,
             now_ts: now,
             bell,
             season: &self.before[1].data,
@@ -354,7 +367,7 @@ pub(super) fn settle_siege(p: &Pubkey, a: &[AccountInfo], x: &wix::SettleSiege) 
     settle_siege_inner(p, a, x)
 }
 
-fn settle_siege_inner(p: &Pubkey, a: &[AccountInfo], x: &wix::SettleSiege) -> R<()> {
+pub(super) fn settle_siege_inner(p: &Pubkey, a: &[AccountInfo], x: &wix::SettleSiege) -> R<()> {
     check_accounts(Shape(wix::WideCommand::SettleSiege(*x).accounts()), a, None)?;
     if a.len() != 7 && a.len() != 8 {
         return Err(FrontierError::TooManyAccounts.into());
@@ -488,6 +501,266 @@ fn settle_siege_inner(p: &Pubkey, a: &[AccountInfo], x: &wix::SettleSiege) -> R<
     }
     Ok(())
 }
+
+/// The full return of one NOT_APPLIED siege reservation
+/// (`CLAUDE-CONQUEST-RESERVATION-SPEC-20261112.md` §3). Each part is
+/// all-or-nothing and writes its done flag with its effect; a part already
+/// done is never paid again; nothing doable refuses and changes nothing.
+#[cfg(feature = "conquest-dispatch-experimental")]
+pub(super) fn settle_reservation_inner(
+    p: &Pubkey,
+    a: &[AccountInfo],
+    x: &wix::SettleReservation,
+) -> R<()> {
+    check_accounts(Shape(wix::SETTLE_RESERVATION), a, None)?;
+    if a.len() != 8 {
+        return Err(FrontierError::TooManyAccounts.into());
+    }
+    let now = prologue::now()?;
+    // Season phases, by the existing end rules (never a new deadline):
+    // - live: Running or Ended within its grace;
+    // - closable: the existing season-end close rule (`season_end`: Ended
+    //   plus grace, Aborted, or the Closed tombstone), in which
+    //   CloseProvince, CloseCitizen and CloseCaptureEscrow may already have
+    //   run;
+    // - terminal: Aborted or tombstone, where no resolve can ever apply a
+    //   pending reservation.
+    let (sid, bell, closable, terminal_season) = match season_end(&a[1], p, now.ts) {
+        Ok((sid, bell, tomb)) => {
+            let aborted = tomb.is_some()
+                || prologue::season(&a[1], p, Some(&RULESET_HASH), &[S::STATUS_ABORTED], now.ts)
+                    .is_ok();
+            (sid, bell, true, aborted)
+        }
+        Err(_) => {
+            let hdr = prologue::season(
+                &a[1],
+                p,
+                Some(&RULESET_HASH),
+                &[S::STATUS_RUNNING, S::STATUS_ENDED],
+                now.ts,
+            )?;
+            require_wide_season(&a[1])?;
+            (
+                hdr.id,
+                hdr.bell(now.ts).unwrap_or(frontier_abi::log::NO_BELL),
+                false,
+                false,
+            )
+        }
+    };
+    let ctx = addr::ctx(&key(&a[1]), &p.to_bytes());
+    let world = world_of(&ctx)?;
+    // The province key comes from the table, whose canonical address then
+    // authenticates it, so a closed target province does not erase the debt.
+    let k = {
+        let td = a[3].try_borrow_data()?;
+        ProvinceKey::from_bytes(td.get(32..82).ok_or(BAD_ACCOUNT)?).map_err(|_| BAD_ACCOUNT)?
+    };
+    if k.world() != world {
+        return Err(BAD_ACCOUNT);
+    }
+    let t = table(p, &ctx, sid, k, &a[3])?;
+    expect_key(&a[2], &wl::province_address(&ctx, k.coord()))?;
+    let province_present = !init::is_absent(&a[2]);
+    if province_present {
+        let prov = province_at(&a[2], p, sid)?.ok_or(BAD_ACCOUNT)?;
+        if prov.world != world || prov.coord != k.coord() {
+            return Err(BAD_ACCOUNT);
+        }
+    } else if !closable {
+        // Only the existing season-end CloseProvince removes a province.
+        return Err(BAD_ACCOUNT);
+    }
+    let (_, r) = t.reservation(x.seq).ok_or(FrontierError::AlreadyDone)?;
+    // The Citizen position is fixed by the reservation's own record: present
+    // and canonical, or absent only where the existing CloseCitizen may run.
+    if key(&a[4]) != r.citizen {
+        return Err(BAD_ACCOUNT);
+    }
+    let citizen_present = !init::is_absent(&a[4]);
+    if citizen_present {
+        citizen(p, &ctx, sid, &a[4])?;
+    } else if !closable {
+        return Err(BAD_ACCOUNT);
+    }
+    let mut stage = Stage::new(a)?;
+    if province_present {
+        conquest_exec::paired(&t, &stage.before[2].data)?;
+    }
+    // A pending reservation lapses only when it can never be applied: the
+    // season Aborted or tombstoned, or its province closed at season end.
+    let terminal_lapse = terminal_season || (closable && !province_present);
+    // Rent and slot: one escrow binding plus its Citizen mark.
+    let mut cd = stage.after[4].data.clone();
+    let mut escrow_next = None;
+    let mut refund = 0u64;
+    let mut terminal = false;
+    let mut slot_rent_ok = false;
+    if r.done & wc::RES_SLOT_RENT_RELEASED == 0 {
+        expect_key(&a[5], &wc::capture_escrow_address(&ctx, &r.citizen))?;
+        if init::is_absent(&a[5]) {
+            // Only the existing season-end CloseCaptureEscrow removes an
+            // escrow holding a binding; it refunded every binding to the
+            // funder and cleared every mark. Never inferred while live.
+            if !closable {
+                return Err(BAD_ACCOUNT);
+            }
+            if citizen_present
+                && model(wc::wide_reservations(Ro(&cd).u8(C::SLOTS)?))?
+                    & C::reserved_bit(r.reserved_slot)
+                    != 0
+            {
+                return Err(BAD_ACCOUNT);
+            }
+            terminal = true;
+            slot_rent_ok = true;
+        } else if citizen_present {
+            let e = escrow(p, &ctx, sid, world, &a[4], &a[5])?;
+            model(e.validate_paired_reservation(&t, x.seq, r.citizen, &cd))?;
+            expect_key(&a[6], &e.funder())?;
+            let (next, amount) = model(e.refund(
+                r.reserved_slot,
+                r.binding(k),
+                init::rent(wh::wide_holding::SIZE)?,
+            ))?;
+            model(wc::clear(&mut cd, r.reserved_slot))?;
+            escrow_next = Some(next);
+            refund = amount;
+            slot_rent_ok = true;
+        }
+        // A live escrow with an absent Citizen cannot be paired here: the
+        // slot/rent part stays owed (the resources part is independent).
+    }
+    // Resources: every recorded amount in full, or nothing (debt kept).
+    let mut hd_next = None;
+    if r.done & wc::RES_RESOURCES_RETURNED == 0 {
+        let source = r.source();
+        if let Some(h) = conquest_exec::source_at(&a[7], p, &ctx, sid, source)? {
+            let mut d = stage.after[7].data.clone();
+            if h.gen == source.gen()
+                && matches!(Ro(&d).u8(H::STATE)?, H::STATE_PROVISIONAL | H::STATE_FINAL)
+            {
+                let mut economic = hold::read_holding(&d)?;
+                hold::settle_tiered(&mut economic, now.ts, hold::terrain_ore(&d)?)?;
+                let parts = [
+                    (permutation_rules::frontier::holding::Resource::Gold as usize, r.gold_milli),
+                    (permutation_rules::frontier::arms::ARMS as usize, r.arms_milli),
+                ];
+                let fits = parts.iter().all(|(i, n)| {
+                    let st = &economic.stores[*i];
+                    i64::try_from(*n)
+                        .ok()
+                        .and_then(|n| st.value.checked_add(n))
+                        .is_some_and(|v| v <= st.cap)
+                });
+                if fits {
+                    for (i, n) in parts {
+                        let st = &mut economic.stores[i];
+                        st.value = st
+                            .value
+                            .checked_add(i64::try_from(n).map_err(|_| OVERFLOW)?)
+                            .ok_or(OVERFLOW)?;
+                    }
+                    hold::write_holding(&mut d, &economic, now.ts)?;
+                    hd_next = Some(d);
+                }
+            }
+        }
+    }
+    let plan = t
+        .settle_reservation(x.seq, hd_next.is_some(), slot_rent_ok, terminal_lapse)
+        .map_err(|e| -> crate::error::Error {
+            match e {
+                wc::ConquestError::Blocked => FrontierError::Capacity.into(),
+                wc::ConquestError::Absent => FrontierError::AlreadyDone.into(),
+                wc::ConquestError::TooEarly => FrontierError::TooEarly.into(),
+                _ => BAD_ACCOUNT,
+            }
+        })?;
+    stage.bytes(3, plan.conquest.to_bytes().to_vec());
+    // A lapsed PENDING reservation may clear its site's PENDING flag.
+    if plan.lapsed && province_present && plan.conquest.entry(r.site).map_err(|_| BAD_ACCOUNT)?.is_none() {
+        let mut pd = stage.after[2].data.clone();
+        let current = Record::read(&pd, r.site as usize).map_err(|_| BAD_ACCOUNT)?;
+        model(plan.conquest.idle_prefix(r.site, current))?
+            .write(&mut pd, r.site as usize)
+            .map_err(|_| BAD_ACCOUNT)?;
+        stage.bytes(2, pd);
+    }
+    if plan.release_slot_rent && !terminal {
+        stage.bytes(4, cd);
+        stage.bytes(5, escrow_next.ok_or(BAD_ACCOUNT)?.to_bytes().to_vec());
+        stage.transfer(5, 6, refund)?;
+    }
+    let (gold, arms) = if plan.return_resources {
+        stage.bytes(7, hd_next.ok_or(BAD_ACCOUNT)?);
+        stage.chain(7);
+        (r.gold_milli, r.arms_milli)
+    } else {
+        (0, 0)
+    };
+    if province_present {
+        stage.chain(2);
+    }
+    let done_after = plan
+        .conquest
+        .reservation(x.seq)
+        .map_or(wc::RES_RESOURCES_RETURNED | wc::RES_SLOT_RENT_RELEASED, |(_, n)| n.done);
+    // rent refunded, gold and arms returned (milli), done flags after,
+    // slot/rent released by the terminal escrow close, lapsed, province present.
+    let mut outcome = Vec::new();
+    for n in [refund, gold, arms] {
+        outcome.extend_from_slice(&n.to_le_bytes());
+    }
+    outcome.push(done_after);
+    outcome.push(u8::from(terminal));
+    outcome.push(u8::from(plan.lapsed));
+    outcome.push(u8::from(province_present));
+    let rc = stage.receipt_bytes(
+        a,
+        &x.to_bytes(),
+        now.ts,
+        bell,
+        receipt::RESERVATION_REFUND,
+        &outcome,
+    )?;
+    // With the target province closed there is no chain to extend: an
+    // unchained record (prefix `PSWR`) carries the same receipt instead.
+    let body = if province_present {
+        let mut b = stage.event(WideKind::ConquestSettled, bell, &k.to_bytes(), &rc, &[2])?;
+        b.insert(0, 0);
+        b
+    } else {
+        let mut b = Vec::with_capacity(1 + 32 + 32 + 4 + 4 + receipt::RECEIPT_LEN);
+        b.push(1);
+        b.extend_from_slice(&key(&a[1]));
+        b.extend_from_slice(&key(&a[3]));
+        b.extend_from_slice(&x.seq.to_le_bytes());
+        b.extend_from_slice(&bell.to_le_bytes());
+        b.extend_from_slice(&rc.encode());
+        b
+    };
+    let source_body = if plan.return_resources {
+        Some(stage.source_event(&ctx, r.source(), bell, &rc, 7)?)
+    } else {
+        None
+    };
+    stage.probe(a, None)?;
+    stage.commit(a)?;
+    match body.split_first() {
+        Some((0, chained)) => log(chained),
+        _ => solana_program::log::sol_log_data(&[RESERVATION_LOG_PREFIX, &body]),
+    }
+    if let Some(b) = source_body {
+        b.log();
+    }
+    Ok(())
+}
+/// Unchained SettleReservation record when the target province is closed:
+/// version 1, Season, conquest table, seq, bell, receipt.
+#[cfg(feature = "conquest-dispatch-experimental")]
+const RESERVATION_LOG_PREFIX: &[u8; 4] = b"PSWR";
 
 pub(super) fn settle_capture(p: &Pubkey, a: &[AccountInfo], x: &wix::SettleCapture) -> R<()> {
     require_conquest_lifecycle()?;
@@ -709,7 +982,7 @@ pub(super) fn close_conquest(p: &Pubkey, a: &[AccountInfo], x: &wix::CloseConque
     require_conquest_lifecycle()?;
     close_conquest_inner(p, a, x)
 }
-fn close_conquest_inner(p: &Pubkey, a: &[AccountInfo], x: &wix::CloseConquest) -> R<()> {
+pub(super) fn close_conquest_inner(p: &Pubkey, a: &[AccountInfo], x: &wix::CloseConquest) -> R<()> {
     check_accounts(
         Shape(wix::WideCommand::CloseConquest(*x).accounts()),
         a,
@@ -726,6 +999,13 @@ fn close_conquest_inner(p: &Pubkey, a: &[AccountInfo], x: &wix::CloseConquest) -
     let k = ProvinceKey::new(world, coord);
     let t = table(p, &ctx, sid, k, conquest)?;
     expect_key(rent_payer, &t.rent_payer())?;
+    // A reservation record is a pending order or an owed full return
+    // (resources, rent, slot). Closing the table would erase it: refuse.
+    if t.reservations().iter().any(Option::is_some) {
+        return Err(super::super::conquest::cq(
+            frontier_abi::v2::error::CqError::StakeUnsettled,
+        ));
+    }
     let mut stage = Stage::new(a)?;
     let balance = stage.before[2].lamports;
     stage.transfer(2, 3, balance)?;
@@ -749,7 +1029,7 @@ pub(super) fn close_capture_escrow(p: &Pubkey, a: &[AccountInfo]) -> R<()> {
     require_conquest_lifecycle()?;
     close_capture_escrow_inner(p, a)
 }
-fn close_capture_escrow_inner(p: &Pubkey, a: &[AccountInfo]) -> R<()> {
+pub(super) fn close_capture_escrow_inner(p: &Pubkey, a: &[AccountInfo]) -> R<()> {
     check_accounts(
         Shape(wix::WideCommand::CloseCaptureEscrow(wix::CloseCaptureEscrow).accounts()),
         a,

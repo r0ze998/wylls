@@ -1,0 +1,78 @@
+/* The local-play preparation panel (flocalplay.mjs). Loaded only by that gate, on a `?localPlay=1` loopback page.
+   Every rule is scoped to #local-play-gate: nothing of the game's own styles (frontier.css and the others) is
+   touched or overridden. The page body is `overflow: hidden` with the map fixed over it, so the panel is its own
+   fixed, scrollable layer above everything. */
+#local-play-gate { position: fixed; inset: 0; z-index: 2147483000; display: grid; place-items: center; padding: 16px; overflow: auto; box-sizing: border-box;
+  background: rgba(8, 18, 16, .92); color: #f4efe0; font: 400 15px/1.6 system-ui, -apple-system, "Hiragino Sans", "Noto Sans JP", sans-serif; overscroll-behavior: contain; }
+#local-play-gate[hidden], #local-play-gate [hidden] { display: none; }
+#local-play-gate .local-play-card { display: grid; gap: 10px; width: min(560px, 100%); padding: 20px; box-sizing: border-box; border: 1px solid #c9a24a; border-radius: 12px;
+  background: #12241f; box-shadow: 0 12px 32px rgba(0, 0, 0, .5); }
+#local-play-gate h2 { margin: 0; font-size: 20px; line-height: 1.35; letter-spacing: .04em; color: #f0d48a; }
+/* The title with the page's language key beside it (lang.mjs makes the key first in the row and gives it small inline
+   metrics: here it stands last, with a full touch target and the panel's own type). */
+#local-play-gate .local-play-head { display: flex; align-items: flex-start; gap: 12px; }
+#local-play-gate .local-play-head h2 { flex: 1 1 auto; min-width: 0; overflow-wrap: anywhere; }
+#local-play-gate .local-play-lang { order: 2; flex: none; min-width: 48px !important; min-height: 44px; padding: 0 12px !important; border: 1px solid #a8996c; border-radius: 6px;
+  background: rgba(255, 255, 255, .04); color: #f4efe0; font: 650 13px/1 system-ui, -apple-system, "Hiragino Sans", "Noto Sans JP", sans-serif !important; letter-spacing: .04em !important; cursor: pointer; }
+#local-play-gate .local-play-lang:focus-visible { outline: 3px solid #7fd4ff; outline-offset: 2px; }
+#local-play-gate p { margin: 0; }
+#local-play-gate .local-play-note { font-size: 13px; color: #d8d2bf; }
+#local-play-gate .local-play-points { display: grid; gap: 4px; margin: 0; padding: 0 0 0 1.25em; }
+#local-play-gate .local-play-points li::marker { color: #c9a24a; }
+#local-play-gate .local-play-elapsed { margin-top: -4px; font-size: 13px; font-variant-numeric: tabular-nums; color: #d8d2bf; }
+#local-play-gate .local-play-label { margin-top: 6px; font-size: 13px; font-weight: 650; color: #d8d2bf; }
+#local-play-gate .local-play-address { display: block; padding: 8px 10px; border: 1px dashed rgba(240, 212, 138, .6); border-radius: 6px; background: rgba(0, 0, 0, .25);
+  font: 600 14px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace; color: #fff6dc; overflow-wrap: anywhere; user-select: all; min-height: 1.5em; }
+#local-play-gate .local-play-herald { width: 100%; min-height: 44px; padding: 8px 10px; box-sizing: border-box; border: 1px solid #8a7c58; border-radius: 6px;
+  background: #fffaf0; color: #1d1a12; font: 400 15px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace; }
+#local-play-gate .local-play-connect { justify-self: start; min-height: 46px; min-width: 120px; padding: 8px 24px; border: 1px solid #fff0bf; border-radius: 6px;
+  background: linear-gradient(180deg, #f8e4a3 0%, #e2bf5f 46%, #b88d2e 100%); color: #241a05; font: 700 16px/1.2 inherit; letter-spacing: .08em; cursor: pointer; }
+#local-play-gate .local-play-connect:disabled, #local-play-gate .local-play-herald:disabled { opacity: .55; cursor: default; }
+#local-play-gate .local-play-connect:focus-visible, #local-play-gate .local-play-herald:focus-visible { outline: 3px solid #7fd4ff; outline-offset: 2px; }
+#local-play-gate .local-play-status { min-height: 3.2em; padding: 8px 10px; border-radius: 6px; background: rgba(255, 255, 255, .06); font-size: 14px; overflow-wrap: anywhere; }
+#local-play-gate[data-phase="refused"] .local-play-status, #local-play-gate[data-phase="unavailable"] .local-play-status, #local-play-gate[data-phase="destroyed"] .local-play-status {
+  border: 1px dashed rgba(240, 150, 130, .8); background: rgba(120, 30, 20, .35); }
+/* The worlds a refused start listed (launcher mode, at its limit of two). Each row: the world's public address, since
+   when, and its own key; that key only asks, and the two keys that then stand in its place end the world or take the
+   question back. (`:not([hidden])` on what sets `display`, so a hidden row stays hidden.) */
+#local-play-gate .local-play-worlds:not([hidden]) { display: grid; gap: 8px; }
+#local-play-gate .local-play-world:not([hidden]) { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; gap: 6px 8px; align-items: center; padding: 10px 12px;
+  border: 1px solid rgba(240, 212, 138, .4); border-radius: 8px; background: rgba(0, 0, 0, .22); }
+#local-play-gate .local-play-world-address { grid-column: 1 / -1; font: 600 13px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace; color: #fff6dc; overflow-wrap: anywhere; }
+#local-play-gate .local-play-world-line { grid-column: 1; font-size: 13px; color: #d8d2bf; }
+#local-play-gate .local-play-world-ask { grid-column: 1 / -1; padding: 6px 8px; border-left: 3px solid #e09a8a; background: rgba(120, 30, 20, .3); font-size: 13px; color: #ffe6de; }
+#local-play-gate .local-play-list { justify-self: start; }
+#local-play-gate .local-play-list, #local-play-gate .local-play-end, #local-play-gate .local-play-end-no, #local-play-gate .local-play-end-yes { min-height: 44px; padding: 6px 14px; border: 1px solid #a8996c; border-radius: 6px;
+  background: rgba(255, 255, 255, .04); color: #f4efe0; font: 650 14px/1.2 inherit; letter-spacing: .04em; cursor: pointer; }
+#local-play-gate .local-play-end { grid-column: 2 / -1; justify-self: end; }
+#local-play-gate .local-play-end-yes { grid-column: 2; border-color: #f0b3a4; background: #8a2a1c; color: #fff4ef; }
+#local-play-gate .local-play-end-no { grid-column: 3; }
+#local-play-gate .local-play-list:disabled, #local-play-gate .local-play-end:disabled, #local-play-gate .local-play-end-no:disabled, #local-play-gate .local-play-end-yes:disabled { opacity: .55; cursor: default; }
+#local-play-gate .local-play-list:focus-visible, #local-play-gate .local-play-end:focus-visible, #local-play-gate .local-play-end-no:focus-visible, #local-play-gate .local-play-end-yes:focus-visible { outline: 3px solid #7fd4ff; outline-offset: 2px; }
+@media (max-width: 759px) {
+  #local-play-gate { place-items: start center; padding: 12px 10px calc(12px + env(safe-area-inset-bottom)); }
+  #local-play-gate .local-play-card { padding: 14px; }
+  #local-play-gate .local-play-connect, #local-play-gate .local-play-list { justify-self: stretch; }
+  #local-play-gate .local-play-world:not([hidden]) { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); }
+  #local-play-gate .local-play-world-line { grid-column: 1 / -1; }
+  #local-play-gate .local-play-end { grid-column: 1 / -1; justify-self: stretch; }
+  #local-play-gate .local-play-end-yes { grid-column: 1; }
+  #local-play-gate .local-play-end-no { grid-column: 2; }
+}
+
+/* the launcher world's standing notice after the gate (flocalplay-session.mjs). Never in the way of the game: it takes
+   no pointer events, sits UNDER every control layer (tabs 25, hand 26, panel 30, feed 35; on small screens the sheet
+   panel 22 and the feed 18 cover it), and stays at the top under the strip, away from the bottom bar. A [hidden] part is
+   always hidden, whatever display its class sets. */
+#local-play-session { position: fixed; top: calc(var(--dial, 84px) + 8px); left: 50%; translate: -50% 0; z-index: 17; width: max-content; max-width: min(460px, calc(100vw - 24px)); padding: 6px 10px; border: 1px solid #5a4a26; border-radius: 6px; background: rgba(20, 17, 12, 0.88); color: #d8d2bf; font-size: 12px; line-height: 1.4; pointer-events: none; }
+#local-play-session [hidden] { display: none !important; }
+#local-play-session .local-play-session-title { margin: 0 0 2px; font-weight: 600; color: #c9a24a; }
+#local-play-session .local-play-session-points { display: grid; gap: 2px; margin: 0; padding: 0 0 0 1.2em; }
+#local-play-session .local-play-session-gone { margin: 0; color: #e8b0a0; }
+#local-play-session .local-play-session-check { margin: 4px 0 0; padding: 2px 8px; border: 1px solid #5a4a26; border-radius: 4px; background: #2a2418; color: #d8d2bf; font: inherit; cursor: pointer; pointer-events: auto; }
+#local-play-session .local-play-session-check:disabled { cursor: default; opacity: .6; }
+#local-play-session .local-play-session-keeper { margin: 2px 0 0; }
+#local-play-session .local-play-session-short { margin: 0; }
+#local-play-session .local-play-session-fold { margin: 4px 0 0 6px; padding: 2px 8px; border: 1px solid #5a4a26; border-radius: 4px; background: transparent; color: #c9a24a; font: inherit; cursor: pointer; pointer-events: auto; }
+#local-play-session .local-play-session-fold:focus-visible, #local-play-session .local-play-session-check:focus-visible { outline: 2px solid #c9a24a; outline-offset: 1px; }
+@media (max-width: 720px) { #local-play-session { top: calc(var(--dial, 84px) + 6px); max-width: calc(100vw - 16px); padding: 4px 8px; font-size: 11px; } }

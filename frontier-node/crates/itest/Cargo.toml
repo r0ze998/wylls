@@ -32,3 +32,30 @@ base64.workspace = true
 
 [dev-dependencies]
 drand-replay = { path = "../drand-replay" }
+
+# The localnet expedition harness (tests/localnet_expedition_depart.rs): the host-only dispatch client code and the
+# wide ABI tables it needs are features of crates already depended on above. No new dependency, no Cargo.lock change.
+# Off by default: `cargo test -p itest` neither builds nor runs it.
+[features]
+# Dedicated ephemeral local-play runner, existing dependencies only.
+localnet-expedition-play = ["fclient/expedition-dispatch-experimental", "frontier-abi/world-index-experimental"]
+# Opt-in: the local keeper's conquest crank (ResolveWithConquest while a conquest
+# table is live, SettleCapture, SettleSiege, the two closes) through the
+# isolated conquest lane's dispatch kinds 13-17. Off by default: the plain
+# runner never builds a conquest kind and refuses to resolve a besieged bell.
+localnet-conquest-play = ["localnet-expedition-play", "fclient/conquest-dispatch-experimental"]
+localnet-expedition-harness = ["fclient/expedition-dispatch-experimental", "frontier-abi/world-index-experimental"]
+
+[[test]]
+name = "localnet_expedition_depart"
+required-features = ["localnet-expedition-harness"]
+
+[[bin]]
+name = "localnet-expedition-play"
+path = "src/bin/localnet_expedition_play.rs"
+required-features = ["localnet-expedition-play"]
+
+[[bin]]
+name = "localnet-natural-play"
+path = "src/bin/localnet_natural_play.rs"
+required-features = ["localnet-expedition-play"]

@@ -144,12 +144,19 @@ export async function connect(entry, { chain, silent = false } = {}) {
   const w = entry?.wallet ?? entry;
   const why = unsupported(w, chain);
   if (why) { if (silent) return null; throw codeError('WalletUnsupported', L`${w?.name ?? L`このウォレット`}は使えません：${why}`); }
+  // (a wallet that was offered to the page and is withdrawn while it is being asked — a memory-only test wallet that
+  // was destroyed, an extension that went away — is not connected afterwards, and is not remembered)
+  const offered = wallets.has(w);
   let accounts;
   try {
     accounts = (await w.features['standard:connect'].connect(silent ? { silent: true } : undefined))?.accounts;
   } catch (e) {
     if (silent) return null;
     throw walletError(e);
+  }
+  if (offered && !wallets.has(w)) {
+    if (silent) return null;
+    throw codeError('WalletGone', L`${w.name}はもう使えません`);
   }
   const account = [...(accounts?.length ? accounts : w.accounts || [])].find(a => accountOk(a, chain));
   if (!account) {

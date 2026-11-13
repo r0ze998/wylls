@@ -194,12 +194,17 @@ export function render(FS, terrainOf, activities = null) {
   const terrain = t?.terrain ? (TERRAIN_TEXT[t.terrain]?.() ?? t.terrain) : null;
   const held = site?.state === 'holding';
   const s1 = t?.s1?.[0] ?? null;
-  const name = held ? holdingName({ p: m.p, q: m.q, site: site.index }, site.tier ?? 0) : t?.camp ? SITE_TEXT.camp() : site && site.state !== 'free' ? SITE_TEXT[site.state]() : s1 ? S1_WORDS[s1.kind]?.() ?? terrain : terrain;
+  // (a conquest season: the tile the province's keep stands on is that keep, by its holder — a spectator who pressed the
+  // castle on the map read 「森」 as the card's name, and found the keep only in the plate further down)
+  const keep = conquestEnabled(FS) && !territoryEnabled(FS) ? keepFor(FS, m.p, m.q) : null;
+  const keepHere = !!keep && !!t && Number.isInteger(keep.tile) && keep.tile !== 255 && keep.tile === t.idx && !held && !t.camp;
+  const keepName = keepHere ? (Number(keep.holder) < 6 ? L`${factionName(Number(keep.holder))}の砦` : L`この州の砦`) : null;
+  const name = held ? holdingName({ p: m.p, q: m.q, site: site.index }, site.tier ?? 0) : t?.camp ? SITE_TEXT.camp() : keepName ?? (site && site.state !== 'free' ? SITE_TEXT[site.state]() : s1 ? S1_WORDS[s1.kind]?.() ?? terrain : terrain);
   // under the name: what the land is, then where it is in words (the province by a village of the viewer's or by the
   // nation on whose side it lies; a village is itself the place: nothing more is said); the coordinates wait under
   // "details" (UX design 11.13)
   const where = [name && terrain && name !== terrain ? terrain : null, site && site.state === 'free' ? SITE_TEXT.free() : null, t && !held ? provinceName(FS, m.p, m.q) : null].filter(Boolean).join(' · ');
-  const mark = held ? 'home' : t?.camp ? 'tent' : t?.hosts?.length ? 'sword' : s1 ? 'shield' : t ? 'mountain' : 'chart';
+  const mark = held ? 'home' : t?.camp ? 'tent' : keepHere ? 'flag' : t?.hosts?.length ? 'sword' : s1 ? 'shield' : t ? 'mountain' : 'chart';
   const side = site?.mine ? chip(L`あなたの村`, 'you') : held ? chip(html`${raw(leaderHex(site.faction, { size: 30 }))}${swatch(site.faction)}${factionName(site.faction)}`) : t?.camp ? chip(L`${fmtNum(t.camp.troops)} 兵`, 'bad')
     : s1 ? (s1.own ? chip(L`あなたのもの`, 'you') : chip(html`${swatch(s1.faction)}${factionName(s1.faction)}`)) : '';
   const chips = [];
@@ -213,7 +218,6 @@ export function render(FS, terrainOf, activities = null) {
   const theirs = held && !site.mine ? m.relation.find(r => r.faction === site.faction) ?? null : null;
   if (theirs) chips.push(chip(stance(theirs), theirs.friendly ? 'ok' : 'bad', theirs.friendly ? 'check' : 'swords'));
   if (t?.territory) chips.push(chip(t.territory.owner === null ? L`どの国の領地でもありません` : t.territory.owner === FS.citizen?.faction ? L`あなたの国の領地` : L`${factionName(t.territory.owner)}の領地`, t.territory.owner === FS.citizen?.faction ? 'you' : '', 'banner'));
-  const keep = conquestEnabled(FS) && !territoryEnabled(FS) ? keepFor(FS, m.p, m.q) : null;
   // (a keep's holder, garrison and contest are the season's public record: the control snapshot and the reach list already
   // say them of every province, surveyed or not, so the panel stands for any province the player goes to: "go there" from
   // the reach list leads to the keep and its march button, not to a card that only says "unsurveyed")

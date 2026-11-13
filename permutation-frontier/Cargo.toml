@@ -96,6 +96,26 @@ wide-world-experimental = [
 ]
 # Host-only executable expedition revision; exact separate Season version.
 expedition-dispatch-experimental = ["wide-world-experimental"]
+# Isolated localnet SBF lane of that revision only (never deployable):
+# allows the SBF build of the version-0x4804 expedition wrapper, runs only
+# under the dedicated program id [0x45; 32] (refused at runtime otherwise),
+# carries marker PSF_LOCALNET_EXPEDITION_SBF_BUILD (refused by
+# build-frontier.sh's plain build); built only by
+# scripts/build-frontier-localnet-expedition-sbf.sh. Raw departure, conquest
+# and wide→wide debit gates are unchanged.
+localnet-expedition-sbf = ["expedition-dispatch-experimental"]
+# Host-only: routes the expedition wrapper's provisional conquest kinds 12–17
+# to the EXISTING Free City lifecycle consumers (DeclareSiege,
+# ResolveWithConquest, SettleCapture, SettleSiege, CloseConquest,
+# CloseCaptureEscrow), each with its unchanged authentication. The raw
+# `CONQUEST_LIFECYCLE_ENABLED = false` gate and every production gate stay.
+conquest-dispatch-experimental = ["expedition-dispatch-experimental", "frontier-abi/conquest-dispatch-experimental"]
+# Isolated localnet SBF lane of the expedition revision PLUS those conquest
+# kinds (never deployable): a separate artefact carrying BOTH markers
+# PSF_LOCALNET_EXPEDITION_SBF_BUILD and PSF_LOCALNET_CONQUEST_SBF_BUILD,
+# built only by scripts/build-frontier-localnet-conquest-sbf.sh, same
+# program id [0x45; 32] and version 0x4804.
+localnet-conquest-sbf = ["localnet-expedition-sbf", "conquest-dispatch-experimental"]
 
 # Dependency sections: owned by the integrator (M1 contract §3.4, I-55); the
 # set below is the one listed in docs/frontier/m1/W2-A-NOTES.md.

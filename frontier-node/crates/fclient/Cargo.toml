@@ -43,5 +43,9 @@ wide-records-experimental = ["frontier-abi/world-index-experimental"]
 # Explicit unsigned message construction for the separate host-only dispatch
 # revision. No signing, admission, relay activation or deployed program claim.
 expedition-dispatch-experimental = ["wide-records-experimental"]
+# The conquest kinds 12-17 of the same host-only dispatch revision (frontier-abi
+# `conquest-dispatch-experimental`; docs/integration/CLAUDE-CONQUEST-DISPATCH-KINDS-20261111.md).
+# Unsigned message construction only. Off by default: without it no conquest kind exists here.
+conquest-dispatch-experimental = ["expedition-dispatch-experimental", "frontier-abi/conquest-dispatch-experimental"]
 
 [dev-dependencies]

@@ -29,6 +29,45 @@ pub const LAPSE: u8 = 4;
 pub const CAPTURE: u8 = 5;
 pub const TABLE_CLOSE: u8 = 6;
 pub const ESCROW_CLOSE: u8 = 7;
+/// Experimental conquest lane: a siege reservation accepted (DeclareSiege
+/// behind the resolved cursor). Outcome bytes as DECLARE.
+#[cfg(feature = "conquest-dispatch-experimental")]
+pub const RESERVE: u8 = 8;
+/// Experimental conquest lane: one SettleReservation (parts of a
+/// not-applied reservation's full return).
+#[cfg(feature = "conquest-dispatch-experimental")]
+pub const RESERVATION_REFUND: u8 = 9;
+/// Whether `action` debits a source Holding (ConquestDeclared/Debited).
+pub const fn debit_action(action: u8) -> bool {
+    #[cfg(feature = "conquest-dispatch-experimental")]
+    if action == RESERVE {
+        return true;
+    }
+    action == DECLARE
+}
+/// Whether `action` may carry a ConquestSettled record.
+pub const fn settled_action(action: u8) -> bool {
+    #[cfg(feature = "conquest-dispatch-experimental")]
+    if action == RESERVATION_REFUND {
+        return true;
+    }
+    action == FAILED || action == LAPSE
+}
+/// Whether `action` credits a source Holding (ConquestCredited).
+pub const fn credit_action(action: u8) -> bool {
+    #[cfg(feature = "conquest-dispatch-experimental")]
+    if action == RESERVATION_REFUND {
+        return true;
+    }
+    action == LAPSE || action == CAPTURE
+}
+const fn valid_action(action: u8) -> bool {
+    #[cfg(feature = "conquest-dispatch-experimental")]
+    if action == RESERVE || action == RESERVATION_REFUND {
+        return true;
+    }
+    DECLARE <= action && action <= ESCROW_CLOSE
+}
 pub const SIDECAR_LOG_PREFIX: &[u8; 4] = b"PSWC";
 /// Version1, season pubkey, Citizen account pubkey, bell, receipt. No chain.
 pub const SIDECAR_CLOSE_LEN: usize = 1 + 32 + 32 + 4 + RECEIPT_LEN;
@@ -48,7 +87,7 @@ impl Receipt {
         input: [u8; 32],
         output: [u8; 32],
     ) -> Result<Self, EventError> {
-        if !(DECLARE..=ESCROW_CLOSE).contains(&action) || outcome != 0 {
+        if !valid_action(action) || outcome != 0 {
             return Err(EventError::Payload);
         }
         let operation_id = sha256(&[
@@ -92,11 +131,11 @@ impl Receipt {
     }
     pub fn validate_kind(&self, kind: WideKind) -> Result<(), EventError> {
         let valid = match kind {
-            WideKind::ConquestDeclared | WideKind::ConquestDebited => self.action == DECLARE,
+            WideKind::ConquestDeclared | WideKind::ConquestDebited => debit_action(self.action),
             WideKind::ConquestResolved => self.action == RESOLVE,
-            WideKind::ConquestSettled => matches!(self.action, FAILED | LAPSE),
+            WideKind::ConquestSettled => settled_action(self.action),
             WideKind::ConquestCaptured => self.action == CAPTURE,
-            WideKind::ConquestCredited => matches!(self.action, LAPSE | CAPTURE),
+            WideKind::ConquestCredited => credit_action(self.action),
             WideKind::ConquestTableClosed => self.action == TABLE_CLOSE,
             _ => false,
         };
@@ -242,5 +281,62 @@ impl SidecarClose {
             bell: u32::from_le_bytes(bytes[65..69].try_into().unwrap()),
             receipt,
         })
+    }
+}
+
+#[cfg(test)]
+mod reservation_action_tests {
+    use super::*;
+    use crate::world_index::event::{write_body, MAX_BODY};
+    use crate::world_index::{ProvinceKey, WideCoord, WorldId};
+
+    fn key() -> [u8; 50] {
+        let k = ProvinceKey::new(
+            WorldId::new([0x77; 32]).unwrap(),
+            WideCoord::checked(129, 0).unwrap(),
+        );
+        let mut out = [0u8; 50];
+        out.copy_from_slice(&k.to_bytes());
+        out
+    }
+
+    #[cfg(feature = "conquest-dispatch-experimental")]
+    #[test]
+    fn reserve_and_refund_actions_pass_kind_and_body_validation() {
+        let r8 = Receipt::new(RESERVE, 0, [1; 32], [2; 32]).unwrap();
+        let r9 = Receipt::new(RESERVATION_REFUND, 0, [1; 32], [2; 32]).unwrap();
+        assert_eq!(Receipt::decode(&r8.encode()).unwrap(), r8);
+        assert_eq!(Receipt::decode(&r9.encode()).unwrap(), r9);
+        r8.validate_kind(WideKind::ConquestDeclared).unwrap();
+        r8.validate_kind(WideKind::ConquestDebited).unwrap();
+        r9.validate_kind(WideKind::ConquestSettled).unwrap();
+        r9.validate_kind(WideKind::ConquestCredited).unwrap();
+        for k in [WideKind::ConquestSettled, WideKind::ConquestCredited, WideKind::ConquestResolved] {
+            assert!(r8.validate_kind(k).is_err());
+        }
+        for k in [WideKind::ConquestDeclared, WideKind::ConquestDebited, WideKind::ConquestCaptured] {
+            assert!(r9.validate_kind(k).is_err());
+        }
+        // The real event body path (the program's prepare_wide calls it).
+        let mut out = [0u8; MAX_BODY];
+        assert!(write_body(WideKind::ConquestDeclared, 20, &key(), &r8.encode(), &mut out).is_some());
+        assert!(write_body(WideKind::ConquestSettled, 20, &key(), &r9.encode(), &mut out).is_some());
+        assert!(write_body(WideKind::ConquestSettled, 20, &key(), &r8.encode(), &mut out).is_none());
+        assert!(debit_action(RESERVE) && !credit_action(RESERVE) && !settled_action(RESERVE));
+        assert!(credit_action(RESERVATION_REFUND) && settled_action(RESERVATION_REFUND));
+        // Unknown actions stay refused.
+        assert!(Receipt::new(10, 0, [1; 32], [2; 32]).is_err());
+    }
+
+    #[cfg(not(feature = "conquest-dispatch-experimental"))]
+    #[test]
+    fn without_the_feature_actions_8_and_9_stay_refused() {
+        for a in [8u8, 9] {
+            assert!(Receipt::new(a, 0, [1; 32], [2; 32]).is_err());
+            assert!(!debit_action(a) && !credit_action(a) && !settled_action(a));
+        }
+        let r1 = Receipt::new(DECLARE, 0, [1; 32], [2; 32]).unwrap();
+        let mut out = [0u8; MAX_BODY];
+        assert!(write_body(WideKind::ConquestDeclared, 20, &key(), &r1.encode(), &mut out).is_some());
     }
 }

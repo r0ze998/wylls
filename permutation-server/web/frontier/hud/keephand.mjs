@@ -32,6 +32,7 @@ import { icon } from './icons.mjs';
 import { provinceName, provinceCoords } from './place.mjs';
 import { whyText } from './orderparts.mjs';
 import { keepArrival, ROUGH_TERRAIN } from './rulebook.mjs';
+import { formingLine } from './firststeps.mjs';
 
 const int = Number.isInteger;
 const nation = f => int(f) && f >= 0 && f <= 5;
@@ -112,9 +113,15 @@ export function hostsOnTile(FS, p, q, tile) {
 /** "Your host is holding this keep's tile: 486 Spearmen" (the keep panel, in place of an offer to send there the host that is there). */
 export const holdingHereText = hosts => L`あなたの軍勢がこの砦のマスを保っています：${hosts.map(x => unitCount(UNIT_ORDER[x.unit], x.troops)).join(L`、`)}`;
 
-/** A wait in one sentence, naming the host: what it is doing and the turn from which it can depart. */
-export function waitText(w) {
+/** A wait in one sentence, naming the host: what it is doing and the turn from which it can depart. With `FS`, a host still
+ * forming (state 2) says where its muster turn really is (hud/firststeps.mjs), not a turn it may not be ready by. */
+export function waitText(w, FS = null) {
   const who = unitCount(UNIT_ORDER[w.unit], w.troops);
+  if (FS && (w.why === 'forming' || w.why === 'settling')) {
+    let row = null;
+    try { row = hostRows(FS).find(r => String(r.id) === String(w.id) && r.state === 2) ?? null; } catch { row = null; }
+    if (row) return formingLine(FS, row);
+  }
   switch (w.why) {
     case 'forming': return L`${who} は編成中です。ターン ${fmtNum(w.turn)} から出発できます。`;
     case 'settling': return L`${who} のいる州が、ターンの処理を進めています。処理が済むと、このターン（ターン ${fmtNum(w.turn)}）から出発できます。`;
@@ -133,8 +140,8 @@ export function waitText(w) {
 export function renderWaits(FS, waits = hostWaits(FS), { max = 3 } = {}) {
   if (!waits.length) return '';
   const busy = FS.inFlight > 0 || !!FS.homeActionBusy;
-  return html`<ul class="kh-waits" role="status">${waits.slice(0, max).map(w => html`<li class="kh-wait kh-wait-${w.why}">${icon(w.why === 'march' ? 'march' : 'hourglass')}<span class="kh-wait-t">${waitText(w)}</span>
-    ${w.nudge ? html`<button type="button" class="btn small" data-act="nudge" data-p="${w.p}" data-q="${w.q}" ${raw(busy ? 'disabled' : '')}>${L`この州の処理を進める`}</button>` : ''}</li>`)}</ul>`;
+  return html`<ul class="kh-waits" role="status">${waits.slice(0, max).map(w => html`<li class="kh-wait kh-wait-${w.why}">${icon(w.why === 'march' ? 'march' : 'hourglass')}<span class="kh-wait-t">${waitText(w, FS)}</span>
+    ${w.nudge && !FS.localPlay ? html`<button type="button" class="btn small" data-act="nudge" data-p="${w.p}" data-q="${w.q}" ${raw(busy ? 'disabled' : '')}>${L`この州の処理を進める`}</button>` : ''}</li>`)}</ul>`;
 }
 
 // ------------------------------------------------------------------ the keeps this host can reach
@@ -225,7 +232,7 @@ export function renderKeepsPop(FS, model, { head }) {
     : km.rows.length ? html`<ol class="kh-rows" aria-label="${L`${who}が届く砦`}">${km.rows.map(row)}</ol>`
     : html`<p class="pop-line">${L`この軍勢がいま届く他国の砦はありません。進軍が越えられるのは4州までです。`}</p>`;
   return html`${head(L`砦へ進軍`, sub)}
-    ${km.wait ? html`<p class="pop-line pop-why kh-wait-line">${icon('hourglass')}<span>${waitText({ ...km.wait, unit: r.unit, troops: r.troops })}</span>${km.wait.nudge ? html` <button type="button" class="btn small" data-act="nudge" data-p="${r.p}" data-q="${r.q}">${L`この州の処理を進める`}</button>` : ''}</p>` : ''}
+    ${km.wait ? html`<p class="pop-line pop-why kh-wait-line">${icon('hourglass')}<span>${waitText({ ...km.wait, id: r.id, unit: r.unit, troops: r.troops }, FS)}</span>${km.wait.nudge && !FS.localPlay ? html` <button type="button" class="btn small" data-act="nudge" data-p="${r.p}" data-q="${r.q}">${L`この州の処理を進める`}</button>` : ''}</p>` : ''}
     ${body}
     <p class="pop-line pop-rule kh-rule">${L`砦のマスを ${fmtNum(holdTurns(FS))} ターン続けて保つと、その州はあなたの国のものになります。行を選ぶと命令の紙が開きます（封をするまで何も送られません）。`}</p>
     <p class="pop-line pop-rule">${L`勝ち目は、着いたターンの戦いを記録の守備兵と城壁と地形で計算した目安です。戦いの後に強さ（兵 × 1 人の強さ）が多く残った側がマスに残り、同じなら砦の側が残ります。運の揺れ（±10%）を含め、ほかの軍勢、教義の効果、道中の見張り塔で減る兵（最大 30%）は含みません。`}</p>`;

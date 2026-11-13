@@ -74,7 +74,8 @@ export function icon(name, cls = '') {
 export const RESOURCE_ICON = Object.freeze({ Food: 'grain', Wood: 'wood', Stone: 'stone', Ore: 'ore', Horses: 'horse', Gold: 'coin', Science: 'tome', Influence: 'crown' });
 
 /** The map buttons (map/fmap.mjs MAP_TOOLS ids) and their icons. */
-export const MAP_TOOL_ICON = Object.freeze({ in: 'plus', out: 'minus', home: 'home', chart: 'chart', world: 'chart' });
+// (`wide`: the recorded world's key, map/widemode.mjs — a book of records beside its word, like the world chart's sheet)
+export const MAP_TOOL_ICON = Object.freeze({ in: 'plus', out: 'minus', home: 'home', chart: 'chart', world: 'chart', wide: 'tome' });
 
 /**
  * Give the map buttons their icons (a DOM page only): the map class mounts

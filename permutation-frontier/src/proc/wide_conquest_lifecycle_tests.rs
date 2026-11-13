@@ -318,7 +318,7 @@ fn continuous(fresh_sidecars: bool, overprefunded: bool) {
         + (FRONTIER_7.siege_stake_gold as i64 * MILLI)
             .min((settled.stores[gold].cap - settled.stores[gold].value).max(0));
     let capture_before = declaration_engine::states(&capture, &[2, 7, 8]).unwrap();
-    settle_capture_inner(&program(), &capture, &wix::SettleCapture { site: 1 }).unwrap();
+    via(&capture, &wix::SettleCapture { site: 1 }.to_bytes()).unwrap();
     let capture_after = declaration_engine::states(&capture, &[2, 7, 8]).unwrap();
     let credited_gold = (expected_gold - settled.stores[gold].value) as u64;
     let mut capture_outcomes = Vec::new();
@@ -345,7 +345,7 @@ fn continuous(fresh_sidecars: bool, overprefunded: bool) {
     )
     .unwrap();
     refused(&capture, || {
-        settle_capture_inner(&program(), &capture, &wix::SettleCapture { site: 1 })
+        via(&capture, &wix::SettleCapture { site: 1 }.to_bytes())
     });
     assert_eq!(a[8].lamports(), rent);
     assert_eq!(
@@ -421,13 +421,13 @@ fn continuous(fresh_sidecars: bool, overprefunded: bool) {
         a[1].clone(),
     ];
     refused(&close_table, || {
-        close_conquest_inner(&program(), &close_table, &close_x)
+        via(&close_table, &close_x.to_bytes())
     });
     // Terminal eligibility alone is staged; no conquest state is rewritten.
     a[2].try_borrow_mut_data().unwrap()[S::STATUS] = S::STATUS_ENDED;
     time(1000 + 432 - 1);
     refused(&close_escrow, || {
-        close_capture_escrow_inner(&program(), &close_escrow)
+        via(&close_escrow, &wix::CloseCaptureEscrow.to_bytes())
     });
     time(1000 + 432);
     let payer_at_close = a[1].lamports();
@@ -438,16 +438,16 @@ fn continuous(fresh_sidecars: bool, overprefunded: bool) {
         a[8].clone(),
         shard,
     ]);
-    close_conquest_inner(&program(), &close_table, &close_x).unwrap();
+    via(&close_table, &close_x.to_bytes()).unwrap();
     refused(&close_table, || {
-        close_conquest_inner(&program(), &close_table, &close_x)
+        via(&close_table, &close_x.to_bytes())
     });
-    close_capture_escrow_inner(&program(), &close_escrow).unwrap();
+    via(&close_escrow, &wix::CloseCaptureEscrow.to_bytes()).unwrap();
     refused(&close_escrow, || {
-        close_capture_escrow_inner(&program(), &close_escrow)
+        via(&close_escrow, &wix::CloseCaptureEscrow.to_bytes())
     });
     refused(&capture, || {
-        settle_capture_inner(&program(), &capture, &wix::SettleCapture { site: 1 })
+        via(&capture, &wix::SettleCapture { site: 1 }.to_bytes())
     });
     assert!(init::is_absent(&a[9]) && init::is_absent(&a[10]));
     assert_eq!(

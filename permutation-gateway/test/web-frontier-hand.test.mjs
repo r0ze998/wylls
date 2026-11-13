@@ -350,7 +350,7 @@ test('this turn\'s list: the orders placed, what the next bell brings (a march w
     { id: 'o0', kind: 'build', turn: 41, item: 0, tile: { p: 2, q: 0, tile: 30 }, state: 'accepted' }];
   FS.feed = [{ id: 'bd:1', kind: 'build', bell: 42, p: 2, q: 0, text: '伐採場が完成しました' }, { id: 'old', kind: 'build', bell: 41, p: 2, q: 0, text: '前のターン' }];
   const m = turnlist.turnModel(FS, { next: items });
-  assert.deepEqual(m.orders.map(o => [o.text, o.refused]), [['槍兵 300 を編成 — 次のターンに整列します', false], ['訓練は送られていません', true]], 'this turn\'s only, in the order they were placed');
+  assert.deepEqual(m.orders.map(o => [o.text, o.refused]), [['槍兵 300 を編成 — このターンの決着のあとに整列します', false], ['訓練は送られていません', true]], 'this turn\'s only, in the order they were placed');
   assert.equal(m.orders[1].why, '資源か残高が足りません');
   assert.deepEqual(m.happened.map(x => x.text), ['伐採場が完成しました']);
   const list = flat(turnlist.renderTurnList(m));

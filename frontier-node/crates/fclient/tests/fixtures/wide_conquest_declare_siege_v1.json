@@ -1,0 +1,537 @@
+{
+ "cases": [
+  {
+   "content_digest": "b49203ee5ead17d0254d27e2261b4d39ba3bdf55d0d0669562a0c217f4b771b6",
+   "entry": 0,
+   "host": "0115f8724317bffe99bbc72bfdc668430ecb5528f641abf3f8aa7e7680ed1028490000000000000080000000000000000000010200000000",
+   "inner_hex": "daff01050300",
+   "roles": [
+    {
+     "address": "US517G5965aydkZ46HS38QLi7UQiSojurfbQfKCELFx",
+     "name": "actor",
+     "signer": true,
+     "writable": true
+    },
+    {
+     "address": "US517G5965aydkZ46HS38QLi7UQiSojurfbQfKCELFx",
+     "name": "payer",
+     "signer": true,
+     "writable": true
+    },
+    {
+     "address": "LbUiWL3xVV8hTFYBVdbTNrpDo41NKS6o3LHHuDzjfcY",
+     "name": "season",
+     "signer": false,
+     "writable": false
+    },
+    {
+     "address": "25YtFeecUGphGHR7kkHoTo26CtC4VLnkyLYhA2i13LNe",
+     "name": "citizen",
+     "signer": false,
+     "writable": true
+    },
+    {
+     "address": "BUywz81ckUb4GYnJyw5NzYT7TXceFE8nYyukESWWRkhS",
+     "name": "source_holding",
+     "signer": false,
+     "writable": true
+    },
+    {
+     "address": "BBzS6D7MdqMQfHJV1wYEY3eAjQLVKuxFKaCdcAVcH2m8",
+     "name": "target_province",
+     "signer": false,
+     "writable": true
+    },
+    {
+     "address": "4HLsBi82iM9SM12MEx41Nx66G1GYNWyPVzmx7DETBMYS",
+     "name": "target_roster",
+     "signer": false,
+     "writable": false
+    },
+    {
+     "address": "BTVHnWigogFLC58XRBKQQaa5di9nBuUAWomNH8PCUEJ3",
+     "name": "source_province",
+     "signer": false,
+     "writable": false
+    },
+    {
+     "address": "J92fL2wUya35TcsvxH6p1KQUzpEveqrreD7kkCAYExcM",
+     "name": "target_holding_position",
+     "signer": false,
+     "writable": false
+    },
+    {
+     "address": "BsdnCoi2deALrxHZpkar2qjqRQnKEDCap5zSwkQ2WUvN",
+     "name": "conquest",
+     "signer": false,
+     "writable": true
+    },
+    {
+     "address": "2udR3Huk3rhDg1kwZPbxQx2HnqkeS9yLaEowqYshr8re",
+     "name": "capture_escrow",
+     "signer": false,
+     "writable": true
+    },
+    {
+     "address": "11111111111111111111111111111111",
+     "name": "system",
+     "signer": false,
+     "writable": false
+    }
+   ],
+   "site": 3,
+   "standing": {
+    "p": "129",
+    "q": "0"
+   },
+   "standing_key": "0115f8724317bffe99bbc72bfdc668430ecb5528f641abf3f8aa7e7680ed1028490000000000000081000000000000000000",
+   "wallet": "US517G5965aydkZ46HS38QLi7UQiSojurfbQfKCELFx"
+  },
+  {
+   "content_digest": "287bcd17e17b404babac6184e90476d53782bb085ea6004034b40013656f4a40",
+   "entry": 0,
+   "host": "0115f8724317bffe99bbc72bfdc668430ecb5528f641abf3f8aa7e7680ed1028490000000000000080000000000000000000010200000000",
+   "inner_hex": "daff01050400",
+   "roles": [
+    {
+     "address": "US517G5965aydkZ46HS38QLi7UQiSojurfbQfKCELFx",
+     "name": "actor",
+     "signer": true,
+     "writable": true
+    },
+    {
+     "address": "US517G5965aydkZ46HS38QLi7UQiSojurfbQfKCELFx",
+     "name": "payer",
+     "signer": true,
+     "writable": true
+    },
+    {
+     "address": "LbUiWL3xVV8hTFYBVdbTNrpDo41NKS6o3LHHuDzjfcY",
+     "name": "season",
+     "signer": false,
+     "writable": false
+    },
+    {
+     "address": "25YtFeecUGphGHR7kkHoTo26CtC4VLnkyLYhA2i13LNe",
+     "name": "citizen",
+     "signer": false,
+     "writable": true
+    },
+    {
+     "address": "BUywz81ckUb4GYnJyw5NzYT7TXceFE8nYyukESWWRkhS",
+     "name": "source_holding",
+     "signer": false,
+     "writable": true
+    },
+    {
+     "address": "BBzS6D7MdqMQfHJV1wYEY3eAjQLVKuxFKaCdcAVcH2m8",
+     "name": "target_province",
+     "signer": false,
+     "writable": true
+    },
+    {
+     "address": "4HLsBi82iM9SM12MEx41Nx66G1GYNWyPVzmx7DETBMYS",
+     "name": "target_roster",
+     "signer": false,
+     "writable": false
+    },
+    {
+     "address": "BTVHnWigogFLC58XRBKQQaa5di9nBuUAWomNH8PCUEJ3",
+     "name": "source_province",
+     "signer": false,
+     "writable": false
+    },
+    {
+     "address": "3gWGTxnYJevoF81XYar3rv1gDA9a9nEY1zC1TdPqdS9E",
+     "name": "target_holding_position",
+     "signer": false,
+     "writable": false
+    },
+    {
+     "address": "BsdnCoi2deALrxHZpkar2qjqRQnKEDCap5zSwkQ2WUvN",
+     "name": "conquest",
+     "signer": false,
+     "writable": true
+    },
+    {
+     "address": "2udR3Huk3rhDg1kwZPbxQx2HnqkeS9yLaEowqYshr8re",
+     "name": "capture_escrow",
+     "signer": false,
+     "writable": true
+    },
+    {
+     "address": "11111111111111111111111111111111",
+     "name": "system",
+     "signer": false,
+     "writable": false
+    }
+   ],
+   "site": 4,
+   "standing": {
+    "p": "129",
+    "q": "0"
+   },
+   "standing_key": "0115f8724317bffe99bbc72bfdc668430ecb5528f641abf3f8aa7e7680ed1028490000000000000081000000000000000000",
+   "wallet": "US517G5965aydkZ46HS38QLi7UQiSojurfbQfKCELFx"
+  },
+  {
+   "content_digest": "98d7eae3a9275595160b1ffb3019b7fcb600c2ba4a7f59cd5d1e5c08cd3da57e",
+   "entry": 55,
+   "host": "0115f8724317bffe99bbc72bfdc668430ecb5528f641abf3f8aa7e7680ed1028490000000000000080000000000000000000010200000000",
+   "inner_hex": "daff01050b37",
+   "roles": [
+    {
+     "address": "US517G5965aydkZ46HS38QLi7UQiSojurfbQfKCELFx",
+     "name": "actor",
+     "signer": true,
+     "writable": true
+    },
+    {
+     "address": "US517G5965aydkZ46HS38QLi7UQiSojurfbQfKCELFx",
+     "name": "payer",
+     "signer": true,
+     "writable": true
+    },
+    {
+     "address": "LbUiWL3xVV8hTFYBVdbTNrpDo41NKS6o3LHHuDzjfcY",
+     "name": "season",
+     "signer": false,
+     "writable": false
+    },
+    {
+     "address": "25YtFeecUGphGHR7kkHoTo26CtC4VLnkyLYhA2i13LNe",
+     "name": "citizen",
+     "signer": false,
+     "writable": true
+    },
+    {
+     "address": "BUywz81ckUb4GYnJyw5NzYT7TXceFE8nYyukESWWRkhS",
+     "name": "source_holding",
+     "signer": false,
+     "writable": true
+    },
+    {
+     "address": "BBzS6D7MdqMQfHJV1wYEY3eAjQLVKuxFKaCdcAVcH2m8",
+     "name": "target_province",
+     "signer": false,
+     "writable": true
+    },
+    {
+     "address": "4HLsBi82iM9SM12MEx41Nx66G1GYNWyPVzmx7DETBMYS",
+     "name": "target_roster",
+     "signer": false,
+     "writable": false
+    },
+    {
+     "address": "BTVHnWigogFLC58XRBKQQaa5di9nBuUAWomNH8PCUEJ3",
+     "name": "source_province",
+     "signer": false,
+     "writable": false
+    },
+    {
+     "address": "62btbndD4dekVBCRQUyF5rjfjaAyeUNnVmmDpBmC6bX2",
+     "name": "target_holding_position",
+     "signer": false,
+     "writable": false
+    },
+    {
+     "address": "BsdnCoi2deALrxHZpkar2qjqRQnKEDCap5zSwkQ2WUvN",
+     "name": "conquest",
+     "signer": false,
+     "writable": true
+    },
+    {
+     "address": "2udR3Huk3rhDg1kwZPbxQx2HnqkeS9yLaEowqYshr8re",
+     "name": "capture_escrow",
+     "signer": false,
+     "writable": true
+    },
+    {
+     "address": "11111111111111111111111111111111",
+     "name": "system",
+     "signer": false,
+     "writable": false
+    }
+   ],
+   "site": 11,
+   "standing": {
+    "p": "129",
+    "q": "0"
+   },
+   "standing_key": "0115f8724317bffe99bbc72bfdc668430ecb5528f641abf3f8aa7e7680ed1028490000000000000081000000000000000000",
+   "wallet": "US517G5965aydkZ46HS38QLi7UQiSojurfbQfKCELFx"
+  },
+  {
+   "content_digest": "fb51da9ef3ab918eb912e9d82c26d022fd925dc0336db876c97f55fb8663b710",
+   "entry": 0,
+   "host": "0115f8724317bffe99bbc72bfdc668430ecb5528f641abf3f8aa7e7680ed1028490000000000000080000000000000000000010200000000",
+   "inner_hex": "daff01050300",
+   "roles": [
+    {
+     "address": "US517G5965aydkZ46HS38QLi7UQiSojurfbQfKCELFx",
+     "name": "actor",
+     "signer": true,
+     "writable": true
+    },
+    {
+     "address": "US517G5965aydkZ46HS38QLi7UQiSojurfbQfKCELFx",
+     "name": "payer",
+     "signer": true,
+     "writable": true
+    },
+    {
+     "address": "LbUiWL3xVV8hTFYBVdbTNrpDo41NKS6o3LHHuDzjfcY",
+     "name": "season",
+     "signer": false,
+     "writable": false
+    },
+    {
+     "address": "25YtFeecUGphGHR7kkHoTo26CtC4VLnkyLYhA2i13LNe",
+     "name": "citizen",
+     "signer": false,
+     "writable": true
+    },
+    {
+     "address": "BUywz81ckUb4GYnJyw5NzYT7TXceFE8nYyukESWWRkhS",
+     "name": "source_holding",
+     "signer": false,
+     "writable": true
+    },
+    {
+     "address": "3aNTZyVw6Yys1eG1XrMBjWzarujx8CBWywq3wEQYZpQk",
+     "name": "target_province",
+     "signer": false,
+     "writable": true
+    },
+    {
+     "address": "BLgn1wSUJU6WX9CW5QG7wrXvwUpsgPyYqpmtGecu9pae",
+     "name": "target_roster",
+     "signer": false,
+     "writable": false
+    },
+    {
+     "address": "BTVHnWigogFLC58XRBKQQaa5di9nBuUAWomNH8PCUEJ3",
+     "name": "source_province",
+     "signer": false,
+     "writable": false
+    },
+    {
+     "address": "BJJVzqAyQvzNqYPcuRDpWb8P5Ss1VwhQ6PNzaTfrBeQW",
+     "name": "target_holding_position",
+     "signer": false,
+     "writable": false
+    },
+    {
+     "address": "9LbmGar5rooYx6vLTdhX4t9aaoMJ3dXhsSXPXTxH5XcS",
+     "name": "conquest",
+     "signer": false,
+     "writable": true
+    },
+    {
+     "address": "2udR3Huk3rhDg1kwZPbxQx2HnqkeS9yLaEowqYshr8re",
+     "name": "capture_escrow",
+     "signer": false,
+     "writable": true
+    },
+    {
+     "address": "11111111111111111111111111111111",
+     "name": "system",
+     "signer": false,
+     "writable": false
+    }
+   ],
+   "site": 3,
+   "standing": {
+    "p": "130",
+    "q": "0"
+   },
+   "standing_key": "0115f8724317bffe99bbc72bfdc668430ecb5528f641abf3f8aa7e7680ed1028490000000000000082000000000000000000",
+   "wallet": "US517G5965aydkZ46HS38QLi7UQiSojurfbQfKCELFx"
+  },
+  {
+   "content_digest": "99149556756700117b6a4e4bbe770aa88e3ff86e7ed98a2bc8f53aa575cea064",
+   "entry": 9,
+   "host": "0115f8724317bffe99bbc72bfdc668430ecb5528f641abf3f8aa7e7680ed1028490000000000000080000000000000000000010200000000",
+   "inner_hex": "daff01050009",
+   "roles": [
+    {
+     "address": "US517G5965aydkZ46HS38QLi7UQiSojurfbQfKCELFx",
+     "name": "actor",
+     "signer": true,
+     "writable": true
+    },
+    {
+     "address": "US517G5965aydkZ46HS38QLi7UQiSojurfbQfKCELFx",
+     "name": "payer",
+     "signer": true,
+     "writable": true
+    },
+    {
+     "address": "LbUiWL3xVV8hTFYBVdbTNrpDo41NKS6o3LHHuDzjfcY",
+     "name": "season",
+     "signer": false,
+     "writable": false
+    },
+    {
+     "address": "25YtFeecUGphGHR7kkHoTo26CtC4VLnkyLYhA2i13LNe",
+     "name": "citizen",
+     "signer": false,
+     "writable": true
+    },
+    {
+     "address": "BUywz81ckUb4GYnJyw5NzYT7TXceFE8nYyukESWWRkhS",
+     "name": "source_holding",
+     "signer": false,
+     "writable": true
+    },
+    {
+     "address": "J8SfDhZjoeSzpJkTwW2sKKRYCeEincBr1f6AawXV4nzt",
+     "name": "target_province",
+     "signer": false,
+     "writable": true
+    },
+    {
+     "address": "52mJv5Si3qh9cBc4215RyneJ7DPEAnoxtq2u9mdrGzGC",
+     "name": "target_roster",
+     "signer": false,
+     "writable": false
+    },
+    {
+     "address": "BTVHnWigogFLC58XRBKQQaa5di9nBuUAWomNH8PCUEJ3",
+     "name": "source_province",
+     "signer": false,
+     "writable": false
+    },
+    {
+     "address": "Frt3jd4hHcMo3cqgWJYzKvxcyKb53Qtbubsf8czs5Gbf",
+     "name": "target_holding_position",
+     "signer": false,
+     "writable": false
+    },
+    {
+     "address": "Af74KQt4NvPSSLgBL8W35VVcmBCU4KtcY5r13NsbJRDj",
+     "name": "conquest",
+     "signer": false,
+     "writable": true
+    },
+    {
+     "address": "2udR3Huk3rhDg1kwZPbxQx2HnqkeS9yLaEowqYshr8re",
+     "name": "capture_escrow",
+     "signer": false,
+     "writable": true
+    },
+    {
+     "address": "11111111111111111111111111111111",
+     "name": "system",
+     "signer": false,
+     "writable": false
+    }
+   ],
+   "site": 0,
+   "standing": {
+    "p": "129",
+    "q": "-1"
+   },
+   "standing_key": "0115f8724317bffe99bbc72bfdc668430ecb5528f641abf3f8aa7e7680ed1028490000000000000081050000000000000080",
+   "wallet": "US517G5965aydkZ46HS38QLi7UQiSojurfbQfKCELFx"
+  },
+  {
+   "content_digest": "82e00243a94db65f8293c33b3cc91a15edcb79d1c85cab70a2dbbc11e234ca64",
+   "entry": 0,
+   "host": "0115f8724317bffe99bbc72bfdc668430ecb5528f641abf3f8aa7e7680ed1028490000000000000080000000000000000000010200000000",
+   "inner_hex": "daff01050300",
+   "roles": [
+    {
+     "address": "YMN9Qj5jPNp7j14VPcML1B6xGgcPWVZUGLFU3Mnyfaf",
+     "name": "actor",
+     "signer": true,
+     "writable": true
+    },
+    {
+     "address": "YMN9Qj5jPNp7j14VPcML1B6xGgcPWVZUGLFU3Mnyfaf",
+     "name": "payer",
+     "signer": true,
+     "writable": true
+    },
+    {
+     "address": "LbUiWL3xVV8hTFYBVdbTNrpDo41NKS6o3LHHuDzjfcY",
+     "name": "season",
+     "signer": false,
+     "writable": false
+    },
+    {
+     "address": "Ajj4S2nw9atxcuBNwNWdKcwPrizR7VoFb7vCXBw6k89k",
+     "name": "citizen",
+     "signer": false,
+     "writable": true
+    },
+    {
+     "address": "BUywz81ckUb4GYnJyw5NzYT7TXceFE8nYyukESWWRkhS",
+     "name": "source_holding",
+     "signer": false,
+     "writable": true
+    },
+    {
+     "address": "BBzS6D7MdqMQfHJV1wYEY3eAjQLVKuxFKaCdcAVcH2m8",
+     "name": "target_province",
+     "signer": false,
+     "writable": true
+    },
+    {
+     "address": "4HLsBi82iM9SM12MEx41Nx66G1GYNWyPVzmx7DETBMYS",
+     "name": "target_roster",
+     "signer": false,
+     "writable": false
+    },
+    {
+     "address": "BTVHnWigogFLC58XRBKQQaa5di9nBuUAWomNH8PCUEJ3",
+     "name": "source_province",
+     "signer": false,
+     "writable": false
+    },
+    {
+     "address": "J92fL2wUya35TcsvxH6p1KQUzpEveqrreD7kkCAYExcM",
+     "name": "target_holding_position",
+     "signer": false,
+     "writable": false
+    },
+    {
+     "address": "BsdnCoi2deALrxHZpkar2qjqRQnKEDCap5zSwkQ2WUvN",
+     "name": "conquest",
+     "signer": false,
+     "writable": true
+    },
+    {
+     "address": "7yeTkC6fQaVcmVsQuJkujaXVXdgc3wgqMArGmrwBruUu",
+     "name": "capture_escrow",
+     "signer": false,
+     "writable": true
+    },
+    {
+     "address": "11111111111111111111111111111111",
+     "name": "system",
+     "signer": false,
+     "writable": false
+    }
+   ],
+   "site": 3,
+   "standing": {
+    "p": "129",
+    "q": "0"
+   },
+   "standing_key": "0115f8724317bffe99bbc72bfdc668430ecb5528f641abf3f8aa7e7680ed1028490000000000000081000000000000000000",
+   "wallet": "YMN9Qj5jPNp7j14VPcML1B6xGgcPWVZUGLFU3Mnyfaf"
+  }
+ ],
+ "home": {
+  "gen": 2,
+  "p": 128,
+  "q": 0,
+  "seq": 0,
+  "site": 1
+ },
+ "program": "GgBaCs3NCBuZN12kCJgAW63ydqohFkHEdfdEXBPzLHq",
+ "schema": "frontier-wide-conquest-declare-siege-vector-v1",
+ "season": "LbUiWL3xVV8hTFYBVdbTNrpDo41NKS6o3LHHuDzjfcY",
+ "source": "frontier-node/crates/fclient/tests/wide_conquest_draft.rs (Rust: frontier-abi address helpers)"
+}

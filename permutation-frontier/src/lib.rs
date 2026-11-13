@@ -46,8 +46,34 @@
 
 // Unallocated wide ABI must not become a deployable SBF binary. Host-only
 // until complete lifecycle, ruleset and allocation have been reviewed.
-#[cfg(all(target_os = "solana", feature = "wide-world-experimental"))]
+// The one exception is the isolated localnet lane below (dedicated id,
+// marker and build script); every other wide SBF build stays refused.
+#[cfg(all(
+    target_os = "solana",
+    feature = "wide-world-experimental",
+    not(feature = "localnet-expedition-sbf")
+))]
 compile_error!("wide-world-experimental is a host-only draft, not deployable");
+// The localnet SBF lane uses the real SBF syscalls only: no host proof,
+// native-crypto, oracle, test-beacon, trace or other preview substitutes.
+#[cfg(all(feature = "localnet-expedition-sbf", any(
+    feature = "public-proof-tests", feature = "native-crypto-tests",
+    feature = "oracle", feature = "test-beacon", feature = "trace",
+    feature = "runtime-contract-tests"
+)))]
+compile_error!("localnet-expedition-sbf cannot combine with host proof, crypto, oracle, beacon or trace features");
+
+// The conquest kinds 12–17 never reach an SBF artefact except through the
+// dedicated conquest lane, so an expedition-lane (or any other) SBF build can
+// never accept them without carrying PSF_LOCALNET_CONQUEST_SBF_BUILD.
+#[cfg(all(
+    target_os = "solana",
+    feature = "conquest-dispatch-experimental",
+    not(feature = "localnet-conquest-sbf")
+))]
+compile_error!("conquest-dispatch-experimental on SBF requires localnet-conquest-sbf (its marker and build script)");
+#[cfg(all(feature = "localnet-conquest-sbf", not(feature = "localnet-expedition-sbf")))]
+compile_error!("localnet-conquest-sbf extends the localnet-expedition-sbf lane only");
 
 #[cfg(all(feature = "expedition-dispatch-experimental", any(
     feature = "nft-experimental", feature = "rights-experimental",
@@ -174,6 +200,41 @@ pub const PROGRAM_VERSION: u16 = frontier_abi::v2::presets::PROGRAM_VERSION_S1
     | capacity_bit();
 #[cfg(feature = "expedition-dispatch-experimental")]
 pub const PROGRAM_VERSION: u16 = frontier_abi::world_index::expedition_dispatch_ix::PROGRAM_VERSION;
+
+/// The only program id the `localnet-expedition-sbf` lane runs under. Not a
+/// keypair's public key; production ids come from deploy keypairs and are
+/// never this value.
+pub const LOCALNET_EXPEDITION_PROGRAM_ID: [u8; 32] = [0x45; 32];
+
+/// `program_id` is the localnet lane's dedicated id (keeps its marker alive).
+#[cfg(feature = "localnet-expedition-sbf")]
+#[inline(always)]
+pub fn localnet_identity_ok(program_id: &solana_program::pubkey::Pubkey) -> bool {
+    markers::touch_localnet_expedition_sbf();
+    program_id.to_bytes() == LOCALNET_EXPEDITION_PROGRAM_ID
+}
+
+#[cfg(all(test, feature = "localnet-expedition-sbf"))]
+mod localnet_identity_tests {
+    use solana_program::pubkey::Pubkey;
+
+    #[test]
+    fn only_the_dedicated_id_reaches_any_route() {
+        let ok = Pubkey::new_from_array(super::LOCALNET_EXPEDITION_PROGRAM_ID);
+        assert!(super::localnet_identity_ok(&ok));
+        for other in [[0x12; 32], [0; 32], [0x44; 32]] {
+            let p = Pubkey::new_from_array(other);
+            assert!(!super::localnet_identity_ok(&p));
+            // refused before any routing, whatever the bytes
+            for data in [&[][..], &[0xda, 0xff, 0x02, 0x00], &[0x01]] {
+                assert_eq!(
+                    super::dispatch(&p, &[], data),
+                    Err(super::FrontierError::BadAddress.into())
+                );
+            }
+        }
+    }
+}
 /// Custody remains a separate preview. No version is allocated for its
 /// combination with NFT residents or the host-only wide writer.
 #[cfg(feature = "custody-preview")]
@@ -218,6 +279,12 @@ pub fn dispatch(
     accounts: &[solana_program::account_info::AccountInfo],
     data: &[u8],
 ) -> R<()> {
+    // Isolated localnet lane: only under its dedicated program id, on every
+    // path (before any routing).
+    #[cfg(feature = "localnet-expedition-sbf")]
+    if !localnet_identity_ok(program_id) {
+        return Err(FrontierError::BadAddress.into());
+    }
     #[cfg(feature = "nft-experimental")]
     if data
         .first()

@@ -272,17 +272,15 @@ pub(super) fn paired(table: &WideConquest, pd: &[u8]) -> R<()> {
     Ok(())
 }
 
+/// The one shared judgement (`wres::siege_eligible`), also used when a
+/// reservation is applied at its bell.
 fn eligible(e: &Entry, tile: u8, faction: u8, bell: u32) -> bool {
-    e.state == E::STATE_ROSTER
-        && e.from_bell <= bell
-        && !e.busy()
-        && unit_from_u8(e.unit).is_some_and(|u| !u.is_civilian())
-        && e.troops > 0
-        && e.faction == faction
-        && e.tile == tile
+    wres::siege_eligible(e, tile, faction, bell)
 }
 
 /// Full identity, never the truncated alias, decides the equal-troops lead.
+/// The one shared judgement (`wres::siege_lead`), also used when a
+/// reservation is applied at its bell.
 fn lead(
     pd: &[u8],
     roster: &WideRoster,
@@ -291,31 +289,25 @@ fn lead(
     faction: u8,
     bell: u32,
 ) -> R<Option<(usize, WideHostRef)>> {
-    roster
-        .validate_paired(rd, &wres::live_ids(pd).map_err(resolve_err)?)
-        .map_err(|_| BAD_ACCOUNT)?;
-    let table = roster.table(rd).map_err(|_| BAD_ACCOUNT)?;
-    let mut best: Option<(usize, WideHostRef, u32)> = None;
-    for i in 0..PV::ENTRIES_N {
-        let e = read_entry(pd, i).map_err(|_| BAD_ACCOUNT)?;
-        if e.state != E::STATE_FREE && !table.iter().any(|(j, alias, _)| *j == i && *alias == e.id)
-        {
-            return Err(BAD_ACCOUNT);
-        }
-        if !eligible(&e, tile, faction, bell) {
-            continue;
-        }
-        let (_, _, host) = table
-            .iter()
-            .find(|(j, alias, _)| *j == i && *alias == e.id)
-            .ok_or(BAD_ACCOUNT)?;
-        if best
-            .is_none_or(|(_, old, troops)| e.troops > troops || (e.troops == troops && *host < old))
-        {
-            best = Some((i, *host, e.troops));
-        }
+    wres::siege_lead(pd, roster, rd, tile, faction, bell).map_err(|_| BAD_ACCOUNT)
+}
+
+/// Experimental conquest lane: a declaration behind the resolved cursor, or on
+/// a site with a pending reservation, is a reservation.
+#[cfg(feature = "conquest-dispatch-experimental")]
+fn reservation_path(behind: bool, table: Option<&WideConquest>, site: u8) -> R<bool> {
+    Ok(behind || table.is_some_and(|t| t.has_pending(site)))
+}
+/// The reservation receipt action (conquest lane only; the reserving arm does not exist elsewhere).
+#[cfg(feature = "conquest-dispatch-experimental")]
+const RESERVE_ACTION: u8 = receipts::RESERVE;
+/// Every other build keeps the refusal unchanged.
+#[cfg(not(feature = "conquest-dispatch-experimental"))]
+fn reservation_path(behind: bool, _table: Option<&WideConquest>, _site: u8) -> R<bool> {
+    if behind {
+        return Err(FrontierError::NotResident.into());
     }
-    Ok(best.map(|(i, h, _)| (i, h)))
+    Ok(false)
 }
 
 pub(super) fn declare_siege_inner(
@@ -487,9 +479,18 @@ fn declare_siege_context(
     // conquest validator rejects declarations from the future. Unlike ordinary
     // pending host orders, declaration therefore needs every earlier bell done.
     // Refuse before any live write/CPI instead of stranding the province cursor.
-    if r.u32(PV::RESOLVED_NEXT)? < bell {
-        return Err(FrontierError::NotResident.into());
-    }
+    //
+    // Experimental conquest lane: such a declaration (or any while the site
+    // has a pending reservation, which it must not overtake) becomes a
+    // reservation for this bell, applied by the conquest resolve when it
+    // reaches the bell (`CLAUDE-CONQUEST-RESERVATION-SPEC-20261112.md`).
+    // Every other build keeps the refusal.
+    let present_table = table_at(table_ai, p, &ctx, hdr.id, pkey)?;
+    let reserving = reservation_path(
+        r.u32(PV::RESOLVED_NEXT)? < bell,
+        present_table.as_ref(),
+        x.site,
+    )?;
     let faction = Ro(cd).u8(C::FACTION)?;
     let tile = r.u8(PV::SITES + site)?;
     let chosen = read_entry(pd, x.entry as usize).map_err(|_| cq(CqError::NotOnHex))?;
@@ -501,19 +502,21 @@ fn declare_siege_context(
     {
         return Err(cq(CqError::NotOnHex));
     }
-    if !eligible(&chosen, tile, faction, bell)
+    // A reservation names its host now; its position, eligibility and lead
+    // describe the bell, so they are judged only when the bell is applied.
+    if (!reserving && !eligible(&chosen, tile, faction, bell))
         || chosen_ref.key() != ProvinceKey::new(world, source_h.coord)
         || chosen_ref.site() != source_h.site
         || chosen_ref.gen() != source_h.gen
     {
         return Err(cq(CqError::NotOnHex));
     }
-    if lead(pd, &roster, &before[6].data, tile, faction, bell)?
-        != Some((x.entry as usize, chosen_ref))
+    if !reserving
+        && lead(pd, &roster, &before[6].data, tile, faction, bell)?
+            != Some((x.entry as usize, chosen_ref))
     {
         return Err(cq(CqError::NotLead));
     }
-    let present_table = table_at(table_ai, p, &ctx, hdr.id, pkey)?;
     let new_table = present_table.is_none();
     let table = match present_table {
         Some(t) => t,
@@ -579,20 +582,79 @@ fn declare_siege_context(
         original_target_gen: 0,
         declaration_bell: bell,
     };
-    let plan = table
-        .declare(
-            x.site,
-            prefix,
-            SiteTransitionMirror {
-                state: r.u8(off + SM::STATE)?,
-                gen: 0,
-                order: r.u8(off + SM::ORDER)?,
-                held_since_hour: r.u16(off + SM2::HELD_SINCE_HOUR)?,
-                walls_committed: r.u32(off + SM::WALLS_COMMITTED)?,
-            },
-            entry,
-        )
-        .map_err(|_| BAD_ACCOUNT)?;
+    let mut cost = permutation_rules::frontier::arms::siege_cost();
+    cost[permutation_rules::frontier::holding::Resource::Gold as usize] =
+        (cq_params.siege_stake_gold as i64)
+            .checked_mul(MILLI)
+            .ok_or(OVERFLOW)?;
+    // A reservation records everything it collects, so a not-applied one is
+    // returned exactly. Refuse rather than leave a cost component unrecorded.
+    let arms_i = permutation_rules::frontier::arms::ARMS as usize;
+    let gold_i = permutation_rules::frontier::holding::Resource::Gold as usize;
+    if reserving
+        && cost
+            .iter()
+            .enumerate()
+            .any(|(i, c)| *c != 0 && i != arms_i && i != gold_i || *c < 0)
+    {
+        return Err(BAD_ACCOUNT);
+    }
+    // The reservation codec/API exists only in the conquest lane (v2 table); every other build keeps the original
+    // immediate path and refuses before this point (`reservation_path` returns NotResident), so this arm is
+    // compiled only with the feature.
+    #[cfg(not(feature = "conquest-dispatch-experimental"))]
+    if reserving {
+        return Err(FrontierError::NotResident.into());
+    }
+    #[cfg(feature = "conquest-dispatch-experimental")]
+    let reserved: Option<(WideConquest, Record, u8, Option<u32>)> = if reserving {
+        let res = wc::Reservation {
+            status: wc::RES_PENDING,
+            site: x.site,
+            entry: x.entry,
+            reserved_slot: slot,
+            faction,
+            done: 0,
+            bell,
+            seq: 0,
+            citizen: key(citizen),
+            host: chosen_ref,
+            actor_tag: start.citizen_tag,
+            gold_milli: cost[gold_i] as u64,
+            arms_milli: cost[arms_i] as u64,
+        };
+        let (t, pf, r) = table.reserve(prefix, res).map_err(|e| match e {
+            wc::ConquestError::Full => cq(CqError::SiegeBusy),
+            _ => BAD_ACCOUNT,
+        })?;
+        if r.source() != source_ref {
+            return Err(BAD_ACCOUNT);
+        }
+        Some((t, pf, RESERVE_ACTION, Some(r.seq)))
+    } else {
+        None
+    };
+    #[cfg(not(feature = "conquest-dispatch-experimental"))]
+    let reserved: Option<(WideConquest, Record, u8, Option<u32>)> = None;
+    let (conquest_after, prefix_after, action, reserved_seq) = if let Some(r) = reserved {
+        r
+    } else {
+        let plan = table
+            .declare(
+                x.site,
+                prefix,
+                SiteTransitionMirror {
+                    state: r.u8(off + SM::STATE)?,
+                    gen: 0,
+                    order: r.u8(off + SM::ORDER)?,
+                    held_since_hour: r.u16(off + SM2::HELD_SINCE_HOUR)?,
+                    walls_committed: r.u32(off + SM::WALLS_COMMITTED)?,
+                },
+                entry,
+            )
+            .map_err(|_| BAD_ACCOUNT)?;
+        (plan.conquest, plan.prefix, receipts::DECLARE, None)
+    };
     let present_escrow = escrow_at(escrow_ai, p, &ctx, hdr.id, world, key(citizen))?;
     let new_escrow = present_escrow.is_none();
     let escrow = match present_escrow {
@@ -626,11 +688,6 @@ fn declare_siege_context(
         .map_err(|_| BAD_ACCOUNT)?;
     let mut economic = hold::read_holding(&after[4].data)?;
     hold::touch(&mut economic, now.ts, hold::terrain_ore(hd)?)?;
-    let mut cost = permutation_rules::frontier::arms::siege_cost();
-    cost[permutation_rules::frontier::holding::Resource::Gold as usize] =
-        (cq_params.siege_stake_gold as i64)
-            .checked_mul(MILLI)
-            .ok_or(OVERFLOW)?;
     economic.pay(now.ts, &cost).map_err(hold::holding_err)?;
     hold::write_holding(&mut after[4].data, &economic, now.ts)?;
     start.finish(&mut after[3].data, now.ts)?;
@@ -638,20 +695,27 @@ fn declare_siege_context(
     Rw(&mut after[3].data).set_u16(C2::SIEGE_DAY, today)?;
     Rw(&mut after[3].data).set_u8(C2::SIEGES_TODAY, used.checked_add(1).ok_or(OVERFLOW)?)?;
     wc::mark(&mut after[3].data, slot).map_err(|_| BAD_ACCOUNT)?;
-    plan.prefix
+    prefix_after
         .write(&mut after[5].data, site)
         .map_err(|_| BAD_ACCOUNT)?;
-    after[9].data = plan.conquest.to_bytes().to_vec();
+    after[9].data = conquest_after.to_bytes().to_vec();
     after[10].data = escrow_out.to_bytes().to_vec();
-    escrow_out
-        .validate_paired(
-            &plan.conquest,
-            x.site,
-            plan.prefix,
+    match reserved_seq {
+        Some(seq) => escrow_out.validate_paired_reservation(
+            &conquest_after,
+            seq,
             key(citizen),
             &after[3].data,
-        )
-        .map_err(|_| BAD_ACCOUNT)?;
+        ),
+        None => escrow_out.validate_paired(
+            &conquest_after,
+            x.site,
+            prefix_after,
+            key(citizen),
+            &after[3].data,
+        ),
+    }
+    .map_err(|_| BAD_ACCOUNT)?;
     let table_need = if new_table {
         rent_table.saturating_sub(table_ai.lamports())
     } else {
@@ -689,7 +753,7 @@ fn declare_siege_context(
         replace(&mut after, i, next);
     }
     let payload = receipt(
-        1,
+        action,
         command,
         now.ts,
         bell,

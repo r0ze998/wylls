@@ -1115,12 +1115,190 @@ fn site_mirror(pd: &[u8], s: usize) -> R<SiteTransitionMirror> {
     })
 }
 
+/// The DeclareSiege host eligibility on a tile at bell `b`. The program's
+/// DeclareSiege and the reservation application both call this one copy.
+pub fn siege_eligible(e: &Entry, tile: u8, faction: u8, bell: u32) -> bool {
+    e.state == E::STATE_ROSTER
+        && e.from_bell <= bell
+        && !e.busy()
+        && unit_from_u8(e.unit).is_some_and(|u| !u.is_civilian())
+        && e.troops > 0
+        && e.faction == faction
+        && e.tile == tile
+}
+
+/// The existing DeclareSiege lead of a tile at bell `b`: most troops, then
+/// the lowest full identity (never the truncated alias).
+pub fn siege_lead(
+    pd: &[u8],
+    roster: &WideRoster,
+    rd: &[u8],
+    tile: u8,
+    faction: u8,
+    bell: u32,
+) -> R<Option<(usize, WideHostRef)>> {
+    roster.validate_paired(rd, &live_ids(pd)?)?;
+    let table = roster.table(rd)?;
+    let mut best: Option<(usize, WideHostRef, MilliTroops)> = None;
+    for i in 0..P::ENTRIES_N {
+        let e = crate::entry::read_entry(pd, i).map_err(|_| BAD)?;
+        if e.state != E::STATE_FREE && !table.iter().any(|(j, alias, _)| *j == i && *alias == e.id)
+        {
+            return Err(BAD);
+        }
+        if !siege_eligible(&e, tile, faction, bell) {
+            continue;
+        }
+        let (_, _, host) = table
+            .iter()
+            .find(|(j, alias, _)| *j == i && *alias == e.id)
+            .ok_or(BAD)?;
+        if best
+            .is_none_or(|(_, old, troops)| e.troops > troops || (e.troops == troops && *host < old))
+        {
+            best = Some((i, *host, e.troops));
+        }
+    }
+    Ok(best.map(|(i, h, _)| (i, h)))
+}
+
+/// The site's walls at bell `b` (committed plus matured items, capped).
+pub fn siege_walls_at(pd: &[u8], s: usize, b: u32) -> R<u32> {
+    let m = mirror(pd, s)?;
+    let mut w = m32(m, SM::WALLS_COMMITTED);
+    for (eb, dl) in [
+        (SM::WALL_ITEM0_BELL, SM::WALL_ITEM0_DELTA),
+        (SM::WALL_ITEM1_BELL, SM::WALL_ITEM1_DELTA),
+    ] {
+        let delta = m32(m, dl);
+        if delta > 0 && m32(m, eb) <= b {
+            w = w.saturating_add(delta);
+        }
+    }
+    Ok(w.min(permutation_rules::frontier::holding::MAX_WALLS))
+}
+
+/// The site entry a reservation becomes at bell `b`, or `None` when any
+/// state condition of the immediate declaration fails at that bell (R4).
+/// Structural corruption is an error, never a quiet non-application.
+#[cfg(feature = "conquest-dispatch-experimental")]
+#[allow(clippy::too_many_arguments)]
+fn reservation_entry(
+    pd: &[u8],
+    roster: &WideRoster,
+    rd: &[u8],
+    conquest: &WideConquest,
+    s: usize,
+    r: &super::conquest::Reservation,
+    b: u32,
+    prm: &StepParams,
+) -> R<Option<super::conquest::WideConquestEntry>> {
+    let n = *pd.get(P::SITE_COUNT).ok_or(BAD)? as usize;
+    let prefix = Record::read(pd, s)?;
+    if s >= n
+        || conquest.entry(s as u8)?.is_some()
+        || prefix.kind != CR::KIND_NONE
+        || prefix.flags & CR::OWED_MASK != 0
+    {
+        return Ok(None);
+    }
+    let m = site_mirror(pd, s)?;
+    if m.state != SM2::STATE_FREE_CITY || m.gen != 0 || m.order != 0 || mirror(pd, s)?[SM::FACTION] != NEUTRAL
+    {
+        return Ok(None);
+    }
+    if roster.ref_at(rd, r.entry as usize)? != Some(r.host) {
+        return Ok(None);
+    }
+    let tile = *pd.get(P::SITES + s).ok_or(BAD)?;
+    let e = crate::entry::read_entry(pd, r.entry as usize).map_err(|_| BAD)?;
+    if !siege_eligible(&e, tile, r.faction, b)
+        || siege_lead(pd, roster, rd, tile, r.faction, b)? != Some((r.entry as usize, r.host))
+    {
+        return Ok(None);
+    }
+    let required = permutation_rules::frontier::siege::required_bells(siege_walls_at(pd, s, b)?, 0)
+        .min(u8::MAX as u32) as u8;
+    let from = b.checked_add(1).ok_or(ResolveError::Overflow)?;
+    if prm.end_bell.saturating_sub(from) < required as u32 {
+        return Ok(None);
+    }
+    Ok(Some(super::conquest::WideConquestEntry {
+        rules: crate::conquest_model::SiteRecordRules {
+            kind: CR::KIND_SIEGE,
+            faction: r.faction,
+            flags: CR::FLAG_HELD | CR::FLAG_NEUTRAL,
+            progress: 0,
+            required,
+            target: CR::target(CR::TARGET_FREE_CITY, r.reserved_slot),
+            vigil_start: 0,
+            vigil_next: 0,
+            vigil_from_day: 0,
+            bell: b,
+        },
+        citizen: r.citizen,
+        source: Some(r.source()),
+        actor_tag: r.actor_tag,
+        reserved_slot: r.reserved_slot,
+        original_target_gen: 0,
+        declaration_bell: b,
+    }))
+}
+
+/// Apply bell `b`'s reservations before its clash (spec §4.4b): per site, in
+/// reservation order, the first that passes R4 applies; every other one of
+/// that (site, bell) becomes NOT_APPLIED. Writes only `pd` (a scratch copy).
+#[cfg(feature = "conquest-dispatch-experimental")]
+fn apply_reservations(
+    pd: &mut [u8],
+    roster: &WideRoster,
+    rd: &[u8],
+    mut conquest: WideConquest,
+    b: u32,
+    prm: &StepParams,
+) -> R<(WideConquest, bool)> {
+    if conquest.stale_pending(b) {
+        return Err(ConquestError::Stale.into());
+    }
+    let mut changed = false;
+    for s in 0..P::SITES_N {
+        let list = conquest.pending_at(s as u8, b);
+        if list.is_empty() {
+            continue;
+        }
+        let mut applied = false;
+        for (i, r) in list {
+            let entry = if applied {
+                None
+            } else {
+                reservation_entry(pd, roster, rd, &conquest, s, &r, b, prm)?
+            };
+            if let Some(entry) = entry {
+                let plan = conquest.apply_reservation(i, entry)?;
+                plan.prefix.write(pd, s)?;
+                conquest = plan.conquest;
+                applied = true;
+            } else {
+                conquest = conquest.not_apply(i)?;
+            }
+            changed = true;
+        }
+        if conquest.entry(s as u8)?.is_none() {
+            conquest.idle_prefix(s as u8, Record::read(pd, s)?)?.write(pd, s)?;
+        }
+    }
+    Ok((conquest, changed))
+}
+
 // Validate every position, not just currently active sieges. This is the only
 // admission to build_supported other than the strict no-conquest wrapper.
 fn validate_conquest(pd: &[u8], table: &[u8], b: u32) -> R<WideConquest> {
     let id = WideProvince::read(pd)?;
     let key = ProvinceKey::new(id.world, id.coord);
     let conquest = WideConquest::read(table, id.season_id, key)?;
+    if conquest.stale_pending(b) {
+        return Err(ConquestError::Stale.into());
+    }
     if !forts_at(pd, b)?.is_empty() {
         return Err(Unported::Fort.into());
     }
@@ -1227,9 +1405,17 @@ pub fn resolve_bell_with_conquest(
     if b >= prm.end_bell {
         return Err(ConquestError::TooEarly.into());
     }
-    let mut conquest = validate_conquest(pd, table, b)?;
-    let built = build_supported(pd, roster, rd, inputs, b)?;
+    let conquest = validate_conquest(pd, table, b)?;
+    // Reservations of bell `b` apply first, where an immediate declaration
+    // made in bell `b` would already stand (spec R3).
     let mut scratch = pd.to_vec();
+    // only the conquest lane has reservations at all (v2 table); elsewhere the bell runs exactly as before
+    #[cfg(feature = "conquest-dispatch-experimental")]
+    let (mut conquest, reservations_changed) =
+        apply_reservations(&mut scratch, roster, rd, conquest, b, prm)?;
+    #[cfg(not(feature = "conquest-dispatch-experimental"))]
+    let (mut conquest, reservations_changed) = (conquest, false);
+    let built = build_supported(&scratch, roster, rd, inputs, b)?;
     let mut refs = rd.to_vec();
     let clash = resolve(rules, &built, seed)?;
     let applied = apply(&mut scratch, roster, &mut refs, &built, &clash)?;
@@ -1240,7 +1426,7 @@ pub fn resolve_bell_with_conquest(
     // keep, hourly snapshot. Neither clash nor settle changes keep ownership.
     score_territory(&mut scratch, b, prm.end_bell)?;
     let mut site_events = Vec::new();
-    let mut records_changed = false;
+    let mut records_changed = reservations_changed;
     let mut mirrors_changed = false;
     for (s, report) in reports.iter().enumerate() {
         if let Some(e) = conquest.entry(s as u8)? {

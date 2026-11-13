@@ -103,6 +103,14 @@ fn ctx(c: &Chain, value: Value) -> Value {
     json!({"context": {"slot": c.slot(), "apiVersion": "3.1.9"}, "value": value})
 }
 
+/// `getSignatureStatuses` only: the usual context plus this running chain
+/// instance (`context.instance`, 64 hex), read under the same lock as the
+/// statuses, so a client can tell a "null" of the instance that accepted a
+/// send from one after a restart or rewind.
+fn ctx_status(c: &Chain, value: Value) -> Value {
+    json!({"context": {"slot": c.slot(), "apiVersion": "3.1.9", "instance": hex::encode(c.status_instance())}, "value": value})
+}
+
 fn tx_bytes(p: &Value) -> Result<Vec<u8>, RpcErr> {
     let s = p
         .get(0)
@@ -510,7 +518,7 @@ fn handle(state: &Shared, method: &str, p: &Value) -> Result<Value, RpcErr> {
                         "status": status_json(l), "confirmationStatus": "finalized"}),
                 })
                 .collect();
-            Ok(ctx(&c, json!(v)))
+            Ok(ctx_status(&c, json!(v)))
         }
         "getTransaction" => {
             let s = sig(p.get(0).unwrap_or(&Value::Null))?;
@@ -777,12 +785,41 @@ fn send_err(e: SendError) -> RpcErr {
     }
 }
 
-async fn rpc(State(state): State<Shared>, Json(req): Json<Value>) -> Json<Value> {
+/// An explicit, opt-in narrowing of the loopback extensions. The default
+/// (`Policy::default()`) serves every method exactly as before; nothing
+/// changes unless a caller asks for a policy.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct Policy {
+    /// Refuse `frontier_snapshot`, `frontier_restore` and
+    /// `frontier_setAccount` before their parameters are read: no file is
+    /// read or written and the chain is not touched.
+    pub memory_only: bool,
+}
+
+impl Policy {
+    /// A node whose state lives and dies in memory: no snapshot to a path,
+    /// no restore from one, no direct account write.
+    pub const MEMORY_ONLY: Policy = Policy { memory_only: true };
+
+    fn refuse(&self, method: &str) -> Option<RpcErr> {
+        let denied = self.memory_only
+            && matches!(method, "frontier_snapshot" | "frontier_restore" | "frontier_setAccount");
+        denied.then(|| err(-32601, format!("{method} is disabled on this memory-only node")))
+    }
+}
+
+/// One JSON-RPC request or batch under `policy` (refusals before any
+/// parameter is read or any handler runs).
+fn respond(state: &Shared, policy: Policy, req: &Value) -> Value {
     let one = |r: &Value| -> Value {
         let id = r.get("id").cloned().unwrap_or(Value::Null);
         let method = r.get("method").and_then(|m| m.as_str()).unwrap_or("");
         let params = r.get("params").cloned().unwrap_or(json!([]));
-        match handle(&state, method, &params) {
+        let result = match policy.refuse(method) {
+            Some(e) => Err(e),
+            None => handle(state, method, &params),
+        };
+        match result {
             Ok(v) => json!({"jsonrpc": "2.0", "id": id, "result": v}),
             Err(e) => {
                 let mut o = json!({"code": e.code, "message": e.message});
@@ -793,15 +830,27 @@ async fn rpc(State(state): State<Shared>, Json(req): Json<Value>) -> Json<Value>
             }
         }
     };
-    Json(match &req {
+    match req {
         Value::Array(batch) => Value::Array(batch.iter().map(one).collect()),
         r => one(r),
-    })
+    }
 }
 
-/// The HTTP router.
+async fn rpc(
+    State((state, policy)): State<(Shared, Policy)>,
+    Json(req): Json<Value>,
+) -> Json<Value> {
+    Json(respond(&state, policy, &req))
+}
+
+/// The HTTP router (every extension served, as always).
 pub fn router(state: Shared) -> Router {
-    Router::new().route("/", post(rpc)).with_state(state)
+    router_with(state, Policy::default())
+}
+
+/// The HTTP router under an explicit [`Policy`].
+pub fn router_with(state: Shared, policy: Policy) -> Router {
+    Router::new().route("/", post(rpc)).with_state((state, policy))
 }
 
 /// The 400-ms slot ticker (real time at every scale, I-54).
@@ -853,6 +902,16 @@ pub async fn start(state: Shared, port: u16) -> Result<Running, String> {
 
 /// As [`start`], with an explicit WebSocket port.
 pub async fn start_with(state: Shared, port: u16, ws_port: u16) -> Result<Running, String> {
+    start_with_policy(state, port, ws_port, Policy::default()).await
+}
+
+/// As [`start_with`], under an explicit [`Policy`] (opt-in narrowing).
+pub async fn start_with_policy(
+    state: Shared,
+    port: u16,
+    ws_port: u16,
+    policy: Policy,
+) -> Result<Running, String> {
     check_port(port)?;
     check_port(ws_port)?;
     let listener = tokio::net::TcpListener::bind(("127.0.0.1", port))
@@ -863,7 +922,7 @@ pub async fn start_with(state: Shared, port: u16, ws_port: u16) -> Result<Runnin
         .map_err(|e| format!("bind 127.0.0.1:{ws_port}: {e}"))?;
     let addr = listener.local_addr().map_err(|e| e.to_string())?;
     let ws_addr = wsl.local_addr().map_err(|e| e.to_string())?;
-    let app = router(state.clone());
+    let app = router_with(state.clone(), policy);
     let server = tokio::spawn(async move {
         let _ = axum::serve(listener, app).await;
     });
@@ -882,6 +941,112 @@ pub async fn start_with(state: Shared, port: u16, ws_port: u16) -> Result<Runnin
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn node() -> Shared {
+        let mut c = Chain::new(crate::Config::default());
+        c.airdrop(&Address::new_from_array([7; 32]), 5).unwrap();
+        c.produce_block();
+        Arc::new(Mutex::new(c))
+    }
+    fn call(s: &Shared, policy: Policy, method: &str, params: Value) -> Value {
+        respond(s, policy, &json!({"jsonrpc": "2.0", "id": 1, "method": method, "params": params}))
+    }
+
+    /// F2: only `getSignatureStatuses` carries `context.instance` (the
+    /// chain's runtime instance, 64 hex, not all zero); every other context
+    /// keeps exactly `slot` and `apiVersion`.
+    #[test]
+    fn only_signature_statuses_carry_the_runner_instance() {
+        let s = node();
+        let want = hex::encode(lock(&s).status_instance());
+        let sig = Signature::default().to_string();
+        let st = call(&s, Policy::default(), "getSignatureStatuses", json!([[sig]]));
+        let ctx = st["result"]["context"].as_object().unwrap();
+        let mut keys: Vec<_> = ctx.keys().cloned().collect();
+        keys.sort();
+        assert_eq!(keys, ["apiVersion", "instance", "slot"]);
+        assert_eq!(ctx["instance"], json!(want));
+        assert_eq!(want.len(), 64);
+        assert_ne!(want, "0".repeat(64));
+        let bal = call(&s, Policy::default(), "getBalance", json!([Address::new_from_array([7; 32]).to_string()]));
+        let mut keys: Vec<_> = bal["result"]["context"].as_object().unwrap().keys().cloned().collect();
+        keys.sort();
+        assert_eq!(keys, ["apiVersion", "slot"]);
+    }
+    /// A NEW directory this test owns: `create_dir` fails on an existing
+    /// path, so nothing already there is reused or removed; only this
+    /// directory is cleaned up afterwards.
+    fn scratch(name: &str) -> PathBuf {
+        let nanos = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        for n in 0..1000u32 {
+            let d = std::env::temp_dir().join(format!(
+                "localnet-policy-{}-{name}-{nanos}-{n}",
+                std::process::id()
+            ));
+            if std::fs::create_dir(&d).is_ok() {
+                return d;
+            }
+        }
+        panic!("no fresh scratch directory")
+    }
+
+    /// The memory-only policy refuses snapshot, restore and setAccount
+    /// before reading a parameter: no file appears or is read, the chain
+    /// is unchanged; other methods still answer, in batches too.
+    #[test]
+    fn memory_only_refuses_snapshot_restore_and_account_writes_without_effects() {
+        let dir = scratch("refuse");
+        // a real snapshot made by a default node, for the restore attempt
+        let donor = node();
+        let made = dir.join("donor.snap");
+        assert!(call(&donor, Policy::default(), "frontier_snapshot", json!([made.to_str().unwrap()]))["result"].is_object());
+        let donor_bytes = std::fs::read(&made).unwrap();
+        let s = node();
+        let before = lock(&s).state_hash();
+        let target = dir.join("never.snap");
+        for (method, params) in [
+            ("frontier_snapshot", json!([target.to_str().unwrap()])),
+            ("frontier_snapshot", json!([])),
+            ("frontier_restore", json!([made.to_str().unwrap()])),
+            ("frontier_setAccount", json!([Address::new_from_array([9; 32]).to_string(), null])),
+        ] {
+            let r = call(&s, Policy::MEMORY_ONLY, method, params);
+            assert_eq!(r["error"]["code"], -32601, "{method}: {r}");
+            assert!(r["error"]["message"].as_str().unwrap().contains("memory-only"));
+        }
+        assert!(!target.exists());
+        assert_eq!(std::fs::read(&made).unwrap(), donor_bytes);
+        assert_eq!(lock(&s).state_hash(), before);
+        let batch = respond(&s, Policy::MEMORY_ONLY, &json!([
+            {"jsonrpc": "2.0", "id": 1, "method": "frontier_stateHash"},
+            {"jsonrpc": "2.0", "id": 2, "method": "frontier_restore", "params": [made.to_str().unwrap()]},
+        ]));
+        assert!(batch[0]["result"]["stateHash"].is_string());
+        assert_eq!(batch[1]["error"]["code"], -32601);
+        assert_eq!(lock(&s).state_hash(), before);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// The default policy is the old behaviour: snapshot to a path and
+    /// restore from it work, setAccount still answers by `allow_tamper`.
+    #[test]
+    fn the_default_policy_keeps_every_extension() {
+        assert_eq!(Policy::default(), Policy { memory_only: false });
+        let dir = scratch("default");
+        let s = node();
+        let path = dir.join("a.snap");
+        let r = call(&s, Policy::default(), "frontier_snapshot", json!([path.to_str().unwrap()]));
+        assert!(r["result"].is_object(), "{r}");
+        assert!(path.exists());
+        let r = call(&s, Policy::default(), "frontier_restore", json!([path.to_str().unwrap()]));
+        assert!(r["result"].is_object(), "{r}");
+        let r = call(&s, Policy::default(), "frontier_setAccount", json!([Address::new_from_array([9; 32]).to_string(), null]));
+        assert!(r["error"]["message"].as_str().unwrap().contains("--allow-tamper"), "{r}");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 
     /// An oversized or overflowing `dataSlice` is clipped to the account's
     /// data, never a wrap and a worker panic (integ-W2 review of W2-C:

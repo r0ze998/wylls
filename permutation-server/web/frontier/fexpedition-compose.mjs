@@ -29,6 +29,20 @@ const snapshots = new WeakMap();
 const routeReads = new WeakMap();
 const contextReads = new WeakMap();
 const cancelRouteRead = fs => { for (const reads of [routeReads, contextReads]) { reads.get(fs)?.abort(); reads.delete(fs); } };
+// What each finished observation was read for (the draft's source and steps), kept beside it and never inside it:
+// an arrival candidate is taken only from an observation still bound to the draft as it stands.
+const observed = new WeakMap();
+// (what an observation is of: this source, these steps, and the clock as the page had seen it when the read began)
+const bindingOf = (source, directions, seen) => stable([source, directions, seen]);
+const u32 = x => Number.isInteger(x) && x >= 0 && x <= 0xffffffff;
+/** Report codes that leave the route itself sound: only the entered arrival turn is missing or outside the range. */
+// (ArrivalAfterSeason too: fexpedition-route.mjs works the range out before it answers so, and a turn entered too far
+// ahead must be able to come back to the earliest one)
+const ARRIVAL_ONLY = Object.freeze(['ArrivalRequired', 'ArrivalTooEarly', 'ArrivalTooLate', 'ArrivalAfterSeason']);
+// The draft's revision: moved by every rebuild and every clear. A press that waits on a read is the same press at
+// its end only while this has not moved.
+const revisions = new WeakMap();
+const bump = fs => revisions.set(fs, (revisions.get(fs) ?? 0) + 1);
 const empty = () => ({ directions: [], arriveBell: '', stance: 0, retreat: 'never', ratio: '', tip: 'standard',
   status: 'idle', source: null, trace: null, map: null, review: null, routeCheck: null, contextCheck: null, error: null, ...OUTBOUND_CLOSED });
 
@@ -78,23 +92,78 @@ export function outboundSource(fs, { pin } = {}) {
     seasonFacts: stable(['genesisTs', 'endBell', 'minRevealPriorityMilli', 'revealCuLimit', 'revealLoadedLimit', 'marchFee', 'sealBond',
       'drandGenesis', 'drandPeriod', 'seedMargin', 'revealWindow', 'windowFromBell', 'windowNext', 'quicknetPkHash',
       'status', 'minLead', 'maxLead', 'stances'].map(k => fs.season[k])),
-    clockFacts: stable({ nowBell: fs.nowBell ?? null, clock: fs.clock ?? null,
-      rate: fs.chain?.rate ?? null, accelerated: fs.chain?.accelerated ?? null, declared: fs.chain?.declared ?? null, last: fs.chain?.last ? { slot: fs.chain.last.slot, unix: fs.chain.last.unix } : null }) };
+    // The clock's SETTINGS are part of what the draft is bound to: another season schedule (`fs.clock`), or another
+    // policy of the chain's clock (accelerated, declared), is another source, and the draft is dropped. What the
+    // clock has been OBSERVED to say is not (outboundClockSeen): the turn, the last slot and its time, and the
+    // measured rate move with every ordinary poll of the same host, owner and connection.
+    clockConfig: stable({ clock: fs.clock ?? null, accelerated: fs.chain?.accelerated ?? null, declared: fs.chain?.declared ?? null }) };
+}
+/**
+ * What the clock has been observed to say, as the page has it now: the turn, the last observed slot and its time,
+ * and the measured rate. Not part of the draft's source. Everything OBSERVED or WORKED OUT for the draft (the route
+ * read, the departure-conditions read, the review) is of the clock it was made under: when this moves FORWARD they
+ * are dropped and the review is worked out again from the same source (reconcileOutbound), so a departure is read
+ * and reviewed again before anything is signed; the steps and the fields the player entered are kept. A clock that
+ * goes BACKWARD (an earlier turn, slot or time, or one that is no longer known) is not this draft's clock at all:
+ * the draft is dropped, as for any other change of source.
+ */
+export function outboundClockSeen(fs) {
+  const last = fs.chain?.last ?? null, rate = fs.chain?.rate ?? null, bell = fs.nowBell ?? null;
+  // Checked before it is written down or compared: a value that is not a clock reading is refused even when it
+  // has not changed. Not yet observed (no turn, no `last`, no rate) is a reading of its own, and a legitimate one.
+  check(bell === null || (Number.isInteger(bell) && bell >= 0 && bell <= 0xffffffff), 'OutboundClockInvalid');
+  check(rate === null || (typeof rate === 'number' && Number.isFinite(rate) && rate > 0), 'OutboundClockInvalid');
+  let slot = null, unix = null;
+  if (last !== null) {
+    check(typeof last === 'object', 'OutboundClockInvalid');
+    const sl = last.slot, un = last.unix;
+    // the slot: a whole, non-negative u64 (a number only while it is a safe integer; a text only in its canonical form)
+    if (typeof sl === 'number') check(Number.isSafeInteger(sl) && sl >= 0, 'OutboundClockInvalid');
+    else if (typeof sl === 'bigint') check(sl >= 0n && sl <= 0xffffffffffffffffn, 'OutboundClockInvalid');
+    else check(typeof sl === 'string' && /^(0|[1-9][0-9]{0,19})$/.test(sl) && BigInt(sl) <= 0xffffffffffffffffn, 'OutboundClockInvalid');
+    slot = BigInt(sl).toString();
+    // its time: a finite, non-negative number (seconds; it may carry a fraction), or a whole non-negative one as a BigInt
+    if (typeof un === 'bigint') { check(un >= 0n && un <= BigInt(Number.MAX_SAFE_INTEGER), 'OutboundClockInvalid'); unix = Number(un); }
+    else { check(typeof un === 'number' && Number.isFinite(un) && un >= 0, 'OutboundClockInvalid'); unix = un; }
+  }
+  return stable({ nowBell: bell, slot, unix, rate });
+}
+/** outboundClockSeen, or null when the page's clock is not a clock reading (a guard that compares: never equal to a reading). */
+const clockSeenNow = fs => { try { return outboundClockSeen(fs); } catch { return null; } };
+/** 'same' | 'forward' | 'backward' of two outboundClockSeen texts (both already checked; the rate has no direction: another rate is forward). */
+function clockMove(before, next) {
+  if (before === next) return 'same';
+  const a = JSON.parse(before), b = JSON.parse(next);
+  for (const k of ['nowBell', 'slot', 'unix']) {
+    if (a[k] === null) continue;                       // (not observed before: observed now is forward)
+    if (b[k] === null) return 'backward';              // (observed before, not any more)
+    if (k === 'slot' ? BigInt(b[k]) < BigInt(a[k]) : b[k] < a[k]) return 'backward';
+  }
+  return 'forward';
 }
 const identities = (fs, ctx) => [fs.wallet, fs.resident, fs.session, fs.session?.publicKey, fs.chain, ctx.source, ctx.relay,
   fs.mode, fs.selected?.p, fs.selected?.q, fs.selected?.idx, fs.hand?.host, fs.activeHolding ?? 0];
-const capture = (fs, ctx) => ({ source: outboundSource(fs, ctx), identities: identities(fs, ctx) });
-export function clearOutbound(fs) { cancelRouteRead(fs); snapshots.delete(fs); fs.expeditionCompose = empty(); }
+const capture = (fs, ctx) => ({ source: outboundSource(fs, ctx), identities: identities(fs, ctx), seen: outboundClockSeen(fs) });
+export function clearOutbound(fs) { cancelRouteRead(fs); snapshots.delete(fs); bump(fs); fs.expeditionCompose = empty(); }
 export function reconcileOutbound(fs, ctx) {
   const before = snapshots.get(fs); if (!before) return true;
   try {
     const next = capture(fs, ctx);
-    if (stable(next.source) === stable(before.source) && next.identities.every((x, i) => x === before.identities[i])) return true;
+    if (stable(next.source) === stable(before.source) && next.identities.every((x, i) => x === before.identities[i])) {
+      // The same host, owner, wallet, session, connection, season and clock settings. Only the clock has run on
+      // (an ordinary poll): the draft stands, with its steps and fields; what was observed and reviewed under the
+      // earlier clock does not. `rebuild` cancels any read under way, drops both observations, moves the draft's
+      // revision (a press that was waiting is no longer this draft's) and works the review out again.
+      const move = clockMove(before.seen, next.seen);
+      if (move === 'same') return true;
+      if (move === 'forward') { rebuild(fs, ctx); return true; }
+      // (backward: not this draft's clock; fail closed below)
+    }
   } catch { /* The selected source disappeared or its pins changed. */ }
   clearOutbound(fs); fs.expeditionCompose.error = 'SourceChanged'; return false;
 }
 function rebuild(fs, ctx) {
-  cancelRouteRead(fs);
+  cancelRouteRead(fs); bump(fs);
   const s = fs.expeditionCompose;
   s.routeCheck = null;
   s.contextCheck = null;
@@ -169,7 +238,7 @@ export function readOutboundMap(fs, ctx) {
 /** Read actual captured account bytes for this draft, without changing world
  * state or promoting an observation into an executable route. Every edit,
  * source change, close and repeated request cancels the old result. */
-export async function inspectOutboundRoute(fs, { context, changed = () => {} } = {}) {
+export async function inspectOutboundRoute(fs, { context, changed = () => {}, load = loadOutboundRouteCaptures, evaluate = evaluateOutboundRoute } = {}) {
   const ctx = context();
   if (fs.hand?.pop !== OUTBOUND_POP || !reconcileOutbound(fs, ctx)) return;
   const s = fs.expeditionCompose;
@@ -177,28 +246,31 @@ export async function inspectOutboundRoute(fs, { context, changed = () => {} } =
   cancelRouteRead(fs);
   s.contextCheck = null;
   const controller = new AbortController(); routeReads.set(fs, controller);
-  const source = s.source, directions = [...s.directions];
+  const source = s.source, directions = [...s.directions], seenAtStart = outboundClockSeen(fs);
   const season = fs.season;
   s.routeCheck = { status: 'loading' }; changed();
   let timer;
   const current = () => {
-    if (routeReads.get(fs) !== controller || fs.expeditionCompose !== s || controller.signal.aborted) return false;
+    // (the reconcile FIRST: it is what notices that the clock has moved or the source has changed, and it aborts
+    // this read when it has. Only then is this read asked whether it is still the draft's, under the clock it began)
     if (!reconcileOutbound(fs, context())) { changed(); return false; }
-    return true;
+    if (routeReads.get(fs) !== controller || fs.expeditionCompose !== s || controller.signal.aborted) return false;
+    return clockSeenNow(fs) === seenAtStart;
   };
   try {
     const data = await Promise.race([
-      loadOutboundRouteCaptures(ctx.source, source, directions, controller.signal),
+      load(ctx.source, source, directions, controller.signal),
       new Promise((_, reject) => { timer = setTimeout(() => reject(Object.assign(new Error('RouteReadTimeout'), { code: 'RouteReadTimeout' })), 12_000); }),
     ]);
     if (!current()) return;
     const now = fs.chain?.now?.();
     check(typeof now === 'number' && Number.isFinite(now) && Number.isSafeInteger(Math.floor(now)) && now >= 0, 'RouteClockUnavailable');
     const departTs = Math.floor(now) + departMargin(fs.chain?.rate);
-    const report = evaluateOutboundRoute({ source, directions, lands: data.lands, season, departTs,
+    const report = evaluate({ source, directions, lands: data.lands, season, departTs,
       arriveBell: /^(0|[1-9][0-9]{0,9})$/.test(s.arriveBell) ? Number(s.arriveBell) : null });
     s.routeCheck = { status: 'read', report, captures: data.captures, unavailable: data.unavailable,
       departTs, snapshot: data.snapshot, observationOnly: true, coherentSnapshotVerified: false, provenanceVerified: false, ...OUTBOUND_CLOSED };
+    observed.set(s.routeCheck, bindingOf(source, directions, seenAtStart));
   } catch (e) {
     if (!current()) return;
     s.routeCheck = { status: 'error', code: e.code ?? 'RouteReadUnavailable' };
@@ -210,35 +282,37 @@ export async function inspectOutboundRoute(fs, { context, changed = () => {} } =
 
 /** Read source, terrain and Clock together through the existing optional
  * keyless inspector. This does not enable a signer, seal or public command. */
-export async function inspectOutboundContext(fs, { context, read, changed = () => {} } = {}) {
+export async function inspectOutboundContext(fs, { context, read, changed = () => {}, snapshot = readOutboundSnapshot, judge = evaluateOriginalOutboundReady, evaluate = evaluateOutboundRoute } = {}) {
   const ctx = context();
   if (fs.hand?.pop !== OUTBOUND_POP || !reconcileOutbound(fs, ctx)) return;
   const s = fs.expeditionCompose;
   if (!s?.source || !s.directions.length) return;
   cancelRouteRead(fs); s.routeCheck = null;
   const controller = new AbortController(); contextReads.set(fs, controller);
-  const source = s.source, directions = [...s.directions];
+  const source = s.source, directions = [...s.directions], seenAtStart = outboundClockSeen(fs);
   s.contextCheck = { status: 'loading' }; changed();
   const current = () => {
-    if (contextReads.get(fs) !== controller || fs.expeditionCompose !== s || controller.signal.aborted) return false;
+    // (the reconcile FIRST, as in the route read above)
     if (!reconcileOutbound(fs, context())) { changed(); return false; }
-    return true;
+    if (contextReads.get(fs) !== controller || fs.expeditionCompose !== s || controller.signal.aborted) return false;
+    return clockSeenNow(fs) === seenAtStart;
   };
   try {
     const observedSlot = fs.chain?.last?.slot ?? 0;
     check(typeof observedSlot !== 'number' || (Number.isSafeInteger(observedSlot) && observedSlot >= 0), 'RouteClockUnavailable');
     const minSlot = parseU64(String(observedSlot)).toString();
-    const data = await readOutboundSnapshot(source, directions, { relay: ctx.relay, signal: controller.signal, isCurrent: current, minSlot, read });
+    const data = await snapshot(source, directions, { relay: ctx.relay, signal: controller.signal, isCurrent: current, minSlot, read });
     if (!current()) return;
     if (data.status === 'blocked') { s.contextCheck = { status: 'error', code: data.code }; return; }
     const departTs = data.clock.unixTimestamp + BigInt(Math.ceil(departMargin(fs.chain?.rate)));
     const arriveBell = /^(0|[1-9][0-9]{0,9})$/.test(s.arriveBell) ? Number(s.arriveBell) : null;
     const tip = tipOptions(data.season).find(x => x.id === s.tip)?.lamports;
-    const ready = evaluateOriginalOutboundReady({ ...data, holding: data.holdingBytes, arriveBell, tip });
-    const report = evaluateOutboundRoute({ source: data.source, directions, lands: data.lands, season: data.season, departTs, arriveBell });
+    const ready = judge({ ...data, holding: data.holdingBytes, arriveBell, tip });
+    const report = evaluate({ source: data.source, directions, lands: data.lands, season: data.season, departTs, arriveBell });
     s.contextCheck = { status: 'read', ready, report, contextSlot: data.contextSlot, digest: data.digest,
       departTs: departTs.toString(), coherent: data.coherent, contentConsistent: data.contentConsistent,
       observationOnly: true, authorityVerified: false, freshness: 'unknown', ...OUTBOUND_CLOSED };
+    observed.set(s.contextCheck, bindingOf(source, directions, seenAtStart));
   } catch (e) {
     if (!current()) return;
     s.contextCheck = { status: 'error', code: e.code ?? 'OutboundSnapshotUnavailable' };
@@ -246,6 +320,65 @@ export async function inspectOutboundContext(fs, { context, read, changed = () =
     if (contextReads.get(fs) === controller) { contextReads.delete(fs); controller.abort(); changed(); }
   }
 }
+/**
+ * The earliest arrival turn of the observation shown on the card: `{arriveBell, min, max, from}` (`from`: 'context'
+ * for the departure-conditions read, else 'route'). Throws with a code when there is none to offer:
+ *   ArrivalCandidateUnavailable  no finished observation, or its route cannot be walked or timed
+ *   ArrivalCandidateStale        the observation is not of this draft's source and steps as they stand
+ *   ArrivalCandidateInvalid      the observed range is not two turn numbers
+ *   ArrivalWindowEmpty           the observed range holds no turn
+ * A candidate is a number for the draft's own arrival field. It is not an admitted, sealed or sent departure, and
+ * the observation it comes from says nothing of the present.
+ */
+export function outboundArrivalCandidate(fs) {
+  const s = fs.expeditionCompose;
+  check(fs.hand?.pop === OUTBOUND_POP && !!s?.source, 'ArrivalCandidateUnavailable');
+  const from = s.contextCheck?.status === 'read' ? 'context' : s.routeCheck?.status === 'read' ? 'route' : null;
+  check(from !== null, 'ArrivalCandidateUnavailable');
+  const seen = from === 'context' ? s.contextCheck : s.routeCheck;
+  check(observed.get(seen) === bindingOf(s.source, s.directions, outboundClockSeen(fs)), 'ArrivalCandidateStale');
+  const r = seen.report;
+  check(!!r && typeof r === 'object' && (r.code === null || r.code === undefined || ARRIVAL_ONLY.includes(r.code)), 'ArrivalCandidateUnavailable');
+  check(r.min !== null && r.min !== undefined && r.max !== null && r.max !== undefined, 'ArrivalCandidateUnavailable');
+  check(u32(r.min) && u32(r.max), 'ArrivalCandidateInvalid');
+  check(r.min <= r.max, 'ArrivalWindowEmpty');
+  return Object.freeze({ arriveBell: String(r.min), min: r.min, max: r.max, from });
+}
+
+/**
+ * One press: put the earliest observed arrival turn into the draft (the same `arriveBell` edit the field makes, so
+ * every earlier observation is dropped) and read again the observation it came from, now with that turn. Nothing is
+ * sealed, signed or sent; the manual field stays. The answer says how far the press got, about the LOCAL draft only:
+ *   {ok: true,  state: 'entered-and-reread', arriveBell, from}   the field holds the turn and the same draft has its
+ *                                                                 new observation (which may itself refuse the route)
+ *   {ok: false, entered: false, code}                             nothing was entered (code: SourceChanged or an
+ *                                                                 ArrivalCandidate… / ArrivalWindowEmpty refusal)
+ *   {ok: false, entered, code: 'ArrivalRereadSuperseded', …}      the card was closed, edited or re-sourced while the
+ *                                                                 read was under way: this press finished nothing
+ *   {ok: false, entered: true, code: 'ArrivalRereadFailed', reason, …}   the field holds the turn; the read failed
+ * `ok` never means a departure, an arrival or an admitted order.
+ */
+export async function useEarliestOutboundArrival(fs, { context, read, changed = () => {}, load, evaluate, snapshot, judge } = {}) {
+  const ctx = context();
+  if (fs.hand?.pop !== OUTBOUND_POP || !reconcileOutbound(fs, ctx)) { changed(); return { ok: false, entered: false, code: 'SourceChanged' }; }
+  let pick;
+  try { pick = outboundArrivalCandidate(fs); } catch (e) { return { ok: false, entered: false, code: e.code ?? 'ArrivalCandidateUnavailable' }; }
+  if (!editOutbound(fs, ctx, 'arriveBell', pick.arriveBell)) { changed(); return { ok: false, entered: false, code: 'SourceChanged' }; }
+  const s = fs.expeditionCompose, revision = revisions.get(fs), bound = bindingOf(s.source, s.directions, outboundClockSeen(fs));
+  const { arriveBell, from } = pick;
+  changed();
+  if (from === 'context') await inspectOutboundContext(fs, { context, read, changed, snapshot, judge, evaluate });
+  else await inspectOutboundRoute(fs, { context, changed, load, evaluate });
+  // The read is over. Is this still the draft, the revision and the turn of the press?
+  const mine = fs.expeditionCompose === s;
+  if (fs.hand?.pop !== OUTBOUND_POP || !mine || revisions.get(fs) !== revision || s.arriveBell !== arriveBell) {
+    return { ok: false, entered: mine && fs.hand?.pop === OUTBOUND_POP && s.arriveBell === arriveBell, code: 'ArrivalRereadSuperseded', arriveBell, from };
+  }
+  const again = from === 'context' ? s.contextCheck : s.routeCheck;
+  if (again?.status !== 'read' || observed.get(again) !== bound) return { ok: false, entered: true, code: 'ArrivalRereadFailed', reason: again?.code ?? null, arriveBell, from };
+  return { ok: true, state: 'entered-and-reread', arriveBell, from };
+}
+
 /** Relative local coordinates only: at most 32 steps, never narrow world coordinates. */
 export function outboundSketch(directions) {
   const points = [{ q: 0, r: 0 }];

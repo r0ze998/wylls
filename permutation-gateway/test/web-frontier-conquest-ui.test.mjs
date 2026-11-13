@@ -56,7 +56,8 @@ test('military screen previews the exact purchase and disables unaffordable trai
   const poor = String(holdingScreen(fs({ trainingDraft: { unit: 0, n: 501 } })));
   assert.match(poor, /訓練の費用/); assert.match(poor, /360/);
   assert.match(poor, /<button type="submit" class="btn primary" disabled>訓練する/);
-  assert.match(poor, /約11〜21分/);
+  // (the muster note says what the host waits for, not a span of minutes: the first-session review of 2026-11-13)
+  assert.match(poor, /封が開けられて決着すると行動できます/);
   assert.doesNotMatch(poor, /新しい軍勢は次の鐘/);
   const rich = String(holdingScreen(fs({ holdings: [h({ stores: stores(Array(8).fill(2000)) })] })));
   const upgrade = rich.match(/<button[^>]*data-act="build" data-item="7"[^>]*>昇格<\/button>/)?.[0];

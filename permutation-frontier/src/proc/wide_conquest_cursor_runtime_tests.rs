@@ -6,7 +6,16 @@ use runtime_contract_support::{
     self as rt, AccountSharedData, InstructionAccount, ReadableAccount, WritableAccount,
 };
 
-fn run(legacy: bool, cursor: u32, accept: bool) {
+#[derive(Clone, Copy, PartialEq)]
+enum Expect {
+    Refuse,
+    Declare,
+    /// Experimental conquest lane: a lagged declaration is a reservation.
+    Reserve,
+}
+
+fn run(legacy: bool, cursor: u32, expect: Expect) {
+    let accept = expect != Expect::Refuse;
     let mut fixture = if legacy {
         tests::legacy_fixture()
     } else {
@@ -74,19 +83,29 @@ fn run(legacy: bool, cursor: u32, accept: bool) {
     if accept {
         assert_eq!(out.logs.len(), 2);
         let table = WideConquest::read(out.accounts[table_index].data(), 11, province_key).unwrap();
-        assert_eq!(table.entry(1).unwrap().unwrap().declaration_bell, 10);
+        let prefix = Record::read(out.accounts[province_index].data(), 1).unwrap();
+        // The handler never moves the cursor.
         assert_eq!(
             Ro(out.accounts[province_index].data())
                 .u32(PV::RESOLVED_NEXT)
                 .unwrap(),
-            10
+            cursor
         );
-        assert_eq!(
-            Record::read(out.accounts[province_index].data(), 1)
-                .unwrap()
-                .kind,
-            CR::KIND_SIEGE
-        );
+        if expect == Expect::Declare {
+            assert_eq!(table.entry(1).unwrap().unwrap().declaration_bell, 10);
+            assert_eq!(prefix.kind, CR::KIND_SIEGE);
+        } else {
+            // A pending reservation for bell 10: no site entry, the site
+            // flagged, everything collected recorded.
+            assert!(table.entry(1).unwrap().is_none());
+            assert_eq!((prefix.kind, prefix.flags), (CR::KIND_NONE, CR::FLAG_PENDING));
+            let pending = table.pending_at(1, 10);
+            assert_eq!(pending.len(), 1);
+            let r = pending[0].1;
+            assert_eq!((r.status, r.seq, r.entry, r.bell), (wc::RES_PENDING, 0, 0, 10));
+            assert_eq!(r.arms_milli, permutation_rules::frontier::arms::SIEGE_ARMS as u64 * 1000);
+            assert!(r.gold_milli > 0);
+        }
     } else {
         assert!(out.logs.is_empty());
         assert_eq!(
@@ -104,8 +123,15 @@ fn lagged_declaration_refuses_before_effects_and_current_cursor_accepts() {
             ap::resident_ok(9, 10),
             "ordinary resident order allows one old bell"
         );
-        run(legacy, 8, false);
-        run(legacy, 9, false);
-        run(legacy, 10, true);
+        // Plain lanes keep the refusal; the experimental conquest lane
+        // reserves instead (approved B), with the same effects collected.
+        let lagged = if cfg!(feature = "conquest-dispatch-experimental") {
+            Expect::Reserve
+        } else {
+            Expect::Refuse
+        };
+        run(legacy, 8, lagged);
+        run(legacy, 9, lagged);
+        run(legacy, 10, Expect::Declare);
     }
 }

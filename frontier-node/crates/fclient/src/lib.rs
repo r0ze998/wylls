@@ -52,10 +52,17 @@ pub mod unsigned_message_preflight;
 pub mod experimental_expedition_message;
 #[cfg(feature = "wide-records-experimental")]
 pub mod typed_log;
+/// Real 264-byte wide march seals (fresh key, stock tlock); legacy `seal` untouched.
+#[cfg(feature = "wide-records-experimental")]
+pub mod wide_seal;
 pub mod vectors;
 /// Closed resident account/byte proposals, never an executable instruction.
 #[cfg(feature = "wide-records-experimental")]
 pub mod wide_resident_draft;
+/// Closed account/byte proposal of the one player-signed conquest step
+/// (wide DeclareSiege by an original host); never an executable instruction.
+#[cfg(feature = "wide-records-experimental")]
+pub mod wide_conquest_draft;
 
 /// Closed original-host outbound account and byte proposals only.
 #[cfg(feature = "wide-records-experimental")]

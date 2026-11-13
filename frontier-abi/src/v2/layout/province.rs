@@ -244,6 +244,12 @@ pub mod conquest {
     pub const FLAG_SLOT_OWED: u8 = 1 << 5;
     /// Kind 0 flags that owe something (SettleSiege's work; S3).
     pub const OWED_MASK: u8 = FLAG_STAKE_TO_HOLDING | FLAG_STAKE_TO_SRC | FLAG_SLOT_OWED;
+    /// Kind 0 flag (wide experimental conquest lane only): the site has at
+    /// least one pending siege reservation in its province's conquest table.
+    /// Alone on an otherwise canonical kind-zero prefix. Any nonzero flag is
+    /// already refused by the strict non-conquest resolve, so only the
+    /// conquest resolve, which applies reservations, can resolve the bell.
+    pub const FLAG_PENDING: u8 = 1 << 6;
 
     /// `target` low nibble: a first holding (order 1).
     pub const TARGET_FIRST: u8 = 1;

@@ -55,8 +55,8 @@ export const LOOK = Object.freeze({ max: 1.15, reach: 0.72 });
  * there), or null. `place`: the season's placement (home.mjs seasonPlace). The wedge: `reach` of the way to its
  * ring-1 province; a dispersed region: its anchor province (map/homeland.mjs homeLook); no readable placement: null.
  */
-export function lookPoint(faction, ringsOpen, place = undefined) {
-  return homeLook(faction, ringsOpen, place, { near: true, reach: LOOK.reach });
+export function lookPoint(faction, ringsOpen, place = undefined, seeded = null) {
+  return homeLook(faction, ringsOpen, place, { near: true, reach: LOOK.reach, seeded });
 }
 /**
  * Candidate sites are never framed from further out than this (the far bitmaps still show their painted discs, and a
@@ -95,8 +95,9 @@ export function placePoint(o) {
  * the wedge, or the dispersed provinces under that placement), or null (none in the open rings, or no readable
  * placement). `place`: the season's placement (home.mjs seasonPlace).
  */
-export function wedgeBox(faction, ringsOpen, place = undefined) {
-  return homeBox(faction, ringsOpen, place);
+export function wedgeBox(faction, ringsOpen, place = undefined, seeded = null) {
+  // (`seeded`: a sparse world's rings that have a seed, map/world.mjs: the region is of those rings only)
+  return homeBox(faction, ringsOpen, place, seeded);
 }
 
 /**
@@ -128,7 +129,7 @@ export function openingPlan(hint, src, size, { inset = null, dpr = 1 } = {}) {
     return plan('candidates', { x: (cb.x0 + cb.x1) / 2, y: (cb.y0 + cb.y1) / 2 }, zoom);
   }
   if (Number.isInteger(h.faction) && ['joined', 'ticket', 'refugee'].includes(h.stage)) {
-    const box = wedgeBox(h.faction, rings, place);
+    const box = wedgeBox(h.faction, rings, place, src?.seeded ?? null);
     if (box) {
       // (UX brief §13.6: the wedge with room about it, WEDGE_VIEW.fill of the free part, and the camera a little to
       // its outer side, so the cloud sea beyond it, the sheet's edge and, where the picture is wide enough, the
@@ -155,12 +156,12 @@ export function openingPlan(hint, src, size, { inset = null, dpr = 1 } = {}) {
     // wedge (`lookPoint`); the rest of the wedge runs out of the picture, as the chart does
     // (a dispersed region has no near side: its provinces stand round the whole heartland ring. The camera does not
     // turn from the bell toward one of them, it frames all of them, as the wait does, with the bell among them)
-    const scattered = Number.isInteger(frame.nation) && dispersedPlace(place) ? wedgeBox(frame.nation, rings, place) : null;
+    const scattered = Number.isInteger(frame.nation) && dispersedPlace(place) ? wedgeBox(frame.nation, rings, place, src?.seeded ?? null) : null;
     if (scattered) {
       const zoom = Math.max(0.16, Math.min(0.8, WEDGE_VIEW.fill * Math.min(free.width / scattered.width, room / scattered.height)));
       return plan('frame', { x: scattered.x, y: scattered.y - lift / zoom }, zoom);
     }
-    const P = Number.isInteger(frame.nation) ? lookPoint(frame.nation, rings, place) : null;
+    const P = Number.isInteger(frame.nation) ? lookPoint(frame.nation, rings, place, src?.seeded ?? null) : null;
     if (P) {
       const x0 = Math.min(P.x - RADIUS * 2.6, -TOWER.plinth * RADIUS), x1 = Math.max(P.x + RADIUS * 2.6, TOWER.plinth * RADIUS);
       const y0 = Math.min(P.y - RADIUS * 1.9, -tall), y1 = Math.max(P.y + RADIUS * 1.9, RADIUS);

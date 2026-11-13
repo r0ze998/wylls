@@ -64,11 +64,16 @@ export function provisionalNote(FS, h) {
   return by ? Lh`同じターンの申し込みがすべて決まると確定します。遅くとも${dueHtml(by, FS.chain?.now?.() ?? null)}です。` : L`同じターンの申し込みがすべて決まると確定します（遅くとも申し込みから約 4 時間）。`;
 }
 
-export function blockedLine(blocks) {
+// (`nudge: false` — local play: the reasons stand as they are, without the "catch up" button. The keeper is not asked
+//  for anything there (controller.mjs LOCAL_PLAY_REFUSED: the press would only be refused); the local world's own
+//  keeper brings the province up. Everywhere else the button is offered as it always was.)
+export function blockedLine(blocks, { nudge = true } = {}) {
   if (!blocks.length) return '';
-  const lag = blocks.includes('NotResident');
+  const lag = nudge === true && blocks.includes('NotResident');
   return html`<p class="blocked">${blocks.map(errorText).join(' / ')}${lag ? html` <button type="button" class="btn small" data-act="nudge">${L`追いつかせる`}</button>` : ''}</p>`;
 }
+// (this function under a name that the panel's own, narrower `blockedLine` in `render` does not shadow)
+const blockedLineOf = blockedLine;
 
 /**
  * The build cards (UI plan E2, Civ VII's yield preview; UX design 14.2): per thing the village may order built
@@ -188,6 +193,8 @@ export function render(FS) {
   const wideStatus = wideHolding.renderWideInventoryStatus(FS);
   if (!m) return html`${wideStatus}<p>${L`まだ村がありません。`}</p>`;
   const { holding: h, facts: f } = m;
+  // (shadows the module's `blockedLine` for this panel: in local play the blocked reasons carry no "catch up" button)
+  const blockedLine = blocks => blockedLineOf(blocks, { nudge: !FS.localPlay });
   const actionBusy = FS.inFlight > 0 || !!FS.homeActionBusy;
   const first = introBuildAvailable(m.settled);
   const trainUnit = Number.isInteger(FS.trainingDraft?.unit) ? FS.trainingDraft.unit : 0;
@@ -250,7 +257,7 @@ export function render(FS) {
   const musterForm = html`<form class="vform" id="hp-muster" data-form="muster">
     ${reserve.length ? unitPicks(faction, reserve, L`兵種`, { selected: reserve[0]?.unit ?? 0 }) : ''}
     <div class="count-row"><label class="count-label" for="f-troops">${L`兵数（100〜30,000）`}</label><input id="f-troops" name="troops" type="number" min="100" max="30000" step="1" value="100" inputmode="numeric">${steps('troops', { max: reserve.length === 1 ? Math.min(30000, reserve[0].troops) || null : null })}</div>
-    <div class="actions"><button type="submit" class="btn primary" ${raw(actionBusy || m.blocks.Muster.length || !reserve.length ? 'disabled' : '')}>${icon('banner')}${L`編成する`}</button><span class="muted">${L`編成は世界の処理に反映されてから行動できます。目安はゲーム内で約11〜21分です。`}</span></div>
+    <div class="actions"><button type="submit" class="btn primary" ${raw(actionBusy || m.blocks.Muster.length || !reserve.length ? 'disabled' : '')}>${icon('banner')}${L`編成する`}</button><span class="muted">${L`編成した軍勢は、このターンが終わり、封が開けられて決着すると行動できます。`}</span></div>
     ${!reserve.length ? html`<p class="blocked">${L`控えの兵がいません：先に訓練しましょう`}</p>` : ''}
     ${blockedLine(m.blocks.Muster)}</form>`;
   // the action that makes sense now stands open; the other waits behind a fold
