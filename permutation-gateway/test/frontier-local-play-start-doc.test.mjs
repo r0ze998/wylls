@@ -47,6 +47,12 @@ test('the two modes stay apart, and the unfinished on-screen capture is said', (
   assert.match(doc, /The page\n?\s*showed 65\/72 at that moment/);
   assert.match(doc, /on a demo world only, the keeper's next tick comes after 1 s while\n?\s*its steps land \(at most 8 in a row\); a natural world ticks as before\./);
   assert.ok(!/capture (has been|was) completed on screen|72\/72/.test(doc), 'no claim of a finished capture');
+  // (the third run, ×30: no capture possible, the demo's forts were the player's own nation's; not claimed fixed)
+  assert.match(doc, /Both forts the demo opened\n?\s*belonged to the player's own nation, and a nation cannot contest its own fort\./);
+  assert.match(doc, /The demo does not yet make sure\n?\s*that the forts it opens belong to another nation\./);
+  // (the page's re-read: what was checked, and that it only reads)
+  assert.match(doc, /reads the latest state at once\n?\s*\(checked in a real browser, 2026-11-14\)/);
+  assert.match(doc, /offers 「最新の状態を読み直す」, which only reads\./);
 });
 
 test('the demo pace the guide states is the source\'s', () => {

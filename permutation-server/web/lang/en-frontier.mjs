@@ -548,6 +548,8 @@ export default {
   'この記録の世界設定と版を確認できません。操作を止めて記録を確認してください。': 'This record’s world mode and version cannot be verified. Stop and check the record before acting.',
   // ---- the shell
   '表示が {0} 秒遅れています。最新の状態が必要な操作の前に再読み込みしてください。': 'This view is {0} s behind. Reload before doing anything that needs the latest state.',
+  '表示が {0} 秒遅れています。再読み込みはしないでください（この世界の鍵が消え、続けられなくなります）。下のボタンで最新の状態を読み直せます。': 'This view is {0} s behind. Do not reload (this world\'s key would be lost and the world could not be continued). Use the button below to read the latest state.',
+  '最新の状態を読み直す': 'Read the latest state',
   '送れる操作 残り {0} 回': n => plural(n, '{0} action left to send', '{0} actions left to send'),
   'ウォレットなしで、地図とターンの進み具合を見られます。': 'Watch the map and each turn unfold. No wallet needed.',
   '地図には、あなたが見て測量した範囲を描いています。隠しているのではありません。チェーンの記録はすべて公開で、観戦ページでは全体を見られます。いま見られないものは、次の二つだけです。': 'The map draws what you have seen and surveyed. Nothing is being kept from you: every record on the chain is public, and the spectator page shows the whole world. Only two things cannot be seen yet:',

@@ -117,6 +117,12 @@ Add both words to the natural command above:
     (not extended), the chain's hold count was **71/72**, one turn short, and the world ended by itself. The page
     showed 65/72 at that moment and said its display was 180 seconds behind.
   - At ×20, a hold that starts at turn 14 cannot reach 72 inside 45 minutes, even at the clock's own rate.
+  - **Third run (×30, 2026-11-14):** stopped by hand early, with no capture possible. Both forts the demo opened
+    belonged to the player's own nation, and a nation cannot contest its own fort. The demo does not yet make sure
+    that the forts it opens belong to another nation.
+- **Page display on local play:** a page that is shown again after being hidden reads the latest state at once
+  (checked in a real browser, 2026-11-14). When the view is behind, the banner on local play says not to reload
+  (that would lose the world's key) and offers 「最新の状態を読み直す」, which only reads.
 - **The capture itself** (72 counted turns, the new holder, the return) is proven only by the in-process tests on
   the real program, on a compressed clock. It is not proven through the page.
 - **Not run:** a build and start from a fresh clone on another machine.

@@ -8,6 +8,7 @@
 // through fmarch.sendMarch. Nothing here decides a rule; the program does.
 import { conquestEnabled, kernelFile, territoryStandings, keepFromProvince, applyControl, outpostOffer, mergeKeepEvents } from './fconquest.mjs';
 import { holdingByRef } from './fland.mjs';
+import { createPollLoop } from './poll-loop.mjs';
 import * as fwide from './fwide.mjs';
 import * as expedition from './fexpedition.mjs';
 import * as preparation from './fexpedition-prepare.mjs';
@@ -2123,6 +2124,8 @@ async function s1Caravan(srcIndex, dstIndex, cargo) {
 
 export const ACTIONS = {
   'cq-refresh': () => refreshConquest(),
+  // (the stale banner on local play: a read of the latest state — never a reload, never a send)
+  'state-reread': () => rereadState(),
   // S1 (screens/s1.mjs)
   's1-vault': d => s1Build('BuildVault', 0, s1Tile(d)),
   's1-structure': d => s1Build('BuildStructure', num(d.kind), s1Tile(d)),
@@ -2544,18 +2547,31 @@ export async function startPlay({ herald: h, cfg }) {
   if ((wallet.connected()?.address ?? null) !== (FS.wallet?.address ?? null)) await syncConnectedWallet();
   let errors = 0;
   const hidden = () => !!globalThis.document?.hidden;
-  const loop = async () => {
-    try {
-      // Hidden: only the marchbook's self-reveal step (§4.2), not the full refresh.
-      if (hidden()) await revealTick(); else await refresh();
-      errors = 0;
-    } catch (e) { errors++; console.error('frontier refresh:', e); }
-    const wait = pollDelay({ hidden: hidden(), inFlight: (FS.inFlight ?? 0) > 0 || (FS.marches ?? []).length > 0, errors, cap: pollCap(FS.chain) });
-    setTimeout(loop, wait * 1000);
-  };
-  globalThis.document?.addEventListener?.('visibilitychange', () => { if (!hidden()) refreshSoon(0); });
-  setTimeout(loop, Math.min(10, pollCap(FS.chain)) * 1000);
+  const poll = pollLoop = createPollLoop({
+    tick: async () => {
+      try {
+        // Hidden: only the marchbook's self-reveal step (§4.2), not the full refresh.
+        if (hidden()) await revealTick(); else await refresh();
+        errors = 0;
+      } catch (e) { errors++; console.error('frontier refresh:', e); }
+    },
+    delay: () => pollDelay({ hidden: hidden(), inFlight: (FS.inFlight ?? 0) > 0 || (FS.marches ?? []).length > 0, errors, cap: pollCap(FS.chain) }),
+  });
+  // Shown again, or back from the browser's cache: the loop's next tick now (a full read), then the visible cadence —
+  // not the hidden wait that was pending. (A hidden page read only its due reveals: its view of the world may be old.)
+  globalThis.document?.addEventListener?.('visibilitychange', () => { if (!hidden()) poll.wake(); });
+  globalThis.addEventListener?.('pageshow', e => { if (e?.persisted && !hidden()) poll.wake(); });
+  poll.start(Math.min(10, pollCap(FS.chain)));
 }
+
+/** The page's poll loop once started (createPollLoop): woken when the page is shown again, or by the player's re-read. */
+let pollLoop = null;
+/**
+ * Read the latest state now (the stale banner's button on local play, where a reload would lose the page's
+ * memory-only key): the poll loop's next tick at once, a read only. Pressed twice, or while a read runs, it is still
+ * one read after the running one (createPollLoop); before the loop has started it does nothing.
+ */
+export function rereadState() { pollLoop?.wake(); }
 
 /** The hidden page's tick: the self-reveal of the marchbook's due marches only. */
 async function revealTick() {

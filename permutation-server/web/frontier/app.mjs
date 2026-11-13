@@ -18,6 +18,7 @@ import { conquestEnabled, kernelFile, outpostOffer } from './fconquest.mjs';
 // and onboarding.mjs, the actions below only move state and call them.
 import { config } from './config.mjs';
 import { localPlayRequested, openLocalPlayGate } from './flocalplay.mjs';
+import { staleBannerView, rereadLabel } from './stale-banner.mjs';
 import { FS, invalidate, registerRenderers } from './fstate.mjs';
 import { clearWideSelect, selectedWide } from './fwide.mjs';
 import { EXPEDITION_POP, clearInspection } from './fexpedition.mjs';
@@ -249,8 +250,20 @@ function renderChip() {
   FS.stale = staleness({ latestUnix: FS.record?.latestUnix, chainNow: now, behind: FS.chain?.behind() ?? null });
   const banner = $('stale-banner');
   if (banner) {
-    banner.hidden = !FS.stale.stale;
-    if (FS.stale.stale) banner.textContent = L`表示が ${Math.round(FS.stale.behind)} 秒遅れています。最新の状態が必要な操作の前に再読み込みしてください。`;
+    const v = staleBannerView({ stale: FS.stale, localPlay: !!FS.localPlay });
+    banner.hidden = v.hidden;
+    if (!v.hidden) {
+      // (local play: the words and one re-read button, made once and kept, so a press is never lost to the redraw)
+      let text = banner.querySelector('.stale-text'), btn = banner.querySelector('[data-act="state-reread"]');
+      if (!text || !!btn !== v.reread) {
+        text = document.createElement('span'); text.className = 'stale-text';
+        const parts = [text];
+        if (v.reread) { btn = document.createElement('button'); btn.type = 'button'; btn.className = 'btn small'; btn.dataset.act = 'state-reread'; parts.push(' ', btn); }
+        banner.replaceChildren(...parts);
+      }
+      if (text.textContent !== v.text) text.textContent = v.text;
+      if (v.reread && btn.textContent !== rereadLabel()) btn.textContent = rereadLabel();
+    }
   }
 }
 
