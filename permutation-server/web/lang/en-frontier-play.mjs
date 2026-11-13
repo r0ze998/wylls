@@ -1547,6 +1547,7 @@ export default {
   '鍵はこのページのメモリにだけあります。再読み込み・タブを閉じると失われ、この世界は続けられません。': 'The key is kept only in this page\'s memory. Reloading or closing the tab loses it, and this world cannot be continued.',
   '自動終了の予定時刻は、このページでは確認できません。開始サービスで決めた時間で終わります（既定は開始から2時間）。': 'This page cannot confirm when the world ends by itself. It ends after the time set by the start service (two hours from its start by default).',
   '世界が終わると、その世界の進行は保存されません。': 'When the world ends, its progress is not saved.',
+  'この世界は試験用の攻略デモです。時計は {0} 倍の合成時計で、ほかの村は試験参加者です（自然な世界の時間ではありません）。': 'This world is a test capture demo: its clock is a synthetic one running {0} times faster, and the other villages are test participants (not a natural world\'s time).',
   'このページの試験用の鍵は破棄されました。このページからこの世界は続けられません。新しい鍵や新しい世界は自動では作りません。': 'This page\'s test key was discarded. This world cannot be continued from this page. No new key or new world is made for you.',
   // (the end, once confirmed against the runner's own instance: flocalplay-session.mjs showEnd)
   'この世界は {0} ごろに自動的に終わります（開始サービスが決めた時刻。この端末の時計で表示）。': 'This world ends by itself at about {0} (the time set by the start service, shown in this device\'s clock).',

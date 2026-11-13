@@ -752,7 +752,7 @@ test('the source: four launcher routes and no other, no storage, no markup from 
   assert.equal(code.split('request(').length - 1, 2, 'and no other request');
   assert.deepEqual([...code.matchAll(/askLauncher\(([^)]*)\)/g)].map(m => m[1]).sort(), ["'/local-play/keeper', { wallet }, 'LauncherKeeperFailed'", "'/local-play/stop', { wallet: address }, 'LauncherStopFailed'", "'/local-play/worlds', {}, 'LauncherListFailed'"]);
   // the keeper's view: asked only from the standing notice's key, for this page's own address, never polled
-  assert.match(code, /if \(launcher\) \{ const mine = handle\.address; session = mountSessionNotice\(\{ doc, win, onCheck: \(\) => checkKeeper\(mine\) \}\); \}/);
+  assert.match(code, /if \(launcher\) \{ const mine = handle\.address; session = mountSessionNotice\(\{ doc, win, onCheck: \(\) => checkKeeper\(mine\), demo: claimedDemo \}\); \}/);
   assert.equal(code.split('checkKeeper(').length - 1, 1, 'only the notice\'s key calls it');
   // the preparation is the launcher's alone: the page reads its word from the page address and its answer, and names no clock call, scale or option
   assert.doesNotMatch(code, /setScale|frontier_|prepare-scale|prepareScale/); assert.equal(code.split("searchParams.get('prepare')").length - 1, 1);

@@ -53,7 +53,7 @@ const mounted = new WeakMap();
  * `doc` / `win`: the page's (tests pass stand-ins); `onCheck`: the gate's keeper ask (optional). →
  * `{destroyed(), unmount(), isDestroyed(), …}`, or null without a document.
  */
-export function mountSessionNotice({ doc = globalThis.document, win = globalThis.window, onCheck = null } = {}) {
+export function mountSessionNotice({ doc = globalThis.document, win = globalThis.window, onCheck = null, demo = null } = {}) {
   if (!doc?.createElement) return null;
   const prior = mounted.get(doc);
   if (prior) return prior;
@@ -66,7 +66,9 @@ export function mountSessionNotice({ doc = globalThis.document, win = globalThis
   const short = el('p', 'local-play-session-short'); short.hidden = true;
   const fold = el('button', 'local-play-session-fold'); fold.type = 'button';
   const list = el('ul', 'local-play-session-points');
-  const items = [el('li', 'local-play-session-point'), el('li', 'local-play-session-point'), el('li', 'local-play-session-point')];
+  // (a TEST-ONLY capture demo world says so on a fourth line, all session: its synthetic clock and its test participants)
+  const isDemo = Number.isInteger(demo) && demo >= 10 && demo <= 60;
+  const items = [el('li', 'local-play-session-point'), el('li', 'local-play-session-point'), el('li', 'local-play-session-point'), ...(isDemo ? [el('li', 'local-play-session-point local-play-session-demo')] : [])];
   list.append(...items);
   const gone = el('p', 'local-play-session-gone'); gone.hidden = true;
   box.append(title, short, list, gone);
@@ -81,6 +83,7 @@ export function mountSessionNotice({ doc = globalThis.document, win = globalThis
     items[1].textContent = end !== null ? L`この世界は ${endTimeText(end.expiresAt)} ごろに自動的に終わります（開始サービスが決めた時刻。この端末の時計で表示）。`
       : L`自動終了の予定時刻は、このページでは確認できません。開始サービスで決めた時間で終わります（既定は開始から2時間）。`;
     items[2].textContent = L`世界が終わると、その世界の進行は保存されません。`;
+    if (isDemo) items[3].textContent = L`この世界は試験用の攻略デモです。時計は ${demo} 倍の合成時計で、ほかの村は試験参加者です（自然な世界の時間ではありません）。`;
     gone.textContent = L`このページの試験用の鍵は破棄されました。このページからこの世界は続けられません。新しい鍵や新しい世界は自動では作りません。`;
     short.textContent = L`鍵はこのページのメモリにだけあります。再読み込みすると、この世界は続けられません。`;
     fold.textContent = folded ? L`詳しく見る` : L`たたむ`;

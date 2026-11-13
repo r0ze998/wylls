@@ -59,6 +59,20 @@ export function localNaturalWorld(cfg, loc = globalThis.location) {
   try { return localLauncherRequested(cfg, loc) && new URL(loc.href).searchParams.get('world') === 'natural'; } catch { return false; }
 }
 /**
+ * TEST-ONLY: whether the launcher that served this page runs the capture demo (its `--capture-demo`, natural worlds with
+ * the march trial only): it puts `demo=capture` on every launcher page it serves. The start answer must then carry
+ * `captureDemo: {scale}` with a valid scale, or the start is refused (`LauncherWorldMismatch`); a plain address can
+ * never turn it on (the launcher redirects away a word it was not started with, and the answer decides).
+ */
+export function localCaptureDemoPage(cfg, loc = globalThis.location) {
+  try { return localLauncherRequested(cfg, loc) && new URL(loc.href).searchParams.get('demo') === 'capture'; } catch { return false; }
+}
+/** The start answer's `captureDemo` → its synthetic clock scale (a whole number 10..60), or null. */
+export function launcherCaptureDemo(v) {
+  const s = v?.scale;
+  return v !== null && typeof v === 'object' && Object.keys(v).length === 1 && Number.isInteger(s) && s >= 10 && s <= 60 ? s : null;
+}
+/**
  * TEST-ONLY: whether the launcher that served this page runs the ordinary march trial (its `--march-trial`, natural
  * worlds only): it puts `march=trial` on every launcher page it serves. The start answer must then say
  * `marchTrial: true` as well, or the start is refused (`LauncherWorldMismatch`). It is one of the two words the march's
@@ -257,7 +271,8 @@ export function openLocalPlayGate({ cfg, loc = globalThis.location, doc = global
   stopTimeoutMs = 30000, makeWallet = createEphemeralWallet, now = () => Date.now() } = {}) {
   const launcher = localLauncherRequested(cfg, loc);
   // (a launcher that prepares its worlds fast needs longer for a start: the wait is 150 s there, 70 s otherwise)
-  const marchTrial = localMarchTrialPage(cfg, loc);
+  const marchTrial = localMarchTrialPage(cfg, loc), demoPage = localCaptureDemoPage(cfg, loc);
+  let claimedDemo = null;
   const accelerated = localPreparationAccelerated(cfg, loc), natural = localNaturalWorld(cfg, loc), longest = natural ? NATURAL_START_MS : accelerated ? 150000 : 70000;
   let pendingLaunch = null;
   // (launcher mode: the standing notice mounted once the world is verified; told when the key is destroyed)
@@ -292,6 +307,9 @@ export function openLocalPlayGate({ cfg, loc = globalThis.location, doc = global
             if ((body?.natural === true) !== natural) return { ok: false, code: 'LauncherWorldMismatch' };
             // (the same for the test-only march trial: the page's `march=trial` and the answer's `marchTrial` agree)
             if ((body?.marchTrial === true) !== marchTrial) return { ok: false, code: 'LauncherWorldMismatch' };
+            // (and for the test-only capture demo: the page's `demo=capture` and a valid `captureDemo` in the answer agree)
+            claimedDemo = launcherCaptureDemo(body?.captureDemo);
+            if ((claimedDemo !== null) !== demoPage || (body?.captureDemo !== undefined && claimedDemo === null)) return { ok: false, code: 'LauncherWorldMismatch' };
             claimedMarch = launcherMarchStatement(body, { launcher: true, trialPage: marchTrial });
             while (!abort.signal.aborted && !handle.destroyed) {
               const checked = await verifyLocalPlayHerald(makeHerald(base), handle.address, { natural });
@@ -321,7 +339,7 @@ export function openLocalPlayGate({ cfg, loc = globalThis.location, doc = global
     const played = launcher && claimedMarch?.instance ? Object.freeze({ ...identity, march: claimedMarch }) : identity;
     done = true; state.herald = base; state.phase = 'connected'; paint();
     // (the gate's panel is hidden now: what stays true for the session is said on screen, launcher worlds only)
-    if (launcher) { const mine = handle.address; session = mountSessionNotice({ doc, win, onCheck: () => checkKeeper(mine) }); }
+    if (launcher) { const mine = handle.address; session = mountSessionNotice({ doc, win, onCheck: () => checkKeeper(mine), demo: claimedDemo }); }
     // (then, without holding the boot: the world's end, shown only once this herald's relay confirms the runner's own
     //  instance for this wallet — one read, dropped if the page became another wallet or herald or lost its key meanwhile)
     if (launcher && session) {

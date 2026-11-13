@@ -10,7 +10,9 @@ use itest::natural_play as natural;
 
 fn main() {
     let result = (|| -> Result<(), String> {
-        let o = play::parse_args(std::env::args().skip(1))?;
+        // the TEST-ONLY capture demo's two options are taken out first (both or neither; the shared parser never sees them)
+        let (rest, demo) = itest::capture_demo::take_demo_args(std::env::args().skip(1).collect())?;
+        let o = play::parse_args(rest)?;
         if !o.keeper {
             return Err("the natural world needs --keeper public-quicknet (its turns are resolved by the keeper)".into());
         }
@@ -20,7 +22,11 @@ fn main() {
         let artifact = play::read_artifact(&o)?;
         let rt = tokio::runtime::Builder::new_multi_thread().enable_all().build().map_err(|e| e.to_string())?;
         rt.block_on(async {
-            let world = natural::prepare(&artifact, o.player_wallet, o.rpc_port, o.ws_port).await?;
+            let mut world = natural::prepare(&artifact, o.player_wallet, o.rpc_port, o.ws_port).await?;
+            // (the TEST-ONLY capture demo is stated in the world's own first line, which the launcher checks against its options)
+            if let Some(scale) = demo {
+                itest::capture_demo::demo_metadata(&mut world.metadata, scale);
+            }
             println!("{}", world.metadata);
             let (stop_tx, mut stop_rx) = tokio::sync::watch::channel(false);
             let keeper_rx = stop_rx.clone();
@@ -30,6 +36,14 @@ fn main() {
             let task = tokio::spawn(async move {
                 match natural::await_home(&world, &wallet, &mut stop_rx).await {
                     Ok((home, _sig)) => {
+                        if let Some(scale) = demo {
+                            let (st, a, homes, h, rx) = (state.clone(), world.a.clone(), world.homes.clone(), home.home, keeper_rx.clone());
+                            tokio::spawn(async move {
+                                if let Err(e) = itest::capture_demo::run(st, a, homes, h, scale, rx, |v| println!("{v}")).await {
+                                    println!("{}", serde_json::json!({"schema": itest::capture_demo::DEMO_SCHEMA, "demo_step": "stopped", "test_only": true, "why": e}));
+                                }
+                            });
+                        }
                         itest::keeper_loop::run_at(state, itest::keeper_loop::public_quicknet(), Some(home.holding), home.home, keeper_rx, |s| println!("{}", s.json())).await;
                     }
                     Err(e) => println!("{}", serde_json::json!({"schema": natural::NATURAL_SCHEMA, "natural_step": "stopped", "why": e, "keeper_started": false})),

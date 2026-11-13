@@ -247,6 +247,19 @@ export const NATURAL_WORLD_PRESET = 'local-natural-v1';
  * rule, no origin or destination rule, and opens no conquest gate. Without it nothing changes.
  */
 export const MARCH_TRIAL_MODE = 'local-march-trial-v1';
+/**
+ * `--capture-demo capture-demo-v1 --demo-scale <10-60>` (TEST-ONLY, optional, both or neither; natural preset with
+ * `--march-trial` only): the natural runner, after the player's PlaceHome, compresses its memory-only chain's clock by
+ * the scale and creates test participants on the player's wedge so the next ring opens by the program's own rule
+ * (itest `capture_demo`). The start answer says `captureDemo: {scale}` and the page is addressed with `demo=capture`.
+ * No game rule changes; the natural preset without these options is unchanged.
+ */
+export const CAPTURE_DEMO_MODE = 'capture-demo-v1';
+/** `--demo-scale`: a whole number 10..60 written plainly, or null. */
+export function parseDemoScale(raw) {
+  if (typeof raw !== 'string' || !/^[1-9][0-9]$/.test(raw)) return null;
+  const n = Number(raw); return n >= 10 && n <= 60 ? n : null;
+}
 /** How long the natural runner may take to state its first line (its own Season setup, the genesis round fetch). */
 export const NATURAL_FIRST_LINE_MS = 180000;
 /**
@@ -340,6 +353,12 @@ export async function conquestProof({ c, meta, lines }) {
  * but anything else (the start is then refused). Added 2026-11-12 (Fable) for the relay's settling of an unknown
  * outcome; the runner does not state one yet.
  */
+/** Whether the runner's first line states exactly this launcher's capture demo (`demo` = `{scale}` or null). */
+export function runnerDemoAgrees(meta, demo) {
+  const d = meta?.capture_demo;
+  if (demo === null || demo === undefined) return d === undefined;
+  return d !== null && typeof d === 'object' && Object.keys(d).sort().join() === 'mode,scale,test_only' && d.mode === CAPTURE_DEMO_MODE && d.scale === demo.scale && d.test_only === true;
+}
 export function runnerInstanceOf(meta) {
   if (meta === null || typeof meta !== 'object' || !Object.hasOwn(meta, 'runner_instance')) return { ok: true, id: null };
   const v = meta.runner_instance;
@@ -385,7 +404,7 @@ export class WorldManager {
       //  so a second start of the same address, a list or a reconnect answers the same and nothing extends it)
       record.expiry = world.expiry ?? null;
       record.keeper = typeof world.keeper === 'function' ? world.keeper : null;
-      return { herald: world.herald, ...(world.natural === true ? { natural: true } : {}), ...(world.marchTrial === true ? { marchTrial: true } : {}), ...(world.prepared ? { prepared: world.prepared } : {}), ...(world.conquestWorld ? { conquestWorld: world.conquestWorld } : {}), ...(record.expiry ? { expiry: record.expiry } : {}) };
+      return { herald: world.herald, ...(world.natural === true ? { natural: true } : {}), ...(world.marchTrial === true ? { marchTrial: true } : {}), ...(world.captureDemo ? { captureDemo: world.captureDemo } : {}), ...(world.prepared ? { prepared: world.prepared } : {}), ...(world.conquestWorld ? { conquestWorld: world.conquestWorld } : {}), ...(record.expiry ? { expiry: record.expiry } : {}) };
     }).catch(e => { forget(); throw e; });
     return record.promise;
   }
@@ -535,6 +554,9 @@ export async function startWorld(c, wallet, slot, onStop, signal) {
   if (natural && (!c.naturalRunner || c.economy !== ECONOMY_MODE || c.prepareScale || c.conquest)) throw fault('InvalidWorldPreset', 503);
   const marchTrial = c.marchTrial === true;
   if (c.marchTrial !== undefined && (!marchTrial || !natural)) throw fault('InvalidWorldPreset', 503);
+  // (the test-only capture demo: only on a natural world started with the march trial, with a valid scale)
+  const demo = c.captureDemo ?? null;
+  if (demo !== null && (!natural || !marchTrial || !Number.isInteger(demo.scale) || demo.scale < 10 || demo.scale > 60)) throw fault('InvalidWorldPreset', 503);
   // (`preset`: the conquest lane only; a natural world takes none of its steps)
   const preset = natural ? null : c.worldPreset ?? null;
   if (preset !== null && preset !== CONQUEST_WORLD_PRESET) throw fault('InvalidWorldPreset', 503);
@@ -580,7 +602,8 @@ export async function startWorld(c, wallet, slot, onStop, signal) {
     } catch { stop('guard-failed'); } finally { checking = false; }
   }, limit.everyMs); timer.unref();
   try {
-    if (natural) launch('runner', c.naturalRunner, ['--artifact', c.artifact, '--artifact-sha256', c.artifactSha, '--player-wallet', wallet, '--rpc-port', String(rpc), '--ws-port', String(ws), '--keeper', 'public-quicknet']);
+    if (natural) launch('runner', c.naturalRunner, ['--artifact', c.artifact, '--artifact-sha256', c.artifactSha, '--player-wallet', wallet, '--rpc-port', String(rpc), '--ws-port', String(ws), '--keeper', 'public-quicknet',
+      ...(demo !== null ? ['--capture-demo', CAPTURE_DEMO_MODE, '--demo-scale', String(demo.scale)] : [])]);
     else launch('runner', c.runner, ['--artifact', c.artifact, '--artifact-sha256', c.artifactSha, '--player-wallet', wallet, '--rpc-port', String(rpc), '--ws-port', String(ws), '--keeper', 'public-quicknet', '--wide-destination', 'public-quicknet', ...(preset ? ['--world-preset', preset] : [])]);
     let meta;
     for (let i = 0; i < (natural ? Math.ceil((limit.naturalFirstLineMs ?? NATURAL_FIRST_LINE_MS) / 200) : 150) && !stopping; i++) {
@@ -594,6 +617,9 @@ export async function startWorld(c, wallet, slot, onStop, signal) {
       || meta.player_wallet !== wallet || meta.artifact?.sha256 !== c.artifactSha) throw fault('RunnerNotReady', 503);
     // (a natural world's runner says so on that line, and a plain runner never does: neither is taken for the other)
     if (natural !== (meta.world === 'natural' && meta.world_preset === NATURAL_WORLD_PRESET)) throw fault('RunnerNotReady', 503);
+    // (the test-only capture demo: the runner's own first line states it with this launcher's mode and scale, or does
+    //  not mention it at all; anything else is another runner or another mode, refused like any unready runner)
+    if (!runnerDemoAgrees(meta, demo)) throw fault('RunnerNotReady', 503);
     // (the runner's own instance id, when it states one on that line: handed to the relay so that the relay can tell
     //  THIS runner's answers from any other's. A runner that states none starts as before; one that states a
     //  malformed id is not started with — a wrong id is never passed on and never ignored)
@@ -652,7 +678,7 @@ export async function startWorld(c, wallet, slot, onStop, signal) {
     const expiry = expiryOf(started, limit.ttlMs, instance.id);
     // (the keeper's latest line, read only when the player asks: `keeperSummary`)
     const keeper = async () => { try { return keeperSummary(await runnerLines(dir)); } catch { return null; } };
-    return { herald: `http://localhost:${herald}`, stop, expiry, keeper, ...(natural ? { natural: true } : {}), ...(marchTrial ? { marchTrial: true } : {}), ...(prepared ? { prepared } : {}), ...(conquestWorld ? { conquestWorld } : {}) };
+    return { herald: `http://localhost:${herald}`, stop, expiry, keeper, ...(natural ? { natural: true } : {}), ...(marchTrial ? { marchTrial: true } : {}), ...(demo !== null ? { captureDemo: { scale: demo.scale } } : {}), ...(prepared ? { prepared } : {}), ...(conquestWorld ? { conquestWorld } : {}) };
   } catch (e) { await stop(`startup-failed${e?.status && e.code ? `:${e.code}` : ''}`); throw e; }
 }
 const mime = { '.html': 'text/html', '.mjs': 'text/javascript', '.js': 'text/javascript', '.css': 'text/css', '.json': 'application/json', '.svg': 'image/svg+xml', '.png': 'image/png', '.webp': 'image/webp', '.woff2': 'font/woff2', '.ico': 'image/x-icon', '.mp3': 'audio/mpeg', '.wasm': 'application/wasm', '.txt': 'text/plain' };
@@ -661,7 +687,7 @@ export function createLauncherServer(c, manager = new WorldManager(c)) {
   // The herald's own policy for the Frontier pages, and beside 'self' only the two places a world of this launcher
   // can be: the page reaches nothing else, whatever a reply names.
   const worlds = Number.isInteger(c.worldPort) ? Array.from({ length: WORLD_LIMIT }, (_, slot) => worldPorts(c.worldPort, slot).herald).flatMap(p => [`http://localhost:${p}`, `ws://localhost:${p}`]) : [];
-  const PAGE = '/frontier/frontier/index.html', prepare = c.prepareScale ? 'accelerated' : '', world = c.worldPreset === NATURAL_WORLD_PRESET ? 'natural' : '', march = c.marchTrial === true ? 'trial' : '';
+  const PAGE = '/frontier/frontier/index.html', prepare = c.prepareScale ? 'accelerated' : '', world = c.worldPreset === NATURAL_WORLD_PRESET ? 'natural' : '', march = c.marchTrial === true ? 'trial' : '', demoWord = c.captureDemo ? 'capture' : '';
   const pageCsp = `default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; worker-src 'self'; connect-src ${["'self'", ...worlds].join(' ')}; img-src 'self' data:; style-src 'self'; frame-ancestors 'none'`;
   const server = http.createServer(async (req, res) => {
     try {
@@ -683,14 +709,15 @@ export function createLauncherServer(c, manager = new WorldManager(c)) {
       }
       if (req.method !== 'GET' && req.method !== 'HEAD') throw fault('MethodNotAllowed', 405);
       const moved = location => { res.writeHead(302, { ...SHIELD, 'content-security-policy': API_CSP, 'cache-control': 'no-store', location }); res.end(); };
-      if (url.pathname === '/') return moved(`${PAGE}?localPlay=1&launcher=1&devWallet=off${prepare ? `&prepare=${prepare}` : ''}${world ? `&world=${world}` : ''}${march ? `&march=${march}` : ''}`);
+      if (url.pathname === '/') return moved(`${PAGE}?localPlay=1&launcher=1&devWallet=off${prepare ? `&prepare=${prepare}` : ''}${world ? `&world=${world}` : ''}${march ? `&march=${march}` : ''}${demoWord ? `&demo=${demoWord}` : ''}`);
       // The launcher page always says how this launcher prepares its worlds (`prepare=accelerated`, or nothing): one
       // asked for with another value is sent to the right address, so the page shows what will really happen.
       // (the same for the natural world's `world=natural`: the page knows before a start which wait and text are right)
-      if (url.pathname === PAGE && url.searchParams.get('launcher') === '1' && ((url.searchParams.get('prepare') ?? '') !== prepare || (url.searchParams.get('world') ?? '') !== world || (url.searchParams.get('march') ?? '') !== march)) {
+      if (url.pathname === PAGE && url.searchParams.get('launcher') === '1' && ((url.searchParams.get('prepare') ?? '') !== prepare || (url.searchParams.get('world') ?? '') !== world || (url.searchParams.get('march') ?? '') !== march || (url.searchParams.get('demo') ?? '') !== demoWord)) {
         const query = new URLSearchParams(url.searchParams); if (prepare) query.set('prepare', prepare); else query.delete('prepare');
         if (world) query.set('world', world); else query.delete('world');
         if (march) query.set('march', march); else query.delete('march');
+        if (demoWord) query.set('demo', demoWord); else query.delete('demo');
         return moved(`${PAGE}?${query}`);
       }
       if (!url.pathname.startsWith('/frontier/')) throw fault('NotFound', 404);
@@ -741,7 +768,7 @@ export const USAGE = `local-play launcher (this machine only)
   Ports: the page on --port; a world on five from --world-port (RPC, WS, public proxy, relay, herald), the second
   world on the next five. All within 41000-41999, none of 41904-41907, 127.0.0.1 only.`;
 export async function parseConfig(args) {
-  const out = {}; const keys = new Set(['root', 'data', 'runner', 'herald', 'depart', 'preview', 'resident', 'artifact', 'artifact-sha', 'conquest', 'world-preset', 'prepare-scale', 'port', 'world-port', 'economy', 'world-ttl-minutes', 'natural-runner', 'march-trial']);
+  const out = {}; const keys = new Set(['root', 'data', 'runner', 'herald', 'depart', 'preview', 'resident', 'artifact', 'artifact-sha', 'conquest', 'world-preset', 'prepare-scale', 'port', 'world-port', 'economy', 'world-ttl-minutes', 'natural-runner', 'march-trial', 'capture-demo', 'demo-scale']);
   for (let i = 0; i < args.length; i += 2) { const k = args[i]?.slice(2); if (!args[i]?.startsWith('--') || !keys.has(k) || out[k] || !args[i + 1]) throw fault('InvalidArguments'); out[k] = args[i + 1]; }
   for (const k of ['root', 'data', 'runner', 'herald', 'depart', 'preview', 'resident', 'artifact']) { if (!path.isAbsolute(out[k] ?? '')) throw fault('AbsolutePathRequired'); }
   if (out.conquest !== undefined && !path.isAbsolute(out.conquest)) throw fault('AbsolutePathRequired');
@@ -767,9 +794,13 @@ export async function parseConfig(args) {
   // (the test-only march trial: exactly its one word, and only on a natural world)
   if (out['march-trial'] !== undefined && out['march-trial'] !== MARCH_TRIAL_MODE) throw fault('InvalidMarchTrial');
   if (out['march-trial'] !== undefined && !natural) throw fault('MarchTrialNeedsNatural');
+  // (the test-only capture demo: both words or neither; exactly its mode; a natural world with the march trial)
+  if ((out['capture-demo'] === undefined) !== (out['demo-scale'] === undefined)) throw fault('InvalidCaptureDemo');
+  if (out['capture-demo'] !== undefined && (out['capture-demo'] !== CAPTURE_DEMO_MODE || parseDemoScale(out['demo-scale']) === null)) throw fault('InvalidCaptureDemo');
+  if (out['capture-demo'] !== undefined && (!natural || out['march-trial'] === undefined)) throw fault('CaptureDemoNeedsNaturalTrial');
   // (a world's life: the default two hours, or the operator's whole minutes; refused, never rounded, when malformed)
   const worldTtlMs = parseWorldTtl(out['world-ttl-minutes']);
-  const c = { ...out, port, worldPort, worldTtlMs, artifactSha: out['artifact-sha'], ...(prepareScale !== undefined ? { prepareScale } : {}), ...(worldPreset !== undefined ? { worldPreset } : {}), ...(out['natural-runner'] !== undefined ? { naturalRunner: out['natural-runner'] } : {}), ...(out['march-trial'] !== undefined ? { marchTrial: true } : {}), web: await fs.realpath(path.join(out.root, 'permutation-server/web')) };
+  const c = { ...out, port, worldPort, worldTtlMs, artifactSha: out['artifact-sha'], ...(prepareScale !== undefined ? { prepareScale } : {}), ...(worldPreset !== undefined ? { worldPreset } : {}), ...(out['natural-runner'] !== undefined ? { naturalRunner: out['natural-runner'] } : {}), ...(out['march-trial'] !== undefined ? { marchTrial: true } : {}), ...(out['capture-demo'] !== undefined ? { captureDemo: { scale: parseDemoScale(out['demo-scale']) } } : {}), web: await fs.realpath(path.join(out.root, 'permutation-server/web')) };
   for (const file of [c.runner, c.herald, c.depart, c.preview, c.resident, c.artifact, ...(c.conquest ? [c.conquest] : []), ...(c.naturalRunner ? [c.naturalRunner] : []), path.join(c.root, 'permutation-gateway/src/frontier/local-play-relay-server.mjs')]) if (!(await fs.stat(file).catch(() => null))?.isFile()) throw fault('MissingFile');
   await fs.mkdir(c.data, { recursive: true }); return c;
 }

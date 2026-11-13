@@ -234,3 +234,24 @@ test('the gate: the natural page says what a natural start does, in either langu
     release(); await p;
   } finally { setLang(was); }
 });
+
+test('the gate: a capture-demo page and the start answer must agree (both say the demo with a valid scale, or neither)', async () => {
+  const unjoined = { ok: true, citizen: null, holdings: [] };
+  const demoLoc = demo => { const href = `http://127.0.0.1:41920/frontier/frontier/index.html?localPlay=1&launcher=1&devWallet=off&world=natural&march=trial${demo ? '&demo=capture' : ''}`; return { href, hostname: '127.0.0.1', origin: 'http://127.0.0.1:41920' }; };
+  const gateAt = (demo, answer) => {
+    const doc = stubDocument(), win = new EventTarget();
+    const makeWallet = async () => ({ address: WALLET, destroyed: false, destroy() { this.destroyed = true; }, announce() {} });
+    const request = async url => (url.endsWith('/local-play/start') ? reply(200, answer) : reply(404, {}));
+    return { gate: LP.openLocalPlayGate({ cfg: CFG, loc: demoLoc(demo), doc, win, makeHerald: () => herald(unjoined), request, makeWallet, retryDelayMs: 1, launcherTimeoutMs: 5000, now: () => 1_800_000_000_000 }), doc };
+  };
+  const base = { herald: 'http://localhost:41926', natural: true, marchTrial: true };
+  const ok = gateAt(true, { ...base, captureDemo: { scale: 20 } });
+  assert.equal((await pressed(ok)).phase, 'connected', 'a demo page and a demo answer');
+  const notice = ok.doc.all.filter(e => e.className.split(' ').includes('local-play-session-demo'));
+  assert.equal(notice.length, 1, 'the notice says it is a demo');
+  for (const [demo, answer, why] of [[true, base, 'the page says demo, the answer does not'], [false, { ...base, captureDemo: { scale: 20 } }, 'the answer says demo, the page does not'],
+    [true, { ...base, captureDemo: { scale: 5 } }, 'a scale out of range'], [true, { ...base, captureDemo: { scale: 20, more: 1 } }, 'anything more than the scale']]) {
+    const g = gateAt(demo, answer);
+    const st = await pressed(g); assert.equal(st.phase, 'refused', why); assert.equal(st.code, 'LauncherWorldMismatch', why);
+  }
+});
