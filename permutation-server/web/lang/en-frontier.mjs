@@ -317,6 +317,8 @@ export default {
   "同じ取引はすでに送られています": "The same transaction was already sent.",
   "地域 {0}": "region {0}",
   "増員（控えの兵から）": 'Reinforce (from the reserve)',
+  '選んでいた兵種は控えにいません。兵種を選び直してください。': 'The kind you chose is no longer in the reserve. Choose a kind again.',
+  '控えのこの兵種は {0} です。兵数を減らしてください。': 'The reserve has {0} of this kind. Lower the count.',
   "変える": "Change",
   "変更は24時間以上あとの最初の UTC 0時から有効で、週に1回までです。": 'A change takes effect at the first UTC midnight that is at least 24 hours away, and can be made once a week.',
   "夜番の時間": "Vigil hours",

@@ -3740,6 +3740,12 @@ function delegate(doc) {
     if (inspection && play) { bind(inspection.dataset.bind, inspection.value); return; }
     const outbound = e.target.closest?.('[data-bind^="outbound-"]');
     if (outbound && play) { bind(outbound.dataset.bind, outbound.value); return; }
+    const muster = e.target.closest?.('form[data-form="muster"]');
+    if (muster) {
+      const u = muster.querySelector('input[name="unit"]:checked');
+      if (holdingScreen.keepMusterDraft(FS, hud.activeHolding(FS), { unit: u ? Number(u.value) : null, troops: muster.elements.troops?.value })) invalidate('panel');
+      return;
+    }
     const form = e.target.closest?.('form[data-form="train"]');
     if (!form) return;
     FS.trainingDraft = { unit: Number(form.elements.unit.value), n: Number(form.elements.n.value) };

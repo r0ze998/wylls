@@ -185,6 +185,42 @@ function unitPicks(f, list, legend, { costs = false, have = null, selected = 0, 
     ${costs ? html`<span class="unit-good">${unitGood(x.unit)}</span><span class="unit-cost">${L`100人`} ${costChips(trainCost(x.unit, 100, programVersion), have)}</span>` : ''}</label>`)}</div>`;
 }
 
+/**
+ * The Muster draft's scope: this world (cluster, program, season address, genesis; on local play also the runner
+ * instance the page verified at start, since a replaced local world can repeat the rest), the wallet, and this village
+ * (p, q, site, generation). Null when any part is unknown, including local play without a verified instance: then
+ * nothing is kept. A draft is page memory only.
+ */
+export function musterScope(FS, h) {
+  const r = FS?.record, w = FS?.wallet?.address, g = FS?.season?.genesisTs;
+  if (!r?.programId || !r?.seasonAddress || g === undefined || g === null || !w || !h) return null;
+  if (![h.p, h.q, h.site, h.gen].every(Number.isInteger)) return null;
+  const local = FS.localPlay ?? null, instance = local?.march?.instance;
+  if (local !== null && !(typeof instance === 'string' && /^[0-9a-f]{64}$/.test(instance))) return null;
+  return `${r.cluster ?? ''}|${r.programId}|${r.seasonAddress}|${String(g)}|${local !== null ? instance : '-'}|${w}|${h.p},${h.q},${h.site}|${h.gen}`;
+}
+
+/**
+ * What the Muster form shows: this scope's draft as the player left it, else the first kind in reserve and 100.
+ * Never changed to fit the reserve: `missing` (the kind is not in reserve) and `short` (only that many are) say so.
+ */
+export function musterShown(FS, h, reserve) {
+  const key = musterScope(FS, h), d = key !== null && FS?.musterDraft?.key === key ? FS.musterDraft : null;
+  const unit = d && Number.isInteger(d.unit) ? d.unit : d ? null : (reserve[0]?.unit ?? 0);
+  const troops = d && Number.isFinite(d.troops) ? d.troops : 100;
+  const have = unit === null ? null : reserve.find(r => r.unit === unit) ?? null;
+  return { key, unit, troops, kept: d !== null, missing: reserve.length > 0 && have === null, short: have && troops > have.troops ? have.troops : null };
+}
+
+/** The Muster form's input, kept for this scope (an unchecked kind keeps the one drafted before). */
+export function keepMusterDraft(FS, h, { unit, troops }) {
+  const key = musterScope(FS, h);
+  if (key === null) return false;
+  const before = FS.musterDraft?.key === key ? FS.musterDraft.unit : null;
+  FS.musterDraft = { key, unit: Number.isInteger(unit) ? unit : before, troops: Number(troops) };
+  return true;
+}
+
 export function render(FS) {
   // a wide inventory slot chosen in the rail: the captured record's read-only cards stand here instead
   // (screens/wideholding.mjs); the legacy village below is untouched and returns with the wide card's own press
@@ -254,10 +290,13 @@ export function render(FS) {
     <div class="actions"><button type="submit" class="btn primary" ${raw(actionBusy || m.blocks.Train.length || !training.affordable || trainN > 30000 || trainShort.length ? 'disabled' : '')}>${L`訓練する`}</button><span class="muted">${L`訓練はすぐに終わり、兵は控えに入ります。`}</span></div>
     ${trainShort.length ? html`<p class="blocked">${shortWords(trainShort)}</p>` : ''}
     ${blockedLine(m.blocks.Train)}</form>`;
+  const ms = musterShown(FS, m.rawHolding, reserve);
   const musterForm = html`<form class="vform" id="hp-muster" data-form="muster">
-    ${reserve.length ? unitPicks(faction, reserve, L`兵種`, { selected: reserve[0]?.unit ?? 0 }) : ''}
-    <div class="count-row"><label class="count-label" for="f-troops">${L`兵数（100〜30,000）`}</label><input id="f-troops" name="troops" type="number" min="100" max="30000" step="1" value="100" inputmode="numeric">${steps('troops', { max: reserve.length === 1 ? Math.min(30000, reserve[0].troops) || null : null })}</div>
-    <div class="actions"><button type="submit" class="btn primary" ${raw(actionBusy || m.blocks.Muster.length || !reserve.length ? 'disabled' : '')}>${icon('banner')}${L`編成する`}</button><span class="muted">${L`編成した軍勢は、このターンが終わり、封が開けられて決着すると行動できます。`}</span></div>
+    ${reserve.length ? unitPicks(faction, reserve, L`兵種`, { selected: ms.unit }) : ''}
+    <div class="count-row"><label class="count-label" for="f-troops">${L`兵数（100〜30,000）`}</label><input id="f-troops" name="troops" type="number" min="100" max="30000" step="1" value="${ms.troops}" inputmode="numeric">${steps('troops', { max: reserve.length === 1 ? Math.min(30000, reserve[0].troops) || null : null })}</div>
+    ${ms.missing ? html`<p class="blocked">${L`選んでいた兵種は控えにいません。兵種を選び直してください。`}</p>` : ''}
+    ${ms.short !== null ? html`<p class="blocked">${L`控えのこの兵種は ${fmtNum(ms.short)} です。兵数を減らしてください。`}</p>` : ''}
+    <div class="actions"><button type="submit" class="btn primary" ${raw(actionBusy || m.blocks.Muster.length || !reserve.length || ms.missing || ms.short !== null ? 'disabled' : '')}>${icon('banner')}${L`編成する`}</button><span class="muted">${L`編成した軍勢は、このターンが終わり、封が開けられて決着すると行動できます。`}</span></div>
     ${!reserve.length ? html`<p class="blocked">${L`控えの兵がいません：先に訓練しましょう`}</p>` : ''}
     ${blockedLine(m.blocks.Muster)}</form>`;
   // the action that makes sense now stands open; the other waits behind a fold
