@@ -252,6 +252,38 @@ pub const fn wedge_share(pfund_initial: u64) -> u64 {
 /// 0x01 CreateSeason v2: `[authority s,w] [season w] [frontier w] [pfund
 /// × 6 w] [dpool w] [system]`, data `SeasonParams v2 (352 B) ‖
 /// PayoutParams (borsh)` (MC §5.2.5, §5.6; module doc).
+/// CreateSeason's parameter check (unchanged in substance): the parameters pass `SeasonParamsV2::validate`, name this
+/// binary's beacon key, carry EXACTLY this binary's `PROGRAM_VERSION`, and the S1 doctrine table passes.
+fn create_params_ok(x: &frontier_abi::v2::presets::SeasonParamsV2) -> bool {
+    range_view(x).validate().is_ok()
+        && x.base.quicknet_pk_hash == crate::QUICKNET_PK_HASH
+        && x.base.program_version == crate::PROGRAM_VERSION
+        // S1: the S1 table (strong units fielded, no refused line).
+        && permutation_rules::frontier::doctrine::validate_table(
+            &permutation_rules::frontier::doctrine::DOCTRINES_V3,
+        )
+        .is_ok()
+}
+
+/// The parameters as the generic range check sees them. In the isolated localnet expedition SBF lane ONLY (feature
+/// `localnet-expedition-sbf`, never deployable; dedicated program id), this binary's own version (0x4804 = S1 | wide
+/// bit | expedition bit) has no entry in `validate`'s list of 3/4/5, so for EXACTLY that version the range check runs
+/// on a copy whose `program_version` is `PROGRAM_VERSION_S1`; every other field is checked as given, and the exact
+/// version equality in [`create_params_ok`] still runs on the real value. Any other version, and every other build,
+/// is checked unchanged (`validate` itself is not relaxed).
+#[cfg(feature = "localnet-expedition-sbf")]
+fn range_view(x: &frontier_abi::v2::presets::SeasonParamsV2) -> frontier_abi::v2::presets::SeasonParamsV2 {
+    let mut y = *x;
+    if y.base.program_version == crate::PROGRAM_VERSION {
+        y.base.program_version = frontier_abi::v2::presets::PROGRAM_VERSION_S1;
+    }
+    y
+}
+#[cfg(not(feature = "localnet-expedition-sbf"))]
+fn range_view(x: &frontier_abi::v2::presets::SeasonParamsV2) -> frontier_abi::v2::presets::SeasonParamsV2 {
+    *x
+}
+
 pub fn create_season(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
     check_accounts(Ix::CreateSeason, a, None)?;
     let x = CreateSeasonV2::decode(d)?;
@@ -285,15 +317,7 @@ pub fn create_season(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
         return Err(FrontierError::Announce.into());
     }
     let prm = x.params.base;
-    if x.params.validate().is_err()
-        || prm.quicknet_pk_hash != crate::QUICKNET_PK_HASH
-        || prm.program_version != crate::PROGRAM_VERSION
-        // S1: the S1 table (strong units fielded, no refused line).
-        || permutation_rules::frontier::doctrine::validate_table(
-            &permutation_rules::frontier::doctrine::DOCTRINES_V3,
-        )
-        .is_err()
-    {
+    if !create_params_ok(&x.params) {
         return Err(FrontierError::BadData.into());
     }
     let payout = PayoutParams::try_from_slice(x.payout).map_err(|_| FrontierError::BadData)?;
@@ -1129,6 +1153,75 @@ pub fn close_season(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The S1_LOCAL_7D preset carrying THIS binary's program version (what the fresh runner sends) and THIS build's
+    /// beacon key (the quicknet key, or the local key in a test-beacon build), so every build configuration can run it.
+    fn own_params() -> frontier_abi::v2::presets::SeasonParamsV2 {
+        let mut p = frontier_abi::v2::presets::S1_LOCAL_7D;
+        p.base.program_version = crate::PROGRAM_VERSION;
+        p.base.quicknet_pk_hash = crate::QUICKNET_PK_HASH;
+        p
+    }
+
+    /// Wrong versions, bad ranges and a wrong beacon key are refused in EVERY build; the check never changes the
+    /// parameters it is given.
+    #[test]
+    fn create_params_refuse_other_versions_bad_ranges_and_a_wrong_beacon_key() {
+        let good = own_params();
+        let refused = |f: fn(&mut frontier_abi::v2::presets::SeasonParamsV2)| {
+            let mut p = good;
+            f(&mut p);
+            let before = p;
+            let ok = create_params_ok(&p);
+            assert_eq!(p, before, "the check leaves the parameters as given");
+            !ok
+        };
+        for v in [3u16, 4, 5, 0x4805, 0x4004, 0x0804, 0x4c04, 1, 0] {
+            if v != crate::PROGRAM_VERSION {
+                let mut p = good;
+                p.base.program_version = v;
+                assert!(!create_params_ok(&p), "version {v:#06x} is not this binary's");
+            }
+        }
+        assert!(refused(|p| p.base.bell_secs = 599), "bad bell");
+        assert!(refused(|p| p.cq.continuous = 2), "bad conquest block (continuous)");
+        assert!(refused(|p| p.cq.placement = 2), "bad conquest block (placement)");
+        assert!(refused(|p| p.cq.dormant_after_secs += 1), "dormancy timers disagree");
+        assert!(refused(|p| p.base.quicknet_pk_hash[0] ^= 1), "another beacon key");
+    }
+
+    /// The isolated localnet expedition SBF lane: its own version 0x4804 (not in `validate`'s 3/4/5) is accepted by
+    /// CreateSeason, the generic `validate` is NOT relaxed (it still refuses the raw parameters), and the range
+    /// view maps only that exact version.
+    #[cfg(feature = "localnet-expedition-sbf")]
+    #[test]
+    fn the_lane_accepts_exactly_its_own_version() {
+        use frontier_abi::v2::presets::PROGRAM_VERSION_S1;
+        assert_eq!(crate::PROGRAM_VERSION, 0x4804, "the lane's version");
+        let good = own_params();
+        assert!(good.validate().is_err(), "the generic validator is unchanged: it refuses 0x4804");
+        assert!(create_params_ok(&good), "CreateSeason accepts the lane's own version");
+        assert_eq!(range_view(&good).base.program_version, PROGRAM_VERSION_S1);
+        let mut rest = range_view(&good);
+        rest.base.program_version = good.base.program_version;
+        assert_eq!(rest, good, "only program_version differs in the view");
+        let mut other = good;
+        other.base.program_version = 0x4805;
+        assert_eq!(range_view(&other), other, "another version is viewed as given");
+    }
+
+    /// Every other build: the check is the original one (the view is the identity), so 0x4804 is refused and this
+    /// binary's own listed version is accepted.
+    #[cfg(not(feature = "localnet-expedition-sbf"))]
+    #[test]
+    fn other_builds_check_unchanged() {
+        let mut lane = own_params();
+        lane.base.program_version = 0x4804;
+        assert_eq!(range_view(&lane), lane, "no mapping outside the lane");
+        assert!(!create_params_ok(&lane), "0x4804 is refused outside the lane");
+        let own = own_params();
+        assert_eq!(create_params_ok(&own), own.validate().is_ok(), "the original rule: validate ∧ exact version ∧ key ∧ table");
+    }
 
     #[test]
     fn wedge_shares_and_payout_hash() {

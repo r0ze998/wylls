@@ -1264,9 +1264,10 @@ pub enum TransitOccupancy {
     Free,
     Legacy,
     Bridge(crate::world_index::expedition_bridge::BridgeMarker),
+    Reverse(crate::world_index::expedition_reverse_transport::ReverseMarker),
 }
 
-/// Decode a slot and bind a bridge's full original ID to its source Holding.
+/// Decode a slot and bind either marker's full original ID to its issuer Holding.
 /// No external account is required, including during opponent capture.
 #[cfg(feature = "world-index-experimental")]
 pub fn transit_occupancy(
@@ -1286,12 +1287,23 @@ pub fn transit_occupancy(
         T::STATE_FREE => Ok(TransitOccupancy::Free),
         state if T::in_transit(state) => Ok(TransitOccupancy::Legacy),
         MARKER_STATE => {
-            let marker = BridgeMarker::from_bytes(ctx, tr).map_err(|_| bad)?;
             let id = rd_u64(tr, T::HOST_ID).ok_or(bad)?;
             if ctx.holding_of_host(id).as_ref() != Some(holding_key) {
                 return Err(bad);
             }
-            Ok(TransitOccupancy::Bridge(marker))
+            // Representation selection is explicit. Reverse reservations are
+            // occupied, never ordinary legacy arrival/settlement authority.
+            if tr[T::RSV_93] == crate::world_index::expedition_reverse_transport::MARKER_VERSION {
+                let marker =
+                    crate::world_index::expedition_reverse_transport::ReverseMarker::from_bytes(
+                        ctx, tr,
+                    )
+                    .map_err(|_| bad)?;
+                Ok(TransitOccupancy::Reverse(marker))
+            } else {
+                let marker = BridgeMarker::from_bytes(ctx, tr).map_err(|_| bad)?;
+                Ok(TransitOccupancy::Bridge(marker))
+            }
         }
         _ => Err(bad),
     }

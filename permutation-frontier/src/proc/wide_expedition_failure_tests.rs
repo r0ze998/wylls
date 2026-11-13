@@ -480,3 +480,6 @@ fn bad_destroyed_unsupported_proofs_roles_and_late_failures_are_inert() {
 
 #[path = "wide_expedition_forfeit_tests.rs"]
 mod forfeiture;
+
+#[path = "wide_expedition_reverse_settlement_tests.rs"]
+mod reverse_final;

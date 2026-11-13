@@ -526,3 +526,8 @@ pub(super) fn runtime_settle(
 ) -> R<()> {
     proof::runtime_settle(p, a, base, slot, commit, seal)
 }
+
+/// Private reverse final-set consumer; no public instruction allocation.
+pub(super) fn settle_reverse_draft(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
+ proof::settle_reverse_draft(p,a,d)
+}

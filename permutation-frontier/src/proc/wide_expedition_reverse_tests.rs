@@ -242,13 +242,12 @@ fn reverse_producer_allocates_real_transit_reserves_money_and_locks_old_consumer
         out.accounts[4].data(),
         id
     )
-    .is_err());
-    assert!(ap::holding_transit_occupancy(
-        &ctx,
-        &f.accounts[4].0.to_bytes(),
-        out.accounts[4].data()
-    )
-    .is_err());
+    .unwrap());
+    assert!(matches!(
+        ap::holding_transit_occupancy(&ctx, &f.accounts[4].0.to_bytes(), out.accounts[4].data())
+            .unwrap()[0],
+        ap::TransitOccupancy::Reverse(_)
+    ));
     assert!(
         frontier_abi::world_index::expedition_transport::OwnedBridgeTransit::from_bytes(
             &ctx,

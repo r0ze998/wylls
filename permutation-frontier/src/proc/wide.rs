@@ -6463,6 +6463,9 @@ mod expedition_reverse_arrival;
 #[path = "wide_expedition_reverse_reveal.rs"]
 mod expedition_reverse_reveal;
 
+#[path = "wide_expedition_reverse_terminal.rs"]
+mod expedition_reverse_terminal;
+
 #[cfg(all(test, feature = "public-proof-tests", not(target_os = "solana")))]
 #[path = "wide_public_proof_config_tests.rs"]
 mod public_proof_config_tests;

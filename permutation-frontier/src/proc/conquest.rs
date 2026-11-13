@@ -1400,6 +1400,43 @@ pub fn settle_capture(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
                 r.arr::<32>(H::RENT_PAYER)?,
             )
         };
+        // A reverse reservation preserves full immutable owner identity in its
+        // external record, and relies on this one capture-history generation.
+        // Never overwrite that history while a prior reverse remains active.
+        // All validation precedes the first bond refund/account mutation.
+        #[cfg(feature = "wide-world-experimental")]
+        if occupancy
+            .iter()
+            .any(|slot| matches!(slot, ap::TransitOccupancy::Reverse(_)))
+        {
+            let hd = holding.try_borrow_data()?;
+            let r = Ro(&hd);
+            for (i, slot) in occupancy.iter().enumerate() {
+                if matches!(slot, ap::TransitOccupancy::Reverse(_)) {
+                    let id = r.u64(H::transit(i) + crate::layout::transit::HOST_ID)?;
+                    let parts = split_host_id(id).ok_or(BAD_ACCOUNT)?;
+                    if parts.gen != hgen || parts.seq >= r.u32(H::HOST_SEQ)? {
+                        return Err(FrontierError::NotImplemented.into());
+                    }
+                }
+            }
+            let bonded = occupancy
+                .iter()
+                .enumerate()
+                .try_fold(0u64, |total, (i, slot)| {
+                    let flags = r.u8(H::transit(i) + crate::layout::transit::FLAGS)?;
+                    if *slot != ap::TransitOccupancy::Free
+                        && flags & crate::layout::transit::FLAG_BOND_ESCROWED != 0
+                    {
+                        total.checked_add(seal_bond).ok_or(OVERFLOW)
+                    } else {
+                        Ok(total)
+                    }
+                })?;
+            if r.u64(H::ESCROW)? < bonded || cescrow < rent {
+                return Err(FrontierError::Insufficient.into());
+            }
+        }
         if hgen.wrapping_add(1) != mgen {
             return Err(BAD_ACCOUNT);
         }
@@ -2050,3 +2087,13 @@ mod tests {
         assert_eq!(siege::required_bells(150, 0), 39);
     }
 }
+
+#[cfg(all(
+    test,
+    feature = "wide-world-experimental",
+    feature = "runtime-contract-tests",
+    feature = "system-cpi-tests",
+    not(target_os = "solana")
+))]
+#[path = "conquest_reverse_capture_tests.rs"]
+mod reverse_capture_tests;

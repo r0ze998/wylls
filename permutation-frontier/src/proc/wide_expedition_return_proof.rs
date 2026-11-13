@@ -345,3 +345,7 @@ pub(super) fn runtime_settle(
 ) -> R<()> {
     settlement::settle(p, a, base, slot, commit, seal)
 }
+
+pub(super) fn settle_reverse_draft(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
+ settlement::reverse_settlement::execute_draft(p,a,d)
+}
