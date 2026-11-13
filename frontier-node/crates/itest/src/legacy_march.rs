@@ -226,6 +226,42 @@ pub fn catch_up(sim_ok: bool, code: Option<u32>, span: u32) -> CatchUp {
     }
 }
 
+/// What to do for a province where a settled host of this village stands (`entry` = its Province entry
+/// `(state, pend_op, pend_bell)`, or None when it is no longer there):
+/// * gone → `Forget`;
+/// * a departed Leave (a keep's donor going home, `donor_handoff`) whose Leave turn is resolved
+///   (`resolved_next > pend_bell`) → `Return` (the program's return settle credits its troops home);
+/// * otherwise, a turn that has ended and is not resolved (`resolved_next < bell_now`) → `Drive`; else `Wait`.
+///
+/// The Season bounds it (`SeasonGate`), exactly as the program does: a turn is driven while the Season is effectively
+/// Running OR Ended and the turn is before its `end_bell` (clash.rs `CLASH_STATUS` + `in_season`, beacon.rs
+/// `ANCHOR_STATUS`: a late but legal turn after the Season ended is still resolved); the return settle is sent while
+/// the Season is Running or Ended (what SettleReturn accepts). Past that the stand is forgotten: nothing more can happen
+/// there and the host simply stays where it stands. The stand's turns are driven with `end_bell` as their bound, so no
+/// anchor is posted early, and no FastForward reaches, at or past `end_bell`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum StandAction { Forget, Return, Drive, Wait }
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct SeasonGate { pub drive: bool, pub settle: bool }
+impl SeasonGate {
+    /// From the Season's stored status, genesis, end turn, the chain's time and the turn to resolve.
+    pub fn of(stored: u8, genesis_ts: i64, end_bell: u32, now: i64, resolved_next: u32) -> SeasonGate {
+        use frontier_abi::layout::world::season as SS;
+        let st = SS::effective_status(stored, genesis_ts, now);
+        let live = st == SS::STATUS_RUNNING || st == SS::STATUS_ENDED;
+        SeasonGate { drive: live && resolved_next < end_bell, settle: live }
+    }
+}
+pub fn stand_action(entry: Option<(u8, u8, u32)>, resolved_next: u32, bell_now: u32, season: SeasonGate) -> StandAction {
+    use frontier_abi::layout::province::entry as E;
+    let Some((state, pend_op, pend_bell)) = entry else { return StandAction::Forget };
+    if state == E::STATE_DEPARTED && pend_op == E::OP_LEAVE && resolved_next > pend_bell {
+        return if season.settle { StandAction::Return } else { StandAction::Forget };
+    }
+    if !season.drive { return StandAction::Forget; }
+    if resolved_next < bell_now { StandAction::Drive } else { StandAction::Wait }
+}
+
 /// The next past anchor of an untouched destination to post EARLY (review of the page march trial: catching up one
 /// bell at a time cost one whole reveal window per lagging bell): the first bell in `[b, b + MAX_FAST_FORWARD_BELLS)`
 /// that has ended (`< bell_now`), comes before the arrival (`< arrive`; THE arrival anchor is the keeper's) and has no
@@ -273,6 +309,10 @@ pub struct LegacyMarchDriver {
     known: std::collections::BTreeMap<(u64, u32), Known>,
     terminal: Option<Step>,
     pub log: Vec<String>,
+    /// The provinces where a settled march's host STANDS (`(dest, host_id)`, never the home: that is the origin
+    /// driver's): their turns are this driver's to resolve while the host is there, and its return home is settled
+    /// here (`stand_action`). Learned from this driver's own landed SettleTransit.
+    pub stands: Vec<((i32, i32), u64)>,
 }
 
 impl LegacyMarchDriver {
@@ -280,7 +320,7 @@ impl LegacyMarchDriver {
     pub fn new(href: HoldingRef, payer: Keypair, stop: tokio::sync::watch::Receiver<bool>) -> LegacyMarchDriver {
         let a = Addresses::new(Address::new_from_array(crate::expedition_play::PROGRAM), crate::expedition_play::SEASON_ID);
         let holding = href.address(&a);
-        LegacyMarchDriver { a, holding, href, payer, stop, land_timeout: crate::keeper_loop::LAND_TIMEOUT, known: Default::default(), terminal: None, log: vec![] }
+        LegacyMarchDriver { a, holding, href, payer, stop, land_timeout: crate::keeper_loop::LAND_TIMEOUT, known: Default::default(), terminal: None, log: vec![], stands: vec![] }
     }
 
     pub fn terminal(&self) -> Option<&Step> {
@@ -339,9 +379,6 @@ impl LegacyMarchDriver {
         };
         let v2 = season.is_v2();
         let transits = live_transits(&h);
-        if transits.is_empty() {
-            return Step::Wait("no march of this village".into());
-        }
         let mut first_wait: Option<String> = None;
         for (slot, t) in transits {
             let s = self.transit_step(state, &h, v2, &clock, slot, t).await;
@@ -349,7 +386,50 @@ impl LegacyMarchDriver {
                 return answer;
             }
         }
-        Step::Wait(first_wait.unwrap_or_else(|| "every march of this village waits".into()))
+        // then the provinces where a settled host stands (a march's own steps always come first)
+        let s = self.stand_step(state, v2, &clock, &season).await;
+        if let Some(answer) = fold_step(&mut first_wait, s) {
+            return answer;
+        }
+        Step::Wait(first_wait.unwrap_or_else(|| "no march of this village".into()))
+    }
+
+    /// One step for the provinces where this village's settled hosts stand: resolve their turns (the same
+    /// `destination_bell`: anchors posted early and bounded, each window checked, FastForward only when its simulation
+    /// accepts, a not-quiet turn gathered, seeded and resolved for real), and once a host's Leave turn (a keep's donor
+    /// going home) is resolved, the program's own return settle (SettleDeparture with `RETURN_SLOT`). A host no longer
+    /// in the province is forgotten.
+    async fn stand_step(&mut self, state: &Shared, v2: bool, clock: &fclient::clock::SeasonClock, season: &Season) -> Step {
+        let me = self.payer.pubkey();
+        let mut first_wait: Option<String> = None;
+        let mut gone = vec![];
+        for (k, &(dest, host)) in self.stands.clone().iter().enumerate() {
+            let (dv, entry) = {
+                let c = lock(state);
+                let dv = lk::view(&c, &self.a, dest.0 as i16, dest.1 as i16);
+                let pv = self.read(&c, &self.a.province(dest.0, dest.1), fclient::decode::Province::decode);
+                (dv, pv.and_then(|pv| pv.entries.into_iter().find(|e| e.id == host)))
+            };
+            let dv = match dv { Ok(v) => v, Err(e) => return Step::Stopped(format!("cannot read the stand province {dest:?}: {e}")) };
+            let gate = SeasonGate::of(season.status, season.genesis_ts, season.end_bell, lock(state).unix_timestamp(), dv.resolved_next);
+            let s = match stand_action(entry.as_ref().map(|e| (e.state, e.pend_op, e.pend_bell)), dv.resolved_next, dv.bell_now, gate) {
+                StandAction::Forget => { gone.push(k); continue; }
+                StandAction::Return => {
+                    let ix = if v2 { ix2::settle_departure(&self.a, me, (dest.0 as i16, dest.1 as i16), self.href, ix::RETURN_SLOT) } else { ix::settle_return(&self.a, me, (dest.0 as i16, dest.1 as i16), self.href) };
+                    self.checked(state, ix, &format!("SettleReturn({},{})", dest.0, dest.1)).await
+                }
+                // (bounded by end_bell: `destination_bell` posts early anchors and fast-forwards only below its bound, and a
+                //  stand never reaches the bound itself — stand_action drives only turns before end_bell)
+                StandAction::Drive => self.destination_bell(state, clock, dest, &dv, dv.resolved_next, season.end_bell).await,
+                StandAction::Wait => Step::Wait(format!("the stand province {dest:?}: turn {} has not ended", dv.resolved_next)),
+            };
+            if let Some(answer) = fold_step(&mut first_wait, s) {
+                for k in gone.into_iter().rev() { self.stands.remove(k); }
+                return answer;
+            }
+        }
+        for k in gone.into_iter().rev() { self.stands.remove(k); }
+        Step::Wait(first_wait.unwrap_or_else(|| "no march of this village".into()))
     }
 
     /// One transit's step (at most one transaction). A `Wait` here never blocks another transit ([`fold_step`]).
@@ -444,7 +524,12 @@ impl LegacyMarchDriver {
             }
             let args = settle_args(self.href, slot, &d, &t, h.faction, dest, h.owner_citizen, h.rent_payer, slot_of(&slots4, t.host_id), inputs.as_ref(), true, me);
             let ix = if v2 { ix2::settle_transit(&self.a, me, &args, None) } else { ix::settle_transit(&self.a, me, &args) };
-            self.checked(state, ix, &format!("SettleTransit(slot {slot}, bell {arrive})")).await
+            let s = self.checked(state, ix, &format!("SettleTransit(slot {slot}, bell {arrive})")).await;
+            // the host now stands at its destination (unless that is the home: the origin driver's)
+            if matches!(s, Step::Landed(..)) && dest != (h.p as i32, h.q as i32) && !self.stands.contains(&(dest, t.host_id)) {
+                self.stands.push((dest, t.host_id));
+            }
+            s
         }
     }
 
@@ -679,6 +764,48 @@ mod tests {
 }
 
 #[cfg(test)]
+mod stands {
+    use super::{stand_action as sa, SeasonGate, StandAction};
+    use frontier_abi::layout::province::entry as E;
+    const OPEN: SeasonGate = SeasonGate { drive: true, settle: true };
+    fn stand_action(e: Option<(u8, u8, u32)>, rn: u32, now: u32) -> StandAction { sa(e, rn, now, OPEN) }
+    #[test]
+    fn the_season_bounds_the_stand_driving_and_the_return() {
+        use frontier_abi::layout::world::season as SS;
+        // the gate from the Season: Running before end_bell drives; Ended settles only; Closed does neither
+        assert_eq!(SeasonGate::of(SS::STATUS_SEEDED, 100, 50, 200, 49), SeasonGate { drive: true, settle: true });
+        assert_eq!(SeasonGate::of(SS::STATUS_SEEDED, 100, 50, 200, 50), SeasonGate { drive: false, settle: true }, "end_bell is never resolved");
+        assert_eq!(SeasonGate::of(SS::STATUS_SEEDED, 100, 50, 99, 10), SeasonGate { drive: false, settle: false }, "before genesis: not running");
+        assert_eq!(SeasonGate::of(SS::STATUS_ENDED, 100, 50, 200, 10), SeasonGate { drive: true, settle: true }, "Ended: a late legal turn before end_bell is still resolved");
+        assert_eq!(SeasonGate::of(SS::STATUS_ENDED, 100, 50, 200, 50), SeasonGate { drive: false, settle: true }, "Ended at end_bell: returns only");
+        assert_eq!(SeasonGate::of(SS::STATUS_CLOSED, 100, 50, 200, 10), SeasonGate { drive: false, settle: false });
+        let closed = SeasonGate { drive: false, settle: false };
+        // Ended, end_bell 50: a LATE Leave at turn 20, not resolved yet (resolved_next 20) → drive it; once resolved → return
+        let ended_before = SeasonGate::of(SS::STATUS_ENDED, 100, 50, 200, 20);
+        assert_eq!(sa(Some((E::STATE_DEPARTED, E::OP_LEAVE, 20)), 20, 25, ended_before), StandAction::Drive, "Ended: the late Leave turn is still resolved");
+        let ended_after = SeasonGate::of(SS::STATUS_ENDED, 100, 50, 200, 21);
+        assert_eq!(sa(Some((E::STATE_DEPARTED, E::OP_LEAVE, 20)), 21, 25, ended_after), StandAction::Return, "then its return is settled");
+        // at end_bell nothing more is resolved: a roster stand is forgotten (the host stays), a resolved Leave still returns
+        let at_end = SeasonGate::of(SS::STATUS_ENDED, 100, 50, 200, 50);
+        assert_eq!(sa(Some((E::STATE_ROSTER, E::OP_NONE, 0)), 50, 55, at_end), StandAction::Forget);
+        assert_eq!(sa(Some((E::STATE_DEPARTED, E::OP_LEAVE, 49)), 50, 55, at_end), StandAction::Return);
+        assert_eq!(sa(Some((E::STATE_DEPARTED, E::OP_LEAVE, 50)), 50, 55, at_end), StandAction::Forget, "a Leave at end_bell is never resolved");
+        assert_eq!(sa(Some((E::STATE_DEPARTED, E::OP_LEAVE, 20)), 21, 25, closed), StandAction::Forget, "a closed season settles nothing");
+    }
+    #[test]
+    fn a_standing_host_province_is_driven_and_its_donor_returned_only_after_its_leave_turn() {
+        assert_eq!(stand_action(None, 9, 12), StandAction::Forget, "no longer there: forgotten");
+        assert_eq!(stand_action(Some((E::STATE_ROSTER, E::OP_NONE, 0)), 9, 12), StandAction::Drive, "an ended turn: driven");
+        assert_eq!(stand_action(Some((E::STATE_ROSTER, E::OP_NONE, 0)), 12, 12), StandAction::Wait, "the current turn: not yet");
+        // the keep's donor: Leave at turn 20
+        assert_eq!(stand_action(Some((E::STATE_DEPARTED, E::OP_LEAVE, 20)), 20, 25), StandAction::Drive, "its Leave turn is not resolved: drive it, no return yet");
+        assert_eq!(stand_action(Some((E::STATE_DEPARTED, E::OP_LEAVE, 20)), 21, 25), StandAction::Return, "its Leave turn resolved: the return settle");
+        assert_eq!(stand_action(Some((E::STATE_DEPARTED, E::OP_LEAVE, 20)), 21, 21), StandAction::Return, "the return needs no ended turn");
+        assert_eq!(stand_action(Some((E::STATE_DEPARTED, E::OP_NONE, 20)), 21, 21), StandAction::Wait, "departed without a Leave: nothing of ours to settle");
+    }
+}
+
+#[cfg(test)]
 mod early_anchors {
     use super::{anchor_to_post, lk};
     #[test]
@@ -692,6 +819,11 @@ mod early_anchors {
         assert_eq!(anchor_to_post(1, 100, 100, |x| x < 1 + lk::MAX_FAST_FORWARD_BELLS - 1), Some(lk::MAX_FAST_FORWARD_BELLS));
         assert_eq!(anchor_to_post(u32::MAX - 1, u32::MAX, u32::MAX, none), Some(u32::MAX - 1), "no overflow at the top");
         assert_eq!(anchor_to_post(5, 5, 9, none), None, "the arrival bell itself is never early-posted");
+        // a stand is driven with end_bell as the bound: no early anchor at or past it, even with 16 to spare
+        let end = 50;
+        assert_eq!(anchor_to_post(40, end, 100, |x| x < 49), Some(49), "the last turn before end_bell");
+        assert_eq!(anchor_to_post(40, end, 100, |x| x < 50), None, "nothing at end_bell or past it");
+        assert!((0..=end).all(|b| anchor_to_post(b, end, u32::MAX, none).map_or(true, |x| x < end)), "every early anchor is below end_bell");
     }
 }
 
@@ -832,6 +964,334 @@ mod real_legacy {
                 ((pc.p, pc.q) != (p, q) && t < 61 && exists(pc.p, pc.q) && passable_of(pc.p, pc.q) & (1u64 << t) != 0).then_some((tile, d, (pc.p, pc.q), t))
             })
         })
+    }
+
+    /// FoldOccupancy parts 0, 1 and 2 (permissionless; the same turn).
+    async fn fold_all(state: &Shared, a: &Addresses, k: &Keypair) {
+        for part in 0..3u8 {
+            player_send(state, k, ix::fold_occupancy(a, k.pubkey(), part), &format!("FoldOccupancy {part}")).await;
+        }
+    }
+
+    /// The hex of tile `t` of province `(p, q)`.
+    fn hex_of(p: i32, q: i32, t: u8) -> Option<Hex> {
+        let c = ProvinceCoord::new(p, q).centre();
+        let o = tile_offset(t)?;
+        Some(Hex::new(c.q + o.q, c.r + o.r))
+    }
+
+    /// The shortest route (BFS over passable tiles of `home` and `target` only) from ANY passable tile of `home` to
+    /// tile `goal` of `target`: `(start_tile, dirs)`, at most `MAX_PATH_STEPS`.
+    fn route(home: (i32, i32), hp: u64, target: (i32, i32), tp: u64, goal: u8) -> Option<(u8, Vec<u8>)> {
+        use std::collections::{HashMap, VecDeque};
+        let ok = |pc: (i32, i32), t: u8| t < 61 && ((pc == home && hp & (1u64 << t) != 0) || (pc == target && tp & (1u64 << t) != 0));
+        let mut prev: HashMap<(i32, i32), Option<((i32, i32), u8)>> = HashMap::new();
+        let mut queue = VecDeque::new();
+        for t in (0..61u8).filter(|t| hp & (1u64 << t) != 0) {
+            let h = hex_of(home.0, home.1, t)?;
+            prev.insert((h.q, h.r), None);
+            queue.push_back(h);
+        }
+        while let Some(h) = queue.pop_front() {
+            let (pc, t) = locate(h);
+            if (pc.p, pc.q) == target && t == goal {
+                let mut dirs = vec![];
+                let mut cur = (h.q, h.r);
+                while let Some(Some((from, d))) = prev.get(&cur) { dirs.push(*d); cur = *from; }
+                dirs.reverse();
+                let (spc, st) = locate(Hex::new(cur.0, cur.1));
+                assert_eq!((spc.p, spc.q), home);
+                return (dirs.len() <= permutation_rules::frontier::travel::MAX_PATH_STEPS).then_some((st, dirs));
+            }
+            for d in 0..6u8 {
+                let (dq, dr) = DIRECTIONS[d as usize];
+                let n = Hex::new(h.q + dq, h.r + dr);
+                let (npc, nt) = locate(n);
+                if ok((npc.p, npc.q), nt) && !prev.contains_key(&(n.q, n.r)) {
+                    prev.insert((n.q, n.r), Some(((h.q, h.r), d)));
+                    queue.push_back(n);
+                }
+            }
+        }
+        None
+    }
+
+    /// **REAL artifact — the keep (fort) of a province ONE RING PAST THE HEARTLAND, taken by an ordinary march**
+    /// (`#[ignore]`; the same approval variables). The world is `natural_play::prepare`'s, then ONE more ring and the
+    /// chosen neighbour province opened by the program's own OpenRing / OpenProvince (a funded test payer from the
+    /// test chain's faucet). The player's in-memory key signs Join, PlaceHome, Train 400, Muster 400 and ONE Depart
+    /// onto the keep tile; the keeper resolves everything else (the arrival's battle with the keep's garrison, every
+    /// held turn, the donor's return settle). No account is written directly; no rule or parameter is changed.
+    #[test]
+    #[ignore]
+    fn a_real_keep_beyond_the_heartland_is_taken_by_an_ordinary_march_and_its_donor_returns() {
+        let need = |k: &str| std::env::var(k).unwrap_or_else(|_| panic!("{k} is not set"));
+        assert_eq!(need("WYLLS_LEGACY_MARCH_APPROVED"), "1", "approval is required before this test runs");
+        assert_eq!(need("WYLLS_PUBLIC_DRAND"), "1");
+        let path = std::path::PathBuf::from(need("WYLLS_EXPEDITION_SBF"));
+        let art = crate::expedition_play::inspect(path.clone(), std::fs::read(&path).unwrap(), &need("WYLLS_EXPEDITION_SBF_SHA256")).unwrap();
+        let rt = tokio::runtime::Builder::new_multi_thread().enable_all().build().unwrap();
+        rt.block_on(async {
+            use frontier_abi::v2::presets::ConquestParams;
+            let (rpc, ws) = crate::destination_real::ports(41_940);
+            let player = Keypair::new();
+            let w = player.pubkey();
+            let world = crate::natural_play::prepare(&art, w, rpc, ws).await.expect("the natural world");
+            let (state, a) = (world.state.clone(), world.a.clone());
+            lock(&state).set_paused(false);
+            let sd = bytes(&state, &a.season);
+            let cq = ConquestParams::of_season(&sd).expect("the Season's conquest params");
+            eprintln!("season keep params: bells {}, consolidate {}, home guard {}, garrison bps {}; heartland max ring {}", cq.keep_bells, cq.keep_consolidate_bells, cq.keep_home_guard, cq.keep_garrison_bps, cq.heartland_max_ring);
+            // a test payer for the world's own instructions (the test chain's faucet, as `prepare` funds its payer)
+            let opener = Keypair::new();
+            lock(&state).airdrop(&opener.pubkey(), 500_000_000_000).expect("airdrop");
+            for _ in 0..50 { if lock(&state).balance(&opener.pubkey()) > 0 { break; } tokio::time::sleep(Duration::from_millis(200)).await; }
+            let frontier_u32x6 = |st: &Shared, off: usize| -> [u32; 6] { let d = bytes(st, &a.frontier()); core::array::from_fn(|i| u32::from_le_bytes(d[off + 4 * i..off + 4 * i + 4].try_into().unwrap())) };
+            use frontier_abi::layout::world::frontier as FR;
+            let rings = |st: &Shared| u16::from_le_bytes(bytes(st, &a.frontier())[FR::RINGS_OPENED..][..2].try_into().unwrap());
+            let d = rings(&state);
+            assert_eq!(d as u32, cq.heartland_max_ring as u32 + 1, "prepare opened the rings up to the heartland");
+            let ring_next = cq.heartland_max_ring as u32 + 1;
+            let wedge_of = |pp: i32, qq: i32| ProvinceCoord::new(pp, qq).wedge();
+            // 1. by geometry: a heartland home province H and its next-ring neighbours T (a wedge other than H's nation)
+            let mut cands: Vec<((i16, i16, u8), (i32, i32))> = vec![];
+            for &(hp_, hq_, nation) in &world.homes {
+                let (hp, hq) = (hp_ as i32, hq_ as i32);
+                let pass = { let pd = bytes(&state, &a.province(hp, hq)); u64::from_le_bytes(pd[264..272].try_into().unwrap()) };
+                for t in (0..61u8).filter(|t| pass & (1u64 << t) != 0) {
+                    let Some(h) = hex_of(hp, hq, t) else { continue };
+                    for (dq, dr) in DIRECTIONS {
+                        let (pc, _) = locate(Hex::new(h.q + dq, h.r + dr));
+                        if ProvinceCoord::new(pc.p, pc.q).ring() == ring_next && wedge_of(pc.p, pc.q) != Some(nation)
+                            && !cands.iter().any(|c| c.0 .0 == hp_ && c.0 .1 == hq_ && c.1 == (pc.p, pc.q)) {
+                            cands.push(((hp_, hq_, nation), (pc.p, pc.q)));
+                        }
+                    }
+                }
+            }
+            let ((hp_, hq_, nation), _) = *cands.first().expect("a heartland province next to the next ring");
+            let cands: Vec<(i32, i32)> = cands.into_iter().filter(|c| c.0 .0 == hp_ && c.0 .1 == hq_).map(|c| c.1).collect();
+            // 2. the player: Join that nation and PlaceHome in H
+            let me = fclient::ix::Player { actor: w, payer: w, wallet: w };
+            let free_site = |st: &Shared, pp: i16, qq: i16| -> Option<u8> {
+                use frontier_abi::v2::layout::province::{province as PV, site as SM};
+                let pd = bytes(st, &a.province(pp as i32, qq as i32));
+                (0..pd[PV::SITE_COUNT] as usize).find(|i| matches!(pd[PV::site(*i) + SM::STATE], SM::STATE_FREE | SM::STATE_RELEASED_FREE)).map(|i| i as u8)
+            };
+            let now = lock(&state).unix_timestamp();
+            player_send(&state, &player, ix::join(&a, w, w, nation, &w, now + 3_600, None), "Join").await;
+            let (faction, shard) = crate::natural_play::joined(&bytes(&state, &a.citizen(&w)), &w).expect("joined");
+            assert_eq!(faction, nation, "joined the chosen nation");
+            let site = (hp_, hq_, free_site(&state, hp_, hq_).expect("a free site in H"));
+            player_send(&state, &player, ix::place_home(&a, &me, ix::Site { p: site.0, q: site.1, site: site.2 }, faction, shard), "PlaceHome").await;
+            let href = HoldingRef { p: site.0, q: site.1, site: site.2 };
+            let holding = href.address(&a);
+            let (p, q) = (site.0 as i32, site.1 as i32);
+            // 3. AREA EXPANSION by the program's own rule: temporary test players settle H's wedge (each joins the nation
+            //    of the province it settles) until its folded occupancy passes θ (6,500 bps: the stricter of the two);
+            //    then, at least a turn after the last opening, FoldOccupancy 0/1/2 and OpenRing
+            let wh = wedge_of(p, q).expect("H has a wedge") as usize;
+            let fill: Vec<(i16, i16, u8)> = world.homes.iter().copied().filter(|h| wedge_of(h.0 as i32, h.1 as i32) == Some(wh as u8)).collect();
+            let mut fillers = 0u32;
+            for round in 0..8 {
+                fold_all(&state, &a, &opener).await;
+                let (open, occ) = (frontier_u32x6(&state, FR::WEDGE_OPEN)[wh], frontier_u32x6(&state, FR::WEDGE_OCCUPIED)[wh]);
+                eprintln!("wedge {wh}: occupied {occ} of {open} open sites (round {round}, fillers {fillers})");
+                if occ as u64 * 10_000 >= 6_500 * open as u64 { break; }
+                let need = ((6_500 * open as u64 + 9_999) / 10_000) as u32 - occ;
+                for _ in 0..need {
+                    let Some(&(fp, fq, fnation)) = fill.iter().find(|h| free_site(&state, h.0, h.1).is_some()) else { panic!("no free site left in wedge {wh}") };
+                    let fk = Keypair::new();
+                    let fw = fk.pubkey();
+                    lock(&state).airdrop(&fw, 5_000_000_000).expect("airdrop");
+                    for _ in 0..50 { if lock(&state).balance(&fw) > 0 { break; } tokio::time::sleep(Duration::from_millis(100)).await; }
+                    let now = lock(&state).unix_timestamp();
+                    player_send(&state, &fk, ix::join(&a, fw, fw, fnation, &fw, now + 3_600, None), "filler Join").await;
+                    let (ff, fs) = crate::natural_play::joined(&bytes(&state, &a.citizen(&fw)), &fw).expect("filler joined");
+                    let fsite = free_site(&state, fp, fq).unwrap();
+                    player_send(&state, &fk, ix::place_home(&a, &fclient::ix::Player { actor: fw, payer: fw, wallet: fw }, ix::Site { p: fp, q: fq, site: fsite }, ff, fs), "filler PlaceHome").await;
+                    fillers += 1;
+                }
+            }
+            let last = u32::from_le_bytes(bytes(&state, &a.frontier())[FR::LAST_RING_OPEN_BELL..][..4].try_into().unwrap());
+            let clock0 = { let c = lock(&state); lk::season_clock(&c, &a).unwrap() };
+            while clock0.bell_at(lock(&state).unix_timestamp()).unwrap() < last + 1 {
+                let t = lock(&state).unix_timestamp();
+                crate::destination_real::advance(&state, t + 300);
+            }
+            fold_all(&state, &a, &opener).await;
+            player_send(&state, &opener, ix::open_ring(&a, opener.pubkey(), d), "OpenRing (one past the heartland)").await;
+            eprintln!("AREA EXPANDED: ring {d} opened after {fillers} test settlers (wedge {wh})");
+            // the ring's seed, as the keeper does it (keeper/src/rings.rs): OpenRing leaves it REQUESTED with a recorded
+            // round; once that round's time is reached (this test chain's clock only; the round is in the real past, so
+            // published) the public Quicknet round, BLS-verified, is consumed ONCE. No BellAnchor is needed.
+            {
+                use frontier_abi::layout::world::ring_seed as RS;
+                let rs = fclient::decode::RingSeed::decode(&bytes(&state, &a.ring_seed(d))).expect("the RingSeed");
+                assert_eq!(rs.status, RS::STATUS_REQUESTED, "OpenRing left the ring seed requested");
+                while clock0.drand.round_time(rs.round) > lock(&state).unix_timestamp() {
+                    let t = lock(&state).unix_timestamp();
+                    crate::destination_real::advance(&state, (t + 300).min(clock0.drand.round_time(rs.round) + 1).max(t + 1));
+                }
+                let sig48 = lk::fetch_round_at(rs.round).await.expect("the ring seed round (public Quicknet, BLS-verified)");
+                let arg = BeaconArg { round: rs.round, sig48, hints: fclient::beacon::hints_bytes(rs.round) };
+                player_send(&state, &opener, ix::consume_ring_seed(&a, opener.pubkey(), d, &arg), &format!("ConsumeRingSeed(ring {d}, round {})", rs.round)).await;
+                let rs2 = fclient::decode::RingSeed::decode(&bytes(&state, &a.ring_seed(d))).expect("the RingSeed");
+                assert_eq!(rs2.status, RS::STATUS_SEEDED, "the ring is seeded");
+                eprintln!("RING SEEDED: ring {d}, round {}", rs.round);
+            }
+            // 4. a contestable keep in a neighbour province of the new ring, reachable from H
+            let hpass = { let pd = bytes(&state, &a.province(p, q)); u64::from_le_bytes(pd[264..272].try_into().unwrap()) };
+            let mut chosen = None;
+            for tgt in cands.into_iter().take(12) {
+                if lock(&state).account(&a.province(tgt.0, tgt.1)).is_none() {
+                    player_send(&state, &opener, ix::open_province(&a, opener.pubkey(), tgt.0 as i16, tgt.1 as i16), &format!("OpenProvince {tgt:?}")).await;
+                }
+                let pv = fclient::decode::Province::decode(&bytes(&state, &a.province(tgt.0, tgt.1))).unwrap();
+                let Some(k) = pv.cq.as_ref().and_then(|c| c.keep) else { continue };
+                if k.heartland_safe || k.holder == nation || k.holder >= 6 { continue; }
+                if let Some((start, dirs)) = route((p, q), hpass, tgt, pv.passable_mask, k.tile) {
+                    chosen = Some((tgt, k, start, dirs));
+                    break;
+                }
+            }
+            let (tgt, keep0, start, dirs) = chosen.expect("a reachable, contestable keep one ring past the heartland");
+            eprintln!("keep: province {tgt:?} tile {} holder {} troops {} (heartland_safe {}); home ({p},{q}) nation {nation}; route {} steps from tile {start}", keep0.tile, keep0.holder, keep0.troops, keep0.heartland_safe, dirs.len());
+            assert_eq!(keep0.troops, cq.keep_home_guard, "the keep opens with the home guard");
+            player_send(&state, &player, ix2::train(&a, &me, href, 0, 400), "Train 400").await;
+            let h0 = Holding::decode(&bytes(&state, &holding)).unwrap();
+            let host = fclient::addr::host_id(p, q, site.2, h0.gen, h0.host_seq).unwrap();
+            // the keeper first: the expansion moved this chain's clock on, so the home province must be caught up to the
+            // current turn (Muster needs `resident_ok`; on a live world the keeper is always running)
+            let mut pilot = Pilot::new_at(&state, public_quicknet(), Some(holding), (site.0, site.1), rx()).await.expect("the pilot");
+            for _ in 0..400 {
+                let v = lk::view(&lock(&state), &a, site.0, site.1).unwrap();
+                if frontier_abi::prologue::resident_ok(v.resolved_next, v.bell_now) { break; }
+                assert!(pilot.tick(&state).await, "the keeper stopped: {:?}", pilot.keeper.status);
+                let t = lock(&state).unix_timestamp();
+                crate::destination_real::advance(&state, t + 60);
+            }
+            { let v = lk::view(&lock(&state), &a, site.0, site.1).unwrap(); assert!(frontier_abi::prologue::resident_ok(v.resolved_next, v.bell_now), "the home caught up: {v:?}"); }
+            player_send(&state, &player, ix::muster(&a, &me, href, 0, 400, start), "Muster 400").await;
+            let clock = { let c = lock(&state); lk::season_clock(&c, &a).unwrap() };
+            let muster_bell = clock.bell_at(lock(&state).unix_timestamp()).unwrap();
+            for _ in 0..80 {
+                assert!(pilot.tick(&state).await, "the keeper stopped: {:?}", pilot.keeper.status);
+                if lk::view(&lock(&state), &a, site.0, site.1).unwrap().resolved_next > muster_bell + 1 { break; }
+                let t = lock(&state).unix_timestamp();
+                crate::destination_real::advance(&state, t + 120);
+            }
+            // ONE ordinary Depart onto the keep tile (arrival: a generous bound over the route's travel time)
+            let season = Season::decode(&bytes(&state, &a.season)).unwrap();
+            let bell = clock.bell_at(lock(&state).unix_timestamp()).unwrap();
+            let arrive = bell + 3 + ((dirs.len() as u32 * 180 + 599) / 600);
+            let (path_len, path_bits) = permutation_rules::frontier::seal::encode_path(&dirs).unwrap();
+            let plain = permutation_rules::frontier::seal::pack(&permutation_rules::frontier::seal::Plain { version: permutation_rules::frontier::seal::PLAIN_VERSION, host_id: host,
+                arrive_bell: arrive, dest_p: tgt.0 as _, dest_q: tgt.1 as _, dest_tile: keep0.tile, stance: 0, retreat_bps: 0, path_len, path: path_bits, reserved: Default::default() });
+            let sealed = fclient::seal::seal(&plain, &fclient::beacon::quicknet_info().public_key, clock.tlock_round(arrive)).unwrap();
+            let tip = fclient::fees::min_tip_lamports(season.min_reveal_priority_milli, season.reveal_cu_limit, season.reveal_loaded_limit);
+            let args = DepartArgs { host_id: host, commit: sealed.commit, seal: sealed.seal, arrive_bell: arrive, tip, transit_slot: 0 };
+            player_send(&state, &player, ix2::depart(&a, &me, href, (site.0, site.1), &args), "Depart onto the keep").await;
+            // the keeper: the march, the battle, every held turn, the capture, the donor's return
+            let keep_of = |st: &Shared| fclient::decode::Province::decode(&bytes(st, &a.province(tgt.0, tgt.1))).unwrap().cq.and_then(|c| c.keep).unwrap();
+            let mut seen: Vec<String> = vec![];
+            let mut after_arrival: Option<permutation_rules::frontier::keep::Keep> = None;
+            let mut taken: Option<(permutation_rules::frontier::keep::Keep, u32)> = None;
+            // the donor's own record, read every tick: its troops (milli) in the keep's province before the capture,
+            // its entry right after it, and the village's reserve around the tick in which the return settle lands
+            let donor_of = |st: &Shared| fclient::decode::Province::decode(&bytes(st, &a.province(tgt.0, tgt.1))).unwrap().entries.into_iter().find(|e| e.id == host);
+            let reserve_of = |st: &Shared| Holding::decode(&bytes(st, &holding)).unwrap().reserve[0];
+            let mut pre_capture_milli: Option<u32> = None;
+            let mut donor_after: Option<Option<fclient::decode::Entry>> = None;
+            let mut return_diff: Option<(u32, u32)> = None;
+            for i in 0..4000 {
+                let reserve_before_tick = reserve_of(&state);
+                let had_return = seen.iter().any(|s| s.contains("\"SettleReturn("));
+                if taken.is_none() { if let Some(e) = donor_of(&state) { pre_capture_milli = Some(e.troops); } }
+                assert!(pilot.tick(&state).await, "the keeper stopped: {:?}; seen {:?}", pilot.keeper.status, seen.len());
+                for s in [pilot.keeper.status.destination_step.clone(), pilot.keeper.status.origin_step.clone()].into_iter().flatten() {
+                    if s.starts_with("Landed") && !seen.contains(&s) { seen.push(s); }
+                }
+                assert!(pilot.keeper.status.unknown_signature.is_none(), "an unknown outcome: {:?}", pilot.keeper.status);
+                if let Some(t) = pilot.legacy.as_ref().and_then(|d| d.terminal()) { panic!("the legacy driver stopped: {t:?}; last seen {:?}", seen.iter().rev().take(6).collect::<Vec<_>>()); }
+                let k = keep_of(&state);
+                let rn = lk::view(&lock(&state), &a, tgt.0 as i16, tgt.1 as i16).unwrap().resolved_next;
+                if after_arrival.is_none() && rn > arrive { after_arrival = Some(k); eprintln!("after the arrival turn {arrive}: keep {k:?}"); }
+                if taken.is_none() && k.holder == faction {
+                    taken = Some((k, rn));
+                    donor_after = Some(donor_of(&state));
+                    eprintln!("TAKEN at resolved_next {rn}: {k:?} (tick {i}); donor before {pre_capture_milli:?} milli, after {:?}", donor_after);
+                }
+                // (a donor whose rest joined the garrison is removed: there is no return to settle)
+                if matches!(donor_after, Some(None)) { eprintln!("the donor was removed at the capture: nothing to return"); break; }
+                if !had_return && seen.iter().any(|s| s.contains("\"SettleReturn(")) {
+                    return_diff = Some((reserve_before_tick, reserve_of(&state)));
+                    eprintln!("RETURN: reserve {reserve_before_tick} → {}", reserve_of(&state));
+                    break;
+                }
+                if i % 50 == 0 { eprintln!("tick {i}: dest resolved_next {rn}, keep holder {} contender {} progress {} troops {}", k.holder, k.contender, k.progress, k.troops); }
+                let t = lock(&state).unix_timestamp();
+                crate::destination_real::advance(&state, t + if after_arrival.is_some() { 300 } else { 60 });
+            }
+            let n = seen.len();
+            eprintln!("landed {n} keeper steps; first: {:?}", seen.iter().take(14).collect::<Vec<_>>());
+            eprintln!("last: {:?}", seen.iter().rev().take(8).collect::<Vec<_>>());
+            // the march and the battle
+            for k in ["SettleDeparture(slot 0)", &format!("Reveal(slot 0, bell {arrive})"), &format!("ResolveFromInputs(destination bell {arrive})"), &format!("SettleTransit(slot 0, bell {arrive})")] {
+                assert!(seen.iter().any(|s| s.contains(k)), "{k} landed");
+            }
+            let k1 = after_arrival.expect("the arrival turn resolved");
+            assert!(k1.troops < keep0.troops || k1.holder == faction || k1.contender == faction, "the battle: the garrison was beaten ({k1:?})");
+            // the capture: owner change, garrison split, consolidation — by the Season's own parameters
+            let (kt, rn_t) = taken.expect("the keep was taken");
+            assert_eq!(kt.holder, faction, "the keep's holder is the player's nation");
+            assert_eq!(kt.last_taken_from, keep0.holder, "taken from its wedge holder");
+            assert_eq!(kt.gen, keep0.gen + 1, "the garrison generation +1");
+            // the split, EXACTLY as the kernel computes it (keep.rs advance_with): from the donor's troops t (milli) at
+            // the capture, garrison = ⌊t × bps / 10,000 / 1,000⌋ whole troops, rest = t − garrison × 1,000 (milli); a
+            // rest under MIN_HOST_TROOPS (100 troops) joins the garrison and the donor's entry is removed
+            let t = pre_capture_milli.expect("the donor's troops before the capture") as u64;
+            let mut g = t * cq.keep_garrison_bps as u64 / 10_000 / 1_000;
+            let mut rest = t - g * 1_000;
+            let removed = rest < 100 * 1_000;
+            if removed { g += rest / 1_000; rest = 0; }
+            assert_eq!(kt.troops as u64, g, "the garrison is exactly the donor's share (t {t} milli)");
+            match donor_after.clone().expect("read right after the capture") {
+                Some(e) if !removed => {
+                    use frontier_abi::layout::province::entry as E;
+                    assert_eq!(e.troops as u64, rest, "the donor keeps exactly the rest (milli)");
+                    assert_eq!((e.state, e.pend_op), (E::STATE_DEPARTED, E::OP_LEAVE), "the donor is going home");
+                }
+                None if removed => {}
+                other => panic!("the donor after the capture: {other:?} (removed {removed}, rest {rest})"),
+            }
+            assert!(rn_t >= arrive + cq.keep_bells as u32, "not before {} counted turns: taken by {rn_t}", cq.keep_bells);
+            assert_eq!(kt.consolidated_until_bell, kt.since_bell + cq.keep_consolidate_bells as u32, "consolidation (since {} + {})", kt.since_bell, cq.keep_consolidate_bells);
+            let pv = fclient::decode::Province::decode(&bytes(&state, &a.province(tgt.0, tgt.1))).unwrap();
+            assert_eq!(pv.cq.as_ref().unwrap().keeps_taken_by[faction as usize], 1, "the province records the capture");
+            // the donor went home with the rest: the return settle credited it to the village's reserve
+            let after = Holding::decode(&bytes(&state, &holding)).unwrap();
+            // the WHOLE rest is home: the return settle credited exactly ⌊rest / 1,000⌋ troops, in the tick it landed
+            if removed {
+                // (keep.rs: a rest under 100 troops joins the garrison as ⌊rest / 1,000⌋ whole troops and the donor's
+                //  entry is removed; the milli remainder below one troop is dropped by that floor, so the garrison is
+                //  ⌊t / 1,000⌋ and there is NO return to settle — this branch is not a return)
+                assert_eq!(g, t / 1_000, "removed: the whole host (in whole troops) is the garrison");
+                assert!(return_diff.is_none(), "a removed donor has nothing to return");
+            } else {
+                let (r0, r1) = return_diff.expect("the return settle landed");
+                assert_eq!(r1 as u64 - r0 as u64, rest / 1_000, "the reserve rose by exactly the donor's rest");
+                assert_eq!(g * 1_000 + rest, t, "garrison + rest = the donor's troops: nothing lost or made");
+            }
+            assert!(!pv.entries.iter().any(|e| e.id == host), "the donor's entry is freed in the keep's province");
+            assert!(removed || seen.iter().any(|s| s.contains("\"SettleReturn(")), "SettleReturn landed");
+            if removed {
+                eprintln!("RESULT (NO RETURN: the whole host joined the garrison): keep {tgt:?} taken by nation {faction} from {}; garrison {} = ⌊{t} / 1,000⌋; consolidated until {}", keep0.holder, kt.troops, kt.consolidated_until_bell);
+            } else {
+                eprintln!("RESULT (WITH RETURN): keep {tgt:?} taken by nation {faction} from {}; garrison {}; donor's rest {} milli → +{} troops home by SettleReturn; consolidated until {}", keep0.holder, kt.troops, rest, rest / 1_000, kt.consolidated_until_bell);
+            }
+            world.running.stop();
+        });
     }
 
     #[test]
