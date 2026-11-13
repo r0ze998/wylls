@@ -37,6 +37,15 @@ test('the two modes stay apart, and the unfinished on-screen capture is said', (
   assert.match(doc, /The 72-turn capture has NOT been completed on screen\./);
   assert.match(doc, /4\/72/);
   assert.match(doc, /has \*\*not\*\* been run end to end yet/);
+  // (the demo world was stopped by hand at 4/72; it did not run out its limit)
+  assert.match(doc, /stopped by hand \(Ctrl-C\) about 17 minutes after it started, at 4\/72\. It did not reach its limit\./);
+  assert.ok(!/ended first, by its 45-minute limit/.test(doc));
+});
+
+test('stopping says the key goes only with the world\'s own tab, and other tabs are left alone', () => {
+  assert.match(doc, /Ctrl-C alone does not remove the page's memory-only key from the browser;\n\s+closing the tab discards it\./);
+  assert.match(doc, /Close only the tab you opened for this world and leave every other tab alone\./);
+  assert.ok(!/its key is gone with the page/.test(doc));
 });
 
 test('no machine-local path, address or secret in the guide', () => {

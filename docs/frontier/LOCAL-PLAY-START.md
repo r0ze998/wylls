@@ -93,7 +93,10 @@ Add both words to the natural command above:
 4. Use 進軍 to choose a destination, then press 「封をして出発する」. The keeper settles the march by itself.
 5. On the demo only: once the next ring is open, the guide offers 「届く砦を見る」 and the fort list 「届く砦」.
    A march onto a fort starts its hold count, 「…争奪中 N/72ターン」.
-6. To stop, press Ctrl-C in the launcher's terminal. Every world ends first, and its key is gone with the page.
+6. To stop, press Ctrl-C in the launcher's terminal. It ends every world of that launcher.
+7. Then close that world's browser tab. Ctrl-C alone does not remove the page's memory-only key from the browser;
+   closing the tab discards it. Close only the tab you opened for this world and leave every other tab alone. A key
+   in a tab left open is gone only when that tab closes, and that cannot be confirmed from outside it.
 
 ## 4. What is done, and what is not
 - **Natural world, on screen:** nation, home, economy, army, the ordinary march sent by the page's own key, and its
@@ -103,8 +106,10 @@ Add both words to the natural command above:
   - Every keep inside a heartland is safe and never counts.
 - **Capture demo, on screen (×20, 2026-11-13):** the next ring opened; the fort list showed two forts; a march
   reached a fort; the hold count reached **4/72**.
-  - **The 72-turn capture has NOT been completed on screen.** The world ended first, by its 45-minute limit.
+  - **The 72-turn capture has NOT been completed on screen.**
   - While a fort is contested, each of its turns needs three keeper steps, so it advanced about one turn per minute.
+    At that rate 72 turns could not fit in the world's 45-minute limit.
+  - So the world was stopped by hand (Ctrl-C) about 17 minutes after it started, at 4/72. It did not reach its limit.
 - **The capture itself** (72 counted turns, the new holder, the return) is proven only by the in-process tests on
   the real program, on a compressed clock. It is not proven through the page.
 - **Not run:** a build and start from a fresh clone on another machine.
