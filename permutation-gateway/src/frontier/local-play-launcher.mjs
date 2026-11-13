@@ -101,10 +101,20 @@ async function freePort(port) {
   await new Promise((resolve, reject) => { s.once('error', e => reject(e?.code === 'EADDRINUSE' ? fault('PortBusy', 503) : e)); s.listen(port, '127.0.0.1', resolve); });
   await new Promise(r => s.close(r));
 }
-async function bytesUnder(dir) {
-  let total = 0;
-  for (const e of await fs.readdir(dir, { withFileTypes: true })) {
-    const p = path.join(dir, e.name); if (e.isDirectory()) total += await bytesUnder(p); else if (e.isFile()) total += (await fs.stat(p)).size;
+/**
+ * The bytes under `dir`. An entry ALREADY LISTED that disappears before its own read (ENOENT: the herald renames and
+ * compresses its files continually, e.g. `h/control/{b}.bin` → `.bin.gz`) holds no bytes any more and counts 0. The world's
+ * own directory is never excused: a failure to list it (ENOENT included — the root itself gone) is thrown, as is any
+ * other error, so the world's guard still stops it (`guard-failed`) as before. `io` is for tests; `listed` is internal.
+ */
+export async function bytesUnder(dir, io = fs, listed = false) {
+  const gone = e => e?.code === 'ENOENT';
+  let total = 0, entries;
+  try { entries = await io.readdir(dir, { withFileTypes: true }); } catch (e) { if (listed && gone(e)) return 0; throw e; }
+  for (const e of entries) {
+    const p = path.join(dir, e.name);
+    if (e.isDirectory()) total += await bytesUnder(p, io, true);
+    else if (e.isFile()) { try { total += (await io.stat(p)).size; } catch (x) { if (!gone(x)) throw x; } }
   }
   return total;
 }
