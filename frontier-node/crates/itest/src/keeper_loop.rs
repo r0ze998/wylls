@@ -40,6 +40,36 @@ use crate::local_keeper::{self as lk, RoundProvenance, MAX_FAST_FORWARD_BELLS, M
 pub const SCHEMA: &str = "frontier-local-play-keeper-v1";
 /// Real seconds between ticks.
 pub const TICK: Duration = Duration::from_secs(10);
+/// How the loop waits between ticks.
+/// - `Natural`: every [`TICK`], as always. Natural play uses only this.
+/// - `Demo` (TEST-ONLY capture demo on a compressed clock): after a tick in which a transaction landed, the next tick
+///   comes after `short`, at most `burst` times in a row. A tick that landed nothing waits the full [`TICK`], and so
+///   does the one after a burst. No rule, clock or turn length changes: only how soon the next fresh read and the next
+///   single step come while work is landing. Unknown and Stopped stay terminal (each driver's own rule); nothing is
+///   resent.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Pace {
+    Natural,
+    Demo { short: Duration, burst: u32 },
+}
+/// The capture demo's pace: 1 s while work lands, at most 8 in a row (then the full tick).
+pub const DEMO_PACE: Pace = Pace::Demo { short: Duration::from_secs(1), burst: 8 };
+
+/// The wait after a tick (pure): `landed` says whether that tick landed a transaction; `run` counts the short waits in
+/// a row and is reset by every full one.
+pub fn next_wait(pace: Pace, landed: bool, run: &mut u32) -> Duration {
+    match pace {
+        Pace::Demo { short, burst } if landed && *run < burst => {
+            *run += 1;
+            short
+        }
+        _ => {
+            *run = 0;
+            TICK
+        }
+    }
+}
+
 /// How long a submitted transaction may take to land on the node's ticker.
 pub const LAND_TIMEOUT: Duration = Duration::from_secs(30);
 const PAYER_LAMPORTS: u64 = 50_000_000_000;
@@ -519,6 +549,8 @@ pub struct Pilot {
     /// A LEGACY village's ordinary march (legacy_march: settle the departure, reveal, the destination's bells,
     /// SettleTransit); it takes the wide destination driver's place for such a village and reports in its field.
     pub legacy: Option<crate::legacy_march::LegacyMarchDriver>,
+    /// Whether the last tick landed a transaction (the keeper's anchors or FastForward, or any driver's step).
+    pub landed: bool,
 }
 
 impl Pilot {
@@ -551,12 +583,16 @@ impl Pilot {
             }
             None => (None, None, None, None),
         };
-        Ok(Pilot { keeper, origin, destination, resident, legacy })
+        Ok(Pilot { keeper, origin, destination, resident, legacy, landed: false })
     }
 
     /// One pass; false once stopped.
     pub async fn tick(&mut self, state: &Shared) -> bool {
-        if !self.keeper.tick(state).await {
+        self.landed = false;
+        let before = (self.keeper.status.anchors_posted, self.keeper.status.fast_forwards);
+        let alive = self.keeper.tick(state).await;
+        self.landed = (self.keeper.status.anchors_posted, self.keeper.status.fast_forwards) != before;
+        if !alive {
             return false;
         }
         // every tick (not only while FastForward waits): a departure's
@@ -568,6 +604,7 @@ impl Pilot {
         if let Some(d) = self.destination.as_mut() {
             if d.terminal().is_none() {
                 let step = d.step(state).await;
+                self.landed |= matches!(step, crate::destination_driver::Step::Landed(..));
                 if let crate::destination_driver::Step::Unknown { signature, .. } = &step {
                     self.keeper.status.unknown_signature = Some(signature.clone());
                 }
@@ -578,6 +615,7 @@ impl Pilot {
         if let Some(d) = self.legacy.as_mut() {
             if d.terminal().is_none() {
                 let step = d.step(state).await;
+                self.landed |= matches!(step, crate::origin_driver::Step::Landed(..));
                 if let crate::origin_driver::Step::Unknown { signature, .. } = &step {
                     self.keeper.status.unknown_signature = Some(signature.clone());
                 }
@@ -590,6 +628,7 @@ impl Pilot {
         if let Some(r) = self.resident.as_mut() {
             if r.terminal().is_none() {
                 let step = r.step(state).await;
+                self.landed |= matches!(step, crate::resident_bells::Step::Landed(..));
                 if let crate::resident_bells::Step::Unknown { signature, .. } = &step {
                     self.keeper.status.unknown_signature = Some(signature.clone());
                 }
@@ -599,6 +638,7 @@ impl Pilot {
         let Some(origin) = self.origin.as_mut() else { return true };
         use crate::origin_driver::Step;
         let step = origin.step(state).await;
+        self.landed |= matches!(step, Step::Landed(..));
         self.keeper.status.origin_step = Some(format!("{step:?}"));
         match step {
             Step::Unknown { signature, why } => {
@@ -623,7 +663,13 @@ pub async fn run(state: Shared, source: RoundSource, holding: Option<Address>, s
 }
 
 /// As [`run`], for the home province `home` (a world whose home came from a real PlaceHome).
-pub async fn run_at(state: Shared, source: RoundSource, holding: Option<Address>, home: (i16, i16), mut stop: tokio::sync::watch::Receiver<bool>, report: impl Fn(&Status)) {
+pub async fn run_at(state: Shared, source: RoundSource, holding: Option<Address>, home: (i16, i16), stop: tokio::sync::watch::Receiver<bool>, report: impl Fn(&Status)) {
+    run_paced(state, source, holding, home, Pace::Natural, stop, report).await
+}
+
+/// As [`run_at`], waiting between ticks as `pace` says ([`Pace`]; natural play passes `Pace::Natural`).
+pub async fn run_paced(state: Shared, source: RoundSource, holding: Option<Address>, home: (i16, i16), pace: Pace, mut stop: tokio::sync::watch::Receiver<bool>, report: impl Fn(&Status)) {
+    let mut run = 0u32;
     let mut p = match Pilot::new_at(&state, source, holding, home, stop.clone()).await {
         Ok(p) => p,
         Err(e) => {
@@ -641,8 +687,9 @@ pub async fn run_at(state: Shared, source: RoundSource, holding: Option<Address>
         if !alive {
             return;
         }
+        let wait = next_wait(pace, p.landed, &mut run);
         tokio::select! {
-            _ = tokio::time::sleep(TICK) => {}
+            _ = tokio::time::sleep(wait) => {}
             _ = stopped(&mut stop) => {
                 p.keeper.stopping();
                 report(&p.keeper.status);
@@ -655,6 +702,41 @@ pub async fn run_at(state: Shared, source: RoundSource, holding: Option<Address>
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // The pace (pure): natural ticks every TICK whatever landed; the TEST-ONLY demo goes short only while work lands,
+    // at most `burst` in a row, and any tick that landed nothing waits the full TICK.
+    #[test]
+    fn pace_natural_is_every_tick_and_demo_is_bounded_and_only_while_work_lands() {
+        let mut run = 0;
+        for landed in [true, true, false, true] {
+            assert_eq!(next_wait(Pace::Natural, landed, &mut run), TICK);
+            assert_eq!(run, 0);
+        }
+        let short = Duration::from_secs(1);
+        let demo = Pace::Demo { short, burst: 3 };
+        let mut run = 0;
+        let waits: Vec<Duration> = [true, true, true, true, true, false, true, false, false].iter().map(|&l| next_wait(demo, l, &mut run)).collect();
+        assert_eq!(waits, vec![short, short, short, TICK, short, TICK, short, TICK, TICK], "three short, then the full tick; nothing landed: the full tick, and the run starts again");
+        // (a zero burst is the natural pace)
+        let mut run = 0;
+        assert_eq!(next_wait(Pace::Demo { short, burst: 0 }, true, &mut run), TICK);
+        assert_eq!(DEMO_PACE, Pace::Demo { short: Duration::from_secs(1), burst: 8 });
+        // (the full tick itself is unchanged)
+        assert_eq!(TICK, Duration::from_secs(10));
+    }
+
+    // The wiring: `run_at` (every caller of natural play) is the natural pace; only the natural runner's demo world asks
+    // for the demo pace, and only from the demo option the launcher checked.
+    #[test]
+    fn pace_wiring_natural_by_default_demo_only_on_a_demo_world() {
+        let src = include_str!("keeper_loop.rs");
+        assert!(src.contains("    run_paced(state, source, holding, home, Pace::Natural, stop, report).await\n"));
+        let bin = include_str!("bin/localnet_natural_play.rs");
+        assert!(bin.contains("let pace = if demo.is_some() { itest::keeper_loop::DEMO_PACE } else { itest::keeper_loop::Pace::Natural };"));
+        assert_eq!(bin.matches("DEMO_PACE").count(), 1);
+        let exp = include_str!("bin/localnet_expedition_play.rs");
+        assert!(!exp.contains("DEMO_PACE") && !exp.contains("run_paced"), "the expedition runner keeps the natural pace");
+    }
     use crate::expedition_play::{inspect, launch, parse_args, REFUSED_PORT};
     use localnet::server;
 

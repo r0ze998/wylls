@@ -44,7 +44,9 @@ fn main() {
                                 }
                             });
                         }
-                        itest::keeper_loop::run_at(state, itest::keeper_loop::public_quicknet(), Some(home.holding), home.home, keeper_rx, |s| println!("{}", s.json())).await;
+                        // (the TEST-ONLY demo's pace: short ticks only while work lands; a natural world ticks as always)
+                        let pace = if demo.is_some() { itest::keeper_loop::DEMO_PACE } else { itest::keeper_loop::Pace::Natural };
+                        itest::keeper_loop::run_paced(state, itest::keeper_loop::public_quicknet(), Some(home.holding), home.home, pace, keeper_rx, |s| println!("{}", s.json())).await;
                     }
                     Err(e) => println!("{}", serde_json::json!({"schema": natural::NATURAL_SCHEMA, "natural_step": "stopped", "why": e, "keeper_started": false})),
                 }

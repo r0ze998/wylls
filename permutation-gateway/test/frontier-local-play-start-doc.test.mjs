@@ -38,8 +38,21 @@ test('the two modes stay apart, and the unfinished on-screen capture is said', (
   assert.match(doc, /4\/72/);
   assert.match(doc, /has \*\*not\*\* been run end to end yet/);
   // (the demo world was stopped by hand at 4/72; it did not run out its limit)
-  assert.match(doc, /stopped by hand \(Ctrl-C\) about 17 minutes after it started, at 4\/72\. It did not reach its limit\./);
+  assert.match(doc, /stopped by hand \(Ctrl-C\) about 17 minutes after it started,\s+at 4\/72\. It did not reach its limit\./);
   assert.ok(!/ended first, by its 45-minute limit/.test(doc));
+  // (the second run, with the demo pace: one turn short at its limit, which was not extended; the page lagged the chain)
+  assert.match(doc, /the chain's hold count was \*\*71\/72\*\*, one turn short, and the world ended by itself\./);
+  assert.match(doc, /45-minute limit\n?\s*\(not extended\)/);
+  assert.match(doc, /resolved every 29\.9 s\n?\s*on average/);
+  assert.match(doc, /The page\n?\s*showed 65\/72 at that moment/);
+  assert.match(doc, /on a demo world only, the keeper's next tick comes after 1 s while\n?\s*its steps land \(at most 8 in a row\); a natural world ticks as before\./);
+  assert.ok(!/capture (has been|was) completed on screen|72\/72/.test(doc), 'no claim of a finished capture');
+});
+
+test('the demo pace the guide states is the source\'s', () => {
+  const kl = read('frontier-node/crates/itest/src/keeper_loop.rs'), bin = read('frontier-node/crates/itest/src/bin/localnet_natural_play.rs');
+  assert.match(kl, /pub const DEMO_PACE: Pace = Pace::Demo \{ short: Duration::from_secs\(1\), burst: 8 \}/);
+  assert.match(bin, /let pace = if demo\.is_some\(\) \{ itest::keeper_loop::DEMO_PACE \} else \{ itest::keeper_loop::Pace::Natural \};/);
 });
 
 test('stopping says the key goes only with the world\'s own tab, and other tabs are left alone', () => {

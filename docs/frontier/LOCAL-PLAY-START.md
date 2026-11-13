@@ -104,12 +104,19 @@ Add both words to the natural command above:
 - **Natural world, by the rules:** no area expansion or capture.
   - A ring past the heartland opens only at θ occupancy of one wedge, which one player cannot reach alone.
   - Every keep inside a heartland is safe and never counts.
-- **Capture demo, on screen (×20, 2026-11-13):** the next ring opened; the fort list showed two forts; a march
-  reached a fort; the hold count reached **4/72**.
+- **Capture demo, on screen (×20):** the next ring opened; the fort list showed two forts; a march reached a fort and
+  started its hold count.
   - **The 72-turn capture has NOT been completed on screen.**
-  - While a fort is contested, each of its turns needs three keeper steps, so it advanced about one turn per minute.
-    At that rate 72 turns could not fit in the world's 45-minute limit.
-  - So the world was stopped by hand (Ctrl-C) about 17 minutes after it started, at 4/72. It did not reach its limit.
+  - **First run (2026-11-13):** while a fort is contested, each of its turns needs three keeper steps, and the keeper
+    took one step per 10-second tick, so the hold advanced about one turn per minute. At that rate 72 turns could not
+    fit in the world's 45-minute limit. So the world was stopped by hand (Ctrl-C) about 17 minutes after it started,
+    at 4/72. It did not reach its limit.
+  - **Second run (2026-11-14), with the demo pace:** on a demo world only, the keeper's next tick comes after 1 s while
+    its steps land (at most 8 in a row); a natural world ticks as before. The fort's turns then resolved every 29.9 s
+    on average, the ×20 clock's own rate. The hold started at turn 14. When the world reached its 45-minute limit
+    (not extended), the chain's hold count was **71/72**, one turn short, and the world ended by itself. The page
+    showed 65/72 at that moment and said its display was 180 seconds behind.
+  - At ×20, a hold that starts at turn 14 cannot reach 72 inside 45 minutes, even at the clock's own rate.
 - **The capture itself** (72 counted turns, the new holder, the return) is proven only by the in-process tests on
   the real program, on a compressed clock. It is not proven through the page.
 - **Not run:** a build and start from a fresh clone on another machine.
