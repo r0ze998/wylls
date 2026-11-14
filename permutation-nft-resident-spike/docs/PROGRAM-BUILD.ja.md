@@ -2,6 +2,8 @@
 
 ## 1. いまの状態
 
+**2026-11-14 更新**：最新ソース（digest `6d906500…`、v0.16 から不変）を build し、`program/BUILD-RECORD.json` を記録した。`status` は `OK`（`.so` `947da0b9…`、165,360 B）。詳細は `MINT-READINESS-20261114.ja.md` §2。以下は 11-06 時点の記録。
+
 `node archive/program-artifact.mjs status` の結果（v0.16 の時点）：
 
 ```

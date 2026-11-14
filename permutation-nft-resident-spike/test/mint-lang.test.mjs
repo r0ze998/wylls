@@ -44,13 +44,13 @@ function templateKeys(src) {
   return keys;
 }
 
-test('the language: ?lang first (kept), then the saved choice, then the browser (ja* → ja, else en)', () => {
-  assert.deepEqual(pickLang({ search: '?lang=en', saved: 'ja', language: 'ja-JP' }), { lang: 'en', save: true });
-  assert.deepEqual(pickLang({ search: '?lang=ja', saved: 'en', language: 'en-US' }), { lang: 'ja', save: true });
-  assert.deepEqual(pickLang({ search: '', saved: 'en', language: 'ja-JP' }), { lang: 'en', save: false });
-  assert.deepEqual(pickLang({ search: '?lang=xx', saved: null, language: 'ja' }), { lang: 'ja', save: false });
-  assert.deepEqual(pickLang({ search: '', saved: null, language: 'en-GB' }), { lang: 'en', save: false });
-  assert.deepEqual(pickLang({ search: '', saved: null, language: 'fr' }), { lang: 'en', save: false });
+test('the language: ?lang first (kept), then the saved choice, then English for every browser (Japanese only when asked)', () => {
+  assert.deepEqual(pickLang({ search: '?lang=en', saved: 'ja' }), { lang: 'en', save: true });
+  assert.deepEqual(pickLang({ search: '?lang=ja', saved: 'en' }), { lang: 'ja', save: true });
+  assert.deepEqual(pickLang({ search: '', saved: 'en' }), { lang: 'en', save: false });
+  assert.deepEqual(pickLang({ search: '', saved: 'ja' }), { lang: 'ja', save: false });
+  assert.deepEqual(pickLang({ search: '?lang=xx', saved: null }), { lang: 'en', save: false });
+  assert.deepEqual(pickLang({ search: '', saved: null }), { lang: 'en', save: false }, 'a Japanese browser too: English is the default');
 });
 
 test('T fills the values in either language; an unknown text stays as written', () => {

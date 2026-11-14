@@ -1,0 +1,8 @@
+{
+  "sourceDigest": "6d906500d82d6818031f4a83c5abc94d1f1c6756cb91e9275f1e3ef492c2504a",
+  "sourceFiles": 4,
+  "soSha256": "947da0b94d0b51ca2d8fe2ba48b7ba9f1c88fdd793efb4b5943bf2a6623dce22",
+  "soBytes": 165360,
+  "recordedAt": "2026-11-14T05:00:04.786Z",
+  "toolchain": "solana-cargo-build-sbf 3.1.9 platform-tools v1.52 rustc 1.89.0 "
+}

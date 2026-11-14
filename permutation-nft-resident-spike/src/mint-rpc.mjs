@@ -31,6 +31,9 @@ export const RESIDENT_BYTES = 384;                   // the Citizen v2 size
 /** MintResident instruction: tag 0x50 ‖ price lamports u64 LE (the price the client saw; the program refuses a mismatch). */
 export const MINT_RESIDENT_TAG = 0x50;
 /** Account order of MintResident (proposal for ④): payer s/w, treasury w, asset s/w, collection w, collection authority PDA, resident PDA w, config, Core program, System program. */
+/** TransferResident: tag 0x51, no data; the program's accounts (program/src/lib.rs transfer_resident). */
+export const TRANSFER_RESIDENT_TAG = 0x51;
+export const TRANSFER_RESIDENT_ACCOUNTS = Object.freeze(['owner', 'payer', 'asset', 'collection', 'collectionAuthority', 'resident', 'newOwner', 'coreProgram', 'systemProgram']);
 export const MINT_RESIDENT_ACCOUNTS = Object.freeze(['payer', 'treasury', 'asset', 'collection', 'collectionAuthority', 'resident', 'config', 'coreProgram', 'systemProgram', 'minter']);
 
 export class MockRpc {
@@ -185,8 +188,27 @@ export class MockRpc {
       this.lamports.set(from, this.balance(from) - amount); this.lamports.set(to, this.balance(to) + amount);
       return;
     }
+    if (ix.programId === RESIDENT_PROGRAM && ix.data[0] === TRANSFER_RESIDENT_TAG) return this.#transferResident(ix, tx, logs);
     if (ix.programId === RESIDENT_PROGRAM) return this.#mintResident(ix, tx, logs);
     throw new Refusal(ERR.BAD_DATA, `unknown program ${ix.programId}`);
+  }
+
+  /**
+   * TransferResident, as the program checks it: owner and payer sign, the asset's owner is `owner` (NotOwner), the
+   * resident account is the asset's, the collection authority and Core are the expected ones. Effects, together: the
+   * asset's owner is `newOwner`, the generation goes up by one, the session is cleared.
+   */
+  #transferResident(ix, tx, logs) {
+    if (ix.data.length !== 1) throw new Refusal(ERR.BAD_DATA, 'TransferResident: data');
+    if (ix.keys.length !== TRANSFER_RESIDENT_ACCOUNTS.length) throw new Refusal(ERR.BAD_DATA, 'TransferResident: accounts');
+    const k = Object.fromEntries(TRANSFER_RESIDENT_ACCOUNTS.map((n, i) => [n, ix.keys[i].pubkey]));
+    if (!tx.signers.includes(k.owner) || !tx.signers.includes(k.payer)) throw new Refusal(ERR.AUTH, 'TransferResident: owner and payer must sign');
+    const a = this.chain.accounts.get(k.asset);
+    if (!a || base58(a.data.slice(1, 33)) !== k.owner) throw new Refusal(ERR.NOT_OWNER, 'TransferResident: the signer does not own the asset');
+    if (k.resident !== residentAccountOf(k.asset)) throw new Refusal(ERR.BAD_DATA, 'TransferResident: resident account');
+    if (k.collectionAuthority !== this.config.collectionAuthorityPda || k.coreProgram !== MPL_CORE_PROGRAM || k.collection !== this.collection) throw new Refusal('BadAddress', 'TransferResident: addresses');
+    const r = this.mockTransfer({ asset: k.asset, from: k.owner, to: k.newOwner });
+    logs.push(`Program log: resident ${k.asset} moved to ${k.newOwner}, generation ${r.gen}`);
   }
 
   /**
@@ -244,4 +266,6 @@ export class MockRpc {
 }
 
 const fromBase64 = s => new Uint8Array(Buffer.from(String(s), 'base64'));
-const codeNumber = code => { let n = 0; for (const c of code) n = (n * 31 + c.charCodeAt(0)) % 1_000; return n; };
+/** The program's own numbers for the names it defines (program/src/lib.rs ResidentError); a hash for the rest. */
+const PROGRAM_CODES = { BadData: 1000, BadAddress: 1001, Auth: 1002, NotOwner: 1003, StaleGen: 1004, PriceChanged: 1005, WrongTreasury: 1006, WrongCollection: 1007, AlreadyInitialized: 1008 };
+const codeNumber = code => { if (PROGRAM_CODES[code] !== undefined) return PROGRAM_CODES[code]; let n = 0; for (const c of code) n = (n * 31 + c.charCodeAt(0)) % 1_000; return n; };

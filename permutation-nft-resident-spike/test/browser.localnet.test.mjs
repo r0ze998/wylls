@@ -9,12 +9,13 @@
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { createRequire } from 'node:module';
+import { loadPlaywright } from './playwright.mjs';
 import { localnetAvailable, TEST_PROGRAM_ID } from '../src/localnet.mjs';
 import { keypair, fromHex } from '../src/crypto.mjs';
 import { customCode, mintResidentIx, opIx, pdas, setPriceIx, setSessionIx, signedTx, transferResidentIx, decodeResidentAccount } from '../src/resident-ix.mjs';
 
 let pw = null;
-try { pw = createRequire(import.meta.url)('playwright'); } catch { /* skipped */ }
+pw = loadPlaywright();
 const skip = !pw ? 'playwright not installed' : !localnetAvailable() ? 'localnet prerequisites missing (ENV-RECORD §1)' : false;
 
 const SEED_A = 'a1'.repeat(32);
@@ -57,6 +58,8 @@ test('real program, happy path: the page derives the PDAs, the wallet signs one 
   const { page, address } = await open(SEED_A);
   assert.match(await t(page, 'network').textContent(), /real program/);
   assert.doesNotMatch(await t(page, 'network').textContent(), /模擬/);
+  // The banner stays text saying this is a local test without value (the server's notice flags never replace it).
+  assert.match(await t(page, 'notice').textContent(), /ローカル検証ネット.*保証しません/);
   await s.post('/mock/airdrop', { address, lamports: '1000000000' });
   await connect(page);
   await waitStatus(page, /mint できます/);

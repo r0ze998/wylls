@@ -13,13 +13,15 @@
 // * A wallet on another network, a genesis hash that is not the configured
 //   one, a changed price, insufficient SOL: refused before anything is signed
 //   or sent.
-import { compileMessage, wireTransaction, parseTransaction, messageOf, findProgramAddress } from '/sdk/solana-tx.mjs';
+import { compileMessage, wireTransaction, parseTransaction, messageOf, findProgramAddress, isOnCurve } from '/sdk/solana-tx.mjs';
 import { encode as toBase58 } from '/sdk/base58.mjs';
 import { u64le, toBase64, equal, concat, utf8 } from '/sdk/bytes.mjs';
 import { decode as fromBase58 } from '/sdk/base58.mjs';
 import * as ws from '/web/wallet-standard.mjs';
 import { saleState, SALE_TEXT } from '/web/sale.mjs';
 import { T, tr, lang, setLang, pickLang, translateStatic } from '/web/mint-lang.mjs';
+import { parseMintRecord } from '/web/mint-record.mjs';
+import { checkDestination, checkSender, transferInstruction, assetOwnerOf, decidePending, parsePendingRecord, shortAddress, PENDING_TRANSFER } from '/web/transfer.mjs';
 
 const $ = sel => document.querySelector(`[data-testid="${sel}"]`);
 const fmtSol = l => `${(Number(l) / 1e9).toFixed(6)} SOL (${l} lamports)`;
@@ -61,7 +63,8 @@ async function boot() {
   if (c.mode !== 'mock' && !/devnet/i.test(c.network)) $('notice').textContent = T`ローカル検証ネット（実 program、ループバック validator）のテストです。本番の参加権や金銭的価値を保証しません。テスト用 SOL だけを使ってください。`;
   $('price').textContent = `${fmtSol(c.price.lamports)}${c.price.label ? ` — ${tr(c.price.label)}` : ''}`;
   // A deployment's own notice (the operator's text); the devnet banner otherwise.
-  if (c.notice) $('notice').textContent = c.notice;
+  // The companion server also sends `notice` as an object of flags ({ test, noValue, … }): only text replaces the banner.
+  if (typeof c.notice === 'string' && c.notice.trim()) $('notice').textContent = c.notice;
   renderTerms();
   $('fee').textContent = T`約 ${fmtSol(c.estimate.feeLamports)}（署名 2 件）`;
   $('rent').textContent = T`約 ${fmtSol(BigInt(c.estimate.rentAssetLamports) + BigInt(c.estimate.rentResidentLamports))}`;
@@ -81,6 +84,12 @@ async function boot() {
   if (state.networkOk) say(T`ウォレットを接続してください。`);
   $('mint').addEventListener('click', () => mint().catch(e => fail(e)));
   $('recheck').addEventListener('click', () => refresh().catch(e => fail(e)));
+  $('t-review').addEventListener('click', () => reviewTransfer().catch(e => tfail(e)));
+  $('t-ack').addEventListener('change', () => { $('t-send').disabled = !$('t-ack').checked || tstate.busy || !tstate.review; });
+  $('t-cancel').addEventListener('click', () => { if (tstate.busy) return; closeReview(); tsay(T`譲渡をやめました。何も送っていません。住民はこのウォレットのままです。`); });
+  $('t-send').addEventListener('click', () => sendTransfer().catch(e => tfail(e)));
+  // Changing the destination or the NFT after the review voids the review (the confirmation must show what is sent).
+  for (const id of ['t-to', 't-asset']) $(id).addEventListener('input', () => { if (tstate.review && !tstate.busy) closeReview(); });
 }
 /** The sale terms as the program's config holds them (supply, window, per-wallet limit): the page only shows them. */
 function renderTerms(walletMinted = 0) {
@@ -111,8 +120,11 @@ function renderWallets() {
 }
 
 async function connect(wallet) {
+  // Not while a transaction is being built, signed or sent: its record belongs to the wallet that signs it.
+  if (tstate.busy || state.busy) throw Object.assign(new Error(T`取引の処理中はウォレットを切り替えられません。`), { code: 'Busy' });
   const w = await ws.connect(wallet, state.config.chainId);
   state.wallet = w;
+  closeReview();
   $('address').textContent = w.address;
   await refresh();
 }
@@ -122,10 +134,12 @@ async function refresh() {
   if (!state.wallet) return;
   const bal = BigInt((await rpc('getBalance', [state.wallet.address, { commitment: 'confirmed' }])).value);
   $('balance').textContent = fmtSol(bal);
+  // A transfer whose answer was lost is looked up first (never sent again).
+  const tp = readTransferPending();
+  if (tp) await resolveTransfer(tp);
   const pending = readPending();
   if (pending) { await resolvePending(pending); return; }
-  const mine = await api(`/mint/mine?wallet=${state.wallet.address}`);
-  renderMine(mine.residents);
+  const mine = await refreshMine();
   if (mine.residents.length) {
     const st = await api(`/mint/status?wallet=${state.wallet.address}&asset=${mine.residents[0].asset}`);
     showResult(st, null);
@@ -138,6 +152,15 @@ async function refresh() {
   say(bal < total() ? T`テスト SOL が不足しています（必要 約 ${fmtSol(total())}、残高 ${fmtSol(bal)}）。devnet の faucet で補充してください。` : T`mint できます。ボタンを押すとウォレットで取引を確認・署名します。`, bal < total() ? 'err' : '');
   $('mint').disabled = $('mint').disabled || bal < total();
 }
+
+async function refreshMine() {
+  const mine = await api(`/mint/mine?wallet=${state.wallet.address}`);
+  showMine(mine.residents);
+  return mine;
+}
+
+/** The holdings list and the transfer section, together (both follow the chain read). */
+function showMine(list) { renderMine(list); renderTransfer(list); }
 
 function renderMine(list) {
   const ul = $('mine'); ul.replaceChildren();
@@ -154,9 +177,34 @@ function showResult(st, signature) {
 const fail = e => { console.error(e); say(`${e.code ?? 'Error'}: ${e.message}`, 'err'); state.busy = false; $('mint').disabled = !state.networkOk || !state.wallet; };
 
 // ------------------------------------------------------------------ pending (resume after a lost answer, a closed tab, a reload)
-const readPending = () => { try { return JSON.parse(localStorage.getItem(PENDING(state.wallet.address)) ?? 'null'); } catch { return null; } };
-const writePending = p => localStorage.setItem(PENDING(state.wallet.address), JSON.stringify(p));
-const clearPending = () => localStorage.removeItem(PENDING(state.wallet.address));
+/**
+ * The paying wallet's pending mint (web/mint-record.mjs). A record of another network (a restarted local world) or an
+ * unreadable one is set aside (kept under `…:set-aside`) and said on screen, rather than blocking the page forever.
+ */
+function loadMintPending(addr = state.wallet?.address) {
+  if (!addr) return null;
+  let raw = null;
+  try { raw = localStorage.getItem(PENDING(addr)); } catch { /* storage blocked: writing fails too, so nothing is sent */ }
+  const r = parseMintRecord(raw, state.config.genesisHash);
+  if (r.state === 'ok') return r.p;
+  if (r.state === 'none') return null;
+  try { localStorage.setItem(`${PENDING(addr)}:set-aside`, raw); localStorage.removeItem(PENDING(addr)); } catch { /* */ }
+  // Its own line: the status line is rewritten by what follows (the page's next state).
+  const note = $('record-note');
+  note.textContent = r.state === 'otherNetwork' ? T`別のネットワーク（genesis ${r.p.genesis.slice(0, 8)}…）で記録された mint を照会から外しました（この画面のネットワークでは答えが出ません）。` : T`読めない mint の記録を照会から外しました。`;
+  note.hidden = false;
+  return null;
+}
+const readPending = () => loadMintPending();
+/** Write, then read back: a storage that refuses or drops the record stops the mint before the send. */
+function writePending(p) {
+  const key = PENDING(p.wallet ?? state.wallet.address), text = JSON.stringify(p);
+  let back = null;
+  try { localStorage.setItem(key, text); back = localStorage.getItem(key); } catch (e) { throw Object.assign(new Error(T`mint の記録をブラウザに保存できません（${e.message}）。送っていません（課金なし）。`), { code: 'RecordNotSaved' }); }
+  if (back !== text) throw Object.assign(new Error(T`mint の記録をブラウザに保存できません（読み戻しが違います）。送っていません（課金なし）。`), { code: 'RecordNotSaved' });
+}
+/** Only this mint's own record is removed. */
+const clearPending = p => { try { const k = PENDING(p.wallet ?? state.wallet.address); if (JSON.parse(localStorage.getItem(k) ?? 'null')?.signature === p.signature) localStorage.removeItem(k); } catch { /* */ } };
 
 /**
  * The status of a signature once it is at least `confirmed` (or failed). A status that is only `processed`
@@ -176,10 +224,10 @@ async function resolvePending(p) {
   say(T`進行中の取引を照会しています… ${p.signature.slice(0, 12)}…`);
   const st = await settledStatus(p.signature);
   if (st) {
-    if (st.err) { clearPending(); say(T`前回の取引は失敗しました（${JSON.stringify(st.err)}）。支払いは戻っています。もう一度 mint できます。`, 'err'); $('mint').disabled = !state.networkOk; return; }
+    if (st.err) { clearPending(p); say(T`前回の取引は失敗しました（${JSON.stringify(st.err)}）。支払いは戻っています。もう一度 mint できます。`, 'err'); $('mint').disabled = !state.networkOk; return; }
     const status = await api(`/mint/status?wallet=${state.wallet.address}&asset=${p.asset}`);
     showResult(status, p.signature);
-    if (status.registered) { clearPending(); say(T`取引が確定し、正規 collection の NFT の保有を確認しました：waitlist 登録完了。`, 'ok'); renderMine([{ residentId: status.residentId, asset: status.asset }]); return; }
+    if (status.registered) { clearPending(p); say(T`取引が確定し、正規 collection の NFT の保有を確認しました：waitlist 登録完了。`, 'ok'); showMine([{ residentId: status.residentId, asset: status.asset }]); return; }
     say(T`取引は確定しましたが保有を確認できません（${status.code ?? (status.isHolder ? 'unbound' : 'not holder')}）。再確認を押してください。`, 'err');
     return;
   }
@@ -196,7 +244,7 @@ async function resolvePending(p) {
       if (seen && !p.seen) writePending({ ...p, seen: true });
       const status = await api(`/mint/status?wallet=${state.wallet.address}&asset=${p.asset}`);
       showResult(status, p.signature);
-      if (status.registered) { clearPending(); say(T`取引は確定していました（期限切れ後に口座で確認）：waitlist 登録完了。`, 'ok'); renderMine([{ residentId: status.residentId, asset: status.asset }]); return; }
+      if (status.registered) { clearPending(p); say(T`取引は確定していました（期限切れ後に口座で確認）：waitlist 登録完了。`, 'ok'); showMine([{ residentId: status.residentId, asset: status.asset }]); return; }
       say(T`${seen ? T`asset の口座はありますが` : T`asset の口座を一度観測したため発行済みとして扱いますが、今は`}保有を確認できません（${status.code ?? (status.isHolder ? 'unbound' : 'not holder')}）。再確認を押してください。再課金・再発行はしません。`, 'err');
       return;
     }
@@ -204,17 +252,33 @@ async function resolvePending(p) {
     if (finalHeight <= p.lastValidBlockHeight) { say(T`期限は切れましたが、確定済み（finalized）の高さ ${finalHeight} がまだ有効期限 ${p.lastValidBlockHeight} を過ぎていません。再課金・再発行はしません。しばらくして「保有状態を再確認」を押してください。`); return; }
     const finalAcc = (await rpc('getAccountInfo', [p.asset, { encoding: 'base64', commitment: 'finalized' }])).value;
     if (finalAcc) { writePending({ ...p, seen: true }); say(T`asset の口座を finalized で観測しました。再確認を押してください。再課金・再発行はしません。`); return; }
-    clearPending(); say(T`前回の取引は期限切れで、finalized でも asset の口座が無く、着地していません（課金なし）。もう一度 mint できます。`, 'err'); $('mint').disabled = !state.networkOk; return;
+    clearPending(p); say(T`前回の取引は期限切れで、finalized でも asset の口座が無く、着地していません（課金なし）。もう一度 mint できます。`, 'err'); $('mint').disabled = !state.networkOk; return;
   }
   say(T`結果がまだ分かりません（有効期限 block ${p.lastValidBlockHeight}、現在 ${height}）。再課金・再発行はしません。しばらくして「保有状態を再確認」を押してください。`);
 }
 
 // ------------------------------------------------------------------ mint
+/** One mint per wallet at a time across tabs (Web Locks when the browser has them; the record check otherwise): each click is a new asset, so two tabs would pay twice. */
 async function mint() {
   if (state.busy || !state.wallet || !state.networkOk) return;          // a double click is one transaction
-  if (readPending()) return resolvePending(readPending());
+  const pp = readPending();
+  if (pp) return resolvePending(pp);
+  const payer = state.wallet.address;
+  if (globalThis.navigator?.locks?.request) {
+    return navigator.locks.request(`wylls-mint:${payer}`, { ifAvailable: true }, lock => (lock ? mintLocked(payer)
+      : say(T`別のタブでこのウォレットの mint が進行中です。そちらの結果を待ってください（このタブからは送っていません）。`, 'err')));
+  }
+  return mintLocked(payer);
+}
+async function mintLocked(payer) {
+  if (state.busy) return;
   state.busy = true; $('mint').disabled = true;
   try {
+    // Another tab may have sent, or finished, while this one waited: its record, or the holding it made, decides.
+    const other = loadMintPending(payer);
+    if (other) { state.busy = false; return await resolvePending(other); }
+    if ((await api(`/mint/mine?wallet=${payer}`)).residents.length) { state.busy = false; return await refresh(); }
+    if (await rpc('getGenesisHash') !== state.config.genesisHash) throw Object.assign(new Error(T`接続先のネットワークが変わりました。画面を再読込してください。何も送っていません。`), { code: 'WrongNetwork' });
     // The price the page shows is the price the instruction carries; the program refuses a mismatch.
     const c = state.config = await api('/mint/config');
     const price = BigInt(c.price.lamports);
@@ -251,20 +315,27 @@ async function mint() {
     const message = compileMessage({ feePayer: state.wallet.address, recentBlockhash: blockhash, instructions: [ix] });
     const assetSig = new Uint8Array(await crypto.subtle.sign({ name: 'Ed25519' }, assetKey.privateKey, message));
     const partial = wireTransaction(message, { [asset]: assetSig });
+    if (state.wallet?.address !== payer || !ws.stillOffers(payer, c.chainId)) throw Object.assign(new Error(T`接続中のウォレットまたはネットワークが変わりました。画面を再読込してください。何も送っていません。`), { code: 'WalletChanged' });
     say(T`ウォレットで取引を確認し、署名してください…`);
     const signed = await ws.signTransaction(partial);
+    if (!ws.stillOffers(payer, c.chainId)) throw Object.assign(new Error(T`接続中のウォレットまたはネットワークが変わりました。画面を再読込してください。何も送っていません。`), { code: 'WalletChanged' });
     if (!equal(messageOf(signed), message)) throw Object.assign(new Error(T`ウォレットが返した取引の中身が違います`), { code: 'WalletAlteredMessage' });
     const parsed = parseTransaction(signed);
+    // The payer's signature must be the payer's own key over this message.
+    const payerKey = await crypto.subtle.importKey('raw', fromBase58(payer), { name: 'Ed25519' }, false, ['verify']);
+    if (!await crypto.subtle.verify({ name: 'Ed25519' }, payerKey, parsed.signatures[0], message)) throw Object.assign(new Error(T`ウォレットの署名が支払うウォレットの鍵のものではありません。送っていません。`), { code: 'WrongSigner' });
     const signature = toBase58(parsed.signatures[0]);
     // Record first, send second: a lost answer is resolved by this record, never by a second send.
-    writePending({ signature, asset, lastValidBlockHeight, sentAt: Date.now() });
+    const record = { v: 1, genesis: c.genesisHash, wallet: payer, signature, asset, lastValidBlockHeight, sentAt: Date.now() };
+    if (loadMintPending(payer)) throw Object.assign(new Error(T`別のタブでこのウォレットの mint が進行中です。そちらの結果を待ってください（このタブからは送っていません）。`), { code: 'AnotherMint' });
+    writePending(record);
     say(T`送信しています…`);
     try {
       await rpc('sendTransaction', [toBase64(signed), { encoding: 'base64', skipPreflight: false, preflightCommitment: 'confirmed' }]);
     } catch (e) {
       if (e.code === 'RpcError') {
         // Refused before inclusion (preflight): nothing landed, nothing charged.
-        clearPending();
+        clearPending(record);
         const pe = programError(e);
         const m = /already been processed/.test(e.message) ? T`同じ取引が処理済みです` : /Blockhash not found/.test(e.message) ? T`取引の期限が切れました。もう一度お試しください` : /insufficient|no record of a prior credit|insufficient lamports/i.test(e.message) ? T`テスト SOL が不足しています`
           : SALE_TEXT[pe] ? T`${tr(SALE_TEXT[pe])}（課金なし）` : pe === 'PriceChanged' || /PriceChanged/.test(JSON.stringify(e.data ?? '')) ? T`価格が変わりました。画面を再読込してください（課金なし）` : pe === 'AlreadyInitialized' ? T`この asset は既に発行済みです（課金なし）` : pe ? T`プログラムが拒否しました：${pe}（課金なし）` : e.message;
@@ -272,16 +343,213 @@ async function mint() {
       }
       // No answer (network): the record stays; resolve by signature.
       say(T`応答が消えました。署名でチェーンを照会します（再送はしません）…`);
-      await resolvePending(readPending());
+      await resolvePending(record);                          // this tab's own record
       return;
     }
     say(T`確定を待っています…`);
     await settledStatus(signature, 60);
-    await resolvePending(readPending());
+    await resolvePending(record);
   } finally {
     state.busy = false;
   }
 }
+
+// ------------------------------------------------------------------ transfer (TEST): web/transfer.mjs has the checks
+const tstate = { busy: false, review: null, shown: false };
+const tsay = (text, kind = '') => { const s = $('t-status'); s.textContent = text; s.className = `status ${kind}`; };
+const tfail = e => { console.error(e); tsay(`${e.code ?? 'Error'}: ${e.message}`, 'err'); };
+/**
+ * The pending transfer of wallet `addr` (the record is keyed by the wallet that signed it, never by "whoever is
+ * connected now"). A record of another network or one this page did not write is set aside (kept under
+ * `…:set-aside`) and said on screen; it never blocks the screen and never allows a double transfer (web/transfer.mjs).
+ */
+function loadTransferPending(addr = state.wallet?.address) {
+  if (!addr) return null;
+  let raw = null;
+  try { raw = localStorage.getItem(PENDING_TRANSFER(addr)); } catch { /* storage blocked: writing fails too, so nothing is sent */ }
+  const r = parsePendingRecord(raw, state.config.genesisHash);
+  if (r.state === 'ok') return r.p;
+  if (r.state === 'none') return null;
+  try { localStorage.setItem(`${PENDING_TRANSFER(addr)}:set-aside`, raw); localStorage.removeItem(PENDING_TRANSFER(addr)); } catch { /* */ }
+  tsay(r.state === 'otherNetwork' ? T`別のネットワーク（genesis ${r.p.genesis.slice(0, 8)}…）で記録された譲渡を照会から外しました（この画面のネットワークでは答えが出ません）。` : T`読めない譲渡の記録を照会から外しました。`, 'err');
+  return null;
+}
+const readTransferPending = () => loadTransferPending();
+/** Write, then read back: a storage that refuses or silently drops the record stops the transfer before the send. */
+function writeTransferPending(p) {
+  const key = PENDING_TRANSFER(p.from), text = JSON.stringify(p);
+  let back = null;
+  try { localStorage.setItem(key, text); back = localStorage.getItem(key); } catch (e) { throw Object.assign(new Error(T`この譲渡の記録をブラウザに保存できません（${e.message}）。送っていません。`), { code: 'RecordNotSaved' }); }
+  if (back !== text) throw Object.assign(new Error(T`この譲渡の記録をブラウザに保存できません（読み戻しが違います）。送っていません。`), { code: 'RecordNotSaved' });
+}
+/** Only this transfer's own record is removed (another tab's record, if any, stays). */
+const clearTransferPending = (addr, signature) => { try { const k = PENDING_TRANSFER(addr); if (JSON.parse(localStorage.getItem(k) ?? 'null')?.signature === signature) localStorage.removeItem(k); } catch { /* */ } };
+/** What a refusal says (every one is decided before anything is signed). */
+const TRANSFER_REFUSAL = code => ({
+  NoWallet: T`ウォレットを接続してください。`,
+  Empty: T`宛先のウォレットアドレスを入力してください。`,
+  NotBase58: T`宛先がウォレットアドレスの形ではありません（base58 の文字だけを使います）。`,
+  WrongLength: T`宛先の長さが違います（32 バイトの公開鍵ではありません）。`,
+  Self: T`自分自身には譲渡できません。`,
+  SystemAccount: T`宛先がこのページの program・collection・treasury などの口座です。人のウォレットを指定してください。`,
+  OffCurve: T`宛先は署名できない口座（program が導出したアドレス）です。譲渡すると住民を二度と動かせないため、受け付けません。`,
+  NotYours: T`この NFT は今このウォレットのものではありません（チェーンの読取）。譲渡できるのは持ち主だけです。`,
+  NotResident: T`この NFT は住民として登録されていません。`,
+}[code] ?? T`譲渡できません：${code}`);
+
+function renderTransfer(list) {
+  const box = $('transfer');
+  box.hidden = !list.length && !tstate.shown;
+  const sel = $('t-asset');
+  const keep = sel.value;
+  sel.replaceChildren();
+  for (const r of list) { const o = document.createElement('option'); o.value = r.asset; o.textContent = `${r.residentId} — ${shortAddress(r.asset)}`; sel.appendChild(o); }
+  if (list.some(r => r.asset === keep)) sel.value = keep;
+  $('t-review').disabled = !list.length || tstate.busy;
+  if (!tstate.busy) closeReview();
+}
+function closeReview() {
+  if (tstate.busy) return;
+  tstate.review = null;
+  $('t-confirm').hidden = true; $('t-ack').checked = false; $('t-send').disabled = true;
+  $('t-to').disabled = false; $('t-asset').disabled = false;
+}
+
+/** Step 1: check the destination and the sender on the chain, then show exactly what would be sent. Nothing is signed. */
+async function reviewTransfer() {
+  if (tstate.busy) return;
+  const tp = readTransferPending();
+  if (tp) return resolveTransferThenRefresh(tp);
+  closeReview();
+  const from = state.wallet?.address ?? null;
+  const asset = $('t-asset').value;
+  const d = checkDestination({ input: $('t-to').value, from, asset, config: state.config, decode: fromBase58, isOnCurve });
+  if (!d.ok) return tsay(TRANSFER_REFUSAL(d.code), 'err');
+  const st = await api(`/mint/status?wallet=${from}&asset=${asset}`);
+  const s = checkSender({ from, status: st });
+  if (!s.ok) return tsay(TRANSFER_REFUSAL(s.code), 'err');
+  let note;
+  try { const n = (await api(`/mint/mine?wallet=${d.address}`)).residents.length; note = n ? T`宛先はすでに住民 NFT を ${n} 枚保有しています。` : T`宛先はまだ住民 NFT を保有していません。`; } catch { note = T`宛先の保有は読めませんでした。`; }
+  tstate.review = { asset, residentId: st.residentId, from, to: d.address };
+  $('t-resident').textContent = st.residentId ?? '—';
+  $('t-asset-full').textContent = asset;
+  $('t-from').textContent = from;
+  $('t-dest').textContent = d.address;
+  $('t-dest-note').textContent = note;
+  $('t-to').disabled = true; $('t-asset').disabled = true;
+  $('t-confirm').hidden = false;
+  tsay(T`宛先と NFT を確かめ、チェックを入れてから「譲渡する」を押してください。`);
+}
+
+/**
+ * Step 2: the owner's wallet signs one TransferResident; the record is written (and read back) before the send.
+ * One transfer per wallet at a time across tabs (Web Locks when the browser has them; the record check otherwise).
+ */
+async function sendTransfer() {
+  const rv = tstate.review;
+  if (tstate.busy || !rv || !$('t-ack').checked) return;   // a double click is one transaction
+  if (state.wallet?.address !== rv.from || ws.connected()?.address !== rv.from || !ws.stillOffers(rv.from, state.config.chainId)) {
+    closeReview();
+    return tsay(T`接続中のウォレットまたはネットワークが、確認したときと違います。確認からやり直してください。何も送っていません。`, 'err');
+  }
+  const tp = loadTransferPending(rv.from);
+  if (tp) return resolveTransferThenRefresh(tp);
+  if (globalThis.navigator?.locks?.request) {
+    return navigator.locks.request(`wylls-transfer:${rv.from}`, { ifAvailable: true }, lock => (lock ? sendTransferLocked(rv)
+      : tsay(T`別のタブでこのウォレットの譲渡が進行中です。そちらの結果を待ってください（このタブからは送っていません）。`, 'err')));
+  }
+  return sendTransferLocked(rv);
+}
+async function sendTransferLocked(rv) {
+  if (tstate.busy) return;
+  tstate.busy = true; $('t-send').disabled = true; $('t-cancel').disabled = true; $('t-review').disabled = true;
+  try {
+    const other = loadTransferPending(rv.from);              // another tab may have sent while this one waited
+    if (other) { tstate.busy = false; return await resolveTransferThenRefresh(other); }
+    // The page's RPC must still be the configured chain (a local world restarted under the same address is another chain).
+    if (await rpc('getGenesisHash') !== state.config.genesisHash) throw Object.assign(new Error(T`接続先のネットワークが変わりました。画面を再読込してください。何も送っていません。`), { code: 'WrongNetwork' });
+    // Read again just before signing: the NFT may have moved since the review. Its generation goes in the record.
+    const st = await api(`/mint/status?wallet=${rv.from}&asset=${rv.asset}`);
+    const s = checkSender({ from: rv.from, status: st });
+    if (!s.ok) throw Object.assign(new Error(TRANSFER_REFUSAL(s.code)), { code: s.code });
+    if (!Number.isSafeInteger(st.gen)) throw Object.assign(new Error(T`住民の世代を読めません。何も送っていません。`), { code: 'NoGeneration' });
+    const d = checkDestination({ input: rv.to, from: rv.from, asset: rv.asset, config: state.config, decode: fromBase58, isOnCurve });
+    if (!d.ok) throw Object.assign(new Error(TRANSFER_REFUSAL(d.code)), { code: d.code });
+    const resident = await residentAccountOf(rv.asset);
+    const { blockhash, lastValidBlockHeight } = (await rpc('getLatestBlockhash', [{ commitment: 'confirmed' }])).value;
+    const message = compileMessage({ feePayer: rv.from, recentBlockhash: blockhash, instructions: [transferInstruction({ config: state.config, owner: rv.from, asset: rv.asset, resident, to: rv.to })] });
+    tsay(T`ウォレットで譲渡の取引を確認し、署名してください…`);
+    let signed;
+    try { signed = await ws.signTransaction(wireTransaction(message, {})); } catch (e) {
+      console.error(e);
+      tsay(T`ウォレットが署名しませんでした（${e.code ?? 'WalletError'}）。何も送っていません。住民はこのウォレットのままです。`, 'err');
+      return;
+    }
+    if (!ws.stillOffers(rv.from, state.config.chainId)) throw Object.assign(new Error(T`接続中のウォレットまたはネットワークが、確認したときと違います。確認からやり直してください。何も送っていません。`), { code: 'WalletChanged' });
+    if (!equal(messageOf(signed), message)) throw Object.assign(new Error(T`ウォレットが返した取引の中身が違います。送っていません。`), { code: 'WalletAlteredMessage' });
+    // The signature must be the sender's own over this message (an account switched inside the wallet signs with another key).
+    const sig = parseTransaction(signed).signatures[0];
+    const key = await crypto.subtle.importKey('raw', fromBase58(rv.from), { name: 'Ed25519' }, false, ['verify']);
+    if (!await crypto.subtle.verify({ name: 'Ed25519' }, key, sig, message)) throw Object.assign(new Error(T`ウォレットの署名が送り主の鍵のものではありません。送っていません。`), { code: 'WrongSigner' });
+    const signature = toBase58(sig);
+    const record = { v: 1, genesis: state.config.genesisHash, gen: st.gen, signature, asset: rv.asset, residentId: rv.residentId, from: rv.from, to: rv.to, lastValidBlockHeight, sentAt: Date.now() };
+    if (loadTransferPending(rv.from)) throw Object.assign(new Error(T`別のタブでこのウォレットの譲渡が進行中です。そちらの結果を待ってください（このタブからは送っていません）。`), { code: 'AnotherTransfer' });
+    writeTransferPending(record);
+    tsay(T`送信しています…`);
+    try {
+      await rpc('sendTransaction', [toBase64(signed), { encoding: 'base64', skipPreflight: false, preflightCommitment: 'confirmed' }]);
+    } catch (e) {
+      if (e.code === 'RpcError') {
+        clearTransferPending(rv.from, signature);
+        const pe = programError(e);
+        throw Object.assign(new Error(pe === 'NotOwner' ? T`この NFT は今このウォレットのものではありません（プログラムが拒否、何も変わっていません）。` : pe ? T`プログラムが拒否しました：${pe}（何も変わっていません）` : T`拒否されました：${e.message}（何も変わっていません）`), { code: 'Refused' });
+      }
+      tsay(T`応答が消えました。署名とチェーンで結果を照会します（再送はしません）…`);
+      await resolveTransferThenRefresh(record);              // this tab's own record, never whatever is stored now
+      return;
+    }
+    tsay(T`確定を待っています…`);
+    await settledStatus(signature, 60);
+    await resolveTransferThenRefresh(record);
+  } finally {
+    tstate.busy = false; $('t-cancel').disabled = false;
+    $('t-send').disabled = !$('t-ack').checked || !tstate.review;
+    $('t-review').disabled = !!loadTransferPending(rv.from) || !$('t-asset').options.length;
+  }
+}
+
+/** A pending transfer: the signature first, then the asset's owner on the chain. Only a decided "not landed" allows a new try. */
+async function resolveTransfer(p) {
+  if (!p) return;
+  $('t-review').disabled = true;
+  tsay(T`進行中の譲渡を照会しています… ${p.signature.slice(0, 12)}…`);
+  const ownerAt = async commitment => assetOwnerOf((await rpc('getAccountInfo', [p.asset, { encoding: 'base64', commitment }])).value, toBase58);
+  const settled = await settledStatus(p.signature);
+  const owner = await ownerAt('confirmed');
+  // The generation now (every transfer raises it): A→B→A ends at A again, but two generations later.
+  let gen = null;
+  try { const g = (await api(`/mint/status?wallet=${p.from}&asset=${p.asset}`)).gen; gen = Number.isSafeInteger(g) ? g : null; } catch { /* unread: never "not landed" */ }
+  let expired = false, finalOwner;
+  if (!settled && owner !== p.to) {
+    expired = (await rpc('getBlockHeight', [{ commitment: 'confirmed' }])) > p.lastValidBlockHeight;
+    if (expired && (await rpc('getBlockHeight', [{ commitment: 'finalized' }])) > p.lastValidBlockHeight) finalOwner = await ownerAt('finalized');
+  }
+  const out = decidePending({ p, settled, owner, gen, expired, finalOwner });
+  if (out === 'unknown') { tsay(T`譲渡の結果がまだ分かりません（有効期限 block ${p.lastValidBlockHeight}）。再送はしません。しばらくして「保有状態を再確認」を押してください。`); return; }
+  clearTransferPending(p.from, p.signature);
+  $('t-review').disabled = !$('t-asset').options.length;
+  if (out === 'landed') {
+    tstate.shown = true;
+    closeReview(); $('t-to').value = '';
+    tsay(T`譲渡しました（チェーンで確認）：住民 ${p.residentId ?? shortAddress(p.asset)} の持ち主は ${p.to} です。このウォレットではもうこの住民を遊べません。`, 'ok');
+  } else if (out === 'failed') tsay(T`譲渡の取引は失敗しました（${JSON.stringify(settled.err)}）。何も変わっていません。住民はこのウォレットのままです。`, 'err');
+  else if (out === 'returned') tsay(T`譲渡は着地し、その後この住民はこのウォレットに戻っています（世代 ${p.gen} → ${gen}）。譲渡前の署名と session は無効です。再送はしません。`, 'err');
+  else if (out === 'notLanded') tsay(T`譲渡の取引は期限切れで、着地していません。住民はこのウォレットのままです。確認からやり直せます。`, 'err');
+  else tsay(T`取引は決着しましたが、今の持ち主は ${owner ?? finalOwner ?? '—'} です（宛先ではありません）。再送はしません。`, 'err');
+  return out;
+}
+/** The same, then the whole page read again (holdings, the mint's state) once the transfer is decided. */
+async function resolveTransferThenRefresh(p) { await resolveTransfer(p); if (!loadTransferPending(p.from)) await refresh(); }
 
 /**
  * The resident account for an asset. Real program: the PDA `["resident", asset]` of the program, derived here

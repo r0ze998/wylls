@@ -38,6 +38,13 @@ export async function connect(wallet, chain) {
   for (const f of listeners) f();
   return connected();
 }
+/** The connected wallet still offers `address` on `chain` now (read live from the wallet: an account or network switched inside the wallet after connecting shows here). */
+export function stillOffers(address, chain) {
+  if (!current) return false;
+  let accounts;
+  try { accounts = [...(current.wallet.accounts ?? [])]; } catch { return false; }
+  return accounts.some(a => a.address === address && (!a.chains?.length || a.chains.includes(chain)));
+}
 export const connected = () => (current ? { name: String(current.wallet.name), address: current.account.address, chain: current.chain } : null);
 export async function disconnect() { const c = current; current = null; try { await c?.wallet.features['standard:disconnect']?.disconnect?.(); } catch { /* ignore */ } for (const f of listeners) f(); }
 
