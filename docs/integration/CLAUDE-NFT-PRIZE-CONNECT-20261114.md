@@ -260,3 +260,24 @@ failures as baseline `0ebfe040`; key scan unchanged; `git diff --check` pass.
 
 The 仕様判断 item "⑳'s join button in a pool season" is done for this
 candidate (still not merged; the integrator decides).
+
+### 7.8 0x111: main's answer and the hash notice
+
+The main session (「Opus｜KEEP選択の高速化」, canonical `b2802d8b`, which
+does not touch prize, contracts or e2e-native) answered after `9e98b8fc` was
+already committed. It does not object to any of (a)/(b)/(c). It asked for
+two things: (1) the paths and base→new hashes before the write, sent to it
+and to the map-side owner 「Fable 5.2 マップ読み込み堅牢化」; (2) to keep
+this marked not done until registry.rs runs.
+
+(1) was sent to both **after** the commit, saying so, and offering to drop
+the independent commit if either objects:
+
+| file | 0x111 commit 8d246b6c → 9e98b8fc (blob) | base 0ebfe040 → head a72ec026 (sha256, incl. the carried NFT rows) |
+|---|---|---|
+| `workstreams/04-execution/contracts/registry.txt` | `b9ead95f` → `c2903361` | `9ee4487c16aa3d06…` → `d16bbd7ff5d3ad73…` |
+| `workstreams/04-execution/e2e-native/tests/registry.rs` | `9777ae50` → `7f09bce8` | `35188014e9c793dc…` → `054f91c8d2898ec4…` |
+
+(2) **Status of the 0x111 registration: NOT DONE (candidate).**
+registry.rs has not been compiled or run; this stays the wording until
+`cargo test --locked --test registry` in e2e-native actually runs (重build待ち).
