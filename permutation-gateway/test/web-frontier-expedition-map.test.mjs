@@ -142,7 +142,9 @@ test('undo/reset updates real overlay and close/reopen cannot reuse a prior draf
 });
 
 test('source/owner/clock/session/mode/selected-host invalidation clears the overlay before read or tap', () => {
-  const changes = [w => { w.fs.nowBell++; }, w => { w.fs.session = {}; }, w => { w.ctx.source = {}; },
+  // (18823ad2: the clock's OBSERVED turn is no longer the draft's source — a turn forward keeps the draft and its steps
+  //  and works the reads out again (outboundClockSeen); a turn BACKWARD is not this draft's clock and drops it)
+  const changes = [w => { w.fs.nowBell--; }, w => { w.fs.session = {}; }, w => { w.ctx.source = {}; },
     w => { w.ctx.relay = '/other'; }, w => { w.h.gen++; }, w => { w.province.entries[0].tile--; },
     w => { w.fs.wallet = { address: WALLET }; }, w => { w.fs.selected.idx--; }, w => { w.fs.hand.host = null; },
     w => { w.fs.mode = 'spectate'; }, w => { w.fs.sample = {}; }, w => { w.fs.proto = {}; }, w => { w.fs.wideSelect = {}; }];
@@ -152,6 +154,10 @@ test('source/owner/clock/session/mode/selected-host invalidation clears the over
     assert.deepEqual(tapOutbound(w.fs, w.ctx, hit), { handled: true, changed: false, code: 'SourceChanged' });
     assert.deepEqual(w.fs.expeditionCompose.directions, []); closed(w.fs.expeditionCompose);
   }
+  // a turn forward keeps the draft (its steps and the overlay); the tap on its endpoint is still the draft's own
+  const w = world(), hit = nextTile(w); tapOutbound(w.fs, w.ctx, hit); w.fs.nowBell++;
+  assert.equal(readOutboundMap(w.fs, w.ctx).hexes.length, 2);
+  assert.notEqual(tapOutbound(w.fs, w.ctx, hit).code, 'SourceChanged');
 });
 
 test('real controller map tap and existing button/bind routes share one draft and invalidate map/panel only', () => {
@@ -167,7 +173,8 @@ test('real controller map tap and existing button/bind routes share one draft an
     assert.equal(STORE.expeditionCompose.review.endpoint.key, tile.key);
     assert.equal(CTRL.originalOutboundMap().hexes.length, 2); assert.ok(mapDraws >= 3); assert.ok(panels >= 3);
     CTRL.editOriginalOutbound('undo'); assert.equal(CTRL.originalOutboundMap().hexes.length, 1);
-    STORE.nowBell++; assert.equal(CTRL.originalOutboundMap(), null);
+    STORE.nowBell++; assert.equal(CTRL.originalOutboundMap().hexes.length, 1, 'a turn forward keeps the draft (18823ad2)');
+    STORE.nowBell -= 2; assert.equal(CTRL.originalOutboundMap(), null, 'a turn backward drops it');
     assert.equal(CTRL.tapOriginalOutbound(tile).code, 'SourceChanged'); assert.equal(requests, 0);
   } finally {
     CTRL.useHerald(null); for (const k of Object.keys(STORE)) delete STORE[k]; Object.assign(STORE, saved);

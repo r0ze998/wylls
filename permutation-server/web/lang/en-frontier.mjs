@@ -254,6 +254,7 @@ export default {
   'このシーズンは別のルールで動いています': 'This season runs other rules.',
   'シーズンがまだ決まっていません': 'No season is pinned yet.',
   'ウォレットが署名した文面が違います': 'The wallet signed a different text.',
+  '{0}はもう使えません': '{0} can no longer be used',
 
   // ---- play screens (W3-F): shell, join and sites, holding, hosts, explore, march, tracker, incoming, bell sheet, chronicle, relay and client refusals
   "<p class=\"as-of\">スロット {0} 時点（{1} 秒前）</p>": "<p class=\"as-of\">As of slot {0} ({1} s ago)</p>",
