@@ -2,7 +2,7 @@
 
 Status:
 - **Cause measured (2026-11-15).** It fails at base `20adb087` and since `0147a885`, ⑱'s 2-version Reveal cap. The cap alone explains it.
-- **Regression patch drafted, NOT COMPILED, NOT RUN.** It needs a slot, and the keeper owner (⑱ / territory) decides whether to take it.
+- **Regression patch verified (2026-11-15, agreed slot, script `keeper-fix.sh` sha `1d0f85b4`, candidate head `9fab82f0`, rustc 1.95.0, offline/locked, fresh target, unchanged guard):** the 3 touched tests pass (`claim_after_late_reveal`, `late_reveal_under_the_default_w_cap_is_not_claimed`, `ws04_no_reveal_before_anchor_retries`), and the full `cargo test -p keeper` passes (`tests/play.rs` 15 passed / 1 ignored; every other target ok). Whether to take it into canonical is the keeper owner's call (⑱ / territory).
 - Nothing is skipped, and the original test's expected values are unchanged.
 
 ## Measured (one cargo at a time, rustc 1.95.0, offline/locked, fresh target, unchanged guard, script `cd92f1c1`)
