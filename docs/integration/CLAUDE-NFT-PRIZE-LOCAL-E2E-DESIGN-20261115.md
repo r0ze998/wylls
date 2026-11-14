@@ -278,3 +278,32 @@ tests fail. Prize set 39/39; key-using plus ⑳'s login/card tests 19/19.
 **Boundary, recorded, not claimed:** separate RPC calls lie between the identity check and `sendTransaction`. A runner
 swapped in exactly that window is not excluded by this relay; the program's own on-chain checks still apply.
 Mount stays on hold until mutual review with ⑳.
+
+## 15. CI key-test line, launcher option, runner fixture choice (2026-11-15)
+
+Port branch:
+- **`5193b77a`, CI.** One line for ⑰'s key-using `local-play-prize-signed.test.mjs` in `scripts/ci/node-key-tests.txt`,
+  at the exact position the scanner itself writes. That was checked with a temporary scanner copy that skips only its
+  stale-review stop; the copy was deleted.
+  - The 10 stale reviews are untouched. `scan --check` exits 5 on them on ⑳'s base and here alike, so the key-free CI
+    job cannot pass on either branch for that pre-existing reason.
+  - The scanner (stale stop skipped) also shows large pre-existing drift on the base list: conservative closure
+    exclusions for many tests, including ⑰'s key-free prize tests, and ⑳'s login entry's section. That is left to the
+    list's owner. ⑳: OK.
+- **`8270a589`, launcher.** `--prize-test-only-so`, only with `--lane-candidate`, absolute and existing, and passed to
+  the runner only when asked.
+  - A separate first-line check `prizeTestOnlyMetaAgrees`: an unasked key is refused; an asked one must be
+    `[0x50; 32]` = `6QWeT6Fp…`, distinct from 0x45/0x4C/0x4E, with pool, mint and vault.
+  - `candidateMetaAgrees` is unchanged. Tests 3/3. ⑳'s launcher tests give 67/70 with and without the change, the
+    same 3 failing.
+- **Runner fixture: ⑳ chose (A).** One exact stdin control line per run, under the flag only (no reader otherwise; a
+  byte-identical run).
+  - The runner checks the asset is a Core asset of the policy's collection, the Entry address is the prize program's
+    derivation, and nothing exists there yet.
+  - It writes only that Entry, plus the named vault tokens if part of the fixture, with its own `Chain::set_account`.
+  - MEMORY_ONLY and `tamper_rpc: false` stay unchanged.
+  - The confirmation line and the first line say TEST ONLY fixture (not a deposit).
+  - (B), a shared localnet change, is avoided. Rust is not compiled until a host build slot is agreed.
+- **⑳'s head moved to `13ac8f63`.** It adds a candidate-only nft-transfer action, and world-relay TransferResident is
+  now default deny. The controller/join patch must be regenerated after merging it into the port branch (merge, no
+  force push). The E2E's transfers go through the mint page.
