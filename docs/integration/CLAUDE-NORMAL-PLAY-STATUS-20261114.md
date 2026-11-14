@@ -93,11 +93,53 @@ checks) passes; each new check was run against the previous code and failed ther
   fixture (round 24's check), not yet in a live world. A read-only watcher for the recording desk (position and text of
   named elements, every 0.1–5 s, no input of any kind) is ready and self-tested on the fixture (input events received by
   the page: unchanged during the watch; a single press as a positive control raises the count). It needs a world slot.
-- **Local play's other refusals**: round 27 makes the bar's March and Return ask the march gate for the host they show
-  (both switch to that host's village before composing). The March-on-a-keep button keeps the page-wide answer, because a
-  march on a keep is composed for the page's active village. Remaining known differences: with the march trial closed, a
-  map tap may still compose a march whose send is then refused (the bar's March says why; the map does not); and a march on
-  a keep for a host of a village other than the active one composes nothing (an older behaviour, nothing is sent).
+- **Local play's other refusals**: closed by round 28 (below). The map tap and a march on a keep for a host of another
+  village now behave like the bar's March.
 - **Form a host under the ×30 clock** (recorded world, before round 21): one sent muster was refused with NotResident (26);
   fact and inference as recorded in the round 21 section above. Not measured in natural time.
 - The two sides were operated by one operator; two independent people remain the end goal.
+
+## Update 2026-11-15 (2): round 28, the watcher's cleanup, what is left, the next world check
+
+Round 28 (ef3de2d3; local play and the conquest screen; no rule, resource or send change; the send's own gate still decides):
+- A march on a keep for a host of another village did nothing (the order was looked up only in the active village). Now,
+  in local play, the host's own march answer is asked first: a refusal is said and changes nothing on the page. Then the
+  page switches to the host's own village (the village rail redrawn) and drafts the order there. The order fixes that
+  village and the send checks it as before; a replaced order makes any waiting march withdraw instead of sending.
+- A map tap in local play says the refusal on the map before any order is drafted when the host's own march answer is
+  closed (before: the reason appeared only after the order card was open).
+- The host bar's March-on-a-keep button asks the same per-host answer as March and Return.
+- Tests: the real controller drafts from the other village's host; in local play the refusal comes before any draft, with
+  no village switch on a refusal; the keeps button per host; source pins for the map tap. Unit failures: the base's set
+  minus the new tests (each fails on the previous code); screens checks 9/9. Independent read-only review: no high or
+  medium finding; two low ones fixed (refusal before the switch, rail redraw); one left (the map selection is not moved
+  to the new host's tile; cosmetic, nothing reads it on this path).
+- Not covered: a local-play test with the march gate open for a host of another village (the test page has no march
+  capability); the map tap's refusal is pinned in source, not pressed in a browser; not seen in a world.
+
+The watcher's self-test cleanup now stops only the processes it started (their process ids and children), never by
+name. Checked once with an unrelated fixture of the same command name started first: after the self-test, that fixture
+was still running, the self-test's own fixture and desk were stopped and the desk port was free; the unrelated fixture
+was then stopped by its own process id. The record of that run (the printed output, the process ids, the run's files) is
+kept with the session's scratch evidence, not published.
+
+### UI paths not finished (ordinary entry, two people)
+| path | state | what is missing |
+|---|---|---|
+| Rounds 20–28 in one world (Form a host's card and waiting send, host bar fit, welcome, English, the 42 px fix, the bar's reasons, round 28) | source + fixture + real controller | one world from the published commit |
+| A host that stands while its province is still catching up | fixture only | a live sighting (the read-only watcher is ready) |
+| A second village, then a march on a keep from its host | real controller (round 28) | a world where one player holds two villages; taking a second village takes many turns |
+| Capture → 288 protected turns → retake, after rounds 20–28 | earlier ×30 world only | a run on the current code (long: 72 + 288 turns) |
+| Two independent people, each on their own page | one operator so far | two people |
+| The page's owner shown matches the record (NFT entry) | the NFT session's lane | its own candidate world first |
+
+### The next minimal world check (proposal; runs only after the NFT session's candidate world and ⑰'s world, never overlapping)
+- Export of ef3de2d3, existing runner and herald binaries (no build), contest-pair preset, ×10 clock, TTL 30 min, loopback
+  ports, memory-only test keys, the unchanged 110 MiB / free < 21 GiB guards, start only at ≥ 21 GiB free.
+- One operator, both sides, looking at the screen before every press, each press logged with its delay after the look; the
+  read-only watcher on the forts card while a host forms and stands.
+- Order: A and B join; Train; Form a host while the province resolves (one press opens; the confirm sends or holds one
+  send); March on a keep → the forts card (watch the row and card top through forming → stood → in step); one press on a
+  row, one on the seal; arrival on the keep. Stop there (no capture in this slot).
+- Pass: every step does what the screen offers with one press; the row does not move; no reason is shown only after a
+  press. Anything else is written down with its screenshot. Labelled TEST-ONLY, ×10 synthetic clock, one operator.
