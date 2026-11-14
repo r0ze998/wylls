@@ -112,6 +112,8 @@ pub struct Index {
     pub rebuilds: u32,
     /// Roll-backs to the durable archive since open ([`Index::truncate_to`]).
     pub truncations: u32,
+    /// How snapshot `data` is stored ([`crate::codec`]; [`Index::use_snapshot_codec`]); the default stores it as is.
+    snapshot_codec: crate::codec::Codec,
 }
 
 /// One decoded PS2 record as stored.
@@ -213,6 +215,7 @@ impl Index {
             program,
             rebuilds: 0,
             truncations: 0,
+            snapshot_codec: crate::codec::Codec::Plain,
         })
     }
 
@@ -243,7 +246,7 @@ impl Index {
                         r.seq
                     ));
                 }
-                index_one(&t, r, &program, ctx.as_ref())?;
+                index_one(&t, r, &program, ctx.as_ref(), self.snapshot_codec)?;
                 sql(t.execute("INSERT INTO meta(k, v) VALUES('last_seq', ?1) ON CONFLICT(k) DO UPDATE SET v = ?1", params![r.seq as i64]))?;
                 n += 1;
                 expected = expected.checked_add(1).ok_or("archive sequence overflow")?;
@@ -373,7 +376,7 @@ impl Index {
                     r.seq
                 ));
             }
-            index_one(&t, r, &program, ctx.as_ref())?;
+            index_one(&t, r, &program, ctx.as_ref(), self.snapshot_codec)?;
             sql(t.execute(
                 "INSERT INTO meta(k, v) VALUES('last_seq', ?1) ON CONFLICT(k) DO UPDATE SET v = ?1",
                 params![r.seq as i64],
@@ -445,10 +448,45 @@ impl Index {
             .map(|n| n as u64))
     }
 
+    /// TEST-ONLY (round 13): the codec of snapshot `data` ([`crate::codec`]). A store records it in its `meta` row
+    /// `snapshot_codec` (1 = gzip-v1; no row = stored as is). The default records nothing and changes nothing. Another
+    /// codec than the recorded one is accepted only for an index that holds nothing yet (it is then recorded);
+    /// otherwise it is refused: an index is never read or written in a codec other than its own.
+    pub fn use_snapshot_codec(&mut self, codec: crate::codec::Codec) -> Result<(), String> {
+        use crate::codec::Codec;
+        let recorded = match sql(self
+            .conn
+            .query_row("SELECT v FROM meta WHERE k = 'snapshot_codec'", [], |r| r.get::<_, i64>(0))
+            .optional())?
+        {
+            None => Codec::Plain,
+            Some(1) => Codec::GzipV1,
+            Some(v) => return Err(format!("index: unknown snapshot codec {v}")),
+        };
+        if recorded != codec {
+            let empty: i64 = sql(self.conn.query_row(
+                "SELECT (SELECT COUNT(*) FROM tx) + (SELECT COUNT(*) FROM snapshot)",
+                [],
+                |r| r.get(0),
+            ))?;
+            if recorded != Codec::Plain || codec != Codec::GzipV1 || empty != 0 || self.last_seq()? != 0 {
+                return Err(format!(
+                    "the index records snapshot codec {:?}, it was opened with {:?}: a store is never reopened in another codec",
+                    recorded.word().unwrap_or("plain"),
+                    codec.word().unwrap_or("plain")
+                ));
+            }
+            sql(self.conn.execute("INSERT INTO meta(k, v) VALUES('snapshot_codec', 1)", []))?;
+        }
+        self.snapshot_codec = codec;
+        Ok(())
+    }
+
     /// The latest snapshot of `a` at or before archive sequence `at`.
     pub fn snapshot_at(&self, a: &Address, at: u64) -> Result<Option<Snapshot>, String> {
         require_readable(&self.conn)?;
-        sql(self
+        let codec = self.snapshot_codec;
+        let found = sql(self
             .conn
             .query_row(
                 "SELECT seq, slot, lamports, owner, kind, data FROM snapshot
@@ -466,7 +504,14 @@ impl Index {
                     })
                 },
             )
-            .optional())
+            .optional())?;
+        match found {
+            Some(mut s) => {
+                s.data = codec.decode(&s.data, crate::codec::SNAPSHOT_DECODE_MAX)?;
+                Ok(Some(s))
+            }
+            None => Ok(None),
+        }
     }
 
     /// The latest snapshot of `a`.
@@ -591,6 +636,7 @@ fn index_one(
     r: &TxRecord,
     program: &Address,
     ctx: Option<&AddrCtx>,
+    codec: crate::codec::Codec,
 ) -> Result<(), String> {
     sql(t.execute(
         "INSERT INTO tx(seq, slot, sig, block_time, err, code, units, fee, fee_payer)
@@ -630,6 +676,8 @@ fn index_one(
             Some(a) if !fclient::decode::is_absent(&a.owner, &a.data) => continue,
             _ => (None, None, None, vec![], false),
         };
+        // (stored through the index's codec: as is by default; gzip-v1 only in a store created so — crate::codec)
+        let data = codec.encode(&data);
         sql(t.execute(
             "INSERT OR REPLACE INTO snapshot(address, seq, slot, lamports, owner, kind, data)
              VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7)",

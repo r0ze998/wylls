@@ -20,6 +20,13 @@
 //! (integ-W2 review of W2-F). A segment shorter than its manifest entry is
 //! corruption and refuses to open.
 //!
+//! **Codec (round 13, TEST-ONLY, a new archive only).** [`Archive::open_with`] with [`Codec::GzipV1`] stores each
+//! frame's payload gzip-compressed (the frame's length and sha256 prefix are those of the STORED bytes, so the frame
+//! check, the torn-tail truncation and the sealed segments' sha256 work as before) and records `"codec": "gzip-v1"` in
+//! the manifest. Every read decodes, bounded by [`crate::codec::FRAME_DECODE_MAX`], before the record and its sequence are
+//! checked as before. An archive is never reopened with another codec than it records ([`Archive::open_with`] refuses).
+//! [`Archive::open`] is [`Codec::Plain`]: no `codec` key, the same bytes as before.
+//!
 //! **Group commit (W5-C).** With [`Archive::commit_every`] = 0 (the
 //! default) every [`Archive::append`] is durable when it returns: the
 //! batch's frames are synced once, then the manifest. With an interval
@@ -40,6 +47,7 @@ use base64::Engine;
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
 
+use crate::codec::{Codec, FRAME_DECODE_MAX};
 use fclient::ports::{Account, TxRecord};
 use fclient::rpc::{account_json, parse_account};
 
@@ -241,15 +249,35 @@ pub struct Archive {
     unsynced: Option<File>,
     /// The in-memory manifest differs from the durable one.
     dirty: bool,
+    /// How frame payloads are stored (module note); recorded in the manifest unless the default.
+    codec: Codec,
 }
 
 impl Archive {
     /// Opens (or creates) the archive in `dir`; segments roll at `segment_bytes`.
     pub fn open(dir: &Path, segment_bytes: u64) -> io::Result<Archive> {
+        Archive::open_with(dir, segment_bytes, Codec::Plain)
+    }
+
+    /// [`Archive::open`] with a frame codec (module note). A new archive records it; an existing one must record the
+    /// same codec, or nothing is opened (never a mixed archive).
+    pub fn open_with(dir: &Path, segment_bytes: u64, codec: Codec) -> io::Result<Archive> {
         fs::create_dir_all(dir)?;
         let mp = dir.join("manifest.json");
         let manifest = if mp.exists() {
             let v: Value = serde_json::from_slice(&fs::read(&mp)?).map_err(io_err)?;
+            let recorded = match v.get("codec") {
+                None => Codec::Plain,
+                Some(Value::String(w)) => Codec::from_word(Some(w)).map_err(io_err)?,
+                Some(_) => return Err(io_err("manifest: codec")),
+            };
+            if recorded != codec {
+                return Err(io_err(format!(
+                    "the archive records codec {:?}, it was opened with {:?}: a store is never reopened in another codec",
+                    recorded.word().unwrap_or("plain"),
+                    codec.word().unwrap_or("plain")
+                )));
+            }
             Manifest::from_json(&v).map_err(io_err)?
         } else {
             Manifest {
@@ -298,6 +326,7 @@ impl Archive {
             last_commit: std::time::Instant::now(),
             unsynced: None,
             dirty: false,
+            codec,
         };
         a.write_manifest()?;
         Ok(a)
@@ -306,7 +335,11 @@ impl Archive {
     fn write_manifest(&self) -> io::Result<()> {
         let tmp = self.dir.join("manifest.json.tmp");
         let mut f = File::create(&tmp)?;
-        f.write_all(&serde_json::to_vec_pretty(&self.manifest.to_json()).map_err(io_err)?)?;
+        let mut m = self.manifest.to_json();
+        if let Some(w) = self.codec.word() {
+            m["codec"] = json!(w);
+        }
+        f.write_all(&serde_json::to_vec_pretty(&m).map_err(io_err)?)?;
         f.sync_all()?;
         fs::rename(&tmp, self.dir.join("manifest.json"))?;
         if let Ok(d) = File::open(&self.dir) {
@@ -357,7 +390,7 @@ impl Archive {
             if keep_feed_seq {
                 v["feed_seq"] = json!(feed_seq);
             }
-            let payload = serde_json::to_vec(&v).map_err(io_err)?;
+            let payload = self.codec.encode(&serde_json::to_vec(&v).map_err(io_err)?);
             let fr = frame(&payload);
             let roll = match self.manifest.segments.last() {
                 None => true,
@@ -508,6 +541,7 @@ impl Archive {
                 )));
             }
             for (expect, p) in (s.first_seq..).zip(frames) {
+                let p = self.codec.decode(&p, FRAME_DECODE_MAX).map_err(|e| io_err(format!("{}: {e}", s.name)))?;
                 let v: Value = serde_json::from_slice(&p).map_err(io_err)?;
                 let r = record_from_json(&v).map_err(io_err)?;
                 if r.seq != expect {
@@ -548,6 +582,7 @@ impl Archive {
                 return Err(format!("{}: corrupt frame after {good} B", s.name));
             }
             for f in frames {
+                let f = self.codec.decode(&f, FRAME_DECODE_MAX).map_err(|e| format!("{}: {e}", s.name))?;
                 let v: Value = serde_json::from_slice(&f).map_err(|e| e.to_string())?;
                 let seq = v.get("seq").and_then(|x| x.as_u64()).unwrap_or(0);
                 if seq != expect {
@@ -564,6 +599,11 @@ impl Archive {
             ));
         }
         Ok(expect - 1)
+    }
+
+    /// The codec this archive stores frames with.
+    pub fn codec(&self) -> Codec {
+        self.codec
     }
 
     /// Byte size of the open segment on disk (tests).

@@ -1441,6 +1441,7 @@ dependencies = [
  "axum",
  "base64 0.22.1",
  "fclient",
+ "flate2",
  "frontier-abi",
  "hex",
  "localnet",

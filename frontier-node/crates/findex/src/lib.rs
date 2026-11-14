@@ -14,6 +14,7 @@
 //! it (it re-derives every head from on-chain accounts, §8.5).
 
 pub mod archive;
+pub mod codec;
 pub mod index;
 pub mod ingest;
 pub mod ledger;
@@ -74,12 +75,25 @@ impl Findex {
         season_id: Option<u64>,
         segment_bytes: u64,
     ) -> Result<Findex, IngestError> {
+        Findex::open_with(dir, program, season_id, segment_bytes, codec::Codec::Plain)
+    }
+
+    /// [`Findex::open`] with a storage codec ([`codec`]; TEST-ONLY, a new store only): the archive's frames and the
+    /// index's snapshot data. Both record it; a store recording another codec is refused before anything is read.
+    pub fn open_with(
+        dir: &Path,
+        program: Address,
+        season_id: Option<u64>,
+        segment_bytes: u64,
+        codec: codec::Codec,
+    ) -> Result<Findex, IngestError> {
         let st = |e: String| IngestError::Store(e);
         std::fs::create_dir_all(dir).map_err(|e| st(e.to_string()))?;
-        let archive =
-            Archive::open(&dir.join("archive"), segment_bytes).map_err(|e| st(e.to_string()))?;
+        let archive = Archive::open_with(&dir.join("archive"), segment_bytes, codec)
+            .map_err(|e| st(e.to_string()))?;
         let ctx = season_id.map(|id| addr_ctx(&program, id));
         let mut index = Index::open(&dir.join("index.sqlite"), program, ctx).map_err(st)?;
+        index.use_snapshot_codec(codec).map_err(st)?;
         index.mark_incomplete().map_err(st)?;
         let mut behind = index.last_seq().map_err(st)?;
         if behind > archive.last_seq() {
