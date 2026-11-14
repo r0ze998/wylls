@@ -428,8 +428,10 @@ http.createServer((req, res) => { let b = ''; req.on('data', x => { b += x; }); 
 }); }).listen(Number(arg('--rpc-port')), '127.0.0.1');
 `);
   const herald = await script(path.join(tmp, 'bin/herald'), arg + `process.on('SIGINT', () => process.exit(0));
-// (a compact herald records its output mode in its data directory, as the real one does; 'ignores-output' plays an old herald)
-if (process.argv.includes('--output') && ${JSON.stringify(heraldMode)} !== 'ignores-output') { const fs = require('node:fs'); fs.mkdirSync(arg('--data'), { recursive: true }); fs.writeFileSync(require('node:path').join(arg('--data'), 'output-mode'), arg('--output') + '\\n'); }
+// (a compact herald records its output mode in its data directory, as the real one does; 'ignores-output' plays an old herald;
+//  'records-v1' records compact-v1 whatever it was asked; 'dies-early' records the asked word, then ends before it listens)
+if (process.argv.includes('--output') && ${JSON.stringify(heraldMode)} !== 'ignores-output') { const fs = require('node:fs'); fs.mkdirSync(arg('--data'), { recursive: true }); fs.writeFileSync(require('node:path').join(arg('--data'), 'output-mode'), (${JSON.stringify(heraldMode)} === 'records-v1' ? 'compact-v1' : arg('--output')) + '\\n'); }
+if (${JSON.stringify(heraldMode)} === 'dies-early') process.exit(3);
 require('node:http').createServer(async (req, res) => {
   res.writeHead(200, { 'content-type': 'application/json' });
   if (req.url.startsWith('/h/world/wide/route')) {
@@ -529,6 +531,53 @@ test('without the explicit preset no world is a conquest world: the runner is no
   const relayArgs = await relayArgsOf(dir); assert.ok(!relayArgs.includes('--conquest-bin') && !relayArgs.includes('--conquest-capability')); assert.equal(relayArgs.length, 23, 'the relay\'s arguments as ever');
   assert.equal((await fsp.readdir(dir)).some(f => f.startsWith('conquest')), false, 'nothing is recorded as a conquest world');
   await w.stop('requested');
+});
+
+// ---- round 14 (compact-v2): the word asked is the word recorded, or the world is stopped whole; an existing world is never touched
+/** Every file under `dir` with its bytes' sha256, sorted (an existing world's tree before and after). */
+const treeOf = async dir => { const out = []; const walk = async d => { for (const e of await fsp.readdir(d, { withFileTypes: true })) { const p = path.join(d, e.name); if (e.isDirectory()) await walk(p); else out.push(`${path.relative(dir, p)} ${createHash('sha256').update(await fsp.readFile(p)).digest('hex')}`); } }; await walk(dir); return out.sort(); };
+/** An existing world's directory beside the one a start makes (its own output-mode compact-v1 and a store file). */
+const oldWorld = async c => { const d = path.join(c.data, 'old-world-kept'); await fsp.mkdir(path.join(d, 'herald', 'findex', 'archive'), { recursive: true });
+  await fsp.writeFile(path.join(d, 'herald', 'output-mode'), 'compact-v1\n'); await fsp.writeFile(path.join(d, 'herald', 'findex', 'archive', 'manifest.json'), '{"version":1}');
+  await fsp.writeFile(path.join(d, 'stopped.json'), '{"reason":"launcher-closing"}'); return d; };
+const newWorldDir = async (c, old) => { const ds = (await fsp.readdir(c.data)).map(x => path.join(c.data, x)).filter(x => x !== old); assert.equal(ds.length, 1, 'one new world directory'); return ds[0]; };
+/** A start that must fail: every process of the new world ends, every port is free again, the existing world unchanged. */
+const failsWhole = async (t, heraldMode, word, codeOk) => {
+  const { c } = await standIns(t, { heraldMode }); c.heraldOutput = word; let stops = 0;
+  const old = await oldWorld(c), before = await treeOf(old);
+  await assert.rejects(startWorld(c, wallet, 0, () => { stops++; }), codeOk);
+  const dir = await newWorldDir(c, old), procs = await json(path.join(dir, 'processes.json')).catch(() => ({ pids: [] }));
+  await until('the new world\'s processes end', async () => procs.pids.every(pid => !alive(pid)));
+  assert.equal(stops, 1, 'stopped once, whole');
+  for (const p of Object.values(worldPorts(c.worldPort, 0))) assert.equal(await portFree(p), true, `port ${p} is free again`);
+  assert.deepEqual(await treeOf(old), before, 'the existing world is not touched');
+  return { dir };
+};
+
+test('compact-v2 (test worlds): the herald is asked for compact-v2, and the world is handed over only once it recorded compact-v2', { timeout: 120000 }, async t => {
+  const { c } = await standIns(t); c.heraldOutput = 'compact-v2'; let stops = 0;
+  const old = await oldWorld(c), before = await treeOf(old);
+  const w = await startWorld(c, wallet, 0, () => { stops++; });
+  const dir = await newWorldDir(c, old), ports = worldPorts(c.worldPort, 0);
+  const heraldArgs = JSON.parse((await request(ports.herald, 'GET', '/h/season', null, { origin: 'http://localhost:41920' })).body).args;
+  assert.deepEqual(heraldArgs.slice(-2), ['--output', 'compact-v2'], 'its word, last, exactly');
+  assert.equal(await fsp.readFile(path.join(dir, 'herald', 'output-mode'), 'utf8'), 'compact-v2\n');
+  await w.stop('requested'); assert.equal(stops, 1);
+  assert.deepEqual(await treeOf(old), before, 'the existing world is not touched');
+});
+
+test('compact-v2: a herald that records another word (compact-v1) is never used — stopped whole, nothing else touched', { timeout: 120000 }, async t => {
+  const { dir } = await failsWhole(t, 'records-v1', 'compact-v2', e => e.code === 'HeraldOutputNotCompact');
+  assert.equal(await fsp.readFile(path.join(dir, 'herald', 'output-mode'), 'utf8'), 'compact-v1\n', 'its record is kept as the evidence of the refusal');
+});
+
+test('compact-v2: an old herald that ignores the option is never used — stopped whole, nothing else touched', { timeout: 120000 }, async t => {
+  const { dir } = await failsWhole(t, 'ignores-output', 'compact-v2', e => e.code === 'HeraldOutputNotCompact');
+  assert.equal(await fsp.readFile(path.join(dir, 'herald', 'output-mode'), 'utf8').catch(() => null), null, 'no record');
+});
+
+test('compact-v2: a herald that ends before it answers HTTP — the start fails and every process of the world ends', { timeout: 120000 }, async t => {
+  await failsWhole(t, 'dies-early', 'compact-v2', e => typeof e.code === 'string' && e.code !== 'HeraldOutputNotCompact');
 });
 
 test('a start that proves itself a conquest world: the page\'s statement beside the herald, the relay\'s capability kept, and the relay started last', { timeout: 120000 }, async t => {
