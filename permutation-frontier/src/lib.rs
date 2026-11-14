@@ -75,8 +75,9 @@ compile_error!("conquest-dispatch-experimental on SBF requires localnet-conquest
 #[cfg(all(feature = "localnet-conquest-sbf", not(feature = "localnet-expedition-sbf")))]
 compile_error!("localnet-conquest-sbf extends the localnet-expedition-sbf lane only");
 
+// (the local test candidate `localnet-conquest-nft-sbf` alone may add NFT residents: its own candidate version)
 #[cfg(all(feature = "expedition-dispatch-experimental", any(
-    feature = "nft-experimental", feature = "rights-experimental",
+    all(feature = "nft-experimental", not(feature = "localnet-conquest-nft-sbf")), feature = "rights-experimental",
     feature = "capacity-preview", feature = "custody-preview"
 )))]
 compile_error!("expedition-dispatch-experimental has an isolated host-only program version");
@@ -198,20 +199,35 @@ pub const PROGRAM_VERSION: u16 = frontier_abi::v2::presets::PROGRAM_VERSION_S1
         0
     }
     | capacity_bit();
-#[cfg(feature = "expedition-dispatch-experimental")]
+#[cfg(all(feature = "expedition-dispatch-experimental", not(feature = "localnet-conquest-nft-sbf")))]
 pub const PROGRAM_VERSION: u16 = frontier_abi::world_index::expedition_dispatch_ix::PROGRAM_VERSION;
+/// LOCAL TEST CANDIDATE (`localnet-conquest-nft-sbf`), not an allocation: the conquest lane's exact version with the
+/// existing NFT bit, 0x4804 | 0x8000 = 0xC804. Workstream 4 decides the real one; nothing deployable carries it.
+pub const LOCALNET_CONQUEST_NFT_VERSION: u16 =
+    frontier_abi::world_index::expedition_dispatch_ix::PROGRAM_VERSION | 0x8000;
+#[cfg(feature = "localnet-conquest-nft-sbf")]
+pub const PROGRAM_VERSION: u16 = LOCALNET_CONQUEST_NFT_VERSION;
 
 /// The only program id the `localnet-expedition-sbf` lane runs under. Not a
 /// keypair's public key; production ids come from deploy keypairs and are
 /// never this value.
 pub const LOCALNET_EXPEDITION_PROGRAM_ID: [u8; 32] = [0x45; 32];
 
-/// `program_id` is the localnet lane's dedicated id (keeps its marker alive).
+/// LOCAL TEST CANDIDATE id of `localnet-conquest-nft-sbf` (not a keypair's public key, not an allocation; distinct
+/// from the expedition lane's [0x45; 32] and the local NFT lane's [0x4E; 32]).
+pub const LOCALNET_CONQUEST_NFT_PROGRAM_ID: [u8; 32] = [0x4C; 32];
+
+/// `program_id` is the localnet lane's dedicated id (keeps its marker alive). The local test candidate with NFT
+/// residents runs under its own candidate id instead.
 #[cfg(feature = "localnet-expedition-sbf")]
 #[inline(always)]
 pub fn localnet_identity_ok(program_id: &solana_program::pubkey::Pubkey) -> bool {
     markers::touch_localnet_expedition_sbf();
-    program_id.to_bytes() == LOCALNET_EXPEDITION_PROGRAM_ID
+    #[cfg(not(feature = "localnet-conquest-nft-sbf"))]
+    let want = LOCALNET_EXPEDITION_PROGRAM_ID;
+    #[cfg(feature = "localnet-conquest-nft-sbf")]
+    let want = LOCALNET_CONQUEST_NFT_PROGRAM_ID;
+    program_id.to_bytes() == want
 }
 
 /// The only program id the `localnet-nft-sbf` lane (the isolated local NFT
@@ -251,9 +267,23 @@ compile_error!("localnet-nft-sbf is the isolated local NFT lane only");
 #[cfg(all(
     target_os = "solana",
     feature = "nft-experimental",
-    not(feature = "localnet-nft-sbf")
+    not(any(feature = "localnet-nft-sbf", feature = "localnet-conquest-nft-sbf"))
 ))]
 compile_error!("nft-experimental on SBF requires localnet-nft-sbf");
+// The local test candidate of the conquest lane with NFT residents stays apart from every other lane but the conquest
+// lane it extends (and never the separate local NFT lane, whose id and version are its own).
+#[cfg(all(
+    feature = "localnet-conquest-nft-sbf",
+    any(
+        feature = "localnet-nft-sbf",
+        feature = "rights-experimental",
+        feature = "capacity-preview",
+        feature = "custody-preview",
+        feature = "oracle",
+        feature = "trace"
+    )
+))]
+compile_error!("localnet-conquest-nft-sbf is a local test candidate of the conquest lane only");
 
 #[cfg(all(test, feature = "localnet-nft-sbf"))]
 mod localnet_nft_identity_tests {

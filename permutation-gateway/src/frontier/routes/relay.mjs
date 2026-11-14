@@ -94,7 +94,8 @@ async function requesterCitizen(ctx, requester, citizenAddr) {
 export async function residentRefusal(ctx, citizen, actor, shape = null) {
   if (!ctx.residents || !citizen || !actor) return null;
   try {
-    const resident = shape?.wrapper === 'ResidentAct' || shape?.wrapper === 'JoinResident' ? shape.resident ?? null : null;
+    // (0xDD WideResidentAct carries the same proof: the gate checks it like 0xE2's)
+    const resident = shape?.wrapper === 'ResidentAct' || shape?.wrapper === 'WideResidentAct' || shape?.wrapper === 'JoinResident' ? shape.resident ?? null : null;
     const r = shape?.wrapper === 'JoinResident' && ctx.residents.checkJoin ? await ctx.residents.checkJoin({ owner: actor, resident })
       : ctx.residents.check ? await ctx.residents.check(resident ? { citizen, actor, resident } : { citizen, actor })
       : { ok: await ctx.residents.mayAct({ citizen, actor }) };

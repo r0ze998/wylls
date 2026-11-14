@@ -19,9 +19,12 @@ pub(super) fn execute(p: &Pubkey, a: &[AccountInfo], data: &[u8]) -> R<()> {
     if sd.len() != frontier_abi::v2::layout::AccountKind::Season.size() {
         return Err(BAD_ACCOUNT);
     }
-    if Ro(&sd).u16(S::PROGRAM_VERSION)? != PROGRAM_VERSION
-        || crate::PROGRAM_VERSION != PROGRAM_VERSION
-    {
+    // (the local test candidate with NFT residents runs the same route under its own candidate version only)
+    #[cfg(not(feature = "localnet-conquest-nft-sbf"))]
+    let want = PROGRAM_VERSION;
+    #[cfg(feature = "localnet-conquest-nft-sbf")]
+    let want = crate::LOCALNET_CONQUEST_NFT_VERSION;
+    if Ro(&sd).u16(S::PROGRAM_VERSION)? != want || crate::PROGRAM_VERSION != want {
         return Err(FrontierError::RulesetMismatch.into());
     }
     let season_id = Ro(&sd).u64(S::SEASON_ID)?;

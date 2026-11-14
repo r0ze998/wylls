@@ -144,6 +144,66 @@ export function residentActIx(inner, { generation, policy, link, asset, resident
   };
 }
 
+// ------------------------------------------------------------------ 0xDD WideResidentAct (local test lanes only)
+// The wide band's own ResidentAct (frontier-abi world_index/wide_ix.rs `ResidentAct`, permutation-frontier proc/wide.rs
+// `resident_act`): `<the inner wide instruction's accounts> [policy] [link] [asset] [resident]`, data
+// `0xDD ‖ generation u32 ‖ <the inner wide draft instruction's data>` — the same shape and the same four proof accounts
+// as 0xE2; the program checks the asset's current owner (or its session) at the signed holder generation, so a
+// transfer moves the Citizen to the new holder and refuses the previous one, as for 0xE2.
+// Only the band's act-run tags may be inside (`WideIx::act_runs`: ClaimSite 0xD9, Depart 0xDA — 0xDA also carries
+// Muster, Dissolve, Economy, Garrison and DeclareSiege as sub-operations); which sub-operation is a player one is
+// decided by the program (`WideCommand::is_player`), not here. No deployed program has this band: a relay serves it
+// only when its lane says so (`wide` option of shapes.mjs `classify`), and refuses it otherwise.
+export const WIDE_RESIDENT_ACT_TAG = 0xdd;
+export const WIDE_ACT_INNER_TAGS = Object.freeze([0xd9, 0xda]);
+
+/** WideResidentAct around an inner wide draft instruction (ClaimSite or Depart-band) whose actor is the owner or its session. */
+export function wideResidentActIx(inner, { generation, policy, link, asset, resident }) {
+  const tag = inner.data[0];
+  if (!WIDE_ACT_INNER_TAGS.includes(tag)) throw new Error(`instruction 0x${tag.toString(16)} is not run inside WideResidentAct`);
+  if (!Number.isInteger(generation) || generation < 0 || generation > 0xffffffff) throw new Error('WideResidentAct: generation u32');
+  return {
+    programId: inner.programId,
+    keys: [...inner.keys, ro(policy), ro(link), ro(asset), ro(resident)],
+    data: concat([WIDE_RESIDENT_ACT_TAG], u32le(generation), inner.data),
+  };
+}
+
+/**
+ * Classify a transaction whose fourth instruction is a WideResidentAct. `wide` (the lane's own, optional):
+ * `{ classifyInner(innerTx, {programId, profile}) → shape }` for the inner wide draft; without it the act is refused
+ * (no deployed lane serves the band). Same proof-account rules as 0xE2; returns the inner shape with
+ * `wrapper: 'WideResidentAct'` and `resident: {generation, policy, link, asset, resident}` for the relay's holder gate.
+ */
+export function classifyWideResident(tx, { programId, profile = 1, wide = null }) {
+  const ix = tx.instructions[3];
+  if (!wide?.classifyInner) return refuse('RelayRejected', 'WideResidentAct (0xDD) is not served on this lane');
+  if (ix.data.length < 6) return refuse('RelayRejected', 'WideResidentAct: generation and an inner instruction');
+  const generation = u32At(ix.data, 1) >>> 0;
+  const inner = ix.data.slice(5);
+  if (!WIDE_ACT_INNER_TAGS.includes(inner[0])) return refuse('RelayRejected', `WideResidentAct: instruction 0x${inner[0].toString(16)} is not run inside it`);
+  if (ix.keys.length < 5) return refuse('RelayRejected', 'WideResidentAct: the inner accounts, then the four proof accounts');
+  const proof = ix.keys.slice(-4);
+  const innerKeys = ix.keys.slice(0, -4);
+  const proofKeys = proof.map(k => k.pubkey);
+  if (proof.some(k => k.isSigner || k.isWritable)) return refuse('RelayRejected', 'WideResidentAct: the proof accounts are read-only and never sign');
+  if (new Set(proofKeys).size !== 4 || proofKeys.some(k => innerKeys.some(i => i.pubkey === k))) return refuse('RelayRejected', 'WideResidentAct: four distinct proof accounts, none of them an inner account');
+  const { numRequiredSignatures: ns, numReadonlyUnsignedAccounts: ru } = tx.header;
+  const n = tx.accountKeys.length;
+  if (proofKeys.map(k => tx.accountKeys.indexOf(k)).some(i => i < n - ru || i < ns)) return refuse('RelayRejected', 'WideResidentAct: the proof accounts must be read-only and unsigned in the message');
+  const innerTx = {
+    ...tx,
+    instructions: [...tx.instructions.slice(0, 3), { programId, keys: innerKeys, data: inner }],
+    accountKeys: tx.accountKeys.filter(k => !proofKeys.includes(k)),
+    header: { ...tx.header, numReadonlyUnsignedAccounts: ru - 4 },
+  };
+  const shape = wide.classifyInner(innerTx, { programId, profile });
+  if (!shape?.ok) return shape ?? refuse('RelayRejected', 'WideResidentAct: the inner wide instruction has no shape');
+  if (shape.kind !== 'player') return refuse('RelayRejected', 'WideResidentAct wraps a player shape only');
+  const [policy, link, asset, resident] = proofKeys;
+  return { ...shape, keys: ix.keys, wrapper: 'WideResidentAct', resident: { generation, policy, link, asset, resident } };
+}
+
 /** The budget of a ResidentAct around `inner` (a tag or name) or of JoinResident (`'JoinResident'`). */
 export function residentBudget(inner, profile = 1) {
   const b = budgetOf(inner === 'JoinResident' ? 'Join' : inner, profile);
