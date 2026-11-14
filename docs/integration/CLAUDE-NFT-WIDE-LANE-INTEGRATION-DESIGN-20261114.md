@@ -83,7 +83,7 @@ wide の側は NFT 住民の**行動**を受ける準備がある。足りない
 - ガード：§2 の 1（expedition と NFT）と 3（SBF の NFT は lane 経由）に `not(feature = "localnet-conquest-nft-sbf")` を足しただけ。**この feature を持たない build では条件は論理的に同じ**。新しい排他：候補は `localnet-nft-sbf`・rights・capacity・custody・oracle・trace と組めない。conquest lane のガード（test-beacon 禁止など）はそのまま効く。
 - expedition の経路（`wide_expedition_dispatch.rs`）は、候補 feature のときだけ候補の版を受ける。Season の範囲検査（`range_view`）は `localnet-expedition-sbf` を含むので候補の版にもそのまま効く。
 - 試験：`permutation-nft-resident-spike/test/local-conquest-nft-candidate.test.mjs` 4 件と `local-nft-lane.test.mjs`（狭めた条件に合わせて更新）。**どちらも source の文字列の検査だけ**。
-- **限界（未 build）**：許可した新 lane が compile でき動くこと、拒否する旧い組み合わせで `compile_error!` が実際に発火すること、marker が .so に入ることは、build（host の `cargo check`・SBF build）をしていないので**確かめていない**。rustfmt で構文だけ確認（HEAD と同じ差分数）。keeper・herald・fclient・stack は 0xC804 を知らないので、候補の .so で world を動かすにはそれらも要る。本番の program・版は決めていない。
+- **限界**：2026-11-15 の host 枠で、新 lane が host で compile できること（`cargo check`）と、旧い組み合わせ 5 つがそれぞれの `compile_error!` で止まることは確かめた。marker が .so に入ることと、候補の .so で動くことは、SBF build をしていないので**まだ確かめていない**。rustfmt で構文だけ確認（HEAD と同じ差分数）。keeper・herald・fclient・stack は 0xC804 を知らないので、候補の .so で world を動かすにはそれらも要る。本番の program・版は決めていない。
 
 ## 8. 追記（同日 20:30）：画面の 0xDD と、host・画面の道具が候補の版を扱う箇所
 
@@ -120,7 +120,8 @@ wide の側は NFT 住民の**行動**を受ける準備がある。足りない
 
 **「検証が済んでいない」と「実装できない」の区別**：
 - Rust の golden 試験は 2026-11-15 に主と合意した枠で実行し 8 件すべて通過（最初の compile で `Depart` の import 漏れが見つかり直した。target 最大 334 MB、終了後削除）。
-- 検証が済んでいない（実装はある）：候補 lane の feature が compile できること、旧い組み合わせで `compile_error!` が出ること、候補の .so の marker。build の枠があれば確かめられる。
+- 2026-11-15 に確かめた：候補 lane の feature が host で compile できること、旧い組み合わせ 5 つが `compile_error!` で止まること、keeper（`cargo test -p keeper`）と runner（itest `--lib --bins`、142 件通過）の候補配線。詳細は candidate branch `529ba4b1` の資料。
+- 検証が済んでいない（実装はある）：候補の .so の marker（SBF build の枠が要る）。
 - まだ動かせない：候補 lane で動く world。必要な道具の変更（page・gateway の版の読み、launcher、keeper の準備、runner）は候補 branch に実装済みだが、Rust の部分は未 compile で、候補の .so も未 build（§11）。画面からの 0xDD の送信はその world の後。
 
 **枠が開いたときの計画（順番）**：
