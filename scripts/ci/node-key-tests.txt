@@ -66,6 +66,7 @@ permutation-gateway/test/frontier-relay-parts.test.mjs
 permutation-gateway/test/frontier-relay.test.mjs
 permutation-gateway/test/frontier-sdk.test.mjs
 permutation-gateway/test/game.test.mjs
+permutation-gateway/test/local-play-prize-signed.test.mjs
 permutation-gateway/test/player.test.mjs
 permutation-gateway/test/public.test.mjs
 permutation-gateway/test/registration.test.mjs
