@@ -8,7 +8,7 @@ import { pubkeyBytes } from '../client/src/solana-tx.mjs';
 import { POOL_SIZE, entryResidentAddress, poolAddress } from '../client/src/frontier/prize.mjs';
 import { policyAddress } from '../client/src/frontier/resident.mjs';
 import { LOCAL_LANE_PROGRAMS } from '../src/frontier/local-lane-versions.mjs';
-import { createLocalPlayPrize, localPrizeConfigProblems, PREPARE_SCHEMA, PREPARED_TTL_MS, SUBMIT_SCHEMA } from '../src/frontier/local-play-prize.mjs';
+import { createLocalPlayPrize, localPrizeConfigProblems, OPEN_TTL_MS, PREPARE_SCHEMA, SUBMIT_SCHEMA } from '../src/frontier/local-play-prize.mjs';
 import { fixtureEntryBytes } from '../scripts/prize-nft-fixture-entry.mjs';
 
 const k = n => b58(new Uint8Array(32).fill(n));
@@ -42,10 +42,11 @@ const ledger = { testOnly: true, shares: { mode: 'shares', members: [{ wallet: `
 /** A mocked loopback RPC over `accounts` (address → {owner, data}). */
 function chain(accounts) {
   const sent = [];
+  // fetchRpc's contract: { result } | { error }.
   const rpc = async (method, params) => {
-    if (method === 'getAccountInfo') { const a = accounts.get(params[0]); return { value: a ? { owner: a.owner, data: [Buffer.from(a.data).toString('base64'), 'base64'] } : null }; }
-    if (method === 'getLatestBlockhash') return { value: { blockhash: k(0x09), lastValidBlockHeight: 100 } };
-    if (method === 'sendTransaction') { sent.push(params); return 'x'; }
+    if (method === 'getAccountInfo') { const a = accounts.get(params[0]); return { result: { value: a ? { owner: a.owner, data: [Buffer.from(a.data).toString('base64'), 'base64'] } : null } }; }
+    if (method === 'getLatestBlockhash') return { result: { value: { blockhash: k(0x09), lastValidBlockHeight: 100 } } };
+    if (method === 'sendTransaction') { sent.push(params); return { result: 'x' }; }
     throw new Error(`unexpected ${method}`);
   };
   return { rpc, sent };
@@ -118,7 +119,39 @@ test('prepare builds one ClaimResident for the pinned wallet as fee payer; submi
   await assert.rejects(prize.submit(sub()), e => e.code === 'LocalPrizeBadSignature', 'a signature that is not the pinned wallet\'s');
   for (const bad of [{}, { ...sub(), extra: 1 }, { ...sub(), schema: 'x' }]) await assert.rejects(prize.submit(bad), e => e.code === 'BadRequest');
   // Expiry: a prepared claim is submittable for PREPARED_TTL_MS only.
-  t += PREPARED_TTL_MS + 1;
+  t += OPEN_TTL_MS + 1;
   await assert.rejects(prize.submit(sub()), e => e.code === 'LocalPrizeMessageExpired');
   assert.equal(sent.length, 0, 'nothing was sent');
+});
+
+test('an RPC { error } (or no result) is a refusal, never "nothing there"', async () => {
+  for (const answer of [{ error: { code: -32000, message: 'boom' } }, {}, null]) {
+    const prize = createLocalPlayPrize({ cfg, rpc: async () => answer, readLedger: async () => ledger });
+    await assert.rejects(prize.view(), e => e.code === 'LocalPrizeRpcUnavailable', JSON.stringify(answer));
+  }
+  const throwing = createLocalPlayPrize({ cfg, rpc: async () => { throw new Error('down'); } });
+  await assert.rejects(throwing.view(), e => e.code === 'LocalPrizeRpcUnavailable');
+});
+
+test('wired to the real fetchRpc: never follows a redirect, unwraps { result }, and refuses { error }', async () => {
+  const real = globalThis.fetch;
+  const accounts = world();
+  const seen = [];
+  globalThis.fetch = async (url, init) => {
+    seen.push(init.redirect);
+    assert.equal(url, cfg.rpc);
+    const { method, params } = JSON.parse(init.body);
+    let out;
+    if (method === 'getAccountInfo') { const a = accounts.get(params[0]); out = { jsonrpc: '2.0', id: 1, result: { value: a ? { owner: a.owner, data: [Buffer.from(a.data).toString('base64'), 'base64'] } : null } }; }
+    else out = { jsonrpc: '2.0', id: 1, error: { code: -32601, message: 'no' } };
+    const body = Buffer.from(JSON.stringify(out));
+    return new Response(body, { status: 200, headers: { 'content-type': 'application/json', 'content-length': String(body.length) } });
+  };
+  try {
+    const prize = createLocalPlayPrize({ cfg, readLedger: async () => ledger }); // default rpc = fetchRpc(cfg.rpc, …)
+    const v = await prize.view({ asset: ASSET });
+    assert.equal(v.pool.pool, POOL);
+    assert.ok(seen.length > 0 && seen.every(r => r === 'error'), 'every request asks fetch not to follow redirects');
+    await assert.rejects(prize.prepare(req()), e => e.code === 'LocalPrizeRpcUnavailable', 'getLatestBlockhash answered { error }');
+  } finally { globalThis.fetch = real; }
 });
