@@ -37,6 +37,7 @@ const GAME = new URL(loopbackRpc(arg('--game', 'http://127.0.0.1:41920/frontier/
 GAME.searchParams.set('localPlay', '1'); GAME.searchParams.set('launcher', '1');
 const MINT = loopbackRpc(arg('--mint', 'http://127.0.0.1:41995/web/mint.html'));
 const RPC = loopbackRpc(arg('--rpc', 'http://127.0.0.1:41980'));
+const HERALD = loopbackRpc(arg('--herald', 'http://127.0.0.1:41982'));
 const STAGES = new Set(arg('--stages', 'start,mint,transfer,join').split(','));
 const CANDIDATE = base58(new Uint8Array(32).fill(0x4c));
 mkdirSync(OUT, { recursive: true });
@@ -89,6 +90,7 @@ try {
   await gctx.addInitScript(() => { try { localStorage.setItem('ps-lang', 'en'); } catch { /* */ } });
   const g = await gctx.newPage();
   g.on('pageerror', e => step('game pageerror', e.message));
+  g.on('console', m => { if (m.type() === 'error') step('game console error', m.text().slice(0, 300)); });
   await g.goto(GAME.toString());
   await g.locator('#local-play-address').waitFor({ state: 'visible', timeout: 60_000 });
   await g.waitForFunction(() => /^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(document.getElementById('local-play-address')?.textContent?.trim() ?? ''), null, { timeout: 60_000 });
@@ -98,14 +100,23 @@ try {
   // the gate closes when the world is handed over; a refusal is said on the gate at once (data-phase="refused"):
   // fail then with the gate's own words and a screenshot, never wait out the timeout
   const gateEnd = await g.waitForFunction(() => {
+    // (the gate is HIDDEN on success, not removed: flocalplay.mjs sets root.hidden in phase "connected")
     const el = document.getElementById('local-play-gate');
-    if (!el) return { closed: true };
-    if (el.dataset.phase === 'refused') return { refused: true, status: document.getElementById('local-play-status')?.textContent?.trim() ?? '' };
+    const status = document.getElementById('local-play-status')?.textContent?.trim() ?? '';
+    if (el?.dataset.phase === 'refused') return { refused: true, status };
+    if (el && el.dataset.phase === 'connected' && el.hidden) return { connected: true, status };
+    if (!el) return { gone: true };
     return null;
   }, null, { timeout: 15 * 60_000, polling: 1000 }).then(h => h.jsonValue());
   if (gateEnd.refused) { await shot(g, '0-gate-refused'); throw new Error(`start: the gate refused the world: ${gateEnd.status}`); }
+  if (!gateEnd.connected) throw new Error(`start: the gate left without saying connected (${JSON.stringify(gateEnd)})`);
+  // the game screen itself (the dock) and the world relay's own pins through the page's /gw proxy: the candidate's
+  // program and version, the Season, and B as the world's wallet
+  await g.locator('#tabs').waitFor({ state: 'visible', timeout: 60_000 });
+  const info = await (await fetch(new URL('/gw/f/local-play/info', HERALD))).json();
+  if (info.program !== CANDIDATE || info.programVersion !== '51204' || info.wallet !== B || typeof info.season !== 'string') throw new Error(`start: the world relay says ${JSON.stringify({ program: info.program, programVersion: info.programVersion, wallet: info.wallet })}`);
+  summary.stages.start = { ok: true, wallet: B, relay: { program: info.program, programVersion: info.programVersion, season: info.season } };
   await shot(g, '0-world'); step('start: B\'s candidate world is open (the gate closed)');
-  summary.stages.start = { ok: true, wallet: B };
 
   // mint: A's test wallet on the mint page
   const mctx = await browser.newContext();
