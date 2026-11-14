@@ -163,3 +163,25 @@ Main: at 23.30 GiB free, a 3.5 GiB run would cross the 20 GiB floor. Guard uncha
 logged). Nothing else is deleted (no other session's targets or caches; my earlier 345 MiB e2e target is
 kept). Order: ⑳'s keeper runs and candidate SBF first (its slot), then ① → ②, one cargo at a time; df to main
 and ⑳ after each. Run script sha256 `b242ad5c26698bfd…`. Free at the time of writing: 21 GiB (⑳ running).
+
+## 10. ① run: TEST ONLY nft-experimental SBF build (2026-11-15)
+
+After ⑳'s candidate SBF exited (⑳: free 23.30 GiB, target deleted). Head `8ab9ccec`; guard unchanged
+(`94baeb7d…`); run script `b242ad5c26698bfd…`; log sha256 `e08aa181bc84a556…`.
+
+- `cargo build-sbf --manifest-path permutation-prize/Cargo.toml --features nft-experimental
+  --tools-version v1.52 --arch v2 --sbf-out-dir <scratch>/nft-test-only/deploy -- --locked --offline`
+  (cargo-build-sbf 3.1.9): **rc 0**, 15 s, peak target 122 MiB (no guard stop).
+- Post-check: **rc 0**. `permutation_prize.TEST-ONLY-nft-experimental.so`: 139,784 B, sha256
+  `1cf41f7bf6f7b661ede57bfc185a5fcee13a8938fb73cbc44f3b7af159336e35`, ELF64 LE, e_machine 263 (EM_SBF),
+  e_flags 2 (SBPF v2), overflow checks present, `PRIZE claim-nft` and `PRIZE nation-nft` present. So the
+  NFT path **compiles for SBF**. That is all this step shows; nothing has run on it yet.
+- This run's own `target-nft-sbf` was removed (124,932 KiB). cargo-build-sbf also writes a
+  `permutation_prize-keypair.json` (a program keypair) beside the output; it is unused (the tests give the
+  program an in-memory id), so it was removed without being read or printed. Neither file is in git.
+- `build-prize.sh` and `permutation-prize/target` were not used or touched.
+
+**② not started:** at the start check, free = 24,412,980 KiB (23.28 GiB) < the 24 GiB threshold
+(25,165,824 KiB): **0.72 GiB short**. Removing this session's own 0.34 GiB e2e target would still leave it
+0.38 GiB short, so nothing was deleted and the guard is unchanged. df was sent to main and ⑳; the slot was
+returned. ② runs when free is ≥ 24 GiB at its start. The 7 tests remain **not run**.
