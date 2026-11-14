@@ -84,6 +84,8 @@ pub mod wideexpedition;
 pub mod wideexpedition_preview;
 #[cfg(feature = "expedition-dispatch-experimental")]
 pub mod experimental_expedition_prepare;
+/// The local-play program versions the preparation tools serve (0x4804; the local test candidate 0xC804 under its id).
+pub mod local_lane;
 #[cfg(feature = "expedition-dispatch-experimental")]
 pub mod experimental_expedition_depart_prepare;
 /// Bounded one-shot preparation of the wallet-signed wide DeclareSiege (conquest lane).

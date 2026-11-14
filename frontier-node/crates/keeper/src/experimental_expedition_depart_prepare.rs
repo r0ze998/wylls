@@ -271,7 +271,8 @@ pub fn parse_request(bytes: &[u8]) -> Result<Request, &'static str> {
     {
         return Err("RequestInvalid");
     }
-    if version != expedition_dispatch_ix::PROGRAM_VERSION {
+    // (0x4804 as before; the local test candidate 0xC804 only under its own id: crate::local_lane)
+    if !crate::local_lane::served(&program, version) {
         return Err("VersionUnsupported");
     }
     if slot >= 4 {
@@ -483,7 +484,9 @@ where
         return Err("SeasonAddress");
     }
     v2(accounts, &roles[SEASON].address, &s.program, AccountKind::Season, sid)?;
-    if season.program_version != expedition_dispatch_ix::PROGRAM_VERSION
+    // the Season carries exactly the request's served version (0x4804, or the candidate's under its id)
+    let version = crate::local_lane::served_scope(&r.scope).ok_or("DeploymentMismatch")?;
+    if season.program_version != version
         || season.ruleset_hash != s.ruleset_hash
     {
         return Err("DeploymentMismatch");
@@ -683,7 +686,7 @@ where
         Target {
             program: s.program,
             season: s.season,
-            program_version: expedition_dispatch_ix::PROGRAM_VERSION,
+            program_version: version,
         },
         observed.observation,
         budget,
@@ -711,7 +714,7 @@ where
         "source":{"context_slot":context.to_string(),"unix_timestamp":clock.unix_timestamp.to_string(),"current_bell":bell.to_string(),
             "arrive_bell":arrive.to_string(),"transit_slot_free":true,"coherent":true,"authority_verified":false},
         "blockhash":{"hash":fclient::Hash::new_from_array(hash.blockhash).to_string(),"latest_context_slot":observed.latest_context_slot.to_string(),"validity_context_slot":hash.context_slot.to_string(),"height_min_context_slot":observed.height_min_context_slot.to_string(),"block_height":hash.block_height.to_string(),"last_valid_block_height":hash.last_valid_block_height.to_string(),"remaining_block_heights":report.remaining_block_heights.to_string(),"valid":true,"commitment":"confirmed","coherent":false,"authority_verified":false},
-        "prepared":{"program":s.program.to_string(),"season":s.season.to_string(),"program_version":expedition_dispatch_ix::PROGRAM_VERSION.to_string(),"action":"Depart","fee_payer":s.fee_payer.to_string(),
+        "prepared":{"program":s.program.to_string(),"season":s.season.to_string(),"program_version":version.to_string(),"action":"Depart","fee_payer":s.fee_payer.to_string(),
             "budget":{"cu_limit":budget.cu_limit,"cu_price":"0","loaded_limit":budget.loaded_limit,"heap":budget.heap},"roles":roles_json(&r.draft),
             "instruction_hex":hex::encode(&prepared.instruction().data),"message_b64":base64::engine::general_purpose::STANDARD.encode(&message),"message_digest":hex::encode(Sha256::digest(&message)),
             "signers":prepared.expected_signers().iter().map(ToString::to_string).collect::<Vec<_>>(),"shape":{"bytes":report.shape.bytes,"locks":report.shape.locks,"writes":report.shape.writes,"sigs":report.shape.sigs},

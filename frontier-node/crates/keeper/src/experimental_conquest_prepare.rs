@@ -40,7 +40,6 @@ use frontier_abi::entry::read_entry;
 use frontier_abi::layout::province::province as PV;
 use frontier_abi::layout::province::site as SM;
 use frontier_abi::v2::layout::province::site as SM2;
-use frontier_abi::world_index::expedition_dispatch_ix;
 use permutation_rules::frontier::clash::NEUTRAL;
 use serde_json::{json, Value};
 use solana_address::Address;
@@ -123,13 +122,8 @@ pub fn parse_request(bytes: &[u8]) -> Result<Request, &'static str> {
         &serde_json::to_vec(&echo["source_request"]).map_err(|_| "RequestInvalid")?,
     )
     .map_err(|_| "RequestInvalid")?;
-    if source
-        .scope()
-        .deployment
-        .as_ref()
-        .map(|d| d.program_version)
-        != Some(expedition_dispatch_ix::PROGRAM_VERSION)
-    {
+    // (0x4804 as before; the local test candidate 0xC804 only under its own id: crate::local_lane)
+    if crate::local_lane::served_scope(source.scope()).is_none() {
         return Err("RequestInvalid");
     }
     // the player acts and pays: one wallet, named twice
@@ -378,12 +372,14 @@ where
         loaded_limit: s.loaded_limit,
         heap: Some(CONQUEST_DECLARE_HEAP_FRAME),
     };
+    // the deployment's own served version (checked at parse; read again, never a literal)
+    let version = crate::local_lane::served_scope(r.source.scope()).ok_or("RequestInvalid")?;
     let prepared = prepare_conquest_declare(
         draft,
         Target {
             program: s.program,
             season: s.season,
-            program_version: expedition_dispatch_ix::PROGRAM_VERSION,
+            program_version: version,
         },
         observed.observation,
         budget,
@@ -406,7 +402,7 @@ where
             "block_height":hash.block_height.to_string(),"last_valid_block_height":hash.last_valid_block_height.to_string(),
             "remaining_block_heights":hash.last_valid_block_height.saturating_sub(hash.block_height).to_string(),
             "valid":true,"commitment":"confirmed","coherent":false,"authority_verified":false},
-        "prepared":{"program":s.program.to_string(),"season":s.season.to_string(),"program_version":expedition_dispatch_ix::PROGRAM_VERSION.to_string(),
+        "prepared":{"program":s.program.to_string(),"season":s.season.to_string(),"program_version":version.to_string(),
             "action":"DeclareSiege","fee_payer":s.fee_payer.to_string(),"dispatch":{"tag":data[0],"kind":data[3]},
             "budget":{"cu_limit":budget.cu_limit,"cu_price":"0","loaded_limit":budget.loaded_limit,"heap":budget.heap},"roles":roles,
             "instruction_hex":hex::encode(data),"message_b64":base64::engine::general_purpose::STANDARD.encode(&message),"message_digest":hex::encode(Sha256::digest(&message)),
