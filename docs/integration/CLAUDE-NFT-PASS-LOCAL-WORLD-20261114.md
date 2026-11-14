@@ -176,6 +176,31 @@ validator を使わない spike 試験 91 件中 89 合格（1 件は既知の�
 
 **次の world の枠で確かめること（未実施）**：B が画面から状態を変える行為、旧持ち主の画面での拒否の表示（A のページを開いたまま譲渡し、A が操作する）、B の画面に国選びが出ないこと、英語の発行ページを通常 world で通すこと（screen check の手順 2 は英語に更新済み）。
 
+## 5f. 通常 world の 2 回目：旧持ち主の画面での拒否・新持ち主の画面での操作を chain で照合（同日 16:45〜16:58）
+
+領土側の world が早く終わり（16:44:40、片付け済み）、領土側に知らせてから起動した。追加の build は無し。7 binary は来歴 OK（commit `c1c1a55a`）、lane の `.so` `0227dbe1…`、住民 program は記録どおり。port は 41000 帯だけ。
+
+- `frontier-stack up --nft-pass …`（run `nftpass-2`）：Season 7（版 `0x8004`、AnnounceSeason → CreateSeason）、pass の setup 4 段、mint ページ。setup 56 秒。
+- 英語画面の検査（`demo/nft-world-screen-check.mjs`）。各段で chain を読む（`docs/integration/CLAUDE-NFT-PASS-WORLD2-CHAIN-20261114.json`：公開の住所・hash・数値だけ。試験の鍵は書いていない）：
+
+| 段 | 画面 | chain |
+|---|---|---|
+| 1 | パス未保有：英語の参加カードと発行ページへのリンク（`?lang=en`） | — |
+| 2 | 英語の発行ページで mint（「A LOCAL TEST network…」「TEST PRICE — a test value, not a real price」「On sale (TEST)」「Your pass is ready」） | — |
+| 3–4 | 国を選んで NFT で参加、最初の村 | asset の持ち主 A、世代 0、NFT Citizen の印、村（Holding）の `OWNER_CITIZEN` ＝ その Citizen、蔵 14,302,627,800 |
+| 4b | 再読込でも NFT を遊び続ける | — |
+| 5 | Node から TransferResident A→B | 持ち主 B、世代 1 |
+| 5a | **A の開いたままの画面で Harvest → 「That did not work — Nothing was harvested. This resident NFT is not in this wallet now.」** | **持ち主・世代・Citizen と Holding の bytes の hash・`LAST_OWNER_ACTION` が変わらない** |
+| 5 | A の再読込：パス未保有の表示。B：同じ Citizen の村（国選びは出ない） | — |
+| 6 | **B が画面から Harvest → 「Harvest written into the stores」** | **蔵 14,302,627,800 → 14,303,115,478、`LAST_OWNER_ACTION` 1785686600 → 1785697160、持ち主 B・世代 1・村の持ち主は同じ NFT Citizen** |
+| 7 | B の画面に「Choose a nation」は出ない | — |
+
+検査を通すまでに harness を直した点（product の不具合ではない）：A の最初の村の chain 確認は Holding の口座ができるまで待つ／再読込後は村の画面を「遊んでいる」と見なす／Harvest は action bar のボタンを使う／B は村があるので参加カードの「Playing as an NFT」は出ない（5e の修正どおり）。
+
+**片付け**：`frontier-stack down`（全 component、mint ページも）。41000–41099 に listener 無し、自分の process・validator・browser 無し（Playwright の context は鍵ごと閉じた）。run directory（343 MB）は state・events・setup log・chain の記録を scratchpad に写してから削除。空き 21.53 GiB、領土側に報告済み。
+
+**残り**：実ウォレット・実機・公開発行は対象外のまま。B の行為は Harvest だけ（建設・行軍などは未確認）。
+
 ## 6. push の記録
 
 | 時刻 | `git ls-remote origin refs/heads/claude/nft-pass-mint-20261114` |
