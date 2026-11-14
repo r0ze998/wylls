@@ -47,3 +47,7 @@ Review this candidate independently before merging. Map work may also modify con
 - A shared claimedEntryAnswer helper used by the actual relay separates receipt facts from transaction evidence for both legacy and NFT claims. A prior signature is returned only with finalized success; otherwise null. Claimed entries stay closed to retry.
 - Existing already-paid passes without a Citizen now select plain JoinResident over the settled x402 route; no PayResident is added. Unpaid passes remain blocked. The page refreshes generation and checks wallet/pass epoch. Pure branch and envelope tests passed; real signed transactions and browser flow remain unexecuted.
 - Final permitted pure Node tests: 16 passed, 0 skipped, across web-frontier-prize-pass, web-frontier-prize-dto, and frontier-prize-claim-outcome under no-keys guard. Changed JavaScript syntax and git diff --check passed. No additional Rust commands were run.
+
+## 2026-11-15 correction
+
+`nft_pass_prize.rs` has **10** `#[test]` functions, not 9. The host run of 2026-11-15 and its result are recorded in `docs/integration/CLAUDE-NFT-PRIZE-CONNECT-20261114.md` §11.

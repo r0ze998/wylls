@@ -207,7 +207,7 @@ rule exists. Pre-existing; for the stylesheet owner.
 
 **重build待ち (disk 22 GiB; heavy Rust/SBF forbidden)**
 - `permutation-prize`: `cargo test --lib` with and without `nft-experimental`; clippy.
-- `e2e-native`: `cargo check --locked --tests`; then approved runs of `nft_pass_prize` (9 host scenarios), `registry`, `error_codes`.
+- `e2e-native`: `cargo check --locked --tests`; then approved runs of `nft_pass_prize` (10 host tests), `registry`, `error_codes`.
 - Address-deriving JS (`frontier-prize-resident.test.mjs`) and key-using relay tests (`frontier-prize.test.mjs`) under an approved run.
 
 **実world待ち (none of this is claimed done)**
@@ -353,7 +353,7 @@ GUARD_TARGET=$T GUARD_DIR=workstreams/04-execution/e2e-native $G $LOG cargo test
 Steps 1–3 cover: the prize unit tests (layout, leaf domain, error band
 incl. the 0x111 assert, `season_rings_fit`, continuous-season refusal) in
 both feature sets, and the registry/error-code tables (the 0x111
-registration). Step 4 adds the 9 host dispatch scenarios.
+registration). Step 4 adds the host dispatch scenarios (10 `#[test]`).
 
 **Estimate (not measured):** target `T` ≈ 0.5–0.8 GiB after steps 1–2,
 ≈ 1.2–2.0 GiB after step 3/4 (host build of the frontier program; 7 test
@@ -400,7 +400,7 @@ Head `bc169887`. ④ (`nft_pass_prize`) **not run** (needs its own OK).
 **Status:** prize `lib.rs` (merge, error band including 0x111, NFT Entry
 layout, leaf domain, continuous-season refusal): **unit-tested, both feature
 sets**. Registry tables (`registry.rs`, so the 0x111 registration),
-`error_codes` and the 9 host scenarios: **NOT DONE (candidate)**, blocked
+`error_codes` and the host scenarios (10 `#[test]`): **NOT DONE (candidate)**, blocked
 first by the frontier compile error above, then ④'s approval.
 
 ### 10.1 ⑳'s fix taken (no build yet)
@@ -411,3 +411,44 @@ first by the frontier compile error above, then ④'s approval.
 `localnet-expedition-sbf` → `expedition-dispatch-experimental`, and the other user
 (`proc/wide_expedition_dispatch.rs`) is under `localnet-conquest-nft-sbf`. **Not compiled yet.** ③ is
 rerun only on a slot from main (one cargo at a time); until then it stays NOT DONE.
+
+## 11. ③ rerun and ④ host tests (2026-11-15)
+
+Order agreed with main and ⑳: live24 down (main: free 24.46 GiB, ports free) → ⑰ ③ → ⑰ ④ → ⑳.
+④'s OK came from the user in this session (limited host test: fixed test values, public PDA derivation,
+mocks only; no funds, wallet, signing or external send); main said ④ was not its to grant. One cargo;
+`conquest-guard.sh` unchanged (`94baeb7d…`); the existing target `scratchpad/rust/target-prize-e2e`;
+`--offline --locked`; toolchain 1.89.0. Run script sha256 `8bb88c93741d2e4c…`. Head `dd5bcf5e`.
+
+- **③ `cargo test --offline --locked --test registry --test error_codes` (e2e-native): PASS.**
+  error_codes 3/3, registry 1/1 (5 s, rc 0). So the 0x111 registration (`9e98b8fc`) and the error table
+  are now tested, and the frontier gate (`0b6e56cf` = ⑳'s `5ff4c12d`) compiles **in this build only**:
+  e2e-native pulls `permutation-frontier` with `["program","no-entrypoint"]` and no wide features.
+  Not evidence for `expedition-dispatch-experimental` / `localnet-conquest-nft-sbf` / the default
+  frontier build (told ⑳; ⑳ keeps its own checks for those).
+- **④ `cargo test --offline --locked --test nft_pass_prize`: 10 tests (earlier docs said 9), 9 passed,
+  1 failed** (5 s, rc 101): `a_buy_back_before_the_claim_pays_the_returning_owner_once`, assertion at
+  `tests/nft_pass_prize.rs:128` — expected `ResidentNotCurrentAuthority` (0x118 = 280), got
+  `BadAccount` (0x101 = 257).
+- Guard: no stop. Peak target 345 MiB. Free 24.48 GiB after; df and results sent to main and ⑳ at
+  once; slot handed back.
+
+**Cause (baseline, confirmed independently by the user's own source check).** The test built A's claim
+(`claim_by(A)`, paid to A's token account) and replaced only the signer with A's session key.
+`ClaimResident` checks that the destination token account's owner field is the signer (NFT-PRIZE.md §8.1)
+**before** `current_owner`, so the claim stopped at `BadAccount` and never reached the session refusal.
+The same order is in the carried `ec226d1b`, so this is a reachability gap in the existing fixture.
+**The program is correct and unchanged.** No expected value was simply swapped and no guard loosened.
+
+**Fix (test only; this lane's file).**
+- `f73b877a`: the session's claim is tried twice. Paid to A's account → `BadAccount` (the destination
+  binding, kept as its own assertion). Paid to the session's **own valid token account** (new
+  `key(113)`, owner = session) → `ResidentNotCurrentAuthority` (the real session refusal).
+- `2d6665a6`: after **each** of the seven refusals (B at 1 and 2, A at 0 and 1, the session to A's
+  account, the session to its own, an unsigned owner) the vault, A's, B's and the session's token
+  balances and the whole Entry account (claimed byte included) are byte-for-byte unchanged. Then the
+  claim at generation 2 pays A once and a second claim is `AlreadyClaimed`, as before. rustfmt-clean;
+  diff confined to this test.
+
+**Status:** ④ rerun **pending** a slot after ⑳'s runs (requested from main and ⑳). Until it runs,
+the fix is unverified and ④ is **NOT DONE**.

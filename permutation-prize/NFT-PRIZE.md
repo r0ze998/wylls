@@ -224,7 +224,7 @@ acceptance for a pass, and the login's end-to-end path.
 **Address-deriving (compile- or syntax-check only until a run is
 approved: they derive PDAs and with-seed addresses at run time, no key).**
 
-- `workstreams/04-execution/e2e-native/tests/nft_pass_prize.rs` (9 tests):
+- `workstreams/04-execution/e2e-native/tests/nft_pass_prize.rs` (10 tests; first host run 2026-11-15, see docs/integration/CLAUDE-NFT-PRIZE-CONNECT-20261114.md §11):
   the real prize program (host build, `nft-experimental`) and the real game
   program's CloseCitizen, over literal-byte fixtures (policy, Core asset
   with the guard registry, resident record, NFT Citizen, link; a transfer
