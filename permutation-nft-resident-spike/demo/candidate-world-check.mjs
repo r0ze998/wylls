@@ -38,7 +38,7 @@ GAME.searchParams.set('localPlay', '1'); GAME.searchParams.set('launcher', '1');
 const MINT = loopbackRpc(arg('--mint', 'http://127.0.0.1:41995/web/mint.html'));
 const RPC = loopbackRpc(arg('--rpc', 'http://127.0.0.1:41980'));
 const HERALD = loopbackRpc(arg('--herald', 'http://127.0.0.1:41982'));
-const STAGES = new Set(arg('--stages', 'start,mint,transfer,join,home,build').split(','));
+const STAGES = new Set(arg('--stages', 'start,mint,transfer,join,home,build,train,muster').split(','));
 const CANDIDATE = base58(new Uint8Array(32).fill(0x4c));
 mkdirSync(OUT, { recursive: true });
 
@@ -78,7 +78,10 @@ async function chainOf(asset, residentProgram) {
   const rec = await rpc.account(pdas(residentProgram).resident(asset)).catch(() => null);
   const citizenAt = residentCitizen(seasonAddresses(CANDIDATE, '11'), asset);
   const c = await rpc.account(citizenAt);
-  return { owner: owned ? base58(owned.owner) : null, generation: rec ? decodeResidentAccount(rec.data)?.gen ?? null : null,
+  // the record's generation is a number or the run fails (a missing or undecodable record is not "no generation")
+  const dec = rec ? decodeResidentAccount(rec.data) : null;
+  if (!rec || !dec || !Number.isInteger(dec.gen)) throw new Error(`the resident record of ${asset} is missing or does not decode (generation unknown)`);
+  return { owner: owned ? base58(owned.owner) : null, generation: dec.gen,
     citizen: citizenAt, citizenExists: !!c, citizenProgram: c?.owner ?? null, mark: c ? citizenMark(Uint8Array.from(c.data)) : null };
 }
 
@@ -94,6 +97,17 @@ async function txsOf(addr) {
   return out;
 }
 const base58Decode = s => { const A = '123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz'; let n = 0n; for (const c of s) n = n * 58n + BigInt(A.indexOf(c)); const b = []; while (n > 0n) { b.unshift(Number(n & 255n)); n >>= 8n; } for (const c of s) { if (c !== '1') break; b.unshift(0); } return Uint8Array.from(b); };
+
+/** The successful ResidentActs (candidate program, tag 0xE2) signed by B that name the NFT Citizen. */
+async function residentActs(citizen) { return (await txsOf(citizen)).filter(t => t.ok && t.signers.includes(B) && t.ixs.some(i => i.program === CANDIDATE && i.tag === 'e2')); }
+/** Wait (≤ 90 s) until one more ResidentAct than `before` has landed; returns it, or fails the run. */
+async function oneMoreAct(citizen, before, what) {
+  for (const t0 = Date.now(); Date.now() - t0 < 90_000; await new Promise(r => setTimeout(r, 2_000))) {
+    const now = await residentActs(citizen);
+    if (now.length > before) return now.at(-1);
+  }
+  throw new Error(`${what}: no new ResidentAct (0xE2) signed by B landed for the NFT Citizen within 90 s`);
+}
 
 const browser = await pw.chromium.launch();
 let failed = null, B = null, asset = null, residentProgram = null;
@@ -151,6 +165,7 @@ try {
     asset = (await m.getByTestId('asset').textContent())?.trim();
     const c1 = await chainOf(asset, residentProgram);
     if (c1.owner !== A.publicKey) throw new Error(`after the mint the asset's owner is ${c1.owner}, not A`);
+    if (c1.generation !== 0) throw new Error(`after the mint the generation is ${c1.generation}, not 0`);
     await shot(m, '1-minted'); step('mint: A holds the pass on the chain', `${asset}, generation ${c1.generation}`);
     summary.stages.mint = { ok: true, asset, chain: c1 };
   }
@@ -168,6 +183,7 @@ try {
     await m.waitForFunction(() => /Transferred \(confirmed on the chain\)/.test(document.querySelector('[data-testid="t-status"]').textContent), null, { timeout: 120_000 });
     const c2 = await chainOf(asset, residentProgram);
     if (c2.owner !== B) throw new Error(`after the transfer the asset's owner is ${c2.owner}, not B`);
+    if (c2.generation !== 1) throw new Error(`after the transfer the generation is ${c2.generation}, not 1`);
     await shot(m, '2-transferred'); step('transfer: B holds the pass on the chain', `generation ${c2.generation}`);
     summary.stages.transfer = { ok: true, chain: c2 };
   }
@@ -194,13 +210,15 @@ try {
     const homeBtn = g.locator('[data-act="home-confirm"]');
     await homeBtn.first().waitFor({ state: 'visible', timeout: 180_000 });
     await shot(g, '4-home-choice');
+    const nftCitizen = residentCitizen(seasonAddresses(CANDIDATE, '11'), asset), before = (await residentActs(nftCitizen)).length;
     await humanPress(g, '[data-act="home-confirm"]');
     await g.waitForFunction(() => !document.querySelector('[data-act="home-confirm"]'), null, { timeout: 240_000 });
     const c4 = await chainOf(asset, residentProgram);
     const holdings = await rpc.call('getProgramAccounts', [CANDIDATE, { encoding: 'base64', filters: [{ memcmp: { offset: 0, bytes: base58(Buffer.from('PSF1HOLD')) } }, { memcmp: { offset: 72, bytes: c4.citizen } }] }]);
     if (!Array.isArray(holdings) || holdings.length < 1) throw new Error('after the home press no village of the NFT Citizen is on the chain');
     await shot(g, '4-home'); step('home: the NFT Citizen holds its first village on the chain (PlaceHome in 0xE2)', holdings[0].pubkey);
-    summary.stages.home = { ok: true, village: holdings[0].pubkey, owner: c4.owner, generation: c4.generation };
+    const act = await oneMoreAct(nftCitizen, before, 'home');
+    summary.stages.home = { ok: true, village: holdings[0].pubkey, owner: c4.owner, generation: c4.generation, signature: act.signature, slot: act.slot };
   }
 
   // build: one building order from the village screen, as the NFT (Build inside 0xE2)
@@ -209,10 +227,31 @@ try {
     if (!(await g.locator('#tabs [data-tab="holding"][aria-current="page"]').count())) await humanPress(g, '#tabs [data-tab="holding"]');
     const goSel = '[data-act="build"][data-item].br-go:not([disabled])';
     await g.locator(goSel).first().waitFor({ state: 'visible', timeout: 180_000 });
+    const nftCitizenB = residentCitizen(seasonAddresses(CANDIDATE, '11'), asset), beforeB = (await residentActs(nftCitizenB)).length;
     await humanPress(g, goSel);
     await g.waitForFunction(() => /Built|Building|in the queue|construction|refus|not in this wallet/i.test(document.body.innerText), null, { timeout: 120_000 });
     await shot(g, '5-build'); step('build: the Build order was answered on screen (signature in the chain evidence)');
-    summary.stages.build = { ok: true };
+    const actB = await oneMoreAct(nftCitizenB, beforeB, 'build');
+    summary.stages.build = { ok: true, signature: actB.signature, slot: actB.slot };
+  }
+
+  // train / muster: the village screen's troops forms, as a person uses them (one click, typed count, one press)
+  for (const what of ['train', 'muster']) {
+    if (!STAGES.has(what)) continue;
+    const form = what === 'train' ? '#hp-train' : '#hp-muster', field = `${form} ${what === 'train' ? '#f-n' : '#f-troops'}`;
+    if (!(await g.locator('#tabs [data-tab="holding"][aria-current="page"]').count())) await humanPress(g, '#tabs [data-tab="holding"]');
+    await g.locator(form).waitFor({ state: 'attached', timeout: 120_000 });
+    const fold = g.locator(`details:has(${form}):not([open]) > summary`);
+    if (await fold.count()) await fold.first().click();
+    await g.locator(field).click(); await g.keyboard.press('ControlOrMeta+a'); await g.keyboard.type('100');
+    const btn = `${form} button[type="submit"]`;
+    const t0 = Date.now();
+    while (await g.locator(btn).isDisabled()) { if (Date.now() - t0 > 240_000) { await shot(g, `6-${what}-disabled`); throw new Error(`${what}: the button stayed unavailable`); } await g.waitForTimeout(3_000); }
+    const nftCitizenT = residentCitizen(seasonAddresses(CANDIDATE, '11'), asset), beforeT = (await residentActs(nftCitizenT)).length;
+    await humanPress(g, btn);
+    const actT = await oneMoreAct(nftCitizenT, beforeT, what);
+    await shot(g, `6-${what}`); step(`${what}: the order was answered on screen (signature in the chain evidence)`);
+    summary.stages[what] = { ok: true, signature: actT.signature, slot: actT.slot };
   }
 } catch (e) {
   failed = e.message; step('FAILED', e.message);
