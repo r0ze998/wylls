@@ -307,3 +307,30 @@ Port branch:
 - **⑳'s head moved to `13ac8f63`.** It adds a candidate-only nft-transfer action, and world-relay TransferResident is
   now default deny. The controller/join patch must be regenerated after merging it into the port branch (merge, no
   force push). The E2E's transfers go through the mint page.
+
+## 16. Merge of ⑳'s head, option (A) spec for review, 0x51 boundary, page local claim (2026-11-15)
+
+Port branch:
+- **`e68949fc`:** ⑳'s `13ac8f63` merged in (a merge, no force push).
+  - The controller/join patch was regenerated as `git diff 13ac8f63..HEAD` (+190/−7, sha256 `8627a536…`) and sent to ⑳.
+  - After the merge: ⑳'s login/card tests plus ⑰'s signed test 23/23; the prize and launcher set 42/42.
+- **`80d007cc`:** the exact **option (A)** fixture specification, for review only, not implemented:
+  - under `--prize-test-only-so` only, with no stdin reader otherwise and a byte-identical run;
+  - one exact stdin line `{asset, paid_by, pay_generation}`, with the Entry address derived by the runner;
+  - pool, asset, guard and resident-record checks; `pay_generation` must equal the record's current generation and
+    `paid_by` the asset's current owner; the Entry address must be absent;
+  - writes the Entry only (no vault tokens), with its own `Chain::set_account`;
+  - MEMORY_ONLY and `tamper_rpc: false` unchanged; no wallet, key, arbitrary account or RPC write.
+
+  Rust only after ⑳ and the user agree, and a host build slot.
+- **⑳'s 0x51 ABA boundary:** `TransferResident` signs no generation, so a pre-A→B→A signed transfer can be replayed
+  within its blockhash lifetime, and the direct chain path is not closable by a relay. The page's transfer is held in
+  worlds. ⑰'s claim binds the signed generation, but **re-transfer is recorded as not proven safe**, and the E2E's
+  mint-page transfers carry that boundary.
+- **`1b7cb922`:** the page's local-play claim in `fprize.mjs` (⑰'s file).
+  - `loadPrizeLocal` (`/f/local-play/prize`).
+  - `claimPassLocal`: prepare → the wallet signs exactly that message → one submit. Outcomes follow `claimPass`'s
+    rules: notSent only before the submit; `already` / AlreadyClaimedByPriorOwner; unknown keeps the signature.
+  - Tests 5/5. Not wired into `controller.mjs` yet; that is a patch to ⑳ with the mount step.
+
+Totals on the port branch: key-free prize and launcher 47/47; signed plus ⑳'s login/card 23/23.
