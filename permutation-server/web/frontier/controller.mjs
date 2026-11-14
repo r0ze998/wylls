@@ -39,7 +39,7 @@ import { regionOf, ringOf, ringProvinces, homeNation, hexDistance } from './fgeo
 import { hostParts, hostId } from './faddr.mjs';
 import { decodePage } from './flog.mjs';
 import { nextPoll, BELLS_PER_DAY } from './herald.mjs';
-import { applySeasonRecord } from './map/world.mjs';
+import { applySeasonRecord, contiguousRings, worldOf } from './map/world.mjs';
 import { readOverviews } from './map/overviews.mjs';
 import { kernel as loadKernel, UNITS } from './wasm.mjs';
 import { uiKey, uiStorage, loadUi, saveUi, landKey, loadLand, saveLand, LAND_DEFAULTS } from './fui.mjs';
@@ -1566,7 +1566,7 @@ export async function refreshHomes({ force = false } = {}) {
     if (force) FS.overviewsBell = undefined;
     await refreshOverviews(nowBell());
     // (the rings a first village may be placed in: the open rings, no further than the heartland: home.mjs homeRingsOpen)
-    const result = await planHomes({ overviews: FS.overviews, faction, nowBell: nowBell(), place: seasonPlace(FS.season), ringsOpen: homeRingsOpen(FS.season, FS.record?.rings?.length ?? 0),
+    const result = await planHomes({ overviews: FS.overviews, faction, nowBell: nowBell(), place: seasonPlace(FS.season), ringsOpen: homeRingsOpen(FS.season, FS.record ? contiguousRings(FS.world ?? worldOf(FS.record)) : 0),
       seed: `${FS.wallet?.address ?? 'visitor'}|${old.rotation ?? 0}`, rotation: old.rotation ?? 0,
       read: async (p, q) => { const env = await loadEnvelope(p, q); return env?.province ?? null; } });
     if (request !== homesRefresh) return;
@@ -1661,7 +1661,7 @@ export async function confirmHome() {
       return error('WrongFaction', L`参加済みの国の土地を選んでください。`);
     }
     const env = await loadEnvelope(site.p, site.q);
-    if (!homeSites(env?.province, { faction: site.faction, nowBell: nowBell(), ringsOpen: homeRingsOpen(FS.season, FS.record?.rings?.length ?? 0), place: seasonPlace(FS.season) }).some(s => sameHome(s, site))) {
+    if (!homeSites(env?.province, { faction: site.faction, nowBell: nowBell(), ringsOpen: homeRingsOpen(FS.season, FS.record ? contiguousRings(FS.world ?? worldOf(FS.record)) : 0), place: seasonPlace(FS.season) }).some(s => sameHome(s, site))) {
       FS.homeChoice.selected = null; saveHomePatch({ selected: null });
       return error('SiteUnavailable', L`この土地は現在選べません。候補を更新して別の土地を選んでください。`);
     }
@@ -1746,7 +1746,7 @@ export async function autoTicket({ force = false } = {}) {
   try {
     await refreshOverviews(b);
     for (const [k, at] of FS.autoFull ?? []) if (b - at >= AUTO_FULL_BELLS) FS.autoFull.delete(k);
-    const plan = await planTicket({ overviews: FS.overviews ?? new Map(), place: seasonPlace(FS.season), faction: FS.citizen.faction, ringsOpen: FS.record?.rings?.length ?? 1,
+    const plan = await planTicket({ overviews: FS.overviews ?? new Map(), place: seasonPlace(FS.season), faction: FS.citizen.faction, ringsOpen: FS.record ? contiguousRings(FS.world ?? worldOf(FS.record)) : 1,
       seed: `${FS.wallet?.address ?? ''}|${b}`, nowBell: b, read: (p, q) => readProvinceOnce(p, q, b), skip: new Set((FS.autoFull ?? new Map()).keys()),
       homeFull: homeWedgeFull(FS.record, FS.citizen.faction) });
     FS.autoFull ??= new Map();

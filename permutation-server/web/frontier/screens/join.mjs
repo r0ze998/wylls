@@ -13,6 +13,7 @@ import { L, Lh, fmtNum, lang } from '../../lang.mjs';
 import { factionName, DOCTRINE_NAMES, HOLDING_STATES, failureText } from '../fi18n.mjs';
 import { freeByNation, ticketTimes } from '../fland.mjs';
 import { homeRingsOpen, seasonPlace } from '../home.mjs';
+import { contiguousRings, worldOf } from '../map/world.mjs';
 import { dueHtml } from './shell.mjs';
 import { leaderFigure, leaderHex, leaderSvg, DOCTRINE_PITCH } from '../people/leaders.mjs';
 import { placeName } from '../people/identity.mjs';
@@ -58,7 +59,9 @@ function renderWallets(FS) {
  * heartland is not counted as a place for a village; with no season record yet the overviews alone bound it.
  */
 export function factionCards(FS) {
-  const open = FS.record?.rings?.length;
+  // (the rings a first village may be in are counted from the Concord without a gap — map/world.mjs contiguousRings —
+  //  never by the record's length: a sparse world that seeds ring 128 alone has one entry and no ring 0)
+  const open = FS.record ? contiguousRings(FS.world ?? worldOf(FS.record)) : undefined;
   const free = freeByNation(FS.overviews ?? new Map(), seasonPlace(FS.season), { ringsOpen: Number.isInteger(open) ? homeRingsOpen(FS.season, open) : Infinity });
   return FACTIONS.map(f => ({ faction: f, name: factionName(f), doctrine: DOCTRINE_NAMES[f], free: free ? free[f] : null, chosen: FS.joinDraft?.faction === f }));
 }
