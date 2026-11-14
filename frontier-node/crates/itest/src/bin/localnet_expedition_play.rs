@@ -33,9 +33,28 @@ fn main() {
             let bytes = std::fs::read(artifact.path()).map_err(|e| format!("artefact: {e}"))?;
             itest::conquest_world::markers_ok(&bytes, artifact.sha256())?;
         }
+        // The LOCAL TEST CANDIDATE (`--lane-candidate`, all four options; not an allocation): the conquest preset only,
+        // and the artefact carries the candidate's own marker exactly once besides the conquest lane's two. Without the
+        // options nothing here runs and the start is exactly as before. (Written without compiling.)
+        let candidate = o.candidate.as_ref().map(play::CandidateAssets::read).transpose()?;
+        if candidate.is_some() {
+            #[cfg(not(feature = "localnet-conquest-play"))]
+            return Err("--lane-candidate needs a runner built with localnet-conquest-play".into());
+            #[cfg(feature = "localnet-conquest-play")]
+            {
+                if preset.is_none() {
+                    return Err("--lane-candidate needs --world-preset local-conquest-test-v1".into());
+                }
+                let bytes = std::fs::read(artifact.path()).map_err(|e| format!("artefact: {e}"))?;
+                let m = b"PSF_LOCALNET_CONQUEST_NFT_SBF_BUILD";
+                if bytes.windows(m.len()).filter(|w| *w == m).count() != 1 {
+                    return Err("--lane-candidate: the artefact does not carry PSF_LOCALNET_CONQUEST_NFT_SBF_BUILD exactly once".into());
+                }
+            }
+        }
         let rt = tokio::runtime::Builder::new_multi_thread().enable_all().build().map_err(|e| e.to_string())?;
         rt.block_on(async {
-            let mut p = play::launch_full(&artifact, o.player_wallet, o.rpc_port, o.ws_port, o.keeper, o.wide_destination).await?;
+            let mut p = play::launch_lane(&artifact, o.player_wallet, o.rpc_port, o.ws_port, o.keeper, o.wide_destination, candidate.as_ref()).await?;
             println!("{}", p.metadata);
             let (stop_tx, stop_rx) = tokio::sync::watch::channel(false);
             let wide_rx = stop_rx.clone();

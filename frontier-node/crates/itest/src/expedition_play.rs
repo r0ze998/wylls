@@ -76,6 +76,47 @@ pub const PROGRAM: [u8; 32] = [0x45; 32];
 /// S1 (4) | wide 0x4000 | host-only dispatch 0x0800.
 pub const PROGRAM_VERSION: u16 = 0x4804;
 pub const MARKER: &[u8] = b"PSF_LOCALNET_EXPEDITION_SBF_BUILD";
+
+/// Which program and version this runner's world is. [`Lane::CONQUEST`] is the conquest lane exactly as before (the
+/// constants above); [`Lane::CANDIDATE`] is the LOCAL TEST CANDIDATE `localnet-conquest-nft-sbf` (the conquest lane
+/// with NFT residents; candidate program id [0x4C; 32], version 0x4804 | 0x8000; NOT an allocation, never deployable),
+/// chosen only by `--lane-candidate`. Threaded through the runner in steps (docs/integration
+/// CLAUDE-NFT-CANDIDATE-LANE-VERSION-READ-20261114.md); a module not yet threaded keeps [`PROGRAM`].
+/// WRITTEN 2026-11-14/15 WITHOUT COMPILING (no host build agreed then).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Lane {
+    pub program: [u8; 32],
+    pub version: u16,
+}
+
+impl Lane {
+    pub const CONQUEST: Lane = Lane { program: PROGRAM, version: PROGRAM_VERSION };
+    pub const CANDIDATE: Lane = Lane { program: [0x4C; 32], version: PROGRAM_VERSION | 0x8000 };
+    pub fn address(&self) -> Address {
+        Address::new_from_array(self.program)
+    }
+    /// The version as the runner's first line states it (`0x` and four lowercase hex digits).
+    pub fn version_text(&self) -> String {
+        format!("0x{:04x}", self.version)
+    }
+}
+
+/// The candidate's one word (the launcher's `--lane-candidate`).
+pub const CANDIDATE_FEATURE: &str = "localnet-conquest-nft-sbf";
+/// Metaplex Core's program id (the deployed one; the candidate world deploys the recorded `.so` under it).
+pub const CORE_PROGRAM: &str = "CoREENxT6tW1HoK8ypY1SxRMZTcVPm7R94rH4PZNhX7d";
+/// The resident program's test id (sha256 of "wylls-resident-program id (test)"; never a deploy key).
+pub const RESIDENT_PROGRAM: &str = "68TBCtDEfvunEQYEb4cZSBnkPWnu2h6XuvSTmLctZyv5";
+/// The file the candidate's throwaway authority seed is written to, inside `--authority-seed-dir` only.
+pub const CANDIDATE_SEED_FILE: &str = "candidate-authority.seed";
+
+/// The candidate's own options: all of them or none (`parse_args`).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct CandidateOptions {
+    pub resident_so: PathBuf,
+    pub core_so: PathBuf,
+    pub authority_seed_dir: PathBuf,
+}
 /// The usual stack's port: this runner never takes it.
 pub const REFUSED_PORT: u16 = 41970;
 pub const SEASON_ID: u64 = 11;
@@ -102,6 +143,45 @@ pub struct Options {
     /// (`wide_destination`; SYNTHETIC requested ring seed and Season
     /// authority, REAL Consume / SetRules / WideOpenProvince).
     pub wide_destination: bool,
+    /// `--lane-candidate localnet-conquest-nft-sbf --resident-so <abs> --core-so <abs> --authority-seed-dir <abs>`:
+    /// the LOCAL TEST CANDIDATE world (all four or none); `None`: the conquest lane exactly as before.
+    pub candidate: Option<CandidateOptions>,
+}
+
+/// Takes `--name <value>` out of `args` (at an even position, once); `None` when absent.
+fn take_flag(args: &mut Vec<String>, name: &str) -> Result<Option<String>, String> {
+    let Some(i) = args.iter().position(|a| a == name) else { return Ok(None) };
+    if i % 2 != 0 || i + 1 >= args.len() {
+        return Err(format!("{name} takes one value"));
+    }
+    let v = args[i + 1].clone();
+    args.drain(i..i + 2);
+    if args.iter().any(|a| a == name) {
+        return Err(format!("{name} given twice"));
+    }
+    Ok(Some(v))
+}
+
+/// The candidate's four options, all or none (taken out before the shared flags are read).
+fn take_candidate(args: &mut Vec<String>) -> Result<Option<CandidateOptions>, String> {
+    let lane = take_flag(args, "--lane-candidate")?;
+    let resident = take_flag(args, "--resident-so")?;
+    let core = take_flag(args, "--core-so")?;
+    let seed_dir = take_flag(args, "--authority-seed-dir")?;
+    match (lane, resident, core, seed_dir) {
+        (None, None, None, None) => Ok(None),
+        (Some(l), Some(r), Some(c), Some(d)) => {
+            if l != CANDIDATE_FEATURE {
+                return Err(format!("--lane-candidate takes exactly `{CANDIDATE_FEATURE}`"));
+            }
+            let (r, c, d) = (PathBuf::from(r), PathBuf::from(c), PathBuf::from(d));
+            if !r.is_absolute() || !c.is_absolute() || !d.is_absolute() {
+                return Err("--resident-so, --core-so and --authority-seed-dir must be absolute paths".into());
+            }
+            Ok(Some(CandidateOptions { resident_so: r, core_so: c, authority_seed_dir: d }))
+        }
+        _ => Err("--lane-candidate, --resident-so, --core-so and --authority-seed-dir go together".into()),
+    }
 }
 
 /// The only keeper value: public drand Quicknet rounds, verified.
@@ -113,6 +193,7 @@ const FLAGS: [&str; 5] = ["--artifact", "--artifact-sha256", "--player-wallet", 
 /// optionally `--keeper public-quicknet` once.
 pub fn parse_args(args: impl IntoIterator<Item = String>) -> Result<Options, String> {
     let mut args: Vec<String> = args.into_iter().collect();
+    let candidate = take_candidate(&mut args)?;
     let mut keeper = false;
     if let Some(i) = args.iter().position(|a| a == "--keeper") {
         if i % 2 != 0 || args.get(i + 1).map(String::as_str) != Some(KEEPER_PUBLIC_QUICKNET) {
@@ -168,7 +249,7 @@ pub fn parse_args(args: impl IntoIterator<Item = String>) -> Result<Options, Str
     };
     let (rpc_port, ws_port) = (port(3, "--rpc-port")?, port(4, "--ws-port")?);
     check_ports(rpc_port, ws_port)?;
-    Ok(Options { artifact, sha256, player_wallet, rpc_port, ws_port, keeper, wide_destination })
+    Ok(Options { artifact, sha256, player_wallet, rpc_port, ws_port, keeper, wide_destination, candidate })
 }
 
 /// Explicit, distinct, free loopback ports in 41000–41999, never 41970 or a
@@ -267,6 +348,8 @@ pub struct Fixture {
     /// once, never stored or printed) that `install` funds from the node's
     /// faucet, so the address is a live, non-executable system wallet.
     pub rent_payer: Address,
+    /// The lane of the base this fixture was made on (the records' owner).
+    pub lane: Lane,
     accounts: Vec<(Address, Vec<u8>)>,
 }
 
@@ -279,6 +362,11 @@ const RENT_PAYER_LAMPORTS: u64 = 1_000_000_000;
 /// no ceiling, and the genesis round whose `genesis_ts` (round time + 600)
 /// is the latest one at or before `now - INTO_SEASON`.
 fn season_bytes(bump: u8, now: i64) -> Result<(Vec<u8>, i64, u64), String> {
+    season_bytes_for(PROGRAM_VERSION, bump, now)
+}
+
+/// The Season as [`season_bytes`], carrying `version` (the lane's).
+fn season_bytes_for(version: u16, bump: u8, now: i64) -> Result<(Vec<u8>, i64, u64), String> {
     let p = S1_LOCAL_7D.base;
     let mut cq = S1_LOCAL_7D.cq;
     cq.r_max_ceiling = 0;
@@ -304,7 +392,7 @@ fn season_bytes(bump: u8, now: i64) -> Result<(Vec<u8>, i64, u64), String> {
     s[S::POSTURES_ENABLED] = p.postures_enabled;
     assert!(wr_arr(&mut s, S::RULESET_HASH, &RULESET_HASH_V3));
     assert!(wr_u16(&mut s, S::RULES_VERSION, RULES_VERSION_S1));
-    assert!(wr_u16(&mut s, S::PROGRAM_VERSION, PROGRAM_VERSION));
+    assert!(wr_u16(&mut s, S::PROGRAM_VERSION, version));
     w32(&mut s, S::BELL_SECS, p.bell_secs);
     assert!(wr_arr(&mut s, S::GENESIS_TS, &genesis_ts.to_le_bytes()));
     assert!(wr_arr(&mut s, S::CREATED_TS, &genesis_ts.to_le_bytes()));
@@ -359,6 +447,8 @@ pub struct Base {
     pub home_ring: u16,
     pub genesis_ts: i64,
     pub genesis_round: u64,
+    /// The lane the accounts belong to (their owner, the PDAs' program).
+    pub lane: Lane,
     accounts: Vec<(Address, Vec<u8>, u64)>,
 }
 
@@ -367,10 +457,15 @@ const FUND_LAMPORTS: u64 = 100_000_000_000;
 
 impl Base {
     pub fn new(now: i64) -> Result<Base, String> {
-        let program = Address::new_from_array(PROGRAM);
+        Base::new_for(Lane::CONQUEST, now)
+    }
+
+    /// As [`Base::new`] for `lane` (its program's PDAs, its version in the Season).
+    pub fn new_for(lane: Lane, now: i64) -> Result<Base, String> {
+        let program = lane.address();
         let (season, bump) = fclient::addr::season_pda(&program, SEASON_ID);
-        let ctx = AddrCtx { program: PROGRAM, season: season.to_bytes() };
-        let (s, genesis_ts, genesis_round) = season_bytes(bump, now)?;
+        let ctx = AddrCtx { program: lane.program, season: season.to_bytes() };
+        let (s, genesis_ts, genesis_round) = season_bytes_for(lane.version, bump, now)?;
         let coord = ProvinceCoord::new(128, 0);
         let ring = coord.ring() as u16;
         let mut fr = vec![0u8; K2::Frontier.size()];
@@ -396,7 +491,7 @@ impl Base {
         let ring_seed = Address::new_from_array(ctx.ring_seed(ring));
         let fund_key = Address::new_from_array(ctx.province_fund(wedge));
         Ok(Base {
-            season, frontier, ring_seed, fund: fund_key, home_ring: ring, genesis_ts, genesis_round,
+            season, frontier, ring_seed, fund: fund_key, home_ring: ring, genesis_ts, genesis_round, lane,
             accounts: vec![(season, s, FIXTURE_LAMPORTS), (frontier, fr, FIXTURE_LAMPORTS), (ring_seed, rs, FIXTURE_LAMPORTS), (fund_key, fund, FUND_LAMPORTS)],
         })
     }
@@ -404,7 +499,7 @@ impl Base {
     /// Writes the base accounts, owned by the dedicated program.
     pub fn install(&self, c: &mut Chain) -> Result<(), String> {
         for (key, data, lamports) in &self.accounts {
-            c.set_account(*key, Account { lamports: *lamports, data: data.clone(), owner: Address::new_from_array(PROGRAM), executable: false })?;
+            c.set_account(*key, Account { lamports: *lamports, data: data.clone(), owner: self.lane.address(), executable: false })?;
         }
         Ok(())
     }
@@ -429,10 +524,15 @@ impl Base {
 /// City where due, `resolved_next = opened_bell = now_bell`. Returns the
 /// Province bytes it wrote and the transaction's signature.
 pub fn open_home(c: &mut Chain) -> Result<(Vec<u8>, String), String> {
+    open_home_for(c, Lane::CONQUEST)
+}
+
+/// As [`open_home`] for `lane`'s program.
+pub fn open_home_for(c: &mut Chain, lane: Lane) -> Result<(Vec<u8>, String), String> {
     let payer = fclient::Keypair::new();
     c.airdrop(&fclient::Signer::pubkey(&payer), 10_000_000_000)?;
     c.produce_block();
-    let program = Address::new_from_array(PROGRAM);
+    let program = lane.address();
     let ix = fclient::ix::open_province(&fclient::addr::Addresses::new(program, SEASON_ID), fclient::Signer::pubkey(&payer), 128, 0);
     let budget = fclient::tx::TxBudget { cu_limit: 1_400_000, cu_price: 0, loaded_limit: fclient::fees::RUNTIME_MAX_LOADED, heap: Some(256 * 1024) };
     let (blockhash, _) = c.latest_blockhash();
@@ -444,7 +544,7 @@ pub fn open_home(c: &mut Chain) -> Result<(Vec<u8>, String), String> {
         let tail: Vec<_> = landed.logs.iter().rev().take(6).rev().cloned().collect();
         return Err(format!("OpenProvince failed: {err} (code {:?}) {tail:?}", landed.code));
     }
-    let ctx = AddrCtx { program: PROGRAM, season: fclient::addr::season_pda(&program, SEASON_ID).0.to_bytes() };
+    let ctx = AddrCtx { program: lane.program, season: fclient::addr::season_pda(&program, SEASON_ID).0.to_bytes() };
     let home = c.account(&Address::new_from_array(ctx.province(128, 0))).ok_or("no Province after OpenProvince")?;
     Ok((home.data, sig.to_string()))
 }
@@ -458,8 +558,8 @@ impl Fixture {
     /// ticket or Muster ran); the terrain, keep, camp and resolution fields
     /// stay exactly the program's.
     pub fn new(wallet: &Address, base: &Base, opened: &[u8]) -> Result<Fixture, String> {
-        let program = Address::new_from_array(PROGRAM);
-        let ctx = AddrCtx { program: PROGRAM, season: base.season.to_bytes() };
+        let program = base.lane.address();
+        let ctx = AddrCtx { program: base.lane.program, season: base.season.to_bytes() };
         let resolver = AccountResolver::for_season(&ctx).map_err(|e| format!("resolver: {e:?}"))?;
         let pv = fclient::decode::Province::decode(opened).map_err(|e| format!("opened Province: {e:?}"))?;
         if (pv.p, pv.q) != (128, 0) {
@@ -566,6 +666,7 @@ impl Fixture {
         let home_key = Address::new_from_array(resolver.province_address(host.key()).map_err(|e| format!("province: {e:?}"))?);
         let _ = program;
         Ok(Fixture {
+            lane: base.lane,
             season: base.season,
             host,
             citizen,
@@ -595,7 +696,7 @@ impl Fixture {
     /// stay as the base and the program left them).
     pub fn install(&self, c: &mut Chain) -> Result<(), String> {
         for (key, data) in self.accounts[1..4].iter().chain(self.accounts[6..].iter()) {
-            let a = Account { lamports: FIXTURE_LAMPORTS, data: data.clone(), owner: Address::new_from_array(PROGRAM), executable: false };
+            let a = Account { lamports: FIXTURE_LAMPORTS, data: data.clone(), owner: self.lane.address(), executable: false };
             let a = match c.account(key) {
                 // the home keeps the lamports the program funded it with
                 Some(old) if *key == self.home => Account { lamports: old.lamports, ..a },
@@ -642,6 +743,51 @@ pub async fn launch_with(artifact: &Artifact, wallet: Address, rpc_port: u16, ws
 /// SYNTHETIC Season authority and requested ring-129 record are installed
 /// at bootstrap; the REAL instructions run later (`wide_destination::run`).
 pub async fn launch_full(artifact: &Artifact, wallet: Address, rpc_port: u16, ws_port: u16, keeper: bool, wide: bool) -> Result<Play, String> {
+    launch_lane(artifact, wallet, rpc_port, ws_port, keeper, wide, None).await
+}
+
+/// The candidate world's extra programs, read and checked before anything is deployed.
+pub struct CandidateAssets {
+    pub resident_so: Vec<u8>,
+    pub core_so: Vec<u8>,
+    pub authority_seed_dir: PathBuf,
+}
+
+impl CandidateAssets {
+    /// Reads the two `.so` files (non-empty ELF) and checks the seed directory exists and is a directory.
+    pub fn read(o: &CandidateOptions) -> Result<CandidateAssets, String> {
+        let read = |p: &PathBuf, name: &str| -> Result<Vec<u8>, String> {
+            let b = std::fs::read(p).map_err(|e| format!("{name}: {e}"))?;
+            if b.len() < 4 || &b[..4] != b"\x7fELF" {
+                return Err(format!("{name} is not an ELF file"));
+            }
+            Ok(b)
+        };
+        if !std::fs::metadata(&o.authority_seed_dir).map(|m| m.is_dir()).unwrap_or(false) {
+            return Err("--authority-seed-dir is not a directory".into());
+        }
+        Ok(CandidateAssets { resident_so: read(&o.resident_so, "--resident-so")?, core_so: read(&o.core_so, "--core-so")?, authority_seed_dir: o.authority_seed_dir.clone() })
+    }
+}
+
+/// Writes the throwaway authority's 32-byte seed as hex, 0600, to `<dir>/candidate-authority.seed` (a new file
+/// only; never printed or logged). Returns the path.
+fn write_candidate_seed(dir: &std::path::Path, seed: &[u8; 32]) -> Result<PathBuf, String> {
+    use std::io::Write;
+    use std::os::unix::fs::OpenOptionsExt;
+    let path = dir.join(CANDIDATE_SEED_FILE);
+    let mut f = std::fs::OpenOptions::new().write(true).create_new(true).mode(0o600).open(&path).map_err(|e| format!("authority seed file: {e}"))?;
+    f.write_all(format!("{}\n", hex::encode(seed)).as_bytes()).map_err(|e| format!("authority seed file: {e}"))?;
+    Ok(path)
+}
+
+/// [`launch_full`] for a lane: `candidate` `None` is the conquest lane exactly as before; `Some` deploys the
+/// candidate artefact under [`Lane::CANDIDATE`]'s id with a throwaway upgrade authority, Core and the resident
+/// program (the resident program's upgrade authority the same throwaway key, so the NFT setup can run InitConfig and
+/// CreateResidentPolicy), writes that key's seed into the given directory only, and states the candidate's keys on
+/// the first line.
+pub async fn launch_lane(artifact: &Artifact, wallet: Address, rpc_port: u16, ws_port: u16, keeper: bool, wide: bool, candidate: Option<&CandidateAssets>) -> Result<Play, String> {
+    let lane = if candidate.is_some() { Lane::CANDIDATE } else { Lane::CONQUEST };
     check_ports(rpc_port, ws_port)?;
     check_wallet(&wallet)?;
     if localnet::bls_and_sbpf_v2_active() != (true, true) {
@@ -649,18 +795,33 @@ pub async fn launch_full(artifact: &Artifact, wallet: Address, rpc_port: u16, ws
     }
     let cfg = Config { allow_tamper: false, data_dir: None, ..Config::default() };
     let mut c = Chain::new(cfg);
-    let program = Address::new_from_array(PROGRAM);
-    c.deploy(program, &artifact.bytes, max_len(artifact.bytes.len()), None)?;
+    let program = lane.address();
+    // (the candidate: one throwaway in-memory authority for the Frontier and resident programs; its seed goes to the
+    //  given directory only, the key is dropped with the runner)
+    let candidate_authority = candidate.map(|_| fclient::Keypair::new());
+    let upgrade = candidate_authority.as_ref().map(fclient::Signer::pubkey);
+    c.deploy(program, &artifact.bytes, max_len(artifact.bytes.len()), upgrade)?;
+    let mut candidate_seed_file = None;
+    if let (Some(assets), Some(k)) = (candidate, candidate_authority.as_ref()) {
+        let core: Address = CORE_PROGRAM.parse().map_err(|_| "Core id")?;
+        let resident: Address = RESIDENT_PROGRAM.parse().map_err(|_| "resident id")?;
+        c.deploy(core, &assets.core_so, max_len(assets.core_so.len()), None)?;
+        c.deploy(resident, &assets.resident_so, max_len(assets.resident_so.len()), upgrade)?;
+        c.airdrop(&fclient::Signer::pubkey(k), PLAYER_LAMPORTS)?;
+        let bytes = k.to_bytes();
+        let seed: [u8; 32] = bytes[..32].try_into().map_err(|_| "seed")?;
+        candidate_seed_file = Some(write_candidate_seed(&assets.authority_seed_dir, &seed)?);
+    }
     c.airdrop(&wallet, PLAYER_LAMPORTS)?;
     c.produce_block();
-    let mut base = Base::new(c.unix_timestamp())?;
+    let mut base = Base::new_for(lane, c.unix_timestamp())?;
     let authority = wide.then(fclient::Keypair::new);
     if let Some(k) = &authority {
         base.set_authority(&fclient::Signer::pubkey(k));
     }
     base.install(&mut c)?;
     c.produce_block();
-    let (opened, open_signature) = open_home(&mut c)?;
+    let (opened, open_signature) = open_home_for(&mut c, lane)?;
     let fixture = Fixture::new(&wallet, &base, &opened)?;
     fixture.install(&mut c)?;
     c.produce_block();
@@ -693,7 +854,7 @@ pub async fn launch_full(artifact: &Artifact, wallet: Address, rpc_port: u16, ws
         "listen": "127.0.0.1 only",
         "runner_instance": runner_instance,
         "program": program.to_string(),
-        "program_version": format!("0x{PROGRAM_VERSION:04x}"),
+        "program_version": lane.version_text(),
         "artifact": {"path": artifact.path.display().to_string(), "sha256": artifact.sha256, "marker": "PSF_LOCALNET_EXPEDITION_SBF_BUILD", "bytes": artifact.bytes.len()},
         "execution": "real SBF artifact in the in-process LiteSVM chain (BLS12-381 syscalls and SBPF v2 active)",
         "player_wallet": wallet.to_string(),
@@ -731,6 +892,14 @@ pub async fn launch_full(artifact: &Artifact, wallet: Address, rpc_port: u16, ws
         "services_not_started": if keeper { json!(["herald", "gateway", "relay", "the Reveal (the player's own transaction)", "terminal settlements other than the member path"]) } else { json!(["keeper", "herald", "gateway", "relay", "beacon"]) },
     });
     let fixture = fixture;
+    let mut metadata = metadata;
+    if let Some(file) = candidate_seed_file {
+        // (the candidate's keys on the first line, as the launcher requires; the seed itself is never printed)
+        metadata["lane_candidate"] = json!(CANDIDATE_FEATURE);
+        metadata["resident_program"] = json!(RESIDENT_PROGRAM);
+        metadata["core_program"] = json!(CORE_PROGRAM);
+        metadata["authority_seed_file"] = json!(file.display().to_string());
+    }
     Ok(Play { running, metadata, fixture, wide: wide_plan })
 }
 
@@ -1081,5 +1250,56 @@ mod real_depart {
             assert!(escrow > 0);
             let _ = ct_hash;
         });
+    }
+}
+
+/// The lane (step 1 of threading the candidate through the runner). WRITTEN WITHOUT COMPILING; run with
+/// `cargo test -p itest --features localnet-expedition-play lane_tests` in an agreed host-build slot.
+#[cfg(test)]
+mod lane_tests {
+    use super::*;
+
+    fn args(extra: &[&str]) -> Vec<String> {
+        let wallet = Address::new_from_array([7; 32]).to_string();
+        let mut v: Vec<String> = ["--artifact", "/abs/program.so", "--artifact-sha256", &"ab".repeat(32), "--player-wallet", &wallet, "--rpc-port", "41301", "--ws-port", "41302"].iter().map(|s| s.to_string()).collect();
+        v.extend(extra.iter().map(|s| s.to_string()));
+        v
+    }
+
+    #[test]
+    fn the_conquest_lane_is_the_old_constants_and_the_candidate_its_own() {
+        assert_eq!(Lane::CONQUEST, Lane { program: PROGRAM, version: PROGRAM_VERSION });
+        assert_eq!(Lane::CONQUEST.version_text(), "0x4804");
+        assert_eq!(Lane::CANDIDATE.program, [0x4C; 32]);
+        assert_eq!(Lane::CANDIDATE.version, 0xC804);
+        assert_eq!(Lane::CANDIDATE.version_text(), "0xc804");
+        assert_ne!(Lane::CANDIDATE.program, PROGRAM);
+    }
+
+    #[test]
+    fn candidate_options_all_or_none_exact_word_absolute_paths() {
+        let plain = parse_args(args(&[])).unwrap();
+        assert_eq!(plain.candidate, None, "no candidate option: the conquest lane exactly as before");
+        let c = parse_args(args(&["--lane-candidate", CANDIDATE_FEATURE, "--resident-so", "/abs/r.so", "--core-so", "/abs/c.so", "--authority-seed-dir", "/abs/dir"])).unwrap();
+        assert_eq!(c.candidate, Some(CandidateOptions { resident_so: "/abs/r.so".into(), core_so: "/abs/c.so".into(), authority_seed_dir: "/abs/dir".into() }));
+        assert!(parse_args(args(&["--lane-candidate", CANDIDATE_FEATURE])).is_err(), "one without the others");
+        assert!(parse_args(args(&["--lane-candidate", "localnet-nft-sbf", "--resident-so", "/abs/r.so", "--core-so", "/abs/c.so", "--authority-seed-dir", "/abs/dir"])).is_err(), "another word");
+        assert!(parse_args(args(&["--lane-candidate", CANDIDATE_FEATURE, "--resident-so", "r.so", "--core-so", "/abs/c.so", "--authority-seed-dir", "/abs/dir"])).is_err(), "a relative path");
+    }
+
+    #[test]
+    fn the_season_carries_the_lanes_version_and_the_base_its_program() {
+        let now = 1_785_600_000;
+        let (plain, _, _) = season_bytes(1, now).unwrap();
+        let (also_plain, _, _) = season_bytes_for(PROGRAM_VERSION, 1, now).unwrap();
+        assert_eq!(plain, also_plain, "the conquest Season is byte-identical through the lane path");
+        let (cand, _, _) = season_bytes_for(Lane::CANDIDATE.version, 1, now).unwrap();
+        assert_eq!(u16::from_le_bytes([cand[S::PROGRAM_VERSION], cand[S::PROGRAM_VERSION + 1]]), 0xC804);
+        let a = Base::new(now).unwrap();
+        let b = Base::new_for(Lane::CONQUEST, now).unwrap();
+        assert_eq!((a.season, a.frontier, a.ring_seed, a.fund), (b.season, b.frontier, b.ring_seed, b.fund), "Base::new is the conquest lane");
+        let c = Base::new_for(Lane::CANDIDATE, now).unwrap();
+        assert_eq!(c.season, fclient::addr::season_pda(&Lane::CANDIDATE.address(), SEASON_ID).0);
+        assert_ne!(c.season, a.season, "the candidate's PDAs are its own program's");
     }
 }
