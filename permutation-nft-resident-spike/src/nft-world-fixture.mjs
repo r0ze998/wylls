@@ -12,7 +12,9 @@
 import { LAYOUTS as V2 } from '../../permutation-gateway/client/src/frontier/abi-v2-layouts.mjs';
 import { PRESETS } from '../../permutation-gateway/client/src/frontier/abi-v2-presets.mjs';
 import { FrontierAddresses } from '../../permutation-gateway/client/src/frontier/addresses.mjs';
-import { base58 } from './crypto.mjs';
+import { readFileSync } from 'node:fs';
+import { createHash } from 'node:crypto';
+import { base58, pubkeyBytes } from './crypto.mjs';
 
 /** The isolated local NFT lane's program id (`LOCALNET_NFT_PROGRAM_ID`, [0x4E; 32]). */
 export const LOCALNET_NFT_PROGRAM_ID = base58(new Uint8Array(32).fill(0x4e));
@@ -67,5 +69,55 @@ export function nftWorldAccounts({ programId = LOCALNET_NFT_PROGRAM_ID, seasonId
       { address: addrs.season, owner: programId, data: s.d, lamports },
       { address: addrs.frontier, owner: programId, data: fr.d, lamports },
     ],
+  };
+}
+
+// ---------------------------------------------------------------- CreateSeason on the lane
+// AnnounceSeason needs `t_create_min ≥ now + 24 h` and CreateSeason `now ≥ t_create_min`: on a wall-clock
+// validator that is a day's wait. So the test preloads the state AnnounceSeason writes (status ANNOUNCED,
+// bump, authority, params hash, t_create_min already passed, the bond) and runs the REAL CreateSeason on it.
+// (frontier-stack's frontier-localnet moves its clock and runs AnnounceSeason itself.)
+const S1_PRESETS = JSON.parse(readFileSync(new URL('../../frontier-abi/vectors/v2/presets.json', import.meta.url), 'utf8'));
+/** `sha256(TEST_PK96)`: the beacon key a test-beacon build (the lane) accepts (permutation-frontier crypto/quick.rs). */
+export const TEST_BEACON_PK_HASH = 'faa6e379244f54e13045e9810e27ff540156e9cc7dc2f15747f95df12e41b9ef';
+export const MIN_CREATION_BOND = 1_000_000_000n;
+const SP = { PROGRAM_VERSION: 6, QUICKNET_PK_HASH: 36 };
+
+/** S1_LOCAL_7D with a given program version (default: the lane's) and the test beacon key. 352 B. */
+export function laneSeasonParams({ programVersion = NFT_LANE_PROGRAM_VERSION } = {}) {
+  const p = S1_PRESETS.presets_s1.find(x => x.name === 'S1_LOCAL_7D');
+  const b = Uint8Array.from(Buffer.from(p.bytes, 'hex'));
+  new DataView(b.buffer).setUint16(SP.PROGRAM_VERSION, programVersion, true);
+  b.set(hexBytes(TEST_BEACON_PK_HASH), SP.QUICKNET_PK_HASH);
+  return b;
+}
+export const payoutRev3 = () => hexBytes(S1_PRESETS.payout_params_rev3_borsh);
+/** `params_hash_v2`: sha256("PSF-PARAMS-v2" ‖ params ‖ payout). */
+export const paramsHashV2 = (params, payout) => createHash('sha256').update(Buffer.from(S1_PRESETS.params_domain_v2)).update(params).update(payout).digest();
+
+/** The Season as AnnounceSeason leaves it, `t_create_min` already passed (see above). */
+export function announcedSeasonAccount({ programId = LOCALNET_NFT_PROGRAM_ID, seasonId = 1n, authority, paramsHash, now }) {
+  const addrs = new FrontierAddresses({ programId, seasonId: BigInt(seasonId) });
+  const s = header('Season', seasonId);
+  s.d[s.f.STATUS] = 0;                                       // STATUS_ANNOUNCED
+  s.d[s.f.BUMP] = addrs.bump;
+  s.d.set(pubkeyBytes(authority), s.f.AUTHORITY);
+  s.d.set(paramsHash, s.f.PARAMS_HASH);
+  s.v.setBigInt64(s.f.T_CREATE_MIN, BigInt(now - 60), true);
+  s.v.setBigInt64(s.f.ANNOUNCED_TS, BigInt(now - 86_400 - 120), true);
+  s.v.setBigUint64(s.f.CREATION_BOND, MIN_CREATION_BOND, true);
+  s.v.setUint32(s.f.WINDOW_FROM_BELL, 0xffff_ffff, true);    // WINDOW_NONE
+  return { addresses: addrs, account: { address: addrs.season, owner: programId, data: s.d, lamports: 100_000_000n + MIN_CREATION_BOND } };
+}
+
+/** 0x01 CreateSeason v2: `[authority s,w] [season w] [frontier w] [pfund × 6 w] [dpool w] [system]`. */
+export function createSeasonIx({ addresses, authority, params, payout }) {
+  const w = pubkey => ({ pubkey, isSigner: false, isWritable: true });
+  return {
+    programId: addresses.programId,
+    keys: [{ pubkey: authority, isSigner: true, isWritable: true }, w(addresses.season), w(addresses.frontier),
+      ...[0, 1, 2, 3, 4, 5].map(n => w(addresses.provinceFund(n))), w(addresses.defencePool),
+      { pubkey: '11111111111111111111111111111111', isSigner: false, isWritable: false }],
+    data: Uint8Array.from([0x01, ...params, ...payout]),
   };
 }
