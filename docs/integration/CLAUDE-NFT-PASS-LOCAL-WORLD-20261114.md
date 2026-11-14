@@ -97,6 +97,26 @@ B の操作は state を変えていない（cooldown）。B が操作できる�
 3. **host build の容量**：stack・localnet・keeper・herald・drand-replay の host build は、他の worktree の実績で 2.7〜11 GiB。今の余裕（開始 21 GiB／維持 20 GiB に対して約 21.1 GiB）では無理。既存の `frontier-localnet` の binary（11-05）は来歴が合わず（その後 localnet は約 400 行変わった）、証拠には使わない。
 4. 公開発行にだけ要る判断（価格・供給・treasury・authority・配備先・RPC・公開先）は MINT-READINESS §6。
 
+## 5b. 通常の world と画面へ（同日 15:00 以降）：実行したものと未 compile のもの
+
+**preload した fixture の world（§4.2）は通常の world ではない。** 以下は区別して書く。
+
+| 部品 | 状態 | 検査 |
+|---|---|---|
+| 譲渡後に B が状態を変える（A が作った Citizen を B の SetVigil が変更、A の世代 0・1 は 174・175 で何も変えない、A の選んだ国は残る） | **実 chain で実行**（fixture world） | `test/localnet-nft-world.test.mjs` 2/2 |
+| pass の setup（collection・config・TEST の販売・`CreateResidentPolicy`）：`src/nft-world-setup.mjs`。loopback だけ、冪等、鍵は seed ファイルから読み表示しない、別の authority の config は拒否 | **実 chain で実行**（validator に Core・住民 program・lane） | `test/nft-world-setup.test.mjs` 2/2 |
+| ゲームの参加画面 → 発行ページの導線：relay の `--mint-url`（localnet・loopback http だけ）→ `GET /f/residents` の `mint` → パス未保有の wallet に「発行ページを開く」「取得したので読み直す」（`nft-reload`） | Node の試験で実行（画面の部品と純粋な module。実 relay・herald では未実行） | `permutation-gateway/test/web-frontier-nft-mint-link.test.mjs` 4/4 |
+| `frontier-stack up --nft-pass`（`crates/stack/src/nftpass.rs`、config・up・resume・main） | **source だけ。未 compile・未実行** | rustfmt、`test/stack-nft-pass-wiring.test.mjs` 6/6（定数・command line・port・版の規則を source と照合） |
+| **CreateSeason が NFT lane で通らない問題**：CreateSeason は binary の版（S1\|0x8000）と完全一致を要し、汎用の `validate` は 3/4/5 しか受けない。つまり NFT の build はこれまで Season を作れなかった（harness も Season を preload している）。拡張 lane と同じ隔離した range view を NFT lane にも適用（`proc/season.rs`、その lane のその版だけ、`validate` は不変）。stack も同じ view で検査し、`--nft-pass` は `--conquest`（S1）と `--beacon test-key` を要する | **source だけ。未 compile**。§2 の lane の `.so`（`2171b86e…`）はこの変更より前の build で、**今の source とは一致しない**。§4.1 の実 chain 試験はその `.so` の結果（CreateSeason を使わないので有効） | 上の wiring 試験、program 側の lane 試験を source に追加（build 時に走る） |
+| keeper・herald・client の版の扱い | 主要な読み手は `>= PROGRAM_VERSION_S1/V2` で比べるので `0x8004` は S1 として読まれる（静的な確認だけ）。完全一致を求めるのは拡張と wide の lane の経路だけで、この world では使わない | 未実行 |
+
+### 次に必要な build と実行（容量と領土戦の build の完了の連絡の後）
+
+1. lane の SBF の再 build（約 233 MB、host build ではない）：`scripts/build-frontier-localnet-nft-sbf.sh`。program 側の lane 試験は host の `cargo test --features localnet-nft-sbf` が要る（host build）。
+2. host build：`frontier-stack`・`frontier-localnet`・`frontier-keeper`・`frontier-herald`・`drand-replay`（他の worktree の実績で 2.7〜11 GiB）。
+3. 実行：`frontier-stack up --nft-pass --conquest --beacon test-key --bots 0 --so <lane .so>`。確かめること：Season が S1\|0x8000 で作られる、setup の JSON が run state に入る、発行ページ（localnet + 80）で mint、ゲーム画面で NFT を選んで JoinResident（relay `/f/join` と gate）、ResidentAct、譲渡後の旧持ち主の拒否、パス未保有の wallet に発行ページへの導線。
+4. 未実装のまま：`--nft-pass` の world の resume（今は拒否する）、ゲーム画面の実機・実ウォレット。
+
 ## 6. push の記録
 
 | 時刻 | `git ls-remote origin refs/heads/claude/nft-pass-mint-20261114` |
