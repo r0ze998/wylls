@@ -104,7 +104,7 @@ pub async fn open(state: localnet::server::Shared, plan: crate::wide_destination
     let (pd, slot) = {
         let c = localnet::server::lock(&state);
         let acc = c.account(&province).ok_or("the destination Province is absent after its opening")?;
-        if acc.owner.to_bytes() != crate::expedition_play::PROGRAM {
+        if acc.owner.to_bytes() != crate::expedition_play::world_program() {
             return Err("the destination Province is not the program's".into());
         }
         (acc.data, c.slot())

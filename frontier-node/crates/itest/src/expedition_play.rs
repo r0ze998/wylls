@@ -81,7 +81,8 @@ pub const MARKER: &[u8] = b"PSF_LOCALNET_EXPEDITION_SBF_BUILD";
 /// constants above); [`Lane::CANDIDATE`] is the LOCAL TEST CANDIDATE `localnet-conquest-nft-sbf` (the conquest lane
 /// with NFT residents; candidate program id [0x4C; 32], version 0x4804 | 0x8000; NOT an allocation, never deployable),
 /// chosen only by `--lane-candidate`. Threaded through the runner in steps (docs/integration
-/// CLAUDE-NFT-CANDIDATE-LANE-VERSION-READ-20261114.md); a module not yet threaded keeps [`PROGRAM`].
+/// CLAUDE-NFT-CANDIDATE-LANE-VERSION-READ-20261114.md): step 1 here (Season, base, home, fixture, deploy), step 2
+/// the runtime modules through [`world_lane`]; test modules keep [`PROGRAM`].
 /// WRITTEN 2026-11-14/15 WITHOUT COMPILING (no host build agreed then).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Lane {
@@ -98,6 +99,25 @@ impl Lane {
     /// The version as the runner's first line states it (`0x` and four lowercase hex digits).
     pub fn version_text(&self) -> String {
         format!("0x{:04x}", self.version)
+    }
+}
+
+/// The lane of this runner process's ONE world: set once by [`launch_lane`] for a candidate world, never otherwise,
+/// so unset (every plain start, every test) is [`Lane::CONQUEST`] exactly as before. The runtime modules that used
+/// [`PROGRAM`] read [`world_lane`] instead (step 2 of the threading).
+static WORLD_LANE: std::sync::OnceLock<Lane> = std::sync::OnceLock::new();
+pub fn world_lane() -> Lane {
+    *WORLD_LANE.get().unwrap_or(&Lane::CONQUEST)
+}
+pub fn world_program() -> [u8; 32] {
+    world_lane().program
+}
+/// Records the candidate lane for this process (once; a second, different world in the same process is refused).
+fn set_candidate_world() -> Result<(), String> {
+    match WORLD_LANE.get() {
+        Some(l) if *l == Lane::CANDIDATE => Ok(()),
+        Some(_) => Err("this runner process already has another lane".into()),
+        None => WORLD_LANE.set(Lane::CANDIDATE).map_err(|_| "the lane was set concurrently".to_string()),
     }
 }
 
@@ -274,9 +294,12 @@ pub fn check_ports(rpc: u16, ws: u16) -> Result<(), String> {
 /// The player wallet is a usable public key: not the default (all zero),
 /// not the dedicated program, not the program's Season.
 pub fn check_wallet(w: &Address) -> Result<(), String> {
-    let program = Address::new_from_array(PROGRAM);
-    if *w == Address::default() || *w == program || *w == fclient::addr::season_pda(&program, SEASON_ID).0 {
-        return Err("--player-wallet is not a usable public key".into());
+    // (both lanes' program and Season: the lane is not known yet when the arguments are read)
+    for lane in [Lane::CONQUEST, Lane::CANDIDATE] {
+        let program = lane.address();
+        if *w == Address::default() || *w == program || *w == fclient::addr::season_pda(&program, SEASON_ID).0 {
+            return Err("--player-wallet is not a usable public key".into());
+        }
     }
     Ok(())
 }
@@ -788,6 +811,9 @@ fn write_candidate_seed(dir: &std::path::Path, seed: &[u8; 32]) -> Result<PathBu
 /// the first line.
 pub async fn launch_lane(artifact: &Artifact, wallet: Address, rpc_port: u16, ws_port: u16, keeper: bool, wide: bool, candidate: Option<&CandidateAssets>) -> Result<Play, String> {
     let lane = if candidate.is_some() { Lane::CANDIDATE } else { Lane::CONQUEST };
+    if candidate.is_some() {
+        set_candidate_world()?;
+    }
     check_ports(rpc_port, ws_port)?;
     check_wallet(&wallet)?;
     if localnet::bls_and_sbpf_v2_active() != (true, true) {
@@ -1301,5 +1327,11 @@ mod lane_tests {
         let c = Base::new_for(Lane::CANDIDATE, now).unwrap();
         assert_eq!(c.season, fclient::addr::season_pda(&Lane::CANDIDATE.address(), SEASON_ID).0);
         assert_ne!(c.season, a.season, "the candidate's PDAs are its own program's");
+    }
+    #[test]
+    fn the_process_lane_is_the_conquest_lane_unless_a_candidate_world_set_it() {
+        // (no test starts a candidate world: every runtime module sees the old program)
+        assert_eq!(world_lane(), Lane::CONQUEST);
+        assert_eq!(world_program(), PROGRAM);
     }
 }

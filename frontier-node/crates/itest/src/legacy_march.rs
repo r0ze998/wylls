@@ -392,7 +392,7 @@ pub struct LegacyMarchDriver {
 impl LegacyMarchDriver {
     /// A driver for the player's legacy village `href` (its Holding address is derived) with a funded fee payer.
     pub fn new(href: HoldingRef, payer: Keypair, stop: tokio::sync::watch::Receiver<bool>) -> LegacyMarchDriver {
-        let a = Addresses::new(Address::new_from_array(crate::expedition_play::PROGRAM), crate::expedition_play::SEASON_ID);
+        let a = Addresses::new(crate::expedition_play::world_lane().address(), crate::expedition_play::SEASON_ID);
         let holding = href.address(&a);
         LegacyMarchDriver { a, holding, href, payer, stop, land_timeout: crate::keeper_loop::LAND_TIMEOUT, known: Default::default(), terminal: None, log: vec![], stands: vec![], stand_cursor: 0, world_cursor: 0, world_crank: true, world_skip: vec![], world_skipped: 0, world_rounds: Default::default(), world_sent: 0, world_counts: Default::default() }
     }

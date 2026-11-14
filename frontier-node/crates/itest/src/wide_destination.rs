@@ -70,7 +70,7 @@ const AUTHORITY_LAMPORTS: u64 = 1_000_000_000;
 
 /// The Season's address context.
 pub fn ctx(season: &Address) -> AddrCtx {
-    AddrCtx { program: PROGRAM, season: season.to_bytes() }
+    AddrCtx { program: crate::expedition_play::world_program(), season: season.to_bytes() }
 }
 
 /// SYNTHETIC: the requested ring-129 record from the program's own model.
@@ -103,7 +103,7 @@ pub fn requested_ring_seed(season: &Address, season_bytes: &[u8], legacy_ring_se
 }
 
 fn ix(accounts: Vec<AccountMeta>, data: Vec<u8>) -> Instruction {
-    Instruction { program_id: Address::new_from_array(PROGRAM), accounts, data }
+    Instruction { program_id: crate::expedition_play::world_lane().address(), accounts, data }
 }
 
 /// 0xD7 WideConsumeRingSeed: K + `[wide_ringseed w]`.
@@ -228,7 +228,7 @@ impl Plan {
 /// after the instruction that made it landed).
 fn capture(state: &Shared, key: &Address) -> Result<(Value, Vec<u8>), String> {
     let acc = lock(state).account(key).ok_or(format!("{key} is absent after its instruction landed"))?;
-    if acc.owner != Address::new_from_array(PROGRAM) || acc.executable {
+    if acc.owner != crate::expedition_play::world_lane().address() || acc.executable {
         return Err(format!("{key} is not a program-owned data account"));
     }
     let v = json!({"address": key.to_string(), "owner": acc.owner.to_string(), "bytes": acc.data.len(), "lamports": acc.lamports,

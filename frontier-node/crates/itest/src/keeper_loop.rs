@@ -282,7 +282,7 @@ impl Keeper {
             return Err("stopped before start".into());
         }
         let payer = fund_fresh(state, &mut stop).await?;
-        Ok(Keeper { a: Addresses::new(Address::new_from_array(PROGRAM), SEASON_ID), payer, source, cache: HashMap::new(),
+        Ok(Keeper { a: Addresses::new(crate::expedition_play::world_lane().address(), SEASON_ID), payer, source, cache: HashMap::new(),
             failures: 0, backoff_until: None, stop, watch: None, home, land_timeout: LAND_TIMEOUT, status: Status { running: true, ..Status::default() } })
     }
 

@@ -77,7 +77,7 @@ impl OriginDriver {
 
     /// As [`OriginDriver::new`], for the home province `home` (the province of the player's real PlaceHome).
     pub fn new_at(holding: Address, home: (i16, i16), payer: Keypair, stop: tokio::sync::watch::Receiver<bool>) -> OriginDriver {
-        OriginDriver { a: Addresses::new(Address::new_from_array(crate::expedition_play::PROGRAM), crate::expedition_play::SEASON_ID),
+        OriginDriver { a: Addresses::new(crate::expedition_play::world_lane().address(), crate::expedition_play::SEASON_ID),
             holding, home, payer, stop, land_timeout: crate::keeper_loop::LAND_TIMEOUT, terminal: None, log: vec![] }
     }
 

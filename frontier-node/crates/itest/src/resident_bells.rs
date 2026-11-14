@@ -372,7 +372,7 @@ pub struct ResidentBells {
 
 impl ResidentBells {
     pub fn new(holding: Address, payer: Keypair, stop: tokio::sync::watch::Receiver<bool>) -> ResidentBells {
-        ResidentBells { a: Addresses::new(Address::new_from_array(crate::expedition_play::PROGRAM), crate::expedition_play::SEASON_ID),
+        ResidentBells { a: Addresses::new(crate::expedition_play::world_lane().address(), crate::expedition_play::SEASON_ID),
             holding, payer, stop, land_timeout: crate::keeper_loop::LAND_TIMEOUT, terminal: None, log: vec![] }
     }
 
