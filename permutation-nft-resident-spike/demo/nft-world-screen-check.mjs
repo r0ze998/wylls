@@ -73,10 +73,39 @@ async function connectDevWallet(page, name) {
   if (await btn.count()) { await btn.first().click(); step(`${name}: connected the Dev Wallet`); }
 }
 
+/** The village tab of the drawer (the bottom bar's `holding` tab). */
+async function openVillage(page) {
+  const tab = page.locator('[data-act="tab"][data-tab="holding"]').first();
+  if (await tab.count()) await tab.click();
+}
+const REFUSALS = /This resident NFT is not in this wallet now|ResidentHolderChanged|ResidentGenerationStale|holder could not be confirmed/;
+
+/** One village order from the drawer (`what`: build | train | muster); returns the page's text after the answer. */
+async function villageOrder(page, name, what, { okText, waitEnabledMs = 120_000 } = {}) {
+  await openVillage(page);
+  let go;
+  if (what === 'build') go = page.locator('[data-act="build"][data-item].br-go:not([disabled])').first();
+  else {
+    const form = page.locator(what === 'train' ? '#hp-train' : '#hp-muster');
+    await form.waitFor({ state: 'attached', timeout: 30_000 });
+    const field = form.locator(what === 'train' ? '#f-n' : '#f-troops');
+    if (await field.count()) await field.fill('100');
+    go = form.locator('button[type="submit"]');
+  }
+  const t0 = Date.now();
+  while (!(await go.count()) || !(await go.isVisible().catch(() => false)) || await go.isDisabled()) {
+    if (Date.now() - t0 > waitEnabledMs) { await shot(page, `${name}-disabled`); throw new Error(`${name}: ${what} stayed unavailable`); }
+    await page.waitForTimeout(3_000);
+  }
+  await go.click();
+  await page.waitForFunction(([ok, bad]) => new RegExp(ok).test(document.body.innerText) || new RegExp(bad).test(document.body.innerText), [okText.source, REFUSALS.source], { timeout: 120_000 });
+  return page.evaluate(() => document.body.innerText);
+}
+
 /** Harvest from the village screen (a player instruction; for an NFT, inside ResidentAct). Returns the page's answer. */
 async function harvest(page, name, { waitEnabledMs = 180_000 } = {}) {
   const btn = page.locator('[data-act="harvest"]').first();
-  if (!(await btn.isVisible().catch(() => false))) await page.locator('[data-act="tab"]', { hasText: 'Village' }).first().click();
+  if (!(await btn.isVisible().catch(() => false))) await openVillage(page);
   await btn.waitFor({ state: 'visible', timeout: 30_000 });
   const t0 = Date.now();
   while (await btn.isDisabled() && Date.now() - t0 < waitEnabledMs) await page.waitForTimeout(3_000);
@@ -192,6 +221,15 @@ try {
     if (JSON.stringify(s1[k]) !== JSON.stringify(s0[k])) throw new Error(`A's refused action changed ${k} on chain`);
   }
   step('5a A (stale page) acts: refused on screen, nothing changed on chain', 'This resident NFT is not in this wallet now.');
+  // 5a2. The same stale page tries to build: refused the same way, the chain unchanged.
+  const aBuild = await villageOrder(a, '5a2-a-build', 'build', { okText: /building begun/ });
+  await shot(a, '5a2-a-build-refused');
+  if (!REFUSALS.test(aBuild) || /building begun/.test(aBuild)) throw new Error('A\'s build after the transfer was not refused');
+  const s1b = await snapshot('after A\'s refused build', asset);
+  for (const k of ['assetOwner', 'generation', 'citizenSha256', 'holdingSha256', 'lastOwnerAction']) {
+    if (JSON.stringify(s1b[k]) !== JSON.stringify(s0[k])) throw new Error(`A's refused build changed ${k} on chain`);
+  }
+  step('5a2 A (stale page) builds: refused on screen, nothing changed on chain');
   await a.reload();
   await connectDevWallet(a, 'A');
   await waitText(a, /This wallet holds no resident NFT|Enter with a resident NFT/, 60_000, '5-a-after');
@@ -220,6 +258,19 @@ try {
   await b.waitForTimeout(3_000);
   if (/Choose a nation to begin/.test(await text(b))) { await shot(b, '7-b-nation-choice'); throw new Error('B still sees the nation choice'); }
   step('7 B: no nation choice beside its village');
+  // 8–10. B's village orders from the drawer, each checked on chain (the village's bytes move; owner B, generation 1).
+  for (const [n, what, ok, label] of [[8, 'build', /building begun/, 'built'], [9, 'train', /trained: they joined the reserve/, 'trained 100'], [10, 'muster', /ordered to form up/, 'mustered 100']]) {
+    const before = await snapshot(`before B ${what}`, asset);
+    const out = await villageOrder(b, `${n}-b-${what}`, what, { okText: ok });
+    await shot(b, `${n}-b-${what}`);
+    if (!ok.test(out)) throw new Error(`B's ${what} did not go through`);
+    let after = await snapshot(`after B ${what}`, asset);
+    for (let i = 0; i < 20 && after.holdingSha256 === before.holdingSha256; i++) { await b.waitForTimeout(1_500); after = await snapshot(`after B ${what}`, asset); }
+    if (after.holdingSha256 === before.holdingSha256) throw new Error(`B's ${what} did not change the village on chain`);
+    if (after.assetOwner !== B.publicKey || after.generation !== 1 || after.holdingOwnerCitizen !== after.citizen) throw new Error(`owner, generation or village owner changed after B's ${what}`);
+    step(`${n} B ${label}: the village changed on chain`, `owner B, generation 1, last owner action ${before.lastOwnerAction} → ${after.lastOwnerAction}`);
+  }
+  // (a march — Depart, now signed by B's wallet inside ResidentAct — needs a destination chosen on the map: a manual step, runbook §5)
 } catch (e) {
   failed = e.message;
   step('FAILED', e.message);
