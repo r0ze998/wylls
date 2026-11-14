@@ -32,6 +32,8 @@ import { agentRoutes } from './routes/agent.mjs';
 import { relayRoutes } from './routes/relay.mjs';
 import { seasonRoutes } from './routes/season.mjs';
 import { residentRoutes } from './routes/residents.mjs';
+import { PublicKey } from '@solana/web3.js';
+import { createResidentChainGate, fromConnection } from './resident-chain-gate.mjs';
 import { createExpeditionPreview, EXPEDITION_MAX_REQUEST_BYTES, EXPEDITION_PREVIEW_ROUTE, EXPEDITION_TIMEOUT_MS } from './expedition-preview.mjs';
 import { expeditionPreviewRoutes } from './routes/expedition-preview.mjs';
 import { createExpeditionPrepare, EXPEDITION_PREPARE_ROUTE, PREPARE_MAX_REQUEST_BYTES, PREPARE_TIMEOUT_MS } from './expedition-prepare.mjs';
@@ -153,11 +155,15 @@ function readJson(req, limit, signal) {
  * @param {object} [o.gateKey]   the join-gate Keypair (gated seasons)
  * @param {object} [o.faucetKey] the test mint's authority (prize pool, localnet)
  * @param {object} [o.store]     `{state, save()}` for quotas and used invites
+ * @param {object|null} [o.residents] the NFT resident holder gate (routes/relay.mjs `residentRefusal`);
+ *   default: read from the chain for wrapped NFT shapes only (resident-chain-gate.mjs), `null`: none
  */
 export function createFrontierContext({ cfg, connection, pool, keeper = null, invites = null, gateKey = null, faucetKey = null, store = { state: {}, save() {} }, now = Date.now,
-  log = console.log, limiter, funds, blockhashes, expeditionPreview, expeditionPrepare, expeditionDepartPrepare }) {
+  log = console.log, limiter, funds, blockhashes, expeditionPreview, expeditionPrepare, expeditionDepartPrepare, residents }) {
   const addresses = new FrontierAddresses({ programId: cfg.programId, seasonId: BigInt(cfg.seasonId) });
   return {
+    /** ⑳ NFT residents: refuses a ResidentAct / JoinResident whose signer is not the pass's holder now (no reads otherwise). */
+    residents: residents !== undefined ? residents : createResidentChainGate({ programId: addresses.programId, getAccount: fromConnection(connection, PublicKey) }),
     cfg, connection, pool, keeper, invites, gateKey, faucetKey, store, log, now, addresses,
     expeditionPreview: expeditionPreview === undefined ? createExpeditionPreview({ cfg, season: addresses.season }) : expeditionPreview,
     expeditionPrepare: expeditionPrepare === undefined ? createExpeditionPrepare({ cfg, season: addresses.season }) : expeditionPrepare,
