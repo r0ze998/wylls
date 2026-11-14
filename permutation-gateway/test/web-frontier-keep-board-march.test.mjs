@@ -128,7 +128,8 @@ test('what the page hands the map: a conquest season\'s keep events and the view
 test('the map\'s own hooks for the hand: setKeepReach, keepAt, flyToKeep', () => {
   const fmap = readFileSync(new URL('map/fmap.mjs', WEB), 'utf8');
   assert.match(fmap, /setKeepReach\(list = null\) \{ return this\.keeps\.setReach\(list, \{ own: true \}\); \}/);
-  assert.match(fmap, /keepAt\(clientX, clientY\) \{/);
+  // (18823ad2: keepAt also takes `{scan, stats}` — a full projection scan and counters — defaulting to the indexed look-up)
+  assert.match(fmap, /keepAt\(clientX, clientY, \{ scan = false, stats = null \} = \{\}\) \{/);
   assert.match(fmap, /flyToKeep\(at\) \{/);
   // a press on a keep's walls is a press on its tile, and goes on to the page (it is never swallowed)
   assert.match(fmap, /hit = \{ tileQ: h\.q, tileR: h\.r, p: k\.p, q: k\.q, idx: k\.tile, keep: \{ p: k\.p, q: k\.q, reachable: !!it\.reachable \} \};\s+\}\s+this\.onSelect\(hit\);/);
