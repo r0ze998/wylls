@@ -229,3 +229,36 @@ On the port branch `claude/nft-prize-on-world-r21-20261115`:
 - **Ports:** 42100 was outside the launcher's allowed 41000–41999 band (⑳'s correction; the band is not
   widened). Proposed **41100–41199**; asked main to confirm.
 - Still not applied: ⑳'s `controller.mjs` / `join.mjs` (the proposal patch `1d892429…` waits for ⑳'s review).
+
+## 14. Second review round on the local-play prize relay; runner review; ports confirmed (2026-11-15)
+
+Port branch `4c23c545`. Review fixes before any mount:
+1. **History race.** After the await on the height read (full history), the digest is checked again and the insert is
+   synchronous; a concurrent prepare of the same message can no longer overwrite a ticket the first one created and sent.
+2. **Config snapshot.** The validated configuration is a frozen copy of primitives, and the default `fetchRpc` client
+   closes over its URL. A later change to the caller's object redirects nothing.
+3. **Runner pinned before prepare and send.** A required `runId`, the localnet run id (16 bytes, 32 hex), must be named
+   by `frontier_status` before a message is built and again before it is sent. On a mismatch nothing is sent and the
+   ticket is invalidated for good.
+
+Tests: key-free 9/9, key-using 8/8 (one in-memory throwaway key, mocked loopback RPC). **Negative controls:** each fix
+removed in turn fails exactly its own test. ⑳'s local-candidate login and card tests are 10/10 with the patch (run
+without the no-keys guard, since the login test makes the page's key). The prize set is 38/38.
+Kept own module instead of ⑳'s `createLocalPlayRelay` `flow`: that relay's config is pinned to the 0x45 Depart program;
+both options were acceptable to the reviewer as long as the three conditions hold.
+
+**CI key-test list:** `scan-node-key-tests.mjs` stops on 10 pre-existing stale reviews before writing anything, so the
+list cannot be regenerated now. A one-line hand addition for `local-play-prize-signed.test.mjs` is proposed to ⑳, the
+list's last editor on that branch, and is not written yet.
+
+**⑳'s runner-option review (af82b167):** shape accepted with conditions:
+- the Season authority change under the flag only, with a test that it is unchanged without the flag;
+- `allow_tamper` only after deploys and InitPool, stated as `prize_test_only.tamper: true`, and the driver writes only
+  prize-owned accounts;
+- `[0x50; 32]` asserted distinct from `[0x45]`, `[0x4C]` and `[0x4E]`;
+- the launcher refuses the flag without `--lane-candidate` and refuses an unrequested prize line;
+- the default first line stays byte-identical, with a test;
+- nothing is mounted before mutual review.
+
+**Ports:** main confirmed **41100–41199** (avoid 41904–41907). Current bands: ⑳ 41920 / 41980–41989 / 41996; main
+41940 / 41944–41953 / 41961. A world of mine needs its slot and space agreed with main first.
