@@ -334,3 +334,19 @@ Port branch:
   - Tests 5/5. Not wired into `controller.mjs` yet; that is a patch to ⑳ with the mount step.
 
 Totals on the port branch: key-free prize and launcher 47/47; signed plus ⑳'s login/card 23/23.
+
+## 17. Correction: re-transfer waits for ⑳'s strict resident variant (supervisor, 2026-11-15 03:35)
+
+**Correction of §15 and §16:** "the E2E's transfers go through the mint page" was wrong as a plan. The world relay's
+TransferResident is default deny, and routing transfers through the mint page to get around that is **not** allowed.
+A→B→A safety is **unresolved on chain** (0x51 signs no generation).
+
+New rule for the E2E:
+- **Positive re-transfer steps** (A→B, A→B→A: the old owner refused, the new owner claims) are integrated only after
+  ⑳'s **TEST ONLY strict resident variant** has been verified (generation signed, old 0x51 refused), with its artefact
+  hash and instruction version pinned. ⑳ is implementing it now; it is unverified.
+- Any step that uses the **old 0x51 path** is an **isolated TEST ONLY negative only** (showing the gap), never a
+  positive result, and labelled so in the transcript.
+- Until then, the E2E's claim path is exercised **without** a re-transfer: the original holder's claim, and the
+  claimed / double-claim refusal. The re-transfer stories stay at the LiteSVM level (7/7, real resident program,
+  labelled with the 0x51 boundary).
