@@ -347,6 +347,9 @@ struct Opts {
     hold_slots: Option<(u64, u64)>,
     /// `--peace-start` of the keepers (W writes start at this × p_tip).
     peace_start: Option<f64>,
+    /// `max_unknown_w_versions` of the keepers (`None`: the config default, 2 since `0147a885`, owner decision
+    /// 2026-11-05; `Some(0)`: the every-slot W ladder).
+    w_version_cap: Option<u32>,
     /// The 900-troop march (the faction-0 group's top rank) names a
     /// destination tile its path does not end on: a valid seal whose Reveal
     /// the program refuses (`Path`).
@@ -412,6 +415,7 @@ fn new_keeper(
     jpath: Option<&PathBuf>,
     crash: Option<CrashAt>,
     peace: Option<f64>,
+    w_cap: Option<u32>,
 ) -> K {
     let ben = Keypair::new_from_array([0xB0 + i as u8; 32]);
     let mut journal = jpath.map(|p| Journal::open(p).unwrap());
@@ -420,6 +424,9 @@ fn new_keeper(
     }
     let mut cfg = keeper_cfg(w, ben.pubkey());
     cfg.peace_start = peace;
+    if let Some(n) = w_cap {
+        cfg.max_unknown_w_versions = n;
+    }
     let mut k = Keeper::new(
         cfg,
         Watch {
@@ -483,7 +490,7 @@ async fn tick(
                 .unwrap_or_default();
             assert!(msg.contains(INJECTED_CRASH), "unexpected panic: {msg}");
             *crashes += 1;
-            let mut k = new_keeper(w, i, jpath, None, None);
+            let mut k = new_keeper(w, i, jpath, None, None, None);
             *inflight += k.start().await.unwrap();
             k.tick().await.unwrap();
             k
@@ -562,7 +569,14 @@ async fn scenario(o: Opts) -> Option<Run> {
                 .then_some(o.crash)
                 .flatten()
                 .map(|(p, kinds, n)| CrashAt::new(p, kinds, n));
-            new_keeper(&w, i, (i == 0).then_some(&jpath), crash, o.peace_start)
+            new_keeper(
+                &w,
+                i,
+                (i == 0).then_some(&jpath),
+                crash,
+                o.peace_start,
+                o.w_version_cap,
+            )
         })
         .collect();
     for k in &ks {
@@ -983,7 +997,8 @@ async fn scenario(o: Opts) -> Option<Run> {
                 API_QUEUED.with(|q| q.set(ks[0].shared.lock().unwrap().reveals.len()));
                 if o.restart_after_202 {
                     // Restart before any tick takes the material from Shared.
-                    let mut k = new_keeper(&w, 0, Some(&jpath), None, o.peace_start);
+                    let mut k =
+                        new_keeper(&w, 0, Some(&jpath), None, o.peace_start, o.w_version_cap);
                     inflight += k.start().await.unwrap();
                     ks[0] = k;
                     restarted = true;
@@ -1031,7 +1046,7 @@ async fn scenario(o: Opts) -> Option<Run> {
                 && window_from > 0
                 && w.now() >= (window_from + t_arrive) / 2
             {
-                let mut k = new_keeper(&w, 0, Some(&jpath), None, o.peace_start);
+                let mut k = new_keeper(&w, 0, Some(&jpath), None, o.peace_start, o.w_version_cap);
                 inflight += k.start().await.unwrap();
                 ks[0] = k;
                 restarted = true;
@@ -1907,9 +1922,14 @@ async fn claim_after_late_reveal() {
     // the keeper starting at a quarter of the tip level (`--peace-start
     // 0.25`): the Reveals escalate past the hold and land ≥ 4 slots after
     // THE anchor, at a price above the tip level.
+    // The every-slot W ladder, explicitly: since `0147a885` (owner decision 2026-11-05) the default keeper sends no
+    // new Reveal version while 2 of its versions can still land, so under this 10-slot hold its bid stops below the
+    // hold and the Reveal lands at the hold's end below p_tip (no refund, no claim). That default is pinned by
+    // `late_reveal_under_the_default_w_cap_is_not_claimed` below; this test keeps checking the claim path.
     let Some(r) = scenario(Opts {
         hold_slots: Some((1_900, 10)),
         peace_start: Some(0.25),
+        w_version_cap: Some(0),
         ..Default::default()
     })
     .await
@@ -1953,6 +1973,57 @@ async fn claim_after_late_reveal() {
     }
     assert!(claims.iter().all(|c| c.2 > 0));
     println!("claims: {claims:?}");
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn late_reveal_under_the_default_w_cap_is_not_claimed() {
+    // The same hold as `claim_after_late_reveal`, with the keeper's default W-version cap (2, `0147a885`): the
+    // trade-off the owner accepted ("under a long lock the bid stops rising"). The held group's Reveals still land,
+    // late (≥ lateness_slots after THE anchor), but at a bid below p_tip, so no defence claim opens. If the cap or
+    // the claim rule changes, this pin says so.
+    let Some(r) = scenario(Opts {
+        hold_slots: Some((1_900, 10)),
+        peace_start: Some(0.25),
+        ..Default::default()
+    })
+    .await
+    else {
+        return;
+    };
+    let k = &r.keepers[0];
+    let r_d = ix::region_of(r.dest.0 as i32, r.dest.1 as i32);
+    let an = k.play.anchors[&(r.arrive, r_d)];
+    let an_slot = an.slot.expect("THE anchor's slot");
+    let late = r.w.season().lateness_slots as u64;
+    let held: Vec<_> = k
+        .play
+        .index
+        .reveals
+        .iter()
+        .filter(|x| x.arrive == r.arrive && x.faction == 0)
+        .collect();
+    assert_eq!(held.len(), 4, "the held group's four Reveals land");
+    assert!(
+        held.iter().all(|x| x.slot >= an_slot + late),
+        "late: {:?}",
+        held.iter().map(|x| x.slot).collect::<Vec<_>>()
+    );
+    let claims: Vec<_> = k
+        .play
+        .index
+        .claims
+        .iter()
+        .filter(|c| c.0 == k.cfg.beneficiary)
+        .collect();
+    assert!(
+        claims.is_empty(),
+        "claims under the default cap: {claims:?}"
+    );
+    assert_eq!(k.play.stats.claims, 0);
+    println!(
+        "default cap: held Reveals at {:?} (anchor {an_slot}, lateness {late}), no claim",
+        held.iter().map(|x| x.slot).collect::<Vec<_>>()
+    );
 }
 
 // ------------------------------------------------------------------ workstream 04: no plaintext before THE anchor
