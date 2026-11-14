@@ -229,3 +229,34 @@ controller.mjs or fplay.mjs.
 
 The 仕様判断 item "who registers 0x111" is settled for this candidate; landing
 it is the integrator's call. Re-runs: 24/24 pure, git diff --check pass.
+
+### 7.7 Join screen NFT card (after ⑳'s handover of that case)
+
+⑳ handed over `screens/join.mjs`'s NFT card on this candidate branch,
+scoped to prize-pool seasons, keeping the English default and the
+`?lang=` mint link as they are. Done in `271ade92`:
+
+- prize-pool season (`FS.prize` present, the same test the controller uses
+  for the refused path): an NFT that has not joined gets a disabled "Join
+  with this NFT" and a note in the prize screen's wording
+  (`data-pass-deposit="refused"`); a joined NFT's "Play this NFT" stays
+  enabled; a pass whose earlier entry the relay reported (`FS.prize.pass`
+  with an entry) may still join; with only joined NFTs no note is shown;
+- no pool: unchanged (enabled once a nation is picked, no note);
+- one English entry added in the prize block.
+
+Tests: new `test/web-frontier-nft-join-pool.test.mjs` (3, including
+"enabled outside prize-pool seasons"); existing `web-frontier-nft-mint-link`
+and `web-frontier-ws07-nft` still pass. The browser fixture renders the
+card with and without a pool and checks each button's enabled/disabled
+state and the note in real Chromium (1/1 pass, images looked at).
+Fixture-shell fixes on the way: the static server now reads before
+answering (a missing file no longer crashes it; missing files fail the
+test), and the page is served from `/frontier/` because the icon sprite
+path is relative.
+
+Re-runs: pure prize + card 27/27; related suite 56/64 with the same 8
+failures as baseline `0ebfe040`; key scan unchanged; `git diff --check` pass.
+
+The 仕様判断 item "⑳'s join button in a pool season" is done for this
+candidate (still not merged; the integrator decides).
