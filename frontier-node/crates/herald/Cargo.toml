@@ -43,6 +43,10 @@ default = []
 wide-world-experimental = ["frontier-abi/world-index-experimental"]
 # Explicit read-only external index, independent of the legacy ingest path.
 wide-index-read-experimental = ["wide-world-experimental", "findex/wide-records-experimental"]
+# Opt-in: `--local-play-metadata FILE` seeds an empty fold with the temporary
+# local-play chain's four synthetic first-world accounts (src/local_play.rs).
+# Off by default; no new dependency.
+local-play-bootstrap = []
 
 [dev-dependencies]
 # W3-D (request R4): `tests/real_chain.rs` drives the keeper over the
