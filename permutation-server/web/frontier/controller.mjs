@@ -2571,7 +2571,10 @@ let pollLoop = null;
  * memory-only key): the poll loop's next tick at once, a read only. Pressed twice, or while a read runs, it is still
  * one read after the running one (createPollLoop); before the loop has started it does nothing.
  */
-export function rereadState() { pollLoop?.wake(); }
+export function rereadState() { pollLoop?.wake(); for (const f of rereadHooks) { try { f(); } catch (e) { console.error('frontier reread:', e); } } }
+/** Other read loops the re-read also wakes (app.mjs: the season poll, the one read that moves the page's chain clock). */
+const rereadHooks = [];
+export function onReread(f) { if (typeof f === 'function') rereadHooks.push(f); }
 
 /** The hidden page's tick: the self-reveal of the marchbook's due marches only. */
 async function revealTick() {

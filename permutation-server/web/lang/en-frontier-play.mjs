@@ -901,8 +901,6 @@ export default {
   '否決': 'Failed',
   '同じ命令を送っています。結果を待ってください': 'The same order is on its way. Wait for its result',
   '同じ命令を送っています。結果を待ってください…': 'The same order is on its way. Wait for its result…',
-  'この命令は送信済みですが、まだ確認できていません。同じ命令は送り直しません。もう一度押すと結果を確認します。署名 {0}': 'This order was sent, but it is not confirmed yet. The same order will not be sent again. Press it again to check its result. Signature {0}',
-  '送信済みの命令の結果を確認しています…': 'Checking the result of the order that was sent…',
   '{0}を奪う': 'Seize the {0}',
   '{0}を奪いました': 'Seized the {0}',
   'このマスに立つあなたの軍勢が、持ち主に代わってこの{0}を自分のものにします。持ち主の軍勢がいると奪えません。': 'Your host standing on this tile takes this {0} from its owner. It cannot while a host of the owner stands here.',
@@ -1302,6 +1300,8 @@ export default {
   '{0}の砦へ進軍：{1}が保持、守備兵 {2}、到着はターン {3}': 'March on the keep of {0}: held by {1}, {2} defenders, arrival on turn {3}',
   '{0}が保持': 'Held by {0}', '守備兵': 'defenders', '到着（{0} マス）': n => plural(n, 'arrival ({0} tile)', 'arrival ({0} tiles)'),
   '{0}が占拠中': '{0} holds the tile', 'ターン保てば奪取': 'turns to hold',
+  '{0}の砦を守りに向かう：{1}が占拠中 {2}/{3}、到着はターン {4}': 'Go and defend the keep of {0}: {1} holds the tile {2}/{3}, arrival on turn {4}',
+  '守りに向かう': 'Defend', 'マスに残れば占拠を止めます': 'staying on the tile stops their hold',
   // ---- the arrival's odds on the keep list (hud/keephand.mjs oddsText; rulebook.mjs keepArrival)
   '十分': 'Good', '五分': 'Even', '足りない': 'Too few', '勝ち目': 'odds',
   '着いたターンに残れる見込み': 'should hold on arrival',

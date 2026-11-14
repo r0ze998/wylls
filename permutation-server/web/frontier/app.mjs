@@ -147,7 +147,8 @@ import * as practiceScreen from './screens/practice.mjs';
 import * as onboardingCard from './screens/onboarding.mjs';
 import * as spectateScreen from './screens/spectate.mjs';
 import { FLAG, withFlag, restoreFlags } from './onboarding.mjs';
-import { useHerald, refresh as refreshPlay } from './controller.mjs';
+import { useHerald, refresh as refreshPlay, onReread } from './controller.mjs';
+import { createPollLoop } from './poll-loop.mjs';
 import { kernel as loadKernel } from './wasm.mjs';
 import { createRouteCache } from './map/routecache.mjs';
 import { scope } from './fchainio.mjs';
@@ -4191,18 +4192,25 @@ export async function boot() {
     try { b = hud.bellModel(FS.clock, FS.chain.now()).bell; } catch { b = null; }
     if (Number.isInteger(b) && b > tollBell) invalidate('chip');
   }, 250);
-  // The season record every 30 s (own data poll), paused while hidden.
+  // The season record every 30 s (own data poll), paused while hidden. It is the only read that moves the page's chain
+  // clock (FS.chain.observe), so it is woken like the play loop: shown again, back from the browser's cache, or the
+  // stale banner's re-read — otherwise a page shown again kept counting "behind" from its last read before it was
+  // hidden, and the re-read button (which woke only the play loop) left that banner standing.
   let errors = 0;
-  const poll = async () => {
-    const hidden = globalThis.document?.hidden;
-    const wait = nextPoll({ kind: 'own', hidden, errors });
-    if (wait === null) { globalThis.setTimeout(poll, 5000); return; }
-    const ok = await loadSeason(herald);
-    errors = ok ? 0 : errors + 1;
-    // (a clock that runs fast is read more often: a quarter of a turn at most, clock.mjs pollCap)
-    globalThis.setTimeout(poll, Math.min(wait, pollCap(FS.chain)) * 1000);
-  };
-  globalThis.setTimeout(poll, Math.min(30, pollCap(FS.chain)) * 1000);
+  const seasonHidden = () => !!globalThis.document?.hidden;
+  const seasonLoop = createPollLoop({
+    tick: async () => {
+      if (seasonHidden()) return;
+      const ok = await loadSeason(herald);
+      errors = ok ? 0 : errors + 1;
+    },
+    // (a clock that runs fast is read more often: a quarter of a turn at most, clock.mjs pollCap; hidden: look again in 5 s)
+    delay: () => { const wait = nextPoll({ kind: 'own', hidden: seasonHidden(), errors }); return wait === null ? 5 : Math.min(wait, pollCap(FS.chain)); },
+  });
+  globalThis.document?.addEventListener?.('visibilitychange', () => { if (!seasonHidden()) seasonLoop.wake(); });
+  globalThis.addEventListener?.('pageshow', e => { if (e?.persisted && !seasonHidden()) seasonLoop.wake(); });
+  onReread(() => seasonLoop.wake());
+  seasonLoop.start(Math.min(30, pollCap(FS.chain)));
 }
 
 /**

@@ -23,7 +23,19 @@ export function contestableKeeps(keeps, { faction, nowBell = 0 }) {
 }
 
 /**
- * The reachable list: `{ok, rows, unreachable}` or `{ok: false, code}`.
+ * The viewer's own nation's keeps that another nation is contesting now (its count runs): the keeps a host of the viewer
+ * can go and defend. The rule is the program's (permutation-rules keep.rs): a defender of the holding nation on the
+ * keep's tile breaks the count. Listed so a defender need not type the keep's coordinates; nothing about the rule changes.
+ */
+export function defendableKeeps(keeps, { faction }) {
+  if (!Number.isInteger(faction) || faction < 0 || faction > 5) return [];
+  return list(keeps).filter(k => k && Number.isInteger(k.p) && Number.isInteger(k.q) && tileOk(k.tile) && k.holder === faction
+    && Number.isInteger(k.contender) && k.contender >= 0 && k.contender <= 5 && k.contender !== faction);
+}
+
+/**
+ * The reachable list: `{ok, rows, unreachable}` or `{ok: false, code}`. A row of the viewer's own contested keep
+ * (defendableKeeps) carries `defend: true`.
  *   origins  `[{p, q, tile, unit, host?, troops?}]` (ready hosts, or the home tile with unit 0)
  *   rows     `[{p, q, tile, holder, troops, route: {hexes, provinces, secs}, origin}]`, the
  *            fastest origin of each keep, sorted by travel time
@@ -34,7 +46,8 @@ export function contestableKeeps(keeps, { faction, nowBell = 0 }) {
 export function reachableKeeps({ kernel, keeps, origins = [], seeds = [], faction, nowBell = 0, blocked = [] }) {
   if (!kernel) return { ok: false, code: 'NoKernel' };
   const rows = [], unreachable = [], undetermined = [];
-  for (const k of contestableKeeps(keeps, { faction, nowBell })) {
+  const candidates = [...contestableKeeps(keeps, { faction, nowBell }).map(k => [k, false]), ...defendableKeeps(keeps, { faction }).map(k => [k, true])];
+  for (const [k, defend] of candidates) {
     let best = null, budget = false;
     for (const o of origins) {
       const r = planRoute(kernel, { from: { p: o.p, q: o.q, tile: o.tile }, to: { p: k.p, q: k.q, tile: k.tile }, unit: o.unit, seeds, blocked });
@@ -42,7 +55,7 @@ export function reachableKeeps({ kernel, keeps, origins = [], seeds = [], factio
       else if (!r.ok && r.code === 'PlannerBudget') budget = true;
     }
     if (best) rows.push({ p: k.p, q: k.q, tile: k.tile, holder: k.holder, troops: k.troops, origin: best.origin,
-      route: { hexes: best.route.hexes, provinces: best.route.provinces, secs: best.route.secs } });
+      route: { hexes: best.route.hexes, provinces: best.route.provinces, secs: best.route.secs }, ...(defend ? { defend: true } : {}) });
     else if (budget) undetermined.push(`${k.p},${k.q}`);
     else unreachable.push(`${k.p},${k.q}`);
   }

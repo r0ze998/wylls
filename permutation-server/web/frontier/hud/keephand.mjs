@@ -33,7 +33,7 @@ import { provinceName, provinceCoords } from './place.mjs';
 import { whyText } from './orderparts.mjs';
 import { keepArrival, ROUGH_TERRAIN } from './rulebook.mjs';
 import { formingLine } from './firststeps.mjs';
-import { contestableKeeps } from '../fkeepreach.mjs';
+import { contestableKeeps, defendableKeeps } from '../fkeepreach.mjs';
 
 const int = Number.isInteger;
 const nation = f => int(f) && f >= 0 && f <= 5;
@@ -51,7 +51,9 @@ export const noContestableKeep = FS => {
   // (nothing read yet, or the page's turn unknown: nothing is hidden. The turn is the one the reach list is asked with,
   //  `FS.nowBell`: a keep under its post-capture protection counts again once that turn passes)
   if (!(keeps instanceof Map) || keeps.size === 0 || !Number.isInteger(FS?.nowBell)) return false;
-  return contestableKeeps([...keeps.values()], { faction: FS?.citizen?.faction, nowBell: FS.nowBell }).length === 0;
+  // (a keep of the viewer's own nation that another nation is contesting is one to go and defend: the list is offered for it)
+  const all = [...keeps.values()], faction = FS?.citizen?.faction;
+  return contestableKeeps(all, { faction, nowBell: FS.nowBell }).length === 0 && defendableKeeps(all, { faction }).length === 0;
 };
 /**
  * Whether the world's keeps have been read and EVERY one stands in a heartland (where a keep never counts): a world opened
@@ -222,7 +224,9 @@ export function keepsModel(FS, r) {
     const contender = nation(k.contender) ? k.contender : null;
     return { p: x.p, q: x.q, tile: x.tile, holder: x.holder, troops: Number.isFinite(x.troops) ? x.troops : null, name: provinceName(FS, x.p, x.q, { own: false }), coords: provinceCoords(x.p, x.q),
       hexes: x.route.hexes, provinces: x.route.provinces.length, secs: x.route.secs, arrive: arrivalTurn(FS, x.route.secs), hold: holdTurns(FS, k), contender, progress: contender === null ? null : Math.max(0, Number(k.progress ?? 0)), key: `${x.p},${x.q}`,
-      odds: Number.isFinite(x.troops) ? arrivalOdds(FS, r, { p: x.p, q: x.q, tile: x.tile, troops: x.troops }) : null };
+      // (a row of the viewer's own contested keep: going there defends it; the odds against its own garrison mean nothing)
+      ...(x.defend ? { defend: true } : {}),
+      odds: !x.defend && Number.isFinite(x.troops) ? arrivalOdds(FS, r, { p: x.p, q: x.q, tile: x.tile, troops: x.troops }) : null };
   });
   return { state: 'ready', wait, rows, unreachable: hr.unreachable.length };
 }
@@ -242,12 +246,17 @@ export function renderKeepsPop(FS, model, { head }) {
   // (a host that cannot depart yet: its rows wait, and the arrival is said as the turns the way takes, not as a turn it cannot make)
   const off = !!km.wait;
   const odds = x => oddsText(x.odds, r.unit);
-  const row = x => html`<li><button type="button" class="kh-row kh-n${x.holder}${off ? ' off' : ''}" data-act="cq-march" data-host="${r.id}" data-p="${x.p}" data-q="${x.q}" data-tile="${x.tile}" data-keep-row="${x.key}" ${raw(off ? 'aria-disabled="true"' : '')}
-      aria-label="${L`${x.name}の砦へ進軍：${factionName(x.holder)}が保持、守備兵 ${x.troops === null ? '—' : fmtNum(x.troops)}、到着はターン ${x.arrive === null || off ? '—' : fmtNum(x.arrive)}`}${odds(x) ? L`、勝ち目 ${odds(x).word}（${odds(x).line}）` : ''}">
+  const arriveSaid = x => (x.arrive === null || off ? '—' : fmtNum(x.arrive));
+  const rowLabel = x => (x.defend
+    ? L`${x.name}の砦を守りに向かう：${factionName(x.contender)}が占拠中 ${fmtNum(x.progress ?? 0)}/${fmtNum(x.hold)}、到着はターン ${arriveSaid(x)}`
+    : L`${x.name}の砦へ進軍：${factionName(x.holder)}が保持、守備兵 ${x.troops === null ? '—' : fmtNum(x.troops)}、到着はターン ${arriveSaid(x)}` + (odds(x) ? L`、勝ち目 ${odds(x).word}（${odds(x).line}）` : ''));
+  const row = x => html`<li><button type="button" class="kh-row kh-n${x.holder}${x.defend ? ' kh-row-defend' : ''}${off ? ' off' : ''}" data-act="cq-march" data-host="${r.id}" data-p="${x.p}" data-q="${x.q}" data-tile="${x.tile}" data-keep-row="${x.key}" ${raw(off ? 'aria-disabled="true"' : '')}
+      aria-label="${rowLabel(x)}">
     <span class="kh-row-band" aria-hidden="true"></span>
-    <span class="kh-row-where">${crest(x.holder, 26)}<span class="kh-row-names"><strong class="kh-row-name">${x.name}</strong><span class="kh-row-holder">${L`${factionName(x.holder)}が保持`} · <span class="kh-coords">${x.coords}</span></span></span></span>
+    <span class="kh-row-where">${crest(x.holder, 26)}<span class="kh-row-names"><strong class="kh-row-name">${x.name}</strong><span class="kh-row-holder">${x.defend ? L`あなたの国が保持` : L`${factionName(x.holder)}が保持`} · <span class="kh-coords">${x.coords}</span></span></span></span>
     <span class="kh-fig kh-fig-def">${icon('shield')}<span class="kh-fig-v num">${x.troops === null ? '—' : fmtNum(x.troops)}</span><span class="kh-fig-k">${L`守備兵`}</span></span>
-    <span class="kh-fig kh-fig-odds kh-odds-${x.odds?.odds ?? 'none'}">${icon('swords')}<span class="kh-fig-v">${odds(x)?.word ?? '—'}</span><span class="kh-fig-k">${odds(x)?.line ?? L`勝ち目`}</span></span>
+    ${x.defend ? html`<span class="kh-fig kh-fig-odds kh-odds-defend">${icon('shield')}<span class="kh-fig-v">${L`守りに向かう`}</span><span class="kh-fig-k">${L`マスに残れば占拠を止めます`}</span></span>`
+      : html`<span class="kh-fig kh-fig-odds kh-odds-${x.odds?.odds ?? 'none'}">${icon('swords')}<span class="kh-fig-v">${odds(x)?.word ?? '—'}</span><span class="kh-fig-k">${odds(x)?.line ?? L`勝ち目`}</span></span>`}
     <span class="kh-fig kh-fig-arr">${icon('bell')}<span class="kh-fig-v num">${x.arrive === null ? '—' : off ? L`+${fmtNum(Math.max(1, x.arrive - (FS.nowBell ?? 0)))} ターン` : L`ターン ${fmtNum(x.arrive)}`}</span><span class="kh-fig-k">${L`到着（${fmtNum(x.hexes)} マス）`}</span></span>
     <span class="kh-fig kh-fig-hold">${icon('flag')}<span class="kh-fig-v num">${x.contender !== null ? `${fmtNum(x.progress)}/${fmtNum(x.hold)}` : fmtNum(x.hold)}</span><span class="kh-fig-k">${x.contender !== null ? L`${factionName(x.contender)}が占拠中` : L`ターン保てば奪取`}</span></span>
     <span class="kh-row-go" aria-hidden="true">${icon('next')}</span></button></li>`;

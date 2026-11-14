@@ -155,9 +155,47 @@ test('the re-read is a read: an action of its own, not a send, waking the poll l
   const ctl = readFileSync(new URL('../../permutation-server/web/frontier/controller.mjs', import.meta.url), 'utf8');
   const app = readFileSync(new URL('../../permutation-server/web/frontier/app.mjs', import.meta.url), 'utf8');
   assert.match(ctl, /'state-reread': \(\) => rereadState\(\),/);
-  assert.match(ctl, /export function rereadState\(\) \{ pollLoop\?\.wake\(\); \}/);
+  assert.match(ctl, /export function rereadState\(\) \{ pollLoop\?\.wake\(\); for \(const f of rereadHooks\) \{ try \{ f\(\); \}/);
   const sends = /export const SENDS = Object\.freeze\(new Set\(\[([^\]]+)\]/.exec(app)[1];
   assert.ok(!/state-reread/.test(sends), 'not among the sends');
   assert.match(app, /staleBannerView\(\{ stale: FS\.stale, localPlay: !!FS\.localPlay \}\)/);
   assert.match(app, /btn\.dataset\.act = 'state-reread'/);
+});
+
+// Pair trial 1 (2026-11-14): a page shown again said 「表示が 135 秒遅れています」 while the herald moved on. The page's chain
+// clock moves only with the SEASON poll (app.mjs loadSeason → FS.chain.observe), and that poll was a bare timer: not
+// woken when the page was shown again, nor by the re-read button (which woke only the play loop).
+test('the season poll (the one read that moves the chain clock) is woken by visibility, pageshow and the re-read', () => {
+  const app = readFileSync(new URL('../../permutation-server/web/frontier/app.mjs', import.meta.url), 'utf8');
+  const ctl = readFileSync(new URL('../../permutation-server/web/frontier/controller.mjs', import.meta.url), 'utf8');
+  assert.equal((app.match(/FS\.chain\.observe\(/g) ?? []).length, 1, 'one place moves the clock');
+  const i = app.indexOf('const seasonLoop = createPollLoop({'), block = app.slice(i, i + 1200);
+  assert.ok(i > 0, 'the season poll is a poll loop');
+  assert.match(block, /if \(seasonHidden\(\)\) return;\n\s*const ok = await loadSeason\(herald\);/);
+  assert.match(block, /'visibilitychange', \(\) => \{ if \(!seasonHidden\(\)\) seasonLoop\.wake\(\); \}/);
+  assert.match(block, /'pageshow', e => \{ if \(e\?\.persisted && !seasonHidden\(\)\) seasonLoop\.wake\(\); \}/);
+  assert.match(block, /onReread\(\(\) => seasonLoop\.wake\(\)\);/);
+  assert.ok(!/globalThis\.setTimeout\(poll,/.test(app), 'the bare timer is gone');
+  assert.match(ctl, /export function onReread\(f\) \{ if \(typeof f === 'function'\) rereadHooks\.push\(f\); \}/);
+});
+
+test('why the wake matters: behind counts from the last season read, and one read after showing clears it', async () => {
+  const { ChainClock } = await import('../../permutation-server/web/frontier/clock.mjs');
+  let wall = 1_000_000;
+  const c = new ChainClock({ wall: () => wall, accelerated: true });
+  c.observe(5000, 100);
+  wall += 135_000; // hidden 135 s: no season read
+  assert.equal(c.behind(), 135, 'without a read the page counts its own pause');
+  // shown again: the woken season loop reads at once; the herald had moved on
+  const k = clock(); let reads = 0;
+  const loop = createPollLoop({ tick: async () => { reads++; c.observe(5000 + 135 * 30, 100 + 340); }, delay: () => 5, setTimer: k.setTimer, clearTimer: k.clearTimer });
+  loop.start(30);
+  loop.wake();
+  await k.advance(0);
+  assert.equal(reads, 1);
+  assert.equal(c.behind(), 0);
+  // a herald that truly stands still is still reported: the next reads bring nothing newer
+  wall += 70_000; await k.advance(5000);
+  c.observe(5000 + 135 * 30, 100 + 341);
+  assert.equal(c.behind(), 70);
 });
