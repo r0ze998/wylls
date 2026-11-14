@@ -213,13 +213,13 @@ test('7. what stays refused: new NFT deposits at every layer, and pools on a con
   assert.doesNotMatch(cargo, /^\s*default\s*=\s*\[[^\]]*nft-experimental/m);
   // The relay refuses the PayResident shape before signing or simulating.
   assert.match(src('permutation-gateway/src/frontier/routes/prize.mjs'), /ResidentDepositsDisabled/);
-  // Every prize error the program declares is in the registry with the same number, except ⑧'s 0x111
-  // (CeilingPastTally: in the program at this baseline, registered by its own integration).
+  // Every prize error the program declares is in the registry with the same number (0x111 CeilingPastTally
+  // was a pre-existing gap, filled on this candidate branch by its own commit).
   const declared = [...lib.matchAll(/^\s{4}(\w+) = (0x1[0-9A-Fa-f]{2}),$/gm)].map(([, n, v]) => [n, Number(v)]);
   const registry = src('workstreams/04-execution/contracts/registry.txt').split('[prize_program_errors]')[1].split('\n[')[0];
   const listed = new Map([...registry.matchAll(/^(0x[0-9a-f]+) (\w+)$/gm)].map(([, v, n]) => [n, Number(v)]));
   const missing = declared.filter(([n, v]) => listed.get(n) !== v).map(([n]) => n);
-  assert.deepEqual(missing, ['CeilingPastTally']);
+  assert.deepEqual(missing, [], 'every declared prize error is registered, 0x111 CeilingPastTally included');
   assert.ok(declared.some(([n, v]) => n === 'ResidentDepositsDisabled' && v === 0x11b));
   assert.equal(new Set(declared.map(([, v]) => v)).size, declared.length, 'no two prize errors share a number');
 });

@@ -41,6 +41,7 @@ prize_entry_resident = 192 bytes
 0x10e NothingToPay
 0x10f Overflow
 0x110 WrongExpectedCount
+0x111 CeilingPastTally
 0x112 ContinuousSeason
 0x113 ResidentNotSigned
 0x114 ResidentAsset
