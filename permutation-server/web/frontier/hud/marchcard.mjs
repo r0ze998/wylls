@@ -144,8 +144,8 @@ const topFate = fc => Object.entries(fc.fates ?? {}).sort((a, b) => b[1] - a[1])
  */
 /**
  * When the host may set out again after this march (round 33), on the program's own rules: a Depart in turn `b` with
- * stamina `s` stores s − 74 at b (permutation-rules host.rs Stamina::spend); the arrival brings
- * min(120, (s − 74) + max(0, a − (b + 1))) (frontier-abi clash_model.rs arrival_stamina), stored at the arrival turn
+ * stamina `s` is charged when it settles, on b + 1: min(120, s + 1) − 74 stored at b + 1 (permutation-rules host.rs
+ * Host::settle, effective_bell); the arrival brings min(120, that + max(0, a − (b + 1))) (frontier-abi clash_model.rs arrival_stamina), stored at the arrival turn
  * `a`, +1 a turn after. Unopposed it may depart from a + 1; after a fight from a + 2 (ready_bell_after,
  * BATTLE_COOLDOWN_BELLS 1), and the fight costs ENGAGE_STAMINA 20 (saturating at 0) unless the damage-ratio refund
  * applies. `calm`: no fight; `fought`: a fight on arrival without the refund (the latest of the two). Both assume it
@@ -155,7 +155,10 @@ const topFate = fc => Object.entries(fc.fates ?? {}).sort((a, b) => b[1] - a[1])
  */
 export function readyAgain(s, b, a) {
   if (!Number.isInteger(s) || !Number.isInteger(b) || !Number.isInteger(a) || s < DEPART_STAMINA || a <= b) return null;
-  const arrive = Math.min(STAMINA_CAP, s - DEPART_STAMINA + Math.max(0, a - (b + 1)));
+  // (round 33c: the march's stamina is charged when the Depart settles, on turn b + 1 (host.rs effective_bell, Host::settle
+  //  reading stamina.at(b + 1)), not on b: seen in a ×10 world's records — 76 at turn 38, 3 stored at 39, 4 at arrival 40)
+  const spent = Math.min(STAMINA_CAP, s + 1) - DEPART_STAMINA;
+  const arrive = Math.min(STAMINA_CAP, spent + Math.max(0, a - (b + 1)));
   const at = (v, readyBell) => Math.max(readyBell, a + Math.max(0, DEPART_STAMINA - v));
   return { calm: at(arrive, a + 1), fought: at(Math.max(0, arrive - ENGAGE_STAMINA), a + 2), arrive };
 }

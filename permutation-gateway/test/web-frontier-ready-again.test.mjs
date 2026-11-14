@@ -15,7 +15,8 @@ const text = h => String(h).replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ');
 const firstTurn = (entry, readyBell, from) => { for (let t = from; t < from + 500; t++) if (t >= readyBell && staminaAt(entry, t) >= DEPART_STAMINA) return t; return null; };
 /** The same rules step by step on the page's own staminaAt, for a cross-check. */
 const model = (s, b, a, fight, refund = false) => {
-  const arrive = staminaAt({ staminaValue: s - DEPART_STAMINA, staminaBell: b + 1 }, a);
+  // (the charge settles on b + 1, reading the stamina there: host.rs Host::settle, effective_bell)
+  const arrive = staminaAt({ staminaValue: staminaAt({ staminaValue: s, staminaBell: b }, b + 1) - DEPART_STAMINA, staminaBell: b + 1 }, a);
   const v = fight && !refund ? Math.max(0, arrive - 20) : arrive;
   return firstTurn({ staminaValue: v, staminaBell: a }, fight ? a + 2 : a + 1, a);
 };
@@ -26,9 +27,19 @@ test('the recorded world: 35 without a fight, 55 after the fight at the keep (it
   assert.equal(staminaAt({ staminaValue: 30, staminaBell: 11 }, 33), 52, 'the host panel\'s 52/120 at turn 33');
 });
 
+test('round 33c: the second ×10 world\'s two legs of ONE host, as its records stored them (live32, host 131945690300416)', () => {
+  // leg 1: 120 at turn 7 (capped), charged on 8 → 46 stored at 8; arrived turn 9 with 47 (ready bell 10); 74 at turn 36
+  assert.deepEqual(readyAgain(120, 7, 9), { calm: 36, fought: 56, arrive: 47 });
+  assert.equal(firstTurn({ staminaValue: 47, staminaBell: 9 }, 10, 9), 36, 'the screen said Ready to march, 74/120, at turn 36');
+  // leg 2: 76 at turn 38, charged on 39 → 3 stored at 39 (77 − 74); arrived turn 40 with 4 (ready bell 41)
+  assert.deepEqual(readyAgain(76, 38, 40), { calm: 110, fought: 114, arrive: 4 });
+  assert.equal(firstTurn({ staminaValue: 4, staminaBell: 40 }, 41, 40), 110);
+  assert.equal(staminaAt({ staminaValue: 4, staminaBell: 40 }, 43), 7, 'the host panel\'s 7/120 at home');
+});
+
 test('saturation, a long march, the cooldown, the refund — each against the step-by-step rules', () => {
   // the review's case: s 74, depart 0, arrive 2: 1 on arrival, 0 after a fight → 76 (not 95)
-  assert.deepEqual(readyAgain(74, 0, 2), { calm: 75, fought: 76, arrive: 1 });
+  assert.deepEqual(readyAgain(74, 0, 2), { calm: 74, fought: 76, arrive: 2 });
   // the cap: a very long march arrives full; the turn after arrival (calm) or the cooldown (fought) decides
   assert.deepEqual(readyAgain(120, 0, 200), { calm: 201, fought: 202, arrive: 120 });
   for (const [s, b, a] of [[120, 6, 10], [74, 0, 2], [120, 0, 200], [100, 5, 7], [80, 3, 60], [120, 40, 42], [75, 1, 3]]) {
