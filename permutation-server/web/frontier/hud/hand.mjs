@@ -51,6 +51,8 @@ import { localReturnOf, localReturnSpent } from '../flocalplay-return.mjs';
 import { localConquestShown, localConquestSpent, localConquestReadFor, localConquestOrderFor, localConquestCityFor } from '../flocalplay-conquest.mjs';
 import { hostStepInFlight } from '../flocalplay-hoststep.mjs';
 import { SETTLE_CODES } from '../flocalplay-pending.mjs';
+import { localOrderRoute } from '../flocalplay-act.mjs';
+
 import { composerChoices } from '../screens/march.mjs';
 
 const int = Number.isInteger;
@@ -72,6 +74,13 @@ export const INSPECTION_POPS = Object.freeze([EXPEDITION_POP]);
 
 export { ownHostsAt, ownHosts, marchCheck, exploreCheck, dissolveCheck, canAct, subjectOf, popOf } from './subject.mjs';
 import { ownHosts, marchCheck, exploreCheck, dissolveCheck, canAct, subjectOf, popOf } from './subject.mjs';
+
+// (round 25: local play sends only its own few orders — flocalplay-act.mjs LOCAL_ACT_NAMES — and refuses the rest when
+//  they are sent. A bar button for an order local play refuses says so on the button and is not pressed, with the same
+//  sentence the refusal says (controller.mjs localPlayReadOnly), instead of opening a card whose confirm is refused only
+//  after it is pressed. Nothing local play can send changes; an ordinary session is as before.)
+const localRefuses = (FS, name) => !!FS?.localPlay && localOrderRoute({ localPlay: FS.localPlay, name, v: {}, signer: undefined, requester: null }) === 'refuse';
+const localReadOnlyText = () => L`ローカルプレイでは、まだ命令を送れません（読み取りのみ）。`;
 
 // ------------------------------------------------------------------ the model
 const hexDist = (a, b) => (a && b ? (Math.abs(a.q - b.q) + Math.abs(a.r - b.r) + Math.abs((a.q + a.r) - (b.q + b.r))) / 2 : null);
@@ -149,7 +158,7 @@ const hostChip = (FS, r) => ({ id: r.id, unit: r.unit, text: unitCount(UNIT_ORDE
 function hostModel(FS, sub) {
   const r = sub.host, h = sub.holding;
   const faction = int(FS.citizen?.faction) ? FS.citizen.faction : 0;
-  const mc = marchCheck(FS, r), dc = dissolveCheck(FS, r);
+  const mc = marchCheck(FS, r), dc = dissolveCheck(FS, r), dLocal = localRefuses(FS, 'Dissolve');
   const ex = r.unit === SCOUT ? exploreCheck(FS, r) : null;
   const all = ownHosts(FS);
   const at = all.findIndex(x => x.id === r.id);
@@ -173,7 +182,7 @@ function hostModel(FS, sub) {
       hint: L`となりのマスを 2 つまで調べます` }] : []),
     { id: 'return', icon: 'home', word: L`村へ戻す`, act: 'hand-return', data: { host: r.id }, figure: r.home ? '' : L`${fmtNum(away ?? 0)} マス先`, why: r.home ? whyText('AtHome') : mc.ok ? null : mc.text,
       hint: L`村への進軍です（体力 ${fmtNum(DEPART_STAMINA)}）。封をする前に確かめます` },
-    { id: 'dissolve', icon: 'disband', word: L`解散`, act: 'hand-pop', data: { pop: 'dissolve' }, figure: L`控えへ ${fmtNum(r.troops)}`, pressed: pop === 'dissolve', why: dc.ok ? null : dc.text, quiet: true,
+    { id: 'dissolve', icon: 'disband', word: L`解散`, act: 'hand-pop', data: { pop: 'dissolve' }, figure: L`控えへ ${fmtNum(r.troops)}`, pressed: pop === 'dissolve', why: dLocal ? localReadOnlyText() : dc.ok ? null : dc.text, quiet: true,
       hint: L`このターンの決着のあと、兵は村の控えに戻ります` },
     { id: 'next', icon: 'next', word: L`次の軍勢`, act: 'hand-next', data: {}, figure: all.length ? `${fmtNum(Math.max(0, at) + 1)}/${fmtNum(all.length)}` : '', why: all.length < 2 ? whyText('OnlyOne') : null,
       hint: L`このターンに動かせる軍勢から順に選びます` },
@@ -205,7 +214,7 @@ function hostModel(FS, sub) {
   const note = shared && !toCard && !(mc.code === 'Forming' && shared === mc.text) ? shared : null;
   return { kind: 'host', key: `h:${r.id}`, name, label: L`${name}の行動`, unit: r.unit, faction, sub: st.text, tone: st.tone, where, note, noteTone: note ? 'why' : null,
     chips: sub.hosts.length > 1 ? sub.hosts.filter(x => x.id !== r.id).map(x => hostChip(FS, x)) : [], villageHere: r.home ? holdingName(h) : null,
-    buttons, host: r, march: mc, explore: ex, dissolve: dc, armed, away, stamina: r.stamina };
+    buttons, host: r, march: mc, explore: ex, dissolve: dLocal ? { ok: false, text: localReadOnlyText() } : dc, armed, away, stamina: r.stamina };
 }
 
 /**

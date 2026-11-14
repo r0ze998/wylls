@@ -290,3 +290,28 @@ test('round 24: the fort row stays where it is when a host whose muster turn has
     assert.equal(after.y, during.y, `the row did not move when the host stood (${during.y} → ${after.y})`);
   } catch (e) { await failed(page, name, e); }
 });
+
+test('round 25: in local play the host bar\'s Dissolve says it cannot be sent there, and a press opens nothing', async t => {
+  const { page, name } = await openForts(t, 'dissolve-local');
+  try {
+    await page.setViewportSize({ width: 1280, height: 800 });
+    // (test-only, in this page: the page is in local play; nothing is sent — the fixture has no relay)
+    const at = await page.evaluate(async () => {
+      const { FS, invalidate } = await import('/frontier/fstate.mjs');
+      FS.localPlay = { address: 'W', programId: 'P', seasonAddress: 'S', cluster: 'localnet' };
+      FS.hand = { host: FS.hand.host };
+      invalidate('panel', 'map');
+      await new Promise(r => setTimeout(r, 600));
+      const b = document.querySelector('#hand .hand-dissolve'), r = b?.getBoundingClientRect();
+      return b ? { x: r.left + r.width / 2, y: r.top + r.height / 2, off: b.classList.contains('off'), disabled: b.getAttribute('aria-disabled'), why: b.querySelector('.hand-why')?.textContent ?? null } : null;
+    });
+    assert.ok(at, 'the host bar shows Dissolve');
+    await page.mouse.move(at.x, at.y); await page.mouse.down(); await page.waitForTimeout(90); await page.mouse.up();
+    await page.waitForTimeout(500);
+    const pop = await page.evaluate(() => document.getElementById('hand-pop')?.dataset.pop ?? '');
+    writeFileSync(path.join(OUT, `${name}.json`), `${JSON.stringify({ at, pop }, null, 2)}\n`);
+    assert.equal(at.off, true); assert.equal(at.disabled, 'true');
+    assert.equal(at.why, 'In local play, this order cannot be sent yet (read only).', 'the reason is on the button');
+    assert.notEqual(pop, 'dissolve', 'the press opened no card');
+  } catch (e) { await failed(page, name, e); }
+});
