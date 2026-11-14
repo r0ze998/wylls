@@ -196,3 +196,17 @@ Additions to the specification above (still **not implemented**):
 8. One shot: a second line after a success → refused. A second line after a refusal → refused.
 9. After success: the changed set is exactly the Entry; its bytes are exact; `frontier_setAccount` over RPC is still
    refused (memory-only).
+
+## ⑳'s review of option (A) (spec c248be58: OK) and its three additions (2026-11-15)
+
+10. **Launcher precondition:** the launcher writes the control line only after it has itself read the minted asset
+    and its current owner over RPC. It refuses to send one for an asset whose owner is neither the world's page wallet
+    nor the mint wallet it knows, and its log line says which owner it saw.
+11. **Reason codes:** the runner's refusal log line names the check that refused it:
+    `pool`, `asset`, `guard`, `record`, `generation`, `paid_by`, `entry_exists`, `run`, `schema`, `one_shot`. A refusal
+    never changes state, and each negative test asserts the chain's whole account set is unchanged.
+12. **Funding:** the Entry's lamports come from the runner's own synthetic funding path, as its other synthetic
+    accounts (`Chain::set_account` with rent-exempt lamports). No user, page or mint key pays.
+
+The tightened additions above (run id and instance in the line, one shot, guards asserted, exact changed set) were
+written after ⑳'s review of c248be58 and are sent to ⑳ for confirmation with this section.
