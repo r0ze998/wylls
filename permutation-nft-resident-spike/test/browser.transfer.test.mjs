@@ -7,6 +7,9 @@
 //    the chain then shows the destination as the owner and the page says this wallet can no longer play it.
 // 2. the NFT moved away behind the page's back after the review: refused at send, nothing sent.
 // 3. a lost answer (and the RPC also hiding the status): resolved by the asset's owner on the chain, never resent.
+// 4. gaps that could send by mistake or report a wrong result: the wallet's network switched after the review; two
+//    tabs sending at once; a record left by another network (a restarted local world); a browser that cannot save the
+//    record; A→B→A while the answer is lost (the owner is A again, two generations later: never "did not land").
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { loadPlaywright } from './playwright.mjs';
@@ -43,7 +46,7 @@ async function rig() {
   await page.getByTestId('t-review').waitFor({ state: 'visible' });
   const asset = await page.getByTestId('t-asset').inputValue();
   const review = async to => { await page.getByTestId('t-to').fill(to); await page.getByTestId('t-review').click(); };
-  return { page, url, address, asset, post, get, sends, tstatus, waitT, review, close };
+  return { ctx, page, url, address, asset, post, get, sends, tstatus, waitT, review, close };
   } catch (e) { await close(); throw e; }
 }
 
@@ -135,5 +138,101 @@ test('transfer: the answer is lost and the RPC hides the status → decided by t
     await r.waitT(/Transferred \(confirmed on the chain\)/, 40_000);
     assert.equal(await r.sends(), base + 1, 'one send; the lost answer was not answered by a second one');
     assert.equal((await r.get(`/mint/status?wallet=${B}&asset=${r.asset}`)).isHolder, true);
+  } finally { await r.close(); }
+});
+
+test('transfer: the wallet\'s network switched after the review → refused, nothing sent', { skip, timeout: 120_000 }, async () => {
+  const r = await rig();
+  const { page } = r;
+  try {
+    const B = await newKey();
+    await r.review(B);
+    await page.getByTestId('t-ack').check();
+    const base = await r.sends();
+    await page.evaluate(() => localStorage.setItem('wylls-testwallet-chain', 'solana:mainnet'));   // switched inside the wallet
+    await page.getByTestId('t-send').click();
+    await r.waitT(/connected wallet or network is not the one you reviewed with.*Nothing was sent/);
+    assert.equal(await r.sends(), base);
+    assert.equal((await r.get(`/mint/status?wallet=${r.address}&asset=${r.asset}`)).isHolder, true);
+  } finally { await r.close(); }
+});
+
+test('transfer: two tabs of the same wallet send at once → one transaction', { skip, timeout: 120_000 }, async () => {
+  const r = await rig();
+  const { page } = r;
+  try {
+    const B = await newKey(), C = await newKey();
+    const p2 = await r.ctx.newPage();
+    await p2.goto(`${r.url}/web/mint.html`);
+    await p2.waitForFunction(() => globalThis.__testWallet?.address);
+    await p2.locator('[data-wallet]').first().click();
+    await p2.waitForFunction(() => /You hold the pass/.test(document.querySelector('[data-testid="status"]').textContent), null, { timeout: 30_000 });
+    await r.review(B);
+    await page.getByTestId('t-ack').check();
+    await p2.getByTestId('t-to').fill(C);
+    await p2.getByTestId('t-review').click();
+    await p2.getByTestId('t-confirm').waitFor({ state: 'visible' });
+    await p2.getByTestId('t-ack').check();
+    const base = await r.sends();
+    await Promise.all([page.getByTestId('t-send').click(), p2.getByTestId('t-send').click()]);
+    const settled = /Transferred \(confirmed on the chain\)|Another tab is transferring|not in this wallet now/;
+    for (const pg of [page, p2]) await pg.waitForFunction(src => new RegExp(src).test(document.querySelector('[data-testid="t-status"]').textContent), settled.source, { timeout: 30_000 });
+    assert.equal(await r.sends(), base + 1, 'exactly one transaction from the two tabs');
+    const texts = [await page.getByTestId('t-status').textContent(), await p2.getByTestId('t-status').textContent()];
+    assert.equal(texts.filter(t => /Transferred/.test(t)).length, 1, `one tab reports the transfer: ${texts.join(' | ')}`);
+    const winner = /Transferred/.test(texts[0]) ? B : C;
+    assert.equal((await r.get(`/mint/status?wallet=${winner}&asset=${r.asset}`)).isHolder, true, 'the reporting tab\'s destination owns it');
+  } finally { await r.close(); }
+});
+
+test('transfer: a record left by another network is set aside (said on screen), and the screen works', { skip, timeout: 120_000 }, async () => {
+  const r = await rig();
+  const { page } = r;
+  try {
+    await page.evaluate(a => localStorage.setItem(`wylls-transfer-pending:${a}`, JSON.stringify({ v: 1, genesis: 'OtherGenesis1111111111111111111111111111111', gen: 0, signature: '5'.repeat(88), asset: 'X', from: a, to: 'Y', lastValidBlockHeight: 99999999 })), r.address);
+    await page.getByTestId('recheck').click();
+    await r.waitT(/recorded on another network \(genesis OtherGen…\) was set aside/);
+    assert.equal(await page.evaluate(a => localStorage.getItem(`wylls-transfer-pending:${a}`), r.address), null);
+    assert.match(await page.evaluate(a => localStorage.getItem(`wylls-transfer-pending:${a}:set-aside`), r.address), /OtherGenesis/);
+    await r.review(await newKey());
+    await page.getByTestId('t-confirm').waitFor({ state: 'visible' });
+  } finally { await r.close(); }
+});
+
+test('transfer: the browser cannot save the record → nothing sent', { skip, timeout: 120_000 }, async () => {
+  const r = await rig();
+  const { page } = r;
+  try {
+    await r.review(await newKey());
+    await page.getByTestId('t-ack').check();
+    await page.evaluate(() => { const o = Storage.prototype.setItem; Storage.prototype.setItem = function (k, v) { if (String(k).startsWith('wylls-transfer-pending:')) throw new DOMException('quota', 'QuotaExceededError'); return o.call(this, k, v); }; });
+    const base = await r.sends();
+    await page.getByTestId('t-send').click();
+    await r.waitT(/cannot save the transfer record.*Nothing was sent/);
+    assert.equal(await r.sends(), base);
+    assert.equal((await r.get(`/mint/status?wallet=${r.address}&asset=${r.asset}`)).isHolder, true);
+  } finally { await r.close(); }
+});
+
+test('transfer: A→B→A while the answer is lost → "landed and came back", never "did not land"', { skip, timeout: 120_000 }, async () => {
+  const r = await rig();
+  const { page } = r;
+  try {
+    const B = await newKey();
+    await page.route('**/rpc', async route => {
+      const body = route.request().postDataJSON();
+      if (body.method === 'getSignatureStatuses') return route.fulfill({ contentType: 'application/json', body: JSON.stringify({ jsonrpc: '2.0', id: 1, result: { context: { slot: 1 }, value: [null] } }) });
+      return route.continue();
+    });
+    await r.review(B);
+    await page.getByTestId('t-ack').check();
+    const base = await r.sends();
+    await r.post('/mock/knobs', { dropSendResponse: true });
+    await page.getByTestId('t-send').click();
+    for (let i = 0; i < 100 && (await r.sends()) === base; i++) await new Promise(res => setTimeout(res, 50));
+    await r.post('/mock/transfer', { asset: r.asset, from: B, to: r.address });        // B sends it back before the page knows
+    await r.waitT(/landed, and the resident has since come back to this wallet \(generation 0 → 2\)/, 40_000);
+    assert.equal(await r.sends(), base + 1, 'nothing resent');
+    assert.doesNotMatch(await r.tstatus(), /did not land/);
   } finally { await r.close(); }
 });

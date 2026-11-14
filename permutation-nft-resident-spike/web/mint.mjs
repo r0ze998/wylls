@@ -20,7 +20,7 @@ import { decode as fromBase58 } from '/sdk/base58.mjs';
 import * as ws from '/web/wallet-standard.mjs';
 import { saleState, SALE_TEXT } from '/web/sale.mjs';
 import { T, tr, lang, setLang, pickLang, translateStatic } from '/web/mint-lang.mjs';
-import { checkDestination, checkSender, transferInstruction, assetOwnerOf, decidePending, shortAddress, PENDING_TRANSFER } from '/web/transfer.mjs';
+import { checkDestination, checkSender, transferInstruction, assetOwnerOf, decidePending, parsePendingRecord, shortAddress, PENDING_TRANSFER } from '/web/transfer.mjs';
 
 const $ = sel => document.querySelector(`[data-testid="${sel}"]`);
 const fmtSol = l => `${(Number(l) / 1e9).toFixed(6)} SOL (${l} lamports)`;
@@ -119,6 +119,8 @@ function renderWallets() {
 }
 
 async function connect(wallet) {
+  // Not while a transaction is being built, signed or sent: its record belongs to the wallet that signs it.
+  if (tstate.busy || state.busy) throw Object.assign(new Error(T`取引の処理中はウォレットを切り替えられません。`), { code: 'Busy' });
   const w = await ws.connect(wallet, state.config.chainId);
   state.wallet = w;
   closeReview();
@@ -132,7 +134,8 @@ async function refresh() {
   const bal = BigInt((await rpc('getBalance', [state.wallet.address, { commitment: 'confirmed' }])).value);
   $('balance').textContent = fmtSol(bal);
   // A transfer whose answer was lost is looked up first (never sent again).
-  if (readTransferPending()) await resolveTransfer(readTransferPending());
+  const tp = readTransferPending();
+  if (tp) await resolveTransfer(tp);
   const pending = readPending();
   if (pending) { await resolvePending(pending); return; }
   const mine = await refreshMine();
@@ -306,9 +309,32 @@ async function mint() {
 const tstate = { busy: false, review: null, shown: false };
 const tsay = (text, kind = '') => { const s = $('t-status'); s.textContent = text; s.className = `status ${kind}`; };
 const tfail = e => { console.error(e); tsay(`${e.code ?? 'Error'}: ${e.message}`, 'err'); };
-const readTransferPending = () => { try { return state.wallet ? JSON.parse(localStorage.getItem(PENDING_TRANSFER(state.wallet.address)) ?? 'null') : null; } catch { return null; } };
-const writeTransferPending = p => localStorage.setItem(PENDING_TRANSFER(state.wallet.address), JSON.stringify(p));
-const clearTransferPending = () => localStorage.removeItem(PENDING_TRANSFER(state.wallet.address));
+/**
+ * The pending transfer of wallet `addr` (the record is keyed by the wallet that signed it, never by "whoever is
+ * connected now"). A record of another network or one this page did not write is set aside (kept under
+ * `…:set-aside`) and said on screen; it never blocks the screen and never allows a double transfer (web/transfer.mjs).
+ */
+function loadTransferPending(addr = state.wallet?.address) {
+  if (!addr) return null;
+  let raw = null;
+  try { raw = localStorage.getItem(PENDING_TRANSFER(addr)); } catch { /* storage blocked: writing fails too, so nothing is sent */ }
+  const r = parsePendingRecord(raw, state.config.genesisHash);
+  if (r.state === 'ok') return r.p;
+  if (r.state === 'none') return null;
+  try { localStorage.setItem(`${PENDING_TRANSFER(addr)}:set-aside`, raw); localStorage.removeItem(PENDING_TRANSFER(addr)); } catch { /* */ }
+  tsay(r.state === 'otherNetwork' ? T`別のネットワーク（genesis ${r.p.genesis.slice(0, 8)}…）で記録された譲渡を照会から外しました（この画面のネットワークでは答えが出ません）。` : T`読めない譲渡の記録を照会から外しました。`, 'err');
+  return null;
+}
+const readTransferPending = () => loadTransferPending();
+/** Write, then read back: a storage that refuses or silently drops the record stops the transfer before the send. */
+function writeTransferPending(p) {
+  const key = PENDING_TRANSFER(p.from), text = JSON.stringify(p);
+  let back = null;
+  try { localStorage.setItem(key, text); back = localStorage.getItem(key); } catch (e) { throw Object.assign(new Error(T`この譲渡の記録をブラウザに保存できません（${e.message}）。送っていません。`), { code: 'RecordNotSaved' }); }
+  if (back !== text) throw Object.assign(new Error(T`この譲渡の記録をブラウザに保存できません（読み戻しが違います）。送っていません。`), { code: 'RecordNotSaved' });
+}
+/** Only this transfer's own record is removed (another tab's record, if any, stays). */
+const clearTransferPending = (addr, signature) => { try { const k = PENDING_TRANSFER(addr); if (JSON.parse(localStorage.getItem(k) ?? 'null')?.signature === signature) localStorage.removeItem(k); } catch { /* */ } };
 /** What a refusal says (every one is decided before anything is signed). */
 const TRANSFER_REFUSAL = code => ({
   NoWallet: T`ウォレットを接続してください。`,
@@ -343,7 +369,8 @@ function closeReview() {
 /** Step 1: check the destination and the sender on the chain, then show exactly what would be sent. Nothing is signed. */
 async function reviewTransfer() {
   if (tstate.busy) return;
-  if (readTransferPending()) return resolveTransferThenRefresh(readTransferPending());
+  const tp = readTransferPending();
+  if (tp) return resolveTransferThenRefresh(tp);
   closeReview();
   const from = state.wallet?.address ?? null;
   const asset = $('t-asset').value;
@@ -365,16 +392,38 @@ async function reviewTransfer() {
   tsay(T`宛先と NFT を確かめ、チェックを入れてから「譲渡する」を押してください。`);
 }
 
-/** Step 2: the owner's wallet signs one TransferResident; the record is written before the send. */
+/**
+ * Step 2: the owner's wallet signs one TransferResident; the record is written (and read back) before the send.
+ * One transfer per wallet at a time across tabs (Web Locks when the browser has them; the record check otherwise).
+ */
 async function sendTransfer() {
   const rv = tstate.review;
-  if (tstate.busy || !rv || !$('t-ack').checked || state.wallet?.address !== rv.from) return;   // a double click is one transaction
-  if (readTransferPending()) return resolveTransferThenRefresh(readTransferPending());
+  if (tstate.busy || !rv || !$('t-ack').checked) return;   // a double click is one transaction
+  if (state.wallet?.address !== rv.from || ws.connected()?.address !== rv.from || !ws.stillOffers(rv.from, state.config.chainId)) {
+    closeReview();
+    return tsay(T`接続中のウォレットまたはネットワークが、確認したときと違います。確認からやり直してください。何も送っていません。`, 'err');
+  }
+  const tp = loadTransferPending(rv.from);
+  if (tp) return resolveTransferThenRefresh(tp);
+  if (globalThis.navigator?.locks?.request) {
+    return navigator.locks.request(`wylls-transfer:${rv.from}`, { ifAvailable: true }, lock => (lock ? sendTransferLocked(rv)
+      : tsay(T`別のタブでこのウォレットの譲渡が進行中です。そちらの結果を待ってください（このタブからは送っていません）。`, 'err')));
+  }
+  return sendTransferLocked(rv);
+}
+async function sendTransferLocked(rv) {
+  if (tstate.busy) return;
   tstate.busy = true; $('t-send').disabled = true; $('t-cancel').disabled = true; $('t-review').disabled = true;
   try {
-    // Read again just before signing: the NFT may have moved since the review.
-    const s = checkSender({ from: rv.from, status: await api(`/mint/status?wallet=${rv.from}&asset=${rv.asset}`) });
+    const other = loadTransferPending(rv.from);              // another tab may have sent while this one waited
+    if (other) { tstate.busy = false; return await resolveTransferThenRefresh(other); }
+    // The page's RPC must still be the configured chain (a local world restarted under the same address is another chain).
+    if (await rpc('getGenesisHash') !== state.config.genesisHash) throw Object.assign(new Error(T`接続先のネットワークが変わりました。画面を再読込してください。何も送っていません。`), { code: 'WrongNetwork' });
+    // Read again just before signing: the NFT may have moved since the review. Its generation goes in the record.
+    const st = await api(`/mint/status?wallet=${rv.from}&asset=${rv.asset}`);
+    const s = checkSender({ from: rv.from, status: st });
     if (!s.ok) throw Object.assign(new Error(TRANSFER_REFUSAL(s.code)), { code: s.code });
+    if (!Number.isSafeInteger(st.gen)) throw Object.assign(new Error(T`住民の世代を読めません。何も送っていません。`), { code: 'NoGeneration' });
     const d = checkDestination({ input: rv.to, from: rv.from, asset: rv.asset, config: state.config, decode: fromBase58, isOnCurve });
     if (!d.ok) throw Object.assign(new Error(TRANSFER_REFUSAL(d.code)), { code: d.code });
     const resident = await residentAccountOf(rv.asset);
@@ -387,29 +436,36 @@ async function sendTransfer() {
       tsay(T`ウォレットが署名しませんでした（${e.code ?? 'WalletError'}）。何も送っていません。住民はこのウォレットのままです。`, 'err');
       return;
     }
+    if (!ws.stillOffers(rv.from, state.config.chainId)) throw Object.assign(new Error(T`接続中のウォレットまたはネットワークが、確認したときと違います。確認からやり直してください。何も送っていません。`), { code: 'WalletChanged' });
     if (!equal(messageOf(signed), message)) throw Object.assign(new Error(T`ウォレットが返した取引の中身が違います。送っていません。`), { code: 'WalletAlteredMessage' });
-    const signature = toBase58(parseTransaction(signed).signatures[0]);
-    writeTransferPending({ signature, asset: rv.asset, residentId: rv.residentId, from: rv.from, to: rv.to, lastValidBlockHeight, sentAt: Date.now() });
+    // The signature must be the sender's own over this message (an account switched inside the wallet signs with another key).
+    const sig = parseTransaction(signed).signatures[0];
+    const key = await crypto.subtle.importKey('raw', fromBase58(rv.from), { name: 'Ed25519' }, false, ['verify']);
+    if (!await crypto.subtle.verify({ name: 'Ed25519' }, key, sig, message)) throw Object.assign(new Error(T`ウォレットの署名が送り主の鍵のものではありません。送っていません。`), { code: 'WrongSigner' });
+    const signature = toBase58(sig);
+    const record = { v: 1, genesis: state.config.genesisHash, gen: st.gen, signature, asset: rv.asset, residentId: rv.residentId, from: rv.from, to: rv.to, lastValidBlockHeight, sentAt: Date.now() };
+    if (loadTransferPending(rv.from)) throw Object.assign(new Error(T`別のタブでこのウォレットの譲渡が進行中です。そちらの結果を待ってください（このタブからは送っていません）。`), { code: 'AnotherTransfer' });
+    writeTransferPending(record);
     tsay(T`送信しています…`);
     try {
       await rpc('sendTransaction', [toBase64(signed), { encoding: 'base64', skipPreflight: false, preflightCommitment: 'confirmed' }]);
     } catch (e) {
       if (e.code === 'RpcError') {
-        clearTransferPending();
+        clearTransferPending(rv.from, signature);
         const pe = programError(e);
         throw Object.assign(new Error(pe === 'NotOwner' ? T`この NFT は今このウォレットのものではありません（プログラムが拒否、何も変わっていません）。` : pe ? T`プログラムが拒否しました：${pe}（何も変わっていません）` : T`拒否されました：${e.message}（何も変わっていません）`), { code: 'Refused' });
       }
       tsay(T`応答が消えました。署名とチェーンで結果を照会します（再送はしません）…`);
-      await resolveTransferThenRefresh(readTransferPending());
+      await resolveTransferThenRefresh(record);              // this tab's own record, never whatever is stored now
       return;
     }
     tsay(T`確定を待っています…`);
     await settledStatus(signature, 60);
-    await resolveTransferThenRefresh(readTransferPending());
+    await resolveTransferThenRefresh(record);
   } finally {
     tstate.busy = false; $('t-cancel').disabled = false;
     $('t-send').disabled = !$('t-ack').checked || !tstate.review;
-    $('t-review').disabled = !!readTransferPending() || !$('t-asset').options.length;
+    $('t-review').disabled = !!loadTransferPending(rv.from) || !$('t-asset').options.length;
   }
 }
 
@@ -421,26 +477,30 @@ async function resolveTransfer(p) {
   const ownerAt = async commitment => assetOwnerOf((await rpc('getAccountInfo', [p.asset, { encoding: 'base64', commitment }])).value, toBase58);
   const settled = await settledStatus(p.signature);
   const owner = await ownerAt('confirmed');
+  // The generation now (every transfer raises it): A→B→A ends at A again, but two generations later.
+  let gen = null;
+  try { const g = (await api(`/mint/status?wallet=${p.from}&asset=${p.asset}`)).gen; gen = Number.isSafeInteger(g) ? g : null; } catch { /* unread: never "not landed" */ }
   let expired = false, finalOwner;
   if (!settled && owner !== p.to) {
     expired = (await rpc('getBlockHeight', [{ commitment: 'confirmed' }])) > p.lastValidBlockHeight;
     if (expired && (await rpc('getBlockHeight', [{ commitment: 'finalized' }])) > p.lastValidBlockHeight) finalOwner = await ownerAt('finalized');
   }
-  const out = decidePending({ p, settled, owner, expired, finalOwner });
+  const out = decidePending({ p, settled, owner, gen, expired, finalOwner });
   if (out === 'unknown') { tsay(T`譲渡の結果がまだ分かりません（有効期限 block ${p.lastValidBlockHeight}）。再送はしません。しばらくして「保有状態を再確認」を押してください。`); return; }
-  clearTransferPending();
+  clearTransferPending(p.from, p.signature);
   $('t-review').disabled = !$('t-asset').options.length;
   if (out === 'landed') {
     tstate.shown = true;
     closeReview(); $('t-to').value = '';
     tsay(T`譲渡しました（チェーンで確認）：住民 ${p.residentId ?? shortAddress(p.asset)} の持ち主は ${p.to} です。このウォレットではもうこの住民を遊べません。`, 'ok');
   } else if (out === 'failed') tsay(T`譲渡の取引は失敗しました（${JSON.stringify(settled.err)}）。何も変わっていません。住民はこのウォレットのままです。`, 'err');
+  else if (out === 'returned') tsay(T`譲渡は着地し、その後この住民はこのウォレットに戻っています（世代 ${p.gen} → ${gen}）。譲渡前の署名と session は無効です。再送はしません。`, 'err');
   else if (out === 'notLanded') tsay(T`譲渡の取引は期限切れで、着地していません。住民はこのウォレットのままです。確認からやり直せます。`, 'err');
   else tsay(T`取引は決着しましたが、今の持ち主は ${owner ?? finalOwner ?? '—'} です（宛先ではありません）。再送はしません。`, 'err');
   return out;
 }
 /** The same, then the whole page read again (holdings, the mint's state) once the transfer is decided. */
-async function resolveTransferThenRefresh(p) { await resolveTransfer(p); if (!readTransferPending()) await refresh(); }
+async function resolveTransferThenRefresh(p) { await resolveTransfer(p); if (!loadTransferPending(p.from)) await refresh(); }
 
 /**
  * The resident account for an asset. Real program: the PDA `["resident", asset]` of the program, derived here

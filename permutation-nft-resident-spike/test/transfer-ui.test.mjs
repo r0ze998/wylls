@@ -5,7 +5,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import { checkDestination, checkSender, transferInstruction, decidePending, assetOwnerOf, TRANSFER_TAG } from '../web/transfer.mjs';
+import { checkDestination, checkSender, transferInstruction, decidePending, parsePendingRecord, assetOwnerOf, TRANSFER_TAG } from '../web/transfer.mjs';
 import { isOnCurve, findProgramAddress } from '../../permutation-server/web/sdk/solana-tx.mjs';
 import { decode, encode } from '../../permutation-server/web/sdk/base58.mjs';
 import { TRANSFER_RESIDENT_ACCOUNTS } from '../src/mint-rpc.mjs';
@@ -64,16 +64,33 @@ test('the instruction is TransferResident as the program reads it (tag 0x51, nin
   assert.deepEqual(names.slice(0, 9), ['owner', 'payer', 'asset', 'collection', 'coll_auth', 'resident', 'new_owner', 'core', 'system']);
 });
 
-test('a lost answer: landed, failed, not landed, still unknown, or moved elsewhere — a new try only when certain', () => {
-  const p = { from: 'A', to: 'B' };
-  assert.equal(decidePending({ p, settled: { err: null }, owner: 'B' }), 'landed');
-  assert.equal(decidePending({ p, settled: null, owner: 'B' }), 'landed', 'the owner on the chain decides even when the RPC lost the status');
-  assert.equal(decidePending({ p, settled: { err: { Custom: 1003 } }, owner: 'A' }), 'failed');
-  assert.equal(decidePending({ p, settled: null, owner: 'A', expired: false }), 'unknown', 'it may still land: never resend');
-  assert.equal(decidePending({ p, settled: null, owner: 'A', expired: true }), 'unknown', 'expired, but finalized is not past expiry yet');
-  assert.equal(decidePending({ p, settled: null, owner: 'A', expired: true, finalOwner: 'A' }), 'notLanded');
-  assert.equal(decidePending({ p, settled: null, owner: 'C', expired: true, finalOwner: 'C' }), 'elsewhere');
-  assert.equal(decidePending({ p, settled: { err: null }, owner: 'C' }), 'elsewhere', 'landed, then moved on');
+test('a lost answer: landed, returned, failed, not landed, still unknown, or moved elsewhere — a new try only when certain', () => {
+  const p = { from: 'A', to: 'B', gen: 0 };
+  assert.equal(decidePending({ p, settled: { err: null }, owner: 'B', gen: 1 }), 'landed');
+  assert.equal(decidePending({ p, settled: null, owner: 'B', gen: 1 }), 'landed', 'the owner on the chain decides even when the RPC lost the status');
+  assert.equal(decidePending({ p, settled: { err: { Custom: 1003 } }, owner: 'A', gen: 0 }), 'failed');
+  assert.equal(decidePending({ p, settled: null, owner: 'A', gen: 0, expired: false }), 'unknown', 'it may still land: never resend');
+  assert.equal(decidePending({ p, settled: null, owner: 'A', gen: 0, expired: true }), 'unknown', 'expired, but finalized is not past expiry yet');
+  assert.equal(decidePending({ p, settled: null, owner: 'A', gen: 0, expired: true, finalOwner: 'A' }), 'notLanded');
+  assert.equal(decidePending({ p, settled: null, owner: 'C', gen: 1, expired: true, finalOwner: 'C' }), 'elsewhere');
+  assert.equal(decidePending({ p, settled: { err: null }, owner: 'C', gen: 2 }), 'elsewhere', 'landed, then moved on');
+  // A→B→A: the owner is the sender again, two generations later. Never "not landed".
+  assert.equal(decidePending({ p, settled: null, owner: 'A', gen: 2, expired: true, finalOwner: 'A' }), 'returned');
+  assert.equal(decidePending({ p, settled: null, owner: 'A', gen: 2, expired: false }), 'returned');
+  assert.equal(decidePending({ p, settled: { err: null }, owner: 'A', gen: 2 }), 'returned');
+  assert.equal(decidePending({ p, settled: null, owner: 'A', gen: null, expired: true, finalOwner: 'A' }), 'unknown', 'generation unread: not "not landed"');
+});
+
+test('the pending record: this network\'s complete record, else set aside (another network, unreadable)', () => {
+  const rec = { v: 1, genesis: 'G', gen: 0, signature: 'S', asset: 'X', from: 'A', to: 'B', lastValidBlockHeight: 10 };
+  assert.deepEqual(parsePendingRecord(null, 'G'), { state: 'none' });
+  assert.deepEqual(parsePendingRecord(JSON.stringify(rec), 'G'), { state: 'ok', p: rec });
+  assert.equal(parsePendingRecord(JSON.stringify(rec), 'H').state, 'otherNetwork', 'a local world restarted on the same address');
+  assert.equal(parsePendingRecord('{not json', 'G').state, 'unreadable');
+  assert.equal(parsePendingRecord(JSON.stringify({ ...rec, v: undefined }), 'G').state, 'unreadable', 'an older format');
+  assert.equal(parsePendingRecord(JSON.stringify({ ...rec, gen: '0' }), 'G').state, 'unreadable');
+  assert.equal(parsePendingRecord(JSON.stringify({ ...rec, to: '' }), 'G').state, 'unreadable');
+  assert.equal(parsePendingRecord('null', 'G').state, 'unreadable');
 });
 
 test('the asset owner is read from the Core account bytes (key, then 32 owner bytes)', () => {
@@ -85,10 +102,14 @@ test('the asset owner is read from the Core account bytes (key, then 32 owner by
 
 test('the page wires every step (review → acknowledge → send; record before send; lost answer by signature)', () => {
   const page = readFileSync(new URL('../web/mint.mjs', import.meta.url), 'utf8');
-  const send = page.slice(page.indexOf('async function sendTransfer'), page.indexOf('async function resolveTransfer'));
+  const send = page.slice(page.indexOf('async function sendTransfer()'), page.indexOf('async function resolveTransfer'));
   assert.ok(send.indexOf('writeTransferPending(') < send.indexOf("rpc('sendTransaction'"), 'the record is written before the send');
-  assert.match(send, /if \(tstate\.busy \|\| !rv \|\| !\$\('t-ack'\)\.checked/, 'nothing without the review and the acknowledgement; one at a time');
-  assert.match(send, /checkSender\(\{ from: rv\.from, status: await api/, 'the holder is read again just before signing');
+  assert.ok(send.indexOf("crypto.subtle.verify") < send.indexOf('writeTransferPending('), 'the signature is checked against the sender before the record');
+  assert.match(send, /navigator\.locks\.request\(`wylls-transfer:\$\{rv\.from\}`, \{ ifAvailable: true \}/, 'one transfer per wallet across tabs');
+  assert.match(send, /resolveTransferThenRefresh\(record\)/, 'a tab resolves its own record');
+  assert.doesNotMatch(send, /readTransferPending\(\)/, 'never "whatever wallet is connected now"');
+  assert.match(send, /if \(tstate\.busy \|\| !rv \|\| !\$\('t-ack'\)\.checked\) return;/, 'nothing without the review and the acknowledgement; one at a time');
+  assert.match(send, /const st = await api\(`\/mint\/status\?wallet=\$\{rv\.from\}[^\n]*\n\s*const s = checkSender\(\{ from: rv\.from, status: st \}\)/, 'the holder is read again just before signing');
   const html = readFileSync(new URL('../web/mint.html', import.meta.url), 'utf8');
   for (const id of ['t-asset', 't-to', 't-review', 't-confirm', 't-ack', 't-send', 't-cancel', 't-status', 't-dest', 't-from']) assert.match(html, new RegExp(`data-testid="${id}"`), id);
 });
