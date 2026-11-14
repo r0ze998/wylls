@@ -83,7 +83,7 @@ pub const MARKER: &[u8] = b"PSF_LOCALNET_EXPEDITION_SBF_BUILD";
 /// chosen only by `--lane-candidate`. Threaded through the runner in steps (docs/integration
 /// CLAUDE-NFT-CANDIDATE-LANE-VERSION-READ-20261114.md): step 1 here (Season, base, home, fixture, deploy), step 2
 /// the runtime modules through [`world_lane`]; test modules keep [`PROGRAM`].
-/// WRITTEN 2026-11-14/15 WITHOUT COMPILING (no host build agreed then).
+/// Written 2026-11-14/15 without a compiler; first compiled and tested 2026-11-15 in an agreed host slot.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Lane {
     pub program: [u8; 32],
@@ -1279,8 +1279,8 @@ mod real_depart {
     }
 }
 
-/// The lane (step 1 of threading the candidate through the runner). WRITTEN WITHOUT COMPILING; run with
-/// `cargo test -p itest --features localnet-expedition-play lane_tests` in an agreed host-build slot.
+/// The lane (step 1 of threading the candidate through the runner). Run with
+/// `cargo test -p itest --features localnet-conquest-play --lib lane_tests`.
 #[cfg(test)]
 mod lane_tests {
     use super::*;

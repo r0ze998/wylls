@@ -4,7 +4,7 @@
 //! `localnet-conquest-nft-sbf` (the conquest lane with NFT residents): served ONLY under its candidate program id
 //! [0x4C; 32]. Not an allocation, never deployable; the production version is undecided and is not here.
 //! (The same rule as permutation-gateway/src/frontier/local-lane-versions.mjs and the page's flocallanes.mjs.)
-//! WRITTEN 2026-11-14 WITHOUT COMPILING (no host build was agreed then); its tests are below.
+//! Written 2026-11-14 without a compiler; first compiled and tested 2026-11-15 in an agreed host slot.
 use crate::wideduty::Scope;
 use frontier_abi::world_index::expedition_dispatch_ix;
 use solana_address::Address;
