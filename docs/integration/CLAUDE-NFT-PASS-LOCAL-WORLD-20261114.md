@@ -22,7 +22,9 @@ branch `claude/nft-pass-mint-20261114`（基点 `3e3ba225`、独立 worktree `/U
 | 印 | `PSF_LOCALNET_NFT_SBF_BUILD`（＋`PSF_TEST_BEACON_BUILD`）。lane では必須、他のすべての build では拒否（`scripts/build-frontier.sh`） |
 | build | `scripts/build-frontier-localnet-nft-sbf.sh`（offline、専用の target と出力、約 250 MB 見込み）。`build-frontier.sh` を直接呼ぶと拒否 |
 
-**未 compile**（容量を領土戦の試験に残すため）。build なしで確認したこと：`permutation-nft-resident-spike/test/local-nft-lane.test.mjs` 5/5、`bash -n`、新しい Rust の箇所の rustfmt。Rust の試験（`markers::tests::the_local_nft_lane_is_isolated`、`localnet_nft_identity_tests`）は build 時に走る。
+**14:50 に build した**（`scripts/build-frontier-localnet-nft-sbf.sh`、offline、空き容量の watchdog 付き。先に自分の住民 program の target 194 MB を消して相殺し、build 後に lane の cargo target 233 MB も消した。`.so` だけ残す）：`build-frontier.sh` の検査（SBPF v2、overflow 検査、lane の印 2 つが有り、他の印が無い、data relocation）をすべて通り `deployable no`。`.so` sha256 `2171b86eb691db7bb2354bbb54625149e855b9559d74ffe843bcc9cf84f0fca5`、1,450,616 B（program_hash `018f1bc8…`）。空き容量は 21.06 → 21.22 GiB（開始時より増えた）。Rust の host 試験は実行していない（host build をしないため）。
+
+build の前に build なしで確認したこと：`permutation-nft-resident-spike/test/local-nft-lane.test.mjs` 5/5、`bash -n`、新しい Rust の箇所の rustfmt。Rust の試験（`markers::tests::the_local_nft_lane_is_isolated`、`localnet_nft_identity_tests`）は build 時に走る。
 
 ## 3. relay の holder gate：何を relay が確かめ、何を program だけが確かめるか
 
@@ -69,11 +71,28 @@ relay を通過しても権限にはならない。同じ取引の中で program
 | `CreateResidentPolicy` の JS builder | `client/src/frontier/resident.mjs`（commit `0846c367`）。Rust の wire・口座・guard と照合 3/3 |
 | relay の holder gate | §3 |
 | ゲーム web の NFT 経路（NFT 選択・JoinResident・ResidentAct） | 既存。`programVersion & 0x8000` の world で有効 → この lane の world で有効になる。web 試験 16/16（1 件の古い正規表現を修正） |
-| world の起動（chain・Season・keeper・herald・relay） | **未実装**。§5 |
+| **発行 → 保有 → 参加 → 操作（program の層）** | **実 chain で通った**（§4.1） |
+| world の起動（Season の作成・keeper・herald・relay・ゲーム画面） | **未実装**。§5 |
+
+### 4.1 実 chain の試験（2026-11-14 14:50〜15:00、ループバック validator、実 program）
+
+同じ `solana-test-validator` に、実 Core（mainnet の binary）、住民 program（`947da0b9…`）、Frontier の NFT lane（`2171b86e…`、`[0x4E; 32]`）を載せた。試験値・乱数のメモリ内の鍵だけ。
+
+| 試験 | 結果 |
+|---|---|
+| `test/localnet-nft-lane.test.mjs`：同じ `.so` を別 ID に載せると `BadAddress`。`CreateResidentPolicy` は upgrade authority 以外で `Auth`、guard 違いで `BadData`、正しいもので 1 回だけ成功し 2 回目は拒否。書かれた policy を relay gate が読む。同じ chain で mint と譲渡、gate が実 program のバイトで holder・パス未保有・旧持ち主・古い世代を判定。発行ページの `--rpc` 接続が同じ config を読む | 3/3（3 回実行） |
+| `test/localnet-nft-world.test.mjs`：Season と Frontier だけ preload（§4.2）、あとは実取引。policy → **A が mint** → パス未保有の wallet の JoinResident は `ResidentNotCurrentAuthority`(175)、Citizen は作られない → **A の JoinResident** で NFT Citizen（WALLET 0、asset の印、faction 2）と world の link ができる → 2 回目の JoinResident は拒否 → **A の ResidentAct(SetVigil 600)** が Citizen に書かれる → 他人の ResidentAct は 175 → **A→B の TransferResident** → A の世代 0 は `ResidentStaleGeneration`(174)、A の世代 1 は 175、B の世代 0 は 174、どれも Citizen を変えない → B の世代 1 は holder の検査を通り、SetVigil 自身の規則（6 日に 1 回、A が直前に変えた）で `Cooldown`(29) → B の JoinResident は拒否（1 NFT・1 Citizen）。各段で relay gate の答えが program と一致 | 1/1（3 回実行） |
+| 住民 spike 全体（`node --test --test-concurrency=1 test/*.test.mjs`） | 87 件中 86 合格、skip 0。失敗 1 は既知の負荷依存の模擬試験（途中離脱→再読込、単独 3/3 合格） |
+
+B の操作は state を変えていない（cooldown）。B が操作できることは「holder の検査を通って行為自身の規則に達した」ことで示した。状態を変える 2 回目の操作は、時計を進められる chain（frontier-localnet）か別の行為で確かめる。
+
+### 4.2 preload した state の範囲（正直な限界）
+
+`src/nft-world-fixture.mjs` は Running の Season（2048 B）と Frontier（512 B、open sites 100）を、Frontier program の runtime harness（`resident_runtime_tests.rs` `World::new`）と同じ値で書く。版は lane の `S1 | 0x8000`。**AnnounceSeason・CreateSeason・InitShards で作った Season ではない**。map・国・beacon・keeper は無く、JoinResident と Citizen だけの行為（SetVigil など）までを試せる。ゲーム画面での遊びや、建設・行軍などの行為には本物の world の起動（§5）が要る。
 
 ## 5. 残り（容量か build が要る）
 
-1. **lane の SBF build**（約 250 MB）と、実 chain での確認：program ID の拒否、`CreateResidentPolicy`（upgrade authority だけ、guard の検査、一度だけ）、同じ chain での mint と譲渡、relay gate が実 program のバイトを読むこと。`solana-test-validator` で足り、host build は要らない。自分の住民 program の target（194 MB）を消して相殺する計画。
+1. ~~lane の SBF build と実 chain での確認~~（済み、§2・§4.1）。
 2. **world の起動**：`frontier-stack up` に `--nft-pass`（`--prize-so` と同じ形）を足す。中身は (a) `frontier-localnet --program` で Core（authority 無し）と住民 program（authority＝起動時のメモリ内の鍵）を同じ chain に載せる、(b) Frontier の program ID を `[0x4E; 32]` にする、(c) Season 作成の後に住民 program の setup（collection・InitConfig・試験値の SetTerms）と `CreateResidentPolicy`、(d) 発行ページの companion server をその RPC につなぐ。`frontier-localnet` はすでに複数の `--program ID=PATH[:MAXLEN][@AUTHORITY]` を受け付ける。
 3. **host build の容量**：stack・localnet・keeper・herald・drand-replay の host build は、他の worktree の実績で 2.7〜11 GiB。今の余裕（開始 21 GiB／維持 20 GiB に対して約 21.1 GiB）では無理。既存の `frontier-localnet` の binary（11-05）は来歴が合わず（その後 localnet は約 400 行変わった）、証拠には使わない。
 4. 公開発行にだけ要る判断（価格・供給・treasury・authority・配備先・RPC・公開先）は MINT-READINESS §6。

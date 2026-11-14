@@ -6,7 +6,7 @@
 // random in-memory key funded by the local faucet. Nothing is deployed
 // anywhere and no key is written to disk by this module.
 import { spawn } from 'node:child_process';
-import { existsSync, mkdtempSync, rmSync } from 'node:fs';
+import { existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -30,13 +30,22 @@ export function localnetAvailable() {
 // The resident program is loaded as an upgradeable program whose upgrade
 // authority is the setup key: InitConfig only accepts the program's upgrade
 // authority (v0.14). The setup key is made here, in memory, for this process.
-export async function startValidator({ rpcPort = 40000 + Math.floor(Math.random() * 20000), programId = TEST_PROGRAM_ID, coreSo = process.env.PSF_CORE_SO ?? DEFAULT_CORE_SO, residentSo = process.env.WYLLS_RESIDENT_SO ?? DEFAULT_RESIDENT_SO, quiet = true, setup = keypair(), extraPrograms = [] } = {}) {
+export async function startValidator({ rpcPort = 40000 + Math.floor(Math.random() * 20000), programId = TEST_PROGRAM_ID, coreSo = process.env.PSF_CORE_SO ?? DEFAULT_CORE_SO, residentSo = process.env.WYLLS_RESIDENT_SO ?? DEFAULT_RESIDENT_SO, quiet = true, setup = keypair(), extraPrograms = [], extraAccounts = [] } = {}) {
   const ledger = mkdtempSync(path.join(tmpdir(), 'wylls-localnet-'));
   const args = ['--reset', '--ledger', ledger, '--bind-address', '127.0.0.1', '--rpc-port', String(rpcPort), '--faucet-port', String(rpcPort + 1), '--limit-ledger-size', '10000',
     '--bpf-program', MPL_CORE_PROGRAM, coreSo, '--upgradeable-program', programId, residentSo, setup.publicKey];
   // More programs on the same chain (the local NFT world's Frontier lane): upgradeable under `authority`
   // (default: the setup key) so their own authority-only setup instructions can run.
   for (const x of extraPrograms) args.push('--upgradeable-program', x.id, x.so, x.authority ?? setup.publicKey);
+  // Accounts present from genesis (`--account ADDRESS FILE`, the validator's JSON account format):
+  // the local NFT world's preloaded Season and Frontier (src/nft-world-fixture.mjs). Written into
+  // a scratch directory beside the ledger (`--reset` clears the ledger) and removed on stop.
+  const accDir = extraAccounts.length ? mkdtempSync(path.join(tmpdir(), 'wylls-localnet-accounts-')) : null;
+  extraAccounts.forEach((a, i) => {
+    const file = path.join(accDir, `account-${i}.json`);
+    writeFileSync(file, JSON.stringify({ pubkey: a.address, account: { lamports: Number(a.lamports), data: [Buffer.from(a.data).toString('base64'), 'base64'], owner: a.owner, executable: false, rentEpoch: 0, space: a.data.length } }));
+    args.push('--account', a.address, file);
+  });
   if (quiet) args.push('--quiet');
   const child = spawn(VALIDATOR, args, { stdio: ['ignore', 'ignore', 'pipe'] });
   let stderr = '';
@@ -50,7 +59,7 @@ export async function startValidator({ rpcPort = 40000 + Math.floor(Math.random(
     await new Promise(r => setTimeout(r, 500));
   }
   if ((await rpc.health().catch(() => null)) !== 'ok') { child.kill('SIGKILL'); throw new Error(`validator not healthy in time: ${stderr.slice(-800)}`); }
-  const stop = async () => { child.kill('SIGTERM'); await new Promise(r => setTimeout(r, 1500)); if (child.exitCode === null) child.kill('SIGKILL'); rmSync(ledger, { recursive: true, force: true }); };
+  const stop = async () => { child.kill('SIGTERM'); await new Promise(r => setTimeout(r, 1500)); if (child.exitCode === null) child.kill('SIGKILL'); rmSync(ledger, { recursive: true, force: true }); if (accDir) rmSync(accDir, { recursive: true, force: true }); };
   return { url, rpc, programId, ledger, stop, child, setup };
 }
 
