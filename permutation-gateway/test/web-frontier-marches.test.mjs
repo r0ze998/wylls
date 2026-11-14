@@ -320,6 +320,8 @@ test('the departure margin by the clock\'s rate: 90 game seconds on the chain\'s
 const scopeOf = o => { const h = FS.holdings[0]; return `${o.key}||${h.p},${h.q},${h.site},${h.gen ?? 0}`; };
 const ownOrder = (o, dest, arrive, extra = {}) => ({ id: 'o1', kind: 'march', name: 'Depart', host: String(W.HOSTS.free), dest: { p: W.HOME.p, q: W.HOME.q, tile: dest.tile }, arriveBell: arrive, state: 'accepted', scope: scopeOf(o), transitSlot: 0, ...extra });
 const looseCard = () => FS.marches.find(x => x.entry === null && String(x.transit?.hostId) === String(W.HOSTS.free)) ?? null;
+/** Readings until the entry-less card is there (the herald may be a moment behind the Depart: see the test above). */
+async function untilLoose(n = 6) { for (let i = 0; i < n && !looseCard(); i++) await C.refresh(); assert.ok(looseCard(), 'the march has an entry-less card'); }
 
 test('round 29: an entry-less live march reads its stage from the page\'s own order record of the same identity, slot, host and arrival turn; any other record, or none, leaves it as before; nothing is revealed', async () => {
   const o = await open();
@@ -327,8 +329,7 @@ test('round 29: an entry-less live march reads its stage from the page\'s own or
     await C.refresh();
     const dest = destination(o.world), arrive = 44;
     depart(o, dest, { arrive });   // on chain only: no book entry on this device
-    await C.refresh();
-    assert.ok(looseCard(), 'the march has an entry-less card');
+    await untilLoose();
     FS.orders = [ownOrder(o, dest, arrive)];
     await C.refresh();
     assert.equal(looseCard().facts.pipeline, null, 'before its arrival turn: no stage read');
@@ -343,6 +344,10 @@ test('round 29: an entry-less live march reads its stage from the page\'s own or
       await C.refresh();
       assert.equal(looseCard().facts.pipeline, null, `${why}: not used`);
     }
+    // two matching records naming different destinations (an old unconfirmed send beside a later one): ambiguous, not used
+    FS.orders = [ownOrder(o, dest, arrive, { id: 'o0', state: 'unconfirmed', dest: { p: W.HOME.p, q: W.HOME.q, tile: (dest.tile + 1) % 61 } }), ownOrder(o, dest, arrive)];
+    await C.refresh();
+    assert.equal(looseCard().facts.pipeline, null, 'ambiguous records: not used');
     FS.orders = [ownOrder(o, dest, arrive)];
     await C.refresh();
     assert.notEqual(looseCard().facts.pipeline, null, `the stage is read: ${looseCard().facts.pipeline}`);
@@ -358,6 +363,7 @@ test('round 29: a turn record that cannot be read leaves the stage unconfirmed (
     await C.refresh();
     const dest = destination(o.world), arrive = 44;
     depart(o, dest, { arrive });
+    await untilLoose();
     FS.orders = [ownOrder(o, dest, arrive)];
     o.to(arrive + 1, 30); await o.observe();
     fail = true; await C.refresh();
@@ -367,28 +373,36 @@ test('round 29: a turn record that cannot be read leaves the stage unconfirmed (
   } finally { await o.close(); }
 });
 
-test('round 29: a reading during which the village or the herald changes writes nothing (no old transits with new facts)', async () => {
-  let during = null;
-  const wrap = h => ({ ...h, bellRegion: async (...a) => { const r = await h.bellRegion(...a); const f = during; during = null; f?.(); return r; } });
+test('round 29: a reading during which the village, the herald or the wallet changes — while it waits on the destination or on the turn record — writes nothing (no old transits with new facts)', async () => {
+  let during = null, on = null, arriveAt = null;
+  const fire = (kind, b) => { if (on === kind && b === arriveAt && during) { const f = during; during = null; f(); } };
+  const wrap = h => ({ ...h,
+    province: async (p, q, b) => { const r = await h.province(p, q, b); fire('province', b); return r; },
+    bellRegion: async (b, region) => { const r = await h.bellRegion(b, region); fire('bellRegion', b); return r; } });
   const o = await open({ herald: wrap });
   try {
     await C.refresh();
     const dest = destination(o.world), arrive = 44;
+    arriveAt = arrive;
     depart(o, dest, { arrive });
+    await untilLoose();
     FS.orders = [ownOrder(o, dest, arrive)];
     o.to(arrive + 1, 30); await o.observe();
     await C.refresh();
     const before = FS.marches;
     assert.notEqual(looseCard().facts.pipeline, null);
-    // the village changes while the reading waits on the turn record
-    const homes = FS.holdings;
-    during = () => { FS.holdings = [{ ...homes[0], site: homes[0].site + 1 }, ...homes.slice(1)]; };
-    FS.marches = before; await C.refresh().catch(() => {});
-    assert.equal(during, null, 'the village changed during the reading'); assert.equal(FS.marches, before, 'village changed mid-reading: nothing written');
-    FS.holdings = homes;
-    // the herald changes while the reading waits
-    during = () => { C.useHerald(wrap(o.h)); };
-    FS.marches = before; await C.refresh().catch(() => {});
-    assert.equal(during, null, 'the herald changed during the reading'); assert.equal(FS.marches, before, 'herald changed mid-reading: nothing written');
+    const homes = FS.holdings, wallet = FS.wallet;
+    const cases = [
+      ['the village', () => { FS.holdings = [{ ...homes[0], site: homes[0].site + 1 }, ...homes.slice(1)]; }, () => { FS.holdings = homes; }],
+      ['the herald', () => { C.useHerald(wrap(o.h)); }, () => {}],
+      ['the wallet (the book key)', () => { FS.wallet = { address: 'Other1111111111111111111111111111111111111' }; }, () => { FS.wallet = wallet; }],
+    ];
+    for (const kind of ['province', 'bellRegion']) for (const [what, change, undo] of cases) {
+      on = kind; during = change;
+      FS.marches = before; await C.refresh().catch(() => {});
+      assert.equal(during, null, `${what} changed while the reading waited on ${kind}`);
+      assert.equal(FS.marches, before, `${what} changed during ${kind}: nothing written`);
+      undo(); on = null;
+    }
   } finally { await o.close(); }
 });

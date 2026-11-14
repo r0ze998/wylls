@@ -966,12 +966,16 @@ function marchScope(h = activeHolding(FS)) {
 /**
  * The destination of a march this page sent itself, from its order record — only one bound to the same identity
  * (marchScope), the same transit slot, host and arrival turn, and not refused; else null (the card stays unconfirmed).
+ * Records that match but name different destinations (an old unconfirmed send beside a later one) are ambiguous: null.
  */
 function ownMarchDest(t, scope) {
   if (!scope) return null;
-  const o = (FS.orders ?? []).find(x => x.kind === 'march' && x.state !== 'refused' && x.scope === scope && x.transitSlot === t.slot
+  const all = (FS.orders ?? []).filter(x => x.kind === 'march' && x.state !== 'refused' && x.scope === scope && x.transitSlot === t.slot
     && x.arriveBell === t.arriveBell && String(x.host) === String(t.hostId) && x.dest && Number.isInteger(x.dest.p) && Number.isInteger(x.dest.q));
-  return o ? { p: o.dest.p, q: o.dest.q, tile: o.dest.tile } : null;
+  const dests = new Set(all.map(x => `${x.dest.p},${x.dest.q},${x.dest.tile}`));
+  if (dests.size !== 1) return null;
+  const o = all[0];
+  return { p: o.dest.p, q: o.dest.q, tile: o.dest.tile };
 }
 const holdingRef = h => (h ? `${h.p},${h.q},${h.site},${h.gen ?? 0}` : '');
 
