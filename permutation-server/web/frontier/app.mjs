@@ -1153,7 +1153,16 @@ function mapTap(hit) {
   }
   // (a Scout's tiles are being picked: a tap elsewhere is answered, the picking stays)
   if (hand.popOf(FS, sub) === 'explore') { mapNote(hit, () => L`斥候のとなりで光っているマスだけ調べられます`); return true; }
-  if (!A || !sub.host || !hand.marchCheck(FS, sub.host).ok) return false;
+  if (!A || !sub.host) return false;
+  const mcNow = hand.marchCheck(FS, sub.host);
+  if (!mcNow.ok) {
+    // (round 35: with its March card open the tap is a destination: why the host cannot set out — the province still
+    //  resolving the last turn, stamina, rest — is said on the map and the host stays in hand. It fell through to a
+    //  plain tile selection without a word, which read as a press that did nothing; seen in a ×10 world. Without the
+    //  March card the tap selects the tile, as before.)
+    if (hand.popOf(FS, sub) === 'march') { mapNote(hit, () => mcNow.text); return true; }
+    return false;
+  }
   if (t) { orderMarch(A, hit).catch(() => {}); return true; }
   // unlit: a second tap on the tile just refused selects it
   const n = FS.mapNote;

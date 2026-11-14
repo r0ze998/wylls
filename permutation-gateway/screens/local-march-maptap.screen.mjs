@@ -117,3 +117,61 @@ test('round 28: local play — a map tap says the refusal on the map and drafts 
     assert.deepEqual(errors, []);
   } finally { await ctx.close(); }
 });
+
+for (const [lang, said] of [['en', /still resolving the last turn/], ['ja', /この州はまだ前のターンの決着が済んでいません/]]) test(`round 35 (${lang}): in march mode, a tap on a tile while the province is still behind says why on the map and keeps the host in hand (it fell through to a plain tile selection, with no word)`, { timeout: 120_000 }, async () => {
+  const ctx = await browser.newContext({ viewport: { width: 1440, height: 900 }, locale: lang === 'en' ? 'en-US' : 'ja-JP', timezoneId: 'UTC' });
+  await NK.prepare(ctx, srv.viewer, { lang });
+  const page = await ctx.newPage();
+  const errors = [], posts = [];
+  page.on('pageerror', e => errors.push(e.message));
+  page.on('request', r => { if (r.method() !== 'GET' && r.method() !== 'HEAD') posts.push(`${r.method()} ${new URL(r.url()).pathname}`); });
+  try {
+    await page.clock.setFixedTime(new Date(LATEST_UNIX * 1000 + 500));
+    await page.goto(`${base}/frontier/index.html?at=${HOME.p},${HOME.q},${HOME.tile},1.0`);
+    await page.waitForFunction(() => /\d/.test(document.getElementById('bell-chip')?.textContent ?? '') && document.body.dataset.stage !== 'loading');
+    await page.locator('#frontier-map[data-lod="tile"]').waitFor();
+    await tapTile(page, HOME);
+    await page.locator('#hand [data-hand="build"]').waitFor();
+    await page.locator('#hand .hand-chip[data-host]:not(.hand-back)', { hasText: /Spear|槍兵/ }).first().click();
+    await page.locator('#hand [data-hand="march"][aria-pressed="true"]').waitFor();
+    // the player presses March: its card opens ("Press the destination tile …") — the tap that follows is a destination
+    await page.locator('#hand [data-hand="march"]').click();
+    await page.waitForFunction(() => document.getElementById('hand-pop')?.dataset.pop === 'march');
+    const tiles = await seenTiles(page);
+    assert.ok(tiles.length >= 1, 'a passable tile in view');
+    // (test-only, in this page: the host's province two turns behind — the program refuses a Depart then: NotResident —
+    //  held there by the test for the tap: the page's own province reads are paused while it lasts)
+    const pt = await tileAt(page, { ...HOME, tile: tiles[0] });
+    const at = await page.evaluate(async () => {
+      const { FS, invalidate } = await import('/frontier/fstate.mjs');
+      const H = await import('/frontier/hud/hand.mjs');
+      const sub = H.subjectOf(FS), key = `${sub.host.p},${sub.host.q}`, env = FS.provinces.get(key);
+      const behind = { ...env, province: { ...env.province, resolvedNext: FS.nowBell - 3 } };
+      // (a getter keeps the behind province in place even if a read writes the map entry again)
+      const map = FS.provinces, get = map.get.bind(map);
+      map.get = k => (k === key ? behind : get(k));
+      invalidate('panel', 'map');
+      await new Promise(r => setTimeout(r, 300));
+      return { host: String(sub.host.id), check: H.marchCheck(FS, H.subjectOf(FS).host).code };
+    });
+    assert.equal(at.check, 'NotResident', 'the fixture holds the province behind');
+    assert.equal(await page.evaluate(() => document.getElementById('hand-pop')?.dataset.pop ?? ''), 'march', 'the March card is still open');
+    const host = at.host;
+    await page.mouse.move(pt.x, pt.y); await page.mouse.down(); await page.waitForTimeout(90); await page.mouse.up();
+    await page.waitForTimeout(700);
+    const after = await page.evaluate(async () => {
+      const { FS } = await import('/frontier/fstate.mjs');
+      const { subjectOf } = await import('/frontier/hud/hand.mjs');
+      const n = FS.mapNote, sub = subjectOf(FS);
+      return { note: n ? String(typeof n.say === 'function' ? n.say() : n.text ?? '') : null, compose: !!FS.compose, hand: sub?.kind === 'host' ? String(sub.host.id) : sub?.kind ?? null, selected: FS.selected?.idx ?? null };
+    });
+    assert.equal(after.compose, false, 'no order drafted');
+    assert.match(String(after.note), said, `the reason is said on the map: ${after.note}`);
+    if (process.env.SHOT_DIR) await page.screenshot({ path: `${process.env.SHOT_DIR}/maptap-note-${lang}.png` });
+    assert.equal(after.hand, host, 'the host stays in hand');
+    // (the only request: the page's own catch-up request for a lagging province, made by an ordinary session whenever it
+    //  sees one — not an order; the test held the province behind)
+    assert.deepEqual(posts.filter(x => !x.endsWith('/f/nudge')), [], 'no order sent');
+    assert.deepEqual(errors, []);
+  } finally { await ctx.close(); }
+});
