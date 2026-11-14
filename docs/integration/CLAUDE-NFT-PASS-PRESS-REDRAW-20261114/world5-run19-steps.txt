@@ -1,0 +1,16 @@
+11:29:22 A: connected the Dev Wallet
+11:29:24 1 no pass: the join card links to the mint page — http://127.0.0.1:41090/web/mint.html?lang=en
+11:29:25 2 minted on the mint page — Mhpp23uXA2KoQpLPB2w7qHYnnyK84kwvEG5g5cbJaKZ
+11:29:29 3 joined with the NFT (JoinResident)
+11:29:30 4 acted (first village): on chain the NFT Citizen holds it, owner A, generation 0 — 8zBnWTw6Yi2oKKaTgfWcAnJnJTzjcwYTopWBcnFyYwzj
+11:30:16 4b reload: the pass is offered again
+11:30:16 5 transfer screen: a transfer to itself is refused before signing
+11:30:17 5 TransferResident A→B from the mint page's transfer screen — Transferred (confirmed on the chain): resident fef79ef47c365f7032f285e4a01b54 now belongs to ribENW2wBqvTmBQwFduRKLzK7ejLUCQ1DM35GpW3Ekk. This wallet can no longer play this resident.
+11:30:18 5a A (stale page) acts: refused on screen, nothing changed on chain — This resident NFT is not in this wallet now.
+11:30:20 5a2 A (stale page) builds: refused on screen, nothing changed on chain
+11:31:06 5 A: the pass is no longer offered
+11:31:10 B: connected the Dev Wallet
+11:31:13 5 B plays the same Citizen
+11:31:15 6 B harvested: the stores grew on chain — 14302184080 → 14302604624, last owner action 1785633760 → 1785644120, owner B, generation 1
+11:31:18 7 B: no nation choice beside its village
+11:33:20 FAILED — page.waitForFunction: Timeout 120000ms exceeded.

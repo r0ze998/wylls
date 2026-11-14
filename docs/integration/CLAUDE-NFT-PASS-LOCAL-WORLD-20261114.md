@@ -266,6 +266,21 @@ game ページの既存試験は 1607 件中 1597 合格、失敗 10 件は修�
 - 手札の pop-up への同じ保留は主側の round 17a（この branch の app.mjs の上、主側が canonical に適用。私は自分の部分と主側の差分の行を review）。
 - **world での確認はまだ**（次の world は主側と枠を合意してから。press の記録と失敗時の screenshot・DOM・event log を screen check に足した）。
 
+## 5j. 通常 world の 5 回目（未達、押下が失われた原因を特定）（同日 20:28〜20:39）
+
+主側と合意（並行、41000 帯、headless、追加 build なし、0.5 GB 以内、watchdog 20.85 GiB を全 component の停止まで）。host binary は記録どおりの `c1c1a55a` の build（binary の hash と `Cargo.lock` は一致）。`host-bins.mjs verify` は **NOT OK**（source が変わった）と出たが、変わったのは lane 候補の 4 file だけで、どれも未 build の候補 feature の下にあり、これらの binary には入っていない。画面の検査を 2 回（押下の記録つき、押し直しなし。2 回目は 1 回目の原因を直した検査で、同じ world で 1 回だけ）。
+
+- 両回とも、譲渡 UI（自分宛の拒否 → 確認 → 送信、chain で譲渡済み）、旧持ち主 A の拒否（Harvest・Build、chain は不変）、B の Harvest（蔵が増えた）まで通った。B の Build で止まった。
+- **押下の記録から分かったこと**（`CLAUDE-NFT-PASS-PRESS-REDRAW-20261114/world5-run*-B-press*.json`、`world5-run20-B-failure.png`）：
+  - B の Build の押下の pointerdown と pointerup は**地図の canvas に当たっていた**（押した点の要素は `frontier-map`、drawer ではない）。
+  - 1 回目は村の tab の押下から 260 ms 後（drawer が動いている途中に見えた）。2 回目は「止まって見える・押す点が button」の条件を 3 秒待っても満たさず、同じく地図に当たった。
+  - 失敗時の screenshot：**drawer は村ではなく「Selection – Hills」（地図の選択）を表示**。押そうとした Build はそもそも画面に出ていなかった。
+  - 原因：検査の「村を開く」が `[data-act="tab"][data-tab="holding"]` の**先頭の要素**を押していて、それが dock の Village tab ではない別の要素（座標 (388, 574)）だった。fixture の画面試験は `#tabs [data-tab="holding"]` を押しており、こちらが正しい。
+  - **結論**：world 4・5 の「Build の押下が失われた」のは、**検査の script が画面に無い Build を押していた**ため。ページが押下を失った証拠ではない（ただし、正しい tab で world 上の押下を通した確認はまだ）。
+- 修正（`demo/nft-world-screen-check.mjs`）：村を開くのは `#tabs [data-tab="holding"]`、その後 `#holding-title` を待つ。押す前に button が止まって見え、押す点の要素が button であることを待つ（見る動作で、押し直しではない）。
+- world は予定の終わり前に停止（延長しない）。run directory 304 MB を削除、空き 22.49 GiB、主側に報告。
+- **未確認のまま**：world での B の Build・Train・Muster の人の押下と入力（form・値・focus の保持）、行軍。次の world（主側と合意してから）で、直した検査を 1 回だけ。
+
 ## 6. push の記録
 
 | 時刻 | `git ls-remote origin refs/heads/claude/nft-pass-mint-20261114` |

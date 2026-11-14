@@ -114,8 +114,14 @@ async function connectDevWallet(page, name) {
 
 /** The village tab of the drawer (the bottom bar's `holding` tab). */
 async function openVillage(page) {
-  const tab = page.locator('[data-act="tab"][data-tab="holding"]').first();
-  if (await tab.count()) await tab.click();
+  // The dock's Village tab (#tabs), as the fixture screen tests press it, then wait until the village is what the
+  // drawer shows (#holding-title). World 5's press log: `.first()` of every [data-act="tab"][data-tab="holding"]
+  // pressed another element at (388, 574), the drawer stayed on "Selection" and Build was pressed where no Build
+  // was on screen (the map was under the point).
+  const tab = page.locator('#tabs [data-tab="holding"]');
+  if (await tab.count()) await tab.first().click();
+  else { const any = page.locator('[data-act="tab"][data-tab="holding"]').first(); if (await any.count()) await any.click(); }
+  await page.locator('#holding-title').waitFor({ state: 'visible', timeout: 15_000 }).catch(() => {});
 }
 const REFUSALS = /This resident NFT is not in this wallet now|ResidentHolderChanged|ResidentGenerationStale|holder could not be confirmed/;
 
@@ -235,8 +241,23 @@ async function humanForm(page, name, what, value, { redraws = 2, holdMs = 240_00
 async function humanPress(page, sel) {
   const box = await page.evaluate(sel => { const el = document.querySelector(sel); if (!el || el.disabled) return null; el.scrollIntoView({ block: 'center' }); const r = el.getBoundingClientRect(); return r.width && r.height ? { x: r.left + r.width / 2, y: r.top + r.height / 2 } : null; }, sel);
   if (!box) throw new Error(`no enabled ${sel} on screen to press`);
-  await page.waitForTimeout(150);
-  const again = await page.evaluate(sel => { const el = document.querySelector(sel); if (!el) return null; const r = el.getBoundingClientRect(); return { x: r.left + r.width / 2, y: r.top + r.height / 2 }; }, sel);
+  // A person presses what they see standing still: wait (up to 3 s) until the button's centre has not moved for
+  // 250 ms AND the element at that point is the button (the drawer slides in after a tab press: world 5 pressed the
+  // map under a drawer still on its way). Looking, not a retry: nothing is pressed until then, and only once.
+  const again = await page.evaluate(async sel => {
+    const t0 = performance.now(); let last = null, since = performance.now();
+    for (;;) {
+      const el = document.querySelector(sel), r = el?.getBoundingClientRect();
+      const c = r ? { x: r.left + r.width / 2, y: r.top + r.height / 2 } : null;
+      const top = c ? document.elementFromPoint(c.x, c.y) : null;
+      const hit = !!(top && el && (top === el || el.contains(top)));
+      if (!c || !last || Math.abs(c.x - last.x) > 0.5 || Math.abs(c.y - last.y) > 0.5 || !hit) since = performance.now();
+      last = c;
+      if (c && hit && performance.now() - since >= 250) return { ...c, waitedMs: Math.round(performance.now() - t0) };
+      if (performance.now() - t0 > 3000) return c ? { ...c, waitedMs: Math.round(performance.now() - t0), unsettled: true, hit } : null;
+      await new Promise(r => requestAnimationFrame(r));
+    }
+  }, sel);
   const at = again ?? box;
   await page.mouse.move(at.x, at.y);
   await page.mouse.down();

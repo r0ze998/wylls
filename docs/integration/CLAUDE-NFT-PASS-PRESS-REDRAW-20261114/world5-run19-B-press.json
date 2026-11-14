@@ -1,0 +1,96 @@
+{
+  "sel": "[data-act=\"build\"][data-item].br-go:not([disabled])",
+  "at": {
+    "x": 1212.7265625,
+    "y": 406.421875
+  },
+  "tail": {
+    "events": [
+      {
+        "type": "pointerdown",
+        "t": 12542,
+        "act": "tab",
+        "item": null,
+        "where": "page",
+        "connected": true,
+        "disabled": false,
+        "atPoint": "tab",
+        "atPointWhere": "page",
+        "x": 388,
+        "y": 574,
+        "scroll": 0
+      },
+      {
+        "type": "pointerup",
+        "t": 12542,
+        "act": "tab",
+        "item": null,
+        "where": "page",
+        "connected": true,
+        "disabled": false,
+        "atPoint": "tab",
+        "atPointWhere": "page",
+        "x": 388,
+        "y": 574,
+        "scroll": 0
+      },
+      {
+        "type": "click",
+        "t": 12542,
+        "act": "tab",
+        "item": null,
+        "where": "page",
+        "connected": true,
+        "disabled": false,
+        "atPoint": "tab",
+        "atPointWhere": "page",
+        "x": 388,
+        "y": 574,
+        "scroll": 0
+      },
+      {
+        "type": "pointerdown",
+        "t": 12802,
+        "act": "CANVAS",
+        "item": null,
+        "where": "page",
+        "connected": true,
+        "disabled": false,
+        "atPoint": "frontier-map",
+        "atPointWhere": "page",
+        "x": 1212.7265625,
+        "y": 406.421875,
+        "scroll": 0
+      },
+      {
+        "type": "pointerup",
+        "t": 12925,
+        "act": "CANVAS",
+        "item": null,
+        "where": "page",
+        "connected": true,
+        "disabled": false,
+        "atPoint": "frontier-map",
+        "atPointWhere": "page",
+        "x": 1212.7265625,
+        "y": 406.421875,
+        "scroll": 0
+      },
+      {
+        "type": "click",
+        "t": 12937,
+        "act": "CANVAS",
+        "item": null,
+        "where": "page",
+        "connected": true,
+        "disabled": false,
+        "atPoint": "",
+        "atPointWhere": "drawer",
+        "x": 1212,
+        "y": 406,
+        "scroll": 0
+      }
+    ],
+    "redrawsLast2s": 5
+  }
+}
