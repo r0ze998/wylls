@@ -84,3 +84,24 @@ wide の側は NFT 住民の**行動**を受ける準備がある。足りない
 - expedition の経路（`wide_expedition_dispatch.rs`）は、候補 feature のときだけ候補の版を受ける。Season の範囲検査（`range_view`）は `localnet-expedition-sbf` を含むので候補の版にもそのまま効く。
 - 試験：`permutation-nft-resident-spike/test/local-conquest-nft-candidate.test.mjs` 4 件と `local-nft-lane.test.mjs`（狭めた条件に合わせて更新）。**どちらも source の文字列の検査だけ**。
 - **限界（未 build）**：許可した新 lane が compile でき動くこと、拒否する旧い組み合わせで `compile_error!` が実際に発火すること、marker が .so に入ることは、build（host の `cargo check`・SBF build）をしていないので**確かめていない**。rustfmt で構文だけ確認（HEAD と同じ差分数）。keeper・herald・fclient・stack は 0xC804 を知らないので、候補の .so で world を動かすにはそれらも要る。本番の program・版は決めていない。
+
+## 8. 追記（同日 20:30）：画面の 0xDD と、host・画面の道具が候補の版を扱う箇所
+
+**画面の 0xDD（実装、振る舞いの試験あり）**：`permutation-server/web/frontier/fplay.mjs` `buildWideResidentShape`。出来上がった wide の draft 命令（0xD9・0xDA の帯）を、NFT Citizen の proof と、帯を出す lane が与える budget で 0xDD に包む。試験 `permutation-gateway/test/web-frontier-wide-resident-send.test.mjs`（3 件）は、**ページが作った bytes を relay の `classify` と `residentRefusal` に通す**。帯を出さない lane では拒否される。出す lane では proof が shape に届き、今の持ち主は通り、旧持ち主と譲渡前の世代は拒否される。**ボタンからの送信は未配線**。ページには wide の命令を作る道具が無く（`frontierIx` は ABI v2 の表だけ）、ABI の budget 表にも wide の行が無い。
+
+**既存 lane が変わらないことの確認**：
+- JS：relay は lane が `wide` を渡さない限り 0xDD を拒否する（既定）。0xE2 の分類・gate・ページの経路は変えていない（resident・relay・sdk の試験 130 件、game ページの試験は変更前と同じ 10 件の失敗）。
+- Rust：既存のガードには `not(feature = 候補)` を足しただけで、候補を持たない build では条件は論理的に同じ。**ただし compile で確かめてはいない**（build なし）。
+
+**候補の版（0xC804）を扱うために変える必要がある箇所**（編集していない。多くは領土側 lane の file）：
+
+| 場所 | 今 | 候補の lane で要ること |
+|---|---|---|
+| `frontier-node/crates/stack/src/nftpass.rs:30` `LANE_PROGRAM_VERSION`、`up.rs:1170`、`setup.rs:135,154` | NFT lane の `0x8004`、範囲検査で S1 に写す | 候補の版と program ID `[0x4C;32]` を選ぶ起動。conquest の起動（local-play launcher）に住民 program・Core・setup・mint ページを足す形 |
+| `frontier-node/crates/keeper/src/wideduty.rs:1289,1295` | Season の版 == 配備の版、wide bit 必須 | 配備の版に 0xC804 を与えれば、検査の形はそのまま |
+| `frontier-node/crates/keeper/src/experimental_{expedition,expedition_depart,conquest}_prepare.rs` | `0x4804` 固定 | 版を引数か配備から読む |
+| `permutation-gateway/src/frontier/{expedition-prepare,expedition-depart-prepare,conquest-prepare}.mjs`（`'18436'`）、`local-play-{preview,resident,relay}.mjs` | `0x4804` 固定 | 同上 |
+| `permutation-server/web/frontier/flocalplay.mjs:30` `LOCAL_PLAY_PROGRAM_VERSION = 0x4804`、`fexpedition-prepare.mjs:27`、`hud/hand.mjs` | `0x4804` 固定 | 同上。NFT の一覧は `controller.mjs:179` の `& 0x8000` で、0xC804 なら自動で読む |
+| herald・fclient | 版で layout を選ぶ（`>= PROGRAM_VERSION_S1` など） | 0xC804 は S1 以上なので S1 の扱いになる見込み（未確認） |
+
+これらは版の割り当て（workstream 4）と、領土側の lane の所有に関わる。**ここでは変えず**、決まったら領土側と調整して直す。大きな build（host・SBF）は主側と容量・CPU の枠を合意してからだけ行う。
