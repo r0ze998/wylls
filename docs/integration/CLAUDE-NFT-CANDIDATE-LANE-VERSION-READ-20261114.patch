@@ -59,7 +59,7 @@ index 10afeeed..7698ab8e 100644
      }
  
 diff --git a/frontier-node/crates/itest/src/expedition_play.rs b/frontier-node/crates/itest/src/expedition_play.rs
-index 5024406b..4643035b 100644
+index 5024406b..5ac077d5 100644
 --- a/frontier-node/crates/itest/src/expedition_play.rs
 +++ b/frontier-node/crates/itest/src/expedition_play.rs
 @@ -76,6 +76,67 @@ pub const PROGRAM: [u8; 32] = [0x45; 32];
@@ -73,7 +73,7 @@ index 5024406b..4643035b 100644
 +/// chosen only by `--lane-candidate`. Threaded through the runner in steps (docs/integration
 +/// CLAUDE-NFT-CANDIDATE-LANE-VERSION-READ-20261114.md): step 1 here (Season, base, home, fixture, deploy), step 2
 +/// the runtime modules through [`world_lane`]; test modules keep [`PROGRAM`].
-+/// WRITTEN 2026-11-14/15 WITHOUT COMPILING (no host build agreed then).
++/// Written 2026-11-14/15 without a compiler; first compiled and tested 2026-11-15 in an agreed host slot.
 +#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 +pub struct Lane {
 +    pub program: [u8; 32],
@@ -461,8 +461,8 @@ index 5024406b..4643035b 100644
      }
  }
 +
-+/// The lane (step 1 of threading the candidate through the runner). WRITTEN WITHOUT COMPILING; run with
-+/// `cargo test -p itest --features localnet-expedition-play lane_tests` in an agreed host-build slot.
++/// The lane (step 1 of threading the candidate through the runner). Run with
++/// `cargo test -p itest --features localnet-conquest-play --lib lane_tests`.
 +#[cfg(test)]
 +mod lane_tests {
 +    use super::*;
@@ -750,21 +750,22 @@ index dafa3074..84a9918d 100644
              "instruction_hex":hex::encode(&prepared.instruction().data),"message_b64":base64::engine::general_purpose::STANDARD.encode(&message),"message_digest":hex::encode(Sha256::digest(&message)),
              "signers":prepared.expected_signers().iter().map(ToString::to_string).collect::<Vec<_>>(),"shape":{"bytes":report.shape.bytes,"locks":report.shape.locks,"writes":report.shape.writes,"sigs":report.shape.sigs},"proposal_digest":proposal_digest},
 diff --git a/frontier-node/crates/keeper/src/lib.rs b/frontier-node/crates/keeper/src/lib.rs
-index 6552ed13..6b04f0e6 100644
+index 6552ed13..b735f327 100644
 --- a/frontier-node/crates/keeper/src/lib.rs
 +++ b/frontier-node/crates/keeper/src/lib.rs
-@@ -84,6 +84,8 @@ pub mod wideexpedition;
+@@ -84,6 +84,9 @@ pub mod wideexpedition;
  pub mod wideexpedition_preview;
  #[cfg(feature = "expedition-dispatch-experimental")]
  pub mod experimental_expedition_prepare;
 +/// The local-play program versions the preparation tools serve (0x4804; the local test candidate 0xC804 under its id).
++#[cfg(feature = "expedition-dispatch-experimental")]
 +pub mod local_lane;
  #[cfg(feature = "expedition-dispatch-experimental")]
  pub mod experimental_expedition_depart_prepare;
  /// Bounded one-shot preparation of the wallet-signed wide DeclareSiege (conquest lane).
 diff --git a/frontier-node/crates/keeper/src/local_lane.rs b/frontier-node/crates/keeper/src/local_lane.rs
 new file mode 100644
-index 00000000..1d738a1b
+index 00000000..263df4cf
 --- /dev/null
 +++ b/frontier-node/crates/keeper/src/local_lane.rs
 @@ -0,0 +1,56 @@
@@ -774,7 +775,7 @@ index 00000000..1d738a1b
 +//! `localnet-conquest-nft-sbf` (the conquest lane with NFT residents): served ONLY under its candidate program id
 +//! [0x4C; 32]. Not an allocation, never deployable; the production version is undecided and is not here.
 +//! (The same rule as permutation-gateway/src/frontier/local-lane-versions.mjs and the page's flocallanes.mjs.)
-+//! WRITTEN 2026-11-14 WITHOUT COMPILING (no host build was agreed then); its tests are below.
++//! Written 2026-11-14 without a compiler; first compiled and tested 2026-11-15 in an agreed host slot.
 +use crate::wideduty::Scope;
 +use frontier_abi::world_index::expedition_dispatch_ix;
 +use solana_address::Address;

@@ -4,7 +4,7 @@ Branch `claude/nft-candidate-lane-r21-20261114` on canonical `20adb087` (round 2
 
 The candidate: feature `localnet-conquest-nft-sbf`, program id [0x4C; 32] (`68qTstPmwfaDbt1a9hnq7XeyZ4zJBqBKU1esRtQXnKWj`), version 0xC804 = 51204. LOCAL TEST ONLY, NOT an allocation, never deployable; the production program and version are undecided.
 
-- Patch: `CLAUDE-NFT-CANDIDATE-LANE-VERSION-READ-20261114.patch` (sha256 `2806faef6894673296d43e9eadb6dace35530044c64f4f91c4307197c1f9b04f`): `git diff 20adb087 <head>` of the code on this branch, excluding this note and the patch itself.
+- Patch: `CLAUDE-NFT-CANDIDATE-LANE-VERSION-READ-20261114.patch` (sha256 `b01536dc147e23ae55192b51d850f36582b61bfc412fc45f0436da080e870d06`): `git diff 20adb087 <head>` of the code on this branch, excluding this note and the patch itself.
 
 ## Status (one table; the sections below give the details)
 
@@ -12,10 +12,10 @@ The candidate: feature `localnet-conquest-nft-sbf`, program id [0x4C; 32] (`68qT
 |---|---|
 | Version read from the deployment (gateway, page) | **implemented, tested**: 304/304 of the affected local-play / preparation set on `20adb087` |
 | Launcher `--lane-candidate` (runner contract, NFT setup once, mint page child, cleanup) | **implemented, tested with stand-ins** (part of the 304) |
-| Keeper preparation (`local_lane.rs`, the three `experimental_*_prepare.rs`) | **implemented, NOT COMPILED** (unit test written) |
-| Runner (itest), step 1: `Lane`, candidate options, Season version, base/home/fixture, candidate deploy, seed file, first-line keys | **implemented, NOT COMPILED** (`lane_tests` written) |
-| Runner (itest), step 2: the runtime modules read the process's world lane | **implemented, NOT COMPILED** |
-| Running the Rust tests above | not done: needs an agreed host-build slot |
+| Keeper preparation (`local_lane.rs`, the three `experimental_*_prepare.rs`) | **implemented, compiled, tested** (2026-11-15 host slot): `cargo test -p keeper` with and without `conquest-dispatch-experimental`; `local_lane` test passes. The first compile found `local_lane` ungated (fixed in `85018666`). One test fails in both runs, `tests/play.rs::claim_after_late_reveal` ("no claim"); with features off none of this branch's keeper code compiles, so that build is the base's (`20adb087`): not from this branch |
+| Runner (itest), step 1: `Lane`, candidate options, Season version, base/home/fixture, candidate deploy, seed file, first-line keys | **implemented, compiled, tested** (2026-11-15): `cargo test -p itest --features localnet-conquest-play --lib --bins`, 142 passed / 20 ignored, the four `lane_tests` pass on the first compile |
+| Runner (itest), step 2: the runtime modules read the process's world lane | **implemented, compiled** (same run); not run in a world yet |
+| Candidate feature and the old combinations (NFT branch) | **checked** (2026-11-15): `cargo check -p permutation-frontier --features localnet-conquest-nft-sbf` passes (warnings only); five old combinations each stop at their `compile_error!` (expedition-sbf+nft, conquest-sbf+nft, candidate+localnet-nft-sbf, candidate+rights, candidate+trace) |
 | The candidate `.so` (SBF build with the candidate feature) | not done: needs an agreed SBF slot (`scripts/build-frontier-localnet-conquest-nft-sbf.sh` is on the NFT branch) |
 | A candidate world | not done: needs the two items above |
 | The candidate on the natural preset | not supported (conquest preset only, by design) |
@@ -33,11 +33,11 @@ One definition of the served local-play versions (`permutation-gateway/src/front
 - A plain start takes the runner's own `"0x4804"` line as ever and refuses any other candidate key. (An earlier version refused every real plain world because the real runners print that line; fixed, and the stand-in prints it the same way.)
 - Tests: stand-ins, no chain (3 cases in `test/frontier-local-play-launcher.test.mjs`).
 
-## Keeper (NOT COMPILED)
+## Keeper
 
-`keeper/src/local_lane.rs`: served(program, version), 0x4804 as before, 0xC804 only under [0x4C; 32]. The three `experimental_*_prepare.rs` check through it and echo the deployment's served version; two now-unused imports removed. Verify: `cargo test -p frontier-keeper`.
+`keeper/src/local_lane.rs`: served(program, version), 0x4804 as before, 0xC804 only under [0x4C; 32]. The three `experimental_*_prepare.rs` check through it and echo the deployment's served version; two now-unused imports removed. Verified: `cargo test -p keeper` (the package is `keeper`, in the `frontier-node` workspace; `frontier-keeper` is its binary). The module is gated on `expedition-dispatch-experimental`, like its users.
 
-## Runner, itest (NOT COMPILED)
+## Runner, itest
 
 The runner's program id was the constant `expedition_play::PROGRAM` ([0x45; 32]), about 90 uses in 15 modules, most of them inside test modules. A runner process runs exactly one world, so the threading is in two steps:
 - **Step 1, `expedition_play.rs`.** `Lane { program, version }` with `Lane::CONQUEST` (the old constants) and `Lane::CANDIDATE`. The candidate options are parsed all-or-none: exact word, absolute paths.
@@ -48,12 +48,12 @@ The runner's program id was the constant `expedition_play::PROGRAM` ([0x45; 32])
   - Read through `world_lane()` / `world_program()` by: the keeper loop, destination driver, origin driver, resident bells, legacy march, wide destination (ctx, the instruction's program id, owner check) and conquest world (owner check).
   - `check_wallet` refuses both lanes' program and Season.
   - Test modules, and the test-only `conquest_real` / `destination_real`, keep `PROGRAM`.
-- Checks done without a compiler: rustfmt parses every edited file; no runtime `PROGRAM` use is left in those modules. Expect unused-import warnings. Verify: `cargo test -p itest --features localnet-conquest-play`.
+- Compiled and tested on 2026-11-15 (`--lib --bins`, no world started): 142 passed, 20 ignored. No runtime `PROGRAM` use is left in those modules.
 
 ## Order once slots are agreed
 
-1. frontier-abi golden test (NFT branch).
-2. Host checks: `cargo test -p frontier-keeper`, `cargo test -p itest --features localnet-conquest-play`, `cargo check -p permutation-frontier --features localnet-conquest-nft-sbf`, and the old combinations that must still fail to compile.
+1. frontier-abi golden test (NFT branch). **Done 2026-11-15, 8/8.**
+2. Host checks (**done 2026-11-15**, results in the table): `cargo test -p keeper`, `cargo test -p itest --features localnet-conquest-play`, `cargo check -p permutation-frontier --features localnet-conquest-nft-sbf`, and the old combinations that must still fail to compile.
 3. The candidate `.so` (SBF).
 4. One candidate world.
 
