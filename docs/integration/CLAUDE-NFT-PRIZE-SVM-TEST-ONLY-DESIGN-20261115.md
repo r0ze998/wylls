@@ -185,3 +185,35 @@ After ⑳'s candidate SBF exited (⑳: free 23.30 GiB, target deleted). Head `8a
 (25,165,824 KiB): **0.72 GiB short**. Removing this session's own 0.34 GiB e2e target would still leave it
 0.38 GiB short, so nothing was deleted and the guard is unchanged. df was sent to main and ⑳; the slot was
 returned. ② runs when free is ≥ 24 GiB at its start. The 7 tests remain **not run**.
+
+## 11. ② run: the LiteSVM NFT runtime tests — 7/7 (2026-11-15)
+
+Free rose on its own to 24.69 GiB (nothing deleted; confirmed independently by the user, main and ⑳); main
+and ⑳ ran no build or world meanwhile. At the start: free 25,892,828 KiB (≥ 24 GiB), no other cargo, guard
+`94baeb7d…`, TEST ONLY prize `1cf41f7b…`, Core `515541c8…`, resident `947da0b9…` (all re-hashed). Head
+`605e08df`; run script `b242ad5c26698bfd…`; log sha256 `017f7b14a94589c3…`.
+
+`cargo test --offline --locked --test nft_pass -- --ignored` in `permutation-prize/svm-tests` (toolchain
+1.95.0, LiteSVM 0.16): **7 passed, 0 failed** (51 s with the build; rc 0; peak target 550 MiB; no guard stop;
+free 24.17 GiB after). df and the result went to main and ⑳; the slot was returned.
+
+| test | what ran for real | result |
+|---|---|---|
+| real_mint_then_the_owner_claims_once | MintResident; ClaimResident at gen 0; second claim | paid once (exact share), Entry claimed_by A at 0; then AlreadyClaimed, nothing moved |
+| a_real_transfer_moves_the_unclaimed_right | TransferResident A→B (gen 1, asset owner checked) | A at 0 stale, A at 1 not current (nothing moved); B paid the whole share |
+| a_real_buy_back_pays_the_returning_owner_once | TransferResident ×2 (gen 2), SetSession by A | B 1/2, A 0/1 refused; session → A's account BadAccount, → own account NotCurrentAuthority; unsigned BadAccount; all unchanged; A at 2 paid once, then AlreadyClaimed |
+| pass_deposits_are_refused_at_dispatch_with_a_real_asset | PayResident with a real asset | ResidentDepositsDisabled, no Entry, no token or counter moved |
+| a_recorded_nation_survives_the_citizen_closing | RecordResidentNation; Citizen removed (stand-in) | nation recorded; the owner still paid |
+| without_a_record_a_closed_citizen_cannot_claim | Citizen removed (stand-in), no record | BadAccount, nothing moved |
+| refund_mode_refuses_the_pass_claim | refund-mode pool | ResidentRefundUndecided, nothing moved |
+
+**What this proves:** the SBF `nft-experimental` prize program accepts the **real** Core asset bytes, the
+**real** guard and the **real** resident record, and follows the **real** TransferResident and SetSession
+(generation, owner, session). The current-owner, stale-generation, session, destination-binding,
+double-claim, deposit-refused and refund-undecided rules hold at runtime, with no movement on any refusal.
+
+**What it does not prove (still stand-ins / not run):** the game program's own accounts (policy, NFT Citizen,
+link) and its CloseCitizen and JoinResident (covered only by the host test); a real deposit (the Entry is the
+synthetic fixture; deposits stay refused); any real chain, validator, relay, page or wallet; CU limits on a
+real cluster; the production `build-prize.sh` artefact and `pool.rs` (not run: no production `.so`).
+`target-nft-svm` (550 MiB, this session's own) is kept until main says otherwise.
