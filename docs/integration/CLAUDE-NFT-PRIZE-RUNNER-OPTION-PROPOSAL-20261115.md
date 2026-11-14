@@ -158,3 +158,41 @@ blockhash lifetime (about 151 slots), and a relay rule cannot close the direct c
 - ⑰'s claim path binds the signed generation (ClaimResident), so an old claim stays refused across transfers.
 - But **re-transfer is not treated as safe or finished here**. The E2E's transfers, through the mint page, carry the
   same documented boundary, and any result is recorded with it.
+
+## Option (A) — tightened for review (supervisor, 2026-11-15 03:35)
+
+Additions to the specification above (still **not implemented**):
+- **Run identity fixed.**
+  - The control line also carries `"run_id"` (32 hex) and `"instance"` (64 hex), which the launcher copies from the
+    runner's own first line and status.
+  - The runner refuses a line whose values are not its own chain's `run_id()` and `status_instance()`.
+  - So a line meant for another world (or a restarted one) writes nothing.
+  - Exact schema: `{"prize_test_only_fixture":{"asset","paid_by","pay_generation","run_id","instance"}}`, nothing
+    else.
+- **One shot.**
+  - The first well-formed line is consumed whatever its outcome: a refusal also closes the channel.
+  - Every later line is refused and logged; nothing is ever written twice.
+  - The reader stops after the first line.
+- **Guards unchanged and asserted.**
+  - The fixture run's metadata still says `"tamper_rpc": false` and `"rpc_policy": "memory-only: … refused"`.
+  - A test calls `frontier_setAccount` over the runner's RPC after the fixture and expects the memory-only refusal.
+- **No arbitrary account.**
+  - The line names no address to write.
+  - The written address equals `PDA(["entry-nft", pool, asset], [0x50;32])`, and the test asserts the set of
+    changed accounts is exactly `{that Entry}`.
+- **Re-transfer.** The fixture describes the pass as it stands. Positive re-transfer stories wait for ⑳'s strict
+  resident variant (see the E2E design §17). The fixture itself never transfers anything.
+
+**Negative tests (all Rust, one in-process chain each; host build slot needed):**
+1. Without the flag: no reader is started; a fixture line on stdin is ignored; the first line is byte-identical to a
+   golden.
+2. Schema: an extra key, a missing key, a malformed base58, a generation that is not a u32 → refused, nothing
+   written.
+3. Another `run_id`, or another `instance` → refused, nothing written.
+4. Pool missing, not `[0x50;32]`-owned, not Open, or of another game or season → refused.
+5. Asset not Core-owned, of another collection, or without the guard → refused.
+6. `pay_generation` stale (≠ the record's) → refused. `paid_by` ≠ the current owner (e.g. the previous owner) → refused.
+7. An Entry already at the address → refused, the existing bytes unchanged.
+8. One shot: a second line after a success → refused. A second line after a refusal → refused.
+9. After success: the changed set is exactly the Entry; its bytes are exact; `frontier_setAccount` over RPC is still
+   refused (memory-only).
