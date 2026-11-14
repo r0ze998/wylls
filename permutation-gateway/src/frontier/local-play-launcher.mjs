@@ -300,6 +300,18 @@ export const CAPTURE_DEMO_MODE = 'capture-demo-v1';
  * for both. Both sides are people: there is no automatic opponent.
  */
 export const CONTEST_PAIR_MODE = 'contest-pair-v1';
+/**
+ * `--herald-output compact-v1` (TEST-ONLY, optional; only with the capture demo): each NEW world's herald keeps only the
+ * deterministic `.gz` of each output file (herald `--output compact-v1`) to reduce its output; whether a long world stays
+ * under the unchanged 128 MiB output guard is not promised and must be measured. Every file of every turn is kept and
+ * served as before. Each world has its own new data directory, so the herald's
+ * own rule (compact only in a new directory; a compact world never reopened without it) always holds. The world is handed
+ * over only once its herald has recorded the mode (`herald/output-mode`): a herald that ignored the option is never used.
+ * Without this option every world's output is as before, byte for byte.
+ */
+export const HERALD_OUTPUT_MODE = 'compact-v1';
+/** The herald's record of its output mode (`<data>/output-mode`), exactly as a compact herald writes it. */
+export function heraldOutputRecorded(text) { return text === `${HERALD_OUTPUT_MODE}\n`; }
 /** `--demo-scale`: a whole number 10..60 written plainly, or null. */
 export function parseDemoScale(raw) {
   if (typeof raw !== 'string' || !/^[1-9][0-9]$/.test(raw)) return null;
@@ -752,7 +764,7 @@ export async function startWorld(c, wallet, slot, onStop, signal, opts = {}) {
     if (second !== null) launch('relay-b', process.execPath, [path.join(c.root, 'permutation-gateway/src/frontier/local-play-relay-server.mjs'), ...relayArgsFor(second, pairPorts.relay)]);
     // (no --web: the page is the launcher's own; a world serves records and the relay, never a second copy of the page)
     // (a natural world has no synthetic account to seed: its herald folds the real transactions only)
-    launch('herald', c.herald, ['--data', path.join(dir, 'herald'), '--program', meta.program, '--season', String(meta.season_id), '--rpc', meta.rpc_url, '--listen', `127.0.0.1:${internalHerald}`, '--source', 'localnet', '--cluster', 'localnet', ...(natural ? [] : ['--local-play-metadata', path.join(dir, 'metadata.json')]), '--relay', `127.0.0.1:${relay}`]);
+    launch('herald', c.herald, ['--data', path.join(dir, 'herald'), '--program', meta.program, '--season', String(meta.season_id), '--rpc', meta.rpc_url, '--listen', `127.0.0.1:${internalHerald}`, '--source', 'localnet', '--cluster', 'localnet', ...(natural ? [] : ['--local-play-metadata', path.join(dir, 'metadata.json')]), '--relay', `127.0.0.1:${relay}`, ...(c.heraldOutput === HERALD_OUTPUT_MODE ? ['--output', HERALD_OUTPUT_MODE] : [])]);
     proxy = createWorldProxy({ port: herald, targetPort: internalHerald, launcherPort: c.port });
     await new Promise((resolve, reject) => { proxy.once('error', reject); proxy.listen(herald, '127.0.0.1', resolve); });
     if (second !== null) {
@@ -763,6 +775,9 @@ export async function startWorld(c, wallet, slot, onStop, signal, opts = {}) {
       try { const r = await fetch(`http://127.0.0.1:${herald}/h/status`, { signal: AbortSignal.timeout(1000) }); if (r.ok) { ready = true; break; } } catch {} await delay(200);
     }
     if (!ready || stopping) throw fault('HeraldNotReady', 503);
+    // (compact output: handed over only once this world's herald has recorded the mode; a herald that ignored the option
+    //  is stopped by the same path as an unready one, never used with the default output in its place)
+    if (c.heraldOutput === HERALD_OUTPUT_MODE && !heraldOutputRecorded(await fs.readFile(path.join(dir, 'herald', 'output-mode'), 'utf8').catch(() => null))) throw fault('HeraldOutputNotCompact', 503);
     await fs.writeFile(path.join(dir, 'processes.json'), JSON.stringify({ started, wallet, ...(second !== null ? { second } : {}), pids: children.map(p => p.pid), ports: [rpc, ws, herald, relay, internalHerald, ...(pairPorts ? [pairPorts.herald, pairPorts.relay] : [])] }));
     // (only with --prepare-scale, only now: after this the launcher never touches this world's clock again)
     const prepared = c.prepareScale ? await prepareWorld({ scale: c.prepareScale, dir, rpc, herald, meta, stopping: () => stopping !== null, limit }) : null;
@@ -890,13 +905,15 @@ export const USAGE = `local-play launcher (this machine only)
     [--contest-pair contest-pair-v1: TEST-ONLY, only with --capture-demo: ONE world for TWO players (two people, no
        automatic opponent); the first press waits, the second distinct wallet starts it; each page keeps its own key
        and reaches its own relay; one stop or the limit ends it for both]
+    [--herald-output compact-v1: TEST-ONLY, only with --capture-demo: each new world's herald keeps only the .gz of each
+       output file (every file of every turn kept and served as before); the world is used only if its herald recorded it]
     [--world-ttl-minutes <whole minutes, decimal>: each world's automatic end, counted from its own start; without it
        two hours. Set here only (never over HTTP); fixed once per world and told to its page as its expiry]
     [--port 41920] [--world-port 41924]
   Ports: the page on --port; a world on five from --world-port (RPC, WS, public proxy, relay, herald), the second
   world on the next five. All within 41000-41999, none of 41904-41907, 127.0.0.1 only.`;
 export async function parseConfig(args) {
-  const out = {}; const keys = new Set(['root', 'data', 'runner', 'herald', 'depart', 'preview', 'resident', 'artifact', 'artifact-sha', 'conquest', 'world-preset', 'prepare-scale', 'port', 'world-port', 'economy', 'world-ttl-minutes', 'natural-runner', 'march-trial', 'capture-demo', 'demo-scale', 'contest-pair']);
+  const out = {}; const keys = new Set(['root', 'data', 'runner', 'herald', 'depart', 'preview', 'resident', 'artifact', 'artifact-sha', 'conquest', 'world-preset', 'prepare-scale', 'port', 'world-port', 'economy', 'world-ttl-minutes', 'natural-runner', 'march-trial', 'capture-demo', 'demo-scale', 'contest-pair', 'herald-output']);
   for (let i = 0; i < args.length; i += 2) { const k = args[i]?.slice(2); if (!args[i]?.startsWith('--') || !keys.has(k) || out[k] || !args[i + 1]) throw fault('InvalidArguments'); out[k] = args[i + 1]; }
   for (const k of ['root', 'data', 'runner', 'herald', 'depart', 'preview', 'resident', 'artifact']) { if (!path.isAbsolute(out[k] ?? '')) throw fault('AbsolutePathRequired'); }
   if (out.conquest !== undefined && !path.isAbsolute(out.conquest)) throw fault('AbsolutePathRequired');
@@ -927,9 +944,12 @@ export async function parseConfig(args) {
   if (out['capture-demo'] !== undefined && (out['capture-demo'] !== CAPTURE_DEMO_MODE || parseDemoScale(out['demo-scale']) === null)) throw fault('InvalidCaptureDemo');
   if (out['capture-demo'] !== undefined && (!natural || out['march-trial'] === undefined)) throw fault('CaptureDemoNeedsNaturalTrial');
   if (out['contest-pair'] !== undefined && (out['contest-pair'] !== CONTEST_PAIR_MODE || out['capture-demo'] === undefined)) throw fault('InvalidContestPair');
+  // (the test-only compact herald output: exactly its one word, and only for capture-demo test worlds)
+  if (out['herald-output'] !== undefined && out['herald-output'] !== HERALD_OUTPUT_MODE) throw fault('InvalidHeraldOutput');
+  if (out['herald-output'] !== undefined && out['capture-demo'] === undefined) throw fault('HeraldOutputNeedsCaptureDemo');
   // (a world's life: the default two hours, or the operator's whole minutes; refused, never rounded, when malformed)
   const worldTtlMs = parseWorldTtl(out['world-ttl-minutes']);
-  const c = { ...out, port, worldPort, worldTtlMs, artifactSha: out['artifact-sha'], ...(prepareScale !== undefined ? { prepareScale } : {}), ...(worldPreset !== undefined ? { worldPreset } : {}), ...(out['natural-runner'] !== undefined ? { naturalRunner: out['natural-runner'] } : {}), ...(out['march-trial'] !== undefined ? { marchTrial: true } : {}), ...(out['capture-demo'] !== undefined ? { captureDemo: { scale: parseDemoScale(out['demo-scale']) } } : {}), ...(out['contest-pair'] !== undefined ? { contestPair: true } : {}), web: await fs.realpath(path.join(out.root, 'permutation-server/web')) };
+  const c = { ...out, port, worldPort, worldTtlMs, artifactSha: out['artifact-sha'], ...(prepareScale !== undefined ? { prepareScale } : {}), ...(worldPreset !== undefined ? { worldPreset } : {}), ...(out['natural-runner'] !== undefined ? { naturalRunner: out['natural-runner'] } : {}), ...(out['march-trial'] !== undefined ? { marchTrial: true } : {}), ...(out['capture-demo'] !== undefined ? { captureDemo: { scale: parseDemoScale(out['demo-scale']) } } : {}), ...(out['contest-pair'] !== undefined ? { contestPair: true } : {}), ...(out['herald-output'] !== undefined ? { heraldOutput: HERALD_OUTPUT_MODE } : {}), web: await fs.realpath(path.join(out.root, 'permutation-server/web')) };
   for (const file of [c.runner, c.herald, c.depart, c.preview, c.resident, c.artifact, ...(c.conquest ? [c.conquest] : []), ...(c.naturalRunner ? [c.naturalRunner] : []), path.join(c.root, 'permutation-gateway/src/frontier/local-play-relay-server.mjs')]) if (!(await fs.stat(file).catch(() => null))?.isFile()) throw fault('MissingFile');
   await fs.mkdir(c.data, { recursive: true }); return c;
 }
@@ -940,7 +960,7 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
   server.once('error', e => { console.error(`local-play launcher: ${e?.code === 'EADDRINUSE' ? `port ${config.port} is in use` : 'cannot listen'}`); process.exit(2); });
   server.listen(config.port, '127.0.0.1', () => console.log(JSON.stringify({ origin: `http://localhost:${config.port}`, open: `http://localhost:${config.port}/`, mode: 'new-world-per-wallet', worlds: WORLD_LIMIT, ttl_seconds: (config.worldTtlMs ?? WORLD_TTL_MS) / 1000, ttl_source: config['world-ttl-minutes'] === undefined ? 'default' : '--world-ttl-minutes',
     prepare: config.prepareScale ? { clock_scale: config.prepareScale, chain_seconds_max: PREPARE_CHAIN_MAX, then: '1x, read back, before the world is handed over' } : 'natural 1x',
-    world_preset: config.worldPreset ?? null, conquest_cli: config.conquest ? 'configured (reaches a relay only with that start\'s capability)' : null,
+    world_preset: config.worldPreset ?? null, herald_output: config.heraldOutput ?? 'default', conquest_cli: config.conquest ? 'configured (reaches a relay only with that start\'s capability)' : null,
     ports: { launcher: config.port, worlds: Array.from({ length: WORLD_LIMIT }, (_, slot) => worldPorts(config.worldPort, slot)) } })));
   // Ctrl-C (or a closed terminal): every world of this launcher is ended first, then the launcher.
   let ending = false;

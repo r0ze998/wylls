@@ -68,7 +68,7 @@ test('HTTP is strict same-origin POST; static original page/config paths work', 
 import net from 'node:net';
 import os from 'node:os';
 import { promises as fsp } from 'node:fs';
-import { createWorldProxy, startWorld, parseConfig, worldTarget, worldPorts, WORLD_POST_ROUTES, WORLD_GET_ROUTES, WORLD_WS_ROUTE, WORLD_BODY_MAX, WORLD_LIMIT, PREPARE_SCALE_MIN, PREPARE_SCALE_MAX, PREPARE_CHAIN_MAX,
+import { createWorldProxy, startWorld, parseConfig, HERALD_OUTPUT_MODE, worldTarget, worldPorts, WORLD_POST_ROUTES, WORLD_GET_ROUTES, WORLD_WS_ROUTE, WORLD_BODY_MAX, WORLD_LIMIT, PREPARE_SCALE_MIN, PREPARE_SCALE_MAX, PREPARE_CHAIN_MAX,
   conquestProof, conquestGateway, CONQUEST_WORLD_PRESET, CONQUEST_ARTIFACT_MARKERS, CONQUEST_CAPABILITY_SCHEMA, CONQUEST_WORLD_SCHEMA, CONQUEST_STATEMENT_MS } from '../src/frontier/local-play-launcher.mjs';
 import { createHash } from 'node:crypto';
 import { seasonAddresses } from '../../permutation-server/web/frontier/faddr.mjs';
@@ -428,6 +428,8 @@ http.createServer((req, res) => { let b = ''; req.on('data', x => { b += x; }); 
 }); }).listen(Number(arg('--rpc-port')), '127.0.0.1');
 `);
   const herald = await script(path.join(tmp, 'bin/herald'), arg + `process.on('SIGINT', () => process.exit(0));
+// (a compact herald records its output mode in its data directory, as the real one does; 'ignores-output' plays an old herald)
+if (process.argv.includes('--output') && ${JSON.stringify(heraldMode)} !== 'ignores-output') { const fs = require('node:fs'); fs.mkdirSync(arg('--data'), { recursive: true }); fs.writeFileSync(require('node:path').join(arg('--data'), 'output-mode'), arg('--output') + '\\n'); }
 require('node:http').createServer(async (req, res) => {
   res.writeHead(200, { 'content-type': 'application/json' });
   if (req.url.startsWith('/h/world/wide/route')) {
@@ -475,6 +477,25 @@ test('a world of stand-in processes: ready through its proxy; an explicit stop e
   assert.ok(procs.pids.every(pid => !alive(pid)), 'all three processes are gone'); assert.equal(stops, 1);
   for (const p of Object.values(ports)) assert.equal(await portFree(p), true, `port ${p} is free again`);
   assert.equal((await json(path.join(dir, 'stopped.json'))).reason, 'requested');
+});
+
+test('compact herald output (test worlds): the herald is asked for it, and a world is handed over only once its herald recorded it', { timeout: 120000 }, async t => {
+  const { c } = await standIns(t); c.heraldOutput = HERALD_OUTPUT_MODE; let stops = 0;
+  const w = await startWorld(c, wallet, 0, () => { stops++; });
+  const dir = await worldDir(c), ports = worldPorts(c.worldPort, 0);
+  const heraldArgs = JSON.parse((await request(ports.herald, 'GET', '/h/season', null, { origin: 'http://localhost:41920' })).body).args;
+  assert.deepEqual(heraldArgs.slice(-2), ['--output', 'compact-v1'], 'the option, last, exactly');
+  assert.equal(await fsp.readFile(path.join(dir, 'herald', 'output-mode'), 'utf8'), 'compact-v1\n', 'the herald recorded the mode in this world\'s own new directory');
+  await w.stop('requested'); assert.equal(stops, 1);
+});
+
+test('compact herald output: a herald that ignores the option (an old binary) is never used — the start fails and the world is stopped whole', { timeout: 120000 }, async t => {
+  const { c } = await standIns(t, { heraldMode: 'ignores-output' }); c.heraldOutput = HERALD_OUTPUT_MODE; let stops = 0;
+  await assert.rejects(startWorld(c, wallet, 0, () => { stops++; }), e => e.code === 'HeraldOutputNotCompact');
+  const dir = await worldDir(c), procs = await json(path.join(dir, 'processes.json')).catch(() => ({ pids: [] }));
+  await until('the world\'s processes end', async () => procs.pids.every(pid => !alive(pid)));
+  assert.equal(stops, 1, 'stopped by the same path as an unready herald');
+  for (const p of Object.values(worldPorts(c.worldPort, 0))) assert.equal(await portFree(p), true, `port ${p} is free again`);
 });
 
 // ---- the conquest lane: what a start proves of itself, and to whom it is handed

@@ -34,7 +34,12 @@ test('every binary the guide builds is declared, with the features it names', ()
 
 test('the two modes stay apart, and the unfinished on-screen capture is said', () => {
   assert.match(doc, /\(1\) Natural world/); assert.match(doc, /\(2\) Capture demo \(TEST-ONLY\)/);
-  assert.match(doc, /The 72-turn capture has NOT been completed on screen\./);
+  assert.match(doc, /\*\*At ×20 the 72-turn capture was not completed on screen\*\* \(it was at ×30 in a two-person world: below\)\./);
+  // (2026-11-14: the capture on screen, and what is still not proven through the page)
+  assert.match(doc, /at turn 84 the fort passed to the first player's nation\./);
+  assert.match(doc, /No retake was tried: after a capture the\n\s+fort cannot be counted against for 288 turns/);
+  assert.match(doc, /\*\*The retake\*\* \(after the 288 protected turns\) is proven only by the in-process tests/);
+  assert.doesNotMatch(doc, /The 72-turn capture has NOT been completed on screen/);
   assert.match(doc, /4\/72/);
   assert.match(doc, /has \*\*not\*\* been run end to end yet/);
   // (the demo world was stopped by hand at 4/72; it did not run out its limit)
@@ -92,4 +97,15 @@ test('ports and disk: the launcher\'s own rules, as the source has them', () => 
   const root = readFileSync(new URL('../../rust-toolchain.toml', import.meta.url), 'utf8'), node = readFileSync(new URL('../../frontier-node/rust-toolchain.toml', import.meta.url), 'utf8');
   assert.match(root, /channel = "1\.89\.0"/); assert.match(node, /channel = "1\.95\.0"/);
   assert.match(doc, /pins \*\*1\.89\.0\*\*/); assert.match(doc, /pins \*\*1\.95\.0\*\*/);
+});
+
+test('the long test world: compact herald output, test-only, rules and guards unchanged', () => {
+  assert.match(doc, /### \(4\) A long test world: compact herald output \(TEST-ONLY\)/);
+  assert.match(doc, /--herald-output compact-v1 --world-ttl-minutes 90/);
+  assert.match(doc, /At ×60\n\(a turn is 10 s\) that is about 75 minutes/);
+  assert.match(doc, /the game's rules \(72 turns to take, 288 turns of protection\), the launcher's 128 MiB output\n\s+limit and its disk floor\./);
+  assert.match(doc, /\(`HeraldOutputNotCompact`\)/);
+  const launcher = read('permutation-gateway/src/frontier/local-play-launcher.mjs');
+  assert.match(launcher, /export const HERALD_OUTPUT_MODE = 'compact-v1';/);
+  assert.match(launcher, /throw fault\('HeraldOutputNeedsCaptureDemo'\)/);
 });

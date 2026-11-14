@@ -120,7 +120,24 @@ Add one more word to the capture demo command above (it is refused without the d
 - **Ending:** one Ctrl-C (or the end of the world's time) ends the world for **both**. Each person then closes their own
   tab, which discards that tab's key. Use `--world-ttl-minutes 45` for a short trial.
 - **What is not natural:** the clock is the demo's compressed clock and the other villages are test participants, as
-  in (2). A full 72-turn capture does not fit a 45-minute world at ×30 when the hold starts mid-world.
+  in (2). At ×30 a turn is 20 s, so the 72-turn hold takes 24 minutes: it fits a 45-minute world only when the hold
+  starts early (a trial on 2026-11-14 completed the capture at turn 84 after a hold that began at turn 13).
+
+### (4) A long test world: compact herald output (TEST-ONLY)
+A capture, the 288 turns in which a taken fort cannot be counted against, and a recapture need about 446 turns. At ×60
+(a turn is 10 s) that is about 75 minutes, and the herald's output grows with every turn. Add to the capture demo
+command (refused without the demo):
+```bash
+--herald-output compact-v1 --world-ttl-minutes 90
+```
+- **What changes:** each new world's herald keeps only the compressed `.gz` of each output file. Every file of every turn
+  is still kept, and is served as before (decompressed for a client that does not accept gzip).
+- **What does not change:** the game's rules (72 turns to take, 288 turns of protection), the launcher's 128 MiB output
+  limit and its disk floor. A world that reaches either is stopped as before.
+- **The herald must support it:** build it from this guide's commit or later. A world whose herald did not record the
+  mode is never handed over (`HeraldOutputNotCompact`); an older herald is refused, not used.
+- **Measure first:** before a long world, run a short one with the same options and check that its output stays well
+  under the limit for the turns you plan.
 
 ### Then
 1. Open `http://localhost:41920/` and press 「新しい世界を開始」.
@@ -143,7 +160,7 @@ Add one more word to the capture demo command above (it is refused without the d
   - Every keep inside a heartland is safe and never counts.
 - **Capture demo, on screen (×20):** the next ring opened; the fort list showed two forts; a march reached a fort and
   started its hold count.
-  - **The 72-turn capture has NOT been completed on screen.**
+  - **At ×20 the 72-turn capture was not completed on screen** (it was at ×30 in a two-person world: below).
   - **First run (2026-11-13):** while a fort is contested, each of its turns needs three keeper steps, and the keeper
     took one step per 10-second tick, so the hold advanced about one turn per minute. At that rate 72 turns could not
     fit in the world's 45-minute limit. So the world was stopped by hand (Ctrl-C) about 17 minutes after it started,
@@ -161,13 +178,17 @@ Add one more word to the capture demo command above (it is refused without the d
 - **Two people in one world (×30, 2026-11-14):** both tabs got one world with the same end time and each its own relay.
   The first player's host reached another nation's fort and its count started (turn 46). The defender (the second
   player) marched onto the fort's tile and the count was broken (turn 57); both pages said so. One host of the first
-  player then departed and arrived twice. No capture or retake was tried (it does not fit 45 minutes).
+  player then departed and arrived twice. No retake was tried there.
+- **Capture on screen (×30, two people, 2026-11-14):** the first player's host held another nation's fort from turn 13;
+  at turn 84 the fort passed to the first player's nation. Both pages said so, the province took the new holder's colour
+  and both pages' province counts changed. The second player did not defend. No retake was tried: after a capture the
+  fort cannot be counted against for 288 turns (about 48 minutes at ×60, 96 at ×30).
 - **Page display on local play:** a page that is shown again after being hidden reads the latest state at once
   (checked in a real browser, 2026-11-14, for the play read). The season read that moves the page's clock is now woken
   the same way and by the re-read button; that part is proven by tests only, not yet in a real browser. When the view is behind, the banner on local play says not to reload
   (that would lose the world's key) and offers 「最新の状態を読み直す」, which only reads.
-- **The capture itself** (72 counted turns, the new holder, the return) is proven only by the in-process tests on
-  the real program, on a compressed clock. It is not proven through the page.
+- **The retake** (after the 288 protected turns) is proven only by the in-process tests on the real program, on a
+  compressed clock. It is not proven through the page.
 - **Not run:** a build and start from a fresh clone on another machine.
 - **Not checked here:** the runner crate's `localnet-conquest-play` feature set (the contest pair does not need it), and
   the wide-world experimental features.
