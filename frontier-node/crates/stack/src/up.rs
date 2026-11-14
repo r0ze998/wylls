@@ -881,10 +881,11 @@ impl Stack {
     }
 
     pub fn stop_all(&mut self) {
-        // Reverse start order: bots, herald, relay, keepers, drand, chain.
+        // Reverse start order: bots, the mint page, herald, relay, keepers, drand, chain.
         for n in [
             "viewers",
             "bots",
+            "mint",
             "herald",
             "relay",
             "keeper-b",
@@ -1194,10 +1195,7 @@ async fn run_all(st: &mut Stack) -> Result<(), String> {
         let (prog, args) =
             nft.setup_command(&st.repo, &node, &st.run, &st.ports.rpc(), &st.program);
         let log = st.run.log("nft-setup");
-        let out = std::process::Command::new(&prog)
-            .args(&args)
-            .output()
-            .map_err(|e| format!("nft pass setup: {e}"))?;
+        let out = crate::nftpass::run_with_deadline(&prog, &args, Duration::from_secs(180))?;
         let _ = std::fs::write(
             &log,
             [out.stdout.as_slice(), out.stderr.as_slice()].concat(),
@@ -1294,6 +1292,12 @@ async fn run_all(st: &mut Stack) -> Result<(), String> {
     st.start(specs["herald"].clone())?;
     chain::wait_tcp(st.ports.herald, Duration::from_secs(60)).await?;
     wait_season_file(&st.ports.herald_url(), Duration::from_secs(300)).await?;
+    // 5b. NFT pass: the mint page on the same RPC (after the pass setup, the relay and the herald).
+    let mint_port = st.nft.as_ref().map(|n| n.mint_port);
+    if let (Some(spec), Some(port)) = (specs.get("mint").cloned(), mint_port) {
+        st.start(spec)?;
+        chain::wait_tcp(port, Duration::from_secs(30)).await?;
+    }
     // 6. Bots.
     let now = st.chain.status().await?.now;
     let bots = st.bots_spec(now, play_end);
@@ -2114,6 +2118,7 @@ pub fn down(rd: &RunDir) -> i32 {
     let order = [
         "viewers",
         "bots",
+        "mint",
         "herald",
         "relay",
         "keeper-b",

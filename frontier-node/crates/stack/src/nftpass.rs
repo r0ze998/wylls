@@ -13,6 +13,8 @@
 //! Record: docs/integration/CLAUDE-NFT-PASS-LOCAL-WORLD-20261114.md.
 
 use std::path::{Path, PathBuf};
+use std::process::{Command, Output, Stdio};
+use std::time::{Duration, Instant};
 
 use fclient::Address;
 use sha2::{Digest, Sha256};
@@ -203,6 +205,34 @@ impl NftPass {
     }
 }
 
+/// Runs `prog args` to its end, or kills it at `limit` (a setup that hangs must
+/// not hold the stack: the caller's failure path then stops every component).
+pub fn run_with_deadline(prog: &Path, args: &[String], limit: Duration) -> Result<Output, String> {
+    let mut child = Command::new(prog)
+        .args(args)
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .map_err(|e| format!("{}: {e}", prog.display()))?;
+    let t0 = Instant::now();
+    loop {
+        match child.try_wait().map_err(|e| e.to_string())? {
+            Some(_) => return child.wait_with_output().map_err(|e| e.to_string()),
+            None if t0.elapsed() >= limit => {
+                let _ = child.kill();
+                let _ = child.wait();
+                return Err(format!(
+                    "{}: no result in {} s; stopped",
+                    prog.display(),
+                    limit.as_secs()
+                ));
+            }
+            None => std::thread::sleep(Duration::from_millis(100)),
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -221,6 +251,26 @@ mod tests {
             Some("abc")
         );
         assert_eq!(recorded_resident_sha("not json"), None);
+    }
+
+    #[test]
+    fn a_process_past_its_deadline_is_stopped() {
+        let ok = run_with_deadline(
+            Path::new("/bin/sh"),
+            &["-c".into(), "echo done".into()],
+            Duration::from_secs(5),
+        )
+        .unwrap();
+        assert!(ok.status.success());
+        assert_eq!(String::from_utf8_lossy(&ok.stdout).trim(), "done");
+        let t0 = Instant::now();
+        let late = run_with_deadline(
+            Path::new("/bin/sh"),
+            &["-c".into(), "sleep 30".into()],
+            Duration::from_millis(300),
+        );
+        assert!(late.unwrap_err().contains("stopped"));
+        assert!(t0.elapsed() < Duration::from_secs(5));
     }
 
     #[test]

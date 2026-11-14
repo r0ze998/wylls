@@ -111,3 +111,21 @@ test('CreateSeason for the lane: the stack writes S1 | 0x8000 and range-checks e
   assert.match(season, /fn the_nft_lane_accepts_exactly_its_own_version\(\)/);
   assert.match(read('frontier-abi/src/v2/presets.rs'), /if self\.base\.program_version != PROGRAM_VERSION_V2\n\s*&& self\.base\.program_version != PROGRAM_VERSION_S1\n\s*&& self\.base\.program_version != PROGRAM_VERSION_CUSTODY/, 'validate is not relaxed');
 });
+
+test('processes: the mint page starts after the herald and before the bots, stops first on every path, and the setup has a deadline', () => {
+  const up = stack('up.rs'), nftRs = stack('nftpass.rs');
+  const seq = up.slice(up.indexOf('async fn run_all('));
+  const herald = seq.indexOf('st.start(specs["herald"].clone())?;');
+  const mint = seq.indexOf('if let (Some(spec), Some(port)) = (specs.get("mint").cloned(), mint_port) {');
+  const bots = seq.indexOf('// 6. Bots.');
+  assert.ok(herald > 0 && mint > herald && bots > mint, 'herald → mint page → bots');
+  assert.match(seq, /st\.start\(spec\)\?;\n\s*chain::wait_tcp\(port, Duration::from_secs\(30\)\)\.await\?;/, 'its port must answer, or the run fails (and stop_all runs)');
+  // stop_all (failure, Ctrl-C, end) and `down` both stop it, before the herald.
+  for (const list of [up.slice(up.indexOf('pub fn stop_all(&mut self)')), up.slice(up.indexOf('pub fn down(rd: &RunDir)'))]) {
+    const block = list.slice(0, list.indexOf('"localnet",'));
+    assert.match(block, /"bots",\n\s*"mint",\n\s*"herald",/);
+  }
+  assert.match(up, /Err\(e\) => \{\n\s*log_line\(&format!\("run failed: \{e\}"\)\);[\s\S]{0,200}st\.stop_all\(\);/, 'a failed run stops every component');
+  assert.match(up, /crate::nftpass::run_with_deadline\(&prog, &args, Duration::from_secs\(180\)\)\?/);
+  assert.match(nftRs, /None if t0\.elapsed\(\) >= limit => \{\n\s*let _ = child\.kill\(\);/);
+});

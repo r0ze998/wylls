@@ -74,6 +74,13 @@ if (import.meta.url === `file://${process.argv[1]}`) {
     console.log(`mint page (attached, read-only, to ${stack.rpc.url}): ${url}/web/mint.html\n  program ${stack.programId}, collection ${stack.world.collection}`);
   } else if (process.argv.includes('--localnet')) {
     const stack = await localnetMintStack({ port });
+    // Ctrl-C / SIGTERM: stop the validator this process started and remove its ledger (no orphan left).
+    let stopping = false;
+    for (const sig of ['SIGINT', 'SIGTERM']) process.on(sig, async () => {
+      if (stopping) return;
+      stopping = true;
+      try { await stack.stop(); } finally { process.exit(0); }
+    });
     const { url } = await stack.start();
     console.log(`mint page (REAL program on a loopback validator): ${url}/web/mint.html\n  program ${stack.programId}, collection ${stack.collection}, rpc ${stack.rpc.url}\n  airdrop: POST ${url}/mock/airdrop {address, lamports}`);
   } else {
