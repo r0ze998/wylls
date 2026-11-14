@@ -179,3 +179,25 @@ modules: a new `local-play-prize.mjs` relay module and the page's prize panel wi
 launcher and resident hooks), then build in this order: relay module + pure tests → page wiring + fixture
 browser test → runner/launcher test-only prize option (⑳ or with ⑳'s review) → host build slot → world.
 P1 remains a fallback if P2's runner change is not agreed.
+
+## 12. P2 agreed; the port started (2026-11-15)
+
+⑳ chose **P2** (latest candidate world). Split: ⑰ writes `local-play-prize.mjs`, the page's local-play prize
+wiring and their tests, **and** the TEST ONLY runner/launcher option (deploy the TEST ONLY prize `.so`, InitPool with
+the season authority, the fixture Entry) for ⑳'s review. That option sits behind an explicit TEST ONLY flag, only
+with `--lane-candidate`; default runs stay byte-identical; `Lane` / `CandidateOptions` / `launch_lane` keep their
+existing behaviour. Base: ⑳'s world branch **`e50b3cc0`** (it now carries the herald's local-play bootstrap and
+the candidate exact pair; ⑳'s herald tests 10/10, binary built).
+
+Port branch **`claude/nft-prize-on-world-r21-20261115`** (worktree `/Users/r0ze/Projects/wylls-nft-prize-on-world-20261115`):
+- `5ae0667b`: the prize JS (SDK + web copy, relay prize route, view and claim-outcome helpers, settlement,
+  TEST ONLY tools, the page's prize model, panel and texts) applied onto `e50b3cc0` with `--3way`, all clean,
+  **none of ⑳'s files**. Pure tests on that base: **25/25**.
+- `2e40b157`: the proposal for ⑳'s two files, as a patch only (`CLAUDE-NFT-PRIZE-PORT-20-FILES-PROPOSAL-20261115.patch`,
+  sha256 `1d8924297284331c…`); not applied. In `controller.mjs` two conflicts are resolved by keeping ⑳'s code
+  (the local-play send with its resident hook; the whole `localCandidate` nft-login block) and adding the prize
+  side only on the non-local path. In `join.mjs` only `renderNfts` changes; `renderLocalCandidateNfts` is untouched.
+  Sent to ⑳ with base blob → proposed sha256 for each.
+
+Next (new files only): `local-play-prize.mjs` (the pool and pass view; ClaimResident prepare → submit in the local-play
+style) with pure tests, then the mount line and the runner/launcher option, each after path + hash to ⑳.
