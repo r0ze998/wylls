@@ -96,11 +96,40 @@ async function villageOrder(page, name, what, { okText, waitEnabledMs = 120_000 
     go = form.locator('button[type="submit"]');
   }
   const t0 = Date.now();
+  const openFold = async () => { if (what === 'build') return; const f = page.locator(`details:has(${what === 'train' ? '#hp-train' : '#hp-muster'}):not([open]) > summary`); if (await f.count()) await f.first().click().catch(() => {}); };
+  await openFold();
   while (!(await go.count()) || !(await go.isVisible().catch(() => false)) || await go.isDisabled()) {
+    await openFold();
     if (Date.now() - t0 > waitEnabledMs) { await shot(page, `${name}-disabled`); throw new Error(`${name}: ${what} stayed unavailable`); }
     await page.waitForTimeout(3_000);
   }
-  await go.click();
+  // The drawer re-renders on its own (the world's polling): a click on a node that was just replaced is retried on a
+  // fresh lookup (and the count is filled again); a click is one order, so only a click that never landed is retried.
+  for (let i = 0; ; i++) {
+    try {
+      await openVillage(page);
+      if (what !== 'build') {
+        const form = page.locator(what === 'train' ? '#hp-train' : '#hp-muster');
+        // the village card shows one of the two forms open and the other in a fold, and which one depends on the
+        // village's state: open the fold when the form is inside it
+        const fold = page.locator(`details:has(${what === 'train' ? '#hp-train' : '#hp-muster'}):not([open]) > summary`);
+        if (await fold.count()) await fold.first().click({ timeout: 5_000 });
+        const field = form.locator(what === 'train' ? '#f-n' : '#f-troops');
+        if (await field.count()) await field.fill('100', { timeout: 5_000 });
+        go = form.locator('button[type="submit"]');
+      }
+      await go.click({ timeout: 5_000 });
+      break;
+    } catch (e) {
+      if (i >= 5) {
+        await shot(page, `${name}-click-failed`);
+        const ids = await page.evaluate(() => [...document.querySelectorAll('[id^="hp-"], [data-act="tab"]')].map(e => `${e.id || e.dataset.tab}${e.closest('details:not([open])') ? '(folded)' : ''}${e.getAttribute('aria-selected') === 'true' ? '(selected)' : ''}`).join(' '));
+        writeFileSync(path.join(OUT, `${name}-click-failed.txt`), `${ids}\n\n${await text(page)}`);
+        throw e;
+      }
+      await page.waitForTimeout(1_000);
+    }
+  }
   await page.waitForFunction(([ok, bad]) => new RegExp(ok).test(document.body.innerText) || new RegExp(bad).test(document.body.innerText), [okText.source, REFUSALS.source], { timeout: 120_000 });
   return page.evaluate(() => document.body.innerText);
 }
@@ -295,7 +324,68 @@ try {
     if (after.assetOwner !== B.publicKey || after.generation !== 1 || after.holdingOwnerCitizen !== after.citizen) throw new Error(`owner, generation or village owner changed after B's ${what}`);
     step(`${n} B ${label}: the village changed on chain`, `owner B, generation 1, last owner action ${before.lastOwnerAction} → ${after.lastOwnerAction}`);
   }
-  // (a march — Depart, now signed by B's wallet inside ResidentAct — needs a destination chosen on the map: a manual step, runbook §5)
+  // 11. B marches (Depart inside ResidentAct, B's wallet signing: fresident.marchSubmitFor). The host formed by the muster
+  // is ready once the world has processed the formation; the destination is given by coordinates (the drawer's
+  // "Choose by coordinates"), tiles of the same province tried in turn until the route is planned.
+  const provinceSha = async (p, q) => { const acc = await new RpcClient(RPC).account(new FrontierAddresses({ programId: FRONTIER, seasonId: SEASON }).province(p, q)); return acc ? createHash('sha256').update(Buffer.from(acc.data)).digest('hex') : null; };
+  const hostsTab = b.locator('[data-act="tab"][data-tab="hosts"]');
+  const t11 = Date.now();
+  let compose = b.locator('[data-act="compose"]:not([disabled])');
+  while (!(await compose.count())) {
+    if (Date.now() - t11 > 15 * 60_000) { await shot(b, '11-host-not-ready'); writeFileSync(path.join(OUT, '11-host-not-ready.txt'), await text(b)); throw new Error('11: the host stayed unready for 15 min'); }
+    if (await hostsTab.count()) await hostsTab.first().click();
+    await b.waitForTimeout(10_000);
+    compose = b.locator('[data-act="compose"]:not([disabled])');
+  }
+  await shot(b, '11-host-ready'); step('11 B: the host is formed and may march', `${Math.round((Date.now() - t11) / 1000)} s after the muster`);
+  const s11a = await snapshot('before B departs', asset);
+  const { p: P, q: Q } = s11a.holdingRef;
+  const prov11a = await provinceSha(P, Q);
+  await compose.first().click();
+  const destForm = b.locator('form[data-form="dest"]');
+  await destForm.waitFor({ state: 'attached', timeout: 30_000 });
+  const send = b.locator('[data-act="march-send"]');
+  let dest = null;
+  for (const tile of [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12].filter(t => t !== s11a.holdingRef.site)) {
+    if (!(await destForm.isVisible())) await b.locator('details:has(form[data-form="dest"]) > summary').first().click();
+    await destForm.locator('input[name="p"]').fill(String(P));
+    await destForm.locator('input[name="q"]').fill(String(Q));
+    await destForm.locator('input[name="tile"]').fill(String(tile));
+    await destForm.locator('button[type="submit"]').click();
+    await b.waitForTimeout(2_500);
+    if (await send.count() && !(await send.first().isDisabled())) { dest = { p: P, q: Q, tile }; break; }
+  }
+  if (!dest) { await shot(b, '11-no-route'); writeFileSync(path.join(OUT, '11-no-route.txt'), await text(b)); throw new Error('11: no destination tile in the home province got a route'); }
+  await shot(b, '11-march-order');
+  await send.first().click();
+  await b.waitForFunction(() => /Sealed and on its way\. It arrives on turn|Departed\. The turn changed|did not work|not in this wallet now|NftNotHeld|refus/i.test(document.body.innerText), null, { timeout: 180_000 });
+  const t11out = await text(b);
+  await shot(b, '11-b-depart');
+  const arrive = /It arrives on turn ([\d,]+)/.exec(t11out)?.[1] ?? /arrival moved from turn [\d,]+ to turn ([\d,]+)/.exec(t11out)?.[1];
+  if (!arrive) throw new Error(`11: B's march was not sent: ${(t11out.match(/.{0,80}(did not work|refus|NftNotHeld).{0,120}/i) ?? [''])[0]}`);
+  let s11b = await snapshot('after B departs', asset);
+  let prov11b = await provinceSha(P, Q);
+  for (let i = 0; i < 20 && prov11b === prov11a && s11b.holdingSha256 === s11a.holdingSha256; i++) { await b.waitForTimeout(1_500); s11b = await snapshot('after B departs', asset); prov11b = await provinceSha(P, Q); }
+  if (prov11b === prov11a && s11b.holdingSha256 === s11a.holdingSha256) throw new Error('11: the march changed neither the province nor the village on chain');
+  if (s11b.assetOwner !== B.publicKey || s11b.generation !== 1) throw new Error('11: owner or generation changed with the march');
+  step('11 B departed (Depart inside ResidentAct, B\'s wallet): the chain changed', `to (${dest.p},${dest.q}) tile ${dest.tile}, arrives on turn ${arrive}; province ${prov11a?.slice(0, 12)} → ${prov11b?.slice(0, 12)}, village ${s11a.holdingSha256.slice(0, 12)} → ${s11b.holdingSha256.slice(0, 12)}; owner B, generation 1`);
+
+  // 12. A screen-level signal of the march's result: the host stops being away and the province changes again. This
+  // does not prove the reveal (the world's own processing changes the province too): demo/nft-world-tx-evidence.mjs
+  // reads the REVEAL and settlement transactions of this host. Waited for up to 25 min; if it does not come, the step is recorded as not confirmed.
+  const t12 = Date.now();
+  let back = false, prov12 = prov11b;
+  while (Date.now() - t12 < 25 * 60_000) {
+    await b.waitForTimeout(15_000);
+    if (await hostsTab.count()) await hostsTab.first().click();
+    const tx12 = await text(b);
+    prov12 = await provinceSha(P, Q);
+    if (!/Away on a march/.test(tx12) && prov12 !== prov11b) { back = true; break; }
+  }
+  await shot(b, '12-b-result');
+  const s12 = await snapshot('after the march result', asset);
+  if (back) step('12 screen signal only: the host is no longer away and the province changed again (the reveal itself is proven only by demo/nft-world-tx-evidence.mjs)', `${Math.round((Date.now() - t12) / 1000)} s after the send; owner ${s12.assetOwner === B.publicKey ? 'B' : s12.assetOwner}, generation ${s12.generation}`);
+  else step('12 NOT CONFIRMED: no march result within 25 min', `province ${prov11b?.slice(0, 12)} → ${prov12?.slice(0, 12)}; see 12-b-result.png`);
 } catch (e) {
   failed = e.message;
   step('FAILED', e.message);

@@ -25,10 +25,11 @@ branch `claude/nft-pass-mint-20261114`。source を読んで整理した監査�
 | PlaceHome | `act()`（NFT は鍵の手順を飛ばす） | **通常 world で確認済み**（A の最初の村） |
 | JoinResident | `nft-login` | **通常 world で確認済み** |
 | SetVigil | `act()` | **実 chain（fixture world）で確認済み**（B が A の Citizen を変更、§4.1） |
-| Build・Train・Explore・Muster・Dissolve・Garrison・FortGarrison・Propose・Vote・SendCaravan・RaidCaravan・FileOutpost・FileTicket・DeclareSiege | `act()`（命令名で直接） | 配線済み・**通常 world で未確認** |
+| Build・Train・Muster | `act()`（命令名で直接） | **通常 world で確認済み（取引で照合）**：B の署名の ResidentAct（世代 1）→ Build・Train・Muster、成功、事象 BUILD・TRAIN・MUSTER（LOCAL-WORLD §5g） |
+| Explore・Dissolve・Garrison・FortGarrison・Propose・Vote・SendCaravan・RaidCaravan・FileOutpost・FileTicket・DeclareSiege | `act()`（命令名で直接） | 配線済み・**通常 world で未確認** |
 | BuildStructure・BuildVault・SeizeStructure・SeizeVault | `act()`（命令名を変数で） | 配線済み・**未確認** |
-| **Depart（行軍）** | `fmarch.sendMarchRetrying` → **これまで Frontier の session 鍵で署名**していた。NFT Citizen には session 鍵が無いので行軍できなかった | **今回直した**：`fresident.marchSubmitFor` で、NFT を遊ぶときは持ち主の wallet が ResidentAct の中で署名する（世代を読み直す。パスが無ければ署名前に `NftNotHeld`）。`web-frontier-nft-march.test.mjs` 4/4。**通常 world で未確認** |
-| 行軍の Reveal | relay の `/f/reveal` と keeper（player の署名ではない） | NFT の行軍でも同じ経路のはず・**未確認** |
+| **Depart（行軍）** | `fmarch.sendMarchRetrying` → **これまで Frontier の session 鍵で署名**していた。NFT Citizen には session 鍵が無いので行軍できなかった | **今回直した**：`fresident.marchSubmitFor` で、NFT を遊ぶときは持ち主の wallet が ResidentAct の中で署名する（世代を読み直す。パスが無ければ署名前に `NftNotHeld`）。`web-frontier-nft-march.test.mjs` 4/4。**通常 world で確認済み（取引で照合）**：B の署名の ResidentAct（世代 1）→ Depart、成功、事象 DEPART（LOCAL-WORLD §5g） |
+| 行軍の Reveal | relay の `/f/reveal` と keeper（player の署名ではない） | **通常 world で確認済み（取引で照合）**：同じ host の REVEAL（画面で選んだ行き先のマス）、DEPARTURE_SETTLED・TRANSIT_SETTLED、署名者は B ではない（LOCAL-WORLD §5g） |
 | RetireHost・CloseStructure・CloseVault・RaidDomestic | この画面には出していない | 画面の機能が無い（program は包める） |
 | SetSession | 画面は NFT では求めない（`NftNoSession`） | 仕様どおり非対応 |
 
@@ -58,7 +59,7 @@ branch `claude/nft-pass-mint-20261114`。source を読んで整理した監査�
 **完了している（証拠あり）**：最新の住民 program の build と記録／実 Core＋実 program の発行（模擬・実 chain）／NFT lane の実 CreateSeason／通常 world で 発行 → 保有 → 参加 → 最初の村 → 譲渡 → 旧持ち主の画面での拒否（chain 不変）→ 新持ち主の Harvest（chain の蔵が増える）／英語画面と英語の発行ページ／relay の holder gate（transfer guard まで）／host binary の来歴。
 
 **残課題**：
-1. 通常 world で：B の Build・Train・Muster・Depart（行軍は今回の修正）・Reveal と、A の同じ操作の拒否を chain で照合（§1.2）。枠と容量は領土側と事前に調整（world 1 回：起動 1〜2 分の CPU、run data 約 300〜350 MB、終わったら削除）。
+1. ~~通常 world で B の Build・Train・Muster・Depart・Reveal~~ → 取引で照合済み（LOCAL-WORLD §5g）。A の拒否は Harvest・Build を画面で確認し、譲渡後の A の取引 0 件。**残り**：Train・Muster の form が再描画で入れ替わる操作性の不具合は source の修正と unit 試験だけ（world・人の操作で未確認）。run data は約 520 MB だった。
 2. 利用者向けの譲渡の画面：**試験用を実装済み（模擬 chain の browser 試験 3 件）**。実 program・通常 world での実行は次の world の枠で（`nft-world-screen-check.mjs --transfer-via page`）。
 3. collection・NFT の metadata を後から変える手段（program の更新が要る）。
 4. B（wide の領土戦との統合）と C（本番の program・版・配備）は別の判断と作業。

@@ -1,0 +1,287 @@
+{
+  "rpc": "http://127.0.0.1:41010",
+  "frontier": "6Gg4AVKo8GAft4Wb2JSfhHCW3PQhXxYxapzBYeVjGzA9",
+  "season": "7",
+  "owner": "6jcsBtEuQv5cXqAkCFa3RKW5HyhY751j2ANoMAr8Mi55",
+  "asset": "A2p3DCczCYy6yL7Vtv2TYhd5X3Bw5P5i9X89Qq1VvbTJ",
+  "previous": "BDgP64op3dseER3pqnFV2UWZmnLH3JDfrg4KKxd2hGhV",
+  "readAt": "2026-11-14T10:37:49.644Z",
+  "transfer": [
+    {
+      "signature": "4TeQ34oETSALJf3mAEBiwLDSGjzWTevwLniJB2Y8e8iqdd4xKy95nrdDbqh1HH1fKVuBVzRssfTdWeJhsTM1Q4uu",
+      "ok": true,
+      "signers": [
+        "BDgP64op3dseER3pqnFV2UWZmnLH3JDfrg4KKxd2hGhV"
+      ],
+      "signedByPrevious": true,
+      "to": "6jcsBtEuQv5cXqAkCFa3RKW5HyhY751j2ANoMAr8Mi55"
+    }
+  ],
+  "previousAfterTransfer": {
+    "transferSlot": 2087,
+    "transactions": [],
+    "landedOk": 0
+  },
+  "ownerTransactions": [
+    {
+      "signature": "4TeQ34oETSALJf3mAEBiwLDSGjzWTevwLniJB2Y8e8iqdd4xKy95nrdDbqh1HH1fKVuBVzRssfTdWeJhsTM1Q4uu",
+      "slot": 2087,
+      "ok": true,
+      "err": null,
+      "signedByOwner": false,
+      "acts": [
+        {
+          "name": "TransferResident"
+        }
+      ],
+      "events": []
+    },
+    {
+      "signature": "5YyYHcx6cNyxwuMcGKV4BajZdEAk1PAAoyigfnKhXqtjKVdMBfTkFtWmR6Ukc1gJbdA6MQ7ycYZQ1vHym6aYuwRL",
+      "slot": 2243,
+      "ok": true,
+      "err": null,
+      "signedByOwner": true,
+      "acts": [
+        {
+          "residentAct": true,
+          "generation": 1,
+          "inner": "Harvest",
+          "assetInProof": true
+        }
+      ],
+      "events": [
+        {
+          "name": "HARVEST",
+          "bell": 141,
+          "p": 2,
+          "q": 0,
+          "site": 1,
+          "stores_digest": "57352d9c7d868357b14412edf206b11ab1db85ea8a2f87f0b8cab5f602e8f4e0"
+        }
+      ]
+    },
+    {
+      "signature": "2cSPGixu4WAjmpfirVeZZhLEmN5gTAJwT2UHoCiF73tgJLYPzPKNE1rg9Fk2BpRyssTuH3vpAsTiCx8dx5Lhh9bL",
+      "slot": 2270,
+      "ok": true,
+      "err": null,
+      "signedByOwner": true,
+      "acts": [
+        {
+          "residentAct": true,
+          "generation": 1,
+          "inner": "Build",
+          "assetInProof": true
+        }
+      ],
+      "events": [
+        {
+          "name": "BUILD",
+          "bell": 142,
+          "p": 2,
+          "q": 0,
+          "site": 1,
+          "item": 0,
+          "cost_digest": "c87c335632468dc149cab95a348623ec8748c1f55735cba47df69e4f7d209a86",
+          "done_at": "1785716820"
+        }
+      ]
+    },
+    {
+      "signature": "2j5pQuzuwCVNEmzJvaVReJ7Cap7Er4RegBioyibBkfEBA9XcmyP3tzrPQm6e5xdtbvHUnE3aE6j3EFLdwzXEjiSy",
+      "slot": 2276,
+      "ok": true,
+      "err": null,
+      "signedByOwner": true,
+      "acts": [
+        {
+          "residentAct": true,
+          "generation": 1,
+          "inner": "Train",
+          "assetInProof": true
+        }
+      ],
+      "events": [
+        {
+          "name": "TRAIN",
+          "bell": 143,
+          "p": 2,
+          "q": 0,
+          "site": 1,
+          "unit": 0,
+          "n": 100,
+          "done_at": "1785717000"
+        }
+      ]
+    },
+    {
+      "signature": "31e5aPF5qfMczC1TqpTgLNBXgfGanodbYb2oKth9w9LzjsSoQUXY3c3Wmq2CJRHDJG5NoBznKFgs5jzzCnjQz1fE",
+      "slot": 2282,
+      "ok": true,
+      "err": null,
+      "signedByOwner": true,
+      "acts": [
+        {
+          "residentAct": true,
+          "generation": 1,
+          "inner": "Muster",
+          "assetInProof": true
+        }
+      ],
+      "events": [
+        {
+          "name": "MUSTER",
+          "bell": 143,
+          "host_id": "124249108905984",
+          "unit": 0,
+          "troops": 100,
+          "tile": 17,
+          "entry": 0
+        }
+      ]
+    },
+    {
+      "signature": "2YR2PcnxHWPmQjYpYJTCQZF3eHuUF6G6g3QQpXPMJ2gEqWbdX5CSSar2tWpooVL8Jnqywri2mxH3hz8fULgsxoFF",
+      "slot": 2326,
+      "ok": true,
+      "err": null,
+      "signedByOwner": true,
+      "acts": [
+        {
+          "residentAct": true,
+          "generation": 1,
+          "inner": "Depart",
+          "assetInProof": true
+        }
+      ],
+      "events": [
+        {
+          "name": "DEPART",
+          "bell": 146,
+          "host_id": "124249108905984",
+          "origin_p": 2,
+          "origin_q": 0,
+          "origin_tile": 17,
+          "depart_bell": 146,
+          "arrive_bell": 148,
+          "dep_mass": 100000,
+          "march_stamina": 74,
+          "tip": "15394",
+          "seal_root": "febb6e2dd9eb0bff8ce4bdede83703daad28f7e685f7aea4cd004db5f3e7c4b5",
+          "commit": "d0837298e39096f05ef920ccaa933688761ec4619f1c2c31b7631215b5e780d4",
+          "seal": "940b232ec923c35362ceee3f3cc4fbf63c4bbaf6ce0947a63339a1d657752a7decca6d1fed5901fdce55c90d104b9130049307277fe86e0774e3a73fb96b3fbdeb8aee773cd54cdfb4886ffcd75ee8ed22c96be5b0c3099b153569116add35b9df85b02656686075ac0685117797b38eeba6e2d48dae11b0e2682047baa6ffe82c80215921bb05581db5108939a57dfad138e5774c6627d18acc5ee6efb6958de5163dcd71"
+        }
+      ]
+    }
+  ],
+  "marches": [
+    {
+      "host": "124249108905984",
+      "depart": {
+        "signature": "2YR2PcnxHWPmQjYpYJTCQZF3eHuUF6G6g3QQpXPMJ2gEqWbdX5CSSar2tWpooVL8Jnqywri2mxH3hz8fULgsxoFF",
+        "slot": 2326,
+        "ok": true,
+        "origin": {
+          "p": 2,
+          "q": 0,
+          "tile": 17
+        },
+        "departBell": 146,
+        "arriveBell": 148
+      },
+      "after": [
+        {
+          "signature": "31fPeZWo5JNYhyWz1Eze5CiTXjcokSrge95pKerro5NVtb6XT1Npk5hm6anXdKD9Ho66fvLkUkR7hoFh28StdhD1",
+          "slot": 2352,
+          "ok": true,
+          "signers": [
+            "HfjQu5gWBoAsQERorKTuQ53UTAsgmKpg3cPs9fTTy2Do"
+          ],
+          "signedByOwner": false,
+          "instructions": [
+            "SettleDeparture"
+          ],
+          "events": [
+            {
+              "name": "DEPARTURE_SETTLED",
+              "bell": 148,
+              "host_id": "124249108905984",
+              "troops_after": 100000,
+              "stamina_after": 46,
+              "destroyed": 0
+            }
+          ]
+        },
+        {
+          "signature": "2z2zdSdM2aHss9MBxuWjVpgpQYXJaMRaF1tpczJyng9KPumJn6MS5NzKszzmKwsmU2KqGZDFB4buucTZ5sdoeCHm",
+          "slot": 2366,
+          "ok": true,
+          "signers": [
+            "EbsmP7we9EuRD6eicfZ3BUYybd443VU9SZEnbVCHeext"
+          ],
+          "signedByOwner": false,
+          "instructions": [
+            "Reveal"
+          ],
+          "events": [
+            {
+              "name": "REVEAL",
+              "bell": 149,
+              "p": 2,
+              "q": 0,
+              "arrive": 148,
+              "faction": 0,
+              "i": 0,
+              "host_id": "124249108905984",
+              "tile": 2,
+              "stance": 0,
+              "retreat": 0,
+              "displace": 0,
+              "displaced_host": "0",
+              "beneficiary": "aa6a966a185554434950bbbb21a00cad92bb6edaf8cb06dd5ed7f816a8f4a556",
+              "ev_slot": "2366",
+              "ev_price": "376893",
+              "ev_limit": 28000,
+              "arrivalday_created": 1
+            }
+          ]
+        },
+        {
+          "signature": "65vpPjySoRneTFyuM8zkdAmntsHkJ4Dh2yR5D6Z9nV387ki4kN7GtCfKVjFyk4YCwm3uQhYhBQLB5HYcrYKE85qn",
+          "slot": 2396,
+          "ok": true,
+          "signers": [
+            "E88fHGeToyno4G1gg1Eb43wdxjvbV5MR6XgHfx7DZL46"
+          ],
+          "signedByOwner": false,
+          "instructions": [
+            "SettleTransit"
+          ],
+          "events": [
+            {
+              "name": "TRANSIT_SETTLED",
+              "bell": 151,
+              "host_id": "124249108905984",
+              "outcome": 1,
+              "seal_code": 0,
+              "troops": 100000,
+              "tip_to": "4851596261940685482",
+              "tip": "15394",
+              "fee_to": "4851596261940685482",
+              "fee": "10000",
+              "bond_to": "16353905016937747150",
+              "bond": "20000",
+              "reward_to": "0",
+              "reward": "0",
+              "pool_owed_delta": "0",
+              "slot_kept": 1
+            }
+          ]
+        }
+      ],
+      "revealed": true,
+      "settled": true
+    }
+  ]
+}
