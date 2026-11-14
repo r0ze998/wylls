@@ -54,6 +54,25 @@ use permutation_rules::frontier::geometry::{region_of, ProvinceCoord};
 pub const METADATA_SCHEMA: &str = "frontier-localnet-expedition-play-v1";
 pub const PROGRAM: [u8; 32] = [0x45; 32];
 pub const PROGRAM_VERSION: u16 = 0x4804;
+/// The LOCAL TEST CANDIDATE lane (conquest lane + NFT residents; not an allocation, never deployable): its own program
+/// id, Season version and the runner's lane word. Served only as an EXACT pair (program, version, lane): the conquest
+/// lane's [0x45; 32] / 0x4804 without a lane word, exactly as before, or [0x4C; 32] / 0xC804 with
+/// `lane_candidate: "localnet-conquest-nft-sbf"`. Every mix is refused.
+pub const CANDIDATE_PROGRAM: [u8; 32] = [0x4C; 32];
+pub const CANDIDATE_VERSION: u16 = 0xC804;
+pub const CANDIDATE_LANE: &str = "localnet-conquest-nft-sbf";
+
+/// The Season version a local-play program runs (the exact pair above), or `None` for any other program.
+pub fn lane_version(program: &Address) -> Option<u16> {
+    let p = program.to_bytes();
+    if p == PROGRAM {
+        Some(PROGRAM_VERSION)
+    } else if p == CANDIDATE_PROGRAM {
+        Some(CANDIDATE_VERSION)
+    } else {
+        None
+    }
+}
 /// The usual stack's port: never used by a local-play herald.
 pub const REFUSED_PORT: u16 = 41970;
 /// LoaderV3 ProgramData header bytes before the ELF.
@@ -138,7 +157,18 @@ pub fn expected(metadata: &str, program: &Address, season_id: u64, rpc: &str) ->
     {
         return Err("metadata: artifact digest/length".into());
     }
-    if e.program.to_bytes() != PROGRAM || e.program != *program {
+    // (the exact pair: the program with its own lane word — none for the conquest lane, the candidate's for [0x4C])
+    let lane = match v.get("lane_candidate") {
+        None => None,
+        Some(Value::String(s)) => Some(s.as_str()),
+        Some(_) => return Err("metadata: lane_candidate is not a word".into()),
+    };
+    let version = match (e.program.to_bytes(), lane) {
+        (p, None) if p == PROGRAM => PROGRAM_VERSION,
+        (p, Some(CANDIDATE_LANE)) if p == CANDIDATE_PROGRAM => CANDIDATE_VERSION,
+        _ => return Err("metadata: not the dedicated local-play program, or not --program".into()),
+    };
+    if e.program != *program {
         return Err("metadata: not the dedicated local-play program, or not --program".into());
     }
     if e.season_id != season_id {
@@ -147,8 +177,8 @@ pub fn expected(metadata: &str, program: &Address, season_id: u64, rpc: &str) ->
     if v["rpc_url"].as_str() != Some(rpc) {
         return Err("metadata: rpc_url is not --rpc (another runner?)".into());
     }
-    if v["program_version"] != format!("0x{PROGRAM_VERSION:04x}") {
-        return Err("metadata: program_version is not 0x4804".into());
+    if v["program_version"] != format!("0x{version:04x}") {
+        return Err(format!("metadata: program_version is not 0x{version:04x}"));
     }
     Ok(e)
 }
@@ -264,7 +294,7 @@ pub fn check(e: &Expected, s: &Snapshot) -> Result<(), String> {
     let fd = v2(&s.accounts[4].1, &e.program, AccountKind::Frontier, e.season_id, "Frontier")?;
     let rd = v2(&s.accounts[5].1, &e.program, AccountKind::RingSeed, e.season_id, "RingSeed")?;
     let season = Season::decode(sd).map_err(|_| "Season: does not decode")?;
-    if season.bump != bump || season.program_version != PROGRAM_VERSION || season.ruleset_hash != RULESET_HASH_V3 {
+    if season.bump != bump || Some(season.program_version) != lane_version(&e.program) || season.ruleset_hash != RULESET_HASH_V3 {
         return Err("Season: another bump, program version or ruleset".into());
     }
     let q = fclient::beacon::quicknet_info();
@@ -352,7 +382,7 @@ pub fn seed(fold: &mut Fold, e: &Expected, s: &Snapshot) -> Result<Value, String
         "contextSlot": s.context_slot,
         "accounts": s.accounts.iter().map(|(k, _)| k.to_string()).collect::<Vec<_>>(),
         "program": e.program.to_string(),
-        "programVersion": format!("0x{PROGRAM_VERSION:04x}"),
+        "programVersion": format!("0x{:04x}", lane_version(&e.program).unwrap_or(PROGRAM_VERSION)),
         "rulesetHash": hex::encode(RULESET_HASH_V3),
         "cluster": "localnet",
         "artifact": {"sha256": e.artifact_sha256, "bytes": e.artifact_len,
@@ -381,3 +411,7 @@ pub fn fresh_data_dir(p: &std::path::Path) -> Result<(), String> {
 #[cfg(test)]
 #[path = "local_play_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "local_play_candidate_tests.rs"]
+mod candidate_tests;
