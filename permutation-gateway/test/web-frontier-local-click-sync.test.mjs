@@ -83,3 +83,15 @@ test('the half-second read: local play\'s test march only, only while an order o
   const app = src('app.mjs');
   assert.match(app, /if \(FS\.mode === 'play'\) \{ try \{ localSyncTick\(\); \} catch \(e\) \{ console\.error\('frontier local sync:', e\); \} \}/, 'called from the page\'s quarter-second dial loop');
 });
+
+test('round 16: the wait line\'s slot is always there with one least height, so the rows never move when a wait comes or goes', () => {
+  const slotAt = out => out.indexOf('class="kh-wait-slot"');
+  // no wait: the slot is still there, empty, right after the rows
+  { const out = String(renderPop(state(), handModel(state()))); assert.ok(slotAt(out) > out.indexOf('kh-rows'), 'after the rows'); assert.doesNotMatch(out, /kh-wait-line/); }
+  // a wait (settling): the line is inside the same slot
+  { const s = state({ nowBell: 12, resolvedNext: 10 }); const out = String(renderPop(s, handModel(s)));
+    assert.ok(slotAt(out) > out.indexOf('kh-rows')); assert.ok(out.indexOf('kh-wait-line') > slotAt(out), 'the line is in the slot'); }
+  const css = readFileSync(new URL('conquest-hand.css', WEB), 'utf8');
+  assert.match(css, /\.kh-wait-slot \{ min-height: 64px; \}/, 'one least height');
+  assert.doesNotMatch(css, /kh-wait-slot[^}]*line-clamp|kh-wait-line[^}]*line-clamp/, 'the text is never cut (a forming host\'s line says when it stands)');
+});
