@@ -111,3 +111,20 @@ test('round 19: with the forts card open, the bar leaves the wait to the card (t
   // nothing waits: nothing changes
   { const s = state(); assert.equal(handModel(s).note, null); }
 });
+
+test('round 20: the stand-in is always in the slot, in one grid cell with the real line; a wide bar wraps instead of running off the screen', () => {
+  // a wait: the real line AND the stand-in, both in the slot (the slot is as tall as the taller)
+  { const s = state({ nowBell: 12, resolvedNext: 10 }); const out = String(renderPop(s, handModel(s)));
+    const slot = out.slice(out.indexOf('class="kh-wait-slot"'), out.indexOf('kh-rule'));
+    assert.equal((slot.match(/kh-wait-line/g) ?? []).length, 2, 'the real line and the stand-in');
+    assert.match(slot, /<div class="kh-wait-ghost" aria-hidden="true" inert>/);
+    assert.equal((slot.match(/data-act="nudge"/g) ?? []).length, 1, 'only the real line offers the button'); }
+  // the stand-in is the same in every mode (its button is a plain span either way)
+  { const a = state(), b = { ...state(), localPlay: { address: 'W', programId: 'P', seasonAddress: 'S', cluster: 'localnet' } };
+    const ghost = m => /<div class="kh-wait-ghost"[^]*?<\/div>/.exec(m)?.[0];
+    assert.equal(ghost(String(renderPop(a, handModel(a)))), ghost(String(renderPop(b, handModel(b))))); }
+  const css = readFileSync(new URL('conquest-hand.css', WEB), 'utf8');
+  assert.match(css, /\.kh-wait-slot \{ display: grid; \}\n\.kh-wait-slot > \* \{ grid-area: 1 \/ 1; \}/);
+  assert.match(src('hud/keephand.mjs'), /export function steadySlot\(root, key\)/);
+  assert.match(readFileSync(new URL('frontier.css', WEB), 'utf8'), /@media \(min-width: 760px\) \{ \.hand-acts \{ flex-wrap: wrap; \} \}/);
+});

@@ -36,7 +36,8 @@ test('the hand\'s bar and card each have their own gate, fed by the same pointer
 test('renderHand: a pressed bar or card is not written, and stays marked as not written so the release writes it', () => {
   const fn = app.slice(app.indexOf('function renderHand()'), app.indexOf('function measureHand()'));
   assert.match(fn, /if \(bar !== handLast\.bar && !handPress\.hold\(\(\) => renderHand\(\)\)\) \{ keepState\(handEl, \(\) => setHtml\(handEl, hand\.renderHand\(model\)\)\); handLast\.bar = bar; \}/);
-  assert.match(fn, /if \(pop !== handLast\.pop && !handPopPress\.hold\(\(\) => renderHand\(\)\)\) \{ keepState\(handPopEl, \(\) => setHtml\(handPopEl, pop \? hand\.renderPop\(FS, model\) : ''\)\); handLast\.pop = pop;/);
+  // (round 20: right after the card is written, the forts card's wait slot is steadied — keephand.steadySlot)
+  assert.match(fn, /if \(pop !== handLast\.pop && !handPopPress\.hold\(\(\) => renderHand\(\)\)\) \{ keepState\(handPopEl, \(\) => setHtml\(handPopEl, pop \? hand\.renderPop\(FS, model\) : ''\)\); keephand\.steadySlot\(handPopEl, `\$\{model\.key\}\|\$\{globalThis\.innerWidth \?\? 0\}`\); handLast\.pop = pop;/);
   assert.equal((fn.match(/setHtml\(handEl,/g) ?? []).length, 1, 'the bar is written in one place only');
   assert.equal((fn.match(/setHtml\(handPopEl, pop/g) ?? []).length, 1, 'the card is written in one place only (its clearing when the hand goes is not a press target)');
 });

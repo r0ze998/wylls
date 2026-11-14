@@ -1318,7 +1318,9 @@ function renderHand() {
   // (a tile is being picked on the board for the card — the prototype's widening —: the card counts as covering the map's foot, hud/insets.mjs)
   { const pk = FS.hand?.pick?.kind === 'dress' ? 'dress' : ''; if ((handPopEl.dataset.pick ?? '') !== pk) handPopEl.dataset.pick = pk; }
   // (a press on the card is under way: its write waits for the release, as the bar's)
-  if (pop !== handLast.pop && !handPopPress.hold(() => renderHand())) { keepState(handPopEl, () => setHtml(handPopEl, pop ? hand.renderPop(FS, model) : '')); handLast.pop = pop; if (pop) handPopEl.setAttribute('aria-label', model.label); }
+  // (round 20: right after the card is written, the forts card's wait slot takes the tallest height it has had for this
+  //  host at this width — keephand.steadySlot; it does nothing on any other card)
+  if (pop !== handLast.pop && !handPopPress.hold(() => renderHand())) { keepState(handPopEl, () => setHtml(handPopEl, pop ? hand.renderPop(FS, model) : '')); keephand.steadySlot(handPopEl, `${model.key}|${globalThis.innerWidth ?? 0}`); handLast.pop = pop; if (pop) handPopEl.setAttribute('aria-label', model.label); }
   placeHandPop(model);
   measureHand();
   publishNoGo();

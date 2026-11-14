@@ -158,3 +158,61 @@ test('round 18: an order being written is shown before the first village\'s welc
     assert.equal(kinds.after.kind, 'home', 'the welcome comes back once the order is set aside');
   } catch (e) { await failed(page, name, e); }
 });
+
+test('round 20: the fort row stays where it is when a forming host stands (its longer forming line goes away)', async t => {
+  const { page, host, name } = await openForts(t, 'row-stands');
+  try {
+    // the host formed this turn: it stands from the next turn (state 2), so the card says the forming line
+    const forming = await page.evaluate(async h => {
+      const { FS, invalidate } = await import('/frontier/fstate.mjs');
+      const env = FS.provinces.get(`${h.p},${h.q}`);
+      env.province = { ...env.province, resolvedNext: FS.nowBell, entries: env.province.entries.map(e => String(e.id) === h.id ? { ...e, state: 2, fromBell: FS.nowBell + 1 } : e) };
+      invalidate('panel', 'map');
+      await new Promise(r => setTimeout(r, 600));
+      return document.querySelector('#hand-pop .kh-wait-slot > .kh-wait-line')?.textContent ?? null;
+    }, host);
+    const during = await rowBox(page);
+    // it stands (state 1, in step): no wait any more
+    const stood = await page.evaluate(async h => {
+      const { FS, invalidate } = await import('/frontier/fstate.mjs');
+      const env = FS.provinces.get(`${h.p},${h.q}`);
+      env.province = { ...env.province, resolvedNext: FS.nowBell, entries: env.province.entries.map(e => String(e.id) === h.id ? { ...e, state: 1, fromBell: FS.nowBell - 1 } : e) };
+      invalidate('panel', 'map');
+      await new Promise(r => setTimeout(r, 600));
+      return !document.querySelector('#hand-pop .kh-wait-slot > .kh-wait-line');
+    }, host);
+    const after = await rowBox(page);
+    writeFileSync(path.join(OUT, `${name}.json`), `${JSON.stringify({ forming, during, after, stood }, null, 2)}\n`);
+    assert.ok(forming, 'the forming line was said');
+    assert.equal(stood, true, 'the host stood and the line went');
+    assert.equal(after.y, during.y, `the row did not move when the host stood (${during.y} → ${after.y})`);
+    assert.equal(after.handH, during.handH, `the bar under the card kept its height (${during.handH} → ${after.handH}): the jump did not move to the bar`);
+    assert.equal(await page.evaluate(() => document.querySelector('#hand-pop .kh-wait-ghost')?.getAttribute('aria-hidden') === 'true' && document.querySelector('#hand-pop .kh-wait-ghost')?.hasAttribute('inert')), true, 'the stand-in stays hidden from readers and inert');
+  } catch (e) { await failed(page, name, e); }
+});
+
+test('round 20: at 1280 px in English with the first village\'s drawer open, a host bar with every button fits in the bar and on the screen', async t => {
+  const { page, name } = await openForts(t, 'bar-fits');
+  try {
+    await page.setViewportSize({ width: 1280, height: 800 });
+    // (the local play program's version: the bar also offers the read-only expedition and the boundary route)
+    const box = await page.evaluate(async () => {
+      const { FS, invalidate } = await import('/frontier/fstate.mjs');
+      FS.season = { ...FS.season, programVersion: 0x4804 };
+      // (the first village's welcome stands in the drawer, as on a new player's first turns: the bar has less room)
+      FS.homeGrant = FS.holdings?.[0] ?? FS.homeGrant;
+      FS.hand = { host: FS.hand.host };
+      invalidate('panel', 'map');
+      await new Promise(r => setTimeout(r, 600));
+      const bar = document.getElementById('hand');
+      const buttons = [...(bar?.querySelectorAll('.hand-acts > *') ?? [])].map(b => { const r = b.getBoundingClientRect(); return { text: b.innerText.split('\n')[0], left: Math.round(r.left), right: Math.round(r.right) }; });
+      return { drawer: document.body.dataset.drawer ?? null, width: innerWidth, bar: bar ? Math.round(bar.getBoundingClientRect().right) : null, barLeft: bar ? Math.round(bar.getBoundingClientRect().left) : null, buttons };
+    });
+    writeFileSync(path.join(OUT, `${name}.json`), `${JSON.stringify(box, null, 2)}\n`);
+    assert.ok(box.buttons.length >= 5, `the host bar is shown (${box.buttons.length} buttons)`);
+    assert.equal(box.drawer, 'open', 'the drawer is open');
+    // inside the screen, and inside the bar itself (a button outside its bar was cut off by the screen's edge in the world)
+    const out = box.buttons.filter(b => b.right > box.width || b.left < 0 || b.right > box.bar + 1 || b.left < box.barLeft - 1);
+    assert.deepEqual(out, [], `every button is inside the bar (${box.barLeft}–${box.bar}) and the ${box.width} px screen`);
+  } catch (e) { await failed(page, name, e); }
+});

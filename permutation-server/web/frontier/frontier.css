@@ -2087,6 +2087,9 @@ body[data-kind="wait"] .plate .plate-go[data-act="join-open"] { display: none; }
 .hand-note-agent a.btn { color: var(--ivory); background: transparent; border: 1px solid rgba(240,212,138,.45); text-decoration: none; }
 .hand-note-agent a.btn:hover { background: rgba(240,212,138,.12); }
 .hand-acts { display: flex; gap: 6px; }
+/* round 20: on a wide screen a bar with more buttons than its width (the expedition's two read-only buttons) wraps to a
+   second row instead of running past the screen's edge (the last one was cut off at 1280 px); a phone scrolls it (below) */
+@media (min-width: 760px) { .hand-acts { flex-wrap: wrap; } }
 .hand-btn { position: relative; flex: 1 0 auto; display: grid; grid-template-columns: 26px auto; grid-template-rows: auto auto; align-content: center; justify-content: start; column-gap: 8px; row-gap: 1px; min-width: 104px; max-width: 230px; height: 56px; padding: 4px 12px 4px 10px;
   border: 1px solid rgba(201,162,74,.7); border-radius: 10px; background: linear-gradient(180deg, #27493f, #152b26); color: var(--ivory); text-align: left; cursor: pointer;
   box-shadow: inset 0 1px 0 rgba(240,212,138,.24), 0 2px 0 #06100e, 0 3px 7px rgba(0,0,0,.4); transition: transform var(--press), box-shadow var(--press), background var(--press); }

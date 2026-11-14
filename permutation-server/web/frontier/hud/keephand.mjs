@@ -145,6 +145,23 @@ export function hostsOnTile(FS, p, q, tile) {
 /** "Your host is holding this keep's tile: 486 Spearmen" (the keep panel, in place of an offer to send there the host that is there). */
 export const holdingHereText = hosts => L`あなたの軍勢がこの砦のマスを保っています：${hosts.map(x => unitCount(UNIT_ORDER[x.unit], x.troops)).join(L`、`)}`;
 
+/**
+ * (round 20) The forts card's wait slot never grows shorter while the card stays open for one host at one width: after each
+ * write of the card the slot's least height is the tallest it has been. The stand-in (round 19) holds the settling line's
+ * height, but a host still forming says a longer line (hud/firststeps.mjs formingLine, by phase), and when that line went
+ * away as the host stood, the rows moved up by the difference (12 px at 1280 px in a recorded ×30 world) at the very moment
+ * the row became pressable. Measured and set in the same task as the write, before the page is painted. Layout only.
+ */
+let slotHold = { key: null, h: 0 };
+export function steadySlot(root, key) {
+  const slot = root?.querySelector?.('.kh-wait-slot');
+  if (!slot) { slotHold = { key: null, h: 0 }; return; }
+  if (slotHold.key !== key) slotHold = { key, h: 0 };
+  slot.style.minHeight = '';
+  slotHold.h = Math.max(slotHold.h, Math.ceil(slot.getBoundingClientRect().height));
+  slot.style.minHeight = `${slotHold.h}px`;
+}
+
 /** A wait in one sentence, naming the host: what it is doing and the turn from which it can depart. With `FS`, a host still
  * forming (state 2) says where its muster turn really is (hud/firststeps.mjs), not a turn it may not be ready by. */
 export function waitText(w, FS = null) {
@@ -275,7 +292,10 @@ export function renderKeepsPop(FS, model, { head }) {
   // the wait line (real), and its invisible stand-in: when nothing waits, the slot holds the settling line this host would
   // show, hidden and inert, so the card keeps the same height when the province's turn finishing comes and goes each half
   // turn (round 19: a browser measured the line at 113 px against the slot's 64 px least height — the rows still moved)
-  const waitLine = (w, ghost = false) => html`<p class="pop-line pop-why kh-wait-line">${icon('hourglass')}<span>${waitText({ ...w, id: r.id, unit: r.unit, troops: r.troops }, FS)}</span>${w.nudge && ghost && !FS.localPlay ? html` <span class="btn small">${L`この州の処理を進める`}</span>` : ''}${w.nudge && !ghost && !FS.localPlay ? html` <button type="button" class="btn small" data-act="nudge" data-p="${r.p}" data-q="${r.q}">${L`この州の処理を進める`}</button>` : ''}</p>`;
+  const waitLine = (w, ghost = false) => html`<p class="pop-line pop-why kh-wait-line">${icon('hourglass')}<span>${waitText({ ...w, id: r.id, unit: r.unit, troops: r.troops }, FS)}</span>${w.nudge && ghost ? html` <span class="btn small">${L`この州の処理を進める`}</span>` : ''}${w.nudge && !ghost && !FS.localPlay ? html` <button type="button" class="btn small" data-act="nudge" data-p="${r.p}" data-q="${r.q}">${L`この州の処理を進める`}</button>` : ''}</p>`;
+  // (round 20: the stand-in is ALWAYS in the slot, in the same grid cell as the real line (conquest-hand.css), so the slot
+  //  is as tall as the taller of the two whatever the line says; it is the same in every mode — its button is a plain span
+  //  either way. A longer line than the stand-in — a forming host's — is held by steadySlot until the card closes.)
   // (the wait line stands BELOW the rows: above them it pushed the rows down each time it appeared and up when it went, and a
   //  press aimed at a row landed on the line or on the map; 2026-11-14. Round 16: it stands in a slot that is ALWAYS there
   //  with a fixed least height (conquest-hand.css .kh-wait-slot) — the card is anchored at the bottom, so a line that came
@@ -283,7 +303,7 @@ export function renderKeepsPop(FS, model, { head }) {
   //  the map and chose a tile as the destination)
   return html`${head(L`砦へ進軍`, sub)}
     ${body}
-    <div class="kh-wait-slot">${km.wait ? waitLine(km.wait) : html`<div class="kh-wait-ghost" aria-hidden="true" inert>${waitLine({ why: 'settling', turn: FS.nowBell ?? 0, nudge: true }, true)}</div>`}</div>
+    <div class="kh-wait-slot">${km.wait ? waitLine(km.wait) : ''}<div class="kh-wait-ghost" aria-hidden="true" inert>${waitLine({ why: 'settling', turn: FS.nowBell ?? 0, nudge: true }, true)}</div></div>
     <p class="pop-line pop-rule kh-rule">${L`砦のマスを ${fmtNum(holdTurns(FS))} ターン続けて保つと、その州はあなたの国のものになります。行を選ぶと命令の紙が開きます（封をするまで何も送られません）。`}</p>
     <p class="pop-line pop-rule">${L`勝ち目は、着いたターンの戦いを記録の守備兵と城壁と地形で計算した目安です。戦いの後に強さ（兵 × 1 人の強さ）が多く残った側がマスに残り、同じなら砦の側が残ります。運の揺れ（±10%）を含め、ほかの軍勢、教義の効果、道中の見張り塔で減る兵（最大 30%）は含みません。`}</p>`;
 }

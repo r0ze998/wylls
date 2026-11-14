@@ -58,6 +58,9 @@
 /* round 19: when nothing waits, the slot holds the settling line hidden (same text, same height), not seen, not read, not
    pressed — so the rows do not move when the province's turn finishing comes and goes */
 .kh-wait-ghost { visibility: hidden; pointer-events: none; }
+/* round 20: the real line and the stand-in share one grid cell, so the slot is as tall as the taller */
+.kh-wait-slot { display: grid; }
+.kh-wait-slot > * { grid-area: 1 / 1; }
 .kh-wait-line .ic { width: 16px; height: 16px; flex: none; }
 .kh-rule { padding-top: 8px; }
 [data-calm="1"] .kh-row { transition: none; }
