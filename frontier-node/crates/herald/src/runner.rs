@@ -53,6 +53,9 @@ pub struct IngestCfg {
     /// Compact output (files.rs: the `.gz` alone), for a new world's data
     /// directory only ([`crate::files::output_mode`]). Off by default.
     pub compact_output: bool,
+    /// The findex store codec (round 14, TEST-ONLY): `GzipV1` only with compact output (`--output compact-v2`), for a
+    /// new world's data directory only. The default stores as before.
+    pub store_codec: findex::codec::Codec,
 }
 
 impl IngestCfg {
@@ -68,6 +71,18 @@ impl IngestCfg {
             archive_commit: Duration::from_secs(1),
             checkpoint_pause: Duration::ZERO,
             compact_output: false,
+            store_codec: findex::codec::Codec::Plain,
+        }
+    }
+    /// The output word this configuration records ([`crate::files::output_mode_word`]); a compressed store without
+    /// compact output is not a mode (refused).
+    pub fn output_word(&self) -> Result<Option<&'static [u8]>, String> {
+        use findex::codec::Codec;
+        match (self.compact_output, self.store_codec) {
+            (false, Codec::Plain) => Ok(None),
+            (true, Codec::Plain) => Ok(Some(crate::files::OUTPUT_COMPACT_V1)),
+            (true, Codec::GzipV1) => Ok(Some(crate::files::OUTPUT_COMPACT_V2)),
+            (false, Codec::GzipV1) => Err("a compressed findex store is only with compact output (--output compact-v2)".into()),
         }
     }
     /// The output writer/reader of this data directory (compact or default),
@@ -131,12 +146,13 @@ impl Ingest {
     pub fn open(cfg: IngestCfg, diffs: broadcast::Sender<Arc<Diff>>) -> Result<Ingest, String> {
         std::fs::create_dir_all(&cfg.data).map_err(|e| e.to_string())?;
         // (before anything is written: a compact world only in a new data directory, never reopened in the other mode)
-        crate::files::output_mode(&cfg.data, &cfg.files_dir(), cfg.compact_output)?;
-        let findex = Findex::open(
+        crate::files::output_mode_word(&cfg.data, &cfg.files_dir(), cfg.output_word()?)?;
+        let findex = Findex::open_with(
             &cfg.findex_dir(),
             cfg.program,
             Some(cfg.season_id),
             cfg.segment_bytes,
+            cfg.store_codec,
         )
         .map_err(|e| e.to_string())?;
         let mut findex = findex;

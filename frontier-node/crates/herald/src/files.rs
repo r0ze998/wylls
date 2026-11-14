@@ -351,6 +351,9 @@ impl Out {
 pub const OUTPUT_MODE_FILE: &str = "output-mode";
 /// The content of [`OUTPUT_MODE_FILE`] for compact output.
 pub const OUTPUT_COMPACT_V1: &[u8] = b"compact-v1\n";
+/// The content of [`OUTPUT_MODE_FILE`] for compact output whose findex store is also gzip-compressed (round 14,
+/// TEST-ONLY, a new world only: findex `Codec::GzipV1`).
+pub const OUTPUT_COMPACT_V2: &[u8] = b"compact-v2\n";
 
 /// Checks (and on a compact world's first start records) the output mode of
 /// `data` before any file is written:
@@ -361,20 +364,40 @@ pub const OUTPUT_COMPACT_V1: &[u8] = b"compact-v1\n";
 /// - default, mode file present: refused (a compact world would serve 404s);
 /// - default, no mode file: as before.
 pub fn output_mode(data: &Path, files: &Path, compact: bool) -> Result<(), String> {
+    output_mode_word(data, files, compact.then_some(OUTPUT_COMPACT_V1))
+}
+
+/// [`output_mode`] for any output word (`None`: the default; `Some(OUTPUT_COMPACT_V1 | OUTPUT_COMPACT_V2)`): a data
+/// directory is reopened only with the word it records, never with another one or without it, and a first start with a
+/// word needs a new data directory (as compact-v1).
+pub fn output_mode_word(data: &Path, files: &Path, want: Option<&'static [u8]>) -> Result<(), String> {
+    let known = |b: &[u8]| b == OUTPUT_COMPACT_V1 || b == OUTPUT_COMPACT_V2;
+    let name = |b: &[u8]| String::from_utf8_lossy(b).trim_end().to_string();
+    if let Some(w) = want {
+        if !known(w) {
+            return Err(format!("--output {}: not an output word", name(w)));
+        }
+    }
     let mode = data.join(OUTPUT_MODE_FILE);
     let held = match fs::read(&mode) {
         Ok(b) => Some(b),
         Err(e) if e.kind() == io::ErrorKind::NotFound => None,
         Err(e) => return Err(format!("{}: {e}", mode.display())),
     };
-    match (held, compact) {
-        (None, false) => Ok(()),
-        (Some(b), true) if b == OUTPUT_COMPACT_V1 => Ok(()),
-        (Some(b), false) if b == OUTPUT_COMPACT_V1 => Err(
-            "this data directory holds compact output (--output compact-v1); it cannot be reopened without it".into(),
-        ),
+    match (held, want) {
+        (None, None) => Ok(()),
+        (Some(b), Some(w)) if b == w => Ok(()),
+        (Some(b), None) if known(&b) => Err(format!(
+            "this data directory holds compact output (--output {}); it cannot be reopened without it",
+            name(&b)
+        )),
+        (Some(b), Some(w)) if known(&b) => Err(format!(
+            "this data directory holds compact output (--output {}); it cannot be reopened as --output {}",
+            name(&b),
+            name(w)
+        )),
         (Some(_), _) => Err(format!("{}: an unknown output mode", mode.display())),
-        (None, true) => {
+        (None, Some(w)) => {
             // A first compact start needs a NEW data directory: nothing in it but, at most, an empty `files/`.
             // Any other entry (a checkpoint, the findex archive or index, another world's output) is refused
             // before anything is written: the runner re-folds only after its checkpoint, so converting an old
@@ -395,12 +418,13 @@ pub fn output_mode(data: &Path, files: &Path, compact: bool) -> Result<(), Strin
                     };
                 if !empty_files_dir {
                     return Err(format!(
-                        "--output compact-v1 needs a new data directory: {} already exists",
+                        "--output {} needs a new data directory: {} already exists",
+                        name(w),
                         p.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default()
                     ));
                 }
             }
-            atomic_write(&mode, OUTPUT_COMPACT_V1).map_err(|e| format!("{}: {e}", mode.display()))
+            atomic_write(&mode, w).map_err(|e| format!("{}: {e}", mode.display()))
         }
     }
 }

@@ -165,13 +165,18 @@ async fn main_inner() -> Result<(), String> {
     if let Some(n) = a.get("checkpoint-slots") {
         cfg.checkpoint_slots = n.parse().map_err(|_| "--checkpoint-slots")?;
     }
-    // (`--output compact-v1`: a NEW world's data directory keeps only the `.gz` of each output file; files.rs, runner.rs)
+    // (`--output compact-v1`: a NEW world's data directory keeps only the `.gz` of each output file; files.rs, runner.rs.
+    //  `--output compact-v2` (TEST-ONLY): the same, and its findex store gzip-compressed — findex::codec)
     match a.get("output").map(String::as_str) {
         None => {}
         Some("compact-v1") if !read_only => cfg.compact_output = true,
+        Some("compact-v2") if !read_only => {
+            cfg.compact_output = true;
+            cfg.store_codec = findex::codec::Codec::GzipV1;
+        }
         Some(x) => {
             return Err(format!(
-                "--output {x}: only `compact-v1`, and not with --source read-only"
+                "--output {x}: only `compact-v1` or `compact-v2`, and not with --source read-only"
             ))
         }
     }

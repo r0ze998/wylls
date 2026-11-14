@@ -138,6 +138,11 @@ command (refused without the demo):
   mode is never handed over (`HeraldOutputNotCompact`); an older herald is refused, not used.
 - **Measure first:** before a long world, run a short one with the same options and check that its output stays well
   under the limit for the turns you plan.
+- **`--herald-output compact-v2` (TEST-ONLY):** the same as `compact-v1`, and the herald's own transaction store (its
+  archive and index) is kept gzip-compressed too. Every record is kept and read back byte for byte. In a two-person world
+  the store, not the output files, was most of the growth (about 0.4 MiB per turn at ×30). On that world's data, gzip
+  made the store about a sixth of its size. This has not been measured in a running world yet: measure first, as above.
+  A world started with one word is never reopened with another word, or without it.
 
 ### Then
 1. Open `http://localhost:41920/` and press 「新しい世界を開始」.
