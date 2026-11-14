@@ -411,8 +411,8 @@ let gameMs = T0 * 1000, slot = 7, scale = 1, pending = null, opened = false;
 const CAND = process.argv.includes('--lane-candidate'), CAND_PROGRAM = '68qTstPmwfaDbt1a9hnq7XeyZ4zJBqBKU1esRtQXnKWj';
 const seedFile = CAND || MODE === 'plain-mentions-candidate' ? (MODE === 'seed-outside' ? '/tmp/elsewhere.seed' : path.join(arg('--authority-seed-dir') ?? __dirname, 'candidate-authority.seed')) : null;
 if (CAND && MODE !== 'seed-outside') fs.writeFileSync(seedFile, '00'.repeat(32) + '\\n', { mode: 0o600 });
-const candidateKeys = CAND || MODE === 'plain-mentions-candidate' ? { lane_candidate: 'localnet-conquest-nft-sbf', program_version: MODE === 'candidate-other-version' ? 18436 : 51204,
-  resident_program: '68TBCtDEfvunEQYEb4cZSBnkPWnu2h6XuvSTmLctZyv5', core_program: 'CoREENxT6tW1HoK8ypY1SxRMZTcVPm7R94rH4PZNhX7d', authority_seed_file: seedFile } : {};
+const candidateKeys = CAND || MODE === 'plain-mentions-candidate' ? { lane_candidate: 'localnet-conquest-nft-sbf', program_version: MODE === 'candidate-other-version' ? '0x4804' : '0xc804',
+  resident_program: '68TBCtDEfvunEQYEb4cZSBnkPWnu2h6XuvSTmLctZyv5', core_program: 'CoREENxT6tW1HoK8ypY1SxRMZTcVPm7R94rH4PZNhX7d', authority_seed_file: seedFile } : { program_version: '0x4804' };   // (as the real runner states it)
 say({ ...candidateKeys, program: ${JSON.stringify(mode === 'other-program' ? SEASON : '5fQPsn8hoaVddFG26cWQ5QFdqxWtUPNaZ9zH2E6LYzFn')}.replace('5fQPsn8hoaVddFG26cWQ5QFdqxWtUPNaZ9zH2E6LYzFn', CAND && MODE !== 'candidate-plain-program' ? CAND_PROGRAM : '5fQPsn8hoaVddFG26cWQ5QFdqxWtUPNaZ9zH2E6LYzFn'), rpc_url: 'http://127.0.0.1:' + arg('--rpc-port'), season: ${JSON.stringify(SEASON)}, season_id: 11,
   player_wallet: ${mode === 'other-wallet' ? JSON.stringify(SEASON) : `arg('--player-wallet')`}, artifact: { sha256: ${mode === 'other-artifact' ? JSON.stringify('00'.repeat(32)) : `arg('--artifact-sha256')`} }, bell_secs: 600,
   ${mode === 'no-time-control' ? '' : `time_control_rpc: ['frontier_pause', 'frontier_resume', 'frontier_setScale', 'frontier_hold', 'frontier_release'],`}
@@ -1044,7 +1044,7 @@ test('candidate: the runner is asked for it; exact id and version; the setup onc
   const { c, tmp } = await candidateStandIns(t);
   const w = await startWorld(c, wallet, 0, () => {}); const dir = await worldDir(c), meta = await json(path.join(dir, 'metadata.json'));
   assert.deepEqual(meta.args.slice(meta.args.indexOf('--lane-candidate')), ['--lane-candidate', 'localnet-conquest-nft-sbf', '--resident-so', '/abs/resident.so', '--core-so', '/abs/core.so', '--authority-seed-dir', dir]);
-  assert.equal(meta.program, CANDIDATE_PROGRAM); assert.equal(meta.program_version, 0xc804);
+  assert.equal(meta.program, CANDIDATE_PROGRAM); assert.equal(meta.program_version, '0xc804');
   assert.deepEqual(await json(path.join(tmp, 'setup-args.json')), ['--rpc', meta.rpc_url, '--frontier', CANDIDATE_PROGRAM, '--resident', meta.resident_program, '--authority-seed-file', path.join(dir, 'candidate-authority.seed'), '--test-sale']);
   const r = await fetch(`http://127.0.0.1:${c.mintPort}/mint/config`); assert.equal(r.status, 200); assert.deepEqual(await r.json(), { program: meta.resident_program, rpc: meta.rpc_url });
   assert.ok((await json(path.join(dir, 'processes.json'))).ports.includes(c.mintPort));
@@ -1068,6 +1068,8 @@ test('candidate refusals: another id, another version, a seed outside the world,
   const second = await candidateStandIns(t);
   await assert.rejects(startWorld(second.c, wallet, 1, () => {}), e => e.code === 'CandidateNeedsConquestOneWorld');
   assert.equal(candidateMetaAgrees({ program: 'x' }, false, '/d'), true, 'a plain runner names none of the candidate keys');
+  assert.equal(candidateMetaAgrees({ program: 'x', program_version: '0x4804' }, false, '/d'), true, 'the real runner\'s own version line, as ever');
+  assert.equal(candidateMetaAgrees({ program: 'x', program_version: '0xc804' }, false, '/d'), false, 'a plain start never takes the candidate version');
   assert.equal(candidateMetaAgrees({ program: 'x', program_version: 18436 }, false, '/d'), false);
 });
 

@@ -680,11 +680,14 @@ const exited = p => p.pid === undefined || p.exitCode !== null || p.signalCode !
  * directory (a throwaway local key the runner wrote; removed with the world). Without it, none of those keys at all.
  */
 export function candidateMetaAgrees(meta, candidate, dir) {
-  const named = ['lane_candidate', 'program_version', 'resident_program', 'core_program', 'authority_seed_file'].filter(k => meta?.[k] !== undefined);
-  if (!candidate) return named.length === 0;
+  // (the runner states its version as it always has, "0x" and four lowercase hex digits: a plain world's is 0x4804 or
+  //  absent, the candidate's 0xc804)
+  const hex = v => `0x${v.toString(16).padStart(4, '0')}`;
+  const named = ['lane_candidate', 'resident_program', 'core_program', 'authority_seed_file'].filter(k => meta?.[k] !== undefined);
+  if (!candidate) return named.length === 0 && (meta?.program_version === undefined || meta.program_version === hex(LOCAL_LANE_VERSIONS.conquest));
   const rel = typeof meta?.authority_seed_file === 'string' && path.isAbsolute(meta.authority_seed_file) ? path.relative(dir, meta.authority_seed_file) : '..';
   const inside = rel !== '' && !rel.startsWith('..') && !path.isAbsolute(rel);
-  return meta.lane_candidate === CANDIDATE_FEATURE && meta.program_version === LOCAL_LANE_VERSIONS.conquestNftCandidate
+  return meta.lane_candidate === CANDIDATE_FEATURE && meta.program_version === hex(LOCAL_LANE_VERSIONS.conquestNftCandidate)
     && validWallet(meta.resident_program) && validWallet(meta.core_program) && meta.resident_program !== meta.program && inside;
 }
 /** The candidate's NFT pass on this world: the setup once (exit 0 within NFT_SETUP_MS), then the mint page (ready within MINT_READY_MS). */
