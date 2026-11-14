@@ -12,6 +12,7 @@ import { baseProduction } from '../../permutation-server/web/frontier/fland.mjs'
 import { handModel, renderHand, renderPop } from '../../permutation-server/web/frontier/hud/hand.mjs';
 import { LOCAL_ACT_NAMES, localOrderRoute } from '../../permutation-server/web/frontier/flocalplay-act.mjs';
 import { SCOUT } from '../../permutation-server/web/frontier/fland.mjs';
+import * as M from '../../permutation-server/web/frontier/flocalplay-march.mjs';
 const UNIT_SCOUT = () => SCOUT;
 
 afterEach(() => setLang('ja'));
@@ -136,4 +137,22 @@ test('round 27: no local-play reason is clipped inside a button; the bar says it
   const c = readFileSync(new URL('../../permutation-server/web/frontier/controller.mjs', import.meta.url), 'utf8');
   assert.match(c, /function localMarchView\(\) \{\n  if \(!localPlay\) return null;\n  const h = FS\.compose\?\.holding \? holdingByRef\(FS\.holdings, FS\.compose\.holding\) : activeHolding\(FS\);\n  return localMarchFor\(h, FS\.compose\?\.host\?\.id \?\? null\);\n\}/);
   assert.match(c, /Object\.defineProperty\(FS, 'localMarchFor', \{ configurable: true, enumerable: false, value: \(holding, hostId\) => localMarchFor\(holding \? holdingByRef\(FS\.holdings, holding\) : null, hostId\) \}\);/);
+});
+
+test('round 27, end to end with the real gate and the real sender: the bar refuses March for the host whose own march is held, not for another', () => {
+  setLang('en');
+  const say = 'In local play, this order cannot be sent yet (read only).';
+  const WALLET = 'BbPGAbHDvV5U43zQ5E8FmSnEzZ7r2vwWAZWTNAPTTSUT', ORIGIN = 'http://localhost:41926', INST = 'ab'.repeat(32), gate = { ok: true, relay: ORIGIN };
+  const sender = M.createLocalMarchSender({ allowed: () => gate, open: () => true, identity: () => null, rulesetHash: () => null, signer: () => null });
+  const marchFor = (holding, hostId) => M.localMarchOpen({ capability: { wallet: WALLET, instance: INST, trial: true, relay: ORIGIN }, wallet: WALLET, instance: INST, gate,
+    holding: holding ? { p: holding.p, q: holding.q, site: holding.site } : null, held: sender.held(hostId ?? null), trialEntry: true });
+  const s0 = state({ localPlay: LOCAL, marchOpen: false, marchFor }), host = s0.hand.host;
+  // nothing held: this host's March is open (the page-wide answer, closed here, is not what decides it)
+  assert.equal(handModel(s0).buttons.find(b => b.id === 'march').why, null);
+  // this host's own sent march is held (outcome unknown): refused, as its send would refuse it
+  sender.storage.set(sender.bookKey, JSON.stringify([{ host, state: 'sent', signature: 'sigA' }]));
+  assert.equal(handModel(state({ localPlay: LOCAL, marchOpen: false, marchFor })).buttons.find(b => b.id === 'march').why, say);
+  // another host's held march does not refuse this one
+  sender.storage.set(sender.bookKey, JSON.stringify([{ host: '999', state: 'sent', signature: 'sigB' }]));
+  assert.equal(handModel(state({ localPlay: LOCAL, marchOpen: false, marchFor })).buttons.find(b => b.id === 'march').why, null);
 });
