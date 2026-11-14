@@ -232,16 +232,9 @@ fn accepts_gzip(h: &HeaderMap) -> bool {
 
 /// A file of the output directory (or `None` if absent).
 fn file_answer(app: &App, rel: &str, ctype: &str, cache: &str, h: &HeaderMap) -> Option<Response> {
-    let p = app.out.path(rel)?;
-    if !p.is_file() {
-        return None;
-    }
-    let gz = gz_path(&p);
-    let (body, enc) = if accepts_gzip(h) && gz.is_file() {
-        (std::fs::read(&gz).ok()?, Some("gzip"))
-    } else {
-        (std::fs::read(&p).ok()?, None)
-    };
+    // (files.rs `Out::serve`: the default output as before; compact output decompressed for a client without gzip)
+    let (body, gz) = app.out.serve(rel, accepts_gzip(h))?;
+    let enc = gz.then_some("gzip");
     let mut r = Response::builder()
         .status(StatusCode::OK)
         .header(header::CONTENT_TYPE, ctype)

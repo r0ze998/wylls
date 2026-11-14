@@ -165,6 +165,16 @@ async fn main_inner() -> Result<(), String> {
     if let Some(n) = a.get("checkpoint-slots") {
         cfg.checkpoint_slots = n.parse().map_err(|_| "--checkpoint-slots")?;
     }
+    // (`--output compact-v1`: a NEW world's data directory keeps only the `.gz` of each output file; files.rs, runner.rs)
+    match a.get("output").map(String::as_str) {
+        None => {}
+        Some("compact-v1") if !read_only => cfg.compact_output = true,
+        Some(x) => {
+            return Err(format!(
+                "--output {x}: only `compact-v1`, and not with --source read-only"
+            ))
+        }
+    }
     let poll = Duration::from_millis(
         a.get("poll-ms")
             .map(|v| v.parse().unwrap_or(200))
@@ -191,7 +201,7 @@ async fn main_inner() -> Result<(), String> {
     };
     let mut app = App::new(
         fold,
-        herald_fold::files::Out::new(cfg.files_dir()),
+        cfg.out(),
         SeasonStatic {
             cluster: a.get("cluster").cloned().unwrap_or("localnet".into()),
             drand,

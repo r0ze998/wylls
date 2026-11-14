@@ -50,6 +50,9 @@ pub struct IngestCfg {
     /// Test hook: a pause inside every checkpoint save (integ-W6t review:
     /// proves the ingest does not wait for the save). Zero in service.
     pub checkpoint_pause: Duration,
+    /// Compact output (files.rs: the `.gz` alone), for a new world's data
+    /// directory only ([`crate::files::output_mode`]). Off by default.
+    pub compact_output: bool,
 }
 
 impl IngestCfg {
@@ -64,6 +67,17 @@ impl IngestCfg {
             segment_bytes: findex::archive::SEGMENT_BYTES,
             archive_commit: Duration::from_secs(1),
             checkpoint_pause: Duration::ZERO,
+            compact_output: false,
+        }
+    }
+    /// The output writer/reader of this data directory (compact or default),
+    /// for the fold and for the server alike.
+    pub fn out(&self) -> Out {
+        let o = Out::new(self.files_dir());
+        if self.compact_output {
+            o.compact()
+        } else {
+            o
         }
     }
     pub fn findex_dir(&self) -> PathBuf {
@@ -116,6 +130,8 @@ impl Ingest {
     /// Opens the store, restores the fold and catches it up with the archive.
     pub fn open(cfg: IngestCfg, diffs: broadcast::Sender<Arc<Diff>>) -> Result<Ingest, String> {
         std::fs::create_dir_all(&cfg.data).map_err(|e| e.to_string())?;
+        // (before anything is written: a compact world only in a new data directory, never reopened in the other mode)
+        crate::files::output_mode(&cfg.data, &cfg.files_dir(), cfg.compact_output)?;
         let findex = Findex::open(
             &cfg.findex_dir(),
             cfg.program,
@@ -131,7 +147,7 @@ impl Ingest {
             builder: cfg.builder.clone(),
             exact_post: cfg.exact_post,
         };
-        let out = Out::new(cfg.files_dir());
+        let out = cfg.out();
         let st = checkpoint::load_full(
             &cfg.checkpoint_path(),
             &cfg.program.to_bytes(),

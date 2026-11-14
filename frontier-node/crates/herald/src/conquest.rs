@@ -2097,7 +2097,8 @@ fn overview2(cq: &mut Cq, f: &mut Fold, slot: u64) {
         let mut b = start;
         while b < next && b - start < MAX_STEP {
             let rel = format!("h/overview/{d}/{b}.bin");
-            if let Some(v1) = f.out.path(&rel).and_then(|p| std::fs::read(p).ok()) {
+            // (files.rs `Out::read`: the same bytes in the default output; decompressed in the compact one)
+            if let Some(v1) = f.out.read(&rel) {
                 if let Some(file) = ov2_of(cq, f, &v1, d, b) {
                     match file.encode() {
                         Ok(bytes) => {
@@ -2370,19 +2371,12 @@ fn final_file(cq: &mut Cq, f: &mut Fold, si: Option<&SeasonInfo>) {
         bells: vec![],
         banners: BTreeMap::new(),
     };
-    let first = (0..end).find(|b| {
-        f.out
-            .path(&format!("h/control/{b}.bin"))
-            .is_some_and(|p| p.is_file())
-    });
+    // (files.rs `Out::exists` / `Out::read`: the plain file in the default output, the `.gz` in the compact one)
+    let first = (0..end).find(|b| f.out.exists(&format!("h/control/{b}.bin")));
     let mut last_bytes = vec![];
     if let Some(first) = first {
         for b in first..end {
-            let Some(bytes) = f
-                .out
-                .path(&format!("h/control/{b}.bin"))
-                .and_then(|p| std::fs::read(p).ok())
-            else {
+            let Some(bytes) = f.out.read(&format!("h/control/{b}.bin")) else {
                 continue;
             };
             if let Ok(file) = ControlFile::decode(&bytes) {
