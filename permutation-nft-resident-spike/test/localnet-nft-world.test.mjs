@@ -142,3 +142,39 @@ test('mint → hold → join → act; transfer; the old holder and old generatio
   const again = await send([join(B, 1)], [payer, B], payer.publicKey);
   assert.equal(again.ok, false);
 });
+
+test('after a transfer the new holder changes the Citizen the old holder created; the old holder cannot', { skip }, async () => {
+  const addrs = fx.addresses;
+  if (!(await account(policyAddress(FRONTIER)))) {
+    assert.ok((await send([createResidentPolicyIx({ programId: FRONTIER, authority: setup.publicKey, coreProgram: MPL_CORE_PROGRAM, residentProgram: v.programId, collection: world.collection })], [setup])).ok);
+  }
+  const A = await funded(), B = await funded(), payer = await funded(5);
+  const asset = keypair();
+  assert.ok((await send([mintResidentIx({ program: v.programId, payer: A.publicKey, treasury: world.treasury, asset: asset.publicKey, collection: world.collection, price: world.priceLamports })], [A, asset])).ok);
+  const proofAt = generation => ({ generation, policy: policyAddress(FRONTIER), link: linkAddress(FRONTIER, addrs.season, asset.publicKey), asset: asset.publicKey, resident: pdas(v.programId).resident(asset.publicKey) });
+  const citizen = residentCitizen(addrs, asset.publicKey);
+  const vigil = (actor, generation, startMin) => residentActIx({ programId: FRONTIER, keys: [
+    { pubkey: actor.publicKey, isSigner: true, isWritable: false }, { pubkey: payer.publicKey, isSigner: true, isWritable: true },
+    { pubkey: addrs.season, isSigner: false, isWritable: false }, { pubkey: citizen, isSigner: false, isWritable: true },
+  ], data: Uint8Array.from([SET_VIGIL, startMin & 0xff, startMin >> 8]) }, proofAt(generation));
+  const read = async () => Buffer.from((await account(citizen)).data);
+  // A logs in (A's state: the Citizen of this pass in this world), then sells.
+  assert.ok((await send([joinResidentIx({ programId: FRONTIER, owner: A.publicKey, payer: payer.publicKey, season: addrs.season, frontier: addrs.frontier, citizen, ...proofAt(0), generation: 0, faction: 1 })], [payer, A], payer.publicKey)).ok);
+  const before = await read();
+  assert.equal(before.readBigInt64LE(VIGIL_FROM_TS), 0n, 'no vigil yet');
+  assert.ok((await send([transferResidentIx({ program: v.programId, owner: A.publicKey, asset: asset.publicKey, collection: world.collection, to: B.publicKey })], [A])).ok);
+  // A, at either generation, changes nothing.
+  for (const gen of [0, 1]) {
+    const r = await send([vigil(A, gen, 300)], [payer, A], payer.publicKey);
+    assert.equal(r.code, gen === 0 ? ERR.ResidentStaleGeneration : ERR.ResidentNotCurrentAuthority, JSON.stringify(r.err));
+  }
+  assert.equal((await read()).readBigInt64LE(VIGIL_FROM_TS), 0n);
+  // B, at the new generation, changes the same Citizen.
+  const r = await send([vigil(B, 1, 840)], [payer, B], payer.publicKey);
+  assert.ok(r.ok, JSON.stringify(r.err));
+  const after = await read();
+  assert.equal(after.readUInt16LE(VIGIL_NEXT_MIN), 840);
+  assert.ok(after.readBigInt64LE(VIGIL_FROM_TS) > 0n);
+  assert.equal(after[136], 1, 'the faction A chose stays with the Citizen');
+  assert.deepEqual(citizenMark(after), { nft: true, asset: asset.publicKey });
+});
