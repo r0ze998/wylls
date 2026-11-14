@@ -24,6 +24,7 @@ import { TAGS as TAGS_V2 } from './abi-v2-tags.mjs';
 import { concat, u32le, utf8 } from '../bytes.mjs';
 import { sha256 } from '../sha256.mjs';
 import { compileMessage, findProgramAddress, pubkeyBytes } from '../solana-tx.mjs';
+import { encode as toBase58 } from '../base58.mjs';
 
 export const CREATE_RESIDENT_POLICY_TAG = 0xe0;
 export const JOIN_RESIDENT_TAG = 0xe1;
@@ -154,6 +155,29 @@ export function residentActIx(inner, { generation, policy, link, asset, resident
 // decided by the program (`WideCommand::is_player`), not here. No deployed program has this band: a relay serves it
 // only when its lane says so (`wide` option of shapes.mjs `classify`), and refuses it otherwise.
 export const WIDE_RESIDENT_ACT_TAG = 0xdd;
+
+/**
+ * The LOCAL TEST CANDIDATE lane that would serve 0xDD for NFT residents (permutation-frontier feature
+ * `localnet-conquest-nft-sbf`; docs/integration/CLAUDE-NFT-WIDE-LANE-INTEGRATION-DESIGN-20261114.md): candidate values,
+ * NOT an allocation — the program id [0x4C; 32] and the version 0x4804 | 0x8000. No deployed program and no built
+ * artefact carries them; nothing here applies to any other program or version.
+ */
+export const LOCAL_CONQUEST_NFT_CANDIDATE = Object.freeze({
+  feature: 'localnet-conquest-nft-sbf', programId: toBase58(new Uint8Array(32).fill(0x4c)), programVersion: 0x4804 | 0x8000,
+  candidate: true, deployable: false,
+});
+/** Exactly the candidate pair (program id AND Season version); anything else, including the conquest lane's 0x4804, is not. */
+export function isLocalConquestNftCandidate({ programId, programVersion } = {}) {
+  return programId === LOCAL_CONQUEST_NFT_CANDIDATE.programId && Number(programVersion) === LOCAL_CONQUEST_NFT_CANDIDATE.programVersion;
+}
+/**
+ * The `wide` option of shapes.mjs `classify` for a relay: only on the candidate pair AND with an inner wide classifier
+ * (`classifyInner`, the lane's own; none exists yet). Otherwise null, and 0xDD is refused.
+ */
+export function wideLaneFor({ programId, season, classifyInner } = {}) {
+  const programVersion = season?.PROGRAM_VERSION ?? season?.programVersion;
+  return isLocalConquestNftCandidate({ programId, programVersion }) && typeof classifyInner === 'function' ? { classifyInner } : null;
+}
 export const WIDE_ACT_INNER_TAGS = Object.freeze([0xd9, 0xda]);
 
 /** WideResidentAct around an inner wide draft instruction (ClaimSite or Depart-band) whose actor is the owner or its session. */

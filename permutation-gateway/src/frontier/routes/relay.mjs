@@ -25,6 +25,7 @@ import { PublicKey } from '@solana/web3.js';
 import { encode as base58 } from '../../../client/src/base58.mjs';
 import { fromBase64 } from '../../../client/src/bytes.mjs';
 import { classify, JOIN_TAG } from '../../../client/src/frontier/shapes.mjs';
+import { wideLaneFor } from '../../../client/src/frontier/resident.mjs';
 import { pubkeyBytes, wireTransaction } from '../../../client/src/solana-tx.mjs';
 import { signTalk as signEd25519, verifyTalk as verifyEd25519 } from '../../../client/src/talk-node.mjs';
 import { parseWire, signatureOf, signedBy } from '../../cosign.mjs';
@@ -274,7 +275,11 @@ export async function sponsor(ctx, req, { tx, wire, shape, requester = null, req
 
 async function parseAndClassify(ctx, b) {
   const { wire, tx } = parseWire(b.tx);
-  const shape = classify(tx, { programId: ctx.programId, wireBytes: wire.length, profile: profileForSeason(await ctx.chain.season()) });
+  const season = await ctx.chain.season();
+  // 0xDD is served only on the local test candidate lane AND with that lane's inner classifier (`ctx.wideInner`,
+  // unset everywhere today): `wide` is null otherwise and classify refuses it (resident.mjs wideLaneFor).
+  const wide = wideLaneFor({ programId: ctx.programId, season, classifyInner: ctx.wideInner });
+  const shape = classify(tx, { programId: ctx.programId, wireBytes: wire.length, profile: profileForSeason(season), wide });
   if (!shape.ok) throw new RouteError(400, `relay refused: ${shape.problem}`, shape.code);
   return { wire, tx, shape };
 }
