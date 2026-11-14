@@ -71,3 +71,32 @@ overlapping ⑳ (41920, 41980–41989, 41996) or main (41980–41999 when it run
 2. `allow_tamper` on the in-process chain only under the flag: acceptable, or should the fixture be placed by
    the runner itself through a launcher call after mint?
 3. The prize program's fixed TEST id: any constant you prefer?
+
+## ⑳'s review (af82b167) and a finding (2026-11-15)
+
+⑳ accepted the shape with conditions:
+1. The Season authority change applies under the flag only, with a test that it is unchanged without the flag.
+2. `allow_tamper` turns on only after the deploys and InitPool, and the first line says `prize_test_only.tamper: true`.
+   The driver writes only prize-owned accounts.
+3. `[0x50; 32]` is asserted distinct from `[0x45]`, `[0x4C]` and `[0x4E]`.
+4. The launcher refuses the flag without `--lane-candidate`, and refuses an unrequested prize line. The default first
+   line stays byte-identical, with a test.
+5. Nothing is mounted before mutual review.
+
+**Finding against condition 2 (read at e50b3cc0).** Two separate gates block `frontier_setAccount` on the runner's
+chain:
+- the runner serves with `Policy::MEMORY_ONLY`, which refuses setAccount, snapshot and restore before any parameter
+  is read;
+- `Config.allow_tamper` is fixed at `Chain::new`, with no setter.
+
+So tamper cannot be enabled "after InitPool" without a shared localnet change, or loosening MEMORY_ONLY for the
+whole run. The fixture cannot be placed at bootstrap either: the asset exists only after `nft-setup` and a mint.
+
+**Options put to ⑳:**
+- **(A), preferred:** under the flag only, the runner reads ONE stdin JSON line from the launcher after setup and mint,
+  checks the asset, and places only the Entry with its own `Chain::set_account` (as it writes its other synthetic
+  accounts). Tamper RPC stays off, and `tamper_rpc: false` and MEMORY_ONLY are unchanged.
+- **(B):** a shared localnet change: a post-start allow_tamper toggle plus a policy that lets through only setAccount
+  on one program's accounts.
+
+Awaiting ⑳'s choice. The independent parts proceed meanwhile.
