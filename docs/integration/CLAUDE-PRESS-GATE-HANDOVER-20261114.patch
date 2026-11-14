@@ -1,0 +1,344 @@
+diff --git a/permutation-gateway/screens/press-redraw.screen.mjs b/permutation-gateway/screens/press-redraw.screen.mjs
+new file mode 100644
+index 00000000..5c0b70db
+--- /dev/null
++++ b/permutation-gateway/screens/press-redraw.screen.mjs
+@@ -0,0 +1,181 @@
++// Presses and typing in the drawer while the page redraws itself (Chromium, the fixture server's live sample world:
++// its clock moves, so the village's numbers change and the drawer is written again on its own; no chain, no key).
++// What it watches, for a person-like press (mouse down, a hold, mouse up at the control's centre; no Playwright
++// actionability waits, no retry):
++//   * pointerdown / pointerup / click: the target's action, whether it is in the drawer (#panel-body: the only place
++//     app.mjs makePressGate guards; the hand pop-ups are not covered), whether it is still in the page, and what the
++//     element at the press point is (an overlay would show here);
++//   * the drawer's redraws: the watched control's node replaced (a mark on the node), with times, and whether one ran
++//     right after the release (a redraw that was held during the press);
++//   * the drawer's scroll position before and after;
++//   * for Build: whether the order reached the fixture world (its `orders`) or the page answered.
++// Typing: one click into the troops form's count, keyboard typing, then the world's redraws while the field keeps
++// the focus; the value, the focus and the form's place (not folded) must survive (screens/holding.mjs troopsOrder,
++// app.mjs keepState). Everything observed, and on a failure a screenshot and the page's DOM, go to $PRESS_OUT
++// (default: the system temp dir, wylls-press-redraw/).
++import { test, before, after } from 'node:test';
++import assert from 'node:assert/strict';
++import { mkdirSync, writeFileSync } from 'node:fs';
++import { tmpdir } from 'node:os';
++import path from 'node:path';
++import { chromium } from 'playwright-core';
++import { startServer } from './server.mjs';
++import { storageFor } from './world.mjs';
++
++const OUT = process.env.PRESS_OUT ?? path.join(tmpdir(), 'wylls-press-redraw');
++mkdirSync(OUT, { recursive: true });
++let browser, srv;
++before(async () => { srv = await startServer(); browser = await chromium.launch(); });
++after(async () => { await browser?.close(); await srv?.close(); });
++
++async function openVillage(t, name) {
++  srv.stage('holding');
++  srv.live(true, { turn: 20, delay: 8 });
++  const context = await browser.newContext({ viewport: { width: 1440, height: 900 }, locale: 'en-US', timezoneId: 'UTC' });
++  await context.addInitScript(s => { for (const [k, v] of Object.entries(s)) localStorage.setItem(k, v); }, storageFor(srv.viewer, { stage: 'holding', lang: 'en' }));
++  const page = await context.newPage();
++  const errors = [];
++  page.on('pageerror', e => errors.push(e.message));
++  t.after(async () => { await context.close(); srv.live(false); });
++  await page.goto(`${srv.url}/frontier/index.html`);
++  await page.waitForFunction(() => /\d/.test(document.getElementById('bell-chip')?.textContent ?? '') && document.body.dataset.stage !== 'loading');
++  await page.locator('#tabs [data-tab="holding"]').click();
++  await page.locator('#holding-title').waitFor();
++  await page.evaluate(() => {
++    globalThis.__ev = [];
++    const panel = () => document.getElementById('panel-body');
++    const info = (e, watchSel) => {
++      const t = e.target instanceof Element ? e.target : null;
++      const at = Number.isFinite(e.clientX) ? document.elementFromPoint(e.clientX, e.clientY) : null;
++      return { type: e.type, t: Math.round(performance.now()), act: t?.closest('[data-act]')?.dataset.act ?? t?.tagName ?? null,
++        inDrawer: !!t?.closest('#panel-body'), connected: !!t?.isConnected, isWatched: !!watchSel && !!t?.closest(watchSel) && t.closest(watchSel) === document.querySelector(watchSel),
++        atPoint: at ? (at.closest('[data-act]')?.dataset.act ?? at.id ?? at.tagName) : null, atPointInDrawer: !!at?.closest('#panel-body'), scroll: panel()?.scrollTop ?? null };
++    };
++    for (const type of ['pointerdown', 'pointerup', 'click', 'keydown']) document.addEventListener(type, e => globalThis.__ev.push(info(e, globalThis.__watchSel)), true);
++    globalThis.__watch = sel => {
++      globalThis.__watchSel = sel; globalThis.__rep = []; let node = document.querySelector(sel);
++      clearInterval(globalThis.__watchTimer);
++      globalThis.__watchTimer = setInterval(() => { const n = document.querySelector(sel); if (n && n !== node) { globalThis.__rep.push(Math.round(performance.now())); node = n; } }, 10);
++    };
++  });
++  return { page, errors, name };
++}
++async function evidence(page, name, extra = {}) {
++  const ev = await page.evaluate(() => ({ events: globalThis.__ev, replaced: globalThis.__rep }));
++  writeFileSync(path.join(OUT, `${name}.json`), `${JSON.stringify({ ...ev, ...extra }, null, 2)}\n`);
++  return ev;
++}
++async function failed(page, name, e) {
++  await page.screenshot({ path: path.join(OUT, `${name}-failed.png`), fullPage: true }).catch(() => {});
++  writeFileSync(path.join(OUT, `${name}-failed.html`), await page.content().catch(() => ''));
++  throw e;
++}
++/** A person-like press at the centre of `sel` (scrolled into view first), held `holdMs`. Returns the press's times. */
++async function press(page, sel, holdMs) {
++  const at = await page.evaluate(sel => { const el = document.querySelector(sel); if (!el) return null; el.scrollIntoView({ block: 'center' }); const r = el.getBoundingClientRect(); return r.width ? { x: r.left + r.width / 2, y: r.top + r.height / 2 } : null; }, sel);
++  if (!at) throw new Error(`no ${sel} on screen`);
++  await page.waitForTimeout(100);
++  const at2 = await page.evaluate(sel => { const r = document.querySelector(sel)?.getBoundingClientRect(); return r ? { x: r.left + r.width / 2, y: r.top + r.height / 2 } : null; }, sel) ?? at;
++  await page.mouse.move(at2.x, at2.y);
++  const down = await page.evaluate(() => Math.round(performance.now()));
++  await page.mouse.down();
++  await page.waitForTimeout(holdMs);
++  await page.mouse.up();
++  const up = await page.evaluate(() => Math.round(performance.now()));
++  return { down, up };
++}
++
++test('the fixture redraws the drawer on its own (else nothing below could be shown)', async t => {
++  const { page, name } = await openVillage(t, 'redraw-rate');
++  try {
++    await page.evaluate(() => globalThis.__watch('#hp-build'));
++    await page.waitForTimeout(12_000);
++    const ev = await evidence(page, name);
++    assert.ok(ev.replaced.length >= 3, `the village card was replaced ${ev.replaced.length} times in 12 s`);
++  } catch (e) { await failed(page, name, e); }
++});
++
++test('typing a troops count: value, focus and the form\'s place survive the drawer\'s own redraws', async t => {
++  const { page, name } = await openVillage(t, 'troops-typing');
++  try {
++    const open = await page.evaluate(() => { const t = document.querySelector('#hp-train'), m = document.querySelector('#hp-muster'); return t && !t.closest('details:not([open])') ? 'train' : m && !m.closest('details:not([open])') ? 'muster' : null; });
++    assert.ok(open, 'one troops form stands open');
++    const formSel = open === 'train' ? '#hp-train' : '#hp-muster', fieldSel = `${formSel} ${open === 'train' ? '#f-n' : '#f-troops'}`;
++    await page.evaluate(sel => globalThis.__watch(sel), formSel);
++    await page.locator(fieldSel).click();
++    await page.locator(fieldSel).press('ControlOrMeta+a');
++    // slowly (about one key a second), so the drawer's own redraws (every 0.3–3 s here) fall between the keys
++    for (const ch of '120') { await page.keyboard.type(ch); await page.waitForTimeout(900); }
++    const keys = await page.evaluate(() => globalThis.__ev.filter(e => e.type === 'keydown').map(e => e.t));
++    const between = await page.evaluate(([a, b]) => globalThis.__rep.filter(x => x > a && x < b).length, [keys.at(-3), keys.at(-1)]);
++    const samples = [];
++    const t0 = Date.now();
++    for (;;) {
++      await page.waitForTimeout(1_000);
++      const s = await page.evaluate(([formSel, fieldSel]) => { const i = document.querySelector(fieldSel), f = document.querySelector(formSel); return { replaced: globalThis.__rep.length, value: i?.value ?? null, focused: document.activeElement === i, folded: !!f?.closest('details:not([open])') }; }, [formSel, fieldSel]);
++      samples.push({ t: Math.round((Date.now() - t0) / 1000), ...s });
++      assert.equal(s.value, '120', `the typed value after ${s.replaced} redraws`);
++      assert.equal(s.focused, true, `the focus after ${s.replaced} redraws`);
++      assert.equal(s.folded, false, `the form's place after ${s.replaced} redraws`);
++      if (s.replaced >= 3) break;
++      assert.ok(Date.now() - t0 < 60_000, `only ${s.replaced} redraws in 60 s: not enough to show anything`);
++    }
++    await evidence(page, name, { form: open, samples, keystrokes: keys.slice(-3), redrawsBetweenKeys: between, note: 'the Train/Muster swap at reserve 100 does not happen in this fixture: holding.mjs troopsOrder is covered by its unit test only' });
++    assert.ok(between >= 1, `no redraw fell between the keystrokes (${between}): the case was not exercised`);
++  } catch (e) { await failed(page, name, e); }
++});
++
++test('presses on a drawer control while it redraws: each press ends on the node it began on, and the click fires', async t => {
++  const { page, name } = await openVillage(t, 'drawer-presses');
++  try {
++    // a control whose click changes nothing in the world: the village's fold of other buildings (a <summary>)
++    const sel = '#hp-build details[data-fold] > summary';
++    assert.ok(await page.locator(sel).count(), 'the build card has a fold');
++    await page.evaluate(sel => globalThis.__watch(sel), sel);
++    await page.waitForTimeout(1_500);
++    const presses = [];
++    for (let i = 0; i < 12; i++) {
++      const before = await page.evaluate(() => globalThis.__ev.length);
++      const p = await press(page, sel, 300);
++      await page.waitForTimeout(250);
++      const r = await page.evaluate(([before, p]) => {
++        const ev = globalThis.__ev.slice(before);
++        const rep = globalThis.__rep;
++        return { ev, replacedDuring: rep.filter(x => x > p.down && x < p.up).length, replacedRightAfterUp: rep.filter(x => x >= p.up && x <= p.up + 80).length };
++      }, [before, p]);
++      const down = r.ev.find(e => e.type === 'pointerdown'), click = r.ev.find(e => e.type === 'click');
++      presses.push({ i, ...p, down, click: click ?? null, replacedDuring: r.replacedDuring, heldRedrawReleased: r.replacedRightAfterUp > 0 });
++    }
++    await evidence(page, name, { presses });
++    for (const x of presses) {
++      assert.ok(x.down?.inDrawer, `press ${x.i}: began in the drawer (the gate's scope)`);
++      assert.ok(x.down?.atPointInDrawer, `press ${x.i}: nothing over the control at the press point (${x.down?.atPoint})`);
++      assert.equal(x.replacedDuring, 0, `press ${x.i}: the control was not replaced while pressed`);
++      assert.ok(x.click, `press ${x.i}: the click fired`);
++    }
++  } catch (e) { await failed(page, name, e); }
++});
++
++test('a person-like press on Build reaches the page\'s handler: the order goes to the world, or the page answers', async t => {
++  const { page, name } = await openVillage(t, 'build-press');
++  try {
++    const sel = '#hp-build [data-act="build"][data-item].br-go:not([disabled])';
++    assert.ok(await page.locator(sel).count(), 'an enabled Build button in the drawer');
++    const inDrawer = await page.evaluate(sel => !!document.querySelector(sel)?.closest('#panel-body'), sel);
++    await page.evaluate(sel => globalThis.__watch(sel), sel);
++    const ordersBefore = (srv.world()?.orders ?? []).length;
++    const p = await press(page, sel, 150);
++    let reached = false, answer = null;
++    for (let i = 0; i < 40 && !reached; i++) {
++      await page.waitForTimeout(250);
++      const n = (srv.world()?.orders ?? []).length;
++      answer = await page.evaluate(() => document.querySelector('#notice, [role="status"]')?.textContent?.trim() ?? null);
++      reached = n > ordersBefore || /building begun|did not work|refus/i.test(answer ?? '');
++    }
++    const ev = await evidence(page, name, { inDrawer, press: p, ordersBefore, ordersAfter: (srv.world()?.orders ?? []).length, answer });
++    const click = ev.events.find(e => e.type === 'click');
++    assert.ok(inDrawer, 'Build is in the drawer (the gate\'s scope), not a hand pop-up');
++    assert.ok(click?.connected, 'the click fired on a node still in the page');
++    assert.ok(reached, `the handler was reached (orders ${ordersBefore} → ${(srv.world()?.orders ?? []).length}; answer ${answer})`);
++  } catch (e) { await failed(page, name, e); }
++});
+diff --git a/permutation-gateway/test/web-frontier-cards.test.mjs b/permutation-gateway/test/web-frontier-cards.test.mjs
+index 4ef97e50..36c73dab 100644
+--- a/permutation-gateway/test/web-frontier-cards.test.mjs
++++ b/permutation-gateway/test/web-frontier-cards.test.mjs
+@@ -21,7 +21,7 @@ import * as parts from '../../permutation-server/web/frontier/screens/parts.mjs'
+ import * as place from '../../permutation-server/web/frontier/hud/place.mjs';
+ import * as pins from '../../permutation-server/web/frontier/hud/pins.mjs';
+ import { STANCE_PIC, RETREAT_PIC, sealPic } from '../../permutation-server/web/frontier/hud/pictos.mjs';
+-import { panelMarkup, detailsMarkup, keepState } from '../../permutation-server/web/frontier/app.mjs';
++import { panelMarkup, detailsMarkup, keepState, makePressGate } from '../../permutation-server/web/frontier/app.mjs';
+ import { DIRECTIONS, TILE_OFFSETS } from '../../permutation-server/web/frontier/fgeo.mjs';
+ import { exploreTargets, tileNeighbours } from '../../permutation-server/web/frontier/fland.mjs';
+ 
+@@ -267,3 +267,34 @@ test('keepState: an opened fold, a chosen picture and typed values survive a re-
+   keepState(el, () => { cur = build(); }, null);
+   assert.equal(cur.fold.open, false, 'a different view starts from its own markup');
+ });
++
++test('the troops card keeps its open form while the reserve changes (decided once per village scope)', () => {
++  const FS = { record: { programId: 'P', seasonAddress: 'S' }, wallet: { address: 'W' }, season: { genesisTs: 1 } };
++  const h = { p: 2, q: 0, site: 1, gen: 0 };
++  assert.equal(holdingScreen.troopsOrder(FS, h, 0), false, 'no reserve: Train stands open');
++  assert.equal(holdingScreen.troopsOrder(FS, h, 400), false, 'the reserve grew past 100: still Train (no swap under the player)');
++  assert.equal(holdingScreen.troopsOrder(FS, { ...h, site: 2 }, 400), true, 'another village decides again');
++  assert.equal(holdingScreen.troopsOrder(FS, { ...h, site: 2 }, 0), true, 'and keeps its own choice');
++  assert.equal(holdingScreen.troopsOrder({ ...FS, troopsOrder: undefined, wallet: { address: 'W2' } }, h, 400), true, 'another wallet decides again');
++  assert.equal(holdingScreen.troopsOrder({}, h, 400), true, 'no scope: the live choice');
++  assert.equal(holdingScreen.troopsOrder({}, h, 0), false);
++});
++
++test('a press in the drawer holds its redraws until release (a tap on a button that is being replaced is not lost)', () => {
++  let t = 0;
++  const g = makePressGate({ maxHoldMs: 2000, now: () => t });
++  const ran = [];
++  assert.equal(g.hold(() => ran.push('a')), false, 'no press: the redraw runs now');
++  g.down();
++  assert.equal(g.hold(() => ran.push('b')), true, 'pressed: kept');
++  assert.equal(g.hold(() => ran.push('c')), true, 'only the latest is kept');
++  const p = g.up(); p();
++  assert.deepEqual(ran, ['c'], 'released: the latest redraw runs once');
++  assert.equal(g.up(), null, 'nothing pending after');
++  g.down(); t = 2500;
++  assert.equal(g.hold(() => ran.push('d')), false, 'held past maxHoldMs (a drag): no longer holds');
++  assert.equal(g.hold(() => ran.push('e')), false);
++  const src = readFileSync(new URL('../../permutation-server/web/frontier/app.mjs', import.meta.url), 'utf8');
++  assert.match(src, /function renderDrawer\(markupOf\) \{\n[^\n]*\n  if \(drawerPress\.hold\(\(\) => renderDrawer\(markupOf\)\)\) return drawerOf\(FS\);/, 'the drawer write goes through the gate');
++  assert.match(src, /for \(const ev of \['pointerup', 'pointercancel'\]\)[^\n]*setTimeout\(redraw, 0\)/, 'released: after the click');
++});
+diff --git a/permutation-server/web/frontier/app.mjs b/permutation-server/web/frontier/app.mjs
+index 90836cab..267bb329 100644
+--- a/permutation-server/web/frontier/app.mjs
++++ b/permutation-server/web/frontier/app.mjs
+@@ -485,6 +485,9 @@ export function keepState(el, render, scroller = el) {
+   const active = globalThis.document?.activeElement;
+   const inside = !!active && el.contains(active);
+   const focusKey = inside && active.matches?.('input, select, textarea') ? keyOf(active) : null;
++  // the caret of the focused field (a field without a selection API — a number — answers null and gets the end)
++  let caret = null;
++  if (focusKey) { try { caret = Number.isInteger(active.selectionStart) ? [active.selectionStart, active.selectionEnd] : null; } catch { caret = null; } }
+   const focusAct = inside && !focusKey && scroller && active.matches?.('button, summary, a') ? { key: actOf(active), nth: nthOf(active), tag: active.tagName } : null;
+   const top = scroller?.scrollTop ?? 0;
+   // a part that scrolls by itself (the order's body above its seal: `data-scroll`) keeps its place too
+@@ -495,7 +498,17 @@ export function keepState(el, render, scroller = el) {
+     if (x.type === 'radio') { if (picked.get(k) === x.value) x.checked = true; }
+     else if (x.tagName === 'SELECT') { if (picked.has(k) && [...x.options].some(o => o.value === picked.get(k))) x.value = picked.get(k); }
+     else if (typed.has(k) && x.type !== 'checkbox') x.value = typed.get(k);
+-    if (k === focusKey && (x.type !== 'radio' || x.checked)) x.focus({ preventScroll: true });
++    if (k === focusKey && (x.type !== 'radio' || x.checked)) {
++      x.focus({ preventScroll: true });
++      // the caret where it was: a new field takes the focus with its caret at the start, and the next keys typed went
++      // in front of what was typed (a count typed as 120 across two redraws read 021)
++      if (x.tagName !== 'SELECT' && x.type !== 'radio' && x.type !== 'checkbox') {
++        try {
++          if (caret && typeof x.setSelectionRange === 'function') x.setSelectionRange(caret[0], caret[1]);
++          else { const v = x.value; x.value = ''; x.value = v; }
++        } catch { const v = x.value; x.value = ''; x.value = v; }
++      }
++    }
+   }
+   for (const d of folds.size ? el.querySelectorAll('details[data-fold]') : []) { const was = folds.get(d.dataset.fold); if (was !== undefined && d.open !== was) d.open = was; }
+   if (focusAct && !el.contains(globalThis.document?.activeElement)) [...el.querySelectorAll(focusAct.tag)].filter(y => actOf(y) === focusAct.key)[Math.max(0, focusAct.nth)]?.focus?.({ preventScroll: true });
+@@ -561,6 +574,28 @@ let lastHeadSelection = null;
+  */
+ let inputInDrawer = false;
+ for (const ev of ['pointerdown', 'keydown']) globalThis.document?.addEventListener?.(ev, e => { inputInDrawer = !!e.target?.closest?.('#panel-body'); }, true);
++
++/**
++ * A press inside the drawer holds the drawer's redraws until it is released. The drawer is written again whenever a
++ * number in it changes (stores, countdowns: several times a second on a fast test clock, now and then on the real
++ * one), and each write replaces its buttons: a press that began on a button and ended on its replacement made no
++ * click, so a player's tap could be lost. While a pointer is down in the drawer a redraw is kept as pending; on
++ * release it runs right after the click (a macrotask after pointerup). A press held longer than `maxHoldMs` (a drag,
++ * a long press) no longer holds anything, so the drawer never freezes.
++ */
++export function makePressGate({ maxHoldMs = 2000, now = () => Date.now() } = {}) {
++  let downAt = null, pending = null;
++  return {
++    down() { downAt = now(); },
++    /** The redraw kept while pressed (to run after the click), or null. */
++    up() { downAt = null; const p = pending; pending = null; return p; },
++    /** True when `redraw` is kept for the release instead of running now. */
++    hold(redraw) { if (downAt !== null && now() - downAt < maxHoldMs) { pending = redraw; return true; } if (downAt !== null) { downAt = null; pending = null; } return false; },
++  };
++}
++const drawerPress = makePressGate();
++globalThis.document?.addEventListener?.('pointerdown', e => { if (e.target?.closest?.('#panel-body')) drawerPress.down(); }, true);
++for (const ev of ['pointerup', 'pointercancel']) globalThis.document?.addEventListener?.(ev, () => { const redraw = drawerPress.up(); if (redraw) setTimeout(redraw, 0); }, true);
+ /**
+  * Whether the drawer starts at its head again for this render (pure; exported for the tests): `{selection, toHead}`.
+  * The selection's card heads the drawer on the spectator's panel and in the play page's inspector (`modePanel`,
+@@ -579,6 +614,8 @@ export function drawerHeadFor(d, selected, shown, fromDrawer = false) {
+ }
+ /** Write the drawer: its state, title and body (the same view keeps its scroll and typed values). */
+ function renderDrawer(markupOf) {
++  // (a press in the drawer is under way: this write waits for its release, so the pressed button is not replaced)
++  if (drawerPress.hold(() => renderDrawer(markupOf))) return drawerOf(FS);
+   const d = drawerOf(FS);
+   applyDrawer(d);
+   const body = $('panel-body');
+diff --git a/permutation-server/web/frontier/screens/holding.mjs b/permutation-server/web/frontier/screens/holding.mjs
+index 897010b7..2d570d34 100644
+--- a/permutation-server/web/frontier/screens/holding.mjs
++++ b/permutation-server/web/frontier/screens/holding.mjs
+@@ -221,6 +221,21 @@ export function keepMusterDraft(FS, h, { unit, troops }) {
+   return true;
+ }
+ 
++/**
++ * Which troops form stands open: Muster when the reserve can muster 100, else Train — decided once per village scope
++ * (musterScope) and kept for this page. The reserve grows with the turns, and a choice made again on every redraw
++ * swapped the two forms under a player typing a count (the open form, with its button, folded away mid-input).
++ * A reload, another village or another wallet decides again; without a scope the live choice stands.
++ */
++export function troopsOrder(FS, h, musterable) {
++  const live = musterable >= 100;
++  const key = musterScope(FS, h);
++  if (key === null) return live;
++  if (FS.troopsOrder?.key === key) return FS.troopsOrder.musterFirst;
++  FS.troopsOrder = { key, musterFirst: live };
++  return live;
++}
++
+ export function render(FS) {
+   // a wide inventory slot chosen in the rail: the captured record's read-only cards stand here instead
+   // (screens/wideholding.mjs); the legacy village below is untouched and returns with the wide card's own press
+@@ -299,8 +314,9 @@ export function render(FS) {
+     <div class="actions"><button type="submit" class="btn primary" ${raw(actionBusy || m.blocks.Muster.length || !reserve.length || ms.missing || ms.short !== null ? 'disabled' : '')}>${icon('banner')}${L`編成する`}</button><span class="muted">${L`編成した軍勢は、このターンが終わり、封が開けられて決着すると行動できます。`}</span></div>
+     ${!reserve.length ? html`<p class="blocked">${L`控えの兵がいません：先に訓練しましょう`}</p>` : ''}
+     ${blockedLine(m.blocks.Muster)}</form>`;
+-  // the action that makes sense now stands open; the other waits behind a fold
+-  const musterFirst = musterable >= 100;
++  // the action that made sense when this village was first shown stands open; the other waits behind a fold
++  // (kept for the page: troopsOrder)
++  const musterFirst = troopsOrder(FS, h, musterable);
+   const troops = html`<section class="vcard" aria-labelledby="hp-troops-h">
+     ${cardHead({ id: 'hp-troops-h', ic: 'sword', title: L`兵`, side: html`<span class="c-count">${L`控え ${fmtNum(musterable)}`}</span>` })}
+     ${label(musterFirst ? L`軍勢を編成する` : L`兵を訓練する`)}
