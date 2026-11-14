@@ -233,12 +233,13 @@ export function classifyWideResident(tx, { programId, profile = 1, wide = null }
 // `DeclareSiege`; little-endian; the 0xDA envelope is tag, 0xFF, version 1, op) and their account lists (wide_ix.rs
 // `CLAIM_SITE`, `MUSTER`, `DISSOLVE`, `ECONOMY` / `ECONOMY_MIRROR`, `GARRISON`). Expected bytes:
 // frontier-abi/vectors/v2/wide-resident-candidate.json (also checked by a Rust test, not compiled yet). WideDepart (the
-// sealed march) is not here. No deployed program has the band; `candidateWideActIx` builds the 0xDD only for the
+// sealed march)'s data is here with a commit and seal made by seal-wide.mjs; the seal itself is not made here. No deployed program has the band; `candidateWideActIx` builds the 0xDD only for the
 // exact local test candidate lane.
 export const WIDE_BAND = Object.freeze({
   CLAIM_SITE: 0xd9, DEPART: 0xda, ESCAPE: 0xff, VERSION: 1,
   OP_MUSTER: 1, OP_DISSOLVE: 2, OP_ECONOMY: 3, OP_GARRISON: 4, OP_DECLARE_SIEGE: 5,
   HOST_REF_LEN: 56, ACTION_LEN: 6, BUILD_ITEM_MAX: 8, BUILD_ITEM_WALLS: 6, BUILD_ITEM_TIER_UP: 7, TRAIN_UNITS: 7,
+  WIDE_SEAL_LEN: 264, DEPART_LEN: 1 + 56 + 1 + 4 + 8 + 32 + 264,
 });
 const le = (n, bytes, signed = false) => {
   let v = BigInt(n);
@@ -270,6 +271,15 @@ export function wideCommandData(cmd) {
     case 'Economy': return concat(envelope(WIDE_BAND.OP_ECONOMY), wideActionBytes(cmd));
     case 'Garrison': { if (!Number.isInteger(cmd.delta) || cmd.delta < 1 || cmd.delta > 0xffffffff) throw new Error('Garrison: delta 1–u32::MAX'); return concat(envelope(WIDE_BAND.OP_GARRISON), le(cmd.delta, 8, true)); }
     case 'DeclareSiege': return concat(envelope(WIDE_BAND.OP_DECLARE_SIEGE), u8(cmd.site, 'site'), u8(cmd.entry, 'entry'));
+    // WideDepart (wide_ix.rs `Depart`, not an envelope: the host reference's version byte is never 0xFF): the commit and
+    // the seal are a march's own (seal-wide.mjs `sealWide` makes them); nothing here makes or checks a seal
+    case 'Depart': {
+      if (!Number.isInteger(cmd.transitSlot) || cmd.transitSlot < 0 || cmd.transitSlot > 3) throw new Error('Depart: transit slot 0–3');
+      const commit = cmd.commit instanceof Uint8Array ? cmd.commit : fromHex(cmd.commit), seal = cmd.seal instanceof Uint8Array ? cmd.seal : fromHex(cmd.seal);
+      if (commit.length !== 32) throw new Error('Depart: a 32-byte commit');
+      if (seal.length !== WIDE_BAND.WIDE_SEAL_LEN) throw new Error('Depart: a 264-byte wide seal');
+      return concat([WIDE_BAND.DEPART], hostRef(cmd.host), [cmd.transitSlot], le(cmd.arriveBell, 4), le(BigInt(cmd.tip), 8), commit, seal);
+    }
     default: throw new Error(`not a wide player command: ${cmd?.name}`);
   }
 }
@@ -289,6 +299,18 @@ export function wideCommandKeys(cmd, a) {
     }
     case 'Economy': return [...prologue, w(need(a, 'holding')), wideMirrorWrite(cmd) ? w(need(a, 'province')) : ro(need(a, 'province'))];
     case 'Garrison': return [...prologue, w(need(a, 'holding')), w(need(a, 'province'))];
+    // wide_ix.rs DEPART: the prologue, [holding w] [province w] (where the host stands) [system] [holding_province r],
+    // the holding's four transit records (exactly the departing slot writable), [roster r]
+    case 'Depart': {
+      if (!Array.isArray(a.transits) || a.transits.length !== 4) throw new Error('Depart: the holding\'s four transit records');
+      return [...prologue, w(need(a, 'holding')), w(need(a, 'province')), ro(SYSTEM_PROGRAM), ro(need(a, 'holding_province')),
+        ...a.transits.map((t, i) => (i === cmd.transitSlot ? w(t) : ro(t))), ro(need(a, 'roster'))];
+    }
+    // DECLARE_SIEGE (permutation-server/web/frontier/fconquest-identity.mjs DECLARE_SIEGE_SHAPE, the ABI's order). The
+    // actor is NOT writable here: for an NFT Citizen the actor (the owner) and the payer (the relay) are two accounts;
+    // the page's own path marks it writable only because there the wallet is both.
+    case 'DeclareSiege': return [...prologue, w(need(a, 'source_holding')), w(need(a, 'target_province')), ro(need(a, 'target_roster')), ro(need(a, 'source_province')),
+      ro(need(a, 'target_holding_position')), w(need(a, 'conquest')), w(need(a, 'capture_escrow')), ro(SYSTEM_PROGRAM)];
     default: throw new Error(`${cmd?.name}: no account list here`);
   }
 }
