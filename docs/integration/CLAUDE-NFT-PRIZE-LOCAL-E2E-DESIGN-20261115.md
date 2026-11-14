@@ -93,3 +93,46 @@ Proven so far (host 10/10, LiteSVM 7/7): the claim rules with the real Core/resi
 until this E2E runs:** the real game program's JoinResident/CloseCitizen with the prize, the relay's claim
 route against a chain, the English page's claim flow, and real-chain timing. A deposit stays unproven by
 design (refused).
+
+## 9. Review fixes and new tools (2026-11-15)
+
+- **Fixture tool hardened:**
+  - `fetch` uses `redirect: 'error'`, so no 307/308 is followed off loopback.
+  - The chain's `frontier_status.runId` must equal `--expect-run-id`, taken from the run's manifest, so a fixture can't land in another world.
+  - The pool must decode, be the prize program's, sit at `poolAddress(prize, game, season-id)`, name that game and season, and still be Open.
+  - The read-back must equal **every byte** written plus owner, lamports and executable.
+  - Tests 6/6, including 11 read-back mutations, every one refused.
+- **TEST ONLY shares:**
+  - `scripts/prize-nft-test-shares-ledger.mjs` (pure) builds a ledger from a given member list.
+    - It refuses a non-Final pool, a loser nation, zero or oversized points, duplicates, and a member with neither or both of asset and wallet.
+    - It is labelled "not derived from achievements; not a prize allocation".
+    - It has no achievement lines and decides no product weight.
+  - `scripts/prize-nft-test-shares.mjs` (CLI) posts the root with the operator's **real** SetShares, only on loopback, for the right run and pool, and only with the pool's operator key.
+  - Tests 3/3: the page reads each pass's share, and the proof reaches the root, checked with an independent sha256.
+  - **Achievements → points stays unproven** by this route, and every record says so.
+
+## 10. Time boundary (designed before any world)
+
+The game's CloseCitizen is allowed only when the chain clock reaches `bell_start(genesis, end_bell) + 72 h`
+(`END_GRACE_SECS`; `TooEarly` before; `proc/map.rs season_end_close`). The localnet clock can be compressed
+with `frontier_setScale` (0 < scale ≤ 100,000). 72 h at ×30 is 2.4 h of wall time: too long to leave running
+unplanned.
+
+Plan (all times compressed and labelled so; never called natural or live time):
+
+1. Play the short finite season at the world's normal test scale. Keep the season short; at most ×30 while
+   the keeper drives bells.
+2. After Ended: Tally, Finalize, the TEST ONLY SetShares, RecordResidentNation for P2, and every claim that
+   needs only the Ended state. None of these needs the 72 h.
+3. Only for CloseCitizen:
+   - Stop or hold the keeper (no bells to drive after the end).
+   - Raise the scale for a bounded window (e.g. ×3,600: 72 h ≈ 72 s of wall time).
+   - Send CloseCitizen once `TooEarly` no longer answers.
+   - Set the scale back down.
+   - Then P2's claim after close.
+
+   This window is recorded with its scale and slots. If the herald/relay misbehave at that scale, the step stops and is reported; it is not forced.
+4. **Wall-time limit for the whole world:** at most 45 minutes (main's TTL practice). Past that, stop
+   and clean up even if not finished, and record what was not reached.
+5. If the window cannot be held safely, CloseCitizen stays at the stand-in level (LiteSVM test 5) and is
+   recorded as unproven on a real world. The time rule is not touched.
