@@ -113,13 +113,15 @@ wide の側は NFT 住民の**行動**を受ける準備がある。足りない
 - 口座の並び：`wide_ix.rs` の `CLAIM_SITE`・`MUSTER`・`DISSOLVE`・`ECONOMY`／`ECONOMY_MIRROR`（城壁・tier-up は province を書く）・`GARRISON`。prologue は `[actor s] [payer s,w] [season r] [citizen w]`。NFT では actor が asset の今の持ち主（またはその session）、citizen が NFT Citizen。
 - `candidateWideActIx`：**候補 lane の program ID と版の組のときだけ** 0xDD で包む。他の lane（conquest の 0x4804、NFT の 0x8004、S1）では作る前に拒否。owner・generation の proof は 0xE2 と同じ。
 - 期待値：`frontier-abi/vectors/v2/wide-resident-candidate.json`（Rust の encoder から手で導いた bytes）。`test/frontier-wide-commands.test.mjs` 4 件（各命令の bytes、0xDD の bytes、口座の並び〔Rust の group の名前と順を読んで照合〕、候補だけの builder が relay の classify を候補の gate 経由でだけ通る）。
-- **未実装**：WideDepart（封をした行軍：seal の作成が要る）、DeclareSiege の口座の並び（この group に無い）、画面のボタンからの送信（候補 lane の world がまだ無い）。
+- その後（同日 23:00、`575aa306`）に**実装済み**：WideDepart の data と口座（commit と seal は canonical の `seal-wide.mjs` `sealWide` が作る物を受け取る。ここでは seal を作らない）、DeclareSiege の口座の並び（canonical の `fconquest-identity.mjs` `DECLARE_SIEGE_SHAPE` の順。actor は書き込み不可：NFT では持ち主と relay の payer が別の口座）。
+- **未実装**：画面のボタンからの 0xDD の送信（候補 lane の world がまだ無い）。
 
 **用意したが未実行（未 compile）**：`frontier-abi/tests/wide_resident_candidate_vectors.rs`。Rust の encoder と decoder が同じ bytes を出し・受けることと、それらの bytes が同じ JSON にあることを確かめる。rustfmt で構文と書式だけ確認。実行は `cargo test -p frontier-abi --features world-index-experimental --test wide_resident_candidate_vectors`（host build：主側と枠を合意してから）。
 
 **「検証が済んでいない」と「実装できない」の区別**：
-- 検証が済んでいない（実装はある）：Rust の golden 試験、候補 lane の feature が compile できること、旧い組み合わせで `compile_error!` が出ること、候補の .so の marker。build の枠があれば確かめられる。
-- 今は実装できない：候補 lane で動く world（keeper・herald・stack・page の道具が 0xC804 を知らない。領土側の file で版も未決）。画面からの 0xDD の送信（その world が要る）。
+- Rust の golden 試験は 2026-11-15 に主と合意した枠で実行し 8 件すべて通過（最初の compile で `Depart` の import 漏れが見つかり直した。target 最大 334 MB、終了後削除）。
+- 検証が済んでいない（実装はある）：候補 lane の feature が compile できること、旧い組み合わせで `compile_error!` が出ること、候補の .so の marker。build の枠があれば確かめられる。
+- まだ動かせない：候補 lane で動く world。必要な道具の変更（page・gateway の版の読み、launcher、keeper の準備、runner）は候補 branch に実装済みだが、Rust の部分は未 compile で、候補の .so も未 build（§11）。画面からの 0xDD の送信はその world の後。
 
 **枠が開いたときの計画（順番）**：
 1. 主側の down＋df の後、**直した検査で通常 world を 1 回**（NFT lane、追加 build なし、0.5 GB 以内、watchdog は重なるなら 21.1 GiB、それ以外は 20.85 GiB）。dock の Village tab → 自然な再描画の下での入力・focus・押下（押下の記録つき）→ B の Build・Train・Muster の取引 → 行軍と Reveal の取引。終わったら片付けて down＋df。
@@ -129,3 +131,26 @@ wide の側は NFT 住民の**行動**を受ける準備がある。足りない
    c. 合意があれば `scripts/build-frontier-localnet-conquest-nft-sbf.sh`（SBF、約 250 MB、offline）で marker と `deployable no`。
    各段の結果をこの文書に記録し、target は終わったら消す（来歴に要る物だけ残す）。
 3. 候補の world（0xC804）は、版の割り当てと、領土側の file（keeper・gateway・page の 0x4804 固定、§8）の変更が要るので、領土側と合意してから。
+
+## 10. 追記（同日 22:30）：候補の版を配備から読む（別 branch、領土側と合意済み）
+
+領土側の lane の担当と合意（自分の branch だけ、opt-in、0x4804 の経路は変えない、review 用の round-only patch、canonical には書かない）。base は canonical の最新（`84ec838c`、round 19 を含む）にして、**別 branch `claude/nft-candidate-lane-20261114`**（worktree `/Users/r0ze/Projects/wylls-nft-candidate-lane-20261114`）。
+- local play の版の定義を 1 つにした（gateway `src/frontier/local-lane-versions.mjs` ＝ page `flocallanes.mjs`）：0x4804（既定、従来どおり）と、候補の 0xC804（= 51204、候補を選んだ launcher だけが配備に書く）。gateway の expedition・conquest・depart の準備、page の expedition・depart の準備、local play の Season の検査、手札の準備の区画は、すべて配備（または Season）の版をこの定義で読む。準備した提案は配備自身の版を返さなければならない。
+- 試験：新しい試験 2 件と、影響する 32 file の 301 件中 298 合格。失敗 3 件（`frontier-local-play-natural.test.mjs`）は `84ec838c` でも同じ。
+- その後の実装と現況は §11（launcher・keeper・runner はすべて実装済み、Rust は未 compile）。
+- handover：候補 branch の `docs/integration/CLAUDE-NFT-CANDIDATE-LANE-VERSION-READ-20261114.{md,patch}`（最新は §11 の branch と sha）。
+
+## 11. 現況（2026-11-15 00:45）：候補 lane の実装はどこまでか
+
+候補 branch は canonical の round 21（`20adb087`）に載せ直し、**新しい名前 `claude/nft-candidate-lane-r21-20261114`** で公開した（旧 branch は force-push を避けてそのまま残した）。そこでの状態（詳しくはその branch の handover の表）：
+
+| 部分 | 状態 |
+|---|---|
+| page・gateway が配備の版を読む | 実装済み・試験済み（影響する local-play と準備の 304/304） |
+| launcher の `--lane-candidate`（runner との約束、NFT setup、mint ページ、片付け） | 実装済み・stand-in で試験済み |
+| keeper の準備（`local_lane.rs`） | 実装済み・**未 compile** |
+| runner（itest）step 1・2（Lane、候補の配備、seed file、runtime module が world lane を読む） | 実装済み・**未 compile** |
+| wide 命令の encoder（WideDepart・DeclareSiege を含む、この branch） | 実装済み・JS と Rust の golden 試験で通過（2026-11-15、8/8） |
+| Rust の試験の実行、候補の .so、候補の world | 未実施：build の枠の合意が要る |
+
+順番：frontier-abi の golden 試験 → host の check（keeper・itest・候補 feature と、旧い組み合わせが compile_error になること）→ 候補の .so（SBF）→ 候補の world。各段を領土側と合意し、guard は変えない。

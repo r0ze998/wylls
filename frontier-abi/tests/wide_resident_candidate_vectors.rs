@@ -10,7 +10,7 @@
 
 use frontier_abi::world_index::economy::Action;
 use frontier_abi::world_index::wide_ix::{
-    ClaimSite, DeclareSiege, Dissolve, Economy, Garrison, Muster, ResidentAct,
+    ClaimSite, DeclareSiege, Depart, Dissolve, Economy, Garrison, Muster, ResidentAct,
 };
 
 const VECTORS: &str = include_str!("../vectors/v2/wide-resident-candidate.json");
