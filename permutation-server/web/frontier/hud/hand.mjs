@@ -84,7 +84,12 @@ const localRefuses = (FS, name) => !!FS?.localPlay && localOrderRoute({ localPla
 const localReadOnlyText = () => L`ローカルプレイでは、まだ命令を送れません（読み取りのみ）。`;
 // (round 26: a march — the bar's March, its return home, a march on a keep — is sent in local play only while the march's
 //  own answer is open (controller.mjs sendTheMarch: FS.localMarch.open), and refused with the same sentence otherwise)
-const localMarchClosed = FS => !!FS?.localPlay && FS.localMarch?.open !== true;
+const localMarchClosed = (FS, r = null) => {
+  if (!FS?.localPlay) return false;
+  // (round 27: for the host shown — its own village and its own held march — as its send would find it once composed)
+  if (r && typeof FS.localMarchFor === 'function') return FS.localMarchFor(r.holding ?? null, r.id ?? null)?.open !== true;
+  return FS.localMarch?.open !== true;
+};
 
 // ------------------------------------------------------------------ the model
 const hexDist = (a, b) => (a && b ? (Math.abs(a.q - b.q) + Math.abs(a.r - b.r) + Math.abs((a.q + a.r) - (b.q + b.r))) / 2 : null);
@@ -162,7 +167,7 @@ const hostChip = (FS, r) => ({ id: r.id, unit: r.unit, text: unitCount(UNIT_ORDE
 function hostModel(FS, sub) {
   const r = sub.host, h = sub.holding;
   const faction = int(FS.citizen?.faction) ? FS.citizen.faction : 0;
-  const mc = marchCheck(FS, r), dc = dissolveCheck(FS, r), dLocal = localRefuses(FS, 'Dissolve'), mLocal = localMarchClosed(FS), eLocal = localRefuses(FS, 'Explore');
+  const mc = marchCheck(FS, r), dc = dissolveCheck(FS, r), dLocal = localRefuses(FS, 'Dissolve'), mLocal = localMarchClosed(FS, r), mLocalPage = localMarchClosed(FS), eLocal = localRefuses(FS, 'Explore');
   const ex = r.unit === SCOUT ? exploreCheck(FS, r) : null;
   const all = ownHosts(FS);
   const at = all.findIndex(x => x.id === r.id);
@@ -181,7 +186,9 @@ function hostModel(FS, sub) {
     // open it: the list then says from which turn it can go (never a dead end)
     // (not offered where no keep can be taken: a world opened only to the heartlands — noContestableKeep)
     ...(conquestOn(FS) && !noContestableKeep(FS) && r.unit !== SCOUT && r.unit !== SETTLER ? [{ id: 'keeps', icon: 'flag', word: L`砦へ進軍`, act: 'hand-pop', data: { pop: 'keeps' }, figure: L`${fmtNum(holdTurns(FS))} ターンで奪取`, pressed: pop === 'keeps',
-      why: r.inTransit ? mc.text : mLocal ? localReadOnlyText() : null, tone: waitOf(FS, r) ? 'warn' : '', hint: L`この軍勢が届く他国の砦を一覧にします。行を選ぶと、その砦への命令の紙が開きます` }] : []),
+      // (round 27: a march on a keep is composed for the page's active village, not the host's own — controller.mjs
+      //  cq-march —, so this button keeps the page-wide answer; March and Return switch to the host's village first)
+      why: r.inTransit ? mc.text : mLocalPage ? localReadOnlyText() : null, tone: waitOf(FS, r) ? 'warn' : '', hint: L`この軍勢が届く他国の砦を一覧にします。行を選ぶと、その砦への命令の紙が開きます` }] : []),
     ...(ex ? [{ id: 'explore', icon: 'scout', word: L`探索`, act: 'hand-pop', data: { pop: 'explore' }, figure: ex.ok ? L`${fmtNum(ex.targets.length)} マス` : '', pressed: pop === 'explore', why: eLocal ? localReadOnlyText() : ex.ok ? null : ex.text,
       hint: L`となりのマスを 2 つまで調べます` }] : []),
     { id: 'return', icon: 'home', word: L`村へ戻す`, act: 'hand-return', data: { host: r.id }, figure: r.home ? '' : L`${fmtNum(away ?? 0)} マス先`, why: r.home ? whyText('AtHome') : mLocal ? localReadOnlyText() : mc.ok ? null : mc.text,
@@ -215,7 +222,12 @@ function hostModel(FS, sub) {
   //  reason a second time, and the card stands on the bar — the line coming and going moved the card's rows under the
   //  pointer by its height. So with the forts card open and a wait to say there, the bar leaves the line to the card.)
   const toCard = pop === 'keeps' && !!waitOf(FS, r);
-  const note = shared && !toCard && !(mc.code === 'Forming' && shared === mc.text) ? shared : null;
+  const note0 = shared && !toCard && !(mc.code === 'Forming' && shared === mc.text) ? shared : null;
+  // (round 27: local play's refusal is said in full on the bar's own line, which wraps — inside a button it was clipped to
+  //  two short lines, "In local play, this order cannot be sent yet (rea…" in a live world; the refused buttons stay refused)
+  const lro = localReadOnlyText(), localSaid = buttons.some(b => b.why === lro);
+  if (localSaid) for (const b of buttons) if (b.why === lro) b.said = true;
+  const note = localSaid && note0 !== lro ? (note0 ? `${note0} ${lro}` : lro) : note0;
   return { kind: 'host', key: `h:${r.id}`, name, label: L`${name}の行動`, unit: r.unit, faction, sub: st.text, tone: st.tone, where, note, noteTone: note ? 'why' : null,
     chips: sub.hosts.length > 1 ? sub.hosts.filter(x => x.id !== r.id).map(x => hostChip(FS, x)) : [], villageHere: r.home ? holdingName(h) : null,
     buttons, host: r, march: mc, explore: ex, dissolve: dLocal ? { ok: false, text: localReadOnlyText() } : dc, armed, away, stamina: r.stamina };

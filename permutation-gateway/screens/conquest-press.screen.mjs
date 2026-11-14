@@ -79,6 +79,8 @@ async function failed(page, name, e) {
 test('round 16: the fort row stays where it is when the settling wait line comes and goes', async t => {
   const { page, host, name } = await openForts(t, 'row-stays');
   try {
+    // (the first reading after the card is written: let the page finish its layout first — one run of many read 446 for 445)
+    await page.waitForTimeout(500);
     const before = await rowBox(page);
     assert.ok(before, 'the fort row is on screen');
     const slot = await page.evaluate(() => !!document.querySelector('#hand-pop .kh-wait-slot'));
@@ -305,7 +307,7 @@ test('round 25: in local play the host bar\'s Dissolve says it cannot be sent th
       invalidate('panel', 'map');
       await new Promise(r => setTimeout(r, 600));
       const b = document.querySelector('#hand .hand-dissolve'), r = b?.getBoundingClientRect();
-      return b ? { x: r.left + r.width / 2, y: r.top + r.height / 2, off: b.classList.contains('off'), disabled: b.getAttribute('aria-disabled'), why: b.querySelector('.hand-why')?.textContent ?? null } : null;
+      return b ? { x: r.left + r.width / 2, y: r.top + r.height / 2, off: b.classList.contains('off'), disabled: b.getAttribute('aria-disabled'), why: b.querySelector('.hand-why')?.textContent ?? null, note: document.querySelector('#hand .hand-note')?.textContent ?? null } : null;
     });
     assert.ok(at, 'the host bar shows Dissolve');
     await page.mouse.move(at.x, at.y); await page.mouse.down(); await page.waitForTimeout(90); await page.mouse.up();
@@ -313,7 +315,8 @@ test('round 25: in local play the host bar\'s Dissolve says it cannot be sent th
     const pop = await page.evaluate(() => document.getElementById('hand-pop')?.dataset.pop ?? '');
     writeFileSync(path.join(OUT, `${name}.json`), `${JSON.stringify({ at, pop }, null, 2)}\n`);
     assert.equal(at.off, true); assert.equal(at.disabled, 'true');
-    assert.equal(at.why, 'In local play, this order cannot be sent yet (read only).', 'the reason is on the button');
+    // (round 27: the reason is said in full on the bar's own line; the button stays refused)
+    assert.equal(at.note, 'In local play, this order cannot be sent yet (read only).', 'the reason is on the bar, in full');
     assert.notEqual(pop, 'dissolve', 'the press opened no card');
   } catch (e) { await failed(page, name, e); }
 });

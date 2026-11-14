@@ -137,3 +137,12 @@ test('every troop already in a host (reserve 0): the card opens but nothing is a
     assert.equal(musters().length, 0); assert.deepEqual(sends, []);
   }
 });
+
+test('round 27: the real controller gives the bar a per-host march answer, computed like the send\'s', () => {
+  scene();
+  assert.equal(typeof FS.localMarchFor, 'function');
+  const r = FS.localMarchFor({ p: 2, q: 0, site: 2, gen: 0 }, 'h1');
+  assert.ok(r && typeof r.open === 'boolean' && typeof r.reason === 'string', JSON.stringify(r));
+  // this test page has no march capability: closed for any host, as the send would be — and the page-wide answer agrees
+  assert.equal(r.open, false); assert.equal(FS.localMarch?.open, false);
+});

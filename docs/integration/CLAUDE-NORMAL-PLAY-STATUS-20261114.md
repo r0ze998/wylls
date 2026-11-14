@@ -70,15 +70,34 @@ coordinates measured the instant before. TEST-ONLY local worlds; no rule, resour
   English texts, stale English entries.
 - In this lane, fixed in round 22: the four local-play controller texts without English, and 精算 on the start page.
 
+## Update 2026-11-15: rounds 23–27 and three live checks
+
+Published commits (one branch, fast-forward): 7880e845 / 84ec838c (round 19), a5e3b403 (round 20), 20adb087 (round 21),
+b7d746e9 (round 22), a08a5539 (round 23: two stale source pins in this lane's tests), 984c924a (round 24: the forts card's
+invisible stand-in always holds the settling sentence's height), edfc7a9d (round 25: local play's Dissolve says why on the
+bar; the slow-clock plan), de118e29 (round 26: the same for March, Return, a march on a keep and Explore), and bb84f089 (round 27:
+the local-play reason in full on the bar's line; the bar's March and Return ask the march gate for the host they show).
+
+| live check (TEST-ONLY, one operator playing both sides, English, 1280 px) | clock | seen | not seen / limits |
+|---|---|---|---|
+| live23, rounds 20–23 | ×30 | one press each for Train, Form a host (card opens while the province resolves), its confirm, the fort row, the seal; host bar wraps; welcome stays visible after the seal; arrival on the keep | the forts row moved 42 px when the host stood while its province was catching up (fixed in round 24, reproduced on the fixture) |
+| live24, round 24 | ×30 | the row stayed at one height across settling → in step; Dissolve was offered but refused after the press (fixed in rounds 25/26) | the forming → catching-up transition: the host had stood before the card was open |
+| live26, rounds 24–26 | ×10 | the card opened while the host was still forming (the short forming line, round 24's case); watching with screenshots only, the row (y≈300) and the card top (y≈233) did not move through "stands" and "in step" — in live23 the same card started at 276 and grew; Dissolve's reason on the button; one press for row and seal | the middle state — stood while the province is still catching up — was not seen (the province had caught up within the ~10 s between looks): live shows forming → in step only; the full transition is shown on the fixture |
+
+Tests standing at the base commit: 22 failures in the unit suites, all in other lanes' code or environment (see the
+classification above); the two stale pins of this lane were fixed in round 23. The screens check suite (9 real-browser
+checks) passes; each new check was run against the previous code and failed there.
+
 ## Open items
-- **A world on rounds 20–22** (forts row with a forming host, the host bar, Form a host and its waiting send, the welcome,
-  English): waits for disk capacity — writing the latest export left free space under the world start floor, so no world
-  was started.
-- **Form a host under the ×30 clock** (recorded world, before round 21): the confirm was disabled about half of each 20 s
-  turn, and one sent muster was refused with NotResident (26).
-  - Fact: Muster returns 26 only when the province's resolved turn is two or more behind the chain's turn; the province is
-    moved on only by the test keeper's FastForward transactions, and the refused muster landed between two of them.
-  - Inference, not measured: the page judged "ready" from a view one step behind the chain.
-  - Not measured in a natural-time world; that share is a ×30 condition and must not be assumed there.
-- The bar's first "Form a host" press opened nothing (near a turn change); round 21 removes the refusal, not yet seen live.
+- **The catching-up state, live**: a host that stands while its province is still catching up has been shown on the
+  fixture (round 24's check), not yet in a live world. A read-only watcher for the recording desk (position and text of
+  named elements, every 0.1–5 s, no input of any kind) is ready and self-tested on the fixture (input events received by
+  the page: unchanged during the watch; a single press as a positive control raises the count). It needs a world slot.
+- **Local play's other refusals**: round 27 makes the bar's March and Return ask the march gate for the host they show
+  (both switch to that host's village before composing). The March-on-a-keep button keeps the page-wide answer, because a
+  march on a keep is composed for the page's active village. Remaining known differences: with the march trial closed, a
+  map tap may still compose a march whose send is then refused (the bar's March says why; the map does not); and a march on
+  a keep for a host of a village other than the active one composes nothing (an older behaviour, nothing is sent).
+- **Form a host under the ×30 clock** (recorded world, before round 21): one sent muster was refused with NotResident (26);
+  fact and inference as recorded in the round 21 section above. Not measured in natural time.
 - The two sides were operated by one operator; two independent people remain the end goal.
