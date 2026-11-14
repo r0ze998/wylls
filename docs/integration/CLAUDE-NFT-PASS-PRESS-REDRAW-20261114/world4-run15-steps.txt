@@ -1,0 +1,33 @@
+10:51:48 A: connected the Dev Wallet
+10:51:50 1 no pass: the join card links to the mint page — http://127.0.0.1:41090/web/mint.html?lang=en
+10:51:51 2 minted on the mint page — 5aS7enDBWKRV8t21dPgX75CNp3bNxwsraiVmy5fFKdEH
+10:51:54 3 joined with the NFT (JoinResident)
+10:51:55 4 acted (first village): on chain the NFT Citizen holds it, owner A, generation 0 — 2hQzN8dBVkzVSiAGqkJmYZSmytMjQHDU7FdtecMSvK3f
+10:52:42 4b reload: the pass is offered again
+10:52:42 5 transfer screen: a transfer to itself is refused before signing
+10:52:42 5 TransferResident A→B from the mint page's transfer screen — Transferred (confirmed on the chain): resident af48ad36ce9e7de951f5d121f83228 now belongs to EHRagCKccvP2uSd8KXNt6NQJBFK7GWprryFdLjpJ8Y7F. This wallet can no longer play this resident.
+10:52:43 5a A (stale page) acts: refused on screen, nothing changed on chain — This resident NFT is not in this wallet now.
+10:52:45 5a2 A (stale page) builds: refused on screen, nothing changed on chain
+10:53:30 5 A: the pass is no longer offered
+10:53:34 B: connected the Dev Wallet
+10:53:36 5 B plays the same Citizen
+10:53:38 6 B harvested: the stores grew on chain — 14302291760 → 14302721721, last owner action 1785646720 → 1785656960, owner B, generation 1
+10:53:41 7 B: no nation choice beside its village
+10:53:46 FAILED — locator.click: Timeout 5000ms exceeded.
+Call log:
+  - waiting for locator('[data-act="build"][data-item].br-go:not([disabled])').first()
+    - locator resolved to <button type="button" data-item="0" data-act="build" class="btn small br-go" aria-label="Build: Farm">Build</button>
+  - attempting click action
+    - waiting for element to be visible, enabled and stable
+    - element is visible, enabled and stable
+    - scrolling into view if needed
+    - done scrolling
+    - <canvas tabindex="0" width="1280" height="720" data-lod="tile" id="frontier-map" data-tilt="26.00" data-terrain="ready" data-i18n-attr="aria-label" aria-describedby="map-summary" aria-label="Map of the Frontier: arrow keys move, + and − zoom, H goes to your village, M shows the world chart, Enter selects the province in the centre"></canvas> intercepts pointer events
+  - retrying click action
+    - waiting for element to be visible, enabled and stable
+    - element is not stable
+  - retrying click action
+    - waiting 20ms
+    - waiting for element to be visible, enabled and stable
+  - element was detached from the DOM, retrying
+

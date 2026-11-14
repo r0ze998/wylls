@@ -1,0 +1,745 @@
+{
+  "events": [
+    {
+      "type": "pointerdown",
+      "t": 3223,
+      "act": "SPAN",
+      "inDrawer": true,
+      "connected": true,
+      "isWatched": true,
+      "atPoint": "",
+      "atPointInDrawer": true,
+      "scroll": 526
+    },
+    {
+      "type": "pointerup",
+      "t": 3524,
+      "act": "SPAN",
+      "inDrawer": true,
+      "connected": true,
+      "isWatched": true,
+      "atPoint": "",
+      "atPointInDrawer": true,
+      "scroll": 526
+    },
+    {
+      "type": "click",
+      "t": 3524,
+      "act": "SPAN",
+      "inDrawer": true,
+      "connected": true,
+      "isWatched": true,
+      "atPoint": "",
+      "atPointInDrawer": true,
+      "scroll": 526
+    },
+    {
+      "type": "pointerdown",
+      "t": 3898,
+      "act": "SPAN",
+      "inDrawer": true,
+      "connected": true,
+      "isWatched": true,
+      "atPoint": "",
+      "atPointInDrawer": true,
+      "scroll": 526
+    },
+    {
+      "type": "pointerup",
+      "t": 4200,
+      "act": "SPAN",
+      "inDrawer": true,
+      "connected": true,
+      "isWatched": true,
+      "atPoint": "",
+      "atPointInDrawer": true,
+      "scroll": 526
+    },
+    {
+      "type": "click",
+      "t": 4200,
+      "act": "SPAN",
+      "inDrawer": true,
+      "connected": true,
+      "isWatched": true,
+      "atPoint": "",
+      "atPointInDrawer": true,
+      "scroll": 526
+    },
+    {
+      "type": "pointerdown",
+      "t": 4585,
+      "act": "SPAN",
+      "inDrawer": true,
+      "connected": true,
+      "isWatched": true,
+      "atPoint": "",
+      "atPointInDrawer": true,
+      "scroll": 526
+    },
+    {
+      "type": "pointerup",
+      "t": 4887,
+      "act": "SPAN",
+      "inDrawer": true,
+      "connected": true,
+      "isWatched": true,
+      "atPoint": "",
+      "atPointInDrawer": true,
+      "scroll": 526
+    },
+    {
+      "type": "click",
+      "t": 4887,
+      "act": "SPAN",
+      "inDrawer": true,
+      "connected": true,
+      "isWatched": true,
+      "atPoint": "",
+      "atPointInDrawer": true,
+      "scroll": 526
+    },
+    {
+      "type": "pointerdown",
+      "t": 5270,
+      "act": "SPAN",
+      "inDrawer": true,
+      "connected": true,
+      "isWatched": true,
+      "atPoint": "",
+      "atPointInDrawer": true,
+      "scroll": 526
+    },
+    {
+      "type": "pointerup",
+      "t": 5571,
+      "act": "SPAN",
+      "inDrawer": true,
+      "connected": true,
+      "isWatched": true,
+      "atPoint": "",
+      "atPointInDrawer": true,
+      "scroll": 526
+    },
+    {
+      "type": "click",
+      "t": 5571,
+      "act": "SPAN",
+      "inDrawer": true,
+      "connected": true,
+      "isWatched": true,
+      "atPoint": "",
+      "atPointInDrawer": true,
+      "scroll": 526
+    },
+    {
+      "type": "pointerdown",
+      "t": 5963,
+      "act": "SPAN",
+      "inDrawer": true,
+      "connected": true,
+      "isWatched": true,
+      "atPoint": "",
+      "atPointInDrawer": true,
+      "scroll": 526
+    },
+    {
+      "type": "pointerup",
+      "t": 6264,
+      "act": "SPAN",
+      "inDrawer": true,
+      "connected": true,
+      "isWatched": true,
+      "atPoint": "",
+      "atPointInDrawer": true,
+      "scroll": 526
+    },
+    {
+      "type": "click",
+      "t": 6264,
+      "act": "SPAN",
+      "inDrawer": true,
+      "connected": true,
+      "isWatched": true,
+      "atPoint": "",
+      "atPointInDrawer": true,
+      "scroll": 526
+    },
+    {
+      "type": "pointerdown",
+      "t": 6695,
+      "act": "SPAN",
+      "inDrawer": true,
+      "connected": true,
+      "isWatched": true,
+      "atPoint": "",
+      "atPointInDrawer": true,
+      "scroll": 526
+    },
+    {
+      "type": "pointerup",
+      "t": 6996,
+      "act": "SPAN",
+      "inDrawer": true,
+      "connected": true,
+      "isWatched": true,
+      "atPoint": "",
+      "atPointInDrawer": true,
+      "scroll": 526
+    },
+    {
+      "type": "click",
+      "t": 6996,
+      "act": "SPAN",
+      "inDrawer": true,
+      "connected": true,
+      "isWatched": true,
+      "atPoint": "",
+      "atPointInDrawer": true,
+      "scroll": 526
+    },
+    {
+      "type": "pointerdown",
+      "t": 7360,
+      "act": "SPAN",
+      "inDrawer": true,
+      "connected": true,
+      "isWatched": true,
+      "atPoint": "",
+      "atPointInDrawer": true,
+      "scroll": 526
+    },
+    {
+      "type": "pointerup",
+      "t": 7662,
+      "act": "SPAN",
+      "inDrawer": true,
+      "connected": true,
+      "isWatched": true,
+      "atPoint": "",
+      "atPointInDrawer": true,
+      "scroll": 526
+    },
+    {
+      "type": "click",
+      "t": 7662,
+      "act": "SPAN",
+      "inDrawer": true,
+      "connected": true,
+      "isWatched": true,
+      "atPoint": "",
+      "atPointInDrawer": true,
+      "scroll": 526
+    },
+    {
+      "type": "pointerdown",
+      "t": 8052,
+      "act": "SPAN",
+      "inDrawer": true,
+      "connected": true,
+      "isWatched": true,
+      "atPoint": "",
+      "atPointInDrawer": true,
+      "scroll": 526
+    },
+    {
+      "type": "pointerup",
+      "t": 8363,
+      "act": "SPAN",
+      "inDrawer": true,
+      "connected": true,
+      "isWatched": true,
+      "atPoint": "",
+      "atPointInDrawer": true,
+      "scroll": 526
+    },
+    {
+      "type": "click",
+      "t": 8363,
+      "act": "SPAN",
+      "inDrawer": true,
+      "connected": true,
+      "isWatched": true,
+      "atPoint": "",
+      "atPointInDrawer": true,
+      "scroll": 526
+    },
+    {
+      "type": "pointerdown",
+      "t": 8859,
+      "act": "SPAN",
+      "inDrawer": true,
+      "connected": true,
+      "isWatched": true,
+      "atPoint": "",
+      "atPointInDrawer": true,
+      "scroll": 526
+    },
+    {
+      "type": "pointerup",
+      "t": 9179,
+      "act": "SPAN",
+      "inDrawer": true,
+      "connected": true,
+      "isWatched": true,
+      "atPoint": "",
+      "atPointInDrawer": true,
+      "scroll": 526
+    },
+    {
+      "type": "click",
+      "t": 9179,
+      "act": "SPAN",
+      "inDrawer": true,
+      "connected": true,
+      "isWatched": true,
+      "atPoint": "",
+      "atPointInDrawer": true,
+      "scroll": 526
+    },
+    {
+      "type": "pointerdown",
+      "t": 9676,
+      "act": "SPAN",
+      "inDrawer": true,
+      "connected": true,
+      "isWatched": true,
+      "atPoint": "",
+      "atPointInDrawer": true,
+      "scroll": 526
+    },
+    {
+      "type": "pointerup",
+      "t": 10016,
+      "act": "SPAN",
+      "inDrawer": true,
+      "connected": true,
+      "isWatched": true,
+      "atPoint": "",
+      "atPointInDrawer": true,
+      "scroll": 526
+    },
+    {
+      "type": "click",
+      "t": 10016,
+      "act": "SPAN",
+      "inDrawer": true,
+      "connected": true,
+      "isWatched": true,
+      "atPoint": "",
+      "atPointInDrawer": true,
+      "scroll": 526
+    },
+    {
+      "type": "pointerdown",
+      "t": 10616,
+      "act": "SPAN",
+      "inDrawer": true,
+      "connected": true,
+      "isWatched": true,
+      "atPoint": "",
+      "atPointInDrawer": true,
+      "scroll": 526
+    },
+    {
+      "type": "pointerup",
+      "t": 10917,
+      "act": "SPAN",
+      "inDrawer": true,
+      "connected": true,
+      "isWatched": true,
+      "atPoint": "",
+      "atPointInDrawer": true,
+      "scroll": 526
+    },
+    {
+      "type": "click",
+      "t": 10917,
+      "act": "SPAN",
+      "inDrawer": true,
+      "connected": true,
+      "isWatched": true,
+      "atPoint": "",
+      "atPointInDrawer": true,
+      "scroll": 526
+    },
+    {
+      "type": "pointerdown",
+      "t": 11299,
+      "act": "SPAN",
+      "inDrawer": true,
+      "connected": true,
+      "isWatched": true,
+      "atPoint": "",
+      "atPointInDrawer": true,
+      "scroll": 526
+    },
+    {
+      "type": "pointerup",
+      "t": 11636,
+      "act": "SPAN",
+      "inDrawer": true,
+      "connected": true,
+      "isWatched": true,
+      "atPoint": "",
+      "atPointInDrawer": true,
+      "scroll": 526
+    },
+    {
+      "type": "click",
+      "t": 11636,
+      "act": "SPAN",
+      "inDrawer": true,
+      "connected": true,
+      "isWatched": true,
+      "atPoint": "",
+      "atPointInDrawer": true,
+      "scroll": 526
+    }
+  ],
+  "replaced": [
+    6632,
+    8393,
+    8710,
+    11666,
+    11811
+  ],
+  "presses": [
+    {
+      "i": 0,
+      "down": {
+        "type": "pointerdown",
+        "t": 3223,
+        "act": "SPAN",
+        "inDrawer": true,
+        "connected": true,
+        "isWatched": true,
+        "atPoint": "",
+        "atPointInDrawer": true,
+        "scroll": 526
+      },
+      "up": 3526,
+      "click": {
+        "type": "click",
+        "t": 3524,
+        "act": "SPAN",
+        "inDrawer": true,
+        "connected": true,
+        "isWatched": true,
+        "atPoint": "",
+        "atPointInDrawer": true,
+        "scroll": 526
+      },
+      "replacedDuring": 0,
+      "heldRedrawReleased": false
+    },
+    {
+      "i": 1,
+      "down": {
+        "type": "pointerdown",
+        "t": 3898,
+        "act": "SPAN",
+        "inDrawer": true,
+        "connected": true,
+        "isWatched": true,
+        "atPoint": "",
+        "atPointInDrawer": true,
+        "scroll": 526
+      },
+      "up": 4201,
+      "click": {
+        "type": "click",
+        "t": 4200,
+        "act": "SPAN",
+        "inDrawer": true,
+        "connected": true,
+        "isWatched": true,
+        "atPoint": "",
+        "atPointInDrawer": true,
+        "scroll": 526
+      },
+      "replacedDuring": 0,
+      "heldRedrawReleased": false
+    },
+    {
+      "i": 2,
+      "down": {
+        "type": "pointerdown",
+        "t": 4585,
+        "act": "SPAN",
+        "inDrawer": true,
+        "connected": true,
+        "isWatched": true,
+        "atPoint": "",
+        "atPointInDrawer": true,
+        "scroll": 526
+      },
+      "up": 4888,
+      "click": {
+        "type": "click",
+        "t": 4887,
+        "act": "SPAN",
+        "inDrawer": true,
+        "connected": true,
+        "isWatched": true,
+        "atPoint": "",
+        "atPointInDrawer": true,
+        "scroll": 526
+      },
+      "replacedDuring": 0,
+      "heldRedrawReleased": false
+    },
+    {
+      "i": 3,
+      "down": {
+        "type": "pointerdown",
+        "t": 5270,
+        "act": "SPAN",
+        "inDrawer": true,
+        "connected": true,
+        "isWatched": true,
+        "atPoint": "",
+        "atPointInDrawer": true,
+        "scroll": 526
+      },
+      "up": 5572,
+      "click": {
+        "type": "click",
+        "t": 5571,
+        "act": "SPAN",
+        "inDrawer": true,
+        "connected": true,
+        "isWatched": true,
+        "atPoint": "",
+        "atPointInDrawer": true,
+        "scroll": 526
+      },
+      "replacedDuring": 0,
+      "heldRedrawReleased": false
+    },
+    {
+      "i": 4,
+      "down": {
+        "type": "pointerdown",
+        "t": 5963,
+        "act": "SPAN",
+        "inDrawer": true,
+        "connected": true,
+        "isWatched": true,
+        "atPoint": "",
+        "atPointInDrawer": true,
+        "scroll": 526
+      },
+      "up": 6265,
+      "click": {
+        "type": "click",
+        "t": 6264,
+        "act": "SPAN",
+        "inDrawer": true,
+        "connected": true,
+        "isWatched": true,
+        "atPoint": "",
+        "atPointInDrawer": true,
+        "scroll": 526
+      },
+      "replacedDuring": 0,
+      "heldRedrawReleased": false
+    },
+    {
+      "i": 5,
+      "down": {
+        "type": "pointerdown",
+        "t": 6695,
+        "act": "SPAN",
+        "inDrawer": true,
+        "connected": true,
+        "isWatched": true,
+        "atPoint": "",
+        "atPointInDrawer": true,
+        "scroll": 526
+      },
+      "up": 6997,
+      "click": {
+        "type": "click",
+        "t": 6996,
+        "act": "SPAN",
+        "inDrawer": true,
+        "connected": true,
+        "isWatched": true,
+        "atPoint": "",
+        "atPointInDrawer": true,
+        "scroll": 526
+      },
+      "replacedDuring": 0,
+      "heldRedrawReleased": false
+    },
+    {
+      "i": 6,
+      "down": {
+        "type": "pointerdown",
+        "t": 7360,
+        "act": "SPAN",
+        "inDrawer": true,
+        "connected": true,
+        "isWatched": true,
+        "atPoint": "",
+        "atPointInDrawer": true,
+        "scroll": 526
+      },
+      "up": 7663,
+      "click": {
+        "type": "click",
+        "t": 7662,
+        "act": "SPAN",
+        "inDrawer": true,
+        "connected": true,
+        "isWatched": true,
+        "atPoint": "",
+        "atPointInDrawer": true,
+        "scroll": 526
+      },
+      "replacedDuring": 0,
+      "heldRedrawReleased": false
+    },
+    {
+      "i": 7,
+      "down": {
+        "type": "pointerdown",
+        "t": 8052,
+        "act": "SPAN",
+        "inDrawer": true,
+        "connected": true,
+        "isWatched": true,
+        "atPoint": "",
+        "atPointInDrawer": true,
+        "scroll": 526
+      },
+      "up": 8364,
+      "click": {
+        "type": "click",
+        "t": 8363,
+        "act": "SPAN",
+        "inDrawer": true,
+        "connected": true,
+        "isWatched": true,
+        "atPoint": "",
+        "atPointInDrawer": true,
+        "scroll": 526
+      },
+      "replacedDuring": 0,
+      "heldRedrawReleased": true
+    },
+    {
+      "i": 8,
+      "down": {
+        "type": "pointerdown",
+        "t": 8859,
+        "act": "SPAN",
+        "inDrawer": true,
+        "connected": true,
+        "isWatched": true,
+        "atPoint": "",
+        "atPointInDrawer": true,
+        "scroll": 526
+      },
+      "up": 9180,
+      "click": {
+        "type": "click",
+        "t": 9179,
+        "act": "SPAN",
+        "inDrawer": true,
+        "connected": true,
+        "isWatched": true,
+        "atPoint": "",
+        "atPointInDrawer": true,
+        "scroll": 526
+      },
+      "replacedDuring": 0,
+      "heldRedrawReleased": false
+    },
+    {
+      "i": 9,
+      "down": {
+        "type": "pointerdown",
+        "t": 9676,
+        "act": "SPAN",
+        "inDrawer": true,
+        "connected": true,
+        "isWatched": true,
+        "atPoint": "",
+        "atPointInDrawer": true,
+        "scroll": 526
+      },
+      "up": 10059,
+      "click": {
+        "type": "click",
+        "t": 10016,
+        "act": "SPAN",
+        "inDrawer": true,
+        "connected": true,
+        "isWatched": true,
+        "atPoint": "",
+        "atPointInDrawer": true,
+        "scroll": 526
+      },
+      "replacedDuring": 0,
+      "heldRedrawReleased": false
+    },
+    {
+      "i": 10,
+      "down": {
+        "type": "pointerdown",
+        "t": 10616,
+        "act": "SPAN",
+        "inDrawer": true,
+        "connected": true,
+        "isWatched": true,
+        "atPoint": "",
+        "atPointInDrawer": true,
+        "scroll": 526
+      },
+      "up": 10918,
+      "click": {
+        "type": "click",
+        "t": 10917,
+        "act": "SPAN",
+        "inDrawer": true,
+        "connected": true,
+        "isWatched": true,
+        "atPoint": "",
+        "atPointInDrawer": true,
+        "scroll": 526
+      },
+      "replacedDuring": 0,
+      "heldRedrawReleased": false
+    },
+    {
+      "i": 11,
+      "down": {
+        "type": "pointerdown",
+        "t": 11299,
+        "act": "SPAN",
+        "inDrawer": true,
+        "connected": true,
+        "isWatched": true,
+        "atPoint": "",
+        "atPointInDrawer": true,
+        "scroll": 526
+      },
+      "up": 11638,
+      "click": {
+        "type": "click",
+        "t": 11636,
+        "act": "SPAN",
+        "inDrawer": true,
+        "connected": true,
+        "isWatched": true,
+        "atPoint": "",
+        "atPointInDrawer": true,
+        "scroll": 526
+      },
+      "replacedDuring": 0,
+      "heldRedrawReleased": true
+    }
+  ]
+}

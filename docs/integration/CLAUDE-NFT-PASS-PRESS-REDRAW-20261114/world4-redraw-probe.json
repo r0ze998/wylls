@@ -1,0 +1,49 @@
+{
+  "replaced": 7,
+  "times": [
+    15733,
+    16174,
+    17085,
+    17765,
+    18171,
+    19162,
+    19766
+  ],
+  "changedLines": [
+    [
+      "319",
+      "314",
+      "209",
+      "105"
+    ],
+    [
+      "320",
+      "315",
+      "210",
+      "106"
+    ],
+    [
+      "321",
+      "+61"
+    ],
+    [
+      "316",
+      "3:14",
+      "First village",
+      "You joined Aster"
+    ],
+    [
+      "322",
+      "211",
+      "2:34",
+      "+65"
+    ],
+    [
+      "323",
+      "317",
+      "107",
+      "0:58"
+    ]
+  ],
+  "target": "<button type=\"button\" class=\"hand-btn hand-harvest\" data-act=\"harvest\" data-hand=\"harvest\" title=\"Since the last harvest: Food +24 · Wood +18 · Stone +12 · Ore "
+}

@@ -1,0 +1,61 @@
+{
+  "rpc": "http://127.0.0.1:41010",
+  "frontier": "6Gg4AVKo8GAft4Wb2JSfhHCW3PQhXxYxapzBYeVjGzA9",
+  "season": "7",
+  "owner": "F3TuNQsd3ExT8pVZFnBM4NneayuFmxrjkJVW72izSnr",
+  "asset": "DHzLKvgvKQjHd5fJHNrMuZQWv5zokqU9MQwAmUtcHfQq",
+  "previous": null,
+  "readAt": "2026-11-14T11:03:12.233Z",
+  "transfer": [
+    {
+      "signature": "2w5urcp9rfTPM8Me8UuTM7LeXbvTHFZVmdn3MGpUzTLyKeVBTNVaSaF5QUmhUKgfkrwSTtHDKuiZLv5pyn8MtjQF",
+      "ok": true,
+      "signers": [
+        "6jFFrJQYPjT5bCN3JE6nSn3wLUmSuuZsCMmeNr4Sub9e"
+      ],
+      "signedByPrevious": null,
+      "to": "F3TuNQsd3ExT8pVZFnBM4NneayuFmxrjkJVW72izSnr"
+    }
+  ],
+  "ownerTransactions": [
+    {
+      "signature": "2w5urcp9rfTPM8Me8UuTM7LeXbvTHFZVmdn3MGpUzTLyKeVBTNVaSaF5QUmhUKgfkrwSTtHDKuiZLv5pyn8MtjQF",
+      "slot": 1725,
+      "ok": true,
+      "err": null,
+      "signedByOwner": false,
+      "acts": [
+        {
+          "name": "TransferResident"
+        }
+      ],
+      "events": []
+    },
+    {
+      "signature": "kvym9RJ8VF7DdV3Coqea2WdP65ShwNMdMGsBk2AXtRyjbgLkU49ZTrvJV9wd3m3xMHEct15E55BuJCkR4z8apir",
+      "slot": 1871,
+      "ok": true,
+      "err": null,
+      "signedByOwner": true,
+      "acts": [
+        {
+          "residentAct": true,
+          "generation": 1,
+          "inner": "Harvest",
+          "assetInProof": true
+        }
+      ],
+      "events": [
+        {
+          "name": "HARVEST",
+          "bell": 116,
+          "p": 2,
+          "q": 0,
+          "site": 8,
+          "stores_digest": "79f954bd8fb83ecee8e8287e92fba79b91a57a5715b69bdb62b66f14d59ec8d4"
+        }
+      ]
+    }
+  ],
+  "marches": []
+}

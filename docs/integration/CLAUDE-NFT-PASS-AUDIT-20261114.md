@@ -59,7 +59,7 @@ branch `claude/nft-pass-mint-20261114`。source を読んで整理した監査�
 **完了している（証拠あり）**：最新の住民 program の build と記録／実 Core＋実 program の発行（模擬・実 chain）／NFT lane の実 CreateSeason／通常 world で 発行 → 保有 → 参加 → 最初の村 → 譲渡 → 旧持ち主の画面での拒否（chain 不変）→ 新持ち主の Harvest（chain の蔵が増える）／英語画面と英語の発行ページ／relay の holder gate（transfer guard まで）／host binary の来歴。
 
 **残課題**：
-1. ~~通常 world で B の Build・Train・Muster・Depart・Reveal~~ → 取引で照合済み（LOCAL-WORLD §5g）。A の拒否は Harvest・Build を画面で確認し、譲渡後の A の取引 0 件。**残り**：Train・Muster の form が再描画で入れ替わる操作性の不具合は source の修正と unit 試験だけ（world・人の操作で未確認）。run data は約 520 MB だった。
+1. ~~通常 world で B の Build・Train・Muster・Depart・Reveal~~ → 取引で照合済み（LOCAL-WORLD §5g）。A の拒否は Harvest・Build を画面で確認し、譲渡後の A の取引 0 件。**残り**：Train・Muster の form の入れ替わり（unit 試験）、入力中の caret の移動と押下中の再描画（手元の browser 試験で再現・修正、LOCAL-WORLD §5h）。**world での人の操作（押下・入力）の確認は未解決**：world 4 は B の Build の押下で止まり、原因は未確定。手札の pop-up は押下の保留の対象外。run data は約 420〜520 MB。
 2. 利用者向けの譲渡の画面：**試験用を実装済み（模擬 chain の browser 試験 3 件）**。実 program・通常 world での実行は次の world の枠で（`nft-world-screen-check.mjs --transfer-via page`）。
 3. collection・NFT の metadata を後から変える手段（program の更新が要る）。
 4. B（wide の領土戦との統合）と C（本番の program・版・配備）は別の判断と作業。

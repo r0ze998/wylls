@@ -1,0 +1,13 @@
+10:49:38 A: connected the Dev Wallet
+10:49:39 1 no pass: the join card links to the mint page — http://127.0.0.1:41090/web/mint.html?lang=en
+10:49:40 2 minted on the mint page — HLnFkpkTqPyJahhH9DKJ7JWerdeu6f6CFbu87GinZZvh
+10:49:43 3 joined with the NFT (JoinResident)
+10:49:45 4 acted (first village): on chain the NFT Citizen holds it, owner A, generation 0 — 8zBnWTw6Yi2oKKaTgfWcAnJnJTzjcwYTopWBcnFyYwzj
+10:50:31 4b reload: the pass is offered again
+10:50:31 5 transfer screen: a transfer to itself is refused before signing
+10:50:32 5 TransferResident A→B from the mint page's transfer screen — Transferred (confirmed on the chain): resident a0128f9c464661f4b3abaf18a1f560 now belongs to 5tPe8dvo3NFbTcifxD4ghAK3FG9f9XfT9Cp9wHQrtQtN. This wallet can no longer play this resident.
+10:50:33 5a A (stale page) acts: refused on screen, nothing changed on chain — This resident NFT is not in this wallet now.
+10:50:39 FAILED — locator.click: Timeout 5000ms exceeded.
+Call log:
+  - waiting for locator('[data-act="build"][data-item].br-go:not([disabled])').first()
+

@@ -1,0 +1,46 @@
+{
+  "events": [
+    {
+      "type": "pointerdown",
+      "t": 1758,
+      "act": "build",
+      "inDrawer": true,
+      "connected": true,
+      "isWatched": true,
+      "atPoint": "build",
+      "atPointInDrawer": true,
+      "scroll": 365
+    },
+    {
+      "type": "pointerup",
+      "t": 1915,
+      "act": "build",
+      "inDrawer": true,
+      "connected": true,
+      "isWatched": true,
+      "atPoint": "build",
+      "atPointInDrawer": true,
+      "scroll": 365
+    },
+    {
+      "type": "click",
+      "t": 1915,
+      "act": "build",
+      "inDrawer": true,
+      "connected": true,
+      "isWatched": true,
+      "atPoint": "build",
+      "atPointInDrawer": true,
+      "scroll": 365
+    }
+  ],
+  "replaced": [],
+  "inDrawer": true,
+  "press": {
+    "down": 1757,
+    "up": 1926
+  },
+  "ordersBefore": 0,
+  "ordersAfter": 1,
+  "answer": ""
+}

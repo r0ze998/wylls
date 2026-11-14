@@ -232,6 +232,27 @@ validator を使わない spike 試験 91 件中 89 合格（1 件は既知の�
 
 **残り**：Train・Muster の form の安定化は source と unit 試験だけ（world・人の操作では未確認）。実ウォレット・実機・公開発行は対象外のまま。
 
+## 5h. 通常 world の 4 回目（未達）と、操作の不具合の手元での再現・修正（同日 19:45〜20:30）
+
+**world 4（run `nftpass-4`、19:47〜20:03）**：主側と並行（合意済み、41000 帯、headless だけ、追加 build 無し、watchdog 20.85 GiB を `up` の終了後も component が残る間は継続）。目的は、人の通常の操作（押し直し無し）で Train・Muster の form・値・focus が自然な再描画の下で保たれることと、譲渡 UI・行軍の再試験。**結果：未達**。
+- 譲渡 UI（自分宛の拒否 → 確認 → 送信）、旧持ち主 A の拒否（Harvest・Build）、B の Harvest までは毎回通った（`CLAUDE-NFT-PASS-PRESS-REDRAW-20261114/world4-run*-steps.txt`）。
+- **B の Build で止まった**（押し直し無しの方式では 3 回とも）：Playwright の click は「要素が安定しない・DOM から外れた」で押せず、人に近い押し方（中心で mouse down、約 120 ms、mouse up）では BUILD の取引が無かった（`world4-run18-tx.json`：Harvest だけ）。その時点の画面・DOM は保存していない（試験の不備）。**Train・Muster の保持は world では未確認**。
+- 測定（`world4-redraw-probe.json`）：A の村の画面で、約 16 秒は再描画なし、その後 4 秒に 7 回、村の操作部分が作り直された（変わった行は蔵の数・残り時間）。100 倍の試験時計では数が毎秒変わる。
+- world は予定の終わりで停止（延長しない）。run directory 421 MB は state と setup log を写して削除。空き 22.79 GiB、主側に報告。
+
+**手元での再現（world なし）**：`permutation-gateway/screens/press-redraw.screen.mjs`。fixture server の live の見本 world（時計が動き、drawer が自分で再描画する）で本物のゲーム画面を開き、pointerdown・pointerup・click の対象（drawer の中か、まだ DOM にあるか、押した点の要素＝重なりの有無）、再描画（監視した node の作り直しと時刻、離した直後に走ったか）、scroll、Build の注文が world に届いたかを記録。失敗時は screenshot と DOM を保存。証拠 `CLAUDE-NFT-PASS-PRESS-REDRAW-20261114/*.json`。
+
+| 見つけたこと | 修正 | 手元の試験 |
+|---|---|---|
+| **数を入力中に再描画が来ると、caret が先頭へ移り、次の数字が前に入る**（120 と打つと 021）。値と focus は戻していたが caret を戻していなかった | `app.mjs` `keepState`：focus を戻した後、文字の欄は選択範囲を戻し、選択 API の無い数の欄は caret を末尾へ | 約 1 秒に 1 文字で打ち、**打鍵の間に再描画が 2 回**入っても「120」・focus・form の位置が保たれる（2 回実行とも）。修正前は同じ試験で「021」 |
+| 押している間に drawer が作り直されると、押し始めと離した node が違い click にならない可能性 | `app.mjs` `makePressGate`：drawer（`#panel-body`）の中で押している間は再描画を保留し、離した直後（click の後）に走らせる。2 秒を超える押下（drag）は保留しない | drawer の fold を 12 回押す：**押している間の作り直し 0、click 12/12、うち 2 回は保留した再描画が離した直後に走った**（保留が実際に働いた） |
+| Train・Muster の開いている form が控え 100 を越えると入れ替わる | `holding.mjs` `troopsOrder`（前の commit） | unit 試験だけ（この fixture では控えが 100 を跨がないので browser では未確認） |
+| Build | — | 人に近い押し方で、Build は drawer の中、click は DOM にある node に届き、**fixture world に注文が届いた（0 → 1）** |
+
+**範囲の注意**：保留は drawer（`#panel-body`）だけ。手札の pop-up（`handEl`・`handPopEl`、砦・編成の pop）は**対象外**（主側が同じ gate を後で足す合意、この branch の HEAD の後）。world 4 の B の Build が drawer の中だったことは手元の試験で同じ要素で確かめたが、**world 4 で何が押下を失わせたかは未確定**（重なり・layout の移動・別の原因。当時の DOM を保存していない）。**通常操作（人の押下と入力）の world での確認は未解決**。
+
+game ページの既存試験は 1607 件中 1597 合格、失敗 10 件は修正の前と同じ（§5g）。
+
 ## 6. push の記録
 
 | 時刻 | `git ls-remote origin refs/heads/claude/nft-pass-mint-20261114` |

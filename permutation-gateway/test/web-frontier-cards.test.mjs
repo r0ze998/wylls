@@ -21,7 +21,7 @@ import * as parts from '../../permutation-server/web/frontier/screens/parts.mjs'
 import * as place from '../../permutation-server/web/frontier/hud/place.mjs';
 import * as pins from '../../permutation-server/web/frontier/hud/pins.mjs';
 import { STANCE_PIC, RETREAT_PIC, sealPic } from '../../permutation-server/web/frontier/hud/pictos.mjs';
-import { panelMarkup, detailsMarkup, keepState } from '../../permutation-server/web/frontier/app.mjs';
+import { panelMarkup, detailsMarkup, keepState, makePressGate } from '../../permutation-server/web/frontier/app.mjs';
 import { DIRECTIONS, TILE_OFFSETS } from '../../permutation-server/web/frontier/fgeo.mjs';
 import { exploreTargets, tileNeighbours } from '../../permutation-server/web/frontier/fland.mjs';
 
@@ -278,4 +278,23 @@ test('the troops card keeps its open form while the reserve changes (decided onc
   assert.equal(holdingScreen.troopsOrder({ ...FS, troopsOrder: undefined, wallet: { address: 'W2' } }, h, 400), true, 'another wallet decides again');
   assert.equal(holdingScreen.troopsOrder({}, h, 400), true, 'no scope: the live choice');
   assert.equal(holdingScreen.troopsOrder({}, h, 0), false);
+});
+
+test('a press in the drawer holds its redraws until release (a tap on a button that is being replaced is not lost)', () => {
+  let t = 0;
+  const g = makePressGate({ maxHoldMs: 2000, now: () => t });
+  const ran = [];
+  assert.equal(g.hold(() => ran.push('a')), false, 'no press: the redraw runs now');
+  g.down();
+  assert.equal(g.hold(() => ran.push('b')), true, 'pressed: kept');
+  assert.equal(g.hold(() => ran.push('c')), true, 'only the latest is kept');
+  const p = g.up(); p();
+  assert.deepEqual(ran, ['c'], 'released: the latest redraw runs once');
+  assert.equal(g.up(), null, 'nothing pending after');
+  g.down(); t = 2500;
+  assert.equal(g.hold(() => ran.push('d')), false, 'held past maxHoldMs (a drag): no longer holds');
+  assert.equal(g.hold(() => ran.push('e')), false);
+  const src = readFileSync(new URL('../../permutation-server/web/frontier/app.mjs', import.meta.url), 'utf8');
+  assert.match(src, /function renderDrawer\(markupOf\) \{\n[^\n]*\n  if \(drawerPress\.hold\(\(\) => renderDrawer\(markupOf\)\)\) return drawerOf\(FS\);/, 'the drawer write goes through the gate');
+  assert.match(src, /for \(const ev of \['pointerup', 'pointercancel'\]\)[^\n]*setTimeout\(redraw, 0\)/, 'released: after the click');
 });
