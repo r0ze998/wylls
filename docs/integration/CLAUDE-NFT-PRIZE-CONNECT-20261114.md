@@ -310,3 +310,58 @@ committed). Pure prize + card 28/28; related suite 56/64 with the same 8
 failures as baseline; key scan unchanged; SDK copy current;
 `git diff --check` pass. Refusals, English UI, generation and double-claim
 guards unchanged.
+
+## 9. Rust verification: minimal plan (read-only survey, 2026-11-15; NOTHING RUN)
+
+Nothing below has been compiled or run. It is a request for a resource
+slot; main owns the disk budget and the real-world slots come first.
+
+**Found (read-only):**
+- Toolchain: cargo 1.89.0 / rustc 1.89.0. `permutation-prize` and
+  `e2e-native` are each their own workspace, with `.cargo/config.toml`
+  `target-dir = "target"` (inside the checkout, so a run here starts cold).
+- Dependencies: prize = `solana-program =4.0.0` + local `frontier-abi`,
+  `permutation-rules`. e2e-native adds `permutation-frontier` (host,
+  `program,no-entrypoint`), `solana-get-sysvar` (vendored patch). No runtime,
+  no LiteSVM. (`permutation-prize/svm-tests` is SBF/LiteSVM: out of scope.)
+- Offline: every locked registry crate is in `~/.cargo/registry/cache`
+  (prize 155/155, e2e 179/179), so `--offline` needs no network.
+- Lockfiles are identical in every checkout (prize `9df46103…`, e2e
+  `a5c55ea9…`). No checkout has a prize or e2e `target/`. The only existing
+  target with prize/e2e products is the original candidate's
+  `wylls-cc-nft-prize-20261107/permutation-chain/target` (796 MB). That
+  checkout is read-only: **not reused** (building there would write into it),
+  and **not copied** (that would cost 0.8 GB of disk to save a few minutes).
+- Guard: `conquest-guard.sh` as written (sha256 `94baeb7da67e3c46…`,
+  found in the map session's scratchpad): a NEW dedicated target,
+  ≤ 4 GiB absolute, free ≥ 20 GiB, ≤ 30 min, `CARGO_INCREMENTAL=0`, debug
+  info off. At 25 GiB free now, that leaves about 5 GiB of real headroom.
+
+**Minimal commands, in order** (one new shared target `T` under this
+session's scratchpad, both workspaces in sequence so `solana-program` is
+built once; each step under the guard, unchanged):
+
+```sh
+G=…/conquest-guard.sh   # unchanged, hash recorded per run
+GUARD_TARGET=$T GUARD_DIR=permutation-prize $G $LOG cargo test --offline --locked --lib
+GUARD_TARGET=$T GUARD_DIR=permutation-prize $G $LOG cargo test --offline --locked --lib --features nft-experimental
+GUARD_TARGET=$T GUARD_DIR=workstreams/04-execution/e2e-native $G $LOG cargo test --offline --locked --test registry --test error_codes
+# separate approval (derives program addresses at run time, NFT-PRIZE.md §6):
+GUARD_TARGET=$T GUARD_DIR=workstreams/04-execution/e2e-native $G $LOG cargo test --offline --locked --test nft_pass_prize
+```
+
+Steps 1–3 cover: the prize unit tests (layout, leaf domain, error band
+incl. the 0x111 assert, `season_rings_fit`, continuous-season refusal) in
+both feature sets, and the registry/error-code tables (the 0x111
+registration). Step 4 adds the 9 host dispatch scenarios.
+
+**Estimate (not measured):** target `T` ≈ 0.5–0.8 GiB after steps 1–2,
+≈ 1.2–2.0 GiB after step 3/4 (host build of the frontier program; 7 test
+binaries exist, only 2–3 linked). **Asked ceiling: 2.5 GiB additional**
+(guard cap stays 4 GiB). Time ≈ 5–15 min cold. The guard stops it if free
+space falls under 20 GiB, so it needs ≥ 22.5 GiB free at the start.
+After the run `T` stays in place until main says otherwise (no deletion
+from this side).
+
+**Until then:** 0x111 registration, the prize `lib.rs` merge and the
+registry tables remain **NOT DONE (candidate)**.
