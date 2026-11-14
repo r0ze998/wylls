@@ -493,6 +493,9 @@ export function keepState(el, render, scroller = el) {
   // a part that scrolls by itself (the order's body above its seal: `data-scroll`) keeps its place too
   const inner = scroller ? new Map([...el.querySelectorAll('[data-scroll]')].map(x => [x.dataset.scroll, x.scrollTop])) : new Map();
   render();
+  // the folds first: a field inside a fold the new markup closed cannot take the focus (focus() on it does nothing), so
+  // typing in the Muster form opened from its fold lost the focus at the first key's redraw
+  for (const d of folds.size ? el.querySelectorAll('details[data-fold]') : []) { const was = folds.get(d.dataset.fold); if (was !== undefined && d.open !== was) d.open = was; }
   if (typed.size || picked.size || focusKey) for (const x of el.querySelectorAll('input, select, textarea')) {
     const k = keyOf(x);
     if (x.type === 'radio') { if (picked.get(k) === x.value) x.checked = true; }
@@ -510,7 +513,6 @@ export function keepState(el, render, scroller = el) {
       }
     }
   }
-  for (const d of folds.size ? el.querySelectorAll('details[data-fold]') : []) { const was = folds.get(d.dataset.fold); if (was !== undefined && d.open !== was) d.open = was; }
   if (focusAct && !el.contains(globalThis.document?.activeElement)) [...el.querySelectorAll(focusAct.tag)].filter(y => actOf(y) === focusAct.key)[Math.max(0, focusAct.nth)]?.focus?.({ preventScroll: true });
   if (scroller && scroller.scrollTop !== top) scroller.scrollTop = top;
   for (const x of inner.size ? el.querySelectorAll('[data-scroll]') : []) { const y = inner.get(x.dataset.scroll); if (y && x.scrollTop !== y) x.scrollTop = y; }

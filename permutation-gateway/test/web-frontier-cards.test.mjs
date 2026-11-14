@@ -268,16 +268,23 @@ test('keepState: an opened fold, a chosen picture and typed values survive a re-
   assert.equal(cur.fold.open, false, 'a different view starts from its own markup');
 });
 
-test('the troops card keeps its open form while the reserve changes (decided once per village scope)', () => {
+test('the troops card: the open form follows the reserve, and is kept only while the player is in the card', () => {
   const FS = { record: { programId: 'P', seasonAddress: 'S' }, wallet: { address: 'W' }, season: { genesisTs: 1 } };
   const h = { p: 2, q: 0, site: 1, gen: 0 };
-  assert.equal(holdingScreen.troopsOrder(FS, h, 0), false, 'no reserve: Train stands open');
-  assert.equal(holdingScreen.troopsOrder(FS, h, 400), false, 'the reserve grew past 100: still Train (no swap under the player)');
-  assert.equal(holdingScreen.troopsOrder(FS, { ...h, site: 2 }, 400), true, 'another village decides again');
-  assert.equal(holdingScreen.troopsOrder(FS, { ...h, site: 2 }, 0), true, 'and keeps its own choice');
-  assert.equal(holdingScreen.troopsOrder({ ...FS, troopsOrder: undefined, wallet: { address: 'W2' } }, h, 400), true, 'another wallet decides again');
-  assert.equal(holdingScreen.troopsOrder({}, h, 400), true, 'no scope: the live choice');
-  assert.equal(holdingScreen.troopsOrder({}, h, 0), false);
+  const free = { held: false }, typing = { held: true };
+  // the first session: nothing in reserve → Train; trained 100 and a turn later, nobody in the card → Muster (the next step)
+  assert.equal(holdingScreen.troopsOrder(FS, h, 0, free), false, 'reserve 0: Train stands open');
+  assert.equal(holdingScreen.troopsOrder(FS, h, 100, free), true, 'reserve 100, no input pending: Muster stands open');
+  // all mustered, nobody in the card → Train again (not an empty Muster form)
+  assert.equal(holdingScreen.troopsOrder(FS, h, 0, free), false, 'reserve 0 again: Train');
+  // the player is typing in the card when the reserve crosses 100: the order shown stays until they leave it
+  assert.equal(holdingScreen.troopsOrder(FS, h, 0, typing), false);
+  assert.equal(holdingScreen.troopsOrder(FS, h, 400, typing), false, 'crossed 100 while typing: still Train (no swap under the player)');
+  assert.equal(holdingScreen.troopsOrder(FS, h, 400, free), true, 'left the card: the order follows the reserve again');
+  // per village scope: another village decides by itself even while held
+  assert.equal(holdingScreen.troopsOrder(FS, { ...h, site: 2 }, 400, typing), true, 'another village decides by its own reserve');
+  assert.equal(holdingScreen.troopsOrder({}, h, 400, typing), true, 'no scope: the live choice');
+  assert.equal(holdingScreen.troopsOrder({}, h, 0, typing), false);
 });
 
 test('a press in the drawer holds its redraws until release (a tap on a button that is being replaced is not lost)', () => {

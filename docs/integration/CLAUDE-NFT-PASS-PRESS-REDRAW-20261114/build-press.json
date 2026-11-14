@@ -2,7 +2,7 @@
   "events": [
     {
       "type": "pointerdown",
-      "t": 1758,
+      "t": 1891,
       "act": "build",
       "inDrawer": true,
       "connected": true,
@@ -13,7 +13,7 @@
     },
     {
       "type": "pointerup",
-      "t": 1915,
+      "t": 2046,
       "act": "build",
       "inDrawer": true,
       "connected": true,
@@ -24,7 +24,7 @@
     },
     {
       "type": "click",
-      "t": 1915,
+      "t": 2046,
       "act": "build",
       "inDrawer": true,
       "connected": true,
@@ -37,8 +37,8 @@
   "replaced": [],
   "inDrawer": true,
   "press": {
-    "down": 1757,
-    "up": 1926
+    "down": 1873,
+    "up": 2089
   },
   "ordersBefore": 0,
   "ordersAfter": 1,

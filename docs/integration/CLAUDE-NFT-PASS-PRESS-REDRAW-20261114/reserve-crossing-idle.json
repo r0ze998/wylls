@@ -1,0 +1,17 @@
+{
+  "events": [],
+  "ordered": {
+    "ok": true,
+    "records": 1
+  },
+  "before": {
+    "active": "BUTTON",
+    "train": false,
+    "muster": true
+  },
+  "after": {
+    "active": "BUTTON",
+    "train": true,
+    "muster": false
+  }
+}
