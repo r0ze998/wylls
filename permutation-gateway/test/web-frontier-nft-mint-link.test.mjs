@@ -87,3 +87,15 @@ test('no mint page configured, or a bad link: nothing new is shown (the earlier 
     });
   }
 });
+
+test('boot: a wallet reconnected silently is adopted without the wallet sync, so the NFT list is read once the season is known', () => {
+  const ctl = readFileSync(new URL('../../permutation-server/web/frontier/controller.mjs', import.meta.url), 'utf8');
+  const boot = ctl.slice(ctl.indexOf('// A silent reconnect of the wallet used last time'));
+  const silent = boot.indexOf('adoptConnectedWallet(c);');
+  const firstRefresh = boot.indexOf('await refresh();');
+  const read = boot.indexOf("if (FS.wallet && !localPlay && FS.nftsRead === null) await loadNfts()");
+  const ready = boot.indexOf('walletEventsReady = true;');
+  assert.ok(silent > 0 && firstRefresh > silent && read > firstRefresh && ready > read, 'silent adopt → season read → NFT list → wallet events');
+  // loadNfts itself still asks nothing outside an NFT season (the 0x8000 gate is unchanged).
+  assert.match(ctl, /if \(!FS\.wallet \|\| !io\.relay\(\) \|\| !\(Number\(FS\.season\?\.programVersion \?\? 0\) & 0x8000\)\) return;/);
+});
