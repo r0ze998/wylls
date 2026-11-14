@@ -45,7 +45,7 @@ function chain({ holder: holderIn = null, gen = 0, citizen = 'nft', villageOwner
 }
 const cfgOf = program => ({ localPlay: true, rpc: 'http://127.0.0.1:41010', program, season: seasonPda(program, 11)[0], wallet: WALLET, rulesetHash: LOCAL_PLAY_RULESET_HASH, prepareBin: '/abs/prepare', cuLimit: 400000, loadedLimit: 262144 });
 
-function relay(accounts, program = CAND) {
+function relay(accounts, program = CAND, { passTransferTestOnly = false } = {}) {
   const calls = [], sent = [];
   const rpc = async (method, params) => {
     calls.push(method);
@@ -53,7 +53,7 @@ function relay(accounts, program = CAND) {
     if (method === 'sendTransaction') { const sig = encode(Buffer.from(params[0], 'base64').subarray(1, 65)); sent.push(sig); return { result: sig }; }
     return { error: { code: -1 } };
   };
-  return { act: createLocalPlayAct({ cfg: cfgOf(program), rpc }), calls, sent };
+  return { act: createLocalPlayAct({ cfg: cfgOf(program), rpc, passTransferTestOnly }), calls, sent };
 }
 
 /** The page's bytes for `name`, signed by the wallet; `over` changes what the page states (not what it signs). */
@@ -224,6 +224,7 @@ test('the page\'s TransferResident is byte for byte the resident program\'s own 
   assert.throws(() => localTransferIx({ residentProgram: RESIDENT_PROGRAM, ...args, to: WALLET }), e => e.code === 'LocalActTransferToSelf');
 });
 
+const T = { passTransferTestOnly: true };   // (TEST ONLY: the relay serves TransferResident only with this)
 function transferOf(to, { generation = 1, collection = COLLECTION } = {}) {
   const message = localTransferMessage({ programId: CAND, wallet: WALLET, asset: ASSET, collection, residentProgram: RESIDENT_PROGRAM, to, blockhash: HASH });
   const wire = Buffer.concat([Buffer.from([1]), sign(null, Buffer.from(message), privateKey), Buffer.from(message)]);
@@ -231,18 +232,18 @@ function transferOf(to, { generation = 1, collection = COLLECTION } = {}) {
 }
 
 test('the current holder\'s transfer goes out once; a holder that sold it, a stale generation, itself, another collection and the conquest lane are refused before any send', async () => {
-  const ok = relay(chain({ gen: 1 }));
+  const ok = relay(chain({ gen: 1 }), CAND, T);
   assert.equal((await ok.act.submit(transferOf(OTHER))).status, 'submitted'); assert.equal(ok.sent.length, 1);
-  const sold = relay(chain({ holder: OTHER, gen: 2 }));
+  const sold = relay(chain({ holder: OTHER, gen: 2 }), CAND, T);
   await refusal(sold.act.submit(transferOf(key(80), { generation: 2 })), 'LocalActResidentNotHolder'); assert.deepEqual(sold.sent, []);
-  const stale = relay(chain({ gen: 2 }));
+  const stale = relay(chain({ gen: 2 }), CAND, T);
   await refusal(stale.act.submit(transferOf(OTHER, { generation: 1 })), 'LocalActResidentStale'); assert.deepEqual(stale.sent, []);
-  const self = relay(chain({ gen: 1 }));
+  const self = relay(chain({ gen: 1 }), CAND, T);
   const body = transferOf(OTHER); body.fields = { to: WALLET };
   await refusal(self.act.submit(body), 'LocalActTransferToSelf'); assert.deepEqual(self.calls, [], 'refused before anything is read');
-  const coll = relay(chain({ gen: 1 }));
+  const coll = relay(chain({ gen: 1 }), CAND, T);
   await refusal(coll.act.submit(transferOf(OTHER, { collection: key(81) })), 'LocalActMessageMismatch'); assert.deepEqual(coll.sent, []);
-  const plain = relay(chain({ gen: 1 }), LOCAL_PLAY_PROGRAM);
+  const plain = relay(chain({ gen: 1 }), LOCAL_PLAY_PROGRAM, T);
   await refusal(plain.act.submit(transferOf(OTHER)), 'LocalActNotAllowed'); assert.deepEqual(plain.calls, []);
 });
 
@@ -257,9 +258,21 @@ test('the current holder\'s transfer goes out once; a holder that sold it, a sta
 // the relay path; the direct-chain path stays bounded by the blockhash lifetime until the program's ABI binds a
 // generation (not decided here). The page's transfer send is held in worlds until then.
 test('KNOWN GAP: an old transfer signed at generation 0, sent after A→B→A stating generation 2', { todo: 'relay-bound transfer blockhash not implemented: the relay accepts it today' }, async () => {
-  const r = relay(chain({ gen: 2 }));   // A (WALLET) holds the pass again, at generation 2
+  const r = relay(chain({ gen: 2 }), CAND, T);   // A (WALLET) holds the pass again, at generation 2
   const old = transferOf(OTHER, { generation: 0 });   // signed while the record said 0: the bytes carry no generation
   old.resident.generation = 2;          // the unsigned statement now matches the record
   await refusal(r.act.submit(old), 'LocalActResidentStale');   // the wanted outcome; today it is sent
   assert.deepEqual(r.sent, []);
+});
+
+test('TransferResident is DEFAULT DENY: a relay built without the test-only option refuses it before anything is read', async () => {
+  const r = relay(chain({ gen: 1 }));
+  await refusal(r.act.submit(transferOf(OTHER)), 'LocalActTransferHeld');
+  assert.deepEqual(r.calls, []); assert.deepEqual(r.sent, []);
+});
+
+test('no relay server or launcher supplies the transfer option (it exists for isolated tests only)', () => {
+  for (const f of ['local-play-relay-server.mjs', 'local-play-launcher.mjs', 'local-play-relay.mjs']) {
+    assert.doesNotMatch(readFileSync(new URL(`../src/frontier/${f}`, import.meta.url), 'utf8'), /passTransferTestOnly/, f);
+  }
 });

@@ -39,6 +39,7 @@ export const LOCAL_RESIDENT_ERRORS = Object.freeze({
   LocalActResidentStale: [409, 'the command was signed for an earlier holder of the pass'],
   LocalActResidentCitizen: [409, 'the resident\'s Citizen is not there, or is not this pass\'s'],
   LocalActTransferToSelf: [409, 'the pass cannot be transferred to the wallet that holds it'],
+  LocalActTransferHeld: [403, 'the pass\'s transfer is not served by this relay'],
 });
 
 const LEGACY_HOLDING_MAGIC = 'PSF1HOLD', WIDE_HOLDING_MAGIC = 'PSFXWHL1';
@@ -53,12 +54,16 @@ const exact = (o, keys) => o !== null && typeof o === 'object' && !Array.isArray
  * path's intent rule `intentOf` and error maker `fail`. → `{intent, resident: {asset, generation, residentProgram}, tx}`.
  * Reads nothing.
  */
-export function localResidentSubmit(body, pins, { intentOf, fail }) {
+// `passTransferTestOnly`: TransferResident is DEFAULT DENY. 0x51's signed bytes carry no holder generation (the A→B→A
+// boundary, CLAUDE-NFT-CANDIDATE-PASS-TRANSFER-BOUNDARY-20261115.md): no relay a launcher or the relay server builds
+// serves it; only an isolated test passes `true`.
+export function localResidentSubmit(body, pins, { intentOf, fail, passTransferTestOnly = false }) {
   const check = (c, code = 'LocalActInvalid') => { if (!c) fail(code); };
   check(isCandidateProgram(pins.program), 'LocalActNotAllowed');   // (the conquest lane never takes this schema)
   check(exact(body, ['schema', 'name', 'subject', 'fields', 'resident', 'transaction_b64']) && body.schema === LOCAL_ACT_SUBMIT_RESIDENT_SCHEMA
     && typeof body.transaction_b64 === 'string' && body.transaction_b64.length <= 1700);
   check(LOCAL_RESIDENT_ACT_COMMANDS.includes(body.name) || body.name === LOCAL_RESIDENT_JOIN || body.name === LOCAL_RESIDENT_TRANSFER, 'LocalActNotAllowed');
+  check(body.name !== LOCAL_RESIDENT_TRANSFER || passTransferTestOnly === true, 'LocalActTransferHeld');
   const r = body.resident;
   check(exact(r, ['asset', 'generation', 'resident_program']) && address(r.asset) && address(r.resident_program)
     && Number.isInteger(r.generation) && r.generation >= 0 && r.generation <= 0xffffffff);
