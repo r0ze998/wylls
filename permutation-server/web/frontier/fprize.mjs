@@ -323,6 +323,8 @@ export function passClaimModel({ prize, prizeLedger = null, resident = null, pri
       claimAmount: e.claimed ? u(e.claimAmount) : null, nation: e.nation ?? null } : null,
     pending: pend ? { state: pend.state, signature: pend.signature ?? null, code: pend.code ?? null, amount: big(pend.amount) !== null ? u(big(pend.amount)) : null, priorClaim: pend.priorClaim ?? null } : null,
     mode: prize.shares?.mode ?? null, share: null, offer: null,
+    // Whether a pass without an Entry could pay now: never while the pass refund right is undecided (§8.3).
+    depositsOpen: PASS_DEPOSITS_ENABLED,
   };
   let state;
   if (!e) state = 'unpaid';

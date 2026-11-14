@@ -31,7 +31,10 @@ export function renderPass(FS) {
   const prior = m.pending && m.pending.state === 'failed'
     ? html`<p class="notice error" role="alert">${L`前回の受け取りは届きませんでした：${failureText({ code: m.pending.code ?? 'TransactionFailed' })}`}</p>` : '';
   const body = {
-    unpaid: () => html`<p class="muted">${L`この住民NFTには参加費の記録がありません。参加費は、NFTでこの季節に参加するときに支払います。`}</p>`,
+    // New pass deposits are refused at every layer until the refund right is decided: never invite one.
+    unpaid: () => (m.depositsOpen
+      ? html`<p class="muted">${L`この住民NFTには参加費の記録がありません。参加費は、NFTでこの季節に参加するときに支払います。`}</p>`
+      : html`<p class="notice" role="status" data-pass-deposit="refused">${L`この住民NFTには参加費の記録がありません。住民NFTの参加費は、返金先が決まるまで受け付けていません。このNFTで新しく参加費を払うことはできず、賞金の対象にもなりません。`}</p>`),
     claimed: () => (m.entry.claimedByOther
       ? html`<p class="callout"><strong>${L`前の持ち主が受け取り済みです：${m.entry.claimAmount} テストUSDC`}</strong><span>${L`受け取ったウォレット ${short(m.entry.claimedBy)}（世代 ${m.entry.claimGeneration ?? '—'}）。この賞金はこのNFTの前の持ち主、または前の世代で受け取られました。賞金は一度だけで、いまの持ち主には残っていません。`}</span></p>`
       : html`<p class="callout"><strong>${L`受け取り済みです：${m.entry.claimAmount} テストUSDC`}</strong><span>${L`受け取ったウォレット ${short(m.entry.claimedBy)}。賞金は一度だけ受け取れます。譲渡しても二度目はありません。`}</span></p>`),
@@ -58,6 +61,15 @@ export function renderJoinTerms(FS) {
   // Once the count has started the pool takes no entry: show the result instead of the price.
   if (m.final || m.counting) return render(FS);
   const w = m.wallet;
+  // A pass played without an Entry: the fee cannot be paid with it (deposits refused until the refund right is decided),
+  // so neither the x402 sentence nor the faucet is offered for it.
+  const pass = FS.resident ? passClaimModel({ prize: FS.prize, prizeLedger: FS.prizeLedger, resident: FS.resident, prizePass: FS.prizePass, wallet: FS.wallet }) : null;
+  if (pass && pass.state === 'unpaid' && !pass.depositsOpen) {
+    return html`<section class="prize-terms" aria-labelledby="prize-terms-title">
+    <h4 id="prize-terms-title">${L`参加費と賞金プール（テストUSDC）`}</h4>
+    <p class="notice" role="status" data-pass-deposit="refused">${L`住民NFTでの参加費の支払いは、返金先が決まるまで受け付けていません。何も送られていません。`}</p>
+  </section>`;
+  }
   return html`<section class="prize-terms" aria-labelledby="prize-terms-title">
     <h4 id="prize-terms-title">${L`参加費と賞金プール（テストUSDC）`}</h4>
     <p>${L`参加費は ${m.fee} テストUSDC です。ウォレットが署名する1つの取引で、参加費の支払いと参加が同時に行われます（x402）。`}</p>

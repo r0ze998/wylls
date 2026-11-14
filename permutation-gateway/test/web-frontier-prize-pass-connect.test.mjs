@@ -28,7 +28,7 @@ import { decodeEntryResident, ENTRY_RESIDENT_SIZE } from '../client/src/frontier
 import { passView } from '../src/frontier/prize-view.mjs';
 import { claimedEntryAnswer } from '../src/frontier/claim-outcome.mjs';
 import { claimIsMine, claimOpLive, claimOpOf, nextPassEpoch, PASS_DEPOSITS_ENABLED, passClaimModel, passJoinPlan } from '../../permutation-server/web/frontier/fprize.mjs';
-import { renderPass } from '../../permutation-server/web/frontier/screens/prize.mjs';
+import { renderJoinTerms, renderPass } from '../../permutation-server/web/frontier/screens/prize.mjs';
 import { failureText } from '../../permutation-server/web/frontier/fi18n.mjs';
 import { setLang } from '../../permutation-server/web/lang.mjs';
 
@@ -194,6 +194,16 @@ test('7. what stays refused: new NFT deposits at every layer, and pools on a con
   assert.equal(PASS_DEPOSITS_ENABLED, false);
   assert.equal(passJoinPlan({ prize: posted(null), entry: null }), 'depositDisabled');
   assert.equal(passJoinPlan({ prize: posted(null), entry: wire(entryBytes()).entry }), 'joinPaid', 'an existing right is kept, with no new fee');
+  // The screen never invites a new pass deposit: the panel and the join terms say it is refused, with nothing to press.
+  const noEntry = { wallet: { address: B }, inFlight: 0, prize: posted(wire(null)), prizeLedger: ledger(), resident: resident(1), prizePass: null };
+  assert.equal(passClaimModel({ ...noEntry }).depositsOpen, false);
+  const panelHtml = String(renderPass(noEntry));
+  assert.match(panelHtml, /data-pass-deposit="refused"/);
+  assert.doesNotMatch(panelHtml, /<button/);
+  const openPool = { ...noEntry, prize: { ...posted(wire(null)), state: 'open', shares: null, winners: null, area: null, fee: '25000000', opsBps: 2000, prizeBps: 8000, entries: 2, collected: '50000000', ops: '10000000', expectedKeeps: 54, counted: 0 } };
+  const terms = String(renderJoinTerms(openPool));
+  assert.match(terms, /data-pass-deposit="refused"/);
+  assert.doesNotMatch(terms, /prize-faucet|x402/);
   // Program source: tag 8 is answered ResidentDepositsDisabled at dispatch; the old pool refuses a continuous world.
   const lib = src('permutation-prize/src/lib.rs');
   assert.match(lib, /tag::PAY_RESIDENT => Err\(E::ResidentDepositsDisabled\.into\(\)\)/);

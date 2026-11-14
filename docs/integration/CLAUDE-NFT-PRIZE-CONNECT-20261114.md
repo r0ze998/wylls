@@ -113,3 +113,104 @@ world, no SBF/Cargo build was used. Nothing here decides an economic rule.
    prize period for continuous worlds.
 4. Review and merge this branch into the NFT pass line by the one
    integrator only; it is not auto-merged.
+
+## 7. Round 2 (2026-11-14)
+
+### 7.1 Remote check (read-only)
+
+`git ls-remote origin refs/heads/claude/nft-prize-connect-20261114` →
+`3823fe199de4c6b804e86773c5cef23b6805dd91`, equal to local `HEAD` at the
+start of the round. Working tree clean.
+
+### 7.2 Reports and the 0x111 ownership question
+
+Sent to ⑳ 「Wylls NFT参加パス発行実装」 and the main 「Opus｜KEEP選択の高速化」:
+candidate SHA `3823fe19`, 24/24 pure, Rust/SBF not run, remaining items, and
+the 0x111 gap. 0x111 came from the map-growth port `7df3187a` (⑧); the
+registry files are ws04's and sit on ⑳'s baseline branch. Asked which of
+(a) ⑳'s line, (b) this candidate branch, (c) another owner adds the two
+one-line entries. **Both messages were queued (the sessions were busy); no
+answer yet, so `registry.txt` / `registry.rs` were not touched.**
+
+### 7.3 Contract gap found and fixed (prize lane files only)
+
+With new pass deposits refused at every layer, the screen still invited
+one: a pass with no Entry read "The entry fee is paid when the NFT joins
+this season", and the join terms could offer the x402 fee sentence and the
+faucet to a pass. Fixed without deciding any rule:
+
+- `fprize.passClaimModel` now carries `depositsOpen` (= `PASS_DEPOSITS_ENABLED`, false).
+- `screens/prize.mjs`: the `unpaid` state says deposits are not taken until
+  the refund right is decided, that this NFT cannot pay one and has no
+  prize right (`data-pass-deposit="refused"`, nothing to press); the old
+  sentence is kept only for `depositsOpen`. `renderJoinTerms` for a pass
+  without an Entry shows the existing refusal sentence instead of the
+  price, the x402 sentence and the faucet.
+- `lang/en-frontier-play.mjs`: one new English entry in the prize block.
+- Pure coverage added to test 7 of `web-frontier-prize-pass-connect`.
+
+**Not changed (another owner's file):** `screens/join.mjs`'s NFT list
+still enables "Join with this NFT" in a pool season; the click is refused
+(`ResidentDepositsDisabled`) by the controller, so nothing is sent. Whether
+to disable or annotate that button belongs to ⑳.
+
+### 7.4 English prize screen in a real browser (fixture)
+
+`permutation-gateway/screens/prize-pass.screen.mjs`: the page's real
+modules (`screens/prize.mjs`, `fprize.mjs`, `lang.mjs`, `base.css`,
+`frontier.css`) in headless Chromium, English, over literal fixtures; the
+test's own GET-only static server on 127.0.0.1:0; every non-GET or
+off-origin request is aborted and fails the test. No wallet, signature,
+relay, chain or validator. playwright-core is imported read-only from an
+existing install (`PLAYWRIGHT_CORE`), Chromium from the local cache;
+nothing downloaded; skipped with the reason when unavailable.
+
+Cases and what was checked on screen: current owner (claim button visible,
+enabled, on top at its centre), current owner busy (disabled; a forced
+press sends no request), former owner (not in this wallet, no button),
+earlier generation (claimed by a previous owner, generation shown, no
+button), own claim (claimed, no second claim, no button), refund
+(undecided, no button), refused deposit on the panel and in the join terms
+(refusal visible, nothing to press, no x402/faucet). Every case: English
+only, no banned word, no page error.
+
+Result: **1/1 pass** (`node --import ./codex/no-key-node.mjs --test prize-pass.screen.mjs`).
+Per-case images were looked at (scratchpad `shots/`, not committed).
+Fixture-shell fixes made on the way (not product changes): the real
+`.panel` is `position: fixed`, so the cases are shown with the drawer's
+surface but static placement.
+
+**Look issue seen, not fixed (shared `frontier.css`):** in prize callouts
+the bold line runs into the explanation ("25 test USDCClaimed by
+wallet…", also "…this count.Tally and Finalize…"): no `.callout strong`
+rule exists. Pre-existing; for the stylesheet owner.
+
+### 7.5 Re-runs after the round's changes
+
+| run | result |
+|---|---|
+| 4 pure prize files | 24/24 pass |
+| browser fixture | 1/1 pass |
+| related pure suite vs baseline | 56/64 both, same 8 pre-existing failures, no new violation |
+| key-test scan | same 10 pre-existing stale reviews |
+| `sync-web-sdk --check`, `node --check`, `git diff --check` | pass |
+
+## 8. Remaining work, by what it waits for
+
+**仕様判断 (owner decisions; nothing decided here)**
+- Whom a pass refund follows (payer or current owner); until then deposits stay refused.
+- Prize period / settlement for continuous worlds (pools stay refused there).
+- Wallet ↔ NFT entry migration; cross-world carry-over.
+- Who registers 0x111 CeilingPastTally (asked ⑳ and main; awaiting answer).
+- Whether ⑳'s NFT list disables or annotates "Join with this NFT" in a pool season.
+- The callout bold-line spacing in `frontier.css` (stylesheet owner).
+
+**重build待ち (disk 22 GiB; heavy Rust/SBF forbidden)**
+- `permutation-prize`: `cargo test --lib` with and without `nft-experimental`; clippy.
+- `e2e-native`: `cargo check --locked --tests`; then approved runs of `nft_pass_prize` (9 host scenarios), `registry`, `error_codes`.
+- Address-deriving JS (`frontier-prize-resident.test.mjs`) and key-using relay tests (`frontier-prize.test.mjs`) under an approved run.
+
+**実world待ち (none of this is claimed done)**
+- A pass claim signed by a real test wallet through the relay on a local chain; ResidentStaleGeneration after a real TransferResident; A → B → A on chain.
+- RecordResidentNation after CloseCitizen on a real world; CU/CPI limits.
+- The page's claim flow end to end in the running app (controller merge verified only statically and by pure tests).

@@ -1287,6 +1287,7 @@ export default {
   '参加費 {0} テストUSDC は支払い済みです（支払ったウォレット {1}）。賞金の権利はこのNFTのもので、受け取れるのはいまの持ち主だけです。': 'The entry fee of {0} test USDC is paid (by wallet {1}). The prize right belongs to this NFT: only its current owner can claim it.',
   '前回の受け取りは届きませんでした：{0}': 'The previous claim did not land: {0}',
   'この住民NFTには参加費の記録がありません。参加費は、NFTでこの季節に参加するときに支払います。': 'This resident NFT has no entry record. The entry fee is paid when the NFT joins this season.',
+  'この住民NFTには参加費の記録がありません。住民NFTの参加費は、返金先が決まるまで受け付けていません。このNFTで新しく参加費を払うことはできず、賞金の対象にもなりません。': 'This resident NFT has no entry record. Entry fees from a resident NFT are not taken until its refund right is decided: this NFT cannot pay one now, and it has no prize right.',
   '受け取り済みです：{0} テストUSDC': 'Claimed: {0} test USDC',
   '受け取ったウォレット {0}。賞金は一度だけ受け取れます。譲渡しても二度目はありません。': 'Claimed by wallet {0}. A prize is claimed once; a transfer gives no second claim.',
   '賞金の受け取りを送信しました。結果を確認しています…': 'The claim was sent. Checking its result…',
