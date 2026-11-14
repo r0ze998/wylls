@@ -184,7 +184,8 @@ test('the home and land records are the viewer\'s: an NFT\'s own, never its wall
   assert.match(ctl, /const landKeyNow = \(\) => \(scope\(\) && FS\.wallet\?\.address \? landKey\(scope\(\), viewerKey\(\)\) : null\);/);
   assert.match(ctl, /const homeKeyNow = \(\) => scope\(\) \? homeKey\(scope\(\), viewerKey\(\)\) : null;/);
   // the key step of the confirm and the gate of the automatic request: a wallet Citizen's only
-  assert.match(ctl, /if \(!FS\.resident && \(!FS\.session \|\| FS\.sessionProblem\)\) \{\n\s*await ACTIONS\.session\(\); await refresh\(\);\n\s*if \(!FS\.session \|\| FS\.sessionProblem\) return;\n\s*\}/);
+  // Local play (wallet-free test worlds) also skips the session step; the NFT exemption is the same.
+  assert.match(ctl, /if \((?:!localPlay && )?!FS\.resident && \(!FS\.session \|\| FS\.sessionProblem\)\) \{\n\s*await ACTIONS\.session\(\); await refresh\(\);\n\s*if \(!FS\.session \|\| FS\.sessionProblem\) return;\n\s*\}/);
   assert.match(ctl, /if \(\(!FS\.resident && \(!FS\.session \|\| FS\.sessionProblem\)\) \|\| !Number\.isInteger\(FS\.citizen\?\.faction\) \|\| FS\.autoTicketBusy\) return;/);
   // an NFT's Citizen is never made by the wallet Join
   assert.match(ctl, /if \(FS\.resident\) \{\n[^\n]*\n[^\n]*\n\s*if \(!await waitForOwn\(\(\) => !!FS\.citizen\)\) return error\('PendingHome'/);
