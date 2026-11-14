@@ -36,6 +36,27 @@ export function mintLink(url) {
 }
 
 /**
+ * ⑳ The march's send (fmarch.sendMarch* → `submit`) for the viewer. A march is a Depart, signed by the Frontier
+ * session key for a wallet Citizen; an NFT Citizen has no session key, so its owner's wallet signs the Depart inside
+ * ResidentAct, for the generation read now (a transfer since the page loaded changes it) — exactly as `act` does for
+ * every other player instruction. A pass no longer in the wallet is refused before anything is signed.
+ * `resident()`: the NFT played (or null); `walletNow()`: the connected wallet; `generationOf(owner, asset)`: the
+ * resident record's generation for this owner, or null when the owner does not hold it.
+ */
+export function marchSubmitFor({ submit, resident, walletNow, generationOf, adopt = () => {} }) {
+  return async req => {
+    const r = resident();
+    if (!r) return submit(req);
+    const w = walletNow();
+    if (!w) return { ok: false, code: 'NoWallet' };
+    const g = await generationOf(w.address, r.asset);
+    if (g === null || g === undefined) return { ok: false, code: 'NftNotHeld' };
+    adopt(g);
+    return submit({ ...req, signer: { wallet: w }, resident: { generation: g, proof: r.proof } });
+  };
+}
+
+/**
  * The identity an NFT plays as in the pinned season: `{asset, citizen,
  * generation, joined, proof: {policy, link, asset, resident}}`. The proof
  * addresses are recomputed here (never taken from the relay's answer).

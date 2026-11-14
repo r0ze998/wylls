@@ -2,7 +2,20 @@
 
 branch `claude/nft-pass-mint-20261114`（基点 `3e3ba225`）。ローカルだけで行った。devnet・mainnet への配備、実ウォレット、実資産、公開販売・配布、正式な価格・供給数・ロイヤリティ・treasury・永続 authority の決定は**していない**。
 
-## 1. 結論
+## 0. 現況（2026-11-14 17 時台。詳細と証拠は `docs/integration/CLAUDE-NFT-PASS-LOCAL-WORLD-20261114.md` §5d〜§5f、監査は `CLAUDE-NFT-PASS-AUDIT-20261114.md`）
+
+| 区分 | 現況 |
+|---|---|
+| 発行 | 実 Core＋最新の住民 program（`947da0b9…`）で、ローカル validator と通常のローカル world の両方で動く。発行ページは日英（TEST の表示を保持） |
+| 保有確認・譲渡・旧持ち主の拒否・二重 mint・結果不明・ロールバック | 模擬と実 program で試験済み（§3）。通常 world でも譲渡と旧持ち主の拒否を確認 |
+| ゲームへの参加と操作 | **通常のローカル world（frontier-stack `--nft-pass`、Season 版 `0x8004`、実 AnnounceSeason → CreateSeason）の英語画面で、発行 → 参加 → 最初の村 → 譲渡 → 旧持ち主の画面での拒否（chain 不変）→ 新持ち主の Harvest（chain の蔵が増える）まで確認** |
+| NFT lane（Frontier） | `localnet-nft-sbf`：build 済み（`.so` `0227dbe1…`、試験専用・配備不可）、実 chain の CreateSeason・policy・ID の拒否を確認 |
+| 未確認 | 新持ち主の建設・部隊・行軍（行軍の画面経路は修正済み・未実行）、実ウォレット・実機、公開 chain・公開販売（対象外） |
+| 区分 | wide の領土戦との統合と、本番の program・版・配備は別の判断（監査文書の B・C） |
+
+以下の §1〜§6 は**同日午前の時点の記録**（履歴として残す。§1 の「実 chain では未接続」と §5 の「lane は未 compile」は、その後 §0 のとおり解消した）。
+
+## 1. 結論（午前の時点）
 
 | 区分 | 状態 |
 |---|---|
@@ -63,7 +76,7 @@ node src/mint-demo.mjs --localnet --port 41990      # → http://127.0.0.1:41990
 - ページのウォレットは試験用（Wallet Standard 形のテストウォレット）。実ウォレット（Phantom など）は未試験。
 - 他の作業の world が動いている間は、ポートと容量（validator の ledger 約 5 MB）を確かめてから起動する。
 
-## 5. ゲーム参加が実 chain で未接続の理由（容量だけの問題ではない）
+## 5. ゲーム参加が実 chain で未接続だった理由（午前の時点。その後の経過は §0 と LOCAL-WORLD §5b〜§5f）
 
 1. **今のローカルプレイの program と NFT 機能は同時に build できない**。ゲームのローカルプレイは `localnet-conquest-sbf`（→ `expedition-dispatch-experimental`）で build する。NFT 参加（`nft-experimental`、tag 0xE0–0xE7、版 `S1 | 0x8000`）とは `compile_error!` で排他になっている（`permutation-frontier/src/lib.rs` の「expedition-dispatch-experimental has an isolated host-only program version」）。web の `controller.loadNfts` も `programVersion & 0x8000` の world だけで有効なので、今遊べる world では NFT の選択肢が出ない。両方を持つ版の番号と組み合わせは ④（workstream 4）の決定事項（NFT-ACCOUNT-WIRING §4）。
 2. **NFT 対応の Frontier（S1＋`nft-experimental`）で world を作る道具が host build を要する**。`scripts/build-frontier.sh` は `nft-experimental` を受け付けない。world の作成（CreateSeason・AnnounceSeason など）は Rust の `frontier-stack`／`fclient` にあり、その host build は数 GiB と見込まれる（他の worktree の `target/debug` は 0.8〜1.6 GiB）。今回は領土戦の試験と同時に空き容量（開始 21 GiB／維持 20 GiB）を守るため、build していない。Frontier 本体の SBF build 自体は約 250 MB と見込む（他 worktree の実績 241 MB）。

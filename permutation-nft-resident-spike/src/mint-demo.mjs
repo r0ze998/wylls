@@ -26,7 +26,7 @@ export function mockMintStack({ port = 0, priceLamports = 100_000_000n } = {}) {
   };
   const rpc = new MockRpc({ chain, collection, config });
   const adapter = new MockAdapter({ rpc, chain, collection, config });
-  return { chain, authority, collection, config, rpc, adapter, start: () => serveMint({ adapter, testWallet: true, port }) };
+  return { chain, authority, collection, config, rpc, adapter, start: () => serveMint({ adapter, testWallet: true, testKnobs: true, port }) };
 }
 
 /** The page on a loopback solana-test-validator with the REAL Core binary and the REAL resident program (approved local environment). */
@@ -35,7 +35,7 @@ export async function localnetMintStack({ port = 0, priceLamports = 100_000_000n
   const v = await startValidator({ programId: TEST_PROGRAM_ID });
   const world = await setupWorld({ rpc: v.rpc, programId: v.programId, priceLamports, setup: v.setup });
   const adapter = new RpcAdapter({ rpc: v.rpc, world, programId: v.programId });
-  return { validator: v, rpc: v.rpc, world, adapter, programId: v.programId, collection: world.collection, config: { treasury: world.treasury, priceLamports }, start: () => serveMint({ adapter, testWallet: true, port }), stop: () => v.stop() };
+  return { validator: v, rpc: v.rpc, world, adapter, programId: v.programId, collection: world.collection, config: { treasury: world.treasury, priceLamports }, start: () => serveMint({ adapter, testWallet: true, testKnobs: true, port }), stop: () => v.stop() };
 }
 
 /** Only a loopback RPC: attaching never points the page at devnet, mainnet or another host. */
@@ -60,7 +60,7 @@ export async function attachMintStack({ rpcUrl, programId = TEST_PROGRAM_ID, por
   if (!cfg) throw new Error(`${programId}: the config is not initialized on ${rpc.url} (InitConfig first)`);
   const world = { collection: cfg.collection, treasury: cfg.treasury, priceLamports: cfg.price, configPda: pdas(programId).config, collectionAuthorityPda: pdas(programId).collectionAuthority, genesisHash: await rpc.genesisHash() };
   const adapter = new RpcAdapter({ rpc, world, programId, network });
-  return { rpc, world, adapter, programId, start: () => serveMint({ adapter, testWallet: true, port }) };
+  return { rpc, world, adapter, programId, start: () => serveMint({ adapter, testWallet: true, testKnobs: true, port }) };
 }
 
 if (import.meta.url === `file://${process.argv[1]}`) {

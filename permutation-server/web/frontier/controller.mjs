@@ -1880,7 +1880,10 @@ async function sendTheMarch() {
       seal: req => sealMarch(req), clock: FS.clock, publicKey: FS.beacon?.publicKey,
       storage: book.browserStorage, bookKey: bookKey(), session: FS.session,
       accounts: accountsFor('Depart', ctx({ holding: { p: h.p, q: h.q, site: h.site }, province: c.origin })),
-      submit, track, onStep: s => { c.step = s; invalidate('panel'); },
+      // (⑳: playing an NFT, the owner's wallet signs the Depart inside ResidentAct: fresident.marchSubmitFor)
+      submit: fresident.marchSubmitFor({ submit, resident: () => FS.resident, walletNow: () => wallet.connected(),
+        generationOf: (owner, asset) => fresident.currentGeneration(owner, asset), adopt: g => { FS.resident = { ...FS.resident, generation: g }; } }),
+      track, onStep: s => { c.step = s; invalidate('panel'); },
       earliestAtSend: () => (FS.kernel && c.route ? earliestBell(FS.kernel, { genesisTs: FS.clock.genesisTs, departTs: now() + margin(), secs: c.route.secs }) : null),
       refresh: async () => { await loadEnvelope(c.origin.p, c.origin.q).catch(() => null); FS.nowBell = nowBell(); return { nowBell: nowBell(), now: now(), resolvedNext: origin()?.resolvedNext ?? null, province: origin() }; },
       nudge: () => io.nudge(c.origin.p, c.origin.q, origin()?.resolvedNext ?? nowBell()),
