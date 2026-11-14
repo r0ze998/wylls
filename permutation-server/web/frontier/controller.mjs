@@ -236,16 +236,151 @@ export async function refreshPrize({ force = false, at = Date.now() } = {}) {
   if (!io.relay() || (!force && at - prizeReadAt < PRIZE_REFRESH_MS)) return;
   prizeReadAt = at;
   const address = FS.wallet?.address ?? null;
-  const r = await prizeIo.loadPrize(address);
-  if ((FS.wallet?.address ?? null) !== address) return;
+  // NFT pass (experimental): with a pass played, the pool is read with the pass's Entry and NFT Citizen too.
+  const asset = FS.resident?.asset ?? null;
+  const r = await prizeIo.loadPrize(address, asset ? { asset } : undefined);
+  if ((FS.wallet?.address ?? null) !== address || (FS.resident?.asset ?? null) !== asset) return;
   if (!r.ok) return;
   FS.prize = r.pool;
+  // A pending claim of another pass is stale; one whose Entry now reads claimed has landed.
+  if (FS.prizePass && FS.prizePass.asset !== asset) FS.prizePass = null;
+  if (FS.prizePass && r.pool?.pass?.asset === asset && r.pool.pass.entry?.claimed) FS.prizePass = { ...FS.prizePass, state: 'landed' };
   if (r.pool && r.pool.state !== 'open') {
     const g = await prizeIo.loadLedger();
     if ((FS.wallet?.address ?? null) !== address) return;
     if (g.ok) FS.prizeLedger = g.ledger;
   }
   invalidate('panel');
+}
+
+/** NFT pass deposits (PayResident) are disabled everywhere until the pass refund right is decided (fprize.mjs; NFT-PRIZE.md §8.3). */
+const PASS_DEPOSITS_ENABLED = fprize.PASS_DEPOSITS_ENABLED;
+/** The relay's and the page's refusal codes for a pass claim the model will not offer (fprize.passClaimModel states). */
+const PASS_CLAIM_REFUSAL = Object.freeze({ unpaid: 'PassNotPaid', claimed: 'AlreadyClaimed', pending: 'ClaimInFlight', notPosted: 'ClaimNotOpen', refund: 'PassRefundUnavailable', noShare: 'PassNoShare', notHeld: 'NftNotHeld' });
+
+/**
+ * NFT pass (experimental): claim the pass's share (ClaimResident) for the
+ * pass played. The pool, the ledger and the resident generation are read
+ * again right before signing: a pass that left this wallet, a refund-mode
+ * pool, a missing share or a claim already made are refused here before any
+ * signature; the program judges the owner itself once more on chain. The
+ * page's pending state is keyed by the asset and the signed generation, so
+ * a transfer or a wallet change drops it.
+ */
+async function claimPass() {
+  if (!FS.wallet) return failed({ code: 'NoWallet' });
+  if (!FS.resident) return failed({ code: 'NftNotHeld' });
+  const w = wallet.connected();
+  if (!w || w.address !== FS.wallet.address) return failed({ code: 'NoWallet' });
+  const asset = FS.resident.asset;
+  if (FS.prizePass?.asset === asset && (FS.prizePass.state === 'pending' || FS.prizePass.state === 'unknown')) return failed({ code: 'ClaimInFlight' });
+  // The operation's identity: the epoch (counted up on every wallet or pass
+  // change, so A → B → A or a logout and login is a new epoch), the wallet,
+  // the pass and, once known, the signed generation. Every write after an
+  // await happens only while the operation is live; a stale completion is
+  // dropped, never written.
+  let op = fprize.claimOpOf(w.address, asset, FS.passEpoch ?? 0);
+  const live = () => fprize.claimOpLive(op, FS);
+  const write = v => { if (live()) { FS.prizePass = v; invalidate('panel'); } };
+  busy(() => L`賞金を受け取っています…`);
+  FS.inFlight = (FS.inFlight ?? 0) + 1;
+  try {
+    await refreshPrize({ force: true });
+    if (!live()) return failed({ code: 'NftNotHeld' });
+    // The generation read fresh now: a transfer since the page loaded changes it, and the former owner is refused.
+    const g = await fresident.currentGeneration(w.address, asset);
+    if (!live()) return failed({ code: 'NftNotHeld' });
+    if (g === null) { write(null); return failed({ code: 'NftNotHeld' }); }
+    FS.resident = { ...FS.resident, generation: g };
+    op = fprize.claimOpOf(w.address, asset, op.epoch, g);
+    const m = fprize.passClaimModel({ prize: FS.prize, prizeLedger: FS.prizeLedger, resident: FS.resident, prizePass: FS.prizePass, wallet: FS.wallet });
+    if (!m || m.state !== 'claimable') { invalidate('panel'); return failed({ code: PASS_CLAIM_REFUSAL[m?.state] ?? 'ClaimNotOpen' }); }
+    const r = await prizeIo.claimPass({ wallet: w, prize: { program: FS.prize.program, pool: FS.prize.pool, vault: FS.prize.vault, mint: FS.prize.mint }, id: FS.resident, generation: g, share: m.share });
+    if (!live()) return failed({ code: 'NftNotHeld' });
+    const record = o => ({ wallet: op.wallet, asset, generation: g, state: o.state, notSent: !!o.notSent, code: o.code, signature: r.signature ?? null, amount: r.amount ?? null,
+      // Claimed by an earlier owner or generation (never this owner's success; never resent): who, and when.
+      priorClaim: r.priorClaim ?? null });
+    // `failed` only for a definite failure (before the POST, or proven by the
+    // chain); every uncertain outcome after the POST is `unknown`, which holds
+    // the offer back until the Entry reads claimed (fprize.claimOutcome).
+    let outcome = fprize.claimOutcome(r);
+    if (outcome.state === 'pending') {
+      write(record(outcome));
+      const t = await tx.track(r.signature);
+      if (!live()) return failed({ code: 'NftNotHeld' });
+      outcome = fprize.claimOutcome(r, t);
+      write(record(outcome));
+      if (outcome.state !== 'landed') return failed({ code: outcome.code, signature: r.signature ?? null });
+    } else {
+      write(record(outcome));
+      if (outcome.state !== 'landed') return failed({ ...(r.ok ? {} : r), code: outcome.code, signature: r.signature ?? null });
+    }
+    await refreshPrize({ force: true });
+    if (!live()) return r;
+    done(() => L`このNFTの賞金を受け取りました`);
+    return r;
+  } finally {
+    FS.inFlight = Math.max(0, (FS.inFlight ?? 1) - 1);
+    invalidate('panel');
+  }
+}
+
+/**
+ * NFT pass (experimental): the paid JoinResident of a season with a pool —
+ * test tokens from the faucet if the owner's wallet is short, then
+ * PayResident and JoinResident in one signed transaction (x402), for the
+ * generation read fresh now. `id` is fresident.identityOf(…) of the pass.
+ * NOT CALLED: new pass deposits are disabled (`PASS_DEPOSITS_ENABLED`); the
+ * NFT login takes fprize.passJoinPlan's branches instead. Kept for the
+ * refund decision.
+ */
+// eslint-disable-next-line no-unused-vars
+async function paidJoinPass(id) {
+  const w = wallet.connected();
+  if (!w || w.address !== (FS.wallet?.address ?? null)) return failed({ code: 'NoWallet' });
+  if (!FS.nfts?.policy?.residentProgram) return failed({ code: 'NoResidentPolicy' });
+  // New pass deposits are disabled: the program refuses PayResident at
+  // dispatch and the relay refuses the shape (a pass's refund right is
+  // undecided). Nothing is read, signed or sent; the rest of this function
+  // stays for the day the rule is decided.
+  if (!PASS_DEPOSITS_ENABLED) return failed({ code: 'ResidentDepositsDisabled', asset: id.asset });
+  // Nothing is written for this wallet once another is connected (every await below may outlive a switch).
+  const same = () => (FS.wallet?.address ?? null) === w.address;
+  const residentProgram = FS.nfts.policy.residentProgram;
+  const faction = FS.joinDraft.faction;
+  busy(() => L`参加費（テストUSDC）を支払い、住民NFTで参加しています…`);
+  FS.inFlight = (FS.inFlight ?? 0) + 1;
+  try {
+    await refreshPrize({ force: true });
+    if (!same()) return failed({ code: 'NoWallet' });
+    if (!FS.prize) return failed({ code: 'NoPrizePool' });
+    const fee = BigInt(FS.prize.fee);
+    const before = FS.prize.wallet?.balance ?? '0';
+    if (BigInt(before) < fee) {
+      const f = await prizeIo.faucet(w.address);
+      if (!same()) return failed({ code: 'NoWallet' });
+      if (!f.ok) return failed(f);
+      await refreshPrize({ force: true });
+      if (!same()) return failed({ code: 'NoWallet' });
+    }
+    const funded = FS.prize?.wallet?.balance ?? before;
+    const g = await fresident.currentGeneration(w.address, id.asset);
+    if (!same()) return failed({ code: 'NoWallet' });
+    if (g === null) return failed({ code: 'NftNotHeld' });
+    const r = await prizeIo.payAndJoinResident({ wallet: w, asset: id.asset, generation: g, faction, residentProgram, maxFee: fee });
+    if (!same()) return failed({ code: 'NoWallet' });
+    if (!r.ok) return failed(r);
+    const t = await tx.track(r.signature);
+    if (!same()) return failed({ code: 'NoWallet' });
+    if (!t.ok) return failed(t);
+    await refreshPrize({ force: true });
+    if (!same()) return failed({ code: 'NoWallet' });
+    FS.prizePayment = { signature: r.signature, before: funded, after: FS.prize?.wallet?.balance ?? null, fee: String(fee), asset: id.asset };
+    done(() => L`参加費を支払い、住民NFTで参加しました`);
+    return { ...r, generation: g };
+  } finally {
+    FS.inFlight = Math.max(0, (FS.inFlight ?? 1) - 1);
+  }
 }
 
 /** The paid Join of a season with a pool: test tokens from the faucet if the wallet is short, then Pay and Join in one signed transaction (x402). */
@@ -493,7 +628,7 @@ async function actOnce(name, { v, fields, signer, requester, label, after, onSen
       if (late) return { ok: false, code: late.code, error: late.text, text: late.text };
       // (a relay that does not serve the economy routes: said as it always was — local play is reads only there)
       if (local) return localAct.submitLocalAct({ name, v, fields }, { ...localActDeps(), resident: () => localResident }).then(x => { if (x.ok || x.code !== 'LocalActNotServed') return x; const ro = localPlayReadOnly(); return { ok: false, code: ro.code, error: ro.text, text: ro.text }; });
-      return tx.submit({ name, accounts, fields, signer: sign, requester, citizen: requester ? viewerCitizen() : undefined, invite: v.invite, resident });
+      return tx.submit({ name, accounts, fields, signer: sign, requester, citizen: requester ? viewerCitizen() : undefined, invite: v.invite, resident, via: v.via });
     };
     // (local play: the scope the order is sent under — this wallet, world and relay — was taken by `act` BEFORE anything
     //  was awaited: what is held is held under the identity it was sent with, and it is followed at the relay it was
@@ -733,6 +868,11 @@ function resetViewer({ wallet: walletChanged = true } = {}) {
   if (walletChanged) FS.prizePayment = null;
   // the wide inventory and the wide village on the village screen were the previous viewer's (fwide.mjs)
   fwide.clearWide(FS);
+  // NFT pass prize (experimental): a pending pass claim is the former viewer's; a new pass epoch makes any claim
+  // still in flight stale (fprize.claimOpLive), so A → B → A never revives an old operation.
+  FS.prizePass = null;
+  fprize.nextPassEpoch(FS);
+  prizeReadAt = 0;
   FS.notice = null;
   // (⑳: the NFT played and the wallet's NFT list belong to the wallet: a resident NFT chosen under the previous wallet is not this wallet's)
   if (walletChanged) { FS.resident = null; FS.nfts = null; FS.nftsRead = null; }
@@ -2492,22 +2632,54 @@ export const ACTIONS = {
       await refresh();
       return;
     }
+    const owner = FS.wallet.address;
+    // The login's identity: this wallet, in this pass epoch; nothing lands after a switch (away, or away and back).
+    const epoch = FS.passEpoch ?? 0;
+    const same = () => (FS.wallet?.address ?? null) === owner && (FS.passEpoch ?? 0) === epoch;
     if (!id.joined) {
       if (!Number.isInteger(FS.joinDraft?.faction)) return failed({ code: 'PickFaction' });
+      const faction = FS.joinDraft.faction;
       const gate = FS.season.joinGate.some(x => x !== 0) ? toBase58(FS.season.joinGate) : null;
+      // The branch (fprize.passJoinPlan): no pool → the plain JoinResident
+      // through POST /f/join as before; a pool and an Entry the pass already
+      // has (paid before deposits were refused) → the same plain JoinResident
+      // through the relay's settled x402 path, no PayResident and no fee; a
+      // pool and no Entry → a new deposit would be needed: refused.
+      let plan = fprize.passJoinPlan({ prize: FS.prize, entry: null });
+      if (FS.prize) {
+        const p = await prizeIo.loadPrize(owner, { asset: id.asset });
+        if (!same()) return failed({ code: 'NoWallet' });
+        if (!p.ok) return failed(p);
+        plan = fprize.passJoinPlan({ prize: p.pool, entry: p.pool?.pass?.asset === id.asset ? p.pool.pass.entry : null });
+      }
+      if (plan === 'depositDisabled') return failed({ code: 'ResidentDepositsDisabled', asset: id.asset });
+      if (plan === 'joinPaid') {
+        // The generation signed is the one the relay reports now (a transfer since the list was read changes it).
+        const g = await fresident.currentGeneration(owner, id.asset);
+        if (!same()) return failed({ code: 'NoWallet' });
+        if (g === null) return failed({ code: 'NftNotHeld' });
+        id.generation = g;
+      }
       const r = await act('JoinResident', {
-        v: { resident: fresident.joinAccounts(id, { addresses: pin.addresses, owner: FS.wallet.address }), joinGate: gate, invite: FS.joinDraft.invite },
-        fields: { generation: id.generation, faction: FS.joinDraft.faction },
+        v: { resident: fresident.joinAccounts(id, { addresses: pin.addresses, owner }), joinGate: gate,
+          ...(plan === 'joinInvite' ? { invite: FS.joinDraft.invite } : {}), ...(plan === 'joinPaid' ? { via: 'x402' } : {}) },
+        fields: { generation: id.generation, faction },
       });
       if (!r?.ok) return r;
     }
-    // (the viewer changes here, before the read: the former viewer's state, wide inventory and selection leave at once)
+    // The login lands on the wallet that asked for it only, in the same epoch.
+    if (!same()) return failed({ code: 'NoWallet' });
+    // (the viewer changes here, before the read: the former viewer's state, wide inventory, selection and pending
+    // pass claim leave at once — resetViewer starts a new pass epoch)
     adoptResident({ ...id, joined: true });
     await refresh();
+    await refreshPrize({ force: true }).catch(e => console.error('frontier prize:', e));
   },
   'nft-logout': async () => { adoptResident(null); await refresh(); },
   // ⑳ after minting on the mint page: read the wallet's NFTs again (the chain decides what it holds).
   'nft-reload': async () => { await loadNfts(); },
+  // NFT pass (experimental): the pass's prize share, to its current owner.
+  'prize-claim-pass': () => claimPass(),
   'pick-faction': d => { FS.joinDraft = { ...(FS.joinDraft ?? {}), faction: num(d.f) }; invalidate('panel'); if (needsHomeChoice()) return refreshHomes({ force: true }); },
   join: async () => {
     // LOCAL PLAY: no in-game key is derived, remembered or registered. The page's memory-only wallet signs the Join
