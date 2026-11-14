@@ -1,0 +1,26 @@
+{
+  "about": "Expected bytes of the wide band's player commands (frontier-abi world_index/wide_ix.rs) and of their WideResidentAct (0xDD) wrapping, for the LOCAL TEST CANDIDATE lane localnet-conquest-nft-sbf (not an allocation). Hand-derived from the Rust encoders (little-endian; envelope = tag, 0xFF, version 1, op). Checked by permutation-gateway/test/frontier-wide-commands.test.mjs (the JS encoders) and by frontier-abi/tests/wide_resident_candidate_vectors.rs (the Rust encoders; written 2026-11-14, NOT compiled yet).",
+  "commands": [
+    { "name": "ClaimSite", "input": { "p": -3, "q": 5, "site": 2, "slot": 2 }, "hex": "d9fdffffffffffffff05000000000000000202" },
+    { "name": "Muster", "input": { "unit": 0, "troops": 100, "tile": 17 }, "hex": "daff0101006400000011" },
+    { "name": "Dissolve", "input": { "host": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f202122232425262728292a2b2c2d2e2f3031323334353637" }, "hex": "daff0102000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f202122232425262728292a2b2c2d2e2f3031323334353637" },
+    { "name": "Economy", "input": { "action": "Harvest" }, "hex": "daff0103000000000000" },
+    { "name": "Economy", "input": { "action": "Build", "item": 0 }, "hex": "daff0103010000000000" },
+    { "name": "Economy", "input": { "action": "Build", "item": 6 }, "hex": "daff0103010600000000", "mirrorWrite": true },
+    { "name": "Economy", "input": { "action": "Train", "unit": 3, "n": 500 }, "hex": "daff01030203f4010000" },
+    { "name": "Garrison", "input": { "delta": 250 }, "hex": "daff0104fa00000000000000" },
+    { "name": "DeclareSiege", "input": { "site": 4, "entry": 1 }, "hex": "daff01050401" }
+  ],
+  "wrapped": [
+    { "generation": 1, "inner": "daff0101006400000011", "hex": "dd01000000daff0101006400000011" },
+    { "generation": 258, "inner": "daff0103000000000000", "hex": "dd02010000daff0103000000000000" }
+  ],
+  "refused": [
+    { "name": "Economy", "input": { "action": "Build", "item": 9 } },
+    { "name": "Economy", "input": { "action": "Train", "unit": 7, "n": 1 } },
+    { "name": "Economy", "input": { "action": "Train", "unit": 0, "n": 0 } },
+    { "name": "Garrison", "input": { "delta": 0 } },
+    { "name": "Garrison", "input": { "delta": 4294967296 } },
+    { "name": "Dissolve", "input": { "host": "00" } }
+  ]
+}
