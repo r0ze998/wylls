@@ -1283,6 +1283,7 @@ export default {
   'AI市民・ボット（賞金の対象外）': 'AI citizen or bot (not prize-eligible)',
   'AI市民やボットが取った州も、その国の州の数に入ります（勝者はチェーン上の土地の持ち主で決まります）。AI市民とボットは賞金を受け取りません。': 'Provinces taken by AI citizens and bots count for their nation too (the winner is decided by who holds the land on chain). AI citizens and bots receive no prize.',
   // ---- NFT pass prize (experimental; screens/prize.mjs renderPass, controller.mjs claimPass / paidJoinPass, fi18n.mjs codes 0x113–0x11A)
+  'この季節には賞金プールがあります。住民NFTの参加費は返金先が決まるまで受け付けていないため、まだ参加していないNFTでは参加できません。参加済みのNFTはそのまま遊べます。': 'This season has a prize pool. Entry fees from a resident NFT are not taken until its refund right is decided, so an NFT that has not joined cannot join now. NFTs that already joined can still play.',
   '住民NFT {0} の賞金': 'Prize of resident NFT {0}',
   '参加費 {0} テストUSDC は支払い済みです（支払ったウォレット {1}）。賞金の権利はこのNFTのもので、受け取れるのはいまの持ち主だけです。': 'The entry fee of {0} test USDC is paid (by wallet {1}). The prize right belongs to this NFT: only its current owner can claim it.',
   '前回の受け取りは届きませんでした：{0}': 'The previous claim did not land: {0}',

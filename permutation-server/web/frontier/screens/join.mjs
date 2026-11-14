@@ -356,12 +356,21 @@ export function renderNfts(FS) {
     <div class="actions"><a class="btn" href="${mintHref(FS.nfts.mint)}" target="_blank" rel="noopener noreferrer" data-act-link="nft-mint">${L`発行ページを開く`}</a> <button type="button" class="btn ghost" data-act="nft-reload">${L`取得したので読み直す`}</button></div></section>`;
   if (!FS.wallet || !list.length) return '';
   const pick = Number.isInteger(FS.joinDraft?.faction);
+  // ⑰ (candidate): in a season with a prize pool a resident NFT that has not joined would need a new entry fee, and NFT
+  // entry fees are refused until the refund right is decided (permutation-prize ResidentDepositsDisabled; the controller
+  // refuses the press too). Its button is disabled with a note. A joined NFT plays as before; a pass whose earlier
+  // entry the relay reported (FS.prize.pass) may still join; a season without a pool is unchanged.
+  const pool = !!FS.prize;
+  const hasEntry = n => FS.prize?.pass?.asset === n.asset && !!FS.prize.pass.entry;
+  const blocked = n => pool && !n.joined && !hasEntry(n);
+  const anyBlocked = list.some(n => Number.isInteger(n.generation) && blocked(n));
   return html`<section class="vcard" aria-labelledby="join-nft">${cardHead({ id: 'join-nft', ic: 'seal', title: L`住民NFTで入る` })}
     <p class="muted">${L`1枚のNFTにつき1人の住民です。NFTを譲渡すると、住民を操作できるのは新しい持ち主だけになります。`}</p>
+    ${anyBlocked ? html`<p class="notice" role="status" data-pass-deposit="refused">${L`この季節には賞金プールがあります。住民NFTの参加費は返金先が決まるまで受け付けていないため、まだ参加していないNFTでは参加できません。参加済みのNFTはそのまま遊べます。`}</p>` : ''}
     <ul class="wallet-list">${list.map(n => {
       const ok = Number.isInteger(n.generation);
       const label = !ok ? L`住民の記録がありません` : n.joined ? L`このNFTで遊ぶ` : pick ? L`このNFTで参加する` : L`国を選ぶと参加できます`;
-      return html`<li><button type="button" class="btn" data-act="nft-login" data-asset="${n.asset}" ${raw(ok && (n.joined || pick) ? '' : 'disabled')}>${label}</button> <span class="muted">${shortKey(n.asset)}</span></li>`;
+      return html`<li><button type="button" class="btn" data-act="nft-login" data-asset="${n.asset}" ${raw(ok && (n.joined || (pick && !blocked(n))) ? '' : 'disabled')}>${label}</button> <span class="muted">${shortKey(n.asset)}</span></li>`;
     })}</ul></section>`;
 }
 

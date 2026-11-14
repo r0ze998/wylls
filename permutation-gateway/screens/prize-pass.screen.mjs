@@ -3,8 +3,9 @@
 // (frontier/screens/prize.mjs, fprize.mjs, lang.mjs, frontier.css) in a real
 // Chromium, over literal fixtures. Checks what a player sees and what can be
 // pressed for: the current owner (claim offered; held while busy), a former
-// owner, an earlier generation's claim, the pass's own claim, refund mode and
-// the refused new deposit (panel and join terms).
+// owner, an earlier generation's claim, the pass's own claim, refund mode,
+// the refused new deposit (panel and join terms) and the join screen's NFT
+// card with and without a prize pool (join.mjs renderNfts).
 //
 // FIXTURE, not gameplay: no wallet, no relay, no chain, no validator, no
 // network beyond this test's own GET-only static server on 127.0.0.1:0; any
@@ -47,6 +48,8 @@ const ledger = { provisional: true, provisionalRules: [], kinds: {}, lines: [], 
 const resident = generation => ({ asset: ASSET, citizen: CITIZEN, generation, joined: true, proof: PROOF });
 const fs = (wallet, generation, prize, extra = {}) => ({ wallet: { address: wallet }, inFlight: 0, prize, prizeLedger: ledger, resident: resident(generation), prizePass: null, ...extra });
 
+const NEW_NFT = 'NFTasset11111111111111111111111111111111111', JOINED_NFT = 'NFTasset22222222222222222222222222222222222';
+const NFTS = { residents: [{ asset: NEW_NFT, generation: 0, joined: false }, { asset: JOINED_NFT, generation: 3, joined: true }], policy: { residentProgram: '11111111111111111111111111111111' }, mint: null };
 /** Each case: the store, which screen renders it, and what must (not) be there. */
 const CASES = {
   currentOwner: { FS: fs(B, 1, posted({ pass: pass(entry()) })), view: 'panel', text: [/Estimated claim: 25/, /Claim this NFT's prize/, /only its current owner can claim/i], button: 'enabled' },
@@ -56,6 +59,8 @@ const CASES = {
   claimedOwn: { FS: fs(A, 2, posted({ pass: pass(entry({ claimed: true, claimedBy: A, claimGeneration: 2, claimAmount: '25000000' })) })), view: 'panel', text: [/Claimed: 25 test USDC/, /no second claim/i], button: 'none' },
   refund: { FS: fs(B, 1, posted({ pass: pass(entry()), shares: { mode: 'refund', shareNations: 0, totalPoints: ['0', '0', '0', '0', '0', '0'], claims: 0, claimed: '0', root: 'ab', ledgerHash: 'cd' } })), view: 'panel', text: [/undecided/i], button: 'none' },
   depositRefusedPanel: { FS: fs(B, 1, posted({ pass: pass(null) })), view: 'panel', text: [/not taken until its refund right is decided/i, /cannot pay one now/i], button: 'none', deposit: true },
+  nftCardNoPool: { FS: { ...fs(B, 1, null), resident: null, nftsRead: { ok: true, code: null }, nfts: NFTS, joinDraft: { faction: 2 } }, view: 'nfts', text: [/one resident/i], button: 'none', nftButtons: { [NEW_NFT]: 'enabled', [JOINED_NFT]: 'enabled' }, noRefusal: true },
+  nftCardPool: { FS: { ...fs(B, 1, pool()), resident: null, nftsRead: { ok: true, code: null }, nfts: NFTS, joinDraft: { faction: 2 } }, view: 'nfts', text: [/This season has a prize pool/, /can still play/], button: 'none', nftButtons: { [NEW_NFT]: 'disabled', [JOINED_NFT]: 'enabled' } },
   depositRefusedJoin: { FS: fs(B, 1, pool({ pass: pass(null) })), view: 'join', text: [/not taken until its refund right is decided/i], button: 'none', deposit: true, noFaucet: true },
 };
 
@@ -65,6 +70,7 @@ const PAGE = `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta n
 <script type="module">
 import { setLang } from '/lang.mjs';
 import { render, renderJoinTerms } from '/frontier/screens/prize.mjs';
+import { renderNfts } from '/frontier/screens/join.mjs';
 setLang('en');
 const cases = await (await fetch('/__cases.json')).json();
 const host = document.getElementById('cases');
@@ -74,26 +80,27 @@ for (const [name, c] of Object.entries(cases)) {
   // The real drawer surface (.panel), with only its fixed placement undone so the cases sit side by side.
   s.dataset.case = name; s.className = 'panel';
   s.style.cssText = 'position: relative; inset: auto; top: auto; right: auto; max-height: none; transform: none; display: inline-block; vertical-align: top; width: var(--drawer-w); margin: 10px; padding: 10px 14px; overflow: visible;';
-  s.innerHTML = '<p class="fixture-label">FIXTURE · ' + name + '</p><div class="panel-body-fixture">' + String(c.view === 'join' ? renderJoinTerms(c.FS) : render(c.FS)) + '</div>';
+  s.innerHTML = '<p class="fixture-label">FIXTURE · ' + name + '</p><div class="panel-body-fixture">' + String(c.view === 'join' ? renderJoinTerms(c.FS) : c.view === 'nfts' ? renderNfts(c.FS) : render(c.FS)) + '</div>';
   host.append(s);
 }
 document.body.dataset.ready = '1';
 </script></body></html>`;
 
 function startStatic() {
-  const seen = [];
+  const seen = [], missing = [];
   const srv = createServer(async (req, res) => {
     seen.push(`${req.method} ${req.url}`);
     if (req.method !== 'GET') { res.writeHead(405).end(); return; }
     const url = new URL(req.url, 'http://x');
-    if (url.pathname === '/__fixture.html') { res.writeHead(200, { 'content-type': 'text/html' }).end(PAGE); return; }
+    if (url.pathname === '/frontier/__fixture.html') { res.writeHead(200, { 'content-type': 'text/html' }).end(PAGE); return; }
     if (url.pathname === '/__cases.json') { res.writeHead(200, { 'content-type': 'application/json' }).end(JSON.stringify(Object.fromEntries(Object.entries(CASES).map(([k, v]) => [k, { FS: v.FS, view: v.view }])))); return; }
     const file = path.normalize(path.join(WEB, decodeURIComponent(url.pathname)));
     if (!file.startsWith(WEB)) { res.writeHead(403).end(); return; }
-    try { res.writeHead(200, { 'content-type': TYPES[path.extname(file)] ?? 'application/octet-stream' }).end(await readFile(file)); }
-    catch { res.writeHead(404).end(); }
+    let body;
+    try { body = await readFile(file); } catch { missing.push(url.pathname); res.writeHead(404).end(); return; }
+    res.writeHead(200, { 'content-type': TYPES[path.extname(file)] ?? 'application/octet-stream' }).end(body);
   });
-  return new Promise(r => srv.listen(0, '127.0.0.1', () => r({ srv, seen, origin: `http://127.0.0.1:${srv.address().port}` })));
+  return new Promise(r => srv.listen(0, '127.0.0.1', () => r({ srv, seen, missing, origin: `http://127.0.0.1:${srv.address().port}` })));
 }
 
 async function loadChromium() {
@@ -104,7 +111,7 @@ async function loadChromium() {
 const pw = await loadChromium();
 
 test('the English prize screen over fixtures: who may claim, what is held back, and the refused deposit', { skip: pw.why ?? false }, async () => {
-  const { srv, seen, origin } = await startStatic();
+  const { srv, seen, missing, origin } = await startStatic();
   const browser = await pw.chromium.launch();
   const refused = [];
   try {
@@ -117,9 +124,10 @@ test('the English prize screen over fixtures: who may claim, what is held back, 
       if (r.method() !== 'GET' || !r.url().startsWith(origin)) { refused.push(`${r.method()} ${r.url()}`); return route.abort(); }
       return route.continue();
     });
-    await page.goto(`${origin}/__fixture.html`);
+    await page.goto(`${origin}/frontier/__fixture.html`);
     await page.waitForFunction(() => document.body.dataset.ready === '1', null, { timeout: 15000 });
-    assert.deepEqual(errors, [], 'the real modules load and render without an error');
+    assert.deepEqual(errors.filter(e => !/404/.test(e)), [], 'the real modules load and render without an error');
+    assert.deepEqual(missing.filter(m => !m.endsWith('.ico')), [], 'every file the page asked for exists');
 
     for (const [name, c] of Object.entries(CASES)) {
       const sec = page.locator(`section[data-case="${name}"]`);
@@ -149,6 +157,14 @@ test('the English prize screen over fixtures: who may claim, what is held back, 
         assert.ok(await sec.locator('[data-pass-deposit="refused"]').isVisible(), `${name}: the refusal is visible`);
         assert.doesNotMatch(text, /x402|paying the entry fee/i, `${name}: no payment is offered`);
       }
+      for (const [asset, want] of Object.entries(c.nftButtons ?? {})) {
+        const b = sec.locator(`button[data-act="nft-login"][data-asset="${asset}"]`);
+        assert.equal(await b.count(), 1, `${name}: the NFT's button`);
+        assert.equal(await b.isVisible(), true, `${name}: visible`);
+        assert.equal(await b.isDisabled(), want === 'disabled', `${name}: ${asset.slice(-4)} ${want}`);
+      }
+      if (c.noRefusal) assert.equal(await sec.locator('[data-pass-deposit]').count(), 0, `${name}: no refusal outside a pool season`);
+      if (c.nftButtons && !c.noRefusal) assert.ok(await sec.locator('[data-pass-deposit="refused"]').isVisible(), `${name}: the note is visible`);
       if (c.noFaucet) assert.equal(await sec.locator('[data-act="prize-faucet"]').count(), 0, `${name}: no faucet`);
     }
     // A forced press on the busy (disabled) button sends nothing.
@@ -158,7 +174,7 @@ test('the English prize screen over fixtures: who may claim, what is held back, 
     assert.equal(seen.length, before, 'the disabled claim sends no request');
     // Evidence (optional): one image per case of the pass's own block, into the folder PRIZE_PASS_SHOT names.
     if (SHOT) for (const [name, c] of Object.entries(CASES)) {
-      const own = page.locator(`section[data-case="${name}"] ${c.view === 'join' ? '.prize-terms' : '.pz-pass'}`);
+      const own = page.locator(`section[data-case="${name}"] ${c.view === 'join' ? '.prize-terms' : c.view === 'nfts' ? '.vcard' : '.pz-pass'}`);
       writeFileSync(path.join(SHOT, `prize-pass-${name}.png`), await own.screenshot());
     }
   } finally {
