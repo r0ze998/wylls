@@ -40,3 +40,5 @@ permutation-gateway/screens/artifacts/
 
 # AI citizens runs (AI_DIR is .local/frontier/ai/<run_id>/ at the repository root)
 /.local/
+# NFT-pass host build output (own target dir, never committed)
+frontier-node/target-nftpass/
