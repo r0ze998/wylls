@@ -119,7 +119,8 @@ wide の側は NFT 住民の**行動**を受ける準備がある。足りない
 **用意したが未実行（未 compile）**：`frontier-abi/tests/wide_resident_candidate_vectors.rs`。Rust の encoder と decoder が同じ bytes を出し・受けることと、それらの bytes が同じ JSON にあることを確かめる。rustfmt で構文と書式だけ確認。実行は `cargo test -p frontier-abi --features world-index-experimental --test wide_resident_candidate_vectors`（host build：主側と枠を合意してから）。
 
 **「検証が済んでいない」と「実装できない」の区別**：
-- 検証が済んでいない（実装はある）：Rust の golden 試験、候補 lane の feature が compile できること、旧い組み合わせで `compile_error!` が出ること、候補の .so の marker。build の枠があれば確かめられる。
+- Rust の golden 試験は 2026-11-15 に主と合意した枠で実行し 8 件すべて通過（最初の compile で `Depart` の import 漏れが見つかり直した。target 最大 334 MB、終了後削除）。
+- 検証が済んでいない（実装はある）：候補 lane の feature が compile できること、旧い組み合わせで `compile_error!` が出ること、候補の .so の marker。build の枠があれば確かめられる。
 - まだ動かせない：候補 lane で動く world。必要な道具の変更（page・gateway の版の読み、launcher、keeper の準備、runner）は候補 branch に実装済みだが、Rust の部分は未 compile で、候補の .so も未 build（§11）。画面からの 0xDD の送信はその world の後。
 
 **枠が開いたときの計画（順番）**：
@@ -149,7 +150,7 @@ wide の側は NFT 住民の**行動**を受ける準備がある。足りない
 | launcher の `--lane-candidate`（runner との約束、NFT setup、mint ページ、片付け） | 実装済み・stand-in で試験済み |
 | keeper の準備（`local_lane.rs`） | 実装済み・**未 compile** |
 | runner（itest）step 1・2（Lane、候補の配備、seed file、runtime module が world lane を読む） | 実装済み・**未 compile** |
-| wide 命令の encoder（WideDepart・DeclareSiege を含む、この branch） | 実装済み・JS で試験済み。Rust の golden 試験は**未 compile** |
+| wide 命令の encoder（WideDepart・DeclareSiege を含む、この branch） | 実装済み・JS と Rust の golden 試験で通過（2026-11-15、8/8） |
 | Rust の試験の実行、候補の .so、候補の world | 未実施：build の枠の合意が要る |
 
 順番：frontier-abi の golden 試験 → host の check（keeper・itest・候補 feature と、旧い組み合わせが compile_error になること）→ 候補の .so（SBF）→ 候補の world。各段を領土側と合意し、guard は変えない。
