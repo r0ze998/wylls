@@ -402,3 +402,12 @@ layout, leaf domain, continuous-season refusal): **unit-tested, both feature
 sets**. Registry tables (`registry.rs`, so the 0x111 registration),
 `error_codes` and the 9 host scenarios: **NOT DONE (candidate)**, blocked
 first by the frontier compile error above, then ④'s approval.
+
+### 10.1 ⑳'s fix taken (no build yet)
+
+⑳ fixed the frontier gap on its branch (`5ff4c12d`: `LOCALNET_CONQUEST_NFT_VERSION` gets
+`#[cfg(feature = "expedition-dispatch-experimental")]`, the gate of its users). It is cherry-picked here as
+`0b6e56cf` (`-x`). Static check: `localnet-conquest-nft-sbf` → `localnet-conquest-sbf` →
+`localnet-expedition-sbf` → `expedition-dispatch-experimental`, and the other user
+(`proc/wide_expedition_dispatch.rs`) is under `localnet-conquest-nft-sbf`. **Not compiled yet.** ③ is
+rerun only on a slot from main (one cargo at a time); until then it stays NOT DONE.
