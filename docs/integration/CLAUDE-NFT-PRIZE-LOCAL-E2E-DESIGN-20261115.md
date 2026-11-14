@@ -375,3 +375,27 @@ New rule for the E2E:
   regenerated (`git diff 13ac8f63..82346ff8`, +199/−8, sha256 `e981a6a9…`). It stays on the port branch until the
   final review.
 - Re-transfer stays gated on ⑳'s strict resident variant (§17).
+
+## 19. Option (A) Rust started — source only, not compiled (2026-11-15)
+
+Main OK'd in principle the later host build slot (`cargo test -p itest --features localnet-conquest-play --lib --bins`,
+after ⑳'s world 5 and resident proof, one at a time, guard unchanged, target deleted after, re-asked with the order and
+df first).
+
+Port branch **`7733b533`**: new `frontier-node/crates/itest/src/prize_test_only.rs` (sha256 `634c7eb86a1c1490…`), gated
+like `expedition_play`, plus one gated line in `itest/src/lib.rs`:
+- `parse_line`: the exact 5-key control line;
+- `OneShot`: the first line closes the channel whatever its outcome;
+- `place()`: checks with reason codes (run, pool, asset via the game's policy and `resident_auth::holder`, guard,
+  record, generation, paid_by, entry_exists), then the one Entry with `Chain::set_account` and synthetic lamports;
+- TEST ONLY confirmation and refusal lines.
+
+**Not compiled, not run.** Unit tests in the module cover parse, one shot and the constants.
+
+Still to write before asking for the build:
+- `place()` negative tests over a built fixture: Core asset bytes, policy, resident record;
+- the deploy and InitPool step;
+- the `--prize-test-only-so` hook in `Options`;
+- the stdin reader in the binary, and the first-line keys.
+
+rustfmt-clean (the `lib.rs` rustfmt differences are pre-existing in other modules, as on the base).
