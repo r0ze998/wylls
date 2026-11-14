@@ -351,6 +351,9 @@ export function openLocalPlayGate({ cfg, loc = globalThis.location, doc = global
     // (the march's statement rides on the identity only for a launcher start that stated an instance; otherwise the
     //  identity is as it always was. The controller reads it as `localPlay.march`)
     const played = launcher && claimedMarch?.instance ? Object.freeze({ ...identity, march: claimedMarch }) : identity;
+    // (TEST-ONLY capture demo: its synthetic clock scale, as the start answer stated it and the gate checked it, so that a wait
+    //  can be said in the wall's time and not in game minutes thirty times too long; no other world carries it)
+    const playedAs = launcher && claimedDemo !== null ? Object.freeze({ ...played, clockScale: claimedDemo }) : played;
     done = true; state.herald = base; state.phase = 'connected'; paint();
     // (the gate's panel is hidden now: what stays true for the session is said on screen, launcher worlds only)
     if (launcher) { const mine = handle.address; session = mountSessionNotice({ doc, win, onCheck: () => checkKeeper(mine), demo: claimedDemo, ...(state.pairRole === 'second' && claimedDemo !== null ? { onPair: () => checkPair(mine, { herald: base, expiry: claimedEnd }) } : {}) }); }
@@ -360,7 +363,7 @@ export function openLocalPlayGate({ cfg, loc = globalThis.location, doc = global
       const asked = handle.address, at = base;
       confirmWorldEnd({ expiry: claimedEnd, origin: at, wallet: asked, request, notice: session, now, still: () => !handle.destroyed && handle.address === asked && state.herald === at }).catch(() => {});
     }
-    resolveReady({ cfg: { ...cfg, herald: base, relay: `${base}/gw`, devWallet: false, localPlay: played }, wallet: handle, record: result.record, ...(launcher ? { prepared: state.prepared } : {}) });
+    resolveReady({ cfg: { ...cfg, herald: base, relay: `${base}/gw`, devWallet: false, localPlay: playedAs }, wallet: handle, record: result.record, ...(launcher ? { prepared: state.prepared } : {}) });
     return state;
   };
   // One bounded same-origin POST to the launcher's stop or worlds route: `{ok: true, body}`, or its refusal

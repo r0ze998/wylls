@@ -1605,4 +1605,6 @@ export default {
   '旗のもとに兵が並んだ。この軍勢が、我らの最初の力だ。': 'The ranks stand under the banner. Our first strength.',
   '鍵はこのページのメモリにだけあります。再読み込みすると、この世界は続けられません。': 'The key lives only in this page\'s memory. After a reload this world cannot be continued.',
   'たたむ': 'Hide details',
+  '試験の時計で約 {0} 秒後': 'in about {0} s on the test clock',
+  '試験の時計で約 {0} 分後': 'in about {0} min on the test clock',
 };

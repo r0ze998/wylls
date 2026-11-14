@@ -205,6 +205,18 @@ function coordsForm(c) {
     <label>${L`マス`}<input name="tile" type="number" min="0" max="60" inputmode="numeric" value="${c.dest?.tile ?? ''}"></label><button type="submit" class="btn">${L`決める`}</button></form>`;
 }
 
+/**
+ * A wait the card says, from game seconds. TEST-ONLY capture demo (`FS.localPlay.clockScale`, the launcher's checked word, 10..60):
+ * the world's clock runs that many times faster, so 「約 37 分後」 in game minutes came about a minute later on the wall (trial 2,
+ * 2026-11-14); there the wait is said in the wall's own time and named the test clock. Every other world: as it was.
+ */
+export function waitWords(FS, gameSecs) {
+  const k = FS?.localPlay?.clockScale;
+  if (!(Number.isInteger(k) && k > 1)) return L`約 ${fmtNum(Math.max(1, Math.round(gameSecs / 60)))} 分後`;
+  const s = Math.max(1, gameSecs / k);
+  return s < 90 ? L`試験の時計で約 ${fmtNum(Math.round(s))} 秒後` : L`試験の時計で約 ${fmtNum(Math.round(s / 60))} 分後`;
+}
+
 /** The order (the drawer while a march is composed). */
 export function render(FS) {
   const c = FS.compose;
@@ -214,7 +226,7 @@ export function render(FS) {
   // how far off the arrival is, in minutes from now: the one other time on the card, and it counts as the dial does
   // (the second review: the arrival turn, a bare clock time and the road's minutes stood beside a dial at 9:12)
   const nowTs = FS.chain?.now?.() ?? null;
-  const away = w && FS.clock && Number.isFinite(nowTs) ? Math.max(1, Math.round((bellStart(FS.clock.genesisTs, w.value) - nowTs) / 60)) : null;
+  const awaySecs = w && FS.clock && Number.isFinite(nowTs) ? bellStart(FS.clock.genesisTs, w.value) - nowTs : null;
   // (the banner prototype says its counts by the sample world's own, faster clock — 「（約16秒）」 — and this card said
   // the same wait in the game's minutes beside them, 「約 19 分後」: two clocks on one screen. While the prototype is
   // on, this line is said in the clock its lines use)
@@ -222,7 +234,7 @@ export function render(FS) {
   // whose words change every second is laid out again every second, under the finger that presses its seal)
   const wallTurn = FS.proto ? protoTurnSecs(FS) : null;
   const awayWall = w && Number.isInteger(FS.nowBell) && wallTurn !== null ? Math.max(1, w.value - FS.nowBell) * wallTurn : null;
-  const awayLine = !FS.proto ? (away !== null ? L`約 ${fmtNum(away)} 分後` : '') : awayWall !== null ? L`${protoAbout(awayWall)}後` : '';
+  const awayLine = !FS.proto ? (awaySecs !== null ? waitWords(FS, awaySecs) : '') : awayWall !== null ? L`${protoAbout(awayWall)}後` : '';
   // (the forecast follows the survey like every other surface: of a tile the viewer does not have in sight the card
   // says no number of defenders. The second review: 「守り手なし · 守り 0」 for a tile the map draws as unsurveyed)
   const sight = c.dest && FS.survey && !FS.survey.showAll ? FS.survey.levelOf(c.dest.p, c.dest.q, c.dest.tile) : 3;
@@ -241,7 +253,7 @@ export function render(FS) {
   // the arrival turn's end plus the reveal window, rounded to a beacon round (fland.mjs ticketTimes)
   const resultTurn = timing && FS.clock ? bellAt(FS.clock.genesisTs, timing.resultAbout) : null;
   const resultWait = !timing ? ''
-    : !FS.proto ? L`約 ${fmtNum(Math.max(1, Math.round(timing.resultIn / 60)))} 分後`
+    : !FS.proto ? waitWords(FS, timing.resultIn)
     : wallTurn !== null && Number.isInteger(resultTurn) && Number.isInteger(FS.nowBell) ? L`${protoAbout(Math.max(1, resultTurn - FS.nowBell) * wallTurn)}後` : '';
   const resultLine = !Number.isInteger(resultTurn) ? '' : resultWait ? L`結果はターン ${fmtNum(resultTurn)} ごろ（${resultWait}）` : L`結果はターン ${fmtNum(resultTurn)} ごろ`;
   const stance = STANCES[m.stance] ?? 'Hold';

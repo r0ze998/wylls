@@ -800,7 +800,9 @@ test('the raise card says when the place was chosen for more tiles than the worl
 
 test('the order card says its wait in the clock the prototype\'s lines use; with the prototype off, in the game\'s minutes as before', () => {
   const src = read('frontier/hud/marchcard.mjs');
-  assert.match(src, /const awayLine = !FS\.proto \? \(away !== null \? L`約 \$\{fmtNum\(away\)\} 分後` : ''\) : awayWall !== null \? L`\$\{protoAbout\(awayWall\)\}後` : '';/);
+  // (2026-11-14: the non-prototype wait is waitWords — game minutes as before, or the wall time of a capture-demo test clock;
+  //  web-frontier-test-clock-wait.test.mjs)
+  assert.match(src, /const awayLine = !FS\.proto \? \(awaySecs !== null \? waitWords\(FS, awaySecs\) : ''\) : awayWall !== null \? L`\$\{protoAbout\(awayWall\)\}後` : '';/);
   assert.match(src, /const awayWall = w && Number\.isInteger\(FS\.nowBell\) && wallTurn !== null \? Math\.max\(1, w\.value - FS\.nowBell\) \* wallTurn : null;/, 'in whole turns: the words change at a toll, not every second');
   assert.equal(pm.turnWallSecs({ sample: { rate: 30 } }), 20); assert.equal(pm.aboutTime(16), '約16秒');
 });

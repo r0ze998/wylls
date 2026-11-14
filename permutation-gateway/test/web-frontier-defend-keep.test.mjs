@@ -90,18 +90,21 @@ test('the host\'s bar: offered for a defender whose only keep in play is its own
   assert.doesNotMatch(en, CJK); assert.doesNotMatch(en, BANNED_EN);
 });
 
-// On a phone (≤ 759 px) the three figures took the whole row and left the keep's name and holder 0 px wide, attack and defend
-// rows alike (measured at 375 px with the real card CSS, 2026-11-14). Now the name takes the row's first line; the figures
-// the second, the odds' column flexible, the arrival at its own width; 「守りに向かう」 may wrap (320 px). Wider screens: unchanged.
-test('the keep rows on a phone: the name has its own line; wider screens keep their six columns', async () => {
+// On a narrow card the three figures took the whole row and left the keep's name and holder 0 px wide, attack and defend rows
+// alike (a phone at 375 px with the real card CSS; and in trial 2 a desktop card narrowed by an open side panel cut the name to
+// 「フィヨ…」, 2026-11-14). The rule follows the card's own width (the rows are the size container), not the screen's: below
+// 680 px the name takes the row's first line, the figures the second; 「守りに向かう」 may wrap (320 px). Wider cards: unchanged.
+test('the keep rows on a narrow card: the name has its own line; wider cards keep their six columns', async () => {
   const { readFileSync } = await import('node:fs');
   const css = readFileSync(new URL('../../permutation-server/web/frontier/conquest-hand.css', import.meta.url), 'utf8');
   assert.match(css, /\n\.kh-row \{ position: relative; display: grid; grid-template-columns: minmax\(0, 1fr\) 62px 104px 108px 116px 16px;/, 'the wide grid as it was');
-  const at = css.indexOf('@media (max-width: 759px) { .kh-row {'), block = css.slice(at, css.indexOf('\n', at));
-  assert.ok(at > 0, 'the phone rule');
+  assert.match(css, /\n\.kh-rows \{[^}\n]*container-type: inline-size;/, 'the rows are the size container');
+  const at = css.indexOf('@container (max-width: 679px) { .kh-row {'), block = css.slice(at, css.indexOf('\n', at));
+  assert.ok(at > 0, 'the narrow-card rule');
   assert.match(block, /\.kh-row \{ grid-template-columns: auto minmax\(0, 1fr\) auto; row-gap: 6px; \}/);
   assert.match(block, /\.kh-row-where \{ grid-column: 1 \/ -1; \}/, 'the name on its own line');
   assert.match(block, /\.kh-odds-defend \.kh-fig-v \{ white-space: normal; \}/);
   assert.match(block, /\.kh-fig-hold, \.kh-row-go \{ display: none; \} \}$/);
-  assert.equal((css.match(/@media \(max-width: 759px\) \{ \.kh-row/g) ?? []).length, 1, 'one phone rule for the rows');
+  assert.equal((css.match(/@container \(max-width: 679px\) \{ \.kh-row/g) ?? []).length, 1, 'one narrow rule for the rows');
+  assert.doesNotMatch(css, /@media[^{]*\{ \.kh-row \{/, 'no screen-width rule for the rows any more');
 });
