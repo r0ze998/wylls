@@ -15,12 +15,12 @@
 // POST /gw/f/reveal. Every function answers `{ok, …}` and never rejects.
 import { frontierIx } from '../sdk/frontier/shapes.mjs';
 import { isV2 } from '../sdk/frontier/profile.mjs';
-import { budgetOf, budgetPrefix } from '../sdk/frontier/budgets.mjs';
+import { budgetOf, budgetPrefix, setComputeUnitLimit, setComputeUnitPrice, setLoadedAccountsDataSizeLimit } from '../sdk/frontier/budgets.mjs';
 import { compileMessage, wireTransaction } from '../sdk/solana-tx.mjs';
 import { decode as fromBase58 } from '../sdk/base58.mjs';
 import { toBase64 } from '../sdk/bytes.mjs';
 import { verify } from '../session.mjs';
-import { joinResidentIx, residentActIx, residentBudget } from '../sdk/frontier/resident.mjs';
+import { joinResidentIx, residentActIx, residentBudget, wideResidentActIx } from '../sdk/frontier/resident.mjs';
 import * as io from './fchainio.mjs';
 import { joinShardOf, citizenTag } from './faddr.mjs';
 
@@ -213,6 +213,24 @@ export function buildShape({ programId, name, accounts, fields, feePayer, blockh
     budget = budgetOf(name, profile);
     prefix = budgetPrefix(name, { profile });
   }
+  const message = compileMessage({ feePayer, recentBlockhash: blockhash, instructions: [...prefix, expected] });
+  const signers = [];
+  for (const k of expected.keys) if (k.isSigner && k.pubkey !== feePayer && !signers.includes(k.pubkey)) signers.push(k.pubkey);
+  return { message, expected, budget, signers };
+}
+
+/**
+ * The message of a WideResidentAct (0xDD) for an NFT Citizen: `inner` is an already-built wide draft instruction
+ * (ClaimSite 0xD9 or the 0xDA band; this page has no builder of its own for them), `resident` = {generation, proof}
+ * as for 0xE2, `budget` = {cuLimit, loadedLimit} given by the lane that serves the band (the ABI's budget table has no
+ * wide rows). Same `{message, expected, budget, signers}` as buildShape. Only for a local test lane whose relay serves
+ * 0xDD (shapes.mjs `classify` with `wide`); every other relay refuses it.
+ */
+export function buildWideResidentShape({ inner, resident, feePayer, blockhash, budget }) {
+  if (!resident?.proof || !Number.isInteger(resident.generation)) throw new Error('WideResidentAct: the resident proof and generation');
+  if (!Number.isInteger(budget?.cuLimit) || !Number.isInteger(budget?.loadedLimit)) throw new Error('WideResidentAct: the lane gives the budget');
+  const expected = wideResidentActIx(inner, { generation: resident.generation, ...resident.proof });
+  const prefix = [setComputeUnitLimit(budget.cuLimit), setComputeUnitPrice(0n), setLoadedAccountsDataSizeLimit(budget.loadedLimit)];
   const message = compileMessage({ feePayer, recentBlockhash: blockhash, instructions: [...prefix, expected] });
   const signers = [];
   for (const k of expected.keys) if (k.isSigner && k.pubkey !== feePayer && !signers.includes(k.pubkey)) signers.push(k.pubkey);
