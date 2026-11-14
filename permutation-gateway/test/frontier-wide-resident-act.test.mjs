@@ -76,3 +76,36 @@ test('the holder gate gets 0xDD\'s proof like 0xE2\'s: a previous holder or a st
   assert.equal(await residentRefusal(ctx, 'CITIZEN', K(7), shape), 'ResidentHolderChanged', 'the previous holder');
   assert.equal(await residentRefusal(ctx, 'CITIZEN', OWNER, { ...shape, resident: { ...shape.resident, generation: 2 } }), 'ResidentGenerationStale', 'signed before the transfer');
 });
+
+test('the candidate lane gate: 0xDD only on exactly the candidate program and version, with an inner classifier; refused everywhere else', async () => {
+  const { LOCAL_CONQUEST_NFT_CANDIDATE: C, isLocalConquestNftCandidate, wideLaneFor } = await import('../client/src/frontier/resident.mjs');
+  assert.equal(C.programVersion, 0xc804);
+  assert.equal(C.programId, K(0x4c), 'the base58 of [0x4C; 32]');
+  assert.equal(C.deployable, false);
+  // the candidate values are the ones the program source declares (permutation-frontier lib.rs)
+  const lib = readFileSync(new URL('../../permutation-frontier/src/lib.rs', import.meta.url), 'utf8');
+  assert.match(lib, /pub const LOCALNET_CONQUEST_NFT_PROGRAM_ID: \[u8; 32\] = \[0x4C; 32\];/);
+  assert.match(lib, /expedition_dispatch_ix::PROGRAM_VERSION \| 0x8000;/);
+  assert.equal(isLocalConquestNftCandidate({ programId: C.programId, programVersion: 0xc804 }), true);
+  for (const [programId, programVersion, why] of [[C.programId, 0x4804, 'the conquest lane\'s version'], [C.programId, 0x8004, 'the local NFT lane\'s version'], [K(0x45), 0xc804, 'the conquest lane\'s id'], [K(0x4e), 0xc804, 'the NFT lane\'s id'], [C.programId, 4, 'S1']]) {
+    assert.equal(isLocalConquestNftCandidate({ programId, programVersion }), false, why);
+  }
+  const inner = () => ({ ok: true, kind: 'player' });
+  assert.deepEqual(Object.keys(wideLaneFor({ programId: C.programId, season: { PROGRAM_VERSION: 0xc804 }, classifyInner: inner })), ['classifyInner']);
+  assert.equal(wideLaneFor({ programId: C.programId, season: { PROGRAM_VERSION: 0xc804 } }), null, 'no inner classifier (none exists yet): refused');
+  assert.equal(wideLaneFor({ programId: C.programId, season: { PROGRAM_VERSION: 0x4804 }, classifyInner: inner }), null, 'the conquest lane: refused');
+  assert.equal(wideLaneFor({ programId: K(0x45), season: { programVersion: 0xc804 }, classifyInner: inner }), null);
+  // end to end through classify, as the relay calls it: refused unless the lane gate opens
+  const tx = txOf(wideResidentActIx(innerDepart, { generation: 3, ...proof }));
+  assert.equal(classify(tx, { programId: PROGRAM, profile: 2, wide: wideLaneFor({ programId: PROGRAM, season: { PROGRAM_VERSION: 0xc804 }, classifyInner: inner }) }).ok, false, 'PROGRAM ([0x4E;32]) is not the candidate id');
+  const txC = txOf(wideResidentActIx({ ...innerDepart, programId: C.programId }, { generation: 3, ...proof }));
+  assert.equal(classify(txC, { programId: C.programId, profile: 2, wide: wideLaneFor({ programId: C.programId, season: { PROGRAM_VERSION: 0xc804 }, classifyInner: inner }) }).ok, true);
+  assert.equal(classify(txC, { programId: C.programId, profile: 2, wide: wideLaneFor({ programId: C.programId, season: { PROGRAM_VERSION: 0xc804 } }) }).ok, false);
+});
+
+test('the relay route wires the gate: ctx.wideInner is the only way to serve 0xDD, and nothing sets it', () => {
+  const src = readFileSync(new URL('../src/frontier/routes/relay.mjs', import.meta.url), 'utf8');
+  assert.match(src, /const wide = wideLaneFor\(\{ programId: ctx\.programId, season, classifyInner: ctx\.wideInner \}\);/);
+  const app = readFileSync(new URL('../src/frontier/app.mjs', import.meta.url), 'utf8');
+  assert.doesNotMatch(app, /wideInner/, 'the relay app sets no inner wide classifier: 0xDD stays refused');
+});
