@@ -112,3 +112,20 @@ byte-for-byte unchanged.
 2. Are the stand-ins in §4 acceptable for this layer, given that the game program's own CloseCitizen and
    JoinResident are covered only by the host test?
 3. Resources: is about 3.5 GiB acceptable now, or should it wait for more free space?
+
+## 7. Preparation done while waiting (2026-11-15; nothing built or run)
+
+- Source: `svm-tests/tests/nft_pass.rs` (7 `#[ignore]` tests, rustfmt-clean, **not compiled**),
+  `scripts/check-prize-nft-test-only.sh` (bash -n clean; negative checks: a 1-byte file → "too small",
+  a zeroed file → "e_flags 0": both exit 3).
+- Static findings applied: the resident program refuses a session expiry more than 30 days ahead
+  (`MAX_SESSION_SECS`), so the test reads the Clock sysvar and uses now + 1 h; the sale window uses
+  `0 = no limit` for start and end; refund mode is accepted with all-zero totals (as in the host test).
+- Binaries copied by hash into the scratchpad with ⑳'s OK: `mpl_core.so` `515541c8…` (810,288 B,
+  untrimmed), `wylls_resident_program.so` `947da0b9…` (165,360 B). ⑳'s checkout untouched.
+- Run script `scratchpad/rust/run-nft-svm.sh` (sha256 `22b5045a8cffba22…`): A = guarded
+  `cargo build-sbf --features nft-experimental` into `target-nft-sbf` + post-check; B = guarded
+  `svm-tests` `--test nft_pass -- --ignored` into `target-nft-svm`. It refuses a binary hash mismatch.
+- Reported to ⑳: its `svm-core/tests/core.rs` appears stale against `947da0b9` (InitConfig 3 vs 5
+  accounts, MintResident 9 vs 10), from reading only.
+- Waiting for: review (user, main, ⑳), main's ×10 world down, and a slot (estimate about 3.5 GiB).
