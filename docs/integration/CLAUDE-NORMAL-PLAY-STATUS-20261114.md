@@ -115,7 +115,11 @@ Round 28 (ef3de2d3; local play and the conquest screen; no rule, resource or sen
   medium finding; two low ones fixed (refusal before the switch, rail redraw); one left (the map selection is not moved
   to the new host's tile; cosmetic, nothing reads it on this path).
 - Not covered: a local-play test with the march gate open for a host of another village (the test page has no march
-  capability); the map tap's refusal is pinned in source, not pressed in a browser; not seen in a world.
+  capability); not seen in a world.
+- The map tap's refusal is also checked in a real browser (screens/local-march-maptap.screen.mjs, keyless fixture, the
+  page put in local play with a per-host answer): closed → the refusal on the map, no order, no card; open → the order
+  card as before; no non-GET request. On the previous app.mjs it fails (the order is drafted). The tap is a click at the
+  tile's computed position: a fixture check, not evidence of an unaided press.
 
 The watcher's self-test cleanup now stops only the processes it started (their process ids and children), never by
 name. Checked once with an unrelated fixture of the same command name started first: after the self-test, that fixture
