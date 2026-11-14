@@ -20,7 +20,7 @@
 // SBF build (no runtime run was approved); they are provisional ceilings
 // the relay's simulation checks before anything is sent.
 import { budgetOf, budgetPrefix, PACKET_BYTES } from './budgets.mjs';
-import { seed, SEED_TAGS, SYSTEM_PROGRAM, withSeed } from './addresses.mjs';
+import { programDataAddress, seed, SEED_TAGS, SYSTEM_PROGRAM, withSeed } from './addresses.mjs';
 import { TAGS as TAGS_V2 } from './abi-v2-tags.mjs';
 import { concat, u32le, utf8 } from '../bytes.mjs';
 import { sha256 } from '../sha256.mjs';
@@ -97,6 +97,26 @@ export function decodeAssetOwner(d) {
 // ------------------------------------------------------------------ builders
 
 const ro = pubkey => ({ pubkey, isSigner: false, isWritable: false });
+
+/** The resident program's collection-authority address: the only guard authority CreateResidentPolicy accepts. */
+export const guardAuthorityAddress = residentProgram => findProgramAddress([utf8('collection-authority')], residentProgram)[0];
+
+/**
+ * CreateResidentPolicy (0xE0, once per Frontier program): `[authority s w] [policy w] [program] [programdata]
+ * [system]`, data `0xE0 ‖ core program ‖ resident program ‖ collection ‖ guard authority`. Only the Frontier
+ * program's upgrade authority may sign it (the program reads its ProgramData). A local test world's setup step.
+ */
+export function createResidentPolicyIx({ programId, authority, coreProgram, residentProgram, collection }) {
+  return {
+    programId,
+    keys: [
+      { pubkey: authority, isSigner: true, isWritable: true },
+      { pubkey: policyAddress(programId), isSigner: false, isWritable: true },
+      ro(programId), ro(programDataAddress(programId)), ro(SYSTEM_PROGRAM),
+    ],
+    data: concat([CREATE_RESIDENT_POLICY_TAG], pubkeyBytes(coreProgram), pubkeyBytes(residentProgram), pubkeyBytes(collection), pubkeyBytes(guardAuthorityAddress(residentProgram))),
+  };
+}
 
 /** JoinResident (the first login of an NFT): see the header for the accounts. */
 export function joinResidentIx({ programId, owner, payer, season, frontier, citizen, policy, link, asset, resident, joinGate = null, generation, faction }) {
