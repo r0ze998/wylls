@@ -123,6 +123,9 @@ async function openVillage(page) {
   // (still, and the element at its centre), then the tab must become the current one and the village must show, or
   // the step fails with its dumps (no retry).
   if (await page.locator('#tabs [data-tab="holding"][aria-current="page"]').count() && await page.locator('#holding-title').isVisible().catch(() => false)) return;
+  // (the dock is drawn a moment after the page; humanPress does not wait, so wait for the tab first: the fixture
+  //  pre-check found it absent right after load)
+  await page.locator('#tabs [data-tab="holding"]').waitFor({ state: 'visible', timeout: 30_000 });
   await humanPress(page, '#tabs [data-tab="holding"]');
   await page.locator('#tabs [data-tab="holding"][aria-current="page"]').waitFor({ state: 'attached', timeout: 10_000 });
   await page.locator('#holding-title').waitFor({ state: 'visible', timeout: 15_000 });

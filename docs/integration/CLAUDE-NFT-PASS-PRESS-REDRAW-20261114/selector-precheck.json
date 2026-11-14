@@ -1,0 +1,167 @@
+{
+  "at": "2026-11-14T13:42:58.723Z",
+  "not_covered": [
+    "mint page (#t-*, data-testid)",
+    "NFT join card ([data-act=\"nft-reload\"], [data-act=\"pick-faction\"], [data-act=\"nft-login\"])",
+    "first village ([data-act=\"home-confirm\"])",
+    "intro ([data-act=\"intro-close\"])"
+  ],
+  "rows": [
+    {
+      "step": "village tab (dock, exactly one)",
+      "sel": "#tabs [data-tab=\"holding\"]",
+      "count": 1,
+      "visible": 1,
+      "hit": true,
+      "ok": true
+    },
+    {
+      "step": "note",
+      "sel": "[data-act=\"tab\"][data-tab=\"holding\"] (the old selector)",
+      "count": 1,
+      "ok": true
+    },
+    {
+      "step": "village tab current",
+      "sel": "#tabs [data-tab=\"holding\"][aria-current=\"page\"]",
+      "count": 1,
+      "visible": 1,
+      "hit": true,
+      "ok": true
+    },
+    {
+      "step": "village title",
+      "sel": "#holding-title",
+      "count": 1,
+      "visible": 1,
+      "hit": true,
+      "ok": true
+    },
+    {
+      "step": "build button",
+      "sel": "[data-act=\"build\"][data-item].br-go:not([disabled])",
+      "count": 7,
+      "visible": 7,
+      "hit": false,
+      "ok": true
+    },
+    {
+      "step": "troops card (one, not the drawer)",
+      "sel": "section.vcard[aria-labelledby=\"hp-troops-h\"]",
+      "count": 1,
+      "visible": 1,
+      "hit": false,
+      "ok": true
+    },
+    {
+      "step": "note",
+      "sel": "section:has(#hp-troops-h) (the old selector)",
+      "count": 2,
+      "ok": true
+    },
+    {
+      "step": "reserve count",
+      "sel": "section.vcard[aria-labelledby=\"hp-troops-h\"] .c-count",
+      "count": 1,
+      "visible": 1,
+      "hit": false,
+      "ok": true
+    },
+    {
+      "step": "train form",
+      "sel": "#hp-train",
+      "count": 1,
+      "visible": 1,
+      "hit": false,
+      "ok": true
+    },
+    {
+      "step": "train count field",
+      "sel": "#hp-train #f-n",
+      "count": 1,
+      "visible": 1,
+      "hit": false,
+      "ok": true
+    },
+    {
+      "step": "train submit",
+      "sel": "#hp-train button[type=\"submit\"]",
+      "count": 1,
+      "visible": 1,
+      "hit": false,
+      "ok": true
+    },
+    {
+      "step": "muster form (in DOM; folded while reserve < 100)",
+      "sel": "#hp-muster",
+      "count": 1,
+      "visible": 1,
+      "hit": false,
+      "ok": true
+    },
+    {
+      "step": "muster fold summary",
+      "sel": "details:has(#hp-muster) > summary",
+      "count": 1,
+      "visible": 1,
+      "hit": false,
+      "ok": true
+    },
+    {
+      "step": "muster count field",
+      "sel": "#hp-muster #f-troops",
+      "count": 1,
+      "visible": 1,
+      "hit": false,
+      "ok": true
+    },
+    {
+      "step": "harvest button",
+      "sel": "[data-act=\"harvest\"]",
+      "count": 1,
+      "visible": 1,
+      "hit": true,
+      "ok": true
+    },
+    {
+      "step": "hosts tab (dock)",
+      "sel": "#tabs [data-tab=\"hosts\"]",
+      "count": 1,
+      "visible": 1,
+      "hit": true,
+      "ok": true
+    },
+    {
+      "step": "march (compose) button on a host",
+      "sel": "[data-act=\"compose\"]",
+      "count": 2,
+      "visible": 2,
+      "hit": true,
+      "ok": true
+    },
+    {
+      "step": "destination form (in DOM)",
+      "sel": "form[data-form=\"dest\"]",
+      "count": 1,
+      "visible": 1,
+      "hit": false,
+      "ok": true
+    },
+    {
+      "step": "destination fold summary",
+      "sel": "details:has(form[data-form=\"dest\"]) > summary",
+      "count": 1,
+      "visible": 1,
+      "hit": true,
+      "ok": true
+    },
+    {
+      "step": "send march button (after a destination)",
+      "sel": "[data-act=\"march-send\"]",
+      "count": 1,
+      "visible": 1,
+      "hit": true,
+      "ok": true
+    }
+  ]
+}
