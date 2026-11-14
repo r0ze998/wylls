@@ -58,7 +58,8 @@ import { RouteError } from '../../routes/errors.mjs';
 import { simulateWatching } from '../chain.mjs';
 import { signAs, sponsor } from './relay.mjs';
 import { decodePolicy } from './residents.mjs';
-import { passView, walletEntryView } from '../prize-view.mjs';
+import { passView, poolView, walletEntryView } from '../prize-view.mjs';
+export { poolView };
 import { claimedEntryAnswer } from '../claim-outcome.mjs';
 
 const ENTRY_RENT = rent(ENTRY_SIZE);
@@ -160,18 +161,7 @@ export function prizeErrorOf(err) {
 }
 
 /** The pool as the routes publish it (amounts as strings; all of them test tokens). */
-export function poolView(prize, pool) {
-  return {
-    testAssetsOnly: true, ...prize, decimals: pool.decimals, operator: pool.operator,
-    fee: String(pool.fee), opsBps: pool.opsBps, prizeBps: 10_000 - pool.opsBps, paramsHash: toHex(pool.paramsHash),
-    entries: pool.entries, collected: String(pool.collected), prize: String(pool.prize), ops: String(pool.ops), opsWithdrawn: String(pool.opsWithdrawn),
-    state: ['open', 'final', 'shares'][pool.state] ?? 'unknown', expectedKeeps: pool.expectedKeeps, counted: pool.counted,
-    area: pool.counted ? pool.area : null, territoryBells: pool.counted ? pool.bells.map(String) : null,
-    winners: pool.state >= POOL_STATE.FINAL ? pool.winners : null,
-    shares: pool.state === POOL_STATE.SHARES ? { mode: pool.mode === 2 ? 'refund' : 'shares', shareNations: pool.shareNations, totalPoints: pool.totalPoints.map(String),
-      root: toHex(pool.sharesRoot), ledgerHash: toHex(pool.ledgerHash), claims: pool.claims, claimed: String(pool.claimed) } : null,
-  };
-}
+// (poolView moved to prize-view.mjs, shared with the local-play prize relay; re-exported here unchanged)
 
 /** The keeps Finalize counts against: the game's six ProvinceFunds' opened provinces less the 7 keepless ones (null if one is missing). */
 async function keepsToCount(ctx) {
