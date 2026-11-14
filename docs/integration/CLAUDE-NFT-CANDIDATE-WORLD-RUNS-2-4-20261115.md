@@ -50,3 +50,31 @@ Screen (English, the page's own gate) and chain, public values only:
 - PlaceHome and Build as the NFT (0xE2 through the world relay): the check's `home` and `build` stages are written (`8bf4ff23`) and wait for the next agreed world.
 - Train / Muster as the NFT; the march / territory (0xDD: only DeclareSiege's inner is a 0xDD player command); the pass sold away after play, with the old owner refused and the new owner acting (the page has no candidate transfer action yet).
 - The 404 loads above.
+
+## World 5 (2026-11-15): mint → transfer → join again; the first village is impossible in this preset (NoFreeHome)
+
+Same band, slot agreed with the main CC and ⑰; stopped and checked down afterwards (0 listeners on 41900–41999 incl. 41996, no processes, df 23.21 GiB).
+
+| Stage | Result |
+|---|---|
+| start | the gate `connected` and hidden, dock visible, relay pins [0x4C] / 51204 / B `HMsg5qEkrcFfS1zHQRAVQV3BBNZfcX1BUyxhQpcPC2vQ` |
+| mint | MintResident slot 124, ok; asset `AaFD5r6spZpempUF9QFHQtVFkjYfbuN7FLvtqz58aXQq`; **generation 0**, asserted as a number |
+| transfer | TransferResident slot 126, ok; owner B; **generation 1**, asserted |
+| join | JoinResident (`0xE1` on [0x4C]) slot 134, ok, signed by B; NFT Citizen `AAAFVrVzjDf8xVCF3mSiaV1C9PSMuUejWdCzpJgusvDx` |
+| home | **FAILED (timeout)**: the page said `NoFreeHome` right after the join (screenshot `3-joined.png`); no PlaceHome was sent |
+| build / train / muster | **not reached, not proven** |
+
+**Cause, measured on the live world before cleanup (not inferred from the screen):**
+- The Season (decoded from `/h/season`): `heartlandMaxRing 3`, `genesisRing 3`, `placement 0`.
+- The only opened province is the runner's home `(128, 0)`, ring **128**:
+  - the runner's metadata says "opened by the REAL OpenProvince instruction";
+  - its village was written by the runner (synthetic `Chain::set_account`), not by PlaceHome;
+  - the herald's record has `rings: [{d: 128}]`, so `rings.length = 1`.
+- The page's planner (`home.mjs`): `homeRingsOpen(season, 1) = 1`, and `homeSites` needs ring ≥ 2 and ring < 1, so no candidate exists.
+- The program agrees: PlaceHome above `heartland_max_ring` is refused (ReservedSite). So the planner is right.
+- Both Citizens (B's and the NFT's) are nation 0, so a nation mismatch is ruled out.
+- **Not measured:** the free sites of `(128, 0)` (irrelevant to PlaceHome there, which the ring rule forbids anyway).
+- **So:** in the conquest preset no newcomer (NFT or wallet) can place a first village. `NoFreeHome` is correct, not stale.
+- What the preset needs, so a new player can join normally: an opened heartland province (ring 2–3) of the joiner's nation, created by the real OpenProvince. Proposed to the main CC: a candidate-only runner step that opens one, with nothing fabricated (the page's planner and PlaceHome decide). Not implemented.
+
+**404s:** the page logged 404 resource loads in worlds 4 and 5, which are **not identified yet**. The check now records every 4xx/5xx by method, host and path (`summary.httpErrors`) for the next run.

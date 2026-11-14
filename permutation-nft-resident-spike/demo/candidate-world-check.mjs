@@ -118,6 +118,9 @@ try {
   const g = await gctx.newPage();
   g.on('pageerror', e => step('game pageerror', e.message));
   g.on('console', m => { if (m.type() === 'error') step('game console error', m.text().slice(0, 300)); });
+  // every 4xx/5xx answer the page received, by URL (a 404 is identified, never waved off as harmless)
+  summary.httpErrors = [];
+  g.on('response', r => { if (r.status() >= 400) { const u = new URL(r.url()); summary.httpErrors.push({ status: r.status(), method: r.request().method(), path: u.pathname, host: u.host }); if (summary.httpErrors.length <= 40) step('game http', `${r.status()} ${r.request().method()} ${u.host}${u.pathname}`); } });
   await g.goto(GAME.toString());
   await g.locator('#local-play-address').waitFor({ state: 'visible', timeout: 60_000 });
   await g.waitForFunction(() => /^[1-9A-HJ-NP-Za-km-z]{32,44}$/.test(document.getElementById('local-play-address')?.textContent?.trim() ?? ''), null, { timeout: 60_000 });
