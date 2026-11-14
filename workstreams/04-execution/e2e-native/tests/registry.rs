@@ -97,7 +97,7 @@ fn render() -> String {
         P::Overflow,
         P::WrongExpectedCount,
         P::ContinuousSeason,
-        // NFT pass (nft-experimental; provisional 2026-11-07; 0x111 left free)
+        // NFT pass (nft-experimental; provisional 2026-11-07; 0x111 is ⑧'s CeilingPastTally, registered by its own integration)
         P::ResidentNotSigned,
         P::ResidentAsset,
         P::ResidentAccount,

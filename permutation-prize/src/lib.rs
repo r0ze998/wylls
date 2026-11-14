@@ -1861,7 +1861,8 @@ mod tests {
         for (e, code) in band.iter().zip(0x113u32..) {
             assert_eq!(*e as u32, code, "{e:?}");
         }
-        // 0x111 stays free (⑧'s proposal); 0x112 is ContinuousSeason.
+        // 0x111 is ⑧'s CeilingPastTally (map growth); 0x112 is ContinuousSeason.
+        assert_eq!(PrizeError::CeilingPastTally as u32, 0x111);
         assert_eq!(PrizeError::ContinuousSeason as u32, 0x112);
         assert_eq!(
             [
