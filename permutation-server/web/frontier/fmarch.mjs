@@ -20,6 +20,7 @@ import { encodePath, pack, unpack, validate, STANCES, RETREAT_MAX_BPS, MAX_PATH_
 import { minTipLamports, tipPresets, tipPriorityMilli, departEscrow } from '../sdk/frontier/fees.mjs';
 import * as book from './marchbook.mjs';
 import { tileHex } from './fgeo.mjs';
+import { planBounded } from './froute-bounded.mjs';
 import { isFinal } from './fland.mjs';
 
 // ------------------------------------------------------------------ rules the composer pre-checks
@@ -106,8 +107,16 @@ export function planRoute(kernel, { from, to, unit, seeds, blocked = [] }) {
   if (!start || !dest) return { ok: false, code: 'BadTile' };
   const r = kernel.call('plan_path', { start, dest, unit, blocked, seeds });
   if (!r.ok) return { ok: false, code: 'PlannerRefused', reason: r.reason ?? null };
-  if (!r.value) return { ok: false, code: 'NoPath' };
-  if (r.value.provinces.length > 4 || r.value.dirs.length > MAX_PATH_STEPS) return { ok: false, code: 'Path' };
+  // (the kernel's planner checks the province limit only after choosing the fastest route: when that route crosses a
+  //  fifth province or runs past 32 steps it answers none, though a slower legal one may exist — the bounded search
+  //  keeps the limits in its state and its answer is checked by the kernel's own path_cost: froute-bounded.mjs)
+  if (!r.value || r.value.provinces.length > 4 || r.value.dirs.length > MAX_PATH_STEPS) {
+    const b = planBounded(kernel, { from, to, unit, seeds, blocked });
+    if (b.ok) return b;
+    // (the search's budget spent: not known either way — never said as "no route")
+    if (b.code === 'PlannerBudget') return { ok: false, code: 'PlannerBudget' };
+    return { ok: false, code: r.value ? 'Path' : 'NoPath' };
+  }
   return { ok: true, route: r.value };
 }
 

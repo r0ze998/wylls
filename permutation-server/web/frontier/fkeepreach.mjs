@@ -28,22 +28,26 @@ export function contestableKeeps(keeps, { faction, nowBell = 0 }) {
  *   rows     `[{p, q, tile, holder, troops, route: {hexes, provinces, secs}, origin}]`, the
  *            fastest origin of each keep, sorted by travel time
  *   unreachable  `['p,q', …]`: candidate keeps no origin has a route to
+ *   undetermined `['p,q', …]`: candidate keeps whose route search hit its budget for some origin and found none
+ *                (not known either way: never counted as unreachable)
  */
 export function reachableKeeps({ kernel, keeps, origins = [], seeds = [], faction, nowBell = 0, blocked = [] }) {
   if (!kernel) return { ok: false, code: 'NoKernel' };
-  const rows = [], unreachable = [];
+  const rows = [], unreachable = [], undetermined = [];
   for (const k of contestableKeeps(keeps, { faction, nowBell })) {
-    let best = null;
+    let best = null, budget = false;
     for (const o of origins) {
       const r = planRoute(kernel, { from: { p: o.p, q: o.q, tile: o.tile }, to: { p: k.p, q: k.q, tile: k.tile }, unit: o.unit, seeds, blocked });
       if (r.ok && (!best || r.route.secs < best.route.secs)) best = { route: r.route, origin: o };
+      else if (!r.ok && r.code === 'PlannerBudget') budget = true;
     }
     if (best) rows.push({ p: k.p, q: k.q, tile: k.tile, holder: k.holder, troops: k.troops, origin: best.origin,
       route: { hexes: best.route.hexes, provinces: best.route.provinces, secs: best.route.secs } });
+    else if (budget) undetermined.push(`${k.p},${k.q}`);
     else unreachable.push(`${k.p},${k.q}`);
   }
   rows.sort((a, b) => a.route.secs - b.route.secs || a.route.hexes - b.route.hexes || a.p - b.p || a.q - b.q);
-  return { ok: true, rows, unreachable };
+  return { ok: true, rows, unreachable, undetermined };
 }
 
 /** The cache key: every origin's tile and unit, the turn, and the control snapshot the keeps came from. */

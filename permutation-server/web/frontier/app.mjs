@@ -1033,6 +1033,7 @@ function refusalText(code, hit = null) {
   try { open = pass === null ? null : ((BigInt(pass) >> BigInt(hit.idx)) & 1n) === 1n; } catch { open = null; }
   if (open === false) return () => L`山や水のマスには進めません`;
   if (code === 'NoPath') return () => L`道がありません（山や水にふさがれています）`;
+  if (code === 'PlannerBudget') return () => L`道を調べきれませんでした（届かないとは限りません）`;
   return NOTE_TEXT.unreachable;
 }
 /** The map's live line (`#map-summary`): `say()` gives its words, again when the language changes. */
