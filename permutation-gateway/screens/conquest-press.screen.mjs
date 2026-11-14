@@ -320,3 +320,49 @@ test('round 25: in local play the host bar\'s Dissolve says it cannot be sent th
     assert.notEqual(pop, 'dissolve', 'the press opened no card');
   } catch (e) { await failed(page, name, e); }
 });
+
+test('round 31: the host bar\'s buttons keep their place when the province catches up (a reason gives way to a figure), and a press aimed before still lands', async t => {
+  const { page, host, name } = await openForts(t, 'bar-stays');
+  try {
+    await page.setViewportSize({ width: 1280, height: 800 });
+    // (test-only, in this page: local play with its march trial open, as in the ×10 world where this was seen — Dissolve's
+    //  refusal is then local play's own, said on the bar's line, and March alone says the province is behind, in its
+    //  button; the host stands; its province is behind or in step. Nothing is sent: the fixture has no relay)
+    await page.evaluate(async () => {
+      const { FS } = await import('/frontier/fstate.mjs');
+      FS.localPlay = { address: 'W', programId: 'P', seasonAddress: 'S', cluster: 'localnet' };
+      Object.defineProperty(FS, 'localMarch', { configurable: true, get: () => ({ open: true }) });
+      Object.defineProperty(FS, 'localMarchFor', { configurable: true, enumerable: false, value: () => ({ open: true }) });
+    });
+    const set = (h, rnBack) => page.evaluate(async ([h, rnBack]) => {
+      const { FS, invalidate } = await import('/frontier/fstate.mjs');
+      const env = FS.provinces.get(`${h.p},${h.q}`);
+      env.province = { ...env.province, resolvedNext: FS.nowBell - rnBack, entries: env.province.entries.map(e => String(e.id) === h.id ? { ...e, state: 1 } : e) };
+      FS.hand = { host: h.id };
+      invalidate('panel', 'map');
+      await new Promise(r => setTimeout(r, 700));
+      return [...document.querySelectorAll('#hand .hand-acts .hand-btn')].map(b => { const r = b.getBoundingClientRect(); return { id: b.dataset.hand, x: Math.round(r.left), y: Math.round(r.top), w: Math.round(r.width), h: Math.round(r.height), sub: (b.querySelector('.hand-why, .hand-fig')?.textContent ?? '').trim(), off: b.classList.contains('off'), note: document.querySelector('#hand .hand-note')?.textContent ?? null, lp: !!FS.localPlay, hostBar: document.querySelector('#hand .hand-name')?.textContent ?? null }; });
+    }, [h, rnBack]);
+    const behind = await set(host, 3);
+    const inStep = await set(host, 0);
+    writeFileSync(path.join(OUT, `${name}.json`), `${JSON.stringify({ behind, inStep }, null, 2)}\n`);
+    const march0 = behind.find(b => b.id === 'march'), march1 = inStep.find(b => b.id === 'march');
+    // (the transition itself: March refused while the province is behind, with that reason said — in its button or on the
+    //  bar's line —, and pressable once it has caught up)
+    const said = x => /still resolving the last turn/.test(`${x.sub} ${x.note ?? ''}`);
+    assert.ok(march0 && march1 && march0.off && !march1.off, `March refused, then pressable (${march0?.off} → ${march1?.off})`);
+    assert.ok(said(march0) && !said(march1), 'the province reason is said while behind, and not after');
+    assert.deepEqual(inStep.map(b => b.id), behind.map(b => b.id), 'the same buttons');
+    for (const b of behind) {
+      const a = inStep.find(x => x.id === b.id);
+      assert.deepEqual([a.x, a.y, a.w, a.h], [b.x, b.y, b.w, b.h], `${b.id} stays where it was (${JSON.stringify(b)} → ${JSON.stringify(a)})`);
+    }
+    // a deliberate press, aimed at March on a keep while the province was behind, made after it caught up
+    const keeps = behind.find(b => b.id === 'keeps');
+    assert.ok(keeps, 'the bar offers March on a keep');
+    await page.mouse.move(keeps.x + keeps.w / 2, keeps.y + keeps.h / 2); await page.mouse.down(); await page.waitForTimeout(90); await page.mouse.up();
+    await page.waitForTimeout(500);
+    const pop = await page.evaluate(() => document.getElementById('hand-pop')?.dataset.pop ?? '');
+    assert.equal(pop, 'keeps', 'the press opened the forts card');
+  } catch (e) { await failed(page, name, e); }
+});

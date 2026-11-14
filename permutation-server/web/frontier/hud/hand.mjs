@@ -214,7 +214,12 @@ function hostModel(FS, sub) {
   // stamina, the province has not caught up with the turn — is said once, on the bar's own line under the host's name,
   // and those buttons keep their figures: the same sentence stood on three buttons in two lines each, the bar grew wider
   // than its place and its last button was cut off by its edge. The English recording of 2026-10-11)
-  const shared = sharedWhy(buttons);
+  // (round 31: "the province has not caught up with the turn" comes and goes with the catch-up; said inside a single
+  //  button it replaced that button's figure, the button changed width when the province caught up and the row moved
+  //  under a pressing finger — a press aimed at 「砦へ進軍」 fell on its neighbour in a ×10 world. It is said on the bar's
+  //  line even when only one button has it, and the button keeps its figure and its place.)
+  const behind = mc.code === 'NotResident' && buttons.some(b => b.why === mc.text) ? mc.text : null;
+  const shared = sharedWhy(buttons) ?? behind;
   if (shared) for (const b of buttons) if (b.why === shared) b.said = true;
   // (a host that is forming up says so under its name already — 「編成中（次のターンから）」 —: the line is not said a second time)
   // (round 19: while the forts card is open, its own wait slot says why its rows wait; the bar's line would be the same

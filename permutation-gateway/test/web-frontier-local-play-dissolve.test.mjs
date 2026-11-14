@@ -169,3 +169,24 @@ test('round 28: the keeps button asks the same per-host answer as March (a march
   assert.equal(keeps(state({ localPlay: LOCAL, marchOpen: true, marchFor: () => ({ open: false }) })).why, say, 'page-wide open, this host closed: refused');
   assert.notEqual(keeps(state({})).why, say, 'an ordinary session: not this reason');
 });
+
+test('round 31: "the province has not caught up" said by one button alone goes to the bar\'s line; the button keeps its figure (its width does not follow the catch-up)', () => {
+  setLang('en');
+  const behind = s => { s.provinces.get('2,0').province.resolvedNext = s.nowBell - 3; return s; };
+  const reason = 'This province is still resolving the last turn.';
+  // local play, march open: Dissolve's refusal is local play's own, so March alone has the province reason
+  const m = handModel(behind(state({ localPlay: LOCAL, marchOpen: true, marchFor: () => ({ open: true }) })));
+  const march = m.buttons.find(b => b.id === 'march');
+  assert.equal(march.why, reason, 'March is refused for it');
+  assert.equal(march.said, true, 'said on the bar, not in the button');
+  assert.ok(String(m.note).startsWith(reason), `the bar's line says it: ${m.note}`);
+  const out = String(renderHand(m));
+  assert.doesNotMatch(button(out, 'march') + out.slice(out.indexOf('hand-march'), out.indexOf('hand-march') + 600), /class="hand-why">This province/, 'not inside the button');
+  // in step: no such line, the same button shows its figure as before
+  const n = handModel(state({ localPlay: LOCAL, marchOpen: true, marchFor: () => ({ open: true }) }));
+  assert.equal(n.buttons.find(b => b.id === 'march').why, null);
+  assert.doesNotMatch(String(n.note ?? ''), /still resolving/);
+  // an ordinary session is as before (there the reason is already shared by March and Dissolve)
+  const o = handModel(behind(state({})));
+  assert.ok(String(o.note).startsWith(reason));
+});
