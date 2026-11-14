@@ -9,6 +9,8 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { wideCommandData, wideCommandKeys, wideMirrorWrite, candidateWideActIx, wideResidentActIx, LOCAL_CONQUEST_NFT_CANDIDATE as C, wideLaneFor, WIDE_BAND } from '../client/src/frontier/resident.mjs';
 import { SYSTEM_PROGRAM } from '../client/src/frontier/addresses.mjs';
+import { DECLARE_SIEGE_SHAPE } from '../../permutation-server/web/frontier/fconquest-identity.mjs';
+import { WIDE_SEAL_LEN } from '../../permutation-server/web/frontier/seal-wide.mjs';
 import { classify } from '../client/src/frontier/shapes.mjs';
 import { budgetPrefix } from '../client/src/frontier/budgets.mjs';
 import { compileMessage, wireTransaction, parseTransaction } from '../client/src/solana-tx.mjs';
@@ -24,7 +26,7 @@ test('every command\'s data is exactly the expected bytes; out-of-range inputs h
   for (const c of V.commands.filter(x => x.name === 'Economy')) assert.equal(wideMirrorWrite(cmdOf(c)), !!c.mirrorWrite);
   assert.equal(wideMirrorWrite({ name: 'Economy', action: 'Build', item: 7 }), true, 'the tier-up writes the mirror too');
   assert.throws(() => wideCommandData({ name: 'ClaimSite', p: 0, q: 0, site: 1, slot: 1 }), /slot 2 or 3/);
-  assert.throws(() => wideCommandData({ name: 'Depart' }), /not a wide player command/, 'the sealed march is not encoded here');
+  assert.throws(() => wideCommandData({ name: 'Nope' }), /not a wide player command/);
 });
 
 test('the 0xDD wrapping is exactly the expected bytes', () => {
@@ -47,7 +49,14 @@ test('the account lists follow wide_ix.rs\'s groups: positions, signers, writabl
   assert.equal(shape(wideCommandKeys({ name: 'Economy', action: 'Build', item: 6 }, a)), 'sr sw -r -w -w -w', 'walls: ECONOMY_MIRROR');
   assert.equal(shape(wideCommandKeys({ name: 'Garrison', delta: 1 }, a)), 'sr sw -r -w -w -w', 'GARRISON = ECONOMY_MIRROR');
   assert.equal(shape(wideCommandKeys({ name: 'ClaimSite', slot: 2 }, a)), 'sr sw -r -w -r -w -w -w -r -w -r -r');
-  assert.throws(() => wideCommandKeys({ name: 'DeclareSiege' }, a), /no account list/);
+  // WideDepart: exactly the departing slot's transit writable, the roster last
+  assert.equal(shape(wideCommandKeys({ name: 'Depart', transitSlot: 2 }, a)), 'sr sw -r -w -w -w -r -r -r -r -w -r -r');
+  assert.equal(wideCommandKeys({ name: 'Depart', transitSlot: 2 }, a).at(-1).pubkey, a.roster);
+  // DeclareSiege: canonical's order and flags (fconquest-identity.mjs), the actor read-only (owner ≠ payer for an NFT)
+  const siegeAccounts = { ...a, source_holding: K(40), target_province: K(41), target_roster: K(42), source_province: K(43), target_holding_position: K(44), conquest: K(45), capture_escrow: K(46) };
+  const siege = wideCommandKeys({ name: 'DeclareSiege' }, siegeAccounts);
+  assert.deepEqual(siege.map(k => [k.isSigner, k.isWritable]), DECLARE_SIEGE_SHAPE.map(([name, signer, writable]) => [signer, writable]));
+  assert.equal(siege[0].isWritable, false, 'the actor: the Rust shape (not writable)');
   assert.throws(() => wideCommandKeys({ name: 'Dissolve' }, { ...a, transits: [K(20)] }), /four transit/);
   // the Rust groups say the same (names and order), read from the source
   const src = readFileSync(new URL('../../frontier-abi/src/world_index/wide_ix.rs', import.meta.url), 'utf8');
@@ -55,6 +64,7 @@ test('the account lists follow wide_ix.rs\'s groups: positions, signers, writabl
   assert.deepEqual(group('MUSTER'), ['actor', 'payer', 'season', 'citizen', 'holding', 'province', 'roster', 'system']);
   assert.deepEqual(group('ECONOMY'), ['actor', 'payer', 'season', 'citizen', 'holding', 'province']);
   assert.deepEqual(group('DISSOLVE'), ['actor', 'payer', 'season', 'citizen', 'holding', 'province', 'roster', 'holding_province', 'transit', 'transit', 'transit', 'transit']);
+  assert.deepEqual(group('DEPART'), ['actor', 'payer', 'season', 'citizen', 'holding', 'province', 'system', 'holding_province', 'transit', 'transit', 'transit', 'transit', 'roster']);
   assert.deepEqual(group('CLAIM_SITE'), ['actor', 'payer', 'season', 'citizen', 'frontier', 'province', 'wide_ticket', 'anchor_holding', 'anchor_province', 'previous_holding', 'previous_province', 'system']);
 });
 
@@ -74,4 +84,5 @@ test('the candidate-only builder: refused for any other lane; its bytes pass the
   assert.equal(ok.ok, true);
   assert.deepEqual(ok.resident, { generation: 1, ...resident.proof });
   assert.equal(WIDE_BAND.TRAIN_UNITS, 7, 'permutation-rules arms.rs TRAIN_ARMS_PER_100 has 7 entries');
+  assert.equal(WIDE_BAND.WIDE_SEAL_LEN, WIDE_SEAL_LEN, 'the seal length is seal-wide.mjs\'s');
 });
