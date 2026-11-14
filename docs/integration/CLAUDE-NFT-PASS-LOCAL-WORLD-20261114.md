@@ -253,6 +253,19 @@ validator を使わない spike 試験 91 件中 89 合格（1 件は既知の�
 
 game ページの既存試験は 1607 件中 1597 合格、失敗 10 件は修正の前と同じ（§5g）。
 
+## 5i. 控え 100 の境と、畳んだ form の focus（同日 20:10〜、world なし）
+
+- fixture：`screens/liveworld.mjs` に `reserve`（開始時の控え。既定は従来どおり）。控え 40 で始め、入力の途中で world 自身がその viewer の Train 100 を行う（`world.order('Train')`、同じ player の別のタブと同じ経路）。ページは控えが 40 → 140 になるのを自分で見る。
+- **見つけた不具合（base から）**：Muster の数は打鍵ごとに draft を保存して drawer を書き直す。その時 `keepState` が **折り畳みを開き直す前に focus を戻していた**ため、新しい markup で閉じた fold の中の欄に focus が入らず、**最初の 1 桁で focus が消えて以後の打鍵が失われた**（手元の probe：「1」の後は active が BODY。base の app.mjs でも同じ）。修正：fold を先に戻し、それから値と focus。
+- **troopsOrder の見直し**（初回体験のレビューの指摘）：ページの間ずっと固定すると、訓練の後に Muster が畳まれたまま（再読込まで）になる。focus が兵の card の中にある間だけ順を保ち、それ以外は再描画ごとに控えで決める。
+- browser 試験（`press-redraw.screen.mjs`、7/7）：
+  - Train を打っている間に控えが 100 を越える → 値・focus・開いた form・畳まれた Muster が保たれる。
+  - Muster を fold から開いて打っている間に越える → 値・focus・開いた fold が保たれる。
+  - 誰も card にいない → 40 で Train、world が訓練すると Muster が開き Train が畳まれる。
+  - **base の holding.mjs に戻すと Train の場合は失敗する**（控え 140 で focus が消える）ので、試験は旧い入れ替わりを捉えている。
+- 手札の pop-up への同じ保留は主側の round 17a（この branch の app.mjs の上、主側が canonical に適用。私は自分の部分と主側の差分の行を review）。
+- **world での確認はまだ**（次の world は主側と枠を合意してから。press の記録と失敗時の screenshot・DOM・event log を screen check に足した）。
+
 ## 6. push の記録
 
 | 時刻 | `git ls-remote origin refs/heads/claude/nft-pass-mint-20261114` |
