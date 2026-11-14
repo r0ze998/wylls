@@ -253,20 +253,61 @@ fn gen(w: &World, p: &Pass) -> u32 {
 fn owner_of(w: &World, p: &Pass) -> Address {
     Address::new_from_array(data(w, &p.asset)[1..33].try_into().unwrap())
 }
-/// Everything a transfer may touch, to compare before and after a refusal (lamports of the fee payer excluded: the fee).
-fn snapshot(w: &World, p: &Pass, to: &Address) -> Vec<(Address, Vec<u8>, Address)> {
-    [p.asset, p.resident, w.collection, *to]
-        .iter()
-        .map(|a| {
-            let x = w.svm.get_account(a);
-            (
-                *a,
-                x.as_ref().map(|x| x.data.clone()).unwrap_or_default(),
-                x.map(|x| x.owner).unwrap_or_default(),
-            )
-        })
-        .collect()
+/// Every NON-fee account a transfer may touch — the asset, the record, the collection, the collection authority, the
+/// config and the recipient — as (address, exists, lamports, owner, data), to compare before and after a refusal.
+fn snapshot(w: &World, p: &Pass, to: &Address) -> Vec<(Address, bool, u64, Address, Vec<u8>)> {
+    [
+        p.asset,
+        p.resident,
+        w.collection,
+        w.coll_auth,
+        w.config,
+        *to,
+    ]
+    .iter()
+    .map(|a| match w.svm.get_account(a) {
+        Some(x) => (*a, true, x.lamports, x.owner, x.data),
+        None => (*a, false, 0, Address::default(), vec![]),
+    })
+    .collect()
 }
+fn lamports(w: &World, a: &Address) -> u64 {
+    w.svm.get_account(a).map_or(0, |x| x.lamports)
+}
+/// A refusal: the program's `code`, every non-fee account exactly as before (existence, lamports, owner, data), and the
+/// fee payer changed by nothing but the signature fee (5,000 lamports per signature, or 0 if the runtime charged none).
+fn refused(
+    w: &mut World,
+    t: Transaction,
+    code: u32,
+    p: &Pass,
+    to: &Address,
+    payer: &Address,
+    what: &str,
+) {
+    let sigs = t.signatures.len() as u64;
+    let (before, paid) = (snapshot(w, p, to), lamports(w, payer));
+    let r = send(w, t);
+    assert!(
+        custom(&r, code),
+        "{what}: expected Custom({code}), got {r:?}"
+    );
+    assert_eq!(
+        snapshot(w, p, to),
+        before,
+        "{what}: a non-fee account changed"
+    );
+    let fee = paid - lamports(w, payer);
+    assert!(
+        fee == 0 || fee == 5_000 * sigs,
+        "{what}: the fee payer changed by {fee}, not the signature fee"
+    );
+}
+
+const VARIANTS: [&str; 2] = ["WYLLS_RESIDENT_COMPAT_SO", "WYLLS_RESIDENT_STRICT_SO"];
+const BAD_ADDRESS: u32 = 1001;
+const AUTH: u32 = 1002;
+const NOT_OWNER: u32 = 1003;
 
 #[test]
 #[ignore = "needs the isolated builds: see the file's head"]
@@ -274,19 +315,21 @@ fn default_build_refuses_the_new_tag_and_keeps_0x51() {
     let mut w = world("WYLLS_RESIDENT_SO");
     let (a, b) = (funded(&mut w), funded(&mut w));
     let p = mint(&mut w, &a);
-    let before = snapshot(&w, &p, &b.pubkey());
     let t = tx(
         &w,
         &[transfer_ix(&w, &p, &a.pubkey(), &b.pubkey(), Some(0))],
         &a,
         &[],
     );
-    let r = send(&mut w, t);
-    assert!(
-        custom(&r, BAD_DATA),
-        "0x54 is unknown to the default build: {r:?}"
+    refused(
+        &mut w,
+        t,
+        BAD_DATA,
+        &p,
+        &b.pubkey(),
+        &a.pubkey(),
+        "default: 0x54 is unknown",
     );
-    assert_eq!(snapshot(&w, &p, &b.pubkey()), before, "nothing changed");
     let t = tx(
         &w,
         &[transfer_ix(&w, &p, &a.pubkey(), &b.pubkey(), None)],
@@ -300,7 +343,7 @@ fn default_build_refuses_the_new_tag_and_keeps_0x51() {
 #[test]
 #[ignore = "needs the isolated builds: see the file's head"]
 fn signed_transfer_current_generation_moves_owner_bumps_generation_and_clears_the_session() {
-    for env in ["WYLLS_RESIDENT_COMPAT_SO", "WYLLS_RESIDENT_STRICT_SO"] {
+    for env in VARIANTS {
         let mut w = world(env);
         let (a, b, s) = (funded(&mut w), funded(&mut w), Keypair::new());
         let p = mint(&mut w, &a);
@@ -329,27 +372,25 @@ fn signed_transfer_current_generation_moves_owner_bumps_generation_and_clears_th
 #[test]
 #[ignore = "needs the isolated builds: see the file's head"]
 fn a_signed_generation_that_is_not_the_records_is_refused_and_nothing_changes() {
-    for env in ["WYLLS_RESIDENT_COMPAT_SO", "WYLLS_RESIDENT_STRICT_SO"] {
+    for env in VARIANTS {
         let mut w = world(env);
         let (a, b) = (funded(&mut w), funded(&mut w));
         let p = mint(&mut w, &a);
         for wrong in [1u32, 7, u32::MAX] {
-            let before = snapshot(&w, &p, &b.pubkey());
             let t = tx(
                 &w,
                 &[transfer_ix(&w, &p, &a.pubkey(), &b.pubkey(), Some(wrong))],
                 &a,
                 &[],
             );
-            let r = send(&mut w, t);
-            assert!(
-                custom(&r, STALE_GEN),
-                "{env}: signed {wrong} vs record 0: {r:?}"
-            );
-            assert_eq!(
-                snapshot(&w, &p, &b.pubkey()),
-                before,
-                "{env}: nothing changed"
+            refused(
+                &mut w,
+                t,
+                STALE_GEN,
+                &p,
+                &b.pubkey(),
+                &a.pubkey(),
+                &format!("{env}: signed {wrong} vs record 0"),
             );
         }
     }
@@ -357,19 +398,91 @@ fn a_signed_generation_that_is_not_the_records_is_refused_and_nothing_changes() 
 
 #[test]
 #[ignore = "needs the isolated builds: see the file's head"]
+fn malformed_unsigned_non_holder_and_wrong_proof_are_refused_and_nothing_changes() {
+    for env in VARIANTS {
+        let mut w = world(env);
+        let (a, b, x) = (funded(&mut w), funded(&mut w), funded(&mut w));
+        let p = mint(&mut w, &a);
+        let q = mint(&mut w, &x); // another pass, another holder
+                                  // truncated (3 bytes of generation) and oversized (5 bytes)
+        for d in [vec![0x54, 0, 0, 0], vec![0x54, 0, 0, 0, 0, 0]] {
+            let mut ix = transfer_ix(&w, &p, &a.pubkey(), &b.pubkey(), Some(0));
+            ix.data = d.clone();
+            let t = tx(&w, &[ix], &a, &[]);
+            refused(
+                &mut w,
+                t,
+                BAD_DATA,
+                &p,
+                &b.pubkey(),
+                &a.pubkey(),
+                &format!("{env}: data of {} bytes", d.len()),
+            );
+        }
+        // the owner not signing (another wallet pays and signs; the owner's role is not a signer)
+        let mut ix = transfer_ix(&w, &p, &a.pubkey(), &b.pubkey(), Some(0));
+        ix.accounts[0].is_signer = false;
+        ix.accounts[1] = AccountMeta::new(x.pubkey(), true);
+        let t = tx(&w, &[ix], &x, &[]);
+        refused(
+            &mut w,
+            t,
+            AUTH,
+            &p,
+            &b.pubkey(),
+            &x.pubkey(),
+            &format!("{env}: the owner did not sign"),
+        );
+        // a non-holder signing as the owner
+        let t = tx(
+            &w,
+            &[transfer_ix(&w, &p, &x.pubkey(), &b.pubkey(), Some(0))],
+            &x,
+            &[],
+        );
+        refused(
+            &mut w,
+            t,
+            NOT_OWNER,
+            &p,
+            &b.pubkey(),
+            &x.pubkey(),
+            &format!("{env}: a non-holder"),
+        );
+        // another asset's record as the proof
+        let mut ix = transfer_ix(&w, &p, &a.pubkey(), &b.pubkey(), Some(0));
+        ix.accounts[5] = AccountMeta::new(q.resident, false);
+        let t = tx(&w, &[ix], &a, &[]);
+        refused(
+            &mut w,
+            t,
+            BAD_ADDRESS,
+            &p,
+            &b.pubkey(),
+            &a.pubkey(),
+            &format!("{env}: another asset's record"),
+        );
+        assert_eq!(
+            (owner_of(&w, &p), gen(&w, &p)),
+            (a.pubkey(), 0),
+            "{env}: the pass never moved"
+        );
+    }
+}
+
+#[test]
+#[ignore = "needs the isolated builds: see the file's head"]
 fn aba_an_old_unsent_signed_transfer_is_refused_after_a_to_b_to_a() {
-    for env in ["WYLLS_RESIDENT_COMPAT_SO", "WYLLS_RESIDENT_STRICT_SO"] {
+    for env in VARIANTS {
         let mut w = world(env);
         let (a, b, r) = (funded(&mut w), funded(&mut w), funded(&mut w));
         let p = mint(&mut w, &a);
-        // A signs a transfer to R at generation 0 and holds it unsent
         let old = tx(
             &w,
             &[transfer_ix(&w, &p, &a.pubkey(), &r.pubkey(), Some(0))],
             &a,
             &[],
         );
-        // A → B (gen 1) → A (gen 2), each with the generation signed
         let t = tx(
             &w,
             &[transfer_ix(&w, &p, &a.pubkey(), &b.pubkey(), Some(0))],
@@ -385,16 +498,14 @@ fn aba_an_old_unsent_signed_transfer_is_refused_after_a_to_b_to_a() {
         );
         send(&mut w, t).expect("B→A");
         assert_eq!((owner_of(&w, &p), gen(&w, &p)), (a.pubkey(), 2));
-        let before = snapshot(&w, &p, &r.pubkey());
-        let res = send(&mut w, old);
-        assert!(
-            custom(&res, STALE_GEN),
-            "{env}: the old transfer signed at 0 after A→B→A: {res:?}"
-        );
-        assert_eq!(
-            snapshot(&w, &p, &r.pubkey()),
-            before,
-            "{env}: nothing changed"
+        refused(
+            &mut w,
+            old,
+            STALE_GEN,
+            &p,
+            &r.pubkey(),
+            &a.pubkey(),
+            &format!("{env}: the old transfer signed at 0 after A→B→A"),
         );
         assert_eq!(owner_of(&w, &p), a.pubkey());
     }
@@ -404,7 +515,7 @@ fn aba_an_old_unsent_signed_transfer_is_refused_after_a_to_b_to_a() {
 #[ignore = "needs the isolated builds: see the file's head"]
 fn the_compatible_variant_still_lets_an_old_0x51_through_the_strict_variant_refuses_it() {
     // COMPATIBLE: 0x51 is still served, so an old unsigned-generation transfer held across A→B→A still lands — the
-    // boundary is NOT closed by adding 0x54 alone. STRICT: 0x51 is refused, nothing changes.
+    // boundary is NOT closed by adding 0x54 alone. STRICT: 0x51 is refused and nothing changes.
     for (env, strict) in [
         ("WYLLS_RESIDENT_COMPAT_SO", false),
         ("WYLLS_RESIDENT_STRICT_SO", true),
@@ -432,16 +543,18 @@ fn the_compatible_variant_still_lets_an_old_0x51_through_the_strict_variant_refu
             &[],
         );
         send(&mut w, t).expect("B→A");
-        let before = snapshot(&w, &p, &r.pubkey());
-        let res = send(&mut w, old);
         if strict {
-            assert!(custom(&res, BAD_DATA), "strict: 0x51 refused: {res:?}");
-            assert_eq!(
-                snapshot(&w, &p, &r.pubkey()),
-                before,
-                "strict: nothing changed"
+            refused(
+                &mut w,
+                old,
+                BAD_DATA,
+                &p,
+                &r.pubkey(),
+                &a.pubkey(),
+                "strict: 0x51 refused",
             );
         } else {
+            let res = send(&mut w, old);
             assert!(
                 res.is_ok(),
                 "compatible: the old 0x51 still lands (the open boundary): {res:?}"

@@ -73,5 +73,10 @@ The relay path is now **default deny**: no relay a launcher or the relay server 
   - a wrong signed generation is refused and nothing changes;
   - an old 0x54 signed at generation 0 is refused after A→B→A, and nothing changes;
   - the compatible variant still lets an old 0x51 through, while the strict variant refuses it.
-- Build-and-prove script: `resident-signed-transfer-proof.sh` (sha256 `b50d308e`). It writes isolated artefacts with recorded hashes and features to the scratchpad, never over `program/target/deploy` (the candidate's `947da0b9` stays).
+- Every refusal is checked strictly:
+  - the program's error code;
+  - every NON-fee account (asset, record, collection, collection authority, config, recipient) unchanged in existence, lamports, owner and data;
+  - the fee payer changed by nothing but the signature fee.
+- Further negatives: a truncated or oversized 0x54, the owner not signing (Auth), a non-holder (NotOwner), and another asset's record as the proof (BadAddress).
+- Build-and-prove script: `resident-signed-transfer-proof.sh` (sha256 `2c0e3c92`). It pins the three variants' features and sha256 in a manifest, re-checks them right before the LiteSVM run, and compares the deployed candidate `947da0b9` before and after (it must be unchanged). It writes isolated artefacts with recorded hashes and features to the scratchpad, never over `program/target/deploy` (the candidate's `947da0b9` stays).
 - **Not adopted, not deployed, not used in any world.** Adoption, and the choice between compatible and strict, wait for review. The setup is adapted from ⑰'s `nft_pass.rs`, which is cited in the file.
