@@ -80,3 +80,29 @@ The relay path is now **default deny**: no relay a launcher or the relay server 
 - Further negatives: a truncated or oversized 0x54, the owner not signing (Auth), a non-holder (NotOwner), and another asset's record as the proof (BadAddress).
 - Build-and-prove script: `resident-signed-transfer-proof.sh` (sha256 `2c0e3c92`). It pins the three variants' features and sha256 in a manifest, re-checks them right before the LiteSVM run, and compares the deployed candidate `947da0b9` before and after (it must be unchanged). It writes isolated artefacts with recorded hashes and features to the scratchpad, never over `program/target/deploy` (the candidate's `947da0b9` stays).
 - **Not adopted, not deployed, not used in any world.** Adoption, and the choice between compatible and strict, wait for review. The setup is adapted from ⑰'s `nft_pass.rs`, which is cited in the file.
+
+## The design proof RAN (2026-11-15, agreed slot, unchanged guard)
+
+Script `resident-signed-transfer-proof.sh` (sha256 `7751ccb4`), world branch `f6470288` plus the svm-core lock commit:
+
+| Isolated artefact (scratchpad `resident-signed-transfer/`) | Features | Bytes | sha256 |
+|---|---|---|---|
+| `resident-default.so` | default | 165,360 | `4e17befc76ed2687f1b2424b55064a5b2e20ee12975e3d8b7583b27cf9357fac` |
+| `resident-compat.so` | `signed-transfer-test-only` | 166,104 | `96b24b6285f37295315e419f786772fffe4d0a56cc537c0bca8092dc938fa069` |
+| `resident-strict.so` | `transfer-requires-generation-test-only` | 166,000 | `13496748bdf456209197cd02f21f0cc9e1f797b2341054ce49b6dcb7576b34ee` |
+
+- Core: the untrimmed mainnet ELF `515541c8…`, checked by hash before the run.
+- **The deployed candidate** (`wylls-nft-pass-20261114/…/program/target/deploy/wylls_resident_program.so`) is present and `947da0b9…` **before and after**: unchanged and never written.
+  - The first attempt pointed at a path where it does not exist, and the check tolerated that. That is now a hard failure: `deployed_ok` needs the file present with that exact hash, and its self-test refuses a missing path and wrong bytes.
+- **Result:** `cargo +1.95.0 test --offline --locked --test signed_transfer -- --ignored`: **6 passed, 0 failed, 0 ignored, 0 measured, 0 filtered**. All 6 tests are named in the log, and the verdict needs exactly that plus LiteSVM exit 0 and the deployed hash unchanged. Its self-test refuses 9 injected failures and accepts 1 good case (10/10).
+- **What it shows (TEST ONLY; nothing adopted):**
+  - the default build refuses 0x54 and keeps 0x51;
+  - 0x54 at the current generation moves the owner, bumps the generation and clears the session (all four fields), in both variants;
+  - a wrong signed generation is refused (StaleGen) and every non-fee account is unchanged (existence, lamports, owner, data), with the fee payer changed by the fee only;
+  - truncated or oversized 0x54, an owner not signing, a non-holder, and another asset's record are refused, with nothing changed;
+  - **A→B→A: an old 0x54 signed at generation 0 is refused**;
+  - **the compatible variant still lets an old 0x51 through** (the boundary stays open); **only the strict variant refuses it**.
+- **Not established here:**
+  - The default build made from this tree hashes `4e17befc…`, not the deployed candidate's `947da0b9…`. Either the program source changed since `BUILD-RECORD.json` (v0.26) or the build path enters the binary. So these tests do not prove anything about `947da0b9` itself.
+  - Adoption, and compatible versus strict, remain the owner's decision. The world relay's TransferResident stays default deny.
+- The first LiteSVM attempt failed offline (`light-poseidon 0.4.1` not cached). The lock was pinned to the cached `0.4.0` (plus `either 1.18.0`) in its own commit. No network fetch, no new crate.
