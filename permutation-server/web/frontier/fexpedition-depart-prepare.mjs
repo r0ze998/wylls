@@ -14,6 +14,7 @@ import { parseMessage, COMPUTE_BUDGET_PROGRAM } from '../sdk/solana-tx.mjs';
 import { decode, encode } from '../sdk/base58.mjs';
 import { fromBase64, toBase64, fromHex, toHex, utf8 } from '../sdk/bytes.mjs';
 import { sha256 } from '../sdk/sha256.mjs';
+import { servesDeploymentVersion } from './flocallanes.mjs';
 
 export const DEPART_PREPARE_REQUEST_SCHEMA = 'frontier-experimental-expedition-depart-prepare-request-v1';
 export const DEPART_PREPARE_REPORT_SCHEMA = 'frontier-experimental-expedition-depart-prepare-report-v1';
@@ -89,7 +90,7 @@ export function departPreparationRequestOf(value) {
   if (!exact(value, [...SCOPE, 'proposal']) || value.schema !== DEPART_PREPARE_REQUEST_SCHEMA
       || typeof value.request_id !== 'string' || !/^[A-Za-z0-9_-]{1,64}$/.test(value.request_id)
       || typeof value.cluster !== 'string' || !/^[a-z0-9-]{1,32}$/.test(value.cluster)
-      || !exact(value.deployment, ['program_version', 'ruleset_hash']) || value.deployment.program_version !== DEPART_PREPARE_PROGRAM_VERSION || !hex(value.deployment.ruleset_hash, 32)
+      || !exact(value.deployment, ['program_version', 'ruleset_hash']) || !servesDeploymentVersion(value.deployment.program_version) || !hex(value.deployment.ruleset_hash, 32)
       || !['program', 'season', 'wallet', 'payer'].every(k => address(value[k])) || value.program === value.season
       || !exact(value.standing, ['p', 'q']) || !int64(value.standing.p) || !int64(value.standing.q)
       || !hex(value.host, 56) || !uint(value.transit_slot, 3n) || !uint(value.arrive_bell, 0xffffffffn) || !uint(value.tip) || !uint(value.min_slot)
@@ -125,7 +126,7 @@ export function departPreparationRequest(fs, { sealed = null, requestId = `${Dat
   check(c.ready?.ok === true && c.report?.ok === true, 'DepartObservationNotReady');
   const r = s.review, src = s.source;
   check(Array.isArray(r.roles) && r.roles.length === 9 && Number.isInteger(r.transitSlot) && r.transitSlot === src.transitSlot, 'DepartRolesUnavailable');
-  check(String(src.programVersion) === DEPART_PREPARE_PROGRAM_VERSION, 'ExperimentalPreparationUnavailable');
+  check(servesDeploymentVersion(String(src.programVersion)), 'ExperimentalPreparationUnavailable');
   // The explicit wallet path only: the acting wallet is also the fee payer. The relay prepares for its ONE configured
   // public fee payer, so this request is served only when that payer is this wallet; any other wallet is answered
   // ExpeditionDepartPrepareScopeMismatch by the relay. No other payer is named or substituted here.
@@ -134,7 +135,7 @@ export function departPreparationRequest(fs, { sealed = null, requestId = `${Dat
   check(publicSealOk(sealed), 'DepartSealUnavailable');
   check(typeof requestId === 'string' && /^[A-Za-z0-9_-]{1,64}$/.test(requestId), 'BadDepartPreparationRequest');
   const scope = { schema: DEPART_PREPARE_REQUEST_SCHEMA, request_id: requestId, cluster: src.cluster, program: src.program, season: src.season,
-    deployment: { program_version: DEPART_PREPARE_PROGRAM_VERSION, ruleset_hash: src.ruleset }, wallet: src.wallet, payer: src.payer, host: src.host,
+    deployment: { program_version: String(src.programVersion), ruleset_hash: src.ruleset }, wallet: src.wallet, payer: src.payer, host: src.host,
     standing: { p: src.origin.p, q: src.origin.q }, transit_slot: String(r.transitSlot), arrive_bell: String(r.arriveBell), tip: String(r.tip.lamports),
     public_commit: sealed.commit, public_seal: sealed.seal, min_slot: String(c.contextSlot) };
   let request;
@@ -178,7 +179,7 @@ export function departPreparationReport(value, request) {
     && b.height_min_context_slot === b.validity_context_slot, 'DepartPreparationBlockhashContext');
   check(BigInt(b.remaining_block_heights) >= 2n && BigInt(b.last_valid_block_height) - BigInt(b.block_height) === BigInt(b.remaining_block_heights), 'DepartPreparationBlockhashExpired');
   check(exact(p, ['program', 'season', 'program_version', 'action', 'fee_payer', 'budget', 'roles', 'instruction_hex', 'message_b64', 'message_digest', 'signers', 'shape', 'proposal_digest'])
-    && p.program === request.program && p.season === request.season && p.program_version === DEPART_PREPARE_PROGRAM_VERSION && p.action === 'Depart'
+    && p.program === request.program && p.season === request.season && p.program_version === request.deployment.program_version && p.action === 'Depart'
     && p.fee_payer === request.payer && p.proposal_digest === request.proposal.content_digest && stable(p.roles) === stable(roles), 'DepartPreparationScopeMismatch');
   const budget = p.budget;
   check(exact(budget, ['cu_limit', 'cu_price', 'loaded_limit', 'heap']) && Number.isInteger(budget.cu_limit) && budget.cu_limit > 0 && budget.cu_limit <= 1_400_000

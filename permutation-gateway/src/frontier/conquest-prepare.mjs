@@ -15,6 +15,7 @@ import { decode, encode } from '../../client/src/base58.mjs';
 import { parseMessage, COMPUTE_BUDGET_PROGRAM } from '../../client/src/solana-tx.mjs';
 import { expeditionRequest, expeditionRequestDigest, expeditionRpcUrlAllowed } from './expedition-preview.mjs';
 import { canonicalDeclareSiegeRoles, DECLARE_SIEGE_SHAPE, DECLARE_SIEGE_DISPATCH } from '../../../permutation-server/web/frontier/fconquest-identity.mjs';
+import { servesDeploymentVersion } from './local-lane-versions.mjs';
 
 export const CONQUEST_PREPARE_REQUEST_SCHEMA = 'frontier-local-play-conquest-prepare-request-v1';
 export const CONQUEST_PREPARE_REPORT_SCHEMA = 'frontier-local-play-conquest-prepare-report-v1';
@@ -86,7 +87,7 @@ export function conquestPrepareRequest(value) {
   // (the twelve accounts must be nameable from this request alone: this wallet's own Citizen and host, this province, this site)
   try { canonicalDeclareSiegeRoles(source, value.target.site); } catch { bad(); }
   // (the player acts and pays: one wallet, named twice)
-  if (source.deployment.program_version !== VERSION || !address(source.wallet) || source.payer !== source.wallet
+  if (!servesDeploymentVersion(source.deployment.program_version) || !address(source.wallet) || source.payer !== source.wallet
       || BigInt(value.source_context_slot) < BigInt(source.min_slot)) bad();
   const request = { schema: CONQUEST_PREPARE_REQUEST_SCHEMA, request_id: value.request_id, action: value.action, source_request: source,
     source_context_slot: value.source_context_slot, source_snapshot_digest: value.source_snapshot_digest, target: { site: value.target.site, entry: value.target.entry } };
@@ -130,7 +131,7 @@ export function conquestPrepareReport(v, request, pins) {
     && BigInt(b.last_valid_block_height) - BigInt(b.block_height) === BigInt(b.remaining_block_heights));
   const p = v.prepared, source = request.source_request, pin = pins.dispatch, wallet = source.wallet;
   check(exact(p, ['program', 'season', 'program_version', 'action', 'fee_payer', 'dispatch', 'budget', 'roles', 'instruction_hex', 'message_b64', 'message_digest', 'signers', 'shape'])
-    && p.program === source.program && p.season === source.season && p.program_version === VERSION && p.action === request.action
+    && p.program === source.program && p.season === source.season && p.program_version === source.deployment.program_version && p.action === request.action
     && p.fee_payer === pins.fee_payer && p.fee_payer === wallet && exact(p.dispatch, ['tag', 'kind']) && p.dispatch.tag === pin.tag && p.dispatch.kind === pin.kind
     && exact(p.budget, ['cu_limit', 'cu_price', 'loaded_limit', 'heap']) && p.budget.cu_limit === pins.cu_limit
     && p.budget.loaded_limit === pins.loaded_limit && p.budget.cu_price === '0' && p.budget.heap === pin.heap);

@@ -6,6 +6,7 @@ import path from 'node:path';
 import { decode, encode } from '../../client/src/base58.mjs';
 import { parseMessage, COMPUTE_BUDGET_PROGRAM } from '../../client/src/solana-tx.mjs';
 import { canonicalExpeditionAccounts, canonicalExpeditionRoles } from '../../../permutation-server/web/frontier/fexpedition-identity.mjs';
+import { servesDeploymentVersion } from './local-lane-versions.mjs';
 import { expeditionRequest, expeditionRequestDigest, expeditionRpcUrlAllowed } from './expedition-preview.mjs';
 
 export const PREPARE_REQUEST_SCHEMA = 'frontier-experimental-expedition-prepare-request-v1';
@@ -73,7 +74,7 @@ export function expeditionPrepareRequest(value) {
   let source, canonical;
   try { source = expeditionRequest(value.source_request); canonical = canonicalResidentProposal(source, value.action); }
   catch { bad(); }
-  if (source.deployment.program_version !== VERSION || !address(source.payer)
+  if (!servesDeploymentVersion(source.deployment.program_version) || !address(source.payer)
       || BigInt(value.source_context_slot) < BigInt(source.min_slot)
       || !exact(value.proposal, ['bytes_hex', 'content_digest', 'roles']) || !Array.isArray(value.proposal.roles)
       || value.proposal.roles.length !== canonical.roles.length
@@ -129,7 +130,7 @@ export function expeditionPrepareReport(v, request, pins) {
     && BigInt(b.last_valid_block_height) - BigInt(b.block_height) === BigInt(b.remaining_block_heights));
   const p = v.prepared, source = request.source_request;
   check(exact(p, ['program', 'season', 'program_version', 'action', 'fee_payer', 'budget', 'roles', 'instruction_hex', 'message_b64', 'message_digest', 'signers', 'shape', 'proposal_digest'])
-    && p.program === source.program && p.season === source.season && p.program_version === VERSION && p.action === request.action
+    && p.program === source.program && p.season === source.season && p.program_version === source.deployment.program_version && p.action === request.action
     && p.fee_payer === pins.fee_payer && p.fee_payer === source.payer && p.proposal_digest === request.proposal.content_digest
     && exact(p.budget, ['cu_limit', 'cu_price', 'loaded_limit', 'heap']) && p.budget.cu_limit === pins.cu_limit
     && p.budget.loaded_limit === pins.loaded_limit && p.budget.cu_price === '0' && p.budget.heap === 256 * 1024

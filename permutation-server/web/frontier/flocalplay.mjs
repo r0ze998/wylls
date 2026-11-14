@@ -23,6 +23,7 @@ import { seasonAddresses } from './faddr.mjs';
 import { L, onLangChange, mountLangToggle } from '../lang.mjs';
 import { mountSessionNotice, pairGuideView } from './flocalplay-session.mjs';
 import { confirmWorldEnd, worldEndOf } from './flocalplay-instance.mjs';
+import { servesLocalVersion } from './flocallanes.mjs';
 
 /** The dedicated localnet program of the `localnet-expedition-sbf` build ([0x45; 32]). */
 export const LOCAL_PLAY_PROGRAM = '5fQPsn8hoaVddFG26cWQ5QFdqxWtUPNaZ9zH2E6LYzFn';
@@ -185,7 +186,7 @@ export async function verifyLocalPlayHerald(herald, address, { natural = false }
   if (!s?.ok) return { ok: false, code: s?.code === 'network' ? 'HeraldUnreachable' : 'HeraldNotReady' };
   if (s.record?.programId !== LOCAL_PLAY_PROGRAM) return { ok: false, code: 'LocalPlayProgram' };
   if (s.record?.cluster !== LOCAL_PLAY_CLUSTER) return { ok: false, code: 'LocalPlayCluster' };
-  if (s.season?.programVersion !== LOCAL_PLAY_PROGRAM_VERSION) return { ok: false, code: 'LocalPlayVersion' };
+  if (!servesLocalVersion(s.season?.programVersion)) return { ok: false, code: 'LocalPlayVersion' };
   // The Season's identity is worked out here from the dedicated program and the record's Season id, never taken from
   // the herald: the record must name that canonical Season account, and the client is PINNED to it before the
   // player's record is read, so the client's own checks (the Citizen at this wallet's canonical address, its bytes of
@@ -220,7 +221,7 @@ export async function verifyLocalPlayHerald(herald, address, { natural = false }
  */
 export function localPlayIdentityOk(identity, pin, season, citizen = undefined) {
   if (!identity || !pin || pin.programId !== identity.programId || pin.cluster !== identity.cluster || String(pin.seasonId) !== identity.seasonId
-      || pin.addresses?.season !== identity.seasonAddress || season?.programVersion !== LOCAL_PLAY_PROGRAM_VERSION) return false;
+      || pin.addresses?.season !== identity.seasonAddress || !servesLocalVersion(season?.programVersion)) return false;
   if (citizen === undefined || citizen === null) return true;
   try { return toBase58(citizen.wallet) === identity.address; } catch { return false; }
 }

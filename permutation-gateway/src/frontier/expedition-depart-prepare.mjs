@@ -14,6 +14,7 @@ import { parseMessage, COMPUTE_BUDGET_PROGRAM } from '../../client/src/solana-tx
 import { canonicalOutboundRoles } from '../../../permutation-server/web/frontier/fexpedition-depart.mjs';
 import { withSeed, seedOf } from '../../../permutation-server/web/frontier/faddr.mjs';
 import { expeditionRpcUrlAllowed } from './expedition-preview.mjs';
+import { servesDeploymentVersion } from './local-lane-versions.mjs';
 
 export const DEPART_PREPARE_REQUEST_SCHEMA = 'frontier-experimental-expedition-depart-prepare-request-v1';
 export const DEPART_PREPARE_REPORT_SCHEMA = 'frontier-experimental-expedition-depart-prepare-report-v1';
@@ -135,7 +136,7 @@ export function expeditionDepartPrepareRequest(value) {
       || typeof value.proposal.content_digest !== 'string' || !Array.isArray(value.proposal.roles) || value.proposal.roles.length !== 9) bad();
   // (the CLI's own refusals after the shape: VersionUnsupported, TransitSlotInvalid, SealAbsent, SealSyntax)
   const first = Number.parseInt(value.public_seal.slice(0, 2), 16);
-  if (value.deployment.program_version !== DEPART_PREPARE_PROGRAM_VERSION || Number(value.transit_slot) >= 4
+  if (!servesDeploymentVersion(value.deployment.program_version) || Number(value.transit_slot) >= 4
       || /^0*$/.test(value.public_commit) || /^0*$/.test(value.public_seal) || (first & 0x80) === 0 || (first & 0x40) !== 0) bad();
   const scope = { schema: DEPART_PREPARE_REQUEST_SCHEMA, request_id: value.request_id, cluster: value.cluster, program: value.program, season: value.season,
     deployment: { program_version: value.deployment.program_version, ruleset_hash: value.deployment.ruleset_hash },
@@ -209,7 +210,7 @@ export function expeditionDepartPrepareReport(v, request, pins) {
     && BigInt(b.last_valid_block_height) - BigInt(b.block_height) === BigInt(b.remaining_block_heights));
   const p = v.prepared, roles = request.proposal.roles;
   check(exact(p, ['program', 'season', 'program_version', 'action', 'fee_payer', 'budget', 'roles', 'instruction_hex', 'message_b64', 'message_digest', 'signers', 'shape', 'proposal_digest'])
-    && p.program === request.program && p.season === request.season && p.program_version === DEPART_PREPARE_PROGRAM_VERSION && p.action === 'Depart'
+    && p.program === request.program && p.season === request.season && p.program_version === request.deployment.program_version && p.action === 'Depart'
     && p.fee_payer === pins.fee_payer && p.fee_payer === request.payer && p.proposal_digest === request.proposal.content_digest
     && exact(p.budget, ['cu_limit', 'cu_price', 'loaded_limit', 'heap']) && p.budget.cu_limit === pins.cu_limit
     && p.budget.loaded_limit === pins.loaded_limit && p.budget.cu_price === '0' && p.budget.heap === DEPART_HEAP_FRAME
