@@ -28,7 +28,7 @@ import { decodeEntryResident, ENTRY_RESIDENT_SIZE } from '../client/src/frontier
 import { passView } from '../src/frontier/prize-view.mjs';
 import { claimedEntryAnswer } from '../src/frontier/claim-outcome.mjs';
 import { claimIsMine, claimOpLive, claimOpOf, nextPassEpoch, PASS_DEPOSITS_ENABLED, passClaimModel, passJoinPlan } from '../../permutation-server/web/frontier/fprize.mjs';
-import { renderJoinTerms, renderPass } from '../../permutation-server/web/frontier/screens/prize.mjs';
+import { render as renderPanel, renderJoinTerms, renderPass } from '../../permutation-server/web/frontier/screens/prize.mjs';
 import { failureText } from '../../permutation-server/web/frontier/fi18n.mjs';
 import { setLang } from '../../permutation-server/web/lang.mjs';
 
@@ -240,4 +240,38 @@ test('8. the merge into the current controller keeps the pass epoch on every vie
   assert.match(c, /'prize-claim-pass': \(\) => claimPass\(\)/);
   assert.match(c, /'nft-logout': async \(\) => \{ adoptResident\(null\); await refresh\(\); \}/);
   assert.doesNotMatch(c, /^(<<<<<<<|=======|>>>>>>>)/m);
+});
+
+test('9. a plain callout keeps its bold heading and its explanation apart (a line break), in English and Japanese', () => {
+  const claimedBy = (who, g) => entryBytes({ claimed: true, claimedBy: bytes(who), claimGeneration: g, claimAmount: 25_000_000n });
+  const stores = {
+    claimedOwn: { wallet: { address: A }, inFlight: 0, prize: posted(wire(claimedBy(0xa1, 2))), prizeLedger: ledger(), resident: resident(2), prizePass: null },
+    claimedByOther: { wallet: { address: A }, inFlight: 0, prize: posted(wire(claimedBy(0xb2, 1))), prizeLedger: ledger(), resident: resident(2), prizePass: null },
+    pendingByOther: { wallet: { address: A }, inFlight: 0, prize: posted(wire(entryBytes())), prizeLedger: ledger(), resident: resident(2),
+      prizePass: { asset: ASSET, generation: 2, wallet: A, state: 'claimedByOther', priorClaim: { claimedBy: B, claimGeneration: 1 } } },
+  };
+  // The full panel too: "The result is confirmed…" is a plain callout of the same shape (a final count needs area and winners).
+  const final = { ...stores.claimedOwn, prize: { ...posted(wire(claimedBy(0xa1, 2))), area: [8, 10, 9, 9, 9, 9], winners: [1], counted: 54, expectedKeeps: 54, fee: '25000000', opsBps: 2000, prizeBps: 8000, entries: 2, collected: '50000000', ops: '10000000' } };
+  for (const lang of ['ja', 'en']) {
+    setLang(lang);
+    const htmls = [...Object.entries(stores).map(([k, fs]) => [k, String(renderPass(fs))]), ['panel', String(renderPanel(final))]];
+    for (const [name, h] of htmls) {
+      const plainCallouts = [...h.matchAll(/<p class="callout">([\s\S]*?)<\/p>/g)].map(m => m[1]);
+      assert.ok(plainCallouts.length >= 1, `${lang} ${name}: a plain callout is shown`);
+      for (const c of plainCallouts) {
+        assert.match(c, /^<strong>[\s\S]+<\/strong><br><span>[\s\S]+<\/span>$/, `${lang} ${name}: heading, a break, then the explanation`);
+      }
+      // The estimate callouts (.pz-est) are styled as a wrapping row elsewhere: left as they were.
+      assert.doesNotMatch(h, /pz-est"><strong>[\s\S]*?<\/strong><br>/, `${lang} ${name}: .pz-est untouched`);
+    }
+  }
+  // Readable text (tags → nothing, <br> → a line end): no "USDCClaimed" run-together.
+  setLang('en');
+  const asText = h => String(h).replace(/<br>/g, '\n').replace(/<[^>]*>/g, '');
+  const t = asText(renderPass(stores.claimedOwn));
+  assert.match(t, /Claimed: 25 test USDC\nClaimed by wallet /);
+  assert.doesNotMatch(t, /USDCClaimed/);
+  assert.match(asText(renderPass(stores.claimedByOther)), /Claimed by a previous owner: 25 test USDC\nClaimed by wallet /);
+  // The guards around it are unchanged: no claim button in any of these states.
+  for (const fs of Object.values(stores)) assert.doesNotMatch(String(renderPass(fs)), /data-act="prize-claim-pass"/);
 });

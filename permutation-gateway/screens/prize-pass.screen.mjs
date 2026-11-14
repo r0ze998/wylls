@@ -1,6 +1,6 @@
 // ⑰ NFT prize: the pass section of the 賞金 panel and the join terms, in the
 // normal English UI, rendered by the page's REAL modules
-// (frontier/screens/prize.mjs, fprize.mjs, lang.mjs, frontier.css) in a real
+// (frontier/screens/prize.mjs, fprize.mjs, lang.mjs and index.html's stylesheets) in a real
 // Chromium, over literal fixtures. Checks what a player sees and what can be
 // pressed for: the current owner (claim offered; held while busy), a former
 // owner, an earlier generation's claim, the pass's own claim, refund mode,
@@ -21,7 +21,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createServer } from 'node:http';
 import { readFile } from 'node:fs/promises';
-import { writeFileSync } from 'node:fs';
+import { readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -55,8 +55,8 @@ const CASES = {
   currentOwner: { FS: fs(B, 1, posted({ pass: pass(entry()) })), view: 'panel', text: [/Estimated claim: 25/, /Claim this NFT's prize/, /only its current owner can claim/i], button: 'enabled' },
   currentOwnerBusy: { FS: fs(B, 1, posted({ pass: pass(entry()) }), { inFlight: 1 }), view: 'panel', text: [/Claim this NFT's prize/], button: 'disabled' },
   formerOwner: { FS: fs(A, null, posted({ pass: pass(entry()) })), view: 'panel', text: [/not in this wallet now/i], button: 'none' },
-  earlierGeneration: { FS: fs(A, 2, posted({ pass: pass(entry({ claimed: true, claimedBy: B, claimGeneration: 1, claimAmount: '25000000' })) })), view: 'panel', text: [/Claimed by a previous owner: 25/, /generation 1/], button: 'none' },
-  claimedOwn: { FS: fs(A, 2, posted({ pass: pass(entry({ claimed: true, claimedBy: A, claimGeneration: 2, claimAmount: '25000000' })) })), view: 'panel', text: [/Claimed: 25 test USDC/, /no second claim/i], button: 'none' },
+  earlierGeneration: { FS: fs(A, 2, posted({ pass: pass(entry({ claimed: true, claimedBy: B, claimGeneration: 1, claimAmount: '25000000' })) })), view: 'panel', text: [/Claimed by a previous owner: 25/, /generation 1/], button: 'none', callouts: 2 },
+  claimedOwn: { FS: fs(A, 2, posted({ pass: pass(entry({ claimed: true, claimedBy: A, claimGeneration: 2, claimAmount: '25000000' })) })), view: 'panel', text: [/Claimed: 25 test USDC\nClaimed by wallet/, /no second claim/i], button: 'none', callouts: 2 },
   refund: { FS: fs(B, 1, posted({ pass: pass(entry()), shares: { mode: 'refund', shareNations: 0, totalPoints: ['0', '0', '0', '0', '0', '0'], claims: 0, claimed: '0', root: 'ab', ledgerHash: 'cd' } })), view: 'panel', text: [/undecided/i], button: 'none' },
   depositRefusedPanel: { FS: fs(B, 1, posted({ pass: pass(null) })), view: 'panel', text: [/not taken until its refund right is decided/i, /cannot pay one now/i], button: 'none', deposit: true },
   nftCardNoPool: { FS: { ...fs(B, 1, null), resident: null, nftsRead: { ok: true, code: null }, nfts: NFTS, joinDraft: { faction: 2 } }, view: 'nfts', text: [/one resident/i], button: 'none', nftButtons: { [NEW_NFT]: 'enabled', [JOINED_NFT]: 'enabled' }, noRefusal: true },
@@ -64,8 +64,10 @@ const CASES = {
   depositRefusedJoin: { FS: fs(B, 1, pool({ pass: pass(null) })), view: 'join', text: [/not taken until its refund right is decided/i], button: 'none', deposit: true, noFaucet: true },
 };
 
+// The real play page's own stylesheets, in its order (frontier/index.html), so the fixture looks as the page does.
+const SHEETS = (readFileSync(path.join(WEB, 'frontier/index.html'), 'utf8').match(/<link rel="stylesheet"[^>]*>/g) ?? []).join('');
 const PAGE = `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<link rel="stylesheet" href="/base.css"><link rel="stylesheet" href="/frontier/frontier.css">
+${SHEETS}
 <title>prize pass fixture</title><style>html, body { height: auto !important; overflow: auto !important; }</style></head><body class="frontier"><main id="cases"></main>
 <script type="module">
 import { setLang } from '/lang.mjs';
@@ -165,6 +167,19 @@ test('the English prize screen over fixtures: who may claim, what is held back, 
       }
       if (c.noRefusal) assert.equal(await sec.locator('[data-pass-deposit]').count(), 0, `${name}: no refusal outside a pool season`);
       if (c.nftButtons && !c.noRefusal) assert.ok(await sec.locator('[data-pass-deposit="refused"]').isVisible(), `${name}: the note is visible`);
+      // Every callout with a bold heading and an explanation shows them apart: a plain .callout on separate lines,
+      // a .pz-est row (conquest-hand.css flex) either on separate lines or with a visible gap.
+      const callouts = await sec.locator('p.callout').evaluateAll(ps => ps.map(p => {
+        const s = p.querySelector(':scope > strong'), b = p.querySelector(':scope > span');
+        if (!s || !b) return null;
+        const r = s.getBoundingClientRect(), q = b.getClientRects()[0];
+        return { est: p.classList.contains('pz-est'), head: s.textContent.slice(0, 30), apartLines: q.top >= r.bottom - 1, gap: q.left - r.right, sameLine: Math.abs(q.top - r.top) < 2 };
+      }).filter(Boolean));
+      for (const k of callouts) {
+        if (!k.est) assert.ok(k.apartLines, `${name}: "${k.head}" — the explanation starts below the heading`);
+        else assert.ok(k.apartLines || (k.sameLine && k.gap >= 4), `${name}: "${k.head}" — heading and explanation apart`);
+      }
+      if (c.callouts) assert.ok(callouts.filter(k => !k.est).length >= c.callouts, `${name}: ${c.callouts} plain callout(s) checked`);
       if (c.noFaucet) assert.equal(await sec.locator('[data-act="prize-faucet"]').count(), 0, `${name}: no faucet`);
     }
     // A forced press on the busy (disabled) button sends nothing.

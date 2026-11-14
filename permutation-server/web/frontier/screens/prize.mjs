@@ -11,6 +11,8 @@ import { factionName, failureText } from '../fi18n.mjs';
 import { prizeModel, ledgerModel, passClaimModel } from '../fprize.mjs';
 import { crest, sigChip } from '../hud/keephand.mjs';
 
+// A plain .callout is inline text (frontier.css): its bold heading and its explanation are kept on separate lines
+// with a <br>, inside the same <p>. (The .pz-est callouts are a wrapping flex row in conquest-hand.css already.)
 const short = s => (s ? `${String(s).slice(0, 6)}…${String(s).slice(-4)}` : '—');
 
 /**
@@ -36,12 +38,12 @@ export function renderPass(FS) {
       ? html`<p class="muted">${L`この住民NFTには参加費の記録がありません。参加費は、NFTでこの季節に参加するときに支払います。`}</p>`
       : html`<p class="notice" role="status" data-pass-deposit="refused">${L`この住民NFTには参加費の記録がありません。住民NFTの参加費は、返金先が決まるまで受け付けていません。このNFTで新しく参加費を払うことはできず、賞金の対象にもなりません。`}</p>`),
     claimed: () => (m.entry.claimedByOther
-      ? html`<p class="callout"><strong>${L`前の持ち主が受け取り済みです：${m.entry.claimAmount} テストUSDC`}</strong><span>${L`受け取ったウォレット ${short(m.entry.claimedBy)}（世代 ${m.entry.claimGeneration ?? '—'}）。この賞金はこのNFTの前の持ち主、または前の世代で受け取られました。賞金は一度だけで、いまの持ち主には残っていません。`}</span></p>`
-      : html`<p class="callout"><strong>${L`受け取り済みです：${m.entry.claimAmount} テストUSDC`}</strong><span>${L`受け取ったウォレット ${short(m.entry.claimedBy)}。賞金は一度だけ受け取れます。譲渡しても二度目はありません。`}</span></p>`),
+      ? html`<p class="callout"><strong>${L`前の持ち主が受け取り済みです：${m.entry.claimAmount} テストUSDC`}</strong><br><span>${L`受け取ったウォレット ${short(m.entry.claimedBy)}（世代 ${m.entry.claimGeneration ?? '—'}）。この賞金はこのNFTの前の持ち主、または前の世代で受け取られました。賞金は一度だけで、いまの持ち主には残っていません。`}</span></p>`
+      : html`<p class="callout"><strong>${L`受け取り済みです：${m.entry.claimAmount} テストUSDC`}</strong><br><span>${L`受け取ったウォレット ${short(m.entry.claimedBy)}。賞金は一度だけ受け取れます。譲渡しても二度目はありません。`}</span></p>`),
     pending: () => (m.pending?.state === 'unknown'
       ? html`<p class="notice" role="status">${L`賞金の受け取りの結果がまだ確認できません。署名の結果を確認するまで、再び受け取らないでください。`} <code>${m.pending.signature ?? ''}</code></p>`
       : m.pending?.state === 'claimedByOther'
-        ? html`<p class="callout"><strong>${L`前の持ち主が受け取り済みです`}</strong><span>${L`受け取ったウォレット ${short(m.pending.priorClaim?.claimedBy)}（世代 ${m.pending.priorClaim?.claimGeneration ?? '—'}）。賞金は一度だけで、いまの持ち主には残っていません。何も送られていません。`}</span></p>`
+        ? html`<p class="callout"><strong>${L`前の持ち主が受け取り済みです`}</strong><br><span>${L`受け取ったウォレット ${short(m.pending.priorClaim?.claimedBy)}（世代 ${m.pending.priorClaim?.claimGeneration ?? '—'}）。賞金は一度だけで、いまの持ち主には残っていません。何も送られていません。`}</span></p>`
         : html`<p role="status">${L`賞金の受け取りを送信しました。結果を確認しています…`} <code>${m.pending?.signature ?? ''}</code></p>`),
     notPosted: () => html`<p class="muted">${L`季節の結果が確定し、分配がチェーンに登録されると、そのときの持ち主が受け取れます。`}</p>`,
     refund: () => html`<p class="callout pz-est"><strong>${L`住民NFTの参加費は、いまは受け取れません`}</strong><span>${L`この季節は該当者なしのため返金になりました。住民NFTの参加費の返金先（支払ったウォレットか、いまの持ち主か）は未決定のため、プログラムはNFTの返金を受け付けません。ウォレットで参加した人の返金は従来どおりです。`}</span></p>`,
@@ -113,7 +115,7 @@ export function render(FS) {
   const top = m.area ? Math.max(1, ...m.area.map(a => a.provinces)) : 1;
   const area = m.area ? html`<h4>${L`国ごとの州の数（チェーンの集計）`}</h4>
     <ol class="pz-area prize-area">${m.area.map(a => html`<li class="kh-n${a.faction}${a.winner ? ' pz-win winner' : ''}">${crest(a.faction, 20)}<span>${factionName(a.faction)}</span><span class="pz-bar" aria-hidden="true"><i class="w${Math.round(10 * a.provinces / top)}"></i></span><strong>${fmtNum(a.provinces)}</strong>${a.winner ? html`<span class="pz-tag">${L`勝者`}</span>` : html`<span></span>`}</li>`)}</ol>
-    ${m.final ? html`<div class="pz-result kh-n${m.winners[0] ?? 6}">${crest(m.winners[0] ?? null, 34)}<p class="callout"><strong>${L`結果は確定しました：${m.winners.map(factionName).join(' / ')}（州の数が最も多い国）。この集計はだれにも変更できません。`}</strong><span>${L`集計（Tally）と確定（Finalize）はチェーンの記録です。`}</span></p></div>`
+    ${m.final ? html`<div class="pz-result kh-n${m.winners[0] ?? 6}">${crest(m.winners[0] ?? null, 34)}<p class="callout"><strong>${L`結果は確定しました：${m.winners.map(factionName).join(' / ')}（州の数が最も多い国）。この集計はだれにも変更できません。`}</strong><br><span>${L`集計（Tally）と確定（Finalize）はチェーンの記録です。`}</span></p></div>`
       : html`<p role="status">${L`集計中です（${fmtNum(m.counted)} / ${fmtNum(m.keepsToCount)} 州）。`}</p>`}`
     : html`<p class="muted">${L`勝者は、季節の終わりに最も多くの州（砦）を持つ国です。季節が終わると、チェーン上の州の記録から集計されます。`}</p>`;
   const ledger = g ? html`<h4>${L`攻略した人`}</h4>
