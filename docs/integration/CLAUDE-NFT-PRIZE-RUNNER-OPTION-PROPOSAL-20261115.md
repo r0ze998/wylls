@@ -100,3 +100,61 @@ whole run. The fixture cannot be placed at bootstrap either: the asset exists on
   on one program's accounts.
 
 Awaiting ⑳'s choice. The independent parts proceed meanwhile.
+
+## Option (A), the runner-placed fixture: exact specification for review (2026-11-15; NOT implemented)
+
+Agreed in principle with ⑳ ((A); (B) avoided). The user's restrictions: no wallet, no key, no arbitrary account, no
+general RPC write; fixed checks of owner, asset, generation, pool and run; no change without the flag. **Nothing
+below is implemented until ⑳ and the user's review agree.**
+
+**Scope.** Only under `--prize-test-only-so` (itself only with `--lane-candidate`). Without the flag the runner starts
+no stdin reader; its arguments, deploys, accounts and first line are byte-identical. Localnet's `Policy::MEMORY_ONLY`,
+`Config.allow_tamper = false` and the metadata's `tamper_rpc: false` are unchanged; no RPC can write any account.
+
+**The one control line** (stdin, from the launcher only; exactly one accepted per run):
+`{"prize_test_only_fixture":{"asset":"<base58>","paid_by":"<base58>","pay_generation":<u32>}}`.
+The keys are exact (no others), the values well-formed. Anything else (a malformed line, extra keys, a second fixture)
+is refused, logged as one line, and writes nothing. The line names no account to write and no key; the runner derives
+the one address itself.
+
+**Checks, in the runner, on its own chain, all before writing and in one locked section:**
+1. **Pool:**
+   - `poolAddress([0x50;32], candidate program, SEASON_ID)` exists;
+   - it is owned by `[0x50;32]`, decodes as a pool, is **Open**, and names this game program and Season id.
+2. **Asset:**
+   - owned by Core (`CoREENxT…`), an AssetV1 of the policy's collection;
+   - the policy is read from the game's PDA `["nft-resident-policy"]`, owned by the candidate program, `PSFNP002`;
+   - it carries the transfer guard of the policy's guard authority (`resident_guard::check`).
+3. **Resident record:**
+   - at `["resident", asset]` of the policy's resident program, owned by it, naming this asset;
+   - **`pay_generation` equals the record's current generation**, and **`paid_by` equals the asset's current Core
+     owner** (fixed match: the fixture can only describe the pass as it stands now).
+4. **Entry address:** exactly `PDA(["entry-nft", pool, asset], [0x50;32])`, and **nothing exists there**.
+5. **Run:** the in-process chain is the runner's own; the confirmation names the runner's `run_id` and instance.
+
+**Write:** only that Entry, with the runner's own `Chain::set_account`:
+- 192 B, magic `WYPRNFTE`, unclaimed, no nation, `pay_generation`, pool, asset, amount = the pool's fee, `paid_by`;
+- owner `[0x50;32]`, rent-exempt lamports.
+
+No vault tokens and no pool counters: the pass's fee is not in the prize, which real wallet Pay funds, the same as the
+standalone fixture tool.
+
+**Output:** one stdout JSON line, `{"prize_test_only_fixture_written":{"test_only":"fixture: an existing NFT Entry, NOT
+a deposit","entry","asset","paid_by","pay_generation","pool","run_id","instance"}}`. The first line's `prize_test_only`
+says `fixture: "runner: one Entry on request"`.
+
+**Tests (Rust; host build slot needed):**
+- parse: the exact schema, and a second line refused;
+- each check's refusal: wrong pool state, a foreign asset, an unguarded asset, a stale generation, a wrong `paid_by`,
+  an existing Entry;
+- the one write, byte-checked;
+- without the flag: no reader, and the first line byte-identical (a golden of the current line).
+
+## ⑳'s 0x51 boundary (merged from 13ac8f63) and what it means here
+
+`TransferResident` (0x51) signs no generation. A transfer signed before an A→B→A can be replayed afterwards within its
+blockhash lifetime (about 151 slots), and a relay rule cannot close the direct chain path (⑳'s
+`CLAUDE-NFT-CANDIDATE-PASS-TRANSFER-BOUNDARY-20261115.md`). The page's transfer is held in worlds.
+- ⑰'s claim path binds the signed generation (ClaimResident), so an old claim stays refused across transfers.
+- But **re-transfer is not treated as safe or finished here**. The E2E's transfers, through the mint page, carry the
+  same documented boundary, and any result is recorded with it.
