@@ -63,6 +63,10 @@ scripts/build-frontier-localnet-conquest-sbf.sh
   - Another toolchain may give another hash. Pass the hash of the file you built.
 - **The herald's `local-play-bootstrap` feature** (named in the launcher's usage text) is used only by the
   launcher's non-natural presets. The two modes here do not pass `--local-play-metadata`, so they do not need it.
+  A non-natural preset (with `--prepare-scale`) needs a herald built with both features, because the launcher's
+  prepare step also reads the herald's wide route (`/h/world/wide/route`), which a herald without
+  `wide-world-experimental` refuses:
+  `(cd frontier-node && cargo build --locked -p herald --features local-play-bootstrap,wide-world-experimental --bin frontier-herald)`.
 
 ## 3. Start
 Choose a new directory for the worlds' records (logs and the herald's fold files; nothing secret). Put each path in

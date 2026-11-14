@@ -30,6 +30,9 @@ test('every binary the guide builds is declared, with the features it names', ()
   assert.match(read('scripts/build-frontier-localnet-conquest-sbf.sh'), /scripts\/build-frontier\.sh --features localnet-conquest-sbf/);
   // (the herald feature the guide says these modes do not need: passed only off the natural preset)
   assert.match(launcher, /\.\.\.\(natural \? \[\] : \['--local-play-metadata'/);
+  // (a non-natural preset's herald: both features it names are declared, and the guide names that build)
+  for (const f of ['local-play-bootstrap', 'wide-world-experimental']) assert.match(herald, new RegExp(`^${f} = `, 'm'), f);
+  assert.match(doc, /cargo build --locked -p herald --features local-play-bootstrap,wide-world-experimental --bin frontier-herald/);
 });
 
 test('the two modes stay apart, and the unfinished on-screen capture is said', () => {
