@@ -371,3 +371,46 @@ export function ledgerModel(ledger, { wallet = null, decimals = 6 } = {}) {
     hasInvited: lines.some(l => l.invited),
   };
 }
+
+// ------------------------------------------------------------------ local play (⑰, TEST ONLY candidate world)
+
+/** The TEST ONLY local-play prize routes (permutation-gateway/src/frontier/local-play-prize.mjs). */
+export const LOCAL_PRIZE = Object.freeze({
+  view: '/f/local-play/prize', prepare: '/f/local-play/prize/claim/prepare', submit: '/f/local-play/prize/claim/submit',
+  prepareSchema: 'frontier-local-play-prize-claim-prepare-v1', submitSchema: 'frontier-local-play-prize-claim-submit-v1',
+});
+
+/** GET /f/local-play/prize[?asset=]: the same pool shape as loadPrize (a TEST ONLY world's pool), or no pool. */
+export async function loadPrizeLocal({ asset = null, request = io.request, ...opts } = {}) {
+  const r = await request('GET', `${LOCAL_PRIZE.view}${asset ? `?asset=${encodeURIComponent(asset)}` : ''}`, opts);
+  if (!r?.ok) return r?.code === 'LocalPrizeNoPool' || r?.httpStatus === 404 ? { ok: true, pool: null } : r;
+  return { ok: true, pool: r.pool ?? null, testOnly: r.testOnly === true };
+}
+
+/**
+ * The pass's claim in local play: the relay prepares ONE ClaimResident for the page's wallet (fee payer the wallet),
+ * the wallet signs exactly that message, the relay submits it once. Same outcome rules as claimPass:
+ *   notSent: true only before the submit (prepare refused, wallet refused, the wallet changed the message);
+ *   an earlier claim: the relay's answer `already` (this owner at this generation) or `claimedByOther` (another
+ *   owner or generation: AlreadyClaimedByPriorOwner, nothing sent);
+ *   after the submit: `submitted` (sent; follow the signature) or `unknown` (keep the signature; never resend).
+ * `request(method, path, {body})` → the relay's JSON with ok; the page never decides ownership (the program does).
+ */
+export async function claimPassLocal({ wallet, asset, generation, request = io.request }) {
+  const notSent = r => ({ ...r, ok: false, notSent: true });
+  const p = await request('POST', LOCAL_PRIZE.prepare, { body: { schema: LOCAL_PRIZE.prepareSchema, asset, generation } });
+  if (!p?.ok) return notSent(p ?? { code: 'LocalPrizeUnavailable' });
+  if (p.status === 'already') return { ok: true, already: true, sent: false, landed: true, signature: p.signature ?? null, amount: p.amount ?? null };
+  if (p.status === 'claimedByOther') {
+    return { ok: false, notSent: true, code: 'AlreadyClaimedByPriorOwner', priorClaim: { claimedBy: p.claimedBy ?? null, claimGeneration: p.claimGeneration ?? null } };
+  }
+  if (p.status !== 'prepared' || typeof p.message_b64 !== 'string' || typeof p.message_digest !== 'string') return notSent({ code: 'LocalPrizeBadPrepare' });
+  const message = Uint8Array.from(atob(p.message_b64), c => c.charCodeAt(0));
+  let wire;
+  try { wire = await wallet.signTransaction(wireTransaction(message)); } catch (e) { return notSent({ code: e?.code ?? 'SignFailed', error: String(e?.message ?? e) }); }
+  if (!io.sameMessage(message, wire)) return notSent({ code: 'WalletAlteredMessage' });
+  const s = await request('POST', LOCAL_PRIZE.submit, { body: { schema: LOCAL_PRIZE.submitSchema, message_digest: p.message_digest, transaction_b64: toBase64(wire) } });
+  if (!s?.ok) return { ...(s ?? {}), ok: false, notSent: false, signature: s?.signature ?? null };
+  if (s.status === 'submitted') return { ok: true, sent: true, landed: false, signature: s.signature, already: false };
+  return { ok: false, notSent: false, code: 'ClaimOutcomeUnknown', signature: s.signature ?? null };
+}
