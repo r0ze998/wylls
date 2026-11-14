@@ -203,6 +203,8 @@ pub const PROGRAM_VERSION: u16 = frontier_abi::v2::presets::PROGRAM_VERSION_S1
 pub const PROGRAM_VERSION: u16 = frontier_abi::world_index::expedition_dispatch_ix::PROGRAM_VERSION;
 /// LOCAL TEST CANDIDATE (`localnet-conquest-nft-sbf`), not an allocation: the conquest lane's exact version with the
 /// existing NFT bit, 0x4804 | 0x8000 = 0xC804. Workstream 4 decides the real one; nothing deployable carries it.
+/// (Gated like the dispatch version it extends: `frontier_abi::world_index` exists only with the wide features.)
+#[cfg(feature = "expedition-dispatch-experimental")]
 pub const LOCALNET_CONQUEST_NFT_VERSION: u16 =
     frontier_abi::world_index::expedition_dispatch_ix::PROGRAM_VERSION | 0x8000;
 #[cfg(feature = "localnet-conquest-nft-sbf")]
