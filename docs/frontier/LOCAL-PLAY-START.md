@@ -80,7 +80,10 @@ node "$ROOT/permutation-gateway/src/frontier/local-play-launcher.mjs" --root "$R
 - **Without `--march-trial`** the world is the same, but the ordinary march stays closed. Its live readiness is
   not proven yet.
 - **`--world-ttl-minutes <n>`:** each world's life. The default is two hours.
-- **`--port` / `--world-port`:** default 41920 / 41924. The ports must be within 41000–41999.
+- **`--port` / `--world-port`:** default 41920 / 41924. Each world uses five ports from `--world-port` (ten for the two
+  worlds). All of them and the launcher's port must be within 41000–41999, must not overlap, and must avoid 41904–41907.
+- **Disk:** the launcher starts no world while the records directory's disk has less than 5.25 GiB free, and it stops a
+  running world when free space falls below that, or when that world's records pass 128 MiB.
 
 ### (2) Capture demo (TEST-ONLY)
 Add both words to the natural command above:

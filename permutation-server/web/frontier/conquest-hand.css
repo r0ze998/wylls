@@ -59,7 +59,9 @@
 .kh-fig-odds.kh-odds-good .kh-fig-v { color: #8fd18a; }
 .kh-fig-odds.kh-odds-even .kh-fig-v { color: #f3c567; }
 .kh-fig-odds.kh-odds-poor .kh-fig-v { color: #f08a6c; }
-@media (max-width: 759px) { .kh-row { grid-template-columns: minmax(0, 1fr) auto auto auto; } .kh-fig-hold, .kh-row-go { display: none; } }
+/* (a phone: the three figures took the whole row and left the keep's name and holder 0 px wide — 375 px, 2026-11-14 — so the
+   name takes the row's first line and the figures the second; the odds' words (and 「守りに向かう」 at 320 px) wrap, the arrival keeps its width) */
+@media (max-width: 759px) { .kh-row { grid-template-columns: auto minmax(0, 1fr) auto; row-gap: 6px; } .kh-row-where { grid-column: 1 / -1; } .kh-odds-defend .kh-fig-v { white-space: normal; } .kh-fig-hold, .kh-row-go { display: none; } }
 
 /* ---- the keep's panel (the province's inspector; the nation tab) */
 #panel-body .kp, .kp { margin: 12px 0 0; padding: 0 0 10px; border: 0; border-radius: 10px; overflow: hidden; background: var(--plate-bg); color: var(--hud-ink); box-shadow: 0 0 0 1px var(--brass-lo), 0 0 0 2px rgba(0,0,0,.35), 0 6px 16px rgba(0,0,0,.28), var(--plate-edge); }

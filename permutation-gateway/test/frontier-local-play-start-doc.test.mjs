@@ -47,11 +47,12 @@ test('the two modes stay apart, and the unfinished on-screen capture is said', (
   assert.match(doc, /The page\n?\s*showed 65\/72 at that moment/);
   assert.match(doc, /on a demo world only, the keeper's next tick comes after 1 s while\n?\s*its steps land \(at most 8 in a row\); a natural world ticks as before\./);
   assert.ok(!/capture (has been|was) completed on screen|72\/72/.test(doc), 'no claim of a finished capture');
-  // (the third run, ×30: no capture possible, the demo's forts were the player's own nation's; not claimed fixed)
-  assert.match(doc, /Both forts the demo opened\n?\s*belonged to the player's own nation, and a nation cannot contest its own fort\./);
-  assert.match(doc, /The demo does not yet make sure\n?\s*that the forts it opens belong to another nation\./);
-  // (the page's re-read: what was checked, and that it only reads)
-  assert.match(doc, /reads the latest state at once\n?\s*\(checked in a real browser, 2026-11-14\)/);
+  // (the third run, ×30: no capture possible, the demo's forts were then the player's own nation's; what the demo does since)
+  assert.match(doc, /both forts the demo opened then\n?\s*belonged to the player's own nation\./);
+  assert.match(doc, /Since then the demo opens a fort of \*\*another\*\* nation/);
+  // (the page's re-read: what was checked in a real browser (the play read), and what only by tests (the season read)
+  assert.match(doc, /reads the latest state at once\n?\s*\(checked in a real browser, 2026-11-14, for the play read\)/);
+  assert.match(doc, /that part is proven by tests only, not yet in a real browser\./);
   assert.match(doc, /offers 「最新の状態を読み直す」, which only reads\./);
 });
 
@@ -69,4 +70,26 @@ test('stopping says the key goes only with the world\'s own tab, and other tabs 
 
 test('no machine-local path, address or secret in the guide', () => {
   for (const bad of [/\/Users\//, /\/private\//, /\/tmp\//, /scratchpad/i, /[\w.+-]+@[\w-]+\.[\w.]+/, /BEGIN [A-Z ]*PRIVATE KEY/, /\b[1-9A-HJ-NP-Za-km-z]{43,44}\b/]) assert.ok(!bad.test(doc), String(bad));
+});
+
+test('two people in one world: TEST-ONLY, people on both sides, the nation shown on the page (not in a log), one stop for both', () => {
+  assert.match(doc, /### \(3\) Two people in one world \(TEST-ONLY contest pair\)/);
+  assert.match(doc, /--contest-pair contest-pair-v1/);
+  assert.match(doc, /there is \*\*no automatic opponent\*\* and nothing here is an AI/);
+  assert.match(doc, /presses 「二人の対戦の国と砦を確認」/);
+  assert.match(doc, /The choice stays the\n?\s*player's: the page chooses nothing and sends nothing\./);
+  assert.ok(!/runner\.out|second_player_nation/.test(doc), 'no log reading is asked of the player');
+  assert.match(doc, /one Ctrl-C \(or the end of the world's time\) ends the world for \*\*both\*\*/);
+});
+
+test('ports and disk: the launcher\'s own rules, as the source has them', () => {
+  const src = readFileSync(new URL('../src/frontier/local-play-launcher.mjs', import.meta.url), 'utf8');
+  assert.match(src, /some\(p => p >= 41904 && p <= 41907\)\) throw fault\('InvalidPorts'\)/);
+  assert.match(doc, /must avoid 41904–41907/);
+  assert.match(src, /DISK_FLOOR = 5\.25 \* 1024 \*\* 3/); assert.match(src, /WORLD_OUTPUT_MAX = 128 \* 1024 \*\* 2/);
+  assert.match(doc, /less than 5\.25 GiB free/); assert.match(doc, /records pass 128 MiB/);
+  // the two Rust pins the guide names are the repository's
+  const root = readFileSync(new URL('../../rust-toolchain.toml', import.meta.url), 'utf8'), node = readFileSync(new URL('../../frontier-node/rust-toolchain.toml', import.meta.url), 'utf8');
+  assert.match(root, /channel = "1\.89\.0"/); assert.match(node, /channel = "1\.95\.0"/);
+  assert.match(doc, /pins \*\*1\.89\.0\*\*/); assert.match(doc, /pins \*\*1\.95\.0\*\*/);
 });
