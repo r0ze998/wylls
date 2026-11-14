@@ -205,32 +205,80 @@ impl NftPass {
     }
 }
 
-/// Runs `prog args` to its end, or kills it at `limit` (a setup that hangs must
+/// Runs `prog args` to its end, or stops it at `limit` (a setup that hangs must
 /// not hold the stack: the caller's failure path then stops every component).
+///
+/// - The child runs in its own process group, and the whole group is killed
+///   at the deadline and after a normal exit too: nothing it started outlives
+///   it (a descendant left behind would also keep the pipes open).
+/// - stdout and stderr are read on their own threads while it runs, so a large
+///   output never fills a pipe and stalls the child.
 pub fn run_with_deadline(prog: &Path, args: &[String], limit: Duration) -> Result<Output, String> {
+    use std::io::Read;
+    use std::os::unix::process::CommandExt;
     let mut child = Command::new(prog)
         .args(args)
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
+        .process_group(0)
         .spawn()
         .map_err(|e| format!("{}: {e}", prog.display()))?;
+    let group = child.id();
+    let drain = |pipe: Option<Box<dyn Read + Send>>| {
+        std::thread::spawn(move || {
+            let mut buf = Vec::new();
+            if let Some(mut p) = pipe {
+                let _ = p.read_to_end(&mut buf);
+            }
+            buf
+        })
+    };
+    let out = drain(
+        child
+            .stdout
+            .take()
+            .map(|p| Box::new(p) as Box<dyn Read + Send>),
+    );
+    let err = drain(
+        child
+            .stderr
+            .take()
+            .map(|p| Box::new(p) as Box<dyn Read + Send>),
+    );
     let t0 = Instant::now();
-    loop {
-        match child.try_wait().map_err(|e| e.to_string())? {
-            Some(_) => return child.wait_with_output().map_err(|e| e.to_string()),
-            None if t0.elapsed() >= limit => {
-                let _ = child.kill();
-                let _ = child.wait();
-                return Err(format!(
+    let status = loop {
+        match child.try_wait() {
+            Ok(Some(st)) => break Ok(st),
+            Ok(None) if t0.elapsed() >= limit => {
+                break Err(format!(
                     "{}: no result in {} s; stopped",
                     prog.display(),
                     limit.as_secs()
-                ));
+                ))
             }
-            None => std::thread::sleep(Duration::from_millis(100)),
+            Ok(None) => std::thread::sleep(Duration::from_millis(100)),
+            Err(e) => break Err(e.to_string()),
         }
-    }
+    };
+    kill_group(group);
+    let _ = child.wait();
+    let stdout = out.join().unwrap_or_default();
+    let stderr = err.join().unwrap_or_default();
+    status.map(|status| Output {
+        status,
+        stdout,
+        stderr,
+    })
+}
+
+/// SIGKILL to every process of the group `pgid` (none left: a harmless error).
+fn kill_group(pgid: u32) {
+    let _ = Command::new("kill")
+        .args(["-9", &format!("-{pgid}")])
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status();
 }
 
 #[cfg(test)]
@@ -271,6 +319,30 @@ mod tests {
         );
         assert!(late.unwrap_err().contains("stopped"));
         assert!(t0.elapsed() < Duration::from_secs(5));
+        // A large output on both pipes does not stall the child.
+        let big = run_with_deadline(
+            Path::new("/bin/sh"),
+            &[
+                "-c".into(),
+                "head -c 2000000 /dev/zero; head -c 2000000 /dev/zero >&2".into(),
+            ],
+            Duration::from_secs(20),
+        )
+        .unwrap();
+        assert_eq!((big.stdout.len(), big.stderr.len()), (2_000_000, 2_000_000));
+        // What it started in the background is stopped with it.
+        let t1 = Instant::now();
+        let left = run_with_deadline(
+            Path::new("/bin/sh"),
+            &["-c".into(), "sleep 30 & echo started".into()],
+            Duration::from_secs(10),
+        )
+        .unwrap();
+        assert_eq!(String::from_utf8_lossy(&left.stdout).trim(), "started");
+        assert!(
+            t1.elapsed() < Duration::from_secs(5),
+            "the pipes were not held open"
+        );
     }
 
     #[test]
