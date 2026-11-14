@@ -1,0 +1,151 @@
+diff --git a/permutation-gateway/test/web-frontier-home-rings-sparse.test.mjs b/permutation-gateway/test/web-frontier-home-rings-sparse.test.mjs
+new file mode 100644
+index 00000000..749c55a1
+--- /dev/null
++++ b/permutation-gateway/test/web-frontier-home-rings-sparse.test.mjs
+@@ -0,0 +1,51 @@
++// The rings a first village may be placed in are counted from the Concord WITHOUT A GAP (map/world.mjs
++// contiguousRings), the same count at every reader: the planner, the confirm, the map tap, the nation choice and the
++// ticket plan. Never the season record's length: a sparse world that seeds ring 128 alone has one entry and no ring 0
++// (measured in a local conquest-preset world, 2026-11-15: record.rings = [{d:128}], heartlandMaxRing 3).
++// Pure: record and season vectors; no network, no key.
++import test from 'node:test';
++import assert from 'node:assert/strict';
++import { readFileSync } from 'node:fs';
++import { worldOf, contiguousRings } from '../../permutation-server/web/frontier/map/world.mjs';
++import { homeRingsOpen } from '../../permutation-server/web/frontier/home.mjs';
++
++const seed = '00'.repeat(32);
++const recordOf = ds => ({ rings: ds.map(d => ({ d, seed })) });
++const season = { conquestParams: { heartlandMaxRing: 3 } };
++const homeCount = ds => homeRingsOpen(season, contiguousRings(worldOf(recordOf(ds))));
++
++test('the measured sparse world (ring 128 alone) has no ring open for a first village', () => {
++  assert.equal(contiguousRings(worldOf(recordOf([128]))), 0);
++  assert.equal(homeCount([128]), 0);
++  // the record's length would have said "ring 0 is open": the meaning this alignment removes
++  assert.equal(recordOf([128]).rings.length, 1);
++});
++
++test('a contiguous world 0..3 opens its heartland (capped at heartland + 1); a gap ends the run', () => {
++  assert.equal(contiguousRings(worldOf(recordOf([0, 1, 2, 3]))), 4);
++  assert.equal(homeCount([0, 1, 2, 3]), 4);
++  assert.equal(homeCount([0, 1, 2, 3, 4, 5]), 4, 'never past the heartland');
++  assert.equal(contiguousRings(worldOf(recordOf([0, 1, 3]))), 2, 'the gap at ring 2 ends the run');
++  assert.equal(homeCount([0, 1, 3]), 2);
++});
++
++const read = f => readFileSync(new URL(`../../permutation-server/web/frontier/${f}`, import.meta.url), 'utf8');
++const SAME = 'FS.record ? contiguousRings(FS.world ?? worldOf(FS.record)) : 0';
++
++test('every home and ticket reader counts the same way, none by the record\'s length', () => {
++  const ctl = read('controller.mjs'), join = read('screens/join.mjs'), app = read('app.mjs');
++  // the planner and the confirm: the map tap's own expression
++  assert.ok(ctl.includes(`planHomes({ overviews: FS.overviews, faction, nowBell: nowBell(), place: seasonPlace(FS.season), ringsOpen: homeRingsOpen(FS.season, ${SAME}),`), 'planner');
++  assert.ok(ctl.includes(`ringsOpen: homeRingsOpen(FS.season, ${SAME}), place: seasonPlace(FS.season) }).some(s => sameHome(s, site))`), 'confirm');
++  assert.ok(app.includes('ringsOpen: homeRingsOpen(FS.season, FS.record ? contiguousRings(worldNow()) : 0), place: seasonPlace(FS.season) }).find(s => s.tile === hit.idx)'), 'map tap');
++  // the ticket plan: the same count, its fallback of 1 kept for a missing record
++  assert.ok(ctl.includes('faction: FS.citizen.faction, ringsOpen: FS.record ? contiguousRings(FS.world ?? worldOf(FS.record)) : 1,'), 'ticket plan');
++  // the nation choice's free count: the same count (undefined without a record, as before)
++  assert.ok(join.includes('const open = FS.record ? contiguousRings(FS.world ?? worldOf(FS.record)) : undefined;'), 'nation choice');
++  // no home or ticket reader reads the record's length (the overview loop's own count is not a home reader)
++  for (const [name, src] of [['controller.mjs', ctl], ['screens/join.mjs', join], ['app.mjs', app]]) {
++    for (const line of src.split('\n').filter(l => /homeRingsOpen|homeSites|planHomes|planTicket|freeByNation|const open = /.test(l))) {
++      assert.doesNotMatch(line, /rings\?\.length/, `${name}: ${line.trim().slice(0, 120)}`);
++    }
++  }
++});
+diff --git a/permutation-gateway/test/web-frontier-home-rings.test.mjs b/permutation-gateway/test/web-frontier-home-rings.test.mjs
+index bd850bf6..09ac0f95 100644
+--- a/permutation-gateway/test/web-frontier-home-rings.test.mjs
++++ b/permutation-gateway/test/web-frontier-home-rings.test.mjs
+@@ -125,14 +125,19 @@ test('the wait view\'s site marks, 「村を置ける場所」, stop at the home
+ 
+ test('every reader of the home candidates takes the home rings: the planner, the confirm, the tap on a tile, the nation choice, the map\'s marks', () => {
+   const ctl = source('controller.mjs'), app = source('app.mjs'), map = source('map/fmap.mjs'), join = source('screens/join.mjs');
+-  assert.match(ctl, /planHomes\(\{ overviews: FS\.overviews, faction, nowBell: nowBell\(\), place: seasonPlace\(FS\.season\), ringsOpen: homeRingsOpen\(FS\.season, FS\.record\?\.rings\?\.length \?\? 0\),/);
+-  assert.match(ctl, /homeSites\(env\?\.province, \{ faction: site\.faction, nowBell: nowBell\(\), ringsOpen: homeRingsOpen\(FS\.season, FS\.record\?\.rings\?\.length \?\? 0\), place: seasonPlace\(FS\.season\) \}\)/);
+-  assert.match(app, /homeSites\(FS\.provinces\.get\(`\$\{hit\.p\},\$\{hit\.q\}`\)\?\.province, \{ faction: FS\.citizen\?\.faction \?\? null, nowBell: FS\.nowBell, ringsOpen: homeRingsOpen\(FS\.season, FS\.record\?\.rings\?\.length \?\? 0\), place: seasonPlace\(FS\.season\) \}\)/);
++  // (2026-11-15: every reader counts the home rings from the Concord without a gap — contiguousRings — the map tap's
++  //  expression; web-frontier-home-rings-sparse.test.mjs has the measured sparse vector)
++  assert.match(ctl, /planHomes\(\{ overviews: FS\.overviews, faction, nowBell: nowBell\(\), place: seasonPlace\(FS\.season\), ringsOpen: homeRingsOpen\(FS\.season, FS\.record \? contiguousRings\(FS\.world \?\? worldOf\(FS\.record\)\) : 0\),/);
++  assert.match(ctl, /homeSites\(env\?\.province, \{ faction: site\.faction, nowBell: nowBell\(\), ringsOpen: homeRingsOpen\(FS\.season, FS\.record \? contiguousRings\(FS\.world \?\? worldOf\(FS\.record\)\) : 0\), place: seasonPlace\(FS\.season\) \}\)/);
++  assert.match(app, /homeSites\(FS\.provinces\.get\(`\$\{hit\.p\},\$\{hit\.q\}`\)\?\.province, \{ faction: FS\.citizen\?\.faction \?\? null, nowBell: FS\.nowBell, ringsOpen: homeRingsOpen\(FS\.season, FS\.record \? contiguousRings\(worldNow\(\)\) : 0\), place: seasonPlace\(FS\.season\) \}\)/);
+   for (const [name, src] of [['controller.mjs', ctl], ['app.mjs', app]]) assert.doesNotMatch(src, /homeSites\([^\n]*ringsOpen: FS\.record\?\.rings/, `${name}: no home read by the open rings alone`);
+-  assert.match(app, /homeRings: homeRingsOpen\(FS\.season, FS\.record\?\.rings\?\.length \?\? 1\),/, 'the map source carries the home rings beside the open rings');
+-  assert.match(app, /ringsOpen: FS\.record\?\.rings\?\.length \?\? 1, own, selected: FS\.selected, terrainOf,/, 'and the open rings themselves, unchanged');
++  assert.match(app, /homeRings: homeRingsOpen\(FS\.season, contiguousRings\(worldNow\(\)\)\),/, 'the map source carries the home rings beside the open rings');
++  // (stale at d85884fa already: the map source reads the world's own count and seeded rings, map/world.mjs)
++  assert.match(app, /ringsOpen: ringsOpenNow\(\), seeded: worldNow\(\)\.seeded \?\? null, own, selected: FS\.selected, terrainOf,/, 'and the open rings themselves, the world\'s own');
+   assert.match(map, /wedgeSites\(survey\.faction, src\.homeRings \?\? ringsOpen, recs, terrainOf, place\)/, 'the marks read the home rings, the region the open rings');
+-  assert.match(map, /this\.wedgeHome\(survey\.faction, ringsOpen, place\)/);
+-  assert.match(map, /wedgeBox\(survey\.faction, ringsOpen, place\)/);
++  // (stale at d85884fa already: the wedge also takes a sparse world's seeded rings)
++  assert.match(map, /this\.wedgeHome\(survey\.faction, ringsOpen, place, src\.seeded \?\? null\)/);
++  assert.match(map, /wedgeBox\(survey\.faction, ringsOpen, place, src\.seeded \?\? null\)/);
+   assert.match(join, /freeByNation\(FS\.overviews \?\? new Map\(\), seasonPlace\(FS\.season\), \{ ringsOpen: Number\.isInteger\(open\) \? homeRingsOpen\(FS\.season, open\) : Infinity \}\)/);
++  assert.match(join, /const open = FS\.record \? contiguousRings\(FS\.world \?\? worldOf\(FS\.record\)\) : undefined;/, 'the nation choice counts the same way');
+ });
+diff --git a/permutation-server/web/frontier/controller.mjs b/permutation-server/web/frontier/controller.mjs
+index 90533743..b1af1cb0 100644
+--- a/permutation-server/web/frontier/controller.mjs
++++ b/permutation-server/web/frontier/controller.mjs
+@@ -39,7 +39,7 @@ import { regionOf, ringOf, ringProvinces, homeNation, hexDistance } from './fgeo
+ import { hostParts, hostId } from './faddr.mjs';
+ import { decodePage } from './flog.mjs';
+ import { nextPoll, BELLS_PER_DAY } from './herald.mjs';
+-import { applySeasonRecord } from './map/world.mjs';
++import { applySeasonRecord, contiguousRings, worldOf } from './map/world.mjs';
+ import { readOverviews } from './map/overviews.mjs';
+ import { kernel as loadKernel, UNITS } from './wasm.mjs';
+ import { uiKey, uiStorage, loadUi, saveUi, landKey, loadLand, saveLand, LAND_DEFAULTS } from './fui.mjs';
+@@ -1562,7 +1562,7 @@ export async function refreshHomes({ force = false } = {}) {
+     if (force) FS.overviewsBell = undefined;
+     await refreshOverviews(nowBell());
+     // (the rings a first village may be placed in: the open rings, no further than the heartland: home.mjs homeRingsOpen)
+-    const result = await planHomes({ overviews: FS.overviews, faction, nowBell: nowBell(), place: seasonPlace(FS.season), ringsOpen: homeRingsOpen(FS.season, FS.record?.rings?.length ?? 0),
++    const result = await planHomes({ overviews: FS.overviews, faction, nowBell: nowBell(), place: seasonPlace(FS.season), ringsOpen: homeRingsOpen(FS.season, FS.record ? contiguousRings(FS.world ?? worldOf(FS.record)) : 0),
+       seed: `${FS.wallet?.address ?? 'visitor'}|${old.rotation ?? 0}`, rotation: old.rotation ?? 0,
+       read: async (p, q) => { const env = await loadEnvelope(p, q); return env?.province ?? null; } });
+     if (request !== homesRefresh) return;
+@@ -1657,7 +1657,7 @@ export async function confirmHome() {
+       return error('WrongFaction', L`参加済みの国の土地を選んでください。`);
+     }
+     const env = await loadEnvelope(site.p, site.q);
+-    if (!homeSites(env?.province, { faction: site.faction, nowBell: nowBell(), ringsOpen: homeRingsOpen(FS.season, FS.record?.rings?.length ?? 0), place: seasonPlace(FS.season) }).some(s => sameHome(s, site))) {
++    if (!homeSites(env?.province, { faction: site.faction, nowBell: nowBell(), ringsOpen: homeRingsOpen(FS.season, FS.record ? contiguousRings(FS.world ?? worldOf(FS.record)) : 0), place: seasonPlace(FS.season) }).some(s => sameHome(s, site))) {
+       FS.homeChoice.selected = null; saveHomePatch({ selected: null });
+       return error('SiteUnavailable', L`この土地は現在選べません。候補を更新して別の土地を選んでください。`);
+     }
+@@ -1742,7 +1742,7 @@ export async function autoTicket({ force = false } = {}) {
+   try {
+     await refreshOverviews(b);
+     for (const [k, at] of FS.autoFull ?? []) if (b - at >= AUTO_FULL_BELLS) FS.autoFull.delete(k);
+-    const plan = await planTicket({ overviews: FS.overviews ?? new Map(), place: seasonPlace(FS.season), faction: FS.citizen.faction, ringsOpen: FS.record?.rings?.length ?? 1,
++    const plan = await planTicket({ overviews: FS.overviews ?? new Map(), place: seasonPlace(FS.season), faction: FS.citizen.faction, ringsOpen: FS.record ? contiguousRings(FS.world ?? worldOf(FS.record)) : 1,
+       seed: `${FS.wallet?.address ?? ''}|${b}`, nowBell: b, read: (p, q) => readProvinceOnce(p, q, b), skip: new Set((FS.autoFull ?? new Map()).keys()),
+       homeFull: homeWedgeFull(FS.record, FS.citizen.faction) });
+     FS.autoFull ??= new Map();
+diff --git a/permutation-server/web/frontier/screens/join.mjs b/permutation-server/web/frontier/screens/join.mjs
+index e33cd640..56fa8816 100644
+--- a/permutation-server/web/frontier/screens/join.mjs
++++ b/permutation-server/web/frontier/screens/join.mjs
+@@ -13,6 +13,7 @@ import { L, Lh, fmtNum, lang } from '../../lang.mjs';
+ import { factionName, DOCTRINE_NAMES, HOLDING_STATES, failureText } from '../fi18n.mjs';
+ import { freeByNation, ticketTimes } from '../fland.mjs';
+ import { homeRingsOpen, seasonPlace } from '../home.mjs';
++import { contiguousRings, worldOf } from '../map/world.mjs';
+ import { dueHtml } from './shell.mjs';
+ import { leaderFigure, leaderHex, leaderSvg, DOCTRINE_PITCH } from '../people/leaders.mjs';
+ import { placeName } from '../people/identity.mjs';
+@@ -58,7 +59,9 @@ function renderWallets(FS) {
+  * heartland is not counted as a place for a village; with no season record yet the overviews alone bound it.
+  */
+ export function factionCards(FS) {
+-  const open = FS.record?.rings?.length;
++  // (the rings a first village may be in are counted from the Concord without a gap — map/world.mjs contiguousRings —
++  //  never by the record's length: a sparse world that seeds ring 128 alone has one entry and no ring 0)
++  const open = FS.record ? contiguousRings(FS.world ?? worldOf(FS.record)) : undefined;
+   const free = freeByNation(FS.overviews ?? new Map(), seasonPlace(FS.season), { ringsOpen: Number.isInteger(open) ? homeRingsOpen(FS.season, open) : Infinity });
+   return FACTIONS.map(f => ({ faction: f, name: factionName(f), doctrine: DOCTRINE_NAMES[f], free: free ? free[f] : null, chosen: FS.joinDraft?.faction === f }));
+ }
