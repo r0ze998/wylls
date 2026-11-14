@@ -693,6 +693,19 @@ export function candidateMetaAgrees(meta, candidate, dir) {
   return meta.lane_candidate === CANDIDATE_FEATURE && meta.program_version === hex(LOCAL_LANE_VERSIONS.conquestNftCandidate)
     && validWallet(meta.resident_program) && validWallet(meta.core_program) && meta.resident_program !== meta.program && inside;
 }
+/** ⑰ TEST ONLY: the prize program's fixed TEST id ([0x50; 32]; distinct from 0x45, 0x4C and 0x4E). */
+export const PRIZE_TEST_ONLY_PROGRAM = '6QWeT6FpJrm8AF1btu6WH2k2Xhq6t5vbheKVfQavmeoZ';
+/**
+ * The runner's first line and the TEST ONLY prize option: unasked, the line carries no `prize_test_only` key at all
+ * (a plain or candidate world exactly as before); asked, it names the TEST id, the pool, the mint and the vault, and
+ * says how the fixture is placed. Pure.
+ */
+export function prizeTestOnlyMetaAgrees(meta, asked) {
+  const p = meta?.prize_test_only;
+  if (!asked) return p === undefined;
+  return !!p && typeof p === 'object' && p.program === PRIZE_TEST_ONLY_PROGRAM && [p.pool, p.mint, p.vault].every(validWallet)
+    && new Set([p.program, p.pool, p.mint, p.vault]).size === 4 && p.test_only === true;
+}
 /** The candidate's NFT pass on this world: the setup once (exit 0 within NFT_SETUP_MS), then the mint page (ready within MINT_READY_MS). */
 export async function startCandidatePass({ c, meta, launch, stopping, runOnce, limit = {} }) {
   await runOnce('nft-setup', process.execPath, [c.nftSetup, '--rpc', meta.rpc_url, '--frontier', meta.program, '--resident', meta.resident_program, '--authority-seed-file', meta.authority_seed_file, '--test-sale'], limit.nftSetupMs ?? NFT_SETUP_MS);
@@ -725,6 +738,7 @@ export async function startWorld(c, wallet, slot, onStop, signal, opts = {}) {
   //  artefact under the candidate id with Core and the resident program, and says so on its first line)
   const candidate = c.laneCandidate === CANDIDATE_FEATURE;
   if (c.laneCandidate !== undefined && !candidate) throw fault('InvalidLaneCandidate', 503);
+  if (c.prizeTestOnlySo !== undefined && !candidate) throw fault('PrizeTestOnlyNeedsCandidate', 503);
   if (candidate && (slot !== 0 || natural || preset !== CONQUEST_WORLD_PRESET || second !== null)) throw fault('CandidateNeedsConquestOneWorld', 503);
   const { rpc, ws, herald, relay, internalHerald } = worldPorts(c.worldPort, slot);
   const pairPorts = second !== null ? worldPorts(c.worldPort, slot + 1) : null;
@@ -785,7 +799,9 @@ export async function startWorld(c, wallet, slot, onStop, signal, opts = {}) {
       ...(second !== null ? ['--contest-pair', CONTEST_PAIR_MODE, '--second-wallet', second] : [])]);
     else launch('runner', c.runner, ['--artifact', c.artifact, '--artifact-sha256', c.artifactSha, '--player-wallet', wallet, '--rpc-port', String(rpc), '--ws-port', String(ws), '--keeper', 'public-quicknet', '--wide-destination', 'public-quicknet', ...(preset ? ['--world-preset', preset] : []),
       // (the candidate: its feature, Core and the resident program to deploy, and where its throwaway authority seed goes: this world's directory)
-      ...(candidate ? ['--lane-candidate', CANDIDATE_FEATURE, '--resident-so', c.residentSo, '--core-so', c.coreSo, '--authority-seed-dir', dir] : [])]);
+      ...(candidate ? ['--lane-candidate', CANDIDATE_FEATURE, '--resident-so', c.residentSo, '--core-so', c.coreSo, '--authority-seed-dir', dir] : []),
+      // (⑰ TEST ONLY prize option: passed only with the candidate and only when asked)
+      ...(candidate && c.prizeTestOnlySo ? ['--prize-test-only-so', c.prizeTestOnlySo] : [])]);
     let meta;
     for (let i = 0; i < (natural ? Math.ceil((limit.naturalFirstLineMs ?? NATURAL_FIRST_LINE_MS) / 200) : 150) && !stopping; i++) {
       const line = (await fs.readFile(path.join(dir, 'runner.out'), 'utf8')).split('\n')[0];
@@ -799,6 +815,8 @@ export async function startWorld(c, wallet, slot, onStop, signal, opts = {}) {
     // (the candidate: exactly its id, version, feature and the three things its setup needs, inside this world's
     //  directory; a plain start refuses a runner that mentions a candidate at all)
     if (!candidateMetaAgrees(meta, candidate, dir)) throw fault('RunnerNotReady', 503);
+    // (⑰ TEST ONLY prize: the runner states it exactly when asked; a line that carries it unasked is refused)
+    if (!prizeTestOnlyMetaAgrees(meta, candidate && !!c.prizeTestOnlySo)) throw fault('RunnerNotReady', 503);
     // (a natural world's runner says so on that line, and a plain runner never does: neither is taken for the other)
     if (natural !== (meta.world === 'natural' && meta.world_preset === NATURAL_WORLD_PRESET)) throw fault('RunnerNotReady', 503);
     // (the test-only capture demo: the runner's own first line states it with this launcher's mode and scale, or does
@@ -983,7 +1001,7 @@ export const USAGE = `local-play launcher (this machine only)
   Ports: the page on --port; a world on five from --world-port (RPC, WS, public proxy, relay, herald), the second
   world on the next five. All within 41000-41999, none of 41904-41907, 127.0.0.1 only.`;
 export async function parseConfig(args) {
-  const out = {}; const keys = new Set(['root', 'data', 'runner', 'herald', 'depart', 'preview', 'resident', 'artifact', 'artifact-sha', 'conquest', 'world-preset', 'prepare-scale', 'port', 'world-port', 'economy', 'world-ttl-minutes', 'natural-runner', 'march-trial', 'capture-demo', 'demo-scale', 'contest-pair', 'herald-output', 'lane-candidate', 'resident-so', 'core-so', 'nft-setup', 'mint', 'mint-port']);
+  const out = {}; const keys = new Set(['root', 'data', 'runner', 'herald', 'depart', 'preview', 'resident', 'artifact', 'artifact-sha', 'conquest', 'world-preset', 'prepare-scale', 'port', 'world-port', 'economy', 'world-ttl-minutes', 'natural-runner', 'march-trial', 'capture-demo', 'demo-scale', 'contest-pair', 'herald-output', 'lane-candidate', 'resident-so', 'core-so', 'nft-setup', 'mint', 'mint-port', 'prize-test-only-so']);
   for (let i = 0; i < args.length; i += 2) { const k = args[i]?.slice(2); if (!args[i]?.startsWith('--') || !keys.has(k) || out[k] || !args[i + 1]) throw fault('InvalidArguments'); out[k] = args[i + 1]; }
   for (const k of ['root', 'data', 'runner', 'herald', 'depart', 'preview', 'resident', 'artifact']) { if (!path.isAbsolute(out[k] ?? '')) throw fault('AbsolutePathRequired'); }
   if (out.conquest !== undefined && !path.isAbsolute(out.conquest)) throw fault('AbsolutePathRequired');
@@ -1029,10 +1047,15 @@ export async function parseConfig(args) {
     const mp = Number(out['mint-port']);
     if (!/^[0-9]{5}$/.test(out['mint-port']) || mp < 41000 || mp > 41999 || mp === port || (mp >= worldPort && mp <= worldPort + span - 1) || (mp >= 41904 && mp <= 41907)) throw fault('InvalidPorts');
   }
+  // (⑰ TEST ONLY prize option: only with the candidate lane, an absolute path; without it nothing below changes)
+  if (out['prize-test-only-so'] !== undefined) {
+    if (out['lane-candidate'] === undefined) throw fault('PrizeTestOnlyNeedsCandidate');
+    if (!path.isAbsolute(out['prize-test-only-so'])) throw fault('AbsolutePathRequired');
+  }
   // (a world's life: the default two hours, or the operator's whole minutes; refused, never rounded, when malformed)
   const worldTtlMs = parseWorldTtl(out['world-ttl-minutes']);
-  const c = { ...out, port, worldPort, worldTtlMs, artifactSha: out['artifact-sha'], ...(prepareScale !== undefined ? { prepareScale } : {}), ...(worldPreset !== undefined ? { worldPreset } : {}), ...(out['natural-runner'] !== undefined ? { naturalRunner: out['natural-runner'] } : {}), ...(out['march-trial'] !== undefined ? { marchTrial: true } : {}), ...(out['capture-demo'] !== undefined ? { captureDemo: { scale: parseDemoScale(out['demo-scale']) } } : {}), ...(out['contest-pair'] !== undefined ? { contestPair: true } : {}), ...(out['herald-output'] !== undefined ? { heraldOutput: out['herald-output'] } : {}), ...(out['lane-candidate'] !== undefined ? { laneCandidate: out['lane-candidate'], residentSo: out['resident-so'], coreSo: out['core-so'], nftSetup: out['nft-setup'], mint: out.mint, mintPort: Number(out['mint-port']) } : {}), web: await fs.realpath(path.join(out.root, 'permutation-server/web')) };
-  for (const file of [c.runner, c.herald, c.depart, c.preview, c.resident, c.artifact, ...(c.conquest ? [c.conquest] : []), ...(c.naturalRunner ? [c.naturalRunner] : []), ...(c.laneCandidate ? [c.residentSo, c.coreSo, c.nftSetup, c.mint] : []), path.join(c.root, 'permutation-gateway/src/frontier/local-play-relay-server.mjs')]) if (!(await fs.stat(file).catch(() => null))?.isFile()) throw fault('MissingFile');
+  const c = { ...out, port, worldPort, worldTtlMs, artifactSha: out['artifact-sha'], ...(prepareScale !== undefined ? { prepareScale } : {}), ...(worldPreset !== undefined ? { worldPreset } : {}), ...(out['natural-runner'] !== undefined ? { naturalRunner: out['natural-runner'] } : {}), ...(out['march-trial'] !== undefined ? { marchTrial: true } : {}), ...(out['capture-demo'] !== undefined ? { captureDemo: { scale: parseDemoScale(out['demo-scale']) } } : {}), ...(out['contest-pair'] !== undefined ? { contestPair: true } : {}), ...(out['herald-output'] !== undefined ? { heraldOutput: out['herald-output'] } : {}), ...(out['lane-candidate'] !== undefined ? { laneCandidate: out['lane-candidate'], residentSo: out['resident-so'], coreSo: out['core-so'], nftSetup: out['nft-setup'], mint: out.mint, mintPort: Number(out['mint-port']) } : {}), ...(out['prize-test-only-so'] !== undefined ? { prizeTestOnlySo: out['prize-test-only-so'] } : {}), web: await fs.realpath(path.join(out.root, 'permutation-server/web')) };
+  for (const file of [c.runner, c.herald, c.depart, c.preview, c.resident, c.artifact, ...(c.conquest ? [c.conquest] : []), ...(c.naturalRunner ? [c.naturalRunner] : []), ...(c.laneCandidate ? [c.residentSo, c.coreSo, c.nftSetup, c.mint] : []), ...(c.prizeTestOnlySo ? [c.prizeTestOnlySo] : []), path.join(c.root, 'permutation-gateway/src/frontier/local-play-relay-server.mjs')]) if (!(await fs.stat(file).catch(() => null))?.isFile()) throw fault('MissingFile');
   await fs.mkdir(c.data, { recursive: true }); return c;
 }
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
