@@ -60,10 +60,42 @@ const browser = await pw.chromium.launch();
 async function gamePage(seed, name) {
   const ctx = await browser.newContext();
   await ctx.addInitScript(s => { try { localStorage.setItem('ps-dev-wallet', s); localStorage.setItem('ps-lang', 'en'); } catch { /* about:blank */ } }, seed);
+  await ctx.addInitScript(installPressMonitor);
   const page = await ctx.newPage();
   page.on('pageerror', e => step(`${name} pageerror`, e.message));
+  pages.push({ page, name });
   await page.goto(GAME);
   return page;
+}
+/**
+ * The press monitor, in every game page from its first script: pointerdown / pointerup / click with the target's
+ * action, whether it is in the drawer (#panel-body: the press gate's scope) or a hand pop-up (#hand, #hand-pop), still
+ * in the page, disabled (aria-disabled or disabled), the element at the press point (an overlay shows there), the
+ * drawer's scroll; and every replacement of the drawer's body content (a redraw). Read back with `pressLog(page)`.
+ */
+function installPressMonitor() {
+  globalThis.__press = { events: [], redraws: [] };
+  const where = t => (t?.closest?.('#panel-body') ? 'drawer' : t?.closest?.('#hand-pop') ? 'hand-pop' : t?.closest?.('#hand') ? 'hand' : 'page');
+  const note = e => {
+    const t = e.target instanceof Element ? e.target : null, a = t?.closest?.('[data-act]') ?? t;
+    const at = Number.isFinite(e.clientX) ? document.elementFromPoint(e.clientX, e.clientY) : null;
+    globalThis.__press.events.push({ type: e.type, t: Math.round(performance.now()), act: a?.dataset?.act ?? a?.tagName ?? null, item: a?.dataset?.item ?? null, where: where(t), connected: !!t?.isConnected,
+      disabled: !!(a?.disabled || a?.getAttribute?.('aria-disabled') === 'true'), atPoint: at ? (at.closest('[data-act]')?.dataset.act ?? at.id ?? at.tagName) : null, atPointWhere: where(at), x: e.clientX ?? null, y: e.clientY ?? null, scroll: document.getElementById('panel-body')?.scrollTop ?? null });
+    if (globalThis.__press.events.length > 400) globalThis.__press.events.shift();
+  };
+  for (const type of ['pointerdown', 'pointerup', 'click']) addEventListener(type, note, true);
+  addEventListener('DOMContentLoaded', () => {
+    const body = document.getElementById('panel-body');
+    if (body) new MutationObserver(() => { globalThis.__press.redraws.push(Math.round(performance.now())); if (globalThis.__press.redraws.length > 400) globalThis.__press.redraws.shift(); }).observe(body, { childList: true });
+  });
+}
+const pages = [];
+const pressLog = page => page.evaluate(() => globalThis.__press ?? null).catch(() => null);
+/** Everything about a page at a failure: screenshot, DOM, the press monitor's log. */
+async function failureDump(page, name) {
+  await page.screenshot({ path: path.join(OUT, `${name}-failure.png`), fullPage: true }).catch(() => {});
+  writeFileSync(path.join(OUT, `${name}-failure.html`), await page.content().catch(() => ''));
+  writeFileSync(path.join(OUT, `${name}-press-log.json`), `${JSON.stringify(await pressLog(page), null, 2)}\n`);
 }
 const shot = async (page, name) => { await page.screenshot({ path: path.join(OUT, `${name}.png`), fullPage: true }); };
 const text = page => page.evaluate(() => document.body.innerText);
@@ -210,6 +242,10 @@ async function humanPress(page, sel) {
   await page.mouse.down();
   await page.waitForTimeout(120);
   await page.mouse.up();
+  await page.waitForTimeout(300);
+  const log = await pressLog(page);
+  const tail = log ? { events: log.events.slice(-6), redrawsLast2s: log.redraws.filter(x => x > (log.events.at(-1)?.t ?? 0) - 2000).length } : null;
+  writeFileSync(path.join(OUT, `press-${sel.replace(/[^a-z0-9]+/gi, '_').slice(0, 40)}-${Date.now()}.json`), `${JSON.stringify({ sel, at, tail }, null, 2)}\n`);
 }
 
 /** Harvest from the village screen (a player instruction; for an NFT, inside ResidentAct). Returns the page's answer. */
@@ -516,6 +552,7 @@ try {
   else step('12 NOT CONFIRMED: no march result within 25 min', `province ${prov11b?.slice(0, 12)} → ${prov12?.slice(0, 12)}; see 12-b-result.png`);
 } catch (e) {
   failed = e.message;
+  for (const { page, name } of pages) await failureDump(page, `FAILED-${name}`);
   step('FAILED', e.message);
 } finally {
   writeFileSync(path.join(OUT, 'steps.log'), `${log.join('\n')}\n`);
