@@ -1092,6 +1092,12 @@ onLangChange(() => { if (summarySay) setText('map-summary', summarySay()); });
 
 /** Start the order card for the acting host with `hit` as its destination (the existing compose flow). */
 async function orderMarch(A, hit) {
+  // (round 28: local play — the host's own march answer, as its send will read it (controller.mjs localMarchFor), is asked
+  //  before any order is drafted; a refusal is said on the map instead of after the order card is up)
+  if (FS.localPlay && typeof FS.localMarchFor === 'function') {
+    const own = Number.isInteger(A.actor.holdingIndex) ? FS.holdings?.[A.actor.holdingIndex] ?? null : null;
+    if (FS.localMarchFor(own, A.actor.id)?.open !== true) { mapNote(hit, () => L`ローカルプレイでは、まだ命令を送れません（読み取りのみ）。`); return; }
+  }
   if (Number.isInteger(A.actor.holdingIndex) && A.actor.holdingIndex !== (FS.activeHolding ?? 0)) FS.activeHolding = A.actor.holdingIndex;
   ACTIONS.compose({ host: A.actor.id, stay: 'map' });
   if (!FS.compose) return;

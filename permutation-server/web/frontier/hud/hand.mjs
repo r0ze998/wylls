@@ -166,7 +166,7 @@ const hostChip = (FS, r) => ({ id: r.id, unit: r.unit, text: unitCount(UNIT_ORDE
 function hostModel(FS, sub) {
   const r = sub.host, h = sub.holding;
   const faction = int(FS.citizen?.faction) ? FS.citizen.faction : 0;
-  const mc = marchCheck(FS, r), dc = dissolveCheck(FS, r), dLocal = localRefuses(FS, 'Dissolve'), mLocal = localMarchClosed(FS, r), mLocalPage = localMarchClosed(FS), eLocal = localRefuses(FS, 'Explore');
+  const mc = marchCheck(FS, r), dc = dissolveCheck(FS, r), dLocal = localRefuses(FS, 'Dissolve'), mLocal = localMarchClosed(FS, r), eLocal = localRefuses(FS, 'Explore');
   const ex = r.unit === SCOUT ? exploreCheck(FS, r) : null;
   const all = ownHosts(FS);
   const at = all.findIndex(x => x.id === r.id);
@@ -185,9 +185,9 @@ function hostModel(FS, sub) {
     // open it: the list then says from which turn it can go (never a dead end)
     // (not offered where no keep can be taken: a world opened only to the heartlands — noContestableKeep)
     ...(conquestOn(FS) && !noContestableKeep(FS) && r.unit !== SCOUT && r.unit !== SETTLER ? [{ id: 'keeps', icon: 'flag', word: L`砦へ進軍`, act: 'hand-pop', data: { pop: 'keeps' }, figure: L`${fmtNum(holdTurns(FS))} ターンで奪取`, pressed: pop === 'keeps',
-      // (round 27: a march on a keep is composed for the page's active village, not the host's own — controller.mjs
-      //  cq-march —, so this button keeps the page-wide answer; March and Return switch to the host's village first)
-      why: r.inTransit ? mc.text : mLocalPage ? localReadOnlyText() : null, tone: waitOf(FS, r) ? 'warn' : '', hint: L`この軍勢が届く他国の砦を一覧にします。行を選ぶと、その砦への命令の紙が開きます` }] : []),
+      // (round 28: a march on a keep is composed from the host's own village too — controller.mjs cq-march —, so this
+      //  button asks the same per-host answer as March and Return)
+      why: r.inTransit ? mc.text : mLocal ? localReadOnlyText() : null, tone: waitOf(FS, r) ? 'warn' : '', hint: L`この軍勢が届く他国の砦を一覧にします。行を選ぶと、その砦への命令の紙が開きます` }] : []),
     ...(ex ? [{ id: 'explore', icon: 'scout', word: L`探索`, act: 'hand-pop', data: { pop: 'explore' }, figure: ex.ok ? L`${fmtNum(ex.targets.length)} マス` : '', pressed: pop === 'explore', why: eLocal ? localReadOnlyText() : ex.ok ? null : ex.text,
       hint: L`となりのマスを 2 つまで調べます` }] : []),
     { id: 'return', icon: 'home', word: L`村へ戻す`, act: 'hand-return', data: { host: r.id }, figure: r.home ? '' : L`${fmtNum(away ?? 0)} マス先`, why: r.home ? whyText('AtHome') : mLocal ? localReadOnlyText() : mc.ok ? null : mc.text,
