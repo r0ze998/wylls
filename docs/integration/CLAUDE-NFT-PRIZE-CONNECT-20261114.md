@@ -450,5 +450,36 @@ The same order is in the carried `ec226d1b`, so this is a reachability gap in th
   claim at generation 2 pays A once and a second claim is `AlreadyClaimed`, as before. rustfmt-clean;
   diff confined to this test.
 
-**Status:** ④ rerun **pending** a slot after ⑳'s runs (requested from main and ⑳). Until it runs,
-the fix is unverified and ④ is **NOT DONE**.
+**Status:** superseded by §11.1 (rerun 10/10).
+
+### 11.1 ④ rerun after the test fix: 10/10 (2026-11-15)
+
+After ⑳ reported its cargo done (free 23.67 GiB, nothing running) and with main's agreed order:
+`cargo test --offline --locked --test nft_pass_prize` in e2e-native, head `db744d3d` (includes
+`f73b877a` + `2d6665a6`), the test crate recompiled (`Compiling wylls-e2e-native`), toolchain 1.89.0,
+guard unchanged (`94baeb7d…`), run script sha256 `d8e97418853ef3cc…`, log sha256 `d3c9d9383085ad3d…`.
+
+**Result: 10 passed, 0 failed** (5 s, rc 0; no guard stop; peak target 345 MiB; free 23.63 GiB after).
+`a_buy_back_before_the_claim_pays_the_returning_owner_once` now passes with all seven refusals
+leaving the vault, A/B/session balances and the Entry unchanged, the session refused for real
+(`ResidentNotCurrentAuthority` via its own token account) and the destination binding separately
+(`BadAccount`). The other nine were unchanged and pass. df and the result went to main and ⑳ at once;
+slot returned.
+
+**⑳'s own check** (not my run, cited as reported by ⑳): `cargo check -p permutation-frontier`,
+default / `expedition-dispatch-experimental` / `localnet-conquest-nft-sbf`, all rc 0, toolchain 1.95.0,
+offline/locked. Together with my ③ (the no-wide build), that covers both sides of `5ff4c12d`.
+
+**Rust status now:** prize `lib.rs` unit tests 9/9 (both feature sets); `registry` 1/1 and
+`error_codes` 3/3 (0x111 registered and tested); `nft_pass_prize` 10/10 host tests. These are **host**
+tests over fixed values and mocks (public PDA derivation only; no funds, wallet, signing, SBF, validator
+or chain). Still not verified: SBF/LiteSVM (`svm-tests`), any real chain or world run, the page's claim
+flow end to end, the address-deriving and key-using JS tests.
+
+**Remaining work, updated**
+- 仕様判断: pass refund owner; prize period for continuous worlds; wallet ↔ NFT migration.
+- 重build待ち: `permutation-prize/svm-tests` (SBF + LiteSVM); `frontier-prize-resident.test.mjs` /
+  `frontier-prize.test.mjs` (JS, address-deriving / key-using) under an approved run.
+- 実world待ち: a pass claim through the relay on a local chain; ResidentStaleGeneration after a real
+  TransferResident; A → B → A on chain; RecordResidentNation after CloseCitizen; CU/CPI; the claim
+  flow in the running app.
