@@ -397,8 +397,18 @@ const localMarchSenderNow = () => (localMarchSender ??= localMarch.createLocalMa
 function localMarchView() {
   if (!localPlay) return null;
   const h = FS.compose?.holding ? holdingByRef(FS.holdings, FS.compose.holding) : activeHolding(FS);
+  return localMarchFor(h, FS.compose?.host?.id ?? null);
+}
+/**
+ * (round 27) The same answer for one host of one village: what sendTheMarch would find once that host's order is composed
+ * (localMarchView reads the composed order's village and host, or the active village). The bar asks it for the host it
+ * shows, so a host of another village, or a stale order of another host, does not read as refused when its own march
+ * would be sent. Nothing else reads it; the send still reads localMarchView.
+ */
+function localMarchFor(h, hostId) {
+  if (!localPlay) return null;
   return localMarch.localMarchOpen({ capability: localMarchCapability, wallet: FS.wallet?.address ?? null, instance: localPlay.march?.instance ?? null, gate: localDepartGate(),
-    holding: h ? { p: h.p, q: h.q, site: h.site } : null, held: localMarchSender ? localMarchSender.held(FS.compose?.host?.id ?? null) : [], trialEntry: localPlay.march?.trialEntry === true });
+    holding: h ? { p: h.p, q: h.q, site: h.site } : null, held: localMarchSender ? localMarchSender.held(hostId ?? null) : [], trialEntry: localPlay.march?.trialEntry === true });
 }
 
 // `lo` (local play's six only; null otherwise): `{scope, key, origin}` taken by `act` BEFORE anything was awaited — the
@@ -2667,6 +2677,7 @@ export async function startPlay({ herald: h, cfg }) {
   FS.localPlay = localPlay;
   useHerald(h);
   Object.defineProperty(FS, 'localMarch', { configurable: true, enumerable: false, get: localMarchView });
+  Object.defineProperty(FS, 'localMarchFor', { configurable: true, enumerable: false, value: (holding, hostId) => localMarchFor(holding ? holdingByRef(FS.holdings, holding) : null, hostId) });
   protoIo.configure({ herald: cfg.herald ?? '' });
   const pin = io.pinned();
   if (pin) herald.pin(pin.seasonId, pin.addresses);

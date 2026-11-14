@@ -171,7 +171,10 @@ test('the controller: a local march with a signature is recorded as SENT (unconf
   assert.equal(body.split('sent: false').length - 1, 1);
   assert.ok(body.indexOf('sent: false') > body.indexOf('localSent ?'), 'the not-sent record is the last alternative, after the local signature branch');
   // the hold itself stays: the march's refusal while held is FS.localMarch (LocalMarchHeld), and the sender refuses a held host before any POST
-  assert.match(src, /held: localMarchSender \? localMarchSender\.held\(FS\.compose\?\.host\?\.id \?\? null\) : \[\]/);
+  // (round 27: localMarchView hands the composed order's host to localMarchFor, which asks the sender — the same answer;
+  //  the bar asks localMarchFor for the host it shows)
+  assert.match(src, /return localMarchFor\(h, FS\.compose\?\.host\?\.id \?\? null\);/);
+  assert.match(src, /held: localMarchSender \? localMarchSender\.held\(hostId \?\? null\) : \[\]/);
 });
 
 test('the order record by outcome (the controller\'s branch, replayed): signature + Unconfirmed → unconfirmed; signature + TransactionFailed → refused but sent; no signature → not sent', () => {
