@@ -67,22 +67,25 @@ export function localPrizeConfigProblems(cfg) {
   if (!isKey(cfg?.prizeProgram)) p.push('prizeProgram: a base58 key');
   if (!isKey(cfg?.wallet)) p.push('wallet: the page\'s pinned wallet (base58)');
   if (typeof cfg?.runId !== 'string' || !/^[0-9a-f]{32}$/.test(cfg.runId) || /^0{32}$/.test(cfg.runId)) p.push('runId: the world\'s localnet run id (32 lowercase hex, frontier_status)');
+  if (typeof cfg?.runnerInstance !== 'string' || !/^[0-9a-f]{64}$/.test(cfg.runnerInstance) || /^0{64}$/.test(cfg.runnerInstance)) p.push('runnerInstance: this running instance (64 lowercase hex, the status context): a reopened or restored world keeps its runId but not this');
   return p;
 }
 
 /**
  * `rpc(method, params)` → { result } | { error } (fetchRpc's contract; the default), `readLedger()` → the TEST ONLY ledger
- * or null, `now()` ms, `runnerInstance` (64 hex, optional): the one runner this world's status answers must name.
+ * or null, `now()` ms. `cfg.runId` and `cfg.runnerInstance` pin the one runner: both are checked before a message is built
+ * and again before it is sent. BOUNDARY: between that check and the send there are separate RPC calls; a runner swapped in
+ * exactly that window is not excluded by this relay (the program's own checks still apply on chain). It is not claimed.
  */
-export function createLocalPlayPrize({ cfg: given, rpc = null, readLedger = async () => null, now = () => Date.now(), runnerInstance = null }) {
+export function createLocalPlayPrize({ cfg: given, rpc = null, readLedger = async () => null, now = () => Date.now() }) {
   const problems = localPrizeConfigProblems(given);
   if (problems.length) throw fault('LocalPrizeConfig', 503, problems.join('; '));
   // A snapshot of the validated primitives: a later change to the caller's object changes nothing here (not the RPC
   // destination, the wallet, the program or the world).
   const cfg = Object.freeze({ testOnly: true, rpc: String(given.rpc), programId: String(given.programId), seasonId: Number(given.seasonId),
-    prizeProgram: String(given.prizeProgram), wallet: String(given.wallet), runId: String(given.runId) });
+    prizeProgram: String(given.prizeProgram), wallet: String(given.wallet), runId: String(given.runId), runnerInstance: String(given.runnerInstance) });
+  const runnerInstance = cfg.runnerInstance;
   if (rpc === null) { const url = cfg.rpc; rpc = (m, p) => fetchRpc(url, m, p); }
-  if (runnerInstance !== null && (typeof runnerInstance !== 'string' || !/^[0-9a-f]{64}$/.test(runnerInstance) || /^0{64}$/.test(runnerInstance))) throw fault('LocalPrizeConfig', 503, 'bad runner instance');
   const addresses = new FrontierAddresses({ programId: cfg.programId, seasonId: cfg.seasonId });
   const pool = poolAddress(cfg.prizeProgram, cfg.programId, cfg.seasonId);
   const walletKey = createPublicKey({ key: Buffer.concat([SPKI_ED25519, Buffer.from(decode(cfg.wallet))]), format: 'der', type: 'spki' });
@@ -106,9 +109,13 @@ export function createLocalPlayPrize({ cfg: given, rpc = null, readLedger = asyn
   const heightNow = async () => { try { const h = await call('getBlockHeight', [{ commitment: 'confirmed' }]); return Number.isSafeInteger(h) && h >= 0 ? BigInt(h) : null; } catch { return null; } };
   /** The world's runner is the one this relay was started for (frontier_status runId); otherwise nothing is prepared or sent. */
   async function sameRunner() {
-    let st;
-    try { st = await call('frontier_status', []); } catch { return false; }
-    return typeof st?.runId === 'string' && st.runId.toLowerCase() === cfg.runId;
+    // Both identities, read before anything is built or sent: the run id (frontier_status) AND this running instance
+    // (the context of a status answer; an empty signature list is accepted by the server). A reopened or restored world
+    // keeps its run id but gets a new instance. Anything missing or malformed fails closed.
+    let st, ctx;
+    try { st = await call('frontier_status', []); ctx = (await call('getSignatureStatuses', [[], { searchTransactionHistory: false }]))?.context; } catch { return false; }
+    return typeof st?.runId === 'string' && st.runId.toLowerCase() === cfg.runId
+      && typeof ctx?.instance === 'string' && /^[0-9a-f]{64}$/.test(ctx.instance) && ctx.instance === runnerInstance;
   }
 
   async function readPool() {
@@ -237,10 +244,10 @@ export function createLocalPlayPrize({ cfg: given, rpc = null, readLedger = asyn
       const r = await call('getSignatureStatuses', [[body.signature], { searchTransactionHistory: true }]);
       const ctx = r?.context, value = r?.value, slot = ctx?.slot;
       if (!Number.isSafeInteger(slot) || slot < 0 || !Array.isArray(value) || value.length !== 1) throw fault('LocalPrizeRpcUnavailable', 503, 'malformed status');
-      if (runnerInstance !== null && ctx.instance !== runnerInstance) throw fault('LocalPrizeRunnerChanged', 503, 'the answer is not from the runner this claim was sent to');
+      if (ctx.instance !== runnerInstance) throw fault('LocalPrizeRunnerChanged', 503, 'the answer is not from the runner this claim was sent to');
       const s = value[0];
       if (s === null) {
-        const settled = runnerInstance !== null && t.state === 'used' && typeof t.sentSlot === 'bigint' && BigInt(slot) > t.lastValid && BigInt(slot) >= t.sentSlot;
+        const settled = t.state === 'used' && typeof t.sentSlot === 'bigint' && BigInt(slot) > t.lastValid && BigInt(slot) >= t.sentSlot;
         if (settled) { t.state = 'expired_unlanded'; t.settledSlot = slot; }
         return { signature: body.signature, status: settled ? 'expired_unlanded' : 'pending', context_slot: slot };
       }

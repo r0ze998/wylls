@@ -15,8 +15,8 @@ const k = n => b58(new Uint8Array(32).fill(n));
 const PROGRAM = LOCAL_LANE_PROGRAMS.conquestNftCandidate, PRIZE = k(0x50), WALLET = k(0xa1), OTHER = k(0xb2), ASSET = k(0x5a), RES = k(0x33);
 const SEASON_ID = 11;
 const POOL = poolAddress(PRIZE, PROGRAM, SEASON_ID);
-const RUN = '0123456789abcdef0123456789abcdef';
-const cfg = { testOnly: true, rpc: 'http://127.0.0.1:41101', programId: PROGRAM, seasonId: SEASON_ID, prizeProgram: PRIZE, wallet: WALLET, runId: RUN };
+const RUN = '0123456789abcdef0123456789abcdef', INSTANCE = 'ab'.repeat(32);
+const cfg = { testOnly: true, rpc: 'http://127.0.0.1:41101', programId: PROGRAM, seasonId: SEASON_ID, prizeProgram: PRIZE, wallet: WALLET, runId: RUN, runnerInstance: INSTANCE };
 
 function poolBytes({ state = 2, mode = 1, game = PROGRAM, seasonId = SEASON_ID } = {}) {
   const d = new Uint8Array(POOL_SIZE);
@@ -48,6 +48,7 @@ function chain(accounts) {
     if (method === 'getAccountInfo') { const a = accounts.get(params[0]); return { result: { value: a ? { owner: a.owner, data: [Buffer.from(a.data).toString('base64'), 'base64'] } : null } }; }
     if (method === 'getLatestBlockhash') return { result: { value: { blockhash: k(0x09), lastValidBlockHeight: 100 } } };
     if (method === 'frontier_status') return { result: { runId: RUN } };
+    if (method === 'getSignatureStatuses') return { result: { context: { slot: 1, instance: INSTANCE }, value: [] } };
     if (method === 'sendTransaction') { sent.push(params); return { result: 'x' }; }
     throw new Error(`unexpected ${method}`);
   };
@@ -146,6 +147,7 @@ test('wired to the real fetchRpc: never follows a redirect, unwraps { result }, 
     let out;
     if (method === 'getAccountInfo') { const a = accounts.get(params[0]); out = { jsonrpc: '2.0', id: 1, result: { value: a ? { owner: a.owner, data: [Buffer.from(a.data).toString('base64'), 'base64'] } : null } }; }
     else if (method === 'frontier_status') out = { jsonrpc: '2.0', id: 1, result: { runId: RUN } };
+    else if (method === 'getSignatureStatuses') out = { jsonrpc: '2.0', id: 1, result: { context: { slot: 1, instance: INSTANCE }, value: [] } };
     else out = { jsonrpc: '2.0', id: 1, error: { code: -32601, message: 'no' } };
     const body = Buffer.from(JSON.stringify(out));
     return new Response(body, { status: 200, headers: { 'content-type': 'application/json', 'content-length': String(body.length) } });
@@ -168,7 +170,7 @@ test('the configuration is a snapshot: changing the caller\'s object afterwards 
     const { method, params } = JSON.parse(init.body);
     const out = method === 'getAccountInfo'
       ? { result: { value: accounts.get(params[0]) ? { owner: accounts.get(params[0]).owner, data: [Buffer.from(accounts.get(params[0]).data).toString('base64'), 'base64'] } : null } }
-      : { result: { runId: RUN } };
+      : method === 'getSignatureStatuses' ? { result: { context: { slot: 1, instance: INSTANCE }, value: [] } } : { result: { runId: RUN } };
     const body = Buffer.from(JSON.stringify({ jsonrpc: '2.0', id: 1, ...out }));
     return new Response(body, { status: 200, headers: { 'content-length': String(body.length) } });
   };
@@ -191,4 +193,16 @@ test('another runner on the same port (another run id): nothing is prepared', as
   await assert.rejects(createLocalPlayPrize({ cfg, rpc: silent, readLedger: async () => ledger }).prepare(req()), e => e.code === 'LocalPrizeRunnerChanged', 'a runner that does not say who it is is not the pinned one');
   assert.match(localPrizeConfigProblems({ ...cfg, runId: undefined }).join(), /runId/);
   assert.match(localPrizeConfigProblems({ ...cfg, runId: '0'.repeat(32) }).join(), /runId/);
+});
+
+test('the same run id with another running instance (a reopened or restored world): nothing is prepared; no instance fails closed', async () => {
+  const c = chain(world());
+  const other = async (m, p) => (m === 'getSignatureStatuses' ? { result: { context: { slot: 1, instance: 'cd'.repeat(32) }, value: [] } } : c.rpc(m, p));
+  await assert.rejects(createLocalPlayPrize({ cfg, rpc: other, readLedger: async () => ledger }).prepare(req()), e => e.code === 'LocalPrizeRunnerChanged');
+  for (const ctx of [{ slot: 1 }, { slot: 1, instance: 'AB'.repeat(32) }, { slot: 1, instance: 'ab' }, null]) {
+    const bad = async (m, p) => (m === 'getSignatureStatuses' ? { result: { context: ctx, value: [] } } : c.rpc(m, p));
+    await assert.rejects(createLocalPlayPrize({ cfg, rpc: bad, readLedger: async () => ledger }).prepare(req()), e => e.code === 'LocalPrizeRunnerChanged', JSON.stringify(ctx));
+  }
+  assert.match(localPrizeConfigProblems({ ...cfg, runnerInstance: undefined }).join(), /runnerInstance/);
+  assert.match(localPrizeConfigProblems({ ...cfg, runnerInstance: '0'.repeat(64) }).join(), /runnerInstance/);
 });

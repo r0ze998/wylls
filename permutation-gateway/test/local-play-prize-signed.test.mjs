@@ -24,7 +24,7 @@ const PROGRAM = LOCAL_LANE_PROGRAMS.conquestNftCandidate, PRIZE = k(0x50), ASSET
 const POOL = poolAddress(PRIZE, PROGRAM, SEASON_ID);
 const INSTANCE = 'ab'.repeat(32);
 const RUN = '0123456789abcdef0123456789abcdef';
-const cfg = { testOnly: true, rpc: 'http://127.0.0.1:41101', programId: PROGRAM, seasonId: SEASON_ID, prizeProgram: PRIZE, wallet: WALLET, runId: RUN };
+const cfg = { testOnly: true, rpc: 'http://127.0.0.1:41101', programId: PROGRAM, seasonId: SEASON_ID, prizeProgram: PRIZE, wallet: WALLET, runId: RUN, runnerInstance: 'ab'.repeat(32) };
 const ledger = { testOnly: true, shares: { mode: 'shares', members: [{ wallet: `pass:${ASSET}`, asset: ASSET, nation: 1, points: 10, proof: ['00'.repeat(32)] }] } };
 
 function accounts() {
@@ -56,7 +56,7 @@ function runner({ send = wire => ({ result: sigOf(wire) }), height = 50, instanc
 }
 const sigOf = wireB64 => b58(Buffer.from(wireB64, 'base64').subarray(1, 65));
 const prepareReq = { schema: PREPARE_SCHEMA, asset: ASSET, generation: 2 };
-const make = (r, extra = {}) => createLocalPlayPrize({ cfg, rpc: r.rpc, readLedger: async () => ledger, runnerInstance: INSTANCE, ...extra });
+const make = (r, extra = {}) => createLocalPlayPrize({ cfg, rpc: r.rpc, readLedger: async () => ledger, ...extra });
 
 test('success: the wallet\'s signature on the prepared message is sent once and answered with its signature', async () => {
   const r = runner();
@@ -215,4 +215,18 @@ test('full history: two prepares of the same message waiting on the height read 
   await assert.rejects(B, e => e.code === 'LocalPrizeMessageUsed' && typeof e.signature === 'string');
   await assert.rejects(prize.submit({ schema: SUBMIT_SCHEMA, message_digest: a.message_digest, transaction_b64: signWire(a.message_b64) }), e => e.code === 'LocalPrizeMessageUsed');
   assert.equal(r.sent.length, 1, 'one send in all');
+});
+
+test('a restart with the same run id between prepare and submit (new instance): nothing is sent, the message is spent', async () => {
+  const r = runner();
+  const prize = make(r);
+  const p = await prize.prepare(prepareReq);
+  const tx = signWire(p.message_b64);
+  r.st.instance = 'cd'.repeat(32); // same runId, another running instance
+  await assert.rejects(prize.submit({ schema: SUBMIT_SCHEMA, message_digest: p.message_digest, transaction_b64: tx }), e => e.code === 'LocalPrizeRunnerChanged');
+  assert.equal(r.sent.length, 0);
+  r.st.instance = INSTANCE;
+  await assert.rejects(prize.submit({ schema: SUBMIT_SCHEMA, message_digest: p.message_digest, transaction_b64: tx }), e => e.code === 'LocalPrizeMessageUsed');
+  await assert.rejects(prize.prepare(prepareReq), e => e.code === 'LocalPrizeMessageUsed');
+  assert.equal(r.sent.length, 0);
 });
