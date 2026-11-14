@@ -201,3 +201,31 @@ Port branch **`claude/nft-prize-on-world-r21-20261115`** (worktree `/Users/r0ze/
 
 Next (new files only): `local-play-prize.mjs` (the pool and pass view; ClaimResident prepare → submit in the local-play
 style) with pure tests, then the mount line and the runner/launcher option, each after path + hash to ⑳.
+
+## 13. Review fix to the local-play prize relay; runner proposal; ports (2026-11-15)
+
+On the port branch `claude/nft-prize-on-world-r21-20261115`:
+- **`83288f69` (review fix).** Same asset, generation and blockhash give the same digest, and `prepare` used to
+  reset that ticket, so a sent or in-flight message could be submitted again.
+  - Now there is one ticket per digest, never reset: an open ticket returns the same ticket; a reserved, used,
+    unknown or expired one is refused, with its signature.
+  - Reused from `local-play-relay.mjs`:
+    - `fetchRpc`: no redirect, a timeout, a bounded body. Its `{result}` / `{error}` answers are unwrapped
+      explicitly; an error or a missing result is a refusal.
+    - `singleSigned`, `OPEN_TTL_MS`, `MAX_HISTORY`.
+    - The synchronous reservation, and the height read before sending.
+    - The signature recorded before sending and kept on an unknown or refused send.
+    - Sent tickets are never dropped.
+    - Status is strict and pinned to the runner instance.
+  - Tests: key-free 7/7 (including `{error}` handling and the real `fetchRpc` with `redirect: 'error'`).
+  - **Key-using** `local-play-prize-signed.test.mjs` 6/6: one throwaway in-memory Ed25519 key, in the user's
+    scope for this verification, against a mocked loopback RPC. Cases: success, concurrent submits (one send),
+    re-prepare while held / after / after unknown, the signature kept on unknown, a refused send, height expiry,
+    the reservation given back, and a replaced runner.
+  - **Negative control:** with the old reset, 2 of the 6 fail. The key-using file must be listed in
+    `scripts/ci/node-key-tests.txt` by the integrator; it is not edited here.
+- **`8cbc8d04`:** the TEST ONLY runner/launcher prize option as a proposal
+  (`CLAUDE-NFT-PRIZE-RUNNER-OPTION-PROPOSAL-20261115.md`, sha256 `af82b167…`). No code in ⑳'s files changed.
+- **Ports:** 42100 was outside the launcher's allowed 41000–41999 band (⑳'s correction; the band is not
+  widened). Proposed **41100–41199**; asked main to confirm.
+- Still not applied: ⑳'s `controller.mjs` / `join.mjs` (the proposal patch `1d892429…` waits for ⑳'s review).
