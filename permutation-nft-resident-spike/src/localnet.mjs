@@ -30,10 +30,13 @@ export function localnetAvailable() {
 // The resident program is loaded as an upgradeable program whose upgrade
 // authority is the setup key: InitConfig only accepts the program's upgrade
 // authority (v0.14). The setup key is made here, in memory, for this process.
-export async function startValidator({ rpcPort = 40000 + Math.floor(Math.random() * 20000), programId = TEST_PROGRAM_ID, coreSo = process.env.PSF_CORE_SO ?? DEFAULT_CORE_SO, residentSo = process.env.WYLLS_RESIDENT_SO ?? DEFAULT_RESIDENT_SO, quiet = true, setup = keypair() } = {}) {
+export async function startValidator({ rpcPort = 40000 + Math.floor(Math.random() * 20000), programId = TEST_PROGRAM_ID, coreSo = process.env.PSF_CORE_SO ?? DEFAULT_CORE_SO, residentSo = process.env.WYLLS_RESIDENT_SO ?? DEFAULT_RESIDENT_SO, quiet = true, setup = keypair(), extraPrograms = [] } = {}) {
   const ledger = mkdtempSync(path.join(tmpdir(), 'wylls-localnet-'));
   const args = ['--reset', '--ledger', ledger, '--bind-address', '127.0.0.1', '--rpc-port', String(rpcPort), '--faucet-port', String(rpcPort + 1), '--limit-ledger-size', '10000',
     '--bpf-program', MPL_CORE_PROGRAM, coreSo, '--upgradeable-program', programId, residentSo, setup.publicKey];
+  // More programs on the same chain (the local NFT world's Frontier lane): upgradeable under `authority`
+  // (default: the setup key) so their own authority-only setup instructions can run.
+  for (const x of extraPrograms) args.push('--upgradeable-program', x.id, x.so, x.authority ?? setup.publicKey);
   if (quiet) args.push('--quiet');
   const child = spawn(VALIDATOR, args, { stdio: ['ignore', 'ignore', 'pipe'] });
   let stderr = '';
