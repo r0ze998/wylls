@@ -40,3 +40,14 @@ test('a pass already joined: play it (no nation choice); playing it: the way bac
   const playing = s(renderLocalCandidateNfts(fsOf({ nfts, resident: { asset: ASSET } })));
   assert.match(playing, /data-act="nft-logout"/); assert.doesNotMatch(playing, /data-act="nft-login"/);
 });
+
+import { render as villageScreen, renderVillage } from '../../permutation-server/web/frontier/screens/holding.mjs';
+test('the village screen is exactly the village screen everywhere but the candidate lane\'s local play', () => {
+  const base = { wallet: { address: W }, holdings: [], season: { programVersion: 0x4804 }, nfts: { residents: [], policy: POLICY, mint: null }, resident: null };
+  for (const FS of [{ ...base, localPlay: null }, { ...base, localPlay: { programId: CONQ, address: W } }, { ...base, localPlay: { programId: CAND, address: W }, wallet: null }]) {
+    assert.equal(s(villageScreen(FS)), s(renderVillage(FS)));
+    assert.doesNotMatch(s(villageScreen(FS)), /data-local-nft/);
+  }
+  const cand = { ...base, localPlay: { programId: CAND, address: W }, season: { programVersion: 0xc804 } };
+  assert.match(s(villageScreen(cand)), /data-local-nft="none"/); assert.ok(s(villageScreen(cand)).endsWith(s(renderVillage(cand))), 'then the village screen, unchanged');
+});

@@ -247,7 +247,8 @@ export function render(FS) {
   return nft === '' ? village : html`${raw(String(nft))}${raw(String(village))}`;
 }
 
-function renderVillage(FS) {
+/** The village screen itself (what `render` shows everywhere but the candidate lane's local play). */
+export function renderVillage(FS) {
   // a wide inventory slot chosen in the rail: the captured record's read-only cards stand here instead
   // (screens/wideholding.mjs); the legacy village below is untouched and returns with the wide card's own press
   if (FS.wideSelect) { const w = wideHolding.render(FS); if (w) return w; }

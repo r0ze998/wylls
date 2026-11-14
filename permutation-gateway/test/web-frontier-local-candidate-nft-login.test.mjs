@@ -19,8 +19,8 @@ const key = n => encode(Uint8Array.from({ length: 32 }, (_, i) => (i === 0 ? n :
 const ASSET = key(11), CORE = 'CoREENxT6tW1HoK8ypY1SxRMZTcVPm7R94rH4PZNhX7d', RESIDENT_PROGRAM = key(7), OTHER = key(22);
 const POLICY = { coreProgram: CORE, residentProgram: RESIDENT_PROGRAM, collection: key(8), guardAuthority: key(9) };
 const HASH = encode(new Uint8Array(32).fill(7));
-let ew = null, lp = null, oldFetch = null, posts = [], hooks = {};
-const herald = new Proxy({ pin: () => {} }, { get: (t, k) => (k in t ? t[k] : async () => ({ ok: false, code: 'NotFound' })) });
+let ew = null, lp = null, oldFetch = null, posts = [], hooks = {}, meAsked = [];
+const herald = new Proxy({ pin: () => {}, me: async k => { meAsked.push(k); return { ok: false, code: 'NotFound' }; } }, { get: (t, k) => (k in t ? t[k] : async () => ({ ok: false, code: 'NotFound' })) });
 const json = (v, status = 200) => new Response(JSON.stringify(v), { status, headers: { 'content-type': 'application/json' } });
 
 before(async () => {
@@ -47,9 +47,9 @@ before(async () => {
 after(() => { globalThis.fetch = oldFetch; currentEphemeralWallet()?.destroy?.(); });
 
 function scene() {
-  posts = []; hooks = {};
+  posts = []; hooks = {}; meAsked = [];
   Object.assign(FS, { mode: 'play', season: { programVersion: 0xc804, layoutVersion: 2, joinGate: [0], rulesetHash: 'f9d4cd2ab7d4b7b80c91fa8f2abb5bd65d6ba1f3be6a0a13e1c4f9aeb6c4c3b1', endBell: 9999, bellSecs: 600 },
-    wallet: { address: lp.address }, resident: null, joinDraft: { faction: 2 }, inFlight: 0, notice: null,
+    wallet: { address: lp.address }, resident: null, joinDraft: { faction: 2 }, inFlight: 0, notice: null, clock: { genesisTs: 0 }, chain: { now: () => 1000, accelerated: false },
     nfts: { residents: [{ asset: ASSET, generation: 0, citizen: key(30), joined: false, link: false }], policy: POLICY, mint: null }, nftsRead: { ok: true, code: null } });
 }
 const submits = () => posts.filter(p => p.path === '/gw/f/local-play/act/submit');
@@ -67,6 +67,9 @@ test('the first login: ONE JoinResident with the resident schema; once it landed
   assert.equal(b.schema, 'frontier-local-play-act-submit-resident-v1'); assert.equal(b.name, 'JoinResident');
   assert.deepEqual(b.resident, { asset: ASSET, generation: 0, resident_program: RESIDENT_PROGRAM }); assert.deepEqual(b.fields, { faction: 2 });
   assert.equal(FS.resident?.asset, ASSET); assert.equal(FS.resident?.joined, true);
+  // the viewer is the NFT's Citizen from here: the read after the login asks the herald for the asset, never the wallet
+  assert.ok(meAsked.length > 0 && meAsked.every(k => k === ASSET), JSON.stringify(meAsked));
+  assert.notEqual(FS.resident.citizen, undefined); assert.notEqual(FS.resident.citizen, io.pinned().addresses.of('Citizen', { wallet: lp.address }), 'not the wallet\'s own Citizen');
 });
 
 test('the wallet changes while the generation is read: nothing is sent, the viewer is not adopted', async () => {
