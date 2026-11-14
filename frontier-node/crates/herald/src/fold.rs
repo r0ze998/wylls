@@ -589,6 +589,14 @@ impl Fold {
                 .then(|| a.data.clone())
             });
             let old = self.st.accounts.get(&key).cloned();
+            // A verified account snapshot (capture `tx` 0: only the opt-in
+            // local-play bootstrap writes one; feed sequences start at 1) read at
+            // context slot S already reflects every transaction of a slot ≤ S.
+            // Replaying such an older transaction keeps the snapshot's bytes for
+            // this account; its events and records are folded as usual below.
+            if old.as_ref().is_some_and(|o| o.tx == 0 && o.slot >= tx.slot) {
+                continue;
+            }
             match (old, new) {
                 (None, None) => {}
                 (Some(o), None) => {

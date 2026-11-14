@@ -80,6 +80,9 @@ pub struct App {
     pub events: Mutex<Option<findex::Reader>>,
     pub ws: WsCfg,
     pub ws_stats: Arc<WsStats>,
+    /// Opt-in local-play bootstrap provenance (`/h/status.localPlay`);
+    /// `None` (and no such key) for every other herald.
+    pub local_play: Option<Value>,
     cache: Mutex<LiveCache>,
 }
 
@@ -114,6 +117,7 @@ impl App {
             events: Mutex::new(None),
             ws: WsCfg::default(),
             ws_stats: Arc::new(WsStats::default()),
+            local_play: None,
             cache: Mutex::new(LiveCache::default()),
         }
     }
@@ -303,8 +307,7 @@ async fn season(State(app): State<Shared>, h: HeaderMap) -> Response {
 async fn status(State(app): State<Shared>) -> Response {
     let f = read_fold(&app);
     let a = f.st.alarms;
-    json_answer(
-        &json!({
+    let mut v = json!({
             "v": 1, "foldedThrough": f.st.folded_through, "events": f.st.events.to_string(),
             "lastSlot": f.st.last_slot, "live": f.live.map(|l| json!([l.0, l.1])),
             "provinces": f.provinces.len(), "rings": f.rings.keys().collect::<Vec<_>>(),
@@ -314,9 +317,11 @@ async fn status(State(app): State<Shared>) -> Response {
             "ws": {"open": app.ws_stats.open.load(std::sync::atomic::Ordering::SeqCst),
                 "total": app.ws_stats.total.load(std::sync::atomic::Ordering::SeqCst),
                 "droppedSlow": app.ws_stats.dropped_slow.load(std::sync::atomic::Ordering::SeqCst)},
-        }),
-        "no-store",
-    )
+        });
+    if let Some(lp) = &app.local_play {
+        v["localPlay"] = lp.clone();
+    }
+    json_answer(&v, "no-store")
 }
 
 /// `/h/world` (`world.rs`): the world's extent and identifiers.
