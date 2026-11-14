@@ -29,11 +29,24 @@ const STATIC = [
   { prefix: '/sdk/', dir: path.join(REPO, 'permutation-server', 'web', 'sdk') },
 ];
 
-export function createMintHandler({ adapter, mode = adapter.kind, testWallet = false }) {
+/** The JSON-RPC methods the page sends (web/mint.mjs); `/rpc` forwards these only, never as an open proxy. */
+export const PAGE_RPC_METHODS = Object.freeze(['getGenesisHash', 'getBalance', 'getLatestBlockhash', 'getBlockHeight', 'getAccountInfo', 'getSignatureStatuses', 'sendTransaction']);
+/** The largest request body the server reads (a signed transaction is at most 1,232 bytes, base64 in JSON). */
+export const MAX_BODY_BYTES = 64 * 1024;
+
+/**
+ * `testWallet`: the page offers its browser test wallet. `testKnobs`: the `/mock/*` routes (airdrop, response knobs,
+ * state) answer — for local tests only; off by default, so a shared deployment never exposes them.
+ */
+export function createMintHandler({ adapter, mode = adapter.kind, testWallet = false, testKnobs = false }) {
   const json = (res, status, body) => { res.writeHead(status, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' }); res.end(JSON.stringify(body, (_, v) => (typeof v === 'bigint' ? v.toString() : v))); };
   return async (req, res) => {
     const url = new URL(req.url, 'http://127.0.0.1');
-    const read = async () => { const c = []; for await (const x of req) c.push(x); return c.length ? JSON.parse(Buffer.concat(c).toString('utf8')) : {}; };
+    const read = async () => {
+      const c = []; let n = 0;
+      for await (const x of req) { n += x.length; if (n > MAX_BODY_BYTES) throw Object.assign(new Error('request body too large'), { status: 413, code: 'TooLarge' }); c.push(x); }
+      return c.length ? JSON.parse(Buffer.concat(c).toString('utf8')) : {};
+    };
     try {
       if (req.method === 'GET' && (url.pathname === '/' || url.pathname === '/mint')) { res.writeHead(302, { Location: '/web/mint.html' }); return res.end(); }
       for (const s of STATIC) {
@@ -65,12 +78,15 @@ export function createMintHandler({ adapter, mode = adapter.kind, testWallet = f
       }
       if (req.method === 'POST' && url.pathname === '/rpc') {
         const body = await read();
+        if (Array.isArray(body) || !PAGE_RPC_METHODS.includes(body?.method)) {
+          return json(res, 403, { jsonrpc: '2.0', id: body?.id ?? null, error: { code: -32601, message: 'method not served by the mint page' } });
+        }
         const out = await adapter.handle(body);
         if (out?.drop) { res.writeHead(504, { 'Content-Type': 'text/plain' }); return res.end('gateway timeout (test knob: the transaction was forwarded and landed, the answer is lost)'); }
         return json(res, 200, out);
       }
-      if (req.method === 'POST' && url.pathname.startsWith('/mock/')) {
-        // Test knobs (never in a devnet configuration).
+      if (req.method === 'POST' && url.pathname.startsWith('/mock/') && testKnobs) {
+        // Test knobs: local tests only (`testKnobs`); without it these paths are 404 like any other.
         const body = await read();
         switch (url.pathname) {
           case '/mock/airdrop': return json(res, 200, { ok: true, balance: await adapter.airdrop(body.address, BigInt(body.lamports)) });
@@ -87,6 +103,7 @@ export function createMintHandler({ adapter, mode = adapter.kind, testWallet = f
       }
       json(res, 404, { ok: false, code: 'NotFound' });
     } catch (e) {
+      if (e.status === 413) return json(res, 413, { ok: false, code: e.code });
       json(res, 500, { ok: false, code: 'Internal', message: e.message });
     }
   };
