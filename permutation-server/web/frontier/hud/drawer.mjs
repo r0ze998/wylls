@@ -62,8 +62,12 @@ export function drawerOf(FS) {
   if (mode !== 'play') return FS.drawerShut && !(mode === 'spectate' && FS.selected && FS.selected !== FS.shutAt) ? null : { kind: mode };
   if (FS.practice) return { kind: 'practice' };
   if (FS.report) return { kind: 'report' };
-  if (FS.homeGrant && !FS.titleUp) return { kind: 'home' };
   const tab = FS.tab ?? 'map';
+  // (round 18, 2026-11-14: an order being written on the map comes before the first village's welcome. In a two-person
+  //  test world the welcome, not yet put away, stood over the order card that a fort's row had just opened, and the seal
+  //  could not be reached until the player closed a card they had not asked for. The welcome is not put away by this: it
+  //  stands again once the order is sent or set aside.)
+  if (FS.homeGrant && !FS.titleUp && !(tab === 'map' && FS.compose)) return { kind: 'home' };
   if (tab !== 'map') return { kind: tab };
   if (FS.compose) return { kind: 'march' };
   // the viewer's own village or host is selected: the action bar has it (hud/hand.mjs), and the drawer stays shut
