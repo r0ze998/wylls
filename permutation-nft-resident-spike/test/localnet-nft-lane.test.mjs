@@ -18,6 +18,7 @@ import { keypair, base58 } from '../src/crypto.mjs';
 import { localnetAvailable, setupWorld, startValidator, TEST_PROGRAM_ID } from '../src/localnet.mjs';
 import { customCode, mintResidentIx, pdas, signedTx, transferResidentIx } from '../src/resident-ix.mjs';
 import { MPL_CORE_PROGRAM } from '../src/core-asset.mjs';
+import { attachMintStack } from '../src/mint-demo.mjs';
 import { createResidentPolicyIx, guardAuthorityAddress, policyAddress } from '../../permutation-gateway/client/src/frontier/resident.mjs';
 import { createResidentChainGate, decodePolicyRecord, guardRefusal, RESIDENT_GATE_CODES as C } from '../../permutation-gateway/src/frontier/resident-chain-gate.mjs';
 
@@ -95,4 +96,8 @@ test('a pass minted and transferred on the same chain; the relay gate reads the 
   assert.deepEqual(await gate.checkJoin({ owner: A.publicKey, resident: proof(1) }), { ok: false, code: C.NOT_HOLDER });
   assert.deepEqual(await gate.checkJoin({ owner: B.publicKey, resident: proof(0) }), { ok: false, code: C.STALE });
   assert.deepEqual(await gate.checkJoin({ owner: B.publicKey, resident: proof(1) }), { ok: true });
+  // The mint page attached read-only to this chain reads the same sale from the config, and B's pass.
+  const page = await attachMintStack({ rpcUrl: v.url, programId: v.programId });
+  assert.equal(page.world.collection, world.collection);
+  assert.equal(page.world.priceLamports, world.priceLamports);
 });
