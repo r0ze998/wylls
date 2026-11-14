@@ -23,7 +23,16 @@ import * as io from './fchainio.mjs';
 export async function loadResidents(owner, { request = io.request } = {}) {
   const r = await request('GET', `/f/residents?owner=${encodeURIComponent(owner)}`);
   if (!r.ok) return r;
-  return { ok: true, residents: r.residents ?? [], policy: r.policy ?? null };
+  return { ok: true, residents: r.residents ?? [], policy: r.policy ?? null, mint: mintLink(r.mint) };
+}
+
+/** The relay's mint page link, kept only as an http(s) URL without credentials (else null). */
+export function mintLink(url) {
+  if (typeof url !== 'string') return null;
+  try {
+    const u = new URL(url);
+    return (u.protocol === 'http:' || u.protocol === 'https:') && !u.username && !u.password ? u.toString() : null;
+  } catch { return null; }
 }
 
 /**

@@ -183,7 +183,7 @@ export async function loadNfts() {
   // — FS.nftsRead —, never as "this wallet has no NFT")
   if (FS.wallet?.address !== address) return;
   FS.nftsRead = { ok: !!r?.ok, code: r?.ok ? null : String(r?.code ?? 'Unavailable') };
-  if (r?.ok && r.policy) FS.nfts = { residents: r.residents, policy: r.policy };
+  if (r?.ok && r.policy) FS.nfts = { residents: r.residents, policy: r.policy, mint: r.mint ?? null };
   invalidate('panel');
 }
 
@@ -2240,6 +2240,8 @@ export const ACTIONS = {
     await refresh();
   },
   'nft-logout': async () => { adoptResident(null); await refresh(); },
+  // ⑳ after minting on the mint page: read the wallet's NFTs again (the chain decides what it holds).
+  'nft-reload': async () => { await loadNfts(); },
   'pick-faction': d => { FS.joinDraft = { ...(FS.joinDraft ?? {}), faction: num(d.f) }; invalidate('panel'); if (needsHomeChoice()) return refreshHomes({ force: true }); },
   join: async () => {
     // LOCAL PLAY: no in-game key is derived, remembered or registered. The page's memory-only wallet signs the Join
