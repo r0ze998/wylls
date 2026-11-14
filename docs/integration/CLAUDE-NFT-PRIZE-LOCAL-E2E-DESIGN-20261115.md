@@ -350,3 +350,28 @@ New rule for the E2E:
 - Until then, the E2E's claim path is exercised **without** a re-transfer: the original holder's claim, and the
   claimed / double-claim refusal. The re-transfer stories stay at the LiteSVM level (7/7, real resident program,
   labelled with the 0x51 boundary).
+
+## 18. Option (A) agreed; controller wiring (2026-11-15)
+
+- **⑳ reviewed and OK'd the option (A) specification** (`fef99647…`, port branch `57720414`), including its three
+  additions and ⑰'s four tightenings:
+  - the launcher reads the asset and owner first (page or mint wallet only);
+  - per-check reason codes, with the account set unchanged after every refusal;
+  - synthetic funding only;
+  - run_id and instance in the line;
+  - one shot;
+  - memory-only and `tamper_rpc: false` asserted, with RPC setAccount refused;
+  - the changed set exactly {the Entry}.
+
+  The Rust goes into a new `itest/src/prize_test_only.rs` with small hooks. Host build slot requested from main and ⑳
+  (`cargo test -p itest --features localnet-conquest-play --lib --bins`, est. ~3 GB, unchanged guard) for after ⑳'s
+  world 5 and resident proof.
+- **`82346ff8`:** the local-play prize wired into `controller.mjs`, only when `localCandidate()`:
+  - `refreshPrize` → `loadPrizeLocal` / `loadLedgerLocal`;
+  - `claimPass` → ⑳'s `residentGenerationNow` + `claimPassLocal`, a sent claim recorded as pending until the Entry reads
+    claimed, never resent.
+
+  Tests: prize set 48/48; ⑳'s controller 19/19 with and without; signed plus login/card 23/23. The ⑳-file patch was
+  regenerated (`git diff 13ac8f63..82346ff8`, +199/−8, sha256 `e981a6a9…`). It stays on the port branch until the
+  final review.
+- Re-transfer stays gated on ⑳'s strict resident variant (§17).
