@@ -120,7 +120,7 @@ wide の側は NFT 住民の**行動**を受ける準備がある。足りない
 
 **「検証が済んでいない」と「実装できない」の区別**：
 - Rust の golden 試験は 2026-11-15 に主と合意した枠で実行し 8 件すべて通過（最初の compile で `Depart` の import 漏れが見つかり直した。target 最大 334 MB、終了後削除）。
-- 2026-11-15 に確かめた：候補 lane の feature が host で compile できること、旧い組み合わせ 5 つが `compile_error!` で止まること、keeper（`cargo test -p keeper`）と runner（itest `--lib --bins`、142 件通過）の候補配線。詳細は candidate branch の資料。ただし keeper の既存試験 `tests/play.rs::claim_after_late_reveal` が機能 OFF/ON どちらでも失敗しており、**原因は未特定**（base `20adb087` での同条件実行がまだなので、base の失敗とは断定していない）。
+- 2026-11-15 に確かめた：候補 lane の feature が host で compile できること、旧い組み合わせ 5 つが `compile_error!` で止まること、keeper（`cargo test -p keeper`）と runner（itest `--lib --bins`、142 件通過）の候補配線。詳細は candidate branch の資料。ただし keeper の既存試験 `tests/play.rs::claim_after_late_reveal` が機能 OFF/ON どちらでも失敗する。2026-11-15 の同条件実測で、未変更の base `20adb087` と `0147a885`（Reveal の版を 2 つまでにする上限）以降で同じく失敗し、その親と上限 0 の probe では通ることを確かめた（原因は既存の上限。candidate branch の `CLAUDE-KEEPER-CLAIM-AFTER-LATE-REVEAL-20261115.md`、回帰 patch は未実行で keeper の持ち主の判断待ち）。また `5ff4c12d` の gate 側は `cargo check -p permutation-frontier`（既定・expedition-dispatch-experimental・localnet-conquest-nft-sbf）で compile 済み。
 - 検証が済んでいない（実装はある）：候補の .so の marker（SBF build の枠が要る）。
 - まだ動かせない：候補 lane で動く world。必要な道具の変更（page・gateway の版の読み、launcher、keeper の準備、runner）は候補 branch に実装済みだが、Rust の部分は未 compile で、候補の .so も未 build（§11）。画面からの 0xDD の送信はその world の後。
 
