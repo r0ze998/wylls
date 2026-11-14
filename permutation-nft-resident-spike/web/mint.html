@@ -25,51 +25,52 @@
 </head>
 <body>
 <main>
-  <div class="banner" data-testid="notice">DEVNET のテストです。本番の参加権や金銭的価値を保証しません。テスト用 SOL だけを使ってください。</div>
+  <div class="row" style="justify-content:flex-end;margin-bottom:8px"><button type="button" class="ghost" data-testid="lang">English</button></div>
+  <div class="banner" data-testid="notice" data-i18n>DEVNET のテストです。本番の参加権や金銭的価値を保証しません。テスト用 SOL だけを使ってください。</div>
 
   <section class="card" aria-labelledby="h-terms">
-    <h2 id="h-terms" style="margin:0 0 8px;font-size:18px">接続先と費用の見込み</h2>
+    <h2 id="h-terms" style="margin:0 0 8px;font-size:18px" data-i18n>接続先と費用の見込み</h2>
     <dl>
-      <dt>ネットワーク</dt><dd data-testid="network">—</dd>
-      <dt>価格</dt><dd data-testid="price">—</dd>
-      <dt>発行数</dt><dd data-testid="supply">—</dd>
-      <dt>販売</dt><dd data-testid="sale">—</dd>
-      <dt>ネットワーク手数料</dt><dd data-testid="fee">—</dd>
-      <dt>口座作成費（NFT＋住民）</dt><dd data-testid="rent">—</dd>
-      <dt>合計の見込み</dt><dd data-testid="total">—</dd>
+      <dt data-i18n>ネットワーク</dt><dd data-testid="network">—</dd>
+      <dt data-i18n>価格</dt><dd data-testid="price">—</dd>
+      <dt data-i18n>発行数</dt><dd data-testid="supply">—</dd>
+      <dt data-i18n>販売</dt><dd data-testid="sale">—</dd>
+      <dt data-i18n>ネットワーク手数料</dt><dd data-testid="fee">—</dd>
+      <dt data-i18n>口座作成費（NFT＋住民）</dt><dd data-testid="rent">—</dd>
+      <dt data-i18n>合計の見込み</dt><dd data-testid="total">—</dd>
       <dt>collection</dt><dd data-testid="collection">—</dd>
     </dl>
-    <p class="small">価格はテスト用で、本番の販売条件ではありません。費用は見込みで、確定値は取引で決まります。</p>
+    <p class="small" data-i18n>価格はテスト用で、本番の販売条件ではありません。費用は見込みで、確定値は取引で決まります。</p>
   </section>
 
   <section class="card" aria-labelledby="h-wallet">
-    <h2 id="h-wallet" style="margin:0 0 8px;font-size:18px">ウォレット</h2>
+    <h2 id="h-wallet" style="margin:0 0 8px;font-size:18px" data-i18n>ウォレット</h2>
     <div class="row" data-testid="wallets"></div>
     <dl style="margin-top:10px">
-      <dt>接続中</dt><dd data-testid="address">—</dd>
-      <dt>残高</dt><dd data-testid="balance">—</dd>
+      <dt data-i18n>接続中</dt><dd data-testid="address">—</dd>
+      <dt data-i18n>残高</dt><dd data-testid="balance">—</dd>
     </dl>
-    <p class="small" data-testid="mobile-hint" hidden>スマホの場合：ウォレットアプリ内のブラウザでこのページを開くか、アプリで署名してこのページへ戻ってください。戻った後、進行中の取引は自動で照会します。</p>
+    <p class="small" data-testid="mobile-hint" data-i18n hidden>スマホの場合：ウォレットアプリ内のブラウザでこのページを開くか、アプリで署名してこのページへ戻ってください。戻った後、進行中の取引は自動で照会します。</p>
   </section>
 
   <section class="card" aria-labelledby="h-mint">
-    <h2 id="h-mint" style="margin:0 0 8px;font-size:18px">NFT を mint して waitlist に登録する</h2>
-    <p class="small">NFT の取得がそのまま waitlist 登録です。別の登録フォームはありません。支払い・NFT 発行・住民 ID への紐付けは 1 つの取引で成立し、途中で失敗すれば支払いも戻ります（ネットワーク手数料を除く）。</p>
+    <h2 id="h-mint" style="margin:0 0 8px;font-size:18px" data-i18n>NFT を mint して waitlist に登録する</h2>
+    <p class="small" data-i18n>NFT の取得がそのまま waitlist 登録です。別の登録フォームはありません。支払い・NFT 発行・住民 ID への紐付けは 1 つの取引で成立し、途中で失敗すれば支払いも戻ります（ネットワーク手数料を除く）。</p>
     <div class="row">
-      <button type="button" data-testid="mint" disabled>テスト SOL で mint する</button>
-      <button type="button" class="ghost" data-testid="recheck">保有状態を再確認</button>
+      <button type="button" data-testid="mint" data-i18n disabled>テスト SOL で mint する</button>
+      <button type="button" class="ghost" data-testid="recheck" data-i18n>保有状態を再確認</button>
     </div>
-    <div class="status" data-testid="status">準備中…</div>
+    <div class="status" data-testid="status" data-i18n>準備中…</div>
     <dl style="margin-top:10px" data-testid="result" hidden>
-      <dt>住民 ID</dt><dd data-testid="resident-id">—</dd>
+      <dt data-i18n>住民 ID</dt><dd data-testid="resident-id">—</dd>
       <dt>asset</dt><dd data-testid="asset">—</dd>
-      <dt>取引署名</dt><dd data-testid="signature">—</dd>
-      <dt>保有者</dt><dd data-testid="holder">—</dd>
+      <dt data-i18n>取引署名</dt><dd data-testid="signature">—</dd>
+      <dt data-i18n>保有者</dt><dd data-testid="holder">—</dd>
     </dl>
   </section>
 
   <section class="card">
-    <h2 style="margin:0 0 8px;font-size:18px">あなたの住民（チェーンの読取結果）</h2>
+    <h2 style="margin:0 0 8px;font-size:18px" data-i18n>あなたの住民（チェーンの読取結果）</h2>
     <ul data-testid="mine" class="small"></ul>
   </section>
 </main>

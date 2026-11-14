@@ -330,6 +330,9 @@ function renderInstantPlacing(FS) {
   </section>`;
 }
 
+/** The mint page link in the game's language (`?lang=en|ja`; the mint page keeps the choice). */
+const mintHref = url => { try { const u = new URL(url); u.searchParams.set('lang', lang() === 'en' ? 'en' : 'ja'); return u.toString(); } catch { return url; } };
+
 const shortKey = k => `${String(k).slice(0, 4)}…${String(k).slice(-4)}`;
 
 /**
@@ -350,7 +353,7 @@ export function renderNfts(FS) {
   // A world with NFT residents and a mint page (local test worlds): a wallet without a pass is pointed there.
   if (FS.wallet && FS.nfts?.policy && !list.length && FS.nfts.mint) return html`<section class="vcard" aria-labelledby="join-nft">${cardHead({ id: 'join-nft', ic: 'seal', title: L`住民NFTで入る` })}
     <p class="muted">${L`このウォレットは住民NFT（参加パス）を持っていません。発行ページで取得すると、この画面からそのNFTで参加できます。`}</p>
-    <div class="actions"><a class="btn" href="${FS.nfts.mint}" target="_blank" rel="noopener noreferrer" data-act-link="nft-mint">${L`発行ページを開く`}</a> <button type="button" class="btn ghost" data-act="nft-reload">${L`取得したので読み直す`}</button></div></section>`;
+    <div class="actions"><a class="btn" href="${mintHref(FS.nfts.mint)}" target="_blank" rel="noopener noreferrer" data-act-link="nft-mint">${L`発行ページを開く`}</a> <button type="button" class="btn ghost" data-act="nft-reload">${L`取得したので読み直す`}</button></div></section>`;
   if (!FS.wallet || !list.length) return '';
   const pick = Number.isInteger(FS.joinDraft?.faction);
   return html`<section class="vcard" aria-labelledby="join-nft">${cardHead({ id: 'join-nft', ic: 'seal', title: L`住民NFTで入る` })}

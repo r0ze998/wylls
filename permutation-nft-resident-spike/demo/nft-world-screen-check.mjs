@@ -69,21 +69,21 @@ try {
   await connectDevWallet(a, 'A');
   await waitText(a, /This wallet holds no resident NFT \(entry pass\)/, 60_000, '1-no-pass');
   const href = await a.locator('[data-act-link="nft-mint"]').getAttribute('href');
-  if (href !== MINT) throw new Error(`the mint link is ${href}, not ${MINT}`);
+  if (href !== `${MINT}?lang=en`) throw new Error(`the mint link is ${href}, not ${MINT}?lang=en (the game is in English)`);
   await shot(a, '1-no-pass'); step('1 no pass: the join card links to the mint page', href);
 
   // 2. Mint on the mint page with the same key.
   const mctx = await browser.newContext();
-  await mctx.addInitScript(s => { try { localStorage.setItem('wylls-testwallet-seed', s); } catch { /* */ } }, seedA);
+  await mctx.addInitScript(s => { try { localStorage.setItem('wylls-testwallet-seed', s); localStorage.setItem('wylls-mint-lang', 'en'); } catch { /* */ } }, seedA);
   const m = await mctx.newPage();
   await m.goto(MINT);
   await m.waitForFunction(() => globalThis.__testWallet?.address);
   if (await m.evaluate(() => globalThis.__testWallet.address) !== A.publicKey) throw new Error('the mint page wallet is not A');
   await fetch(new URL('/mock/airdrop', MINT), { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ address: A.publicKey, lamports: '2000000000' }) });
   await m.locator('[data-wallet]').first().click();
-  await waitText(m, /mint できます/, 60_000, '2-mint-ready');
+  await waitText(m, /Ready to mint/, 60_000, '2-mint-ready');
   await m.getByTestId('mint').click();
-  await waitText(m, /waitlist 登録完了/, 120_000, '2-minted');
+  await waitText(m, /Your pass is ready/, 120_000, '2-minted');
   const asset = (await m.getByTestId('asset').textContent())?.trim();
   await shot(m, '2-minted'); step('2 minted on the mint page', asset);
 

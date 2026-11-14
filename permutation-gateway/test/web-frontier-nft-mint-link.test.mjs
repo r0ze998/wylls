@@ -58,7 +58,7 @@ test('no pass in an NFT world with a mint page: the card links to it (ja and en)
     await C.loadNfts();
     assert.equal(FS.nfts.mint, MINT);
     const ja = String(renderNfts(FS));
-    assert.match(ja, new RegExp(`href="${MINT.replace(/[.]/g, '\\.')}" target="_blank" rel="noopener noreferrer"`));
+    assert.match(ja, new RegExp(`href="${MINT.replace(/[.]/g, '\\.')}\\?lang=ja" target="_blank" rel="noopener noreferrer"`), 'the mint page opens in the game\'s language');
     assert.match(text(ja), /住民NFT（参加パス）を持っていません/);
     assert.match(ja, /data-act="nft-reload"/);
     assert.doesNotMatch(ja, /data-act="nft-login"/);
@@ -68,6 +68,7 @@ test('no pass in an NFT world with a mint page: the card links to it (ja and en)
     assert.match(en, /Open the mint page/);
     assert.match(en, /I got one: check again/);
     assert.doesNotMatch(en, BANNED_EN);
+    assert.match(String(renderNfts(FS)), /href="http:\/\/127\.0\.0\.1:41990\/web\/mint\.html\?lang=en"/);
     // "check again" after minting: the relay now lists the pass; the card offers it.
     globalThis.fetch = answer({ ok: true, residents: [{ asset: 'NFTasset11111111111111111111111111111111111', generation: 0, joined: false }], policy: { residentProgram: '11111111111111111111111111111111' }, mint: MINT });
     await C.ACTIONS['nft-reload']();
