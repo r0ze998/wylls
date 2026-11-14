@@ -292,7 +292,10 @@ export function renderKeepsPop(FS, model, { head }) {
   // the wait line (real), and its invisible stand-in: when nothing waits, the slot holds the settling line this host would
   // show, hidden and inert, so the card keeps the same height when the province's turn finishing comes and goes each half
   // turn (round 19: a browser measured the line at 113 px against the slot's 64 px least height — the rows still moved)
-  const waitLine = (w, ghost = false) => html`<p class="pop-line pop-why kh-wait-line">${icon('hourglass')}<span>${waitText({ ...w, id: r.id, unit: r.unit, troops: r.troops }, FS)}</span>${w.nudge && ghost ? html` <span class="btn small">${L`この州の処理を進める`}</span>` : ''}${w.nudge && !ghost && !FS.localPlay ? html` <button type="button" class="btn small" data-act="nudge" data-p="${r.p}" data-q="${r.q}">${L`この州の処理を進める`}</button>` : ''}</p>`;
+  // (round 24: the stand-in says the plain settling sentence, not looked up through the host's state — for a host still
+  //  forming that look-up gives its forming line, which can be shorter: a live ×30 world at 1280 px showed the card grow by
+  //  42 px, moving the rows, when the host stood while its province was still catching up)
+  const waitLine = (w, ghost = false) => html`<p class="pop-line pop-why kh-wait-line">${icon('hourglass')}<span>${ghost ? waitText({ ...w, id: r.id, unit: r.unit, troops: r.troops }) : waitText({ ...w, id: r.id, unit: r.unit, troops: r.troops }, FS)}</span>${w.nudge && ghost ? html` <span class="btn small">${L`この州の処理を進める`}</span>` : ''}${w.nudge && !ghost && !FS.localPlay ? html` <button type="button" class="btn small" data-act="nudge" data-p="${r.p}" data-q="${r.q}">${L`この州の処理を進める`}</button>` : ''}</p>`;
   // (round 20: the stand-in is ALWAYS in the slot, in the same grid cell as the real line (conquest-hand.css), so the slot
   //  is as tall as the taller of the two whatever the line says; it is the same in every mode — its button is a plain span
   //  either way. A longer line than the stand-in — a forming host's — is held by steadySlot until the card closes.)

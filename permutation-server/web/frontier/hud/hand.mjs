@@ -51,6 +51,8 @@ import { localReturnOf, localReturnSpent } from '../flocalplay-return.mjs';
 import { localConquestShown, localConquestSpent, localConquestReadFor, localConquestOrderFor, localConquestCityFor } from '../flocalplay-conquest.mjs';
 import { hostStepInFlight } from '../flocalplay-hoststep.mjs';
 import { SETTLE_CODES } from '../flocalplay-pending.mjs';
+import { localOrderRoute } from '../flocalplay-act.mjs';
+
 import { composerChoices } from '../screens/march.mjs';
 
 const int = Number.isInteger;
@@ -73,6 +75,16 @@ export const INSPECTION_POPS = Object.freeze([EXPEDITION_POP]);
 export { ownHostsAt, ownHosts, marchCheck, exploreCheck, dissolveCheck, canAct, subjectOf, popOf } from './subject.mjs';
 import { ownHosts, marchCheck, exploreCheck, dissolveCheck, canAct, subjectOf, popOf } from './subject.mjs';
 import { servesDeploymentVersion } from '../flocallanes.mjs';
+
+// (round 25: local play sends only its own few orders — flocalplay-act.mjs LOCAL_ACT_NAMES — and refuses the rest when
+//  they are sent. A bar button for an order local play refuses says so on the button and is not pressed, with the same
+//  sentence the refusal says (controller.mjs localPlayReadOnly), instead of opening a card whose confirm is refused only
+//  after it is pressed. Nothing local play can send changes; an ordinary session is as before.)
+const localRefuses = (FS, name) => !!FS?.localPlay && localOrderRoute({ localPlay: FS.localPlay, name, v: {}, signer: undefined, requester: null }) === 'refuse';
+const localReadOnlyText = () => L`ローカルプレイでは、まだ命令を送れません（読み取りのみ）。`;
+// (round 26: a march — the bar's March, its return home, a march on a keep — is sent in local play only while the march's
+//  own answer is open (controller.mjs sendTheMarch: FS.localMarch.open), and refused with the same sentence otherwise)
+const localMarchClosed = FS => !!FS?.localPlay && FS.localMarch?.open !== true;
 
 // ------------------------------------------------------------------ the model
 const hexDist = (a, b) => (a && b ? (Math.abs(a.q - b.q) + Math.abs(a.r - b.r) + Math.abs((a.q + a.r) - (b.q + b.r))) / 2 : null);
@@ -150,7 +162,7 @@ const hostChip = (FS, r) => ({ id: r.id, unit: r.unit, text: unitCount(UNIT_ORDE
 function hostModel(FS, sub) {
   const r = sub.host, h = sub.holding;
   const faction = int(FS.citizen?.faction) ? FS.citizen.faction : 0;
-  const mc = marchCheck(FS, r), dc = dissolveCheck(FS, r);
+  const mc = marchCheck(FS, r), dc = dissolveCheck(FS, r), dLocal = localRefuses(FS, 'Dissolve'), mLocal = localMarchClosed(FS), eLocal = localRefuses(FS, 'Explore');
   const ex = r.unit === SCOUT ? exploreCheck(FS, r) : null;
   const all = ownHosts(FS);
   const at = all.findIndex(x => x.id === r.id);
@@ -163,18 +175,18 @@ function hostModel(FS, sub) {
   const st = hostState(r, bellOf(FS));
   const where = r.home ? L`${holdingName(h)}にいます` : L`${tileName(FS, r.p, r.q, r.tile)}（${provinceName(FS, r.p, r.q)}）にいます`;
   const buttons = [
-    { id: 'march', icon: 'march', word: MARCH_WORD(), act: 'hand-march', data: { host: r.id }, figure: L`体力 ${fmtNum(r.stamina)}/${fmtNum(RULES.STAMINA_CAP)}`, pressed: armed, why: mc.ok ? null : mc.text,
+    { id: 'march', icon: 'march', word: MARCH_WORD(), act: 'hand-march', data: { host: r.id }, figure: L`体力 ${fmtNum(r.stamina)}/${fmtNum(RULES.STAMINA_CAP)}`, pressed: armed, why: mLocal ? localReadOnlyText() : mc.ok ? null : mc.text,
       hint: L`行き先のマスを押します。体力を ${fmtNum(DEPART_STAMINA)} 使い、着くのは 2 ターン先からです` },
     // a conquest season: the keeps this host can reach, as a list (hud/keephand.mjs). A host that cannot depart yet may still
     // open it: the list then says from which turn it can go (never a dead end)
     // (not offered where no keep can be taken: a world opened only to the heartlands — noContestableKeep)
     ...(conquestOn(FS) && !noContestableKeep(FS) && r.unit !== SCOUT && r.unit !== SETTLER ? [{ id: 'keeps', icon: 'flag', word: L`砦へ進軍`, act: 'hand-pop', data: { pop: 'keeps' }, figure: L`${fmtNum(holdTurns(FS))} ターンで奪取`, pressed: pop === 'keeps',
-      why: r.inTransit ? mc.text : null, tone: waitOf(FS, r) ? 'warn' : '', hint: L`この軍勢が届く他国の砦を一覧にします。行を選ぶと、その砦への命令の紙が開きます` }] : []),
-    ...(ex ? [{ id: 'explore', icon: 'scout', word: L`探索`, act: 'hand-pop', data: { pop: 'explore' }, figure: ex.ok ? L`${fmtNum(ex.targets.length)} マス` : '', pressed: pop === 'explore', why: ex.ok ? null : ex.text,
+      why: r.inTransit ? mc.text : mLocal ? localReadOnlyText() : null, tone: waitOf(FS, r) ? 'warn' : '', hint: L`この軍勢が届く他国の砦を一覧にします。行を選ぶと、その砦への命令の紙が開きます` }] : []),
+    ...(ex ? [{ id: 'explore', icon: 'scout', word: L`探索`, act: 'hand-pop', data: { pop: 'explore' }, figure: ex.ok ? L`${fmtNum(ex.targets.length)} マス` : '', pressed: pop === 'explore', why: eLocal ? localReadOnlyText() : ex.ok ? null : ex.text,
       hint: L`となりのマスを 2 つまで調べます` }] : []),
-    { id: 'return', icon: 'home', word: L`村へ戻す`, act: 'hand-return', data: { host: r.id }, figure: r.home ? '' : L`${fmtNum(away ?? 0)} マス先`, why: r.home ? whyText('AtHome') : mc.ok ? null : mc.text,
+    { id: 'return', icon: 'home', word: L`村へ戻す`, act: 'hand-return', data: { host: r.id }, figure: r.home ? '' : L`${fmtNum(away ?? 0)} マス先`, why: r.home ? whyText('AtHome') : mLocal ? localReadOnlyText() : mc.ok ? null : mc.text,
       hint: L`村への進軍です（体力 ${fmtNum(DEPART_STAMINA)}）。封をする前に確かめます` },
-    { id: 'dissolve', icon: 'disband', word: L`解散`, act: 'hand-pop', data: { pop: 'dissolve' }, figure: L`控えへ ${fmtNum(r.troops)}`, pressed: pop === 'dissolve', why: dc.ok ? null : dc.text, quiet: true,
+    { id: 'dissolve', icon: 'disband', word: L`解散`, act: 'hand-pop', data: { pop: 'dissolve' }, figure: L`控えへ ${fmtNum(r.troops)}`, pressed: pop === 'dissolve', why: dLocal ? localReadOnlyText() : dc.ok ? null : dc.text, quiet: true,
       hint: L`このターンの決着のあと、兵は村の控えに戻ります` },
     { id: 'next', icon: 'next', word: L`次の軍勢`, act: 'hand-next', data: {}, figure: all.length ? `${fmtNum(Math.max(0, at) + 1)}/${fmtNum(all.length)}` : '', why: all.length < 2 ? whyText('OnlyOne') : null,
       hint: L`このターンに動かせる軍勢から順に選びます` },
@@ -206,7 +218,7 @@ function hostModel(FS, sub) {
   const note = shared && !toCard && !(mc.code === 'Forming' && shared === mc.text) ? shared : null;
   return { kind: 'host', key: `h:${r.id}`, name, label: L`${name}の行動`, unit: r.unit, faction, sub: st.text, tone: st.tone, where, note, noteTone: note ? 'why' : null,
     chips: sub.hosts.length > 1 ? sub.hosts.filter(x => x.id !== r.id).map(x => hostChip(FS, x)) : [], villageHere: r.home ? holdingName(h) : null,
-    buttons, host: r, march: mc, explore: ex, dissolve: dc, armed, away, stamina: r.stamina };
+    buttons, host: r, march: mc, explore: ex, dissolve: dLocal ? { ok: false, text: localReadOnlyText() } : dc, armed, away, stamina: r.stamina };
 }
 
 /**

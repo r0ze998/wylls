@@ -1480,7 +1480,7 @@ export default {
   'ローカルプレイの準備': 'Local play setup',
   'この端末だけの試験用の世界です。開始ボタンで新しい世界を用意します。': 'A test world on this machine only. The start button prepares a new world.',
   '鍵は保存されないため、再読み込み・ページを閉じると今の世界は続けられません。開き直したら、新しい世界から始めてください。': 'The key is never stored, so after a reload or closing the page this world cannot be continued. When you reopen the page, start from a new world.',
-  '通常速度では1ターン10分です。世界の開始後も、行軍や精算にはターンの進行を待ちます。': 'At normal speed a turn takes 10 minutes. After the world starts, marches and settlement still wait for the turns to pass.',
+  '通常速度では1ターン10分です。世界の開始後も、進軍やその結果の受け取りにはターンの進行を待ちます。': 'At normal speed a turn takes 10 minutes. After the world starts, marches and receiving their results still wait for the turns to pass.',
   '世界は同時に2つまでです。どの世界も、開始サービスで決めた時間（既定は開始から2時間）がたつと自動的に終わり、その進行は保存されません。上限のときは、終了する世界を自分で選びます（勝手には止めません）。': 'At most two worlds at once. Each ends by itself once the time set by the start service has passed (two hours from its start unless the operator chose another), and its progress is not saved. At the limit you choose which world to end (none is ended for you).',
   'この試験用の世界は、準備のあいだだけ世界の時間を早送りします（出発先の州を開くため）。操作できるようになる前に通常速度へ戻し、そのあとは早送りしません。': 'During its preparation only, this test world\'s clock is run faster (to open the destination province). It is set back to normal speed before you can act, and is not run faster after that.',
   'この端末だけの試験用ウォレットです。鍵はこのページのメモリにだけあり、保存されません。ページを閉じる・読み込み直すと失われます。': 'A test wallet for this machine only. Its key is kept only in this page\'s memory and is never stored. Closing or reloading the page loses it.',
@@ -1625,4 +1625,10 @@ export default {
   '編成の送信待ちです。州のターンの決着がつき次第、この編成を1回だけ送ります（ターン {0} まで。取り消せます）。': 'Waiting to send: as soon as the province has finished its turn, this order to form a host is sent once (until turn {0}; you can cancel).',
   '送信待ち：州のターンの決着がつき次第、この編成を1回だけ送ります（ターン {0} まで）。兵種・兵数・場所が変わったら、送らずに取り消します。': 'Waiting to send: as soon as the province has finished its turn, this order to form a host is sent once (until turn {0}). If the unit, troops or place change, it is cancelled instead of sent.',
   '{0} 押すと、整い次第この編成を1回だけ送ります（兵種・兵数・場所が変わったら送らずに取り消します）。': '{0} A press sends this order to form a host once, as soon as it can be sent (if the unit, troops or place change, it is cancelled instead of sent).',
+  // round 22: local play's own messages in the controller had no English (an English player saw Japanese — at the moment
+  // an order's outcome was unknown, among others)
+  'ローカルプレイでは、まだ命令を送れません（読み取りのみ）。': 'In local play, this order cannot be sent yet (read only).',
+  'この命令は送信済みですが、まだ確認できていません。同じ命令は送り直しません。もう一度押すと結果を確認します。署名 {0}': 'This order was sent, but it is not confirmed yet. The same order is not sent again. Press again to check its outcome. Signature {0}',
+  '送信済みの命令の結果を確認しています…': 'Checking the outcome of the order already sent…',
+  'ローカルプレイの接続先が、確認したときと変わりました。ページを開き直してください。': 'The local play connection is not the one that was checked. Reopen the page.',
 };

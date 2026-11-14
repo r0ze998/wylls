@@ -263,3 +263,57 @@ test('round 21: the first village\'s welcome stays visible when the drawer is wr
     assert.ok(seen.rewritten.opacity > 0.99, `it did not fade out and in again (${seen.rewritten.opacity})`);
   } catch (e) { await failed(page, name, e); }
 });
+
+test('round 24: the fort row stays where it is when a host whose muster turn has come stands while its province is still catching up', async t => {
+  const { page, host, name } = await openForts(t, 'row-stands-settling');
+  try {
+    await page.setViewportSize({ width: 1280, height: 800 });
+    const set = (h, state, rnBack, fromBack) => page.evaluate(async ([h, state, rnBack, fromBack]) => {
+      const { FS, invalidate } = await import('/frontier/fstate.mjs');
+      const env = FS.provinces.get(`${h.p},${h.q}`);
+      env.province = { ...env.province, resolvedNext: FS.nowBell - rnBack, entries: env.province.entries.map(e => String(e.id) === h.id ? { ...e, state, fromBell: FS.nowBell - fromBack } : e) };
+      invalidate('panel', 'map');
+      await new Promise(r => setTimeout(r, 700));
+      return document.querySelector('#hand-pop .kh-wait-slot > .kh-wait-line')?.textContent ?? null;
+    }, [h, state, rnBack, fromBack]);
+    // forming, its muster turn come (the short forming line, as in the recorded world), then stood with the province behind
+    const formingText = await set(host, 2, 0, 0);
+    const during = await rowBox(page);
+    const settlingText = await set(host, 1, 3, 1);
+    const after = await rowBox(page);
+    writeFileSync(path.join(OUT, `${name}.json`), `${JSON.stringify({ formingText, settlingText, during, after }, null, 2)}\n`);
+    assert.ok(formingText && settlingText && formingText !== settlingText, 'two different lines were said');
+    // (the case of the recorded world: the forming line is formingLine's short default, shorter than the settling line —
+    //  with a longer forming phase the slot would already be tall and this check could not tell the old code apart)
+    assert.match(formingText, /It stands once the turn it was formed in is resolved/, `the short forming line: ${formingText}`);
+    assert.ok(formingText.length < settlingText.length, 'the forming line is the shorter one');
+    assert.equal(after.y, during.y, `the row did not move when the host stood (${during.y} → ${after.y})`);
+  } catch (e) { await failed(page, name, e); }
+});
+
+test('round 25: in local play the host bar\'s Dissolve says it cannot be sent there, and a press opens nothing', async t => {
+  const { page, name } = await openForts(t, 'dissolve-local');
+  try {
+    await page.setViewportSize({ width: 1280, height: 800 });
+    // (test-only, in this page: the page is in local play; nothing is sent — the fixture has no relay)
+    const at = await page.evaluate(async () => {
+      const { FS, invalidate } = await import('/frontier/fstate.mjs');
+      FS.localPlay = { address: 'W', programId: 'P', seasonAddress: 'S', cluster: 'localnet' };
+      // (local play's march trial open, as in the live worlds: then Dissolve is the only button refused for this reason)
+      Object.defineProperty(FS, 'localMarch', { configurable: true, get: () => ({ open: true }) });
+      FS.hand = { host: FS.hand.host };
+      invalidate('panel', 'map');
+      await new Promise(r => setTimeout(r, 600));
+      const b = document.querySelector('#hand .hand-dissolve'), r = b?.getBoundingClientRect();
+      return b ? { x: r.left + r.width / 2, y: r.top + r.height / 2, off: b.classList.contains('off'), disabled: b.getAttribute('aria-disabled'), why: b.querySelector('.hand-why')?.textContent ?? null } : null;
+    });
+    assert.ok(at, 'the host bar shows Dissolve');
+    await page.mouse.move(at.x, at.y); await page.mouse.down(); await page.waitForTimeout(90); await page.mouse.up();
+    await page.waitForTimeout(500);
+    const pop = await page.evaluate(() => document.getElementById('hand-pop')?.dataset.pop ?? '');
+    writeFileSync(path.join(OUT, `${name}.json`), `${JSON.stringify({ at, pop }, null, 2)}\n`);
+    assert.equal(at.off, true); assert.equal(at.disabled, 'true');
+    assert.equal(at.why, 'In local play, this order cannot be sent yet (read only).', 'the reason is on the button');
+    assert.notEqual(pop, 'dissolve', 'the press opened no card');
+  } catch (e) { await failed(page, name, e); }
+});
