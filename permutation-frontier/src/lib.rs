@@ -214,6 +214,78 @@ pub fn localnet_identity_ok(program_id: &solana_program::pubkey::Pubkey) -> bool
     program_id.to_bytes() == LOCALNET_EXPEDITION_PROGRAM_ID
 }
 
+/// The only program id the `localnet-nft-sbf` lane (the isolated local NFT
+/// world: S1 + nft-experimental + test beacon) runs under. Not a keypair's
+/// public key; distinct from the expedition lane's id.
+pub const LOCALNET_NFT_PROGRAM_ID: [u8; 32] = [0x4E; 32];
+
+/// `program_id` is the local NFT lane's dedicated id (keeps its marker alive).
+#[cfg(feature = "localnet-nft-sbf")]
+#[inline(always)]
+pub fn localnet_nft_identity_ok(program_id: &solana_program::pubkey::Pubkey) -> bool {
+    markers::touch_localnet_nft_sbf();
+    program_id.to_bytes() == LOCALNET_NFT_PROGRAM_ID
+}
+
+// The local NFT lane stays apart from every other experimental lane: the
+// playable expedition / conquest lane has its own exact version (0x4804)
+// that NFT Seasons (S1 | 0x8000) do not carry, and no combined version is
+// allocated (workstream 4).
+#[cfg(all(
+    feature = "localnet-nft-sbf",
+    any(
+        feature = "localnet-expedition-sbf",
+        feature = "expedition-dispatch-experimental",
+        feature = "wide-world-experimental",
+        feature = "rights-experimental",
+        feature = "capacity-preview",
+        feature = "custody-preview",
+        feature = "oracle",
+        feature = "trace"
+    )
+))]
+compile_error!("localnet-nft-sbf is the isolated local NFT lane only");
+// An SBF build with NFT residents is always the marked local lane: a plain
+// `--features nft-experimental` .so would carry no marker the build script
+// could refuse.
+#[cfg(all(
+    target_os = "solana",
+    feature = "nft-experimental",
+    not(feature = "localnet-nft-sbf")
+))]
+compile_error!("nft-experimental on SBF requires localnet-nft-sbf");
+
+#[cfg(all(test, feature = "localnet-nft-sbf"))]
+mod localnet_nft_identity_tests {
+    use solana_program::pubkey::Pubkey;
+
+    #[test]
+    fn only_the_dedicated_id_reaches_any_route() {
+        assert_ne!(
+            super::LOCALNET_NFT_PROGRAM_ID,
+            super::LOCALNET_EXPEDITION_PROGRAM_ID
+        );
+        assert_eq!(
+            super::PROGRAM_VERSION,
+            frontier_abi::v2::presets::PROGRAM_VERSION_S1 | 0x8000,
+            "the existing nft-experimental version; no new bit"
+        );
+        let ok = Pubkey::new_from_array(super::LOCALNET_NFT_PROGRAM_ID);
+        assert!(super::localnet_nft_identity_ok(&ok));
+        for other in [[0x12; 32], [0; 32], [0x45; 32]] {
+            let p = Pubkey::new_from_array(other);
+            assert!(!super::localnet_nft_identity_ok(&p));
+            // refused before any routing: a resident tag, a v2 tag, nothing
+            for data in [&[][..], &[0xE1][..], &[0xE0, 0, 0], &[0x01]] {
+                assert_eq!(
+                    super::dispatch(&p, &[], data),
+                    Err(super::FrontierError::BadAddress.into())
+                );
+            }
+        }
+    }
+}
+
 #[cfg(all(test, feature = "localnet-expedition-sbf"))]
 mod localnet_identity_tests {
     use solana_program::pubkey::Pubkey;
@@ -283,6 +355,11 @@ pub fn dispatch(
     // path (before any routing).
     #[cfg(feature = "localnet-expedition-sbf")]
     if !localnet_identity_ok(program_id) {
+        return Err(FrontierError::BadAddress.into());
+    }
+    // Isolated local NFT lane: the same rule under its own id.
+    #[cfg(feature = "localnet-nft-sbf")]
+    if !localnet_nft_identity_ok(program_id) {
         return Err(FrontierError::BadAddress.into());
     }
     #[cfg(feature = "nft-experimental")]

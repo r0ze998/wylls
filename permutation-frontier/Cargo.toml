@@ -59,6 +59,15 @@ oracle = []
 test-beacon = []
 # Local development only: unallocated wire tag, no deployment or stable ABI.
 nft-experimental = ["program"]
+# Isolated local NFT world lane (2026-11-14, test only): the S1 program with
+# `nft-experimental` and the test beacon key, under one dedicated program id
+# ([0x4E; 32], `LOCALNET_NFT_PROGRAM_ID`) and the marker
+# PSF_LOCALNET_NFT_SBF_BUILD. Its Seasons carry the existing nft-experimental
+# version (S1 | 0x8000): no new version bit, no new tag. It never combines
+# with the expedition / conquest / wide / rights / capacity / custody lanes
+# (compile errors in lib.rs). Never deployable; built only by
+# scripts/build-frontier-localnet-nft-sbf.sh.
+localnet-nft-sbf = ["nft-experimental", "test-beacon"]
 # Workstream 10 (custody), a preview: the custody instructions, embedding
 # RULESET_HASH_V4 and program_version 5 (so it refuses every S1 season, and
 # the default S1 build refuses every custody tag). Marker
