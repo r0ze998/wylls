@@ -22,7 +22,7 @@ import * as fresident from './fresident.mjs';
 import { AGENTS_REFRESH_MS, delegatedTo, loadAgents, refusalNote, takenBackNote } from './fdelegation.mjs';
 import * as book from './marchbook.mjs';
 import { submit, track, accountsFor, campMaskOf, campWinner } from './fplay.mjs';
-import { sendMarch, sendMarchRetrying, planRoute, earliestBell, arrivalWindow, tipOptions, incomingWarnings, departMargin, RETREAT_CHOICES } from './fmarch.mjs';
+import { sendMarch, sendMarchRetrying, planRoute, earliestBell, arrivalWindow, tipOptions, incomingWarnings, departMargin, RETREAT_CHOICES, checkMarch } from './fmarch.mjs';
 import { landState, hostsIn, TICKET_SEEN_BELLS, FIRST_TICKET_RING, BUILD_ITEMS, UNIT_ORDER } from './fland.mjs';
 import { BUILDINGS, TIERS, unitCount, failureText } from './fi18n.mjs';
 import { settled, copyNumber, buildSecs, doneAfterQueue, grownSince, ITEM_TIER_UP, ITEM_WALLS, TIER_UP, WALLS } from './hud/rulebook.mjs';
@@ -30,6 +30,7 @@ import { exploreResultTurn, exploreResultWords } from './hud/orderparts.mjs';
 import { planTicket } from './fjoin.mjs';
 import { toggleTile } from './screens/explore.mjs';
 import { composerArrival, composerMarch } from './screens/march.mjs';
+import { intentOf as pendingIntentOf, pendable, armPending, createPendingDriver } from './flocalplay-pending.mjs';
 import { sealMarch, unpack, ctHash as ctHashOf, sealRoot as sealRootOf } from './seal.mjs';
 import { bellAt, bellStart, pipeline, archivePartOf, pollCap, roundTime, tlockRound } from './clock.mjs';
 import { regionOf, ringOf, ringProvinces, homeNation, hexDistance } from './fgeo.mjs';
@@ -743,8 +744,11 @@ export function latestEnvelope(previous, next) {
   return next;
 }
 
-async function loadEnvelope(p, q, bell = 'latest') {
+async function loadEnvelope(p, q, bell = 'latest', still = null) {
   const r = await herald.province(p, q, bell);
+  // (`still`: a caller's check that the answer still belongs to what it asked for — run after the read and BEFORE anything
+  //  is applied; a false answer is dropped whole. Without it, as before)
+  if (still && !still()) return null;
   if (r.ok) {
     if (bell !== 'latest') return r;
     const key=`${p},${q}`, accepted=latestEnvelope(FS.provinces.get(key),r);
@@ -1845,6 +1849,61 @@ function quickDestinations() {
   return out;
 }
 
+// TEST-ONLY local play, the ordinary march's test entry only: "press now, send when ready" (flocalplay-pending.mjs).
+// One press arms ONE pending send of the exact composed order; it is sent once, by sendTheMarch below, the first moment
+// every check passes — or withdrawn (told) when anything of the order changes, the gate closes, the key is gone, the world's
+// end comes, the page is hidden for good, an earlier outcome is unknown, its turns run out, another problem appears, or the
+// player cancels. Memory only: a reload never revives it.
+const localMarchTrial = () => !!localPlay && localPlay.march?.trialEntry === true && FS.localMarch?.open === true && Number.isFinite(localPlay.worldEndsAt);
+function marchNow(c) {
+  const h = c.holding ? holdingByRef(FS.holdings, c.holding) : activeHolding(FS);
+  const m = composerMarch(FS, composerArrival(FS));
+  const problems = checkMarch(m).filter(p => p !== 'NoDestination');
+  const intent = pendingIntentOf({ world: localPlay?.march?.instance ?? null, wallet: FS.wallet?.address ?? null, holding: h, host: c.host, origin: c.origin, m });
+  return { problems, intent };
+}
+const PENDING_WITHDRAWN = {
+  cancel: () => L`送信待ちを取り消しました。命令は送られていません。`,
+  changed: () => L`送信待ちを取り消しました。命令の内容（到着ターンなど）が変わったためです。命令は送られていません。確かめてから、もう一度押してください。`,
+  expired: () => L`送信待ちを取り消しました。期限のターンまでに送れませんでした。命令は送られていません。`,
+  closed: () => L`送信待ちを取り消しました。この世界の進軍はいま送れません。命令は送られていません。`,
+  unknown: () => L`送信待ちを取り消しました。前に送った命令の結果がまだわからないためです。送り直しはしません。`,
+  problem: () => L`送信待ちを取り消しました。ターンの決着のほかに、送れない理由があります。命令は送られていません。`,
+};
+const heldNow = card => (localMarchSender ? localMarchSender.held(card.host?.id ?? null).length > 0 : false);
+// (the driver: flocalplay-pending.mjs createPendingDriver — its look, its ONE read-only origin read at a time while armed,
+//  the ordinary single send, and the page being hidden for good; a read that answers after a cancel never sends)
+const pendingDriver = createPendingDriver({
+  look: card => {
+    const same = FS.compose === card, now = same ? marchNow(card) : { problems: null, intent: null };
+    return { ...now, nowBell: nowBell(), open: FS.localMarch?.open === true, held: heldNow(card), busy: !!card.sending || FS.inFlight > 0, sameCard: same,
+      keyAlive: !!FS.wallet?.address && FS.wallet.destroyed !== true, endsAt: localPlay?.worldEndsAt ?? NaN };
+  },
+  // (the read is applied only while this page still reads the same herald for the same world with the same live key and the
+  //  same armed card; otherwise its answer is dropped before it touches anything. A page's world never changes — startPlay
+  //  sets the herald and the local-play identity once — this check holds that even so)
+  refresh: card => {
+    const h0 = herald, lp0 = localPlay, w0 = FS.wallet?.address ?? null;
+    const still = () => herald === h0 && localPlay === lp0 && (FS.wallet?.address ?? null) === w0 && FS.wallet?.destroyed !== true && pendingDriver.armed === card;
+    return loadEnvelope(card.origin.p, card.origin.q, 'latest', still).then(e => { if (e) { FS.nowBell = nowBell(); invalidate('panel'); } });
+  },
+  send: card => { card.pending = null; return sendTheMarch(); },
+  withdrawn: (card, why) => { card.pending = null; if (PENDING_WITHDRAWN[why]) setNotice({ busy: false, text: PENDING_WITHDRAWN[why]() }); else invalidate('panel'); },
+  onPageHide: f => { globalThis.addEventListener?.('pagehide', f); return () => globalThis.removeEventListener?.('pagehide', f); },
+});
+function armMarchWait() {
+  const c = FS.compose;
+  if (!c || c.sending || c.pending || pendingDriver.armed || !localMarchTrial()) return;
+  const { problems, intent } = marchNow(c);
+  // ready now: this press is an ordinary press
+  if (problems.length === 0) return sendTheMarch();
+  if (heldNow(c) || !pendable(problems)) return;
+  const p = armPending({ intent, nowBell: nowBell() });
+  if (!p || !pendingDriver.arm(c, p)) return;
+  c.pending = p;
+  setNotice({ busy: false, text: L`送信待ちです。州のターンの決着がつき次第、この命令を1回だけ送ります（ターン ${fmtNum(p.untilBell)} まで。取り消せます）。` });
+}
+
 async function sendTheMarch() {
   const c = FS.compose;
   if (!c || c.sending || FS.inFlight > 0) return;
@@ -2336,10 +2395,12 @@ export const ACTIONS = {
   },
   'mc-stance': d => { if (FS.compose) { FS.compose.stance = Math.max(0, Math.min(3, num(d.v) || 0)); invalidate('panel'); } },
   'mc-retreat': d => { if (FS.compose && RETREAT_CHOICES.some(r => r.id === d.v)) { FS.compose.retreat = d.v; invalidate('panel'); } },
-  'compose-close': () => { FS.compose = null; invalidate('panel'); },
+  'compose-close': () => { pendingDriver.cancel('cancel'); FS.compose = null; invalidate('panel'); },
   'dest-from-map': () => { const s = FS.selected; if (s?.idx !== undefined) return setDestination({ p: s.p, q: s.q, tile: s.idx }); return undefined; },
   'dest-quick': d => setDestination({ p: num(d.p), q: num(d.q), tile: num(d.tile) }),
   'march-send': () => sendTheMarch(),
+  'march-send-wait': () => armMarchWait(),
+  'march-wait-cancel': () => pendingDriver.cancel('cancel'),
   // (local play: ONE status read of a held march; it sends nothing)
   'local-march-ask': (d = {}) => (localPlay && localMarchSender && typeof d.signature === 'string' ? localMarchSender.ask(d.signature).then(x => { invalidate('panel'); return x; }) : null),
   'explore-open': d => { const r = hostRow(d.host), h=activeHolding(FS); FS.explore = r ? { holding:{p:h.p,q:h.q,site:h.site,gen:h.gen}, host: r, tiles: [] } : null; FS.tab = 'hosts'; invalidate('panel', 'tabs'); },

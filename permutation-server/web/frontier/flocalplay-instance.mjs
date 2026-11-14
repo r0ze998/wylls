@@ -14,6 +14,15 @@
 import { expiryView } from './flocalplay-expiry.mjs';
 
 export const WORLD_INSTANCE_PATH = '/gw/f/local-play/act/context';
+/**
+ * The world's absolute end (ms, this machine's clock) from its expiry statement, checked for this runner instance as the
+ * notice checks it (`expiryView`), or null when it is not known. TEST-ONLY local play: a pending march send
+ * (flocalplay-pending.mjs) is withdrawn at that moment and is never offered when the end is not known.
+ */
+export function worldEndOf(expiry, runnerInstance, now = Date.now()) {
+  const v = expiryView(expiry, runnerInstance, now);
+  return v.state === 'known' ? v.expiresAt : null;
+}
 export const WORLD_INSTANCE_SCHEMA = 'frontier-local-play-act-instance-v1';
 export const WORLD_INSTANCE_TIMEOUT_MS = 8000;
 const HEX64 = /^[0-9a-f]{64}$/;

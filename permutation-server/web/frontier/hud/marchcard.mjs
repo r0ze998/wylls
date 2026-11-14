@@ -38,6 +38,7 @@ import { conquestOn, crest, holdTurns } from './keephand.mjs';
 import { STANCE_PIC, RETREAT_PIC, sealPic } from './pictos.mjs';
 import { miniCardUrl, MINI_KINDS } from '../people/minis.mjs';
 import { compareKey, forecastKey } from './forecast.mjs';
+import { pendable } from '../flocalplay-pending.mjs';
 
 const BEATS = { Assault: 'Flank', Flank: 'Brace', Brace: 'Assault' };
 const RETREAT_SHORT = { never: () => L`撤退しない`, x2: () => L`2倍で撤退`, 'x1.5': () => L`1.5倍で撤退`, x1: () => L`同数で撤退`, 'x0.5': () => L`半分で撤退`, custom: () => L`倍率を指定する` };
@@ -257,6 +258,15 @@ export function render(FS) {
     : wallTurn !== null && Number.isInteger(resultTurn) && Number.isInteger(FS.nowBell) ? L`${protoAbout(Math.max(1, resultTurn - FS.nowBell) * wallTurn)}後` : '';
   const resultLine = !Number.isInteger(resultTurn) ? '' : resultWait ? L`結果はターン ${fmtNum(resultTurn)} ごろ（${resultWait}）` : L`結果はターン ${fmtNum(resultTurn)} ごろ`;
   const stance = STANCES[m.stance] ?? 'Hold';
+  // (TEST-ONLY local play, the march's test entry only: "press now, send when ready" — flocalplay-pending.mjs. Offered
+  //  only while every problem is the province settling its previous turn; one press arms ONE send of this exact order)
+  const localWait = !!FS.localPlay && FS.localPlay.march?.trialEntry === true && FS.localMarch?.open === true && Number.isFinite(FS.localPlay.worldEndsAt);
+  const waiting = localWait && !!c.pending;
+  const offerWait = localWait && !waiting && !busy && pendable(problems);
+  const waitLine = waiting ? html`<p class="order-pending" role="status">${icon('hourglass')}<span>${L`送信待ち：州のターンの決着がつき次第、この命令を1回だけ送ります（ターン ${fmtNum(c.pending.untilBell)} まで）。到着ターンなど命令の内容が変わったら、送らずに取り消します。`}</span></p>`
+    : offerWait ? html`<p class="muted order-wait-why">${L`いまは州のターンの決着を待っています。「決着を待って送る」を押すと送信待ちになり、整い次第この命令を1回だけ送ります。送るまでは取り消せます。`}</p>` : '';
+  const waitButton = waiting ? html`<button type="button" class="btn quiet" data-act="march-wait-cancel">${L`送信待ちを取り消す`}</button>`
+    : offerWait ? html`<button type="button" class="btn primary" data-act="march-send-wait">${icon('hourglass')}${L`決着を待って送る`}</button>` : '';
   const ch = composerChoices(FS);
   const from = tileName(FS, c.origin.p, c.origin.q, c.host.tile);
   const faction = FS.citizen?.faction;
@@ -349,8 +359,9 @@ export function render(FS) {
       ${label(L`座標で指定する`)}${coordsForm(c)}`)}
     ${problems.length ? html`<ul class="problems">${problems.map(p => html`<li>${failureText({ code: p })}</li>`)}</ul>` : ''}
     ${problems.includes('NotResident') && !FS.localPlay ? html`<button type="button" class="btn small" data-act="nudge" data-p="${c.origin.p}" data-q="${c.origin.q}">${L`この州の処理を進める`}</button>` : ''}
+    ${waitLine}
     ${busy || c.step ? html`<ol class="send-track" aria-label="${L`送信の段階`}">${SEND_STEPS.map(s => html`<li class="${c.step === s ? 'now' : SEND_STEPS.indexOf(s) < SEND_STEPS.indexOf(c.step) ? 'done' : ''}">${STEP_TEXT[s]()}</li>`)}</ol>` : ''}</div>
-    ${foot(html`${FS.notice && FS.notice.ok === false && !FS.notice.busy && FS.lastAct?.name === 'march-send' ? html`<p class="order-unsent" role="status">${icon('alert')}<span>${L`まだ送られていません。もう一度、封をして出発してください。`}</span></p>` : ''}${movedFoot}${protoLine}${sum}${!busy && !c.step && !problems.length && c.route && w ? html`<p class="order-irrev">${icon('lock')}<span>${L`送ったら取り消せません。行き先と構えはターン ${fmtNum(w.value)} が終わるまで封印されます。`}</span></p>` : ''}`, html`<button type="button" class="btn primary seal-btn" data-act="march-send" ${raw(problems.length || busy || !c.route ? 'disabled' : '')}>${icon('seal')}${L`封をして出発する`}</button>
+    ${foot(html`${FS.notice && FS.notice.ok === false && !FS.notice.busy && FS.lastAct?.name === 'march-send' ? html`<p class="order-unsent" role="status">${icon('alert')}<span>${L`まだ送られていません。もう一度、封をして出発してください。`}</span></p>` : ''}${movedFoot}${protoLine}${sum}${!busy && !c.step && !problems.length && c.route && w ? html`<p class="order-irrev">${icon('lock')}<span>${L`送ったら取り消せません。行き先と構えはターン ${fmtNum(w.value)} が終わるまで封印されます。`}</span></p>` : ''}`, html`${waitButton}<button type="button" class="btn primary seal-btn" data-act="march-send" ${raw(problems.length || busy || !c.route ? 'disabled' : '')}>${icon('seal')}${L`封をして出発する`}</button>
       <button type="button" class="btn quiet" data-act="compose-close">${L`やめる`}</button>`)}
   </section>`;
 }

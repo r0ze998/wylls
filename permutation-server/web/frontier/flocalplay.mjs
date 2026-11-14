@@ -22,7 +22,7 @@ import { encode as toBase58, decode as fromBase58 } from '../sdk/base58.mjs';
 import { seasonAddresses } from './faddr.mjs';
 import { L, onLangChange, mountLangToggle } from '../lang.mjs';
 import { mountSessionNotice, pairGuideView } from './flocalplay-session.mjs';
-import { confirmWorldEnd } from './flocalplay-instance.mjs';
+import { confirmWorldEnd, worldEndOf } from './flocalplay-instance.mjs';
 
 /** The dedicated localnet program of the `localnet-expedition-sbf` build ([0x45; 32]). */
 export const LOCAL_PLAY_PROGRAM = '5fQPsn8hoaVddFG26cWQ5QFdqxWtUPNaZ9zH2E6LYzFn';
@@ -353,7 +353,10 @@ export function openLocalPlayGate({ cfg, loc = globalThis.location, doc = global
     const played = launcher && claimedMarch?.instance ? Object.freeze({ ...identity, march: claimedMarch }) : identity;
     // (TEST-ONLY capture demo: its synthetic clock scale, as the start answer stated it and the gate checked it, so that a wait
     //  can be said in the wall's time and not in game minutes thirty times too long; no other world carries it)
-    const playedAs = launcher && claimedDemo !== null ? Object.freeze({ ...played, clockScale: claimedDemo }) : played;
+    // (and the world's absolute end, from its checked expiry statement: a pending march send (flocalplay-pending.mjs) is
+    //  withdrawn at that moment and is never offered when the end is not known)
+    const endAt = launcher && claimedDemo !== null ? worldEndOf(claimedEnd, claimedMarch?.instance ?? null) : null;
+    const playedAs = launcher && claimedDemo !== null ? Object.freeze({ ...played, clockScale: claimedDemo, ...(endAt !== null ? { worldEndsAt: endAt } : {}) }) : played;
     done = true; state.herald = base; state.phase = 'connected'; paint();
     // (the gate's panel is hidden now: what stays true for the session is said on screen, launcher worlds only)
     if (launcher) { const mine = handle.address; session = mountSessionNotice({ doc, win, onCheck: () => checkKeeper(mine), demo: claimedDemo, ...(state.pairRole === 'second' && claimedDemo !== null ? { onPair: () => checkPair(mine, { herald: base, expiry: claimedEnd }) } : {}) }); }

@@ -738,7 +738,7 @@ test('the source: five launcher routes and no other, no storage, no markup from 
   assert.doesNotMatch(code, /localStorage|sessionStorage|indexedDB|document\.cookie|console\.|innerHTML|outerHTML|insertAdjacentHTML|\.style\b|keyFromSeed|fsession|sendTransaction|fetch\(|sendBeacon|XMLHttpRequest|WebSocket|eval\(|Function\(/);
   assert.deepEqual([...code.matchAll(/from '([^']+)'/g)].map(m => m[1]).sort(), ['../lang.mjs', '../sdk/base58.mjs', './faddr.mjs', './fephemeral-wallet.mjs', './flocalplay-instance.mjs', './flocalplay-session.mjs']);
   assert.match(code, /import \{ mountSessionNotice, pairGuideView \} from '\.\/flocalplay-session\.mjs';/, 'the standing notice (a display only) and the pair answer\'s check (frontier-local-play-pair-guide.test.mjs)');
-  assert.match(code, /import \{ confirmWorldEnd \} from '\.\/flocalplay-instance\.mjs';/, 'and the one read that confirms its end (web-frontier-local-play-world-instance.test.mjs)');
+  assert.match(code, /import \{ confirmWorldEnd, worldEndOf \} from '\.\/flocalplay-instance\.mjs';/, 'and the one read that confirms its end (web-frontier-local-play-world-instance.test.mjs); worldEndOf only reads the start answer\'s expiry (no request)');
   assert.equal(code.split('confirmWorldEnd(').length - 1, 1, 'called once, after the world was verified');
   assert.match(code, /makeWallet = createEphemeralWallet/, 'the page\'s wallet is the memory-only one unless a test replaces it');
   // the language: lang.mjs's own text function, switch listener and key; the panel sets no language itself and stores none

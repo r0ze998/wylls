@@ -40,7 +40,7 @@ test('English: no Japanese, no banned word', () => {
 
 test('the scale reaches the page only from a capture-demo start, and both card waits use it', () => {
   const gate = readFileSync(new URL('flocalplay.mjs', WEB), 'utf8');
-  assert.match(gate, /const playedAs = launcher && claimedDemo !== null \? Object\.freeze\(\{ \.\.\.played, clockScale: claimedDemo \}\) : played;/);
+  assert.match(gate, /const playedAs = launcher && claimedDemo !== null \? Object\.freeze\(\{ \.\.\.played, clockScale: claimedDemo, \.\.\.\(endAt !== null \? \{ worldEndsAt: endAt \} : \{\}\) \}\) : played;/);
   assert.match(gate, /localPlay: playedAs \}/);
   assert.match(gate, /claimedDemo = launcherCaptureDemo\(body\?\.captureDemo\);/, 'the scale is the checked start answer (10..60)');
   const card = readFileSync(new URL('hud/marchcard.mjs', WEB), 'utf8');
