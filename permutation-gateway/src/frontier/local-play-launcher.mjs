@@ -35,7 +35,13 @@ import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { randomUUID, createHash } from 'node:crypto';
 import { decode, encode } from '../../../permutation-server/web/sdk/base58.mjs';
+import { CANDIDATE_FEATURE, LOCAL_LANE_VERSIONS } from './local-lane-versions.mjs';
 const PROGRAM = '5fQPsn8hoaVddFG26cWQ5QFdqxWtUPNaZ9zH2E6LYzFn';
+// The LOCAL TEST CANDIDATE lane `localnet-conquest-nft-sbf` (opt-in with --lane-candidate; NOT an allocation, never
+// deployable): its candidate program id [0x4C; 32] and version 0xC804 (local-lane-versions.mjs). Without the option
+// nothing below applies and a runner that mentions a candidate is refused.
+export const CANDIDATE_PROGRAM = encode(new Uint8Array(32).fill(0x4c));
+export const NFT_SETUP_MS = 180_000, MINT_READY_MS = 30_000;
 const RULESET = '234c0dc225e5ce323687756b913f78e330757abb969df290745eae1e9aae422d';
 /** Worlds at once; a world's life (the default; `--world-ttl-minutes` may choose another); its output; the disk's floor (bytes). */
 export const WORLD_LIMIT = 2, WORLD_TTL_MS = 7200000, WORLD_OUTPUT_MAX = 128 * 1024 ** 2, DISK_FLOOR = 5.25 * 1024 ** 3;
@@ -668,6 +674,31 @@ const exited = p => p.pid === undefined || p.exitCode !== null || p.signalCode !
  * `{herald, stop, prepared, conquestWorld}`. `c.guard` (tests only; the command line cannot set it) overrides the
  * limits and may stand in for the relay's own decision.
  */
+/**
+ * The runner's first line for the local test candidate: with the candidate, exactly its feature, id (checked by the
+ * caller), version 0xC804, a resident program and Core named, and an authority seed file INSIDE this world's
+ * directory (a throwaway local key the runner wrote; removed with the world). Without it, none of those keys at all.
+ */
+export function candidateMetaAgrees(meta, candidate, dir) {
+  const named = ['lane_candidate', 'program_version', 'resident_program', 'core_program', 'authority_seed_file'].filter(k => meta?.[k] !== undefined);
+  if (!candidate) return named.length === 0;
+  const rel = typeof meta?.authority_seed_file === 'string' && path.isAbsolute(meta.authority_seed_file) ? path.relative(dir, meta.authority_seed_file) : '..';
+  const inside = rel !== '' && !rel.startsWith('..') && !path.isAbsolute(rel);
+  return meta.lane_candidate === CANDIDATE_FEATURE && meta.program_version === LOCAL_LANE_VERSIONS.conquestNftCandidate
+    && validWallet(meta.resident_program) && validWallet(meta.core_program) && meta.resident_program !== meta.program && inside;
+}
+/** The candidate's NFT pass on this world: the setup once (exit 0 within NFT_SETUP_MS), then the mint page (ready within MINT_READY_MS). */
+export async function startCandidatePass({ c, meta, launch, stopping, runOnce, limit = {} }) {
+  await runOnce('nft-setup', process.execPath, [c.nftSetup, '--rpc', meta.rpc_url, '--frontier', meta.program, '--resident', meta.resident_program, '--authority-seed-file', meta.authority_seed_file, '--test-sale'], limit.nftSetupMs ?? NFT_SETUP_MS);
+  if (stopping()) throw fault('WorldStopped', 503);
+  launch('mint', process.execPath, [c.mint, '--rpc', meta.rpc_url, '--program', meta.resident_program, '--port', String(c.mintPort)]);
+  for (const until = Date.now() + (limit.mintReadyMs ?? MINT_READY_MS); Date.now() < until && !stopping();) {
+    try { const r = await fetch(`http://127.0.0.1:${c.mintPort}/mint/config`, { signal: AbortSignal.timeout(1000) }); if (r.ok) return; } catch {}
+    await delay(200);
+  }
+  throw fault('MintNotReady', 503);
+}
+
 export async function startWorld(c, wallet, slot, onStop, signal, opts = {}) {
   const natural = c.worldPreset === NATURAL_WORLD_PRESET;
   if (natural && (!c.naturalRunner || c.economy !== ECONOMY_MODE || c.prepareScale || c.conquest)) throw fault('InvalidWorldPreset', 503);
@@ -684,6 +715,11 @@ export async function startWorld(c, wallet, slot, onStop, signal, opts = {}) {
   //  take the NEXT slot's relay and herald ports, which no other world may then use)
   const second = opts.second ?? null;
   if (second !== null && (!c.contestPair || demo === null || !validWallet(second) || second === wallet || slot + 1 >= WORLD_LIMIT)) throw fault('InvalidContestPair', 503);
+  // (the local test candidate: one world (slot 0) only, the conquest preset only; the runner deploys the candidate
+  //  artefact under the candidate id with Core and the resident program, and says so on its first line)
+  const candidate = c.laneCandidate === CANDIDATE_FEATURE;
+  if (c.laneCandidate !== undefined && !candidate) throw fault('InvalidLaneCandidate', 503);
+  if (candidate && (slot !== 0 || natural || preset !== CONQUEST_WORLD_PRESET || second !== null)) throw fault('CandidateNeedsConquestOneWorld', 503);
   const { rpc, ws, herald, relay, internalHerald } = worldPorts(c.worldPort, slot);
   const pairPorts = second !== null ? worldPorts(c.worldPort, slot + 1) : null;
   const limit = { ttlMs: c.worldTtlMs ?? WORLD_TTL_MS, outputMax: WORLD_OUTPUT_MAX, diskFloor: DISK_FLOOR, everyMs: 1000, ...c.guard };
@@ -715,6 +751,17 @@ export async function startWorld(c, wallet, slot, onStop, signal, opts = {}) {
     try { child = spawn(executable, args, { cwd: c.root, stdio: ['ignore', out, err], shell: false }); } finally { closeSync(out); closeSync(err); }
     children.push(child); own(child); child.once('error', () => { stop(`${name}-failed`); }); child.once('exit', () => { stop(`${name}-exited`); }); return child;
   };
+  // one step that runs to its end (its exit is not a world stop): code 0 within `ms`, else it fails (and is killed)
+  const runOnce = (name, executable, args, ms) => new Promise((resolve, reject) => {
+    if (stopping) return reject(fault('WorldStopped', 503));
+    const out = openSync(path.join(dir, name + '.out'), 'wx'), err = openSync(path.join(dir, name + '.err'), 'wx');
+    let child;
+    try { child = spawn(executable, args, { cwd: c.root, stdio: ['ignore', out, err], shell: false }); } finally { closeSync(out); closeSync(err); }
+    own(child);
+    const t = setTimeout(() => { child.kill('SIGKILL'); }, ms);
+    child.once('error', () => { clearTimeout(t); live.delete(child); reject(fault(`${name}-failed`, 503)); });
+    child.once('exit', code => { clearTimeout(t); live.delete(child); if (code === 0) resolve(); else reject(fault(`${name}-failed`, 503)); });
+  });
   // the TTL origin: the world's automatic end is fixed here, once (`worldExpiry` refuses a value a Date cannot hold)
   const started = Date.now(); let checking = false;
   let expiresAt;
@@ -730,7 +777,9 @@ export async function startWorld(c, wallet, slot, onStop, signal, opts = {}) {
     if (natural) launch('runner', c.naturalRunner, ['--artifact', c.artifact, '--artifact-sha256', c.artifactSha, '--player-wallet', wallet, '--rpc-port', String(rpc), '--ws-port', String(ws), '--keeper', 'public-quicknet',
       ...(demo !== null ? ['--capture-demo', CAPTURE_DEMO_MODE, '--demo-scale', String(demo.scale)] : []),
       ...(second !== null ? ['--contest-pair', CONTEST_PAIR_MODE, '--second-wallet', second] : [])]);
-    else launch('runner', c.runner, ['--artifact', c.artifact, '--artifact-sha256', c.artifactSha, '--player-wallet', wallet, '--rpc-port', String(rpc), '--ws-port', String(ws), '--keeper', 'public-quicknet', '--wide-destination', 'public-quicknet', ...(preset ? ['--world-preset', preset] : [])]);
+    else launch('runner', c.runner, ['--artifact', c.artifact, '--artifact-sha256', c.artifactSha, '--player-wallet', wallet, '--rpc-port', String(rpc), '--ws-port', String(ws), '--keeper', 'public-quicknet', '--wide-destination', 'public-quicknet', ...(preset ? ['--world-preset', preset] : []),
+      // (the candidate: its feature, Core and the resident program to deploy, and where its throwaway authority seed goes: this world's directory)
+      ...(candidate ? ['--lane-candidate', CANDIDATE_FEATURE, '--resident-so', c.residentSo, '--core-so', c.coreSo, '--authority-seed-dir', dir] : [])]);
     let meta;
     for (let i = 0; i < (natural ? Math.ceil((limit.naturalFirstLineMs ?? NATURAL_FIRST_LINE_MS) / 200) : 150) && !stopping; i++) {
       const line = (await fs.readFile(path.join(dir, 'runner.out'), 'utf8')).split('\n')[0];
@@ -739,8 +788,11 @@ export async function startWorld(c, wallet, slot, onStop, signal, opts = {}) {
     }
     // (the runner's own public line: the dedicated program on this world's port, and — as the herald will require of
     //  the same line — started for THIS address with the artifact this launcher was given)
-    if (!meta || stopping || meta.program !== PROGRAM || meta.rpc_url !== `http://127.0.0.1:${rpc}` || !validWallet(meta.season) || !Number.isSafeInteger(meta.season_id)
+    if (!meta || stopping || meta.program !== (candidate ? CANDIDATE_PROGRAM : PROGRAM) || meta.rpc_url !== `http://127.0.0.1:${rpc}` || !validWallet(meta.season) || !Number.isSafeInteger(meta.season_id)
       || meta.player_wallet !== wallet || meta.artifact?.sha256 !== c.artifactSha) throw fault('RunnerNotReady', 503);
+    // (the candidate: exactly its id, version, feature and the three things its setup needs, inside this world's
+    //  directory; a plain start refuses a runner that mentions a candidate at all)
+    if (!candidateMetaAgrees(meta, candidate, dir)) throw fault('RunnerNotReady', 503);
     // (a natural world's runner says so on that line, and a plain runner never does: neither is taken for the other)
     if (natural !== (meta.world === 'natural' && meta.world_preset === NATURAL_WORLD_PRESET)) throw fault('RunnerNotReady', 503);
     // (the test-only capture demo: the runner's own first line states it with this launcher's mode and scale, or does
@@ -782,7 +834,10 @@ export async function startWorld(c, wallet, slot, onStop, signal, opts = {}) {
     // (compact output: handed over only once this world's herald has recorded the mode; a herald that ignored the option
     //  is stopped by the same path as an unready one, never used with the default output in its place)
     if (HERALD_OUTPUT_MODES.includes(c.heraldOutput) && !heraldOutputRecorded(await fs.readFile(path.join(dir, 'herald', 'output-mode'), 'utf8').catch(() => null), c.heraldOutput)) throw fault('HeraldOutputNotCompact', 503);
-    await fs.writeFile(path.join(dir, 'processes.json'), JSON.stringify({ started, wallet, ...(second !== null ? { second } : {}), pids: children.map(p => p.pid), ports: [rpc, ws, herald, relay, internalHerald, ...(pairPorts ? [pairPorts.herald, pairPorts.relay] : [])] }));
+    // (the candidate's NFT pass: the setup once — collection, config, TEST sale, resident policy — then its mint page as
+    //  a child of this world, stopped with it)
+    if (candidate) await startCandidatePass({ c, meta, dir, launch, stopping: () => stopping !== null, runOnce, limit });
+    await fs.writeFile(path.join(dir, 'processes.json'), JSON.stringify({ started, wallet, ...(second !== null ? { second } : {}), pids: children.map(p => p.pid), ports: [rpc, ws, herald, relay, internalHerald, ...(pairPorts ? [pairPorts.herald, pairPorts.relay] : []), ...(candidate ? [c.mintPort] : [])] }));
     // (only with --prepare-scale, only now: after this the launcher never touches this world's clock again)
     const prepared = c.prepareScale ? await prepareWorld({ scale: c.prepareScale, dir, rpc, herald, meta, stopping: () => stopping !== null, limit }) : null;
     let conquestWorld = null;
@@ -809,7 +864,7 @@ export async function startWorld(c, wallet, slot, onStop, signal, opts = {}) {
         if (!listening) await delay(100);
       }
       if (!listening || stopping) throw fault('RelayNotReady', 503);
-      await fs.writeFile(path.join(dir, 'processes.json'), JSON.stringify({ started, wallet, pids: children.map(p => p.pid), ports: [rpc, ws, herald, relay, internalHerald] }));
+      await fs.writeFile(path.join(dir, 'processes.json'), JSON.stringify({ started, wallet, pids: children.map(p => p.pid), ports: [rpc, ws, herald, relay, internalHerald, ...(candidate ? [c.mintPort] : [])] }));
       conquestWorld = proof.world;
     }
     // (the automatic end the guard above enforces, bound to this runner's instance: the same `started` and TTL)
@@ -914,11 +969,15 @@ export const USAGE = `local-play launcher (this machine only)
        compact-v2: the same, and the herald's findex store gzip-compressed (every record kept)]
     [--world-ttl-minutes <whole minutes, decimal>: each world's automatic end, counted from its own start; without it
        two hours. Set here only (never over HTTP); fixed once per world and told to its page as its expiry]
+    [--lane-candidate localnet-conquest-nft-sbf --resident-so <abs> --core-so <abs> --nft-setup <abs .mjs> --mint <abs .mjs>
+       --mint-port <41000-41999>: LOCAL TEST CANDIDATE, all or none, conquest preset only, one world: the runner deploys
+       the candidate artefact under [0x4C; 32] at version 0xC804 with Core and the resident program and says so on its
+       first line; then the NFT setup once and the mint page, stopped with the world. Not an allocation, never deployable]
     [--port 41920] [--world-port 41924]
   Ports: the page on --port; a world on five from --world-port (RPC, WS, public proxy, relay, herald), the second
   world on the next five. All within 41000-41999, none of 41904-41907, 127.0.0.1 only.`;
 export async function parseConfig(args) {
-  const out = {}; const keys = new Set(['root', 'data', 'runner', 'herald', 'depart', 'preview', 'resident', 'artifact', 'artifact-sha', 'conquest', 'world-preset', 'prepare-scale', 'port', 'world-port', 'economy', 'world-ttl-minutes', 'natural-runner', 'march-trial', 'capture-demo', 'demo-scale', 'contest-pair', 'herald-output']);
+  const out = {}; const keys = new Set(['root', 'data', 'runner', 'herald', 'depart', 'preview', 'resident', 'artifact', 'artifact-sha', 'conquest', 'world-preset', 'prepare-scale', 'port', 'world-port', 'economy', 'world-ttl-minutes', 'natural-runner', 'march-trial', 'capture-demo', 'demo-scale', 'contest-pair', 'herald-output', 'lane-candidate', 'resident-so', 'core-so', 'nft-setup', 'mint', 'mint-port']);
   for (let i = 0; i < args.length; i += 2) { const k = args[i]?.slice(2); if (!args[i]?.startsWith('--') || !keys.has(k) || out[k] || !args[i + 1]) throw fault('InvalidArguments'); out[k] = args[i + 1]; }
   for (const k of ['root', 'data', 'runner', 'herald', 'depart', 'preview', 'resident', 'artifact']) { if (!path.isAbsolute(out[k] ?? '')) throw fault('AbsolutePathRequired'); }
   if (out.conquest !== undefined && !path.isAbsolute(out.conquest)) throw fault('AbsolutePathRequired');
@@ -952,10 +1011,22 @@ export async function parseConfig(args) {
   // (the test-only compact herald output: exactly its one word, and only for capture-demo test worlds)
   if (out['herald-output'] !== undefined && !HERALD_OUTPUT_MODES.includes(out['herald-output'])) throw fault('InvalidHeraldOutput');
   if (out['herald-output'] !== undefined && out['capture-demo'] === undefined) throw fault('HeraldOutputNeedsCaptureDemo');
+  // (the LOCAL TEST CANDIDATE lane: exactly its one word, the conquest preset, and all of its files and its mint port,
+  //  or none of them; never deployable, not an allocation)
+  const candidateKeys = ['lane-candidate', 'resident-so', 'core-so', 'nft-setup', 'mint', 'mint-port'];
+  const candidateGiven = candidateKeys.filter(k => out[k] !== undefined);
+  if (candidateGiven.length && candidateGiven.length !== candidateKeys.length) throw fault('InvalidLaneCandidate');
+  if (out['lane-candidate'] !== undefined) {
+    if (out['lane-candidate'] !== CANDIDATE_FEATURE) throw fault('InvalidLaneCandidate');
+    if (worldPreset !== CONQUEST_WORLD_PRESET) throw fault('CandidateNeedsConquestPreset');
+    for (const k of ['resident-so', 'core-so', 'nft-setup', 'mint']) if (!path.isAbsolute(out[k])) throw fault('AbsolutePathRequired');
+    const mp = Number(out['mint-port']);
+    if (!/^[0-9]{5}$/.test(out['mint-port']) || mp < 41000 || mp > 41999 || mp === port || (mp >= worldPort && mp <= worldPort + span - 1) || (mp >= 41904 && mp <= 41907)) throw fault('InvalidPorts');
+  }
   // (a world's life: the default two hours, or the operator's whole minutes; refused, never rounded, when malformed)
   const worldTtlMs = parseWorldTtl(out['world-ttl-minutes']);
-  const c = { ...out, port, worldPort, worldTtlMs, artifactSha: out['artifact-sha'], ...(prepareScale !== undefined ? { prepareScale } : {}), ...(worldPreset !== undefined ? { worldPreset } : {}), ...(out['natural-runner'] !== undefined ? { naturalRunner: out['natural-runner'] } : {}), ...(out['march-trial'] !== undefined ? { marchTrial: true } : {}), ...(out['capture-demo'] !== undefined ? { captureDemo: { scale: parseDemoScale(out['demo-scale']) } } : {}), ...(out['contest-pair'] !== undefined ? { contestPair: true } : {}), ...(out['herald-output'] !== undefined ? { heraldOutput: out['herald-output'] } : {}), web: await fs.realpath(path.join(out.root, 'permutation-server/web')) };
-  for (const file of [c.runner, c.herald, c.depart, c.preview, c.resident, c.artifact, ...(c.conquest ? [c.conquest] : []), ...(c.naturalRunner ? [c.naturalRunner] : []), path.join(c.root, 'permutation-gateway/src/frontier/local-play-relay-server.mjs')]) if (!(await fs.stat(file).catch(() => null))?.isFile()) throw fault('MissingFile');
+  const c = { ...out, port, worldPort, worldTtlMs, artifactSha: out['artifact-sha'], ...(prepareScale !== undefined ? { prepareScale } : {}), ...(worldPreset !== undefined ? { worldPreset } : {}), ...(out['natural-runner'] !== undefined ? { naturalRunner: out['natural-runner'] } : {}), ...(out['march-trial'] !== undefined ? { marchTrial: true } : {}), ...(out['capture-demo'] !== undefined ? { captureDemo: { scale: parseDemoScale(out['demo-scale']) } } : {}), ...(out['contest-pair'] !== undefined ? { contestPair: true } : {}), ...(out['herald-output'] !== undefined ? { heraldOutput: out['herald-output'] } : {}), ...(out['lane-candidate'] !== undefined ? { laneCandidate: out['lane-candidate'], residentSo: out['resident-so'], coreSo: out['core-so'], nftSetup: out['nft-setup'], mint: out.mint, mintPort: Number(out['mint-port']) } : {}), web: await fs.realpath(path.join(out.root, 'permutation-server/web')) };
+  for (const file of [c.runner, c.herald, c.depart, c.preview, c.resident, c.artifact, ...(c.conquest ? [c.conquest] : []), ...(c.naturalRunner ? [c.naturalRunner] : []), ...(c.laneCandidate ? [c.residentSo, c.coreSo, c.nftSetup, c.mint] : []), path.join(c.root, 'permutation-gateway/src/frontier/local-play-relay-server.mjs')]) if (!(await fs.stat(file).catch(() => null))?.isFile()) throw fault('MissingFile');
   await fs.mkdir(c.data, { recursive: true }); return c;
 }
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
