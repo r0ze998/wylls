@@ -73,6 +73,32 @@
     <h2 style="margin:0 0 8px;font-size:18px" data-i18n>あなたの住民（チェーンの読取結果）</h2>
     <ul data-testid="mine" class="small"></ul>
   </section>
+
+  <section class="card" aria-labelledby="h-transfer" data-testid="transfer" hidden>
+    <h2 id="h-transfer" style="margin:0 0 8px;font-size:18px" data-i18n>住民を譲渡する（テスト）</h2>
+    <p class="small" data-i18n>譲渡すると、この住民を遊べるのは宛先のウォレットだけになります。このウォレットの操作・署名・session はすべて無効になり、取り消せません（戻すには新しい持ち主からの譲渡が要ります）。</p>
+    <label class="small" for="t-asset" data-i18n>譲渡する住民 NFT</label>
+    <select id="t-asset" data-testid="t-asset" style="width:100%;font:inherit;padding:6px;margin:4px 0 10px"></select>
+    <label class="small" for="t-to" data-i18n>宛先のウォレットアドレス</label>
+    <input id="t-to" data-testid="t-to" autocomplete="off" spellcheck="false" style="width:100%;box-sizing:border-box;font:14px ui-monospace,Menlo,monospace;padding:8px;margin:4px 0 10px">
+    <div class="row"><button type="button" class="ghost" data-testid="t-review" data-i18n>内容を確認する</button></div>
+    <div data-testid="t-confirm" hidden style="margin-top:12px;border:2px solid var(--red);border-radius:8px;padding:10px">
+      <strong data-i18n>この譲渡を確認してください</strong>
+      <dl style="margin-top:8px">
+        <dt data-i18n>住民 ID</dt><dd data-testid="t-resident">—</dd>
+        <dt>asset</dt><dd data-testid="t-asset-full">—</dd>
+        <dt data-i18n>送り主（あなた）</dt><dd data-testid="t-from">—</dd>
+        <dt data-i18n>宛先</dt><dd data-testid="t-dest">—</dd>
+      </dl>
+      <p class="small" data-testid="t-dest-note"></p>
+      <label class="row small" style="margin:8px 0"><input type="checkbox" data-testid="t-ack"><span data-i18n>譲渡後、このウォレットではこの住民を遊べなくなることを理解しました。</span></label>
+      <div class="row">
+        <button type="button" data-testid="t-send" data-i18n disabled>譲渡する（ウォレットで署名）</button>
+        <button type="button" class="ghost" data-testid="t-cancel" data-i18n>やめる</button>
+      </div>
+    </div>
+    <div class="status" data-testid="t-status"></div>
+  </section>
 </main>
 <script type="module" src="/web/mint.mjs"></script>
 </body>

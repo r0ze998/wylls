@@ -85,7 +85,7 @@ FRONTIER_BIN=frontier-node/nftpass-bin frontier-node/nftpass-bin/frontier-stack 
 3. **発行**：発行ページで「TEST PRICE」の表示を確認 → `POST http://127.0.0.1:41090/mock/airdrop {address, lamports}` で test SOL → 接続 → mint → 「登録完了」。
 4. **選択**：ゲーム画面で「I got one: check again」→ NFT の行が出る。国を選ぶ → 「Join with this NFT」→ ウォレットの署名（Dev Wallet は自動）→ 「Playing as an NFT」。
 5. **操作**：NFT 住民として最初の行為（最初の村の配置など、画面が案内するもの）を 1 つ行い、成立することを確認。herald の `/h/me` がその NFT Citizen（asset の印）を返す。
-6. **譲渡と拒否**：A から B へ TransferResident（発行ページに譲渡の画面は無いので、spike の `transferResidentIx` を Node から A の試験鍵で送る）。その後：
+6. **譲渡と拒否**：A から B へ TransferResident。**発行ページの譲渡の画面**（「Transfer your resident (TEST)」：宛先を入れて「Review the transfer」→ NFT・送り主・宛先の確認 → チェック → 「Transfer」→ A のウォレットが署名）で送る。自動の画面確認は `demo/nft-world-screen-check.mjs`（既定 `--transfer-via page`、自分宛の拒否も確かめる。Node から送るなら `--transfer-via node`）。その後：
    - A の画面で行為 → 拒否（relay が `ResidentHolderChanged` か `ResidentGenerationStale` で費用を払わずに止める）。
    - B の鍵を別の browser profile のゲーム画面に入れる → 「Play this NFT」（参加済み）→ 行為が成立する。同じ Citizen であること。
    - B の profile で、パスを持たない鍵の場合は 2 の表示に戻ること。

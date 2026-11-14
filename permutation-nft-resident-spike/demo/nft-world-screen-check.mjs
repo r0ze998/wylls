@@ -2,12 +2,13 @@
 // The English screen check of a local NFT world (frontier-stack `up --nft-pass`; runbook §5):
 // a wallet without a pass sees the link to the mint page → it mints there → back in the game it
 // re-reads its NFTs, picks a nation, joins with the NFT and builds its first village (PlaceHome through
-// ResidentAct) → the pass goes A→B (TransferResident from Node) → A's page no longer offers it, B's
+// ResidentAct) → the pass goes A→B (TransferResident: by default from the mint page's transfer screen, A's
+// wallet signing; `--transfer-via node` sends it from Node instead) → A's page no longer offers it, B's
 // page plays the same Citizen.
 //
 //   node permutation-nft-resident-spike/demo/nft-world-screen-check.mjs --out <dir>
 //        [--game http://127.0.0.1:41040/frontier/frontier/] [--mint http://127.0.0.1:41090/web/mint.html]
-//        [--rpc http://127.0.0.1:41010] [--resident <program id>]
+//        [--rpc http://127.0.0.1:41010] [--resident <program id>] [--transfer-via page|node]
 //
 // Test keys only: two fresh random seeds, kept in this process and the browser contexts' localStorage
 // (the game page's Dev Wallet `ps-dev-wallet`, the mint page's test wallet `wylls-testwallet-seed`), never
@@ -36,6 +37,8 @@ const RPC = loopbackRpc(arg('--rpc', 'http://127.0.0.1:41010'));
 const RESIDENT = arg('--resident', TEST_PROGRAM_ID);
 const FRONTIER = arg('--frontier', base58(new Uint8Array(32).fill(0x4e)));
 const SEASON = BigInt(arg('--season', '7'));
+const TRANSFER_VIA = arg('--transfer-via', 'page');
+if (!['page', 'node'].includes(TRANSFER_VIA)) { console.error('--transfer-via page|node'); process.exit(2); }
 const field = (kind, name) => V2.accounts.find(a => a.kind === kind).fields.find(f => f.name === name);
 const chainLog = [];
 const OUT = arg('--out');
@@ -201,14 +204,36 @@ try {
   await a.locator('[data-act="harvest"]').first().waitFor({ state: 'visible', timeout: 90_000 });
   await shot(a, '4b-reload'); step('4b reload: the pass is offered again');
 
-  // 5. Transfer A→B from Node (TransferResident), then A's page no longer offers the pass; B's plays it.
-  const rpc = new RpcClient(RPC);
-  const cfg = decodeConfigAccount((await rpc.account(pdas(RESIDENT).config)).data);
-  const { blockhash } = await rpc.latestBlockhash();
-  const tx = signedTx({ feePayer: A.publicKey, blockhash, instructions: [transferResidentIx({ program: RESIDENT, owner: A.publicKey, asset, collection: cfg.collection, to: B.publicKey })], signers: [A] });
-  const st = await rpc.confirm(await rpc.send(tx.wire));
-  if (!st || st.err) throw new Error(`TransferResident failed: ${JSON.stringify(st?.err)}`);
-  step('5 TransferResident A→B');
+  // 5. Transfer A→B (TransferResident), then A's page no longer offers the pass; B's plays it.
+  if (TRANSFER_VIA === 'page') {
+    // The mint page's transfer screen, A's wallet signing: a refusal first (to itself), then the review and the send.
+    await m.reload();
+    await m.locator('[data-wallet]').first().click();
+    await waitText(m, /You hold the pass/, 60_000, '5-mint-holds');
+    await m.getByTestId('t-to').fill(A.publicKey);
+    await m.getByTestId('t-review').click();
+    await m.waitForFunction(() => /cannot transfer to your own wallet/.test(document.querySelector('[data-testid="t-status"]').textContent), null, { timeout: 30_000 });
+    step('5 transfer screen: a transfer to itself is refused before signing');
+    await m.getByTestId('t-to').fill(B.publicKey);
+    await m.getByTestId('t-review').click();
+    await m.getByTestId('t-confirm').waitFor({ state: 'visible', timeout: 30_000 });
+    const shown = { asset: (await m.getByTestId('t-asset-full').textContent()).trim(), from: (await m.getByTestId('t-from').textContent()).trim(), to: (await m.getByTestId('t-dest').textContent()).trim() };
+    if (shown.asset !== asset || shown.from !== A.publicKey || shown.to !== B.publicKey) throw new Error(`the transfer review shows ${JSON.stringify(shown)}`);
+    await shot(m, '5-transfer-review');
+    await m.getByTestId('t-ack').check();
+    await m.getByTestId('t-send').click();
+    await m.waitForFunction(() => /Transferred \(confirmed on the chain\)/.test(document.querySelector('[data-testid="t-status"]').textContent), null, { timeout: 120_000 });
+    await shot(m, '5-transfer-done');
+    step('5 TransferResident A→B from the mint page\'s transfer screen', (await m.getByTestId('t-status').textContent()).trim());
+  } else {
+    const rpc = new RpcClient(RPC);
+    const cfg = decodeConfigAccount((await rpc.account(pdas(RESIDENT).config)).data);
+    const { blockhash } = await rpc.latestBlockhash();
+    const tx = signedTx({ feePayer: A.publicKey, blockhash, instructions: [transferResidentIx({ program: RESIDENT, owner: A.publicKey, asset, collection: cfg.collection, to: B.publicKey })], signers: [A] });
+    const st = await rpc.confirm(await rpc.send(tx.wire));
+    if (!st || st.err) throw new Error(`TransferResident failed: ${JSON.stringify(st?.err)}`);
+    step('5 TransferResident A→B (from Node)');
+  }
   // 5a. A's page, still open as the NFT's player from before the transfer, acts: refused before anything is signed.
   const s0 = await snapshot('after the transfer, before A acts', asset);
   if (s0.assetOwner !== B.publicKey || s0.generation !== 1) throw new Error(`after the transfer the chain says owner ${s0.assetOwner}, generation ${s0.generation}`);

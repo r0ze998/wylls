@@ -1,5 +1,7 @@
 # permutation-nft-resident-spike：NFT で譲渡できる住民アカウント（隔離試作）
 
+**v0.28（2026-11-14 夜）**：発行ページに試験用の譲渡の画面（宛先の厳密な検査、確認、二重送信の防止、応答の消失の照会）、ページの既定を英語に。模擬 chain が TransferResident を program と同じ検査で実行。模擬の browser 試験だけで、実 program・通常 world では未実行（`../docs/integration/CLAUDE-NFT-PASS-AUDIT-20261114.md` §4）。wide の領土戦 lane との統合の design note（決定なし）：`../docs/integration/CLAUDE-NFT-WIDE-LANE-INTEGRATION-DESIGN-20261114.md`。
+
 **v0.27（2026-11-14 夕）**：通常のローカル world（frontier-stack `--nft-pass`）の英語画面で発行 → 参加 → 村 → 譲渡 → 旧持ち主の拒否 → 新持ち主の Harvest を chain で照合。発行ページの日英化、companion server の `/mock/*` を local 試験の指定時だけにし `/rpc` をページの method だけに制限。現況と監査は `docs/MINT-READINESS-20261114.ja.md` §0 と `../docs/integration/CLAUDE-NFT-PASS-AUDIT-20261114.md`。
 
 **v0.26（2026-11-14）**：最新ソースの SBF build を記録（`program/BUILD-RECORD.json`、`.so` `947da0b9…`）し、実 Core＋ループバック validator のブラウザ試験 6 件が再び合格。ページの注意書きが `[object Object]` になる不具合を修正。ソースとの一致試験を追加。ゲーム参加の実 chain 接続は未完で、理由と残りは `docs/MINT-READINESS-20261114.ja.md`。

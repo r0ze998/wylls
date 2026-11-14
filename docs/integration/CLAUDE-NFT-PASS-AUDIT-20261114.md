@@ -49,7 +49,7 @@ branch `claude/nft-pass-mint-20261114`。source を読んで整理した監査�
 | 管理・販売開始の安全 | 開始は SetTerms（authority の署名）。期間外・上限超・売り切れは program が拒否、ページは理由を表示（日英） | 誰がいつ開けるかの運用。1 wallet 上限は wallet ごとの PDA なので、複数 wallet では超えられる（仕様の限界として明記） |
 | 署名・発行のエラー | 署名拒否、SOL 不足、二重クリック、応答の消失（署名で照会、再送しない）、期限切れ（asset 口座の有無で判定）、支払い後の失敗（取引ごと戻る）を模擬と実 program で試験済み | 実ウォレットでの挙動 |
 | 重複 | 同じ asset の 2 回目は `AlreadyInitialized`、同一取引の再送は runtime が拒否、1 NFT・1 Citizen（world ごと） | — |
-| 譲渡 | `TransferResident`（持ち主の署名）だけが asset を動かす（Permanent Freeze＋Permanent Transfer Delegate）。世代が上がり session が消える。旧持ち主は拒否（実 chain・通常 world で確認） | **利用者が譲渡する画面が無い**（今は script）。一般の市場では売買できない（MARKET-COMPAT）。専用の売買経路は模擬だけ |
+| 譲渡 | `TransferResident`（持ち主の署名）だけが asset を動かす（Permanent Freeze＋Permanent Transfer Delegate）。世代が上がり session が消える。旧持ち主は拒否（実 chain・通常 world で確認）。**発行ページに試験用の譲渡の画面を追加**（§4）：program が拒否しない自分宛・署名できない宛先（PDA）・system の口座を署名前に拒否 | 譲渡の画面は**模擬 chain の browser 試験だけ**：実 program・通常 world では未実行。一般の市場では売買できない（MARKET-COMPAT）。専用の売買経路は模擬だけ |
 | 表示 | 発行ページは日英。TEST の表示（価格・販売・注意書き）を保持 | 公開時の注意書き・規約（A9）、`priceLabel`・`test:false` の設定を `--rpc` 接続でも渡せるようにするか |
 | 配備用ファイル | 住民 program の `.so` は記録した build（`program-artifact.mjs status` OK）。`mpl-core` のスタック超過の警告（U26） | 配備先・program ID の鍵・upgrade authority の形（A1・A2） |
 
@@ -59,7 +59,22 @@ branch `claude/nft-pass-mint-20261114`。source を読んで整理した監査�
 
 **残課題**：
 1. 通常 world で：B の Build・Train・Muster・Depart（行軍は今回の修正）・Reveal と、A の同じ操作の拒否を chain で照合（§1.2）。枠と容量は領土側と事前に調整（world 1 回：起動 1〜2 分の CPU、run data 約 300〜350 MB、終わったら削除）。
-2. 利用者向けの譲渡の画面（今は script）。
+2. 利用者向けの譲渡の画面：**試験用を実装済み（模擬 chain の browser 試験 3 件）**。実 program・通常 world での実行は次の world の枠で（`nft-world-screen-check.mjs --transfer-via page`）。
 3. collection・NFT の metadata を後から変える手段（program の更新が要る）。
 4. B（wide の領土戦との統合）と C（本番の program・版・配備）は別の判断と作業。
 5. 公開にだけ要る判断（§2 の右列、`MINT-READINESS-20261114.ja.md` §6）。実ウォレット・公開 chain・公開販売・実資金は行っていない。
+
+## 4. 試験用の譲渡の画面（同日 夜、領土側の world の実行中：validator・world・build は無し）
+
+発行ページ（`web/mint.html`・`web/mint.mjs`）の「Transfer your resident (TEST)」。検査は DOM の無い `web/transfer.mjs`。ページは**英語が既定**になった（ブラウザが日本語でも英語。日本語は `?lang=ja` か切替で、選択は保存）。
+
+| 要件 | 実装 | 試験 |
+|---|---|---|
+| 宛先の厳密な検査 | 前後の空白だけ除き、base58 の 32 バイトの公開鍵だけ。curve 上にない宛先（PDA：誰も署名できず住民が二度と動かない）、program・collection・treasury・config・asset 自身を拒否 | `transfer-ui.test.mjs`（6）、browser 1 |
+| 自分宛・未接続・他人保有 | 自分宛は `Self`、ウォレット未接続は `NoWallet`、送り主が今の持ち主でない（chain の読取）は `NotYours`。確認の直前にもう一度読む | 同上、browser 2（確認の後に NFT が他へ動いた → 送信前に拒否、送信 0） |
+| 対象と宛先の明示確認 | 住民 ID・asset・送り主・宛先の全桁を表示、宛先の保有数の注記、入力欄は確認中は編集不可（変えたら確認をやり直す）、チェックが無いと送れない | browser 1 |
+| 二重送信の防止 | 処理中の印・ボタンの無効化・送信前に記録（`wylls-transfer-pending:<wallet>`）。記録がある間は新しい譲渡を始めない | browser 1（ダブルクリックで取引 1 件） |
+| キャンセル・拒否・応答の消失 | キャンセル・ウォレットの署名拒否は「何も送っていない」と表示（記録なし）。program の拒否は記録を消して理由を表示。応答の消失は署名の状態 → asset の今の持ち主で決め、**再送しない**。期限切れは finalized が期限を過ぎてから持ち主を読み、送り主のままなら「着地していない」 | `transfer-ui.test.mjs` の判定 8 通り、browser 1（署名拒否）、browser 3（応答の消失＋状態の隠蔽 → 持ち主で「譲渡済み」、送信 1） |
+| 操作権が無くなる表示 | 画面の説明・確認のチェックの文・完了の文（「This wallet can no longer play this resident.」） | browser 1 |
+
+模擬 chain は TransferResident を program と同じ検査で実行するようにした（`src/mint-rpc.mjs` `#transferResident`：owner と payer の署名、asset の持ち主、resident・collection・collection authority・Core の照合。効果は持ち主・世代 +1・session 消去）。**実 program（ループバック validator）と通常 world では未実行**：次の world で `nft-world-screen-check.mjs`（既定で譲渡を画面から行う）を走らせる。
