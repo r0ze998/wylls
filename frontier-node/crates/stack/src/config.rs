@@ -168,6 +168,11 @@ pub struct StackConfig {
     /// a key the relay holds, a test mint and the season's pool are created,
     /// and a Join needs the relay's co-signature (x402: paid entry).
     pub prize_so: Option<PathBuf>,
+    /// The NFT pass test world (`--nft-pass`, crate::nftpass): the Frontier
+    /// NFT lane with Metaplex Core and the resident program on the same
+    /// localnet, the pass's setup with TEST sale values, and the mint page
+    /// on the same RPC. Local tests only; never a public sale.
+    pub nft_pass: bool,
     /// The season's entry fee in base units of the test mint (6 decimals).
     /// A season parameter; the default is the owner's 25 test USDC.
     pub entry_fee: u64,
@@ -313,6 +318,7 @@ impl Default for StackConfig {
             r_max_ceiling: None,
             placement: None,
             prize_so: None,
+            nft_pass: false,
             entry_fee: 25_000_000,
             prize_ops_bps: 2_000,
             prize_keeps: 0,
@@ -469,6 +475,9 @@ impl StackConfig {
         }
         if let Some(v) = b!("conquest") {
             c.conquest = v;
+        }
+        if let Some(v) = b!("nft_pass") {
+            c.nft_pass = v;
         }
         if let Some(v) = i!("keep_bells") {
             c.keep_bells = Some(v as u16);
@@ -742,6 +751,21 @@ impl StackConfig {
                 );
             }
         }
+        if self.nft_pass {
+            if self.prize_so.is_some() {
+                return Err(
+                    "--nft-pass: not with --prize-so (one extra program set per run)".into(),
+                );
+            }
+            // CreateSeason v2 (S1) only: the lane's version is S1 | 0x8000.
+            if !self.conquest {
+                return Err("--nft-pass: an S1 world (--conquest)".into());
+            }
+            // The NFT lane is built with the test beacon key only.
+            if self.beacon != Beacon::TestKey {
+                return Err("--nft-pass: the NFT lane runs with --beacon test-key".into());
+            }
+        }
         if self.prize_so.is_some() {
             if !self.conquest {
                 return Err("--prize-so: the prize pool tallies keeps (needs --conquest)".into());
@@ -905,6 +929,7 @@ impl StackConfig {
         v["keeper_extend"] = json!(self.keeper_extend);
         v["r_max_ceiling"] = json!(self.r_max_ceiling);
         v["placement"] = json!(self.placement);
+        v["nft_pass"] = json!(self.nft_pass);
         v
     }
 
@@ -1080,6 +1105,7 @@ pub fn apply_flags(c: &mut StackConfig, flags: &[(String, Option<String>)]) -> R
             "viewer-start-hours" => c.viewer_start_hours = num(k, v)?.max(0.0),
             "keep-running" => c.pause_at_end = false,
             "conquest" => c.conquest = true,
+            "nft-pass" => c.nft_pass = true,
             "continuous" => {
                 c.continuous = true;
                 c.end_season = false;
@@ -1120,6 +1146,7 @@ pub const SWITCHES: &[&str] = &[
     "keep-running",
     "start-paused",
     "conquest",
+    "nft-pass",
     "continuous",
     "s1",
     "no-keeper-b",

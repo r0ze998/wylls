@@ -434,6 +434,8 @@ pub struct Stack {
     pub so_len: usize,
     /// The test-asset prize pool (`--prize-so`).
     pub prize: Option<crate::prize::Prize>,
+    /// The NFT pass test world (`--nft-pass`).
+    pub nft: Option<crate::nftpass::NftPass>,
 }
 
 fn log_line(msg: &str) {
@@ -479,6 +481,9 @@ impl Stack {
             ))
         })?;
         check_so(&bytes, cfg.beacon).map_err(bad)?;
+        if cfg.nft_pass {
+            crate::nftpass::check_lane_so(&bytes).map_err(bad)?;
+        }
         let bin = run::bin_dir().map_err(bad)?;
         for b in [
             "frontier-localnet",
@@ -536,7 +541,12 @@ impl Stack {
         }
         rd.create().map_err(bad)?;
         let keys = Keys::load_or_create(&rd).map_err(bad)?;
-        let program = program_id(&cfg.run_id);
+        // The NFT lane runs only under its own id (its dispatch refuses any other).
+        let program = if cfg.nft_pass {
+            crate::nftpass::frontier_program()
+        } else {
+            program_id(&cfg.run_id)
+        };
         let addrs = Addresses::new(program, cfg.season_id);
         let chain = Chain::new(&ports.rpc(), program);
         let so_sha256 = hex::encode(Sha256::digest(&bytes));
@@ -562,6 +572,11 @@ impl Stack {
             bin
         };
         let prize = crate::prize::Prize::load_or_create(&repo, &rd, &cfg, &program).map_err(bad)?;
+        let nft = if cfg.nft_pass {
+            Some(crate::nftpass::NftPass::load(&repo, ports.localnet).map_err(bad)?)
+        } else {
+            None
+        };
         Ok(Stack {
             repo,
             run: rd,
@@ -577,6 +592,7 @@ impl Stack {
             so_sha256,
             so_len: bytes.len(),
             prize,
+            nft,
             cfg,
         })
     }
@@ -622,6 +638,11 @@ impl Stack {
         if let (Some(pz), Some(spec)) = (&self.prize, out.last_mut()) {
             spec.args.push(s("--program"));
             spec.args.push(pz.deploy_arg(&self.keys.authority.pubkey()));
+        }
+        // NFT pass: Core and the resident program on the same localnet.
+        if let (Some(nft), Some(spec)) = (&self.nft, out.last_mut()) {
+            spec.args
+                .extend(nft.deploy_args(&self.keys.authority.pubkey()));
         }
         let mut dargs = vec![
             s("serve"),
@@ -719,6 +740,14 @@ impl Stack {
         });
         if let (Some(pz), Some(spec)) = (&self.prize, out.last_mut()) {
             spec.args.extend(pz.relay_args());
+        }
+        // NFT pass: the join screen links to the mint page, which runs on the same RPC.
+        if let (Some(nft), Some(spec)) = (&self.nft, out.last_mut()) {
+            spec.args.extend(nft.relay_args());
+        }
+        if let Some(nft) = &self.nft {
+            let node = which("node").unwrap_or_else(|| PathBuf::from("node"));
+            out.push(nft.mint_spec(&self.repo, &node, r, &p.rpc()));
         }
         let mut hargs = vec![
             s("--data"),
@@ -1137,6 +1166,10 @@ async fn run_all(st: &mut Stack) -> Result<(), String> {
             continuous: st.cfg.continuous,
             r_max_ceiling: st.cfg.r_max_ceiling,
             placement: st.cfg.placement,
+            program_version: st
+                .cfg
+                .nft_pass
+                .then_some(crate::nftpass::LANE_PROGRAM_VERSION),
         },
         st.prize.as_ref().map(|p| p.gate.pubkey().to_bytes()),
         st.cfg.season_end_bell(),
@@ -1151,6 +1184,34 @@ async fn run_all(st: &mut Stack) -> Result<(), String> {
         st.state["prize_mint"] = json!({"mint": p.mint.pubkey().to_string(), "created": true});
         st.run
             .event(None, "prize-mint", st.state["prize_mint"].clone());
+    }
+    if let Some(nft) = &st.nft {
+        // The NFT pass (local test values): the collection, the resident
+        // program's config and TEST sale, and the Frontier resident policy,
+        // by one Node process that finishes, signed by the operator key (both
+        // programs' upgrade authority).
+        let node = which("node").unwrap_or_else(|| PathBuf::from("node"));
+        let (prog, args) =
+            nft.setup_command(&st.repo, &node, &st.run, &st.ports.rpc(), &st.program);
+        let log = st.run.log("nft-setup");
+        let out = std::process::Command::new(&prog)
+            .args(&args)
+            .output()
+            .map_err(|e| format!("nft pass setup: {e}"))?;
+        let _ = std::fs::write(
+            &log,
+            [out.stdout.as_slice(), out.stderr.as_slice()].concat(),
+        );
+        if !out.status.success() {
+            return Err(
+                format!("nft pass setup failed ({}): {}", out.status, log.display()).into(),
+            );
+        }
+        let setup: Value = serde_json::from_slice(&out.stdout)
+            .map_err(|e| format!("nft pass setup output: {e}"))?;
+        st.state["nft_pass"] = json!({"setup": setup, "mint_url": nft.mint_url(),
+            "resident_program": nft.resident.to_string(), "test_values": true});
+        st.run.event(None, "nft-pass", st.state["nft_pass"].clone());
     }
     let genesis_ts = season["genesis_ts"].as_i64().ok_or("genesis_ts")?;
     let end_bell = season["end_bell"].as_u64().unwrap_or(1_008) as i64;

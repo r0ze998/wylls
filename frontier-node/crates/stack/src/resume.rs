@@ -702,6 +702,9 @@ fn check_recovery_files(
 }
 
 fn specs(rd: &RunDir, state: &Value) -> Result<BTreeMap<String, Spec>, String> {
+    if state["config"]["nft_pass"] == true {
+        return Err("resume of --nft-pass worlds is not implemented (the mint page and the pass setup are not restored)".into());
+    }
     if state["config"]["continuous"] == true {
         return Err("resume of continuous worlds is not supported until saved bots and the chain flag are verified".into());
     }

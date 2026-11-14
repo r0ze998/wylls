@@ -23,6 +23,7 @@ pub mod chaos;
 pub mod config;
 pub mod land;
 pub mod load;
+pub mod nftpass;
 pub mod ports;
 pub mod prize;
 pub mod procs;

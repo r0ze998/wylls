@@ -271,7 +271,10 @@ fn create_params_ok(x: &frontier_abi::v2::presets::SeasonParamsV2) -> bool {
 /// on a copy whose `program_version` is `PROGRAM_VERSION_S1`; every other field is checked as given, and the exact
 /// version equality in [`create_params_ok`] still runs on the real value. Any other version, and every other build,
 /// is checked unchanged (`validate` itself is not relaxed).
-#[cfg(feature = "localnet-expedition-sbf")]
+/// The isolated local NFT world lane (`localnet-nft-sbf`, test only, its own program id) is the same case: its
+/// version S1 | 0x8000 has no entry in `validate`'s list either, so without the view no NFT build could ever create
+/// a Season. The same mapping applies to exactly its own version.
+#[cfg(any(feature = "localnet-expedition-sbf", feature = "localnet-nft-sbf"))]
 fn range_view(x: &frontier_abi::v2::presets::SeasonParamsV2) -> frontier_abi::v2::presets::SeasonParamsV2 {
     let mut y = *x;
     if y.base.program_version == crate::PROGRAM_VERSION {
@@ -279,7 +282,7 @@ fn range_view(x: &frontier_abi::v2::presets::SeasonParamsV2) -> frontier_abi::v2
     }
     y
 }
-#[cfg(not(feature = "localnet-expedition-sbf"))]
+#[cfg(not(any(feature = "localnet-expedition-sbf", feature = "localnet-nft-sbf")))]
 fn range_view(x: &frontier_abi::v2::presets::SeasonParamsV2) -> frontier_abi::v2::presets::SeasonParamsV2 {
     *x
 }
@@ -1210,9 +1213,39 @@ mod tests {
         assert_eq!(range_view(&other), other, "another version is viewed as given");
     }
 
+    /// The isolated local NFT world lane: its own version S1 | 0x8000 is accepted by CreateSeason through the same
+    /// view; the generic `validate` still refuses it, the expedition lane's 0x4804 is refused here, and only this
+    /// exact version is mapped.
+    #[cfg(feature = "localnet-nft-sbf")]
+    #[test]
+    fn the_nft_lane_accepts_exactly_its_own_version() {
+        use frontier_abi::v2::presets::PROGRAM_VERSION_S1;
+        assert_eq!(
+            crate::PROGRAM_VERSION,
+            PROGRAM_VERSION_S1 | 0x8000,
+            "the lane's version"
+        );
+        let good = own_params();
+        assert!(
+            good.validate().is_err(),
+            "the generic validator is unchanged: it refuses S1 | 0x8000"
+        );
+        assert!(create_params_ok(&good), "CreateSeason accepts the lane's own version");
+        assert_eq!(range_view(&good).base.program_version, PROGRAM_VERSION_S1);
+        let mut rest = range_view(&good);
+        rest.base.program_version = good.base.program_version;
+        assert_eq!(rest, good, "only program_version differs in the view");
+        for v in [0x4804u16, PROGRAM_VERSION_S1, 0x8005, 0xc804] {
+            let mut other = good;
+            other.base.program_version = v;
+            assert_eq!(range_view(&other), other, "{v:#06x} is viewed as given");
+            assert!(!create_params_ok(&other), "{v:#06x} is not this binary's");
+        }
+    }
+
     /// Every other build: the check is the original one (the view is the identity), so 0x4804 is refused and this
     /// binary's own listed version is accepted.
-    #[cfg(not(feature = "localnet-expedition-sbf"))]
+    #[cfg(not(any(feature = "localnet-expedition-sbf", feature = "localnet-nft-sbf")))]
     #[test]
     fn other_builds_check_unchanged() {
         let mut lane = own_params();

@@ -112,6 +112,9 @@ pub struct LandOverrides {
     pub r_max_ceiling: Option<u16>,
     /// `--placement`: the conquest block's `placement`.
     pub placement: Option<u8>,
+    /// `--nft-pass`: the Season's program version (the NFT lane's S1 | 0x8000,
+    /// crate::nftpass::LANE_PROGRAM_VERSION); unset: the preset's.
+    pub program_version: Option<u16>,
 }
 
 impl LandOverrides {
@@ -129,12 +132,29 @@ impl LandOverrides {
     /// uses the no-end sentinel; finite worlds retain their preset bytes.
     pub fn apply_conquest(&self, p: &mut frontier_abi::v2::presets::SeasonParamsV2) {
         self.apply(&mut p.base);
+        if let Some(v) = self.program_version {
+            p.base.program_version = v;
+        }
         if self.continuous {
             p.cq.continuous = 1;
             p.base.end_bell = frontier_abi::presets::NO_END_BELL;
             p.base.join_close_bell = frontier_abi::presets::NO_END_BELL;
         }
     }
+}
+
+/// The parameters as the generic range check sees them: the NFT lane's own
+/// version (not in `validate`'s 3/4/5) is checked as S1, exactly as the
+/// lane's CreateSeason does (`permutation-frontier` `proc::season::range_view`);
+/// every other version is checked as given.
+pub fn range_view(
+    p: &frontier_abi::v2::presets::SeasonParamsV2,
+) -> frontier_abi::v2::presets::SeasonParamsV2 {
+    let mut y = *p;
+    if y.base.program_version == crate::nftpass::LANE_PROGRAM_VERSION {
+        y.base.program_version = frontier_abi::v2::presets::PROGRAM_VERSION_S1;
+    }
+    y
 }
 
 /// Runs the operator steps; returns what the report needs.
@@ -176,7 +196,8 @@ pub async fn run(
         if let Some(g) = join_gate {
             p.base.join_gate = g;
         }
-        p.validate()
+        range_view(&p)
+            .validate()
             .map_err(|e| format!("conquest season params: {e}"))?;
         let sp = p.to_bytes();
         let ph = frontier_abi::v2::presets::params_hash_v2(&sp, &payout);
@@ -416,6 +437,7 @@ mod short_season_tests {
             continuous: false,
             r_max_ceiling: None,
             placement: None,
+            program_version: None,
         };
         for (r, ok) in [(6u16, true), (128, true), (4, false), (129, false)] {
             let mut p = p0;
