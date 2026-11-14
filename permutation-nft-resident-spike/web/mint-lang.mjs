@@ -156,4 +156,11 @@ export const EN = Object.freeze({
   '住民の世代を読めません。何も送っていません。': 'The resident\'s generation cannot be read. Nothing was sent.',
   'ウォレットの署名が送り主の鍵のものではありません。送っていません。': 'The wallet\'s signature is not from the sender\'s key. Nothing was sent.',
   '譲渡は着地し、その後この住民はこのウォレットに戻っています（世代 {0} → {1}）。譲渡前の署名と session は無効です。再送はしません。': 'The transfer landed, and the resident has since come back to this wallet (generation {0} → {1}). Signatures and sessions from before the transfer no longer work. Nothing is resent.',
+  '別のネットワーク（genesis {0}…）で記録された mint を照会から外しました（この画面のネットワークでは答えが出ません）。': 'A mint recorded on another network (genesis {0}…) was set aside: this page\'s network cannot answer it.',
+  '読めない mint の記録を照会から外しました。': 'An unreadable mint record was set aside.',
+  'mint の記録をブラウザに保存できません（{0}）。送っていません（課金なし）。': 'This browser cannot save the mint record ({0}). Nothing was sent (nothing charged).',
+  'mint の記録をブラウザに保存できません（読み戻しが違います）。送っていません（課金なし）。': 'This browser cannot save the mint record (it read back differently). Nothing was sent (nothing charged).',
+  '別のタブでこのウォレットの mint が進行中です。そちらの結果を待ってください（このタブからは送っていません）。': 'Another tab is minting with this wallet. Wait for its result (nothing was sent from this tab).',
+  '接続中のウォレットまたはネットワークが変わりました。画面を再読込してください。何も送っていません。': 'The connected wallet or network changed. Reload the page. Nothing was sent.',
+  'ウォレットの署名が支払うウォレットの鍵のものではありません。送っていません。': 'The wallet\'s signature is not from the paying wallet\'s key. Nothing was sent.',
 });
