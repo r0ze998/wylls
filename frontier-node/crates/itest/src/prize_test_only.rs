@@ -368,4 +368,246 @@ mod tests {
             "entry_exists"
         );
     }
+
+    // ---- place() over a built fixture (in-process chain; fixed bytes; no key, no RPC)
+
+    use frontier_abi::resident_auth::{resident_account as R, Policy};
+    use localnet::chain::Config;
+
+    const GAME: [u8; 32] = [0x4c; 32];
+    const SEASON: u64 = 11;
+    const RESIDENT_PROGRAM: [u8; 32] = [0x33; 32];
+    const COLLECTION: [u8; 32] = [0x55; 32];
+    const GUARD: [u8; 32] = [0x66; 32];
+    const OWNER_A: [u8; 32] = [0xa1; 32];
+    const OWNER_B: [u8; 32] = [0xb2; 32];
+    const ASSET: [u8; 32] = [0x5a; 32];
+    const FEE: u64 = 25_000_000;
+
+    /// The guard registry after an AssetV1 base ending at `base` (frontier-abi resident_auth's own test helper).
+    fn guarded_tail(base: usize, guard: &[u8; 32]) -> Vec<u8> {
+        let (freeze_at, transfer_at, registry_at) = (base + 9, base + 11, base + 12);
+        let mut t = vec![3u8];
+        t.extend_from_slice(&(registry_at as u64).to_le_bytes());
+        t.extend_from_slice(&[5, 1, 7]);
+        t.push(4);
+        t.extend_from_slice(&2u32.to_le_bytes());
+        for (kind, at) in [(5u8, freeze_at), (7u8, transfer_at)] {
+            t.extend_from_slice(&[kind, 3]);
+            t.extend_from_slice(guard);
+            t.extend_from_slice(&(at as u64).to_le_bytes());
+        }
+        t.extend_from_slice(&0u32.to_le_bytes());
+        t
+    }
+    fn asset_bytes(owner: [u8; 32], guarded: bool) -> Vec<u8> {
+        let mut d = vec![0u8; 75];
+        d[0] = 1;
+        d[1..33].copy_from_slice(&owner);
+        d[33] = 2;
+        d[34..66].copy_from_slice(&COLLECTION);
+        if guarded {
+            d.extend_from_slice(&guarded_tail(75, &GUARD));
+        }
+        d
+    }
+    fn acct(owner: [u8; 32], data: Vec<u8>) -> Account {
+        Account {
+            lamports: 10_000_000,
+            data,
+            owner: Address::new_from_array(owner),
+            executable: false,
+        }
+    }
+    struct W {
+        c: Chain,
+        game: Address,
+        tracked: Vec<Address>,
+    }
+    fn world(
+        state: u8,
+        pool_game: [u8; 32],
+        asset_owner_program: [u8; 32],
+        guarded: bool,
+        generation: u32,
+        with_record: bool,
+    ) -> W {
+        let mut c = Chain::new(Config::default());
+        let game = Address::new_from_array(GAME);
+        let pool = pool_address(&game, SEASON);
+        let mut pd = vec![0u8; POOL_SIZE];
+        pd[..8].copy_from_slice(POOL_MAGIC);
+        pd[POOL_STATE] = state;
+        pd[POOL_SEASON_ID..POOL_SEASON_ID + 8].copy_from_slice(&SEASON.to_le_bytes());
+        pd[POOL_GAME..POOL_GAME + 32].copy_from_slice(&pool_game);
+        pd[POOL_FEE..POOL_FEE + 8].copy_from_slice(&FEE.to_le_bytes());
+        c.set_account(pool, acct(PRIZE_TEST_ONLY_PROGRAM, pd))
+            .unwrap();
+        let mut pol = vec![0u8; resident_policy::LEN];
+        assert!(resident_policy::write_once(
+            &mut pol,
+            &Policy {
+                core_program: CORE.parse::<Address>().unwrap().to_bytes(),
+                resident_program: RESIDENT_PROGRAM,
+                collection: COLLECTION,
+                guard_authority: GUARD
+            }
+        ));
+        let policy_key = fclient::addr::resident_policy(&game);
+        c.set_account(policy_key, acct(GAME, pol)).unwrap();
+        let asset = Address::new_from_array(ASSET);
+        c.set_account(
+            asset,
+            acct(asset_owner_program, asset_bytes(OWNER_A, guarded)),
+        )
+        .unwrap();
+        let record =
+            fclient::addr::resident_account(&Address::new_from_array(RESIDENT_PROGRAM), &asset);
+        if with_record {
+            let mut r = vec![0u8; R::LEN];
+            r[0] = R::MAGIC_VALUE;
+            r[R::ASSET..R::ASSET + 32].copy_from_slice(&ASSET);
+            r[R::GENERATION..R::GENERATION + 4].copy_from_slice(&generation.to_le_bytes());
+            c.set_account(record, acct(RESIDENT_PROGRAM, r)).unwrap();
+        }
+        W {
+            c,
+            game,
+            tracked: vec![pool, policy_key, asset, record],
+        }
+    }
+    fn good() -> W {
+        world(
+            POOL_STATE_OPEN,
+            GAME,
+            CORE.parse::<Address>().unwrap().to_bytes(),
+            true,
+            2,
+            true,
+        )
+    }
+    fn req(w: &W, paid_by: [u8; 32], generation: u32) -> FixtureRequest {
+        FixtureRequest {
+            asset: Address::new_from_array(ASSET),
+            paid_by: Address::new_from_array(paid_by),
+            pay_generation: generation,
+            run_id: w.c.run_id(),
+            instance: w.c.status_instance(),
+        }
+    }
+    fn entry_of(w: &W) -> Address {
+        let pool = pool_address(&w.game, SEASON);
+        Address::find_program_address(
+            &[b"entry-nft", pool.as_ref(), &ASSET],
+            &Address::new_from_array(PRIZE_TEST_ONLY_PROGRAM),
+        )
+        .0
+    }
+    fn snapshot(w: &W) -> Vec<Option<(u64, Vec<u8>, Address)>> {
+        let mut keys = w.tracked.clone();
+        keys.push(entry_of(w));
+        keys.iter()
+            .map(|k| w.c.account(k).map(|a| (a.lamports, a.data, a.owner)))
+            .collect()
+    }
+    /// A refusal names its check and leaves every tracked account (and the Entry address) exactly as it was.
+    fn refused(mut w: W, r: FixtureRequest, want: Refusal) {
+        let before = snapshot(&w);
+        let game = w.game;
+        assert_eq!(place(&mut w.c, &game, SEASON, &r), Err(want));
+        assert_eq!(snapshot(&w), before, "{want:?}: nothing changed");
+    }
+
+    #[test]
+    fn the_one_entry_is_written_exactly_and_nothing_else_changes() {
+        let mut w = good();
+        let r = req(&w, OWNER_A, 2);
+        let before: Vec<_> = w
+            .tracked
+            .iter()
+            .map(|k| w.c.account(k).map(|a| (a.lamports, a.data, a.owner)))
+            .collect();
+        let game = w.game;
+        let p = place(&mut w.c, &game, SEASON, &r).unwrap();
+        assert_eq!(p.entry, entry_of(&w));
+        assert_eq!(p.amount, FEE);
+        let e = w.c.account(&p.entry).unwrap();
+        assert_eq!(
+            (e.owner, e.lamports, e.data.len()),
+            (
+                Address::new_from_array(PRIZE_TEST_ONLY_PROGRAM),
+                ENTRY_LAMPORTS,
+                ENTRY_SIZE
+            )
+        );
+        assert_eq!(&e.data[..8], ENTRY_MAGIC);
+        assert_eq!(e.data[9], 0, "unclaimed");
+        assert_eq!(
+            e.data[E_PAY_GENERATION..E_PAY_GENERATION + 4],
+            2u32.to_le_bytes()
+        );
+        assert_eq!(
+            e.data[E_POOL..E_POOL + 32],
+            pool_address(&game, SEASON).to_bytes()
+        );
+        assert_eq!(e.data[E_ASSET..E_ASSET + 32], ASSET);
+        assert_eq!(e.data[E_AMOUNT..E_AMOUNT + 8], FEE.to_le_bytes());
+        assert_eq!(e.data[E_PAID_BY..E_PAID_BY + 32], OWNER_A);
+        assert!(
+            e.data[136..].iter().all(|b| *b == 0),
+            "no claimer, no claim generation, reserved zero"
+        );
+        let after: Vec<_> = w
+            .tracked
+            .iter()
+            .map(|k| w.c.account(k).map(|a| (a.lamports, a.data, a.owner)))
+            .collect();
+        assert_eq!(after, before, "pool, policy, asset and record unchanged");
+        // The same request again: the Entry now exists.
+        assert_eq!(
+            place(&mut w.c, &game, SEASON, &r),
+            Err(Refusal::EntryExists)
+        );
+    }
+
+    #[test]
+    fn every_check_refuses_and_changes_nothing() {
+        let core = CORE.parse::<Address>().unwrap().to_bytes();
+        let w = good();
+        let mut r = req(&w, OWNER_A, 2);
+        r.run_id[0] ^= 1;
+        refused(w, r, Refusal::Run);
+        let w = good();
+        let mut r = req(&w, OWNER_A, 2);
+        r.instance[0] ^= 1;
+        refused(w, r, Refusal::Run);
+        let w = world(1, GAME, core, true, 2, true);
+        let r = req(&w, OWNER_A, 2);
+        refused(w, r, Refusal::Pool);
+        let w = world(POOL_STATE_OPEN, [0x45; 32], core, true, 2, true);
+        let r = req(&w, OWNER_A, 2);
+        refused(w, r, Refusal::Pool);
+        let w = world(POOL_STATE_OPEN, GAME, [0x99; 32], true, 2, true);
+        let r = req(&w, OWNER_A, 2);
+        refused(w, r, Refusal::Asset);
+        let w = world(POOL_STATE_OPEN, GAME, core, false, 2, true);
+        let r = req(&w, OWNER_A, 2);
+        refused(w, r, Refusal::Guard);
+        let w = world(POOL_STATE_OPEN, GAME, core, true, 2, false);
+        let r = req(&w, OWNER_A, 2);
+        refused(w, r, Refusal::Record);
+        let w = good();
+        let r = req(&w, OWNER_A, 1);
+        refused(w, r, Refusal::Generation);
+        let w = good();
+        let r = req(&w, OWNER_B, 2);
+        refused(w, r, Refusal::PaidBy);
+        // An Entry already at the address: refused, its bytes untouched.
+        let mut w = good();
+        let e = entry_of(&w);
+        w.c.set_account(e, acct(PRIZE_TEST_ONLY_PROGRAM, vec![7u8; ENTRY_SIZE]))
+            .unwrap();
+        let r = req(&w, OWNER_A, 2);
+        refused(w, r, Refusal::EntryExists);
+    }
 }
