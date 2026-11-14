@@ -148,7 +148,7 @@ export const holdingHereText = hosts => L`あなたの軍勢がこの砦のマ�
 /**
  * (round 20) The forts card's wait slot never grows shorter while the card stays open for one host at one width: after each
  * write of the card the slot's least height is the tallest it has been. The stand-in (round 19) holds the settling line's
- * height, but a host still forming says a longer line (hud/firststeps.mjs formingLine, by phase), and when that line went
+ * height, but a host still forming says a longer line (its forming line from hud/firststeps.mjs, by phase), and when that line went
  * away as the host stood, the rows moved up by the difference (12 px at 1280 px in a recorded ×30 world) at the very moment
  * the row became pressable. Measured and set in the same task as the write, before the page is painted. Layout only.
  */

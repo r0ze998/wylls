@@ -25,14 +25,16 @@ import { submit, track, accountsFor, campMaskOf, campWinner } from './fplay.mjs'
 import { sendMarch, sendMarchRetrying, planRoute, earliestBell, arrivalWindow, tipOptions, incomingWarnings, departMargin, RETREAT_CHOICES, checkMarch } from './fmarch.mjs';
 import { landState, hostsIn, TICKET_SEEN_BELLS, FIRST_TICKET_RING, BUILD_ITEMS, UNIT_ORDER } from './fland.mjs';
 import { BUILDINGS, TIERS, unitCount, failureText } from './fi18n.mjs';
-import { settled, copyNumber, buildSecs, doneAfterQueue, grownSince, ITEM_TIER_UP, ITEM_WALLS, TIER_UP, WALLS } from './hud/rulebook.mjs';
+import { settled, copyNumber, buildSecs, doneAfterQueue, grownSince, ITEM_TIER_UP, ITEM_WALLS, TIER_UP, WALLS, HOST_TROOPS } from './hud/rulebook.mjs';
 import { exploreResultTurn, exploreResultWords } from './hud/orderparts.mjs';
 import { planTicket } from './fjoin.mjs';
 import { toggleTile } from './screens/explore.mjs';
 import { composerArrival, composerMarch } from './screens/march.mjs';
-import { intentOf as pendingIntentOf, pendable, armPending, createPendingDriver } from './flocalplay-pending.mjs';
+import { intentOf as pendingIntentOf, pendable, armPending, createPendingDriver, SETTLE_CODES } from './flocalplay-pending.mjs';
+import { musterIntentOf, nearTurnEnd, musterPress, sameWorld as sameMusterIdentity, sameHolding, stillSame as musterStill } from './flocalplay-muster-wait.mjs';
+import { handModel as handModelOf, musterDraft } from './hud/hand.mjs';
 import { sealMarch, unpack, ctHash as ctHashOf, sealRoot as sealRootOf } from './seal.mjs';
-import { bellAt, bellStart, pipeline, archivePartOf, pollCap, roundTime, tlockRound } from './clock.mjs';
+import { bellAt, bellStart, BELL_SECS, pipeline, archivePartOf, pollCap, roundTime, tlockRound } from './clock.mjs';
 import { regionOf, ringOf, ringProvinces, homeNation, hexDistance } from './fgeo.mjs';
 import { hostParts, hostId } from './faddr.mjs';
 import { decodePage } from './flog.mjs';
@@ -1927,6 +1929,99 @@ function armMarchWait() {
   setNotice({ busy: false, text: L`送信待ちです。州のターンの決着がつき次第、この命令を1回だけ送ります（ターン ${fmtNum(p.untilBell)} まで。取り消せます）。` });
 }
 
+// TEST-ONLY local play, the village's Form a host card (round 21; flocalplay-muster-wait.mjs): ONE press on its confirm
+// sends the muster now when the page sees it ready and the turn is not about to change, or arms ONE waiting send of the
+// exact muster shown, sent once through the ordinary single send (`musterOrder` → `act` → the local path) the first
+// moment every check passes — or withdrawn and told. The driver is the march's (flocalplay-pending.mjs).
+const MUSTER_WITHDRAWN = {
+  cancel: PENDING_WITHDRAWN.cancel,
+  changed: () => L`送信待ちを取り消しました。編成の内容（兵種・兵数・場所）が変わったためです。命令は送られていません。確かめてから、もう一度押してください。`,
+  expired: PENDING_WITHDRAWN.expired,
+  closed: () => L`送信待ちを取り消しました。この世界ではいま編成を送れません。命令は送られていません。`,
+  unknown: PENDING_WITHDRAWN.unknown,
+  problem: PENDING_WITHDRAWN.problem,
+};
+/**
+ * The exact world and key a muster would be sent under, frozen when a waiting send is armed and compared at every look
+ * AND right before the send: the local-act scope (wallet, program, Season, relay — flocalplay-act.mjs localActScope), the
+ * runner's world instance, this page's herald and local-play identity objects, and the memory-only signer's handle. Any
+ * difference — another world on the same Season, a restart, another relay, another key — withdraws instead of sending.
+ */
+function musterIdentity() {
+  const g = localDepartGate();
+  if (!localPlay || !g?.ok) return null;
+  const scope = localAct.localActScope({ identity: localPlay, relay: g.relay });
+  if (scope === null) return null;
+  return Object.freeze({ scope, instance: localPlay.march?.instance ?? null, herald, localPlay, signer: currentEphemeralWallet() ?? null, wallet: FS.wallet?.address ?? null });
+}
+/**
+ * The open muster card as the page sees it now: its draft, the reasons the program would refuse it (the page's view),
+ * its identity. The card's village (the selection's) must be the page's active village — the one an order is sent for —
+ * or nothing is offered (`HoldingMismatch`).
+ */
+function musterNow() {
+  let model = null;
+  try { model = handModelOf(FS); } catch { model = null; }
+  if (model?.kind !== 'village' || model.pop !== 'muster') return { open: false, problems: null, intent: null, draft: null, holding: null };
+  const h = model.subject.holding, d = musterDraft(FS, model);
+  const draft = { unit: d.unit, troops: d.troops, tile: d.tile ?? h.tile };
+  const problems = !sameHolding(h, activeHolding(FS)) ? ['HoldingMismatch'] : d.unit === null || d.max < HOST_TROOPS.min ? ['NoReserve'] : [...(model.m.blocks.Muster ?? [])];
+  const id = musterIdentity();
+  return { open: true, problems, draft, holding: h, identity: id, intent: id ? musterIntentOf({ world: `${id.scope}|${id.instance ?? ''}`, wallet: id.wallet, holding: h, draft }) : null };
+}
+/** Within the last moments of this turn on the chain's clock: wait (it lowers the chance of a refusal; it does not promise the turn the send lands in). */
+const musterNearEnd = () => nearTurnEnd({ genesisTs: FS.clock?.genesisTs, nowTs: now(), bellSecs: BELL_SECS, rate: FS.chain?.accelerated ? Number(FS.chain.rate) : 1 });
+/** An earlier muster of this page whose outcome is not known (held by its signature): nothing is sent again. */
+const musterHeld = () => localActLedger.list(localActScopeNow()).some(e => e.name === 'Muster');
+/** Everything a waiting muster depends on, as it is now, against what was frozen in `card`: null when it may be sent, else the reason it is withdrawn. */
+function musterStillSame(card) {
+  const n = musterNow();
+  return musterStill(card, { identity: n.identity ?? musterIdentity(), open: n.open, pop: FS.hand?.pop ?? null, intent: n.intent, holding: n.holding, active: activeHolding(FS) });
+}
+const musterDriver = createPendingDriver({
+  look: card => {
+    const n = musterNow(), same = sameMusterIdentity(card.identity, n.identity ?? null);
+    return { intent: n.intent, problems: n.problems, nowBell: nowBell(), open: same && !FS.resident, held: musterHeld(),
+      busy: FS.inFlight > 0 || musterNearEnd(), sameCard: n.open && sameHolding(card.holding, n.holding), keyAlive: !!FS.wallet?.address && FS.wallet.destroyed !== true, endsAt: localPlay?.worldEndsAt ?? NaN };
+  },
+  // (the read is applied only while the page is still the world, herald, local-play identity and key frozen at arming)
+  refresh: card => {
+    const still = () => sameMusterIdentity(card.identity, musterIdentity()) && FS.wallet?.destroyed !== true && musterDriver.armed === card;
+    return loadEnvelope(card.holding.p, card.holding.q, 'latest', still).then(e => { if (e) { FS.nowBell = nowBell(); invalidate('panel'); } });
+  },
+  // (checked once more right before the send — world, key, village, muster —; the village is passed as frozen)
+  send: card => {
+    FS.musterWait = null;
+    const why = musterStillSame(card);
+    if (why) { setNotice({ busy: false, text: MUSTER_WITHDRAWN[why]() }); return null; }
+    invalidate('panel');
+    return musterOrder(card.draft.unit, card.draft.troops, card.draft.tile, card.holding);
+  },
+  withdrawn: (card, why) => {
+    FS.musterWait = null;
+    // (the card closed by the player: a cancel, said as one)
+    const t = why === 'changed' && FS.hand?.pop !== 'muster' ? MUSTER_WITHDRAWN.cancel : MUSTER_WITHDRAWN[why];
+    if (t) setNotice({ busy: false, text: t() }); else invalidate('panel');
+  },
+  onPageHide: f => { globalThis.addEventListener?.('pagehide', f); return () => globalThis.removeEventListener?.('pagehide', f); },
+});
+function armMusterWait() {
+  if (!localPlay || musterDriver.armed) return;
+  const n = musterNow();
+  if (!n.open || !n.intent || !n.identity) return;
+  const press = musterPress({ problems: n.problems, nearEnd: musterNearEnd(), settleCodes: SETTLE_CODES });
+  // ready now, and not at the turn's very end: this press is an ordinary press (for the card's own village)
+  if (press === 'send') return musterOrder(n.draft.unit, n.draft.troops, n.draft.tile, n.holding);
+  if (press !== 'wait' || musterHeld()) return;
+  const p = armPending({ intent: n.intent, nowBell: nowBell() });
+  const card = Object.freeze({ intent: n.intent, identity: n.identity, holding: Object.freeze({ p: n.holding.p, q: n.holding.q, site: n.holding.site, gen: n.holding.gen ?? null, tile: n.holding.tile }), draft: Object.freeze({ ...n.draft }) });
+  if (!p || !musterDriver.arm(card, p)) return;
+  FS.musterWait = { untilBell: p.untilBell };
+  setNotice({ busy: false, text: L`編成の送信待ちです。州のターンの決着がつき次第、この編成を1回だけ送ります（ターン ${fmtNum(p.untilBell)} まで。取り消せます）。` });
+}
+/** (tests) The muster's waiting send: armed or not. */
+export const musterWaitArmed = () => !!musterDriver.armed;
+
 async function sendTheMarch() {
   const c = FS.compose;
   if (!c || c.sending || FS.inFlight > 0) return;
@@ -2424,6 +2519,8 @@ export const ACTIONS = {
   'march-send': () => sendTheMarch(),
   'march-send-wait': () => armMarchWait(),
   'march-wait-cancel': () => pendingDriver.cancel('cancel'),
+  'muster-send-wait': () => armMusterWait(),
+  'muster-wait-cancel': () => musterDriver.cancel('cancel'),
   // (local play: ONE status read of a held march; it sends nothing)
   'local-march-ask': (d = {}) => (localPlay && localMarchSender && typeof d.signature === 'string' ? localMarchSender.ask(d.signature).then(x => { invalidate('panel'); return x; }) : null),
   'explore-open': d => { const r = hostRow(d.host), h=activeHolding(FS); FS.explore = r ? { holding:{p:h.p,q:h.q,site:h.site,gen:h.gen}, host: r, tiles: [] } : null; FS.tab = 'hosts'; invalidate('panel', 'tabs'); },
@@ -2489,9 +2586,10 @@ function trainOrder(unit, n) {
   const who = unitCount(UNIT_ORDER[unit], n);
   return act('Train', { v: { holding: activeHolding(FS) }, fields: { unit, n }, order: orderOf('train', 'Train', { unit, n, say: () => L`${who} を訓練しました。控えに入りました` }) });
 }
-/** Muster(unit, troops, tile): the host forms up on `tile` of the home province (the village's own tile when none is named) and stands from the next turn. */
-function musterOrder(unit, troops, tile = null) {
-  const h = activeHolding(FS);
+/** Muster(unit, troops, tile): the host forms up on `tile` of the home province (the village's own tile when none is named) and stands from the next turn. `holding`: the village it is for (round 21's waiting send passes the one it froze; otherwise the active one). */
+function musterOrder(unit, troops, tile = null, holding = null) {
+  const h = holding ? holdingByRef(FS.holdings, holding) : activeHolding(FS);
+  if (holding && !sameHolding(h, holding)) return failed({ code: 'NotOwner' });
   const at = Number.isInteger(tile) ? tile : h?.tile;
   const who = unitCount(UNIT_ORDER[unit], troops);
   return act('Muster', { v: { holding: h }, fields: { unit, troops, tile: at },

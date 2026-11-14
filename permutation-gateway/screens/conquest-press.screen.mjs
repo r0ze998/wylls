@@ -216,3 +216,50 @@ test('round 20: at 1280 px in English with the first village\'s drawer open, a h
     assert.deepEqual(out, [], `every button is inside the bar (${box.barLeft}–${box.bar}) and the ${box.width} px screen`);
   } catch (e) { await failed(page, name, e); }
 });
+
+test('round 21: Form a host opens its card with one ordinary press while the province is still finishing its turn', async t => {
+  const { page, host, name } = await openForts(t, 'muster-opens');
+  try {
+    // the viewer's village has the hand, its province two turns behind (the muster would be refused: NotResident)
+    const at = await page.evaluate(async h => {
+      const { FS, invalidate } = await import('/frontier/fstate.mjs');
+      const v = FS.holdings[0];
+      const env = FS.provinces.get(`${v.p},${v.q}`); env.province = { ...env.province, resolvedNext: FS.nowBell - 3 };
+      FS.selected = { p: v.p, q: v.q, idx: v.tile }; FS.hand = {};
+      invalidate('panel', 'map');
+      await new Promise(r => setTimeout(r, 600));
+      const b = document.querySelector('#hand .hand-muster'); const r = b?.getBoundingClientRect();
+      return b ? { x: r.left + r.width / 2, y: r.top + r.height / 2, off: b.classList.contains('off'), disabled: b.getAttribute('aria-disabled'), why: b.querySelector('.hand-why')?.textContent ?? null } : null;
+    }, host);
+    assert.ok(at, 'the village bar shows Form a host');
+    await page.mouse.move(at.x, at.y); await page.mouse.down(); await page.waitForTimeout(90); await page.mouse.up();
+    await page.waitForTimeout(500);
+    const pop = await page.evaluate(() => ({ pop: document.getElementById('hand-pop')?.dataset.pop ?? null, go: document.querySelector('#hand-pop .pop-go')?.getAttribute('aria-disabled') ?? null, line: document.querySelector('#hand-pop .pop-line')?.textContent ?? null }));
+    writeFileSync(path.join(OUT, `${name}.json`), `${JSON.stringify({ at, pop }, null, 2)}\n`);
+    assert.equal(at.off, false); assert.equal(at.disabled, null, 'the button is not refused');
+    assert.equal(pop.pop, 'muster', 'one press opened the card');
+    assert.equal(pop.go, 'true', 'an ordinary session: its confirm is still refused while the province finishes its turn');
+  } catch (e) { await failed(page, name, e); }
+});
+
+test('round 21: the first village\'s welcome stays visible when the drawer is written again in the same view', async t => {
+  const { page, name } = await openForts(t, 'welcome-stays');
+  try {
+    const seen = await page.evaluate(async () => {
+      const { FS, invalidate } = await import('/frontier/fstate.mjs');
+      FS.hand = null; FS.compose = null; FS.homeGrant = FS.holdings?.[0]; FS.tab = 'map';
+      invalidate('panel', 'map');
+      await new Promise(r => setTimeout(r, 1200));
+      const op = () => Number(getComputedStyle(document.querySelector('#panel-body .home-grant') ?? document.body).opacity);
+      const first = { found: !!document.querySelector('#panel-body .home-grant'), opacity: op() };
+      // the same view written again (as a sending step or a notice line changes the drawer's markup)
+      const body = document.getElementById('panel-body'); body.__html = null; invalidate('panel');
+      await new Promise(r => setTimeout(r, 120));
+      return { first, rewritten: { found: !!document.querySelector('#panel-body .home-grant'), opacity: op() }, fresh: body.dataset.fresh ?? null };
+    });
+    writeFileSync(path.join(OUT, `${name}.json`), `${JSON.stringify(seen, null, 2)}\n`);
+    assert.ok(seen.first.found && seen.first.opacity > 0.99, `the welcome stood (${seen.first.opacity})`);
+    assert.ok(seen.rewritten.found, 'still the welcome');
+    assert.ok(seen.rewritten.opacity > 0.99, `it did not fade out and in again (${seen.rewritten.opacity})`);
+  } catch (e) { await failed(page, name, e); }
+});

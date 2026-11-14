@@ -848,6 +848,8 @@ p.fact-chips { display: flex; flex-wrap: wrap; gap: var(--s1); margin: var(--s2)
 .home-wallet > summary { color: var(--ink-2); }
 .home-legacy { padding: 8px 10px; background: var(--warn-bg); border-radius: 8px; }
 .home-grant { text-align: center; animation: home-grant-in .7s ease-out both; }
+/* round 21: only when the drawer's view is new (app.mjs renderDrawer data-fresh); a rewrite of the same view shows it at once */
+#panel-body[data-fresh="0"] .home-grant { animation: none; }
 .home-grant .home-identity { text-align: left; }
 .home-grant-seal { display: grid; place-items: center; width: 76px; height: 76px; margin: 23px auto 18px; border: 1px solid #b8954e; border-radius: 50%; background: #e6d9b6; color: #27574a; font-size: 40px; box-shadow: 0 0 0 6px #d4b97822; }
 .home-village-name { font-size: 18px; color: #72511e; margin: 12px 0; }

@@ -629,6 +629,10 @@ function renderDrawer(markupOf) {
   const view = `${d?.kind ?? ''}|${FS.mode}`;
   const same = view === lastPanelView;
   lastPanelView = view;
+  // (round 21: a card's entrance plays when the drawer's view is new, not on each rewrite of the same view — the first
+  //  village's welcome fades in from nothing, and a rewrite while an order was being sent restarted it again and again: the
+  //  recorded ×30 world showed the drawer's paper blank under its title; frontier.css [data-fresh])
+  { const b = $('panel-body'); if (b) b.dataset.fresh = same ? '0' : '1'; }
   const head = drawerHeadFor(d, FS.selected, lastHeadSelection, inputInDrawer);
   lastHeadSelection = head.selection;
   clearTimeout(drawerClear); drawerClear = null;

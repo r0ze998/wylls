@@ -50,6 +50,7 @@ import { localRevealOf, localRevealCandidate } from '../flocalplay-reveal.mjs';
 import { localReturnOf, localReturnSpent } from '../flocalplay-return.mjs';
 import { localConquestShown, localConquestSpent, localConquestReadFor, localConquestOrderFor, localConquestCityFor } from '../flocalplay-conquest.mjs';
 import { hostStepInFlight } from '../flocalplay-hoststep.mjs';
+import { SETTLE_CODES } from '../flocalplay-pending.mjs';
 import { composerChoices } from '../screens/march.mjs';
 
 const int = Number.isInteger;
@@ -113,7 +114,7 @@ function villageModel(FS, sub) {
       tone: m.queue.length >= m.slots ? 'warn' : '', hint: m.queue.length >= m.slots ? whyText('QueueFull', { tier, freeIn }) : L`建設中 ${fmtNum(m.queue.length)}/${fmtNum(m.slots)}` },
     { id: 'train', icon: 'helmet', word: L`訓練`, act: 'hand-pop', data: { pop: 'train' }, figure: L`控え ${fmtNum(musterable)}人`,
       tone: cheapest.length ? 'warn' : '', hint: cheapest.length ? shortWords(cheapest) : L`訓練はすぐに終わり、兵は控えに入ります` },
-    { id: 'muster', icon: 'ranks', word: L`編成`, act: 'hand-pop', data: { pop: 'muster' }, figure: L`最大 ${fmtNum(musterable)}人`,
+    { id: 'muster', icon: 'ranks', word: L`編成`, act: 'hand-pop', data: { pop: 'muster' }, figure: L`最大 ${fmtNum(musterable)}人`, opens: true,
       why: musterBlock ? (musterBlock === 'NotFinal' ? whyText('NotFinal') : musterBlock === 'NoReserve' && allFormed ? allFormedShort() : whyText(musterBlock)) : null, hint: L`控えの兵を軍勢にして、州のマスに集めます` },
     { id: 'harvest', icon: 'grain', word: L`収穫`, act: 'harvest', data: {},
       // (nothing has grown since the last settling — any order settles the stores —: the figure says what an hour brings, not a dead "+0")
@@ -244,12 +245,14 @@ const unitPic = (f, unit, size = 40) => html`<img class="unit-card f${f}" src="$
 const slotRings = rings => html`<span class="hand-rings" aria-hidden="true">${rings.map(r => html`<span class="hand-ring${r.on ? ' on' : ''}">${ring(r.on ? Math.max(0.04, r.share) : 0)}</span>`)}</span>`;
 
 function button(b) {
-  const off = !!b.why;
+  // (`opens`: the button only opens its card — reading it sends nothing —, so a reason the card's own action is refused is
+  //  said on the button but does not refuse the press: round 21, the Form a host button was refused half of each turn)
+  const off = !!b.why && !b.opens;
   // (a button that cannot be pressed stays in the tab order and says why: `aria-disabled`, never the `disabled` attribute)
   return html`<button type="button" class="hand-btn hand-${b.id}${b.proto ? ' hand-proto' : ''}${b.tone ? ` tone-${b.tone}` : ''}${b.quiet ? ' quiet' : ''}${off ? ' off' : ''}" data-act="${b.act}" data-hand="${b.id}" ${dataAttrs(b.data)}
     ${raw(off ? 'aria-disabled="true"' : '')} ${raw(b.pressed !== undefined ? `aria-pressed="${b.pressed && !off ? 'true' : 'false'}"` : '')} title="${off ? b.why : b.hint ?? ''}">
     <span class="hand-ic">${icon(b.icon)}</span><span class="hand-word">${b.word}</span>${b.proto ? proto.tagHtml() : ''}
-    ${off && !b.said ? html`<span class="hand-why">${b.why}</span>` : html`<span class="hand-fig">${b.rings ? slotRings(b.rings) : ''}<span class="num">${b.figure}</span></span>`}
+    ${b.why && !b.said ? html`<span class="hand-why">${b.why}</span>` : html`<span class="hand-fig">${b.rings ? slotRings(b.rings) : ''}<span class="num">${b.figure}</span></span>`}
   </button>`;
 }
 
@@ -367,15 +370,26 @@ function musterPop(FS, model) {
   const why = block === 'NoReserve' && musterIdleCode({ reserve: model.reserve.reduce((a, r) => a + r.troops, 0), hosts: hostsNow }) ? allFormedText() : block ? whyText(block) : null;
   const at = d.tile === null || d.tile === h.tile ? L`${holdingName(h)}（村のマス）` : tileName(FS, h.p, h.q, d.tile);
   const who = d.unit === null ? '' : unitCount(UNIT_ORDER[d.unit], d.troops);
+  // (round 21, local play only: a muster refused only because the province is finishing its turn may be pressed — ONE
+  //  waiting send of this exact muster, sent once when it can be (controller.mjs armMusterWait); while one waits, the card
+  //  says so and offers to cancel it. An ordinary session is as before.)
+  const blocks = model.m.blocks.Muster ?? [];
+  const local = !!FS.localPlay, waiting = local && !!FS.musterWait;
+  const waitable = local && d.unit !== null && d.max >= HOST_TROOPS.min && blocks.length > 0 && blocks.every(c => SETTLE_CODES.includes(c));
+  const go = waiting
+    ? html`<button type="button" class="btn primary pop-go" aria-disabled="true">${icon('ranks')}${L`送信待ち`}</button><button type="button" class="btn pop-quiet" data-act="muster-wait-cancel">${L`送信待ちを取り消す`}</button>`
+    : html`<button type="button" class="btn primary pop-go" data-act="${local ? 'muster-send-wait' : 'muster'}" data-unit="${d.unit ?? 0}" data-troops="${d.troops}" data-tile="${d.tile ?? h.tile}" ${raw(why && !waitable ? 'aria-disabled="true"' : '')}>${icon('ranks')}${who ? L`${who} をここに集める` : L`ここに集める`}</button>`;
+  const line = waiting ? L`送信待ち：州のターンの決着がつき次第、この編成を1回だけ送ります（ターン ${fmtNum(FS.musterWait.untilBell)} まで）。兵種・兵数・場所が変わったら、送らずに取り消します。`
+    : waitable ? L`${why} 押すと、整い次第この編成を1回だけ送ります（兵種・兵数・場所が変わったら送らずに取り消します）。` : null;
   // (a low card: the board above it is where the tile is chosen)
   return html`${popHead(L`編成`, html`${icon('pin')}${L`集める場所：`}<strong>${at}</strong>`)}
     <div class="pop-foot pop-muster">
       <div class="unit-toks unit-toks-row" role="group" aria-label="${L`兵種`}">${model.reserve.map(r => html`<button type="button" class="unit-tok unit-tok-small${r.troops < HOST_TROOPS.min ? ' short' : ''}" data-act="hand-unit" data-unit="${r.unit}" aria-pressed="${r.unit === d.unit ? 'true' : 'false'}">
         ${unitPic(f, r.unit, 30)}<strong class="unit-tok-name">${UNITS[UNIT_ORDER[r.unit]]}</strong><span class="unit-tok-str num">${fmtNum(r.troops)}</span></button>`)}</div>
       ${d.unit === null ? '' : countRow('hand-troops', d.troops, { min: HOST_TROOPS.min, max: d.max, presets: [{ n: d.max, text: L`全部` }], label: L`兵数` })}
-      <button type="button" class="btn primary pop-go" data-act="muster" data-unit="${d.unit ?? 0}" data-troops="${d.troops}" data-tile="${d.tile ?? h.tile}" ${raw(why ? 'aria-disabled="true"' : '')}>${icon('ranks')}${who ? L`${who} をここに集める` : L`ここに集める`}</button>
+      ${go}
     </div>
-    <p class="pop-line${why ? ' pop-why' : ' pop-rule'}">${why ?? musterRuleText()}</p>
+    <p class="pop-line${why || line ? ' pop-why' : ' pop-rule'}">${line ?? why ?? musterRuleText()}</p>
     ${FS.proto && !why && musterPlace(FS, model) ? proto.placeLine(FS, previewOf(FS, musterPlace(FS, model))) : ''}${proto.whyLine(FS)}`;
 }
 
