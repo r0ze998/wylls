@@ -485,6 +485,9 @@ export function keepState(el, render, scroller = el) {
   const active = globalThis.document?.activeElement;
   const inside = !!active && el.contains(active);
   const focusKey = inside && active.matches?.('input, select, textarea') ? keyOf(active) : null;
+  // the caret of the focused field (a field without a selection API — a number — answers null and gets the end)
+  let caret = null;
+  if (focusKey) { try { caret = Number.isInteger(active.selectionStart) ? [active.selectionStart, active.selectionEnd] : null; } catch { caret = null; } }
   const focusAct = inside && !focusKey && scroller && active.matches?.('button, summary, a') ? { key: actOf(active), nth: nthOf(active), tag: active.tagName } : null;
   const top = scroller?.scrollTop ?? 0;
   // a part that scrolls by itself (the order's body above its seal: `data-scroll`) keeps its place too
@@ -495,7 +498,17 @@ export function keepState(el, render, scroller = el) {
     if (x.type === 'radio') { if (picked.get(k) === x.value) x.checked = true; }
     else if (x.tagName === 'SELECT') { if (picked.has(k) && [...x.options].some(o => o.value === picked.get(k))) x.value = picked.get(k); }
     else if (typed.has(k) && x.type !== 'checkbox') x.value = typed.get(k);
-    if (k === focusKey && (x.type !== 'radio' || x.checked)) x.focus({ preventScroll: true });
+    if (k === focusKey && (x.type !== 'radio' || x.checked)) {
+      x.focus({ preventScroll: true });
+      // the caret where it was: a new field takes the focus with its caret at the start, and the next keys typed went
+      // in front of what was typed (a count typed as 120 across two redraws read 021)
+      if (x.tagName !== 'SELECT' && x.type !== 'radio' && x.type !== 'checkbox') {
+        try {
+          if (caret && typeof x.setSelectionRange === 'function') x.setSelectionRange(caret[0], caret[1]);
+          else { const v = x.value; x.value = ''; x.value = v; }
+        } catch { const v = x.value; x.value = ''; x.value = v; }
+      }
+    }
   }
   for (const d of folds.size ? el.querySelectorAll('details[data-fold]') : []) { const was = folds.get(d.dataset.fold); if (was !== undefined && d.open !== was) d.open = was; }
   if (focusAct && !el.contains(globalThis.document?.activeElement)) [...el.querySelectorAll(focusAct.tag)].filter(y => actOf(y) === focusAct.key)[Math.max(0, focusAct.nth)]?.focus?.({ preventScroll: true });
@@ -561,6 +574,28 @@ let lastHeadSelection = null;
  */
 let inputInDrawer = false;
 for (const ev of ['pointerdown', 'keydown']) globalThis.document?.addEventListener?.(ev, e => { inputInDrawer = !!e.target?.closest?.('#panel-body'); }, true);
+
+/**
+ * A press inside the drawer holds the drawer's redraws until it is released. The drawer is written again whenever a
+ * number in it changes (stores, countdowns: several times a second on a fast test clock, now and then on the real
+ * one), and each write replaces its buttons: a press that began on a button and ended on its replacement made no
+ * click, so a player's tap could be lost. While a pointer is down in the drawer a redraw is kept as pending; on
+ * release it runs right after the click (a macrotask after pointerup). A press held longer than `maxHoldMs` (a drag,
+ * a long press) no longer holds anything, so the drawer never freezes.
+ */
+export function makePressGate({ maxHoldMs = 2000, now = () => Date.now() } = {}) {
+  let downAt = null, pending = null;
+  return {
+    down() { downAt = now(); },
+    /** The redraw kept while pressed (to run after the click), or null. */
+    up() { downAt = null; const p = pending; pending = null; return p; },
+    /** True when `redraw` is kept for the release instead of running now. */
+    hold(redraw) { if (downAt !== null && now() - downAt < maxHoldMs) { pending = redraw; return true; } if (downAt !== null) { downAt = null; pending = null; } return false; },
+  };
+}
+const drawerPress = makePressGate();
+globalThis.document?.addEventListener?.('pointerdown', e => { if (e.target?.closest?.('#panel-body')) drawerPress.down(); }, true);
+for (const ev of ['pointerup', 'pointercancel']) globalThis.document?.addEventListener?.(ev, () => { const redraw = drawerPress.up(); if (redraw) setTimeout(redraw, 0); }, true);
 /**
  * Whether the drawer starts at its head again for this render (pure; exported for the tests): `{selection, toHead}`.
  * The selection's card heads the drawer on the spectator's panel and in the play page's inspector (`modePanel`,
@@ -579,6 +614,8 @@ export function drawerHeadFor(d, selected, shown, fromDrawer = false) {
 }
 /** Write the drawer: its state, title and body (the same view keeps its scroll and typed values). */
 function renderDrawer(markupOf) {
+  // (a press in the drawer is under way: this write waits for its release, so the pressed button is not replaced)
+  if (drawerPress.hold(() => renderDrawer(markupOf))) return drawerOf(FS);
   const d = drawerOf(FS);
   applyDrawer(d);
   const body = $('panel-body');

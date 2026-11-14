@@ -38,6 +38,10 @@ const RESIDENT = arg('--resident', TEST_PROGRAM_ID);
 const FRONTIER = arg('--frontier', base58(new Uint8Array(32).fill(0x4e)));
 const SEASON = BigInt(arg('--season', '7'));
 const TRANSFER_VIA = arg('--transfer-via', 'page');
+// --human-forms: Train and Muster as a person does them (one click into the field, keyboard typing, the world's own
+// redraws arriving while the field has focus, one click on the button), with no retry: a form, value or focus lost
+// under a redraw fails the run instead of being worked around.
+const HUMAN_FORMS = process.argv.includes('--human-forms');
 if (!['page', 'node'].includes(TRANSFER_VIA)) { console.error('--transfer-via page|node'); process.exit(2); }
 const field = (kind, name) => V2.accounts.find(a => a.kind === kind).fields.find(f => f.name === name);
 const chainLog = [];
@@ -108,6 +112,7 @@ async function villageOrder(page, name, what, { okText, waitEnabledMs = 120_000 
   for (let i = 0; ; i++) {
     try {
       await openVillage(page);
+      if (HUMAN_FORMS && what === 'build') { await humanPress(page, '[data-act="build"][data-item].br-go:not([disabled])'); break; }
       if (what !== 'build') {
         const form = page.locator(what === 'train' ? '#hp-train' : '#hp-muster');
         // the village card shows one of the two forms open and the other in a fold, and which one depends on the
@@ -121,7 +126,7 @@ async function villageOrder(page, name, what, { okText, waitEnabledMs = 120_000 
       await go.click({ timeout: 5_000 });
       break;
     } catch (e) {
-      if (i >= 5) {
+      if (i >= 5 || HUMAN_FORMS) {   // (--human-forms: one click, no retry)
         await shot(page, `${name}-click-failed`);
         const ids = await page.evaluate(() => [...document.querySelectorAll('[id^="hp-"], [data-act="tab"]')].map(e => `${e.id || e.dataset.tab}${e.closest('details:not([open])') ? '(folded)' : ''}${e.getAttribute('aria-selected') === 'true' ? '(selected)' : ''}`).join(' '));
         writeFileSync(path.join(OUT, `${name}-click-failed.txt`), `${ids}\n\n${await text(page)}`);
@@ -132,6 +137,79 @@ async function villageOrder(page, name, what, { okText, waitEnabledMs = 120_000 
   }
   await page.waitForFunction(([ok, bad]) => new RegExp(ok).test(document.body.innerText) || new RegExp(bad).test(document.body.innerText), [okText.source, REFUSALS.source], { timeout: 120_000 });
   return page.evaluate(() => document.body.innerText);
+}
+
+/**
+ * One troops form as a person uses it, no retry (HUMAN_FORMS): open the village tab, open the form's fold if it is
+ * folded (a person's click on its summary), click into the count, select it, type `value`; then keep the focus there
+ * while the page redraws itself (the world's polling; a redraw replaces the form node, counted with a mark on the node)
+ * until `redraws` redraws have happened and, for Train, the reserve has crossed 100 when it started below (the case
+ * that used to swap the forms), or `holdMs` passed. Every 2 s it records the form's place, the value, the focus and the
+ * fold. Then ONE click on the form's button. Returns the record; throws when the form, the value or the focus was lost.
+ */
+async function humanForm(page, name, what, value, { redraws = 2, holdMs = 240_000 } = {}) {
+  const formSel = what === 'train' ? '#hp-train' : '#hp-muster', fieldSel = `${formSel} ${what === 'train' ? '#f-n' : '#f-troops'}`;
+  await openVillage(page);
+  const card = page.locator('section:has(#hp-troops-h)');
+  await card.waitFor({ state: 'visible', timeout: 30_000 });
+  const reserveNow = async () => Number(((await card.locator('.c-count').first().textContent()) ?? '').replace(/[^\d]/g, '')) || 0;
+  const r0 = await reserveNow();
+  const state = () => page.evaluate(([formSel, fieldSel]) => {
+    const f = document.querySelector(formSel), i = document.querySelector(fieldSel), s = document.querySelector('#hp-troops-h')?.closest('section');
+    const forms = s ? [...s.querySelectorAll('form[data-form]')].map(x => `${x.dataset.form}${x.closest('details:not([open])') ? '(folded)' : ''}`) : [];
+    return { redraws: globalThis.__redraws ?? 0, value: i?.value ?? null, focused: !!i && document.activeElement === i, folded: !!f?.closest('details:not([open])'), visible: !!i && i.offsetParent !== null, forms };
+  }, [formSel, fieldSel]);
+  const before = await state();
+  if (before.folded) { await page.locator(`details:has(${formSel}) > summary`).first().click(); }
+  const field = page.locator(fieldSel);
+  await field.click();
+  await field.press('ControlOrMeta+a');
+  await page.keyboard.type(String(value), { delay: 80 });
+  await page.evaluate(formSel => {
+    globalThis.__redraws = 0;
+    const tag = () => { const f = document.querySelector(formSel); if (f && !f.__probe) { if (globalThis.__probeOn) globalThis.__redraws++; f.__probe = 1; globalThis.__probeOn = true; } };
+    globalThis.__probeOn = false; tag(); clearInterval(globalThis.__probeTimer); globalThis.__probeTimer = setInterval(tag, 50);
+  }, formSel);
+  const samples = [];
+  const t0 = Date.now();
+  for (;;) {
+    await page.waitForTimeout(2_000);
+    const st = { t: Math.round((Date.now() - t0) / 1000), reserve: await reserveNow(), ...(await state()) };
+    samples.push(st);
+    if (st.value !== String(value) || !st.focused || st.folded || !st.visible) {
+      await shot(page, `${name}-lost`);
+      writeFileSync(path.join(OUT, `${name}-lost.json`), `${JSON.stringify({ before, samples }, null, 2)}\n`);
+      throw new Error(`${name}: the ${what} form lost ${st.value !== String(value) ? `its value (${st.value})` : !st.focused ? 'the focus' : 'its place (folded or hidden)'} after ${st.redraws} redraws`);
+    }
+    const crossed = what !== 'train' || r0 >= 100 || st.reserve >= 100;
+    if (st.redraws >= redraws && crossed) break;
+    if (Date.now() - t0 > holdMs) break;
+  }
+  await page.evaluate(() => clearInterval(globalThis.__probeTimer));
+  await shot(page, `${name}-held`);
+  const last = samples.at(-1);
+  await humanPress(page, `${formSel} button[type="submit"]`);   // one press, no retry
+  // held = the focus, value and place survived at least `redraws` redraws (a hold that ran out of time with fewer is
+  // NOT a hold); crossed100 = the case that used to swap the forms happened during the hold (else: not observed)
+  return { reserveAtStart: r0, before, samples, held: last, heldUnderRedraws: last.redraws >= redraws, redrawsWanted: redraws, crossed100: r0 < 100 && last.reserve >= 100 };
+}
+
+/**
+ * A person's press on the button `sel` (--human-forms): bring it into view, then mouse down, ~120 ms, mouse up at its
+ * centre — no actionability waits, no retry. A redraw that replaces the node puts the new one at the same place; the
+ * page holds its drawer redraws while the press is down (app.mjs makePressGate), so the press ends on the node it
+ * began on. Throws when there is no such button on screen.
+ */
+async function humanPress(page, sel) {
+  const box = await page.evaluate(sel => { const el = document.querySelector(sel); if (!el || el.disabled) return null; el.scrollIntoView({ block: 'center' }); const r = el.getBoundingClientRect(); return r.width && r.height ? { x: r.left + r.width / 2, y: r.top + r.height / 2 } : null; }, sel);
+  if (!box) throw new Error(`no enabled ${sel} on screen to press`);
+  await page.waitForTimeout(150);
+  const again = await page.evaluate(sel => { const el = document.querySelector(sel); if (!el) return null; const r = el.getBoundingClientRect(); return { x: r.left + r.width / 2, y: r.top + r.height / 2 }; }, sel);
+  const at = again ?? box;
+  await page.mouse.move(at.x, at.y);
+  await page.mouse.down();
+  await page.waitForTimeout(120);
+  await page.mouse.up();
 }
 
 /** Harvest from the village screen (a player instruction; for an NFT, inside ResidentAct). Returns the page's answer. */
@@ -222,6 +300,27 @@ try {
   for (let i = 0; i < 40 && !sA.holdingOwnerCitizen; i++) { await a.waitForTimeout(3_000); sA = await snapshot('after A\'s first village', asset); }
   if (sA.assetOwner !== A.publicKey || sA.generation !== 0 || !sA.citizenMark?.nft || sA.holdingOwnerCitizen !== sA.citizen) throw new Error(`after A's village the chain says ${JSON.stringify(sA)}`);
   step('4 acted (first village): on chain the NFT Citizen holds it, owner A, generation 0', sA.holding);
+  // --probe-redraws: on A's village tab, 20 s of watching how often the village panel's controls are replaced and
+  // what text changes between two redraws (read only: no click), then stop.
+  if (process.argv.includes('--probe-redraws')) {
+    await openVillage(a);
+    await a.waitForTimeout(2_000);
+    const probe = await a.evaluate(async () => {
+      const pick = () => document.querySelector('#hp-build [data-act="build"]') ?? document.querySelector('[data-act="harvest"]');
+      const card = () => document.querySelector('#hp-build')?.closest('[data-key], section, div') ?? document.body;
+      let node = pick(), replaced = 0, texts = [], last = card()?.innerText ?? '';
+      const t0 = performance.now(), times = [];
+      await new Promise(res => { const iv = setInterval(() => {
+        const n = pick();
+        if (n && n !== node) { replaced++; times.push(Math.round(performance.now() - t0)); const now = card()?.innerText ?? ''; if (now !== last && texts.length < 6) { const a = last.split('\n'), b = now.split('\n'); texts.push(b.filter((l, i) => l !== a[i]).slice(0, 4)); } last = now; node = n; }
+        if (performance.now() - t0 > 20_000) { clearInterval(iv); res(); }
+      }, 20); });
+      return { replaced, times: times.slice(0, 40), changedLines: texts, target: pick()?.outerHTML?.slice(0, 160) ?? null };
+    });
+    writeFileSync(path.join(OUT, 'redraw-probe.json'), `${JSON.stringify(probe, null, 2)}\n`);
+    step('probe: village controls replaced', `${probe.replaced} times in 20 s; changed lines ${JSON.stringify(probe.changedLines).slice(0, 300)}`);
+    throw new Error('probe done (not a failure of the product)');
+  }
   // 4b. A reload with the remembered wallet still offers the pass (the boot's silent reconnect reads the NFT list).
   await a.reload();
   await connectDevWallet(a, 'A');
@@ -276,14 +375,27 @@ try {
   }
   step('5a A (stale page) acts: refused on screen, nothing changed on chain', 'This resident NFT is not in this wallet now.');
   // 5a2. The same stale page tries to build: refused the same way, the chain unchanged.
-  const aBuild = await villageOrder(a, '5a2-a-build', 'build', { okText: /building begun/ });
+  // (--human-forms: one look and one click, no retry. A page that no longer offers Build at all — the village's
+  // controls gone after the refusal — is recorded as that, not as a refusal message.)
+  let aBuild, aBuildHow = 'refused';
+  if (HUMAN_FORMS) {
+    await openVillage(a);
+    await a.waitForTimeout(1_500);
+    const go = a.locator('[data-act="build"][data-item].br-go:not([disabled])');
+    if (!(await go.count()) || !(await go.first().isVisible().catch(() => false))) { aBuildHow = 'not offered'; aBuild = await text(a); }
+    else {
+      await humanPress(a, '[data-act="build"][data-item].br-go:not([disabled])');
+      await a.waitForFunction(([ok, bad]) => new RegExp(ok).test(document.body.innerText) || new RegExp(bad).test(document.body.innerText), ['building begun', REFUSALS.source], { timeout: 120_000 });
+      aBuild = await text(a);
+    }
+  } else aBuild = await villageOrder(a, '5a2-a-build', 'build', { okText: /building begun/ });
   await shot(a, '5a2-a-build-refused');
-  if (!REFUSALS.test(aBuild) || /building begun/.test(aBuild)) throw new Error('A\'s build after the transfer was not refused');
+  if (/building begun/.test(aBuild) || (aBuildHow === 'refused' && !REFUSALS.test(aBuild))) throw new Error('A\'s build after the transfer was not refused');
   const s1b = await snapshot('after A\'s refused build', asset);
   for (const k of ['assetOwner', 'generation', 'citizenSha256', 'holdingSha256', 'lastOwnerAction']) {
     if (JSON.stringify(s1b[k]) !== JSON.stringify(s0[k])) throw new Error(`A's refused build changed ${k} on chain`);
   }
-  step('5a2 A (stale page) builds: refused on screen, nothing changed on chain');
+  step(aBuildHow === 'refused' ? '5a2 A (stale page) builds: refused on screen, nothing changed on chain' : '5a2 A (stale page): Build is no longer offered (no build button), nothing changed on chain');
   await a.reload();
   await connectDevWallet(a, 'A');
   await waitText(a, /This wallet holds no resident NFT|Enter with a resident NFT/, 60_000, '5-a-after');
@@ -313,7 +425,23 @@ try {
   if (/Choose a nation to begin/.test(await text(b))) { await shot(b, '7-b-nation-choice'); throw new Error('B still sees the nation choice'); }
   step('7 B: no nation choice beside its village');
   // 8–10. B's village orders from the drawer, each checked on chain (the village's bytes move; owner B, generation 1).
-  for (const [n, what, ok, label] of [[8, 'build', /building begun/, 'built'], [9, 'train', /trained: they joined the reserve/, 'trained 100'], [10, 'muster', /ordered to form up/, 'mustered 100']]) {
+  // With --human-forms, Train and Muster go through humanForm (typed counts 120 and 100, no retry).
+  const human = {};
+  for (const [n, what, ok, label] of [[8, 'build', /building begun/, 'built'], [9, 'train', /trained: they joined the reserve/, HUMAN_FORMS ? 'trained 120 (typed)' : 'trained 100'], [10, 'muster', /ordered to form up/, 'mustered 100']]) {
+    if (HUMAN_FORMS && what !== 'build') {
+      const before = await snapshot(`before B ${what}`, asset);
+      const rec = await humanForm(b, `${n}-b-${what}`, what, what === 'train' ? 120 : 100);
+      human[what] = rec;
+      writeFileSync(path.join(OUT, 'human-forms.json'), `${JSON.stringify(human, null, 2)}\n`);
+      await b.waitForFunction(([ok, bad]) => new RegExp(ok).test(document.body.innerText) || new RegExp(bad).test(document.body.innerText), [ok.source, REFUSALS.source], { timeout: 120_000 });
+      const out = await text(b);
+      await shot(b, `${n}-b-${what}`);
+      if (!ok.test(out)) throw new Error(`B's ${what} did not go through`);
+      let after = await snapshot(`after B ${what}`, asset);
+      for (let i = 0; i < 20 && after.holdingSha256 === before.holdingSha256; i++) { await b.waitForTimeout(1_500); after = await snapshot(`after B ${what}`, asset); }
+      step(`${n} B ${label}: one click after holding the typed count`, `${rec.heldUnderRedraws ? `focus, value and place kept through ${rec.held.redraws} redraws` : `NOT CONFIRMED under redraws: only ${rec.held.redraws} redraw(s) seen before the hold's time ran out`}; reserve ${rec.reserveAtStart} → ${rec.held.reserve}${what === 'train' ? (rec.crossed100 ? ' (crossed 100 during the hold)' : ' (did NOT cross 100 during the hold: that case is not confirmed here)') : ''}; forms ${rec.held.forms.join(' ')}; value ${rec.held.value}`);
+      continue;
+    }
     const before = await snapshot(`before B ${what}`, asset);
     const out = await villageOrder(b, `${n}-b-${what}`, what, { okText: ok });
     await shot(b, `${n}-b-${what}`);

@@ -1,0 +1,29 @@
+10:56:27 A: connected the Dev Wallet
+10:56:29 1 no pass: the join card links to the mint page — http://127.0.0.1:41090/web/mint.html?lang=en
+10:56:30 2 minted on the mint page — HmyPNyZWZaMHWtBowGRp6L9WRRoziDxhcjLfbpCHD4e6
+10:56:33 3 joined with the NFT (JoinResident)
+10:56:34 4 acted (first village): on chain the NFT Citizen holds it, owner A, generation 0 — DSw5Qd3BR1tfkcmY2424JTZBFVx22zH62dXyTmKaVNoX
+10:57:21 4b reload: the pass is offered again
+10:57:21 5 transfer screen: a transfer to itself is refused before signing
+10:57:22 5 TransferResident A→B from the mint page's transfer screen — Transferred (confirmed on the chain): resident 80eed516932cc6e2fb0ea95cf9dcfc now belongs to nY81YYrfF2hyc3w9aBiDEWUJd24hXPoxy54bFY2DHsT. This wallet can no longer play this resident.
+10:57:22 5a A (stale page) acts: refused on screen, nothing changed on chain — This resident NFT is not in this wallet now.
+10:57:24 5a2 A (stale page) builds: refused on screen, nothing changed on chain
+10:58:10 5 A: the pass is no longer offered
+10:58:14 B: connected the Dev Wallet
+10:58:15 5 B plays the same Citizen
+10:58:17 6 B harvested: the stores grew on chain — 14302510800 → 14302925810, last owner action 1785674600 → 1785684760, owner B, generation 1
+10:58:20 7 B: no nation choice beside its village
+10:58:26 FAILED — locator.click: Timeout 5000ms exceeded.
+Call log:
+  - waiting for locator('[data-act="build"][data-item].br-go:not([disabled])').first()
+    - locator resolved to <button type="button" data-item="0" data-act="build" class="btn small br-go" aria-label="Build: Farm">Build</button>
+  - attempting click action
+    - waiting for element to be visible, enabled and stable
+    - element is visible, enabled and stable
+    - scrolling into view if needed
+    - done scrolling
+    - element is not visible
+  - retrying click action
+    - waiting for element to be visible, enabled and stable
+  - element was detached from the DOM, retrying
+
