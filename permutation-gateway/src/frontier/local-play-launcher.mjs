@@ -575,6 +575,9 @@ export const WORLD_POST_ROUTES = Object.freeze([
   //  `--economy page-signed-v1`, which this launcher passes only when its own command line says `--economy`; without
   //  it the relay answers 404 and the page says "reads only", as before. Admitted here so that serving them needs no change here)
   '/gw/f/local-play/act/context', '/gw/f/local-play/act/submit', '/gw/f/local-play/act/status',
+  // (the LOCAL TEST CANDIDATE lane's read of the passes the world's wallet holds: served by the relay only on that lane;
+  //  on the conquest lane it answers 404)
+  '/gw/f/local-play/act/residents',
   // (local-play-march.mjs: the ordinary march's page-signed Depart. DEFAULT CLOSED: the relay serves these only when it
   //  was started with `--march-trial` (which this launcher passes only for its own `--march-trial`, natural worlds only)
   //  AND a pinned runner instance; otherwise it answers 404 and the page keeps the march closed)

@@ -166,3 +166,46 @@ test('the page signs what the relay rebuilds: a resident Build goes out once; a 
   const sold = await run(OTHER);
   assert.deepEqual([sold.out.ok, sold.out.code], [false, 'LocalActResidentNotHolder']); assert.equal(sold.sent.length, 0);
 });
+
+test('JoinResident: the first login goes out once while neither the Citizen nor the link exists; a joined NFT is refused', async () => {
+  const join = (generation = 0) => {
+    const intent = { name: 'JoinResident', subject: { faction: 2 }, fields: { faction: 2 } };
+    const proof = { ...localResidentProof({ programId: CAND, seasonAddress: SEASON, asset: ASSET, residentProgram: RESIDENT_PROGRAM }), residentProgram: RESIDENT_PROGRAM };
+    const message = localResidentActMessage(intent, { programId: CAND, seasonAddress: SEASON, wallet: WALLET, rulesetHash: LOCAL_PLAY_RULESET_HASH, blockhash: HASH, resident: { asset: ASSET, generation, proof } });
+    const wire = Buffer.concat([Buffer.from([1]), sign(null, Buffer.from(message), privateKey), Buffer.from(message)]);
+    return { schema: LOCAL_ACT_SUBMIT_RESIDENT_SCHEMA, name: 'JoinResident', subject: { faction: 2 }, fields: { faction: 2 }, resident: { asset: ASSET, generation, resident_program: RESIDENT_PROGRAM }, transaction_b64: wire.toString('base64') };
+  };
+  const fresh = chain(); fresh.delete(CITIZEN_AT);
+  const r = relay(fresh);
+  assert.equal((await r.act.submit(join())).status, 'submitted'); assert.equal(r.sent.length, 1);
+  await refusal(relay(chain()).act.submit(join()), 'LocalActAlreadyJoined');
+  const sold = chain({ holder: OTHER }); sold.delete(CITIZEN_AT);
+  await refusal(relay(sold).act.submit(join()), 'LocalActResidentNotHolder');
+  const stale = chain({ gen: 1 }); stale.delete(CITIZEN_AT);
+  await refusal(relay(stale).act.submit(join(0)), 'LocalActResidentStale');
+});
+
+test('the residents read: the candidate lane only, the relay\'s own wallet only, each pass with its generation and joined', async () => {
+  const accounts = chain();
+  const asked = [];
+  const rpc = async (method, params) => {
+    asked.push([method, params[0]]);
+    if (method === 'getAccountInfo') return { result: { value: accounts.get(params[0]) ?? null } };
+    if (method === 'getProgramAccounts') {
+      const f = params[1].filters;
+      assert.equal(params[0], CORE); assert.equal(f.find(x => x.memcmp.offset === 1).memcmp.bytes, WALLET, 'the owner is the relay\'s wallet');
+      return { result: [{ pubkey: ASSET, account: accounts.get(ASSET) }, { pubkey: key(70), account: row(CORE, assetBytes(OTHER)) }] };
+    }
+    if (method === 'getMultipleAccounts') return { result: { context: { slot: 91 }, value: params[0].map(a => accounts.get(a) ?? null) } };
+    return { error: { code: -1 } };
+  };
+  const act = createLocalPlayAct({ cfg: cfgOf(CAND), rpc });
+  const out = await act.residents({ schema: 'frontier-local-play-nft-residents-v1' });
+  assert.equal(out.wallet, WALLET);
+  assert.equal(out.policy.residentProgram, RESIDENT_PROGRAM);
+  assert.deepEqual(out.residents.map(x => [x.asset, x.generation, x.joined, x.citizen]), [[ASSET, 0, true, CITIZEN_AT]], 'another owner\'s asset from the RPC is dropped');
+  await assert.rejects(act.residents({ schema: 'x' }), e => e.code === 'LocalActInvalid');
+  // the conquest lane has no residents read at all
+  const plain = createLocalPlayAct({ cfg: cfgOf(LOCAL_PLAY_PROGRAM), rpc });
+  assert.equal(plain.residents, undefined);
+});

@@ -21,7 +21,8 @@ import { citizenIdentity } from './conquest-table-read.mjs';
 import { decodePrefix } from '../../../permutation-server/web/frontier/fcodec.mjs';
 import { accountsFor, buildShape, SIGNED_BY } from '../../../permutation-server/web/frontier/fplay.mjs';
 import { seasonAddresses } from '../../../permutation-server/web/frontier/faddr.mjs';
-import { LOCAL_ACT_SUBMIT_RESIDENT_SCHEMA, LOCAL_RESIDENT_ERRORS, localResidentAccounts, localResidentSubmit, localResidentVerify } from './local-play-nft-resident.mjs';
+import { LOCAL_ACT_SUBMIT_RESIDENT_SCHEMA, LOCAL_RESIDENT_ERRORS, LOCAL_RESIDENTS_ROUTE, localResidentAccounts, localResidentSubmit, localResidentVerify, localResidentsRead } from './local-play-nft-resident.mjs';
+import { isCandidateProgram } from './local-lane-versions.mjs';
 import { ringPosition } from '../../../permutation-server/web/frontier/map/wide.mjs';
 import { profileForHash } from '../../../permutation-server/web/sdk/frontier/profile.mjs';
 import { budgetPrefix } from '../../../permutation-server/web/sdk/frontier/budgets.mjs';
@@ -337,6 +338,10 @@ export function createLocalPlayAct({ cfg, rpc = (m, p) => fetchRpc(cfg.rpc, m, p
           || !(s.err === null || typeof s.err === 'string' || (typeof s.err === 'object' && !Array.isArray(s.err)))) fail('LocalActRpcUnavailable');
       return { signature: body.signature, status: s.err !== null ? 'failed' : s.confirmationStatus, err: s.err, slot: s.slot, context_slot: slot };
     },
+
+    // (LOCAL TEST CANDIDATE lane only: the passes this wallet holds now, a read — local-play-nft-resident.mjs; absent
+    //  on the conquest lane, where the route is not served)
+    ...(isCandidateProgram(pins.program) ? { residentsRoute: LOCAL_RESIDENTS_ROUTE, async residents(body) { open(); const r = await localResidentsRead(body, pins, { ask, fail }); open(); return r; } } : {}),
 
     /** Counts only. */
     stats() { return { history: seen.size }; },

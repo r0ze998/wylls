@@ -29,9 +29,9 @@ import { isCandidateProgram } from './local-lane-versions.mjs';
 import { decodePrefix } from '../../../permutation-server/web/frontier/fcodec.mjs';
 import { seasonAddresses } from '../../../permutation-server/web/frontier/faddr.mjs';
 import { profileForHash } from '../../../permutation-server/web/sdk/frontier/profile.mjs';
-import { LOCAL_ACT_SUBMIT_RESIDENT_SCHEMA, LOCAL_RESIDENT_ACT_COMMANDS, localResidentActMessage, localResidentCitizen, localResidentProof } from '../../../permutation-server/web/frontier/flocalresident.mjs';
+import { LOCAL_ACT_SUBMIT_RESIDENT_SCHEMA, LOCAL_RESIDENT_ACT_COMMANDS, LOCAL_RESIDENT_JOIN, localResidentActMessage, localResidentCitizen, localResidentProof } from '../../../permutation-server/web/frontier/flocalresident.mjs';
 
-export { LOCAL_ACT_SUBMIT_RESIDENT_SCHEMA, LOCAL_RESIDENT_ACT_COMMANDS };
+export { LOCAL_ACT_SUBMIT_RESIDENT_SCHEMA, LOCAL_RESIDENT_ACT_COMMANDS, LOCAL_RESIDENT_JOIN };
 /** The refusals of this path (each answered BEFORE the one send: nothing sent, the bytes not consumed). */
 export const LOCAL_RESIDENT_ERRORS = Object.freeze({
   LocalActResidentUnverified: [409, 'the resident\'s policy, asset or record is not what it must be'],
@@ -57,11 +57,17 @@ export function localResidentSubmit(body, pins, { intentOf, fail }) {
   check(isCandidateProgram(pins.program), 'LocalActNotAllowed');   // (the conquest lane never takes this schema)
   check(exact(body, ['schema', 'name', 'subject', 'fields', 'resident', 'transaction_b64']) && body.schema === LOCAL_ACT_SUBMIT_RESIDENT_SCHEMA
     && typeof body.transaction_b64 === 'string' && body.transaction_b64.length <= 1700);
-  check(LOCAL_RESIDENT_ACT_COMMANDS.includes(body.name), 'LocalActNotAllowed');
+  check(LOCAL_RESIDENT_ACT_COMMANDS.includes(body.name) || body.name === LOCAL_RESIDENT_JOIN, 'LocalActNotAllowed');
   const r = body.resident;
   check(exact(r, ['asset', 'generation', 'resident_program']) && address(r.asset) && address(r.resident_program)
     && Number.isInteger(r.generation) && r.generation >= 0 && r.generation <= 0xffffffff);
-  const intent = intentOf({ name: body.name, subject: body.subject, fields: body.fields }, { wallet: pins.wallet });
+  let intent;
+  if (body.name === LOCAL_RESIDENT_JOIN) {
+    // (the NFT's first login: a faction only; no session key — the owner signs every later command itself)
+    const s = body.subject, f = body.fields;
+    check(exact(s, ['faction']) && Number.isInteger(s.faction) && s.faction >= 0 && s.faction <= 5 && exact(f, ['faction']) && f.faction === s.faction);
+    intent = Object.freeze({ name: body.name, subject: Object.freeze({ faction: s.faction }), fields: Object.freeze({ faction: f.faction }) });
+  } else intent = intentOf({ name: body.name, subject: body.subject, fields: body.fields }, { wallet: pins.wallet });
   const wire = Buffer.from(body.transaction_b64, 'base64');
   check(wire.toString('base64') === body.transaction_b64 && wire.length <= 1232);
   let tx; try { tx = parseTransaction(wire); } catch { fail('LocalActInvalid'); }
@@ -75,6 +81,11 @@ export function localResidentAccounts(parsed, pins) {
   const citizen = localResidentCitizen(pins.program, parsed.resident.asset);
   const holding = parsed.intent.subject.holding ? A.of('Holding', parsed.intent.subject.holding) : null;
   const list = [policyAddress(pins.program), parsed.resident.asset, residentAddress(parsed.resident.residentProgram, parsed.resident.asset), citizen];
+  // (JoinResident: the season's link of this asset in place of a village — it must not exist yet, like the Citizen)
+  if (parsed.intent.name === LOCAL_RESIDENT_JOIN) {
+    const link = localResidentProof({ programId: pins.program, seasonAddress: pins.season, asset: parsed.resident.asset, residentProgram: parsed.resident.residentProgram }).link;
+    return Object.freeze({ list: [...list, link], citizen, holding: null, link });
+  }
   return Object.freeze({ list: holding === null ? list : [...list, holding], citizen, holding });
 }
 
@@ -97,9 +108,14 @@ export function localResidentVerify(parsed, pins, rows, { fail }) {
   const record = rec && rec.owner === policy.residentProgram ? decodeResident(rec.bytes) : null;
   check(record != null && encode(record.asset) === resident.asset, 'LocalActResidentUnverified');
   check(record.generation === resident.generation, 'LocalActResidentStale');
-  // the Citizen at the asset's address: this program's, marked as THIS asset's resident (never a wallet Citizen)
-  const mark = cit && cit.owner === pins.program ? citizenMark(cit.bytes) : null;
-  check(mark != null && mark.nft === true && mark.asset === resident.asset, 'LocalActResidentCitizen');
+  if (intent.name === LOCAL_RESIDENT_JOIN) {
+    // the first login: neither this asset's Citizen nor its link exists yet in this Season
+    check(cit === null && hold === null, 'LocalActAlreadyJoined');
+  } else {
+    // the Citizen at the asset's address: this program's, marked as THIS asset's resident (never a wallet Citizen)
+    const mark = cit && cit.owner === pins.program ? citizenMark(cit.bytes) : null;
+    check(mark != null && mark.nft === true && mark.asset === resident.asset, 'LocalActResidentCitizen');
+  }
   // the message: rebuilt with the recomputed proof, byte for byte; then the wallet's signature
   const proof = { ...localResidentProof({ programId: pins.program, seasonAddress: pins.season, asset: resident.asset, residentProgram: resident.residentProgram }), residentProgram: resident.residentProgram };
   let expected;
@@ -112,7 +128,8 @@ export function localResidentVerify(parsed, pins, rows, { fail }) {
   check(edVerify(null, tx.message, key, tx.signatures[0]), 'LocalActSigner');
   // the village
   const citizenAt = localResidentCitizen(pins.program, resident.asset);
-  if (intent.name === 'PlaceHome') {
+  if (intent.name === LOCAL_RESIDENT_JOIN) { /* no village: checked above (the link) */ }
+  else if (intent.name === 'PlaceHome') {
     if (hold) { check(hold.owner === pins.program, 'LocalActHolding'); check(magicOf(hold.bytes) !== WIDE_HOLDING_MAGIC, 'LocalActWideHolding'); }
   } else {
     check(hold != null && hold.owner === pins.program, 'LocalActHolding');
@@ -124,4 +141,45 @@ export function localResidentVerify(parsed, pins, rows, { fail }) {
     check(d.ownerCitizen instanceof Uint8Array && d.ownerCitizen.length === 32 && encode(d.ownerCitizen) === citizenAt, 'LocalActNotYourVillage');
   }
   return Object.freeze({ intent, message: Uint8Array.from(tx.message), signature: encode(tx.signatures[0]) });
+}
+
+// ---------------------------------------------------------------------------------------------------------------
+// The residents read (candidate lane only): the passes THIS relay's wallet holds now, each with its holder generation
+// and whether its Citizen exists in this Season — routes/residents.mjs `listResidents`, over the relay's own loopback
+// runner. A read: it grants nothing (every command is checked again on its own read before its send).
+//   POST /f/local-play/act/residents  {schema: frontier-local-play-nft-residents-v1}
+//     → {wallet, policy: {coreProgram, residentProgram, collection, guardAuthority} | null, residents: [{asset, generation, citizen, joined, link}]}
+import { PublicKey } from '@solana/web3.js';
+import { listResidents, residentAddrs } from './routes/residents.mjs';
+export const LOCAL_RESIDENTS_ROUTE = 'POST /f/local-play/act/residents';
+export const LOCAL_RESIDENTS_SCHEMA = 'frontier-local-play-nft-residents-v1';
+
+/** A web3.js-Connection-shaped reader over `ask(method, params)` (the relay's JSON-RPC to its runner): three reads. */
+export function rpcConnection(ask, fail) {
+  const acct = v => (v === null ? null : (() => {
+    if (!v || typeof v.owner !== 'string' || !Array.isArray(v.data) || v.data[1] !== 'base64') fail('LocalActRpcUnavailable');
+    return { owner: new PublicKey(v.owner), data: Buffer.from(v.data[0], 'base64') };
+  })());
+  return {
+    async getAccountInfo(key, commitment = 'confirmed') { const r = await ask('getAccountInfo', [key.toBase58(), { encoding: 'base64', commitment }]); return acct(r.result?.value ?? null); },
+    async getMultipleAccountsInfo(keys, commitment = 'confirmed') {
+      const r = await ask('getMultipleAccounts', [keys.map(k => k.toBase58()), { encoding: 'base64', commitment }]);
+      const v = r.result?.value; if (!Array.isArray(v) || v.length !== keys.length) fail('LocalActRpcUnavailable');
+      return v.map(acct);
+    },
+    async getProgramAccounts(program, { commitment = 'confirmed', filters = [] } = {}) {
+      const r = await ask('getProgramAccounts', [program.toBase58(), { encoding: 'base64', commitment, filters }]);
+      const v = r.result; if (!Array.isArray(v) || v.length > 1000) fail('LocalActRpcUnavailable');
+      return v.map(x => ({ pubkey: new PublicKey(x.pubkey), account: acct(x.account) }));
+    },
+  };
+}
+
+/** The read for `pins` (candidate lane only; the owner is always the relay's own wallet). */
+export async function localResidentsRead(body, pins, { ask, fail }) {
+  if (!isCandidateProgram(pins.program)) fail('LocalActNotAllowed');
+  if (!exact(body, ['schema']) || body.schema !== LOCAL_RESIDENTS_SCHEMA) fail('LocalActInvalid');
+  const A = seasonAddresses(pins.program, String(pins.seasonId));
+  const out = await listResidents({ connection: rpcConnection(ask, fail), owner: pins.wallet, addrs: residentAddrs({ programId: pins.program, addresses: A }) });
+  return { wallet: pins.wallet, policy: out.policy, residents: out.residents };
 }

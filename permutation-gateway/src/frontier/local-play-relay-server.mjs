@@ -86,6 +86,8 @@ export function serveLocalPlayRelay(relay, port, { reveal = null, preview = null
       [LOCAL_ACT_ROUTES.context]: async body => act.context(body),
       [LOCAL_ACT_ROUTES.submit]: async body => act.submit(body),
       [LOCAL_ACT_ROUTES.status]: async body => act.status(body),
+      // (the LOCAL TEST CANDIDATE lane only: the act object has it only there)
+      ...(typeof act.residents === 'function' ? { [act.residentsRoute]: async body => act.residents(body) } : {}),
     } : {}),
     // (local-play-march.mjs: the ordinary march's one page-signed Depart; only when given — it is given ONLY for the test-only trial with a
     //  pinned instance (marchFromArgs). No Reveal route: the world's keeper reveals from the public round)

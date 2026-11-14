@@ -23,6 +23,8 @@ import { isCandidateProgram } from './flocallanes.mjs';
 
 /** The local commands an NFT resident's Citizen may send (Join is JoinResident's, not this path's). */
 export const LOCAL_RESIDENT_ACT_COMMANDS = Object.freeze(['Harvest', 'PlaceHome', 'Build', 'Train', 'Muster']);
+/** The NFT's first login on the local Season (its Citizen is made; the owner — the wallet — signs and pays). */
+export const LOCAL_RESIDENT_JOIN = 'JoinResident';
 /** The submit schema of a resident's command (the wallet path keeps `frontier-local-play-act-submit-v1`, unchanged). */
 export const LOCAL_ACT_SUBMIT_RESIDENT_SCHEMA = 'frontier-local-play-act-submit-resident-v1';
 /** The local-play Season id (local-play-relay.mjs `LOCAL_PLAY_SEASON_ID`). */
@@ -53,7 +55,7 @@ export function localResidentCitizen(programId, asset) {
  */
 export function localResidentActMessage(intent, { programId, seasonAddress, wallet, rulesetHash, blockhash, resident }) {
   if (!isCandidateProgram(programId)) fail('LocalActNotAllowed');
-  if (!LOCAL_RESIDENT_ACT_COMMANDS.includes(intent?.name)) fail('LocalActNotAllowed');
+  if (!LOCAL_RESIDENT_ACT_COMMANDS.includes(intent?.name) && intent?.name !== LOCAL_RESIDENT_JOIN) fail('LocalActNotAllowed');
   if (!address(wallet) || !address(blockhash) || !resident || !address(resident.asset) || !Number.isInteger(resident.generation) || resident.generation < 0 || resident.generation > 0xffffffff) fail('LocalActInvalid');
   const A = seasonAddresses(programId, LOCAL_RESIDENT_SEASON_ID);
   if (A.season !== seasonAddress) fail('LocalActIdentity');
@@ -62,6 +64,17 @@ export function localResidentActMessage(intent, { programId, seasonAddress, wall
   if (!p || p.policy !== want.policy || p.link !== want.link || p.asset !== want.asset || p.resident !== want.resident) fail('LocalActResidentUnverified');
   const profile = profileForHash(rulesetHash);
   const citizen = residentCitizen(A, resident.asset);
+  if (intent.name === LOCAL_RESIDENT_JOIN) {
+    // (fresident.mjs `joinAccounts`: the owner, the Season, the Frontier, the Citizen to make, the four proof accounts)
+    const f = intent.fields;
+    if (!f || !Number.isInteger(f.faction) || f.faction < 0 || f.faction > 5) fail('LocalActInvalid');
+    let joined;
+    try { joined = buildShape({ programId, name: LOCAL_RESIDENT_JOIN, accounts: { owner: wallet, season: A.season, frontier: A.of('Frontier'), citizen, policy: want.policy, link: want.link, asset: want.asset, resident: want.resident }, fields: { generation: resident.generation, faction: f.faction }, feePayer: wallet, blockhash, profile }); } catch { fail('LocalActInvalid'); }
+    if (joined.signers.length !== 0) fail('LocalActSigner');   // (owner = fee payer = the wallet: one signature)
+    const jb = residentBudget(LOCAL_RESIDENT_JOIN, profile);
+    const jp = budgetPrefix('Join', { profile, cuLimit: jb.cuLimit, loadedLimit: LOCAL_RESIDENT_LOADED_LIMIT });
+    return Uint8Array.from(compileMessage({ feePayer: wallet, recentBlockhash: blockhash, instructions: [...jp, joined.expected] }));
+  }
   // (fresident.mjs `actorContext`: the owner acts for the resident's Citizen; the asset keys the join shard)
   const v = { addresses: A, wallet, actor: wallet, citizen, shardKey: resident.asset, profile, ...intent.subject };
   let built;
