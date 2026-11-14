@@ -68,7 +68,21 @@ for (const [place, render] of Object.entries(PLACES)) {
   });
   test(`${place}, a province in step: identical in an ordinary session and in local play`, () => {
     const ordinary = String(render(fs())), local = String(render(fs({ extra: { localPlay: LOCAL } })));
-    assert.equal(buttons(ordinary), 0); assert.equal(local, ordinary);
+    // (round 19: the keeps card holds an invisible stand-in of the settling line when nothing waits — hidden, inert, no
+    //  button — so its rows keep their place; it follows the same mode rule for its size, and is left out of the comparison)
+    const ghostless = m => m.replace(/<div class="kh-wait-ghost"[^]*?<\/div>/, '');
+    // (what the strip takes out can hide nothing: on the UNSTRIPPED markup neither mode offers the button, and each stand-in
+    //  is one flat div — no div inside, so the lazy strip ends at its own close — hidden and inert, with no button or action)
+    assert.equal(buttons(local), 0);
+    for (const m of [ordinary, local]) {
+      const ghosts = m.match(/<div class="kh-wait-ghost"[^]*?<\/div>/g) ?? [];
+      assert.equal(ghosts.length, place.includes('renderKeepsPop') ? 1 : 0, 'the keeps card has its one stand-in; no other place has any');
+      for (const g of ghosts) {
+        assert.match(g, /^<div class="kh-wait-ghost" aria-hidden="true" inert>/);
+        assert.doesNotMatch(g.slice(1), /<div\b/, 'one flat div'); assert.doesNotMatch(g, /<button\b|data-act=/, 'nothing to press');
+      }
+    }
+    assert.equal(ghostless(local), ghostless(ordinary));
   });
 }
 

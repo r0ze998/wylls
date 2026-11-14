@@ -87,11 +87,27 @@ test('the half-second read: local play\'s test march only, only while an order o
 test('round 16: the wait line\'s slot is always there with one least height, so the rows never move when a wait comes or goes', () => {
   const slotAt = out => out.indexOf('class="kh-wait-slot"');
   // no wait: the slot is still there, empty, right after the rows
-  { const out = String(renderPop(state(), handModel(state()))); assert.ok(slotAt(out) > out.indexOf('kh-rows'), 'after the rows'); assert.doesNotMatch(out, /kh-wait-line/); }
+  { const out = String(renderPop(state(), handModel(state()))); assert.ok(slotAt(out) > out.indexOf('kh-rows'), 'after the rows');
+    // (round 19) nothing waits: the slot holds the settling line hidden and inert, without a button
+    assert.match(out, /<div class="kh-wait-ghost" aria-hidden="true" inert>/); assert.equal((out.match(/kh-wait-line/g) ?? []).length, 1, 'only the hidden stand-in');
+    assert.doesNotMatch(out.slice(out.indexOf('kh-wait-ghost')), /data-act="nudge"/, 'the stand-in offers nothing'); }
   // a wait (settling): the line is inside the same slot
   { const s = state({ nowBell: 12, resolvedNext: 10 }); const out = String(renderPop(s, handModel(s)));
     assert.ok(slotAt(out) > out.indexOf('kh-rows')); assert.ok(out.indexOf('kh-wait-line') > slotAt(out), 'the line is in the slot'); }
   const css = readFileSync(new URL('conquest-hand.css', WEB), 'utf8');
   assert.match(css, /\.kh-wait-slot \{ min-height: 64px; \}/, 'one least height');
+  assert.match(css, /\.kh-wait-ghost \{ visibility: hidden; pointer-events: none; \}/, 'the stand-in is not seen and not pressed');
   assert.doesNotMatch(css, /kh-wait-slot[^}]*line-clamp|kh-wait-line[^}]*line-clamp/, 'the text is never cut (a forming host\'s line says when it stands)');
+});
+
+test('round 19: with the forts card open, the bar leaves the wait to the card (the card stands on the bar, so the bar\'s line moved its rows)', () => {
+  // the province two turns behind, the forts card open: the card's slot says the wait, the bar says nothing more
+  { const s = state({ nowBell: 12, resolvedNext: 10 }); const m = handModel(s);
+    assert.equal(m.pop, 'keeps'); assert.equal(m.note, null, 'no second line on the bar');
+    const out = String(renderPop(s, m)); assert.ok(out.indexOf('kh-wait-line') > out.indexOf('kh-wait-slot'), 'the card says it'); }
+  // the same province with no card open: the bar still says why its buttons wait
+  { const s = state({ nowBell: 12, resolvedNext: 10 }); s.hand = { host: s.hand.host }; const m = handModel(s);
+    assert.equal(m.pop, null); assert.ok(m.note, 'the bar says it'); assert.equal(m.noteTone, 'why'); }
+  // nothing waits: nothing changes
+  { const s = state(); assert.equal(handModel(s).note, null); }
 });

@@ -55,6 +55,9 @@
    anchored at the bottom: a line that came and went moved the rows under the pointer). The text is never cut: a longer one
    (a forming host's line says when it stands) wraps and the slot grows only past its least height */
 .kh-wait-slot { min-height: 64px; }
+/* round 19: when nothing waits, the slot holds the settling line hidden (same text, same height), not seen, not read, not
+   pressed — so the rows do not move when the province's turn finishing comes and goes */
+.kh-wait-ghost { visibility: hidden; pointer-events: none; }
 .kh-wait-line .ic { width: 16px; height: 16px; flex: none; }
 .kh-rule { padding-top: 8px; }
 [data-calm="1"] .kh-row { transition: none; }

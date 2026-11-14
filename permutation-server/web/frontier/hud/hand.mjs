@@ -197,7 +197,11 @@ function hostModel(FS, sub) {
   const shared = sharedWhy(buttons);
   if (shared) for (const b of buttons) if (b.why === shared) b.said = true;
   // (a host that is forming up says so under its name already — 「編成中（次のターンから）」 —: the line is not said a second time)
-  const note = shared && !(mc.code === 'Forming' && shared === mc.text) ? shared : null;
+  // (round 19: while the forts card is open, its own wait slot says why its rows wait; the bar's line would be the same
+  //  reason a second time, and the card stands on the bar — the line coming and going moved the card's rows under the
+  //  pointer by its height. So with the forts card open and a wait to say there, the bar leaves the line to the card.)
+  const toCard = pop === 'keeps' && !!waitOf(FS, r);
+  const note = shared && !toCard && !(mc.code === 'Forming' && shared === mc.text) ? shared : null;
   return { kind: 'host', key: `h:${r.id}`, name, label: L`${name}の行動`, unit: r.unit, faction, sub: st.text, tone: st.tone, where, note, noteTone: note ? 'why' : null,
     chips: sub.hosts.length > 1 ? sub.hosts.filter(x => x.id !== r.id).map(x => hostChip(FS, x)) : [], villageHere: r.home ? holdingName(h) : null,
     buttons, host: r, march: mc, explore: ex, dissolve: dc, armed, away, stamina: r.stamina };
