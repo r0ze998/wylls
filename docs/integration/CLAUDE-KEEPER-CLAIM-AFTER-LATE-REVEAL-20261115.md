@@ -68,6 +68,8 @@ Script `keeper-bisect.sh` (sha256 `cd92f1c1…`). Each run:
 | c | candidate head, twice | fails the same way both times (rules out flakiness) |
 | probe (only if a fails) | `20adb087` + diagnostic env override `PROBE_MAX_UNKNOWN_W_VERSIONS=0` in `keeper_cfg` (never committed) | passes: the cap alone explains it |
 
+Also in this slot (NFT branch, not about this test): `cargo check -p permutation-frontier`, run three ways — default, `--features expedition-dispatch-experimental` and `--features localnet-conquest-nft-sbf`. This is the gated side of `5ff4c12d`. ⑰'s e2e-native rerun covers only the build without the wide features.
+
 If b1 also fails, the cause is older than `0147a885`. Next step in that case: the parent of `0bf02548` (`16576826`) and `0bf02548` itself.
 
 Observation points to read from each log:
