@@ -1,0 +1,337 @@
+diff --git a/permutation-gateway/src/frontier/conquest-prepare.mjs b/permutation-gateway/src/frontier/conquest-prepare.mjs
+index 606d492f..5fced7a6 100644
+--- a/permutation-gateway/src/frontier/conquest-prepare.mjs
++++ b/permutation-gateway/src/frontier/conquest-prepare.mjs
+@@ -15,6 +15,7 @@ import { decode, encode } from '../../client/src/base58.mjs';
+ import { parseMessage, COMPUTE_BUDGET_PROGRAM } from '../../client/src/solana-tx.mjs';
+ import { expeditionRequest, expeditionRequestDigest, expeditionRpcUrlAllowed } from './expedition-preview.mjs';
+ import { canonicalDeclareSiegeRoles, DECLARE_SIEGE_SHAPE, DECLARE_SIEGE_DISPATCH } from '../../../permutation-server/web/frontier/fconquest-identity.mjs';
++import { servesDeploymentVersion } from './local-lane-versions.mjs';
+ 
+ export const CONQUEST_PREPARE_REQUEST_SCHEMA = 'frontier-local-play-conquest-prepare-request-v1';
+ export const CONQUEST_PREPARE_REPORT_SCHEMA = 'frontier-local-play-conquest-prepare-report-v1';
+@@ -86,7 +87,7 @@ export function conquestPrepareRequest(value) {
+   // (the twelve accounts must be nameable from this request alone: this wallet's own Citizen and host, this province, this site)
+   try { canonicalDeclareSiegeRoles(source, value.target.site); } catch { bad(); }
+   // (the player acts and pays: one wallet, named twice)
+-  if (source.deployment.program_version !== VERSION || !address(source.wallet) || source.payer !== source.wallet
++  if (!servesDeploymentVersion(source.deployment.program_version) || !address(source.wallet) || source.payer !== source.wallet
+       || BigInt(value.source_context_slot) < BigInt(source.min_slot)) bad();
+   const request = { schema: CONQUEST_PREPARE_REQUEST_SCHEMA, request_id: value.request_id, action: value.action, source_request: source,
+     source_context_slot: value.source_context_slot, source_snapshot_digest: value.source_snapshot_digest, target: { site: value.target.site, entry: value.target.entry } };
+@@ -130,7 +131,7 @@ export function conquestPrepareReport(v, request, pins) {
+     && BigInt(b.last_valid_block_height) - BigInt(b.block_height) === BigInt(b.remaining_block_heights));
+   const p = v.prepared, source = request.source_request, pin = pins.dispatch, wallet = source.wallet;
+   check(exact(p, ['program', 'season', 'program_version', 'action', 'fee_payer', 'dispatch', 'budget', 'roles', 'instruction_hex', 'message_b64', 'message_digest', 'signers', 'shape'])
+-    && p.program === source.program && p.season === source.season && p.program_version === VERSION && p.action === request.action
++    && p.program === source.program && p.season === source.season && p.program_version === source.deployment.program_version && p.action === request.action
+     && p.fee_payer === pins.fee_payer && p.fee_payer === wallet && exact(p.dispatch, ['tag', 'kind']) && p.dispatch.tag === pin.tag && p.dispatch.kind === pin.kind
+     && exact(p.budget, ['cu_limit', 'cu_price', 'loaded_limit', 'heap']) && p.budget.cu_limit === pins.cu_limit
+     && p.budget.loaded_limit === pins.loaded_limit && p.budget.cu_price === '0' && p.budget.heap === pin.heap);
+diff --git a/permutation-gateway/src/frontier/expedition-depart-prepare.mjs b/permutation-gateway/src/frontier/expedition-depart-prepare.mjs
+index 36aa8e43..6e92e00f 100644
+--- a/permutation-gateway/src/frontier/expedition-depart-prepare.mjs
++++ b/permutation-gateway/src/frontier/expedition-depart-prepare.mjs
+@@ -14,6 +14,7 @@ import { parseMessage, COMPUTE_BUDGET_PROGRAM } from '../../client/src/solana-tx
+ import { canonicalOutboundRoles } from '../../../permutation-server/web/frontier/fexpedition-depart.mjs';
+ import { withSeed, seedOf } from '../../../permutation-server/web/frontier/faddr.mjs';
+ import { expeditionRpcUrlAllowed } from './expedition-preview.mjs';
++import { servesDeploymentVersion } from './local-lane-versions.mjs';
+ 
+ export const DEPART_PREPARE_REQUEST_SCHEMA = 'frontier-experimental-expedition-depart-prepare-request-v1';
+ export const DEPART_PREPARE_REPORT_SCHEMA = 'frontier-experimental-expedition-depart-prepare-report-v1';
+@@ -135,7 +136,7 @@ export function expeditionDepartPrepareRequest(value) {
+       || typeof value.proposal.content_digest !== 'string' || !Array.isArray(value.proposal.roles) || value.proposal.roles.length !== 9) bad();
+   // (the CLI's own refusals after the shape: VersionUnsupported, TransitSlotInvalid, SealAbsent, SealSyntax)
+   const first = Number.parseInt(value.public_seal.slice(0, 2), 16);
+-  if (value.deployment.program_version !== DEPART_PREPARE_PROGRAM_VERSION || Number(value.transit_slot) >= 4
++  if (!servesDeploymentVersion(value.deployment.program_version) || Number(value.transit_slot) >= 4
+       || /^0*$/.test(value.public_commit) || /^0*$/.test(value.public_seal) || (first & 0x80) === 0 || (first & 0x40) !== 0) bad();
+   const scope = { schema: DEPART_PREPARE_REQUEST_SCHEMA, request_id: value.request_id, cluster: value.cluster, program: value.program, season: value.season,
+     deployment: { program_version: value.deployment.program_version, ruleset_hash: value.deployment.ruleset_hash },
+@@ -209,7 +210,7 @@ export function expeditionDepartPrepareReport(v, request, pins) {
+     && BigInt(b.last_valid_block_height) - BigInt(b.block_height) === BigInt(b.remaining_block_heights));
+   const p = v.prepared, roles = request.proposal.roles;
+   check(exact(p, ['program', 'season', 'program_version', 'action', 'fee_payer', 'budget', 'roles', 'instruction_hex', 'message_b64', 'message_digest', 'signers', 'shape', 'proposal_digest'])
+-    && p.program === request.program && p.season === request.season && p.program_version === DEPART_PREPARE_PROGRAM_VERSION && p.action === 'Depart'
++    && p.program === request.program && p.season === request.season && p.program_version === request.deployment.program_version && p.action === 'Depart'
+     && p.fee_payer === pins.fee_payer && p.fee_payer === request.payer && p.proposal_digest === request.proposal.content_digest
+     && exact(p.budget, ['cu_limit', 'cu_price', 'loaded_limit', 'heap']) && p.budget.cu_limit === pins.cu_limit
+     && p.budget.loaded_limit === pins.loaded_limit && p.budget.cu_price === '0' && p.budget.heap === DEPART_HEAP_FRAME
+diff --git a/permutation-gateway/src/frontier/expedition-prepare.mjs b/permutation-gateway/src/frontier/expedition-prepare.mjs
+index 30d74f7d..c5d3e3c1 100644
+--- a/permutation-gateway/src/frontier/expedition-prepare.mjs
++++ b/permutation-gateway/src/frontier/expedition-prepare.mjs
+@@ -6,6 +6,7 @@ import path from 'node:path';
+ import { decode, encode } from '../../client/src/base58.mjs';
+ import { parseMessage, COMPUTE_BUDGET_PROGRAM } from '../../client/src/solana-tx.mjs';
+ import { canonicalExpeditionAccounts, canonicalExpeditionRoles } from '../../../permutation-server/web/frontier/fexpedition-identity.mjs';
++import { servesDeploymentVersion } from './local-lane-versions.mjs';
+ import { expeditionRequest, expeditionRequestDigest, expeditionRpcUrlAllowed } from './expedition-preview.mjs';
+ 
+ export const PREPARE_REQUEST_SCHEMA = 'frontier-experimental-expedition-prepare-request-v1';
+@@ -73,7 +74,7 @@ export function expeditionPrepareRequest(value) {
+   let source, canonical;
+   try { source = expeditionRequest(value.source_request); canonical = canonicalResidentProposal(source, value.action); }
+   catch { bad(); }
+-  if (source.deployment.program_version !== VERSION || !address(source.payer)
++  if (!servesDeploymentVersion(source.deployment.program_version) || !address(source.payer)
+       || BigInt(value.source_context_slot) < BigInt(source.min_slot)
+       || !exact(value.proposal, ['bytes_hex', 'content_digest', 'roles']) || !Array.isArray(value.proposal.roles)
+       || value.proposal.roles.length !== canonical.roles.length
+@@ -129,7 +130,7 @@ export function expeditionPrepareReport(v, request, pins) {
+     && BigInt(b.last_valid_block_height) - BigInt(b.block_height) === BigInt(b.remaining_block_heights));
+   const p = v.prepared, source = request.source_request;
+   check(exact(p, ['program', 'season', 'program_version', 'action', 'fee_payer', 'budget', 'roles', 'instruction_hex', 'message_b64', 'message_digest', 'signers', 'shape', 'proposal_digest'])
+-    && p.program === source.program && p.season === source.season && p.program_version === VERSION && p.action === request.action
++    && p.program === source.program && p.season === source.season && p.program_version === source.deployment.program_version && p.action === request.action
+     && p.fee_payer === pins.fee_payer && p.fee_payer === source.payer && p.proposal_digest === request.proposal.content_digest
+     && exact(p.budget, ['cu_limit', 'cu_price', 'loaded_limit', 'heap']) && p.budget.cu_limit === pins.cu_limit
+     && p.budget.loaded_limit === pins.loaded_limit && p.budget.cu_price === '0' && p.budget.heap === 256 * 1024
+diff --git a/permutation-gateway/src/frontier/local-lane-versions.mjs b/permutation-gateway/src/frontier/local-lane-versions.mjs
+new file mode 100644
+index 00000000..187bb0e2
+--- /dev/null
++++ b/permutation-gateway/src/frontier/local-lane-versions.mjs
+@@ -0,0 +1,17 @@
++// The program versions a local-play deployment may carry (one definition, read from the deployment, never a second
++// literal in a module). `0x4804` is the conquest lane (S1 | wide 0x4000 | host-only dispatch 0x0800) and the
++// default: a deployment that names it is served exactly as before. `0xC804` is the LOCAL TEST CANDIDATE
++// `localnet-conquest-nft-sbf` (the conquest lane with NFT residents; candidate program id [0x4C; 32]; NOT an
++// allocation, never deployable): only a launcher that selected the candidate writes it into the deployment, and the
++// chain's Season must carry it too. The production version is undecided and is not here.
++// (The same file is permutation-gateway/src/frontier/local-lane-versions.mjs and permutation-server/web/frontier/
++// flocallanes.mjs; a test keeps the two equal.)
++export const LOCAL_LANE_VERSIONS = Object.freeze({ conquest: 0x4804, conquestNftCandidate: 0xc804 });
++export const CANDIDATE_FEATURE = 'localnet-conquest-nft-sbf';
++const SERVED = new Set(Object.values(LOCAL_LANE_VERSIONS));
++/** Whether `v` — a Season's version as the chain gives it, a NUMBER — is one local play serves (a string is not). */
++export const servesLocalVersion = v => Number.isInteger(v) && SERVED.has(v);
++/** Whether `s` — a deployment's `program_version`, the DECIMAL STRING the launcher records — is one local play serves. */
++export const servesDeploymentVersion = s => typeof s === 'string' && /^[1-9]\d{0,4}$/.test(s) && SERVED.has(Number(s));
++/** Whether a Season version (number) or a deployment version (string) is the local test candidate's (0xC804). */
++export const isCandidateVersion = v => (typeof v === 'string' ? servesDeploymentVersion(v) : servesLocalVersion(v)) && Number(v) === LOCAL_LANE_VERSIONS.conquestNftCandidate;
+diff --git a/permutation-gateway/test/frontier-local-lane-versions.test.mjs b/permutation-gateway/test/frontier-local-lane-versions.test.mjs
+new file mode 100644
+index 00000000..79d35575
+--- /dev/null
++++ b/permutation-gateway/test/frontier-local-lane-versions.test.mjs
+@@ -0,0 +1,40 @@
++// The local-play versions read from the deployment (one definition: src/frontier/local-lane-versions.mjs = page
++// flocallanes.mjs). The conquest lane 0x4804 is served exactly as before; the LOCAL TEST CANDIDATE 0xC804
++// (localnet-conquest-nft-sbf, not an allocation) is served too, and nothing else. A Season's version is a number,
++// a deployment's a decimal string: each check takes only its own kind. Every module reads the version from the
++// deployment (no second literal), and a prepared proposal must echo the deployment's own version.
++import { test } from 'node:test';
++import assert from 'node:assert/strict';
++import { readFileSync } from 'node:fs';
++import { LOCAL_LANE_VERSIONS, servesLocalVersion, servesDeploymentVersion, isCandidateVersion, CANDIDATE_FEATURE } from '../src/frontier/local-lane-versions.mjs';
++import * as page from '../../permutation-server/web/frontier/flocallanes.mjs';
++
++test('one definition on both sides; 0x4804 and the candidate 0xC804 only; numbers for Seasons, decimal strings for deployments', () => {
++  assert.equal(readFileSync(new URL('../src/frontier/local-lane-versions.mjs', import.meta.url), 'utf8'), readFileSync(new URL('../../permutation-server/web/frontier/flocallanes.mjs', import.meta.url), 'utf8'));
++  assert.deepEqual(LOCAL_LANE_VERSIONS, { conquest: 0x4804, conquestNftCandidate: 0xc804 });
++  assert.deepEqual(page.LOCAL_LANE_VERSIONS, LOCAL_LANE_VERSIONS);
++  assert.equal(CANDIDATE_FEATURE, 'localnet-conquest-nft-sbf');
++  for (const v of [0x4804, 0xc804]) { assert.equal(servesLocalVersion(v), true, v.toString(16)); assert.equal(servesDeploymentVersion(String(v)), true); }
++  for (const v of [4, 0x4004, 0x8004, 0x4805, 0xc805, 0]) assert.equal(servesLocalVersion(v), false, v.toString(16));
++  for (const s of ['18436 ', '018436', '0x4804', '', '18437', '32772']) assert.equal(servesDeploymentVersion(s), false, JSON.stringify(s));
++  assert.equal(servesLocalVersion('18436'), false, 'a Season version is a number');
++  assert.equal(servesDeploymentVersion(18436), false, 'a deployment version is a string');
++  assert.equal(isCandidateVersion(0xc804), true); assert.equal(isCandidateVersion('51204'), true); assert.equal(isCandidateVersion(0x4804), false); assert.equal(isCandidateVersion('18436'), false);
++});
++
++test('no module carries its own literal any more: each reads the deployment (or the Season) through the definition, and a proposal echoes the deployment\'s version', () => {
++  const read = p => readFileSync(new URL(p, import.meta.url), 'utf8');
++  const files = { '../src/frontier/expedition-prepare.mjs': 'servesDeploymentVersion', '../src/frontier/conquest-prepare.mjs': 'servesDeploymentVersion', '../src/frontier/expedition-depart-prepare.mjs': 'servesDeploymentVersion',
++    '../../permutation-server/web/frontier/fexpedition-prepare.mjs': 'servesDeploymentVersion', '../../permutation-server/web/frontier/fexpedition-depart-prepare.mjs': 'servesDeploymentVersion',
++    '../../permutation-server/web/frontier/flocalplay.mjs': 'servesLocalVersion', '../../permutation-server/web/frontier/hud/hand.mjs': 'servesDeploymentVersion' };
++  for (const [f, fn] of Object.entries(files)) {
++    const src = read(f);
++    assert.ok(src.includes(`${fn}(`), `${f} checks through ${fn}`);
++    assert.doesNotMatch(src.replace(/^\s*(\/\/|\*).*$/gm, ''), /=== '18436'|!== '18436'|=== DEPART_PREPARE_PROGRAM_VERSION|!== DEPART_PREPARE_PROGRAM_VERSION|!== VERSION|=== VERSION|!== LOCAL_PLAY_PROGRAM_VERSION/, `${f}: no comparison with a literal`);
++  }
++  assert.match(read('../src/frontier/expedition-prepare.mjs'), /p\.program_version === source\.deployment\.program_version/);
++  assert.match(read('../src/frontier/conquest-prepare.mjs'), /p\.program_version === source\.deployment\.program_version/);
++  assert.match(read('../src/frontier/expedition-depart-prepare.mjs'), /p\.program_version === request\.deployment\.program_version/);
++  assert.match(read('../../permutation-server/web/frontier/fexpedition-prepare.mjs'), /p\.program_version === r\.deployment\.program_version/);
++  assert.match(read('../../permutation-server/web/frontier/fexpedition-depart-prepare.mjs'), /p\.program_version === request\.deployment\.program_version/);
++});
+diff --git a/permutation-gateway/test/web-frontier-local-play-launcher.test.mjs b/permutation-gateway/test/web-frontier-local-play-launcher.test.mjs
+index 44459bfc..d64d4f3b 100644
+--- a/permutation-gateway/test/web-frontier-local-play-launcher.test.mjs
++++ b/permutation-gateway/test/web-frontier-local-play-launcher.test.mjs
+@@ -736,7 +736,7 @@ test('the source: five launcher routes and no other, no storage, no markup from
+   assert.deepEqual([...new Set([...code.matchAll(/'(\/local-play\/[^']*)'/g)].map(m => m[1]))].sort(), ['/local-play/keeper', '/local-play/pair', '/local-play/start', '/local-play/stop', '/local-play/worlds'], 'the only launcher routes the page knows (pair: TEST-ONLY contest pair, frontier-local-play-pair-guide.test.mjs)');
+   // (that it names no signing call either is the hooks test of web-frontier-local-play.test.mjs, which runs under the guard too)
+   assert.doesNotMatch(code, /localStorage|sessionStorage|indexedDB|document\.cookie|console\.|innerHTML|outerHTML|insertAdjacentHTML|\.style\b|keyFromSeed|fsession|sendTransaction|fetch\(|sendBeacon|XMLHttpRequest|WebSocket|eval\(|Function\(/);
+-  assert.deepEqual([...code.matchAll(/from '([^']+)'/g)].map(m => m[1]).sort(), ['../lang.mjs', '../sdk/base58.mjs', './faddr.mjs', './fephemeral-wallet.mjs', './flocalplay-instance.mjs', './flocalplay-session.mjs']);
++  assert.deepEqual([...code.matchAll(/from '([^']+)'/g)].map(m => m[1]).sort(), ['../lang.mjs', '../sdk/base58.mjs', './faddr.mjs', './fephemeral-wallet.mjs', './flocallanes.mjs', './flocalplay-instance.mjs', './flocalplay-session.mjs']);   // flocallanes: the served versions read from the deployment (0x4804; the local test candidate 0xC804)
+   assert.match(code, /import \{ mountSessionNotice, pairGuideView \} from '\.\/flocalplay-session\.mjs';/, 'the standing notice (a display only) and the pair answer\'s check (frontier-local-play-pair-guide.test.mjs)');
+   assert.match(code, /import \{ confirmWorldEnd, worldEndOf \} from '\.\/flocalplay-instance\.mjs';/, 'and the one read that confirms its end (web-frontier-local-play-world-instance.test.mjs); worldEndOf only reads the start answer\'s expiry (no request)');
+   assert.equal(code.split('confirmWorldEnd(').length - 1, 1, 'called once, after the world was verified');
+diff --git a/permutation-gateway/test/web-frontier-local-play.test.mjs b/permutation-gateway/test/web-frontier-local-play.test.mjs
+index 846599b4..8677896b 100644
+--- a/permutation-gateway/test/web-frontier-local-play.test.mjs
++++ b/permutation-gateway/test/web-frontier-local-play.test.mjs
+@@ -202,7 +202,7 @@ test('the hooks: the page boots once, after the gate, only for local play; the c
+   const code = lp.split('\n').filter(l => !/^\s*(\/\/|\*|\/\*)/.test(l)).join('\n');
+   assert.doesNotMatch(code, /localStorage|sessionStorage|console\.|innerHTML|insertAdjacentHTML|\.style\b|signTransaction|signMessage|keyFromSeed|fsession|sendTransaction|fetch\(/);
+   // (the launcher world's standing notice and the read that confirms its end: web-frontier-local-play-session / -world-instance tests)
+-  assert.deepEqual([...code.matchAll(/from '([^']+)'/g)].map(m => m[1]).sort(), ['../lang.mjs', '../sdk/base58.mjs', './faddr.mjs', './fephemeral-wallet.mjs', './flocalplay-instance.mjs', './flocalplay-session.mjs']);
++  assert.deepEqual([...code.matchAll(/from '([^']+)'/g)].map(m => m[1]).sort(), ['../lang.mjs', '../sdk/base58.mjs', './faddr.mjs', './fephemeral-wallet.mjs', './flocallanes.mjs', './flocalplay-instance.mjs', './flocalplay-session.mjs']);   // flocallanes: the served versions read from the deployment (0x4804; the local test candidate 0xC804)
+   // the panel's own stylesheet: every rule scoped to the panel, nothing of the game's styles named
+   const css = read('flocalplay.css').replace(/\/\*[\s\S]*?\*\//g, '');
+   for (const rule of css.split('}').map(r => r.split('{')[0].trim()).filter(r => r && !r.startsWith('@'))) for (const sel of rule.split(',')) assert.match(sel.trim(), /^#local-play-(gate|session)\b/, `scoped to the panel or the standing notice: ${sel.trim()}`);
+diff --git a/permutation-server/web/frontier/fexpedition-depart-prepare.mjs b/permutation-server/web/frontier/fexpedition-depart-prepare.mjs
+index 356b5ee8..1bd7613e 100644
+--- a/permutation-server/web/frontier/fexpedition-depart-prepare.mjs
++++ b/permutation-server/web/frontier/fexpedition-depart-prepare.mjs
+@@ -14,6 +14,7 @@ import { parseMessage, COMPUTE_BUDGET_PROGRAM } from '../sdk/solana-tx.mjs';
+ import { decode, encode } from '../sdk/base58.mjs';
+ import { fromBase64, toBase64, fromHex, toHex, utf8 } from '../sdk/bytes.mjs';
+ import { sha256 } from '../sdk/sha256.mjs';
++import { servesDeploymentVersion } from './flocallanes.mjs';
+ 
+ export const DEPART_PREPARE_REQUEST_SCHEMA = 'frontier-experimental-expedition-depart-prepare-request-v1';
+ export const DEPART_PREPARE_REPORT_SCHEMA = 'frontier-experimental-expedition-depart-prepare-report-v1';
+@@ -89,7 +90,7 @@ export function departPreparationRequestOf(value) {
+   if (!exact(value, [...SCOPE, 'proposal']) || value.schema !== DEPART_PREPARE_REQUEST_SCHEMA
+       || typeof value.request_id !== 'string' || !/^[A-Za-z0-9_-]{1,64}$/.test(value.request_id)
+       || typeof value.cluster !== 'string' || !/^[a-z0-9-]{1,32}$/.test(value.cluster)
+-      || !exact(value.deployment, ['program_version', 'ruleset_hash']) || value.deployment.program_version !== DEPART_PREPARE_PROGRAM_VERSION || !hex(value.deployment.ruleset_hash, 32)
++      || !exact(value.deployment, ['program_version', 'ruleset_hash']) || !servesDeploymentVersion(value.deployment.program_version) || !hex(value.deployment.ruleset_hash, 32)
+       || !['program', 'season', 'wallet', 'payer'].every(k => address(value[k])) || value.program === value.season
+       || !exact(value.standing, ['p', 'q']) || !int64(value.standing.p) || !int64(value.standing.q)
+       || !hex(value.host, 56) || !uint(value.transit_slot, 3n) || !uint(value.arrive_bell, 0xffffffffn) || !uint(value.tip) || !uint(value.min_slot)
+@@ -125,7 +126,7 @@ export function departPreparationRequest(fs, { sealed = null, requestId = `${Dat
+   check(c.ready?.ok === true && c.report?.ok === true, 'DepartObservationNotReady');
+   const r = s.review, src = s.source;
+   check(Array.isArray(r.roles) && r.roles.length === 9 && Number.isInteger(r.transitSlot) && r.transitSlot === src.transitSlot, 'DepartRolesUnavailable');
+-  check(String(src.programVersion) === DEPART_PREPARE_PROGRAM_VERSION, 'ExperimentalPreparationUnavailable');
++  check(servesDeploymentVersion(String(src.programVersion)), 'ExperimentalPreparationUnavailable');
+   // The explicit wallet path only: the acting wallet is also the fee payer. The relay prepares for its ONE configured
+   // public fee payer, so this request is served only when that payer is this wallet; any other wallet is answered
+   // ExpeditionDepartPrepareScopeMismatch by the relay. No other payer is named or substituted here.
+@@ -134,7 +135,7 @@ export function departPreparationRequest(fs, { sealed = null, requestId = `${Dat
+   check(publicSealOk(sealed), 'DepartSealUnavailable');
+   check(typeof requestId === 'string' && /^[A-Za-z0-9_-]{1,64}$/.test(requestId), 'BadDepartPreparationRequest');
+   const scope = { schema: DEPART_PREPARE_REQUEST_SCHEMA, request_id: requestId, cluster: src.cluster, program: src.program, season: src.season,
+-    deployment: { program_version: DEPART_PREPARE_PROGRAM_VERSION, ruleset_hash: src.ruleset }, wallet: src.wallet, payer: src.payer, host: src.host,
++    deployment: { program_version: String(src.programVersion), ruleset_hash: src.ruleset }, wallet: src.wallet, payer: src.payer, host: src.host,
+     standing: { p: src.origin.p, q: src.origin.q }, transit_slot: String(r.transitSlot), arrive_bell: String(r.arriveBell), tip: String(r.tip.lamports),
+     public_commit: sealed.commit, public_seal: sealed.seal, min_slot: String(c.contextSlot) };
+   let request;
+@@ -178,7 +179,7 @@ export function departPreparationReport(value, request) {
+     && b.height_min_context_slot === b.validity_context_slot, 'DepartPreparationBlockhashContext');
+   check(BigInt(b.remaining_block_heights) >= 2n && BigInt(b.last_valid_block_height) - BigInt(b.block_height) === BigInt(b.remaining_block_heights), 'DepartPreparationBlockhashExpired');
+   check(exact(p, ['program', 'season', 'program_version', 'action', 'fee_payer', 'budget', 'roles', 'instruction_hex', 'message_b64', 'message_digest', 'signers', 'shape', 'proposal_digest'])
+-    && p.program === request.program && p.season === request.season && p.program_version === DEPART_PREPARE_PROGRAM_VERSION && p.action === 'Depart'
++    && p.program === request.program && p.season === request.season && p.program_version === request.deployment.program_version && p.action === 'Depart'
+     && p.fee_payer === request.payer && p.proposal_digest === request.proposal.content_digest && stable(p.roles) === stable(roles), 'DepartPreparationScopeMismatch');
+   const budget = p.budget;
+   check(exact(budget, ['cu_limit', 'cu_price', 'loaded_limit', 'heap']) && Number.isInteger(budget.cu_limit) && budget.cu_limit > 0 && budget.cu_limit <= 1_400_000
+diff --git a/permutation-server/web/frontier/fexpedition-prepare.mjs b/permutation-server/web/frontier/fexpedition-prepare.mjs
+index 87e2fd2c..b290ab26 100644
+--- a/permutation-server/web/frontier/fexpedition-prepare.mjs
++++ b/permutation-server/web/frontier/fexpedition-prepare.mjs
+@@ -6,6 +6,7 @@ import { parseMessage, COMPUTE_BUDGET_PROGRAM } from '../sdk/solana-tx.mjs';
+ import { decode, encode } from '../sdk/base58.mjs';
+ import { fromBase64, toBase64, toHex } from '../sdk/bytes.mjs';
+ import { sha256 } from '../sdk/sha256.mjs';
++import { servesDeploymentVersion } from './flocallanes.mjs';
+ 
+ export const PREPARE_REQUEST_SCHEMA = 'frontier-experimental-expedition-prepare-request-v1';
+ export const PREPARE_REPORT_SCHEMA = 'frontier-experimental-expedition-prepare-report-v1';
+@@ -24,7 +25,7 @@ let sequence = 0;
+ /** Rebuild the proposal from the selected validated observation, never raw draft input. */
+ export function preparationRequest(report, sourceRequest, requestId = `${Date.now()}_${++sequence}`) {
+   check(typeof requestId === 'string' && /^[A-Za-z0-9_-]{1,64}$/.test(requestId), 'BadPreparationRequest');
+-  check(sourceRequest?.deployment?.program_version === '18436', 'ExperimentalPreparationUnavailable');
++  check(servesDeploymentVersion(sourceRequest?.deployment?.program_version), 'ExperimentalPreparationUnavailable');
+   const p = originalReturnModel(report, sourceRequest).proposal;
+   check(p && sourceRequest.payer !== null, 'PreparationProposalUnavailable');
+   return freeze({ schema: PREPARE_REQUEST_SCHEMA, request_id: requestId, action: p.action,
+@@ -63,7 +64,7 @@ export function preparationReport(value, request) {
+   check(s !== null && b !== null && value.blocker === null && exact(p, ['program', 'season', 'program_version', 'action',
+     'fee_payer', 'budget', 'roles', 'instruction_hex', 'message_b64', 'message_digest', 'signers', 'shape', 'proposal_digest']));
+   const r = request.source_request, roles = request.proposal.roles;
+-  check(p.program === r.program && p.season === r.season && p.program_version === '18436'
++  check(p.program === r.program && p.season === r.season && p.program_version === r.deployment.program_version
+     && p.action === request.action && p.fee_payer === r.payer && p.proposal_digest === request.proposal.content_digest
+     && stable(p.roles) === stable(roles), 'PreparationScopeMismatch');
+   const budget = p.budget;
+diff --git a/permutation-server/web/frontier/flocallanes.mjs b/permutation-server/web/frontier/flocallanes.mjs
+new file mode 100644
+index 00000000..187bb0e2
+--- /dev/null
++++ b/permutation-server/web/frontier/flocallanes.mjs
+@@ -0,0 +1,17 @@
++// The program versions a local-play deployment may carry (one definition, read from the deployment, never a second
++// literal in a module). `0x4804` is the conquest lane (S1 | wide 0x4000 | host-only dispatch 0x0800) and the
++// default: a deployment that names it is served exactly as before. `0xC804` is the LOCAL TEST CANDIDATE
++// `localnet-conquest-nft-sbf` (the conquest lane with NFT residents; candidate program id [0x4C; 32]; NOT an
++// allocation, never deployable): only a launcher that selected the candidate writes it into the deployment, and the
++// chain's Season must carry it too. The production version is undecided and is not here.
++// (The same file is permutation-gateway/src/frontier/local-lane-versions.mjs and permutation-server/web/frontier/
++// flocallanes.mjs; a test keeps the two equal.)
++export const LOCAL_LANE_VERSIONS = Object.freeze({ conquest: 0x4804, conquestNftCandidate: 0xc804 });
++export const CANDIDATE_FEATURE = 'localnet-conquest-nft-sbf';
++const SERVED = new Set(Object.values(LOCAL_LANE_VERSIONS));
++/** Whether `v` — a Season's version as the chain gives it, a NUMBER — is one local play serves (a string is not). */
++export const servesLocalVersion = v => Number.isInteger(v) && SERVED.has(v);
++/** Whether `s` — a deployment's `program_version`, the DECIMAL STRING the launcher records — is one local play serves. */
++export const servesDeploymentVersion = s => typeof s === 'string' && /^[1-9]\d{0,4}$/.test(s) && SERVED.has(Number(s));
++/** Whether a Season version (number) or a deployment version (string) is the local test candidate's (0xC804). */
++export const isCandidateVersion = v => (typeof v === 'string' ? servesDeploymentVersion(v) : servesLocalVersion(v)) && Number(v) === LOCAL_LANE_VERSIONS.conquestNftCandidate;
+diff --git a/permutation-server/web/frontier/flocalplay.mjs b/permutation-server/web/frontier/flocalplay.mjs
+index 06d8b077..6d9bf9a6 100644
+--- a/permutation-server/web/frontier/flocalplay.mjs
++++ b/permutation-server/web/frontier/flocalplay.mjs
+@@ -23,6 +23,7 @@ import { seasonAddresses } from './faddr.mjs';
+ import { L, onLangChange, mountLangToggle } from '../lang.mjs';
+ import { mountSessionNotice, pairGuideView } from './flocalplay-session.mjs';
+ import { confirmWorldEnd, worldEndOf } from './flocalplay-instance.mjs';
++import { servesLocalVersion } from './flocallanes.mjs';
+ 
+ /** The dedicated localnet program of the `localnet-expedition-sbf` build ([0x45; 32]). */
+ export const LOCAL_PLAY_PROGRAM = '5fQPsn8hoaVddFG26cWQ5QFdqxWtUPNaZ9zH2E6LYzFn';
+@@ -185,7 +186,7 @@ export async function verifyLocalPlayHerald(herald, address, { natural = false }
+   if (!s?.ok) return { ok: false, code: s?.code === 'network' ? 'HeraldUnreachable' : 'HeraldNotReady' };
+   if (s.record?.programId !== LOCAL_PLAY_PROGRAM) return { ok: false, code: 'LocalPlayProgram' };
+   if (s.record?.cluster !== LOCAL_PLAY_CLUSTER) return { ok: false, code: 'LocalPlayCluster' };
+-  if (s.season?.programVersion !== LOCAL_PLAY_PROGRAM_VERSION) return { ok: false, code: 'LocalPlayVersion' };
++  if (!servesLocalVersion(s.season?.programVersion)) return { ok: false, code: 'LocalPlayVersion' };
+   // The Season's identity is worked out here from the dedicated program and the record's Season id, never taken from
+   // the herald: the record must name that canonical Season account, and the client is PINNED to it before the
+   // player's record is read, so the client's own checks (the Citizen at this wallet's canonical address, its bytes of
+@@ -220,7 +221,7 @@ export async function verifyLocalPlayHerald(herald, address, { natural = false }
+  */
+ export function localPlayIdentityOk(identity, pin, season, citizen = undefined) {
+   if (!identity || !pin || pin.programId !== identity.programId || pin.cluster !== identity.cluster || String(pin.seasonId) !== identity.seasonId
+-      || pin.addresses?.season !== identity.seasonAddress || season?.programVersion !== LOCAL_PLAY_PROGRAM_VERSION) return false;
++      || pin.addresses?.season !== identity.seasonAddress || !servesLocalVersion(season?.programVersion)) return false;
+   if (citizen === undefined || citizen === null) return true;
+   try { return toBase58(citizen.wallet) === identity.address; } catch { return false; }
+ }
+diff --git a/permutation-server/web/frontier/hud/hand.mjs b/permutation-server/web/frontier/hud/hand.mjs
+index a0a52427..5fc80b4d 100644
+--- a/permutation-server/web/frontier/hud/hand.mjs
++++ b/permutation-server/web/frontier/hud/hand.mjs
+@@ -71,6 +71,7 @@ export const INSPECTION_POPS = Object.freeze([EXPEDITION_POP]);
+ 
+ export { ownHostsAt, ownHosts, marchCheck, exploreCheck, dissolveCheck, canAct, subjectOf, popOf } from './subject.mjs';
+ import { ownHosts, marchCheck, exploreCheck, dissolveCheck, canAct, subjectOf, popOf } from './subject.mjs';
++import { servesDeploymentVersion } from '../flocallanes.mjs';
+ 
+ // ------------------------------------------------------------------ the model
+ const hexDist = (a, b) => (a && b ? (Math.abs(a.q - b.q) + Math.abs(a.r - b.r) + Math.abs((a.q + a.r) - (b.q + b.r))) / 2 : null);
+@@ -666,7 +667,7 @@ function expeditionPop(FS, model) {
+         ${returning?.proposal ? html`<details><summary>${L`実行できない役割案`}: ${returning.proposal.action}</summary><ul>${returning.proposal.roles.map(r => html`<li>${r.name}: ${r.address} · ${r.signer ? L`署名が必要` : L`署名不要`} · ${r.writable ? L`書き込み役割` : L`読み取り役割`}</li>`)}</ul></details>` : ''}
+         ${localReturnBlock(FS, returning)}
+         ${localConquestBlock(FS, returning)}
+-        ${returning?.proposal && !FS.localPlay && state.request.deployment.program_version === '18436' ? html`<section class="expedition-preparation" data-preparation-status="${state.preparation?.status ?? 'idle'}" aria-label="${L`署名前の準備確認`}">
++        ${returning?.proposal && !FS.localPlay && servesDeploymentVersion(state.request.deployment.program_version) ? html`<section class="expedition-preparation" data-preparation-status="${state.preparation?.status ?? 'idle'}" aria-label="${L`署名前の準備確認`}">
+           <p class="pop-line"><strong>${L`実験用の準備確認`}</strong></p>
+           <p class="pop-line">${L`署名前の内容を取り直して確認します。署名・支払い・送信は行いません。`}</p>
+           <button type="button" class="btn" data-act="expedition-prepare" ${raw(state.preparation?.status === 'loading' ? 'aria-disabled="true"' : '')}>${L`署名前の準備内容を確認`}</button>
