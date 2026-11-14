@@ -26,13 +26,14 @@ test('the lane is S1 + nft-experimental + test-beacon, and no playable lane carr
   for (const other of ['localnet-expedition-sbf', 'localnet-conquest-sbf', 'expedition-dispatch-experimental', 'conquest-dispatch-experimental']) {
     assert.doesNotMatch(feature(other), /nft/, `${other} never carries NFT residents`);
   }
-  // The existing exclusion between the playable expedition lane and NFT residents stays.
-  assert.match(lib, /feature = "expedition-dispatch-experimental", any\(\n\s*feature = "nft-experimental"/);
+  // The exclusion between the playable expedition lane and NFT residents stays for every build but the local test
+  // candidate `localnet-conquest-nft-sbf` (its own candidate id and version: local-conquest-nft-candidate.test.mjs).
+  assert.match(lib, /feature = "expedition-dispatch-experimental", any\(\n\s*all\(feature = "nft-experimental", not\(feature = "localnet-conquest-nft-sbf"\)\)/);
 });
 
 test('the version is the existing nft-experimental one: no new bit, no change for other lanes', () => {
   assert.match(lib, /\| if cfg!\(feature = "nft-experimental"\) \{\n\s*0x8000/);
-  assert.match(lib, /#\[cfg\(feature = "expedition-dispatch-experimental"\)\]\npub const PROGRAM_VERSION: u16 = frontier_abi::world_index::expedition_dispatch_ix::PROGRAM_VERSION;/);
+  assert.match(lib, /#\[cfg\(all\(feature = "expedition-dispatch-experimental", not\(feature = "localnet-conquest-nft-sbf"\)\)\)\]\npub const PROGRAM_VERSION: u16 = frontier_abi::world_index::expedition_dispatch_ix::PROGRAM_VERSION;/);
   assert.match(lib, /PROGRAM_VERSION_S1 \| 0x8000,\n\s*"the existing nft-experimental version; no new bit"/, 'the lane test pins it');
 });
 
@@ -52,12 +53,12 @@ test('compile-time exclusions: the lane alone, and NFT on SBF only through the l
   for (const f of ['localnet-expedition-sbf', 'expedition-dispatch-experimental', 'wide-world-experimental', 'rights-experimental', 'capacity-preview', 'custody-preview', 'oracle', 'trace']) {
     assert.ok(block.includes(`feature = "${f}"`), `excludes ${f}`);
   }
-  assert.match(lib, /#\[cfg\(all\(\n\s*target_os = "solana",\n\s*feature = "nft-experimental",\n\s*not\(feature = "localnet-nft-sbf"\)\n\)\)\]\ncompile_error!\("nft-experimental on SBF requires localnet-nft-sbf"\);/);
+  assert.match(lib, /#\[cfg\(all\(\n\s*target_os = "solana",\n\s*feature = "nft-experimental",\n\s*not\(any\(feature = "localnet-nft-sbf", feature = "localnet-conquest-nft-sbf"\)\)\n\)\)\]\ncompile_error!\("nft-experimental on SBF requires localnet-nft-sbf"\);/);
 });
 
 test('build-frontier.sh: the lane only through its wrapper; its marker required there and refused everywhere else', () => {
   assert.match(build, /localnet-nft-sbf\) \[ "\$\{PSF_LOCALNET_NFT_SBF_LANE:-\}" = 1 \] \|\|/);
-  assert.match(build, /for m in [^;]*PSF_LOCALNET_NFT_SBF_BUILD; do/);
+  assert.match(build, /for m in [^;]*PSF_LOCALNET_NFT_SBF_BUILD[^;]*; do/);
   const wants = /case "\$feature:\$m" in\n\s*([^)]*)\) want_m=1/.exec(build)[1].split('|');
   assert.ok(wants.includes('localnet-nft-sbf:PSF_LOCALNET_NFT_SBF_BUILD'));
   assert.ok(wants.includes('localnet-nft-sbf:PSF_TEST_BEACON_BUILD'));

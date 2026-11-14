@@ -20,7 +20,7 @@ import { accountSpec, decodeIxData, encodeIxData, ixOf, TAGS } from './codec.mjs
 import { TAGS as TAGS_V2 } from './abi-v2-tags.mjs';
 import { SYSTEM_PROGRAM } from './addresses.mjs';
 import { compileMessage } from '../solana-tx.mjs';
-import { classifyResident, isResidentTag } from './resident.mjs';
+import { classifyResident, classifyWideResident, isResidentTag, WIDE_RESIDENT_ACT_TAG } from './resident.mjs';
 
 /** The tag of the instruction named `name` (ABI v2's tags extend M1's, same numbers). */
 const tagOf = name => TAGS_V2.instructions.find(i => i.name === name).tag;
@@ -54,7 +54,7 @@ const refuse = (code, problem) => ({ ok: false, code, problem });
  * `{ok: true, kind: 'player'|'settle', tag, name, feePayer, authority, signers, accounts: {name → key}, keys, data, budget, cu}`
  * or `{ok: false, code: 'UseRevealRoute'|'RelayRejected', problem}`.
  */
-export function classify(tx, { programId, wireBytes, profile = 1, budget: budgetOverride } = {}) {
+export function classify(tx, { programId, wireBytes, profile = 1, budget: budgetOverride, wide = null } = {}) {
   const ixs = tx.instructions;
   // A Reveal anywhere is refused first, whatever else the transaction holds.
   if (ixs.some(ix => ix.programId === programId && ix.data[0] === REVEAL_TAG)) {
@@ -72,6 +72,8 @@ export function classify(tx, { programId, wireBytes, profile = 1, budget: budget
   if (budgetOverride === undefined && isResidentTag(ix.data[0])) {
     return classifyResident(tx, { programId, wireBytes, profile, prefix: cb.map(x => x.value), prefixPrograms: [COMPUTE_BUDGET_PROGRAM] }, classify);
   }
+  // 0xDD WideResidentAct (local test lanes only): refused unless the lane passes `wide` (resident.mjs).
+  if (budgetOverride === undefined && ix.data[0] === WIDE_RESIDENT_ACT_TAG) return classifyWideResident(tx, { programId, profile, wide });
   const tag = ix.data[0];
   const row = ixOf(tag, profile);
   const kind = row?.relay_player_shape ? 'player' : row?.relay_settle_shape ? 'settle' : null;

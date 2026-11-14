@@ -12,6 +12,7 @@
 //! | `localnet-expedition-sbf` | `PSF_LOCALNET_EXPEDITION_SBF_BUILD` (isolated localnet lane, never deployable) |
 //! | `localnet-conquest-sbf` | `PSF_LOCALNET_CONQUEST_SBF_BUILD`, in addition to the expedition lane's marker (isolated localnet conquest lane, never deployable) |
 //! | `localnet-nft-sbf` | `PSF_LOCALNET_NFT_SBF_BUILD`, with `PSF_TEST_BEACON_BUILD` (isolated local NFT world lane, never deployable) |
+//! | `localnet-conquest-nft-sbf` | `PSF_LOCALNET_CONQUEST_NFT_SBF_BUILD`, with the conquest lane's two markers (local test candidate, never deployable, not built yet) |
 //!
 //! Each marker is passed through `core::hint::black_box` on a path every
 //! instruction (or every beacon verification) runs, so neither the
@@ -26,6 +27,8 @@ pub const CUSTODY_PREVIEW: &[u8] = b"PSF_CUSTODY_PREVIEW_BUILD";
 pub const LOCALNET_EXPEDITION_SBF: &[u8] = b"PSF_LOCALNET_EXPEDITION_SBF_BUILD";
 pub const LOCALNET_CONQUEST_SBF: &[u8] = b"PSF_LOCALNET_CONQUEST_SBF_BUILD";
 pub const LOCALNET_NFT_SBF: &[u8] = b"PSF_LOCALNET_NFT_SBF_BUILD";
+/// Local test candidate (`localnet-conquest-nft-sbf`), with the conquest lane's two markers; never deployable.
+pub const LOCALNET_CONQUEST_NFT_SBF: &[u8] = b"PSF_LOCALNET_CONQUEST_NFT_SBF_BUILD";
 
 /// Keeps the `trace` and `oracle` markers alive (called by `dispatch`).
 #[inline(always)]
@@ -46,6 +49,8 @@ pub fn touch_localnet_expedition_sbf() {
     core::hint::black_box(LOCALNET_EXPEDITION_SBF.as_ptr());
     #[cfg(feature = "localnet-conquest-sbf")]
     core::hint::black_box(LOCALNET_CONQUEST_SBF.as_ptr());
+    #[cfg(feature = "localnet-conquest-nft-sbf")]
+    core::hint::black_box(LOCALNET_CONQUEST_NFT_SBF.as_ptr());
 }
 
 /// Keeps the `localnet-nft-sbf` marker alive (called by the lane's
@@ -85,6 +90,8 @@ mod tests {
         let script = include_str!("../../scripts/build-frontier.sh");
         assert_ne!(LOCALNET_EXPEDITION_SBF, LOCALNET_CONQUEST_SBF);
         assert_ne!(LOCALNET_NFT_SBF, LOCALNET_EXPEDITION_SBF);
+        assert_ne!(LOCALNET_CONQUEST_NFT_SBF, LOCALNET_CONQUEST_SBF);
+        assert_ne!(LOCALNET_CONQUEST_NFT_SBF, LOCALNET_NFT_SBF);
         for m in [
             TRACE,
             ORACLE,

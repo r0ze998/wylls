@@ -69,3 +69,18 @@ wide の側は NFT 住民の**行動**を受ける準備がある。足りない
 - 行っていない：版の割り当て、ガードの解除・変更、新しい feature・build script、build、world。
 
 決まった後の順序の案：(1) 版と lane 名の決定 → (2) ガードを新しい lane だけに狭める差分と host 試験（`cargo test --features <新 lane>` で、他の組み合わせが今も拒否されることを含む）→ (3) build と marker の検査 → (4) 領土戦の world に住民 program を足した起動 → (5) 画面の 0xDD 経路と relay の gate → (6) 通常 world で、NFT 住民の拡張・征服と、譲渡後の旧持ち主の拒否を chain で照合。
+
+## 7. 追記（同日 夜）：実装した独立差分（build なし）
+
+**0xDD の UI・relay の配線（JS、単体試験あり）**
+- `permutation-gateway/client/src/frontier/resident.mjs`（web の sdk に同期）：`WIDE_RESIDENT_ACT_TAG = 0xDD`、`WIDE_ACT_INNER_TAGS = [0xD9, 0xDA]`（`wide_ix.rs` の `act_runs`）、`wideResidentActIx`（0xE2 と同じ形・同じ 4 つの proof 口座）、`classifyWideResident`。
+- `shapes.mjs` `classify`：0xDD は **lane が `wide`（内側の wide 命令の分類器）を渡したときだけ**分類し、渡さなければ拒否（どの配備済み program も帯を持たない）。proof 口座は読み取り専用・署名なし・別々、内側は player の shape だけ。
+- relay の holder gate（`routes/relay.mjs` `residentRefusal`）：0xDD の proof（asset と署名した世代）を 0xE2 と同じく gate に渡す。**譲渡で Citizen が新しい持ち主に移り、旧持ち主・譲渡前の世代は拒否**という意味は 0xE2 と同じ。
+- 試験 `test/frontier-wide-resident-act.test.mjs` 4 件（builder、program の act_runs との一致、relay の分類、gate への proof）。**画面からの 0xDD の送信は未配線**（wide・征服の画面の送信は local play の経路で、NFT の分岐は無い）。賞金・商用条件は足していない。
+
+**local 試験専用の lane 候補（Rust・script、build していない）**
+- feature `localnet-conquest-nft-sbf` = `localnet-conquest-sbf` + `nft-experimental`。**候補の値**（本番の割り当てではない）：program ID `[0x4C; 32]`、版 `0x4804 | 0x8000 = 0xC804`、marker `PSF_LOCALNET_CONQUEST_NFT_SBF_BUILD`、script `scripts/build-frontier-localnet-conquest-nft-sbf.sh`（中に「NOT BUILT YET」）。
+- ガード：§2 の 1（expedition と NFT）と 3（SBF の NFT は lane 経由）に `not(feature = "localnet-conquest-nft-sbf")` を足しただけ。**この feature を持たない build では条件は論理的に同じ**。新しい排他：候補は `localnet-nft-sbf`・rights・capacity・custody・oracle・trace と組めない。conquest lane のガード（test-beacon 禁止など）はそのまま効く。
+- expedition の経路（`wide_expedition_dispatch.rs`）は、候補 feature のときだけ候補の版を受ける。Season の範囲検査（`range_view`）は `localnet-expedition-sbf` を含むので候補の版にもそのまま効く。
+- 試験：`permutation-nft-resident-spike/test/local-conquest-nft-candidate.test.mjs` 4 件と `local-nft-lane.test.mjs`（狭めた条件に合わせて更新）。**どちらも source の文字列の検査だけ**。
+- **限界（未 build）**：許可した新 lane が compile でき動くこと、拒否する旧い組み合わせで `compile_error!` が実際に発火すること、marker が .so に入ることは、build（host の `cargo check`・SBF build）をしていないので**確かめていない**。rustfmt で構文だけ確認（HEAD と同じ差分数）。keeper・herald・fclient・stack は 0xC804 を知らないので、候補の .so で world を動かすにはそれらも要る。本番の program・版は決めていない。
