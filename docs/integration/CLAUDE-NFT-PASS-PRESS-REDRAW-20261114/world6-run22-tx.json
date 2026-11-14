@@ -1,0 +1,93 @@
+{
+  "rpc": "http://127.0.0.1:41010",
+  "frontier": "6Gg4AVKo8GAft4Wb2JSfhHCW3PQhXxYxapzBYeVjGzA9",
+  "season": "7",
+  "owner": "HQNJke4WwmrTijG76adzBSHLMTUM86McCLdCvUY75WLy",
+  "asset": "E5eGXfTByDvyWMfTLF4FRbkRdS2b93sdpfSVYHwcUKcL",
+  "previous": "GziUFmawjAh6vFthrEdxaYBePQhq5tsDKGuf8rE3cpZg",
+  "readAt": "2026-11-14T13:08:54.326Z",
+  "transfer": [
+    {
+      "signature": "3YaYQRbF95ZQss1nhmoufRwrVNAhYohfj3A12uw7M6pgXJnBmoABxYek84pXsrujfLiNWCd3KtVfd49yoA5ujG2W",
+      "ok": true,
+      "signers": [
+        "GziUFmawjAh6vFthrEdxaYBePQhq5tsDKGuf8rE3cpZg"
+      ],
+      "signedByPrevious": true,
+      "to": "HQNJke4WwmrTijG76adzBSHLMTUM86McCLdCvUY75WLy"
+    }
+  ],
+  "previousAfterTransfer": {
+    "transferSlot": 1110,
+    "transactions": [],
+    "landedOk": 0
+  },
+  "ownerTransactions": [
+    {
+      "signature": "3YaYQRbF95ZQss1nhmoufRwrVNAhYohfj3A12uw7M6pgXJnBmoABxYek84pXsrujfLiNWCd3KtVfd49yoA5ujG2W",
+      "slot": 1110,
+      "ok": true,
+      "err": null,
+      "signedByOwner": false,
+      "acts": [
+        {
+          "name": "TransferResident"
+        }
+      ],
+      "events": []
+    },
+    {
+      "signature": "4169drVFnFDfEu9DSsspZPna6JHaoqBQxVhGfTTnV3YPz222AkuUJeLAbLgAk2chZvsaYhupaE8jqW5eaPE2S33u",
+      "slot": 1254,
+      "ok": true,
+      "err": null,
+      "signedByOwner": true,
+      "acts": [
+        {
+          "residentAct": true,
+          "generation": 1,
+          "inner": "Harvest",
+          "assetInProof": true
+        }
+      ],
+      "events": [
+        {
+          "name": "HARVEST",
+          "bell": 75,
+          "p": 1,
+          "q": 1,
+          "site": 10,
+          "stores_digest": "d8b2c43da2e546f05447b1c9fd0753d2e17e020146be13b5307a75d8bbb2b016"
+        }
+      ]
+    },
+    {
+      "signature": "4Z5Bfjo8cQ6iKGTUyVJqFrh5i28nQ38xYS34fctHm4HCsxMSiByiiqmhYjhH2p4cTLfZcLaWPJQF6ZtWNkDSC8mC",
+      "slot": 1270,
+      "ok": true,
+      "err": null,
+      "signedByOwner": true,
+      "acts": [
+        {
+          "residentAct": true,
+          "generation": 1,
+          "inner": "Build",
+          "assetInProof": true
+        }
+      ],
+      "events": [
+        {
+          "name": "BUILD",
+          "bell": 76,
+          "p": 1,
+          "q": 1,
+          "site": 10,
+          "item": 0,
+          "cost_digest": "c87c335632468dc149cab95a348623ec8748c1f55735cba47df69e4f7d209a86",
+          "done_at": "1785676820"
+        }
+      ]
+    }
+  ],
+  "marches": []
+}

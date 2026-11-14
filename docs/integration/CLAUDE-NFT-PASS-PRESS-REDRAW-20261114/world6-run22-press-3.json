@@ -1,0 +1,103 @@
+{
+  "sel": "#tabs [data-tab=\"holding\"]",
+  "at": {
+    "x": 388,
+    "y": 574,
+    "waitedMs": 282
+  },
+  "tail": {
+    "events": [
+      {
+        "type": "pointerdown",
+        "t": 47753,
+        "act": "harvest",
+        "item": null,
+        "tab": null,
+        "where": "hand",
+        "connected": true,
+        "disabled": false,
+        "atPoint": "harvest",
+        "atPointWhere": "hand",
+        "x": 597.1900024414062,
+        "y": 669.9000244140625,
+        "scroll": 0
+      },
+      {
+        "type": "pointerup",
+        "t": 47753,
+        "act": "harvest",
+        "item": null,
+        "tab": null,
+        "where": "hand",
+        "connected": true,
+        "disabled": false,
+        "atPoint": "harvest",
+        "atPointWhere": "hand",
+        "x": 597.1900024414062,
+        "y": 669.9000244140625,
+        "scroll": 0
+      },
+      {
+        "type": "click",
+        "t": 47753,
+        "act": "harvest",
+        "item": null,
+        "tab": null,
+        "where": "hand",
+        "connected": true,
+        "disabled": false,
+        "atPoint": "harvest",
+        "atPointWhere": "hand",
+        "x": 597,
+        "y": 669,
+        "scroll": 0
+      },
+      {
+        "type": "pointerdown",
+        "t": 48317,
+        "act": "tab",
+        "item": null,
+        "tab": "holding",
+        "where": "page",
+        "connected": true,
+        "disabled": false,
+        "atPoint": "tab",
+        "atPointWhere": "page",
+        "x": 388,
+        "y": 574,
+        "scroll": 0
+      },
+      {
+        "type": "pointerup",
+        "t": 48443,
+        "act": "tab",
+        "item": null,
+        "tab": "holding",
+        "where": "page",
+        "connected": true,
+        "disabled": false,
+        "atPoint": "tab",
+        "atPointWhere": "page",
+        "x": 388,
+        "y": 574,
+        "scroll": 0
+      },
+      {
+        "type": "click",
+        "t": 48444,
+        "act": "tab",
+        "item": null,
+        "tab": "holding",
+        "where": "page",
+        "connected": true,
+        "disabled": false,
+        "atPoint": "tab",
+        "atPointWhere": "page",
+        "x": 388,
+        "y": 574,
+        "scroll": 0
+      }
+    ],
+    "redrawsLast2s": 1
+  }
+}

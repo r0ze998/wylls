@@ -281,6 +281,17 @@ game ページの既存試験は 1607 件中 1597 合格、失敗 10 件は修�
 - world は予定の終わり前に停止（延長しない）。run directory 304 MB を削除、空き 22.49 GiB、主側に報告。
 - **未確認のまま**：world での B の Build・Train・Muster の人の押下と入力（form・値・focus の保持）、行軍。次の world（主側と合意してから）で、直した検査を 1 回だけ。
 
+## 5k. 通常 world の 6 回目：正しい tab で開き、B の Build の人に近い押下が取引になった（同日 22:00〜22:09）
+
+主側の down＋df（21.85 GiB）の後、主側の求めで watchdog を **21.1 GiB** にして起動。追加 build なし、headless、41000 帯。同じ world で検査を 2 回（2 回目は 1 回目の原因を直した 1 回だけ、新しい world は増やしていない）。
+
+- 1 回目（`world6-run21-*`）：譲渡 UI・A の拒否・B の Harvest まで成功、B の Build で止まった。押下の記録：**Village tab を約 130 ms 間隔で 2 回押していた**。ゲームの dock は「開いている tab をもう一度押すと drawer を閉じる」（`app.mjs` の dock の処理）ので、1 回目で村が開き 2 回目で閉じ、drawer が「Selection」に戻り、Build は地図に当たった。原因は検査の `villageOrder` が `openVillage` を続けて 2 回呼んでいたこと（ページの不具合ではない）。
+- 修正：`openVillage` は村がもう出ていれば押さない。tab も人の押し方（止まって見え、押す点が tab）で 1 回だけ押し、tab が current になり村の見出しが出ることを確かめる（出なければ失敗、押し直しなし）。押下の記録に `data-tab` を追加。
+- 2 回目（`world6-run22-*`）：**dock の Village tab（`data-tab="holding"`）の押下で村が開き、B の Build の押下は pointerdown・pointerup・click がすべて drawer の Build に当たり**（押す前に約 260 ms、止まるのを待った）、**chain に B の署名の ResidentAct（世代 1）→ Build が成功**（`world6-run22-tx.json`。A の譲渡後の取引は 0 件）。その後、検査の selector の誤り（`section:has(#hp-troops-h)` が drawer 全体にも当たる）で止まった。
+- 修正：兵の card は `section.vcard[aria-labelledby="hp-troops-h"]`。押す前に止まらない・押す点が別の要素のときは**古い座標で押さず**、screenshot・DOM・記録を残して失敗にする。
+- 片付け：world を停止、run directory 259 MB を削除、空き 21.83 GiB、主側に報告。
+- **未確認のまま**：world での Train・Muster の入力（自然な再描画の下での値・focus・form）と押下、行軍と Reveal（直した検査で次の world 1 回）。
+
 ## 6. push の記録
 
 | 時刻 | `git ls-remote origin refs/heads/claude/nft-pass-mint-20261114` |

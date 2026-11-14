@@ -1,0 +1,23 @@
+13:06:34 A: connected the Dev Wallet
+13:06:35 1 no pass: the join card links to the mint page — http://127.0.0.1:41090/web/mint.html?lang=en
+13:06:36 2 minted on the mint page — E5eGXfTByDvyWMfTLF4FRbkRdS2b93sdpfSVYHwcUKcL
+13:06:39 3 joined with the NFT (JoinResident)
+13:06:41 4 acted (first village): on chain the NFT Citizen holds it, owner A, generation 0 — 8zBnWTw6Yi2oKKaTgfWcAnJnJTzjcwYTopWBcnFyYwzj
+13:07:28 4b reload: the pass is offered again
+13:07:28 5 transfer screen: a transfer to itself is refused before signing
+13:07:28 5 TransferResident A→B from the mint page's transfer screen — Transferred (confirmed on the chain): resident 0c7f27277c5e25beb49c1817eadb36 now belongs to HQNJke4WwmrTijG76adzBSHLMTUM86McCLdCvUY75WLy. This wallet can no longer play this resident.
+13:07:29 5a A (stale page) acts: refused on screen, nothing changed on chain — This resident NFT is not in this wallet now.
+13:07:32 5a2 A (stale page) builds: refused on screen, nothing changed on chain
+13:08:18 5 A: the pass is no longer offered
+13:08:22 B: connected the Dev Wallet
+13:08:24 5 B plays the same Citizen
+13:08:27 6 B harvested: the stores grew on chain — 14302439120 → 14302864424, last owner action 1785665640 → 1785676120, owner B, generation 1
+13:08:30 7 B: no nation choice beside its village
+13:08:34 8 B built: the village changed on chain — owner B, generation 1, last owner action 1785676120 → 1785676760
+13:08:34 FAILED — locator.waitFor: Error: strict mode violation: locator('section:has(#hp-troops-h)') resolved to 2 elements:
+    1) <section id="panel" data-doc="" data-look="" class="panel" data-sheet="peek" data-drawer="open" data-kind="holding" aria-labelledby="panel-title">…</section> aka getByRole('region', { name: 'Village' })
+    2) <section class="vcard" aria-labelledby="hp-troops-h">…</section> aka getByRole('region', { name: 'Troops' })
+
+Call log:
+  - waiting for locator('section:has(#hp-troops-h)') to be visible
+

@@ -79,7 +79,7 @@ function installPressMonitor() {
   const note = e => {
     const t = e.target instanceof Element ? e.target : null, a = t?.closest?.('[data-act]') ?? t;
     const at = Number.isFinite(e.clientX) ? document.elementFromPoint(e.clientX, e.clientY) : null;
-    globalThis.__press.events.push({ type: e.type, t: Math.round(performance.now()), act: a?.dataset?.act ?? a?.tagName ?? null, item: a?.dataset?.item ?? null, where: where(t), connected: !!t?.isConnected,
+    globalThis.__press.events.push({ type: e.type, t: Math.round(performance.now()), act: a?.dataset?.act ?? a?.tagName ?? null, item: a?.dataset?.item ?? null, tab: a?.dataset?.tab ?? null, where: where(t), connected: !!t?.isConnected,
       disabled: !!(a?.disabled || a?.getAttribute?.('aria-disabled') === 'true'), atPoint: at ? (at.closest('[data-act]')?.dataset.act ?? at.id ?? at.tagName) : null, atPointWhere: where(at), x: e.clientX ?? null, y: e.clientY ?? null, scroll: document.getElementById('panel-body')?.scrollTop ?? null });
     if (globalThis.__press.events.length > 400) globalThis.__press.events.shift();
   };
@@ -118,10 +118,14 @@ async function openVillage(page) {
   // drawer shows (#holding-title). World 5's press log: `.first()` of every [data-act="tab"][data-tab="holding"]
   // pressed another element at (388, 574), the drawer stayed on "Selection" and Build was pressed where no Build
   // was on screen (the map was under the point).
-  const tab = page.locator('#tabs [data-tab="holding"]');
-  if (await tab.count()) await tab.first().click();
-  else { const any = page.locator('[data-act="tab"][data-tab="holding"]').first(); if (await any.count()) await any.click(); }
-  await page.locator('#holding-title').waitFor({ state: 'visible', timeout: 15_000 }).catch(() => {});
+  // World 6: even the dock's tab was clicked at (388, 574) while the dock still moved (it sits at about (416, 680)):
+  // the press landed on another tab and the drawer stayed on "Selection". So the tab is pressed as a person presses
+  // (still, and the element at its centre), then the tab must become the current one and the village must show, or
+  // the step fails with its dumps (no retry).
+  if (await page.locator('#tabs [data-tab="holding"][aria-current="page"]').count() && await page.locator('#holding-title').isVisible().catch(() => false)) return;
+  await humanPress(page, '#tabs [data-tab="holding"]');
+  await page.locator('#tabs [data-tab="holding"][aria-current="page"]').waitFor({ state: 'attached', timeout: 10_000 });
+  await page.locator('#holding-title').waitFor({ state: 'visible', timeout: 15_000 });
 }
 const REFUSALS = /This resident NFT is not in this wallet now|ResidentHolderChanged|ResidentGenerationStale|holder could not be confirmed/;
 
@@ -188,7 +192,7 @@ async function villageOrder(page, name, what, { okText, waitEnabledMs = 120_000 
 async function humanForm(page, name, what, value, { redraws = 2, holdMs = 240_000 } = {}) {
   const formSel = what === 'train' ? '#hp-train' : '#hp-muster', fieldSel = `${formSel} ${what === 'train' ? '#f-n' : '#f-troops'}`;
   await openVillage(page);
-  const card = page.locator('section:has(#hp-troops-h)');
+  const card = page.locator('section.vcard[aria-labelledby="hp-troops-h"]');
   await card.waitFor({ state: 'visible', timeout: 30_000 });
   const reserveNow = async () => Number(((await card.locator('.c-count').first().textContent()) ?? '').replace(/[^\d]/g, '')) || 0;
   const r0 = await reserveNow();
@@ -258,7 +262,14 @@ async function humanPress(page, sel) {
       await new Promise(r => requestAnimationFrame(r));
     }
   }, sel);
-  const at = again ?? box;
+  // Not still, or something else at the centre: no press at an old position (that pressed the map in worlds 4–5).
+  if (!again || again.unsettled || !again.hit) {
+    const name = `press-refused-${sel.replace(/[^a-z0-9]+/gi, '_').slice(0, 40)}`;
+    await failureDump(page, name);
+    writeFileSync(path.join(OUT, `${name}.json`), `${JSON.stringify({ sel, box, again }, null, 2)}\n`);
+    throw new Error(`${sel}: not still or not the element at its centre within 3 s (${JSON.stringify(again)}); not pressed`);
+  }
+  const at = again;
   await page.mouse.move(at.x, at.y);
   await page.mouse.down();
   await page.waitForTimeout(120);
