@@ -135,6 +135,32 @@ B の操作は state を変えていない（cooldown）。B が操作できる�
 - 必要な条件：領土側の world を起動しない時間枠で再開する、または再開前の空きが**約 22.5 GiB 以上**（21 GiB の floor に 1 GiB 前後の余裕）。既存の他の target の再利用は、source が一致する証拠が無いので使わない。
 - build 後の実行（未実施）：`FRONTIER_BIN=<target-nftpass/release> frontier-stack up --nft-pass --conquest --beacon test-key --bots 0 --so <lane .so>`。world の容量（ledger・snapshot）は別に要る。
 
+## 5d. 通常 world と英語画面での実行（同日 15:45〜16:05）
+
+**fixture ではない通常の world**で、発行 → 保有 → 参加 → 操作 → 譲渡を画面で通した。ローカルだけ。試験の鍵はその場の乱数（メモリと browser の localStorage だけ、記録しない）。実ウォレット・公開 chain・実資金は無し。
+
+**host build**（guard 20.85 GiB、部分 target から再開）：完了 rc=0、warning 0。target は 853 MB（+172 MB）で止まらなかった。stack の unit test 20/20（`nftpass` の 3 件を含む）。7 binary を来歴付きで `frontier-node/nftpass-bin/`（41 MB）に保存（`host-bins.mjs verify` OK、commit `c1c1a55a`、rustc/cargo 1.95.0）。その後 target（1.0 GB）を削除。
+
+**review の修正**：`run_with_deadline` の process group 全体の停止と、実行中の pipe の読み取り。関数を std だけの program に写して rustc で確かめ、crate の unit test でも確かめた。
+
+**world**：`frontier-stack up --nft-pass --conquest --beacon test-key --bots 0 --viewers 0`（base 41000）。
+- 1 回目は relay の npm 依存が無く、何も起動する前に拒否（exit 2）。`permutation-gateway` で `npm ci --ignore-scripts`（lockfile どおり、57 MB）。
+- 2 回目：localnet に Core・住民 program・lane を deploy、**AnnounceSeason → CreateSeason で Season 7 を版 `0x8004` で作成**（preload ではない）、pass の setup（collection・InitConfig・TEST の販売・CreateResidentPolicy、run state に記録）、keeper・relay（`--mint-url`）・herald・mint ページ（41090）。setup 56 秒。
+
+**英語画面**（`demo/nft-world-screen-check.mjs`、playwright-core。ゲーム画面は `http://127.0.0.1:41040/frontier/frontier/`）：
+1. パス未保有の wallet（Dev Wallet）：参加カードに「This wallet holds no resident NFT (entry pass)…」と発行ページへのリンク（41090）。
+2. 発行ページで同じ鍵が mint（TEST PRICE）。
+3. ゲームで「I got one: check again」→ 国を選ぶ → 「Join with this NFT」→「Playing as an NFT」（JoinResident）。
+4. 「村を築いて始める」（PlaceHome を ResidentAct で）。chain で確認：NFT Citizen（asset の印）、Aster、村 1 つ。
+4b. 再読込でもパスが出る（下の修正の後）。
+5. Node から TransferResident A→B（世代 1）→ A の画面はパス未保有の表示に戻る → B の別 profile で「Play this NFT」→「Playing as an NFT」、A の作った村（Hamlet of Himere）と資源が B の画面に出る。
+
+**画面で見つけて直した不具合**：前回の wallet を黙って再接続する起動の経路（`adoptConnectedWallet`）は、NFT の一覧を読む wallet の同期を通らない。そのため、NFT を持つ人がページを再読込すると NFT が出なかった。起動時に Season を読んだ後、一覧が未読なら読むようにした（`controller.mjs`。NFT の Season 以外では何も問い合わせない）。修正前は手順 5 の A の再読込で失敗し、修正後は 4b・5 とも通った。source の順序の試験を追加（`web-frontier-nft-mint-link.test.mjs` 5/5）。
+
+**まだ画面で確かめていないこと**：B が画面から状態を変える行為（chain の層では確認済み：§4.1・§5b）、旧持ち主の古い署名を relay に送ったときの画面の表示、発行ページの英語化（発行ページは日本語だけ）、実ウォレット・実機。B の画面で「Choose a nation」の欄が出たままになる（表示だけの問題、未修正）。
+
+**片付け**：`frontier-stack down`（全 component 停止、mint ページも）。41000–41099 に listener 無し、自分の process 無し。run directory（294 MB）は state・events・setup log を scratchpad に写してから削除。空き 21.75 GiB。領土側に報告済み。残したもの：7 binary（41 MB）、gateway の npm 依存（57 MB）、lane の `.so`。
+
 ## 6. push の記録
 
 | 時刻 | `git ls-remote origin refs/heads/claude/nft-pass-mint-20261114` |

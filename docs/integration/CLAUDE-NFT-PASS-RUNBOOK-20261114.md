@@ -55,7 +55,7 @@ cd /Users/r0ze/Projects/wylls-nft-pass-20261114
 node permutation-nft-resident-spike/archive/host-bins.mjs verify frontier-node/nftpass-bin
 (cd permutation-nft-resident-spike && node archive/program-artifact.mjs status)
 shasum -a 256 permutation-frontier/target/deploy-localnet-nft-sbf/permutation_frontier.so permutation-nft-resident-spike/.local/programs/mpl_core.so
-FRONTIER_BIN=frontier-node/nftpass-bin frontier-node/nftpass-bin/frontier-stack check-ports --base-port 41000
+FRONTIER_BIN=frontier-node/nftpass-bin frontier-node/nftpass-bin/frontier-stack check-ports --ports 41010,41011,41020,41030,41033,41040,41050,41051,41070,41075,41090
 ```
 
 lane の `.so` が今の source の build であること（`proc/season.rs` や lane の Rust を変えたら `scripts/build-frontier-localnet-nft-sbf.sh` で作り直す）。
@@ -79,7 +79,7 @@ FRONTIER_BIN=frontier-node/nftpass-bin frontier-node/nftpass-bin/frontier-stack 
 テスト用の鍵を 2 つ（A と B）、その場で作る（使い回さない、記録しない）：`node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"`。
 
 1. **同じ鍵を 2 つの画面に**（実ウォレットなら不要な手順。ゲーム画面の Dev Wallet と発行ページの試験ウォレットは別 origin の localStorage を使うため）：
-   - ゲーム画面 `http://127.0.0.1:41040/frontier/` の devtools で `localStorage.setItem('ps-dev-wallet', '<A の hex>'); localStorage.setItem('ps-lang', 'en')`、再読込。
+   - ゲーム画面 `http://127.0.0.1:41040/frontier/frontier/`（herald は `permutation-server/web` を `/frontier/` に出すので、ゲームはその下の `frontier/`）の devtools で `localStorage.setItem('ps-dev-wallet', '<A の hex>'); localStorage.setItem('ps-lang', 'en')`、再読込。
    - 発行ページ `http://127.0.0.1:41090/web/mint.html` で `localStorage.setItem('wylls-testwallet-seed', '<A の hex>')`、再読込。両方で同じアドレスが表示されること。
 2. **パス未保有の表示**：ゲーム画面で Dev Wallet を接続 → 「Enter with a resident NFT」のカードに「This wallet holds no resident NFT (entry pass). Get one on the mint page, then join with it here.」と「Open the mint page」「I got one: check again」。リンク先が 41090 の発行ページ。
 3. **発行**：発行ページで「TEST PRICE」の表示を確認 → `POST http://127.0.0.1:41090/mock/airdrop {address, lamports}` で test SOL → 接続 → mint → 「登録完了」。

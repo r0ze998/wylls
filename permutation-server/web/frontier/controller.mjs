@@ -2537,6 +2537,9 @@ export async function startPlay({ herald: h, cfg }) {
   await kernelOrNull();
   if ((wallet.connected()?.address ?? null) !== (FS.wallet?.address ?? null)) await syncConnectedWallet();
   await refresh();
+  // ⑳ The silent reconnect above adopts the wallet without the wallet sync (which reads the resident NFTs), and the
+  // season was not known yet: read the NFT list now (loadNfts asks nothing outside an NFT season).
+  if (FS.wallet && !localPlay && FS.nftsRead === null) await loadNfts().catch(e => console.error('frontier residents:', e));
   // Local play: the player this boot read must still be the gate's wallet's own Citizen; otherwise the page lets go
   // of the wallet and says so (sends stay refused either way).
   if (localPlay && FS.wallet && !localPlayIdentityOk(localPlay, io.pinned(), FS.season, FS.citizen)) {
