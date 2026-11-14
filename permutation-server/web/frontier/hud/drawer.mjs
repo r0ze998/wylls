@@ -38,6 +38,10 @@ export function viewerState(FS) {
   // choice for a player who has a village. A record that answered before and fails now keeps what it showed: a Citizen,
   // a village, or "not joined" (workstream 16's review of 9b547d9d: a refresh failing in the nation choice closed it).)
   if (FS.meStatus === 'error' && !FS.meAnswered && !FS.citizen && !(FS.holdings ?? []).length) return 'unreachable';
+  // (⑳: switching to an NFT played — or back — resets the viewer, `FS.land` included, before the NFT Citizen's own
+  // record answers: until it does, nothing of that viewer is known, and the nation choice must not open for an NFT
+  // whose Citizen has a village, e.g. after a transfer, the new owner playing it)
+  if (FS.resident && FS.meStatus === 'loading' && !FS.meAnswered) return 'pending';
   if (FS.land || FS.citizen || (FS.holdings ?? []).length) return 'known';
   if (!FS.playReady) return FS.error && !FS.record ? 'unreachable' : 'pending';
   return FS.viewerMissed ? 'unreachable' : 'known';

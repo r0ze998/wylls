@@ -308,6 +308,10 @@ const CLIENT_TEXT = {
   ResidentSessionStale: () => L`この鍵は、住民の今の持ち主が今の世代で任せた鍵ではありません。持ち主が任せ直す必要があります。`,
   ResidentSessionExpired: () => L`住民の操作を任せた鍵の期限が切れています。持ち主が任せ直す必要があります。`,
   ResidentUnverified: () => L`住民の持ち主を確かめられなかったため、送りませんでした。あとでもう一度試してください。`,
+  // the relay's holder gate (permutation-gateway resident-chain-gate.mjs): refused before it pays
+  ResidentGenerationStale: () => L`住民NFTが署名のあとに譲渡されました。今の持ち主として操作し直してください`,
+  ResidentAssetMismatch: () => L`操作の宛先が、この住民のNFTと一致しません。送りませんでした。`,
+  ResidentNotNft: () => L`この住民はNFTの住民ではありません。NFTとしては操作できません。`,
   Expired: () => L`取引は期限までに記録されませんでした`,
   Unconfirmed: () => L`取引がまだ確認できません。あとで状態を確かめます。`,
   // (workstream 07: no read of the transaction's state answered — not a failure, it may still land)

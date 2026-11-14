@@ -531,6 +531,8 @@ export default {
   'この住民の NFT は、いまは別のウォレットが持っています。この鍵では操作できません。': 'This resident\'s NFT is now held by another wallet. This key cannot act for it.',
   'この鍵は、住民の今の持ち主が今の世代で任せた鍵ではありません。持ち主が任せ直す必要があります。': 'This key was not delegated by the resident\'s current holder in the current generation. The holder must delegate again.',
   '住民の操作を任せた鍵の期限が切れています。持ち主が任せ直す必要があります。': 'The key delegated to act for this resident has expired. The holder must delegate again.',
+  '操作の宛先が、この住民のNFTと一致しません。送りませんでした。': 'This action does not name this resident\'s NFT, so nothing was sent.',
+  'この住民はNFTの住民ではありません。NFTとしては操作できません。': 'This resident is not an NFT resident; it cannot be played as an NFT.',
   '住民の持ち主を確かめられなかったため、送りませんでした。あとでもう一度試してください。': 'The resident\'s holder could not be confirmed, so nothing was sent. Try again later.',
   'この鍵は、このシーズンのどの参加者の鍵とも一致しません': 'This key does not match any player\'s key in this season.',
   '取引がまだ確認できません。あとで状態を確かめます。': 'The transaction is not confirmed yet. It will be checked again later.',
