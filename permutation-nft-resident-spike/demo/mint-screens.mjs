@@ -6,12 +6,14 @@
 // (preinstalled here, not a dependency). Writes *.jpg and INDEX.md.
 // A phone VIEWPORT in Chromium is not a real device with a real wallet app.
 import { createRequire } from 'node:module';
+import { loadPlaywright } from '../test/playwright.mjs';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { localnetMintStack, mockMintStack } from '../src/mint-demo.mjs';
 
-const pw = createRequire(import.meta.url)('playwright');
+const pw = loadPlaywright();
+if (!pw) throw new Error('no playwright: run npm ci in permutation-gateway/screens');
 const localnet = process.argv.includes('--localnet');
 const out = path.join(path.dirname(fileURLToPath(import.meta.url)), localnet ? 'screens-localnet' : 'screens');
 mkdirSync(out, { recursive: true });

@@ -44,7 +44,8 @@ async function boot() {
   if (c.mode !== 'mock' && !/devnet/i.test(c.network)) $('notice').textContent = $('notice').textContent.replace('DEVNET のテストです', 'ローカル検証ネット（実 program、ループバック validator）のテストです');
   $('price').textContent = `${fmtSol(c.price.lamports)}${c.price.label ? ` — ${c.price.label}` : ''}`;
   // A deployment's own notice (the operator's text); the devnet banner otherwise.
-  if (c.notice) $('notice').textContent = c.notice;
+  // The companion server also sends `notice` as an object of flags ({ test, noValue, … }): only text replaces the banner.
+  if (typeof c.notice === 'string' && c.notice.trim()) $('notice').textContent = c.notice;
   renderTerms();
   $('fee').textContent = `約 ${fmtSol(c.estimate.feeLamports)}（署名 2 件）`;
   $('rent').textContent = `約 ${fmtSol(BigInt(c.estimate.rentAssetLamports) + BigInt(c.estimate.rentResidentLamports))}`;

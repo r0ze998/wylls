@@ -5,10 +5,11 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createRequire } from 'node:module';
+import { loadPlaywright } from './playwright.mjs';
 import { mockMintStack } from '../src/mint-demo.mjs';
 
 let pw = null;
-try { pw = createRequire(import.meta.url)('playwright'); } catch { /* not available: skipped */ }
+pw = loadPlaywright();
 const skip = !pw;
 
 async function stack() {
