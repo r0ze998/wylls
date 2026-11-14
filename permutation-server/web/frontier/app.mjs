@@ -4081,7 +4081,7 @@ export async function boot() {
     // >>> keep-board: the keeps of a conquest season on the board (map/keeps.mjs). The page's conquest records reach the
     // map here and nowhere else: map/keepmount.mjs hands it the keep events and the viewer's nation, and lights the
     // keeps the host in hand can reach until the hand lights its own (`map.setKeepReach`)
-    mountKeepBoard({ map });
+    mountKeepBoard({ map, clash: (p, q, bell) => herald.clash(p, q, bell) });
     // <<< keep-board
     // where the map was pressed (the board says whether a host stands there: hostUnderPress), and whether the player
     // moved the camera by hand (a drag, the wheel, the map's keys: a kept view is then not gone back to; hud/camkeep.mjs)

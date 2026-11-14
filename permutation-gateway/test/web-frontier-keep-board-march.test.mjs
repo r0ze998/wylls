@@ -120,7 +120,8 @@ test('what the page hands the map: a conquest season\'s keep events and the view
   assert.equal(mountKeepBoard({ map: {} }), null);
   // app.mjs has the one block
   const app = readFileSync(new URL('app.mjs', WEB), 'utf8');
-  assert.equal(app.match(/mountKeepBoard\(\{ map \}\)/g)?.length, 1);
+  // (2026-11-14: the board also gets the page's own herald reader for the battle reports; web-frontier-clash-origin.test.mjs)
+  assert.equal(app.match(/mountKeepBoard\(\{ map, clash: \(p, q, bell\) => herald\.clash\(p, q, bell\) \}\)/g)?.length, 1);
   assert.match(app, /\/\/ >>> keep-board[\s\S]{0,600}\/\/ <<< keep-board/);
 });
 

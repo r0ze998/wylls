@@ -296,7 +296,7 @@ test('only on a conquest season: elsewhere nothing is told, asked for or called 
   assert.equal(a.hold, true);
   own.off();
   const mount = src('map/keepmount.mjs');
-  assert.match(mount, /const own = mountOwnClash\(\{ state, enabled: fs => keepFeedOf\(fs\)\.enabled \}\);/);
+  assert.match(mount, /const own = mountOwnClash\(\{ state, enabled: fs => keepFeedOf\(fs\)\.enabled, clash \}\);/, 'the page\'s own herald reader (web-frontier-clash-origin.test.mjs)');
   assert.match(mount, /if \(feed\.enabled\) \{ try \{ autoPanDefault\(fs\); own\.sync\(\); \}/);
 });
 

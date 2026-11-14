@@ -78,11 +78,13 @@ export function keepReachOf(fs, h) {
 }
 
 /** Give the map its feed and its default reach. Returns `{sync}` (called by the map's feed each frame; tests call it), or null without a map. */
-export function mountKeepBoard({ map, state = () => FS } = {}) {
+export function mountKeepBoard({ map, state = () => FS, clash = null } = {}) {
   if (!map?.setKeepFeed) return null;
   let key = null;
   // the clashes of the viewer's own host where it stands (map/ownclash.mjs): only on a conquest season, as the keeps are
-  const own = mountOwnClash({ state, enabled: fs => keepFeedOf(fs).enabled });
+  // (`clash`: the page's own herald reader (app.mjs, the checked `cfg.herald`). Without it the watch built a second reader
+  //  from the page's origin: in a local-play world that is the launcher, and every report read was a 404 there, 2026-11-14)
+  const own = mountOwnClash({ state, enabled: fs => keepFeedOf(fs).enabled, clash });
   const sync = () => {
     const fs = state(), feed = keepFeedOf(fs);
     if (feed.enabled) { try { autoPanDefault(fs); own.sync(); } catch (e) { globalThis.console?.warn?.('frontier own clash:', e); } }
