@@ -10,7 +10,6 @@ use fclient::{
     unsigned_message_preflight::Limits,
     wide_resident_draft::Draft,
 };
-use frontier_abi::world_index::expedition_dispatch_ix;
 use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
 use solana_address::Address;
@@ -110,13 +109,8 @@ pub fn parse_request(bytes: &[u8]) -> Result<Request, &'static str> {
         &serde_json::to_vec(&echo["source_request"]).map_err(|_| "RequestInvalid")?,
     )
     .map_err(|_| "RequestInvalid")?;
-    if source
-        .scope()
-        .deployment
-        .as_ref()
-        .map(|d| d.program_version)
-        != Some(expedition_dispatch_ix::PROGRAM_VERSION)
-    {
+    // (0x4804 as before; the local test candidate 0xC804 only under its own id: crate::local_lane)
+    if crate::local_lane::served_scope(source.scope()).is_none() {
         return Err("RequestInvalid");
     }
     let source_context_slot = decimal(&echo["source_context_slot"])?;
@@ -260,12 +254,14 @@ where
         loaded_limit: s.loaded_limit,
         heap: Some(fclient::experimental_expedition_message::RESIDENT_HEAP_FRAME),
     };
+    // the deployment's own served version (checked at parse; read again, never a literal)
+    let version = crate::local_lane::served_scope(r.source.scope()).ok_or("RequestInvalid")?;
     let prepared = prepare_resident(
         &draft,
         Target {
             program: s.program,
             season: s.season,
-            program_version: expedition_dispatch_ix::PROGRAM_VERSION,
+            program_version: version,
         },
         observed.observation,
         budget,
@@ -284,7 +280,7 @@ where
         json!({"schema":REPORT_SCHEMA,"status":"prepared","request":r.echo,
         "source":{"request_digest":r.source.digest(),"context_slot":context.to_string(),"digest":fresh["source"]["digest"],"coherent":true,"authority_verified":false},
         "blockhash":{"hash":fclient::Hash::new_from_array(hash.blockhash).to_string(),"latest_context_slot":observed.latest_context_slot.to_string(),"validity_context_slot":hash.context_slot.to_string(),"height_min_context_slot":observed.height_min_context_slot.to_string(),"block_height":hash.block_height.to_string(),"last_valid_block_height":hash.last_valid_block_height.to_string(),"remaining_block_heights":report.remaining_block_heights.to_string(),"valid":true,"commitment":"confirmed","coherent":false,"authority_verified":false},
-        "prepared":{"program":s.program.to_string(),"season":s.season.to_string(),"program_version":expedition_dispatch_ix::PROGRAM_VERSION.to_string(),"action":r.action,"fee_payer":s.fee_payer.to_string(),
+        "prepared":{"program":s.program.to_string(),"season":s.season.to_string(),"program_version":version.to_string(),"action":r.action,"fee_payer":s.fee_payer.to_string(),
             "budget":{"cu_limit":budget.cu_limit,"cu_price":"0","loaded_limit":budget.loaded_limit,"heap":budget.heap},"roles":roles,
             "instruction_hex":hex::encode(&prepared.instruction().data),"message_b64":base64::engine::general_purpose::STANDARD.encode(&message),"message_digest":hex::encode(Sha256::digest(&message)),
             "signers":prepared.expected_signers().iter().map(ToString::to_string).collect::<Vec<_>>(),"shape":{"bytes":report.shape.bytes,"locks":report.shape.locks,"writes":report.shape.writes,"sigs":report.shape.sigs},"proposal_digest":proposal_digest},
