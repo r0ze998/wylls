@@ -251,6 +251,8 @@ pub struct Archive {
     dirty: bool,
     /// How frame payloads are stored (module note); recorded in the manifest unless the default.
     codec: Codec,
+    /// The most one frame's payload may decode to (with a codec, enforced on write and on read).
+    frame_max: usize,
 }
 
 impl Archive {
@@ -327,6 +329,7 @@ impl Archive {
             unsynced: None,
             dirty: false,
             codec,
+            frame_max: FRAME_DECODE_MAX,
         };
         a.write_manifest()?;
         Ok(a)
@@ -382,15 +385,31 @@ impl Archive {
         keep_feed_seq: bool,
     ) -> io::Result<Vec<TxRecord>> {
         let mut out = Vec::with_capacity(recs.len());
-        for r in recs {
+        // (round 13 review: every frame of the batch is built and checked BEFORE any is written. With a codec, a record
+        //  whose JSON is longer than a frame may decode to is refused and nothing of the batch is written — never a record
+        //  this archive could not read back. The default is unchanged: no limit, the same bytes.)
+        let mut staged = Vec::with_capacity(recs.len());
+        for (i, r) in recs.iter().enumerate() {
             let mut r = r.clone();
             let feed_seq = r.seq;
-            r.seq = self.manifest.next_seq;
+            r.seq = self.manifest.next_seq + i as u64;
             let mut v = record_to_json(&r);
             if keep_feed_seq {
                 v["feed_seq"] = json!(feed_seq);
             }
-            let payload = self.codec.encode(&serde_json::to_vec(&v).map_err(io_err)?);
+            let raw = serde_json::to_vec(&v).map_err(io_err)?;
+            if self.codec != Codec::Plain && raw.len() > self.frame_max {
+                return Err(io_err(format!(
+                    "record {} is {} B as JSON, over the {} B a {} frame may decode to: refused, nothing of this batch written",
+                    r.seq,
+                    raw.len(),
+                    self.frame_max,
+                    self.codec.word().unwrap_or("plain")
+                )));
+            }
+            staged.push((r, self.codec.encode(&raw)));
+        }
+        for (r, payload) in staged {
             let fr = frame(&payload);
             let roll = match self.manifest.segments.last() {
                 None => true,
@@ -541,7 +560,7 @@ impl Archive {
                 )));
             }
             for (expect, p) in (s.first_seq..).zip(frames) {
-                let p = self.codec.decode(&p, FRAME_DECODE_MAX).map_err(|e| io_err(format!("{}: {e}", s.name)))?;
+                let p = self.codec.decode(&p, self.frame_max).map_err(|e| io_err(format!("{}: {e}", s.name)))?;
                 let v: Value = serde_json::from_slice(&p).map_err(io_err)?;
                 let r = record_from_json(&v).map_err(io_err)?;
                 if r.seq != expect {
@@ -582,7 +601,7 @@ impl Archive {
                 return Err(format!("{}: corrupt frame after {good} B", s.name));
             }
             for f in frames {
-                let f = self.codec.decode(&f, FRAME_DECODE_MAX).map_err(|e| format!("{}: {e}", s.name))?;
+                let f = self.codec.decode(&f, self.frame_max).map_err(|e| format!("{}: {e}", s.name))?;
                 let v: Value = serde_json::from_slice(&f).map_err(|e| e.to_string())?;
                 let seq = v.get("seq").and_then(|x| x.as_u64()).unwrap_or(0);
                 if seq != expect {
@@ -760,6 +779,37 @@ mod tests {
         );
         assert_eq!(Archive::open(&d, 600).unwrap().verify(), Ok(12));
         let _ = fs::remove_dir_all(&d);
+    }
+
+    #[test]
+    fn with_a_codec_a_record_it_could_not_read_back_is_refused_before_anything_is_written() {
+        let d = tmp("frame-limit");
+        let mut a = Archive::open_with(&d, 600_000, Codec::GzipV1).unwrap();
+        a.append(&[rec(1)], json!(1)).unwrap();
+        a.commit().unwrap();
+        let (seq, len, m) = (a.manifest.next_seq, a.open_segment_len().unwrap(), fs::read(d.join("manifest.json")).unwrap());
+        // the limit just under the second record's JSON: the batch is refused, the record before it in the batch too
+        let big = { let mut r = rec(3); r.post[0].1.as_mut().unwrap().data = vec![7; 4096]; r };
+        a.frame_max = serde_json::to_vec(&record_to_json(&TxRecord { seq: seq + 1, ..big.clone() })).unwrap().len() - 1;
+        let e = a.append(&[rec(2), big.clone()], json!(2)).unwrap_err().to_string();
+        assert!(e.contains("refused, nothing of this batch written"), "{e}");
+        assert_eq!(a.manifest.next_seq, seq, "no sequence taken");
+        assert_eq!(a.open_segment_len().unwrap(), len, "no byte written");
+        a.commit().unwrap();
+        assert_eq!(fs::read(d.join("manifest.json")).unwrap(), m, "the manifest is as it was");
+        // the archive goes on: a record within the limit is appended and every record reads back
+        a.append(&[rec(2)], json!(3)).unwrap();
+        a.commit().unwrap();
+        assert_eq!(a.read_after(0).unwrap().len(), 2);
+        assert_eq!(a.verify().unwrap(), 2);
+        // the default has no such limit: the same record is stored as before
+        let p = tmp("frame-limit-plain");
+        let mut b = Archive::open(&p, 600_000).unwrap();
+        b.frame_max = 10;
+        b.append(&[big], json!(1)).unwrap();
+        assert_eq!(b.read_after(0).unwrap().len(), 1);
+        let _ = fs::remove_dir_all(d);
+        let _ = fs::remove_dir_all(p);
     }
 
     #[test]

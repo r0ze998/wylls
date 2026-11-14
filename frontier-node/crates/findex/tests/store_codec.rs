@@ -295,3 +295,81 @@ fn damage_order_and_bad_gzip_are_caught() {
     assert!(a.read_after(0).is_err());
     let _ = fs::remove_dir_all(&d);
 }
+
+// ---- round 13 review: an index opened DIRECTLY (not through Findex::open_with) follows the codec it records
+fn index_at(dir: &Path) -> Index {
+    Index::open(&dir.join("index.sqlite"), Address::new_from_array(PROGRAM), Some(findex::addr_ctx(&Address::new_from_array(PROGRAM), 3))).unwrap()
+}
+
+#[test]
+fn a_directly_opened_index_reads_and_writes_the_codec_it_records() {
+    let d = tmp("direct");
+    write(&d.join("archive"), Codec::GzipV1, 4);
+    drop(Findex::open_with(&d, Address::new_from_array(PROGRAM), Some(3), SEG, Codec::GzipV1).unwrap());
+    // a direct open: the snapshot comes back as its bytes, never the gzip it is stored as
+    let mut ix = index_at(&d);
+    let a = Address::new_from_array([(4 % 7) as u8 + 1; 32]);
+    assert_eq!(ix.latest(&a).unwrap().unwrap().data, province(4));
+    // a direct add writes in the recorded codec (no mixed rows), and it reads back
+    ix.add(&[rec(5)]).unwrap();
+    let blobs: Vec<Vec<u8>> = ix.conn.prepare("SELECT data FROM snapshot ORDER BY seq").unwrap().query_map([], |r| r.get(0)).unwrap().map(|x| x.unwrap()).collect();
+    assert_eq!(blobs.len(), 5);
+    assert!(blobs.iter().all(|b| b.starts_with(&[0x1f, 0x8b])), "every stored row is gzip");
+    assert_eq!(ix.latest(&Address::new_from_array([(5 % 7) as u8 + 1; 32])).unwrap().unwrap().data, province(5));
+    // asked for the default, it refuses; asked for its own codec, it goes on
+    assert!(ix.use_snapshot_codec(Codec::Plain).unwrap_err().contains("never reopened"));
+    ix.use_snapshot_codec(Codec::GzipV1).unwrap();
+    drop(ix);
+    // reopened directly again: still its own codec
+    assert_eq!(index_at(&d).latest(&a).unwrap().unwrap().data, province(4));
+    // a default index opened directly: no row, the bytes as they are
+    let p = tmp("direct-plain");
+    write(&p.join("archive"), Codec::Plain, 2);
+    drop(Findex::open(&p, Address::new_from_array(PROGRAM), Some(3), SEG).unwrap());
+    let ix = index_at(&p);
+    let raw: Vec<u8> = ix.conn.query_row("SELECT data FROM snapshot ORDER BY seq LIMIT 1", [], |r| r.get(0)).unwrap();
+    assert_eq!(raw, province(1), "stored as is");
+    assert_eq!(ix.latest(&Address::new_from_array([2; 32])).unwrap().unwrap().data, province(1));
+    for x in [d, p] {
+        let _ = fs::remove_dir_all(x);
+    }
+}
+
+#[test]
+fn an_unknown_recorded_codec_is_refused_on_a_direct_open() {
+    let d = tmp("direct-unknown");
+    fs::create_dir_all(&d).unwrap();
+    let mut ix = index_at(&d);
+    ix.use_snapshot_codec(Codec::GzipV1).unwrap();
+    ix.conn.execute("UPDATE meta SET v = 7 WHERE k = 'snapshot_codec'", []).unwrap();
+    drop(ix);
+    let e = Index::open(&d.join("index.sqlite"), Address::new_from_array(PROGRAM), None).err().unwrap();
+    assert!(e.contains("unknown snapshot codec 7"), "{e}");
+    let _ = fs::remove_dir_all(d);
+}
+
+#[test]
+fn a_snapshot_the_index_could_not_read_back_is_refused_and_nothing_is_written() {
+    let d = tmp("snap-limit");
+    fs::create_dir_all(&d).unwrap();
+    let mut ix = index_at(&d);
+    ix.use_snapshot_codec(Codec::GzipV1).unwrap();
+    ix.add(&[rec(1)]).unwrap();
+    let mut big = rec(2);
+    big.post[0].1.as_mut().unwrap().data = vec![0u8; findex::codec::SNAPSHOT_DECODE_MAX + 1];
+    let e = ix.add(&[big]).unwrap_err();
+    assert!(e.contains("refused"), "{e}");
+    assert_eq!(ix.last_seq().unwrap(), 1, "the transaction rolled back");
+    let n: i64 = ix.conn.query_row("SELECT COUNT(*) FROM snapshot", [], |r| r.get(0)).unwrap();
+    assert_eq!(n, 1);
+    // the default has no such limit
+    let p = tmp("snap-limit-plain");
+    fs::create_dir_all(&p).unwrap();
+    let mut ix = index_at(&p);
+    let mut big = rec(1);
+    big.post[0].1.as_mut().unwrap().data = vec![0u8; findex::codec::SNAPSHOT_DECODE_MAX + 1];
+    ix.add(&[big]).unwrap();
+    for x in [d, p] {
+        let _ = fs::remove_dir_all(x);
+    }
+}

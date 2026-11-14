@@ -209,13 +209,15 @@ impl Index {
             "INSERT OR IGNORE INTO meta(k, v) VALUES(?1, 1)",
             params![BLOCKED_KEY],
         ))?;
+        // (round 13 review: the codec this index RECORDS, so an index opened directly reads and writes its own codec)
+        let snapshot_codec = recorded_snapshot_codec(&conn)?;
         Ok(Index {
             conn,
             ctx,
             program,
             rebuilds: 0,
             truncations: 0,
-            snapshot_codec: crate::codec::Codec::Plain,
+            snapshot_codec,
         })
     }
 
@@ -454,15 +456,7 @@ impl Index {
     /// otherwise it is refused: an index is never read or written in a codec other than its own.
     pub fn use_snapshot_codec(&mut self, codec: crate::codec::Codec) -> Result<(), String> {
         use crate::codec::Codec;
-        let recorded = match sql(self
-            .conn
-            .query_row("SELECT v FROM meta WHERE k = 'snapshot_codec'", [], |r| r.get::<_, i64>(0))
-            .optional())?
-        {
-            None => Codec::Plain,
-            Some(1) => Codec::GzipV1,
-            Some(v) => return Err(format!("index: unknown snapshot codec {v}")),
-        };
+        let recorded = recorded_snapshot_codec(&self.conn)?;
         if recorded != codec {
             let empty: i64 = sql(self.conn.query_row(
                 "SELECT (SELECT COUNT(*) FROM tx) + (SELECT COUNT(*) FROM snapshot)",
@@ -631,6 +625,18 @@ fn fee_payer(wire: &[u8]) -> Option<Address> {
         .and_then(|t| t.message.account_keys.first().copied())
 }
 
+/// The snapshot codec an index records in `meta` (no row: stored as is); an unknown value is refused.
+fn recorded_snapshot_codec(conn: &Connection) -> Result<crate::codec::Codec, String> {
+    match sql(conn
+        .query_row("SELECT v FROM meta WHERE k = 'snapshot_codec'", [], |r| r.get::<_, i64>(0))
+        .optional())?
+    {
+        None => Ok(crate::codec::Codec::Plain),
+        Some(1) => Ok(crate::codec::Codec::GzipV1),
+        Some(v) => Err(format!("index: unknown snapshot codec {v}")),
+    }
+}
+
 fn index_one(
     t: &rusqlite::Transaction<'_>,
     r: &TxRecord,
@@ -676,7 +682,16 @@ fn index_one(
             Some(a) if !fclient::decode::is_absent(&a.owner, &a.data) => continue,
             _ => (None, None, None, vec![], false),
         };
-        // (stored through the index's codec: as is by default; gzip-v1 only in a store created so — crate::codec)
+        // (stored through the index's codec: as is by default; gzip-v1 only in a store created so — crate::codec; with a
+        //  codec, never a blob the index could not read back)
+        if codec != crate::codec::Codec::Plain && data.len() > crate::codec::SNAPSHOT_DECODE_MAX {
+            return Err(format!(
+                "snapshot of {k} at archive sequence {} is {} B, over the {} B a snapshot may decode to: refused",
+                r.seq,
+                data.len(),
+                crate::codec::SNAPSHOT_DECODE_MAX
+            ));
+        }
         let data = codec.encode(&data);
         sql(t.execute(
             "INSERT OR REPLACE INTO snapshot(address, seq, slot, lamports, owner, kind, data)
