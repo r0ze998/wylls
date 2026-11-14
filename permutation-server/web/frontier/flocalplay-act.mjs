@@ -24,6 +24,7 @@ import { budgetPrefix } from '../sdk/frontier/budgets.mjs';
 import { decode, encode } from '../sdk/base58.mjs';
 import { toBase64, toHex } from '../sdk/bytes.mjs';
 import { sha256 } from '../sdk/sha256.mjs';
+import { LOCAL_ACT_SUBMIT_RESIDENT_SCHEMA, localResidentActMessage, localResidentProof } from './flocalresident.mjs';
 
 export const LOCAL_ACT_NAMES = Object.freeze(['Join', 'PlaceHome', 'Harvest', 'Build', 'Train', 'Muster']);
 export const LOCAL_ACT_CONTEXT_PATH = '/gw/f/local-play/act/context';
@@ -40,7 +41,9 @@ export const LOCAL_ACT_SEASON_ID = '11';
  * `LocalActSendRefused` (the send was attempted) and `LocalActMessageUsed` (the bytes or the signature are already known).
  */
 export const LOCAL_ACT_PRESEND_REFUSALS = Object.freeze(['LocalActInvalid', 'LocalActNotAllowed', 'LocalActWideHolding', 'LocalActMessageMismatch', 'LocalActSigner',
-  'LocalActBusy', 'LocalActAlreadyJoined', 'LocalActCitizen', 'LocalActHolding', 'LocalActNotYourVillage', 'LocalActRpcUnavailable', 'LocalActClosed']);
+  'LocalActBusy', 'LocalActAlreadyJoined', 'LocalActCitizen', 'LocalActHolding', 'LocalActNotYourVillage', 'LocalActRpcUnavailable', 'LocalActClosed',
+  // (the LOCAL TEST CANDIDATE lane's NFT resident path: refused on the accounts read, before the send)
+  'LocalActResidentUnverified', 'LocalActResidentNotHolder', 'LocalActResidentStale', 'LocalActResidentCitizen']);
 export const LOCAL_ACT_MAX_BYTES = 16 * 1024;
 export const LOCAL_ACT_TIMEOUT_MS = 30_000;
 
@@ -294,7 +297,9 @@ export async function postLocalAct(origin, path, body, { fetch: fetcher = (...a)
  * `deps`: `allowed()` → the page's local-play gate (`{ok, relay}`), `identity()` → `fs.localPlay`, `rulesetHash()` →
  * the Season's ruleset hash (64 hex), `signer()` → the live memory-only wallet, `post` (tests).
  */
-export async function submitLocalAct({ name, v, fields }, { allowed, identity, rulesetHash, signer, post = postLocalAct } = {}) {
+// `resident()` (optional; LOCAL TEST CANDIDATE lane only): the NFT resident played, `{asset, generation, residentProgram}`
+// with the generation read NOW, or null for the wallet's own Citizen (then everything is exactly as before).
+export async function submitLocalAct({ name, v, fields }, { allowed, identity, rulesetHash, signer, post = postLocalAct, resident = () => null } = {}) {
   // (`httpStatus`: when the relay answered with a status, or did not answer at all (503) — the page's existing notice
   //  texts say "unavailable" for 5xx and "busy" for 429 from it (fi18n.mjs `failureText`); no new sentence is made)
   const no = (code, httpStatus = undefined) => ({ ok: false, code, error: code, ...(Number.isInteger(httpStatus) ? { httpStatus } : {}) });
@@ -312,7 +317,13 @@ export async function submitLocalAct({ name, v, fields }, { allowed, identity, r
     const ctx = await post(origin, LOCAL_ACT_CONTEXT_PATH, { schema: LOCAL_ACT_CONTEXT_SCHEMA });
     check(exact(ctx, ['wallet', 'blockhash']) && ctx.wallet === wallet && exact(ctx.blockhash, ['hash', 'last_valid_block_height', 'context_slot'])
       && address(ctx.blockhash.hash) && uintText(ctx.blockhash.last_valid_block_height) && uintText(ctx.blockhash.context_slot), 'BadLocalActContext');
-    message = localActMessage(intent, i, hash, ctx.blockhash.hash); height = Number(ctx.blockhash.last_valid_block_height);
+    const rs = resident();
+    if (rs !== null) {
+      check(exact(rs, ['asset', 'generation', 'residentProgram']) && address(rs.asset) && address(rs.residentProgram) && Number.isInteger(rs.generation), 'LocalActResident');
+      const proof = { ...localResidentProof({ programId: i.programId, seasonAddress: i.seasonAddress, asset: rs.asset, residentProgram: rs.residentProgram }), residentProgram: rs.residentProgram };
+      message = localResidentActMessage(intent, { programId: i.programId, seasonAddress: i.seasonAddress, wallet, rulesetHash: hash, blockhash: ctx.blockhash.hash, resident: { asset: rs.asset, generation: rs.generation, proof } });
+    } else message = localActMessage(intent, i, hash, ctx.blockhash.hash);
+    height = Number(ctx.blockhash.last_valid_block_height);
     // (the context was awaited: the page, the identity and the wallet are asked again before anything is signed)
     check(gate() === origin && signer() === w && w.destroyed === false && identity() === i, 'LocalActChanged');
     const account = (await w.wallet.features['standard:connect'].connect()).accounts.find(a => a.address === wallet);
@@ -323,7 +334,9 @@ export async function submitLocalAct({ name, v, fields }, { allowed, identity, r
     sig = signed.signature; bytes = signed.wire.length;
     // from here the transaction may reach the chain: ONE POST, and its signature is this order's for good
     attempted = true;
-    const answer = await post(origin, LOCAL_ACT_SUBMIT_PATH, { schema: LOCAL_ACT_SUBMIT_SCHEMA, name: intent.name, subject: intent.subject, fields: intent.fields, transaction_b64: toBase64(signed.wire) });
+    const answer = await post(origin, LOCAL_ACT_SUBMIT_PATH, rs === null
+      ? { schema: LOCAL_ACT_SUBMIT_SCHEMA, name: intent.name, subject: intent.subject, fields: intent.fields, transaction_b64: toBase64(signed.wire) }
+      : { schema: LOCAL_ACT_SUBMIT_RESIDENT_SCHEMA, name: intent.name, subject: intent.subject, fields: intent.fields, resident: { asset: rs.asset, generation: rs.generation, resident_program: rs.residentProgram }, transaction_b64: toBase64(signed.wire) });
     check(object(answer) && ['submitted', 'unknown'].includes(answer.status) && answer.signature === sig && answer.name === intent.name, 'BadLocalActSubmitted');
     return { ok: true, signature: sig, message, feePayer: wallet, lastValidBlockHeight: height, bytes };
   } catch (e) {

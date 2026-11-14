@@ -21,6 +21,7 @@ import { citizenIdentity } from './conquest-table-read.mjs';
 import { decodePrefix } from '../../../permutation-server/web/frontier/fcodec.mjs';
 import { accountsFor, buildShape, SIGNED_BY } from '../../../permutation-server/web/frontier/fplay.mjs';
 import { seasonAddresses } from '../../../permutation-server/web/frontier/faddr.mjs';
+import { LOCAL_ACT_SUBMIT_RESIDENT_SCHEMA, LOCAL_RESIDENT_ERRORS, localResidentAccounts, localResidentSubmit, localResidentVerify } from './local-play-nft-resident.mjs';
 import { ringPosition } from '../../../permutation-server/web/frontier/map/wide.mjs';
 import { profileForHash } from '../../../permutation-server/web/sdk/frontier/profile.mjs';
 import { budgetPrefix } from '../../../permutation-server/web/sdk/frontier/budgets.mjs';
@@ -48,6 +49,8 @@ const ERRORS = Object.freeze({
   LocalActClosed: [503, 'the local-play relay is closing'],
   // (the instance read of the context route: this relay was started without a pinned runner instance)
   LocalActNoInstance: [404, 'this relay has no pinned runner instance to confirm'],
+  // (the LOCAL TEST CANDIDATE lane's NFT resident path only: local-play-nft-resident.mjs)
+  ...LOCAL_RESIDENT_ERRORS,
 });
 export class LocalActError extends Error {
   constructor(code, detail) { const known = Object.hasOwn(ERRORS, code) ? code : 'LocalActInvalid'; super(ERRORS[known][1]); this.code = known; this.status = ERRORS[known][0]; if (detail !== undefined) this.detail = detail; }
@@ -270,7 +273,22 @@ export function createLocalPlayAct({ cfg, rpc = (m, p) => fetchRpc(cfg.rpc, m, p
 
     async submit(body) {
       open();
-      const ok = localActSubmit(body, pins), digest = sha(ok.message);
+      let ok, digest;
+      if (body?.schema === LOCAL_ACT_SUBMIT_RESIDENT_SCHEMA) {
+        // (LOCAL TEST CANDIDATE lane only — refused on the conquest lane before anything is read: an NFT resident's
+        //  command, every holder fact checked on ONE read at one slot: local-play-nft-resident.mjs)
+        const parsed = localResidentSubmit(body, pins, { intentOf: localActIntent, fail });
+        const want = localResidentAccounts(parsed, pins);
+        const got = await ask('getMultipleAccounts', [want.list, { encoding: 'base64', commitment: 'confirmed' }]);
+        open();
+        const slot = got.result?.context?.slot, rows = got.result?.value;
+        if (!Number.isSafeInteger(slot) || slot < 0 || !Array.isArray(rows) || rows.length !== want.list.length) fail('LocalActRpcUnavailable');
+        const read = rows.map(accountOf);
+        ok = localResidentVerify(parsed, pins, want.holding === null ? [...read, undefined] : read, { fail });
+        digest = sha(ok.message);
+        check(!seen.has(digest), 'LocalActMessageUsed'); check(seen.size < LOCAL_ACT_MAX_HISTORY, 'LocalActBusy');
+      } else {
+      ok = localActSubmit(body, pins); digest = sha(ok.message);
       check(!seen.has(digest), 'LocalActMessageUsed'); check(seen.size < LOCAL_ACT_MAX_HISTORY, 'LocalActBusy');
       const { intent } = ok, holdingAt = intent.subject.holding ? A.of('Holding', intent.subject.holding) : null;
       const asked = holdingAt === null ? [citizenAt] : [citizenAt, holdingAt];
@@ -279,6 +297,8 @@ export function createLocalPlayAct({ cfg, rpc = (m, p) => fetchRpc(cfg.rpc, m, p
       const slot = got.result?.context?.slot, rows = got.result?.value;
       if (!Number.isSafeInteger(slot) || slot < 0 || !Array.isArray(rows) || rows.length !== asked.length) fail('LocalActRpcUnavailable');
       localActAccountsCheck(intent, pins, { citizenAt, holdingAt }, [accountOf(rows[0]), holdingAt === null ? undefined : accountOf(rows[1])]);
+      }
+      const { intent } = ok;
       // With a pinned runner: the LAST thing asked before the send is the runner's own word on this very signature.
       // The answer must be the pinned instance's (the status context is where the runner states its instance), and the
       // signature must not be known to it yet. Another instance, no instance, or a malformed answer: nothing is sent
