@@ -1,6 +1,42 @@
-# keeper `tests/play.rs::claim_after_late_reveal`: open failure, hypotheses and observation points
+# keeper `tests/play.rs::claim_after_late_reveal`: cause measured, regression patch drafted (not yet run)
 
-Status: **OPEN. The cause is not proven.** This note holds a source diagnosis and a measurement plan. It is not a conclusion. Nothing has been skipped, and no expected value has been relaxed.
+Status:
+- **Cause measured (2026-11-15).** It fails at base `20adb087` and since `0147a885`, ⑱'s 2-version Reveal cap. The cap alone explains it.
+- **Regression patch drafted, NOT COMPILED, NOT RUN.** It needs a slot, and the keeper owner (⑱ / territory) decides whether to take it.
+- Nothing is skipped, and the original test's expected values are unchanged.
+
+## Measured (one cargo at a time, rustc 1.95.0, offline/locked, fresh target, unchanged guard, script `cd92f1c1`)
+
+| Run | Tree | Result |
+|---|---|---|
+| a | unchanged `20adb087` (detached worktree, clean) | **FAIL**: faction 0 reveals at 713, `no claim` |
+| b1 | `70843bb5` (parent of `0147a885`) | **PASS**: claim 166,180 lamports |
+| b2 | `0147a885` | **FAIL**, identical |
+| probe | `20adb087` + env override `max_unknown_w_versions = 0` in the test's `keeper_cfg` only (4 lines, never committed) | **PASS**: claim 166,180 |
+| c | candidate head `1e2d79a7`, twice | **FAIL ×2**, identical (deterministic) |
+
+Conclusion:
+- `0147a885` introduced the failure, and the anchor wait from `0bf02548` is not needed to explain it (H1 confirmed; H2 and H3 are not needed).
+- This branch does not cause it: the candidate fails identically to base.
+- Logs: `scratchpad/logs/bisect-*.log`.
+- Trees: `/Users/r0ze/Projects/wylls-keeper-bisect-{base-20adb087,pre-0147a885,at-0147a885,probe-20adb087}`, kept as evidence. The probe tree holds the uncommitted 4-line override.
+
+## Regression patch (candidate commit `cfa98ae8`; `CLAUDE-KEEPER-CLAIM-AFTER-LATE-REVEAL-20261115.patch` = `git diff 20adb087 cfa98ae8 -- frontier-node/crates/keeper/tests/play.rs`, sha256 `1c6db8e538d3655a…`)
+
+- A new `Opts::w_version_cap` is threaded through `new_keeper`.
+  - `None` keeps the config default. Every other test is unchanged.
+- `claim_after_late_reveal` sets `w_version_cap: Some(0)`, with a comment explaining why. Its expected values are unchanged: a late Reveal above the tip level opens a claim, and the claim lands with a positive refund.
+- New test `late_reveal_under_the_default_w_cap_is_not_claimed`. It uses the same hold with the default cap (2) and pins the trade-off the owner accepted:
+  - the held group's four Reveals land late (≥ `lateness_slots` after THE anchor);
+  - no claim opens.
+- Also seen: `ws04_no_reveal_before_anchor_retries` uses the same hold and says "versions escalate". It passes, because it checks reveal timing only, but with the default cap its versions stop after 2. The comment is left for the owner.
+- To verify, in a slot:
+  - `cargo test --offline --locked -p keeper --test play -- claim_after_late_reveal late_reveal_under_the_default_w_cap_is_not_claimed ws04_no_reveal_before_anchor_retries`;
+  - then the whole `cargo test -p keeper`.
+
+---
+
+Earlier diagnosis (kept as written before the runs):
 
 ## What was observed (2026-11-15, candidate branch, host slot agreed with the territory owner)
 
