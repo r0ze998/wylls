@@ -962,5 +962,9 @@ export default {
   '境界移動・征服の記録（観測）': 'Boundary movement and conquest record (observed)',
   '出資元の識別子（兵団の存在を示しません）': 'Source identity reference (not proof of a host)',
   '識別子の連番': 'Identity sequence',
-  '記録のハッシュ一致は、履歴の真正性・経済計算・現在の所有権を証明しません。ここから命令の構築・署名・送信は行いません。': 'Matching hashes do not prove authentic history, economic replay or current ownership. No instruction is constructed, signed or submitted here.',
+  '記録のハッシュ一致は、履歴の真正性・経済計算・現在の所有権を証明しません。ここから命令の構築・署名・送信は行いません。': 'Matching hashes do not prove authentic history, economic replay or current ownership. No instruction is constructed, signed or submitted here.',  // (the local test candidate lane's pass transfer on the village screen's NFT card)
+  'このパスを別のウォレットへ譲渡': 'Transfer this pass to another wallet',
+  '受け取るウォレットの公開アドレス': 'Public address of the receiving wallet',
+  '譲渡する': 'Transfer',
+  '譲渡すると、この画面からはこのNFTの住民を操作できなくなります。': 'After the transfer, this page can no longer play this NFT\'s resident.',
 };

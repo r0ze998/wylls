@@ -29,7 +29,7 @@ import { isCandidateProgram } from './local-lane-versions.mjs';
 import { decodePrefix } from '../../../permutation-server/web/frontier/fcodec.mjs';
 import { seasonAddresses } from '../../../permutation-server/web/frontier/faddr.mjs';
 import { profileForHash } from '../../../permutation-server/web/sdk/frontier/profile.mjs';
-import { LOCAL_ACT_SUBMIT_RESIDENT_SCHEMA, LOCAL_RESIDENT_ACT_COMMANDS, LOCAL_RESIDENT_JOIN, localResidentActMessage, localResidentCitizen, localResidentProof } from '../../../permutation-server/web/frontier/flocalresident.mjs';
+import { LOCAL_ACT_SUBMIT_RESIDENT_SCHEMA, LOCAL_RESIDENT_ACT_COMMANDS, LOCAL_RESIDENT_JOIN, LOCAL_RESIDENT_TRANSFER, localResidentActMessage, localResidentCitizen, localResidentProof, localTransferMessage } from '../../../permutation-server/web/frontier/flocalresident.mjs';
 
 export { LOCAL_ACT_SUBMIT_RESIDENT_SCHEMA, LOCAL_RESIDENT_ACT_COMMANDS, LOCAL_RESIDENT_JOIN };
 /** The refusals of this path (each answered BEFORE the one send: nothing sent, the bytes not consumed). */
@@ -38,6 +38,7 @@ export const LOCAL_RESIDENT_ERRORS = Object.freeze({
   LocalActResidentNotHolder: [403, 'this wallet does not hold the pass now'],
   LocalActResidentStale: [409, 'the command was signed for an earlier holder of the pass'],
   LocalActResidentCitizen: [409, 'the resident\'s Citizen is not there, or is not this pass\'s'],
+  LocalActTransferToSelf: [409, 'the pass cannot be transferred to the wallet that holds it'],
 });
 
 const LEGACY_HOLDING_MAGIC = 'PSF1HOLD', WIDE_HOLDING_MAGIC = 'PSFXWHL1';
@@ -57,12 +58,17 @@ export function localResidentSubmit(body, pins, { intentOf, fail }) {
   check(isCandidateProgram(pins.program), 'LocalActNotAllowed');   // (the conquest lane never takes this schema)
   check(exact(body, ['schema', 'name', 'subject', 'fields', 'resident', 'transaction_b64']) && body.schema === LOCAL_ACT_SUBMIT_RESIDENT_SCHEMA
     && typeof body.transaction_b64 === 'string' && body.transaction_b64.length <= 1700);
-  check(LOCAL_RESIDENT_ACT_COMMANDS.includes(body.name) || body.name === LOCAL_RESIDENT_JOIN, 'LocalActNotAllowed');
+  check(LOCAL_RESIDENT_ACT_COMMANDS.includes(body.name) || body.name === LOCAL_RESIDENT_JOIN || body.name === LOCAL_RESIDENT_TRANSFER, 'LocalActNotAllowed');
   const r = body.resident;
   check(exact(r, ['asset', 'generation', 'resident_program']) && address(r.asset) && address(r.resident_program)
     && Number.isInteger(r.generation) && r.generation >= 0 && r.generation <= 0xffffffff);
   let intent;
-  if (body.name === LOCAL_RESIDENT_JOIN) {
+  if (body.name === LOCAL_RESIDENT_TRANSFER) {
+    // (the pass to another wallet: a recipient only; never this wallet)
+    check(exact(body.subject, []) && exact(body.fields, ['to']) && address(body.fields.to));
+    check(body.fields.to !== pins.wallet, 'LocalActTransferToSelf');
+    intent = Object.freeze({ name: body.name, subject: Object.freeze({}), fields: Object.freeze({ to: body.fields.to }) });
+  } else if (body.name === LOCAL_RESIDENT_JOIN) {
     // (the NFT's first login: a faction only; no session key — the owner signs every later command itself)
     const s = body.subject, f = body.fields;
     check(exact(s, ['faction']) && Number.isInteger(s.faction) && s.faction >= 0 && s.faction <= 5 && exact(f, ['faction']) && f.faction === s.faction);
@@ -108,6 +114,17 @@ export function localResidentVerify(parsed, pins, rows, { fail }) {
   const record = rec && rec.owner === policy.residentProgram ? decodeResident(rec.bytes) : null;
   check(record != null && encode(record.asset) === resident.asset, 'LocalActResidentUnverified');
   check(record.generation === resident.generation, 'LocalActResidentStale');
+  if (intent.name === LOCAL_RESIDENT_TRANSFER) {
+    // the pass's transfer: the holder facts above (policy, current owner = this wallet, the generation stated is the
+    // record's now), then the resident program's own instruction, rebuilt with the policy's collection
+    let expected;
+    try { expected = localTransferMessage({ programId: pins.program, wallet: pins.wallet, asset: resident.asset, collection: policy.collection, residentProgram: resident.residentProgram, to: intent.fields.to, blockhash: tx.recentBlockhash }); }
+    catch (e) { fail(e?.code ?? 'LocalActInvalid'); }
+    check(Buffer.from(tx.message).equals(Buffer.from(expected)), 'LocalActMessageMismatch');
+    const key = createPublicKey({ key: Buffer.concat([SPKI_ED25519, Buffer.from(decode(pins.wallet))]), format: 'der', type: 'spki' });
+    check(edVerify(null, tx.message, key, tx.signatures[0]), 'LocalActSigner');
+    return Object.freeze({ intent, message: Uint8Array.from(tx.message), signature: encode(tx.signatures[0]) });
+  }
   if (intent.name === LOCAL_RESIDENT_JOIN) {
     // the first login: neither this asset's Citizen nor its link exists yet in this Season
     check(cit === null && hold === null, 'LocalActAlreadyJoined');

@@ -51,3 +51,13 @@ test('the village screen is exactly the village screen everywhere but the candid
   const cand = { ...base, localPlay: { programId: CAND, address: W }, season: { programVersion: 0xc804 } };
   assert.match(s(villageScreen(cand)), /data-local-nft="none"/); assert.ok(s(villageScreen(cand)).endsWith(s(renderVillage(cand))), 'then the village screen, unchanged');
 });
+
+test('playing the NFT on the candidate lane: the transfer form (address and one button); not before, not elsewhere', () => {
+  const nfts = { residents: [{ asset: ASSET, generation: 1, joined: true }], policy: POLICY, mint: null };
+  // held in worlds: no form unless the identity says passTransfer: true
+  assert.doesNotMatch(s(renderLocalCandidateNfts(fsOf({ nfts, resident: { asset: ASSET } }))), /nft-transfer/);
+  const playing = s(renderLocalCandidateNfts(fsOf({ nfts, resident: { asset: ASSET }, localPlay: { programId: CAND, address: W, passTransfer: true } })));
+  assert.match(playing, /data-local-nft="transfer"/); assert.match(playing, /id="nft-transfer-to"/); assert.match(playing, /data-act="nft-transfer"/);
+  assert.doesNotMatch(s(renderLocalCandidateNfts(fsOf({ nfts }))), /nft-transfer/);
+  assert.equal(renderLocalCandidateNfts(fsOf({ nfts, resident: { asset: ASSET }, localPlay: { programId: CONQ, address: W } })), '');
+});

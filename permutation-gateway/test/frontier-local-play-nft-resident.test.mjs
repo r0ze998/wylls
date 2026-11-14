@@ -209,3 +209,57 @@ test('the residents read: the candidate lane only, the relay\'s own wallet only,
   const plain = createLocalPlayAct({ cfg: cfgOf(LOCAL_PLAY_PROGRAM), rpc });
   assert.equal(plain.residents, undefined);
 });
+
+// The pass's transfer from the page (TransferResident, candidate lane only).
+import { localTransferIx, localTransferMessage } from '../../permutation-server/web/frontier/flocalresident.mjs';
+import { transferResidentIx } from '../../permutation-nft-resident-spike/src/resident-ix.mjs';
+
+test('the page\'s TransferResident is byte for byte the resident program\'s own builder (keys, flags, data)', () => {
+  const args = { owner: WALLET, asset: ASSET, collection: COLLECTION, to: OTHER };
+  const page = localTransferIx({ residentProgram: RESIDENT_PROGRAM, ...args });
+  const spike = transferResidentIx({ program: RESIDENT_PROGRAM, ...args });
+  assert.equal(page.programId, spike.programId);
+  assert.deepEqual(page.keys.map(k => [k.pubkey, k.isSigner, k.isWritable]), spike.keys.map(k => [k.pubkey, k.isSigner, k.isWritable]));
+  assert.deepEqual([...page.data], [...spike.data]);
+  assert.throws(() => localTransferIx({ residentProgram: RESIDENT_PROGRAM, ...args, to: WALLET }), e => e.code === 'LocalActTransferToSelf');
+});
+
+function transferOf(to, { generation = 1, collection = COLLECTION } = {}) {
+  const message = localTransferMessage({ programId: CAND, wallet: WALLET, asset: ASSET, collection, residentProgram: RESIDENT_PROGRAM, to, blockhash: HASH });
+  const wire = Buffer.concat([Buffer.from([1]), sign(null, Buffer.from(message), privateKey), Buffer.from(message)]);
+  return { schema: LOCAL_ACT_SUBMIT_RESIDENT_SCHEMA, name: 'TransferResident', subject: {}, fields: { to }, resident: { asset: ASSET, generation, resident_program: RESIDENT_PROGRAM }, transaction_b64: wire.toString('base64') };
+}
+
+test('the current holder\'s transfer goes out once; a holder that sold it, a stale generation, itself, another collection and the conquest lane are refused before any send', async () => {
+  const ok = relay(chain({ gen: 1 }));
+  assert.equal((await ok.act.submit(transferOf(OTHER))).status, 'submitted'); assert.equal(ok.sent.length, 1);
+  const sold = relay(chain({ holder: OTHER, gen: 2 }));
+  await refusal(sold.act.submit(transferOf(key(80), { generation: 2 })), 'LocalActResidentNotHolder'); assert.deepEqual(sold.sent, []);
+  const stale = relay(chain({ gen: 2 }));
+  await refusal(stale.act.submit(transferOf(OTHER, { generation: 1 })), 'LocalActResidentStale'); assert.deepEqual(stale.sent, []);
+  const self = relay(chain({ gen: 1 }));
+  const body = transferOf(OTHER); body.fields = { to: WALLET };
+  await refusal(self.act.submit(body), 'LocalActTransferToSelf'); assert.deepEqual(self.calls, [], 'refused before anything is read');
+  const coll = relay(chain({ gen: 1 }));
+  await refusal(coll.act.submit(transferOf(OTHER, { collection: key(81) })), 'LocalActMessageMismatch'); assert.deepEqual(coll.sent, []);
+  const plain = relay(chain({ gen: 1 }), LOCAL_PLAY_PROGRAM);
+  await refusal(plain.act.submit(transferOf(OTHER)), 'LocalActNotAllowed'); assert.deepEqual(plain.calls, []);
+});
+
+// KNOWN BOUNDARY (2026-11-15 review): TransferResident's data is the single byte 0x51 — the signed bytes carry no
+// holder generation, so the relay's `resident.generation` is the page's statement, not something the owner signed.
+// A transfer signed at generation 0 and held unsent can be sent after A→B→A (generation 2) by stating 2: A owns the
+// pass again, the bytes are the same. The window is the blockhash's lifetime (~151 slots), and the signed bytes could
+// also go to the chain directly (the program checks only the owner's signature for 0x51). The ordinary 0xE2/0xDD
+// orders differ: their signed bytes carry the generation and the program checks it.
+// The fix proposed (not implemented): the relay issues the transfer's blockhash itself, bound to (asset, generation
+// read then), and accepts a transfer only on such a blockhash whose bound generation is the record's now. That closes
+// the relay path; the direct-chain path stays bounded by the blockhash lifetime until the program's ABI binds a
+// generation (not decided here). The page's transfer send is held in worlds until then.
+test('KNOWN GAP: an old transfer signed at generation 0, sent after A→B→A stating generation 2', { todo: 'relay-bound transfer blockhash not implemented: the relay accepts it today' }, async () => {
+  const r = relay(chain({ gen: 2 }));   // A (WALLET) holds the pass again, at generation 2
+  const old = transferOf(OTHER, { generation: 0 });   // signed while the record said 0: the bytes carry no generation
+  old.resident.generation = 2;          // the unsigned statement now matches the record
+  await refusal(r.act.submit(old), 'LocalActResidentStale');   // the wanted outcome; today it is sent
+  assert.deepEqual(r.sent, []);
+});

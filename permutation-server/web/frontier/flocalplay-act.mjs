@@ -24,7 +24,7 @@ import { budgetPrefix } from '../sdk/frontier/budgets.mjs';
 import { decode, encode } from '../sdk/base58.mjs';
 import { toBase64, toHex } from '../sdk/bytes.mjs';
 import { sha256 } from '../sdk/sha256.mjs';
-import { LOCAL_ACT_SUBMIT_RESIDENT_SCHEMA, localResidentActMessage, localResidentProof } from './flocalresident.mjs';
+import { LOCAL_ACT_SUBMIT_RESIDENT_SCHEMA, localResidentActMessage, localResidentProof, localTransferMessage } from './flocalresident.mjs';
 
 export const LOCAL_ACT_NAMES = Object.freeze(['Join', 'PlaceHome', 'Harvest', 'Build', 'Train', 'Muster']);
 export const LOCAL_ACT_CONTEXT_PATH = '/gw/f/local-play/act/context';
@@ -46,7 +46,7 @@ export const LOCAL_ACT_SEASON_ID = '11';
 export const LOCAL_ACT_PRESEND_REFUSALS = Object.freeze(['LocalActInvalid', 'LocalActNotAllowed', 'LocalActWideHolding', 'LocalActMessageMismatch', 'LocalActSigner',
   'LocalActBusy', 'LocalActAlreadyJoined', 'LocalActCitizen', 'LocalActHolding', 'LocalActNotYourVillage', 'LocalActRpcUnavailable', 'LocalActClosed',
   // (the LOCAL TEST CANDIDATE lane's NFT resident path: refused on the accounts read, before the send)
-  'LocalActResidentUnverified', 'LocalActResidentNotHolder', 'LocalActResidentStale', 'LocalActResidentCitizen']);
+  'LocalActResidentUnverified', 'LocalActResidentNotHolder', 'LocalActResidentStale', 'LocalActResidentCitizen', 'LocalActTransferToSelf']);
 export const LOCAL_ACT_MAX_BYTES = 16 * 1024;
 export const LOCAL_ACT_TIMEOUT_MS = 30_000;
 
@@ -320,15 +320,22 @@ export async function submitLocalAct({ name, v, fields }, { allowed, identity, r
     // (the NFT's first login — JoinResident — only with a resident: a faction, no session key; else the six, as before)
     const intent = rs0 !== null && name === 'JoinResident'
       ? (check(object(v) && int(v.faction, 0, 5) && object(fields) && fields.faction === v.faction, 'LocalActShape'), { name, subject: { faction: v.faction }, fields: { faction: v.faction } })
-      : localActIntentOf(name, v, fields, wallet);
+      : rs0 !== null && name === 'TransferResident'
+        ? (check(object(fields) && address(fields.to) && fields.to !== wallet, 'LocalActShape'), { name, subject: {}, fields: { to: fields.to } })
+        : localActIntentOf(name, v, fields, wallet);
     const ctx = await post(origin, LOCAL_ACT_CONTEXT_PATH, { schema: LOCAL_ACT_CONTEXT_SCHEMA });
     check(exact(ctx, ['wallet', 'blockhash']) && ctx.wallet === wallet && exact(ctx.blockhash, ['hash', 'last_valid_block_height', 'context_slot'])
       && address(ctx.blockhash.hash) && uintText(ctx.blockhash.last_valid_block_height) && uintText(ctx.blockhash.context_slot), 'BadLocalActContext');
     const rs = rs0;
     if (rs !== null) {
-      check(exact(rs, ['asset', 'generation', 'residentProgram']) && address(rs.asset) && address(rs.residentProgram) && Number.isInteger(rs.generation), 'LocalActResident');
-      const proof = { ...localResidentProof({ programId: i.programId, seasonAddress: i.seasonAddress, asset: rs.asset, residentProgram: rs.residentProgram }), residentProgram: rs.residentProgram };
-      message = localResidentActMessage(intent, { programId: i.programId, seasonAddress: i.seasonAddress, wallet, rulesetHash: hash, blockhash: ctx.blockhash.hash, resident: { asset: rs.asset, generation: rs.generation, proof } });
+      const transfer = intent.name === 'TransferResident';
+      check((exact(rs, ['asset', 'generation', 'residentProgram']) || (transfer && exact(rs, ['asset', 'generation', 'residentProgram', 'collection']) && address(rs.collection)))
+        && address(rs.asset) && address(rs.residentProgram) && Number.isInteger(rs.generation), 'LocalActResident');
+      if (transfer) message = localTransferMessage({ programId: i.programId, wallet, asset: rs.asset, collection: rs.collection, residentProgram: rs.residentProgram, to: intent.fields.to, blockhash: ctx.blockhash.hash });
+      else {
+        const proof = { ...localResidentProof({ programId: i.programId, seasonAddress: i.seasonAddress, asset: rs.asset, residentProgram: rs.residentProgram }), residentProgram: rs.residentProgram };
+        message = localResidentActMessage(intent, { programId: i.programId, seasonAddress: i.seasonAddress, wallet, rulesetHash: hash, blockhash: ctx.blockhash.hash, resident: { asset: rs.asset, generation: rs.generation, proof } });
+      }
     } else message = localActMessage(intent, i, hash, ctx.blockhash.hash);
     height = Number(ctx.blockhash.last_valid_block_height);
     // (the context was awaited: the page, the identity and the wallet are asked again before anything is signed)

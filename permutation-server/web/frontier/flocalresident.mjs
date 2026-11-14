@@ -17,7 +17,8 @@ import { seasonAddresses } from './faddr.mjs';
 import { accountsFor, buildShape } from './fplay.mjs';
 import { profileForHash } from '../sdk/frontier/profile.mjs';
 import { budgetPrefix } from '../sdk/frontier/budgets.mjs';
-import { compileMessage } from '../sdk/solana-tx.mjs';
+import { compileMessage, findProgramAddress } from '../sdk/solana-tx.mjs';
+import { SYSTEM_PROGRAM } from '../sdk/frontier/addresses.mjs';
 import { linkAddress, policyAddress, residentAddress, residentBudget, residentCitizen } from '../sdk/frontier/resident.mjs';
 import { isCandidateProgram } from './flocallanes.mjs';
 
@@ -90,4 +91,31 @@ export function localResidentActMessage(intent, { programId, seasonAddress, wall
 function residentProgramOf(p) {
   if (!p || !address(p.residentProgram)) fail('LocalActResidentUnverified');
   return p.residentProgram;
+}
+
+// ---------------------------------------------------------------------------------------------------------------
+// The pass's transfer from this page (LOCAL TEST CANDIDATE lane only): the resident program's own TransferResident
+// (tag 0x51), the owner — the page's wallet — signing and paying. The program moves the Core asset, bumps the holder
+// generation and clears the session in one instruction; from then on only the new owner can act for the Citizen.
+export const LOCAL_RESIDENT_TRANSFER = 'TransferResident';
+/** Metaplex Core (the asset's program). */
+export const CORE_PROGRAM = 'CoREENxT6tW1HoK8ypY1SxRMZTcVPm7R94rH4PZNhX7d';
+const utf8 = t => new TextEncoder().encode(t);
+/** The resident program's collection authority and the asset's record (its own seeds). */
+export function residentProgramAddresses(residentProgram, asset) {
+  return { collectionAuthority: findProgramAddress([utf8('collection-authority')], residentProgram)[0], record: findProgramAddress([utf8('resident'), decode(asset)], residentProgram)[0] };
+}
+/** The TransferResident instruction: [owner s][payer s,w][asset w][collection w][collection authority][record w][new owner][Core][System]. */
+export function localTransferIx({ residentProgram, owner, asset, collection, to }) {
+  if (![residentProgram, owner, asset, collection, to].every(address)) fail('LocalActInvalid');
+  if (to === owner) fail('LocalActTransferToSelf');
+  const a = residentProgramAddresses(residentProgram, asset);
+  const k = (pubkey, isSigner, isWritable) => ({ pubkey, isSigner, isWritable });
+  return { programId: residentProgram, keys: [k(owner, true, false), k(owner, true, true), k(asset, false, true), k(collection, false, true), k(a.collectionAuthority, false, false), k(a.record, false, true), k(to, false, false), k(CORE_PROGRAM, false, false), k(SYSTEM_PROGRAM, false, false)], data: new Uint8Array([0x51]) };
+}
+/** The message of the pass's transfer to `to`, on the candidate lane only (the wallet is owner and fee payer). */
+export function localTransferMessage({ programId, wallet, asset, collection, residentProgram, to, blockhash }) {
+  if (!isCandidateProgram(programId)) fail('LocalActNotAllowed');
+  if (!address(blockhash)) fail('LocalActInvalid');
+  return Uint8Array.from(compileMessage({ feePayer: wallet, recentBlockhash: blockhash, instructions: [localTransferIx({ residentProgram, owner: wallet, asset, collection, to })] }));
 }
