@@ -87,11 +87,17 @@ async function requesterCitizen(ctx, requester, citizenAddr) {
  * `citizen` now, else null. Without `ctx.residents`, or for a Citizen that is
  * no resident, nothing changes. The gate reads the chain on every call; a
  * gate that fails is a refusal (ResidentUnverified), never a pass.
+ * `shape` (optional): a ResidentAct passes its `resident` proof (asset and
+ * signed generation) to the gate; a JoinResident goes to the gate's
+ * `checkJoin` when it has one (its Citizen does not exist yet).
  */
-export async function residentRefusal(ctx, citizen, actor) {
+export async function residentRefusal(ctx, citizen, actor, shape = null) {
   if (!ctx.residents || !citizen || !actor) return null;
   try {
-    const r = ctx.residents.check ? await ctx.residents.check({ citizen, actor }) : { ok: await ctx.residents.mayAct({ citizen, actor }) };
+    const resident = shape?.wrapper === 'ResidentAct' || shape?.wrapper === 'JoinResident' ? shape.resident ?? null : null;
+    const r = shape?.wrapper === 'JoinResident' && ctx.residents.checkJoin ? await ctx.residents.checkJoin({ owner: actor, resident })
+      : ctx.residents.check ? await ctx.residents.check(resident ? { citizen, actor, resident } : { citizen, actor })
+      : { ok: await ctx.residents.mayAct({ citizen, actor }) };
     return r.ok ? null : (r.code ?? 'ResidentHolderChanged');
   } catch {
     return 'ResidentUnverified';
@@ -180,7 +186,7 @@ export async function sponsor(ctx, req, { tx, wire, shape, requester = null, req
   // NFT-bound residents: the key that signs for a Citizen must act for its resident's holder now.
   const residentCitizen = shape.authority ? shape.accounts?.citizen ?? null : null;
   try {
-    const refusal = await residentRefusal(ctx, residentCitizen, shape.authority);
+    const refusal = await residentRefusal(ctx, residentCitizen, shape.authority, shape);
     if (refusal) throw residentRouteError(refusal);
     // A settle's requester counts only once verified on chain (its citizen).
     const settleCitizen = shape.kind === 'settle' ? await requesterCitizen(ctx, requester, requesterCitizenAddr) : null;
@@ -224,7 +230,7 @@ export async function sponsor(ctx, req, { tx, wire, shape, requester = null, req
   const signedSignature = signatureOf(signed);
   try {
     // Read again right before the bytes leave: a transfer that landed while this request was simulated refuses it.
-    const late = await residentRefusal(ctx, residentCitizen, shape.authority);
+    const late = await residentRefusal(ctx, residentCitizen, shape.authority, shape);
     if (late) throw residentRouteError(late);
     expiry = await blockhashes.expiryOf(tx.recentBlockhash, lastValidBlockHeight);
     // Another request may have reached sendRawTransaction while this one
