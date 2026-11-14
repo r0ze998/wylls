@@ -22,6 +22,7 @@
 // relay pool, cosigner and public clusters are untouched; none of the
 // preparation's closed flags is changed (the report goes out as the CLI wrote and
 // the inspector accepted it).
+import { isCandidateProgram, LOCAL_LANE_VERSIONS } from './local-lane-versions.mjs';
 import { createHash, createPublicKey, verify as edVerify } from 'node:crypto';
 import { decode, encode } from '../../client/src/base58.mjs';
 import { seasonPda } from '../../../permutation-server/web/frontier/faddr.mjs';
@@ -78,6 +79,10 @@ export function localPlayPort(url) {
   return port >= 41_000 && port <= 41_999 && port !== LOCAL_PLAY_REFUSED_PORT ? port : null;
 }
 
+/** The deployment version a configured program serves (decimal string): the candidate's 0xC804 under its id, else the
+ *  conquest lane's 0x4804 exactly as before. */
+export const laneVersion = program => (isCandidateProgram(program) ? String(LOCAL_LANE_VERSIONS.conquestNftCandidate) : DEPART_PREPARE_PROGRAM_VERSION);
+
 const CONFIG = ['localPlay', 'rpc', 'program', 'season', 'wallet', 'rulesetHash', 'prepareBin', 'cuLimit', 'loadedLimit'];
 /** What is wrong with a local-play relay configuration (empty when it may run). */
 // (`testRpcOk`: ONLY for a relay built by a TEST ENTRY on the test port range, through that relay's own `test`
@@ -90,8 +95,10 @@ export function localPlayRelayConfigProblems(cfg, { testRpcOk = null } = {}) {
   if (cfg.localPlay !== true) out.push('localPlay must be explicitly true');
   if (testRpcOk !== null) { if (typeof testRpcOk !== 'function' || testRpcOk(cfg.rpc) !== true || localPlayPort(cfg.rpc) !== null) out.push('rpc must be the test runner\'s (the test port range only)'); }
   else if (localPlayPort(cfg.rpc) === null) out.push('rpc must be http://127.0.0.1:PORT (41000-41999, never 41970)');
-  if (cfg.program !== LOCAL_PLAY_PROGRAM) out.push('program must be the dedicated local-play program [0x45; 32]');
-  if (cfg.season !== seasonPda(LOCAL_PLAY_PROGRAM, LOCAL_PLAY_SEASON_ID)[0]) out.push('season must be the program\'s Season PDA of id 11');
+  // (the conquest lane [0x45; 32]; or the LOCAL TEST CANDIDATE [0x4C; 32], which only a launcher that selected it names)
+  const program = cfg.program === LOCAL_PLAY_PROGRAM || isCandidateProgram(cfg.program) ? cfg.program : null;
+  if (program === null) out.push('program must be the dedicated local-play program [0x45; 32] (or the local test candidate [0x4C; 32])');
+  if (program === null || cfg.season !== seasonPda(program, LOCAL_PLAY_SEASON_ID)[0]) out.push('season must be the program\'s Season PDA of id 11');
   if (!address(cfg.wallet) || cfg.wallet === cfg.program || cfg.wallet === cfg.season) out.push('wallet must be one public player wallet');
   if (cfg.rulesetHash !== LOCAL_PLAY_RULESET_HASH) out.push('rulesetHash must be the S1 ruleset (RULESET_HASH_V3)');
   if (typeof cfg.prepareBin !== 'string' || !cfg.prepareBin.startsWith('/') || cfg.prepareBin.includes('\0')) out.push('prepareBin must be an absolute path');
@@ -224,7 +231,7 @@ export function createLocalPlayRelay({ cfg, prepare = null, rpc = (m, p) => fetc
   };
   const openCount = () => [...pending.values()].filter(e => e.state === 'open').length;
   const info = Object.freeze({ localPlay: true, cluster: LOCAL_PLAY_CLUSTER, program: cfg.program, season: cfg.season,
-    programVersion: DEPART_PREPARE_PROGRAM_VERSION, rulesetHash: cfg.rulesetHash, wallet: cfg.wallet, routes: ROUTES,
+    programVersion: laneVersion(cfg.program), rulesetHash: cfg.rulesetHash, wallet: cfg.wallet, routes: ROUTES,
     keys: 'none: the browser signs; this relay verifies and forwards to the loopback runner only' });
 
   return Object.freeze({
@@ -237,7 +244,7 @@ export function createLocalPlayRelay({ cfg, prepare = null, rpc = (m, p) => fetc
       if (!scope || typeof scope !== 'object' || Array.isArray(scope)) fail('LocalPlayInvalidRequest');
       if (scope.cluster !== LOCAL_PLAY_CLUSTER || scope.program !== cfg.program || scope.season !== cfg.season
           || scope.wallet !== cfg.wallet || scope.payer !== cfg.wallet
-          || scope.deployment?.program_version !== DEPART_PREPARE_PROGRAM_VERSION || scope.deployment?.ruleset_hash !== cfg.rulesetHash) fail('LocalPlayScopeMismatch');
+          || scope.deployment?.program_version !== laneVersion(cfg.program) || scope.deployment?.ruleset_hash !== cfg.rulesetHash) fail('LocalPlayScopeMismatch');
       expireOpen();
       if (pending.size + preparing >= MAX_HISTORY) await retire();
       // Reserve a slot synchronously (open tickets and barrier capacity) before

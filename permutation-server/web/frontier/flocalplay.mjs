@@ -23,7 +23,7 @@ import { seasonAddresses } from './faddr.mjs';
 import { L, onLangChange, mountLangToggle } from '../lang.mjs';
 import { mountSessionNotice, pairGuideView } from './flocalplay-session.mjs';
 import { confirmWorldEnd, worldEndOf } from './flocalplay-instance.mjs';
-import { servesLocalVersion } from './flocallanes.mjs';
+import { servesLocalVersion, servesLocalProgram, servesLocalLane } from './flocallanes.mjs';
 
 /** The dedicated localnet program of the `localnet-expedition-sbf` build ([0x45; 32]). */
 export const LOCAL_PLAY_PROGRAM = '5fQPsn8hoaVddFG26cWQ5QFdqxWtUPNaZ9zH2E6LYzFn';
@@ -113,7 +113,7 @@ export function launcherConquestWorld(value, identity) {
   const plain = x => x !== null && typeof x === 'object' && !Array.isArray(x), exact = (x, keys) => plain(x) && Object.keys(x).length === keys.length && keys.every(k => Object.hasOwn(x, k));
   if (!exact(value, ['schema', 'program', 'season', 'world_preset', 'free_city']) || !plain(identity)) return null;
   if (value.schema !== LOCAL_PLAY_CONQUEST_WORLD_SCHEMA || value.world_preset !== LOCAL_PLAY_CONQUEST_WORLD_PRESET) return null;
-  if (value.program !== LOCAL_PLAY_PROGRAM || value.program !== identity.programId || typeof value.season !== 'string' || value.season !== identity.seasonAddress) return null;
+  if (!servesLocalProgram(value.program) || value.program !== identity.programId || typeof value.season !== 'string' || value.season !== identity.seasonAddress) return null;
   const f = value.free_city, whole = /^-?(0|[1-9][0-9]{0,18})$/;
   if (!exact(f, ['p', 'q', 'site', 'tile']) || typeof f.p !== 'string' || !whole.test(f.p) || typeof f.q !== 'string' || !whole.test(f.q)
       || !Number.isInteger(f.site) || f.site < 0 || f.site > 11 || !Number.isInteger(f.tile) || f.tile < 0 || f.tile > 60) return null;
@@ -184,9 +184,12 @@ export async function verifyLocalPlayHerald(herald, address, { natural = false }
   let s;
   try { s = await herald.season(); } catch { return { ok: false, code: 'HeraldUnreachable' }; }
   if (!s?.ok) return { ok: false, code: s?.code === 'network' ? 'HeraldUnreachable' : 'HeraldNotReady' };
-  if (s.record?.programId !== LOCAL_PLAY_PROGRAM) return { ok: false, code: 'LocalPlayProgram' };
+  // (the conquest lane, or the LOCAL TEST CANDIDATE [0x4C; 32] with its own version only: flocallanes.mjs)
+  const program = s.record?.programId;
+  if (!servesLocalProgram(program)) return { ok: false, code: 'LocalPlayProgram' };
   if (s.record?.cluster !== LOCAL_PLAY_CLUSTER) return { ok: false, code: 'LocalPlayCluster' };
-  if (!servesLocalVersion(s.season?.programVersion)) return { ok: false, code: 'LocalPlayVersion' };
+  // (a Season's version is a NUMBER; and 0xC804 only under the candidate's own id)
+  if (!servesLocalVersion(s.season?.programVersion) || !servesLocalLane(program, s.season.programVersion)) return { ok: false, code: 'LocalPlayVersion' };
   // The Season's identity is worked out here from the dedicated program and the record's Season id, never taken from
   // the herald: the record must name that canonical Season account, and the client is PINNED to it before the
   // player's record is read, so the client's own checks (the Citizen at this wallet's canonical address, its bytes of
@@ -195,7 +198,7 @@ export async function verifyLocalPlayHerald(herald, address, { natural = false }
   try {
     seasonId = String(s.record.season);
     if (!/^(0|[1-9][0-9]{0,19})$/.test(seasonId) || String(s.season.seasonId) !== seasonId) return { ok: false, code: 'LocalPlaySeason' };
-    addresses = seasonAddresses(LOCAL_PLAY_PROGRAM, seasonId);
+    addresses = seasonAddresses(program, seasonId);
   } catch { return { ok: false, code: 'LocalPlaySeason' }; }
   if (s.record.seasonAddress !== addresses.season) return { ok: false, code: 'LocalPlaySeason' };
   try { herald.pin(seasonId, addresses); } catch { return { ok: false, code: 'LocalPlaySeason' }; }
@@ -210,7 +213,7 @@ export async function verifyLocalPlayHerald(herald, address, { natural = false }
     try { bound = toBase58(me.citizen.wallet); } catch { /* not a wallet */ }
     if (bound !== address) return { ok: false, code: 'WalletBindingMismatch' };
   }
-  const base = { address, programId: LOCAL_PLAY_PROGRAM, cluster: LOCAL_PLAY_CLUSTER, seasonId, seasonAddress: addresses.season };
+  const base = { address, programId: program, cluster: LOCAL_PLAY_CLUSTER, seasonId, seasonAddress: addresses.season };
   return { ok: true, record: s.record, season: s.season, identity: Object.freeze(natural === true ? { ...base, natural: true } : base) };
 }
 
@@ -221,7 +224,7 @@ export async function verifyLocalPlayHerald(herald, address, { natural = false }
  */
 export function localPlayIdentityOk(identity, pin, season, citizen = undefined) {
   if (!identity || !pin || pin.programId !== identity.programId || pin.cluster !== identity.cluster || String(pin.seasonId) !== identity.seasonId
-      || pin.addresses?.season !== identity.seasonAddress || !servesLocalVersion(season?.programVersion)) return false;
+      || pin.addresses?.season !== identity.seasonAddress || !servesLocalVersion(season?.programVersion) || !servesLocalLane(identity.programId, season.programVersion)) return false;
   if (citizen === undefined || citizen === null) return true;
   try { return toBase58(citizen.wallet) === identity.address; } catch { return false; }
 }
