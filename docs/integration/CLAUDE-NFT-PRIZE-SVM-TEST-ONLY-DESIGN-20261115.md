@@ -154,3 +154,12 @@ a production-dir file directly (and nothing written there); an output symlink (i
 output directory. Accepted: a header-valid synthetic file, giving a regular-file copy with the same bytes and
 no temporary file left. The test removes only what it created (including `permutation-prize/target`, if it
 created it). A header check is not proof of a real build; the real build is the guarded `cargo build-sbf`.
+
+## 9. Space plan after main's note (2026-11-15)
+
+Main: at 23.30 GiB free, a 3.5 GiB run would cross the 20 GiB floor. Guard unchanged; instead:
+① runs alone; once the post-check has copied the `.so` out of the target, **only this run's own new
+`target-nft-sbf`** is removed. ② starts only at **≥ 24 GiB free** (the run script refuses below that, exit 6,
+logged). Nothing else is deleted (no other session's targets or caches; my earlier 345 MiB e2e target is
+kept). Order: ⑳'s keeper runs and candidate SBF first (its slot), then ① → ②, one cargo at a time; df to main
+and ⑳ after each. Run script sha256 `b242ad5c26698bfd…`. Free at the time of writing: 21 GiB (⑳ running).
