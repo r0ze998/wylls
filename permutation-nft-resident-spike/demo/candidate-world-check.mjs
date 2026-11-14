@@ -95,7 +95,15 @@ try {
   B = (await g.locator('#local-play-address').textContent()).trim();
   await shot(g, '0-gate'); step('start: the gate shows the world\'s wallet B', B);
   await humanPress(g, '#local-play-connect');
-  await g.locator('#local-play-gate').waitFor({ state: 'detached', timeout: 15 * 60_000 });
+  // the gate closes when the world is handed over; a refusal is said on the gate at once (data-phase="refused"):
+  // fail then with the gate's own words and a screenshot, never wait out the timeout
+  const gateEnd = await g.waitForFunction(() => {
+    const el = document.getElementById('local-play-gate');
+    if (!el) return { closed: true };
+    if (el.dataset.phase === 'refused') return { refused: true, status: document.getElementById('local-play-status')?.textContent?.trim() ?? '' };
+    return null;
+  }, null, { timeout: 15 * 60_000, polling: 1000 }).then(h => h.jsonValue());
+  if (gateEnd.refused) { await shot(g, '0-gate-refused'); throw new Error(`start: the gate refused the world: ${gateEnd.status}`); }
   await shot(g, '0-world'); step('start: B\'s candidate world is open (the gate closed)');
   summary.stages.start = { ok: true, wallet: B };
 
