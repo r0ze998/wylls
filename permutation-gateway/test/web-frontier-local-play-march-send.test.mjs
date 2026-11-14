@@ -198,7 +198,8 @@ test('the controller: in local play the arrival offers no page SettleTransit (th
   assert.equal(lines.length, 1, 'one place decides settleReady');
   assert.match(lines[0], /^\s*const settleReady = !localPlay && !!transit && !!env && transit\.state >= 2 && pl\.state === 'resolved' && pl\.close !== null && now\(\) >= pl\.close \+ 600;$/);
   // (the card with no entry of this device never offers it either; and a settle asked anyway is still refused by act)
-  assert.match(src, /facts: \{ nowBell: b, pipeline: null, slotPresent: false, settleReady: false \}/);
+  // (round 29: the entry-less card now reads its stage when it can, but still never offers a settle)
+  assert.match(src, /facts: \{ nowBell: b, pipeline: lf\?\.pipeline \?\? null, slotPresent: !!lf\?\.slot, settleReady: false \}/);
   assert.match(src, /if \(localPlay && !local\) return early\(localPlayReadOnly\(\)\);/);
   // (the keeper's self-reveal rule beside it is unchanged: no reveal request in local play)
   assert.match(src, /if \(step\.action === 'send' && !localPlay\) \{/);

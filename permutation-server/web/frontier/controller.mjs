@@ -954,12 +954,38 @@ function refreshMarches() {
   return (marchesNext ??= marchesRun.then(again, again));
 }
 
+/**
+ * The identity a march order of this page is bound to (round 29): the book's key (cluster, program, Season, wallet),
+ * local play's world instance, and the village it left from. null without a book key.
+ */
+function marchScope(h = activeHolding(FS)) {
+  const k = bookKey();
+  if (!k) return null;
+  return `${k}|${localPlay ? String(localPlay.march?.instance ?? '') : ''}|${h ? `${h.p},${h.q},${h.site},${h.gen ?? 0}` : ''}`;
+}
+/**
+ * The destination of a march this page sent itself, from its order record — only one bound to the same identity
+ * (marchScope), the same transit slot, host and arrival turn, and not refused; else null (the card stays unconfirmed).
+ */
+function ownMarchDest(t, scope) {
+  if (!scope) return null;
+  const o = (FS.orders ?? []).find(x => x.kind === 'march' && x.state !== 'refused' && x.scope === scope && x.transitSlot === t.slot
+    && x.arriveBell === t.arriveBell && String(x.host) === String(t.hostId) && x.dest && Number.isInteger(x.dest.p) && Number.isInteger(x.dest.q));
+  return o ? { p: o.dest.p, q: o.dest.q, tile: o.dest.tile } : null;
+}
+const holdingRef = h => (h ? `${h.p},${h.q},${h.site},${h.gen ?? 0}` : '');
+
 async function readMarches() {
   const key = bookKey();
   if (!key) return;
   const store = book.browserStorage;
   // (the Holding and the slots of the last `refresh`)
   const holding = activeHolding(FS) ?? null, slotsOfMine = mySlots;
+  // (round 29: what this reading belongs to; a change of any of it while the reading waits — another herald, world,
+  //  instance, village or book — and nothing of this reading is written)
+  const at = { herald, localPlay, instance: localPlay?.march?.instance ?? null, holding: holdingRef(holding), key, scope: marchScope(holding) };
+  const same = () => herald === at.herald && localPlay === at.localPlay && (localPlay?.march?.instance ?? null) === at.instance
+    && holdingRef(activeHolding(FS) ?? null) === at.holding && bookKey() === at.key;
   // Wave-5 review: a gathered transit carries its destination (FLAG_GATHERED,
   // v1.7), so a card with no local entry still names its region.
   const transits = holding ? holding.transit.map((t, slot) => ({ slot, state: t.state, hostId: t.hostId, arriveBell: t.arriveBell, sealRoot: Buffer2hex(t.sealRoot),
@@ -1004,6 +1030,24 @@ async function readMarches() {
     const settleReady = !localPlay && !!transit && !!env && transit.state >= 2 && pl.state === 'resolved' && pl.close !== null && now() >= pl.close + 600;
     marches.push({ entry: e, transit, facts: { nowBell: b, pipeline: pl.state, slotPresent: !!slot, settleReady }, record, slot, env, dest, region });
   }
+  // (round 29: a live transit this device's book has no entry for — in local play every march: the page seals it, the
+  //  relay sends it, and no book entry is written — got no turn facts, so its card stood at "waiting for the key" for
+  //  good, even after the key was out and the arrival resolved (seen in a ×10 world). Once its arrival turn has come,
+  //  its stage is read as a booked march's is, from the destination the transit carries or else from this page's own
+  //  order record bound to the same identity, slot, host and arrival turn. Only a turn record that was read sets it: a
+  //  failed read, or no matching record, leaves the card as before (unconfirmed). Reads only; nothing is sent.)
+  const looseFacts = new Map();
+  for (const t of transits.filter(x => x.state >= 1 && x.state <= 3)) {
+    if (marches.some(m => m.transit && m.transit.slot === t.slot) || !Number.isInteger(t.arriveBell) || b < t.arriveBell) continue;
+    const dest = t.dest ?? ownMarchDest(t, at.scope);
+    if (!dest) continue;
+    const { slot, env } = await slotOf(dest, t.arriveBell, t.hostId);
+    if (!same()) return;
+    const { facts, record } = await bellFacts(t.arriveBell, regionOf(dest.p, dest.q), env?.province.resolvedNext ?? null);
+    if (!same()) return;
+    if (record === null) continue;
+    looseFacts.set(t.slot, { dest, slot, env, record, pipeline: pipeline(FS.clock, t.arriveBell, { now: now(), ...facts }).state });
+  }
   // (from here to the write nothing waits: the book is read as it stands and written at once)
   const held = book.loadBook(store, key);
   // A live transit this device has no entry for (another device, cleared
@@ -1011,8 +1055,9 @@ async function readMarches() {
   for (const t of transits.filter(x => x.state >= 1 && x.state <= 3)) {
     if (marches.some(m => m.transit && m.transit.slot === t.slot)) continue;
     if (held.some(e => e.transitSlot === t.slot && e.host === String(t.hostId) && e.state !== 'settled')) continue;
-    marches.push({ entry: null, transit: t, facts: { nowBell: b, pipeline: null, slotPresent: false, settleReady: false }, record: null, slot: null, env: null,
-      dest: t.dest, region: t.dest ? regionOf(t.dest.p, t.dest.q) : null });
+    const lf = looseFacts.get(t.slot) ?? null, dest = lf?.dest ?? t.dest;
+    marches.push({ entry: null, transit: t, facts: { nowBell: b, pipeline: lf?.pipeline ?? null, slotPresent: !!lf?.slot, settleReady: false }, record: lf?.record ?? null, slot: lf?.slot ?? null, env: lf?.env ?? null,
+      dest, region: dest ? regionOf(dest.p, dest.q) : null });
   }
   // (a free transit record means "settled" only once the march's arrival turn has ended: no transit is settled
   // before that (contract §5.11). The Holding a reading holds may be older than the book — it was asked for before
@@ -1032,7 +1077,7 @@ async function readMarches() {
       if (got) forming.push({ host: String(r.id), bell, facts: got.facts });
     }
   }
-  if (key !== bookKey()) return;
+  if (key !== bookKey() || !same()) return;
   FS.formingBells = forming;
   book.saveBook(store, key, entries);
   FS.book = entries;
@@ -2058,6 +2103,8 @@ async function sendTheMarch() {
   try {
     const origin = () => FS.provinces.get(`${c.origin.p},${c.origin.q}`)?.province ?? null;
     // A turn that rolls over between composing and sending: the march is sent again with the arrival moved (fmarch.sendMarchRetrying).
+    // (round 29: the identity this order is sent under, kept on its record — see marchScope)
+    const sentScope = marchScope(h);
     const r = localPlay ? await sendMarch(m, {
       seal: req => sealMarch(req), clock: FS.clock, publicKey: FS.beacon?.publicKey, accounts: null, session: null,
       ...localMarchSenderNow().depsFor({ holding: { p: h.p, q: h.q, site: h.site }, province: { p: c.origin.p, q: c.origin.q } }),
@@ -2079,7 +2126,7 @@ async function sendTheMarch() {
     fxEmit(r.ok ? 'march:sealed' : 'action:refused', fxa);
     const arrive = r.arriveBell ?? c.arriveBell, moved = r.ok && Number.isInteger(r.arriveFrom) && r.arriveFrom !== arrive ? r.arriveFrom : null, home = !!c.home || (c.dest && h && c.dest.p === h.p && c.dest.q === h.q && c.dest.tile === h.tile);
     const marchOrder = orderOf('march', 'Depart', { host: String(c.host.id), unit: c.host.unit ?? 0, troops: c.host.troops ?? null, tile: { p: c.origin.p, q: c.origin.q, tile: c.host.tile },
-      dest: c.dest ? { p: c.dest.p, q: c.dest.q, tile: c.dest.tile } : null, arriveBell: arrive, home });
+      dest: c.dest ? { p: c.dest.p, q: c.dest.q, tile: c.dest.tile } : null, arriveBell: arrive, home, scope: sentScope, transitSlot: Number.isInteger(r.entry?.transitSlot) ? r.entry.transitSlot : null });
     // (local play: a march that carries a signature WAS sent — it is never recorded as "not sent". Not confirmed: held
     //  by its signature (the memory book keeps it `sent`; only "ask" is offered). Failed on chain: sent, and refused there)
     const localSent = localPlay && !r.ok && typeof r.signature === 'string' && r.signature !== '';
