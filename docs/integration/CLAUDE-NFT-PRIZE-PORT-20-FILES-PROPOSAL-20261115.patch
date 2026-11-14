@@ -1,5 +1,5 @@
 diff --git a/permutation-server/web/frontier/controller.mjs b/permutation-server/web/frontier/controller.mjs
-index 7b0e0070..262d253a 100644
+index 46048f14..0e3ba0c5 100644
 --- a/permutation-server/web/frontier/controller.mjs
 +++ b/permutation-server/web/frontier/controller.mjs
 @@ -236,10 +236,15 @@ export async function refreshPrize({ force = false, at = Date.now() } = {}) {
@@ -178,7 +178,7 @@ index 7b0e0070..262d253a 100644
    FS.notice = null;
    // (⑳: the NFT played and the wallet's NFT list belong to the wallet: a resident NFT chosen under the previous wallet is not this wallet's)
    if (walletChanged) { FS.resident = null; FS.nfts = null; FS.nftsRead = null; }
-@@ -2492,22 +2632,54 @@ export const ACTIONS = {
+@@ -2492,18 +2632,48 @@ export const ACTIONS = {
        await refresh();
        return;
      }
@@ -229,6 +229,9 @@ index 7b0e0070..262d253a 100644
 +    await refreshPrize({ force: true }).catch(e => console.error('frontier prize:', e));
    },
    'nft-logout': async () => { adoptResident(null); await refresh(); },
+   // LOCAL TEST CANDIDATE lane only: the pass played to another wallet (TransferResident, this page's wallet signing).
+@@ -2540,6 +2710,8 @@ export const ACTIONS = {
+   },
    // ⑳ after minting on the mint page: read the wallet's NFTs again (the chain decides what it holds).
    'nft-reload': async () => { await loadNfts(); },
 +  // NFT pass (experimental): the pass's prize share, to its current owner.
@@ -237,7 +240,7 @@ index 7b0e0070..262d253a 100644
    join: async () => {
      // LOCAL PLAY: no in-game key is derived, remembered or registered. The page's memory-only wallet signs the Join
 diff --git a/permutation-server/web/frontier/screens/join.mjs b/permutation-server/web/frontier/screens/join.mjs
-index bc7af6ad..67818a01 100644
+index 2d8a9d8b..203b4566 100644
 --- a/permutation-server/web/frontier/screens/join.mjs
 +++ b/permutation-server/web/frontier/screens/join.mjs
 @@ -357,12 +357,23 @@ export function renderNfts(FS) {
