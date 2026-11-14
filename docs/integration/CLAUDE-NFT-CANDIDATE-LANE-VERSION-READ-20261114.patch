@@ -1,39 +1,605 @@
-diff --git a/docs/integration/CLAUDE-NFT-CANDIDATE-LANE-VERSION-READ-20261114.md b/docs/integration/CLAUDE-NFT-CANDIDATE-LANE-VERSION-READ-20261114.md
-new file mode 100644
-index 00000000..c6a12c38
---- /dev/null
-+++ b/docs/integration/CLAUDE-NFT-CANDIDATE-LANE-VERSION-READ-20261114.md
-@@ -0,0 +1,30 @@
-+# Local play reads its program version from the deployment; the local test candidate 0xC804 as an opt-in
+diff --git a/frontier-node/crates/itest/src/bin/localnet_expedition_play.rs b/frontier-node/crates/itest/src/bin/localnet_expedition_play.rs
+index 2ff1654c..16b9fc6e 100644
+--- a/frontier-node/crates/itest/src/bin/localnet_expedition_play.rs
++++ b/frontier-node/crates/itest/src/bin/localnet_expedition_play.rs
+@@ -33,9 +33,28 @@ fn main() {
+             let bytes = std::fs::read(artifact.path()).map_err(|e| format!("artefact: {e}"))?;
+             itest::conquest_world::markers_ok(&bytes, artifact.sha256())?;
+         }
++        // The LOCAL TEST CANDIDATE (`--lane-candidate`, all four options; not an allocation): the conquest preset only,
++        // and the artefact carries the candidate's own marker exactly once besides the conquest lane's two. Without the
++        // options nothing here runs and the start is exactly as before. (Written without compiling.)
++        let candidate = o.candidate.as_ref().map(play::CandidateAssets::read).transpose()?;
++        if candidate.is_some() {
++            #[cfg(not(feature = "localnet-conquest-play"))]
++            return Err("--lane-candidate needs a runner built with localnet-conquest-play".into());
++            #[cfg(feature = "localnet-conquest-play")]
++            {
++                if preset.is_none() {
++                    return Err("--lane-candidate needs --world-preset local-conquest-test-v1".into());
++                }
++                let bytes = std::fs::read(artifact.path()).map_err(|e| format!("artefact: {e}"))?;
++                let m = b"PSF_LOCALNET_CONQUEST_NFT_SBF_BUILD";
++                if bytes.windows(m.len()).filter(|w| *w == m).count() != 1 {
++                    return Err("--lane-candidate: the artefact does not carry PSF_LOCALNET_CONQUEST_NFT_SBF_BUILD exactly once".into());
++                }
++            }
++        }
+         let rt = tokio::runtime::Builder::new_multi_thread().enable_all().build().map_err(|e| e.to_string())?;
+         rt.block_on(async {
+-            let mut p = play::launch_full(&artifact, o.player_wallet, o.rpc_port, o.ws_port, o.keeper, o.wide_destination).await?;
++            let mut p = play::launch_lane(&artifact, o.player_wallet, o.rpc_port, o.ws_port, o.keeper, o.wide_destination, candidate.as_ref()).await?;
+             println!("{}", p.metadata);
+             let (stop_tx, stop_rx) = tokio::sync::watch::channel(false);
+             let wide_rx = stop_rx.clone();
+diff --git a/frontier-node/crates/itest/src/conquest_world.rs b/frontier-node/crates/itest/src/conquest_world.rs
+index 1aff2b11..cbdd4b61 100644
+--- a/frontier-node/crates/itest/src/conquest_world.rs
++++ b/frontier-node/crates/itest/src/conquest_world.rs
+@@ -104,7 +104,7 @@ pub async fn open(state: localnet::server::Shared, plan: crate::wide_destination
+     let (pd, slot) = {
+         let c = localnet::server::lock(&state);
+         let acc = c.account(&province).ok_or("the destination Province is absent after its opening")?;
+-        if acc.owner.to_bytes() != crate::expedition_play::PROGRAM {
++        if acc.owner.to_bytes() != crate::expedition_play::world_program() {
+             return Err("the destination Province is not the program's".into());
+         }
+         (acc.data, c.slot())
+diff --git a/frontier-node/crates/itest/src/destination_driver.rs b/frontier-node/crates/itest/src/destination_driver.rs
+index 10afeeed..7698ab8e 100644
+--- a/frontier-node/crates/itest/src/destination_driver.rs
++++ b/frontier-node/crates/itest/src/destination_driver.rs
+@@ -648,7 +648,7 @@ pub struct DestinationDriver {
+ 
+ impl DestinationDriver {
+     pub fn new(holding: Address, payer: Keypair, stop: tokio::sync::watch::Receiver<bool>) -> DestinationDriver {
+-        DestinationDriver { a: Addresses::new(Address::new_from_array(crate::expedition_play::PROGRAM), crate::expedition_play::SEASON_ID),
++        DestinationDriver { a: Addresses::new(crate::expedition_play::world_lane().address(), crate::expedition_play::SEASON_ID),
+             holding, payer, stop, land_timeout: crate::keeper_loop::LAND_TIMEOUT, terminal: None, last: None, log: vec![] }
+     }
+ 
+diff --git a/frontier-node/crates/itest/src/expedition_play.rs b/frontier-node/crates/itest/src/expedition_play.rs
+index 5024406b..4643035b 100644
+--- a/frontier-node/crates/itest/src/expedition_play.rs
++++ b/frontier-node/crates/itest/src/expedition_play.rs
+@@ -76,6 +76,67 @@ pub const PROGRAM: [u8; 32] = [0x45; 32];
+ /// S1 (4) | wide 0x4000 | host-only dispatch 0x0800.
+ pub const PROGRAM_VERSION: u16 = 0x4804;
+ pub const MARKER: &[u8] = b"PSF_LOCALNET_EXPEDITION_SBF_BUILD";
 +
-+Branch `claude/nft-candidate-lane-20261114`, based on canonical `84ec838c` (rebased from `e3611382`; includes round 19). Agreed with the territory lane's owner: this branch only, opt-in, the 0x4804 path unchanged, round-only patch for review, nothing written to canonical.
++/// Which program and version this runner's world is. [`Lane::CONQUEST`] is the conquest lane exactly as before (the
++/// constants above); [`Lane::CANDIDATE`] is the LOCAL TEST CANDIDATE `localnet-conquest-nft-sbf` (the conquest lane
++/// with NFT residents; candidate program id [0x4C; 32], version 0x4804 | 0x8000; NOT an allocation, never deployable),
++/// chosen only by `--lane-candidate`. Threaded through the runner in steps (docs/integration
++/// CLAUDE-NFT-CANDIDATE-LANE-VERSION-READ-20261114.md): step 1 here (Season, base, home, fixture, deploy), step 2
++/// the runtime modules through [`world_lane`]; test modules keep [`PROGRAM`].
++/// WRITTEN 2026-11-14/15 WITHOUT COMPILING (no host build agreed then).
++#[derive(Clone, Copy, Debug, PartialEq, Eq)]
++pub struct Lane {
++    pub program: [u8; 32],
++    pub version: u16,
++}
 +
-+- Patch: `CLAUDE-NFT-CANDIDATE-LANE-VERSION-READ-20261114.patch` (sha256 `3cb2dc7a558b8e3b7ba2c0b64069c849d29fd0474458079114312e13c929c8a7`), `git diff 84ec838c <commit>`.
-+- What it does: one definition of the served local-play versions (`permutation-gateway/src/frontier/local-lane-versions.mjs` = page `flocallanes.mjs`): 0x4804 (the conquest lane, default, served exactly as before) and 0xC804 = 51204, the LOCAL TEST CANDIDATE `localnet-conquest-nft-sbf` (program [0x4C; 32]; not an allocation, never deployable). The gateway's expedition / conquest / depart preparation, the page's expedition and depart preparation, local play's Season check and the hand's preparation section read the version through it; a prepared proposal must echo the deployment's own version. A Season version is checked as a number, a deployment version as a decimal string (as the old literals were).
-+- Tests: `test/frontier-local-lane-versions.test.mjs` (2); the 32 affected local-play / preparation test files: 298/301 at this commit. The 3 failures (`frontier-local-play-natural.test.mjs`, natural-world runner) fail identically on `84ec838c` without this change. Two import pins name the new module.
-+- Not done (next steps, not yet implemented): the launcher option that selects the candidate and records 0xC804 and [0x4C; 32] in the deployment, adding the resident program, Core, policy and mint page to the start-up; the keeper's Rust preparation (`experimental_*_prepare.rs`, 0x4804 fixed: it would refuse 0xC804; changing it needs a host build to verify); a candidate world (needs the candidate .so built: SBF build slot to be agreed).
++impl Lane {
++    pub const CONQUEST: Lane = Lane { program: PROGRAM, version: PROGRAM_VERSION };
++    pub const CANDIDATE: Lane = Lane { program: [0x4C; 32], version: PROGRAM_VERSION | 0x8000 };
++    pub fn address(&self) -> Address {
++        Address::new_from_array(self.program)
++    }
++    /// The version as the runner's first line states it (`0x` and four lowercase hex digits).
++    pub fn version_text(&self) -> String {
++        format!("0x{:04x}", self.version)
++    }
++}
 +
-+## Added later on 2026-11-14 (22:30–23:00): the launcher opt-in, the keeper's preparation, and the runner's real obstacle
++/// The lane of this runner process's ONE world: set once by [`launch_lane`] for a candidate world, never otherwise,
++/// so unset (every plain start, every test) is [`Lane::CONQUEST`] exactly as before. The runtime modules that used
++/// [`PROGRAM`] read [`world_lane`] instead (step 2 of the threading).
++static WORLD_LANE: std::sync::OnceLock<Lane> = std::sync::OnceLock::new();
++pub fn world_lane() -> Lane {
++    *WORLD_LANE.get().unwrap_or(&Lane::CONQUEST)
++}
++pub fn world_program() -> [u8; 32] {
++    world_lane().program
++}
++/// Records the candidate lane for this process (once; a second, different world in the same process is refused).
++fn set_candidate_world() -> Result<(), String> {
++    match WORLD_LANE.get() {
++        Some(l) if *l == Lane::CANDIDATE => Ok(()),
++        Some(_) => Err("this runner process already has another lane".into()),
++        None => WORLD_LANE.set(Lane::CANDIDATE).map_err(|_| "the lane was set concurrently".to_string()),
++    }
++}
 +
-+- **Launcher** (`cb11791a`, fixed in `a8432b63`): `--lane-candidate localnet-conquest-nft-sbf` with `--resident-so --core-so --nft-setup --mint --mint-port`. All or none, conquest preset only, one world.
-+  - The runner is given `--lane-candidate --resident-so --core-so --authority-seed-dir <world dir>`.
-+  - Its first line must state the candidate id `68qTst…` ([0x4C;32]) and `"program_version": "0xc804"`, plus the feature, the resident program, Core, and an authority seed file inside that world's directory.
-+  - The NFT setup then runs once (exit 0, bounded), and the mint page runs as a world child: it must answer, it stops with the world, and its port is recorded.
-+  - A plain start takes the runner's own `"0x4804"` line as ever and refuses any other candidate key.
-+  - Tests use stand-ins and no chain: the local-play set gives 301/304 (the 3 failures are the same natural-world tests that fail on `84ec838c`).
-+  - The `a8432b63` fix: the real runners already print `"program_version": "0x4804"`, and the first version would have refused every real plain world. The stand-in now prints it the same way.
-+- **Keeper** (`60347065`, NOT COMPILED): `keeper/src/local_lane.rs` (served(program, version): 0x4804 as before, 0xC804 only under [0x4C;32]); the three `experimental_*_prepare.rs` check through it and echo the deployment's served version. Verify: `cargo test -p frontier-keeper` in an agreed build slot.
-+- **Runner (itest), not implemented — the real obstacle:**
-+  - The runner's program id is the constant `expedition_play::PROGRAM` ([0x45;32]), used about 90 times in 15 itest modules: `expedition_play`, `natural_play`, `keeper_loop`, `local_keeper`, `destination_*`, `origin_driver`, `conquest_*`, `resident_bells`, `wide_destination`, `world` and more. PDAs are derived from that constant throughout.
-+  - A candidate deployment under [0x4C;32] therefore needs that program id threaded through all of them. A blind edit across 15 modules could not be checked without a compiler, so it is not done.
-+  - Plan (agreed with the territory owner as files I may edit; byte-identical without the flag):
-+    1. A `Lane { program: [u8;32], version: u16 }` value with `Lane::CONQUEST` (= today's constants).
-+    2. Each module takes `&Lane` instead of the constant (mechanical; the conquest path passes `Lane::CONQUEST`).
-+    3. `--lane-candidate` builds `Lane { program: [0x4C;32], version: 0xC804 }`.
-+    4. Deploy Core and the resident program with a fresh throwaway authority, write its seed only into `--authority-seed-dir` (0600), and never print it.
-+    5. Season bytes at 0xC804.
-+    6. State the candidate keys on the first line.
-+    7. Verify with `cargo test -p itest --features localnet-conquest-play` in an agreed host-build slot, then one candidate world, with the candidate .so built in an agreed SBF slot.
++/// The candidate's one word (the launcher's `--lane-candidate`).
++pub const CANDIDATE_FEATURE: &str = "localnet-conquest-nft-sbf";
++/// Metaplex Core's program id (the deployed one; the candidate world deploys the recorded `.so` under it).
++pub const CORE_PROGRAM: &str = "CoREENxT6tW1HoK8ypY1SxRMZTcVPm7R94rH4PZNhX7d";
++/// The resident program's test id (sha256 of "wylls-resident-program id (test)"; never a deploy key).
++pub const RESIDENT_PROGRAM: &str = "68TBCtDEfvunEQYEb4cZSBnkPWnu2h6XuvSTmLctZyv5";
++/// The file the candidate's throwaway authority seed is written to, inside `--authority-seed-dir` only.
++pub const CANDIDATE_SEED_FILE: &str = "candidate-authority.seed";
++
++/// The candidate's own options: all of them or none (`parse_args`).
++#[derive(Clone, Debug, PartialEq, Eq)]
++pub struct CandidateOptions {
++    pub resident_so: PathBuf,
++    pub core_so: PathBuf,
++    pub authority_seed_dir: PathBuf,
++}
+ /// The usual stack's port: this runner never takes it.
+ pub const REFUSED_PORT: u16 = 41970;
+ pub const SEASON_ID: u64 = 11;
+@@ -102,6 +163,45 @@ pub struct Options {
+     /// (`wide_destination`; SYNTHETIC requested ring seed and Season
+     /// authority, REAL Consume / SetRules / WideOpenProvince).
+     pub wide_destination: bool,
++    /// `--lane-candidate localnet-conquest-nft-sbf --resident-so <abs> --core-so <abs> --authority-seed-dir <abs>`:
++    /// the LOCAL TEST CANDIDATE world (all four or none); `None`: the conquest lane exactly as before.
++    pub candidate: Option<CandidateOptions>,
++}
++
++/// Takes `--name <value>` out of `args` (at an even position, once); `None` when absent.
++fn take_flag(args: &mut Vec<String>, name: &str) -> Result<Option<String>, String> {
++    let Some(i) = args.iter().position(|a| a == name) else { return Ok(None) };
++    if i % 2 != 0 || i + 1 >= args.len() {
++        return Err(format!("{name} takes one value"));
++    }
++    let v = args[i + 1].clone();
++    args.drain(i..i + 2);
++    if args.iter().any(|a| a == name) {
++        return Err(format!("{name} given twice"));
++    }
++    Ok(Some(v))
++}
++
++/// The candidate's four options, all or none (taken out before the shared flags are read).
++fn take_candidate(args: &mut Vec<String>) -> Result<Option<CandidateOptions>, String> {
++    let lane = take_flag(args, "--lane-candidate")?;
++    let resident = take_flag(args, "--resident-so")?;
++    let core = take_flag(args, "--core-so")?;
++    let seed_dir = take_flag(args, "--authority-seed-dir")?;
++    match (lane, resident, core, seed_dir) {
++        (None, None, None, None) => Ok(None),
++        (Some(l), Some(r), Some(c), Some(d)) => {
++            if l != CANDIDATE_FEATURE {
++                return Err(format!("--lane-candidate takes exactly `{CANDIDATE_FEATURE}`"));
++            }
++            let (r, c, d) = (PathBuf::from(r), PathBuf::from(c), PathBuf::from(d));
++            if !r.is_absolute() || !c.is_absolute() || !d.is_absolute() {
++                return Err("--resident-so, --core-so and --authority-seed-dir must be absolute paths".into());
++            }
++            Ok(Some(CandidateOptions { resident_so: r, core_so: c, authority_seed_dir: d }))
++        }
++        _ => Err("--lane-candidate, --resident-so, --core-so and --authority-seed-dir go together".into()),
++    }
+ }
+ 
+ /// The only keeper value: public drand Quicknet rounds, verified.
+@@ -113,6 +213,7 @@ const FLAGS: [&str; 5] = ["--artifact", "--artifact-sha256", "--player-wallet",
+ /// optionally `--keeper public-quicknet` once.
+ pub fn parse_args(args: impl IntoIterator<Item = String>) -> Result<Options, String> {
+     let mut args: Vec<String> = args.into_iter().collect();
++    let candidate = take_candidate(&mut args)?;
+     let mut keeper = false;
+     if let Some(i) = args.iter().position(|a| a == "--keeper") {
+         if i % 2 != 0 || args.get(i + 1).map(String::as_str) != Some(KEEPER_PUBLIC_QUICKNET) {
+@@ -168,7 +269,7 @@ pub fn parse_args(args: impl IntoIterator<Item = String>) -> Result<Options, Str
+     };
+     let (rpc_port, ws_port) = (port(3, "--rpc-port")?, port(4, "--ws-port")?);
+     check_ports(rpc_port, ws_port)?;
+-    Ok(Options { artifact, sha256, player_wallet, rpc_port, ws_port, keeper, wide_destination })
++    Ok(Options { artifact, sha256, player_wallet, rpc_port, ws_port, keeper, wide_destination, candidate })
+ }
+ 
+ /// Explicit, distinct, free loopback ports in 41000–41999, never 41970 or a
+@@ -193,9 +294,12 @@ pub fn check_ports(rpc: u16, ws: u16) -> Result<(), String> {
+ /// The player wallet is a usable public key: not the default (all zero),
+ /// not the dedicated program, not the program's Season.
+ pub fn check_wallet(w: &Address) -> Result<(), String> {
+-    let program = Address::new_from_array(PROGRAM);
+-    if *w == Address::default() || *w == program || *w == fclient::addr::season_pda(&program, SEASON_ID).0 {
+-        return Err("--player-wallet is not a usable public key".into());
++    // (both lanes' program and Season: the lane is not known yet when the arguments are read)
++    for lane in [Lane::CONQUEST, Lane::CANDIDATE] {
++        let program = lane.address();
++        if *w == Address::default() || *w == program || *w == fclient::addr::season_pda(&program, SEASON_ID).0 {
++            return Err("--player-wallet is not a usable public key".into());
++        }
+     }
+     Ok(())
+ }
+@@ -267,6 +371,8 @@ pub struct Fixture {
+     /// once, never stored or printed) that `install` funds from the node's
+     /// faucet, so the address is a live, non-executable system wallet.
+     pub rent_payer: Address,
++    /// The lane of the base this fixture was made on (the records' owner).
++    pub lane: Lane,
+     accounts: Vec<(Address, Vec<u8>)>,
+ }
+ 
+@@ -279,6 +385,11 @@ const RENT_PAYER_LAMPORTS: u64 = 1_000_000_000;
+ /// no ceiling, and the genesis round whose `genesis_ts` (round time + 600)
+ /// is the latest one at or before `now - INTO_SEASON`.
+ fn season_bytes(bump: u8, now: i64) -> Result<(Vec<u8>, i64, u64), String> {
++    season_bytes_for(PROGRAM_VERSION, bump, now)
++}
++
++/// The Season as [`season_bytes`], carrying `version` (the lane's).
++fn season_bytes_for(version: u16, bump: u8, now: i64) -> Result<(Vec<u8>, i64, u64), String> {
+     let p = S1_LOCAL_7D.base;
+     let mut cq = S1_LOCAL_7D.cq;
+     cq.r_max_ceiling = 0;
+@@ -304,7 +415,7 @@ fn season_bytes(bump: u8, now: i64) -> Result<(Vec<u8>, i64, u64), String> {
+     s[S::POSTURES_ENABLED] = p.postures_enabled;
+     assert!(wr_arr(&mut s, S::RULESET_HASH, &RULESET_HASH_V3));
+     assert!(wr_u16(&mut s, S::RULES_VERSION, RULES_VERSION_S1));
+-    assert!(wr_u16(&mut s, S::PROGRAM_VERSION, PROGRAM_VERSION));
++    assert!(wr_u16(&mut s, S::PROGRAM_VERSION, version));
+     w32(&mut s, S::BELL_SECS, p.bell_secs);
+     assert!(wr_arr(&mut s, S::GENESIS_TS, &genesis_ts.to_le_bytes()));
+     assert!(wr_arr(&mut s, S::CREATED_TS, &genesis_ts.to_le_bytes()));
+@@ -359,6 +470,8 @@ pub struct Base {
+     pub home_ring: u16,
+     pub genesis_ts: i64,
+     pub genesis_round: u64,
++    /// The lane the accounts belong to (their owner, the PDAs' program).
++    pub lane: Lane,
+     accounts: Vec<(Address, Vec<u8>, u64)>,
+ }
+ 
+@@ -367,10 +480,15 @@ const FUND_LAMPORTS: u64 = 100_000_000_000;
+ 
+ impl Base {
+     pub fn new(now: i64) -> Result<Base, String> {
+-        let program = Address::new_from_array(PROGRAM);
++        Base::new_for(Lane::CONQUEST, now)
++    }
++
++    /// As [`Base::new`] for `lane` (its program's PDAs, its version in the Season).
++    pub fn new_for(lane: Lane, now: i64) -> Result<Base, String> {
++        let program = lane.address();
+         let (season, bump) = fclient::addr::season_pda(&program, SEASON_ID);
+-        let ctx = AddrCtx { program: PROGRAM, season: season.to_bytes() };
+-        let (s, genesis_ts, genesis_round) = season_bytes(bump, now)?;
++        let ctx = AddrCtx { program: lane.program, season: season.to_bytes() };
++        let (s, genesis_ts, genesis_round) = season_bytes_for(lane.version, bump, now)?;
+         let coord = ProvinceCoord::new(128, 0);
+         let ring = coord.ring() as u16;
+         let mut fr = vec![0u8; K2::Frontier.size()];
+@@ -396,7 +514,7 @@ impl Base {
+         let ring_seed = Address::new_from_array(ctx.ring_seed(ring));
+         let fund_key = Address::new_from_array(ctx.province_fund(wedge));
+         Ok(Base {
+-            season, frontier, ring_seed, fund: fund_key, home_ring: ring, genesis_ts, genesis_round,
++            season, frontier, ring_seed, fund: fund_key, home_ring: ring, genesis_ts, genesis_round, lane,
+             accounts: vec![(season, s, FIXTURE_LAMPORTS), (frontier, fr, FIXTURE_LAMPORTS), (ring_seed, rs, FIXTURE_LAMPORTS), (fund_key, fund, FUND_LAMPORTS)],
+         })
+     }
+@@ -404,7 +522,7 @@ impl Base {
+     /// Writes the base accounts, owned by the dedicated program.
+     pub fn install(&self, c: &mut Chain) -> Result<(), String> {
+         for (key, data, lamports) in &self.accounts {
+-            c.set_account(*key, Account { lamports: *lamports, data: data.clone(), owner: Address::new_from_array(PROGRAM), executable: false })?;
++            c.set_account(*key, Account { lamports: *lamports, data: data.clone(), owner: self.lane.address(), executable: false })?;
+         }
+         Ok(())
+     }
+@@ -429,10 +547,15 @@ impl Base {
+ /// City where due, `resolved_next = opened_bell = now_bell`. Returns the
+ /// Province bytes it wrote and the transaction's signature.
+ pub fn open_home(c: &mut Chain) -> Result<(Vec<u8>, String), String> {
++    open_home_for(c, Lane::CONQUEST)
++}
++
++/// As [`open_home`] for `lane`'s program.
++pub fn open_home_for(c: &mut Chain, lane: Lane) -> Result<(Vec<u8>, String), String> {
+     let payer = fclient::Keypair::new();
+     c.airdrop(&fclient::Signer::pubkey(&payer), 10_000_000_000)?;
+     c.produce_block();
+-    let program = Address::new_from_array(PROGRAM);
++    let program = lane.address();
+     let ix = fclient::ix::open_province(&fclient::addr::Addresses::new(program, SEASON_ID), fclient::Signer::pubkey(&payer), 128, 0);
+     let budget = fclient::tx::TxBudget { cu_limit: 1_400_000, cu_price: 0, loaded_limit: fclient::fees::RUNTIME_MAX_LOADED, heap: Some(256 * 1024) };
+     let (blockhash, _) = c.latest_blockhash();
+@@ -444,7 +567,7 @@ pub fn open_home(c: &mut Chain) -> Result<(Vec<u8>, String), String> {
+         let tail: Vec<_> = landed.logs.iter().rev().take(6).rev().cloned().collect();
+         return Err(format!("OpenProvince failed: {err} (code {:?}) {tail:?}", landed.code));
+     }
+-    let ctx = AddrCtx { program: PROGRAM, season: fclient::addr::season_pda(&program, SEASON_ID).0.to_bytes() };
++    let ctx = AddrCtx { program: lane.program, season: fclient::addr::season_pda(&program, SEASON_ID).0.to_bytes() };
+     let home = c.account(&Address::new_from_array(ctx.province(128, 0))).ok_or("no Province after OpenProvince")?;
+     Ok((home.data, sig.to_string()))
+ }
+@@ -458,8 +581,8 @@ impl Fixture {
+     /// ticket or Muster ran); the terrain, keep, camp and resolution fields
+     /// stay exactly the program's.
+     pub fn new(wallet: &Address, base: &Base, opened: &[u8]) -> Result<Fixture, String> {
+-        let program = Address::new_from_array(PROGRAM);
+-        let ctx = AddrCtx { program: PROGRAM, season: base.season.to_bytes() };
++        let program = base.lane.address();
++        let ctx = AddrCtx { program: base.lane.program, season: base.season.to_bytes() };
+         let resolver = AccountResolver::for_season(&ctx).map_err(|e| format!("resolver: {e:?}"))?;
+         let pv = fclient::decode::Province::decode(opened).map_err(|e| format!("opened Province: {e:?}"))?;
+         if (pv.p, pv.q) != (128, 0) {
+@@ -566,6 +689,7 @@ impl Fixture {
+         let home_key = Address::new_from_array(resolver.province_address(host.key()).map_err(|e| format!("province: {e:?}"))?);
+         let _ = program;
+         Ok(Fixture {
++            lane: base.lane,
+             season: base.season,
+             host,
+             citizen,
+@@ -595,7 +719,7 @@ impl Fixture {
+     /// stay as the base and the program left them).
+     pub fn install(&self, c: &mut Chain) -> Result<(), String> {
+         for (key, data) in self.accounts[1..4].iter().chain(self.accounts[6..].iter()) {
+-            let a = Account { lamports: FIXTURE_LAMPORTS, data: data.clone(), owner: Address::new_from_array(PROGRAM), executable: false };
++            let a = Account { lamports: FIXTURE_LAMPORTS, data: data.clone(), owner: self.lane.address(), executable: false };
+             let a = match c.account(key) {
+                 // the home keeps the lamports the program funded it with
+                 Some(old) if *key == self.home => Account { lamports: old.lamports, ..a },
+@@ -642,6 +766,54 @@ pub async fn launch_with(artifact: &Artifact, wallet: Address, rpc_port: u16, ws
+ /// SYNTHETIC Season authority and requested ring-129 record are installed
+ /// at bootstrap; the REAL instructions run later (`wide_destination::run`).
+ pub async fn launch_full(artifact: &Artifact, wallet: Address, rpc_port: u16, ws_port: u16, keeper: bool, wide: bool) -> Result<Play, String> {
++    launch_lane(artifact, wallet, rpc_port, ws_port, keeper, wide, None).await
++}
++
++/// The candidate world's extra programs, read and checked before anything is deployed.
++pub struct CandidateAssets {
++    pub resident_so: Vec<u8>,
++    pub core_so: Vec<u8>,
++    pub authority_seed_dir: PathBuf,
++}
++
++impl CandidateAssets {
++    /// Reads the two `.so` files (non-empty ELF) and checks the seed directory exists and is a directory.
++    pub fn read(o: &CandidateOptions) -> Result<CandidateAssets, String> {
++        let read = |p: &PathBuf, name: &str| -> Result<Vec<u8>, String> {
++            let b = std::fs::read(p).map_err(|e| format!("{name}: {e}"))?;
++            if b.len() < 4 || &b[..4] != b"\x7fELF" {
++                return Err(format!("{name} is not an ELF file"));
++            }
++            Ok(b)
++        };
++        if !std::fs::metadata(&o.authority_seed_dir).map(|m| m.is_dir()).unwrap_or(false) {
++            return Err("--authority-seed-dir is not a directory".into());
++        }
++        Ok(CandidateAssets { resident_so: read(&o.resident_so, "--resident-so")?, core_so: read(&o.core_so, "--core-so")?, authority_seed_dir: o.authority_seed_dir.clone() })
++    }
++}
++
++/// Writes the throwaway authority's 32-byte seed as hex, 0600, to `<dir>/candidate-authority.seed` (a new file
++/// only; never printed or logged). Returns the path.
++fn write_candidate_seed(dir: &std::path::Path, seed: &[u8; 32]) -> Result<PathBuf, String> {
++    use std::io::Write;
++    use std::os::unix::fs::OpenOptionsExt;
++    let path = dir.join(CANDIDATE_SEED_FILE);
++    let mut f = std::fs::OpenOptions::new().write(true).create_new(true).mode(0o600).open(&path).map_err(|e| format!("authority seed file: {e}"))?;
++    f.write_all(format!("{}\n", hex::encode(seed)).as_bytes()).map_err(|e| format!("authority seed file: {e}"))?;
++    Ok(path)
++}
++
++/// [`launch_full`] for a lane: `candidate` `None` is the conquest lane exactly as before; `Some` deploys the
++/// candidate artefact under [`Lane::CANDIDATE`]'s id with a throwaway upgrade authority, Core and the resident
++/// program (the resident program's upgrade authority the same throwaway key, so the NFT setup can run InitConfig and
++/// CreateResidentPolicy), writes that key's seed into the given directory only, and states the candidate's keys on
++/// the first line.
++pub async fn launch_lane(artifact: &Artifact, wallet: Address, rpc_port: u16, ws_port: u16, keeper: bool, wide: bool, candidate: Option<&CandidateAssets>) -> Result<Play, String> {
++    let lane = if candidate.is_some() { Lane::CANDIDATE } else { Lane::CONQUEST };
++    if candidate.is_some() {
++        set_candidate_world()?;
++    }
+     check_ports(rpc_port, ws_port)?;
+     check_wallet(&wallet)?;
+     if localnet::bls_and_sbpf_v2_active() != (true, true) {
+@@ -649,18 +821,33 @@ pub async fn launch_full(artifact: &Artifact, wallet: Address, rpc_port: u16, ws
+     }
+     let cfg = Config { allow_tamper: false, data_dir: None, ..Config::default() };
+     let mut c = Chain::new(cfg);
+-    let program = Address::new_from_array(PROGRAM);
+-    c.deploy(program, &artifact.bytes, max_len(artifact.bytes.len()), None)?;
++    let program = lane.address();
++    // (the candidate: one throwaway in-memory authority for the Frontier and resident programs; its seed goes to the
++    //  given directory only, the key is dropped with the runner)
++    let candidate_authority = candidate.map(|_| fclient::Keypair::new());
++    let upgrade = candidate_authority.as_ref().map(fclient::Signer::pubkey);
++    c.deploy(program, &artifact.bytes, max_len(artifact.bytes.len()), upgrade)?;
++    let mut candidate_seed_file = None;
++    if let (Some(assets), Some(k)) = (candidate, candidate_authority.as_ref()) {
++        let core: Address = CORE_PROGRAM.parse().map_err(|_| "Core id")?;
++        let resident: Address = RESIDENT_PROGRAM.parse().map_err(|_| "resident id")?;
++        c.deploy(core, &assets.core_so, max_len(assets.core_so.len()), None)?;
++        c.deploy(resident, &assets.resident_so, max_len(assets.resident_so.len()), upgrade)?;
++        c.airdrop(&fclient::Signer::pubkey(k), PLAYER_LAMPORTS)?;
++        let bytes = k.to_bytes();
++        let seed: [u8; 32] = bytes[..32].try_into().map_err(|_| "seed")?;
++        candidate_seed_file = Some(write_candidate_seed(&assets.authority_seed_dir, &seed)?);
++    }
+     c.airdrop(&wallet, PLAYER_LAMPORTS)?;
+     c.produce_block();
+-    let mut base = Base::new(c.unix_timestamp())?;
++    let mut base = Base::new_for(lane, c.unix_timestamp())?;
+     let authority = wide.then(fclient::Keypair::new);
+     if let Some(k) = &authority {
+         base.set_authority(&fclient::Signer::pubkey(k));
+     }
+     base.install(&mut c)?;
+     c.produce_block();
+-    let (opened, open_signature) = open_home(&mut c)?;
++    let (opened, open_signature) = open_home_for(&mut c, lane)?;
+     let fixture = Fixture::new(&wallet, &base, &opened)?;
+     fixture.install(&mut c)?;
+     c.produce_block();
+@@ -693,7 +880,7 @@ pub async fn launch_full(artifact: &Artifact, wallet: Address, rpc_port: u16, ws
+         "listen": "127.0.0.1 only",
+         "runner_instance": runner_instance,
+         "program": program.to_string(),
+-        "program_version": format!("0x{PROGRAM_VERSION:04x}"),
++        "program_version": lane.version_text(),
+         "artifact": {"path": artifact.path.display().to_string(), "sha256": artifact.sha256, "marker": "PSF_LOCALNET_EXPEDITION_SBF_BUILD", "bytes": artifact.bytes.len()},
+         "execution": "real SBF artifact in the in-process LiteSVM chain (BLS12-381 syscalls and SBPF v2 active)",
+         "player_wallet": wallet.to_string(),
+@@ -731,6 +918,14 @@ pub async fn launch_full(artifact: &Artifact, wallet: Address, rpc_port: u16, ws
+         "services_not_started": if keeper { json!(["herald", "gateway", "relay", "the Reveal (the player's own transaction)", "terminal settlements other than the member path"]) } else { json!(["keeper", "herald", "gateway", "relay", "beacon"]) },
+     });
+     let fixture = fixture;
++    let mut metadata = metadata;
++    if let Some(file) = candidate_seed_file {
++        // (the candidate's keys on the first line, as the launcher requires; the seed itself is never printed)
++        metadata["lane_candidate"] = json!(CANDIDATE_FEATURE);
++        metadata["resident_program"] = json!(RESIDENT_PROGRAM);
++        metadata["core_program"] = json!(CORE_PROGRAM);
++        metadata["authority_seed_file"] = json!(file.display().to_string());
++    }
+     Ok(Play { running, metadata, fixture, wide: wide_plan })
+ }
+ 
+@@ -1083,3 +1278,60 @@ mod real_depart {
+         });
+     }
+ }
++
++/// The lane (step 1 of threading the candidate through the runner). WRITTEN WITHOUT COMPILING; run with
++/// `cargo test -p itest --features localnet-expedition-play lane_tests` in an agreed host-build slot.
++#[cfg(test)]
++mod lane_tests {
++    use super::*;
++
++    fn args(extra: &[&str]) -> Vec<String> {
++        let wallet = Address::new_from_array([7; 32]).to_string();
++        let mut v: Vec<String> = ["--artifact", "/abs/program.so", "--artifact-sha256", &"ab".repeat(32), "--player-wallet", &wallet, "--rpc-port", "41301", "--ws-port", "41302"].iter().map(|s| s.to_string()).collect();
++        v.extend(extra.iter().map(|s| s.to_string()));
++        v
++    }
++
++    #[test]
++    fn the_conquest_lane_is_the_old_constants_and_the_candidate_its_own() {
++        assert_eq!(Lane::CONQUEST, Lane { program: PROGRAM, version: PROGRAM_VERSION });
++        assert_eq!(Lane::CONQUEST.version_text(), "0x4804");
++        assert_eq!(Lane::CANDIDATE.program, [0x4C; 32]);
++        assert_eq!(Lane::CANDIDATE.version, 0xC804);
++        assert_eq!(Lane::CANDIDATE.version_text(), "0xc804");
++        assert_ne!(Lane::CANDIDATE.program, PROGRAM);
++    }
++
++    #[test]
++    fn candidate_options_all_or_none_exact_word_absolute_paths() {
++        let plain = parse_args(args(&[])).unwrap();
++        assert_eq!(plain.candidate, None, "no candidate option: the conquest lane exactly as before");
++        let c = parse_args(args(&["--lane-candidate", CANDIDATE_FEATURE, "--resident-so", "/abs/r.so", "--core-so", "/abs/c.so", "--authority-seed-dir", "/abs/dir"])).unwrap();
++        assert_eq!(c.candidate, Some(CandidateOptions { resident_so: "/abs/r.so".into(), core_so: "/abs/c.so".into(), authority_seed_dir: "/abs/dir".into() }));
++        assert!(parse_args(args(&["--lane-candidate", CANDIDATE_FEATURE])).is_err(), "one without the others");
++        assert!(parse_args(args(&["--lane-candidate", "localnet-nft-sbf", "--resident-so", "/abs/r.so", "--core-so", "/abs/c.so", "--authority-seed-dir", "/abs/dir"])).is_err(), "another word");
++        assert!(parse_args(args(&["--lane-candidate", CANDIDATE_FEATURE, "--resident-so", "r.so", "--core-so", "/abs/c.so", "--authority-seed-dir", "/abs/dir"])).is_err(), "a relative path");
++    }
++
++    #[test]
++    fn the_season_carries_the_lanes_version_and_the_base_its_program() {
++        let now = 1_785_600_000;
++        let (plain, _, _) = season_bytes(1, now).unwrap();
++        let (also_plain, _, _) = season_bytes_for(PROGRAM_VERSION, 1, now).unwrap();
++        assert_eq!(plain, also_plain, "the conquest Season is byte-identical through the lane path");
++        let (cand, _, _) = season_bytes_for(Lane::CANDIDATE.version, 1, now).unwrap();
++        assert_eq!(u16::from_le_bytes([cand[S::PROGRAM_VERSION], cand[S::PROGRAM_VERSION + 1]]), 0xC804);
++        let a = Base::new(now).unwrap();
++        let b = Base::new_for(Lane::CONQUEST, now).unwrap();
++        assert_eq!((a.season, a.frontier, a.ring_seed, a.fund), (b.season, b.frontier, b.ring_seed, b.fund), "Base::new is the conquest lane");
++        let c = Base::new_for(Lane::CANDIDATE, now).unwrap();
++        assert_eq!(c.season, fclient::addr::season_pda(&Lane::CANDIDATE.address(), SEASON_ID).0);
++        assert_ne!(c.season, a.season, "the candidate's PDAs are its own program's");
++    }
++    #[test]
++    fn the_process_lane_is_the_conquest_lane_unless_a_candidate_world_set_it() {
++        // (no test starts a candidate world: every runtime module sees the old program)
++        assert_eq!(world_lane(), Lane::CONQUEST);
++        assert_eq!(world_program(), PROGRAM);
++    }
++}
+diff --git a/frontier-node/crates/itest/src/keeper_loop.rs b/frontier-node/crates/itest/src/keeper_loop.rs
+index f39d1003..fd584aae 100644
+--- a/frontier-node/crates/itest/src/keeper_loop.rs
++++ b/frontier-node/crates/itest/src/keeper_loop.rs
+@@ -282,7 +282,7 @@ impl Keeper {
+             return Err("stopped before start".into());
+         }
+         let payer = fund_fresh(state, &mut stop).await?;
+-        Ok(Keeper { a: Addresses::new(Address::new_from_array(PROGRAM), SEASON_ID), payer, source, cache: HashMap::new(),
++        Ok(Keeper { a: Addresses::new(crate::expedition_play::world_lane().address(), SEASON_ID), payer, source, cache: HashMap::new(),
+             failures: 0, backoff_until: None, stop, watch: None, home, land_timeout: LAND_TIMEOUT, status: Status { running: true, ..Status::default() } })
+     }
+ 
+diff --git a/frontier-node/crates/itest/src/legacy_march.rs b/frontier-node/crates/itest/src/legacy_march.rs
+index a418cac9..53ea6a49 100644
+--- a/frontier-node/crates/itest/src/legacy_march.rs
++++ b/frontier-node/crates/itest/src/legacy_march.rs
+@@ -392,7 +392,7 @@ pub struct LegacyMarchDriver {
+ impl LegacyMarchDriver {
+     /// A driver for the player's legacy village `href` (its Holding address is derived) with a funded fee payer.
+     pub fn new(href: HoldingRef, payer: Keypair, stop: tokio::sync::watch::Receiver<bool>) -> LegacyMarchDriver {
+-        let a = Addresses::new(Address::new_from_array(crate::expedition_play::PROGRAM), crate::expedition_play::SEASON_ID);
++        let a = Addresses::new(crate::expedition_play::world_lane().address(), crate::expedition_play::SEASON_ID);
+         let holding = href.address(&a);
+         LegacyMarchDriver { a, holding, href, payer, stop, land_timeout: crate::keeper_loop::LAND_TIMEOUT, known: Default::default(), terminal: None, log: vec![], stands: vec![], stand_cursor: 0, world_cursor: 0, world_crank: true, world_skip: vec![], world_skipped: 0, world_rounds: Default::default(), world_sent: 0, world_counts: Default::default() }
+     }
+diff --git a/frontier-node/crates/itest/src/origin_driver.rs b/frontier-node/crates/itest/src/origin_driver.rs
+index a218f374..ad6e86b7 100644
+--- a/frontier-node/crates/itest/src/origin_driver.rs
++++ b/frontier-node/crates/itest/src/origin_driver.rs
+@@ -77,7 +77,7 @@ impl OriginDriver {
+ 
+     /// As [`OriginDriver::new`], for the home province `home` (the province of the player's real PlaceHome).
+     pub fn new_at(holding: Address, home: (i16, i16), payer: Keypair, stop: tokio::sync::watch::Receiver<bool>) -> OriginDriver {
+-        OriginDriver { a: Addresses::new(Address::new_from_array(crate::expedition_play::PROGRAM), crate::expedition_play::SEASON_ID),
++        OriginDriver { a: Addresses::new(crate::expedition_play::world_lane().address(), crate::expedition_play::SEASON_ID),
+             holding, home, payer, stop, land_timeout: crate::keeper_loop::LAND_TIMEOUT, terminal: None, log: vec![] }
+     }
+ 
+diff --git a/frontier-node/crates/itest/src/resident_bells.rs b/frontier-node/crates/itest/src/resident_bells.rs
+index ba1abab8..d26c6b15 100644
+--- a/frontier-node/crates/itest/src/resident_bells.rs
++++ b/frontier-node/crates/itest/src/resident_bells.rs
+@@ -372,7 +372,7 @@ pub struct ResidentBells {
+ 
+ impl ResidentBells {
+     pub fn new(holding: Address, payer: Keypair, stop: tokio::sync::watch::Receiver<bool>) -> ResidentBells {
+-        ResidentBells { a: Addresses::new(Address::new_from_array(crate::expedition_play::PROGRAM), crate::expedition_play::SEASON_ID),
++        ResidentBells { a: Addresses::new(crate::expedition_play::world_lane().address(), crate::expedition_play::SEASON_ID),
+             holding, payer, stop, land_timeout: crate::keeper_loop::LAND_TIMEOUT, terminal: None, log: vec![] }
+     }
+ 
+diff --git a/frontier-node/crates/itest/src/wide_destination.rs b/frontier-node/crates/itest/src/wide_destination.rs
+index 19f6172f..465bda20 100644
+--- a/frontier-node/crates/itest/src/wide_destination.rs
++++ b/frontier-node/crates/itest/src/wide_destination.rs
+@@ -70,7 +70,7 @@ const AUTHORITY_LAMPORTS: u64 = 1_000_000_000;
+ 
+ /// The Season's address context.
+ pub fn ctx(season: &Address) -> AddrCtx {
+-    AddrCtx { program: PROGRAM, season: season.to_bytes() }
++    AddrCtx { program: crate::expedition_play::world_program(), season: season.to_bytes() }
+ }
+ 
+ /// SYNTHETIC: the requested ring-129 record from the program's own model.
+@@ -103,7 +103,7 @@ pub fn requested_ring_seed(season: &Address, season_bytes: &[u8], legacy_ring_se
+ }
+ 
+ fn ix(accounts: Vec<AccountMeta>, data: Vec<u8>) -> Instruction {
+-    Instruction { program_id: Address::new_from_array(PROGRAM), accounts, data }
++    Instruction { program_id: crate::expedition_play::world_lane().address(), accounts, data }
+ }
+ 
+ /// 0xD7 WideConsumeRingSeed: K + `[wide_ringseed w]`.
+@@ -228,7 +228,7 @@ impl Plan {
+ /// after the instruction that made it landed).
+ fn capture(state: &Shared, key: &Address) -> Result<(Value, Vec<u8>), String> {
+     let acc = lock(state).account(key).ok_or(format!("{key} is absent after its instruction landed"))?;
+-    if acc.owner != Address::new_from_array(PROGRAM) || acc.executable {
++    if acc.owner != crate::expedition_play::world_lane().address() || acc.executable {
+         return Err(format!("{key} is not a program-owned data account"));
+     }
+     let v = json!({"address": key.to_string(), "owner": acc.owner.to_string(), "bytes": acc.data.len(), "lamports": acc.lamports,
 diff --git a/frontier-node/crates/keeper/src/experimental_conquest_prepare.rs b/frontier-node/crates/keeper/src/experimental_conquest_prepare.rs
 index 97484610..c2dade5c 100644
 --- a/frontier-node/crates/keeper/src/experimental_conquest_prepare.rs
