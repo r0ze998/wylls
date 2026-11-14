@@ -5,7 +5,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { encode as b58 } from '../client/src/base58.mjs';
 import { compileMessage, wireTransaction } from '../../permutation-server/web/sdk/solana-tx.mjs';
-import { claimPassLocal, LOCAL_PRIZE, loadPrizeLocal } from '../../permutation-server/web/frontier/fprize.mjs';
+import { claimPassLocal, LOCAL_PRIZE, loadLedgerLocal, loadPrizeLocal } from '../../permutation-server/web/frontier/fprize.mjs';
 
 const k = n => b58(new Uint8Array(32).fill(n));
 const WALLET = k(0xa1), ASSET = k(0x5a);
@@ -63,4 +63,11 @@ test('after the submit nothing is called failed: a refused or unknown submit kee
   assert.deepEqual([unknown.ok, unknown.notSent, unknown.code, unknown.signature], [false, false, 'ClaimOutcomeUnknown', 'sigU']);
   const refused = await claimPassLocal({ wallet: wallet(), asset: ASSET, generation: 2, request: relay({ [LOCAL_PRIZE.prepare]: prepared, [LOCAL_PRIZE.submit]: { ok: false, code: 'LocalPrizeRunnerChanged', signature: null } }).request });
   assert.deepEqual([refused.ok, refused.notSent, refused.code], [false, false, 'LocalPrizeRunnerChanged']);
+});
+
+test('ledger: only a TEST ONLY ledger is taken; none published is "no ledger"', async () => {
+  const path = `${LOCAL_PRIZE.view}/ledger`;
+  assert.deepEqual((await loadLedgerLocal({ request: relay({ [path]: { ok: true, testOnly: true, shares: { members: [] } } }).request })).ledger.testOnly, true);
+  assert.equal((await loadLedgerLocal({ request: relay({ [path]: { ok: true, testOnly: false, shares: {} } }).request })).ledger, null, 'a non-TEST ONLY ledger is not used');
+  assert.deepEqual(await loadLedgerLocal({ request: relay({ [path]: { ok: false, code: 'LocalPrizeNoLedger', httpStatus: 404 } }).request }), { ok: true, ledger: null });
 });

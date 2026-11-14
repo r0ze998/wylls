@@ -380,6 +380,13 @@ export const LOCAL_PRIZE = Object.freeze({
   prepareSchema: 'frontier-local-play-prize-claim-prepare-v1', submitSchema: 'frontier-local-play-prize-claim-submit-v1',
 });
 
+/** GET /f/local-play/prize/ledger: the TEST ONLY ledger of this world (null when none is published). */
+export async function loadLedgerLocal({ request = io.request, ...opts } = {}) {
+  const r = await request('GET', `${LOCAL_PRIZE.view}/ledger`, opts);
+  if (!r?.ok) return r?.code === 'LocalPrizeNoLedger' || r?.httpStatus === 404 ? { ok: true, ledger: null } : r;
+  return { ok: true, ledger: r.testOnly === true ? r : null };
+}
+
 /** GET /f/local-play/prize[?asset=]: the same pool shape as loadPrize (a TEST ONLY world's pool), or no pool. */
 export async function loadPrizeLocal({ asset = null, request = io.request, ...opts } = {}) {
   const r = await request('GET', `${LOCAL_PRIZE.view}${asset ? `?asset=${encodeURIComponent(asset)}` : ''}`, opts);

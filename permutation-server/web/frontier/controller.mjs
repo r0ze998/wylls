@@ -238,7 +238,8 @@ export async function refreshPrize({ force = false, at = Date.now() } = {}) {
   const address = FS.wallet?.address ?? null;
   // NFT pass (experimental): with a pass played, the pool is read with the pass's Entry and NFT Citizen too.
   const asset = FS.resident?.asset ?? null;
-  const r = await prizeIo.loadPrize(address, asset ? { asset } : undefined);
+  // (⑰: in the local test candidate's play, the TEST ONLY local-play prize routes; elsewhere exactly as before)
+  const r = localCandidate() ? await prizeIo.loadPrizeLocal(asset ? { asset } : {}) : await prizeIo.loadPrize(address, asset ? { asset } : undefined);
   if ((FS.wallet?.address ?? null) !== address || (FS.resident?.asset ?? null) !== asset) return;
   if (!r.ok) return;
   FS.prize = r.pool;
@@ -246,7 +247,7 @@ export async function refreshPrize({ force = false, at = Date.now() } = {}) {
   if (FS.prizePass && FS.prizePass.asset !== asset) FS.prizePass = null;
   if (FS.prizePass && r.pool?.pass?.asset === asset && r.pool.pass.entry?.claimed) FS.prizePass = { ...FS.prizePass, state: 'landed' };
   if (r.pool && r.pool.state !== 'open') {
-    const g = await prizeIo.loadLedger();
+    const g = localCandidate() ? await prizeIo.loadLedgerLocal() : await prizeIo.loadLedger();
     if ((FS.wallet?.address ?? null) !== address) return;
     if (g.ok) FS.prizeLedger = g.ledger;
   }
@@ -288,14 +289,16 @@ async function claimPass() {
     await refreshPrize({ force: true });
     if (!live()) return failed({ code: 'NftNotHeld' });
     // The generation read fresh now: a transfer since the page loaded changes it, and the former owner is refused.
-    const g = await fresident.currentGeneration(w.address, asset);
+    const g = localCandidate() ? await residentGenerationNow(asset) : await fresident.currentGeneration(w.address, asset);
     if (!live()) return failed({ code: 'NftNotHeld' });
     if (g === null) { write(null); return failed({ code: 'NftNotHeld' }); }
     FS.resident = { ...FS.resident, generation: g };
     op = fprize.claimOpOf(w.address, asset, op.epoch, g);
     const m = fprize.passClaimModel({ prize: FS.prize, prizeLedger: FS.prizeLedger, resident: FS.resident, prizePass: FS.prizePass, wallet: FS.wallet });
     if (!m || m.state !== 'claimable') { invalidate('panel'); return failed({ code: PASS_CLAIM_REFUSAL[m?.state] ?? 'ClaimNotOpen' }); }
-    const r = await prizeIo.claimPass({ wallet: w, prize: { program: FS.prize.program, pool: FS.prize.pool, vault: FS.prize.vault, mint: FS.prize.mint }, id: FS.resident, generation: g, share: m.share });
+    // (⑰: local play: the relay prepares the claim, this wallet signs and pays, one submit (fprize.claimPassLocal))
+    const r = localCandidate() ? await prizeIo.claimPassLocal({ wallet: w, asset, generation: g })
+      : await prizeIo.claimPass({ wallet: w, prize: { program: FS.prize.program, pool: FS.prize.pool, vault: FS.prize.vault, mint: FS.prize.mint }, id: FS.resident, generation: g, share: m.share });
     if (!live()) return failed({ code: 'NftNotHeld' });
     const record = o => ({ wallet: op.wallet, asset, generation: g, state: o.state, notSent: !!o.notSent, code: o.code, signature: r.signature ?? null, amount: r.amount ?? null,
       // Claimed by an earlier owner or generation (never this owner's success; never resent): who, and when.
@@ -304,7 +307,12 @@ async function claimPass() {
     // chain); every uncertain outcome after the POST is `unknown`, which holds
     // the offer back until the Entry reads claimed (fprize.claimOutcome).
     let outcome = fprize.claimOutcome(r);
-    if (outcome.state === 'pending') {
+    if (outcome.state === 'pending' && localCandidate()) {
+      // (local play: sent once; the Entry reading claimed marks it landed (refreshPrize); never resent here)
+      write(record(outcome));
+      await refreshPrize({ force: true });
+      return r;
+    } else if (outcome.state === 'pending') {
       write(record(outcome));
       const t = await tx.track(r.signature);
       if (!live()) return failed({ code: 'NftNotHeld' });
