@@ -299,6 +299,8 @@ test('round 25: in local play the host bar\'s Dissolve says it cannot be sent th
     const at = await page.evaluate(async () => {
       const { FS, invalidate } = await import('/frontier/fstate.mjs');
       FS.localPlay = { address: 'W', programId: 'P', seasonAddress: 'S', cluster: 'localnet' };
+      // (local play's march trial open, as in the live worlds: then Dissolve is the only button refused for this reason)
+      Object.defineProperty(FS, 'localMarch', { configurable: true, get: () => ({ open: true }) });
       FS.hand = { host: FS.hand.host };
       invalidate('panel', 'map');
       await new Promise(r => setTimeout(r, 600));
