@@ -365,3 +365,40 @@ from this side).
 
 **Until then:** 0x111 registration, the prize `lib.rs` merge and the
 registry tables remain **NOT DONE (candidate)**.
+
+## 10. Rust ①–③ run (2026-11-15, main's OK, after ⑳'s step 2 finished)
+
+Run as agreed: one cargo at a time; `conquest-guard.sh` unchanged (sha256
+`94baeb7da67e3c46…`, a byte-identical copy in this session's scratchpad);
+a new target `scratchpad/rust/target-prize-e2e`; `--offline --locked`;
+toolchain 1.89.0 (repo pin, installed). Run script sha256 `e2a009a6ab00bccf…`.
+Head `bc169887`. ④ (`nft_pass_prize`) **not run** (needs its own OK).
+
+- First attempt: my script passed `cargo cargo test` (the guard runs cargo
+  itself), so cargo exited in 5 s and nothing was built. The script was fixed
+  (guard untouched) and the run repeated.
+- **① `permutation-prize` `cargo test --lib`: 9 passed, 0 failed** (10 s, rc 0).
+- **② same with `--features nft-experimental`: 9 passed, 0 failed** (5 s, rc 0).
+  This includes `the_pass_error_numbers_are_the_allocated_band` (0x111
+  CeilingPastTally + 0x113–0x11B + tags 8/9/10),
+  `nft_entry_fields_fit_and_share_the_wallet_entrys_offsets`,
+  `a_pass_leaf_is_never_a_wallet_leaf_or_a_node`,
+  `the_map_must_fit_the_tally_ceiling_included`,
+  `old_pool_needs_a_running_finite_world`. So the `lib.rs` merge compiles and
+  its unit tests pass in both feature sets.
+- **③ e2e-native `--test registry --test error_codes`: did not compile (rc 101,
+  10 s); no test ran.** `permutation-frontier/src/lib.rs:206-207`
+  `LOCALNET_CONQUEST_NFT_VERSION` uses `frontier_abi::world_index` with no
+  `cfg`, but `world_index` exists only under `world-index-experimental`,
+  which e2e-native's features do not enable. **Pre-existing at baseline
+  `0ebfe040`**: from ⑳'s `cea293fd` (2026-11-14); this branch does not touch
+  `permutation-frontier` or `frontier-abi`. It's ⑳'s file, so I reported it
+  and did not edit it.
+- Guard: no stop; peak target 332 MiB (`339656` KiB at the end); free 24.64 GiB
+  after the run. The target is kept (main: keep until told).
+
+**Status:** prize `lib.rs` (merge, error band including 0x111, NFT Entry
+layout, leaf domain, continuous-season refusal): **unit-tested, both feature
+sets**. Registry tables (`registry.rs`, so the 0x111 registration),
+`error_codes` and the 9 host scenarios: **NOT DONE (candidate)**, blocked
+first by the frontier compile error above, then ④'s approval.
