@@ -176,6 +176,62 @@ validator を使わない spike 試験 91 件中 89 合格（1 件は既知の�
 
 **次の world の枠で確かめること（未実施）**：B が画面から状態を変える行為、旧持ち主の画面での拒否の表示（A のページを開いたまま譲渡し、A が操作する）、B の画面に国選びが出ないこと、英語の発行ページを通常 world で通すこと（screen check の手順 2 は英語に更新済み）。
 
+## 5f. 通常 world の 2 回目：旧持ち主の画面での拒否・新持ち主の画面での操作を chain で照合（同日 16:45〜16:58）
+
+領土側の world が早く終わり（16:44:40、片付け済み）、領土側に知らせてから起動した。追加の build は無し。7 binary は来歴 OK（commit `c1c1a55a`）、lane の `.so` `0227dbe1…`、住民 program は記録どおり。port は 41000 帯だけ。
+
+- `frontier-stack up --nft-pass …`（run `nftpass-2`）：Season 7（版 `0x8004`、AnnounceSeason → CreateSeason）、pass の setup 4 段、mint ページ。setup 56 秒。
+- 英語画面の検査（`demo/nft-world-screen-check.mjs`）。各段で chain を読む（`docs/integration/CLAUDE-NFT-PASS-WORLD2-CHAIN-20261114.json`：公開の住所・hash・数値だけ。試験の鍵は書いていない）：
+
+| 段 | 画面 | chain |
+|---|---|---|
+| 1 | パス未保有：英語の参加カードと発行ページへのリンク（`?lang=en`） | — |
+| 2 | 英語の発行ページで mint（「A LOCAL TEST network…」「TEST PRICE — a test value, not a real price」「On sale (TEST)」「Your pass is ready」） | — |
+| 3–4 | 国を選んで NFT で参加、最初の村 | asset の持ち主 A、世代 0、NFT Citizen の印、村（Holding）の `OWNER_CITIZEN` ＝ その Citizen、蔵 14,302,627,800 |
+| 4b | 再読込でも NFT を遊び続ける | — |
+| 5 | Node から TransferResident A→B | 持ち主 B、世代 1 |
+| 5a | **A の開いたままの画面で Harvest → 「That did not work — Nothing was harvested. This resident NFT is not in this wallet now.」** | **持ち主・世代・Citizen と Holding の bytes の hash・`LAST_OWNER_ACTION` が変わらない** |
+| 5 | A の再読込：パス未保有の表示。B：同じ Citizen の村（国選びは出ない） | — |
+| 6 | **B が画面から Harvest → 「Harvest written into the stores」** | **蔵 14,302,627,800 → 14,303,115,478、`LAST_OWNER_ACTION` 1785686600 → 1785697160、持ち主 B・世代 1・村の持ち主は同じ NFT Citizen** |
+| 7 | B の画面に「Choose a nation」は出ない | — |
+
+検査を通すまでに harness を直した点（product の不具合ではない）：A の最初の村の chain 確認は Holding の口座ができるまで待つ／再読込後は村の画面を「遊んでいる」と見なす／Harvest は action bar のボタンを使う／B は村があるので参加カードの「Playing as an NFT」は出ない（5e の修正どおり）。
+
+**片付け**：`frontier-stack down`（全 component、mint ページも）。41000–41099 に listener 無し、自分の process・validator・browser 無し（Playwright の context は鍵ごと閉じた）。run directory（343 MB）は state・events・setup log・chain の記録を scratchpad に写してから削除。空き 21.53 GiB、領土側に報告済み。
+
+**残り**：実ウォレット・実機・公開発行は対象外のまま。B の行為は Harvest だけ（建設・行軍などは未確認）。
+
+## 5g. 通常 world の 3 回目：画面の譲渡 UI → 旧持ち主の拒否 → 新持ち主の建設・訓練・編成・行軍・Reveal を取引で照合（同日 19:20〜19:40）
+
+主側の利用者の調整で、主側の retake world（41980–41993）と並行。追加の build は無し（7 binary 来歴 OK `c1c1a55a`、lane `.so` `0227dbe1…`、住民 program は記録どおり）。source は `3313726a`。空きの watchdog 20.85 GiB（`world` の `up` が終わるまで監視）、port は 41000 帯だけ、鍵はその場の一時鍵（process の中だけ、記録していない）、browser は自分の headless Playwright（主側の built-in pane には触れていない）。
+
+- run `nftpass-3`：Season 7（版 `0x8004`）、setup 55 秒。画面の検査（`demo/nft-world-screen-check.mjs`、既定で譲渡を発行ページの画面から）を同じ world で 4 回実行（各回、新しい一時鍵で mint から）。1〜3 回目は harness の不具合で途中停止（下記）、**4 回目（`screen-check-13`）が最後まで通った**。
+- **画面の成功・account の hash の変化だけでは証拠にしない**（keeper の自然な処理でも変わる）。`demo/nft-world-tx-evidence.mjs`（読むだけ）で、各段の**取引そのもの**を読んだ：`CLAUDE-NFT-PASS-WORLD3-TX-EVIDENCE-20261114.json`（公開の住所・署名・decode した field だけ）、画面の段の記録 `CLAUDE-NFT-PASS-WORLD3-STEPS-20261114.txt`。
+
+| 段 | 画面 | 取引（chain） |
+|---|---|---|
+| 譲渡 | 発行ページの「Transfer your resident (TEST)」：自分宛を署名前に拒否 → 確認（asset・送り主・宛先）→ チェック → 送信 →「Transferred (confirmed on the chain)… This wallet can no longer play this resident.」 | TransferResident 1 件、成功、署名者 = A、宛先 = B（`4TeQ34oETSALJf3m…`） |
+| A の拒否 | A の開いたままの画面で Harvest・Build →「This resident NFT is not in this wallet now.」 | **譲渡の後に A の取引は 0 件**（chain の Citizen・村の bytes も不変） |
+| B Harvest | 「Harvest written into the stores」 | ResidentAct（世代 1、B の署名、proof に asset）→ Harvest、成功、事象 HARVEST（`5YyYHcx6cNyxwuMc…`） |
+| B Build | 「building begun」 | ResidentAct（世代 1）→ Build、成功、事象 BUILD（item 0、done_at）（`2cSPGixu4WAjmpfi…`） |
+| B Train | 「trained: they joined the reserve」 | ResidentAct（世代 1）→ Train、成功、事象 TRAIN（unit 0、n 100）（`2j5pQuzuwCVNEmzJ…`） |
+| B Muster | 「ordered to form up」 | ResidentAct（世代 1）→ Muster、成功、事象 MUSTER（host 124249108905984、troops 100、tile 17）（`31e5aPF5qfMczC1T…`） |
+| B Depart | 行き先を座標で（(2,0) マス 2）→「Sealed and on its way. It arrives on turn 148」 | ResidentAct（世代 1、B の署名）→ **Depart**、成功、事象 DEPART（同じ host、出発 bell 146、到着 bell 148）（`2YR2PcnxHWPmQjYp…`） |
+| 出発の決着 | — | SettleDeparture、成功、事象 DEPARTURE_SETTLED（同じ host）。署名者は B ではない（keeper） |
+| **Reveal** | — | Reveal、成功、事象 **REVEAL（同じ host、(2,0) 到着 148、マス 2 = 画面で選んだ行き先）**。署名者は B ではない（`2z2zdSdM2aHss9MB…`） |
+| 到着の決着 | — | SettleTransit、成功、事象 TRANSIT_SETTLED（同じ host、outcome 1 = ページの表で「Withdrew」）。ゲームの結果で、失敗ではない |
+
+所有者・世代：全段で asset の持ち主 B・世代 1（screen check の chain 記録）。
+
+**harness の停止と、見つけた画面の不具合**（4 回のうち 3 回）：
+- B の Train の直前に、Train の form が折り畳みの中へ移り button が消えた。原因は `screens/holding.mjs` の **`musterFirst = musterable >= 100` が再描画のたびに決め直される**こと：控えの兵がターンで 100 を越えると、開いている form が Train から Muster に入れ替わる。**人が人数を入力している最中にも起き得る操作性の不具合**。
+- **最小修正（この後の commit）**：開く form を村（`musterScope`：cluster・program・season・wallet・村）ごとに**最初の表示で決めてページの間は保つ**（`troopsOrder`、`FS.musterDraft` と同じ形）。再読込・別の村・別の wallet では決め直す。unit 試験 `web-frontier-cards.test.mjs` 1 件追加。**world では未観察**（修正は world の後。4 回目は harness 側の対処＝折り畳みを開く・村の tab を開き直す、で通した）。描画のたびに drawer が村の tab から離れていたかどうかは**未確認**。
+- game ページの既存試験の 10 件の失敗（conquest の配線・home rings・words など）は、この修正の**前の HEAD でも同じ 10 件**。文言の無い code（RequestTimeout・LocalPlayReadOnly など）は base の commit `18823ad2` から（NFT の作業ではない）。調べていない。
+
+**片付け**：world は予定の終わり（run end、slot 2678）に達し、`frontier-stack down`（全 component、mint ページも）。41000–41099 に listener 無し、自分の process・browser 無し。run directory は **518 MB**（見込みの 350 MB より多い）、state と setup log を scratchpad に写してから削除。空き 22.27 GiB、主側に報告済み。
+
+**残り**：Train・Muster の form の安定化は source と unit 試験だけ（world・人の操作では未確認）。実ウォレット・実機・公開発行は対象外のまま。
+
 ## 6. push の記録
 
 | 時刻 | `git ls-remote origin refs/heads/claude/nft-pass-mint-20261114` |

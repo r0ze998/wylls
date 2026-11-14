@@ -267,3 +267,15 @@ test('keepState: an opened fold, a chosen picture and typed values survive a re-
   keepState(el, () => { cur = build(); }, null);
   assert.equal(cur.fold.open, false, 'a different view starts from its own markup');
 });
+
+test('the troops card keeps its open form while the reserve changes (decided once per village scope)', () => {
+  const FS = { record: { programId: 'P', seasonAddress: 'S' }, wallet: { address: 'W' }, season: { genesisTs: 1 } };
+  const h = { p: 2, q: 0, site: 1, gen: 0 };
+  assert.equal(holdingScreen.troopsOrder(FS, h, 0), false, 'no reserve: Train stands open');
+  assert.equal(holdingScreen.troopsOrder(FS, h, 400), false, 'the reserve grew past 100: still Train (no swap under the player)');
+  assert.equal(holdingScreen.troopsOrder(FS, { ...h, site: 2 }, 400), true, 'another village decides again');
+  assert.equal(holdingScreen.troopsOrder(FS, { ...h, site: 2 }, 0), true, 'and keeps its own choice');
+  assert.equal(holdingScreen.troopsOrder({ ...FS, troopsOrder: undefined, wallet: { address: 'W2' } }, h, 400), true, 'another wallet decides again');
+  assert.equal(holdingScreen.troopsOrder({}, h, 400), true, 'no scope: the live choice');
+  assert.equal(holdingScreen.troopsOrder({}, h, 0), false);
+});

@@ -2,12 +2,13 @@
 // The English screen check of a local NFT world (frontier-stack `up --nft-pass`; runbook §5):
 // a wallet without a pass sees the link to the mint page → it mints there → back in the game it
 // re-reads its NFTs, picks a nation, joins with the NFT and builds its first village (PlaceHome through
-// ResidentAct) → the pass goes A→B (TransferResident from Node) → A's page no longer offers it, B's
+// ResidentAct) → the pass goes A→B (TransferResident: by default from the mint page's transfer screen, A's
+// wallet signing; `--transfer-via node` sends it from Node instead) → A's page no longer offers it, B's
 // page plays the same Citizen.
 //
 //   node permutation-nft-resident-spike/demo/nft-world-screen-check.mjs --out <dir>
 //        [--game http://127.0.0.1:41040/frontier/frontier/] [--mint http://127.0.0.1:41090/web/mint.html]
-//        [--rpc http://127.0.0.1:41010] [--resident <program id>]
+//        [--rpc http://127.0.0.1:41010] [--resident <program id>] [--transfer-via page|node]
 //
 // Test keys only: two fresh random seeds, kept in this process and the browser contexts' localStorage
 // (the game page's Dev Wallet `ps-dev-wallet`, the mint page's test wallet `wylls-testwallet-seed`), never
@@ -21,12 +22,25 @@ import { RpcClient } from '../src/rpc-client.mjs';
 import { TEST_PROGRAM_ID } from '../src/localnet.mjs';
 import { decodeConfigAccount, pdas, signedTx, transferResidentIx } from '../src/resident-ix.mjs';
 import { loopbackRpc } from '../src/mint-demo.mjs';
+import { createHash } from 'node:crypto';
+import { base58 } from '../src/crypto.mjs';
+import { FrontierAddresses } from '../../permutation-gateway/client/src/frontier/addresses.mjs';
+import { residentCitizen } from '../../permutation-gateway/client/src/frontier/resident.mjs';
+import { citizenMark } from '../../permutation-gateway/src/frontier/resident-chain-gate.mjs';
+import { LAYOUTS as V2 } from '../../permutation-gateway/client/src/frontier/abi-v2-layouts.mjs';
+import { decodeResidentAccount } from '../src/resident-ix.mjs';
 
 const arg = (k, d) => { const i = process.argv.indexOf(k); return i > 0 ? process.argv[i + 1] : d; };
 const GAME = loopbackRpc(arg('--game', 'http://127.0.0.1:41040/frontier/frontier/')) + '/';
 const MINT = loopbackRpc(arg('--mint', 'http://127.0.0.1:41090/web/mint.html'));
 const RPC = loopbackRpc(arg('--rpc', 'http://127.0.0.1:41010'));
 const RESIDENT = arg('--resident', TEST_PROGRAM_ID);
+const FRONTIER = arg('--frontier', base58(new Uint8Array(32).fill(0x4e)));
+const SEASON = BigInt(arg('--season', '7'));
+const TRANSFER_VIA = arg('--transfer-via', 'page');
+if (!['page', 'node'].includes(TRANSFER_VIA)) { console.error('--transfer-via page|node'); process.exit(2); }
+const field = (kind, name) => V2.accounts.find(a => a.kind === kind).fields.find(f => f.name === name);
+const chainLog = [];
 const OUT = arg('--out');
 if (!OUT) { console.error('--out <dir> is required (screenshots and the step log stay local)'); process.exit(2); }
 mkdirSync(OUT, { recursive: true });
@@ -61,6 +75,107 @@ async function connectDevWallet(page, name) {
   try { await btn.first().waitFor({ state: 'visible', timeout: 30_000 }); } catch { /* already connected */ }
   if (await btn.count()) { await btn.first().click(); step(`${name}: connected the Dev Wallet`); }
 }
+
+/** The village tab of the drawer (the bottom bar's `holding` tab). */
+async function openVillage(page) {
+  const tab = page.locator('[data-act="tab"][data-tab="holding"]').first();
+  if (await tab.count()) await tab.click();
+}
+const REFUSALS = /This resident NFT is not in this wallet now|ResidentHolderChanged|ResidentGenerationStale|holder could not be confirmed/;
+
+/** One village order from the drawer (`what`: build | train | muster); returns the page's text after the answer. */
+async function villageOrder(page, name, what, { okText, waitEnabledMs = 120_000 } = {}) {
+  await openVillage(page);
+  let go;
+  if (what === 'build') go = page.locator('[data-act="build"][data-item].br-go:not([disabled])').first();
+  else {
+    const form = page.locator(what === 'train' ? '#hp-train' : '#hp-muster');
+    await form.waitFor({ state: 'attached', timeout: 30_000 });
+    const field = form.locator(what === 'train' ? '#f-n' : '#f-troops');
+    if (await field.count()) await field.fill('100');
+    go = form.locator('button[type="submit"]');
+  }
+  const t0 = Date.now();
+  const openFold = async () => { if (what === 'build') return; const f = page.locator(`details:has(${what === 'train' ? '#hp-train' : '#hp-muster'}):not([open]) > summary`); if (await f.count()) await f.first().click().catch(() => {}); };
+  await openFold();
+  while (!(await go.count()) || !(await go.isVisible().catch(() => false)) || await go.isDisabled()) {
+    await openFold();
+    if (Date.now() - t0 > waitEnabledMs) { await shot(page, `${name}-disabled`); throw new Error(`${name}: ${what} stayed unavailable`); }
+    await page.waitForTimeout(3_000);
+  }
+  // The drawer re-renders on its own (the world's polling): a click on a node that was just replaced is retried on a
+  // fresh lookup (and the count is filled again); a click is one order, so only a click that never landed is retried.
+  for (let i = 0; ; i++) {
+    try {
+      await openVillage(page);
+      if (what !== 'build') {
+        const form = page.locator(what === 'train' ? '#hp-train' : '#hp-muster');
+        // the village card shows one of the two forms open and the other in a fold, and which one depends on the
+        // village's state: open the fold when the form is inside it
+        const fold = page.locator(`details:has(${what === 'train' ? '#hp-train' : '#hp-muster'}):not([open]) > summary`);
+        if (await fold.count()) await fold.first().click({ timeout: 5_000 });
+        const field = form.locator(what === 'train' ? '#f-n' : '#f-troops');
+        if (await field.count()) await field.fill('100', { timeout: 5_000 });
+        go = form.locator('button[type="submit"]');
+      }
+      await go.click({ timeout: 5_000 });
+      break;
+    } catch (e) {
+      if (i >= 5) {
+        await shot(page, `${name}-click-failed`);
+        const ids = await page.evaluate(() => [...document.querySelectorAll('[id^="hp-"], [data-act="tab"]')].map(e => `${e.id || e.dataset.tab}${e.closest('details:not([open])') ? '(folded)' : ''}${e.getAttribute('aria-selected') === 'true' ? '(selected)' : ''}`).join(' '));
+        writeFileSync(path.join(OUT, `${name}-click-failed.txt`), `${ids}\n\n${await text(page)}`);
+        throw e;
+      }
+      await page.waitForTimeout(1_000);
+    }
+  }
+  await page.waitForFunction(([ok, bad]) => new RegExp(ok).test(document.body.innerText) || new RegExp(bad).test(document.body.innerText), [okText.source, REFUSALS.source], { timeout: 120_000 });
+  return page.evaluate(() => document.body.innerText);
+}
+
+/** Harvest from the village screen (a player instruction; for an NFT, inside ResidentAct). Returns the page's answer. */
+async function harvest(page, name, { waitEnabledMs = 180_000 } = {}) {
+  const btn = page.locator('[data-act="harvest"]').first();
+  if (!(await btn.isVisible().catch(() => false))) await openVillage(page);
+  await btn.waitFor({ state: 'visible', timeout: 30_000 });
+  const t0 = Date.now();
+  while (await btn.isDisabled() && Date.now() - t0 < waitEnabledMs) await page.waitForTimeout(3_000);
+  if (await btn.isDisabled()) { await shot(page, `${name}-harvest-disabled`); throw new Error(`${name}: Harvest stayed disabled for ${waitEnabledMs / 1000} s`); }
+  await btn.click();
+  await page.waitForFunction(() => /Harvest written into the stores|This resident NFT is not in this wallet now|ResidentHolderChanged|ResidentGenerationStale|holder could not be confirmed|refus/i.test(document.body.innerText), null, { timeout: 120_000 });
+  return page.evaluate(() => document.body.innerText);
+}
+
+/** What the chain says about the pass now: the asset's owner, the resident generation, the NFT Citizen and its village. */
+async function snapshot(label, asset) {
+  const rpc = new RpcClient(RPC);
+  const addrs = new FrontierAddresses({ programId: FRONTIER, seasonId: SEASON });
+  const citizenKey = residentCitizen(addrs, asset);
+  const [assetAcc, residentAcc, citizen] = await Promise.all([rpc.account(asset), rpc.account(pdas(RESIDENT).resident(asset)), rpc.account(citizenKey)]);
+  const c = citizen ? Buffer.from(citizen.data) : null;
+  const href = field('Citizen', 'HOLDING').off;
+  const ref = c ? { p: c.readInt16LE(href), q: c.readInt16LE(href + 2), site: c[href + 4], gen: c[href + 5] } : null;
+  const holdingKey = ref ? addrs.holding(ref.p, ref.q, ref.site) : null;
+  const holding = holdingKey ? await rpc.account(holdingKey) : null;
+  const h = holding ? Buffer.from(holding.data) : null;
+  const st = field('Holding', 'STORES');
+  const stores = h ? Array.from({ length: st.len / 8 }, (_, i) => h.readBigUInt64LE(st.off + 8 * i).toString()) : null;
+  const snap = {
+    label, at: new Date().toISOString(),
+    assetOwner: assetAcc ? base58(Uint8Array.from(assetAcc.data).slice(1, 33)) : null,
+    generation: residentAcc ? decodeResidentAccount(residentAcc.data)?.gen ?? null : null,
+    citizen: citizenKey, citizenMark: c ? citizenMark(c) : null, citizenSha256: c ? createHash('sha256').update(c).digest('hex') : null,
+    holding: holdingKey, holdingRef: ref,
+    holdingOwnerCitizen: h ? base58(h.subarray(field('Holding', 'OWNER_CITIZEN').off, field('Holding', 'OWNER_CITIZEN').off + 32)) : null,
+    lastOwnerAction: h ? h.readBigInt64LE(field('Holding', 'LAST_OWNER_ACTION').off).toString() : null,
+    stores, holdingSha256: h ? createHash('sha256').update(h).digest('hex') : null,
+  };
+  chainLog.push(snap);
+  writeFileSync(path.join(OUT, 'chain.json'), `${JSON.stringify(chainLog, null, 2)}\n`);
+  return snap;
+}
+const storesTotal = s => (s.stores ?? []).reduce((t, v) => t + BigInt(v), 0n);
 
 let failed = null;
 try {
@@ -102,21 +217,73 @@ try {
     await home.first().click();
     await a.waitForFunction(() => !document.querySelector('[data-act="home-confirm"]'), null, { timeout: 180_000 });
   }
-  await shot(a, '4-acted'); step('4 acted (first village)');
+  await shot(a, '4-acted');
+  let sA = await snapshot('after A\'s first village', asset);
+  for (let i = 0; i < 40 && !sA.holdingOwnerCitizen; i++) { await a.waitForTimeout(3_000); sA = await snapshot('after A\'s first village', asset); }
+  if (sA.assetOwner !== A.publicKey || sA.generation !== 0 || !sA.citizenMark?.nft || sA.holdingOwnerCitizen !== sA.citizen) throw new Error(`after A's village the chain says ${JSON.stringify(sA)}`);
+  step('4 acted (first village): on chain the NFT Citizen holds it, owner A, generation 0', sA.holding);
   // 4b. A reload with the remembered wallet still offers the pass (the boot's silent reconnect reads the NFT list).
   await a.reload();
   await connectDevWallet(a, 'A');
-  await waitText(a, /Play this NFT|Playing as an NFT/, 60_000, '4b-reload');
+  await waitText(a, /Play this NFT|Playing as an NFT|This is your village|Harvest/, 60_000, '4b-reload');
+  const login = a.locator('[data-act="nft-login"]');
+  if (await login.count() && await login.first().isVisible()) {
+    await login.first().click();
+  }
+  await a.locator('[data-act="harvest"]').first().waitFor({ state: 'visible', timeout: 90_000 });
   await shot(a, '4b-reload'); step('4b reload: the pass is offered again');
 
-  // 5. Transfer A→B from Node (TransferResident), then A's page no longer offers the pass; B's plays it.
-  const rpc = new RpcClient(RPC);
-  const cfg = decodeConfigAccount((await rpc.account(pdas(RESIDENT).config)).data);
-  const { blockhash } = await rpc.latestBlockhash();
-  const tx = signedTx({ feePayer: A.publicKey, blockhash, instructions: [transferResidentIx({ program: RESIDENT, owner: A.publicKey, asset, collection: cfg.collection, to: B.publicKey })], signers: [A] });
-  const st = await rpc.confirm(await rpc.send(tx.wire));
-  if (!st || st.err) throw new Error(`TransferResident failed: ${JSON.stringify(st?.err)}`);
-  step('5 TransferResident A→B');
+  // 5. Transfer A→B (TransferResident), then A's page no longer offers the pass; B's plays it.
+  if (TRANSFER_VIA === 'page') {
+    // The mint page's transfer screen, A's wallet signing: a refusal first (to itself), then the review and the send.
+    await m.reload();
+    await m.locator('[data-wallet]').first().click();
+    await waitText(m, /You hold the pass/, 60_000, '5-mint-holds');
+    await m.getByTestId('t-to').fill(A.publicKey);
+    await m.getByTestId('t-review').click();
+    await m.waitForFunction(() => /cannot transfer to your own wallet/.test(document.querySelector('[data-testid="t-status"]').textContent), null, { timeout: 30_000 });
+    step('5 transfer screen: a transfer to itself is refused before signing');
+    await m.getByTestId('t-to').fill(B.publicKey);
+    await m.getByTestId('t-review').click();
+    await m.getByTestId('t-confirm').waitFor({ state: 'visible', timeout: 30_000 });
+    const shown = { asset: (await m.getByTestId('t-asset-full').textContent()).trim(), from: (await m.getByTestId('t-from').textContent()).trim(), to: (await m.getByTestId('t-dest').textContent()).trim() };
+    if (shown.asset !== asset || shown.from !== A.publicKey || shown.to !== B.publicKey) throw new Error(`the transfer review shows ${JSON.stringify(shown)}`);
+    await shot(m, '5-transfer-review');
+    await m.getByTestId('t-ack').check();
+    await m.getByTestId('t-send').click();
+    await m.waitForFunction(() => /Transferred \(confirmed on the chain\)/.test(document.querySelector('[data-testid="t-status"]').textContent), null, { timeout: 120_000 });
+    await shot(m, '5-transfer-done');
+    step('5 TransferResident A→B from the mint page\'s transfer screen', (await m.getByTestId('t-status').textContent()).trim());
+  } else {
+    const rpc = new RpcClient(RPC);
+    const cfg = decodeConfigAccount((await rpc.account(pdas(RESIDENT).config)).data);
+    const { blockhash } = await rpc.latestBlockhash();
+    const tx = signedTx({ feePayer: A.publicKey, blockhash, instructions: [transferResidentIx({ program: RESIDENT, owner: A.publicKey, asset, collection: cfg.collection, to: B.publicKey })], signers: [A] });
+    const st = await rpc.confirm(await rpc.send(tx.wire));
+    if (!st || st.err) throw new Error(`TransferResident failed: ${JSON.stringify(st?.err)}`);
+    step('5 TransferResident A→B (from Node)');
+  }
+  // 5a. A's page, still open as the NFT's player from before the transfer, acts: refused before anything is signed.
+  const s0 = await snapshot('after the transfer, before A acts', asset);
+  if (s0.assetOwner !== B.publicKey || s0.generation !== 1) throw new Error(`after the transfer the chain says owner ${s0.assetOwner}, generation ${s0.generation}`);
+  if (s0.holdingOwnerCitizen !== s0.citizen) throw new Error('the village is not the NFT Citizen\'s');
+  const aText = await harvest(a, '5a-a-acts');
+  await shot(a, '5a-a-refused');
+  if (!/This resident NFT is not in this wallet now/.test(aText)) throw new Error('A was not shown the refusal after the transfer');
+  const s1 = await snapshot('after A\'s refused action', asset);
+  for (const k of ['assetOwner', 'generation', 'citizenSha256', 'holdingSha256', 'lastOwnerAction']) {
+    if (JSON.stringify(s1[k]) !== JSON.stringify(s0[k])) throw new Error(`A's refused action changed ${k} on chain`);
+  }
+  step('5a A (stale page) acts: refused on screen, nothing changed on chain', 'This resident NFT is not in this wallet now.');
+  // 5a2. The same stale page tries to build: refused the same way, the chain unchanged.
+  const aBuild = await villageOrder(a, '5a2-a-build', 'build', { okText: /building begun/ });
+  await shot(a, '5a2-a-build-refused');
+  if (!REFUSALS.test(aBuild) || /building begun/.test(aBuild)) throw new Error('A\'s build after the transfer was not refused');
+  const s1b = await snapshot('after A\'s refused build', asset);
+  for (const k of ['assetOwner', 'generation', 'citizenSha256', 'holdingSha256', 'lastOwnerAction']) {
+    if (JSON.stringify(s1b[k]) !== JSON.stringify(s0[k])) throw new Error(`A's refused build changed ${k} on chain`);
+  }
+  step('5a2 A (stale page) builds: refused on screen, nothing changed on chain');
   await a.reload();
   await connectDevWallet(a, 'A');
   await waitText(a, /This wallet holds no resident NFT|Enter with a resident NFT/, 60_000, '5-a-after');
@@ -126,8 +293,99 @@ try {
   await connectDevWallet(b, 'B');
   await waitText(b, /Play this NFT/, 60_000, '5-b-listed');
   await b.locator('[data-act="nft-login"]').first().click();
-  await waitText(b, /Playing as an NFT/, 60_000, '5-b-plays');
+  // (B's Citizen has a village: the join drawer, which carries the "Playing as an NFT" card, closes; the village shows)
+  await b.locator('[data-act="harvest"]').first().waitFor({ state: 'visible', timeout: 90_000 });
   await shot(b, '5-b-plays'); step('5 B plays the same Citizen');
+  // 6. B changes state from the screen: a harvest (ResidentAct signed by B's wallet at the new generation).
+  const s2 = await snapshot('before B harvests', asset);
+  const bText = await harvest(b, '6-b-acts');
+  await shot(b, '6-b-acted');
+  if (!/Harvest written into the stores/.test(bText)) throw new Error('B\'s harvest did not go through');
+  let s3 = await snapshot('after B harvests', asset);
+  for (let i = 0; i < 20 && s3.holdingSha256 === s2.holdingSha256; i++) { await b.waitForTimeout(1_500); s3 = await snapshot('after B harvests', asset); }
+  if (s3.holdingSha256 === s2.holdingSha256) throw new Error('B\'s harvest did not change the village on chain');
+  if (!(storesTotal(s3) > storesTotal(s2))) throw new Error(`the stores did not grow: ${storesTotal(s2)} → ${storesTotal(s3)}`);
+  if (BigInt(s3.lastOwnerAction) <= BigInt(s2.lastOwnerAction)) throw new Error('LAST_OWNER_ACTION did not move');
+  if (s3.assetOwner !== B.publicKey || s3.generation !== 1 || s3.holdingOwnerCitizen !== s3.citizen) throw new Error('owner, generation or village owner changed');
+  step('6 B harvested: the stores grew on chain', `${storesTotal(s2)} → ${storesTotal(s3)}, last owner action ${s2.lastOwnerAction} → ${s3.lastOwnerAction}, owner B, generation 1`);
+  // 7. B's drawer shows no nation choice once its Citizen has answered.
+  await b.waitForTimeout(3_000);
+  if (/Choose a nation to begin/.test(await text(b))) { await shot(b, '7-b-nation-choice'); throw new Error('B still sees the nation choice'); }
+  step('7 B: no nation choice beside its village');
+  // 8–10. B's village orders from the drawer, each checked on chain (the village's bytes move; owner B, generation 1).
+  for (const [n, what, ok, label] of [[8, 'build', /building begun/, 'built'], [9, 'train', /trained: they joined the reserve/, 'trained 100'], [10, 'muster', /ordered to form up/, 'mustered 100']]) {
+    const before = await snapshot(`before B ${what}`, asset);
+    const out = await villageOrder(b, `${n}-b-${what}`, what, { okText: ok });
+    await shot(b, `${n}-b-${what}`);
+    if (!ok.test(out)) throw new Error(`B's ${what} did not go through`);
+    let after = await snapshot(`after B ${what}`, asset);
+    for (let i = 0; i < 20 && after.holdingSha256 === before.holdingSha256; i++) { await b.waitForTimeout(1_500); after = await snapshot(`after B ${what}`, asset); }
+    if (after.holdingSha256 === before.holdingSha256) throw new Error(`B's ${what} did not change the village on chain`);
+    if (after.assetOwner !== B.publicKey || after.generation !== 1 || after.holdingOwnerCitizen !== after.citizen) throw new Error(`owner, generation or village owner changed after B's ${what}`);
+    step(`${n} B ${label}: the village changed on chain`, `owner B, generation 1, last owner action ${before.lastOwnerAction} → ${after.lastOwnerAction}`);
+  }
+  // 11. B marches (Depart inside ResidentAct, B's wallet signing: fresident.marchSubmitFor). The host formed by the muster
+  // is ready once the world has processed the formation; the destination is given by coordinates (the drawer's
+  // "Choose by coordinates"), tiles of the same province tried in turn until the route is planned.
+  const provinceSha = async (p, q) => { const acc = await new RpcClient(RPC).account(new FrontierAddresses({ programId: FRONTIER, seasonId: SEASON }).province(p, q)); return acc ? createHash('sha256').update(Buffer.from(acc.data)).digest('hex') : null; };
+  const hostsTab = b.locator('[data-act="tab"][data-tab="hosts"]');
+  const t11 = Date.now();
+  let compose = b.locator('[data-act="compose"]:not([disabled])');
+  while (!(await compose.count())) {
+    if (Date.now() - t11 > 15 * 60_000) { await shot(b, '11-host-not-ready'); writeFileSync(path.join(OUT, '11-host-not-ready.txt'), await text(b)); throw new Error('11: the host stayed unready for 15 min'); }
+    if (await hostsTab.count()) await hostsTab.first().click();
+    await b.waitForTimeout(10_000);
+    compose = b.locator('[data-act="compose"]:not([disabled])');
+  }
+  await shot(b, '11-host-ready'); step('11 B: the host is formed and may march', `${Math.round((Date.now() - t11) / 1000)} s after the muster`);
+  const s11a = await snapshot('before B departs', asset);
+  const { p: P, q: Q } = s11a.holdingRef;
+  const prov11a = await provinceSha(P, Q);
+  await compose.first().click();
+  const destForm = b.locator('form[data-form="dest"]');
+  await destForm.waitFor({ state: 'attached', timeout: 30_000 });
+  const send = b.locator('[data-act="march-send"]');
+  let dest = null;
+  for (const tile of [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12].filter(t => t !== s11a.holdingRef.site)) {
+    if (!(await destForm.isVisible())) await b.locator('details:has(form[data-form="dest"]) > summary').first().click();
+    await destForm.locator('input[name="p"]').fill(String(P));
+    await destForm.locator('input[name="q"]').fill(String(Q));
+    await destForm.locator('input[name="tile"]').fill(String(tile));
+    await destForm.locator('button[type="submit"]').click();
+    await b.waitForTimeout(2_500);
+    if (await send.count() && !(await send.first().isDisabled())) { dest = { p: P, q: Q, tile }; break; }
+  }
+  if (!dest) { await shot(b, '11-no-route'); writeFileSync(path.join(OUT, '11-no-route.txt'), await text(b)); throw new Error('11: no destination tile in the home province got a route'); }
+  await shot(b, '11-march-order');
+  await send.first().click();
+  await b.waitForFunction(() => /Sealed and on its way\. It arrives on turn|Departed\. The turn changed|did not work|not in this wallet now|NftNotHeld|refus/i.test(document.body.innerText), null, { timeout: 180_000 });
+  const t11out = await text(b);
+  await shot(b, '11-b-depart');
+  const arrive = /It arrives on turn ([\d,]+)/.exec(t11out)?.[1] ?? /arrival moved from turn [\d,]+ to turn ([\d,]+)/.exec(t11out)?.[1];
+  if (!arrive) throw new Error(`11: B's march was not sent: ${(t11out.match(/.{0,80}(did not work|refus|NftNotHeld).{0,120}/i) ?? [''])[0]}`);
+  let s11b = await snapshot('after B departs', asset);
+  let prov11b = await provinceSha(P, Q);
+  for (let i = 0; i < 20 && prov11b === prov11a && s11b.holdingSha256 === s11a.holdingSha256; i++) { await b.waitForTimeout(1_500); s11b = await snapshot('after B departs', asset); prov11b = await provinceSha(P, Q); }
+  if (prov11b === prov11a && s11b.holdingSha256 === s11a.holdingSha256) throw new Error('11: the march changed neither the province nor the village on chain');
+  if (s11b.assetOwner !== B.publicKey || s11b.generation !== 1) throw new Error('11: owner or generation changed with the march');
+  step('11 B departed (Depart inside ResidentAct, B\'s wallet): the chain changed', `to (${dest.p},${dest.q}) tile ${dest.tile}, arrives on turn ${arrive}; province ${prov11a?.slice(0, 12)} → ${prov11b?.slice(0, 12)}, village ${s11a.holdingSha256.slice(0, 12)} → ${s11b.holdingSha256.slice(0, 12)}; owner B, generation 1`);
+
+  // 12. A screen-level signal of the march's result: the host stops being away and the province changes again. This
+  // does not prove the reveal (the world's own processing changes the province too): demo/nft-world-tx-evidence.mjs
+  // reads the REVEAL and settlement transactions of this host. Waited for up to 25 min; if it does not come, the step is recorded as not confirmed.
+  const t12 = Date.now();
+  let back = false, prov12 = prov11b;
+  while (Date.now() - t12 < 25 * 60_000) {
+    await b.waitForTimeout(15_000);
+    if (await hostsTab.count()) await hostsTab.first().click();
+    const tx12 = await text(b);
+    prov12 = await provinceSha(P, Q);
+    if (!/Away on a march/.test(tx12) && prov12 !== prov11b) { back = true; break; }
+  }
+  await shot(b, '12-b-result');
+  const s12 = await snapshot('after the march result', asset);
+  if (back) step('12 screen signal only: the host is no longer away and the province changed again (the reveal itself is proven only by demo/nft-world-tx-evidence.mjs)', `${Math.round((Date.now() - t12) / 1000)} s after the send; owner ${s12.assetOwner === B.publicKey ? 'B' : s12.assetOwner}, generation ${s12.generation}`);
+  else step('12 NOT CONFIRMED: no march result within 25 min', `province ${prov11b?.slice(0, 12)} → ${prov12?.slice(0, 12)}; see 12-b-result.png`);
 } catch (e) {
   failed = e.message;
   step('FAILED', e.message);

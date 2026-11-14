@@ -1,0 +1,23 @@
+10:32:34 A: connected the Dev Wallet
+10:32:35 1 no pass: the join card links to the mint page — http://127.0.0.1:41090/web/mint.html?lang=en
+10:32:36 2 minted on the mint page — A2p3DCczCYy6yL7Vtv2TYhd5X3Bw5P5i9X89Qq1VvbTJ
+10:32:39 3 joined with the NFT (JoinResident)
+10:32:41 4 acted (first village): on chain the NFT Citizen holds it, owner A, generation 0 — DSw5Qd3BR1tfkcmY2424JTZBFVx22zH62dXyTmKaVNoX
+10:33:27 4b reload: the pass is offered again
+10:33:27 5 transfer screen: a transfer to itself is refused before signing
+10:33:28 5 TransferResident A→B from the mint page's transfer screen — Transferred (confirmed on the chain): resident 483a894effbb4f6e9ecd055b5f113b now belongs to 6jcsBtEuQv5cXqAkCFa3RKW5HyhY751j2ANoMAr8Mi55. This wallet can no longer play this resident.
+10:33:29 5a A (stale page) acts: refused on screen, nothing changed on chain — This resident NFT is not in this wallet now.
+10:33:37 5a2 A (stale page) builds: refused on screen, nothing changed on chain
+10:34:22 5 A: the pass is no longer offered
+10:34:28 B: connected the Dev Wallet
+10:34:29 5 B plays the same Citizen
+10:34:31 6 B harvested: the stores grew on chain — 14302751440 → 14303196171, last owner action 1785704680 → 1785715680, owner B, generation 1
+10:34:34 7 B: no nation choice beside its village
+10:34:43 8 B built: the village changed on chain — owner B, generation 1, last owner action 1785715680 → 1785716760
+10:34:45 9 B trained 100: the village changed on chain — owner B, generation 1, last owner action 1785716760 → 1785717000
+10:34:48 10 B mustered 100: the village changed on chain — owner B, generation 1, last owner action 1785717000 → 1785717240
+10:34:58 11 B: the host is formed and may march — 10 s after the muster
+10:35:05 11 B departed (Depart inside ResidentAct, B's wallet): the chain changed — to (2,0) tile 2, arrives on turn 148; province 62153f7ceca4 → c9ceef2d198c, village 6d3df01fb4fe → c3c5ba04dd19; owner B, generation 1
+10:35:21 12 the march resolved (reveal): the host is no longer away and the province changed again — 15 s after the send; owner B, generation 1
+
+(Note added afterwards: step 12 above is the script's screen-level signal only. The reveal is proven by the transactions in CLAUDE-NFT-PASS-WORLD3-TX-EVIDENCE-20261114.json: REVEAL, DEPARTURE_SETTLED and TRANSIT_SETTLED for host 124249108905984.)

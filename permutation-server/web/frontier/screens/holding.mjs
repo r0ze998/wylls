@@ -221,6 +221,21 @@ export function keepMusterDraft(FS, h, { unit, troops }) {
   return true;
 }
 
+/**
+ * Which troops form stands open: Muster when the reserve can muster 100, else Train — decided once per village scope
+ * (musterScope) and kept for this page. The reserve grows with the turns, and a choice made again on every redraw
+ * swapped the two forms under a player typing a count (the open form, with its button, folded away mid-input).
+ * A reload, another village or another wallet decides again; without a scope the live choice stands.
+ */
+export function troopsOrder(FS, h, musterable) {
+  const live = musterable >= 100;
+  const key = musterScope(FS, h);
+  if (key === null) return live;
+  if (FS.troopsOrder?.key === key) return FS.troopsOrder.musterFirst;
+  FS.troopsOrder = { key, musterFirst: live };
+  return live;
+}
+
 export function render(FS) {
   // a wide inventory slot chosen in the rail: the captured record's read-only cards stand here instead
   // (screens/wideholding.mjs); the legacy village below is untouched and returns with the wide card's own press
@@ -299,8 +314,9 @@ export function render(FS) {
     <div class="actions"><button type="submit" class="btn primary" ${raw(actionBusy || m.blocks.Muster.length || !reserve.length || ms.missing || ms.short !== null ? 'disabled' : '')}>${icon('banner')}${L`編成する`}</button><span class="muted">${L`編成した軍勢は、このターンが終わり、封が開けられて決着すると行動できます。`}</span></div>
     ${!reserve.length ? html`<p class="blocked">${L`控えの兵がいません：先に訓練しましょう`}</p>` : ''}
     ${blockedLine(m.blocks.Muster)}</form>`;
-  // the action that makes sense now stands open; the other waits behind a fold
-  const musterFirst = musterable >= 100;
+  // the action that made sense when this village was first shown stands open; the other waits behind a fold
+  // (kept for the page: troopsOrder)
+  const musterFirst = troopsOrder(FS, h, musterable);
   const troops = html`<section class="vcard" aria-labelledby="hp-troops-h">
     ${cardHead({ id: 'hp-troops-h', ic: 'sword', title: L`兵`, side: html`<span class="c-count">${L`控え ${fmtNum(musterable)}`}</span>` })}
     ${label(musterFirst ? L`軍勢を編成する` : L`兵を訓練する`)}
