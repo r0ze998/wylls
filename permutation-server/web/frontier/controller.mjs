@@ -1891,6 +1891,29 @@ const pendingDriver = createPendingDriver({
   withdrawn: (card, why) => { card.pending = null; if (PENDING_WITHDRAWN[why]) setNotice({ busy: false, text: PENDING_WITHDRAWN[why]() }); else invalidate('panel'); },
   onPageHide: f => { globalThis.addEventListener?.('pagehide', f); return () => globalThis.removeEventListener?.('pagehide', f); },
 });
+// TEST-ONLY local play, the march's test entry: while an order is composed, or the village's muster or forts card is open,
+// the province it waits on is read again (read only) every LOCAL_SYNC_MS, one read at a time, so the page sees the turn
+// finish when it does. At ×60 the ordinary 5 s read left the page seconds behind a 10 s turn: the chain allowed the seal a
+// median 6.7 s of the turn, the page showed it for about half a second (2026-11-14). Called from the page's quarter-second
+// dial loop (app.mjs); no timer of its own; an answer for anything other than what was asked is dropped before it applies.
+export const LOCAL_SYNC_MS = 500;
+let localSyncBusy = false, localSyncLast = -Infinity;
+function localSyncTarget() {
+  if (!localMarchTrial()) return null;
+  if (FS.compose?.origin) return { p: FS.compose.origin.p, q: FS.compose.origin.q };
+  const pop = FS.hand?.pop;
+  if (pop === 'muster' || pop === 'keeps') { const h = activeHolding(FS); return h ? { p: h.p, q: h.q } : null; }
+  return null;
+}
+export function localSyncTick(t = Date.now()) {
+  const target = localSyncTarget();
+  if (!target || localSyncBusy || pendingDriver.armed || t - localSyncLast < LOCAL_SYNC_MS) return false;
+  localSyncBusy = true; localSyncLast = t;
+  const h0 = herald, lp0 = localPlay, w0 = FS.wallet?.address ?? null, key = `${target.p},${target.q}`;
+  const still = () => { const n = localSyncTarget(); return herald === h0 && localPlay === lp0 && (FS.wallet?.address ?? null) === w0 && !!n && `${n.p},${n.q}` === key; };
+  loadEnvelope(target.p, target.q, 'latest', still).then(e => { if (e) { FS.nowBell = nowBell(); invalidate('panel'); } }, () => null).then(() => { localSyncBusy = false; });
+  return true;
+}
 function armMarchWait() {
   const c = FS.compose;
   if (!c || c.sending || c.pending || pendingDriver.armed || !localMarchTrial()) return;

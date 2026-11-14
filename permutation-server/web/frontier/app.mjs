@@ -67,7 +67,7 @@ import * as returnWords from './hud/returnwords.mjs';
 import * as returnRead from './hud/awayread.mjs';
 import { caravanWatchOf } from './screens/s1.mjs';
 import { palisadeHexesOf, marchWearOf } from './s1walk.mjs';
-import { ACTIONS, FORMS, bind, startPlay, wantProvince, wantKeepHistory, wantKeepReach, wantHostReach, refreshConquest, refreshPrize, ackHomeGrant, tolled, syncProto, wantPreview, wantPlaces, composeTick } from './controller.mjs';
+import { ACTIONS, FORMS, bind, startPlay, wantProvince, wantKeepHistory, wantKeepReach, wantHostReach, refreshConquest, refreshPrize, ackHomeGrant, tolled, syncProto, wantPreview, wantPlaces, composeTick, localSyncTick } from './controller.mjs';
 import { mountProtoBoard } from './proto/board-mount.mjs';
 import { mountKeepBoard, keepReachOf } from './map/keepmount.mjs';
 // the recorded wide world, read-only (map/widemode.mjs): a button beside the map tools and a sheet over the map;
@@ -4026,7 +4026,7 @@ export async function boot() {
         if (hit0?.keep && FS.mode === 'play' && !FS.compose && FS.hand?.pop !== OUTBOUND_POP && FS.hand?.pop !== EXPEDITION_POP && !FS.hand?.pick) {
           const sub = hand.subjectOf(FS);
           if (sub?.kind === 'host' && keephand.conquestOn(FS)) {
-            if (hit0.keep.reachable && !keephand.waitOf(FS, sub.host)) Promise.resolve(ACTIONS['cq-march']({ host: sub.host.id, p: hit0.keep.p, q: hit0.keep.q, tile: hit0.idx })).catch(() => {});
+            if (hit0.keep.reachable && keephand.choosableWait(keephand.waitOf(FS, sub.host), sub.host)) Promise.resolve(ACTIONS['cq-march']({ host: sub.host.id, p: hit0.keep.p, q: hit0.keep.q, tile: hit0.idx })).catch(() => {});
             return;
           }
         }
@@ -4103,7 +4103,7 @@ export async function boot() {
         let k = null;
         try { k = mapRef.keepAt(e.clientX, e.clientY); } catch { k = null; }
         const row = k ? keephand.keepsModel(FS, sub.host).rows.find(x => x.p === k.p && x.q === k.q) : null;
-        if (!row || keephand.waitOf(FS, sub.host)) return;
+        if (!row || !keephand.choosableWait(keephand.waitOf(FS, sub.host), sub.host)) return;
         e.stopImmediatePropagation(); e.preventDefault();
         Promise.resolve(ACTIONS['cq-march']({ host: sub.host.id, p: row.p, q: row.q, tile: row.tile })).catch(() => {});
       }, true);
@@ -4186,6 +4186,8 @@ export async function boot() {
   globalThis.setInterval?.(() => {
     // (an order card that stands open follows the clock: the earliest turn it can name moves on with it)
     if (FS.compose && FS.mode === 'play') { try { composeTick(); } catch (e) { console.error('frontier compose:', e); } }
+    // (local play's test march: the province an open order or card waits on, read again every half second — controller localSyncTick)
+    if (FS.mode === 'play') { try { localSyncTick(); } catch (e) { console.error('frontier local sync:', e); } }
     if (++chipTick % 4 === 0) { invalidate('chip'); return; }
     if (!(Number(FS.chain?.rate) >= 10) || !FS.clock || tollBell === null) return;
     let b = null;

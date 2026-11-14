@@ -116,6 +116,12 @@ export function waitOf(FS, r) {
   return null;
 }
 
+/** Whether a fort may be chosen (the order card opened) while the host waits: no wait, or only its province finishing the
+ *  previous turn (`settling`) for a host already formed (state 1). Choosing sends nothing; the order card holds the seal.
+ *  A host still forming (state 2) is never chosen: the order card keeps the host as it was when opened, so it would stay
+ *  busy (HostBusy) and could never be sealed. */
+export const choosableWait = (w, r) => !w || (w.why === 'settling' && r?.state === 1);
+
 /** The viewer's combat hosts that cannot depart now, soonest first: `[{id, unit, troops, p, q, tile, why, turn, nudge?}]`. */
 export function hostWaits(FS) {
   const out = [];
@@ -244,7 +250,9 @@ export function renderKeepsPop(FS, model, { head }) {
   const who = model.name;
   const sub = km.state === 'ready' ? L`届く砦 ${fmtNum(km.rows.length)}` : '';
   // (a host that cannot depart yet: its rows wait, and the arrival is said as the turns the way takes, not as a turn it cannot make)
-  const off = !!km.wait;
+  // (2026-11-14: except while its province only finishes the previous turn — `settling` —: choosing a fort sends nothing, and
+  //  the order card then holds its own seal; at ×60 that wait covered most of each turn and every press on a row was refused)
+  const off = !choosableWait(km.wait, r);
   const odds = x => oddsText(x.odds, r.unit);
   const arriveSaid = x => (x.arrive === null || off ? '—' : fmtNum(x.arrive));
   const rowLabel = x => (x.defend
@@ -264,9 +272,11 @@ export function renderKeepsPop(FS, model, { head }) {
     : km.state === 'error' ? html`<p class="pop-line pop-why">${clientText(km.code)}</p>`
     : km.rows.length ? html`<ol class="kh-rows" aria-label="${L`${who}が届く砦`}">${km.rows.map(row)}</ol>`
     : html`<p class="pop-line">${L`この軍勢がいま届く他国の砦はありません。進軍が越えられるのは4州までです。`}</p>`;
+  // (the wait line stands BELOW the rows: above them it pushed the rows down each time it appeared and up when it went, and a
+  //  press aimed at a row landed on the line or on the map; 2026-11-14)
   return html`${head(L`砦へ進軍`, sub)}
-    ${km.wait ? html`<p class="pop-line pop-why kh-wait-line">${icon('hourglass')}<span>${waitText({ ...km.wait, id: r.id, unit: r.unit, troops: r.troops }, FS)}</span>${km.wait.nudge && !FS.localPlay ? html` <button type="button" class="btn small" data-act="nudge" data-p="${r.p}" data-q="${r.q}">${L`この州の処理を進める`}</button>` : ''}</p>` : ''}
     ${body}
+    ${km.wait ? html`<p class="pop-line pop-why kh-wait-line">${icon('hourglass')}<span>${waitText({ ...km.wait, id: r.id, unit: r.unit, troops: r.troops }, FS)}</span>${km.wait.nudge && !FS.localPlay ? html` <button type="button" class="btn small" data-act="nudge" data-p="${r.p}" data-q="${r.q}">${L`この州の処理を進める`}</button>` : ''}</p>` : ''}
     <p class="pop-line pop-rule kh-rule">${L`砦のマスを ${fmtNum(holdTurns(FS))} ターン続けて保つと、その州はあなたの国のものになります。行を選ぶと命令の紙が開きます（封をするまで何も送られません）。`}</p>
     <p class="pop-line pop-rule">${L`勝ち目は、着いたターンの戦いを記録の守備兵と城壁と地形で計算した目安です。戦いの後に強さ（兵 × 1 人の強さ）が多く残った側がマスに残り、同じなら砦の側が残ります。運の揺れ（±10%）を含め、ほかの軍勢、教義の効果、道中の見張り塔で減る兵（最大 30%）は含みません。`}</p>`;
 }
