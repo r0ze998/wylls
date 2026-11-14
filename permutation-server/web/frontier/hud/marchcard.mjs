@@ -262,11 +262,19 @@ export function render(FS) {
   //  only while every problem is the province settling its previous turn; one press arms ONE send of this exact order)
   const localWait = !!FS.localPlay && FS.localPlay.march?.trialEntry === true && FS.localMarch?.open === true && Number.isFinite(FS.localPlay.worldEndsAt);
   const waiting = localWait && !!c.pending;
-  const offerWait = localWait && !waiting && !busy && pendable(problems);
-  const waitLine = waiting ? html`<p class="order-pending" role="status">${icon('hourglass')}<span>${L`送信待ち：州のターンの決着がつき次第、この命令を1回だけ送ります（ターン ${fmtNum(c.pending.untilBell)} まで）。到着ターンなど命令の内容が変わったら、送らずに取り消します。`}</span></p>`
-    : offerWait ? html`<p class="muted order-wait-why">${L`いまは州のターンの決着を待っています。「決着を待って送る」を押すと送信待ちになり、整い次第この命令を1回だけ送ります。送るまでは取り消せます。`}</p>` : '';
-  const waitButton = waiting ? html`<button type="button" class="btn quiet" data-act="march-wait-cancel">${L`送信待ちを取り消す`}</button>`
-    : offerWait ? html`<button type="button" class="btn primary" data-act="march-send-wait">${icon('hourglass')}${L`決着を待って送る`}</button>` : '';
+  const waitLine = waiting ? html`<p class="order-pending" role="status">${icon('hourglass')}<span>${L`送信待ち：州のターンの決着がつき次第、この命令を1回だけ送ります（ターン ${fmtNum(c.pending.untilBell)} まで）。到着ターンなど命令の内容が変わったら、送らずに取り消します。`}</span></p>` : '';
+  // (round 12, 2026-11-14: on the local test march the footer never changes shape. A ×30 two-person world showed a press
+  //  aimed at 「決着を待って送る」 landing on the warning line when the turn finished (the two swapped places), and a press on
+  //  the seal finding it disabled a moment later. Now ONE main button stays in one place, 「確認した命令で出発」, on the same
+  //  handler as before (controller.mjs armMarchWait, which looks again at the press: ready → the ordinary single send;
+  //  only the province finishing its turn → the waiting send of this same order, withdrawn if the order — the arrival turn
+  //  included — changes); its cancel is always there (off until a send waits), and one line always says what a press does.
+  //  The general wallet's card is unchanged.)
+  const mainOk = !busy && !waiting && !!c.route && (problems.length === 0 || pendable(problems));
+  const localActs = html`<button type="button" class="btn primary seal-btn" data-act="march-send-wait" ${raw(mainOk ? '' : 'disabled')}>${icon('seal')}${waiting ? L`送信待ち` : L`確認した命令で出発`}</button>
+      <button type="button" class="btn quiet" data-act="march-wait-cancel" ${raw(waiting ? '' : 'disabled')}>${L`送信待ちを取り消す`}</button>
+      <button type="button" class="btn quiet" data-act="compose-close">${L`やめる`}</button>`;
+  const localRule = html`<p class="order-irrev order-local-rule">${icon('lock')}<span>${L`押すと、送れる状態ならすぐ送ります。州のターンの決着を待っているときは、この同じ命令のまま整い次第1回だけ送ります（到着ターンなどが変わったら送らずに取り消します）。送った命令は取り消せません。取り消せるのは送信待ちのあいだだけです。`}</span></p>`;
   const ch = composerChoices(FS);
   const from = tileName(FS, c.origin.p, c.origin.q, c.host.tile);
   const faction = FS.citizen?.faction;
@@ -361,7 +369,7 @@ export function render(FS) {
     ${problems.includes('NotResident') && !FS.localPlay ? html`<button type="button" class="btn small" data-act="nudge" data-p="${c.origin.p}" data-q="${c.origin.q}">${L`この州の処理を進める`}</button>` : ''}
     ${waitLine}
     ${busy || c.step ? html`<ol class="send-track" aria-label="${L`送信の段階`}">${SEND_STEPS.map(s => html`<li class="${c.step === s ? 'now' : SEND_STEPS.indexOf(s) < SEND_STEPS.indexOf(c.step) ? 'done' : ''}">${STEP_TEXT[s]()}</li>`)}</ol>` : ''}</div>
-    ${foot(html`${FS.notice && FS.notice.ok === false && !FS.notice.busy && FS.lastAct?.name === 'march-send' ? html`<p class="order-unsent" role="status">${icon('alert')}<span>${L`まだ送られていません。もう一度、封をして出発してください。`}</span></p>` : ''}${movedFoot}${protoLine}${sum}${!busy && !c.step && !problems.length && c.route && w ? html`<p class="order-irrev">${icon('lock')}<span>${L`送ったら取り消せません。行き先と構えはターン ${fmtNum(w.value)} が終わるまで封印されます。`}</span></p>` : ''}`, html`${waitButton}<button type="button" class="btn primary seal-btn" data-act="march-send" ${raw(problems.length || busy || !c.route ? 'disabled' : '')}>${icon('seal')}${L`封をして出発する`}</button>
+    ${localWait ? foot(html`${movedFoot}${protoLine}${sum}${localRule}`, localActs) : foot(html`${FS.notice && FS.notice.ok === false && !FS.notice.busy && FS.lastAct?.name === 'march-send' ? html`<p class="order-unsent" role="status">${icon('alert')}<span>${L`まだ送られていません。もう一度、封をして出発してください。`}</span></p>` : ''}${movedFoot}${protoLine}${sum}${!busy && !c.step && !problems.length && c.route && w ? html`<p class="order-irrev">${icon('lock')}<span>${L`送ったら取り消せません。行き先と構えはターン ${fmtNum(w.value)} が終わるまで封印されます。`}</span></p>` : ''}`, html`<button type="button" class="btn primary seal-btn" data-act="march-send" ${raw(problems.length || busy || !c.route ? 'disabled' : '')}>${icon('seal')}${L`封をして出発する`}</button>
       <button type="button" class="btn quiet" data-act="compose-close">${L`やめる`}</button>`)}
   </section>`;
 }

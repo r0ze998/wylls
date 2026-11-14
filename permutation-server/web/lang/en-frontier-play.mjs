@@ -1615,7 +1615,8 @@ export default {
   '送信待ちを取り消しました。ターンの決着のほかに、送れない理由があります。命令は送られていません。': 'The waiting send is cancelled: something other than the turn in progress stops this order. The order was not sent.',
   '送信待ちです。州のターンの決着がつき次第、この命令を1回だけ送ります（ターン {0} まで。取り消せます）。': 'Waiting to send. As soon as the province has finished its turn, this order is sent once (until turn {0}; you can cancel).',
   '送信待ち：州のターンの決着がつき次第、この命令を1回だけ送ります（ターン {0} まで）。到着ターンなど命令の内容が変わったら、送らずに取り消します。': 'Waiting to send: as soon as the province has finished its turn, this order is sent once (until turn {0}). If the order changes (its arrival turn, for example), it is cancelled instead of sent.',
-  'いまは州のターンの決着を待っています。「決着を待って送る」を押すと送信待ちになり、整い次第この命令を1回だけ送ります。送るまでは取り消せます。': 'The province is still finishing its turn. Press "Send when the turn is done" to wait: the order is then sent once, as soon as it can be. You can cancel until it is sent.',
   '送信待ちを取り消す': 'Cancel the waiting send',
-  '決着を待って送る': 'Send when the turn is done',
+  '確認した命令で出発': 'Send this order',
+  '送信待ち': 'Waiting to send',
+  '押すと、送れる状態ならすぐ送ります。州のターンの決着を待っているときは、この同じ命令のまま整い次第1回だけ送ります（到着ターンなどが変わったら送らずに取り消します）。送った命令は取り消せません。取り消せるのは送信待ちのあいだだけです。': 'A press sends this order now if it can be sent. While the province is still finishing its turn, this same order is sent once as soon as it can be (if the order changes, the arrival turn included, it is cancelled instead of sent). Once sent, an order cannot be taken back; only a waiting send can be cancelled.',
 };

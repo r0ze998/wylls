@@ -185,10 +185,10 @@ test('driver: armed again while an old read is in flight — the old answer neve
   h.fire(); assert.equal(h.calls.send, 1, 'the new arming sends on its own look');
 });
 
-test('the card offers it only on the test march while every problem is a settling one, says what one press does, and its cancel', () => {
+test('the card offers it only on the test march (one fixed main button since round 12: web-frontier-local-fixed-seal.test.mjs), says what one press does, and its cancel', () => {
   const card = src('hud/marchcard.mjs');
   assert.match(card, /const localWait = !!FS\.localPlay && FS\.localPlay\.march\?\.trialEntry === true && FS\.localMarch\?\.open === true && Number\.isFinite\(FS\.localPlay\.worldEndsAt\);/);
-  assert.match(card, /const offerWait = localWait && !waiting && !busy && pendable\(problems\);/);
+  assert.match(card, /const mainOk = !busy && !waiting && !!c\.route && \(problems\.length === 0 \|\| pendable\(problems\)\);/);
   assert.match(card, /data-act="march-send-wait"/); assert.match(card, /data-act="march-wait-cancel"/);
   assert.match(card, /この命令を1回だけ送ります（ターン \$\{fmtNum\(c\.pending\.untilBell\)\} まで）。到着ターンなど命令の内容が変わったら、送らずに取り消します。/);
   // the seal button's own rule is untouched
@@ -197,8 +197,8 @@ test('the card offers it only on the test march while every problem is a settlin
 
 test('English: every new text, no Japanese, no banned word', () => {
   setLang('en');
-  const texts = [L`送信待ちを取り消しました。命令は送られていません。`, L`送信待ちを取り消す`, L`決着を待って送る`, L`送信待ちです。州のターンの決着がつき次第、この命令を1回だけ送ります（ターン ${36} まで。取り消せます）。`,
-    L`いまは州のターンの決着を待っています。「決着を待って送る」を押すと送信待ちになり、整い次第この命令を1回だけ送ります。送るまでは取り消せます。`,
+  const texts = [L`送信待ちを取り消しました。命令は送られていません。`, L`送信待ちを取り消す`, L`確認した命令で出発`, L`送信待ちです。州のターンの決着がつき次第、この命令を1回だけ送ります（ターン ${36} まで。取り消せます）。`,
+    L`押すと、送れる状態ならすぐ送ります。州のターンの決着を待っているときは、この同じ命令のまま整い次第1回だけ送ります（到着ターンなどが変わったら送らずに取り消します）。送った命令は取り消せません。取り消せるのは送信待ちのあいだだけです。`,
     L`送信待ちを取り消しました。前に送った命令の結果がまだわからないためです。送り直しはしません。`];
   for (const t of texts) { assert.doesNotMatch(t, CJK, t); assert.doesNotMatch(t, BANNED_EN, t); }
   assert.match(texts[3], /until turn 36/);
