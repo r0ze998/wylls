@@ -6,6 +6,7 @@ import { parseMessage, COMPUTE_BUDGET_PROGRAM } from '../sdk/solana-tx.mjs';
 import { decode, encode } from '../sdk/base58.mjs';
 import { fromBase64, toBase64, toHex } from '../sdk/bytes.mjs';
 import { sha256 } from '../sdk/sha256.mjs';
+import { servesDeploymentVersion } from './flocallanes.mjs';
 
 export const PREPARE_REQUEST_SCHEMA = 'frontier-experimental-expedition-prepare-request-v1';
 export const PREPARE_REPORT_SCHEMA = 'frontier-experimental-expedition-prepare-report-v1';
@@ -24,7 +25,7 @@ let sequence = 0;
 /** Rebuild the proposal from the selected validated observation, never raw draft input. */
 export function preparationRequest(report, sourceRequest, requestId = `${Date.now()}_${++sequence}`) {
   check(typeof requestId === 'string' && /^[A-Za-z0-9_-]{1,64}$/.test(requestId), 'BadPreparationRequest');
-  check(sourceRequest?.deployment?.program_version === '18436', 'ExperimentalPreparationUnavailable');
+  check(servesDeploymentVersion(sourceRequest?.deployment?.program_version), 'ExperimentalPreparationUnavailable');
   const p = originalReturnModel(report, sourceRequest).proposal;
   check(p && sourceRequest.payer !== null, 'PreparationProposalUnavailable');
   return freeze({ schema: PREPARE_REQUEST_SCHEMA, request_id: requestId, action: p.action,
@@ -63,7 +64,7 @@ export function preparationReport(value, request) {
   check(s !== null && b !== null && value.blocker === null && exact(p, ['program', 'season', 'program_version', 'action',
     'fee_payer', 'budget', 'roles', 'instruction_hex', 'message_b64', 'message_digest', 'signers', 'shape', 'proposal_digest']));
   const r = request.source_request, roles = request.proposal.roles;
-  check(p.program === r.program && p.season === r.season && p.program_version === '18436'
+  check(p.program === r.program && p.season === r.season && p.program_version === r.deployment.program_version
     && p.action === request.action && p.fee_payer === r.payer && p.proposal_digest === request.proposal.content_digest
     && stable(p.roles) === stable(roles), 'PreparationScopeMismatch');
   const budget = p.budget;
