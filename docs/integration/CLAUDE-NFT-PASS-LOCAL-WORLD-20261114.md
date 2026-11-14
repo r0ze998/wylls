@@ -117,6 +117,24 @@ B の操作は state を変えていない（cooldown）。B が操作できる�
 3. 実行：`frontier-stack up --nft-pass --conquest --beacon test-key --bots 0 --so <lane .so>`。確かめること：Season が S1\|0x8000 で作られる、setup の JSON が run state に入る、発行ページ（localnet + 80）で mint、ゲーム画面で NFT を選んで JoinResident（relay `/f/join` と gate）、ResidentAct、譲渡後の旧持ち主の拒否、パス未保有の wallet に発行ページへの導線。
 4. 未実装のまま：`--nft-pass` の world の resume（今は拒否する）、ゲーム画面の実機・実ウォレット。
 
+## 5c. lane の再 build・CreateSeason の実 chain 試験・host build の計測（同日 15:10〜15:30）
+
+**lane の再 build**（watchdog 20.85 GiB、offline、自分の target だけ。build 後に lane の cargo target は削除）：`.so` sha256 `0227dbe1b490546102f90a44ad3c9b7fbedcc09ade5dba1b2b3fd604d2bc7f59`、1,450,704 B、`build-frontier.sh` の検査すべて通過、`deployable no`。今の source（`proc/season.rs` の lane の range view を含む）の build。
+
+**CreateSeason の実 chain 試験**（`test/localnet-nft-create-season.test.mjs` 4/4）。AnnounceSeason は wall-clock の validator では 24 時間待つため、AnnounceSeason が書く状態（ANNOUNCED・authority・params hash・作成可能時刻を過ぎた・bond）を preload し、**CreateSeason そのものは実取引**：
+- lane の版 S1\|0x8000 で Season が作られる（CREATED、Frontier と defence pool ができる）。
+- S1（4）と拡張 lane の 0x4804 は BadData（1）で拒否、何も作られない。
+- 告知と違う parameters は Announce（56）で拒否。
+- params hash の計算は vector の値と一致（未変更の preset で確認）。
+新しい `.so` で既存の実 chain 試験も通過（lane 3・world 2・setup 2）。
+
+**host build の計測と保留**：`frontier-stack`・`frontier-localnet`・`drand-replay`・`frontier-keeper`・`frontier-herald`・`frontier-viewers`・`frontier-bots` を release・offline・`--locked`・`CARGO_INCREMENTAL=0`・debug 0 で、自分の target（`frontier-node/target-nftpass`、git 管理外）へ。watchdog 20.85 GiB。
+- 開始時の空き 22.20 GiB。約 460 crate のうち 375 の compile を始めた時点で target 681 MB（deps 621 MB、build 53 MB）、cargo の source cache は増えなかった（281 MB、展開済み）。
+- 領土側が 100 turn の計測 world（開始時 21 GiB）を準備するとの連絡で**停止**（exit 143、残った process 無し）。停止後の空き 21.56 GiB。部分 target 681 MB は再開のため残した（空きは 21 GiB 以上）。
+- 残り：LiteSVM と Solana SVM 系、7 binary の crate、link。見込み（推測）：完了時の target は合計 1.1〜1.5 GiB、つまり**あと約 0.5〜0.9 GiB**。今の空き 21.56 GiB から始めると終わりに 20.7〜21.1 GiB となり、領土側の開始 floor 21 GiB を割りうる。
+- 必要な条件：領土側の world を起動しない時間枠で再開する、または再開前の空きが**約 22.5 GiB 以上**（21 GiB の floor に 1 GiB 前後の余裕）。既存の他の target の再利用は、source が一致する証拠が無いので使わない。
+- build 後の実行（未実施）：`FRONTIER_BIN=<target-nftpass/release> frontier-stack up --nft-pass --conquest --beacon test-key --bots 0 --so <lane .so>`。world の容量（ledger・snapshot）は別に要る。
+
 ## 6. push の記録
 
 | 時刻 | `git ls-remote origin refs/heads/claude/nft-pass-mint-20261114` |
