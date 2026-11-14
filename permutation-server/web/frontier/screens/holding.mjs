@@ -30,6 +30,7 @@ import { countdown } from '../clock.mjs';
 import { cardHead, label, fold, chip, stamp } from './parts.mjs';
 import { villageDrawn, provinceCoords } from '../hud/place.mjs';
 import * as wideHolding from './wideholding.mjs';
+import { renderLocalCandidateNfts } from './join.mjs';
 
 export { queueSlots, buildSecs } from '../hud/rulebook.mjs';
 export const introBuildAvailable = h => (Number(h?.flags ?? 0) & 2) !== 0;
@@ -239,7 +240,14 @@ export function troopsOrder(FS, h, musterable, { held = troopsCardHasFocus() } =
 }
 const troopsCardHasFocus = () => !!globalThis.document?.activeElement?.closest?.('section[aria-labelledby="hp-troops-h"]');
 
+/** The village screen; in the LOCAL TEST CANDIDATE lane's local play the NFT card first (join.mjs; '' elsewhere). */
 export function render(FS) {
+  const nft = renderLocalCandidateNfts(FS);
+  const village = renderVillage(FS);
+  return nft === '' ? village : html`${raw(String(nft))}${raw(String(village))}`;
+}
+
+function renderVillage(FS) {
   // a wide inventory slot chosen in the rail: the captured record's read-only cards stand here instead
   // (screens/wideholding.mjs); the legacy village below is untouched and returns with the wide card's own press
   if (FS.wideSelect) { const w = wideHolding.render(FS); if (w) return w; }

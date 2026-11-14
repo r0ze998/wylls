@@ -25,6 +25,7 @@ import { icon } from '../hud/icons.mjs';
 import { provinceName } from '../hud/place.mjs';
 import { countdown } from '../clock.mjs';
 import { cardHead, stamp, fold, ring } from './parts.mjs';
+import { isCandidateProgram } from '../flocallanes.mjs';
 import { bellStart, BELL_SECS } from '../clock.mjs';
 import { leaderWords } from '../map/waitview.mjs';
 import { renderJoinTerms } from './prize.mjs';
@@ -363,6 +364,27 @@ export function renderNfts(FS) {
       const label = !ok ? L`住民の記録がありません` : n.joined ? L`このNFTで遊ぶ` : pick ? L`このNFTで参加する` : L`国を選ぶと参加できます`;
       return html`<li><button type="button" class="btn" data-act="nft-login" data-asset="${n.asset}" ${raw(ok && (n.joined || pick) ? '' : 'disabled')}>${label}</button> <span class="muted">${shortKey(n.asset)}</span></li>`;
     })}</ul></section>`;
+}
+
+/**
+ * LOCAL TEST CANDIDATE lane only ([0x4C; 32] / 0xC804): the NFT card in local play, where the world's wallet already
+ * plays its own Citizen and the join screen is never shown. The same card as the join screen's (renderNfts), with the
+ * nation choice an NFT's first login needs, and a re-read when the wallet holds no pass yet (a pass transferred to
+ * it). Everywhere else: '' (the village screen is unchanged). Only existing sentences are used.
+ */
+export function renderLocalCandidateNfts(FS) {
+  if (!FS.localPlay || !isCandidateProgram(FS.localPlay.programId) || !FS.wallet) return '';
+  const list = FS.nfts?.residents ?? [];
+  const card = renderNfts(FS);
+  if (!card) {
+    if (!FS.nfts?.policy) return '';
+    return html`<section class="vcard" aria-labelledby="join-nft" data-local-nft="none">${cardHead({ id: 'join-nft', ic: 'seal', title: L`住民NFTで入る` })}
+      <p class="muted">${L`このウォレットは住民NFT（参加パス）を持っていません。発行ページで取得すると、この画面からそのNFTで参加できます。`}</p>
+      <div class="actions"><button type="button" class="btn ghost" data-act="nft-reload">${L`取得したので読み直す`}</button></div></section>`;
+  }
+  const unjoined = !FS.resident && list.some(n => !n.joined && Number.isInteger(n.generation));
+  const nations = unjoined ? html`<div class="actions" data-local-nft="nations"><span class="muted">${L`国を選ぶと参加できます`}</span> ${factionCards(FS).map(c => html`<button type="button" class="btn${c.chosen ? ' primary' : ''}" data-act="pick-faction" data-f="${c.faction}" aria-pressed="${c.chosen ? 'true' : 'false'}">${c.name}</button>`)}</div>` : '';
+  return html`<div class="local-nft" data-local-nft="candidate">${raw(String(card))}${nations}</div>`;
 }
 
 /** Keep the nation choice; newer seasons place its first final village immediately. */
