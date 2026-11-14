@@ -1,7 +1,7 @@
-diff --git a/permutation-server/web/frontier/dev/fd/12 b/permutation-server/web/frontier/private/tmp/claude-501/-Users-r0ze-Projects-wylls-codex-wide-inventory-20261109/313f27ba-f315-47a3-95e4-0b226f7040d5/scratchpad/port-proposal/controller.mjs
-index 00000000..262d253a 100644
---- a/permutation-server/web/frontier/dev/fd/12
-+++ b/permutation-server/web/frontier/private/tmp/claude-501/-Users-r0ze-Projects-wylls-codex-wide-inventory-20261109/313f27ba-f315-47a3-95e4-0b226f7040d5/scratchpad/port-proposal/controller.mjs
+diff --git a/permutation-server/web/frontier/controller.mjs b/permutation-server/web/frontier/controller.mjs
+index 7b0e0070..262d253a 100644
+--- a/permutation-server/web/frontier/controller.mjs
++++ b/permutation-server/web/frontier/controller.mjs
 @@ -236,10 +236,15 @@ export async function refreshPrize({ force = false, at = Date.now() } = {}) {
    if (!io.relay() || (!force && at - prizeReadAt < PRIZE_REFRESH_MS)) return;
    prizeReadAt = at;
@@ -236,11 +236,11 @@ index 00000000..262d253a 100644
    'pick-faction': d => { FS.joinDraft = { ...(FS.joinDraft ?? {}), faction: num(d.f) }; invalidate('panel'); if (needsHomeChoice()) return refreshHomes({ force: true }); },
    join: async () => {
      // LOCAL PLAY: no in-game key is derived, remembered or registered. The page's memory-only wallet signs the Join
-diff --git a/dev/fd/12 b/private/tmp/claude-501/-Users-r0ze-Projects-wylls-codex-wide-inventory-20261109/313f27ba-f315-47a3-95e4-0b226f7040d5/scratchpad/port-proposal/join.mjs
-index 00000000..0207a91e 100644
---- a/dev/fd/12
-+++ b/private/tmp/claude-501/-Users-r0ze-Projects-wylls-codex-wide-inventory-20261109/313f27ba-f315-47a3-95e4-0b226f7040d5/scratchpad/port-proposal/join.mjs
-@@ -357,12 +357,21 @@ export function renderNfts(FS) {
+diff --git a/permutation-server/web/frontier/screens/join.mjs b/permutation-server/web/frontier/screens/join.mjs
+index bc7af6ad..67818a01 100644
+--- a/permutation-server/web/frontier/screens/join.mjs
++++ b/permutation-server/web/frontier/screens/join.mjs
+@@ -357,12 +357,23 @@ export function renderNfts(FS) {
      <div class="actions"><a class="btn" href="${mintHref(FS.nfts.mint)}" target="_blank" rel="noopener noreferrer" data-act-link="nft-mint">${L`発行ページを開く`}</a> <button type="button" class="btn ghost" data-act="nft-reload">${L`取得したので読み直す`}</button></div></section>`;
    if (!FS.wallet || !list.length) return '';
    const pick = Number.isInteger(FS.joinDraft?.faction);
@@ -248,7 +248,9 @@ index 00000000..0207a91e 100644
 +  // entry fees are refused until the refund right is decided (permutation-prize ResidentDepositsDisabled; the controller
 +  // refuses the press too). Its button is disabled with a note. A joined NFT plays as before; a pass whose earlier
 +  // entry the relay reported (FS.prize.pass) may still join; a season without a pool is unchanged.
-+  const pool = !!FS.prize;
++  // (not in local play: there an NFT's join is a plain JoinResident with no fee — not a deposit — and refusing it would only
++  //  stop the player playing; renderLocalCandidateNfts calls renderNfts, so the rule is gated here)
++  const pool = !!FS.prize && !FS.localPlay;
 +  const hasEntry = n => FS.prize?.pass?.asset === n.asset && !!FS.prize.pass.entry;
 +  const blocked = n => pool && !n.joined && !hasEntry(n);
 +  const anyBlocked = list.some(n => Number.isInteger(n.generation) && blocked(n));
