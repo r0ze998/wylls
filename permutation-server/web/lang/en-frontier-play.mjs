@@ -1367,7 +1367,7 @@ export default {
   'この命令の見通し': 'This order at a glance',
   '相手': 'Opposing', '予測': 'Forecast', '計算中…': 'Working it out…',
   '体力 −{0}': 'Stamina −{0}',
-  '次はターン {0} から': 'Ready again from turn {0}',
+  '見込み（今出発し、軍勢が残り、ほかの戦いがない場合）：次はターン {0} から。到着で戦った場合は遅くともターン {1} から': 'Estimate if it sets out now, survives and meets no other fight: ready again from turn {0}; after a fight on arrival, from turn {1} at the latest',
   '守り {0}': '{0} defending',
   'わからない': 'Unknown',
   '見えていない土地': 'Out of sight',

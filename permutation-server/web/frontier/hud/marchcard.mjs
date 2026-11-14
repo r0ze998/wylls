@@ -38,6 +38,8 @@ import { conquestOn, crest, holdTurns } from './keephand.mjs';
 import { STANCE_PIC, RETREAT_PIC, sealPic } from './pictos.mjs';
 import { miniCardUrl, MINI_KINDS } from '../people/minis.mjs';
 import { compareKey, forecastKey } from './forecast.mjs';
+/** The stamina cap and what a fight on arrival costs unless refunded (permutation-rules host.rs STAMINA_CAP, ENGAGE_STAMINA). */
+const STAMINA_CAP = 120, ENGAGE_STAMINA = 20;
 import { pendable } from '../flocalplay-pending.mjs';
 
 const BEATS = { Assault: 'Flank', Flank: 'Brace', Brace: 'Assault' };
@@ -140,9 +142,28 @@ const topFate = fc => Object.entries(fc.fates ?? {}).sort((a, b) => b[1] - a[1])
  * when it arrives, what it costs the host, who is there, and the rules' forecast, tagged 予測 so it is never read as
  * a result. Each cell says where its figure comes from in one short line.
  */
+/**
+ * When the host may set out again after this march (round 33), on the program's own rules: a Depart in turn `b` with
+ * stamina `s` stores s − 74 at b (permutation-rules host.rs Stamina::spend); the arrival brings
+ * min(120, (s − 74) + max(0, a − (b + 1))) (frontier-abi clash_model.rs arrival_stamina), stored at the arrival turn
+ * `a`, +1 a turn after. Unopposed it may depart from a + 1; after a fight from a + 2 (ready_bell_after,
+ * BATTLE_COOLDOWN_BELLS 1), and the fight costs ENGAGE_STAMINA 20 (saturating at 0) unless the damage-ratio refund
+ * applies. `calm`: no fight; `fought`: a fight on arrival without the refund (the latest of the two). Both assume it
+ * sets out in turn b, survives, and meets no other fight; null when it cannot set out now (or no arrival turn is
+ * known). The card said b + 148 − s: "turn 34" for a host that fought at a defended keep and could set out only from
+ * turn 55 (a ×10 world; its entry, decoded from that world's records: 29 stored at turn 10).
+ */
+export function readyAgain(s, b, a) {
+  if (!Number.isInteger(s) || !Number.isInteger(b) || !Number.isInteger(a) || s < DEPART_STAMINA || a <= b) return null;
+  const arrive = Math.min(STAMINA_CAP, s - DEPART_STAMINA + Math.max(0, a - (b + 1)));
+  const at = (v, readyBell) => Math.max(readyBell, a + Math.max(0, DEPART_STAMINA - v));
+  return { calm: at(arrive, a + 1), fought: at(Math.max(0, arrive - ENGAGE_STAMINA), a + 2), arrive };
+}
+
 export function outlook({ w, awayLine, stam, nowB, def, odds, fc, sight }) {
   const cell = (k, v, note, cls = '') => html`<div class="mo-cell ${cls}"><span class="mo-k">${k}</span><strong class="mo-v">${v}</strong>${note ? html`<span class="mo-n">${note}</span>` : ''}</div>`;
-  const next = stam !== null && stam >= DEPART_STAMINA ? L`次はターン ${fmtNum(nowB + Math.max(0, 2 * DEPART_STAMINA - stam))} から` : '';
+  const rt = w && stam !== null ? readyAgain(stam, nowB, w.value) : null;
+  const next = rt ? L`見込み（今出発し、軍勢が残り、ほかの戦いがない場合）：次はターン ${fmtNum(rt.calm)} から。到着で戦った場合は遅くともターン ${fmtNum(rt.fought)} から` : '';
   const foe = def ? (def.total ? L`守り ${fmtNum(def.total)}` : L`守り手なし`) : L`わからない`;
   const foeNote = def ? (def.total ? odds?.text ?? '' : '') : sight < 3 ? L`見えていない土地` : '';
   // (a forecast of a march nobody opposes says only that the host arrives whole: no cell for it)
