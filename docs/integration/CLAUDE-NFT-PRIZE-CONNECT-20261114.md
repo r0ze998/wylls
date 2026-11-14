@@ -214,3 +214,18 @@ rule exists. Pre-existing; for the stylesheet owner.
 - A pass claim signed by a real test wallet through the relay on a local chain; ResidentStaleGeneration after a real TransferResident; A → B → A on chain.
 - RecordResidentNation after CloseCitizen on a real world; CU/CPI limits.
 - The page's claim flow end to end in the running app (controller merge verified only statically and by pure tests).
+
+### 7.6 0x111 registered (after ⑳'s answer)
+
+⑳ answered (b): add it on this candidate branch as its own commit, labelled
+as a pre-existing registry gap; registry.txt is a shared ws04 contract file,
+so the canonical integrator decides whether it lands. Done in
+`9e98b8fc` (registry.txt + registry.rs, one line each, in
+number order; test 7 now expects no unregistered prize error). The main
+session had not answered by then. registry.rs was not compiled or run.
+⑳ also confirmed it has no planned changes to resetViewer / nft-login /
+nft-logout / adoptResident, and its commits after 0ebfe040 do not touch
+controller.mjs or fplay.mjs.
+
+The 仕様判断 item "who registers 0x111" is settled for this candidate; landing
+it is the integrator's call. Re-runs: 24/24 pure, git diff --check pass.
