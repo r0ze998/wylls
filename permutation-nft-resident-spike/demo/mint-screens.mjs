@@ -26,7 +26,7 @@ const waitStatus = (page, re) => page.waitForFunction(re => new RegExp(re).test(
 
 for (const [label, device, seed] of [['desktop', null, 'c'.repeat(64)], ['iphone15', 'iPhone 15', 'd'.repeat(64)]]) {
   const ctx = await browser.newContext(device ? { ...pw.devices[device], deviceScaleFactor: 1 } : { viewport: { width: 1200, height: 900 } });
-  await ctx.addInitScript(([seed, chain]) => { try { localStorage.setItem('wylls-testwallet-seed', seed); localStorage.setItem('wylls-testwallet-chain', chain); } catch {} }, [seed, localnet ? 'solana:localnet' : 'solana:devnet']);
+  await ctx.addInitScript(([seed, chain]) => { try { localStorage.setItem('wylls-mint-lang', 'ja'); localStorage.setItem('wylls-testwallet-seed', seed); localStorage.setItem('wylls-testwallet-chain', chain); } catch {} }, [seed, localnet ? 'solana:localnet' : 'solana:devnet']);
   const page = await ctx.newPage();
   await page.goto(`${url}/web/mint.html`);
   await page.waitForFunction(() => globalThis.__testWallet?.address);

@@ -19,6 +19,7 @@ import { u64le, toBase64, equal, concat, utf8 } from '/sdk/bytes.mjs';
 import { decode as fromBase58 } from '/sdk/base58.mjs';
 import * as ws from '/web/wallet-standard.mjs';
 import { saleState, SALE_TEXT } from '/web/sale.mjs';
+import { T, tr, lang, setLang, pickLang, translateStatic } from '/web/mint-lang.mjs';
 
 const $ = sel => document.querySelector(`[data-testid="${sel}"]`);
 const fmtSol = l => `${(Number(l) / 1e9).toFixed(6)} SOL (${l} lamports)`;
@@ -37,32 +38,48 @@ const say = (text, kind = '') => { const s = $('status'); s.textContent = text; 
 
 // ------------------------------------------------------------------ boot
 async function boot() {
+  // The language: ?lang=en|ja, else the last choice, else the browser's (mint-lang.mjs); a toggle switches it.
+  const picked = pickLang();
+  setLang(picked.lang, { save: picked.save });
+  translateStatic();
+  const toggle = $('lang');
+  if (toggle) {
+    toggle.textContent = lang() === 'en' ? '日本語' : 'English';
+    // (the URL's ?lang wins over the saved choice, so the switch rewrites it rather than only saving)
+    toggle.addEventListener('click', () => {
+      const next = lang() === 'en' ? 'ja' : 'en';
+      setLang(next);
+      const u = new URL(location.href);
+      u.searchParams.set('lang', next);
+      location.href = u.toString();
+    });
+  }
   state.config = await api('/mint/config');
   const c = state.config;
-  $('network').textContent = `${c.network} (${c.chainId})${c.mode === 'mock' ? '［模擬チェーン］' : ''}`;
+  $('network').textContent = `${c.network} (${c.chainId})${c.mode === 'mock' ? T`［模擬チェーン］` : ''}`;
   // The banner names the network it is really on (devnet; a loopback validator in local verification).
-  if (c.mode !== 'mock' && !/devnet/i.test(c.network)) $('notice').textContent = $('notice').textContent.replace('DEVNET のテストです', 'ローカル検証ネット（実 program、ループバック validator）のテストです');
-  $('price').textContent = `${fmtSol(c.price.lamports)}${c.price.label ? ` — ${c.price.label}` : ''}`;
+  if (c.mode !== 'mock' && !/devnet/i.test(c.network)) $('notice').textContent = T`ローカル検証ネット（実 program、ループバック validator）のテストです。本番の参加権や金銭的価値を保証しません。テスト用 SOL だけを使ってください。`;
+  $('price').textContent = `${fmtSol(c.price.lamports)}${c.price.label ? ` — ${tr(c.price.label)}` : ''}`;
   // A deployment's own notice (the operator's text); the devnet banner otherwise.
   // The companion server also sends `notice` as an object of flags ({ test, noValue, … }): only text replaces the banner.
   if (typeof c.notice === 'string' && c.notice.trim()) $('notice').textContent = c.notice;
   renderTerms();
-  $('fee').textContent = `約 ${fmtSol(c.estimate.feeLamports)}（署名 2 件）`;
-  $('rent').textContent = `約 ${fmtSol(BigInt(c.estimate.rentAssetLamports) + BigInt(c.estimate.rentResidentLamports))}`;
-  $('total').textContent = `約 ${fmtSol(total())}`;
+  $('fee').textContent = T`約 ${fmtSol(c.estimate.feeLamports)}（署名 2 件）`;
+  $('rent').textContent = T`約 ${fmtSol(BigInt(c.estimate.rentAssetLamports) + BigInt(c.estimate.rentResidentLamports))}`;
+  $('total').textContent = T`約 ${fmtSol(total())}`;
   $('collection').textContent = c.collection;
   if (/Mobi|Android|iPhone/.test(navigator.userAgent)) $('mobile-hint').hidden = false;
   // Network: the RPC must be the configured cluster (genesis hash), or nothing proceeds.
   try {
     const g = await rpc('getGenesisHash');
     state.networkOk = g === c.genesisHash;
-    if (!state.networkOk) say(`接続先ネットワークが違います（RPC の genesis ${g.slice(0, 8)}… ≠ 期待 ${c.genesisHash.slice(0, 8)}…）。この画面は ${c.network} 専用です。`, 'err');
-  } catch (e) { say(`RPC に到達できません：${e.message}`, 'err'); }
+    if (!state.networkOk) say(T`接続先ネットワークが違います（RPC の genesis ${g.slice(0, 8)}… ≠ 期待 ${c.genesisHash.slice(0, 8)}…）。この画面は ${c.network} 専用です。`, 'err');
+  } catch (e) { say(T`RPC に到達できません：${e.message}`, 'err'); }
   ws.start();
   if (c.testWallet) { const { makeTestWallet } = await import('/web/testwallet.mjs'); const tw = await makeTestWallet({ chain: c.chainId }); ws.registerLocal(tw.wallet); globalThis.__testWallet = { address: tw.address }; }
   ws.onChange(renderWallets);
   renderWallets();
-  if (state.networkOk) say('ウォレットを接続してください。');
+  if (state.networkOk) say(T`ウォレットを接続してください。`);
   $('mint').addEventListener('click', () => mint().catch(e => fail(e)));
   $('recheck').addEventListener('click', () => refresh().catch(e => fail(e)));
 }
@@ -71,11 +88,11 @@ function renderTerms(walletMinted = 0) {
   const t = state.config.terms;
   const s = saleState(t, Math.floor(Date.now() / 1000), walletMinted);
   state.sale = s;
-  if ($('supply')) $('supply').textContent = !t || BigInt(t.maxSupply) === 0n ? '未設定' : `${t.minted} / ${t.maxSupply}（残り ${s.remaining}）`;
+  if ($('supply')) $('supply').textContent = !t || BigInt(t.maxSupply) === 0n ? T`未設定` : T`${t.minted} / ${t.maxSupply}（残り ${s.remaining}）`;
   if ($('sale')) {
     const when = v => (BigInt(v) === 0n ? null : new Date(Number(v) * 1000).toLocaleString());
-    const win = t ? [when(t.saleStart) && `開始 ${when(t.saleStart)}`, when(t.saleEnd) && `終了 ${when(t.saleEnd)}`, Number(t.perWallet) > 0 && `1 ウォレット ${t.perWallet} 枚まで`].filter(Boolean).join('、') : '';
-    $('sale').textContent = s.open ? `販売中${win ? `（${win}）` : ''}` : `${SALE_TEXT[s.code] ?? s.code}${win ? `（${win}）` : ''}`;
+    const win = t ? [when(t.saleStart) && T`開始 ${when(t.saleStart)}`, when(t.saleEnd) && T`終了 ${when(t.saleEnd)}`, Number(t.perWallet) > 0 && T`1 ウォレット ${t.perWallet} 枚まで`].filter(Boolean).join(T`、`) : '';
+    $('sale').textContent = s.open ? T`販売中${win ? T`（${win}）` : ''}` : `${tr(SALE_TEXT[s.code]) ?? s.code}${win ? T`（${win}）` : ''}`;
   }
   return s;
 }
@@ -86,12 +103,12 @@ function renderWallets() {
   box.replaceChildren();
   for (const w of ws.list(state.config.chainId)) {
     const b = document.createElement('button');
-    b.type = 'button'; b.className = 'ghost'; b.textContent = `${w.name}${w.why ? `（${w.why}）` : ''}`; b.dataset.wallet = w.name;
+    b.type = 'button'; b.className = 'ghost'; b.textContent = `${w.name}${w.why ? T`（${w.why}）` : ''}`; b.dataset.wallet = w.name;
     b.disabled = !!w.why || !state.networkOk;
     b.addEventListener('click', () => connect(w.wallet).catch(e => fail(e)));
     box.appendChild(b);
   }
-  if (!box.children.length) { const p = document.createElement('span'); p.className = 'small'; p.textContent = 'ウォレットが見つかりません（Phantom / Solflare / Backpack をインストールするか、スマホはウォレットアプリ内ブラウザで開いてください）'; box.appendChild(p); }
+  if (!box.children.length) { const p = document.createElement('span'); p.className = 'small'; p.textContent = T`ウォレットが見つかりません（Phantom / Solflare / Backpack をインストールするか、スマホはウォレットアプリ内ブラウザで開いてください）`; box.appendChild(p); }
 }
 
 async function connect(wallet) {
@@ -113,27 +130,27 @@ async function refresh() {
   if (mine.residents.length) {
     const st = await api(`/mint/status?wallet=${state.wallet.address}&asset=${mine.residents[0].asset}`);
     showResult(st, null);
-    say(st.registered ? 'waitlist 登録済みです（チェーンの読取で確認）。公開後はこの NFT で住民へログインします。' : `保有を確認できません：${st.code ?? 'not holder'}`, st.registered ? 'ok' : 'err');
+    say(st.registered ? T`waitlist 登録済みです（チェーンの読取で確認）。公開後はこの NFT で住民へログインします。` : T`保有を確認できません：${st.code ?? 'not holder'}`, st.registered ? 'ok' : 'err');
     $('mint').disabled = true;
     return;
   }
   $('result').hidden = true;
   $('mint').disabled = !state.networkOk || state.busy || !state.sale?.open;
-  say(bal < total() ? `テスト SOL が不足しています（必要 約 ${fmtSol(total())}、残高 ${fmtSol(bal)}）。devnet の faucet で補充してください。` : 'mint できます。ボタンを押すとウォレットで取引を確認・署名します。', bal < total() ? 'err' : '');
+  say(bal < total() ? T`テスト SOL が不足しています（必要 約 ${fmtSol(total())}、残高 ${fmtSol(bal)}）。devnet の faucet で補充してください。` : T`mint できます。ボタンを押すとウォレットで取引を確認・署名します。`, bal < total() ? 'err' : '');
   $('mint').disabled = $('mint').disabled || bal < total();
 }
 
 function renderMine(list) {
   const ul = $('mine'); ul.replaceChildren();
   for (const r of list) { const li = document.createElement('li'); li.textContent = `${r.residentId} — ${r.asset}`; ul.appendChild(li); }
-  if (!list.length) { const li = document.createElement('li'); li.textContent = '（このウォレットが保有する住民 NFT はありません）'; ul.appendChild(li); }
+  if (!list.length) { const li = document.createElement('li'); li.textContent = T`（このウォレットが保有する住民 NFT はありません）`; ul.appendChild(li); }
 }
 function showResult(st, signature) {
   $('result').hidden = false;
   $('resident-id').textContent = st.residentId ?? '—';
   $('asset').textContent = st.asset ?? '—';
   $('signature').textContent = signature ?? $('signature').textContent;
-  $('holder').textContent = st.holder ? `${st.holder}${st.isHolder ? '（あなた）' : '（別のウォレット）'}` : '—';
+  $('holder').textContent = st.holder ? `${st.holder}${st.isHolder ? T`（あなた）` : T`（別のウォレット）`}` : '—';
 }
 const fail = e => { console.error(e); say(`${e.code ?? 'Error'}: ${e.message}`, 'err'); state.busy = false; $('mint').disabled = !state.networkOk || !state.wallet; };
 
@@ -157,14 +174,14 @@ async function settledStatus(signature, tries = 20) {
 
 async function resolvePending(p) {
   $('mint').disabled = true;
-  say(`進行中の取引を照会しています… ${p.signature.slice(0, 12)}…`);
+  say(T`進行中の取引を照会しています… ${p.signature.slice(0, 12)}…`);
   const st = await settledStatus(p.signature);
   if (st) {
-    if (st.err) { clearPending(); say(`前回の取引は失敗しました（${JSON.stringify(st.err)}）。支払いは戻っています。もう一度 mint できます。`, 'err'); $('mint').disabled = !state.networkOk; return; }
+    if (st.err) { clearPending(); say(T`前回の取引は失敗しました（${JSON.stringify(st.err)}）。支払いは戻っています。もう一度 mint できます。`, 'err'); $('mint').disabled = !state.networkOk; return; }
     const status = await api(`/mint/status?wallet=${state.wallet.address}&asset=${p.asset}`);
     showResult(status, p.signature);
-    if (status.registered) { clearPending(); say('取引が確定し、正規 collection の NFT の保有を確認しました：waitlist 登録完了。', 'ok'); renderMine([{ residentId: status.residentId, asset: status.asset }]); return; }
-    say(`取引は確定しましたが保有を確認できません（${status.code ?? (status.isHolder ? 'unbound' : 'not holder')}）。再確認を押してください。`, 'err');
+    if (status.registered) { clearPending(); say(T`取引が確定し、正規 collection の NFT の保有を確認しました：waitlist 登録完了。`, 'ok'); renderMine([{ residentId: status.residentId, asset: status.asset }]); return; }
+    say(T`取引は確定しましたが保有を確認できません（${status.code ?? (status.isHolder ? 'unbound' : 'not holder')}）。再確認を押してください。`, 'err');
     return;
   }
   const height = await rpc('getBlockHeight', [{ commitment: 'confirmed' }]);
@@ -180,17 +197,17 @@ async function resolvePending(p) {
       if (seen && !p.seen) writePending({ ...p, seen: true });
       const status = await api(`/mint/status?wallet=${state.wallet.address}&asset=${p.asset}`);
       showResult(status, p.signature);
-      if (status.registered) { clearPending(); say('取引は確定していました（期限切れ後に口座で確認）：waitlist 登録完了。', 'ok'); renderMine([{ residentId: status.residentId, asset: status.asset }]); return; }
-      say(`${seen ? 'asset の口座はありますが' : 'asset の口座を一度観測したため発行済みとして扱いますが、今は'}保有を確認できません（${status.code ?? (status.isHolder ? 'unbound' : 'not holder')}）。再確認を押してください。再課金・再発行はしません。`, 'err');
+      if (status.registered) { clearPending(); say(T`取引は確定していました（期限切れ後に口座で確認）：waitlist 登録完了。`, 'ok'); renderMine([{ residentId: status.residentId, asset: status.asset }]); return; }
+      say(T`${seen ? T`asset の口座はありますが` : T`asset の口座を一度観測したため発行済みとして扱いますが、今は`}保有を確認できません（${status.code ?? (status.isHolder ? 'unbound' : 'not holder')}）。再確認を押してください。再課金・再発行はしません。`, 'err');
       return;
     }
     const finalHeight = await rpc('getBlockHeight', [{ commitment: 'finalized' }]);
-    if (finalHeight <= p.lastValidBlockHeight) { say(`期限は切れましたが、確定済み（finalized）の高さ ${finalHeight} がまだ有効期限 ${p.lastValidBlockHeight} を過ぎていません。再課金・再発行はしません。しばらくして「保有状態を再確認」を押してください。`); return; }
+    if (finalHeight <= p.lastValidBlockHeight) { say(T`期限は切れましたが、確定済み（finalized）の高さ ${finalHeight} がまだ有効期限 ${p.lastValidBlockHeight} を過ぎていません。再課金・再発行はしません。しばらくして「保有状態を再確認」を押してください。`); return; }
     const finalAcc = (await rpc('getAccountInfo', [p.asset, { encoding: 'base64', commitment: 'finalized' }])).value;
-    if (finalAcc) { writePending({ ...p, seen: true }); say('asset の口座を finalized で観測しました。再確認を押してください。再課金・再発行はしません。'); return; }
-    clearPending(); say('前回の取引は期限切れで、finalized でも asset の口座が無く、着地していません（課金なし）。もう一度 mint できます。', 'err'); $('mint').disabled = !state.networkOk; return;
+    if (finalAcc) { writePending({ ...p, seen: true }); say(T`asset の口座を finalized で観測しました。再確認を押してください。再課金・再発行はしません。`); return; }
+    clearPending(); say(T`前回の取引は期限切れで、finalized でも asset の口座が無く、着地していません（課金なし）。もう一度 mint できます。`, 'err'); $('mint').disabled = !state.networkOk; return;
   }
-  say(`結果がまだ分かりません（有効期限 block ${p.lastValidBlockHeight}、現在 ${height}）。再課金・再発行はしません。しばらくして「保有状態を再確認」を押してください。`);
+  say(T`結果がまだ分かりません（有効期限 block ${p.lastValidBlockHeight}、現在 ${height}）。再課金・再発行はしません。しばらくして「保有状態を再確認」を押してください。`);
 }
 
 // ------------------------------------------------------------------ mint
@@ -209,8 +226,8 @@ async function mint() {
     const sale = renderTerms(minted);
     if (!sale.open) throw Object.assign(new Error(SALE_TEXT[sale.code] ?? sale.code), { code: sale.code });
     const bal = BigInt((await rpc('getBalance', [state.wallet.address, { commitment: 'confirmed' }])).value);
-    if (bal < total()) throw Object.assign(new Error(`テスト SOL が不足しています（必要 約 ${fmtSol(total())}）`), { code: 'InsufficientSol' });
-    say('取引を作成しています…');
+    if (bal < total()) throw Object.assign(new Error(T`テスト SOL が不足しています（必要 約 ${fmtSol(total())}）`), { code: 'InsufficientSol' });
+    say(T`取引を作成しています…`);
     const { blockhash, lastValidBlockHeight } = (await rpc('getLatestBlockhash', [{ commitment: 'confirmed' }])).value;
     // A fresh asset keypair (Core asset accounts sign their own creation); it signs here and is then discarded.
     const assetKey = await crypto.subtle.generateKey({ name: 'Ed25519' }, true, ['sign', 'verify']);
@@ -219,7 +236,7 @@ async function mint() {
     const residentPda = await residentAccountOf(asset);
     if (c.mode !== 'mock') {
       const d = derivedPdas();
-      if (d.config !== c.configPda || d.collectionAuthority !== c.collectionAuthorityPda) throw Object.assign(new Error('設定の PDA がページの導出と一致しません'), { code: 'PdaMismatch' });
+      if (d.config !== c.configPda || d.collectionAuthority !== c.collectionAuthorityPda) throw Object.assign(new Error(T`設定の PDA がページの導出と一致しません`), { code: 'PdaMismatch' });
     }
     const ix = {
       programId: c.programs.resident,
@@ -235,14 +252,14 @@ async function mint() {
     const message = compileMessage({ feePayer: state.wallet.address, recentBlockhash: blockhash, instructions: [ix] });
     const assetSig = new Uint8Array(await crypto.subtle.sign({ name: 'Ed25519' }, assetKey.privateKey, message));
     const partial = wireTransaction(message, { [asset]: assetSig });
-    say('ウォレットで取引を確認し、署名してください…');
+    say(T`ウォレットで取引を確認し、署名してください…`);
     const signed = await ws.signTransaction(partial);
-    if (!equal(messageOf(signed), message)) throw Object.assign(new Error('ウォレットが返した取引の中身が違います'), { code: 'WalletAlteredMessage' });
+    if (!equal(messageOf(signed), message)) throw Object.assign(new Error(T`ウォレットが返した取引の中身が違います`), { code: 'WalletAlteredMessage' });
     const parsed = parseTransaction(signed);
     const signature = toBase58(parsed.signatures[0]);
     // Record first, send second: a lost answer is resolved by this record, never by a second send.
     writePending({ signature, asset, lastValidBlockHeight, sentAt: Date.now() });
-    say('送信しています…');
+    say(T`送信しています…`);
     try {
       await rpc('sendTransaction', [toBase64(signed), { encoding: 'base64', skipPreflight: false, preflightCommitment: 'confirmed' }]);
     } catch (e) {
@@ -250,16 +267,16 @@ async function mint() {
         // Refused before inclusion (preflight): nothing landed, nothing charged.
         clearPending();
         const pe = programError(e);
-        const m = /already been processed/.test(e.message) ? '同じ取引が処理済みです' : /Blockhash not found/.test(e.message) ? '取引の期限が切れました。もう一度お試しください' : /insufficient|no record of a prior credit|insufficient lamports/i.test(e.message) ? 'テスト SOL が不足しています'
-          : SALE_TEXT[pe] ? `${SALE_TEXT[pe]}（課金なし）` : pe === 'PriceChanged' || /PriceChanged/.test(JSON.stringify(e.data ?? '')) ? '価格が変わりました。画面を再読込してください（課金なし）' : pe === 'AlreadyInitialized' ? 'この asset は既に発行済みです（課金なし）' : pe ? `プログラムが拒否しました：${pe}（課金なし）` : e.message;
+        const m = /already been processed/.test(e.message) ? T`同じ取引が処理済みです` : /Blockhash not found/.test(e.message) ? T`取引の期限が切れました。もう一度お試しください` : /insufficient|no record of a prior credit|insufficient lamports/i.test(e.message) ? T`テスト SOL が不足しています`
+          : SALE_TEXT[pe] ? T`${tr(SALE_TEXT[pe])}（課金なし）` : pe === 'PriceChanged' || /PriceChanged/.test(JSON.stringify(e.data ?? '')) ? T`価格が変わりました。画面を再読込してください（課金なし）` : pe === 'AlreadyInitialized' ? T`この asset は既に発行済みです（課金なし）` : pe ? T`プログラムが拒否しました：${pe}（課金なし）` : e.message;
         throw Object.assign(new Error(m), { code: 'Refused' });
       }
       // No answer (network): the record stays; resolve by signature.
-      say('応答が消えました。署名でチェーンを照会します（再送はしません）…');
+      say(T`応答が消えました。署名でチェーンを照会します（再送はしません）…`);
       await resolvePending(readPending());
       return;
     }
-    say('確定を待っています…');
+    say(T`確定を待っています…`);
     await settledStatus(signature, 60);
     await resolvePending(readPending());
   } finally {

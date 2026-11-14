@@ -25,6 +25,7 @@ async function open(s, { seed = 'a'.repeat(64), device = null, chain = null, rej
   const ctx = await s.browser.newContext(device ? pw.devices[device] : {});
   await ctx.addInitScript(({ seed, chain, reject }) => {
     try {
+      localStorage.setItem('wylls-mint-lang', 'ja');
       localStorage.setItem('wylls-testwallet-seed', seed);
       if (chain) localStorage.setItem('wylls-testwallet-chain', chain); else localStorage.removeItem('wylls-testwallet-chain');
       if (reject) localStorage.setItem('wylls-testwallet-reject', '1'); else localStorage.removeItem('wylls-testwallet-reject');

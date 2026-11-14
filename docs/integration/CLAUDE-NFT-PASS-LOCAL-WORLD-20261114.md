@@ -161,6 +161,21 @@ B の操作は state を変えていない（cooldown）。B が操作できる�
 
 **片付け**：`frontier-stack down`（全 component 停止、mint ページも）。41000–41099 に listener 無し、自分の process 無し。run directory（294 MB）は state・events・setup log を scratchpad に写してから削除。空き 21.75 GiB。領土側に報告済み。残したもの：7 binary（41 MB）、gateway の npm 依存（57 MB）、lane の `.so`。
 
+## 5e. 発行ページの英語化・画面の不具合修正（同日 16:10〜、領土側の world の実行中：validator・world・build は無し）
+
+| 変更 | 確認 |
+|---|---|
+| **発行ページを英語に**（`web/mint-lang.mjs`）：`?lang=en\|ja` → 前回の選択 → browser の言語（`ja*` は日本語、ほかは英語）。英語と日本語の切り替えボタン。TEST の表示はそのまま（「TEST PRICE — a test value, not a real price」「The price is a TEST value…」「On sale (TEST)」）。ゲームの参加画面のリンクはゲームの言語を `?lang=` で渡す | `test/mint-lang.test.mjs` 3/3（`mint.mjs` の T 文字列を source から全部抜き出し、`data-i18n`・title・販売の拒否文・server の価格表示に英語があり、placeholder が一致）。`test/browser.mint-en.test.mjs` 1/1（Chromium・模擬チェーン：英語で接続→mint→「Your pass is ready」→再読込も英語→切り替えで日本語。英語画面に日本語が残らない） |
+| **見つけて直した**：切り替えボタンが保存して再読込しても、URL の `?lang=en` が優先されて英語のままだった | 切り替えは URL の `lang` を書き換える。上の browser 試験で確認 |
+| 既存の browser 試験は日本語を前提にしているので、`wylls-mint-lang=ja` を明示 | 模擬 12 件中 11、1 件は既知の負荷依存の揺れ（単独 2/2） |
+| **譲渡後の B に「Choose a nation」が出る**：NFT を選ぶと viewer を消してから NFT Citizen の記録を読むため、その間 `viewerState` が「known・land none」となり国選びが開いた。NFT を遊んでいて記録が未回答の間は pending にした（財布の player は不変） | `web-frontier-nft-viewer-switch.test.mjs`（switch 中・回答後・財布の 3 場合） |
+| **旧持ち主の拒否の表示**：ページ自身の送信前の確認で `NftNotHeld`（「This resident NFT is not in this wallet now.」）。relay の gate の `ResidentGenerationStale`・`ResidentAssetMismatch`・`ResidentNotNft` に文が無かったので日英で追加 | 同ファイル：ページ・gate・program の拒否の全 code に日英の文があり、英語に禁止語が無い（計 4/4） |
+| stack の wiring 試験を process group の停止に合わせた | 7/7 |
+
+validator を使わない spike 試験 91 件中 89 合格（1 件は既知の揺れ、1 件は上の wiring 試験の更新前）。validator を使う試験は領土側の world の間は実行していない。
+
+**次の world の枠で確かめること（未実施）**：B が画面から状態を変える行為、旧持ち主の画面での拒否の表示（A のページを開いたまま譲渡し、A が操作する）、B の画面に国選びが出ないこと、英語の発行ページを通常 world で通すこと（screen check の手順 2 は英語に更新済み）。
+
 ## 6. push の記録
 
 | 時刻 | `git ls-remote origin refs/heads/claude/nft-pass-mint-20261114` |

@@ -127,5 +127,9 @@ test('processes: the mint page starts after the herald and before the bots, stop
   }
   assert.match(up, /Err\(e\) => \{\n\s*log_line\(&format!\("run failed: \{e\}"\)\);[\s\S]{0,200}st\.stop_all\(\);/, 'a failed run stops every component');
   assert.match(up, /crate::nftpass::run_with_deadline\(&prog, &args, Duration::from_secs\(180\)\)\?/);
-  assert.match(nftRs, /None if t0\.elapsed\(\) >= limit => \{\n\s*let _ = child\.kill\(\);/);
+  // the setup's whole process group is stopped (at the deadline and after it ends) and its pipes are read while it runs
+  assert.match(nftRs, /\.process_group\(0\)/);
+  assert.match(nftRs, /kill_group\(group\);\n\s*let _ = child\.wait\(\);/);
+  assert.match(nftRs, /\.args\(\["-9", &format!\("-\{pgid\}"\)\]\)/);
+  assert.match(nftRs, /let out = drain\(/);
 });

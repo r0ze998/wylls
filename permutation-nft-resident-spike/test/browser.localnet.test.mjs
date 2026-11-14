@@ -31,7 +31,7 @@ async function stackUp() {
 }
 async function open(seed, { reject = false } = {}) {
   const ctx = await s.browser.newContext();
-  await ctx.addInitScript(({ seed, reject }) => { try { localStorage.setItem('wylls-testwallet-seed', seed); if (reject) localStorage.setItem('wylls-testwallet-reject', '1'); else localStorage.removeItem('wylls-testwallet-reject'); localStorage.setItem('wylls-testwallet-chain', 'solana:localnet'); } catch {} }, { seed, reject });
+  await ctx.addInitScript(({ seed, reject }) => { try { localStorage.setItem('wylls-mint-lang', 'ja'); localStorage.setItem('wylls-testwallet-seed', seed); if (reject) localStorage.setItem('wylls-testwallet-reject', '1'); else localStorage.removeItem('wylls-testwallet-reject'); localStorage.setItem('wylls-testwallet-chain', 'solana:localnet'); } catch {} }, { seed, reject });
   const page = await ctx.newPage();
   page.on('console', m => { if (m.type() === 'error') console.error('console.error', m.text().slice(0, 300)); });
   await page.goto(`${s.url}/web/mint.html`);
