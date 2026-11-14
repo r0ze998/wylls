@@ -45,7 +45,7 @@ stand-in is listed in §4.
   `cargo build-sbf --manifest-path permutation-prize/Cargo.toml --features nft-experimental
    --tools-version v1.52 --arch v2 --sbf-out-dir <scratch>/nft-test-only/deploy -- --locked --offline`
   (`cargo-build-sbf` 3.1.9 and platform-tools v1.52 are installed; the guard runs `cargo <args>`).
-- **Post-check** `scripts/check-prize-nft-test-only.sh <so>` (new; reads only):
+- **Post-check** `scripts/check-prize-nft-test-only.sh <so>` (new; checks the input, then **writes one file**, the renamed copy; earlier wording "reads only" was wrong):
   refuses any path under `permutation-prize/target/deploy`; requires e_flags 2 (SBPF v2), the overflow
   panic strings, and **the NFT handler strings** (`PRIZE claim-nft`, `PRIZE nation-nft`: proves the
   feature is in, the opposite of `build-prize.sh`); then copies it to
@@ -129,3 +129,28 @@ byte-for-byte unchanged.
 - Reported to ⑳: its `svm-core/tests/core.rs` appears stale against `947da0b9` (InitConfig 3 vs 5
   accounts, MintResident 9 vs 10), from reading only.
 - Waiting for: review (user, main, ⑳), main's ×10 world down, and a slot (estimate about 3.5 GiB).
+
+## 8. Review fixes (2026-11-15, before any build)
+
+From an independent source review (user):
+1. **MintResident's config account is writable.** The current resident program writes `config.MINTED`
+   (`mint_resident`), so `AccountMeta::new_readonly(w.config, …)` would have made every setup fail with
+   ReadonlyDataModified. Now `AccountMeta::new`. The other resident instructions' writability was re-checked
+   against the program header: InitConfig, SetMetadata, SetTerms, TransferResident, SetSession all match.
+2. **Post-check paths.** A symlink input is refused. Input and output directories are resolved to physical
+   paths (`cd -P` / `pwd -P`) before the production check, so a symlinked parent cannot reach
+   `permutation-prize/target`. An output that is a symlink, or not a regular file, is refused. The copy is
+   written to a fresh `mktemp` file in the same directory and renamed into place (a rename never writes
+   through a link); the output is re-checked just before the rename.
+3. **ELF header.** Magic `7f 45 4c 46`, ELF64 (class 2), little-endian (data 1), e_machine 247 (EM_BPF) or
+   263 (EM_SBF), then e_flags 2. A file with the right e_flags and strings but no ELF header is refused.
+   (Reference: ⑳'s `mpl_core.so` and `wylls_resident_program.so` read class 2, data 1, machine 263.)
+4. Wording: the script writes the renamed copy (above).
+
+**Negative fixtures:** `scripts/check-prize-nft-test-only.test.sh` (synthetic files only; no build, key or
+network): **17/17 pass**. Refused (exit 3): too small; e_flags and strings without ELF magic; ELF32;
+big-endian; x86-64; e_flags 0; no strings; a symlink input; a production-dir file through a symlinked parent;
+a production-dir file directly (and nothing written there); an output symlink (its target unchanged); an
+output directory. Accepted: a header-valid synthetic file, giving a regular-file copy with the same bytes and
+no temporary file left. The test removes only what it created (including `permutation-prize/target`, if it
+created it). A header check is not proof of a real build; the real build is the guarded `cargo build-sbf`.

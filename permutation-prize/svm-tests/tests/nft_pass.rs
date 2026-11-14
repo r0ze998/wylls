@@ -623,7 +623,8 @@ fn mint_pass(w: &mut World, owner: &Keypair) -> Pass {
             AccountMeta::new(w.collection, false),
             AccountMeta::new_readonly(w.coll_auth, false),
             AccountMeta::new(resident, false),
-            AccountMeta::new_readonly(w.config, false),
+            // MintResident writes config.MINTED (resident lib.rs mint_resident): writable.
+            AccountMeta::new(w.config, false),
             AccountMeta::new_readonly(CORE, false),
             AccountMeta::new_readonly(SYSTEM, false),
             AccountMeta::new(minter, false),
