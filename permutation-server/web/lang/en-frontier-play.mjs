@@ -1368,7 +1368,6 @@ export default {
   '相手': 'Opposing', '予測': 'Forecast', '計算中…': 'Working it out…',
   '体力 −{0}': 'Stamina −{0}',
   '次はターン {0} から': 'Ready again from turn {0}',
-  '次はターン {0} から（到着で戦えばターン {1} から）': 'Ready again from turn {0} (turn {1} if it fights on arrival)',
   '守り {0}': '{0} defending',
   'わからない': 'Unknown',
   '見えていない土地': 'Out of sight',
