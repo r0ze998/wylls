@@ -248,6 +248,11 @@ test('world proxy: writes are only the local-play relay\'s JSON routes, each wit
   const march = await import('../src/frontier/local-play-march.mjs');
   assert.deepEqual(march.LOCAL_MARCH_ROUTES, { capability: 'POST /f/local-play/march/capability', submit: 'POST /f/local-play/march/submit', status: 'POST /f/local-play/march/status' });
   named.push(...Object.values(march.LOCAL_MARCH_ROUTES));
+  // (2026-11-15, the LOCAL TEST CANDIDATE lane's read of the world wallet's passes: a read the act object serves only on
+  //  that lane, named by its own module)
+  const nft = await import('../src/frontier/local-play-nft-resident.mjs');
+  assert.equal(nft.LOCAL_RESIDENTS_ROUTE, 'POST /f/local-play/act/residents');
+  named.push(nft.LOCAL_RESIDENTS_ROUTE);
   // (and every table the relay's listener serves is one of those five: a new one must be added above and to the list)
   const serverSource = (await fsp.readFile(new URL('../src/frontier/local-play-relay-server.mjs', import.meta.url), 'utf8'));
   // (2026-11-12, Fable: the page-signed economy commands are a sixth table, `LOCAL_ACT_ROUTES` of local-play-act.mjs,
