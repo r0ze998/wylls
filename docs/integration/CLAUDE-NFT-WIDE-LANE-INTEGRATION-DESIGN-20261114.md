@@ -105,3 +105,27 @@ wide の側は NFT 住民の**行動**を受ける準備がある。足りない
 | herald・fclient | 版で layout を選ぶ（`>= PROGRAM_VERSION_S1` など） | 0xC804 は S1 以上なので S1 の扱いになる見込み（未確認） |
 
 これらは版の割り当て（workstream 4）と、領土側の lane の所有に関わる。**ここでは変えず**、決まったら領土側と調整して直す。大きな build（host・SBF）は主側と容量・CPU の枠を合意してからだけ行う。
+
+## 9. 追記（同日 21:40）：候補 lane 限定の wide 命令の encoder・配線と、検証の計画
+
+**実装した（JS、検証済み）**：`permutation-gateway/client/src/frontier/resident.mjs`（web の sdk に同期）。
+- wide の player 命令の data：ClaimSite（0xD9）、0xDA の envelope の Muster（op 1）・Dissolve（op 2、56 byte の host 参照）・Economy（op 3、Harvest・Build 0–8・Train unit 0–6 × n ≥ 1）・Garrison（op 4、1〜u32::MAX）・DeclareSiege（op 5、data だけ）。範囲外は Rust と同じく wire 形式なし（拒否）。
+- 口座の並び：`wide_ix.rs` の `CLAIM_SITE`・`MUSTER`・`DISSOLVE`・`ECONOMY`／`ECONOMY_MIRROR`（城壁・tier-up は province を書く）・`GARRISON`。prologue は `[actor s] [payer s,w] [season r] [citizen w]`。NFT では actor が asset の今の持ち主（またはその session）、citizen が NFT Citizen。
+- `candidateWideActIx`：**候補 lane の program ID と版の組のときだけ** 0xDD で包む。他の lane（conquest の 0x4804、NFT の 0x8004、S1）では作る前に拒否。owner・generation の proof は 0xE2 と同じ。
+- 期待値：`frontier-abi/vectors/v2/wide-resident-candidate.json`（Rust の encoder から手で導いた bytes）。`test/frontier-wide-commands.test.mjs` 4 件（各命令の bytes、0xDD の bytes、口座の並び〔Rust の group の名前と順を読んで照合〕、候補だけの builder が relay の classify を候補の gate 経由でだけ通る）。
+- **未実装**：WideDepart（封をした行軍：seal の作成が要る）、DeclareSiege の口座の並び（この group に無い）、画面のボタンからの送信（候補 lane の world がまだ無い）。
+
+**用意したが未実行（未 compile）**：`frontier-abi/tests/wide_resident_candidate_vectors.rs`。Rust の encoder と decoder が同じ bytes を出し・受けることと、それらの bytes が同じ JSON にあることを確かめる。rustfmt で構文と書式だけ確認。実行は `cargo test -p frontier-abi --features world-index-experimental --test wide_resident_candidate_vectors`（host build：主側と枠を合意してから）。
+
+**「検証が済んでいない」と「実装できない」の区別**：
+- 検証が済んでいない（実装はある）：Rust の golden 試験、候補 lane の feature が compile できること、旧い組み合わせで `compile_error!` が出ること、候補の .so の marker。build の枠があれば確かめられる。
+- 今は実装できない：候補 lane で動く world（keeper・herald・stack・page の道具が 0xC804 を知らない。領土側の file で版も未決）。画面からの 0xDD の送信（その world が要る）。
+
+**枠が開いたときの計画（順番）**：
+1. 主側の down＋df の後、**直した検査で通常 world を 1 回**（NFT lane、追加 build なし、0.5 GB 以内、watchdog は重なるなら 21.1 GiB、それ以外は 20.85 GiB）。dock の Village tab → 自然な再描画の下での入力・focus・押下（押下の記録つき）→ B の Build・Train・Muster の取引 → 行軍と Reveal の取引。終わったら片付けて down＋df。
+2. 主側と容量・CPU を合意してから、**候補の限定 Rust 検証**（大きい順に分けて、各段の後に df）：
+   a. `cargo test -p frontier-abi --features world-index-experimental --test wide_resident_candidate_vectors`（frontier-abi だけ、host、target は自分専用の dir、guard 付き）。
+   b. `cargo check -p permutation-frontier --features localnet-conquest-nft-sbf`（候補が compile できること）と、旧い組み合わせ（`expedition-dispatch-experimental,nft-experimental` など）が `compile_error!` で**失敗する**ことを確かめる check（host）。
+   c. 合意があれば `scripts/build-frontier-localnet-conquest-nft-sbf.sh`（SBF、約 250 MB、offline）で marker と `deployable no`。
+   各段の結果をこの文書に記録し、target は終わったら消す（来歴に要る物だけ残す）。
+3. 候補の world（0xC804）は、版の割り当てと、領土側の file（keeper・gateway・page の 0x4804 固定、§8）の変更が要るので、領土側と合意してから。

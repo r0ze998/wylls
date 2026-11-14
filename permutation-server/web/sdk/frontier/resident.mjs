@@ -228,6 +228,85 @@ export function classifyWideResident(tx, { programId, profile = 1, wide = null }
   return { ...shape, keys: ix.keys, wrapper: 'WideResidentAct', resident: { generation, policy, link, asset, resident } };
 }
 
+// ------------------------------------------------------------------ the wide band's player commands (candidate lane only)
+// Encoders of the wide draft instructions an NFT Citizen runs inside 0xDD, transcribed from frontier-abi
+// world_index/wide_ix.rs (`ClaimSite`, `Muster`, `Dissolve`, `Economy` with economy.rs `Action`, `Garrison`,
+// `DeclareSiege`; little-endian; the 0xDA envelope is tag, 0xFF, version 1, op) and their account lists (wide_ix.rs
+// `CLAIM_SITE`, `MUSTER`, `DISSOLVE`, `ECONOMY` / `ECONOMY_MIRROR`, `GARRISON`). Expected bytes:
+// frontier-abi/vectors/v2/wide-resident-candidate.json (also checked by a Rust test, not compiled yet). WideDepart (the
+// sealed march) is not here. No deployed program has the band; `candidateWideActIx` builds the 0xDD only for the
+// exact local test candidate lane.
+export const WIDE_BAND = Object.freeze({
+  CLAIM_SITE: 0xd9, DEPART: 0xda, ESCAPE: 0xff, VERSION: 1,
+  OP_MUSTER: 1, OP_DISSOLVE: 2, OP_ECONOMY: 3, OP_GARRISON: 4, OP_DECLARE_SIEGE: 5,
+  HOST_REF_LEN: 56, ACTION_LEN: 6, BUILD_ITEM_MAX: 8, BUILD_ITEM_WALLS: 6, BUILD_ITEM_TIER_UP: 7, TRAIN_UNITS: 7,
+});
+const le = (n, bytes, signed = false) => {
+  let v = BigInt(n);
+  if (signed && v < 0n) v += 1n << BigInt(8 * bytes);
+  if (v < 0n || v >= 1n << BigInt(8 * bytes)) throw new Error(`out of range for ${bytes} bytes: ${n}`);
+  return Uint8Array.from({ length: bytes }, (_, i) => Number((v >> BigInt(8 * i)) & 0xffn));
+};
+const u8 = (n, name) => { if (!Number.isInteger(n) || n < 0 || n > 255) throw new Error(`${name}: u8`); return [n]; };
+const envelope = op => [WIDE_BAND.DEPART, WIDE_BAND.ESCAPE, WIDE_BAND.VERSION, op];
+const fromHex = h => { const t = String(h); if (!/^(?:[0-9a-f]{2})*$/i.test(t)) throw new Error('hex'); return Uint8Array.from(t.match(/../g) ?? [], x => parseInt(x, 16)); };
+const hostRef = h => { const b = h instanceof Uint8Array ? h : fromHex(h); if (b.length !== WIDE_BAND.HOST_REF_LEN) throw new Error('host: a 56-byte wide host reference'); return b; };
+/** The six canonical action bytes (economy.rs `Action::checked_bytes`): refused out of range, as the Rust has no wire form for them. */
+export function wideActionBytes(a) {
+  const b = new Uint8Array(WIDE_BAND.ACTION_LEN);
+  if (a?.action === 'Harvest') b[0] = 0;
+  else if (a?.action === 'Build') { if (!Number.isInteger(a.item) || a.item < 0 || a.item > WIDE_BAND.BUILD_ITEM_MAX) throw new Error('Build: item 0–8'); b[0] = 1; b[1] = a.item; }
+  else if (a?.action === 'Train') { if (!Number.isInteger(a.unit) || a.unit < 0 || a.unit >= WIDE_BAND.TRAIN_UNITS) throw new Error('Train: unit 0–6'); if (!Number.isInteger(a.n) || a.n < 1) throw new Error('Train: n ≥ 1'); b[0] = 2; b[1] = a.unit; b.set(le(a.n, 4), 2); }
+  else throw new Error('an economy action: Harvest, Build or Train');
+  return b;
+}
+/** Whether an economy action writes its province's site mirror (economy.rs `Action::mirror_write`: walls, the tier-up). */
+export const wideMirrorWrite = a => a?.action === 'Build' && (a.item === WIDE_BAND.BUILD_ITEM_WALLS || a.item === WIDE_BAND.BUILD_ITEM_TIER_UP);
+/** The data of one wide player command `{name, ...input}` (names as in the vectors file). */
+export function wideCommandData(cmd) {
+  switch (cmd?.name) {
+    case 'ClaimSite': { if (cmd.slot !== 2 && cmd.slot !== 3) throw new Error('ClaimSite: slot 2 or 3'); return concat([WIDE_BAND.CLAIM_SITE], le(cmd.p, 8, true), le(cmd.q, 8, true), u8(cmd.site, 'site'), [cmd.slot]); }
+    case 'Muster': return concat(envelope(WIDE_BAND.OP_MUSTER), u8(cmd.unit, 'unit'), le(cmd.troops, 4), u8(cmd.tile, 'tile'));
+    case 'Dissolve': return concat(envelope(WIDE_BAND.OP_DISSOLVE), hostRef(cmd.host));
+    case 'Economy': return concat(envelope(WIDE_BAND.OP_ECONOMY), wideActionBytes(cmd));
+    case 'Garrison': { if (!Number.isInteger(cmd.delta) || cmd.delta < 1 || cmd.delta > 0xffffffff) throw new Error('Garrison: delta 1–u32::MAX'); return concat(envelope(WIDE_BAND.OP_GARRISON), le(cmd.delta, 8, true)); }
+    case 'DeclareSiege': return concat(envelope(WIDE_BAND.OP_DECLARE_SIEGE), u8(cmd.site, 'site'), u8(cmd.entry, 'entry'));
+    default: throw new Error(`not a wide player command: ${cmd?.name}`);
+  }
+}
+const sw = pubkey => ({ pubkey, isSigner: true, isWritable: true });
+const sr = pubkey => ({ pubkey, isSigner: true, isWritable: false });
+const w = pubkey => ({ pubkey, isSigner: false, isWritable: true });
+const need = (a, k) => { if (typeof a?.[k] !== 'string' || !a[k]) throw new Error(`account ${k}`); return a[k]; };
+/** The account list of a wide player command (wide_ix.rs groups); `accounts` by the groups' names. DeclareSiege's is not in those groups: refused. */
+export function wideCommandKeys(cmd, a) {
+  const prologue = [sr(need(a, 'actor')), sw(need(a, 'payer')), ro(need(a, 'season')), w(need(a, 'citizen'))];
+  switch (cmd?.name) {
+    case 'ClaimSite': return [...prologue, ro(need(a, 'frontier')), w(need(a, 'province')), w(need(a, 'wide_ticket')), w(need(a, 'anchor_holding')), ro(need(a, 'anchor_province')), w(need(a, 'previous_holding')), ro(need(a, 'previous_province')), ro(SYSTEM_PROGRAM)];
+    case 'Muster': return [...prologue, w(need(a, 'holding')), w(need(a, 'province')), w(need(a, 'roster')), ro(SYSTEM_PROGRAM)];
+    case 'Dissolve': {
+      if (!Array.isArray(a.transits) || a.transits.length !== 4) throw new Error('Dissolve: the holding\'s four transit records');
+      return [...prologue, w(need(a, 'holding')), w(need(a, 'province')), ro(need(a, 'roster')), ro(need(a, 'holding_province')), ...a.transits.map(t => ro(t))];
+    }
+    case 'Economy': return [...prologue, w(need(a, 'holding')), wideMirrorWrite(cmd) ? w(need(a, 'province')) : ro(need(a, 'province'))];
+    case 'Garrison': return [...prologue, w(need(a, 'holding')), w(need(a, 'province'))];
+    default: throw new Error(`${cmd?.name}: no account list here`);
+  }
+}
+/** One wide player instruction (not wrapped). */
+export const wideCommandIx = ({ programId, cmd, accounts }) => ({ programId, keys: wideCommandKeys(cmd, accounts), data: wideCommandData(cmd) });
+/**
+ * The 0xDD WideResidentAct for an NFT Citizen around a wide player command — ONLY for the exact local test candidate
+ * lane (`lane`: {programId, programVersion}); any other program or version is refused before anything is built.
+ * `accounts.actor` is the asset's current owner (or its session), `accounts.citizen` the NFT Citizen; `resident` =
+ * {generation, proof} as for 0xE2 (a transfer raises the generation: a pre-transfer signature never passes).
+ */
+export function candidateWideActIx({ lane, cmd, accounts, resident }) {
+  if (!isLocalConquestNftCandidate(lane)) throw new Error('WideResidentAct is built only for the local test candidate lane');
+  if (!resident?.proof || !Number.isInteger(resident.generation)) throw new Error('WideResidentAct: the resident proof and generation');
+  return wideResidentActIx(wideCommandIx({ programId: lane.programId, cmd, accounts }), { generation: resident.generation, ...resident.proof });
+}
+
 /** The budget of a ResidentAct around `inner` (a tag or name) or of JoinResident (`'JoinResident'`). */
 export function residentBudget(inner, profile = 1) {
   const b = budgetOf(inner === 'JoinResident' ? 'Join' : inner, profile);
