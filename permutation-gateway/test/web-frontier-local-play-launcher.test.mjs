@@ -730,14 +730,14 @@ test('a document that cannot hold the language key (the plain stub of web-fronti
   assert.equal(doc.byId('local-play-title').textContent, '新しい世界で遊ぶ');
 });
 
-test('the source: four launcher routes and no other, no storage, no markup from a reply; the page wiring is untouched', () => {
+test('the source: five launcher routes and no other, no storage, no markup from a reply; the page wiring is untouched', () => {
   const read = file => readFileSync(new URL(`../../permutation-server/web/frontier/${file}`, import.meta.url), 'utf8');
   const lp = read('flocalplay.mjs'), code = lp.split('\n').filter(l => !/^\s*(\/\/|\*|\/\*)/.test(l)).join('\n');
-  assert.deepEqual([...new Set([...code.matchAll(/'(\/local-play\/[^']*)'/g)].map(m => m[1]))].sort(), ['/local-play/keeper', '/local-play/start', '/local-play/stop', '/local-play/worlds'], 'the only launcher routes the page knows');
+  assert.deepEqual([...new Set([...code.matchAll(/'(\/local-play\/[^']*)'/g)].map(m => m[1]))].sort(), ['/local-play/keeper', '/local-play/pair', '/local-play/start', '/local-play/stop', '/local-play/worlds'], 'the only launcher routes the page knows (pair: TEST-ONLY contest pair, frontier-local-play-pair-guide.test.mjs)');
   // (that it names no signing call either is the hooks test of web-frontier-local-play.test.mjs, which runs under the guard too)
   assert.doesNotMatch(code, /localStorage|sessionStorage|indexedDB|document\.cookie|console\.|innerHTML|outerHTML|insertAdjacentHTML|\.style\b|keyFromSeed|fsession|sendTransaction|fetch\(|sendBeacon|XMLHttpRequest|WebSocket|eval\(|Function\(/);
   assert.deepEqual([...code.matchAll(/from '([^']+)'/g)].map(m => m[1]).sort(), ['../lang.mjs', '../sdk/base58.mjs', './faddr.mjs', './fephemeral-wallet.mjs', './flocalplay-instance.mjs', './flocalplay-session.mjs']);
-  assert.match(code, /import \{ mountSessionNotice \} from '\.\/flocalplay-session\.mjs';/, 'the standing notice (a display only)');
+  assert.match(code, /import \{ mountSessionNotice, pairGuideView \} from '\.\/flocalplay-session\.mjs';/, 'the standing notice (a display only) and the pair answer\'s check (frontier-local-play-pair-guide.test.mjs)');
   assert.match(code, /import \{ confirmWorldEnd \} from '\.\/flocalplay-instance\.mjs';/, 'and the one read that confirms its end (web-frontier-local-play-world-instance.test.mjs)');
   assert.equal(code.split('confirmWorldEnd(').length - 1, 1, 'called once, after the world was verified');
   assert.match(code, /makeWallet = createEphemeralWallet/, 'the page\'s wallet is the memory-only one unless a test replaces it');
@@ -752,9 +752,9 @@ test('the source: four launcher routes and no other, no storage, no markup from 
   assert.match(code, /while \(body\?\.pairWaiting === true && body\?\.herald === undefined\) \{/);
   assert.equal(code.split(`await request(new URL(route, loc.href).href, ${shape.replace('BODY', 'body')})`).length - 1, 1);
   assert.equal(code.split('request(').length - 1, 2, 'and no other request');
-  assert.deepEqual([...code.matchAll(/askLauncher\(([^)]*)\)/g)].map(m => m[1]).sort(), ["'/local-play/keeper', { wallet }, 'LauncherKeeperFailed'", "'/local-play/stop', { wallet: address }, 'LauncherStopFailed'", "'/local-play/worlds', {}, 'LauncherListFailed'"]);
+  assert.deepEqual([...code.matchAll(/askLauncher\(([^)]*)\)/g)].map(m => m[1]).sort(), ["'/local-play/keeper', { wallet }, 'LauncherKeeperFailed'", "'/local-play/pair', { wallet }, 'LauncherPairFailed'", "'/local-play/stop', { wallet: address }, 'LauncherStopFailed'", "'/local-play/worlds', {}, 'LauncherListFailed'"]);
   // the keeper's view: asked only from the standing notice's key, for this page's own address, never polled
-  assert.match(code, /if \(launcher\) \{ const mine = handle\.address; session = mountSessionNotice\(\{ doc, win, onCheck: \(\) => checkKeeper\(mine\), demo: claimedDemo \}\); \}/);
+  assert.match(code, /if \(launcher\) \{ const mine = handle\.address; session = mountSessionNotice\(\{ doc, win, onCheck: \(\) => checkKeeper\(mine\), demo: claimedDemo, \.\.\.\(state\.pairRole === 'second' && claimedDemo !== null \? \{ onPair: \(\) => checkPair\(mine, \{ herald: base, expiry: claimedEnd \}\) \} : \{\}\) \}\); \}/, 'the pair key only for the second player of a capture-demo pair');
   assert.equal(code.split('checkKeeper(').length - 1, 1, 'only the notice\'s key calls it');
   // the preparation is the launcher's alone: the page reads its word from the page address and its answer, and names no clock call, scale or option
   assert.doesNotMatch(code, /setScale|frontier_|prepare-scale|prepareScale/); assert.equal(code.split("searchParams.get('prepare')").length - 1, 1);
@@ -801,4 +801,21 @@ test('contest pair: a waiting page that is closed stops asking (its key goes wit
   assert.ok(starts(calls).length <= before + 1, 'at most the request already on its way');
   await connecting.catch(() => {});
   assert.notEqual(gate.state().phase, 'connected');
+});
+test('contest pair: while the first player waits, the panel says it is waiting for the other player (not "making a season")', async () => {
+  const { gate, doc, answer } = open({ retryDelayMs: 2 });
+  let release; const hold = new Promise(r => { release = r; });
+  let n = 0;
+  answer.start = async () => (++n <= 1 ? waiting() : (await hold, { ok: true, status: 200, json: async () => ({ herald: 'http://localhost:41926', pair: { role: 'first', mode: 'contest-pair-v1' } }) }));
+  await made(gate);
+  const connecting = gate.connect();
+  for (let i = 0; i < 100 && !gate.state().pairWaiting; i++) await new Promise(r => setTimeout(r, 1));
+  const said = doc.byId('local-play-status').textContent;
+  assert.match(said, /もう一人のプレイヤーを待っています/); assert.match(said, /別のタブ/); assert.match(said, /何も送信しません/);
+  assert.doesNotMatch(said, /新しいシーズンを最初から作っています/);
+  setLang('en');
+  try { gate.state(); doc.byId('local-play-status'); } finally { setLang('ja'); }
+  release(); await connecting; await gate.ready;
+  assert.equal(gate.state().pairWaiting, false); assert.equal(gate.state().pairRole, 'first');
+  assert.doesNotMatch(doc.byId('local-play-status').textContent, /もう一人のプレイヤーを待っています/);
 });

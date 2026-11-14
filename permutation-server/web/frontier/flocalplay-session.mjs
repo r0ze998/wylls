@@ -14,6 +14,7 @@
 // for the world's keeper on the player's press and shows the answer (`keeperText`); one ask at a time, never repeated.
 import { L, onLangChange } from '../lang.mjs';
 import { expiryStable } from './flocalplay-expiry.mjs';
+import { CIV_NAMES } from '../i18n.mjs';
 
 export const SESSION_NOTICE_ID = 'local-play-session';
 /** An end time on this machine's clock, `YYYY-MM-DD HH:MM` (the same in either language). */
@@ -46,6 +47,43 @@ export function keeperText(view) {
   }
 }
 
+export const CONTEST_PAIR_MODE = 'contest-pair-v1';
+const NATION_KEYS = ['Aster', 'Borealis', 'Cinder', 'Dunmar', 'Ember', 'Fjordal'];
+const nationName = n => CIV_NAMES[NATION_KEYS[n]] ?? `#${n}`;
+/**
+ * TEST-ONLY contest pair: the launcher's pair answer, checked again here (fail closed): the mode, the
+ * role this page was given at its start, the WORLD it is about (`scope`: the herald and the end this page verified at its
+ * own start — the same herald, the same instance, start, life and end — and that end not yet reached at `nowMs`), and
+ * every number of the target. → `{state: 'pending' | 'predicted' | 'ready' | 'not_ready', nation, opponentNation, fort,
+ * home}` or `{state: 'unavailable'}`.
+ */
+export function pairGuideView(body, role, scope, nowMs) {
+  const p = body?.pair, t = p?.target;
+  if (!p || typeof p !== 'object' || p.mode !== CONTEST_PAIR_MODE || (role !== 'first' && role !== 'second') || p.role !== role || !t || typeof t !== 'object') return { state: 'unavailable' };
+  const w = p.world, e = w?.expiry, mine = scope?.expiry;
+  const sameWorld = w && typeof w === 'object' && typeof scope?.herald === 'string' && w.herald === scope.herald && e && typeof e === 'object' && mine && typeof mine === 'object'
+    && typeof mine.instance === 'string' && mine.instance.length > 0 && ['schema', 'instance', 'startedAt', 'ttlMs', 'expiresAt'].every(k => e[k] === mine[k])
+    && Number.isFinite(e.expiresAt) && Number.isFinite(nowMs) && nowMs < e.expiresAt;
+  if (!sameWorld) return { state: 'unavailable' };
+  if (t.state === 'pending') return { state: 'pending' };
+  const int = (v, lo, hi) => Number.isSafeInteger(v) && v >= lo && v <= hi, pq = v => int(v, -1000, 1000);
+  const ok = ['predicted', 'ready', 'not_ready'].includes(t.state) && int(t.nation, 0, 5) && int(t.opponentNation, 0, 5) && t.nation !== t.opponentNation
+    && t.fort && pq(t.fort.p) && pq(t.fort.q) && int(t.fort.tile, 0, 60) && t.home && pq(t.home.p) && pq(t.home.q) && int(t.home.site, 0, 255) && int(t.home.tile, 0, 60);
+  if (!ok) return { state: 'unavailable' };
+  return { state: t.state, nation: t.nation, opponentNation: t.opponentNation, fort: { p: t.fort.p, q: t.fort.q, tile: t.fort.tile }, home: { p: t.home.p, q: t.home.q, site: t.home.site, tile: t.home.tile } };
+}
+/** The pair's guide in sentences for the SECOND player (who may defend): null for no view. The choice of nation stays free. */
+export function pairGuideText(view) {
+  if (!view || typeof view !== 'object') return null;
+  if (view.state === 'unavailable') return L`二人用の対戦の情報を確認できませんでした（何も送信していません）。少ししてから、もう一度押してください。`;
+  if (view.state === 'pending') return L`二人用の対戦はまだ決まっていません。相手が村を置くと、争う砦と国が決まります。少ししてから、もう一度確認してください。`;
+  const nation = nationName(view.nation), opp = nationName(view.opponentNation);
+  if (view.state === 'ready') return L`二人用の試験：相手（${opp}）の軍勢は 州 ${view.fort.p},${view.fort.q} の砦（${nation} が保持）に向かいます。あなたは ${nation} として、州 ${view.home.p},${view.home.q} の村からこの砦を守れます。二人の道を、世界の記録で確かめました。`;
+  const base = L`二人用の試験：相手（${opp}）の軍勢は 州 ${view.fort.p},${view.fort.q} の砦（${nation} が保持）に向かいます。国を選ぶとき ${nation} を選ぶと、あなたはこの砦を守る側になります（標準の村候補は 州 ${view.home.p},${view.home.q} です）。ほかの国も選べますが、そのときは二人の争奪は用意されません。`;
+  if (view.state === 'not_ready') return `${base} ${L`ただし、この世界では二人の争奪を用意できませんでした。終了して、新しい世界から始めてください。`}`;
+  return base;
+}
+
 /** One notice per document: a second mount returns the first. */
 const mounted = new WeakMap();
 
@@ -53,7 +91,7 @@ const mounted = new WeakMap();
  * `doc` / `win`: the page's (tests pass stand-ins); `onCheck`: the gate's keeper ask (optional). →
  * `{destroyed(), unmount(), isDestroyed(), …}`, or null without a document.
  */
-export function mountSessionNotice({ doc = globalThis.document, win = globalThis.window, onCheck = null, demo = null } = {}) {
+export function mountSessionNotice({ doc = globalThis.document, win = globalThis.window, onCheck = null, demo = null, onPair = null } = {}) {
   if (!doc?.createElement) return null;
   const prior = mounted.get(doc);
   if (prior) return prior;
@@ -75,8 +113,12 @@ export function mountSessionNotice({ doc = globalThis.document, win = globalThis
   const asks = typeof onCheck === 'function';
   const check = asks ? el('button', 'local-play-session-check') : null, said = asks ? el('p', 'local-play-session-keeper') : null;
   if (asks) { check.type = 'button'; said.hidden = true; box.append(check, said); }
+  // (TEST-ONLY contest pair, the second player only: the fort and nation to meet over, read on the player's own press)
+  const pairs = typeof onPair === 'function';
+  const pairCheck = pairs ? el('button', 'local-play-session-check local-play-session-pair') : null, pairSaid = pairs ? el('p', 'local-play-session-keeper local-play-session-pair-said') : null;
+  if (pairs) { pairCheck.type = 'button'; pairSaid.hidden = true; box.append(pairCheck, pairSaid); }
   box.append(fold);
-  let destroyed = false, live = true, end = null, moved = false, asking = false, answer = null, folded = false;
+  let destroyed = false, live = true, end = null, moved = false, asking = false, answer = null, folded = false, pairAsking = false, pairAnswer = null;
   const label = () => {
     title.textContent = L`この試験世界について`;
     items[0].textContent = L`鍵はこのページのメモリにだけあります。再読み込み・タブを閉じると失われ、この世界は続けられません。`;
@@ -89,11 +131,13 @@ export function mountSessionNotice({ doc = globalThis.document, win = globalThis
     fold.textContent = folded ? L`詳しく見る` : L`たたむ`;
     fold.setAttribute?.('aria-expanded', folded ? 'false' : 'true');
     if (asks) { check.textContent = asking ? L`確認しています…` : L`世界の進行を確認`; const t = keeperText(answer); said.textContent = t ?? ''; said.hidden = t === null; }
+    if (pairs) { pairCheck.textContent = pairAsking ? L`確認しています…` : L`二人の対戦の国と砦を確認`; const t = pairGuideText(pairAnswer); pairSaid.textContent = t ?? ''; pairSaid.hidden = t === null; }
   };
   const paint = () => {
     const f = folded && !destroyed;
     list.hidden = destroyed || f; short.hidden = !f; gone.hidden = !destroyed; fold.hidden = destroyed;
     if (asks) { check.hidden = destroyed || f; check.disabled = asking; if (destroyed || f) said.hidden = true; }
+    if (pairs) { pairCheck.hidden = destroyed || f; pairCheck.disabled = pairAsking; if (destroyed || f) pairSaid.hidden = true; }
     if (box.dataset) { box.dataset.state = destroyed ? 'destroyed' : 'live'; box.dataset.end = end !== null ? 'known' : 'unknown'; box.dataset.fold = f ? 'folded' : 'open'; }
   };
   label(); paint();
@@ -105,6 +149,16 @@ export function mountSessionNotice({ doc = globalThis.document, win = globalThis
       asking = false;
       if (!live) return;
       if (v !== null && v !== undefined) answer = v;
+      label(); paint();
+    });
+  });
+  if (pairs) pairCheck.addEventListener?.('click', () => {
+    if (!live || destroyed || pairAsking) return;
+    pairAsking = true; label(); paint();
+    Promise.resolve().then(onPair).then(v => v, () => ({ state: 'unavailable' })).then(v => {
+      pairAsking = false;
+      if (!live) return;
+      if (v !== null && v !== undefined) pairAnswer = v;
       label(); paint();
     });
   });

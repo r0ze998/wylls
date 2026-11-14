@@ -1552,9 +1552,16 @@ export default {
   // (the end, once confirmed against the runner's own instance: flocalplay-session.mjs showEnd)
   'この世界は {0} ごろに自動的に終わります（開始サービスが決めた時刻。この端末の時計で表示）。': 'This world ends by itself at about {0} (the time set by the start service, shown in this device\'s clock).',
   // (the natural world: a new Season, then the player's own Join and PlaceHome; flocalplay.mjs)
+  'もう一人のプレイヤーを待っています。別のタブで、もう一人が「新しい世界を開始」を押すと、二人で一つの世界が始まります。待っている間、このタブは何も送信しません。': 'Waiting for the other player. When the other person presses "Start a new world" in another tab, one world starts for the two of you. While it waits, this tab sends nothing.',
   '新しいシーズンを最初から作っています…（最大4分。できたら、ゲームの画面で国を選んで参加し、村を置きます）': 'Making a new season from the start… (up to 4 minutes; then choose a nation on the game\'s screen, join it and place your village)',
   '開始サービスの答えが、このページの世界の種類（最初から始める世界かどうか）と合いません。この世界には接続しません。': 'The start service\'s answer does not match this page\'s kind of world (whether it starts from the beginning). This page does not connect to that world.',
   // (the world's keeper, on the player's press of the standing notice's key: flocalplay-session.mjs keeperText)
+  '二人の対戦の国と砦を確認': 'Check the nation and fort for the two-player contest',
+  '二人用の対戦の情報を確認できませんでした（何も送信していません）。少ししてから、もう一度押してください。': 'The two-player contest could not be checked (nothing was sent). Press again in a moment.',
+  '二人用の対戦はまだ決まっていません。相手が村を置くと、争う砦と国が決まります。少ししてから、もう一度確認してください。': 'The two-player contest is not set yet. Once the other player places their village, the fort and the nations are chosen. Check again in a moment.',
+  '二人用の試験：相手（{0}）の軍勢は 州 {1},{2} の砦（{3} が保持）に向かいます。国を選ぶとき {4} を選ぶと、あなたはこの砦を守る側になります（標準の村候補は 州 {5},{6} です）。ほかの国も選べますが、そのときは二人の争奪は用意されません。': 'Two-player test: the other player\'s ({0}) army is heading for the fort of Province {1},{2} (held by {3}). If you choose {4} when you pick a nation, you defend this fort (the standard village candidate is in Province {5},{6}). You may choose another nation, but then no two-player contest is set up.',
+  '二人用の試験：相手（{0}）の軍勢は 州 {1},{2} の砦（{3} が保持）に向かいます。あなたは {4} として、州 {5},{6} の村からこの砦を守れます。二人の道を、世界の記録で確かめました。': 'Two-player test: the other player\'s ({0}) army is heading for the fort of Province {1},{2} (held by {3}). As {4}, you can defend this fort from your village in Province {5},{6}. Both routes were checked on the world\'s records.',
+  'ただし、この世界では二人の争奪を用意できませんでした。終了して、新しい世界から始めてください。': 'But this world could not set up the two-player contest. End it and start a new world.',
   '世界の進行を確認': 'Check the world\'s progress',
   '確認しています…': 'Checking…',
   '世界の進行役は動いています（ターン {0} まで処理済み）。': 'The world\'s keeper is running (turns processed through {0}).',

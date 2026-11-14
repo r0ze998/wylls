@@ -21,7 +21,7 @@ import { createEphemeralWallet, isLoopbackHost, EPHEMERAL_WALLET_NAME } from './
 import { encode as toBase58, decode as fromBase58 } from '../sdk/base58.mjs';
 import { seasonAddresses } from './faddr.mjs';
 import { L, onLangChange, mountLangToggle } from '../lang.mjs';
-import { mountSessionNotice } from './flocalplay-session.mjs';
+import { mountSessionNotice, pairGuideView } from './flocalplay-session.mjs';
 import { confirmWorldEnd } from './flocalplay-instance.mjs';
 
 /** The dedicated localnet program of the `localnet-expedition-sbf` build ([0x45; 32]). */
@@ -302,7 +302,7 @@ export function openLocalPlayGate({ cfg, loc = globalThis.location, doc = global
             // (the TEST-ONLY contest pair: the first player waits for the second; the same press is asked again, within
             //  this start's own deadline — nothing is signed or sent meanwhile, and the key stays this page's)
             while (body?.pairWaiting === true && body?.herald === undefined) {
-              state.pairWaiting = true;
+              if (!state.pairWaiting) { state.pairWaiting = true; paint(); }
               await new Promise(resolve => setTimeout(resolve, Math.max(1, retryDelayMs)));
               if (abort.signal.aborted || handle.destroyed) return { ok: false, code: 'EphemeralWalletDestroyed' };
               response = await startOnce();
@@ -310,7 +310,7 @@ export function openLocalPlayGate({ cfg, loc = globalThis.location, doc = global
               if (!response?.ok) return launcherRefusal(response);
               body = await response.json();
             }
-            state.pairWaiting = false;
+            if (state.pairWaiting) { state.pairWaiting = false; paint(); }
             state.pairRole = body?.pair?.role === 'first' || body?.pair?.role === 'second' ? body.pair.role : null;
             if (abort.signal.aborted || handle.destroyed) return { ok: false, code: 'EphemeralWalletDestroyed' };
             const origin = launcherHeraldOrigin(body?.herald);
@@ -353,7 +353,7 @@ export function openLocalPlayGate({ cfg, loc = globalThis.location, doc = global
     const played = launcher && claimedMarch?.instance ? Object.freeze({ ...identity, march: claimedMarch }) : identity;
     done = true; state.herald = base; state.phase = 'connected'; paint();
     // (the gate's panel is hidden now: what stays true for the session is said on screen, launcher worlds only)
-    if (launcher) { const mine = handle.address; session = mountSessionNotice({ doc, win, onCheck: () => checkKeeper(mine), demo: claimedDemo }); }
+    if (launcher) { const mine = handle.address; session = mountSessionNotice({ doc, win, onCheck: () => checkKeeper(mine), demo: claimedDemo, ...(state.pairRole === 'second' && claimedDemo !== null ? { onPair: () => checkPair(mine, { herald: base, expiry: claimedEnd }) } : {}) }); }
     // (then, without holding the boot: the world's end, shown only once this herald's relay confirms the runner's own
     //  instance for this wallet — one read, dropped if the page became another wallet or herald or lost its key meanwhile)
     if (launcher && session) {
@@ -408,6 +408,16 @@ export function openLocalPlayGate({ cfg, loc = globalThis.location, doc = global
     const result = await askLauncher('/local-play/keeper', { wallet }, 'LauncherKeeperFailed');
     if (!handle || handle.destroyed || handle.address !== wallet) return null;
     return result.ok ? { state: 'reported', keeper: result.body?.keeper ?? null } : { state: 'unavailable' };
+  };
+  // TEST-ONLY contest pair, the second player's own press of the notice's key (never polled): the fort and nation to meet
+  // over, checked again on this page (`pairGuideView`: mode, this page's own role, every number), or null once the page
+  // is another wallet or lost its key. Nothing is signed or sent; the choice of nation stays the player's.
+  // (`scope`: the herald and the end this page verified at its own start; an answer about any other world is not shown)
+  const checkPair = async (wallet, scope) => {
+    if (!launcher || !handle || handle.destroyed || handle.address !== wallet || state.pairRole !== 'second' || state.herald !== scope?.herald) return null;
+    const result = await askLauncher('/local-play/pair', { wallet }, 'LauncherPairFailed');
+    if (!handle || handle.destroyed || handle.address !== wallet || state.herald !== scope.herald) return null;
+    return result.ok ? pairGuideView(result.body, state.pairRole, scope, now()) : { state: 'unavailable' };
   };
   // The worlds the launcher runs now, on the player's own press of the panel's key (never before a press): so a world
   // left by an earlier page can be ended, and a new one started, without first meeting the limit.
@@ -572,6 +582,8 @@ function mountPanel(doc, { onConnect, onEnd = () => {}, onList = () => {}, launc
         : s.phase === 'waiting' && launcher && s.listed > 0 ? L`動いている世界は${s.listed}個です。終了する世界があれば、下の一覧のその行で選べます。`
         : s.phase === 'waiting' && launcher && s.ended ? L`世界を終了しました。「新しい世界を開始」をもう一度押すと、新しい世界を用意します。`
         : s.phase === 'waiting' && launcher ? L`「新しい世界を開始」を押すと準備します。送信や署名はゲーム中に自分で確認します。`
+        // (the TEST-ONLY contest pair: the first player waits for the second, who presses start in another tab)
+        : s.phase === 'starting' && s.pairWaiting ? L`もう一人のプレイヤーを待っています。別のタブで、もう一人が「新しい世界を開始」を押すと、二人で一つの世界が始まります。待っている間、このタブは何も送信しません。`
         : s.phase === 'starting' && natural ? L`新しいシーズンを最初から作っています…（最大4分。できたら、ゲームの画面で国を選んで参加し、村を置きます）`
         : s.phase === 'starting' && accelerated ? L`世界を準備しています…（試験世界の準備として、世界の時間を早送りします。最大150秒）`
         : s.phase === 'starting' ? L`世界を準備しています…（最大70秒）`

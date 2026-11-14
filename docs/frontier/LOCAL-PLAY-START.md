@@ -17,9 +17,15 @@ Two modes, never mixed:
 ## 1. What you need (installed beforehand; nothing here installs anything)
 - **Node.js** 20 (20.19 was used). The launcher and its relay use only Node's built-in modules, so no `npm install` is needed
   to start them.
-- **Rust** through rustup. `frontier-node/rust-toolchain.toml` pins 1.95.0.
+- **Rust** through rustup, two pinned toolchains: the repository root's `rust-toolchain.toml` pins **1.89.0** (the
+  program and its `.so`), and `frontier-node/rust-toolchain.toml` pins **1.95.0** (the runners, herald and tools).
+  rustup picks each by the directory a build runs in.
   - The builds below use `--locked`.
-  - The first build needs network access to fetch crates, or a filled cargo cache.
+  - The `frontier-node` builds need network access to fetch crates the first time, or a filled cargo cache.
+  - The program build (§2, first block) runs **offline** and never downloads. On a machine whose cargo cache does not
+    yet hold the program's crates, fill it once beforehand with network access, for example
+    `cargo fetch --locked --manifest-path permutation-frontier/Cargo.toml` from the repository root. A build from an
+    empty cache has not been tried.
 - **For the program artefact:** `solana-cargo-build-sbf 3.1.9` and platform-tools v1.52, already installed.
   `scripts/build-frontier.sh` checks both and refuses to download anything.
 - **A browser** on the same machine. Everything listens on 127.0.0.1 only.
@@ -85,6 +91,34 @@ Add both words to the natural command above:
   the runner's first line does not state the same demo.
 - The page address gets `demo=capture` from the launcher only.
 
+### (3) Two people in one world (TEST-ONLY contest pair)
+Add one more word to the capture demo command above (it is refused without the demo):
+```bash
+--contest-pair contest-pair-v1
+```
+- **Who plays:** two people, each in their **own browser tab** (or own browser), each with its own memory-only key.
+  The second side is a person, not a program: there is **no automatic opponent** and nothing here is an AI.
+- **Starting:** both open `http://localhost:41920/` and press 「新しい世界を開始」. The first tab says it is waiting for
+  the other player and sends nothing. When a **different** tab (another key) presses start, the launcher starts **one**
+  world for both. Press the second start soon: the first tab waits only within its own start time limit.
+  A third tab is refused while the pair's world runs. The pair uses both of the launcher's two world slots.
+- **Each side's relay:** each tab sends through its own relay, which accepts only that tab's own address.
+- **Which nation the second player chooses:** the demo picks a fort of another nation that the first player can reach,
+  and a home site of that fort's nation from which the second player can reach the same fort. After the first player
+  has placed their village, the second player presses 「二人の対戦の国と砦を確認」 on the page's standing notice. The page
+  names the fort and the nation to choose to defend it, and the standard village candidate. The choice stays the
+  player's: the page chooses nothing and sends nothing. After the second player's village is placed, the same key says
+  whether both routes were checked on the world's own records (and names the real village), or that this world could
+  not set the contest up (then end it and start a new world).
+  - The page shows this only for the second player of a pair, only for the world it started in, and only before that
+    world's end. Any other answer is not shown.
+- **Defending:** the fort's own nation sees its fort in the fort list as 「守りに向かう」 while another nation is counting on
+  it. A host of the holding nation that stays on the fort's tile breaks the count (the program's own rule).
+- **Ending:** one Ctrl-C (or the end of the world's time) ends the world for **both**. Each person then closes their own
+  tab, which discards that tab's key. Use `--world-ttl-minutes 45` for a short trial.
+- **What is not natural:** the clock is the demo's compressed clock and the other villages are test participants, as
+  in (2). A full 72-turn capture does not fit a 45-minute world at ×30 when the hold starts mid-world.
+
 ### Then
 1. Open `http://localhost:41920/` and press 「新しい世界を開始」.
 2. Choose a nation and press 「…で始める」 (Join, then PlaceHome).
@@ -117,12 +151,20 @@ Add both words to the natural command above:
     (not extended), the chain's hold count was **71/72**, one turn short, and the world ended by itself. The page
     showed 65/72 at that moment and said its display was 180 seconds behind.
   - At ×20, a hold that starts at turn 14 cannot reach 72 inside 45 minutes, even at the clock's own rate.
-  - **Third run (×30, 2026-11-14):** stopped by hand early, with no capture possible. Both forts the demo opened
-    belonged to the player's own nation, and a nation cannot contest its own fort. The demo does not yet make sure
-    that the forts it opens belong to another nation.
+  - **Third run (×30, 2026-11-14):** stopped by hand early, with no capture possible: both forts the demo opened then
+    belonged to the player's own nation. Since then the demo opens a fort of **another** nation that the player's home
+    can reach by a legal route (at most 4 provinces and 32 steps, checked on the chain's records), or says it is not
+    ready and why.
+- **Two people in one world (×30, 2026-11-14):** both tabs got one world with the same end time and each its own relay.
+  The first player's host reached another nation's fort and its count started (turn 46). The defender (the second
+  player) marched onto the fort's tile and the count was broken (turn 57); both pages said so. One host of the first
+  player then departed and arrived twice. No capture or retake was tried (it does not fit 45 minutes).
 - **Page display on local play:** a page that is shown again after being hidden reads the latest state at once
-  (checked in a real browser, 2026-11-14). When the view is behind, the banner on local play says not to reload
+  (checked in a real browser, 2026-11-14, for the play read). The season read that moves the page's clock is now woken
+  the same way and by the re-read button; that part is proven by tests only, not yet in a real browser. When the view is behind, the banner on local play says not to reload
   (that would lose the world's key) and offers 「最新の状態を読み直す」, which only reads.
 - **The capture itself** (72 counted turns, the new holder, the return) is proven only by the in-process tests on
   the real program, on a compressed clock. It is not proven through the page.
 - **Not run:** a build and start from a fresh clone on another machine.
+- **Not checked here:** the runner crate's `localnet-conquest-play` feature set (the contest pair does not need it), and
+  the wide-world experimental features.

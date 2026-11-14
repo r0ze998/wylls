@@ -143,6 +143,42 @@ export function keeperSummary(lines) {
   if (state === 'partial') out.part = has(k.unknown_signature) ? 'unknown' : 'refused';
   return out;
 }
+const DEMO_LINE = 'frontier-localnet-capture-demo-v1', PAIR_LINE = 'frontier-localnet-contest-pair-v1';
+/**
+ * TEST-ONLY contest pair: what the two players need to know to meet, from the runner's public lines, given only on a
+ * player's own press: the fort the demo chose (another nation's, which the first player can reach) and the nation that
+ * holds it, which the SECOND player may choose to defend it, with the home the page will place for that nation. Numbers
+ * only, every field checked; anything else is `{state: 'invalid'}` (fail closed). `state`: 'pending' before the demo's
+ * ready line; 'predicted' after it (the home is the page's standard candidate, not yet placed); 'ready' once the
+ * runner re-checked both routes on the chain's bytes — then the fort and the home are the CHECKED ones (the second
+ * player's real home, which may differ from the prediction), and the check must name the same fort and nation;
+ * 'not_ready' when that re-check failed. The nation is a suggestion the page shows: the second player's choice stays free.
+ */
+export function pairTargetSummary(lines) {
+  const all = Array.isArray(lines) ? lines.filter(v => v && typeof v === 'object' && v.test_only === true) : [];
+  const ready = all.filter(v => v.schema === DEMO_LINE && v.demo_step === 'ready').at(-1);
+  if (!ready) return { state: 'pending' };
+  const int = (v, lo, hi) => Number.isSafeInteger(v) && v >= lo && v <= hi;
+  const pq = v => int(v, -1000, 1000);
+  const pair = ready.pair, fort = Array.isArray(ready.new_ring_reachable) && ready.new_ring_reachable.length === 1 ? ready.new_ring_reachable[0] : null;
+  const home = pair?.second_player_home;
+  const ok = pair && typeof pair === 'object' && fort && typeof fort === 'object' && home && typeof home === 'object'
+    && int(pair.second_player_nation, 0, 5) && int(ready.player_nation, 0, 5) && ready.player_nation !== pair.second_player_nation
+    && pq(home.p) && pq(home.q) && int(home.site, 0, 255) && int(home.tile, 0, 60)
+    && pq(fort.p) && pq(fort.q) && int(fort.keep_tile, 0, 60) && fort.keep_holder === pair.second_player_nation
+    && int(pair.second_player_route_steps, 1, 32);
+  if (!ok) return { state: 'invalid' };
+  const check = all.filter(v => v.schema === PAIR_LINE && (v.pair_step === 'pair_ready' || v.pair_step === 'pair_not_ready')).at(-1);
+  const base = { nation: pair.second_player_nation, opponentNation: ready.player_nation, fort: { p: fort.p, q: fort.q, tile: fort.keep_tile } };
+  if (!check) return { state: 'predicted', ...base, home: { p: home.p, q: home.q, site: home.site, tile: home.tile } };
+  if (check.pair_step === 'pair_not_ready') return { state: 'not_ready', ...base, home: { p: home.p, q: home.q, site: home.site, tile: home.tile } };
+  // (ready: the runner's own re-check, every field, and it must be about the same fort and nation)
+  const t = check.target, h = check.second_home;
+  const checked = t && typeof t === 'object' && h && typeof h === 'object' && t.p === fort.p && t.q === fort.q && t.keep_tile === fort.keep_tile && t.holder === pair.second_player_nation
+    && pq(h.p) && pq(h.q) && int(h.site, 0, 255) && int(h.tile, 0, 60) && int(check.second_steps, 1, 32) && int(check.first_steps, 1, 32) && typeof check.as_predicted === 'boolean';
+  if (!checked) return { state: 'invalid' };
+  return { state: 'ready', ...base, home: { p: h.p, q: h.q, site: h.site, tile: h.tile } };
+}
 /** One call of this world's own runner's JSON-RPC (loopback, the port this launcher gave it): its result. */
 async function runnerRpc(port, method, params = []) {
   const r = await fetch(`http://127.0.0.1:${port}/`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ jsonrpc: '2.0', id: 1, method, params }), signal: AbortSignal.timeout(5000) });
@@ -443,6 +479,7 @@ export class WorldManager {
       record.expiry = world.expiry ?? null;
       record.keeper = typeof world.keeper === 'function' ? world.keeper : null;
       record.pairHerald = opts.second ? (world.pair?.second === opts.second && typeof world.pair.herald === 'string' ? world.pair.herald : null) : null;
+      record.pairView = opts.second && typeof world.pairView === 'function' ? world.pairView : null;
       if (opts.second && record.pairHerald === null) { await world.stop(); throw fault('PairNotReady', 503); }
       return { herald: world.herald, ...(opts.second ? { pair: { role: 'first', mode: CONTEST_PAIR_MODE } } : {}), ...(world.natural === true ? { natural: true } : {}), ...(world.marchTrial === true ? { marchTrial: true } : {}), ...(world.captureDemo ? { captureDemo: world.captureDemo } : {}), ...(world.prepared ? { prepared: world.prepared } : {}), ...(world.conquestWorld ? { conquestWorld: world.conquestWorld } : {}), ...(record.expiry ? { expiry: record.expiry } : {}) };
     }).catch(e => { forget(); throw e; });
@@ -458,6 +495,27 @@ export class WorldManager {
     // (the world may have ended while its lines were read — TTL, a stop, a crash: then its view is not given)
     if (this.worlds.get(wallet) !== record || record.stopping) throw fault('WorldNotFound', 404);
     return { keeper };
+  }
+  /**
+   * TEST-ONLY contest pair: the fort and the nations the two players meet over (`pairTargetSummary`), for either of the
+   * pair's own two addresses only, while its world runs; `{pair: {mode, role, target}}`. Any other address, a world
+   * that is not a pair, one still starting or ending: refused. Nothing is changed by asking.
+   */
+  async pair(wallet) {
+    if (!validWallet(wallet)) throw fault('InvalidWallet');
+    if (!this.config.contestPair) throw fault('NotAPair', 404);
+    const role = this.pairOf.has(wallet) ? 'second' : this.worlds.get(wallet)?.pairView ? 'first' : null;
+    if (role === null) throw fault('NotAPair', 404);
+    const first = role === 'second' ? this.pairOf.get(wallet) : wallet;
+    const record = this.worlds.get(first);
+    if (!record || record.stopping || !record.pairView || !record.herald) throw fault('WorldNotFound', 404);
+    const target = await record.pairView();
+    if (this.worlds.get(first) !== record || record.stopping) throw fault('WorldNotFound', 404);
+    if (!target || typeof target !== 'object') throw fault('PairTargetUnavailable', 503);
+    // (the world it is about: the page accepts the answer only if this is the herald and the end it verified at its start)
+    const herald = role === 'second' ? record.pairHerald : record.herald;
+    if (typeof herald !== 'string' || !record.expiry) throw fault('WorldNotFound', 404);
+    return { pair: { mode: CONTEST_PAIR_MODE, role, target, world: { herald, expiry: record.expiry } } };
   }
   /**
    * End one world, named by its public address. Only a world of this manager, and only this one: the others go on.
@@ -739,7 +797,9 @@ export async function startWorld(c, wallet, slot, onStop, signal, opts = {}) {
     const expiry = expiryOf(started, limit.ttlMs, instance.id);
     // (the keeper's latest line, read only when the player asks: `keeperSummary`)
     const keeper = async () => { try { return keeperSummary(await runnerLines(dir)); } catch { return null; } };
-    return { herald: `http://localhost:${herald}`, stop, expiry, keeper, ...(second !== null ? { pair: { second, herald: `http://localhost:${pairPorts.herald}` } } : {}), ...(natural ? { natural: true } : {}), ...(marchTrial ? { marchTrial: true } : {}), ...(demo !== null ? { captureDemo: { scale: demo.scale } } : {}), ...(prepared ? { prepared } : {}), ...(conquestWorld ? { conquestWorld } : {}) };
+    // (TEST-ONLY contest pair: the fort and nations the two players meet over, read only when a player asks)
+    const pairView = second !== null ? async () => { try { return pairTargetSummary(await runnerLines(dir)); } catch { return null; } } : null;
+    return { herald: `http://localhost:${herald}`, stop, expiry, keeper, ...(second !== null ? { pair: { second, herald: `http://localhost:${pairPorts.herald}` }, pairView } : {}), ...(natural ? { natural: true } : {}), ...(marchTrial ? { marchTrial: true } : {}), ...(demo !== null ? { captureDemo: { scale: demo.scale } } : {}), ...(prepared ? { prepared } : {}), ...(conquestWorld ? { conquestWorld } : {}) };
   } catch (e) { await stop(`startup-failed${e?.status && e.code ? `:${e.code}` : ''}`); throw e; }
 }
 const mime = { '.html': 'text/html', '.mjs': 'text/javascript', '.js': 'text/javascript', '.css': 'text/css', '.json': 'application/json', '.svg': 'image/svg+xml', '.png': 'image/png', '.webp': 'image/webp', '.woff2': 'font/woff2', '.ico': 'image/x-icon', '.mp3': 'audio/mpeg', '.wasm': 'application/wasm', '.txt': 'text/plain' };
@@ -754,7 +814,7 @@ export function createLauncherServer(c, manager = new WorldManager(c)) {
     try {
       if (!allowedHosts.has(req.headers.host) || !['127.0.0.1', '::ffff:127.0.0.1', '::1'].includes(req.socket.remoteAddress)) throw fault('HostDenied', 403);
       const url = new URL(req.url, `http://${req.headers.host}`);
-      if (url.pathname === '/local-play/start' || url.pathname === '/local-play/stop' || url.pathname === '/local-play/worlds' || url.pathname === '/local-play/keeper') {
+      if (url.pathname === '/local-play/start' || url.pathname === '/local-play/stop' || url.pathname === '/local-play/worlds' || url.pathname === '/local-play/keeper' || url.pathname === '/local-play/pair') {
         if (req.method !== 'POST') throw fault('MethodNotAllowed', 405);
         if (req.headers.origin !== `http://${req.headers.host}` || req.headers['content-type']?.split(';')[0].trim() !== 'application/json') throw fault('OriginDenied', 403);
         const body = (await readBody(req, 256)).toString('utf8');
@@ -766,6 +826,7 @@ export function createLauncherServer(c, manager = new WorldManager(c)) {
         }
         const wallet = parseStart(parsed);
         if (url.pathname === '/local-play/keeper') return answer(res, 200, await manager.keeper(wallet));
+        if (url.pathname === '/local-play/pair') return answer(res, 200, await manager.pair(wallet));
         return answer(res, 200, url.pathname === '/local-play/start' ? await manager.start(wallet) : await manager.stop(wallet));
       }
       if (req.method !== 'GET' && req.method !== 'HEAD') throw fault('MethodNotAllowed', 405);
