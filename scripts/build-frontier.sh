@@ -15,7 +15,9 @@
 #     PSF_TEST_BEACON_BUILD, nor PSF_CUSTODY_PREVIEW_BUILD (workstream 10,
 #     not deployable until verified), nor PSF_LOCALNET_EXPEDITION_SBF_BUILD
 #     (the isolated localnet lane, built only by
-#     build-frontier-localnet-expedition-sbf.sh), is in the file,
+#     build-frontier-localnet-expedition-sbf.sh), nor PSF_LOCALNET_NFT_SBF_BUILD
+#     (the isolated local NFT world lane, built only by
+#     build-frontier-localnet-nft-sbf.sh), is in the file,
 #   - no R_SBF_64_RELATIVE relocation of a data section carries a non-zero
 #     low word: platform-tools v1.52 writes a pointer into the middle of a
 #     static object (e.g. a switch table of `&SPECS[i]`) as `(base << 32) |
@@ -57,6 +59,7 @@ case "$feature" in
   localnet-expedition-sbf) [ "${PSF_LOCALNET_EXPEDITION_SBF_LANE:-}" = 1 ] || { echo "localnet-expedition-sbf: use scripts/build-frontier-localnet-expedition-sbf.sh" >&2; exit 2; } ;;
   # only via scripts/build-frontier-localnet-conquest-sbf.sh (it sets this)
   localnet-conquest-sbf) [ "${PSF_LOCALNET_CONQUEST_SBF_LANE:-}" = 1 ] || { echo "localnet-conquest-sbf: use scripts/build-frontier-localnet-conquest-sbf.sh" >&2; exit 2; } ;;
+  localnet-nft-sbf) [ "${PSF_LOCALNET_NFT_SBF_LANE:-}" = 1 ] || { echo "localnet-nft-sbf: use scripts/build-frontier-localnet-nft-sbf.sh" >&2; exit 2; } ;;
   *) echo "unknown feature: $feature (trace, oracle, test-beacon or custody-preview)" >&2; exit 2 ;;
 esac
 
@@ -64,7 +67,7 @@ want="solana-cargo-build-sbf 3.1.9"
 have="$(cargo-build-sbf --version | head -1)"
 [ "$have" = "$want" ] || { echo "need $want (have $have)" >&2; exit 1; }
 
-if [ "$feature" = localnet-expedition-sbf ] || [ "$feature" = localnet-conquest-sbf ]; then
+if [ "$feature" = localnet-expedition-sbf ] || [ "$feature" = localnet-conquest-sbf ] || [ "$feature" = localnet-nft-sbf ]; then
   tools="$HOME/.cache/solana/v1.52/platform-tools"
   for t in "$tools/rust/bin/rustc" "$tools/llvm/bin/clang"; do
     [ -x "$t" ] || { echo "$feature: installed platform-tools missing $t; refusing (no install or download)" >&2; exit 1; }
@@ -81,7 +84,7 @@ build() { # build <sbf-out-dir> [<cargo target dir>]
   [ -n "$feature" ] && args+=(--features "$feature")
   # The isolated localnet lane never downloads anything: installed
   # platform-tools only (checked before any build) and no network.
-  case "$feature" in localnet-expedition-sbf|localnet-conquest-sbf) args+=(--offline --skip-tools-install) ;; esac
+  case "$feature" in localnet-expedition-sbf|localnet-conquest-sbf|localnet-nft-sbf) args+=(--offline --skip-tools-install) ;; esac
   if [ -n "$tgt" ]; then
     CARGO_TARGET_DIR="$tgt" cargo-build-sbf "${args[@]}" -- --locked
   else
@@ -121,10 +124,10 @@ check() { # check <so>: the refusals; exit 3 on any
     bad=1
   fi
   local m want_m
-  for m in PSF_ORACLE_BUILD PSF_TRACE_BUILD PSF_TEST_BEACON_BUILD PSF_CUSTODY_PREVIEW_BUILD PSF_LOCALNET_EXPEDITION_SBF_BUILD PSF_LOCALNET_CONQUEST_SBF_BUILD; do
+  for m in PSF_ORACLE_BUILD PSF_TRACE_BUILD PSF_TEST_BEACON_BUILD PSF_CUSTODY_PREVIEW_BUILD PSF_LOCALNET_EXPEDITION_SBF_BUILD PSF_LOCALNET_CONQUEST_SBF_BUILD PSF_LOCALNET_NFT_SBF_BUILD; do
     want_m=0
     case "$feature:$m" in
-      oracle:PSF_ORACLE_BUILD|trace:PSF_TRACE_BUILD|test-beacon:PSF_TEST_BEACON_BUILD|custody-preview:PSF_CUSTODY_PREVIEW_BUILD|localnet-expedition-sbf:PSF_LOCALNET_EXPEDITION_SBF_BUILD|localnet-conquest-sbf:PSF_LOCALNET_EXPEDITION_SBF_BUILD|localnet-conquest-sbf:PSF_LOCALNET_CONQUEST_SBF_BUILD) want_m=1 ;;
+      oracle:PSF_ORACLE_BUILD|trace:PSF_TRACE_BUILD|test-beacon:PSF_TEST_BEACON_BUILD|custody-preview:PSF_CUSTODY_PREVIEW_BUILD|localnet-expedition-sbf:PSF_LOCALNET_EXPEDITION_SBF_BUILD|localnet-conquest-sbf:PSF_LOCALNET_EXPEDITION_SBF_BUILD|localnet-conquest-sbf:PSF_LOCALNET_CONQUEST_SBF_BUILD|localnet-nft-sbf:PSF_LOCALNET_NFT_SBF_BUILD|localnet-nft-sbf:PSF_TEST_BEACON_BUILD) want_m=1 ;;
     esac
     local n; n="$(count "$m" "$so")"
     if [ "$want_m" = 1 ] && [ "$n" -eq 0 ]; then echo "$so: marker $m missing from a --features $feature build" >&2; bad=1; fi
