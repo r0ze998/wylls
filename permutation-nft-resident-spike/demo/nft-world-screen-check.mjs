@@ -62,6 +62,19 @@ async function connectDevWallet(page, name) {
   if (await btn.count()) { await btn.first().click(); step(`${name}: connected the Dev Wallet`); }
 }
 
+/** Harvest from the village screen (a player instruction; for an NFT, inside ResidentAct). Returns the page's answer. */
+async function harvest(page, name, { waitEnabledMs = 180_000 } = {}) {
+  await page.locator('[data-act="tab"]', { hasText: 'Village' }).first().click();
+  const btn = page.locator('[data-act="harvest"]').first();
+  await btn.waitFor({ state: 'visible', timeout: 30_000 });
+  const t0 = Date.now();
+  while (await btn.isDisabled() && Date.now() - t0 < waitEnabledMs) await page.waitForTimeout(3_000);
+  if (await btn.isDisabled()) { await shot(page, `${name}-harvest-disabled`); throw new Error(`${name}: Harvest stayed disabled for ${waitEnabledMs / 1000} s`); }
+  await btn.click();
+  await page.waitForFunction(() => /Harvest written into the stores|This resident NFT is not in this wallet now|ResidentHolderChanged|ResidentGenerationStale|holder could not be confirmed|refus/i.test(document.body.innerText), null, { timeout: 120_000 });
+  return page.evaluate(() => document.body.innerText);
+}
+
 let failed = null;
 try {
   // 1. A without a pass: the link to the mint page.
@@ -117,6 +130,11 @@ try {
   const st = await rpc.confirm(await rpc.send(tx.wire));
   if (!st || st.err) throw new Error(`TransferResident failed: ${JSON.stringify(st?.err)}`);
   step('5 TransferResident A→B');
+  // 5a. A's page, still open as the NFT's player from before the transfer, acts: refused before anything is signed.
+  const aText = await harvest(a, '5a-a-acts');
+  await shot(a, '5a-a-refused');
+  if (!/This resident NFT is not in this wallet now/.test(aText)) throw new Error('A was not shown the refusal after the transfer');
+  step('5a A (stale page) acts: refused on screen', 'This resident NFT is not in this wallet now.');
   await a.reload();
   await connectDevWallet(a, 'A');
   await waitText(a, /This wallet holds no resident NFT|Enter with a resident NFT/, 60_000, '5-a-after');
@@ -128,6 +146,15 @@ try {
   await b.locator('[data-act="nft-login"]').first().click();
   await waitText(b, /Playing as an NFT/, 60_000, '5-b-plays');
   await shot(b, '5-b-plays'); step('5 B plays the same Citizen');
+  // 6. B changes state from the screen: a harvest (ResidentAct signed by B's wallet at the new generation).
+  const bText = await harvest(b, '6-b-acts');
+  await shot(b, '6-b-acted');
+  if (!/Harvest written into the stores/.test(bText)) throw new Error('B\'s harvest did not go through');
+  step('6 B harvested (state changed by the new owner)');
+  // 7. B's drawer shows no nation choice once its Citizen has answered.
+  await b.waitForTimeout(3_000);
+  if (/Choose a nation to begin/.test(await text(b))) { await shot(b, '7-b-nation-choice'); throw new Error('B still sees the nation choice'); }
+  step('7 B: no nation choice beside its village');
 } catch (e) {
   failed = e.message;
   step('FAILED', e.message);
