@@ -38,13 +38,13 @@ GAME.searchParams.set('localPlay', '1'); GAME.searchParams.set('launcher', '1');
 const MINT = loopbackRpc(arg('--mint', 'http://127.0.0.1:41995/web/mint.html'));
 const RPC = loopbackRpc(arg('--rpc', 'http://127.0.0.1:41980'));
 const HERALD = loopbackRpc(arg('--herald', 'http://127.0.0.1:41982'));
-const STAGES = new Set(arg('--stages', 'start,mint,transfer,join').split(','));
+const STAGES = new Set(arg('--stages', 'start,mint,transfer,join,home,build').split(','));
 const CANDIDATE = base58(new Uint8Array(32).fill(0x4c));
 mkdirSync(OUT, { recursive: true });
 
 const pw = loadPlaywright();
 if (!pw) { console.error('no playwright: (cd permutation-gateway/screens && npm ci)'); process.exit(2); }
-const log = [], summary = { candidate: CANDIDATE, stages: {}, notDone: ['build/train/muster as the NFT (0xE2)', 'march / territory (0xDD)', 'pass sold away from B: old owner refused / new owner acts'] };
+const log = [], summary = { candidate: CANDIDATE, stages: {}, notDone: ['train/muster as the NFT (0xE2)', 'march / territory (0xDD)', 'pass sold away from B: old owner refused / new owner acts'] };
 const step = (name, detail = '') => { const line = `${new Date().toISOString().slice(11, 19)} ${name}${detail ? ` — ${detail}` : ''}`; log.push(line); console.log(line); };
 const shot = async (page, name) => { await page.screenshot({ path: path.join(OUT, `${name}.png`), fullPage: true }).catch(() => {}); };
 const text = page => page.evaluate(() => document.body.innerText);
@@ -78,9 +78,22 @@ async function chainOf(asset, residentProgram) {
   const rec = await rpc.account(pdas(residentProgram).resident(asset)).catch(() => null);
   const citizenAt = residentCitizen(seasonAddresses(CANDIDATE, '11'), asset);
   const c = await rpc.account(citizenAt);
-  return { owner: owned ? base58(owned.owner) : null, generation: rec ? decodeResidentAccount(rec.data)?.generation ?? null : null,
+  return { owner: owned ? base58(owned.owner) : null, generation: rec ? decodeResidentAccount(rec.data)?.gen ?? null : null,
     citizen: citizenAt, citizenExists: !!c, citizenProgram: c?.owner ?? null, mark: c ? citizenMark(Uint8Array.from(c.data)) : null };
 }
+
+/** Every transaction naming `addr` (oldest first): signature, slot, ok, signers, each instruction's program and tag. */
+async function txsOf(addr) {
+  const out = [];
+  for (const s of (await rpc.call('getSignaturesForAddress', [addr, { limit: 50 }])).reverse()) {
+    const t = await rpc.call('getTransaction', [s.signature, { encoding: 'json', maxSupportedTransactionVersion: 0, commitment: 'confirmed' }]);
+    const m = t?.transaction?.message, keys = m?.accountKeys ?? [];
+    out.push({ signature: s.signature, slot: s.slot, ok: t?.meta?.err === null, signers: keys.slice(0, m?.header?.numRequiredSignatures ?? 0),
+      ixs: (m?.instructions ?? []).map(ix => ({ program: keys[ix.programIdIndex], tag: Buffer.from(base58Decode(ix.data)).subarray(0, 1).toString('hex') })) });
+  }
+  return out;
+}
+const base58Decode = s => { const A = '123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz'; let n = 0n; for (const c of s) n = n * 58n + BigInt(A.indexOf(c)); const b = []; while (n > 0n) { b.unshift(Number(n & 255n)); n >>= 8n; } for (const c of s) { if (c !== '1') break; b.unshift(0); } return Uint8Array.from(b); };
 
 const browser = await pw.chromium.launch();
 let failed = null, B = null, asset = null, residentProgram = null;
@@ -175,9 +188,38 @@ try {
     await shot(g, '3-joined'); step('join: the NFT\'s Citizen exists on the chain with this asset\'s mark; the page plays as the NFT', c3.citizen);
     summary.stages.join = { ok: true, chain: c3 };
   }
+
+  // home: the NFT's own first village (PlaceHome inside ResidentAct 0xE2, B's wallet signing, through the world relay)
+  if (STAGES.has('home')) {
+    const homeBtn = g.locator('[data-act="home-confirm"]');
+    await homeBtn.first().waitFor({ state: 'visible', timeout: 180_000 });
+    await shot(g, '4-home-choice');
+    await humanPress(g, '[data-act="home-confirm"]');
+    await g.waitForFunction(() => !document.querySelector('[data-act="home-confirm"]'), null, { timeout: 240_000 });
+    const c4 = await chainOf(asset, residentProgram);
+    const holdings = await rpc.call('getProgramAccounts', [CANDIDATE, { encoding: 'base64', filters: [{ memcmp: { offset: 0, bytes: base58(Buffer.from('PSF1HOLD')) } }, { memcmp: { offset: 72, bytes: c4.citizen } }] }]);
+    if (!Array.isArray(holdings) || holdings.length < 1) throw new Error('after the home press no village of the NFT Citizen is on the chain');
+    await shot(g, '4-home'); step('home: the NFT Citizen holds its first village on the chain (PlaceHome in 0xE2)', holdings[0].pubkey);
+    summary.stages.home = { ok: true, village: holdings[0].pubkey, owner: c4.owner, generation: c4.generation };
+  }
+
+  // build: one building order from the village screen, as the NFT (Build inside 0xE2)
+  if (STAGES.has('build')) {
+    await g.locator('#tabs [data-tab="holding"]').waitFor({ state: 'visible', timeout: 60_000 });
+    if (!(await g.locator('#tabs [data-tab="holding"][aria-current="page"]').count())) await humanPress(g, '#tabs [data-tab="holding"]');
+    const goSel = '[data-act="build"][data-item].br-go:not([disabled])';
+    await g.locator(goSel).first().waitFor({ state: 'visible', timeout: 180_000 });
+    await humanPress(g, goSel);
+    await g.waitForFunction(() => /Built|Building|in the queue|construction|refus|not in this wallet/i.test(document.body.innerText), null, { timeout: 120_000 });
+    await shot(g, '5-build'); step('build: the Build order was answered on screen (signature in the chain evidence)');
+    summary.stages.build = { ok: true };
+  }
 } catch (e) {
   failed = e.message; step('FAILED', e.message);
 } finally {
+  if (asset) {
+    try { summary.chainEvidence = { asset: await txsOf(asset), citizen: await txsOf(residentCitizen(seasonAddresses(CANDIDATE, '11'), asset)) }; } catch (e) { summary.chainEvidenceError = e.message; }
+  }
   summary.failed = failed; summary.log = log;
   writeFileSync(path.join(OUT, 'summary.json'), `${JSON.stringify(summary, null, 2)}\n`);
   writeFileSync(path.join(OUT, 'steps.log'), `${log.join('\n')}\n`);
