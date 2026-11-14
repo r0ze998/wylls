@@ -104,7 +104,9 @@ test('round 16: the fort row stays where it is when the settling wait line comes
     const after = await rowBox(page);
     writeFileSync(path.join(OUT, `${name}.json`), `${JSON.stringify({ before, during, after, gone }, null, 2)}\n`);
     assert.equal(during.y, before.y, `the row did not move when the line came (${before.y} → ${during.y})`);
-    if (gone) assert.equal(after.y, before.y, `nor when it went (${before.y} → ${after.y})`);
+    // both ways are required: the wait must really go again, and the row must be where it was
+    assert.equal(gone, true, 'the settling line went again once the province was in step');
+    assert.equal(after.y, before.y, `nor when it went (${before.y} → ${after.y})`);
   } catch (e) { await failed(page, name, e); }
 });
 
