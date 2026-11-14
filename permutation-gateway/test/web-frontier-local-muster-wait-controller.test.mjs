@@ -14,6 +14,7 @@ import * as io from '../../permutation-server/web/frontier/fchainio.mjs';
 import { FS } from '../../permutation-server/web/frontier/fstate.mjs';
 import { createEphemeralWallet, currentEphemeralWallet } from '../../permutation-server/web/frontier/fephemeral-wallet.mjs';
 import { baseProduction } from '../../permutation-server/web/frontier/fland.mjs';
+import { hostId } from '../../permutation-server/web/frontier/faddr.mjs';
 
 const PROGRAM = 'SysvarC1ock11111111111111111111111111111111';
 const RELAY = 'http://127.0.0.1:41987';
@@ -145,4 +146,24 @@ test('round 27: the real controller gives the bar a per-host march answer, compu
   assert.ok(r && typeof r.open === 'boolean' && typeof r.reason === 'string', JSON.stringify(r));
   // this test page has no march capability: closed for any host, as the send would be — and the page-wide answer agrees
   assert.equal(r.open, false); assert.equal(FS.localMarch?.open, false);
+});
+
+test('round 28: in local play a march on a keep is refused before any order is drafted when the host\'s own march answer is closed', async () => {
+  const H1 = String(hostId({ p: 2, q: 0, site: 2, gen: 0, seq: 1 }));
+  scene(); FS.compose = null;
+  FS.conquest = { status: 'ready', keeps: new Map(), history: new Map(), standings: null, final: null, events: [] };
+  FS.season = { ...FS.season, programVersion: 3 };
+  FS.provinces.get('2,0').province = { ...FS.provinces.get('2,0').province, entries: [{ id: H1, unit: 0, state: 1, tile: 20, troops: 300000, staminaValue: 120, staminaBell: 10, readyBell: 10, pendOp: 0, fromBell: 10 }] };
+  sends = [];
+  await C.ACTIONS['cq-march']({ host: H1, p: '4', q: '-1', tile: '18' }).catch(() => {});
+  assert.equal(FS.compose, null, 'no order drafted');
+  assert.equal(FS.notice?.code, 'LocalPlayReadOnly', 'the refusal is said');
+  assert.deepEqual(sends, []);
+  // a host of ANOTHER village, refused: the village is not switched (a refusal leaves the page as it was)
+  const H2 = String(hostId({ p: 2, q: 0, site: 5, gen: 0, seq: 1 }));
+  FS.holdings = [HOME(), { ...HOME(), site: 5, tile: 33 }]; FS.activeHolding = 0; FS.notice = null;
+  FS.provinces.get('2,0').province = { ...FS.provinces.get('2,0').province, entries: [{ id: H2, unit: 0, state: 1, tile: 33, troops: 300000, staminaValue: 120, staminaBell: 10, readyBell: 10, pendOp: 0, fromBell: 10 }] };
+  await C.ACTIONS['cq-march']({ host: H2, p: '4', q: '-1', tile: '18' }).catch(() => {});
+  assert.equal(FS.activeHolding, 0, 'not switched on a refusal');
+  assert.equal(FS.compose, null); assert.equal(FS.notice?.code, 'LocalPlayReadOnly'); assert.deepEqual(sends, []);
 });

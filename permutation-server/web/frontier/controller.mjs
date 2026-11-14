@@ -2369,6 +2369,13 @@ export const ACTIONS = {
     say: () => (num(d.yes) ? L`賛成に投票しました` : L`反対に投票しました`) }),
   'cq-march': async d => {
     if (FS.inFlight || !conquestEnabled(FS.season)) return;
+    // (round 28: a host of another village is composed from its own village — as the map tap and 「村へ戻す」 already do —
+    //  instead of being silently not found; in local play its own march answer is asked first, as its send will ask it,
+    //  and a refusal is said before any order is drafted — and before the village is switched, so a refusal leaves the
+    //  page as it was. The order still fixes its village; the send still checks it.)
+    const hi = holdingIndexOfHost(d.host);
+    if (localPlay && localMarchFor(hi !== null ? FS.holdings[hi] : activeHolding(FS), d.host)?.open !== true) return failed(localPlayReadOnly());
+    if (hi !== null && hi !== (FS.activeHolding ?? 0)) { FS.activeHolding = hi; invalidate('rail'); }
     if (!ACTIONS.compose({host:d.host,stay:'map'})) return;
     FS.tab = 'map'; FS.compose.stance = FS.conquest?.keeps.get(`${d.p},${d.q}`)?.holder === FS.citizen?.faction ? 0 : 1;
     await setDestination({p:num(d.p),q:num(d.q),tile:num(d.tile)});
@@ -2726,6 +2733,15 @@ export function bind(name, value) {
   invalidate('panel');
 }
 
+/** (round 28) The index of the viewer's village whose province records hold host `id`, or null. */
+function holdingIndexOfHost(id) {
+  const hs = FS.holdings ?? [];
+  for (let i = 0; i < hs.length; i++) {
+    if (!hs[i]) continue;
+    for (const env of FS.provinces.values()) if (hostsIn(env.province, hs[i], nowBell()).some(x => String(x.id) === String(id))) return i;
+  }
+  return null;
+}
 function hostRow(id) {
   const h = activeHolding(FS);
   if (!h) return null;

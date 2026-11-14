@@ -12,6 +12,7 @@ import { baseProduction } from '../../permutation-server/web/frontier/fland.mjs'
 import { handModel, renderHand, renderPop } from '../../permutation-server/web/frontier/hud/hand.mjs';
 import { LOCAL_ACT_NAMES, localOrderRoute } from '../../permutation-server/web/frontier/flocalplay-act.mjs';
 import { SCOUT } from '../../permutation-server/web/frontier/fland.mjs';
+import * as M from '../../permutation-server/web/frontier/flocalplay-march.mjs';
 const UNIT_SCOUT = () => SCOUT;
 
 afterEach(() => setLang('ja'));
@@ -85,8 +86,9 @@ test('round 26: a march (March, its return home, a march on a keep) is refused o
     // (more than one button refused for one reason: the bar says it once, on its own line, as it does for any shared reason)
     assert.ok(out.includes(`<p class="hand-note hand-note-why">${say}</p>`), 'said once on the bar');
   }
-  // (the keeps button follows the page-wide gate: a march on a keep is composed for the active village — round 27)
-  assert.match(readFileSync(new URL('../../permutation-server/web/frontier/hud/hand.mjs', import.meta.url), 'utf8'), /why: r\.inTransit \? mc\.text : mLocalPage \? localReadOnlyText\(\) : null, tone: waitOf\(FS, r\)/);
+  // (the keeps button follows this host's own march answer, as March does: a march on a keep is now composed from the
+  //  host's own village — round 28; it followed the page-wide answer in round 27)
+  assert.match(readFileSync(new URL('../../permutation-server/web/frontier/hud/hand.mjs', import.meta.url), 'utf8'), /why: r\.inTransit \? mc\.text : mLocal \? localReadOnlyText\(\) : null, tone: waitOf\(FS, r\)/);
   const open = handModel(state({ localPlay: LOCAL, marchOpen: true }));
   assert.equal(open.buttons.find(b => b.id === 'march').why, null, 'the march trial open: March as before');
   // an ordinary session: no local-play reason anywhere
@@ -136,4 +138,34 @@ test('round 27: no local-play reason is clipped inside a button; the bar says it
   const c = readFileSync(new URL('../../permutation-server/web/frontier/controller.mjs', import.meta.url), 'utf8');
   assert.match(c, /function localMarchView\(\) \{\n  if \(!localPlay\) return null;\n  const h = FS\.compose\?\.holding \? holdingByRef\(FS\.holdings, FS\.compose\.holding\) : activeHolding\(FS\);\n  return localMarchFor\(h, FS\.compose\?\.host\?\.id \?\? null\);\n\}/);
   assert.match(c, /Object\.defineProperty\(FS, 'localMarchFor', \{ configurable: true, enumerable: false, value: \(holding, hostId\) => localMarchFor\(holding \? holdingByRef\(FS\.holdings, holding\) : null, hostId\) \}\);/);
+});
+
+test('round 27, end to end with the real gate and the real sender: the bar refuses March for the host whose own march is held, not for another', () => {
+  setLang('en');
+  const say = 'In local play, this order cannot be sent yet (read only).';
+  const WALLET = 'BbPGAbHDvV5U43zQ5E8FmSnEzZ7r2vwWAZWTNAPTTSUT', ORIGIN = 'http://localhost:41926', INST = 'ab'.repeat(32), gate = { ok: true, relay: ORIGIN };
+  const sender = M.createLocalMarchSender({ allowed: () => gate, open: () => true, identity: () => null, rulesetHash: () => null, signer: () => null });
+  const marchFor = (holding, hostId) => M.localMarchOpen({ capability: { wallet: WALLET, instance: INST, trial: true, relay: ORIGIN }, wallet: WALLET, instance: INST, gate,
+    holding: holding ? { p: holding.p, q: holding.q, site: holding.site } : null, held: sender.held(hostId ?? null), trialEntry: true });
+  const s0 = state({ localPlay: LOCAL, marchOpen: false, marchFor }), host = s0.hand.host;
+  // nothing held: this host's March is open (the page-wide answer, closed here, is not what decides it)
+  assert.equal(handModel(s0).buttons.find(b => b.id === 'march').why, null);
+  // this host's own sent march is held (outcome unknown): refused, as its send would refuse it
+  sender.storage.set(sender.bookKey, JSON.stringify([{ host, state: 'sent', signature: 'sigA' }]));
+  assert.equal(handModel(state({ localPlay: LOCAL, marchOpen: false, marchFor })).buttons.find(b => b.id === 'march').why, say);
+  // another host's held march does not refuse this one
+  sender.storage.set(sender.bookKey, JSON.stringify([{ host: '999', state: 'sent', signature: 'sigB' }]));
+  assert.equal(handModel(state({ localPlay: LOCAL, marchOpen: false, marchFor })).buttons.find(b => b.id === 'march').why, null);
+});
+
+test('round 28: the keeps button asks the same per-host answer as March (a march on a keep is composed from the host\'s own village)', () => {
+  setLang('en');
+  const say = 'In local play, this order cannot be sent yet (read only).';
+  const keeps = s => handModel(s).buttons.find(b => b.id === 'keeps');
+  // (only where the state offers the button at all; the model's own condition decides that)
+  const k0 = keeps(state({ localPlay: LOCAL, marchOpen: false, marchFor: () => ({ open: true }) }));
+  assert.ok(k0, 'the keeps button is offered in this state');
+  assert.equal(k0.why, null, 'page-wide closed, this host open: not refused');
+  assert.equal(keeps(state({ localPlay: LOCAL, marchOpen: true, marchFor: () => ({ open: false }) })).why, say, 'page-wide open, this host closed: refused');
+  assert.notEqual(keeps(state({})).why, say, 'an ordinary session: not this reason');
 });
