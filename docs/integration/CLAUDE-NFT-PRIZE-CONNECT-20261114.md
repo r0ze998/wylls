@@ -281,3 +281,32 @@ the independent commit if either objects:
 (2) **Status of the 0x111 registration: NOT DONE (candidate).**
 registry.rs has not been compiled or run; this stays the wording until
 `cargo test --locked --test registry` in e2e-native actually runs (重build待ち).
+
+### 7.9 Prize callouts: heading and explanation apart (2026-11-15)
+
+`39615ef8`. The run-together text recorded in 7.4 ("25 test USDCClaimed by
+wallet…") is fixed **inside `screens/prize.mjs` only**, with no stylesheet
+edit. Canonical `b2802d8b` has no change to this file since `0ebfe040`;
+only this prize lane has. So no other owner was asked, and no shared file
+was written (no main handoff needed).
+
+- Finding: the real page also loads `conquest-hand.css`, where `.pz-est`
+  callouts are a wrapping flex row, so they were already apart. Only the four
+  plain `.callout` ones ran together: own claim, previous owner's claim,
+  the pending previous-owner notice, "The result is confirmed…".
+- Fix: `<br>` between the bold heading and the explanation in those four
+  (valid inside the same `<p>`; one note for screen readers). `.pz-est`
+  unchanged.
+- The browser fixture now loads `frontier/index.html`'s own stylesheet
+  list, in its order, instead of `base.css` + `frontier.css`, so it looks
+  as the page does.
+
+Checks: pure test 9 (ja/en markup, readable text has a line end, `.pz-est`
+untouched, still no claim button); Chromium: every callout's heading box
+sits above its explanation (plain) or apart (`.pz-est`), for each case;
+**negative control**: the same browser test fails on the old markup
+(earlierGeneration). Images before/after looked at (scratchpad, not
+committed). Pure prize + card 28/28; related suite 56/64 with the same 8
+failures as baseline; key scan unchanged; SDK copy current;
+`git diff --check` pass. Refusals, English UI, generation and double-claim
+guards unchanged.
