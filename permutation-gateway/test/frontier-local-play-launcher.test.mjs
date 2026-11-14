@@ -4,7 +4,7 @@ import http from 'node:http';
 import { once } from 'node:events';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import path from 'node:path';
-import { validWallet, parseStart, WorldManager, createLauncherServer, WORLD_TTL_MS, WORLD_EXPIRY_SCHEMA } from '../src/frontier/local-play-launcher.mjs';
+import { validWallet, parseStart, WorldManager, createLauncherServer, WORLD_TTL_MS, WORLD_EXPIRY_SCHEMA, CANDIDATE_PROGRAM, candidateMetaAgrees } from '../src/frontier/local-play-launcher.mjs';
 // A world's automatic end (2026-11-13 contract): exactly these keys, fixed once at the world's TTL origin with this
 // launcher's TTL, `expiresAt == startedAt + ttlMs`, bound to the runner's instance (these stand-in runners state none:
 // null). Not loosened: every field is checked.
@@ -396,7 +396,7 @@ if (PRESET && MODE === 'refuses-preset') { console.error('localnet-expedition-pl
 const CONQUEST = PRESET || MODE === 'claims-preset', RULE = CONQUEST && MODE !== 'no-free-city-rule' ? 2 : 1;
 const statement = () => ({ schema: 'frontier-local-play-conquest-capability-v1', artifact_sha256: arg('--artifact-sha256'),
   markers: MODE === 'one-marker-statement' ? ['PSF_LOCALNET_EXPEDITION_SBF_BUILD'] : ['PSF_LOCALNET_EXPEDITION_SBF_BUILD', 'PSF_LOCALNET_CONQUEST_SBF_BUILD'],
-  program: '5fQPsn8hoaVddFG26cWQ5QFdqxWtUPNaZ9zH2E6LYzFn', season: ${JSON.stringify(SEASON)}, rpc: 'http://127.0.0.1:' + (Number(arg('--rpc-port')) + (MODE === 'other-rpc' ? 1 : 0)), world_preset: 'local-conquest-test-v1',
+  program: process.argv.includes('--lane-candidate') ? '68qTstPmwfaDbt1a9hnq7XeyZ4zJBqBKU1esRtQXnKWj' : '5fQPsn8hoaVddFG26cWQ5QFdqxWtUPNaZ9zH2E6LYzFn', season: ${JSON.stringify(SEASON)}, rpc: 'http://127.0.0.1:' + (Number(arg('--rpc-port')) + (MODE === 'other-rpc' ? 1 : 0)), world_preset: 'local-conquest-test-v1',
   free_city: { p: MODE === 'city-elsewhere' ? '130' : '129', q: '0', site: 3, tile: 43 }, free_city_count: 1,
   evidence: { consume_ring_seed: 'stand-in-a', set_rules: 'stand-in-b', open_province: 'stand-in-c', province_sha256_at_open: '11'.repeat(32), rules_config_sha256: '22'.repeat(32), province_sha256_read: '11'.repeat(32), read_slot: 9 },
   not_claimed: 'a stand-in: nothing of a chain' });
@@ -406,7 +406,14 @@ const state = () => { if (!CONQUEST || MODE === 'no-statement') return;
   say({ schema: 'frontier-localnet-expedition-play-v1', conquest_world: statement() });
   if (MODE === 'two-statements') say({ schema: 'frontier-localnet-expedition-play-v1', conquest_world: { ...statement(), free_city: { p: '129', q: '0', site: 4, tile: 44 } } }); };
 let gameMs = T0 * 1000, slot = 7, scale = 1, pending = null, opened = false;
-say({ program: ${JSON.stringify(mode === 'other-program' ? SEASON : '5fQPsn8hoaVddFG26cWQ5QFdqxWtUPNaZ9zH2E6LYzFn')}, rpc_url: 'http://127.0.0.1:' + arg('--rpc-port'), season: ${JSON.stringify(SEASON)}, season_id: 11,
+// (the LOCAL TEST CANDIDATE: asked with --lane-candidate, the stand-in says what the runner's candidate contract says —
+//  the candidate id and version, Core and the resident program, and a throwaway seed file in the directory it was given)
+const CAND = process.argv.includes('--lane-candidate'), CAND_PROGRAM = '68qTstPmwfaDbt1a9hnq7XeyZ4zJBqBKU1esRtQXnKWj';
+const seedFile = CAND || MODE === 'plain-mentions-candidate' ? (MODE === 'seed-outside' ? '/tmp/elsewhere.seed' : path.join(arg('--authority-seed-dir') ?? __dirname, 'candidate-authority.seed')) : null;
+if (CAND && MODE !== 'seed-outside') fs.writeFileSync(seedFile, '00'.repeat(32) + '\\n', { mode: 0o600 });
+const candidateKeys = CAND || MODE === 'plain-mentions-candidate' ? { lane_candidate: 'localnet-conquest-nft-sbf', program_version: MODE === 'candidate-other-version' ? 18436 : 51204,
+  resident_program: '68TBCtDEfvunEQYEb4cZSBnkPWnu2h6XuvSTmLctZyv5', core_program: 'CoREENxT6tW1HoK8ypY1SxRMZTcVPm7R94rH4PZNhX7d', authority_seed_file: seedFile } : {};
+say({ ...candidateKeys, program: ${JSON.stringify(mode === 'other-program' ? SEASON : '5fQPsn8hoaVddFG26cWQ5QFdqxWtUPNaZ9zH2E6LYzFn')}.replace('5fQPsn8hoaVddFG26cWQ5QFdqxWtUPNaZ9zH2E6LYzFn', CAND && MODE !== 'candidate-plain-program' ? CAND_PROGRAM : '5fQPsn8hoaVddFG26cWQ5QFdqxWtUPNaZ9zH2E6LYzFn'), rpc_url: 'http://127.0.0.1:' + arg('--rpc-port'), season: ${JSON.stringify(SEASON)}, season_id: 11,
   player_wallet: ${mode === 'other-wallet' ? JSON.stringify(SEASON) : `arg('--player-wallet')`}, artifact: { sha256: ${mode === 'other-artifact' ? JSON.stringify('00'.repeat(32)) : `arg('--artifact-sha256')`} }, bell_secs: 600,
   ${mode === 'no-time-control' ? '' : `time_control_rpc: ['frontier_pause', 'frontier_resume', 'frontier_setScale', 'frontier_hold', 'frontier_release'],`}
   wide_destination: { mode: 'public-quicknet', dest: [129, 0], t_open: T0 }, args: process.argv.slice(2) });
@@ -1017,4 +1024,65 @@ test('the command line: fixed keys, absolute paths, ports inside 41000-41999 and
   for (const extra of [['--prepare-chain-max', '99999'], ['--prepare', 'accelerated'], ['--scale', '30'], ['--prepare-settle', '1'], ['--conquest-capability', '/x'], ['--free-city', '129,0,3,43'], ['--heap-confirmed', '1'], ['--markers', 'x']]) await refused([...argv(base), ...extra], 'InvalidArguments');
   for (const extra of [['--command', 'x'], ['--exec', '/bin/sh'], ['--shell', '1'], ['--host', '0.0.0.0'], ['--listen', '0.0.0.0:41920'], ['--guard', '{}'], ['--key', 'x'], ['runner', '/x'], ['--port']]) await refused([...argv(base), ...extra], 'InvalidArguments');
   await refused([...argv(base), '--port', '41921', '--port', '41922'], 'InvalidArguments');
+});
+
+// ---- the LOCAL TEST CANDIDATE lane (localnet-conquest-nft-sbf; not an allocation): opt-in, exact id and version, the NFT
+//      pass's setup once and its mint page stopped with the world; without the option nothing changes
+async function candidateStandIns(t, options = {}) {
+  const x = await conquestStandIns(t, options);
+  const script = async (name, source) => { const f = path.join(x.tmp, 'bin', name); await fsp.writeFile(f, source); return f; };
+  const setupMode = options.setup ?? 'ok';
+  const nftSetup = await script('nft-setup.mjs', `import fs from 'node:fs'; fs.writeFileSync(${JSON.stringify(path.join(x.tmp, 'setup-args.json'))}, JSON.stringify(process.argv.slice(2))); process.exit(${setupMode === 'fails' ? 1 : 0});\n`);
+  const mintPort = x.c.worldPort + WORLD_LIMIT * 5 + 1;
+  const mint = await script('mint.mjs', `import http from 'node:http'; process.on('SIGINT', () => process.exit(0)); const a = k => process.argv[process.argv.indexOf(k) + 1];
+http.createServer((q, r) => { r.writeHead(${options.mint === 'not-ready' ? 503 : 200}, { 'content-type': 'application/json' }); r.end(JSON.stringify({ program: a('--program'), rpc: a('--rpc') })); }).listen(Number(a('--port')), '127.0.0.1');\n`);
+  Object.assign(x.c, { laneCandidate: 'localnet-conquest-nft-sbf', residentSo: '/abs/resident.so', coreSo: '/abs/core.so', nftSetup, mint, mintPort, guard: { ...x.c.guard, nftSetupMs: 5000, mintReadyMs: 3000 } });
+  return x;
+}
+
+test('candidate: the runner is asked for it; exact id and version; the setup once with the runner\'s own facts; the mint page is a child of the world and stops with it', { timeout: 120000 }, async t => {
+  const { c, tmp } = await candidateStandIns(t);
+  const w = await startWorld(c, wallet, 0, () => {}); const dir = await worldDir(c), meta = await json(path.join(dir, 'metadata.json'));
+  assert.deepEqual(meta.args.slice(meta.args.indexOf('--lane-candidate')), ['--lane-candidate', 'localnet-conquest-nft-sbf', '--resident-so', '/abs/resident.so', '--core-so', '/abs/core.so', '--authority-seed-dir', dir]);
+  assert.equal(meta.program, CANDIDATE_PROGRAM); assert.equal(meta.program_version, 0xc804);
+  assert.deepEqual(await json(path.join(tmp, 'setup-args.json')), ['--rpc', meta.rpc_url, '--frontier', CANDIDATE_PROGRAM, '--resident', meta.resident_program, '--authority-seed-file', path.join(dir, 'candidate-authority.seed'), '--test-sale']);
+  const r = await fetch(`http://127.0.0.1:${c.mintPort}/mint/config`); assert.equal(r.status, 200); assert.deepEqual(await r.json(), { program: meta.resident_program, rpc: meta.rpc_url });
+  assert.ok((await json(path.join(dir, 'processes.json'))).ports.includes(c.mintPort));
+  await w.stop('requested');
+  await assert.rejects(fetch(`http://127.0.0.1:${c.mintPort}/mint/config`, { signal: AbortSignal.timeout(1000) }), 'the mint page stopped with the world');
+});
+
+test('candidate refusals: another id, another version, a seed outside the world, a setup that fails, a mint page that never answers; a plain start refuses a runner that mentions a candidate', { timeout: 180000 }, async t => {
+  for (const [mode, code] of [['candidate-plain-program', 'RunnerNotReady'], ['candidate-other-version', 'RunnerNotReady'], ['seed-outside', 'RunnerNotReady']]) {
+    const { c } = await candidateStandIns(t, { mode });
+    await assert.rejects(startWorld(c, wallet, 0, () => {}), e => e.code === code, mode);
+  }
+  const failing = await candidateStandIns(t, { setup: 'fails' });
+  await assert.rejects(startWorld(failing.c, wallet, 0, () => {}), e => e.code === 'nft-setup-failed');
+  const deaf = await candidateStandIns(t, { mint: 'not-ready' });
+  await assert.rejects(startWorld(deaf.c, wallet, 0, () => {}), e => e.code === 'MintNotReady');
+  // without the option: a runner that mentions a candidate is not taken
+  const plain = await conquestStandIns(t, { mode: 'plain-mentions-candidate' });
+  await assert.rejects(startWorld(plain.c, wallet, 0, () => {}), e => e.code === 'RunnerNotReady');
+  // the candidate only on the conquest preset's one world
+  const second = await candidateStandIns(t);
+  await assert.rejects(startWorld(second.c, wallet, 1, () => {}), e => e.code === 'CandidateNeedsConquestOneWorld');
+  assert.equal(candidateMetaAgrees({ program: 'x' }, false, '/d'), true, 'a plain runner names none of the candidate keys');
+  assert.equal(candidateMetaAgrees({ program: 'x', program_version: 18436 }, false, '/d'), false);
+});
+
+test('candidate options: all or none, exactly its word, the conquest preset only, absolute files, a mint port of its own', async t => {
+  const { c } = await standIns(t);
+  const files = {}; for (const k of ['resident-so', 'core-so', 'nft-setup', 'mint']) { files[k] = path.join(c.root, 'bin', k); await fsp.writeFile(files[k], 'x'); }
+  const base = ['--root', c.root, '--data', c.data, '--runner', c.runner, '--herald', c.herald, '--depart', c.runner, '--preview', c.runner, '--resident', c.runner, '--artifact', c.runner, '--artifact-sha', 'ab'.repeat(32), '--world-preset', 'local-conquest-test-v1', '--prepare-scale', '30'];
+  const cand = (over = {}) => Object.entries({ 'lane-candidate': 'localnet-conquest-nft-sbf', ...files, 'mint-port': '41990', ...over }).filter(([, v]) => v !== null).flatMap(([k, v]) => [`--${k}`, v]);
+  const ok = await parseConfig([...base, ...cand()]);
+  assert.deepEqual([ok.laneCandidate, ok.mintPort, ok.nftSetup], ['localnet-conquest-nft-sbf', 41990, files['nft-setup']]);
+  const plain = await parseConfig(base); assert.equal(plain.laneCandidate, undefined, 'none given: no candidate');
+  const bad = async (args, code) => assert.rejects(parseConfig(args), e => e.code === code, code);
+  await bad([...base, ...cand({ mint: null })], 'InvalidLaneCandidate');
+  await bad([...base, ...cand({ 'lane-candidate': 'localnet-nft-sbf' })], 'InvalidLaneCandidate');
+  await bad([...base.slice(0, -4), ...cand()], 'CandidateNeedsConquestPreset');
+  await bad([...base, ...cand({ 'nft-setup': 'relative.mjs' })], 'AbsolutePathRequired');
+  for (const p of ['41920', '41924', '41905', '42000', '4199']) await bad([...base, ...cand({ 'mint-port': p })], 'InvalidPorts');
 });
