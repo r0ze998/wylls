@@ -1183,13 +1183,21 @@ fn a_buy_back_before_the_claim_pays_the_returning_owner_once() {
     fails(try_claim(&mut w, &p, lb, A, 0), E::ResidentStaleGeneration);
     fails(try_claim(&mut w, &p, lb, A, 1), E::ResidentStaleGeneration);
     // A's session key, set by A in generation 2: a session never claims.
+    // Paid to A's account it is refused at the destination binding first (the
+    // token account's owner field must be the signer, NFT-PRIZE.md §8.1).
     set_resident(&mut w, &p, Some((key(SESSION), 2, key(A))));
     let mut via_session = claim_by(&w, &p, lb, A, 2);
     via_session.owner = key(SESSION);
+    fails(claim_resident(&mut w, &via_session), E::BadAccount);
+    // Paid to the session's own token account it passes that binding and is
+    // refused as not the pass's current owner (`session_allowed` is false).
+    let ts = token_account(&mut w, 113, &key(SESSION));
+    via_session.to = ts;
     fails(
         claim_resident(&mut w, &via_session),
         E::ResidentNotCurrentAuthority,
     );
+    assert_eq!(bal(&w, &ts), 0, "nothing reached the session");
     // An unsigned owner.
     let mut unsigned = claim_by(&w, &p, lb, A, 2);
     unsigned.signed = false;
