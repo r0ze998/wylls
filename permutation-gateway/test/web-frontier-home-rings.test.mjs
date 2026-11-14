@@ -125,14 +125,19 @@ test('the wait view\'s site marks, 「村を置ける場所」, stop at the home
 
 test('every reader of the home candidates takes the home rings: the planner, the confirm, the tap on a tile, the nation choice, the map\'s marks', () => {
   const ctl = source('controller.mjs'), app = source('app.mjs'), map = source('map/fmap.mjs'), join = source('screens/join.mjs');
-  assert.match(ctl, /planHomes\(\{ overviews: FS\.overviews, faction, nowBell: nowBell\(\), place: seasonPlace\(FS\.season\), ringsOpen: homeRingsOpen\(FS\.season, FS\.record\?\.rings\?\.length \?\? 0\),/);
-  assert.match(ctl, /homeSites\(env\?\.province, \{ faction: site\.faction, nowBell: nowBell\(\), ringsOpen: homeRingsOpen\(FS\.season, FS\.record\?\.rings\?\.length \?\? 0\), place: seasonPlace\(FS\.season\) \}\)/);
-  assert.match(app, /homeSites\(FS\.provinces\.get\(`\$\{hit\.p\},\$\{hit\.q\}`\)\?\.province, \{ faction: FS\.citizen\?\.faction \?\? null, nowBell: FS\.nowBell, ringsOpen: homeRingsOpen\(FS\.season, FS\.record\?\.rings\?\.length \?\? 0\), place: seasonPlace\(FS\.season\) \}\)/);
+  // (2026-11-15: every reader counts the home rings from the Concord without a gap — contiguousRings — the map tap's
+  //  expression; web-frontier-home-rings-sparse.test.mjs has the measured sparse vector)
+  assert.match(ctl, /planHomes\(\{ overviews: FS\.overviews, faction, nowBell: nowBell\(\), place: seasonPlace\(FS\.season\), ringsOpen: homeRingsOpen\(FS\.season, FS\.record \? contiguousRings\(FS\.world \?\? worldOf\(FS\.record\)\) : 0\),/);
+  assert.match(ctl, /homeSites\(env\?\.province, \{ faction: site\.faction, nowBell: nowBell\(\), ringsOpen: homeRingsOpen\(FS\.season, FS\.record \? contiguousRings\(FS\.world \?\? worldOf\(FS\.record\)\) : 0\), place: seasonPlace\(FS\.season\) \}\)/);
+  assert.match(app, /homeSites\(FS\.provinces\.get\(`\$\{hit\.p\},\$\{hit\.q\}`\)\?\.province, \{ faction: FS\.citizen\?\.faction \?\? null, nowBell: FS\.nowBell, ringsOpen: homeRingsOpen\(FS\.season, FS\.record \? contiguousRings\(worldNow\(\)\) : 0\), place: seasonPlace\(FS\.season\) \}\)/);
   for (const [name, src] of [['controller.mjs', ctl], ['app.mjs', app]]) assert.doesNotMatch(src, /homeSites\([^\n]*ringsOpen: FS\.record\?\.rings/, `${name}: no home read by the open rings alone`);
-  assert.match(app, /homeRings: homeRingsOpen\(FS\.season, FS\.record\?\.rings\?\.length \?\? 1\),/, 'the map source carries the home rings beside the open rings');
-  assert.match(app, /ringsOpen: FS\.record\?\.rings\?\.length \?\? 1, own, selected: FS\.selected, terrainOf,/, 'and the open rings themselves, unchanged');
+  assert.match(app, /homeRings: homeRingsOpen\(FS\.season, contiguousRings\(worldNow\(\)\)\),/, 'the map source carries the home rings beside the open rings');
+  // (stale at d85884fa already: the map source reads the world's own count and seeded rings, map/world.mjs)
+  assert.match(app, /ringsOpen: ringsOpenNow\(\), seeded: worldNow\(\)\.seeded \?\? null, own, selected: FS\.selected, terrainOf,/, 'and the open rings themselves, the world\'s own');
   assert.match(map, /wedgeSites\(survey\.faction, src\.homeRings \?\? ringsOpen, recs, terrainOf, place\)/, 'the marks read the home rings, the region the open rings');
-  assert.match(map, /this\.wedgeHome\(survey\.faction, ringsOpen, place\)/);
-  assert.match(map, /wedgeBox\(survey\.faction, ringsOpen, place\)/);
+  // (stale at d85884fa already: the wedge also takes a sparse world's seeded rings)
+  assert.match(map, /this\.wedgeHome\(survey\.faction, ringsOpen, place, src\.seeded \?\? null\)/);
+  assert.match(map, /wedgeBox\(survey\.faction, ringsOpen, place, src\.seeded \?\? null\)/);
   assert.match(join, /freeByNation\(FS\.overviews \?\? new Map\(\), seasonPlace\(FS\.season\), \{ ringsOpen: Number\.isInteger\(open\) \? homeRingsOpen\(FS\.season, open\) : Infinity \}\)/);
+  assert.match(join, /const open = FS\.record \? contiguousRings\(FS\.world \?\? worldOf\(FS\.record\)\) : undefined;/, 'the nation choice counts the same way');
 });
