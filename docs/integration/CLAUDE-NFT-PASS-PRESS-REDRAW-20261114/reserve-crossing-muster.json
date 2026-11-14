@@ -1,0 +1,175 @@
+{
+  "events": [
+    {
+      "type": "pointerdown",
+      "t": 1876,
+      "act": "SPAN",
+      "inDrawer": true,
+      "connected": true,
+      "isWatched": false,
+      "atPoint": "",
+      "atPointInDrawer": true,
+      "scroll": 1322
+    },
+    {
+      "type": "pointerup",
+      "t": 1876,
+      "act": "SPAN",
+      "inDrawer": true,
+      "connected": true,
+      "isWatched": false,
+      "atPoint": "",
+      "atPointInDrawer": true,
+      "scroll": 1322
+    },
+    {
+      "type": "click",
+      "t": 1877,
+      "act": "SPAN",
+      "inDrawer": true,
+      "connected": true,
+      "isWatched": false,
+      "atPoint": "",
+      "atPointInDrawer": true,
+      "scroll": 1322
+    },
+    {
+      "type": "pointerdown",
+      "t": 2630,
+      "act": "INPUT",
+      "inDrawer": true,
+      "connected": true,
+      "isWatched": true,
+      "atPoint": "f-troops",
+      "atPointInDrawer": true,
+      "scroll": 1344
+    },
+    {
+      "type": "pointerup",
+      "t": 2630,
+      "act": "INPUT",
+      "inDrawer": true,
+      "connected": true,
+      "isWatched": true,
+      "atPoint": "f-troops",
+      "atPointInDrawer": true,
+      "scroll": 1344
+    },
+    {
+      "type": "click",
+      "t": 2630,
+      "act": "INPUT",
+      "inDrawer": true,
+      "connected": true,
+      "isWatched": true,
+      "atPoint": "f-troops",
+      "atPointInDrawer": true,
+      "scroll": 1344
+    },
+    {
+      "type": "keydown",
+      "t": 2633,
+      "act": "INPUT",
+      "inDrawer": true,
+      "connected": true,
+      "isWatched": true,
+      "atPoint": null,
+      "atPointInDrawer": false,
+      "scroll": 1344
+    },
+    {
+      "type": "keydown",
+      "t": 2633,
+      "act": "INPUT",
+      "inDrawer": true,
+      "connected": true,
+      "isWatched": true,
+      "atPoint": null,
+      "atPointInDrawer": false,
+      "scroll": 1344
+    },
+    {
+      "type": "keydown",
+      "t": 2634,
+      "act": "INPUT",
+      "inDrawer": true,
+      "connected": true,
+      "isWatched": true,
+      "atPoint": null,
+      "atPointInDrawer": false,
+      "scroll": 1344
+    },
+    {
+      "type": "keydown",
+      "t": 3559,
+      "act": "INPUT",
+      "inDrawer": true,
+      "connected": true,
+      "isWatched": true,
+      "atPoint": null,
+      "atPointInDrawer": false,
+      "scroll": 1344
+    },
+    {
+      "type": "keydown",
+      "t": 4484,
+      "act": "INPUT",
+      "inDrawer": true,
+      "connected": true,
+      "isWatched": true,
+      "atPoint": null,
+      "atPointInDrawer": false,
+      "scroll": 1344
+    }
+  ],
+  "replaced": [
+    2656,
+    3585,
+    4503,
+    6626
+  ],
+  "which": "muster",
+  "reserveAtStart": 40,
+  "ordered": {
+    "ok": true,
+    "records": 1
+  },
+  "samples": [
+    {
+      "t": 1,
+      "reserve": 40,
+      "replaced": 3,
+      "value": "120",
+      "focused": true,
+      "folded": false,
+      "place": {
+        "train": false,
+        "muster": false
+      }
+    },
+    {
+      "t": 2,
+      "reserve": 40,
+      "replaced": 3,
+      "value": "120",
+      "focused": true,
+      "folded": false,
+      "place": {
+        "train": false,
+        "muster": false
+      }
+    },
+    {
+      "t": 3,
+      "reserve": 140,
+      "replaced": 4,
+      "value": "120",
+      "focused": true,
+      "folded": false,
+      "place": {
+        "train": false,
+        "muster": false
+      }
+    }
+  ]
+}

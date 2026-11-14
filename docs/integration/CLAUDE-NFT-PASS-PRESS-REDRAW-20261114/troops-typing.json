@@ -2,97 +2,97 @@
   "events": [
     {
       "type": "pointerdown",
-      "t": 1782,
+      "t": 1715,
       "act": "INPUT",
       "inDrawer": true,
       "connected": true,
       "isWatched": true,
       "atPoint": "f-troops",
       "atPointInDrawer": true,
-      "scroll": 807
+      "scroll": 555
     },
     {
       "type": "pointerup",
-      "t": 1782,
+      "t": 1717,
       "act": "INPUT",
       "inDrawer": true,
       "connected": true,
       "isWatched": true,
       "atPoint": "f-troops",
       "atPointInDrawer": true,
-      "scroll": 807
+      "scroll": 555
     },
     {
       "type": "click",
-      "t": 1782,
+      "t": 1717,
       "act": "INPUT",
       "inDrawer": true,
       "connected": true,
       "isWatched": true,
       "atPoint": "f-troops",
       "atPointInDrawer": true,
-      "scroll": 807
+      "scroll": 555
     },
     {
       "type": "keydown",
-      "t": 1785,
+      "t": 1720,
       "act": "INPUT",
       "inDrawer": true,
       "connected": true,
       "isWatched": true,
       "atPoint": null,
       "atPointInDrawer": false,
-      "scroll": 807
+      "scroll": 555
     },
     {
       "type": "keydown",
-      "t": 1786,
+      "t": 1721,
       "act": "INPUT",
       "inDrawer": true,
       "connected": true,
       "isWatched": true,
       "atPoint": null,
       "atPointInDrawer": false,
-      "scroll": 807
+      "scroll": 555
     },
     {
       "type": "keydown",
-      "t": 1786,
+      "t": 1722,
       "act": "INPUT",
       "inDrawer": true,
       "connected": true,
       "isWatched": true,
       "atPoint": null,
       "atPointInDrawer": false,
-      "scroll": 807
+      "scroll": 555
     },
     {
       "type": "keydown",
-      "t": 2697,
+      "t": 2632,
       "act": "INPUT",
       "inDrawer": true,
       "connected": true,
       "isWatched": true,
       "atPoint": null,
       "atPointInDrawer": false,
-      "scroll": 807
+      "scroll": 555
     },
     {
       "type": "keydown",
-      "t": 3614,
+      "t": 3543,
       "act": "INPUT",
       "inDrawer": true,
       "connected": true,
       "isWatched": true,
       "atPoint": null,
       "atPointInDrawer": false,
-      "scroll": 807
+      "scroll": 555
     }
   ],
   "replaced": [
-    1819,
-    2715,
-    3647
+    1766,
+    2648,
+    3600
   ],
   "form": "muster",
   "samples": [
@@ -105,9 +105,9 @@
     }
   ],
   "keystrokes": [
-    1786,
-    2697,
-    3614
+    1722,
+    2632,
+    3543
   ],
   "redrawsBetweenKeys": 2,
   "note": "the Train/Muster swap at reserve 100 does not happen in this fixture: holding.mjs troopsOrder is covered by its unit test only"

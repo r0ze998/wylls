@@ -28,9 +28,9 @@ let browser, srv;
 before(async () => { srv = await startServer(); browser = await chromium.launch(); });
 after(async () => { await browser?.close(); await srv?.close(); });
 
-async function openVillage(t, name) {
+async function openVillage(t, name, liveOpts = {}) {
   srv.stage('holding');
-  srv.live(true, { turn: 20, delay: 8 });
+  srv.live(true, { turn: 20, delay: 8, ...liveOpts });
   const context = await browser.newContext({ viewport: { width: 1440, height: 900 }, locale: 'en-US', timezoneId: 'UTC' });
   await context.addInitScript(s => { for (const [k, v] of Object.entries(s)) localStorage.setItem(k, v); }, storageFor(srv.viewer, { stage: 'holding', lang: 'en' }));
   const page = await context.newPage();
@@ -177,5 +177,70 @@ test('a person-like press on Build reaches the page\'s handler: the order goes t
     assert.ok(inDrawer, 'Build is in the drawer (the gate\'s scope), not a hand pop-up');
     assert.ok(click?.connected, 'the click fired on a node still in the page');
     assert.ok(reached, `the handler was reached (orders ${ordersBefore} → ${(srv.world()?.orders ?? []).length}; answer ${answer})`);
+  } catch (e) { await failed(page, name, e); }
+});
+
+/**
+ * The case that used to swap the two troops forms: the reserve crosses 100 while the player is typing. The town starts
+ * with 40 in reserve (Train stands open, Muster in its fold); during the typing the world itself trains 100 more for
+ * the viewer (`world.order('Train')`: the world's own path, as another tab of the same player would), so the page sees
+ * the reserve go 40 → 140 on its own. `which`: the form typed into ('train' open, or 'muster' opened from its fold).
+ */
+async function typingWhileReserveCrosses(t, which) {
+  const name = `reserve-crossing-${which}`;
+  const { page } = await openVillage(t, name, { reserve: [40, 0, 0, 0, 0, 0, 0, 0] });
+  try {
+    const reserve = () => page.evaluate(() => Number((document.querySelector('#hp-troops-h')?.closest('section')?.querySelector('.c-count')?.textContent ?? '').replace(/[^\d]/g, '')) || 0);
+    const place = () => page.evaluate(() => ({ train: !!document.querySelector('#hp-train')?.closest('details:not([open])'), muster: !!document.querySelector('#hp-muster')?.closest('details:not([open])') }));
+    const r0 = await reserve();
+    assert.ok(r0 < 100, `the town starts below 100 in reserve (${r0})`);
+    const p0 = await place();
+    assert.deepEqual(p0, { train: false, muster: true }, 'below 100: Train open, Muster in its fold');
+    const formSel = which === 'train' ? '#hp-train' : '#hp-muster', fieldSel = `${formSel} ${which === 'train' ? '#f-n' : '#f-troops'}`;
+    if (which === 'muster') await page.locator('details:has(#hp-muster) > summary').first().click();
+    await page.evaluate(sel => globalThis.__watch(sel), formSel);
+    await page.locator(fieldSel).click();
+    await page.locator(fieldSel).press('ControlOrMeta+a');
+    await page.keyboard.type('1');
+    await page.waitForTimeout(900);
+    // the world trains 100 for the viewer now: the reserve crosses 100 while the field has the focus
+    const ordered = srv.world().order('Train', { unit: 0, n: 100 });
+    await page.keyboard.type('2');
+    await page.waitForTimeout(900);
+    await page.keyboard.type('0');
+    const samples = [];
+    const t0 = Date.now();
+    for (;;) {
+      await page.waitForTimeout(1_000);
+      const s = await page.evaluate(([formSel, fieldSel]) => { const i = document.querySelector(fieldSel), f = document.querySelector(formSel); return { replaced: globalThis.__rep.length, value: i?.value ?? null, focused: document.activeElement === i, folded: !!f?.closest('details:not([open])') }; }, [formSel, fieldSel]);
+      const r = await reserve(), pl = await place();
+      samples.push({ t: Math.round((Date.now() - t0) / 1000), reserve: r, ...s, place: pl });
+      assert.equal(s.value, '120', `the typed value (reserve ${r}, ${s.replaced} redraws)`);
+      assert.equal(s.focused, true, `the focus (reserve ${r}, ${s.replaced} redraws)`);
+      assert.equal(s.folded, false, `the ${which} form stays where the player is typing (reserve ${r})`);
+      assert.deepEqual(pl, which === 'train' ? { train: false, muster: true } : { train: false, muster: false }, `the forms did not swap (reserve ${r})`);
+      if (r >= 100 && s.replaced >= 2) break;
+      assert.ok(Date.now() - t0 < 60_000, `the page did not see the reserve cross 100 within 60 s (reserve ${r}, order ${JSON.stringify(ordered)})`);
+    }
+    await evidence(page, name, { which, reserveAtStart: r0, ordered, samples });
+  } catch (e) { await failed(page, name, e); }
+}
+test('Train open, the reserve crosses 100 while typing its count: value, focus and the open form stay', async t => typingWhileReserveCrosses(t, 'train'));
+test('Muster opened from its fold, the reserve crosses 100 while typing its count: value, focus and the open fold stay', async t => typingWhileReserveCrosses(t, 'muster'));
+
+test('nobody in the troops card: the open form follows the reserve (40 → Train; the world trains 100 → Muster opens, Train folds)', async t => {
+  const name = 'reserve-crossing-idle';
+  const { page } = await openVillage(t, name, { reserve: [40, 0, 0, 0, 0, 0, 0, 0] });
+  try {
+    const place = () => page.evaluate(() => ({ active: document.activeElement?.closest?.('section[aria-labelledby="hp-troops-h"]') ? 'troops card' : document.activeElement?.tagName, train: !!document.querySelector('#hp-train')?.closest('details:not([open])'), muster: !!document.querySelector('#hp-muster')?.closest('details:not([open])') }));
+    const p0 = await place();
+    assert.deepEqual([p0.train, p0.muster], [false, true], 'reserve 40: Train open');
+    const ordered = srv.world().order('Train', { unit: 0, n: 100 });
+    let p1 = p0;
+    const t0 = Date.now();
+    while (!(p1.train === true && p1.muster === false) && Date.now() - t0 < 60_000) { await page.waitForTimeout(1_000); p1 = await place(); }
+    await evidence(page, name, { ordered, before: p0, after: p1 });
+    assert.notEqual(p1.active, 'troops card', 'nobody was in the card');
+    assert.deepEqual([p1.train, p1.muster], [true, false], 'reserve 140 with no input pending: Muster open, Train in its fold');
   } catch (e) { await failed(page, name, e); }
 });

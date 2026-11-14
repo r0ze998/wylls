@@ -1,0 +1,142 @@
+{
+  "events": [
+    {
+      "type": "pointerdown",
+      "t": 1651,
+      "act": "INPUT",
+      "inDrawer": true,
+      "connected": true,
+      "isWatched": true,
+      "atPoint": "f-n",
+      "atPointInDrawer": true,
+      "scroll": 994
+    },
+    {
+      "type": "pointerup",
+      "t": 1651,
+      "act": "INPUT",
+      "inDrawer": true,
+      "connected": true,
+      "isWatched": true,
+      "atPoint": "f-n",
+      "atPointInDrawer": true,
+      "scroll": 994
+    },
+    {
+      "type": "click",
+      "t": 1651,
+      "act": "INPUT",
+      "inDrawer": true,
+      "connected": true,
+      "isWatched": true,
+      "atPoint": "f-n",
+      "atPointInDrawer": true,
+      "scroll": 994
+    },
+    {
+      "type": "keydown",
+      "t": 1654,
+      "act": "INPUT",
+      "inDrawer": true,
+      "connected": true,
+      "isWatched": true,
+      "atPoint": null,
+      "atPointInDrawer": false,
+      "scroll": 994
+    },
+    {
+      "type": "keydown",
+      "t": 1654,
+      "act": "INPUT",
+      "inDrawer": true,
+      "connected": true,
+      "isWatched": true,
+      "atPoint": null,
+      "atPointInDrawer": false,
+      "scroll": 994
+    },
+    {
+      "type": "keydown",
+      "t": 1655,
+      "act": "INPUT",
+      "inDrawer": true,
+      "connected": true,
+      "isWatched": true,
+      "atPoint": null,
+      "atPointInDrawer": false,
+      "scroll": 994
+    },
+    {
+      "type": "keydown",
+      "t": 2596,
+      "act": "INPUT",
+      "inDrawer": true,
+      "connected": true,
+      "isWatched": true,
+      "atPoint": null,
+      "atPointInDrawer": false,
+      "scroll": 994
+    },
+    {
+      "type": "keydown",
+      "t": 3514,
+      "act": "INPUT",
+      "inDrawer": true,
+      "connected": true,
+      "isWatched": true,
+      "atPoint": null,
+      "atPointInDrawer": false,
+      "scroll": 994
+    }
+  ],
+  "replaced": [
+    1748,
+    2630,
+    3532,
+    6395
+  ],
+  "which": "train",
+  "reserveAtStart": 40,
+  "ordered": {
+    "ok": true,
+    "records": 1
+  },
+  "samples": [
+    {
+      "t": 1,
+      "reserve": 40,
+      "replaced": 3,
+      "value": "120",
+      "focused": true,
+      "folded": false,
+      "place": {
+        "train": false,
+        "muster": true
+      }
+    },
+    {
+      "t": 2,
+      "reserve": 40,
+      "replaced": 3,
+      "value": "120",
+      "focused": true,
+      "folded": false,
+      "place": {
+        "train": false,
+        "muster": true
+      }
+    },
+    {
+      "t": 3,
+      "reserve": 140,
+      "replaced": 4,
+      "value": "120",
+      "focused": true,
+      "folded": false,
+      "place": {
+        "train": false,
+        "muster": true
+      }
+    }
+  ]
+}

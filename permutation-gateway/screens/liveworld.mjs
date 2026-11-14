@@ -179,7 +179,7 @@ const REFUSED_TEXT = Object.freeze({
 /** (workstream 07) The keyless sample world's fee payer: a 32-byte name made from no key. */
 export const KEYLESS_FEE_PAYER = toBase58(new Uint8Array(32).fill(0x5c));
 
-export function createLive({ viewer, stage = 'holding', territory = false, turn = LIVE.TURN_SECS, delay = LIVE.DELAY, landMs = LIVE.LAND_MS, wall = () => Date.now(), seed = LIVE.SEED, neighbours = true, paused = false, stores = null, opening = false, claims = false , keyless = false} = {}) {
+export function createLive({ viewer, stage = 'holding', territory = false, turn = LIVE.TURN_SECS, delay = LIVE.DELAY, landMs = LIVE.LAND_MS, wall = () => Date.now(), seed = LIVE.SEED, neighbours = true, paused = false, stores = null, opening = false, claims = false , keyless = false, reserve = null} = {}) {
   const K = kernel();
   const turnSecs = Math.max(0.2, Number(turn) || LIVE.TURN_SECS), rate = 600 / turnSecs;
   const T1 = bs(LIVE.TURN + 1);   // the first toll: turn 43 begins
@@ -287,7 +287,8 @@ export function createLive({ viewer, stage = 'holding', territory = false, turn 
     k.stores.forEach((s, r) => { s.value = amounts[r] * MILLI; s.rate = k.production[r]; s.t0 = START - 1_800; });
     k.lastOwnerAction = START - 1_800;
     k.queue[0] = { doneAt: T1 + LIVE.BUILT_AFTER, kind: QK.PRODUCTION, arg: R.RES.Wood, delta: R.BUILDINGS[1].perHour * MILLI };
-    ME = village({ ...HOME, faction: 0, tier: 1, k, reserve: [...W.HOLDING_RESERVE], hostSeq: 10, garrison: 300_000 });
+    // (`reserve`: the town's reserve at the start, for a test that needs it below 100; the default is the fixture's)
+    ME = village({ ...HOME, faction: 0, tier: 1, k, reserve: [...(reserve ?? W.HOLDING_RESERVE)], hostSeq: 10, garrison: 300_000 });
     put(home, { id: HOSTS.free, faction: 0, unit: 0, tile: HOME.tile, state: ES.ROSTER, troops: 600_000, staminaValue: 110, staminaBell: BELL, dealtBps: 10_000, readyBell: 30, fromBell: 30 });
     put(home, { id: HOSTS.scout, faction: 0, unit: 6, tile: HOME.tile, state: ES.ROSTER, troops: 100_000, staminaValue: 120, staminaBell: BELL, dealtBps: 10_000, readyBell: 30, fromBell: 30 });
     // the march that reached the camp last turn: departed and settled at its origin, sealed on this device (world.mjs
