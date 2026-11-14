@@ -34,6 +34,9 @@
 #[cfg(feature = "localnet-expedition-play")]
 pub mod expedition_play;
 #[cfg(feature = "localnet-expedition-play")]
+/// ⑰ TEST ONLY: the runner-placed prize Entry fixture (option (A); only under --prize-test-only-so).
+pub mod prize_test_only;
+#[cfg(feature = "localnet-expedition-play")]
 pub mod local_keeper;
 #[cfg(feature = "localnet-expedition-play")]
 pub mod keeper_loop;
