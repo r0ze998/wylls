@@ -1,5 +1,7 @@
 # permutation-nft-resident-spike：NFT で譲渡できる住民アカウント（隔離試作）
 
+**v0.26（2026-11-14）**：最新ソースの SBF build を記録（`program/BUILD-RECORD.json`、`.so` `947da0b9…`）し、実 Core＋ループバック validator のブラウザ試験 6 件が再び合格。ページの注意書きが `[object Object]` になる不具合を修正。ソースとの一致試験を追加。ゲーム参加の実 chain 接続は未完で、理由と残りは `docs/MINT-READINESS-20261114.ja.md`。
+
 **状態（2026-11-08、v0.25）**：ローカルのみ（模擬チェーン、LiteSVM、ループバック validator）。公開発行・devnet／mainnet・実資金・新しい鍵は無し。価格・無料／有料・供給数・公開発行・ロイヤリティは未決（`docs/UNDECIDED.ja.md`）。Metaplex Core は**試作の選定方式**で、本線採用は未決。継続世界は決定済み。依存パッケージ無し（Node 20+ の標準モジュールだけ。`test-gateway/` だけは `permutation-gateway` の依存を使う）。v0.8 で担当ブランチへ通常 push（根拠は `docs/PUSH-AUDIT.ja.md`）。merge・deploy はしていない。
 
 **v0.25 の変更**：元ゲームの controller の NFT の場面を、program の本物の印（`resident-citizen.json`）に揃えた。それで再現した不具合を直した：NFT の持ち主の `/h/me` に、asset を鍵にした財布の Citizen が来ると、自分のものとして採っていた。今は `WrongKey` で拒否する（`docs/HOLDER-CONTRACT.ja.md` §15）。同じ節に、v0.24 の試験で鍵を作る試験を見落として走らせた誤りを記録した。
