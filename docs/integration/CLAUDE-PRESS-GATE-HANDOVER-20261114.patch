@@ -1,9 +1,32 @@
+diff --git a/permutation-gateway/screens/liveworld.mjs b/permutation-gateway/screens/liveworld.mjs
+index bd6ebb4c..213ebf2e 100644
+--- a/permutation-gateway/screens/liveworld.mjs
++++ b/permutation-gateway/screens/liveworld.mjs
+@@ -179,7 +179,7 @@ const REFUSED_TEXT = Object.freeze({
+ /** (workstream 07) The keyless sample world's fee payer: a 32-byte name made from no key. */
+ export const KEYLESS_FEE_PAYER = toBase58(new Uint8Array(32).fill(0x5c));
+ 
+-export function createLive({ viewer, stage = 'holding', territory = false, turn = LIVE.TURN_SECS, delay = LIVE.DELAY, landMs = LIVE.LAND_MS, wall = () => Date.now(), seed = LIVE.SEED, neighbours = true, paused = false, stores = null, opening = false, claims = false , keyless = false} = {}) {
++export function createLive({ viewer, stage = 'holding', territory = false, turn = LIVE.TURN_SECS, delay = LIVE.DELAY, landMs = LIVE.LAND_MS, wall = () => Date.now(), seed = LIVE.SEED, neighbours = true, paused = false, stores = null, opening = false, claims = false , keyless = false, reserve = null} = {}) {
+   const K = kernel();
+   const turnSecs = Math.max(0.2, Number(turn) || LIVE.TURN_SECS), rate = 600 / turnSecs;
+   const T1 = bs(LIVE.TURN + 1);   // the first toll: turn 43 begins
+@@ -287,7 +287,8 @@ export function createLive({ viewer, stage = 'holding', territory = false, turn
+     k.stores.forEach((s, r) => { s.value = amounts[r] * MILLI; s.rate = k.production[r]; s.t0 = START - 1_800; });
+     k.lastOwnerAction = START - 1_800;
+     k.queue[0] = { doneAt: T1 + LIVE.BUILT_AFTER, kind: QK.PRODUCTION, arg: R.RES.Wood, delta: R.BUILDINGS[1].perHour * MILLI };
+-    ME = village({ ...HOME, faction: 0, tier: 1, k, reserve: [...W.HOLDING_RESERVE], hostSeq: 10, garrison: 300_000 });
++    // (`reserve`: the town's reserve at the start, for a test that needs it below 100; the default is the fixture's)
++    ME = village({ ...HOME, faction: 0, tier: 1, k, reserve: [...(reserve ?? W.HOLDING_RESERVE)], hostSeq: 10, garrison: 300_000 });
+     put(home, { id: HOSTS.free, faction: 0, unit: 0, tile: HOME.tile, state: ES.ROSTER, troops: 600_000, staminaValue: 110, staminaBell: BELL, dealtBps: 10_000, readyBell: 30, fromBell: 30 });
+     put(home, { id: HOSTS.scout, faction: 0, unit: 6, tile: HOME.tile, state: ES.ROSTER, troops: 100_000, staminaValue: 120, staminaBell: BELL, dealtBps: 10_000, readyBell: 30, fromBell: 30 });
+     // the march that reached the camp last turn: departed and settled at its origin, sealed on this device (world.mjs
 diff --git a/permutation-gateway/screens/press-redraw.screen.mjs b/permutation-gateway/screens/press-redraw.screen.mjs
 new file mode 100644
-index 00000000..5c0b70db
+index 00000000..d9904d8b
 --- /dev/null
 +++ b/permutation-gateway/screens/press-redraw.screen.mjs
-@@ -0,0 +1,181 @@
+@@ -0,0 +1,246 @@
 +// Presses and typing in the drawer while the page redraws itself (Chromium, the fixture server's live sample world:
 +// its clock moves, so the village's numbers change and the drawer is written again on its own; no chain, no key).
 +// What it watches, for a person-like press (mouse down, a hold, mouse up at the control's centre; no Playwright
@@ -34,9 +57,9 @@ index 00000000..5c0b70db
 +before(async () => { srv = await startServer(); browser = await chromium.launch(); });
 +after(async () => { await browser?.close(); await srv?.close(); });
 +
-+async function openVillage(t, name) {
++async function openVillage(t, name, liveOpts = {}) {
 +  srv.stage('holding');
-+  srv.live(true, { turn: 20, delay: 8 });
++  srv.live(true, { turn: 20, delay: 8, ...liveOpts });
 +  const context = await browser.newContext({ viewport: { width: 1440, height: 900 }, locale: 'en-US', timezoneId: 'UTC' });
 +  await context.addInitScript(s => { for (const [k, v] of Object.entries(s)) localStorage.setItem(k, v); }, storageFor(srv.viewer, { stage: 'holding', lang: 'en' }));
 +  const page = await context.newPage();
@@ -185,8 +208,73 @@ index 00000000..5c0b70db
 +    assert.ok(reached, `the handler was reached (orders ${ordersBefore} → ${(srv.world()?.orders ?? []).length}; answer ${answer})`);
 +  } catch (e) { await failed(page, name, e); }
 +});
++
++/**
++ * The case that used to swap the two troops forms: the reserve crosses 100 while the player is typing. The town starts
++ * with 40 in reserve (Train stands open, Muster in its fold); during the typing the world itself trains 100 more for
++ * the viewer (`world.order('Train')`: the world's own path, as another tab of the same player would), so the page sees
++ * the reserve go 40 → 140 on its own. `which`: the form typed into ('train' open, or 'muster' opened from its fold).
++ */
++async function typingWhileReserveCrosses(t, which) {
++  const name = `reserve-crossing-${which}`;
++  const { page } = await openVillage(t, name, { reserve: [40, 0, 0, 0, 0, 0, 0, 0] });
++  try {
++    const reserve = () => page.evaluate(() => Number((document.querySelector('#hp-troops-h')?.closest('section')?.querySelector('.c-count')?.textContent ?? '').replace(/[^\d]/g, '')) || 0);
++    const place = () => page.evaluate(() => ({ train: !!document.querySelector('#hp-train')?.closest('details:not([open])'), muster: !!document.querySelector('#hp-muster')?.closest('details:not([open])') }));
++    const r0 = await reserve();
++    assert.ok(r0 < 100, `the town starts below 100 in reserve (${r0})`);
++    const p0 = await place();
++    assert.deepEqual(p0, { train: false, muster: true }, 'below 100: Train open, Muster in its fold');
++    const formSel = which === 'train' ? '#hp-train' : '#hp-muster', fieldSel = `${formSel} ${which === 'train' ? '#f-n' : '#f-troops'}`;
++    if (which === 'muster') await page.locator('details:has(#hp-muster) > summary').first().click();
++    await page.evaluate(sel => globalThis.__watch(sel), formSel);
++    await page.locator(fieldSel).click();
++    await page.locator(fieldSel).press('ControlOrMeta+a');
++    await page.keyboard.type('1');
++    await page.waitForTimeout(900);
++    // the world trains 100 for the viewer now: the reserve crosses 100 while the field has the focus
++    const ordered = srv.world().order('Train', { unit: 0, n: 100 });
++    await page.keyboard.type('2');
++    await page.waitForTimeout(900);
++    await page.keyboard.type('0');
++    const samples = [];
++    const t0 = Date.now();
++    for (;;) {
++      await page.waitForTimeout(1_000);
++      const s = await page.evaluate(([formSel, fieldSel]) => { const i = document.querySelector(fieldSel), f = document.querySelector(formSel); return { replaced: globalThis.__rep.length, value: i?.value ?? null, focused: document.activeElement === i, folded: !!f?.closest('details:not([open])') }; }, [formSel, fieldSel]);
++      const r = await reserve(), pl = await place();
++      samples.push({ t: Math.round((Date.now() - t0) / 1000), reserve: r, ...s, place: pl });
++      assert.equal(s.value, '120', `the typed value (reserve ${r}, ${s.replaced} redraws)`);
++      assert.equal(s.focused, true, `the focus (reserve ${r}, ${s.replaced} redraws)`);
++      assert.equal(s.folded, false, `the ${which} form stays where the player is typing (reserve ${r})`);
++      assert.deepEqual(pl, which === 'train' ? { train: false, muster: true } : { train: false, muster: false }, `the forms did not swap (reserve ${r})`);
++      if (r >= 100 && s.replaced >= 2) break;
++      assert.ok(Date.now() - t0 < 60_000, `the page did not see the reserve cross 100 within 60 s (reserve ${r}, order ${JSON.stringify(ordered)})`);
++    }
++    await evidence(page, name, { which, reserveAtStart: r0, ordered, samples });
++  } catch (e) { await failed(page, name, e); }
++}
++test('Train open, the reserve crosses 100 while typing its count: value, focus and the open form stay', async t => typingWhileReserveCrosses(t, 'train'));
++test('Muster opened from its fold, the reserve crosses 100 while typing its count: value, focus and the open fold stay', async t => typingWhileReserveCrosses(t, 'muster'));
++
++test('nobody in the troops card: the open form follows the reserve (40 → Train; the world trains 100 → Muster opens, Train folds)', async t => {
++  const name = 'reserve-crossing-idle';
++  const { page } = await openVillage(t, name, { reserve: [40, 0, 0, 0, 0, 0, 0, 0] });
++  try {
++    const place = () => page.evaluate(() => ({ active: document.activeElement?.closest?.('section[aria-labelledby="hp-troops-h"]') ? 'troops card' : document.activeElement?.tagName, train: !!document.querySelector('#hp-train')?.closest('details:not([open])'), muster: !!document.querySelector('#hp-muster')?.closest('details:not([open])') }));
++    const p0 = await place();
++    assert.deepEqual([p0.train, p0.muster], [false, true], 'reserve 40: Train open');
++    const ordered = srv.world().order('Train', { unit: 0, n: 100 });
++    let p1 = p0;
++    const t0 = Date.now();
++    while (!(p1.train === true && p1.muster === false) && Date.now() - t0 < 60_000) { await page.waitForTimeout(1_000); p1 = await place(); }
++    await evidence(page, name, { ordered, before: p0, after: p1 });
++    assert.notEqual(p1.active, 'troops card', 'nobody was in the card');
++    assert.deepEqual([p1.train, p1.muster], [true, false], 'reserve 140 with no input pending: Muster open, Train in its fold');
++  } catch (e) { await failed(page, name, e); }
++});
 diff --git a/permutation-gateway/test/web-frontier-cards.test.mjs b/permutation-gateway/test/web-frontier-cards.test.mjs
-index 4ef97e50..36c73dab 100644
+index 4ef97e50..28cfb172 100644
 --- a/permutation-gateway/test/web-frontier-cards.test.mjs
 +++ b/permutation-gateway/test/web-frontier-cards.test.mjs
 @@ -21,7 +21,7 @@ import * as parts from '../../permutation-server/web/frontier/screens/parts.mjs'
@@ -198,21 +286,28 @@ index 4ef97e50..36c73dab 100644
  import { DIRECTIONS, TILE_OFFSETS } from '../../permutation-server/web/frontier/fgeo.mjs';
  import { exploreTargets, tileNeighbours } from '../../permutation-server/web/frontier/fland.mjs';
  
-@@ -267,3 +267,34 @@ test('keepState: an opened fold, a chosen picture and typed values survive a re-
+@@ -267,3 +267,41 @@ test('keepState: an opened fold, a chosen picture and typed values survive a re-
    keepState(el, () => { cur = build(); }, null);
    assert.equal(cur.fold.open, false, 'a different view starts from its own markup');
  });
 +
-+test('the troops card keeps its open form while the reserve changes (decided once per village scope)', () => {
++test('the troops card: the open form follows the reserve, and is kept only while the player is in the card', () => {
 +  const FS = { record: { programId: 'P', seasonAddress: 'S' }, wallet: { address: 'W' }, season: { genesisTs: 1 } };
 +  const h = { p: 2, q: 0, site: 1, gen: 0 };
-+  assert.equal(holdingScreen.troopsOrder(FS, h, 0), false, 'no reserve: Train stands open');
-+  assert.equal(holdingScreen.troopsOrder(FS, h, 400), false, 'the reserve grew past 100: still Train (no swap under the player)');
-+  assert.equal(holdingScreen.troopsOrder(FS, { ...h, site: 2 }, 400), true, 'another village decides again');
-+  assert.equal(holdingScreen.troopsOrder(FS, { ...h, site: 2 }, 0), true, 'and keeps its own choice');
-+  assert.equal(holdingScreen.troopsOrder({ ...FS, troopsOrder: undefined, wallet: { address: 'W2' } }, h, 400), true, 'another wallet decides again');
-+  assert.equal(holdingScreen.troopsOrder({}, h, 400), true, 'no scope: the live choice');
-+  assert.equal(holdingScreen.troopsOrder({}, h, 0), false);
++  const free = { held: false }, typing = { held: true };
++  // the first session: nothing in reserve → Train; trained 100 and a turn later, nobody in the card → Muster (the next step)
++  assert.equal(holdingScreen.troopsOrder(FS, h, 0, free), false, 'reserve 0: Train stands open');
++  assert.equal(holdingScreen.troopsOrder(FS, h, 100, free), true, 'reserve 100, no input pending: Muster stands open');
++  // all mustered, nobody in the card → Train again (not an empty Muster form)
++  assert.equal(holdingScreen.troopsOrder(FS, h, 0, free), false, 'reserve 0 again: Train');
++  // the player is typing in the card when the reserve crosses 100: the order shown stays until they leave it
++  assert.equal(holdingScreen.troopsOrder(FS, h, 0, typing), false);
++  assert.equal(holdingScreen.troopsOrder(FS, h, 400, typing), false, 'crossed 100 while typing: still Train (no swap under the player)');
++  assert.equal(holdingScreen.troopsOrder(FS, h, 400, free), true, 'left the card: the order follows the reserve again');
++  // per village scope: another village decides by itself even while held
++  assert.equal(holdingScreen.troopsOrder(FS, { ...h, site: 2 }, 400, typing), true, 'another village decides by its own reserve');
++  assert.equal(holdingScreen.troopsOrder({}, h, 400, typing), true, 'no scope: the live choice');
++  assert.equal(holdingScreen.troopsOrder({}, h, 0, typing), false);
 +});
 +
 +test('a press in the drawer holds its redraws until release (a tap on a button that is being replaced is not lost)', () => {
@@ -234,10 +329,10 @@ index 4ef97e50..36c73dab 100644
 +  assert.match(src, /for \(const ev of \['pointerup', 'pointercancel'\]\)[^\n]*setTimeout\(redraw, 0\)/, 'released: after the click');
 +});
 diff --git a/permutation-server/web/frontier/app.mjs b/permutation-server/web/frontier/app.mjs
-index 90836cab..267bb329 100644
+index 90836cab..f1eb6b7c 100644
 --- a/permutation-server/web/frontier/app.mjs
 +++ b/permutation-server/web/frontier/app.mjs
-@@ -485,6 +485,9 @@ export function keepState(el, render, scroller = el) {
+@@ -485,19 +485,34 @@ export function keepState(el, render, scroller = el) {
    const active = globalThis.document?.activeElement;
    const inside = !!active && el.contains(active);
    const focusKey = inside && active.matches?.('input, select, textarea') ? keyOf(active) : null;
@@ -247,7 +342,13 @@ index 90836cab..267bb329 100644
    const focusAct = inside && !focusKey && scroller && active.matches?.('button, summary, a') ? { key: actOf(active), nth: nthOf(active), tag: active.tagName } : null;
    const top = scroller?.scrollTop ?? 0;
    // a part that scrolls by itself (the order's body above its seal: `data-scroll`) keeps its place too
-@@ -495,7 +498,17 @@ export function keepState(el, render, scroller = el) {
+   const inner = scroller ? new Map([...el.querySelectorAll('[data-scroll]')].map(x => [x.dataset.scroll, x.scrollTop])) : new Map();
+   render();
++  // the folds first: a field inside a fold the new markup closed cannot take the focus (focus() on it does nothing), so
++  // typing in the Muster form opened from its fold lost the focus at the first key's redraw
++  for (const d of folds.size ? el.querySelectorAll('details[data-fold]') : []) { const was = folds.get(d.dataset.fold); if (was !== undefined && d.open !== was) d.open = was; }
+   if (typed.size || picked.size || focusKey) for (const x of el.querySelectorAll('input, select, textarea')) {
+     const k = keyOf(x);
      if (x.type === 'radio') { if (picked.get(k) === x.value) x.checked = true; }
      else if (x.tagName === 'SELECT') { if (picked.has(k) && [...x.options].some(o => o.value === picked.get(k))) x.value = picked.get(k); }
      else if (typed.has(k) && x.type !== 'checkbox') x.value = typed.get(k);
@@ -264,9 +365,11 @@ index 90836cab..267bb329 100644
 +      }
 +    }
    }
-   for (const d of folds.size ? el.querySelectorAll('details[data-fold]') : []) { const was = folds.get(d.dataset.fold); if (was !== undefined && d.open !== was) d.open = was; }
+-  for (const d of folds.size ? el.querySelectorAll('details[data-fold]') : []) { const was = folds.get(d.dataset.fold); if (was !== undefined && d.open !== was) d.open = was; }
    if (focusAct && !el.contains(globalThis.document?.activeElement)) [...el.querySelectorAll(focusAct.tag)].filter(y => actOf(y) === focusAct.key)[Math.max(0, focusAct.nth)]?.focus?.({ preventScroll: true });
-@@ -561,6 +574,28 @@ let lastHeadSelection = null;
+   if (scroller && scroller.scrollTop !== top) scroller.scrollTop = top;
+   for (const x of inner.size ? el.querySelectorAll('[data-scroll]') : []) { const y = inner.get(x.dataset.scroll); if (y && x.scrollTop !== y) x.scrollTop = y; }
+@@ -561,6 +576,28 @@ let lastHeadSelection = null;
   */
  let inputInDrawer = false;
  for (const ev of ['pointerdown', 'keydown']) globalThis.document?.addEventListener?.(ev, e => { inputInDrawer = !!e.target?.closest?.('#panel-body'); }, true);
@@ -295,7 +398,7 @@ index 90836cab..267bb329 100644
  /**
   * Whether the drawer starts at its head again for this render (pure; exported for the tests): `{selection, toHead}`.
   * The selection's card heads the drawer on the spectator's panel and in the play page's inspector (`modePanel`,
-@@ -579,6 +614,8 @@ export function drawerHeadFor(d, selected, shown, fromDrawer = false) {
+@@ -579,6 +616,8 @@ export function drawerHeadFor(d, selected, shown, fromDrawer = false) {
  }
  /** Write the drawer: its state, title and body (the same view keeps its scroll and typed values). */
  function renderDrawer(markupOf) {
@@ -305,39 +408,42 @@ index 90836cab..267bb329 100644
    applyDrawer(d);
    const body = $('panel-body');
 diff --git a/permutation-server/web/frontier/screens/holding.mjs b/permutation-server/web/frontier/screens/holding.mjs
-index 897010b7..2d570d34 100644
+index 897010b7..cc7e4c82 100644
 --- a/permutation-server/web/frontier/screens/holding.mjs
 +++ b/permutation-server/web/frontier/screens/holding.mjs
-@@ -221,6 +221,21 @@ export function keepMusterDraft(FS, h, { unit, troops }) {
+@@ -221,6 +221,24 @@ export function keepMusterDraft(FS, h, { unit, troops }) {
    return true;
  }
  
 +/**
-+ * Which troops form stands open: Muster when the reserve can muster 100, else Train — decided once per village scope
-+ * (musterScope) and kept for this page. The reserve grows with the turns, and a choice made again on every redraw
-+ * swapped the two forms under a player typing a count (the open form, with its button, folded away mid-input).
-+ * A reload, another village or another wallet decides again; without a scope the live choice stands.
++ * Which troops form stands open: Muster when the reserve can muster 100, else Train — decided again on every redraw
++ * (so a turn that fills the reserve, or the player's own training or mustering, opens the form that comes next),
++ * EXCEPT while the player is in the troops card (`held`: the focus is inside it). The reserve grows with the turns,
++ * and a choice made again under a player typing a count swapped the two forms and folded the field away mid-input;
++ * while the focus is there the order shown when it arrived is kept. Kept per village scope (musterScope); without a
++ * scope the live choice stands.
 + */
-+export function troopsOrder(FS, h, musterable) {
++export function troopsOrder(FS, h, musterable, { held = troopsCardHasFocus() } = {}) {
 +  const live = musterable >= 100;
 +  const key = musterScope(FS, h);
 +  if (key === null) return live;
-+  if (FS.troopsOrder?.key === key) return FS.troopsOrder.musterFirst;
++  if (held && FS.troopsOrder?.key === key) return FS.troopsOrder.musterFirst;
 +  FS.troopsOrder = { key, musterFirst: live };
 +  return live;
 +}
++const troopsCardHasFocus = () => !!globalThis.document?.activeElement?.closest?.('section[aria-labelledby="hp-troops-h"]');
 +
  export function render(FS) {
    // a wide inventory slot chosen in the rail: the captured record's read-only cards stand here instead
    // (screens/wideholding.mjs); the legacy village below is untouched and returns with the wide card's own press
-@@ -299,8 +314,9 @@ export function render(FS) {
+@@ -299,8 +317,9 @@ export function render(FS) {
      <div class="actions"><button type="submit" class="btn primary" ${raw(actionBusy || m.blocks.Muster.length || !reserve.length || ms.missing || ms.short !== null ? 'disabled' : '')}>${icon('banner')}${L`編成する`}</button><span class="muted">${L`編成した軍勢は、このターンが終わり、封が開けられて決着すると行動できます。`}</span></div>
      ${!reserve.length ? html`<p class="blocked">${L`控えの兵がいません：先に訓練しましょう`}</p>` : ''}
      ${blockedLine(m.blocks.Muster)}</form>`;
 -  // the action that makes sense now stands open; the other waits behind a fold
 -  const musterFirst = musterable >= 100;
-+  // the action that made sense when this village was first shown stands open; the other waits behind a fold
-+  // (kept for the page: troopsOrder)
++  // the action that makes sense now stands open, the other waits behind a fold; kept while the player is in the
++  // card (troopsOrder)
 +  const musterFirst = troopsOrder(FS, h, musterable);
    const troops = html`<section class="vcard" aria-labelledby="hp-troops-h">
      ${cardHead({ id: 'hp-troops-h', ic: 'sword', title: L`兵`, side: html`<span class="c-count">${L`控え ${fmtNum(musterable)}`}</span>` })}
