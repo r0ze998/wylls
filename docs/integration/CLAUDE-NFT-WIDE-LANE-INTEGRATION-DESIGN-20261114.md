@@ -129,3 +129,11 @@ wide の側は NFT 住民の**行動**を受ける準備がある。足りない
    c. 合意があれば `scripts/build-frontier-localnet-conquest-nft-sbf.sh`（SBF、約 250 MB、offline）で marker と `deployable no`。
    各段の結果をこの文書に記録し、target は終わったら消す（来歴に要る物だけ残す）。
 3. 候補の world（0xC804）は、版の割り当てと、領土側の file（keeper・gateway・page の 0x4804 固定、§8）の変更が要るので、領土側と合意してから。
+
+## 10. 追記（同日 22:30）：候補の版を配備から読む（別 branch、領土側と合意済み）
+
+領土側の lane の担当と合意（自分の branch だけ、opt-in、0x4804 の経路は変えない、review 用の round-only patch、canonical には書かない）。base は canonical の最新（`84ec838c`、round 19 を含む）にして、**別 branch `claude/nft-candidate-lane-20261114`**（worktree `/Users/r0ze/Projects/wylls-nft-candidate-lane-20261114`）。
+- local play の版の定義を 1 つにした（gateway `src/frontier/local-lane-versions.mjs` ＝ page `flocallanes.mjs`）：0x4804（既定、従来どおり）と、候補の 0xC804（= 51204、候補を選んだ launcher だけが配備に書く）。gateway の expedition・conquest・depart の準備、page の expedition・depart の準備、local play の Season の検査、手札の準備の区画は、すべて配備（または Season）の版をこの定義で読む。準備した提案は配備自身の版を返さなければならない。
+- 試験：新しい試験 2 件と、影響する 32 file の 301 件中 298 合格。失敗 3 件（`frontier-local-play-natural.test.mjs`）は `84ec838c` でも同じ。
+- 次（未実装）：launcher で候補を選んで配備に 0xC804 と [0x4C;32] を書き、住民 program・Core・policy・mint ページを起動に足す。keeper の Rust の準備（0x4804 固定）。候補の world（候補の .so の build が要る）。
+- handover：その branch の `docs/integration/CLAUDE-NFT-CANDIDATE-LANE-VERSION-READ-20261114.{md,patch}`（patch の sha256 `3cb2dc7a…`）。
