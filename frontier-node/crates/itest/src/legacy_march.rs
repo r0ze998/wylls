@@ -294,6 +294,13 @@ pub fn world_order(cursor: usize, n: usize) -> impl Iterator<Item = usize> {
     (0..n).map(move |k| (cursor % n.max(1) + k) % n.max(1))
 }
 
+/// Where the next stand step starts (pure, round-robin like [`world_order`]): just after the stand `served` that answered,
+/// counted after the stands that were forgotten in the same step (`gone_before`: how many of them came before it) are
+/// removed; `n_after` stands remain. A stand that is always behind therefore never starves the ones after it.
+pub fn next_stand_cursor(served: usize, gone_before: usize, n_after: usize) -> usize {
+    if n_after == 0 { 0 } else { (served + 1 - gone_before.min(served)) % n_after }
+}
+
 /// The program-owned Provinces of the opened rings (`rings_opened` from the Frontier), in ring then (p, q) order.
 pub fn opened_provinces(c: &Chain, a: &Addresses) -> Vec<(i32, i32)> {
     use frontier_abi::layout::world::frontier as FR;
@@ -362,6 +369,8 @@ pub struct LegacyMarchDriver {
     /// driver's): their turns are this driver's to resolve while the host is there, and its return home is settled
     /// here (`stand_action`). Learned from this driver's own landed SettleTransit.
     pub stands: Vec<((i32, i32), u64)>,
+    /// Where the next stand step starts (round-robin over `stands`, [`next_stand_cursor`]).
+    stand_cursor: usize,
     /// The world phase (`world_step`): the round-robin position over the other opened provinces, whether it runs, and
     /// how many steps in a row this village's own work kept it waiting (`world_first`: bounded, never starved).
     world_cursor: usize,
@@ -385,7 +394,7 @@ impl LegacyMarchDriver {
     pub fn new(href: HoldingRef, payer: Keypair, stop: tokio::sync::watch::Receiver<bool>) -> LegacyMarchDriver {
         let a = Addresses::new(Address::new_from_array(crate::expedition_play::PROGRAM), crate::expedition_play::SEASON_ID);
         let holding = href.address(&a);
-        LegacyMarchDriver { a, holding, href, payer, stop, land_timeout: crate::keeper_loop::LAND_TIMEOUT, known: Default::default(), terminal: None, log: vec![], stands: vec![], world_cursor: 0, world_crank: true, world_skip: vec![], world_skipped: 0, world_rounds: Default::default(), world_sent: 0, world_counts: Default::default() }
+        LegacyMarchDriver { a, holding, href, payer, stop, land_timeout: crate::keeper_loop::LAND_TIMEOUT, known: Default::default(), terminal: None, log: vec![], stands: vec![], stand_cursor: 0, world_cursor: 0, world_crank: true, world_skip: vec![], world_skipped: 0, world_rounds: Default::default(), world_sent: 0, world_counts: Default::default() }
     }
 
     pub fn terminal(&self) -> Option<&Step> {
@@ -583,8 +592,12 @@ impl LegacyMarchDriver {
     async fn stand_step(&mut self, state: &Shared, v2: bool, clock: &fclient::clock::SeasonClock, season: &Season) -> Step {
         let me = self.payer.pubkey();
         let mut first_wait: Option<String> = None;
-        let mut gone = vec![];
-        for (k, &(dest, host)) in self.stands.clone().iter().enumerate() {
+        let mut gone: Vec<usize> = vec![];
+        // (round-robin from `stand_cursor`: the stand that answered goes last next time, so one always behind cannot
+        //  starve the others — the world sweep skips every stand, so nothing else would drive them)
+        let stands = self.stands.clone();
+        for k in world_order(self.stand_cursor, stands.len()) {
+            let (dest, host) = stands[k];
             let (dv, entry) = {
                 let c = lock(state);
                 let dv = lk::view(&c, &self.a, dest.0 as i16, dest.1 as i16);
@@ -605,11 +618,16 @@ impl LegacyMarchDriver {
                 StandAction::Wait => Step::Wait(format!("the stand province {dest:?}: turn {} has not ended", dv.resolved_next)),
             };
             if let Some(answer) = fold_step(&mut first_wait, s) {
-                for k in gone.into_iter().rev() { self.stands.remove(k); }
+                gone.sort_unstable();
+                let before = gone.iter().filter(|&&g| g < k).count();
+                for g in gone.into_iter().rev() { self.stands.remove(g); }
+                self.stand_cursor = next_stand_cursor(k, before, self.stands.len());
                 return answer;
             }
         }
-        for k in gone.into_iter().rev() { self.stands.remove(k); }
+        gone.sort_unstable();
+        for g in gone.into_iter().rev() { self.stands.remove(g); }
+        if self.stands.is_empty() { self.stand_cursor = 0; }
         Step::Wait(first_wait.unwrap_or_else(|| "no march of this village".into()))
     }
 
@@ -998,6 +1016,40 @@ mod world {
     fn the_world_phase_is_never_starved_and_never_starves_the_village() {
         assert!(!world_first(0) && !world_first(WORLD_STARVE_LIMIT - 1), "the village's own work first");
         assert!(world_first(WORLD_STARVE_LIMIT), "after the bound, the world goes first once");
+    }
+}
+
+#[cfg(test)]
+mod stand_fairness {
+    use super::{next_stand_cursor, world_order};
+    /// The stand step's choice, as it makes it (pure model): from the cursor, the first stand that answers.
+    fn pick(cursor: usize, answers: &[bool]) -> Option<usize> { world_order(cursor, answers.len()).find(|&k| answers[k]) }
+    #[test]
+    fn the_next_stand_step_starts_after_the_one_that_answered() {
+        assert_eq!(next_stand_cursor(0, 0, 3), 1);
+        assert_eq!(next_stand_cursor(2, 0, 3), 0, "wraps");
+        assert_eq!(next_stand_cursor(2, 1, 2), 0, "one forgotten before it: the indices shift");
+        assert_eq!(next_stand_cursor(1, 1, 2), 1);
+        assert_eq!(next_stand_cursor(0, 0, 0), 0);
+    }
+    #[test]
+    fn a_stand_always_behind_never_starves_the_others() {
+        // three stands, every one behind every time (the first is a contested fort that always has work): each is served
+        // in turn; before, the first answered every step and the others (which the world sweep skips) were never driven
+        let answers = [true, true, true];
+        let (mut cur, mut served) = (0usize, vec![]);
+        for _ in 0..6 { let k = pick(cur, &answers).unwrap(); served.push(k); cur = next_stand_cursor(k, 0, answers.len()); }
+        assert_eq!(served, vec![0, 1, 2, 0, 1, 2]);
+        // two stands, only the second with work now and then: it is reached whenever it has work
+        let (mut cur, mut got) = (0usize, 0);
+        for t in 0..6 { let answers = [true, t % 2 == 0]; let k = pick(cur, &answers).unwrap(); if k == 1 { got += 1; } cur = next_stand_cursor(k, 0, 2); }
+        assert!(got >= 2, "the second stand is served: {got}");
+    }
+    #[test]
+    fn the_driver_walks_its_stands_round_robin() {
+        let src = include_str!("legacy_march.rs");
+        assert!(src.contains("for k in world_order(self.stand_cursor, stands.len()) {"));
+        assert!(src.contains("self.stand_cursor = next_stand_cursor(k, before, self.stands.len());"));
     }
 }
 

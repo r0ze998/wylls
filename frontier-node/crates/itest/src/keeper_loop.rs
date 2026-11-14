@@ -55,6 +55,17 @@ pub enum Pace {
 /// The capture demo's pace: 1 s while work lands, at most 8 in a row (then the full tick).
 pub const DEMO_PACE: Pace = Pace::Demo { short: Duration::from_secs(1), burst: 8 };
 
+/// TEST-ONLY capture demo: how many steps in a row one driver may take in one pass while each of them LANDS (each its
+/// own fresh read, its own simulation and its own awaited receipt — exactly the step the next pass would take, minus the
+/// sleep between passes). A Wait, a refusal, an Unknown or a stop ends the run at once; nothing is ever sent in parallel
+/// and nothing is resent. A contested province needs GatherClash → PostSeed → ResolveFromInputs every turn, one step each:
+/// at one step per pass and ~2 s per pass that alone used most of a ×60 turn (10 s), and the lag grew. Natural play: 1.
+pub const DEMO_STEPS_PER_PASS: u32 = 4;
+/// Steps per driver per pass for `pace` (pure): the demo's bounded run, natural play's single step.
+pub fn steps_per_pass(pace: Pace) -> u32 {
+    match pace { Pace::Demo { .. } => DEMO_STEPS_PER_PASS, Pace::Natural => 1 }
+}
+
 /// The wait after a tick (pure): `landed` says whether that tick landed a transaction; `run` counts the short waits in
 /// a row and is reset by every full one.
 pub fn next_wait(pace: Pace, landed: bool, run: &mut u32) -> Duration {
@@ -559,6 +570,9 @@ pub struct Pilot {
     /// world sweep off; the first village's world sweep skips their provinces, so no two drivers race on one province.
     /// A village's Unknown or Stopped ends that village only (never resent).
     pub others: Vec<Village>,
+    /// Steps per driver per pass ([`steps_per_pass`]): 1 (natural play, every caller of `Pilot::new*`); the TEST-ONLY
+    /// demo pace sets [`DEMO_STEPS_PER_PASS`] in [`run_paced_with`], for every village of the loop.
+    pub per_step: u32,
 }
 
 /// Which status field a step's line goes to.
@@ -587,12 +601,27 @@ pub struct RunOut { pub reports: Vec<Report>, pub landed: bool, pub stopped: Opt
 /// (it is reported, never resent) and the next step runs. A contest pair (`pair` true): the same, and ANY Unknown ends
 /// the pass before the next step is called, so no later step of any village can send what might duplicate it.
 pub async fn run_steps(state: &Shared, steps: &mut [&mut dyn TickStep], pair: bool) -> RunOut {
+    run_steps_bounded(state, steps, pair, 1).await
+}
+
+/// [`run_steps`], where each DRIVER (never the keeper) may take up to `per_step` steps in a row while each one lands
+/// ([`DEMO_STEPS_PER_PASS`]; 1 is exactly `run_steps`). Each step is called only after the previous one's receipt; the
+/// first that does not land (a wait, a refusal, an unknown outcome, a stop) ends that driver's run, and then the same
+/// rules as `run_steps` decide whether the pass goes on (a pair: any Unknown ends it before anything else is called).
+pub async fn run_steps_bounded(state: &Shared, steps: &mut [&mut dyn TickStep], pair: bool, per_step: u32) -> RunOut {
     let mut out = RunOut::default();
     for s in steps.iter_mut() {
         if s.done() { continue; }
-        let r = s.run(state).await;
+        let mut r = s.run(state).await;
         out.landed |= r.out == Out::Landed;
         out.reports.push(r.clone());
+        let mut taken = 1u32;
+        while r.field != Field::Keeper && r.out == Out::Landed && taken < per_step.max(1) && !s.done() {
+            r = s.run(state).await;
+            taken += 1;
+            out.landed |= r.out == Out::Landed;
+            out.reports.push(r.clone());
+        }
         let end = match (&r.field, &r.out) {
             (Field::Keeper, Out::Unknown { .. } | Out::Stopped(_)) => true,
             (Field::Origin, Out::Unknown { .. } | Out::Stopped(_)) => true,
@@ -723,6 +752,7 @@ struct FirstVillage<'p> {
     legacy: &'p mut Option<crate::legacy_march::LegacyMarchDriver>,
     resident: &'p mut Option<crate::resident_bells::ResidentBells>,
     origin: &'p mut Option<crate::origin_driver::OriginDriver>,
+    per_step: u32,
 }
 fn village_steps<'s>(keeper: &'s mut Keeper, destination: &'s mut Option<crate::destination_driver::DestinationDriver>, legacy: &'s mut Option<crate::legacy_march::LegacyMarchDriver>, resident: &'s mut Option<crate::resident_bells::ResidentBells>, origin: &'s mut Option<crate::origin_driver::OriginDriver>) -> Vec<&'s mut dyn TickStep> {
     let mut steps: Vec<&mut dyn TickStep> = vec![keeper as &mut dyn TickStep];
@@ -734,7 +764,7 @@ fn village_steps<'s>(keeper: &'s mut Keeper, destination: &'s mut Option<crate::
 }
 impl PassVillage for FirstVillage<'_> {
     fn pass<'a>(&'a mut self, state: &'a Shared, pair: bool) -> Pin<Box<dyn Future<Output = RunOut> + Send + 'a>> {
-        Box::pin(async move { let mut steps = village_steps(self.keeper, self.destination, self.legacy, self.resident, self.origin); run_steps(state, &mut steps, pair).await })
+        Box::pin(async move { let per = self.per_step; let mut steps = village_steps(self.keeper, self.destination, self.legacy, self.resident, self.origin); run_steps_bounded(state, &mut steps, pair, per).await })
     }
     fn record(&mut self, r: &RunOut) { apply(self.keeper, r); }
     fn status(&self) -> &Status { &self.keeper.status }
@@ -744,7 +774,7 @@ impl PassVillage for FirstVillage<'_> {
 }
 impl PassVillage for Village {
     fn pass<'a>(&'a mut self, state: &'a Shared, pair: bool) -> Pin<Box<dyn Future<Output = RunOut> + Send + 'a>> {
-        Box::pin(async move { let Village { keeper, destination, legacy, resident, origin, .. } = self; let mut steps = village_steps(keeper, destination, legacy, resident, origin); run_steps(state, &mut steps, pair).await })
+        Box::pin(async move { let Village { keeper, destination, legacy, resident, origin, per_step, .. } = self; let per = *per_step; let mut steps = village_steps(keeper, destination, legacy, resident, origin); run_steps_bounded(state, &mut steps, pair, per).await })
     }
     fn record(&mut self, r: &RunOut) { apply(&mut self.keeper, r); }
     fn status(&self) -> &Status { &self.keeper.status }
@@ -771,6 +801,8 @@ pub struct Village {
     pub legacy: Option<crate::legacy_march::LegacyMarchDriver>,
     /// Ended (its keeper or origin driver stopped, or an unknown outcome): it is reported and never ticked again.
     pub ended: bool,
+    /// Steps per driver per pass ([`steps_per_pass`]; the Pilot's).
+    pub per_step: u32,
 }
 
 type Drivers = (Option<crate::origin_driver::OriginDriver>, Option<crate::destination_driver::DestinationDriver>, Option<crate::resident_bells::ResidentBells>, Option<crate::legacy_march::LegacyMarchDriver>);
@@ -820,7 +852,7 @@ impl Pilot {
             Some(h) => village_drivers(state, &keeper, h, home, true, &mut stop).await?,
             None => (None, None, None, None),
         };
-        Ok(Pilot { keeper, origin, destination, resident, legacy, landed: false, others: vec![] })
+        Ok(Pilot { keeper, origin, destination, resident, legacy, landed: false, others: vec![], per_step: 1 })
     }
 
     /// TEST-ONLY contest pair: serve one more village (Holding `holding`, home `home`) in this loop, with its own keeper
@@ -830,7 +862,7 @@ impl Pilot {
         keeper.watch_holding(holding);
         keeper.status.village = Some(self.others.len() as u8 + 2);
         let (origin, destination, resident, legacy) = village_drivers(state, &keeper, holding, home, false, &mut stop).await?;
-        self.others.push(Village { home: (home.0 as i32, home.1 as i32), keeper, origin, destination, resident, legacy, ended: false });
+        self.others.push(Village { home: (home.0 as i32, home.1 as i32), keeper, origin, destination, resident, legacy, ended: false, per_step: self.per_step });
         Ok(())
     }
 
@@ -842,8 +874,8 @@ impl Pilot {
         if let Some(l) = self.legacy.as_mut() {
             l.world_skip = self.others.iter().filter(|v| !v.ended).flat_map(|v| v.provinces()).collect();
         }
-        let Pilot { keeper, destination, legacy, resident, origin, others, .. } = self;
-        let mut first = FirstVillage { keeper, destination, legacy, resident, origin };
+        let Pilot { keeper, destination, legacy, resident, origin, others, per_step, .. } = self;
+        let mut first = FirstVillage { keeper, destination, legacy, resident, origin, per_step: *per_step };
         let mut rest: Vec<&mut dyn PassVillage> = others.iter_mut().map(|v| v as &mut dyn PassVillage).collect();
         let (alive, landed) = orchestrate(state, &mut first, &mut rest).await;
         self.landed = landed;
@@ -883,6 +915,7 @@ pub async fn run_paced_with(state: Shared, source: RoundSource, holding: Option<
             return;
         }
     };
+    p.per_step = steps_per_pass(pace);
     let mut last = Status::default();
     let mut last_others: Vec<Status> = vec![];
     loop {
@@ -1629,5 +1662,102 @@ mod pair_tests {
         let second = Status { village: Some(2), ..Status::default() }.json();
         assert_eq!(second["village"], json!(2));
         assert_eq!(first.as_object().unwrap().len() + 1, second.as_object().unwrap().len());
+    }
+    // ---- the TEST-ONLY demo's bounded run of steps per driver per pass (round 11, 2026-11-14)
+    struct Seq { name: &'static str, field: Field, outs: std::collections::VecDeque<Out>, log: Arc<Mutex<Vec<&'static str>>> }
+    impl TickStep for Seq {
+        fn run<'a>(&'a mut self, _state: &'a Shared) -> Pin<Box<dyn Future<Output = Report> + Send + 'a>> {
+            Box::pin(async move { self.log.lock().unwrap().push(self.name); let out = self.outs.pop_front().unwrap_or(Out::Quiet); Report { field: self.field, out, text: self.name.into() } })
+        }
+    }
+    fn seq_village(tag: &'static [&'static str; 4], outs: [Vec<Out>; 4], log: &Arc<Mutex<Vec<&'static str>>>) -> Vec<Seq> {
+        let f = [Field::Keeper, Field::Destination, Field::Resident, Field::Origin];
+        outs.into_iter().enumerate().map(|(i, o)| Seq { name: tag[i], field: f[i], outs: o.into(), log: log.clone() }).collect()
+    }
+    async fn seq_pass(ms: &mut [Seq], pair: bool, per: u32) -> RunOut {
+        let st = state();
+        let mut steps: Vec<&mut dyn TickStep> = ms.iter_mut().map(|m| m as &mut dyn TickStep).collect();
+        run_steps_bounded(&st, &mut steps, pair, per).await
+    }
+    fn count(log: &Arc<Mutex<Vec<&'static str>>>, name: &str) -> usize { log.lock().unwrap().iter().filter(|n| **n == name).count() }
+    #[allow(non_snake_case)] fn L() -> Out { Out::Landed }
+    #[test]
+    fn the_demo_takes_a_bounded_run_and_natural_play_one_step() {
+        assert_eq!(steps_per_pass(Pace::Natural), 1);
+        assert_eq!(steps_per_pass(DEMO_PACE), DEMO_STEPS_PER_PASS);
+        assert_eq!(DEMO_STEPS_PER_PASS, 4, "Gather → Seed → Resolve of a contested turn, plus one");
+        let src = include_str!("keeper_loop.rs");
+        assert_eq!(src.matches(concat!("p.per_step = ", "steps_per_pass(pace);")).count(), 1, "set only from the loop's pace");
+        assert!(src.contains("Ok(Pilot { keeper, origin, destination, resident, legacy, landed: false, others: vec![], per_step: 1 })"), "every Pilot starts at one step");
+        assert!(src.contains("ended: false, per_step: self.per_step });"), "an added village takes the loop's budget");
+    }
+    #[tokio::test]
+    async fn a_driver_runs_while_it_lands_up_to_the_budget_then_the_next_step() {
+        let log = Arc::new(Mutex::new(vec![]));
+        let mut a = seq_village(&A, [vec![L()], vec![L(), L(), L(), L(), L(), L()], vec![L()], vec![]], &log);
+        let r = seq_pass(&mut a, false, 4).await;
+        assert!(r.landed && r.stopped.is_none());
+        assert_eq!(count(&log, "A keeper"), 1, "the keeper never runs twice in a pass");
+        assert_eq!(count(&log, "A legacy"), 4, "bounded: 4, though it could land more");
+        assert_eq!(count(&log, "A resident"), 2, "landed once, then quiet: 2 calls");
+        assert_eq!(count(&log, "A origin"), 1);
+        assert_eq!(*log.lock().unwrap(), vec!["A keeper", "A legacy", "A legacy", "A legacy", "A legacy", "A resident", "A resident", "A origin"], "in order: never two at once");
+    }
+    #[tokio::test]
+    async fn a_wait_or_a_refusal_ends_the_run_and_one_step_is_the_old_pass() {
+        let log = Arc::new(Mutex::new(vec![]));
+        let mut a = seq_village(&A, [vec![], vec![L(), Out::Quiet, L()], vec![L(), Out::Stopped("refused".into()), L()], vec![]], &log);
+        seq_pass(&mut a, false, 4).await;
+        assert_eq!(count(&log, "A legacy"), 2, "landed, then a wait: ends");
+        assert_eq!(count(&log, "A resident"), 2, "landed, then a refusal: ends");
+        let log1 = Arc::new(Mutex::new(vec![]));
+        let mut b = seq_village(&A, [vec![L()], vec![L(), L()], vec![L(), L()], vec![L(), L()]], &log1);
+        seq_pass(&mut b, false, 1).await;
+        assert_eq!(log1.lock().unwrap().len(), 4, "natural play: one call each, exactly as before");
+    }
+    #[tokio::test]
+    async fn pair_an_unknown_inside_a_run_calls_nothing_after_it() {
+        let (st, log) = (state(), Arc::new(Mutex::new(vec![])));
+        struct SeqVillage { steps: Vec<Seq>, status: Status, ended: bool, per: u32 }
+        impl PassVillage for SeqVillage {
+            fn pass<'a>(&'a mut self, state: &'a Shared, pair: bool) -> Pin<Box<dyn Future<Output = RunOut> + Send + 'a>> {
+                Box::pin(async move { let per = self.per; let mut steps: Vec<&mut dyn TickStep> = self.steps.iter_mut().map(|m| m as &mut dyn TickStep).collect(); run_steps_bounded(state, &mut steps, pair, per).await })
+            }
+            fn record(&mut self, r: &RunOut) { for rep in &r.reports { if let Out::Unknown { signature, .. } = &rep.out { self.status.unknown_signature = Some(signature.clone()); } } }
+            fn status(&self) -> &Status { &self.status }
+            fn halt(&mut self, why: String) { self.status.stopped = Some(why); }
+            fn ended(&self) -> bool { self.ended }
+            fn end(&mut self) { self.ended = true; }
+        }
+        let mut a = SeqVillage { steps: seq_village(&A, [vec![], vec![L(), unk(), L(), L()], vec![L()], vec![L()]], &log), status: Status::default(), ended: false, per: 4 };
+        let mut b = SeqVillage { steps: seq_village(&B, [vec![L()], vec![L(), L()], vec![L()], vec![L()]], &log), status: Status::default(), ended: false, per: 4 };
+        { let mut rest: Vec<&mut dyn PassVillage> = vec![&mut b as &mut dyn PassVillage]; assert!(!orchestrate(&st, &mut a, &mut rest).await.0, "the whole pair loop stops"); }
+        assert_eq!(*log.lock().unwrap(), vec!["A keeper", "A legacy", "A legacy"], "nothing after the unknown: not A's run, not A resident/origin, not B");
+        assert!(a.status.stopped.is_some() && b.status.stopped.is_some() && b.ended);
+        { let mut rest: Vec<&mut dyn PassVillage> = vec![&mut b as &mut dyn PassVillage]; assert!(!orchestrate(&st, &mut a, &mut rest).await.0); }
+        assert_eq!(log.lock().unwrap().len(), 3, "the next pass calls nothing");
+        // B's unknown inside its run: the same, and A's next pass is not run
+        let (log2, st2) = (Arc::new(Mutex::new(vec![])), state());
+        let mut a2 = SeqVillage { steps: seq_village(&A, [vec![], vec![L()], vec![], vec![]], &log2), status: Status::default(), ended: false, per: 4 };
+        let mut b2 = SeqVillage { steps: seq_village(&B, [vec![], vec![L(), L(), unk(), L()], vec![L()], vec![L()]], &log2), status: Status::default(), ended: false, per: 4 };
+        { let mut rest: Vec<&mut dyn PassVillage> = vec![&mut b2 as &mut dyn PassVillage]; assert!(!orchestrate(&st2, &mut a2, &mut rest).await.0); }
+        assert_eq!(count(&log2, "B legacy"), 3); assert_eq!(count(&log2, "B resident") + count(&log2, "B origin"), 0);
+        let before = log2.lock().unwrap().len();
+        { let mut rest: Vec<&mut dyn PassVillage> = vec![&mut b2 as &mut dyn PassVillage]; assert!(!orchestrate(&st2, &mut a2, &mut rest).await.0); }
+        assert_eq!(log2.lock().unwrap().len(), before, "A's next pass: 0 calls");
+    }
+    #[tokio::test]
+    async fn two_villages_each_get_their_run_in_one_pass() {
+        let (st, log) = (state(), Arc::new(Mutex::new(vec![])));
+        let mut a = mv(&A, [Out::Quiet, Out::Landed, Out::Quiet, Out::Quiet], &log);
+        let mut b = mv(&B, [Out::Quiet, Out::Landed, Out::Quiet, Out::Quiet], &log);
+        // (the mock villages' passes are the real run_steps — one step each; the bounded run is per driver, so with the
+        //  budget both villages' drivers get the same bounded run in the same pass: neither is starved)
+        let mut ms_a = seq_village(&A, [vec![], vec![L(); 8], vec![], vec![]], &log);
+        let mut ms_b = seq_village(&B, [vec![], vec![L(); 8], vec![], vec![]], &log);
+        seq_pass(&mut ms_a, true, 4).await; seq_pass(&mut ms_b, true, 4).await;
+        assert_eq!(count(&log, "A legacy"), 4); assert_eq!(count(&log, "B legacy"), 4);
+        let mut rest: Vec<&mut dyn PassVillage> = vec![&mut b as &mut dyn PassVillage];
+        assert_eq!(orchestrate(&st, &mut a, &mut rest).await, (true, true));
     }
 }
