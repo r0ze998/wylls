@@ -56,6 +56,7 @@ permutation-gateway/test/frontier-cq-sdk.test.mjs
 permutation-gateway/test/frontier-live-connect-fresh-economy.test.mjs
 permutation-gateway/test/frontier-local-play-act.test.mjs
 permutation-gateway/test/frontier-local-play-conquest.test.mjs
+permutation-gateway/test/frontier-local-play-nft-resident.test.mjs
 permutation-gateway/test/frontier-local-play-relay.test.mjs
 permutation-gateway/test/frontier-local-play-resident.test.mjs
 permutation-gateway/test/frontier-local-play-reveal.test.mjs
