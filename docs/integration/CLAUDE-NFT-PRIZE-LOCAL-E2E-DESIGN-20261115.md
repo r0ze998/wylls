@@ -262,3 +262,19 @@ list's last editor on that branch, and is not written yet.
 
 **Ports:** main confirmed **41100–41199** (avoid 41904–41907). Current bands: ⑳ 41920 / 41980–41989 / 41996; main
 41940 / 41944–41953 / 41961. A world of mine needs its slot and space agreed with main first.
+
+### 14.1 Runner instance pinned too (2026-11-15, port branch `09a21ae4`)
+
+The localnet keeps its `runId` across a WAL reopen or restore (`chain.rs`), and only `status_instance` changes, so `runId`
+alone cannot detect a restarted or rewound world (review finding).
+- Before a message is built and again before it is sent, the relay now checks **both** the `frontier_status` `runId`
+  and the status context's `instance` (`getSignatureStatuses([])`, which the server accepts).
+- `cfg.runnerInstance` (64 hex) is required and part of the frozen snapshot. Missing or malformed fails closed. A
+  mismatch sends nothing and spends the ticket.
+
+Tests: key-free 10/10, key-using 9/9. **Negative control:** with the run-id-only check, exactly the two new restart
+tests fail. Prize set 39/39; key-using plus ⑳'s login/card tests 19/19.
+
+**Boundary, recorded, not claimed:** separate RPC calls lie between the identity check and `sendTransaction`. A runner
+swapped in exactly that window is not excluded by this relay; the program's own on-chain checks still apply.
+Mount stays on hold until mutual review with ⑳.
