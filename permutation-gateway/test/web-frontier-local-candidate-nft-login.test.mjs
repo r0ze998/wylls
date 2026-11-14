@@ -92,3 +92,30 @@ test('the wallet changes while the outcome is followed: the one send stays the o
   await C.ACTIONS['nft-login']({ asset: ASSET });
   assert.equal(submits().length, 1); assert.equal(FS.resident, null);
 });
+
+test('nft-transfer is HELD unless the identity says passTransfer: true (no launcher does yet)', async () => {
+  scene();
+  FS.resident = { asset: ASSET, citizen: key(30), joined: true, generation: 0, proof: {} };
+  await C.ACTIONS['nft-transfer']({ to: OTHER });
+  assert.equal(submits().length, 0);
+});
+
+test('nft-transfer: ONE TransferResident to the address typed; once landed the page plays its wallet\'s own Citizen again', async () => {
+  scene(); lp.passTransfer = true; after(() => { delete lp.passTransfer; });
+  FS.resident = { asset: ASSET, citizen: key(30), joined: true, generation: 0, proof: {} };
+  await C.ACTIONS['nft-transfer']({ to: OTHER });
+  assert.equal(submits().length, 1);
+  const b = submits()[0].body;
+  assert.equal(b.name, 'TransferResident'); assert.deepEqual(b.fields, { to: OTHER }); assert.deepEqual(b.subject, {});
+  assert.deepEqual(b.resident, { asset: ASSET, generation: 0, resident_program: RESIDENT_PROGRAM });
+  assert.equal(FS.resident, null);
+});
+
+test('nft-transfer: the wallet changes while the generation is read — nothing is sent, the viewer stays', async () => {
+  scene(); lp.passTransfer = true;
+  const viewer = { asset: ASSET, citizen: key(30), joined: true, generation: 0, proof: {} };
+  FS.resident = viewer;
+  hooks.residents = () => { FS.wallet = { address: OTHER }; };
+  await C.ACTIONS['nft-transfer']({ to: key(90) });
+  assert.equal(submits().length, 0); assert.equal(FS.resident, viewer);
+});

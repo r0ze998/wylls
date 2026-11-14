@@ -2676,6 +2676,38 @@ export const ACTIONS = {
     await refreshPrize({ force: true }).catch(e => console.error('frontier prize:', e));
   },
   'nft-logout': async () => { adoptResident(null); await refresh(); },
+  // LOCAL TEST CANDIDATE lane only: the pass played to another wallet (TransferResident, this page's wallet signing).
+  // Pinned like nft-login: the wallet, the world, the relay, the asset and the viewer at the press, asked again after
+  // every await, inside the send and before the viewer changes. Once it landed this page no longer holds the pass: it
+  // plays its wallet's own Citizen again, and every later order for the NFT is refused (the relay reads the owner).
+  'nft-transfer': async d => {
+    if (!localCandidate() || !FS.resident || !FS.wallet) return failed(localPlayReadOnly());
+    // HELD in worlds until the relay binds a transfer to the generation it read (0x51's signed bytes carry none): only
+    // a local-play identity that says passTransfer: true sends it, and no launcher says so yet
+    if (localPlay.passTransfer !== true) return failed({ code: 'PassTransferHeld' });
+    const to = String(d?.to ?? globalThis.document?.getElementById?.('nft-transfer-to')?.value ?? '').trim();
+    const gate0 = localDepartGate();
+    if (!gate0?.ok) return failed(localPlayReadOnly());
+    const pinned = Object.freeze({ wallet: FS.wallet.address, identity: localPlay, relay: gate0.relay, viewer: FS.resident, asset: FS.resident.asset });
+    const same = () => localCandidate() && localPlay === pinned.identity && FS.wallet?.address === pinned.wallet && localDepartGate()?.relay === pinned.relay && FS.resident === pinned.viewer;
+    const changed = () => failed({ code: 'LocalActChanged' });
+    const g = await residentGenerationNow(pinned.asset);
+    if (!same()) return changed();
+    if (g === null) return failed({ code: 'NftNotHeld' });
+    const policy = FS.nfts?.policy;
+    if (typeof policy?.residentProgram !== 'string' || typeof policy?.collection !== 'string') return failed({ code: 'NftNotHeld' });
+    const r = await localAct.submitLocalAct({ name: 'TransferResident', v: {}, fields: { to } }, {
+      ...localActDeps(), allowed: () => (same() ? localDepartGate() : { ok: false, code: 'LocalActChanged' }), identity: () => pinned.identity,
+      resident: () => (same() ? { asset: pinned.asset, generation: g, residentProgram: policy.residentProgram, collection: policy.collection } : null) });
+    if (!r?.ok) return failed(r);
+    if (!same()) return changed();
+    const done = await localAct.followLocalAct(r.signature, { origin: pinned.relay, still: same }).catch(() => null);
+    if (!same()) return changed();
+    if (done?.state !== 'landed') return failed({ code: done?.state === 'failed' ? 'TransferFailed' : 'TransferUnconfirmed' });
+    adoptResident(null);
+    await loadNfts();
+    await refresh();
+  },
   // ⑳ after minting on the mint page: read the wallet's NFTs again (the chain decides what it holds).
   'nft-reload': async () => { await loadNfts(); },
   // NFT pass (experimental): the pass's prize share, to its current owner.

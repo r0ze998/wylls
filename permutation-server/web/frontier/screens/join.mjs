@@ -393,9 +393,16 @@ export function renderLocalCandidateNfts(FS) {
       <p class="muted">${L`このウォレットは住民NFT（参加パス）を持っていません。発行ページで取得すると、この画面からそのNFTで参加できます。`}</p>
       <div class="actions"><button type="button" class="btn ghost" data-act="nft-reload">${L`取得したので読み直す`}</button></div></section>`;
   }
+  // (playing the NFT: its transfer to another wallet — TransferResident, this page's wallet signing — candidate lane only)
+  // HELD in worlds: TransferResident's signed bytes carry no generation (docs: the ABA boundary); shown only where the
+  // local-play identity says passTransfer: true, which no launcher sets yet
+  const transfer = FS.resident && FS.localPlay.passTransfer === true ? html`<form class="local-nft-transfer" data-local-nft="transfer" data-act-submit="nft-transfer" onsubmit="return false">
+    <p class="muted">${L`譲渡すると、この画面からはこのNFTの住民を操作できなくなります。`}</p>
+    <label for="nft-transfer-to">${L`受け取るウォレットの公開アドレス`}</label> <input id="nft-transfer-to" name="to" type="text" autocomplete="off" spellcheck="false" maxlength="44">
+    <button type="button" class="btn" data-act="nft-transfer" aria-label="${L`このパスを別のウォレットへ譲渡`}">${L`譲渡する`}</button></form>` : '';
   const unjoined = !FS.resident && list.some(n => !n.joined && Number.isInteger(n.generation));
   const nations = unjoined ? html`<div class="actions" data-local-nft="nations"><span class="muted">${L`国を選ぶと参加できます`}</span> ${factionCards(FS).map(c => html`<button type="button" class="btn${c.chosen ? ' primary' : ''}" data-act="pick-faction" data-f="${c.faction}" aria-pressed="${c.chosen ? 'true' : 'false'}">${c.name}</button>`)}</div>` : '';
-  return html`<div class="local-nft" data-local-nft="candidate">${raw(String(card))}${nations}</div>`;
+  return html`<div class="local-nft" data-local-nft="candidate">${raw(String(card))}${nations}${transfer}</div>`;
 }
 
 /** Keep the nation choice; newer seasons place its first final village immediately. */

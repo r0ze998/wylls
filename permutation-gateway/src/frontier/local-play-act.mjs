@@ -233,7 +233,9 @@ export function localActAccountsCheck(intent, pins, { citizenAt, holdingAt }, [c
 // not pass it): `{rpcOk(url), sendGuard()}`. The RPC must then be the TEST runner's (the test range, and not an
 // ordinary one), a runner instance must be pinned, and `sendGuard` is asked as the last thing before the one send:
 // when it throws, nothing is sent and the bytes are not consumed. Nothing else about the flow differs.
-export function createLocalPlayAct({ cfg, rpc = (m, p) => fetchRpc(cfg.rpc, m, p), runnerInstance = null, test = null }) {
+// `passTransferTestOnly` (TEST ONLY, never passed by the relay server or a launcher): the candidate lane's TransferResident
+// (default deny; local-play-nft-resident.mjs).
+export function createLocalPlayAct({ cfg, rpc = (m, p) => fetchRpc(cfg.rpc, m, p), runnerInstance = null, test = null, passTransferTestOnly = false }) {
   if (test !== null && (test === undefined || typeof test !== 'object' || typeof test.rpcOk !== 'function' || typeof test.sendGuard !== 'function' || runnerInstance === null)) throw new Error('local-play act refused: bad test form');
   const problems = localPlayRelayConfigProblems(cfg, test === null ? {} : { testRpcOk: test.rpcOk });
   if (problems.length) throw new Error('local-play act refused: ' + problems.join('; '));
@@ -278,7 +280,7 @@ export function createLocalPlayAct({ cfg, rpc = (m, p) => fetchRpc(cfg.rpc, m, p
       if (body?.schema === LOCAL_ACT_SUBMIT_RESIDENT_SCHEMA) {
         // (LOCAL TEST CANDIDATE lane only — refused on the conquest lane before anything is read: an NFT resident's
         //  command, every holder fact checked on ONE read at one slot: local-play-nft-resident.mjs)
-        const parsed = localResidentSubmit(body, pins, { intentOf: localActIntent, fail });
+        const parsed = localResidentSubmit(body, pins, { intentOf: localActIntent, fail, passTransferTestOnly: passTransferTestOnly === true });
         const want = localResidentAccounts(parsed, pins);
         const got = await ask('getMultipleAccounts', [want.list, { encoding: 'base64', commitment: 'confirmed' }]);
         open();
