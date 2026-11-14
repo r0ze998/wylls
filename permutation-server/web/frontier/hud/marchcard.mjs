@@ -38,6 +38,8 @@ import { conquestOn, crest, holdTurns } from './keephand.mjs';
 import { STANCE_PIC, RETREAT_PIC, sealPic } from './pictos.mjs';
 import { miniCardUrl, MINI_KINDS } from '../people/minis.mjs';
 import { compareKey, forecastKey } from './forecast.mjs';
+/** Stamina a fight on arrival costs unless the damage-ratio refund applies (permutation-rules host.rs ENGAGE_STAMINA). */
+const ENGAGE_STAMINA = 20;
 import { pendable } from '../flocalplay-pending.mjs';
 
 const BEATS = { Assault: 'Flank', Flank: 'Brace', Brace: 'Assault' };
@@ -142,7 +144,14 @@ const topFate = fc => Object.entries(fc.fates ?? {}).sort((a, b) => b[1] - a[1])
  */
 export function outlook({ w, awayLine, stam, nowB, def, odds, fc, sight }) {
   const cell = (k, v, note, cls = '') => html`<div class="mo-cell ${cls}"><span class="mo-k">${k}</span><strong class="mo-v">${v}</strong>${note ? html`<span class="mo-n">${note}</span>` : ''}</div>`;
-  const next = stam !== null && stam >= DEPART_STAMINA ? L`次はターン ${fmtNum(nowB + Math.max(0, 2 * DEPART_STAMINA - stam))} から` : '';
+  // (round 33: when the host can set out again, on the program's own clock — permutation-rules host.rs Stamina and
+  //  frontier-abi clash_model.rs arrival_stamina: a Depart in turn b leaves s − 74 stored at b; the arrival brings it
+  //  refilled from b + 1, stored at the arrival turn, +1 a turn after; so 74 again from b + 149 − s. A fight on arrival
+  //  without the damage-ratio refund costs ENGAGE_STAMINA 20 more: from b + 169 − s. The card said b + 148 − s: "turn 34"
+  //  for a host that, having fought at the keep, could set out only from turn 55 (a ×10 world, its recorded entry: 29
+  //  stored at turn 10). Where the arrival may meet defenders — some recorded, or none known — both turns are said.)
+  const ready = nowB + Math.max(0, 2 * DEPART_STAMINA + 1 - stam), mayFight = !def || def.total > 0;
+  const next = stam !== null && stam >= DEPART_STAMINA ? (mayFight ? L`次はターン ${fmtNum(ready)} から（到着で戦えばターン ${fmtNum(ready + ENGAGE_STAMINA)} から）` : L`次はターン ${fmtNum(ready)} から`) : '';
   const foe = def ? (def.total ? L`守り ${fmtNum(def.total)}` : L`守り手なし`) : L`わからない`;
   const foeNote = def ? (def.total ? odds?.text ?? '' : '') : sight < 3 ? L`見えていない土地` : '';
   // (a forecast of a march nobody opposes says only that the host arrives whole: no cell for it)
