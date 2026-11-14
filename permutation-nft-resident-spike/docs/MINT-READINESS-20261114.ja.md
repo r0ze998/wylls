@@ -78,6 +78,10 @@ node src/mint-demo.mjs --localnet --port 41990      # → http://127.0.0.1:41990
 3. 1 つのローカル validator（または LiteSVM）に Core・住民 program・Frontier を載せ、`CreateResidentPolicy` → world 作成 → ページで mint → 同じウォレットで `JoinResident` → `ResidentAct`（SetVigil など）→ 譲渡 → 旧所有者の拒否、を一つの試験にする。
 4. relay の `/f/residents` と holder gate（`ctx.residents`）を本番の relay で有効にする（今は spike の試験だけが設定する）。
 
+### 5 の続き（同日 14:30 まで）
+
+ゲーム参加の統合は `docs/integration/CLAUDE-NFT-PASS-LOCAL-WORLD-20261114.md`（repository の root から）に記録した。要点：排他は解除せず、版を増やさない独立した lane（`localnet-nft-sbf`、program ID `[0x4E; 32]`）を source として追加した（未 compile）。relay の holder gate が program と同じ順序で transfer guard まで読む。`CreateResidentPolicy` の JS builder を追加した。発行ページは `--rpc` で loopback の chain に読み取り専用でつながる。実 chain の試験（`test/localnet-nft-lane.test.mjs`）は lane の build 後に走る。
+
 ## 6. 公開発行にだけ要る残りの判断（実施していない）
 
 DEVNET-APPROVALS の A1〜A11 と UNDECIDED のうち、発行に直接かかるもの：
