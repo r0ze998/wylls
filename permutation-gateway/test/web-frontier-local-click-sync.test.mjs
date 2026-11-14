@@ -128,3 +128,17 @@ test('round 20: the stand-in is always in the slot, in one grid cell with the re
   assert.match(src('hud/keephand.mjs'), /export function steadySlot\(root, key\)/);
   assert.match(readFileSync(new URL('frontier.css', WEB), 'utf8'), /@media \(min-width: 760px\) \{ \.hand-acts \{ flex-wrap: wrap; \} \}/);
 });
+
+test('round 24: the stand-in says the plain settling sentence, whatever the host\'s state (a forming host\'s own line can be shorter)', () => {
+  const ghost = out => /<div class="kh-wait-ghost"[^]*?<\/div>/.exec(out)?.[0] ?? '';
+  // a host whose muster turn has come (state 2, from this turn): the real line is its forming line; the stand-in is not
+  const s = state({ nowBell: 12, resolvedNext: 12, entry: { state: 2, fromBell: 12 } });
+  const out = String(renderPop(s, handModel(s)));
+  assert.match(out.slice(out.indexOf('class="kh-wait-slot"'), out.indexOf('kh-wait-ghost')), /編成/, 'the real line is the forming line');
+  assert.match(ghost(out), /のいる州が、ターンの処理を進めています。/, 'the stand-in is the settling sentence');
+  assert.doesNotMatch(ghost(out), /編成中/, 'not the forming line');
+  // the same stand-in for a formed host
+  const f = state({ nowBell: 12, resolvedNext: 12 });
+  assert.equal(ghost(String(renderPop(f, handModel(f)))).replace(/\d+/g, '#'), ghost(out).replace(/\d+/g, '#'));
+  assert.match(src('hud/keephand.mjs'), /\$\{ghost \? waitText\(\{ \.\.\.w, id: r\.id, unit: r\.unit, troops: r\.troops \}\) : waitText\(\{ \.\.\.w, id: r\.id, unit: r\.unit, troops: r\.troops \}, FS\)\}/);
+});

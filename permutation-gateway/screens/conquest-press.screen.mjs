@@ -263,3 +263,30 @@ test('round 21: the first village\'s welcome stays visible when the drawer is wr
     assert.ok(seen.rewritten.opacity > 0.99, `it did not fade out and in again (${seen.rewritten.opacity})`);
   } catch (e) { await failed(page, name, e); }
 });
+
+test('round 24: the fort row stays where it is when a host whose muster turn has come stands while its province is still catching up', async t => {
+  const { page, host, name } = await openForts(t, 'row-stands-settling');
+  try {
+    await page.setViewportSize({ width: 1280, height: 800 });
+    const set = (h, state, rnBack, fromBack) => page.evaluate(async ([h, state, rnBack, fromBack]) => {
+      const { FS, invalidate } = await import('/frontier/fstate.mjs');
+      const env = FS.provinces.get(`${h.p},${h.q}`);
+      env.province = { ...env.province, resolvedNext: FS.nowBell - rnBack, entries: env.province.entries.map(e => String(e.id) === h.id ? { ...e, state, fromBell: FS.nowBell - fromBack } : e) };
+      invalidate('panel', 'map');
+      await new Promise(r => setTimeout(r, 700));
+      return document.querySelector('#hand-pop .kh-wait-slot > .kh-wait-line')?.textContent ?? null;
+    }, [h, state, rnBack, fromBack]);
+    // forming, its muster turn come (the short forming line, as in the recorded world), then stood with the province behind
+    const formingText = await set(host, 2, 0, 0);
+    const during = await rowBox(page);
+    const settlingText = await set(host, 1, 3, 1);
+    const after = await rowBox(page);
+    writeFileSync(path.join(OUT, `${name}.json`), `${JSON.stringify({ formingText, settlingText, during, after }, null, 2)}\n`);
+    assert.ok(formingText && settlingText && formingText !== settlingText, 'two different lines were said');
+    // (the case of the recorded world: the forming line is formingLine's short default, shorter than the settling line —
+    //  with a longer forming phase the slot would already be tall and this check could not tell the old code apart)
+    assert.match(formingText, /It stands once the turn it was formed in is resolved/, `the short forming line: ${formingText}`);
+    assert.ok(formingText.length < settlingText.length, 'the forming line is the shorter one');
+    assert.equal(after.y, during.y, `the row did not move when the host stood (${during.y} → ${after.y})`);
+  } catch (e) { await failed(page, name, e); }
+});
