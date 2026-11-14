@@ -42,3 +42,4 @@ permutation-gateway/screens/artifacts/
 /.local/
 # NFT-pass host build output (own target dir, never committed)
 frontier-node/target-nftpass/
+frontier-node/nftpass-bin/
