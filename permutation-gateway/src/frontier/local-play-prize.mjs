@@ -66,6 +66,7 @@ export function localPrizeConfigProblems(cfg) {
   if (!Number.isSafeInteger(cfg?.seasonId) || cfg.seasonId < 0) p.push('seasonId: a safe integer');
   if (!isKey(cfg?.prizeProgram)) p.push('prizeProgram: a base58 key');
   if (!isKey(cfg?.wallet)) p.push('wallet: the page\'s pinned wallet (base58)');
+  if (typeof cfg?.runId !== 'string' || !/^[0-9a-f]{32}$/.test(cfg.runId) || /^0{32}$/.test(cfg.runId)) p.push('runId: the world\'s localnet run id (32 lowercase hex, frontier_status)');
   return p;
 }
 
@@ -73,9 +74,14 @@ export function localPrizeConfigProblems(cfg) {
  * `rpc(method, params)` → { result } | { error } (fetchRpc's contract; the default), `readLedger()` → the TEST ONLY ledger
  * or null, `now()` ms, `runnerInstance` (64 hex, optional): the one runner this world's status answers must name.
  */
-export function createLocalPlayPrize({ cfg, rpc = (m, p) => fetchRpc(cfg.rpc, m, p), readLedger = async () => null, now = () => Date.now(), runnerInstance = null }) {
-  const problems = localPrizeConfigProblems(cfg);
+export function createLocalPlayPrize({ cfg: given, rpc = null, readLedger = async () => null, now = () => Date.now(), runnerInstance = null }) {
+  const problems = localPrizeConfigProblems(given);
   if (problems.length) throw fault('LocalPrizeConfig', 503, problems.join('; '));
+  // A snapshot of the validated primitives: a later change to the caller's object changes nothing here (not the RPC
+  // destination, the wallet, the program or the world).
+  const cfg = Object.freeze({ testOnly: true, rpc: String(given.rpc), programId: String(given.programId), seasonId: Number(given.seasonId),
+    prizeProgram: String(given.prizeProgram), wallet: String(given.wallet), runId: String(given.runId) });
+  if (rpc === null) { const url = cfg.rpc; rpc = (m, p) => fetchRpc(url, m, p); }
   if (runnerInstance !== null && (typeof runnerInstance !== 'string' || !/^[0-9a-f]{64}$/.test(runnerInstance) || /^0{64}$/.test(runnerInstance))) throw fault('LocalPrizeConfig', 503, 'bad runner instance');
   const addresses = new FrontierAddresses({ programId: cfg.programId, seasonId: cfg.seasonId });
   const pool = poolAddress(cfg.prizeProgram, cfg.programId, cfg.seasonId);
@@ -98,6 +104,12 @@ export function createLocalPlayPrize({ cfg, rpc = (m, p) => fetchRpc(cfg.rpc, m,
   /** Drop only never-sent tickets (`expired`) whose last valid height the runner has passed. A sent ticket is never dropped. */
   const retire = height => { for (const [d, e] of tickets) if (e.state === 'expired' && height !== null && height > e.lastValid) tickets.delete(d); };
   const heightNow = async () => { try { const h = await call('getBlockHeight', [{ commitment: 'confirmed' }]); return Number.isSafeInteger(h) && h >= 0 ? BigInt(h) : null; } catch { return null; } };
+  /** The world's runner is the one this relay was started for (frontier_status runId); otherwise nothing is prepared or sent. */
+  async function sameRunner() {
+    let st;
+    try { st = await call('frontier_status', []); } catch { return false; }
+    return typeof st?.runId === 'string' && st.runId.toLowerCase() === cfg.runId;
+  }
 
   async function readPool() {
     const a = await account(pool);
@@ -134,6 +146,7 @@ export function createLocalPlayPrize({ cfg, rpc = (m, p) => fetchRpc(cfg.rpc, m,
     async prepare(body) {
       if (!exact(body, ['schema', 'asset', 'generation']) || body.schema !== PREPARE_SCHEMA || !isKey(body.asset)
           || !Number.isInteger(body.generation) || body.generation < 0 || body.generation > 0xffffffff) throw fault('BadRequest', 400);
+      if (!(await sameRunner())) throw fault('LocalPrizeRunnerChanged', 503, 'the runner is not the one this world was started with; nothing is prepared');
       const p = await readPool();
       if (p.state !== POOL_STATE.SHARES) throw fault('SharesNotPosted', 409, 'the shares are not posted yet');
       if (p.mode === SHARE_MODE.REFUND) throw fault('ResidentRefundUndecided', 409, 'a pass refund is undecided; nothing to claim');
@@ -156,17 +169,28 @@ export function createLocalPlayPrize({ cfg, rpc = (m, p) => fetchRpc(cfg.rpc, m,
       if (!bh || typeof bh.blockhash !== 'string' || !Number.isSafeInteger(bh.lastValidBlockHeight)) throw fault('LocalPrizeRpcUnavailable', 503, 'no blockhash');
       const message = Buffer.from(compileMessage({ feePayer: cfg.wallet, recentBlockhash: bh.blockhash, instructions: [ix] }));
       const digest = sha(message);
-      expireOpen();
+      const reply = () => ({ status: 'prepared', schema: SUBMIT_SCHEMA, message_digest: digest, message_b64: message.toString('base64'), route: LOCAL_PRIZE_ROUTES.submit });
       // ONE ticket per digest: never reset. Open → the same ticket again; anything else → refused (with its signature).
-      const known = tickets.get(digest);
-      if (known) {
-        if (known.state === 'open' && known.message.equals(message)) return { status: 'prepared', schema: SUBMIT_SCHEMA, message_digest: digest, message_b64: known.message.toString('base64'), route: LOCAL_PRIZE_ROUTES.submit, again: true };
-        throw fault(known.state === 'expired' ? 'LocalPrizeMessageExpired' : 'LocalPrizeMessageUsed', 409, 'this claim message was already used or expired; nothing is resent',
+      const answerKnown = known => {
+        if (known.state === 'open' && known.message.equals(message)) return { ...reply(), again: true };
+        throw fault(known.state === 'expired' ? 'LocalPrizeMessageExpired' : 'LocalPrizeMessageUsed', 409, 'this claim message was already used, expired or invalidated; nothing is resent',
           known.signature ? { signature: known.signature } : {});
+      };
+      expireOpen();
+      let known = tickets.get(digest);
+      if (known) return answerKnown(known);
+      if (tickets.size >= MAX_HISTORY) {
+        const h = await heightNow();
+        // After the await everything is decided again, synchronously up to the insert: another prepare of the same
+        // message may have created (and even sent) its ticket meanwhile; it is never overwritten.
+        expireOpen();
+        retire(h);
+        known = tickets.get(digest);
+        if (known) return answerKnown(known);
+        if (tickets.size >= MAX_HISTORY) throw fault('LocalPrizeBusy', 429, 'too many claim tickets are still unsettled');
       }
-      if (tickets.size >= MAX_HISTORY) { retire(await heightNow()); if (tickets.size >= MAX_HISTORY) throw fault('LocalPrizeBusy', 429, 'too many claim tickets are still unsettled'); }
       tickets.set(digest, { message, lastValid: BigInt(bh.lastValidBlockHeight), at: now(), state: 'open' });
-      return { status: 'prepared', schema: SUBMIT_SCHEMA, message_digest: digest, message_b64: message.toString('base64'), route: LOCAL_PRIZE_ROUTES.submit };
+      return reply();
     },
 
     async submit(body) {
@@ -187,6 +211,8 @@ export function createLocalPlayPrize({ cfg, rpc = (m, p) => fetchRpc(cfg.rpc, m,
       if (sha(message) !== body.message_digest || !Buffer.from(message).equals(t.message)) throw fault('LocalPrizeMessageChanged', 400, 'not the prepared message');
       if (!edVerify(null, message, walletKey, signature)) throw fault('LocalPrizeBadSignature', 400, 'not signed by the pinned wallet');
       t.state = 'reserved';
+      // The runner must still be the pinned one: another runner on the same port gets nothing, and the ticket is spent.
+      if (!(await sameRunner())) { t.state = 'invalidated'; throw fault('LocalPrizeRunnerChanged', 503, 'the runner changed; nothing was sent and this claim message cannot be used'); }
       // Before anything is sent: a failure to read a valid height gives the reservation back; past the last valid height it expires.
       const height = await heightNow();
       if (height === null) { t.state = 'open'; throw fault('LocalPrizeRpcUnavailable', 503, 'the runner did not answer'); }

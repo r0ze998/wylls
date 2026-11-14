@@ -11,7 +11,7 @@ import { pubkeyBytes } from '../client/src/solana-tx.mjs';
 import { POOL_SIZE, entryResidentAddress, poolAddress } from '../client/src/frontier/prize.mjs';
 import { policyAddress } from '../client/src/frontier/resident.mjs';
 import { LOCAL_LANE_PROGRAMS } from '../src/frontier/local-lane-versions.mjs';
-import { createLocalPlayPrize, PREPARE_SCHEMA, STATUS_SCHEMA, SUBMIT_SCHEMA } from '../src/frontier/local-play-prize.mjs';
+import { createLocalPlayPrize, MAX_HISTORY, OPEN_TTL_MS, PREPARE_SCHEMA, STATUS_SCHEMA, SUBMIT_SCHEMA } from '../src/frontier/local-play-prize.mjs';
 import { fixtureEntryBytes } from '../scripts/prize-nft-fixture-entry.mjs';
 
 // The throwaway wallet: raw 32-byte public key from the SPKI DER (last 32 bytes).
@@ -23,7 +23,8 @@ const k = n => b58(new Uint8Array(32).fill(n));
 const PROGRAM = LOCAL_LANE_PROGRAMS.conquestNftCandidate, PRIZE = k(0x50), ASSET = k(0x5a), RES = k(0x33), SEASON_ID = 11;
 const POOL = poolAddress(PRIZE, PROGRAM, SEASON_ID);
 const INSTANCE = 'ab'.repeat(32);
-const cfg = { testOnly: true, rpc: 'http://127.0.0.1:41981', programId: PROGRAM, seasonId: SEASON_ID, prizeProgram: PRIZE, wallet: WALLET };
+const RUN = '0123456789abcdef0123456789abcdef';
+const cfg = { testOnly: true, rpc: 'http://127.0.0.1:41101', programId: PROGRAM, seasonId: SEASON_ID, prizeProgram: PRIZE, wallet: WALLET, runId: RUN };
 const ledger = { testOnly: true, shares: { mode: 'shares', members: [{ wallet: `pass:${ASSET}`, asset: ASSET, nation: 1, points: 10, proof: ['00'.repeat(32)] }] } };
 
 function accounts() {
@@ -38,14 +39,15 @@ function accounts() {
 }
 
 /** A mocked loopback runner. `send` decides each sendTransaction: returns {result}/{error}, throws, or is held (a promise). */
-function runner({ send = wire => ({ result: sigOf(wire) }), height = 50, instance = INSTANCE, status = null } = {}) {
+function runner({ send = wire => ({ result: sigOf(wire) }), height = 50, instance = INSTANCE, status = null, runId = RUN, heights = null } = {}) {
   const acc = accounts();
   const sent = [];
-  const st = { height, instance, status };
+  const st = { height, instance, status, runId, heights };
   const rpc = async (method, params) => {
     if (method === 'getAccountInfo') { const a = acc.get(params[0]); return { result: { value: a ? { owner: a.owner, data: [Buffer.from(a.data).toString('base64'), 'base64'] } : null } }; }
     if (method === 'getLatestBlockhash') return { result: { value: { blockhash: k(0x09), lastValidBlockHeight: 100 } } };
-    if (method === 'getBlockHeight') return { result: st.height };
+    if (method === 'getBlockHeight') return st.heights ? st.heights() : { result: st.height };
+    if (method === 'frontier_status') return { result: { runId: st.runId } };
     if (method === 'sendTransaction') { sent.push(params[0]); return send(params[0]); }
     if (method === 'getSignatureStatuses') return { result: { context: { slot: st.height, instance: st.instance }, value: [st.status] } };
     throw new Error(`unexpected ${method}`);
@@ -54,7 +56,7 @@ function runner({ send = wire => ({ result: sigOf(wire) }), height = 50, instanc
 }
 const sigOf = wireB64 => b58(Buffer.from(wireB64, 'base64').subarray(1, 65));
 const prepareReq = { schema: PREPARE_SCHEMA, asset: ASSET, generation: 2 };
-const make = r => createLocalPlayPrize({ cfg, rpc: r.rpc, readLedger: async () => ledger, runnerInstance: INSTANCE });
+const make = (r, extra = {}) => createLocalPlayPrize({ cfg, rpc: r.rpc, readLedger: async () => ledger, runnerInstance: INSTANCE, ...extra });
 
 test('success: the wallet\'s signature on the prepared message is sent once and answered with its signature', async () => {
   const r = runner();
@@ -168,4 +170,49 @@ test('status: only the pinned runner\'s answer counts; a replaced runner is refu
   const tx2 = signWire(q.message_b64);
   await p2z.submit({ schema: SUBMIT_SCHEMA, message_digest: q.message_digest, transaction_b64: tx2 });
   assert.equal((await p2z.status({ schema: STATUS_SCHEMA, signature: sigOf(tx2) })).status, 'finalized');
+});
+
+test('a runner swapped between prepare and submit: nothing is sent, and that claim message can never be used again', async () => {
+  const r = runner();
+  const prize = make(r);
+  const p = await prize.prepare(prepareReq);
+  const tx = signWire(p.message_b64);
+  r.st.runId = 'fedcba9876543210fedcba9876543210';
+  await assert.rejects(prize.submit({ schema: SUBMIT_SCHEMA, message_digest: p.message_digest, transaction_b64: tx }), e => e.code === 'LocalPrizeRunnerChanged');
+  assert.equal(r.sent.length, 0, 'nothing sent to the other runner');
+  r.st.runId = RUN; // even back on the pinned runner, the spent ticket stays spent
+  await assert.rejects(prize.submit({ schema: SUBMIT_SCHEMA, message_digest: p.message_digest, transaction_b64: tx }), e => e.code === 'LocalPrizeMessageUsed');
+  await assert.rejects(prize.prepare(prepareReq), e => e.code === 'LocalPrizeMessageUsed');
+  assert.equal(r.sent.length, 0);
+});
+
+test('full history: two prepares of the same message waiting on the height read never overwrite a ticket the first one sent', async () => {
+  let t = 1_000;
+  const held = [];
+  const r = runner();
+  const prize = make(r, { now: () => t });
+  // Fill the barrier with MAX_HISTORY never-sent tickets (distinct generations), then let them expire.
+  for (let g = 0; g < MAX_HISTORY; g++) await prize.prepare({ ...prepareReq, generation: 10_000 + g });
+  assert.equal(prize.stats().tickets, MAX_HISTORY);
+  t += OPEN_TTL_MS + 1;
+  // From now on every height read is held until the test releases it, in order.
+  r.st.heights = () => new Promise(res => held.push(res));
+  const req = { ...prepareReq, generation: 7 };
+  const A = prize.prepare(req), B = prize.prepare(req);
+  while (held.length < 2) await new Promise(res => setImmediate(res));
+  // A's height: past the expired tickets' last valid height (100): they are retired and A inserts its ticket.
+  held.shift()({ result: 200 });
+  const a = await A;
+  assert.equal(a.status, 'prepared');
+  // A is submitted and sent (its height read is held too: released at a valid height).
+  const sub = prize.submit({ schema: SUBMIT_SCHEMA, message_digest: a.message_digest, transaction_b64: signWire(a.message_b64) });
+  while (held.length < 2) await new Promise(res => setImmediate(res));
+  held.pop()({ result: 50 });
+  assert.equal((await sub).status, 'submitted');
+  assert.equal(r.sent.length, 1);
+  // Now B resumes after its own height read: it must see A's (sent) ticket and refuse, not overwrite it as open.
+  held.shift()({ result: 200 });
+  await assert.rejects(B, e => e.code === 'LocalPrizeMessageUsed' && typeof e.signature === 'string');
+  await assert.rejects(prize.submit({ schema: SUBMIT_SCHEMA, message_digest: a.message_digest, transaction_b64: signWire(a.message_b64) }), e => e.code === 'LocalPrizeMessageUsed');
+  assert.equal(r.sent.length, 1, 'one send in all');
 });

@@ -15,7 +15,8 @@ const k = n => b58(new Uint8Array(32).fill(n));
 const PROGRAM = LOCAL_LANE_PROGRAMS.conquestNftCandidate, PRIZE = k(0x50), WALLET = k(0xa1), OTHER = k(0xb2), ASSET = k(0x5a), RES = k(0x33);
 const SEASON_ID = 11;
 const POOL = poolAddress(PRIZE, PROGRAM, SEASON_ID);
-const cfg = { testOnly: true, rpc: 'http://127.0.0.1:41981', programId: PROGRAM, seasonId: SEASON_ID, prizeProgram: PRIZE, wallet: WALLET };
+const RUN = '0123456789abcdef0123456789abcdef';
+const cfg = { testOnly: true, rpc: 'http://127.0.0.1:41101', programId: PROGRAM, seasonId: SEASON_ID, prizeProgram: PRIZE, wallet: WALLET, runId: RUN };
 
 function poolBytes({ state = 2, mode = 1, game = PROGRAM, seasonId = SEASON_ID } = {}) {
   const d = new Uint8Array(POOL_SIZE);
@@ -46,6 +47,7 @@ function chain(accounts) {
   const rpc = async (method, params) => {
     if (method === 'getAccountInfo') { const a = accounts.get(params[0]); return { result: { value: a ? { owner: a.owner, data: [Buffer.from(a.data).toString('base64'), 'base64'] } : null } }; }
     if (method === 'getLatestBlockhash') return { result: { value: { blockhash: k(0x09), lastValidBlockHeight: 100 } } };
+    if (method === 'frontier_status') return { result: { runId: RUN } };
     if (method === 'sendTransaction') { sent.push(params); return { result: 'x' }; }
     throw new Error(`unexpected ${method}`);
   };
@@ -143,6 +145,7 @@ test('wired to the real fetchRpc: never follows a redirect, unwraps { result }, 
     const { method, params } = JSON.parse(init.body);
     let out;
     if (method === 'getAccountInfo') { const a = accounts.get(params[0]); out = { jsonrpc: '2.0', id: 1, result: { value: a ? { owner: a.owner, data: [Buffer.from(a.data).toString('base64'), 'base64'] } : null } }; }
+    else if (method === 'frontier_status') out = { jsonrpc: '2.0', id: 1, result: { runId: RUN } };
     else out = { jsonrpc: '2.0', id: 1, error: { code: -32601, message: 'no' } };
     const body = Buffer.from(JSON.stringify(out));
     return new Response(body, { status: 200, headers: { 'content-type': 'application/json', 'content-length': String(body.length) } });
@@ -154,4 +157,38 @@ test('wired to the real fetchRpc: never follows a redirect, unwraps { result }, 
     assert.ok(seen.length > 0 && seen.every(r => r === 'error'), 'every request asks fetch not to follow redirects');
     await assert.rejects(prize.prepare(req()), e => e.code === 'LocalPrizeRpcUnavailable', 'getLatestBlockhash answered { error }');
   } finally { globalThis.fetch = real; }
+});
+
+test('the configuration is a snapshot: changing the caller\'s object afterwards redirects nothing', async () => {
+  const real = globalThis.fetch;
+  const urls = [];
+  const accounts = world();
+  globalThis.fetch = async (url, init) => {
+    urls.push(url);
+    const { method, params } = JSON.parse(init.body);
+    const out = method === 'getAccountInfo'
+      ? { result: { value: accounts.get(params[0]) ? { owner: accounts.get(params[0]).owner, data: [Buffer.from(accounts.get(params[0]).data).toString('base64'), 'base64'] } : null } }
+      : { result: { runId: RUN } };
+    const body = Buffer.from(JSON.stringify({ jsonrpc: '2.0', id: 1, ...out }));
+    return new Response(body, { status: 200, headers: { 'content-length': String(body.length) } });
+  };
+  try {
+    const mine = { ...cfg };
+    const prize = createLocalPlayPrize({ cfg: mine, readLedger: async () => ledger });
+    // After creation: point the caller's object at a public host, another wallet, another program and world.
+    Object.assign(mine, { rpc: 'https://api.mainnet-beta.solana.com', wallet: OTHER, programId: k(0x45), seasonId: 99, prizeProgram: k(0x99), runId: 'f'.repeat(32), testOnly: false });
+    const v = await prize.view({ asset: ASSET });
+    assert.equal(v.pool.pool, POOL, 'the same pool (program, world)');
+    assert.ok(urls.length > 0 && urls.every(u => u === cfg.rpc), 'every request still goes to the original loopback URL');
+  } finally { globalThis.fetch = real; }
+});
+
+test('another runner on the same port (another run id): nothing is prepared', async () => {
+  const c = chain(world());
+  const rpc = async (m, p) => (m === 'frontier_status' ? { result: { runId: 'fedcba9876543210fedcba9876543210' } } : c.rpc(m, p));
+  await assert.rejects(createLocalPlayPrize({ cfg, rpc, readLedger: async () => ledger }).prepare(req()), e => e.code === 'LocalPrizeRunnerChanged');
+  const silent = async (m, p) => (m === 'frontier_status' ? { error: { message: 'no' } } : c.rpc(m, p));
+  await assert.rejects(createLocalPlayPrize({ cfg, rpc: silent, readLedger: async () => ledger }).prepare(req()), e => e.code === 'LocalPrizeRunnerChanged', 'a runner that does not say who it is is not the pinned one');
+  assert.match(localPrizeConfigProblems({ ...cfg, runId: undefined }).join(), /runId/);
+  assert.match(localPrizeConfigProblems({ ...cfg, runId: '0'.repeat(32) }).join(), /runId/);
 });
