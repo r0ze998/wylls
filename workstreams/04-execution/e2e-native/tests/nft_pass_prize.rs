@@ -1175,34 +1175,61 @@ fn a_buy_back_before_the_claim_pays_the_returning_owner_once() {
     transfer(&mut w, &mut p, &key(A));
     assert_eq!(p.generation, 2);
     let lb = s.lb;
-    fails(try_claim(&mut w, &p, lb, B, 1), E::ResidentStaleGeneration);
-    fails(
-        try_claim(&mut w, &p, lb, B, 2),
-        E::ResidentNotCurrentAuthority,
-    );
-    fails(try_claim(&mut w, &p, lb, A, 0), E::ResidentStaleGeneration);
-    fails(try_claim(&mut w, &p, lb, A, 1), E::ResidentStaleGeneration);
+    // The session's own token account (for the session case below), made before any refusal so every
+    // refusal is checked against the same accounts.
+    let ts = token_account(&mut w, 113, &key(SESSION));
+    let entry = nft_entry_of(&w, &p.asset);
+    // Every refusal below moves nothing: the vault, A's, B's and the session's token accounts, and the
+    // whole Entry (claimed byte included) read exactly as before it.
+    let snap = |w: &World| {
+        (
+            [bal(w, &w.vault), bal(w, &s.ta), bal(w, &s.tb), bal(w, &ts)],
+            entry_bytes(w, &entry),
+        )
+    };
+    let before = snap(&w);
+    assert_eq!(before.1[N::CLAIMED], 0, "unclaimed before the refusals");
+    let refused = |w: &mut World, c: ClaimR, e: E, what: &str| {
+        fails(claim_resident(w, &c), e);
+        assert_eq!(
+            snap(w),
+            before,
+            "{what}: nothing moved, the Entry unchanged"
+        );
+    };
+    let c = claim_by(&w, &p, lb, B, 1);
+    refused(&mut w, c, E::ResidentStaleGeneration, "B, generation 1");
+    let c = claim_by(&w, &p, lb, B, 2);
+    refused(&mut w, c, E::ResidentNotCurrentAuthority, "B, generation 2");
+    let c = claim_by(&w, &p, lb, A, 0);
+    refused(&mut w, c, E::ResidentStaleGeneration, "A, generation 0");
+    let c = claim_by(&w, &p, lb, A, 1);
+    refused(&mut w, c, E::ResidentStaleGeneration, "A, generation 1");
     // A's session key, set by A in generation 2: a session never claims.
-    // Paid to A's account it is refused at the destination binding first (the
-    // token account's owner field must be the signer, NFT-PRIZE.md §8.1).
     set_resident(&mut w, &p, Some((key(SESSION), 2, key(A))));
     let mut via_session = claim_by(&w, &p, lb, A, 2);
     via_session.owner = key(SESSION);
-    fails(claim_resident(&mut w, &via_session), E::BadAccount);
-    // Paid to the session's own token account it passes that binding and is
-    // refused as not the pass's current owner (`session_allowed` is false).
-    let ts = token_account(&mut w, 113, &key(SESSION));
-    via_session.to = ts;
-    fails(
-        claim_resident(&mut w, &via_session),
-        E::ResidentNotCurrentAuthority,
+    // Paid to A's account: refused at the destination binding first (the token account's owner field
+    // must be the signer, NFT-PRIZE.md §8.1), before who holds the pass is read.
+    refused(
+        &mut w,
+        via_session.clone(),
+        E::BadAccount,
+        "session, paid to A's account",
     );
-    assert_eq!(bal(&w, &ts), 0, "nothing reached the session");
+    // Paid to the session's own account: past that binding, refused as not the pass's current owner
+    // (`session_allowed` is false). This is the session refusal itself.
+    via_session.to = ts;
+    refused(
+        &mut w,
+        via_session,
+        E::ResidentNotCurrentAuthority,
+        "session, paid to its own account",
+    );
     // An unsigned owner.
     let mut unsigned = claim_by(&w, &p, lb, A, 2);
     unsigned.signed = false;
-    fails(claim_resident(&mut w, &unsigned), E::BadAccount);
-    assert_eq!(bal(&w, &s.tb), 0);
+    refused(&mut w, unsigned, E::BadAccount, "unsigned owner");
     try_claim(&mut w, &p, lb, A, 2).unwrap();
     assert_eq!(bal(&w, &s.ta), owed);
     fails(try_claim(&mut w, &p, lb, A, 2), E::AlreadyClaimed);
