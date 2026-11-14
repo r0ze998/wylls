@@ -55,3 +55,23 @@ Reproduced as a **todo test** (`KNOWN GAP …` in `frontier-local-play-nft-resid
    - The relay mock tests (a sold pass refused with `LocalActResidentNotHolder`) remain the evidence for the refusal side.
 
 Nothing here claims old transfers are all invalid, or that the transfer path is finished.
+
+## The direct-chain design proof (TEST ONLY; written, NOT built or run yet)
+
+The relay path is now **default deny**: no relay a launcher or the relay server builds serves TransferResident (`13ac8f63`). Only an isolated test opts in. That closes nothing on the chain itself, which is what the program change below is for. Two variants are kept strictly apart:
+
+| Build (feature) | 0x51 TransferResident | 0x54 TransferResidentAt {gen u32} | Closes the direct-chain A→B→A? |
+|---|---|---|---|
+| default (none) | as today | unknown → BadData | no |
+| **compatible** `signed-transfer-test-only` | still served | the signed generation must equal the record's (else StaleGen 1004) | **no**: an old 0x51 held across A→B→A still lands |
+| **strict** `transfer-requires-generation-test-only` | **refused (BadData)** | as compatible | **yes**, at the cost of every 0x51 client (a compatibility decision for the owner; not made here) |
+
+- Code: `program/Cargo.toml` features and `program/src/lib.rs` `transfer_resident_at`. It is a feature-gated wrapper: it checks `check_resident`, then the signed generation against the record, then calls the unchanged `transfer_resident`, so the default build's code path is untouched.
+- Proof: `svm-core/tests/signed_transfer.rs`. All tests are `#[ignore]` and run against three isolated builds plus the untrimmed Core ELF. They cover:
+  - the default build refuses 0x54 and keeps 0x51;
+  - 0x54 at the current generation moves the owner, bumps the generation and clears the session (all four session fields);
+  - a wrong signed generation is refused and nothing changes;
+  - an old 0x54 signed at generation 0 is refused after A→B→A, and nothing changes;
+  - the compatible variant still lets an old 0x51 through, while the strict variant refuses it.
+- Build-and-prove script: `resident-signed-transfer-proof.sh` (sha256 `b50d308e`). It writes isolated artefacts with recorded hashes and features to the scratchpad, never over `program/target/deploy` (the candidate's `947da0b9` stays).
+- **Not adopted, not deployed, not used in any world.** Adoption, and the choice between compatible and strict, wait for review. The setup is adapted from ⑰'s `nft_pass.rs`, which is cited in the file.

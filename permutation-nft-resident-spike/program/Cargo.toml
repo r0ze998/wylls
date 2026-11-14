@@ -17,6 +17,13 @@ crate-type = ["cdylib", "lib"]
 
 [features]
 no-entrypoint = []
+# TEST ONLY design proof (2026-11-15, the 0x51 A→B→A boundary): never in a default build, never deployed.
+#   signed-transfer-test-only: adds 0x54 TransferResidentAt { gen u32 } — 0x51's accounts and effects, refused unless
+#     the SIGNED generation is the record's now (an old transfer signed before A→B→A is refused on the chain too).
+#   transfer-requires-generation-test-only: also refuses the unsigned-generation 0x51 (closes the direct-chain path;
+#     breaks every 0x51 client, so it is a compatibility decision for the owner, not made here).
+signed-transfer-test-only = []
+transfer-requires-generation-test-only = ["signed-transfer-test-only"]
 
 [dependencies]
 solana-program = "3"

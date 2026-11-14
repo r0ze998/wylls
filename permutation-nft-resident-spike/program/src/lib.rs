@@ -78,6 +78,9 @@ pub const TAG_MINT_RESIDENT: u8 = 0x50;
 pub const TAG_TRANSFER_RESIDENT: u8 = 0x51;
 pub const TAG_SET_SESSION: u8 = 0x52;
 pub const TAG_OP: u8 = 0x53;
+/// TEST ONLY (feature `signed-transfer-test-only`): TransferResident with the holder generation signed in its data.
+#[cfg(feature = "signed-transfer-test-only")]
+pub const TAG_TRANSFER_RESIDENT_AT: u8 = 0x54;
 
 /// Config layout v2 (sale terms, metadata, authority hand-over); v1 was 0xC1.
 pub const CONFIG_MAGIC: u8 = 0xC3;
@@ -272,7 +275,12 @@ pub fn process_instruction(program_id: &Pubkey, accounts: &[AccountInfo], data: 
         TAG_PROPOSE_AUTHORITY => propose_authority(program_id, accounts, rest),
         TAG_ACCEPT_AUTHORITY => accept_authority(program_id, accounts),
         TAG_MINT_RESIDENT => mint_resident(program_id, accounts, rest),
+        #[cfg(not(feature = "transfer-requires-generation-test-only"))]
         TAG_TRANSFER_RESIDENT => transfer_resident(program_id, accounts),
+        #[cfg(feature = "transfer-requires-generation-test-only")]
+        TAG_TRANSFER_RESIDENT => Err(ResidentError::BadData.into()),
+        #[cfg(feature = "signed-transfer-test-only")]
+        TAG_TRANSFER_RESIDENT_AT => transfer_resident_at(program_id, accounts, rest),
         TAG_SET_SESSION => set_session(program_id, accounts, rest),
         TAG_OP => op(program_id, accounts, rest),
         _ => Err(ResidentError::BadData.into()),
@@ -665,6 +673,24 @@ fn transfer_resident(program_id: &Pubkey, accounts: &[AccountInfo]) -> ProgramRe
     wr(&mut r, resident::SESSION_GEN, &0u32.to_le_bytes());
     wr(&mut r, resident::SESSION_SETTER, &[0u8; 32]);
     Ok(())
+}
+
+/// TEST ONLY (feature `signed-transfer-test-only`): the generation the owner SIGNED (`gen u32` in the data) must be the
+/// record's now, then exactly TransferResident. An old transfer signed before A→B→A carries an older generation and is
+/// refused (StaleGen), whoever sends it and by whatever path.
+#[cfg(feature = "signed-transfer-test-only")]
+fn transfer_resident_at(program_id: &Pubkey, accounts: &[AccountInfo], d: &[u8]) -> ProgramResult {
+    let signed = rd_u32(d, 0)?;
+    if d.len() != 4 {
+        return Err(ResidentError::BadData.into());
+    }
+    let asset = accounts.get(2).ok_or(ResidentError::BadData)?;
+    let resident = accounts.get(5).ok_or(ResidentError::BadData)?;
+    check_resident(program_id, resident, asset)?;
+    if rd_u32(&resident.try_borrow_data()?, resident::GEN)? != signed {
+        return Err(ResidentError::StaleGen.into());
+    }
+    transfer_resident(program_id, accounts)
 }
 
 fn set_session(program_id: &Pubkey, accounts: &[AccountInfo], d: &[u8]) -> ProgramResult {
