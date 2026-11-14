@@ -366,6 +366,9 @@ pub struct LegacyMarchDriver {
     /// how many steps in a row this village's own work kept it waiting (`world_first`: bounded, never starved).
     world_cursor: usize,
     pub world_crank: bool,
+    /// Provinces ANOTHER village of the same keeper loop resolves itself (its home and where its hosts stand): the
+    /// world sweep never cranks them, so two drivers never race on one province (keeper_loop `Village`).
+    pub world_skip: Vec<(i32, i32)>,
     world_skipped: u32,
     /// The verified rounds the world phase already fetched, by turn (every region's anchor of a turn uses the same
     /// round): fetched and verified once, then reused; the oldest are dropped past WORLD_ROUND_CACHE.
@@ -382,7 +385,7 @@ impl LegacyMarchDriver {
     pub fn new(href: HoldingRef, payer: Keypair, stop: tokio::sync::watch::Receiver<bool>) -> LegacyMarchDriver {
         let a = Addresses::new(Address::new_from_array(crate::expedition_play::PROGRAM), crate::expedition_play::SEASON_ID);
         let holding = href.address(&a);
-        LegacyMarchDriver { a, holding, href, payer, stop, land_timeout: crate::keeper_loop::LAND_TIMEOUT, known: Default::default(), terminal: None, log: vec![], stands: vec![], world_cursor: 0, world_crank: true, world_skipped: 0, world_rounds: Default::default(), world_sent: 0, world_counts: Default::default() }
+        LegacyMarchDriver { a, holding, href, payer, stop, land_timeout: crate::keeper_loop::LAND_TIMEOUT, known: Default::default(), terminal: None, log: vec![], stands: vec![], world_cursor: 0, world_crank: true, world_skip: vec![], world_skipped: 0, world_rounds: Default::default(), world_sent: 0, world_counts: Default::default() }
     }
 
     pub fn terminal(&self) -> Option<&Step> {
@@ -508,7 +511,7 @@ impl LegacyMarchDriver {
     async fn world_step_once(&mut self, state: &Shared, clock: &fclient::clock::SeasonClock, season: &Season, home: (i32, i32)) -> Step {
         let me = self.payer.pubkey();
         let provinces = { let c = lock(state); opened_provinces(&c, &self.a) };
-        let skip: Vec<(i32, i32)> = std::iter::once(home).chain(self.stands.iter().map(|s| s.0)).collect();
+        let skip: Vec<(i32, i32)> = std::iter::once(home).chain(self.stands.iter().map(|s| s.0)).chain(self.world_skip.iter().copied()).collect();
         let cands: Vec<(i32, i32)> = provinces.into_iter().filter(|p| !skip.contains(p)).collect();
         let mut first_wait: Option<String> = None;
         for i in world_order(self.world_cursor, cands.len()) {

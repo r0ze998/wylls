@@ -255,6 +255,15 @@ export const MARCH_TRIAL_MODE = 'local-march-trial-v1';
  * No game rule changes; the natural preset without these options is unchanged.
  */
 export const CAPTURE_DEMO_MODE = 'capture-demo-v1';
+/**
+ * `--contest-pair contest-pair-v1` (TEST-ONLY; only with the capture demo): ONE memory-only world for TWO players, each
+ * with their own page and memory-only key. The first wallet to press start waits (`pairWaiting`); the second distinct
+ * wallet's press starts one runner with both (`--second-wallet`); the second player's page reaches its OWN relay (pinned to
+ * its wallet) through its own proxy (`/gw` → that relay, everything else → the shared herald), on the second slot's ports.
+ * Either page asking again gets the same world; a second world is never started for either; one stop or the TTL ends it
+ * for both. Both sides are people: there is no automatic opponent.
+ */
+export const CONTEST_PAIR_MODE = 'contest-pair-v1';
 /** `--demo-scale`: a whole number 10..60 written plainly, or null. */
 export function parseDemoScale(raw) {
   if (typeof raw !== 'string' || !/^[1-9][0-9]$/.test(raw)) return null;
@@ -354,6 +363,13 @@ export async function conquestProof({ c, meta, lines }) {
  * outcome; the runner does not state one yet.
  */
 /** Whether the runner's first line states exactly this launcher's capture demo (`demo` = `{scale}` or null). */
+/** The runner's first line and this start agree on the contest pair: the same second wallet, or neither mentions it. */
+export function runnerPairAgrees(meta, second) {
+  const d = meta?.contest_pair;
+  if (second === null || second === undefined) return d === undefined;
+  return d !== null && typeof d === 'object' && Object.keys(d).sort().join() === 'automatic_opponent,mode,second_wallet,test_only'
+    && d.mode === CONTEST_PAIR_MODE && d.second_wallet === second && d.test_only === true && d.automatic_opponent === false;
+}
 export function runnerDemoAgrees(meta, demo) {
   const d = meta?.capture_demo;
   if (demo === null || demo === undefined) return d === undefined;
@@ -384,19 +400,41 @@ export async function conquestGateway(c, capability, relayArgs) {
   return { pass: why.length === 0, why };
 }
 export class WorldManager {
-  constructor(config, launch = startWorld) { this.config = config; this.launch = launch; this.worlds = new Map(); this.closed = false; }
+  constructor(config, launch = startWorld) { this.config = config; this.launch = launch; this.worlds = new Map(); this.closed = false; this.pairWaiting = null; this.pairOf = new Map(); }
   /** The worlds this launcher runs, by their public addresses: what a refused start shows the player. */
   list() { return [...this.worlds].map(([wallet, w]) => ({ wallet, herald: w.herald, startedAt: w.startedAt, state: w.stopping ? 'stopping' : w.herald ? 'running' : 'starting', ...(w.expiry ? { expiry: w.expiry } : {}) })); }
   start(wallet) {
     if (!validWallet(wallet)) return Promise.reject(fault('InvalidWallet'));
     if (this.closed) return Promise.reject(fault('LauncherClosed', 503));
+    if (this.config.contestPair) return this.#pairStart(wallet);
+    return this.#start(wallet);
+  }
+  /**
+   * The contest pair (TEST-ONLY): the second player's press is looked up, never started as a world of its own; the first
+   * press waits for a second distinct wallet; then ONE world for both. A third wallet is refused while a pair world runs.
+   */
+  #pairStart(wallet) {
+    const first = this.pairOf.get(wallet);
+    if (first !== undefined) {
+      const record = this.worlds.get(first);
+      if (!record) { this.pairOf.delete(wallet); return Promise.reject(fault('WorldNotFound', 404)); }
+      if (record.stopping) return Promise.reject(fault('WorldStopping', 409));
+      return record.promise.then(view => ({ ...view, herald: record.pairHerald, pair: { role: 'second', mode: CONTEST_PAIR_MODE } }));
+    }
+    if (this.worlds.has(wallet)) return this.#start(wallet);
+    if (this.worlds.size > 0) return Promise.reject(Object.assign(fault('WorldLimit', 409), { worlds: this.list() }));
+    if (this.pairWaiting === null || this.pairWaiting === wallet) { this.pairWaiting = wallet; return Promise.resolve({ pairWaiting: true, pair: { mode: CONTEST_PAIR_MODE } }); }
+    const a = this.pairWaiting; this.pairWaiting = null; this.pairOf.set(wallet, a);
+    return this.#start(a, { second: wallet }).then(() => this.#pairStart(wallet), e => { this.pairOf.delete(wallet); throw e; });
+  }
+  #start(wallet, opts = {}) {
     const existing = this.worlds.get(wallet); if (existing) return existing.stopping ? Promise.reject(fault('WorldStopping', 409)) : existing.promise;
     // (never an eviction: the refusal names the worlds, and ending one is the player's own press)
     if (this.worlds.size >= WORLD_LIMIT) return Promise.reject(Object.assign(fault('WorldLimit', 409), { worlds: this.list() }));
     const used = new Set([...this.worlds.values()].map(w => w.slot)); let slot = 0; while (used.has(slot)) slot++;
     const record = { slot, promise: null, stop: null, herald: null, startedAt: Date.now(), stopping: null, expiry: null, keeper: null, abort: new AbortController() }; this.worlds.set(wallet, record);
-    const forget = () => { if (this.worlds.get(wallet) === record) this.worlds.delete(wallet); };
-    record.promise = Promise.resolve().then(() => this.launch(this.config, wallet, slot, forget, record.abort.signal)).then(async world => {
+    const forget = () => { if (this.worlds.get(wallet) === record) this.worlds.delete(wallet); for (const [b, a] of this.pairOf) if (a === wallet) this.pairOf.delete(b); };
+    record.promise = Promise.resolve().then(() => this.launch(this.config, wallet, slot, forget, record.abort.signal, opts)).then(async world => {
       record.stop = world.stop;
       if (this.closed || record.abort.signal.aborted) { await world.stop(); throw fault(this.closed ? 'LauncherClosed' : 'WorldStopped', 503); }
       record.herald = world.herald;
@@ -404,13 +442,16 @@ export class WorldManager {
       //  so a second start of the same address, a list or a reconnect answers the same and nothing extends it)
       record.expiry = world.expiry ?? null;
       record.keeper = typeof world.keeper === 'function' ? world.keeper : null;
-      return { herald: world.herald, ...(world.natural === true ? { natural: true } : {}), ...(world.marchTrial === true ? { marchTrial: true } : {}), ...(world.captureDemo ? { captureDemo: world.captureDemo } : {}), ...(world.prepared ? { prepared: world.prepared } : {}), ...(world.conquestWorld ? { conquestWorld: world.conquestWorld } : {}), ...(record.expiry ? { expiry: record.expiry } : {}) };
+      record.pairHerald = opts.second ? (world.pair?.second === opts.second && typeof world.pair.herald === 'string' ? world.pair.herald : null) : null;
+      if (opts.second && record.pairHerald === null) { await world.stop(); throw fault('PairNotReady', 503); }
+      return { herald: world.herald, ...(opts.second ? { pair: { role: 'first', mode: CONTEST_PAIR_MODE } } : {}), ...(world.natural === true ? { natural: true } : {}), ...(world.marchTrial === true ? { marchTrial: true } : {}), ...(world.captureDemo ? { captureDemo: world.captureDemo } : {}), ...(world.prepared ? { prepared: world.prepared } : {}), ...(world.conquestWorld ? { conquestWorld: world.conquestWorld } : {}), ...(record.expiry ? { expiry: record.expiry } : {}) };
     }).catch(e => { forget(); throw e; });
     return record.promise;
   }
   /** One world's keeper view (`keeperSummary`), named by its public address; none for a world still starting or ending. */
   async keeper(wallet) {
     if (!validWallet(wallet)) throw fault('InvalidWallet');
+    if (this.pairOf.has(wallet)) wallet = this.pairOf.get(wallet);
     const record = this.worlds.get(wallet);
     if (!record || record.stopping || !record.keeper) throw fault('WorldNotFound', 404);
     const keeper = await record.keeper();
@@ -424,6 +465,8 @@ export class WorldManager {
    */
   stop(wallet) {
     if (!validWallet(wallet)) return Promise.reject(fault('InvalidWallet'));
+    if (this.pairWaiting === wallet) { this.pairWaiting = null; return Promise.resolve({ stopped: true }); }
+    if (this.pairOf.has(wallet)) wallet = this.pairOf.get(wallet);
     const record = this.worlds.get(wallet); if (!record) return Promise.reject(fault('WorldNotFound', 404));
     record.stopping ??= this.#end(record, 'requested');
     return record.stopping.then(() => { if (this.worlds.get(wallet) === record) this.worlds.delete(wallet); return { stopped: true }; });
@@ -471,7 +514,7 @@ export function worldTarget(url) {
 // The existing herald intentionally has no cross-origin write interface. This proxy stands in front of one world's
 // herald and admits only the launcher page: its exact origins, this proxy's own Host, the routes above. It sends no
 // credentials on, takes no destination from the request (always 127.0.0.1:targetPort), and serves no page.
-export function createWorldProxy({ port, targetPort, launcherPort }) {
+export function createWorldProxy({ port, targetPort, launcherPort, relayPort = null }) {
   const origins = new Set([`http://localhost:${launcherPort}`, `http://127.0.0.1:${launcherPort}`]);
   const hosts = new Set([`localhost:${port}`, `127.0.0.1:${port}`]);
   const here = req => ['127.0.0.1', '::ffff:127.0.0.1'].includes(req.socket.remoteAddress) && hosts.has(req.headers.host);
@@ -498,7 +541,9 @@ export function createWorldProxy({ port, targetPort, launcherPort }) {
       if (req.headers['content-type']?.split(';')[0].trim().toLowerCase() !== 'application/json') return answer(res, 415, { error: 'JsonOnly' });
       try { body = await readBody(req, WORLD_BODY_MAX); } catch (e) { return answer(res, e.status ?? 400, { error: e.code ?? 'BadRequest' }); }
     } else req.resume();
-    const upstream = http.request({ hostname: '127.0.0.1', port: targetPort, method: req.method, agent: false, path: target.path + (target.query ? `?${target.query}` : ''),
+    // (the second player's proxy: its relay routes go to ITS relay, as the herald's own `/gw` strips the prefix; the rest to the herald)
+    const toRelay = relayPort !== null && target.path.startsWith('/gw/');
+    const upstream = http.request({ hostname: '127.0.0.1', port: toRelay ? relayPort : targetPort, method: req.method, agent: false, path: (toRelay ? target.path.slice(3) : target.path) + (target.query ? `?${target.query}` : ''),
       headers: { ...(post ? { 'content-type': 'application/json', 'content-length': body.length } : {}), ...(req.headers.accept ? { accept: req.headers.accept } : {}) } }, r => {
       for (const [k, v] of Object.entries(SHIELD)) res.setHeader(k, v);
       res.setHeader('content-security-policy', API_CSP);
@@ -549,7 +594,7 @@ const exited = p => p.pid === undefined || p.exitCode !== null || p.signalCode !
  * `{herald, stop, prepared, conquestWorld}`. `c.guard` (tests only; the command line cannot set it) overrides the
  * limits and may stand in for the relay's own decision.
  */
-export async function startWorld(c, wallet, slot, onStop, signal) {
+export async function startWorld(c, wallet, slot, onStop, signal, opts = {}) {
   const natural = c.worldPreset === NATURAL_WORLD_PRESET;
   if (natural && (!c.naturalRunner || c.economy !== ECONOMY_MODE || c.prepareScale || c.conquest)) throw fault('InvalidWorldPreset', 503);
   const marchTrial = c.marchTrial === true;
@@ -561,12 +606,17 @@ export async function startWorld(c, wallet, slot, onStop, signal) {
   const preset = natural ? null : c.worldPreset ?? null;
   if (preset !== null && preset !== CONQUEST_WORLD_PRESET) throw fault('InvalidWorldPreset', 503);
   if (preset !== null && !c.prepareScale) throw fault('WorldPresetNeedsPrepare', 503);
+  // (the TEST-ONLY contest pair: a second wallet only with the pair option on a capture-demo world; its relay and proxy
+  //  take the NEXT slot's relay and herald ports, which no other world may then use)
+  const second = opts.second ?? null;
+  if (second !== null && (!c.contestPair || demo === null || !validWallet(second) || second === wallet || slot + 1 >= WORLD_LIMIT)) throw fault('InvalidContestPair', 503);
   const { rpc, ws, herald, relay, internalHerald } = worldPorts(c.worldPort, slot);
+  const pairPorts = second !== null ? worldPorts(c.worldPort, slot + 1) : null;
   const limit = { ttlMs: c.worldTtlMs ?? WORLD_TTL_MS, outputMax: WORLD_OUTPUT_MAX, diskFloor: DISK_FLOOR, everyMs: 1000, ...c.guard };
-  for (const p of [rpc, ws, herald, relay, internalHerald]) await freePort(p);
+  for (const p of [rpc, ws, herald, relay, internalHerald, ...(pairPorts ? [pairPorts.herald, pairPorts.relay] : [])]) await freePort(p);
   const disk = await fs.statfs(c.data); if (disk.bavail * disk.bsize < limit.diskFloor) throw fault('DiskFloor', 503);
   const dir = path.join(c.data, randomUUID()); await fs.mkdir(dir);
-  const children = []; let stopping = null, timer, ready = false, proxy;
+  const children = []; let stopping = null, timer, ready = false, proxy, pairProxy;
   const stop = (reason = 'requested') => (stopping ??= (async () => {
     clearInterval(timer);
     try {
@@ -577,6 +627,7 @@ export async function startWorld(c, wallet, slot, onStop, signal) {
       for (const p of children) if (!exited(p)) p.kill('SIGKILL');
       await within(2000);
       await proxy?.closeNow();
+      await pairProxy?.closeNow();
       await fs.writeFile(path.join(dir, 'stopped.json'), JSON.stringify({ reason: String(reason), at: Date.now() })).catch(() => {});
     } finally { for (const p of children) live.delete(p); onStop(); }
   })());
@@ -603,7 +654,8 @@ export async function startWorld(c, wallet, slot, onStop, signal) {
   }, limit.everyMs); timer.unref();
   try {
     if (natural) launch('runner', c.naturalRunner, ['--artifact', c.artifact, '--artifact-sha256', c.artifactSha, '--player-wallet', wallet, '--rpc-port', String(rpc), '--ws-port', String(ws), '--keeper', 'public-quicknet',
-      ...(demo !== null ? ['--capture-demo', CAPTURE_DEMO_MODE, '--demo-scale', String(demo.scale)] : [])]);
+      ...(demo !== null ? ['--capture-demo', CAPTURE_DEMO_MODE, '--demo-scale', String(demo.scale)] : []),
+      ...(second !== null ? ['--contest-pair', CONTEST_PAIR_MODE, '--second-wallet', second] : [])]);
     else launch('runner', c.runner, ['--artifact', c.artifact, '--artifact-sha256', c.artifactSha, '--player-wallet', wallet, '--rpc-port', String(rpc), '--ws-port', String(ws), '--keeper', 'public-quicknet', '--wide-destination', 'public-quicknet', ...(preset ? ['--world-preset', preset] : [])]);
     let meta;
     for (let i = 0; i < (natural ? Math.ceil((limit.naturalFirstLineMs ?? NATURAL_FIRST_LINE_MS) / 200) : 150) && !stopping; i++) {
@@ -620,6 +672,8 @@ export async function startWorld(c, wallet, slot, onStop, signal) {
     // (the test-only capture demo: the runner's own first line states it with this launcher's mode and scale, or does
     //  not mention it at all; anything else is another runner or another mode, refused like any unready runner)
     if (!runnerDemoAgrees(meta, demo)) throw fault('RunnerNotReady', 503);
+    // (the contest pair likewise: the runner's first line names THIS second wallet, or a runner of one player never mentions it)
+    if (!runnerPairAgrees(meta, second)) throw fault('RunnerNotReady', 503);
     // (the runner's own instance id, when it states one on that line: handed to the relay so that the relay can tell
     //  THIS runner's answers from any other's. A runner that states none starts as before; one that states a
     //  malformed id is not started with — a wrong id is never passed on and never ignored)
@@ -631,20 +685,27 @@ export async function startWorld(c, wallet, slot, onStop, signal) {
     // (the test-only march trial reaches the relay only when this launcher was itself started with it: natural only)
     const trialArgs = marchTrial ? ['--march-trial', MARCH_TRIAL_MODE] : [];
     await fs.writeFile(path.join(dir, 'metadata.json'), JSON.stringify(meta), { flag: 'wx' });
-    const relayArgs = (conquest = []) => ['--local-play', '--rpc', meta.rpc_url, '--program', meta.program, '--season', meta.season, '--wallet', wallet, '--ruleset-hash', RULESET, '--prepare-bin', c.depart, '--preview-bin', c.preview, '--resident-bin', c.resident, ...conquest, ...instanceArgs, ...economyArgs, ...trialArgs, '--cu-limit', '1000000', '--loaded-limit', '67108864', '--listen-port', String(relay)];
+    const relayArgsFor = (w, port, conquest = []) => ['--local-play', '--rpc', meta.rpc_url, '--program', meta.program, '--season', meta.season, '--wallet', w, '--ruleset-hash', RULESET, '--prepare-bin', c.depart, '--preview-bin', c.preview, '--resident-bin', c.resident, ...conquest, ...instanceArgs, ...economyArgs, ...trialArgs, '--cu-limit', '1000000', '--loaded-limit', '67108864', '--listen-port', String(port)];
+    const relayArgs = (conquest = []) => relayArgsFor(wallet, relay, conquest);
     const startRelay = (conquest = []) => launch('relay', process.execPath, [path.join(c.root, 'permutation-gateway/src/frontier/local-play-relay-server.mjs'), ...relayArgs(conquest)]);
     // (a world with no preset: its relay starts now, as it always has, and is never given a conquest CLI)
     if (!preset) startRelay();
+    // (the second player's relay: the same world, pinned to ITS wallet as actor and payer; never the first's)
+    if (second !== null) launch('relay-b', process.execPath, [path.join(c.root, 'permutation-gateway/src/frontier/local-play-relay-server.mjs'), ...relayArgsFor(second, pairPorts.relay)]);
     // (no --web: the page is the launcher's own; a world serves records and the relay, never a second copy of the page)
     // (a natural world has no synthetic account to seed: its herald folds the real transactions only)
     launch('herald', c.herald, ['--data', path.join(dir, 'herald'), '--program', meta.program, '--season', String(meta.season_id), '--rpc', meta.rpc_url, '--listen', `127.0.0.1:${internalHerald}`, '--source', 'localnet', '--cluster', 'localnet', ...(natural ? [] : ['--local-play-metadata', path.join(dir, 'metadata.json')]), '--relay', `127.0.0.1:${relay}`]);
     proxy = createWorldProxy({ port: herald, targetPort: internalHerald, launcherPort: c.port });
     await new Promise((resolve, reject) => { proxy.once('error', reject); proxy.listen(herald, '127.0.0.1', resolve); });
+    if (second !== null) {
+      pairProxy = createWorldProxy({ port: pairPorts.herald, targetPort: internalHerald, launcherPort: c.port, relayPort: pairPorts.relay });
+      await new Promise((resolve, reject) => { pairProxy.once('error', reject); pairProxy.listen(pairPorts.herald, '127.0.0.1', resolve); });
+    }
     for (let i = 0; i < 150 && !stopping; i++) {
       try { const r = await fetch(`http://127.0.0.1:${herald}/h/status`, { signal: AbortSignal.timeout(1000) }); if (r.ok) { ready = true; break; } } catch {} await delay(200);
     }
     if (!ready || stopping) throw fault('HeraldNotReady', 503);
-    await fs.writeFile(path.join(dir, 'processes.json'), JSON.stringify({ started, wallet, pids: children.map(p => p.pid), ports: [rpc, ws, herald, relay, internalHerald] }));
+    await fs.writeFile(path.join(dir, 'processes.json'), JSON.stringify({ started, wallet, ...(second !== null ? { second } : {}), pids: children.map(p => p.pid), ports: [rpc, ws, herald, relay, internalHerald, ...(pairPorts ? [pairPorts.herald, pairPorts.relay] : [])] }));
     // (only with --prepare-scale, only now: after this the launcher never touches this world's clock again)
     const prepared = c.prepareScale ? await prepareWorld({ scale: c.prepareScale, dir, rpc, herald, meta, stopping: () => stopping !== null, limit }) : null;
     let conquestWorld = null;
@@ -678,7 +739,7 @@ export async function startWorld(c, wallet, slot, onStop, signal) {
     const expiry = expiryOf(started, limit.ttlMs, instance.id);
     // (the keeper's latest line, read only when the player asks: `keeperSummary`)
     const keeper = async () => { try { return keeperSummary(await runnerLines(dir)); } catch { return null; } };
-    return { herald: `http://localhost:${herald}`, stop, expiry, keeper, ...(natural ? { natural: true } : {}), ...(marchTrial ? { marchTrial: true } : {}), ...(demo !== null ? { captureDemo: { scale: demo.scale } } : {}), ...(prepared ? { prepared } : {}), ...(conquestWorld ? { conquestWorld } : {}) };
+    return { herald: `http://localhost:${herald}`, stop, expiry, keeper, ...(second !== null ? { pair: { second, herald: `http://localhost:${pairPorts.herald}` } } : {}), ...(natural ? { natural: true } : {}), ...(marchTrial ? { marchTrial: true } : {}), ...(demo !== null ? { captureDemo: { scale: demo.scale } } : {}), ...(prepared ? { prepared } : {}), ...(conquestWorld ? { conquestWorld } : {}) };
   } catch (e) { await stop(`startup-failed${e?.status && e.code ? `:${e.code}` : ''}`); throw e; }
 }
 const mime = { '.html': 'text/html', '.mjs': 'text/javascript', '.js': 'text/javascript', '.css': 'text/css', '.json': 'application/json', '.svg': 'image/svg+xml', '.png': 'image/png', '.webp': 'image/webp', '.woff2': 'font/woff2', '.ico': 'image/x-icon', '.mp3': 'audio/mpeg', '.wasm': 'application/wasm', '.txt': 'text/plain' };
@@ -765,13 +826,16 @@ export const USAGE = `local-play launcher (this machine only)
     [--capture-demo capture-demo-v1 --demo-scale <10-60>: TEST-ONLY, both or neither, natural preset with
        --march-trial only: after the player's home, that world's clock runs <scale> times faster and test
        participants open the next ring; the page says so all session. Never the natural preset's behaviour]
+    [--contest-pair contest-pair-v1: TEST-ONLY, only with --capture-demo: ONE world for TWO players (two people, no
+       automatic opponent); the first press waits, the second distinct wallet starts it; each page keeps its own key
+       and reaches its own relay; one stop or the limit ends it for both]
     [--world-ttl-minutes <whole minutes, decimal>: each world's automatic end, counted from its own start; without it
        two hours. Set here only (never over HTTP); fixed once per world and told to its page as its expiry]
     [--port 41920] [--world-port 41924]
   Ports: the page on --port; a world on five from --world-port (RPC, WS, public proxy, relay, herald), the second
   world on the next five. All within 41000-41999, none of 41904-41907, 127.0.0.1 only.`;
 export async function parseConfig(args) {
-  const out = {}; const keys = new Set(['root', 'data', 'runner', 'herald', 'depart', 'preview', 'resident', 'artifact', 'artifact-sha', 'conquest', 'world-preset', 'prepare-scale', 'port', 'world-port', 'economy', 'world-ttl-minutes', 'natural-runner', 'march-trial', 'capture-demo', 'demo-scale']);
+  const out = {}; const keys = new Set(['root', 'data', 'runner', 'herald', 'depart', 'preview', 'resident', 'artifact', 'artifact-sha', 'conquest', 'world-preset', 'prepare-scale', 'port', 'world-port', 'economy', 'world-ttl-minutes', 'natural-runner', 'march-trial', 'capture-demo', 'demo-scale', 'contest-pair']);
   for (let i = 0; i < args.length; i += 2) { const k = args[i]?.slice(2); if (!args[i]?.startsWith('--') || !keys.has(k) || out[k] || !args[i + 1]) throw fault('InvalidArguments'); out[k] = args[i + 1]; }
   for (const k of ['root', 'data', 'runner', 'herald', 'depart', 'preview', 'resident', 'artifact']) { if (!path.isAbsolute(out[k] ?? '')) throw fault('AbsolutePathRequired'); }
   if (out.conquest !== undefined && !path.isAbsolute(out.conquest)) throw fault('AbsolutePathRequired');
@@ -801,9 +865,10 @@ export async function parseConfig(args) {
   if ((out['capture-demo'] === undefined) !== (out['demo-scale'] === undefined)) throw fault('InvalidCaptureDemo');
   if (out['capture-demo'] !== undefined && (out['capture-demo'] !== CAPTURE_DEMO_MODE || parseDemoScale(out['demo-scale']) === null)) throw fault('InvalidCaptureDemo');
   if (out['capture-demo'] !== undefined && (!natural || out['march-trial'] === undefined)) throw fault('CaptureDemoNeedsNaturalTrial');
+  if (out['contest-pair'] !== undefined && (out['contest-pair'] !== CONTEST_PAIR_MODE || out['capture-demo'] === undefined)) throw fault('InvalidContestPair');
   // (a world's life: the default two hours, or the operator's whole minutes; refused, never rounded, when malformed)
   const worldTtlMs = parseWorldTtl(out['world-ttl-minutes']);
-  const c = { ...out, port, worldPort, worldTtlMs, artifactSha: out['artifact-sha'], ...(prepareScale !== undefined ? { prepareScale } : {}), ...(worldPreset !== undefined ? { worldPreset } : {}), ...(out['natural-runner'] !== undefined ? { naturalRunner: out['natural-runner'] } : {}), ...(out['march-trial'] !== undefined ? { marchTrial: true } : {}), ...(out['capture-demo'] !== undefined ? { captureDemo: { scale: parseDemoScale(out['demo-scale']) } } : {}), web: await fs.realpath(path.join(out.root, 'permutation-server/web')) };
+  const c = { ...out, port, worldPort, worldTtlMs, artifactSha: out['artifact-sha'], ...(prepareScale !== undefined ? { prepareScale } : {}), ...(worldPreset !== undefined ? { worldPreset } : {}), ...(out['natural-runner'] !== undefined ? { naturalRunner: out['natural-runner'] } : {}), ...(out['march-trial'] !== undefined ? { marchTrial: true } : {}), ...(out['capture-demo'] !== undefined ? { captureDemo: { scale: parseDemoScale(out['demo-scale']) } } : {}), ...(out['contest-pair'] !== undefined ? { contestPair: true } : {}), web: await fs.realpath(path.join(out.root, 'permutation-server/web')) };
   for (const file of [c.runner, c.herald, c.depart, c.preview, c.resident, c.artifact, ...(c.conquest ? [c.conquest] : []), ...(c.naturalRunner ? [c.naturalRunner] : []), path.join(c.root, 'permutation-gateway/src/frontier/local-play-relay-server.mjs')]) if (!(await fs.stat(file).catch(() => null))?.isFile()) throw fault('MissingFile');
   await fs.mkdir(c.data, { recursive: true }); return c;
 }

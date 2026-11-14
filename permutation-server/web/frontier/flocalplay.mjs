@@ -294,10 +294,24 @@ export function openLocalPlayGate({ cfg, loc = globalThis.location, doc = global
       try {
         result = await Promise.race([
           (async () => {
-            const response = await request(new URL('/local-play/start', loc.href).href, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ wallet: handle.address }), signal: abort.signal, credentials: 'omit', redirect: 'error' });
+            const startOnce = () => request(new URL('/local-play/start', loc.href).href, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ wallet: handle.address }), signal: abort.signal, credentials: 'omit', redirect: 'error' });
+            let response = await startOnce();
             if (abort.signal.aborted || handle.destroyed) return { ok: false, code: 'EphemeralWalletDestroyed' };
             if (!response?.ok) return launcherRefusal(response);
-            const body = await response.json();
+            let body = await response.json();
+            // (the TEST-ONLY contest pair: the first player waits for the second; the same press is asked again, within
+            //  this start's own deadline — nothing is signed or sent meanwhile, and the key stays this page's)
+            while (body?.pairWaiting === true && body?.herald === undefined) {
+              state.pairWaiting = true;
+              await new Promise(resolve => setTimeout(resolve, Math.max(1, retryDelayMs)));
+              if (abort.signal.aborted || handle.destroyed) return { ok: false, code: 'EphemeralWalletDestroyed' };
+              response = await startOnce();
+              if (abort.signal.aborted || handle.destroyed) return { ok: false, code: 'EphemeralWalletDestroyed' };
+              if (!response?.ok) return launcherRefusal(response);
+              body = await response.json();
+            }
+            state.pairWaiting = false;
+            state.pairRole = body?.pair?.role === 'first' || body?.pair?.role === 'second' ? body.pair.role : null;
             if (abort.signal.aborted || handle.destroyed) return { ok: false, code: 'EphemeralWalletDestroyed' };
             const origin = launcherHeraldOrigin(body?.herald);
             if (!origin) return { ok: false, code: 'BadHerald' };

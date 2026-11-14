@@ -51,6 +51,9 @@ pub mod natural_play;
 // TEST-ONLY capture demo on a natural world: a synthetic clock and test participants, the program's own instructions
 #[cfg(feature = "localnet-expedition-play")]
 pub mod capture_demo;
+/// TEST-ONLY contest pair: a second player's wallet and village in the same memory-only world (two people; no automatic opponent).
+#[cfg(feature = "localnet-expedition-play")]
+pub mod contest_pair;
 #[cfg(feature = "localnet-expedition-play")]
 pub mod wide_destination;
 #[cfg(feature = "localnet-expedition-play")]

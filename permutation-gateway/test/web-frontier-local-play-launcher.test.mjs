@@ -747,7 +747,9 @@ test('the source: four launcher routes and no other, no storage, no markup from 
   // every launcher request: a same-origin POST of JSON, no credentials, no redirect followed; the start names the page's own public address,
   // the stop the chosen world's, the list nothing
   const shape = "{ method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(BODY), signal: abort.signal, credentials: 'omit', redirect: 'error' }";
-  assert.equal(code.split(`await request(new URL('/local-play/start', loc.href).href, ${shape.replace('BODY', '{ wallet: handle.address }')})`).length - 1, 1);
+  // (the start is one request shape, asked again only while a TEST-ONLY contest pair waits for its second player)
+  assert.equal(code.split(`const startOnce = () => request(new URL('/local-play/start', loc.href).href, ${shape.replace('BODY', '{ wallet: handle.address }')});`).length - 1, 1);
+  assert.match(code, /while \(body\?\.pairWaiting === true && body\?\.herald === undefined\) \{/);
   assert.equal(code.split(`await request(new URL(route, loc.href).href, ${shape.replace('BODY', 'body')})`).length - 1, 1);
   assert.equal(code.split('request(').length - 1, 2, 'and no other request');
   assert.deepEqual([...code.matchAll(/askLauncher\(([^)]*)\)/g)].map(m => m[1]).sort(), ["'/local-play/keeper', { wallet }, 'LauncherKeeperFailed'", "'/local-play/stop', { wallet: address }, 'LauncherStopFailed'", "'/local-play/worlds', {}, 'LauncherListFailed'"]);
@@ -771,4 +773,32 @@ test('the source: four launcher routes and no other, no storage, no markup from 
   for (const rule of css.split('}').map(r => r.split('{')[0].trim()).filter(r => r && !r.startsWith('@'))) for (const sel of rule.split(',')) assert.match(sel.trim(), /^#local-play-(gate|session)\b/, `scoped to the panel or the standing notice: ${sel.trim()}`);
   for (const rule of css.split('}').filter(r => /display:\s*(grid|flex|block)/.test(r.split('{')[1] ?? '') && /\.local-play-world(s)?\b(?!-)/.test(r.split('{')[0]))) assert.match(rule.split('{')[0], /:not\(\[hidden\]\)/, 'what sets display does not show a hidden row');
   assert.match(css, /\.local-play-end:focus-visible/); assert.match(css, /min-height: 44px/);
+});
+
+// ---- TEST-ONLY contest pair: the first player's page waits for the second, asking the same start again
+const waiting = () => ({ ok: true, status: 200, json: async () => ({ pairWaiting: true, pair: { mode: 'contest-pair-v1' } }) });
+test('contest pair: "waiting" answers are asked again with the same request until the world is there; nothing else is sent', async () => {
+  const { gate, calls, answer } = open({ retryDelayMs: 1 });
+  let n = 0;
+  answer.start = async () => (++n <= 2 ? waiting() : { ok: true, status: 200, json: async () => ({ herald: 'http://localhost:41929', pair: { role: 'second', mode: 'contest-pair-v1' } }) });
+  await made(gate);
+  await gate.connect(); const result = await gate.ready;
+  assert.equal(starts(calls).length, 3, 'two waits, then the world');
+  assert.ok(starts(calls).every(([, o]) => o.body === JSON.stringify({ wallet: ME }) && o.method === 'POST' && o.credentials === 'omit' && o.redirect === 'error'), 'the same request each time');
+  assert.equal(calls.length, 3, 'no other request');
+  assert.equal(result.cfg.herald, 'http://localhost:41929'); assert.equal(result.cfg.relay, 'http://localhost:41929/gw', 'its own address: its own relay behind it');
+  assert.equal(gate.state().phase, 'connected');
+});
+test('contest pair: a waiting page that is closed stops asking (its key goes with it)', async () => {
+  const { gate, calls, answer, make } = open({ retryDelayMs: 5 });
+  answer.start = async () => waiting();
+  await made(gate);
+  const connecting = gate.connect();
+  for (let i = 0; i < 50 && starts(calls).length < 2; i++) await new Promise(r => setTimeout(r, 2));
+  make.made[0].wallet.destroy(); make.made[0].wallet.destroyed = true;
+  const before = starts(calls).length;
+  await new Promise(r => setTimeout(r, 30));
+  assert.ok(starts(calls).length <= before + 1, 'at most the request already on its way');
+  await connecting.catch(() => {});
+  assert.notEqual(gate.state().phase, 'connected');
 });
