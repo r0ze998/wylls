@@ -94,7 +94,9 @@ test('boot: a wallet reconnected silently is adopted without the wallet sync, so
   const boot = ctl.slice(ctl.indexOf('// A silent reconnect of the wallet used last time'));
   const silent = boot.indexOf('adoptConnectedWallet(c);');
   const firstRefresh = boot.indexOf('await refresh();');
-  const read = boot.indexOf("if (FS.wallet && !localPlay && FS.nftsRead === null) await loadNfts()");
+  // (2026-11-15: and in local play only on the LOCAL TEST CANDIDATE lane — `localCandidate()`; the conquest lane's local
+  //  play still reads no NFT list)
+  const read = boot.indexOf("if (FS.wallet && (!localPlay || localCandidate()) && FS.nftsRead === null) await loadNfts()");
   const ready = boot.indexOf('walletEventsReady = true;');
   assert.ok(silent > 0 && firstRefresh > silent && read > firstRefresh && ready > read, 'silent adopt → season read → NFT list → wallet events');
   // loadNfts itself still asks nothing outside an NFT season (the 0x8000 gate is unchanged).

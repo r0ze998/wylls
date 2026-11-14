@@ -372,3 +372,4 @@ workstreams/12-memory/test/adapters-ws13-real.test.mjs
 workstreams/13-citizens/test/integration-records.test.mjs
 workstreams/14-central-tower/game/centre.test.mjs
 # seen by the guard (they reach a key API in src/ at run time; added by hand)
+permutation-gateway/test/web-frontier-local-candidate-nft-login.test.mjs

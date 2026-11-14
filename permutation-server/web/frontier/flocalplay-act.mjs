@@ -33,6 +33,9 @@ export const LOCAL_ACT_STATUS_PATH = '/gw/f/local-play/act/status';
 export const LOCAL_ACT_CONTEXT_SCHEMA = 'frontier-local-play-act-context-v1';
 export const LOCAL_ACT_SUBMIT_SCHEMA = 'frontier-local-play-act-submit-v1';
 export const LOCAL_ACT_STATUS_SCHEMA = 'frontier-local-play-act-status-v1';
+// (LOCAL TEST CANDIDATE lane only: the relay's read of the passes the world's wallet holds — local-play-nft-resident.mjs)
+export const LOCAL_ACT_RESIDENTS_PATH = '/gw/f/local-play/act/residents';
+export const LOCAL_ACT_RESIDENTS_SCHEMA = 'frontier-local-play-nft-residents-v1';
 export const LOCAL_ACT_SEASON_ID = '11';
 /**
  * The relay's refusals that are made BEFORE it sends anything (its validation of the stated intent and of the signed
@@ -276,7 +279,7 @@ export function localActMessage(intent, identity, rulesetHash, blockhash) {
 
 /** One bounded POST of JSON to one of the three loopback routes; never a retry, never credentials. → the parsed answer; a refusal throws its code with `refused: true`. */
 export async function postLocalAct(origin, path, body, { fetch: fetcher = (...a) => globalThis.fetch(...a), timeoutMs = LOCAL_ACT_TIMEOUT_MS } = {}) {
-  check([LOCAL_ACT_CONTEXT_PATH, LOCAL_ACT_SUBMIT_PATH, LOCAL_ACT_STATUS_PATH].includes(path), 'BadLocalActPath');
+  check([LOCAL_ACT_CONTEXT_PATH, LOCAL_ACT_SUBMIT_PATH, LOCAL_ACT_STATUS_PATH, LOCAL_ACT_RESIDENTS_PATH].includes(path), 'BadLocalActPath');
   const text = JSON.stringify(body); check(text.length <= LOCAL_ACT_MAX_BYTES, 'LocalActTooLarge');
   const abort = new AbortController(), timer = setTimeout(() => abort.abort(), timeoutMs);
   let res, raw;
@@ -313,11 +316,15 @@ export async function submitLocalAct({ name, v, fields }, { allowed, identity, r
     check(!!w && w.destroyed === false && w.address === i.address, 'LocalActSigner');
     wallet = i.address;
     const hash = rulesetHash(); check(typeof hash === 'string' && /^[0-9a-f]{64}$/.test(hash), 'LocalActIdentity');
-    const intent = localActIntentOf(name, v, fields, wallet);
+    const rs0 = resident();
+    // (the NFT's first login — JoinResident — only with a resident: a faction, no session key; else the six, as before)
+    const intent = rs0 !== null && name === 'JoinResident'
+      ? (check(object(v) && int(v.faction, 0, 5) && object(fields) && fields.faction === v.faction, 'LocalActShape'), { name, subject: { faction: v.faction }, fields: { faction: v.faction } })
+      : localActIntentOf(name, v, fields, wallet);
     const ctx = await post(origin, LOCAL_ACT_CONTEXT_PATH, { schema: LOCAL_ACT_CONTEXT_SCHEMA });
     check(exact(ctx, ['wallet', 'blockhash']) && ctx.wallet === wallet && exact(ctx.blockhash, ['hash', 'last_valid_block_height', 'context_slot'])
       && address(ctx.blockhash.hash) && uintText(ctx.blockhash.last_valid_block_height) && uintText(ctx.blockhash.context_slot), 'BadLocalActContext');
-    const rs = resident();
+    const rs = rs0;
     if (rs !== null) {
       check(exact(rs, ['asset', 'generation', 'residentProgram']) && address(rs.asset) && address(rs.residentProgram) && Number.isInteger(rs.generation), 'LocalActResident');
       const proof = { ...localResidentProof({ programId: i.programId, seasonAddress: i.seasonAddress, asset: rs.asset, residentProgram: rs.residentProgram }), residentProgram: rs.residentProgram };
@@ -363,6 +370,20 @@ export async function submitLocalAct({ name, v, fields }, { allowed, identity, r
  * `pending` is not a failure and not an expiry: this path has no "did not take effect" settlement, so a command that
  * never lands stays "not confirmed" — never "failed", never "done".
  */
+/**
+ * LOCAL TEST CANDIDATE lane only: the passes the world's wallet holds now, read by the relay from its runner
+ * (`{ok, residents, policy, mint: null}`, as fresident.mjs `loadResidents` answers), or `{ok: false, code}`.
+ * A read: nothing is signed or kept; every command is checked again by the relay on its own read.
+ */
+export async function loadLocalResidents({ allowed, post = postLocalAct } = {}) {
+  try {
+    const a = allowed(); if (!a?.ok) return { ok: false, code: a?.code ?? 'LocalActNotAllowed' };
+    const r = await post(a.relay, LOCAL_ACT_RESIDENTS_PATH, { schema: LOCAL_ACT_RESIDENTS_SCHEMA });
+    if (!object(r) || !address(r.wallet) || !Array.isArray(r.residents)) return { ok: false, code: 'BadLocalResidents' };
+    return { ok: true, wallet: r.wallet, residents: r.residents, policy: r.policy ?? null, mint: null };
+  } catch (e) { return { ok: false, code: codeOf(e, 'LocalResidentsUnavailable') }; }
+}
+
 export function localActRead({ allowed, post = postLocalAct } = {}) {
   return async signature => {
     try {

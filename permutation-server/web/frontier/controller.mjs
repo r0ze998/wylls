@@ -50,6 +50,7 @@ import * as localReveal from './flocalplay-reveal.mjs';
 import * as localReturn from './flocalplay-return.mjs';
 import * as localConquest from './flocalplay-conquest.mjs';
 import * as localAct from './flocalplay-act.mjs';
+import { isCandidateProgram } from './flocallanes.mjs';
 import * as localMarch from './flocalplay-march.mjs';
 import { localPlayIdentityOk } from './flocalplay.mjs';
 import { decode as fromBase58, encode as toBase58 } from '../sdk/base58.mjs';
@@ -72,6 +73,9 @@ import * as pm from './proto/hand-model.mjs';
 const SESSION_DAYS = 30 * 86_400;
 /** Local play (flocalplay.mjs): `{address}` once its gate verified a herald for the page's memory-only wallet, else null. */
 let localPlay = null;
+// LOCAL TEST CANDIDATE lane only ([0x4C; 32] / 0xC804 — the herald gate already holds it to that exact pair): local play
+// with NFT residents. Everywhere else (the conquest lane) this is false and local play is exactly as before.
+const localCandidate = () => !!localPlay && isCandidateProgram(localPlay.programId);
 const localPlayReadOnly = () => ({ code: 'LocalPlayReadOnly', text: () => L`ローカルプレイでは、まだ命令を送れません（読み取りのみ）。` });
 const now = () => FS.chain?.now() ?? 0;
 const nowBell = () => (FS.clock ? bellAt(FS.clock.genesisTs, now()) ?? 0 : 0);
@@ -179,6 +183,7 @@ export async function loadNfts() {
   FS.nfts = null; FS.nftsRead = null;
   // Only a season of the nft-experimental program (its program version
   // carries 0x8000) has residents; other seasons never ask.
+  if (localPlay) return loadLocalNfts();
   if (!FS.wallet || !io.relay() || !(Number(FS.season?.programVersion ?? 0) & 0x8000)) return;
   const address = FS.wallet.address;
   const r = await fresident.loadResidents(address).catch(e => ({ ok: false, code: e?.code ?? 'network' }));
@@ -188,6 +193,29 @@ export async function loadNfts() {
   FS.nftsRead = { ok: !!r?.ok, code: r?.ok ? null : String(r?.code ?? 'Unavailable') };
   if (r?.ok && r.policy) FS.nfts = { residents: r.residents, policy: r.policy, mint: r.mint ?? null };
   invalidate('panel');
+}
+
+/** LOCAL TEST CANDIDATE lane only: the passes of the world's wallet (the page's memory-only one), read by the world
+ *  relay; on the conquest lane's local play nothing is read (FS.nfts stays null), as before. */
+async function loadLocalNfts() {
+  if (!localCandidate() || !FS.wallet || !(Number(FS.season?.programVersion ?? 0) & 0x8000)) return;
+  const address = FS.wallet.address;
+  const r = await localAct.loadLocalResidents({ allowed: localDepartGate });
+  if (FS.wallet?.address !== address || !localCandidate() || (r?.ok && r.wallet !== address)) return;
+  FS.nftsRead = { ok: !!r?.ok, code: r?.ok ? null : String(r?.code ?? 'Unavailable') };
+  if (r?.ok && r.policy) FS.nfts = { residents: r.residents, policy: r.policy, mint: null };
+  invalidate('panel');
+}
+
+/** The holder generation of `asset` for the connected wallet, read now: the world relay's read in the candidate lane's
+ *  local play, else the relay's `/f/residents` (fresident.mjs). Null when the wallet does not hold it. */
+async function residentGenerationNow(asset) {
+  if (!localPlay) return fresident.currentGeneration(FS.wallet.address, asset);
+  if (!localCandidate()) return null;
+  const r = await localAct.loadLocalResidents({ allowed: localDepartGate });
+  if (!r.ok || r.wallet !== FS.wallet?.address) return null;
+  const e = r.residents.find(x => x.asset === asset);
+  return e && Number.isInteger(e.generation) ? e.generation : null;
 }
 
 /** The send and the follow-up (fplay.mjs); tests put stand-ins here to play a relay and a chain. */
@@ -422,18 +450,22 @@ async function actOnce(name, { v, fields, signer, requester, label, after, onSen
   // (only one of the six reaches here in local play: `act` refused the rest. No session key, no sponsor, no NFT path.)
   const local = lo !== null && localAct.localOrderRoute({ localPlay, name, v, signer, requester }) === 'local-act';
   if (localPlay && !local) return early(localPlayReadOnly());
-  if (local && FS.resident) return early(localPlayReadOnly());
+  if (local && FS.resident && !localCandidate()) return early(localPlayReadOnly());
   let sign = null;
   // ⑳: an NFT Citizen has no Frontier session; its owner's wallet signs, for
   // the generation read fresh now (a transfer since the page loaded changes it).
   let resident = null;
   if (FS.resident && signer !== null && name !== 'JoinResident') {
     if (name === 'SetSession') return early({ code: 'NftNoSession' });
-    const g = await fresident.currentGeneration(FS.wallet.address, FS.resident.asset);
+    const g = await residentGenerationNow(FS.resident.asset);
     if (g === null) return early({ code: 'NftNotHeld' });
     FS.resident = { ...FS.resident, generation: g };
     resident = { generation: g, proof: FS.resident.proof };
   }
+  // (the candidate lane's local play: the resident goes to the local relay, which reads every holder fact again)
+  const localResident = local && resident && localCandidate() && typeof FS.nfts?.policy?.residentProgram === 'string'
+    ? { asset: FS.resident.asset, generation: resident.generation, residentProgram: FS.nfts.policy.residentProgram } : null;
+  if (local && resident && !localResident) return early(localPlayReadOnly());
   if (signer !== null && !local) {
     if (name === 'Join' || name === 'JoinResident' || name === 'SetSession' || signer === 'wallet' || resident) {
       const w = wallet.connected();
@@ -460,7 +492,7 @@ async function actOnce(name, { v, fields, signer, requester, label, after, onSen
       const late = typeof v === 'object' ? fwide.wideRefusal(name, v, null) : null;
       if (late) return { ok: false, code: late.code, error: late.text, text: late.text };
       // (a relay that does not serve the economy routes: said as it always was — local play is reads only there)
-      if (local) return localAct.submitLocalAct({ name, v, fields }, localActDeps()).then(x => { if (x.ok || x.code !== 'LocalActNotServed') return x; const ro = localPlayReadOnly(); return { ok: false, code: ro.code, error: ro.text, text: ro.text }; });
+      if (local) return localAct.submitLocalAct({ name, v, fields }, { ...localActDeps(), resident: () => localResident }).then(x => { if (x.ok || x.code !== 'LocalActNotServed') return x; const ro = localPlayReadOnly(); return { ok: false, code: ro.code, error: ro.text, text: ro.text }; });
       return tx.submit({ name, accounts, fields, signer: sign, requester, citizen: requester ? viewerCitizen() : undefined, invite: v.invite, resident });
     };
     // (local play: the scope the order is sent under — this wallet, world and relay — was taken by `act` BEFORE anything
@@ -2416,6 +2448,43 @@ export const ACTIONS = {
     const pin = io.pinned();
     const id = fresident.identityOf(entry, FS.nfts.policy, { addresses: pin.addresses, programId: pin.programId });
     if (!Number.isInteger(id.generation)) return failed({ code: 'NftNotHeld' });
+    if (localCandidate()) {
+      // (the candidate lane's local play: the NFT's first login through the world relay, signed and paid by the page's
+      //  wallet — the pass's owner. Everything it acts on is PINNED here, at the press: the wallet, the world (the
+      //  local-play identity: program and Season), the relay, the asset and the viewer shown. It is asked again after
+      //  every await, inside the send (the gate and the resident the send reads), while the outcome is followed, and
+      //  right before the viewer changes. A change anywhere: nothing more is sent and the former viewer is not adopted.)
+      if (!id.joined) {
+        if (!Number.isInteger(FS.joinDraft?.faction)) return failed({ code: 'PickFaction' });
+        if (FS.season?.joinGate?.some?.(x => x !== 0)) return failed(localPlayReadOnly());
+      }
+      const gate0 = localDepartGate();
+      if (!gate0?.ok) return failed(localPlayReadOnly());
+      const pinned = Object.freeze({ wallet: FS.wallet.address, identity: localPlay, relay: gate0.relay, asset: id.asset, viewer: FS.resident, faction: FS.joinDraft?.faction ?? null });
+      const same = () => localCandidate() && localPlay === pinned.identity && FS.wallet?.address === pinned.wallet
+        && localDepartGate()?.relay === pinned.relay && FS.resident === pinned.viewer && (FS.nfts?.residents ?? []).some(x => x.asset === pinned.asset);
+      const changed = () => failed({ code: 'LocalActChanged' });
+      const g = await residentGenerationNow(pinned.asset);
+      if (!same()) return changed();
+      if (g === null) return failed({ code: 'NftNotHeld' });
+      if (!id.joined) {
+        const residentProgram = FS.nfts.policy.residentProgram;
+        const r = await localAct.submitLocalAct({ name: 'JoinResident', v: { faction: pinned.faction }, fields: { faction: pinned.faction } }, {
+          ...localActDeps(),
+          allowed: () => (same() ? localDepartGate() : { ok: false, code: 'LocalActChanged' }),
+          identity: () => pinned.identity,
+          resident: () => (same() ? { asset: pinned.asset, generation: g, residentProgram } : null) });
+        if (!r?.ok) return failed(r);
+        if (!same()) return changed();   // (sent under the pinned scope; the page moved on: its outcome is not adopted here)
+        const done = await localAct.followLocalAct(r.signature, { origin: pinned.relay, still: same }).catch(() => null);
+        if (!same()) return changed();
+        if (done?.state !== 'landed') return failed({ code: done?.state === 'failed' ? 'JoinResidentFailed' : 'JoinResidentUnconfirmed' });
+      }
+      if (!same()) return changed();
+      adoptResident({ ...id, generation: g, joined: true });
+      await refresh();
+      return;
+    }
     if (!id.joined) {
       if (!Number.isInteger(FS.joinDraft?.faction)) return failed({ code: 'PickFaction' });
       const gate = FS.season.joinGate.some(x => x !== 0) ? toBase58(FS.season.joinGate) : null;
@@ -2583,9 +2652,16 @@ fwide.guardLegacy(ACTIONS, fwide.GUARDED_ACTS, { FS, refuse: failed });
 //  only where the relay serves those routes; elsewhere they answer "reads only" as every order does. A Season with a
 //  prize pool or a join gate is refused inside `join`. The session, NFT, faucet, nudge and forget actions stay refused.)
 export const LOCAL_PLAY_REFUSED = Object.freeze(['session', 'nft-login', 'nft-logout', 'prize-faucet', 'nudge', 'forget']);
+// (the LOCAL TEST CANDIDATE lane: an NFT's login and logout are local play's too — kept before the refusal below, and
+//  run only while the page is a candidate-lane world; every other refusal, and these on the conquest lane, stand)
+const CANDIDATE_NFT_ACTIONS = Object.freeze({ 'nft-login': ACTIONS['nft-login'], 'nft-logout': ACTIONS['nft-logout'] });
 for (const name of LOCAL_PLAY_REFUSED) {
   const run = ACTIONS[name];
   if (run) ACTIONS[name] = (...a) => (localPlay ? failed(localPlayReadOnly()) : run(...a));
+}
+for (const [name, run] of Object.entries(CANDIDATE_NFT_ACTIONS)) {
+  const refused = ACTIONS[name];
+  if (run && refused) ACTIONS[name] = (...a) => (localCandidate() ? run(...a) : refused(...a));
 }
 
 /** Where an order of the prototype is about: the host's tile, else the banner's pole. */
@@ -2735,7 +2811,7 @@ export async function startPlay({ herald: h, cfg }) {
   await refresh();
   // ⑳ The silent reconnect above adopts the wallet without the wallet sync (which reads the resident NFTs), and the
   // season was not known yet: read the NFT list now (loadNfts asks nothing outside an NFT season).
-  if (FS.wallet && !localPlay && FS.nftsRead === null) await loadNfts().catch(e => console.error('frontier residents:', e));
+  if (FS.wallet && (!localPlay || localCandidate()) && FS.nftsRead === null) await loadNfts().catch(e => console.error('frontier residents:', e));
   // Local play: the player this boot read must still be the gate's wallet's own Citizen; otherwise the page lets go
   // of the wallet and says so (sends stay refused either way).
   if (localPlay && FS.wallet && !localPlayIdentityOk(localPlay, io.pinned(), FS.season, FS.citizen)) {
