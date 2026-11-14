@@ -136,3 +136,46 @@ Plan (all times compressed and labelled so; never called natural or live time):
    and clean up even if not finished, and record what was not reached.
 5. If the window cannot be held safely, CloseCitizen stays at the stand-in level (LiteSVM test 5) and is
    recorded as unproven on a real world. The time rule is not touched.
+
+## 11. Which world: finding and decision memo (2026-11-15, read-only survey)
+
+⑳'s answers: binaries confirmed (`515541c8`, `947da0b9`, stable); its `svm-core/core.rs` is stale; it agreed to
+a TEST ONLY `--nft-prize-test-only` stack patch prepared by ⑰ for its review (path + hash first) and to the
+tamper fixture under that flag only; NFT-lane pin `0227dbe1` (`404633c8` is the conquest candidate 0xC804);
+port base **`claude/nft-candidate-world-r21-20261115` @ `578389cd`** (⑰'s port worktree:
+`/Users/r0ze/Projects/wylls-nft-prize-on-world-20261115`, branch `claude/nft-prize-on-world-r21-20261115`). ⑳'s
+files there: controller.mjs (localCandidate, loadNfts/loadLocalNfts, residentGenerationNow, actOnce's resident
+lines, nft-login, CANDIDATE_NFT_ACTIONS), join.mjs (renderNfts, renderLocalCandidateNfts), holding.mjs,
+fresident.mjs, flocalresident.mjs, flocalplay-act.mjs / local-play-act.mjs (resident parts),
+local-play-nft-resident.mjs; adoptResident shared.
+
+**Finding.** On `578389cd`, `frontier-stack` has **no** `--nft-pass` (`e2b522fc` lives only on the
+nft-pass-mint branch). ⑳'s candidate world is the **local-play launcher + `itest` runner**
+(`localnet-expedition-play`, conquest preset, candidate 0xC804, mint page). Its season is finite (the runner
+writes an end bell; conquest block `continuous` = 0; ceiling 0), so a pool would not hit `ContinuousSeason`.
+But local play has **no prize integration**:
+- `local-play-relay.mjs` (365 lines) serves no `/f/prize` route;
+- the launcher and runner deploy no prize program and call no InitPool;
+- the page's prize panel reads `/f/prize`.
+
+**Two paths (owner/⑳ to choose; no code written in ⑳'s areas yet):**
+- **P1, frontier-stack world (nft-pass-mint branch):** finite S1 season, the frontier relay's prize routes
+  (already on ⑰'s branch), the stack's prize module. Needs the TEST ONLY flag patch to ⑳'s `--nft-pass`
+  stack code, plus one stack host rebuild. Its page is the older frontier play page, not the latest local-play
+  candidate page.
+- **P2, local-play candidate world (r21):** the latest page, as the user prefers. Needs new implementation:
+  - the runner or launcher deploys the TEST ONLY prize `.so` and sends InitPool with the world's season
+    authority (the candidate seed in the world dir), under a test-only option;
+  - local-play relay prize routes: the pool and pass view, and the claim through the local-play submit path;
+  - the page's prize panel wired into local play;
+  - tamper is not available as-is, since the runner's localnet is in-process. The fixture Entry would need a
+    runner option.
+
+  P2 touches ⑳-owned files (launcher, runner, relay, page) and needs host builds.
+
+**Recommendation:** P2 matches the user's direction (latest candidate page, no old relay/page). It is a
+multi-step implementation in ⑳'s areas, so: agree the file split with ⑳ first (⑰ takes the prize-specific
+modules: a new `local-play-prize.mjs` relay module and the page's prize panel wiring; ⑳ owns the runner,
+launcher and resident hooks), then build in this order: relay module + pure tests → page wiring + fixture
+browser test → runner/launcher test-only prize option (⑳ or with ⑳'s review) → host build slot → world.
+P1 remains a fallback if P2's runner change is not agreed.
