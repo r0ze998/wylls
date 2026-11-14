@@ -10,6 +10,7 @@ import { Keypair, PublicKey } from '@solana/web3.js';
 import { LOCAL_DIR } from '../config.mjs';
 import { decode as fromBase58 } from '../../client/src/base58.mjs';
 import { expeditionPreviewConfigProblems } from './expedition-preview.mjs';
+import { mintUrlProblem } from './mint-link.mjs';
 import { expeditionPrepareConfigProblems } from './expedition-prepare.mjs';
 import { expeditionDepartPrepareConfigProblems } from './expedition-depart-prepare.mjs';
 
@@ -61,6 +62,8 @@ export const FRONTIER_DEFAULTS = Object.freeze({
   /** The test-asset prize pool (permutation-prize): its program id and test mint; null when the season has none. */
   prizeProgram: null,
   prizeMint: null,
+  /** ⑳ The NFT pass mint page the join screen links to (local test worlds only: mint-link.mjs); null: no link. */
+  mintUrl: null,
   /** The test mint's authority (the local faucet); only with a prize pool, only on localnet. */
   faucetKeyFile: null,
   /** Test tokens one POST /f/faucet gives a wallet (base units), once per wallet. TEST VALUE. */
@@ -180,6 +183,7 @@ export function loadFrontierConfig(argv = [], env = {}) {
     gateKeyFile: pick('gate-key-file', 'FRONTIER_GATE_KEY_FILE', d.gateKeyFile),
     prizeProgram: pick('prize-program', 'FRONTIER_PRIZE_PROGRAM', d.prizeProgram),
     prizeMint: pick('prize-mint', 'FRONTIER_PRIZE_MINT', d.prizeMint),
+    mintUrl: pick('mint-url', 'FRONTIER_MINT_URL', d.mintUrl),
     faucetKeyFile: pick('faucet-key-file', 'FRONTIER_FAUCET_KEY_FILE', d.faucetKeyFile),
     faucetAmount: int(pick('faucet-amount', 'FRONTIER_FAUCET_AMOUNT', d.faucetAmount), '--faucet-amount'),
     prizeLedgerFile: pick('prize-ledger-file', 'FRONTIER_PRIZE_LEDGER_FILE', d.prizeLedgerFile),
@@ -228,6 +232,7 @@ export function checkFrontierConfig(cfg) {
   if (!cfg.programId) out.push('--program is required');
   if (cfg.seasonId === null || cfg.seasonId === undefined || !/^\d{1,20}$/.test(String(cfg.seasonId))) out.push('--season (the season id) is required');
   if (!!cfg.prizeProgram !== !!cfg.prizeMint) out.push('--prize-program and --prize-mint go together');
+  { const p = mintUrlProblem(cfg.mintUrl, cfg.cluster); if (p) out.push(p); }
   if (cfg.faucetKeyFile && cfg.cluster !== 'localnet') out.push('--faucet-key-file: the test-token faucet exists on localnet only');
   if (!(cfg.minPoolSol >= 0)) out.push('--min-pool-sol must be ≥ 0');
   if (cfg.agentWallet) {

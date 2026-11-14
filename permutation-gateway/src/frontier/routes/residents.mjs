@@ -79,6 +79,7 @@ export const residentRoutes = {
   'GET /f/residents': async (ctx, req) => {
     const owner = req.url.searchParams.get('owner') ?? '';
     try { new PublicKey(owner); } catch { throw new RouteError(400, 'owner: a base58 wallet address', 'BadRequest'); }
-    return { body: await listResidents({ connection: ctx.connection, owner, addrs: residentAddrs(ctx) }) };
+    // `mint`: the local test world's mint page (config `--mint-url`), for a wallet that holds no pass yet.
+    return { body: { ...(await listResidents({ connection: ctx.connection, owner, addrs: residentAddrs(ctx) })), mint: ctx.cfg?.mintUrl ?? null } };
   },
 };

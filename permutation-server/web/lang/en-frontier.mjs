@@ -760,6 +760,10 @@ export default {
   'NFTで遊んでいます': 'Playing as an NFT',
   'ウォレットの住民に戻る': 'Back to the wallet\'s resident',
   '住民NFTで入る': 'Enter with a resident NFT',
+  // ⑳ a local test world's link to its mint page (screens/join.mjs renderNfts)
+  'このウォレットは住民NFT（参加パス）を持っていません。発行ページで取得すると、この画面からそのNFTで参加できます。': 'This wallet holds no resident NFT (entry pass). Get one on the mint page, then join with it here.',
+  '発行ページを開く': 'Open the mint page',
+  '取得したので読み直す': 'I got one: check again',
   // workstream 07: the NFT list not read is not an empty one (screens/join.mjs renderNfts)
   'このウォレットの住民NFTを読み込めませんでした（{0}）。NFTが無いという意味ではありません。もう一度読み込むと、また確かめます': 'The resident NFTs of this wallet could not be loaded ({0}). This does not mean it has none. They will be checked again on the next load',
   '1枚のNFTにつき1人の住民です。NFTを譲渡すると、住民を操作できるのは新しい持ち主だけになります。': 'One NFT, one resident. When the NFT is transferred, only its new owner can act for the resident.',
