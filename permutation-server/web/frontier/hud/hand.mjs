@@ -74,6 +74,7 @@ export const INSPECTION_POPS = Object.freeze([EXPEDITION_POP]);
 
 export { ownHostsAt, ownHosts, marchCheck, exploreCheck, dissolveCheck, canAct, subjectOf, popOf } from './subject.mjs';
 import { ownHosts, marchCheck, exploreCheck, dissolveCheck, canAct, subjectOf, popOf } from './subject.mjs';
+import { returnCard } from './returncard.mjs';
 
 // (round 25: local play sends only its own few orders — flocalplay-act.mjs LOCAL_ACT_NAMES — and refuses the rest when
 //  they are sent. A bar button for an order local play refuses says so on the button and is not pressed, with the same
@@ -89,33 +90,6 @@ const localMarchClosed = (FS, r = null) => {
   if (r && typeof FS.localMarchFor === 'function') return FS.localMarchFor(r.holding ?? null, r.id ?? null)?.open !== true;
   return FS.localMarch?.open !== true;
 };
-
-// (2026-11-16: the expedition return card's words. fexpedition-return.mjs originalReturnModel holds ids only — the phase,
-//  `detail` and each step's id —; these say them in the shown language. Unknown ids say the unavailable words.)
-export const returnWords = Object.freeze({
-  title: phase => ({
-    'expedition-pending': () => L`遠征の処理待ち`,
-    resident: () => L`広域に滞在中`,
-    'leave-pending': () => L`解散の処理待ち`,
-    'return-pending': () => L`予備兵へ戻す準備段階`,
-  }[phase] ?? (() => L`帰還の状況を確認できません`))(),
-  detail: id => ({
-    OriginalDepartureResolution: () => L`出発元の戦闘解決を待っています。広域での滞在はまだ確認していません。`,
-    OriginalDepartureSettlement: () => L`出発元の結果を受け取るのを待っています。広域での滞在はまだ確認していません。`,
-    RevealOrGatherEvidence: () => L`公開・集計の証拠が必要です。帰還の段階はまだ判断できません。`,
-    OriginDestroyedSettlementOrCleanupEvidence: () => L`出発元で失われた軍勢の結果の受け取りと後処理の確認が必要です。帰還完了を意味しません。`,
-    DestinationResolveOrSettlementEvidence: () => L`到着先の解決と結果の受け取りの証拠が必要です。帰還の段階はまだ判断できません。`,
-    resident: () => L`帰還には、まず広域で軍勢を解散し、そのターンの処理を待ちます。`,
-    'leave-pending': () => L`解散の指示が記録されています。対象ターンの処理後にもう一度確認してください。`,
-    'return-pending': () => L`解散のターン処理が済んだ記録です。元の村の予備兵に戻ったことは、まだ確認していません。`,
-    'no-proposal': () => L`この観測だけでは提案を構築できません。必要な情報を確認し、もう一度観測してください。`,
-  }[id] ?? (() => L`同じ軍勢と場所の観測を取り直してください。`))(),
-  step: id => ({
-    dissolve: () => L`広域で解散を指示`,
-    'resolve-leave': () => L`ターン処理を待つ`,
-    'return-reserve': () => L`元の村の予備兵に戻す`,
-  }[id] ?? (() => ''))(),
-});
 
 // ------------------------------------------------------------------ the model
 const hexDist = (a, b) => (a && b ? (Math.abs(a.q - b.q) + Math.abs(a.r - b.r) + Math.abs((a.q + a.r) - (b.q + b.r))) / 2 : null);
@@ -725,14 +699,7 @@ function expeditionPop(FS, model) {
         ${report.blocker ? html`<p class="pop-line pop-why">${report.blocker.code}</p>` : ''}
         <p class="pop-line">${L`観測のスロット`}: ${source.context_slot ?? '?'} · ${L`鮮度は不明です。権限や完了を証明する結果ではありません。`}</p>
         ${returnError ? html`<p class="pop-line pop-why">${L`帰還の手順を確認できませんでした。もう一度読み取ってください。`}</p>` : ''}
-        ${returning ? html`<section class="expedition-return" data-return-phase="${returning.phase}" aria-label="${L`帰還の手順`}">
-          <p class="pop-line"><strong>${returnWords.title(returning.phase)}</strong></p>
-          <p class="pop-line">${returnWords.detail(returning.detail)}</p>
-          ${returning.steps.length ? html`<ol>${returning.steps.map(step=>html`<li data-return-step="${step.id}" data-step-state="${step.status}">${step.status==='proposal' ? html`<strong>${returnWords.step(step.id)}</strong>` : returnWords.step(step.id)}</li>`)}</ol>` : ''}
-          ${returning.returnUnits !== null ? html`<p class="pop-line">${L`予備兵に戻す人数の候補: ${fmtNum(returning.returnUnits)}人`}</p>
-            <p class="pop-line">${L`処理後の予備兵の見込み: ${fmtNum(returning.reserveAfter)}人`}</p>` : ''}
-          <p class="pop-line pop-why">${L`帰還の送信はまだ利用できません。予備兵への加算も行っていません。`}</p>
-        </section>` : ''}
+        ${returning ? returnCard(returning) : ''}
         ${returning?.proposal ? html`<details><summary>${L`実行できない役割案`}: ${returning.proposal.action}</summary><ul>${returning.proposal.roles.map(r => html`<li>${r.name}: ${r.address} · ${r.signer ? L`署名が必要` : L`署名不要`} · ${r.writable ? L`書き込み役割` : L`読み取り役割`}</li>`)}</ul></details>` : ''}
         ${localReturnBlock(FS, returning)}
         ${localConquestBlock(FS, returning)}

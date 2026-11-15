@@ -3,7 +3,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { originalReturnModel } from '../../permutation-server/web/frontier/fexpedition-return.mjs';
-import { returnWords } from '../../permutation-server/web/frontier/hud/hand.mjs';
+import { returnWords } from '../../permutation-server/web/frontier/hud/returncard.mjs';
 import { setLang } from '../../permutation-server/web/lang.mjs';
 import { REPORT_SCHEMA, requestDigest } from '../../permutation-server/web/frontier/fexpedition.mjs';
 import { canonicalExpeditionAccounts } from '../../permutation-server/web/frontier/fexpedition-identity.mjs';
@@ -70,7 +70,7 @@ test('resident, Leave resolution and reserve return remain distinct observations
   assert.equal(ready.returnUnits, '600'); assert.equal(ready.reserveAfter, '1000');
   for (const m of [resident, waiting, ready]) {
     assert.ok(m.steps.every(s => s.status !== 'done')); closed(m);
-    // (2026-11-16: the model holds ids only; the card's words — hud/hand.mjs returnWords — say them, in either language)
+    // (2026-11-16: the model holds ids only; the card's words — hud/returncard.mjs returnWords — say them, in either language)
     assert.ok(!('titleJa' in m) && !('detailJa' in m) && m.steps.every(s => !('labelJa' in s)), 'ids only, no Japanese data');
     const words = () => [returnWords.title(m.phase), returnWords.detail(m.detail), ...m.steps.map(s => returnWords.step(s.id))];
     for (const w of words()) assert.match(w, /[぀-ヿ㐀-鿿]/, w);
