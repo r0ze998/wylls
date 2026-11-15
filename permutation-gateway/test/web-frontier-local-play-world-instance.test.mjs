@@ -80,7 +80,7 @@ test('confirmed: the real end time is shown in either language, after ONE same-o
     assert.equal(endPoint(o.doc), `この世界は ${when} ごろに自動的に終わります（開始サービスが決めた時刻。この端末の時計で表示）。`);
     assert.equal(o.gate.notice().endState(), 'known');
     setLang('en');
-    assert.equal(endPoint(o.doc), `This world ends by itself at about ${when} (the time set by the start service, shown in this device's clock).`);
+    assert.equal(endPoint(o.doc), `This world ends on its own at about ${when} (the time set by the start service, shown in this device's clock).`);
     // exactly two requests: the start, then the one read — a same-origin POST of the schema alone, no credentials, no redirect, no cache
     assert.equal(o.calls.length, 2);
     const [[url, opt]] = reads(o.calls);

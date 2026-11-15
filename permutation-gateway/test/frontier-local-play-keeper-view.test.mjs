@@ -129,9 +129,9 @@ test('keeperText: one sentence per state; "processed through" is resolved_next �
     assert.match(keeperText({ state: 'reported', keeper: null }), /報告はまだありません/);
     assert.match(keeperText({ state: 'unavailable' }), /確認できませんでした/);
     setLang('en');
-    assert.equal(keeperText({ state: 'reported', keeper: { state: 'running', resolvedNext: 14 } }), 'The world\'s keeper is running (turns processed through 13).');
+    assert.equal(keeperText({ state: 'reported', keeper: { state: 'running', resolvedNext: 14 } }), 'The world\'s automatic services are running (turns processed through 13).');
     assert.match(keeperText({ state: 'reported', keeper: { state: 'unknown' } }), /never sent again/);
-    assert.match(keeperText({ state: 'reported', keeper: { state: 'partial', part: 'unknown' } }), /^The world's keeper is running, but/);
+    assert.match(keeperText({ state: 'reported', keeper: { state: 'partial', part: 'unknown' } }), /^The world's automatic services are running, but/);
   } finally { setLang(was); }
 });
 

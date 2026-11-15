@@ -638,7 +638,7 @@ test('in English: a prepared world, and every way a start, a stop or a list can 
     const refusedBy = async (season, me, said) => { const x = open(); x.h.season = season; x.h.me = me; await made(x.gate); await x.gate.connect(); assert.equal(status(x.doc), said); allEnglish(x.doc, said); };
     await refusedBy(goodSeason({ season: { programVersion: 4 } }), goodMe, 'This herald\'s season is not the local-play revision. (LocalPlayVersion)');
     await refusedBy(goodSeason({ record: { programId: W2 } }), goodMe, 'This herald does not serve the dedicated local-play program. (LocalPlayProgram)');
-    await refusedBy(goodSeason({ record: { cluster: 'devnet' } }), goodMe, 'This herald is not on localnet. (LocalPlayCluster)');
+    await refusedBy(goodSeason({ record: { cluster: 'devnet' } }), goodMe, 'The records server is not serving a localnet world. (LocalPlayCluster)');
     await refusedBy(goodSeason({ record: { seasonAddress: W2 } }), goodMe, 'This herald\'s season is not the canonical season of the dedicated local-play program. (LocalPlaySeason)');
     await refusedBy(goodSeason(), goodMe.bind(null, W2), 'The citizen this herald serves belongs to another wallet. (WalletBindingMismatch)');
     // the list and the end can fail too

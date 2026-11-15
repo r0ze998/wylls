@@ -71,10 +71,10 @@ const STEPS = [
 const steps = statuses => STEPS.map(([id, labelJa], i) => ({ id, labelJa, status: statuses[i] }));
 const BRIDGE = {
   OriginalDepartureResolution: ['Departed', '出発元の戦闘解決を待っています。広域での滞在はまだ確認していません。'],
-  OriginalDepartureSettlement: ['Departed', '出発元の精算を待っています。広域での滞在はまだ確認していません。'],
+  OriginalDepartureSettlement: ['Departed', '出発元の結果を受け取るのを待っています。広域での滞在はまだ確認していません。'],
   RevealOrGatherEvidence: ['Settled', '公開・集計の証拠が必要です。帰還の段階はまだ判断できません。'],
-  OriginDestroyedSettlementOrCleanupEvidence: ['DestroyedAtOrigin', '出発元で失われた軍勢の精算・後処理の確認が必要です。帰還完了を意味しません。'],
-  DestinationResolveOrSettlementEvidence: ['Gathered', '到着先の解決・精算の証拠が必要です。帰還の段階はまだ判断できません。'],
+  OriginDestroyedSettlementOrCleanupEvidence: ['DestroyedAtOrigin', '出発元で失われた軍勢の結果の受け取りと後処理の確認が必要です。帰還完了を意味しません。'],
+  DestinationResolveOrSettlementEvidence: ['Gathered', '到着先の解決と結果の受け取りの証拠が必要です。帰還の段階はまだ判断できません。'],
 };
 
 /**

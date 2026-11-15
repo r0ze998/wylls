@@ -2611,6 +2611,31 @@ body:has(#wide-world:not([hidden])) :is(.hud-tl, .map-tools, .minimap, .rail, .p
   body:not([data-stage="none"]):not(:has(.plate-main[data-act="home"])):has(#stale-banner:not([hidden])):has(#error-line:not([hidden])) .feed { top: calc(var(--strip) + 8px + 3 * var(--target) + 20px + 96px); }
 }
 
+/* (round 42: the boundary editor's rules stand before the film's frame, which closes the stylesheet — web-frontier-pretake-frame.test.mjs) */
+/* Boundary editing needs the original canvas and its next-step tiles in view. */
+body .hand-pop[data-pop="expedition-compose"][data-mode="card"] {
+  width: min(600px, calc(100vw - 2 * var(--edge)));
+  max-height: min(300px, calc(var(--vvh) * .35));
+}
+.hand-pop[data-pop="expedition-compose"] .outbound-help { font-size: var(--t1); }
+.hand-pop[data-pop="expedition-compose"] .pop-foot { flex-wrap: wrap; }
+.hand-pop[data-pop="expedition-compose"] details { margin-top: 8px; }
+.hand-pop[data-pop="expedition-compose"] summary { cursor: pointer; color: var(--brass-hi); }
+@media (max-width: 759px) {
+  /* Experimental expedition controls add two choices to the normal bar.
+     Keep readable targets and let the row scroll instead of squeezing text. */
+  .hand-acts:has(.hand-expedition-inspect) { overflow-x: auto; padding-bottom: 4px; touch-action: pan-x; overscroll-behavior-x: contain; }
+  .hand-acts:has(.hand-expedition-inspect) .hand-btn { flex: 0 0 104px; }
+  .hand-acts:has(.hand-expedition-inspect) .hand-word { white-space: normal; }
+  body:has(#hand-pop[data-pop="expedition-inspect"]:not([hidden])) #hand .hand-acts { display: none; }
+  body .hand-pop[data-pop="expedition-compose"][data-mode="card"] { width: auto; max-height: min(260px, calc(var(--vvh) * .31)); }
+  .hand-pop[data-pop="expedition-compose"] .outbound-directions { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 4px; }
+  .hand-pop[data-pop="expedition-compose"] .outbound-directions .btn { padding-inline: 2px; }
+  /* Keep the selected host's identity and close control; its other orders
+     return as soon as the route card closes. */
+  body:has(#hand-pop[data-pop="expedition-compose"]:not([hidden])) #hand .hand-acts { display: none; }
+}
+
 /* ================================================================== the film's frame: a laptop's width (1280 × 720)
    The demo is filmed with the page laid out at 1280 × 720 CSS px (device scale 1.5: a 1920 × 1080 picture). What stood
    cut, covered or colliding at that size is set right here, under three conditions and no other: between 1100 and
@@ -2680,28 +2705,4 @@ body:has(#wide-world:not([hidden])) :is(.hud-tl, .map-tools, .minimap, .rail, .p
   .panel[data-doc="wide"] .report.doc > .doc-head { margin-bottom: var(--s2); }
   .panel[data-doc="wide"] .report.doc .versus-band { margin-bottom: var(--s2); padding: var(--s2) var(--s3); }
   .panel[data-doc="wide"] .report.doc .report-keep { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 8px; margin: 0 0 var(--s1); }
-}
-
-/* Boundary editing needs the original canvas and its next-step tiles in view. */
-body .hand-pop[data-pop="expedition-compose"][data-mode="card"] {
-  width: min(600px, calc(100vw - 2 * var(--edge)));
-  max-height: min(300px, calc(var(--vvh) * .35));
-}
-.hand-pop[data-pop="expedition-compose"] .outbound-help { font-size: var(--t1); }
-.hand-pop[data-pop="expedition-compose"] .pop-foot { flex-wrap: wrap; }
-.hand-pop[data-pop="expedition-compose"] details { margin-top: 8px; }
-.hand-pop[data-pop="expedition-compose"] summary { cursor: pointer; color: var(--brass-hi); }
-@media (max-width: 759px) {
-  /* Experimental expedition controls add two choices to the normal bar.
-     Keep readable targets and let the row scroll instead of squeezing text. */
-  .hand-acts:has(.hand-expedition-inspect) { overflow-x: auto; padding-bottom: 4px; touch-action: pan-x; overscroll-behavior-x: contain; }
-  .hand-acts:has(.hand-expedition-inspect) .hand-btn { flex: 0 0 104px; }
-  .hand-acts:has(.hand-expedition-inspect) .hand-word { white-space: normal; }
-  body:has(#hand-pop[data-pop="expedition-inspect"]:not([hidden])) #hand .hand-acts { display: none; }
-  body .hand-pop[data-pop="expedition-compose"][data-mode="card"] { width: auto; max-height: min(260px, calc(var(--vvh) * .31)); }
-  .hand-pop[data-pop="expedition-compose"] .outbound-directions { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 4px; }
-  .hand-pop[data-pop="expedition-compose"] .outbound-directions .btn { padding-inline: 2px; }
-  /* Keep the selected host's identity and close control; its other orders
-     return as soon as the route card closes. */
-  body:has(#hand-pop[data-pop="expedition-compose"]:not([hidden])) #hand .hand-acts { display: none; }
 }
