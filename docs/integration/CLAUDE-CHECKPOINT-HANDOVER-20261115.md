@@ -5,13 +5,14 @@ No secrets in this file: test keys were memory-only and are gone; no credentials
 ## 1. Where the work stands
 - Canonical tree (absolute): `/Users/r0ze/Projects/wylls-codex-wide-inventory-20261109`
 - Branch: `codex/wide-conquest-lifecycle-20261109`; remote `origin` = github.com/r0ze998/wylls
-- HEAD at this checkpoint: `3a85aa9c894724e55ad5b2571f64dd3550b6b7d5` (round 36); `git ls-remote origin
+- HEAD at this checkpoint: `31fde707d766d7ae68867c791a269fbd273d6fb2` (round 37); `git ls-remote origin
   refs/heads/codex/wide-conquest-lifecycle-20261109` returned the same SHA (checked 2026-11-15). The handover note's
-  first version is e2245e0b (on top of round 35, 67bf34df); this update is the commit after 3a85aa9c.
+  first version is e2245e0b (on top of round 35, 67bf34df); updated f71c249b (after 36) and after 31fde707 (37).
 - My recent commits (oldest → newest): 427c4963 (33b ready-again estimate), 35d22713 (33c: charge at settle on b+1),
   8e385098 (34: English for hand.mjs return texts, '{0} can no longer be used', expedition-map clock tests),
   67bf34df (35: with the March card open, a map tap the host cannot act on says why and keeps the host in hand),
-  e2245e0b (this note), 3a85aa9c (36: one English per Japanese key — see §7).
+  e2245e0b (this note), 3a85aa9c (36: one English per Japanese key — see §7), 31fde707 (37: a tap's refusal that
+  repeats the selected host's own reason is drawn once, on the host's tag, which shakes).
 - Work copy (scratch, not a repo): `<scratchpad>/canon-copy-round18` — tests are run there against the canonical
   node_modules-free copy; patches are made HEAD-based and applied to canonical with `git apply --cached` + working tree.
 
@@ -52,8 +53,8 @@ test/web-frontier-*.test.mjs` (2035 tests).
   (c) (17 stale English entries: hand.mjs return texts the other lane has not marked yet), 鐘/"bell".
 - Fixed in round 36: web-lang "dictionaries" (same Japanese → different English).
 - Screens (browser, keyless fixture, work copy): conquest-press 10/10 and local-march-maptap 3/3 pass; fixtures 7 and
-  interaction 9 failures are the same on base and round 36 (the real-turn test at 390 flaked once in a full run, passed
-  6/6 alone on both sides); frontier.screen.mjs cannot load here (axe-core is not installed in the shared screens
+  interaction 9 failures are the same on base and rounds 36–37. Two interaction tests flake only in the long full run
+  ("the phone sheet", "the real turn @ 390"): alone they passed 3/3 on base and on round 37; frontier.screen.mjs cannot load here (axe-core is not installed in the shared screens
   node_modules) — not run.
 
 ## 6. Fixture versus a real world: what was seen where
@@ -63,16 +64,19 @@ test/web-frontier-*.test.mjs` (2035 tests).
 - Fixture / unit only, NOT yet seen in a world: 33c (estimate charged at settle on b+1), round 34 English texts,
   round 35 map-tap reason, round 36 dictionary split (EN/JA screenshots of the Hosts tab and panel on the fixture at
   1440 and 390; the report's Verifying button, the This host fallback and the observation slot line are unit-rendered
-  only). Whether live30's silent press was exactly the round 35 cause is not proven.
+  only), round 37 single sentence (canvas text count and screenshot on the fixture, EN/JA at 1440). Whether live30's silent press was exactly the round 35 cause is not proven.
 - Known cosmetic: while a province is behind, the host's own map tag says the same sentence just above the tap's note.
 - Fresh-clone build + natural-preset start has still not been run (live worlds used exports with pinned binaries).
 
 ## 7. Next ordinary UI work
 1. DONE (3a85aa9c): 軍勢 / "Hosts" (tabs, lists), この軍勢 / "This host", 軍勢: {0} / "Host: {0}"; 確かめています… /
    "Checking…" vs 照合しています… / "Verifying…"; 記録のスロット / "Record slot" vs 観測のスロット / "Snapshot slot".
-2. Next: the double sentence on the map while a province is behind (the host tag and the tap note say the same words).
+2. DONE (31fde707): the double sentence on the map (the host tag and the tap note). The host bar's own note still
+   says the same reason a third time, below the map — by design (the bar is the host's card), not changed.
 3. Remaining web-lang failures in my files only (leave fexpedition-return and its stale entries to their owner).
-4. When disk and slot allow (≥ 21 GiB, other session's all-clear): a short natural-preset world to see 33c–36 live.
+4. When disk and slot allow (≥ 21 GiB, other session's all-clear): a short natural-preset world to see 33c–37 live.
+5. Candidates for the next ordinary map/UI round: the stale English entries the play files no longer use, once their
+   owner confirms; phone (390) checks of rounds 35–37 on the fixture.
 
 ## 8. Restricted — never resume
 NFT transfer verification or equivalent procedures, session guard, prize. No real funds, no public issuance.
