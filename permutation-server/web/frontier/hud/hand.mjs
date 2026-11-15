@@ -43,7 +43,10 @@ import { previewOf } from '../proto/hand-model.mjs';
 import { conquestOn, renderKeepsPop, waitOf, holdTurns } from './keephand.mjs';
 import { EXPEDITION_POP, inspectionVersion } from '../fexpedition.mjs';
 import { originalReturnModel } from '../fexpedition-return.mjs';
-import { OUTBOUND_POP, outboundSketch } from '../fexpedition-compose.mjs';
+import { OUTBOUND_POP, outboundSketch, outboundArrivalCandidate } from '../fexpedition-compose.mjs';
+import { localDepartOf, localDepartSpent } from '../flocalplay-depart.mjs';
+import { localRevealOf, localRevealCandidate } from '../flocalplay-reveal.mjs';
+import { localReturnOf, localReturnSpent } from '../flocalplay-return.mjs';
 import { composerChoices } from '../screens/march.mjs';
 
 const int = Number.isInteger;
@@ -441,8 +444,90 @@ export function renderPop(FS, model) {
   return '';
 }
 
+/**
+ * Local play only (FS.localPlay; flocalplay-depart.mjs): the one send of the local-play page, on the boundary card.
+ * The button asks for the departure of the draft as it stands; the lines say how far the run got. An unknown
+ * outcome is said as unknown, with the one thing that may be done about it (ask again); never as a success.
+ */
+function outboundLocalDepart(FS, ready) {
+  if (!FS.localPlay) return '';
+  const d = localDepartOf(FS), sig = d.signature ? `${d.signature.slice(0, 8)}…${d.signature.slice(-6)}` : '';
+  const step = { sealing: L`封をしています…`, preparing: L`出発の取引を用意しています…`, signing: L`このページのテスト用ウォレットで署名しています…`, submitting: L`送信して結果を待っています…` }[d.status];
+  const line = step ? html`<p class="pop-line local-depart-step" role="status">${step}</p>`
+    : d.status === 'confirmed' ? html`<p class="pop-line local-depart-done" role="status">${L`出発が確定しました（ターン ${d.arriveBell} に到着予定・移動枠 ${d.transitSlot}）。署名 ${sig}`}</p>`
+    : d.status === 'submitted' ? html`<p class="pop-line local-depart-sent" role="status">${L`送信しました。確定はまだ確認できていません。署名 ${sig}`}${d.error ? html` <span>${L`（照合できませんでした：${d.error}）`}</span>` : ''}</p>`
+    : d.status === 'failed' ? html`<p class="pop-line local-depart-failed" role="alert">${L`出発は失敗しました（理由 ${d.code ?? '?'}）。軍勢は出発していません。署名 ${sig}`}</p>`
+    : d.status === 'unknown' ? html`<p class="pop-line local-depart-unknown" role="alert">${L`結果を確認できませんでした。出発したかどうかは不明です。もう一度送らずに、結果を照合してください。署名 ${sig}`}${d.error ? html` <span>${L`（照合できませんでした：${d.error}）`}</span>` : ''}</p>`
+    : d.status === 'error' ? html`<p class="pop-line local-depart-error" role="alert">${L`出発できませんでした（${d.error ?? '?'}）。${d.sent ? '' : L`何も送っていません。`}`}</p>` : '';
+  const settle = d.status === 'unknown' || d.status === 'submitted';
+  // (a departure was already sent on this observation of the conditions: it is used up until they are read again)
+  const spent = localDepartSpent(FS);
+  if (spent) ready = false;
+  return html`<div class="outbound-local-depart"><p class="pop-line">${L`ローカルプレイ：この軍勢を、このページのテスト用ウォレットの署名で出発させます（このマシンの試験用の世界だけ）。封の中身はこのページのメモリにだけ残り、再読み込みすると失われます。`}</p>
+    ${line}
+    <div class="pop-foot">${settle ? html`<button type="button" class="btn small" data-act="outbound-local-reconcile" ${raw(d.busy ? 'aria-disabled="true"' : '')}>${L`結果を照合する`}</button>`
+      : html`<button type="button" class="btn primary" data-act="outbound-local-depart" ${raw(d.busy || !ready ? 'aria-disabled="true"' : '')}>${d.busy ? L`出発を送っています…` : L`出発する（ローカルプレイ）`}</button>`}
+      ${!ready && !d.busy && !settle ? html`<span>${spent ? L`この確認結果ではすでに出発を送りました。もう一度出発するには「出発条件を確認」で最新の状態を読み直してください。` : L`先に「出発条件を確認」で条件を満たしてください。`}</span>` : ''}</div></div>`;
+}
+
+/**
+ * Local play only (FS.localPlay; flocalplay-reveal.mjs): the explicit opening of a seal this page holds, for a
+ * departure the test world confirmed. Two presses: 確認 (a read; nothing is signed) and then 封を開く. Empty when the
+ * page holds no such seal and nothing was asked. What it says at the end is only that the opening is recorded:
+ * the arrival, its battle and the return are decided at the destination and are not claimed here. An outcome that
+ * is not known is said as not known, with the one thing that may be done (ask again); never sent a second time.
+ * Shown on the boundary card and, by the page, apart from it (the host has left its tile after departing).
+ */
+export function localRevealStrip(FS) {
+  if (!FS.localPlay) return '';
+  const r = localRevealOf(FS), seal = localRevealCandidate(FS);
+  if (r.status === 'idle' && !seal) return '';
+  const sig = r.signature ? `${r.signature.slice(0, 8)}…${r.signature.slice(-6)}` : '';
+  const turn = r.arriveBell ?? seal?.arriveBell ?? '?';
+  const why = {
+    RevealWindowClosed: L`封を開ける期間が終わっています。`, RevealArchived: L`この到着ターンの記録はすでに片付けられています。`, RevealLatchClosed: L`到着先はこのターンの受付をすでに締め切っています。`,
+    RevealSeasonNotRunning: L`シーズンが進行中ではありません。`, RevealSeasonEnded: L`シーズンが終わっており、この到着は受け付けられません。`,
+    RevealAdmissionContested: L`到着先の枠がほかの軍勢と競合しています。このページでは順位を判定しないため、送りません。`,
+    RevealAdmissionMismatch: L`到着先にこの軍勢の名前の記録がありますが、この封のものとは一致しません。`,
+    RevealDestinationNotOpen: L`到着先の州がまだ開かれていません。`, RevealDestinationNotReady: L`到着先の州の準備がまだ終わっていません。`,
+    RevealTransitMissing: L`この出発の記録が見つかりません。`, RevealAlreadyGathered: L`この軍勢はすでに到着先で受け付けられています。`, RevealHostDestroyedAtOrigin: L`この軍勢は出発地で失われました。`,
+    RevealSealMissing: L`このページには開ける封が残っていません（再読み込みすると封の中身は失われます）。`,
+  }[r.code] ?? null;
+  const step = { checking: L`いまの記録を読んで、封を開けられるか確かめています…`, reading: L`最新の記録を読み直しています…`, signing: L`このページのテスト用ウォレットで署名しています…`, submitting: L`送信して結果を待っています…` }[r.status];
+  const line = step ? html`<p class="pop-line local-reveal-step" role="status">${step}</p>`
+    : r.status === 'ready' ? html`<p class="pop-line local-reveal-ready" role="status">${L`封を開けられます（到着ターン ${turn}・到着先の枠 ${r.targetI}）。開くと封の中身（行き先と命令）が公開されます。`}</p>`
+    : r.status === 'blocked' ? html`<p class="pop-line pop-why local-reveal-blocked" role="status">${why ?? L`いまは封を開けられません。`} (${r.code ?? '?'}) ${L`何も送っていません。`}</p>`
+    : r.status === 'revealed' ? html`<p class="pop-line local-reveal-done" role="status">${L`封を開いたことが記録されました（到着ターン ${turn}）。到着先での決着を待っています。戦いや帰還の結果は、まだ決まっていません。`}${sig ? html` <span>${L`署名 ${sig}`}</span>` : ''}</p>`
+    : r.status === 'submitted' ? html`<p class="pop-line local-reveal-sent" role="status">${L`送信しました。記録されたかどうかはまだ確認できていません。署名 ${sig}`}${r.error ? html` <span>${L`（照合できませんでした：${r.error}）`}</span>` : ''}</p>`
+    : r.status === 'unknown' ? html`<p class="pop-line local-reveal-unknown" role="alert">${L`結果を確認できませんでした。封が開かれたかどうかは不明です。もう一度送らずに、結果を照合してください。署名 ${sig}`}${r.error ? html` <span>${L`（照合できませんでした：${r.error}）`}</span>` : ''}</p>`
+    : r.status === 'failed' ? html`<p class="pop-line local-reveal-failed" role="alert">${L`封を開く取引は失敗しました（理由 ${r.code ?? '?'}）。封は開かれていません。封はこのページに残っています。署名 ${sig}`}</p>`
+    : r.status === 'error' ? html`<p class="pop-line local-reveal-error" role="alert">${L`封を開けませんでした（${r.error ?? '?'}）。${r.sent ? '' : L`何も送っていません。`}`}</p>` : '';
+  const settle = r.status === 'unknown' || r.status === 'submitted', off = r.busy ? 'aria-disabled="true"' : '';
+  const buttons = settle ? html`<button type="button" class="btn small" data-act="local-reveal-reconcile" ${raw(off)}>${L`結果を照合する`}</button>`
+    : r.status === 'ready' ? html`<button type="button" class="btn primary" data-act="local-reveal-send" ${raw(off)}>${L`封を開く（ローカルプレイ）`}</button>
+        <button type="button" class="btn small" data-act="local-reveal-check" ${raw(off)}>${L`確認し直す`}</button>`
+    : r.status === 'revealed' ? (seal ? html`<button type="button" class="btn small" data-act="local-reveal-clear">${L`次の封を確認する`}</button>` : '')
+    : ['failed', 'error', 'blocked'].includes(r.status) ? html`<button type="button" class="btn small" data-act="local-reveal-check" ${raw(off)}>${L`確認し直す`}</button>`
+    : html`<button type="button" class="btn small" data-act="local-reveal-check" ${raw(off)}>${r.busy ? L`確かめています…` : L`封を開けるか確認する`}</button>`;
+  return html`<div class="outbound-local-reveal"><p class="pop-line">${L`ローカルプレイ：出発が確定した軍勢の封を、このページのテスト用ウォレットの署名で開きます（このマシンの試験用の世界だけ）。到着ターン ${turn}。`}</p>
+    ${line}
+    <div class="pop-foot">${buttons}</div></div>`;
+}
+
 /** Local preparatory card. Its controls have no order form or executable action. */
-function outboundRouteReport(check) {
+/**
+ * The earliest observed arrival turn, offered beside the range it comes from (`pick`: fexpedition-compose.mjs
+ * outboundArrivalCandidate, only while the observation is still this draft's; `entered`: the draft's own field).
+ * A press fills the field and reads the observation again; the field in 詳細 stays for any other turn.
+ */
+function outboundArrivalPick(pick, entered) {
+  if (!pick) return '';
+  if (entered === pick.arriveBell) return html`<p class="pop-line outbound-arrival-set">${L`到着ターンの候補はターン ${pick.arriveBell}（観測した範囲で最も早い候補）です。詳細で変更できます。`}</p>`;
+  return html`<div class="pop-foot outbound-arrival-pick"><button type="button" class="btn small" data-act="outbound-arrival-earliest">${L`最も早い候補（ターン ${pick.arriveBell}）を使う`}</button>
+    <span>${entered ? L`いまの候補：ターン ${entered}` : L`到着ターンの候補は未入力です`}</span></div>`;
+}
+
+function outboundRouteReport(check, pick = null, entered = '') {
   if (!check) return '';
   if (check.status === 'loading') return html`<p class="pop-line" role="status">${L`道の州の記録を読み込んでいます…`}</p>`;
   if (check.status === 'error') return html`<p class="pop-line pop-why" role="status">${L`道の記録を読めませんでした。もう一度確認してください。`} (${check.code})</p>`;
@@ -457,11 +542,12 @@ function outboundRouteReport(check) {
     ${r.travelSecs !== null ? html`<p class="pop-line">${L`記録上の移動時間 ${r.travelSecs} 秒・塔の消耗 ${r.wearBps} bps`}</p>` : ''}
     ${r.min !== null && r.max !== null && r.min <= r.max ? html`<p class="pop-line">${L`到着候補：ターン ${r.min}〜${r.max}`}</p>` : ''}
     ${why ? html`<p class="pop-line pop-why">${why}${r.stepIndex !== null ? ` (${r.stepIndex + 1})` : ''}</p>` : ''}
+    ${outboundArrivalPick(pick, entered)}
     <p class="pop-line">${L`取得した記録と推定出発時刻での計算です。現在の通行・到着や出発の成功は未確認です。`}</p>
   </div>`;
 }
 
-function outboundContextReport(check) {
+function outboundContextReport(check, pick = null, entered = '') {
   if (!check) return '';
   if (check.status === 'loading') return html`<p class="pop-line" role="status">${L`軍勢・村・地形・時刻をまとめて読み込んでいます…`}</p>`;
   if (check.status === 'error') return html`<p class="pop-line pop-why" role="status">${check.code === 'ExpeditionPreviewDisabled'
@@ -471,7 +557,7 @@ function outboundContextReport(check) {
     <p class="pop-line${check.ready.ok ? '' : ' pop-why'}">${check.ready.ok
       ? L`この読取時点では、軍勢と村の出発条件を満たしています。`
       : L`この読取時点では、軍勢と村の出発条件を満たしていません。`}${check.ready.ok ? '' : ` (${check.ready.code})`}</p>
-    ${outboundRouteReport(check)}
+    ${outboundRouteReport(check, pick, entered)}
     <p class="pop-line pop-why">${L`出発の送信はまだ利用できません。`}</p>
   </div>`;
 }
@@ -481,6 +567,10 @@ function outboundPop(FS, model) {
   let choices = { stances: [], retreat: [], tips: [] };
   try { choices = composerChoices(FS); } catch { /* A missing season is explained by the source blocker. */ }
   const endpoint = s.trace?.endpoint;
+  // (offered only from an observation that is still of this host, these steps, this source and connection)
+  let pick = null;
+  try { pick = outboundArrivalCandidate(FS); } catch { /* none to offer: the report's own words say why */ }
+  const entered = typeof s.arriveBell === 'string' ? s.arriveBell : '';
   const points = outboundSketch(directions).map(p => ({ x: p.q + p.r / 2, y: p.r * Math.sqrt(3) / 2 }));
   const xs = points.map(p => p.x), ys = points.map(p => p.y);
   const left = Math.min(...xs) - 1, top = Math.min(...ys) - 1, width = Math.max(...xs) - left + 1, height = Math.max(...ys) - top + 1;
@@ -499,8 +589,10 @@ function outboundPop(FS, model) {
     ${endpoint ? html`<p class="pop-line">${L`道から決まる終点`}: ${endpoint.p},${endpoint.q} · ${L`マス`} ${endpoint.tile}</p>` : ''}
     <div class="pop-foot"><button type="button" class="btn small" data-act="outbound-route-read" ${raw(!source || !directions.length || s.routeCheck?.status === 'loading' ? 'aria-disabled="true"' : '')}>${L`地形・時間を確認`}</button>
       <button type="button" class="btn small" data-act="outbound-context-read" ${raw(!source || !directions.length || s.contextCheck?.status === 'loading' ? 'aria-disabled="true"' : '')}>${L`出発条件を確認`}</button></div>
-    ${outboundRouteReport(s.routeCheck)}
-    ${outboundContextReport(s.contextCheck)}
+    ${outboundRouteReport(s.routeCheck, pick?.from === 'route' ? pick : null, entered)}
+    ${outboundContextReport(s.contextCheck, pick?.from === 'context' ? pick : null, entered)}
+    ${outboundLocalDepart(FS, !!review && s.contextCheck?.status === 'read' && s.contextCheck.ready?.ok === true && s.contextCheck.report?.ok === true)}
+    ${localRevealStrip(FS)}
     <details data-fold="outbound-details"><summary>${L`詳細`}</summary>
     <p class="pop-line">${L`記録上の地形と推定時刻から道を準備します。現在の通行条件と出発の成功は未確認です。`}</p>
     <p class="pop-line">${L`選択した軍勢`}: ${model.host.id}</p>
@@ -556,8 +648,74 @@ function expeditionPop(FS, model) {
           <p class="pop-line pop-why">${L`帰還の送信はまだ利用できません。予備兵への加算も行っていません。`}</p>
         </section>` : ''}
         ${returning?.proposal ? html`<details><summary>${L`実行できない役割案`}: ${returning.proposal.action}</summary><ul>${returning.proposal.roles.map(r => html`<li>${r.name}: ${r.address} · ${r.signer ? L`署名が必要` : L`署名不要`} · ${r.writable ? L`書き込み役割` : L`読み取り役割`}</li>`)}</ul></details>` : ''}
+        ${localReturnBlock(FS, returning)}
+        ${returning?.proposal && !FS.localPlay && state.request.deployment.program_version === '18436' ? html`<section class="expedition-preparation" data-preparation-status="${state.preparation?.status ?? 'idle'}" aria-label="${L`署名前の準備確認`}">
+          <p class="pop-line"><strong>${L`実験用の準備確認`}</strong></p>
+          <p class="pop-line">${L`署名前の内容を取り直して確認します。署名・支払い・送信は行いません。`}</p>
+          <button type="button" class="btn" data-act="expedition-prepare" ${raw(state.preparation?.status === 'loading' ? 'aria-disabled="true"' : '')}>${L`署名前の準備内容を確認`}</button>
+          ${state.preparation?.status === 'loading' ? html`<p class="pop-line">${L`読み取り中…`}</p>` : ''}
+          ${state.preparation?.error ? html`<p class="pop-line pop-why">${L`準備内容を確認できません`}: ${state.preparation.error}</p>` : ''}
+          ${state.preparation?.report?.blocker ? html`<p class="pop-line pop-why">${L`準備内容を確認できません`}: ${state.preparation.report.blocker.code}</p>` : ''}
+          ${state.preparation?.report?.prepared ? preparationDetails(state.preparation.report) : ''}
+        </section>` : ''}
         ${report.draft_blocker ? html`<p class="pop-line">${report.draft_blocker}</p>` : ''}` : ''}</div>
     <p class="pop-line pop-rule">${L`公開の実行経路は閉じたままです。帰還済みとは判定せず、地図や行軍記録も変更しません。`}</p>`;
+}
+
+/**
+ * Local play only (FS.localPlay; flocalplay-return.mjs): the two player-signed steps of the return, on the return
+ * card. The step offered is the one the card's own observation names (`returning.proposal`), never a choice here.
+ * Two presses: 準備 (nothing is signed; what would be signed is then shown) and 署名して送る. What it says at the end is
+ * only that this step's transaction is recorded: after the first step the turn still has to be processed, and the
+ * reserve is only ever shown by the card's next read. An outcome that is not known is said as not known, with the
+ * one thing that may be done (ask again); never sent a second time.
+ */
+function localReturnBlock(FS, returning) {
+  if (!FS.localPlay) return '';
+  const d = localReturnOf(FS), offered = returning?.proposal?.action ?? null;
+  if (d.status === 'idle' && !offered) return '';
+  const name = a => (a === 'Dissolve' ? L`広域で解散を指示` : a === 'Return' ? L`元の村の予備兵に戻す` : '?');
+  const sig = d.signature ? `${d.signature.slice(0, 8)}…${d.signature.slice(-6)}` : '', dig = d.digest ? `${d.digest.slice(0, 12)}…` : '';
+  const step = { preparing: L`署名前の内容を用意して確かめています…`, signing: L`このページのテスト用ウォレットで署名しています…`, submitting: L`送信して結果を待っています…` }[d.status];
+  const line = step ? html`<p class="pop-line local-return-step" role="status">${step}</p>`
+    : d.status === 'prepared' ? html`<p class="pop-line local-return-prepared" role="status">${L`署名する内容を確かめました：${name(d.action)}（メッセージ ${dig}・有効期限のブロック高 ${d.lastValidBlockHeight}）。このページのテスト用ウォレットだけが署名し、手数料も支払います。`}</p>
+        ${d.action === 'Return' && d.returnUnits !== null ? html`<p class="pop-line">${L`予備兵に戻す人数の候補: ${fmtNum(d.returnUnits)}人`}</p>` : ''}`
+    : d.status === 'confirmed' ? html`<p class="pop-line local-return-done" role="status">${d.action === 'Dissolve'
+        ? L`解散の指示が記録されました。ターンの処理が済むまで待ち、もう一度読み取ってください。帰還はまだ終わっていません。`
+        : L`予備兵に戻す取引が記録されました。もう一度読み取って、予備兵の人数を確認してください。`} <span>${L`署名 ${sig}`}</span></p>`
+    : d.status === 'submitted' ? html`<p class="pop-line local-return-sent" role="status">${L`送信しました。記録されたかどうかはまだ確認できていません。署名 ${sig}`}${d.error ? html` <span>${L`（照合できませんでした：${d.error}）`}</span>` : ''}</p>`
+    : d.status === 'unknown' ? html`<p class="pop-line local-return-unknown" role="alert">${L`結果を確認できませんでした。この手順が記録されたかどうかは不明です。もう一度送らずに、結果を照合してください。署名 ${sig}`}${d.error ? html` <span>${L`（照合できませんでした：${d.error}）`}</span>` : ''}</p>`
+    : d.status === 'failed' ? html`<p class="pop-line local-return-failed" role="alert">${L`この手順の取引は失敗しました（理由 ${d.code ?? '?'}）。何も変わっていません。署名 ${sig}`}</p>`
+    : d.status === 'error' ? html`<p class="pop-line local-return-error" role="alert">${L`この手順を進められませんでした（${d.error ?? '?'}）。${d.sent ? '' : L`何も送っていません。`}`}</p>` : '';
+  const settle = d.status === 'unknown' || d.status === 'submitted', spent = localReturnSpent(FS), off = d.busy ? 'aria-disabled="true"' : '';
+  const prepare = label => html`<button type="button" class="btn small" data-act="local-return-prepare" ${raw(d.busy || !offered || spent ? 'aria-disabled="true"' : '')}>${label}</button>`;
+  const buttons = settle ? html`<button type="button" class="btn small" data-act="local-return-reconcile" ${raw(off)}>${L`結果を照合する`}</button>`
+    : d.status === 'prepared' ? html`<button type="button" class="btn primary" data-act="local-return-send" ${raw(off)}>${L`署名して送る（ローカルプレイ）`}</button>${prepare(L`準備し直す`)}`
+    : prepare(d.busy ? L`確かめています…` : offered ? L`「${name(offered)}」を準備する（ローカルプレイ）` : L`準備し直す`);
+  return html`<section class="expedition-local-return" data-local-return="${d.status}" aria-label="${L`ローカルプレイ：帰還の手順を送る`}">
+    <p class="pop-line">${L`ローカルプレイ：帰還の手順を、このページのテスト用ウォレットの署名で一つずつ送ります（このマシンの試験用の世界だけ）。まず準備して内容を確かめ、次に自分で送ります。`}</p>
+    ${line}
+    <div class="pop-foot">${buttons}
+      ${spent && !d.busy && !settle ? html`<span>${L`この読み取り結果ではすでに手順を送りました。次へ進むには、もう一度読み取ってください。`}</span>` : ''}</div></section>`;
+}
+
+/** Public bytes only, deliberately no acceptance or wallet/send control. */
+function preparationDetails(report) {
+  const p = report.prepared, b = report.blockhash;
+  return html`<p class="pop-line"><strong>${L`署名前の内容を照合しました`}</strong></p>
+    <p class="pop-line pop-why">${L`実験用の未署名データです。実行できることや帰還の完了を確認した結果ではありません。`}</p>
+    <p class="pop-line">${L`今回の記録のスロット`}: ${report.source.context_slot} · ${L`有効期限の観測時点で残るブロック高`}: ${b.remaining_block_heights}</p>
+    <p class="pop-line">${L`有効期限は時間とともに変わります。必要なときに取り直してください。`}</p>
+    <details><summary>${L`準備内容の詳細`}</summary>
+      <p class="pop-line">${p.action} · ${p.shape.bytes} bytes · ${p.shape.locks} accounts · ${p.shape.sigs} signers</p>
+      <p class="pop-line">CU: ${p.budget.cu_limit} · CU price: ${p.budget.cu_price} · loaded bytes: ${p.budget.loaded_limit}</p>
+      <p class="pop-line" style="overflow-wrap:anywhere">Fee payer: ${p.fee_payer}</p>
+      <p class="pop-line" style="overflow-wrap:anywhere">Blockhash: ${b.hash}</p>
+      <p class="pop-line" style="overflow-wrap:anywhere">Selected snapshot: ${report.request.source_snapshot_digest}</p>
+      <p class="pop-line" style="overflow-wrap:anywhere">Fresh snapshot: ${report.source.digest}</p>
+      <p class="pop-line" style="overflow-wrap:anywhere">Message SHA-256: ${p.message_digest}</p>
+      <ul>${p.roles.map(r => html`<li style="overflow-wrap:anywhere">${r.name}: ${r.address} · ${r.signer ? L`署名が必要` : L`署名不要`} · ${r.writable ? L`書き込み役割` : L`読み取り役割`}</li>`)}</ul>
+    </details>`;
 }
 
 /** The tiles a new host may form up on: every passable tile of the village's own province with room for a host (six to a tile). */

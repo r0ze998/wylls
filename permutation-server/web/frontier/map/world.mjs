@@ -38,13 +38,56 @@ export const R_MAX_HARD = 128;
 
 const int = Number.isInteger;
 
-/** The extent of the world from the season record: `{ringsOpen, ringsOpened, rMax, ringProvinces}`. */
+/**
+ * The rings a record seeds EXPLICITLY, ascending, when its `rings` are not the contiguous 0..n−1 (each entry names its
+ * own `d`); null for a contiguous record (`rings[i].d === i`, or an older record whose entries carry no `d`), which is
+ * read exactly as before. A world may seed one far ring alone (a local world whose only ring is d = 128): its other
+ * rings have no seed and no land, and are never made up here.
+ */
+function sparseRings(record) {
+  const rings = record?.rings;
+  if (!Array.isArray(rings) || !rings.length) return null;
+  if (rings.every((r, i) => r?.d === undefined || r.d === i)) return null;
+  return [...new Set(rings.map(r => r?.d).filter(d => int(d) && d >= 0 && d <= R_MAX_HARD))].sort((a, b) => a - b);
+}
+
+/** Whether ring `d` has a seed in this world: every ring below `ringsOpen` of a contiguous world, only the named ones of a sparse one. */
+export const ringSeeded = (w, d) => int(d) && d >= 0 && d < w.ringsOpen && (!w.seeded || w.seeded.includes(d));
+/**
+ * How many rings are seeded without a gap from the Concord outward: `ringsOpen` for a contiguous world, and for a
+ * sparse one the length of its unbroken run 0, 1, 2 … (0 when ring 0 itself has no seed). What counts rings "from
+ * the centre" (the rings a first village may be placed in) reads this, never `ringsOpen`, in a sparse world.
+ */
+export function contiguousRings(w) {
+  if (!w) return 0;
+  if (!w.seeded) return w.ringsOpen;
+  let n = 0;
+  while (w.seeded[n] === n) n++;
+  return n;
+}
+/** The seeded rings of a world, ascending: `0 .. ringsOpen − 1`, or a sparse world's own list. */
+export const seededRings = w => (!w ? [] : w.seeded ? [...w.seeded] : Array.from({ length: w.ringsOpen }, (_, d) => d));
+
+/**
+ * The extent of the world from the season record: `{ringsOpen, ringsOpened, rMax, ringProvinces}`, and for a sparse
+ * record `seeded` (its seeded rings, ascending). `ringsOpen` stays "one past the outermost seeded ring", so a ring
+ * at or beyond it is never open; within it, a sparse world's unseeded rings are not open either (`ringSeeded`).
+ * `ringProvinces` is always indexed by the ring's own `d`.
+ */
 export function worldOf(record) {
-  const ringsOpen = Math.max(1, record?.rings?.length ?? 1);
+  const seeded = sparseRings(record);
+  const ringsOpen = seeded ? (seeded.length ? seeded.at(-1) + 1 : 1) : Math.max(1, record?.rings?.length ?? 1);
   const ringsOpened = int(record?.ringsOpened) ? Math.max(ringsOpen, record.ringsOpened) : ringsOpen;
   const rMax = int(record?.rMax) ? record.rMax : null;
-  const ringProvinces = Array.isArray(record?.ringProvinces) ? record.ringProvinces : null;
+  let ringProvinces = Array.isArray(record?.ringProvinces) ? record.ringProvinces : null;
+  // (a sparse record may list its counts beside its rings, one per entry: they are put at each ring's own d)
+  if (seeded && ringProvinces && ringProvinces.length === record.rings.length && ringProvinces.length !== ringsOpen) {
+    const byRing = [];
+    record.rings.forEach((r, i) => { if (int(r?.d) && r.d >= 0 && r.d <= R_MAX_HARD) byRing[r.d] = ringProvinces[i]; });
+    ringProvinces = byRing;
+  }
   const w = { ringsOpen, ringsOpened, rMax, ringProvinces };
+  if (seeded) w.seeded = seeded;
   // map growth: only a season with a ceiling above its map carries one (every other season keeps the four states)
   const ceiling = record?.rMaxCeiling;
   if (int(ceiling) && rMax !== null && ceiling > rMax) {
@@ -57,7 +100,7 @@ export function worldOf(record) {
 /** Seeded rings with some of their Provinces not on chain yet (each wants its `/h/world/ring/{d}` list). */
 export function partialRings(w) {
   const out = [];
-  for (let d = 0; d < w.ringsOpen; d++) {
+  for (const d of seededRings(w)) {
     const n = w.ringProvinces?.[d];
     if (int(n) && n < ringSize(d)) out.push(d);
   }
@@ -77,6 +120,8 @@ export function placeOf(w, p, q, present = () => null) {
   }
   if (d >= w.ringsOpened) return PLACE.unopened;
   if (d >= w.ringsOpen) return PLACE.pending;
+  // a sparse world's ring without a seed: no land there (not "on its way": nothing says it will come)
+  if (!ringSeeded(w, d)) return PLACE.unopened;
   const n = w.ringProvinces?.[d];
   if (int(n) && n < ringSize(d)) {
     const set = present(d);
@@ -144,7 +189,7 @@ export function applySeasonRecord(FS, record, { herald = null, onRings = () => {
 export function overviewRings(world, taken = null) {
   const out = [];
   if (!world) return out;
-  for (let d = 0; d < world.ringsOpen; d++) {
+  for (const d of seededRings(world)) {
     const n = world.ringProvinces?.[d];
     const had = taken?.get?.(d);
     if (had === undefined || (int(n) && had !== n)) out.push(d);

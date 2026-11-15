@@ -1258,7 +1258,10 @@ p.fact-chips { display: flex; flex-wrap: wrap; gap: var(--s1); margin: var(--s2)
 .banner-pick[aria-pressed="true"] .bn-rim { padding: 3px; background: linear-gradient(180deg, #fff0bf, var(--brass-hi) 20%, var(--brass) 60%, var(--brass-lo)); }
 .banners:has([aria-pressed="true"]) .banner-pick[aria-pressed="false"]:not(:hover):not(:focus-visible) { filter: drop-shadow(0 6px 8px rgba(0,0,0,.45)) saturate(.7) brightness(.8); }
 /* one confirm line: the looked-at (else the chosen) nation's leader and creed, in full; then the one button */
-.nation-confirm { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 2px var(--s4); margin: 8px auto 0; padding: 8px var(--s4) 8px; max-width: 960px; border: 1px solid var(--brass-lo); border-radius: 12px; background: var(--tex-metal, none), var(--plate-bg); box-shadow: var(--shadow), var(--plate-edge); }
+/* (the action column was `auto`: with no wallet connected it took the max-content width of the wallet list — three
+   wallets and two long "not supported" reasons asked 755 of 960 px — and left the words 67 px, one character a line.
+   The words keep 22rem; the actions take what is left, at most their own width, and wrap inside it) */
+.nation-confirm { display: grid; grid-template-columns: minmax(22rem, 1fr) minmax(0, auto); align-items: center; gap: 2px var(--s4); margin: 8px auto 0; padding: 8px var(--s4) 8px; max-width: 960px; border: 1px solid var(--brass-lo); border-radius: 12px; background: var(--tex-metal, none), var(--plate-bg); box-shadow: var(--shadow), var(--plate-edge); }
 .nc-what { min-width: 0; min-height: 46px; display: grid; align-items: center; }
 .nc-item { display: none; align-items: center; gap: var(--s3); min-width: 0; }
 .nc-item.nc-def { display: flex; }
@@ -1285,7 +1288,14 @@ p.fact-chips { display: flex; flex-wrap: wrap; gap: var(--s1); margin: var(--s2)
 .nc-wallet { display: grid; gap: 4px; justify-items: end; }
 .nc-wallet-k { font-size: var(--t1); color: var(--hud-ink-2); }
 .wallet-list { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: 6px; }
-.nc-wallet .muted { color: var(--hud-ink-2); }
+.nc-wallet .muted { color: var(--hud-ink-2); overflow-wrap: anywhere; }
+/* the wallets wrap inside the action column (never wider than it), each reason under or beside its own button */
+.nc-go { min-width: 0; }
+.nc-wallet { grid-template-columns: minmax(0, 1fr); min-width: 0; max-width: 100%; }
+.nc-wallet .wallet-list { justify-content: flex-end; min-width: 0; max-width: 100%; }
+.nc-wallet .wallet-list li { min-width: 0; max-width: 100%; }
+/* a refusal is a line of its own across the plaque, not a cell of the words' column */
+.nation-confirm > .notice { grid-column: 1 / -1; min-width: 0; }
 @media (min-width: 760px) {
   /* the banners stand along the foot of the map, above the dock, in the lower half of the screen: the chart above them is the map's (the wedge it lights) */
   .panel[data-doc="stage"] { left: var(--edge); right: var(--edge); top: auto; bottom: calc(var(--dock-h) + 2 * var(--edge)); width: auto; max-height: calc(100dvh - var(--strip) - var(--dock-h) - 4 * var(--edge)); overflow: visible; border: 0; background: none; box-shadow: none; filter: none; }
@@ -1298,7 +1308,7 @@ p.fact-chips { display: flex; flex-wrap: wrap; gap: var(--s1); margin: var(--s2)
   /* a shade rises from the foot only as far as the banners stand */
   body[data-doc="stage"] main::before { content: ""; position: absolute; inset: 0; z-index: 24; pointer-events: none; background: linear-gradient(180deg, rgba(6,14,12,0) 46%, rgba(6,14,12,.45) 62%, rgba(6,14,12,.82)); }
 }
-@media (min-width: 760px) and (max-width: 1099px) { .bn-name { font-size: var(--t2); letter-spacing: .02em; } .banners { gap: 6px; } .nation-confirm { grid-template-columns: 1fr; } .nc-go { justify-content: flex-start; } }
+@media (min-width: 760px) and (max-width: 1099px) { .bn-name { font-size: var(--t2); letter-spacing: .02em; } .banners { gap: 6px; } .nation-confirm { grid-template-columns: minmax(0, 1fr); } .nc-go { justify-content: flex-start; } .nc-wallet { justify-items: start; } .nc-wallet .wallet-list { justify-content: flex-start; } }
 /* a low window: the banners go without portraits rather than climb over the chart */
 @media (min-width: 760px) and (max-height: 799px) { .bn-face { display: none; } .bn-field { padding-top: 26px; } .bn-cloth { grid-template-rows: 1fr; } }
 @media (max-width: 759px) {
@@ -1320,7 +1330,7 @@ p.fact-chips { display: flex; flex-wrap: wrap; gap: var(--s1); margin: var(--s2)
   .banner-pick:hover, .banner-pick:focus-visible { transform: translateY(-2px); }
   .banner-pick[aria-pressed="true"] { transform: translateY(-4px); }
   /* the confirm line holds to the foot of the sheet: opaque, and the banners end above it */
-  .nation-confirm { position: sticky; bottom: 0; z-index: 2; grid-template-columns: 1fr; gap: 6px; margin: 12px -10px 0; padding: 8px 12px calc(10px + env(safe-area-inset-bottom)); border-width: 1px 0 0; border-radius: 0; background: #12241f; box-shadow: 0 -6px 12px rgba(0,0,0,.35), inset 0 1px 0 rgba(240,212,138,.25); }
+  .nation-confirm { position: sticky; bottom: 0; z-index: 2; grid-template-columns: minmax(0, 1fr); gap: 6px; margin: 12px -10px 0; padding: 8px 12px calc(10px + env(safe-area-inset-bottom)); border-width: 1px 0 0; border-radius: 0; background: #12241f; box-shadow: 0 -6px 12px rgba(0,0,0,.35), inset 0 1px 0 rgba(240,212,138,.25); }
   .nc-what { min-height: 78px; align-items: start; }
   .nc-pitch { font-size: var(--t1); line-height: 1.5; }
   .nc-note { display: none; }
@@ -1328,7 +1338,11 @@ p.fact-chips { display: flex; flex-wrap: wrap; gap: var(--s1); margin: var(--s2)
   .nc-note.nc-deadline { display: block; }
   .nc-deadline-in { display: none; }
   .nc-go { justify-content: stretch; } .nc-go .nc-btn { flex: 1 1 auto; min-height: 48px; }
-  .nc-wallet { justify-items: start; }
+  .nc-wallet { justify-items: start; } .nc-wallet .wallet-list { justify-content: flex-start; }
+  /* (no wallet connected: the line carries the wallet list and its reasons, as tall as the sheet's lower half. Held to
+     the foot it stood over the banners — a tap on a banner landed on the wallets — so it lies in the sheet's flow and
+     is reached by scrolling; the short line of a connected wallet, the one button, stays held to the foot) */
+  .nation-confirm:has(.nc-wallet) { position: static; }
 }
 /* the wait for the village: who was joined and the state in one line; one clock; a refusal as one clear state; the candidate places; practice offered */
 .wait-who { min-width: 0; display: grid; gap: 3px; }

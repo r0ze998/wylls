@@ -11,6 +11,12 @@ use solana_hash::Hash;
 use solana_instruction::{AccountMeta, Instruction};
 use solana_message::Message;
 
+/// The heap frame every original-host Depart requests: fixed, the runtime's maximum (256 KiB), never a caller's
+/// choice. Measured on the real `localnet-expedition-sbf` program (itest `localnet_expedition_depart`): with the
+/// default 32 KiB heap the Depart ends in an access violation in the heap region; with this frame it completes
+/// (88,405 CU). Exactly this value, or the Depart is not prepared; no other kind may carry a heap frame.
+pub const DEPART_HEAP_FRAME: u32 = 256 * 1024;
+
 /// Explicit caller-selected public target. This is not a verified deployment
 /// observation; the actual program must repeat Season/version/ownership checks.
 #[derive(Clone, Copy, Debug)]
@@ -26,6 +32,7 @@ pub enum Error {
     Version,
     Budget,
     Envelope,
+    Encoding,
     Preflight(preflight::Error),
 }
 
@@ -38,6 +45,11 @@ pub struct Prepared {
     report: Report,
 }
 impl Prepared {
+    /// Serialize only the public unsigned Message, without signature slots or
+    /// a Transaction envelope. The caller cannot mistake this for signed wire.
+    pub fn message_bytes(&self) -> Result<Vec<u8>, Error> {
+        bincode::serialize(&self.message).map_err(|_| Error::Encoding)
+    }
     pub fn instruction(&self) -> &Instruction {
         &self.instruction
     }
@@ -159,10 +171,16 @@ fn prepare(
     }
     // Keep the existing sponsored-player prefix (limit/zero price/data limit).
     // Limits are explicit inputs, not measurements of this host-only program.
+    // The heap frame is part of the kind, not of the caller's budget: a Depart carries exactly
+    // DEPART_HEAP_FRAME, every other kind none.
+    let heap = match kind {
+        wire::Kind::Depart => Some(DEPART_HEAP_FRAME),
+        _ => None,
+    };
     if budget.cu_limit == 0
         || budget.loaded_limit == 0
         || budget.cu_price != 0
-        || budget.heap.is_some()
+        || budget.heap != heap
     {
         return Err(Error::Budget);
     }
@@ -179,6 +197,19 @@ fn prepare(
         &payer,
         &Hash::new_from_array(observation.blockhash),
     );
+    // The compiled prefix is exactly: limit, zero price, loaded-data limit, then the one heap frame of a Depart;
+    // the dispatch instruction is last. Nothing else is in the message.
+    let prefix = budget.instructions();
+    if prefix.len() != 3 + usize::from(heap.is_some())
+        || message.instructions.len() != prefix.len() + 1
+        || prefix.iter().zip(&message.instructions).any(|(want, got)| {
+            message.account_keys.get(usize::from(got.program_id_index)) != Some(&want.program_id)
+                || !got.accounts.is_empty()
+                || got.data != want.data
+        })
+    {
+        return Err(Error::Budget);
+    }
     let report = preflight::inspect(&message, &expected_signers, observation, limits)
         .map_err(Error::Preflight)?;
     Ok(Prepared {

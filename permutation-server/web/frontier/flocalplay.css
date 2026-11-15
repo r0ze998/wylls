@@ -1,0 +1,29 @@
+/* The local-play preparation panel (flocalplay.mjs). Loaded only by that gate, on a `?localPlay=1` loopback page.
+   Every rule is scoped to #local-play-gate: nothing of the game's own styles (frontier.css and the others) is
+   touched or overridden. The page body is `overflow: hidden` with the map fixed over it, so the panel is its own
+   fixed, scrollable layer above everything. */
+#local-play-gate { position: fixed; inset: 0; z-index: 2147483000; display: grid; place-items: center; padding: 16px; overflow: auto; box-sizing: border-box;
+  background: rgba(8, 18, 16, .92); color: #f4efe0; font: 400 15px/1.6 system-ui, -apple-system, "Hiragino Sans", "Noto Sans JP", sans-serif; overscroll-behavior: contain; }
+#local-play-gate[hidden] { display: none; }
+#local-play-gate .local-play-card { display: grid; gap: 10px; width: min(560px, 100%); padding: 20px; box-sizing: border-box; border: 1px solid #c9a24a; border-radius: 12px;
+  background: #12241f; box-shadow: 0 12px 32px rgba(0, 0, 0, .5); }
+#local-play-gate h2 { margin: 0; font-size: 20px; line-height: 1.35; letter-spacing: .04em; color: #f0d48a; }
+#local-play-gate p { margin: 0; }
+#local-play-gate .local-play-note { font-size: 13px; color: #d8d2bf; }
+#local-play-gate .local-play-label { margin-top: 6px; font-size: 13px; font-weight: 650; color: #d8d2bf; }
+#local-play-gate .local-play-address { display: block; padding: 8px 10px; border: 1px dashed rgba(240, 212, 138, .6); border-radius: 6px; background: rgba(0, 0, 0, .25);
+  font: 600 14px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace; color: #fff6dc; overflow-wrap: anywhere; user-select: all; min-height: 1.5em; }
+#local-play-gate .local-play-herald { width: 100%; min-height: 44px; padding: 8px 10px; box-sizing: border-box; border: 1px solid #8a7c58; border-radius: 6px;
+  background: #fffaf0; color: #1d1a12; font: 400 15px/1.4 ui-monospace, SFMono-Regular, Menlo, monospace; }
+#local-play-gate .local-play-connect { justify-self: start; min-height: 46px; min-width: 120px; padding: 8px 24px; border: 1px solid #fff0bf; border-radius: 6px;
+  background: linear-gradient(180deg, #f8e4a3 0%, #e2bf5f 46%, #b88d2e 100%); color: #241a05; font: 700 16px/1.2 inherit; letter-spacing: .08em; cursor: pointer; }
+#local-play-gate .local-play-connect:disabled, #local-play-gate .local-play-herald:disabled { opacity: .55; cursor: default; }
+#local-play-gate .local-play-connect:focus-visible, #local-play-gate .local-play-herald:focus-visible { outline: 3px solid #7fd4ff; outline-offset: 2px; }
+#local-play-gate .local-play-status { min-height: 3.2em; padding: 8px 10px; border-radius: 6px; background: rgba(255, 255, 255, .06); font-size: 14px; overflow-wrap: anywhere; }
+#local-play-gate[data-phase="refused"] .local-play-status, #local-play-gate[data-phase="unavailable"] .local-play-status, #local-play-gate[data-phase="destroyed"] .local-play-status {
+  border: 1px dashed rgba(240, 150, 130, .8); background: rgba(120, 30, 20, .35); }
+@media (max-width: 759px) {
+  #local-play-gate { place-items: start center; padding: 12px 10px calc(12px + env(safe-area-inset-bottom)); }
+  #local-play-gate .local-play-card { padding: 14px; }
+  #local-play-gate .local-play-connect { justify-self: stretch; }
+}

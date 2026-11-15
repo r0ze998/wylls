@@ -52,6 +52,9 @@ pub mod unsigned_message_preflight;
 pub mod experimental_expedition_message;
 #[cfg(feature = "wide-records-experimental")]
 pub mod typed_log;
+/// Real 264-byte wide march seals (fresh key, stock tlock); legacy `seal` untouched.
+#[cfg(feature = "wide-records-experimental")]
+pub mod wide_seal;
 pub mod vectors;
 /// Closed resident account/byte proposals, never an executable instruction.
 #[cfg(feature = "wide-records-experimental")]

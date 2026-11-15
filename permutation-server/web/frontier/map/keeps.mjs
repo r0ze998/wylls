@@ -46,6 +46,7 @@ import { paintTurnDial, paintBigNumber } from './protoland.mjs';
 import { paintTag } from './actions.mjs';
 import { FORTRESS, fortressSprite, paintFortress } from './village.mjs';
 import { provincePixel, PROVINCE_CIRCUMRADIUS } from './layers.mjs';
+import { KeepHitIndex, keepHitBox } from './keepindex.mjs';
 
 const GOLD = YOURS_MARK.gold, KEY = YOURS_MARK.key;
 const clamp01 = v => Math.max(0, Math.min(1, v));
@@ -454,6 +455,9 @@ export class KeepBoard {
     this.sampleReach = null;
     this.sig = null;
     this.want = null;            // a capture the camera should come to: {p, q, tile}
+    // the near-view hit test's buckets of keep anchors (map/keepindex.mjs): rebuilt whenever the book's rows Map is
+    // another one (each reading, a reset, a sample, another world), so a removed or moved keep is never answered
+    this.hits = null;            // (made on the first hit test: keepIndex)
   }
   /**
    * Sample records in the records' own shapes (`{recs: Map, events, viewer, bell, reach?}`; the demo switch alone,
@@ -554,20 +558,33 @@ export class KeepBoard {
    * rises `rise` times its drawn height (the tilt): `{p, q, tile}` or null.
    */
   at(wx, wy, zoom = 1, rise = 1) {
-    let best = null;
-    for (const row of this.rows.values()) {
-      const P = this.place(row, zoom);
-      if (!P) continue;
-      const dx = Math.abs(wx - P.x), up = P.y - wy;
-      // its tile, or its walls and towers standing over the tile
-      const onTile = Math.hypot(wx - P.x, (wy - P.y) / FLATTEN) <= RADIUS * 0.9;
-      const onWalls = dx <= P.u * 0.95 && up >= -P.u * 0.5 && up <= P.u * 1.5 * rise;
-      if (!onTile && !onWalls) continue;
-      const d = Math.hypot(dx, up - P.u * 0.4);
-      if (!best || d < best.d) best = { d, row };
-    }
-    return best ? { p: best.row.p, q: best.row.q, tile: best.row.tile } : null;
+    return keepHit(this.nearRows(wx, wy, zoom, rise) ?? this.rows.values(), row => this.place(row, zoom), wx, wy, rise);
   }
+  /**
+   * `at` by a scan of every keep row: the reference the index must agree with (tests), and the answer itself where
+   * the index cannot narrow the rows down.
+   */
+  atScan(wx, wy, zoom = 1, rise = 1) {
+    return keepHit(this.rows.values(), row => this.place(row, zoom), wx, wy, rise);
+  }
+  /**
+   * The keep rows `at` can take at world point (wx, wy), in the rows' own order: a superset of its hits, found in the
+   * buckets round the point and so not in proportion to the world's keeps. Null when the point, zoom or tilt is
+   * not a plain number or the box round it is too wide for the buckets (afar): then every row is to be scanned.
+   */
+  nearRows(wx, wy, zoom = 1, rise = 1) {
+    const u = Math.max(RADIUS * KEEP_LOOK.unit, KEEP_LOOK.minPx / zoom);
+    const got = this.keepIndex().query(this.rows, keepHitBox(wx, wy, { u, rise, radius: RADIUS, flatten: FLATTEN }));
+    return got ? got.map(e => e.row) : null;
+  }
+  /** The hit test's index (made here too for a board that was not built by the constructor). */
+  keepIndex() { return (this.hits ??= new KeepHitIndex({ cell: PROVINCE_CIRCUMRADIUS, anchor: row => this.place(row, 1) })); }
+  /**
+   * Whoever changes the book's rows Map or a row in place (instead of giving a new Map) says so here: the index is
+   * built afresh. Needed for a row moved in place, and for a row deleted and set again in the same Map (its order,
+   * which decides a tie, changed with nothing else to see).
+   */
+  rowsChanged() { this.hits?.clear(); }
   /** A tap on keep `{p, q}` while a host's reach is lit: the board says why a dim keep cannot be marched on. Returns the reach item or null. */
   tapped(at, fx = fxNow()) {
     const it = at && this.lit ? this.lit.get(keyOf(at.p, at.q)) ?? null : null;
@@ -808,6 +825,27 @@ export class KeepBoard {
       }
     }
   }
+}
+
+/**
+ * The keep among `rows` (in their order) whose fortress or tile is at world point (wx, wy): the hit test of
+ * KeepBoard.at, shared by its indexed and its full-scan form. `place(row)` is the keep's place at the zoom asked. Of
+ * two keeps equally near, the first in the rows' order wins.
+ */
+function keepHit(rows, place, wx, wy, rise) {
+  let best = null;
+  for (const row of rows) {
+    const P = place(row);
+    if (!P) continue;
+    const dx = Math.abs(wx - P.x), up = P.y - wy;
+    // its tile, or its walls and towers standing over the tile
+    const onTile = Math.hypot(wx - P.x, (wy - P.y) / FLATTEN) <= RADIUS * 0.9;
+    const onWalls = dx <= P.u * 0.95 && up >= -P.u * 0.5 && up <= P.u * 1.5 * rise;
+    if (!onTile && !onWalls) continue;
+    const d = Math.hypot(dx, up - P.u * 0.4);
+    if (!best || d < best.d) best = { d, row };
+  }
+  return best ? { p: best.row.p, q: best.row.q, tile: best.row.tile } : null;
 }
 
 /** A flash: a burst of light at (x, y), `k` 1..0. */

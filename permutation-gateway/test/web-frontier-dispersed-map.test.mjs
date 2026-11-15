@@ -264,9 +264,13 @@ test('the call sites carry the placement from the page\'s state; the geographic 
   assert.match(app, /rMax: FS\.world\?\.rMax \?\? null,\n\s*rMaxCeiling: FS\.world\?\.rMaxCeiling \?\? null,/, 'and still the season\'s outermost ring and ceiling');
   // the map reads it once a frame and hands it to every painter and camera of the home region
   assert.match(map, /const place = src\.place;/);
-  for (const call of ['this.wedgeHome(survey.faction, ringsOpen, place)', 'wedgeSites(survey.faction, src.homeRings ?? ringsOpen, recs, terrainOf, place)', 'wedgeBox(survey.faction, ringsOpen, place)', 'paintWedge(ctx, looked, ringsOpen, z, { lit: true, place })', 'homeLook(looked, ringsOpen, place)', 'lookPoint(f, ringsOpen, place)', 'this.wedgeHome(sv.faction, Math.max(1, src.ringsOpen ?? 1), src.place)']) assert.ok(map.includes(call), call);
-  assert.match(map, /paintWedge\(ctx, survey\.faction, ringsOpen, z, \{ place, wait:/);
-  assert.match(map, /wedgeHome\(faction, ringsOpen, place = undefined\) \{\n\s*const key = `\$\{faction\}\|\$\{ringsOpen\}\|\$\{placeKey\(place\)\}`;/, 'the standard\'s cache is keyed by placement and seed');
+  // (every one of them carries the placement, and, since the sparse worlds, the world's seeded rings beside it:
+  // map/world.mjs `seeded`; web-frontier-wedge.test.mjs holds what they do with it)
+  for (const call of ['this.wedgeHome(survey.faction, ringsOpen, place, src.seeded ?? null)', 'wedgeSites(survey.faction, src.homeRings ?? ringsOpen, recs, terrainOf, place)', 'wedgeBox(survey.faction, ringsOpen, place, src.seeded ?? null)',
+    'paintWedge(ctx, looked, ringsOpen, z, { lit: true, place, seeded: src.seeded ?? null, seen })', 'homeLook(looked, ringsOpen, place, { seeded: src.seeded ?? null })', 'lookPoint(f, ringsOpen, place, src.seeded ?? null)',
+    'this.wedgeHome(sv.faction, Math.max(1, src.ringsOpen ?? 1), src.place, src.seeded ?? null)']) assert.ok(map.includes(call), call);
+  assert.match(map, /paintWedge\(ctx, survey\.faction, ringsOpen, z, \{ place, seeded: src\.seeded \?\? null, seen, wait:/);
+  assert.match(map, /wedgeHome\(faction, ringsOpen, place = undefined, seeded = null\) \{\n[^\n]*\n[^\n]*\n\s*const key = `\$\{faction\}\|\$\{ringsOpen\}\|\$\{placeKey\(place\)\}\|\$\{Array\.isArray\(seeded\) \? seeded\.join\(','\) : '\*'\}`;/, 'the standard\'s cache is keyed by placement, seed and the seeded rings');
   // the guide's march province and the prototype's banner provinces are the nation's, not the wedge's
   assert.match(app, /homeNation\(pq\.p, pq\.q, place\) === FS\.citizen\.faction/);
   assert.match(ctl, /homeNation\(pq\.p, pq\.q, place\) === FS\.citizen\.faction/);

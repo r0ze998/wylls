@@ -10,6 +10,7 @@ import { conquestEnabled, kernelFile, territoryStandings, keepFromProvince, appl
 import { holdingByRef } from './fland.mjs';
 import * as fwide from './fwide.mjs';
 import * as expedition from './fexpedition.mjs';
+import * as preparation from './fexpedition-prepare.mjs';
 import * as outbound from './fexpedition-compose.mjs';
 import { FS, invalidate, activeHolding } from './fstate.mjs';
 import { ownTag } from './people/ui.mjs';
@@ -39,6 +40,11 @@ import { readOverviews } from './map/overviews.mjs';
 import { kernel as loadKernel, UNITS } from './wasm.mjs';
 import { uiKey, uiStorage, loadUi, saveUi, landKey, loadLand, saveLand, LAND_DEFAULTS } from './fui.mjs';
 import * as wallet from '../wallet.mjs';
+import { EPHEMERAL_WALLET_NAME, currentEphemeralWallet } from './fephemeral-wallet.mjs';
+import * as localDepart from './flocalplay-depart.mjs';
+import * as localReveal from './flocalplay-reveal.mjs';
+import * as localReturn from './flocalplay-return.mjs';
+import { localPlayIdentityOk } from './flocalplay.mjs';
 import { decode as fromBase58, encode as toBase58 } from '../sdk/base58.mjs';
 import { fromBase64 } from '../sdk/bytes.mjs';
 import { L, fmtNum } from '../lang.mjs';
@@ -57,6 +63,9 @@ import * as protoIo from './proto/orders.mjs';
 import * as pm from './proto/hand-model.mjs';
 
 const SESSION_DAYS = 30 * 86_400;
+/** Local play (flocalplay.mjs): `{address}` once its gate verified a herald for the page's memory-only wallet, else null. */
+let localPlay = null;
+const localPlayReadOnly = () => ({ code: 'LocalPlayReadOnly', text: () => L`ローカルプレイでは、まだ命令を送れません（読み取りのみ）。` });
 const now = () => FS.chain?.now() ?? 0;
 const nowBell = () => (FS.clock ? bellAt(FS.clock.genesisTs, now()) ?? 0 : 0);
 /** The margin a departure is planned with (fmarch.mjs `departMargin`): 90 s on the chain's clock, more game seconds on a clock that runs fast. */
@@ -200,6 +209,7 @@ export async function refreshPrize({ force = false, at = Date.now() } = {}) {
 
 /** The paid Join of a season with a pool: test tokens from the faucet if the wallet is short, then Pay and Join in one signed transaction (x402). */
 async function paidJoin(s, { onSent, onLost } = {}) {
+  if (localPlay) return failed(localPlayReadOnly());   // no faucet, no payment, no Join
   const w = wallet.connected();
   if (!w) return failed({ code: 'NoWallet' });
   busy(() => L`参加費（テストUSDC）を支払って参加しています…`);
@@ -296,6 +306,8 @@ async function act(name, { v = {}, fields = {}, signer, requester = null, label,
   // `signer: 'wallet'` = the wallet signs a shape the session key may not (a caravan to another player).
   // (a refusal before anything is sent is an answer to the order too)
   const early = r => { orderAnswered(order, false, { code: r.code, sent: false }); return failed(r); };
+  // local play is reads only for now: nothing is built, signed or sent
+  if (localPlay) return early(localPlayReadOnly());
   // the same order already on its way: say so, and send nothing (the chain would refuse the copy, and the player saw an error)
   const key = sendKey(name, fields);
   if (sending.has(key)) { busy(() => L`同じ命令を送っています。結果を待ってください…`); return { ok: false, code: 'InFlight' }; }
@@ -391,6 +403,7 @@ const DONE_TEXT = {
 
 /** Catch up the action's province, which may differ from the host's home. */
 async function catchUp(target = null) {
+  if (localPlay) return false;   // the keeper is not asked for anything
   const h = target ?? activeHolding(FS);
   if (!h || !Number.isInteger(h.p) || !Number.isInteger(h.q)) return false;
   const r = await io.nudge(h.p, h.q, FS.provinces.get(`${h.p},${h.q}`)?.province.resolvedNext ?? nowBell());
@@ -579,7 +592,8 @@ async function syncConnectedWallet({ refreshUnchanged = false } = {}) {
   if (address) {
     try {
       const sc = scope();
-      const restored = sc ? await fsession.restore(sc, address) : null;
+      // (local play: no stored session key is read)
+      const restored = sc && !localPlay ? await fsession.restore(sc, address) : null;
       if (epoch !== walletSyncEpoch) return;
       FS.session = restored;
     } catch (e) { console.error('frontier session restore:', e); }
@@ -713,6 +727,7 @@ const PROTO_SENT = {
  */
 async function protoOrder(op, fields, at = null) {
   const order = orderOf(PROTO_ORDER_KINDS[op], `proto:${op}`, { tile: at, proto: true });
+  if (localPlay) { orderAnswered(order, false, { code: 'LocalPlayReadOnly', sent: false }); return failed(localPlayReadOnly()); }
   if (!FS.proto) { orderAnswered(order, false, { code: 'Off', sent: false }); return failed({ code: 'Off', text: () => pm.refusalText('Off') }); }
   busy(() => L`送信中…`);
   FS.inFlight = (FS.inFlight ?? 0) + 1;
@@ -832,7 +847,8 @@ async function readMarches() {
     // Judged on the chain time the herald has observed, not the extrapolated clock (the bots' contract, W6-C).
     const tPub = roundTime(FS.clock.drand.genesis, FS.clock.drand.period, tlockRound(FS.clock.drand, FS.clock.genesisTs, e.arriveBell)) + book.REVEAL_PUBLISH_MARGIN;
     const step = book.revealStep(e, { now: now(), bellStart: bellStart(FS.clock.genesisTs, e.arriveBell), notBefore: tPub, seen: Math.min(now(), FS.chain?.last?.unix ?? -Infinity), windowOpen: pl.state === 'open' || pl.state === 'awaitingBeacon' || pl.state === 'revealing', slotPresent: seen });
-    if (step.action === 'send') {
+    // (local play: the self-reveal is a request to the keeper; none is made)
+    if (step.action === 'send' && !localPlay) {
       const r = await io.reveal(book.revealMaterial(e));
       // (the attempt goes into the book as it stands now: a march sealed while the keeper answered is kept)
       const cur = book.recordAttempt(book.loadBook(store, key), e, { t: now(), route: 'self', result: r.ok ? 'accepted' : r.code });
@@ -910,7 +926,8 @@ export function useHerald(h) { expedition.clearInspection(FS); outbound.clearOut
 /** A read-only request: deliberately outside ACTIONS, FORMS and the order lifecycle. */
 export const expeditionContext = () => ({ pin: io.pinned(), relay: io.relay(), source: herald });
 export const inspectOriginalExpedition = () => expedition.inspectExpedition(FS, { context: expeditionContext, changed: () => invalidate('panel') });
-export const reconcileExpedition = () => { outbound.reconcileOutbound(FS, expeditionContext()); return expedition.reconcileInspection(FS, expeditionContext()); };
+export const prepareOriginalExpedition = () => preparation.prepareExpedition(FS, { context: expeditionContext, changed: () => invalidate('panel') });
+export const reconcileExpedition = () => { preparation.reconcilePreparation(FS, expeditionContext()); outbound.reconcileOutbound(FS, expeditionContext()); return expedition.reconcileInspection(FS, expeditionContext()); };
 /** Local geometry/plaintext preparation, deliberately outside ACTIONS and FORMS. */
 export const openOriginalOutbound = () => { outbound.openOutbound(FS, expeditionContext()); invalidate('map', 'panel'); };
 export const editOriginalOutbound = (action, value) => { const ok = outbound.editOutbound(FS, expeditionContext(), action, value); invalidate('map', 'panel'); return ok; };
@@ -918,6 +935,51 @@ export const tapOriginalOutbound = hit => { const result = outbound.tapOutbound(
 export const originalOutboundMap = () => outbound.readOutboundMap(FS, expeditionContext());
 export const inspectOriginalOutboundRoute = () => outbound.inspectOutboundRoute(FS, { context: expeditionContext, changed: () => invalidate('panel') });
 export const inspectOriginalOutboundContext = () => outbound.inspectOutboundContext(FS, { context: expeditionContext, changed: () => invalidate('panel') });
+/**
+ * One press on the boundary card: the earliest arrival turn of the observation still bound to this draft goes into
+ * the draft's arrival field, and that observation is read again. A local edit and a read, like the two above:
+ * deliberately outside ACTIONS and FORMS, nothing sealed, signed or sent. → `{ok, arriveBell?, from?, code?}`.
+ */
+export const useEarliestOriginalOutboundArrival = () => outbound.useEarliestOutboundArrival(FS, { context: expeditionContext, changed: () => invalidate('map', 'panel') });
+/**
+ * Local play only (flocalplay-depart.mjs): the ONE send the local-play page makes. The departure of the boundary
+ * draft, signed by the page's memory-only wallet, through the loopback relay's two dedicated routes. Every other
+ * order stays refused (`localPlayReadOnly`): this does not pass through `act`, a session key, the faucet or the
+ * general relay route. Asked on every step: local play with its verified identity, localnet, a loopback page and
+ * relay, the identity's own wallet connected, and that wallet the live memory-only one.
+ */
+const localDepartGate = () => localDepart.localDepartAllowed({ localPlay, cluster: io.pinned()?.cluster, relay: io.relay(), wallet: FS.wallet?.address ?? null, signer: currentEphemeralWallet() });
+const localDepartChanged = () => invalidate('map', 'panel');
+export const localPlayDepartAllowed = () => localDepartGate();
+export const sendLocalPlayDeparture = () => localDepart.runLocalDepart(FS, { allowed: localDepartGate, context: expeditionContext,
+  sealInput: () => ({ clock: FS.clock, drand: FS.record?.drand, seasonPkHash: FS.season?.quicknetPkHash, seasonNetwork: FS.season?.network, cluster: FS.record?.cluster }),
+  seal: async req => (await import('./seal-wide.mjs')).sealWide(req), signer: currentEphemeralWallet, changed: localDepartChanged });
+export const reconcileLocalPlayDeparture = () => localDepart.reconcileLocalDepart(FS, { allowed: localDepartGate, changed: localDepartChanged });
+export const clearLocalPlayDeparture = () => { const ok = localDepart.clearLocalDepart(FS); if (ok) localDepartChanged(); return ok; };
+/**
+ * Local play only (flocalplay-reveal.mjs): the explicit Reveal of a departure this page sealed, under the same gate
+ * as the departure. Two presses, never one: `check` reads the chain and says whether it can be revealed (nothing is
+ * built or signed); `send` reveals what was checked, signed by the same memory-only wallet, once. An outcome that is
+ * not known is asked about (`reconcile`), never sent again. "revealed" says the chain has the reveal and no more:
+ * the arrival's gathering, battle and settlement are not this page's to do or to claim.
+ */
+const localRevealDeps = () => ({ allowed: localDepartGate, signer: currentEphemeralWallet, changed: localDepartChanged,
+  budget: () => localReveal.LOCAL_REVEAL_BUDGET });
+export const checkLocalPlayReveal = () => localReveal.checkLocalReveal(FS, localRevealDeps());
+export const sendLocalPlayReveal = () => localReveal.runLocalReveal(FS, localRevealDeps());
+export const reconcileLocalPlayReveal = () => localReveal.reconcileLocalReveal(FS, localRevealDeps());
+export const clearLocalPlayReveal = () => { const ok = localReveal.clearLocalReveal(FS); if (ok) localDepartChanged(); return ok; };
+/**
+ * Local play only (flocalplay-return.mjs): the two player-signed steps of the existing return (Dissolve, then, after
+ * the turn's own processing, Return), from the return card's own observation and under the departure's gate. Two
+ * presses: `prepare` (nothing is signed) and the explicit `send` of what was prepared, once. An outcome that is not
+ * known is asked about (`reconcile`), never sent again. Outside ACTIONS and FORMS, like the departure.
+ */
+const localReturnDeps = () => ({ allowed: localDepartGate, context: expeditionContext, signer: currentEphemeralWallet, changed: () => invalidate('panel') });
+export const prepareLocalPlayReturn = () => localReturn.prepareLocalReturn(FS, localReturnDeps());
+export const sendLocalPlayReturn = () => localReturn.sendLocalReturn(FS, localReturnDeps());
+export const reconcileLocalPlayReturn = () => localReturn.reconcileLocalReturn(FS, localReturnDeps());
+export const clearLocalPlayReturn = () => { const ok = localReturn.clearLocalReturn(FS); if (ok) invalidate('panel'); return ok; };
 
 /**
  * Load the latest envelope of a province the map draws at tile detail, the
@@ -1036,7 +1098,8 @@ export async function refresh() {
     // every holding's province (the rail can switch between them), the active one first
     for (const o of [h, ...(FS.holdings ?? []).filter(x => x !== h)]) if (o) { await loadEnvelope(o.p, o.q); if (!currentViewer()) return; }
     const home = h ? FS.provinces.get(`${h.p},${h.q}`)?.province ?? null : null;
-    if (shouldAutoNudge({ holding: h, province: home, nowBell: FS.nowBell, lastBell: FS.autoNudgeBell ?? null, hidden: !!globalThis.document?.hidden })) {
+    // (local play: the page's own catch-up request to the keeper is not made)
+    if (!localPlay && shouldAutoNudge({ holding: h, province: home, nowBell: FS.nowBell, lastBell: FS.autoNudgeBell ?? null, hidden: !!globalThis.document?.hidden })) {
       FS.autoNudgeBell = FS.nowBell;
       io.nudge(h.p, h.q, home.resolvedNext).then(r => { if (r.ok) refreshSoon(4000); }).catch(() => {});
     }
@@ -1511,10 +1574,14 @@ function refreshOverviews(b) {
       } catch { /* keep the last record */ }
       if (herald !== request.herald) return;
       if (overviewRefresh !== request) return overviewRefresh?.promise;
-      const count = Math.max(1, FS.record?.rings?.length ?? 1);
+      // The rings the world has (map/world.mjs, set by applySeasonRecord above): a sparse world's own seeded rings,
+      // else 0 .. ringsOpen − 1. Never counted from the record's length: a world that seeds ring 128 alone has one
+      // entry, and its overview is ring 128's, not ring 0's.
+      const world = FS.world;
+      const count = Math.max(1, world?.ringsOpen ?? FS.record?.rings?.length ?? 1);
       // Also refresh rings 0–1 as map summaries: a newer season read may supersede
       // their queued boot reads. Ticket candidate rules still start at FIRST_TICKET_RING.
-      const rings = Array.from({ length: count }, (_, i) => i);
+      const rings = world?.seeded ? [...world.seeded] : Array.from({ length: count }, (_, i) => i);
       // The same four-request queue serves boot and refresh; PSFOV2 cannot be
       // overwritten by a delayed legacy boot response. Ticket planning still awaits all.
       const results = await readOverviews(FS, { herald, rings, v2: conquestEnabled(FS.season),
@@ -1598,6 +1665,8 @@ function quickDestinations() {
 async function sendTheMarch() {
   const c = FS.compose;
   if (!c || c.sending || FS.inFlight > 0) return;
+  // local play: no seal, no signature, no send, no nudge (the march's own path does not go through `act`)
+  if (localPlay) return failed(localPlayReadOnly());
   const h = c.holding ? holdingByRef(FS.holdings,c.holding) : activeHolding(FS);
   if (!h) return failed({code:'NotOwner'});
   const pin = io.pinned();
@@ -2101,6 +2170,14 @@ export const ACTIONS = {
 // from there, however it is reached (a stale control, a forged dataset, a shortcut, a repeated press, a call).
 fwide.guardLegacy(ACTIONS, fwide.GUARDED_ACTS, { FS, refuse: failed });
 
+// Local play: the actions that make or store a session key, pay, or ask the relay to do something do not run at all
+// (the orders themselves stop in `act`). The ordinary page never has `localPlay` set, and runs them as before.
+export const LOCAL_PLAY_REFUSED = Object.freeze(['join', 'session', 'nft-login', 'nft-logout', 'home-confirm', 'prize-faucet', 'nudge', 'forget']);
+for (const name of LOCAL_PLAY_REFUSED) {
+  const run = ACTIONS[name];
+  if (run) ACTIONS[name] = (...a) => (localPlay ? failed(localPlayReadOnly()) : run(...a));
+}
+
 /** Where an order of the prototype is about: the host's tile, else the banner's pole. */
 function protoAt(d) {
   const r = d.host ? hostRow(d.host) : null;
@@ -2189,6 +2266,9 @@ async function fileTicket(sites, source = null, bell = nowBell()) {
  * preferences, the session key kept on this device, and the poll loop.
  */
 export async function startPlay({ herald: h, cfg }) {
+  // Local play is settled first, before any discovery, wallet event or read of this start can run an effect.
+  localPlay = cfg.localPlay ?? null;
+  FS.localPlay = localPlay;
   useHerald(h);
   protoIo.configure({ herald: cfg.herald ?? '' });
   const pin = io.pinned();
@@ -2205,8 +2285,21 @@ export async function startPlay({ herald: h, cfg }) {
   };
   wallet.onChange(listWallets);
   listWallets();
+  // Local play (flocalplay.mjs; cfg.localPlay is set only by its verified gate): the page's memory-only test wallet is
+  // connected through the ordinary Wallet Standard path, and nothing else. No remembered wallet is reconnected and no
+  // session key is restored, made or stored; every send is refused (`localPlay`, set at the top). Reads only.
+  // The season this boot read and pinned by its ordinary path must be the very identity the gate verified (the
+  // dedicated program, localnet, that Season account, the dispatch revision); otherwise no wallet is connected.
+  if (localPlay && !localPlayIdentityOk(localPlay, pin, FS.season)) {
+    FS.error = { code: 'LocalPlayIdentityChanged', text: L`ローカルプレイの接続先が、確認したときと変わりました。ページを開き直してください。` };
+    invalidate('status');
+  } else if (localPlay) {
+    const mine = (FS.walletList ?? []).find(w => w.name === EPHEMERAL_WALLET_NAME && !w.why);
+    const c = mine ? await wallet.connect(mine, { chain: wallet.chainOf('localnet') }).catch(() => null) : null;
+    if (c && c.address === localPlay.address) adoptConnectedWallet(c);
+  }
   // A silent reconnect of the wallet used last time (no popup; nothing if it does not trust this page).
-  const last = wallet.lastWalletName();
+  const last = localPlay ? null : wallet.lastWalletName();
   const entry = last && (FS.walletList ?? []).find(w => w.name === last && !w.why);
   if (entry) {
     const c = await wallet.connect(entry, { chain: wallet.chainOf(pin?.cluster ?? 'localnet'), silent: true }).catch(() => null);
@@ -2221,6 +2314,14 @@ export async function startPlay({ herald: h, cfg }) {
   await kernelOrNull();
   if ((wallet.connected()?.address ?? null) !== (FS.wallet?.address ?? null)) await syncConnectedWallet();
   await refresh();
+  // Local play: the player this boot read must still be the gate's wallet's own Citizen; otherwise the page lets go
+  // of the wallet and says so (sends stay refused either way).
+  if (localPlay && FS.wallet && !localPlayIdentityOk(localPlay, io.pinned(), FS.season, FS.citizen)) {
+    await wallet.disconnect().catch(() => {});
+    adoptConnectedWallet(null);
+    FS.error = { code: 'LocalPlayIdentityChanged', text: L`ローカルプレイの接続先が、確認したときと変わりました。ページを開き直してください。` };
+    invalidate('status', 'panel');
+  }
   walletEventsReady = true;
   if ((wallet.connected()?.address ?? null) !== (FS.wallet?.address ?? null)) await syncConnectedWallet();
   let errors = 0;
