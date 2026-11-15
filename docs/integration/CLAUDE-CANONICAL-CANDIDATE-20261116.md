@@ -1,0 +1,53 @@
+# Canonical integration candidate (Claude, 2026-11-16)
+
+No secrets. Nothing here is NFT transfer verification or an equivalent procedure, session guard, prize, real funds or
+public issuance. **No real world or launcher was run for anything in this candidate** (the launcher start was refused
+by the permission check on 2026-11-16 and was not retried or worked around).
+
+## What it is
+- Branch `claude/canonical-candidate-20261116` (isolated worktree), cut from canonical
+  `codex/wide-conquest-lifecycle-20261109` @ **bcc63a24**, with the integration branch
+  `claude/continuous-territory-integ-20261115` merged in (525990f4 → merge e74a0d92; c46b6768 → merge 800f5d98).
+- **bcc63a24 is the 2026-11-15 migration WIP snapshot (79 files), NOT verified.** This candidate does not verify it;
+  it only shows that the integration work merges onto it and that the ordinary-play tests pass on the result.
+- Canonical itself was only read: HEAD bcc63a24 (= remote), 3 untracked entries of other lanes
+  (`docs/integration/CLAUDE-CONQUEST-V2-CLI-PREPARED-EVIDENCE-20261112.json`,
+  `docs/integration/CLAUDE-FIRST-SESSION-UX-C-INTEGRATION-20261113/c-before-files.tar`,
+  `permutation-gateway/screens/node_modules`). Its tree, index and branch were not changed; nothing force-pushed.
+
+## Paths both sides changed since round 49 (68e8548d)
+| path | integration | WIP bcc63a24 | result | decision |
+|---|---|---|---|---|
+| `frontier-node/crates/herald/Cargo.toml` | feature `land-preview` | feature `expedition-records-experimental` | conflict (same place) | keep both lines (done) |
+| `frontier-node/crates/herald/src/fold.rs` | land capture + envelope `land` (cfg land-preview) | expedition-record hunks | auto-merged, no shared line | adopt both; **Rust not compiled here** |
+No other path is shared (integration 60+ files, WIP 79).
+
+## WIP files worth a decision (not changed by this candidate)
+- `permutation-server/web/lang/en-frontier-play.mjs.orig` (1569 lines): a backup copy, not loaded by any page.
+  Recommend not adopting it into canonical; left in place here (no deletion in this candidate).
+- `permutation-server/web/frontier/seal-worker.mjs`, `frontier-node/crates/findex/*`, `herald/tests/expedition_records.rs`,
+  `scripts/build-frontier-localnet-expedition-sbf.sh`, `permutation-frontier/src/proc/*.rs.txt`: the Codex expedition
+  lane's WIP — unverified; kept as is.
+
+## Restricted boundary in the candidate
+Carried in from the WIP, never run or edited here: `test/frontier-local-play-resident.test.mjs`,
+`test/web-frontier-ephemeral-wallet.test.mjs`, `test/web-frontier-outbound-arrival-pick.test.mjs` (boundary control),
+`screens/codex-route-preview.screen.mjs` (boundary editor + prize stub). From earlier work: every test file whose name
+matches `nft|resident|prize|session|wallet|viewer-own-citizen|ws07|outbound-arrival-pick|boundary`. All NOT verified.
+One WIP test kept in the ordinary run after reading it: `web-frontier-local-play-act.test.mjs` mentions `FS.prize` only
+to assert local play refuses while a prize is set (a source-text check).
+
+## Tests on the candidate (scratch exports by SHA; no Rust build; no world)
+- 800f5d98: ordinary-only subset (206 files, restricted names excluded) — 1967 tests, 1966 pass, **0 fail**, 1 skipped,
+  0 todo; `web-lang-play-glossary` 16/16; screens (keyless fixture or blank page) first-session 2, local-march-maptap 5,
+  conquest-press 10, march-block-reasons 16, return-card 2; `scripts/play2-land-ops/tests` 17/17 (dummy processes).
+- e74a0d92 (before the far-land chip): the same — 1966 tests, 1965 pass, 0 fail.
+
+## Left before canonical takes it
+1. The canonical owner checks bcc63a24 on its own (it is unverified).
+2. Rust: build and test `frontier-herald` with and without `land-preview` (and `expedition-records-experimental`), the
+   rules/abi/program `land-preview` tests — only within the unchanged build guard and the free-space floor.
+3. Decide on the `.orig` file; allocate the land tags (0xCD/0xCE provisional).
+4. A real TEST-ONLY world with the owner's go (ops: `scripts/play2-land-ops/`, fail-closed; never run for real yet):
+   none of the fixes since land5 (block reasons, S1 ore, English, return card, far-land chip) has been seen in a world.
+5. Natural-speed world; phone width (PC first, owner).
