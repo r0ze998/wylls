@@ -5,7 +5,7 @@ No secrets in this file: test keys were memory-only and are gone; no credentials
 ## 1. Where the work stands
 - Canonical tree (absolute): `/Users/r0ze/Projects/wylls-codex-wide-inventory-20261109`
 - Branch: `codex/wide-conquest-lifecycle-20261109`; remote `origin` = github.com/r0ze998/wylls
-- HEAD at this checkpoint: `fa09dd896e73619de161ef5ce8461fe7b0c620fa` (round 46); `git ls-remote origin
+- HEAD at this checkpoint: `1aec6eaa55a50a6591af30a58372245dff79a0c5` (round 47); `git ls-remote origin
   refs/heads/codex/wide-conquest-lifecycle-20261109` returned the same SHA (checked 2026-11-15). The handover note's
   first version is e2245e0b (on top of round 35, 67bf34df); updated f71c249b (after 36), 3c2992df (after 37), fbeb72c2 (after 38), 08de6ea7 (after 39), 6cbd12d4 (after 40), 85eb5090 (after 41) and after 701a7608 (42).
 - My recent commits (oldest → newest): 427c4963 (33b ready-again estimate), 35d22713 (33c: charge at settle on b+1),
@@ -24,7 +24,8 @@ No secrets in this file: test keys were memory-only and are gone; no credentials
   test-world box no longer covers the map's notices — reproduced and fixed, see below), 8fcad680 (45: a local waiting
   send's notices say what they are — the march wait's cancellation was headed "Nothing has been trained yet." and its
   "Try again" would have re-run Train; seen in live33), fa09dd89 (46: the guide stays at the march while the only host
-  is away on one — it fell back to 1/7 mid-march in live33).
+  is away on one — it fell back to 1/7 mid-march in live33), 1aec6eaa (47: start guide + first-playable status:
+  docs/integration/CLAUDE-FIRST-PLAYABLE-STATUS-20261115.md — read it first for what a first session needs).
 - Work copy (scratch, not a repo): `<scratchpad>/canon-copy-round18` — tests are run there against the canonical
   node_modules-free copy; patches are made HEAD-based and applied to canonical with `git apply --cached` + working tree.
 
