@@ -120,3 +120,15 @@ verified. Heavy builds and worlds stay serial, in this session, after a report (
   - NOT exercised: the real arm → exec → launcher path (it would start the launcher), the launcher's own children (runner,
     herald, relays) are stopped by the launcher's close path, not by these scripts; a SIGTERM fallback leaves any child
     that outlives its launcher (seen never so far) to be reported, not killed.
+
+## 2026-11-16 08:40 JST — ops saved to GitHub (template); return card display test
+- 040fce38: `scripts/play2-land-ops/` — public-safe copy of ops v2: starter reads a KEY=VALUE config (template
+  `play2.conf.example`, placeholders always stop; real configs and run output git-ignored), no personal paths, logs or
+  credentials (scanned before commit). README: not a permission to start; never run against a real launcher or world.
+  Tests: `python3 -I scripts/play2-land-ops/tests/test_play2_ops.py` 17/17 (dummy targets + config refusals). Local
+  originals in the ops folder unchanged.
+- 57619f15: `hud/returncard.mjs` (card words + markup, split from hand.mjs, no behaviour change); unit test 21/21 EN/JA
+  with an import audit (lang + util only); screen test 2/2 at 1440 (real stylesheets, page JS off, 0 requests). The
+  return test no longer imports hand.mjs. Ordinary-only subset 184 files: 1761 tests, 1760 pass, 0 fail, 1 skipped;
+  screens first-session 2, maptap 5, conquest-press 10, block-reasons 16. Shown from fixture models: the card inside the
+  real inspection flow (codex-route-preview, restricted mix) is still not screen-verified.
