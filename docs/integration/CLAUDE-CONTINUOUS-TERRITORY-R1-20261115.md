@@ -199,3 +199,8 @@ count), with two ordinary wallets operated by one person, no rule shortened.
   a press/owner logger for the contested province; at the end desk stop/quit, SIGINT launcher by pid, loggers by pid,
   0 listeners verified, both sessions told.
 - **Not at ×30:** the hold would be 24 min, but the March window is 3–5 s per turn; no blind presses, so ×10 only.
+
+**Herald land test (new):** `frontier-node/crates/herald/tests/land_capture.rs` (feature `land-preview`): a land record
+of this season rides the province envelope byte for byte and leaves with its account; another season, another owner or
+a wrong size is dropped. Guarded run 2/2 (conquest-guard.sh 94baeb7d, target 2.2 GiB, free 23.7 GiB). No canonical herald
+file touched (the test is a new file; fold.rs/Cargo.toml hunks unchanged).
