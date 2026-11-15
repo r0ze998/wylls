@@ -19,6 +19,8 @@ import { conquestEnabled, kernelFile, outpostOffer } from './fconquest.mjs';
 import { config } from './config.mjs';
 import { FS, invalidate, registerRenderers } from './fstate.mjs';
 import { clearWideSelect, selectedWide } from './fwide.mjs';
+import { createWideLiveReader, wideLiveEnabled } from './fwide-live.mjs';
+import { worldIdOf } from './map/wide.mjs';
 import { createHerald, nextPoll, staleness } from './herald.mjs';
 import { setTermsPace } from './seasonterms.mjs';
 import { setPin, setRelay } from './fchainio.mjs';
@@ -547,6 +549,7 @@ function renderDrawer(markupOf) {
 }
 
 function renderPlay() {
+  wideLiveReader?.sync();
   wideModeRef?.validateFocus();
   // (the stage mark of the page follows the same answer as the plate, in the same render: never a village's plate over a waiting dock)
   renderChips();
@@ -563,6 +566,7 @@ function renderPlay() {
 }
 
 function renderMode() {
+  wideLiveReader?.sync();
   renderDrawer(() => modePanel(FS));
   renderRail();
   renderMinimap();
@@ -572,6 +576,7 @@ function renderMode() {
 // ------------------------------------------------------------------ the HUD (hud/hud.mjs)
 let mapRef = null;
 let wideModeRef = null;
+let wideLiveReader = null;
 let terrainRef = null;
 /** Who holds each site (people/roster.mjs): names and faces for tags, the rail, the inspector, reports. */
 let rosterRef = null;
@@ -2990,6 +2995,8 @@ function shutDrawer({ focus = false } = {}) {
 }
 
 export const HUD_ACTIONS = {
+  // No DOM identity or endpoint is accepted. Only the presently selected capture.
+  'wide-live-refresh': () => wideLiveReader?.refresh(),
   // Resolve the current inventory at click time. DOM coordinates/world are never navigation pins.
   'wide-map': () => {
     const e = FS.mode === 'play' ? selectedWide(FS) : null;
@@ -3561,7 +3568,9 @@ function delegate(doc) {
     if (el.getAttribute('aria-disabled') === 'true') { refuseInPlace(el); return; }
     const sends = play && SENDS.has(el.dataset.act) && ACTIONS[el.dataset.act];
     if (sends) FS.lastAct = { kind: 'act', name: el.dataset.act, data: { ...el.dataset } };
-    run(fn(el.dataset, el), sends ? { act: el.dataset.act, data: { ...el.dataset } } : null);
+    const pending = fn(el.dataset, el);
+    wideLiveReader?.sync();
+    run(pending, sends ? { act: el.dataset.act, data: { ...el.dataset } } : null);
   });
   doc.addEventListener('submit', e => {
     const f = e.target.closest?.('form[data-form]');
@@ -3636,6 +3645,7 @@ async function loadSeason(herald) {
   FS.beacon = checkBeacon({ drand: record.drand, seasonPkHash: season.quicknetPkHash, cluster: record.cluster, seasonNetwork: season.network });
   if (!FS.beacon.ok) FS.error = { code: FS.beacon.code, text: clientText(FS.beacon.code) };
   FS.season = season;
+  wideLiveReader?.sync();
   // the world's extent (map/world.mjs): which rings are open, pending or beyond the season's map; a ring only partly on
   // chain is asked for its list (again with each season record, until it is whole). The record, the world and the
   // ring lists move together (applySeasonRecord), on every poll: a map that grew on chain is on the page by the next
@@ -3683,7 +3693,27 @@ function loadOverviews(herald, rings = overviewRings(FS.world, FS.overviewTaken)
 /** Start the page. */
 export async function boot() {
   const cfg = config();
+  wideLiveReader?.clear();
   FS.mode = cfg.mode;
+  // The configured herald must be this page's origin; the reader always uses
+  // the fixed relative path. Legacy seasons cannot accidentally enable it.
+  wideLiveReader = createWideLiveReader({
+    enabled: () => wideLiveEnabled({ herald: cfg.herald, origin: cfg.origin, season: FS.season, mode: FS.mode, sample: FS.sample }),
+    getSelection: () => {
+      if (FS.mode !== 'play' || drawerOf(FS)?.kind !== 'holding' || !FS.wallet?.address || !FS.pin || FS.meStatus !== 'ready') return null;
+      const entry = selectedWide(FS), holding = entry?.status === 'captured-unverified' ? entry.holding : null;
+      if (!holding) return null;
+      const a = FS.pin.addresses, viewerKey = FS.resident?.asset ?? FS.wallet.address;
+      return { holding, sourceKey: `${cfg.herald}:${FS.wallet.address}`, pins: {
+        programId: a.programId, seasonAddress: a.season, seasonId: a.seasonId,
+        world: worldIdOf(a.season, a.programId), rulesetHash: toHex(FS.season.rulesetHash),
+        citizen: FS.resident?.citizen ?? a.of('Citizen', { wallet: FS.wallet.address }),
+        viewerKey, viewerKind: FS.resident?.asset ? 'resident' : 'wallet',
+      } };
+    },
+    onChange: state => { FS.wideLive = state; invalidate('panel'); },
+  });
+  FS.wideLive = wideLiveReader.state;
   setRelay(cfg.relay);
   FS.chain = new ChainClock();
   // the materials drawn by code (paper grain, the sheet's uneven edge, cloth, brushed metal): hud/textures.mjs

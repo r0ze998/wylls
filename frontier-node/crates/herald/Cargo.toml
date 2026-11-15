@@ -36,6 +36,7 @@ flate2.workspace = true
 
 [features]
 default = []
+wide-live-read-experimental = ["wide-index-read-experimental", "fclient/snapshot"]
 # Experimental, opt-in: the read-only recorded wide world (`src/wide.rs`,
 # `/h/world/wide`) over frontier-abi's `world_index`. Off by default: the
 # default build compiles none of it and answers `503 WideWorldUnavailable`

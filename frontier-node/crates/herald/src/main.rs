@@ -8,7 +8,10 @@
 //!     [--web DIR] [--relay 127.0.0.1:41033] [--test-key | --drand-info FILE]
 //!     [--checkpoint-slots 150] [--poll-ms 200] [--quotas JSON]
 //!     [--wide-index PATH]  (feature wide-index-read-experimental, read-only)
-//! --source read-only requires a matching herald.ckpt and --wide-index; no RPC/ingest/write.
+//!     [--wide-live-rpc http://127.0.0.1:PORT --wide-live-ruleset HEX --wide-live-min-slot SLOT]
+//!       (feature wide-live-read-experimental; explicit village observations only)
+//! --source read-only requires a matching herald.ckpt and --wide-index; no ingest/write.
+//! It performs no RPC unless wide-live is explicitly configured and a village GET is requested.
 //! frontier-herald --fixture conquest --data DIR --listen 127.0.0.1:PORT [--web DIR]
 //! ```
 //! `--fixture conquest` (MC contract §8.4, CQ2-E) folds the synthetic
@@ -109,6 +112,16 @@ async fn fixture_conquest(a: &HashMap<String, String>) -> Result<(), String> {
 
 async fn main_inner() -> Result<(), String> {
     let a = args()?;
+    let live_requested = a.keys().any(|k| k.starts_with("wide-live-"));
+    #[cfg(not(feature = "wide-live-read-experimental"))]
+    if live_requested {
+        return Err("--wide-live-* requires wide-live-read-experimental".into());
+    }
+    if live_requested
+        && (a.get("source").map(String::as_str) != Some("read-only") || a.contains_key("fixture"))
+    {
+        return Err("wide-live requires --source read-only and no fixture".into());
+    }
     #[cfg(not(feature = "wide-index-read-experimental"))]
     if a.contains_key("wide-index") || a.get("source").is_some_and(|s| s == "read-only") {
         return Err("--wide-index / read-only require feature wide-index-read-experimental".into());
@@ -207,6 +220,42 @@ async fn main_inner() -> Result<(), String> {
     };
     app.index = (!read_only).then(|| cfg.index_path());
     app.wide_index = a.get("wide-index").map(PathBuf::from);
+    #[cfg(feature = "wide-live-read-experimental")]
+    if live_requested {
+        if a.keys().any(|k| {
+            k.starts_with("wide-live-")
+                && !["wide-live-rpc", "wide-live-ruleset", "wide-live-min-slot"]
+                    .contains(&k.as_str())
+        }) {
+            return Err("unknown --wide-live-* option".into());
+        }
+        let rules: [u8; 32] = hex::decode(need("wide-live-ruleset")?)
+            .map_err(|_| "bad wide-live ruleset")?
+            .try_into()
+            .map_err(|_| "bad wide-live ruleset length")?;
+        let minimum = need("wide-live-min-slot")?
+            .parse::<u64>()
+            .map_err(|_| "bad wide-live minimum slot")?;
+        {
+            let f = app.fold.read().map_err(|_| "checkpoint unavailable")?;
+            let s = f.season.as_ref().ok_or("checkpoint has no Season")?;
+            if f.cfg.program != program
+                || f.cfg.season_id != season
+                || s.h.season_id != season
+                || s.program_version != 0x4004
+                || s.ruleset_hash != rules
+            {
+                return Err("wide-live checkpoint deployment mismatch".into());
+            }
+        }
+        app.wide_live = Some(herald_fold::wide_live::Live::rpc(
+            program,
+            season,
+            rules,
+            minimum,
+            &need("wide-live-rpc")?,
+        )?);
+    }
     let listener = tokio::net::TcpListener::bind(&listen)
         .await
         .map_err(|e| format!("{listen}: {e}"))?;
