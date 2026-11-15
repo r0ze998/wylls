@@ -5,7 +5,7 @@ No secrets in this file: test keys were memory-only and are gone; no credentials
 ## 1. Where the work stands
 - Canonical tree (absolute): `/Users/r0ze/Projects/wylls-codex-wide-inventory-20261109`
 - Branch: `codex/wide-conquest-lifecycle-20261109`; remote `origin` = github.com/r0ze998/wylls
-- HEAD at this checkpoint: `701a7608006bea2d022cd1795ceda9d9beec7d29` (round 42); `git ls-remote origin
+- HEAD at this checkpoint: `7cf55a04f4dc34b99ad9f6cdc705a65a2bafea40` (round 43); `git ls-remote origin
   refs/heads/codex/wide-conquest-lifecycle-20261109` returned the same SHA (checked 2026-11-15). The handover note's
   first version is e2245e0b (on top of round 35, 67bf34df); updated f71c249b (after 36), 3c2992df (after 37), fbeb72c2 (after 38), 08de6ea7 (after 39), 6cbd12d4 (after 40), 85eb5090 (after 41) and after 701a7608 (42).
 - My recent commits (oldest → newest): 427c4963 (33b ready-again estimate), 35d22713 (33c: charge at settle on b+1),
@@ -19,7 +19,8 @@ No secrets in this file: test keys were memory-only and are gone; no credentials
   (40: no "settle" in the action bar's English; a test for it), 7e41786c (41: the "no cooperation board" answer is read
   to its end — it was reported as an aborted request and failed 72 of 78 PC/phone screen scenes), 701a7608 (42: the
   expedition lane's 23 codes have sentences, 精算/keeper/"by itself" off the play screen, the film's frame closes the
-  stylesheet again; owner note docs/integration/CLAUDE-EXPEDITION-WORDING-ROUND42-20261115.md).
+  stylesheet again; owner note docs/integration/CLAUDE-EXPEDITION-WORDING-ROUND42-20261115.md), 7cf55a04 (43: the
+  Hosts tab says the host is away on a march instead of "No hosts yet, train some" — seen in live33).
 - Work copy (scratch, not a repo): `<scratchpad>/canon-copy-round18` — tests are run there against the canonical
   node_modules-free copy; patches are made HEAD-based and applied to canonical with `git apply --cached` + working tree.
 
@@ -99,7 +100,13 @@ no node_modules); docs/integration/CLAUDE-CONQUEST-RESERVATION-VECTORS-20261112.
   The list and log stay local (they name the owner's apps).
 - HEAD build still NOT started: it fits the build guard alone (free ≥ 20 GiB, target ≤ 4 GiB), but build + a world
   needs ~25 GiB free (a world must start at ≥ 21 GiB after the build). Freeing the two skipped items when their apps are
-  idle would give ~26 GiB.
+  idle would give ~26 GiB. Re-checked 13:11: 24.40 GiB < 25 GiB → no build started (Steam's cleanup is another
+  owner's; not touched here).
+- Two scopes, never mixed: (1) latest-HEAD build reproduction — NOT DONE; (2) live33 — old pinned binaries + HEAD page,
+  x30 synthetic clock — DONE (same-host repeat move and a keep capture).
+- Open from live33 (not fixed): the "About this test world" box and a feed notice overlapped at 1280×800 with a drawer
+  open; a faithful fixture (flocalplay.css linked) shows the notice on top, so the cause is not stacking — likely the
+  notice's translucent background letting the box show through. Needs a look with the real notice before any change.
 
 ## 6. Fixture versus a real world: what was seen where
 - Seen in a real world (TEST-ONLY, synthetic clock, one operator playing both sides by hand, memory-only keys):
