@@ -267,3 +267,24 @@ test('keepState: an opened fold, a chosen picture and typed values survive a re-
   keepState(el, () => { cur = build(); }, null);
   assert.equal(cur.fold.open, false, 'a different view starts from its own markup');
 });
+
+// round 43 (seen in live33, turn 27): the only host on the march is in no province record the page holds until its
+// arrival is read; the Hosts tab said "No hosts yet. Train troops and form a host" then. Now it says the host is away
+// and opens Marches; with no march either, the old line stands.
+test('the Hosts tab while the only host is on the march: it is away (Marches), not "no hosts, train some"', () => {
+  for (const lang of ['ja', 'en']) {
+    setLang(lang);
+    const { FS } = world({ entries: [] });
+    FS.marches = [{ entry: { host: '7', state: 1 }, transit: null, facts: null }];
+    const away = String(hostScreen.render(FS));
+    assert.match(text(away), lang === 'en' ? /Your host is away on a march\. See Marches for its arrival and result\./ : /あなたの軍勢は進軍に出ています。到着と結果は「進軍」で確かめられます。/);
+    assert.match(away, /data-act="tab" data-tab="marches"/);
+    assert.doesNotMatch(text(away), lang === 'en' ? /train|No hosts/i : /訓練し/);
+    if (lang === 'en') assert.doesNotMatch(text(away), JP);
+    FS.marches = [];
+    const none = String(hostScreen.render(FS));
+    assert.match(text(none), lang === 'en' ? /train/i : /訓練し/, 'with no march either, the old line stands');
+    assert.doesNotMatch(none, /data-tab="marches"/);
+  }
+  setLang('ja');
+});

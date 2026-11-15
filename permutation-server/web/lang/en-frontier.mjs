@@ -1019,4 +1019,7 @@ export default {
   '到着のターンが正しくありません。': 'The arrival turn is not valid.',
   '封に使う乱数が正しくありません。': 'The random values for the seal are not valid.',
   '封の処理を始められませんでした。もう一度試してください。': 'The sealing could not be started. Try again.',
+  // (round 43: the Hosts tab while the viewer's host is on the march: screens/host.mjs)
+  'あなたの軍勢は進軍に出ています。到着と結果は「進軍」で確かめられます。': 'Your host is away on a march. See Marches for its arrival and result.',
+  '進軍を開く': 'Open Marches',
 };

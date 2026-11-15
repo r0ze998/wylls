@@ -61,6 +61,13 @@ export function render(FS) {
       <p role="status"><strong>${L`記録をまだ読み込めていません`}</strong> ${L`通信の状態を確かめてください。読み込み直すと、もう一度試します。`}</p>
       <div class="actions"><button type="button" class="btn" data-act="reload">${L`読み込み直す`}</button></div></section>`;
   }
+  // (round 43, seen in live33: a host on the march is in no province record the page holds until its arrival is read;
+  // "no host, train some" was said then. The viewer's own marches say otherwise: the host is away, see Marches)
+  if (!rows.length && (FS.marches ?? []).length) {
+    return html`<section class="vcard" aria-labelledby="hosts-title">${cardHead({ id: 'hosts-title', ic: 'sword', title: L`軍勢` })}
+      <p role="status">${L`あなたの軍勢は進軍に出ています。到着と結果は「進軍」で確かめられます。`}</p>
+      <div class="actions"><button type="button" class="btn primary" data-act="tab" data-tab="marches">${L`進軍を開く`}</button></div></section>`;
+  }
   if (!rows.length) {
     return html`<section class="vcard" aria-labelledby="hosts-title">${cardHead({ id: 'hosts-title', ic: 'sword', title: L`軍勢` })}
       <p>${L`軍勢はいません。村で兵を訓練し、軍勢を編成してください。`}</p>
