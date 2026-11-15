@@ -76,6 +76,10 @@ export function render(FS) {
   const bell = FS.nowBell ?? 0;
   const f = Number.isInteger(FS.citizen?.faction) ? FS.citizen.faction : 0;
   const ctx = r => ({ holding: h, province: r.province, nowBell: bell, now: FS.chain?.now() ?? 0, host: r });
+  // (round 49, the owner's decision of 2026-11-15: while the host's province is still resolving the last turn —
+  // NotResident, and only that — its March opens the order card, as the action bar's March always did; the card's send
+  // waits for the province as it already does (the local waiting send; the chain's wait for the turn). The reason line
+  // still says so. Every other block — rest, stamina, another refusal — keeps the button closed)
   return html`<section class="bare host-list" aria-labelledby="hosts-title"><h3 id="hosts-title" class="visually-hidden">${L`軍勢`}</h3><ul class="hosts">${rows.map(r => {
     const blocks = actionBlocks('Depart', ctx(r));
     const st = hostState(r, bell);
@@ -93,7 +97,7 @@ export function render(FS) {
       </div>
       ${r.state === 2 ? html`<p class="muted">${formWait > 0 ? L`編成の反映の目安まで ${countdown(formWait)}（ゲーム内）` : L`世界の処理で編成が反映されるのを待っています。`}</p>` : ''}
       <div class="actions host-acts">
-        <button type="button" class="btn primary small" data-act="compose" data-host="${String(r.id)}" ${raw(locked || bell < r.readyBell || blocks.length || r.stamina < DEPART_STAMINA ? 'disabled' : '')} data-stay="map">${icon('banner')}${L`進軍させる`}</button>
+        <button type="button" class="btn primary small" data-act="compose" data-host="${String(r.id)}" ${raw(locked || bell < r.readyBell || blocks.some(b => b !== 'NotResident') || r.stamina < DEPART_STAMINA ? 'disabled' : '')} data-stay="map">${icon('banner')}${L`進軍させる`}</button>
         ${r.unit === SCOUT ? html`<button type="button" class="btn small" data-act="explore-open" data-host="${String(r.id)}" ${raw(locked || actionBlocks('Explore', ctx(r)).length ? 'disabled' : '')}>${icon('scout')}${L`探索`}</button>` : ''}
         <button type="button" class="btn small quiet" data-act="dissolve" data-host="${String(r.id)}" aria-label="${L`${name}を解散する`}" ${raw(locked || actionBlocks('Dissolve', ctx(r)).length ? 'disabled' : '')}>${L`解散`}</button>
       </div>
