@@ -132,3 +132,12 @@ verified. Heavy builds and worlds stay serial, in this session, after a report (
   return test no longer imports hand.mjs. Ordinary-only subset 184 files: 1761 tests, 1760 pass, 0 fail, 1 skipped;
   screens first-session 2, maptap 5, conquest-press 10, block-reasons 16. Shown from fixture models: the card inside the
   real inspection flow (codex-route-preview, restricted mix) is still not screen-verified.
+
+## 2026-11-16 09:10 JST — canonical candidate; far-land chip (PC)
+- c46b6768 (this branch): the strip's land chip adds "Other provinces: N tiles" / 「ほかの州 N マス」 — the nation's claimed
+  land in loaded provinces other than home (a far take read 0 or showed no chip). Tests + ordinary subset 1762/1761/0
+  fail. Not seen in a real world.
+- Candidate `claude/canonical-candidate-20261116` (worktree `wylls-canonical-candidate-20261116`): canonical bcc63a24
+  (UNVERIFIED WIP) + this branch; shared paths only herald Cargo.toml (kept both) and fold.rs (auto-merged; Rust not
+  compiled). Ordinary subset 1967/1966/0 fail on 800f5d98. Handover: that branch's
+  docs/integration/CLAUDE-CANONICAL-CANDIDATE-20261116.md. Canonical branch, tree and index untouched.
