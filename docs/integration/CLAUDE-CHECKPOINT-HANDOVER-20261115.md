@@ -5,9 +5,9 @@ No secrets in this file: test keys were memory-only and are gone; no credentials
 ## 1. Where the work stands
 - Canonical tree (absolute): `/Users/r0ze/Projects/wylls-codex-wide-inventory-20261109`
 - Branch: `codex/wide-conquest-lifecycle-20261109`; remote `origin` = github.com/r0ze998/wylls
-- HEAD at this checkpoint: `7e41786c051382f1d5f71ef3c11b95bec0532436` (round 41); `git ls-remote origin
+- HEAD at this checkpoint: `701a7608006bea2d022cd1795ceda9d9beec7d29` (round 42); `git ls-remote origin
   refs/heads/codex/wide-conquest-lifecycle-20261109` returned the same SHA (checked 2026-11-15). The handover note's
-  first version is e2245e0b (on top of round 35, 67bf34df); updated f71c249b (after 36), 3c2992df (after 37), fbeb72c2 (after 38), 08de6ea7 (after 39), 6cbd12d4 (after 40) and after 7e41786c (41).
+  first version is e2245e0b (on top of round 35, 67bf34df); updated f71c249b (after 36), 3c2992df (after 37), fbeb72c2 (after 38), 08de6ea7 (after 39), 6cbd12d4 (after 40), 85eb5090 (after 41) and after 701a7608 (42).
 - My recent commits (oldest → newest): 427c4963 (33b ready-again estimate), 35d22713 (33c: charge at settle on b+1),
   8e385098 (34: English for hand.mjs return texts, '{0} can no longer be used', expedition-map clock tests),
   67bf34df (35: with the March card open, a map tap the host cannot act on says why and keeps the host in hand),
@@ -17,7 +17,9 @@ No secrets in this file: test keys were memory-only and are gone; no credentials
   nowhere on the map there; fixed with a hit test), 37a3019a (39: a sentence for 49 page codes and the relay's 2
   request codes; 鐘 → ターン in the wide details line; 精算 → 結果を受け取る in the siege reservation card), 2721acd3
   (40: no "settle" in the action bar's English; a test for it), 7e41786c (41: the "no cooperation board" answer is read
-  to its end — it was reported as an aborted request and failed 72 of 78 PC/phone screen scenes).
+  to its end — it was reported as an aborted request and failed 72 of 78 PC/phone screen scenes), 701a7608 (42: the
+  expedition lane's 23 codes have sentences, 精算/keeper/"by itself" off the play screen, the film's frame closes the
+  stylesheet again; owner note docs/integration/CLAUDE-EXPEDITION-WORDING-ROUND42-20261115.md).
 - Work copy (scratch, not a repo): `<scratchpad>/canon-copy-round18` — tests are run there against the canonical
   node_modules-free copy; patches are made HEAD-based and applied to canonical with `git apply --cached` + working tree.
 
@@ -46,21 +48,20 @@ NFT session paths + hashes and wait for OK.
 - Do not delete anything: scratch trees, exports, recordings and evidence (rec/live23…live32, SHA256SUMS) are evidence.
   Deletion needs the user's explicit approval. Videos never go to GitHub.
 
-## 5. The known unit failures: 7 since round 41 (2067 pass / 7 fail / 1 skipped, 2075 tests)
+## 5. The known unit failures: 4 since round 42 (2071 pass / 4 fail / 1 skipped, 2076 tests)
 Command (work copy, permutation-gateway): `node --test test/web-lang.test.mjs test/frontier-local-play-*.test.mjs
-test/web-frontier-*.test.mjs` (2069 tests). Environment since round 39: the gateway's declared SDK
-(@magicblock-labs/ephemeral-rollups-sdk 0.17.2) is linked into the scratch work copy from an existing install with the
-same package-lock (nothing downloaded; canonical has no node_modules). With it, agent/errors/relay/chainio/delegation/
-fplay-profile load; without it they fail at import (the older 17/18 counts were measured without it).
-- Work-copy only, resolved: frontier-local-play-conquest-orders.test.mjs needed docs/integration/
-  CLAUDE-CONQUEST-RESERVATION-VECTORS-20261112.json (tracked in canonical); copied into the scratch copy, it passes 6/6.
-- Other lanes' work (not mine): the page-codes test (23 codes left, all the expedition lane's: fexpedition*,
-  seal-wide.mjs); words "internal words" (only fexpedition-return.mjs's 精算 now); outbound "boundary control" (Codex
-  lane); pretake-frame ("film's frame"); resident-home (NFT viewer records — restricted area, do not resume); web-lang
-  completeness (b) (fexpedition-return's unmarked Japanese) and (c) (17 stale English entries for those texts).
+test/web-frontier-*.test.mjs`. Environment: the gateway's declared SDK (@magicblock-labs/ephemeral-rollups-sdk 0.17.2)
+linked into the scratch work copy from an existing install with the same package-lock (nothing downloaded; canonical has
+no node_modules); docs/integration/CLAUDE-CONQUEST-RESERVATION-VECTORS-20261112.json copied from canonical.
+- Owner's design call (expedition lane, Codex): web-lang completeness (b) (18 Japanese literals held as data in
+  fexpedition-return.mjs, shown through t(variable)) and (c) (their 17 English entries, unused to the scanner). Options in
+  docs/integration/CLAUDE-EXPEDITION-WORDING-ROUND42-20261115.md; not changed.
+- Restricted, not touched: resident-home (NFT viewer records); the outbound "boundary control" test (boundary-control
+  safety verification is not to be resumed).
 - Flaky under the full run's load (pass alone, 3/3 on base and change): marches "round 29: a turn record that cannot be
   read …" (a bounded wait).
-- Fixed: round 36 web-lang "dictionaries"; round 39 relay codes have a text, no numbered bell, 鐘/"bell".
+- Fixed: round 36 web-lang "dictionaries"; round 39 relay codes have a text, no numbered bell, 鐘/"bell"; round 42 every
+  page code has a text, the film's frame, the internal words.
 - Done in round 40: no "settle" in en-frontier-hand.mjs's English (own test); its 3 entries for fexpedition-return's
   精算 strings are left to that lane (their Japanese changes first).
 - Screens (browser, keyless fixture, work copy): conquest-press 10/10 and local-march-maptap 3/3 pass; fixtures 7 and
