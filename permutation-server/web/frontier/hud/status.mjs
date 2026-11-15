@@ -69,8 +69,14 @@ export function statusOf(FS, { age = 0, canRetry = false } = {}) {
   const n = FS?.notice;
   if (!n) return null;
   if (n.busy) return { state: 'busy', text: textOf(n) ?? L`送信中…`, share: null, step: null, steps: null, retry: false };
+  // (round 45, seen in live33: a local waiting send's own lines carry what they are. `waiting`: the order is held and
+  //  will be sent once — a pending state, not a refusal; `unsent`: the action a withdrawn wait concerns, which may not be
+  //  the last control pressed (the wait's own button is not one of the page's sends); `retry: false`: "Try again" would
+  //  re-run that last control — another order —, so it is not offered)
+  if (n.waiting) return { state: 'busy', text: textOf(n) ?? L`送信待ち`, share: null, step: null, steps: null, retry: false };
   if (n.ok) return age > DONE_MS ? null : { state: 'done', text: textOf(n) ?? L`完了しました`, share: 1, step: null, steps: null, retry: false };
-  return { state: 'refused', what: unsentText(FS), text: textOf(n) ?? failureText(n), share: null, step: null, steps: null, retry: !!canRetry, agentLink: !!n.agentLink };
+  const what = n.unsent ? UNSENT[n.unsent]?.(FS) ?? null : unsentText(FS);
+  return { state: 'refused', what, text: textOf(n) ?? failureText(n), share: null, step: null, steps: null, retry: !!canRetry && n.retry !== false, agentLink: !!n.agentLink };
 }
 
 /** The status as the first toast of the map's stack (`role` alert for a refusal, status otherwise). */

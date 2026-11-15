@@ -144,7 +144,7 @@ test('the controller: the identity frozen at arming is checked at every look, in
   // the read: applied only under the frozen identity (not the one current when the read began)
   assert.match(block, /const still = \(\) => sameMusterIdentity\(card\.identity, musterIdentity\(\)\) && FS\.wallet\?\.destroyed !== true && musterDriver\.armed === card;/);
   // right before the send: checked again; the frozen village is passed
-  assert.match(block, /send: card => \{\n\s+FS\.musterWait = null;\n\s+const why = musterStillSame\(card\);\n\s+if \(why\) \{ setNotice\(\{ busy: false, text: MUSTER_WITHDRAWN\[why\]\(\) \}\); return null; \}/);
+  assert.match(block, /send: card => \{\n\s+FS\.musterWait = null;\n\s+const why = musterStillSame\(card\);\n\s+if \(why\) \{ setNotice\(\{ busy: false, text: MUSTER_WITHDRAWN\[why\]\(\), unsent: 'muster', retry: false \}\); return null; \}/);
   assert.match(block, /return musterOrder\(card\.draft\.unit, card\.draft\.troops, card\.draft\.tile, card\.holding\);/);
   // the card's village must be the active one, or nothing is offered
   assert.match(block, /!sameHolding\(h, activeHolding\(FS\)\) \? \['HoldingMismatch'\]/);

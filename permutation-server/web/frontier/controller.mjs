@@ -1949,7 +1949,7 @@ const pendingDriver = createPendingDriver({
     return loadEnvelope(card.origin.p, card.origin.q, 'latest', still).then(e => { if (e) { FS.nowBell = nowBell(); invalidate('panel'); } });
   },
   send: card => { card.pending = null; return sendTheMarch(); },
-  withdrawn: (card, why) => { card.pending = null; if (PENDING_WITHDRAWN[why]) setNotice({ busy: false, text: PENDING_WITHDRAWN[why]() }); else invalidate('panel'); },
+  withdrawn: (card, why) => { card.pending = null; if (PENDING_WITHDRAWN[why]) setNotice({ busy: false, text: PENDING_WITHDRAWN[why](), unsent: 'march-send', retry: false }); else invalidate('panel'); },
   onPageHide: f => { globalThis.addEventListener?.('pagehide', f); return () => globalThis.removeEventListener?.('pagehide', f); },
 });
 // TEST-ONLY local play, the march's test entry: while an order is composed, or the village's muster or forts card is open,
@@ -1985,7 +1985,7 @@ function armMarchWait() {
   const p = armPending({ intent, nowBell: nowBell() });
   if (!p || !pendingDriver.arm(c, p)) return;
   c.pending = p;
-  setNotice({ busy: false, text: L`送信待ちです。州のターンの決着がつき次第、この命令を1回だけ送ります（ターン ${fmtNum(p.untilBell)} まで。取り消せます）。` });
+  setNotice({ busy: false, waiting: true, text: L`送信待ちです。州のターンの決着がつき次第、この命令を1回だけ送ります（ターン ${fmtNum(p.untilBell)} まで。取り消せます）。` });
 }
 
 // TEST-ONLY local play, the village's Form a host card (round 21; flocalplay-muster-wait.mjs): ONE press on its confirm
@@ -2052,7 +2052,7 @@ const musterDriver = createPendingDriver({
   send: card => {
     FS.musterWait = null;
     const why = musterStillSame(card);
-    if (why) { setNotice({ busy: false, text: MUSTER_WITHDRAWN[why]() }); return null; }
+    if (why) { setNotice({ busy: false, text: MUSTER_WITHDRAWN[why](), unsent: 'muster', retry: false }); return null; }
     invalidate('panel');
     return musterOrder(card.draft.unit, card.draft.troops, card.draft.tile, card.holding);
   },
@@ -2060,7 +2060,7 @@ const musterDriver = createPendingDriver({
     FS.musterWait = null;
     // (the card closed by the player: a cancel, said as one)
     const t = why === 'changed' && FS.hand?.pop !== 'muster' ? MUSTER_WITHDRAWN.cancel : MUSTER_WITHDRAWN[why];
-    if (t) setNotice({ busy: false, text: t() }); else invalidate('panel');
+    if (t) setNotice({ busy: false, text: t(), unsent: 'muster', retry: false }); else invalidate('panel');
   },
   onPageHide: f => { globalThis.addEventListener?.('pagehide', f); return () => globalThis.removeEventListener?.('pagehide', f); },
 });
@@ -2076,7 +2076,7 @@ function armMusterWait() {
   const card = Object.freeze({ intent: n.intent, identity: n.identity, holding: Object.freeze({ p: n.holding.p, q: n.holding.q, site: n.holding.site, gen: n.holding.gen ?? null, tile: n.holding.tile }), draft: Object.freeze({ ...n.draft }) });
   if (!p || !musterDriver.arm(card, p)) return;
   FS.musterWait = { untilBell: p.untilBell };
-  setNotice({ busy: false, text: L`編成の送信待ちです。州のターンの決着がつき次第、この編成を1回だけ送ります（ターン ${fmtNum(p.untilBell)} まで。取り消せます）。` });
+  setNotice({ busy: false, waiting: true, text: L`編成の送信待ちです。州のターンの決着がつき次第、この編成を1回だけ送ります（ターン ${fmtNum(p.untilBell)} まで。取り消せます）。` });
 }
 /** (tests) The muster's waiting send: armed or not. */
 export const musterWaitArmed = () => !!musterDriver.armed;
