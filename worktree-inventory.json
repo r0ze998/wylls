@@ -1,0 +1,2239 @@
+{
+  "date": "2026-11-15",
+  "scope": "21 registered worktrees in this Git repository; original working trees and indices unchanged",
+  "note": "Preservation snapshots, not integration branches or proof of passing tests. No restricted verification performed. Do not run NFT transfer/session/prize tests. No real funds or public issuance. No reset/clean of existing worktrees.",
+  "worktrees": [
+    {
+      "worktree": "wylls-codex-continuation-20261108",
+      "audited_base": "26fcfc3b1730113dd0286b31cc0e23e7db9d23b7",
+      "original_branch": "refs/heads/codex/route-preview-refresh-20261108",
+      "remote_original": "26fcfc3b1730113dd0286b31cc0e23e7db9d23b7",
+      "snapshot": {
+        "branch": "migration/20261115-codex-continuation-20261108",
+        "commit": "0775724b0a40d6dfae281e3fc66e30b97b3f9f7e",
+        "files": [
+          {
+            "path": "docs/integration/CODEX-WIDE-VILLAGE-OBSERVATION-20261109.md",
+            "blob": "6bc05882905a868eaf4254dbe414a21290f824b5",
+            "sha256": "96ec2555bf7b55326f928b6be4b47e896d1203c858ea2039888162604ad4a06a"
+          },
+          {
+            "path": "frontier-node/crates/herald/Cargo.toml",
+            "blob": "106c4e78713e2c8e10f3173bce5ac7a2bff07ebb",
+            "sha256": "918a7b9585797144d2cc1951d1a22c441e19f03bf3ae0a0997c6ceace1ebfaf8"
+          },
+          {
+            "path": "frontier-node/crates/herald/src/lib.rs",
+            "blob": "189be3f84e90286f839cde9b5849f93d7d2969d3",
+            "sha256": "5b8a87f33a60a9f49f678dfd5500b749f35c09cf583dd14cce05fb5b4c514d44"
+          },
+          {
+            "path": "frontier-node/crates/herald/src/main.rs",
+            "blob": "3eb323b5e52214858de3b02a29c94a951f5220a0",
+            "sha256": "15c03fa81c9acee339f4a5d6a4bb4dd0e670b778e47b2266b4426904d39e3bba"
+          },
+          {
+            "path": "frontier-node/crates/herald/src/server.rs",
+            "blob": "c1b182fec5f9f6e07fd794e49c7096023e21d8df",
+            "sha256": "a1a1b259e52ba9aa8cbb717b86c543064c441db81e9926785f57780f14a5991f"
+          },
+          {
+            "path": "frontier-node/crates/herald/src/wide_live.rs",
+            "blob": "a07481e17fd82ffe73fb45fc66aeb2e8616f19d4",
+            "sha256": "3949f2d08b907fa49b8f2a5888f2c0b81d66858142547407637cd170cdf79545"
+          },
+          {
+            "path": "frontier-node/crates/herald/tests/wide_live.rs",
+            "blob": "ada64a3cbb6805df784d566bb753be9864a6bd59",
+            "sha256": "eea797b0393803759b63c8dfe09cb492ebc88435a6aab804f95d10bda03d9a88"
+          },
+          {
+            "path": "frontier-node/crates/herald/tests/wide_live_route.rs",
+            "blob": "929ab0e58edf44e2092035587c65bc074546beb0",
+            "sha256": "bdd84e8ae391164157801768584b8bdb5d8c3f5d92e7c897c822c569815070cd"
+          },
+          {
+            "path": "permutation-gateway/screens/codex-route-preview.screen.mjs",
+            "blob": "22890bdba95cbdf6c2543bd9f1f05e77210fb523",
+            "sha256": "0f22d2852d76545e4d64c80e1e4a826e2d163826ee8728dda194bf86bb5c1999"
+          },
+          {
+            "path": "permutation-gateway/test/web-frontier-wide-live.test.mjs",
+            "blob": "85ccfe3a210eb05c5f0fd100a24c4a62ac6c0819",
+            "sha256": "e98ea6245ba59fdcaafdcc933b0e2329fa09c53c3c05ed81047b79858a403d32"
+          },
+          {
+            "path": "permutation-server/web/frontier/app.mjs",
+            "blob": "30ab4e42365da9ae3b1e9a5171666a80a9b8401f",
+            "sha256": "4720ac01ebbb8e5c89068c7e137637a78a35f87ac6052e043f1c5f85e20394fc"
+          },
+          {
+            "path": "permutation-server/web/frontier/fwide-live.mjs",
+            "blob": "999461f1355f77eaa62f96ebf5b95509f1baf7cd",
+            "sha256": "3bebb6b9ddf100d4a307488dcbe6f6b5d18be35e183288a0172b67ceb94d6bf4"
+          },
+          {
+            "path": "permutation-server/web/frontier/screens/wideholding.mjs",
+            "blob": "4d630573b71cd51894ba5d371ae914440c103ee8",
+            "sha256": "cf0da0c0549a1bab873cdad348fbd8cb5f50c362c7f57854bb4af6b51f3900aa"
+          },
+          {
+            "path": "permutation-server/web/lang/en-frontier.mjs",
+            "blob": "78cb5193302fb971c313fdd0d5d9733968da4ec2",
+            "sha256": "d18d82e23b7c175b299d82cde8889a07874d26beb4e2fcfeda189143b1b7db73"
+          }
+        ],
+        "excluded": []
+      }
+    },
+    {
+      "worktree": "base-0ebfe040",
+      "audited_base": "0ebfe040b6d2684bf4d3a8ad61b1faece83d6bb6",
+      "original_branch": null,
+      "remote_original": null,
+      "snapshot": null
+    },
+    {
+      "worktree": "wylls-claude2-map-20261110",
+      "audited_base": "8836f1aa40c748f2fbd410d6e50a13bc6ce193b4",
+      "original_branch": "refs/heads/claude2/original-map-scaling-20261110",
+      "remote_original": null,
+      "snapshot": {
+        "branch": "migration/20261115-claude2-map-20261110",
+        "commit": "6b6a36c66c36baa78608f9136359f66791111b83",
+        "files": [
+          {
+            "path": "docs/integration/CLAUDE-KEEP-HIT-INDEX-20261110.md",
+            "blob": "63932b661b8d6565f986ea026cc767e4e44dee25",
+            "sha256": "d19f73f6894b6f34b0010926288fc5a2ead52287a7b02f8a6716adadc757eafa"
+          },
+          {
+            "path": "docs/integration/CLAUDE-LIFECYCLE-V2-WRAPPER-20261111.ja.md",
+            "blob": "2c902547a1da21a9cfbb4dcc867cb24d44bac3a9",
+            "sha256": "0a1562656744b1c2b404499fcc1425ae8b0d679e6d912d398e75270866c292e5"
+          },
+          {
+            "path": "docs/integration/CLAUDE-RESIDENT-BELLS-20261111.md",
+            "blob": "8c384133e0506a83e7951706f80275ab7e6d9798",
+            "sha256": "c4359b7571aeb035fbc1e93ea80645bde8b46c729bf7238d18a9cca27e88e15f"
+          },
+          {
+            "path": "docs/integration/CLAUDE-RESIDENT-BELLS-20261111.patch",
+            "blob": "5f189b7b3d8c65ecffd1ee818be0aed01da6c717",
+            "sha256": "cac3ebf14fdb9e06f39b6f5975bef92dc35e5dcd73b84114197069419f609a5a"
+          },
+          {
+            "path": "frontier-abi/src/prologue.rs",
+            "blob": "7198d159ad5c1e7756a96f41f1fa0ada6e349968",
+            "sha256": "ade919a1ecd58b5875b0df01dca7de134cefdd1d8866969ec2621935bbbd5ad7"
+          },
+          {
+            "path": "frontier-abi/src/world_index/expedition_reverse_settlement_event.rs",
+            "blob": "11b81aba461f1f029805082f0842e196fd2bdde1",
+            "sha256": "5b21456c7e11036faf8febf8b249570a9f98632d8cf26bf430689bb930e5b9d0"
+          },
+          {
+            "path": "frontier-abi/src/world_index/expedition_reverse_settlement_ix.rs",
+            "blob": "6764aa753c9c4b9d1414a3eaa5093c8e0b48d908",
+            "sha256": "9d3bcea1a781d007d327448fe299ceebbfef1a23cf2b3cab8e9b7c15710c577d"
+          },
+          {
+            "path": "frontier-abi/src/world_index/expedition_reverse_terminal_event.rs",
+            "blob": "38513f2e4b2eeb30b6571e07cae573497ec77293",
+            "sha256": "d856e7783bdbdac6335ee6d40fe715839329f29334b625e89652ff187fcb8ffc"
+          },
+          {
+            "path": "frontier-abi/src/world_index/expedition_reverse_terminal_ix.rs",
+            "blob": "8b49592f3e7943d8b6a415e720fbd8ce0b9a9a8b",
+            "sha256": "2aced2c30f250a1104ed99e56d06bcb1d0b6b41cffb5dc0066b633559e8e94ba"
+          },
+          {
+            "path": "frontier-abi/src/world_index/mod.rs",
+            "blob": "3d4ec655d97944756e3dd64b9a6f8ec3d79fa51a",
+            "sha256": "2c833b93a798a16718ec80f4fe9e750ad6e1d816d04d8a67f00132e3449259aa"
+          },
+          {
+            "path": "frontier-abi/tests/wide_expedition_reveal_vector.rs",
+            "blob": "f6d63f6cefe78a93f43935696e53fa9cb386d0a2",
+            "sha256": "53d8bebe3ea7f591adeee4b56169fd3058c504e390639cf93484b813d8521201"
+          },
+          {
+            "path": "frontier-abi/vectors/v2/expedition-reveal.txt",
+            "blob": "2ab229388b98c6da2af626419ec4573add59cae4",
+            "sha256": "d80b73cb44a524bedf91e31ea6c50b6f6f7247a205a706ce9e15d7884f48c8b9"
+          },
+          {
+            "path": "frontier-node/crates/fclient/src/experimental_expedition_message.rs",
+            "blob": "8f0679927860dd95f0079813fed4317909070c32",
+            "sha256": "a2a3ae5bdd3d86e640eea4f2eecdf4b7ce775eb52c1bb07183cdd05396f2db01"
+          },
+          {
+            "path": "frontier-node/crates/fclient/src/lib.rs",
+            "blob": "21f8c06090c17f9c7699a823cbe7f88bfe90957b",
+            "sha256": "83f4a291d19822331be6a6428b101d5593116de8566d585328e7d17d13f778eb"
+          },
+          {
+            "path": "frontier-node/crates/fclient/src/wide_seal.rs",
+            "blob": "b1073b77fc0680af02ac3de2a5ffb7324c877ef7",
+            "sha256": "298b335642492cd679cb13971116251cc8c3a7f99197ae7adde58519bf1afe13"
+          },
+          {
+            "path": "frontier-node/crates/fclient/tests/experimental_expedition_message.rs",
+            "blob": "dd0f8942cabd043aeae1961abad462964bc40476",
+            "sha256": "6e0beda6807b5470418725953f50d6bb68db2b8bdd04f1b7f2a490c0f36b2ce8"
+          },
+          {
+            "path": "frontier-node/crates/fclient/tests/wide_seal_js_cross.rs",
+            "blob": "f8014cf9acc6c433d2b23c1c40dd419c1e446b9c",
+            "sha256": "0b3f76505f34d3c7e092301665e25b10e19951d4785351df0c6c3124b4588281"
+          },
+          {
+            "path": "frontier-node/crates/findex/Cargo.toml",
+            "blob": "9b203eab28cbea558520a1729a6648c7cc6b408d",
+            "sha256": "7124c8132f5302b77d1bacb550aca5cb8130fbc2cfcf194a092db9945f3a4fda"
+          },
+          {
+            "path": "frontier-node/crates/findex/src/expedition_records.rs",
+            "blob": "0406a8c327f0fe45f73d0300ac9ad94b952d67bf",
+            "sha256": "6826b84ff0059e7ad072efaca8312c0bb6ad10d910a863f2c5c17c930801e7e7"
+          },
+          {
+            "path": "frontier-node/crates/findex/src/index.rs",
+            "blob": "25b0cd938a381ebbd15988339d682f2a8dce4237",
+            "sha256": "ad5e8530e975dc9e531b2b8dd463e72afc628a8e52b5b9eb6e7adb956140fb83"
+          },
+          {
+            "path": "frontier-node/crates/findex/src/lib.rs",
+            "blob": "3f376b3943dd4ce39072f8b1550213fb54172dad",
+            "sha256": "a5fbeafc25fa7f285d886a54490ba34bf15ea1d8d2435327096394f159806f93"
+          },
+          {
+            "path": "frontier-node/crates/findex/tests/fixtures/browser_depart_v1.json",
+            "blob": "f64ecfc9b7e62b8ded5130c891c4dbe15ade7a36",
+            "sha256": "089863eb038fff939507f726f8c9a8e476616f3044dc244655be30d9a1ba4c99"
+          },
+          {
+            "path": "frontier-node/crates/herald/Cargo.toml",
+            "blob": "72f7d618a8b5e26aed74d77c3ec4e022a6186390",
+            "sha256": "09b4c5e5aad63704ea3b732ccc3f0eeb42ae927e9bfbe9b8303306f1f80f9252"
+          },
+          {
+            "path": "frontier-node/crates/herald/src/fold.rs",
+            "blob": "8cdf5cf7e25a15ff42114fd32e932edd5d834d42",
+            "sha256": "ecf859e7afdb22e134d103639b31897b624e4dad99ad26059f32eb1050bc4ff4"
+          },
+          {
+            "path": "frontier-node/crates/herald/src/lib.rs",
+            "blob": "692f39461f71fc67aeb9e8d33a80c97966afbb9b",
+            "sha256": "eb14432cce3e851009ab12c0ba6b8c4a65171e2a750b40401b7e2987bca8433b"
+          },
+          {
+            "path": "frontier-node/crates/herald/src/local_play.rs",
+            "blob": "2dd3510269ab6caf3bb391fa725f26aff9715c97",
+            "sha256": "f820e11770f4e2594ec24841192abe898523d5ba668f532ac106e7884986ae91"
+          },
+          {
+            "path": "frontier-node/crates/herald/src/local_play_tests.rs",
+            "blob": "40575b6b74005b62c79dfed4a852cf1c67ca3cfa",
+            "sha256": "5a03944de8d3fa6b3d197d2eca28179b6697f1f484a78bba47dd9f80acf58808"
+          },
+          {
+            "path": "frontier-node/crates/herald/src/main.rs",
+            "blob": "07f991708bea9dd9495cf39cce4ad9a3a277c825",
+            "sha256": "e90ed6b3d631000336b5a057f0501bb4ef2727707f307f1087ff44514faf14d4"
+          },
+          {
+            "path": "frontier-node/crates/herald/src/server.rs",
+            "blob": "df889caac02fe1f177fd74010f6fde531b274f3c",
+            "sha256": "d1a50ddd437a2801d2d30687f9da13936b15562dff6738060a13b7996079a436"
+          },
+          {
+            "path": "frontier-node/crates/herald/tests/expedition_records.rs",
+            "blob": "7e2e11c039e9de2e9a2572a9784b9c7ea35a27b6",
+            "sha256": "af0b5f3ff4204b0386667261972a41f599621d4eb4df1b9f57609eb38c666d99"
+          },
+          {
+            "path": "frontier-node/crates/itest/Cargo.toml",
+            "blob": "7028c887e46e429282f7ebc8470321abce232d62",
+            "sha256": "c53f0fd8da0efc672cba054433431725ff2e69ca339874a3c7309f5a7af41676"
+          },
+          {
+            "path": "frontier-node/crates/itest/src/bin/localnet_expedition_play.rs",
+            "blob": "a8b49740dbfb283f96dbd584704f7b3cd1657d07",
+            "sha256": "7f0ca3f195ff57201406c416ea303859a781289c7bb46e744db6046381a7bd7b"
+          },
+          {
+            "path": "frontier-node/crates/itest/src/destination_driver.rs",
+            "blob": "998cc9a2584670a471bb0a3516b46b1f199115b1",
+            "sha256": "f1264075771d76dea1289a3b2aa3c43c80c468c85531421fafd077d6faac4cd6"
+          },
+          {
+            "path": "frontier-node/crates/itest/src/destination_real.rs",
+            "blob": "30ab6f6d780319b28c29a2d70df56101aed05e90",
+            "sha256": "f860134ed59255c769f31da8a9d051493346dea6c87f7eb08c45966dddfb1801"
+          },
+          {
+            "path": "frontier-node/crates/itest/src/expedition_play.rs",
+            "blob": "f8f2bf9c73032fb07d135112b0119b8700d4c81f",
+            "sha256": "a19c7ab791a95911243a09fc9892c1ac855c65404433d1770dfc7fbc24d15aec"
+          },
+          {
+            "path": "frontier-node/crates/itest/src/keeper_loop.rs",
+            "blob": "9da3c2c99bd874dddbb545394ef073e38886679f",
+            "sha256": "20afbca83fad023783c5a0ff2076a1c338f0246a1222cd47870f01d7ee207579"
+          },
+          {
+            "path": "frontier-node/crates/itest/src/lib.rs",
+            "blob": "858416117c6496bd4f9b745866a6cbc1d1c6e4f9",
+            "sha256": "daf83d0dc6dd89b06e31272068213c0d6a1cd5d2866b4bebc568a638810d9d05"
+          },
+          {
+            "path": "frontier-node/crates/itest/src/local_keeper.rs",
+            "blob": "74abd8136ed89a1a45bb4970ab1ff3001e1b2b15",
+            "sha256": "a3a54303d40ab0480782b662b9ae900cd9b7801ca3c91eb64dae125a93117713"
+          },
+          {
+            "path": "frontier-node/crates/itest/src/origin_driver.rs",
+            "blob": "6d3fcb105694b4015f4c20bb0a0e322980df8527",
+            "sha256": "e0b244d5a23e9f11dae01b76fa6800d8c0ae0ff18c01093a52b24ce1ff83adc2"
+          },
+          {
+            "path": "frontier-node/crates/itest/src/resident_bells.rs",
+            "blob": "fd04248b1eb8394e682751ca4b1847782f33b640",
+            "sha256": "d11c609e8f0a40b59e22ef6f80d0866c759729255d73295990fb4af10bffc49f"
+          },
+          {
+            "path": "frontier-node/crates/itest/src/wide_destination.rs",
+            "blob": "0677c1deaaeee32c683d76b411197db0c653d009",
+            "sha256": "0d81a3fd97866dfd4390ce4db5540edd52e24c9fceef6b3a7c841e86c27088e3"
+          },
+          {
+            "path": "frontier-node/crates/keeper/Cargo.toml",
+            "blob": "40f55188218ece40d4d66d7f8688978b153a50d2",
+            "sha256": "ab5894e18361bd88e679f1966cf74aa98d7a3b56cb446027a98e3e278f07a3d8"
+          },
+          {
+            "path": "frontier-node/crates/keeper/src/bin/experimental_expedition_depart_prepare.rs",
+            "blob": "6e9ec44a9ff49f89b7054d0a2489ed8e6d5a132f",
+            "sha256": "ef540f10e093f066cbe7b4ef77063847aebc3086f91233e58c28671e86e67718"
+          },
+          {
+            "path": "frontier-node/crates/keeper/src/bin/experimental_expedition_prepare.rs",
+            "blob": "6fe286f22924ad298ae1bbf217f3a228473163b9",
+            "sha256": "7f238786a31227f60eab050163c12c8f1dc27fbe5cf1962261b155b8aa243e9f"
+          },
+          {
+            "path": "frontier-node/crates/keeper/src/experimental_expedition_depart_prepare.rs",
+            "blob": "eca190fada8e3eb28a1fbf5ded19e11336304823",
+            "sha256": "7632a5dd835108070790cf1418f20004d58873084c5fd8ba89b438802215caf3"
+          },
+          {
+            "path": "frontier-node/crates/keeper/src/experimental_expedition_prepare.rs",
+            "blob": "162712998fb50819b19af01172bc9f9a94e48a75",
+            "sha256": "701f23e608cbf007a11fc1147eac90d31b00156e49daebf1964d97f2719c3a59"
+          },
+          {
+            "path": "frontier-node/crates/keeper/src/lib.rs",
+            "blob": "68aba7d081deb602e53d79bf25ac43d67fe8ee1a",
+            "sha256": "e2d2fd8aef68e133ab456080c48fb56b35015b1d6419b538252015fb299bda0e"
+          },
+          {
+            "path": "frontier-node/crates/keeper/src/wideexpedition.rs",
+            "blob": "2573d3013d3302a61d7f970d04d0d69a7d6f574f",
+            "sha256": "96cdd75670055e5e69f440225ec0b813c8800371a22424a4cd4be1da807a80ba"
+          },
+          {
+            "path": "frontier-node/crates/keeper/src/wideexpedition_preview.rs",
+            "blob": "deb35f3de909dfc599a941c411210c42633e435c",
+            "sha256": "03479d39205c0fbc26f8e182a91be3d8c3a471163f21a83af0cfc853a5dc773a"
+          },
+          {
+            "path": "frontier-node/crates/keeper/src/wideexpedition_reverse.rs",
+            "blob": "ede0781c620b69ddf7be72ad73e6a6eab6d5d8e5",
+            "sha256": "9d2346eb5d131f0265e4c6b18a65e4fd928666406390ad420cac49b7e80b55a5"
+          },
+          {
+            "path": "frontier-node/crates/keeper/src/widetick.rs",
+            "blob": "5c25ae560e76188aa63b7a7c72e77b105f1c8292",
+            "sha256": "60c3bde20216c77a9dc5538e153909a2f84ecd491dc8dbfeb43ecc074a69ee75"
+          },
+          {
+            "path": "frontier-node/crates/keeper/tests/experimental_expedition_depart_prepare.rs",
+            "blob": "ed16354392feb2ddac9b0baa49d101044c8a4085",
+            "sha256": "6c92cf8224d90817db3126766ebd08a18dc57666e8df329e6f8ccc3751fc81a4"
+          },
+          {
+            "path": "frontier-node/crates/keeper/tests/support/wide_reverse_expedition.rs",
+            "blob": "9e0a43277066e8d0ef6f8a1acbcd3dceb966627e",
+            "sha256": "0e752cef39487320095aad2f3ce2f18e8668bcf049f8dbbf9f6c9df3e2549ee2"
+          },
+          {
+            "path": "frontier-node/crates/keeper/tests/wide_expedition.rs",
+            "blob": "247b0062b47c2d57efeaf4f9cd2f9fbe37a85590",
+            "sha256": "3f7cdcbf58ef2a029d81343abceef7ecd20de354c60f4585f3e2c49738fe0d36"
+          },
+          {
+            "path": "frontier-node/crates/localnet/src/server.rs",
+            "blob": "17c14871b20927ded0b56034cfd314188fa50bb7",
+            "sha256": "fad510b4ef2da9e0b0c9cf8c4b1f99ea2e1627b1549ce2e8c44da0f32e9646f2"
+          },
+          {
+            "path": "permutation-frontier/Cargo.toml",
+            "blob": "1ed118769742a857b04a9a72ae4392ed8f5ecbce",
+            "sha256": "490678d2e59237a799deae102a1c2bf21d6b8df27acb55a60057338df4b08d65"
+          },
+          {
+            "path": "permutation-frontier/runtime-contract-tests/fixtures/expedition-depart-accounts.json",
+            "blob": "3c6b6e899c41d81bd1c3f800341078b8314dece5",
+            "sha256": "02a6758f9ca15a816624cf559d68070025bd8535eb352c7bb459c98240f29577"
+          },
+          {
+            "path": "permutation-frontier/runtime-contract-tests/fixtures/expedition-depart-prepared-report.json",
+            "blob": "26ac0677d5a077ecb8517c0c0e981924c0bf7a01",
+            "sha256": "4ecc199c9e965d548a100665c5ac2185f96a076f099b8be28b89b3113e084146"
+          },
+          {
+            "path": "permutation-frontier/runtime-contract-tests/support/src/lib.rs",
+            "blob": "ab93ef0147ee195d600482c0e540441ed74ef363",
+            "sha256": "6b8603acb6ee69e3817c4a27d90d86858c05e161c1a4544e00106b69c59be1e4"
+          },
+          {
+            "path": "permutation-frontier/runtime-contract-tests/support/src/unsigned_message.rs",
+            "blob": "8f9a3d9debddb27bbb05fa794ccdacb22944a12f",
+            "sha256": "59264aefc4fa7e83556b9fef77d70b65e0f56a810dad46b405ba27bdfc920559"
+          },
+          {
+            "path": "permutation-frontier/src/lib.rs",
+            "blob": "cc005ba70897d92c9e86211236223bdf7230fc50",
+            "sha256": "674cca98b3026c529e6edd87a74f2b451e5e6db1409b85a294d9fd663f8c73b6"
+          },
+          {
+            "path": "permutation-frontier/src/markers.rs",
+            "blob": "926dc5b2c70f8f20e35670e981385f1584adae80",
+            "sha256": "afeb3b9def59ce57a0872462dc1abcc9322bc0d3c191204ce4b610830dceb3ad"
+          },
+          {
+            "path": "permutation-frontier/src/proc/clash.rs",
+            "blob": "2c06075660839524c462ebb8c3f0f4443d42d060",
+            "sha256": "2d48492c72d86a89b7f88a3c5f4a54dcd98f16ff6b405066b8f14d04b9d0585b"
+          },
+          {
+            "path": "permutation-frontier/src/proc/conquest.rs",
+            "blob": "73668d533af9c9c8b5e6ac5ab18202b6c20eaabd",
+            "sha256": "431bfb57c145c617244698bc1d9c5df00cfbe1c366bd0c6a4afc97c6ac00449f"
+          },
+          {
+            "path": "permutation-frontier/src/proc/conquest_reverse_capture_tests.rs",
+            "blob": "7dfec7725fade478a80127061a91fb2bc3697567",
+            "sha256": "486206c879a203317145e66fff7175f9598ca6c829755e9a79309fcb1c8858c7"
+          },
+          {
+            "path": "permutation-frontier/src/proc/wide.rs",
+            "blob": "f1c6f5bdeb6d3d5ded415303bec3f3b2602213e9",
+            "sha256": "6fb2e0f39990467e9a4a91be89071ed43dff80e3161556243fe01e5217c8994b"
+          },
+          {
+            "path": "permutation-frontier/src/proc/wide_expedition_depart_message_tests.rs",
+            "blob": "aeb2cbdc0ff20e01b5bc20f3486c07d68503b9bf",
+            "sha256": "e2ce2231440da7d447a008508dd227b670a3439359a99426482004f08fa4fbee"
+          },
+          {
+            "path": "permutation-frontier/src/proc/wide_expedition_dispatch_tests.rs",
+            "blob": "838a9173d91c4baa66e27b4a667c77a2b1ac573a",
+            "sha256": "bf08582bde49d6bfd4745d0f0ed25a960fc1ee1289983e8387015a4e1bd122e7"
+          },
+          {
+            "path": "permutation-frontier/src/proc/wide_expedition_failure_tests.rs",
+            "blob": "cc00921c56bde96f5bfdc564d7fde9cc0af971cb",
+            "sha256": "6835597f36898b39e3badc6780c28506b0b5cddd18a975b71442f16185620a29"
+          },
+          {
+            "path": "permutation-frontier/src/proc/wide_expedition_lifecycle_tests.rs",
+            "blob": "92634eea95366aefbc37c4e98765346a5bbcfcd6",
+            "sha256": "b8c9769447e24e345a11b80e722a4902ecb4dfcf8f260b5ccfba46310ad9414e"
+          },
+          {
+            "path": "permutation-frontier/src/proc/wide_expedition_return.rs",
+            "blob": "e928361aa240e2a81e8ee430888db03fe15c47e4",
+            "sha256": "74e36fa90e6b88b13543c0458487d1474f3345cd9b9efb70e5b64bddadfe2dda"
+          },
+          {
+            "path": "permutation-frontier/src/proc/wide_expedition_return_proof.rs",
+            "blob": "06eee1b5797ff4a99c4b085d6d37a66130cb251c",
+            "sha256": "a7e58b832b37bb4024f8f0fea275330b8b1ad548fd3ba8487b1d71cfae80041e"
+          },
+          {
+            "path": "permutation-frontier/src/proc/wide_expedition_reverse_settlement.rs",
+            "blob": "17bf4fda2007aa0c1646ca2daf7e31353672293a",
+            "sha256": "cf4c56e73293e4168b7915cdcd6b830ecc5e499fa5acf1460e2b5fd8df5fec29"
+          },
+          {
+            "path": "permutation-frontier/src/proc/wide_expedition_reverse_settlement_tests.rs",
+            "blob": "856d48b2d1f3bf1a85d8044920e80916a05b3605",
+            "sha256": "daad8ef54ac4238df167759ea931c8157a054ebfae96a8ff90f38dedf193d025"
+          },
+          {
+            "path": "permutation-frontier/src/proc/wide_expedition_reverse_terminal.rs",
+            "blob": "7420b5e3fcdbb045d9b49ed98e95f4bfc1bc1102",
+            "sha256": "178bd109c4cb784b7400929ff365b7393901747ce3f403dacf21cedea5d0bcc7"
+          },
+          {
+            "path": "permutation-frontier/src/proc/wide_expedition_reverse_terminal_tests.rs",
+            "blob": "b4c34b5068155fbe471fe88f5553bbc6cad51997",
+            "sha256": "0c84e3307bc9f623a8e33633e28a8239ce0e47325dac68b6a0036b9a4662019f"
+          },
+          {
+            "path": "permutation-frontier/src/proc/wide_expedition_reverse_tests.rs",
+            "blob": "b2c820ef2b54ec54e6a9314ffea42bb74eea409f",
+            "sha256": "a40095fdde09267d0313f7ed3fbbfcd52ead46e7dcddb35d9559e21c961046f6"
+          },
+          {
+            "path": "permutation-frontier/src/proc/wide_expedition_settlement.rs",
+            "blob": "c33d8c334f6b7834e836b084cc7299a798f23951",
+            "sha256": "39db161dc477653a834031aa039800b6f8d9a80027cb9547732fe213994e1367"
+          },
+          {
+            "path": "permutation-gateway/src/frontier/expedition-depart-prepare.mjs",
+            "blob": "36aa8e439085cb37abb9d9aaec9de0e984aa4e26",
+            "sha256": "a9c5683bc4b6552570ec99053b4d5a787accf5fadb540a2b9f1b3234b6e2d9e0"
+          },
+          {
+            "path": "permutation-gateway/src/frontier/expedition-prepare.mjs",
+            "blob": "7ac820b205a767837eab2942d323ad5e447d1b76",
+            "sha256": "aa935693eadb7c111e6c3d853900246a2f5ec413be111875cd06f2ea4d8e564d"
+          },
+          {
+            "path": "permutation-gateway/src/frontier/local-play-relay-server.mjs",
+            "blob": "2fed6b5bb866fb3103d66eee25818a9fd6041ef4",
+            "sha256": "ff8a0b2fd3c4d25da75777feb68fbceeac80e26b5161527966616774dae86a32"
+          },
+          {
+            "path": "permutation-gateway/src/frontier/local-play-relay.mjs",
+            "blob": "e4e2cb36602f4fc2728c8f8bb53acbf8d9ec3e7f",
+            "sha256": "ac7830df0a4b29658a281f40ee575d623a3e2e705f58b1e6bdd14a92b3459292"
+          },
+          {
+            "path": "permutation-gateway/src/frontier/local-play-reveal.mjs",
+            "blob": "653a96bfb51d6cb7c684713a1b9340252efbe9cf",
+            "sha256": "9d9d30da252384564464fcdc377e7c903b6083d6553b3609b527922457f85f7c"
+          },
+          {
+            "path": "permutation-gateway/src/frontier/routes/expedition-depart-prepare.mjs",
+            "blob": "d25db63c3c607cc8c9d88bcd1d1abec16dcb1c31",
+            "sha256": "11210f46d1314adba3f27a3c25966afc35bf1d6345ce3dda46d02dbe7aced59b"
+          },
+          {
+            "path": "permutation-gateway/src/frontier/routes/expedition-prepare.mjs",
+            "blob": "408c68501ef3a79036c6170eedd4c2fdf7fc831c",
+            "sha256": "0d5ca8a676ebccc9035a92000fb27937f86678b0122a037aec83e69f2b9d8821"
+          },
+          {
+            "path": "permutation-gateway/test/fixtures/frontier-expedition-depart-prepare-heap256k-rust.json",
+            "blob": "da83e3830afe6bac69071b02fc5644f634315442",
+            "sha256": "eb6bfe3a34bb0aecc47cade1eeb5da3fd429b849fd181136c1aaab7fc70152e4"
+          },
+          {
+            "path": "permutation-gateway/test/fixtures/frontier-expedition-depart-prepare-rust.json",
+            "blob": "5283c326e730a5eb03838957a9973b41a6580b99",
+            "sha256": "f0f30d52c64928a2e631e232fc87b04a7855e0b2b566a6aa2e8f954dfa33ce97"
+          },
+          {
+            "path": "permutation-gateway/test/fixtures/frontier-expedition-depart-prepare-wallet-payer-heap256k-rust.json",
+            "blob": "292d0d4c6b0ba291519d634daa35b7772daa20b3",
+            "sha256": "dcac5e3a1c22a0a18c7df48ff505f2248e4ee75df56b959b11453b4248b0a7d4"
+          },
+          {
+            "path": "permutation-gateway/test/fixtures/frontier-expedition-depart-prepare-wallet-payer-rust.json",
+            "blob": "ed4c114484bbdb944b02704eab5fc43ba3b5ca60",
+            "sha256": "fb1ab2217299db7bd35ffe5ca3886e39f8231cb3c07cc14f47636d4753a4b4b7"
+          },
+          {
+            "path": "permutation-gateway/test/fixtures/wide-seal-cross-v1.json",
+            "blob": "30bf789b57f47aa5f97792e3d094dfc11f846cb8",
+            "sha256": "687654243096ca047f95c3928b948614bd00b4b986f1bc548f3b2a0640860c7e"
+          },
+          {
+            "path": "permutation-gateway/test/frontier-expedition-depart-prepare.test.mjs",
+            "blob": "2e466bed8fc54c686084ee7bfb52987c5958a74f",
+            "sha256": "93d80803bde89234d7715a0abe26dae29243a3dd556bb8b30fa7da34d142975f"
+          },
+          {
+            "path": "permutation-gateway/test/frontier-expedition-prepare.test.mjs",
+            "blob": "7cebf4c8e17e3ba85ebe88df0c5649811cb8b634",
+            "sha256": "943e2acdcef47116306239db7641f1aa1644b62e1e1dcf458cedbec9240aae68"
+          },
+          {
+            "path": "permutation-gateway/test/frontier-local-play-relay.test.mjs",
+            "blob": "cf7d81094a2e3c6ec11b81beb0bccb0ae3cf1e8a",
+            "sha256": "aea1f5476f6cf22081fb81a01935706e60284d73a57fe030294c64a96622bbb6"
+          },
+          {
+            "path": "permutation-gateway/test/frontier-local-play-reveal.test.mjs",
+            "blob": "6293f6e1dcccfdf7786e9dfeb0a80e5f9a1621ae",
+            "sha256": "e0d9300cba9c93b3928e08e099e8f1ce51c028803fc699ec20fe88809daa4362"
+          },
+          {
+            "path": "permutation-gateway/test/web-frontier-expedition-depart-prepare.test.mjs",
+            "blob": "d8bcd9c47c9e524190847d8c5e95cd9825fcc916",
+            "sha256": "cc7ae53d081f32c9d3dfac55981b4b301ca952d794171003344592e21804dceb"
+          },
+          {
+            "path": "permutation-gateway/test/web-frontier-expedition-reveal.test.mjs",
+            "blob": "2416162c035a35bbcec5a0abca78c798212930a8",
+            "sha256": "f0d51e4dc1749ddae78a555ddbd412c512438d921125560706380ba03b81dc23"
+          },
+          {
+            "path": "permutation-gateway/test/web-frontier-keep-at-index.test.mjs",
+            "blob": "7ff2e48835bc2b47a35f5aad34378917e75426b8",
+            "sha256": "94effba65696adb5142d102ae67386bcd13949223630b76319ef91d1f67374af"
+          },
+          {
+            "path": "permutation-gateway/test/web-frontier-keep-hit-index.test.mjs",
+            "blob": "71a020db42b7ff554b8c127f6b2b1644bdae22ec",
+            "sha256": "8592e5982a78b10a26ab6d94cd55ad3b843c14bbbb43c45890246bf29c2e158a"
+          },
+          {
+            "path": "permutation-gateway/test/web-frontier-local-fixture-citizen.test.mjs",
+            "blob": "9dce14d2e3c7acc0bacde178720bfcce076a4591",
+            "sha256": "065def97fd45eb591ea6ee20cde4c5170fe1107aa55cd32d447515b0a63209d3"
+          },
+          {
+            "path": "permutation-gateway/test/web-frontier-seal-wide.test.mjs",
+            "blob": "41982a97b8436d4f8967ed03d57a69d175892ca3",
+            "sha256": "ec626ac329563f82b82c7700e88a083b7f57046bdc33acc39c35ab357d18d153"
+          },
+          {
+            "path": "permutation-server/web/frontier/fexpedition-depart-prepare.mjs",
+            "blob": "356b5ee80bb2af18e68d104d8ba7c73f47a19580",
+            "sha256": "d8a7f47a6e481ddfd02c76c3bdd2736e56a4f5d7d4df98dbffaf8c028f8c0cc4"
+          },
+          {
+            "path": "permutation-server/web/frontier/fexpedition-prepare.mjs",
+            "blob": "3c2a1756c6c99fb8ed2dde7c3668f0c58400c677",
+            "sha256": "bf1af67a9c71e075385a6d6fc7f8f204098a142f35f690570fa950ebc69bf11e"
+          },
+          {
+            "path": "permutation-server/web/frontier/fexpedition-reveal.mjs",
+            "blob": "96366d16659d4e07efbb8bd70ea3c570ec13b645",
+            "sha256": "e22b646acc966312c7db6cba53c74f27834172e1b8045a2a90d669c9ed282401"
+          },
+          {
+            "path": "permutation-server/web/frontier/map/fmap.mjs",
+            "blob": "d90b957ad30a04474925a79e827bb5809e65f5a4",
+            "sha256": "0e368bba91fb0c4540fdf1335d05e51a43c52680fd2a175e11cbfa4bcebc86c5"
+          },
+          {
+            "path": "permutation-server/web/frontier/map/keepindex.mjs",
+            "blob": "ff233698325db45489984597a69aaac117c04e48",
+            "sha256": "cfdb754689cfa3e77c82be8db37812717a59b03ccd3b7f120f0141d11f02f254"
+          },
+          {
+            "path": "permutation-server/web/frontier/map/keeps.mjs",
+            "blob": "f8c8a870921d1dc8b630fdf673e70e46cf2cfa20",
+            "sha256": "8afd85a27a10651dfce5dac9653d00f70f457b8cd731e17fc9b722418c8d4cbf"
+          },
+          {
+            "path": "permutation-server/web/frontier/map/keepscreen.mjs",
+            "blob": "f9b9c9c2e04d39d01308888a8afc86064948861d",
+            "sha256": "10c99ddd3a7d711549fec86fa9aa41df3319f45c56697b4dbe18689966270a8c"
+          },
+          {
+            "path": "permutation-server/web/frontier/seal-ibe.mjs",
+            "blob": "fd454092f3e4e8e718c167cead8e90f3a0a747e2",
+            "sha256": "a7e05cd8765ea7c24c96fc280c17566afe894460333f45b0e6004c98a2e25201"
+          },
+          {
+            "path": "permutation-server/web/frontier/seal-wide-worker.mjs",
+            "blob": "98de736a176ada909e55c7b81d29d916168abd18",
+            "sha256": "0162ba8bc5fda5f48d3276fa3dc15ad6d36cd4925eda207479f8285a8280417e"
+          },
+          {
+            "path": "permutation-server/web/frontier/seal-wide.mjs",
+            "blob": "222b6d76ade756c3d5f0fa7cc299efad81cf0538",
+            "sha256": "b17919e223433e50119b0fe913a74ae7bcdcdb53c3e5c2e110867929a2e82ad8"
+          },
+          {
+            "path": "permutation-server/web/frontier/seal-worker.mjs",
+            "blob": "2964a4770cf613618a4843230ec991c8e620f101",
+            "sha256": "0ca9f4d9a7fcd20fab7c2d97cee0d41731bb10507becb0c1894ad0acc0800dbe"
+          },
+          {
+            "path": "scripts/build-frontier-localnet-expedition-sbf.sh",
+            "blob": "1dcf0c5f28302bd193a058f22f0a4fced1b81a34",
+            "sha256": "553bcb75710c5790c19d9129dd175fef059f7c29992cddd6d7527be88e2540ac"
+          },
+          {
+            "path": "scripts/build-frontier.sh",
+            "blob": "8cf18fa270d36796fc4eb1f746ff8cced6c78cc2",
+            "sha256": "86a37d06ea5af1d04b26794bb9ec019f9cddc6c8dd56d69d5c3bdfb0cace290b"
+          }
+        ],
+        "excluded": []
+      }
+    },
+    {
+      "worktree": "wylls-claude2-overviews-20261110",
+      "audited_base": "8836f1aa40c748f2fbd410d6e50a13bc6ce193b4",
+      "original_branch": "refs/heads/claude2/overview-loading-20261110",
+      "remote_original": null,
+      "snapshot": {
+        "branch": "migration/20261115-claude2-overviews-20261110",
+        "commit": "b88ff75821c4a13aa3b9cde6b4dd0bf94bacfc56",
+        "files": [
+          {
+            "path": "CLAUDE2-OVERVIEW-LOADING-20261110.md",
+            "blob": "60cbd55ce6e6e561f47547b3c77c6325a7da464a",
+            "sha256": "4f773c29e86d48b16151bd23c296140a57126e38492122072d06555e66d83cb9"
+          },
+          {
+            "path": "demo/wylls-trailer/wylls-trailer.html",
+            "blob": "9b1f3b24d43fb64ebb2df74da3186947418f0a92",
+            "sha256": "63a6853a38c2502f9621b0fa59129bb8f7fecc6ed2f145b676f4d85a7196270a"
+          },
+          {
+            "path": "docs/integration/FABLE-LOCAL-PLAY-RETURN-20261111.md",
+            "blob": "b177d6f9ca4d409dfb335f1aa721ba856660444b",
+            "sha256": "e867d013d832d9e31376dfec38f4bdc004fc6701b9006c2647747ad2ffd603a2"
+          },
+          {
+            "path": "docs/integration/fable-local-play-return-20261111.patch",
+            "blob": "0f02d75a76815e374e4fed864a633eaf8f92bcee",
+            "sha256": "774266e19bf1e24ecfac9ac69879ce05b11e017f8d508875fa9fe940c20c7320"
+          },
+          {
+            "path": "frontier-node/crates/fclient/src/experimental_expedition_message.rs",
+            "blob": "8f0679927860dd95f0079813fed4317909070c32",
+            "sha256": "a2a3ae5bdd3d86e640eea4f2eecdf4b7ce775eb52c1bb07183cdd05396f2db01"
+          },
+          {
+            "path": "frontier-node/crates/fclient/src/lib.rs",
+            "blob": "21f8c06090c17f9c7699a823cbe7f88bfe90957b",
+            "sha256": "83f4a291d19822331be6a6428b101d5593116de8566d585328e7d17d13f778eb"
+          },
+          {
+            "path": "frontier-node/crates/fclient/src/wide_seal.rs",
+            "blob": "b1073b77fc0680af02ac3de2a5ffb7324c877ef7",
+            "sha256": "298b335642492cd679cb13971116251cc8c3a7f99197ae7adde58519bf1afe13"
+          },
+          {
+            "path": "frontier-node/crates/fclient/tests/experimental_expedition_message.rs",
+            "blob": "dd0f8942cabd043aeae1961abad462964bc40476",
+            "sha256": "6e0beda6807b5470418725953f50d6bb68db2b8bdd04f1b7f2a490c0f36b2ce8"
+          },
+          {
+            "path": "frontier-node/crates/herald/src/local_play.rs",
+            "blob": "2dd3510269ab6caf3bb391fa725f26aff9715c97",
+            "sha256": "f820e11770f4e2594ec24841192abe898523d5ba668f532ac106e7884986ae91"
+          },
+          {
+            "path": "frontier-node/crates/herald/src/local_play_tests.rs",
+            "blob": "40575b6b74005b62c79dfed4a852cf1c67ca3cfa",
+            "sha256": "5a03944de8d3fa6b3d197d2eca28179b6697f1f484a78bba47dd9f80acf58808"
+          },
+          {
+            "path": "frontier-node/crates/itest/Cargo.toml",
+            "blob": "56452ed1dc4ff7cae0345de7e96d1143c185f028",
+            "sha256": "5c6446aff7342d54cf998d3e1c685ed99e29018d9b2dd7ea46727d3269bde690"
+          },
+          {
+            "path": "frontier-node/crates/itest/tests/localnet_expedition_depart.rs",
+            "blob": "9f4a20511e9f2229cceb0fc6d75884048bd0e1f6",
+            "sha256": "95aa905dc6a80b33f7b01e8ad9150f9d210540702b4c1677f4b2371449652985"
+          },
+          {
+            "path": "frontier-node/crates/keeper/Cargo.toml",
+            "blob": "40f55188218ece40d4d66d7f8688978b153a50d2",
+            "sha256": "ab5894e18361bd88e679f1966cf74aa98d7a3b56cb446027a98e3e278f07a3d8"
+          },
+          {
+            "path": "frontier-node/crates/keeper/src/bin/experimental_expedition_depart_prepare.rs",
+            "blob": "6e9ec44a9ff49f89b7054d0a2489ed8e6d5a132f",
+            "sha256": "ef540f10e093f066cbe7b4ef77063847aebc3086f91233e58c28671e86e67718"
+          },
+          {
+            "path": "frontier-node/crates/keeper/src/bin/experimental_expedition_prepare.rs",
+            "blob": "6fe286f22924ad298ae1bbf217f3a228473163b9",
+            "sha256": "7f238786a31227f60eab050163c12c8f1dc27fbe5cf1962261b155b8aa243e9f"
+          },
+          {
+            "path": "frontier-node/crates/keeper/src/experimental_expedition_depart_prepare.rs",
+            "blob": "eca190fada8e3eb28a1fbf5ded19e11336304823",
+            "sha256": "7632a5dd835108070790cf1418f20004d58873084c5fd8ba89b438802215caf3"
+          },
+          {
+            "path": "frontier-node/crates/keeper/src/experimental_expedition_prepare.rs",
+            "blob": "162712998fb50819b19af01172bc9f9a94e48a75",
+            "sha256": "701f23e608cbf007a11fc1147eac90d31b00156e49daebf1964d97f2719c3a59"
+          },
+          {
+            "path": "frontier-node/crates/keeper/src/lib.rs",
+            "blob": "68aba7d081deb602e53d79bf25ac43d67fe8ee1a",
+            "sha256": "e2d2fd8aef68e133ab456080c48fb56b35015b1d6419b538252015fb299bda0e"
+          },
+          {
+            "path": "frontier-node/crates/keeper/src/wideexpedition_preview.rs",
+            "blob": "deb35f3de909dfc599a941c411210c42633e435c",
+            "sha256": "03479d39205c0fbc26f8e182a91be3d8c3a471163f21a83af0cfc853a5dc773a"
+          },
+          {
+            "path": "frontier-node/crates/keeper/tests/experimental_expedition_depart_prepare.rs",
+            "blob": "cfa54a37873fb9674429ee49a600cd7f0db2e46e",
+            "sha256": "5161addd295e1ceb5bf02d7e0297567c4b3a4e2922d11574287f206d6c1e20fb"
+          },
+          {
+            "path": "permutation-frontier/runtime-contract-tests/fixtures/expedition-depart-accounts.json",
+            "blob": "3c6b6e899c41d81bd1c3f800341078b8314dece5",
+            "sha256": "02a6758f9ca15a816624cf559d68070025bd8535eb352c7bb459c98240f29577"
+          },
+          {
+            "path": "permutation-frontier/runtime-contract-tests/fixtures/expedition-depart-prepared-report-heap256k.json",
+            "blob": "78b020339d0977bc0eb6e0e3b2afdcf1c5cf1613",
+            "sha256": "0a2d033ea346d634f1ad333408a39ef68497b52d4898d30a9dbe23cdbbdfea21"
+          },
+          {
+            "path": "permutation-frontier/runtime-contract-tests/fixtures/expedition-depart-prepared-report.json",
+            "blob": "26ac0677d5a077ecb8517c0c0e981924c0bf7a01",
+            "sha256": "4ecc199c9e965d548a100665c5ac2185f96a076f099b8be28b89b3113e084146"
+          },
+          {
+            "path": "permutation-gateway/screens/claude-manual-qa/README.md",
+            "blob": "cc35980cf70dd5b0abd74235448226f06339a553",
+            "sha256": "fe59fe84c9752ec113074424d3bb8a44dfd2cd4156ef75a13fd314577e922e63"
+          },
+          {
+            "path": "permutation-gateway/screens/claude-manual-qa/client-extra.mjs",
+            "blob": "09d1bcf212d9032083e776e1703fe51405db503f",
+            "sha256": "17fe8bad8916988598488aa41aa0e1f8213e88c4739706eddfd59ef9c05f8774"
+          },
+          {
+            "path": "permutation-gateway/screens/claude-manual-qa/qa.css",
+            "blob": "77e9afe832c49e293beccea041f03259a5406af3",
+            "sha256": "cd65320ba4848209efcaf44ed6c35686cec7c784635b6fd1dde936ca0d01bd5e"
+          },
+          {
+            "path": "permutation-gateway/screens/claude-manual-qa/server.mjs",
+            "blob": "1b93ec3593cf82c8baa646edd495527ed5130634",
+            "sha256": "ec06cf7cab520b9f9da5407cac6d132a147153bdeeda725e68328a5aea67a756"
+          },
+          {
+            "path": "permutation-gateway/screens/codex/prepare-observation.mjs",
+            "blob": "5cb91797b07620502f6457eae235e5e2e10faa72",
+            "sha256": "73f420abbd2e72a7537ea5fed5c578bc75d8a091c14d436c486f8aa1d04c5fa1"
+          },
+          {
+            "path": "permutation-gateway/src/frontier/app.mjs",
+            "blob": "80a6fd739b0f77c2ce88aabffb34bbba8147ce0a",
+            "sha256": "6216f174eb53c92467a24d8c85f758b537beef9dd64a6782de3b30cd718536db"
+          },
+          {
+            "path": "permutation-gateway/src/frontier/config.mjs",
+            "blob": "47361dd567ab988ed93158079128bb4fffc74050",
+            "sha256": "904f4c9c53cdc3da2a4683bcfbc3681f0be7ee84aa5b7b98e938338c69a31fcc"
+          },
+          {
+            "path": "permutation-gateway/src/frontier/expedition-depart-prepare.mjs",
+            "blob": "36aa8e439085cb37abb9d9aaec9de0e984aa4e26",
+            "sha256": "a9c5683bc4b6552570ec99053b4d5a787accf5fadb540a2b9f1b3234b6e2d9e0"
+          },
+          {
+            "path": "permutation-gateway/src/frontier/expedition-prepare.mjs",
+            "blob": "7ac820b205a767837eab2942d323ad5e447d1b76",
+            "sha256": "aa935693eadb7c111e6c3d853900246a2f5ec413be111875cd06f2ea4d8e564d"
+          },
+          {
+            "path": "permutation-gateway/src/frontier/local-play-preview.mjs",
+            "blob": "c6c90be657cf51f0808283efcbe6ea7dd4f9a766",
+            "sha256": "519c903afe741ecc2d051658d5ba9c884e66afa6b089872053a5a227c32d3383"
+          },
+          {
+            "path": "permutation-gateway/src/frontier/local-play-relay-server.mjs",
+            "blob": "d3560a4967ffc80bbbd1de20e93b5315d54f767e",
+            "sha256": "66c262fd1155514df621f444551b6185be3f8698e9e3c9a41adfa38753e8a669"
+          },
+          {
+            "path": "permutation-gateway/src/frontier/local-play-relay.mjs",
+            "blob": "c948499ee1bdc406c905f13fb4f2c748baeb5480",
+            "sha256": "2e566aac87acd59edfdd166d42101535d316e4e2521ee282d1a4e6e188977e44"
+          },
+          {
+            "path": "permutation-gateway/src/frontier/local-play-resident.mjs",
+            "blob": "de239c01967bb656468777b9b4815ec90e429d91",
+            "sha256": "ce1a21d0ba5c851cc9f0e582e0b58a02b48a70a0699aeb218cd6f93c136f48af"
+          },
+          {
+            "path": "permutation-gateway/src/frontier/local-play-reveal.mjs",
+            "blob": "4899a76ef7dd93239b82222eb7f1460a55c2e7ac",
+            "sha256": "59eadf060ffd98c9b87385e36bb744db5b7ccc33ae4fde97f90942b0ffd1118e"
+          },
+          {
+            "path": "permutation-gateway/src/frontier/routes/expedition-depart-prepare.mjs",
+            "blob": "d25db63c3c607cc8c9d88bcd1d1abec16dcb1c31",
+            "sha256": "11210f46d1314adba3f27a3c25966afc35bf1d6345ce3dda46d02dbe7aced59b"
+          },
+          {
+            "path": "permutation-gateway/src/frontier/routes/expedition-prepare.mjs",
+            "blob": "408c68501ef3a79036c6170eedd4c2fdf7fc831c",
+            "sha256": "0d5ca8a676ebccc9035a92000fb27937f86678b0122a037aec83e69f2b9d8821"
+          },
+          {
+            "path": "permutation-gateway/src/frontier/server.mjs",
+            "blob": "74c3b2b393d96c4cf59c311c5ff0fbbc215c09aa",
+            "sha256": "c1bbe0918a8fd9e6203dca352a0c59378f5f4e729fc275be94ed796fa8f549b4"
+          },
+          {
+            "path": "permutation-gateway/test/claude-manual-qa-server.test.mjs",
+            "blob": "cc16532b41da9467611cddf7bda03c0bdf4aaabd",
+            "sha256": "5862eacd56b9245e912163f37d4276d86538cde4ee429b0e92769b5ccd65ed1f"
+          },
+          {
+            "path": "permutation-gateway/test/fixtures/frontier-expedition-depart-prepare-heap256k-rust.json",
+            "blob": "da83e3830afe6bac69071b02fc5644f634315442",
+            "sha256": "eb6bfe3a34bb0aecc47cade1eeb5da3fd429b849fd181136c1aaab7fc70152e4"
+          },
+          {
+            "path": "permutation-gateway/test/fixtures/frontier-expedition-depart-prepare-rust.json",
+            "blob": "5283c326e730a5eb03838957a9973b41a6580b99",
+            "sha256": "f0f30d52c64928a2e631e232fc87b04a7855e0b2b566a6aa2e8f954dfa33ce97"
+          },
+          {
+            "path": "permutation-gateway/test/fixtures/frontier-expedition-depart-prepare-wallet-payer-heap256k-rust.json",
+            "blob": "292d0d4c6b0ba291519d634daa35b7772daa20b3",
+            "sha256": "dcac5e3a1c22a0a18c7df48ff505f2248e4ee75df56b959b11453b4248b0a7d4"
+          },
+          {
+            "path": "permutation-gateway/test/fixtures/frontier-expedition-depart-prepare-wallet-payer-rust.json",
+            "blob": "ed4c114484bbdb944b02704eab5fc43ba3b5ca60",
+            "sha256": "fb1ab2217299db7bd35ffe5ca3886e39f8231cb3c07cc14f47636d4753a4b4b7"
+          },
+          {
+            "path": "permutation-gateway/test/frontier-expedition-depart-prepare.test.mjs",
+            "blob": "2e466bed8fc54c686084ee7bfb52987c5958a74f",
+            "sha256": "93d80803bde89234d7715a0abe26dae29243a3dd556bb8b30fa7da34d142975f"
+          },
+          {
+            "path": "permutation-gateway/test/frontier-expedition-prepare.test.mjs",
+            "blob": "7cebf4c8e17e3ba85ebe88df0c5649811cb8b634",
+            "sha256": "943e2acdcef47116306239db7641f1aa1644b62e1e1dcf458cedbec9240aae68"
+          },
+          {
+            "path": "permutation-gateway/test/frontier-local-play-preview.test.mjs",
+            "blob": "11b81447f49ad921ede79b1bdfbbaae1157bfca6",
+            "sha256": "8ae8bc0e78494af8bfc511b54208e561ec789545369db416daf6e6457fde1ba8"
+          },
+          {
+            "path": "permutation-gateway/test/frontier-local-play-relay.test.mjs",
+            "blob": "cf7d81094a2e3c6ec11b81beb0bccb0ae3cf1e8a",
+            "sha256": "aea1f5476f6cf22081fb81a01935706e60284d73a57fe030294c64a96622bbb6"
+          },
+          {
+            "path": "permutation-gateway/test/frontier-local-play-resident.test.mjs",
+            "blob": "fba3819c9acf2fa43d0f6a3e59e8998067a67d29",
+            "sha256": "86be6f7f6df93561e16d351d98857bfde732e3f12a4487be323590cdeeef0035"
+          },
+          {
+            "path": "permutation-gateway/test/frontier-local-play-reveal.test.mjs",
+            "blob": "ec5ec3e4ca798cc976e0c6e76197ee1d24dac775",
+            "sha256": "294d59a89e1b0f1f010c71d8984503897ac5fc298bd6e9ddade3a88b65992162"
+          },
+          {
+            "path": "permutation-gateway/test/web-frontier-dispersed-map.test.mjs",
+            "blob": "fb92e20c280d58a081867dfea68e096f09ebde80",
+            "sha256": "c4d9bbf3e970d083ee33837d39d1ecedafd2ab407b5e4084a20838baef9e6705"
+          },
+          {
+            "path": "permutation-gateway/test/web-frontier-ephemeral-wallet.test.mjs",
+            "blob": "0de624065d5cdc8ee1798086baae01db136129fd",
+            "sha256": "1c843a18fee638ab079fa6b93d4d0e515dc253055d22e1194829a4e16e9bcfcd"
+          },
+          {
+            "path": "permutation-gateway/test/web-frontier-expedition-compose.test.mjs",
+            "blob": "35fc42000000aa95c1df66b224180c20ae67c93e",
+            "sha256": "d764a07c9ae40cffd6c69034296fbb2d866662e1660805a9d913e3e024c568ea"
+          },
+          {
+            "path": "permutation-gateway/test/web-frontier-expedition-depart-prepare.test.mjs",
+            "blob": "d8bcd9c47c9e524190847d8c5e95cd9825fcc916",
+            "sha256": "cc7ae53d081f32c9d3dfac55981b4b301ca952d794171003344592e21804dceb"
+          },
+          {
+            "path": "permutation-gateway/test/web-frontier-expedition-prepare.test.mjs",
+            "blob": "075a6cff8ad4c9233a2d6b39724a2cebb0017af4",
+            "sha256": "c625c3f768ca3310c3b3971745b9f59222faa959bc09a324e6f115eef4924923"
+          },
+          {
+            "path": "permutation-gateway/test/web-frontier-keep-hit-index.test.mjs",
+            "blob": "71a020db42b7ff554b8c127f6b2b1644bdae22ec",
+            "sha256": "8592e5982a78b10a26ab6d94cd55ad3b843c14bbbb43c45890246bf29c2e158a"
+          },
+          {
+            "path": "permutation-gateway/test/web-frontier-local-play-depart.test.mjs",
+            "blob": "c8d06333d98479a4e0b70fa1f4855a920ad6472f",
+            "sha256": "46884e9ae3b2b5eb96428dc3a38f9ad6c85c7d03666a9d436676e96911f6b543"
+          },
+          {
+            "path": "permutation-gateway/test/web-frontier-local-play-return.test.mjs",
+            "blob": "d825fce06f52b161f3fb07fdcbd566644fe60a1f",
+            "sha256": "70c24188acadf929ee45f7aa2da88260344447981b87a438409c760757d5f45b"
+          },
+          {
+            "path": "permutation-gateway/test/web-frontier-local-play-reveal.test.mjs",
+            "blob": "8029bff8bdcc29fa06da9a3f985055ab5717db4c",
+            "sha256": "7aba0baa9fee489e7dbf21ac4b79aeff3e138fd29164638753e367fa67c88c12"
+          },
+          {
+            "path": "permutation-gateway/test/web-frontier-local-play.test.mjs",
+            "blob": "d10fbf0f76daa6bfd291a6379643c39e319567bf",
+            "sha256": "dcc2375d15013b4b2bd88c8ec158b3b3d450606a81e1cd035d835ead7bc3d490"
+          },
+          {
+            "path": "permutation-gateway/test/web-frontier-nation-confirm-layout.test.mjs",
+            "blob": "f5c2d36d0b1f90c065e9ef1ba5e771b9ccc13de6",
+            "sha256": "31be94cf0731ef4580f225327e1061150af8803aee64f3632c87a45b65db0e70"
+          },
+          {
+            "path": "permutation-gateway/test/web-frontier-outbound-arrival-pick.test.mjs",
+            "blob": "4fd7ccbfcae816a98a304686e89903084b70df43",
+            "sha256": "150d12ca7d652aa1c4fdea949566e9880a0482e93476972d2117b03a7df9d25e"
+          },
+          {
+            "path": "permutation-gateway/test/web-frontier-outbound-clock.test.mjs",
+            "blob": "511250faa94b7490a260351c0e28957297ba12c9",
+            "sha256": "a2baa0c393190339385ee0b8a9f1951a5c250e46fe8c61fc30750fd333f5079f"
+          },
+          {
+            "path": "permutation-gateway/test/web-frontier-overview-reentry.test.mjs",
+            "blob": "d0bfafcc01e473862e20b4fd7bf0f30db62f791c",
+            "sha256": "a58d2ce1c37a42bba93c3b2fa20d40fc3fcd618ab0fa767eb5fc9f0f4a5542c1"
+          },
+          {
+            "path": "permutation-gateway/test/web-frontier-render-loop.test.mjs",
+            "blob": "b81c5d8b17b88304782834bca4182fa5544420ca",
+            "sha256": "42c30195eb5915ea3353e4e264afbcc15e6e17eee2bb5f1480fe7d3c9df97254"
+          },
+          {
+            "path": "permutation-gateway/test/web-frontier-terrain-frame.test.mjs",
+            "blob": "d99df05b2ab06526c00e6c16021d02e7b2a1087d",
+            "sha256": "429a08f71a527d74b1d9f0fed692386c7d14e2561593d3cae521d7fc1aad7a03"
+          },
+          {
+            "path": "permutation-gateway/test/web-frontier-trace.test.mjs",
+            "blob": "2a46a65678df9f3901fc8721ca4cb6084b89e583",
+            "sha256": "ee1022475881f93164295a43797e05e2ed5014edff6165b066077082b49039f0"
+          },
+          {
+            "path": "permutation-gateway/test/web-frontier-wedge.test.mjs",
+            "blob": "cb412fac53e8ec2d846a9381559d0be775114e50",
+            "sha256": "24525b1511b10e87b55ddc98af5ca08a23d408ac727d227971ec6f9d8af38862"
+          },
+          {
+            "path": "permutation-gateway/test/web-frontier-wide-work.test.mjs",
+            "blob": "e7bceca00d6e0a7e75c18bc1141e0fd1f0c35409",
+            "sha256": "2b947f4fdee3681926c37b35c80a2ae7df197f8e5b3fff842ab3904cba78433e"
+          },
+          {
+            "path": "permutation-gateway/test/web-frontier-world-sparse.test.mjs",
+            "blob": "cd3154d4e14e695b314192d6f7fee6fca802e891",
+            "sha256": "9201eab2f53658d20bf50609949232baac9803f78ad14729d2a1244230ff565f"
+          },
+          {
+            "path": "permutation-server/web/frontier/app.mjs",
+            "blob": "39e3fca408e3816dcd41658f9dc7eb9552f1efeb",
+            "sha256": "dae63016f42890080e1b9a6c88e78c20c498d3b283fd7f7fb5d9a3cae611178a"
+          },
+          {
+            "path": "permutation-server/web/frontier/controller.mjs",
+            "blob": "cea097826116c55932a20aaacc332b4ecdd51237",
+            "sha256": "71609354c36c8afb1d7ba29a6cb9b44fa597bdad73cc316e745f857f7c8aae6b"
+          },
+          {
+            "path": "permutation-server/web/frontier/fephemeral-wallet.mjs",
+            "blob": "5846c8a25a04e837d6535227b1fc691505b78a6b",
+            "sha256": "9fc262f98b2130fe77f11ec8aaabde7322a1023f3eff8220bbc1eea498d211cc"
+          },
+          {
+            "path": "permutation-server/web/frontier/fexpedition-compose.mjs",
+            "blob": "74de391456839b295b36583d1f1c90288483dc2e",
+            "sha256": "557bb37d298ecd08ec5ed0198f37b509d45e4c392433658ac3d69c208e5e723e"
+          },
+          {
+            "path": "permutation-server/web/frontier/fexpedition-depart-prepare.mjs",
+            "blob": "356b5ee80bb2af18e68d104d8ba7c73f47a19580",
+            "sha256": "d8a7f47a6e481ddfd02c76c3bdd2736e56a4f5d7d4df98dbffaf8c028f8c0cc4"
+          },
+          {
+            "path": "permutation-server/web/frontier/fexpedition-prepare.mjs",
+            "blob": "3c2a1756c6c99fb8ed2dde7c3668f0c58400c677",
+            "sha256": "bf1af67a9c71e075385a6d6fc7f8f204098a142f35f690570fa950ebc69bf11e"
+          },
+          {
+            "path": "permutation-server/web/frontier/fexpedition-reveal.mjs",
+            "blob": "b8a37738b95d0cae63da7a39167710610fff01f7",
+            "sha256": "5f32ff104ca1168d87141d1694214395915082cea5e9722ac7e1d70771e01e59"
+          },
+          {
+            "path": "permutation-server/web/frontier/fexpedition.mjs",
+            "blob": "40754a530254ae997937f4961c5df5ecf7822d33",
+            "sha256": "5f6e5de2a971aa768714365acc7dea4e29af26ef0e8393e74a2eed0e3b68bd1c"
+          },
+          {
+            "path": "permutation-server/web/frontier/flocalplay-depart.mjs",
+            "blob": "0ab24f393cb7ecb08a11878e27438ad00960d97a",
+            "sha256": "6763d2e05acba280adc57863c23f32844d75911ced74af007338ad783675c918"
+          },
+          {
+            "path": "permutation-server/web/frontier/flocalplay-return.mjs",
+            "blob": "0c036c2619caa59949e8415713d960122f7473bd",
+            "sha256": "253b9f431cc2ee630bbfa70b0f91e0c6e8aa9e619e6ee5692110969c6f664492"
+          },
+          {
+            "path": "permutation-server/web/frontier/flocalplay-reveal.mjs",
+            "blob": "1655a678fed02ae830397fce154887b8a978e5a4",
+            "sha256": "6ffe1d9ce898bb70f959027323dbbdf0053559a14e20997860218b08ab4e82da"
+          },
+          {
+            "path": "permutation-server/web/frontier/flocalplay.css",
+            "blob": "2dd51ce97608b981c79ad8255895c60f6f28bf33",
+            "sha256": "20de51436d5975fe249041050c091287c2efabc5414bb2911d1da91b8cffa2cc"
+          },
+          {
+            "path": "permutation-server/web/frontier/flocalplay.mjs",
+            "blob": "edd350d631abd346be0074649f8f5a92e2e38048",
+            "sha256": "030dab6937e7fce3347eea7b21820dd2a3bbf7c539f7af730e440227fd5cea85"
+          },
+          {
+            "path": "permutation-server/web/frontier/frontier.css",
+            "blob": "097876cb1f9098fc2a63bb5784ae0a849f7b3172",
+            "sha256": "a46bbb51715b0c66045f631dfee3f05309576218fd017c49cbaf083a10390a5b"
+          },
+          {
+            "path": "permutation-server/web/frontier/fstate.mjs",
+            "blob": "6fdc21d5adc61d8ebc8461f40d8eac7f2c69bb2f",
+            "sha256": "9424a05aadb554896b6453c87a50d4de022c78170444e583cd180483fe43d2df"
+          },
+          {
+            "path": "permutation-server/web/frontier/ftrace.mjs",
+            "blob": "f81fba28c4580747ed3b253b6405fbba8eb768bf",
+            "sha256": "c14e92aa73cb0f0e4264c616c516a07a4b12781b2a5915cce4f0650ba15c5374"
+          },
+          {
+            "path": "permutation-server/web/frontier/hud/hand.mjs",
+            "blob": "2c7edf90cc33d01651b050e81428fe0f2ee532ae",
+            "sha256": "d3c5934f2f0aabf54b395b73575544c6d1ab9384afe0c5c60540539232e5e0fa"
+          },
+          {
+            "path": "permutation-server/web/frontier/hud/minimap.mjs",
+            "blob": "6ec5cbda002c5355d659feb4a838dcdb8ccd442a",
+            "sha256": "e74006f298954cb31bc1980f3e9836b9cd39f2d5ce037957f6910846de19810c"
+          },
+          {
+            "path": "permutation-server/web/frontier/map/chart.mjs",
+            "blob": "93c14648bfa2e6d2d165b9b8a59b2712f229e0ea",
+            "sha256": "8a5120fbce0bd697bdb28042aa5299acde6621ddffa697970f6cb92de974d8ab"
+          },
+          {
+            "path": "permutation-server/web/frontier/map/cloudsea.mjs",
+            "blob": "727dddc54cbc777b486ba06ac8058ba62e1c3704",
+            "sha256": "d3a51001a220dd368914adc40674d9474483a4ab17c49cc7ee00680f245ce9c3"
+          },
+          {
+            "path": "permutation-server/web/frontier/map/fmap.mjs",
+            "blob": "292487cfea33964d660c447641cec199bf18b853",
+            "sha256": "73d611f628823834252dbfa232d2a7ed3695257a1ec58b62f96a43fe1512b02a"
+          },
+          {
+            "path": "permutation-server/web/frontier/map/homeland.mjs",
+            "blob": "bbb7b0445aaa61aff91cea715596c4ed9871c63a",
+            "sha256": "8b0995beb83d8f9914c0387bafb2bf99ae86d3b8d5b64bc2e3f689a8f34e8b28"
+          },
+          {
+            "path": "permutation-server/web/frontier/map/keepindex.mjs",
+            "blob": "ff233698325db45489984597a69aaac117c04e48",
+            "sha256": "cfdb754689cfa3e77c82be8db37812717a59b03ccd3b7f120f0141d11f02f254"
+          },
+          {
+            "path": "permutation-server/web/frontier/map/keeps.mjs",
+            "blob": "f8c8a870921d1dc8b630fdf673e70e46cf2cfa20",
+            "sha256": "8afd85a27a10651dfce5dac9653d00f70f457b8cd731e17fc9b722418c8d4cbf"
+          },
+          {
+            "path": "permutation-server/web/frontier/map/keepscreen.mjs",
+            "blob": "f9b9c9c2e04d39d01308888a8afc86064948861d",
+            "sha256": "10c99ddd3a7d711549fec86fa9aa41df3319f45c56697b4dbe18689966270a8c"
+          },
+          {
+            "path": "permutation-server/web/frontier/map/opening.mjs",
+            "blob": "248c8517e7f4f07be701becbd23bc6ed1f84f475",
+            "sha256": "d6e79e90b9f3f278d7d1489384e38adb5797017d5e76f146ba6ed3ccd3db85f5"
+          },
+          {
+            "path": "permutation-server/web/frontier/map/overviews.mjs",
+            "blob": "6d25089d42252e9f3d17de1a809d904884b09239",
+            "sha256": "79bd1026b3da7c4b5b9ead7eb2997ed367b8487d90a11a2c9ab2fede61094615"
+          },
+          {
+            "path": "permutation-server/web/frontier/map/sprites.mjs",
+            "blob": "f86218c09e66e925b3ffc13462fc2b8975aa0daa",
+            "sha256": "d97fc40b60418f077951fea4f671163d3e77eb985b2a471b18d9d3020f54912e"
+          },
+          {
+            "path": "permutation-server/web/frontier/map/survey.mjs",
+            "blob": "c50e4ff507bdb91494e7fa41a3111b9d86e74381",
+            "sha256": "f6aecb2d2bd2d9252c22bd38614a874a87052c72f042f673402ab13a2195cae3"
+          },
+          {
+            "path": "permutation-server/web/frontier/map/table.mjs",
+            "blob": "8c8c811ff4e118cbfb3bb2842dc77d77060017b9",
+            "sha256": "ba85a22bf7677984a11c8145c3232a060083e7026d5e4a03440c64c6b88f0b01"
+          },
+          {
+            "path": "permutation-server/web/frontier/map/terrain.mjs",
+            "blob": "95deda62b4b5332c77b6daadf8176ab8e274468a",
+            "sha256": "489e535256cfb886eb1ea59119450df36e2422cb26fdb9f7abf66c65595b1614"
+          },
+          {
+            "path": "permutation-server/web/frontier/map/viewer.mjs",
+            "blob": "0b5311bf82f117bfd5bc0a416245d72b9719c93a",
+            "sha256": "c9f36e76736fd2d4bcd6a25971d09ed5839471b0a237da554a2ec00e4b8bbcb1"
+          },
+          {
+            "path": "permutation-server/web/frontier/map/viewport.mjs",
+            "blob": "4a947fc5a6fd10b4f0736dba8e82313a0546e7f9",
+            "sha256": "9fb155c372fbe0aee237b652e9b277711a15023847e9f748da22ccf65c05b52a"
+          },
+          {
+            "path": "permutation-server/web/frontier/map/world.mjs",
+            "blob": "0b955dddd76ae80a9696e055896340b2f167f153",
+            "sha256": "c323faaf7d8693eaa689ce7bc1d2313a4564d218feac205a8b93b656bea65f1f"
+          },
+          {
+            "path": "permutation-server/web/frontier/seal-ibe.mjs",
+            "blob": "fd454092f3e4e8e718c167cead8e90f3a0a747e2",
+            "sha256": "a7e05cd8765ea7c24c96fc280c17566afe894460333f45b0e6004c98a2e25201"
+          },
+          {
+            "path": "permutation-server/web/frontier/seal-wide-worker.mjs",
+            "blob": "98de736a176ada909e55c7b81d29d916168abd18",
+            "sha256": "0162ba8bc5fda5f48d3276fa3dc15ad6d36cd4925eda207479f8285a8280417e"
+          },
+          {
+            "path": "permutation-server/web/frontier/seal-wide.mjs",
+            "blob": "c9a44407d6e30da7cd1a7cfb3d4e3e74f903556e",
+            "sha256": "9e23b26ffe606a5e49e6dd5ea0955c5be75f218400e2d2aa097f6e2f4abbd54d"
+          },
+          {
+            "path": "permutation-server/web/frontier/seal-worker.mjs",
+            "blob": "2964a4770cf613618a4843230ec991c8e620f101",
+            "sha256": "0ca9f4d9a7fcd20fab7c2d97cee0d41731bb10507becb0c1894ad0acc0800dbe"
+          },
+          {
+            "path": "permutation-server/web/lang/en-frontier-hand.mjs",
+            "blob": "82eee4b0b4ed514c50b02dffc4e12ac4d808fefd",
+            "sha256": "78e3a9fe2f5aadea8169ca41a4ab95ebc2ca060ddfe0732a0d9db3b8edd8a55a"
+          },
+          {
+            "path": "permutation-server/web/wallet.mjs",
+            "blob": "c55fb992fda008094d597da73a61eb53b44fe4fa",
+            "sha256": "efbc001abb96bf1fd99817952a532c04bb155f87efa573d48900efd28f6c004a"
+          },
+          {
+            "path": "scripts/ci/node-key-tests.txt",
+            "blob": "e5d3932bc54e0804a262ff5339ce2a6c5acf887b",
+            "sha256": "60caaa3e7270f423472e6c6fe3204434e858e78d1a5c4699db53090ae6c7e5b0"
+          }
+        ],
+        "excluded": [
+          "demo/wylls-trailer/wylls-trailer-30s-share.mp4",
+          "demo/wylls-trailer/wylls-trailer-30s.mp4"
+        ]
+      }
+    },
+    {
+      "worktree": "wylls-codex-wide-inventory-20261109",
+      "audited_base": "68e8548de037b184adf236470d5611fc20f36492",
+      "original_branch": "refs/heads/codex/wide-conquest-lifecycle-20261109",
+      "remote_original": "68e8548de037b184adf236470d5611fc20f36492",
+      "snapshot": {
+        "branch": "migration/20261115-codex-wide-inventory-20261109",
+        "commit": "02499ffb5d48c7a49f1d2e62caab4b407d3f37e4",
+        "files": [
+          {
+            "path": "CLAUDE2-OVERVIEW-LOADING-20261110.md",
+            "blob": "60cbd55ce6e6e561f47547b3c77c6325a7da464a",
+            "sha256": "4f773c29e86d48b16151bd23c296140a57126e38492122072d06555e66d83cb9"
+          },
+          {
+            "path": "docs/integration/CLAUDE-EXPEDITION-CONNECTION-20261111.md",
+            "blob": "5c8efe65d51dd5f256828a6141a82a395a9b3632",
+            "sha256": "8f4f66773bba4fdaa0c8745ac6e456c24d1ec17df896c5e976158978d46cc6ab"
+          },
+          {
+            "path": "docs/integration/CLAUDE-FIRST-SESSION-UX-C-INTEGRATION-20261113.md",
+            "blob": "8b86c3278ecc48e977a5a9f7f48d438d7d59abce",
+            "sha256": "3912e7f30d17177297d009fd34c9785dab8a8753b776bd14dd19566a850624d9"
+          },
+          {
+            "path": "docs/integration/CLAUDE-FIRST-SESSION-UX-C-INTEGRATION-20261113.patch",
+            "blob": "97f1f6da103caeadbdacf06e5ae26bf556bede00",
+            "sha256": "c1e9e7120c6a3140015a584737fe6740c13d2401c76083371a7c96a66f048125"
+          },
+          {
+            "path": "docs/integration/CLAUDE-FIRST-SESSION-UX-C-INTEGRATION-20261113/c-after.sha256",
+            "blob": "a39e2e88359599f2811de3d74745e5c8bd6eb3ba",
+            "sha256": "69e0ac1ac4137e970081317e8a502a3871f7468d4ee91bb2b0a328d5326b015e"
+          },
+          {
+            "path": "docs/integration/CLAUDE-FIRST-SESSION-UX-C-INTEGRATION-20261113/c-before.sha256",
+            "blob": "3974330cea64e98cad8c69bbec06676679805931",
+            "sha256": "41933b63f09b0d688f291560e5380242deeb48562fd87b5eac50002656c1ade6"
+          },
+          {
+            "path": "docs/integration/CLAUDE-FIRST-SESSION-UX-C-INTEGRATION-20261113/git-diff-before-round-files.patch",
+            "blob": "34b85785c16e66bd9281dc41ddf87cd07918c6d9",
+            "sha256": "437d95ef36281a06a95a034c3063369a65e31ee1624d3f31c83417aa4055bf8e"
+          },
+          {
+            "path": "docs/integration/CLAUDE-FIRST-SESSION-UX-C-INTEGRATION-20261113/git-status-before.txt",
+            "blob": "2cee457d3174cc5e4f160512d35dc00845bdea08",
+            "sha256": "f7de3a49996e496ad9014e8a6ff6804a9a7b1690e362286a9ac5d2c97dfd8f21"
+          },
+          {
+            "path": "docs/integration/CLAUDE-FIRST-SESSION-UX-C-INTEGRATION-20261113/tests-after-summary.txt",
+            "blob": "6fe55d001196e1ebfc71b1467240b41bfb9897c4",
+            "sha256": "aed139c0404a254bc882aeb533ae2fc321c931769c982cb6016f1bb9852b4536"
+          },
+          {
+            "path": "docs/integration/CLAUDE-FIRST-SESSION-UX-C-INTEGRATION-20261113/tests-before-summary.txt",
+            "blob": "015c1eda8f0f5980120c1a267c6b3f4864fa85c6",
+            "sha256": "230b3f1902c2e29c1cb6df502c9180b984e968b45ec0c2d197478100e7e12ea7"
+          },
+          {
+            "path": "docs/integration/CLAUDE-KEEP-HIT-INDEX-20261110.md",
+            "blob": "63932b661b8d6565f986ea026cc767e4e44dee25",
+            "sha256": "d19f73f6894b6f34b0010926288fc5a2ead52287a7b02f8a6716adadc757eafa"
+          },
+          {
+            "path": "docs/integration/CLAUDE-LEGACY-MARCH-REAL-TEST-PLAN-20261113.md",
+            "blob": "55343679154fae70021ceed023a76e37a2fa9e8d",
+            "sha256": "b2d54ddab31c425f107ae36cbbddaac68ae54e6de3fa3c85225ec15462b5a9b0"
+          },
+          {
+            "path": "docs/integration/CLAUDE-LOCAL-MARCH-OPEN-CONTRACT-20261113.md",
+            "blob": "abaf7a9dfdd0bab40611572aa6a9307ba4d6386d",
+            "sha256": "f186af3b3cf458bc42b2bd4e7941fecafd3afe924ddb81e49fadd45514e4cc71"
+          },
+          {
+            "path": "docs/integration/CLAUDE-PAGE-MARCH-TRIAL-RESULT-20261113.md",
+            "blob": "b300ddf4cd55804fc6d4bc3a11bde1cf4b3b86e4",
+            "sha256": "6da9a917d12ce1a9d21e7a54c6364cda42cc297456e9802b9db60ec214a52eac"
+          },
+          {
+            "path": "docs/integration/CODEX-REVERSE-CAPTURE-20261110.md",
+            "blob": "498faaa08ec00266845e0ebfa1e5dbc44f32d023",
+            "sha256": "f5ea6f839a7310a6e484da6afe8fe596883b673cbec1d3ac12aa3778d0f1e6f9"
+          },
+          {
+            "path": "docs/integration/CODEX-REVERSE-PRODUCER-20261110.md",
+            "blob": "45a746cb0eaf9eb29478b8611f1e6083a0d58b6f",
+            "sha256": "693cd3f670e8c64e9fc5195284e3202f9111e8f83a0ebb70ea3e56c16ffcbe2c"
+          },
+          {
+            "path": "docs/integration/CODEX-REVERSE-TERMINAL-RUNTIME-20261110.md",
+            "blob": "95430ec9a3c6bc630faea9dd649e0423251b1397",
+            "sha256": "42bb218346c39d67de26a179d321ba7ab33f5170007a1fce1d934164263b7bc5"
+          },
+          {
+            "path": "frontier-node/crates/fclient/tests/experimental_expedition_message.rs",
+            "blob": "44e384455340678d8a18757517cd02cd2f789235",
+            "sha256": "7ea527b182044a5b90dc9574bae2d10944ffb9b9b4d233bbc65dca6fc7d03b52"
+          },
+          {
+            "path": "frontier-node/crates/fclient/tests/wide_seal_js_cross.rs",
+            "blob": "f8014cf9acc6c433d2b23c1c40dd419c1e446b9c",
+            "sha256": "0b3f76505f34d3c7e092301665e25b10e19951d4785351df0c6c3124b4588281"
+          },
+          {
+            "path": "frontier-node/crates/findex/Cargo.toml",
+            "blob": "2fed082a6a87c22bd21c9dbf684da2ec4d31ac83",
+            "sha256": "b6b126dec3cc2764fe71a0957f07fc3ad8e492320ea88f335539651e70f38645"
+          },
+          {
+            "path": "frontier-node/crates/findex/src/expedition_records.rs",
+            "blob": "0406a8c327f0fe45f73d0300ac9ad94b952d67bf",
+            "sha256": "6826b84ff0059e7ad072efaca8312c0bb6ad10d910a863f2c5c17c930801e7e7"
+          },
+          {
+            "path": "frontier-node/crates/findex/src/index.rs",
+            "blob": "67844b4c8694e90aa93ed65ab804137fa6da8340",
+            "sha256": "8a2581a154a4cdcef707cd6cd798de8359939f7910e8d063d017dcea243a8e4a"
+          },
+          {
+            "path": "frontier-node/crates/findex/src/lib.rs",
+            "blob": "291d284d15087e6de1ced4d746e8e27aa21963d4",
+            "sha256": "55a542ff8b45392167682d118e0d20bdd4c0420f6e29fa8ca8cff7b10b001d90"
+          },
+          {
+            "path": "frontier-node/crates/findex/tests/fixtures/browser_depart_v1.json",
+            "blob": "f64ecfc9b7e62b8ded5130c891c4dbe15ade7a36",
+            "sha256": "089863eb038fff939507f726f8c9a8e476616f3044dc244655be30d9a1ba4c99"
+          },
+          {
+            "path": "frontier-node/crates/herald/Cargo.toml",
+            "blob": "72f7d618a8b5e26aed74d77c3ec4e022a6186390",
+            "sha256": "09b4c5e5aad63704ea3b732ccc3f0eeb42ae927e9bfbe9b8303306f1f80f9252"
+          },
+          {
+            "path": "frontier-node/crates/herald/src/fold.rs",
+            "blob": "8cdf5cf7e25a15ff42114fd32e932edd5d834d42",
+            "sha256": "ecf859e7afdb22e134d103639b31897b624e4dad99ad26059f32eb1050bc4ff4"
+          },
+          {
+            "path": "frontier-node/crates/herald/tests/expedition_records.rs",
+            "blob": "7e2e11c039e9de2e9a2572a9784b9c7ea35a27b6",
+            "sha256": "af0b5f3ff4204b0386667261972a41f599621d4eb4df1b9f57609eb38c666d99"
+          },
+          {
+            "path": "frontier-node/crates/keeper/tests/experimental_expedition_depart_prepare.rs",
+            "blob": "cfa54a37873fb9674429ee49a600cd7f0db2e46e",
+            "sha256": "5161addd295e1ceb5bf02d7e0297567c4b3a4e2922d11574287f206d6c1e20fb"
+          },
+          {
+            "path": "frontier-node/crates/keeper/tests/support/wide_reverse_expedition.rs",
+            "blob": "9e0a43277066e8d0ef6f8a1acbcd3dceb966627e",
+            "sha256": "0e752cef39487320095aad2f3ce2f18e8668bcf049f8dbbf9f6c9df3e2549ee2"
+          },
+          {
+            "path": "frontier-node/crates/keeper/tests/wide_expedition.rs",
+            "blob": "247b0062b47c2d57efeaf4f9cd2f9fbe37a85590",
+            "sha256": "3f7cdcbf58ef2a029d81343abceef7ecd20de354c60f4585f3e2c49738fe0d36"
+          },
+          {
+            "path": "permutation-frontier/runtime-contract-tests/fixtures/expedition-depart-prepared-report-heap256k.json",
+            "blob": "78b020339d0977bc0eb6e0e3b2afdcf1c5cf1613",
+            "sha256": "0a2d033ea346d634f1ad333408a39ef68497b52d4898d30a9dbe23cdbbdfea21"
+          },
+          {
+            "path": "permutation-frontier/runtime-contract-tests/support/src/lib.rs",
+            "blob": "ab93ef0147ee195d600482c0e540441ed74ef363",
+            "sha256": "6b8603acb6ee69e3817c4a27d90d86858c05e161c1a4544e00106b69c59be1e4"
+          },
+          {
+            "path": "permutation-frontier/runtime-contract-tests/support/src/unsigned_message.rs",
+            "blob": "8f9a3d9debddb27bbb05fa794ccdacb22944a12f",
+            "sha256": "59264aefc4fa7e83556b9fef77d70b65e0f56a810dad46b405ba27bdfc920559"
+          },
+          {
+            "path": "permutation-frontier/src/proc/wide_expedition_close_positive_unexecuted.rs.txt",
+            "blob": "b4c56cf4af02e097bd5a7ccad00f960948f0d626",
+            "sha256": "e61a997f4f9ca0e653f418c17427a0151a8aa884ae0b5975bc096d9cb1996610"
+          },
+          {
+            "path": "permutation-gateway/screens/codex-route-preview.screen.mjs",
+            "blob": "81f5969913b74cd72ae005229816ec427eac35be",
+            "sha256": "9f043d3675cd6adb6af20b0b4851dd84d9375c74e64ba5dca4f691f87388c42e"
+          },
+          {
+            "path": "permutation-gateway/test/fixtures/frontier-expedition-depart-prepare-heap256k-rust.json",
+            "blob": "da83e3830afe6bac69071b02fc5644f634315442",
+            "sha256": "eb6bfe3a34bb0aecc47cade1eeb5da3fd429b849fd181136c1aaab7fc70152e4"
+          },
+          {
+            "path": "permutation-gateway/test/fixtures/frontier-expedition-depart-prepare-rust.json",
+            "blob": "5283c326e730a5eb03838957a9973b41a6580b99",
+            "sha256": "f0f30d52c64928a2e631e232fc87b04a7855e0b2b566a6aa2e8f954dfa33ce97"
+          },
+          {
+            "path": "permutation-gateway/test/fixtures/frontier-expedition-depart-prepare-wallet-payer-rust.json",
+            "blob": "ed4c114484bbdb944b02704eab5fc43ba3b5ca60",
+            "sha256": "fb1ab2217299db7bd35ffe5ca3886e39f8231cb3c07cc14f47636d4753a4b4b7"
+          },
+          {
+            "path": "permutation-gateway/test/fixtures/wide-seal-cross-v1.json",
+            "blob": "30bf789b57f47aa5f97792e3d094dfc11f846cb8",
+            "sha256": "687654243096ca047f95c3928b948614bd00b4b986f1bc548f3b2a0640860c7e"
+          },
+          {
+            "path": "permutation-gateway/test/frontier-conquest-real-evidence-states.test.mjs",
+            "blob": "0738f9b881a1361662296b2d3be5ed0e36774ebd",
+            "sha256": "4d7b6a7142f406cd98b5b7b8e08cff7a5b70aca302b7fd6733d52d25ba0decc4"
+          },
+          {
+            "path": "permutation-gateway/test/frontier-conquest-real-evidence.test.mjs",
+            "blob": "80dd5e11a9ccf698830734f3ea40c4394d08e889",
+            "sha256": "ad8b1e2e0bfe80edf2ad168af98afe926c096a700b6e3045050c5a8fe706b3c8"
+          },
+          {
+            "path": "permutation-gateway/test/frontier-conquest-v2-cli-report.test.mjs",
+            "blob": "c99636a3a43cee54bb023a62127bfb61cb186b26",
+            "sha256": "14f1d225e32dbbe0de0ee03d4bc9f21fbb4260e01c197bf89bb30616b0c52f64"
+          },
+          {
+            "path": "permutation-gateway/test/frontier-conquest-v2-evidence.test.mjs",
+            "blob": "5adc77e54a46a3a124088aa2e0997052f8baa3e2",
+            "sha256": "d2b46cdafe7b69f9a063f5facf7b7d47011d1f31314cfee94c5cd159a65d19ae"
+          },
+          {
+            "path": "permutation-gateway/test/frontier-expedition-depart-prepare.test.mjs",
+            "blob": "2e466bed8fc54c686084ee7bfb52987c5958a74f",
+            "sha256": "93d80803bde89234d7715a0abe26dae29243a3dd556bb8b30fa7da34d142975f"
+          },
+          {
+            "path": "permutation-gateway/test/frontier-expedition-prepare.test.mjs",
+            "blob": "7d528f066d95efb87fd4c1c81d7bb6bbdd8cad40",
+            "sha256": "db871c3557f07b685f284f03e2696d17720f4aec1f7e240eedf0eb519b042afe"
+          },
+          {
+            "path": "permutation-gateway/test/frontier-local-play-act.test.mjs",
+            "blob": "9bdb5e4e8419dd25214d3b58f914dc2485fbdf3b",
+            "sha256": "962ed9d5745c25024d31924c47bce176b5a3be492f645336e2e56cb6f4dba5ed"
+          },
+          {
+            "path": "permutation-gateway/test/frontier-local-play-preview.test.mjs",
+            "blob": "11b81447f49ad921ede79b1bdfbbaae1157bfca6",
+            "sha256": "8ae8bc0e78494af8bfc511b54208e561ec789545369db416daf6e6457fde1ba8"
+          },
+          {
+            "path": "permutation-gateway/test/frontier-local-play-relay.test.mjs",
+            "blob": "947860a347d868e4d5933044f84a8fc684d84625",
+            "sha256": "bd817493bd0aac31c432f836a9f4bc5c0a820f32aa7d3fcf3a727f67249ccd15"
+          },
+          {
+            "path": "permutation-gateway/test/frontier-local-play-resident.test.mjs",
+            "blob": "e9241abe4699ab806082d2d3ddd29036c17a3747",
+            "sha256": "7966721d7b32975a93a77329455aded94f3f92a4c5d110f28bdb958394a39a19"
+          },
+          {
+            "path": "permutation-gateway/test/frontier-local-play-reveal.test.mjs",
+            "blob": "ec5ec3e4ca798cc976e0c6e76197ee1d24dac775",
+            "sha256": "294d59a89e1b0f1f010c71d8984503897ac5fc298bd6e9ddade3a88b65992162"
+          },
+          {
+            "path": "permutation-gateway/test/web-frontier-design-pass.test.mjs",
+            "blob": "6a2c5362f464ad86930104dedf5fff8162eaf703",
+            "sha256": "172a28cc9f2897789f2f208e287d24ca6655b389a33396d3ce86b048b642f569"
+          },
+          {
+            "path": "permutation-gateway/test/web-frontier-ephemeral-wallet.test.mjs",
+            "blob": "0de624065d5cdc8ee1798086baae01db136129fd",
+            "sha256": "1c843a18fee638ab079fa6b93d4d0e515dc253055d22e1194829a4e16e9bcfcd"
+          },
+          {
+            "path": "permutation-gateway/test/web-frontier-expedition-depart-prepare.test.mjs",
+            "blob": "d8bcd9c47c9e524190847d8c5e95cd9825fcc916",
+            "sha256": "cc7ae53d081f32c9d3dfac55981b4b301ca952d794171003344592e21804dceb"
+          },
+          {
+            "path": "permutation-gateway/test/web-frontier-expedition-prepare.test.mjs",
+            "blob": "075a6cff8ad4c9233a2d6b39724a2cebb0017af4",
+            "sha256": "c625c3f768ca3310c3b3971745b9f59222faa959bc09a324e6f115eef4924923"
+          },
+          {
+            "path": "permutation-gateway/test/web-frontier-expedition-reveal.test.mjs",
+            "blob": "68e672b142364096b8291ad02285803278abdb93",
+            "sha256": "27069f11d24a66b96f706047ae0755355a079b9623bea0e4fb085244861883d1"
+          },
+          {
+            "path": "permutation-gateway/test/web-frontier-keep-at-index.test.mjs",
+            "blob": "7ff2e48835bc2b47a35f5aad34378917e75426b8",
+            "sha256": "94effba65696adb5142d102ae67386bcd13949223630b76319ef91d1f67374af"
+          },
+          {
+            "path": "permutation-gateway/test/web-frontier-keep-hit-index.test.mjs",
+            "blob": "71a020db42b7ff554b8c127f6b2b1644bdae22ec",
+            "sha256": "8592e5982a78b10a26ab6d94cd55ad3b843c14bbbb43c45890246bf29c2e158a"
+          },
+          {
+            "path": "permutation-gateway/test/web-frontier-local-fixture-citizen.test.mjs",
+            "blob": "9dce14d2e3c7acc0bacde178720bfcce076a4591",
+            "sha256": "065def97fd45eb591ea6ee20cde4c5170fe1107aa55cd32d447515b0a63209d3"
+          },
+          {
+            "path": "permutation-gateway/test/web-frontier-local-play-act.test.mjs",
+            "blob": "8f5154d66aa96f3af524bea45521a217789ca5be",
+            "sha256": "bb4e365bc86f1a7973b70b2ce53fcbfc9163f16617d8b10b3c7b5b477cd78c6c"
+          },
+          {
+            "path": "permutation-gateway/test/web-frontier-nation-confirm-layout.test.mjs",
+            "blob": "f5c2d36d0b1f90c065e9ef1ba5e771b9ccc13de6",
+            "sha256": "31be94cf0731ef4580f225327e1061150af8803aee64f3632c87a45b65db0e70"
+          },
+          {
+            "path": "permutation-gateway/test/web-frontier-outbound-arrival-pick.test.mjs",
+            "blob": "4fd7ccbfcae816a98a304686e89903084b70df43",
+            "sha256": "150d12ca7d652aa1c4fdea949566e9880a0482e93476972d2117b03a7df9d25e"
+          },
+          {
+            "path": "permutation-gateway/test/web-frontier-outbound-clock.test.mjs",
+            "blob": "511250faa94b7490a260351c0e28957297ba12c9",
+            "sha256": "a2baa0c393190339385ee0b8a9f1951a5c250e46fe8c61fc30750fd333f5079f"
+          },
+          {
+            "path": "permutation-gateway/test/web-frontier-overview-reentry.test.mjs",
+            "blob": "d0bfafcc01e473862e20b4fd7bf0f30db62f791c",
+            "sha256": "a58d2ce1c37a42bba93c3b2fa20d40fc3fcd618ab0fa767eb5fc9f0f4a5542c1"
+          },
+          {
+            "path": "permutation-gateway/test/web-frontier-render-loop.test.mjs",
+            "blob": "b81c5d8b17b88304782834bca4182fa5544420ca",
+            "sha256": "42c30195eb5915ea3353e4e264afbcc15e6e17eee2bb5f1480fe7d3c9df97254"
+          },
+          {
+            "path": "permutation-gateway/test/web-frontier-seal-wide.test.mjs",
+            "blob": "16e7674b5d966a22377145dd0697b0d522ca7d4f",
+            "sha256": "e5b629dd4ee1c6db129916b33f65ff865261d18bdd1d2d5c39733eb627ad82b2"
+          },
+          {
+            "path": "permutation-gateway/test/web-frontier-terrain-frame.test.mjs",
+            "blob": "d99df05b2ab06526c00e6c16021d02e7b2a1087d",
+            "sha256": "429a08f71a527d74b1d9f0fed692386c7d14e2561593d3cae521d7fc1aad7a03"
+          },
+          {
+            "path": "permutation-gateway/test/web-frontier-trace.test.mjs",
+            "blob": "2a46a65678df9f3901fc8721ca4cb6084b89e583",
+            "sha256": "ee1022475881f93164295a43797e05e2ed5014edff6165b066077082b49039f0"
+          },
+          {
+            "path": "permutation-gateway/test/web-frontier-wedge.test.mjs",
+            "blob": "cb412fac53e8ec2d846a9381559d0be775114e50",
+            "sha256": "24525b1511b10e87b55ddc98af5ca08a23d408ac727d227971ec6f9d8af38862"
+          },
+          {
+            "path": "permutation-gateway/test/web-frontier-wide-work.test.mjs",
+            "blob": "e7bceca00d6e0a7e75c18bc1141e0fd1f0c35409",
+            "sha256": "2b947f4fdee3681926c37b35c80a2ae7df197f8e5b3fff842ab3904cba78433e"
+          },
+          {
+            "path": "permutation-gateway/test/web-frontier-world-sparse.test.mjs",
+            "blob": "cd3154d4e14e695b314192d6f7fee6fca802e891",
+            "sha256": "9201eab2f53658d20bf50609949232baac9803f78ad14729d2a1244230ff565f"
+          },
+          {
+            "path": "permutation-server/web/frontier/seal-worker.mjs",
+            "blob": "2964a4770cf613618a4843230ec991c8e620f101",
+            "sha256": "0ca9f4d9a7fcd20fab7c2d97cee0d41731bb10507becb0c1894ad0acc0800dbe"
+          },
+          {
+            "path": "permutation-server/web/lang/en-frontier-play.mjs.orig",
+            "blob": "ccc755d810b42ab5a4f06272926354df61985430",
+            "sha256": "2c0581b2193eceb3fbbb754c7311ba803ffa1dee21931c34ba31c121e7592856"
+          },
+          {
+            "path": "scripts/build-frontier-localnet-expedition-sbf.sh",
+            "blob": "1dcf0c5f28302bd193a058f22f0a4fced1b81a34",
+            "sha256": "553bcb75710c5790c19d9129dd175fef059f7c29992cddd6d7527be88e2540ac"
+          },
+          {
+            "path": "workstreams/15-coop-outcomes/results/long-run.json",
+            "blob": "9ad4923938d19ab3e9f9cda63ce6c8d802ba2560",
+            "sha256": "68aace2caae83a7f527425caa0c99bc4099cf32c54c943b414ba497e43eff839"
+          }
+        ],
+        "excluded": [
+          "docs/integration/CLAUDE-CONQUEST-RESERVATION-REAL-EVIDENCE-20261112.json",
+          "docs/integration/CLAUDE-CONQUEST-RESERVATION-REAL-EVIDENCE-CAPTURE-STAGES-20261112.json",
+          "docs/integration/CLAUDE-CONQUEST-RESERVATION-REAL-EVIDENCE-NOTAPPLIED-STAGES-20261112.json",
+          "docs/integration/CLAUDE-CONQUEST-V2-CLI-PREPARED-EVIDENCE-20261112.json",
+          "docs/integration/CLAUDE-FIRST-SESSION-UX-C-INTEGRATION-20261113/c-before-files.tar",
+          "docs/integration/evidence-fable-conquest-v2/res-real-evidence-v2codec-e6bfe8c2-capture.json",
+          "docs/integration/evidence-fable-conquest-v2/res-real-evidence-v2codec-e6bfe8c2-notapplied.json",
+          "permutation-gateway/screens/node_modules"
+        ]
+      }
+    },
+    {
+      "worktree": "wylls-continuous-territory-20261115",
+      "audited_base": "d99c2769079f1409f6fc76f147f8d4916c966cc4",
+      "original_branch": "refs/heads/claude/continuous-territory-20261115",
+      "remote_original": "d99c2769079f1409f6fc76f147f8d4916c966cc4",
+      "snapshot": null
+    },
+    {
+      "worktree": "wylls-continuous-territory-integ-20261115",
+      "audited_base": "201cc58accc46f57d0a177fc1ce592143e4cab46",
+      "original_branch": "refs/heads/claude/continuous-territory-integ-20261115",
+      "remote_original": "201cc58accc46f57d0a177fc1ce592143e4cab46",
+      "snapshot": null
+    },
+    {
+      "worktree": "wylls-design-fable-20261110",
+      "audited_base": "8836f1aa40c748f2fbd410d6e50a13bc6ce193b4",
+      "original_branch": "refs/heads/fable/design-uiux-20261110",
+      "remote_original": null,
+      "snapshot": {
+        "branch": "migration/20261115-design-fable-20261110",
+        "commit": "a42d0a8b7415ac19c013aa7daa0696279a529826",
+        "files": [
+          {
+            "path": "CLAUDE2-OVERVIEW-LOADING-20261110.md",
+            "blob": "60cbd55ce6e6e561f47547b3c77c6325a7da464a",
+            "sha256": "4f773c29e86d48b16151bd23c296140a57126e38492122072d06555e66d83cb9"
+          },
+          {
+            "path": "docs/integration/CLAUDE-KEEP-HIT-INDEX-20261110.md",
+            "blob": "63932b661b8d6565f986ea026cc767e4e44dee25",
+            "sha256": "d19f73f6894b6f34b0010926288fc5a2ead52287a7b02f8a6716adadc757eafa"
+          },
+          {
+            "path": "docs/integration/CODEX-REVERSE-CAPTURE-20261110.md",
+            "blob": "498faaa08ec00266845e0ebfa1e5dbc44f32d023",
+            "sha256": "f5ea6f839a7310a6e484da6afe8fe596883b673cbec1d3ac12aa3778d0f1e6f9"
+          },
+          {
+            "path": "docs/integration/CODEX-REVERSE-PRODUCER-20261110.md",
+            "blob": "45a746cb0eaf9eb29478b8611f1e6083a0d58b6f",
+            "sha256": "693cd3f670e8c64e9fc5195284e3202f9111e8f83a0ebb70ea3e56c16ffcbe2c"
+          },
+          {
+            "path": "docs/integration/CODEX-REVERSE-TERMINAL-RUNTIME-20261110.md",
+            "blob": "95430ec9a3c6bc630faea9dd649e0423251b1397",
+            "sha256": "42bb218346c39d67de26a179d321ba7ab33f5170007a1fce1d934164263b7bc5"
+          },
+          {
+            "path": "docs/integration/FABLE-UI-FEEDBACK-STATES-20261111.md",
+            "blob": "96012fcac70e60dfa2a3cacf9d62d5945f13b4a4",
+            "sha256": "2d35c747e5ea972ea759146d6d14d24a201cc4565972fd58c884c4587f982f39"
+          },
+          {
+            "path": "docs/integration/FABLE-UI-FEEDBACK-STATES-20261111.patch",
+            "blob": "64c472f8b905a72ea04404901b1912394a01748c",
+            "sha256": "c993d74778f8293954429e40a1fe85a99f29caf4ffd3c071dd46a7624e82a89a"
+          },
+          {
+            "path": "frontier-abi/src/prologue.rs",
+            "blob": "7198d159ad5c1e7756a96f41f1fa0ada6e349968",
+            "sha256": "ade919a1ecd58b5875b0df01dca7de134cefdd1d8866969ec2621935bbbd5ad7"
+          },
+          {
+            "path": "frontier-abi/src/world_index/expedition_reverse_settlement_event.rs",
+            "blob": "11b81aba461f1f029805082f0842e196fd2bdde1",
+            "sha256": "5b21456c7e11036faf8febf8b249570a9f98632d8cf26bf430689bb930e5b9d0"
+          },
+          {
+            "path": "frontier-abi/src/world_index/expedition_reverse_settlement_ix.rs",
+            "blob": "6764aa753c9c4b9d1414a3eaa5093c8e0b48d908",
+            "sha256": "9d3bcea1a781d007d327448fe299ceebbfef1a23cf2b3cab8e9b7c15710c577d"
+          },
+          {
+            "path": "frontier-abi/src/world_index/expedition_reverse_terminal_event.rs",
+            "blob": "38513f2e4b2eeb30b6571e07cae573497ec77293",
+            "sha256": "d856e7783bdbdac6335ee6d40fe715839329f29334b625e89652ff187fcb8ffc"
+          },
+          {
+            "path": "frontier-abi/src/world_index/expedition_reverse_terminal_ix.rs",
+            "blob": "8b49592f3e7943d8b6a415e720fbd8ce0b9a9a8b",
+            "sha256": "2aced2c30f250a1104ed99e56d06bcb1d0b6b41cffb5dc0066b633559e8e94ba"
+          },
+          {
+            "path": "frontier-abi/src/world_index/mod.rs",
+            "blob": "3d4ec655d97944756e3dd64b9a6f8ec3d79fa51a",
+            "sha256": "2c833b93a798a16718ec80f4fe9e750ad6e1d816d04d8a67f00132e3449259aa"
+          },
+          {
+            "path": "frontier-node/crates/fclient/src/experimental_expedition_message.rs",
+            "blob": "1760e189717e0c50957c18a63ebbe963324fc69a",
+            "sha256": "a0fba179c9361c5172173bba596428bd40aafc52fd505fe7bd4d93d60878ca0e"
+          },
+          {
+            "path": "frontier-node/crates/keeper/Cargo.toml",
+            "blob": "40f55188218ece40d4d66d7f8688978b153a50d2",
+            "sha256": "ab5894e18361bd88e679f1966cf74aa98d7a3b56cb446027a98e3e278f07a3d8"
+          },
+          {
+            "path": "frontier-node/crates/keeper/src/bin/experimental_expedition_depart_prepare.rs",
+            "blob": "6e9ec44a9ff49f89b7054d0a2489ed8e6d5a132f",
+            "sha256": "ef540f10e093f066cbe7b4ef77063847aebc3086f91233e58c28671e86e67718"
+          },
+          {
+            "path": "frontier-node/crates/keeper/src/bin/experimental_expedition_prepare.rs",
+            "blob": "6fe286f22924ad298ae1bbf217f3a228473163b9",
+            "sha256": "7f238786a31227f60eab050163c12c8f1dc27fbe5cf1962261b155b8aa243e9f"
+          },
+          {
+            "path": "frontier-node/crates/keeper/src/experimental_expedition_depart_prepare.rs",
+            "blob": "c18b4447426477e47135c02908d81bfd27d38019",
+            "sha256": "ecc4c0be978acd74010e86f73b5c154e22e6f7ca43fed2948ced72b1c53562fc"
+          },
+          {
+            "path": "frontier-node/crates/keeper/src/experimental_expedition_prepare.rs",
+            "blob": "162712998fb50819b19af01172bc9f9a94e48a75",
+            "sha256": "701f23e608cbf007a11fc1147eac90d31b00156e49daebf1964d97f2719c3a59"
+          },
+          {
+            "path": "frontier-node/crates/keeper/src/lib.rs",
+            "blob": "68aba7d081deb602e53d79bf25ac43d67fe8ee1a",
+            "sha256": "e2d2fd8aef68e133ab456080c48fb56b35015b1d6419b538252015fb299bda0e"
+          },
+          {
+            "path": "frontier-node/crates/keeper/src/wideexpedition.rs",
+            "blob": "2573d3013d3302a61d7f970d04d0d69a7d6f574f",
+            "sha256": "96cdd75670055e5e69f440225ec0b813c8800371a22424a4cd4be1da807a80ba"
+          },
+          {
+            "path": "frontier-node/crates/keeper/src/wideexpedition_preview.rs",
+            "blob": "deb35f3de909dfc599a941c411210c42633e435c",
+            "sha256": "03479d39205c0fbc26f8e182a91be3d8c3a471163f21a83af0cfc853a5dc773a"
+          },
+          {
+            "path": "frontier-node/crates/keeper/src/wideexpedition_reverse.rs",
+            "blob": "ede0781c620b69ddf7be72ad73e6a6eab6d5d8e5",
+            "sha256": "9d2346eb5d131f0265e4c6b18a65e4fd928666406390ad420cac49b7e80b55a5"
+          },
+          {
+            "path": "frontier-node/crates/keeper/src/widetick.rs",
+            "blob": "5c25ae560e76188aa63b7a7c72e77b105f1c8292",
+            "sha256": "60c3bde20216c77a9dc5538e153909a2f84ecd491dc8dbfeb43ecc074a69ee75"
+          },
+          {
+            "path": "frontier-node/crates/keeper/tests/experimental_expedition_depart_prepare.rs",
+            "blob": "7cadd919bcef8b461d73fec770521d7cf93bba66",
+            "sha256": "f8761d84749e5f875bf70fe670577b4912504b38292c46126d63e59ac16a1cad"
+          },
+          {
+            "path": "frontier-node/crates/keeper/tests/support/wide_reverse_expedition.rs",
+            "blob": "9e0a43277066e8d0ef6f8a1acbcd3dceb966627e",
+            "sha256": "0e752cef39487320095aad2f3ce2f18e8668bcf049f8dbbf9f6c9df3e2549ee2"
+          },
+          {
+            "path": "frontier-node/crates/keeper/tests/wide_expedition.rs",
+            "blob": "247b0062b47c2d57efeaf4f9cd2f9fbe37a85590",
+            "sha256": "3f7cdcbf58ef2a029d81343abceef7ecd20de354c60f4585f3e2c49738fe0d36"
+          },
+          {
+            "path": "permutation-frontier/src/proc/clash.rs",
+            "blob": "2c06075660839524c462ebb8c3f0f4443d42d060",
+            "sha256": "2d48492c72d86a89b7f88a3c5f4a54dcd98f16ff6b405066b8f14d04b9d0585b"
+          },
+          {
+            "path": "permutation-frontier/src/proc/conquest.rs",
+            "blob": "73668d533af9c9c8b5e6ac5ab18202b6c20eaabd",
+            "sha256": "431bfb57c145c617244698bc1d9c5df00cfbe1c366bd0c6a4afc97c6ac00449f"
+          },
+          {
+            "path": "permutation-frontier/src/proc/conquest_reverse_capture_tests.rs",
+            "blob": "7dfec7725fade478a80127061a91fb2bc3697567",
+            "sha256": "486206c879a203317145e66fff7175f9598ca6c829755e9a79309fcb1c8858c7"
+          },
+          {
+            "path": "permutation-frontier/src/proc/wide.rs",
+            "blob": "f1c6f5bdeb6d3d5ded415303bec3f3b2602213e9",
+            "sha256": "6fb2e0f39990467e9a4a91be89071ed43dff80e3161556243fe01e5217c8994b"
+          },
+          {
+            "path": "permutation-frontier/src/proc/wide_expedition_close_positive_unexecuted.rs.txt",
+            "blob": "b4c56cf4af02e097bd5a7ccad00f960948f0d626",
+            "sha256": "e61a997f4f9ca0e653f418c17427a0151a8aa884ae0b5975bc096d9cb1996610"
+          },
+          {
+            "path": "permutation-frontier/src/proc/wide_expedition_failure_tests.rs",
+            "blob": "cc00921c56bde96f5bfdc564d7fde9cc0af971cb",
+            "sha256": "6835597f36898b39e3badc6780c28506b0b5cddd18a975b71442f16185620a29"
+          },
+          {
+            "path": "permutation-frontier/src/proc/wide_expedition_return.rs",
+            "blob": "e928361aa240e2a81e8ee430888db03fe15c47e4",
+            "sha256": "74e36fa90e6b88b13543c0458487d1474f3345cd9b9efb70e5b64bddadfe2dda"
+          },
+          {
+            "path": "permutation-frontier/src/proc/wide_expedition_return_proof.rs",
+            "blob": "06eee1b5797ff4a99c4b085d6d37a66130cb251c",
+            "sha256": "a7e58b832b37bb4024f8f0fea275330b8b1ad548fd3ba8487b1d71cfae80041e"
+          },
+          {
+            "path": "permutation-frontier/src/proc/wide_expedition_reverse_settlement.rs",
+            "blob": "17bf4fda2007aa0c1646ca2daf7e31353672293a",
+            "sha256": "cf4c56e73293e4168b7915cdcd6b830ecc5e499fa5acf1460e2b5fd8df5fec29"
+          },
+          {
+            "path": "permutation-frontier/src/proc/wide_expedition_reverse_settlement_tests.rs",
+            "blob": "856d48b2d1f3bf1a85d8044920e80916a05b3605",
+            "sha256": "daad8ef54ac4238df167759ea931c8157a054ebfae96a8ff90f38dedf193d025"
+          },
+          {
+            "path": "permutation-frontier/src/proc/wide_expedition_reverse_terminal.rs",
+            "blob": "7420b5e3fcdbb045d9b49ed98e95f4bfc1bc1102",
+            "sha256": "178bd109c4cb784b7400929ff365b7393901747ce3f403dacf21cedea5d0bcc7"
+          },
+          {
+            "path": "permutation-frontier/src/proc/wide_expedition_reverse_terminal_tests.rs",
+            "blob": "b4c34b5068155fbe471fe88f5553bbc6cad51997",
+            "sha256": "0c84e3307bc9f623a8e33633e28a8239ce0e47325dac68b6a0036b9a4662019f"
+          },
+          {
+            "path": "permutation-frontier/src/proc/wide_expedition_reverse_tests.rs",
+            "blob": "b2c820ef2b54ec54e6a9314ffea42bb74eea409f",
+            "sha256": "a40095fdde09267d0313f7ed3fbbfcd52ead46e7dcddb35d9559e21c961046f6"
+          },
+          {
+            "path": "permutation-frontier/src/proc/wide_expedition_settlement.rs",
+            "blob": "c33d8c334f6b7834e836b084cc7299a798f23951",
+            "sha256": "39db161dc477653a834031aa039800b6f8d9a80027cb9547732fe213994e1367"
+          },
+          {
+            "path": "permutation-gateway/screens/codex-route-preview.screen.mjs",
+            "blob": "81f5969913b74cd72ae005229816ec427eac35be",
+            "sha256": "9f043d3675cd6adb6af20b0b4851dd84d9375c74e64ba5dca4f691f87388c42e"
+          },
+          {
+            "path": "permutation-gateway/screens/codex/prepare-observation.mjs",
+            "blob": "5cb91797b07620502f6457eae235e5e2e10faa72",
+            "sha256": "73f420abbd2e72a7537ea5fed5c578bc75d8a091c14d436c486f8aa1d04c5fa1"
+          },
+          {
+            "path": "permutation-gateway/src/frontier/app.mjs",
+            "blob": "80a6fd739b0f77c2ce88aabffb34bbba8147ce0a",
+            "sha256": "6216f174eb53c92467a24d8c85f758b537beef9dd64a6782de3b30cd718536db"
+          },
+          {
+            "path": "permutation-gateway/src/frontier/config.mjs",
+            "blob": "47361dd567ab988ed93158079128bb4fffc74050",
+            "sha256": "904f4c9c53cdc3da2a4683bcfbc3681f0be7ee84aa5b7b98e938338c69a31fcc"
+          },
+          {
+            "path": "permutation-gateway/src/frontier/expedition-depart-prepare.mjs",
+            "blob": "5aef0a6f724898b03391a51018605166083eba13",
+            "sha256": "f33042e50c9926e0bbf62c856f5cdc253bd6e9b74e6b66b64adf4d0d6a88ebfa"
+          },
+          {
+            "path": "permutation-gateway/src/frontier/expedition-prepare.mjs",
+            "blob": "7ac820b205a767837eab2942d323ad5e447d1b76",
+            "sha256": "aa935693eadb7c111e6c3d853900246a2f5ec413be111875cd06f2ea4d8e564d"
+          },
+          {
+            "path": "permutation-gateway/src/frontier/routes/expedition-depart-prepare.mjs",
+            "blob": "d25db63c3c607cc8c9d88bcd1d1abec16dcb1c31",
+            "sha256": "11210f46d1314adba3f27a3c25966afc35bf1d6345ce3dda46d02dbe7aced59b"
+          },
+          {
+            "path": "permutation-gateway/src/frontier/routes/expedition-prepare.mjs",
+            "blob": "408c68501ef3a79036c6170eedd4c2fdf7fc831c",
+            "sha256": "0d5ca8a676ebccc9035a92000fb27937f86678b0122a037aec83e69f2b9d8821"
+          },
+          {
+            "path": "permutation-gateway/src/frontier/server.mjs",
+            "blob": "74c3b2b393d96c4cf59c311c5ff0fbbc215c09aa",
+            "sha256": "c1bbe0918a8fd9e6203dca352a0c59378f5f4e729fc275be94ed796fa8f549b4"
+          },
+          {
+            "path": "permutation-gateway/test/fixtures/frontier-expedition-depart-prepare-rust.json",
+            "blob": "5283c326e730a5eb03838957a9973b41a6580b99",
+            "sha256": "f0f30d52c64928a2e631e232fc87b04a7855e0b2b566a6aa2e8f954dfa33ce97"
+          },
+          {
+            "path": "permutation-gateway/test/frontier-expedition-depart-prepare.test.mjs",
+            "blob": "6631e1cc9a09b47662f0765a830f3d5a981a356e",
+            "sha256": "e85fdd48d454bda5520bbdfe0b192a0b617abe1949341260132a2e0f3959ad7d"
+          },
+          {
+            "path": "permutation-gateway/test/frontier-expedition-prepare.test.mjs",
+            "blob": "7cebf4c8e17e3ba85ebe88df0c5649811cb8b634",
+            "sha256": "943e2acdcef47116306239db7641f1aa1644b62e1e1dcf458cedbec9240aae68"
+          },
+          {
+            "path": "permutation-gateway/test/web-frontier-design-pass.test.mjs",
+            "blob": "6a2c5362f464ad86930104dedf5fff8162eaf703",
+            "sha256": "172a28cc9f2897789f2f208e287d24ca6655b389a33396d3ce86b048b642f569"
+          },
+          {
+            "path": "permutation-gateway/test/web-frontier-expedition-prepare.test.mjs",
+            "blob": "075a6cff8ad4c9233a2d6b39724a2cebb0017af4",
+            "sha256": "c625c3f768ca3310c3b3971745b9f59222faa959bc09a324e6f115eef4924923"
+          },
+          {
+            "path": "permutation-gateway/test/web-frontier-keep-at-index.test.mjs",
+            "blob": "7ff2e48835bc2b47a35f5aad34378917e75426b8",
+            "sha256": "94effba65696adb5142d102ae67386bcd13949223630b76319ef91d1f67374af"
+          },
+          {
+            "path": "permutation-gateway/test/web-frontier-keep-hit-index.test.mjs",
+            "blob": "71a020db42b7ff554b8c127f6b2b1644bdae22ec",
+            "sha256": "8592e5982a78b10a26ab6d94cd55ad3b843c14bbbb43c45890246bf29c2e158a"
+          },
+          {
+            "path": "permutation-gateway/test/web-frontier-nation-confirm-layout.test.mjs",
+            "blob": "f5c2d36d0b1f90c065e9ef1ba5e771b9ccc13de6",
+            "sha256": "31be94cf0731ef4580f225327e1061150af8803aee64f3632c87a45b65db0e70"
+          },
+          {
+            "path": "permutation-gateway/test/web-frontier-outbound-arrival-pick.test.mjs",
+            "blob": "6a787e77a5e4a285c9688b01592c9a5198c2de56",
+            "sha256": "f36598e4d7f42b1e39f368a4045e03f7969e268ebc5014f441c23b5ebf07fa99"
+          },
+          {
+            "path": "permutation-gateway/test/web-frontier-overview-reentry.test.mjs",
+            "blob": "d0bfafcc01e473862e20b4fd7bf0f30db62f791c",
+            "sha256": "a58d2ce1c37a42bba93c3b2fa20d40fc3fcd618ab0fa767eb5fc9f0f4a5542c1"
+          },
+          {
+            "path": "permutation-server/web/frontier/app.mjs",
+            "blob": "167f3a7d9e5c88da280f6d794bf9e2ebbd6081f6",
+            "sha256": "a0552a4c6c830a99f0a6836fc2aece14522c7bc885b73836f215f6afe18b04b5"
+          },
+          {
+            "path": "permutation-server/web/frontier/conquest-hand.css",
+            "blob": "341d5ff9bb3a0b453b272ce7aa4a0b9489e01e94",
+            "sha256": "5cac7b721486db3dbe441ad04e080310623e28f28dc70780bbbb62e86a1c41de"
+          },
+          {
+            "path": "permutation-server/web/frontier/controller.mjs",
+            "blob": "1f17492a5b82ccfad40293f5f48594fd4272955f",
+            "sha256": "21c77c132f8d71594807df52a1a61826f9680596f6e54e78364330f59d5d416f"
+          },
+          {
+            "path": "permutation-server/web/frontier/fexpedition-compose.mjs",
+            "blob": "8c3b71b41cb69afae213c63a9994ce0abca46ff0",
+            "sha256": "b429d120a97ea03307a8d8cf2fa404aca6b6ebbe167ed4bc93d38b40f9248b90"
+          },
+          {
+            "path": "permutation-server/web/frontier/fexpedition-prepare.mjs",
+            "blob": "3c2a1756c6c99fb8ed2dde7c3668f0c58400c677",
+            "sha256": "bf1af67a9c71e075385a6d6fc7f8f204098a142f35f690570fa950ebc69bf11e"
+          },
+          {
+            "path": "permutation-server/web/frontier/fexpedition.mjs",
+            "blob": "40754a530254ae997937f4961c5df5ecf7822d33",
+            "sha256": "5f6e5de2a971aa768714365acc7dea4e29af26ef0e8393e74a2eed0e3b68bd1c"
+          },
+          {
+            "path": "permutation-server/web/frontier/frontier.css",
+            "blob": "110e4c815d25d1bb52b2d38654dc12502ec23533",
+            "sha256": "d3ff9b1c97fcda16e73f1f7e7dfaeb43ad31b24d0870f3fa23d89bb17c2819ba"
+          },
+          {
+            "path": "permutation-server/web/frontier/hud/drawer.mjs",
+            "blob": "283f69f538b25eec6d183af551b2ce098ce9ac25",
+            "sha256": "b9913d003ef2ed407ce1a6b89696eb983712dc6c2c262ef5fcfb27508d35f874"
+          },
+          {
+            "path": "permutation-server/web/frontier/hud/hand.mjs",
+            "blob": "a44dd9e83fcfd1ed346b190d7aff9e8c679a7d3f",
+            "sha256": "52ba34c70874554f5885a5411c518b3178b5b0c504a7d957b21075892056c6ef"
+          },
+          {
+            "path": "permutation-server/web/frontier/hud/hud.mjs",
+            "blob": "d060771f47e0e308d118b6f3d7d6be294c7cf47e",
+            "sha256": "65cfa57cd7761d42c11d76a32968d3736a49dd2934dd7ea534a5544660ce60f9"
+          },
+          {
+            "path": "permutation-server/web/frontier/hud/icons.mjs",
+            "blob": "b5b60b4caeb259ca858776829bf4a9720d4a4999",
+            "sha256": "4b6305b6bb3e62ee6199cc46375e8cf14767a5a0699ef74e80de73c196b2773f"
+          },
+          {
+            "path": "permutation-server/web/frontier/hud/inspect.mjs",
+            "blob": "a007e09d5d23330465cc91097c28b82c3114364f",
+            "sha256": "99122b9a13aaa7c8df56d40ef4bc52766aeb01dac19ef4f4203e5b50009afab7"
+          },
+          {
+            "path": "permutation-server/web/frontier/hud/search.mjs",
+            "blob": "380bc410c8c1e2dcb9ee6aa1051917a4a0378200",
+            "sha256": "279bd7c696434fbf60cd911113289fa82bc984cd7608a1aa5c4e1c7e2fb772e4"
+          },
+          {
+            "path": "permutation-server/web/frontier/map/fmap.mjs",
+            "blob": "d90b957ad30a04474925a79e827bb5809e65f5a4",
+            "sha256": "0e368bba91fb0c4540fdf1335d05e51a43c52680fd2a175e11cbfa4bcebc86c5"
+          },
+          {
+            "path": "permutation-server/web/frontier/map/keepindex.mjs",
+            "blob": "ff233698325db45489984597a69aaac117c04e48",
+            "sha256": "cfdb754689cfa3e77c82be8db37812717a59b03ccd3b7f120f0141d11f02f254"
+          },
+          {
+            "path": "permutation-server/web/frontier/map/keeps.mjs",
+            "blob": "f8c8a870921d1dc8b630fdf673e70e46cf2cfa20",
+            "sha256": "8afd85a27a10651dfce5dac9653d00f70f457b8cd731e17fc9b722418c8d4cbf"
+          },
+          {
+            "path": "permutation-server/web/frontier/map/keepscreen.mjs",
+            "blob": "f9b9c9c2e04d39d01308888a8afc86064948861d",
+            "sha256": "10c99ddd3a7d711549fec86fa9aa41df3319f45c56697b4dbe18689966270a8c"
+          },
+          {
+            "path": "permutation-server/web/frontier/map/overviews.mjs",
+            "blob": "231bdf28ca78cbcc0cd6cbf4425ff1c291086d1b",
+            "sha256": "08f8a8ce2bd6983d06095845c3961c43fa9947658ee35ee8da54d025d53701ca"
+          },
+          {
+            "path": "permutation-server/web/frontier/screens/chronicle.mjs",
+            "blob": "e1f59f50b7da57ea18062cad5000931596a5c79c",
+            "sha256": "edbec1a87b3ba8382f04c72c243af3aba740af0f61169e1fed9556cc1616cf72"
+          },
+          {
+            "path": "permutation-server/web/lang/en-frontier-hand.mjs",
+            "blob": "57ccf76024722b71e35fb9ad698bb19358e3c675",
+            "sha256": "873b92734d6d058a34e6ff1a30d267b1ef281c1cb1814885884abd18da7589fc"
+          },
+          {
+            "path": "permutation-server/web/lang/en-frontier-play.mjs",
+            "blob": "22d2f3d901b621ae4bdff4a8c7d253959f1ba440",
+            "sha256": "18d1830730281867a3478807d79fb9cf77ac7cd923f11cf89c00117be5f52ae2"
+          }
+        ],
+        "excluded": []
+      }
+    },
+    {
+      "worktree": "wylls-herald-check-79a75cad",
+      "audited_base": "79a75cadbb33deefd22070d81df499182346f8a0",
+      "original_branch": null,
+      "remote_original": null,
+      "snapshot": null
+    },
+    {
+      "worktree": "wylls-keeper-bisect-at-0147a885",
+      "audited_base": "0147a885e2d2160ad74bf0ba0f14ed5d4fa36f6f",
+      "original_branch": null,
+      "remote_original": null,
+      "snapshot": null
+    },
+    {
+      "worktree": "wylls-keeper-bisect-base-20adb087",
+      "audited_base": "20adb087401c195b6f93e989d352969897124764",
+      "original_branch": null,
+      "remote_original": null,
+      "snapshot": null
+    },
+    {
+      "worktree": "wylls-keeper-bisect-pre-0147a885",
+      "audited_base": "70843bb515535adb0234aa5de92a29c2c89a0228",
+      "original_branch": null,
+      "remote_original": null,
+      "snapshot": null
+    },
+    {
+      "worktree": "wylls-keeper-bisect-probe-20adb087",
+      "audited_base": "20adb087401c195b6f93e989d352969897124764",
+      "original_branch": null,
+      "remote_original": null,
+      "snapshot": {
+        "branch": "migration/20261115-keeper-bisect-probe-20adb087",
+        "commit": "f7116de85fa6d9302202f25f0d95c03f7ef33d0f",
+        "files": [
+          {
+            "path": "frontier-node/crates/keeper/tests/play.rs",
+            "blob": "454115c247731c8cc9025e426b3e633de5ac27e7",
+            "sha256": "f773973c02a5727339cdada25f354f459dc1f83b2b1f1a2878bac9605e928061"
+          }
+        ],
+        "excluded": []
+      }
+    },
+    {
+      "worktree": "wylls-nft-candidate-lane-20261114",
+      "audited_base": "019c07428562505b273c872177a6a24f2457e8ee",
+      "original_branch": "refs/heads/claude/nft-candidate-lane-r21-20261114",
+      "remote_original": "019c07428562505b273c872177a6a24f2457e8ee",
+      "snapshot": null
+    },
+    {
+      "worktree": "wylls-nft-candidate-world-20261115",
+      "audited_base": "a5fff65e14c628f1405d5e81907d03ec5107be65",
+      "original_branch": "refs/heads/claude/nft-candidate-world-r21-20261115",
+      "remote_original": "a5fff65e14c628f1405d5e81907d03ec5107be65",
+      "snapshot": null
+    },
+    {
+      "worktree": "wylls-nft-pass-20261114",
+      "audited_base": "8eed959a2769a1681cc76384ecc6c954c84164ab",
+      "original_branch": "refs/heads/claude/nft-pass-mint-20261114",
+      "remote_original": "8eed959a2769a1681cc76384ecc6c954c84164ab",
+      "snapshot": null
+    },
+    {
+      "worktree": "wylls-nft-prize-connect-20261114",
+      "audited_base": "03e2b04f60092a3302f378453e6136d75538ee05",
+      "original_branch": "refs/heads/claude/nft-prize-connect-20261114",
+      "remote_original": "03e2b04f60092a3302f378453e6136d75538ee05",
+      "snapshot": null
+    },
+    {
+      "worktree": "wylls-nft-prize-on-world-20261115",
+      "audited_base": "ceb73619e2d7e8e10c1f7ee15a8ea4bc63cc3073",
+      "original_branch": "refs/heads/claude/nft-prize-on-world-r21-20261115",
+      "remote_original": "ceb73619e2d7e8e10c1f7ee15a8ea4bc63cc3073",
+      "snapshot": null
+    },
+    {
+      "worktree": "wylls-normal-home-error-20261115",
+      "audited_base": "139cae24e9be811576f69996aab556e7e8090930",
+      "original_branch": "refs/heads/claude/normal-home-error-line-20261115",
+      "remote_original": "139cae24e9be811576f69996aab556e7e8090930",
+      "snapshot": null
+    },
+    {
+      "worktree": "wylls-normal-sparse-rings-20261115",
+      "audited_base": "f1b84562a54f72cabb8f9aa1cca70a3bd9af5986",
+      "original_branch": "refs/heads/claude/normal-sparse-rings-r29-20261115",
+      "remote_original": "f1b84562a54f72cabb8f9aa1cca70a3bd9af5986",
+      "snapshot": null
+    },
+    {
+      "worktree": "wylls-runtime-preview-fix-20261111",
+      "audited_base": "8836f1aa40c748f2fbd410d6e50a13bc6ce193b4",
+      "original_branch": null,
+      "remote_original": null,
+      "snapshot": {
+        "branch": "migration/20261115-runtime-preview-fix-20261111",
+        "commit": "49aaacb2dfafd1cd264b94abebc7979c84c77e08",
+        "files": [
+          {
+            "path": "permutation-gateway/src/frontier/expedition-depart-prepare.mjs",
+            "blob": "36aa8e439085cb37abb9d9aaec9de0e984aa4e26",
+            "sha256": "a9c5683bc4b6552570ec99053b4d5a787accf5fadb540a2b9f1b3234b6e2d9e0"
+          },
+          {
+            "path": "permutation-gateway/src/frontier/local-play-preview.mjs",
+            "blob": "a745c728fa8dec3497eb0aa73c57e2908f40e9df",
+            "sha256": "5db86f990b69451e9f1035ada8b055c6761e48530624f18552ed1a9fa8e92bac"
+          },
+          {
+            "path": "permutation-gateway/src/frontier/local-play-relay-server.mjs",
+            "blob": "6c676506503fb15386e6df2eab7adc3ef7bc6e05",
+            "sha256": "8c212420e51d24967f06e425ae0ccf52220c8a2281264405aafd682a66897d1e"
+          },
+          {
+            "path": "permutation-gateway/src/frontier/local-play-relay.mjs",
+            "blob": "e4e2cb36602f4fc2728c8f8bb53acbf8d9ec3e7f",
+            "sha256": "ac7830df0a4b29658a281f40ee575d623a3e2e705f58b1e6bdd14a92b3459292"
+          },
+          {
+            "path": "permutation-gateway/src/frontier/local-play-reveal.mjs",
+            "blob": "4899a76ef7dd93239b82222eb7f1460a55c2e7ac",
+            "sha256": "59eadf060ffd98c9b87385e36bb744db5b7ccc33ae4fde97f90942b0ffd1118e"
+          },
+          {
+            "path": "permutation-gateway/test/frontier-local-play-preview.test.mjs",
+            "blob": "227aa56991a7e1d436f96f3f03225032f0d65f6c",
+            "sha256": "a1ed349005e70701d592de13c4d6baeaa85b8fbf9fcce993c1f25b1c90bec808"
+          },
+          {
+            "path": "permutation-gateway/test/frontier-local-play-relay.test.mjs",
+            "blob": "cf7d81094a2e3c6ec11b81beb0bccb0ae3cf1e8a",
+            "sha256": "aea1f5476f6cf22081fb81a01935706e60284d73a57fe030294c64a96622bbb6"
+          },
+          {
+            "path": "permutation-gateway/test/frontier-local-play-reveal.test.mjs",
+            "blob": "ec5ec3e4ca798cc976e0c6e76197ee1d24dac775",
+            "sha256": "294d59a89e1b0f1f010c71d8984503897ac5fc298bd6e9ddade3a88b65992162"
+          },
+          {
+            "path": "permutation-server/web/frontier/fexpedition-reveal.mjs",
+            "blob": "b8a37738b95d0cae63da7a39167710610fff01f7",
+            "sha256": "5f32ff104ca1168d87141d1694214395915082cea5e9722ac7e1d70771e01e59"
+          },
+          {
+            "path": "permutation-server/web/frontier/seal-ibe.mjs",
+            "blob": "fd454092f3e4e8e718c167cead8e90f3a0a747e2",
+            "sha256": "a7e05cd8765ea7c24c96fc280c17566afe894460333f45b0e6004c98a2e25201"
+          },
+          {
+            "path": "permutation-server/web/frontier/seal-wide.mjs",
+            "blob": "c9a44407d6e30da7cd1a7cfb3d4e3e74f903556e",
+            "sha256": "9e23b26ffe606a5e49e6dd5ea0955c5be75f218400e2d2aa097f6e2f4abbd54d"
+          }
+        ],
+        "excluded": []
+      }
+    }
+  ],
+  "not_migrated": "Local recording MP4s; conquest evidence JSON reports; before-files.tar; dependency symlinks; ignored build outputs, .local runtime data and settings; external /tmp scratch data. These remain intact on original Mac."
+}
