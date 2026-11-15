@@ -237,7 +237,7 @@ export function mountWideMode({ herald, canvas, doc = canvas?.ownerDocument ?? g
       }
       if (r.resident) {
         const x = r.resident, details = doc.createElement('p');
-        details.textContent = `${x.action === 'dissolve' ? L`元の村への帰還を予約（観測）` : L`元の村へ帰還（観測）`} / ${L`出身`} ${formatCoord(r.host.p, r.host.q)} / ${L`村の場所 ${String(r.host.site)} · 世代 ${String(r.host.generation)}`} / ${L`兵団番号`} ${String(r.host.hostSequence)} / ${L`鐘`} ${String(x.bell)}`;
+        details.textContent = `${x.action === 'dissolve' ? L`元の村への帰還を予約（観測）` : L`元の村へ帰還（観測）`} / ${L`出身`} ${formatCoord(r.host.p, r.host.q)} / ${L`村の場所 ${String(r.host.site)} · 世代 ${String(r.host.generation)}`} / ${L`兵団番号`} ${String(r.host.hostSequence)} / ${L`ターン`} ${String(x.bell)}`;
         li.append(details);
         const outcome = doc.createElement('p');
         outcome.textContent = `${L`兵数（1/1000人単位）`} ${String(x.troopsMilli)} / ${L`帰還予備兵（記録値）`} ${String(x.creditedUnits)} / ${x.family === 'original' ? 'PS2' : 'PSW1'} / ${r.residentPairEvent === null ? L`対応する記録はこのページにありません。` : L`このページ内で対応する記録：${String(r.residentPairEvent)}`}`;
@@ -248,7 +248,7 @@ export function mountWideMode({ herald, canvas, doc = canvas?.ownerDocument ?? g
       }
       if (r.expedition) {
         const x = r.expedition, details = doc.createElement('p');
-        details.textContent = `${L`境界移動・征服の記録（観測）`} / ${L`鐘`} ${String(x.bell)} / ${r.format}`;
+        details.textContent = `${L`境界移動・征服の記録（観測）`} / ${L`ターン`} ${String(x.bell)} / ${r.format}`;
         li.append(details);
         if (r.host) {
           const identity = doc.createElement('p');

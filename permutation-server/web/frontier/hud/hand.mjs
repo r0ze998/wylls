@@ -808,8 +808,8 @@ export function siegeOrderView(order) {
   //  deposit still held is OWED back, kept as a debt; with the slot already released that is said in so many words,
   //  and it is not a finished settlement)
   // (a deposit owed to a Holding that no longer exists stays owed: where it goes instead is not decided, and that is what is said)
-  const stake = failed && o.stake === 'held' && o.source === 'absent' ? L`預けた資源：返却待ちです。返却先の拠点がもうありません。返却の債務として残っており、精算は完了していません。いつ、どこへ戻るかはまだ決まっていません。`
-    : failed ? { held: L`預けた資源：返却待ちです。返却の債務として残っており、精算はまだ完了していません。`, returned: L`預けた資源：戻りました。` }[o.stake]
+  const stake = failed && o.stake === 'held' && o.source === 'absent' ? L`預けた資源：返却待ちです。返却先の拠点がもうありません。返却の債務として残っており、まだ結果を受け取っていません。いつ、どこへ戻るかはまだ決まっていません。`
+    : failed ? { held: L`預けた資源：返却待ちです。返却の債務として残っており、まだ結果を受け取っていません。`, returned: L`預けた資源：戻りました。` }[o.stake]
     : { held: L`預けた資源：返却の処理待ちです。`, returned: L`預けた資源：戻りました。`, burnt: L`預けた資源：戻りません。` }[o.stake];
   const slot = failed ? { held: L`使用枠と預り金：解放待ちです。`, released: L`使用枠と預り金：解放済みです。` }[o.slot]
     : { held: L`使用枠：返却の処理待ちです。`, released: L`使用枠：戻りました。`, used: L`使用枠：新しい拠点が使っています。` }[o.slot];
@@ -826,7 +826,7 @@ export function siegeOrderView(order) {
   // (while reserved or under way the deposit and the slot are simply held: said once, in the block's first line, not as "waiting to be returned")
   const owed = o.phase === 'ordered' || o.phase === 'started' ? '' : html`<p class="pop-line" data-siege-return="stake">${stake}</p><p class="pop-line" data-siege-return="slot">${slot}</p>${failed && !o.settled
     // (nothing here promises that what is owed comes back by itself: a settlement has to be run, and no runner is promised)
-    ? html`<p class="pop-line" data-siege-return="note">${L`返却と解放は、精算の処理が行われたときに反映されます。自動で行われるとは限りません。`}</p>` : ''}`;   // (two facts, two lines)
+    ? html`<p class="pop-line" data-siege-return="note">${L`返却と解放は、包囲の結果を受け取ったときに反映されます。自動で行われるとは限りません。`}</p>` : ''}`;   // (two facts, two lines)
   return html`<div class="local-conquest-order" data-siege-order="${o.phase}" data-siege-settled="${o.settled ? 'yes' : 'no'}" role="status">
     <p class="pop-line"><strong>${head}</strong></p>${owed}
     ${failed && o.reason !== null ? html`<p class="pop-line" data-siege-reason="derived">${L`状態から導出した理由（記録された理由ではありません）：${reason}`}</p>` : ''}
@@ -849,11 +849,11 @@ export function cityStateView(city) {
   if (city === null || city === undefined) return '';
   const c = city;
   const text = c.state === 'siege' ? L`あなたの包囲が進行中です：${c.progress} / ${c.required} ターン（宣言はターン ${c.declaredBell}・場所 ${c.site}）。都市はまだあなたのものではありません。`
-    : c.state === 'capture_due' ? L`あなたの包囲は必要なターンを満たし、占領の精算待ちです（ターン ${c.dueBell} 以降・宣言はターン ${c.declaredBell}・場所 ${c.site}）。都市はまだあなたのものではありません。`
+    : c.state === 'capture_due' ? L`あなたの包囲は必要なターンを満たし、占領の結果を受け取るのを待っています（ターン ${c.dueBell} 以降・宣言はターン ${c.declaredBell}・場所 ${c.site}）。都市はまだあなたのものではありません。`
     : c.state === 'owned' ? L`この都市はいま、あなたが所有しています（場所 ${c.site}・拠点の枠 ${c.slot}）。いま所有しているという事実だけを表示しています。`
     : c.state === 'slot_owed' ? L`この都市へのあなたの包囲は、いまは進行していません。拠点の使用枠 ${c.slot} は解放待ちです（場所 ${c.site}）。`
     : c.what === 'siege' ? L`この都市では、別のプレイヤーの包囲が進行中です。`
-    : c.what === 'capture_due' ? L`この都市では、別のプレイヤーの包囲が占領の精算待ちです。`
+    : c.what === 'capture_due' ? L`この都市では、別のプレイヤーの包囲が占領の結果を待っています。`
     : c.what === 'holding' ? L`この都市はいま、別のプレイヤーが所有しています。`
     : L`この都市には、別のプレイヤーの包囲に関する記録があります。`;
   return html`<p class="pop-line local-conquest-city" data-siege-city="${c.state}" role="status"><strong>${text}</strong></p>`;
@@ -911,7 +911,7 @@ export function localConquestView(FS, returning, { state: d, spent, other, order
     <ul class="local-conquest-rules">
       <li>${L`予約は、予約したターンの処理のときに条件を満たしていれば包囲として始まります。資源を預け、拠点の使用枠を1つ押さえます。`}</li>
       <li>${L`予約は取り消せません。`}</li>
-      <li>${L`包囲が始まらなかった場合、預けた資源と使用枠は戻りますが、今日の宣言回数は1回使われたままです。`} ${L`戻るのは精算の処理が行われたときで、それまでは「返却待ち」と表示します。`}</li>
+      <li>${L`包囲が始まらなかった場合、預けた資源と使用枠は戻りますが、今日の宣言回数は1回使われたままです。`} ${L`戻るのは包囲の結果を受け取ったときで、それまでは「返却待ち」と表示します。`}</li>
       <li>${L`同じ都市に複数の予約がある場合、処理のときに条件を満たす最初の予約だけが包囲になります。`}</li>
     </ul>
     ${orderLines}

@@ -90,7 +90,7 @@ test('the city\'s PRESENT state: each state from its exact facts; "owned" is a f
     assert.match(c, /data-siege-city="siege"/); assert.match(c, /あなたの包囲が進行中です：7 \/ 36 ターン（宣言はターン 19・場所 1）。都市はまだあなたのものではありません。/);
     assert.match(view({ state: 'siege', site: 1, progress: 2, required: 5, declared_bell: '19' }), /2 \/ 5 ターン/);
     c = view({ state: 'capture_due', site: 1, due_bell: '55', declared_bell: '19' });
-    assert.match(c, /占領の精算待ちです（ターン 55 以降・宣言はターン 19・場所 1）。都市はまだあなたのものではありません。/); assert.doesNotMatch(c, /\d+ \/ \d+ ターン/, 'a capture due shows no progress');
+    assert.match(c, /占領の結果を受け取るのを待っています（ターン 55 以降・宣言はターン 19・場所 1）。都市はまだあなたのものではありません。/); assert.doesNotMatch(c, /\d+ \/ \d+ ターン/, 'a capture due shows no progress');
     c = view({ state: 'owned', site: 1, slot: 2, generation: 1 });
     assert.match(c, /data-siege-city="owned"/); assert.match(c, /この都市はいま、あなたが所有しています（場所 1・拠点の枠 2）。いま所有しているという事実だけを表示しています。/);
     // "yours now" is not "captured": no word of a capture, a victory or a return in any state's line
@@ -99,7 +99,7 @@ test('the city\'s PRESENT state: each state from its exact facts; "owned" is a f
     for (const v of all) { const t = view(v); assert.doesNotMatch(t, /占領しました|勝ちました|勝利|奪いました|戻りました|失敗しました|成功/, JSON.stringify(v)); assert.doesNotMatch(t, /data-act=|<button/); }
     assert.match(view({ state: 'slot_owed', site: 1, slot: 2 }), /あなたの包囲は、いまは進行していません。拠点の使用枠 2 は解放待ちです（場所 1）。/);
     // another player's: said by its kind, neutrally, with none of their numbers; never "your"
-    for (const [what, re] of [['siege', /別のプレイヤーの包囲が進行中です/], ['capture_due', /別のプレイヤーの包囲が占領の精算待ちです/], ['holding', /いま、別のプレイヤーが所有しています/], ['slot_owed', /別のプレイヤーの包囲に関する記録があります/]]) {
+    for (const [what, re] of [['siege', /別のプレイヤーの包囲が進行中です/], ['capture_due', /別のプレイヤーの包囲が占領の結果を待っています/], ['holding', /いま、別のプレイヤーが所有しています/], ['slot_owed', /別のプレイヤーの包囲に関する記録があります/]]) {
       const t = view({ state: 'other', site: 1, what }); assert.match(t, re); assert.doesNotMatch(t, /あなたの|ターン \d|\d+ \/ \d+/, what);
     }
     setLang('en');
@@ -195,13 +195,13 @@ test('the lines: each phase says only its facts; returned only when returned; a 
     const CAUSES = /軍勢がもういません|マスにいません|先頭ではありません|もう自由都市ではありません|別の予約が包囲になりました|使用枠が空いていません|包囲が終わりません|理由/;
     c = view(GOOD.notAppliedOwed);
     assert.match(c, /data-siege-order="not_applied"/); assert.match(c, /data-siege-settled="no"/); assert.match(c, GENERAL); assert.doesNotMatch(c, CAUSES);
-    assert.match(c, /預けた資源：返却待ちです。返却の債務として残っており、精算はまだ完了していません。/); assert.match(c, /使用枠と預り金：解放待ちです。/); assert.doesNotMatch(c, /戻りました|戻りません|解放済み/);
+    assert.match(c, /預けた資源：返却待ちです。返却の債務として残っており、まだ結果を受け取っていません。/); assert.match(c, /使用枠と預り金：解放待ちです。/); assert.doesNotMatch(c, /戻りました|戻りません|解放済み/);
     c = view(GOOD.notAppliedHalf);
     assert.match(c, GENERAL); assert.match(c, /預けた資源：戻りました。/); assert.match(c, /使用枠と預り金：解放待ちです。/); assert.match(c, /data-siege-settled="no"/); assert.doesNotMatch(c, CAUSES);
     // CASE 1 — the slot and rent are released, the resources are still owed: both said, and NOT a finished settlement
     c = view(GOOD.notAppliedDebt);
     assert.match(c, GENERAL); assert.match(c, /data-siege-settled="no"/); assert.match(c, /使用枠と預り金：解放済みです。/);
-    assert.match(c, /預けた資源：返却待ちです。返却の債務として残っており、精算はまだ完了していません。/); assert.doesNotMatch(c, /預けた資源：戻りました|戻りません/); assert.doesNotMatch(c, CAUSES);
+    assert.match(c, /預けた資源：返却待ちです。返却の債務として残っており、まだ結果を受け取っていません。/); assert.doesNotMatch(c, /預けた資源：戻りました|戻りません/); assert.doesNotMatch(c, CAUSES);
     // CASE 2 — everything is back: settled; the day's count is still used
     c = view(GOOD.notAppliedSettled);
     assert.match(c, GENERAL); assert.match(c, /data-siege-settled="yes"/); assert.match(c, /預けた資源：戻りました。/); assert.match(c, /使用枠と預り金：解放済みです。/); assert.match(c, /今日の宣言回数：1 \/ 2/);
@@ -212,20 +212,20 @@ test('the lines: each phase says only its facts; returned only when returned; a 
     assert.match(view({ ...GOOD.notAppliedOwed, reason: 'SomeNewReason' }), /記録された理由ではありません）：SomeNewReason/);
     // TERMINAL: lapsed with the season — said as that, with no turn and no cause; without a basis, nothing of how it ended
     const BY_TURN = /予約したターンの処理のときに|先の予約が包囲になりました|ターン 41/, BY_END = /シーズンの終了または中断により、予約は成立しませんでした。/;
-    const NOTE = /返却と解放は、精算の処理が行われたときに反映されます。自動で行われるとは限りません。/;
+    const NOTE = /返却と解放は、包囲の結果を受け取ったときに反映されます。自動で行われるとは限りません。/;
     c = view(LAPSED);
     assert.match(c, /包囲は始まりませんでした（場所 3）。シーズンの終了または中断により、予約は成立しませんでした。今日の宣言回数は1回使われたままです。/); assert.doesNotMatch(c, BY_TURN); assert.doesNotMatch(c, CAUSES);
     assert.match(c, /data-siege-settled="no"/); assert.match(c, /預けた資源：返却待ちです。返却の債務として/); assert.match(c, NOTE);
     c = view(UNKNOWN_END);
     assert.match(c, /包囲は始まりませんでした（場所 3）。予約は成立しませんでした。今日の宣言回数は1回使われたままです。/); assert.doesNotMatch(c, BY_TURN); assert.doesNotMatch(c, BY_END); assert.doesNotMatch(c, CAUSES); assert.match(c, NOTE);
     // SOURCE HOLDING ABSENT: the deposit stays owed; said so, with no promise of when or where; never "returned", never settled
-    const ABSENT = /預けた資源：返却待ちです。返却先の拠点がもうありません。返却の債務として残っており、精算は完了していません。いつ、どこへ戻るかはまだ決まっていません。/;
+    const ABSENT = /預けた資源：返却待ちです。返却先の拠点がもうありません。返却の債務として残っており、まだ結果を受け取っていません。いつ、どこへ戻るかはまだ決まっていません。/;
     for (const f of [{ ...GOOD.notAppliedDebt, source: 'absent' }, { ...LAPSED, source: 'absent', slot: 'released' }, { ...UNKNOWN_END, source: 'absent' }]) {
       c = view(f); assert.match(c, ABSENT); assert.match(c, /data-siege-settled="no"/); assert.match(c, NOTE); assert.doesNotMatch(c, /預けた資源：戻りました|戻りません/); assert.doesNotMatch(c, WON);
     }
     assert.match(view({ ...LAPSED, source: 'absent', slot: 'released' }), /使用枠と預り金：解放済みです。/);
     // a Holding that is there, or not known: the ordinary owed line, not the "no longer exists" one
-    for (const source of ['present', null]) { c = view({ ...GOOD.notAppliedDebt, source }); assert.doesNotMatch(c, /拠点がもうありません/); assert.match(c, /返却の債務として残っており、精算はまだ完了していません。/); }
+    for (const source of ['present', null]) { c = view({ ...GOOD.notAppliedDebt, source }); assert.doesNotMatch(c, /拠点がもうありません/); assert.match(c, /返却の債務として残っており、まだ結果を受け取っていません。/); }
     // nothing promises an automatic return: the note stands while anything is owed, and goes when all is back
     for (const k of ['notAppliedOwed', 'notAppliedHalf', 'notAppliedDebt']) assert.match(view(GOOD[k]), NOTE, k);
     assert.doesNotMatch(view(GOOD.notAppliedSettled), NOTE); assert.doesNotMatch(view({ ...LAPSED, stake: 'returned', slot: 'released' }), NOTE);
@@ -245,13 +245,13 @@ test('the lines: each phase says only its facts; returned only when returned; a 
     setLang('en');
     assert.match(view(GOOD.notAppliedSettled), /The siege did not start \(turn 41; site 3\)\. Its conditions were not met when the reserved turn was processed, or an earlier reservation became the siege\. It still counts as one of today&#39;s declarations\./);
     assert.match(view(GOOD.notAppliedSettled), /<p class="pop-line" data-siege-return="stake">Deposit: returned\.<\/p><p class="pop-line" data-siege-return="slot">Holding slot and rent: released\.<\/p>/);
-    assert.match(view(GOOD.notAppliedDebt), /data-siege-return="stake">Deposit: waiting to be returned\. It is still owed to you; the settlement is not complete\.<\/p><p class="pop-line" data-siege-return="slot">Holding slot and rent: released\.<\/p>/);
+    assert.match(view(GOOD.notAppliedDebt), /data-siege-return="stake">Deposit: waiting to be returned\. It is still owed to you; its result has not been collected yet\.<\/p><p class="pop-line" data-siege-return="slot">Holding slot and rent: released\.<\/p>/);
     assert.doesNotMatch(view(GOOD.notAppliedDebt), /reason|host|leads|no longer/i);
     assert.match(view(GOOD.ordered), /It cannot be cancelled\./);
     for (const f of [...Object.values(GOOD), LAPSED, UNKNOWN_END, { ...LAPSED, source: 'absent' }]) view(f);
     assert.match(view(LAPSED), /The siege did not start \(site 3\)\. The reservation did not take effect because the season ended or was interrupted\./);
-    assert.match(view({ ...UNKNOWN_END, source: 'absent' }), /The holding it came from no longer exists\. It is still owed to you and the settlement is not complete\. When and where it will be returned is not decided yet\./);
-    assert.match(view(UNKNOWN_END), /Returns and releases take effect when a settlement is run\. It may not run automatically\./);
+    assert.match(view({ ...UNKNOWN_END, source: 'absent' }), /The holding it came from no longer exists\. It is still owed to you and its result has not been collected yet\. When and where it will be returned is not decided yet\./);
+    assert.match(view(UNKNOWN_END), /Returns and releases take effect when the siege(?:'|&#39;)s result is collected\. That may not happen automatically\./);
     for (const reason of O.SIEGE_ORDER_REASONS) assert.doesNotMatch(view({ ...GOOD.notAppliedOwed, reason }), new RegExp(`not a recorded reason\\): ${reason}<`), reason);
     String(hand.siegeOrderView({ ok: false, code: 'X' })); card(null);
     assert.deepEqual(missingKeys().filter(k => /包囲|予約|預けた資源|使用枠|宣言回数|軍勢が|都市はもう|シーズンの終わり|導出|返却|精算|シーズンの終了/.test(k)), []);

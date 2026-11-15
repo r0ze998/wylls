@@ -534,7 +534,7 @@ test('the city\'s present state on the card: your siege with its own numbers, a 
     await read({ state: 'siege', site: 3, progress: 2, required: 5, declared_bell: '19' }); assert.match(cardOf(p), /2 \/ 5 ターン/);
     // a capture due: the due turn, no progress figure, not yours yet
     await read({ state: 'capture_due', site: 3, due_bell: '55', declared_bell: '19' });
-    c = cardOf(p); assert.match(c, /占領の精算待ちです（ターン 55 以降・宣言はターン 19・場所 3）/); assert.doesNotMatch(c, /\d+ \/ \d+ ターン/); assert.doesNotMatch(c, /あなたが所有しています|占領しました/);
+    c = cardOf(p); assert.match(c, /占領の結果を受け取るのを待っています（ターン 55 以降・宣言はターン 19・場所 3）/); assert.doesNotMatch(c, /\d+ \/ \d+ ターン/); assert.doesNotMatch(c, /あなたが所有しています|占領しました/);
     // yours NOW: a present fact; no "captured", no "won"
     await read({ state: 'owned', site: 3, slot: 2, generation: 1 }, [], { table: 'absent' });
     c = cardOf(p); assert.match(c, /data-siege-city="owned"/); assert.match(c, /この都市はいま、あなたが所有しています（場所 3・拠点の枠 2）。いま所有しているという事実だけを表示しています。/);
@@ -570,7 +570,7 @@ test('the city\'s present state on the card: your siege with its own numbers, a 
     await read({ state: 'siege', site: 3, progress: 1, required: 36, declared_bell: '19' }, [{ seq: 4, facts: orderFacts({ order_bell: '23' }) }]);
     c = cardOf(p); assert.match(c, /data-siege-order="ordered"/); assert.match(c, /data-siege-city="siege"/);
     // another player's: never "your"
-    for (const [what, re] of [['siege', /別のプレイヤーの包囲が進行中です/], ['holding', /いま、別のプレイヤーが所有しています/], ['capture_due', /別のプレイヤーの包囲が占領の精算待ちです/], ['slot_owed', /別のプレイヤーの包囲に関する記録があります/]]) {
+    for (const [what, re] of [['siege', /別のプレイヤーの包囲が進行中です/], ['holding', /いま、別のプレイヤーが所有しています/], ['capture_due', /別のプレイヤーの包囲が占領の結果を待っています/], ['slot_owed', /別のプレイヤーの包囲に関する記録があります/]]) {
       await read({ state: 'other', site: 3, what }, [], what === 'holding' ? { table: 'absent' } : {}); c = cardOf(p); assert.match(c, re, what); assert.doesNotMatch(c, /あなたの包囲|あなたが所有/, what);
     }
     // a state of ANOTHER site is not this city's: nothing of it is shown
