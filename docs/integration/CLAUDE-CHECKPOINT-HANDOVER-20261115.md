@@ -78,7 +78,7 @@ no node_modules); docs/integration/CLAUDE-CONQUEST-RESERVATION-VECTORS-20261112.
   deferred) and two scenes that time out in the full run and pass alone; frontier.screen.mjs cannot load here (axe-core is not installed in the shared screens
   node_modules) — not run.
 
-## 5b. Latest-HEAD build: NOT DONE (disk); live33 on OLD binaries: DONE (2026-11-15 12:09–13:02 JST)
+## 5b. Latest-HEAD build: DONE (5c2dc607, live34 14:49–15:38 JST); live33 on OLD binaries: DONE (12:09–13:02 JST)
 - No HEAD build was made and no world was started after live32. Reason: disk. Free 21.65 GiB; a world must start at
   ≥ 21 GiB free (guard: 110 MiB output / free < 21 GiB, unchanged); a HEAD build needs ~3–4 GiB (runner + herald alone
   took 2.38 GiB in scratch target-resident-fix), so build + world needs ~24.5–25 GiB free (short ~3–3.5 GiB).
@@ -107,8 +107,12 @@ no node_modules); docs/integration/CLAUDE-CONQUEST-RESERVATION-VECTORS-20261112.
   needs ~25 GiB free (a world must start at ≥ 21 GiB after the build). Freeing the two skipped items when their apps are
   idle would give ~26 GiB. Re-checked 13:11: 24.40 GiB < 25 GiB → no build started (Steam's cleanup is another
   owner's; not touched here).
-- Two scopes, never mixed: (1) latest-HEAD build reproduction — NOT DONE; (2) live33 — old pinned binaries + HEAD page,
-  x30 synthetic clock — DONE (same-host repeat move and a keep capture).
+- Two scopes, never mixed: (1) a build of 5c2dc607 and a world on it (live34: capture demo ×30, one ordinary wallet:
+  train → form → march → recover → march again (same host id) → fort taken) — DONE, record
+  docs/integration/CLAUDE-HEAD-BUILD-LIVE34-20261115.md; the built binaries stay at
+  /Users/r0ze/Projects/wylls-headbuild-5c2dc607-20261115-target-node (1.12 GiB) and -target-sbf (0.24 GiB), the export at
+  /Users/r0ze/Projects/wylls-headbuild-5c2dc607-20261115 (evidence: never removed without the owner's approval);
+  (2) live33 — old pinned binaries + HEAD page, ×30 — DONE. Neither is a natural-speed world.
 - Fixed in round 44 (fixture-proven): the "About this test world" box covered the feed's notices (live33). The first
   probes missed it (a hand-made toast the page re-rendered away; then a hit test that passed through the box's
   pointer-events: none); with the page's own notice and a hit test that sees the box, HEAD showed the box on top. Cause:

@@ -25,23 +25,23 @@ screens fixture; a world is a local test world (in-memory chain), never a public
 | retake after 288 protected turns | — | in-process tests only; not through the page |
 
 ## Unverified (each is open; none is claimed)
-1. **A world on binaries built from the current commit.** Every world so far used binaries built 2026-11-14 from a
-   snapshot tree; the pinned herald's fold.rs/lib.rs/main.rs match neither this commit nor canonical's working tree.
-   Blocked here by disk: build (~3–4 GiB) + a world (≥ 21 GiB free after, this lane's guard) needs ~25 GiB free; free is
-   ~24.5 GiB. Not to be worked around (no deletion beyond the owner's approved list, no relaxed guard).
+1. ~~A world on binaries built from the current commit.~~ **Done 2026-11-15 (live34)** for the capture demo at ×30:
+   binaries and page built from 5c2dc607 (isolated export, guarded); one ordinary wallet trained, formed a host, marched,
+   recovered, marched again with the same host and took another nation's fort (turn 123–129). Record:
+   docs/integration/CLAUDE-HEAD-BUILD-LIVE34-20261115.md. Still not shown on those binaries: a natural-speed world.
 2. A build and start from a fresh clone on another machine (an empty cargo cache included).
 3. The natural world (1×, real time) end to end: a march at 600 s per turn has not been played through on screen in
    this lane (the worlds above were ×10/×30 synthetic).
 4. Area expansion for one ordinary player in a natural world: not possible by the rules (a ring opens only at θ
    occupancy of a wedge; heartland keeps never count). Expansion on screen exists only in the TEST-ONLY capture demo.
 5. A second human defending or retaking through the page (the 2026-11-14 pair showed a defence breaking the count once).
-6. Rounds 33c–46 (page) in a world: rounds 35–46 are fixture/unit only; live33 used the page of 2cd30f23 (rounds up to
-   42) and showed 33c's stamina estimates and 42's English.
+6. Rounds 33c–46 (page) in a world: live34 showed rounds 43 (Hosts tab while marching) and 46 (the guide stays at the
+   march); rounds 44–45 (the test-world box over a notice; the waiting send's notices) did not come up in live34 (every
+   send went on its first press).
 7. Phone layout (deferred by the owner: PC first).
 
 ## Next, in order
-1. When free space is strictly ≥ 25 GiB: isolated build of this commit (target ≤ 4 GiB, conquest-guard.sh unchanged),
-   record the binaries' hashes, then one short ordinary-wallet world (capture demo, ×30, TTL 60, the same guard) to
-   repeat live33 on those binaries — that closes item 1 and shows rounds 43–46 live.
+1. Done (live34). Next for a first playable version: decide whether the first version is the capture demo (TEST-ONLY,
+   compressed) or the natural world (one player: no expansion by the rules); then a fresh-clone build on another machine.
 2. Until then: keyless fixture regressions of the first-session path (start → train → form → march), and static checks
    of the guide against the launcher's own usage text.
