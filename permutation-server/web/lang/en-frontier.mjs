@@ -25,7 +25,7 @@ export default {
   '読み取り中…': 'Reading…',
   '確認できません': 'Inspection unavailable',
   '確認結果': 'Inspection result',
-  '記録のスロット': 'Snapshot slot',
+  '観測のスロット': 'Snapshot slot',
   '鮮度は不明です。権限や完了を証明する結果ではありません。': 'Freshness is unknown. Server observations do not prove authority or completion.',
   '次に必要な確認': 'Next prerequisite',
   '実行できない役割案': 'Non-executable role proposal',
@@ -381,6 +381,8 @@ export default {
   "試しの実行でこの取引は失敗しました": "The transaction failed in simulation.",
   "資源": "Resources",
   "軍勢": "Hosts",
+  // (one host whose troops are not known yet: a line's subject; the tabs and lists say 軍勢 / "Hosts")
+  "この軍勢": "This host",
   "軍勢はいません。村で兵を訓練し、軍勢を編成してください。": 'No hosts yet. Train troops and form a host on the Village tab.',
   "軍勢を編成する": "Form a host",
   "農場": "Farm",

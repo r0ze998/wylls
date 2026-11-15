@@ -1013,4 +1013,4 @@ export function widestPlace(all) {
 }
 
 /** A host of the viewer's by name for a line: 「槍兵 200」. */
-export const hostName = row => (row ? unitCount(UNIT_ORDER[row.unit], row.troops) : L`軍勢`);
+export const hostName = row => (row ? unitCount(UNIT_ORDER[row.unit], row.troops) : L`この軍勢`);

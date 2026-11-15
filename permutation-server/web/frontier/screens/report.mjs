@@ -842,7 +842,7 @@ export function render(FS, mine = () => false, { whatIf = true, ownerOf = null, 
         <details class="report-proof fold" data-fold="rep-proof"><summary><span class="fold-sum">${L`検証の詳細`}</span>${icon('chevron', 'fold-mark')}</summary><div class="fold-body">${provenance}${steps}</div></details>
       </div>
     </div>
-    <footer class="doc-foot">${cq ? html`<p class="rep-recheck">${icon('check')}<span><strong>${L`戦い：公開された記録から、このブラウザで計算し直します`}</strong>${Number.isFinite(Number(rep.slot)) && rep.slot !== null && rep.slot !== undefined ? html` <span class="muted">${L`（記録のスロット ${fmtNum(Number(rep.slot))}）`}</span>` : ''}</span></p>` : ''}<div class="actions"><button type="button" class="btn" data-act="report-verify" ${raw(r.verifying ? 'disabled' : '')}>${icon('check')}${r.verifying ? L`確かめています…` : L`このブラウザで確かめる`}</button>
+    <footer class="doc-foot">${cq ? html`<p class="rep-recheck">${icon('check')}<span><strong>${L`戦い：公開された記録から、このブラウザで計算し直します`}</strong>${Number.isFinite(Number(rep.slot)) && rep.slot !== null && rep.slot !== undefined ? html` <span class="muted">${L`（記録のスロット ${fmtNum(Number(rep.slot))}）`}</span>` : ''}</span></p>` : ''}<div class="actions"><button type="button" class="btn" data-act="report-verify" ${raw(r.verifying ? 'disabled' : '')}>${icon('check')}${r.verifying ? L`照合しています…` : L`このブラウザで確かめる`}</button>
       ${whatIf ? html`<button type="button" class="btn" data-act="report-whatif" ${raw(v?.args ? '' : 'disabled')}>${icon('swords')}${L`練習で試す（もしも）`}</button>` : ''}</div>
       ${verdict}
       ${whatIf && !v?.args ? html`<p class="muted">${v?.result === 'match' ? (rows.some(x => x.keep) ? L`「練習で試す」は、この戦いでは使えません（砦の守備兵がいる戦いは、まだ練習に写せません）。` : L`「練習で試す」は、この戦いでは使えません。`) : L`「練習で試す」は、このブラウザで確かめた後に使えます。`}</p>` : ''}</footer>

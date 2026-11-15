@@ -52,7 +52,7 @@ export default {
   '構え': 'Stance',
   '倍率': 'Ratio',
   'マス': 'Tile',
-  '軍勢': 'Host',
+  '軍勢: {0}': 'Host: {0}',
   '所有者': 'Owner',
   // Outbound geometry preparation, not an executable order.
   "境界への道を準備": "Prepare a boundary route",

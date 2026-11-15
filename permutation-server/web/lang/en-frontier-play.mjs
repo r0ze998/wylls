@@ -260,7 +260,9 @@ export default {
   '入力の要約': 'Input digest',
   '結果の要約': 'Outcome digest',
   '交戦': 'Engagements',
-  '確かめています…': 'Verifying…',
+  // (the clash report's button while it recomputes the clash from the public record; the action bar's own check says
+  // 確かめています… / "Checking…")
+  '照合しています…': 'Verifying…',
   'このブラウザで確かめる': 'Verify in this browser',
   '練習で試す（もしも）': 'Try it in practice (what if)',
   '「練習で試す」は、このブラウザで確かめた後に使えます。': '“Try it in practice” becomes available once the clash is verified in this browser.',

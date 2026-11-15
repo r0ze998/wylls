@@ -26,7 +26,7 @@ export const ORDER_ICON = Object.freeze({ harvest: 'grain', build: 'hammer', wal
 
 /** An order in one line, as the list says it: what was ordered, and what it waits for. `now`: chain seconds. */
 export function orderText(FS, o, now = FS.chain?.now?.() ?? 0) {
-  const who = Number.isInteger(o.unit) && Number.isFinite(o.troops ?? o.n) ? unitCount(UNIT_ORDER[o.unit], o.troops ?? o.n) : L`軍勢`;
+  const who = Number.isInteger(o.unit) && Number.isFinite(o.troops ?? o.n) ? unitCount(UNIT_ORDER[o.unit], o.troops ?? o.n) : L`この軍勢`;
   const left = Number.isFinite(o.doneAt) && o.doneAt > now ? L`あと ${took(o.doneAt - now)}` : L`完成`;
   switch (o.kind) {
     case 'harvest': return L`収穫を蔵に納めました`;

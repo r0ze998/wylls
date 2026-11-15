@@ -666,7 +666,7 @@ function outboundPop(FS, model) {
     <div aria-live="polite">${reason && s.error !== 'SourceChanged' ? html`<p class="pop-line pop-why">${reason}${!['ChooseSteps', 'WideDestinationRequired', 'ArrivalRequired'].includes(s.error) ? ` (${s.error})` : ''}</p>` : ''}
     ${review ? html`<p class="pop-line">${L`136 バイトの平文案です。封印・署名・送信は行っていません。`}</p>
       <details><summary>${L`平文の全バイトを確認`}</summary><p class="pop-line" style="overflow-wrap:anywhere">${review.plainHex}</p></details>
-      <details><summary>${L`出発点・軍勢・州の識別子`}</summary><p class="pop-line" style="overflow-wrap:anywhere">${L`軍勢`}: ${review.host}</p>
+      <details><summary>${L`出発点・軍勢・州の識別子`}</summary><p class="pop-line" style="overflow-wrap:anywhere">${L`軍勢: ${review.host}`}</p>
         <p class="pop-line" style="overflow-wrap:anywhere">${L`所有者`}: ${source.original_owner}</p>
         <ol>${review.accountKeys.map(key => html`<li style="overflow-wrap:anywhere">${key}</li>`)}</ol></details>
       ${review.roles ? html`<p class="pop-line">${L`観測した空き行軍枠の候補`}: ${review.transitSlot} · ${L`現在も使えるとは確認できていません。`}</p><details><summary>${L`実行できない役割案`}</summary><ul>${review.roles.map(r => html`<li style="overflow-wrap:anywhere">${r.name}: ${r.address} · ${r.signer ? L`署名が必要` : L`署名不要`} · ${r.writable ? L`書き込み役割` : L`読み取り役割`}</li>`)}</ul></details>` : html`<p class="pop-line pop-why">${L`正規の役割案はまだ利用できません。`}</p>`}
@@ -696,7 +696,7 @@ function expeditionPop(FS, model) {
       ${state.error ? html`<p class="pop-line pop-why">${L`確認できません`}: ${state.error}</p>` : ''}
       ${report ? html`<p class="pop-line">${L`確認結果`}: ${report.status} · ${report.stage}</p>
         ${report.blocker ? html`<p class="pop-line pop-why">${report.blocker.code}</p>` : ''}
-        <p class="pop-line">${L`記録のスロット`}: ${source.context_slot ?? '?'} · ${L`鮮度は不明です。権限や完了を証明する結果ではありません。`}</p>
+        <p class="pop-line">${L`観測のスロット`}: ${source.context_slot ?? '?'} · ${L`鮮度は不明です。権限や完了を証明する結果ではありません。`}</p>
         ${returnError ? html`<p class="pop-line pop-why">${L`帰還の手順を確認できませんでした。もう一度読み取ってください。`}</p>` : ''}
         ${returning ? html`<section class="expedition-return" data-return-phase="${returning.phase}" aria-label="${L`帰還の手順`}">
           <p class="pop-line"><strong>${t(returning.titleJa)}</strong></p>
