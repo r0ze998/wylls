@@ -141,3 +141,12 @@ verified. Heavy builds and worlds stay serial, in this session, after a report (
   (UNVERIFIED WIP) + this branch; shared paths only herald Cargo.toml (kept both) and fold.rs (auto-merged; Rust not
   compiled). Ordinary subset 1967/1966/0 fail on 800f5d98. Handover: that branch's
   docs/integration/CLAUDE-CANONICAL-CANDIDATE-20261116.md. Canonical branch, tree and index untouched.
+
+## 2026-11-16 09:05 JST — candidate Rust (land scope) all pass; two open items closed by reading
+- Candidate 8ac3d4e8: herald (both features on the merged fold.rs, default, land_capture 2, expedition_records 1, lib 65),
+  rules land 19 / default 175, abi land 9 / default 115, program check with/without land-preview, map_growth 10, itest
+  land_lane 3 — guarded (conquest-guard 94baeb7d + floor 21 GiB, deadline 10:30), APFS-clone target, nothing fired,
+  pinned play2 binaries untouched. Not run: program default lib (NFT-resident paths), SBF build, any world.
+- Land doc item 5 ("Territory N tiles" = nation over provinces read): already gone — no page file uses `landTotals`
+  since db6eef59 (the chip is landSummary, plus the far part of c46b6768).
+- Lane C O1: cannot occur for seasons this program creates (CreateSeason takes only this binary's S1 version).

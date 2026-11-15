@@ -111,3 +111,10 @@ Whether such a season still exists needs the season matrix. That is outside this
 ### O2 — what the program uses when the terrain is unknown
 
 While the map has not read the terrain, `seasonBase` returns `null` for ore and `copyNumber` falls back to the M1 base. The program never has this "unknown" state. The fallback is documented on the page and is left as it is.
+
+## O1 answered by reading (coordinator, 2026-11-16)
+`permutation-frontier/src/proc/season.rs` `create_params_ok` accepts a season only with EXACTLY this binary's
+`PROGRAM_VERSION` (`lib.rs`: `PROGRAM_VERSION_S1`, or 0x4804 = 18436 in the localnet expedition lane). Both pass the
+page's S1 test (`fs1.mjs` `s1Season`: layoutVersion 2 and programVersion ≥ 4). So a season this program creates is
+never an MC (programVersion 3) season, and the three places of O1 cannot disagree with it. A season created by an
+older program would have that program's own rules. No change made.
