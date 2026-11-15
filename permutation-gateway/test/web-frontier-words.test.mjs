@@ -22,6 +22,7 @@ import { hostId } from '../../permutation-server/web/frontier/faddr.mjs';
 import { placeName } from '../../permutation-server/web/frontier/people/identity.mjs';
 import enFrontier from '../../permutation-server/web/lang/en-frontier.mjs';
 import enPlay from '../../permutation-server/web/lang/en-frontier-play.mjs';
+import enHand from '../../permutation-server/web/lang/en-frontier-hand.mjs';
 
 const WEB = fileURLToPath(new URL('../../permutation-server/web/frontier/', import.meta.url));
 const walk = d => readdirSync(d).flatMap(n => { const p = join(d, n); return statSync(p).isDirectory() ? (/[\\/](council|wasm|art)$/.test(p) ? [] : walk(p)) : /\.(mjs|html)$/.test(n) ? [p] : []; });
@@ -74,6 +75,13 @@ test('the internal words are off the play screen: where each may still be said',
       if (detail.test(out)) assert.match(key, /ビーコン|乱数|ランポート|frontier\.wasm|キーパー|要約|quicknet|ローカルネット|公開の乱数/, `${name} ${JSON.stringify(key)}: an internal word in the English of a play-screen text`);
     }
   }
+});
+
+test('round 40: the action bar\'s English says no "settle" either (決着 "resolved", 納める "store", 確定 "confirmed")', () => {
+  // (a key whose Japanese still says 精算 is the Japanese check's to flag — the test above —, not this one's)
+  const settle = /\b(is|are|was|be|been|not|until) settled\b|\bsettl(e|es|ing)\b|settlement/i;
+  const said = Object.entries(enHand).filter(([key, value]) => !/精算/.test(key) && settle.test(typeof value === 'function' ? value(2, 2, 2, 2) : value)).map(([key]) => key);
+  assert.deepEqual(said, [], 'en-frontier-hand: "settle" in the English');
 });
 
 test('a unit with its count, a province in words: names before coordinates', () => {

@@ -274,9 +274,9 @@ export default {
   '探索の結果が、次のターンのはじめに出ます': 'The exploration\'s result comes early in the next turn',
   '結果はターン {0} のはじめに出ます': 'The result comes early in turn {0}',
   '結果はターン {0} のはじめに出ます。': 'The result comes early in turn {0}. ',
-  '結果は、探索したターンの決着のあとに出ます。': 'The result comes once the turn it was sent in is settled. ',
-  '結果は、探索したターンの決着のあとに出ます': 'The result comes once the turn it was sent in is settled',
-  'いまは納めるものがありません（命令のたびに蔵は納められます）。蔵は毎時 +{0} 増えています': 'Nothing to settle now (every order settles the stores). They are growing by +{0} an hour',
+  '結果は、探索したターンの決着のあとに出ます。': 'The result comes once the turn it was sent in is resolved. ',
+  '結果は、探索したターンの決着のあとに出ます': 'The result comes once the turn it was sent in is resolved',
+  'いまは納めるものがありません（命令のたびに蔵は納められます）。蔵は毎時 +{0} 増えています': 'Nothing to store now (every order writes the harvest into the stores). They are growing by +{0} an hour',
   '{0}が終わります（あと {1}）': '{0} is finished ({1} left)',
 
   // ---- the map's answers while an order is placed (app.mjs)
@@ -323,7 +323,7 @@ export default {
   'この操作は反映されませんでした。送った取引は有効期限を過ぎ、記録されていません。署名 {0}': 'This action did not take effect. The transaction sent has passed its validity and was not recorded. Signature {0}',
   // (a held city is not besieged; a step of another host or wallet that is not settled is asked about on its own card)
   'この都市はすでに所有されています。包囲の予約は送れません。': 'This city is already held. A siege reservation cannot be sent.',
-  '別の軍勢またはウォレットで送った包囲の結果が、まだ確定していません。その軍勢のカードで結果を照合してください。': 'A siege sent with another host or wallet is not settled yet. Check its result on that host\'s card.',
+  '別の軍勢またはウォレットで送った包囲の結果が、まだ確定していません。その軍勢のカードで結果を照合してください。': 'A siege sent with another host or wallet has no confirmed result yet. Check its result on that host\'s card.',
   // (the read-only reservation read, flocalplay-conquest.mjs: only what a verified table record bears out)
   '包囲予約の状態を読む（ローカルプレイ）': 'Read the siege reservation state (local play)',
   '予約の状態を読み取っています…': 'Reading the reservation state…',
