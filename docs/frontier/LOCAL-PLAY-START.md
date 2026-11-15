@@ -149,11 +149,18 @@ command (refused without the demo):
   A world started with one word is never reopened with another word, or without it.
 
 ### Then
-1. Open `http://localhost:41920/` and press 「新しい世界を開始」.
-2. Choose a nation and press 「…で始める」 (Join, then PlaceHome).
-3. Build, train (訓練), then muster (編成). The army can act once the keeper has resolved the turn, about 17 minutes
-   later at 1×.
-4. Use 進軍 to choose a destination, then press 「封をして出発する」. The keeper settles the march by itself.
+The page follows the browser's language; the top-right button switches Japanese ⇄ English. English labels in brackets
+(as the page showed them on 2026-11-15).
+1. Open `http://localhost:41920/` and press 「新しい世界を開始」 [Start a new world]. A contest pair starts only when a
+   second tab presses it too (§3 (3)).
+2. Choose a nation [Choose a nation → Join <nation>]. The first village is placed for you.
+3. Build, train (訓練) [Train], then muster (編成) [Form a host]. The army can act once the keeper has resolved the turn,
+   about 17 minutes later at 1×. While the province is still resolving the last turn, the muster card's one press is
+   held and sent once it can be.
+4. Use 進軍 [March] (or [March on a keep] on the demo) to choose a destination, then press the order card's send button
+   [Send this order]. The keeper settles the march by itself. In local play, while the province is still resolving the
+   last turn, the press waits [Waiting to send]; if the order changes meanwhile (its arrival turn moves), the wait is
+   cancelled and nothing is sent: check the card and press again.
 5. On the demo only: once the next ring is open, the guide offers 「届く砦を見る」 and the fort list 「届く砦」.
    A march onto a fort starts its hold count, 「…争奪中 N/72ターン」.
 6. To stop, press Ctrl-C in the launcher's terminal. It ends every world of that launcher.
@@ -196,8 +203,18 @@ command (refused without the demo):
   (checked in a real browser, 2026-11-14, for the play read). The season read that moves the page's clock is now woken
   the same way and by the re-read button; that part is proven by tests only, not yet in a real browser. When the view is behind, the banner on local play says not to reload
   (that would lose the world's key) and offers 「最新の状態を読み直す」, which only reads.
+- **One player, the same host twice, then a capture (2026-11-15; OLD binaries, not a build of this page's commit):**
+  live32 (×10, natural preset + demo + pair, page of 427c4963): one host marched, arrived, recovered to 74 stamina and
+  marched again (the same host id on both legs, read from the herald's records). live33 (×30, page of 2cd30f23): one host
+  marched to a plain tile, arrived, recovered, marched onto another nation's fort and held it 72 turns; at turn 141 the
+  fort passed to the player's nation. Both used binaries built 2026-11-14 from a snapshot tree (the herald's sources
+  differ from this branch's commit); the second tab only pressed start. A build of the current commit has not run a world.
+- **What one ordinary player can do, by the rules:** in a natural world (1), alone: home, economy, army and ordinary
+  marches, but **no area expansion or capture** (see above). Taking another nation's fort on screen needs the capture
+  demo (2) or (3): TEST-ONLY, compressed clock, test participants.
 - **The retake** (after the 288 protected turns) is proven only by the in-process tests on the real program, on a
   compressed clock. It is not proven through the page.
-- **Not run:** a build and start from a fresh clone on another machine.
+- **Not run:** a build and start from a fresh clone on another machine; any world on binaries built from this branch's
+  current commit (the worlds above used earlier builds).
 - **Not checked here:** the runner crate's `localnet-conquest-play` feature set (the contest pair does not need it), and
   the wide-world experimental features.
