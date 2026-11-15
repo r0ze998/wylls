@@ -43,10 +43,32 @@ to assert local play refuses while a prize is set (a source-text check).
   conquest-press 10, march-block-reasons 16, return-card 2; `scripts/play2-land-ops/tests` 17/17 (dummy processes).
 - e74a0d92 (before the far-land chip): the same — 1966 tests, 1965 pass, 0 fail.
 
+## Rust on the candidate (2026-11-16 08:50–09:00 JST, 6a7284a5) — guarded, land-only, all pass
+Preconditions measured: free 22.87 GiB; no cargo/rustc/build-sbf, launcher, world or ffmpeg; 0 listeners on
+40000–41999. Target: a NEW folder `wylls-canonical-candidate-20261116-target`, an APFS copy-on-write clone of the land
+target (free unchanged by the clone; the original and its pinned play2 binaries untouched — herald cd5a9281…, natural
+runner f00415a2… re-checked after). Each command under conquest-guard.sh (unchanged, 94baeb7d: 4 GiB target, 20 GiB
+free, 30 min) inside an outer floor (floor21.sh 99dbed44: free < 21 GiB or deadline 10:30 JST → TERM the guard's
+own cargo group, checked by ppid/pgid/command). Serial; no workspace-wide build, no full suite; nothing fired.
+| package (workspace) | command | result |
+|---|---|---|
+| herald (frontier-node) | `check --features land-preview,expedition-records-experimental` (the merged fold.rs) | ok |
+| herald | `check` (default) | ok |
+| herald | `test --features land-preview --test land_capture` | 2/2 |
+| herald | `test --features expedition-records-experimental --test expedition_records` (WIP side of the merge) | 1/1 |
+| herald | `test --lib` (default) | 65/65 |
+| permutation-rules (root) | `test --features land-preview --lib land` / `test --lib` | 19/19 / 175/175 |
+| frontier-abi | `test --features land-preview --lib land` / `test --lib` | 9/9 / 115/115 |
+| permutation-frontier (host) | `check --features land-preview` / `check` | ok / ok |
+| permutation-frontier | `test --features land-preview --lib map_growth` | 10/10 |
+| itest (frontier-node) | `test --features localnet-land-play --lib land_lane` | 3/3 |
+Peak target 2.7 GiB apparent (clone included), free ≥ 22.18 GiB throughout; no process left; nothing deleted (the clone
+target stays). Not run: the program's default lib tests (they reach NFT-resident paths), any SBF build, herald
+`real_chain`, any world. No change to the candidate was needed.
+
 ## Left before canonical takes it
 1. The canonical owner checks bcc63a24 on its own (it is unverified).
-2. Rust: build and test `frontier-herald` with and without `land-preview` (and `expedition-records-experimental`), the
-   rules/abi/program `land-preview` tests — only within the unchanged build guard and the free-space floor.
+2. Rust: DONE for the land scope above (2026-11-16). Still open: an SBF build of the land program from this tree.
 3. Decide on the `.orig` file; allocate the land tags (0xCD/0xCE provisional).
 4. A real TEST-ONLY world with the owner's go (ops: `scripts/play2-land-ops/`, fail-closed; never run for real yet):
    none of the fixes since land5 (block reasons, S1 ore, English, return card, far-land chip) has been seen in a world.
