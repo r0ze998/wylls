@@ -53,21 +53,23 @@ export const BONUS = Object.freeze({ PER_TILE_BPS: 200, CAP_BPS: 3000 });
 
 /**
  * What the viewer's holding `h` (`{p, q}` of its province) has of the land preview, or null without a land record
- * there: `{tiles, claimed, bonusPct}` — the viewer's nation's tiles over the provinces read, and the production bonus
- * the program pays this holding: `min(claimed in its province × 2% / its nation's villages there, 30%)`.
+ * there: `{claimed, tiles, bonusPct}` — ONLY that province's record: the tiles the viewer's nation has claimed there
+ * (not village land), all its tiles there, and the production bonus the program pays this holding:
+ * `min(claimed × 2% / its nation's villages there, 30%)`. It never depends on how many other provinces the page has
+ * read (the line once summed every province read, so it jumped when the camera moved).
  */
 export function landSummary(FS, h, f) {
   if (!h || !Number.isInteger(f)) return null;
   const env = FS?.provinces?.get?.(`${h.p},${h.q}`);
   if (!env?.land) return null;
   const villages = (env.province?.siteMirror ?? []).filter(s => s?.state === 1 && s?.faction === f).length;
-  const bps = villages > 0 ? Math.min(Math.floor((env.land.claimed[f] ?? 0) * BONUS.PER_TILE_BPS / villages), BONUS.CAP_BPS) : 0;
-  const { tiles, claimed } = landTotals(FS, f);
-  return { tiles, claimed, bonusPct: bps / 100 };
+  const claimed = env.land.claimed[f] ?? 0;
+  const bps = villages > 0 ? Math.min(Math.floor(claimed * BONUS.PER_TILE_BPS / villages), BONUS.CAP_BPS) : 0;
+  return { claimed, tiles: env.land.totals[f] ?? 0, bonusPct: bps / 100 };
 }
 
-/** The strip's land line: "Territory 14 tiles · production +16%" (nothing without a land record). */
+/** The strip's land line: "Claimed here: 9 tiles · production +1.5%" (nothing without a land record). */
 export function renderLandChip(s) {
   if (!s) return '';
-  return html`<span class="land-chip" data-land-tiles="${s.tiles}" data-land-bonus="${s.bonusPct}" title="${L`領土の試験（テスト用の世界）`}">${L`領土 ${fmtNum(s.tiles)} マス · 生産 +${fmtNum(s.bonusPct)}%`}</span>`;
+  return html`<span class="land-chip" data-land-claimed="${s.claimed}" data-land-tiles="${s.tiles}" data-land-bonus="${s.bonusPct}" title="${L`領土の試験（テスト用の世界）：この村の州で軍勢が立って広げたマスと、その分の生産の上乗せです。`}">${L`この州で獲得 ${fmtNum(s.claimed)} マス · 生産 +${fmtNum(s.bonusPct)}%`}</span>`;
 }
