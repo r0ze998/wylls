@@ -31,6 +31,22 @@
 //! actions and marches happen before W4-A/W4-C land, and the conditions
 //! that need the missing units are reported `PENDING`, never `PASS`.
 
+#[cfg(feature = "localnet-expedition-play")]
+pub mod expedition_play;
+#[cfg(feature = "localnet-expedition-play")]
+pub mod local_keeper;
+#[cfg(feature = "localnet-expedition-play")]
+pub mod keeper_loop;
+#[cfg(feature = "localnet-expedition-play")]
+pub mod origin_driver;
+#[cfg(feature = "localnet-expedition-play")]
+pub mod wide_destination;
+#[cfg(feature = "localnet-expedition-play")]
+pub mod destination_driver;
+#[cfg(all(test, feature = "localnet-expedition-play"))]
+mod destination_real;
+#[cfg(feature = "localnet-expedition-play")]
+pub mod resident_bells;
 pub mod checks;
 pub mod day;
 pub mod direct;

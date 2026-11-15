@@ -230,3 +230,7 @@ pub mod expedition_retained_failure_event;
 
 pub mod expedition_reverse_reveal;
 pub mod expedition_dispatch_ix;
+pub mod expedition_reverse_terminal_ix;
+pub mod expedition_reverse_terminal_event;
+pub mod expedition_reverse_settlement_ix;
+pub mod expedition_reverse_settlement_event;

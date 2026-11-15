@@ -113,6 +113,10 @@ async fn main_inner() -> Result<(), String> {
     if a.contains_key("wide-index") || a.get("source").is_some_and(|s| s == "read-only") {
         return Err("--wide-index / read-only require feature wide-index-read-experimental".into());
     }
+    #[cfg(not(feature = "local-play-bootstrap"))]
+    if a.contains_key("local-play-metadata") {
+        return Err("--local-play-metadata requires feature local-play-bootstrap".into());
+    }
     match a.get("fixture").map(String::as_str) {
         Some("conquest") => return fixture_conquest(&a).await,
         Some(x) => return Err(format!("--fixture {x}: only `conquest`")),
@@ -170,11 +174,40 @@ async fn main_inner() -> Result<(), String> {
             .map(|v| v.parse().unwrap_or(200))
             .unwrap_or(200),
     );
+    // Opt-in local-play bootstrap: checked before the data directory is
+    // created or any archive opened (a new/empty directory, the localnet
+    // source, a loopback RPC, the runner's own program/season/RPC).
+    #[cfg(feature = "local-play-bootstrap")]
+    let local_play = match a.get("local-play-metadata") {
+        None => None,
+        Some(path) => {
+            use herald_fold::local_play;
+            if read_only || a.get("source").map(String::as_str).unwrap_or("localnet") != "localnet" {
+                return Err("--local-play-metadata needs --source localnet".into());
+            }
+            local_play::loopback_rpc(&rpc)?;
+            local_play::loopback_listen(&listen)?;
+            local_play::fresh_data_dir(&data)?;
+            let text = std::fs::read_to_string(path).map_err(|e| format!("--local-play-metadata: {e}"))?;
+            let e = local_play::expected(&text, &program, season, &rpc)?;
+            let snap = local_play::read(&rpc, &e).await?;
+            local_play::check(&e, &snap)?;
+            Some((e, snap))
+        }
+    };
     let (diffs, _) = broadcast::channel(4_096);
     let ing = if read_only {
         None
     } else {
         Some(Ingest::open(cfg.clone(), diffs.clone())?)
+    };
+    #[cfg(feature = "local-play-bootstrap")]
+    let local_play_status = match (&local_play, &ing) {
+        (Some((e, snap)), Some(ing)) => {
+            let mut f = ing.fold.write().map_err(|_| "fold lock poisoned")?;
+            Some(herald_fold::local_play::seed(&mut f, e, snap)?)
+        }
+        _ => None,
     };
     let fold = match &ing {
         Some(ing) => ing.fold.clone(),
@@ -200,6 +233,10 @@ async fn main_inner() -> Result<(), String> {
         diffs,
     );
     app.web = a.get("web").map(PathBuf::from);
+    #[cfg(feature = "local-play-bootstrap")]
+    {
+        app.local_play = local_play_status;
+    }
     app.relay = if read_only {
         None
     } else {

@@ -593,7 +593,10 @@ fn gather_position(
         #[cfg(feature = "wide-world-experimental")]
         {
             use frontier_abi::prologue::TransitOccupancy;
-            if matches!(occupancy[t], TransitOccupancy::Bridge(_)) {
+            if matches!(
+                occupancy[t],
+                TransitOccupancy::Bridge(_) | TransitOccupancy::Reverse(_)
+            ) {
                 continue;
             }
         }

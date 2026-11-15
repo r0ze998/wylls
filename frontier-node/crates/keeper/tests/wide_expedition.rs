@@ -37,6 +37,9 @@ const ID: u64 = 11;
 const GENESIS: i64 = 1_700_000_000;
 const VERSION: u16 = frontier_abi::v2::presets::PROGRAM_VERSION_S1 | WIDE_EXPERIMENTAL_VERSION_BIT;
 
+#[path = "support/wide_reverse_expedition.rs"]
+mod reverse;
+
 fn a(n: u8) -> Address {
     Address::new_from_array([n; 32])
 }

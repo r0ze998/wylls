@@ -9,6 +9,7 @@
 //! | `oracle` | `PSF_ORACLE_BUILD` |
 //! | `test-beacon` | `PSF_TEST_BEACON_BUILD` |
 //! | `custody-preview` | `PSF_CUSTODY_PREVIEW_BUILD` (workstream 10: not a test build, but not deployable until verified) |
+//! | `localnet-expedition-sbf` | `PSF_LOCALNET_EXPEDITION_SBF_BUILD` (isolated localnet lane, never deployable) |
 //!
 //! Each marker is passed through `core::hint::black_box` on a path every
 //! instruction (or every beacon verification) runs, so neither the
@@ -20,6 +21,7 @@ pub const TRACE: &[u8] = b"PSF_TRACE_BUILD";
 pub const ORACLE: &[u8] = b"PSF_ORACLE_BUILD";
 pub const TEST_BEACON: &[u8] = b"PSF_TEST_BEACON_BUILD";
 pub const CUSTODY_PREVIEW: &[u8] = b"PSF_CUSTODY_PREVIEW_BUILD";
+pub const LOCALNET_EXPEDITION_SBF: &[u8] = b"PSF_LOCALNET_EXPEDITION_SBF_BUILD";
 
 /// Keeps the `trace` and `oracle` markers alive (called by `dispatch`).
 #[inline(always)]
@@ -30,6 +32,14 @@ pub fn touch() {
     core::hint::black_box(ORACLE.as_ptr());
     #[cfg(feature = "custody-preview")]
     core::hint::black_box(CUSTODY_PREVIEW.as_ptr());
+}
+
+/// Keeps the `localnet-expedition-sbf` marker alive (called by the lane's
+/// program-id check at the top of `dispatch`).
+#[inline(always)]
+pub fn touch_localnet_expedition_sbf() {
+    #[cfg(feature = "localnet-expedition-sbf")]
+    core::hint::black_box(LOCALNET_EXPEDITION_SBF.as_ptr());
 }
 
 /// Keeps the `test-beacon` marker alive (called by every beacon
@@ -59,7 +69,7 @@ mod tests {
         }
         assert_ne!(TRACE, ORACLE);
         let script = include_str!("../../scripts/build-frontier.sh");
-        for m in [TRACE, ORACLE, TEST_BEACON, CUSTODY_PREVIEW] {
+        for m in [TRACE, ORACLE, TEST_BEACON, CUSTODY_PREVIEW, LOCALNET_EXPEDITION_SBF] {
             assert!(
                 script.contains(core::str::from_utf8(m).unwrap()),
                 "build-frontier.sh checks {}",
