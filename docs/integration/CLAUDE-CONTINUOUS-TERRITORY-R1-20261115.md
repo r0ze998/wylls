@@ -93,11 +93,19 @@ RESULTS (all under the unchanged conquest-guard.sh, sha 94baeb7d, one dedicated 
 - Recording and evidence (not in git): `/Users/r0ze/Projects/wylls-land1-recording-20261115/` — 158 s cut
   (stream copy, cuts only) + untouched originals + runner/herald evidence; its README states every cut and limit.
 
+## Round 2 world: land2 (TEST-ONLY, ×10 capture demo) — growth by march, arrival and standing
+- Same band (both sessions' OK); 17:38:58 → stopped by pid 18:00:47; guard never fired; free ≥ 26.3 GiB.
+- On the real page: Form a host (200) on the village tile (no claim) → choose a tile → Hosts → March → "Hills · 3 tiles
+  away · arrival turn 10" → Send this order (17:48:27). The host stood on tile 39 from turn 11; tile 39 was already
+  Aster's; the turn-17 fold claimed its open neighbour tile 30: claimed land in (2,0) 0 → 1 at 17:59:35; the strip
+  moved "Territory 106 · +0%" → "107 · +0.16%".
+- Recording (not in git): `/Users/r0ze/Projects/wylls-land2-recording-20261115/` (131.6 s cut, originals, evidence,
+  README with every cut).
+
 ## Not done (open; none is claimed)
-1. **Growth by marching and arriving was not shown in a world.** The kernel/ABI tests cover it (a host's arrival tile is
-   just its tile); in land1 the March button opens only in a 3–5 s window per 20-s turn at ×30 (keeper lag 1–2 turns,
-   the same in live34), and two looked-at presses missed it. Next: a world at a slower scale, or a page fix that lets a
-   march be composed while the province finishes its turn (the form card already has a waiting send).
+1. **Growth by march is shown once, for one tile** (land2). At ×30 the March button is enabled only 3–5 s per turn
+   (keeper lag 1–2 turns, the same in live34); at ×10 it was reachable. A march onto an open tile (not already ours)
+   with a larger flower was not recorded.
 2. **The credited yield amount** (ClaimLandYield landed 581 times, no program refusal) was not measured against the
    stores; it is tiny at these bonuses. A real-chain test that reads the Holding before/after one claim is next.
 3. **Taking another nation's land and cut-off fraying** are unit-tested only; no second player in a world.
