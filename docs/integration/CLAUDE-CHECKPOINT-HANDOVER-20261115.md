@@ -94,8 +94,12 @@ no node_modules); docs/integration/CLAUDE-CONQUEST-RESERVATION-VECTORS-20261112.
   41900–41999; no world process or headless browser; free 21.49 GiB; guard never fired (output ≤ 17 MiB).
 - Evidence (scratchpad, sealed SHA256SUMS 1d06c25c): rec/live33 (notes, screenshots, desk log, host-entries.txt,
   guard log, run script). Limits: old binaries; x30 synthetic; no second player defended or retook the keep; no retake.
-- Disk: a read-only survey of regenerable caches (nothing deleted; kept locally, not in the repository) found ≥ 3.5 GiB
-  of download/update caches outside WYLLS; freeing any of it is the owner's decision, not this lane's.
+- Disk (owner-approved, 2026-11-15 13:05): only listed regenerable download/update caches outside WYLLS were deleted
+  (3.24 GiB); two approved items were skipped because their apps were running (1.58 GiB). Free 21.48 → 24.40 GiB.
+  The list and log stay local (they name the owner's apps).
+- HEAD build still NOT started: it fits the build guard alone (free ≥ 20 GiB, target ≤ 4 GiB), but build + a world
+  needs ~25 GiB free (a world must start at ≥ 21 GiB after the build). Freeing the two skipped items when their apps are
+  idle would give ~26 GiB.
 
 ## 6. Fixture versus a real world: what was seen where
 - Seen in a real world (TEST-ONLY, synthetic clock, one operator playing both sides by hand, memory-only keys):
