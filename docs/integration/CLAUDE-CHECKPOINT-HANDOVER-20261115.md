@@ -72,6 +72,22 @@ no node_modules); docs/integration/CLAUDE-CONQUEST-RESERVATION-VECTORS-20261112.
   deferred) and two scenes that time out in the full run and pass alone; frontier.screen.mjs cannot load here (axe-core is not installed in the shared screens
   node_modules) — not run.
 
+## 5b. Latest-HEAD build and the next world: NOT DONE (state at 46be2f16, 2026-11-15)
+- No HEAD build was made and no world was started after live32. Reason: disk. Free 21.65 GiB; a world must start at
+  ≥ 21 GiB free (guard: 110 MiB output / free < 21 GiB, unchanged); a HEAD build needs ~3–4 GiB (runner + herald alone
+  took 2.38 GiB in scratch target-resident-fix), so build + world needs ~24.5–25 GiB free (short ~3–3.5 GiB).
+- Existing Rust targets (this worktree 9.50 GiB, canonical 10.34 GiB) exceed conquest-guard.sh's 4 GiB absolute cap and
+  hold pinned evidence binaries: not usable for a build (the guard is never loosened).
+- Since live32's export (427c4963) HEAD changed only permutation-server/web (16 files): no Rust, program or gateway
+  source. The pinned binaries (runner c12 d6bc822b, herald 348ab53c, …; built 2026-11-14) are NOT a HEAD build: their
+  herald sources (fold.rs, lib.rs, main.rs) and Cargo files differ from committed HEAD.
+- Prepared, NOT RUN: live33 — HEAD page/launcher export + those OLD binaries, x30 synthetic clock, TTL 60, ports
+  41940 / 41944–41953 / desk 41961, memory-only keys: one host moves, arrives, recovers, moves again (same host id), then
+  holds a keep 72 turns (not shortened). Scripts in the scratchpad (live33/live33-run.sh, live33-guard.py; approval flag
+  required). The NFT session confirmed the slot clear and will start nothing on 41900–41999 until a cleanup report.
+- Disk: a read-only survey of regenerable caches (nothing deleted; kept locally, not in the repository) found ≥ 3.5 GiB
+  of download/update caches outside WYLLS; freeing any of it is the owner's decision, not this lane's.
+
 ## 6. Fixture versus a real world: what was seen where
 - Seen in a real world (TEST-ONLY, synthetic clock, one operator playing both sides by hand, memory-only keys):
   live29 (natural preset: Join, PlaceHome, train, form, march on a keep, contest recorded), live30–31, live32 (export of
