@@ -5,7 +5,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { LAND, RULE, parseLand, landTile, landTileLines } from '../../permutation-server/web/frontier/land.mjs';
-import { landMarks, landMarksKey, paintLandMarks } from '../../permutation-server/web/frontier/map/landmarks.mjs';
+import { landMarks, landMarksKey, paintLandMarks, runAlong } from '../../permutation-server/web/frontier/map/landmarks.mjs';
 import { recordLands } from '../../permutation-server/web/frontier/map/fmap.mjs';
 import { inspectModel, render as renderInspect } from '../../permutation-server/web/frontier/hud/inspect.mjs';
 import { buildSurvey, anchorsOf } from '../../permutation-server/web/frontier/map/survey.mjs';
@@ -90,9 +90,23 @@ test('the painter fills, lines the holder\'s edge in its colour and draws the co
   paintLandMarks(g, marks, { zoom: 0.8, viewer: 0 });
   const styles = calls.filter(c => c[0] === 'strokeStyle' || c[0] === 'fillStyle').map(c => c[1]);
   assert.ok(calls.some(c => c[0] === 'fill') && calls.some(c => c[0] === 'stroke'));
-  assert.ok(calls.some(c => c[0] === 'ellipse'), 'the fade count draws its arc');
+  assert.ok(calls.some(c => c[0] === 'clip'), 'another nation\'s land is hatched (clipped to the tile)');
   assert.ok(styles.includes('#c9c3b4'), 'a fade is grey');
   paintLandMarks(null, marks); paintLandMarks(g, { tiles: [], owners: new Map() });
+  // village land is the villages' own painters': nothing is filled or lined for it here
+  const vcalls = []; const vg = new Proxy({}, { get: (o, k) => (k in o ? o[k] : typeof k === 'string' && /^[a-z]/i.test(k) ? (...a) => { vcalls.push(k); } : undefined), set: (o, k, v) => { o[k] = v; return true; } });
+  const home = landMarks([{ p: 4, q: -2, land: parsed('.'.repeat(24) + '0' + '.'.repeat(36), {}, { village: [24] }) }], { levelAt });
+  assert.equal(home.tiles.length, 1); assert.equal(home.tiles[0].village, true);
+  paintLandMarks(vg, home, { viewer: 0 });
+  assert.ok(!vcalls.includes('fill') && !vcalls.includes('stroke'), 'a village tile alone draws nothing');
+});
+
+test('a count runs round the tile\'s edge from its top corner, as far as the turns have come', () => {
+  const sq = [[0, 0], [10, 0], [10, 10], [0, 10]];
+  assert.deepEqual(runAlong(sq, 0), []);
+  assert.deepEqual(runAlong(sq, 0.5), [[0, 0], [10, 0], [10, 10]]);
+  assert.deepEqual(runAlong(sq, 1).at(-1), [0, 0], 'a full count closes the ring');
+  assert.deepEqual(runAlong(sq, 0.125), [[0, 0], [5, 0]]);
 });
 
 test('the viewer\'s land far from its villages is outlined as land of its own (land4: (4,-2) is two provinces from home)', () => {

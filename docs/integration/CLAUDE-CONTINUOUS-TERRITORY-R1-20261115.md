@@ -258,3 +258,42 @@ faint wash the harness shows (a real-page layer not reproduced keylessly).
   injected into (4,−1), the survey replaced in the browser by a player-like one: before the fix a thin faint line; after,
   Fjordal's land orange with Aster's dashed rim and arc on 25, then Aster's three tiles red, 32 fading grey; the selection
   says "Land held by Fjordal (territory trial)" / "Aster is taking it: turn 71 of 72". Not a live world.
+
+## Round 7 CHECKPOINT (2026-11-15 ~22:58, saved early: usage limit near) — WIP, not finished
+**Done and tested (this commit):** the cause of the invisible take is confirmed on the real page with real land4 data, and the
+display is strengthened.
+- Cause, confirmed (keyless REPLAY, not a live world): the land4 herald binary (sha cd5a9281) served a COPY of land4's kept
+  checkpoint read-only; the page as land4 ran it (9cf2c42a) viewed as player A's PUBLIC address (wallet.mjs answered in the
+  harness browser: connected() = that address, signing throws, no key anywhere). In that page FS held the (4,-2) land record
+  (bell 60), the five tiles were in sight (L3) and the art model had Fjordal's wash on them; the province's ground bitmap
+  (`4,-2@@2x|…5oo=ooo…`) contained it — but as another nation's 0.6 of a light wash with a hairline border, invisible at
+  play zoom, inside A's own watch rim; after the take Aster's wash had the watch rim's colour. Data and sight were right.
+- Fix (on top of round 6): `map/landmarks.mjs` — claimed tiles only (village land left to the villages' painters, which had
+  flooded home red in a first try); another nation's land filled 0.30 AND hatched in its colour; the viewer's own land solid
+  0.36 (plus the gold line of recordLands' `land:P,Q`); holder's line 3.2 over a 5.8 dark line; a count is a dashed rim plus a
+  solid line running round the tile's edge (not under the host token) as turns/72 (take) or turns/36 (fade, grey).
+- Tests: web-frontier-land-marks 7/7 (incl. runAlong, village tiles draw nothing); regression under the no-key guard all
+  green as in round 6 (land-preview 6, land 23, land-bounds 2, territory-ui 7, board 16, proto-board 15, route-preview 13,
+  keep-board 11, keep-board-march 7, herald 9, cards 7, pretake-frame 10, ws07-away 22, ws07-away-entry 4,
+  expedition-inspection 19, capture-demo 3, launcher 27, onboarding 6); web-lang 22/24 = its 2 old failures (b, c).
+- Seen in the replay: bell 129 Fjordal's land orange hatched, tile 25 with Aster's rim and an almost full edge line; bell 131
+  tiles 17/24/25 solid Aster red with the gold line, 16 orange hatched, 32 grey fading; selection "Land held by Fjordal
+  (territory trial)" → "Your nation's land (territory trial)". The keep card still says "Held by Fjordal": province control
+  is the keep rule (72 turns on the keep tile), separate from land.
+**Videos (NOT in git; REPLAY, labelled in the frame band, not a live world):**
+`/Users/r0ze/Projects/wylls-land4-recording-20261115/display-fix/replay/` — `wylls-land4-REPLAY-display-before-vs-after-fix.mp4`
+(2560×900, 153.7 s, left = 9cf2c42a page, right = fixed page, bells 59→62→100→129→131→136) and `…-closeup.mp4` (1920×740, 2× crop
+of the same frames); `original/pre-000.mp4`, `original/post-000.mp4`, `SHA256SUMS`, the harness scripts (front.mjs,
+desk-replay.mjs, viewas.mjs). Camera placed by the harness (setView); two taps (bells 129/131, tile 24) went to a point checked
+earlier on the same unchanged view, not after a fresh screenshot.
+**Replay processes at this checkpoint (mine, band 41960–41975, KEEP + NFT told):** read-only herald pid 70155 (127.0.0.1:41968;
+watchdog pid 70156 kills it at 40 min, ~23:33), front pre-fix pid 71750 (:41966), front fixed pid 71756 (:41969), replay desk
+pid 71758 (:41975). Stop: `kill 71758 71756 71750 70155 70156`, then `lsof -nP -iTCP:41900-41999 -sTCP:LISTEN` must be empty;
+tell KEEP and NFT. The herald runs on a copy in the scratchpad; land4's kept data dir is untouched.
+**Not done (open):** a safe REAL world confirming real data + screen with the fixed page (not started: needs the preconditions
+report, port/all-clear, guard 110 MiB/21 GiB, TTL, and a fresh 72-turn take ≈ 2 h at ×10); a real comparison video; why the
+real frames lacked even the faint line beyond "too faint" is now answered (it was there, invisible). Fraying to its end: not
+shown. Canonical `/Users/r0ze/Projects/wylls-codex-wide-inventory-20261109`: 75 uncommitted entries untouched; patch-only
+handover later (rebase on de18bf02 is already in the integration branch).
+**Next:** stop the replay processes by pid; report preconditions and get all-clears; run the real world with the fixed page
+(opt-in land-preview, capture demo + contest pair, ×10, TTL ≤150, guard), record A's page through claim → take; deliver.
