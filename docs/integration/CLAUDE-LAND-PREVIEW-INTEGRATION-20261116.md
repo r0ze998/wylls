@@ -42,6 +42,10 @@ No secrets in this file. Nothing here is NFT, transfer, session guard, prize, re
   The 2 on both are web-lang completeness (b)/(c); their reported items are the same on base and HEAD (only paths and
   test numbers differ), none from a land file. No ordinary-play regression from the land preview.
 
+- Trial merge of this branch (0ff97a33) with bcc63a24 (tree 0228d8b8; its gateway/page files equal the earlier trial
+  plus the 7a514f20 fix), ordinary-play subset only, 204 files: 1934 tests, 1931 pass, 2 fail (web-lang (b)/(c), known),
+  1 skipped. Restricted files excluded and not verified.
+
 ## Left for a safe canonical integration (in order)
 1. The canonical owner checks the migration WIP bcc63a24 (79 files) on its own first; this branch is not a check of it.
 2. Before writing herald/Cargo.toml and herald/src/fold.rs in canonical: paths + blob ids above to the other owner, wait
