@@ -403,6 +403,10 @@ fn keeper_cfg(w: &World, beneficiary: Address) -> keeper_core::config::KeeperCon
     let mut c = keeper_config(w);
     c.beneficiary = beneficiary;
     c.roles = PLAY_ROLES.iter().map(|s| s.to_string()).collect();
+    // DIAGNOSTIC PROBE ONLY (never committed): override the W-version cap for one observation run.
+    if let Ok(v) = std::env::var("PROBE_MAX_UNKNOWN_W_VERSIONS") {
+        c.max_unknown_w_versions = v.parse().expect("PROBE_MAX_UNKNOWN_W_VERSIONS");
+    }
     c
 }
 
