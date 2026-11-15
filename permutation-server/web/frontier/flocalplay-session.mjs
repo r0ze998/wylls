@@ -166,7 +166,10 @@ export function mountSessionNotice({ doc = globalThis.document, win = globalThis
   // (back from the browser's cache after the page went away: the key is gone; say so again, change nothing else)
   const onShow = () => { if (live && destroyed) paint(); };
   win?.addEventListener?.('pageshow', onShow);
-  (doc.body ?? doc.documentElement)?.append(box);
+  // (round 44, seen in live33: on <body> this box stood above everything of <main>, whose position: fixed makes it a
+  // stacking context of its own, so it covered the notices of #feed — "Try again" included — when the drawer moved them
+  // under it. Inside <main> its z-index (17) is compared with the feed's (35): the notices stay on top.)
+  (doc.querySelector?.('main') ?? doc.body ?? doc.documentElement)?.append(box);
   const handle = Object.freeze({
     destroyed() { if (!live) return; destroyed = true; paint(); },
     /** A view of the end (`expiryView`): the first known one is shown; then only the same world's same end is kept. */
