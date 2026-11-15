@@ -25,6 +25,17 @@ test('reading the board: absent (404), not read (5xx, network, odd body), read',
   assert.equal((await CB.probeBoard({ fetch: answer(200, cfg('7')) })).read, 'ok');
 });
 
+test('round 41: an answer of no board (204, 404) is read to its end — an unread body is cancelled and the browser reports the request as aborted', async () => {
+  for (const status of [204, 404]) {
+    let read = 0;
+    const res = { status, ok: false, arrayBuffer: async () => { read += 1; return new ArrayBuffer(0); } };
+    assert.deepEqual(await CB.probeBoard({ fetch: async () => res }), { read: 'absent' }, String(status));
+    assert.equal(read, 1, `${status}: the body is read`);
+  }
+  // (an answer without a body reader — a test double — is still "absent")
+  assert.deepEqual(await CB.probeBoard({ fetch: async () => ({ status: 204, ok: true }) }), { read: 'absent' });
+});
+
 test('a server with no board is asked once; a board not read is asked again', async () => {
   for (const [status, again] of [[404, false], [503, true], [200, true]]) {
     const timers = { n: 0, setTimeout() { this.n++; return 1; }, clearTimeout() {} };

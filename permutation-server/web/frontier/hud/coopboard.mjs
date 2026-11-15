@@ -24,7 +24,9 @@ export const BOARD_PAGE = '/ws01/repo/workstreams/01-national-strategy/coop/';
 export async function probeBoard({ fetch: f = (...a) => globalThis.fetch(...a), base = '' } = {}) {
   let r;
   try { r = await f(`${base}/coop/config`, { cache: 'no-store' }); } catch { return { read: 'unread', code: 'network' }; }
-  if (r.status === 404 || r.status === 204) return { read: 'absent' };
+  // (the empty answer is read to its end: an unread body is cancelled by the browser, which then reports the request as
+  // aborted — ERR_ABORTED — though the server answered; round 41)
+  if (r.status === 404 || r.status === 204) { try { await r.arrayBuffer?.(); } catch { /* nothing to read */ } return { read: 'absent' }; }
   if (!r.ok) return { read: 'unread', code: `HTTP${r.status}` };
   let j;
   try { j = await r.json(); } catch { return { read: 'unread', code: 'BadBody' }; }
