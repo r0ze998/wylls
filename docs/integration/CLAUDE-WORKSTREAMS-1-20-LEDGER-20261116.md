@@ -63,3 +63,16 @@ See the table at the end of this file, updated as lanes report.
 Rules for every lane: no Rust build, no world, no fixed 41xxx port (fixture uses an ephemeral port), only its own new
 files, findings as proposed patches in its doc, no full-suite rerun, restricted areas excluded and reported as not
 verified. Heavy builds and worlds stay serial, in this session, after a report (21 GiB floor, 110 MiB output, TTL).
+
+## Next play version prepared: play2-land (TEST-ONLY, 2026-11-16 07:50 JST) — NOT started
+- What: the land-expansion test version (capture demo ×10 + land preview + contest pair, two ordinary memory-only
+  wallets). Synthetic clock; NOT natural speed, NOT production. Rules 6 / 72 / 36 unshortened.
+- Page + launcher: export `/Users/r0ze/Projects/wylls-play2-land-bf85caec-20261116` of this branch @bf85caec
+  (canonical 68e8548d + land preview; canonical WIP bcc63a24 NOT included).
+- Binaries: land4 builds, no rebuild — Rust/Cargo inputs identical to land4's build commit 9cf2c42a (`git diff` empty);
+  .so f2e64442…, herald cd5a9281…, natural runner f00415a2…; expedition tools from the 5c2dc607 build, read only.
+- Ops (not in git): `/Users/r0ze/Projects/wylls-play2-land-ops-20261116/` play2-run.sh (6be18bf1), play2-guard.py
+  (232b13ef), play2-watchdog.sh (9e855dc9) — land5's scripts with paths only changed.
+- Preflight 07:50: free 25.14 GiB (floor 21), 0 listeners 40000–41999, no world process. Plan: launcher 41960, worlds
+  41964–41973, TTL 150 min from Start, guard 110 MiB / 21 GiB, absolute watchdog deadline launch + 4 h, PID-only cleanup.
+- Starting the launcher was refused by the tool permission check; it waits for the owner's go. Nothing was started.
