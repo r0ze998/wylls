@@ -105,16 +105,11 @@ fourth slot, funds, destination family, roster alias/pairing and a late borrow
 conflict. Deterministic refusals are swallowed inside a successful native
 writeback to prove no data, balances, logs or CPI changed before rejection.
 
-The original `host.rs` resident/Depart paths in wide builds use
-`host_in_transit_with_bridge`; clash/capture/release paths use the shared
-occupancy parser. Those readers reject reverse marker version 2, preventing
-old readers from treating the reservation as a free/ordinary transit. Default
-program builds reject the experimental Season version. This is deliberately
-fail-closed, not capture or terminal support: existing original Holding actions
-that scan all slots can be blocked while a reverse reservation exists. Capture,
-terminal cleanup, previous generation, reverse final economic settlement and
-public admission require explicit reverse-aware contracts before this route
-can be exposed. No existing marker/capture semantics were silently changed.
+The producer originally left shared original Holding readers fail-closed on
+reverse marker version 2. The later [reverse capture integration](CODEX-REVERSE-CAPTURE-20261110.md)
+adds explicit occupied-marker recognition, legacy Gather exclusion and bounded
+first-capture support while retaining exact-host locks and release refusal.
+It does not itself admit reverse economic settlement or public dispatch.
 
 The origin test uses the real Host Spend kernel to prepare the resolved row;
 it does not claim a complete Resolve/Reveal/Gather/settlement end-to-end run.

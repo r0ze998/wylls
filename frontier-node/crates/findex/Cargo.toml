@@ -23,6 +23,8 @@ tokio.workspace = true
 default = []
 wide-records-experimental = ["fclient/wide-records-experimental", "frontier-abi/world-index-experimental"]
 
+expedition-records-experimental = ["wide-records-experimental"]
+
 [dev-dependencies]
 localnet.workspace = true
 axum.workspace = true

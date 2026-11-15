@@ -1,0 +1,1252 @@
+diff --git a/permutation-server/web/frontier/controller.mjs b/permutation-server/web/frontier/controller.mjs
+index 7eee445d..d9a45078 100644
+--- a/permutation-server/web/frontier/controller.mjs
++++ b/permutation-server/web/frontier/controller.mjs
+@@ -10,6 +10,7 @@ import { conquestEnabled, kernelFile, territoryStandings, keepFromProvince, appl
+ import { holdingByRef } from './fland.mjs';
+ import * as fwide from './fwide.mjs';
+ import * as expedition from './fexpedition.mjs';
++import * as preparation from './fexpedition-prepare.mjs';
+ import * as outbound from './fexpedition-compose.mjs';
+ import { FS, invalidate, activeHolding } from './fstate.mjs';
+ import { ownTag } from './people/ui.mjs';
+@@ -39,6 +40,13 @@ import { readOverviews } from './map/overviews.mjs';
+ import { kernel as loadKernel, UNITS } from './wasm.mjs';
+ import { uiKey, uiStorage, loadUi, saveUi, landKey, loadLand, saveLand, LAND_DEFAULTS } from './fui.mjs';
+ import * as wallet from '../wallet.mjs';
++import { EPHEMERAL_WALLET_NAME, currentEphemeralWallet } from './fephemeral-wallet.mjs';
++import * as localDepart from './flocalplay-depart.mjs';
++import * as localReveal from './flocalplay-reveal.mjs';
++import * as localReturn from './flocalplay-return.mjs';
++import * as localConquest from './flocalplay-conquest.mjs';
++import * as localAct from './flocalplay-act.mjs';
++import { localPlayIdentityOk } from './flocalplay.mjs';
+ import { decode as fromBase58, encode as toBase58 } from '../sdk/base58.mjs';
+ import { fromBase64 } from '../sdk/bytes.mjs';
+ import { L, fmtNum } from '../lang.mjs';
+@@ -57,6 +65,9 @@ import * as protoIo from './proto/orders.mjs';
+ import * as pm from './proto/hand-model.mjs';
+ 
+ const SESSION_DAYS = 30 * 86_400;
++/** Local play (flocalplay.mjs): `{address}` once its gate verified a herald for the page's memory-only wallet, else null. */
++let localPlay = null;
++const localPlayReadOnly = () => ({ code: 'LocalPlayReadOnly', text: () => L`ローカルプレイでは、まだ命令を送れません（読み取りのみ）。` });
+ const now = () => FS.chain?.now() ?? 0;
+ const nowBell = () => (FS.clock ? bellAt(FS.clock.genesisTs, now()) ?? 0 : 0);
+ /** The margin a departure is planned with (fmarch.mjs `departMargin`): 90 s on the chain's clock, more game seconds on a clock that runs fast. */
+@@ -72,8 +83,14 @@ const saveUiPatch = patch => { const sc = scope(); if (sc) FS.ui = saveUi(uiStor
+ const landKeyNow = () => (scope() && FS.wallet?.address ? landKey(scope(), viewerKey()) : null);
+ const readLand = () => { const k = landKeyNow(); FS.landRec = k ? loadLand(uiStorage, k) : (FS.landRec ?? { ...LAND_DEFAULTS }); return FS.landRec; };
+ const homeKeyNow = () => scope() ? homeKey(scope(), viewerKey()) : null;
+-const readHome = () => homeKeyNow() ? loadHome(uiStorage, homeKeyNow()) : { selected: null, pending: null, seen: null };
+-const saveHomePatch = patch => homeKeyNow() ? saveHome(uiStorage, homeKeyNow(), patch) : null;
++// LOCAL PLAY: the home choice's record (the selected site, the "pending" note with a signature, what was seen) is kept
++// in THIS PAGE'S MEMORY ONLY — never in the device's storage. The record's shape and its key are the ordinary ones
++// (home.mjs); only where it is kept differs. So a local test leaves nothing on the device, cannot be read by an
++// ordinary page or another start, and is gone with the page. Outside local play: the device's storage, as always.
++const localHomeMemory = (() => { const m = new Map(); return Object.freeze({ get: k => (m.has(k) ? m.get(k) : null), set: (k, v) => { m.set(k, String(v)); } }); })();
++const homeStorage = () => (localPlay ? localHomeMemory : uiStorage);
++const readHome = () => homeKeyNow() ? loadHome(homeStorage(), homeKeyNow()) : { selected: null, pending: null, seen: null };
++const saveHomePatch = patch => homeKeyNow() ? saveHome(homeStorage(), homeKeyNow(), patch) : null;
+ const saveLandPatch = patch => { const k = landKeyNow(); FS.landRec = k ? saveLand(uiStorage, k, patch) : { ...(FS.landRec ?? LAND_DEFAULTS), ...patch }; return FS.landRec; };
+ // (workstream 07: an NFT resident (⑳) seals its own marches; its march book is kept apart from its wallet's Citizen's, or
+ // the reconciliation against one Citizen's transits would write the other's entries off)
+@@ -200,6 +217,7 @@ export async function refreshPrize({ force = false, at = Date.now() } = {}) {
+ 
+ /** The paid Join of a season with a pool: test tokens from the faucet if the wallet is short, then Pay and Join in one signed transaction (x402). */
+ async function paidJoin(s, { onSent, onLost } = {}) {
++  if (localPlay) return failed(localPlayReadOnly());   // no faucet, no payment, no Join
+   const w = wallet.connected();
+   if (!w) return failed({ code: 'NoWallet' });
+   busy(() => L`参加費（テストUSDC）を支払って参加しています…`);
+@@ -296,6 +314,33 @@ async function act(name, { v = {}, fields = {}, signer, requester = null, label,
+   // `signer: 'wallet'` = the wallet signs a shape the session key may not (a caravan to another player).
+   // (a refusal before anything is sent is an answer to the order too)
+   const early = r => { orderAnswered(order, false, { code: r.code, sent: false }); return failed(r); };
++  // local play is reads only — except the six economy and mustering commands, which go through their OWN page-signed
++  // path (flocalplay-act.mjs: the memory-only wallet is fee payer and actor; the relay rebuilds and checks the stated
++  // intent). Every other order, and any of the six asked in another form (a settle shape, a wallet-only shape, a
++  // requester, accounts that are a function of a fee payer), is refused here before anything is built, signed or sent.
++  const route = localAct.localOrderRoute({ localPlay, name, v, signer, requester });
++  if (route === 'refuse') return early(localPlayReadOnly());
++  // LOCAL PLAY: one order at a time per SCOPE (this wallet, world and relay) and per STABLE key (the command, its
++  // village, its fields — for Join only the nation: its expiry is re-made from the clock at every press). The ordinary
++  // `sendKey` is not used here: it would tell a Join pressed one second later apart from the one still being signed.
++  if (route === 'local-act') {
++    const g = localDepartGate();
++    if (!g?.ok) return early({ code: g?.code ?? 'LocalActNotAllowed' });
++    const local = { scope: localAct.localActScope({ identity: localPlay, relay: g.relay }), key: localAct.localActKey(name, v, fields), origin: g.relay };
++    if (local.scope === null) return early({ code: 'LocalActNotAllowed' });
++    // SENT AND NOT CONFIRMED under this scope: the press never builds or sends another — it only asks what became of
++    // the transaction already sent, by its signature. (Another scope's orders are neither seen nor asked about here.)
++    if (localActLedger.held(local.scope, local.key)) {
++      const askKey = `local-ask\n${local.scope}\n${local.key}`;
++      if (sending.has(askKey)) { busy(() => L`同じ命令を送っています。結果を待ってください…`); return { ok: false, code: 'InFlight' }; }
++      sending.add(askKey);
++      try { return await localActAsk(name, local, { order, say, after }); } finally { sending.delete(askKey); }
++    }
++    // IN FLIGHT under this scope (being built, signed or posted: no signature yet): a second press starts nothing
++    const out = await localAct.withLocalActSlot(localActLedger, local.scope, local.key, () => actOnce(name, { v, fields, signer, requester, label, after, onSent, onLost, order, say }, early, local));
++    if (out?.ok === false && out.code === 'InFlight' && out.sent === undefined) busy(() => L`同じ命令を送っています。結果を待ってください…`);
++    return out;
++  }
+   // the same order already on its way: say so, and send nothing (the chain would refuse the copy, and the player saw an error)
+   const key = sendKey(name, fields);
+   if (sending.has(key)) { busy(() => L`同じ命令を送っています。結果を待ってください…`); return { ok: false, code: 'InFlight' }; }
+@@ -304,12 +349,53 @@ async function act(name, { v = {}, fields = {}, signer, requester = null, label,
+   finally { sending.delete(key); }
+ }
+ 
+-async function actOnce(name, { v, fields, signer, requester, label, after, onSent, onLost, order, say }, early) {
++/** Local play's orders that were sent and are not confirmed yet (flocalplay-act.mjs `createLocalActLedger`): page memory only. */
++const localActLedger = localAct.createLocalActLedger();
++/** The scope the ledger is asked under: this page's verified identity (wallet, program, Season) and the relay its gate allows now; null when the gate is closed. */
++const localActScopeNow = () => { const g = localDepartGate(); return localAct.localActScope({ identity: localPlay, relay: g?.ok ? g.relay : null }); };
++export const localPlayUnconfirmedOrders = () => localActLedger.list(localActScopeNow()).map(e => ({ name: e.name, signature: e.signature }));
++/** An order that was SENT and whose outcome is not known: recorded as that — with its signature — never as refused. */
++function orderUnconfirmed(o, signature) {
++  if (!o) return;
++  const rec = { ...o, state: 'unconfirmed', sent: true, signature, code: 'LocalActUnconfirmed' };
++  FS.orders = [rec, ...(FS.orders ?? []).filter(x => x.id !== o.id)].slice(0, ORDERS_MAX);
++  const { say: _say, ...payload } = rec;
++  fxEmit('order:unconfirmed', payload);
++}
++const localActUnconfirmedText = signature => () => L`この命令は送信済みですが、まだ確認できていません。同じ命令は送り直しません。もう一度押すと結果を確認します。署名 ${signature}`;
++/** A press on an order that is held as sent-and-unconfirmed: ONE question about its signature; nothing is built or sent. */
++async function localActAsk(name, lo, { order, say, after }) {
++  busy(() => L`送信済みの命令の結果を確認しています…`);
++  // (asked at the relay of the scope the order is held under, and used only if the page is still that scope when the
++  //  answer comes: otherwise nothing is shown, nothing is released — the order stays held under its own scope)
++  const s = await localAct.settleLocalAct(localActLedger, lo.scope, lo.key, localAct.localActRead({ allowed: () => ({ ok: true, relay: lo.origin }) }), { still: () => localActScopeNow() === lo.scope });
++  if (s.state === 'left' || s.state === 'none') return { ok: false, code: 'LocalActScopeChanged', sent: s.state === 'left' };
++  if (s.state === 'landed') {
++    done(say ?? order?.say ?? DONE_TEXT[name] ?? (() => L`完了しました`)); orderAnswered(order, true, { signature: s.signature });
++    refresh().catch(e => console.error('frontier refresh:', e)); await after?.({ ok: true, signature: s.signature });
++    return { ok: true, signature: s.signature, reconciled: true };
++  }
++  if (s.state === 'failed') { orderAnswered(order, false, { code: s.code, sent: true, signature: s.signature }); return failed({ ok: false, code: s.code }); }
++  orderUnconfirmed(order, s.signature); setNotice({ busy: false, text: localActUnconfirmedText(s.signature) });
++  return { ok: false, code: 'LocalActUnconfirmed', signature: s.signature, sent: true };
++}
++
++/** What the local-play transport asks of the page: its gate, the identity the gate verified, the Season's ruleset hash as read, the live memory-only wallet. */
++const localActDeps = () => ({ allowed: localDepartGate, identity: () => localPlay,
++  rulesetHash: () => { const r = FS.season?.rulesetHash; return r instanceof Uint8Array ? [...r].map(b => b.toString(16).padStart(2, '0')).join('') : r; }, signer: currentEphemeralWallet });
++
++// `lo` (local play's six only; null otherwise): `{scope, key, origin}` taken by `act` BEFORE anything was awaited — the
++// scope the order is sent, held and followed under, and the relay it is sent through.
++async function actOnce(name, { v, fields, signer, requester, label, after, onSent, onLost, order, say }, early, lo = null) {
+   // a wide holding among the subjects, or a village order while the village screen shows a wide village: refused
+   // before anything is built or sent (fwide.mjs: the one guard every path meets)
+   { const wr = fwide.wideRefusal(name, typeof v === 'object' ? v : null, FS); if (wr) return early(wr); }
+   if (!io.pinned()) return early({ code: 'NoPin' });
+   if (!FS.wallet) return early({ code: 'NoWallet' });
++  // (only one of the six reaches here in local play: `act` refused the rest. No session key, no sponsor, no NFT path.)
++  const local = lo !== null && localAct.localOrderRoute({ localPlay, name, v, signer, requester }) === 'local-act';
++  if (localPlay && !local) return early(localPlayReadOnly());
++  if (local && FS.resident) return early(localPlayReadOnly());
+   let sign = null;
+   // ⑳: an NFT Citizen has no Frontier session; its owner's wallet signs, for
+   // the generation read fresh now (a transfer since the page loaded changes it).
+@@ -321,7 +407,7 @@ async function actOnce(name, { v, fields, signer, requester, label, after, onSen
+     FS.resident = { ...FS.resident, generation: g };
+     resident = { generation: g, proof: FS.resident.proof };
+   }
+-  if (signer !== null) {
++  if (signer !== null && !local) {
+     if (name === 'Join' || name === 'JoinResident' || name === 'SetSession' || signer === 'wallet' || resident) {
+       const w = wallet.connected();
+       if (!w) return early({ code: 'NoWallet' });
+@@ -341,19 +427,59 @@ async function actOnce(name, { v, fields, signer, requester, label, after, onSen
+     // the fee payer, inside that function, so none are built —; the screen's state was judged above, when the order
+     // was authorized: an order of a legacy village that continues after the viewer moved to a wide village is not
+     // refused here, an order naming a wide village is, however it got this far. fwide.mjs assertLegacySubjects)
+-    const accounts = typeof v === 'function' ? fp => accountsFor(name, fwide.assertLegacySubjects(name, v(fp))) : accountsFor(name, ctx(v));
++    // (local play builds its own accounts, with the wallet as actor and fee payer: flocalplay-act.mjs)
++    const accounts = local ? null : typeof v === 'function' ? fp => accountsFor(name, fwide.assertLegacySubjects(name, v(fp))) : accountsFor(name, ctx(v));
+     const send = () => {
+       const late = typeof v === 'object' ? fwide.wideRefusal(name, v, null) : null;
+       if (late) return { ok: false, code: late.code, error: late.text, text: late.text };
++      // (a relay that does not serve the economy routes: said as it always was — local play is reads only there)
++      if (local) return localAct.submitLocalAct({ name, v, fields }, localActDeps()).then(x => { if (x.ok || x.code !== 'LocalActNotServed') return x; const ro = localPlayReadOnly(); return { ok: false, code: ro.code, error: ro.text, text: ro.text }; });
+       return tx.submit({ name, accounts, fields, signer: sign, requester, citizen: requester ? viewerCitizen() : undefined, invite: v.invite, resident });
+     };
++    // (local play: the scope the order is sent under — this wallet, world and relay — was taken by `act` BEFORE anything
++    //  was awaited: what is held is held under the identity it was sent with, and it is followed at the relay it was
++    //  sent through, only while the page is still that scope)
++    const lscope = local ? lo.scope : null, lkey = local ? lo.key : null;
++    const stillScope = () => localActScopeNow() === lscope;
++    // (in local play the transaction is followed by the relay's own status of its signature — the relay of the SEND,
++    //  not whatever the page's gate allows at each later poll; `left` = the page is no longer that scope)
++    const follow = async signature => {
++      if (!local) return tx.track(signature);
++      const f = await localAct.followLocalAct(signature, { origin: lo.origin, still: stillScope });
++      return f.state === 'landed' ? { ok: true, state: 'landed', slot: f.slot } : f.state === 'failed' ? { ok: false, state: 'failed', code: f.code }
++        : f.state === 'left' ? { ok: false, state: 'left', code: 'LocalActScopeChanged' } : { ok: false, state: 'unknown', code: 'Unconfirmed' };
++    };
+     let r = await send();
+-    // the transaction left this browser (a refusal before sending never reaches here)
+-    if (r.ok) { sent = true; onSent?.(r); fxEmit('action:sent', fxa); }
+-    let t = r.ok ? await tx.track(r.signature) : r;
++    if (local && r.ok) {
++      // LOCAL PLAY, the moment the one send has a signature (flocalplay-act.mjs `settleLocalSend`) — in this order:
++      // the order is HELD by its signature under the scope it was sent under; THEN the scope is asked; and only if the
++      // page is still that scope does the page's own callback run (a callback that throws cannot lose the hold).
++      sent = true;
++      const s = localAct.settleLocalSend(localActLedger, lo, name, r, { still: stillScope, onSent });
++      if (s.state === 'left') { code = 'LocalActScopeChanged'; fxDone = true; return { ok: false, code, signature: r.signature, sent: true }; }
++      if (s.callbackError) console.error('frontier local order callback:', s.callbackError);
++      fxEmit('action:sent', fxa);
++    } else if (r.ok) {
++      // the transaction left this browser (a refusal before sending never reaches here)
++      sent = true; onSent?.(r); fxEmit('action:sent', fxa);
++    }
++    let t = r.ok ? await follow(r.signature) : r;
++    // THE PAGE IS NO LONGER THE SCOPE THE ORDER WAS SENT UNDER (another wallet, world or relay, while it was sent or
++    // followed): nothing of it is shown on the page as it is now — no "done", no failure, no order record — and it is
++    // NOT released: it stays held under its own scope, by its signature, for when the page is that scope again.
++    if (local && r.ok && (t.state === 'left' || !stillScope())) { code = 'LocalActScopeChanged'; fxDone = true; return { ok: false, code, signature: r.signature, sent: true }; }
++    if (local && r.ok && (t.ok || t.state === 'failed')) localActLedger.release(lscope, lkey);
++    // LOCAL PLAY, sent and NOT confirmed (no answer, pending, processed only): this is not a refusal and not a failure.
++    // The order keeps its signature, is recorded as "sent, not confirmed", and stays held.
++    if (local && r.ok && !t.ok && t.state !== 'failed') {
++      code = 'LocalActUnconfirmed'; fxDone = true;
++      orderUnconfirmed(order, r.signature); setNotice({ busy: false, text: localActUnconfirmedText(r.signature) });
++      return { ok: false, code, signature: r.signature, sent: true };
++    }
+     // W6-D: a resident action refused because the province fell a bell behind between the check and the landing:
+     // ask the keeper to catch it up, wait for the herald to show it, and send once more.
+-    if (!t.ok && retryAfterCatchUp(name, t.code)) {
++    // (never in local play: there a second transaction is only ever the player's own new press)
++    if (!local && !t.ok && retryAfterCatchUp(name, t.code)) {
+       busy(() => L`州が追いつくのを待っています…`);
+       if (await catchUp(typeof v === 'object' ? (v.province ?? v.holding) : null)) {
+         r = await send();
+@@ -391,6 +517,7 @@ const DONE_TEXT = {
+ 
+ /** Catch up the action's province, which may differ from the host's home. */
+ async function catchUp(target = null) {
++  if (localPlay) return false;   // the keeper is not asked for anything
+   const h = target ?? activeHolding(FS);
+   if (!h || !Number.isInteger(h.p) || !Number.isInteger(h.q)) return false;
+   const r = await io.nudge(h.p, h.q, FS.provinces.get(`${h.p},${h.q}`)?.province.resolvedNext ?? nowBell());
+@@ -579,7 +706,8 @@ async function syncConnectedWallet({ refreshUnchanged = false } = {}) {
+   if (address) {
+     try {
+       const sc = scope();
+-      const restored = sc ? await fsession.restore(sc, address) : null;
++      // (local play: no stored session key is read)
++      const restored = sc && !localPlay ? await fsession.restore(sc, address) : null;
+       if (epoch !== walletSyncEpoch) return;
+       FS.session = restored;
+     } catch (e) { console.error('frontier session restore:', e); }
+@@ -713,6 +841,7 @@ const PROTO_SENT = {
+  */
+ async function protoOrder(op, fields, at = null) {
+   const order = orderOf(PROTO_ORDER_KINDS[op], `proto:${op}`, { tile: at, proto: true });
++  if (localPlay) { orderAnswered(order, false, { code: 'LocalPlayReadOnly', sent: false }); return failed(localPlayReadOnly()); }
+   if (!FS.proto) { orderAnswered(order, false, { code: 'Off', sent: false }); return failed({ code: 'Off', text: () => pm.refusalText('Off') }); }
+   busy(() => L`送信中…`);
+   FS.inFlight = (FS.inFlight ?? 0) + 1;
+@@ -832,7 +961,8 @@ async function readMarches() {
+     // Judged on the chain time the herald has observed, not the extrapolated clock (the bots' contract, W6-C).
+     const tPub = roundTime(FS.clock.drand.genesis, FS.clock.drand.period, tlockRound(FS.clock.drand, FS.clock.genesisTs, e.arriveBell)) + book.REVEAL_PUBLISH_MARGIN;
+     const step = book.revealStep(e, { now: now(), bellStart: bellStart(FS.clock.genesisTs, e.arriveBell), notBefore: tPub, seen: Math.min(now(), FS.chain?.last?.unix ?? -Infinity), windowOpen: pl.state === 'open' || pl.state === 'awaitingBeacon' || pl.state === 'revealing', slotPresent: seen });
+-    if (step.action === 'send') {
++    // (local play: the self-reveal is a request to the keeper; none is made)
++    if (step.action === 'send' && !localPlay) {
+       const r = await io.reveal(book.revealMaterial(e));
+       // (the attempt goes into the book as it stands now: a march sealed while the keeper answered is kept)
+       const cur = book.recordAttempt(book.loadBook(store, key), e, { t: now(), route: 'self', result: r.ok ? 'accepted' : r.code });
+@@ -910,7 +1040,8 @@ export function useHerald(h) { expedition.clearInspection(FS); outbound.clearOut
+ /** A read-only request: deliberately outside ACTIONS, FORMS and the order lifecycle. */
+ export const expeditionContext = () => ({ pin: io.pinned(), relay: io.relay(), source: herald });
+ export const inspectOriginalExpedition = () => expedition.inspectExpedition(FS, { context: expeditionContext, changed: () => invalidate('panel') });
+-export const reconcileExpedition = () => { outbound.reconcileOutbound(FS, expeditionContext()); return expedition.reconcileInspection(FS, expeditionContext()); };
++export const prepareOriginalExpedition = () => preparation.prepareExpedition(FS, { context: expeditionContext, changed: () => invalidate('panel') });
++export const reconcileExpedition = () => { preparation.reconcilePreparation(FS, expeditionContext()); outbound.reconcileOutbound(FS, expeditionContext()); return expedition.reconcileInspection(FS, expeditionContext()); };
+ /** Local geometry/plaintext preparation, deliberately outside ACTIONS and FORMS. */
+ export const openOriginalOutbound = () => { outbound.openOutbound(FS, expeditionContext()); invalidate('map', 'panel'); };
+ export const editOriginalOutbound = (action, value) => { const ok = outbound.editOutbound(FS, expeditionContext(), action, value); invalidate('map', 'panel'); return ok; };
+@@ -918,6 +1049,64 @@ export const tapOriginalOutbound = hit => { const result = outbound.tapOutbound(
+ export const originalOutboundMap = () => outbound.readOutboundMap(FS, expeditionContext());
+ export const inspectOriginalOutboundRoute = () => outbound.inspectOutboundRoute(FS, { context: expeditionContext, changed: () => invalidate('panel') });
+ export const inspectOriginalOutboundContext = () => outbound.inspectOutboundContext(FS, { context: expeditionContext, changed: () => invalidate('panel') });
++/**
++ * One press on the boundary card: the earliest arrival turn of the observation still bound to this draft goes into
++ * the draft's arrival field, and that observation is read again. A local edit and a read, like the two above:
++ * deliberately outside ACTIONS and FORMS, nothing sealed, signed or sent. → `{ok, arriveBell?, from?, code?}`.
++ */
++export const useEarliestOriginalOutboundArrival = () => outbound.useEarliestOutboundArrival(FS, { context: expeditionContext, changed: () => invalidate('map', 'panel') });
++/**
++ * Local play only (flocalplay-depart.mjs): the ONE send the local-play page makes. The departure of the boundary
++ * draft, signed by the page's memory-only wallet, through the loopback relay's two dedicated routes. Every other
++ * order stays refused (`localPlayReadOnly`): this does not pass through `act`, a session key, the faucet or the
++ * general relay route. Asked on every step: local play with its verified identity, localnet, a loopback page and
++ * relay, the identity's own wallet connected, and that wallet the live memory-only one.
++ */
++const localDepartGate = () => localDepart.localDepartAllowed({ localPlay, cluster: io.pinned()?.cluster, relay: io.relay(), wallet: FS.wallet?.address ?? null, signer: currentEphemeralWallet() });
++const localDepartChanged = () => invalidate('map', 'panel');
++export const localPlayDepartAllowed = () => localDepartGate();
++export const sendLocalPlayDeparture = () => localDepart.runLocalDepart(FS, { allowed: localDepartGate, context: expeditionContext,
++  sealInput: () => ({ clock: FS.clock, drand: FS.record?.drand, seasonPkHash: FS.season?.quicknetPkHash, seasonNetwork: FS.season?.network, cluster: FS.record?.cluster }),
++  seal: async req => (await import('./seal-wide.mjs')).sealWide(req), signer: currentEphemeralWallet, changed: localDepartChanged });
++export const reconcileLocalPlayDeparture = () => localDepart.reconcileLocalDepart(FS, { allowed: localDepartGate, changed: localDepartChanged });
++export const clearLocalPlayDeparture = () => { const ok = localDepart.clearLocalDepart(FS); if (ok) localDepartChanged(); return ok; };
++/**
++ * Local play only (flocalplay-reveal.mjs): the explicit Reveal of a departure this page sealed, under the same gate
++ * as the departure. Two presses, never one: `check` reads the chain and says whether it can be revealed (nothing is
++ * built or signed); `send` reveals what was checked, signed by the same memory-only wallet, once. An outcome that is
++ * not known is asked about (`reconcile`), never sent again. "revealed" says the chain has the reveal and no more:
++ * the arrival's gathering, battle and settlement are not this page's to do or to claim.
++ */
++const localRevealDeps = () => ({ allowed: localDepartGate, signer: currentEphemeralWallet, changed: localDepartChanged,
++  budget: () => localReveal.LOCAL_REVEAL_BUDGET });
++export const checkLocalPlayReveal = () => localReveal.checkLocalReveal(FS, localRevealDeps());
++export const sendLocalPlayReveal = () => localReveal.runLocalReveal(FS, localRevealDeps());
++export const reconcileLocalPlayReveal = () => localReveal.reconcileLocalReveal(FS, localRevealDeps());
++export const clearLocalPlayReveal = () => { const ok = localReveal.clearLocalReveal(FS); if (ok) localDepartChanged(); return ok; };
++/**
++ * Local play only (flocalplay-return.mjs): the two player-signed steps of the existing return (Dissolve, then, after
++ * the turn's own processing, Return), from the return card's own observation and under the departure's gate. Two
++ * presses: `prepare` (nothing is signed) and the explicit `send` of what was prepared, once. An outcome that is not
++ * known is asked about (`reconcile`), never sent again. Outside ACTIONS and FORMS, like the departure.
++ */
++const localReturnDeps = () => ({ allowed: localDepartGate, context: expeditionContext, signer: currentEphemeralWallet, changed: () => invalidate('panel') });
++export const prepareLocalPlayReturn = () => localReturn.prepareLocalReturn(FS, localReturnDeps());
++export const sendLocalPlayReturn = () => localReturn.sendLocalReturn(FS, localReturnDeps());
++export const reconcileLocalPlayReturn = () => localReturn.reconcileLocalReturn(FS, localReturnDeps());
++/**
++ * Local play only, CLOSED BY DEFAULT (flocalplay-conquest.mjs): the one player-signed conquest step, DeclareSiege of
++ * the Free City in the province an original host stays in, from the expedition card's own observation and under the
++ * departure's gate. Two presses (prepare, then the explicit send); an outcome not known is asked about, never sent
++ * again. `world` is this start's world capability as the local-play identity carries it (`conquestWorld`); the
++ * launcher does not provide one today, so nothing is prepared. No `conditions` is passed: the module's own apply.
++ */
++const localConquestDeps = () => ({ allowed: localDepartGate, context: expeditionContext, signer: currentEphemeralWallet, world: () => localPlay?.conquestWorld ?? null, changed: () => invalidate('panel') });
++export const prepareLocalPlayConquest = () => localConquest.prepareLocalConquest(FS, localConquestDeps());
++export const sendLocalPlayConquest = () => localConquest.sendLocalConquest(FS, localConquestDeps());
++export const reconcileLocalPlayConquest = () => localConquest.reconcileLocalConquest(FS, localConquestDeps());
++/** Read-only (flocalplay-conquest.mjs): this wallet's siege reservations in the province the observed host stands in. Closed like the step above: no condition is passed from here. */
++export const readLocalPlayConquestOrders = () => localConquest.readLocalConquestOrders(FS, localConquestDeps());
++export const clearLocalPlayReturn = () => { const ok = localReturn.clearLocalReturn(FS); if (ok) invalidate('panel'); return ok; };
+ 
+ /**
+  * Load the latest envelope of a province the map draws at tile detail, the
+@@ -1036,7 +1225,8 @@ export async function refresh() {
+     // every holding's province (the rail can switch between them), the active one first
+     for (const o of [h, ...(FS.holdings ?? []).filter(x => x !== h)]) if (o) { await loadEnvelope(o.p, o.q); if (!currentViewer()) return; }
+     const home = h ? FS.provinces.get(`${h.p},${h.q}`)?.province ?? null : null;
+-    if (shouldAutoNudge({ holding: h, province: home, nowBell: FS.nowBell, lastBell: FS.autoNudgeBell ?? null, hidden: !!globalThis.document?.hidden })) {
++    // (local play: the page's own catch-up request to the keeper is not made)
++    if (!localPlay && shouldAutoNudge({ holding: h, province: home, nowBell: FS.nowBell, lastBell: FS.autoNudgeBell ?? null, hidden: !!globalThis.document?.hidden })) {
+       FS.autoNudgeBell = FS.nowBell;
+       io.nudge(h.p, h.q, home.resolvedNext).then(r => { if (r.ok) refreshSoon(4000); }).catch(() => {});
+     }
+@@ -1338,7 +1528,31 @@ export async function confirmHome() {
+     }
+     if (FS.meStatus !== 'ready') { await refresh(); if (FS.meStatus !== 'ready') return; }
+     const saved = readHome();
+-    if (saved.pending) {
++    if (saved.pending && localPlay) {
++      // LOCAL PLAY: the note is of a page-signed Join or PlaceHome. It is asked about as every local order is — ONCE, at
++      // the relay of this scope (wallet, world, relay), only while the page is still that scope (flocalplay-act.mjs
++      // `recheckLocalPending`) — never through the ordinary tracker. The note is cleared ONLY on the chain's own word
++      // (landed, or refused); an unknown outcome keeps it and nothing is sent in its place; if the page became another
++      // scope meanwhile, nothing is shown and nothing is touched.
++      pending('confirming');
++      const g = localDepartGate(), lscope = g?.ok ? localAct.localActScope({ identity: localPlay, relay: g.relay }) : null;
++      if (lscope === null) return error('PendingHome', L`参加の結果を確認しています。土地を重ねて申請せず、しばらくしてから再確認してください。`);
++      const still = () => localActScopeNow() === lscope;
++      // (the note says which scope — which relay too — its transaction was sent under: asked only when that is the
++      //  page's scope now. A note of another relay, wallet or world is neither asked about nor cleared: it stays.)
++      const s = await localAct.recheckLocalPending(localActLedger, lscope, saved.pending, { origin: g.relay, still });
++      if (s.state === 'left' || !still()) return;
++      if (s.state === 'other-scope') return error('PendingHome', L`参加の結果を確認しています。土地を重ねて申請せず、しばらくしてから再確認してください。`);
++      await refresh();
++      if (!still()) return;
++      if (FS.homeGrant) return;
++      // The note is cleared by what the page now SEES of this wallet in this world (its Citizen exists: the Join is
++      // done — also when the relay no longer knows the signature, or the order was already let go), or by the chain's
++      // own refusal. An unknown outcome with nothing to see keeps it; nothing is sent in its place.
++      if (saved.pending.kind === 'Join' && FS.citizen) saveHomePatch({ pending: null });
++      else if (s.state === 'failed') saveHomePatch({ pending: null });
++      else return error('PendingHome', L`参加の結果を確認しています。土地を重ねて申請せず、しばらくしてから再確認してください。`);
++    } else if (saved.pending) {
+       pending('confirming');
+       const tracked = await tx.track(saved.pending.signature);
+       await refresh();
+@@ -1377,14 +1591,17 @@ export async function confirmHome() {
+     // ⑳: an NFT Citizen has no in-game key (its owner's wallet signs the PlaceHome, for the pass's current
+     // generation): the key step is a wallet Citizen's. (Found in the integration: the page asked the wallet for a key
+     // the program refuses to register for an NFT Citizen, SetSession → NftNoSession, and the village was never placed)
+-    if (!FS.resident && (!FS.session || FS.sessionProblem)) {
++    // (local play: no in-game key at all — the memory-only wallet signs the PlaceHome itself; SetSession is never asked)
++    if (!localPlay && !FS.resident && (!FS.session || FS.sessionProblem)) {
+       await ACTIONS.session(); await refresh();
+       if (!FS.session || FS.sessionProblem) return;
+     }
+     pending('placing');
+     const placed = await act('PlaceHome', { v: { holding: site, faction: FS.citizen.faction }, fields: { p: site.p, q: site.q, site: site.site },
+       label: () => L`あなたの村を確定しています…`,
+-      onSent: r => saveHomePatch({ pending: { kind: 'PlaceHome', signature: r.signature } }),
++      // (local play: the note also carries the scope the PlaceHome was SENT under — wallet, world and relay — given by
++      //  the local send step; outside local play no scope is given and the note is what it always was)
++      onSent: (r, sentUnder) => saveHomePatch({ pending: { kind: 'PlaceHome', signature: r.signature, ...(typeof sentUnder?.scope === 'string' ? { scope: sentUnder.scope } : {}) } }),
+       onLost: () => saveHomePatch({ pending: null }) });
+     if (!placed?.ok) { await refresh(); if (!FS.homeGrant) error(placed?.code ?? FS.notice?.code ?? 'PlaceFailed', L`土地の確定を確認できませんでした。再確認するか、候補を更新してください。`); return; }
+     pending('confirming');
+@@ -1511,10 +1728,14 @@ function refreshOverviews(b) {
+       } catch { /* keep the last record */ }
+       if (herald !== request.herald) return;
+       if (overviewRefresh !== request) return overviewRefresh?.promise;
+-      const count = Math.max(1, FS.record?.rings?.length ?? 1);
++      // The rings the world has (map/world.mjs, set by applySeasonRecord above): a sparse world's own seeded rings,
++      // else 0 .. ringsOpen − 1. Never counted from the record's length: a world that seeds ring 128 alone has one
++      // entry, and its overview is ring 128's, not ring 0's.
++      const world = FS.world;
++      const count = Math.max(1, world?.ringsOpen ?? FS.record?.rings?.length ?? 1);
+       // Also refresh rings 0–1 as map summaries: a newer season read may supersede
+       // their queued boot reads. Ticket candidate rules still start at FIRST_TICKET_RING.
+-      const rings = Array.from({ length: count }, (_, i) => i);
++      const rings = world?.seeded ? [...world.seeded] : Array.from({ length: count }, (_, i) => i);
+       // The same four-request queue serves boot and refresh; PSFOV2 cannot be
+       // overwritten by a delayed legacy boot response. Ticket planning still awaits all.
+       const results = await readOverviews(FS, { herald, rings, v2: conquestEnabled(FS.season),
+@@ -1598,6 +1819,8 @@ function quickDestinations() {
+ async function sendTheMarch() {
+   const c = FS.compose;
+   if (!c || c.sending || FS.inFlight > 0) return;
++  // local play: no seal, no signature, no send, no nudge (the march's own path does not go through `act`)
++  if (localPlay) return failed(localPlayReadOnly());
+   const h = c.holding ? holdingByRef(FS.holdings,c.holding) : activeHolding(FS);
+   if (!h) return failed({code:'NotOwner'});
+   const pin = io.pinned();
+@@ -1976,6 +2199,16 @@ export const ACTIONS = {
+   'nft-logout': async () => { adoptResident(null); await refresh(); },
+   'pick-faction': d => { FS.joinDraft = { ...(FS.joinDraft ?? {}), faction: num(d.f) }; invalidate('panel'); if (needsHomeChoice()) return refreshHomes({ force: true }); },
+   join: async () => {
++    // LOCAL PLAY: no in-game key is derived, remembered or registered. The page's memory-only wallet signs the Join
++    // itself and is the only key the Citizen will ever have (flocalplay-act.mjs writes the wallet as the Join's
++    // session key). A Season with a prize pool or a join gate is not served there.
++    if (localPlay) {
++      if (FS.prize || FS.season?.joinGate?.some?.(x => x !== 0)) return failed(localPlayReadOnly());
++      return act('Join', { v: { faction: FS.joinDraft.faction }, fields: { faction: FS.joinDraft.faction, session_expiry: BigInt(Math.floor(now()) + SESSION_DAYS - 600) },
++        // (the note carries the scope the Join was SENT under: it is asked about again only at that relay, for that wallet and world)
++        onSent: (r, sentUnder) => { if (FS.homeChoice?.busy) saveHomePatch({ pending: { kind: 'Join', signature: r.signature, ...(typeof sentUnder?.scope === 'string' ? { scope: sentUnder.scope } : {}) } }); },
++        onLost: () => { if (FS.homeChoice?.busy) saveHomePatch({ pending: null }); } });
++    }
+     const pin = io.pinned();
+     let s;
+     try { s = await fsession.derive({ wallet: wallet.connected(), cluster: pin.cluster, programId: pin.programId, seasonId: pin.seasonId }); } catch (e) { return failed({ code: e.code ?? 'SignFailed' }); }
+@@ -2101,6 +2334,19 @@ export const ACTIONS = {
+ // from there, however it is reached (a stale control, a forged dataset, a shortcut, a repeated press, a call).
+ fwide.guardLegacy(ACTIONS, fwide.GUARDED_ACTS, { FS, refuse: failed });
+ 
++// Local play: the actions that make or store a session key, pay, or ask the relay to do something do not run at all
++// (the orders themselves stop in `act`). The ordinary page never has `localPlay` set, and runs them as before.
++// (2026-11-12: `join` and `home-confirm` are no longer here. In local play they make no key and pay nothing: the Join
++//  and the PlaceHome are two of the six page-signed economy commands — the memory-only wallet signs them itself, no
++//  in-game key is derived or registered, the home choice's record stays in the page's memory — and they do something
++//  only where the relay serves those routes; elsewhere they answer "reads only" as every order does. A Season with a
++//  prize pool or a join gate is refused inside `join`. The session, NFT, faucet, nudge and forget actions stay refused.)
++export const LOCAL_PLAY_REFUSED = Object.freeze(['session', 'nft-login', 'nft-logout', 'prize-faucet', 'nudge', 'forget']);
++for (const name of LOCAL_PLAY_REFUSED) {
++  const run = ACTIONS[name];
++  if (run) ACTIONS[name] = (...a) => (localPlay ? failed(localPlayReadOnly()) : run(...a));
++}
++
+ /** Where an order of the prototype is about: the host's tile, else the banner's pole. */
+ function protoAt(d) {
+   const r = d.host ? hostRow(d.host) : null;
+@@ -2189,6 +2435,9 @@ async function fileTicket(sites, source = null, bell = nowBell()) {
+  * preferences, the session key kept on this device, and the poll loop.
+  */
+ export async function startPlay({ herald: h, cfg }) {
++  // Local play is settled first, before any discovery, wallet event or read of this start can run an effect.
++  localPlay = cfg.localPlay ?? null;
++  FS.localPlay = localPlay;
+   useHerald(h);
+   protoIo.configure({ herald: cfg.herald ?? '' });
+   const pin = io.pinned();
+@@ -2205,8 +2454,21 @@ export async function startPlay({ herald: h, cfg }) {
+   };
+   wallet.onChange(listWallets);
+   listWallets();
++  // Local play (flocalplay.mjs; cfg.localPlay is set only by its verified gate): the page's memory-only test wallet is
++  // connected through the ordinary Wallet Standard path, and nothing else. No remembered wallet is reconnected and no
++  // session key is restored, made or stored; every send is refused (`localPlay`, set at the top). Reads only.
++  // The season this boot read and pinned by its ordinary path must be the very identity the gate verified (the
++  // dedicated program, localnet, that Season account, the dispatch revision); otherwise no wallet is connected.
++  if (localPlay && !localPlayIdentityOk(localPlay, pin, FS.season)) {
++    FS.error = { code: 'LocalPlayIdentityChanged', text: L`ローカルプレイの接続先が、確認したときと変わりました。ページを開き直してください。` };
++    invalidate('status');
++  } else if (localPlay) {
++    const mine = (FS.walletList ?? []).find(w => w.name === EPHEMERAL_WALLET_NAME && !w.why);
++    const c = mine ? await wallet.connect(mine, { chain: wallet.chainOf('localnet') }).catch(() => null) : null;
++    if (c && c.address === localPlay.address) adoptConnectedWallet(c);
++  }
+   // A silent reconnect of the wallet used last time (no popup; nothing if it does not trust this page).
+-  const last = wallet.lastWalletName();
++  const last = localPlay ? null : wallet.lastWalletName();
+   const entry = last && (FS.walletList ?? []).find(w => w.name === last && !w.why);
+   if (entry) {
+     const c = await wallet.connect(entry, { chain: wallet.chainOf(pin?.cluster ?? 'localnet'), silent: true }).catch(() => null);
+@@ -2221,6 +2483,14 @@ export async function startPlay({ herald: h, cfg }) {
+   await kernelOrNull();
+   if ((wallet.connected()?.address ?? null) !== (FS.wallet?.address ?? null)) await syncConnectedWallet();
+   await refresh();
++  // Local play: the player this boot read must still be the gate's wallet's own Citizen; otherwise the page lets go
++  // of the wallet and says so (sends stay refused either way).
++  if (localPlay && FS.wallet && !localPlayIdentityOk(localPlay, io.pinned(), FS.season, FS.citizen)) {
++    await wallet.disconnect().catch(() => {});
++    adoptConnectedWallet(null);
++    FS.error = { code: 'LocalPlayIdentityChanged', text: L`ローカルプレイの接続先が、確認したときと変わりました。ページを開き直してください。` };
++    invalidate('status', 'panel');
++  }
+   walletEventsReady = true;
+   if ((wallet.connected()?.address ?? null) !== (FS.wallet?.address ?? null)) await syncConnectedWallet();
+   let errors = 0;
+diff --git a/permutation-server/web/frontier/hud/hand.mjs b/permutation-server/web/frontier/hud/hand.mjs
+index df0b4a96..0e0ef60c 100644
+--- a/permutation-server/web/frontier/hud/hand.mjs
++++ b/permutation-server/web/frontier/hud/hand.mjs
+@@ -43,7 +43,12 @@ import { previewOf } from '../proto/hand-model.mjs';
+ import { conquestOn, renderKeepsPop, waitOf, holdTurns } from './keephand.mjs';
+ import { EXPEDITION_POP, inspectionVersion } from '../fexpedition.mjs';
+ import { originalReturnModel } from '../fexpedition-return.mjs';
+-import { OUTBOUND_POP, outboundSketch } from '../fexpedition-compose.mjs';
++import { OUTBOUND_POP, outboundSketch, outboundArrivalCandidate } from '../fexpedition-compose.mjs';
++import { localDepartOf, localDepartSpent } from '../flocalplay-depart.mjs';
++import { localRevealOf, localRevealCandidate } from '../flocalplay-reveal.mjs';
++import { localReturnOf, localReturnSpent } from '../flocalplay-return.mjs';
++import { localConquestShown, localConquestSpent, localConquestReadFor, localConquestOrderFor, localConquestCityFor } from '../flocalplay-conquest.mjs';
++import { hostStepInFlight } from '../flocalplay-hoststep.mjs';
+ import { composerChoices } from '../screens/march.mjs';
+ 
+ const int = Number.isInteger;
+@@ -441,8 +446,90 @@ export function renderPop(FS, model) {
+   return '';
+ }
+ 
++/**
++ * Local play only (FS.localPlay; flocalplay-depart.mjs): the one send of the local-play page, on the boundary card.
++ * The button asks for the departure of the draft as it stands; the lines say how far the run got. An unknown
++ * outcome is said as unknown, with the one thing that may be done about it (ask again); never as a success.
++ */
++function outboundLocalDepart(FS, ready) {
++  if (!FS.localPlay) return '';
++  const d = localDepartOf(FS), sig = d.signature ? `${d.signature.slice(0, 8)}…${d.signature.slice(-6)}` : '';
++  const step = { sealing: L`封をしています…`, preparing: L`出発の取引を用意しています…`, signing: L`このページのテスト用ウォレットで署名しています…`, submitting: L`送信して結果を待っています…` }[d.status];
++  const line = step ? html`<p class="pop-line local-depart-step" role="status">${step}</p>`
++    : d.status === 'confirmed' ? html`<p class="pop-line local-depart-done" role="status">${L`出発が確定しました（ターン ${d.arriveBell} に到着予定・移動枠 ${d.transitSlot}）。署名 ${sig}`}</p>`
++    : d.status === 'submitted' ? html`<p class="pop-line local-depart-sent" role="status">${L`送信しました。確定はまだ確認できていません。署名 ${sig}`}${d.error ? html` <span>${L`（照合できませんでした：${d.error}）`}</span>` : ''}</p>`
++    : d.status === 'failed' ? html`<p class="pop-line local-depart-failed" role="alert">${L`出発は失敗しました（理由 ${d.code ?? '?'}）。軍勢は出発していません。署名 ${sig}`}</p>`
++    : d.status === 'unknown' ? html`<p class="pop-line local-depart-unknown" role="alert">${L`結果を確認できませんでした。出発したかどうかは不明です。もう一度送らずに、結果を照合してください。署名 ${sig}`}${d.error ? html` <span>${L`（照合できませんでした：${d.error}）`}</span>` : ''}</p>`
++    : d.status === 'error' ? html`<p class="pop-line local-depart-error" role="alert">${L`出発できませんでした（${d.error ?? '?'}）。${d.sent ? '' : L`何も送っていません。`}`}</p>` : '';
++  const settle = d.status === 'unknown' || d.status === 'submitted';
++  // (a departure was already sent on this observation of the conditions: it is used up until they are read again)
++  const spent = localDepartSpent(FS);
++  if (spent) ready = false;
++  return html`<div class="outbound-local-depart"><p class="pop-line">${L`ローカルプレイ：この軍勢を、このページのテスト用ウォレットの署名で出発させます（このマシンの試験用の世界だけ）。封の中身はこのページのメモリにだけ残り、再読み込みすると失われます。`}</p>
++    ${line}
++    <div class="pop-foot">${settle ? html`<button type="button" class="btn small" data-act="outbound-local-reconcile" ${raw(d.busy ? 'aria-disabled="true"' : '')}>${L`結果を照合する`}</button>`
++      : html`<button type="button" class="btn primary" data-act="outbound-local-depart" ${raw(d.busy || !ready ? 'aria-disabled="true"' : '')}>${d.busy ? L`出発を送っています…` : L`出発する（ローカルプレイ）`}</button>`}
++      ${!ready && !d.busy && !settle ? html`<span>${spent ? L`この確認結果ではすでに出発を送りました。もう一度出発するには「出発条件を確認」で最新の状態を読み直してください。` : L`先に「出発条件を確認」で条件を満たしてください。`}</span>` : ''}</div></div>`;
++}
++
++/**
++ * Local play only (FS.localPlay; flocalplay-reveal.mjs): the explicit opening of a seal this page holds, for a
++ * departure the test world confirmed. Two presses: 確認 (a read; nothing is signed) and then 封を開く. Empty when the
++ * page holds no such seal and nothing was asked. What it says at the end is only that the opening is recorded:
++ * the arrival, its battle and the return are decided at the destination and are not claimed here. An outcome that
++ * is not known is said as not known, with the one thing that may be done (ask again); never sent a second time.
++ * Shown on the boundary card and, by the page, apart from it (the host has left its tile after departing).
++ */
++export function localRevealStrip(FS) {
++  if (!FS.localPlay) return '';
++  const r = localRevealOf(FS), seal = localRevealCandidate(FS);
++  if (r.status === 'idle' && !seal) return '';
++  const sig = r.signature ? `${r.signature.slice(0, 8)}…${r.signature.slice(-6)}` : '';
++  const turn = r.arriveBell ?? seal?.arriveBell ?? '?';
++  const why = {
++    RevealWindowClosed: L`封を開ける期間が終わっています。`, RevealArchived: L`この到着ターンの記録はすでに片付けられています。`, RevealLatchClosed: L`到着先はこのターンの受付をすでに締め切っています。`,
++    RevealSeasonNotRunning: L`シーズンが進行中ではありません。`, RevealSeasonEnded: L`シーズンが終わっており、この到着は受け付けられません。`,
++    RevealAdmissionContested: L`到着先の枠がほかの軍勢と競合しています。このページでは順位を判定しないため、送りません。`,
++    RevealAdmissionMismatch: L`到着先にこの軍勢の名前の記録がありますが、この封のものとは一致しません。`,
++    RevealDestinationNotOpen: L`到着先の州がまだ開かれていません。`, RevealDestinationNotReady: L`到着先の州の準備がまだ終わっていません。`,
++    RevealTransitMissing: L`この出発の記録が見つかりません。`, RevealAlreadyGathered: L`この軍勢はすでに到着先で受け付けられています。`, RevealHostDestroyedAtOrigin: L`この軍勢は出発地で失われました。`,
++    RevealSealMissing: L`このページには開ける封が残っていません（再読み込みすると封の中身は失われます）。`,
++  }[r.code] ?? null;
++  const step = { checking: L`いまの記録を読んで、封を開けられるか確かめています…`, reading: L`最新の記録を読み直しています…`, signing: L`このページのテスト用ウォレットで署名しています…`, submitting: L`送信して結果を待っています…` }[r.status];
++  const line = step ? html`<p class="pop-line local-reveal-step" role="status">${step}</p>`
++    : r.status === 'ready' ? html`<p class="pop-line local-reveal-ready" role="status">${L`封を開けられます（到着ターン ${turn}・到着先の枠 ${r.targetI}）。開くと封の中身（行き先と命令）が公開されます。`}</p>`
++    : r.status === 'blocked' ? html`<p class="pop-line pop-why local-reveal-blocked" role="status">${why ?? L`いまは封を開けられません。`} (${r.code ?? '?'}) ${L`何も送っていません。`}</p>`
++    : r.status === 'revealed' ? html`<p class="pop-line local-reveal-done" role="status">${L`封を開いたことが記録されました（到着ターン ${turn}）。到着先での決着を待っています。戦いや帰還の結果は、まだ決まっていません。`}${sig ? html` <span>${L`署名 ${sig}`}</span>` : ''}</p>`
++    : r.status === 'submitted' ? html`<p class="pop-line local-reveal-sent" role="status">${L`送信しました。記録されたかどうかはまだ確認できていません。署名 ${sig}`}${r.error ? html` <span>${L`（照合できませんでした：${r.error}）`}</span>` : ''}</p>`
++    : r.status === 'unknown' ? html`<p class="pop-line local-reveal-unknown" role="alert">${L`結果を確認できませんでした。封が開かれたかどうかは不明です。もう一度送らずに、結果を照合してください。署名 ${sig}`}${r.error ? html` <span>${L`（照合できませんでした：${r.error}）`}</span>` : ''}</p>`
++    : r.status === 'failed' ? html`<p class="pop-line local-reveal-failed" role="alert">${L`封を開く取引は失敗しました（理由 ${r.code ?? '?'}）。封は開かれていません。封はこのページに残っています。署名 ${sig}`}</p>`
++    : r.status === 'error' ? html`<p class="pop-line local-reveal-error" role="alert">${L`封を開けませんでした（${r.error ?? '?'}）。${r.sent ? '' : L`何も送っていません。`}`}</p>` : '';
++  const settle = r.status === 'unknown' || r.status === 'submitted', off = r.busy ? 'aria-disabled="true"' : '';
++  const buttons = settle ? html`<button type="button" class="btn small" data-act="local-reveal-reconcile" ${raw(off)}>${L`結果を照合する`}</button>`
++    : r.status === 'ready' ? html`<button type="button" class="btn primary" data-act="local-reveal-send" ${raw(off)}>${L`封を開く（ローカルプレイ）`}</button>
++        <button type="button" class="btn small" data-act="local-reveal-check" ${raw(off)}>${L`確認し直す`}</button>`
++    : r.status === 'revealed' ? (seal ? html`<button type="button" class="btn small" data-act="local-reveal-clear">${L`次の封を確認する`}</button>` : '')
++    : ['failed', 'error', 'blocked'].includes(r.status) ? html`<button type="button" class="btn small" data-act="local-reveal-check" ${raw(off)}>${L`確認し直す`}</button>`
++    : html`<button type="button" class="btn small" data-act="local-reveal-check" ${raw(off)}>${r.busy ? L`確かめています…` : L`封を開けるか確認する`}</button>`;
++  return html`<div class="outbound-local-reveal"><p class="pop-line">${L`ローカルプレイ：出発が確定した軍勢の封を、このページのテスト用ウォレットの署名で開きます（このマシンの試験用の世界だけ）。到着ターン ${turn}。`}</p>
++    ${line}
++    <div class="pop-foot">${buttons}</div></div>`;
++}
++
+ /** Local preparatory card. Its controls have no order form or executable action. */
+-function outboundRouteReport(check) {
++/**
++ * The earliest observed arrival turn, offered beside the range it comes from (`pick`: fexpedition-compose.mjs
++ * outboundArrivalCandidate, only while the observation is still this draft's; `entered`: the draft's own field).
++ * A press fills the field and reads the observation again; the field in 詳細 stays for any other turn.
++ */
++function outboundArrivalPick(pick, entered) {
++  if (!pick) return '';
++  if (entered === pick.arriveBell) return html`<p class="pop-line outbound-arrival-set">${L`到着ターンの候補はターン ${pick.arriveBell}（観測した範囲で最も早い候補）です。詳細で変更できます。`}</p>`;
++  return html`<div class="pop-foot outbound-arrival-pick"><button type="button" class="btn small" data-act="outbound-arrival-earliest">${L`最も早い候補（ターン ${pick.arriveBell}）を使う`}</button>
++    <span>${entered ? L`いまの候補：ターン ${entered}` : L`到着ターンの候補は未入力です`}</span></div>`;
++}
++
++function outboundRouteReport(check, pick = null, entered = '') {
+   if (!check) return '';
+   if (check.status === 'loading') return html`<p class="pop-line" role="status">${L`道の州の記録を読み込んでいます…`}</p>`;
+   if (check.status === 'error') return html`<p class="pop-line pop-why" role="status">${L`道の記録を読めませんでした。もう一度確認してください。`} (${check.code})</p>`;
+@@ -457,11 +544,12 @@ function outboundRouteReport(check) {
+     ${r.travelSecs !== null ? html`<p class="pop-line">${L`記録上の移動時間 ${r.travelSecs} 秒・塔の消耗 ${r.wearBps} bps`}</p>` : ''}
+     ${r.min !== null && r.max !== null && r.min <= r.max ? html`<p class="pop-line">${L`到着候補：ターン ${r.min}〜${r.max}`}</p>` : ''}
+     ${why ? html`<p class="pop-line pop-why">${why}${r.stepIndex !== null ? ` (${r.stepIndex + 1})` : ''}</p>` : ''}
++    ${outboundArrivalPick(pick, entered)}
+     <p class="pop-line">${L`取得した記録と推定出発時刻での計算です。現在の通行・到着や出発の成功は未確認です。`}</p>
+   </div>`;
+ }
+ 
+-function outboundContextReport(check) {
++function outboundContextReport(check, pick = null, entered = '') {
+   if (!check) return '';
+   if (check.status === 'loading') return html`<p class="pop-line" role="status">${L`軍勢・村・地形・時刻をまとめて読み込んでいます…`}</p>`;
+   if (check.status === 'error') return html`<p class="pop-line pop-why" role="status">${check.code === 'ExpeditionPreviewDisabled'
+@@ -471,7 +559,7 @@ function outboundContextReport(check) {
+     <p class="pop-line${check.ready.ok ? '' : ' pop-why'}">${check.ready.ok
+       ? L`この読取時点では、軍勢と村の出発条件を満たしています。`
+       : L`この読取時点では、軍勢と村の出発条件を満たしていません。`}${check.ready.ok ? '' : ` (${check.ready.code})`}</p>
+-    ${outboundRouteReport(check)}
++    ${outboundRouteReport(check, pick, entered)}
+     <p class="pop-line pop-why">${L`出発の送信はまだ利用できません。`}</p>
+   </div>`;
+ }
+@@ -481,6 +569,10 @@ function outboundPop(FS, model) {
+   let choices = { stances: [], retreat: [], tips: [] };
+   try { choices = composerChoices(FS); } catch { /* A missing season is explained by the source blocker. */ }
+   const endpoint = s.trace?.endpoint;
++  // (offered only from an observation that is still of this host, these steps, this source and connection)
++  let pick = null;
++  try { pick = outboundArrivalCandidate(FS); } catch { /* none to offer: the report's own words say why */ }
++  const entered = typeof s.arriveBell === 'string' ? s.arriveBell : '';
+   const points = outboundSketch(directions).map(p => ({ x: p.q + p.r / 2, y: p.r * Math.sqrt(3) / 2 }));
+   const xs = points.map(p => p.x), ys = points.map(p => p.y);
+   const left = Math.min(...xs) - 1, top = Math.min(...ys) - 1, width = Math.max(...xs) - left + 1, height = Math.max(...ys) - top + 1;
+@@ -499,8 +591,10 @@ function outboundPop(FS, model) {
+     ${endpoint ? html`<p class="pop-line">${L`道から決まる終点`}: ${endpoint.p},${endpoint.q} · ${L`マス`} ${endpoint.tile}</p>` : ''}
+     <div class="pop-foot"><button type="button" class="btn small" data-act="outbound-route-read" ${raw(!source || !directions.length || s.routeCheck?.status === 'loading' ? 'aria-disabled="true"' : '')}>${L`地形・時間を確認`}</button>
+       <button type="button" class="btn small" data-act="outbound-context-read" ${raw(!source || !directions.length || s.contextCheck?.status === 'loading' ? 'aria-disabled="true"' : '')}>${L`出発条件を確認`}</button></div>
+-    ${outboundRouteReport(s.routeCheck)}
+-    ${outboundContextReport(s.contextCheck)}
++    ${outboundRouteReport(s.routeCheck, pick?.from === 'route' ? pick : null, entered)}
++    ${outboundContextReport(s.contextCheck, pick?.from === 'context' ? pick : null, entered)}
++    ${outboundLocalDepart(FS, !!review && s.contextCheck?.status === 'read' && s.contextCheck.ready?.ok === true && s.contextCheck.report?.ok === true)}
++    ${localRevealStrip(FS)}
+     <details data-fold="outbound-details"><summary>${L`詳細`}</summary>
+     <p class="pop-line">${L`記録上の地形と推定時刻から道を準備します。現在の通行条件と出発の成功は未確認です。`}</p>
+     <p class="pop-line">${L`選択した軍勢`}: ${model.host.id}</p>
+@@ -556,10 +650,242 @@ function expeditionPop(FS, model) {
+           <p class="pop-line pop-why">${L`帰還の送信はまだ利用できません。予備兵への加算も行っていません。`}</p>
+         </section>` : ''}
+         ${returning?.proposal ? html`<details><summary>${L`実行できない役割案`}: ${returning.proposal.action}</summary><ul>${returning.proposal.roles.map(r => html`<li>${r.name}: ${r.address} · ${r.signer ? L`署名が必要` : L`署名不要`} · ${r.writable ? L`書き込み役割` : L`読み取り役割`}</li>`)}</ul></details>` : ''}
++        ${localReturnBlock(FS, returning)}
++        ${localConquestBlock(FS, returning)}
++        ${returning?.proposal && !FS.localPlay && state.request.deployment.program_version === '18436' ? html`<section class="expedition-preparation" data-preparation-status="${state.preparation?.status ?? 'idle'}" aria-label="${L`署名前の準備確認`}">
++          <p class="pop-line"><strong>${L`実験用の準備確認`}</strong></p>
++          <p class="pop-line">${L`署名前の内容を取り直して確認します。署名・支払い・送信は行いません。`}</p>
++          <button type="button" class="btn" data-act="expedition-prepare" ${raw(state.preparation?.status === 'loading' ? 'aria-disabled="true"' : '')}>${L`署名前の準備内容を確認`}</button>
++          ${state.preparation?.status === 'loading' ? html`<p class="pop-line">${L`読み取り中…`}</p>` : ''}
++          ${state.preparation?.error ? html`<p class="pop-line pop-why">${L`準備内容を確認できません`}: ${state.preparation.error}</p>` : ''}
++          ${state.preparation?.report?.blocker ? html`<p class="pop-line pop-why">${L`準備内容を確認できません`}: ${state.preparation.report.blocker.code}</p>` : ''}
++          ${state.preparation?.report?.prepared ? preparationDetails(state.preparation.report) : ''}
++        </section>` : ''}
+         ${report.draft_blocker ? html`<p class="pop-line">${report.draft_blocker}</p>` : ''}` : ''}</div>
+     <p class="pop-line pop-rule">${L`公開の実行経路は閉じたままです。帰還済みとは判定せず、地図や行軍記録も変更しません。`}</p>`;
+ }
+ 
++/**
++ * Local play only (FS.localPlay; flocalplay-return.mjs): the two player-signed steps of the return, on the return
++ * card. The step offered is the one the card's own observation names (`returning.proposal`), never a choice here.
++ * Two presses: 準備 (nothing is signed; what would be signed is then shown) and 署名して送る. What it says at the end is
++ * only that this step's transaction is recorded: after the first step the turn still has to be processed, and the
++ * reserve is only ever shown by the card's next read. An outcome that is not known is said as not known, with the
++ * one thing that may be done (ask again); never sent a second time.
++ */
++function localReturnBlock(FS, returning) {
++  if (!FS.localPlay) return '';
++  const d = localReturnOf(FS), offered = returning?.proposal?.action ?? null;
++  if (d.status === 'idle' && !offered) return '';
++  const name = a => (a === 'Dissolve' ? L`広域で解散を指示` : a === 'Return' ? L`元の村の予備兵に戻す` : '?');
++  const sig = d.signature ? `${d.signature.slice(0, 8)}…${d.signature.slice(-6)}` : '', dig = d.digest ? `${d.digest.slice(0, 12)}…` : '';
++  const step = { preparing: L`署名前の内容を用意して確かめています…`, signing: L`このページのテスト用ウォレットで署名しています…`, submitting: L`送信して結果を待っています…` }[d.status];
++  const line = step ? html`<p class="pop-line local-return-step" role="status">${step}</p>`
++    : d.status === 'prepared' ? html`<p class="pop-line local-return-prepared" role="status">${L`署名する内容を確かめました：${name(d.action)}（メッセージ ${dig}・有効期限のブロック高 ${d.lastValidBlockHeight}）。このページのテスト用ウォレットだけが署名し、手数料も支払います。`}</p>
++        ${d.action === 'Return' && d.returnUnits !== null ? html`<p class="pop-line">${L`予備兵に戻す人数の候補: ${fmtNum(d.returnUnits)}人`}</p>` : ''}`
++    : d.status === 'confirmed' ? html`<p class="pop-line local-return-done" role="status">${d.action === 'Dissolve'
++        ? L`解散の指示が記録されました。ターンの処理が済むまで待ち、もう一度読み取ってください。帰還はまだ終わっていません。`
++        : L`予備兵に戻す取引が記録されました。もう一度読み取って、予備兵の人数を確認してください。`} <span>${L`署名 ${sig}`}</span></p>`
++    : d.status === 'submitted' ? html`<p class="pop-line local-return-sent" role="status">${L`送信しました。記録されたかどうかはまだ確認できていません。署名 ${sig}`}${d.error ? html` <span>${L`（照合できませんでした：${d.error}）`}</span>` : ''}</p>`
++    : d.status === 'unknown' ? html`<p class="pop-line local-return-unknown" role="alert">${L`結果を確認できませんでした。この手順が記録されたかどうかは不明です。もう一度送らずに、結果を照合してください。署名 ${sig}`}${d.error ? html` <span>${L`（照合できませんでした：${d.error}）`}</span>` : ''}</p>`
++    : d.status === 'expired' ? html`<p class="pop-line local-return-expired" role="status">${L`この操作は反映されませんでした。送った取引は有効期限を過ぎ、記録されていません。署名 ${sig}`}</p>`
++    : d.status === 'failed' ? html`<p class="pop-line local-return-failed" role="alert">${L`この手順の取引は失敗しました（理由 ${d.code ?? '?'}）。何も変わっていません。署名 ${sig}`}</p>`
++    : d.status === 'error' ? html`<p class="pop-line local-return-error" role="alert">${L`この手順を進められませんでした（${d.error ?? '?'}）。${d.sent ? '' : L`何も送っていません。`}`}</p>` : '';
++  const settle = d.status === 'unknown' || d.status === 'submitted', spent = localReturnSpent(FS), other = hostStepInFlight(FS, 'return') !== null, off = d.busy || other ? 'aria-disabled="true"' : '';
++  // (one step at a time for this host: while a siege is being sent or its outcome is not known, no return step)
++  const prepare = label => html`<button type="button" class="btn small" data-act="local-return-prepare" ${raw(d.busy || !offered || spent || other ? 'aria-disabled="true"' : '')}>${label}</button>`;
++  const buttons = settle ? html`<button type="button" class="btn small" data-act="local-return-reconcile" ${raw(off)}>${L`結果を照合する`}</button>`
++    : d.status === 'prepared' ? html`<button type="button" class="btn primary" data-act="local-return-send" ${raw(off)}>${L`署名して送る（ローカルプレイ）`}</button>${prepare(L`準備し直す`)}`
++    : prepare(d.busy ? L`確かめています…` : offered ? L`「${name(offered)}」を準備する（ローカルプレイ）` : L`準備し直す`);
++  return html`<section class="expedition-local-return" data-local-return="${d.status}" aria-label="${L`ローカルプレイ：帰還の手順を送る`}">
++    <p class="pop-line">${L`ローカルプレイ：帰還の手順を、このページのテスト用ウォレットの署名で一つずつ送ります（このマシンの試験用の世界だけ）。まず準備して内容を確かめ、次に自分で送ります。`}</p>
++    ${line}
++    <div class="pop-foot">${buttons}
++      ${other ? html`<span>${L`この軍勢の別の手順を送っているか、その結果がまだ分かっていません。先にそちらを照合してください。`}</span>`
++        : spent && !d.busy && !settle ? html`<span>${L`この読み取り結果ではすでに手順を送りました。次へ進むには、もう一度読み取ってください。`}</span>` : ''}</div></section>`;
++}
++
++/**
++ * Local play only (FS.localPlay; flocalplay-conquest.mjs): the siege of the Free City in the province the host stays
++ * in, on the expedition card. Offered only while the card's observation says the host STAYS (the `resident` phase)
++ * and this start carries a world capability (`FS.localPlay.conquestWorld`); without one the card says, in one line,
++ * that this test world has no city to besiege, and offers nothing to press. (The same signed message lands as a
++ * reservation or, when the province is already resolved through the turn, as an immediate declaration: the program
++ * decides at execution. So `confirmed` says only that the transaction is recorded, never which of the two it became
++ * and never that the siege has not started — that is for a read of the table, which does not exist yet.) Two presses: 準備 (nothing is signed; what
++ * would be signed is shown) and 署名して送る.
++ *
++ * What the signed step is (decision B, 2026-11-12): a RESERVATION of a siege. It becomes a siege only if its
++ * conditions hold when its turn is processed; it cannot be cancelled; if it does not start, the deposit and the
++ * holding slot come back and the day's declaration count stays used; of several reservations on one city the first
++ * that meets the conditions becomes the siege. The block says so BEFORE the first press. At the end it says only that
++ * the reservation's transaction is recorded: whether the siege started, its result and any capture are for a later
++ * read to show (`order`, fconquest-order.mjs; none is read today), and staying here is not owning the city.
++ */
++function localConquestBlock(FS, returning) {
++  // (what became of a reservation is only ever a fact of the read-only reservation read, made on the player's own press:
++  //  flocalplay-conquest.mjs `readLocalConquestOrders`. It shows a reservation still waiting, or one that did not take
++  //  effect with what is still owed — and nothing for a record that is gone)
++  // (the step's own lines belong to the host and the identity it was prepared for: on another host's card, or after
++  //  the wallet / Season / program changed, they are not drawn; if such a step is still unsettled the card says so)
++  const shown = localConquestShown(FS);
++  return localConquestView(FS, returning, { state: shown.state, foreign: shown.foreign, spent: localConquestSpent(FS), other: hostStepInFlight(FS, 'conquest') !== null,
++    // (both for THIS start's city: a read of another province is no evidence about it — not its orders, not "no reservation")
++    order: localConquestOrderFor(FS, FS.localPlay?.conquestWorld ?? null), read: localConquestReadFor(FS, FS.localPlay?.conquestWorld ?? null),
++    city: localConquestCityFor(FS, FS.localPlay?.conquestWorld ?? null) });
++}
++/**
++ * The lines for one reserved siege, from the card's model of it (fconquest-order.mjs `siegeOrderModel`), or '' for
++ * none. A model that could not be made (`{ok: false}`) is said as unreadable: never as a success or a failure. What
++ * came back is said only as a fact of the model ("returned"), otherwise as still waiting; a capture is said only by
++ * the `captured` phase, which the model gives for the three capture facts together and nothing less.
++ */
++export function siegeOrderView(order) {
++  if (order === null || order === undefined) return '';
++  if (order.ok !== true) return html`<p class="pop-line pop-why local-conquest-order" data-siege-order="unreadable" role="status">${L`包囲の予約の状態を読み取れませんでした。成立したとも、しなかったとも表示しません。`} (${order.code ?? '?'})</p>`;
++  const o = order;
++  const reason = { HostGone: L`軍勢がもういません`, HostNotOnTile: L`軍勢が自由都市のマスにいません`, HostNotLeading: L`軍勢がそのマスの先頭ではありません`, CityNotFree: L`都市はもう自由都市ではありません`,
++    AnotherOrderApplied: L`先に条件を満たした別の予約が包囲になりました`, NoHoldingSlot: L`拠点の使用枠が空いていません`, TooLate: L`シーズンの終わりまでに包囲が終わりません` }[o.reason] ?? o.reason;
++  const failed = o.phase === 'not_applied';
++  // (a reservation that did not start: the slot with its rent, and the deposited resources, come back separately. A
++  //  deposit still held is OWED back, kept as a debt; with the slot already released that is said in so many words,
++  //  and it is not a finished settlement)
++  // (a deposit owed to a Holding that no longer exists stays owed: where it goes instead is not decided, and that is what is said)
++  const stake = failed && o.stake === 'held' && o.source === 'absent' ? L`預けた資源：返却待ちです。返却先の拠点がもうありません。返却の債務として残っており、精算は完了していません。いつ、どこへ戻るかはまだ決まっていません。`
++    : failed ? { held: L`預けた資源：返却待ちです。返却の債務として残っており、精算はまだ完了していません。`, returned: L`預けた資源：戻りました。` }[o.stake]
++    : { held: L`預けた資源：返却の処理待ちです。`, returned: L`預けた資源：戻りました。`, burnt: L`預けた資源：戻りません。` }[o.stake];
++  const slot = failed ? { held: L`使用枠と預り金：解放待ちです。`, released: L`使用枠と預り金：解放済みです。` }[o.slot]
++    : { held: L`使用枠：返却の処理待ちです。`, released: L`使用枠：戻りました。`, used: L`使用枠：新しい拠点が使っています。` }[o.slot];
++  const head = o.phase === 'ordered' ? L`包囲の予約：ターン ${o.orderBell} の処理を待っています（場所 ${o.site}）。まだ包囲は始まっていません。取り消しはできません。`
++    : o.phase === 'started' ? L`包囲が始まりました（ターン ${o.decidedBell}・場所 ${o.site}）。勝敗と占領は、このあとのターンの処理で決まります。都市はまだあなたのものではありません。`
++    // (no cause is stored for this: a general sentence, never a specific cause stated as fact. How it ended is said only
++    //  on a basis: `lapsed` false = its own turn was processed; true = the season ended or was interrupted; null = not known)
++    : failed && o.lapsed === false ? L`包囲は始まりませんでした（ターン ${o.decidedBell}・場所 ${o.site}）。予約したターンの処理のときに条件を満たさなかったか、先の予約が包囲になりました。今日の宣言回数は1回使われたままです。`
++    : failed && o.lapsed === true ? L`包囲は始まりませんでした（場所 ${o.site}）。シーズンの終了または中断により、予約は成立しませんでした。今日の宣言回数は1回使われたままです。`
++    : failed ? L`包囲は始まりませんでした（場所 ${o.site}）。予約は成立しませんでした。今日の宣言回数は1回使われたままです。`
++    : o.phase === 'captured' ? L`自由都市を占領しました（場所 ${o.site}・ターン ${o.decidedBell}）。占領の記録、新しい拠点、使用枠を確認しました。`
++    : o.phase === 'lost' ? L`包囲は失敗しました（場所 ${o.site}・ターン ${o.decidedBell}）。都市は占領していません。`
++    : L`包囲は決着しないまま終わりました（場所 ${o.site}・ターン ${o.decidedBell}）。都市は占領していません。`;
++  // (while reserved or under way the deposit and the slot are simply held: said once, in the block's first line, not as "waiting to be returned")
++  const owed = o.phase === 'ordered' || o.phase === 'started' ? '' : html`<p class="pop-line" data-siege-return="stake">${stake}</p><p class="pop-line" data-siege-return="slot">${slot}</p>${failed && !o.settled
++    // (nothing here promises that what is owed comes back by itself: a settlement has to be run, and no runner is promised)
++    ? html`<p class="pop-line" data-siege-return="note">${L`返却と解放は、精算の処理が行われたときに反映されます。自動で行われるとは限りません。`}</p>` : ''}`;   // (two facts, two lines)
++  return html`<div class="local-conquest-order" data-siege-order="${o.phase}" data-siege-settled="${o.settled ? 'yes' : 'no'}" role="status">
++    <p class="pop-line"><strong>${head}</strong></p>${owed}
++    ${failed && o.reason !== null ? html`<p class="pop-line" data-siege-reason="derived">${L`状態から導出した理由（記録された理由ではありません）：${reason}`}</p>` : ''}
++    ${o.day ? html`<p class="pop-line">${L`今日の宣言回数：${o.day.used} / ${o.day.limit}`}</p>` : ''}</div>`;
++}
++/**
++ * The block's markup for a given state: what `localConquestBlock` shows for the page's live state, and what a
++ * fixture page shows for a state written by hand (no signing, no send: the keyless display of every outcome).
++ * `view`: `{state, spent, other}` as flocalplay-conquest.mjs / flocalplay-hoststep.mjs give them, and `order`: the
++ * card's model of this host's reserved siege (`siegeOrderView`), or null; and `read`: the reservation read's state
++ * (its button and what it said), or null for none.
++ */
++/**
++ * The line for the city's PRESENT state (fconquest-order.mjs `cityStateModel`; null → ''). Present facts only: a siege
++ * says its own progress of its own requirement; a capture due says the turn it is due from; "yours now" says that the
++ * wallet's Citizen holds a Holding there now, and nothing of how it came to (no "captured", no "won"); a slot owed
++ * says only that; another player's is said by its kind, without their numbers.
++ */
++export function cityStateView(city) {
++  if (city === null || city === undefined) return '';
++  const c = city;
++  const text = c.state === 'siege' ? L`あなたの包囲が進行中です：${c.progress} / ${c.required} ターン（宣言はターン ${c.declaredBell}・場所 ${c.site}）。都市はまだあなたのものではありません。`
++    : c.state === 'capture_due' ? L`あなたの包囲は必要なターンを満たし、占領の精算待ちです（ターン ${c.dueBell} 以降・宣言はターン ${c.declaredBell}・場所 ${c.site}）。都市はまだあなたのものではありません。`
++    : c.state === 'owned' ? L`この都市はいま、あなたが所有しています（場所 ${c.site}・拠点の枠 ${c.slot}）。いま所有しているという事実だけを表示しています。`
++    : c.state === 'slot_owed' ? L`この都市へのあなたの包囲は、いまは進行していません。拠点の使用枠 ${c.slot} は解放待ちです（場所 ${c.site}）。`
++    : c.what === 'siege' ? L`この都市では、別のプレイヤーの包囲が進行中です。`
++    : c.what === 'capture_due' ? L`この都市では、別のプレイヤーの包囲が占領の精算待ちです。`
++    : c.what === 'holding' ? L`この都市はいま、別のプレイヤーが所有しています。`
++    : L`この都市には、別のプレイヤーの包囲に関する記録があります。`;
++  return html`<p class="pop-line local-conquest-city" data-siege-city="${c.state}" role="status"><strong>${text}</strong></p>`;
++}
++export function localConquestView(FS, returning, { state: d, spent, other, order = null, read = null, city = null, foreign = false }) {
++  if (!FS.localPlay) return '';
++  const staying = returning?.phase === 'resident', orderLines = siegeOrderView(order);
++  // (a host that no longer stays is offered nothing; what became of its reservation is still said)
++  // The reservation read (`read`: flocalplay-conquest.mjs `localConquestReadFor`, or null where there is none — a
++  // fixture): one button, the player's own press, and what the read said. "No record" is said as exactly that: a
++  // record that is gone does not tell whether a siege started, a return completed, or nothing was reserved.
++  // (the city's present state stands with the order's lines: what is there now, beside what the record says)
++  const cityLines = cityStateView(city);
++  const readLines = read === null || !FS.localPlay.conquestWorld ? '' : html`<div class="local-conquest-read" data-siege-read="${read.status}">
++    ${read.status === 'reading' ? html`<p class="pop-line" role="status">${L`予約の状態を読み取っています…`}</p>`
++      : read.status === 'error' ? html`<p class="pop-line pop-why" role="alert">${read.error === 'ConquestRouteClosed' ? L`包囲の経路はまだ閉じています（試験用の世界での確認が済んでいません）。` : L`予約の状態を読めませんでした。`} (${read.error ?? '?'}) ${L`予約の状態は分かりません。`}</p>`
++      : read.status === 'read' && !orderLines && !cityLines ? html`<p class="pop-line" role="status">${L`この州の記録に、この都市へのあなたの予約はいまありません（読み取りのスロット ${read.contextSlot}）。記録がないことだけでは、包囲が始まったのか、返却が済んだのか、予約がなかったのかは分かりません。`}</p>`
++      : read.status === 'read' ? html`<p class="pop-line">${L`読み取りのスロット ${read.contextSlot}。記録にある事実だけを表示しています。`}</p>` : ''}
++    <div class="pop-foot"><button type="button" class="btn small" data-act="local-conquest-orders" ${raw(read.busy ? 'aria-disabled="true"' : '')}>${read.busy ? L`読み取り中…` : L`包囲予約の状態を読む（ローカルプレイ）`}</button></div></div>`;
++  if (d.status === 'idle' && !staying) return orderLines || cityLines || readLines ? html`<section class="expedition-local-conquest" data-local-conquest="order-only" aria-label="${L`ローカルプレイ：自由都市を包囲する`}">${orderLines}${cityLines}${readLines}</section>` : '';
++  const world = FS.localPlay.conquestWorld ?? null;
++  if (d.status === 'idle' && !world) return html`<section class="expedition-local-conquest" data-local-conquest="unavailable"><p class="pop-line pop-why">${L`ローカルプレイ：この試験用の世界には、包囲できる自由都市がまだありません。包囲は使えません。`}</p></section>`;
++  const sig = d.signature ? `${d.signature.slice(0, 8)}…${d.signature.slice(-6)}` : '', dig = d.digest ? `${d.digest.slice(0, 12)}…` : '';
++  const step = { preparing: L`署名前の内容を用意して確かめています…`, signing: L`このページのテスト用ウォレットで署名しています…`, submitting: L`送信して結果を待っています…` }[d.status];
++  const why = { ConquestRouteClosed: L`包囲の経路はまだ閉じています（試験用の世界での確認が済んでいません）。`, ConquestWorldUnavailable: L`この試験用の世界には、包囲できる自由都市がまだありません。`,
++    ConquestNoFreeCityHere: L`この軍勢がいる州には、包囲できる自由都市がありません。`, ConquestHostNotStaying: L`この軍勢は、いま滞在中ではありません。`,
++    TargetNotFreeCity: L`対象は自由都市ではありません。`, HostNotOnTarget: L`この軍勢は自由都市のマスにいません。`, SiegeUnavailable: L`いまは包囲を予約できません。`,
++    ConquestCityHeld: L`この都市はすでに所有されています。包囲の予約は送れません。` }[d.error] ?? null;
++  const line = step ? html`<p class="pop-line local-conquest-step" role="status">${step}</p>`
++    : d.status === 'prepared' ? html`<p class="pop-line local-conquest-prepared" role="status">${L`署名する内容を確かめました：自由都市の包囲を予約（州 ${d.standing?.p ?? '?'}, ${d.standing?.q ?? '?'}・場所 ${d.site}・メッセージ ${dig}・有効期限のブロック高 ${d.lastValidBlockHeight}）。このページのテスト用ウォレットだけが署名し、手数料も支払います。`}</p>
++        <p class="pop-line pop-why">${L`送ると取り消せません。包囲が始まらなくても、今日の宣言回数は1回使われます。`}</p>`
++    : d.status === 'confirmed' ? html`<p class="pop-line local-conquest-done" role="status">${L`取引が記録されました。予約として受け付けられたのか、すでに包囲として始まったのかは、まだ確認できていません。占領もまだ分かりません。受け付けられた予約は取り消せません。`} <span>${L`署名 ${sig}`}</span></p>`
++    : d.status === 'submitted' ? html`<p class="pop-line local-conquest-sent" role="status">${L`送信しました。記録されたかどうかはまだ確認できていません。署名 ${sig}`}${d.error ? html` <span>${L`（照合できませんでした：${d.error}）`}</span>` : ''}</p>`
++    : d.status === 'unknown' ? html`<p class="pop-line local-conquest-unknown" role="alert">${L`結果を確認できませんでした。この取引が記録されたかどうかは不明です。もう一度送らずに、結果を照合してください。署名 ${sig}`}${d.error ? html` <span>${d.chain === null ? L`（送信の応答を確認できませんでした：${d.error}）` : L`（照合できませんでした：${d.error}）`}</span>` : ''}</p>`
++    : d.status === 'expired' ? html`<p class="pop-line local-conquest-expired" role="status">${L`この操作は反映されませんでした。送った取引は有効期限を過ぎ、記録されていません。署名 ${sig}`}</p>`
++    : d.status === 'failed' ? html`<p class="pop-line local-conquest-failed" role="alert">${L`包囲を予約する取引は失敗しました（理由 ${d.code ?? '?'}）。何も変わっていません。署名 ${sig}`}</p>`
++    : d.status === 'error' ? html`<p class="pop-line local-conquest-error" role="alert">${why ?? L`包囲を予約できませんでした。`} (${d.error ?? '?'}) ${d.sent ? '' : L`何も送っていません。`}</p>` : '';
++  const settle = d.status === 'unknown' || d.status === 'submitted', off = d.busy || other ? 'aria-disabled="true"' : '';
++  // (one step at a time for this host: while a return step is being sent or its outcome is not known, no siege)
++  // (a city the read has shown to be HELD — by this wallet or by another player — is not offered a reservation: the
++  //  button is not drawn at all. A display choice only: it withholds an action the program would refuse; no rule is
++  //  decided here. The read button stays, so the present state can be read again)
++  const heldCity = city !== null && (city.state === 'owned' || (city.state === 'other' && city.what === 'holding'));
++  // (`foreign`: a siege step of ANOTHER host or identity is still running or unsettled — nothing is prepared here until it is settled on its own card)
++  const prepare = label => (heldCity ? '' : html`<button type="button" class="btn small" data-act="local-conquest-prepare" ${raw(d.busy || !staying || !world || spent || other || foreign ? 'aria-disabled="true"' : '')}>${label}</button>`);
++  const buttons = settle ? html`<button type="button" class="btn small" data-act="local-conquest-reconcile" ${raw(off)}>${L`結果を照合する`}</button>`
++    // (a message prepared BEFORE the read showed the city held is not offered for signing either: no send button, and the module refuses it too)
++    : d.status === 'prepared' && heldCity ? html`<span role="status">${L`この都市はすでに所有されています。包囲の予約は送れません。`}</span>`
++    : d.status === 'prepared' ? html`<button type="button" class="btn primary" data-act="local-conquest-send" ${raw(off)}>${L`署名して送る（ローカルプレイ）`}</button>${prepare(L`準備し直す`)}`
++    // (while the wallet signs or the relay is asked, the line above says what is happening: no button stands there with another word on it)
++    : d.status === 'signing' || d.status === 'submitting' ? ''
++    : prepare(d.busy ? L`確かめています…` : L`自由都市の包囲予約を準備する（ローカルプレイ）`);
++  return html`<section class="expedition-local-conquest" data-local-conquest="${d.status}" aria-label="${L`ローカルプレイ：自由都市を包囲する`}">
++    <p class="pop-line">${L`ローカルプレイ：この州の自由都市への包囲を予約します（このマシンの試験用の世界だけ）。滞在しているだけでは、都市はあなたのものではありません。まず準備して内容を確かめ、次に自分で送ります。`}</p>
++    <ul class="local-conquest-rules">
++      <li>${L`予約は、予約したターンの処理のときに条件を満たしていれば包囲として始まります。資源を預け、拠点の使用枠を1つ押さえます。`}</li>
++      <li>${L`予約は取り消せません。`}</li>
++      <li>${L`包囲が始まらなかった場合、預けた資源と使用枠は戻りますが、今日の宣言回数は1回使われたままです。`} ${L`戻るのは精算の処理が行われたときで、それまでは「返却待ち」と表示します。`}</li>
++      <li>${L`同じ都市に複数の予約がある場合、処理のときに条件を満たす最初の予約だけが包囲になります。`}</li>
++    </ul>
++    ${orderLines}
++    ${cityLines}
++    ${readLines}
++    ${line}
++    <div class="pop-foot">${buttons}
++      ${other ? html`<span>${L`この軍勢の別の手順を送っているか、その結果がまだ分かっていません。先にそちらを照合してください。`}</span>`
++        : foreign ? html`<span role="status">${L`別の軍勢またはウォレットで送った包囲の結果が、まだ確定していません。その軍勢のカードで結果を照合してください。`}</span>`
++        : spent && !d.busy && !settle ? html`<span>${L`この読み取り結果ではすでに手順を送りました。次へ進むには、もう一度読み取ってください。`}</span>` : ''}</div></section>`;
++}
++
++/** Public bytes only, deliberately no acceptance or wallet/send control. */
++function preparationDetails(report) {
++  const p = report.prepared, b = report.blockhash;
++  return html`<p class="pop-line"><strong>${L`署名前の内容を照合しました`}</strong></p>
++    <p class="pop-line pop-why">${L`実験用の未署名データです。実行できることや帰還の完了を確認した結果ではありません。`}</p>
++    <p class="pop-line">${L`今回の記録のスロット`}: ${report.source.context_slot} · ${L`有効期限の観測時点で残るブロック高`}: ${b.remaining_block_heights}</p>
++    <p class="pop-line">${L`有効期限は時間とともに変わります。必要なときに取り直してください。`}</p>
++    <details><summary>${L`準備内容の詳細`}</summary>
++      <p class="pop-line">${p.action} · ${p.shape.bytes} bytes · ${p.shape.locks} accounts · ${p.shape.sigs} signers</p>
++      <p class="pop-line">CU: ${p.budget.cu_limit} · CU price: ${p.budget.cu_price} · loaded bytes: ${p.budget.loaded_limit}</p>
++      <p class="pop-line" style="overflow-wrap:anywhere">Fee payer: ${p.fee_payer}</p>
++      <p class="pop-line" style="overflow-wrap:anywhere">Blockhash: ${b.hash}</p>
++      <p class="pop-line" style="overflow-wrap:anywhere">Selected snapshot: ${report.request.source_snapshot_digest}</p>
++      <p class="pop-line" style="overflow-wrap:anywhere">Fresh snapshot: ${report.source.digest}</p>
++      <p class="pop-line" style="overflow-wrap:anywhere">Message SHA-256: ${p.message_digest}</p>
++      <ul>${p.roles.map(r => html`<li style="overflow-wrap:anywhere">${r.name}: ${r.address} · ${r.signer ? L`署名が必要` : L`署名不要`} · ${r.writable ? L`書き込み役割` : L`読み取り役割`}</li>`)}</ul>
++    </details>`;
++}
++
+ /** The tiles a new host may form up on: every passable tile of the village's own province with room for a host (six to a tile). */
+ export function musterTiles(FS, holding) {
+   const prov = FS.provinces?.get?.(`${holding.p},${holding.q}`)?.province ?? null;
+diff --git a/permutation-server/web/frontier/hud/keephand.mjs b/permutation-server/web/frontier/hud/keephand.mjs
+index 7f7bb036..4909d261 100644
+--- a/permutation-server/web/frontier/hud/keephand.mjs
++++ b/permutation-server/web/frontier/hud/keephand.mjs
+@@ -134,7 +134,7 @@ export function renderWaits(FS, waits = hostWaits(FS), { max = 3 } = {}) {
+   if (!waits.length) return '';
+   const busy = FS.inFlight > 0 || !!FS.homeActionBusy;
+   return html`<ul class="kh-waits" role="status">${waits.slice(0, max).map(w => html`<li class="kh-wait kh-wait-${w.why}">${icon(w.why === 'march' ? 'march' : 'hourglass')}<span class="kh-wait-t">${waitText(w)}</span>
+-    ${w.nudge ? html`<button type="button" class="btn small" data-act="nudge" data-p="${w.p}" data-q="${w.q}" ${raw(busy ? 'disabled' : '')}>${L`この州の処理を進める`}</button>` : ''}</li>`)}</ul>`;
++    ${w.nudge && !FS.localPlay ? html`<button type="button" class="btn small" data-act="nudge" data-p="${w.p}" data-q="${w.q}" ${raw(busy ? 'disabled' : '')}>${L`この州の処理を進める`}</button>` : ''}</li>`)}</ul>`;
+ }
+ 
+ // ------------------------------------------------------------------ the keeps this host can reach
+@@ -225,7 +225,7 @@ export function renderKeepsPop(FS, model, { head }) {
+     : km.rows.length ? html`<ol class="kh-rows" aria-label="${L`${who}が届く砦`}">${km.rows.map(row)}</ol>`
+     : html`<p class="pop-line">${L`この軍勢がいま届く他国の砦はありません。進軍が越えられるのは4州までです。`}</p>`;
+   return html`${head(L`砦へ進軍`, sub)}
+-    ${km.wait ? html`<p class="pop-line pop-why kh-wait-line">${icon('hourglass')}<span>${waitText({ ...km.wait, unit: r.unit, troops: r.troops })}</span>${km.wait.nudge ? html` <button type="button" class="btn small" data-act="nudge" data-p="${r.p}" data-q="${r.q}">${L`この州の処理を進める`}</button>` : ''}</p>` : ''}
++    ${km.wait ? html`<p class="pop-line pop-why kh-wait-line">${icon('hourglass')}<span>${waitText({ ...km.wait, unit: r.unit, troops: r.troops })}</span>${km.wait.nudge && !FS.localPlay ? html` <button type="button" class="btn small" data-act="nudge" data-p="${r.p}" data-q="${r.q}">${L`この州の処理を進める`}</button>` : ''}</p>` : ''}
+     ${body}
+     <p class="pop-line pop-rule kh-rule">${L`砦のマスを ${fmtNum(holdTurns(FS))} ターン続けて保つと、その州はあなたの国のものになります。行を選ぶと命令の紙が開きます（封をするまで何も送られません）。`}</p>
+     <p class="pop-line pop-rule">${L`勝ち目は、着いたターンの戦いを記録の守備兵と城壁と地形で計算した目安です。戦いの後に強さ（兵 × 1 人の強さ）が多く残った側がマスに残り、同じなら砦の側が残ります。運の揺れ（±10%）を含め、ほかの軍勢、教義の効果、道中の見張り塔で減る兵（最大 30%）は含みません。`}</p>`;
+diff --git a/permutation-server/web/frontier/screens/holding.mjs b/permutation-server/web/frontier/screens/holding.mjs
+index f42effd3..269c4bb9 100644
+--- a/permutation-server/web/frontier/screens/holding.mjs
++++ b/permutation-server/web/frontier/screens/holding.mjs
+@@ -64,11 +64,16 @@ export function provisionalNote(FS, h) {
+   return by ? Lh`同じターンの申し込みがすべて決まると確定します。遅くとも${dueHtml(by, FS.chain?.now?.() ?? null)}です。` : L`同じターンの申し込みがすべて決まると確定します（遅くとも申し込みから約 4 時間）。`;
+ }
+ 
+-export function blockedLine(blocks) {
++// (`nudge: false` — local play: the reasons stand as they are, without the "catch up" button. The keeper is not asked
++//  for anything there (controller.mjs LOCAL_PLAY_REFUSED: the press would only be refused); the local world's own
++//  keeper brings the province up. Everywhere else the button is offered as it always was.)
++export function blockedLine(blocks, { nudge = true } = {}) {
+   if (!blocks.length) return '';
+-  const lag = blocks.includes('NotResident');
++  const lag = nudge === true && blocks.includes('NotResident');
+   return html`<p class="blocked">${blocks.map(errorText).join(' / ')}${lag ? html` <button type="button" class="btn small" data-act="nudge">${L`追いつかせる`}</button>` : ''}</p>`;
+ }
++// (this function under a name that the panel's own, narrower `blockedLine` in `render` does not shadow)
++const blockedLineOf = blockedLine;
+ 
+ /**
+  * The build cards (UI plan E2, Civ VII's yield preview; UX design 14.2): per thing the village may order built
+@@ -188,6 +193,8 @@ export function render(FS) {
+   const wideStatus = wideHolding.renderWideInventoryStatus(FS);
+   if (!m) return html`${wideStatus}<p>${L`まだ村がありません。`}</p>`;
+   const { holding: h, facts: f } = m;
++  // (shadows the module's `blockedLine` for this panel: in local play the blocked reasons carry no "catch up" button)
++  const blockedLine = blocks => blockedLineOf(blocks, { nudge: !FS.localPlay });
+   const actionBusy = FS.inFlight > 0 || !!FS.homeActionBusy;
+   const first = introBuildAvailable(m.settled);
+   const trainUnit = Number.isInteger(FS.trainingDraft?.unit) ? FS.trainingDraft.unit : 0;
+diff --git a/permutation-server/web/lang/en-frontier-hand.mjs b/permutation-server/web/lang/en-frontier-hand.mjs
+index 6288c719..c136e53f 100644
+--- a/permutation-server/web/lang/en-frontier-hand.mjs
++++ b/permutation-server/web/lang/en-frontier-hand.mjs
+@@ -278,6 +278,155 @@ export default {
+   'この記録では経路を計算できません。': 'These records do not support a route calculation.',
+   '記録上の移動時間 {0} 秒・塔の消耗 {1} bps': 'Recorded travel time: {0} seconds; tower wear: {1} bps',
+   '到着候補：ターン {0}〜{1}': 'Proposed arrival range: turns {0}–{1}',
++  // (the earliest turn of that observed range, offered for the draft's own field: a proposal, not a departure)
++  '最も早い候補（ターン {0}）を使う': 'Use the earliest proposed turn ({0})',
++  'いまの候補：ターン {0}': 'Current proposal: turn {0}',
++  // (local play only, closed by default, flocalplay-conquest.mjs: declaring a siege; "recorded" claims no result and no capture)
++  'ローカルプレイ：自由都市を包囲する': 'Local play: besiege a Free City',
++  'ローカルプレイ：この試験用の世界には、包囲できる自由都市がまだありません。包囲は使えません。': 'Local play: this test world has no Free City to besiege yet. Sieges are not available.',
++  // (decision B, 2026-11-12: the signed step RESERVES a siege; the turn's processing starts it or not; no cancellation)
++  'ローカルプレイ：この州の自由都市への包囲を予約します（このマシンの試験用の世界だけ）。滞在しているだけでは、都市はあなたのものではありません。まず準備して内容を確かめ、次に自分で送ります。': 'Local play: reserves a siege of the Free City of this province (this machine\'s test world only). Staying here does not make the city yours. First prepare and check the contents, then send it yourself.',
++  '予約は、予約したターンの処理のときに条件を満たしていれば包囲として始まります。資源を預け、拠点の使用枠を1つ押さえます。': 'A reservation becomes a siege only if its conditions hold when its turn is processed. It takes a deposit and holds one of your holding slots.',
++  '予約は取り消せません。': 'A reservation cannot be cancelled.',
++  '包囲が始まらなかった場合、預けた資源と使用枠は戻りますが、今日の宣言回数は1回使われたままです。': 'If the siege does not start, your deposit and the slot are returned, but it still counts as one of today\'s declarations.',
++  '同じ都市に複数の予約がある場合、処理のときに条件を満たす最初の予約だけが包囲になります。': 'If several reservations target the same city, only the first one that meets the conditions when the turn is processed becomes the siege.',
++  '自由都市の包囲予約を準備する（ローカルプレイ）': 'Prepare the siege reservation (local play)',
++  '署名する内容を確かめました：自由都市の包囲を予約（州 {0}, {1}・場所 {2}・メッセージ {3}・有効期限のブロック高 {4}）。このページのテスト用ウォレットだけが署名し、手数料も支払います。': 'Checked what will be signed: reserve a siege of the Free City (province {0}, {1}; site {2}; message {3}; last valid block height {4}). Only this page\'s test wallet signs, and it also pays the fee.',
++  '送ると取り消せません。包囲が始まらなくても、今日の宣言回数は1回使われます。': 'Once sent, it cannot be cancelled. Even if the siege does not start, it uses one of today\'s declarations.',
++  // (the same message may land as a reservation or as an immediate declaration: only the recorded fact is said)
++  '取引が記録されました。予約として受け付けられたのか、すでに包囲として始まったのかは、まだ確認できていません。占領もまだ分かりません。受け付けられた予約は取り消せません。': 'The transaction is recorded. Whether it was accepted as a reservation or has already started as a siege is not confirmed yet. Nothing is known about a capture either. An accepted reservation cannot be cancelled.',
++  '結果を確認できませんでした。この取引が記録されたかどうかは不明です。もう一度送らずに、結果を照合してください。署名 {0}': 'The result could not be confirmed. Whether this transaction was recorded is unknown. Do not send again; check the result. Signature {0}',
++  '包囲を予約する取引は失敗しました（理由 {0}）。何も変わっていません。署名 {1}': 'The transaction reserving the siege failed (reason {0}). Nothing changed. Signature {1}',
++  '包囲を予約できませんでした。': 'The siege could not be reserved.',
++  // (the city's PRESENT state from the same read: facts of now, never "captured" or "won"; a siege's own numbers)
++  'あなたの包囲が進行中です：{0} / {1} ターン（宣言はターン {2}・場所 {3}）。都市はまだあなたのものではありません。': 'Your siege is under way: {0} of {1} turns (declared at turn {2}; site {3}). The city is not yours yet.',
++  'あなたの包囲は必要なターンを満たし、占領の精算待ちです（ターン {0} 以降・宣言はターン {1}・場所 {2}）。都市はまだあなたのものではありません。': 'Your siege has met its required turns and is waiting to be settled (due from turn {0}; declared at turn {1}; site {2}). The city is not yours yet.',
++  'この都市はいま、あなたが所有しています（場所 {0}・拠点の枠 {1}）。いま所有しているという事実だけを表示しています。': 'You hold this city now (site {0}; holding slot {1}). Only the fact that you hold it now is shown.',
++  'この都市へのあなたの包囲は、いまは進行していません。拠点の使用枠 {0} は解放待ちです（場所 {1}）。': 'Your siege of this city is not under way now. Holding slot {0} is waiting to be released (site {1}).',
++  'この都市では、別のプレイヤーの包囲が進行中です。': 'Another player\'s siege of this city is under way.',
++  'この都市では、別のプレイヤーの包囲が占領の精算待ちです。': 'Another player\'s siege of this city is waiting to be settled.',
++  'この都市はいま、別のプレイヤーが所有しています。': 'Another player holds this city now.',
++  'この都市には、別のプレイヤーの包囲に関する記録があります。': 'There is a record of another player\'s siege on this city.',
++  // (a sent step settled by the chain as "did not land": its validity passed and the pinned runner has no record of it)
++  'この操作は反映されませんでした。送った取引は有効期限を過ぎ、記録されていません。署名 {0}': 'This action did not take effect. The transaction sent has passed its validity and was not recorded. Signature {0}',
++  // (a held city is not besieged; a step of another host or wallet that is not settled is asked about on its own card)
++  'この都市はすでに所有されています。包囲の予約は送れません。': 'This city is already held. A siege reservation cannot be sent.',
++  '別の軍勢またはウォレットで送った包囲の結果が、まだ確定していません。その軍勢のカードで結果を照合してください。': 'A siege sent with another host or wallet is not settled yet. Check its result on that host\'s card.',
++  // (the read-only reservation read, flocalplay-conquest.mjs: only what a verified table record bears out)
++  '包囲予約の状態を読む（ローカルプレイ）': 'Read the siege reservation state (local play)',
++  '予約の状態を読み取っています…': 'Reading the reservation state…',
++  '予約の状態を読めませんでした。': 'The reservation state could not be read.',
++  '予約の状態は分かりません。': 'The reservation state is not known.',
++  'この州の記録に、この都市へのあなたの予約はいまありません（読み取りのスロット {0}）。記録がないことだけでは、包囲が始まったのか、返却が済んだのか、予約がなかったのかは分かりません。': 'The records of this province hold no reservation of yours for this city right now (read at slot {0}). That alone does not tell whether a siege started, a return completed, or nothing was reserved.',
++  '読み取りのスロット {0}。記録にある事実だけを表示しています。': 'Read at slot {0}. Only the facts in the record are shown.',
++  // (the state of a reserved siege, fconquest-order.mjs; shown only from a read whose contract is published — none today)
++  '包囲の予約の状態を読み取れませんでした。成立したとも、しなかったとも表示しません。': 'The state of the siege reservation could not be read. It is shown neither as started nor as not started.',
++  '軍勢がもういません': 'the host is gone',
++  '軍勢が自由都市のマスにいません': 'the host is not on the Free City\'s tile',
++  '軍勢がそのマスの先頭ではありません': 'the host does not lead that tile',
++  '都市はもう自由都市ではありません': 'the city is no longer a Free City',
++  '先に条件を満たした別の予約が包囲になりました': 'another reservation met the conditions first and became the siege',
++  '拠点の使用枠が空いていません': 'no holding slot is free',
++  'シーズンの終わりまでに包囲が終わりません': 'the siege could not finish before the season ends',
++  '預けた資源：返却の処理待ちです。': 'Deposit: waiting to be returned.',
++  '預けた資源：戻りました。': 'Deposit: returned.',
++  '預けた資源：戻りません。': 'Deposit: not returned.',
++  '使用枠：返却の処理待ちです。': 'Holding slot: waiting to be released.',
++  '使用枠：戻りました。': 'Holding slot: released.',
++  '使用枠：新しい拠点が使っています。': 'Holding slot: used by the new holding.',
++  '包囲の予約：ターン {0} の処理を待っています（場所 {1}）。まだ包囲は始まっていません。取り消しはできません。': 'Siege reservation: waiting for turn {0} to be processed (site {1}). The siege has not started. It cannot be cancelled.',
++  '包囲が始まりました（ターン {0}・場所 {1}）。勝敗と占領は、このあとのターンの処理で決まります。都市はまだあなたのものではありません。': 'The siege has started (turn {0}; site {1}). Its outcome, and any capture, are decided by the turns that follow. The city is not yours yet.',
++  // (the program stores no cause for a reservation that did not start: a general sentence; a derived reason is marked as derived)
++  '包囲は始まりませんでした（ターン {0}・場所 {1}）。予約したターンの処理のときに条件を満たさなかったか、先の予約が包囲になりました。今日の宣言回数は1回使われたままです。': 'The siege did not start (turn {0}; site {1}). Its conditions were not met when the reserved turn was processed, or an earlier reservation became the siege. It still counts as one of today\'s declarations.',
++  // (how a reservation ended is said only on a basis: the season's end or interruption from its receipt; otherwise nothing of how)
++  '包囲は始まりませんでした（場所 {0}）。シーズンの終了または中断により、予約は成立しませんでした。今日の宣言回数は1回使われたままです。': 'The siege did not start (site {0}). The reservation did not take effect because the season ended or was interrupted. It still counts as one of today\'s declarations.',
++  '包囲は始まりませんでした（場所 {0}）。予約は成立しませんでした。今日の宣言回数は1回使われたままです。': 'The siege did not start (site {0}). The reservation did not take effect. It still counts as one of today\'s declarations.',
++  '預けた資源：返却待ちです。返却先の拠点がもうありません。返却の債務として残っており、精算は完了していません。いつ、どこへ戻るかはまだ決まっていません。': 'Deposit: waiting to be returned. The holding it came from no longer exists. It is still owed to you and the settlement is not complete. When and where it will be returned is not decided yet.',
++  '返却と解放は、精算の処理が行われたときに反映されます。自動で行われるとは限りません。': 'Returns and releases take effect when a settlement is run. It may not run automatically.',
++  '戻るのは精算の処理が行われたときで、それまでは「返却待ち」と表示します。': 'They come back when a settlement is run; until then they are shown as waiting.',
++  '状態から導出した理由（記録された理由ではありません）：{0}': 'Reason derived from the state (not a recorded reason): {0}',
++  '預けた資源：返却待ちです。返却の債務として残っており、精算はまだ完了していません。': 'Deposit: waiting to be returned. It is still owed to you; the settlement is not complete.',
++  '使用枠と預り金：解放待ちです。': 'Holding slot and rent: waiting to be released.',
++  '使用枠と預り金：解放済みです。': 'Holding slot and rent: released.',
++  '自由都市を占領しました（場所 {0}・ターン {1}）。占領の記録、新しい拠点、使用枠を確認しました。': 'You captured the Free City (site {0}; turn {1}). The capture record, the new holding and its slot are confirmed.',
++  '包囲は失敗しました（場所 {0}・ターン {1}）。都市は占領していません。': 'The siege failed (site {0}; turn {1}). The city was not captured.',
++  '包囲は決着しないまま終わりました（場所 {0}・ターン {1}）。都市は占領していません。': 'The siege ended undecided (site {0}; turn {1}). The city was not captured.',
++  '今日の宣言回数：{0} / {1}': 'Declarations today: {0} / {1}',
++  '（送信の応答を確認できませんでした：{0}）': '(the send was not answered: {0})',
++  '包囲の経路はまだ閉じています（試験用の世界での確認が済んでいません）。': 'The siege route is still closed (it has not been confirmed on the test world yet).',
++  'この試験用の世界には、包囲できる自由都市がまだありません。': 'This test world has no Free City to besiege yet.',
++  'この軍勢がいる州には、包囲できる自由都市がありません。': 'The province this host is in has no Free City to besiege.',
++  'この軍勢は、いま滞在中ではありません。': 'This host is not staying right now.',
++  '対象は自由都市ではありません。': 'The target is not a Free City.',
++  'この軍勢は自由都市のマスにいません。': 'This host is not on the Free City\'s tile.',
++  'いまは包囲を予約できません。': 'A siege cannot be reserved now.',
++  // (one step at a time for the observed host, flocalplay-hoststep.mjs)
++  'この軍勢の別の手順を送っているか、その結果がまだ分かっていません。先にそちらを照合してください。': 'Another step of this host is being sent, or its result is not known yet. Check that one first.',
++  // (local play only, flocalplay-return.mjs: the return's two player-signed steps; "recorded" claims no completed return)
++  'ローカルプレイ：帰還の手順を送る': 'Local play: send the return steps',
++  'ローカルプレイ：帰還の手順を、このページのテスト用ウォレットの署名で一つずつ送ります（このマシンの試験用の世界だけ）。まず準備して内容を確かめ、次に自分で送ります。': 'Local play: sends the return steps one at a time, signed by this page\'s test wallet (this machine\'s test world only). First prepare and check the contents, then send it yourself.',
++  '「{0}」を準備する（ローカルプレイ）': 'Prepare "{0}" (local play)',
++  '準備し直す': 'Prepare again',
++  '署名して送る（ローカルプレイ）': 'Sign and send (local play)',
++  '署名前の内容を用意して確かめています…': 'Preparing and checking the contents before signing…',
++  '署名する内容を確かめました：{0}（メッセージ {1}・有効期限のブロック高 {2}）。このページのテスト用ウォレットだけが署名し、手数料も支払います。': 'Checked what will be signed: {0} (message {1}; last valid block height {2}). Only this page\'s test wallet signs, and it also pays the fee.',
++  '解散の指示が記録されました。ターンの処理が済むまで待ち、もう一度読み取ってください。帰還はまだ終わっていません。': 'The order to disband is recorded. Wait until the turn has been processed, then read again. The return is not finished yet.',
++  '予備兵に戻す取引が記録されました。もう一度読み取って、予備兵の人数を確認してください。': 'The transaction returning them to the reserve is recorded. Read again to check the number of reserves.',
++  '結果を確認できませんでした。この手順が記録されたかどうかは不明です。もう一度送らずに、結果を照合してください。署名 {0}': 'The result could not be confirmed. Whether this step was recorded is unknown. Do not send again; check the result. Signature {0}',
++  'この手順の取引は失敗しました（理由 {0}）。何も変わっていません。署名 {1}': 'This step\'s transaction failed (reason {0}). Nothing changed. Signature {1}',
++  'この手順を進められませんでした（{0}）。{1}': 'This step could not go ahead ({0}). {1}',
++  'この読み取り結果ではすでに手順を送りました。次へ進むには、もう一度読み取ってください。': 'A step was already sent on this reading. To go on, read again.',
++  // (local play only, flocalplay-reveal.mjs: opening a seal this page holds; "recorded" claims no arrival, battle or return)
++  'ローカルプレイ：封を開く': 'Local play: open a seal',
++  'ローカルプレイ：出発が確定した軍勢の封を、このページのテスト用ウォレットの署名で開きます（このマシンの試験用の世界だけ）。到着ターン {0}。': 'Local play: opens the seal of a host whose departure is confirmed, signed by this page\'s test wallet (this machine\'s test world only). Arrival turn {0}.',
++  '封を開けるか確認する': 'Check whether the seal can be opened',
++  '確かめています…': 'Checking…',
++  '確認し直す': 'Check again',
++  '封を開く（ローカルプレイ）': 'Open the seal (local play)',
++  '次の封を確認する': 'Check the next seal',
++  'いまの記録を読んで、封を開けられるか確かめています…': 'Reading the current records to see whether the seal can be opened…',
++  '最新の記録を読み直しています…': 'Reading the latest records again…',
++  '封を開けられます（到着ターン {0}・到着先の枠 {1}）。開くと封の中身（行き先と命令）が公開されます。': 'The seal can be opened (arrival turn {0}; arrival slot {1}). Opening it makes its contents (destination and orders) public.',
++  'いまは封を開けられません。': 'The seal cannot be opened now.',
++  '封を開いたことが記録されました（到着ターン {0}）。到着先での決着を待っています。戦いや帰還の結果は、まだ決まっていません。': 'The opening of the seal is recorded (arrival turn {0}). Waiting for the destination to decide it. The battle and the return are not decided yet.',
++  '署名 {0}': 'Signature {0}',
++  '送信しました。記録されたかどうかはまだ確認できていません。署名 {0}': 'Sent. Whether it was recorded is not confirmed yet. Signature {0}',
++  '結果を確認できませんでした。封が開かれたかどうかは不明です。もう一度送らずに、結果を照合してください。署名 {0}': 'The result could not be confirmed. Whether the seal was opened is unknown. Do not send again; check the result. Signature {0}',
++  '封を開く取引は失敗しました（理由 {0}）。封は開かれていません。封はこのページに残っています。署名 {1}': 'The transaction to open the seal failed (reason {0}). The seal was not opened. The seal is still held by this page. Signature {1}',
++  '封を開けませんでした（{0}）。{1}': 'The seal could not be opened ({0}). {1}',
++  '封を開ける期間が終わっています。': 'The period for opening this seal is over.',
++  'この到着ターンの記録はすでに片付けられています。': 'The records of this arrival turn have already been put away.',
++  '到着先はこのターンの受付をすでに締め切っています。': 'The destination has already closed this turn\'s arrivals.',
++  'シーズンが進行中ではありません。': 'The season is not running.',
++  'シーズンが終わっており、この到着は受け付けられません。': 'The season has ended, and this arrival is not accepted.',
++  '到着先の枠がほかの軍勢と競合しています。このページでは順位を判定しないため、送りません。': 'The destination\'s arrival slots are contested by other hosts. This page does not judge the ranking, so nothing is sent.',
++  '到着先にこの軍勢の名前の記録がありますが、この封のものとは一致しません。': 'The destination has a record under this host\'s name, but it does not match this seal.',
++  '到着先の州がまだ開かれていません。': 'The destination province is not opened yet.',
++  '到着先の州の準備がまだ終わっていません。': 'The destination province is not ready yet.',
++  'この出発の記録が見つかりません。': 'The record of this departure was not found.',
++  'この軍勢はすでに到着先で受け付けられています。': 'This host has already been taken in at the destination.',
++  'この軍勢は出発地で失われました。': 'This host was lost at its origin.',
++  'このページには開ける封が残っていません（再読み込みすると封の中身は失われます）。': 'This page holds no seal to open (a reload loses the seal\'s contents).',
++  // (local play only, flocalplay-depart.mjs: the one send of the local-play page; an unknown outcome is said as unknown)
++  'ローカルプレイ：この軍勢を、このページのテスト用ウォレットの署名で出発させます（このマシンの試験用の世界だけ）。封の中身はこのページのメモリにだけ残り、再読み込みすると失われます。': 'Local play: this host departs with a signature from this page\'s test wallet, in this machine\'s test world only. The sealed orders stay only in this page\'s memory and are lost on reload.',
++  '出発する（ローカルプレイ）': 'Depart (local play)',
++  '出発を送っています…': 'Sending the departure…',
++  '結果を照合する': 'Check the result',
++  '先に「出発条件を確認」で条件を満たしてください。': 'First use "Check departure conditions" and meet them.',
++  'この確認結果ではすでに出発を送りました。もう一度出発するには「出発条件を確認」で最新の状態を読み直してください。': 'A departure was already sent on this check. To depart again, use "Check departure conditions" to read the current state.',
++  '封をしています…': 'Sealing the orders…',
++  '出発の取引を用意しています…': 'Preparing the departure transaction…',
++  'このページのテスト用ウォレットで署名しています…': 'Signing with this page\'s test wallet…',
++  '送信して結果を待っています…': 'Sent; waiting for the result…',
++  '出発が確定しました（ターン {0} に到着予定・移動枠 {1}）。署名 {2}': 'Departure confirmed (arrives turn {0}; transit slot {1}). Signature {2}',
++  '送信しました。確定はまだ確認できていません。署名 {0}': 'Sent. Not confirmed yet. Signature {0}',
++  '出発は失敗しました（理由 {0}）。軍勢は出発していません。署名 {1}': 'The departure failed ({0}). The host has not departed. Signature {1}',
++  '結果を確認できませんでした。出発したかどうかは不明です。もう一度送らずに、結果を照合してください。署名 {0}': 'The result could not be confirmed. Whether the host departed is unknown. Do not send again; check the result. Signature {0}',
++  '（照合できませんでした：{0}）': '(could not check: {0})',
++  '出発できませんでした（{0}）。{1}': 'Could not depart ({0}). {1}',
++  '何も送っていません。': 'Nothing was sent.',
++  '到着ターンの候補は未入力です': 'No proposed arrival turn entered',
++  '到着ターンの候補はターン {0}（観測した範囲で最も早い候補）です。詳細で変更できます。': 'The proposed arrival turn is turn {0}, the earliest in the observed range. You can change it in Details.',
+   '取得した記録と推定出発時刻での計算です。現在の通行・到着や出発の成功は未確認です。': 'Calculated from captured records and an estimated departure time. Current passage, arrival and successful departure remain unverified.',
+   '地図の破線のマスを押すと一歩追加します。「地形・時間を確認」で道の記録を読み取れます。': 'Press an outlined map tile to add one step. Use “Check terrain and timing” to read the recorded route.',
+   '拡大した地図で、終点に隣り合う破線のマスを押してください。': 'On the zoomed-in map, press an outlined tile next to the endpoint.',
+diff --git a/permutation-server/web/lang/en-frontier-play.mjs b/permutation-server/web/lang/en-frontier-play.mjs
+index fbe9c727..ccc755d8 100644
+--- a/permutation-server/web/lang/en-frontier-play.mjs
++++ b/permutation-server/web/lang/en-frontier-play.mjs
+@@ -440,6 +440,7 @@ export default {
+   '村 {0}': n => plural(n, '{0} village update', '{0} village updates'),
+   'ターン {0} のまとめ：{1}': 'Turn {0} in brief: {1}',
+   'ターン {0}': 'Turn {0}',
++  '最初のターンの前': 'Before the first turn',
+   '新しいターン': 'A new turn',
+   '戦闘': 'Clash', '来襲': 'Attack', '建設': 'Building', 'まとめ': 'Summary',
+   '州 {0},{1} の砦を {2} が {3} から奪った（第{4}ターン）': '{2} took the keep of province {0},{1} from {3} (turn {4})',
+@@ -517,6 +518,7 @@ export default {
+   '{0}の土地': 'Lands of {0}',
+   '{0}（州 {1},{2}）': '{0} (province {1},{2})',
+   '見つかりません': 'Nothing found',
++  '州の座標（例：4,0）、国の名前、領主の名前で探せます': 'Search by a province\'s coordinates (for example 4,0), a nation\'s name or a lord\'s name',
+   // ---- the clash report's headline and tiles (screens/report.mjs, UI plan D1–D3)
+   '{0}が戦場に残った': '{0} held the field',
+   '{0}つの国がぶつかった': '{0} nations clashed',
+@@ -899,6 +901,8 @@ export default {
+   '否決': 'Failed',
+   '同じ命令を送っています。結果を待ってください': 'The same order is on its way. Wait for its result',
+   '同じ命令を送っています。結果を待ってください…': 'The same order is on its way. Wait for its result…',
++  'この命令は送信済みですが、まだ確認できていません。同じ命令は送り直しません。もう一度押すと結果を確認します。署名 {0}': 'This order was sent, but it is not confirmed yet. The same order will not be sent again. Press it again to check its result. Signature {0}',
++  '送信済みの命令の結果を確認しています…': 'Checking the result of the order that was sent…',
+   '{0}を奪う': 'Seize the {0}',
+   '{0}を奪いました': 'Seized the {0}',
+   'このマスに立つあなたの軍勢が、持ち主に代わってこの{0}を自分のものにします。持ち主の軍勢がいると奪えません。': 'Your host standing on this tile takes this {0} from its owner. It cannot while a host of the owner stands here.',
+@@ -1467,4 +1471,99 @@ export default {
+   '使える量（予約を引いたあと）：{0}': 'Usable (after reservations): {0}',
+   '使える量を出せません：{0}': 'Cannot say what is usable: {0}',
+   '。': '. ',
++  // The local-play gate before the page boots (frontier/flocalplay.mjs): the operator's panel, the launcher's
++  // "new world" panel with its start, its worlds list and the explicit end of a world, the words of the test world's
++  // preparation, and every refusal with what to do next. Terms as in en-frontier-hand.mjs ("local play", "test wallet",
++  // "this machine"); 開始サービス (the launcher) is "the start service". A sentence that quotes a key's label quotes
++  // that key's English ("Start a new world", "Connect").
++  '新しい世界で遊ぶ': 'Play in a new world',
++  'ローカルプレイの準備': 'Local play setup',
++  'この端末だけの試験用の世界です。開始ボタンで新しい世界を用意します。': 'A test world on this machine only. The start button prepares a new world.',
++  '鍵は保存されないため、再読み込み・ページを閉じると今の世界は続けられません。開き直したら、新しい世界から始めてください。': 'The key is never stored, so after a reload or closing the page this world cannot be continued. When you reopen the page, start from a new world.',
++  '通常速度では1ターン10分です。世界の開始後も、行軍や精算にはターンの進行を待ちます。': 'At normal speed a turn takes 10 minutes. After the world starts, marches and settlement still wait for the turns to pass.',
++  '世界は同時に2つまでです。どの世界も、開始サービスで決めた時間（既定は開始から2時間）がたつと自動的に終わり、その進行は保存されません。上限のときは、終了する世界を自分で選びます（勝手には止めません）。': 'At most two worlds at once. Each ends by itself once the time set by the start service has passed (two hours from its start unless the operator chose another), and its progress is not saved. At the limit you choose which world to end (none is ended for you).',
++  'この試験用の世界は、準備のあいだだけ世界の時間を早送りします（出発先の州を開くため）。操作できるようになる前に通常速度へ戻し、そのあとは早送りしません。': 'During its preparation only, this test world\'s clock is run faster (to open the destination province). It is set back to normal speed before you can act, and is not run faster after that.',
++  'この端末だけの試験用ウォレットです。鍵はこのページのメモリにだけあり、保存されません。ページを閉じる・読み込み直すと失われます。': 'A test wallet for this machine only. Its key is kept only in this page\'s memory and is never stored. Closing or reloading the page loses it.',
++  'この世界の公開アドレス': 'This world\'s public address',
++  '公開アドレス（ランナーの起動に使います）': 'Public address (used to start the runner)',
++  'herald の場所': 'Herald address',
++  '新しい世界を開始': 'Start a new world',
++  '接続': 'Connect',
++  // (while a start is under way: how long so far, beside the status)
++  '{0}秒経過': n => plural(n, '{0} second elapsed', '{0} seconds elapsed'),
++  // (the status line, by phase)
++  '試験用ウォレットを作っています…': 'Making the test wallet…',
++  '「新しい世界を開始」を押すと準備します。送信や署名はゲーム中に自分で確認します。': 'Press "Start a new world" to prepare one. Sending and signing are yours to confirm in the game.',
++  '世界を準備しています…（最大70秒）': 'Preparing the world… (up to 70 seconds)',
++  '世界を準備しています…（試験世界の準備として、世界の時間を早送りします。最大150秒）': 'Preparing the world… (as part of preparing this test world, its clock is run faster; up to 150 seconds)',
++  '準備中：このアドレスでランナーと herald を起動してから「接続」を押してください。': 'Getting ready: start the runner and the herald for this address, then press "Connect".',
++  'herald の記録を確かめています…': 'Checking the herald\'s records…',
++  '接続しました：このウォレットの市民と村を読み込みます（読み取りのみ。送信はしません）。': 'Connected: loading this wallet\'s citizen and village (reads only; nothing is sent).',
++  'ウォレットは破棄されました。ページを開き直してください。': 'The wallet was destroyed. Reopen the page.',
++  // (the worlds the start service runs: asked for with the panel's key, or listed with a start refused at the limit)
++  '動いている世界を確認': 'Check running worlds',
++  '動いている世界を確認しています…': 'Checking the running worlds…',
++  '動いている世界はありません。': 'No world is running.',
++  '動いている世界は{0}個です。終了する世界があれば、下の一覧のその行で選べます。': n => plural(n, '{0} world is running. To end it, use its row in the list below.', '{0} worlds are running. To end one, use its row in the list below.'),
++  '動いている世界（公開アドレス）': 'Running worlds (public addresses)',
++  '起動中': 'Starting',
++  '動作中': 'Running',
++  '終了の処理中': 'Ending',
++  'たった今開始・{0}': 'Started just now · {0}',
++  '{0}分前に開始・{1}': 'Started {0} min ago · {1}',
++  // (the explicit end of one world: the row's key only asks; "End it" ends it, "Cancel" takes the question back)
++  'この世界を終了…': 'End this world…',
++  'この世界を終了しますか？ 元に戻せません。この世界で遊んでいるページは、続けられなくなります。': 'End this world? This cannot be undone. A page playing in this world will not be able to continue.',
++  '終了する': 'End it',
++  '選んだ世界を終了しています…': 'Ending the chosen world…',
++  '世界を終了しました。「新しい世界を開始」をもう一度押すと、新しい世界を用意します。': 'The world was ended. Press "Start a new world" again to prepare a new one.',
++  // (why a herald is not this wallet's local play, and what the page cannot do: shown with the code, and the key may be pressed again)
++  'この herald にはまだつながりません。ランナーと herald を起動してから、もう一度接続してください。': 'This herald cannot be reached yet. Start the runner and the herald, then connect again.',
++  'herald は応答しましたが、シーズンの記録がまだありません。少し待ってからもう一度接続してください。': 'The herald answered, but it has no season record yet. Wait a moment, then connect again.',
++  'この herald はローカルプレイ専用プログラムのものではありません。': 'This herald does not serve the dedicated local-play program.',
++  'この herald は localnet のものではありません。': 'This herald is not on localnet.',
++  'この herald のシーズンは、ローカルプレイの版ではありません。': 'This herald\'s season is not the local-play revision.',
++  'この herald のシーズンは、ローカルプレイ専用プログラムの正規のシーズンではありません。': 'This herald\'s season is not the canonical season of the dedicated local-play program.',
++  'この herald には、このウォレットの市民と村がありません。上のアドレスでランナーを起動してください。': 'This herald has no citizen or village for this wallet. Start the runner with the address above.',
++  'この herald の市民は、別のウォレットのものです。': 'The citizen this herald serves belongs to another wallet.',
++  'herald の場所は、この端末（localhost / 127.0.0.1）の http(s) の URL にしてください。': 'The herald address must be an http(s) URL on this machine (localhost / 127.0.0.1).',
++  'このブラウザでは試験用ウォレットを作れません（Ed25519 に対応した新しいブラウザで開いてください）。': 'This browser cannot make the test wallet (open the page in a recent browser that supports Ed25519).',
++  'ローカルプレイは、この端末（localhost / 127.0.0.1）で開いたページでだけ使えます。': 'Local play works only on a page opened on this machine (localhost / 127.0.0.1).',
++  // (the start service's refusals: each says what happened and that the key may be pressed again)
++  '世界を起動できませんでした。開始サービスを確認して、もう一度押してください。': 'The world could not be started. Check the start service, then press again.',
++  '世界の準備がまだ終わりません。同じウォレットでもう一度接続を試せます。': 'The world is not ready yet. You can try again with the same wallet.',
++  'すでに2つの世界が動いています。新しい世界を始めるには、下の一覧から終了する世界を自分で選んでください（勝手には止めません）。': 'Two worlds are already running. To start a new one, choose a world to end from the list below (none is ended for you).',
++  'この世界は終了の処理中です。少し待ってから、もう一度押してください。': 'This world is being ended. Wait a moment, then press again.',
++  'この端末の空き容量が足りないため、世界を用意できません（5.25 GiB 以上の空きが必要です）。': 'This machine is short of free disk space, so a world cannot be prepared (at least 5.25 GiB free is needed).',
++  '世界に使うポートを、ほかのプログラムが使っています。少し待ってから、もう一度押してください。': 'A port the world needs is in use by another program. Wait a moment, then press again.',
++  '世界のランナーを起動できませんでした。開始サービスの記録（runner.err）を確認してください。': 'The world\'s runner could not be started. Check the start service\'s record (runner.err).',
++  '世界の herald の準備が時間内に終わりませんでした。もう一度押してください。': 'The world\'s herald was not ready in time. Press again.',
++  '開始サービスは終了の処理中です。開始サービスを起動し直してから、ページを開き直してください。': 'The start service is shutting down. Start it again, then reopen this page.',
++  '世界を終了できませんでした。開始サービスを確認して、もう一度押してください。': 'The world could not be ended. Check the start service, then press again.',
++  '動いている世界を確認できませんでした。開始サービスを確認して、もう一度押してください。': 'The running worlds could not be checked. Check the start service, then press again.',
++  '試験世界の準備（時間の早送り）を終えられませんでした。その世界は終了しました。もう一度押すと、新しい世界で準備し直します。': 'The test world\'s preparation (running its clock faster) could not be finished. That world was ended. Press again to prepare a new world.',
++  // (the launcher world's standing notice after the gate, flocalplay-session.mjs: what stays true for the session)
++  'この試験世界について': 'About this test world',
++  '鍵はこのページのメモリにだけあります。再読み込み・タブを閉じると失われ、この世界は続けられません。': 'The key is kept only in this page\'s memory. Reloading or closing the tab loses it, and this world cannot be continued.',
++  '自動終了の予定時刻は、このページでは確認できません。開始サービスで決めた時間で終わります（既定は開始から2時間）。': 'This page cannot confirm when the world ends by itself. It ends after the time set by the start service (two hours from its start by default).',
++  '世界が終わると、その世界の進行は保存されません。': 'When the world ends, its progress is not saved.',
++  'このページの試験用の鍵は破棄されました。このページからこの世界は続けられません。新しい鍵や新しい世界は自動では作りません。': 'This page\'s test key was discarded. This world cannot be continued from this page. No new key or new world is made for you.',
++  // (the end, once confirmed against the runner's own instance: flocalplay-session.mjs showEnd)
++  'この世界は {0} ごろに自動的に終わります（開始サービスが決めた時刻。この端末の時計で表示）。': 'This world ends by itself at about {0} (the time set by the start service, shown in this device\'s clock).',
++  // (the natural world: a new Season, then the player's own Join and PlaceHome; flocalplay.mjs)
++  '新しいシーズンを最初から作っています…（最大4分。できたら、ゲームの画面で国を選んで参加し、村を置きます）': 'Making a new season from the start… (up to 4 minutes; then choose a nation on the game\'s screen, join it and place your village)',
++  '開始サービスの答えが、このページの世界の種類（最初から始める世界かどうか）と合いません。この世界には接続しません。': 'The start service\'s answer does not match this page\'s kind of world (whether it starts from the beginning). This page does not connect to that world.',
++  // (the world's keeper, on the player's press of the standing notice's key: flocalplay-session.mjs keeperText)
++  '世界の進行を確認': 'Check the world\'s progress',
++  '確認しています…': 'Checking…',
++  '世界の進行役は動いています（ターン {0} まで処理済み）。': 'The world\'s keeper is running (turns processed through {0}).',
++  '世界の進行役は動いています。': 'The world\'s keeper is running.',
++  '世界の進行役は、次の処理を待っています（ターン {0} まで処理済み）。編成や進軍は、処理が進むと反映されます。': 'The world\'s keeper is waiting for its next step (turns processed through {0}). Musters and marches take effect as it moves on.',
++  '世界の進行役は、次の処理を待っています。編成や進軍は、処理が進むと反映されます。': 'The world\'s keeper is waiting for its next step. Musters and marches take effect as it moves on.',
++  '世界の進行役は止まりました。この世界のターンはもう進まず、編成中の軍勢も進軍も進みません。': 'The world\'s keeper has stopped. This world\'s turns no longer advance, and forming hosts and marches do not move on.',
++  '世界の進行役は、送った処理の結果を確かめられず止まりました（同じ処理は再送しません）。この世界のターンはもう進みません。': 'The world\'s keeper stopped because it could not confirm the outcome of what it sent (it is never sent again). This world\'s turns no longer advance.',
++  '世界の進行役は動いていますが、到着地または滞在先の処理の一つは、送った結果を確かめられず止まりました（再送しません）。その処理はもう進みません。': 'The world\'s keeper is running, but one of its destination or stay steps stopped because it could not confirm the outcome of what it sent (it is never sent again). That step no longer moves on.',
++  '世界の進行役は動いていますが、到着地または滞在先の処理の一つは拒否されて止まりました。その処理はもう進みません。': 'The world\'s keeper is running, but one of its destination or stay steps was refused and stopped. That step no longer moves on.',
++  '世界の進行役の報告はまだありません。少し待ってから、もう一度確認してください。': 'The world\'s keeper has not reported yet. Wait a moment, then check again.',
++  '世界の進行を確認できませんでした。開始サービスを確認して、もう一度押してください。': 'The world\'s progress could not be checked. Check the start service, then press again.',
+ };

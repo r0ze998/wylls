@@ -1,0 +1,280 @@
+ M docs/integration/CODEX-REVERSE-PRODUCER-20261110.md
+ M frontier-abi/Cargo.toml
+ M frontier-abi/src/prologue.rs
+ M frontier-abi/src/v2/layout/province.rs
+ M frontier-abi/src/world_index/conquest.rs
+ M frontier-abi/src/world_index/conquest_event.rs
+ M frontier-abi/src/world_index/expedition_dispatch_ix.rs
+ M frontier-abi/src/world_index/legacy_source_event.rs
+ M frontier-abi/src/world_index/mod.rs
+ M frontier-abi/src/world_index/resolve.rs
+ M frontier-abi/src/world_index/wide_ix.rs
+ M frontier-node/crates/fclient/Cargo.toml
+ M frontier-node/crates/fclient/src/experimental_expedition_message.rs
+ M frontier-node/crates/fclient/src/lib.rs
+ M frontier-node/crates/fclient/tests/experimental_expedition_message.rs
+ M frontier-node/crates/findex/Cargo.toml
+ M frontier-node/crates/findex/src/index.rs
+ M frontier-node/crates/findex/src/lib.rs
+ M frontier-node/crates/herald/Cargo.toml
+ M frontier-node/crates/herald/src/fold.rs
+ M frontier-node/crates/herald/src/lib.rs
+ M frontier-node/crates/herald/src/main.rs
+ M frontier-node/crates/herald/src/server.rs
+ M frontier-node/crates/itest/Cargo.toml
+ M frontier-node/crates/itest/src/lib.rs
+ M frontier-node/crates/keeper/Cargo.toml
+ M frontier-node/crates/keeper/src/lib.rs
+ M frontier-node/crates/keeper/src/wideexpedition.rs
+ M frontier-node/crates/keeper/src/wideexpedition_preview.rs
+ M frontier-node/crates/keeper/src/widetick.rs
+ M frontier-node/crates/keeper/tests/wide_expedition.rs
+ M frontier-node/crates/localnet/src/chain.rs
+ M frontier-node/crates/localnet/src/persist.rs
+ M frontier-node/crates/localnet/src/server.rs
+ M permutation-frontier/Cargo.toml
+ M permutation-frontier/runtime-contract-tests/Cargo.toml
+ M permutation-frontier/runtime-contract-tests/support/src/lib.rs
+ M permutation-frontier/src/lib.rs
+ M permutation-frontier/src/markers.rs
+ M permutation-frontier/src/proc/clash.rs
+ M permutation-frontier/src/proc/conquest.rs
+ M permutation-frontier/src/proc/season.rs
+ M permutation-frontier/src/proc/wide.rs
+ M permutation-frontier/src/proc/wide_conquest_cursor_runtime_tests.rs
+ M permutation-frontier/src/proc/wide_conquest_exec.rs
+ M permutation-frontier/src/proc/wide_conquest_lifecycle_tests.rs
+ M permutation-frontier/src/proc/wide_conquest_settle_exec.rs
+ M permutation-frontier/src/proc/wide_conquest_settle_tests.rs
+ M permutation-frontier/src/proc/wide_expedition_dispatch.rs
+ M permutation-frontier/src/proc/wide_expedition_dispatch_tests.rs
+ M permutation-frontier/src/proc/wide_expedition_failure_tests.rs
+ M permutation-frontier/src/proc/wide_expedition_lifecycle_tests.rs
+ M permutation-frontier/src/proc/wide_expedition_return.rs
+ M permutation-frontier/src/proc/wide_expedition_return_proof.rs
+ M permutation-frontier/src/proc/wide_expedition_reverse_tests.rs
+ M permutation-frontier/src/proc/wide_expedition_settlement.rs
+ M permutation-gateway/screens/codex-route-preview.screen.mjs
+ M permutation-gateway/src/frontier/app.mjs
+ M permutation-gateway/src/frontier/config.mjs
+ M permutation-gateway/src/frontier/server.mjs
+ M permutation-gateway/test/web-frontier-dispersed-map.test.mjs
+ M permutation-gateway/test/web-frontier-expedition-compose.test.mjs
+ M permutation-server/web/frontier/app.mjs
+ M permutation-server/web/frontier/conquest-hand.css
+ M permutation-server/web/frontier/controller.mjs
+ M permutation-server/web/frontier/fexpedition-compose.mjs
+ M permutation-server/web/frontier/fexpedition.mjs
+ M permutation-server/web/frontier/frontier.css
+ M permutation-server/web/frontier/fstate.mjs
+ M permutation-server/web/frontier/hud/drawer.mjs
+ M permutation-server/web/frontier/hud/hand.mjs
+ M permutation-server/web/frontier/hud/hud.mjs
+ M permutation-server/web/frontier/hud/icons.mjs
+ M permutation-server/web/frontier/hud/inspect.mjs
+ M permutation-server/web/frontier/hud/keephand.mjs
+ M permutation-server/web/frontier/hud/marchcard.mjs
+ M permutation-server/web/frontier/hud/minimap.mjs
+ M permutation-server/web/frontier/hud/search.mjs
+ M permutation-server/web/frontier/map/chart.mjs
+ M permutation-server/web/frontier/map/cloudsea.mjs
+ M permutation-server/web/frontier/map/fmap.mjs
+ M permutation-server/web/frontier/map/homeland.mjs
+ M permutation-server/web/frontier/map/keeps.mjs
+ M permutation-server/web/frontier/map/opening.mjs
+ M permutation-server/web/frontier/map/overviews.mjs
+ M permutation-server/web/frontier/map/sprites.mjs
+ M permutation-server/web/frontier/map/survey.mjs
+ M permutation-server/web/frontier/map/table.mjs
+ M permutation-server/web/frontier/map/terrain.mjs
+ M permutation-server/web/frontier/map/viewer.mjs
+ M permutation-server/web/frontier/map/viewport.mjs
+ M permutation-server/web/frontier/map/world.mjs
+ M permutation-server/web/frontier/screens/chronicle.mjs
+ M permutation-server/web/frontier/screens/holding.mjs
+ M permutation-server/web/frontier/screens/host.mjs
+ M permutation-server/web/frontier/seal-worker.mjs
+ M permutation-server/web/lang/en-frontier-hand.mjs
+ M permutation-server/web/lang/en-frontier-play.mjs
+ M permutation-server/web/wallet.mjs
+ M scripts/build-frontier.sh
+ M scripts/ci/node-key-tests.txt
+?? CLAUDE2-OVERVIEW-LOADING-20261110.md
+?? docs/integration/CLAUDE-CONQUEST-RESERVATION-REAL-EVIDENCE-20261112.json
+?? docs/integration/CLAUDE-CONQUEST-RESERVATION-REAL-EVIDENCE-CAPTURE-STAGES-20261112.json
+?? docs/integration/CLAUDE-CONQUEST-RESERVATION-REAL-EVIDENCE-NOTAPPLIED-STAGES-20261112.json
+?? docs/integration/CLAUDE-CONQUEST-RESERVATION-VECTORS-20261112.json
+?? docs/integration/CLAUDE-CONQUEST-V2-CLI-PREPARED-EVIDENCE-20261112.json
+?? docs/integration/CLAUDE-EXPEDITION-CONNECTION-20261111.md
+?? docs/integration/CLAUDE-KEEP-HIT-INDEX-20261110.md
+?? docs/integration/CODEX-REVERSE-CAPTURE-20261110.md
+?? docs/integration/CODEX-REVERSE-TERMINAL-RUNTIME-20261110.md
+?? docs/integration/evidence-fable-conquest-v2/
+?? frontier-abi/src/world_index/conquest_reservation_tests.rs
+?? frontier-abi/src/world_index/conquest_reservation_vectors_tests.rs
+?? frontier-abi/src/world_index/expedition_reverse_settlement_event.rs
+?? frontier-abi/src/world_index/expedition_reverse_settlement_ix.rs
+?? frontier-abi/src/world_index/expedition_reverse_terminal_event.rs
+?? frontier-abi/src/world_index/expedition_reverse_terminal_ix.rs
+?? frontier-node/crates/fclient/src/wide_conquest_draft.rs
+?? frontier-node/crates/fclient/src/wide_seal.rs
+?? frontier-node/crates/fclient/tests/fixtures/wide_conquest_declare_siege_v1.json
+?? frontier-node/crates/fclient/tests/wide_conquest_draft.rs
+?? frontier-node/crates/fclient/tests/wide_seal_js_cross.rs
+?? frontier-node/crates/findex/src/expedition_records.rs
+?? frontier-node/crates/findex/tests/fixtures/
+?? frontier-node/crates/herald/src/local_play.rs
+?? frontier-node/crates/herald/src/local_play_tests.rs
+?? frontier-node/crates/herald/tests/expedition_records.rs
+?? frontier-node/crates/itest/src/bin/
+?? frontier-node/crates/itest/src/conquest_crank.rs
+?? frontier-node/crates/itest/src/conquest_real.rs
+?? frontier-node/crates/itest/src/conquest_world.rs
+?? frontier-node/crates/itest/src/destination_driver.rs
+?? frontier-node/crates/itest/src/destination_real.rs
+?? frontier-node/crates/itest/src/expedition_play.rs
+?? frontier-node/crates/itest/src/keeper_loop.rs
+?? frontier-node/crates/itest/src/local_keeper.rs
+?? frontier-node/crates/itest/src/natural_home.rs
+?? frontier-node/crates/itest/src/natural_play.rs
+?? frontier-node/crates/itest/src/origin_driver.rs
+?? frontier-node/crates/itest/src/resident_bells.rs
+?? frontier-node/crates/itest/src/wide_destination.rs
+?? frontier-node/crates/itest/tests/localnet_expedition_depart.rs
+?? frontier-node/crates/keeper/src/bin/experimental_conquest_prepare.rs
+?? frontier-node/crates/keeper/src/bin/experimental_expedition_depart_prepare.rs
+?? frontier-node/crates/keeper/src/bin/experimental_expedition_prepare.rs
+?? frontier-node/crates/keeper/src/experimental_conquest_prepare.rs
+?? frontier-node/crates/keeper/src/experimental_expedition_depart_prepare.rs
+?? frontier-node/crates/keeper/src/experimental_expedition_prepare.rs
+?? frontier-node/crates/keeper/src/wideexpedition_reverse.rs
+?? frontier-node/crates/keeper/tests/experimental_conquest_prepare.rs
+?? frontier-node/crates/keeper/tests/experimental_expedition_depart_prepare.rs
+?? frontier-node/crates/keeper/tests/fixtures/conquest_declare_siege_report_v1.json
+?? frontier-node/crates/keeper/tests/support/
+?? permutation-frontier/runtime-contract-tests/fixtures/
+?? permutation-frontier/runtime-contract-tests/support/src/unsigned_message.rs
+?? permutation-frontier/src/proc/conquest_reverse_capture_tests.rs
+?? permutation-frontier/src/proc/wide_conquest_reservation_tests.rs
+?? permutation-frontier/src/proc/wide_expedition_close_positive_unexecuted.rs.txt
+?? permutation-frontier/src/proc/wide_expedition_depart_message_tests.rs
+?? permutation-frontier/src/proc/wide_expedition_lifecycle_fixed_deltas.rs
+?? permutation-frontier/src/proc/wide_expedition_reverse_settlement.rs
+?? permutation-frontier/src/proc/wide_expedition_reverse_settlement_tests.rs
+?? permutation-frontier/src/proc/wide_expedition_reverse_terminal.rs
+?? permutation-frontier/src/proc/wide_expedition_reverse_terminal_tests.rs
+?? permutation-gateway/screens/codex/conquest-card-capture.mjs
+?? permutation-gateway/screens/codex/conquest-card-case-capture.mjs
+?? permutation-gateway/screens/codex/conquest-card-gallery.mjs
+?? permutation-gateway/screens/codex/live-connect-fresh-economy-page-script.mjs
+?? permutation-gateway/screens/codex/live-connect-fresh-economy-page.mjs
+?? permutation-gateway/screens/codex/live-connect-fresh-economy-steps.mjs
+?? permutation-gateway/screens/codex/live-connect-fresh-economy.mjs
+?? permutation-gateway/screens/codex/prepare-observation.mjs
+?? permutation-gateway/screens/node_modules
+?? permutation-gateway/src/frontier/conquest-prepare.mjs
+?? permutation-gateway/src/frontier/conquest-reservations.mjs
+?? permutation-gateway/src/frontier/conquest-table-read.mjs
+?? permutation-gateway/src/frontier/conquest-test-capability.mjs
+?? permutation-gateway/src/frontier/expedition-depart-prepare.mjs
+?? permutation-gateway/src/frontier/expedition-prepare.mjs
+?? permutation-gateway/src/frontier/local-play-act.mjs
+?? permutation-gateway/src/frontier/local-play-conquest-orders.mjs
+?? permutation-gateway/src/frontier/local-play-conquest.mjs
+?? permutation-gateway/src/frontier/local-play-launcher.mjs
+?? permutation-gateway/src/frontier/local-play-preview.mjs
+?? permutation-gateway/src/frontier/local-play-relay-server.mjs
+?? permutation-gateway/src/frontier/local-play-relay.mjs
+?? permutation-gateway/src/frontier/local-play-resident.mjs
+?? permutation-gateway/src/frontier/local-play-reveal.mjs
+?? permutation-gateway/src/frontier/routes/expedition-depart-prepare.mjs
+?? permutation-gateway/src/frontier/routes/expedition-prepare.mjs
+?? permutation-gateway/test/fixtures/frontier-expedition-depart-prepare-heap256k-rust.json
+?? permutation-gateway/test/fixtures/frontier-expedition-depart-prepare-rust.json
+?? permutation-gateway/test/fixtures/frontier-expedition-depart-prepare-wallet-payer-heap256k-rust.json
+?? permutation-gateway/test/fixtures/frontier-expedition-depart-prepare-wallet-payer-rust.json
+?? permutation-gateway/test/fixtures/wide-seal-cross-v1.json
+?? permutation-gateway/test/frontier-conquest-real-evidence-states.test.mjs
+?? permutation-gateway/test/frontier-conquest-real-evidence.test.mjs
+?? permutation-gateway/test/frontier-conquest-reservation-vectors.test.mjs
+?? permutation-gateway/test/frontier-conquest-reservations.test.mjs
+?? permutation-gateway/test/frontier-conquest-v2-cli-report.test.mjs
+?? permutation-gateway/test/frontier-conquest-v2-evidence.test.mjs
+?? permutation-gateway/test/frontier-expedition-depart-prepare.test.mjs
+?? permutation-gateway/test/frontier-expedition-prepare.test.mjs
+?? permutation-gateway/test/frontier-live-connect-fresh-economy.test.mjs
+?? permutation-gateway/test/frontier-local-play-act-instance.test.mjs
+?? permutation-gateway/test/frontier-local-play-act-loaded-limit.test.mjs
+?? permutation-gateway/test/frontier-local-play-act.test.mjs
+?? permutation-gateway/test/frontier-local-play-conquest-orders.test.mjs
+?? permutation-gateway/test/frontier-local-play-conquest.test.mjs
+?? permutation-gateway/test/frontier-local-play-keeper-view.test.mjs
+?? permutation-gateway/test/frontier-local-play-launcher.test.mjs
+?? permutation-gateway/test/frontier-local-play-natural.test.mjs
+?? permutation-gateway/test/frontier-local-play-preview.test.mjs
+?? permutation-gateway/test/frontier-local-play-relay.test.mjs
+?? permutation-gateway/test/frontier-local-play-resident.test.mjs
+?? permutation-gateway/test/frontier-local-play-reveal.test.mjs
+?? permutation-gateway/test/frontier-local-play-runner-instance.test.mjs
+?? permutation-gateway/test/frontier-local-play-test-form-bounds.test.mjs
+?? permutation-gateway/test/web-frontier-conquest-identity.test.mjs
+?? permutation-gateway/test/web-frontier-conquest-order.test.mjs
+?? permutation-gateway/test/web-frontier-conquest-rust-report.test.mjs
+?? permutation-gateway/test/web-frontier-conquest-world-binding.test.mjs
+?? permutation-gateway/test/web-frontier-design-pass.test.mjs
+?? permutation-gateway/test/web-frontier-ephemeral-wallet.test.mjs
+?? permutation-gateway/test/web-frontier-expedition-depart-prepare.test.mjs
+?? permutation-gateway/test/web-frontier-expedition-prepare.test.mjs
+?? permutation-gateway/test/web-frontier-expedition-reveal.test.mjs
+?? permutation-gateway/test/web-frontier-keep-at-index.test.mjs
+?? permutation-gateway/test/web-frontier-keep-hit-index.test.mjs
+?? permutation-gateway/test/web-frontier-local-fixture-citizen.test.mjs
+?? permutation-gateway/test/web-frontier-local-play-act.test.mjs
+?? permutation-gateway/test/web-frontier-local-play-conquest.test.mjs
+?? permutation-gateway/test/web-frontier-local-play-depart.test.mjs
+?? permutation-gateway/test/web-frontier-local-play-hoststep.test.mjs
+?? permutation-gateway/test/web-frontier-local-play-launcher.test.mjs
+?? permutation-gateway/test/web-frontier-local-play-nudge-more.test.mjs
+?? permutation-gateway/test/web-frontier-local-play-nudge.test.mjs
+?? permutation-gateway/test/web-frontier-local-play-return.test.mjs
+?? permutation-gateway/test/web-frontier-local-play-reveal.test.mjs
+?? permutation-gateway/test/web-frontier-local-play-session.test.mjs
+?? permutation-gateway/test/web-frontier-local-play-world-expiry.test.mjs
+?? permutation-gateway/test/web-frontier-local-play-world-instance.test.mjs
+?? permutation-gateway/test/web-frontier-local-play.test.mjs
+?? permutation-gateway/test/web-frontier-nation-confirm-layout.test.mjs
+?? permutation-gateway/test/web-frontier-outbound-arrival-pick.test.mjs
+?? permutation-gateway/test/web-frontier-outbound-clock.test.mjs
+?? permutation-gateway/test/web-frontier-overview-reentry.test.mjs
+?? permutation-gateway/test/web-frontier-render-loop.test.mjs
+?? permutation-gateway/test/web-frontier-seal-wide.test.mjs
+?? permutation-gateway/test/web-frontier-terrain-frame.test.mjs
+?? permutation-gateway/test/web-frontier-trace.test.mjs
+?? permutation-gateway/test/web-frontier-wedge.test.mjs
+?? permutation-gateway/test/web-frontier-wide-work.test.mjs
+?? permutation-gateway/test/web-frontier-world-sparse.test.mjs
+?? permutation-server/web/frontier/fconquest-identity.mjs
+?? permutation-server/web/frontier/fconquest-order.mjs
+?? permutation-server/web/frontier/fephemeral-wallet.mjs
+?? permutation-server/web/frontier/fexpedition-depart-prepare.mjs
+?? permutation-server/web/frontier/fexpedition-prepare.mjs
+?? permutation-server/web/frontier/fexpedition-reveal.mjs
+?? permutation-server/web/frontier/flocalplay-act.mjs
+?? permutation-server/web/frontier/flocalplay-conquest.mjs
+?? permutation-server/web/frontier/flocalplay-depart.mjs
+?? permutation-server/web/frontier/flocalplay-expiry.mjs
+?? permutation-server/web/frontier/flocalplay-hoststep.mjs
+?? permutation-server/web/frontier/flocalplay-instance.mjs
+?? permutation-server/web/frontier/flocalplay-return.mjs
+?? permutation-server/web/frontier/flocalplay-reveal.mjs
+?? permutation-server/web/frontier/flocalplay-session.mjs
+?? permutation-server/web/frontier/flocalplay.css
+?? permutation-server/web/frontier/flocalplay.mjs
+?? permutation-server/web/frontier/ftrace.mjs
+?? permutation-server/web/frontier/map/keepindex.mjs
+?? permutation-server/web/frontier/map/keepscreen.mjs
+?? permutation-server/web/frontier/seal-ibe.mjs
+?? permutation-server/web/frontier/seal-wide-worker.mjs
+?? permutation-server/web/frontier/seal-wide.mjs
+?? scripts/build-frontier-localnet-conquest-sbf.sh
+?? scripts/build-frontier-localnet-expedition-sbf.sh
