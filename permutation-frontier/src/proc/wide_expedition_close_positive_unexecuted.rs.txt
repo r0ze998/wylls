@@ -1,0 +1,253 @@
+//! NONCOMPILED REFERENCE ONLY. Positive test blocked by independent audit.
+//! Prospective direct-host cleanup tests. Run only after independent audit,
+//! in an isolated filtered process: log stubs are process-global. No CPI
+//! success override, key generation, RNG, proof or network operations.
+//! The positive synthetic-host test is blocked and ignored: writable backing
+//! is NOT proof that SDK assign through a shared owner reference or runtime-
+//! only resize is valid Rust. Do not execute it with --ignored. Refusal-only
+//! coverage below uses ordinary AccountInfo and never reaches either call.
+use super::*;
+use alloc::boxed::Box;
+use frontier_abi::v2::layout::{write_header, AccountKind as K2};
+use frontier_abi::world_index::event::WideRecord;
+use std::sync::{Arc, Mutex};
+
+const PROGRAM: [u8; 32] = [0x12; 32];
+const SID: u64 = 11;
+const GENESIS: i64 = 1_800_000_000;
+const RENT_TO: [u8; 32] = [0x24; 32];
+const BALANCE: u64 = 1_000_000_000;
+
+// Shrink-only AccountInfo runtime layout: original length immediately before
+// key, aligned u64 serialized data length immediately before account bytes.
+// Owner is an owned leaked mutable allocation because assign writes it.
+fn ai(k: [u8; 32], owner: [u8; 32], d: Vec<u8>, lamports: u64,
+      signer: bool, writable: bool) -> AccountInfo<'static> {
+    #[repr(C)]
+    struct Key { original_len: u32, key: Pubkey }
+    let key = Box::leak(Box::new(Key {
+        original_len: d.len() as u32, key: Pubkey::new_from_array(k),
+    }));
+    let storage = Box::leak(vec![0u64; 1 + (d.len() + 7) / 8].into_boxed_slice());
+    storage[0] = d.len() as u64;
+    // SAFETY: backing allocation is u64-aligned, has eight prefix bytes and
+    // sufficient space for d; leaked storage remains live. Only resize(0)
+    // is used, so no extra realloc capacity or pointer reconstruction exists.
+    let bytes = unsafe {
+        core::slice::from_raw_parts_mut(storage.as_mut_ptr().add(1).cast::<u8>(), d.len())
+    };
+    bytes.copy_from_slice(&d);
+    AccountInfo::new(&key.key, signer, writable, Box::leak(Box::new(lamports)),
+        bytes, Box::leak(Box::new(Pubkey::new_from_array(owner))), false)
+}
+
+fn fixture() -> (Vec<AccountInfo<'static>>, AddrCtx) {
+    fixture_with(ai)
+}
+
+type MakeAccount = fn([u8; 32], [u8; 32], Vec<u8>, u64, bool, bool) -> AccountInfo<'static>;
+fn fixture_with(ai: MakeAccount) -> (Vec<AccountInfo<'static>>, AddrCtx) {
+    prologue::set_test_clock(GENESIS + 6600, 77);
+    let p = Pubkey::new_from_array(PROGRAM);
+    let bump = Pubkey::find_program_address(&[addr::SEASON_PREFIX, &addr::season_seed_id(SID)], &p).1;
+    let sk = addr::season_pda(SID, bump, &PROGRAM);
+    let ctx = addr::ctx(&sk, &PROGRAM);
+    let resolver = frontier_abi::world_index::expedition::AccountResolver::for_season(&ctx).unwrap();
+    let host = resolver.legacy_host_ref(addr::host_id(128, 0, 2, 1, 0).unwrap()).unwrap();
+    let dest = ProvinceKey::new(host.key().world(), WideCoord::checked(129, 0).unwrap());
+    let s = WideArrivalSlot {
+        season_id: SID, dest, bell: 10, faction: 2, i: 0, transit_slot: 0,
+        host, citizen: [0x33; 32], unit: 1, stance: 0, tile: 3,
+        retreat_bps: 0, dealt_bps: 10000, dep_mass: 100000,
+        flags: wa::wide_arrival_slot::FLAG_SETTLED,
+        beneficiary: [0x35; 32], rent_to: RENT_TO, ev_slot: 50,
+        ev_price: 0, ev_limit: 0, ev_loaded: 0, claimed: true,
+    };
+    let slot = ExpeditionArrivalSlot::new(&ctx, s, 1000).unwrap().to_bytes(&ctx).unwrap();
+    let mut sd = vec![0; K2::Season.size()];
+    assert!(write_header(&mut sd, K2::Season, SID));
+    let mut w = Rw(&mut sd);
+    w.set_u8(S::BUMP, bump).unwrap();
+    w.set_u8(S::STATUS, S::STATUS_RUNNING).unwrap();
+    w.set_arr(S::RULESET_HASH, &RULESET_HASH).unwrap();
+    w.set_u16(S::PROGRAM_VERSION, crate::PROGRAM_VERSION).unwrap();
+    w.set_i64(S::GENESIS_TS, GENESIS).unwrap();
+    w.set_u32(S::END_BELL, 1000).unwrap();
+    w.set_i64(S::DRAND_GENESIS, GENESIS - 100).unwrap();
+    w.set_u32(S::DRAND_PERIOD, 3).unwrap();
+    w.set_u32(S::REVEAL_WINDOW, 60).unwrap();
+    w.set_u32(S::WINDOW_NEXT, 60).unwrap();
+    w.set_u32(S::SEED_MARGIN, 60).unwrap();
+    (vec![
+        ai([0x44;32], [0;32], vec![], 0, true, false),
+        ai(sk, PROGRAM, sd, BALANCE, false, false),
+        ai(wa::arrival_slot_address(&ctx, dest, 10, 2, 0), PROGRAM,
+           slot.to_vec(), BALANCE, false, true),
+        ai(RENT_TO, [0;32], vec![], BALANCE, false, true),
+    ], ctx)
+}
+
+fn edit(a: &[AccountInfo], ctx: &AddrCtx, f: impl FnOnce(&mut WideArrivalSlot)) {
+    let old = ExpeditionArrivalSlot::read(ctx, &a[2].try_borrow_data().unwrap()).unwrap();
+    let mut common = *old.common();
+    f(&mut common);
+    let bytes = ExpeditionArrivalSlot::new(ctx, common, old.worn_bps()).unwrap().to_bytes(ctx).unwrap();
+    a[2].try_borrow_mut_data().unwrap().copy_from_slice(&bytes);
+}
+fn snapshot(a: &[AccountInfo]) -> Vec<(u64, Vec<u8>, Pubkey)> {
+    a.iter().map(|x| (x.lamports(), x.try_borrow_data().unwrap().to_vec(), *x.owner)).collect()
+}
+fn run(a: &[AccountInfo]) -> R<()> { close_slot(&Pubkey::new_from_array(PROGRAM), a) }
+fn refuses(a: &[AccountInfo], logs: &Arc<Mutex<Vec<Vec<u8>>>>) {
+    let before = snapshot(a);
+    let log_before = logs.lock().unwrap().clone();
+    assert!(run(a).is_err());
+    assert_eq!(snapshot(a), before);
+    assert_eq!(*logs.lock().unwrap(), log_before);
+}
+
+struct Logs(Arc<Mutex<Vec<Vec<u8>>>>);
+impl solana_program::program_stubs::SyscallStubs for Logs {
+    fn sol_invoke_signed(
+        &self,
+        _instruction: &solana_program::instruction::Instruction,
+        _accounts: &[AccountInfo],
+        _seeds: &[&[&[u8]]],
+    ) -> solana_program::entrypoint::ProgramResult {
+        panic!("private retained-slot cleanup must never invoke a CPI")
+    }
+    fn sol_log_data(&self, fields: &[&[u8]]) {
+        assert_eq!(fields.len(), 2);
+        assert_eq!(fields[0], wev::WIDE_LOG_PREFIX);
+        self.0.lock().unwrap().push(fields[1].to_vec());
+    }
+}
+struct Restore(Option<Box<dyn solana_program::program_stubs::SyscallStubs>>);
+impl Drop for Restore {
+    fn drop(&mut self) {
+        solana_program::program_stubs::set_syscall_stubs(self.0.take().unwrap());
+    }
+}
+
+#[test]
+#[ignore = "Blocked: SDK assign shared-owner mutation and resize runtime contract need a real-runtime harness"]
+fn private_v2_close_authentication_rent_grace_and_receipt() {
+    let logs = Arc::new(Mutex::new(Vec::new()));
+    let _restore = Restore(Some(solana_program::program_stubs::set_syscall_stubs(Box::new(Logs(logs.clone())))));
+    let (a, ctx) = fixture();
+    let slot = ExpeditionArrivalSlot::read(&ctx, &a[2].try_borrow_data().unwrap()).unwrap();
+    let before = snapshot(&a);
+    run(&a).unwrap();
+    assert!(a[2].data_is_empty());
+    assert_eq!(a[2].owner.to_bytes(), [0;32]);
+    assert_eq!(a[2].lamports(), 0);
+    assert_eq!(a[3].lamports(), 2 * BALANCE);
+    assert_eq!(snapshot(&a)[..2], before[..2]);
+    let records = logs.lock().unwrap();
+    assert_eq!(records.len(), 1);
+    let r = WideRecord::decode(&records[0]).unwrap();
+    let s = slot.common();
+    assert_eq!(r.kind, WideKind::RecordClosed);
+    assert_eq!(r.bell, 11);
+    assert_eq!(r.province(), Some(s.dest));
+    assert_eq!(r.payload, &wev::record_closed_payload(wix::CLOSE_WHAT_SLOT, s.bell, s.faction, s.i, &RENT_TO, BALANCE));
+    assert_eq!(r.links, [None, None]);
+    drop(records);
+    refuses(&a, &logs); // closed-account replay
+
+    // Bad flags, identity/version/reserved bytes, address and recipient all
+    // fail without rollback or restoration of account state.
+    for case in 0..18 {
+        let (mut a, ctx) = fixture();
+        match case {
+            0 => a[0].is_signer = false,
+            1 => a[2].is_writable = false,
+            2 => a[3].is_writable = false,
+            3 => a[2].owner = Box::leak(Box::new(Pubkey::new_from_array([0;32]))),
+            4 => a[2].key = Box::leak(Box::new(Pubkey::new_from_array([0x55;32]))),
+            5 => a[3].key = Box::leak(Box::new(Pubkey::new_from_array([0x55;32]))),
+            6 => a[3] = a[2].clone(),
+            7 => **a[3].try_borrow_mut_lamports().unwrap() = u64::MAX,
+            8 => { **a[2].try_borrow_mut_lamports().unwrap() = 1; **a[3].try_borrow_mut_lamports().unwrap() = 0; },
+            9 => edit(&a, &ctx, |s| s.season_id += 1),
+            10 => a[2].try_borrow_mut_data().unwrap()[wa::wide_arrival_slot::FAMILY_VERSION] = 1,
+            11 => a[2].try_borrow_mut_data().unwrap()[wa::wide_arrival_slot::RSV_29] = 1,
+            12 => edit(&a, &ctx, |s| s.flags = 0),
+            13 => edit(&a, &ctx, |s| s.claimed = false),
+            14 => a[2].try_borrow_mut_data().unwrap()[wa::wide_arrival_slot::CITIZEN..wa::wide_arrival_slot::CITIZEN + 32].fill(0),
+            15 => a[2].try_borrow_mut_data().unwrap()[wa::wide_arrival_slot::HOST] = 0xff,
+            16 => a[2].try_borrow_mut_data().unwrap()[wa::wide_arrival_slot::RSV_188..wa::wide_arrival_slot::RSV_188 + 2].copy_from_slice(&u16::MAX.to_le_bytes()),
+            17 => {
+                let s = *ExpeditionArrivalSlot::read(&ctx, &a[2].try_borrow_data().unwrap()).unwrap().common();
+                let mut native = vec![0; wa::wide_arrival_slot::SIZE];
+                s.write(&mut native).unwrap();
+                a[2].try_borrow_mut_data().unwrap().copy_from_slice(&native);
+            },
+            _ => unreachable!(),
+        }
+        refuses(&a, &logs);
+    }
+    // Borrow conflicts checked before the first effect. Shared borrows allow
+    // snapshots, but prevent the respective eventual mutable borrow.
+    for case in 0..3 {
+        let (a, _) = fixture();
+        match case {
+            0 => { let _b = a[2].try_borrow_data().unwrap(); refuses(&a, &logs); },
+            1 => { let _b = a[2].try_borrow_lamports().unwrap(); refuses(&a, &logs); },
+            _ => { let _b = a[3].try_borrow_lamports().unwrap(); refuses(&a, &logs); },
+        }
+    }
+    // Archived canonical anchor lets a settled, unclaimed slot close.
+    let (mut a, ctx) = fixture();
+    edit(&a, &ctx, |s| s.claimed = false);
+    let s = *ExpeditionArrivalSlot::read(&ctx, &a[2].try_borrow_data().unwrap()).unwrap().common();
+    let ak = ctx.bell_anchor(s.bell, absent_destination_region(s.dest.coord()));
+    a.push(ai([0x77;32], [0;32], vec![], 0, false, false));
+    refuses(&a, &logs); // wrong archived-anchor address
+    a.pop();
+    a.push(ai(ak, [0;32], vec![], 0, false, false));
+    run(&a).unwrap();
+
+    // Present anchor: exact claim grace boundary, then whole rent refund.
+    let (mut a, ctx) = fixture();
+    edit(&a, &ctx, |s| s.claimed = false);
+    let mut ad = vec![0; K2::BellAnchor.size()];
+    assert!(write_header(&mut ad, K2::BellAnchor, SID));
+    Rw(&mut ad).set_i64(crate::layout::beacon::bell_anchor::A, GENESIS + 6000).unwrap();
+    Rw(&mut ad).set_u32(crate::layout::beacon::bell_anchor::BELL, 10).unwrap();
+    Rw(&mut ad).set_u8(crate::layout::beacon::bell_anchor::REGION, absent_destination_region(s.dest.coord())).unwrap();
+    a.push(ai(ak, PROGRAM, ad, BALANCE, false, false));
+    prologue::set_test_clock(GENESIS + 6000 + 60 + 3600 - 1, 77);
+    refuses(&a, &logs);
+    prologue::set_test_clock(GENESIS + 6000 + 60 + 3600, 77);
+    run(&a).unwrap();
+
+    // Ended + 72h fallback allows even unsettled/unclaimed. Before the
+    // deadline it does not. No anchor is required by this short-circuit.
+    let (a, ctx) = fixture();
+    edit(&a, &ctx, |s| { s.flags = 0; s.claimed = false; });
+    Rw(&mut a[1].try_borrow_mut_data().unwrap()).set_u8(S::STATUS, S::STATUS_ENDED).unwrap();
+    let end = GENESIS + 1000 * 600 + super::super::super::map::END_GRACE_SECS;
+    prologue::set_test_clock(end - 1, 77);
+    refuses(&a, &logs);
+    prologue::set_test_clock(end, 77);
+    run(&a).unwrap();
+
+    // Closed tombstone needs no full Season clock or claim eligibility.
+    let (mut a, ctx) = fixture();
+    edit(&a, &ctx, |s| { s.flags = 0; s.claimed = false; });
+    let mut tomb = a[1].try_borrow_data().unwrap()[..S::TOMBSTONE_SIZE].to_vec();
+    Rw(&mut tomb).set_u8(S::STATUS, S::STATUS_CLOSED).unwrap();
+    a[1] = ai(ctx.season, PROGRAM, tomb, BALANCE, false, false);
+    // Irrelevant malformed anchor is deliberately not read under fallback.
+    a.push(ai([0x77;32], [0x88;32], vec![1], 0, false, false));
+    run(&a).unwrap();
+    assert_eq!(WideRecord::decode(logs.lock().unwrap().last().unwrap()).unwrap().bell,
+        frontier_abi::log::NO_BELL);
+
+    // Aborted alone is not the Ended+72h fallback of arrival-slot cleanup.
+    let (a, ctx) = fixture();
+    edit(&a, &ctx, |s| { s.flags = 0; s.claimed = false; });
+    Rw(&mut a[1].try_borrow_mut_data().unwrap()).set_u8(S::STATUS, S::STATUS_ABORTED).unwrap();
+    refuses(&a, &logs);
+}

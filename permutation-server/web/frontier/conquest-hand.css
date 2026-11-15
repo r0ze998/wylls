@@ -74,7 +74,8 @@
 .kp-def strong { font-size: 22px; line-height: 1.1; color: #fffaf0; } .kp-def span { font-size: 11px; color: var(--hud-ink-2); white-space: nowrap; }
 .kp .kp-facts { margin-top: 10px; gap: 4px; font-size: var(--t2); } .kp .kp-facts dt { color: var(--hud-ink-2); }
 .kp-state { display: block; margin-top: 10px; margin-bottom: 0; font-size: var(--t2); line-height: 1.5; }
-.kp-state strong { color: var(--you); }
+/* (ivory, not the gold of what is one's own: gold on this page means "yours" and nothing else — UX design 5.3) */
+.kp-state strong { color: #fffaf0; }
 .kp-state-safe { display: grid; grid-template-columns: 18px minmax(0, 1fr); gap: 8px; padding: 8px 10px; border-radius: 8px; background: rgba(127,196,232,.14); box-shadow: inset 0 0 0 1px rgba(127,196,232,.5); }
 .kp-state-safe .ic { width: 16px; height: 16px; margin-top: 2px; color: var(--sky); }
 .kp-contest { margin-top: 10px; padding: 10px; border-radius: 8px; background: linear-gradient(90deg, color-mix(in srgb, var(--kn) 30%, #10221f), #10221f); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--kn) 70%, #000); }

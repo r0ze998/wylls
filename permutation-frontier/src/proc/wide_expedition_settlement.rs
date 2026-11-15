@@ -612,3 +612,6 @@ pub(super) mod forfeit;
 
 #[path = "wide_expedition_retained_failure.rs"]
 pub(super) mod retained_failure;
+
+#[path = "wide_expedition_reverse_settlement.rs"]
+pub(super) mod reverse_settlement;

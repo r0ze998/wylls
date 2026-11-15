@@ -29,6 +29,19 @@ const snapshots = new WeakMap();
 const routeReads = new WeakMap();
 const contextReads = new WeakMap();
 const cancelRouteRead = fs => { for (const reads of [routeReads, contextReads]) { reads.get(fs)?.abort(); reads.delete(fs); } };
+// What each finished observation was read for (the draft's source and steps), kept beside it and never inside it:
+// an arrival candidate is taken only from an observation still bound to the draft as it stands.
+const observed = new WeakMap();
+const bindingOf = (source, directions) => stable([source, directions]);
+const u32 = x => Number.isInteger(x) && x >= 0 && x <= 0xffffffff;
+/** Report codes that leave the route itself sound: only the entered arrival turn is missing or outside the range. */
+// (ArrivalAfterSeason too: fexpedition-route.mjs works the range out before it answers so, and a turn entered too far
+// ahead must be able to come back to the earliest one)
+const ARRIVAL_ONLY = Object.freeze(['ArrivalRequired', 'ArrivalTooEarly', 'ArrivalTooLate', 'ArrivalAfterSeason']);
+// The draft's revision: moved by every rebuild and every clear. A press that waits on a read is the same press at
+// its end only while this has not moved.
+const revisions = new WeakMap();
+const bump = fs => revisions.set(fs, (revisions.get(fs) ?? 0) + 1);
 const empty = () => ({ directions: [], arriveBell: '', stance: 0, retreat: 'never', ratio: '', tip: 'standard',
   status: 'idle', source: null, trace: null, map: null, review: null, routeCheck: null, contextCheck: null, error: null, ...OUTBOUND_CLOSED });
 
@@ -84,7 +97,7 @@ export function outboundSource(fs, { pin } = {}) {
 const identities = (fs, ctx) => [fs.wallet, fs.resident, fs.session, fs.session?.publicKey, fs.chain, ctx.source, ctx.relay,
   fs.mode, fs.selected?.p, fs.selected?.q, fs.selected?.idx, fs.hand?.host, fs.activeHolding ?? 0];
 const capture = (fs, ctx) => ({ source: outboundSource(fs, ctx), identities: identities(fs, ctx) });
-export function clearOutbound(fs) { cancelRouteRead(fs); snapshots.delete(fs); fs.expeditionCompose = empty(); }
+export function clearOutbound(fs) { cancelRouteRead(fs); snapshots.delete(fs); bump(fs); fs.expeditionCompose = empty(); }
 export function reconcileOutbound(fs, ctx) {
   const before = snapshots.get(fs); if (!before) return true;
   try {
@@ -94,7 +107,7 @@ export function reconcileOutbound(fs, ctx) {
   clearOutbound(fs); fs.expeditionCompose.error = 'SourceChanged'; return false;
 }
 function rebuild(fs, ctx) {
-  cancelRouteRead(fs);
+  cancelRouteRead(fs); bump(fs);
   const s = fs.expeditionCompose;
   s.routeCheck = null;
   s.contextCheck = null;
@@ -169,7 +182,7 @@ export function readOutboundMap(fs, ctx) {
 /** Read actual captured account bytes for this draft, without changing world
  * state or promoting an observation into an executable route. Every edit,
  * source change, close and repeated request cancels the old result. */
-export async function inspectOutboundRoute(fs, { context, changed = () => {} } = {}) {
+export async function inspectOutboundRoute(fs, { context, changed = () => {}, load = loadOutboundRouteCaptures, evaluate = evaluateOutboundRoute } = {}) {
   const ctx = context();
   if (fs.hand?.pop !== OUTBOUND_POP || !reconcileOutbound(fs, ctx)) return;
   const s = fs.expeditionCompose;
@@ -188,17 +201,18 @@ export async function inspectOutboundRoute(fs, { context, changed = () => {} } =
   };
   try {
     const data = await Promise.race([
-      loadOutboundRouteCaptures(ctx.source, source, directions, controller.signal),
+      load(ctx.source, source, directions, controller.signal),
       new Promise((_, reject) => { timer = setTimeout(() => reject(Object.assign(new Error('RouteReadTimeout'), { code: 'RouteReadTimeout' })), 12_000); }),
     ]);
     if (!current()) return;
     const now = fs.chain?.now?.();
     check(typeof now === 'number' && Number.isFinite(now) && Number.isSafeInteger(Math.floor(now)) && now >= 0, 'RouteClockUnavailable');
     const departTs = Math.floor(now) + departMargin(fs.chain?.rate);
-    const report = evaluateOutboundRoute({ source, directions, lands: data.lands, season, departTs,
+    const report = evaluate({ source, directions, lands: data.lands, season, departTs,
       arriveBell: /^(0|[1-9][0-9]{0,9})$/.test(s.arriveBell) ? Number(s.arriveBell) : null });
     s.routeCheck = { status: 'read', report, captures: data.captures, unavailable: data.unavailable,
       departTs, snapshot: data.snapshot, observationOnly: true, coherentSnapshotVerified: false, provenanceVerified: false, ...OUTBOUND_CLOSED };
+    observed.set(s.routeCheck, bindingOf(source, directions));
   } catch (e) {
     if (!current()) return;
     s.routeCheck = { status: 'error', code: e.code ?? 'RouteReadUnavailable' };
@@ -210,7 +224,7 @@ export async function inspectOutboundRoute(fs, { context, changed = () => {} } =
 
 /** Read source, terrain and Clock together through the existing optional
  * keyless inspector. This does not enable a signer, seal or public command. */
-export async function inspectOutboundContext(fs, { context, read, changed = () => {} } = {}) {
+export async function inspectOutboundContext(fs, { context, read, changed = () => {}, snapshot = readOutboundSnapshot, judge = evaluateOriginalOutboundReady, evaluate = evaluateOutboundRoute } = {}) {
   const ctx = context();
   if (fs.hand?.pop !== OUTBOUND_POP || !reconcileOutbound(fs, ctx)) return;
   const s = fs.expeditionCompose;
@@ -228,17 +242,18 @@ export async function inspectOutboundContext(fs, { context, read, changed = () =
     const observedSlot = fs.chain?.last?.slot ?? 0;
     check(typeof observedSlot !== 'number' || (Number.isSafeInteger(observedSlot) && observedSlot >= 0), 'RouteClockUnavailable');
     const minSlot = parseU64(String(observedSlot)).toString();
-    const data = await readOutboundSnapshot(source, directions, { relay: ctx.relay, signal: controller.signal, isCurrent: current, minSlot, read });
+    const data = await snapshot(source, directions, { relay: ctx.relay, signal: controller.signal, isCurrent: current, minSlot, read });
     if (!current()) return;
     if (data.status === 'blocked') { s.contextCheck = { status: 'error', code: data.code }; return; }
     const departTs = data.clock.unixTimestamp + BigInt(Math.ceil(departMargin(fs.chain?.rate)));
     const arriveBell = /^(0|[1-9][0-9]{0,9})$/.test(s.arriveBell) ? Number(s.arriveBell) : null;
     const tip = tipOptions(data.season).find(x => x.id === s.tip)?.lamports;
-    const ready = evaluateOriginalOutboundReady({ ...data, holding: data.holdingBytes, arriveBell, tip });
-    const report = evaluateOutboundRoute({ source: data.source, directions, lands: data.lands, season: data.season, departTs, arriveBell });
+    const ready = judge({ ...data, holding: data.holdingBytes, arriveBell, tip });
+    const report = evaluate({ source: data.source, directions, lands: data.lands, season: data.season, departTs, arriveBell });
     s.contextCheck = { status: 'read', ready, report, contextSlot: data.contextSlot, digest: data.digest,
       departTs: departTs.toString(), coherent: data.coherent, contentConsistent: data.contentConsistent,
       observationOnly: true, authorityVerified: false, freshness: 'unknown', ...OUTBOUND_CLOSED };
+    observed.set(s.contextCheck, bindingOf(source, directions));
   } catch (e) {
     if (!current()) return;
     s.contextCheck = { status: 'error', code: e.code ?? 'OutboundSnapshotUnavailable' };
@@ -246,6 +261,65 @@ export async function inspectOutboundContext(fs, { context, read, changed = () =
     if (contextReads.get(fs) === controller) { contextReads.delete(fs); controller.abort(); changed(); }
   }
 }
+/**
+ * The earliest arrival turn of the observation shown on the card: `{arriveBell, min, max, from}` (`from`: 'context'
+ * for the departure-conditions read, else 'route'). Throws with a code when there is none to offer:
+ *   ArrivalCandidateUnavailable  no finished observation, or its route cannot be walked or timed
+ *   ArrivalCandidateStale        the observation is not of this draft's source and steps as they stand
+ *   ArrivalCandidateInvalid      the observed range is not two turn numbers
+ *   ArrivalWindowEmpty           the observed range holds no turn
+ * A candidate is a number for the draft's own arrival field. It is not an admitted, sealed or sent departure, and
+ * the observation it comes from says nothing of the present.
+ */
+export function outboundArrivalCandidate(fs) {
+  const s = fs.expeditionCompose;
+  check(fs.hand?.pop === OUTBOUND_POP && !!s?.source, 'ArrivalCandidateUnavailable');
+  const from = s.contextCheck?.status === 'read' ? 'context' : s.routeCheck?.status === 'read' ? 'route' : null;
+  check(from !== null, 'ArrivalCandidateUnavailable');
+  const seen = from === 'context' ? s.contextCheck : s.routeCheck;
+  check(observed.get(seen) === bindingOf(s.source, s.directions), 'ArrivalCandidateStale');
+  const r = seen.report;
+  check(!!r && typeof r === 'object' && (r.code === null || r.code === undefined || ARRIVAL_ONLY.includes(r.code)), 'ArrivalCandidateUnavailable');
+  check(r.min !== null && r.min !== undefined && r.max !== null && r.max !== undefined, 'ArrivalCandidateUnavailable');
+  check(u32(r.min) && u32(r.max), 'ArrivalCandidateInvalid');
+  check(r.min <= r.max, 'ArrivalWindowEmpty');
+  return Object.freeze({ arriveBell: String(r.min), min: r.min, max: r.max, from });
+}
+
+/**
+ * One press: put the earliest observed arrival turn into the draft (the same `arriveBell` edit the field makes, so
+ * every earlier observation is dropped) and read again the observation it came from, now with that turn. Nothing is
+ * sealed, signed or sent; the manual field stays. The answer says how far the press got, about the LOCAL draft only:
+ *   {ok: true,  state: 'entered-and-reread', arriveBell, from}   the field holds the turn and the same draft has its
+ *                                                                 new observation (which may itself refuse the route)
+ *   {ok: false, entered: false, code}                             nothing was entered (code: SourceChanged or an
+ *                                                                 ArrivalCandidate… / ArrivalWindowEmpty refusal)
+ *   {ok: false, entered, code: 'ArrivalRereadSuperseded', …}      the card was closed, edited or re-sourced while the
+ *                                                                 read was under way: this press finished nothing
+ *   {ok: false, entered: true, code: 'ArrivalRereadFailed', reason, …}   the field holds the turn; the read failed
+ * `ok` never means a departure, an arrival or an admitted order.
+ */
+export async function useEarliestOutboundArrival(fs, { context, read, changed = () => {}, load, evaluate, snapshot, judge } = {}) {
+  const ctx = context();
+  if (fs.hand?.pop !== OUTBOUND_POP || !reconcileOutbound(fs, ctx)) { changed(); return { ok: false, entered: false, code: 'SourceChanged' }; }
+  let pick;
+  try { pick = outboundArrivalCandidate(fs); } catch (e) { return { ok: false, entered: false, code: e.code ?? 'ArrivalCandidateUnavailable' }; }
+  if (!editOutbound(fs, ctx, 'arriveBell', pick.arriveBell)) { changed(); return { ok: false, entered: false, code: 'SourceChanged' }; }
+  const s = fs.expeditionCompose, revision = revisions.get(fs), bound = bindingOf(s.source, s.directions);
+  const { arriveBell, from } = pick;
+  changed();
+  if (from === 'context') await inspectOutboundContext(fs, { context, read, changed, snapshot, judge, evaluate });
+  else await inspectOutboundRoute(fs, { context, changed, load, evaluate });
+  // The read is over. Is this still the draft, the revision and the turn of the press?
+  const mine = fs.expeditionCompose === s;
+  if (fs.hand?.pop !== OUTBOUND_POP || !mine || revisions.get(fs) !== revision || s.arriveBell !== arriveBell) {
+    return { ok: false, entered: mine && fs.hand?.pop === OUTBOUND_POP && s.arriveBell === arriveBell, code: 'ArrivalRereadSuperseded', arriveBell, from };
+  }
+  const again = from === 'context' ? s.contextCheck : s.routeCheck;
+  if (again?.status !== 'read' || observed.get(again) !== bound) return { ok: false, entered: true, code: 'ArrivalRereadFailed', reason: again?.code ?? null, arriveBell, from };
+  return { ok: true, state: 'entered-and-reread', arriveBell, from };
+}
+
 /** Relative local coordinates only: at most 32 steps, never narrow world coordinates. */
 export function outboundSketch(directions) {
   const points = [{ q: 0, r: 0 }];

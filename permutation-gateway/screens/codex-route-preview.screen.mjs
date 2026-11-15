@@ -5,6 +5,8 @@ import { keyCalls } from './codex/no-key-node.mjs';
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createServer } from 'node:http';
+import { EventEmitter } from 'node:events';
+import { PassThrough } from 'node:stream';
 import { readFile, mkdir, writeFile } from 'node:fs/promises';
 import { readFileSync } from 'node:fs';
 import { extname, resolve, sep } from 'node:path';
@@ -18,6 +20,10 @@ import { outboundSnapshotRequest, outboundSnapshotReport } from '../src/frontier
 import { expeditionPreviewRoutes } from '../src/frontier/routes/expedition-preview.mjs';
 import { expeditionRequest, expeditionReport } from '../src/frontier/expedition-preview.mjs';
 import { syntheticReturnInspection } from './codex/return-observation.mjs';
+import { syntheticPreparation } from './codex/prepare-observation.mjs';
+import { createExpeditionPrepare } from '../src/frontier/expedition-prepare.mjs';
+import { expeditionPrepareRoutes } from '../src/frontier/routes/expedition-prepare.mjs';
+import { decode as decodeFrontier } from '../../permutation-server/web/frontier/fcodec.mjs';
 
 // Imported only after the built-in guard above. The audited 1.58.2 launch path
 // creates no certificate: no proxy, clientCertificates or remote browser.
@@ -122,10 +128,44 @@ async function serve() {
   let historyMode='ready',historyGate=null,releaseHistory=null,captureMode='ready',inventoryMode='off';
   const requests = [], writes = [], snapshotReads = [], returnReads = [];
   let snapshotMode = 'ready', returnMode = 'dissolve';
+  let preparationMode = 'ready', lastPreparation = null, preparationGate = null, releasePreparation = null;
+  const preparationReads = [], preparationSpawns = [];
+  const seasonPin = GOLDEN.stages.grown['/h/season'].body;
+  const prepare = createExpeditionPrepare({ cfg: {
+    cluster: seasonPin.cluster, programId: seasonPin.programId, expeditionPrepareBin: '/synthetic-public-provider',
+    expeditionPrepareRpc: 'http://127.0.0.1:1', expeditionPrepareFeePayer: GOLDEN.wallet,
+    expeditionPrepareRulesetHash: Buffer.from(decodeFrontier('Season', Buffer.from(seasonPin.bytes_b64, 'base64')).rulesetHash).toString('hex'),
+    expeditionPrepareCuLimit: 200000, expeditionPrepareLoadedLimit: 65536,
+  }, season: seasonPin.seasonAddress, spawn: (bin, args, options) => {
+    // Injected in-memory CLI observation; no process or RPC is started.
+    preparationSpawns.push({ bin, args, options });
+    const child = new EventEmitter(); child.stdin = new PassThrough(); child.stdout = new PassThrough(); child.stderr = new PassThrough();
+    let input = '', killed = false;
+    child.stdin.on('data', b => { input += b.toString(); });
+    child.kill = () => { killed = true; child.emit('close', null, 'SIGKILL'); };
+    child.stdin.on('finish', async () => {
+      if (preparationGate) await preparationGate;
+      if (killed) return;
+      const request = JSON.parse(input); preparationReads.push(request);
+      let report = syntheticPreparation(request);
+      if (preparationMode === 'replay' && lastPreparation) report = structuredClone(lastPreparation);
+      else if (preparationMode === 'stale') report.source.context_slot = (BigInt(request.source_context_slot) - 1n).toString();
+      else lastPreparation = structuredClone(report);
+      child.stdout.emit('data', Buffer.from(JSON.stringify(report))); child.emit('close', 0, null);
+    });
+    return child;
+  } });
   const server = createServer(async (req, res) => {
     const url = new URL(req.url, 'http://localhost'),path=url.pathname;
     requests.push(path);
     const json = (status, body) => { res.writeHead(status, { 'content-type': 'application/json', 'cache-control': 'no-store' }); res.end(JSON.stringify(body)); };
+    if(req.method==='POST' && path==='/gw/f/expedition/prepare') {
+      try {
+        let body=''; for await(const part of req) { body+=part.toString('utf8'); if(Buffer.byteLength(body)>16384) return json(413,{code:'BodyTooLarge'}); }
+        const result=await expeditionPrepareRoutes['POST /f/expedition/prepare']({expeditionPrepare:prepare},{json:async()=>JSON.parse(body)});
+        return json(result.status??200,result.body);
+      } catch { return json(400,{code:'ExpeditionPrepareInvalidRequest'}); }
+    }
     if(req.method==='POST' && path==='/gw/f/expedition/preview') {
       // Read-only POST, actual HTTP route and strict server parser. Account
       // provider is explicitly synthetic; it does not call a chain or sign.
@@ -201,14 +241,16 @@ async function serve() {
     } catch { json(404, { ok: false, code: 'NotFound' }); }
   });
   await new Promise(r => server.listen(0, '127.0.0.1', r));
-  return { base: `http://127.0.0.1:${server.address().port}`, requests, writes, snapshotReads, returnReads,
+  return { base: `http://127.0.0.1:${server.address().port}`, requests, writes, snapshotReads, returnReads, preparationReads, preparationSpawns,
+    preparing: mode=>{preparationMode=mode;}, holdPreparation:()=>{preparationGate=new Promise(r=>{releasePreparation=r;});},
+    releasePreparation:()=>{releasePreparation?.();preparationGate=null;},
     returning:mode=>{returnMode=mode;}, snapshot: mode=>{snapshotMode=mode;}, obstacle: v => { obstacle = v; },
     history: mode => {historyMode=mode;}, holdHistory:()=>{historyGate=new Promise(r=>{releaseHistory=r;});},
     capture: mode=>{captureMode=mode;},
     inventory: mode=>{inventoryMode=mode;},
     releaseHistory:()=>{releaseHistory?.();historyGate=null;},
     overviewStats: () => ({active,peak,held}), release: () => { held = false; releaseOverviews(); },
-    close: () => new Promise(r => { held = false; releaseOverviews(); releaseHistory?.(); server.closeAllConnections(); server.close(r); }) };
+    close: () => new Promise(r => { held = false; releaseOverviews(); releaseHistory?.(); releasePreparation?.(); prepare.close(); server.closeAllConnections(); server.close(r); }) };
 }
 
 const snapshot = page => page.evaluate(async () => {
@@ -493,8 +535,8 @@ async function inspectPage(page, callback) {
 
 // A deliberately synthetic boundary observation, on the original app. Only
 // public account bytes are constructed. No claim that a host travelled here.
-async function boundaryObservation(page) {
-  return page.evaluate(async () => {
+async function boundaryObservation(page, programVersion = 16388) {
+  return page.evaluate(async programVersion => {
     const { FS, invalidate } = await import('/frontier/fstate.mjs');
     const { encodeAccount } = await import('/sdk/frontier/codec.mjs');
     const { decode } = await import('/frontier/fcodec.mjs');
@@ -511,7 +553,7 @@ async function boundaryObservation(page) {
       ENTRIES:[{ ID:BigInt(id), FACTION:0, UNIT:0, TILE:60, STATE:1, TROOPS:600000, STAMINA_VALUE:120, STAMINA_BELL:0 }] });
     FS.citizen = account('Citizen', { WALLET:fromB58(FS.wallet.address), FACTION:0, FLAGS:5, TICKET_BELL:0xffffffff,
       HOLDING:[{ P:128,Q:0,SITE:3,GEN:1 },{ GEN:255 },{ GEN:255 }] });
-    FS.season = { ...FS.season, programVersion:16388 };
+    FS.season = { ...FS.season, programVersion };
     FS.record = { ...FS.record, rMax:128, ringsOpened:129,
       rings:Array.from({length:129},(_,d)=>({d,seed:FS.record.rings[0].seed})) };
     FS.world = { ...FS.world, ringsOpen:129, ringsOpened:129, rMax:128 };
@@ -525,7 +567,7 @@ async function boundaryObservation(page) {
     invalidate('map','panel','rail','tabs');
     window.__wyllsMap.flyTo({ p:128,q:0,tile:60,zoom:1 });
     return id;
-  });
+  }, programVersion);
 }
 
 for (const vp of [{width:1440,height:900,name:'desktop'}, {width:390,height:844,name:'phone'}]) {
@@ -658,6 +700,74 @@ for (const vp of [{width:1440,height:900,name:'desktop'}, {width:390,height:844,
         assert.deepEqual(requests.filter(r=>!['GET','HEAD'].includes(r.method) && !(r.method==='POST' && r.url===`${srv.base}/gw/f/expedition/preview`)),[]);
         assert.deepEqual(requests.filter(r=>!r.url.startsWith(srv.base)),[]);
       } finally { releaseReads?.(); await Promise.all([ctx?.close(),browser?.close(),srv.close()]); }
+    }
+  });
+}
+
+for (const vp of [{width:1440,height:900,name:'desktop'}, {width:390,height:844,name:'phone'}]) {
+  test(`original unsigned preparation @ ${vp.name}`, {timeout:90000}, async()=>{
+    const srv=await serve(), phone=vp.width<760, errors=[], requests=[];
+    const outDir=process.env.WYLLS_SCREEN_OUT??'/tmp/wylls-prepare-browser-20261110';
+    let browser,ctx,page,releaseReads;
+    try {
+      browser=await chromium.launch({channel:'chromium',chromiumSandbox:true});
+      ctx=await browser.newContext({viewport:{width:vp.width,height:vp.height},isMobile:phone,hasTouch:phone,locale:'ja-JP',timezoneId:'UTC',serviceWorkers:'block'});
+      await NK.prepare(ctx,{wallet:GOLDEN.wallet},{lang:'ja'});
+      await ctx.route('**/seal-worker.mjs',route=>route.abort('blockedbyclient'));
+      page=await ctx.newPage();page.setDefaultTimeout(15000);page.on('pageerror',e=>errors.push(e.message));
+      page.on('request',r=>requests.push({method:r.method(),url:r.url()}));await mkdir(outDir,{recursive:true});srv.release();
+      await page.clock.setFixedTime(new Date(Number(GOLDEN.stages.grown['/h/season'].body.latestUnix)*1000+500));
+      await page.goto(`${srv.base}/frontier/index.html?devWallet=off&at=4,0,0,1`);
+      await page.evaluate(async()=>{window.__prepareFS=(await import('/frontier/fstate.mjs')).FS;});
+      await page.waitForFunction(()=>{const f=window.__prepareFS;return f.playReady&&f.meStatus==='ready'&&f.meAnswered&&f.overviewsBooted&&!!f.wallet?.address&&!!f.citizen&&f.holdings.length>0&&!!f.s1?.structures;});
+      const held=new Promise(r=>{releaseReads=r;});await page.route('**/h/**',async route=>{await held;await route.continue().catch(()=>{});});
+      await boundaryObservation(page,18436);
+      const press=loc=>phone?loc.tap():loc.click();
+      const ordinary=()=>page.evaluate(()=>{const f=window.__prepareFS;return {reserve:[...f.holdings[0].reserve],selected:f.selected,compose:!!f.compose,session:!!f.session,marches:f.marches.length,book:f.book.length};});
+      const before=await ordinary();
+      await press(page.locator('#hand [data-pop="expedition-inspect"]'));
+      await page.locator('[data-bind="expedition-p"]').fill('129');await page.locator('[data-bind="expedition-q"]').fill('0');
+      const inspect=async()=>{await press(page.locator('[data-act="expedition-inspect"]'));await page.locator('.expedition-preparation').waitFor({state:'visible'});};
+      const prepare=async()=>{await press(page.locator('[data-act="expedition-prepare"]'));};
+      const status=async state=>{await page.locator(`.expedition-preparation[data-preparation-status="${state}"]`).waitFor({state:'visible'});};
+      await inspect();await prepare();await status('prepared');
+      let value=await page.evaluate(()=>window.__prepareFS.expeditionPreview.preparation.report);
+      assert.equal(value.prepared.action,'Dissolve');assert.equal(value.prepared.instruction_hex.slice(0,8),'daff0204');
+      assert.notEqual(value.source.digest,value.request.source_snapshot_digest);assert.equal(value.ready,false);
+      assert.equal(await page.locator('.expedition-preparation button').count(),1,'review has no send button');
+      assert.match(await page.locator('.expedition-preparation').textContent(),/未署名データ/);
+      srv.preparing('replay');await prepare();await status('error');
+      assert.equal(await page.evaluate(()=>window.__prepareFS.expeditionPreview.preparation.report),null);
+      srv.preparing('stale');await prepare();await status('error');
+      srv.preparing('ready');srv.holdPreparation();await prepare();await status('loading');
+      await page.locator('[data-bind="expedition-p"]').fill('130');assert.equal(await page.locator('.expedition-preparation').count(),0);
+      srv.releasePreparation();await page.locator('[data-bind="expedition-p"]').fill('129');
+      srv.returning('return');await inspect();await prepare();await status('prepared');
+      value=await page.evaluate(()=>window.__prepareFS.expeditionPreview.preparation.report);
+      assert.equal(value.prepared.action,'Return');assert.equal(value.prepared.instruction_hex.slice(0,8),'dcff0205');
+      assert.equal(value.prepared.signers.length,1);assert.deepEqual(await ordinary(),before);
+      await page.locator('.expedition-preparation').scrollIntoViewIfNeeded();await page.screenshot({path:`${outDir}/${vp.name}-prepare.png`});
+      // Completed responses also disappear if the selected observation changes without an input event.
+      await page.evaluate(async()=>{const {FS,invalidate}=await import('/frontier/fstate.mjs');FS.wallet={...FS.wallet};invalidate('panel');});
+      await page.waitForFunction(()=>window.__prepareFS.expeditionPreview.preparation===null);
+      assert.equal(await page.locator('.expedition-preparation[data-preparation-status="prepared"]').count(),0);
+      assert.equal(srv.preparationSpawns.length,5);assert.equal(srv.preparationReads.length,5);
+      assert.equal(new Set(srv.preparationReads.map(r=>r.request_id)).size,5,'public request IDs differ even under fixed browser clock');
+      assert.deepEqual(errors,[]);
+      console.log(JSON.stringify({viewport:vp.name,unsignedPreparation:{originalPage:true,actualGatewayRoute:true,actualAdapter:true,
+        syntheticCliObservation:true,noCliProcess:true,actions:['Dissolve','Return'],replayRejected:true,staleSourceRejected:true,
+        changedInputDiscarded:true,completedContextDiscarded:true,ordinaryStateUnchanged:true,signed:false,enqueued:false}}));
+    } catch(error) {if(page&&!page.isClosed())await page.screenshot({path:`${outDir}/${vp.name}-prepare-failure.png`,timeout:5000}).catch(()=>{});throw error;}
+    finally {
+      try {
+        if(page&&!page.isClosed()) {
+          const safe=await inspectPage(page,async()=>({uses:window.__keyUses,storedUses:JSON.parse(localStorage.getItem('ws07:keyUses')??'[]'),seeds:Object.keys(localStorage).filter(k=>k==='ps-dev-wallet'||k.startsWith('ps-fsession:')),session:!!(await import('/frontier/fstate.mjs')).FS.session}));
+          assert.deepEqual(safe,{uses:[],storedUses:[],seeds:[],session:false});
+        }
+        assert.deepEqual(keyCalls,[]);assert.deepEqual(srv.writes,[]);
+        assert.deepEqual(requests.filter(r=>!['GET','HEAD'].includes(r.method)&&!(r.method==='POST'&&['/gw/f/expedition/preview','/gw/f/expedition/prepare'].some(path=>r.url===srv.base+path))),[]);
+        assert.deepEqual(requests.filter(r=>!r.url.startsWith(srv.base)),[]);
+      } finally {releaseReads?.();await Promise.all([ctx?.close(),browser?.close(),srv.close()]);}
     }
   });
 }
