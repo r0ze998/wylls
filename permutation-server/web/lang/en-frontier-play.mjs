@@ -1633,6 +1633,6 @@ export default {
   '送信済みの命令の結果を確認しています…': 'Checking the outcome of the order already sent…',
   'ローカルプレイの接続先が、確認したときと変わりました。ページを開き直してください。': 'The local play connection is not the one that was checked. Reopen the page.',
   // the land preview (TEST-ONLY worlds with --world-option land-preview-v1): the territory line beside the strip
-  '領土の試験（テスト用の世界）': 'Territory trial (test world)',
-  '領土 {0} マス · 生産 +{1}%': (n, p) => `Territory ${plural(n, '{0} tile', '{0} tiles')} · production +${p}%`,
+  '領土の試験（テスト用の世界）：この村の州で軍勢が立って広げたマスと、その分の生産の上乗せです。': 'Territory trial (test world): the tiles your nation\'s hosts claimed by standing in this village\'s province, and the production they add.',
+  'この州で獲得 {0} マス · 生産 +{1}%': (n, p) => `Claimed here: ${plural(n, '{0} tile', '{0} tiles')} · production +${p}%`,
 };

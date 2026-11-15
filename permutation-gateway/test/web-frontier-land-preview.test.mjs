@@ -88,7 +88,7 @@ test('the launcher believes the runner\'s land statement only with the option, w
   assert.equal(runnerLandAgrees({ land_preview: { ...ok, seize_bells: 4 } }, true), false, 'shortened numbers are refused');
 });
 
-test('the territory line counts the viewer\'s tiles and states the bonus the program pays, in English', () => {
+test('the territory line counts only this village\'s province and states the bonus the program pays, in English', () => {
   const FS = { provinces: new Map() };
   const h = { p: 2, q: 0 };
   assert.equal(landSummary(FS, h, 0), null, 'no record: no line');
@@ -96,16 +96,19 @@ test('the territory line counts the viewer\'s tiles and states the bonus the pro
   const province = { siteMirror: [{ state: 1, faction: 0 }, { state: 0, faction: 0 }] };
   FS.provinces.set('2,0', { province, land: parseLand(record({ owners: { 30: 0, 31: 0, 32: 0, 33: 0, 20: 4 }, village: [30] }), { p: 2, q: 0, seasonId: 11 }) });
   const s = landSummary(FS, h, 0);
-  assert.deepEqual(s, { tiles: 4, claimed: 3, bonusPct: 6 }, '3 claimed tiles × 2% for one village');
+  assert.deepEqual(s, { claimed: 3, tiles: 4, bonusPct: 6 }, '3 claimed tiles × 2% for one village');
+  // reading another province (the camera moved) changes nothing in the line
+  FS.provinces.set('3,0', { land: parseLand(record({ p: 3, q: 0, owners: { 5: 0, 6: 0, 7: 0 } }), { p: 3, q: 0, seasonId: 11 }) });
+  assert.deepEqual(landSummary(FS, h, 0), s, 'independent of the provinces read');
   // the cap: 30%
   const many = Object.fromEntries(Array.from({ length: 40 }, (_, i) => [i, 0]));
   FS.provinces.set('2,0', { province, land: parseLand(record({ owners: many, village: [30] }), { p: 2, q: 0, seasonId: 11 }) });
   assert.equal(landSummary(FS, h, 0).bonusPct, 30);
   setLang('en');
   try {
-    const t = String(renderLandChip({ tiles: 4, claimed: 3, bonusPct: 6 }));
-    assert.match(t, /Territory 4 tiles · production \+6%/);
-    assert.match(String(renderLandChip({ tiles: 1, claimed: 0, bonusPct: 0 })), /Territory 1 tile · production \+0%/);
+    const t = String(renderLandChip({ claimed: 3, tiles: 4, bonusPct: 6 }));
+    assert.match(t, /Claimed here: 3 tiles · production \+6%/);
+    assert.match(String(renderLandChip({ claimed: 1, tiles: 8, bonusPct: 0.16 })), /Claimed here: 1 tile · production \+0\.16%/);
     assert.doesNotMatch(t, /[\u3040-\u30ff\u4e00-\u9fff]/, 'no Japanese in the English line');
     assert.doesNotMatch(t, /\bbell \d|\bsecret|beacon|\bsettle[ds]?\b|settlement|\bseed\b|site ticket|keeper|lamport/i);
   } finally { setLang('ja'); }
