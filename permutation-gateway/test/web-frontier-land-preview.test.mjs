@@ -108,8 +108,8 @@ test('the territory line counts only this village\'s province and states the bon
   setLang('en');
   try {
     const t = String(renderLandChip({ claimed: 3, tiles: 4, bonusPct: 6 }));
-    assert.match(t, /Claimed here: 3 tiles · production \+6%/);
-    assert.match(String(renderLandChip({ claimed: 1, tiles: 8, bonusPct: 0.16 })), /Claimed here: 1 tile · production \+0\.16%/);
+    assert.match(t, /Claimed in this province: 3 tiles · production \+6%/);
+    assert.match(String(renderLandChip({ claimed: 1, tiles: 8, bonusPct: 0.16 })), /Claimed in this province: 1 tile · production \+0\.16%/);
     assert.doesNotMatch(t, /[\u3040-\u30ff\u4e00-\u9fff]/, 'no Japanese in the English line');
     assert.doesNotMatch(t, /\bbell \d|\bsecret|beacon|\bsettle[ds]?\b|settlement|\bseed\b|site ticket|keeper|lamport/i);
   } finally { setLang('ja'); }

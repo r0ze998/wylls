@@ -187,10 +187,6 @@ const TERMS = [
 
 /** Rules an entry is known to break, with the audit doc's entry (docs/integration/CLAUDE-LANE-D-ENGLISH-AUDIT-20261116.md). */
 const KNOWN = {
-  'テスト用ウォレットは、この端末で開いたページでしか使えません。': { rule: '端末', doc: 'D-2' },
-  '道の州の指定が正しくありません（1〜4 州）。': { rule: '〜', doc: 'D-1' },
-  '戻るのは包囲の結果を受け取ったときで、それまでは「返却待ち」と表示します。': { rule: '「」', doc: 'D-3' },
-  'この州で獲得 {0} マス · 生産 +{1}%': { rule: '州', doc: 'D-11' },
   // not wrong (the audit doc, "ok with a note"): the march card's estimate says "it" for the card's own host
   '見込み（今出発し、軍勢が残り、ほかの戦いがない場合）：次はターン {0} から。到着で戦った場合は遅くともターン {1} から': { rule: '軍勢', doc: 'ok-1' },
 };
@@ -261,9 +257,9 @@ test('the known-wrong entries are still listed keys (a stale KNOWN entry would h
 });
 
 // ------------------------------------------------------------------ the audit doc's proposed changes
-// Each todo asserts the proposed English; it passes once the dictionary owner takes the proposal (then make it a test).
+// Each asserts the proposed English. All 11 were taken on the integration branch (2026-11-16), so they are ordinary tests.
 const proposed = (doc, key, english, why) =>
-  test.todo(`${doc} (CLAUDE-LANE-D-ENGLISH-AUDIT-20261116.md): ${why}`, () => {
+  test(`${doc} (CLAUDE-LANE-D-ENGLISH-AUDIT-20261116.md): ${why}`, () => {
     assert.deepEqual(outputs(EN[key], key), outputs(english, key));
   });
 
@@ -292,5 +288,6 @@ proposed('D-9', 'あなたの包囲は必要なターンを満たし、占領の
   'in a sentence "on turn N" (GLOSSARY.md ターン); 以降 is "from", not "due from"');
 proposed('D-10', '今回の記録のスロット', 'Record slot of this check', '記録のスロット is "Record slot" (round 36); "reading" is no other entry\'s word for 記録');
 proposed('D-11', 'この州で獲得 {0} マス · 生産 +{1}%',
-  (n, p) => `Claimed in this province: ${n === 1 ? `${n} tile` : `${n} tiles`} · production +${p}%`,
+  // (the dictionary's plural keeps {0} for the page to fill, as every plural entry does: compare in that form)
+  (n, p) => `Claimed in this province: ${n === 1 ? '{0} tile' : '{0} tiles'} · production +${p}%`,
   'この州 is "this province": "here" on the village strip does not say which place');

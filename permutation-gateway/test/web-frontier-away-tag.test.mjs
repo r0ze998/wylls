@@ -15,7 +15,7 @@ test('the away tag: an arrival turn that has passed is not promised again', () =
   setLang('en');
   assert.equal(H.awayText(10, 9), 'Its host is on the march · arrives on turn 10');
   assert.equal(H.awayText(10, 10), 'Its host is on the march · arrives on turn 10', 'on the arrival turn itself: as before');
-  assert.equal(H.awayText(10, 12), 'Its host arrived on turn 10 · reading where it stands');
+  assert.equal(H.awayText(10, 12), 'Host arrived on turn 10 · loading its position');
   assert.equal(H.awayText(10), 'Its host is on the march · arrives on turn 10', 'without the turn now: as before');
   assert.equal(H.awayText(null, 12), 'Its host is on the march');
   setLang('ja');
