@@ -1635,4 +1635,13 @@ export default {
   // the land preview (TEST-ONLY worlds with --world-option land-preview-v1): the territory line beside the strip
   '領土の試験（テスト用の世界）：この村の州で軍勢が立って広げたマスと、その分の生産の上乗せです。': 'Territory trial (test world): the tiles your nation\'s hosts claimed by standing in this village\'s province, and the production they add.',
   'この州で獲得 {0} マス · 生産 +{1}%': (n, p) => `Claimed here: ${plural(n, '{0} tile', '{0} tiles')} · production +${p}%`,
+  // the land preview, the selected tile (hud/inspect.mjs over frontier/land.mjs landTileLines)
+  'どの国の土地でもない空き地（領土の試験）': 'Open ground, no nation\'s land (territory trial)',
+  'あなたの国の村の土地（領土の試験）': 'Village land of your nation (territory trial)',
+  '{0}の村の土地（領土の試験）': '{0} village land (territory trial)',
+  'あなたの国が持つ土地（領土の試験）': 'Your nation\'s land (territory trial)',
+  '{0}が持つ土地（領土の試験）': 'Land held by {0} (territory trial)',
+  'あなたの国が奪取中：{0} / {1} ターン': 'Your nation is taking it: turn {0} of {1}',
+  '{0}が奪取中：{1} / {2} ターン': '{0} is taking it: turn {1} of {2}',
+  '国の土地から切り離され減っています：{0} / {1} ターン': 'Cut off from its nation\'s land, fading: turn {0} of {1}',
 };

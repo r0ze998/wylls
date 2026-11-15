@@ -32,6 +32,7 @@ import { materialBytes } from '../marchbook.mjs';
 import { cardHead, chip, fold, label } from '../screens/parts.mjs';
 import { conquestEnabled, keepFor, renderKeep, renderOutpost } from '../screens/conquest.mjs';
 import { territoryEnabled, territoryOf, territoryOwner } from '../territory.mjs';
+import { landOf, landTile, landTileLines } from '../land.mjs';
 import { s1On } from '../fs1.mjs';
 import { renderS1Tile, raidOffers } from '../screens/s1.mjs';
 
@@ -104,6 +105,9 @@ export function inspectModel(FS, terrainOf) {
   // Ownership is current server state, so it is only shown while this tile is in sight.
   const territory = here === 3 ? territoryOf(FS, s.p, s.q) : null;
   if (territory) tile.territory = { owner: territoryOwner(FS, s.p, s.q, s.idx), since: territory.since[s.idx] };
+  // the land preview (a TEST-ONLY world with land records): who holds this tile and any count running on it, in sight only
+  const land = here === 3 && !territoryEnabled(FS) ? landOf(FS, s.p, s.q) : null;
+  if (land) tile.land = landTile(land, s.idx);
   out.tile = tile;
   return out;
 }
@@ -217,6 +221,7 @@ export function render(FS, terrainOf, activities = null) {
   const stance = r => (r.friendly ? L`あなたの国と友好` : L`あなたの国と敵対`);
   const theirs = held && !site.mine ? m.relation.find(r => r.faction === site.faction) ?? null : null;
   if (theirs) chips.push(chip(stance(theirs), theirs.friendly ? 'ok' : 'bad', theirs.friendly ? 'check' : 'swords'));
+  for (const line of landTileLines(t?.land ?? null, { viewer: FS.citizen?.faction ?? null, nameOf: factionName })) chips.push(chip(line.text, line.tone, 'banner'));
   if (t?.territory) chips.push(chip(t.territory.owner === null ? L`どの国の領地でもありません` : t.territory.owner === FS.citizen?.faction ? L`あなたの国の領地` : L`${factionName(t.territory.owner)}の領地`, t.territory.owner === FS.citizen?.faction ? 'you' : '', 'banner'));
   // (a keep's holder, garrison and contest are the season's public record: the control snapshot and the reach list already
   // say them of every province, surveyed or not, so the panel stands for any province the player goes to: "go there" from
