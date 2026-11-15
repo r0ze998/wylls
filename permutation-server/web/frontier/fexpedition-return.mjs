@@ -63,18 +63,18 @@ function proposal(report, request, action, standingKey) {
     observation_only: true, ...CLOSED };
 }
 
-const STEPS = [
-  ['dissolve', '広域で解散を指示'],
-  ['resolve-leave', 'ターン処理を待つ'],
-  ['return-reserve', '元の村の予備兵に戻す'],
-];
-const steps = statuses => STEPS.map(([id, labelJa], i) => ({ id, labelJa, status: statuses[i] }));
+// (2026-11-16: the model holds ids only — step ids, the phase, and `detail` (an id: the phase, the bridge's next
+//  prerequisite, 'unavailable' or 'no-proposal'); the card (hud/hand.mjs returnWords) says them with L`…`, so each
+//  sentence is a dictionary key the scanner sees and follows the shown language. It held Japanese as data before.)
+const STEPS = ['dissolve', 'resolve-leave', 'return-reserve'];
+const steps = statuses => STEPS.map((id, i) => ({ id, status: statuses[i] }));
+/** The bridge's next prerequisite → the observed state it needs. */
 const BRIDGE = {
-  OriginalDepartureResolution: ['Departed', '出発元の戦闘解決を待っています。広域での滞在はまだ確認していません。'],
-  OriginalDepartureSettlement: ['Departed', '出発元の結果を受け取るのを待っています。広域での滞在はまだ確認していません。'],
-  RevealOrGatherEvidence: ['Settled', '公開・集計の証拠が必要です。帰還の段階はまだ判断できません。'],
-  OriginDestroyedSettlementOrCleanupEvidence: ['DestroyedAtOrigin', '出発元で失われた軍勢の結果の受け取りと後処理の確認が必要です。帰還完了を意味しません。'],
-  DestinationResolveOrSettlementEvidence: ['Gathered', '到着先の解決と結果の受け取りの証拠が必要です。帰還の段階はまだ判断できません。'],
+  OriginalDepartureResolution: 'Departed',
+  OriginalDepartureSettlement: 'Departed',
+  RevealOrGatherEvidence: 'Settled',
+  OriginDestroyedSettlementOrCleanupEvidence: 'DestroyedAtOrigin',
+  DestinationResolveOrSettlementEvidence: 'Gathered',
 };
 
 /**
@@ -90,8 +90,7 @@ const BRIDGE = {
  */
 export function originalReturnModel(value, currentRequest) {
   const request = requestOf(currentRequest), report = inspectionReport(value, request);
-  const out = { phase: 'unavailable', titleJa: '帰還の状況を確認できません',
-    detailJa: '同じ軍勢と場所の観測を取り直してください。', code: null,
+  const out = { phase: 'unavailable', detail: 'unavailable', code: null,
     steps: steps(['waiting', 'waiting', 'waiting']), proposal: null, returnUnits: null, reserveAfter: null,
     binding: { request_digest: requestDigest(request), context_slot: report.source.context_slot,
       snapshot_digest: report.source.digest }, observation_only: true, ...CLOSED };
@@ -99,10 +98,10 @@ export function originalReturnModel(value, currentRequest) {
   const f = report.facts, o = f.observed, next = f.next_prerequisite;
   if (o.kind === 'owned-bridge-v2') {
     const stage = BRIDGE[next];
-    check(stage && o.state === stage[0] && report.draft === null);
+    check(stage && o.state === stage && report.draft === null);
     const departed = u32(o.depart_bell), arrive = u32(o.arrive_bell);
     check(departed <= 0xffffffffn - 72n && arrive >= departed + 2n && arrive <= departed + 72n);
-    Object.assign(out, { phase: 'expedition-pending', titleJa: '遠征の処理待ち', detailJa: stage[1], code: next });
+    Object.assign(out, { phase: 'expedition-pending', detail: next, code: next });
     return freeze(out);
   }
   check(o.kind === 'original-host-wide-resident' && o.entry < 56);
@@ -111,22 +110,19 @@ export function originalReturnModel(value, currentRequest) {
   if (next === 'OwnerDissolve') {
     check(o.state === 1 && resolved + 1n >= bell && o.return_units === null && o.reserve_after === null);
     action = 'Dissolve';
-    Object.assign(out, { phase: 'resident', titleJa: '広域に滞在中',
-      detailJa: '帰還には、まず広域で軍勢を解散し、そのターンの処理を待ちます。',
+    Object.assign(out, { phase: 'resident', detail: 'resident',
       steps: steps(['proposal', 'waiting', 'waiting']) });
   } else if (next === 'ResolveVoluntaryLeave') {
     check([1, 3].includes(o.state) && pending <= bell && (o.state === 1 || resolved <= pending)
       && o.return_units === null && o.reserve_after === null && report.draft === null);
-    Object.assign(out, { phase: 'leave-pending', titleJa: '解散の処理待ち',
-      detailJa: '解散の指示が記録されています。対象ターンの処理後にもう一度確認してください。',
+    Object.assign(out, { phase: 'leave-pending', detail: 'leave-pending',
       steps: steps(['observed', 'waiting', 'waiting']) });
   } else if (next === 'ReturnOriginalReserve') {
     check(o.state === 3 && pending <= bell && resolved > pending && o.return_units !== null && o.reserve_after !== null);
     const units = u32(o.return_units), reserve = u32(o.reserve_after);
     check(units === troops / 1000n && reserve >= units);
     action = 'Return';
-    Object.assign(out, { phase: 'return-pending', titleJa: '予備兵へ戻す準備段階',
-      detailJa: '解散のターン処理が済んだ記録です。元の村の予備兵に戻ったことは、まだ確認していません。',
+    Object.assign(out, { phase: 'return-pending', detail: 'return-pending',
       steps: steps(['observed', 'observed', 'proposal']), returnUnits: units.toString(), reserveAfter: reserve.toString() });
   } else check(false);
   if (action && report.draft !== null) {
@@ -134,7 +130,7 @@ export function originalReturnModel(value, currentRequest) {
     out.proposal = proposal(report, request, action, f.standing_key);
   } else if (action) {
     out.code = report.draft_blocker;
-    out.detailJa = 'この観測だけでは提案を構築できません。必要な情報を確認し、もう一度観測してください。';
+    out.detail = 'no-proposal';
     out.steps = out.steps.map(s => ({ ...s, status: s.status === 'proposal' ? 'waiting' : s.status }));
   }
   return freeze(out);

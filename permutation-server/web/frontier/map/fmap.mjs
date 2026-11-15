@@ -79,6 +79,7 @@ import { ProtoBoard, POLE_AT } from './protoboard.mjs';
 import { protoLandAt } from '../proto/board-model.mjs';
 import { protoTag } from './protowords.mjs';
 import { PROTO_LOOK, bannerUnit } from './protoland.mjs';
+import { landMarks, landMarksKey, paintLandMarks } from './landmarks.mjs';
 import { syncProtoChip } from './protochip.mjs';
 import { setProtoLegend } from './legend.mjs';
 // the keeps of a conquest season (the program's version 3): map/keeps.mjs
@@ -600,6 +601,49 @@ function toolIcon(doc, t) {
   g.setAttribute('aria-hidden', 'true');
   g.textContent = t.glyph;
   return g;
+}
+
+
+/**
+ * The land preview: the viewer's lands from the land records the page has read (`src.landOf`), or null when none of
+ * those provinces has one. Every tile a record gives the viewer's nation, in a province of a village of the viewer's or
+ * next to one, goes to the nearest of those villages (one gold outline each). `more`: other provinces ("P,Q") whose
+ * record the map has seen (map/landmarks.mjs): the viewer's land there — a host's claim or take far from its villages —
+ * is one land of its own per province (key "land:P,Q", no village), so it is outlined wherever it lies.
+ */
+export function recordLands(src, survey, villages, more = []) {
+  const f = survey?.faction;
+  if (!Number.isInteger(f) || !villages.length) return null;
+  const vs = villages.filter(v => Number.isInteger(v.tile)).map(v => ({ v, h: tileHex(v.p, v.q, v.tile) })).filter(x => x.h);
+  if (!vs.length) return null;
+  const provinces = new Map(), near = new Set();
+  for (const { v } of vs) for (let dp = -1; dp <= 1; dp++) for (let dq = -1; dq <= 1; dq++) {
+    if (dp === dq) { if (dp !== 0) continue; }
+    const p = v.p + dp, q = v.q + dq, l = src.landOf(p, q);
+    near.add(`${p},${q}`);
+    if (l) provinces.set(`${p},${q}`, l);
+  }
+  for (const key of more) {
+    if (provinces.has(key)) continue;
+    const [p, q] = key.split(',').map(Number), l = Number.isInteger(p) && Number.isInteger(q) ? src.landOf(p, q) : null;
+    if (l) provinces.set(key, l);
+  }
+  if (!provinces.size) return null;
+  const byVillage = new Map(vs.map(x => [villageKey(x.v), { key: villageKey(x.v), village: x.v, tiles: [], provisional: x.v.state === 1 }]));
+  for (const [key, l] of provinces) l.owners.forEach((o, idx) => {
+    if (o !== f) return;
+    const h = tileHex(l.p, l.q, idx);
+    if (!h) return;
+    if (!near.has(key)) {
+      const far = byVillage.get(`land:${key}`) ?? byVillage.set(`land:${key}`, { key: `land:${key}`, village: null, tiles: [], provisional: false }).get(`land:${key}`);
+      far.tiles.push({ q: h.q, r: h.r, d: 0 });
+      return;
+    }
+    let best = null, bd = Infinity;
+    for (const x of vs) { const d = hexDistance(h.q, h.r, x.h.q, x.h.r); if (d < bd) { bd = d; best = x; } }
+    byVillage.get(villageKey(best.v)).tiles.push({ q: h.q, r: h.r, d: bd });
+  });
+  return [...byVillage.values()].filter(x => x.tiles.length).map(x => ({ ...x, shape: landShape(x.tiles) }));
 }
 
 export class FrontierMap {
@@ -2359,7 +2403,9 @@ export class FrontierMap {
       if (fog === 'unopened') return { tiles: { ...pr, fog, selected }, wanted: 0, drawn: 0 };
       const t = terrainOf?.(pr.p, pr.q);
       const prov = seen ? src.provinceOf?.(pr.p, pr.q) ?? null : null;
-      const territoryMode = !!src.territoryEnabled, territory = territoryMode && sight ? src.territoryOf?.(pr.p, pr.q) ?? null : null;
+      const land = !src.territoryEnabled ? src.landOf?.(pr.p, pr.q) ?? null : null;
+      if (land) (this.landKeys ??= new Set()).add(`${pr.p},${pr.q}`);
+      const territoryMode = !!src.territoryEnabled || !!land, territory = territoryMode && sight ? (land ?? src.territoryOf?.(pr.p, pr.q) ?? null) : null;
       // (`wait`: the province's record is on its way: the opening does not make its ground twice)
       if (t) return { tiles: { ...pr, ...t, rec, fog, selected, prov, territoryMode, territory, wait: seen && !prov && !!src.provinceOf, clash: sight ? src.clashOf?.(pr.p, pr.q) ?? null : null, pending: sight ? src.pendingOf?.(pr.p, pr.q) ?? null : null }, wanted: 1, drawn: 1 };
       return { plain: g => paintProvince(g, { ...pr, rec, fog, selected, scale: z }), wanted: 1, drawn: 0 };
@@ -2418,7 +2464,9 @@ export class FrontierMap {
         // (a conquest season: a capture's own record is shown before the control record has caught up with it, and the
         // old holder until the capture's flood has run: map/keeps.mjs)
         const shownBy = !src.territoryEnabled && this.keeps.on && this.keeps.rows.has(key) ? this.keeps.farHolder(key) : null;
-        if (t) { artCells.push({ ...pr, ...t, rec, control: Number.isInteger(shownBy) ? shownBy : Number.isInteger(held) ? held : null, fog, selected, territoryMode: !!src.territoryEnabled, territory: src.territoryEnabled && sight ? src.territoryOf?.(pr.p, pr.q) ?? null : null, prov: seen ? src.provinceOf?.(pr.p, pr.q, { far: true }) ?? null : null, tiers: seen && src.tierOf ? Array.from({ length: 12 }, (_, j) => src.tierOf(pr.p, pr.q, j)) : null }); continue; }
+        const farLand = !src.territoryEnabled ? src.landOf?.(pr.p, pr.q) ?? null : null;
+        if (farLand) (this.landKeys ??= new Set()).add(key);
+        if (t) { artCells.push({ ...pr, ...t, rec, control: Number.isInteger(shownBy) ? shownBy : Number.isInteger(held) ? held : null, fog, selected, territoryMode: !!src.territoryEnabled || !!farLand, territory: (src.territoryEnabled || farLand) && sight ? (farLand ?? src.territoryOf?.(pr.p, pr.q) ?? null) : null, prov: seen ? src.provinceOf?.(pr.p, pr.q, { far: true }) ?? null : null, tiers: seen && src.tierOf ? Array.from({ length: 12 }, (_, j) => src.tierOf(pr.p, pr.q, j)) : null }); continue; }
       }
       plain.push(g => paintProvince(g, { ...pr, rec, fog, selected, scale: z }));
     }
@@ -2689,6 +2737,9 @@ export class FrontierMap {
     let ownedLands = null;
     const lands = () => {
       const worked = this.ownLands(survey, villages, lod, terrainOf);
+      // the land preview: the viewer's land is what the land records say, wherever it has grown
+      const held = !src.territoryEnabled && src.landOf ? recordLands(src, survey, villages, [...(this.landKeys ?? [])]) : null;
+      if (held) return ownedLands ??= held;
       if (!src.territoryEnabled) return worked;
       return ownedLands ??= worked.map(land => {
         const tiles = land.tiles.filter(t => {
@@ -2868,6 +2919,17 @@ export class FrontierMap {
    *   'live'   over that layer, every animation frame: only the breath, a roll-out or a landing that is
    *            playing, the hover and the selection (a resting frame costs a few strokes, not the whole land)
    */
+  /** The land preview's marks of this frame (map/landmarks.mjs): the provinces whose record the map has seen, the tiles in sight. */
+  landMarksOf(F) {
+    const src = F.src, sv = F.survey, levelAt = sv && !sv.showAll ? (p, q, idx) => sv.levelOf(p, q, idx) : () => 3;
+    const provinces = [];
+    for (const key of this.landKeys) {
+      const [p, q] = key.split(',').map(Number), land = src.landOf(p, q);
+      if (land) provinces.push({ p, q, land });
+    }
+    return provinces.length ? landMarks(provinces, { levelAt }) : null;
+  }
+
   groundPass(ctx, F, phase = 'all') {
     const { z, fx, still } = F;
     const kept = phase === 'still' ? (this.kept = { lands: new Set(), lit: null, watch: new Set(), keeps: null }) : phase === 'live' ? this.kept ?? { lands: new Set(), lit: null, watch: new Set(), keeps: null } : null;
@@ -2906,6 +2968,15 @@ export class FrontierMap {
       else { watched(() => paintWatch(ctx, w, opts)); if (age !== null) F.rolling = true; }
     }
     if (phase === 'live' && [...(kept.watch ?? [])].some(k => !W.some(w => w.key === k))) F.rebake = true;
+    // the land preview (map/landmarks.mjs): who holds each tile in sight of a province with a land record, and the counts
+    // running on its tiles — over the watch, so a host's own rim never hides whose land it stands on; under the gold line
+    const LM = !F.src.territoryEnabled && F.src.landOf && this.landKeys?.size ? this.landMarksOf(F) : null;
+    if (LM) {
+      const lkey = landMarksKey(LM);
+      if (phase === 'still') { paintLandMarks(ctx, LM, { zoom: z, viewer: F.faction }); kept.landmarks = lkey; }
+      else if (phase === 'live') { if (kept.landmarks !== lkey) F.rebake = true; }
+      else paintLandMarks(ctx, LM, { zoom: z, viewer: F.faction });
+    } else if (phase === 'live' && kept.landmarks) F.rebake = true;
     for (const land of F.lands()) {
       const flood = this.floodOf(land, fx), id = `${land.key}|${land.shape.key}|${land.provisional}`;
       if (phase === 'still') { if (!flood) { paintOwnLand(ctx, land, { zoom: z, faction: F.faction, base: true }); kept.lands.add(id); } }

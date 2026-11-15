@@ -1293,8 +1293,9 @@ test('the truth of the words: territory only for the prototype\'s score, no chai
   const files = dir => readdirSync(new URL(dir, WEB), { withFileTypes: true }).flatMap(e => (e.isDirectory() ? files(`${dir}${e.name}/`) : e.name.endsWith('.mjs') ? [`${dir}${e.name}`] : []));
   const OWN = new Set(['frontier/hud/proto.mjs', 'frontier/proto/hand-model.mjs']);
   // (the conquest client names 領土 where the chain's keeps and control decide it, and the arrival-control development world
-  // where its own record does: those files may say 領土, never the prototype's "your land")
-  const AUTHORITATIVE = new Set(['frontier/fi18n.mjs', 'frontier/controller.mjs', 'frontier/app.mjs', 'frontier/screens/onboarding.mjs', 'frontier/screens/territory.mjs', 'frontier/screens/conquest.mjs', 'frontier/screens/shell.mjs', 'frontier/hud/drawer.mjs']);
+  // where its own record does, and the land preview's reader of the program's own land record: those files may say 領土, never
+  // the prototype's "your land")
+  const AUTHORITATIVE = new Set(['frontier/land.mjs', 'frontier/fi18n.mjs', 'frontier/controller.mjs', 'frontier/app.mjs', 'frontier/screens/onboarding.mjs', 'frontier/screens/territory.mjs', 'frontier/screens/conquest.mjs', 'frontier/screens/shell.mjs', 'frontier/hud/drawer.mjs']);
   for (const f of files('frontier/')) if (!OWN.has(f)) assert.doesNotMatch(read(f), AUTHORITATIVE.has(f) ? /L`[^`]*(あなたの土地 |あなたの名で)/ : /L`[^`]*(領土|あなたの土地 |あなたの名で)/, f);
   // and those files draw only under the switch: every exported renderer of hud/proto.mjs starts from FS.proto
   const src = read('frontier/hud/proto.mjs');

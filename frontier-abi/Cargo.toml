@@ -37,6 +37,10 @@ conquest-dispatch-experimental = ["world-index-experimental"]
 # tags 0xF0-0xFD, their data, account lists and addresses. Off by default:
 # no vector, hash or default-build change; no new dependency.
 capacity-preview = []
+# "Standing Ground" land, a preview: `land_preview`, the land record and its
+# reading of a v2 Province. Off by default: no vector, hash or default-build
+# change; no existing account written; no new dependency.
+land-preview = ["permutation-rules/land-preview"]
 
 [lints.rust]
 unexpected_cfgs = { level = "warn", check-cfg = ['cfg(target_os, values("solana"))'] }

@@ -27,7 +27,6 @@ export default {
   '確認結果': 'Inspection result',
   '観測のスロット': 'Snapshot slot',
   '鮮度は不明です。権限や完了を証明する結果ではありません。': 'Freshness is unknown. Server observations do not prove authority or completion.',
-  '次に必要な確認': 'Next prerequisite',
   '実行できない役割案': 'Non-executable role proposal',
   '署名が必要': 'Signature required',
   '署名不要': 'No signature required',
@@ -981,8 +980,8 @@ export default {
   'テスト用ウォレットはローカルネットでしか使えません。': 'The test wallet works on localnet only.',
   'この取引の署名者に、テスト用ウォレットが含まれていません。': 'The test wallet is not a signer of this transaction.',
   'テスト用ウォレットを知らせるページがありません。': 'There is no page to make the test wallet known to.',
-  'テスト用ウォレットは、ローカルプレイを選んだときだけ使えます。': 'The test wallet is used only when local play is chosen.',
-  'テスト用ウォレットは、この端末で開いたページでしか使えません。': 'The test wallet works only on a page opened on this computer.',
+  'テスト用ウォレットは、ローカルプレイを選んだときだけ使えます。': 'The test wallet can be used only when local play is chosen.',
+  'テスト用ウォレットは、この端末で開いたページでしか使えません。': 'The test wallet works only on a page opened on this device.',
   'その道の移動を計算できませんでした。': 'The route\'s movement could not be worked out.',
   '記録の配信元が、ローカルネットの世界を出していません。': 'The records server is not serving a localnet world.',
   'ローカルプレイの世界の版が、このページと合いません。': 'The local play world\'s version does not match this page.',
@@ -994,7 +993,7 @@ export default {
   '世界の起動が時間内に終わりませんでした。': 'Starting the world did not finish in time.',
   '世界を起動できませんでした。': 'The world could not be started.',
   '答えが大きすぎるため、読みませんでした。': 'The answer was too large, so it was not read.',
-  '道の州の指定が正しくありません（1〜4 州）。': 'The route\'s provinces are not valid (1 to 4 provinces).',
+  '道の州の指定が正しくありません（1〜4 州）。': 'The route\'s provinces are not valid (1–4 provinces).',
   'このウォレットはもう使えません。': 'This wallet can no longer be used.',
   // (round 42: the expedition lane's refusals: fi18n.mjs CLIENT_TEXT)
   '出発点の選択が変わりました。もう一度選んでください。': 'The starting point changed. Choose it again.',
@@ -1023,5 +1022,5 @@ export default {
   'あなたの軍勢は進軍に出ています。到着と結果は「進軍」で確かめられます。': 'Your host is away on a march. See Marches for its arrival and result.',
   '進軍を開く': 'Open Marches',
   // (round 48: the map's tag once the host's arrival turn has passed: map/hostmarks.mjs awayText)
-  '軍勢はターン {0} に到着 · 位置を読み込んでいます': 'Its host arrived on turn {0} · reading where it stands',
+  '軍勢はターン {0} に到着 · 位置を読み込んでいます': 'Host arrived on turn {0} · loading its position',
 };

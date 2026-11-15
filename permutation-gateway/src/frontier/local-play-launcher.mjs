@@ -292,6 +292,20 @@ export const MARCH_TRIAL_MODE = 'local-march-trial-v1';
  */
 export const CAPTURE_DEMO_MODE = 'capture-demo-v1';
 /**
+ * `--world-option land-preview-v1` (TEST-ONLY, optional; only with the capture demo): the natural runner also runs the
+ * land preview's crank (itest `land_lane`: the program's own FoldLand / ClaimLandYield on its provisional tags), so
+ * land a nation holds grows where its hosts stand and is taken where a hostile host stands ("Standing Ground" in
+ * reduced form). Needs a program, runner and herald built with the land preview. The start answer says
+ * `landPreview: true`. Without the option nothing of it runs.
+ */
+export const LAND_PREVIEW_OPTION = 'land-preview-v1';
+/** The runner's first line and this start agree on the land preview: its statement with the option, none without. */
+export function runnerLandAgrees(meta, land) {
+  const d = meta?.land_preview;
+  if (!land) return d === undefined;
+  return d !== null && typeof d === 'object' && d.mode === LAND_PREVIEW_OPTION && d.test_only === true && d.stand_bells === 6 && d.seize_bells === 72 && d.fray_bells === 36;
+}
+/**
  * `--contest-pair contest-pair-v1` (TEST-ONLY; only with the capture demo): ONE memory-only world for TWO players, each
  * with their own page and memory-only key. The first wallet to press start waits (`pairWaiting`); the second distinct
  * wallet's press starts one runner with both (`--second-wallet`); the second player's page reaches its OWN relay (pinned to
@@ -497,7 +511,7 @@ export class WorldManager {
       record.pairHerald = opts.second ? (world.pair?.second === opts.second && typeof world.pair.herald === 'string' ? world.pair.herald : null) : null;
       record.pairView = opts.second && typeof world.pairView === 'function' ? world.pairView : null;
       if (opts.second && record.pairHerald === null) { await world.stop(); throw fault('PairNotReady', 503); }
-      return { herald: world.herald, ...(opts.second ? { pair: { role: 'first', mode: CONTEST_PAIR_MODE } } : {}), ...(world.natural === true ? { natural: true } : {}), ...(world.marchTrial === true ? { marchTrial: true } : {}), ...(world.captureDemo ? { captureDemo: world.captureDemo } : {}), ...(world.prepared ? { prepared: world.prepared } : {}), ...(world.conquestWorld ? { conquestWorld: world.conquestWorld } : {}), ...(record.expiry ? { expiry: record.expiry } : {}) };
+      return { herald: world.herald, ...(opts.second ? { pair: { role: 'first', mode: CONTEST_PAIR_MODE } } : {}), ...(world.natural === true ? { natural: true } : {}), ...(world.marchTrial === true ? { marchTrial: true } : {}), ...(world.captureDemo ? { captureDemo: world.captureDemo } : {}), ...(world.landPreview === true ? { landPreview: true } : {}), ...(world.prepared ? { prepared: world.prepared } : {}), ...(world.conquestWorld ? { conquestWorld: world.conquestWorld } : {}), ...(record.expiry ? { expiry: record.expiry } : {}) };
     }).catch(e => { forget(); throw e; });
     return record.promise;
   }
@@ -676,6 +690,9 @@ export async function startWorld(c, wallet, slot, onStop, signal, opts = {}) {
   // (the test-only capture demo: only on a natural world started with the march trial, with a valid scale)
   const demo = c.captureDemo ?? null;
   if (demo !== null && (!natural || !marchTrial || !Number.isInteger(demo.scale) || demo.scale < 10 || demo.scale > 60)) throw fault('InvalidWorldPreset', 503);
+  // (the test-only land preview: only with the capture demo)
+  const land = c.landPreview === true;
+  if (land && demo === null) throw fault('InvalidWorldPreset', 503);
   // (`preset`: the conquest lane only; a natural world takes none of its steps)
   const preset = natural ? null : c.worldPreset ?? null;
   if (preset !== null && preset !== CONQUEST_WORLD_PRESET) throw fault('InvalidWorldPreset', 503);
@@ -729,7 +746,8 @@ export async function startWorld(c, wallet, slot, onStop, signal, opts = {}) {
   try {
     if (natural) launch('runner', c.naturalRunner, ['--artifact', c.artifact, '--artifact-sha256', c.artifactSha, '--player-wallet', wallet, '--rpc-port', String(rpc), '--ws-port', String(ws), '--keeper', 'public-quicknet',
       ...(demo !== null ? ['--capture-demo', CAPTURE_DEMO_MODE, '--demo-scale', String(demo.scale)] : []),
-      ...(second !== null ? ['--contest-pair', CONTEST_PAIR_MODE, '--second-wallet', second] : [])]);
+      ...(second !== null ? ['--contest-pair', CONTEST_PAIR_MODE, '--second-wallet', second] : []),
+      ...(land ? ['--land-preview', LAND_PREVIEW_OPTION] : [])]);
     else launch('runner', c.runner, ['--artifact', c.artifact, '--artifact-sha256', c.artifactSha, '--player-wallet', wallet, '--rpc-port', String(rpc), '--ws-port', String(ws), '--keeper', 'public-quicknet', '--wide-destination', 'public-quicknet', ...(preset ? ['--world-preset', preset] : [])]);
     let meta;
     for (let i = 0; i < (natural ? Math.ceil((limit.naturalFirstLineMs ?? NATURAL_FIRST_LINE_MS) / 200) : 150) && !stopping; i++) {
@@ -746,6 +764,7 @@ export async function startWorld(c, wallet, slot, onStop, signal, opts = {}) {
     // (the test-only capture demo: the runner's own first line states it with this launcher's mode and scale, or does
     //  not mention it at all; anything else is another runner or another mode, refused like any unready runner)
     if (!runnerDemoAgrees(meta, demo)) throw fault('RunnerNotReady', 503);
+    if (!runnerLandAgrees(meta, land)) throw fault('RunnerNotReady', 503);
     // (the contest pair likewise: the runner's first line names THIS second wallet, or a runner of one player never mentions it)
     if (!runnerPairAgrees(meta, second)) throw fault('RunnerNotReady', 503);
     // (the runner's own instance id, when it states one on that line: handed to the relay so that the relay can tell
@@ -818,7 +837,7 @@ export async function startWorld(c, wallet, slot, onStop, signal, opts = {}) {
     const keeper = async () => { try { return keeperSummary(await runnerLines(dir)); } catch { return null; } };
     // (TEST-ONLY contest pair: the fort and nations the two players meet over, read only when a player asks)
     const pairView = second !== null ? async () => { try { return pairTargetSummary(await runnerLines(dir)); } catch { return null; } } : null;
-    return { herald: `http://localhost:${herald}`, stop, expiry, keeper, ...(second !== null ? { pair: { second, herald: `http://localhost:${pairPorts.herald}` }, pairView } : {}), ...(natural ? { natural: true } : {}), ...(marchTrial ? { marchTrial: true } : {}), ...(demo !== null ? { captureDemo: { scale: demo.scale } } : {}), ...(prepared ? { prepared } : {}), ...(conquestWorld ? { conquestWorld } : {}) };
+    return { herald: `http://localhost:${herald}`, stop, expiry, keeper, ...(second !== null ? { pair: { second, herald: `http://localhost:${pairPorts.herald}` }, pairView } : {}), ...(natural ? { natural: true } : {}), ...(marchTrial ? { marchTrial: true } : {}), ...(demo !== null ? { captureDemo: { scale: demo.scale } } : {}), ...(land ? { landPreview: true } : {}), ...(prepared ? { prepared } : {}), ...(conquestWorld ? { conquestWorld } : {}) };
   } catch (e) { await stop(`startup-failed${e?.status && e.code ? `:${e.code}` : ''}`); throw e; }
 }
 const mime = { '.html': 'text/html', '.mjs': 'text/javascript', '.js': 'text/javascript', '.css': 'text/css', '.json': 'application/json', '.svg': 'image/svg+xml', '.png': 'image/png', '.webp': 'image/webp', '.woff2': 'font/woff2', '.ico': 'image/x-icon', '.mp3': 'audio/mpeg', '.wasm': 'application/wasm', '.txt': 'text/plain' };
@@ -909,6 +928,8 @@ export const USAGE = `local-play launcher (this machine only)
     [--contest-pair contest-pair-v1: TEST-ONLY, only with --capture-demo: ONE world for TWO players (two people, no
        automatic opponent); the first press waits, the second distinct wallet starts it; each page keeps its own key
        and reaches its own relay; one stop or the limit ends it for both]
+    [--world-option land-preview-v1: TEST-ONLY, only with --capture-demo: the land preview's crank runs beside the
+       keeper (FoldLand / ClaimLandYield, provisional tags); needs a program, runner and herald built with it]
     [--herald-output compact-v1: TEST-ONLY, only with --capture-demo: each new world's herald keeps only the .gz of each
        output file (every file of every turn kept and served as before); the world is used only if its herald recorded it.
        compact-v2: the same, and the herald's findex store gzip-compressed (every record kept)]
@@ -918,7 +939,7 @@ export const USAGE = `local-play launcher (this machine only)
   Ports: the page on --port; a world on five from --world-port (RPC, WS, public proxy, relay, herald), the second
   world on the next five. All within 41000-41999, none of 41904-41907, 127.0.0.1 only.`;
 export async function parseConfig(args) {
-  const out = {}; const keys = new Set(['root', 'data', 'runner', 'herald', 'depart', 'preview', 'resident', 'artifact', 'artifact-sha', 'conquest', 'world-preset', 'prepare-scale', 'port', 'world-port', 'economy', 'world-ttl-minutes', 'natural-runner', 'march-trial', 'capture-demo', 'demo-scale', 'contest-pair', 'herald-output']);
+  const out = {}; const keys = new Set(['root', 'data', 'runner', 'herald', 'depart', 'preview', 'resident', 'artifact', 'artifact-sha', 'conquest', 'world-preset', 'prepare-scale', 'port', 'world-port', 'economy', 'world-ttl-minutes', 'natural-runner', 'march-trial', 'capture-demo', 'demo-scale', 'contest-pair', 'herald-output', 'world-option']);
   for (let i = 0; i < args.length; i += 2) { const k = args[i]?.slice(2); if (!args[i]?.startsWith('--') || !keys.has(k) || out[k] || !args[i + 1]) throw fault('InvalidArguments'); out[k] = args[i + 1]; }
   for (const k of ['root', 'data', 'runner', 'herald', 'depart', 'preview', 'resident', 'artifact']) { if (!path.isAbsolute(out[k] ?? '')) throw fault('AbsolutePathRequired'); }
   if (out.conquest !== undefined && !path.isAbsolute(out.conquest)) throw fault('AbsolutePathRequired');
@@ -952,9 +973,12 @@ export async function parseConfig(args) {
   // (the test-only compact herald output: exactly its one word, and only for capture-demo test worlds)
   if (out['herald-output'] !== undefined && !HERALD_OUTPUT_MODES.includes(out['herald-output'])) throw fault('InvalidHeraldOutput');
   if (out['herald-output'] !== undefined && out['capture-demo'] === undefined) throw fault('HeraldOutputNeedsCaptureDemo');
+  // (the test-only land preview: exactly its one word, and only with the capture demo)
+  if (out['world-option'] !== undefined && out['world-option'] !== LAND_PREVIEW_OPTION) throw fault('InvalidWorldOption');
+  if (out['world-option'] !== undefined && out['capture-demo'] === undefined) throw fault('WorldOptionNeedsCaptureDemo');
   // (a world's life: the default two hours, or the operator's whole minutes; refused, never rounded, when malformed)
   const worldTtlMs = parseWorldTtl(out['world-ttl-minutes']);
-  const c = { ...out, port, worldPort, worldTtlMs, artifactSha: out['artifact-sha'], ...(prepareScale !== undefined ? { prepareScale } : {}), ...(worldPreset !== undefined ? { worldPreset } : {}), ...(out['natural-runner'] !== undefined ? { naturalRunner: out['natural-runner'] } : {}), ...(out['march-trial'] !== undefined ? { marchTrial: true } : {}), ...(out['capture-demo'] !== undefined ? { captureDemo: { scale: parseDemoScale(out['demo-scale']) } } : {}), ...(out['contest-pair'] !== undefined ? { contestPair: true } : {}), ...(out['herald-output'] !== undefined ? { heraldOutput: out['herald-output'] } : {}), web: await fs.realpath(path.join(out.root, 'permutation-server/web')) };
+  const c = { ...out, port, worldPort, worldTtlMs, artifactSha: out['artifact-sha'], ...(prepareScale !== undefined ? { prepareScale } : {}), ...(worldPreset !== undefined ? { worldPreset } : {}), ...(out['natural-runner'] !== undefined ? { naturalRunner: out['natural-runner'] } : {}), ...(out['march-trial'] !== undefined ? { marchTrial: true } : {}), ...(out['capture-demo'] !== undefined ? { captureDemo: { scale: parseDemoScale(out['demo-scale']) } } : {}), ...(out['contest-pair'] !== undefined ? { contestPair: true } : {}), ...(out['herald-output'] !== undefined ? { heraldOutput: out['herald-output'] } : {}), ...(out['world-option'] !== undefined ? { landPreview: true } : {}), web: await fs.realpath(path.join(out.root, 'permutation-server/web')) };
   for (const file of [c.runner, c.herald, c.depart, c.preview, c.resident, c.artifact, ...(c.conquest ? [c.conquest] : []), ...(c.naturalRunner ? [c.naturalRunner] : []), path.join(c.root, 'permutation-gateway/src/frontier/local-play-relay-server.mjs')]) if (!(await fs.stat(file).catch(() => null))?.isFile()) throw fault('MissingFile');
   await fs.mkdir(c.data, { recursive: true }); return c;
 }

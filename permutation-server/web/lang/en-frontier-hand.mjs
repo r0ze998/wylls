@@ -23,7 +23,7 @@ export default {
   '準備内容を確認できません': 'The preparation could not be checked',
   '署名前の内容を照合しました': 'The contents before signing were checked',
   '実験用の未署名データです。実行できることや帰還の完了を確認した結果ではありません。': 'Experimental unsigned data. It does not show that this can be carried out, nor that a return has been completed.',
-  '今回の記録のスロット': 'Slot of this reading',
+  '今回の記録のスロット': 'Record slot of this check',
   '有効期限の観測時点で残るブロック高': 'Blocks left before expiry when read',
   '有効期限は時間とともに変わります。必要なときに取り直してください。': 'The expiry changes with time. Read it again when you need it.',
   '準備内容の詳細': 'Details of the preparation',
@@ -276,7 +276,7 @@ export default {
   '結果はターン {0} のはじめに出ます。': 'The result comes early in turn {0}. ',
   '結果は、探索したターンの決着のあとに出ます。': 'The result comes once the turn it was sent in is resolved. ',
   '結果は、探索したターンの決着のあとに出ます': 'The result comes once the turn it was sent in is resolved',
-  'いまは納めるものがありません（命令のたびに蔵は納められます）。蔵は毎時 +{0} 増えています': 'Nothing to store now (every order writes the harvest into the stores). They are growing by +{0} an hour',
+  'いまは納めるものがありません（命令のたびに蔵は納められます）。蔵は毎時 +{0} 増えています': 'Nothing to store now (every order stores it). The stores are growing by +{0} an hour',
   '{0}が終わります（あと {1}）': '{0} is finished ({1} left)',
 
   // ---- the map's answers while an order is placed (app.mjs)
@@ -311,8 +311,8 @@ export default {
   '包囲を予約する取引は失敗しました（理由 {0}）。何も変わっていません。署名 {1}': 'The transaction reserving the siege failed (reason {0}). Nothing changed. Signature {1}',
   '包囲を予約できませんでした。': 'The siege could not be reserved.',
   // (the city's PRESENT state from the same read: facts of now, never "captured" or "won"; a siege's own numbers)
-  'あなたの包囲が進行中です：{0} / {1} ターン（宣言はターン {2}・場所 {3}）。都市はまだあなたのものではありません。': 'Your siege is under way: {0} of {1} turns (declared at turn {2}; site {3}). The city is not yours yet.',
-  'あなたの包囲は必要なターンを満たし、占領の結果を受け取るのを待っています（ターン {0} 以降・宣言はターン {1}・場所 {2}）。都市はまだあなたのものではありません。': 'Your siege has met its required turns and is waiting for the capture\'s result to be collected (due from turn {0}; declared at turn {1}; site {2}). The city is not yours yet.',
+  'あなたの包囲が進行中です：{0} / {1} ターン（宣言はターン {2}・場所 {3}）。都市はまだあなたのものではありません。': 'Your siege is under way: {0} of {1} turns (declared on turn {2}; site {3}). The city is not yours yet.',
+  'あなたの包囲は必要なターンを満たし、占領の結果を受け取るのを待っています（ターン {0} 以降・宣言はターン {1}・場所 {2}）。都市はまだあなたのものではありません。': 'Your siege has met its required turns and is waiting for the capture\'s result to be collected (from turn {0}; declared on turn {1}; site {2}). The city is not yours yet.',
   'この都市はいま、あなたが所有しています（場所 {0}・拠点の枠 {1}）。いま所有しているという事実だけを表示しています。': 'You hold this city now (site {0}; holding slot {1}). Only the fact that you hold it now is shown.',
   'この都市へのあなたの包囲は、いまは進行していません。拠点の使用枠 {0} は解放待ちです（場所 {1}）。': 'Your siege of this city is not under way now. Holding slot {0} is waiting to be released (site {1}).',
   'この都市では、別のプレイヤーの包囲が進行中です。': 'Another player\'s siege of this city is under way.',
@@ -355,7 +355,7 @@ export default {
   '包囲は始まりませんでした（場所 {0}）。予約は成立しませんでした。今日の宣言回数は1回使われたままです。': 'The siege did not start (site {0}). The reservation did not take effect. It still counts as one of today\'s declarations.',
   '預けた資源：返却待ちです。返却先の拠点がもうありません。返却の債務として残っており、まだ結果を受け取っていません。いつ、どこへ戻るかはまだ決まっていません。': 'Deposit: waiting to be returned. The holding it came from no longer exists. It is still owed to you and its result has not been collected yet. When and where it will be returned is not decided yet.',
   '返却と解放は、包囲の結果を受け取ったときに反映されます。自動で行われるとは限りません。': 'Returns and releases take effect when the siege\'s result is collected. That may not happen automatically.',
-  '戻るのは包囲の結果を受け取ったときで、それまでは「返却待ち」と表示します。': 'They come back when the siege\'s result is collected; until then they are shown as waiting.',
+  '戻るのは包囲の結果を受け取ったときで、それまでは「返却待ち」と表示します。': 'They come back when the siege\'s result is collected; until then they are shown as “waiting to be returned”.',
   '状態から導出した理由（記録された理由ではありません）：{0}': 'Reason derived from the state (not a recorded reason): {0}',
   '預けた資源：返却待ちです。返却の債務として残っており、まだ結果を受け取っていません。': 'Deposit: waiting to be returned. It is still owed to you; its result has not been collected yet.',
   '使用枠と預り金：解放待ちです。': 'Holding slot and rent: waiting to be released.',

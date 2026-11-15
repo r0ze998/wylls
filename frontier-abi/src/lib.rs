@@ -46,6 +46,8 @@ pub mod conquest_model;
 pub mod entry;
 pub mod error;
 pub mod ix;
+#[cfg(feature = "land-preview")]
+pub mod land_preview;
 pub mod layout;
 pub mod log;
 pub mod presets;

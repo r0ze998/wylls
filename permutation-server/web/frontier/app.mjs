@@ -1,4 +1,5 @@
 import { territoryEnabled, territoryOf } from './territory.mjs';
+import { landOf, landSummary, renderLandChip } from './land.mjs';
 import { setS1, setOreExtraProvider, s1On } from './fs1.mjs';
 import { s1Marks } from './map/s1marks.mjs';
 import * as territoryScreen from './screens/territory.mjs';
@@ -1153,8 +1154,12 @@ function mapTap(hit) {
   }
   // (a Scout's tiles are being picked: a tap elsewhere is answered, the picking stays)
   if (hand.popOf(FS, sub) === 'explore') { mapNote(hit, () => L`斥候のとなりで光っているマスだけ調べられます`); return true; }
-  if (!A || !sub.host) return false;
+  if (!sub.host) return false;
   const mcNow = hand.marchCheck(FS, sub.host);
+  // (lane B D2, 2026-11-16: a forming host is no actor on the map — map/actions.mjs actorsAt —, so with its March card
+  //  open the march check answers first; the tap fell through to a plain selection without a word and dropped the host)
+  if (!mcNow.ok && hand.popOf(FS, sub) === 'march') { mapNote(hit, () => mcNow.text); return true; }
+  if (!A) return false;
   if (!mcNow.ok) {
     // (round 35: with its March card open the tap is a destination: why the host cannot set out — the province still
     //  resolving the last turn, stamina, rest — is said on the map and the host stays in hand. It fell through to a
@@ -2344,6 +2349,11 @@ function renderHudTick(now) {
       setHtmlIfChanged(strip, hud.renderStrip(tokens, FS.resOpen ?? null, Math.max(1, stripFit.max)));
     }
     resChanges(strip, tokens);
+    // the land preview (TEST-ONLY worlds with that option): the viewer's territory and its production bonus, beside the strip
+    const ls = FS.mode === 'play' ? landSummary(FS, hud.activeHolding(FS), FS.citizen?.faction) : null;
+    let chip = $('land-chip-box');
+    if (ls && !chip && strip.parentElement) { chip = globalThis.document.createElement('span'); chip.id = 'land-chip-box'; strip.after(chip); }
+    if (chip) { chip.hidden = !ls; setHtmlIfChanged(chip, renderLandChip(ls)); }
   }
   renderSound();
   publishNoGo();
@@ -4058,6 +4068,8 @@ export async function boot() {
           route: FS.compose ? { hexes: marchCard.routeHexes(FS.compose), dest: FS.compose.dest ? tileHex(FS.compose.dest.p, FS.compose.dest.q, FS.compose.dest.tile) : null,
             arriveBell: FS.compose.route ? marchCard.bellWindow(FS)?.value ?? null : null } : null,
           territoryEnabled: territoryEnabled(FS), territoryOf: (p, q) => territoryOf(FS, p, q),
+          // the land preview: a province with a land record shows who holds each tile (its own fill, the keeps' as before)
+          landOf: (p, q) => landOf(FS, p, q),
           provinceOf: ART_ON ? (p, q, { far = false } = {}) => { if (!far) wantProvince(p, q, () => map?.invalidate()); return FS.provinces.get(`${p},${q}`)?.province ?? null; } : undefined };
       },
       onSelect: hit0 => {

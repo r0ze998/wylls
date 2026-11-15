@@ -1483,7 +1483,7 @@ export default {
   'この端末だけの試験用の世界です。開始ボタンで新しい世界を用意します。': 'A test world on this machine only. The start button prepares a new world.',
   '鍵は保存されないため、再読み込み・ページを閉じると今の世界は続けられません。開き直したら、新しい世界から始めてください。': 'The key is never stored, so after a reload or closing the page this world cannot be continued. When you reopen the page, start from a new world.',
   '通常速度では1ターン10分です。世界の開始後も、進軍やその結果の受け取りにはターンの進行を待ちます。': 'At normal speed a turn takes 10 minutes. After the world starts, marches and receiving their results still wait for the turns to pass.',
-  '世界は同時に2つまでです。どの世界も、開始サービスで決めた時間（既定は開始から2時間）がたつと自動的に終わり、その進行は保存されません。上限のときは、終了する世界を自分で選びます（勝手には止めません）。': 'At most two worlds at once. Each ends on its own once the time set by the start service has passed (two hours from its start unless the operator chose another), and its progress is not saved. At the limit you choose which world to end (none is ended for you).',
+  '世界は同時に2つまでです。どの世界も、開始サービスで決めた時間（既定は開始から2時間）がたつと自動的に終わり、その進行は保存されません。上限のときは、終了する世界を自分で選びます（勝手には止めません）。': 'At most two worlds at once. Each ends on its own once the time set by the start service has passed (two hours from its start by default), and its progress is not saved. At the limit you choose which world to end (none is ended for you).',
   'この試験用の世界は、準備のあいだだけ世界の時間を早送りします（出発先の州を開くため）。操作できるようになる前に通常速度へ戻し、そのあとは早送りしません。': 'During its preparation only, this test world\'s clock is run faster (to open the destination province). It is set back to normal speed before you can act, and is not run faster after that.',
   'この端末だけの試験用ウォレットです。鍵はこのページのメモリにだけあり、保存されません。ページを閉じる・読み込み直すと失われます。': 'A test wallet for this machine only. Its key is kept only in this page\'s memory and is never stored. Closing or reloading the page loses it.',
   'この世界の公開アドレス': 'This world\'s public address',
@@ -1632,4 +1632,16 @@ export default {
   'この命令は送信済みですが、まだ確認できていません。同じ命令は送り直しません。もう一度押すと結果を確認します。署名 {0}': 'This order was sent, but it is not confirmed yet. The same order is not sent again. Press again to check its outcome. Signature {0}',
   '送信済みの命令の結果を確認しています…': 'Checking the outcome of the order already sent…',
   'ローカルプレイの接続先が、確認したときと変わりました。ページを開き直してください。': 'The local play connection is not the one that was checked. Reopen the page.',
+  // the land preview (TEST-ONLY worlds with --world-option land-preview-v1): the territory line beside the strip
+  '領土の試験（テスト用の世界）：この村の州で軍勢が立って広げたマスと、その分の生産の上乗せです。': 'Territory trial (test world): the tiles hosts claimed by standing in this village\'s province, and the production they add.',
+  'この州で獲得 {0} マス · 生産 +{1}%': (n, p) => `Claimed in this province: ${plural(n, '{0} tile', '{0} tiles')} · production +${p}%`,
+  // the land preview, the selected tile (hud/inspect.mjs over frontier/land.mjs landTileLines)
+  'どの国の土地でもない空き地（領土の試験）': 'Open ground, no nation\'s land (territory trial)',
+  'あなたの国の村の土地（領土の試験）': 'Village land of your nation (territory trial)',
+  '{0}の村の土地（領土の試験）': '{0} village land (territory trial)',
+  'あなたの国が持つ土地（領土の試験）': 'Your nation\'s land (territory trial)',
+  '{0}が持つ土地（領土の試験）': 'Land held by {0} (territory trial)',
+  'あなたの国が奪取中：{0} / {1} ターン': 'Your nation is taking it: turn {0} of {1}',
+  '{0}が奪取中：{1} / {2} ターン': '{0} is taking it: turn {1} of {2}',
+  '国の土地から切り離され減っています：{0} / {1} ターン': 'Cut off from its nation\'s land, fading: turn {0} of {1}',
 };

@@ -45,6 +45,10 @@ localnet-expedition-play = ["fclient/expedition-dispatch-experimental", "frontie
 # runner never builds a conquest kind and refuses to resolve a besieged bell.
 localnet-conquest-play = ["localnet-expedition-play", "fclient/conquest-dispatch-experimental"]
 localnet-expedition-harness = ["fclient/expedition-dispatch-experimental", "frontier-abi/world-index-experimental"]
+# Opt-in, TEST-ONLY: the land preview's crank lane (`land_lane`, runner option
+# `--land-preview land-preview-v1`, with the capture demo only): FoldLand /
+# ClaimLandYield on the program's provisional land tags. Off by default.
+localnet-land-play = ["localnet-expedition-play", "frontier-abi/land-preview", "permutation-rules/land-preview"]
 
 [[test]]
 name = "localnet_expedition_depart"

@@ -2636,6 +2636,11 @@ body .hand-pop[data-pop="expedition-compose"][data-mode="card"] {
   body:has(#hand-pop[data-pop="expedition-compose"]:not([hidden])) #hand .hand-acts { display: none; }
 }
 
+/* the land preview (TEST-ONLY worlds with that option): the territory line beside the resource strip */
+#land-chip-box { flex: 0 0 auto; display: flex; align-items: center; padding: 0 8px; border-left: 1px solid rgba(201,162,74,.38); }
+#land-chip-box[hidden] { display: none; }
+.land-chip { font-size: 12px; font-weight: 600; color: #f1d27a; white-space: nowrap; letter-spacing: .01em; }
+
 /* ================================================================== the film's frame: a laptop's width (1280 × 720)
    The demo is filmed with the page laid out at 1280 × 720 CSS px (device scale 1.5: a 1920 × 1080 picture). What stood
    cut, covered or colliding at that size is set right here, under three conditions and no other: between 1100 and

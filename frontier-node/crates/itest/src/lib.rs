@@ -54,6 +54,9 @@ pub mod capture_demo;
 /// TEST-ONLY contest pair: a second player's wallet and village in the same memory-only world (two people; no automatic opponent).
 #[cfg(feature = "localnet-expedition-play")]
 pub mod contest_pair;
+/// TEST-ONLY land lane: the land preview's FoldLand / ClaimLandYield crank beside the keeper (feature `localnet-land-play`).
+#[cfg(feature = "localnet-land-play")]
+pub mod land_lane;
 #[cfg(feature = "localnet-expedition-play")]
 pub mod wide_destination;
 #[cfg(feature = "localnet-expedition-play")]

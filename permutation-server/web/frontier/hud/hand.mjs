@@ -74,6 +74,7 @@ export const INSPECTION_POPS = Object.freeze([EXPEDITION_POP]);
 
 export { ownHostsAt, ownHosts, marchCheck, exploreCheck, dissolveCheck, canAct, subjectOf, popOf } from './subject.mjs';
 import { ownHosts, marchCheck, exploreCheck, dissolveCheck, canAct, subjectOf, popOf } from './subject.mjs';
+import { returnCard } from './returncard.mjs';
 
 // (round 25: local play sends only its own few orders — flocalplay-act.mjs LOCAL_ACT_NAMES — and refuses the rest when
 //  they are sent. A bar button for an order local play refuses says so on the button and is not pressed, with the same
@@ -698,14 +699,7 @@ function expeditionPop(FS, model) {
         ${report.blocker ? html`<p class="pop-line pop-why">${report.blocker.code}</p>` : ''}
         <p class="pop-line">${L`観測のスロット`}: ${source.context_slot ?? '?'} · ${L`鮮度は不明です。権限や完了を証明する結果ではありません。`}</p>
         ${returnError ? html`<p class="pop-line pop-why">${L`帰還の手順を確認できませんでした。もう一度読み取ってください。`}</p>` : ''}
-        ${returning ? html`<section class="expedition-return" data-return-phase="${returning.phase}" aria-label="${L`帰還の手順`}">
-          <p class="pop-line"><strong>${t(returning.titleJa)}</strong></p>
-          <p class="pop-line">${t(returning.detailJa)}</p>
-          ${returning.steps.length ? html`<ol>${returning.steps.map(step=>html`<li data-return-step="${step.id}" data-step-state="${step.status}">${step.status==='proposal' ? html`<strong>${t(step.labelJa)}</strong>` : t(step.labelJa)}</li>`)}</ol>` : ''}
-          ${returning.returnUnits !== null ? html`<p class="pop-line">${L`予備兵に戻す人数の候補: ${fmtNum(returning.returnUnits)}人`}</p>
-            <p class="pop-line">${L`処理後の予備兵の見込み: ${fmtNum(returning.reserveAfter)}人`}</p>` : ''}
-          <p class="pop-line pop-why">${L`帰還の送信はまだ利用できません。予備兵への加算も行っていません。`}</p>
-        </section>` : ''}
+        ${returning ? returnCard(returning) : ''}
         ${returning?.proposal ? html`<details><summary>${L`実行できない役割案`}: ${returning.proposal.action}</summary><ul>${returning.proposal.roles.map(r => html`<li>${r.name}: ${r.address} · ${r.signer ? L`署名が必要` : L`署名不要`} · ${r.writable ? L`書き込み役割` : L`読み取り役割`}</li>`)}</ul></details>` : ''}
         ${localReturnBlock(FS, returning)}
         ${localConquestBlock(FS, returning)}

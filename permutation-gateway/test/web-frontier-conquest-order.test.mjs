@@ -103,7 +103,7 @@ test('the city\'s PRESENT state: each state from its exact facts; "owned" is a f
       const t = view({ state: 'other', site: 1, what }); assert.match(t, re); assert.doesNotMatch(t, /あなたの|ターン \d|\d+ \/ \d+/, what);
     }
     setLang('en');
-    assert.match(view({ state: 'siege', site: 1, progress: 7, required: 36, declared_bell: '19' }), /Your siege is under way: 7 of 36 turns \(declared at turn 19; site 1\)\. The city is not yours yet\./);
+    assert.match(view({ state: 'siege', site: 1, progress: 7, required: 36, declared_bell: '19' }), /Your siege is under way: 7 of 36 turns \(declared on turn 19; site 1\)\. The city is not yours yet\./);
     assert.match(view({ state: 'owned', site: 1, slot: 2, generation: 1 }), /You hold this city now \(site 1; holding slot 2\)\. Only the fact that you hold it now is shown\./);
     for (const v of all) { const t = view(v); assert.doesNotMatch(t, /captured|you won|victory|returned|succeeded|failed/i, JSON.stringify(v)); }
     assert.deepEqual(missingKeys().filter(k => /この都市|あなたの包囲|別のプレイヤー/.test(k)), []);
