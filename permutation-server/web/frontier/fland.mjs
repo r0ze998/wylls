@@ -6,7 +6,7 @@
 // does, queue, reserve, transits, dormancy), the hosts of a holding, and
 // what each resident action needs before it is sent. Pure functions over
 // decoded accounts; the program decides every action.
-import { TRAIN_ARMS_PER_100, WORKSHOP, s1On } from './fs1.mjs';
+import { TRAIN_ARMS_PER_100, WORKSHOP, s1On, seasonBase } from './fs1.mjs';
 import { rent } from '../sdk/frontier/fees.mjs';
 import { ringOf, wedgeOf, homeNation, provinceIndex, TILE_OFFSETS, DIRECTIONS } from './fgeo.mjs';
 import { ACCOUNTS } from './abi.mjs';
@@ -299,7 +299,11 @@ export function projectedHolding(holding, now) {
       h.queue[i]=null;
     }
     if(Number(h.tier)!==oldTier) {
-      const before=baseProduction(oldTier),after=baseProduction(Number(h.tier));
+      // (lane C E1, 2026-11-16 — S1: the program's settle_tiered applies arms::base_production, whose ore entry is the
+      //  village's terrain ore under the tier bonus; while the terrain is not known the M1 base is used, as rulebook
+      //  copyNumber does. Off S1 seasonBase returns the M1 base unchanged.)
+      const tierBase=t=>{ const m1=baseProduction(t); return seasonBase(m1,holding,{bonusPct:TIER_BONUS_PCT[t]??0}).map((v,i)=>v ?? m1[i]); };
+      const before=tierBase(oldTier),after=tierBase(Number(h.tier));
       h.production=h.production.map((p,i)=>p+after[i]-before[i]);
     }
     rates(next);

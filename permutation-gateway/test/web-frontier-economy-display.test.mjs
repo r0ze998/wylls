@@ -12,7 +12,8 @@
 // British spelling and for the play screen's banned words.
 //
 // Every figure checked, and the one mismatch found, are listed in docs/integration/CLAUDE-LANE-C-ECONOMY-DISPLAY-20261116.md.
-// A real mismatch is a `todo` test naming its entry there (E1), so this file passes while it stands.
+// A real mismatch is a `todo` test naming its entry there. E1 was fixed on the integration branch (fland.mjs
+// projectedHolding, 2026-11-16): its test is an ordinary test now.
 import { test, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
@@ -308,7 +309,7 @@ test('the strip after a promotion is done, before the next record (M1/MC): the n
   assert.ok(src.includes(`BigInt([${RUST.STORE_CAP.map(v => v / 1000).join(',')}][h.tier])*1000n`), 'caps at a tier-up');
 });
 
-test('the strip after a promotion is done on S1: the ore rate rises by the terrain ore\'s bonus (arms::base_production in settle_tiered)', { todo: 'doc E1: fland projectedHolding adds catalog::base_production\'s ore gain (15-based) where the program adds arms::base_production\'s (terrain-based)' }, () => {
+test('the strip after a promotion is done on S1: the ore rate rises by the terrain ore\'s bonus (arms::base_production in settle_tiered)', () => {
   fs1.setS1(S1_SEASON);
   fs1.setOreExtraProvider(() => 9);
   for (let t = 0; t < 3; t++) {
