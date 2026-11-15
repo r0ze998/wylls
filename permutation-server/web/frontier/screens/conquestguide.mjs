@@ -73,9 +73,13 @@ export function conquestFacts(FS) {
   const contest = [standing, revealed, sealed].find(k => k && mine(k)) ?? null;
   const gain = (FS.conquest?.events ?? []).filter(e => e.kind === 'keep_taken' && e.to === f).at(-1) ?? null;
   const target = contest ?? standing ?? revealed ?? sealed ?? null;
-  return { village: !!h, built: !!h && (hasBuilt(h, now) || (h.queue ?? []).some(q => q && q.kind === 1)), trained: !!base.trainedCombat, host: !!base.ownCombatHost || rows.length > 0,
+  // (round 46, seen in live33: a host out on a march is in no province record the page holds until its arrival is read;
+  // the guide then counted no host and fell back to "build" (1/7) mid-march. The viewer's own march list says a host
+  // stood and is away)
+  const away = (FS.marches ?? []).length > 0;
+  return { village: !!h, built: !!h && (hasBuilt(h, now) || (h.queue ?? []).some(q => q && q.kind === 1)), trained: !!base.trainedCombat, host: !!base.ownCombatHost || rows.length > 0 || away,
     // (a host that stands in the record — formed, or out on a march: the muster step is done only then, not while it forms)
-    stood: stoodHosts(rows).length > 0, forming: formingHosts(rows)[0] ?? null,
+    stood: stoodHosts(rows).length > 0 || away, forming: formingHosts(rows)[0] ?? null,
     marched: !!(standing || revealed || sealed || contest || gain),
     holding: contest ? { p: contest.p, q: contest.q, progress: Math.max(0, Number(contest.progress ?? 0)), required: holdTurns(FS, contest) } : null,
     captured: gain ? { p: gain.p, q: gain.q, turn: gain.bell } : null, target: target ? { p: target.p, q: target.q } : gain ? { p: gain.p, q: gain.q } : null,

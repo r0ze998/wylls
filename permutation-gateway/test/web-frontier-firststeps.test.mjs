@@ -190,3 +190,17 @@ test('"Form a host" with an empty reserve right after the first host reads as do
   assert.equal(F.allFormedText(), 'Every reserve troop is in a host. Train more to form another');
   assert.match(F.musterRuleText(), /stands once this turn is resolved/);
 });
+
+// round 46 (seen in live33, turn 27): the only host out on a march to a plain tile is in no province record the page
+// holds until its arrival is read; the guide counted no host and fell back to "build" (1/7). The viewer's own march
+// list says the host stood and is away: the guide stays at the march (4/7). With no march either, a village with no
+// host reads as before.
+test('the guide does not fall back to "build" while the only host is out on a march (no host in any read record)', () => {
+  const away = world({ bell: 27, entries: [], resolvedNext: 27, extra: { marches: [{ host: String(HID), dest: { p: 2, q: 0, tile: 31 }, entry: { host: String(HID), state: 1, arriveBell: 26 }, transit: null, facts: { pipeline: 'arrived' } }] } });
+  assert.equal(hostRows(away).length, 0, 'the fixture: no host in any read record');
+  const g = conquestGuide(away);
+  assert.equal(g.current, 'march', `the guide stays at the march (${g.current})`);
+  assert.equal(g.n, 4);
+  const none = world({ bell: 27, entries: [], resolvedNext: 27 });
+  assert.notEqual(conquestGuide(none).current, 'march', 'with no march either, no host is assumed');
+});
