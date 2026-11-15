@@ -5,11 +5,13 @@ No secrets in this file: test keys were memory-only and are gone; no credentials
 ## 1. Where the work stands
 - Canonical tree (absolute): `/Users/r0ze/Projects/wylls-codex-wide-inventory-20261109`
 - Branch: `codex/wide-conquest-lifecycle-20261109`; remote `origin` = github.com/r0ze998/wylls
-- HEAD at this checkpoint: `67bf34df0436b081224816a5ee79536760156c50` (round 35); `git ls-remote origin
-  refs/heads/codex/wide-conquest-lifecycle-20261109` returned the same SHA (checked 2026-11-15).
+- HEAD at this checkpoint: `3a85aa9c894724e55ad5b2571f64dd3550b6b7d5` (round 36); `git ls-remote origin
+  refs/heads/codex/wide-conquest-lifecycle-20261109` returned the same SHA (checked 2026-11-15). The handover note's
+  first version is e2245e0b (on top of round 35, 67bf34df); this update is the commit after 3a85aa9c.
 - My recent commits (oldest → newest): 427c4963 (33b ready-again estimate), 35d22713 (33c: charge at settle on b+1),
   8e385098 (34: English for hand.mjs return texts, '{0} can no longer be used', expedition-map clock tests),
-  67bf34df (35: with the March card open, a map tap the host cannot act on says why and keeps the host in hand).
+  67bf34df (35: with the March card open, a map tap the host cannot act on says why and keeps the host in hand),
+  e2245e0b (this note), 3a85aa9c (36: one English per Japanese key — see §7).
 - Work copy (scratch, not a repo): `<scratchpad>/canon-copy-round18` — tests are run there against the canonical
   node_modules-free copy; patches are made HEAD-based and applied to canonical with `git apply --cached` + working tree.
 
@@ -38,30 +40,39 @@ NFT session paths + hashes and wait for OK.
 - Do not delete anything: scratch trees, exports, recordings and evidence (rec/live23…live32, SHA256SUMS) are evidence.
   Deletion needs the user's explicit approval. Videos never go to GitHub.
 
-## 5. The 18 known unit failures (same set before and after rounds 34–35; 2013 pass / 18 fail / 1 skipped)
+## 5. The known unit failures: 17 since round 36 (2017 pass / 17 fail / 1 skipped; was 18 through round 35)
+Command (work copy, permutation-gateway): `node --test test/web-lang.test.mjs test/frontier-local-play-*.test.mjs
+test/web-frontier-*.test.mjs` (2035 tests).
 - Work-copy only (files/deps absent from the scratch copy; pass or not applicable in a full checkout): conquest-orders,
   chainio, delegation, fplay-profile, prize, session. (prize/session are restricted areas: not to be worked on.)
 - Environment (missing @magicblock-labs/ephemeral-rollups-sdk): agent, errors, relay.
 - Other lanes' work (not mine): outbound-arrival-pick (untracked test, Codex lane); pretake-frame ("film's frame");
   resident-home (NFT viewer records — restricted session-guard area, do not resume); words ×2 (numbered bell; 精算 /
-  internal words); web-lang ×4: dictionaries (same Japanese → different English), completeness (b) (18 unmarked
-  Japanese strings in fexpedition-return), completeness (c) (17 stale English entries), 鐘/"bell".
-- The dictionaries conflict (軍勢, 確かめています…, 記録のスロット) is the next item in this lane (see §7).
+  internal words); web-lang ×3: completeness (b) (18 unmarked Japanese strings in fexpedition-return), completeness
+  (c) (17 stale English entries: hand.mjs return texts the other lane has not marked yet), 鐘/"bell".
+- Fixed in round 36: web-lang "dictionaries" (same Japanese → different English).
+- Screens (browser, keyless fixture, work copy): conquest-press 10/10 and local-march-maptap 3/3 pass; fixtures 7 and
+  interaction 9 failures are the same on base and round 36 (the real-turn test at 390 flaked once in a full run, passed
+  6/6 alone on both sides); frontier.screen.mjs cannot load here (axe-core is not installed in the shared screens
+  node_modules) — not run.
 
 ## 6. Fixture versus a real world: what was seen where
 - Seen in a real world (TEST-ONLY, synthetic clock, one operator playing both sides by hand, memory-only keys):
   live29 (natural preset: Join, PlaceHome, train, form, march on a keep, contest recorded), live30–31, live32 (export of
   427c4963: the same host moved, arrived, became ready and moved again — host ID matched on both legs).
 - Fixture / unit only, NOT yet seen in a world: 33c (estimate charged at settle on b+1), round 34 English texts,
-  round 35 map-tap reason. Whether live30's silent press was exactly the round 35 cause is not proven.
+  round 35 map-tap reason, round 36 dictionary split (EN/JA screenshots of the Hosts tab and panel on the fixture at
+  1440 and 390; the report's Verifying button, the This host fallback and the observation slot line are unit-rendered
+  only). Whether live30's silent press was exactly the round 35 cause is not proven.
 - Known cosmetic: while a province is behind, the host's own map tag says the same sentence just above the tap's note.
 - Fresh-clone build + natural-preset start has still not been run (live worlds used exports with pinned binaries).
 
 ## 7. Next ordinary UI work
-1. Dictionary conflicts: 軍勢 list/tab → "Hosts", single host → "Host"; 確かめています… split into context keys
-   ("Checking" / "Verifying"); 記録のスロット → the English that matches what the data is. (Started after this note.)
-2. Remaining web-lang failures in my files only (stale entries; leave fexpedition-return to its owner).
-3. When disk and slot allow (≥ 21 GiB, other session's all-clear): a short natural-preset world to see 33c–35 live.
+1. DONE (3a85aa9c): 軍勢 / "Hosts" (tabs, lists), この軍勢 / "This host", 軍勢: {0} / "Host: {0}"; 確かめています… /
+   "Checking…" vs 照合しています… / "Verifying…"; 記録のスロット / "Record slot" vs 観測のスロット / "Snapshot slot".
+2. Next: the double sentence on the map while a province is behind (the host tag and the tap note say the same words).
+3. Remaining web-lang failures in my files only (leave fexpedition-return and its stale entries to their owner).
+4. When disk and slot allow (≥ 21 GiB, other session's all-clear): a short natural-preset world to see 33c–36 live.
 
 ## 8. Restricted — never resume
 NFT transfer verification or equivalent procedures, session guard, prize. No real funds, no public issuance.
