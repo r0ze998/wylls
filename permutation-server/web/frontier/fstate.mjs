@@ -60,6 +60,17 @@ export function activeHolding(fs = FS) {
 const renderers = new Map();
 const dirty = new Set();
 let scheduled = false;
+/**
+ * A render that invalidates is rendered again in the next microtask. When every render invalidates (a countdown that
+ * has run out in a part of the page that is not drawn again, an order refused at once on every draw), that is a chain
+ * of microtasks with no end: the page's task never finishes, nothing is painted or clicked, and the tab stands still
+ * with its last picture. So: after FLUSH_STREAK renders in one task with no pause between them, the following ones
+ * are asked for with a timer for FLUSH_STORM_MS (FLUSH_PACE_MS apart): the page stays alive, and the parts that
+ * keep asking are named once in the console. Renders that settle, as all of the page's own do, never get there.
+ */
+export const FLUSH_STREAK = 24, FLUSH_STORM_MS = 2000, FLUSH_PACE_MS = 16;
+let streak = 0, streakTimer = false, stormUntil = 0, stormTold = false;
+const clockNow = () => globalThis.performance?.now?.() ?? Date.now();
 
 /** Register renderers as [name, fn] pairs; they run in this order. */
 export function registerRenderers(list) { for (const [name, fn] of list) renderers.set(name, fn); }
@@ -70,14 +81,25 @@ export function invalidate(...parts) {
     if (p === 'all') for (const k of renderers.keys()) dirty.add(k);
     else dirty.add(p);
   }
-  if (!scheduled) { scheduled = true; queueMicrotask(flush); }
+  if (scheduled) return;
+  scheduled = true;
+  if (streak >= FLUSH_STREAK && stormUntil <= clockNow()) {
+    stormUntil = clockNow() + FLUSH_STORM_MS;
+    if (!stormTold) { stormTold = true; try { console.warn(`render loop: ${[...dirty].join(', ')} asked to be drawn again ${streak} times without a pause; drawing by timer`); } catch { /* no console */ } }
+  }
+  if (stormUntil > clockNow()) setTimeout(flush, FLUSH_PACE_MS); else queueMicrotask(flush);
 }
+/** (tests) Whether renders are paced by a timer now, and the count of renders in the current task. */
+export const flushState = () => ({ storm: stormUntil > clockNow(), streak });
 export const invalidateAll = () => invalidate('all');
 onLangChange(invalidateAll);
 
 /** Run the renderers of the invalid parts now. */
 export function flush() {
   scheduled = false;
+  // (renders counted in this task: the timer below runs once the task ends, so only a chain with no pause adds up)
+  streak++;
+  if (!streakTimer) { streakTimer = true; setTimeout(() => { streakTimer = false; streak = 0; }, 0); }
   for (const [name, fn] of renderers) {
     if (!dirty.delete(name)) continue;
     try { fn(FS); } catch (e) { console.error(`render ${name}:`, e); }

@@ -53,7 +53,7 @@ export function frameOf(rings, px = MINIMAP_PX) {
  * `dpr`): `{recs: Map "P,Q" → overview record, rings, own: [{p, q}], view,
  * size}` (`view` and `size` the main map's, for the frame).
  */
-function paintMinimapBase(ctx, { recs, rings, own, px, dpr, lens, survey }) {
+function paintMinimapBase(ctx, { recs, rings, own, px, dpr, lens, survey, seeded = null }) {
   // with a survey (the play page): the open world is chart, the surveyed tiles are painted on it, and the
   // viewer is a gold pip that breathes; without one (the spectator) every province shows its realm, as before
   const limited = !!survey && !survey.showAll;
@@ -69,7 +69,10 @@ function paintMinimapBase(ctx, { recs, rings, own, px, dpr, lens, survey }) {
   // `rings` counts open rings, so the last open ring is rings - 1.
   // Only the neutral rim uses coordinates beyond the legacy disk. Never ask
   // provinceFromIndex/ringProvinces for ring 129, where it returns nulls.
-  for (let d = 1; d < rings; d++) for (const pr of ringProvinces(d)) all.push({ ...pr, d });
+  // (a sparse world, map/world.mjs `seeded`: only the rings that have a seed have provinces. A world that seeds ring
+  // 128 alone is its 768 provinces, not the 49,537 of a full disk: the rings between lie under the plate's own dark)
+  const has = Array.isArray(seeded) ? new Set(seeded) : null;
+  for (let d = 1; d < rings; d++) if (!has || has.has(d)) for (const pr of ringProvinces(d)) all.push({ ...pr, d });
   for (let side = 0; side < 6; side++) for (let i = 0; i < rings; i++) {
     let p = rings - i, q = i;
     for (let turn = 0; turn < side; turn++) [p, q] = [-q, p + q];
@@ -135,20 +138,21 @@ function backgroundCanvas(ctx, width, height) {
 }
 
 /** An optional immutable `revision` token enables the cached land layer. */
-export function paintMinimap(ctx, { recs, rings, own = [], view = null, size = null, quad = null, px = MINIMAP_PX, dpr = 1, lens = 'realm', pins = [], survey = null, now = 0, revision = null }) {
+export function paintMinimap(ctx, { recs, rings, own = [], view = null, size = null, quad = null, px = MINIMAP_PX, dpr = 1, lens = 'realm', pins = [], survey = null, now = 0, revision = null, seeded = null }) {
   rings = Number.isFinite(rings) ? Math.max(1, Math.min(R_MAX_HARD + 1, Math.floor(rings))) : 1;
   const limited = !!survey && !survey.showAll;
   const fr = frameOf(rings + 1, px);
-  const options = { recs, rings, own, px, dpr, lens, survey };
+  const options = { recs, rings, own, px, dpr, lens, survey, seeded };
+  const seededKey = Array.isArray(seeded) ? seeded.join(',') : null;
   let background = revision === null ? null : backgrounds.get(ctx);
   const ownKey = own.map(o => `${o.p},${o.q}`).join(';');
   if (revision !== null && (!background || background.revision !== revision || background.rings !== rings
       || background.px !== px || background.dpr !== dpr || background.lens !== lens
-      || background.survey !== survey || background.ownKey !== ownKey)) {
+      || background.survey !== survey || background.ownKey !== ownKey || background.seededKey !== seededKey)) {
     const width = Math.ceil(px * dpr), cv = backgroundCanvas(ctx, width, width), g = cv?.getContext?.('2d');
     if (g) {
       paintMinimapBase(g, options);
-      background = { cv, revision, rings, px, dpr, lens, survey, ownKey };
+      background = { cv, revision, rings, px, dpr, lens, survey, ownKey, seededKey };
       backgrounds.set(ctx, background);
     } else { background = null; backgrounds.delete(ctx); }
   }

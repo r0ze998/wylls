@@ -64,35 +64,47 @@ const regions = new Map();
  * no placement (placeMode 'none') or `faction` is no nation. Under the wedge rule the list is the wedge, exactly
  * as the map drew it before placements.
  */
-export function homeRegion(faction, ringsOpen, place = undefined) {
+export function homeRegion(faction, ringsOpen, place = undefined, seeded = null) {
   if (!nation(faction) || placeMode(place) === 'none') return null;
   const rings = Math.min(R_MAX_HARD + 1, Math.max(2, int(ringsOpen) ? ringsOpen : 1));
-  const key = `${faction}|${rings}|${placeKey(place)}`;
+  // (`seeded`: a sparse world's rings that have a seed, map/world.mjs. Only those rings have provinces: a world that
+  // seeds ring 128 alone has a home region of that ring's 128 provinces, not the 8,256 of rings 1 .. 128)
+  const only = Array.isArray(seeded) ? new Set(seeded) : null;
+  const key = `${faction}|${rings}|${placeKey(place)}|${only ? [...only].join(',') : '*'}`;
   if (regions.has(key)) return regions.get(key);
   const mine = homeWedge(faction), out = [];
-  for (let d = 1; d < rings; d++) for (const pr of ringProvinces(d)) if (homeNationOf(pr.p, pr.q, place) === mine) out.push({ p: pr.p, q: pr.q, ring: d });
+  for (let d = 1; d < rings; d++) if (!only || only.has(d)) for (const pr of ringProvinces(d)) if (homeNationOf(pr.p, pr.q, place) === mine) out.push({ p: pr.p, q: pr.q, ring: d });
   Object.freeze(out);
   regions.set(key, out);
   return out;
 }
 
 /** The "p,q" keys of a region, for a membership test (null where there is no region). */
-export function homeRegionKeys(faction, ringsOpen, place = undefined) {
-  const r = homeRegion(faction, ringsOpen, place);
-  return r ? new Set(r.map(x => `${x.p},${x.q}`)) : null;
+const regionKeys = new WeakMap();
+export function homeRegionKeys(faction, ringsOpen, place = undefined, seeded = null) {
+  const r = homeRegion(faction, ringsOpen, place, seeded);
+  if (!r) return null;
+  // (kept with the region: the set of 8,256 keys was made anew on every call, and the wedge is painted every frame)
+  let keys = regionKeys.get(r);
+  if (!keys) { keys = new Set(r.map(x => `${x.p},${x.q}`)); regionKeys.set(r, keys); }
+  return keys;
 }
 
 /** The box (world px) around the provinces of `faction`'s home region in the open rings: `{x, y, width, height}`, or null. */
-export function homeBox(faction, ringsOpen, place = undefined) {
-  const r = homeRegion(faction, ringsOpen, place);
+const boxes = new WeakMap();
+export function homeBox(faction, ringsOpen, place = undefined, seeded = null) {
+  const r = homeRegion(faction, ringsOpen, place, seeded);
   if (!r?.length) return null;
+  if (boxes.has(r)) return boxes.get(r);
   let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
   for (const pr of r) {
     const c = provincePixel(pr.p, pr.q);
     x0 = Math.min(x0, c.x - PROVINCE_CIRCUMRADIUS); x1 = Math.max(x1, c.x + PROVINCE_CIRCUMRADIUS);
     y0 = Math.min(y0, c.y - PROVINCE_CIRCUMRADIUS * FLATTEN); y1 = Math.max(y1, c.y + PROVINCE_CIRCUMRADIUS * FLATTEN);
   }
-  return { x: (x0 + x1) / 2, y: (y0 + y1) / 2, width: x1 - x0, height: y1 - y0 };
+  const box = Object.freeze({ x: (x0 + x1) / 2, y: (y0 + y1) / 2, width: x1 - x0, height: y1 - y0 });
+  boxes.set(r, box);
+  return box;
 }
 
 /**
@@ -101,11 +113,26 @@ export function homeBox(faction, ringsOpen, place = undefined) {
  * ring 2, the first heartland ring (a dispersed region has no near side: its provinces stand round the whole ring).
  * `{p, q}`, or null where the map can read no placement. (Whatever rings are open, as the look point always was.)
  */
-export function homeAnchor(faction, place = undefined) {
+export function homeAnchor(faction, place = undefined, seeded = null) {
   const mode = placeMode(place);
   if (!nation(faction) || mode === 'none') return null;
   const mine = homeWedge(faction);
   const d = mode === 'dispersed' ? 2 : 1;
+  if (Array.isArray(seeded)) {
+    // a sparse world (map/world.mjs `seeded`): ring 1 or 2 may have no seed, and so no province. The region is told by
+    // a province of its own: of the innermost seeded ring at or beyond `d`, the one in the middle of the nation's
+    // provinces there (by where they lie: the mean of their places, so an arc that runs across the ring's first
+    // province is not told by one of its two ends). No such ring: no anchor.
+    for (const ring of [...new Set(seeded)].filter(x => int(x) && x >= d && x <= R_MAX_HARD).sort((a, b) => a - b)) {
+      const here = ringProvinces(ring).filter(pr => homeNationOf(pr.p, pr.q, place) === mine);
+      if (!here.length) continue;
+      const at = here.map(pr => provincePixel(pr.p, pr.q)), mx = at.reduce((s, c) => s + c.x, 0) / at.length, my = at.reduce((s, c) => s + c.y, 0) / at.length;
+      let best = 0, bd = Infinity;
+      at.forEach((c, i) => { const dd = (c.x - mx) ** 2 + (c.y - my) ** 2; if (dd < bd) { bd = dd; best = i; } });
+      return here[best];
+    }
+    return null;
+  }
   return ringProvinces(d).find(pr => homeNationOf(pr.p, pr.q, place) === mine) ?? null;
 }
 
@@ -115,18 +142,21 @@ export function homeAnchor(faction, place = undefined) {
  * province's middle, near or far (the box's middle of a region spread round the ring would be the Concord, no
  * nation's land). Null where there is no region.
  */
-export function homeLook(faction, ringsOpen, place = undefined, { near = false, reach = 1 } = {}) {
+export function homeLook(faction, ringsOpen, place = undefined, { near = false, reach = 1, seeded = null } = {}) {
+  // (`seeded`: a sparse world's rings. The anchor is then a province of a seeded ring, and the near look is that
+  // province itself: a point part of the way in from it would lie on rings that have no land)
+  const sparse = Array.isArray(seeded);
   if (placeMode(place) === 'dispersed') {
-    const a = homeAnchor(faction, place);
+    const a = homeAnchor(faction, place, seeded);
     return a ? provincePixel(a.p, a.q) : null;
   }
   if (near) {
-    const a = homeAnchor(faction, place);
+    const a = homeAnchor(faction, place, seeded);
     if (!a) return null;
     const c = provincePixel(a.p, a.q);
-    return { x: c.x * reach, y: c.y * reach };
+    return sparse ? { x: c.x, y: c.y } : { x: c.x * reach, y: c.y * reach };
   }
-  const box = homeBox(faction, ringsOpen, place);
+  const box = homeBox(faction, ringsOpen, place, seeded);
   return box ? { x: box.x, y: box.y } : null;
 }
 
@@ -134,4 +164,4 @@ export function homeLook(faction, ringsOpen, place = undefined, { near = false, 
 export const dispersedPlace = place => placeMode(place) === 'dispersed';
 
 /** The provinces of the region from ring `from` on (the rings a village may be placed in: fland FIRST_TICKET_RING). */
-export const homeRegionFrom = (faction, ringsOpen, place, from) => (homeRegion(faction, ringsOpen, place) ?? []).filter(pr => ringOf(pr.p, pr.q) >= from);
+export const homeRegionFrom = (faction, ringsOpen, place, from, seeded = null) => (homeRegion(faction, ringsOpen, place, seeded) ?? []).filter(pr => ringOf(pr.p, pr.q) >= from);

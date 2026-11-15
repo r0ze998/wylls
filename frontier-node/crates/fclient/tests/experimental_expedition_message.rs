@@ -1,6 +1,6 @@
 #![cfg(feature = "expedition-dispatch-experimental")]
 //! Fixed public inputs and unsigned Message compilation only. No keys/network.
-use fclient::experimental_expedition_message::{prepare_depart, prepare_resident, Error, Target};
+use fclient::experimental_expedition_message::{prepare_depart, prepare_resident, Error, Target, DEPART_HEAP_FRAME};
 use fclient::original_expedition_depart_draft::Draft as Depart;
 use fclient::tx::TxBudget;
 use fclient::unsigned_message_preflight::{BlockhashObservation, Limits};
@@ -42,6 +42,13 @@ fn budget() -> TxBudget {
         cu_price: 0,
         loaded_limit: 1_000_000,
         heap: None,
+    }
+}
+/// A Depart's budget: the same three limits and the one fixed heap frame.
+fn depart_budget() -> TxBudget {
+    TxBudget {
+        heap: Some(DEPART_HEAP_FRAME),
+        ..budget()
     }
 }
 fn limits() -> Limits {
@@ -101,7 +108,7 @@ fn residents(action: wire::Kind, same_actor: bool) -> Resident {
 fn departure_wraps_exact_inner_bytes_and_preserves_roles_with_unsigned_budget_message() {
     for alias in [false, true] {
         let draft = departures(alias);
-        let p = prepare_depart(&draft, target(), observed(), budget(), limits()).unwrap();
+        let p = prepare_depart(&draft, target(), observed(), depart_budget(), limits()).unwrap();
         assert_eq!(
             &p.instruction().data[..4],
             &[wide_ix::TAG_DEPART, 0xff, 2, 0]
@@ -128,8 +135,9 @@ fn departure_wraps_exact_inner_bytes_and_preserves_roles_with_unsigned_budget_me
                 vec![addr(8), addr(7)]
             }
         );
-        assert_eq!(p.message().instructions.len(), 4);
-        assert_eq!(p.message().instructions[3].data, p.instruction().data);
+        // limit, zero price, loaded-data limit, the Depart's one heap frame, then the dispatch
+        assert_eq!(p.message().instructions.len(), 5);
+        assert_eq!(p.message().instructions[4].data, p.instruction().data);
         assert_eq!(p.report().shape.sigs, if alias { 1 } else { 2 });
         assert_eq!(p.report().remaining_block_heights, 10);
         assert!(!draft.admitted());
@@ -176,7 +184,7 @@ fn old_seasons_target_substitution_and_unsupported_budgets_are_refused() {
         let mut t = target();
         t.program_version = version;
         assert!(matches!(
-            prepare_depart(&draft, t, observed(), budget(), limits()),
+            prepare_depart(&draft, t, observed(), depart_budget(), limits()),
             Err(Error::Version)
         ));
     }
@@ -191,25 +199,44 @@ fn old_seasons_target_substitution_and_unsupported_budgets_are_refused() {
         },
     ] {
         assert!(matches!(
-            prepare_depart(&draft, t, observed(), budget(), limits()),
+            prepare_depart(&draft, t, observed(), depart_budget(), limits()),
             Err(Error::Target)
         ));
     }
     for b in [
         TxBudget {
             cu_limit: 0,
-            ..budget()
+            ..depart_budget()
         },
         TxBudget {
             loaded_limit: 0,
-            ..budget()
+            ..depart_budget()
         },
         TxBudget {
             cu_price: 1,
+            ..depart_budget()
+        },
+        // the heap frame of a Depart is exactly DEPART_HEAP_FRAME: none, the default size, half, one page less,
+        // one byte more or the largest u32 is not a Depart's budget
+        budget(),
+        TxBudget {
+            heap: Some(32768),
             ..budget()
         },
         TxBudget {
-            heap: Some(32768),
+            heap: Some(DEPART_HEAP_FRAME / 2),
+            ..budget()
+        },
+        TxBudget {
+            heap: Some(DEPART_HEAP_FRAME - 1024),
+            ..budget()
+        },
+        TxBudget {
+            heap: Some(DEPART_HEAP_FRAME + 1),
+            ..budget()
+        },
+        TxBudget {
+            heap: Some(u32::MAX),
             ..budget()
         },
     ] {
@@ -260,4 +287,42 @@ fn fresh_blockhash_context_and_lock_policy_are_checked_after_compilation() {
         ),
         Err(Error::Preflight(_))
     ));
+}
+
+/// The one heap frame is a Depart's and nobody else's: exact value, exact place, exact count.
+#[test]
+fn a_departure_carries_exactly_one_fixed_heap_frame_and_no_other_kind_carries_any() {
+    assert_eq!(DEPART_HEAP_FRAME, 256 * 1024);
+    for same_actor in [false, true] {
+        let draft = departures(same_actor);
+        let p = prepare_depart(&draft, target(), observed(), depart_budget(), limits()).unwrap();
+        let m = p.message();
+        let cb: Address = "ComputeBudget111111111111111111111111111111".parse().unwrap();
+        let program_of = |i: usize| m.account_keys[usize::from(m.instructions[i].program_id_index)];
+        assert_eq!(m.instructions.len(), 5, "limit, price, loaded-data limit, heap frame, dispatch");
+        let mut limit = vec![2u8];
+        limit.extend_from_slice(&200_000u32.to_le_bytes());
+        let mut price = vec![3u8];
+        price.extend_from_slice(&0u64.to_le_bytes());
+        let mut loaded = vec![4u8];
+        loaded.extend_from_slice(&1_000_000u32.to_le_bytes());
+        let mut heap = vec![1u8];
+        heap.extend_from_slice(&DEPART_HEAP_FRAME.to_le_bytes());
+        for (i, want) in [limit, price, loaded, heap].into_iter().enumerate() {
+            assert_eq!(program_of(i), cb, "instruction {i} is the compute budget program's");
+            assert!(m.instructions[i].accounts.is_empty());
+            assert_eq!(m.instructions[i].data, want, "instruction {i}");
+        }
+        assert_eq!(program_of(4), target().program);
+        assert_eq!(m.instructions[4].data, p.instruction().data);
+        assert_eq!(m.instructions.iter().filter(|ix| ix.data.first() == Some(&1) && m.account_keys[usize::from(ix.program_id_index)] == cb).count(), 1, "one heap frame");
+    }
+    // Dissolve and Return: three budget instructions and the dispatch; a heap frame is refused
+    for action in [wire::Kind::Dissolve, wire::Kind::Return] {
+        let draft = residents(action, false);
+        let p = prepare_resident(&draft, target(), observed(), budget(), limits()).unwrap();
+        assert_eq!(p.message().instructions.len(), 4);
+        assert!(matches!(prepare_resident(&draft, target(), observed(), depart_budget(), limits()), Err(Error::Budget)));
+        assert!(matches!(prepare_resident(&draft, target(), observed(), TxBudget { heap: Some(32768), ..budget() }, limits()), Err(Error::Budget)));
+    }
 }

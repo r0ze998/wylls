@@ -1,0 +1,404 @@
+--- a/permutation-gateway/src/frontier/local-play-relay.mjs
++++ b/permutation-gateway/src/frontier/local-play-relay.mjs
+@@ -160,8 +160,21 @@
+ /**
+  * The relay. `prepare` (optional) replaces the CLI adapter and `rpc` the JSON-RPC
+  * client (tests); in service both are built from `cfg`.
++ *
++ * `flow` (optional; local-play-resident.mjs) serves ANOTHER prepared message kind
++ * through this same machinery — its own routes and schemas, and where in its
++ * request the pinned scope stands — with its own adapter (`prepare` is then
++ * required) and its own replay barrier. Every check below is the same for it:
++ * the pinned wallet as acting wallet AND payer, one signer, the exact prepared
++ * message, one send, status by signature only. Without `flow` this is the
++ * Depart relay exactly as before.
+  */
+-export function createLocalPlayRelay({ cfg, prepare = null, rpc = (m, p) => fetchRpc(cfg.rpc, m, p), now = () => Date.now() }) {
++export function createLocalPlayRelay({ cfg, prepare = null, rpc = (m, p) => fetchRpc(cfg.rpc, m, p), now = () => Date.now(), flow = null }) {
++  if (flow !== null && (!prepare || !exact(flow, ['routes', 'submitSchema', 'statusSchema', 'scopeOf']) || typeof flow.scopeOf !== 'function'
++      || !exact(flow.routes, ['prepare', 'submit', 'status']) || [flow.submitSchema, flow.statusSchema].some(s => typeof s !== 'string' || s === SUBMIT_SCHEMA || s === STATUS_SCHEMA)
++      || Object.values(flow.routes).some(r => typeof r !== 'string' || Object.values(ROUTES).includes(r)))) throw new Error('local-play relay refused: bad flow');
++  const routes = flow ? flow.routes : ROUTES, submitSchema = flow ? flow.submitSchema : SUBMIT_SCHEMA, statusSchema = flow ? flow.statusSchema : STATUS_SCHEMA;
++  const scopeOf = flow ? flow.scopeOf : body => body;
+   const problems = localPlayRelayConfigProblems(cfg);
+   if (problems.length) throw new Error('local-play relay refused: ' + problems.join('; '));
+   const adapter = prepare ?? createExpeditionDepartPrepare({
+@@ -204,9 +217,11 @@
+     /** The existing Depart preparation, pinned to the local-play wallet as acting wallet AND payer. */
+     async prepare(body, { signal } = {}) {
+       if (!body || typeof body !== 'object' || Array.isArray(body)) fail('LocalPlayInvalidRequest');
+-      if (body.cluster !== LOCAL_PLAY_CLUSTER || body.program !== cfg.program || body.season !== cfg.season
+-          || body.wallet !== cfg.wallet || body.payer !== cfg.wallet
+-          || body.deployment?.program_version !== DEPART_PREPARE_PROGRAM_VERSION || body.deployment?.ruleset_hash !== cfg.rulesetHash) fail('LocalPlayScopeMismatch');
++      const scope = scopeOf(body);
++      if (!scope || typeof scope !== 'object' || Array.isArray(scope)) fail('LocalPlayInvalidRequest');
++      if (scope.cluster !== LOCAL_PLAY_CLUSTER || scope.program !== cfg.program || scope.season !== cfg.season
++          || scope.wallet !== cfg.wallet || scope.payer !== cfg.wallet
++          || scope.deployment?.program_version !== DEPART_PREPARE_PROGRAM_VERSION || scope.deployment?.ruleset_hash !== cfg.rulesetHash) fail('LocalPlayScopeMismatch');
+       expireOpen();
+       if (pending.size + preparing >= MAX_HISTORY) await retire();
+       // Reserve a slot synchronously (open tickets and barrier capacity) before
+@@ -231,13 +246,13 @@
+         if (openCount() >= MAX_PENDING || pending.size >= MAX_HISTORY) fail('LocalPlayBusy');
+         pending.set(p.message_digest, { message: Buffer.from(p.message_b64, 'base64'), lastValid: BigInt(report.blockhash.last_valid_block_height), state: 'open', at: now() });
+       }
+-      return { report, submit: { route: ROUTES.submit, schema: SUBMIT_SCHEMA, message_digest: p.message_digest,
++      return { report, submit: { route: routes.submit, schema: submitSchema, message_digest: p.message_digest,
+         last_valid_block_height: report.blockhash.last_valid_block_height, signer: cfg.wallet } };
+     },
+ 
+     /** Exactly the prepared message, signed once by the wallet, sent once to the loopback runner. */
+     async submit(body) {
+-      if (!exact(body, ['schema', 'message_digest', 'transaction_b64']) || body.schema !== SUBMIT_SCHEMA
++      if (!exact(body, ['schema', 'message_digest', 'transaction_b64']) || body.schema !== submitSchema
+           || typeof body.message_digest !== 'string' || !/^[0-9a-f]{64}$/.test(body.message_digest)
+           || typeof body.transaction_b64 !== 'string' || body.transaction_b64.length > 1700) fail('LocalPlayInvalidRequest');
+       expireOpen();
+@@ -269,16 +284,16 @@
+         sent = await rpc('sendTransaction', [body.transaction_b64, { encoding: 'base64', preflightCommitment: 'confirmed' }]);
+       } catch {
+         // timeout / network error after the send began: the outcome is unknown
+-        return { status: 'unknown', signature: sig, status_route: ROUTES.status };
++        return { status: 'unknown', signature: sig, status_route: routes.status };
+       }
+       if (sent?.error) fail('LocalPlaySendRefused', { code: sent.error.code, message: String(sent.error.message ?? '').slice(0, 300), signature: sig });
+-      if (sent?.result !== sig) return { status: 'unknown', signature: sig, status_route: ROUTES.status };
+-      return { status: 'submitted', signature: sig, status_route: ROUTES.status };
++      if (sent?.result !== sig) return { status: 'unknown', signature: sig, status_route: routes.status };
++      return { status: 'submitted', signature: sig, status_route: routes.status };
+     },
+ 
+     /** The runner's status of a signature this relay submitted (still in the barrier). */
+     async status(body) {
+-      if (!exact(body, ['schema', 'signature']) || body.schema !== STATUS_SCHEMA || typeof body.signature !== 'string') fail('LocalPlayInvalidRequest');
++      if (!exact(body, ['schema', 'signature']) || body.schema !== statusSchema || typeof body.signature !== 'string') fail('LocalPlayInvalidRequest');
+       if (![...pending.values()].some(e => e.signature === body.signature)) fail('LocalPlayUnknownSignature');
+       const r = await rpc('getSignatureStatuses', [[body.signature], { searchTransactionHistory: true }]);
+       if (r.error) fail('LocalPlayRpcUnavailable');
+--- a/permutation-gateway/src/frontier/local-play-preview.mjs
++++ b/permutation-gateway/src/frontier/local-play-preview.mjs
+@@ -9,14 +9,15 @@
+ //   cluster localnet · the local-play program · its Season PDA · program version 0x4804 · the S1 ruleset ·
+ //   the relay's loopback runner RPC (never a caller's)
+ //
+-// and narrowed further before anything is spawned:
+-//   * only the outbound snapshot request (the other inspection of the general route is not served here);
+-//   * only the relay's own pinned player wallet (the request names one wallet: it is the reader's, and here also
+-//     the one that pays, as local-play-relay.mjs has it).
++// and narrowed further before anything is spawned, to the relay's own pinned player wallet:
++//   * the outbound snapshot request (the boundary card), whose one named wallet must be that wallet;
++//   * the original-host inspection request (the return card's read of a host that stays in wide land), whose
++//     `wallet` AND `payer` must both be that wallet (as local-play-relay.mjs has it: the player pays).
++// Nothing else of the general route is served here.
+ //
+ // Read only: the one-shot binary is given the request on stdin and `--outbound-snapshot --rpc-url`, no key, no
+ // environment, and builds no transaction. Nothing here signs, submits or stores.
+-import { createExpeditionPreview, ExpeditionPreviewError, EXPEDITION_PREVIEW_ROUTE } from './expedition-preview.mjs';
++import { createExpeditionPreview, ExpeditionPreviewError, EXPEDITION_PREVIEW_ROUTE, EXPEDITION_REQUEST_SCHEMA } from './expedition-preview.mjs';
+ import { OUTBOUND_SNAPSHOT_REQUEST_SCHEMA } from './outbound-snapshot.mjs';
+ import { DEPART_PREPARE_PROGRAM_VERSION } from './expedition-depart-prepare.mjs';
+ import { localPlayRelayConfigProblems, LOCAL_PLAY_CLUSTER } from './local-play-relay.mjs';
+@@ -45,7 +46,9 @@
+     async inspect(body, { signal } = {}) {
+       // (before the adapter, so before any spawn: another kind of inspection, or another wallet's, is not this relay's)
+       if (body === null || typeof body !== 'object' || Array.isArray(body)) throw new ExpeditionPreviewError('ExpeditionPreviewInvalidRequest');
+-      if (body.schema !== OUTBOUND_SNAPSHOT_REQUEST_SCHEMA || body.wallet !== wallet || Object.hasOwn(body, 'payer')) throw new ExpeditionPreviewError('ExpeditionPreviewScopeMismatch');
++      const outbound = body.schema === OUTBOUND_SNAPSHOT_REQUEST_SCHEMA && body.wallet === wallet && !Object.hasOwn(body, 'payer');
++      const inspect = body.schema === EXPEDITION_REQUEST_SCHEMA && body.wallet === wallet && body.payer === wallet;
++      if (!outbound && !inspect) throw new ExpeditionPreviewError('ExpeditionPreviewScopeMismatch');
+       return adapter.inspect(body, { signal });
+     },
+     close() { adapter.close(); },
+--- a/permutation-gateway/src/frontier/local-play-relay-server.mjs
++++ b/permutation-gateway/src/frontier/local-play-relay-server.mjs
+@@ -6,6 +6,7 @@
+ //     --program <[0x45;32] base58> --season <Season PDA> --wallet <player public key> \
+ //     --ruleset-hash <RULESET_HASH_V3 hex> --prepare-bin <abs path of frontier-experimental-expedition-depart-prepare> \
+ //     --cu-limit <n> --loaded-limit <n> [--preview-bin <abs path of frontier-original-expedition-preview>]
++//     [--resident-bin <abs path of frontier-experimental-expedition-prepare>]
+ //
+ // Binds 127.0.0.1 only, answers loopback peers only, bodies ≤ 16 KiB of JSON.
+ // Holds no key. Prints one public line when listening.
+@@ -14,6 +15,7 @@
+ import { createLocalPlayRelay, errorAnswer, LOCAL_PLAY_REFUSED_PORT, ROUTES } from './local-play-relay.mjs';
+ import { createLocalPlayReveal, REVEAL_ROUTES } from './local-play-reveal.mjs';
+ import { createLocalPlayPreview, ExpeditionPreviewError, LOCAL_PLAY_PREVIEW_ROUTE } from './local-play-preview.mjs';
++import { createLocalPlayResident, ExpeditionPrepareError, RESIDENT_ROUTES } from './local-play-resident.mjs';
+ 
+ export const MAX_BODY = 16 * 1024;
+ 
+@@ -42,9 +44,10 @@
+  * `reveal` (local-play-reveal.mjs, over the same pins): its three routes are served beside the Depart ones; without
+  * it they are not there (404), as before. `preview` (local-play-preview.mjs): the boundary card's read-only
+  * `POST /f/expedition/preview`, likewise only when given; a client that goes away cancels its one-shot read, and
+- * closing the listener closes it.
++ * closing the listener closes it. `resident` (local-play-resident.mjs): the return's two player-signed steps
++ * (prepare, submit, status), likewise only when given and closed with the listener.
+  */
+-export function serveLocalPlayRelay(relay, port, { reveal = null, preview = null } = {}) {
++export function serveLocalPlayRelay(relay, port, { reveal = null, preview = null, resident = null } = {}) {
+   if (port !== 0 && (!(port >= 41_000 && port <= 41_999) || port === LOCAL_PLAY_REFUSED_PORT)) throw new Error('listen port must be 41000-41999 and not 41970');
+   const handlers = {
+     [ROUTES.info]: async () => relay.info(),
+@@ -57,6 +60,11 @@
+       [REVEAL_ROUTES.status]: async body => reveal.status(body),
+     } : {}),
+     ...(preview ? { [LOCAL_PLAY_PREVIEW_ROUTE]: async (body, signal) => preview.inspect(body, { signal }) } : {}),
++    ...(resident ? {
++      [RESIDENT_ROUTES.prepare]: async (body, signal) => resident.prepare(body, { signal }),
++      [RESIDENT_ROUTES.submit]: async body => resident.submit(body),
++      [RESIDENT_ROUTES.status]: async body => resident.status(body),
++    } : {}),
+   };
+   const server = http.createServer(async (req, res) => {
+     const peer = req.socket.remoteAddress;
+@@ -72,7 +80,7 @@
+       json(res, 200, await handle(body, ac.signal));
+     } catch (e) {
+       // (the preview's own errors carry their own status and code, and nothing of the binary's path or output)
+-      if (e instanceof ExpeditionPreviewError) return json(res, e.status, { error: e.message, code: e.code });
++      if (e instanceof ExpeditionPreviewError || e instanceof ExpeditionPrepareError) return json(res, e.status, { error: e.message, code: e.code });
+       // (only the body reader's own two errors: a route's refusal with the same status keeps its own code)
+       if (e?.body === true && (e.status === 413 || e.status === 400)) return json(res, e.status, { error: e.message, code: e.status === 413 ? 'BodyTooLarge' : 'InvalidJson' });
+       const a = errorAnswer(e); json(res, a.status, a.body);
+@@ -80,14 +88,14 @@
+   });
+   return new Promise((resolve, reject) => {
+     server.once('error', reject);
+-    server.listen(port, '127.0.0.1', () => resolve({ server, port: server.address().port, close: () => new Promise(r => { relay.close(); preview?.close(); server.close(() => r()); }) }));
++    server.listen(port, '127.0.0.1', () => resolve({ server, port: server.address().port, close: () => new Promise(r => { relay.close(); preview?.close(); resident?.close(); server.close(() => r()); }) }));
+   });
+ }
+ 
+ const FLAGS = { '--rpc': 'rpc', '--program': 'program', '--season': 'season', '--wallet': 'wallet', '--ruleset-hash': 'rulesetHash',
+   '--prepare-bin': 'prepareBin', '--cu-limit': 'cuLimit', '--loaded-limit': 'loadedLimit', '--listen-port': 'port' };
+-const OPTIONAL = { '--preview-bin': 'previewBin' };
+-/** The command line: `--local-play` and each flag exactly once; `--preview-bin` may be left out (then no preview route). */
++const OPTIONAL = { '--preview-bin': 'previewBin', '--resident-bin': 'residentBin' };
++/** The command line: `--local-play` and each flag exactly once; `--preview-bin` and `--resident-bin` may each be left out (then that route is not served). */
+ export function parseArgs(argv) {
+   const cfg = {}; let localPlay = false;
+   for (let i = 0; i < argv.length; i++) {
+@@ -99,18 +107,20 @@
+   if (Object.values(FLAGS).some(k => !Object.hasOwn(cfg, k))) throw new Error('every flag is required: ' + Object.keys(FLAGS).join(' '));
+   const port = Number(cfg.port); delete cfg.port;
+   const previewBin = cfg.previewBin ?? null; delete cfg.previewBin;   // (apart from the relay's closed configuration)
++  const residentBin = cfg.residentBin ?? null; delete cfg.residentBin;
+   if (String(port) !== String(Number.parseInt(port, 10))) throw new Error('--listen-port');
+-  return { port, cfg: { localPlay, ...cfg }, previewBin };
++  return { port, cfg: { localPlay, ...cfg }, previewBin, residentBin };
+ }
+ 
+ if (import.meta.url === pathToFileURL(process.argv[1] ?? '').href) {
+   try {
+-    const { port, cfg, previewBin } = parseArgs(process.argv.slice(2));
++    const { port, cfg, previewBin, residentBin } = parseArgs(process.argv.slice(2));
+     const relay = createLocalPlayRelay({ cfg });
+     // (the Reveal routes over the same pins: the same wallet, program, Season and loopback runner)
+     const reveal = createLocalPlayReveal({ cfg });
+     const preview = previewBin === null ? null : createLocalPlayPreview({ cfg, previewBin });
+-    const s = await serveLocalPlayRelay(relay, port, { reveal, preview });
++    const resident = residentBin === null ? null : createLocalPlayResident({ cfg, residentBin });
++    const s = await serveLocalPlayRelay(relay, port, { reveal, preview, resident });
+     console.log(JSON.stringify({ schema: 'frontier-local-play-relay-v1', listen: `127.0.0.1:${s.port}`, ...relay.info() }));
+     const stop = () => s.close().then(() => process.exit(0));
+     process.on('SIGINT', stop); process.on('SIGTERM', stop);
+--- a/permutation-server/web/frontier/controller.mjs
++++ b/permutation-server/web/frontier/controller.mjs
+@@ -43,6 +43,7 @@
+ import { EPHEMERAL_WALLET_NAME, currentEphemeralWallet } from './fephemeral-wallet.mjs';
+ import * as localDepart from './flocalplay-depart.mjs';
+ import * as localReveal from './flocalplay-reveal.mjs';
++import * as localReturn from './flocalplay-return.mjs';
+ import { localPlayIdentityOk } from './flocalplay.mjs';
+ import { decode as fromBase58, encode as toBase58 } from '../sdk/base58.mjs';
+ import { fromBase64 } from '../sdk/bytes.mjs';
+@@ -968,6 +969,17 @@
+ export const sendLocalPlayReveal = () => localReveal.runLocalReveal(FS, localRevealDeps());
+ export const reconcileLocalPlayReveal = () => localReveal.reconcileLocalReveal(FS, localRevealDeps());
+ export const clearLocalPlayReveal = () => { const ok = localReveal.clearLocalReveal(FS); if (ok) localDepartChanged(); return ok; };
++/**
++ * Local play only (flocalplay-return.mjs): the two player-signed steps of the existing return (Dissolve, then, after
++ * the turn's own processing, Return), from the return card's own observation and under the departure's gate. Two
++ * presses: `prepare` (nothing is signed) and the explicit `send` of what was prepared, once. An outcome that is not
++ * known is asked about (`reconcile`), never sent again. Outside ACTIONS and FORMS, like the departure.
++ */
++const localReturnDeps = () => ({ allowed: localDepartGate, context: expeditionContext, signer: currentEphemeralWallet, changed: () => invalidate('panel') });
++export const prepareLocalPlayReturn = () => localReturn.prepareLocalReturn(FS, localReturnDeps());
++export const sendLocalPlayReturn = () => localReturn.sendLocalReturn(FS, localReturnDeps());
++export const reconcileLocalPlayReturn = () => localReturn.reconcileLocalReturn(FS, localReturnDeps());
++export const clearLocalPlayReturn = () => { const ok = localReturn.clearLocalReturn(FS); if (ok) invalidate('panel'); return ok; };
+ 
+ /**
+  * Load the latest envelope of a province the map draws at tile detail, the
+--- a/permutation-server/web/frontier/hud/hand.mjs
++++ b/permutation-server/web/frontier/hud/hand.mjs
+@@ -46,6 +46,7 @@
+ import { OUTBOUND_POP, outboundSketch, outboundArrivalCandidate } from '../fexpedition-compose.mjs';
+ import { localDepartOf, localDepartSpent } from '../flocalplay-depart.mjs';
+ import { localRevealOf, localRevealCandidate } from '../flocalplay-reveal.mjs';
++import { localReturnOf, localReturnSpent } from '../flocalplay-return.mjs';
+ import { composerChoices } from '../screens/march.mjs';
+ 
+ const int = Number.isInteger;
+@@ -647,7 +648,8 @@
+           <p class="pop-line pop-why">${L`帰還の送信はまだ利用できません。予備兵への加算も行っていません。`}</p>
+         </section>` : ''}
+         ${returning?.proposal ? html`<details><summary>${L`実行できない役割案`}: ${returning.proposal.action}</summary><ul>${returning.proposal.roles.map(r => html`<li>${r.name}: ${r.address} · ${r.signer ? L`署名が必要` : L`署名不要`} · ${r.writable ? L`書き込み役割` : L`読み取り役割`}</li>`)}</ul></details>` : ''}
+-        ${returning?.proposal && state.request.deployment.program_version === '18436' ? html`<section class="expedition-preparation" data-preparation-status="${state.preparation?.status ?? 'idle'}" aria-label="${L`署名前の準備確認`}">
++        ${localReturnBlock(FS, returning)}
++        ${returning?.proposal && !FS.localPlay && state.request.deployment.program_version === '18436' ? html`<section class="expedition-preparation" data-preparation-status="${state.preparation?.status ?? 'idle'}" aria-label="${L`署名前の準備確認`}">
+           <p class="pop-line"><strong>${L`実験用の準備確認`}</strong></p>
+           <p class="pop-line">${L`署名前の内容を取り直して確認します。署名・支払い・送信は行いません。`}</p>
+           <button type="button" class="btn" data-act="expedition-prepare" ${raw(state.preparation?.status === 'loading' ? 'aria-disabled="true"' : '')}>${L`署名前の準備内容を確認`}</button>
+@@ -660,6 +662,43 @@
+     <p class="pop-line pop-rule">${L`公開の実行経路は閉じたままです。帰還済みとは判定せず、地図や行軍記録も変更しません。`}</p>`;
+ }
+ 
++/**
++ * Local play only (FS.localPlay; flocalplay-return.mjs): the two player-signed steps of the return, on the return
++ * card. The step offered is the one the card's own observation names (`returning.proposal`), never a choice here.
++ * Two presses: 準備 (nothing is signed; what would be signed is then shown) and 署名して送る. What it says at the end is
++ * only that this step's transaction is recorded: after the first step the turn still has to be processed, and the
++ * reserve is only ever shown by the card's next read. An outcome that is not known is said as not known, with the
++ * one thing that may be done (ask again); never sent a second time.
++ */
++function localReturnBlock(FS, returning) {
++  if (!FS.localPlay) return '';
++  const d = localReturnOf(FS), offered = returning?.proposal?.action ?? null;
++  if (d.status === 'idle' && !offered) return '';
++  const name = a => (a === 'Dissolve' ? L`広域で解散を指示` : a === 'Return' ? L`元の村の予備兵に戻す` : '?');
++  const sig = d.signature ? `${d.signature.slice(0, 8)}…${d.signature.slice(-6)}` : '', dig = d.digest ? `${d.digest.slice(0, 12)}…` : '';
++  const step = { preparing: L`署名前の内容を用意して確かめています…`, signing: L`このページのテスト用ウォレットで署名しています…`, submitting: L`送信して結果を待っています…` }[d.status];
++  const line = step ? html`<p class="pop-line local-return-step" role="status">${step}</p>`
++    : d.status === 'prepared' ? html`<p class="pop-line local-return-prepared" role="status">${L`署名する内容を確かめました：${name(d.action)}（メッセージ ${dig}・有効期限のブロック高 ${d.lastValidBlockHeight}）。このページのテスト用ウォレットだけが署名し、手数料も支払います。`}</p>
++        ${d.action === 'Return' && d.returnUnits !== null ? html`<p class="pop-line">${L`予備兵に戻す人数の候補: ${fmtNum(d.returnUnits)}人`}</p>` : ''}`
++    : d.status === 'confirmed' ? html`<p class="pop-line local-return-done" role="status">${d.action === 'Dissolve'
++        ? L`解散の指示が記録されました。ターンの処理が済むまで待ち、もう一度読み取ってください。帰還はまだ終わっていません。`
++        : L`予備兵に戻す取引が記録されました。もう一度読み取って、予備兵の人数を確認してください。`} <span>${L`署名 ${sig}`}</span></p>`
++    : d.status === 'submitted' ? html`<p class="pop-line local-return-sent" role="status">${L`送信しました。記録されたかどうかはまだ確認できていません。署名 ${sig}`}${d.error ? html` <span>${L`（照合できませんでした：${d.error}）`}</span>` : ''}</p>`
++    : d.status === 'unknown' ? html`<p class="pop-line local-return-unknown" role="alert">${L`結果を確認できませんでした。この手順が記録されたかどうかは不明です。もう一度送らずに、結果を照合してください。署名 ${sig}`}${d.error ? html` <span>${L`（照合できませんでした：${d.error}）`}</span>` : ''}</p>`
++    : d.status === 'failed' ? html`<p class="pop-line local-return-failed" role="alert">${L`この手順の取引は失敗しました（理由 ${d.code ?? '?'}）。何も変わっていません。署名 ${sig}`}</p>`
++    : d.status === 'error' ? html`<p class="pop-line local-return-error" role="alert">${L`この手順を進められませんでした（${d.error ?? '?'}）。${d.sent ? '' : L`何も送っていません。`}`}</p>` : '';
++  const settle = d.status === 'unknown' || d.status === 'submitted', spent = localReturnSpent(FS), off = d.busy ? 'aria-disabled="true"' : '';
++  const prepare = label => html`<button type="button" class="btn small" data-act="local-return-prepare" ${raw(d.busy || !offered || spent ? 'aria-disabled="true"' : '')}>${label}</button>`;
++  const buttons = settle ? html`<button type="button" class="btn small" data-act="local-return-reconcile" ${raw(off)}>${L`結果を照合する`}</button>`
++    : d.status === 'prepared' ? html`<button type="button" class="btn primary" data-act="local-return-send" ${raw(off)}>${L`署名して送る（ローカルプレイ）`}</button>${prepare(L`準備し直す`)}`
++    : prepare(d.busy ? L`確かめています…` : offered ? L`「${name(offered)}」を準備する（ローカルプレイ）` : L`準備し直す`);
++  return html`<section class="expedition-local-return" data-local-return="${d.status}" aria-label="${L`ローカルプレイ：帰還の手順を送る`}">
++    <p class="pop-line">${L`ローカルプレイ：帰還の手順を、このページのテスト用ウォレットの署名で一つずつ送ります（このマシンの試験用の世界だけ）。まず準備して内容を確かめ、次に自分で送ります。`}</p>
++    ${line}
++    <div class="pop-foot">${buttons}
++      ${spent && !d.busy && !settle ? html`<span>${L`この読み取り結果ではすでに手順を送りました。次へ進むには、もう一度読み取ってください。`}</span>` : ''}</div></section>`;
++}
++
+ /** Public bytes only, deliberately no acceptance or wallet/send control. */
+ function preparationDetails(report) {
+   const p = report.prepared, b = report.blockhash;
+--- a/permutation-server/web/frontier/app.mjs
++++ b/permutation-server/web/frontier/app.mjs
+@@ -22,7 +22,7 @@
+ import { clearWideSelect, selectedWide } from './fwide.mjs';
+ import { EXPEDITION_POP, clearInspection } from './fexpedition.mjs';
+ import { OUTBOUND_POP, clearOutbound } from './fexpedition-compose.mjs';
+-import { inspectOriginalExpedition, prepareOriginalExpedition, reconcileExpedition, openOriginalOutbound, editOriginalOutbound, tapOriginalOutbound, originalOutboundMap, inspectOriginalOutboundRoute, inspectOriginalOutboundContext, useEarliestOriginalOutboundArrival, sendLocalPlayDeparture, reconcileLocalPlayDeparture, checkLocalPlayReveal, sendLocalPlayReveal, reconcileLocalPlayReveal, clearLocalPlayReveal } from './controller.mjs';
++import { inspectOriginalExpedition, prepareOriginalExpedition, reconcileExpedition, openOriginalOutbound, editOriginalOutbound, tapOriginalOutbound, originalOutboundMap, inspectOriginalOutboundRoute, inspectOriginalOutboundContext, useEarliestOriginalOutboundArrival, sendLocalPlayDeparture, reconcileLocalPlayDeparture, checkLocalPlayReveal, sendLocalPlayReveal, reconcileLocalPlayReveal, clearLocalPlayReveal, prepareLocalPlayReturn, sendLocalPlayReturn, reconcileLocalPlayReturn } from './controller.mjs';
+ import { createHerald, nextPoll, staleness } from './herald.mjs';
+ import { setTermsPace } from './seasonterms.mjs';
+ import { setPin, setRelay } from './fchainio.mjs';
+@@ -3081,11 +3081,17 @@
+   if (focus) $('frontier-map')?.focus({ preventScroll: true });
+ }
+ 
++const LOCAL_RETURN_ACTS = Object.freeze(['local-return-prepare', 'local-return-send', 'local-return-reconcile']);
+ const LOCAL_REVEAL_ACTS = Object.freeze(['local-reveal-check', 'local-reveal-send', 'local-reveal-reconcile', 'local-reveal-clear']);
+ export const HUD_ACTIONS = {
+   // A read only. No handOrder, ACTIONS, SENT classification or accepted-order effects.
+   'expedition-inspect': () => inspectOriginalExpedition(),
+   'expedition-prepare': () => prepareOriginalExpedition(),
++  // Local play only (flocalplay-return.mjs; the departure's gate, asked at every step): the return's two player-signed
++  // steps from the return card. Prepare first (nothing is signed), then the player's own send; an outcome not known is asked about.
++  'local-return-prepare': () => prepareLocalPlayReturn(),
++  'local-return-send': () => sendLocalPlayReturn(),
++  'local-return-reconcile': () => reconcileLocalPlayReturn(),
+   'outbound-step': d => editOriginalOutbound('step', d.direction),
+   'outbound-undo': () => editOriginalOutbound('undo'),
+   'outbound-reset': () => editOriginalOutbound('reset'),
+@@ -3672,7 +3678,8 @@
+     if (el.tagName !== 'INPUT') e.preventDefault();
+     // a control that cannot be pressed now stays reachable and says why (`aria-disabled`): it does nothing else
+     if (el.getAttribute('aria-disabled') === 'true') { refuseInPlace(el); return; }
+-    if (FS.hand?.pop === EXPEDITION_POP && !['expedition-inspect', 'expedition-prepare'].includes(el.dataset.act)) clearInspection(FS);
++    // (the return card's local-play controls act on the card's own observation: pressing them keeps it)
++    if (FS.hand?.pop === EXPEDITION_POP && !LOCAL_RETURN_ACTS.includes(el.dataset.act) && !['expedition-inspect', 'expedition-prepare'].includes(el.dataset.act)) clearInspection(FS);
+     // (the seal's strip stands on the boundary card too: pressing it keeps the draft, like the card's own controls)
+     if (FS.hand?.pop === OUTBOUND_POP && !LOCAL_REVEAL_ACTS.includes(el.dataset.act) && !['outbound-step', 'outbound-undo', 'outbound-reset', 'outbound-route-read', 'outbound-context-read', 'outbound-arrival-earliest', 'outbound-local-depart', 'outbound-local-reconcile'].includes(el.dataset.act)) clearOutbound(FS);
+     const sends = play && SENDS.has(el.dataset.act) && ACTIONS[el.dataset.act];
+--- a/permutation-server/web/lang/en-frontier-hand.mjs
++++ b/permutation-server/web/lang/en-frontier-hand.mjs
+@@ -281,6 +281,20 @@
+   // (the earliest turn of that observed range, offered for the draft's own field: a proposal, not a departure)
+   '最も早い候補（ターン {0}）を使う': 'Use the earliest proposed turn ({0})',
+   'いまの候補：ターン {0}': 'Current proposal: turn {0}',
++  // (local play only, flocalplay-return.mjs: the return's two player-signed steps; "recorded" claims no completed return)
++  'ローカルプレイ：帰還の手順を送る': 'Local play: send the return steps',
++  'ローカルプレイ：帰還の手順を、このページのテスト用ウォレットの署名で一つずつ送ります（このマシンの試験用の世界だけ）。まず準備して内容を確かめ、次に自分で送ります。': 'Local play: sends the return steps one at a time, signed by this page\'s test wallet (this machine\'s test world only). First prepare and check the contents, then send it yourself.',
++  '「{0}」を準備する（ローカルプレイ）': 'Prepare "{0}" (local play)',
++  '準備し直す': 'Prepare again',
++  '署名して送る（ローカルプレイ）': 'Sign and send (local play)',
++  '署名前の内容を用意して確かめています…': 'Preparing and checking the contents before signing…',
++  '署名する内容を確かめました：{0}（メッセージ {1}・有効期限のブロック高 {2}）。このページのテスト用ウォレットだけが署名し、手数料も支払います。': 'Checked what will be signed: {0} (message {1}; last valid block height {2}). Only this page\'s test wallet signs, and it also pays the fee.',
++  '解散の指示が記録されました。ターンの処理が済むまで待ち、もう一度読み取ってください。帰還はまだ終わっていません。': 'The order to disband is recorded. Wait until the turn has been processed, then read again. The return is not finished yet.',
++  '予備兵に戻す取引が記録されました。もう一度読み取って、予備兵の人数を確認してください。': 'The transaction returning them to the reserve is recorded. Read again to check the number of reserves.',
++  '結果を確認できませんでした。この手順が記録されたかどうかは不明です。もう一度送らずに、結果を照合してください。署名 {0}': 'The result could not be confirmed. Whether this step was recorded is unknown. Do not send again; check the result. Signature {0}',
++  'この手順の取引は失敗しました（理由 {0}）。何も変わっていません。署名 {1}': 'This step\'s transaction failed (reason {0}). Nothing changed. Signature {1}',
++  'この手順を進められませんでした（{0}）。{1}': 'This step could not go ahead ({0}). {1}',
++  'この読み取り結果ではすでに手順を送りました。次へ進むには、もう一度読み取ってください。': 'A step was already sent on this reading. To go on, read again.',
+   // (local play only, flocalplay-reveal.mjs: opening a seal this page holds; "recorded" claims no arrival, battle or return)
+   'ローカルプレイ：封を開く': 'Local play: open a seal',
+   'ローカルプレイ：出発が確定した軍勢の封を、このページのテスト用ウォレットの署名で開きます（このマシンの試験用の世界だけ）。到着ターン {0}。': 'Local play: opens the seal of a host whose departure is confirmed, signed by this page\'s test wallet (this machine\'s test world only). Arrival turn {0}.',
+--- a/permutation-gateway/test/frontier-local-play-preview.test.mjs
++++ b/permutation-gateway/test/frontier-local-play-preview.test.mjs
+@@ -191,3 +191,24 @@
+   assert.throws(() => parseArgs(['--local-play', '--preview-bin', BIN]), /every flag is required/);
+   assert.throws(() => parseArgs([...base, '--preview-rpc', 'http://127.0.0.1:1']), /bad argument/);
+ });
++
++test('the return card\'s read: the original-host inspection is served only for the pinned wallet acting AND paying; it uses the same binary without the snapshot mode', async () => {
++  const h = harness();
++  const inspect = (over = {}) => ({ schema: EXPEDITION_REQUEST_SCHEMA, operation: 'inspect', cluster: 'localnet', program: LOCAL_PLAY_PROGRAM, season: SEASON,
++    deployment: { program_version: '18436', ruleset_hash: LOCAL_PLAY_RULESET_HASH },
++    host: canonicalOriginalHostRef({ world: worldIdOf(SEASON, LOCAL_PLAY_PROGRAM), p: '128', q: '0', site: 0, gen: 1, seq: 0 }),
++    original_owner: address(0x44), standing: { p: '129', q: '0' }, min_slot: '0', wallet: WALLET, payer: WALLET, ...over });
++  for (const over of [{ payer: address(0x33) }, { payer: null }, { wallet: address(0x33) }, { wallet: null }, { wallet: address(0x33), payer: address(0x33) },
++    { cluster: 'devnet' }, { deployment: { program_version: '16388', ruleset_hash: LOCAL_PLAY_RULESET_HASH } }, { deployment: { program_version: '18436', ruleset_hash: 'ab'.repeat(32) } }]) {
++    await refused(h.preview.inspect(inspect(over)), 'ExpeditionPreviewScopeMismatch');
++  }
++  await refused(h.preview.inspect(inspect({ operation: 'send' })), 'ExpeditionPreviewInvalidRequest');
++  assert.equal(h.calls.length, 0, 'nothing was spawned for any of them');
++  const pending = h.preview.inspect(inspect());
++  assert.equal(h.calls.length, 1); assert.equal(h.calls[0].bin, BIN);
++  assert.deepEqual(h.calls[0].args, ['--rpc-url', 'http://127.0.0.1:41964'], 'the inspection mode of the same read-only binary, on the relay\'s own runner');
++  assert.deepEqual(JSON.parse(h.children[0].input), inspect());
++  // (its report is the adapter's own to validate: an empty answer is no report)
++  h.children[0].emit('close', 0, null);
++  await refused(pending, 'ExpeditionPreviewInvalidReport');
++});
+--- a/scripts/ci/node-key-tests.txt
++++ b/scripts/ci/node-key-tests.txt
+@@ -54,6 +54,7 @@
+ permutation-gateway/test/frontier-achievements.test.mjs
+ permutation-gateway/test/frontier-cq-sdk.test.mjs
+ permutation-gateway/test/frontier-local-play-relay.test.mjs
++permutation-gateway/test/frontier-local-play-resident.test.mjs
+ permutation-gateway/test/frontier-local-play-reveal.test.mjs
+ permutation-gateway/test/frontier-prize.test.mjs
+ permutation-gateway/test/frontier-process.test.mjs
+@@ -82,6 +83,7 @@
+ permutation-gateway/test/web-frontier-fplay-profile.test.mjs
+ permutation-gateway/test/web-frontier-fx.test.mjs
+ permutation-gateway/test/web-frontier-local-play-depart.test.mjs
++permutation-gateway/test/web-frontier-local-play-return.test.mjs
+ permutation-gateway/test/web-frontier-local-play-reveal.test.mjs
+ permutation-gateway/test/web-frontier-local-play.test.mjs
+ permutation-gateway/test/web-frontier-people.test.mjs

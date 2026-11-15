@@ -42,7 +42,7 @@ import { visibleProvinces } from './viewport.mjs';
 export { visibleProvinces } from './viewport.mjs';
 import { INERT_CTX, SpriteArt, artSize, farRes, terrainLookup } from './sprites.mjs';
 import { paintSheet, paintTable, sheetOf, tableShows } from './table.mjs';
-import { CloudSea, DRIFT_SPEED, SEA_BAKES, seaField, seaRes } from './cloudsea.mjs';
+import { CloudSea, DRIFT_SPEED, SEA_BAKES, seaExtent, seaField, seaResFar } from './cloudsea.mjs';
 import { project, RADIUS, FLATTEN } from '../../map.mjs';
 import { Camera, EASE, FAR_CAP, MOVE_MS, ZOOM_GIVE, centreReach, chartZoomMin, clampCentre, fitView, freeBox, reducedMotion } from './camera.mjs';
 import { OPEN_FROM, OPEN_WAIT_MS, heroZoom, lookPoint, openingPlan, placePoint } from './opening.mjs';
@@ -83,6 +83,7 @@ import { syncProtoChip } from './protochip.mjs';
 import { setProtoLegend } from './legend.mjs';
 // the keeps of a conquest season (the program's version 3): map/keeps.mjs
 import { KeepBoard } from './keeps.mjs';
+import { keepRowsNear } from './keepscreen.mjs';
 import { paintS1Marks, caravanTagText } from './s1marks.mjs';
 import { paintOutboundRoute } from './outboundroute.mjs';
 
@@ -330,6 +331,15 @@ export function lodEdges(far = 0) {
 }
 
 /** The level of detail at `zoom`, given the current one (no flicker at an edge). `e`: the edges (lodEdges). */
+/**
+ * Whether ring `d` is open, for a map source `{ringsOpen, seeded?}`: below `ringsOpen`, and, in a sparse world
+ * (`seeded`: the rings that have a seed), one of those. A source without `seeded` is the contiguous world as before.
+ */
+export function ringOpenOf(src) {
+  const ringsOpen = src?.ringsOpen ?? 1, seeded = Array.isArray(src?.seeded) ? new Set(src.seeded) : null;
+  return d => d < ringsOpen && (!seeded || seeded.has(d));
+}
+
 export function lodFor(zoom, current = 'world', e = LOD_EDGES) {
   if (current === 'world') return zoom >= e.tileIn ? 'tile' : zoom >= e.provinceIn ? 'province' : 'world';
   if (current === 'province') return zoom >= e.tileIn ? 'tile' : zoom < e.provinceOut ? 'world' : 'province';
@@ -1415,13 +1425,16 @@ export class FrontierMap {
    * The keep under a point of the page (client px, as `hostAt`): its fortress standing over its tile, or the tile
    * itself. `{p, q}` (with `tile`, the keep's tile), or null. Read from the last picture painted, at any zoom.
    */
-  keepAt(clientX, clientY) {
+  keepAt(clientX, clientY, { scan = false, stats = null } = {}) {
     if (!this.keeps.on || !Number.isFinite(clientX) || !Number.isFinite(clientY)) return null;
     const z = this.cam.drawn.zoom, coarse = !!globalThis.matchMedia?.('(pointer: coarse)')?.matches, min = coarse ? 22 : 12;
     let best = null, bd = Infinity;
     // Tiny chart cells have aggregated territory, not a hidden 12/22px keep
     // target on every province. Keep hits follow the marks actually drawn.
-    const rows = coarseChart('world', z) ? this.chartKeeps?.visible({}) ?? [] : this.keeps.rows.values();
+    // Elsewhere only the keeps that can be under the press are tested, from the
+    // board's bucket index (map/keepscreen.mjs: a bound proved for the tilt, the
+    // zoom and the 12/22 px least box; anything uncertain scans every keep).
+    const rows = coarseChart('world', z) ? this.chartKeeps?.visible({}) ?? [] : (scan ? null : keepRowsNear(this, clientX, clientY, z, min, stats, { exact: this.project === FrontierMap.prototype.project && this.unproject === FrontierMap.prototype.unproject && this.standAt === FrontierMap.prototype.standAt })) ?? this.keeps.rows.values();
     for (const row of rows) {
       const P = this.keeps.place(row, z);
       if (!P) continue;
@@ -1433,6 +1446,8 @@ export class FrontierMap {
     }
     return best;
   }
+  /** keepAt by projecting every keep (outside the coarse chart): the reference the index must agree with. */
+  keepAtScan(clientX, clientY) { return this.keepAt(clientX, clientY, { scan: true }); }
   /** Fly to the keep of province `{p, q}`, near enough to see its fortress and the tiles round it (a closer view is kept). Returns whether there is such a keep. */
   flyToKeep(at) {
     const row = at && this.keeps.on ? this.keeps.rows.get(`${at.p},${at.q}`) ?? null : null;
@@ -1845,6 +1860,8 @@ export class FrontierMap {
     };
     const wipe = () => { if (staged) { octx.setTransform(1, 0, 0, 1, 0, 0); octx.clearRect(0, 0, OW, OH); } };
     const src = this.source();
+    // (the terrain this frame makes anew is bounded: map/terrain.mjs. The source's own reads above are not in it)
+    (src.terrainOf ?? this.terrainOf)?.frame?.();
     this.rings = src.ringsOpen ?? 1;
     if (!this.open(src, size, { dpr, now })) {
       // who is looking is not known yet: the table and the bare sheet, seen from the seat. Never the world first, and
@@ -2102,7 +2119,7 @@ export class FrontierMap {
     const W = g.canvas?.width ?? Math.round(size.width * ratio), H = g.canvas?.height ?? Math.round(size.height * ratio);
     g.setTransform(1, 0, 0, 1, 0, 0);
     // (inland: every sample of the picture has land five tiles deep around it; the land is close to convex)
-    const field = seaField(ringsOpen);
+    const field = seaField(this.seaName?.rings === ringsOpen ? this.seaName.name : ringsOpen);
     let inland = true;
     for (let j = 0; j < 4 && inland; j++) for (let i = 0; i < 5 && inland; i++) inland = field.inland(seen.x0 + ((seen.x1 - seen.x0) * i) / 4, seen.y0 + ((seen.y1 - seen.y0) * j) / 3);
     if (inland) { g.fillStyle = CHART.paper; g.fillRect(0, 0, W, H); return; }
@@ -2289,6 +2306,13 @@ export class FrontierMap {
     // painted onto the canvas, or once into the ground layer of a resting tile view
     const plain = [];
     const ringsOpen = src.ringsOpen ?? 1, own = src.own ?? [];
+    // A sparse world (map/world.mjs `seeded`: the rings that have a seed, when they are not 0..ringsOpen−1) has land
+    // only on those rings. `ringsOpen` still bounds the sheet, the sea and the camera; whether a ring is OPEN is this.
+    const ringIsOpen = ringOpenOf(src);
+    const sparseWorld = Array.isArray(src.seeded);
+    // (the sea's name for this world, map/cloudsea.mjs seaExtent: the cloud lies over a sparse world's unseeded rings too)
+    const seaRings = seaExtent(ringsOpen, src.seeded ?? null);
+    this.seaName = { rings: ringsOpen, name: seaRings };
     // the sheet the world is drawn on (map/table.mjs), and the table where the picture reaches past it. The paper's
     // grain is made for the same resolution as the provinces' own sheets (the tile view's sprite set, the far
     // bitmaps' step), so the paper is one
@@ -2306,7 +2330,7 @@ export class FrontierMap {
       if (prep) return;
       this.backdrop(g, { view, size, ratio: dpr, sheet, paperRes, seen, corners, ringsOpen, quick: travelling });
       g.setTransform(...world);
-      for (const f of plain) f(g);
+      for (let i = 0; i < plain.length; i++) { globalThis.__frontierTrace?.(`scene: painter ${i + 1}/${plain.length}`); plain[i](g); }
     };
     const maxRing = Math.max(0, ringsOpen - 1) + CLOUD_RINGS;
     const recs = new Map();
@@ -2320,13 +2344,13 @@ export class FrontierMap {
     const terrainOf = src.terrainOf ?? this.terrainOf;
     // what the viewer has surveyed (map/survey.mjs): one lookup for every painter of this frame. A page with no
     // viewer (the spectator, practice, a test) gives none: every open tile is in sight
-    const survey = src.survey ?? (this.openSv?.ringsOpen === ringsOpen ? this.openSv : (this.openSv = openSurvey(ringsOpen)));
+    const survey = src.survey ?? (this.openSv?.ringsOpen === ringsOpen && this.openSvSeeded === (src.seeded?.join(',') ?? '') ? this.openSv : (this.openSvSeeded = src.seeded?.join(',') ?? '', this.openSv = openSurvey(ringsOpen, src.seeded ?? null)));
     const limited = !survey.showAll;
     const chartLevels = coarse ? chartSurveyLevels(survey) : null;
     // the fog of a province, in the names the province-level painters know: its ring is not open; the survey
     // is off (clear); some of it is in sight; some of it is surveyed (known); else the chart (distant)
-    const fogOf = (p, q) => { const sv = survey.province(p, q); return fogLevel({ ringOpen: ringOf(p, q) < ringsOpen, showAll: survey.showAll, known: sv.max >= L2, sightDistance: sv.max === L3 ? 0 : Infinity }); };
-    const fogAt = (q, r) => { const at = locate(q, r); return ringOf(at.p, at.q) < ringsOpen ? 'clear' : 'unopened'; };
+    const fogOf = (p, q) => { const sv = survey.province(p, q); return fogLevel({ ringOpen: ringIsOpen(ringOf(p, q)), showAll: survey.showAll, known: sv.max >= L2, sightDistance: sv.max === L3 ? 0 : Infinity }); };
+    const fogAt = (q, r) => { const at = locate(q, r); return ringIsOpen(ringOf(at.p, at.q)) ? 'clear' : 'unopened'; };
     let wanted = 0, drawn = 0, kind = 'far', labels = null, pending = 0, rough = 0;
     const artTiles = [], artCells = [];
     // Art, tile view: every level is drawn as tiles (the chart, muted land, land in sight; unopened as cloud sea)
@@ -2340,10 +2364,16 @@ export class FrontierMap {
       if (t) return { tiles: { ...pr, ...t, rec, fog, selected, prov, territoryMode, territory, wait: seen && !prov && !!src.provinceOf, clash: sight ? src.clashOf?.(pr.p, pr.q) ?? null : null, pending: sight ? src.pendingOf?.(pr.p, pr.q) ?? null : null }, wanted: 1, drawn: 1 };
       return { plain: g => paintProvince(g, { ...pr, rec, fog, selected, scale: z }), wanted: 1, drawn: 0 };
     };
-    for (const pr of visibleProvinces(view, size, maxRing, quad)) {
+    // (the far view of a sparse world, map/world.mjs `seeded`, lists only the rings that have a seed and the rings
+    // beyond the map: an inner ring without one has no province to show, the cloud sea lies there (cloudsea.mjs
+    // seaExtent), and its cells — 48,769 under a world that seeds ring 128 alone — are neither measured, sorted nor
+    // painted on every frame)
+    const listed = coarse && sparseWorld ? (p, q) => { const d = ringOf(p, q); return d >= ringsOpen || ringIsOpen(d); } : null;
+    globalThis.__frontierTrace?.('scene: provinces');
+    for (const pr of visibleProvinces(view, size, maxRing, quad, listed)) {
       const key = `${pr.p},${pr.q}`;
       if (coarse) {
-        const open = ringOf(pr.p, pr.q) < ringsOpen;
+        const open = ringIsOpen(ringOf(pr.p, pr.q));
         const lv = survey.showAll ? L3 : chartLevels.get(key) ?? 1;
         const rec = open && lv >= L2 ? recs.get(key) : null;
         const held = src.territoryEnabled ? null : recs.get(key)?.control;
@@ -2392,12 +2422,13 @@ export class FrontierMap {
       }
       plain.push(g => paintProvince(g, { ...pr, rec, fog, selected, scale: z }));
     }
-    if (coarse) plain.push(g => paintChartCells(g, chartCells, z, src.lens ?? 'realm'));
+    globalThis.__frontierTrace?.('scene: provinces listed');
+    if (coarse) plain.push(g => { globalThis.__frontierTrace?.(`scene: chart cells ${chartCells.length}`); paintChartCells(g, chartCells, z, src.lens ?? 'realm'); });
     // the season's border (map/world.mjs): beyond ring rMax there is never land this season. Drawn once it is within
     // reach of the open land, over the cloud's edge, so "not open yet" and "outside the map" never look alike
-    if (edgeNear(src.rMax, ringsOpen)) { const segs = edgeSegments(src.rMax); plain.push(g => paintEdge(g, segs, z)); }
+    if (edgeNear(src.rMax, ringsOpen)) { const segs = edgeSegments(src.rMax); plain.push(g => { globalThis.__frontierTrace?.(`scene: edge ${segs.length} segments at zoom ${z}`); paintEdge(g, segs, z); }); }
     // a season that may still be extended (ExtendFrontier): its ceiling, faint, once near enough to be on the sheet
-    if (Number.isInteger(src.rMaxCeiling) && src.rMaxCeiling > src.rMax && edgeNear(src.rMaxCeiling, ringsOpen)) { const segs = edgeSegments(src.rMaxCeiling); plain.push(g => paintEdge(g, segs, z, { faint: true })); }
+    if (Number.isInteger(src.rMaxCeiling) && src.rMaxCeiling > src.rMax && edgeNear(src.rMaxCeiling, ringsOpen)) { const segs = edgeSegments(src.rMaxCeiling); plain.push(g => { globalThis.__frontierTrace?.(`scene: ceiling edge ${segs.length} segments at zoom ${z}`); paintEdge(g, segs, z, { faint: true }); }); }
     // what is the viewer's own and what the selection can do (UX brief §5): one bundle for this frame's passes
     const F = this.youFrame(src, survey, lod, z, terrainOf);
     F.seen = seen; F.up = up; F.dpr = dpr;
@@ -2405,6 +2436,7 @@ export class FrontierMap {
     // (the page's part of them is asked for once a frame: map/keepmount.mjs)
     const feed = this.keepFeedNow = this.keepFeed?.() ?? null;
     const KB = F.KB = this.keepsOn(src, recs, feed) ? this.keeps : null;
+    globalThis.__frontierTrace?.('scene: keeps');
     this.keeps.on = !!KB;
     if (KB) {
       KB.frame(recs, { events: feed?.events ?? null, viewer: feed?.viewer ?? src.viewerFaction ?? null, bell: feed?.bell ?? src.bell ?? null }, { fx: F.fx, still: F.still });
@@ -2428,7 +2460,7 @@ export class FrontierMap {
     const sea = (g, part) => {
       if (coarse) return { pending: 0, rough: 0, seen: false };
       // (cloud is soft: it is made for the screen's own pixels, not for the finer ground canvas of a screen of one device px per px)
-      const r = this.sea.paint(g, { box: seen, res: seaRes(seaZoom * Math.min(dpr, this.dpr())), ringsOpen, sheet, now: fxNow(), still: reducedMotion(), part, bakes: rush ? SEA_BAKES * 3 : SEA_BAKES, budget: prep === 'ask' ? -1 : prep ? DIVE.sea : null });
+      const r = this.sea.paint(g, { box: seen, res: seaResFar(seaZoom * Math.min(dpr, this.dpr())), ringsOpen: seaRings, sheet, now: fxNow(), still: reducedMotion(), part, bakes: rush ? SEA_BAKES * 3 : SEA_BAKES, budget: prep === 'ask' ? -1 : prep ? DIVE.sea : null });
       if (r.pending) { pending += r.pending; this.dirty = true; }
       if (r.rough) rough += r.rough;
       // (the drift moves a few px a second: a frame when it has moved about one)
@@ -2438,10 +2470,12 @@ export class FrontierMap {
     // (the cloud sea lies on the sheet: it is laid right after the ground, under the ground marks and under what stands
     // on the land, in every kind of frame; so a picture of the ground with its sea can be kept and moved: the apron)
     const marks = c => { c.setTransform(...world); this.groundPass(c, F, 'all'); this.between?.(c, { zoom: z, now }); };
-    const tileOpts = artTiles.length ? { zoom: z, dpr, artZoom, passing: this.cam.moving, rush, budget: prep === 'ask' ? -1 : prep ? DIVE.ground : null, first: rush ? this.diveKey() : null, lo: diving ? DIVE.lo : null, stamp: this.stamp, sea: true, up, seaPass: sea, between: c => { c.setTransform(...world); sea(c, null); marks(c); }, ground: (c, phase) => this.groundPass(c, F, phase), stand: KB ? c => { c.setTransform(...world); KB.top(c, F); } : null, terrainAt: terrainLookup(terrainOf), fogAt, selected: null, viewerFaction: src.viewerFaction ?? null, demoRoads: !!src.demoRoads, ringsOpen: src.ringsOpen ?? null, replayRing: src.artReplayRing ?? null, engineStage: src.engineStage ?? 0, relics: src.relics ?? [], waystones: src.waystones ?? [], demoSpecials: !!src.demoSpecials, rivers: src.rivers ?? [], demoRivers: !!src.demoRivers, alliedPairs: src.alliedPairs ?? [], survey,
+    globalThis.__frontierTrace?.('scene: tiles');
+    const tileOpts = artTiles.length ? { zoom: z, dpr, artZoom, passing: this.cam.moving, rush, budget: prep === 'ask' ? -1 : prep ? DIVE.ground : null, first: rush ? this.diveKey() : null, lo: diving ? DIVE.lo : null, stamp: this.stamp, sea: true, up, seaPass: sea, between: c => { c.setTransform(...world); sea(c, null); marks(c); }, ground: (c, phase) => this.groundPass(c, F, phase), stand: KB ? c => { c.setTransform(...world); KB.top(c, F); } : null, terrainAt: terrainLookup(terrainOf, () => { if (this.art) this.art.misses++; }), fogAt, selected: null, viewerFaction: src.viewerFaction ?? null, demoRoads: !!src.demoRoads, ringsOpen: src.ringsOpen ?? null, replayRing: src.artReplayRing ?? null, engineStage: src.engineStage ?? 0, relics: src.relics ?? [], waystones: src.waystones ?? [], demoSpecials: !!src.demoSpecials, rivers: src.rivers ?? [], demoRivers: !!src.demoRivers, alliedPairs: src.alliedPairs ?? [], survey,
       // people (people/crowds.mjs): the source's departures, explores and holder names; tags nearest the view centre first
       people: src.people ? { ...src.people(), centre: { x: view.x, y: view.y } } : null } : null;
     const missed = this.art?.misses ?? 0;
+    globalThis.__frontierTrace?.('scene: layered');
     const layered = tileOpts && rest && !prep ? this.paintLayered(ctx, artTiles, tileOpts, world, now, under) : null;
     // a picture that travels (a pan, a drag, a glide, a flight inside the tile view): the still ground under it, the
     // table, the sheet, the land's ground and the cloud sea, comes from the apron, a picture of it kept a little
@@ -2463,7 +2497,7 @@ export class FrontierMap {
       // (while the zoom travels the sea's drifting light is left out of the kept picture, which lasts a second: the
       // light is half the sea's cost)
       const zooming = this.cam.moving && Math.abs(Math.log(this.cam.drawn.zoom / this.cam.view.zoom)) > 1e-4;
-      const r = this.sea.paint(g, { box: a.box, res: seaRes(seaZoom * Math.min(dpr, this.dpr())), ringsOpen, sheet, now: fxNow(), still: reducedMotion(), part: zooming ? 'still' : null });
+      const r = this.sea.paint(g, { box: a.box, res: seaResFar(seaZoom * Math.min(dpr, this.dpr())), ringsOpen: seaRings, sheet, now: fxNow(), still: reducedMotion(), part: zooming ? 'still' : null });
       rough += r.rough ?? 0;
       return { whole: this.art.misses === had && !r.pending && cells.length === 0 };
     } }) : null;
@@ -2475,7 +2509,7 @@ export class FrontierMap {
     if (artCells.length) {
       // while the picture travels, far bitmaps are not painted for zooms it only passes through (the ones at hand
       // are stretched); arriving, they are painted for where it rests
-      this.art.paintFar(ctx, artCells, { zoom: z, dpr, terrainAt: terrainLookup(terrainOf), fogAt, alliedPairs: src.alliedPairs ?? [], lod, lens: src.lens ?? 'realm', survey,
+      this.art.paintFar(ctx, artCells, { zoom: z, dpr, terrainAt: terrainLookup(terrainOf, () => { if (this.art) this.art.misses++; }), fogAt, alliedPairs: src.alliedPairs ?? [], lod, lens: src.lens ?? 'realm', survey,
         // (`prep`: the opening makes the far picture it flies to, out of sight: for where it ends, and more of it a frame)
         passing: this.cam.moving && !prep, resZoom: this.cam.moving && !prep ? Math.min(z, this.cam.view.zoom) : z, ...(prep ? { budget: prep === 'ask' ? 0 : DIVE.ground } : {}) });
       pending += this.art.farPending ?? 0;
@@ -2489,7 +2523,7 @@ export class FrontierMap {
     // readable placement there is no region on the map at all
     const place = src.place;
     // the wait for the village (map/waitview.mjs): the nation's standard stands in its home region; what the countdown says
-    const homeAt = waiting ? this.wedgeHome(survey.faction, ringsOpen, place) : null;
+    const homeAt = waiting ? this.wedgeHome(survey.faction, ringsOpen, place, src.seeded ?? null) : null;
     // (the page's wait view says the same time while it stands open: then the map does not say it a second time)
     const waitSay = waiting && !src.wait?.said ? waitLine(src.wait ?? null) : null;
     // (with no request out, or one refused: the surveyors' marks, a station mark on every free site of the region,
@@ -2506,7 +2540,7 @@ export class FrontierMap {
     if (lod === 'world' && (artCells.length || names.length)) {
       const nations = artCells.length > 0 && (src.lens ?? 'realm') !== 'land';
       // (the nation's name stands where its region is looked at: the wedge's middle, or a dispersed region's anchor province)
-      const at = !waiting && looked !== null ? homeLook(looked, ringsOpen, place) : null;
+      const at = !waiting && looked !== null ? homeLook(looked, ringsOpen, place, { seeded: src.seeded ?? null }) : null;
       // (while the viewer waits for a village the standard's own tag names the nation in its wedge: no second name there)
       realm = o => paintRealmLabels(o, recs, z, src.realmName ?? null, { extra: names, nations, territoryOf: src.territoryEnabled ? src.territoryOf : null, seenTile: (r, i) => survey.levelOf(r.p, r.q, i) === L3, controlSeen: r => Number.isInteger(r.keepTile) && survey.levelOf(r.p, r.q, r.keepTile) === L3, ...(limited ? { min: 3, home: at ? { faction: looked, x: at.x, y: at.y } : null,
         seen: (r, j) => { if (survey.province(r.p, r.q).max < L2) return false; const t = terrainOf?.(r.p, r.q), idx = t?.sites?.[j]; return Number.isInteger(idx) && survey.levelOf(r.p, r.q, idx) >= L2; } } : {}) });
@@ -2515,7 +2549,7 @@ export class FrontierMap {
     else if (lod !== 'world' && looked !== null) {
       // (close on the bell the wedge runs out of the picture: its name stands where the camera looks, `lookPoint`;
       // a dispersed region's name stands on its anchor province at every zoom: map/homeland.mjs homeLook)
-      const f = looked, box = lod === 'tile' ? lookPoint(f, ringsOpen, place) : homeLook(f, ringsOpen, place);
+      const f = looked, box = lod === 'tile' ? lookPoint(f, ringsOpen, place, src.seeded ?? null) : homeLook(f, ringsOpen, place, { seeded: src.seeded ?? null });
       if (box) realm = o => paintRealmLabels(o, recs, z, src.realmName ?? null, { nations: false, extra: [{ text: src.realmName?.(f) ?? String(f), x: box.x, y: box.y, below: -14, size: 24, fill: '#fff6e2' }] });
     }
     if (tileOpts) {
@@ -2537,12 +2571,16 @@ export class FrontierMap {
     ctx.setTransform(...world);
     // (waited in: lit softly from the standard, not an outline on bare chart: UX brief §13.6)
     // (with candidate sites out, their painted land is what is looked at: the wedge keeps its quiet outline there)
-    if (waiting) { const wb = homeAt && !survey.candidates?.length ? wedgeBox(survey.faction, ringsOpen, place) : null; paintWedge(ctx, survey.faction, ringsOpen, z, { place, wait: wb ? { x: homeAt.x, y: homeAt.y, r: Math.max(wb.width, wb.height / FLATTEN) * 0.5 } : null }); }
+    globalThis.__frontierTrace?.('scene: wedge');
+    if (waiting) { const wb = homeAt && !survey.candidates?.length ? wedgeBox(survey.faction, ringsOpen, place, src.seeded ?? null) : null; paintWedge(ctx, survey.faction, ringsOpen, z, { place, seeded: src.seeded ?? null, seen, wait: wb ? { x: homeAt.x, y: homeAt.y, r: Math.max(wb.width, wb.height / FLATTEN) * 0.5 } : null }); }
+    globalThis.__frontierTrace?.('scene: site marks');
     if (waitSites?.length && lod !== 'world') paintSiteMarks(ctx, homeAt, waitSites, { zoom: z });
-    if (looked !== null) paintWedge(ctx, looked, ringsOpen, z, { lit: true, place });
+    globalThis.__frontierTrace?.(`scene: focused wedge ${looked}`);
+    if (looked !== null) paintWedge(ctx, looked, ringsOpen, z, { lit: true, place, seeded: src.seeded ?? null, seen });
     // (a keep's place and holder are the season's public record: its fortress stands on unsurveyed land too, so the keep the
     // reach list sends the player to can be found on the board. With the art it stands between the props and the people,
     // `stand`; on plain tiles it is drawn here)
+    globalThis.__frontierTrace?.('scene: keeps top');
     if (lod === 'tile' && KB && !tileOpts) KB.top(ctx, F);
     if (KB?.live()) F.live = true;
     // over what stands on the land: thin outlines of the ground marks, the route, the standards
@@ -2555,13 +2593,16 @@ export class FrontierMap {
     // what lies on the land stays on the board: the guide's ring (at the tile view it is with the other ground
     // marks), a warning's halo, the rings of the candidate sites
     const guide = F.guide, calm = reducedMotion();
+    globalThis.__frontierTrace?.('scene: guide');
     if (guide && lod !== 'tile') paintGuide(ctx, guide, z, '', 'ring');
+    globalThis.__frontierTrace?.('scene: threats');
     if (src.threats?.length) paintThreats(ctx, src.threats, z, null, 'mark');
     if (limited && survey.candidates?.length) {
       // the surveyors' lines from the standard to the sites, then each site's ring with the wait's slow arc round it
       if (homeAt && lod !== 'world') paintSurveyLines(ctx, homeAt, survey.candidates, { zoom: z, now: F.fx, still: calm });
       paintCandidates(ctx, survey.candidates, z, { still: calm, part: 'mark', share: src.wait?.share ?? null });
     }
+    globalThis.__frontierTrace?.('scene: wait standard');
     if (homeAt) { standing(ctx, up?.(homeAt.x, homeAt.y) ?? null, homeAt.x, homeAt.y, () => paintWaitStandard(ctx, homeAt, { zoom: z, faction: survey.faction, now: F.fx, still: calm })); if (!calm) this.invalidateSoon(90); }
     // (the player's own character in the spot kept beside the standard: people/onboard.mjs paints it, upright as the standard is; UX brief §13.6)
     if (homeAt && lod !== 'world') paintWaitCharacter(ctx, waitSpotAt(homeAt, z), { faction: survey.faction, up });
@@ -2613,7 +2654,7 @@ export class FrontierMap {
     const selHex = sel ? tileHex(sel.p, sel.q, sel.idx) : null;
     const selOwn = !!sel && (villages.some(v => v.p === sel.p && v.q === sel.q && v.tile === sel.idx) || (!!A && A.mode === 'select'));
     // (the hexagon under the pointer: on land that exists, never on the cloud sea or the table beyond it)
-    const hover = tile && this.hover && ringOf(this.hover.p, this.hover.pq) < (src.ringsOpen ?? 1) ? this.hover : null;
+    const hover = tile && this.hover && ringOpenOf(src)(ringOf(this.hover.p, this.hover.pq)) ? this.hover : null;
     const hoverLit = hover && A ? A.byHex.get(`${hover.q},${hover.r}`) ?? null : null;
     const fx = fxNow(), still = reducedMotion();
     // tiles that have just lit up (a host was selected): said once on the effects bus, where the engine's glow
@@ -2679,7 +2720,7 @@ export class FrontierMap {
   waitSpot() {
     const src = this.source?.() ?? {}, sv = src.survey ?? null;
     if (!sv || sv.showAll || !Number.isInteger(sv.faction) || !['joined', 'ticket', 'refugee'].includes(sv.stage)) return null;
-    const at = this.wedgeHome(sv.faction, Math.max(1, src.ringsOpen ?? 1), src.place);
+    const at = this.wedgeHome(sv.faction, Math.max(1, src.ringsOpen ?? 1), src.place, src.seeded ?? null);
     if (!at) return null;
     const z = this.cam.drawn.zoom, s = waitSpotAt(at, z), k = this.standAt(s.x, s.y)?.k ?? 1;
     const [q, r] = inverseHex(s.x, s.y).split(',').map(Number), l = locate(q, r);
@@ -2692,11 +2733,13 @@ export class FrontierMap {
    * (map/homeland.mjs homeLook); null without a readable placement (world px). `place`: home.mjs seasonPlace.
    * Kept per nation, rings open, placement and seed.
    */
-  wedgeHome(faction, ringsOpen, place = undefined) {
-    const key = `${faction}|${ringsOpen}|${placeKey(place)}`;
+  wedgeHome(faction, ringsOpen, place = undefined, seeded = null) {
+    // (`seeded`: a sparse world's seeded rings, map/world.mjs. The standard stands in the region of those rings: the
+    // place kept is for this nation, these rings open, this placement AND these seeded rings)
+    const key = `${faction}|${ringsOpen}|${placeKey(place)}|${Array.isArray(seeded) ? seeded.join(',') : '*'}`;
     if (this.homeKey !== key) {
       this.homeKey = key;
-      const at = homeLook(faction, ringsOpen, place);
+      const at = homeLook(faction, ringsOpen, place, { seeded });
       if (!at) this.homeNow = null;
       else { const [q, r] = inverseHex(at.x, at.y).split(',').map(Number); this.homeNow = project(q, r); }
     }

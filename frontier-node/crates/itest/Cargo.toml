@@ -32,3 +32,13 @@ base64.workspace = true
 
 [dev-dependencies]
 drand-replay = { path = "../drand-replay" }
+
+# The localnet expedition harness (tests/localnet_expedition_depart.rs): the host-only dispatch client code and the
+# wide ABI tables it needs are features of crates already depended on above. No new dependency, no Cargo.lock change.
+# Off by default: `cargo test -p itest` neither builds nor runs it.
+[features]
+localnet-expedition-harness = ["fclient/expedition-dispatch-experimental", "frontier-abi/world-index-experimental"]
+
+[[test]]
+name = "localnet_expedition_depart"
+required-features = ["localnet-expedition-harness"]

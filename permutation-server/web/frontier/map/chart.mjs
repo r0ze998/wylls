@@ -18,10 +18,11 @@
 // ground at the tile view, its far bitmap further out), so a resting frame
 // costs nothing more. No asset files. Context-tolerant: without a canvas
 // (tests) every function returns quietly.
-import { FLATTEN, RADIUS, hexPoints, project } from '../../map.mjs';
+import { FLATTEN, RADIUS, hexPoints, inverseHex, project } from '../../map.mjs';
 import { L } from '../../lang.mjs';
 import { DIRECTIONS, tileHex, PROVINCE_TILES, locate } from '../fgeo.mjs';
 import { homeRegion, homeRegionKeys, placeKey } from './homeland.mjs';
+import { PROVINCE_CIRCUMRADIUS, provinceCorners, provincePixel } from './layers.mjs';
 import { NATION_LAND, YOURS_MARK, nationPale } from '../palette.mjs';
 import { L2, L3, REVEAL_MS, WORKED_RADIUS, hexKey, keyHex } from './survey.mjs';
 import { upright } from './tilt.mjs';
@@ -146,6 +147,8 @@ function blot(pale) {
   return cv;
 }
 
+/** The paper's stain lattice (world px a cell), and the most stains one call lays. */
+export const PAPER_CELL = 620, PAPER_STAINS = 6000;
 /**
  * Bare paper over the box `{x0, y0, x1, y1}` (world px) of a context whose user space is world px at `res` device
  * px each: the parchment, and its age: wide stains and worn, paler patches, laid on the world (the same stain lies
@@ -156,9 +159,16 @@ export function paintPaper(g, { x0, y0, x1, y1 }, res = 1) {
   g.fillStyle = paperFill(g, res); g.fillRect(x0, y0, x1 - x0, y1 - y0);
   const dark = blot(false), pale = blot(true);
   if (!dark || !pale) return;
-  const cell = 620, was = g.globalAlpha;
-  for (let cx = Math.floor((x0 - 400) / cell); cx <= Math.floor((x1 + 400) / cell); cx++) for (let cy = Math.floor((y0 - 400) / cell); cy <= Math.floor((y1 + 400) / cell); cy++) for (let n = 0; n < 2; n++) {
-    const sx = (cx + hash2(cx, cy, 20 + n)) * cell, sy = (cy + hash2(cx, cy, 30 + n)) * cell, sr = 150 + hash2(cx, cy, 40 + n) * 260;
+  // (the stains lie on a lattice of the world, two a cell: a box of more than PAPER_STAINS of them — the whole sheet
+  // of a very wide world, made small — takes the lattice `wide` times as wide, its stains `wide` times as large: the same
+  // paper to the eye, and never more than PAPER_STAINS pictures laid. A box within the count is laid exactly as ever)
+  const stains = w => { const c = PAPER_CELL * w, m = 400 * w; return (Math.floor((x1 + m) / c) - Math.floor((x0 - m) / c) + 1) * (Math.floor((y1 + m) / c) - Math.floor((y0 - m) / c) + 1) * 2; };
+  let wide = 1;
+  // (the count is of the lattice as it will be walked, margins and all: `wide` grows until it is within the cap)
+  if (stains(1) > PAPER_STAINS) { wide = Math.ceil(Math.sqrt(stains(1) / PAPER_STAINS)); while (stains(wide) > PAPER_STAINS) wide++; }
+  const cell = PAPER_CELL * wide, was = g.globalAlpha;
+  for (let cx = Math.floor((x0 - 400 * wide) / cell); cx <= Math.floor((x1 + 400 * wide) / cell); cx++) for (let cy = Math.floor((y0 - 400 * wide) / cell); cy <= Math.floor((y1 + 400 * wide) / cell); cy++) for (let n = 0; n < 2; n++) {
+    const sx = (cx + hash2(cx, cy, 20 + n)) * cell, sy = (cy + hash2(cx, cy, 30 + n)) * cell, sr = (150 + hash2(cx, cy, 40 + n) * 260) * wide;
     if (sx + sr < x0 || sx - sr > x1 || sy + sr < y0 || sy - sr > y1) continue;
     const light = hash2(cx, cy, 50 + n) < 0.4, k = 0.07 + hash2(cx, cy, 60 + n) * 0.09;
     g.globalAlpha = was * (light ? k * 1.5 : k);
@@ -674,17 +684,31 @@ const wedges = new Map();
  * edge is every side of the region's tiles that faces a tile outside it: a dispersed region is outlined province
  * by province. Kept per nation, rings open, placement and seed.
  */
-export function wedgePaths(faction, ringsOpen, place = undefined) {
+export function wedgePaths(faction, ringsOpen, place = undefined, seeded = null) {
   if (typeof Path2D === 'undefined' || !Number.isInteger(faction)) return null;
-  const region = homeRegionKeys(faction, ringsOpen, place);
+  const region = homeRegionKeys(faction, ringsOpen, place, seeded);
   if (!region) return null;
-  const key = `${faction}|${ringsOpen}|${placeKey(place)}`;
+  const list = homeRegion(faction, ringsOpen, place, seeded);
+  const key = `${faction}|${ringsOpen}|${placeKey(place)}|${Array.isArray(seeded) ? seeded.join(',') : '*'}`;
   if (wedges.has(key)) return wedges.get(key);
+  // (a region of many provinces is not laid out tile by tile: one nation's region of a 129-ring world is 8,256
+  // provinces, 503,616 tiles, three and a half million path commands to build, and then to fill, clip to and stroke
+  // four times on every frame — the page stood still. It is outlined province by province here; the tiles of the
+  // provinces in the picture are added by paintWedge when the picture is near: wedgeNear)
+  const v = !list.length ? null : list.length > WEDGE_TILE_PROVINCES ? provinceOutline(list, region) : tilePaths(list, region);
+  if (v) { v.list = list; v.region = region; v.coarse = list.length > WEDGE_TILE_PROVINCES; }
+  wedges.set(key, v);
+  return v;
+}
+/** The most provinces a home region has for its paths to be laid out whole, tile by tile (as every region was). */
+export const WEDGE_TILE_PROVINCES = 64;
+/** From how wide a province is on screen (CSS px) a large region's provinces in the picture are drawn by their tiles, and how many of them at most. */
+export const WEDGE_NEAR_PX = 64, WEDGE_NEAR_PROVINCES = 600;
+/** `{fill, edge}` of `list`'s provinces by their tiles: every tile, and every tile side that faces a tile outside the region. */
+function tilePaths(list, region) {
   const inside = (p, q) => region.has(`${p},${q}`);
   const fill = new Path2D(), edge = new Path2D();
-  let any = false;
-  for (const pr of homeRegion(faction, ringsOpen, place)) {
-    any = true;
+  for (const pr of list) {
     for (let i = 0; i < PROVINCE_TILES; i++) {
       const h = tileHex(pr.p, pr.q, i), c = project(h.q, h.r), pts = hexPoints(c.x, c.y, 0);
       pts.forEach(([x, y], j) => (j ? fill.lineTo(x, y) : fill.moveTo(x, y))); fill.closePath();
@@ -697,9 +721,45 @@ export function wedgePaths(faction, ringsOpen, place = undefined) {
       }
     }
   }
-  const v = any ? { fill, edge } : null;
-  wedges.set(key, v);
-  return v;
+  return { fill, edge };
+}
+/** `{fill, edge}` of `list`'s provinces as whole hexagons: each province, and each of its sides that faces a province outside the region. */
+function provinceOutline(list, region) {
+  const fill = new Path2D(), edge = new Path2D();
+  for (const pr of list) {
+    const pts = provinceCorners(pr.p, pr.q), c = provincePixel(pr.p, pr.q);
+    pts.forEach(([x, y], j) => (j ? fill.lineTo(x, y) : fill.moveTo(x, y))); fill.closePath();
+    for (let k = 0; k < 6; k++) {
+      const [x0, y0] = pts[k], [x1, y1] = pts[(k + 1) % 6], mx = (x0 + x1) / 2, my = (y0 + y1) / 2;
+      // (the province across this side: the tile a little way out from the side's middle)
+      const [tq, tr] = inverseHex(mx + (mx - c.x) * 0.12, my + (my - c.y) * 0.12).split(',').map(Number), at = locate(tq, tr);
+      if (region.has(`${at.p},${at.q}`)) continue;
+      edge.moveTo(x0, y0); edge.lineTo(x1, y1);
+    }
+  }
+  return { fill, edge };
+}
+const nearKept = new WeakMap();
+/**
+ * A large region seen from near: the paths, by their tiles, of its provinces in the picture (`seen`: the world box
+ * `{x0, y0, x1, y1}`), or null when the picture is far (a province under WEDGE_NEAR_PX on screen), has no box, or
+ * shows more than WEDGE_NEAR_PROVINCES of them: the province outline is painted then. Kept while the same provinces
+ * are in the picture.
+ */
+export function wedgeNear(w, zoom, seen) {
+  if (!w?.coarse || !seen || !(2 * PROVINCE_CIRCUMRADIUS * zoom >= WEDGE_NEAR_PX)) return null;
+  const m = PROVINCE_CIRCUMRADIUS, here = [];
+  for (const pr of w.list) {
+    const c = provincePixel(pr.p, pr.q);
+    if (c.x < seen.x0 - m || c.x > seen.x1 + m || c.y < seen.y0 - m || c.y > seen.y1 + m) continue;
+    here.push(pr);
+    if (here.length > WEDGE_NEAR_PROVINCES) return null;
+  }
+  const key = here.map(pr => `${pr.p},${pr.q}`).join(';'), kept = nearKept.get(w);
+  if (kept?.key === key) return kept.paths;
+  const paths = here.length ? tilePaths(here, w.region) : { fill: new Path2D(), edge: new Path2D() };
+  nearKept.set(w, { key, paths });
+  return paths;
 }
 
 /** The home wedge while its viewer waits for a village: the wash over all of it, the light about the standard, the lamp's pool at its foot (strengths). */
@@ -708,9 +768,12 @@ export const WEDGE_WAIT = Object.freeze({ fill: 0.07, glow: 0.4, lamp: 0.55 });
  * The viewer's home region, outlined in the nation's colour on the chart (a viewer who has joined and has no village
  * yet). `place`: the season's placement (home.mjs seasonPlace); without a readable one nothing is painted.
  */
-export function paintWedge(g, faction, ringsOpen, zoom, { lit = false, wait = null, place = undefined } = {}) {
-  const w = wedgePaths(faction, ringsOpen, place);
-  if (!w || !g?.save) return;
+export function paintWedge(g, faction, ringsOpen, zoom, { lit = false, wait = null, place = undefined, seeded = null, seen = null } = {}) {
+  const whole = wedgePaths(faction, ringsOpen, place, seeded);
+  if (!whole || !g?.save) return;
+  // (`seeded`: the sparse world's rings, map/world.mjs; `seen`: the part of the world in the picture. A large region
+  // is the province outline from afar and its tiles, for the provinces in the picture, from near: wedgePaths)
+  const w = wedgeNear(whole, zoom, seen) ?? whole;
   // `wait` {x, y, r}: the viewer waits for a village here (UX brief §13.6): the wedge is not an outline on bare chart
   // but land that is lit, softly, in the nation's colour, most about the standard that stands at (x, y) and fading
   // to its rim (r: how far the light reaches, world px), with a pool of lamp light on the paper at the standard's foot

@@ -34,8 +34,12 @@ import { seasonRoutes } from './routes/season.mjs';
 import { residentRoutes } from './routes/residents.mjs';
 import { createExpeditionPreview, EXPEDITION_MAX_REQUEST_BYTES, EXPEDITION_PREVIEW_ROUTE, EXPEDITION_TIMEOUT_MS } from './expedition-preview.mjs';
 import { expeditionPreviewRoutes } from './routes/expedition-preview.mjs';
+import { createExpeditionPrepare, EXPEDITION_PREPARE_ROUTE, PREPARE_MAX_REQUEST_BYTES, PREPARE_TIMEOUT_MS } from './expedition-prepare.mjs';
+import { expeditionPrepareRoutes } from './routes/expedition-prepare.mjs';
+import { createExpeditionDepartPrepare, EXPEDITION_DEPART_PREPARE_ROUTE, DEPART_PREPARE_MAX_REQUEST_BYTES, DEPART_PREPARE_TIMEOUT_MS } from './expedition-depart-prepare.mjs';
+import { expeditionDepartPrepareRoutes } from './routes/expedition-depart-prepare.mjs';
 
-export const FRONTIER_ROUTES = Object.freeze({ ...seasonRoutes, ...relayRoutes, ...keeperRoutes, ...operatorRoutes, ...prizeRoutes, ...agentRoutes, ...residentRoutes, ...expeditionPreviewRoutes });
+export const FRONTIER_ROUTES = Object.freeze({ ...seasonRoutes, ...relayRoutes, ...keeperRoutes, ...operatorRoutes, ...prizeRoutes, ...agentRoutes, ...residentRoutes, ...expeditionPreviewRoutes, ...expeditionPrepareRoutes, ...expeditionDepartPrepareRoutes });
 
 /** What the public listener serves ('GET /f/tx/' is a prefix: /f/tx/{signature}). */
 export const FRONTIER_PUBLIC_ROUTES = Object.freeze([
@@ -48,6 +52,9 @@ export const FRONTIER_PUBLIC_ROUTES = Object.freeze([
   'GET /f/residents',
   // Inspection only, disabled unless the operator supplies the separate keyless CLI and deployment pins.
   EXPEDITION_PREVIEW_ROUTE,
+  EXPEDITION_PREPARE_ROUTE,
+  // Unsigned original-host Depart preparation: its own opt-in adapter (503 ExpeditionDepartPrepareDisabled without it); never signs or sends.
+  EXPEDITION_DEPART_PREPARE_ROUTE,
 ]);
 
 /** Routes that make the relay pool pay: paused (503 OperatorLowFunds) while the pool is below its minimum. */
@@ -56,6 +63,8 @@ export const FRONTIER_FUNDED_ROUTES = Object.freeze(['POST /f/relay', 'POST /f/j
 /** Per client address on the public listener (burst, then a steady rate; §8.3). */
 export const FRONTIER_IP_LIMITS = Object.freeze({
   [EXPEDITION_PREVIEW_ROUTE]: { burst: 4, perSecond: 0.2 },
+  [EXPEDITION_PREPARE_ROUTE]: { burst: 4, perSecond: 0.2 },
+  [EXPEDITION_DEPART_PREPARE_ROUTE]: { burst: 4, perSecond: 0.2 },
   'POST /f/relay': { burst: 40, perSecond: 2 },
   'POST /f/join': { burst: 10, perSecond: 0.2 },
   'POST /f/reveal': { burst: 40, perSecond: 2 },
@@ -104,7 +113,7 @@ function readJson(req, limit, signal) {
   return new Promise((resolve, reject) => {
     const chunks = [];
     let size = 0;
-    const cancel = () => reject(signal?.reason === 'ExpeditionPreviewTimeout'
+    const cancel = () => reject(['ExpeditionPreviewTimeout', 'ExpeditionPrepareTimeout', 'ExpeditionDepartPrepareTimeout'].includes(signal?.reason)
       ? new RouteError(504, 'request timed out', 'RequestTimeout') : new RouteError(499, 'request cancelled', 'RequestAborted'));
     const cleanup = () => signal?.removeEventListener('abort', cancel);
     if (signal?.aborted) { cancel(); return; }
@@ -146,11 +155,13 @@ function readJson(req, limit, signal) {
  * @param {object} [o.store]     `{state, save()}` for quotas and used invites
  */
 export function createFrontierContext({ cfg, connection, pool, keeper = null, invites = null, gateKey = null, faucetKey = null, store = { state: {}, save() {} }, now = Date.now,
-  log = console.log, limiter, funds, blockhashes, expeditionPreview }) {
+  log = console.log, limiter, funds, blockhashes, expeditionPreview, expeditionPrepare, expeditionDepartPrepare }) {
   const addresses = new FrontierAddresses({ programId: cfg.programId, seasonId: BigInt(cfg.seasonId) });
   return {
     cfg, connection, pool, keeper, invites, gateKey, faucetKey, store, log, now, addresses,
     expeditionPreview: expeditionPreview === undefined ? createExpeditionPreview({ cfg, season: addresses.season }) : expeditionPreview,
+    expeditionPrepare: expeditionPrepare === undefined ? createExpeditionPrepare({ cfg, season: addresses.season }) : expeditionPrepare,
+    expeditionDepartPrepare: expeditionDepartPrepare === undefined ? createExpeditionDepartPrepare({ cfg, season: addresses.season }) : expeditionDepartPrepare,
     /** The season's prize pool `{program, pool, vault, mint}`, or null (no pool configured). */
     prize: cfg.prizeProgram ? prizeAddresses({ prizeProgram: cfg.prizeProgram, gameProgram: addresses.programId, seasonId: BigInt(cfg.seasonId), mint: cfg.prizeMint }) : null,
     programId: addresses.programId,
@@ -195,14 +206,17 @@ export function createFrontierHandler(ctx, { surface = 'operator', routes = FRON
     }
     const ip = clientAddress(req, { heraldPeer: ctx.cfg.heraldPeer });
     const preview = `${req.method} ${url.pathname}` === EXPEDITION_PREVIEW_ROUTE;
-    const controller = preview ? new AbortController() : null;
+    const prepare = `${req.method} ${url.pathname}` === EXPEDITION_PREPARE_ROUTE;
+    const departPrepare = `${req.method} ${url.pathname}` === EXPEDITION_DEPART_PREPARE_ROUTE;
+    const bounded = preview || prepare || departPrepare;
+    const controller = bounded ? new AbortController() : null;
     const abort = () => controller?.abort();
     const disconnect = () => { if (!res.writableEnded) abort(); };
-    if (preview) { req.once('aborted', abort); res.once('close', disconnect); }
-    const deadline = preview ? setTimeout(() => controller.abort('ExpeditionPreviewTimeout'), EXPEDITION_TIMEOUT_MS) : null;
+    if (bounded) { req.once('aborted', abort); res.once('close', disconnect); }
+    const deadline = bounded ? setTimeout(() => controller.abort(departPrepare ? 'ExpeditionDepartPrepareTimeout' : prepare ? 'ExpeditionPrepareTimeout' : 'ExpeditionPreviewTimeout'), departPrepare ? DEPART_PREPARE_TIMEOUT_MS : prepare ? PREPARE_TIMEOUT_MS : EXPEDITION_TIMEOUT_MS) : null;
     let body;
     const request = { method: req.method, url, headers: req.headers, surface, ip, signal: controller?.signal,
-      json: () => (body ??= readJson(req, preview ? EXPEDITION_MAX_REQUEST_BYTES : FRONTIER_MAX_BODY_BYTES, controller?.signal)) };
+      json: () => (body ??= readJson(req, departPrepare ? DEPART_PREPARE_MAX_REQUEST_BYTES : prepare ? PREPARE_MAX_REQUEST_BYTES : preview ? EXPEDITION_MAX_REQUEST_BYTES : FRONTIER_MAX_BODY_BYTES, controller?.signal)) };
     let out;
     try {
       const [key, route] = findRoute(routes, req.method, url.pathname);
@@ -215,9 +229,9 @@ export function createFrontierHandler(ctx, { surface = 'operator', routes = FRON
       if (r.log) ctx.log(`${req.method} ${url.pathname}: ${e.message}`);
       out = r;
     } finally {
-      if (preview) { clearTimeout(deadline); req.off('aborted', abort); res.off('close', disconnect); }
+      if (bounded) { clearTimeout(deadline); req.off('aborted', abort); res.off('close', disconnect); }
     }
-    if (preview && (res.destroyed || req.aborted)) return;
+    if (bounded && (res.destroyed || req.aborted)) return;
     const headers = { 'Content-Type': 'application/json', 'Cache-Control': 'no-store', ...(pub ? { 'X-Content-Type-Options': 'nosniff' } : {}), ...(out.headers ?? {}) };
     res.writeHead(out.status ?? 200, headers);
     res.end(toJson(out.body));

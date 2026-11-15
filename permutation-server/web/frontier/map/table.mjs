@@ -146,6 +146,8 @@ export function paintTable(g, { view, size, ratio = 1, sheet = null, bare = fals
 
 // ------------------------------------------------------------------ the sheet
 const sheets = new Map();
+/** The most points the sheet's deckled outline has, exactly (24 are kept for the sides' ends, the corners' arcs and rounding). A sheet under it at the 16 px step is walked as ever. */
+export const SHEET_OUTLINE_POINTS = 4096;
 /**
  * The sheet for `ringsOpen` open rings: `{x, y}` half its width and height
  * (world px), `pad` the room beyond the land's own box, `points` its deckled
@@ -159,7 +161,10 @@ export function sheetOf(ringsOpen) {
   const pad = Math.max((SHEET.sea + SHEET.fade + SHEET.margin) * HEX_W, land.x * SHEET.grow);
   const X = land.x + pad, Y = land.y + pad * FLATTEN * 1.08;
   // walk the rectangle (corners a little rounded) and push each point in or out: a slow wave, a tremor, a fray, a few nicks
-  const rc = HEX_W * 0.55, step = 16, pts = [];
+  // (the walk's step: 16 world px, and wider for a sheet whose outline would be more than SHEET_OUTLINE_POINTS of
+  // them. The sheet of 129 rings is 580,000 px round: 36,346 points, stroked four times with a wide round-joined
+  // shadow, filled four times and clipped to, for a picture in which a step is a hundredth of a pixel)
+  const rc = HEX_W * 0.55, step = Math.max(16, (4 * (X + Y)) / (SHEET_OUTLINE_POINTS - 24)), pts = [];
   const sides = [[-X + rc, -Y, X - rc, -Y, 0, -1], [X, -Y + rc, X, Y - rc, 1, 0], [X - rc, Y, -X + rc, Y, 0, 1], [-X, Y - rc, -X, -Y + rc, -1, 0]];
   let s = 0;
   const push = (x, y, nx, ny) => {

@@ -49,12 +49,15 @@ const ringOrder = ({p,q}) => {
   return 1+3*d*(d-1)+k*d+q;
 };
 
-/** Visible cells, nearest first; equal distances retain the original ring order. */
-export function visibleProvinces(view,size,maxRing,quad=null) {
+/** Visible cells, nearest first; equal distances retain the original ring order.
+ * `keep(p,q)`, when given, drops a cell before it is measured or sorted (a sparse
+ * world's far view: the 48,769 cells of rings that have no seed are never listed). */
+export function visibleProvinces(view,size,maxRing,quad=null,keep=null) {
   const w=provinceWindow(view,size,maxRing);
   if (!w) return [];
   const out=[],m=PROVINCE_CIRCUMRADIUS;
   for(const pr of provinceCandidates(view,size,maxRing)) {
+    if(keep && !keep(pr.p,pr.q)) continue;
     const c=provincePixel(pr.p,pr.q);
     if(c.x>=w.left && c.x<=w.right && c.y>=w.top && c.y<=w.bottom && nearQuad(quad,c.x,c.y,m)) {
       out.push({...pr,dist:Math.hypot(c.x-view.x,c.y-view.y)});

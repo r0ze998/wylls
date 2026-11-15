@@ -54,6 +54,31 @@ export const ROUGH = 16;
  */
 export const SEA_STEPS = Object.freeze([0.125, 0.18, 0.25, 0.36, 0.5, 0.71, 1]);
 export const seaRes = px => SEA_STEPS.find(s => s >= px * 0.999) ?? 1;
+/**
+ * The finenesses below SEA_STEPS, for a picture of a very wide world (the fit view of 129 rings shows 265,000 world
+ * px across: at SEA_STEPS' coarsest, 0.125, that picture is over 1,300 pieces, more than the sea keeps, and it made
+ * and dropped them on every frame without end). A piece of these is the bank and its cast shadow alone: a billow or
+ * a heap is under a device pixel there. With them a picture needs about the same number of pieces at every zoom.
+ */
+export const SEA_FAR_STEPS = Object.freeze([0.002, 0.0039, 0.0078, 0.0156, 0.03125, 0.0625]);
+/** The fineness for a picture at `px` device px per world px: seaRes where SEA_STEPS reach, else the far step. */
+export const seaResFar = px => (px * 0.999 > SEA_FAR_STEPS.at(-1) ? seaRes(px) : SEA_FAR_STEPS.find(s => s >= px * 0.999) ?? SEA_FAR_STEPS[0]);
+/**
+ * The sea's name for a world: `ringsOpen` itself (a number) for a world whose rings are 0 .. ringsOpen − 1; for a
+ * sparse world (map/world.mjs `seeded`: the rings that have a seed) the text "ringsOpen|d,d,…", which says the whole
+ * of it. Whatever takes `ringsOpen` here (seaField, CloudSea paint) takes either: nothing is kept beside the name,
+ * so a sparse world is never read as a full one, and the pieces of two worlds are never mixed.
+ */
+export function seaExtent(ringsOpen, seeded = null) {
+  const d = Math.max(1, Math.floor(ringsOpen ?? 1));
+  return Array.isArray(seeded) ? `${d}|${seeded.join(',')}` : d;
+}
+/** `{d, only}` of a sea name: the rings' count, and the Set of a sparse world's seeded rings (null for a full one). */
+function extentOf(name) {
+  if (typeof name !== 'string') return { d: Math.max(1, Math.floor(name ?? 1)), only: null };
+  const cut = name.indexOf('|'), list = name.slice(cut + 1);
+  return { d: Math.max(1, Math.floor(Number(name.slice(0, cut)) || 1)), only: new Set(list ? list.split(',').map(Number) : []) };
+}
 /** The drift: one texture across DRIFT_SPAN world px (its features are a fifth of that), moving at DRIFT_SPEED world px a second. */
 export const DRIFT_SPAN = 2300;
 export const DRIFT_SPEED = Object.freeze({ x: 11, y: 4 });
@@ -89,19 +114,31 @@ const fields = new Map();
  *   inland(x, y)  whether a world point has opened land five tiles deep all around it
  */
 export function seaField(ringsOpen) {
-  const d = Math.max(1, ringsOpen ?? 1);
-  if (fields.has(d)) return fields.get(d);
+  const { d, only } = extentOf(ringsOpen), name = only ? ringsOpen : d;
+  if (fields.has(name)) return fields.get(name);
+  // (a ring is opened below `d`, and in a sparse world only where it has a seed)
+  const ringOpen = ring => ring < d && (!only || only.has(ring));
+  // (no opened ring within two rings of this one: a province is nine tiles across, so no opened tile is within FAR
+  // steps. Without this a tile far from any land looked at every tile within seven steps, each one's province found
+  // anew: the inner rings of a sparse world, and the sheet beyond the last ring, are all such tiles)
+  const farRings = new Map();
+  const lonely = ring => { let v = farRings.get(ring); if (v === undefined) { v = true; for (let k = ring - 2; v && k <= ring + 2; k++) if (k >= 0 && ringOpen(k)) v = false; farRings.set(ring, v); } return v; };
   const memo = new Map();
-  const key = (q, r) => (q + 2048) * 4096 + (r + 2048);
+  // (a tile's key is the pair itself: no two tiles share one however far out they lie. The old key,
+  // (q + 2048) · 4096 + (r + 2048), gave (q, r) and (q + 1, r − 4096) one answer, and the sheet of 129 rings, sampled
+  // from afar, reaches past that; a wider number would only put the same limit further out)
+  const key = (q, r) => `${q},${r}`;
   // (kept per tile: a tile far out at sea asks about every tile within eight steps, and so do its neighbours; finding a
   // tile's province is the costly part, and a far view's pieces asked half a million times)
   const opened = new Map();
-  const open = (q, r) => { const k = key(q, r); let v = opened.get(k); if (v === undefined) { const at = locate(q, r); v = ringOf(at.p, at.q) < d; opened.set(k, v); } return v; };
+  const open = (q, r) => { const k = key(q, r); let v = opened.get(k); if (v === undefined) { const at = locate(q, r); v = ringOpen(ringOf(at.p, at.q)); opened.set(k, v); } return v; };
   const steps = (q, r) => {
     const k = key(q, r);
     let v = memo.get(k);
     if (v !== undefined) return v;
     v = FAR;
+    const here = locate(q, r);
+    if (lonely(ringOf(here.p, here.q))) { memo.set(k, v); return v; }
     if (open(q, r)) v = 0;
     else search: for (let n = 1; n < FAR; n++) {
       // the ring of hexes n steps away
@@ -162,7 +199,7 @@ export function seaField(ringsOpen) {
   };
   const v = { ringsOpen: d, steps, depth, cover, inland };
   if (fields.size > 6) fields.clear();
-  fields.set(d, v);
+  fields.set(name, v);
   return v;
 }
 
@@ -192,6 +229,8 @@ export function puffsOf(q, r, depth, thin = 1) {
 // ------------------------------------------------------------------ the drift
 let driftTex;
 /** The drifting light and shade: a texture that repeats without a seam (lavender shade where it is dense, white where it is bright). */
+/** The drift's texture where it is already made, else null: nothing is worked out. */
+export const driftMade = () => driftTex ?? null;
 export function driftTexture() {
   if (driftTex !== undefined) return driftTex;
   const N = 256, cv = spare(N, N), g = cv?.getContext?.('2d');
@@ -309,6 +348,9 @@ export class CloudSea {
     sg.globalCompositeOperation = 'source-over';
     g.globalAlpha = 0.44; g.drawImage(sc, at[0] + 7 * res, at[1] + 11 * res, at[2], at[3]);
     g.globalAlpha = 1; g.drawImage(mcv, ...at);
+    // (a far piece, SEA_FAR_STEPS: the bank and its shadow are the whole of it. Its square of the world holds
+    // hundreds of thousands of tiles, each a heap under a device pixel)
+    if (res < SEA_STEPS[0] * 0.999) return { cv, mask: mcv, x: x0, y: y0, size, px: (PIECE + 2 * APRON) ** 2, whole: true, empty: false };
     g.setTransform(res, 0, 0, res, APRON - x0 * res, APRON - y0 * res);
     // the billows: large soft forms, each lit from the upper left with its shade under it
     const bw = 200, bh = 150;
@@ -399,13 +441,15 @@ export class CloudSea {
     // (beyond the sheet there is no sea)
     const b = sheet ? { x0: Math.max(box.x0, -sheet.x), y0: Math.max(box.y0, -sheet.y), x1: Math.min(box.x1, sheet.x), y1: Math.min(box.y1, sheet.y) } : box;
     if (!(b.x1 > b.x0) || !(b.y1 > b.y0)) return out;
-    let left = budget !== null && budget < 0 ? 0 : bakes;
+    const ask = budget !== null && budget < 0;
+    let left = ask ? 0 : bakes;
     const clock = () => globalThis.performance?.now?.() ?? Date.now(), t0 = budget === null ? 0 : clock();
     const canPaint = () => left-- > 0 && (budget === null || left === bakes - 1 || clock() - t0 < budget);
     // (which picture this is: a frame paints the still part, the drift, or both, each a pass of its own)
     this.pass = (this.pass ?? 0) + 1;
     const m = ctx.getTransform?.() ?? null;
-    const tex = part !== 'still' ? driftTexture() : null;
+    // (a picture that only asks does not make the drift's texture either: it is used where it is already made)
+    const tex = part === 'still' ? null : ask ? driftMade() : driftTexture();
     const t = still ? 0 : now / 1000;
     ctx.save();
     ctx.imageSmoothingEnabled = true;
@@ -420,7 +464,8 @@ export class CloudSea {
         // The third wave's bursts: on a first load nothing was kept yet, and the sea ended in the squares' edges)
         if (part !== 'drift') {
           const x = ix * size, y = iy * size;
-          if (!this.covered(ringsOpen, x, y, size) && this.rough(ctx, ringsOpen, x, y, size, sheet)) { out.seen = true; out.rough++; }
+          // (a picture that only asks what is still to make, `budget` < 0, works nothing out: a kept body is laid, a new one waits)
+          if (!this.covered(ringsOpen, x, y, size) && this.rough(ctx, ringsOpen, x, y, size, sheet, !ask)) { out.seen = true; out.rough++; }
           if (this.standIn(ctx, ringsOpen, x, y, size)) out.seen = true;
         }
         continue;
@@ -458,10 +503,11 @@ export class CloudSea {
    * side): what stands in for a piece that is not made yet where nothing kept covers it. Returns whether any cloud
    * lies there. A few hundred samples; the little pictures are kept.
    */
-  rough(ctx, ringsOpen, x, y, size, sheet) {
+  rough(ctx, ringsOpen, x, y, size, sheet, make = true) {
     const key = `${ringsOpen}|${size}|${x},${y}`, n = ROUGH + 3, cell = size / ROUGH;
     let v = this.roughs.get(key);
     if (v === undefined) {
+      if (!make) return false;
       const cv = spare(n, n), g = cv?.getContext?.('2d');
       if (!g?.createImageData) return false;
       const F = seaField(ringsOpen), img = g.createImageData(n, n), d = img.data, [BR, BG, BB] = CLOUD.body;
