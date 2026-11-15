@@ -108,7 +108,8 @@ RESULTS (all under the unchanged conquest-guard.sh, sha 94baeb7d, one dedicated 
    with a larger flower was not recorded.
 2. **The credited yield amount** (ClaimLandYield landed 581 times, no program refusal) was not measured against the
    stores; it is tiny at these bonuses. A real-chain test that reads the Holding before/after one claim is next.
-3. **Taking another nation's land and cut-off fraying** are unit-tested only; no second player in a world.
+3. **Taking another nation's land** was shown once on a real local chain in land4 (round 5, 3 tiles); a retake back,
+   and cut-off fraying to its end, are unit-tested only.
 4. **No natural-speed world**; ×30 capture demo only. Program not deployable; tags provisional.
 5. The strip's "Territory N tiles" is the nation's total over provinces read (test villages included), not the player's.
 
@@ -156,7 +157,7 @@ Preconditions recorded before the start (no world, band agreed with KEEP + NFT, 
   the existing safe scope, but taking land needs 72 turns standing undefended: ×10 → 72 min (TTL ≈ 150 min), ×30 → 24 min
   but the March window is 3–5 s. Not run.
 
-## Round 4 (2026-11-15 19:20–): integration branch updated; the two-player retake world is DESIGNED, NOT STARTED
+## Round 4 (2026-11-15 19:20–): integration branch updated; the two-player retake world designed (run in round 5)
 **Integration branch:** canonical 98a80769 (incl. the KEEP session's arrival-tag fix de18bf02) merged into
 `claude/continuous-territory-integ-20261115` without conflict (62b1895c, pushed). The merge brings web files only
 (hostmarks.mjs, one fmap.mjs line, en-frontier.mjs, a test), so the guarded Rust results of round 3 stand (no Rust file
@@ -204,3 +205,26 @@ count), with two ordinary wallets operated by one person, no rule shortened.
 of this season rides the province envelope byte for byte and leaves with its account; another season, another owner or
 a wrong size is dropped. Guarded run 2/2 (conquest-guard.sh 94baeb7d, target 2.2 GiB, free 23.7 GiB). No canonical herald
 file touched (the test is a new file; fold.rs/Cargo.toml hunks unchanged).
+
+## Round 5 world: land4 (TEST-ONLY, ×10 capture demo + contest pair, two players, 19:39:27 → stopped by pid 22:01:23)
+Started on the user's approval (150-min limit, development scope). Preconditions recorded before the start (free 23.72
+GiB, 0 listeners on 41900–41999, band 41960/41964–41973/41975 with both sessions' OK, projection 45–70 MB world output,
+TTL 150 min = deadline 22:10, guard 110 MiB / 21 GiB). Page/launcher/program at 9cf2c42a, `.so` f2e64442…, rules 6/72/36.
+- Players drawn: A = Aster (home (2,0)), B = Fjordal (home (2,−2)); the demo's ring-4 province was (4,−2), keep held by
+  Fjordal, not heartland (the design had expected (−2,4) / Borealis — it said "unverified until the world runs").
+- **B claims:** B's host stood on tile 24 from turn 20; the land record of (4,−2) showed Fjordal 5 tiles (16, 17, 24,
+  25, 32) at bell 27 (20:10:26).
+- **Defence:** A's host (200) stood on tile 25 (Fjordal's) from turn 30 beside B's host on 24: no press for 29 turns.
+- **B leaves:** Dissolve is refused in local play (the act lane allows Join/PlaceHome/Harvest/Build/Train/Muster only;
+  the KEEP session confirmed and will note the wording for the user). B's host marched home: sealed 20:41:29 (pending
+  order → no longer a defender), departed 20:43:14.
+- **Take:** A's press began at bell 60 and counted every turn; at bell 130 (21:53:07) tiles 17, 24, 25 became Aster's
+  (Aster 3, Fjordal 2); tile 32, cut off, began to fray (count ≥ 6 by 21:58; 36 needed, not reached before the stop).
+- World output ended at 25.4 MB (guard never fired); free 23 GiB; 0 listeners after the stop; nothing deleted.
+- **Not shown / open:** A's page does not visibly draw the owner change in (4,−2) (the patch looks the same before and
+  after), and "Claimed here" counts only the village's own province, so it reads 0 for both players while each holds
+  land in (4,−2). The take is proven by the chain's land record, not by the picture. A retake back by B (another 72
+  turns) and fraying to the end are not shown.
+- Recording (not in git): `/Users/r0ze/Projects/wylls-land4-recording-20261115/` (165.8 s cut of four excerpts,
+  sha 12457573…, originals pa-000…014 with SHA256SUMS, evidence: land-record log, guard log, desk log, runner.out,
+  screenshots of both pages, README with every cut and the late-press disclosures).
