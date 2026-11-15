@@ -118,8 +118,8 @@ test('round 28: local play — a map tap says the refusal on the map and drafts 
   } finally { await ctx.close(); }
 });
 
-for (const [lang, said] of [['en', /still resolving the last turn/], ['ja', /この州はまだ前のターンの決着が済んでいません/]]) test(`round 35 (${lang}): in march mode, a tap on a tile while the province is still behind says why on the map and keeps the host in hand (it fell through to a plain tile selection, with no word)`, { timeout: 120_000 }, async () => {
-  const ctx = await browser.newContext({ viewport: { width: 1440, height: 900 }, locale: lang === 'en' ? 'en-US' : 'ja-JP', timezoneId: 'UTC' });
+for (const vp of [{ width: 1440, height: 900 }, { width: 390, height: 844 }]) for (const [lang, said] of [['en', /still resolving the last turn/], ['ja', /この州はまだ前のターンの決着が済んでいません/]]) test(`round 35 (${lang} @ ${vp.width}): in march mode, a tap on a tile while the province is still behind says why on the map and keeps the host in hand (it fell through to a plain tile selection, with no word)`, { timeout: 120_000 }, async () => {
+  const ctx = await browser.newContext({ viewport: vp, locale: lang === 'en' ? 'en-US' : 'ja-JP', timezoneId: 'UTC' });
   await NK.prepare(ctx, srv.viewer, { lang });
   const page = await ctx.newPage();
   const errors = [], posts = [];
@@ -141,7 +141,13 @@ for (const [lang, said] of [['en', /still resolving the last turn/], ['ja', /こ
     assert.ok(tiles.length >= 1, 'a passable tile in view');
     // (test-only, in this page: the host's province two turns behind — the program refuses a Depart then: NotResident —
     //  held there by the test for the tap: the page's own province reads are paused while it lasts)
-    const pt = await tileAt(page, { ...HOME, tile: tiles[0] });
+    // (the tap is on a tile a person sees: on a phone the March card stands over most of the board)
+    let pt = null;
+    for (const t of tiles) {
+      const q = await tileAt(page, { ...HOME, tile: t });
+      if (await page.evaluate(([x, y]) => document.elementFromPoint(x, y)?.tagName === 'CANVAS', [q.x, q.y])) { pt = q; break; }
+    }
+    assert.ok(pt, 'a tile in sight beside the card');
     const at = await page.evaluate(async () => {
       const { FS, invalidate } = await import('/frontier/fstate.mjs');
       const H = await import('/frontier/hud/hand.mjs');
@@ -167,9 +173,11 @@ for (const [lang, said] of [['en', /still resolving the last turn/], ['ja', /こ
     });
     assert.equal(after.compose, false, 'no order drafted');
     assert.match(String(after.note), said, `the reason is said on the map: ${after.note}`);
-    // round 37: the host's own tag already says this reason under the host: the map says it ONCE (that tag, shaking), not
-    // a second tag at the tapped tile. Read from the canvas: every drawn text of the reason, grouped by animation frame;
-    // in no frame is it drawn at two places (the old code drew two tags in every frame while the note showed)
+    // round 37: the host's own tag may already say this reason under the host: the map says it ONCE where a person can
+    // see it — that tag (shaking) when it is in sight, else the tapped tile's note (on a phone the March card may stand
+    // over the host). Read from the canvas: every drawn text of the reason, grouped by animation frame, with whether its
+    // place is in sight (the topmost element there is a canvas); in every frame exactly one place in sight says it (the
+    // old code drew two tags in sight at 1440)
     const drawn = await page.evaluate(async src => {
       const re = new RegExp(src), rows = [];
       let frame = 0, on = true;
@@ -177,18 +185,27 @@ for (const [lang, said] of [['en', /still resolving the last turn/], ['ja', /こ
       requestAnimationFrame(tick);
       const protos = [globalThis.CanvasRenderingContext2D?.prototype, globalThis.OffscreenCanvasRenderingContext2D?.prototype].filter(Boolean);
       const kept = protos.map(P => P.fillText);
-      protos.forEach((P, i) => { P.fillText = function (t, x, y, ...r) { if (re.test(String(t))) rows.push({ frame, y: Math.round(y) }); return kept[i].call(this, t, x, y, ...r); }; });
+      const seen = (g, x, y) => {
+        const cv = g.canvas;
+        if (!cv?.getBoundingClientRect) return false;
+        const b = cv.getBoundingClientRect(), m = g.getTransform().transformPoint(new DOMPoint(x, y));
+        const cx = b.left + m.x * (b.width / cv.width), cy = b.top + m.y * (b.height / cv.height);
+        return document.elementFromPoint(cx, cy)?.tagName === 'CANVAS';
+      };
+      protos.forEach((P, i) => { P.fillText = function (t, x, y, ...r) { if (re.test(String(t))) rows.push({ frame, y: Math.round(y), seen: seen(this, x, y) }); return kept[i].call(this, t, x, y, ...r); }; });
       const { invalidate } = await import('/frontier/fstate.mjs');
       invalidate('map');
       await new Promise(r => setTimeout(r, 450));
       on = false; protos.forEach((P, i) => { P.fillText = kept[i]; });
       const per = new Map();
-      for (const r of rows) { if (!per.has(r.frame)) per.set(r.frame, new Set()); per.get(r.frame).add(r.y); }
-      return { calls: rows.length, frames: per.size, most: Math.max(0, ...[...per.values()].map(x => x.size)) };
+      for (const r of rows) if (r.seen) { if (!per.has(r.frame)) per.set(r.frame, new Set()); per.get(r.frame).add(r.y); }
+      const counts = [...new Set(rows.map(r => r.frame))].map(f => per.get(f)?.size ?? 0);
+      return { calls: rows.length, frames: counts.length, fewest: Math.min(...counts), most: Math.max(0, ...counts) };
     }, said.source);
     assert.ok(drawn.calls > 0, `the reason is drawn on the map (${JSON.stringify(drawn)})`);
-    assert.equal(drawn.most, 1, `the reason is drawn at one place in each frame, not two (${JSON.stringify(drawn)})`);
-    if (process.env.SHOT_DIR) await page.screenshot({ path: `${process.env.SHOT_DIR}/maptap-note-${lang}.png` });
+    assert.equal(drawn.fewest, 1, `in every frame the reason is said at a place in sight (${JSON.stringify(drawn)})`);
+    assert.equal(drawn.most, 1, `in no frame is it said at two places in sight (${JSON.stringify(drawn)})`);
+    if (process.env.SHOT_DIR) await page.screenshot({ path: `${process.env.SHOT_DIR}/maptap-note-${lang}-${vp.width}.png` });
     assert.equal(after.hand, host, 'the host stays in hand');
     // (the only request: the page's own catch-up request for a lagging province, made by an ordinary session whenever it
     //  sees one — not an order; the test held the province behind)

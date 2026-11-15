@@ -3171,6 +3171,17 @@ export class FrontierMap {
     return why && why === n.text ? n : null;
   }
 
+  /**
+   * Whether world point (x, y) is seen on the screen and not under one of the page's own elements (a card, the action
+   * bar): a hit test at its client px. The map's own canvases count as seen.
+   */
+  seenOnScreen(x, y) {
+    try {
+      const p = this.project(x, y), doc = this.canvas.ownerDocument, e = doc?.elementFromPoint?.(p.x, p.y);
+      return !!e && (e === this.canvas || (e.tagName === 'CANVAS' && !!this.canvas.parentElement?.contains(e)));
+    } catch { return false; }
+  }
+
   /** The map's own answer to a tap (a refusal), while it shows: `{hex, text, age}` or null. */
   noteOf(F) {
     const n = F.src.note;
@@ -3310,7 +3321,12 @@ export class FrontierMap {
       // (round 37: a tap the host cannot act on now answers with this same reason — app.mjs mapTap —: the words stay here,
       // once, and this tag shakes as the refusal does; the tapped tile keeps its own mark: hostEcho, and the note below)
       const echo = this.hostEcho(F), shake = echo && !F.still ? Math.sin(echo.age / 28) * 5 * Math.exp(-echo.age / 150) : 0;
-      if (why && box) { paintTag(ctx, c.x, box.y + box.h, why, { zoom: z, tone: 'warn', place: 'below', gap: 3, size: 12, shake, anchor: c, pass }); F.whySaid = why; }
+      if (why && box) {
+        const wb = paintTag(ctx, c.x, box.y + box.h, why, { zoom: z, tone: 'warn', place: 'below', gap: 3, size: 12, shake, anchor: c, pass });
+        // (only words a person can see count as said: on a phone the March card may stand over the host's tags — the
+        // whole of this tag, its top and its foot, must be in sight)
+        if (wb && this.seenOnScreen(wb.x + wb.w / 2, wb.y + 1) && this.seenOnScreen(wb.x + wb.w / 2, wb.y + wb.h - 1)) F.whySaid = why;
+      }
       // what the pale line is, said beside it for the first seconds of a selection: the near reach, and that a march may go further
       const age = F.fx - A.t0, near = reachSteps(A.actor.stamina), top = A.actor.march?.ok && reachSteps(A.actor.stamina, 99) > near ? reachTop(A) : null;
       if (top && (F.still || age < REACH_WORDS_MS)) paintTag(ctx, top.x, top.y, reachText(near), { zoom: z, tone: 'reach', place: 'above', gap: 7, size: 12, alpha: F.still ? 1 : Math.max(0, Math.min(1, (REACH_WORDS_MS - age) / 500)), anchor: top, pass, spare: true });
