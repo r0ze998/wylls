@@ -5,9 +5,9 @@ No secrets in this file: test keys were memory-only and are gone; no credentials
 ## 1. Where the work stands
 - Canonical tree (absolute): `/Users/r0ze/Projects/wylls-codex-wide-inventory-20261109`
 - Branch: `codex/wide-conquest-lifecycle-20261109`; remote `origin` = github.com/r0ze998/wylls
-- HEAD at this checkpoint: `2721acd3adc6d9a2e3b1564c2f85353a6870ff56` (round 40); `git ls-remote origin
+- HEAD at this checkpoint: `7e41786c051382f1d5f71ef3c11b95bec0532436` (round 41); `git ls-remote origin
   refs/heads/codex/wide-conquest-lifecycle-20261109` returned the same SHA (checked 2026-11-15). The handover note's
-  first version is e2245e0b (on top of round 35, 67bf34df); updated f71c249b (after 36), 3c2992df (after 37), fbeb72c2 (after 38), 08de6ea7 (after 39) and after 2721acd3 (40).
+  first version is e2245e0b (on top of round 35, 67bf34df); updated f71c249b (after 36), 3c2992df (after 37), fbeb72c2 (after 38), 08de6ea7 (after 39), 6cbd12d4 (after 40) and after 7e41786c (41).
 - My recent commits (oldest → newest): 427c4963 (33b ready-again estimate), 35d22713 (33c: charge at settle on b+1),
   8e385098 (34: English for hand.mjs return texts, '{0} can no longer be used', expedition-map clock tests),
   67bf34df (35: with the March card open, a map tap the host cannot act on says why and keeps the host in hand),
@@ -16,7 +16,8 @@ No secrets in this file: test keys were memory-only and are gone; no credentials
   only when the host's reason tag is in sight — on a phone the March card covers it, and 31fde707 showed the reason
   nowhere on the map there; fixed with a hit test), 37a3019a (39: a sentence for 49 page codes and the relay's 2
   request codes; 鐘 → ターン in the wide details line; 精算 → 結果を受け取る in the siege reservation card), 2721acd3
-  (40: no "settle" in the action bar's English; a test for it).
+  (40: no "settle" in the action bar's English; a test for it), 7e41786c (41: the "no cooperation board" answer is read
+  to its end — it was reported as an aborted request and failed 72 of 78 PC/phone screen scenes).
 - Work copy (scratch, not a repo): `<scratchpad>/canon-copy-round18` — tests are run there against the canonical
   node_modules-free copy; patches are made HEAD-based and applied to canonical with `git apply --cached` + working tree.
 
@@ -45,13 +46,14 @@ NFT session paths + hashes and wait for OK.
 - Do not delete anything: scratch trees, exports, recordings and evidence (rec/live23…live32, SHA256SUMS) are evidence.
   Deletion needs the user's explicit approval. Videos never go to GitHub.
 
-## 5. The known unit failures: 8 since round 39 (round 40: 2061 pass / 8 fail / 1 skipped, 2070 tests)
+## 5. The known unit failures: 7 since round 41 (2067 pass / 7 fail / 1 skipped, 2075 tests)
 Command (work copy, permutation-gateway): `node --test test/web-lang.test.mjs test/frontier-local-play-*.test.mjs
 test/web-frontier-*.test.mjs` (2069 tests). Environment since round 39: the gateway's declared SDK
 (@magicblock-labs/ephemeral-rollups-sdk 0.17.2) is linked into the scratch work copy from an existing install with the
 same package-lock (nothing downloaded; canonical has no node_modules). With it, agent/errors/relay/chainio/delegation/
 fplay-profile load; without it they fail at import (the older 17/18 counts were measured without it).
-- Work-copy only: frontier-local-play-conquest-orders.test.mjs (file-level: a module absent from the scratch copy).
+- Work-copy only, resolved: frontier-local-play-conquest-orders.test.mjs needed docs/integration/
+  CLAUDE-CONQUEST-RESERVATION-VECTORS-20261112.json (tracked in canonical); copied into the scratch copy, it passes 6/6.
 - Other lanes' work (not mine): the page-codes test (23 codes left, all the expedition lane's: fexpedition*,
   seal-wide.mjs); words "internal words" (only fexpedition-return.mjs's 精算 now); outbound "boundary control" (Codex
   lane); pretake-frame ("film's frame"); resident-home (NFT viewer records — restricted area, do not resume); web-lang
@@ -64,7 +66,9 @@ fplay-profile load; without it they fail at import (the older 17/18 counts were 
 - Screens (browser, keyless fixture, work copy): conquest-press 10/10 and local-march-maptap 3/3 pass; fixtures 7 and
   interaction 9 failures are the same on base and rounds 36–37. Two interaction tests flake only in the long full run
   ("the phone sheet", "the real turn @ 390", "a mouse drag that ends off the handle"): alone they pass on base and
-  change; frontier.screen.mjs cannot load here (axe-core is not installed in the shared screens
+  change. frontier.screen.mjs now runs (work copy: axe-core 4.13.0 and playwright-core 1.58.2 linked from existing
+  installs, nothing downloaded): 74/78 since round 41; left: the spectator's "All" button 38 px tall at 360/390 (phone,
+  deferred) and two scenes that time out in the full run and pass alone; frontier.screen.mjs cannot load here (axe-core is not installed in the shared screens
   node_modules) — not run.
 
 ## 6. Fixture versus a real world: what was seen where
@@ -86,7 +90,8 @@ fplay-profile load; without it they fail at import (the older 17/18 counts were 
    says the same reason a third time, below the map — by design (the bar is the host's card), not changed.
 3. Remaining web-lang failures in my files only (leave fexpedition-return and its stale entries to their owner).
 4. When disk and slot allow (≥ 21 GiB, other session's all-clear): a short natural-preset world to see 33c–38 live.
-5. PC first (owner, 2026-11-15): the phone March-card layout is deferred. Candidates for the next ordinary map/UI round:
+5. PC first (owner, 2026-11-15): the phone March-card layout and the spectator "All" button height are deferred.
+   Unverified: the NFT session saw unidentified 404s in its worlds 4–5; a 404 on /coop/config is one guess. Candidates for the next ordinary map/UI round:
    (round 40 did the "settle" entries); the stale English entries the play files no longer use, once their
    owner confirms; on a phone the open March card covers most of the board (destinations only in a strip above it):
    a framing/compact-card design question, not yet changed.
