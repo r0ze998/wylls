@@ -97,3 +97,26 @@ verified. Heavy builds and worlds stay serial, in this session, after a report (
   9cf2c42a, so the land4 binaries stay valid. Launcher still NOT started (permission check refused it earlier).
 - Product state: these are display/wording fixes on the ordinary path; the product is not complete (see first-playable
   open items above and the ①–⑳ table).
+
+## 2026-11-16 08:15 JST — web-lang (b)/(c) fixed; play2 ops v2 (fail-closed), not started
+- 5730d50b: the expedition return card's words are `L`…`` in `hud/hand.mjs` (`returnWords`); `fexpedition-return.mjs`
+  holds ids only (round 42's option 1); unused `次に必要な確認` removed. web-lang 22/22 (no known failures left),
+  expedition-return 13/13, glossary 16/16. Ordinary-only subset (183 files): 1739 tests, 1738 pass, **0 fail**, 1 skipped,
+  0 todo. Not run (restricted mix): `codex-route-preview.screen.mjs` (renders the card beside the boundary editor and a
+  prize stub) — the card's on-screen rendering is NOT screen-verified, only unit-tested.
+- Ops v2 (not in git; `/Users/r0ze/Projects/wylls-play2-land-ops-20261116/v2/`): play2-start.sh (15623bab), play2_ops.py
+  (e7f292d9), tests/test_play2_ops.py (4e159e44); START-PLAN.txt (2f1c92d9); v1 marked SUPERSEDED (kept).
+  - fail-closed: guard + watchdog armed against the starter's pid before the launcher exists (exec keeps pid and start
+    time); not armed in 20 s → nothing launched. Each one stops the launcher if the other disappears.
+  - every signal re-checks pid + start time + exact `--root`/`--data` (or the starter before exec) right before it.
+  - total of all worlds + launcher log + ops logs < 110 MiB; free floor 21 GiB checked with or without a world; limits
+    can only tighten; watchdog SIGINT T0 + 145 min, SIGTERM leftovers T0 + 150 min.
+  - all 7 binaries and the export commit pinned by FULL hash.
+  - Tests (dummy `sleep` targets only, no launcher/port/world): 11/11 — arming and clamping, two worlds of 60 MiB
+    together over the cap, the floor with no data dir, refusal for another data dir and for a reused pid, re-check before
+    signal, deadline SIGINT, deadline clamped to the window, guard gone / watchdog gone, target exit ends both. Starter:
+    `--preflight-only` ok on the real files (08:11); a wrong pin stops the preflight; an ops module that cannot arm stops
+    before exec (copy with the launcher line neutralised).
+  - NOT exercised: the real arm → exec → launcher path (it would start the launcher), the launcher's own children (runner,
+    herald, relays) are stopped by the launcher's close path, not by these scripts; a SIGTERM fallback leaves any child
+    that outlives its launcher (seen never so far) to be reported, not killed.
