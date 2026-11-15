@@ -1,0 +1,79 @@
+// The guide on the map (UI plan G1, G2; Civ VII's advisors): the onboarding
+// step points at its target — the nearest barbarian camp for the first
+// march (with a ready host and the destination filled in, one press from
+// "seal and depart"), the holding for the build and the scouts, free land
+// for settling — and the viewer chooses how loud the guide is:
+//   all    the guide card, its map highlight, every to-do item
+//   warn   no card, no highlight; the to-do pill only for warnings
+//   off    no card, no highlight, no pill (the rail's list stays)
+import { L } from '../../lang.mjs';
+import { activeHolding } from '../fstate.mjs';
+import { onboardingState, factsOf } from '../onboarding.mjs';
+import { hostRows } from '../screens/host.mjs';
+import { SCOUT, SETTLER } from '../fland.mjs';
+import { territoryEnabled } from '../territory.mjs';
+import { ringOf } from '../fgeo.mjs';
+import { conquestOn } from './keephand.mjs';
+import { conquestObjective } from '../screens/conquestguide.mjs';
+
+export const GUIDE_LEVELS = Object.freeze(['all', 'warn', 'off']);
+export const GUIDE_TEXT = { all: () => L`すべて`, warn: () => L`警告だけ`, off: () => L`オフ` };
+/** The to-do kinds that are warnings (shown at "warn"). */
+export const WARN_KINDS = Object.freeze(new Set(['incoming', 'dormant', 'full', 'settle']));
+
+export const guideLevel = FS => (GUIDE_LEVELS.includes(FS.ui?.guide) ? FS.ui.guide : 'all');
+
+const dist = (a, b) => { const dq = a.q - b.q, dp = a.p - b.p; return (Math.abs(dp) + Math.abs(dq) + Math.abs(dp + dq)) / 2; };
+
+/**
+ * The current step's target: `{step, kind, p, q, tile?, host?}` or null —
+ * `march` the nearest loaded camp and the first ready host (not a scout or settler),
+ * `build` / `scout` the active holding.
+ */
+export function guideTarget(FS) {
+  if (guideLevel(FS) !== 'all' || FS.mode !== 'play') return null;
+  let st;
+  try { st = onboardingState(factsOf(FS), FS.ui?.dismissed ?? [], FS.clock ?? null); } catch { return null; }
+  if (st.dismissed) return null;
+  const step = st.current, h = activeHolding(FS);
+  // joining is choosing a nation (owner decision V2): the guide never points at land to choose
+  if (!h) return null;
+  // a conquest season (program version 3; S1 is 4): the drawer teaches the seven conquest steps, so the map points
+  // where that step is done — the village for build, train and muster — and nowhere for the march and the hold, whose
+  // keep the drawer names. It followed the instant-home steps of M1 instead, and on S1 the map said "the barbarian
+  // camp" and "scout from here" while the drawer said "train" (workstream 07, claim 5)
+  if (conquestOn(FS) && !territoryEnabled(FS)) {
+    let o = null;
+    try { o = conquestObjective(FS); } catch { return null; }
+    const kind = o?.id === 'build' ? 'build' : o?.id === 'train' || o?.id === 'muster' ? o.id : null;
+    return kind ? { step: kind, kind, p: h.p, q: h.q, tile: h.tile } : null;
+  }
+  if (territoryEnabled(FS)) {
+    const building = (h.queue ?? []).some(q => q && q.kind === 1 && Number(q.doneAt) > (FS.chain?.now?.() ?? 0));
+    const kind = step === 'build' && building ? 'train' : step;
+    if (kind === 'train' || kind === 'muster') return { step, kind, p: h.p, q: h.q, tile: h.tile };
+    if (step === 'march' || step === 'claim') return null;
+  }
+  if (step === 'build') return { step, kind: 'build', p: h.p, q: h.q, tile: h.tile };
+  if (step === 'scout') return { step, kind: 'scout', p: h.p, q: h.q, tile: h.tile };
+  if (step === 'march') {
+    let best = null;
+    for (const env of FS.provinces?.values() ?? []) {
+      const pr = env.province, c = pr?.camp;
+      if (c?.state !== 1) continue;
+      const d = dist(pr, h) * 100 + ringOf(pr.p, pr.q);
+      if (!best || d < best.d) best = { d, p: pr.p, q: pr.q, tile: c.tile };
+    }
+    const host = hostRows(FS).find(r => r.state === 1 && !r.inTransit && !r.pending && r.unit !== SCOUT && r.unit !== SETTLER) ?? null;
+    return best ? { step, kind: 'march', p: best.p, q: best.q, tile: best.tile, host: host ? String(host.id) : null } : null;
+  }
+  return null;
+}
+
+/** The guide card's button for a target. */
+export function goText(t) {
+  return { train: L`訓練する兵を選ぶ`, muster: L`軍勢を編成する`, march: t.host ? L`この野営地へ進軍を準備する` : L`野営地を地図で見る`, build: L`建設をひらく`, scout: L`村と軍勢を見る` }[t.kind] ?? '';
+}
+
+/** The map's label at the target. */
+export const guideLabel = t => ({ train: L`ガイド：ここで兵を訓練`, muster: L`ガイド：ここで軍勢を編成`, march: L`ガイド：蛮族の野営地`, build: L`ガイド：あなたの村`, scout: L`ガイド：ここから探索` }[t.kind] ?? L`ガイド`);

@@ -1,0 +1,184 @@
+[
+  {
+    "path": "demo/wylls-trailer/wylls-trailer-30s-share.mp4",
+    "sha256": "5830178a7e3c7fb31687f5d44ebec0775ac65d990e06c55b6f4b4fb525d9b24d",
+    "source_sha256": "5830178a7e3c7fb31687f5d44ebec0775ac65d990e06c55b6f4b4fb525d9b24d",
+    "bytes": 22620344,
+    "note": "exact bytes"
+  },
+  {
+    "path": "demo/wylls-trailer/wylls-trailer-30s.mp4",
+    "sha256": "9fcb6df342d3f5c416a3d099228be847e40c85d5febc673f891715faf8d0c43f",
+    "source_sha256": "9fcb6df342d3f5c416a3d099228be847e40c85d5febc673f891715faf8d0c43f",
+    "bytes": 53859329,
+    "note": "exact bytes"
+  },
+  {
+    "path": "docs/integration/CLAUDE-CONQUEST-RESERVATION-REAL-EVIDENCE-20261112.json",
+    "sha256": "01089ba041dacbc2760bc0bbb71218faa3e1b7e13a28d1a46d033e2d98403e47",
+    "source_sha256": "01089ba041dacbc2760bc0bbb71218faa3e1b7e13a28d1a46d033e2d98403e47",
+    "bytes": 23908,
+    "note": "exact bytes"
+  },
+  {
+    "path": "docs/integration/CLAUDE-CONQUEST-RESERVATION-REAL-EVIDENCE-CAPTURE-STAGES-20261112.json",
+    "sha256": "668633208d0491e99a41bbfb67ae2f9280035a1af2423ce8db3fa72a76ee8431",
+    "source_sha256": "668633208d0491e99a41bbfb67ae2f9280035a1af2423ce8db3fa72a76ee8431",
+    "bytes": 49413,
+    "note": "exact bytes"
+  },
+  {
+    "path": "docs/integration/CLAUDE-CONQUEST-RESERVATION-REAL-EVIDENCE-NOTAPPLIED-STAGES-20261112.json",
+    "sha256": "6f7ce92890eda2afc5a8ab935daa72099027fab1305817137cd02f2cee8cba52",
+    "source_sha256": "6f7ce92890eda2afc5a8ab935daa72099027fab1305817137cd02f2cee8cba52",
+    "bytes": 35812,
+    "note": "exact bytes"
+  },
+  {
+    "path": "docs/integration/CLAUDE-CONQUEST-V2-CLI-PREPARED-EVIDENCE-20261112.json",
+    "sha256": "4c79b8935939d567ebf30f8892ac5d83330cb3804c72f56f06888d1b324d811f",
+    "source_sha256": "cccd46ad8437406f4d6c6b28eff93243025f236eb49c67157d64dcaac25e1848",
+    "bytes": 21788,
+    "note": "local scratch path redacted"
+  },
+  {
+    "path": "archive-contents/c-before-files/permutation-server/web/frontier/flocalplay-session.mjs",
+    "sha256": "4cc8f50df280d08589129d570390cb2e3b36b54e42256ad7b44f42988d371e00",
+    "source_sha256": "4cc8f50df280d08589129d570390cb2e3b36b54e42256ad7b44f42988d371e00",
+    "bytes": 8765,
+    "note": "exact bytes"
+  },
+  {
+    "path": "archive-contents/c-before-files/permutation-server/web/frontier/controller.mjs",
+    "sha256": "91c220d720915d13a2a75c5cc0935800c6ae56497e968511ceb3f7c9168c7c2a",
+    "source_sha256": "91c220d720915d13a2a75c5cc0935800c6ae56497e968511ceb3f7c9168c7c2a",
+    "bytes": 166514,
+    "note": "exact bytes"
+  },
+  {
+    "path": "archive-contents/c-before-files/permutation-server/web/frontier/flocalplay.css",
+    "sha256": "20f7465a3607169b77204cff7acf8b2a8422ffbf5cd8b3d4567402b62f45027b",
+    "source_sha256": "20f7465a3607169b77204cff7acf8b2a8422ffbf5cd8b3d4567402b62f45027b",
+    "bytes": 8758,
+    "note": "exact bytes"
+  },
+  {
+    "path": "archive-contents/c-before-files/permutation-server/web/frontier/hud/turnlist.mjs",
+    "sha256": "5830e288a1a878e704b1b3cc0fff68e55d41c07a6a7c8d53fb63bc6891f4b743",
+    "source_sha256": "5830e288a1a878e704b1b3cc0fff68e55d41c07a6a7c8d53fb63bc6891f4b743",
+    "bytes": 8979,
+    "note": "exact bytes"
+  },
+  {
+    "path": "archive-contents/c-before-files/permutation-server/web/frontier/hud/milestones.mjs",
+    "sha256": "62acbef4ea3852188b95f74184575041d89e87eccd9b9b7d84e9ee48df30ef74",
+    "source_sha256": "62acbef4ea3852188b95f74184575041d89e87eccd9b9b7d84e9ee48df30ef74",
+    "bytes": 5439,
+    "note": "exact bytes"
+  },
+  {
+    "path": "archive-contents/c-before-files/permutation-server/web/frontier/hud/keephand.mjs",
+    "sha256": "6d8573935750858cb5baef853772f14330455e8f0d1d8e20c945bbb5ccc319a1",
+    "source_sha256": "6d8573935750858cb5baef853772f14330455e8f0d1d8e20c945bbb5ccc319a1",
+    "bytes": 18473,
+    "note": "exact bytes"
+  },
+  {
+    "path": "archive-contents/c-before-files/permutation-server/web/frontier/hud/guide.mjs",
+    "sha256": "9eddca3c3c1b9e7d4994b7c22acef12bfe2552e1fb8e82927da42b292235c051",
+    "source_sha256": "9eddca3c3c1b9e7d4994b7c22acef12bfe2552e1fb8e82927da42b292235c051",
+    "bytes": 4741,
+    "note": "exact bytes"
+  },
+  {
+    "path": "archive-contents/c-before-files/permutation-server/web/frontier/hud/hand.mjs",
+    "sha256": "84781fb5fb6d11911dc88c4db432e5f30f5796d3bbc3857558b74a2bfce07aff",
+    "source_sha256": "84781fb5fb6d11911dc88c4db432e5f30f5796d3bbc3857558b74a2bfce07aff",
+    "bytes": 96356,
+    "note": "exact bytes"
+  },
+  {
+    "path": "archive-contents/c-before-files/permutation-server/web/frontier/screens/holding.mjs",
+    "sha256": "e117180baa47969f21b01f7720043d0a1128705d81a26356e3d1ad232548843e",
+    "source_sha256": "e117180baa47969f21b01f7720043d0a1128705d81a26356e3d1ad232548843e",
+    "bytes": 25589,
+    "note": "exact bytes"
+  },
+  {
+    "path": "archive-contents/c-before-files/permutation-server/web/frontier/screens/conquestguide.mjs",
+    "sha256": "eae03ba9b69761a85861ba166f0ff5e173eee409ff4c972750d38487074ca93a",
+    "source_sha256": "eae03ba9b69761a85861ba166f0ff5e173eee409ff4c972750d38487074ca93a",
+    "bytes": 16531,
+    "note": "exact bytes"
+  },
+  {
+    "path": "archive-contents/c-before-files/permutation-server/web/lang/en-frontier-hand.mjs",
+    "sha256": "df6432c72799e20bac8f69bdb9b0e5c791c65decc021655326ba38cec511ee6c",
+    "source_sha256": "df6432c72799e20bac8f69bdb9b0e5c791c65decc021655326ba38cec511ee6c",
+    "bytes": 53500,
+    "note": "exact bytes"
+  },
+  {
+    "path": "archive-contents/c-before-files/permutation-server/web/lang/en-frontier-play.mjs",
+    "sha256": "2c0581b2193eceb3fbbb754c7311ba803ffa1dee21931c34ba31c121e7592856",
+    "source_sha256": "2c0581b2193eceb3fbbb754c7311ba803ffa1dee21931c34ba31c121e7592856",
+    "bytes": 171701,
+    "note": "exact bytes"
+  },
+  {
+    "path": "archive-contents/c-before-files/permutation-gateway/test/web-frontier-conquest-hand.test.mjs",
+    "sha256": "576a4e5985ee842b2c2131a152ec5760f7e3733a390142ca449a72863fe30a87",
+    "source_sha256": "576a4e5985ee842b2c2131a152ec5760f7e3733a390142ca449a72863fe30a87",
+    "bytes": 27571,
+    "note": "exact bytes"
+  },
+  {
+    "path": "archive-contents/c-before-files/permutation-gateway/test/web-frontier-proto-hand.test.mjs",
+    "sha256": "8d02b3fff447d993bc00c14de1e073b55205a9ea7290ec406aba22b47b52c6bc",
+    "source_sha256": "8d02b3fff447d993bc00c14de1e073b55205a9ea7290ec406aba22b47b52c6bc",
+    "bytes": 127661,
+    "note": "exact bytes"
+  },
+  {
+    "path": "archive-contents/c-before-files/permutation-gateway/test/web-frontier-conquest-ui.test.mjs",
+    "sha256": "2b5773313b9057a59f4dd34a99801fb89962a59ee26bce1e723c27cd653b85d3",
+    "source_sha256": "2b5773313b9057a59f4dd34a99801fb89962a59ee26bce1e723c27cd653b85d3",
+    "bytes": 10722,
+    "note": "exact bytes"
+  },
+  {
+    "path": "archive-contents/c-before-files/permutation-gateway/test/web-frontier-hand.test.mjs",
+    "sha256": "414b6a750732fc2bffe1db2635073d2b83e014f90a51f84bfea03efbe8c53fd4",
+    "source_sha256": "414b6a750732fc2bffe1db2635073d2b83e014f90a51f84bfea03efbe8c53fd4",
+    "bytes": 38003,
+    "note": "exact bytes"
+  },
+  {
+    "path": "docs/integration/CLAUDE-FIRST-SESSION-UX-C-INTEGRATION-20261113/c-before-files.portable.tar",
+    "sha256": "a1813e29dc5a62084ec566378a42dd6c0275b48f1f774491521b816e2d27d858",
+    "source_sha256": "4b9535a7f436f6528a7d8c882b45efa3c705674bccc36a12a6d6ed70089a85a0",
+    "bytes": 808960,
+    "note": "repacked: same 16 source contents; removed AppleDouble and host owner/time metadata"
+  },
+  {
+    "path": "docs/integration/evidence-fable-conquest-v2/res-real-evidence-v2codec-e6bfe8c2-capture.json",
+    "sha256": "ed27b6002eb8b7d8fcfd8b1c6901deaf97261692a5515637aae8ad3491b6ff3c",
+    "source_sha256": "ed27b6002eb8b7d8fcfd8b1c6901deaf97261692a5515637aae8ad3491b6ff3c",
+    "bytes": 49413,
+    "note": "exact bytes"
+  },
+  {
+    "path": "docs/integration/evidence-fable-conquest-v2/res-real-evidence-v2codec-e6bfe8c2-notapplied.json",
+    "sha256": "75d1454cf3cd8e56aa0c7a5fb7f4ed8ffb12e6c2a820248705a5612d6024d53f",
+    "source_sha256": "75d1454cf3cd8e56aa0c7a5fb7f4ed8ffb12e6c2a820248705a5612d6024d53f",
+    "bytes": 35812,
+    "note": "exact bytes"
+  },
+  {
+    "path": "README.md",
+    "sha256": "98972b6036dc52dd28e1d48eefe324ed3fbffd5520c0671232a2eab7266f640e",
+    "source_sha256": "98972b6036dc52dd28e1d48eefe324ed3fbffd5520c0671232a2eab7266f640e",
+    "bytes": 1352,
+    "note": "exact bytes"
+  }
+]
