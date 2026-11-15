@@ -72,7 +72,7 @@ no node_modules); docs/integration/CLAUDE-CONQUEST-RESERVATION-VECTORS-20261112.
   deferred) and two scenes that time out in the full run and pass alone; frontier.screen.mjs cannot load here (axe-core is not installed in the shared screens
   node_modules) — not run.
 
-## 5b. Latest-HEAD build and the next world: NOT DONE (state at 46be2f16, 2026-11-15)
+## 5b. Latest-HEAD build: NOT DONE (disk); live33 on OLD binaries: DONE (2026-11-15 12:09–13:02 JST)
 - No HEAD build was made and no world was started after live32. Reason: disk. Free 21.65 GiB; a world must start at
   ≥ 21 GiB free (guard: 110 MiB output / free < 21 GiB, unchanged); a HEAD build needs ~3–4 GiB (runner + herald alone
   took 2.38 GiB in scratch target-resident-fix), so build + world needs ~24.5–25 GiB free (short ~3–3.5 GiB).
@@ -81,10 +81,19 @@ no node_modules); docs/integration/CLAUDE-CONQUEST-RESERVATION-VECTORS-20261112.
 - Since live32's export (427c4963) HEAD changed only permutation-server/web (16 files): no Rust, program or gateway
   source. The pinned binaries (runner c12 d6bc822b, herald 348ab53c, …; built 2026-11-14) are NOT a HEAD build: their
   herald sources (fold.rs, lib.rs, main.rs) and Cargo files differ from committed HEAD.
-- Prepared, NOT RUN: live33 — HEAD page/launcher export + those OLD binaries, x30 synthetic clock, TTL 60, ports
-  41940 / 41944–41953 / desk 41961, memory-only keys: one host moves, arrives, recovers, moves again (same host id), then
-  holds a keep 72 turns (not shortened). Scripts in the scratchpad (live33/live33-run.sh, live33-guard.py; approval flag
-  required). The NFT session confirmed the slot clear and will start nothing on 41900–41999 until a cleanup report.
+- live33, run with the owner's approval as a SEPARATE ordinary-play check (not a build reproduction): export of
+  canonical 2cd30f23 (page/gateway identical to 46be2f16) + those OLD pinned binaries; synthetic x30 clock (about
+  20 s per turn; the 72-turn hold not shortened); TTL 60; ports 41940 / 41944–41953 / desk 41961; memory-only keys;
+  one operator by hand (32 presses, each after a looked-at screenshot; 2 positional misses disclosed, nothing sent).
+  Result, from the herald's own records (host 151736899600384, the same id on both legs): formed turn 7–8 →
+  Depart 1 at 23 (46 @ 24) → arrived unopposed at 26 (48 @ 26, ready 27) → recovered to 74 at turn 52 as the card
+  said → Depart 2 at 63 (12 @ 64) → arrived on Borealis's keep (Province −2,4) at 70, fought (0 @ 70, ready 72) →
+  held it → "Aster took the keep of province −2,4 from Borealis (turn 141) — Your nation gained it" (provinces held
+  Aster 5 → 6). Round 33c's stamina rules held in every row.
+- Cleanup by pid at 13:02 (desk quit, launcher SIGINT → stopped.json launcher-closing, guard exited); 0 listeners on
+  41900–41999; no world process or headless browser; free 21.49 GiB; guard never fired (output ≤ 17 MiB).
+- Evidence (scratchpad, sealed SHA256SUMS 1d06c25c): rec/live33 (notes, screenshots, desk log, host-entries.txt,
+  guard log, run script). Limits: old binaries; x30 synthetic; no second player defended or retook the keep; no retake.
 - Disk: a read-only survey of regenerable caches (nothing deleted; kept locally, not in the repository) found ≥ 3.5 GiB
   of download/update caches outside WYLLS; freeing any of it is the owner's decision, not this lane's.
 
