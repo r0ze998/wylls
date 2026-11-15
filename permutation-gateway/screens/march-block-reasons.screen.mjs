@@ -83,10 +83,9 @@ const REASONS = [
 //       check's (hud/subject.mjs marchCheck); the two are the same words only for NotResident and HostBusy
 //   D2: a forming host is no actor on the map (map/actions.mjs actorsAt skips state 2): the tap selects the tile, drops
 //       the host from the hand and says nothing — the fall-through round 35 fixed for NotResident
-const KNOWN = process.env.STRICT ? {} : {
-  Stamina: 'D1 (lane B doc)', Resting: 'D1 (lane B doc)', MarchSlots: 'D1 (lane B doc)', HostInTransit: 'D1 (lane B doc)', NotFinal: 'D1 (lane B doc)',
-  Forming: 'D2 (lane B doc)',
-};
+// Fixed on the integration branch (2026-11-16): D1 in map/actions.mjs (the tag says marchCheck's sentence), D2 in app.mjs
+// mapTap (the march check answers before the actor test). Every reason is now an ordinary test.
+const KNOWN = {};
 const JA = /[぀-ヿ㐀-鿿]/;
 const BANNED_EN = /\b(settle|settled|settles|settling|keeper|keepers|beacon|beacons|seed|seeds)\b/i;
 

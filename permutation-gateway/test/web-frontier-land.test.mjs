@@ -238,7 +238,8 @@ test('the hosts that act for a selected tile: who may march, who may explore, an
   assert.ok(early.every(a => !a.march.ok && a.march.blocks.includes('NotFinal')));
   assert.equal(early[1].explore.ok, false);
   setLang('ja');
-  assert.equal(ACT.blockText(early[0]), '村がまだ確定していません');
+  // (lane B D1, 2026-11-16: the tag says the March check's own sentence, the one the tap's refusal says, so the map says it once)
+  assert.equal(ACT.blockText(early[0]), '村が確定してからです');
   assert.equal(ACT.blockText(actors[0]), '');
   assert.equal(ACT.actorText(actors[0]), '槍兵 600');
   setLang('en');

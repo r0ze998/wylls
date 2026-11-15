@@ -1154,8 +1154,12 @@ function mapTap(hit) {
   }
   // (a Scout's tiles are being picked: a tap elsewhere is answered, the picking stays)
   if (hand.popOf(FS, sub) === 'explore') { mapNote(hit, () => L`斥候のとなりで光っているマスだけ調べられます`); return true; }
-  if (!A || !sub.host) return false;
+  if (!sub.host) return false;
   const mcNow = hand.marchCheck(FS, sub.host);
+  // (lane B D2, 2026-11-16: a forming host is no actor on the map — map/actions.mjs actorsAt —, so with its March card
+  //  open the march check answers first; the tap fell through to a plain selection without a word and dropped the host)
+  if (!mcNow.ok && hand.popOf(FS, sub) === 'march') { mapNote(hit, () => mcNow.text); return true; }
+  if (!A) return false;
   if (!mcNow.ok) {
     // (round 35: with its March card open the tap is a destination: why the host cannot set out — the province still
     //  resolving the last turn, stamina, rest — is said on the map and the host stays in hand. It fell through to a
