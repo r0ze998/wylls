@@ -17,6 +17,14 @@ fn main() {
         if second.is_some() && demo.is_none() {
             return Err("--contest-pair is accepted only together with --capture-demo".into());
         }
+        // the TEST-ONLY land lane's option likewise (only with the capture demo's synthetic clock; feature localnet-land-play)
+        #[cfg(feature = "localnet-land-play")]
+        let (rest, land) = itest::land_lane::take_land_args(rest)?;
+        #[cfg(not(feature = "localnet-land-play"))]
+        let land = false;
+        if land && demo.is_none() {
+            return Err("--land-preview is accepted only together with --capture-demo".into());
+        }
         let o = play::parse_args(rest)?;
         if second == Some(o.player_wallet) {
             return Err("--second-wallet must be another wallet than --player-wallet".into());
@@ -43,12 +51,25 @@ fn main() {
                 drop(c);
                 itest::contest_pair::pair_metadata(&mut world.metadata, &b);
             }
+            #[cfg(feature = "localnet-land-play")]
+            if land {
+                itest::land_lane::land_metadata(&mut world.metadata);
+            }
             println!("{}", world.metadata);
             let (stop_tx, mut stop_rx) = tokio::sync::watch::channel(false);
             let keeper_rx = stop_rx.clone();
             let mut hold_rx = stop_rx.clone();
             let state = world.state.clone();
             let wallet = o.player_wallet;
+            #[cfg(feature = "localnet-land-play")]
+            if land {
+                let (st, a, rx) = (world.state.clone(), world.a.clone(), stop_rx.clone());
+                tokio::spawn(async move {
+                    if let Err(e) = itest::land_lane::run(st, a, rx, |v| println!("{v}")).await {
+                        println!("{}", serde_json::json!({"schema": itest::land_lane::LAND_SCHEMA, "land_step": "stopped", "test_only": true, "why": e}));
+                    }
+                });
+            }
             let task = tokio::spawn(async move {
                 let world = std::sync::Arc::new(world);
                 // (the second player's village joins the same keeper loop once its own PlaceHome lands)

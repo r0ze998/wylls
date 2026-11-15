@@ -47,6 +47,10 @@ wide-index-read-experimental = ["wide-world-experimental", "findex/wide-records-
 # local-play chain's four synthetic first-world accounts (src/local_play.rs).
 # Off by default; no new dependency.
 local-play-bootstrap = []
+# Opt-in, TEST-ONLY: the land preview's land records (PSFLAND1) kept as
+# captures and served inside the province envelope as `land`. Off by default:
+# the default build drops them like any unknown account. No new dependency.
+land-preview = ["frontier-abi/land-preview"]
 
 [dev-dependencies]
 # W3-D (request R4): `tests/real_chain.rs` drives the keeper over the

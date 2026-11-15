@@ -581,6 +581,10 @@ impl Fold {
             if self.capture_wide_post(&key, a.as_ref(), tx) {
                 continue;
             }
+            #[cfg(feature = "land-preview")]
+            if self.capture_land_post(&key, a.as_ref(), tx) {
+                continue;
+            }
             let new = a.as_ref().and_then(|a| {
                 (a.owner == self.cfg.program
                     && a.data.len() >= 16
@@ -867,6 +871,27 @@ impl Fold {
         self.st.accounts.get(a)
     }
 
+    /// Land preview (feature `land-preview`): a program-owned land record of
+    /// this season (`PSFLAND1`, short header) is kept as a capture of its
+    /// own, outside the account kinds and their indexes and diffs; it rides
+    /// the province envelope as `land`. `true` when `key` was one (handled).
+    #[cfg(feature = "land-preview")]
+    fn capture_land_post(&mut self, key: &[u8; 32], a: Option<&fclient::ports::Account>, tx: &TxRecord) -> bool {
+        use frontier_abi::land_preview::land as LD;
+        let is_land = |d: &[u8]| d.len() == LD::SIZE && d[..8] == LD::MAGIC && season_of(d) == Some(self.cfg.season_id);
+        match a {
+            Some(acc) if acc.owner == self.cfg.program && is_land(&acc.data) => {
+                self.st.accounts.insert(*key, Capture { slot: tx.slot, tx: tx.seq, data: acc.data.clone() });
+                true
+            }
+            None if self.st.accounts.get(key).is_some_and(|c| is_land(&c.data)) => {
+                self.st.accounts.remove(key);
+                true
+            }
+            _ => false,
+        }
+    }
+
     /// The §9.2 envelope of `(P, Q)` at `bell` from the current captures.
     pub fn envelope(&self, pq: (i16, i16), bell: u32) -> Option<Value> {
         let (p, q) = (pq.0 as i32, pq.1 as i32);
@@ -892,11 +917,18 @@ impl Fold {
                 json!({"key": format!("ci:{p},{q},{bell}"), "seq": s.to_string(), "head": hex::encode(h), "bytes": B64.encode(&c.data)})
             })
             .unwrap_or(Value::Null);
-        Some(json!({
+        #[allow(unused_mut)]
+        let mut env = json!({
             "v": 1, "key": format!("pv:{p},{q}"), "bell": bell, "slot": pv.slot,
             "seq": seq.to_string(), "head": hex::encode(head), "bytes": B64.encode(&pv.data),
             "slots": slots, "day": day_v, "inputs": inputs,
-        }))
+        });
+        // land preview: the province's land record, when one exists
+        #[cfg(feature = "land-preview")]
+        if let Some(c) = self.cap(&frontier_abi::land_preview::land_address(&self.ctx, pq.0, pq.1)) {
+            env["land"] = json!({"key": format!("ld:{p},{q}"), "slot": c.slot, "bytes": B64.encode(&c.data)});
+        }
+        Some(env)
     }
 
     fn close_bell(&mut self, pq: (i16, i16), b: u32) {
