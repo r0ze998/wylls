@@ -354,10 +354,44 @@ impl World {
             assert!(out.logs.is_empty() && out.cpis.is_empty());
             assert_eq!(bad.0, self.0);
         }
-        self.run_with_data(roles, data, |p, a, wire| {
+        self.run_step(roles, data, |p, a, wire| {
             let command = wix::WideCommand::decode(wire).map_err(crate::Error::from)?;
             crate::proc::wide::dispatch_expedition_command(p, a, command).map_err(Into::into)
         })
+    }
+    /// The successful call of an expedition step. In the host-only
+    /// `expedition-dispatch-experimental` build it is the public
+    /// `crate::dispatch` of the existing version-2 wrapper
+    /// (`expedition_dispatch::execute`: exact Season revision, then the same
+    /// authenticated consumer), i.e. the route a prepared Message takes; the
+    /// raw inner bytes stay refused (probed above). Other builds keep the
+    /// named private consumer. Conquest is not routed here: it has its own
+    /// closed gate and no version-2 kind.
+    #[track_caller]
+    fn run_step<F>(
+        &mut self,
+        roles: &[([u8; 32], bool, bool)],
+        data: &[u8],
+        private: F,
+    ) -> rt::system_cpi::Output
+    where
+        F: for<'buffer, 'borrow> FnOnce(
+            &'buffer Pubkey,
+            &'borrow [AccountInfo<'buffer>],
+            &'buffer [u8],
+        )
+            -> Result<(), solana_program::program_error::ProgramError>,
+    {
+        #[cfg(feature = "expedition-dispatch-experimental")]
+        {
+            let _ = private;
+            let wire = versioned(data);
+            self.run_with_data(roles, &wire, |p, a, d| {
+                crate::dispatch(p, a, d).map_err(Into::into)
+            })
+        }
+        #[cfg(not(feature = "expedition-dispatch-experimental"))]
+        self.run_with_data(roles, data, private)
     }
     /// Existing conquest bytes, through the same authenticated command consumer
     /// as public dispatch, with the public gate independently proven closed.
@@ -574,7 +608,7 @@ impl World {
         });
         assert!(out.logs.is_empty() && out.cpis.is_empty());
         assert_eq!(bad_program.0, self.0);
-        self.run_with_data(roles, data, |p, a, wire| {
+        self.run_step(roles, data, |p, a, wire| {
             execute(p, a, wire).map_err(Into::into)
         })
     }
@@ -672,10 +706,26 @@ impl World {
         });
         assert!(out.logs.is_empty() && out.cpis.is_empty());
         assert_eq!(bad_program.0, self.0);
-        self.run_with_data(roles, data, |p, a, wire| {
+        self.run_step(roles, data, |p, a, wire| {
             expedition_resident::execute_draft(p, a, wire).map_err(Into::into)
         })
     }
+}
+/// The existing version-2 wrapper bytes of an inner draft: exactly one kind
+/// must accept it (`expedition_dispatch_ix::encode` validates per kind).
+#[cfg(feature = "expedition-dispatch-experimental")]
+fn versioned(inner: &[u8]) -> Vec<u8> {
+    use frontier_abi::world_index::expedition_dispatch_ix as dx;
+    use dx::Kind as K;
+    let kinds = [
+        K::Depart, K::SettleOrigin, K::Reveal, K::Gather, K::Dissolve, K::Return,
+        K::SettleMember, K::SettleCamp, K::SettleFailure, K::SettleForfeit,
+        K::CloseTerminal, K::SettleRetainedFailure,
+    ];
+    let mut wires = kinds.iter().filter_map(|k| dx::encode(*k, inner).ok());
+    let wire = wires.next().expect("an inner draft of a version-2 kind");
+    assert!(wires.next().is_none(), "an inner draft of exactly one kind");
+    wire
 }
 fn r(k: [u8; 32]) -> ([u8; 32], bool, bool) {
     (k, false, false)

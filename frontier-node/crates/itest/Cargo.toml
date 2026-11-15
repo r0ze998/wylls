@@ -32,3 +32,14 @@ base64.workspace = true
 
 [dev-dependencies]
 drand-replay = { path = "../drand-replay" }
+
+# Temporary local-play runner for the isolated localnet-expedition-sbf
+# artifact (src/expedition_play.rs). Off by default; features of crates
+# already depended on above; no new dependency, no Cargo.lock change.
+[features]
+localnet-expedition-play = ["fclient/expedition-dispatch-experimental", "frontier-abi/world-index-experimental"]
+
+[[bin]]
+name = "localnet-expedition-play"
+path = "src/bin/localnet_expedition_play.rs"
+required-features = ["localnet-expedition-play"]

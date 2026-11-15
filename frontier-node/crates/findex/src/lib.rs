@@ -18,6 +18,8 @@ pub mod index;
 pub mod ingest;
 pub mod ledger;
 pub mod provenance;
+#[cfg(feature = "expedition-records-experimental")]
+pub mod expedition_records;
 #[cfg(feature = "wide-records-experimental")]
 pub mod wide_index;
 #[cfg(feature = "wide-records-experimental")]

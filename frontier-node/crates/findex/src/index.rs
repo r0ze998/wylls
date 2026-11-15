@@ -23,6 +23,7 @@ use std::path::Path;
 use rusqlite::{params, Connection, OptionalExtension};
 use solana_address::Address;
 
+#[cfg(not(feature = "expedition-records-experimental"))]
 use fclient::log::bodies_from_logs;
 use fclient::ports::TxRecord;
 use frontier_abi::addr::AddrCtx;
@@ -37,7 +38,27 @@ pub const SCHEMA: i64 = 2;
 const STRICT_RECORDS_KEY: &str = "strict_ps2_v2_reject_psw1";
 const BLOCKED_KEY: &str = "strict_ps2_blocked";
 
+fn require_supported_mode(conn: &Connection) -> Result<(), String> {
+    #[cfg(not(feature = "expedition-records-experimental"))]
+    {
+        let typed: Option<i64> = sql(conn
+            .query_row(
+                "SELECT v FROM meta WHERE k='expedition_records_v1'",
+                [],
+                |r| r.get(0),
+            )
+            .optional())?;
+        if typed.is_some() {
+            return Err("cache requires expedition-records-experimental".into());
+        }
+    }
+    #[cfg(feature = "expedition-records-experimental")]
+    let _ = conn;
+    Ok(())
+}
+
 fn require_readable(conn: &Connection) -> Result<(), String> {
+    require_supported_mode(conn)?;
     let blocked: Option<i64> = sql(conn
         .query_row(
             "SELECT v FROM meta WHERE k = ?1",
@@ -170,6 +191,9 @@ impl Index {
                  kind INTEGER, present INTEGER NOT NULL);
              CREATE TABLE IF NOT EXISTS event(ev INTEGER PRIMARY KEY, seq INTEGER NOT NULL, idx INTEGER NOT NULL);",
         ))?;
+        require_supported_mode(&conn)?;
+        #[cfg(feature = "expedition-records-experimental")]
+        sql(conn.execute_batch("CREATE TABLE IF NOT EXISTS typed_observation(seq INTEGER NOT NULL, ordinal INTEGER NOT NULL, format TEXT NOT NULL, body BLOB NOT NULL, PRIMARY KEY(seq,ordinal));"))?;
         // An index written before the `event` table (schema 1) is emptied;
         // `Findex::open` then rebuilds it from the archive.
         let schema: Option<i64> = sql(conn
@@ -193,6 +217,8 @@ impl Index {
                 "DELETE FROM meta; DELETE FROM tx; DELETE FROM record; DELETE FROM link;
                  DELETE FROM entity; DELETE FROM snapshot; DELETE FROM account; DELETE FROM event;",
             ))?;
+            #[cfg(feature = "expedition-records-experimental")]
+            sql(conn.execute("DELETE FROM typed_observation", []))?;
             sql(conn.execute(
                 "INSERT INTO meta(k, v) VALUES('schema', ?1)",
                 params![SCHEMA],
@@ -285,6 +311,8 @@ impl Index {
     pub fn truncate_to(&mut self, cut: u64) -> Result<(), String> {
         let c = cut as i64;
         let t = sql(self.conn.transaction())?;
+        #[cfg(feature = "expedition-records-experimental")]
+        sql(t.execute("DELETE FROM typed_observation WHERE seq > ?1", params![c]))?;
         sql(t.execute_batch(&format!(
             "DELETE FROM tx WHERE seq > {c};
              DELETE FROM record WHERE seq > {c};
@@ -356,6 +384,8 @@ impl Index {
             "DELETE FROM meta; DELETE FROM tx; DELETE FROM record; DELETE FROM link;
              DELETE FROM entity; DELETE FROM snapshot; DELETE FROM account; DELETE FROM event;",
         ))?;
+        #[cfg(feature = "expedition-records-experimental")]
+        sql(t.execute("DELETE FROM typed_observation", []))?;
         sql(t.execute(
             "INSERT INTO meta(k, v) VALUES('schema', ?1)",
             params![SCHEMA],
@@ -674,6 +704,25 @@ fn index_one(
     // PS2 records and their chain links.
     // Do not advance coverage past a program-frame record we cannot decode.
     // The SQLite transaction rolls back; the raw archive remains the source.
+    #[cfg(feature = "expedition-records-experimental")]
+    let bodies: Vec<Vec<u8>> = {
+        let ctx = ctx.ok_or("typed stream requires pinned Season context")?;
+        let records = crate::expedition_records::transaction(r, program, ctx)?;
+        sql(t.execute("INSERT INTO meta(k,v) VALUES('expedition_records_v1',1) ON CONFLICT(k) DO UPDATE SET v=1", []))?;
+        let mut ps2 = vec![];
+        for (ordinal, record) in records.iter().enumerate() {
+            let ordinal = i64::try_from(ordinal).map_err(|_| "record ordinal overflow")?;
+            sql(t.execute(
+                "INSERT INTO typed_observation(seq,ordinal,format,body) VALUES(?1,?2,?3,?4)",
+                params![r.seq as i64, ordinal, record.format(), record.body()],
+            ))?;
+            if record.format() == "PS2" {
+                ps2.push(record.body().to_vec());
+            }
+        }
+        ps2
+    };
+    #[cfg(not(feature = "expedition-records-experimental"))]
     let bodies = bodies_from_logs(&r.logs, program).map_err(|e| {
         format!(
             "cannot read program logs at archive sequence {}: {e:?}",
@@ -681,6 +730,10 @@ fn index_one(
         )
     })?;
     for (idx, body) in bodies.iter().enumerate() {
+        #[cfg(feature = "expedition-records-experimental")]
+        if index_expedition_body(t, r, program, ctx, idx, body)? {
+            continue;
+        }
         // MC (CQ2-E, R-22): the v2 decoder reads M1's kinds exactly as
         // `log::decode` does and MC's 80–89 (entity kind 8 in tails), so
         // an MC season's `/h/events` numbering matches the herald fold's.
@@ -953,5 +1006,195 @@ mod tests {
             ev.iter().map(|e| (e.ev, e.seq)).collect::<Vec<_>>(),
             vec![(1, 3)]
         );
+    }
+}
+
+#[cfg(feature = "expedition-records-experimental")]
+fn index_expedition_body(
+    t: &rusqlite::Transaction<'_>,
+    tx: &TxRecord,
+    program: &Address,
+    ctx: Option<&AddrCtx>,
+    idx: usize,
+    body: &[u8],
+) -> Result<bool, String> {
+    if !matches!(body.get(1), Some(145..=149)) {
+        return Ok(false);
+    }
+    let ctx = ctx.ok_or("experimental PS2 requires a pinned Season context")?;
+    if ctx.program != program.to_bytes() {
+        return Err("experimental PS2 context mismatch".into());
+    }
+    let record =
+        crate::expedition_records::decode(ctx, body)?.ok_or("missing experimental record")?;
+    // Exact opaque body, not a fabricated legacy key/payload schema.
+    sql(t.execute(
+        "INSERT INTO record(seq,idx,kind,bell,key,payload,body) VALUES(?1,?2,?3,?4,?5,?6,?7)",
+        params![
+            tx.seq as i64,
+            idx as i64,
+            record.kind as i64,
+            record.bell as i64,
+            Vec::<u8>::new(),
+            body,
+            body
+        ],
+    ))?;
+    sql(t.execute(
+        "INSERT INTO event(seq,idx) VALUES(?1,?2)",
+        params![tx.seq as i64, idx as i64],
+    ))?;
+    for (n, link) in record.links.iter().enumerate() {
+        let mut candidates = tx.post.iter().filter_map(|(key, a)| {
+            let a = a.as_ref()?;
+            let h = fclient::decode::chained_header(&a.data)?;
+            (a.owner == *program
+                && crate::expedition_records::account_matches_entity(&a.data, link.entity)
+                && h.event_seq == link.seq
+                && h.event_head == link.head)
+                .then_some(*key)
+        });
+        let first = candidates.next();
+        let address = if candidates.next().is_none() {
+            first
+        } else {
+            None
+        };
+        sql(t.execute("INSERT INTO link(seq,idx,n,entity_kind,address,eseq,head) VALUES(?1,?2,?3,?4,?5,?6,?7)",params![tx.seq as i64,idx as i64,n as i64,link.entity as u8 as i64,address.map(|a|a.to_string()),link.seq as i64,link.head.to_vec()]))?;
+        if let Some(a) = address {
+            sql(t.execute("INSERT INTO entity(address,entity_kind,eseq,head,tx_seq) VALUES(?1,?2,?3,?4,?5) ON CONFLICT(address) DO UPDATE SET eseq=?3,head=?4,tx_seq=?5 WHERE ?3 > entity.eseq",params![a.to_string(),link.entity as u8 as i64,link.seq as i64,link.head.to_vec(),tx.seq as i64]))?;
+        }
+    }
+    Ok(true)
+}
+
+#[cfg(all(test, feature = "expedition-records-experimental"))]
+mod expedition_index_tests {
+    use super::*;
+    #[test]
+    fn stream_numbering_pairs_and_lifecycle_are_atomic() {
+        let (ctx, txs) = crate::expedition_records::fixture::trace();
+        let p = Address::new_from_array(ctx.program);
+        let mut index = Index::open(Path::new(":memory:"), p, Some(ctx)).unwrap();
+        index.add(&txs).unwrap();
+        let ps2: usize = txs
+            .iter()
+            .map(|tx| {
+                crate::expedition_records::transaction(tx, &p, &ctx)
+                    .unwrap()
+                    .iter()
+                    .filter(|r| r.format() == "PS2")
+                    .count()
+            })
+            .sum();
+        let total: usize = txs
+            .iter()
+            .map(|tx| {
+                crate::expedition_records::transaction(tx, &p, &ctx)
+                    .unwrap()
+                    .len()
+            })
+            .sum();
+        assert_eq!(
+            index
+                .conn
+                .query_row("SELECT COUNT(*) FROM event", [], |r| r.get::<_, i64>(0))
+                .unwrap(),
+            ps2 as i64
+        );
+        assert_eq!(
+            index
+                .conn
+                .query_row("SELECT COUNT(*) FROM typed_observation", [], |r| r
+                    .get::<_, i64>(0))
+                .unwrap(),
+            total as i64
+        );
+        let before = index.last_seq().unwrap();
+        let mut bad = txs[0].clone();
+        bad.seq = before + 1;
+        bad.logs = fclient::log::in_frame(
+            &p,
+            vec![format!(
+                "Program data: UFMy {}",
+                base64::Engine::encode(&base64::engine::general_purpose::STANDARD, [1u8, 146])
+            )],
+        );
+        assert!(index.add(&[bad]).is_err());
+        assert_eq!(index.last_seq().unwrap(), before);
+        index.truncate_to(0).unwrap();
+        assert_eq!(
+            index
+                .conn
+                .query_row("SELECT COUNT(*) FROM typed_observation", [], |r| r
+                    .get::<_, i64>(0))
+                .unwrap(),
+            0
+        );
+        index.add(&txs).unwrap();
+        index.rebuild_from(&txs).unwrap();
+        assert_eq!(
+            index
+                .conn
+                .query_row("SELECT COUNT(*) FROM typed_observation", [], |r| r
+                    .get::<_, i64>(0))
+                .unwrap(),
+            total as i64
+        );
+    }
+}
+
+#[cfg(all(test, feature = "expedition-records-experimental"))]
+mod browser_expedition_tests {
+    use super::*;
+    #[test]
+    fn actual_browser_archive_reopens_and_attributes_all_three_entity_families() {
+        let (ctx, txs) = crate::expedition_records::browser_trace();
+        let program = Address::new_from_array(ctx.program);
+        assert_eq!(txs.last().unwrap().slot, 212);
+        assert!(txs.last().unwrap().err.is_none());
+        let file = std::env::temp_dir().join(format!(
+            "wylls-event-reopen-{}-{}.sqlite",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        assert!(!file.exists());
+        let mut index = Index::open(&file, program, Some(ctx)).unwrap();
+        index.add(&txs).unwrap();
+        index.mark_complete().unwrap();
+        assert_eq!(index.last_seq().unwrap(), 6);
+        let links: i64 = index
+            .conn
+            .query_row(
+                "SELECT COUNT(DISTINCT address) FROM link WHERE seq=6",
+                [],
+                |r| r.get(0),
+            )
+            .unwrap();
+        assert_eq!(links, 3);
+        let before = index.dump_rows().unwrap();
+        drop(index);
+        let index = Index::open(&file, program, Some(ctx)).unwrap();
+        assert_eq!(index.dump_rows().unwrap(), before);
+        assert!(index
+            .events_after(0, 100)
+            .unwrap()
+            .iter()
+            .any(|e| e.kind == 146));
+        // Small unique test artifact intentionally retained, not user data removed.
+    }
+}
+#[cfg(all(test, not(feature = "expedition-records-experimental")))]
+mod default_expedition_guard_tests {
+    use super::*;
+    #[test]
+    fn default_reader_refuses_explicit_typed_mode_cache() {
+        let conn = Connection::open_in_memory().unwrap();
+        conn.execute_batch("CREATE TABLE meta(k TEXT PRIMARY KEY,v INTEGER NOT NULL);INSERT INTO meta VALUES('expedition_records_v1',1);").unwrap();
+        assert!(require_supported_mode(&conn).is_err());
+        assert!(decode_index_body(&[1, 146, 0, 0, 0, 0, 0]).is_err());
     }
 }

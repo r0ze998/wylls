@@ -387,35 +387,8 @@ fn expedition_version2_resident_dissolve_and_return_reach_real_consumers() {
 ))]
 #[test]
 fn expedition_version2_actual_departure_passes_prologue_and_native_system_writeback() {
-    let (fixture, command) = expedition_exec::tests::fixture();
-    let mut accounts: Accounts = Vec::new();
-    let mut roles = Vec::new();
-    for ai in &fixture {
-        let index = accounts
-            .iter()
-            .position(|(k, _)| k == ai.key)
-            .unwrap_or_else(|| {
-                let mut value = AccountSharedData::new(ai.lamports(), ai.data_len(), ai.owner);
-                value.set_data_from_slice(&ai.try_borrow_data().unwrap());
-                accounts.push((*ai.key, value));
-                accounts.len() - 1
-            });
-        roles.push(InstructionAccount::new(
-            index as u16,
-            ai.is_signer,
-            ai.is_writable,
-        ));
-    }
+    let (accounts, roles, program_index, command) = departure_accounts();
     let at = |role: usize| roles[role].index_in_transaction as usize;
-    let system = &mut accounts[at(6)].1;
-    system.set_owner(Pubkey::from_str_const(
-        "NativeLoader1111111111111111111111111111111",
-    ));
-    system.set_executable(true);
-    let program_index = accounts.len() as u16;
-    let mut program = AccountSharedData::new(1, 0, &solana_program::bpf_loader::id());
-    program.set_executable(true);
-    accounts.push((Pubkey::new_from_array([0x12; 32]), program));
     let wire = ix::encode(ix::Kind::Depart, &command.to_bytes()).unwrap();
     // SAFETY: literal public accounts, official serializer and existing native
     // System processor. Signer flags are fixtures, not wallet signatures.
@@ -485,3 +458,53 @@ fn expedition_version2_actual_departure_passes_prologue_and_native_system_writeb
         );
     }
 }
+
+/// The existing original-host departure fixture
+/// (`expedition_exec::tests::fixture`) as runtime accounts: one transaction
+/// account per distinct key (the standing/home alias shares one index), its
+/// fixture role privileges, the native System loader and the program account
+/// last. Returns the accounts, role privileges, program index and command.
+#[cfg(all(
+    feature = "expedition-dispatch-experimental",
+    feature = "system-cpi-tests"
+))]
+pub(super) fn departure_accounts() -> (Accounts, Vec<InstructionAccount>, u16, wix::ExpeditionDepart) {
+    let (fixture, command) = expedition_exec::tests::fixture();
+    let mut accounts: Accounts = Vec::new();
+    let mut roles = Vec::new();
+    for ai in &fixture {
+        let index = accounts
+            .iter()
+            .position(|(k, _)| k == ai.key)
+            .unwrap_or_else(|| {
+                let mut value = AccountSharedData::new(ai.lamports(), ai.data_len(), ai.owner);
+                value.set_data_from_slice(&ai.try_borrow_data().unwrap());
+                accounts.push((*ai.key, value));
+                accounts.len() - 1
+            });
+        roles.push(InstructionAccount::new(
+            index as u16,
+            ai.is_signer,
+            ai.is_writable,
+        ));
+    }
+    let at = |role: usize| roles[role].index_in_transaction as usize;
+    let system = &mut accounts[at(6)].1;
+    system.set_owner(Pubkey::from_str_const(
+        "NativeLoader1111111111111111111111111111111",
+    ));
+    system.set_executable(true);
+    let program_index = accounts.len() as u16;
+    let mut program = AccountSharedData::new(1, 0, &solana_program::bpf_loader::id());
+    program.set_executable(true);
+    accounts.push((Pubkey::new_from_array([0x12; 32]), program));
+    (accounts, roles, program_index, command)
+}
+
+/// The keeper's real unsigned Depart Message through this departure fixture.
+#[cfg(all(
+    feature = "expedition-dispatch-experimental",
+    feature = "system-cpi-tests"
+))]
+#[path = "wide_expedition_depart_message_tests.rs"]
+mod depart_message;

@@ -136,3 +136,5 @@ fn validate_fixture(
 
 #[cfg(feature = "system-cpi")]
 pub mod system_cpi;
+
+pub mod unsigned_message;

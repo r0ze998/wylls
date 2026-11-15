@@ -35,6 +35,8 @@ pub mod standings;
 pub mod files;
 pub mod fixture;
 pub mod fold;
+#[cfg(feature = "local-play-bootstrap")]
+pub mod local_play;
 pub mod nation;
 pub mod overview;
 pub mod records;
