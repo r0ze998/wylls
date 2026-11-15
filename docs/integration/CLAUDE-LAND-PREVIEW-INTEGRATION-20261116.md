@@ -27,6 +27,10 @@ No secrets in this file. Nothing here is NFT, transfer, session guard, prize, re
   reader of the program's own land record). It joins the test's list of files where the chain's record decides land.
   After (full suite, run alone): 1868 tests, 1864 pass, 3 fail — NFT home record and web-lang (b)/(c), all known.
   The boundary-control failure appears only with bcc63a24's files.
+- Note (2026-11-16): these two full-suite runs (trial merge, HEAD) were made before the owner's correction and also
+  executed restricted tests. Their restricted results are not evidence of anything and were not acted on (nothing in
+  those areas was fixed or retried). They will not be repeated; restricted areas stay NOT verified. The ordinary-play
+  subset below is the evidence for this branch.
 - base 68e8548d showed 3 extra natural-world failures in the first run: EADDRINUSE 41982, because I ran base and HEAD
   suites at the same time. Alone, `frontier-local-play-natural.test.mjs` passes 11/11 on both. Not a base failure.
 
@@ -43,7 +47,9 @@ No secrets in this file. Nothing here is NFT, transfer, session guard, prize, re
 2. Before writing herald/Cargo.toml and herald/src/fold.rs in canonical: paths + blob ids above to the other owner, wait
    for OK (shared files, one integrator).
 3. Apply `68e8548d..46ccf5ac` (or the patch) on the checked canonical head; Cargo.toml: keep both feature lines.
-4. Rerun on the result: the ordinary-play subset above, and the full §5 suite (expect only the known failures).
+4. Rerun on the result only the allowed ordinary-play subset above (restricted files excluded). The full §5 suite is NOT
+   to be rerun: it retries restricted tests (NFT, session, prize, boundary control). Those stay excluded and are reported
+   as not verified. (The owner's latest instruction, 2026-11-16, overrides the older checkpoint's suite command.)
 5. Rust, not run in this round: `cargo test` with `land-preview` (rules `land.rs`, herald `land_capture.rs`) and a
    default build without it — only within conquest-guard.sh (unchanged) and the free-space floor.
 6. Allocate the land tags (0xCD/0xCE are provisional) before anything leaves local development.
