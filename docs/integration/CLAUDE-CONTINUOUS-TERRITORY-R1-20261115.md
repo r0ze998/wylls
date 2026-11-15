@@ -111,3 +111,30 @@ RESULTS (all under the unchanged conquest-guard.sh, sha 94baeb7d, one dedicated 
 3. **Taking another nation's land and cut-off fraying** are unit-tested only; no second player in a world.
 4. **No natural-speed world**; ×30 capture demo only. Program not deployable; tags provisional.
 5. The strip's "Territory N tiles" is the nation's total over provinces read (test villages included), not the player's.
+
+## Round 3 (2026-11-15 18:00–): canonical integration check and the remaining items
+**Integration check (no write to canonical):** canonical HEAD 1dfe410f (75 uncommitted entries untouched). Clean branch
+`claude/continuous-territory-integ-20261115` = 1dfe410f + the land commits cherry-picked without conflict, pushed.
+Guarded regressions on it (conquest-guard.sh 94baeb7d, one target, peak 2.0 GiB, free ≥ 25 GiB), all pass: rules default
+175, rules land 18, abi default 115, abi land 8, permutation-frontier default lib 115, permutation-frontier land check,
+herald default lib 65, herald land check, itest land_lane 3. Page (no-key guard): land 5, territory 7, board 16, launcher
+40, capture demo 6+3, herald 9, cards 7, pretake-frame unchanged; web-lang = its 2 old failures (not land).
+Overlap with canonical's UNCOMMITTED work: only `frontier-node/crates/herald/Cargo.toml` (positional: both lanes add a
+feature after `local-play-bootstrap`; keep both) and `herald/src/fold.rs` (my 3 hunks apply at offsets 1/35/35). Those
+canonical edits are the Codex expedition lane's (KEEP session confirmed: not its). Order: that lane integrates first,
+then the 2 herald hunks are rebased on it; the other 24 files have no canonical uncommitted edits. The KEEP session has
+no objection and no planned edits on these paths. Integration itself is the user's decision; tags 0xCD/0xCE still need
+workstream 4's allocation.
+
+**Fixed (5d90b749, integ db6eef59):** the territory line now reads only the active village's province:
+"Claimed here: N tiles · production +X%" (it used to sum every province read: 104 → 157 when the camera moved).
+
+**Remaining, each with its next step (nothing claimed):**
+| item | state | next step |
+|---|---|---|
+| march onto open ground, multi-tile claim | land2 showed 1 tile (destination already ours) | a ×10 test world, destination an open tile 2+ from the edge; record port/TTL/guard first |
+| taking another nation's land back | unit tests only (kernel, ABI) | `--contest-pair` + land option together (untested combination) in a test world, or a real-chain itest with two hosts |
+| cut-off land fraying | unit tests only | same two-player world (seize a bridge tile) or itest |
+| production credited (amount) | ClaimLandYield landed 581× in land1, no program refusal; amount not measured | a real-chain test reading the Holding's stores before/after one claim vs `yield_for` |
+| territory total changing with provinces read | **fixed** (above) | — |
+| "Its host is on the march · arrives on turn N" after arrival | `map/hostmarks.mjs awayText`, shown while the transit record is unsettled although the host already stands in the destination roster | the march/transit owner's lifecycle; report, do not patch from this lane |
