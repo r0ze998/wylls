@@ -321,6 +321,15 @@ pub fn dispatch(
     {
         return proc::capacity::dispatch(program_id, accounts, data);
     }
+    // The land preview (provisional 0xCD/0xCE): a default build never
+    // reaches this arm and refuses the bytes as unknown tags below.
+    #[cfg(feature = "land-preview")]
+    if data
+        .first()
+        .is_some_and(|t| frontier_abi::land_preview::is_land_tag(*t))
+    {
+        return proc::land::dispatch(program_id, accounts, data);
+    }
     use frontier_abi::v2::Ix;
     use proc::*;
     markers::touch();

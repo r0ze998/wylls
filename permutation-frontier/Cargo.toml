@@ -116,6 +116,16 @@ conquest-dispatch-experimental = ["expedition-dispatch-experimental", "frontier-
 # built only by scripts/build-frontier-localnet-conquest-sbf.sh, same
 # program id [0x45; 32] and version 0x4804.
 localnet-conquest-sbf = ["localnet-expedition-sbf", "conquest-dispatch-experimental"]
+# "Standing Ground" land, a preview (local development only, 2026-11-15):
+# FoldLand / ClaimLandYield on the PROVISIONAL, unallocated tags 0xCD / 0xCE
+# (`proc::land`; ABI-ALLOCATION rev 6 lists 0xCD-0xCF as free), dispatched
+# before the v2 tags; their own land record,
+# no existing account's layout changed. No version bit, no marker of its own.
+# Not deployable; the integrator allocates tags.
+land-preview = ["program", "frontier-abi/land-preview", "permutation-rules/land-preview"]
+# The localnet conquest lane plus the land preview (one feature value for
+# cargo-build-sbf), built only by scripts/build-frontier-localnet-land-sbf.sh.
+localnet-land-sbf = ["localnet-conquest-sbf", "land-preview"]
 
 # Dependency sections: owned by the integrator (M1 contract §3.4, I-55); the
 # set below is the one listed in docs/frontier/m1/W2-A-NOTES.md.

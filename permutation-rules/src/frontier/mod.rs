@@ -44,6 +44,9 @@ pub mod holding;
 pub mod host;
 pub mod index;
 pub mod keep;
+/// Land (preview): "Standing Ground" in reduced form; off by default.
+#[cfg(feature = "land-preview")]
+pub mod land;
 pub mod laurel;
 pub mod mandate;
 pub mod nation;

@@ -1,4 +1,5 @@
 import { territoryEnabled, territoryOf } from './territory.mjs';
+import { landOf, landSummary, renderLandChip } from './land.mjs';
 import { setS1, setOreExtraProvider, s1On } from './fs1.mjs';
 import { s1Marks } from './map/s1marks.mjs';
 import * as territoryScreen from './screens/territory.mjs';
@@ -2344,6 +2345,11 @@ function renderHudTick(now) {
       setHtmlIfChanged(strip, hud.renderStrip(tokens, FS.resOpen ?? null, Math.max(1, stripFit.max)));
     }
     resChanges(strip, tokens);
+    // the land preview (TEST-ONLY worlds with that option): the viewer's territory and its production bonus, beside the strip
+    const ls = FS.mode === 'play' ? landSummary(FS, hud.activeHolding(FS), FS.citizen?.faction) : null;
+    let chip = $('land-chip-box');
+    if (ls && !chip && strip.parentElement) { chip = globalThis.document.createElement('span'); chip.id = 'land-chip-box'; strip.after(chip); }
+    if (chip) { chip.hidden = !ls; setHtmlIfChanged(chip, renderLandChip(ls)); }
   }
   renderSound();
   publishNoGo();
@@ -4058,6 +4064,8 @@ export async function boot() {
           route: FS.compose ? { hexes: marchCard.routeHexes(FS.compose), dest: FS.compose.dest ? tileHex(FS.compose.dest.p, FS.compose.dest.q, FS.compose.dest.tile) : null,
             arriveBell: FS.compose.route ? marchCard.bellWindow(FS)?.value ?? null : null } : null,
           territoryEnabled: territoryEnabled(FS), territoryOf: (p, q) => territoryOf(FS, p, q),
+          // the land preview: a province with a land record shows who holds each tile (its own fill, the keeps' as before)
+          landOf: (p, q) => landOf(FS, p, q),
           provinceOf: ART_ON ? (p, q, { far = false } = {}) => { if (!far) wantProvince(p, q, () => map?.invalidate()); return FS.provinces.get(`${p},${q}`)?.province ?? null; } : undefined };
       },
       onSelect: hit0 => {

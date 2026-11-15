@@ -30,6 +30,11 @@ wide-terrain-experimental = []
 # pool and job accounts and their operations. Off by default: no default
 # build code, vector, hash input or budget changes.
 capacity-preview = []
+# "Standing Ground" land, a preview: `frontier::land`, land a nation holds
+# tile by tile, grown where its hosts stand and taken where a hostile host
+# stands. Off by default: no default-build code, vector, hash input or
+# budget changes; no new dependency.
+land-preview = []
 
 # On Solana, hash with the runtime's sol_sha256 syscall (bit-identical, far
 # cheaper in compute units than hashing in SBF code).

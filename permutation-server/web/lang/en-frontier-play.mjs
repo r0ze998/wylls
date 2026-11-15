@@ -1632,4 +1632,7 @@ export default {
   'この命令は送信済みですが、まだ確認できていません。同じ命令は送り直しません。もう一度押すと結果を確認します。署名 {0}': 'This order was sent, but it is not confirmed yet. The same order is not sent again. Press again to check its outcome. Signature {0}',
   '送信済みの命令の結果を確認しています…': 'Checking the outcome of the order already sent…',
   'ローカルプレイの接続先が、確認したときと変わりました。ページを開き直してください。': 'The local play connection is not the one that was checked. Reopen the page.',
+  // the land preview (TEST-ONLY worlds with --world-option land-preview-v1): the territory line beside the strip
+  '領土の試験（テスト用の世界）': 'Territory trial (test world)',
+  '領土 {0} マス · 生産 +{1}%': (n, p) => `Territory ${plural(n, '{0} tile', '{0} tiles')} · production +${p}%`,
 };

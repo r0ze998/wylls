@@ -15,6 +15,7 @@ import { encode as toB58 } from '../sdk/base58.mjs';
 import { decode } from './fcodec.mjs';
 import { residentCitizen } from '../sdk/frontier/resident.mjs';
 import { parseTerritory } from './territory.mjs';
+import { parseLand } from './land.mjs';
 import { provincesWithin, provinceFromIndex, provinceIndex, cellOf, provinceCentre, ringOf } from './fgeo.mjs';
 import { parseWideIndexStatus, parseWideIndexPage } from './map/widehistory.mjs';
 import { parseWideManifest, parseWidePage, parseWideInt, PAGE_DEFAULT as WIDE_PAGE_DEFAULT } from './map/wide.mjs';
@@ -153,6 +154,8 @@ export function parseEnvelope(env, { seasonId, p, q, bell } = {}) {
   }
   return { bell: env.bell, slot: env.slot, seq: String(env.seq ?? ''), head: env.head ?? null, province, provinceBytes, slots, day, inputs,
     ...(env.sampleTerritory ? { sampleTerritory: parseTerritory(env.sampleTerritory) } : {}),
+    // (`land`: the land preview's record of this province, only from a world started with that option)
+    ...(env.land ? { land: parseLand(env.land, { p: P, q: Q, seasonId }) } : {}),
     // (`proto`: what a sample world adds beside the chain-shaped bytes — the labelled prototype of a designed rule,
     // PROTOTYPE-SPEC section 6 — carried as it came and only when it came: no real herald sends it)
     ...(env.proto && typeof env.proto === 'object' ? { proto: env.proto } : {}) };
