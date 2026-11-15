@@ -74,7 +74,10 @@ verified. Heavy builds and worlds stay serial, in this session, after a report (
 - Ops (not in git): `/Users/r0ze/Projects/wylls-play2-land-ops-20261116/` play2-run.sh (6be18bf1), play2-guard.py
   (232b13ef), play2-watchdog.sh (9e855dc9) — land5's scripts with paths only changed.
 - Preflight 07:50: free 25.14 GiB (floor 21), 0 listeners 40000–41999, no world process. Plan: launcher 41960, worlds
-  41964–41973, TTL 150 min from Start, guard 110 MiB / 21 GiB, absolute watchdog deadline launch + 4 h, PID-only cleanup.
+  41964–41973, TTL 150 min from Start, guard 110 MiB / 21 GiB, PID-only cleanup. Window (corrected 2026-11-16): everything ends by
+  launch + 150 min — watchdog SIGINT at launch + 145 min, SIGTERM leftovers at + 150; guard monitors ≤ 150 min (was
+  200, from land5); the earlier "launch + 4 h" deadline exceeded the owner's 150-min frame and is withdrawn
+  (ops START-PLAN.txt).
 - Starting the launcher was refused by the tool permission check; it waits for the owner's go. Nothing was started.
 
 ## Lanes returned and fixes integrated (2026-11-16, head d3eb9c18)
