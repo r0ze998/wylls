@@ -311,3 +311,12 @@ handover later (rebase on de18bf02 is already in the integration branch).
   started 00:28:13 → the take is expected ~01:40 if unbroken.
 - NOT shown yet: the take itself and A's page after it. If this checkpoint is the last word, treat the real-chain take as
   unproven. Cleanup by pid follows the result (or the watchdog does it at the deadline).
+
+## Round 8 RESULT (2026-11-16 01:42 JST) — land5: the fixed display shown on a REAL chain
+- Take confirmed: independent read 01:40:25 (nextBell 114, Aster 7 / Fjordal 1); A's real page at 01:41:19: the taken land solid
+  Aster red with the gold line, one Fjordal tile still orange hatched; the selected tile's panel "Land held by Fjordal" →
+  "Your nation's land (territory trial)". Recording (not in git): `/Users/r0ze/Projects/wylls-land5-recording-20261116/` (183.6 s
+  clip sha 64871f7d…, originals pa-000…011 + SHA256SUMS, evidence, README).
+- Cleanup 01:41:58: launcher 83433 SIGINT, desk/logger/watchdog by pid, guard exited; 0 listeners on 41900–41999; free 25 GiB.
+- Open: fraying to its end, a retake back, natural-speed world; patch handover to canonical (integration branch is ready on
+  68e8548d); canonical bcc63a24 (owner's WIP) not merged or verified here. No new long test started.
