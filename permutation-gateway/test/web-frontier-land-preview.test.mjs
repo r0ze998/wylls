@@ -10,7 +10,8 @@ import { SpriteArt } from '../../permutation-server/web/frontier/map/sprites.mjs
 import { openSurvey } from '../../permutation-server/web/frontier/map/survey.mjs';
 import { tileHex } from '../../permutation-server/web/frontier/fgeo.mjs';
 import { toBase64 } from '../../permutation-server/web/sdk/bytes.mjs';
-import { runnerLandAgrees, LAND_PREVIEW_OPTION } from '../src/frontier/local-play-launcher.mjs';
+import * as LL from '../src/frontier/local-play-launcher.mjs';
+const { runnerLandAgrees, LAND_PREVIEW_OPTION } = LL;
 
 /** A land record as the program writes it: `owners` {tile: nation}, `village` [tiles]. */
 function record({ p = 2, q = 0, season = 11n, version = 1, next = 40, owners = {}, village = [] } = {}) {
@@ -112,4 +113,26 @@ test('the territory line counts only this village\'s province and states the bon
     assert.doesNotMatch(t, /[\u3040-\u30ff\u4e00-\u9fff]/, 'no Japanese in the English line');
     assert.doesNotMatch(t, /\bbell \d|\bsecret|beacon|\bsettle[ds]?\b|settlement|\bseed\b|site ticket|keeper|lamport/i);
   } finally { setLang('ja'); }
+});
+
+// The launcher's word for the land preview, alone and with the TEST-ONLY contest pair (two ordinary wallets in one
+// memory-only world): a static check of the option words only — no key is made and no process is started.
+const abs = ['--root', '/r', '--data', '/d', '--runner', '/x/runner', '--herald', '/x/herald', '--depart', '/x/depart', '--preview', '/x/preview', '--resident', '/x/resident', '--artifact', '/x/a.so', '--artifact-sha', 'ab'.repeat(32)];
+const trial = [...abs, '--world-preset', 'local-natural-v1', '--natural-runner', '/x/natural', '--economy', 'page-signed-v1', '--march-trial', LL.MARCH_TRIAL_MODE];
+const demo = ['--capture-demo', LL.CAPTURE_DEMO_MODE, '--demo-scale', '10'];
+const land = ['--world-option', LAND_PREVIEW_OPTION];
+const pair = ['--contest-pair', LL.CONTEST_PAIR_MODE];
+const wordCodes = ['InvalidWorldOption', 'WorldOptionNeedsCaptureDemo', 'InvalidContestPair', 'InvalidCaptureDemo', 'CaptureDemoNeedsNaturalTrial', 'InvalidArguments'];
+const refusedAs = async (args, code) => assert.rejects(LL.parseConfig(args), e => e.code === code, code);
+// (well-formed words fail only later, at the paths, which do not exist here)
+const wordsAccepted = async args => assert.rejects(LL.parseConfig(args), e => !wordCodes.includes(e.code), JSON.stringify(args.slice(-6)));
+
+test('the launcher takes --world-option land-preview-v1 only with the capture demo, alone or with the contest pair', async () => {
+  await refusedAs([...trial, ...land], 'WorldOptionNeedsCaptureDemo');
+  await refusedAs([...trial, ...demo, '--world-option', 'land-preview-v2'], 'InvalidWorldOption');
+  await wordsAccepted([...trial, ...demo, ...land]);
+  await wordsAccepted([...trial, ...demo, ...land, ...pair]);
+  await wordsAccepted([...trial, ...demo, ...pair, ...land]);
+  // startWorld refuses the land option without the demo before anything starts
+  await assert.rejects(LL.startWorld({ worldPreset: 'local-natural-v1', naturalRunner: '/x/natural', economy: 'page-signed-v1', marchTrial: true, landPreview: true }, 'BbPGAbHDvV5U43zQ5E8FmSnEzZ7r2vwWAZWTNAPTTSUT', 0, () => {}), e => e.code === 'InvalidWorldPreset');
 });
