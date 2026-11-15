@@ -132,9 +132,26 @@ workstream 4's allocation.
 **Remaining, each with its next step (nothing claimed):**
 | item | state | next step |
 |---|---|---|
-| march onto open ground, multi-tile claim | land2 showed 1 tile (destination already ours) | a ×10 test world, destination an open tile 2+ from the edge; record port/TTL/guard first |
+| march onto open ground, multi-tile claim | **shown in land3: 1 → 6** | a ×10 test world, destination an open tile 2+ from the edge; record port/TTL/guard first |
 | taking another nation's land back | unit tests only (kernel, ABI) | `--contest-pair` + land option together (untested combination) in a test world, or a real-chain itest with two hosts |
 | cut-off land fraying | unit tests only | same two-player world (seize a bridge tile) or itest |
-| production credited (amount) | ClaimLandYield landed 581× in land1, no program refusal; amount not measured | a real-chain test reading the Holding's stores before/after one claim vs `yield_for` |
+| production credited (amount) | **measured in land3: credited = yield_for, 5 claims × 8 stores** | a real-chain test reading the Holding's stores before/after one claim vs `yield_for` |
 | territory total changing with provinces read | **fixed** (above) | — |
 | "Its host is on the march · arrives on turn N" after arrival | `map/hostmarks.mjs awayText`, shown while the transit record is unsettled although the host already stands in the destination roster | the march/transit owner's lifecycle; report, do not patch from this lane |
+
+## Round 3 world: land3 (TEST-ONLY, ×10 capture demo, 18:44:54 → stopped by pid 19:18:18)
+Preconditions recorded before the start (no world, band agreed with KEEP + NFT, free 25 GiB, guard 110 MiB / 21 GiB, TTL
+60 min, cleanup plan); guard never fired; cleanup verified 19:18:28 (0 listeners) and reported to both sessions.
+- **Production credit measured on chain** (GET-only script, before/after each ClaimLandYield, settle replicated):
+  5 claims × 8 stores, credited = `yield_for` exactly — 0 at 0 bps (2 claims), Food/Wood/Stone/Ore/Gold/Science
+  64/48/32/6/24/8 milli at 16 bps (2 claims), 400/300/200/40/150/50 at 100 bps (1 claim), 6 turns each.
+- **Growth by march onto open ground**: host 2 marched from the village (sent 19:04:00, arrival turn 19) onto open tile
+  59 next to our land; the turn-26 fold claimed 59 + 53, 54, 58, 60: claimed land 1 → 6 at 19:14:59; strip
+  "Claimed here: 6 tiles · production +1%".
+- Recording (not in git): `/Users/r0ze/Projects/wylls-land3-recording-20261115/` (167.6 s cut, originals, evidence,
+  measurement script and output, README with every cut and disclosed press).
+- Arrival tag: fixed by the KEEP session in canonical de18bf02 (its lane; not edited here).
+- **Two-player retake, static check:** the contest-pair option (two ordinary wallets, memory-only keys, capture demo
+  only) and the land option are both peeled by the runner and passed by the launcher; 10 ports fit the band. Feasible in
+  the existing safe scope, but taking land needs 72 turns standing undefended: ×10 → 72 min (TTL ≈ 150 min), ×30 → 24 min
+  but the March window is 3–5 s. Not run.
