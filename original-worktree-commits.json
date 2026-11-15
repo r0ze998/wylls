@@ -1,0 +1,51 @@
+[
+  {
+    "worktree": "wylls-codex-continuation-20261108",
+    "branch": "codex/route-preview-refresh-20261108",
+    "commit": "b646fe00e4e2d6774c59ee736cd2e248e115be36",
+    "committed": 14,
+    "remaining": ""
+  },
+  {
+    "worktree": "wylls-claude2-map-20261110",
+    "branch": "claude2/original-map-scaling-20261110",
+    "commit": "842518b892ac476f6b5d3431633fb6ada7839bfd",
+    "committed": 113,
+    "remaining": ""
+  },
+  {
+    "worktree": "wylls-claude2-overviews-20261110",
+    "branch": "claude2/overview-loading-20261110",
+    "commit": "611bdca41be2102f1f0bb11972f7b31158bc1a09",
+    "committed": 114,
+    "remaining": ""
+  },
+  {
+    "worktree": "wylls-codex-wide-inventory-20261109",
+    "branch": "codex/wide-conquest-lifecycle-20261109",
+    "commit": "bcc63a24f75f7d21ed1b82139709018e9dffa7b5",
+    "committed": 79,
+    "remaining": "?? docs/integration/CLAUDE-CONQUEST-V2-CLI-PREPARED-EVIDENCE-20261112.json\n?? docs/integration/CLAUDE-FIRST-SESSION-UX-C-INTEGRATION-20261113/c-before-files.tar\n?? permutation-gateway/screens/node_modules\n"
+  },
+  {
+    "worktree": "wylls-design-fable-20261110",
+    "branch": "fable/design-uiux-20261110",
+    "commit": "c2e03e0ebfd30515783475ee230b9433c1e2ff5f",
+    "committed": 81,
+    "remaining": ""
+  },
+  {
+    "worktree": "wylls-keeper-bisect-probe-20adb087",
+    "branch": "wip/20261115-keeper-bisect-probe-20adb087",
+    "commit": "6311fff9e31784c65452f7e3b9bd1bc51fd2018c",
+    "committed": 1,
+    "remaining": ""
+  },
+  {
+    "worktree": "wylls-runtime-preview-fix-20261111",
+    "branch": "wip/20261115-runtime-preview-fix-20261111",
+    "commit": "96eba0d9a77df3eb241243043b6a8ff5a0142446",
+    "committed": 11,
+    "remaining": ""
+  }
+]

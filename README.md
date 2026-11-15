@@ -18,3 +18,6 @@ NFT transfer verification or equivalent procedures, session guard and prize work
 
 ## Supplemental assets now saved
 The previously withheld two trailers, six evidence JSON reports and old source archive contents are now on [migration/20261115-assets](https://github.com/r0ze998/wylls/tree/migration/20261115-assets), commit a1484eb0. The owner explicitly approved public upload. One JSON local scratch path was redacted; Apple metadata was omitted from the portable tar. All 16 archive source files retain exact bytes. This supersedes the withheld-assets paragraph above. Dependencies, build caches, runtime state/settings and external scratch are still not a machine backup.
+
+## Original worktree commits
+At the owner’s request, all safe saved work was also committed to the original branches as WIP. See `original-worktree-commits.json` for the seven commits and remaining local-only files. Six worktrees are clean; canonical retains only an unsanitized original JSON, original metadata tar and dependency symlink. Those two artifacts have safe copies on the assets branch. No source bytes were altered. WIP does not mean integrated or tested.
