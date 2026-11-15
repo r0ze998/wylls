@@ -376,7 +376,12 @@ test('each economy figure\'s English is British and free of the play screen\'s b
     assert.doesNotMatch(t, BANNED_EN, `no banned word: ${t}`);
     assert.doesNotMatch(t, AMERICAN, `British spelling: ${t}`);
   }
-  // and the figures survive the English
+  // and the figures survive the English; on S1 the Horses slot is said as arms
   assert.equal(L`毎時 +${fmtNum(186)}`, '+186 per hour');
+  assert.equal(L`費用：${costWords(rb.trainCost(3, 100, 4))}`, 'Cost: Food 60 · Ore 40 · Horses 50 · Gold 20');
+  fs1.setS1(S1_SEASON);
+  const s1Line = L`費用：${costWords(rb.trainCost(3, 100, 4))}`;
+  assert.match(s1Line, /^Cost: Food 60 · Ore 40 · Arms 50 · Gold 20$/i, s1Line);
+  assert.doesNotMatch(s1Line, BANNED_EN); assert.doesNotMatch(s1Line, AMERICAN);
   assert.equal(L`守り +100`, `Defence +${RUST.WALL_STEP}`);
 });
