@@ -1,0 +1,917 @@
+--- a/permutation-server/web/frontier/controller.mjs
++++ b/permutation-server/web/frontier/controller.mjs
+@@ -651,6 +651,7 @@
+   FS.book = [];
+   FS.marches = [];
+   FS.bellItems = [];
++  FS.formingBells = [];
+   FS.orders = [];
+   FS.departed = null;
+   mySlots = [];
+@@ -988,7 +989,20 @@
+   // landed was then written off as settled: never revealed by this device, its card left to "the keepers")
+   const entries = book.reconcile(held, { transits, revealedHosts: revealed, complete: !!holding })
+     .map((e, i) => (e.state === 'settled' && held[i].state !== 'settled' && !(b > e.arriveBell) ? held[i] : e));
++  // (the viewer's forming hosts: the herald's facts of each muster turn, read like an arrival's once that turn has
++  // ended, so the page says where the turn really is — hud/firststeps.mjs formingPhase. A read, nothing is sent)
++  const forming = [];
++  for (const env of holding ? FS.provinces?.values() ?? [] : []) {
++    for (const r of hostsIn(env.province, holding, b)) {
++      if (r.state !== 2 || !Number.isInteger(r.fromBell) || r.fromBell < 1) continue;
++      const bell = r.fromBell - 1, rn = env.province.resolvedNext ?? null;
++      // (a read that failed leaves the host without facts: the page then says only that it is forming)
++      const got = b > bell ? await bellFacts(bell, regionOf(env.province.p, env.province.q), rn).then(x => (x.record ? x : null), () => null) : { facts: { resolvedNext: rn } };
++      if (got) forming.push({ host: String(r.id), bell, facts: got.facts });
++    }
++  }
+   if (key !== bookKey()) return;
++  FS.formingBells = forming;
+   book.saveBook(store, key, entries);
+   FS.book = entries;
+   FS.marches = marches;
+@@ -2366,7 +2380,7 @@
+   const at = Number.isInteger(tile) ? tile : h?.tile;
+   const who = unitCount(UNIT_ORDER[unit], troops);
+   return act('Muster', { v: { holding: h }, fields: { unit, troops, tile: at },
+-    order: orderOf('muster', 'Muster', { unit, troops, tile: h ? { p: h.p, q: h.q, tile: at } : null, say: () => L`${who} の編成を命じました。次のターンに整列します` }) });
++    order: orderOf('muster', 'Muster', { unit, troops, tile: h ? { p: h.p, q: h.q, tile: at } : null, say: () => L`${who} の編成を命じました。このターンの決着のあとに整列します` }) });
+ }
+ /** Garrison(delta): Spearmen of the reserve join the village's garrison. */
+ function garrisonOrder(n) {
+--- a/permutation-server/web/frontier/hud/hand.mjs
++++ b/permutation-server/web/frontier/hud/hand.mjs
+@@ -30,7 +30,8 @@
+ import { miniCardUrl, MINI_KINDS } from '../people/minis.mjs';
+ import { holdingName } from '../people/ui.mjs';
+ import { holdingModel, provisionalNote } from '../screens/holding.mjs';
+-import { hostState } from '../screens/host.mjs';
++import { hostState, hostRows } from '../screens/host.mjs';
++import { musterIdleCode, allFormedText, allFormedShort, musterRuleText, formingHosts, stoodHosts } from './firststeps.mjs';
+ import { directionOf } from '../screens/explore.mjs';
+ import { ring } from '../screens/parts.mjs';
+ import { icon, RESOURCE_ICON } from './icons.mjs';
+@@ -98,6 +99,10 @@
+   const freeIn = m.queue.length >= m.slots ? Math.min(...m.queue.map(q => q.doneIn)) : 0;
+   const cheapest = shortOf(trainCost(0, 100, FS.season?.programVersion), m.have);
+   const musterBlock = m.blocks.Muster.includes('NotFinal') ? 'NotFinal' : !reserve.some(r => r.troops >= HOST_TROOPS.min) ? 'NoReserve' : m.blocks.Muster[0] ?? null;
++  // (every troop already in a host — the first host forming or standing: the idle muster reads as done, not as an error)
++  let hostsNow = 0;
++  try { const rows = hostRows(FS); hostsNow = formingHosts(rows).length + stoodHosts(rows).length; } catch { hostsNow = 0; }
++  const allFormed = musterIdleCode({ reserve: musterable, hosts: hostsNow }) === 'allFormed';
+   const promo = m.promotion;
+   // (each figure says what it counts: 「25:00」 beside three rings, 「控え 400」, 「400」 and 「都市へ」 were read as codes:
+   // the design review of 2026-10-24. The time is what is left; the reserve is people; a host takes up to that many; a
+@@ -109,7 +114,7 @@
+     { id: 'train', icon: 'helmet', word: L`訓練`, act: 'hand-pop', data: { pop: 'train' }, figure: L`控え ${fmtNum(musterable)}人`,
+       tone: cheapest.length ? 'warn' : '', hint: cheapest.length ? shortWords(cheapest) : L`訓練はすぐに終わり、兵は控えに入ります` },
+     { id: 'muster', icon: 'ranks', word: L`編成`, act: 'hand-pop', data: { pop: 'muster' }, figure: L`最大 ${fmtNum(musterable)}人`,
+-      why: musterBlock ? (musterBlock === 'NotFinal' ? whyText('NotFinal') : whyText(musterBlock)) : null, hint: L`控えの兵を軍勢にして、州のマスに集めます` },
++      why: musterBlock ? (musterBlock === 'NotFinal' ? whyText('NotFinal') : musterBlock === 'NoReserve' && allFormed ? allFormedShort() : whyText(musterBlock)) : null, hint: L`控えの兵を軍勢にして、州のマスに集めます` },
+     { id: 'harvest', icon: 'grain', word: L`収穫`, act: 'harvest', data: {},
+       // (nothing has grown since the last settling — any order settles the stores —: the figure says what an hour brings, not a dead "+0")
+       figure: hv.full.length ? L`満杯 ${fmtNum(hv.full.length)}` : hv.total > 0 ? L`+${fmtNum(hv.total)}` : hv.perHour > 0 ? L`毎時 +${fmtNum(hv.perHour)}` : L`+${fmtNum(0)}`, tone: hv.full.length ? 'bad' : '',
+@@ -120,8 +125,10 @@
+       hint: promo.running ? L`${TIERS[promo.to]}へ昇格中` : promo.short.length ? shortWords(promo.short) : L`${TIERS[promo.to]}へ：${costWords(promo.cost)}` }
+       : { id: 'promote', icon: 'tierup', word: L`昇格`, act: 'hand-pop', data: { pop: 'promote' }, figure: '', why: whyText('TopTier') },
+   ];
++  // (the read-only expedition check asks for a host this village issued: with none yet it has nothing to check, and on
++  // a first visit it read as a second, unexplained action beside Build and Train — the first-session review of 2026-11-13)
+   const name = holdingName(sub.holding);
+-  if (!FS.sample && !FS.proto && inspectionVersion(FS.season?.programVersion)) buttons.push({
++  if (!FS.sample && !FS.proto && inspectionVersion(FS.season?.programVersion) && hostsNow > 0) buttons.push({
+     id: EXPEDITION_POP, icon: 'search', word: L`遠征を確認`, act: 'hand-pop', data: { pop: EXPEDITION_POP },
+     figure: L`読み取り専用`, quiet: true, hint: L`この村が発行した軍勢の番号で確認します。現在地や生存を意味しません。`,
+   });
+@@ -350,7 +357,9 @@
+ function musterPop(FS, model) {
+   const d = musterDraft(FS, model), f = model.m.faction, h = model.subject.holding;
+   const block = model.m.blocks.Muster[0] ?? (d.unit === null || d.max < HOST_TROOPS.min ? 'NoReserve' : null);
+-  const why = block ? whyText(block) : null;
++  let hostsNow = 0;
++  try { const rows = hostRows(FS); hostsNow = formingHosts(rows).length + stoodHosts(rows).length; } catch { hostsNow = 0; }
++  const why = block === 'NoReserve' && musterIdleCode({ reserve: model.reserve.reduce((a, r) => a + r.troops, 0), hosts: hostsNow }) ? allFormedText() : block ? whyText(block) : null;
+   const at = d.tile === null || d.tile === h.tile ? L`${holdingName(h)}（村のマス）` : tileName(FS, h.p, h.q, d.tile);
+   const who = d.unit === null ? '' : unitCount(UNIT_ORDER[d.unit], d.troops);
+   // (a low card: the board above it is where the tile is chosen)
+@@ -361,7 +370,7 @@
+       ${d.unit === null ? '' : countRow('hand-troops', d.troops, { min: HOST_TROOPS.min, max: d.max, presets: [{ n: d.max, text: L`全部` }], label: L`兵数` })}
+       <button type="button" class="btn primary pop-go" data-act="muster" data-unit="${d.unit ?? 0}" data-troops="${d.troops}" data-tile="${d.tile ?? h.tile}" ${raw(why ? 'aria-disabled="true"' : '')}>${icon('ranks')}${who ? L`${who} をここに集める` : L`ここに集める`}</button>
+     </div>
+-    <p class="pop-line${why ? ' pop-why' : ' pop-rule'}">${why ?? L`線の内側のマスを押すと場所を変えられます（村のある州の、通れるマス）。軍勢は次のターンに整列します。`}</p>
++    <p class="pop-line${why ? ' pop-why' : ' pop-rule'}">${why ?? musterRuleText()}</p>
+     ${FS.proto && !why && musterPlace(FS, model) ? proto.placeLine(FS, previewOf(FS, musterPlace(FS, model))) : ''}${proto.whyLine(FS)}`;
+ }
+ 
+--- a/permutation-server/web/frontier/hud/turnlist.mjs
++++ b/permutation-server/web/frontier/hud/turnlist.mjs
+@@ -34,7 +34,7 @@
+     case 'walls': return L`城壁を工事中（${left}）`;
+     case 'promote': return L`${TIERS[o.to] ?? ''}へ昇格中（${left}）`;
+     case 'train': return L`${who} を訓練しました`;
+-    case 'muster': return L`${who} を編成 — 次のターンに整列します`;
++    case 'muster': return L`${who} を編成 — このターンの決着のあとに整列します`;
+     case 'garrison': return L`守備隊を ${fmtNum(o.n ?? 0)} 増やしました`;
+     case 'dissolve': return L`${who} を解散 — このターンの決着のあと控えに戻ります`;
+     case 'explore': return L`斥候を探索に出しました（${fmtNum((o.tiles ?? []).length)} マス）— ${exploreResultWords(Number.isInteger(o.resultTurn) ? o.resultTurn : null)}`;
+--- a/permutation-server/web/frontier/hud/keephand.mjs
++++ b/permutation-server/web/frontier/hud/keephand.mjs
+@@ -32,6 +32,7 @@
+ import { provinceName, provinceCoords } from './place.mjs';
+ import { whyText } from './orderparts.mjs';
+ import { keepArrival, ROUGH_TERRAIN } from './rulebook.mjs';
++import { formingLine } from './firststeps.mjs';
+ 
+ const int = Number.isInteger;
+ const nation = f => int(f) && f >= 0 && f <= 5;
+@@ -112,9 +113,15 @@
+ /** "Your host is holding this keep's tile: 486 Spearmen" (the keep panel, in place of an offer to send there the host that is there). */
+ export const holdingHereText = hosts => L`あなたの軍勢がこの砦のマスを保っています：${hosts.map(x => unitCount(UNIT_ORDER[x.unit], x.troops)).join(L`、`)}`;
+ 
+-/** A wait in one sentence, naming the host: what it is doing and the turn from which it can depart. */
+-export function waitText(w) {
++/** A wait in one sentence, naming the host: what it is doing and the turn from which it can depart. With `FS`, a host still
++ * forming (state 2) says where its muster turn really is (hud/firststeps.mjs), not a turn it may not be ready by. */
++export function waitText(w, FS = null) {
+   const who = unitCount(UNIT_ORDER[w.unit], w.troops);
++  if (FS && (w.why === 'forming' || w.why === 'settling')) {
++    let row = null;
++    try { row = hostRows(FS).find(r => String(r.id) === String(w.id) && r.state === 2) ?? null; } catch { row = null; }
++    if (row) return formingLine(FS, row);
++  }
+   switch (w.why) {
+     case 'forming': return L`${who} は編成中です。ターン ${fmtNum(w.turn)} から出発できます。`;
+     case 'settling': return L`${who} のいる州が、ターンの処理を進めています。処理が済むと、このターン（ターン ${fmtNum(w.turn)}）から出発できます。`;
+@@ -133,7 +140,7 @@
+ export function renderWaits(FS, waits = hostWaits(FS), { max = 3 } = {}) {
+   if (!waits.length) return '';
+   const busy = FS.inFlight > 0 || !!FS.homeActionBusy;
+-  return html`<ul class="kh-waits" role="status">${waits.slice(0, max).map(w => html`<li class="kh-wait kh-wait-${w.why}">${icon(w.why === 'march' ? 'march' : 'hourglass')}<span class="kh-wait-t">${waitText(w)}</span>
++  return html`<ul class="kh-waits" role="status">${waits.slice(0, max).map(w => html`<li class="kh-wait kh-wait-${w.why}">${icon(w.why === 'march' ? 'march' : 'hourglass')}<span class="kh-wait-t">${waitText(w, FS)}</span>
+     ${w.nudge && !FS.localPlay ? html`<button type="button" class="btn small" data-act="nudge" data-p="${w.p}" data-q="${w.q}" ${raw(busy ? 'disabled' : '')}>${L`この州の処理を進める`}</button>` : ''}</li>`)}</ul>`;
+ }
+ 
+@@ -225,7 +232,7 @@
+     : km.rows.length ? html`<ol class="kh-rows" aria-label="${L`${who}が届く砦`}">${km.rows.map(row)}</ol>`
+     : html`<p class="pop-line">${L`この軍勢がいま届く他国の砦はありません。進軍が越えられるのは4州までです。`}</p>`;
+   return html`${head(L`砦へ進軍`, sub)}
+-    ${km.wait ? html`<p class="pop-line pop-why kh-wait-line">${icon('hourglass')}<span>${waitText({ ...km.wait, unit: r.unit, troops: r.troops })}</span>${km.wait.nudge && !FS.localPlay ? html` <button type="button" class="btn small" data-act="nudge" data-p="${r.p}" data-q="${r.q}">${L`この州の処理を進める`}</button>` : ''}</p>` : ''}
++    ${km.wait ? html`<p class="pop-line pop-why kh-wait-line">${icon('hourglass')}<span>${waitText({ ...km.wait, id: r.id, unit: r.unit, troops: r.troops }, FS)}</span>${km.wait.nudge && !FS.localPlay ? html` <button type="button" class="btn small" data-act="nudge" data-p="${r.p}" data-q="${r.q}">${L`この州の処理を進める`}</button>` : ''}</p>` : ''}
+     ${body}
+     <p class="pop-line pop-rule kh-rule">${L`砦のマスを ${fmtNum(holdTurns(FS))} ターン続けて保つと、その州はあなたの国のものになります。行を選ぶと命令の紙が開きます（封をするまで何も送られません）。`}</p>
+     <p class="pop-line pop-rule">${L`勝ち目は、着いたターンの戦いを記録の守備兵と城壁と地形で計算した目安です。戦いの後に強さ（兵 × 1 人の強さ）が多く残った側がマスに残り、同じなら砦の側が残ります。運の揺れ（±10%）を含め、ほかの軍勢、教義の効果、道中の見張り塔で減る兵（最大 30%）は含みません。`}</p>`;
+--- a/permutation-server/web/frontier/hud/guide.mjs
++++ b/permutation-server/web/frontier/hud/guide.mjs
+@@ -45,7 +45,9 @@
+   if (conquestOn(FS) && !territoryEnabled(FS)) {
+     let o = null;
+     try { o = conquestObjective(FS); } catch { return null; }
+-    const kind = o?.id === 'build' ? 'build' : o?.id === 'train' || o?.id === 'muster' ? o.id : null;
++    // (the step's own press says where: while the first host forms, the muster step points at training or building)
++    const pop = o?.go?.act === 'cg-go' ? o.go.data?.pop : null;
++    const kind = ['build', 'train', 'muster'].includes(o?.id) && ['build', 'train', 'muster'].includes(pop) ? pop : null;
+     return kind ? { step: kind, kind, p: h.p, q: h.q, tile: h.tile } : null;
+   }
+   if (territoryEnabled(FS)) {
+--- a/permutation-server/web/frontier/hud/milestones.mjs
++++ b/permutation-server/web/frontier/hud/milestones.mjs
+@@ -8,10 +8,14 @@
+ import { html, raw } from '../../util.mjs';
+ import { icon } from './icons.mjs';
+ import { L, fmtNum } from '../../lang.mjs';
+-import { factionName } from '../fi18n.mjs';
++import { factionName, unitCount } from '../fi18n.mjs';
+ import { leaderFigure } from '../people/leaders.mjs';
+ import { holdingName } from '../people/ui.mjs';
+ import { provinceName } from './place.mjs';
++import { UNIT_ORDER } from '../fland.mjs';
++import { hostRows } from '../screens/host.mjs';
++import { keepTarget } from '../screens/conquestguide.mjs';
++import { stoodHosts, firstHostNext, firstHostNextLine, marchOpenFor } from './firststeps.mjs';
+ 
+ export const MILESTONE_KEY = 'ps-fmile:';
+ export const BANNER_MS = 12_000;
+@@ -22,6 +26,7 @@
+ const TEXT = {
+   'first-holding': { title: x => L`最初の村：${nameOf(x)}`, line: () => L`旗は立った。ここが我らの始まりの地だ。` },
+   confirmed: { title: x => L`村が確定：${nameOf(x)}`, line: () => L`もう誰にも奪わせはしない。この地は我らが守り抜く。` },
++  'first-host': { title: () => L`最初の軍勢が立った`, line: () => L`旗のもとに兵が並んだ。この軍勢が、我らの最初の力だ。` },
+   'first-march': { title: () => L`最初の出陣`, line: () => L`封は閉じた。行き先を知るのは我らだけだ。` },
+   'first-win': { title: x => L`最初の勝利：${provinceName(null, x.p, x.q)}`, line: () => L`見事な勝利だ。辺境は勇む者の手に渡る。` },
+   'tier-up': { title: x => L`${nameOf(x)}になった`, line: () => L`民が増え、壁が伸びる。次のターンも手を休めまい。` },
+@@ -37,7 +42,21 @@
+   if (fin) out.push({ id: 'confirmed', kind: 'confirmed', p: fin.p, q: fin.q, site: fin.site, tier: Number(fin.tier ?? 0) });
+   for (const h of hs) for (let t = 1; t <= Number(h.tier ?? 0); t++) out.push({ id: `tier:${h.p},${h.q},${h.site}:${t}`, kind: 'tier-up', p: h.p, q: h.q, site: h.site, tier: t });
+   const ms = FS.marches ?? [];
+-  if (ms.length || hs.some(h => (h.transit ?? []).some(t => t.state >= 1))) out.push({ id: 'first-march', kind: 'first-march' });
++  const marched = ms.length > 0 || hs.some(h => (h.transit ?? []).some(t => t.state >= 1));
++  // the first host that STANDS in the record (state 1, formed; a host still forming does not count), once: the seen
++  // record keeps its id, and a page's first load records what is already reached without a banner. A viewer who has
++  // already marched is past it (no late banner for old news)
++  if (!marched) {
++    let stood = [];
++    try { stood = stoodHosts(hostRows(FS)).filter(r => r.state === 1 && !r.inTransit); } catch { stood = []; }
++    if (stood.length) {
++      const r = stood[0], troops = Math.floor(Number(r.troops)) || 0;
++      let need = null;
++      try { need = keepTarget(FS)?.need ?? null; } catch { need = null; }
++      out.push({ id: 'first-host', kind: 'first-host', unit: r.unit, troops, need, next: firstHostNext({ troops, need, marchOpen: marchOpenFor(FS) }) });
++    }
++  }
++  if (marched) out.push({ id: 'first-march', kind: 'first-march' });
+   const won = ms.find(m => (m.facts?.settled?.outcome ?? m.transit?.outcome) === 'Stays' && m.dest);
+   if (won) out.push({ id: 'first-win', kind: 'first-win', p: won.dest.p, q: won.dest.q });
+   const rings = FS.record?.rings?.length ?? 0;
+@@ -74,7 +93,7 @@
+   const f = Number.isInteger(faction) ? faction : 0;
+   return html`<div class="mile-inner"><span class="mile-fig">${raw(leaderFigure(f))}</span><div class="mile-text">
+     <strong class="mile-title">${t.title(m)}</strong>
+-    <q class="mile-line">${t.line()}</q> <span class="muted">— ${factionName(f)}</span></div>
++    <q class="mile-line">${t.line()}</q> <span class="muted">— ${factionName(f)}</span>${m.kind === 'first-host' && Number.isInteger(m.unit) ? html`<br><span class="mile-next">${unitCount(UNIT_ORDER[m.unit], m.troops)}${m.next ? html` · ${firstHostNextLine(m.next, { unit: m.unit, need: m.need })}` : ''}</span>` : ''}</div>
+     <button type="button" class="btn small" data-act="mile-close" aria-label="${L`閉じる`}">${icon('close')}</button></div>`;
+ }
+ 
+--- a/permutation-server/web/frontier/screens/holding.mjs
++++ b/permutation-server/web/frontier/screens/holding.mjs
+@@ -257,7 +257,7 @@
+   const musterForm = html`<form class="vform" id="hp-muster" data-form="muster">
+     ${reserve.length ? unitPicks(faction, reserve, L`兵種`, { selected: reserve[0]?.unit ?? 0 }) : ''}
+     <div class="count-row"><label class="count-label" for="f-troops">${L`兵数（100〜30,000）`}</label><input id="f-troops" name="troops" type="number" min="100" max="30000" step="1" value="100" inputmode="numeric">${steps('troops', { max: reserve.length === 1 ? Math.min(30000, reserve[0].troops) || null : null })}</div>
+-    <div class="actions"><button type="submit" class="btn primary" ${raw(actionBusy || m.blocks.Muster.length || !reserve.length ? 'disabled' : '')}>${icon('banner')}${L`編成する`}</button><span class="muted">${L`編成は世界の処理に反映されてから行動できます。目安はゲーム内で約11〜21分です。`}</span></div>
++    <div class="actions"><button type="submit" class="btn primary" ${raw(actionBusy || m.blocks.Muster.length || !reserve.length ? 'disabled' : '')}>${icon('banner')}${L`編成する`}</button><span class="muted">${L`編成した軍勢は、このターンが終わり、封が開けられて決着すると行動できます。`}</span></div>
+     ${!reserve.length ? html`<p class="blocked">${L`控えの兵がいません：先に訓練しましょう`}</p>` : ''}
+     ${blockedLine(m.blocks.Muster)}</form>`;
+   // the action that makes sense now stands open; the other waits behind a fold
+--- a/permutation-server/web/frontier/screens/conquestguide.mjs
++++ b/permutation-server/web/frontier/screens/conquestguide.mjs
+@@ -27,6 +27,9 @@
+ import { provinceName } from '../hud/place.mjs';
+ import { hostRows } from './host.mjs';
+ import { cardHead } from './parts.mjs';
++import { holdingModel } from './holding.mjs';
++import { maxTrain } from '../hud/rulebook.mjs';
++import { marchOpenFor, marchClosedText, formingHosts, stoodHosts, formingLine, whileWaiting, whileWaitingLine } from '../hud/firststeps.mjs';
+ 
+ export const CONQUEST_STEPS = Object.freeze(['village', 'build', 'train', 'muster', 'march', 'hold', 'capture']);
+ const int = Number.isInteger;
+@@ -71,6 +74,8 @@
+   const gain = (FS.conquest?.events ?? []).filter(e => e.kind === 'keep_taken' && e.to === f).at(-1) ?? null;
+   const target = contest ?? standing ?? revealed ?? sealed ?? null;
+   return { village: !!h, built: !!h && (hasBuilt(h, now) || (h.queue ?? []).some(q => q && q.kind === 1)), trained: !!base.trainedCombat, host: !!base.ownCombatHost || rows.length > 0,
++    // (a host that stands in the record — formed, or out on a march: the muster step is done only then, not while it forms)
++    stood: stoodHosts(rows).length > 0, forming: formingHosts(rows)[0] ?? null,
+     marched: !!(standing || revealed || sealed || contest || gain),
+     holding: contest ? { p: contest.p, q: contest.q, progress: Math.max(0, Number(contest.progress ?? 0)), required: holdTurns(FS, contest) } : null,
+     captured: gain ? { p: gain.p, q: gain.q, turn: gain.bell } : null, target: target ? { p: target.p, q: target.q } : gain ? { p: gain.p, q: gain.q } : null,
+@@ -125,7 +130,7 @@
+   if (!conquestOn(FS)) return null;
+   const x = conquestFacts(FS), hold = holdTurns(FS);
+   const captured = !!x.captured;
+-  const done = { village: x.village, build: x.built || x.trained || x.host, train: x.trained || x.host, muster: x.host || x.marched, march: x.marched, hold: captured, capture: captured };
++  const done = { village: x.village, build: x.built || x.trained || x.host, train: x.trained || x.host, muster: x.stood || x.marched, march: x.marched, hold: captured, capture: captured };
+   // the step that is next is the one after the furthest the records show (a player who has marched is not sent back to
+   // "build" because the village's queue is empty): what lies before it and is not in the records now reads as passed
+   const reach = CONQUEST_STEPS.reduce((a, id, i) => (done[id] ? i : a), -1);
+@@ -133,6 +138,21 @@
+   return { steps: CONQUEST_STEPS.map((id, i) => ({ id, title: TITLE[id](hold), status: done[id] || i < reach ? 'done' : id === current ? 'current' : 'todo' })), current, n: Math.max(0, reach + 1), total: CONQUEST_STEPS.length, facts: x };
+ }
+ 
++/**
++ * What to suggest while host row `r` forms (hud/firststeps.mjs whileWaiting), from the active village's stores and
++ * queue and the usual keep `t` (keepTarget): troops toward its need, or a free building slot. Null for nothing.
++ */
++function waitingSuggestion(FS, r, t) {
++  let m = null;
++  try { m = holdingModel(FS); } catch { m = null; }
++  if (!m) return null;
++  const reserve = Number(activeHolding(FS)?.reserve?.[r.unit] ?? 0);
++  let canTrain = 0;
++  try { canTrain = maxTrain(r.unit, m.have ?? [], FS.season?.programVersion); } catch { canTrain = 0; }
++  return whileWaiting({ need: t?.need ?? null, troops: Number(r.troops) || 0, reserve, canTrain: m.blocks?.Train?.length ? 0 : canTrain,
++    freeSlots: Math.max(0, (m.slots ?? 0) - (m.queue?.length ?? 0)), buildBlocked: !!m.blocks?.Build?.length });
++}
++
+ /** The current step as the one "next thing": `{id, n, total, title, text, go: {act, data, label} | null}`; null when every step is done. */
+ export function conquestObjective(FS) {
+   const g = conquestGuide(FS);
+@@ -148,14 +168,37 @@
+     const t = keepTarget(FS);
+     const aim = t?.need ? L`砦を攻めるなら、${unitCount(UNIT_ORDER[0], t.need)} 以上を一つの軍勢にまとめると、守備兵 ${fmtNum(t.troops)} の砦に着いたターンに勝てる見込みです。` : '';
+     if (id === 'train') { text = L`「訓練」で兵を雇います。訓練はすぐに終わり、兵は村の控えに入ります。${aim}`; go = { act: 'cg-go', data: { pop: 'train' }, label: L`訓練する兵を選ぶ` }; }
+-    else { text = L`「編成」で控えの兵を軍勢にします。軍勢は、記録に現れたターンから動かせます。${aim}`; go = { act: 'cg-go', data: { pop: 'muster' }, label: L`軍勢を編成する` }; }
++    else if (x.forming) {
++      // the host is forming: where its muster turn really is, and one thing worth doing meanwhile (the first-session
++      // review of 2026-11-13: the guide said nothing for the ~18 minutes between the muster and the formed host)
++      const r = x.forming, s = waitingSuggestion(FS, r, t);
++      text = [formingLine(FS, r), whileWaitingLine(s, r.unit)].filter(Boolean).join(' ');
++      go = s?.kind === 'train' ? { act: 'cg-go', data: { pop: 'train' }, label: L`兵を足す` }
++        : s?.kind === 'build' ? { act: 'cg-go', data: { pop: 'build' }, label: L`建設をひらく` }
++        : { act: 'tab', data: { tab: 'hosts' }, label: L`軍勢の準備を確かめる` };
++    } else { text = L`「編成」で控えの兵を軍勢にします。軍勢は、記録に現れたターンから動かせます。${aim}`; go = { act: 'cg-go', data: { pop: 'muster' }, label: L`軍勢を編成する` }; }
+   } else if (id === 'march') {
+     let rows = [];
+     try { rows = hostRows(FS).filter(r => r.unit !== SCOUT && r.unit !== SETTLER); } catch { rows = []; }
+     const ready = rows.find(r => !waitOf(FS, r)) ?? null, wait = ready ? null : hostWaits(FS)[0] ?? null;
+     const back = x.repelled ? L`前の進軍は${provinceName(FS, x.repelled.p, x.repelled.q, { own: false })}の砦のマスに残れず、村へ押し戻されました。` : '';
+     const best = ready ? bestOdds(FS, ready) : null;
+-    if (ready && best && best.odds !== 'good') {
++    if (ready && !marchOpenFor(FS)) {
++      // this page cannot send a march in this world (hud/firststeps.mjs marchOpenFor): never point at a press that
++      // cannot work. Say so plainly, without promising when, and set a goal the page can take: troops toward the keep
++      const t = keepTarget(FS), troops = Math.floor(Number(ready.troops)) || 0;
++      const who = unitCount(UNIT_ORDER[ready.unit], troops), closed = marchClosedText(FS);
++      if (t?.need && troops < t.need) {
++        text = L`${back}${who}の軍勢が立ちました。${closed}届く砦（守備兵 ${fmtNum(t.troops)}）に勝てる見込みの ${unitCount(UNIT_ORDER[ready.unit], t.need)} まで、兵を足しておけます。`;
++        go = { act: 'cg-go', data: { pop: 'train' }, label: L`兵を足す` };
++      } else if (t?.need) {
++        text = L`${back}${who}の軍勢は、届く砦（守備兵 ${fmtNum(t.troops)}）に勝てる見込みの兵数です。${closed}`;
++        go = { act: 'cg-go', data: { pop: 'keeps', host: String(ready.id) }, label: L`届く砦を見る` };
++      } else {
++        text = L`${back}${who}の軍勢が立ちました。${closed}`;
++        go = { act: 'tab', data: { tab: 'hosts' }, label: L`軍勢の準備を確かめる` };
++      }
++    } else if (ready && best && best.odds !== 'good') {
+       // the host as it stands would most likely be turned back: say so, and how many it takes, before it goes
+       const who = unitCount(UNIT_ORDER[ready.unit], Math.floor(Number(ready.troops)));
+       const chance = best.odds === 'even' ? L`勝ち目は五分です。` : L`勝ち目は低いです。`;
+@@ -164,7 +207,7 @@
+       go = { act: 'cg-go', data: { pop: 'train' }, label: L`兵を足す` };
+     } else {
+       text = ready ? L`${back}軍勢を選び、「砦へ進軍」で届く他国の砦を選びます。勝ち目の欄が「十分」の砦を選ぶと、着いたターンに砦のマスに残れる見込みです。命令に封をして出発すると、到着のターンに戦いが決まります。`
+-        : wait ? back + waitText(wait) : L`${back}軍勢を選び、「砦へ進軍」で届く他国の砦を選びます。`;
++        : wait ? back + waitText(wait, FS) : L`${back}軍勢を選び、「砦へ進軍」で届く他国の砦を選びます。`;
+       go = ready ? { act: 'cg-go', data: { pop: 'keeps', host: String(ready.id) }, label: L`届く砦を見る` } : { act: 'tab', data: { tab: 'hosts' }, label: L`軍勢の準備を確かめる` };
+     }
+   } else {
+--- a/permutation-server/web/frontier/flocalplay-session.mjs
++++ b/permutation-server/web/frontier/flocalplay-session.mjs
+@@ -61,15 +61,20 @@
+   const box = el('section', 'local-play-session'); box.id = SESSION_NOTICE_ID;
+   box.setAttribute?.('role', 'status');
+   const title = el('p', 'local-play-session-title');
++  // (folded on the player's press only — no timer: the key-loss warning stays as one line, and the whole notice comes
++  // back when the key is discarded. The first-session review of 2026-11-13: the open notice covered the turn clock all session)
++  const short = el('p', 'local-play-session-short'); short.hidden = true;
++  const fold = el('button', 'local-play-session-fold'); fold.type = 'button';
+   const list = el('ul', 'local-play-session-points');
+   const items = [el('li', 'local-play-session-point'), el('li', 'local-play-session-point'), el('li', 'local-play-session-point')];
+   list.append(...items);
+   const gone = el('p', 'local-play-session-gone'); gone.hidden = true;
+-  box.append(title, list, gone);
++  box.append(title, short, list, gone);
+   const asks = typeof onCheck === 'function';
+   const check = asks ? el('button', 'local-play-session-check') : null, said = asks ? el('p', 'local-play-session-keeper') : null;
+   if (asks) { check.type = 'button'; said.hidden = true; box.append(check, said); }
+-  let destroyed = false, live = true, end = null, moved = false, asking = false, answer = null;
++  box.append(fold);
++  let destroyed = false, live = true, end = null, moved = false, asking = false, answer = null, folded = false;
+   const label = () => {
+     title.textContent = L`この試験世界について`;
+     items[0].textContent = L`鍵はこのページのメモリにだけあります。再読み込み・タブを閉じると失われ、この世界は続けられません。`;
+@@ -77,10 +82,19 @@
+       : L`自動終了の予定時刻は、このページでは確認できません。開始サービスで決めた時間で終わります（既定は開始から2時間）。`;
+     items[2].textContent = L`世界が終わると、その世界の進行は保存されません。`;
+     gone.textContent = L`このページの試験用の鍵は破棄されました。このページからこの世界は続けられません。新しい鍵や新しい世界は自動では作りません。`;
++    short.textContent = L`鍵はこのページのメモリにだけあります。再読み込みすると、この世界は続けられません。`;
++    fold.textContent = folded ? L`詳しく見る` : L`たたむ`;
++    fold.setAttribute?.('aria-expanded', folded ? 'false' : 'true');
+     if (asks) { check.textContent = asking ? L`確認しています…` : L`世界の進行を確認`; const t = keeperText(answer); said.textContent = t ?? ''; said.hidden = t === null; }
+   };
+-  const paint = () => { list.hidden = destroyed; gone.hidden = !destroyed; if (asks) { check.hidden = destroyed; check.disabled = asking; if (destroyed) said.hidden = true; } if (box.dataset) { box.dataset.state = destroyed ? 'destroyed' : 'live'; box.dataset.end = end !== null ? 'known' : 'unknown'; } };
++  const paint = () => {
++    const f = folded && !destroyed;
++    list.hidden = destroyed || f; short.hidden = !f; gone.hidden = !destroyed; fold.hidden = destroyed;
++    if (asks) { check.hidden = destroyed || f; check.disabled = asking; if (destroyed || f) said.hidden = true; }
++    if (box.dataset) { box.dataset.state = destroyed ? 'destroyed' : 'live'; box.dataset.end = end !== null ? 'known' : 'unknown'; box.dataset.fold = f ? 'folded' : 'open'; }
++  };
+   label(); paint();
++  fold.addEventListener?.('click', () => { if (!live || destroyed) return; folded = !folded; label(); paint(); });
+   if (asks) check.addEventListener?.('click', () => {
+     if (!live || destroyed || asking) return;
+     asking = true; label(); paint();
+--- a/permutation-server/web/frontier/flocalplay.css
++++ b/permutation-server/web/frontier/flocalplay.css
+@@ -64,7 +64,7 @@
+    no pointer events, sits UNDER every control layer (tabs 25, hand 26, panel 30, feed 35; on small screens the sheet
+    panel 22 and the feed 18 cover it), and stays at the top under the strip, away from the bottom bar. A [hidden] part is
+    always hidden, whatever display its class sets. */
+-#local-play-session { position: fixed; top: calc(var(--strip, 48px) + 4px); left: 50%; translate: -50% 0; z-index: 17; width: max-content; max-width: min(460px, calc(100vw - 24px)); padding: 6px 10px; border: 1px solid #5a4a26; border-radius: 6px; background: rgba(20, 17, 12, 0.88); color: #d8d2bf; font-size: 12px; line-height: 1.4; pointer-events: none; }
++#local-play-session { position: fixed; top: calc(var(--dial, 84px) + 8px); left: 50%; translate: -50% 0; z-index: 17; width: max-content; max-width: min(460px, calc(100vw - 24px)); padding: 6px 10px; border: 1px solid #5a4a26; border-radius: 6px; background: rgba(20, 17, 12, 0.88); color: #d8d2bf; font-size: 12px; line-height: 1.4; pointer-events: none; }
+ #local-play-session [hidden] { display: none !important; }
+ #local-play-session .local-play-session-title { margin: 0 0 2px; font-weight: 600; color: #c9a24a; }
+ #local-play-session .local-play-session-points { display: grid; gap: 2px; margin: 0; padding: 0 0 0 1.2em; }
+@@ -72,4 +72,7 @@
+ #local-play-session .local-play-session-check { margin: 4px 0 0; padding: 2px 8px; border: 1px solid #5a4a26; border-radius: 4px; background: #2a2418; color: #d8d2bf; font: inherit; cursor: pointer; pointer-events: auto; }
+ #local-play-session .local-play-session-check:disabled { cursor: default; opacity: .6; }
+ #local-play-session .local-play-session-keeper { margin: 2px 0 0; }
+-@media (max-width: 720px) { #local-play-session { top: calc(var(--strip, 48px) + 2px); max-width: calc(100vw - 16px); padding: 4px 8px; font-size: 11px; } }
++#local-play-session .local-play-session-short { margin: 0; }
++#local-play-session .local-play-session-fold { margin: 4px 0 0 6px; padding: 2px 8px; border: 1px solid #5a4a26; border-radius: 4px; background: transparent; color: #c9a24a; font: inherit; cursor: pointer; pointer-events: auto; }
++#local-play-session .local-play-session-fold:focus-visible, #local-play-session .local-play-session-check:focus-visible { outline: 2px solid #c9a24a; outline-offset: 1px; }
++@media (max-width: 720px) { #local-play-session { top: calc(var(--dial, 84px) + 6px); max-width: calc(100vw - 16px); padding: 4px 8px; font-size: 11px; } }
+--- a/permutation-server/web/lang/en-frontier-play.mjs
++++ b/permutation-server/web/lang/en-frontier-play.mjs
+@@ -158,7 +158,7 @@
+   "訓練の費用": "Training cost",
+   "1〜30,000人で人数を決めてください。": "Choose between 1 and 30,000 troops.",
+   "いま訓練できる人数 {0}（一隊の上限まで）": "You can afford {0} troops (up to one host’s limit)",
+-  "編成は世界の処理に反映されてから行動できます。目安はゲーム内で約11〜21分です。": "A new host can act once its formation is processed, in about 11–21 game minutes.",
++  "編成した軍勢は、このターンが終わり、封が開けられて決着すると行動できます。": "A new host can act once this turn has ended, its seals have been opened and the turn is resolved.",
+   "編成の反映待ち": "Forming up",
+   "編成の反映の目安まで {0}（ゲーム内）": "Estimated formation wait: {0} (game time)",
+   "世界の処理で編成が反映されるのを待っています。": "Waiting for the world to process this formation.",
+@@ -559,7 +559,7 @@
+   '村が確定：{0}': 'Village confirmed: {0}',
+   '最初の出陣': 'The first march',
+   '{0}になった': a => `Became ${inText(a)}`,
+-  '第{0}輪がひらいた': 'Ring {0} opened',
++  '第{0}輪がひらいた': 'The map grew: ring {0} is open',
+   '旗は立った。ここが我らの始まりの地だ。': 'The banner is raised. Here our story begins.',
+   'もう誰にも奪わせはしない。この地は我らが守り抜く。': 'No one takes this from us now. We hold it.',
+   '封は閉じた。行き先を知るのは我らだけだ。': 'The seal is closed. Only we know where we ride.',
+@@ -1564,4 +1564,35 @@
+   '世界の進行役は動いていますが、到着地または滞在先の処理の一つは拒否されて止まりました。その処理はもう進みません。': 'The world\'s keeper is running, but one of its destination or stay steps was refused and stopped. That step no longer moves on.',
+   '世界の進行役の報告はまだありません。少し待ってから、もう一度確認してください。': 'The world\'s keeper has not reported yet. Wait a moment, then check again.',
+   '世界の進行を確認できませんでした。開始サービスを確認して、もう一度押してください。': 'The world\'s progress could not be checked. Check the start service, then press again.',
++  // ---- the first session's waits and firsts (hud/firststeps.mjs, screens/conquestguide.mjs, hud/milestones.mjs,
++  // hud/hand.mjs, screens/holding.mjs, flocalplay-session.mjs; the first-session review of 2026-11-13)
++  '{0} は編成中です。このターンの終わり（あと {1}）のあと、封が開けられ、戦いを決めるくじが出てターンが決着すると整列します。': 'Forming up: {0}. After this turn ends (in {1}), its seals are opened, the draw comes out and the turn is resolved; then it stands.',
++  '{0} は編成中です。ターンが終わり、封を開ける鍵が出るのを待っています。': 'Forming up: {0}. The turn has ended; the key that opens its seals is awaited.',
++  '{0} は編成中です。封が開けられています（締め切りまで {1}）。そのあとターンが決着すると整列します。': 'Forming up: {0}. The seals are being opened (closes in {1}); it stands once the turn is resolved after that.',
++  '{0} は編成中です。封が開けられています。そのあとターンが決着すると整列します。': 'Forming up: {0}. The seals are being opened; it stands once the turn is resolved after that.',
++  '{0} は編成中です。戦いを決めるくじが出るのを待っています（予定まで {1}）。': 'Forming up: {0}. Waiting for the draw that decides the turn (due in {1}).',
++  '{0} は編成中です。戦いを決めるくじが出るのを待っています。': 'Forming up: {0}. Waiting for the draw that decides the turn.',
++  '{0} は編成中です。ターンを決着させています。済みしだい整列します。': 'Forming up: {0}. The turn is being resolved; it stands when that is done.',
++  '{0} の編成のターンは決着しました。村の記録が更新されると地図に立ちます。': 'Formed: {0}. Its turn is resolved; it stands on the map once the village\'s record is updated.',
++  '{0} は編成中です。編成したターンが決着すると整列します。': 'Forming up: {0}. It stands once the turn it was formed in is resolved.',
++  '待つあいだに：あと {0} で、届く砦に勝てる見込みの兵数になります。': 'While you wait: train {0} more for a keep in reach.',
++  '待つあいだに：建物の空きが {0} あります。建物は毎時の産出を増やします。': n => plural(n, 'While you wait: {0} building slot is free. Buildings raise what the village makes each hour.', 'While you wait: {0} building slots are free. Buildings raise what the village makes each hour.'),
++  '次の目標：届く砦を選んで進軍する': 'Next goal: choose a keep in reach and march',
++  '次の目標：{0} まで兵を足してから砦へ': 'Next goal: grow to {0}, then march on a keep',
++  '次の目標：届く砦に勝てる {0} まで兵を足す': 'Next goal: grow to {0}, enough for a keep in reach',
++  '次の目標：届く砦を見る': 'Next goal: look over the keeps in reach',
++  '控えの兵はすべて軍勢にしました。もう一隊つくるには、先に訓練しましょう': 'Every reserve troop is in a host. Train more to form another',
++  '全員編成済み：訓練で次の一隊へ': 'All formed: train for another',
++  'この世界では、このページからの進軍は提供されていません。': 'This world does not offer marching from this page.',
++  'このページの試験用の鍵と接続が確かめられないため、進軍は使えません。': 'Marching is not available: this page\'s test key and connection could not be confirmed.',
++  'この村からは、このページの進軍は使えません。': 'Marching from this page is not available from this village.',
++  'この軍勢の進軍は送信済みで、結果をまだ確認できていません。同じ進軍は送り直しません。': 'This host\'s march was sent and its result is not confirmed yet. The same march will not be sent again.',
++  'この世界では、このページからの進軍はいま使えません。': 'Marching from this page is not available in this world now.',
++  '{0}{1}の軍勢が立ちました。{2}届く砦（守備兵 {3}）に勝てる見込みの {4} まで、兵を足しておけます。': '{0}Your host of {1} stands. {2} Meanwhile you can grow it to {4}, enough for a keep in reach ({3} defenders).',
++  '{0}{1}の軍勢は、届く砦（守備兵 {2}）に勝てる見込みの兵数です。{3}': '{0}Your host of {1} should be enough for a keep in reach ({2} defenders). {3}',
++  '{0}{1}の軍勢が立ちました。{2}': '{0}Your host of {1} stands. {2}',
++  '最初の軍勢が立った': 'Your first host stands',
++  '旗のもとに兵が並んだ。この軍勢が、我らの最初の力だ。': 'The ranks stand under the banner. Our first strength.',
++  '鍵はこのページのメモリにだけあります。再読み込みすると、この世界は続けられません。': 'The key lives only in this page\'s memory. After a reload this world cannot be continued.',
++  'たたむ': 'Hide details',
+ };
+--- a/permutation-server/web/lang/en-frontier-hand.mjs
++++ b/permutation-server/web/lang/en-frontier-hand.mjs
+@@ -159,7 +159,7 @@
+   '探索の結果 {0}': n => plural(n, '{0} exploration result', '{0} exploration results'),
+   'このシーズンに測量したマスの数です。村や軍勢から見えた土地、探索したマス、進軍で通ったマスが入ります。': 'The tiles you have surveyed this season: land seen from your village and hosts, tiles explored, tiles a march passed over.',
+   'ここに集める': 'Form here',
+-  '線の内側のマスを押すと場所を変えられます（村のある州の、通れるマス）。軍勢は次のターンに整列します。': 'Press a tile inside the line to change the place (a passable tile of the village\'s province). The host is ready next turn.',
++  '線の内側のマスを押すと場所を変えられます（村のある州の、通れるマス）。軍勢は、このターンの決着のあとに整列します。': 'Press a tile inside the line to change the place (a passable tile of the village\'s province). The host stands once this turn is resolved.',
+ 
+   // ---- promotion
+   '{0}から{1}へ': '{0} to {1}',
+@@ -218,7 +218,7 @@
+   '城壁の工事を始めました': 'Work on the walls begun',
+   '{0}への昇格を始めました': 'Promotion to {0} begun',
+   '{0} を訓練しました。控えに入りました': '{0} trained: they joined the reserve',
+-  '{0} の編成を命じました。次のターンに整列します': '{0} ordered to form up. Ready next turn',
++  '{0} の編成を命じました。このターンの決着のあとに整列します': '{0} ordered to form up. Stands once this turn is resolved',
+   '守備隊を {0} 増やしました': 'Garrison reinforced by {0}',
+   '{0} の解散を命じました。このターンの決着のあと、兵は控えに戻ります': '{0} ordered to dissolve. After this turn is resolved the troops return to the reserve',
+   '解散を命じました。このターンの決着のあと、兵は控えに戻ります': 'Ordered to dissolve. After this turn is resolved the troops return to the reserve',
+@@ -245,7 +245,7 @@
+   '城壁を工事中（{0}）': 'Walls under construction ({0})',
+   '{0}へ昇格中（{1}）': 'Being promoted to {0} ({1})',
+   '{0} を訓練しました': '{0} trained',
+-  '{0} を編成 — 次のターンに整列します': '{0} forming up — ready next turn',
++  '{0} を編成 — このターンの決着のあとに整列します': 'Forming up: {0} — stands once this turn is resolved',
+   '{0} を解散 — このターンの決着のあと控えに戻ります': '{0} dissolving — back to the reserve after this turn is resolved',
+   '斥候を探索に出しました（{0} マス）— {1}': n => plural(n, 'Scouts exploring {0} tile — {1}', 'Scouts exploring {0} tiles — {1}'),
+   '{0} が{1}へ出発 — ターン {2} に着きます': '{0} left for {1} — arriving on turn {2}',
+--- a/permutation-gateway/test/web-frontier-conquest-hand.test.mjs
++++ b/permutation-gateway/test/web-frontier-conquest-hand.test.mjs
+@@ -63,7 +63,7 @@
+   const forming = fs({ bell: 9, entries: [entry({ state: 2, fromBell: 11 })] });
+   const k = forming.conquest.keeps.get('4,-1');
+   const panel = plain(renderKeep(forming, k));
+-  assert.match(panel, /槍兵 500 は編成中です。ターン 11 から出発できます。/);
++  assert.match(panel, /槍兵 500 は編成中です。編成したターンが決着すると整列します。/);
+   assert.doesNotMatch(panel, /出発できる戦闘部隊がいません/);
+   assert.match(String(renderKeep(forming, k)), /data-act="tab" data-tab="hosts"/, 'the way to the host: not a dead end');
+   const late = fs({ bell: 12, resolvedNext: 10 });
+@@ -74,13 +74,13 @@
+   const both = fs({ bell: 9, resolvedNext: 9, entries: [entry({ readyBell: 0, fromBell: 3 }), entry({ id: hostId({ p: 2, q: 0, site: 2, gen: 0, seq: 2 }), state: 2, fromBell: 11, troops: 700000 })] });
+   const bothPanel = String(renderKeep(both, both.conquest.keeps.get('4,-1')));
+   assert.match(bothPanel, /data-act="cq-march"/);
+-  assert.match(plain(bothPanel), /槍兵 700 は編成中です。ターン 11 から出発できます。/);
++  assert.match(plain(bothPanel), /槍兵 700 は編成中です。編成したターンが決着すると整列します。/);
+   // nobody at all: the old sentence, and the way to the village
+   const none = fs({ entries: [] });
+   assert.match(plain(renderKeep(none, none.conquest.keeps.get('4,-1'))), /出発できる戦闘部隊がいません。兵を訓練し、軍勢を編成してください。/);
+   // the reach list measured from the village names the waiting host too
+   forming.conquest.reach = { key: 'k', ok: true, home: true, rows: [], unreachable: [] };
+-  assert.match(plain(renderReach(forming)), /槍兵 500 は編成中です。ターン 11 から出発できます。 そのあいだは、村からの道のりで調べています。/);
++  assert.match(plain(renderReach(forming)), /槍兵 500 は編成中です。編成したターンが決着すると整列します。 そのあいだは、村からの道のりで調べています。/);
+ });
+ 
+ // ------------------------------------------------------------------ the keep's panel from a real record
+@@ -147,7 +147,7 @@
+   forming.conquest.hostReach = { ...s.conquest.hostReach };
+   const fm = handModel(forming);
+   assert.match(String(renderPop(forming, fm)), /class="kh-row kh-n5 off"[^>]*aria-disabled="true"/);
+-  assert.match(plain(renderPop(forming, fm)), /forming up\. This host can depart from turn 11\./);
++  assert.match(plain(renderPop(forming, fm)), /Forming up: 500 Spearmen\. It stands once the turn it was formed in is resolved\./);
+ });
+ 
+ test('the order card names the keep, its recorded defenders and what holding its tile brings', () => {
+@@ -261,9 +261,11 @@
+   const withHost = fs();
+   assert.equal(conquestGuide(withHost).current, 'march');
+   assert.deepEqual(conquestObjective(withHost).go, { act: 'cg-go', data: { pop: 'keeps', host: String(entry().id) }, label: conquestObjective(withHost).go.label });
+-  // a host that is forming: the step says the truth of the moment, and leads to the hosts
++  // a host that is forming: the muster step stays current until it stands (the first-session review of 2026-11-13)
++  // and says the truth of the moment — here without the herald's facts of its turn, so no phase and no countdown
+   const forming = fs({ bell: 9, entries: [entry({ state: 2, fromBell: 11 })] });
+-  assert.match(conquestObjective(forming).text, /編成中です。ターン 11 から出発できます。/);
++  assert.equal(conquestGuide(forming).current, 'muster');
++  assert.match(conquestObjective(forming).text, /は編成中です。編成したターンが決着すると整列します。/);
+   // the viewer's own host holds the keep's tile: the count is the keep's record
+   const holding = fs({ bell: 52 });
+   const kt = holding.conquest.keeps.get('4,-1').tile;
+--- a/permutation-gateway/test/web-frontier-conquest-ui.test.mjs
++++ b/permutation-gateway/test/web-frontier-conquest-ui.test.mjs
+@@ -56,7 +56,8 @@
+   const poor = String(holdingScreen(fs({ trainingDraft: { unit: 0, n: 501 } })));
+   assert.match(poor, /訓練の費用/); assert.match(poor, /360/);
+   assert.match(poor, /<button type="submit" class="btn primary" disabled>訓練する/);
+-  assert.match(poor, /約11〜21分/);
++  // (the muster note says what the host waits for, not a span of minutes: the first-session review of 2026-11-13)
++  assert.match(poor, /封が開けられて決着すると行動できます/);
+   assert.doesNotMatch(poor, /新しい軍勢は次の鐘/);
+   const rich = String(holdingScreen(fs({ holdings: [h({ stores: stores(Array(8).fill(2000)) })] })));
+   const upgrade = rich.match(/<button[^>]*data-act="build" data-item="7"[^>]*>昇格<\/button>/)?.[0];
+--- a/permutation-gateway/test/web-frontier-hand.test.mjs
++++ b/permutation-gateway/test/web-frontier-hand.test.mjs
+@@ -350,7 +350,7 @@
+     { id: 'o0', kind: 'build', turn: 41, item: 0, tile: { p: 2, q: 0, tile: 30 }, state: 'accepted' }];
+   FS.feed = [{ id: 'bd:1', kind: 'build', bell: 42, p: 2, q: 0, text: '伐採場が完成しました' }, { id: 'old', kind: 'build', bell: 41, p: 2, q: 0, text: '前のターン' }];
+   const m = turnlist.turnModel(FS, { next: items });
+-  assert.deepEqual(m.orders.map(o => [o.text, o.refused]), [['槍兵 300 を編成 — 次のターンに整列します', false], ['訓練は送られていません', true]], 'this turn\'s only, in the order they were placed');
++  assert.deepEqual(m.orders.map(o => [o.text, o.refused]), [['槍兵 300 を編成 — このターンの決着のあとに整列します', false], ['訓練は送られていません', true]], 'this turn\'s only, in the order they were placed');
+   assert.equal(m.orders[1].why, '資源か残高が足りません');
+   assert.deepEqual(m.happened.map(x => x.text), ['伐採場が完成しました']);
+   const list = flat(turnlist.renderTurnList(m));
+--- a/permutation-gateway/test/web-frontier-proto-hand.test.mjs
++++ b/permutation-gateway/test/web-frontier-proto-hand.test.mjs
+@@ -163,7 +163,7 @@
+   FS.orders = [{ id: 'o1', kind: 'muster', turn: 42, unit: 0, troops: 300, tile: { p: 2, q: 0, tile: 31 }, state: 'accepted' }];
+   FS.feed = [{ id: 'bd:1', kind: 'build', bell: 42, p: 2, q: 0, text: '伐採場が完成しました' }];
+   const list = turnlist.turnModel(FS, { next: protoHud.turnItems(FS) });
+-  assert.deepEqual(list.orders.map(o => o.text), ['槍兵 300 を編成 — 次のターンに整列します']);
++  assert.deepEqual(list.orders.map(o => o.text), ['槍兵 300 を編成 — このターンの決着のあとに整列します']);
+   assert.deepEqual(list.happened.map(o => o.text), ['伐採場が完成しました']);
+   assert.doesNotMatch(flat(turnlist.renderTurnList(list)), /proto|試作|軍勢を送る/);
+   assert.doesNotMatch(flat(feed.renderToast(FS.feed[0])), /proto-send|試作/);
+--- /dev/null
++++ b/permutation-server/web/frontier/hud/firststeps.mjs
+@@ -0,0 +1,140 @@
++// The first session's waits and firsts (the first-session review of 2026-11-13, after the natural trial):
++//   - a forming host says where its turn really is — the turn still running, the seals' key awaited, the fair draw
++//     open, the public random number awaited, the turn being settled — read from the turn pipeline (clock.mjs
++//     `pipeline`) with the herald's facts of the muster turn (controller.mjs `FS.formingBells`). A countdown is shown
++//     only where the pipeline names a time; no total wait is promised.
++//   - one useful thing to do while it forms (grow toward a keep's need, or start a building);
++//   - the first host that stands in the record, said once (hud/milestones.mjs), with a next goal this world can take;
++//   - "Form a host" idle right after every troop went into a host reads as done, not as an error.
++// Whether this page can march is one decision (`marchOpenFor`): in local play it stays false until the march
++// owner's contract says otherwise. Rules are not read or changed here.
++import { L, fmtNum } from '../../lang.mjs';
++import { unitCount } from '../fi18n.mjs';
++import { UNIT_ORDER, SCOUT, SETTLER } from '../fland.mjs';
++import { pipeline, countdown } from '../clock.mjs';
++
++/**
++ * Can this page send a march? A world on a chain (not local play): yes, as before. Local play: only when the march
++ * lane's answer says so — `FS.localMarch` = flocalplay-march.mjs `localMarchOpen(...)` → `{open, reason, capability,
++ * ready, held}` (docs/integration/CLAUDE-LOCAL-MARCH-OPEN-CONTRACT-20261113.md). Anything else, including no answer
++ * yet, is closed. Never read from the economy command list.
++ */
++export const marchOpenFor = FS => (FS?.localPlay ? FS?.localMarch?.open === true : true);
++
++/**
++ * Why this page cannot march, in one sentence ('' when it can): the contract's `reason`, worded for a player. No
++ * promise of when: "not available" is all a closed answer says.
++ */
++export function marchClosedText(FS) {
++  if (marchOpenFor(FS)) return '';
++  switch (FS?.localMarch?.reason) {
++    case 'LocalMarchNoCapability': return L`この世界では、このページからの進軍は提供されていません。`;
++    case 'LocalMarchGate': return L`このページの試験用の鍵と接続が確かめられないため、進軍は使えません。`;
++    case 'LocalMarchWideHolding': return L`この村からは、このページの進軍は使えません。`;
++    case 'LocalMarchHeld': return L`この軍勢の進軍は送信済みで、結果をまだ確認できていません。同じ進軍は送り直しません。`;
++    case 'LocalMarchNotReady':
++    default: return L`この世界では、このページからの進軍はいま使えません。`;
++  }
++}
++
++/** A combat host (not scouts or settlers). */
++const combat = r => r && r.unit !== SCOUT && r.unit !== SETTLER;
++
++/** The muster turn of a forming host row (state 2: it stands from `fromBell`), or null. */
++export const musterBellOf = r => (r?.state === 2 && Number.isInteger(r.fromBell) && r.fromBell >= 1 ? r.fromBell - 1 : null);
++
++/**
++ * The pipeline phase of a forming host: `{phase, until}` — phase 'turnEnding' | 'awaitingKey' | 'fairDraw' |
++ * 'awaitingSeed' | 'processing' | 'stood' | 'unknown'; `until` chain seconds or null (no countdown without one).
++ * Facts: `FS.formingBells` = [{host, bell, facts}] (the herald's facts of the muster turn). Without facts only the
++ * clock's own answer is used, and only while the muster turn still runs.
++ */
++export function formingPhase(FS, r) {
++  const bell = musterBellOf(r);
++  const now = FS?.chain?.now?.();
++  if (bell === null || !FS?.clock || !Number.isFinite(now)) return { phase: 'unknown', until: null };
++  const item = (FS.formingBells ?? []).find(x => x && String(x.host) === String(r.id) && x.bell === bell) ?? null;
++  let pl;
++  try { pl = pipeline(FS.clock, bell, { now, ...(item?.facts ?? {}) }); } catch { return { phase: 'unknown', until: null }; }
++  if (!item && pl.state !== 'open') return { phase: 'unknown', until: null };
++  const phase = { open: 'turnEnding', awaitingBeacon: 'awaitingKey', revealing: 'fairDraw', awaitingSeed: 'awaitingSeed', resolving: 'processing', resolved: 'stood' }[pl.state] ?? 'unknown';
++  return { phase, until: Number.isFinite(pl.until) ? pl.until : null };
++}
++
++/** A forming host in one sentence: who, and where its muster turn is now. */
++export function formingLine(FS, r) {
++  const who = unitCount(UNIT_ORDER[r.unit], r.troops);
++  const { phase, until } = formingPhase(FS, r);
++  const now = FS?.chain?.now?.() ?? 0;
++  const cd = until !== null ? countdown(until - now) : null;
++  switch (phase) {
++    case 'turnEnding': return L`${who} は編成中です。このターンの終わり（あと ${cd}）のあと、封が開けられ、戦いを決めるくじが出てターンが決着すると整列します。`;
++    case 'awaitingKey': return L`${who} は編成中です。ターンが終わり、封を開ける鍵が出るのを待っています。`;
++    case 'fairDraw': return cd ? L`${who} は編成中です。封が開けられています（締め切りまで ${cd}）。そのあとターンが決着すると整列します。` : L`${who} は編成中です。封が開けられています。そのあとターンが決着すると整列します。`;
++    case 'awaitingSeed': return cd ? L`${who} は編成中です。戦いを決めるくじが出るのを待っています（予定まで ${cd}）。` : L`${who} は編成中です。戦いを決めるくじが出るのを待っています。`;
++    case 'processing': return L`${who} は編成中です。ターンを決着させています。済みしだい整列します。`;
++    case 'stood': return L`${who} の編成のターンは決着しました。村の記録が更新されると地図に立ちます。`;
++    default: return L`${who} は編成中です。編成したターンが決着すると整列します。`;
++  }
++}
++
++/** The viewer's forming combat host rows (state 2), from `hostRows(FS)`'s rows. */
++export const formingHosts = rows => (rows ?? []).filter(r => combat(r) && r.state === 2);
++/** The viewer's combat hosts that stand in the record (formed, or out on a march). */
++export const stoodHosts = rows => (rows ?? []).filter(r => combat(r) && (r.state === 1 || r.state === 3 || r.inTransit));
++
++/**
++ * One thing worth doing while a host forms, or null: `{kind: 'train', count, short} | {kind: 'build', free}`.
++ *   short toward the keep (`need` from conquestguide keepTarget) and the stores pay for some → train;
++ *   else a free building slot with nothing blocking a build → build.
++ */
++export function whileWaiting({ need = null, troops = 0, reserve = 0, canTrain = 0, freeSlots = 0, buildBlocked = true } = {}) {
++  const short = Number.isFinite(need) ? Math.max(0, need - troops - reserve) : 0;
++  if (short > 0 && canTrain > 0) return { kind: 'train', count: Math.min(short, canTrain), short };
++  if (freeSlots > 0 && !buildBlocked) return { kind: 'build', free: freeSlots };
++  return null;
++}
++
++/** The while-waiting suggestion in one sentence ('' for none). */
++export function whileWaitingLine(s, unit = 0) {
++  if (!s) return '';
++  if (s.kind === 'train') return L`待つあいだに：あと ${unitCount(UNIT_ORDER[unit], s.short)} で、届く砦に勝てる見込みの兵数になります。`;
++  if (s.kind === 'build') return L`待つあいだに：建物の空きが ${fmtNum(s.free)} あります。建物は毎時の産出を増やします。`;
++  return '';
++}
++
++/**
++ * The first host's next goal: 'seeKeeps' (march open, enough troops or no keep known), 'addTroops' (march open,
++ * short), 'growToward' (march closed, short), 'keepsOnly' (march closed, enough), or null (march closed, no keep
++ * known: nothing this page can point at).
++ */
++export function firstHostNext({ troops = 0, need = null, marchOpen = false } = {}) {
++  const known = Number.isFinite(need);
++  if (marchOpen) return known && troops < need ? 'addTroops' : 'seeKeeps';
++  if (!known) return null;
++  return troops < need ? 'growToward' : 'keepsOnly';
++}
++
++/** The next goal in one line ('' for none). */
++export function firstHostNextLine(next, { unit = 0, need = null } = {}) {
++  const n = Number.isFinite(need) ? unitCount(UNIT_ORDER[unit], need) : '';
++  switch (next) {
++    case 'seeKeeps': return L`次の目標：届く砦を選んで進軍する`;
++    case 'addTroops': return L`次の目標：${n} まで兵を足してから砦へ`;
++    // (short: the banner celebrates; why the march is closed is said by the guide, which stays on screen)
++    case 'growToward': return L`次の目標：届く砦に勝てる ${n} まで兵を足す`;
++    case 'keepsOnly': return L`次の目標：届く砦を見る`;
++    default: return '';
++  }
++}
++
++/** Why "Form a host" is idle: 'allFormed' when the reserve is empty and a combat host exists (forming or standing), else null. */
++export function musterIdleCode({ reserve = 0, hosts = 0 } = {}) {
++  return reserve <= 0 && hosts > 0 ? 'allFormed' : null;
++}
++export const allFormedText = () => L`控えの兵はすべて軍勢にしました。もう一隊つくるには、先に訓練しましょう`;
++/** The same, short enough for the action bar's button. */
++export const allFormedShort = () => L`全員編成済み：訓練で次の一隊へ`;
++
++/** The muster card's rule line and the order list's line: the host stands once the muster turn is settled. */
++export const musterRuleText = () => L`線の内側のマスを押すと場所を変えられます（村のある州の、通れるマス）。軍勢は、このターンの決着のあとに整列します。`;
+--- /dev/null
++++ b/permutation-gateway/test/web-frontier-firststeps.test.mjs
+@@ -0,0 +1,192 @@
++// The first session's waits and firsts (hud/firststeps.mjs and its wiring; the first-session review of 2026-11-13,
++// after the natural trial): the forming host's phase read from the real turn pipeline (clock.mjs) — the trial's own
++// timeline replayed —, the while-waiting suggestion, the guide holding the muster step until the host stands, the
++// march answer of the local-play contract (FS.localMarch), the first-host milestone said once, the idle muster read
++// as done, the order list's line, and the English of every new sentence.
++import { test, afterEach } from 'node:test';
++import assert from 'node:assert/strict';
++import { setLang } from '../../permutation-server/web/lang.mjs';
++import { hostId } from '../../permutation-server/web/frontier/faddr.mjs';
++import { baseProduction } from '../../permutation-server/web/frontier/fland.mjs';
++import { bellEnd } from '../../permutation-server/web/frontier/clock.mjs';
++import { KEEP_4_M1, STANDINGS_BEFORE, keepAt, recordAt } from '../../permutation-server/web/frontier/hud/handdemo-data.mjs';
++import * as F from '../../permutation-server/web/frontier/hud/firststeps.mjs';
++import * as M from '../../permutation-server/web/frontier/hud/milestones.mjs';
++import { waitText, hostWaits } from '../../permutation-server/web/frontier/hud/keephand.mjs';
++import { orderText } from '../../permutation-server/web/frontier/hud/turnlist.mjs';
++import { conquestGuide, conquestObjective } from '../../permutation-server/web/frontier/screens/conquestguide.mjs';
++import { hostRows } from '../../permutation-server/web/frontier/screens/host.mjs';
++
++afterEach(() => setLang('ja'));
++const CJK = /[぀-ヿ㐀-鿿]/;
++// (the local-march contract's reasons, in its order: docs/integration/CLAUDE-LOCAL-MARCH-OPEN-CONTRACT-20261113.md, flocalplay-march.mjs
++// LOCAL_MARCH_REASONS. Written out here so this test runs where that module is not merged yet)
++const LOCAL_MARCH_REASONS = Object.freeze(['LocalMarchNoCapability', 'LocalMarchNotReady', 'LocalMarchGate', 'LocalMarchWideHolding', 'LocalMarchHeld', 'open']);
++// (the play screen's banned machinery words: web-frontier-cards.test.mjs BANNED_EN)
++const BANNED_EN = /\bbell \d|\bsecret|beacon|\bsettle[ds]?\b|settlement|\bseed\b|site ticket|keeper|lamport/i;
++
++// ------------------------------------------------------------------ fixtures (the conquest-hand test's shapes)
++const T0 = 1_794_539_760;   // the trial's turn 0 began 12:16:00
++const at = (mm, ss = 0) => T0 + (mm - 16) * 60 + ss;   // 12:mm:ss
++const CLOCK = { genesisTs: T0, drand: { genesis: T0 - 3000, period: 3 }, margin: 30, window: () => 600, endBell: 999, continuous: false };
++const HOME = (extra = {}) => ({ p: 2, q: 0, site: 2, gen: 0, tile: 20, faction: 0, state: 2, order: 1, tier: 0, flags: 0, production: baseProduction(0), upkeep: Array(8).fill(0n),
++  stores: Array.from({ length: 8 }, () => ({ value: 0n, rate: 0n, cap: 1_000_000n, t0: 0n })), reserve: Array(8).fill(0), queue: [],
++  transit: [{ state: 0 }], explore: { state: 0 }, lastOwnerAction: 1000n, finalTs: 1n, shieldUntil: 0n, ...extra });
++const HID = hostId({ p: 2, q: 0, site: 2, gen: 0, seq: 1 });
++const entry = (extra = {}) => ({ id: HID, unit: 0, state: 1, tile: 20, troops: 100000, staminaValue: 120, staminaBell: 0, readyBell: 0, pendOp: 0, fromBell: 1, ...extra });
++const SEASON = { programVersion: 3, layoutVersion: 2, endBell: 96, bellSecs: 600, dormantAfterSecs: 86400, releaseAfterSecs: 172800, minLead: 2, maxLead: 72, conquestParams: { keepBells: 72 } };
++const world = ({ bell = 0, now = at(20, 30), entries = [entry({ state: 2, fromBell: 1 })], resolvedNext = 0, formingBells = [], extra = {} } = {}) => ({
++  mode: 'play', season: SEASON, citizen: { faction: 0 }, holdings: [HOME()], nowBell: bell, clock: CLOCK, chain: { now: () => now }, land: { stage: 'final' },
++  provinces: new Map([['2,0', { province: { p: 2, q: 0, resolvedNext, entries, ticketCohorts: [] } }]]), formingBells, marches: [], orders: [], ui: { dismissed: [] },
++  conquest: { status: 'ready', keeps: new Map([['4,-1', keepAt(KEEP_4_M1, bell)]]), history: new Map([['4,-1', recordAt(KEEP_4_M1, bell)]]), standings: STANDINGS_BEFORE, final: null, events: [] }, ...extra });
++const rowOf = FS => hostRows(FS)[0];
++const A = bellEnd(T0, 0);   // the turn-0 anchor (posted at the turn's end, 12:26:00)
++const item = facts => [{ host: String(HID), bell: 0, facts }];
++
++// ------------------------------------------------------------------ the forming host's phase, from the real pipeline
++test('the trial timeline reads as the pipeline\'s real phases, with a countdown only where the pipeline names a time', () => {
++  const open = world();
++  assert.deepEqual(F.formingPhase(open, rowOf(open)), { phase: 'turnEnding', until: A }, '12:20:30: the muster turn still runs');
++  // the turn has ended but the page holds no herald facts of it: nothing is guessed
++  const noFacts = world({ bell: 1, now: at(26, 5) });
++  assert.deepEqual(F.formingPhase(noFacts, rowOf(noFacts)), { phase: 'unknown', until: null });
++  const key = world({ bell: 1, now: at(26, 5), formingBells: item({ anchor: null, archive: null, seed: false, resolvedNext: 0 }) });
++  assert.deepEqual(F.formingPhase(key, rowOf(key)), { phase: 'awaitingKey', until: null }, 'no anchor yet: no countdown');
++  const draw = world({ bell: 1, now: at(30), formingBells: item({ anchor: { a: A }, seed: false, resolvedNext: 0 }) });
++  assert.deepEqual(F.formingPhase(draw, rowOf(draw)), { phase: 'fairDraw', until: A + 600 });
++  const seed = world({ bell: 1, now: at(36, 30), formingBells: item({ anchor: { a: A }, seed: false, resolvedNext: 0 }) });
++  assert.equal(F.formingPhase(seed, rowOf(seed)).phase, 'awaitingSeed');
++  const proc = world({ bell: 1, now: at(37, 12), formingBells: item({ anchor: { a: A }, seed: true, resolvedNext: 0 }) });
++  assert.deepEqual(F.formingPhase(proc, rowOf(proc)), { phase: 'processing', until: null });
++  const settled = world({ bell: 2, now: at(37, 40), formingBells: item({ anchor: { a: A }, seed: true, resolvedNext: 1 }) });
++  assert.equal(F.formingPhase(settled, rowOf(settled)).phase, 'stood');
++  // a facts item of another host or turn is not this host's
++  const other = world({ bell: 1, now: at(30), formingBells: [{ host: '1', bell: 0, facts: { anchor: { a: A } } }] });
++  assert.equal(F.formingPhase(other, rowOf(other)).phase, 'unknown');
++});
++
++test('the forming line says the phase and its countdown, never "next turn", in both languages', () => {
++  const open = world();
++  assert.match(F.formingLine(open, rowOf(open)), /このターンの終わり（あと 5:30）/);
++  setLang('en');
++  const lines = [
++    world(),
++    world({ bell: 1, now: at(26, 5), formingBells: item({ anchor: null, resolvedNext: 0 }) }),
++    world({ bell: 1, now: at(30), formingBells: item({ anchor: { a: A }, resolvedNext: 0 }) }),
++    world({ bell: 1, now: at(36, 30), formingBells: item({ anchor: { a: A }, resolvedNext: 0 }) }),
++    world({ bell: 1, now: at(37, 12), formingBells: item({ anchor: { a: A }, seed: true, resolvedNext: 0 }) }),
++    world({ bell: 1, now: at(26, 5) }),
++  ].map(s => F.formingLine(s, rowOf(s)));
++  assert.equal(lines[0], 'Forming up: 100 Spearmen. After this turn ends (in 5:30), its seals are opened, the draw comes out and the turn is resolved; then it stands.');
++  assert.match(lines[1], /the key that opens its seals is awaited/);
++  assert.match(lines[2], /closes in 6:00/);
++  assert.match(lines[3], /Waiting for the draw that decides the turn \(due in/);
++  assert.match(lines[4], /being resolved/);
++  assert.match(lines[5], /once the turn it was formed in is resolved/);
++  for (const l of lines) assert.match(l, /^Forming up: 100 Spearmen\. /, l);
++  for (const l of lines) { assert.doesNotMatch(l, CJK, l); assert.doesNotMatch(l, /next turn|minutes?\b/i, l); assert.doesNotMatch(l, BANNED_EN, l); }
++});
++
++test('the wait line of the keep panel and the order list follow the forming phase', () => {
++  const draw = world({ bell: 1, now: at(30), formingBells: item({ anchor: { a: A }, resolvedNext: 0 }) });
++  const w = hostWaits(draw)[0];
++  assert.ok(w && (w.why === 'settling' || w.why === 'forming'));
++  assert.match(waitText(w, draw), /封が開けられています/);
++  assert.doesNotMatch(waitText(w), /封が開けられています/, 'without FS the old sentence stands (other callers unchanged)');
++  setLang('en');
++  assert.equal(orderText(draw, { kind: 'muster', unit: 0, troops: 100 }), 'Forming up: 100 Spearmen — stands once this turn is resolved');
++});
++
++// ------------------------------------------------------------------ while it forms
++test('while waiting: troops toward the keep first, then a free building slot', () => {
++  assert.deepEqual(F.whileWaiting({ need: 180, troops: 100, canTrain: 300, freeSlots: 2, buildBlocked: false }), { kind: 'train', count: 80, short: 80 });
++  assert.deepEqual(F.whileWaiting({ need: 180, troops: 100, reserve: 100, canTrain: 300, freeSlots: 2, buildBlocked: false }), { kind: 'build', free: 2 });
++  assert.equal(F.whileWaiting({ need: 180, troops: 100, canTrain: 0, freeSlots: 0 }), null);
++  setLang('en');
++  assert.equal(F.whileWaitingLine({ kind: 'build', free: 1 }), 'While you wait: 1 building slot is free. Buildings raise what the village makes each hour.');
++  assert.match(F.whileWaitingLine({ kind: 'build', free: 2 }), /2 building slots are free/);
++  assert.match(F.whileWaitingLine({ kind: 'train', count: 80, short: 80 }, 0), /^While you wait: train 80 Spearmen more for a keep in reach\.$/);
++});
++
++// ------------------------------------------------------------------ the guide
++test('the guide keeps "Form a host" current until the host stands, and leads somewhere useful meanwhile', () => {
++  const forming = world();
++  assert.equal(conquestGuide(forming).current, 'muster');
++  const o = conquestObjective(forming);
++  assert.match(o.text, /このターンの終わり（あと 5:30）/);
++  assert.ok(['tab', 'cg-go'].includes(o.go.act));
++  assert.notEqual(o.go.data.pop, 'muster', 'the press is not "form a host" again');
++  const stood = world({ bell: 2, entries: [entry()], resolvedNext: 1 });
++  assert.equal(conquestGuide(stood).current, 'march');
++});
++
++test('the march answer is the local-play contract\'s FS.localMarch alone; a closed world points at no march', () => {
++  assert.equal(F.marchOpenFor({}), true, 'a chain world marches as before');
++  assert.equal(F.marchOpenFor({ localPlay: {} }), false, 'local play with no answer yet: closed');
++  for (const reason of LOCAL_MARCH_REASONS) {
++    const FS = { localPlay: {}, localMarch: { open: reason === 'open', reason, capability: false, ready: false, held: [] } };
++    assert.equal(F.marchOpenFor(FS), reason === 'open', reason);
++    if (reason !== 'open') assert.ok(F.marchClosedText(FS).length > 0, reason);
++  }
++  assert.equal(F.marchOpenFor({ localPlay: {}, localMarch: { open: 'true' } }), false, 'only open === true opens');
++  setLang('en');
++  for (const reason of LOCAL_MARCH_REASONS.filter(r => r !== 'open')) {
++    const t = F.marchClosedText({ localPlay: {}, localMarch: { open: false, reason } });
++    assert.doesNotMatch(t, CJK, t); assert.doesNotMatch(t, /soon/i, t);
++  }
++  assert.match(F.marchClosedText({ localPlay: {}, localMarch: { open: false, reason: 'LocalMarchHeld' } }), /will not be sent again/);
++  // the guide on a local world whose answer is closed: the host stands, the press opens training or the keeps — never a march
++  const local = world({ bell: 2, entries: [entry()], resolvedNext: 1, extra: { localPlay: {}, localMarch: { open: false, reason: 'LocalMarchNotReady', capability: true, ready: false, held: [] } } });
++  const o = conquestObjective(local);
++  assert.equal(o.id, 'march');
++  assert.match(o.text, /^Your host of 100 Spearmen stands\. Marching from this page is not available in this world now\. /);
++  assert.doesNotMatch(o.text, CJK);
++  assert.ok(o.go.data.pop === 'train' || o.go.data.pop === 'keeps' || o.go.act === 'tab');
++  setLang('ja');
++  assert.match(conquestObjective(local).text, /このページからの進軍はいま使えません/);
++});
++
++// ------------------------------------------------------------------ the first host, once
++test('the first host is a milestone only once it stands in the record, said once, and not after a march', () => {
++  const ids = FS => M.reachedMilestones(FS).map(m => m.id);
++  assert.ok(!ids(world()).includes('first-host'), 'a forming host is not a formed one');
++  const stood = world({ bell: 2, entries: [entry()], resolvedNext: 1 });
++  const m = M.reachedMilestones(stood).find(x => x.id === 'first-host');
++  assert.ok(m);
++  assert.equal(m.troops, 100);
++  // seen once: the next check finds nothing new (a reconnect reads the same stored record)
++  const one = M.newMilestones({ v: 1, seen: {} }, M.reachedMilestones(stood), 2);
++  assert.ok(one.fresh.some(x => x.id === 'first-host'));
++  assert.equal(M.newMilestones(one.record, M.reachedMilestones(stood), 3).fresh.length, 0);
++  // a page's first load records it quietly
++  assert.equal(M.newMilestones(null, M.reachedMilestones(stood), 2).fresh.length, 0);
++  // a viewer already marching gets no late banner
++  assert.ok(!ids({ ...stood, marches: [{}] }).includes('first-host'));
++  setLang('en');
++  const banner = String(M.renderBanner(m, 0));
++  assert.match(banner, /Your first host stands/);
++  assert.match(banner, /100 Spearmen/);
++});
++
++test('the first host\'s next goal fits the world', () => {
++  assert.equal(F.firstHostNext({ troops: 100, need: 180, marchOpen: true }), 'addTroops');
++  assert.equal(F.firstHostNext({ troops: 200, need: 180, marchOpen: true }), 'seeKeeps');
++  assert.equal(F.firstHostNext({ troops: 100, need: 180, marchOpen: false }), 'growToward');
++  assert.equal(F.firstHostNext({ troops: 200, need: 180, marchOpen: false }), 'keepsOnly');
++  assert.equal(F.firstHostNext({ troops: 100, need: null, marchOpen: false }), null);
++  setLang('en');
++  for (const n of ['seeKeeps', 'addTroops', 'growToward', 'keepsOnly']) {
++    const t = F.firstHostNextLine(n, { unit: 0, need: 180 });
++    assert.match(t, /^Next goal: /); assert.doesNotMatch(t, CJK, t); assert.doesNotMatch(t, /soon/i, t);
++  }
++});
++
++// ------------------------------------------------------------------ the idle muster
++test('"Form a host" with an empty reserve right after the first host reads as done', () => {
++  assert.equal(F.musterIdleCode({ reserve: 0, hosts: 1 }), 'allFormed');
++  assert.equal(F.musterIdleCode({ reserve: 0, hosts: 0 }), null);
++  assert.equal(F.musterIdleCode({ reserve: 50, hosts: 1 }), null, 'troops left in reserve: not "all formed"');
++  setLang('en');
++  assert.equal(F.allFormedText(), 'Every reserve troop is in a host. Train more to form another');
++  assert.match(F.musterRuleText(), /stands once this turn is resolved/);
++});

@@ -43,6 +43,7 @@ use sha2::{Digest, Sha256};
 use solana_address::Address;
 
 use fclient::decode::{chained_header, AnchorArchive, Province, Season};
+#[cfg(not(feature = "expedition-records-experimental"))]
 use fclient::log::bodies_from_logs;
 use fclient::ports::TxRecord;
 use frontier_abi::addr::AddrCtx;
@@ -706,6 +707,20 @@ impl Fold {
             }
         }
         // 2. The records.
+        #[cfg(feature = "expedition-records-experimental")]
+        let bodies = match findex::expedition_records::transaction(tx, &self.cfg.program, &self.ctx)
+        {
+            Ok(records) => records
+                .into_iter()
+                .filter(|r| r.format() == "PS2")
+                .map(|r| r.body().to_vec())
+                .collect::<Vec<_>>(),
+            Err(_) => {
+                self.st.alarms.bad_records += 1;
+                vec![]
+            }
+        };
+        #[cfg(not(feature = "expedition-records-experimental"))]
         let bodies = match bodies_from_logs(&tx.logs, &self.cfg.program) {
             Ok(b) => b,
             Err(_) => {
@@ -714,6 +729,26 @@ impl Fold {
             }
         };
         for body in &bodies {
+            #[cfg(feature = "expedition-records-experimental")]
+            if matches!(body.get(1), Some(145..=149)) {
+                match findex::expedition_records::decode(&self.ctx, body) {
+                    Ok(Some(record)) => {
+                        self.st.events += 1;
+                        self.diffs.push(Diff {
+                            kind: "event",
+                            key: format!("EXPERIMENTAL_PS2_{}:{}", record.kind, record.bell),
+                            slot: tx.slot,
+                            head: None,
+                            bytes: body.clone(),
+                            scope: Scope::None,
+                            t_ms: 0,
+                            wire: Default::default(),
+                        });
+                    }
+                    _ => self.st.alarms.bad_records += 1,
+                }
+                continue;
+            }
             // MC hook: record kinds 80–89 (CONQUEST-CONTRACT §6, §8.4)
             if crate::conquest::on_record(self, tx, body) {
                 continue;

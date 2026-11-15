@@ -47,6 +47,8 @@ wide-index-read-experimental = ["wide-world-experimental", "findex/wide-records-
 # local-play chain's four synthetic first-world accounts (src/local_play.rs).
 # Off by default; no new dependency.
 local-play-bootstrap = []
+# Typed experimental PS2 + paired wide observations, never the default reader.
+expedition-records-experimental = ["findex/expedition-records-experimental"]
 
 [dev-dependencies]
 # W3-D (request R4): `tests/real_chain.rs` drives the keeper over the
