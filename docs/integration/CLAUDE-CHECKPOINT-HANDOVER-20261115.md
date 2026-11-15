@@ -5,7 +5,7 @@ No secrets in this file: test keys were memory-only and are gone; no credentials
 ## 1. Where the work stands
 - Canonical tree (absolute): `/Users/r0ze/Projects/wylls-codex-wide-inventory-20261109`
 - Branch: `codex/wide-conquest-lifecycle-20261109`; remote `origin` = github.com/r0ze998/wylls
-- HEAD at this checkpoint: `de18bf024633bb469127c0d8ce0801a41a6b6dde` (round 48); `git ls-remote origin
+- HEAD at this checkpoint: `10464b47d5845ddbe7e56818edef15d8ee70450e` (round 49); `git ls-remote origin
   refs/heads/codex/wide-conquest-lifecycle-20261109` returned the same SHA (checked 2026-11-15). The handover note's
   first version is e2245e0b (on top of round 35, 67bf34df); updated f71c249b (after 36), 3c2992df (after 37), fbeb72c2 (after 38), 08de6ea7 (after 39), 6cbd12d4 (after 40), 85eb5090 (after 41) and after 701a7608 (42).
 - My recent commits (oldest → newest): 427c4963 (33b ready-again estimate), 35d22713 (33c: charge at settle on b+1),
@@ -27,7 +27,9 @@ No secrets in this file: test keys were memory-only and are gone; no credentials
   is away on one — it fell back to 1/7 mid-march in live33), 1aec6eaa (47: start guide + first-playable status:
   docs/integration/CLAUDE-FIRST-PLAYABLE-STATUS-20261115.md — read it first for what a first session needs),
   de18bf02 (48: the map's away tag no longer promises an arrival turn that has passed — from the land-preview
-  session's land2 report).
+  session's land2 report), 10464b47 (49, the owner's decision "Yes, align it": the Hosts tab's March opens the order
+  card when the province only catches up — NotResident alone — as the action bar's March did; the send waits as before;
+  rest, stamina and other blocks still close it. Fixture check: closed on 98a80769, open on 10464b47, card opens, 0 POSTs).
 - Work copy (scratch, not a repo): `<scratchpad>/canon-copy-round18` — tests are run there against the canonical
   node_modules-free copy; patches are made HEAD-based and applied to canonical with `git apply --cached` + working tree.
 
