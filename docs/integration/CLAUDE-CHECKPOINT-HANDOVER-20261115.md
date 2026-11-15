@@ -119,6 +119,15 @@ no node_modules); docs/integration/CLAUDE-CONQUEST-RESERVATION-VECTORS-20261112.
   the box on <body> above <main>'s stacking context. Fix: mount it inside <main>.
 - Free space re-checked 13:36 and 13:43: 24.4 GiB < 25 → still no HEAD build.
 
+## 5c. Handed to the owner to play (2026-11-15 15:44 JST): play1 — capture demo ×30, binaries of 5c2dc607
+- A launcher for the owner's own play (no world created by Claude; nobody pressed Start): pid 34539, http://localhost:41940/
+  (redirects to the game page with demo=capture). Root and binaries: the 5c2dc607 export and its build (see 5b).
+- Stops by itself: the world's TTL is 60 min from the owner's own Start; a watchdog (pid 34620) SIGINTs the launcher when
+  no world started by 16:44:46, or 5 min after the world's end, and at 18:44:46 at the latest; a guard (pid 34619) stops
+  it at 110 MiB of world output or free < 21 GiB. Data dir /Users/r0ze/Projects/wylls-launcher-play1-20261115 (records
+  only, kept). The NFT session keeps 41900–41999 free until the launcher is reported stopped.
+- If a later session finds it still running after 18:45: stop by pid only (SIGINT to the launcher), check 41900–41999.
+
 ## 6. Fixture versus a real world: what was seen where
 - Seen in a real world (TEST-ONLY, synthetic clock, one operator playing both sides by hand, memory-only keys):
   live29 (natural preset: Join, PlaceHome, train, form, march on a keep, contest recorded), live30–31, live32 (export of
