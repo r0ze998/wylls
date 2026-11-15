@@ -77,6 +77,8 @@ pub struct App {
     pub index: Option<PathBuf>,
     /// Explicit read-only path to the opt-in typed wide cache.
     pub wide_index: Option<PathBuf>,
+    #[cfg(feature = "wide-live-read-experimental")]
+    pub wide_live: Option<crate::wide_live::Live>,
     pub events: Mutex<Option<findex::Reader>>,
     pub ws: WsCfg,
     pub ws_stats: Arc<WsStats>,
@@ -111,6 +113,8 @@ impl App {
             diffs,
             index: None,
             wide_index: None,
+            #[cfg(feature = "wide-live-read-experimental")]
+            wide_live: None,
             events: Mutex::new(None),
             ws: WsCfg::default(),
             ws_stats: Arc::new(WsStats::default()),
@@ -140,6 +144,7 @@ pub fn router(app: Shared) -> Router {
         .route("/h/events", get(events))
         .route("/h/wide-index/status", get(wide_index_status))
         .route("/h/wide-index/events", get(wide_index_events))
+        .route("/h/wide-live/village", get(wide_live_village))
         .route("/h/ws", get(ws_route))
         // MC hook: the conquest read paths (CONQUEST-CONTRACT §4.5, §8.4)
         .merge(crate::cqroutes::mount())
@@ -162,6 +167,28 @@ pub async fn serve(listener: tokio::net::TcpListener, app: Shared) -> std::io::R
         router(app).into_make_service_with_connect_info::<SocketAddr>(),
     )
     .await
+}
+
+#[cfg(feature = "wide-live-read-experimental")]
+async fn wide_live_village(
+    State(app): State<Shared>,
+    axum::extract::RawQuery(raw): axum::extract::RawQuery,
+) -> Response {
+    let Some(live) = &app.wide_live else {
+        return err(StatusCode::SERVICE_UNAVAILABLE, "WideLiveUnavailable");
+    };
+    let q = match crate::wide_live::parse_query(raw.as_deref().unwrap_or("")) {
+        Ok(q) => q,
+        Err(code) => return err(StatusCode::BAD_REQUEST, code),
+    };
+    match live.observe(&q).await {
+        Ok(v) => json_answer(&v, "no-store"),
+        Err(code) => err(StatusCode::UNPROCESSABLE_ENTITY, code),
+    }
+}
+#[cfg(not(feature = "wide-live-read-experimental"))]
+async fn wide_live_village() -> Response {
+    err(StatusCode::SERVICE_UNAVAILABLE, "WideLiveUnavailable")
 }
 
 async fn security_headers(req: Request, next: Next) -> Response {

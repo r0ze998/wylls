@@ -21,6 +21,7 @@ import { icon, RESOURCE_ICON } from '../hud/icons.mjs';
 import { cardHead, stamp, chip, fold } from './parts.mjs';
 import { lamports } from './shell.mjs';
 import { selectedWide, wideSlots } from '../fwide.mjs';
+import { renderWideLive } from '../fwide-live.mjs';
 
 /** An exact amount of stored milli-units as "123.456" (never a Number: 2^53 and above survive). */
 export function formatMilli(s) {
@@ -146,7 +147,7 @@ export function render(FS) {
       ${fact(L`生産（記録上の毎時）`, x.production.map((v, i) => `${RESOURCES[x.stores[i].resource]} ${formatMilli(v)}`).join(' · '))}
       ${fact(L`維持費（記録上の毎時）`, x.upkeep.map((v, i) => `${RESOURCES[x.stores[i].resource]} ${formatMilli(v)}`).join(' · '))}
     </dl>`)}</section>`;
-  return [head, provenance, stores, build, troops, more];
+  return [head, renderWideLive(FS.wideLive), provenance, stores, build, troops, more];
 }
 
 /** Failed or unavailable wide reads are visible beside both layouts, never silently an empty inventory. */

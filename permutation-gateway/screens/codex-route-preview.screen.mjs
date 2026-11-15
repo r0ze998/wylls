@@ -11,6 +11,7 @@ import { extname, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import * as NK from './ws07/nokey-page.mjs';
 import { worldIdOf, WORLD_DOMAIN } from '../../permutation-server/web/frontier/map/wide.mjs';
+import { seasonAddresses } from '../../permutation-server/web/frontier/faddr.mjs';
 import { sha256 } from '../../permutation-server/web/sdk/sha256.mjs';
 import { encode as toB58, decode as fromB58 } from '../../permutation-server/web/sdk/base58.mjs';
 
@@ -109,11 +110,47 @@ function widePresentation() {
       legacy:{rMax:5,rMaxHard:128,ringsOpened:6,provinces:0},page:{path:'/h/world/wide/page',max:256,default:64}}};
 }
 
+// Synthetic same-origin observation: copied public recorded account bytes,
+// never an RPC capture. Canonical program/season/address/world identities and
+// the shipped rules hash are retained. Only the copied Season program version
+// enables the experimental UI. This does not deploy or authenticate anything.
+function livePresentation(wide) {
+  const season=structuredClone(GOLDEN.stages.grown['/h/season']);
+  const sb=Buffer.from(season.body.bytes_b64,'base64');
+  assert.equal(sb.readUInt16LE(138),4);assert.equal(sb.readUInt16LE(136),12);
+  // The golden uses a placeholder bump (0); restore the public canonical
+  // bump in this synthetic copy, without changing any address or rules hash.
+  const addresses=seasonAddresses(season.body.programId,season.body.season);
+  assert.equal(addresses.season,season.body.seasonAddress);assert.equal(sb[65],0);
+  sb[65]=addresses.bump;
+  sb.writeUInt16LE(0x4004,138);season.body.bytes_b64=sb.toString('base64');
+  const h=wide.me.body.wideHoldings[0].holding;
+  const hb=Buffer.from(h.capture.bytes_b64,'base64');
+  const pb=Buffer.from(wide.entry.wide.capture.bytes_b64,'base64');
+  // Match the copied public Citizen binding in the observation's own mirror.
+  pb[296+h.site*64]=1;pb[296+h.site*64+4]=h.generation;
+  const cb=Buffer.from(wide.me.body.citizen.bytes_b64,'base64');
+  const clock=Buffer.alloc(40);clock.writeBigUInt64LE(3102n);clock.writeBigInt64LE(1800000102n,32);
+  const keys=[h.capture.address,wide.entry.wide.capture.address,wide.me.body.citizen.address,season.body.seasonAddress];
+  const accounts=[hb,pb,cb,sb].map((bytes,i)=>({kind:['holding','province','citizen','season'][i],address:keys[i],owner:season.body.programId,executable:false,lamports:'1',data_b64:bytes.toString('base64')}));
+  const le=(n,size)=>{const b=Buffer.alloc(size);if(size===8)b.writeBigUInt64LE(BigInt(n));else b.writeUInt32LE(n);return b;};
+  const sorted=[...accounts].sort((a,b)=>Buffer.compare(Buffer.from(fromB58(a.address)),Buffer.from(fromB58(b.address))));
+  const digest=sha256('PSF-KEEPER-WIDE-SNAPSHOT-v1',le(3102,8),le(3001,8),le(9,4),'confirmed',le(4,4),
+    ...sorted.flatMap(a=>{const b=Buffer.from(a.data_b64,'base64');return [fromB58(a.address),Buffer.from([1]),le(1,8),fromB58(a.owner),Buffer.from([0]),le(b.length,4),b];}),Buffer.from([0xc1]),clock,Buffer.from([0]));
+  return {season,reply:{v:1,kind:'wide-village-rpc-observation',commitment:'confirmed',single_response:true,
+    current:false,authenticated:false,executable:false,source_complete:false,wallet_ownership_verified:false,
+    observed_slot:'3102',min_slot:'3001',program:season.body.programId,season:season.body.season,world:wide.scope.world,
+    ruleset_hash:season.body.rulesetHash,program_version:0x4004,citizen:keys[2],p:h.p,q:h.q,site:h.site,gen:h.generation,slot:2,
+    accounts,clock:{address:'SysvarC1ock11111111111111111111111111111111',owner:'Sysvar1111111111111111111111111111111111111',executable:false,data_b64:clock.toString('base64')},snapshot_digest:Buffer.from(digest).toString('hex')}};
+}
+
 async function serve() {
   let obstacle = null, releaseOverviews;
   let held = true, active = 0, peak = 0;
   const overviewGate = new Promise(r => { releaseOverviews = r; });
-  const wide=widePresentation();
+  const wide=widePresentation(),live=livePresentation(wide);
+  let liveEnabled=false,liveMode='ready',liveGate=null,releaseLive=null;
+  const liveRequests=[];
   let historyMode='ready',historyGate=null,releaseHistory=null,captureMode='ready',inventoryMode='off';
   const requests = [], writes = [];
   const server = createServer(async (req, res) => {
@@ -127,6 +164,16 @@ async function serve() {
       if (held) await overviewGate;
     }
     if (path.startsWith('/h/')) {
+      if(path==='/h/season' && liveEnabled) return json(live.season.status,live.season.body);
+      if(path==='/h/wide-live/village') {
+        liveRequests.push({method:req.method,query:Object.fromEntries(url.searchParams)});
+        const mode=liveMode,gate=liveGate;
+        if(gate) await gate;
+        if(mode==='failure') return json(503,{code:'ObservationUnavailable'});
+        const reply=structuredClone(live.reply);
+        if(mode==='malformed') reply.snapshot_digest='00'.repeat(32);
+        return json(200,reply);
+      }
       if(path===`/h/me/${GOLDEN.wallet}` && inventoryMode!=='off') {
         const me=structuredClone(inventoryMode==='far'?wide.farMe:wide.me);
         if(inventoryMode==='malformed') me.body.wideHoldings[0].holding.capture.bytes_b64=Buffer.alloc(1344).toString('base64');
@@ -171,13 +218,14 @@ async function serve() {
     } catch { json(404, { ok: false, code: 'NotFound' }); }
   });
   await new Promise(r => server.listen(0, '127.0.0.1', r));
-  return { base: `http://127.0.0.1:${server.address().port}`, requests, writes, obstacle: v => { obstacle = v; },
+  return { base: `http://127.0.0.1:${server.address().port}`, requests, writes, liveRequests, liveEnabled:v=>{liveEnabled=v;}, liveMode:v=>{liveMode=v;},
+    holdLive:()=>{liveGate=new Promise(r=>{releaseLive=r;});}, releaseLive:()=>{releaseLive?.();liveGate=null;}, obstacle: v => { obstacle = v; },
     history: mode => {historyMode=mode;}, holdHistory:()=>{historyGate=new Promise(r=>{releaseHistory=r;});},
     capture: mode=>{captureMode=mode;},
     inventory: mode=>{inventoryMode=mode;},
     releaseHistory:()=>{releaseHistory?.();historyGate=null;},
     overviewStats: () => ({active,peak,held}), release: () => { held = false; releaseOverviews(); },
-    close: () => new Promise(r => { held = false; releaseOverviews(); releaseHistory?.(); server.closeAllConnections(); server.close(r); }) };
+    close: () => new Promise(r => { held = false; releaseOverviews(); releaseHistory?.(); releaseLive?.(); server.closeAllConnections(); server.close(r); }) };
 }
 
 const snapshot = page => page.evaluate(async () => {
@@ -188,7 +236,7 @@ const snapshot = page => page.evaluate(async () => {
   return { who: s?.kind === 'host' ? String(s.host.id) : s?.kind, selected: FS.selected, note: FS.mapNote?.text,
     compose: FS.compose ? { dest: FS.compose.dest, dirs: FS.compose.route?.dirs, secs: FS.compose.route?.secs, error: FS.compose.routeError, bell: FS.compose.arriveBell } : null,
     hover: hover ? { key: hover.key, hexes: hover.hexes, bell: hover.arriveBell } : null,
-    structures: FS.s1?.structures?.structures, nowBell: FS.nowBell, chainBell: FS.clock ? Math.floor((FS.chain.now()-FS.clock.genesisTs)/600) : null, session: !!FS.session, kernelError: FS.kernelError };
+    structures: FS.s1?.structures?.structures, nowBell: FS.nowBell, chainBell: FS.clock ? Math.floor((FS.chain.now()-FS.clock.genesisTs)/600) : null, session: !!FS.session, kernelError: FS.kernelError, wideLive:FS.wideLive?.status, programVersion:FS.season?.programVersion };
 });
 async function point(page, at) {
   return page.evaluate(async at => {
@@ -370,6 +418,72 @@ async function wideVillageNavigation(page,srv,vp,outDir) {
   assert.equal(after.rings,before.rings);assert.equal(after.rings,6);
   assert.equal(after.session,false);assert.equal(after.compose,false);
   console.log(JSON.stringify({viewport:vp.name,wideVillageNavigation:{pip:'W2',exactCoordinates:[['129','0'],['9007199254740993','0']],repeated:true,equivalentRefreshPreservesFocus:true,unknownNotLand:true,malformedCaptureRejected:true,malformedInventoryCleared:true,changedWorldCleared:true,canonicalWorldUnchanged:true}}));
+}
+
+// Original W2 -> explicit read -> independently checked observed cards. All
+// changes enter through fixture GET responses and normal visible UI controls.
+async function wideLiveVillage(page,srv,vp,outDir) {
+  const press=loc=>vp.width<760?loc.tap():loc.click();
+  const pip=page.locator('[data-act="wide-select"][data-slot="2"]:visible');
+  const read=page.locator('#panel [data-act="wide-live-refresh"]:visible');
+  const observed=page.locator('#panel .wide-live');
+  const refresh=()=>page.evaluate(async()=>{await (await import('/frontier/controller.mjs')).refresh();});
+  const select=async()=>{
+    if(!await pip.isVisible()) {const close=page.locator('#panel [data-act="drawer-close"]:visible');if(await close.count())await press(close);}
+    await press(pip);
+    if(vp.width<760 && await page.locator('#panel').getAttribute('data-sheet')==='peek') await page.locator('#panel [data-sheet-handle]').tap();
+    await observed.waitFor({state:'visible'});
+  };
+  const waitStatus=async status=>{
+    await page.waitForFunction(async status=>(await import('/frontier/fstate.mjs')).FS.wideLive?.status===status,status);
+    if(status==='observed') await page.waitForFunction(()=>document.querySelector('#panel .wide-live h3')?.textContent==='RPC observed at slot 3102');
+    if(status==='unavailable') await page.waitForFunction(()=>document.querySelector('#panel .wide-live')?.textContent.includes('不明であり、0 ではありません'));
+  };
+  srv.inventory('ready');await refresh();await select();
+  assert.equal(await read.count(),0,'program 4 remains disabled');
+  assert.equal(srv.liveRequests.length,0,'legacy W2 never requests observation');
+  srv.liveEnabled(true);await page.reload();
+  await page.waitForFunction(async()=>{const {FS}=await import('/frontier/fstate.mjs');return FS.playReady&&FS.meStatus==='ready'&&!!FS.kernel;});
+  // Boot's ordinary Join drawer can arrive after the resting pips first
+  // appear. On phone, dismiss that visible drawer before selecting W2.
+  if(vp.width<760) {const close=page.locator('#panel [data-act="drawer-close"]:visible');await close.waitFor({state:'visible'});await press(close);}
+  await select();await waitStatus('idle');assert.equal(srv.liveRequests.length,0);
+  await press(read);await waitStatus('observed');
+  assert.match(await observed.textContent(),/RPC observed at slot 3102/);
+  for(const word of ['資源','建設','兵','現在性・所有権の証明ではありません']) assert.ok((await observed.textContent()).includes(word),word);
+  assert.match(await page.locator('#panel').textContent(),/捕捉・未検証/);
+  assert.deepEqual(srv.liveRequests[0],{method:'GET',query:{citizen:widePresentation().me.body.citizen.address,p:'129',q:'0',site:String(widePresentation().me.body.wideHoldings[0].holding.site),gen:String(widePresentation().me.body.wideHoldings[0].holding.generation),min_slot:'3001'}});
+  await observed.scrollIntoViewIfNeeded();await page.screenshot({path:`${outDir}/${vp.name}-wide-live-observed.png`});
+  for(const mode of ['failure','malformed']) {
+    srv.liveMode(mode);await press(read);await waitStatus('unavailable');
+    assert.doesNotMatch(await observed.textContent(),/RPC observed at slot/);
+    assert.match(await observed.textContent(),/不明であり、0 ではありません/);
+    assert.match(await page.locator('#panel').textContent(),/捕捉・未検証/);
+    await observed.scrollIntoViewIfNeeded();await page.screenshot({path:`${outDir}/${vp.name}-wide-live-${mode}.png`});
+    srv.liveMode('ready');await press(read);await waitStatus('observed');
+  }
+  // Hold the real GET, close/reopen normally, then let its stale reply arrive.
+  srv.holdLive();const before=srv.liveRequests.length;
+  await press(read);await waitStatus('loading');
+  for(let i=0;i<50&&srv.liveRequests.length===before;i++)await page.waitForTimeout(20);
+  assert.equal(srv.liveRequests.length,before+1);
+  await press(page.locator('#panel [data-act="wide-close"]:visible'));
+  await select();await waitStatus('idle');srv.releaseLive();await page.waitForTimeout(100);
+  assert.doesNotMatch(await observed.textContent(),/RPC observed at slot/);
+  assert.equal(srv.liveRequests.length,before+1,'reopen does not auto-read');
+  // Source identity refusal travels through the original controller, not FS injection.
+  srv.holdLive();const sourceBefore=srv.liveRequests.length;await press(read);await waitStatus('loading');
+  for(let i=0;i<50&&srv.liveRequests.length===sourceBefore;i++)await page.waitForTimeout(20);
+  assert.equal(srv.liveRequests.length,sourceBefore+1);
+  srv.inventory('source-changed');await refresh();srv.releaseLive();
+  await page.waitForFunction(async()=>!(await import('/frontier/fstate.mjs')).FS.wideSelect);
+  assert.equal(await page.locator('#panel .wide-live').count(),0);
+  srv.inventory('ready');await refresh();await select();await waitStatus('idle');await page.waitForTimeout(100);
+  assert.doesNotMatch(await observed.textContent(),/RPC observed at slot/);
+  const state=await page.evaluate(async()=>{const {FS}=await import('/frontier/fstate.mjs');return {session:!!FS.session,compose:!!FS.compose,rings:FS.world.ringsOpen,version:FS.season.programVersion};});
+  assert.deepEqual(state,{session:false,compose:false,rings:6,version:0x4004});
+  console.log(JSON.stringify({viewport:vp.name,wideLive:{synthetic:true,chainClaim:false,explicitRead:true,failureClears:true,closedReplyDiscarded:true,changedSourceCleared:true,legacyDisabled:true}}));
+  srv.liveEnabled(false);srv.inventory('off');
 }
 
 // Max-supported-radius renderer stress on the original page. Only the map's
@@ -625,6 +739,7 @@ for (const vp of [{width:1440,height:900,name:'desktop'}, {width:390,height:844,
       assert.equal((await snapshot(page)).session,false,'reload does not create a session');
       await wideEconomy(page,srv,vp,outDir);
       await wideVillageNavigation(page,srv,vp,outDir);
+      await wideLiveVillage(page,srv,vp,outDir);
       // The original spectator page intentionally sees public world state.
       // This validates a visible city without changing the player's survey.
       await page.goto(`${srv.base}/frontier/spectate.html?devWallet=off&at=4,0,43,${phone?'0.55':'1.0'}`);
@@ -660,7 +775,7 @@ for (const vp of [{width:1440,height:900,name:'desktop'}, {width:390,height:844,
       assert.deepEqual(failures.filter(x=>!x.reason.includes('ERR_ABORTED')),[],'no failed asset or worker requests');
     } catch (error) {
       if (page && !page.isClosed()) {
-        console.log(JSON.stringify({viewport:vp.name,error:String(error.stack??error),failedSnapshot:await snapshot(page),errors,failures,
+        console.log(JSON.stringify({viewport:vp.name,error:String(error.stack??error),failedSnapshot:await snapshot(page),liveRequests:srv.liveRequests,errors,failures,
           pointer:await page.evaluate(()=>{const m=window.__wyllsMap;return {mouse:m?.mouse,hover:m?.hover,view:m?.cam.drawn,hand:document.getElementById('hand')?.getBoundingClientRect().toJSON()};})}));
         await page.screenshot({path:`${outDir}/${vp.name}-failure.png`});
       }

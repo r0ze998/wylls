@@ -102,3 +102,6 @@ mod tests {
 
 #[cfg(feature = "wide-index-read-experimental")]
 pub mod wide_read;
+
+#[cfg(feature = "wide-live-read-experimental")]
+pub mod wide_live;
