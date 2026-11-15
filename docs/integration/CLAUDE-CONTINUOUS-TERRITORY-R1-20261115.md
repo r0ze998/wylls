@@ -64,17 +64,42 @@ ABI: record round-trip and bad magic; reads the real Province fields (scout, pen
 march → stand → claim → production up → hostile host takes → production down; SettleCapture's
 mirror flip carries village land; a refused fold leaves the record unchanged.
 
-RESULTS: _filled in after the guarded run_.
+RESULTS (all under the unchanged conquest-guard.sh, sha 94baeb7d, one dedicated target; peak 1.5 GiB; free ≥ 26 GiB):
+- 16:58 permutation-rules land 18/18; frontier-abi land_preview 8/8; default builds unchanged: rules 175/175, abi 115/115.
+- 16:59–17:01 `cargo check -p permutation-frontier --features land-preview`; itest land_lane 3/3; runner
+  (localnet-land-play) and herald (land-preview) built; program `cargo build-sbf --features localnet-land-sbf` →
+  `permutation_frontier.so` sha256 f2e644420dd8dca4a9c985b995ea599040e09b0e69bc561f3069e625e96a5987 (SBPF v2, overflow
+  checks, both localnet markers, no test marker). Warnings only in files not touched here.
+- Page (node --test under the no-key guard): web-frontier-land-preview 5/5; unchanged: launcher 40, capture demo 6+3,
+  territory-ui 7, board 16, herald 9; web-lang output identical to its baseline (2 old failures in other owners' files).
+
+## Round 2: the program, the runner, the herald, the page, the launcher (commit 3c163208, pushed)
+- Tags: PROVISIONAL 0xCD FoldLand / 0xCE ClaimLandYield (ABI-ALLOCATION rev 6 lists 0xCD–0xCF free; no local branch uses
+  them; 0xE3–0xE7 were rejected: the resident band's spares). Workstream 4 must allocate before any integration.
+- `permutation-frontier` `proc::land` (features `land-preview`, `localnet-land-sbf`); `itest::land_lane` (runner option
+  `--land-preview land-preview-v1`, capture demo only; keeper_loop/local_keeper/legacy_march untouched, agreed with the
+  KEEP session); herald `land-preview` (land record kept as a capture, served in the province envelope); page `land.mjs`
+  (per-tile owner fill, gold outline from the record, "Territory N tiles · production +X%"); launcher
+  `--world-option land-preview-v1` (checks the runner's statement and its unshortened numbers).
+- Shared files also edited by other lanes in canonical (uncommitted there): herald Cargo.toml and src/fold.rs — merge by
+  patch at integration, after the owner's handshake.
+
+## Round 2 world: land1 (TEST-ONLY, ×30 capture demo, one operator, memory-only key)
+- Launcher 41960 / world 41964–41968 / desk 41975 (agreed with the KEEP and NFT sessions); 17:01:43 → stopped by pid
+  17:34:09 (TTL end would have been 18:02); guard (110 MiB / 21 GiB) never fired (world output ≤ 13 MiB, free ≥ 26.4 GiB).
+- On the real page: Join Aster → Hamlet of Toford (province 1,1) → Train 400 → Form a host ×4, each on the next edge
+  tile. Claimed land in the home province (herald, GET only): 0 → 3 (17:11:37) → 6 (17:16:40) → 7 (17:20:46) → 9
+  (17:24:46); the strip's bonus moved +0% → +0.5% → +1% → +1.16% → +1.5% (9 × 2% ÷ 12 Aster villages there).
+- Recording and evidence (not in git): `/Users/r0ze/Projects/wylls-land1-recording-20261115/` — 158 s cut
+  (stream copy, cuts only) + untouched originals + runner/herald evidence; its README states every cut and limit.
 
 ## Not done (open; none is claimed)
-1. **The program does not run it.** Plan (round 2): a separate, opt-in instruction `FoldLand`
-   (permissionless crank, like FoldOccupancy) with `[payer s] [season] [province r] [land w]`,
-   folding `next_bell..resolved_next`, so the resolve's tight budget (RFI 286,224 / 290,000) is not
-   touched; a land PDA `pl‖P,Q`; the keeper sends it after each resolve. This touches the keeper's
-   duties — the KEEP owner (Opus｜KEEP選択の高速化) must agree first (paths + hashes before any write).
-2. **Production is a kernel function, not yet credited.** The holding's accrual reads only the tier
-   rate; round 2 needs the land bonus in the settle path (or a separate claim instruction).
-3. **The herald and the map do not read it.** The map still draws geometric gold. Round 3: the
-   herald serves the record; the map paints owner tiles from it when the preset is on.
-4. **No world preset yet** (`--world-preset local-land-test-v1` would be the opt-in lane).
-5. Not seen in any world; no SBF build; no Rust on the program side.
+1. **Growth by marching and arriving was not shown in a world.** The kernel/ABI tests cover it (a host's arrival tile is
+   just its tile); in land1 the March button opens only in a 3–5 s window per 20-s turn at ×30 (keeper lag 1–2 turns,
+   the same in live34), and two looked-at presses missed it. Next: a world at a slower scale, or a page fix that lets a
+   march be composed while the province finishes its turn (the form card already has a waiting send).
+2. **The credited yield amount** (ClaimLandYield landed 581 times, no program refusal) was not measured against the
+   stores; it is tiny at these bonuses. A real-chain test that reads the Holding before/after one claim is next.
+3. **Taking another nation's land and cut-off fraying** are unit-tested only; no second player in a world.
+4. **No natural-speed world**; ×30 capture demo only. Program not deployable; tags provisional.
+5. The strip's "Territory N tiles" is the nation's total over provinces read (test villages included), not the player's.
