@@ -228,3 +228,33 @@ TTL 150 min = deadline 22:10, guard 110 MiB / 21 GiB). Page/launcher/program at 
 - Recording (not in git): `/Users/r0ze/Projects/wylls-land4-recording-20261115/` (165.8 s cut of four excerpts,
   sha 12457573…, originals pa-000…014 with SHA256SUMS, evidence: land-record log, guard log, desk log, runner.out,
   screenshots of both pages, README with every cut and the late-press disclosures).
+
+## Round 6 (2026-11-15 22:05–): cleanup confirmed; why land4's take was not seen, and the display fix
+**Cleanup re-checked 22:05:13:** launcher 96721, guard 96798, desk 96800, logger 98191 gone; no runner/herald/launcher/
+desk/logger/headless-browser process; 0 listeners on 41900–41999; world data dir kept as evidence (24.3 MiB, stopped.json
+launcher-closing); free 23 GiB; TTL not extended; fraying to its end not shown.
+**Cause (evidence: `/Users/r0ze/Projects/wylls-land4-recording-20261115/display-fix/`, keyless, recorded data):** A's real
+frames at bells 60 and 131 have identical ground in the patch around the (4,−2) keep. The page's own code fed the real
+land4 bytes (owners from the evidence log; the kept herald envelopes of every bell) gives the right model: A's host
+anchors sight, the five tiles are in sight, the land record parses (season 11), and the territory model washes them
+Fjordal → Aster. Established causes: `recordLands` read only home ± 1 provinces (no gold line for land two provinces
+away); the land wash is faint at play zoom (another nation's 0.6 of a light wash, thin border) and shares the viewer's
+colour with its own watch rim; the selection said nothing of land or counts. **Open:** why the real frames lack even the
+faint wash the harness shows (a real-page layer not reproduced keylessly).
+**Fix (page only, only where a land record exists; no rule, program or herald change):**
+- `map/landmarks.mjs` (new): holder's fill and line per tile in sight; a take's dashed rim in the taker's colour and an
+  arc of turns/72; a fade's grey rim and arc of turns/36. Painted in groundPass over the watch, under the gold line, never
+  in overPass (KEEP session asked; it confirmed no set of its targets fmap.mjs or inspect.mjs).
+- `map/fmap.mjs`: remembers the provinces whose land record it drew; `recordLands(…, more)` outlines the viewer's land
+  there as its own land (`land:P,Q`).
+- `land.mjs`: parses `by`/`count`; `RULE` 6/72/36; `landTile`, `landTileLines`. `hud/inspect.mjs`: the land lines on a
+  selected tile in sight. English in `en-frontier-play.mjs` (no machinery words).
+- Tests: `web-frontier-land-marks.test.mjs` 6/6 (land4 records of bells 27/129/130/136; out-of-sight shows nothing; far
+  land outlined; selection lines; painter calls). Regression under the no-key guard: land-preview 6, land 23, land-bounds 2,
+  territory-ui 7, board 16, proto-board 15, route-preview 13, keep-board 11, keep-board-march 7, herald 9, cards 7,
+  pretake-frame 10, ws07-away 22, ws07-away-entry 4, expedition-inspection 19, capture-demo 3, launcher 27, onboarding 6;
+  web-lang 22/24 = its 2 old failures (b, c), none of the new strings.
+- Visual: the real spectator page over the GET-only golden preview (port 43160, stopped) with the land4 owners/counts
+  injected into (4,−1), the survey replaced in the browser by a player-like one: before the fix a thin faint line; after,
+  Fjordal's land orange with Aster's dashed rim and arc on 25, then Aster's three tiles red, 32 fading grey; the selection
+  says "Land held by Fjordal (territory trial)" / "Aster is taking it: turn 71 of 72". Not a live world.

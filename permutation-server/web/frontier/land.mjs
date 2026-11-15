@@ -8,7 +8,14 @@ import { fromBase64 } from '../sdk/bytes.mjs';
 import { L, fmtNum } from '../lang.mjs';
 import { html } from '../util.mjs';
 
-export const LAND = Object.freeze({ MAGIC: 'PSFLAND1', SIZE: 272, SEASON_ID: 8, VERSION: 16, NEXT_BELL: 20, VILLAGE: 24, P: 32, Q: 34, OWNER: 36, OPEN: 255, TILES: 61 });
+export const LAND = Object.freeze({ MAGIC: 'PSFLAND1', SIZE: 272, SEASON_ID: 8, VERSION: 16, NEXT_BELL: 20, VILLAGE: 24, P: 32, Q: 34, OWNER: 36, BY: 97, COUNT: 158, OPEN: 255, TILES: 61 });
+
+/**
+ * The rule's turn counts as the program build has them (`LandParams::PREVIEW`; the runner states them and the launcher
+ * checks them, `runnerLandAgrees`): turns a host stands to claim, turns of pressing to take a claimed tile, turns a
+ * cut-off tile lasts. Read here only to say how far a count has come; the program decides.
+ */
+export const RULE = Object.freeze({ STAND: 6, SEIZE: 72, FRAY: 36 });
 
 const KEY = /^ld:(-?\d+),(-?\d+)$/;
 
@@ -35,7 +42,41 @@ export function parseLand(value, { p, q, seasonId } = {}) {
   for (let t = 0; t < LAND.TILES; t++) if ((vmask >> BigInt(t)) & 1n) village.add(t);
   const totals = Array(6).fill(0), claimed = Array(6).fill(0);
   owners.forEach((f, t) => { if (f < 6) { totals[f]++; if (!village.has(t)) claimed[f]++; } });
-  return { p, q, nextBell: dv.getUint32(LAND.NEXT_BELL, true), owners, village, totals, claimed };
+  // the counts running on tiles: `by` the nation pressing tile t (its owner when the tile is cut off and fading), `count`
+  // the turns so far (land.rs: by/count; 255 = nobody)
+  const by = Array.from(b.subarray(LAND.BY, LAND.BY + LAND.TILES)), count = Array.from(b.subarray(LAND.COUNT, LAND.COUNT + LAND.TILES));
+  return { p, q, nextBell: dv.getUint32(LAND.NEXT_BELL, true), owners, village, totals, claimed, by, count };
+}
+
+/**
+ * What the land record says of one tile `idx`: `{owner (0..5 or null), village, claimed, count: null |
+ * {kind: 'take' | 'fade', by, turns, of}}` — `take`: another nation's host has pressed it `turns` of `of` turns;
+ * `fade`: it is cut off from its nation's land and lasts `of − turns` more. Null without a record.
+ */
+export function landTile(land, idx) {
+  if (!land || !Number.isInteger(idx) || idx < 0 || idx >= LAND.TILES) return null;
+  const o = land.owners[idx], owner = o < 6 ? o : null, village = land.village.has(idx);
+  const b = land.by?.[idx], n = land.count?.[idx] ?? 0;
+  let count = null;
+  if (owner !== null && Number.isInteger(b) && b < 6 && n > 0) count = b === owner ? { kind: 'fade', by: b, turns: n, of: RULE.FRAY } : { kind: 'take', by: b, turns: n, of: RULE.SEIZE };
+  return { owner, village, claimed: owner !== null && !village, count };
+}
+
+/**
+ * The selection's lines for a tile of a land record (`landTile`), for the inspector: `[{text, tone}]`, tone 'you'
+ * (the viewer's nation), 'bad' (the viewer's land being taken or fading), '' else. `nameOf(f)` names a nation.
+ */
+export function landTileLines(info, { viewer = null, nameOf = f => String(f) } = {}) {
+  if (!info) return [];
+  const out = [];
+  const mine = info.owner !== null && info.owner === viewer;
+  if (info.owner === null) out.push({ text: L`どの国の土地でもない空き地（領土の試験）`, tone: '' });
+  else if (info.village) out.push({ text: mine ? L`あなたの国の村の土地（領土の試験）` : L`${nameOf(info.owner)}の村の土地（領土の試験）`, tone: mine ? 'you' : '' });
+  else out.push({ text: mine ? L`あなたの国が持つ土地（領土の試験）` : L`${nameOf(info.owner)}が持つ土地（領土の試験）`, tone: mine ? 'you' : '' });
+  const c = info.count;
+  if (c?.kind === 'take') out.push({ text: c.by === viewer ? L`あなたの国が奪取中：${fmtNum(c.turns)} / ${fmtNum(c.of)} ターン` : L`${nameOf(c.by)}が奪取中：${fmtNum(c.turns)} / ${fmtNum(c.of)} ターン`, tone: mine ? 'bad' : c.by === viewer ? 'you' : '' });
+  else if (c?.kind === 'fade') out.push({ text: L`国の土地から切り離され減っています：${fmtNum(c.turns)} / ${fmtNum(c.of)} ターン`, tone: mine ? 'bad' : '' });
+  return out;
 }
 
 /** The land of province `(p, q)` as this page last read it, or null. */
