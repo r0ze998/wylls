@@ -1,0 +1,6 @@
+# real configs name local folders; run output is local evidence
+play2.conf
+*.conf
+!play2.conf.example
+play2-ops-run-*/
+__pycache__/
