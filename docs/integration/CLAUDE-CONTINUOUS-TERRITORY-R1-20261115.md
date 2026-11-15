@@ -297,3 +297,17 @@ shown. Canonical `/Users/r0ze/Projects/wylls-codex-wide-inventory-20261109`: 75 
 handover later (rebase on de18bf02 is already in the integration branch).
 **Next:** stop the replay processes by pid; report preconditions and get all-clears; run the real world with the fixed page
 (opt-in land-preview, capture demo + contest pair, ×10, TTL ≤150, guard), record A's page through claim → take; deliver.
+
+## Round 8 CHECKPOINT (2026-11-16 00:30 JST) — land5 real-chain recheck RUNNING, result NOT yet shown
+- Integration branch merged canonical 68e8548d (round 49 March fix) → 201cc58a; regressions green (cards 8, land-marks 7, …;
+  web-lang 2 old failures). Canonical bcc63a24 (if any) is the owner's unintegrated WIP: not merged, not verified here.
+- land5 (TEST-ONLY, ×10, two ordinary memory-only wallets, page = this branch @201cc58a): launcher started 23:41:26, absolute
+  deadline 02:11:26 JST. Stops without the operator: world TTL; guard pid 83573 (110 MiB / 21 GiB); watchdog pid 83614
+  (SIGINT launcher 83433 at 02:11:26, SIGTERM desk 83575 / guard at 02:16:26); desk and logger (89041) under perl alarm.
+  Preconditions: free 22.80 GiB, 0 listeners, KEEP + NFT all-clear. Scratch: …/scratchpad/rec/land5/.
+- So far (chain + A's page): (4,-2) keep tile 10 held by Fjordal (not heartland). B (Fjordal) stood on 17 → claimed 10, 16,
+  17, 24, 25 at 00:08:16; A (Aster) arrived on 16 at 00:13:17 beside B: no count (defence); A's page showed Fjordal's land
+  orange hatched and the panel "Land held by Fjordal (territory trial)". B sealed its march home 00:27:32; A's count on 16
+  started 00:28:13 → the take is expected ~01:40 if unbroken.
+- NOT shown yet: the take itself and A's page after it. If this checkpoint is the last word, treat the real-chain take as
+  unproven. Cleanup by pid follows the result (or the watchdog does it at the deadline).
