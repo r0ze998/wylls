@@ -27,7 +27,6 @@ export default {
   '確認結果': 'Inspection result',
   '観測のスロット': 'Snapshot slot',
   '鮮度は不明です。権限や完了を証明する結果ではありません。': 'Freshness is unknown. Server observations do not prove authority or completion.',
-  '次に必要な確認': 'Next prerequisite',
   '実行できない役割案': 'Non-executable role proposal',
   '署名が必要': 'Signature required',
   '署名不要': 'No signature required',
