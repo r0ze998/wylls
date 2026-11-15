@@ -155,3 +155,47 @@ Preconditions recorded before the start (no world, band agreed with KEEP + NFT, 
   only) and the land option are both peeled by the runner and passed by the launcher; 10 ports fit the band. Feasible in
   the existing safe scope, but taking land needs 72 turns standing undefended: ×10 → 72 min (TTL ≈ 150 min), ×30 → 24 min
   but the March window is 3–5 s. Not run.
+
+## Round 4 (2026-11-15 19:20–): integration branch updated; the two-player retake world is DESIGNED, NOT STARTED
+**Integration branch:** canonical 98a80769 (incl. the KEEP session's arrival-tag fix de18bf02) merged into
+`claude/continuous-territory-integ-20261115` without conflict (62b1895c, pushed). The merge brings web files only
+(hostmarks.mjs, one fmap.mjs line, en-frontier.mjs, a test), so the guarded Rust results of round 3 stand (no Rust file
+changed). Page tests on it: away-tag 3 (new), land 5, territory 7, board 16, launcher 40, capture demo 6+3, herald 9,
+cards 7, pretake-frame 10; web-lang = its 2 old failures. Canonical's 75 uncommitted entries untouched; the 2 herald
+files there unchanged (sha 09b4c5e5 / ecf859e7, the Codex expedition lane's; owner not messageable from here → the
+user decides; nothing written).
+**New static test:** the launcher accepts `--world-option land-preview-v1` only with the capture demo, alone or with
+`--contest-pair contest-pair-v1` (web-frontier-land-preview.test.mjs, 6/6; no key, no process).
+**March button while resolving:** proposed to the KEEP session (Hosts-tab March greyed by marchCheck NotResident while
+the action bar's March opens its card); it changes when a send control opens, so the KEEP session put it to the user.
+No patch prepared here.
+
+### Design: a two-player retake test world (start only on the user's word)
+Purpose: show land of one nation taken by another nation's standing host (and, if time allows, a defender breaking the
+count), with two ordinary wallets operated by one person, no rule shortened.
+- **Launcher:** natural preset + march trial + `--capture-demo capture-demo-v1 --demo-scale 10` +
+  `--world-option land-preview-v1` + `--contest-pair contest-pair-v1` + `--world-ttl-minutes 150`, `--herald-output
+  compact-v2`. Two pages (two desk contexts p1/p2, each its own memory-only key). No NFT, transfer, session guard,
+  prize, real funds or public issuance.
+- **Ports:** launcher 41960, world slot 0 = 41964–41968 and the pair's slot 1 relay/herald = 41969–41973, desk 41975;
+  all-clear from the KEEP and NFT sessions first; none of them on 41900–41999 during it.
+- **Where land can be taken:** heartland strangers do nothing (keep `heartland_safe`), so the land must lie in a
+  province of ring ≥ 4. The capture demo opens one such province (land1/land3: (−2,4), keep holder Borealis). P1 needs a
+  foothold there (the keep's holder nation, or land next door) — so P1 joins the nation holding that keep, P2 another
+  nation. **Unverified until the world runs:** which ring-4 province the demo opens for P1's wedge and its keep holder;
+  the plan is abandoned (and said so) if P1 cannot claim there.
+- **Timeline at ×10 (≈ 60 s per turn):** start + two joins ≈ 5 min; train/form ≈ 3 min; P1's host marches to the ring-4
+  province (route up to ~20+ tiles: several turns) and stands 6 turns → P1 land there ≈ 15–25 min; P2's host marches
+  onto P1's claimed land and stands **72 turns undefended ≈ 72 min** → the tiles flip to P2 (seize). Total ≈ 100–110
+  min, inside a 150-min TTL. A retake back by P1 would need another 72 turns: not in this world.
+- **Done when** (from the herald, GET only, logged with wall time): the land record of that province shows the tiles'
+  owner change P1 → P2 at the fold where P2's host has stood 72 turns, and the press counter rising each turn before it
+  (`by`/`count` bytes); fails if P2's host is defended, moved or destroyed, or the TTL ends first (reported as not shown).
+- **Capacity:** world output measured 9–16 MB per ~33 min → ≈ 45–70 MB for 150 min (< 110 MiB guard); recording ≈ 1.5 MB
+  per player per minute → ≈ 460 MB for two players over 150 min: above the desk's 250 MiB cap → record only P2's page
+  continuously and P1's at its key moments, or raise the cap to 500 MiB (asked first); free ≥ 21 GiB checked before,
+  stop at < 21.1 GiB.
+- **Guard / cleanup:** land-guard.py (110 MiB / 21 GiB → SIGINT to my launcher only), TTL 150 min, evidence logger +
+  a press/owner logger for the contested province; at the end desk stop/quit, SIGINT launcher by pid, loggers by pid,
+  0 listeners verified, both sessions told.
+- **Not at ×30:** the hold would be 24 min, but the March window is 3–5 s per turn; no blind presses, so ×10 only.
