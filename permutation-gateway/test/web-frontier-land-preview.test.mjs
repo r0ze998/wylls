@@ -3,7 +3,7 @@
 // nation fill and the viewer's gold outline, and a world without the option changes nothing.
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { parseLand, landOf, landTotals, landSummary, renderLandChip, LAND } from '../../permutation-server/web/frontier/land.mjs';
+import { parseLand, landOf, landTotals, landSummary, landElsewhere, renderLandChip, LAND } from '../../permutation-server/web/frontier/land.mjs';
 import { setLang } from '../../permutation-server/web/lang.mjs';
 import { recordLands } from '../../permutation-server/web/frontier/map/fmap.mjs';
 import { SpriteArt } from '../../permutation-server/web/frontier/map/sprites.mjs';
@@ -112,6 +112,40 @@ test('the territory line counts only this village\'s province and states the bon
     assert.match(String(renderLandChip({ claimed: 1, tiles: 8, bonusPct: 0.16 })), /Claimed in this province: 1 tile · production \+0\.16%/);
     assert.doesNotMatch(t, /[\u3040-\u30ff\u4e00-\u9fff]/, 'no Japanese in the English line');
     assert.doesNotMatch(t, /\bbell \d|\bsecret|beacon|\bsettle[ds]?\b|settlement|\bseed\b|site ticket|keeper|lamport/i);
+  } finally { setLang('ja'); }
+});
+
+test('land claimed in other provinces the map has loaded is said apart, and the chip shows it even without home land', () => {
+  const FS = { provinces: new Map() };
+  const h = { p: 2, q: 0 };
+  assert.deepEqual(landElsewhere(FS, h, 0), { tiles: 0, provinces: 0 });
+  assert.deepEqual(landElsewhere(FS, null, 0), { tiles: 0, provinces: 0 });
+  // a take two provinces out (land4/land5: (4,-2)); the home province has no land record
+  FS.provinces.set('4,-2', { land: parseLand(record({ p: 4, q: -2, owners: { 10: 0, 16: 0, 17: 0, 24: 1 }, village: [] }), { p: 4, q: -2, seasonId: 11 }) });
+  assert.equal(landSummary(FS, h, 0), null, 'home line: still none');
+  const far = landElsewhere(FS, h, 0);
+  assert.deepEqual(far, { tiles: 3, provinces: 1 }, 'the nation\'s claimed tiles out there');
+  assert.deepEqual(landElsewhere(FS, h, 1), { tiles: 1, provinces: 1 }, 'the other nation counts its own');
+  const ja = String(renderLandChip(null, far));
+  assert.match(ja, /ほかの州 3 マス/);
+  assert.match(ja, /data-land-far="3"/);
+  assert.doesNotMatch(ja, /この州で獲得/, 'no home line without a home record');
+  assert.equal(renderLandChip(null, { tiles: 0, provinces: 0 }), '', 'nothing anywhere: no chip');
+  // village land out there is not "claimed"; the home province never counts as elsewhere
+  const province = { siteMirror: [{ state: 1, faction: 0 }] };
+  FS.provinces.set('2,0', { province, land: parseLand(record({ owners: { 30: 0, 31: 0 }, village: [30] }), { p: 2, q: 0, seasonId: 11 }) });
+  assert.deepEqual(landElsewhere(FS, h, 0), far, 'home is not elsewhere');
+  const both = String(renderLandChip(landSummary(FS, h, 0), far));
+  assert.ok(both.indexOf('この州で獲得') >= 0 && both.indexOf('この州で獲得') < both.indexOf('ほかの州'), 'home line first, then the far part');
+  setLang('en');
+  try {
+    const en = String(renderLandChip(landSummary(FS, h, 0), far));
+    assert.match(en, /Claimed in this province: 1 tile · production \+2%/);
+    assert.match(en, /Other provinces: 3 tiles/);
+    assert.match(en, /title="Land claimed in the other provinces the map has loaded only \(test world\)\. It can change as you move the map\."/);
+    assert.match(String(renderLandChip(null, { tiles: 1, provinces: 1 })), /Other provinces: 1 tile\b/);
+    assert.doesNotMatch(en, /[\u3040-\u30ff\u4e00-\u9fff]/);
+    assert.doesNotMatch(en, /\bbell \d|\bsecret|beacon|\bsettle[ds]?\b|settlement|\bseed\b|site ticket|keeper|lamport/i);
   } finally { setLang('ja'); }
 });
 

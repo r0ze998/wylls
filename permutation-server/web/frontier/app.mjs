@@ -1,5 +1,5 @@
 import { territoryEnabled, territoryOf } from './territory.mjs';
-import { landOf, landSummary, renderLandChip } from './land.mjs';
+import { landOf, landSummary, landElsewhere, renderLandChip } from './land.mjs';
 import { setS1, setOreExtraProvider, s1On } from './fs1.mjs';
 import { s1Marks } from './map/s1marks.mjs';
 import * as territoryScreen from './screens/territory.mjs';
@@ -2350,10 +2350,14 @@ function renderHudTick(now) {
     }
     resChanges(strip, tokens);
     // the land preview (TEST-ONLY worlds with that option): the viewer's territory and its production bonus, beside the strip
-    const ls = FS.mode === 'play' ? landSummary(FS, hud.activeHolding(FS), FS.citizen?.faction) : null;
+    //  (2026-11-16: and, apart, the land the viewer's nation has claimed in other provinces the map has loaded — a take far
+    //  from home showed 0 there, or no chip at all when the home province had no land record)
+    const lh = FS.mode === 'play' ? hud.activeHolding(FS) : null, lf = FS.citizen?.faction;
+    const ls = lh ? landSummary(FS, lh, lf) : null, le = lh ? landElsewhere(FS, lh, lf) : null;
+    const landShown = !!ls || (le?.tiles ?? 0) > 0;
     let chip = $('land-chip-box');
-    if (ls && !chip && strip.parentElement) { chip = globalThis.document.createElement('span'); chip.id = 'land-chip-box'; strip.after(chip); }
-    if (chip) { chip.hidden = !ls; setHtmlIfChanged(chip, renderLandChip(ls)); }
+    if (landShown && !chip && strip.parentElement) { chip = globalThis.document.createElement('span'); chip.id = 'land-chip-box'; strip.after(chip); }
+    if (chip) { chip.hidden = !landShown; setHtmlIfChanged(chip, renderLandChip(ls, le)); }
   }
   renderSound();
   publishNoGo();

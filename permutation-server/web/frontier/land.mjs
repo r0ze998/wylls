@@ -110,7 +110,32 @@ export function landSummary(FS, h, f) {
 }
 
 /** The strip's land line: "Claimed here: 9 tiles · production +1.5%" (nothing without a land record). */
-export function renderLandChip(s) {
-  if (!s) return '';
+/**
+ * The viewer's nation's CLAIMED land (not village land) in the provinces the page has read other than the holding's
+ * own: `{tiles, provinces}`. Kept apart from landSummary (which stays this province's own, steady line) and said to
+ * count only what the map has loaded, so a take far from home (land4/land5: (4,-2), two provinces out) is on the strip
+ * at all; before, the line said 0 — or nothing, when the home province had no land record.
+ */
+export function landElsewhere(FS, h, f) {
+  const out = { tiles: 0, provinces: 0 };
+  if (!h || !Number.isInteger(f)) return out;
+  for (const [key, env] of FS?.provinces?.entries?.() ?? []) {
+    if (key === `${h.p},${h.q}` || !env?.land) continue;
+    const n = env.land.claimed[f] ?? 0;
+    if (n > 0) { out.tiles += n; out.provinces += 1; }
+  }
+  return out;
+}
+
+/** The strip's land chip: this province's line (landSummary) and, apart, the land elsewhere (landElsewhere), or ''. */
+export function renderLandChip(s, far = null) {
+  const el = far && far.tiles > 0 ? far : null;
+  if (!s && !el) return '';
+  const away = el ? html`<span class="land-chip land-chip-far" data-land-far="${el.tiles}" data-land-far-provinces="${el.provinces}" title="${L`地図で読み込んだほかの州だけを数えます（テスト用の世界）。地図を動かすと変わることがあります。`}">${L`ほかの州 ${fmtNum(el.tiles)} マス`}</span>` : '';
+  if (!s) return away;
+  return html`${homeChip(s)}${away}`;
+}
+
+function homeChip(s) {
   return html`<span class="land-chip" data-land-claimed="${s.claimed}" data-land-tiles="${s.tiles}" data-land-bonus="${s.bonusPct}" title="${L`領土の試験（テスト用の世界）：この村の州で軍勢が立って広げたマスと、その分の生産の上乗せです。`}">${L`この州で獲得 ${fmtNum(s.claimed)} マス · 生産 +${fmtNum(s.bonusPct)}%`}</span>`;
 }
