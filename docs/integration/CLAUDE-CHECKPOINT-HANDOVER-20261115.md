@@ -126,7 +126,12 @@ no node_modules); docs/integration/CLAUDE-CONQUEST-RESERVATION-VECTORS-20261112.
   no world started by 16:44:46, or 5 min after the world's end, and at 18:44:46 at the latest; a guard (pid 34619) stops
   it at 110 MiB of world output or free < 21 GiB. Data dir /Users/r0ze/Projects/wylls-launcher-play1-20261115 (records
   only, kept). The NFT session keeps 41900–41999 free until the launcher is reported stopped.
-- If a later session finds it still running after 18:45: stop by pid only (SIGINT to the launcher), check 41900–41999.
+- STOPPED: the owner's world (started 15:52:53) ended by its TTL at 16:52:54; the watchdog SIGINT'd the launcher at
+  16:57:59 (gone 16:58:19); guard and watchdog exited; 0 listeners on 41900–41999. No fort changed hands in that world
+  (the owner's hosts were 100 Spearmen each; one stood in Borealis heartland 0,2, which never changes hands). Records
+  kept (48.7 MiB). The owner had expected land itself to grow: this build has no village-land growth (only a province
+  changing hands by a 72-turn fort hold); a land-preview lane (another session, branch
+  claude/continuous-territory-20261115) is working on that, opt-in only.
 
 ## 6. Fixture versus a real world: what was seen where
 - Seen in a real world (TEST-ONLY, synthetic clock, one operator playing both sides by hand, memory-only keys):
