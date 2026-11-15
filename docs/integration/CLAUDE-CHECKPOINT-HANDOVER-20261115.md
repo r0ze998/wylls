@@ -5,9 +5,9 @@ No secrets in this file: test keys were memory-only and are gone; no credentials
 ## 1. Where the work stands
 - Canonical tree (absolute): `/Users/r0ze/Projects/wylls-codex-wide-inventory-20261109`
 - Branch: `codex/wide-conquest-lifecycle-20261109`; remote `origin` = github.com/r0ze998/wylls
-- HEAD at this checkpoint: `37a3019ac68f021ff68b4d40fc0469d11d67243e` (round 39); `git ls-remote origin
+- HEAD at this checkpoint: `2721acd3adc6d9a2e3b1564c2f85353a6870ff56` (round 40); `git ls-remote origin
   refs/heads/codex/wide-conquest-lifecycle-20261109` returned the same SHA (checked 2026-11-15). The handover note's
-  first version is e2245e0b (on top of round 35, 67bf34df); updated f71c249b (after 36), 3c2992df (after 37), fbeb72c2 (after 38) and after 37a3019a (39).
+  first version is e2245e0b (on top of round 35, 67bf34df); updated f71c249b (after 36), 3c2992df (after 37), fbeb72c2 (after 38), 08de6ea7 (after 39) and after 2721acd3 (40).
 - My recent commits (oldest → newest): 427c4963 (33b ready-again estimate), 35d22713 (33c: charge at settle on b+1),
   8e385098 (34: English for hand.mjs return texts, '{0} can no longer be used', expedition-map clock tests),
   67bf34df (35: with the March card open, a map tap the host cannot act on says why and keeps the host in hand),
@@ -15,7 +15,8 @@ No secrets in this file: test keys were memory-only and are gone; no credentials
   repeats the selected host's own reason is drawn once, on the host's tag, which shakes), 2c75bfb4 (38: that holds
   only when the host's reason tag is in sight — on a phone the March card covers it, and 31fde707 showed the reason
   nowhere on the map there; fixed with a hit test), 37a3019a (39: a sentence for 49 page codes and the relay's 2
-  request codes; 鐘 → ターン in the wide details line; 精算 → 結果を受け取る in the siege reservation card).
+  request codes; 鐘 → ターン in the wide details line; 精算 → 結果を受け取る in the siege reservation card), 2721acd3
+  (40: no "settle" in the action bar's English; a test for it).
 - Work copy (scratch, not a repo): `<scratchpad>/canon-copy-round18` — tests are run there against the canonical
   node_modules-free copy; patches are made HEAD-based and applied to canonical with `git apply --cached` + working tree.
 
@@ -44,7 +45,7 @@ NFT session paths + hashes and wait for OK.
 - Do not delete anything: scratch trees, exports, recordings and evidence (rec/live23…live32, SHA256SUMS) are evidence.
   Deletion needs the user's explicit approval. Videos never go to GitHub.
 
-## 5. The known unit failures: 8 since round 39 (2059 pass / 9 fail / 1 skipped, one of the 9 a flake)
+## 5. The known unit failures: 8 since round 39 (round 40: 2061 pass / 8 fail / 1 skipped, 2070 tests)
 Command (work copy, permutation-gateway): `node --test test/web-lang.test.mjs test/frontier-local-play-*.test.mjs
 test/web-frontier-*.test.mjs` (2069 tests). Environment since round 39: the gateway's declared SDK
 (@magicblock-labs/ephemeral-rollups-sdk 0.17.2) is linked into the scratch work copy from an existing install with the
@@ -58,8 +59,8 @@ fplay-profile load; without it they fail at import (the older 17/18 counts were 
 - Flaky under the full run's load (pass alone, 3/3 on base and change): marches "round 29: a turn record that cannot be
   read …" (a bounded wait).
 - Fixed: round 36 web-lang "dictionaries"; round 39 relay codes have a text, no numbered bell, 鐘/"bell".
-- Not done, noted: en-frontier-hand.mjs still has "settle"/"settled" in 3 English entries (exploration/harvest lines);
-  the words test checks only en-frontier/en-frontier-play.
+- Done in round 40: no "settle" in en-frontier-hand.mjs's English (own test); its 3 entries for fexpedition-return's
+  精算 strings are left to that lane (their Japanese changes first).
 - Screens (browser, keyless fixture, work copy): conquest-press 10/10 and local-march-maptap 3/3 pass; fixtures 7 and
   interaction 9 failures are the same on base and rounds 36–37. Two interaction tests flake only in the long full run
   ("the phone sheet", "the real turn @ 390", "a mouse drag that ends off the handle"): alone they pass on base and
@@ -86,7 +87,7 @@ fplay-profile load; without it they fail at import (the older 17/18 counts were 
 3. Remaining web-lang failures in my files only (leave fexpedition-return and its stale entries to their owner).
 4. When disk and slot allow (≥ 21 GiB, other session's all-clear): a short natural-preset world to see 33c–38 live.
 5. PC first (owner, 2026-11-15): the phone March-card layout is deferred. Candidates for the next ordinary map/UI round:
-   the 3 "settle" English entries in en-frontier-hand.mjs; the stale English entries the play files no longer use, once their
+   (round 40 did the "settle" entries); the stale English entries the play files no longer use, once their
    owner confirms; on a phone the open March card covers most of the board (destinations only in a strip above it):
    a framing/compact-card design question, not yet changed.
 
