@@ -1022,4 +1022,6 @@ export default {
   // (round 43: the Hosts tab while the viewer's host is on the march: screens/host.mjs)
   'あなたの軍勢は進軍に出ています。到着と結果は「進軍」で確かめられます。': 'Your host is away on a march. See Marches for its arrival and result.',
   '進軍を開く': 'Open Marches',
+  // (round 48: the map's tag once the host's arrival turn has passed: map/hostmarks.mjs awayText)
+  '軍勢はターン {0} に到着 · 位置を読み込んでいます': 'Its host arrived on turn {0} · reading where it stands',
 };
