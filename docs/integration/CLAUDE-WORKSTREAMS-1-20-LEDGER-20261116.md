@@ -76,3 +76,21 @@ verified. Heavy builds and worlds stay serial, in this session, after a report (
 - Preflight 07:50: free 25.14 GiB (floor 21), 0 listeners 40000–41999, no world process. Plan: launcher 41960, worlds
   41964–41973, TTL 150 min from Start, guard 110 MiB / 21 GiB, absolute watchdog deadline launch + 4 h, PID-only cleanup.
 - Starting the launcher was refused by the tool permission check; it waits for the owner's go. Nothing was started.
+
+## Lanes returned and fixes integrated (2026-11-16, head d3eb9c18)
+| lane | finding | fix on this branch | evidence (fixture/unit only) |
+|---|---|---|---|
+| A first-session | no page defect | — (test brought in, e650402b) | `first-session.screen.mjs` 2/2 (EN/JA 1440): screens and card words up to "Send this order", **nothing pressed or sent** |
+| B block reasons | D1 two sentences in sight (5 reasons), D2 forming host silent | b2fdc645 (`map/actions.mjs` tag = marchCheck sentence; `app.mjs` mapTap) | `march-block-reasons.screen.mjs` 16/16 strict, 0 todo; NoTicket / no-host not reachable (not covered) |
+| C economy display | E1 S1 promotion ore gain was M1's | 41fb12a8 (`fland.mjs` projectedHolding via `seasonBase`) | `web-frontier-economy-display.test.mjs` 10/10, 0 todo; O1/O2 open (season matrix, unknown terrain) |
+| D English | 11 proposals | d3eb9c18 (dictionaries + the sibling siege line; 3 tests' old words updated) | `web-lang-play-glossary.test.mjs` 16/16, 0 todo |
+- Regression on the exact tree (scratch copy, file-for-file equal): ordinary-only subset 183 files — 1739 tests, 1736 pass,
+  2 fail (web-lang (b)/(c), known, owner's call), 1 skipped, 0 todo; screens alone: local-march-maptap 5/5,
+  conquest-press 10/10. Restricted files excluded and NOT verified.
+- Not proven by any of this: that the fixes behave in a real world (no world ran since land5); phone width; a natural-speed
+  world. The fixture shows words and taps; a send that lands is live-world evidence only (live23–34, land4–5).
+- play2 source moved to export `/Users/r0ze/Projects/wylls-play2-land-d3eb9c18-20261116` (previous bf85caec export kept);
+  play2-run.sh now sha 85814620 (the bf85caec version saved as play2-run-bf85caec.sh.bak). Rust inputs still identical to
+  9cf2c42a, so the land4 binaries stay valid. Launcher still NOT started (permission check refused it earlier).
+- Product state: these are display/wording fixes on the ordinary path; the product is not complete (see first-playable
+  open items above and the ①–⑳ table).
