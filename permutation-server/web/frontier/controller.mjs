@@ -10,6 +10,7 @@ import { conquestEnabled, kernelFile, territoryStandings, keepFromProvince, appl
 import { holdingByRef } from './fland.mjs';
 import * as fwide from './fwide.mjs';
 import * as expedition from './fexpedition.mjs';
+import * as preparation from './fexpedition-prepare.mjs';
 import * as outbound from './fexpedition-compose.mjs';
 import { FS, invalidate, activeHolding } from './fstate.mjs';
 import { ownTag } from './people/ui.mjs';
@@ -910,7 +911,8 @@ export function useHerald(h) { expedition.clearInspection(FS); outbound.clearOut
 /** A read-only request: deliberately outside ACTIONS, FORMS and the order lifecycle. */
 export const expeditionContext = () => ({ pin: io.pinned(), relay: io.relay(), source: herald });
 export const inspectOriginalExpedition = () => expedition.inspectExpedition(FS, { context: expeditionContext, changed: () => invalidate('panel') });
-export const reconcileExpedition = () => { outbound.reconcileOutbound(FS, expeditionContext()); return expedition.reconcileInspection(FS, expeditionContext()); };
+export const prepareOriginalExpedition = () => preparation.prepareExpedition(FS, { context: expeditionContext, changed: () => invalidate('panel') });
+export const reconcileExpedition = () => { preparation.reconcilePreparation(FS, expeditionContext()); outbound.reconcileOutbound(FS, expeditionContext()); return expedition.reconcileInspection(FS, expeditionContext()); };
 /** Local geometry/plaintext preparation, deliberately outside ACTIONS and FORMS. */
 export const openOriginalOutbound = () => { outbound.openOutbound(FS, expeditionContext()); invalidate('map', 'panel'); };
 export const editOriginalOutbound = (action, value) => { const ok = outbound.editOutbound(FS, expeditionContext(), action, value); invalidate('map', 'panel'); return ok; };
@@ -918,6 +920,12 @@ export const tapOriginalOutbound = hit => { const result = outbound.tapOutbound(
 export const originalOutboundMap = () => outbound.readOutboundMap(FS, expeditionContext());
 export const inspectOriginalOutboundRoute = () => outbound.inspectOutboundRoute(FS, { context: expeditionContext, changed: () => invalidate('panel') });
 export const inspectOriginalOutboundContext = () => outbound.inspectOutboundContext(FS, { context: expeditionContext, changed: () => invalidate('panel') });
+/**
+ * One press on the boundary card: the earliest arrival turn of the observation still bound to this draft goes into
+ * the draft's arrival field, and that observation is read again. A local edit and a read, like the two above:
+ * deliberately outside ACTIONS and FORMS, nothing sealed, signed or sent. → `{ok, arriveBell?, from?, code?}`.
+ */
+export const useEarliestOriginalOutboundArrival = () => outbound.useEarliestOutboundArrival(FS, { context: expeditionContext, changed: () => invalidate('map', 'panel') });
 
 /**
  * Load the latest envelope of a province the map draws at tile detail, the

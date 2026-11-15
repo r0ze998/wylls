@@ -12,7 +12,10 @@
 //   null                         closed: the world has the screen
 //
 // "Map" closes it (closeDrawer). The practice and spectator pages have one
-// panel each; it can be put away and brought back from the dock.
+// panel each; it can be put away and brought back from the dock. The
+// spectator's also comes back for a place chosen on the map after it was put
+// away: that place's card heads the panel, and a spectator who had closed it
+// got nothing but the hover tip for a village or a keep they pressed.
 import { L } from '../../lang.mjs';
 import { subjectOf } from './subject.mjs';
 
@@ -54,7 +57,9 @@ export const handHolds = FS => { try { return !!subjectOf(FS); } catch { return 
 /** What the drawer shows: `{kind}` or null when it is closed. */
 export function drawerOf(FS) {
   const mode = FS.mode ?? 'play';
-  if (mode !== 'play') return FS.drawerShut ? null : { kind: mode };
+  // (`FS.shutAt`: the selection the spectator's panel was put away with. It stays away for that one; the map's next
+  // selection is a new object and opens it, and letting the selection go puts it away again)
+  if (mode !== 'play') return FS.drawerShut && !(mode === 'spectate' && FS.selected && FS.selected !== FS.shutAt) ? null : { kind: mode };
   if (FS.practice) return { kind: 'practice' };
   if (FS.report) return { kind: 'report' };
   if (FS.homeGrant && !FS.titleUp) return { kind: 'home' };
@@ -89,7 +94,7 @@ export function joinKind(FS) {
  * card has its own cancel), so the drawer may still show it.
  */
 export function closeDrawer(FS) {
-  if ((FS.mode ?? 'play') !== 'play') { FS.drawerShut = true; return FS; }
+  if ((FS.mode ?? 'play') !== 'play') { FS.drawerShut = true; FS.shutAt = FS.selected ?? null; return FS; }
   FS.tab = 'map';
   FS.report = null;
   FS.practice = null;

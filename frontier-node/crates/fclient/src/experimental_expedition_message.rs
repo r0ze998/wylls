@@ -26,6 +26,7 @@ pub enum Error {
     Version,
     Budget,
     Envelope,
+    Encoding,
     Preflight(preflight::Error),
 }
 
@@ -38,6 +39,11 @@ pub struct Prepared {
     report: Report,
 }
 impl Prepared {
+    /// Serialize only the public unsigned Message, without signature slots or
+    /// a Transaction envelope. The caller cannot mistake this for signed wire.
+    pub fn message_bytes(&self) -> Result<Vec<u8>, Error> {
+        bincode::serialize(&self.message).map_err(|_| Error::Encoding)
+    }
     pub fn instruction(&self) -> &Instruction {
         &self.instruction
     }

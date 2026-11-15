@@ -1,0 +1,311 @@
+diff --git a/permutation-server/web/frontier/app.mjs b/permutation-server/web/frontier/app.mjs
+--- a/permutation-server/web/frontier/app.mjs
++++ b/permutation-server/web/frontier/app.mjs
+@@ -264,17 +264,27 @@
+   const long = arrival ? L`領土ルールの開発版です。チェーンにはつないでいません。進行はこのサーバー内に保存され、再起動すると最初からになります。時間表示はゲーム内の時間です（${pace}）。` : L`見本の世界です。基本ゲームのルールで動きますが、チェーンにはつないでいません。画面の時間はこの世界の中の時間です（${pace}）。`;
+   setHtmlIfChanged(el, html`${icon('info')}<span>${arrival ? L`領土ルールの開発版` : L`見本の世界`}</span><span class="sample-pace">${pace}</span>`);
+   if (el.title !== long) { el.title = long; el.setAttribute('aria-label', long); }
++}
++
++/**
++ * The page banner's words for an error (display only; exported for the tests). A read that failed by its HTTP status
++ * has no text of its own, and the banner read 「不明なエラー（HTTP503）」: nothing a reader can use. Before any season
++ * is read it is the season's record that could not be read: said so, with the code. Every other error keeps its text.
++ */
++export function bannerText(error, haveSeason = false) {
++  return !haveSeason && /^HTTP\d{3}$/.test(String(error?.code ?? '')) ? L`${clientText('WorldUnavailable')}（${error.code}）` : error?.text ?? '';
+ }
+ 
+ function renderStatus() {
+   renderSampleTag();
+   renderProto();
+   const s = FS.season;
+-  const status = s ? SEASON_STATUS_TEXT[effectiveStatus(s, FS.chain?.now() ?? 0)] : L`読み込み中…`;
++  // (the season could not be read: the word is not 「読み込み中…」 for good — the banner below says what happened)
++  const status = s ? SEASON_STATUS_TEXT[effectiveStatus(s, FS.chain?.now() ?? 0)] : FS.error ? '' : L`読み込み中…`;
+   // the beacon's kind is a detail: "More → details" names it (detailsMarkup)
+   setText('season-status', status);
+   const err = $('error-line');
+-  if (err) { err.hidden = !FS.error; err.textContent = FS.error ? FS.error.text : ''; }
++  if (err) { err.hidden = !FS.error; err.textContent = FS.error ? bannerText(FS.error, !!s) : ''; }
+ }
+ 
+ /** Whether a host or holding id is the viewer's (its province, site and generation are one of the viewer's holdings). */
+@@ -586,7 +596,9 @@
+   focusHome();
+   const tabs = $('tabs');
+   // what the map itself opens (a selection, an order, the guide, the join flow) leaves "Map" current; a report or a run, none
+-  if (tabs) setHtml(tabs, renderTabs(FS, !d || ['inspect', 'march', 'guide', 'join', 'nation', 'wait'].includes(d.kind) ? 'map' : d.kind));
++  // (the dock's keys are written anew at every render: Enter on one left the keyboard on nothing. The key in focus is
++  // found again by what it does, as the bar's keys are — keepState)
++  if (tabs) keepState(tabs, () => setHtml(tabs, renderTabs(FS, !d || ['inspect', 'march', 'guide', 'join', 'nation', 'wait'].includes(d.kind) ? 'map' : d.kind)));
+   renderRail();
+   renderHand();
+   renderMinimap();
+@@ -751,7 +763,19 @@
+   el.setAttribute('aria-label', glossary.TERMS[FS.term]?.name() ?? '');
+   setHtmlIfChanged(el, glossary.renderTerm(FS.term));
+ }
+-function closeTermPop() { if (FS.term) { FS.term = null; renderTermPop(); } }
++/** The 「？」 that opened the term's popover (its term and its place among the keys of that term), while it is open. */
++let termFrom = null;
++/**
++ * Close the term's popover. `focus`: the keyboard goes back to the key that opened it (Escape, the popover's own
++ * close key) — it was left on nothing, and the next Tab began at the top of the page. The key is found again by its
++ * term and its place: the drawer it stands in may have been written anew since.
++ */
++function closeTermPop({ focus = false } = {}) {
++  if (!FS.term) return;
++  FS.term = null; renderTermPop();
++  const from = termFrom; termFrom = null;
++  if (focus && from) [...(globalThis.document?.querySelectorAll?.(`[data-act="term"][data-term="${String(from.term).replace(/[^\w-]/g, '')}"]`) ?? [])][from.nth]?.focus?.({ preventScroll: true });
++}
+ /** The dial's card (hud/dialcard.mjs): the turn, the time to the next bell, what that bell brings; under the dial. */
+ function renderDialPop(now = FS.chain?.now?.() ?? null) {
+   let el = $('dial-pop');
+@@ -3228,6 +3252,9 @@
+     const x = searchHits[num(d.i)];
+     if (!x) return;
+     setSearch(false, { focus: false });
++    // (the field the keyboard was in is put away: the keyboard goes to the map, where the place found now is — it was
++    // left on nothing. A card or an order opened below may still take it.)
++    $('frontier-map')?.focus?.({ preventScroll: true });
+     // a host that can march has the hand: what was searched for is where it may go (the camera goes there, the host stays in hand)
+     const sub = FS.mode === 'play' && !FS.compose ? hand.subjectOf(FS) : null;
+     if (sub?.kind === 'host' && FS.hand?.pop !== OUTBOUND_POP && FS.hand?.pop !== EXPEDITION_POP && hand.marchCheck(FS, sub.host).ok) {
+@@ -3343,8 +3370,14 @@
+   'dial-close': () => closeDialPop({ focus: true }),
+   // the plate's one key while the viewer's record cannot be read (hud/hud.mjs renderPlate): the page again, from the start
+   reload: () => globalThis.location?.reload?.(),
+-  term: d => { FS.term = FS.term === d.term || !glossary.TERMS[d.term] ? null : d.term; renderTermPop(); $('term-pop')?.querySelector('button')?.focus?.(); },
+-  'term-close': () => closeTermPop(),
++  term: d => {
++    // (the key the keyboard is on when the popover opens: where it goes back to — closeTermPop)
++    const a = globalThis.document?.activeElement, opener = a?.matches?.('[data-act="term"]') && a.dataset.term === d.term ? a : null;
++    FS.term = FS.term === d.term || !glossary.TERMS[d.term] ? null : d.term; renderTermPop();
++    termFrom = FS.term && opener ? { term: d.term, nth: Math.max(0, [...globalThis.document.querySelectorAll(`[data-act="term"][data-term="${String(d.term).replace(/[^\w-]/g, '')}"]`)].indexOf(opener)) } : null;
++    $('term-pop')?.querySelector('button')?.focus?.();
++  },
++  'term-close': () => closeTermPop({ focus: true }),
+   // the legend of the map (map/legend.mjs), from the "?" beside the lenses: the More sheet opens on it
+   'legend-open': () => { closeTermPop(); setLensMenu(false); leaveReport(); if (FS.mode === 'play') { FS.tab = 'more'; FS.practice = null; } invalidate('panel', 'tabs'); requestAnimationFrame(() => { const g = $('survey-help'); for (let d = g?.closest?.('details'); d; d = d.parentElement?.closest?.('details')) d.open = true; g?.scrollIntoView?.({ block: 'start' }); g?.querySelector?.('h3')?.focus?.({ preventScroll: true }); }); },
+   'glossary-open': () => { closeTermPop(); leaveReport(); if (FS.mode === 'play') FS.tab = 'more'; invalidate('panel', 'tabs'); requestAnimationFrame(() => { const g = $('glossary'); const d = g?.closest?.('details'); if (d) d.open = true; (d ?? g)?.scrollIntoView?.({ block: 'start' }); }); },
+@@ -3598,7 +3631,7 @@
+     if (intro && !intro.hidden && (e.key === 'Escape' || e.key === 'Enter')) { e.preventDefault(); closeIntro(); return; }
+     if (e.key === 'Escape' && FS.resOpen) { e.preventDefault(); closeResPop(); return; }
+     if (e.key === 'Escape' && FS.dialOpen) { e.preventDefault(); closeDialPop({ focus: true }); return; }
+-    if (e.key === 'Escape' && FS.term) { e.preventDefault(); closeTermPop(); return; }
++    if (e.key === 'Escape' && FS.term) { e.preventDefault(); closeTermPop({ focus: true }); return; }
+     if (e.key === 'Escape' && $('map-search') && !$('map-search').hidden && e.target?.closest?.('.search-row')) { e.preventDefault(); setSearch(false); return; }
+     // Escape on the map lets the selection go (the lit tiles with it); a march being composed is closed from its card
+     if (e.key === 'Escape' && e.target?.id === 'frontier-map' && FS.selected && !FS.compose) {
+diff --git a/permutation-server/web/frontier/frontier.css b/permutation-server/web/frontier/frontier.css
+--- a/permutation-server/web/frontier/frontier.css
++++ b/permutation-server/web/frontier/frontier.css
+@@ -2526,8 +2526,11 @@
+ /* (the sheet is a place of its own while it stands open: the dock, which lies above everything in the map's layer,
+    waits behind it — it stood over the sheet's foot, on the chart's caption. The sheet's close key and Escape lead back.) */
+ @media (min-width: 760px) { body:has(#wide-world:not([hidden])) .tabs { visibility: hidden; } }
+-/* (a phone: the map's keys stood half out above the sheet's top edge) */
+-@media (max-width: 759px) { body:has(#wide-world:not([hidden])) :is(.hud-tl, .map-tools, .minimap) { visibility: hidden; } }
++/* (what the sheet covers is put away with it, at every width: the keyboard's Tab went on from the sheet's own keys into
++   the map's keys, the lens chips, the search key and the drawer under it — a focus on something nobody can see — and
++   Shift+Tab into the map itself; on a phone the map's keys stood half out above the sheet's top edge. They are back
++   the moment the sheet closes; the top strip, which the sheet does not cover, stays.) */
++body:has(#wide-world:not([hidden])) :is(.hud-tl, .map-tools, .minimap, .rail, .panel, .feed, .home-pointer, #frontier-map) { visibility: hidden; }
+ .wide-world { gap: 8px; padding: 12px 14px 14px; background: var(--tex-metal, none), var(--plate-bg); box-shadow: var(--shadow), var(--plate-edge); }
+ .wide-head { min-height: 36px; padding-bottom: 8px; border-bottom: 1px solid rgba(201,162,74,.35); }
+ .wide-head h2 { font: 700 var(--t3)/1.3 var(--display); letter-spacing: .04em; color: var(--ivory); }
+@@ -2575,7 +2578,34 @@
+ .plate-watch .conquest-standings > .btn { order: 3; align-self: flex-start; margin: 2px 0 8px; }
+ .plate-watch .conquest-standings > p:first-of-type { order: 4; margin: 0; padding-top: 7px; border-top: 1px solid rgba(201,162,74,.22); }
+ .plate-watch .plate-note { margin-top: -2px; line-height: 1.45; }
++
++/* ---- what a read answers with (2026-11-11, on the page with slow and failing reads) ---- */
++/* a line that says how a read stands (being read, could not be read, older than now: screens/chronicle.mjs readLine and
++   its like): its mark is a block, so it stood on a line of its own above the sentence it belongs to. Mark and sentence
++   are one line, the sentence wrapping beside the mark. */
++.read-state { display: grid; grid-template-columns: auto minmax(0, 1fr); column-gap: 7px; align-items: start; }
++.read-state > .ic { width: 15px; height: 15px; margin-top: 2px; }
++/* the spectator's standings before anything is read (hud/hud.mjs renderRail): the same line on bell metal */
++.plate-watch > .read-state { margin: 0; font-size: var(--t2); line-height: 1.45; color: var(--hud-ink); }
++.plate-watch > .read-state > .ic { color: var(--brass-hi); }
++.plate-watch > .read-state[data-read="unread"] > .ic { color: #ffb4a4; }
++.plate-watch > .read-state .read-more { display: block; margin-top: 2px; font-size: var(--t1); color: var(--hud-ink-2); }
++/* the season's word in the spectator's bar: with nothing to say (the season could not be read: the banner says so) it is not there */
++#season-status:empty { display: none !important; }
+ 
++/* ---- a phone whose map carries three keys at its right edge (home, the world chart, the recorded world: the
++   spectator's and the practice page, and a play page whose plate has no way home). The notices and the page's own
++   banners were laid out for two rows of keys: a refusal lay under the third key (its 「やり直す」 could not be pressed
++   whole), and the banner of a failed read lay across the world chart's and the recorded world's keys. With three rows
++   they start under the third; a banner then takes the screen's width, and the notices stand under the banners. */
++@media (max-width: 759px) {
++  body:not([data-stage="none"]):not(:has(.plate-main[data-act="home"])) .feed { top: calc(var(--strip) + 8px + 3 * var(--target) + 20px); }
++  body:not([data-stage="none"]):not(:has(.plate-main[data-act="home"])) .banner { top: calc(var(--strip) + 8px + 3 * var(--target) + 20px); max-width: calc(100% - 2 * var(--edge)); }
++  body:not([data-stage="none"]):not(:has(.plate-main[data-act="home"])):has(#stale-banner:not([hidden])) .banner.error { top: calc(var(--strip) + 8px + 3 * var(--target) + 20px + 48px); }
++  body:not([data-stage="none"]):not(:has(.plate-main[data-act="home"])):has(.banner:not([hidden])) .feed { top: calc(var(--strip) + 8px + 3 * var(--target) + 20px + 48px); }
++  body:not([data-stage="none"]):not(:has(.plate-main[data-act="home"])):has(#stale-banner:not([hidden])):has(#error-line:not([hidden])) .feed { top: calc(var(--strip) + 8px + 3 * var(--target) + 20px + 96px); }
++}
++
+ /* ================================================================== the film's frame: a laptop's width (1280 × 720)
+    The demo is filmed with the page laid out at 1280 × 720 CSS px (device scale 1.5: a 1920 × 1080 picture). What stood
+    cut, covered or colliding at that size is set right here, under three conditions and no other: between 1100 and
+diff --git a/permutation-server/web/frontier/hud/hud.mjs b/permutation-server/web/frontier/hud/hud.mjs
+--- a/permutation-server/web/frontier/hud/hud.mjs
++++ b/permutation-server/web/frontier/hud/hud.mjs
+@@ -423,7 +423,16 @@
+  * The spectator sees the standings there instead.
+  */
+ export function renderRail(FS, { todoOpen = false } = {}) {
+-  if (FS.mode === 'spectate') return html`<div class="plate plate-watch"><h2 class="todo-h todo-h-plain">${icon('eye')}<span>${L`国の順位`}</span></h2>${renderStandingsList(FS)}<p class="plate-note">${L`村の数は、ターンごとにまとめられる記録から数えています。`}</p></div>`;
++  if (FS.mode === 'spectate') {
++    // (no false state at load, UX design 12.3: until the season's record or an overview has answered, the six nations
++    // stood at 「村 0 · 0 州」 as if the world were empty — and for good when the season could not be read. The plate
++    // says that the record is being read, or that it could not be; the standings come with the first answer.)
++    const unread = !FS.season && !(FS.overviews?.size > 0);
++    const body = unread
++      ? html`<p class="read-state" role="status" data-read="${FS.error ? 'unread' : 'waiting'}">${icon(FS.error ? 'alert' : 'hourglass')}<span>${FS.error ? html`${L`シーズンの記録を読めません`}<span class="read-more">${L`通信の状態を確かめてください。読み込み直すと、もう一度試します。`}</span>` : L`記録を読み込んでいます…`}</span></p>`
++      : html`${renderStandingsList(FS)}<p class="plate-note">${L`村の数は、ターンごとにまとめられる記録から数えています。`}</p>`;
++    return html`<div class="plate plate-watch"><h2 class="todo-h todo-h-plain">${icon('eye')}<span>${L`国の順位`}</span></h2>${body}</div>`;
++  }
+   if (FS.mode !== 'play') return '';
+   // (the wide pips: the viewer's wide inventory slots, read-only, beside the plate and never among its legacy pips)
+   return html`${renderTodo(FS, { open: todoOpen })}${renderPlate(FS)}${renderWideInventoryStatus(FS)}${renderWidePips(FS)}`;
+diff --git a/permutation-server/web/frontier/screens/chronicle.mjs b/permutation-server/web/frontier/screens/chronicle.mjs
+--- a/permutation-server/web/frontier/screens/chronicle.mjs
++++ b/permutation-server/web/frontier/screens/chronicle.mjs
+@@ -115,6 +115,9 @@
+  */
+ export function chronicleState(FS) {
+   const r = FS?.chronicleRead, have = Array.isArray(FS?.chronicle);
++  // (the season itself could not be read: the record's pages were never asked for and will not be, and the line stood at
++  // 「読み込んでいます」 for good. Nothing is known of the record: it is unread, with the code the season's read gave)
++  if (!r && !have && FS?.error && !FS?.season) return { state: 'unread', code: FS.error.code ?? null };
+   if (!r) return { state: have ? 'ok' : 'waiting', code: null };
+   if (r.ok) return { state: 'ok', code: null };
+   return { state: have ? 'stale' : 'unread', code: r.code ?? null };
+diff --git a/permutation-gateway/test/web-frontier-design-pass.test.mjs b/permutation-gateway/test/web-frontier-design-pass.test.mjs
+--- a/permutation-gateway/test/web-frontier-design-pass.test.mjs
++++ b/permutation-gateway/test/web-frontier-design-pass.test.mjs
+@@ -12,6 +12,10 @@
+ //   - the drawer's scroll (app.mjs `drawerHeadFor`, `renderDrawer`): a new choice made on the map starts the drawer at
+ //     its head, so that the chosen place's card is in sight; a re-render with the selection already shown, with none,
+ //     or after a choice made from inside the drawer leaves the reader's place alone.
++//   - what a read and a key answer with (2026-11-11): no false state while the season is unread or could not be read
++//     (the spectator's standings, the chronicle's line, the banner's words, the season's word); the keyboard is given
++//     back where a popover, the search or the dock had left it on nothing; what the recorded world's sheet covers
++//     cannot take the focus; a phone's notices stand clear of three rows of map keys.
+ import { test, afterEach } from 'node:test';
+ import assert from 'node:assert/strict';
+ import { readFileSync } from 'node:fs';
+@@ -21,7 +25,9 @@
+ import { renderResults } from '../../permutation-server/web/frontier/hud/search.mjs';
+ import { ICONS, MAP_TOOL_ICON } from '../../permutation-server/web/frontier/hud/icons.mjs';
+ import { render as renderInspect } from '../../permutation-server/web/frontier/hud/inspect.mjs';
+-import { drawerHeadFor } from '../../permutation-server/web/frontier/app.mjs';
++import { drawerHeadFor, bannerText } from '../../permutation-server/web/frontier/app.mjs';
++import { renderRail, renderStandingsList } from '../../permutation-server/web/frontier/hud/hud.mjs';
++import { chronicleState, readLine } from '../../permutation-server/web/frontier/screens/chronicle.mjs';
+ 
+ afterEach(() => setLang('ja'));
+ 
+@@ -354,3 +360,98 @@
+   assert.match(css, /\.panel, \.panel\[data-drawer="closed"\] \{ position: absolute;[^}]*overflow: auto;/, 'a phone: the sheet scrolls');
+   assert.match(css, /\n  #panel-body \{ flex: none; overflow: visible;/, 'a phone: the paper does not');
+ });
++
++// ---- what a read answers with: nothing is said to be so before it is read, and a read that failed is said as that
++const SEASON = Object.freeze({ programVersion: 3, layoutVersion: 2 });
++const railOf = FS => flat(renderRail(FS));
++const words = markup => markup.replace(/<svg[\s\S]*?<\/svg>/g, '').replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim();
++
++test('the spectator\'s standings: while the season is unread the plate says so — never six nations at zero', () => {
++  const waiting = railOf({ mode: 'spectate', season: null, overviews: new Map(), error: null });
++  assert.match(waiting, /<div class="plate plate-watch">/);
++  assert.match(waiting, /<p class="read-state" role="status" data-read="waiting">/);
++  assert.match(words(waiting), /^国の順位 記録を読み込んでいます…$/);
++  assert.doesNotMatch(waiting, /rail-standings|村 0/, 'no row says a nation has nothing before anything is read');
++  setLang('en');
++  assert.match(words(railOf({ mode: 'spectate', season: null, overviews: new Map(), error: null })), /^Nation standings Reading the record…$/);
++});
++
++test('the spectator\'s standings: a season that could not be read is said as that, with what to do; the first answer brings the list', () => {
++  const failed = railOf({ mode: 'spectate', season: null, overviews: new Map(), error: { code: 'HTTP503', text: 'x' } });
++  assert.match(failed, /<p class="read-state" role="status" data-read="unread">/);
++  assert.match(words(failed), /^国の順位 シーズンの記録を読めません 通信の状態を確かめてください。読み込み直すと、もう一度試します。$/);
++  assert.doesNotMatch(failed, /rail-standings|村 0/);
++  // an overview has answered (a season without conquest): the six nations, as before
++  const rec = { p: 2, q: 0, owners: [0, 1], sites: [1, 1] };
++  const listed = railOf({ mode: 'spectate', season: null, overviews: new Map([[2, { provinces: [rec] }]]), error: null });
++  assert.match(listed, /<ol class="rail-standings">/);
++  assert.match(words(listed), /アステル 村 1 · 1 州/);
++  assert.match(listed, /<p class="plate-note">/);
++  // the season has answered and the overviews have not: the list as before (a conquest season says its own state)
++  assert.match(railOf({ mode: 'spectate', season: { programVersion: 1 }, overviews: new Map(), error: null }), /<ol class="rail-standings">/);
++  // the list itself is as it was for an empty map (other surfaces and tests rely on it)
++  assert.match(flat(renderStandingsList({ overviews: new Map() })), /<ol class="rail-standings">/);
++  // the play page's rail is not the spectator's
++  assert.equal(railOf({ mode: 'practice' }), '');
++  setLang('en');
++  assert.match(words(railOf({ mode: 'spectate', season: null, overviews: new Map(), error: { code: 'HTTP503', text: 'x' } })), /^Nation standings The season(&#39;|')s record cannot be read\. Check your connection\. Reloading tries again\.$/);
++});
++
++test('the chronicle\'s line: with the season unread for good it is "could not be read", not "being read"; every other state as before', () => {
++  assert.deepEqual(chronicleState({}), { state: 'waiting', code: null });
++  assert.deepEqual(chronicleState({ error: null, season: null }), { state: 'waiting', code: null }, 'still being read');
++  assert.deepEqual(chronicleState({ error: { code: 'HTTP503' }, season: null }), { state: 'unread', code: 'HTTP503' });
++  assert.deepEqual(chronicleState({ error: { code: 'BeaconMismatch' }, season: SEASON }), { state: 'waiting', code: null }, 'an error with the season read is another matter: the record may still come');
++  assert.deepEqual(chronicleState({ error: { code: 'HTTP503' }, season: null, chronicle: [] }), { state: 'ok', code: null }, 'pages read before stay read');
++  assert.deepEqual(chronicleState({ chronicleRead: { ok: false, code: 'HTTP500' } }), { state: 'unread', code: 'HTTP500' });
++  assert.deepEqual(chronicleState({ chronicleRead: { ok: false, code: 'HTTP500' }, chronicle: [] }), { state: 'stale', code: 'HTTP500' });
++  assert.deepEqual(chronicleState({ chronicleRead: { ok: true }, chronicle: [] }), { state: 'ok', code: null });
++  const line = flat(readLine({ error: { code: 'HTTP503' }, season: null }));
++  assert.match(line, /class="blocked read-state" role="status" data-read="unread"/);
++  assert.match(line, /出来事の記録を読み込めませんでした（HTTP503）。記録が空という意味ではありません。/);
++});
++
++test('the page banner: a read that failed by its HTTP status says what could not be read, with the code; every other error keeps its words', () => {
++  assert.equal(bannerText({ code: 'HTTP503', text: '不明なエラー（HTTP503）' }), 'シーズンの記録を読めません（HTTP503）');
++  assert.equal(bannerText({ code: 'HTTP404', text: 'x' }, false), 'シーズンの記録を読めません（HTTP404）');
++  assert.equal(bannerText({ code: 'HTTP503', text: '不明なエラー（HTTP503）' }, true), '不明なエラー（HTTP503）', 'with the season read, the error is of something else: its own text');
++  assert.equal(bannerText({ code: 'BeaconMismatch', text: 'ビーコンが違います' }), 'ビーコンが違います');
++  assert.equal(bannerText({ code: 'network', text: '通信できませんでした' }), '通信できませんでした');
++  assert.equal(bannerText({ text: 'only words' }), 'only words');
++  assert.equal(bannerText(null), '');
++  setLang('en');
++  assert.equal(bannerText({ code: 'HTTP503', text: 'Unknown error (HTTP503)' }), "The season's record cannot be read. (HTTP503)");
++});
++
++test('the page gives the keyboard back: the term\'s popover to its key, the search to the map, the dock to the key pressed', () => {
++  // the term's popover: Escape and its close key return the focus; the other ways of closing it do not move it
++  assert.match(appSrc, /if \(e\.key === 'Escape' && FS\.term\) \{ e\.preventDefault\(\); closeTermPop\(\{ focus: true \}\); return; \}/);
++  assert.match(appSrc, /'term-close': \(\) => closeTermPop\(\{ focus: true \}\),/);
++  assert.match(appSrc, /function closeTermPop\(\{ focus = false \} = \{\}\) \{\n  if \(!FS\.term\) return;\n  FS\.term = null; renderTermPop\(\);\n  const from = termFrom; termFrom = null;\n  if \(focus && from\) /);
++  assert.equal(appSrc.match(/closeTermPop\(\); /g).length >= 3, true, 'opening the dial, the legend or the glossary closes it without taking the focus');
++  // the search: the field is put away, the keyboard goes to the map
++  assert.match(appSrc, /setSearch\(false, \{ focus: false \}\);\n[^\n]*\n[^\n]*\n    \$\('frontier-map'\)\?\.focus\?\.\(\{ preventScroll: true \}\);/);
++  // the dock: written anew at every render, the key in focus found again
++  assert.match(appSrc, /if \(tabs\) keepState\(tabs, \(\) => setHtml\(tabs, renderTabs\(FS, /);
++  assert.doesNotMatch(appSrc, /if \(tabs\) setHtml\(tabs, renderTabs\(/);
++  // the season's word: nothing while the season could not be read (the banner says it)
++  assert.match(appSrc, /const status = s \? SEASON_STATUS_TEXT\[effectiveStatus\(s, FS\.chain\?\.now\(\) \?\? 0\)\] : FS\.error \? '' : L`読み込み中…`;/);
++  assert.match(css, /\n#season-status:empty \{ display: none !important; \}/);
++});
++
++test('the stylesheet: a read\'s line is one line with its mark; what the recorded world\'s sheet covers cannot be seen or focused; a phone\'s notices clear three rows of keys', () => {
++  assert.match(ruleOf('.read-state'), /display: grid; grid-template-columns: auto minmax\(0, 1fr\);/);
++  const covered = /\nbody:has\(#wide-world:not\(\[hidden\]\)\) :is\(([^)]*)\) \{ visibility: hidden; \}/.exec(css);
++  assert.ok(covered, 'one rule, at every width');
++  for (const piece of ['.hud-tl', '.map-tools', '.minimap', '.rail', '.panel', '.feed', '.home-pointer', '#frontier-map']) assert.ok(covered[1].split(', ').includes(piece), piece);
++  assert.doesNotMatch(covered[1], /topbar|dial|wide-world/, 'the top strip, which the sheet does not cover, and the sheet itself stay');
++  const at = css.indexOf("a phone whose map carries three keys at its right edge");
++  const block = css.slice(css.indexOf('@media (max-width: 759px) {', at), css.indexOf('\n}\n', at));
++  const three = 'body:not([data-stage="none"]):not(:has(.plate-main[data-act="home"]))';
++  assert.ok(block.includes(`${three} .feed { top: calc(var(--strip) + 8px + 3 * var(--target) + 20px); }`), 'the notices start under the third key');
++  assert.ok(block.includes(`${three} .banner { top: calc(var(--strip) + 8px + 3 * var(--target) + 20px); max-width: calc(100% - 2 * var(--edge)); }`), 'and so does a banner, at the screen\'s width');
++  assert.ok(block.includes(`${three}:has(.banner:not([hidden])) .feed {`), 'the notices stand under a banner');
++  // (the third key's foot at 52 + 8 + 3 x 44 + 2 x 6 = 204 px; the notices at 52 + 8 + 132 + 20 = 212)
++  assert.ok(52 + 8 + 3 * 44 + 20 > 52 + 8 + 3 * 44 + 2 * 6);
++  assert.match(css, /\n  \.feed \{ top: calc\(var\(--strip\) \+ 8px \+ 2 \* var\(--target\) \+ 14px\); left: var\(--edge\); right: var\(--edge\); \}/, 'two rows of keys: as it was');
++});

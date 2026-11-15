@@ -83,6 +83,7 @@ import { syncProtoChip } from './protochip.mjs';
 import { setProtoLegend } from './legend.mjs';
 // the keeps of a conquest season (the program's version 3): map/keeps.mjs
 import { KeepBoard } from './keeps.mjs';
+import { keepRowsNear } from './keepscreen.mjs';
 import { paintS1Marks, caravanTagText } from './s1marks.mjs';
 import { paintOutboundRoute } from './outboundroute.mjs';
 
@@ -1415,13 +1416,16 @@ export class FrontierMap {
    * The keep under a point of the page (client px, as `hostAt`): its fortress standing over its tile, or the tile
    * itself. `{p, q}` (with `tile`, the keep's tile), or null. Read from the last picture painted, at any zoom.
    */
-  keepAt(clientX, clientY) {
+  keepAt(clientX, clientY, { scan = false, stats = null } = {}) {
     if (!this.keeps.on || !Number.isFinite(clientX) || !Number.isFinite(clientY)) return null;
     const z = this.cam.drawn.zoom, coarse = !!globalThis.matchMedia?.('(pointer: coarse)')?.matches, min = coarse ? 22 : 12;
     let best = null, bd = Infinity;
     // Tiny chart cells have aggregated territory, not a hidden 12/22px keep
     // target on every province. Keep hits follow the marks actually drawn.
-    const rows = coarseChart('world', z) ? this.chartKeeps?.visible({}) ?? [] : this.keeps.rows.values();
+    // Elsewhere only the keeps that can be under the press are tested, from the
+    // board's bucket index (map/keepscreen.mjs: a bound proved for the tilt, the
+    // zoom and the 12/22 px least box; anything uncertain scans every keep).
+    const rows = coarseChart('world', z) ? this.chartKeeps?.visible({}) ?? [] : (scan ? null : keepRowsNear(this, clientX, clientY, z, min, stats, { exact: this.project === FrontierMap.prototype.project && this.unproject === FrontierMap.prototype.unproject && this.standAt === FrontierMap.prototype.standAt })) ?? this.keeps.rows.values();
     for (const row of rows) {
       const P = this.keeps.place(row, z);
       if (!P) continue;
@@ -1433,6 +1437,8 @@ export class FrontierMap {
     }
     return best;
   }
+  /** keepAt by projecting every keep (outside the coarse chart): the reference the index must agree with. */
+  keepAtScan(clientX, clientY) { return this.keepAt(clientX, clientY, { scan: true }); }
   /** Fly to the keep of province `{p, q}`, near enough to see its fortress and the tiles round it (a closer view is kept). Returns whether there is such a keep. */
   flyToKeep(at) {
     const row = at && this.keeps.on ? this.keeps.rows.get(`${at.p},${at.q}`) ?? null : null;

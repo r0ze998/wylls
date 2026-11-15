@@ -43,7 +43,7 @@ import { previewOf } from '../proto/hand-model.mjs';
 import { conquestOn, renderKeepsPop, waitOf, holdTurns } from './keephand.mjs';
 import { EXPEDITION_POP, inspectionVersion } from '../fexpedition.mjs';
 import { originalReturnModel } from '../fexpedition-return.mjs';
-import { OUTBOUND_POP, outboundSketch } from '../fexpedition-compose.mjs';
+import { OUTBOUND_POP, outboundSketch, outboundArrivalCandidate } from '../fexpedition-compose.mjs';
 import { composerChoices } from '../screens/march.mjs';
 
 const int = Number.isInteger;
@@ -442,7 +442,19 @@ export function renderPop(FS, model) {
 }
 
 /** Local preparatory card. Its controls have no order form or executable action. */
-function outboundRouteReport(check) {
+/**
+ * The earliest observed arrival turn, offered beside the range it comes from (`pick`: fexpedition-compose.mjs
+ * outboundArrivalCandidate, only while the observation is still this draft's; `entered`: the draft's own field).
+ * A press fills the field and reads the observation again; the field in 詳細 stays for any other turn.
+ */
+function outboundArrivalPick(pick, entered) {
+  if (!pick) return '';
+  if (entered === pick.arriveBell) return html`<p class="pop-line outbound-arrival-set">${L`到着ターンの候補はターン ${pick.arriveBell}（観測した範囲で最も早い候補）です。詳細で変更できます。`}</p>`;
+  return html`<div class="pop-foot outbound-arrival-pick"><button type="button" class="btn small" data-act="outbound-arrival-earliest">${L`最も早い候補（ターン ${pick.arriveBell}）を使う`}</button>
+    <span>${entered ? L`いまの候補：ターン ${entered}` : L`到着ターンの候補は未入力です`}</span></div>`;
+}
+
+function outboundRouteReport(check, pick = null, entered = '') {
   if (!check) return '';
   if (check.status === 'loading') return html`<p class="pop-line" role="status">${L`道の州の記録を読み込んでいます…`}</p>`;
   if (check.status === 'error') return html`<p class="pop-line pop-why" role="status">${L`道の記録を読めませんでした。もう一度確認してください。`} (${check.code})</p>`;
@@ -457,11 +469,12 @@ function outboundRouteReport(check) {
     ${r.travelSecs !== null ? html`<p class="pop-line">${L`記録上の移動時間 ${r.travelSecs} 秒・塔の消耗 ${r.wearBps} bps`}</p>` : ''}
     ${r.min !== null && r.max !== null && r.min <= r.max ? html`<p class="pop-line">${L`到着候補：ターン ${r.min}〜${r.max}`}</p>` : ''}
     ${why ? html`<p class="pop-line pop-why">${why}${r.stepIndex !== null ? ` (${r.stepIndex + 1})` : ''}</p>` : ''}
+    ${outboundArrivalPick(pick, entered)}
     <p class="pop-line">${L`取得した記録と推定出発時刻での計算です。現在の通行・到着や出発の成功は未確認です。`}</p>
   </div>`;
 }
 
-function outboundContextReport(check) {
+function outboundContextReport(check, pick = null, entered = '') {
   if (!check) return '';
   if (check.status === 'loading') return html`<p class="pop-line" role="status">${L`軍勢・村・地形・時刻をまとめて読み込んでいます…`}</p>`;
   if (check.status === 'error') return html`<p class="pop-line pop-why" role="status">${check.code === 'ExpeditionPreviewDisabled'
@@ -471,7 +484,7 @@ function outboundContextReport(check) {
     <p class="pop-line${check.ready.ok ? '' : ' pop-why'}">${check.ready.ok
       ? L`この読取時点では、軍勢と村の出発条件を満たしています。`
       : L`この読取時点では、軍勢と村の出発条件を満たしていません。`}${check.ready.ok ? '' : ` (${check.ready.code})`}</p>
-    ${outboundRouteReport(check)}
+    ${outboundRouteReport(check, pick, entered)}
     <p class="pop-line pop-why">${L`出発の送信はまだ利用できません。`}</p>
   </div>`;
 }
@@ -481,6 +494,10 @@ function outboundPop(FS, model) {
   let choices = { stances: [], retreat: [], tips: [] };
   try { choices = composerChoices(FS); } catch { /* A missing season is explained by the source blocker. */ }
   const endpoint = s.trace?.endpoint;
+  // (offered only from an observation that is still of this host, these steps, this source and connection)
+  let pick = null;
+  try { pick = outboundArrivalCandidate(FS); } catch { /* none to offer: the report's own words say why */ }
+  const entered = typeof s.arriveBell === 'string' ? s.arriveBell : '';
   const points = outboundSketch(directions).map(p => ({ x: p.q + p.r / 2, y: p.r * Math.sqrt(3) / 2 }));
   const xs = points.map(p => p.x), ys = points.map(p => p.y);
   const left = Math.min(...xs) - 1, top = Math.min(...ys) - 1, width = Math.max(...xs) - left + 1, height = Math.max(...ys) - top + 1;
@@ -499,8 +516,8 @@ function outboundPop(FS, model) {
     ${endpoint ? html`<p class="pop-line">${L`道から決まる終点`}: ${endpoint.p},${endpoint.q} · ${L`マス`} ${endpoint.tile}</p>` : ''}
     <div class="pop-foot"><button type="button" class="btn small" data-act="outbound-route-read" ${raw(!source || !directions.length || s.routeCheck?.status === 'loading' ? 'aria-disabled="true"' : '')}>${L`地形・時間を確認`}</button>
       <button type="button" class="btn small" data-act="outbound-context-read" ${raw(!source || !directions.length || s.contextCheck?.status === 'loading' ? 'aria-disabled="true"' : '')}>${L`出発条件を確認`}</button></div>
-    ${outboundRouteReport(s.routeCheck)}
-    ${outboundContextReport(s.contextCheck)}
+    ${outboundRouteReport(s.routeCheck, pick?.from === 'route' ? pick : null, entered)}
+    ${outboundContextReport(s.contextCheck, pick?.from === 'context' ? pick : null, entered)}
     <details data-fold="outbound-details"><summary>${L`詳細`}</summary>
     <p class="pop-line">${L`記録上の地形と推定時刻から道を準備します。現在の通行条件と出発の成功は未確認です。`}</p>
     <p class="pop-line">${L`選択した軍勢`}: ${model.host.id}</p>
@@ -556,8 +573,36 @@ function expeditionPop(FS, model) {
           <p class="pop-line pop-why">${L`帰還の送信はまだ利用できません。予備兵への加算も行っていません。`}</p>
         </section>` : ''}
         ${returning?.proposal ? html`<details><summary>${L`実行できない役割案`}: ${returning.proposal.action}</summary><ul>${returning.proposal.roles.map(r => html`<li>${r.name}: ${r.address} · ${r.signer ? L`署名が必要` : L`署名不要`} · ${r.writable ? L`書き込み役割` : L`読み取り役割`}</li>`)}</ul></details>` : ''}
+        ${returning?.proposal && state.request.deployment.program_version === '18436' ? html`<section class="expedition-preparation" data-preparation-status="${state.preparation?.status ?? 'idle'}" aria-label="${L`署名前の準備確認`}">
+          <p class="pop-line"><strong>${L`実験用の準備確認`}</strong></p>
+          <p class="pop-line">${L`署名前の内容を取り直して確認します。署名・支払い・送信は行いません。`}</p>
+          <button type="button" class="btn" data-act="expedition-prepare" ${raw(state.preparation?.status === 'loading' ? 'aria-disabled="true"' : '')}>${L`署名前の準備内容を確認`}</button>
+          ${state.preparation?.status === 'loading' ? html`<p class="pop-line">${L`読み取り中…`}</p>` : ''}
+          ${state.preparation?.error ? html`<p class="pop-line pop-why">${L`準備内容を確認できません`}: ${state.preparation.error}</p>` : ''}
+          ${state.preparation?.report?.blocker ? html`<p class="pop-line pop-why">${L`準備内容を確認できません`}: ${state.preparation.report.blocker.code}</p>` : ''}
+          ${state.preparation?.report?.prepared ? preparationDetails(state.preparation.report) : ''}
+        </section>` : ''}
         ${report.draft_blocker ? html`<p class="pop-line">${report.draft_blocker}</p>` : ''}` : ''}</div>
     <p class="pop-line pop-rule">${L`公開の実行経路は閉じたままです。帰還済みとは判定せず、地図や行軍記録も変更しません。`}</p>`;
+}
+
+/** Public bytes only, deliberately no acceptance or wallet/send control. */
+function preparationDetails(report) {
+  const p = report.prepared, b = report.blockhash;
+  return html`<p class="pop-line"><strong>${L`署名前の内容を照合しました`}</strong></p>
+    <p class="pop-line pop-why">${L`実験用の未署名データです。実行できることや帰還の完了を確認した結果ではありません。`}</p>
+    <p class="pop-line">${L`今回の記録のスロット`}: ${report.source.context_slot} · ${L`有効期限の観測時点で残るブロック高`}: ${b.remaining_block_heights}</p>
+    <p class="pop-line">${L`有効期限は時間とともに変わります。必要なときに取り直してください。`}</p>
+    <details><summary>${L`準備内容の詳細`}</summary>
+      <p class="pop-line">${p.action} · ${p.shape.bytes} bytes · ${p.shape.locks} accounts · ${p.shape.sigs} signers</p>
+      <p class="pop-line">CU: ${p.budget.cu_limit} · CU price: ${p.budget.cu_price} · loaded bytes: ${p.budget.loaded_limit}</p>
+      <p class="pop-line" style="overflow-wrap:anywhere">Fee payer: ${p.fee_payer}</p>
+      <p class="pop-line" style="overflow-wrap:anywhere">Blockhash: ${b.hash}</p>
+      <p class="pop-line" style="overflow-wrap:anywhere">Selected snapshot: ${report.request.source_snapshot_digest}</p>
+      <p class="pop-line" style="overflow-wrap:anywhere">Fresh snapshot: ${report.source.digest}</p>
+      <p class="pop-line" style="overflow-wrap:anywhere">Message SHA-256: ${p.message_digest}</p>
+      <ul>${p.roles.map(r => html`<li style="overflow-wrap:anywhere">${r.name}: ${r.address} · ${r.signer ? L`署名が必要` : L`署名不要`} · ${r.writable ? L`書き込み役割` : L`読み取り役割`}</li>`)}</ul>
+    </details>`;
 }
 
 /** The tiles a new host may form up on: every passable tile of the village's own province with room for a host (six to a tile). */

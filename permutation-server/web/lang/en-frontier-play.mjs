@@ -440,6 +440,7 @@ export default {
   '村 {0}': n => plural(n, '{0} village update', '{0} village updates'),
   'ターン {0} のまとめ：{1}': 'Turn {0} in brief: {1}',
   'ターン {0}': 'Turn {0}',
+  '最初のターンの前': 'Before the first turn',
   '新しいターン': 'A new turn',
   '戦闘': 'Clash', '来襲': 'Attack', '建設': 'Building', 'まとめ': 'Summary',
   '州 {0},{1} の砦を {2} が {3} から奪った（第{4}ターン）': '{2} took the keep of province {0},{1} from {3} (turn {4})',
@@ -517,6 +518,7 @@ export default {
   '{0}の土地': 'Lands of {0}',
   '{0}（州 {1},{2}）': '{0} (province {1},{2})',
   '見つかりません': 'Nothing found',
+  '州の座標（例：4,0）、国の名前、領主の名前で探せます': 'Search by a province\'s coordinates (for example 4,0), a nation\'s name or a lord\'s name',
   // ---- the clash report's headline and tiles (screens/report.mjs, UI plan D1–D3)
   '{0}が戦場に残った': '{0} held the field',
   '{0}つの国がぶつかった': '{0} nations clashed',

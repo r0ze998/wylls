@@ -21,7 +21,7 @@ import { FS, invalidate, registerRenderers } from './fstate.mjs';
 import { clearWideSelect, selectedWide } from './fwide.mjs';
 import { EXPEDITION_POP, clearInspection } from './fexpedition.mjs';
 import { OUTBOUND_POP, clearOutbound } from './fexpedition-compose.mjs';
-import { inspectOriginalExpedition, reconcileExpedition, openOriginalOutbound, editOriginalOutbound, tapOriginalOutbound, originalOutboundMap, inspectOriginalOutboundRoute, inspectOriginalOutboundContext } from './controller.mjs';
+import { inspectOriginalExpedition, prepareOriginalExpedition, reconcileExpedition, openOriginalOutbound, editOriginalOutbound, tapOriginalOutbound, originalOutboundMap, inspectOriginalOutboundRoute, inspectOriginalOutboundContext, useEarliestOriginalOutboundArrival } from './controller.mjs';
 import { createHerald, nextPoll, staleness } from './herald.mjs';
 import { setTermsPace } from './seasonterms.mjs';
 import { setPin, setRelay } from './fchainio.mjs';
@@ -266,15 +266,25 @@ function renderSampleTag() {
   if (el.title !== long) { el.title = long; el.setAttribute('aria-label', long); }
 }
 
+/**
+ * The page banner's words for an error (display only; exported for the tests). A read that failed by its HTTP status
+ * has no text of its own, and the banner read 「不明なエラー（HTTP503）」: nothing a reader can use. Before any season
+ * is read it is the season's record that could not be read: said so, with the code. Every other error keeps its text.
+ */
+export function bannerText(error, haveSeason = false) {
+  return !haveSeason && /^HTTP\d{3}$/.test(String(error?.code ?? '')) ? L`${clientText('WorldUnavailable')}（${error.code}）` : error?.text ?? '';
+}
+
 function renderStatus() {
   renderSampleTag();
   renderProto();
   const s = FS.season;
-  const status = s ? SEASON_STATUS_TEXT[effectiveStatus(s, FS.chain?.now() ?? 0)] : L`読み込み中…`;
+  // (the season could not be read: the word is not 「読み込み中…」 for good — the banner below says what happened)
+  const status = s ? SEASON_STATUS_TEXT[effectiveStatus(s, FS.chain?.now() ?? 0)] : FS.error ? '' : L`読み込み中…`;
   // the beacon's kind is a detail: "More → details" names it (detailsMarkup)
   setText('season-status', status);
   const err = $('error-line');
-  if (err) { err.hidden = !FS.error; err.textContent = FS.error ? FS.error.text : ''; }
+  if (err) { err.hidden = !FS.error; err.textContent = FS.error ? bannerText(FS.error, !!s) : ''; }
 }
 
 /** Whether a host or holding id is the viewer's (its province, site and generation are one of the viewer's holdings). */
@@ -522,6 +532,30 @@ function applyDrawer(d) {
 }
 
 let lastPanelView = null;
+/** The selection whose card headed the drawer at its last render (`drawerHeadFor`); null when none did. */
+let lastHeadSelection = null;
+/**
+ * Where the reader's last press or key began: inside the drawer's sheet (a key of the chronicle, a fold, a field) or
+ * anywhere else (the map, the dock, a list of the HUD). Read in the capture phase and only read: no press is changed.
+ */
+let inputInDrawer = false;
+for (const ev of ['pointerdown', 'keydown']) globalThis.document?.addEventListener?.(ev, e => { inputInDrawer = !!e.target?.closest?.('#panel-body'); }, true);
+/**
+ * Whether the drawer starts at its head again for this render (pure; exported for the tests): `{selection, toHead}`.
+ * The selection's card heads the drawer on the spectator's panel and in the play page's inspector (`modePanel`,
+ * `panelMarkup`). The same view keeps its scroll through a re-render (`keepState`), so a place chosen on the map
+ * while the drawer stood scrolled left its new card above the fold: nothing on screen answered the press.
+ * `selected` is the store's selection now, `shown` the one whose card headed the drawer at its last render. Every
+ * choice is a new object (a press on the map, the same tile pressed again too; a row that goes to a place), so a
+ * selection that is not the one shown is a new choice, and the drawer starts at its head. Not when the choice was
+ * made from inside the drawer (`fromDrawer`: 「見る」 on a line of the chronicle moves the map; the reader keeps the
+ * line, and the key keeps the keyboard's focus in sight). A re-render with the selection it already shows, or with
+ * none, leaves the reader's place alone. Scroll only: nothing of the game is read or set here.
+ */
+export function drawerHeadFor(d, selected, shown, fromDrawer = false) {
+  const selection = d && (d.kind === 'spectate' || d.kind === 'inspect') ? selected ?? null : null;
+  return { selection, toHead: selection !== null && selection !== shown && !fromDrawer };
+}
 /** Write the drawer: its state, title and body (the same view keeps its scroll and typed values). */
 function renderDrawer(markupOf) {
   const d = drawerOf(FS);
@@ -530,6 +564,8 @@ function renderDrawer(markupOf) {
   const view = `${d?.kind ?? ''}|${FS.mode}`;
   const same = view === lastPanelView;
   lastPanelView = view;
+  const head = drawerHeadFor(d, FS.selected, lastHeadSelection, inputInDrawer);
+  lastHeadSelection = head.selection;
   clearTimeout(drawerClear); drawerClear = null;
   if (body) {
     const scroller = phone() ? $('panel') : body;
@@ -538,6 +574,9 @@ function renderDrawer(markupOf) {
     else if (calm()) setHtml(body, '');
     else drawerClear = setTimeout(() => { if (!drawerOf(FS)) { setHtml(body, ''); setText('panel-title', drawerTitle(null)); } }, 200);
     if (!same && scroller) scroller.scrollTop = 0;
+    // (a new choice's card heads this view: the scroll's owner — the sheet itself on a phone, the paper under the bar on a
+    // desktop — starts at its head, at once and without a glide: a later re-render must never find it half-way)
+    if (head.toHead && scroller && scroller.scrollTop !== 0) scroller.scrollTop = 0;
   }
   // (a part of the drawer that scrolls above a foot rests on a whole row: after this picture is laid out)
   settleSoon();
@@ -557,7 +596,9 @@ function renderPlay() {
   focusHome();
   const tabs = $('tabs');
   // what the map itself opens (a selection, an order, the guide, the join flow) leaves "Map" current; a report or a run, none
-  if (tabs) setHtml(tabs, renderTabs(FS, !d || ['inspect', 'march', 'guide', 'join', 'nation', 'wait'].includes(d.kind) ? 'map' : d.kind));
+  // (the dock's keys are written anew at every render: Enter on one left the keyboard on nothing. The key in focus is
+  // found again by what it does, as the bar's keys are — keepState)
+  if (tabs) keepState(tabs, () => setHtml(tabs, renderTabs(FS, !d || ['inspect', 'march', 'guide', 'join', 'nation', 'wait'].includes(d.kind) ? 'map' : d.kind)));
   renderRail();
   renderHand();
   renderMinimap();
@@ -722,7 +763,19 @@ function renderTermPop() {
   el.setAttribute('aria-label', glossary.TERMS[FS.term]?.name() ?? '');
   setHtmlIfChanged(el, glossary.renderTerm(FS.term));
 }
-function closeTermPop() { if (FS.term) { FS.term = null; renderTermPop(); } }
+/** The 「？」 that opened the term's popover (its term and its place among the keys of that term), while it is open. */
+let termFrom = null;
+/**
+ * Close the term's popover. `focus`: the keyboard goes back to the key that opened it (Escape, the popover's own
+ * close key) — it was left on nothing, and the next Tab began at the top of the page. The key is found again by its
+ * term and its place: the drawer it stands in may have been written anew since.
+ */
+function closeTermPop({ focus = false } = {}) {
+  if (!FS.term) return;
+  FS.term = null; renderTermPop();
+  const from = termFrom; termFrom = null;
+  if (focus && from) [...(globalThis.document?.querySelectorAll?.(`[data-act="term"][data-term="${String(from.term).replace(/[^\w-]/g, '')}"]`) ?? [])][from.nth]?.focus?.({ preventScroll: true });
+}
 /** The dial's card (hud/dialcard.mjs): the turn, the time to the next bell, what that bell brings; under the dial. */
 function renderDialPop(now = FS.chain?.now?.() ?? null) {
   let el = $('dial-pop');
@@ -3025,11 +3078,14 @@ function shutDrawer({ focus = false } = {}) {
 export const HUD_ACTIONS = {
   // A read only. No handOrder, ACTIONS, SENT classification or accepted-order effects.
   'expedition-inspect': () => inspectOriginalExpedition(),
+  'expedition-prepare': () => prepareOriginalExpedition(),
   'outbound-step': d => editOriginalOutbound('step', d.direction),
   'outbound-undo': () => editOriginalOutbound('undo'),
   'outbound-reset': () => editOriginalOutbound('reset'),
   'outbound-route-read': () => inspectOriginalOutboundRoute(),
   'outbound-context-read': () => inspectOriginalOutboundContext(),
+  // The earliest observed arrival turn into the draft's own field, then the same read again. A local edit and a read.
+  'outbound-arrival-earliest': () => useEarliestOriginalOutboundArrival(),
   // Resolve the current inventory at click time. DOM coordinates/world are never navigation pins.
   'wide-map': () => {
     const e = FS.mode === 'play' ? selectedWide(FS) : null;
@@ -3196,6 +3252,9 @@ export const HUD_ACTIONS = {
     const x = searchHits[num(d.i)];
     if (!x) return;
     setSearch(false, { focus: false });
+    // (the field the keyboard was in is put away: the keyboard goes to the map, where the place found now is — it was
+    // left on nothing. A card or an order opened below may still take it.)
+    $('frontier-map')?.focus?.({ preventScroll: true });
     // a host that can march has the hand: what was searched for is where it may go (the camera goes there, the host stays in hand)
     const sub = FS.mode === 'play' && !FS.compose ? hand.subjectOf(FS) : null;
     if (sub?.kind === 'host' && FS.hand?.pop !== OUTBOUND_POP && FS.hand?.pop !== EXPEDITION_POP && hand.marchCheck(FS, sub.host).ok) {
@@ -3311,8 +3370,14 @@ export const HUD_ACTIONS = {
   'dial-close': () => closeDialPop({ focus: true }),
   // the plate's one key while the viewer's record cannot be read (hud/hud.mjs renderPlate): the page again, from the start
   reload: () => globalThis.location?.reload?.(),
-  term: d => { FS.term = FS.term === d.term || !glossary.TERMS[d.term] ? null : d.term; renderTermPop(); $('term-pop')?.querySelector('button')?.focus?.(); },
-  'term-close': () => closeTermPop(),
+  term: d => {
+    // (the key the keyboard is on when the popover opens: where it goes back to — closeTermPop)
+    const a = globalThis.document?.activeElement, opener = a?.matches?.('[data-act="term"]') && a.dataset.term === d.term ? a : null;
+    FS.term = FS.term === d.term || !glossary.TERMS[d.term] ? null : d.term; renderTermPop();
+    termFrom = FS.term && opener ? { term: d.term, nth: Math.max(0, [...globalThis.document.querySelectorAll(`[data-act="term"][data-term="${String(d.term).replace(/[^\w-]/g, '')}"]`)].indexOf(opener)) } : null;
+    $('term-pop')?.querySelector('button')?.focus?.();
+  },
+  'term-close': () => closeTermPop({ focus: true }),
   // the legend of the map (map/legend.mjs), from the "?" beside the lenses: the More sheet opens on it
   'legend-open': () => { closeTermPop(); setLensMenu(false); leaveReport(); if (FS.mode === 'play') { FS.tab = 'more'; FS.practice = null; } invalidate('panel', 'tabs'); requestAnimationFrame(() => { const g = $('survey-help'); for (let d = g?.closest?.('details'); d; d = d.parentElement?.closest?.('details')) d.open = true; g?.scrollIntoView?.({ block: 'start' }); g?.querySelector?.('h3')?.focus?.({ preventScroll: true }); }); },
   'glossary-open': () => { closeTermPop(); leaveReport(); if (FS.mode === 'play') FS.tab = 'more'; invalidate('panel', 'tabs'); requestAnimationFrame(() => { const g = $('glossary'); const d = g?.closest?.('details'); if (d) d.open = true; (d ?? g)?.scrollIntoView?.({ block: 'start' }); }); },
@@ -3566,7 +3631,7 @@ function delegate(doc) {
     if (intro && !intro.hidden && (e.key === 'Escape' || e.key === 'Enter')) { e.preventDefault(); closeIntro(); return; }
     if (e.key === 'Escape' && FS.resOpen) { e.preventDefault(); closeResPop(); return; }
     if (e.key === 'Escape' && FS.dialOpen) { e.preventDefault(); closeDialPop({ focus: true }); return; }
-    if (e.key === 'Escape' && FS.term) { e.preventDefault(); closeTermPop(); return; }
+    if (e.key === 'Escape' && FS.term) { e.preventDefault(); closeTermPop({ focus: true }); return; }
     if (e.key === 'Escape' && $('map-search') && !$('map-search').hidden && e.target?.closest?.('.search-row')) { e.preventDefault(); setSearch(false); return; }
     // Escape on the map lets the selection go (the lit tiles with it); a march being composed is closed from its card
     if (e.key === 'Escape' && e.target?.id === 'frontier-map' && FS.selected && !FS.compose) {
@@ -3599,8 +3664,8 @@ function delegate(doc) {
     if (el.tagName !== 'INPUT') e.preventDefault();
     // a control that cannot be pressed now stays reachable and says why (`aria-disabled`): it does nothing else
     if (el.getAttribute('aria-disabled') === 'true') { refuseInPlace(el); return; }
-    if (FS.hand?.pop === EXPEDITION_POP && el.dataset.act !== 'expedition-inspect') clearInspection(FS);
-    if (FS.hand?.pop === OUTBOUND_POP && !['outbound-step', 'outbound-undo', 'outbound-reset', 'outbound-route-read', 'outbound-context-read'].includes(el.dataset.act)) clearOutbound(FS);
+    if (FS.hand?.pop === EXPEDITION_POP && !['expedition-inspect', 'expedition-prepare'].includes(el.dataset.act)) clearInspection(FS);
+    if (FS.hand?.pop === OUTBOUND_POP && !['outbound-step', 'outbound-undo', 'outbound-reset', 'outbound-route-read', 'outbound-context-read', 'outbound-arrival-earliest'].includes(el.dataset.act)) clearOutbound(FS);
     const sends = play && SENDS.has(el.dataset.act) && ACTIONS[el.dataset.act];
     if (sends) FS.lastAct = { kind: 'act', name: el.dataset.act, data: { ...el.dataset } };
     run(fn(el.dataset, el), sends ? { act: el.dataset.act, data: { ...el.dataset } } : null);
