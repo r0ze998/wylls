@@ -167,6 +167,27 @@ for (const [lang, said] of [['en', /still resolving the last turn/], ['ja', /こ
     });
     assert.equal(after.compose, false, 'no order drafted');
     assert.match(String(after.note), said, `the reason is said on the map: ${after.note}`);
+    // round 37: the host's own tag already says this reason under the host: the map says it ONCE (that tag, shaking), not
+    // a second tag at the tapped tile. Read from the canvas: every drawn text of the reason, grouped by animation frame;
+    // in no frame is it drawn at two places (the old code drew two tags in every frame while the note showed)
+    const drawn = await page.evaluate(async src => {
+      const re = new RegExp(src), rows = [];
+      let frame = 0, on = true;
+      const tick = () => { frame += 1; if (on) requestAnimationFrame(tick); };
+      requestAnimationFrame(tick);
+      const protos = [globalThis.CanvasRenderingContext2D?.prototype, globalThis.OffscreenCanvasRenderingContext2D?.prototype].filter(Boolean);
+      const kept = protos.map(P => P.fillText);
+      protos.forEach((P, i) => { P.fillText = function (t, x, y, ...r) { if (re.test(String(t))) rows.push({ frame, y: Math.round(y) }); return kept[i].call(this, t, x, y, ...r); }; });
+      const { invalidate } = await import('/frontier/fstate.mjs');
+      invalidate('map');
+      await new Promise(r => setTimeout(r, 450));
+      on = false; protos.forEach((P, i) => { P.fillText = kept[i]; });
+      const per = new Map();
+      for (const r of rows) { if (!per.has(r.frame)) per.set(r.frame, new Set()); per.get(r.frame).add(r.y); }
+      return { calls: rows.length, frames: per.size, most: Math.max(0, ...[...per.values()].map(x => x.size)) };
+    }, said.source);
+    assert.ok(drawn.calls > 0, `the reason is drawn on the map (${JSON.stringify(drawn)})`);
+    assert.equal(drawn.most, 1, `the reason is drawn at one place in each frame, not two (${JSON.stringify(drawn)})`);
     if (process.env.SHOT_DIR) await page.screenshot({ path: `${process.env.SHOT_DIR}/maptap-note-${lang}.png` });
     assert.equal(after.hand, host, 'the host stays in hand');
     // (the only request: the page's own catch-up request for a lagging province, made by an ordinary session whenever it

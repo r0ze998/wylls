@@ -3159,6 +3159,18 @@ export class FrontierMap {
     return { ...r, kind: F.hoverLit?.kind ?? 'move' };
   }
 
+  /**
+   * The tap's refusal when it says exactly what the selected host's own tag says (blockText: "This province is still
+   * resolving the last turn", its stamina, its rest): `{hex, text, age}` or null. Then the words are said once, on the
+   * host's tag, which shakes; the tapped tile still shows its refusal mark (paintRefusal).
+   */
+  hostEcho(F) {
+    const A = F.A, n = this.noteOf(F);
+    if (!n || !A || A.mode !== 'select' || !A.hex || !A.actor) return null;
+    const why = blockText(A.actor);
+    return why && why === n.text ? n : null;
+  }
+
   /** The map's own answer to a tap (a refusal), while it shows: `{hex, text, age}` or null. */
   noteOf(F) {
     const n = F.src.note;
@@ -3295,7 +3307,10 @@ export class FrontierMap {
       const c = project(A.hex.q, A.hex.r), y = c.y + RADIUS * FLATTEN * 1.04;
       const box = paintTag(ctx, c.x, y, `${actorText(A.actor)}${A.actors.length > 1 ? ` \u00b7 ${A.index + 1}/${A.actors.length}` : ''}`, { zoom: z, tone: 'you', place: 'below', gap: 3, anchor: c, pass });
       const why = blockText(A.actor);
-      if (why && box) paintTag(ctx, c.x, box.y + box.h, why, { zoom: z, tone: 'warn', place: 'below', gap: 3, size: 12, anchor: c, pass });
+      // (round 37: a tap the host cannot act on now answers with this same reason — app.mjs mapTap —: the words stay here,
+      // once, and this tag shakes as the refusal does; the tapped tile keeps its own mark: hostEcho, and the note below)
+      const echo = this.hostEcho(F), shake = echo && !F.still ? Math.sin(echo.age / 28) * 5 * Math.exp(-echo.age / 150) : 0;
+      if (why && box) { paintTag(ctx, c.x, box.y + box.h, why, { zoom: z, tone: 'warn', place: 'below', gap: 3, size: 12, shake, anchor: c, pass }); F.whySaid = why; }
       // what the pale line is, said beside it for the first seconds of a selection: the near reach, and that a march may go further
       const age = F.fx - A.t0, near = reachSteps(A.actor.stamina), top = A.actor.march?.ok && reachSteps(A.actor.stamina, 99) > near ? reachTop(A) : null;
       if (top && (F.still || age < REACH_WORDS_MS)) paintTag(ctx, top.x, top.y, reachText(near), { zoom: z, tone: 'reach', place: 'above', gap: 7, size: 12, alpha: F.still ? 1 : Math.max(0, Math.min(1, (REACH_WORDS_MS - age) / 500)), anchor: top, pass, spare: true });
@@ -3308,7 +3323,8 @@ export class FrontierMap {
     if (hr && Number.isInteger(hr.arriveBell)) tagAt(hr.hexes[hr.hexes.length - 1], hr.arriveBell, 'plain');
     else if (src.route?.dest && Number.isInteger(src.route.arriveBell)) tagAt(src.route.dest, src.route.arriveBell, 'you');
     const note = this.noteOf(F);
-    if (note?.hex) {
+    // (the same words as the selected host's own tag, drawn in this frame, are said there, not twice: hostEcho)
+    if (note?.hex && !(F.whySaid && F.whySaid === note.text)) {
       const d = project(note.hex.q, note.hex.r), fade = Math.max(0, Math.min(1, (NOTE_MS - note.age) / 400));
       const shake = F.still ? 0 : Math.sin(note.age / 28) * 5 * Math.exp(-note.age / 150);
       paintTag(ctx, d.x, d.y - RADIUS * FLATTEN * 0.82, note.text, { zoom: z, tone: 'refuse', place: 'above', gap: 4, shake, alpha: fade, anchor: d, pass });
