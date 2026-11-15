@@ -2235,5 +2235,10 @@
       }
     }
   ],
-  "not_migrated": "Local recording MP4s; conquest evidence JSON reports; before-files.tar; dependency symlinks; ignored build outputs, .local runtime data and settings; external /tmp scratch data. These remain intact on original Mac."
+  "not_migrated": "Dependencies, build caches, ignored local runtime state/settings and unregistered external scratch. Originals remain on the Mac. No credentials uploaded.",
+  "additional_assets": {
+    "branch": "migration/20261115-assets",
+    "commit": "a1484eb03391c59e0f6806abc78dae1029e5cade",
+    "content": "2 concept trailer MP4s, 6 test JSONs (one local-path redacted), 16 source files and metadata-free portable tar"
+  }
 }
