@@ -57,11 +57,25 @@ test('a record of another province, or an invalid nextBell: the answer', () => {
   }
 });
 
-test('one side without a record (absent or null): the answer, as before (G1b is not decided here)', () => {
+// (2026-11-16, G1b one-sided, claude/g1b-land-presence-20261116 — SOURCE ONLY, NOT run) within one season a land
+// record does not disappear once it exists (no program path closes it; the herald drops a capture only for an absent
+// account), so under the same real tie and identity a held record beats an answer without one.
+test('a real tie, the held record against an answer without one (absent, or null: version 0 or refused bytes): the held land kept, the rest the answer\'s', () => {
   const held = env({ land: land(41) });
-  const absent = env(); assert.equal(latest(held, absent), absent);
-  const nulled = env({ land: null }); assert.equal(latest(held, nulled), nulled);
+  const absent = env({ slots: [{ key: 'ar:2,0,20,1,1' }] }), r1 = latest(held, absent);
+  assert.equal(r1.land, held.land); assert.equal(r1.slots, absent.slots);
+  const nulled = env({ land: null }); assert.equal(latest(held, nulled).land, held.land);
+});
+test('the answer has the record and the held one does not: the answer (first appearance), as before', () => {
   assert.equal(latest(env(), env({ land: land(40) })).land.nextBell, 40);
+  assert.equal(latest(env({ land: null }), env({ land: land(40) })).land.nextBell, 40);
+});
+test('one-sided, but not a real tie, or another season / province, or the held record invalid: the answer, as before', () => {
+  const held = env({ land: land(41) });
+  const newer = env({ seq: '901' }); assert.equal(latest(held, newer), newer, 'a newer Province without land is authoritative here (G1b server contract)');
+  const otherSeason = env({ province: province({ seasonId: 6n }) }); assert.equal(latest(held, otherSeason), otherSeason);
+  const noTie = env({ seq: '' }); assert.equal(latest(env({ seq: '', land: land(41) }), noTie), noTie);
+  for (const bad of [land(41, { q: 1 }), land(-1), land(2 ** 32)]) { const h = env({ land: bad }), a = env(); assert.equal(latest(h, a), a); }
 });
 
 test('not a tie: as before (a newer seq is the answer; an older seq keeps the held envelope whole)', () => {

@@ -773,6 +773,13 @@ export function latestEnvelope(previous, next) {
     const sameProvince = !!pa && !!pb && Number.isInteger(pa.p) && Number.isInteger(pa.q) && pa.p === pb.p && pa.q === pb.q && typeof pa.seasonId === 'bigint' && pa.seasonId === pb.seasonId;
     const ofIt = l => !!l && l.p === pa?.p && l.q === pa?.q && Number.isInteger(l.nextBell) && l.nextBell >= 0 && l.nextBell <= 0xFFFFFFFF;   // (parseLand: getUint32)
     if (sameProvince && ofIt(la) && ofIt(lb) && la.nextBell > lb.nextBell) return { ...next, land: la };
+    // (2026-11-16, G1b, one side only, under the same real tie and identity) Within one season a land record does not
+    // disappear once it exists: no program path closes or reallocates it (proc/season.rs CloseSeason's parts are join
+    // shards, funds, ring seeds, archives, defence claims), it only moves forward (version 0 → folded; nextBell + 1),
+    // and the herald drops its capture only for an account absent after a transaction (fold.rs capture_land_post). So
+    // a valid record held, against an answer with no record (absent) or none it could read (null: version 0, or
+    // bytes refused), is the newer land: kept. Not a tie, or another season or province: as before.
+    if (sameProvince && ofIt(la) && (lb === undefined || lb === null)) return { ...next, land: la };
   }
   return next;
 }
