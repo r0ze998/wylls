@@ -1485,6 +1485,12 @@ function handHost(id) {
   endPick();
   FS.hand = { host: id ?? null, pop: null };
   FS.explore = null; FS.mapNote = null; FS.actor = null;
+  // (2026-11-16: the bar draws the card of the subject's OWN village — hud/hand.mjs villageModel/hostModel — while the
+  //  village orders act on the open one — controller.mjs activeHolding(FS). A chip or a second tap on a tile where hosts
+  //  of two villages stand left the other village open: the 「村」 chip then showed village B's card and its 建設 / 訓練 /
+  //  編成 / 収穫 were ordered for village A. The subject's village is opened, as selectHost does.)
+  const sub = hand.subjectOf(FS);
+  if (sub && Number.isInteger(sub.holdingIndex) && sub.holdingIndex >= 0 && sub.holdingIndex !== (FS.activeHolding ?? 0)) { FS.activeHolding = sub.holdingIndex; invalidate('rail'); }
   invalidate('map', 'panel', 'tabs');
 }
 /** Select one of the viewer's hosts wherever it stands: its tile is the selection and it has the hand. `fly`: bring it into view. */

@@ -92,7 +92,9 @@ test('the source: dissolve switches before its order; the bar\'s other entries a
   const hr = slice("  'hand-return': async d => {", 600);
   assert.ok(hr.indexOf('FS.activeHolding = sub.holdingIndex') < hr.indexOf("ACTIONS['march-home']"), '「村へ戻す」: switch, then the return');
   assert.match(slice("  'hand-host': d =>", 80), /handHost\(d\.host \|\| null\)/);
-  assert.doesNotMatch(slice('function handHost(id) {', 300), /activeHolding/, 'a chip does not switch the village (why dissolve must)');
+  // (2026-11-16, claude/village-card-target-20261116: a chip now opens the subject's village too — handHost; dissolve's own
+  //  switch stays for the plain tap on a host's tile, which does not go through handHost)
+  assert.match(slice('function handHost(id) {', 1200), /const sub = hand\.subjectOf\(FS\);\n\s+if \(sub && Number\.isInteger\(sub\.holdingIndex\) && sub\.holdingIndex >= 0 && sub\.holdingIndex !== \(FS\.activeHolding \?\? 0\)\) \{ FS\.activeHolding = sub\.holdingIndex; invalidate\('rail'\); \}/);
   assert.match(a, /dissolve: d => handOrder\(\(\) => ACTIONS\.dissolve\(d\)\),/);
   assert.match(readFileSync(new URL('../../permutation-server/web/frontier/hud/hand.mjs', import.meta.url), 'utf8'), /data-act="dissolve" data-host="\$\{r\.id\}"/);
 });
