@@ -124,7 +124,8 @@ The coordinator's static review before any run found that `jointPrecisionText` (
 - k is accepted only when the element is an object and `underBy` is a safe non-negative integer.
 - A positive k gives "k 未満多いことがある", the same sentence as before.
 - An explicit 0 gives "ちょうど 0".
-- Anything else, including a `null` or wrongly shaped element, a missing count or a missing `ja`, gives "…は数えた到着の件数が示されていないので、精度が分からない". It is never 0 and never "未満".
+- Anything else, including a `null` or wrongly shaped element or a missing count, gives "…は数えた到着の件数が示されていないので、精度が分からない". It is never 0 and never "未満".
+- **Corrected (2026-11-17):** an earlier version of the line above also listed "a missing `ja`". That was wrong. A missing `ja` only makes the name fall back to the resource key (`ja?.[r] ?? r`). The classification by k is unchanged, so `[{resource: 'wood', underBy: 0}]` without `ja` reads "woodは…ちょうど 0", as the test expects.
 - A missing or non-string resource name is shown as "（資源名なし）".
 - `fulfilBoundsText` is unchanged.
 - Not changed: the count in `goal.mjs` (still every counted arrival, including those recorded as 0), counted amounts, the verdict, sending and permissions.
@@ -147,3 +148,52 @@ The coordinator's static review before any run found that `jointPrecisionText` (
 | Not audited for running | The corrected existing `coop.test.mjs` and `coop.e2e.test.mjs` (board, fake chain and store, on the key-scan list) and the screen tests: not to be run until audited |
 | Refused work | It touches no walls, muster, G, runner or world code, and it is not a substitute for any refused run |
 | Candidate command (for the coordinator; not run) | `node --test workstreams/01-national-strategy/test/coop.joint-precision.test.mjs` |
+
+## Run record (the coordinator's run of the joint-precision test; Lane C ran nothing)
+
+| Item | Result |
+|---|---|
+| Who and when | The coordinator, once, at `6e812809`, after reading the whole pure test and helper and re-checking the environment, side effects, and that it does not overlap any refused route. Not to be rerun |
+| Command | `node --test workstreams/01-national-strategy/test/coop.joint-precision.test.mjs`, with Homebrew's `node` (Node 23.11.0) |
+| Result | 8/8 pass; fail 0, cancelled 0, skipped 0; exit 0; duration 42.985042 ms; 53,600,000 KiB free |
+| What it verifies | Only `jointPrecisionText`, the wording for given `progress` values |
+| What it does not verify | The count in `goal.mjs` `coopView` (`h.records` → `underBy`), the corrected expectations in `coop.test.mjs` and `coop.e2e.test.mjs`, the screen (`coop-ui.mjs`), or a real world |
+
+## Static audit: the real `underBy` producer and consumer, and the corrected existing tests (2026-11-17; nothing run)
+
+**Producer** (`coop/goal.mjs` `coopView`, the joint loop, at `6e812809`). Checked against the source:
+
+| Boundary | What the source does | Agrees with ④ §3–4? |
+|---|---|---|
+| Duplicate arrival | `allocate` marks a second link of the same caravan `duplicateOf`. The joint loop skips it (`if (a.duplicateOf) continue`) before counting, and `countOf` also gives it `counted: null` | Yes: not double-counted in `perResource` or `underBy` |
+| `KnownZero` (burned, taken, lost) | `countOf` gives `counted: null` and an upper bound of 0. The arrival never reaches `h.records`; it is not `delivered`, so it is neither unproven nor open | Yes: §4 says a `KnownZero` run carries no fraction |
+| Counted with b = 0 (`{wood: 0}`) | `a.counted` is an object, so truthy, and every key counts once in `h.records` (since 71764e61) | Yes: §3 `[0, 1)`, §4 n |
+| A resource outside a request's `need` | `counted` = `pickNeed(delivered, need)` has only the request's keys, so it is not counted | Yes |
+| Counted with an unshipped resource in `need` (sent 0) | Counted as `[0, 1)`. "Sent 0 ⇒ exactly 0" is not in ④'s contract and is not used. `fulfilmentOf`'s `countUpper` (`plus1(delivered)`) treats the same arrival the same way | Yes, and consistent with `fulfilmentOf` |
+| `Unverifiable`, unverified recipient or time, `DestinationMismatch` | `counted: null`. They go to `unprovenDeliveries` or `unverifiedCaravans`, not `underBy`. Their uncertainty is shown on other lines ("到着したが数えられない", "輸送中・不明") | Yes: `underBy` is about counted amounts only |
+| What reads `h.records` | Only `progress[].underBy`. The verdict uses `perResource` | Counting and the verdict are unchanged |
+
+**Consumers.**
+- `coop-ui.mjs` `joint-precision` uses `jointPrecisionText`.
+- `test/scenario-e2e.mjs` `ws15Export` copies `joint[].progress` into the export, and so into the fixture when it is remade.
+- No ⑮ source reads `underBy`.
+
+**Personal view (observation, not changed).** `myVerified` keeps only positive totals (`v > 0`), and the screen shows "自分が届けた確定の量：—" when all are 0. It states neither an exact 0 nor a bound, so it does not contradict the contract. No change.
+
+**Corrected existing tests: their closure and side effects** (read only; not audited for running, not to be run):
+
+| File | Imports and effects |
+|---|---|
+| `test/coop.test.mjs` | `node:http`, `node:fs`, `node:os`; `coop/record.mjs`, `arrival.mjs`, `goal.mjs`, `board.mjs`, `chain.mjs`; `test/nokey.mjs` (a fixed signer and unsigned records), `test/coop-chain.mjs` (a fake chain); `permutation-server/web/frontier/fplay.mjs`, `faddr.mjs`, `herald.mjs` and `web/sdk/base58.mjs`. It starts local HTTP servers (`createServer`/`listen`: 5), makes `fetch` calls (8), uses a temporary directory, and writes or removes files (4). It is listed in `scripts/ci/node-key-tests.txt` |
+| `test/coop.e2e.test.mjs` | `test/scenario-e2e.mjs` (the board, `coop/send.mjs`, the fake chain, `web/frontier/fplay.mjs`, `web/sdk/solana-tx.mjs`); `coop/record.mjs`, `goal.mjs`, `ws04.mjs`. It uses a temporary directory and writes or removes files. It reads the fixture `ws15-fold-e2e.json`. It is listed in `scripts/ci/node-key-tests.txt` |
+
+**Limits of what has run.**
+- The two pure runs (5/5 `fulfilBoundsText`, 8/8 `jointPrecisionText`) check only the wording for given values.
+- Nothing has run that checks:
+  - the count in `goal.mjs` (`h.records` → `underBy`);
+  - the corrected expectations (`coop.test.mjs` stone `underBy` 0 → 2, and the `coop.e2e.test.mjs` fixture wood 4 → 5 correction);
+  - the screen;
+  - a real world.
+- Those need the existing board, chain-fake and key-listed tests above, which are still not audited for running.
+
+**Result of this audit.** No further mismatch was found in the counted-0, `KnownZero` and duplicate boundaries, so no code was changed in this step.
