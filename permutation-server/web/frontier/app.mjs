@@ -3267,7 +3267,9 @@ export const HUD_ACTIONS = {
   // the conquest guide's press (screens/conquestguide.mjs): the village with the step's card open, or a host with its list of keeps
   'cg-go': d => {
     if (FS.mode !== 'play' || !keephand.conquestOn(FS)) return;
-    leaveReport(); FS.compose = null; FS.guideOpen = false; FS.tab = 'map';
+    // (2026-11-16: a draft is put away as 「やめる」 puts it away — controller.mjs compose-close: an armed waiting send is
+    //  cancelled first and says so. The pill's press dropped it, and the waiting send was withdrawn as if the order had changed)
+    leaveReport(); if (FS.compose) ACTIONS['compose-close'](); FS.guideOpen = false; FS.tab = 'map';
     if (d.pop === 'keeps') {
       const r = hand.ownHosts(FS).find(x => x.id === String(d.host)) ?? hand.ownHosts(FS).find(x => x.unit !== 6 && x.unit !== 7 && hand.marchCheck(FS, x).ok) ?? null;
       if (!r) { HUD_ACTIONS.tab({ tab: 'hosts' }); return; }
