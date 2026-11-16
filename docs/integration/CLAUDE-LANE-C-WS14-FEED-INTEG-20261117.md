@@ -129,7 +129,7 @@ Nothing was run, imported or compiled for this section.
 | Hashes (sha256) | `centre-provenance.test.mjs` `2727430e…3617`, `centre.mjs` `7f2fa256…156e`, `proto/geometry.mjs` `7ed7c309…cebb` |
 | Import closure | Unchanged: `node:test`, `node:assert/strict`, `./centre.mjs` → `../proto/geometry.mjs`. Only `centre.mjs:26` imports (`ringOf`); `geometry.mjs` imports nothing and has no dynamic `import()` |
 | Package scope | No `package.json` at the repository root or in `workstreams/14-central-tower`. The files are ES modules by their `.mjs` extension, with no loader hooks, `imports` maps or `node_modules` |
-| Node | CI pins Node 20 or 22 (`.github/workflows/ci.yml`). The `node` on the shell path here is Homebrew's `node@20`; the version was read from the path only, and `node` was not executed. The file uses only `node:test` default `test`, `assert.equal`, `notEqual`, `match` and BigInt, all present in Node 20 |
+| Node | CI pins Node 20 or 22 (`.github/workflows/ci.yml`). The `node` on the shell path here is Homebrew's `node@20`; the version was read from the path only, and `node` was not executed. The file uses only `node:test` default `test`, `assert.equal`, `notEqual`, `match` and BigInt, all present in Node 20. **Corrected (2026-11-17):** "Node 20" is wrong for the run that was made. The coordinator's run used Homebrew's `node`, which resolves to Node 23.11.0 (the symlink target, read directly). The `node@20` above is only the first `node` on this session's shell path |
 | Environment | `NODE_OPTIONS`, `NODE_PATH` and `NODE_TEST_CONTEXT` are unset in this shell. No `.nvmrc` or `.node-version` |
 | CI | No CI job runs ⑭'s tests. `centre.test.mjs` appears only in `scripts/ci/node-key-tests.txt` (the key-scan list). The new file needs no entry, and the lists are unchanged |
 | Side effects | None at load or at run: no file, process, network, key, world or write. The behaviour is pure functions on hand-made objects |
@@ -180,3 +180,18 @@ Written, not run. Nothing was run, imported or compiled.
 | Candidate commands (for the coordinator; not run) | `node --test workstreams/15-coop-outcomes/test/contract-ws14-centre-provenance.test.mjs`; the corrected existing file: `node --test workstreams/15-coop-outcomes/test/contract-ws14-centre.test.mjs` |
 
 **Not complete.** ⑮ still has no real consumer of the centre facts: only its tests call `readCentreFacts`. This fix makes the reader fail-closed; it does not connect anything.
+
+## Run record (the coordinator's run; Lane C ran nothing)
+
+| Item | Result |
+|---|---|
+| Who and when | The coordinator, once, at `4cc361bc`, after reading the whole dependency closure and checking the environment, side effects, and that this is not the same as any refused test. Not to be rerun |
+| Command | `node --test workstreams/14-central-tower/game/centre-provenance.test.mjs workstreams/15-coop-outcomes/test/contract-ws14-centre-provenance.test.mjs`, with Homebrew's `node` (Node 23.11.0) |
+| Test files (sha256) | `centre-provenance.test.mjs` `2727430ea60960f2f875be0e47c67d53096b709f179083b1f40ac5828e793617`; `contract-ws14-centre-provenance.test.mjs` `81ed3968d8050a621d1d4e7e0bcf37cb420edb43131de810da666b6df85f9963` |
+| Result | 9/9 pass (⑭ 4, ⑮ 5); fail 0, cancelled 0, skipped 0; exit 0; duration 51.678291 ms |
+| Working tree before and after | Only the 25 deleted media files (unstaged `D`); nothing staged; 53,600,000 KiB free |
+
+**What this does and does not show.**
+- It shows that the pure functions pass: ⑭'s `provenanceOf` and ⑮'s `readCentreFacts` re-check.
+- It is not a real world, a real consumer, or a completed integration.
+- The corrected existing test (`workstreams/15-coop-outcomes/test/contract-ws14-centre.test.mjs`, the first test now expecting `'between'`) was **not** part of this run, and remains unrun.
