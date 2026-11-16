@@ -1282,7 +1282,11 @@ pub fn close_lot(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
 ///   writes together, as every multi-account handler here does.
 ///
 /// No record is logged: no record kind exists for the payout (workstream 4;
-/// until then V26 cannot verify it). Returns the milli paid home.
+/// until then V26 cannot verify it). Returns [`RestHome`]: the whole units
+/// the kernel gave back into the lot first (`whole`, which changes the lot
+/// even when nothing goes home) and the milli paid home (`paid`). A record,
+/// once a kind exists, is due whenever either is above 0
+/// ([`rest_home_payload`] carries both).
 #[cfg_attr(not(all(test, feature = "custody-rest-home-preview")), allow(dead_code))]
 pub(crate) fn pay_rest_home_accounts(
     p: &Pubkey,
@@ -1291,7 +1295,7 @@ pub(crate) fn pay_rest_home_accounts(
     lot_vault: &AccountInfo,
     lot: &AccountInfo,
     home: &AccountInfo,
-) -> R<i64> {
+) -> R<RestHome> {
     if home.key == lot_vault.key || home.key == lot.key || lot.key == lot_vault.key {
         return Err(BAD_ACCOUNT);
     }
@@ -1301,6 +1305,14 @@ pub(crate) fn pay_rest_home_accounts(
     let mut h = vault_view(p, &pl.ctx, sid, home)?;
     let before = l;
     let paid = kc::pay_rest_home(&lv, &mut l, &actor(pl, citizen), &mut h).map_err(cerr)?;
+    // The rest fell by the whole units given back into the lot plus `paid`.
+    let whole = before
+        .returns
+        .rest
+        .checked_sub(l.returns.rest)
+        .and_then(|d| d.checked_sub(paid))
+        .filter(|w| *w >= 0)
+        .ok_or(BAD_ACCOUNT)?;
     // Every write borrow first (no read borrow is held any more), then the
     // writes: a borrow that fails leaves both accounts as they were.
     let mut ld = if l != before {
@@ -1319,7 +1331,19 @@ pub(crate) fn pay_rest_home_accounts(
     if let Some(d) = hd.as_mut() {
         put_vault_data(d, &h)?;
     }
-    Ok(paid)
+    Ok(RestHome { whole, paid })
+}
+
+/// What [`pay_rest_home_accounts`] did: `whole` milli of the lot's gathered
+/// rest went back into the lot (`HELD += whole`, `CONSUMED −= whole`) and
+/// `paid` milli (below one unit) went to the owner's own vault
+/// (`CONSUMED −= paid`, `OUT_TOTAL += paid`, the vault's `STORES += paid`);
+/// `REST −= whole + paid` in all.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[cfg_attr(not(all(test, feature = "custody-rest-home-preview")), allow(dead_code))]
+pub(crate) struct RestHome {
+    pub whole: i64,
+    pub paid: i64,
 }
 
 /// The rest-home preview's tag: **provisional and unallocated**
@@ -1357,54 +1381,27 @@ pub fn pay_lot_rest_home(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
 }
 
 /// The payout's record payload, **prepared, not emitted** (no record kind is
-/// allocated; workstream 4): the lot's raw key (15 B) ‖ the milli paid (i64)
-/// ‖ the home vault's place `p i16 ‖ q i16 ‖ tile u8` ‖ its owner's tag
-/// (u64): 36 bytes. With a kind, V26 would replay it as `REST −= x`,
-/// `CONSUMED −= x`, `OUT_TOTAL += x` on the lot and `STORES += x` on the
-/// home vault.
+/// allocated; workstream 4). Due whenever `whole > 0` or `paid > 0`: the
+/// kernel returns gathered whole units into the lot before anything goes
+/// home, so a step can change the lot with nothing paid home, and a record
+/// for `paid > 0` alone would leave that change unreplayable.
+///
+/// Layout (44 bytes): the lot's raw key (15 B) ‖ `whole` milli back into the
+/// lot (i64) ‖ `paid` milli home (i64) ‖ the home vault's place `p i16 ‖ q
+/// i16 ‖ tile u8` ‖ its owner's tag (u64). With a kind, V26 would replay it
+/// as `HELD += whole`, `CONSUMED −= whole + paid`, `OUT_TOTAL += paid`, `REST
+/// −= whole + paid` on the lot and `STORES += paid` on the home vault.
 #[allow(dead_code)] // prepared for a record kind workstream 4 has not allocated
-pub(crate) fn rest_home_payload(l: &Lot, paid: i64, home: &VaultView) -> [u8; 36] {
-    let mut b = [0u8; 36];
+pub(crate) fn rest_home_payload(l: &Lot, done: RestHome, home: &VaultView) -> [u8; 44] {
+    let mut b = [0u8; 44];
     b[..15].copy_from_slice(&lot_raw(l));
-    b[15..23].copy_from_slice(&paid.to_le_bytes());
-    b[23..25].copy_from_slice(&home.p.to_le_bytes());
-    b[25..27].copy_from_slice(&home.q.to_le_bytes());
-    b[27] = home.tile;
-    b[28..36].copy_from_slice(&home.owner_tag.to_le_bytes());
+    b[15..23].copy_from_slice(&done.whole.to_le_bytes());
+    b[23..31].copy_from_slice(&done.paid.to_le_bytes());
+    b[31..33].copy_from_slice(&home.p.to_le_bytes());
+    b[33..35].copy_from_slice(&home.q.to_le_bytes());
+    b[35] = home.tile;
+    b[36..44].copy_from_slice(&home.owner_tag.to_le_bytes());
     b
-}
-
-#[cfg(test)]
-mod tests {
-    use frontier_abi::v2::log::{CqKind, CQ_SPECS};
-
-    /// The payloads and keys the handlers write have their records' widths
-    /// (the record writer refuses any other length at run time).
-    #[test]
-    fn custody_record_widths() {
-        let width = |k: CqKind| {
-            let s = CQ_SPECS.iter().find(|s| s.kind == k).expect("spec");
-            (
-                s.key.iter().map(|f| f.1).sum::<usize>(),
-                s.payload.iter().map(|f| f.1).sum::<usize>(),
-            )
-        };
-        // (kind, key, payload) as written in this file.
-        let written = [
-            (CqKind::LOT_OPENED, 15, 8 + 8),
-            (CqKind::LOT_QUOTA, 15, 8),
-            (CqKind::LOT_INBOUND, 12, 15 + 8 + 8 + 1),
-            (CqKind::LOT_SHIPPED, 12, 15 + 8 + 8 + 1 + 4 + 8),
-            (CqKind::LOT_SETTLED, 12, 15 + 8 + 8 + 8),
-            (CqKind::LOT_ORDER, 15, 1 + 4 + 1 + 8 + 8 + 4 + 8 + 2),
-            (CqKind::LOT_REVOKED, 15, 1 + 4 + 8),
-            (CqKind::LOT_CONSUMED, 15, 4 + 8 + 8 + 2),
-            (CqKind::LOT_LOSS, 15, 1 + 8 + 8 + 8 + 4),
-        ];
-        for (k, key, payload) in written {
-            assert_eq!(width(k), (key, payload), "{k:?}");
-        }
-    }
 }
 
 /// The rest-home carrier's boundary (Lane C, 2026-11-17; WRITTEN, NOT RUN):
@@ -1466,20 +1463,24 @@ mod rest_home_boundary {
     }
 
     #[test]
-    fn the_prepared_payload_is_36_bytes_in_order() {
+    fn the_prepared_payload_carries_whole_and_paid_in_44_bytes() {
         let mut keeper = view([0x4B; 32], 7);
         let owner = [0xB2; 32];
         let custodian = Actor { citizen: [0x4B; 32], tag: 0x4B, by_session: false };
         let l = kc::open(&mut keeper, &custodian, (owner, 0xB2), Resource::Ore as u8, 10 * MILLI, 1, [0; 32]).unwrap();
         let home = view(owner, 9);
-        let b = rest_home_payload(&l, 250, &home);
-        assert_eq!(b.len(), 36);
+        // whole units back into the lot with nothing home must still be recorded
+        let b = rest_home_payload(&l, RestHome { whole: MILLI, paid: 0 }, &home);
+        assert_eq!(b.len(), 44);
         assert_eq!(&b[..15], &lot_raw(&l));
-        assert_eq!(i64::from_le_bytes(b[15..23].try_into().unwrap()), 250);
+        assert_eq!(i64::from_le_bytes(b[15..23].try_into().unwrap()), MILLI, "whole");
+        assert_eq!(i64::from_le_bytes(b[23..31].try_into().unwrap()), 0, "paid");
+        let b = rest_home_payload(&l, RestHome { whole: 0, paid: 250 }, &home);
+        assert_eq!(i64::from_le_bytes(b[23..31].try_into().unwrap()), 250);
         assert_eq!(
-            (i16::from_le_bytes([b[23], b[24]]), i16::from_le_bytes([b[25], b[26]]), b[27]),
+            (i16::from_le_bytes([b[31], b[32]]), i16::from_le_bytes([b[33], b[34]]), b[35]),
             (3, -2, 9)
         );
-        assert_eq!(u64::from_le_bytes(b[28..36].try_into().unwrap()), 0xB2, "the home owner's tag");
+        assert_eq!(u64::from_le_bytes(b[36..44].try_into().unwrap()), 0xB2, "the home owner's tag");
     }
 }

@@ -485,3 +485,77 @@ These come on top of the earlier list (record kind, V26 replay and history, ABI 
 5. **Only then** remove `test` from the arm's cfg, and replace the SBF `compile_error!` with the usual marker for a non-deployable build.
 
 None of these steps was taken.
+
+## Falsification of the host-test carrier and the account helper (2026-11-17; static, nothing run)
+
+### Found and fixed: whole units given back into the lot were invisible to the prepared record
+
+**The gap.**
+- `pay_rest_home` first calls `pay_rest`. When the gathered rest holds whole units and the lot has room, they go back into the lot (`HELD += whole`, `CONSUMED −= whole`, `REST −= whole`) **even when nothing goes home (`paid = 0`)**.
+- The prepared 36 B payload had only `paid`, and "record only when `paid > 0`" would have left that change unreplayable by V26.
+
+**The fix (the prepared design only; nothing emitted, no ABI or record adopted):**
+- `pay_rest_home_accounts` now returns `RestHome { whole, paid }`. `whole` is derived exactly as `REST before − REST after − paid`, checked to be ≥ 0 (`BAD_ACCOUNT` otherwise).
+- `rest_home_payload` is now **44 bytes**: the lot's raw key (15) ‖ `whole` i64 ‖ `paid` i64 ‖ home p, q, tile (5) ‖ home owner's tag (8).
+- A record is due when **`whole > 0` or `paid > 0`**.
+- V26 replay with it would be: `HELD += whole`, `CONSUMED −= whole + paid`, `OUT_TOTAL += paid`, `REST −= whole + paid`, and the home's `STORES += paid`.
+
+**The kernel `pay_rest_home` is unchanged**, so `custody_rest_home.rs` keeps SHA-256 `6ec91abd…bda6` and its 4-passed evidence still applies.
+
+**Unrun regression source:**
+- `capacity_runtime_tests.rs` now expects `RestHome { whole: 0, paid: 500 }`, then `{0, 0}`.
+- A new hand-written state with rest 1,250 (books kept balanced) gives `{ whole: 1000, paid: 250 }`, with `HELD +1000`, `CONSUMED −1250`, `OUT_TOTAL +250`, `REST 0`, a balanced lot, and the home at 750.
+- The dispatch call after that is `Ok` with nothing written.
+- `rest_home_boundary` checks the 44-byte layout for `{1000, 0}` and `{0, 250}`.
+
+**The same visibility gap exists elsewhere, already recorded under design A.** `pay_rest` also runs from the owner's `spend_ship` and from ClaimJob's `settle_lot`, which lower `CONSUMED` without a record. That is design A's open V26 item, not this carrier's.
+
+### Read and found consistent
+
+| Point | Finding |
+|---|---|
+| Signer, session | `hold::player_as(Auth::Wallet)` goes through `citizen::player_as` and then the shared `ap::player_prologue(.., session_ok = true)`, the same prologue as every player instruction. A session sets `by_session`, and the kernel's `wallet()` then refuses (`WalletRequired`) |
+| Owner | The kernel requires the actor's Citizen key, and the home's owner key, to equal the lot's `OWNER_CITIZEN` (full 32 B) |
+| Same province, canonical, live, generation | `lot_of`, `vault_of_lot` and `vault_view` check presence, season and canonical address. The kernel checks the lot is usable (open, its vault live and of its generation) and the home is live, in the same `(p, q)`, not the lot's tile, with room including `CUSTODY_QUOTA` |
+| Alias | The three accounts must be distinct, before any read |
+| Read-only | `lot_vault` is never written. The handler requires the lot and home to be writable. The helper itself does not check writability: it is reached only through the handler (test builds) and the host tests |
+| Borrow failure | Every write borrow is taken before either write, so nothing changes |
+| Old state | An untracked lot (RSV zero) gets `State`; nothing is written |
+| Paying again | `{0, 0}`: no borrow, no write |
+| Whole plus fraction | Fixed above. With a full lot, `pay_rest` keeps the whole units (`Capacity` is swallowed), only the fraction goes home, and the lot stays open while `REST ≥ 1` unit |
+
+## The candidate host-test commands, audited read-only (nothing run; for the coordinator's own approval)
+
+**The tests and where they live:**
+- `map_growth_runtime_tests` is `#[cfg(all(test, feature = "program"))]` in `lib.rs`.
+- Its child `capacity` (`capacity_runtime_tests.rs`) is `#[cfg(feature = "capacity-preview")]`.
+- The two lot tests in it are `#[cfg(feature = "custody-preview")]`.
+- `proc::custody::rest_home_boundary` is `#[cfg(test)]` in the custody module (needs `custody-preview`).
+
+**Run A, with the carrier:**
+
+```
+cargo +1.89.0 test --offline --locked -p permutation-frontier --lib \
+  --features capacity-preview,custody-rest-home-preview \
+  --target-dir <dedicated target> -j 1 -- --exact \
+  map_growth_runtime_tests::capacity::capacity_lot_ore_feeds_a_job_and_what_it_does_not_use_goes_back \
+  map_growth_runtime_tests::capacity::capacity_link_count_states \
+  proc::custody::rest_home_boundary::the_tag_is_unknown_to_the_v2_table \
+  proc::custody::rest_home_boundary::the_carrier_is_compiled_into_host_unit_tests_only \
+  proc::custody::rest_home_boundary::the_prepared_payload_carries_whole_and_paid_in_44_bytes
+```
+
+**Run B, without the carrier** (the boundary in the other cfg): `--features capacity-preview,custody-preview`, with the same names plus `proc::custody::rest_home_boundary::without_the_feature_the_dispatch_refuses_0xef`. Both lot tests then skip their dispatch blocks.
+
+**Audit of those commands:**
+
+| Point | Finding |
+|---|---|
+| Build scripts | None in `permutation-frontier`, `frontier-abi` or `permutation-rules` (no `build.rs`). No `[dev-dependencies]` |
+| Dependencies | `solana-program =4.0.0`, `ark-ff`/`ark-ec`/`ark-bls12-381 =0.5.0`, `borsh =1.6.1`, and the two path crates. `--offline --locked` needs them already in the local registry; **not checked** |
+| What the tests touch | In-process only: `set_syscall_stubs`, a serial `Mutex`, in-memory logs, `set_test_clock`, hand-built `AccountInfo`s. No `std::fs`, network, `std::process`, `env::var` or key generation (wallets and keys are fixed byte arrays). `include_str!` reads three source files at compile time |
+| Write targets | The dedicated `--target-dir` only |
+| Keys, network, real world | None |
+| Feature combinations | `capacity-preview` + `custody-preview` (+ rest-home) is allowed: no `compile_error!`, since only rights or NFT with capacity conflict. Host only; SBF is not involved |
+| Size and time | **Not measured.** This builds `solana-program` and the ark crates, more than the `permutation-rules`-only runs (188–192 MiB targets); no figure is claimed |
+| Whether they compile and pass | **Unknown.** All of this is unrun source |

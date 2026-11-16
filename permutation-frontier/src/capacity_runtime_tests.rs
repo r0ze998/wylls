@@ -869,7 +869,8 @@ fn capacity_lot_ore_feeds_a_job_and_what_it_does_not_use_goes_back() {
         assert_eq!(home_ore(&home), 0);
     }
     // the exact rest home, once
-    assert_eq!(pay(&home).unwrap(), 500);
+    // the rest (500) is below one unit: nothing whole back into the lot
+    assert_eq!(pay(&home).unwrap(), crate::proc::custody::RestHome { whole: 0, paid: 500 });
     let l = lot_now(&lot_ai);
     assert_eq!(
         (l.returns.rest, l.consumed, l.out_total),
@@ -878,17 +879,38 @@ fn capacity_lot_ore_feeds_a_job_and_what_it_does_not_use_goes_back() {
     assert!(l.balanced(bell));
     assert_eq!(home_ore(&home), 500, "exactly 500 milli, not rounded");
     // a second call pays nothing and writes nothing
-    assert_eq!(pay(&home).unwrap(), 0);
+    assert_eq!(pay(&home).unwrap(), crate::proc::custody::RestHome { whole: 0, paid: 0 });
     assert_eq!(lot_now(&lot_ai), l);
     assert_eq!(home_ore(&home), 500);
+    // A gathered rest with a whole unit (1,250 written by hand, as a full lot
+    // would have kept it): the unit goes back into the lot first and only 250
+    // goes home; both must be visible to a record (whole and paid).
+    {
+        let mut l2 = lot_now(&lot_ai);
+        l2.returns.rest = 1_250;
+        l2.consumed += 1_250;
+        l2.in_total += 1_250;
+        let mut d = lot_ai.try_borrow_mut_data().unwrap();
+        l2.encode(&mut d).unwrap();
+    }
+    let l2 = lot_now(&lot_ai);
+    assert!(l2.balanced(bell));
+    assert_eq!(pay(&home).unwrap(), crate::proc::custody::RestHome { whole: MILLI, paid: 250 });
+    let l3 = lot_now(&lot_ai);
+    assert_eq!(
+        (l3.held, l3.consumed, l3.out_total, l3.returns.rest),
+        (l2.held + MILLI, l2.consumed - 1_250, l2.out_total + 250, 0)
+    );
+    assert!(l3.balanced(bell));
+    assert_eq!(home_ore(&home), 750);
     // and through the dispatch: Ok, nothing paid, nothing written
     #[cfg(feature = "custody-rest-home-preview")]
     {
         let tag = crate::proc::custody::REST_HOME_PREVIEW_TAG;
         let a = t.as_player(&m, &[lot_vault.clone(), lot_ai.clone(), home.clone()]);
         assert_eq!(run(&a, &[tag]), Ok(()));
-        assert_eq!(lot_now(&lot_ai), l);
-        assert_eq!(home_ore(&home), 500);
+        assert_eq!(lot_now(&lot_ai), l3);
+        assert_eq!(home_ore(&home), 750);
     }
 }
 
