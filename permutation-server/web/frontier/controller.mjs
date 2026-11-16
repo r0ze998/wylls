@@ -754,6 +754,22 @@ export function latestEnvelope(previous, next) {
     if (a===undefined || a===null || a==='' || b===undefined || b===null || b==='') continue;
     try { if(BigInt(b)<BigInt(a)) return previous; if(BigInt(b)>BigInt(a)) return next; } catch { /* another comparable field may remain */ }
   }
+  // (2026-11-16, G1c) The program's FoldLand writes the land record and not the Province, so a slower `latest` answer
+  // can tie on seq, slot and bell with an older land record. A land record's nextBell only grows (permutation-rules
+  // land.rs fold: b == next_bell, then b + 1) and every field the page reads is written with it. So ONLY when the tie
+  // is real (all three present on both sides, integers and equal — a missing or unreadable value is no tie), both
+  // answers are the same season's same province (decoded Province: p, q, seasonId) and both carry a parsed record of
+  // it with a valid nextBell: the higher nextBell is the newer land, and the land already held is kept while
+  // everything else (the Province, arrival slots, day, inputs) is the newer answer's. A record on one side only, or
+  // none, is left as before (G1b). (Self-contained on purpose: test/web-frontier-land-freshness builds this body alone.)
+  const big = v => { if (v === undefined || v === null || v === '') return null; try { return BigInt(v); } catch { return null; } };
+  const tied = ['seq', 'slot', 'bell'].every(f => { const a = big(previous[f]), b = big(next?.[f]); return a !== null && b !== null && a === b; });
+  if (tied) {
+    const pa = previous.province, pb = next?.province, la = previous.land, lb = next?.land;
+    const sameProvince = !!pa && !!pb && Number.isInteger(pa.p) && pa.p === pb.p && pa.q === pb.q && pa.seasonId !== undefined && pa.seasonId !== null && pa.seasonId === pb.seasonId;
+    const ofIt = l => !!l && l.p === pa?.p && l.q === pa?.q && Number.isInteger(l.nextBell) && l.nextBell >= 0;
+    if (sameProvince && ofIt(la) && ofIt(lb) && la.nextBell > lb.nextBell) return { ...next, land: la };
+  }
   return next;
 }
 
