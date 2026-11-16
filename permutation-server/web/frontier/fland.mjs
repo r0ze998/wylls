@@ -437,6 +437,25 @@ export function provinceFull(province, faction) {
   return es.length >= PROVINCE_ENTRIES && !es.some(e => e?.state === 0);
 }
 
+// (2026-11-16: host.rs garrison_as → GarrisonState::change: the pending changes of turns before resolved_next are applied
+//  (clamped to 0…30,000), then a positive change above the room left (30,000 less the troops and the changes still
+//  pending) is refused (HOST_TOO_LARGE). The page's form sent any number.)
+/** permutation-rules host.rs MAX_HOST_TROOPS (whole troops); frontier-abi province.rs NO_BELL. */
+export const GARRISON_MAX_TROOPS = 30_000, NO_BELL = 0xffffffff;
+const bigOf = x => { try { return BigInt(x ?? 0); } catch { return 0n; } };
+/** GarrisonState::room of a decoded site mirror at the province's `resolvedNext`, in whole troops (a change of n fits when n ≤ it). */
+export function garrisonRoom(mirror, resolvedNext) {
+  const MAX = BigInt(GARRISON_MAX_TROOPS) * 1000n, rn = Number(resolvedNext);
+  const pend = [[mirror?.pend0Bell, mirror?.pend0Delta], [mirror?.pend1Bell, mirror?.pend1Delta]]
+    .map(([b, d]) => [Number(b), bigOf(d)]).filter(([b, d]) => b !== NO_BELL && d !== 0n).sort((x, y) => x[0] - y[0]);
+  let troops = bigOf(mirror?.garrison), left = 0n;
+  for (const [b, d] of pend) {
+    if (b < rn) { troops += d; troops = troops < 0n ? 0n : troops > MAX ? MAX : troops; } else left += d;
+  }
+  const room = MAX - (troops + left);
+  return Number((room < 0n ? 0n : room > MAX ? MAX : room) / 1000n);
+}
+
 const TILE_AT = new Map(TILE_OFFSETS.map((o, i) => [`${o.q},${o.r}`, i]));
 /** Tile indices one hex away from tile `idx` inside the same province. */
 export const tileNeighbours = idx => {

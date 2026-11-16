@@ -230,3 +230,12 @@ verified. Heavy builds and worlds stay serial, in this session, after a report (
   load flake \"round 29 …\" in web-frontier-marches (alone: 10/10 twice). Candidate 738558b4.
 - The S1 operations audit (CapturePending, fort, seize, siege, raid, expel, nation) is complete for what the page holds;
   what needs data the page lacks is recorded as left to the program (candidate gap note).
+
+## 2026-11-16 15:35 JST — village Build / Train / Harvest / Muster / Garrison audit
+- ceba1d61: walls — a walls order is held back while both wall items of the village's site mirror wait for their turn
+  (build_as → wall_item QueueFull); reason WallsBusy (JA/EN). Test web-frontier-build-walls-items 5/5.
+- 3ba74174: muster — ProvinceFull (48 standing/forming, 8 of the nation, no free entry) as muster_as counts it; the
+  existing sentence. Test web-frontier-muster-province-full 4/4.
+- Buildings, promotion, Train, Harvest: audited, no gap (production cap 1,000/h left to the program: not reachable).
+- Ordinary subset 1793: 1792 pass, 0 fail, 1 skipped. Candidate merges d9e12b9d, 228ec445; note cf79d9b5.
+- Next (open): the Garrison form's Spearman reserve and the garrison's room (30,000 after pending changes).

@@ -18,7 +18,7 @@ import { html, raw } from '../../util.mjs';
 import { icon, RESOURCE_ICON } from '../hud/icons.mjs';
 import { L, Lh, fmtNum } from '../../lang.mjs';
 import { RESOURCES, RESOURCE_ORDER, UNITS, TIERS, BUILDINGS, HOLDING_STATES, errorText, factionName } from '../fi18n.mjs';
-import { storesAt, holdingFacts, BUILD_ITEMS, UNIT_ORDER, SETTLER, actionBlocks, ticketTimes, queueBuildingItem, trainingQuote, baseProduction } from '../fland.mjs';
+import { storesAt, holdingFacts, BUILD_ITEMS, UNIT_ORDER, SETTLER, actionBlocks, ticketTimes, queueBuildingItem, trainingQuote, baseProduction, garrisonRoom } from '../fland.mjs';
 import { settled, buildOffers, promotionOffer, queueNow, queueSlots, trainCost, shortOf, ITEM_TIER_UP } from '../hud/rulebook.mjs';
 import { costChips, costWords, shortWords, took, unitGood, whyText } from '../hud/orderparts.mjs';
 import { holdingName } from '../people/ui.mjs';
@@ -100,6 +100,30 @@ export function upgradeModel(h, stores, now) {
     short: offer.short.map(x => ({ resource: RESOURCE_ORDER[x.r], need: x.need })),
     gains: after.map((v, i) => ({ resource: RESOURCE_ORDER[i], perHour: Number(v - before[i]) / 1000 })).filter(x => x.perHour > 0) };
 }
+
+/**
+ * The Garrison form's own refusals as the program decides them (host.rs garrison_as), in its order, before anything is
+ * signed: BadTroops (a whole number from 1) → Insufficient (the Spearman reserve) → GarrisonFull {room} (fland
+ * garrisonRoom, on the village's own site mirror). The action's blocks (capture lock, not final, Province behind) stay
+ * where they were: actionBlocks('Garrison'), which disables the form. Without the data (no reserve read, no own
+ * mirror) the program decides. Null when it may be sent.
+ */
+export function garrisonProblem(FS, n) {
+  const raw0 = activeHolding(FS);
+  if (!raw0) return null;
+  if (!Number.isInteger(n) || n < 1) return { code: 'BadTroops' };
+  if (Array.isArray(raw0.reserve) && n > Number(raw0.reserve[0] ?? 0)) return { code: 'Insufficient' };
+  const province = FS.provinces?.get(`${raw0.p},${raw0.q}`)?.province ?? null;
+  const m = province && province.p === raw0.p && province.q === raw0.q ? province.siteMirror?.[raw0.site] : null;
+  if (m && m.state === 1 && Number(m.gen) === Number(raw0.gen)) {
+    const room = garrisonRoom(m, province.resolvedNext);
+    if (n > room) return { code: 'GarrisonFull', room };
+  }
+  return null;
+}
+/** The words for garrisonProblem's own codes (the others are the program's sentences). */
+export const garrisonProblemText = pr => (pr.code === 'GarrisonFull' ? L`守備隊にはあと ${fmtNum(pr.room)} 人まで入れられます`
+  : pr.code === 'BadTroops' ? L`増やす人数は 1 以上の整数です` : errorText(pr.code));
 
 /** The viewer's local clock time of a UTC hour today ("09:00"). */
 const localHour = hr => { const d = new Date(Date.UTC(2026, 0, 1, hr, 0)); return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`; };

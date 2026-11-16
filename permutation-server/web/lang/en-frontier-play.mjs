@@ -1643,6 +1643,9 @@ export default {
   '入れる人数が範囲の外です': 'That number is out of range',
   'この要塞には、それだけ入る空きがありません': 'This fort has no room for that many',
   '入れる人数は 1 から {0} までです': 'Enter between 1 and {0}',
+  '守備隊にはあと {0} 人まで入れられます': 'The garrison has room for {0} more',
+  '増やす人数は 1 以上の整数です': 'Enter a whole number from 1',
+  '守備隊には、それだけ入る空きがありません': 'The garrison has no room for that many',
   '地図で読み込んだほかの州だけを数えます（テスト用の世界）。地図を動かすと変わることがあります。': 'Land claimed in the other provinces the map has loaded only (test world). It can change as you move the map.',
   // the land preview, the selected tile (hud/inspect.mjs over frontier/land.mjs landTileLines)
   'どの国の土地でもない空き地（領土の試験）': 'Open ground, no nation\'s land (territory trial)',

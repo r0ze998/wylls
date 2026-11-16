@@ -60,6 +60,7 @@ import { reachOrigins } from './screens/conquest.mjs';
 import { s1On } from './fs1.mjs';
 import { avoidingPalisades, watchOf, structuresIn, walkerOf, palisadeHexesOf } from './s1walk.mjs';
 import { fastestPath, pack, landsWanted, landOfProvince, CARAVAN_FEE, MAX_PATH_STEPS, MAX_PATH_PROVINCES } from './fcaravan.mjs';
+import { garrisonProblem, garrisonProblemText } from './screens/holding.mjs';
 import { raidOffers, s1VillageModel, s1TileModel, fortGarrisonProblem, fortProblemText, expelBlockText, siegeOffer, expelOffer, caravanProblem, KIND, PROPOSE_STANCE, PROPOSE_EXPEL, PROPOSE_READMIT } from './screens/s1.mjs';
 import { placeData, raidProvinces, cargoBytes, RAID_CHOICE } from './fplay.mjs';
 import { cachedReach, reachKey, reachableKeeps } from './fkeepreach.mjs';
@@ -2668,6 +2669,11 @@ function musterOrder(unit, troops, tile = null, holding = null) {
 /** Garrison(delta): Spearmen of the reserve join the village's garrison. */
 function garrisonOrder(n) {
   const k = Math.trunc(n);
+  // (the program's refusals of the number itself — not a whole number from 1, the Spearman reserve, the garrison's
+  //  room — here, before anything is signed: screens/holding.mjs garrisonProblem; under the wide card the send's own
+  //  WideReadOnly answers first)
+  const pr = FS.wideSelect ? null : garrisonProblem(FS, k);
+  if (pr) return pr.code === 'Insufficient' ? failed({ code: pr.code }) : failed({ code: pr.code, text: garrisonProblemText(pr) });
   return act('Garrison', { v: { holding: activeHolding(FS) }, fields: { delta: BigInt(k) }, order: orderOf('garrison', 'Garrison', { n: k, say: () => L`守備隊を ${fmtNum(k)} 増やしました` }) });
 }
 
