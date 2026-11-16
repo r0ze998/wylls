@@ -59,7 +59,7 @@ read, never an older one than the page had. No client inconsistency found: **no 
 | item | why |
 |---|---|
 | how often a Province account is written (bounds case 2 if land ever closes) | not read in the keeper/resolution path |
-| a herald restart / rebuild serving an envelope before its land capture | server behaviour, not read |
+| a herald restart / rebuild serving an envelope before its land capture | **settled** (last section): not by one herald's own restart; yes from a herald without `land-preview`, or a read-only checkpoint herald |
 | any of this in a browser or a world | all test runs are paused |
 | the server contract (`landTx` / `landSeen`) | proposed only |
 
@@ -83,6 +83,44 @@ read, never an older one than the page had. No client inconsistency found: **no 
 |---|---|
 | the tie contract (land-only change ⇒ seq/slot/bell unchanged) | **settled** (lines above) |
 | how often a Province is written (bounds case 2 if land ever closed) | **settled**: `frontier-abi/src/clash_model.rs finish_bell` (1166–1185) sets `RESOLVED_NEXT = b + 1` (and `roster_epoch + 1` when anything changed), called by `permutation-frontier/src/proc/clash.rs` (904, 923, 1525) as each bell is resolved; opening: `proc/map.rs` 757 / `proc/wide.rs` 861. Each bell's resolution writes the Province, so its capture — and the envelope's seq / slot / bell — moves: a land closure, if one ever existed, could be masked at most until the Province's next bell resolution. How long that is in a given world (the keeper's pace) is not measured |
-| a herald restart / rebuild serving an envelope before its land capture | server behaviour, not read |
+| a herald restart / rebuild serving an envelope before its land capture | **settled** (last section): not by one herald's own restart; yes from a herald without `land-preview`, or a read-only checkpoint herald |
 | any of this in a browser or a world | all test runs are paused |
 | the server contract (`landTx` / `landSeen`) | proposed only |
+
+## Herald restart / rebuild / read-only / no land-preview: when "a real tie, held land, answer without land" happens (2026-11-16, static; NOT run)
+Source (frontier-node/crates/herald/src):
+- `main.rs`: a normal start calls `Ingest::open(cfg, diffs)` and only afterwards binds the listener and runs
+  `server::serve`. `runner.rs Ingest::open` (≈146–212) restores the checkpoint (`checkpoint::load_full`), applies every
+  archived transaction after it (`for_each_after`; "Catch-up diffs go nowhere: no socket is open yet"), checkpoints, and
+  returns. Province and land captures are applied by the same `fold.apply`, so ONE herald never serves a half-rebuilt
+  state: a restart alone cannot produce the case.
+- `main.rs` `--source read-only` (feature `wide-index-read-experimental`): no ingest; `wide_read.rs load_read_only_fold`
+  (298–) serves a checkpoint frozen at its time T — self-consistent, but behind the chain.
+- `fold.rs`: the land capture (584 → `capture_land_post`, 879–) and the envelope's `land` (927–928) are both
+  `#[cfg(feature = "land-preview")]`: a herald built without it captures and serves no land at all.
+Conditions under which the page meets the case (the Province's seq / slot / bell unchanged between the two answers):
+1. a herald WITHOUT `land-preview` answers after one with it (another build after a restart), while the Province has not
+   been written (no bell resolved) in between;
+2. a READ-ONLY herald frozen at T answers after a live one, the land record having been created after T and the Province
+   not written since T (possible: FoldLand folds bells behind `resolved_next`, so the record can be created later than
+   the Province's last write).
+In both, the held record is real chain data, newer than what the answering herald knows: keeping it is correct. A
+counterexample would need a record really removed (no program path) or a held record of another world with the same
+season id, province and an exactly equal seq/slot/bell (theoretical; a page talks to one herald origin and starts again
+for another). Once the Province is written (the next resolved bell), the answer is no longer a tie and the page shows
+what that herald serves.
+
+## The server proposal, corrected: last write vs observation watermark
+The earlier proposal (`landTx` for a present record, `landSeen` = the herald's processed head when none) **mixes two
+quantities**: a last-write position of the record and an observation watermark of the herald. Counterexample: answer A
+carries a record with `landTx` 100 from a herald that has seen 500; answer B carries none with `landSeen` 300 from a
+herald WITHOUT `land-preview` (condition 1). Ordering by the numbers prefers B (300 > 100) and the land vanishes, though
+a land record cannot disappear. Corrected minimal contract (proposal only, NOT implemented):
+- every `latest` envelope carries `landPreview: true|false` (whether this herald captures land at all) and
+  `landSeenThrough` (this herald's processed archive seq for the answer — a watermark, present with or without land);
+  a present record also carries `landTx` (its capture's last-write seq) for diagnostics;
+- the page compares land only between answers with `landPreview: true` from the same archive (a herald identity / epoch
+  is also needed: archive seqs of different heralds are not comparable), by `landSeenThrough`; an answer with
+  `landPreview: false` never removes a held record.
+Owners: herald (server), then herald.mjs (keep the fields) and controller.mjs latestEnvelope. Until then the G1c / G1b
+tie rules are the client's whole answer, and they keep the held record in both conditions above.
