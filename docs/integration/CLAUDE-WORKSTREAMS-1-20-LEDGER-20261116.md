@@ -366,3 +366,19 @@ verified. Heavy builds and worlds stay serial, in this session, after a report (
   empty folder (removed by Playwright on close and on SIGINT/SIGTERM, not on SIGKILL; no size limit of its own → the
   test caps it at 300 MB and needs ≥ 22 GiB free); the non-persistent context's storage checked absent from the
   profile; --mute-audio; key guard and session unchanged. G2 stays dynamically unverified.
+
+### G2 replay run once (2026-11-16, Claude; owner's go-ahead)
+- land-redraw.screen.mjs hardened (c30adcf5): exact-origin gate (protocol/host/port of the fixture, GET/HEAD only)
+  registered last so it runs before nokey-page's Node-side session.mjs route; other requests recorded and aborted
+  before sending. Monitor every 1 s: free ≤ 22 GiB or profile > 300 MiB → this test's own context/browser/server
+  closed once, test fails (per-interval checks, not hard limits). No insecure-origin flag; chromiumSandbox true;
+  devWallet=off; --mute-audio; keyless guard unchanged; resolver blocks every host name but 127.0.0.1.
+- Export synced (4 files: app.mjs, screens/onboarding.mjs, lang/en-frontier-play.mjs = integration HEAD; the test).
+  Run: `LAND_REDRAW_TMP=<new empty scratch folder> node --test land-redraw.screen.mjs` → 2/2, 5.4 s.
+- Seen: reduced motion matched; native secure 127.0.0.1; after a panel-only redraw of a changed land record the land
+  chip counted the tile and the map's canvas at the tile changed colour within 2 s.
+- Traffic: no non-GET, no request outside the fixture's origin. Keys: none (assertKeyless). Storage: the page's keys
+  absent from the profile on disk. Disk: profile peak 7.5 MiB, free low 25.16 GiB; Playwright emptied the temp folder;
+  no process left; writes = 783-byte log + the 4 synced export files. Older playwright folders in the system temp
+  (08:19, ~140 KB) are not this run's; untouched.
+- NOT done: the control run on the unchanged app.mjs (so the old page's failure is not yet shown).

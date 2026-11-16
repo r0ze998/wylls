@@ -9,36 +9,45 @@
 //   no TLS, no proxy. `localPlay` is not asked for (flocalplay.mjs needs `localPlay=1`).
 // - Keys: the keyless viewer and ws07/nokey-page.mjs `prepare` unchanged (WebCrypto key operations and session.mjs key
 //   functions refuse and are counted; the test wallet signs nothing); `assertKeyless` before close.
-// - Network, blocked BEFORE it is sent: Chromium resolves no host name at all (`--host-resolver-rules`, loopback IP
-//   excepted), every request of the context to a host other than 127.0.0.1 is aborted by a route registered first, and
-//   service workers and the seal worker are refused. Every non-GET is counted; none is allowed.
+// - Network, decided BEFORE anything is sent: Chromium resolves no host name at all (`--host-resolver-rules`, the
+//   loopback IP excepted), and a gate route — registered LAST, so Playwright runs it FIRST — lets through only requests
+//   whose protocol, host and port are exactly the fixture server's (`srv.url`) and whose method is GET or HEAD; anything
+//   else is recorded and aborted before it is sent. (nokey-page.mjs `prepare`'s session.mjs route fetches from Node,
+//   past Chromium's resolver: the gate runs before it, so it only ever sees the fixture's own session.mjs.) Service
+//   workers and the seal worker are refused.
 // - Storage: the browser context is Playwright's non-persistent one; the page's localStorage (language, title seen,
 //   the test wallet's name, the key-use log) lives in it and goes with it. Checked: the profile folder holds none of
 //   those keys before close.
 // - Disk: Chromium's temporary profile and artifacts go to LAND_REDRAW_TMP (an absolute, existing, EMPTY folder you
-//   name); the test stops before launching unless the volume has ≥ 22 GiB free, fails if the profile passes 300 MB,
-//   and checks after close that Playwright removed what it made (its own cleanup; nothing else is deleted).
+//   name). Before launch the volume must have MORE than 22 GiB free. While running, a monitor checks every second; if
+//   the free space falls to 22 GiB or below, or the profile passes 300 MiB, it closes this test's own context, browser
+//   and server (each once; no signal to any process) and the test fails. These are checks every MONITOR_MS, not hard
+//   limits: up to one interval's writing can pass them before the close. After close, Playwright's own removal of what
+//   it made is checked (nothing else is deleted).
 // - Sound: `--mute-audio` (the page sounds only after a gesture; none is made).
 // Run alone, from this folder: LAND_REDRAW_TMP=<empty absolute folder> node --test land-redraw.screen.mjs
-// STATUS: written 2026-11-16, NOT YET RUN (the owner's go-ahead is needed first); the G2 fix is not dynamically verified.
+// STATUS: run once 2026-11-16 on the owner's go-ahead, with the fix (integration e84049ed): 2/2. The control run on the
+//   unchanged app.mjs has NOT been made, so this does not yet show that the old page failed the same check.
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { statfsSync, readdirSync, statSync, readFileSync, existsSync } from 'node:fs';
 import { isAbsolute, join } from 'node:path';
 
 const TMP = process.env.LAND_REDRAW_TMP ?? '';
-const FREE_MIN = 22 * 2 ** 30, PROFILE_MAX = 300 * 2 ** 20;
+const FREE_MIN = 22 * 2 ** 30, PROFILE_MAX = 300 * 2 ** 20, MONITOR_MS = 1000;
 const STORED = ['ps-wallet', 'ps-lang', 'ps-fintro', 'ws07:keyUses'];
 
+const freeBytes = () => { const s = statfsSync(TMP); return Number(s.bavail) * Number(s.bsize); };
 function guardDisk() {
   assert.ok(isAbsolute(TMP) && existsSync(TMP), 'LAND_REDRAW_TMP: an absolute folder that exists');
   assert.deepEqual(readdirSync(TMP), [], 'LAND_REDRAW_TMP is empty');
-  const s = statfsSync(TMP), free = Number(s.bavail) * Number(s.bsize);
-  assert.ok(free >= FREE_MIN, `≥ 22 GiB free before launch (have ${(free / 2 ** 30).toFixed(2)} GiB)`);
+  const free = freeBytes();
+  assert.ok(free > FREE_MIN, `more than 22 GiB free before launch (have ${(free / 2 ** 30).toFixed(2)} GiB)`);
   process.env.TMPDIR = TMP;   // (os.tmpdir() reads it at each call: Playwright's profile and artifacts land here)
 }
-const walk = dir => readdirSync(dir, { withFileTypes: true }).flatMap(e => (e.isDirectory() ? walk(join(dir, e.name)) : [join(dir, e.name)]));
+const walk = dir => { try { return readdirSync(dir, { withFileTypes: true }).flatMap(e => (e.isDirectory() ? walk(join(dir, e.name)) : [join(dir, e.name)])); } catch { return []; } };
 const profiles = () => readdirSync(TMP).filter(n => n.startsWith('playwright'));   // (playwright_chromiumdev_profile-*, playwright-artifacts-*)
+const profileBytes = () => profiles().flatMap(n => walk(join(TMP, n))).reduce((a, f) => { try { return a + statSync(f).size; } catch { return a; } }, 0);
 
 guardDisk();
 const { chromium } = await import('playwright-core');
@@ -46,30 +55,53 @@ const { startServer } = await import('./server.mjs');
 const NK = await import('./ws07/nokey-page.mjs');
 const { LATEST_UNIX, HOME } = await import('./world.mjs');
 
-let srv, browser, base;
+let srv = null, browser = null, ctx = null, base = null, origin = null, monitor = null, tripped = null, peak = { profile: 0, freeLow: Infinity };
+// (each of this test's own handles is closed at most once, whoever asks first; nothing outside them is touched)
+let closing = null;
+const closeAll = () => (closing ??= (async () => {
+  if (monitor) { clearInterval(monitor); monitor = null; }
+  const c = ctx, b = browser, s = srv; ctx = null; browser = null; srv = null;
+  await c?.close().catch(() => {}); await b?.close().catch(() => {}); await s?.close().catch(() => {});
+})());
+function watch() {
+  monitor = setInterval(() => {
+    if (tripped) return;
+    let free = Infinity, prof = 0;
+    try { free = freeBytes(); } catch { /* unread: no trip */ }
+    prof = profileBytes();
+    peak = { profile: Math.max(peak.profile, prof), freeLow: Math.min(peak.freeLow, free) };
+    if (free <= FREE_MIN) tripped = `free space ${(free / 2 ** 30).toFixed(2)} GiB ≤ 22 GiB`;
+    else if (prof > PROFILE_MAX) tripped = `profile ${(prof / 2 ** 20).toFixed(1)} MiB > 300 MiB`;
+    if (tripped) closeAll();
+  }, MONITOR_MS);
+  monitor.unref?.();
+}
+
 before(async () => {
   srv = await startServer({ keyless: true });
   srv.stage('holding');
   base = srv.url;   // http://127.0.0.1:<port>
+  origin = new URL(base);
+  watch();
   browser = await chromium.launch({ channel: 'chromium', chromiumSandbox: true, args: ['--mute-audio', '--host-resolver-rules=MAP * ~NOTFOUND , EXCLUDE 127.0.0.1'] });
 });
-after(async () => { await browser?.close(); await srv?.close(); });
+after(async () => { await closeAll(); });
 
 test('reduced motion: a land record changed with a panel-only redraw reaches the board, as the chip (fixture replay)', { timeout: 150_000 }, async () => {
-  const ctx = await browser.newContext({ viewport: { width: 1440, height: 900 }, locale: 'en-GB', timezoneId: 'UTC', serviceWorkers: 'block', reducedMotion: 'reduce' });
+  ctx = await browser.newContext({ viewport: { width: 1440, height: 900 }, locale: 'en-GB', timezoneId: 'UTC', serviceWorkers: 'block', reducedMotion: 'reduce' });
   const blocked = [], posts = [], errors = [];
   try {
-    await ctx.route('**/*', route => {
-      const u = new URL(route.request().url());
-      if (u.hostname === '127.0.0.1') return route.fallback();
-      blocked.push(`${u.protocol}//${u.host}`);
-      return route.abort('blockedbyclient');
-    });
     await NK.prepare(ctx, srv.viewer, { lang: 'en' });
     await ctx.route('**/seal-worker.mjs', route => route.abort('blockedbyclient'));
+    // the gate, registered last (run first): the fixture's exact origin, GET or HEAD only — else recorded and aborted
+    await ctx.route(() => true, route => {
+      const r = route.request(), u = new URL(r.url()), m = r.method();
+      if (u.protocol === origin.protocol && u.hostname === origin.hostname && u.port === origin.port && (m === 'GET' || m === 'HEAD')) return route.fallback();
+      (m === 'GET' || m === 'HEAD' ? blocked : posts).push(`${m} ${u.protocol}//${u.host}${u.pathname}`);
+      return route.abort('blockedbyclient');
+    });
     const page = await ctx.newPage();
     page.on('pageerror', e => errors.push(e.message));
-    page.on('request', r => { if (r.method() !== 'GET' && r.method() !== 'HEAD') posts.push(`${r.method()} ${new URL(r.url()).pathname}`); });
     await page.clock.setFixedTime(new Date(LATEST_UNIX * 1000 + 500));
     await page.goto(`${base}/frontier/index.html?devWallet=off&at=${HOME.p},${HOME.q},${HOME.tile},1.0`);
     assert.equal(await page.evaluate(() => isSecureContext && !!crypto.subtle), true, 'native secure 127.0.0.1, no insecure-origin override');
@@ -152,20 +184,25 @@ test('reduced motion: a land record changed with a panel-only redraw reaches the
     for (let i = 0; i < 10 && !differs(after, bare); i++) { await page.waitForTimeout(200); after = await sample(); }
     assert.ok(differs(after, bare), 'the board changed at the tile within 2 s of a panel-only redraw');
 
-    assert.deepEqual(posts, [], 'no request other than GET');
+    assert.equal(tripped, null, 'the monitor never tripped');
+    assert.deepEqual(posts, [], 'no request other than GET or HEAD (each was aborted before it was sent)');
     assert.deepEqual(errors, []);
-    assert.deepEqual([...new Set(blocked)], [], 'no request to any host other than 127.0.0.1 was even attempted');
+    assert.deepEqual([...new Set(blocked)], [], 'no request to any origin other than the fixture\'s (each was aborted before it was sent)');
     await NK.assertKeyless(ctx, assert);
     // the profile: within its limit, and none of the page's storage written into it
     const files = profiles().flatMap(n => walk(join(TMP, n)));
     const size = files.reduce((a, f) => { try { return a + statSync(f).size; } catch { return a; } }, 0);
-    assert.ok(size <= PROFILE_MAX, `the temporary profile stays under 300 MB (${(size / 2 ** 20).toFixed(1)} MB)`);
+    assert.ok(size <= PROFILE_MAX, `the temporary profile stays under 300 MiB (${(size / 2 ** 20).toFixed(1)} MiB)`);
     const leaked = files.filter(f => { try { const s = readFileSync(f); return STORED.some(k => s.includes(k)); } catch { return false; } });
     assert.deepEqual(leaked, [], 'no page storage in the profile on disk');
-  } finally { await ctx.close(); }
+  } finally {
+    if (tripped) await closeAll();
+  }
 });
 
-test('cleanup: Playwright removed its temporary profile and artifacts after close', async () => {
-  await browser.close(); browser = null;
+test('cleanup: this test\'s own context, browser and server closed once; Playwright removed its temporary profile and artifacts', async () => {
+  await closeAll();
+  console.log(`# monitor: tripped=${tripped ?? 'no'}; profile peak ${(peak.profile / 2 ** 20).toFixed(1)} MiB; free low ${(peak.freeLow / 2 ** 30).toFixed(2)} GiB (sampled every ${MONITOR_MS} ms)`);
+  assert.equal(tripped, null, tripped ?? '');
   assert.deepEqual(profiles(), [], JSON.stringify(readdirSync(TMP)));
 });
