@@ -333,3 +333,19 @@ verified. Heavy builds and worlds stay serial, in this session, after a report (
 - Home choice, scout train/muster and the draft's 「やめる」 are guarded against repeats and cancel cleanly. No change.
 - Candidate (not clear, not fixed): cg-go drops a draft without cancelling an armed waiting send; nothing is sent, the
   notice's reason would read 'changed'; reachability while a draft is open not traced. Local play's test entry only.
+
+### cg-go cancel path (2026-11-16, Claude)
+- Reachable on PC: the attention pill carries the conquest guide's cg-go while a draft is open. Fixed in e00ad87b
+  (cg-go → compose-close: the waiting send is cancelled and says so). Static only; no test run. Candidate e59e802c.
+
+### Lane D round 2 and Lane C land freshness integrated (2026-11-16, Claude)
+- Lane D `claude/lane-d-english-r2-20261116` @ 7fab9055 (eb6cebe9): en-frontier-play.mjs — the far-land chip's tooltip
+  no longer says "claimed" twice; the unused 「反映の目安まで（ゲーム内）」 entry dropped (no use left after c7533214);
+  web-lang-play-glossary test and the lane doc. Candidate merge 2dd62751; integration cherry-picks 57577fae, a70dd826.
+- Lane C `claude/lane-c-land-freshness-20261116` @ 1e4e000f (c14d5d21): web-frontier-land-freshness test and the lane
+  doc only; no product change. Candidate merge 2e9c0d41; integration cherry-picks (-x) of c14d5d21 and 1e4e000f.
+- Checked here, static only: diff --check, node --check (3 .mjs), no file shared with the candidate's commits since
+  aa12ce74 (the cg-go fix, docs), the removed entry unused, the Lane C test names no key/network/storage API; both
+  branches hold each lane's files byte-identical to the lane head.
+- Lane owners' runs (theirs, not repeated here): Lane D glossary 18/18, web-lang 24/24; Lane C freshness 6/6.
+  **Not run after integration** (by instruction). Canonical bcc63a24 and its 3 untracked files untouched.
