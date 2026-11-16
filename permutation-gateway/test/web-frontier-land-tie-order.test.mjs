@@ -69,3 +69,36 @@ test('not a tie: as before (a newer seq is the answer; an older seq keeps the he
   const newer = env({ seq: '901', land: land(40) }); assert.equal(latest(held, newer), newer);
   const older = env({ seq: '899', land: land(42) }); assert.equal(latest(held, older), held);
 });
+
+// (2026-11-16, review addendum — SOURCE ONLY, NOT run) only what the herald's answer can carry makes a tie: a
+// non-negative BigInt, a non-negative safe integer, or a plain decimal string (parseEnvelope: seq String(env.seq ?? ''),
+// slot / bell as they came). The same bad value on both sides is still no tie.
+test('no tie from values the answer cannot carry: booleans, spaces, signs, fractions, exponents, unsafe numbers', () => {
+  const bad = [{ seq: false }, { seq: true }, { seq: ' 900' }, { seq: '900 ' }, { seq: '-900' }, { seq: '+900' }, { seq: '9e2' }, { seq: '900.0' },
+    { slot: 81.5 }, { slot: -81 }, { slot: Number.MAX_SAFE_INTEGER + 2 }, { bell: '20x' }, { bell: -20 }, { bell: NaN }, { seq: -900n }];
+  for (const o of bad) {
+    const held = env({ ...o, land: land(41) }), slow = env({ ...o, land: land(40) });
+    assert.equal(latest(held, slow), slow, JSON.stringify(o, (k, v) => (typeof v === 'bigint' ? `${v}n` : v)));
+  }
+});
+test('values it can carry still tie: BigInt, safe integers, decimal strings', () => {
+  for (const o of [{ seq: 900n }, { slot: 81 }, { bell: '20' }, { seq: '0900' }]) {
+    const held = env({ ...o, land: land(41) }), slow = env({ ...o, land: land(40) });
+    assert.equal(latest(held, slow).land, held.land, JSON.stringify(o, (k, v) => (typeof v === 'bigint' ? `${v}n` : v)));
+  }
+});
+test('the province identity: integer p and q, a BigInt seasonId on both sides; else no protection', () => {
+  const held = env({ land: land(41) });
+  for (const pv of [province({ seasonId: 5 }), province({ seasonId: '5' }), province({ q: 0.5 }), province({ p: '2' })]) {
+    const h = env({ province: pv, land: land(41, { q: pv.q, p: pv.p }) }), slow = env({ province: pv, land: land(40, { q: pv.q, p: pv.p }) });
+    assert.equal(latest(h, slow), slow, JSON.stringify(pv, (k, v) => (typeof v === 'bigint' ? `${v}n` : v)));
+  }
+  assert.equal(latest(held, env({ land: land(40) })).land, held.land, 'the well-formed case still protects');
+});
+test('nextBell within uint32 (parseLand reads it with getUint32); beyond it, no protection', () => {
+  for (const nb of [2 ** 32, Number.MAX_SAFE_INTEGER]) {
+    const held = env({ land: land(nb) }), slow = env({ land: land(40) });
+    assert.equal(latest(held, slow), slow, String(nb));
+  }
+  const top = env({ land: land(2 ** 32 - 1) }); assert.equal(latest(top, env({ land: land(40) })).land, top.land);
+});

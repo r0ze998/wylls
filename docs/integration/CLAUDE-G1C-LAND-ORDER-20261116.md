@@ -35,3 +35,22 @@ land newer (kept, the rest the answer's), equal / newer (answer), missing or unr
 season / no seasonId / another province (answer), another province's record / invalid nextBell (answer), one-sided land
 (answer), non-ties (as before). Existing tests read for impact: `web-frontier-controller` (non-ties, unchanged) and
 `web-frontier-land-freshness` (distinct seqs; builds the body alone — kept self-contained).
+
+## Review addendum: the values, fail-closed (2026-11-16, static; NOT run)
+Contracts read in the source:
+- `herald.mjs parseEnvelope` returns `seq: String(env.seq ?? '')` and `slot` / `bell` exactly as the answer carried
+  them (unchecked for `latest`; `bell` checked equal only for a per-bell read).
+- The Province is `fcodec.mjs decode('Province', …, { seasonId })`: `p`, `q` from the bytes, `seasonId` a BigInt (u64),
+  compared with the herald's pin when pinned; `parseEnvelope` then checks `province.p/q` against the key.
+- `land.mjs parseLand` returns the envelope key's `p`, `q` (integers, checked against the bytes' i16) and `nextBell` by
+  `getUint32` (0…2³²−1); it checks the record's season only when `seasonId` is passed, i.e. when the herald is pinned
+  (the play page pins it from the season record before play: `app.mjs herald.pin`).
+Changes (inline in `latestEnvelope`):
+- `big()` accepts only a non-negative BigInt, a non-negative safe integer, or a plain decimal string (`/^\d+$/`):
+  `BigInt(false)`, spaces, signs, fractions, exponents, unsafe numbers are no value, so never a tie — even the same bad
+  value on both sides.
+- The province: integer `p` and `q`, and `typeof seasonId === 'bigint'` on both sides, equal.
+- `nextBell`: an integer in 0…2³²−1.
+Unchanged on purpose: the ordering loop above it (non-ties) keeps its earlier, permissive `BigInt()` — not this item.
+Regression: four more source-only cases in `web-frontier-land-tie-order.test.mjs` (rejected values, accepted values,
+province identity, the uint32 bound) — not run.

@@ -762,12 +762,16 @@ export function latestEnvelope(previous, next) {
   // it with a valid nextBell: the higher nextBell is the newer land, and the land already held is kept while
   // everything else (the Province, arrival slots, day, inputs) is the newer answer's. A record on one side only, or
   // none, is left as before (G1b). (Self-contained on purpose: test/web-frontier-land-freshness builds this body alone.)
-  const big = v => { if (v === undefined || v === null || v === '') return null; try { return BigInt(v); } catch { return null; } };
+  // (only what the herald's answer can carry: a non-negative BigInt, a non-negative safe integer, or a plain decimal
+  //  string — parseEnvelope keeps `seq: String(env.seq ?? '')`, `slot`/`bell` as they came. Anything else — a boolean,
+  //  spaces, a sign, a fraction, an exponent — is no value, and so no tie)
+  const big = v => (typeof v === 'bigint' ? (v >= 0n ? v : null) : typeof v === 'number' ? (Number.isSafeInteger(v) && v >= 0 ? BigInt(v) : null)
+    : typeof v === 'string' && /^\d+$/.test(v) ? BigInt(v) : null);
   const tied = ['seq', 'slot', 'bell'].every(f => { const a = big(previous[f]), b = big(next?.[f]); return a !== null && b !== null && a === b; });
   if (tied) {
     const pa = previous.province, pb = next?.province, la = previous.land, lb = next?.land;
-    const sameProvince = !!pa && !!pb && Number.isInteger(pa.p) && pa.p === pb.p && pa.q === pb.q && pa.seasonId !== undefined && pa.seasonId !== null && pa.seasonId === pb.seasonId;
-    const ofIt = l => !!l && l.p === pa?.p && l.q === pa?.q && Number.isInteger(l.nextBell) && l.nextBell >= 0;
+    const sameProvince = !!pa && !!pb && Number.isInteger(pa.p) && Number.isInteger(pa.q) && pa.p === pb.p && pa.q === pb.q && typeof pa.seasonId === 'bigint' && pa.seasonId === pb.seasonId;
+    const ofIt = l => !!l && l.p === pa?.p && l.q === pa?.q && Number.isInteger(l.nextBell) && l.nextBell >= 0 && l.nextBell <= 0xFFFFFFFF;   // (parseLand: getUint32)
     if (sameProvince && ofIt(la) && ofIt(lb) && la.nextBell > lb.nextBell) return { ...next, land: la };
   }
   return next;
