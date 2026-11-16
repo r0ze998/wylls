@@ -724,3 +724,29 @@ env -u RUST_LOG cargo +1.89.0 test --offline --locked -p permutation-frontier --
 - Hand-built accounts and syscall stubs on the host only.
 - **Not verified:** a real world, SBF, signatures, the formal ABI, a record kind, V26, migration, integration.
 - Nothing here is adopted.
+
+## What still blocks the ⑨/⑩ connection, and safe independent next pieces (2026-11-17; static survey only)
+
+### Still waiting for a decision (nothing decided here)
+
+| Who | Item |
+|---|---|
+| ④ | Tag for the rest-home step (0xEF is the only free high-band value; it is used today only as an "unused" probe in two tests). Record kinds for: the payout (44 B prepared), a job's count and release (`begin_use`, `end_use`), and a rest paid back (`pay_rest`). `CUSTODY_VERSION` and `RULESET_HASH_V4` (the kernel's meaning changed). Names for the Lot's RSV fields and the link bytes 2 and 3. A world identity (version bit) before the rest-home step may leave host tests. Custody version 5 against S2's 5, and the 0xC8 overlap if S2 returns |
+| The owner | Who may trigger a job's return once it is final (today only the user's ClaimJob). ClaimJob's need for B's own vault even when nothing goes into it. Seizure: where a seized lot's pending returns and rest go. A sub-unit rest when the owner has no vault in the province (today the lot stays open). D3 (wood and arms in lots). Two sources for one job |
+| Release | An SBF build, LiteSVM tests and measured compute budgets for each preview. A complete V26 and a capacity verifier. A deployable dispatch |
+| Migration | Whether any custody or capacity world exists is unverified. Old lots and jobs stay fail-closed until a migration with proof is approved |
+| Page | No builder or screen exists for custody or capacity, and none is warranted before adoption |
+
+**V26's position (read).**
+- It already replays CloseLot, ShipLot and WithdrawLot through this kernel (`K::close`, `K::spend_ship`; `v26_custody.rs` ~1187–2290). So design A's `empty` rule and the owner's rest payback inside `spend_ship` carry into its replay unchanged.
+- What it cannot see are the **unrecorded** steps that change a lot's returns: `begin_use` (DepositToJob), `end_use` and `pay_rest` (ClaimJob's `settle_lot`, the owner's `spend_ship`), and the rest-home payout. Each lowers `CONSUMED` or moves `REST` with no record.
+
+### Safe independent next pieces (no decision needed; all would stay unadopted)
+
+1. **Pure replay functions in the rules kernel.** Given a lot (and home) before and a prepared payload, compute the expected after-state: for the rest-home payout (`whole`, `paid`), and for `end_use` and `pay_rest`. V26 could call them once ④ allocates records, without new semantics. They can be checked against the kernel's own functions, with unrun regression source.
+2. **Prepared payload encoders** for the other unrecorded steps (`begin_use`, `end_use`, `pay_rest`), shaped like `rest_home_payload`: not emitted, no kind allocated, with a fixed length and the fields needed for replay.
+3. **A field list for ④'s allocation.** The exact byte offsets and meaning of the Lot RSV (tag `RTA1`, pending u32, rest i64) and the link byte states, written as a proposed ABI row only (not added to `frontier-abi`).
+
+**Not candidates** (each needs a decision): a permissionless return trigger, dropping ClaimJob's vault requirement, any seizure rule, any page builder, any change to the default or deployable build.
+
+**Recommendation for the next step:** item 1, then 2. They turn the prepared records into something V26 can adopt mechanically, and touch only the kernel and test sources.
