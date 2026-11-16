@@ -79,4 +79,44 @@ The full list of keys checked (108) is the `KEYS` table of
 - `permutation-gateway/test/web-lang-play-glossary.test.mjs` (new; the only test this lane adds)
 - this note
 
-No dictionary, page or other test file was changed.
+No dictionary, page or other test file was changed in round 1 (round 2 below changes two dictionary lines).
+
+## Round 2 — candidate `claude/canonical-candidate-20261116` at aa12ce74 (2026-11-16)
+
+Branch `claude/lane-d-english-r2-20261116`, cut from aa12ce74. D-1 … D-11 were already taken on integration and
+are ordinary tests there; not reapplied. Scope: every Japanese play-screen text added or changed in
+`permutation-server/web/frontier` and `web/lang/en-frontier*.mjs` between 7fc09e28 and aa12ce74.
+
+**Checked (14 new keys, added to the test's `KEYS`):** ほかの州 {0} マス, （毎時 +{0}）,
+地図で読み込んだほかの州だけを数えます…, the fort and garrison checks (この要塞にはあと {0} 人まで入れられます,
+要塞を選んでください, 入れる人数が範囲の外です, この要塞には、それだけ入る空きがありません, 入れる人数は 1 から {0} までです,
+守備隊にはあと {0} 人まで入れられます, 増やす人数は 1 以上の整数です, 守備隊には、それだけ入る空きがありません),
+この村はもう追放されています…, 城壁の工事は 2 つ先までです…, and the scout muster line 訓練した斥候を一つの隊にまとめましょう…
+(整列 is "stands" / "form up", as in every formingLine entry). New glossary terms in the test: 要塞 fort, 守備隊 garrison,
+追放 expel.
+
+**ok with a note**
+
+- **ok-2** この村はもう追放されています（国に戻す提案は…） → "a proposal to readmit it": 国 is not said, but "readmit"
+  is 国に戻す. Left as it is.
+- （毎時 +{0}） → " (+{0}/h)": the chip's tight form; full sentences say "+{0} per hour". ok.
+
+**Fixed (dictionary, this branch)**
+
+| Id | Dictionary | Key | Was | Now | Why |
+|---|---|---|---|---|---|
+| R2-1 | en-frontier-play.mjs | 地図で読み込んだほかの州だけを数えます（テスト用の世界）。地図を動かすと変わることがあります。 | Land claimed in the other provinces the map has loaded only (test world). It can change as you move the map. | Counts only the other provinces the map has loaded (test world). It can change as you move the map. | The Japanese says what is counted (only the other provinces loaded), not "land claimed"; "only" was misplaced. The tooltip sits on Lane C's land chip (`frontier/land.mjs`); the page is untouched. |
+| R2-2 | en-frontier-play.mjs | 反映の目安まで（ゲーム内） | Estimated wait (game time) | (removed) | No page uses the key since onboarding.mjs moved to the shared formingLine (completeness (c) of web-lang.test.mjs failed on it). |
+
+**Reported, not touched**
+
+- `permutation-server/web/lang/en-frontier-play.mjs.orig` (1,569 lines) is committed in the candidate. It came in with
+  bcc63a24 (the Codex WIP checkpoint), so it isn't this lane's file. It isn't a registered dictionary, but it sits
+  next to them: the owner should delete it.
+- The expedition return's lines are now marked in `hud/returncard.mjs` and have English in `en-frontier-hand.mjs`.
+  Their meaning is still an owner's open design call, and "Residence in the wide region" (滞在) sits next to resident
+  wording, so they weren't audited.
+
+**Tests (alone, pure: they import web/lang.mjs, i18n.mjs and state.mjs and read files only):**
+`node --test test/web-lang-play-glossary.test.mjs` 18 pass / 0 fail; `node --test test/web-lang.test.mjs`
+24 pass / 0 fail (it was 23 / 1 on aa12ce74, the 1 being R2-2).
