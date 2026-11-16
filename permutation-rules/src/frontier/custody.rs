@@ -275,6 +275,30 @@ pub struct Lot {
     pub orders: [Order; MAX_ORDERS],
     pub inbound: [Inbound; MAX_INBOUND],
     pub rent_to: [u8; 32],
+    /// Returns workstream 9's jobs may still owe the lot ([`Returns`]).
+    pub returns: Returns,
+}
+
+/// What workstream 9's jobs may still give back to a lot (the owner's
+/// approval of 2026-11-17, design A: a lot that may still receive a return
+/// does not close; **not adopted**: a preview, its bytes and the ruleset are
+/// unallocated). Kept in the lot's `RSV` (16 B; `layout::lot::RETURNS_*`).
+///
+/// A lot written before this record (its `RSV` all zero) is **untracked**:
+/// its pending returns are unknown, so it never counts as empty (never
+/// closes) and nothing is released on it; a zero is never read as "no
+/// pending returns". Only [`open`] makes a tracked lot.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct Returns {
+    /// The lot carries this record.
+    pub tracked: bool,
+    /// Jobs drawing on the lot whose last return is not settled yet
+    /// ([`begin_use`] counts one, [`end_use`] releases it once).
+    pub pending: u32,
+    /// Milli-units finished jobs gave back below a whole unit, gathered on
+    /// the lot until they make whole units ([`pay_rest`]). Still part of
+    /// `CONSUMED`: never dropped, never rounded.
+    pub rest: i64,
 }
 
 /// Why goods left their owner without being delivered, used or withdrawn.
@@ -335,13 +359,23 @@ impl Lot {
             && self.in_total == self.held + self.out_total + self.consumed + self.forfeited
             && self.reserved(bell) <= self.held
             && (self.state != LOT_OPEN || self.held + self.incoming() <= self.quota)
+            // the gathered rest is goods that left as CONSUMED and are owed back
+            && self.returns.rest >= 0
+            && self.returns.rest <= self.consumed
+            && (self.returns.tracked || (self.returns.pending == 0 && self.returns.rest == 0))
     }
 
-    /// Whether the lot is empty enough to close.
+    /// Whether the lot is empty enough to close: nothing held, on its way
+    /// or ordered, and (design A) nothing a job may still give back: no
+    /// pending job and no gathered rest. An untracked lot is never empty
+    /// (its pending returns are unknown).
     pub fn empty(&self, bell: u32) -> bool {
         self.held == 0
             && self.inbound.iter().all(|i| !i.live)
             && self.orders.iter().all(|o| !o.live(bell))
+            && self.returns.tracked
+            && self.returns.pending == 0
+            && self.returns.rest == 0
     }
 
     /// The lot is open and its vault is the same vault, of the same
@@ -436,6 +470,11 @@ pub fn open(
         orders: [Order::default(); MAX_ORDERS],
         inbound: [Inbound::default(); MAX_INBOUND],
         rent_to,
+        returns: Returns {
+            tracked: true,
+            pending: 0,
+            rest: 0,
+        },
     })
 }
 
@@ -769,6 +808,9 @@ pub fn spend_ship(
     to: ShipTo,
     bell: u32,
 ) -> CResult<()> {
+    // (design A) the state before, so the rest payout below cannot leave a
+    // partly spent lot behind on an error
+    let before = *lot;
     lot.usable(v)?;
     whole(qty)?;
     if let ShipTo::Lot(dst) = to {
@@ -811,6 +853,15 @@ pub fn spend_ship(
         .checked_add(qty)
         .ok_or(CustodyError::Overflow)?;
     lot.held -= qty;
+    // Design A: the owner's own send makes room, so a gathered rest a full
+    // lot could not take comes back now (no other instruction would bring
+    // it once no job is pending).
+    if matches!(by, By::Owner) && lot.returns.tracked {
+        if let Err(e) = pay_rest(v, lot) {
+            *lot = before;
+            return Err(e);
+        }
+    }
     Ok(())
 }
 
@@ -870,6 +921,85 @@ pub fn return_unused(v: &VaultView, lot: &mut Lot, qty: i64) -> CResult<()> {
     lot.held = held;
     lot.consumed -= qty;
     Ok(())
+}
+
+// ------------------------------------------------------------ returns still owed (design A)
+
+/// A workstream 9 job starts drawing on the lot (its first feed, right
+/// after [`consume`] in the same instruction): a tracked lot counts it as
+/// pending, so the lot cannot close before [`end_use`] releases it.
+/// Returns whether it was counted: an untracked lot cannot count it (its
+/// pending returns are unknown; it never closes either).
+pub fn begin_use(lot: &mut Lot) -> CResult<bool> {
+    if lot.state != LOT_OPEN {
+        return Err(CustodyError::State);
+    }
+    if !lot.returns.tracked {
+        return Ok(false);
+    }
+    lot.returns.pending = lot
+        .returns
+        .pending
+        .checked_add(1)
+        .ok_or(CustodyError::Overflow)?;
+    Ok(true)
+}
+
+/// A counted job's last return (design A): the job is final and has
+/// handed out everything, its whole units are back (`return_unused`), and
+/// `rest` (0 ≤ rest < 1 unit) is what is left of its unused goods. The rest
+/// is gathered on the lot (still `CONSUMED`), the job's count is released
+/// once, and gathered whole units go back if the lot has room
+/// ([`pay_rest`]). Refused on a lot that is not usable (a seized one keeps
+/// its count: what a seizure does to pending returns is undecided), with no
+/// count, or for a rest outside `0..MILLI` or above `CONSUMED`. All or
+/// nothing: a refusal changes nothing. Returns the whole units paid.
+pub fn end_use(v: &VaultView, lot: &mut Lot, rest: i64) -> CResult<i64> {
+    lot.usable(v)?;
+    if !lot.returns.tracked || lot.returns.pending == 0 {
+        return Err(CustodyError::State);
+    }
+    if !(0..MILLI).contains(&rest) {
+        return Err(CustodyError::Quantity);
+    }
+    let mut l = *lot;
+    l.returns.rest = l
+        .returns
+        .rest
+        .checked_add(rest)
+        .ok_or(CustodyError::Overflow)?;
+    if l.returns.rest > l.consumed {
+        return Err(CustodyError::Quantity);
+    }
+    l.returns.pending -= 1;
+    let paid = pay_rest(v, &mut l)?;
+    *lot = l;
+    Ok(paid)
+}
+
+/// The gathered rest's whole units back into `HELD` when the lot has room
+/// (as [`return_unused`]: un-consumed, `IN_TOTAL` unchanged); what is
+/// below a unit, or finds no room, stays gathered. Returns the milli paid
+/// (0: nothing whole, or no room). A tracked, usable lot only.
+pub fn pay_rest(v: &VaultView, lot: &mut Lot) -> CResult<i64> {
+    lot.usable(v)?;
+    if !lot.returns.tracked {
+        return Err(CustodyError::State);
+    }
+    let due = lot.returns.rest / MILLI * MILLI;
+    if due == 0 {
+        return Ok(0);
+    }
+    let mut l = *lot;
+    match return_unused(v, &mut l, due) {
+        Ok(()) => {
+            l.returns.rest -= due;
+            *lot = l;
+            Ok(due)
+        }
+        Err(CustodyError::Capacity) => Ok(0),
+        Err(e) => Err(e),
+    }
 }
 
 // ------------------------------------------------------------ seizure
@@ -940,7 +1070,7 @@ pub mod layout {
     //! `frontier_abi::v2::layout::s1` and the two amendments to `vault` and
     //! `caravan`, taken from their reserves (no account grows).
 
-    use super::{Inbound, Lot, Order, PlaceRef, MAX_INBOUND, MAX_ORDERS};
+    use super::{Inbound, Lot, Order, PlaceRef, Returns, MAX_INBOUND, MAX_ORDERS};
 
     /// Lot (576 B): `cl‖P,Q,tile,gen,owner_tag,resource`. Kind 24, entity kind
     /// 14 [proposal: the next free numbers on 4cd901de; ④ assigns].
@@ -972,6 +1102,15 @@ pub mod layout {
         pub const INBOUND_SIZE: usize = 24;
         pub const RENT_TO: usize = 528;
         pub const RSV: usize = 560;
+        /// Design A's [`super::super::Returns`] inside `RSV` (16 B, **not
+        /// allocated**: the ABI's layout still names the bytes `RSV`;
+        /// workstream 4 names them at adoption): a tag (`RETURNS_TAG`, or
+        /// all zero for a lot written before), the pending count, the
+        /// gathered rest.
+        pub const RETURNS_MARK: usize = RSV;
+        pub const RETURNS_PENDING: usize = RSV + 4;
+        pub const RETURNS_REST: usize = RSV + 8;
+        pub const RETURNS_TAG: u32 = u32::from_le_bytes(*b"RTA1");
 
         /// Within an order: KIND u8, rsv u8, PURPOSE u16, ID u32, EXPIRES_BELL
         /// u32, DST place (8), GRANTEE [32] at 20, rsv 4, QTY_LEFT i64 at 56.
@@ -1091,6 +1230,18 @@ pub mod layout {
                     qty: i64_at(d, b + L::inbound::QTY),
                 };
             }
+            // Design A's record: tagged, or all zero (a lot written before:
+            // untracked, its pending returns unknown); anything else is not
+            // a lot of ours.
+            let returns = match u32_at(d, L::RETURNS_MARK) {
+                L::RETURNS_TAG => Returns {
+                    tracked: true,
+                    pending: u32_at(d, L::RETURNS_PENDING),
+                    rest: i64_at(d, L::RETURNS_REST),
+                },
+                0 if d[L::RSV..L::SIZE].iter().all(|b| *b == 0) => Returns::default(),
+                _ => return None,
+            };
             Some(Lot {
                 p: u16_at(d, L::P) as i16,
                 q: u16_at(d, L::Q) as i16,
@@ -1112,6 +1263,7 @@ pub mod layout {
                 orders,
                 inbound,
                 rent_to: arr32(d, L::RENT_TO),
+                returns,
             })
         }
 
@@ -1119,7 +1271,9 @@ pub mod layout {
         /// program's). `d` must be at least `lot::SIZE`.
         pub fn encode(&self, d: &mut [u8]) -> Option<()> {
             use lot as L;
-            if d.len() < L::SIZE {
+            // An untracked lot carries no returns: checked before any byte
+            // is written, so a refusal leaves `d` as it was.
+            if d.len() < L::SIZE || (!self.returns.tracked && self.returns != Returns::default()) {
                 return None;
             }
             d[..8].copy_from_slice(&L::MAGIC);
@@ -1166,6 +1320,14 @@ pub mod layout {
             }
             d[L::RENT_TO..L::RENT_TO + 32].copy_from_slice(&self.rent_to);
             d[L::RSV..L::SIZE].fill(0);
+            // An untracked lot stays untracked (all zero): it is never
+            // upgraded by being written.
+            if self.returns.tracked {
+                d[L::RETURNS_MARK..L::RETURNS_MARK + 4].copy_from_slice(&L::RETURNS_TAG.to_le_bytes());
+                d[L::RETURNS_PENDING..L::RETURNS_PENDING + 4]
+                    .copy_from_slice(&self.returns.pending.to_le_bytes());
+                w64(d, L::RETURNS_REST, self.returns.rest as u64);
+            }
             Some(())
         }
     }
@@ -1224,6 +1386,11 @@ pub mod layout {
                 orders: [Order::default(); MAX_ORDERS],
                 inbound: [Inbound::default(); MAX_INBOUND],
                 rent_to: [3; 32],
+                returns: Returns {
+                    tracked: true,
+                    pending: 2,
+                    rest: 700,
+                },
             };
             l.orders[2] = Order {
                 kind: ORDER_SHIP,

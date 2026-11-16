@@ -789,13 +789,59 @@ fn capacity_lot_ore_feeds_a_job_and_what_it_does_not_use_goes_back() {
         120 * MILLI,
         "none of the lot's ore to B"
     );
+    // Design A (2026-11-17; WRITTEN, NOT RUN): the job is final, so the
+    // sub-unit rest goes to the lot's books and the lot's count of this job
+    // is released, once. (Before design A the 500 stayed owed in the job,
+    // which could then never retire.)
     let link = crate::proc::capacity::link_of(&t.job(1, 1).try_borrow_data().unwrap()).unwrap();
-    assert_eq!((link.taken, link.returned, link.owed), (31 * MILLI, 0, 500));
+    assert_eq!((link.taken, link.returned, link.owed), (31 * MILLI, 500, 0));
+    assert_eq!(link.count, crate::proc::capacity::Count::Released);
     let l = lot_now(&lot_ai);
-    assert_eq!(l.consumed, 31 * MILLI, "a sub-unit rest cannot go back yet");
-    assert_eq!(l.in_total, l.held + l.out_total + l.consumed + l.forfeited);
-    // The job keeps what it owes: it cannot retire.
-    assert_eq!(t.retire(job), Err(err(cap::CapError::NotRetirable)));
+    assert_eq!(l.consumed, 31 * MILLI, "a sub-unit rest is still CONSUMED, never rounded");
+    assert_eq!((l.returns.pending, l.returns.rest), (0, 500));
+    assert!(l.balanced(bell));
+    assert!(!l.empty(bell), "the lot keeps the owner's 500 milli: it does not close");
+    // A second claim releases nothing again.
+    let lot_before = l;
+    assert_eq!(
+        claim(&mut t, &[with_writable(&lot_vault, false), lot_ai.clone()]),
+        Ok(())
+    );
+    assert_eq!(lot_now(&lot_ai), lot_before, "released once");
+    // Nothing is owed and nothing counted: the job may retire.
+    assert_eq!(t.retire(job), Ok(()));
+}
+
+/// Design A (WRITTEN, NOT RUN): the link's first byte carries the count
+/// (0 not fed, 1 fed and not counted, 2 pending, 3 released); any other byte
+/// is not a job of ours.
+#[cfg(feature = "custody-preview")]
+#[test]
+fn capacity_link_count_states() {
+    use crate::proc::capacity::{link_of, Count, JOB_SPACE};
+    // The link is the job account's last 57 bytes (fed/count u8, lot [32],
+    // taken, returned, owed i64): `proc::capacity::LINK_AT`.
+    let link_at = JOB_SPACE - (1 + 32 + 8 + 8 + 8);
+    let mut d = vec![0u8; JOB_SPACE];
+    d[link_at + 49..link_at + 57].copy_from_slice(&500i64.to_le_bytes());
+    for (b, fed, count) in [
+        (0u8, false, Count::None),
+        (1, true, Count::None),
+        (2, true, Count::Pending),
+        (3, true, Count::Released),
+    ] {
+        d[link_at] = b;
+        let l = link_of(&d).unwrap();
+        assert_eq!((l.fed, l.count, l.owed), (fed, count, 500));
+    }
+    d[link_at] = 4;
+    assert!(link_of(&d).is_err());
+    // Paper case in the dispatch, on the setup of the test above, the link
+    // rewritten to byte 1 (a job of before) with owed 500 on the tracked
+    // lot: a further DepositToJob from that lot is NotImplemented; ClaimJob
+    // with the lot pair is Ok and leaves the lot and the link byte-for-byte
+    // as they were (the debt is kept, the books never mix); the job does not
+    // retire (owed 500).
 }
 
 /// The same with a whole unit to give back: 30 ore taken, 14.5 arms made

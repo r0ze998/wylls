@@ -92,24 +92,47 @@ pub(crate) const JOB_SPACE: usize = LINK_AT + LINK_LEN;
 /// full lot could not take). The goods a lot lends a job are the lot's:
 /// what the job does not use goes back (the owner's decision of
 /// 2026-11-06), never to the user.
+///
+/// Design A (the owner's approval of 2026-11-17; not adopted): a job fed
+/// from a tracked lot is counted in the lot's pending returns
+/// (`custody::begin_use`) and released once, at its last return
+/// (`custody::end_use`). The count lives in the same byte as `fed`: 0 not
+/// fed, 1 fed and not counted (a job of before, or an untracked lot: its
+/// lot never closes), 2 counted and pending, 3 counted and released.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub(crate) struct Link {
     pub fed: bool,
+    pub count: Count,
     pub lot: Key,
     pub taken: i64,
     pub returned: i64,
     pub owed: i64,
 }
 
+/// Where a fed job stands in its lot's pending returns (design A).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(crate) enum Count {
+    /// Not counted: not fed, or fed before (or from an untracked lot).
+    #[default]
+    None,
+    /// Counted: the lot waits for this job's last return.
+    Pending,
+    /// Counted and released: its last return is settled.
+    Released,
+}
+
 pub(crate) fn link_of(d: &[u8]) -> R<Link> {
     let r = Ro(d);
-    let fed = match r.u8(LINK_AT)? {
-        0 => false,
-        1 => true,
+    let (fed, count) = match r.u8(LINK_AT)? {
+        0 => (false, Count::None),
+        1 => (true, Count::None),
+        2 => (true, Count::Pending),
+        3 => (true, Count::Released),
         _ => return Err(BAD_ACCOUNT),
     };
     Ok(Link {
         fed,
+        count,
         lot: r.arr(LINK_AT + 1)?,
         taken: r.i64(LINK_AT + 33)?,
         returned: r.i64(LINK_AT + 41)?,
@@ -120,7 +143,14 @@ pub(crate) fn link_of(d: &[u8]) -> R<Link> {
 fn put_link(ai: &AccountInfo, l: &Link) -> R<()> {
     let mut d = ai.try_borrow_mut_data()?;
     let mut w = Rw(&mut d);
-    w.set_u8(LINK_AT, l.fed as u8)?;
+    let b = match (l.fed, l.count) {
+        (false, Count::None) => 0,
+        (true, Count::None) => 1,
+        (true, Count::Pending) => 2,
+        (true, Count::Released) => 3,
+        (false, _) => return Err(BAD_ACCOUNT),
+    };
+    w.set_u8(LINK_AT, b)?;
     w.set_arr(LINK_AT + 1, &l.lot)?;
     w.set_i64(LINK_AT + 33, l.taken)?;
     w.set_i64(LINK_AT + 41, l.returned)?;
@@ -818,9 +848,14 @@ pub fn claim(p: &Pubkey, a: &[AccountInfo], x: CapData) -> R<()> {
             }
         }
     }
+    // Design A: the job is final once it is not open and has handed out
+    // everything (`cap::retire`'s test); only then can its lot's count go.
+    let fin = jj.fin != cap::Fin::Open
+        && jj.claimed == jj.settled
+        && (jj.refunded || jj.rest() == [0, 0]);
     let paid = match lot {
         [] => false,
-        [lv, l] if link.fed => lots::pay_owed(p, &pl.ctx, sid, lv, l, &mut link)?,
+        [lv, l] if link.fed => lots::settle_lot(p, &pl.ctx, sid, lv, l, &mut link, fin)?,
         _ => return Err(FrontierError::TooManyAccounts.into()),
     };
     if ev.is_none() && !paid {
@@ -973,9 +1008,13 @@ pub fn retire(p: &Pubkey, a: &[AccountInfo], x: CapData) -> R<()> {
                 return Err(FrontierError::TooManyAccounts.into());
             };
             let j = job_at(p, &ctx, &pool, job_ai, grant, job)?;
-            if j.is_some() && link_of(&job_ai.try_borrow_data()?)?.owed != 0 {
-                // Ore still owed to a lot: the record keeps it.
-                return Err(cap_err(CapError::NotRetirable));
+            if j.is_some() {
+                let lk = link_of(&job_ai.try_borrow_data()?)?;
+                // Ore still owed to a lot, or (design A) a lot still
+                // counting this job: the record keeps it.
+                if lk.owed != 0 || lk.count == Count::Pending {
+                    return Err(cap_err(CapError::NotRetirable));
+                }
             }
             let done = cap::retire(&mut pool, j.as_ref(), (grant, job)).map_err(cap_err)?;
             if events(done).is_some() {
@@ -1074,6 +1113,11 @@ mod lots {
         }
         let key = lot_ai.key.to_bytes();
         let own_ore = j.as_ref().map_or(0, |j| j.hopper[0] - link.taken);
+        if link.fed && link.count == Count::None && l.returns.tracked {
+            // A job of before (not counted) cannot draw on a tracked lot:
+            // the lot could not wait for its return (design A, fail-closed).
+            return Err(FrontierError::NotImplemented.into());
+        }
         if (link.fed && link.lot != key) || own_ore != 0 {
             // A second lot, or the user's own ore already in: two sources
             // (undecided).
@@ -1108,6 +1152,16 @@ mod lots {
             pl.pc.now_bell,
         )
         .map_err(cerr)?;
+        // Design A: the job's first feed from this lot counts it in the
+        // lot's pending returns (a tracked lot; an untracked one cannot
+        // count it and never closes).
+        if !link.fed {
+            link.count = if kc::begin_use(&mut l).map_err(cerr)? {
+                Count::Pending
+            } else {
+                Count::None
+            };
+        }
         put_lot(lot_ai, &l)?;
         link.fed = true;
         link.lot = key;
@@ -1132,36 +1186,85 @@ mod lots {
         )
     }
 
-    /// Pays the whole units owed to the job's lot if it can take them now
-    /// (usable, room; workstream 10's `return_unused`). Returns whether it
-    /// paid.
-    pub(super) fn pay_owed(
+    /// The lot's side of a ClaimJob (workstream 10's `return_unused`, and
+    /// design A's release): pays the whole units owed to the job's lot if
+    /// it can take them now (usable, room); once the job is `fin`al with
+    /// less than a unit owed, a counted job gives that rest to the lot and
+    /// its count is released, once (`end_use`); otherwise a tracked lot
+    /// takes back whole units of its gathered rest if it has room
+    /// (`pay_rest`). A seized (frozen) or full lot keeps everything owed
+    /// and the count pending. Returns whether anything changed.
+    ///
+    /// A counted link names the same lot it was counted on: a lot with a
+    /// pending count is never empty, so it never closed and was never
+    /// opened again at that address.
+    pub(super) fn settle_lot(
         p: &Pubkey,
         ctx: &addr::AddrCtx,
         sid: u64,
         vault: &AccountInfo,
         lot_ai: &AccountInfo,
         link: &mut Link,
+        fin: bool,
     ) -> R<bool> {
         if lot_ai.key.to_bytes() != link.lot {
             return Err(BAD_ACCOUNT);
         }
-        let due = link.owed / permutation_rules::fixed::MILLI * permutation_rules::fixed::MILLI;
-        if due == 0 {
+        let milli = permutation_rules::fixed::MILLI;
+        let due = link.owed / milli * milli;
+        let release = fin && link.count == Count::Pending;
+        if due == 0 && !release && link.count != Count::Pending {
             return Ok(false);
         }
         let (mut l, v) = lot_and_vault(p, ctx, sid, vault, lot_ai)?;
-        match kc::return_unused(&v, &mut l, due) {
-            Ok(()) => {
-                put_lot(lot_ai, &l)?;
-                link.owed -= due;
-                link.returned += due;
-                Ok(true)
-            }
-            // Frozen (its vault seized) or full: it stays owed.
-            Err(CustodyError::Forfeited | CustodyError::Capacity) => Ok(false),
-            Err(e) => Err(cerr(e)),
+        if link.count == Count::None && l.returns.tracked {
+            // A job of before on a lot of now at the same address (the old
+            // lot closed and a new one opened): the two lots' books must
+            // not mix. Fail-closed: the debt stays in the job, unchanged.
+            return Ok(false);
         }
+        // Copies: `link` and the lot account change only once every step
+        // (and the lot's write) succeeded, so an error leaves both as they
+        // were, whatever the caller does with it.
+        let mut lk = *link;
+        let mut changed = false;
+        if due > 0 {
+            match kc::return_unused(&v, &mut l, due) {
+                Ok(()) => {
+                    lk.owed -= due;
+                    lk.returned += due;
+                    changed = true;
+                }
+                // Frozen (its vault seized) or full: it stays owed.
+                Err(CustodyError::Forfeited | CustodyError::Capacity) => {}
+                Err(e) => return Err(cerr(e)),
+            }
+        }
+        if release && lk.owed < milli {
+            match kc::end_use(&v, &mut l, lk.owed) {
+                Ok(_) => {
+                    lk.returned += lk.owed;
+                    lk.owed = 0;
+                    lk.count = Count::Released;
+                    changed = true;
+                }
+                // Seized: the count stays (a seizure's effect on pending
+                // returns is undecided).
+                Err(CustodyError::Forfeited) => {}
+                Err(e) => return Err(cerr(e)),
+            }
+        } else if l.returns.tracked {
+            match kc::pay_rest(&v, &mut l) {
+                Ok(n) => changed |= n > 0,
+                Err(CustodyError::Forfeited) => {}
+                Err(e) => return Err(cerr(e)),
+            }
+        }
+        if changed {
+            put_lot(lot_ai, &l)?;
+            *link = lk;
+        }
+        Ok(changed)
     }
 
     fn key_of(ai: &AccountInfo) -> Key {
@@ -1194,13 +1297,14 @@ mod lots {
         Err(FrontierError::BadData.into())
     }
 
-    pub(super) fn pay_owed(
+    pub(super) fn settle_lot(
         _p: &Pubkey,
         _ctx: &addr::AddrCtx,
         _sid: u64,
         _vault: &AccountInfo,
         _lot: &AccountInfo,
         _link: &mut Link,
+        _fin: bool,
     ) -> R<bool> {
         Err(FrontierError::BadData.into())
     }
