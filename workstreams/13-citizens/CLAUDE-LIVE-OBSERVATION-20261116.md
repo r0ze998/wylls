@@ -573,5 +573,37 @@ Nothing here was implemented, run, signed, spent or sent. WS4's unproven or held
   - a failed read is `not_read` with runexec's code, and 12 gets nothing;
   - page sources are exclusive, checked before anything starts.
 - **12 `test/ws04-observation.test.mjs`** (+2): store-mode carry and refusals; a plain page unchanged; the unsafe ordinal.
-- **What a run would touch:** these tests start no process, open no socket, and read or write no file (the command reads files only for `--binding` / `--rpc-binding` / `--ws04-observation`, none given). They use no key, signing, sending or spending.
+- **What a run would touch:** these tests start no process (beyond the test runner's own) and open no socket. They write no file and open no database. They use no key, signing, sending or spending. **Corrected (2026-11-17):** they do read files:
+  - module loading reads this repository's sources;
+  - the source pins read some of them again with `readFileSync`: 13's client test reads `ws04-observe.mjs` and `resident.mjs`; 12's observation test reads its adapters.
+
+  The command itself reads no file here: `--binding`, `--rpc-binding` and `--ws04-observation` are not given.
 - **Where they would run:** 13's `run.sh` globs `test/*.test.mjs`, so the 13 file would run there. The two 12 files are not in `tools/keyfree-tests.txt`.
+
+### The CLI test's I/O, pinned (2026-11-17)
+
+**The gap:** `12-memory/test/ws04-observe-cli.test.mjs` gave `main` a herald answering 503, and relied on `observeLive` returning before it reads the store. Had that changed, `observeLive` would have fallen back to the real SQLite reader (`io.readStore ?? readWs04Store`). A throwing stub alone would not prove anything, because `observeLive` catches a store reader's throw.
+
+**Now every injected function refuses and counts its calls, and the counts are asserted:**
+- **`readStore`:** 0 calls. No database is chosen or opened.
+- **`rpc`:** 0 calls.
+- **`getJson`:** only the fake herald's `/h/season` and `/h/events?after=0`.
+- **A usage error:** 0 calls of every kind.
+
+**Static review of what the three test files load** (read, not run):
+- **The import closure** is 22 modules (12's adapters and `src`, 13's command, ports, frame and assembly, and the gateway's `citizens/memory/config.mjs` and `citizens/mind/sanitize.mjs`). They use Node built-ins only (`assert/strict`, `child_process`, `crypto`, `fs`, `path`, `sqlite`, `test`, `url`, `util`), and **no npm package**.
+- **Nothing runs on load** except definitions:
+  - the command's `main` guard compares `process.argv[1]` with the command's own file, and under `node --test` that is the test file, so `main` does not run;
+  - `sanitize.mjs` builds a regex constant from a frozen empty list;
+  - no module reads the environment on load;
+  - the gateway's `readJson` is defined, never called;
+  - `Journal.open(null)` touches no file.
+- **The fakes:** `execFile`, `getJson`, `rpc` and `readStore` are all injected. `readDecl` reads nothing without `--binding` / `--rpc-binding`.
+- **These are not the refused tests:** not the gateway's `web-frontier-build-walls-items` / `web-frontier-muster-province-full`, their runner, any world, or an equivalent path.
+
+**The Node runtime matters:**
+- The `node` on PATH is v20.19.4 (`/opt/homebrew/opt/node@20`), which has no `node:sqlite` and no JSON.parse reviver source text. 12's README asks for Node 22.
+- So 12's two files would fail under it: `canonical.mjs` imports `node:sqlite`, and `parseJsonU64` needs the source text.
+- `/opt/homebrew/opt/node/bin/node` is v23.11.0, which has both.
+
+**Status:** not run.
