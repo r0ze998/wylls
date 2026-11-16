@@ -46,9 +46,25 @@ export const oreExtraFor = h => { try { const v = h && Number.isInteger(h.tile) 
 export function seasonBase(baseOfTier, h, { oreExtra = oreExtraFor(h), bonusPct = 0 } = {}) {
   if (!on) return baseOfTier;
   const b = baseOfTier.slice();
-  b[3] = Number.isInteger(oreExtra) ? s1OreBase(oreExtra, bonusPct) : null;
+  // (lane C P3, 2026-11-16: the program reads the terrain ore stored on the holding (holding2 TERRAIN_ORE, proc/
+  //  holding.rs terrain_ore) for arms::base_production in copy_number and settle_tiered, not the map. So a stored
+  //  value is used first, as `terrain_ore × (100 + bonus) / 100`; the map's reading (registered or passed) only when
+  //  the holding carries none. Without either the ore base stays unknown (null), as before.)
+  const stored = storedTerrainOre(h);
+  b[3] = stored !== null ? (stored * BigInt(100 + (bonusPct | 0))) / 100n : Number.isInteger(oreExtra) ? s1OreBase(oreExtra, bonusPct) : null;
   return b;
 }
+/**
+ * The terrain ore stored on a decoded S1 Holding (`terrainOre`, i64 milli-units an hour, written at founding or capture),
+ * or null when there is none to trust: absent (a v1 record, a hand-built fixture), not an integer, or not above 0 (a
+ * written value is at least ORE_BASE_PER_HOUR × 1000; zeros are the field's reserved bytes in an older record, which
+ * arms.rs holding_base_production also reads as "no terrain ore").
+ */
+export const storedTerrainOre = h => {
+  const v = h?.terrainOre;
+  const n = typeof v === 'bigint' ? v : Number.isSafeInteger(v) ? BigInt(v) : null;
+  return n !== null && n > 0n ? n : null;
+};
 /** The workshop: build item 8, arms production per copy and per hour, ore and wood used per arm, its first copy's cost. */
 export const WORKSHOP = Object.freeze({
   item: 8, resource: 'Horses', perHour: 4, orePerArm: 2, woodPerArm: 1,
