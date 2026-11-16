@@ -3,6 +3,7 @@
 import { RESOURCE_JA, signRecord, ownerTagOf, RESOURCES } from './record.mjs';
 import { pendingSendOf } from './pending.mjs';
 import { deliveredText, FULFILMENT_JA } from './ws04.mjs';
+import { fulfilBoundsText, jointPrecisionText } from './fulfil-bounds.mjs';
 import { STATE_JA } from './arrival.mjs';
 import * as W from '../../../permutation-server/web/wallet.mjs';
 import { equal } from '../../../permutation-server/web/sdk/bytes.mjs';
@@ -98,7 +99,7 @@ function renderJoint() {
         <div><b>${esc(short(j.host))}</b>（${j.hostNation === null ? `<span class="warn">国籍未検証</span>` : esc(nationName(j.hostNation))}）の貯蔵庫：
           <span class="tag ${j.done ? 'ok' : 'warn'}" data-testid="joint-status">${j.done ? '達成（記録だけ）' : 'まだ達成と言えない'}</span></div>
         <div>${j.progress.map(p => `${esc(RESOURCE_JA[p.resource])} <b data-testid="joint-${p.resource}">${p.verified}</b>／${p.need}`).join('　')}（数えた入荷量の下限。資源ごと。合計しない）</div>
-        <div class="note" data-testid="joint-precision">整数単位。記録は到着1件ごとにミリ単位を切り捨てた値なので、本当の量は表示より ${j.progress.map(p => `${esc(RESOURCE_JA[p.resource])} ${p.underBy} 未満`).join('・')} 多いことがある（件数ぶん）</div>
+        <div class="note" data-testid="joint-precision">${esc(jointPrecisionText(j.progress, RESOURCE_JA))}</div>
         <div class="note" data-testid="joint-why">${esc(j.judgeLabel)}：${esc(j.why)}</div>
         <div class="note">確かめた他国：${j.otherNations.length ? j.otherNations.map(nationName).join('・') : 'なし'}${j.nationsUnverified.length ? `（<span class="warn" data-testid="nation-unverified">${esc(j.nationsUnverified.join('、'))}</span>）` : ''}。輸送中・不明の隊商 ${j.unverifiedCaravans} 本、到着したが数えられない隊商（入った量を確認できない・受取人や時刻が未検証）${j.unprovenDeliveries} 本（どちらも数えない。0 個とは言わない）</div>
       </div>`).join('') : '<div class="note">まだ依頼はない</div>'}`;
@@ -146,7 +147,7 @@ function renderRequests() {
       <div class="note">応答：${esc(others || 'まだない')}</div>
       ${open && q.destination?.status === 'mismatch' ? `<div class="warn" data-testid="req-destination" data-status="mismatch">届け先が、いま依頼した人の村ではない：${esc(q.destination.why)}。この依頼に送っても、届いた量は数えられない（送る・結び付けるは出さない）</div>` : ''}
       ${open && q.destination?.status === 'unknown' ? `<div class="warn" data-testid="req-destination" data-status="unknown">届け先の村を今は確かめられない：${esc(q.destination.why)}。確かめられるまで、送る・結び付けるは出さない（読み直すと、また確かめる）</div>` : ''}
-      <div class="note" data-testid="req-fulfilment" data-status="${esc(q.fulfilment?.status ?? '')}">依頼の充足：${esc(FULFILMENT_JA[q.fulfilment?.status] ?? '—')}${q.fulfilment && q.fulfilment.status !== 'none' ? `。数えた量の下限 ${esc(needText(q.fulfilment.lower))}${q.fulfilment.upperExclusive ? `、上限 ${esc(needText(q.fulfilment.upperExclusive))} 未満` : ''}${q.fulfilment.open ? `、終わっていない ${q.fulfilment.open} 本${q.fulfilment.held ? `（うち原因を確認中 ${q.fulfilment.held}）` : ''}` : ''}${q.fulfilment.unproven ? `、到着したが数えられない ${q.fulfilment.unproven} 本` : ''}${q.fulfilment.knownZero ? `、届かなかった ${q.fulfilment.knownZero} 本` : ''}` : ''}</div>
+      <div class="note" data-testid="req-fulfilment" data-status="${esc(q.fulfilment?.status ?? '')}">依頼の充足：${esc(FULFILMENT_JA[q.fulfilment?.status] ?? '—')}${q.fulfilment && q.fulfilment.status !== 'none' ? `。${esc(fulfilBoundsText(q.fulfilment, RESOURCE_JA))}${q.fulfilment.open ? `、終わっていない ${q.fulfilment.open} 本${q.fulfilment.held ? `（うち原因を確認中 ${q.fulfilment.held}）` : ''}` : ''}${q.fulfilment.unproven ? `、到着したが数えられない ${q.fulfilment.unproven} 本` : ''}${q.fulfilment.knownZero ? `、届かなかった ${q.fulfilment.knownZero} 本` : ''}` : ''}</div>
       <div class="row">
         ${mine && open ? `<button data-act="cancel-self" data-id="${esc(q.id)}">取り消す（自分で進める）</button><button data-act="cancel-other" data-id="${esc(q.id)}">取り消す（ほかの理由）</button>` : ''}
         ${!mine && open && !accepted ? `<button data-act="accept" data-id="${esc(q.id)}">応じる（送るつもり。義務はない）</button><button data-act="decline" data-id="${esc(q.id)}">断る</button>` : ''}

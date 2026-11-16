@@ -760,5 +760,7 @@ test('単位と精度：共同の目的の量は、到着の記録の整数（1�
   assert.equal(wood.verified, 200);
   assert.equal(wood.unit, 'whole');
   assert.equal(wood.underBy, 2, '2件：本当の量は 200 以上 202 未満');
-  assert.equal(j.progress.find(p => p.resource === 'stone').underBy, 0);
+  // 訂正（2026-11-17、Lane C）：石材の記録は 0 でも、数えた到着 2 件はそれぞれ［0, 1）（④ QUANTITY-CONTRACT §3「b＝0 でも 0 とは限らない」、
+  // §4 の n は RuleDerived・Recorded の run の数）。以前の期待 0 は、記録 0 の到着を件数から外していた。送った荷から 0 と推し量ることはしない
+  assert.equal(j.progress.find(p => p.resource === 'stone').underBy, 2, '石材も 2 件：本当の量は 0 以上 2 未満');
 });
