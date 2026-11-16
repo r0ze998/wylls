@@ -92,6 +92,14 @@ Beyond the capture lock (already done), the village actions' cost, slot and queu
   0 fail, 1 skipped. Unit/fixture only. Already mirrored: NotFinal, NotResident, CapturePending, the reserve (the
   drawer form is disabled when short; the hand says NoReserve below 100 musterable). Not re-audited in this round: the
   troop count's own 100–30,000 range per form, and the muster tile (passable, inside the Province).
-- Garrison: NotFinal / NotResident / CapturePending mirrored. Open (next): the form does not check the Spearman reserve
-  (Insufficient) or the garrison's room (30,000 after pending changes, TooLarge); the page holds both (reserve, the
-  site mirror's garrison and pending items).
+- Garrison: one gap fixed. The form sent any number; garrison_as refuses n ≤ 0 (BadData), a short Spearman reserve
+  (Insufficient) and, in GarrisonState::change, a change above the room (30,000 less the troops and the changes still
+  pending, after the changes of turns before resolved_next are applied; HOST_TOO_LARGE). `fland.mjs` `garrisonRoom`,
+  `screens/holding.mjs` `garrisonProblem`/`garrisonProblemText`, the controller before signing (not under the wide
+  card: WideReadOnly answers first); texts BadTroops (own words), GarrisonFull (JA/EN). Without a reserve read or the
+  village's own mirror the program decides. Its NotFinal / NotResident / CapturePending were already mirrored
+  (actionBlocks, which disables the form). HostBusy (no pending slot) is not reachable once NotResident passes (the
+  pending turns left are b−1 and b; the same turn merges). Integration 80c51b92, candidate merge edafa56b. Test
+  `web-frontier-garrison-checks.test.mjs` 5/5; with wide-holding-ui, errors and lang 56/56; ordinary subset 1798:
+  1797 pass, 0 fail, 1 skipped. (A first version also held the action's blocks and refused before the wide card's
+  WideReadOnly — web-frontier-wide-holding-ui failed; narrowed before commit.) Unit/fixture only.
