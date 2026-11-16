@@ -104,6 +104,12 @@ export function landSummary(FS, h, f) {
   if (!h || !Number.isInteger(f)) return null;
   const env = FS?.provinces?.get?.(`${h.p},${h.q}`);
   if (!env?.land) return null;
+  // (G1, 2026-11-16: refresh() adopts the holdings from /h/me before it reads their envelopes one by one, and the chip is
+  //  drawn every second meanwhile. An envelope read before this village was founded does not list it among its nation's
+  //  villages, so the divisor below would be short (a second village in the province showed double the bonus). While
+  //  the envelope's site does not show this village as its nation's, the two are of different reads: no line.)
+  const mirror = env.province?.siteMirror;
+  if (Number.isInteger(h.site) && Array.isArray(mirror) && h.site < mirror.length && !(mirror[h.site]?.state === 1 && mirror[h.site]?.faction === f)) return null;
   const villages = (env.province?.siteMirror ?? []).filter(s => s?.state === 1 && s?.faction === f).length;
   const claimed = env.land.claimed[f] ?? 0;
   const bps = villages > 0 ? Math.min(Math.floor(claimed * BONUS.PER_TILE_BPS / villages), BONUS.CAP_BPS) : 0;
