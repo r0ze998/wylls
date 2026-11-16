@@ -103,3 +103,19 @@ Beyond the capture lock (already done), the village actions' cost, slot and queu
   `web-frontier-garrison-checks.test.mjs` 5/5; with wide-holding-ui, errors and lang 56/56; ordinary subset 1798:
   1797 pass, 0 fail, 1 skipped. (A first version also held the action's blocks and refused before the wide card's
   WideReadOnly — web-frontier-wide-holding-ui failed; narrowed before commit.) Unit/fixture only.
+
+## Muster troop count and tile; Explore tiles (2026-11-16) — no refusal gap
+- Muster troop count: muster_as → Host::muster refuses below 100 and above 30,000 (MIN/MAX_HOST_TROOPS, kernel
+  HOST_TOO_SMALL/LARGE), a short reserve (Insufficient) and a Settler (NotAHostUnit). The drawer form's input is
+  min 100, max 30,000, step 1 and the page's submit handler runs only after the browser's validation (app.mjs
+  `submit` listener); the button is disabled when the reserve is short (musterShown). The hand's draft clamps to
+  100…min(30,000, reserve) (hud/hand.mjs musterDraft). Settlers are left out of both lists (reserveOf, f.reserve
+  filter). No gap.
+- Muster tile: the program needs a tile inside the Province (< 61) and passable. The drawer sends the village's own
+  tile (a site: passable by construction, permutation-rules terrain.rs); the hand offers only passable tiles of the
+  own Province (musterTiles). No gap.
+- Explore tiles: the program takes 1–2 distinct tiles within one hex of the host (its own tile included) and not yet
+  explored; the page offers the passable neighbours not yet explored (exploreTargets). No refusal gap.
+- Stricter on the page than the program (not changed; for the owner, since loosening would be a design choice):
+  musterTiles leaves out tiles with 6 hosts standing or forming ("six to a tile": clash slots per tile, clash.rs
+  §6.1; muster_as has no per-tile limit); exploreTargets leaves out the host's own tile and impassable tiles.
