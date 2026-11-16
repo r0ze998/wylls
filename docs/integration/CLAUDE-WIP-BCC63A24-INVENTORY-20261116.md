@@ -50,9 +50,9 @@ How the evidence was taken (2026-11-16):
 | `frontier-node/crates/keeper/tests/experimental_expedition_depart_prepare.rs` | A | expedition (Rust, experimental features, off by default) | adopt | `test -p keeper --features expedition-dispatch-experimental --test experimental_expedition_depart_prepare` 10/10 |
 | `frontier-node/crates/keeper/tests/support/wide_reverse_expedition.rs` | A | expedition (Rust, experimental features, off by default) | adopt | support of wide_expedition (pass) |
 | `frontier-node/crates/keeper/tests/wide_expedition.rs` | M | expedition (Rust, experimental features, off by default) | adopt | `--features wide-world-experimental --test wide_expedition` 20/20 |
-| `permutation-frontier/runtime-contract-tests/fixtures/expedition-depart-prepared-report-heap256k.json` | A | expedition (Rust, own workspace) | hold | not run: separate workspace with solana-svm; a fresh build does not fit above the 21 GiB floor |
-| `permutation-frontier/runtime-contract-tests/support/src/lib.rs` | M | expedition (Rust, own workspace) | hold | not run: separate workspace with solana-svm; a fresh build does not fit above the 21 GiB floor |
-| `permutation-frontier/runtime-contract-tests/support/src/unsigned_message.rs` | A | expedition (Rust, own workspace) | hold | not run: separate workspace with solana-svm; a fresh build does not fit above the 21 GiB floor |
+| `permutation-frontier/runtime-contract-tests/fixtures/expedition-depart-prepared-report-heap256k.json` | A | expedition (Rust, own workspace) | adopt (2026-11-16 10:00) | read by keeper `experimental_expedition_depart_prepare` (10/10), which fails when this fixture is stale |
+| `permutation-frontier/runtime-contract-tests/support/src/lib.rs` | M | expedition (Rust, own workspace) | adopt (2026-11-16 10:00) | `cargo +1.95.0 test --offline --locked -p permutation-frontier-runtime-contract-tests --lib --features expedition-dispatch-experimental,system-cpi-tests --target aarch64-apple-darwin proc::wide::expedition_dispatch_tests::depart_message::` 5/5 (listed first: exactly 5), guarded |
+| `permutation-frontier/runtime-contract-tests/support/src/unsigned_message.rs` | A | expedition (Rust, own workspace) | adopt (2026-11-16 10:00) | the depart_message tests above 5/5 (no key, signature, transaction, bank or SBF VM) and `-p runtime-contract-support --lib unsigned_message` 4/4 |
 | `permutation-frontier/src/proc/wide_expedition_close_positive_unexecuted.rs.txt` | A | unexecuted code text | hold | not compiled; the expedition lane decides |
 | `permutation-gateway/screens/codex-route-preview.screen.mjs` | M | restricted | boundary: not run, not changed | NFT-resident / wallet / boundary control / prize stub |
 | `permutation-gateway/test/fixtures/frontier-expedition-depart-prepare-heap256k-rust.json` | A | test fixture | adopt | read by the passing expedition / seal tests |
@@ -92,15 +92,15 @@ How the evidence was taken (2026-11-16):
 | `permutation-gateway/test/web-frontier-world-sparse.test.mjs` | A | gateway test (ordinary) | adopt | pass=9 fail=0 skipped=0 todo=0 |
 | `permutation-server/web/frontier/seal-worker.mjs` | M | page (sealed march worker) | adopt | web-frontier-seal-wide 8/8 and fclient wide_seal_js_cross 1/1 (JS ↔ Rust seal vector) |
 | `permutation-server/web/lang/en-frontier-play.mjs.orig` | A | backup | not adopted (left in place, not deleted) | older copy of en-frontier-play.mjs (differs from round 49 at line 161 on); no code loads it; only docs mention it |
-| `scripts/build-frontier-localnet-expedition-sbf.sh` | A | build script | hold | `bash -n` ok; no deploy/key/network step; not run (pins its own new target: a fresh SBF build does not fit above the floor) |
+| `scripts/build-frontier-localnet-expedition-sbf.sh` | A | build script | adopt (2026-11-16 10:00) | its build (build-frontier.sh lane: `cargo-build-sbf --tools-version v1.52 --arch v2 --features localnet-expedition-sbf --offline --skip-tools-install -- --locked`) run guarded with a separate out dir; build-frontier.sh's own `check` (lines 92–140, verbatim) passes: SBPF v2, overflow checks, expedition marker only, 0 data relocations; .so sha256 f2f033281f695e2f…, 3,377,056 B. The script itself was not run as is (it pins a new in-tree target) |
 | `workstreams/15-coop-outcomes/results/long-run.json` | M | generated timings | hold (record only) | only totalMs/perWindowMs changed; output of workstreams/15 test/long-run.mjs |
 
-Totals: adopt: 46, adopt as record: 22, boundary: not run, not changed: 4, hold: 5, hold (record only): 1, not adopted (left in place, not deleted): 1 (of 79)
+Totals: adopt: 46 + 4 adopted on 2026-11-16 10:00 (runtime-contract-tests 3, expedition SBF script 1) = 50, adopt as record: 22, boundary: not run, not changed: 4, hold: 1, hold (record only): 1, not adopted (left in place, not deleted): 1 (of 79)
 
 ## Notes on the holds and the one not adopted
 - `en-frontier-play.mjs.orig`: not needed by the candidate — no import, no script or test loads it; it is an older copy of
   the play dictionary (it differs from round 49's file from line 161 on). Left in place; nothing deleted, in canonical or here.
-- runtime-contract-tests (3 files) and `build-frontier-localnet-expedition-sbf.sh`: need a fresh heavy build (own
-  workspace / own SBF target) that does not fit above the 21 GiB floor now (free ~21.4–22.5 GiB). Run them when space allows.
+- runtime-contract-tests (3 files) and `build-frontier-localnet-expedition-sbf.sh`: verified 2026-11-16 10:00 after the
+  approved scratch cleanup (free 23.5–24 GiB), in APFS-clone targets under the guard and the 21 GiB floor — adopted (rows above).
 - `wide_expedition_close_positive_unexecuted.rs.txt`: code kept as text by the expedition lane; not compiled anywhere.
 - `long-run.json`: machine timings of a coop evaluator run; no test asserts them.

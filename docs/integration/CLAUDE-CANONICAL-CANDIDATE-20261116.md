@@ -87,6 +87,17 @@ branch; workstream 20's 0xE0–0xE7 by the existing assertion. No other first-by
   0x0400 reserved, not applied. Test `frontier-abi-land-allocation.test.mjs` 3/3. Land SBF still f2e64442… after.
 - Ordinary-only subset on 375478e4: 1967 tests, 1966 pass, 0 fail, 1 skipped.
 
+## Held WIP items verified (2026-11-16 10:00, after the approved scratch cleanup; free 23.5–24 GiB)
+- runtime-contract-tests (own workspace, Rust 1.95, offline, --locked), in an APFS clone of that workspace's existing
+  target (original untouched), guarded (conquest-guard 94baeb7d + floor21, deadline 11:30): depart_message 5/5 (the keeper's
+  real unsigned Depart message through the actual handler; no key/signature/transaction/SBF VM), runtime-contract-support
+  unsigned_message 4/4; README's narrow-filter rule kept (no library suite, no native-crypto/test-beacon/oracle).
+- Expedition SBF: build-frontier.sh's lane arguments, guarded, separate out dir
+  (`permutation-frontier/target/deploy-localnet-expedition-sbf/`, git-ignored): its own checks pass (SBPF v2, overflow
+  checks, expedition marker only, 0 data relocations); sha256 f2f033281f695e2f8b2fbae88f4e24f9706566aff27a5c014a780f3a8c9ce6f3,
+  program_hash 2752619fdd7fb4dc…, 3,377,056 B. Not deployed; no world.
+- Inventory now: 50 adopt, 22 records, 1 hold (`.rs.txt`), 1 record-only hold (`long-run.json`), 1 not adopted, 4 restricted.
+
 ## Left before canonical takes it
 1. The canonical owner checks bcc63a24 on its own (it is unverified).
 2. Rust: DONE for the land scope above, including the land SBF build (byte-identical to the pin) and the tag audit.
