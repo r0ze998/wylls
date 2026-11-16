@@ -84,3 +84,21 @@ OTHER village:
   stale reviews; not changed).
 - Not covered: the press in a browser, the order landing on a chain, a world. Display only, not fixed: 次の軍勢's
   figure counts the open village's hosts, so it reads 1/N for a host of the other village.
+
+## 次の軍勢 for a host of another village (2026-11-16, Claude; follows the section above)
+- Mismatch (the display item left above, checked against the press): with a host of the viewer's OTHER village in hand
+  (plain tap or chip; the open village unchanged), the bar's figure counted the OPEN village's hosts — 1/N, the host
+  in hand not among them — and with fewer than two hosts there the button was refused as 「ほかに軍勢はいません」.
+  The press (app.mjs `nextHost`, also the keyboard's `cycleHost`) jumped to the open village's first host.
+- Fix (integration aded7996, candidate merge d9986330): `hud/hand.mjs hostModel` and `app.mjs nextHost` use the hosts of
+  the subject's own village (`ownHosts({ ...FS, activeHolding: sub.holdingIndex })`); `selectHost` then switches to it as
+  before. A host of the open village, or the village in hand: unchanged.
+- Test `permutation-gateway/test/web-frontier-next-host-other-village.test.mjs`, alone from the single export: 6/6 with
+  the fix; 3/6 on the unchanged code (figure, refused button, source pin). The repeated-press test applies the press as
+  written in app.mjs, so on the old code the press itself is caught by the source pin only. KEY-FREE: no key made, no
+  signing, `fetch` stub unused (asserted), nothing stored. Import closure within the keyless cq-march test's.
+- The existing `web-frontier-hand` case for 「ほかに軍勢はいません」 has one village (subject village = open village):
+  unaffected by reading; not run.
+- Next looked at: the bar's other paths for such a host (local-play answer, 砦へ進軍 list, 探索, expedition / outbound
+  read-only checks) read the host's own village; `cg-go` lists the open village's hosts on both sides. No further clear
+  mismatch found in this family.
