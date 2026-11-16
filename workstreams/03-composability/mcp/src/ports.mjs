@@ -108,8 +108,12 @@ export const RECOVERY = Object.freeze({
 
 /** The receipt view of an operation record (what operation_status returns). */
 export function receiptOf(op) {
+  // Not decided yet, and its result is not known (held, or an attempt that may have been sent — 08 state table:
+  // accepted also covers "result unknown"): neither sent-and-travelling nor failed, and never to be sent again.
+  const unknown = !TERMINAL.includes(op.state) && (Boolean(op.hold) || op.uncertain === true);
   const next = op.state === STATES.FAILED ? RECOVERY[op.error?.code] ?? ['prepare again']
     : op.state === STATES.COMPLETED ? (op.outcome === 'delivered' ? [] : RECOVERY[op.outcome] ?? [])
+    : unknown ? [`the result is not known yet${op.hold ? ` (${op.hold.code})` : ''}: do not prepare or send this again; it is neither delivered nor failed until operation_status says so; call operation_status again later`]
     : ['call operation_status again later (arrival is not instant; ETA in caravan.arriveAt)'];
   return {
     contract: MOCK_RUN_RECEIPT, mock: true,
@@ -136,7 +140,7 @@ export function receiptOf(op) {
     ...(op.error ? { error: op.error } : {}),
     history: op.steps.map(s => ({ ...s })),
     next,
-    notes: ['accepted = the relay sent the transaction; processing = it landed and the caravan is on the road; completed = the caravan was settled (delivered, lost, or raided). Sending is not arriving.',
+    notes: ['accepted = the relay sent the transaction, or an attempt whose result is not known yet (then hold and history say so); processing = it landed and the caravan is on the road; completed = the caravan was settled (delivered, lost, or raided). Sending is not arriving, and an unknown result is neither.',
       'completed is the end of transport; arrival.quantity says whether the amount that arrived is known (unverified: it is not).'],
   };
 }

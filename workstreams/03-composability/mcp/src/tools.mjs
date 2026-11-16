@@ -68,7 +68,7 @@ export const TOOLS = Object.freeze([
   {
     name: 'get_operation_status',
     title: 'Operation status',
-    description: 'The state of an operation by operationId (or the requestId it was sent with): requested, accepted (the relay sent the transaction), processing (it landed; the caravan is on the road), completed (settled: delivered, lost, taken or burned in a raid) or failed (with the reason and what can be done). Works after a reconnect. No change.',
+    description: 'The state of an operation by operationId (or the requestId it was sent with): requested, accepted (the relay sent the transaction, or an attempt whose result is not known yet: then `hold` says why — not to be sent again), processing (it landed; the caravan is on the road), completed (settled: delivered, lost, taken or burned in a raid) or failed (with the reason and what can be done). Works after a reconnect. No change.',
     inputSchema: { type: 'object', additionalProperties: false, properties: { operationId: { type: 'string', maxLength: 64 }, requestId: { type: 'string', pattern: REQUEST_ID.source } } },
     annotations: { ...read, title: 'Operation status' },
     securitySchemes: oauth([SCOPES.READ]),
