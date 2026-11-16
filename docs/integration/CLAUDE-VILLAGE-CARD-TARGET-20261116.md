@@ -97,3 +97,31 @@ fixes and GitHub saves (06:17 「よい」; 13:20 「進めて」「自走して
   imports controller.mjs).
 - Regression: `web-frontier-holdings-reload.test.mjs` — the precondition, the rule by hand, and the new code pinned as
   text (the todo removed) — SOURCE ONLY, not run; `git diff --check` only.
+
+## Every writer of FS.holdings / FS.activeHolding, checked (2026-11-16, static product-source read; NOT run)
+Search: `(FS|fs|STORE).holdings =`, `holdings: me.`, `Object.assign(FS, … holdings`, in-place list changes
+(`push/splice/sort/…`, `holdings[i] =`) and `(FS|fs|STORE).activeHolding =` over `permutation-server/web`.
+
+| writer | where | verdict |
+|---|---|---|
+| `FS.holdings = me.holdings` | controller `applyMeResult` (every refresh, reconnect) | **fixed**: `adoptHoldings` |
+| `FS.holdings = me.holdings` | controller `cq-outpost` (re-reads `/h/me` before FileOutpost) | **was a bypass, fixed**: `adoptHoldings`, drawn again after `FS.land` |
+| `FS.holdings = []`, `activeHolding = 0` | controller `resetViewer` (wallet / NFT-Citizen change, reconnect) | no list to send to; the next adoption applies the rule below to a still-selected tile (**covered**) |
+| `FS.holdings = []` | controller `applyMeResult` NotFound | nothing held: the village orders have no village (no mismatch) |
+| `Object.assign(FS, { holdings: [home] … })` | hud/handdemo.mjs | the hand demo's own store, not the game |
+| in-place list changes | none (map/sprites.mjs pushes to a local array) | — |
+| `activeHolding = sub/row/hit/item` | app.mjs selectHost, selectVillage, plain tap on a village, map-tap march, 村へ戻す, 探索, setPop explore, goToItem, holding-pick, cycleHolding, guideGo/cg-go, handHost (7d45ddbd) | each opens the village of the card / press it serves |
+| `activeHolding = i` (nearest / rail) | app.mjs home, holding-go | **fixed** (f03d3378): `dropOtherVillageCard` |
+| `activeHolding = hi` (host's village) | controller cq-march, dissolve | opens the host's own village before the order |
+
+`adoptHoldings(list)`: the open village kept by identity (p, q, site, gen) via `holdingByRef`; gone → position 0; then one
+rule whatever led there (a viewer change included): a VILLAGE card of a village other than the open one is put away (a
+host in hand keeps its own card); when anything was put away or the open village was gone, the caller draws the page
+synchronously (`flush`) once its adoption is complete. Drafts, waiting sends and explorations keep their own village.
+Existing tests read for impact: the expedition lifecycle tests (a host in hand) and the wide/resident/delegation tests
+(empty lists, no selection) take no put-away. Regression: `web-frontier-holdings-reload.test.mjs`, text pins of the
+helper, both callers and the rule, plus the precondition by hand — SOURCE ONLY, not run.
+
+**End condition reached**: every writer above is either fixed, routed through `adoptHoldings`, or cannot leave a village
+card ordering for another village. Remaining outside this scope (not changed): land-record freshness and generations
+(Lane C), the wide inventory (fwide, beside the legacy list), and anything not yet verified by a run.

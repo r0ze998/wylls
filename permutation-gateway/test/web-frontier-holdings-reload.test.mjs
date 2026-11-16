@@ -32,22 +32,37 @@ test('after B is lost: the card still shows C, by its tile', () => {
 
 // (2026-11-16, claude/village-card-target-20261116: fixed in controller.mjs applyMeResult — the open village is kept by
 // identity; pinned as text below. SOURCE ONLY, NOT run: all new test runs are paused.)
-const ctrl = () => { const c = readFileSync(new URL('../../permutation-server/web/frontier/controller.mjs', import.meta.url), 'utf8'); const at = c.indexOf('export function applyMeResult(me) {'); return c.slice(at, c.indexOf("\n    return 'found';", at) + 30); };
+const src = () => readFileSync(new URL('../../permutation-server/web/frontier/controller.mjs', import.meta.url), 'utf8');
+const fnOf = (c, head) => { const at = c.indexOf(head); return c.slice(at, c.indexOf('\n}\n', at)); };
 
-test('applyMeResult keeps the open village by its identity (p, q, site, gen) across a reordered, shrunk or grown list', () => {
-  const fn = ctrl();
-  assert.match(fn, /const open = activeHolding\(FS\), openRef = open \? \{ p: open\.p, q: open\.q, site: open\.site, gen: open\.gen \} : null;[\s\S]*FS\.holdings = me\.holdings;\n\s+if \(openRef\) \{\n\s+const at = FS\.holdings\.indexOf\(holdingByRef\(FS\.holdings, openRef\)\);/);
-  assert.match(fn, /if \(at >= 0\) \{ if \(at !== FS\.activeHolding\) \{ FS\.activeHolding = at;/);
+test('adoptHoldings keeps the open village by its identity (p, q, site, gen) across a reordered, shrunk or grown list', () => {
+  const fn = fnOf(src(), 'function adoptHoldings(list) {');
+  assert.match(fn, /const open = activeHolding\(FS\), openRef = open \? \{ p: open\.p, q: open\.q, site: open\.site, gen: open\.gen \} : null;\n\s+FS\.holdings = list;/);
+  assert.match(fn, /const at = FS\.holdings\.indexOf\(holdingByRef\(FS\.holdings, openRef\)\);\n\s+if \(at >= 0\) \{ if \(at !== FS\.activeHolding\) \{ FS\.activeHolding = at;/);
+  assert.match(fn, /else \{ FS\.activeHolding = 0; redraw = true; \}/, 'the open village gone: position 0, drawn again');
 });
 
-test('the open village gone (lost, or another generation): position 0; a village card of another village put away; a host kept; redrawn before the adoption returns', () => {
-  const fn = ctrl();
-  assert.match(fn, /FS\.activeHolding = 0;\n\s+const sub = subjectOf\(FS\);\n\s+if \(sub\?\.kind === 'village' && sub\.holdingIndex !== 0\) \{ FS\.hand = null; FS\.selected = null; FS\.inspectOpen = false; \}/);
-  assert.match(fn, /redrawNow = true;/);
-  assert.match(fn, /reconcileExpedition\(\);\n[\s\S]*if \(redrawNow\) flush\(\);\n\s+return 'found';/, 'the old card is replaced before any later press: the redraw does not wait for refresh()\'s end');
-  assert.doesNotMatch(fn, /FS\.compose = |pendingDriver|musterDriver|FS\.explore = /, 'a draft, a waiting send and an exploration keep their own village');
-  const c = readFileSync(new URL('../../permutation-server/web/frontier/controller.mjs', import.meta.url), 'utf8');
+test('one rule after any adoption (a viewer change too): a village card of another village than the open one is put away; a host kept', () => {
+  const fn = fnOf(src(), 'function adoptHoldings(list) {');
+  assert.match(fn, /const sub = subjectOf\(FS\);\n\s+if \(sub\?\.kind === 'village' && sub\.holdingIndex !== \(FS\.activeHolding \?\? 0\)\) \{ FS\.hand = null; FS\.selected = null; FS\.inspectOpen = false; redraw = true; \}/);
+  assert.doesNotMatch(fn, /FS\.compose|pendingDriver|musterDriver|FS\.explore/, 'a draft, a waiting send and an exploration keep their own village');
+});
+
+test('both writers of the list go through it, and redraw before any later press (pinned as text)', () => {
+  const c = src();
+  const am = c.slice(c.indexOf('export function applyMeResult(me) {'), c.indexOf("\n    return 'found';", c.indexOf('export function applyMeResult(me) {')) + 30);
+  assert.match(am, /const redrawNow = adoptHoldings\(me\.holdings\);/);
+  assert.match(am, /if \(redrawNow\) flush\(\);\n\s+return 'found';/);
+  assert.doesNotMatch(am, /FS\.holdings = me\.holdings;/);
+  assert.match(c, /FS\.citizen=me\.citizen; const redrawNow=adoptHoldings\(me\.holdings\); FS\.land=landState\(me\.citizen\); if \(redrawNow\) flush\(\);/, 'cq-outpost adopts the same way');
+  assert.equal((c.match(/FS\.holdings\s*=\s*me\.holdings/g) ?? []).length, 0, 'no other adoption of the answer\'s list');
   assert.match(c, /import \{ FS, invalidate, flush, activeHolding \} from '\.\/fstate\.mjs';\nimport \{ subjectOf \} from '\.\/hud\/subject\.mjs';/);
+});
+
+test('a viewer change: the list emptied (resetViewer), then the new viewer\'s — a village card of its village at another position than the open one is put away (the rule by hand)', () => {
+  const FS = FS0([A, C]); FS.activeHolding = 0;   // (after resetViewer and a new list: nothing to re-find, position 0)
+  const sub = subjectOf(FS);
+  assert.equal(sub.kind, 'village'); assert.notEqual(sub.holdingIndex, FS.activeHolding, 'the card would show C and order for A');
 });
 
 test('after B is lost, as the adoption now resolves it: the open village is C again — the card and the orders agree', () => {
