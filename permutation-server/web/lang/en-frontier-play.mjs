@@ -1639,6 +1639,7 @@ export default {
   '（毎時 +{0}）': ' (+{0}/h)',
   'この要塞にはあと {0} 人まで入れられます': 'This fort has room for {0} more',
   '要塞を選んでください': 'Choose a fort',
+  'この村はもう追放されています（国に戻す提案は、追放された村の一覧から出せます）。': 'This village has already been expelled (a proposal to readmit it is made from the list of expelled villages).',
   '入れる人数が範囲の外です': 'That number is out of range',
   'この要塞には、それだけ入る空きがありません': 'This fort has no room for that many',
   '入れる人数は 1 から {0} までです': 'Enter between 1 and {0}',

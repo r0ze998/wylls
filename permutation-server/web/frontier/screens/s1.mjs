@@ -82,7 +82,12 @@ export function expelOffer(FS, sel) {
   if ((FS.holdings ?? []).some(h => h.p === sel.p && h.q === sel.q && h.site === j)) return null;
   const nation = s1VillageModel(FS).nation;
   if (!nation) return null;
-  const blocks = [...(nation.expelled ? ['Expelled'] : []), ...(!nation.eligible ? ['NotVoter'] : []), ...(nation.full ? ['ProposalsFull'] : []), ...(nation.ownOpen ? ['ProposalOpen'] : [])];
+  // (2026-11-16: nation.rs propose_as KIND_EXPEL refuses a village whose Citizen is already expelled — `since == 0`
+  //  required, ProposalState —; the doc above said so but the code did not check it. The nation's expelled list names
+  //  each expelled village's holdings (herald /h/nations.json; an older herald names none: then the program decides))
+  const already = (nation.out ?? []).some(x => (x.holdings ?? []).some(h => h.p === sel.p && h.q === sel.q && h.site === j));
+  const blocks = [...(nation.expelled ? ['Expelled'] : []), ...(!nation.eligible ? ['NotVoter'] : []), ...(already ? ['TargetExpelled'] : []),
+    ...(nation.full ? ['ProposalsFull'] : []), ...(nation.ownOpen ? ['ProposalOpen'] : [])];
   return { p: sel.p, q: sel.q, site: j, blocks };
 }
 const NATIONS = 6;
@@ -419,6 +424,9 @@ export function fortGarrisonProblem(m, tile, troops) {
   if (troops > (m.spearmen ?? 0)) return { code: 'Insufficient' };
   return null;
 }
+/** The words for an expulsion's blocks (expelOffer). */
+export const expelBlockText = b => (b === 'Expelled' ? L`あなたの村は国を追放されているため、投票も提案もできません。`
+  : b === 'TargetExpelled' ? L`この村はもう追放されています（国に戻す提案は、追放された村の一覧から出せます）。` : errorText(b));
 /** The words for fortGarrisonProblem. */
 export const fortProblemText = pr => (pr.code === 'FortFull' ? L`この要塞にはあと ${fmtNum(pr.room)} 人まで入れられます`
   : pr.code === 'NoFort' ? L`要塞を選んでください` : pr.code === 'BadTroops' ? L`入れる人数は 1 から ${fmtNum(FORT_MAX_TROOPS)} までです` : errorText(pr.code));
@@ -461,7 +469,7 @@ export function renderS1Tile(FS, sel) {
   const expel = eo ? html`<div class="s1-expel">${label(L`国の議会に提案する`)}
     <p>${L`この村は同じ国の村です。国から追放する提案を出すと、国の村が1日のあいだ投票します。追放された村は、国の村の柵に止められるようになり、投票も提案もできなくなります。`}</p>
     <div class="actions">${btn('s1-expel', { p: eo.p, q: eo.q, site: eo.site }, L`この村の追放を提案する`, { disabled: eo.blocks.length > 0 })}</div>
-    ${eo.blocks.length ? html`<p class="blocked">${eo.blocks.map(b => (b === 'Expelled' ? L`あなたの村は国を追放されているため、投票も提案もできません。` : errorText(b))).join(' / ')}</p>` : ''}</div>` : '';
+    ${eo.blocks.length ? html`<p class="blocked">${eo.blocks.map(expelBlockText).join(' / ')}</p>` : ''}</div>` : '';
   const so = siegeOffer(FS, sel);
   const siege = so ? html`<div class="s1-siege">${label(so.freeCity ? L`自由都市を包囲する` : L`この村を包囲する`)}
     <p>${so.freeCity ? L`包囲が続けば自由都市を取り、あなたの村になります。` : L`包囲が続けば、最初の村なら占領、ほかの村なら奪取になります。`} ${L`宣言には軍勢の村から金 ${fmtNum(SIEGE_STAKE_GOLD)}（包囲の結果で返るか失われます）と兵器 ${fmtNum(SIEGE_ARMS)} を使います。宣言は公開され、守り手に知らされます。`}</p>
