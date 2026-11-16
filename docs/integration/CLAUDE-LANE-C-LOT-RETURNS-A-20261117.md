@@ -421,3 +421,67 @@ V26 treats any custody instruction in a custody season as UNVERIFIABLE at best, 
 **Not changed:** the default and deployable builds, CloseLot, the ABI tables, V26, migration. There is still no waiver, no other recipient, nothing permissionless, B's vault is still required, and nothing about seizure.
 
 **Nothing was run.** Only the kernel 4/4 evidence exists, from the coordinator's earlier run.
+
+## Isolation correction: the carrier exists only in host unit tests (2026-11-17; static, nothing run)
+
+### What was wrong
+
+**At `c971b81e`:**
+- The 0xEF arm was compiled whenever the feature `custody-rest-home-preview` was on: in host builds, and in SBF if someone passed the feature.
+- It had **no program-version bit and no world identity**, so a build with the feature would accept existing custody-preview seasons at the same version.
+- Its only barrier was `scripts/build-frontier.sh` refusing the feature name. That is not isolation.
+
+### What changed
+
+| Place | Change |
+|---|---|
+| `lib.rs` dispatch arm | `#[cfg(all(test, feature = "custody-rest-home-preview"))]`. Only a host unit-test build of the crate has the arm. Every other build (host library, server or keeper dependencies, SBF), with any feature combination, has no arm, so 0xEF reaches `frontier_abi::v2::ix::tag_of` and is refused as an unknown tag |
+| `lib.rs` top | `#[cfg(all(target_os = "solana", feature = "custody-rest-home-preview"))] compile_error!(…)`. An SBF build with the feature does not compile |
+| `proc/custody.rs` | `REST_HOME_PREVIEW_TAG` and `pay_lot_rest_home` are `cfg(all(test, feature))`. `pay_rest_home_accounts` and `rest_home_payload` stay compiled in custody-preview builds but are unused there (`allow(dead_code)`); no non-test path calls them |
+| `Cargo.toml` | The feature's comment now says host-unit-test-only, with no version bit and no world identity: never deployable, never against a world |
+
+**Why not `compile_error!` on `not(test)`.** `cargo test` also compiles the library without `cfg(test)` (for integration tests and doctests), so such a guard would break every test build. Instead the items do not exist outside `cfg(test)`. That gives the same guarantee with no build breakage.
+
+### Combinations checked by reading
+
+| Build | Result |
+|---|---|
+| Default | No custody module, so no arm |
+| `custody-preview` alone, host or SBF | No arm; 0xEF unknown |
+| `custody-rest-home-preview`, host, not test | No arm; 0xEF unknown |
+| `custody-rest-home-preview`, SBF | Does not compile |
+| `custody-rest-home-preview`, host unit tests | The arm exists, against hand-built accounts in the test harness only. No world, RPC or keys |
+| With `capacity-preview`, `land-preview`, `wide-world-experimental`, `rights-experimental`, `nft-experimental` | Same as above: the arm needs `test`. 0xEF is in none of their bands |
+| `localnet-*-sbf` lanes | They do not enable custody-preview, and SBF refuses the feature anyway |
+
+### Boundary regression source (`proc/custody.rs` `mod rest_home_boundary`; WRITTEN, NOT RUN)
+
+- `the_tag_is_unknown_to_the_v2_table`: `tag_of(&[0xEF])` is an error.
+- `without_the_feature_the_dispatch_refuses_0xef` (only without the feature): `crate::dispatch(.., &[0xEF])` is an error.
+- `the_carrier_is_compiled_into_host_unit_tests_only` (a source pin):
+  - `lib.rs` has the `cfg(all(test, ..))` arm and the SBF `compile_error!`;
+  - those are the only two mentions of the feature there;
+  - `custody.rs` has no feature-only `cfg`, and exactly two `cfg(all(test, ..))` items;
+  - `Cargo.toml` declares the feature over `custody-preview`.
+- `the_prepared_payload_is_36_bytes_in_order` (see below).
+
+### The prepared payload, falsified statically (`rest_home_payload`; not emitted)
+
+| Point | Finding |
+|---|---|
+| Type and length | `[u8; 36]` = the lot's raw key (15: p, q, tile, vault generation, owner tag, resource) + `paid` i64 (8) + home p i16, q i16, tile u8 (5) + home owner tag u64 (8). The total is fixed, with no variable part |
+| Owner | The home's `OWNER_TAG` is written from the same Citizen key (`addr::citizen_tag`) as the lot's `owner_tag`, and the kernel has already required `home.owner == lot.owner` (full key). So the two tags in the payload are equal by construction: redundant, and an extra check for V26 |
+| Double payment | A record would be emitted only when `paid > 0`. The second call pays 0, so no second record |
+| Unknown state | An untracked lot, a seized lot or home, a closed home, a full home: the kernel refuses before any payload exists |
+| Not emitted | There is no record kind, so the lot's event chain is not advanced by this step. V26 sees no record |
+
+### Prepared for adoption (not adopted, not wired)
+
+These come on top of the earlier list (record kind, V26 replay and history, ABI table, generated JS, `CUSTODY_VERSION`, `RULESET_HASH_V4`, RSV names). Before this could leave host tests:
+1. **④ allocates the tag**: 0xEF or another; the probes in `capacity.rs` and `wide_ix.rs` would then need a different "unused" value.
+2. **A world identity:** a program-version bit, or the custody version bumped, so older custody seasons are refused.
+3. **A record kind**, with `rest_home_payload` as its body.
+4. **V26** learns the instruction and the record.
+5. **Only then** remove `test` from the arm's cfg, and replace the SBF `compile_error!` with the usual marker for a non-deployable build.
+
+None of these steps was taken.

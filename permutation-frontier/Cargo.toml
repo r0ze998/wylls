@@ -69,10 +69,11 @@ custody-preview = []
 # 2026-11-17): the lot owner's exact sub-unit rest into their own live vault
 # in the lot's province (`proc::custody::pay_lot_rest_home`) on the
 # PROVISIONAL, UNALLOCATED tag 0xEF (ABI-ALLOCATION rev 3 lists 0xEE-0xEF as
-# free; 0xEE is the wide draft's), dispatched before the v2 tags. No record
-# kind, no version bit, no ABI row: workstream 4 allocates. Off in every
-# default and deployable build (scripts/build-frontier.sh refuses the
-# feature). Not deployable.
+# free; 0xEE is the wide draft's). No record kind, no version bit, no world
+# identity, no ABI row: workstream 4 allocates. So it is HOST-UNIT-TEST-ONLY:
+# the dispatch arm is cfg(all(test, ..)), every non-test build (host or SBF)
+# refuses 0xEF as an unknown tag, and lib.rs refuses the feature on SBF
+# (compile_error!). Never deployable, never against a world.
 custody-rest-home-preview = ["custody-preview"]
 # Workstream 09 (capacity lending), a preview: the capacity instructions
 # 0xF0–0xFD (`proc::capacity`, workstream 4's provisional band), dispatched

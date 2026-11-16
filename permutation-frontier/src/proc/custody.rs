@@ -1242,9 +1242,9 @@ pub fn close_lot(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
 
 // ------------------------------------------------------------ the owner's rest home (not dispatched)
 
-/// **Dispatched only by the `custody-rest-home-preview` build** (through
-/// [`pay_lot_rest_home`] on the provisional, unallocated tag 0xEF); every
-/// other build leaves it unused. The accounts side of
+/// **Dispatched only inside host unit tests of the
+/// `custody-rest-home-preview` build** (through `pay_lot_rest_home` on the
+/// provisional, unallocated tag 0xEF); no other build routes it. The accounts side of
 /// `custody::pay_rest_home` (the owner's approval of 2026-11-17: the
 /// owner's sub-unit rest goes exactly to their own live vault in the lot's
 /// province; with none, or a full one, it is held and the lot stays open),
@@ -1283,7 +1283,7 @@ pub fn close_lot(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
 ///
 /// No record is logged: no record kind exists for the payout (workstream 4;
 /// until then V26 cannot verify it). Returns the milli paid home.
-#[cfg_attr(not(feature = "custody-rest-home-preview"), allow(dead_code))]
+#[cfg_attr(not(all(test, feature = "custody-rest-home-preview")), allow(dead_code))]
 pub(crate) fn pay_rest_home_accounts(
     p: &Pubkey,
     pl: &Player,
@@ -1324,10 +1324,12 @@ pub(crate) fn pay_rest_home_accounts(
 
 /// The rest-home preview's tag: **provisional and unallocated**
 /// (ABI-ALLOCATION rev 3 lists 0xEE–0xEF as free and the wide draft took
-/// 0xEE; workstream 4 allocates). Routed only by the
-/// `custody-rest-home-preview` build; a default build refuses it as an
-/// unknown tag, as does the verifier.
-#[cfg(feature = "custody-rest-home-preview")]
+/// 0xEE; workstream 4 allocates). It has no program-version bit and no
+/// world identity, so it exists **only in host unit tests** (`cfg(all(test,
+/// feature = "custody-rest-home-preview"))`): every other build, host or
+/// SBF, has no arm for it and refuses 0xEF as an unknown tag (the v2 table),
+/// and SBF refuses the feature outright (`compile_error!` in `lib.rs`).
+#[cfg(all(test, feature = "custody-rest-home-preview"))]
 pub const REST_HOME_PREVIEW_TAG: u8 = 0xEF;
 
 /// 0xEF (provisional) PayLotRestHome: P (the lot's owner, by wallet) +
@@ -1338,7 +1340,7 @@ pub const REST_HOME_PREVIEW_TAG: u8 = 0xEF;
 /// and the lot stays open. CloseLot is unchanged (the owner closes with it
 /// afterwards). No record is logged: no kind is allocated (see
 /// [`rest_home_payload`] for the prepared payload).
-#[cfg(feature = "custody-rest-home-preview")]
+#[cfg(all(test, feature = "custody-rest-home-preview"))]
 pub fn pay_lot_rest_home(p: &Pubkey, a: &[AccountInfo], d: &[u8]) -> R<()> {
     if d != [REST_HOME_PREVIEW_TAG] {
         return Err(FrontierError::BadData.into());
@@ -1402,5 +1404,82 @@ mod tests {
         for (k, key, payload) in written {
             assert_eq!(width(k), (key, payload), "{k:?}");
         }
+    }
+}
+
+/// The rest-home carrier's boundary (Lane C, 2026-11-17; WRITTEN, NOT RUN):
+/// 0xEF exists only in host unit tests of the `custody-rest-home-preview`
+/// build, and the prepared payload's layout.
+#[cfg(test)]
+mod rest_home_boundary {
+    use super::*;
+    use permutation_rules::frontier::holding::Resource;
+
+    fn view(owner: [u8; 32], tile: u8) -> VaultView {
+        VaultView {
+            p: 3,
+            q: -2,
+            tile,
+            gen: 1,
+            live: true,
+            owner,
+            owner_tag: owner[0] as u64,
+            stores: [0; RESOURCES],
+            cap: 100 * MILLI,
+            quota: [0; RESOURCES],
+            lots: 0,
+        }
+    }
+
+    #[test]
+    fn the_tag_is_unknown_to_the_v2_table() {
+        assert!(frontier_abi::v2::ix::tag_of(&[0xEF]).is_err());
+    }
+
+    #[cfg(not(feature = "custody-rest-home-preview"))]
+    #[test]
+    fn without_the_feature_the_dispatch_refuses_0xef() {
+        assert!(crate::dispatch(&Pubkey::default(), &[], &[0xEF]).is_err());
+    }
+
+    #[test]
+    fn the_carrier_is_compiled_into_host_unit_tests_only() {
+        let lib = include_str!("../lib.rs");
+        assert!(lib.contains(
+            "#[cfg(all(test, feature = \"custody-rest-home-preview\"))]\n    if data.first() == Some(&proc::custody::REST_HOME_PREVIEW_TAG) {"
+        ));
+        assert!(lib.contains(
+            "#[cfg(all(target_os = \"solana\", feature = \"custody-rest-home-preview\"))]\ncompile_error!("
+        ));
+        // those two are the only places `lib.rs` names the feature
+        assert_eq!(lib.matches("feature = \"custody-rest-home-preview\"").count(), 2);
+        // and no item here is compiled by the feature alone (outside tests)
+        let me = include_str!("custody.rs");
+        assert_eq!(me.matches("#[cfg(feature = \"custody-rest-home-preview\")]").count(), 0);
+        assert_eq!(
+            me.matches("#[cfg(all(test, feature = \"custody-rest-home-preview\"))]").count(),
+            2,
+            "the tag and the handler"
+        );
+        let toml = include_str!("../../Cargo.toml");
+        assert!(toml.contains("custody-rest-home-preview = [\"custody-preview\"]"));
+    }
+
+    #[test]
+    fn the_prepared_payload_is_36_bytes_in_order() {
+        let mut keeper = view([0x4B; 32], 7);
+        let owner = [0xB2; 32];
+        let custodian = Actor { citizen: [0x4B; 32], tag: 0x4B, by_session: false };
+        let l = kc::open(&mut keeper, &custodian, (owner, 0xB2), Resource::Ore as u8, 10 * MILLI, 1, [0; 32]).unwrap();
+        let home = view(owner, 9);
+        let b = rest_home_payload(&l, 250, &home);
+        assert_eq!(b.len(), 36);
+        assert_eq!(&b[..15], &lot_raw(&l));
+        assert_eq!(i64::from_le_bytes(b[15..23].try_into().unwrap()), 250);
+        assert_eq!(
+            (i16::from_le_bytes([b[23], b[24]]), i16::from_le_bytes([b[25], b[26]]), b[27]),
+            (3, -2, 9)
+        );
+        assert_eq!(u64::from_le_bytes(b[28..36].try_into().unwrap()), 0xB2, "the home owner's tag");
     }
 }

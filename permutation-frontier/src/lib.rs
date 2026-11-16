@@ -85,6 +85,12 @@ compile_error!("expedition-dispatch-experimental has an isolated host-only progr
 // never enable the separate native gameplay experiment or another beacon.
 #[cfg(all(target_os = "solana", feature = "public-proof-tests"))]
 compile_error!("public-proof-tests is host-test-only, not deployable");
+// Lane C's rest-home carrier (provisional 0xEF) has no program-version bit
+// and no world identity of its own, so it must never run against a world:
+// it is compiled into host unit tests only (the dispatch arm below is
+// `cfg(all(test, ..))`) and refused outright on SBF.
+#[cfg(all(target_os = "solana", feature = "custody-rest-home-preview"))]
+compile_error!("custody-rest-home-preview is host-unit-test-only: no version bit, no world identity, not deployable");
 #[cfg(all(
     feature = "public-proof-tests",
     any(
@@ -322,9 +328,10 @@ pub fn dispatch(
         return proc::capacity::dispatch(program_id, accounts, data);
     }
     // Lane C's rest-home preview (provisional, unallocated 0xEF, inside the
-    // custody preview): a default build never reaches this arm and refuses
-    // the byte as an unknown tag below.
-    #[cfg(feature = "custody-rest-home-preview")]
+    // custody preview): no version bit and no world identity of its own.
+    // Compiled into host unit tests only: every other build (host or SBF,
+    // any feature) has no arm, and 0xEF is refused by the v2 table below.
+    #[cfg(all(test, feature = "custody-rest-home-preview"))]
     if data.first() == Some(&proc::custody::REST_HOME_PREVIEW_TAG) {
         return proc::custody::pay_lot_rest_home(program_id, accounts, data);
     }
