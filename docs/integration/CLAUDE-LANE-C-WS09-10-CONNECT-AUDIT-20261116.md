@@ -246,3 +246,23 @@ B is stronger only if the owner wants lots to close freely; it then needs ④'s 
 ### The question for the owner (one choice)
 
 > When ore from someone's storage has gone into another player's workshop job, and some of it may still come back, should that storage be **unable to close until every possible return is settled** (recommended: the returned ore, fractions included, goes back into the same storage), **or should it be allowed to close**, with what comes back held in a separate account that only the original owner can collect (you would then also pick where it is paid out: home village, the storehouse, or a new storage)?
+
+## Addendum 4 (2026-11-17): ship → inbound → settle / reconcile, and withdraw (static; nothing changed)
+
+Read from `proc/custody.rs` and rules `custody.rs`, on `d16048aa`.
+
+| Path | Checks read | Judgement |
+|---|---|---|
+| ShipLot (`proc` 765–850) | Both lots are read at canonical addresses (`lot_of` → `expect_key`), and the destination must have the same `owner_tag` and resource and be a different lot. `spend_ship` checks the destination before spending ("a wrong one spends nothing"), that the owner ships by wallet only to a lot, that a carrier stays within its ship order to that order's destination, and `available ≥ qty`. The destination's `begin_inbound` reserves the kept cargo after wear: a duplicate caravan id is `Stale`, and `held + incoming + qty ≤ quota`. Both lots are written after every check, and the wear is logged as `Worn` | sound. A fully worn send (`kept = 0`) is refused whole (`Quantity`): fail-closed |
+| WithdrawLot (`proc` 852–941) | The destination place must be owned by the signer (`NotOwner`). `spend_ship(By::Owner, OwnPlace)` checks `available`. An ordinary caravan follows, and `out_total` covers the whole quantity with the wear logged | sound |
+| SettleCustody (`proc` 943–1065, permissionless) | The caravan must be `MOVING` and custody-marked, past `ARRIVE_TS`, with every listed path bell resolved and no raid open. The lot's address is rebuilt from the caravan's destination and `CUSTODY_OWNER_TAG`. **The vault account must be the canonical one** (`vault_of_lot` → `expect_key`), so a caller cannot pass another account to force a `DestinationGone` loss. `finish_inbound` needs the live inbound entry. A seized or absent vault means `DestinationGone`, logged with the holder. The caravan closes in the same instruction, so it cannot be settled twice | sound |
+| ReconcileLot (`proc` 1112–1185) | Forfeit runs only for an open lot whose vault is of a later generation. SeizeVault (`caravan.rs` ~1856–1864) changes only the owner and the generation, and keeps `CUSTODY_QUOTA` and `CUSTODY_LOTS`, so `forfeit`'s `quota −= lot.quota` and `lots −= 1` are right, and `stores + held ≤ cap` holds. Inbound entries survive forfeit and settle as `DestinationGone`. A dropped inbound needs the caravan to be `Taken`, or absent (a custody caravan closes only through SettleCustody, which clears the entry in the same instruction). A present custody caravan is refused (`InTransit`). Nothing changed is `AlreadyDone` | sound |
+| CloseVault with lots (`caravan.rs` ~1946–1951) | Refused while any custody quota or lot remains (`LotNotEmpty`) | sound |
+
+**Result: no new defect** in shipping, inbound reservation and release, settlement, reconciliation or withdrawal.
+
+**The one related gap is the same seizure question as before.**
+- After ReconcileLot forfeits a lot, `return_unused` refuses (`State`, which maps to `Forfeited` for `pay_owed`), so a ⑨ job's owed ore can never return.
+- Anyone may then close the empty forfeited lot.
+- That is the CloseLot stranding of Addendum 2 reached through a seizure.
+- Under design A, the forfeited lot's pending returns would need the seizure rule decided: the captor (as D4 does for the facility) or the original owner. ⑩'s seizure handling is still "a proposal, not a decision".
