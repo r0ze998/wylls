@@ -2302,9 +2302,29 @@ function tickTurn() {
 }
 
 let homeGuideDeadline = null;
+/**
+ * (2026-11-16, Lane C G2) A land record the page re-read redraws the board, whichever read brought it. The poll's refresh
+ * and wantProvince redraw it themselves, but local play's sync reads (the waiting send, the muster wait, the half-second
+ * sync) redraw only the panel: with reduced motion — no breathing frames — the land chip showed the new holder at once
+ * and the board kept the old outline until the next poll. Compared by content, so an unchanged record redraws nothing.
+ */
+const landSigOf = new WeakMap();
+let landSeen = null;
+function landRevision() {
+  let s = '';
+  for (const [key, env] of FS.provinces ?? []) {
+    const l = env?.land;
+    if (!l) continue;
+    let g = landSigOf.get(l);
+    if (g === undefined) { g = `${l.nextBell}|${(l.owners ?? []).join(',')}|${(l.by ?? []).join(',')}|${(l.count ?? []).join(',')}|${[...(l.village ?? [])].join(',')}`; landSigOf.set(l, g); }
+    s += `${key}:${g};`;
+  }
+  return s;
+}
 function renderHudTick(now) {
   const m = hud.bellModel(FS.clock, now);
   tickTurn();
+  if (FS.mode === 'play') { const lr = landRevision(); if (lr !== landSeen) { const had = landSeen !== null; landSeen = lr; if (had) mapRef?.invalidate(); } }
   if (FS.dialOpen) renderDialPop(now);
   if (instantHomeEnabled(FS.season)) {
     if (Number.isInteger(m.bell) && FS.nowBell !== m.bell) { FS.nowBell = m.bell; invalidate('panel'); }
