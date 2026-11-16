@@ -333,3 +333,7 @@ verified. Heavy builds and worlds stay serial, in this session, after a report (
 - Home choice, scout train/muster and the draft's 「やめる」 are guarded against repeats and cancel cleanly. No change.
 - Candidate (not clear, not fixed): cg-go drops a draft without cancelling an armed waiting send; nothing is sent, the
   notice's reason would read 'changed'; reachability while a draft is open not traced. Local play's test entry only.
+
+### cg-go cancel path (2026-11-16, Claude)
+- Reachable on PC: the attention pill carries the conquest guide's cg-go while a draft is open. Fixed in e00ad87b
+  (cg-go → compose-close: the waiting send is cancelled and says so). Static only; no test run. Candidate e59e802c.
