@@ -107,7 +107,17 @@ test('the scout guide follows training, muster, ready turn, send, receipt, and a
   assert.match(String(renderScoutAction(training)), /home-scout-train/, 'a neighbour’s scout is not mine');
   assert.equal(factsOf(training).scoutHost, false);
   const reserve = Array(8).fill(0); reserve[6] = 100;
-  assert.match(String(renderScoutAction(fs({ holdings: [h({ reserve })] }))), /home-scout-muster/);
+  const beforeMuster = String(renderScoutAction(fs({ holdings: [h({ reserve })] })));
+  assert.match(beforeMuster, /home-scout-muster/);
+  assert.match(beforeMuster, /ターンが決着すると整列/);
+  assert.match(beforeMuster, /待つあいだも村の建設/);
+  assert.doesNotMatch(beforeMuster, /11[〜–-]21/);
+  setLang('en');
+  const beforeMusterEn = plain(renderScoutAction(fs({ holdings: [h({ reserve })] })));
+  assert.match(beforeMusterEn, /turn is resolved/);
+  assert.match(beforeMusterEn, /keep building your village while you wait/);
+  assert.doesNotMatch(beforeMusterEn, /11[〜–-]21|[぀-ヿ㐀-鿿]/);
+  setLang('ja');
   // (workstream 07) the village's province not read: no Train or Muster is offered, the guide says it is reading
   const unread = String(renderScoutAction(fs({ holdings: [h({ reserve })], provinces: new Map() })));
   assert.doesNotMatch(unread, /home-scout-muster|home-scout-train/);
