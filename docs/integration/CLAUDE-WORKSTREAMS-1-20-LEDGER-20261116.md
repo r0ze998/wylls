@@ -222,3 +222,11 @@ verified. Heavy builds and worlds stay serial, in this session, after a report (
 - 6d01289e: siege — NotFinal (source final; lazy flip only in the target Province) and NotResident (target resolved);
   siege fixtures moved to a resolved target, expectations unchanged. Ordinary subset 1781/1780/0 fail.
 - Raid: no gap (decision window mirrored). Next: Expel and the nation proposals/votes. Candidate notes on that branch.
+
+## 2026-11-16 13:35 JST — Expel and nation proposals/votes audit
+- 8dfbebce: expel — an already expelled village is held back (TargetExpelled from the nation's expelled list; Propose
+  KIND_EXPEL requires expelled_since == 0); older heralds without holdings: the program decides. Tests 3/3, related 59/59.
+- Proposals, votes, slots, readmission, stance form: audited, no gap. Ordinary subset 1784: 1782 pass, 1 fail — the known
+  load flake \"round 29 …\" in web-frontier-marches (alone: 10/10 twice). Candidate 738558b4.
+- The S1 operations audit (CapturePending, fort, seize, siege, raid, expel, nation) is complete for what the page holds;
+  what needs data the page lacks is recorded as left to the program (candidate gap note).

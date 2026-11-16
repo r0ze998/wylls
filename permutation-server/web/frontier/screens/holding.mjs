@@ -82,9 +82,12 @@ const blockedLineOf = blockedLine;
  * costs base × (1 + (n−1)²/2) and takes 60 + 30 n minutes; the queue is serial). `copies` = n − 1, the ones built
  * or under way. (The card showed the first copy's cost for every copy, and a first copy as 60 minutes: it takes 90.)
  */
-export function buildCards(h, stores, { now = 0, faction = h.faction ?? 0 } = {}) {
+export function buildCards(h, stores, { now = 0, faction = h.faction ?? 0, province = null } = {}) {
   const have = stores.map(s => s.value);
-  return buildOffers(h, { now, have, faction, s1: s1On() }).map(o => ({ ...o, copies: o.n - 1, wait: Math.max(0, o.doneIn - o.secs), short: o.short.map(x => ({ resource: RESOURCE_ORDER[x.r], need: x.need })) }));
+  // the village's own site mirror (this holding's generation), for the walls' two items (rulebook wallItemsBusy)
+  const m = province && province.p === h.p && province.q === h.q ? province.siteMirror?.[h.site] : null;
+  const mirror = m && m.state === 1 && Number(m.gen) === Number(h.gen) ? m : null;
+  return buildOffers(h, { now, have, faction, s1: s1On(), mirror, resolvedNext: province?.resolvedNext ?? null }).map(o => ({ ...o, copies: o.n - 1, wait: Math.max(0, o.doneIn - o.secs), short: o.short.map(x => ({ resource: RESOURCE_ORDER[x.r], need: x.need })) }));
 }
 
 /** Compatibility view of the shared promotion offer; no second set of prices. */
@@ -123,7 +126,7 @@ export function holdingModel(FS) {
     stores, have,
     facts: holdingFacts(h, FS.season, now),
     blocks: Object.fromEntries(['Harvest', 'Build', 'Train', 'Muster', 'Garrison'].map(n => [n, actionBlocks(n, ctx)])),
-    offers: buildCards(h, stores, { now, faction }),
+    offers: buildCards(h, stores, { now, faction, province: env?.province ?? null }),
     promotion: promo ? { ...promo, short: promo.short.map(x => ({ resource: RESOURCE_ORDER[x.r], need: x.need })) } : null,
     queue: queueNow(h, now), slots: queueSlots(h.tier),
   };
